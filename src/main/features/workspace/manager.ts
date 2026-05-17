@@ -28,6 +28,7 @@ import {
   type SshChannel,
   type SshChannelLifecycleEvent,
 } from "../../infra/agent/ssh/channel";
+import type { SshControlMaster } from "../../infra/agent/ssh/master";
 import {
   type EnsureRemoteAgentOptions,
   type EnsureRemoteAgentResult,
@@ -124,6 +125,9 @@ export class WorkspaceManager {
   private readonly sshChannels = new Map<string, SshChannel>();
   private readonly sshBootstraps = new Map<string, EnsureRemoteAgentResult>();
   private readonly sshProviderReady = new Map<string, Promise<void>>();
+  // ControlMasters handed off from an SSH browse session, keyed by workspace
+  // id, awaiting their first provider boot. Consumed by startSshProvider.
+  private readonly adoptedSshMasters = new Map<string, SshControlMaster>();
   private readonly connectionStatuses = new Map<string, WorkspaceConnectionEventStatus>();
   private activeId: string | null = null;
 
@@ -178,11 +182,19 @@ export class WorkspaceManager {
     }
 
     const ctx = this.requireContext(nextActiveId);
-    await this.ensureProviderReady(ctx);
     this.activeId = nextActiveId;
     if (savedId !== nextActiveId) {
       this.stateService.setState({ lastActiveWorkspaceId: nextActiveId });
     }
+    // Kick off provider bootstrap without blocking app startup. Awaiting
+    // here deadlocks an SSH workspace: auth-pty's host-key/password prompt
+    // can only be answered in a window that createMainWindow opens *after*
+    // init() returns. The renderer tracks progress via the
+    // connection-status broadcasts; ensureProviderReady is idempotent, so
+    // a later renderer-triggered call coalesces onto this same attempt.
+    void this.ensureProviderReady(ctx).catch((error) => {
+      console.error("[workspace] initial provider bootstrap failed", error);
+    });
   }
 
   /**
@@ -206,6 +218,10 @@ export class WorkspaceManager {
     this.sshChannels.clear();
     this.sshBootstraps.clear();
     this.sshProviderReady.clear();
+    for (const master of this.adoptedSshMasters.values()) {
+      master.dispose();
+    }
+    this.adoptedSshMasters.clear();
     this.globalStorage.close();
   }
 
@@ -288,6 +304,17 @@ export class WorkspaceManager {
     return meta;
   }
 
+  /**
+   * Adopts a ControlMaster handed off from an SSH directory-browse session.
+   * The next SSH provider boot for this workspace reuses that socket, so the
+   * user is not prompted for credentials a second time. Safe to call before
+   * the provider boots; the master is consumed by startSshProvider.
+   */
+  adoptSshControlMaster(workspaceId: string, master: SshControlMaster): void {
+    this.adoptedSshMasters.get(workspaceId)?.dispose();
+    this.adoptedSshMasters.set(workspaceId, master);
+  }
+
   update(id: string, partial: Partial<Omit<WorkspaceMeta, "id" | "tabs">>): WorkspaceMeta {
     const ctx = this.contexts.get(id);
     if (!ctx) {
@@ -316,6 +343,10 @@ export class WorkspaceManager {
     this.sshChannels.delete(id);
     this.sshBootstraps.delete(id);
     this.sshProviderReady.delete(id);
+    // An adopted master never consumed by a provider boot would otherwise
+    // leak its ssh process.
+    this.adoptedSshMasters.get(id)?.dispose();
+    this.adoptedSshMasters.delete(id);
     this.globalStorage.removeWorkspace(id);
 
     if (this.activeId === id) {
@@ -493,15 +524,37 @@ export class WorkspaceManager {
     }
 
     this.broadcastConnectionStatus(meta.id, "connecting");
-    const bootstrap = await this.sshBootstrap({
-      host: meta.location.host,
-      user: meta.location.user,
-      port: meta.location.port,
-      identityFile: meta.location.identityFile,
-      authMode: meta.location.authMode,
-      remotePath: meta.location.remotePath,
-      cachedRemoteArch: meta.location.remoteArch,
-    });
+    // A workspace created from a browse session inherits that session's
+    // already-authenticated ControlMaster; reusing its socket lets bootstrap
+    // skip the interactive auth round entirely (no second password prompt).
+    const adoptedMaster = this.adoptedSshMasters.get(meta.id);
+    this.adoptedSshMasters.delete(meta.id);
+    let bootstrap: EnsureRemoteAgentResult;
+    try {
+      bootstrap = await this.sshBootstrap({
+        host: meta.location.host,
+        user: meta.location.user,
+        port: meta.location.port,
+        identityFile: meta.location.identityFile,
+        authMode: meta.location.authMode,
+        remotePath: meta.location.remotePath,
+        cachedRemoteArch: meta.location.remoteArch,
+        controlPath: adoptedMaster?.controlPath,
+      });
+    } catch (error) {
+      // Bootstrap failed before any channel existed. Release the adopted
+      // master (we own it now) and surface the error state instead of
+      // leaving the renderer stuck on "connecting".
+      this.broadcastConnectionStatus(meta.id, "error");
+      adoptedMaster?.dispose();
+      throw error;
+    }
+    // ensureRemoteAgent only returns a dispose handle for a master it
+    // authenticated itself. When we supplied an adopted master, wire its
+    // dispose in so the existing teardown paths release that socket too.
+    if (adoptedMaster && !bootstrap.dispose) {
+      bootstrap = { ...bootstrap, dispose: () => adoptedMaster.dispose() };
+    }
     this.sshBootstraps.set(meta.id, bootstrap);
     let providerMeta = meta;
     if (!meta.location.remoteArch) {

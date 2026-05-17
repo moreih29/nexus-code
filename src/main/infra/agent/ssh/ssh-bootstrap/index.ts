@@ -176,13 +176,18 @@ export async function ensureRemoteAgent(
       dependencies.onProgress,
     );
 
-    // On success, ownership of the ControlMaster passes to the caller via the
-    // returned `dispose` callback. The caller is responsible for calling it.
+    const remoteHome = await detectRemoteHome(sshOptions, runner);
+
+    // On success, ownership of a ControlMaster authenticated *here* passes to
+    // the caller via `dispose`. When the caller supplied its own controlPath
+    // (a reused master), we surface that path back but no dispose handle —
+    // the caller already owns that socket's lifecycle.
     return {
       remoteCommand: buildRemoteAgentCommand(remoteBinaryPath, options.remotePath),
+      remoteHome,
       platform,
       uploaded: ensured.uploaded,
-      controlPath: authenticatedMaster?.controlPath,
+      controlPath: authenticatedMaster?.controlPath ?? options.controlPath,
       dispose: authenticatedMaster ? () => authenticatedMaster.dispose() : undefined,
     };
   } catch (error) {
@@ -275,8 +280,22 @@ export async function ensureRemoteLspServer(
   }
 }
 
-/** Composes the `bash -lc 'exec ...'` line used to spawn the agent. */
+/**
+ * Composes the `bash -lc 'exec ...'` line used to spawn the agent.
+ *
+ * `remotePath` must be an absolute POSIX path — the agent uses it as its fs
+ * root, so a relative path or `~` literal would silently mis-root the agent
+ * and cause every subsequent fs call to resolve against an unexpected base.
+ */
 export function buildRemoteAgentCommand(binaryPath: string, remotePath: string): string {
+  if (!remotePath.startsWith("/")) {
+    throw createSshError(
+      "server.protocol-error",
+      new Error(
+        `remotePath must be an absolute path, got: ${JSON.stringify(remotePath)}`,
+      ),
+    );
+  }
   const script = `exec ${quoteShellArg(binaryPath)} ${quoteShellArg(remotePath)}`;
   return `bash -lc ${singleQuoteShellArg(script)}`;
 }

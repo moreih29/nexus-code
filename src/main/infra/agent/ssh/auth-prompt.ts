@@ -11,6 +11,7 @@ type BroadcastFn = (channelName: string, event: string, args: unknown) => void;
 
 interface PendingSshAuthPrompt {
   readonly promptId: string;
+  readonly prompt: SshAuthPrompt;
   readonly resolve: (response: SshAuthResponse) => void;
   readonly reject: (error: AuthCancelledError) => void;
 }
@@ -46,11 +47,22 @@ export class SshAuthPromptHub {
     return new Promise((resolve, reject) => {
       this.pending.set(parsed.promptId, {
         promptId: parsed.promptId,
+        prompt: parsed,
         resolve,
         reject,
       });
       this.broadcast("sshAuth", "prompt", parsed);
     });
+  }
+
+  /**
+   * Returns every prompt still awaiting a renderer response. The renderer
+   * queries this on mount to recover prompts whose one-shot broadcast fired
+   * before its listener existed — e.g. an SSH workspace reconnecting during
+   * app startup, before the window was created.
+   */
+  listPending(): SshAuthPrompt[] {
+    return [...this.pending.values()].map((entry) => entry.prompt);
   }
 
   /** Resolves the matching active prompt; stale or duplicate responses are ignored. */
@@ -80,6 +92,7 @@ export function registerSshAuthPromptIpcChannels(hub: SshAuthPromptHub): void {
     call: {
       respond: (args) => hub.respond(args),
       cancel: (args) => hub.cancel(args),
+      pending: () => hub.listPending(),
     },
     listen: { prompt: {} },
   });

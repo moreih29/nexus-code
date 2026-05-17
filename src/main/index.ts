@@ -119,6 +119,7 @@ const workspaceManager = new WorkspaceManager(
 agentFsWatcher = new AgentFsWatcher(workspaceManager, forwardBroadcast);
 
 registerEntryPointsChannels(globalStorage);
+const sshBrowseRegistry = new SshBrowseSessionRegistry();
 registerWorkspaceChannel(workspaceManager, {
   createSshChannel: (options) =>
     createSshChannel(options, {
@@ -128,13 +129,13 @@ registerWorkspaceChannel(workspaceManager, {
     ensureRemoteAgent(options, {
       promptHandler: (prompt) => sshAuthPromptHub.request(prompt),
     }),
+  browseRegistry: sshBrowseRegistry,
 });
 registerDialogChannel();
 registerAppStateChannel(stateService);
 registerFsChannel(workspaceManager, agentFsWatcher, workspaceStorage);
 registerPanelChannel(workspaceStorage);
 registerSshChannel();
-const sshBrowseRegistry = new SshBrowseSessionRegistry();
 registerSshBrowseHandlers(sshBrowseRegistry, (prompt) => sshAuthPromptHub.request(prompt));
 registerSshAuthPromptIpcChannels(sshAuthPromptHub);
 registerSystemChannel({ openNewWindow: () => createMainWindow(stateService.getState()) });

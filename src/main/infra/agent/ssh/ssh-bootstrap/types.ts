@@ -47,6 +47,7 @@ export interface EnsureRemoteAgentOptions extends Omit<SshMasterOptions, "remote
 
 export interface EnsureRemoteAgentResult {
   readonly remoteCommand: string;
+  readonly remoteHome: string;
   readonly platform: RemoteAgentPlatform;
   readonly uploaded: boolean;
   readonly controlPath?: string;

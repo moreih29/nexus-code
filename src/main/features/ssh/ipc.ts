@@ -123,7 +123,11 @@ export function openBrowseSessionHandler(
   promptHandler: SshAuthPromptHandler,
   bootstrap: (
     options: EnsureRemoteAgentOptions,
-  ) => ReturnType<typeof ensureRemoteAgent> = ensureRemoteAgent,
+  ) => ReturnType<typeof ensureRemoteAgent> = (options) =>
+    // The promptHandler MUST be forwarded to ensureRemoteAgent — without it
+    // createBootstrapContext skips interactive auth and password-only hosts
+    // fail before the agent channel is ever opened.
+    ensureRemoteAgent(options, { promptHandler }),
 ): (args: unknown) => Promise<{ sessionId: string; initialPath: string }> {
   return async (args: unknown): Promise<{ sessionId: string; initialPath: string }> => {
     const params = validateArgs(c.openBrowseSession.args, args);
@@ -134,10 +138,13 @@ export function openBrowseSessionHandler(
       port: params.port,
       identityFile: params.identityFile,
       authMode: params.authMode,
-      // remotePath is required by EnsureRemoteAgentOptions but not used for
-      // directory browsing. We provide '.' as a safe placeholder — the
-      // bootstrap command reads remote HOME via `printf` before this is used.
-      remotePath: ".",
+      // Root the browse agent at "/" so that absolute paths sent by the
+      // renderer (e.g. "/home/user/projects") resolve as valid relative
+      // paths inside the agent's fs service: filepath.Rel("/", "/home/...")
+      // is a clean relative path and the ".." guard still prevents escaping
+      // above "/".  Using "." or a user home here would scope the agent to
+      // that subtree and reject any path outside it.
+      remotePath: "/",
     };
 
     let timedOut = false;
@@ -183,11 +190,11 @@ export function openBrowseSessionHandler(
       // that the agent is reachable and responding, without a directory read.
       await channel.ready;
 
-      // Resolve the initial path: attempt to get the remote $HOME via a
-      // stat call on "." to ensure we have a valid base. The agent returns
-      // the effective working directory which is set to remotePath (".")
-      // so we resolve to "~" as the canonical display path.
-      const initialPath = "~";
+      // Use the remote $HOME detected during bootstrap as the picker's starting
+      // directory. This is an absolute path (e.g. "/home/nexus-dev") that the
+      // renderer passes directly back in browseSession calls, matching the
+      // agent's "/" root so readdir resolves without CodeOutOfWorkspace errors.
+      const initialPath = bootstrapResult.remoteHome;
 
       // Register channel and master in the registry (registry owns disposal
       // from here on, except the masterHandle whose dispose was already
@@ -318,6 +325,11 @@ function closeBrowseSessionStub(): (args: unknown) => void {
  */
 function mapToBrowseError(error: unknown): Error {
   const code = sshErrorCodeFromError(error) ?? "ssh.unknown";
+  if (code === "ssh.unknown") {
+    // The renderer only ever sees the sanitized code. Log the raw cause to
+    // the main-process console so an unmapped failure is still diagnosable.
+    console.error("[ssh] unmapped browse-session error:", error);
+  }
   return createSshErrorObject(code);
 }
 

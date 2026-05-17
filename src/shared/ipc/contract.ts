@@ -195,6 +195,11 @@ const WorkspaceCreateLegacyArgsSchema = z.object({
 const WorkspaceCreateLocationArgsSchema = z.object({
   location: WorkspaceLocationSchema,
   name: z.string().optional(),
+  // Optional handoff hint: when a workspace is created from an SSH
+  // directory-browse session, this carries that session's id so the main
+  // process can reuse its already-authenticated ControlMaster instead of
+  // opening — and re-authenticating — a second SSH connection.
+  sshBrowseSessionId: z.string().uuid().optional(),
 });
 
 const WorkspaceCreateArgsSchema = z.union([
@@ -472,6 +477,7 @@ export const ipcContract = {
     call: {
       respond: call(SshAuthRespondArgsSchema, z.void()),
       cancel: call(SshAuthCancelArgsSchema, z.void()),
+      pending: call(z.void(), z.array(SshAuthPromptSchema)),
     },
     listen: {
       prompt: listen(SshAuthPromptSchema),

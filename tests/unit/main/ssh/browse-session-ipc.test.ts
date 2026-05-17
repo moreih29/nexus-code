@@ -90,7 +90,7 @@ describe("openBrowseSessionHandler", () => {
       host: "dev.example.com",
       user: "deploy",
       authMode: "key-only",
-      remotePath: ".", // must always be "." for browse sessions
+      remotePath: "/", // browse agent is rooted at "/" so absolute paths resolve
     });
 
     registry.dispose();

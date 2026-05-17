@@ -3,7 +3,6 @@
 
 import { ipcContract } from "../../../shared/ipc/contract";
 import type { PtyHostHandle } from "./types";
-import { getDefaultShell } from "../../infra/platform/shell";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import { TerminalRecorderRegistry, type PtyRecorderSink } from "./recorder";
 
@@ -47,13 +46,15 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
       spawn: async (args: unknown) => {
         const { workspaceId, tabId, cwd, cols, rows, env } = validateArgs(c.spawn.args, args);
         recorder.start(workspaceId, tabId, cols, rows);
-        const shell = getDefaultShell();
         try {
+          // The shell is resolved by the agent on its own host — for a
+          // remote workspace that is the SSH host, not this machine.
+          // Sending a shell from here would force the local macOS shell
+          // onto a remote that may not have it.
           const result = await agentHost.call("spawn", {
             workspaceId,
             tabId,
             cwd,
-            shell,
             cols,
             rows,
             env,

@@ -75,7 +75,22 @@ export function useSshAuthPrompts(deps: SshAuthPromptDeps = DEFAULT_DEPS): SshAu
   const call = deps.call ?? DEFAULT_DEPS.call;
   const listen = deps.listen ?? DEFAULT_DEPS.listen;
 
-  useEffect(() => installSshAuthPromptListeners(listen), [listen]);
+  useEffect(() => {
+    const dispose = installSshAuthPromptListeners(listen);
+    // A prompt broadcast that fired before this listener mounted — e.g. an
+    // SSH workspace reconnecting during app startup, before the window
+    // existed — is not buffered by main. Pull any already-pending prompts
+    // once on mount; enqueuePrompt dedupes by promptId, so a prompt also
+    // delivered live by the listener is not double-queued.
+    void call("sshAuth", "pending", undefined)
+      .then((prompts) => {
+        for (const prompt of prompts) enqueuePrompt(prompt);
+      })
+      .catch((error) => {
+        console.error("[ssh-auth] pending prompt sync failed", error);
+      });
+    return dispose;
+  }, [call, listen]);
 
   const respondPassword = useCallback(
     (value: string) => {

@@ -1,5 +1,6 @@
 import type { IPty } from "node-pty";
 import type { SshAuthPrompt, SshAuthResponse } from "../../../../shared/ssh/auth-prompt";
+import type { SshErrorCode } from "../../../../shared/ssh/errors";
 import {
   buildSshControlMasterArgs,
   createSshControlMaster,
@@ -63,7 +64,7 @@ export function authenticateSshControlMaster(
       void maybeHandlePrompt();
     });
     const authTimer = setTimeout(() => {
-      failAuth(createSshError("ssh.auth-failed"));
+      failAuth(createSshError(classifyPtyExit(buffer)));
     }, authTimeoutMs);
     authTimer.unref?.();
     const exitDisposable = ptyProcess.onExit(({ exitCode }) => {
@@ -75,7 +76,7 @@ export function authenticateSshControlMaster(
         return;
       }
       master.dispose();
-      reject(createSshError("ssh.auth-failed"));
+      reject(createSshError(classifyPtyExit(buffer)));
     });
 
     async function maybeHandlePrompt(): Promise<void> {
@@ -160,6 +161,28 @@ function promptFromBuffer(
 
 function trimAuthBuffer(value: string): string {
   return value.length > 8_192 ? value.slice(-8_192) : value;
+}
+
+/**
+ * Classifies a non-zero OpenSSH PTY exit from its terminal output. OpenSSH
+ * collapses almost every failure into exit code 255, so the real cause only
+ * shows in the text — without this, a "Connection refused" is mislabelled as
+ * an authentication failure.
+ */
+function classifyPtyExit(buffer: string): SshErrorCode {
+  if (
+    /connection refused|connection timed out|could not resolve hostname|name or service not known|no route to host|network is unreachable|operation timed out/i.test(
+      buffer,
+    )
+  ) {
+    return "ssh.connect-failed";
+  }
+  if (/host key verification failed|remote host identification has changed/i.test(buffer)) {
+    return "ssh.connect-failed";
+  }
+  // Permission denied / too many auth failures / no prompt answered — treat as
+  // an authentication failure (also the conservative default).
+  return "ssh.auth-failed";
 }
 
 function defaultSpawnPty(command: string, args: string[], options: Parameters<SpawnPty>[2]): IPty {

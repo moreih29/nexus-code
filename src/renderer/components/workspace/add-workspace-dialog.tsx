@@ -93,10 +93,14 @@ export interface SshNewConnectionViewProps {
 export interface SshBrowseSession {
   readonly sessionId: string;
   readonly initialPath: string;
-  /** 연결에 사용한 host (display용). */
+  /** 연결에 사용한 host. */
   readonly host: string;
-  /** 연결에 사용한 user (display용, 없을 수 있음). */
+  /** 연결에 사용한 user (없을 수 있음). */
   readonly user?: string;
+  /** 연결에 사용한 port — 워크스페이스 생성 시 location에 반드시 포함되어야 한다. */
+  readonly port?: number;
+  /** 연결에 사용한 identity file (없을 수 있음). */
+  readonly identityFile?: string;
   /** 저장용 connectionProfile id (record 호출 후 채워짐). */
   readonly profileId: string;
 }
@@ -1028,6 +1032,8 @@ function SshConnectionListView({
         initialPath: result.initialPath,
         host: profile.host,
         user: profile.user,
+        port: profile.port,
+        identityFile: profile.identityFile ?? undefined,
         profileId: profile.id,
       });
     } catch (error) {
@@ -1418,6 +1424,8 @@ function SshNewConnectionView({
         initialPath: result.initialPath,
         host: dest.host,
         user: dest.user,
+        port: parsedPort,
+        identityFile: identityFile.trim() || undefined,
         profileId,
       });
     } catch (error) {
@@ -1826,9 +1834,14 @@ function SshDirectoryPickerView({
           kind: "ssh",
           host,
           user: session.user,
+          port: session.port,
+          identityFile: session.identityFile,
           remotePath: currentPath,
           authMode: "interactive",
         },
+        // Hand off this browse session's authenticated connection so the
+        // workspace boots without a second credential prompt.
+        sshBrowseSessionId: sessionId,
       });
       // 세션 정리는 unmount cleanup(useEffect return)이 담당 — 여기서 별도 호출 불필요.
       await onWorkspaceCreated(meta);

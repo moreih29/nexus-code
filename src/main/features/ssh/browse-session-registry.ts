@@ -22,7 +22,12 @@ const REAPER_INTERVAL_MS = 30_000; // 30 seconds
 export interface BrowseSession {
   readonly sessionId: string;
   readonly channel: AgentChannel;
-  readonly master: SshControlMaster | null;
+  /**
+   * The ControlMaster backing this session. Becomes `null` once claimed by
+   * a workspace handoff (see `claimMaster`) — after that, closing the
+   * session disposes only the channel and the claimer owns the socket.
+   */
+  master: SshControlMaster | null;
   lastUsed: number;
 }
 
@@ -65,6 +70,25 @@ export class SshBrowseSessionRegistry {
     if (!session) return null;
     session.lastUsed = Date.now();
     return session;
+  }
+
+  /**
+   * Detaches this session's ControlMaster and returns it, transferring
+   * ownership to the caller. The session keeps working over the same socket
+   * for any remaining browse calls, but closing it will dispose only the
+   * channel — the caller is now responsible for disposing the master.
+   *
+   * Used to hand a browse session's authenticated connection to a freshly
+   * created workspace so the user is not prompted for credentials twice.
+   * Returns null when the session is unknown or its master was already
+   * claimed.
+   */
+  claimMaster(sessionId: string): SshControlMaster | null {
+    const session = this.sessions.get(sessionId);
+    if (!session?.master) return null;
+    const master = session.master;
+    session.master = null;
+    return master;
   }
 
   /**

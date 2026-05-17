@@ -366,10 +366,25 @@ func validateSize(cols int, rows int, method string) error {
 	return nil
 }
 
-// defaultShell returns the agent host's login shell fallback.
+// shellFallbackCandidates is the ordered probe list used only when $SHELL
+// is absent from the agent environment. bash precedes zsh deliberately: an
+// unconfigured zsh drops the user into the interactive zsh-newuser-install
+// wizard, so it is the worse default. New shells can be appended here.
+var shellFallbackCandidates = []string{"/bin/bash", "/bin/zsh", "/bin/sh"}
+
+// defaultShell resolves the shell for a PTY on the agent's own host. It
+// prefers $SHELL — the user's configured login shell, which the remote
+// sshd populates from /etc/passwd — and only when that is unset probes
+// shellFallbackCandidates so a missing $SHELL never spawns a nonexistent
+// binary.
 func defaultShell() string {
 	if shell := strings.TrimSpace(os.Getenv("SHELL")); shell != "" {
 		return shell
+	}
+	for _, candidate := range shellFallbackCandidates {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
 	}
 	return "/bin/sh"
 }

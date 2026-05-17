@@ -145,6 +145,9 @@ describe("ssh-bootstrap", () => {
     const runner = mock(async (command: string, args: string[]) => {
       const remoteCommand = args.at(-1) ?? "";
       if (command === "ssh" && remoteCommand === "uname -ms") return { stdout: "Linux x86_64\n" };
+      if (command === "ssh" && remoteCommand.startsWith("printf")) {
+        return { stdout: "/home/deploy\n" };
+      }
       if (command === "ssh" && remoteCommand.startsWith("cat ~/.nexus-code/manifest.json")) {
         return {
           stdout: JSON.stringify({
@@ -169,7 +172,8 @@ describe("ssh-bootstrap", () => {
     expect(result.remoteCommand).toBe(
       buildRemoteAgentCommand(remoteAgentBinaryPath("0.1.0", result.platform), "/repo"),
     );
-    expect(runner).toHaveBeenCalledTimes(2);
+    // uname -ms + printf "$HOME" + cat manifest.json — no upload round trip.
+    expect(runner).toHaveBeenCalledTimes(3);
   });
 
   it("falls back from sftp to cat upload and retries sha256 mismatch once", async () => {
@@ -181,6 +185,9 @@ describe("ssh-bootstrap", () => {
       calls.push(`${command} ${args.at(-1) ?? ""}`);
       const remoteCommand = args.at(-1) ?? "";
       if (command === "ssh" && remoteCommand === "uname -ms") return { stdout: "Linux x86_64\n" };
+      if (command === "ssh" && remoteCommand.startsWith("printf")) {
+        return { stdout: "/home/user\n" };
+      }
       if (command === "ssh" && remoteCommand.startsWith("cat ~/.nexus-code/manifest.json")) {
         return { stdout: "" };
       }
@@ -363,6 +370,9 @@ describe("ssh-bootstrap", () => {
       const remoteCommand = args.at(-1) ?? "";
       if (command === "ssh") sshArgs.push(args);
       if (command === "ssh" && remoteCommand === "uname -ms") return { stdout: "Linux x86_64\n" };
+      if (command === "ssh" && remoteCommand.startsWith("printf")) {
+        return { stdout: "/home/alice\n" };
+      }
       if (command === "ssh" && remoteCommand.startsWith("cat ~/.nexus-code/manifest.json")) {
         return {
           stdout: JSON.stringify({

@@ -11,6 +11,7 @@ import {
   type SshChannel,
 } from "../../infra/agent/ssh/channel";
 import type { WorkspaceManager } from "./manager";
+import type { SshBrowseSessionRegistry } from "../ssh/browse-session-registry";
 import { type CallContext, register, validateArgs } from "../../infra/ipc-router";
 
 const c = ipcContract.workspace.call;
@@ -27,6 +28,13 @@ export type TestSshBootstrap = (
 interface WorkspaceChannelDependencies {
   readonly createSshChannel?: TestSshCreateChannel;
   readonly sshBootstrap?: TestSshBootstrap;
+  /**
+   * Browse-session registry, supplied in production so a workspace created
+   * from an SSH directory picker can claim that session's authenticated
+   * ControlMaster instead of opening a second, separately-authenticated
+   * connection.
+   */
+  readonly browseRegistry?: SshBrowseSessionRegistry;
 }
 
 export function registerWorkspaceChannel(
@@ -40,7 +48,20 @@ export function registerWorkspaceChannel(
       },
       create: (args: unknown) => {
         const createArgs = validateArgs(c.create.args, args);
-        return manager.create(createArgs);
+        const meta = manager.create(createArgs);
+        const browseSessionId =
+          "sshBrowseSessionId" in createArgs ? createArgs.sshBrowseSessionId : undefined;
+        if (browseSessionId && meta.location.kind === "ssh" && dependencies.browseRegistry) {
+          // Reuse the browse session's authenticated ControlMaster so the
+          // workspace's first connection does not prompt for credentials
+          // again. A null result (session expired/already claimed) simply
+          // falls back to a fresh authenticated connection.
+          const master = dependencies.browseRegistry.claimMaster(browseSessionId);
+          if (master) {
+            manager.adoptSshControlMaster(meta.id, master);
+          }
+        }
+        return meta;
       },
       update: (args: unknown) => {
         const { id, ...partial } = validateArgs(c.update.args, args);

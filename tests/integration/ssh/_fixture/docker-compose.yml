@@ -1,0 +1,18 @@
+# SSH fixture for Nexus remote-workspace integration tests.
+#
+# Usage:
+#   docker compose -f tests/integration/ssh/_fixture/docker-compose.yml up -d --build
+#   docker compose -f tests/integration/ssh/_fixture/docker-compose.yml down
+#
+# The container exposes sshd on host 127.0.0.1:2224. The fixture default
+# port is 2223, so integration tests must be run with:
+#   NEXUS_SSH_FIXTURE_PORT=2224
+# (2223 is occupied by the Colima VM SSH mux on this machine.)
+services:
+  ssh-fixture:
+    build: .
+    image: nexus-ssh-fixture
+    container_name: nexus-ssh-fixture
+    ports:
+      - "127.0.0.1:2224:22"
+    restart: unless-stopped

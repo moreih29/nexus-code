@@ -417,11 +417,15 @@ describe("WorkspaceManager — executor-ready cold boot barrier", () => {
     );
     const registry = new GitRegistry(manager, broadcastMock as BroadcastFn, null);
 
-    const boot = manager.init();
-    await Promise.resolve();
+    await manager.init();
 
-    expect(manager.getActiveId()).toBeNull();
+    // init() selects the active workspace and kicks off the provider boot
+    // in the background — it no longer blocks on channel readiness (a
+    // blocking init would deadlock an SSH host whose auth prompt needs the
+    // not-yet-created window).
+    expect(manager.getActiveId()).toBe(meta.id);
     expect(createLocalChannel).toHaveBeenCalledTimes(1);
+    // The executor stays unavailable until the channel's ready handshake.
     await expect(registry.refreshDetection(meta.id)).rejects.toThrow(
       "workspace agent provider is not available",
     );
@@ -430,9 +434,8 @@ describe("WorkspaceManager — executor-ready cold boot barrier", () => {
     );
 
     ready.resolve();
-    await boot;
+    await manager.getFs(meta.id);
 
-    expect(manager.getActiveId()).toBe(meta.id);
     expect(registry.getRepoInfo(meta.id)).toEqual({ kind: "detecting" });
 
     manager.close();
@@ -461,20 +464,20 @@ describe("WorkspaceManager — executor-ready cold boot barrier", () => {
     );
     const registry = new GitRegistry(manager, broadcastMock as BroadcastFn, null);
 
-    const boot = manager.init();
-    await Promise.resolve();
-    await Promise.resolve();
+    await manager.init();
+    // The ssh provider boot runs in the background; drain pending
+    // microtasks so ensureRemoteAgent resolves and the channel factory runs.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(manager.getActiveId()).toBeNull();
+    expect(manager.getActiveId()).toBe(meta.id);
     expect(createChannel).toHaveBeenCalledTimes(1);
     expect(() => registry.getRepoInfo(meta.id)).toThrow(
       "workspace agent provider is not available",
     );
 
     ready.resolve();
-    await boot;
+    await manager.getFs(meta.id);
 
-    expect(manager.getActiveId()).toBe(meta.id);
     expect(registry.getRepoInfo(meta.id)).toEqual({ kind: "detecting" });
 
     manager.close();

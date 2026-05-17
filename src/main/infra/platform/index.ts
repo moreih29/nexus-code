@@ -5,9 +5,6 @@
  * Current support: macOS only. All other platforms throw explicitly — no silent fallbacks.
  *
  * Cross-OS support checklist:
- *   getDefaultShell
- *     - Windows: pwsh -> powershell.exe -> cmd.exe -> WSL
- *     - Linux:   $SHELL -> /bin/bash fallback
  *   getUserDataPath
  *     - Windows: %APPDATA%/nexus-code
  *     - Linux:   $XDG_DATA_HOME/nexus-code or ~/.local/share/nexus-code
@@ -19,7 +16,6 @@
  */
 
 export { getUserConfigPath, getUserDataPath, getWorkspaceStoragePath } from "./paths";
-export { getDefaultShell } from "./shell";
 
 /**
  * True when the current process is running on macOS. Centralized here so
