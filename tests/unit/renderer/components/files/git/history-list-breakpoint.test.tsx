@@ -1,7 +1,7 @@
 /**
  * Scenario regression tests for HistoryList container-width breakpoints.
  */
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, jest } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 import * as React from "react";
 import type { HistoryListBreakpoint } from "../../../../../../src/renderer/components/files/git/history/list";
@@ -198,9 +198,11 @@ beforeEach(() => {
   ResizeObserverHarness.latest = null;
   (globalThis as { ResizeObserver?: unknown }).ResizeObserver =
     ResizeObserverHarness as unknown as typeof ResizeObserver;
+  jest.useFakeTimers();
 });
 
 afterEach(() => {
+  jest.useRealTimers();
   for (const harness of activeHarnesses) harness.cleanup();
   activeHarnesses.length = 0;
   ResizeObserverHarness.latest = null;
@@ -212,35 +214,35 @@ afterEach(() => {
 });
 
 describe("useHistoryListBreakpoint", () => {
-  it("starts medium and debounces the 320px/480px breakpoint boundaries", async () => {
+  it("starts medium and debounces the 320px/480px breakpoint boundaries", () => {
     const view = renderBreakpointProbe(400);
 
     expect(view.breakpoint()).toBe("medium");
 
-    await emitWidthAndRender(view, HISTORY_LIST_BREAKPOINT_NARROW - 1);
+    emitWidthAndRender(view, HISTORY_LIST_BREAKPOINT_NARROW - 1);
     expect(view.breakpoint()).toBe("narrow");
 
-    await emitWidthAndRender(view, HISTORY_LIST_BREAKPOINT_NARROW);
+    emitWidthAndRender(view, HISTORY_LIST_BREAKPOINT_NARROW);
     expect(view.breakpoint()).toBe("medium");
 
-    await emitWidthAndRender(view, HISTORY_LIST_BREAKPOINT_MEDIUM - 1);
+    emitWidthAndRender(view, HISTORY_LIST_BREAKPOINT_MEDIUM - 1);
     expect(view.breakpoint()).toBe("medium");
 
-    await emitWidthAndRender(view, HISTORY_LIST_BREAKPOINT_MEDIUM);
+    emitWidthAndRender(view, HISTORY_LIST_BREAKPOINT_MEDIUM);
     expect(view.breakpoint()).toBe("wide");
   });
 
-  it("keeps the previous breakpoint when hidden width is reported as zero", async () => {
+  it("keeps the previous breakpoint when hidden width is reported as zero", () => {
     const view = renderBreakpointProbe(500);
 
-    await emitWidthAndRender(view, 500);
+    emitWidthAndRender(view, 500);
     expect(view.breakpoint()).toBe("wide");
 
-    await emitWidthAndRender(view, 0);
+    emitWidthAndRender(view, 0);
     expect(view.breakpoint()).toBe("wide");
   });
 
-  it("attaches after the scroll ref becomes available on a later render", async () => {
+  it("attaches after the scroll ref becomes available on a later render", () => {
     const refObject = { current: null as HTMLElement | null };
     const view = new BreakpointProbeView(refObject);
 
@@ -250,7 +252,7 @@ describe("useHistoryListBreakpoint", () => {
     view.render();
 
     expect(ResizeObserverHarness.latest).not.toBeNull();
-    await emitWidthAndRender(view, 500);
+    emitWidthAndRender(view, 500);
     expect(view.breakpoint()).toBe("wide");
   });
 });
@@ -273,12 +275,15 @@ function observedElement(width: number): HTMLElement {
   return scrollElement;
 }
 
-/** Emits one observer width, waits for the 100ms debounce, then re-renders. */
-async function emitWidthAndRender(view: BreakpointProbeView, width: number): Promise<void> {
+/**
+ * Emits one observer width, advances the fake clock past the 100ms debounce,
+ * then re-renders. No real wall-clock delay is needed.
+ */
+function emitWidthAndRender(view: BreakpointProbeView, width: number): void {
   const observer = ResizeObserverHarness.latest;
   if (!observer) throw new Error("ResizeObserver was not attached");
   observer.emit(width);
-  await sleep(110);
+  jest.advanceTimersByTime(110);
   view.render();
 }
 
@@ -332,9 +337,4 @@ function dependenciesChanged(left: DependencyList, right: DependencyList): boole
   if (!left || !right) return true;
   if (left.length !== right.length) return true;
   return left.some((value, index) => !Object.is(value, right[index]));
-}
-
-/** Waits for the hook debounce to expire without depending on fake timers. */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

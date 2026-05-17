@@ -26,6 +26,22 @@ export interface ViewModeToggleProps {
   disabled?: boolean;
 }
 
+/**
+ * Pure helper: given the current view mode, returns the mode to switch to on
+ * a single toggle click. Exported so unit tests exercise the real logic.
+ */
+export function computeNextViewMode(current: "list" | "tree"): "list" | "tree" {
+  return current === "tree" ? "list" : "tree";
+}
+
+/**
+ * Pure helper: given the current compact-folders flag, returns the toggled
+ * value. Exported so unit tests exercise the real logic.
+ */
+export function computeNextCompact(current: boolean): boolean {
+  return !current;
+}
+
 // ON-state styling mirrors SearchOptionsToggles: inset ring distinguishes
 // "pressed" from "hover" because ghost hover bg matches pressed bg alone.
 const TOGGLE_ON_CLASS =
@@ -50,7 +66,7 @@ export function ViewModeToggle({
   const toggleLabelEn = isTree ? "View as List" : "View as Tree";
 
   function handleToggle() {
-    onViewModeChange(isTree ? "list" : "tree");
+    onViewModeChange(computeNextViewMode(viewMode));
   }
 
   return (
@@ -138,7 +154,7 @@ export function ViewModeToggle({
                 <CompactMenuItem
                   checked={!!compactFolders}
                   onToggle={() => {
-                    onCompactChange(!compactFolders);
+                    onCompactChange(computeNextCompact(!!compactFolders));
                     setPopoverOpen(false);
                   }}
                 />

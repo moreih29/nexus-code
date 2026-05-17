@@ -226,8 +226,11 @@ describe("agent LSP round-trip", () => {
 
   it("leaves no typescript-language-server processes after host dispose", async () => {
     const fixture = await LspAgentFixture.create(binPath);
+    // Capture the root before dispose removes it — the string remains valid
+    // for pgrep even after the directory is deleted.
+    const fixtureRoot = fixture.root;
 
-    const tsFile = path.join(fixture.root, "zombie.ts");
+    const tsFile = path.join(fixtureRoot, "zombie.ts");
     await fs.writeFile(tsFile, "const z = 1;\n", "utf8");
 
     await fixture.spawn();
@@ -242,18 +245,28 @@ describe("agent LSP round-trip", () => {
     // Allow OS process table to update.
     await sleep(500);
 
-    // pgrep -f matches against the full command line. On macOS and Linux,
-    // pgrep filters out its own invocation, so exit code 1 = no match found.
-    const pgrepResult = spawnSync("pgrep", ["-f", "typescript-language-server"]);
-    // Status 1 means no processes matched — the desired outcome.
-    // Status 0 with output that does not include our binary path is also
-    // acceptable (another developer's ts-ls session may be running).
+    // pgrep -f <fixtureRoot> matches only processes whose full command line
+    // contains this test's unique workspace path. The Go agent passes the
+    // workspace root to the LSP binary so this uniquely identifies processes
+    // spawned by this test's fixture. Exit code 1 means no match — desired.
+    const pgrepResult = spawnSync("pgrep", ["-f", fixtureRoot]);
     if (pgrepResult.status === 0) {
-      const pids = pgrepResult.stdout.toString().trim().split("\n").filter(Boolean);
-      // Verify none of the matched pids is for our binary path specifically.
-      // This is a best-effort check because the OS may reuse pids quickly.
-      expect(pids.length).toBeGreaterThanOrEqual(0);
+      // Some processes matched. Filter to those explicitly containing the
+      // typescript-language-server binary name to exclude unrelated processes
+      // (e.g. the agent binary itself if it briefly lingers in the process table).
+      const matchedPids = pgrepResult.stdout.toString().trim().split("\n").filter(Boolean);
+      const lspPids = matchedPids.filter((pid) => {
+        // Read the command line for this pid and check it contains the LSP binary.
+        const cmdResult = spawnSync("ps", ["-p", pid, "-o", "command="], { encoding: "utf8" });
+        if (cmdResult.status !== 0) return false;
+        const cmd = cmdResult.stdout ?? "";
+        return cmd.includes("typescript-language-server");
+      });
+      // No typescript-language-server processes scoped to this fixture's
+      // workspace should remain after dispose.
+      expect(lspPids).toEqual([]);
     } else {
+      // Exit code 1: no processes matched at all — the desired outcome.
       expect(pgrepResult.status).toBe(1);
     }
   }, 30_000);

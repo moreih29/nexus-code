@@ -7,13 +7,10 @@ const FIXTURE_HOST = "127.0.0.1";
 const FIXTURE_PORT = 2223;
 const FIXTURE_USER = process.env.NEXUS_SSH_FIXTURE_USER ?? "nexus-dev";
 const FIXTURE_PASSWORD = process.env.NEXUS_SSH_FIXTURE_PASSWORD ?? "nexus-dev";
+const FIXTURE_ENABLED = process.env.NEXUS_RUN_SSH_PTY_FIXTURE === "1";
 
 describe("ssh PTY auth linux-password fixture", () => {
-  it("authenticates once and reaches ready over a reused ControlMaster socket", async () => {
-    if (process.env.NEXUS_RUN_SSH_PTY_FIXTURE !== "1") {
-      console.warn("Skipping ssh PTY auth fixture test: set NEXUS_RUN_SSH_PTY_FIXTURE=1 to opt in");
-      return;
-    }
+  it.skipIf(!FIXTURE_ENABLED)("authenticates once and reaches ready over a reused ControlMaster socket", async () => {
     if (!(await isPortOpen(FIXTURE_HOST, FIXTURE_PORT))) {
       console.warn("Skipping ssh PTY auth fixture test: 127.0.0.1:2223 is unavailable");
       return;

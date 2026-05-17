@@ -79,11 +79,7 @@ describe("ssh remote lsp round-trip", () => {
   //   ensureRemoteLspServer → lsp.spawn → didOpen → publishDiagnostics → shutdown
   // ---------------------------------------------------------------------------
 
-  it("spawns LSP server remotely, sends didOpen, receives publishDiagnostics, and shuts down", async () => {
-    if (!FIXTURE_ENABLED) {
-      console.warn("Skipping ssh remote LSP fixture: set NEXUS_RUN_SSH_LSP_FIXTURE=1");
-      return;
-    }
+  it.skipIf(!FIXTURE_ENABLED)("spawns LSP server remotely, sends didOpen, receives publishDiagnostics, and shuts down", async () => {
     if (!(await isPortOpen(FIXTURE_HOST, FIXTURE_PORT))) {
       console.warn(
         `Skipping ssh remote LSP fixture: ${FIXTURE_HOST}:${FIXTURE_PORT} is unavailable`,
@@ -199,11 +195,7 @@ describe("ssh remote lsp round-trip", () => {
   // Scenario 2: no zombie — after shutdown the LSP process is gone on the remote
   // ---------------------------------------------------------------------------
 
-  it("leaves no LSP server processes on the remote host after lsp.shutdown", async () => {
-    if (!FIXTURE_ENABLED) {
-      console.warn("Skipping ssh remote LSP fixture: set NEXUS_RUN_SSH_LSP_FIXTURE=1");
-      return;
-    }
+  it.skipIf(!FIXTURE_ENABLED)("leaves no LSP server processes on the remote host after lsp.shutdown", async () => {
     if (!(await isPortOpen(FIXTURE_HOST, FIXTURE_PORT))) {
       console.warn(
         `Skipping ssh remote LSP fixture: ${FIXTURE_HOST}:${FIXTURE_PORT} is unavailable`,

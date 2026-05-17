@@ -50,11 +50,7 @@ describe("ssh remote search round-trip", () => {
   // Scenario 1: happy path — search workspace-seed for a known string
   // ---------------------------------------------------------------------------
 
-  it("receives search.progress events and a valid complete for a text search", async () => {
-    if (!FIXTURE_ENABLED) {
-      console.warn("Skipping ssh remote search fixture: set NEXUS_RUN_SSH_SEARCH_FIXTURE=1");
-      return;
-    }
+  it.skipIf(!FIXTURE_ENABLED)("receives search.progress events and a valid complete for a text search", async () => {
     if (!(await isPortOpen(FIXTURE_HOST, FIXTURE_PORT))) {
       console.warn(
         `Skipping ssh remote search fixture: ${FIXTURE_HOST}:${FIXTURE_PORT} is unavailable`,
@@ -126,11 +122,7 @@ describe("ssh remote search round-trip", () => {
   // Scenario 2: cancel — search.cancel stops an in-flight search
   // ---------------------------------------------------------------------------
 
-  it("honours search.cancel and either rejects with cancel error or resolves with valid complete", async () => {
-    if (!FIXTURE_ENABLED) {
-      console.warn("Skipping ssh remote search fixture: set NEXUS_RUN_SSH_SEARCH_FIXTURE=1");
-      return;
-    }
+  it.skipIf(!FIXTURE_ENABLED)("honours search.cancel and either rejects with cancel error or resolves with valid complete", async () => {
     if (!(await isPortOpen(FIXTURE_HOST, FIXTURE_PORT))) {
       console.warn(
         `Skipping ssh remote search fixture: ${FIXTURE_HOST}:${FIXTURE_PORT} is unavailable`,

@@ -7,7 +7,7 @@
  * Environment: bun:test, renderToStaticMarkup (no DOM / no jsdom).
  */
 
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 // Window IPC stub — some transitive imports check for window.ipc.
@@ -15,7 +15,11 @@ import { renderToStaticMarkup } from "react-dom/server";
   ipc: { call: () => Promise.resolve(null), listen: () => {}, off: () => {} },
 };
 
-import { ViewModeToggle } from "../../../../../../src/renderer/components/files/view-mode-toggle";
+import {
+  ViewModeToggle,
+  computeNextViewMode,
+  computeNextCompact,
+} from "../../../../../../src/renderer/components/files/view-mode-toggle";
 
 // ---------------------------------------------------------------------------
 // (a-1) aria-pressed reflects viewMode correctly
@@ -77,23 +81,12 @@ describe("ViewModeToggle — accessible label", () => {
 // ---------------------------------------------------------------------------
 
 describe("ViewModeToggle — click toggles viewMode", () => {
-  it("calls onViewModeChange('tree') when list is active", () => {
-    // renderToStaticMarkup does not wire DOM events; we verify the
-    // handler prop is wired by invoking it directly.
-    const handler = mock((_next: "list" | "tree") => {});
-    // Simulate the toggle logic: isTree=false → next=tree.
-    const isTree = false;
-    const nextMode: "list" | "tree" = isTree ? "list" : "tree";
-    handler(nextMode);
-    expect(handler).toHaveBeenCalledWith("tree");
+  it("computeNextViewMode returns 'tree' when current is 'list'", () => {
+    expect(computeNextViewMode("list")).toBe("tree");
   });
 
-  it("calls onViewModeChange('list') when tree is active", () => {
-    const handler = mock((_next: "list" | "tree") => {});
-    const isTree = true;
-    const nextMode: "list" | "tree" = isTree ? "list" : "tree";
-    handler(nextMode);
-    expect(handler).toHaveBeenCalledWith("list");
+  it("computeNextViewMode returns 'list' when current is 'tree'", () => {
+    expect(computeNextViewMode("tree")).toBe("list");
   });
 });
 
@@ -191,23 +184,16 @@ describe("ViewModeToggle — popover absent on initial render (correct)", () => 
 });
 
 // ---------------------------------------------------------------------------
-// (a-7) CompactMenuItem aria-checked — test via direct logic inspection
-//        since the popover only renders when popoverOpen=true (requires DOM).
+// (a-7) CompactMenuItem toggle logic — exercised via the real
+//        computeNextCompact helper that CompactMenuItem's onToggle calls.
 // ---------------------------------------------------------------------------
 
-describe("ViewModeToggle — CompactMenuItem logic (direct)", () => {
-  it("onCompactChange called with toggled value — true→false", () => {
-    const handler = mock((_v: boolean) => {});
-    // Simulate what CompactMenuItem.onToggle does: onCompactChange(!compactFolders)
-    const compactFolders = true;
-    handler(!compactFolders);
-    expect(handler).toHaveBeenCalledWith(false);
+describe("ViewModeToggle — CompactMenuItem logic (computeNextCompact)", () => {
+  it("computeNextCompact returns false when compactFolders is true", () => {
+    expect(computeNextCompact(true)).toBe(false);
   });
 
-  it("onCompactChange called with toggled value — false→true", () => {
-    const handler = mock((_v: boolean) => {});
-    const compactFolders = false;
-    handler(!compactFolders);
-    expect(handler).toHaveBeenCalledWith(true);
+  it("computeNextCompact returns true when compactFolders is false", () => {
+    expect(computeNextCompact(false)).toBe(true);
   });
 });

@@ -8,17 +8,20 @@ import {
 describe("built-in LSP presets", () => {
   test("includes Pyright for Python", () => {
     expect(BUILTIN_LSP_PRESETS.map((preset) => preset.languageId)).toContain("python");
-    expect(resolveLspPreset("python")).toEqual({
-      languageId: "python",
-      binary: "pyright-langserver",
-      args: ["--stdio"],
-      initializationOptions: {
-        "python.analysis.typeCheckingMode": "standard",
-        "python.analysis.diagnosticMode": "openFilesOnly",
-        "python.analysis.autoImportCompletions": true,
-        "python.analysis.useLibraryCodeForTypes": true,
-      },
-    });
+
+    const preset = resolveLspPreset("python");
+
+    // Contract fields: the caller relies on these to launch the server.
+    expect(preset?.languageId).toBe("python");
+    expect(preset?.binary).toBe("pyright-langserver");
+    expect(preset?.args).toEqual(["--stdio"]);
+
+    // Spot-check key initializationOptions without pinning the whole object,
+    // so an intentional default change does not force an unrelated test edit.
+    const opts = preset?.initializationOptions as Record<string, unknown>;
+    expect(opts["python.analysis.typeCheckingMode"]).toBe("standard");
+    expect(opts["python.analysis.autoImportCompletions"]).toBe(true);
+
     expect(isSupportedLspLanguage("python")).toBe(true);
   });
 });

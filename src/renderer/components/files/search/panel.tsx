@@ -27,6 +27,7 @@ import {
   useSearchStore,
   useSearchViewState,
 } from "../../../state/stores/search";
+import { shouldHandleArrowDown } from "./arrowDown";
 import { SearchInput } from "./input";
 import { SearchResultsList } from "./results-list";
 import { SearchStatusHeader } from "./status-header";
@@ -177,7 +178,7 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
 
   /** Arrow-down in the search input: blur input, focus first result row. */
   function handleInputArrowDown() {
-    if (!session || session.results.length === 0) return;
+    if (!shouldHandleArrowDown(session)) return;
     inputRef.current?.blur();
     firstRowFocusRef.current?.();
   }

@@ -35,6 +35,7 @@ mock.module("../../../../../src/renderer/state/workspace-cleanup", () => ({
 // ---------------------------------------------------------------------------
 
 import { useSearchStore } from "../../../../../src/renderer/state/stores/search";
+import { shouldHandleArrowDown } from "../../../../../src/renderer/components/files/search/arrowDown";
 
 const WS_A = "00000000-0000-0000-0000-0000000000cc";
 const WS_B = "00000000-0000-0000-0000-0000000000dd";
@@ -124,67 +125,60 @@ describe("search store — expandedDirs is session-scoped (cleared on workspace 
 });
 
 // ---------------------------------------------------------------------------
-// (g) SearchInput ↓ handoff — pure-logic contract
+// (g) SearchInput ↓ handoff — real production guard via shouldHandleArrowDown
 //
-// The actual SearchPanel wires onArrowDown via handleInputArrowDown which is:
-//   if (!session || session.results.length === 0) return;
-//   inputRef.current?.blur();
-//   firstRowFocusRef.current?.();
-//
-// We test the control-flow logic directly (no DOM required).
+// SearchPanel.handleInputArrowDown delegates to shouldHandleArrowDown which is
+// the real production guard. Breaking that guard in production code will cause
+// these tests to fail.
 // ---------------------------------------------------------------------------
 
-describe("SearchPanel.handleInputArrowDown — pure-logic contract (g)", () => {
-  it("does not call firstRowFocus when session is undefined", () => {
-    const firstRowFocus = mock(() => {});
-    const session: { results: unknown[] } | undefined = undefined;
-
-    // Replicate the guard exactly as in SearchPanel.
-    if (!session || session.results.length === 0) {
-      // no-op
-    } else {
-      firstRowFocus();
-    }
-
-    expect(firstRowFocus).not.toHaveBeenCalled();
+describe("SearchPanel.handleInputArrowDown — shouldHandleArrowDown guard (g)", () => {
+  it("returns false when session is undefined", () => {
+    expect(shouldHandleArrowDown(undefined)).toBe(false);
   });
 
-  it("does not call firstRowFocus when results are empty", () => {
-    const firstRowFocus = mock(() => {});
-    const session = { results: [] };
-
-    if (!session || session.results.length === 0) {
-      // no-op
-    } else {
-      firstRowFocus();
-    }
-
-    expect(firstRowFocus).not.toHaveBeenCalled();
+  it("returns false when results are empty", () => {
+    expect(
+      shouldHandleArrowDown({
+        query: "foo",
+        options: { isRegExp: false, isCaseSensitive: false, isWordMatch: false, includes: [], excludes: [] },
+        results: [],
+        status: "done",
+        limitHit: false,
+        filesScanned: 0,
+        matchesFound: 0,
+        elapsedMs: 0,
+      }),
+    ).toBe(false);
   });
 
-  it("calls firstRowFocus when results are non-empty", () => {
-    const firstRowFocus = mock(() => {});
-    const session = { results: [{ relPath: "src/index.ts" }] };
-
-    if (!session || session.results.length === 0) {
-      // no-op
-    } else {
-      firstRowFocus();
-    }
-
-    expect(firstRowFocus).toHaveBeenCalledTimes(1);
+  it("returns true when results are non-empty", () => {
+    expect(
+      shouldHandleArrowDown({
+        query: "foo",
+        options: { isRegExp: false, isCaseSensitive: false, isWordMatch: false, includes: [], excludes: [] },
+        results: [{ relPath: "src/index.ts", matches: [], expanded: true }],
+        status: "done",
+        limitHit: false,
+        filesScanned: 1,
+        matchesFound: 1,
+        elapsedMs: 0,
+      }),
+    ).toBe(true);
   });
 
-  it("does NOT call firstRowFocus for exactly zero results", () => {
-    const firstRowFocus = mock(() => {});
-    const session = { results: new Array(0) };
-
-    if (!session || session.results.length === 0) {
-      // no-op
-    } else {
-      firstRowFocus();
-    }
-
-    expect(firstRowFocus).not.toHaveBeenCalled();
+  it("returns false for exactly zero results", () => {
+    expect(
+      shouldHandleArrowDown({
+        query: "bar",
+        options: { isRegExp: false, isCaseSensitive: false, isWordMatch: false, includes: [], excludes: [] },
+        results: new Array(0),
+        status: "done",
+        limitHit: false,
+        filesScanned: 0,
+        matchesFound: 0,
+        elapsedMs: 0,
+      }),
+    ).toBe(false);
   });
 });

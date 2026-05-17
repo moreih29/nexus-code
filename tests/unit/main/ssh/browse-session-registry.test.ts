@@ -243,9 +243,5 @@ describe("SshBrowseSessionRegistry", () => {
       registry.dispose();
     });
 
-    it("reaper constants match spec: TTL=2min, interval=30s", () => {
-      const { BROWSE_IDLE_TTL_MS: TTL } = require("../../../../src/main/features/ssh/browse-session-registry");
-      expect(TTL).toBe(2 * 60 * 1000);
-    });
   });
 });

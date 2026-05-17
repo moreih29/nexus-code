@@ -12,6 +12,7 @@ export function parseSshDestination(input: string): { host: string; user?: strin
     const user = value.slice(0, atIndex).trim();
     const host = value.slice(atIndex + 1).trim();
     if (!host || hostHasWhitespace(host) || user.length === 0) return null;
+    if (user.includes("@") || /\s/.test(user)) return null;
     return { host, user };
   }
   if (value.includes("@")) return null;

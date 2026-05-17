@@ -3,6 +3,39 @@ import {
   attachGitSubscription,
   type AttachGitSubscriptionDeps,
 } from "../../../../../src/renderer/services/editor/model/attach-git-subscription";
+import type { TimerScheduler } from "../../../../../src/shared/util/timer-scheduler";
+
+// ---------------------------------------------------------------------------
+// Fake scheduler (same pattern as keyed-debouncer.test.ts)
+// ---------------------------------------------------------------------------
+
+function makeFakeScheduler(): TimerScheduler & {
+  tick(): void;
+  pendingCount: number;
+} {
+  type Entry = { callback: () => void; cancelled: boolean };
+  const pending: Entry[] = [];
+
+  return {
+    setTimeout(callback) {
+      const entry: Entry = { callback, cancelled: false };
+      pending.push(entry);
+      return entry;
+    },
+    clearTimeout(handle) {
+      (handle as Entry).cancelled = true;
+    },
+    tick() {
+      const toRun = pending.splice(0);
+      for (const entry of toRun) {
+        if (!entry.cancelled) entry.callback();
+      }
+    },
+    get pendingCount() {
+      return pending.filter((e) => !e.cancelled).length;
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -11,6 +44,7 @@ import {
 const ENTRY = { input: { workspaceId: "ws-1", filePath: "/workspace/src/a.ts" } };
 
 function makeDeps(
+  scheduler: TimerScheduler,
   onSubscribe?: () => void,
 ): [AttachGitSubscriptionDeps, { fireChanged: () => void }] {
   let capturedCallback: (() => void) | null = null;
@@ -23,6 +57,7 @@ function makeDeps(
         capturedCallback = null;
       };
     }),
+    scheduler,
   };
 
   return [
@@ -41,32 +76,37 @@ function makeDeps(
 
 describe("attachGitSubscription — subscription wiring", () => {
   test("subscribes to git.statusChanged for the entry's workspace", () => {
-    const [deps] = makeDeps();
+    const scheduler = makeFakeScheduler();
+    const [deps] = makeDeps(scheduler);
     const onChanged = mock(() => {});
     const unsubscribe = attachGitSubscription(ENTRY, deps, onChanged);
     expect(deps.subscribeGitStatusChanged).toHaveBeenCalledWith(ENTRY.input, expect.any(Function));
     unsubscribe();
   });
 
-  test("debounces rapid git.statusChanged events into a single onChanged call", async () => {
-    const [deps, ctl] = makeDeps();
+  test("debounces rapid git.statusChanged events into a single onChanged call", () => {
+    const scheduler = makeFakeScheduler();
+    const [deps, ctl] = makeDeps(scheduler);
     const onChanged = mock(() => {});
     const unsubscribe = attachGitSubscription(ENTRY, deps, onChanged);
 
-    // Fire three events in rapid succession.
+    // Fire three events in rapid succession — each reschedules the timer.
     ctl.fireChanged();
     ctl.fireChanged();
     ctl.fireChanged();
 
-    // Allow the debounce timer to fire.
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Only one pending timer should remain (prior ones were cancelled).
+    expect(scheduler.pendingCount).toBe(1);
 
+    // Advance the fake clock — exactly one onChanged call expected.
+    scheduler.tick();
     expect(onChanged).toHaveBeenCalledTimes(1);
     unsubscribe();
   });
 
-  test("does not call onChanged after unsubscribe cancels the timer", async () => {
-    const [deps, ctl] = makeDeps();
+  test("does not call onChanged after unsubscribe cancels the timer", () => {
+    const scheduler = makeFakeScheduler();
+    const [deps, ctl] = makeDeps(scheduler);
     const onChanged = mock(() => {});
     const unsubscribe = attachGitSubscription(ENTRY, deps, onChanged);
 
@@ -74,13 +114,14 @@ describe("attachGitSubscription — subscription wiring", () => {
     ctl.fireChanged();
     unsubscribe();
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
-
+    // Tick should find the timer cancelled.
+    scheduler.tick();
     expect(onChanged).not.toHaveBeenCalled();
   });
 
   test("unsubscribe removes the git.statusChanged listener", () => {
-    const [deps, ctl] = makeDeps();
+    const scheduler = makeFakeScheduler();
+    const [deps, ctl] = makeDeps(scheduler);
     const onChanged = mock(() => {});
     const unsubscribe = attachGitSubscription(ENTRY, deps, onChanged);
     unsubscribe();

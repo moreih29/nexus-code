@@ -1,3 +1,6 @@
+import type { TimerScheduler } from "../util/timer-scheduler";
+import { defaultTimerScheduler } from "../util/timer-scheduler";
+
 interface PendingEntry<TResult> {
   resolve: (value: TResult) => void;
   reject: (error: Error) => void;
@@ -6,6 +9,11 @@ interface PendingEntry<TResult> {
 
 export class PendingRequestMap<TKey, TResult> {
   private readonly pending = new Map<TKey, PendingEntry<TResult>>();
+  private readonly scheduler: TimerScheduler;
+
+  constructor(scheduler: TimerScheduler = defaultTimerScheduler) {
+    this.scheduler = scheduler;
+  }
 
   register({
     key,
@@ -17,7 +25,7 @@ export class PendingRequestMap<TKey, TResult> {
     onTimeout?: () => Error;
   }): Promise<TResult> {
     return new Promise<TResult>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const timer = this.scheduler.setTimeout(() => {
         this.pending.delete(key);
         const error = onTimeout?.() ?? new Error(`Request timed out (key: ${String(key)})`);
         reject(error);
@@ -32,7 +40,7 @@ export class PendingRequestMap<TKey, TResult> {
     const entry = this.pending.get(key);
     if (!entry) return false;
     this.pending.delete(key);
-    clearTimeout(entry.timer as ReturnType<typeof setTimeout>);
+    this.scheduler.clearTimeout(entry.timer);
     entry.resolve(value);
     return true;
   }
@@ -41,7 +49,7 @@ export class PendingRequestMap<TKey, TResult> {
     const entry = this.pending.get(key);
     if (!entry) return false;
     this.pending.delete(key);
-    clearTimeout(entry.timer as ReturnType<typeof setTimeout>);
+    this.scheduler.clearTimeout(entry.timer);
     entry.reject(error);
     return true;
   }
@@ -49,7 +57,7 @@ export class PendingRequestMap<TKey, TResult> {
   clearAll(reason: string): void {
     const error = new Error(reason);
     for (const [, entry] of this.pending) {
-      clearTimeout(entry.timer as ReturnType<typeof setTimeout>);
+      this.scheduler.clearTimeout(entry.timer);
       entry.reject(error);
     }
     this.pending.clear();

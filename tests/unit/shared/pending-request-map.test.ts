@@ -1,5 +1,38 @@
 import { describe, expect, test } from "bun:test";
 import { PendingRequestMap } from "../../../src/shared/ipc/pending-request-map";
+import type { TimerScheduler } from "../../../src/shared/util/timer-scheduler";
+
+// ---------------------------------------------------------------------------
+// Fake scheduler (same pattern as keyed-debouncer.test.ts)
+// ---------------------------------------------------------------------------
+
+function makeFakeScheduler(): TimerScheduler & {
+  tick(): void;
+  pendingCount: number;
+} {
+  type Entry = { callback: () => void; cancelled: boolean };
+  const pending: Entry[] = [];
+
+  return {
+    setTimeout(callback) {
+      const entry: Entry = { callback, cancelled: false };
+      pending.push(entry);
+      return entry;
+    },
+    clearTimeout(handle) {
+      (handle as Entry).cancelled = true;
+    },
+    tick() {
+      const toRun = pending.splice(0);
+      for (const entry of toRun) {
+        if (!entry.cancelled) entry.callback();
+      }
+    },
+    get pendingCount() {
+      return pending.filter((e) => !e.cancelled).length;
+    },
+  };
+}
 
 describe("PendingRequestMap", () => {
   test("register returns a promise that resolves when resolve() is called", async () => {
@@ -17,18 +50,30 @@ describe("PendingRequestMap", () => {
   });
 
   test("register rejects with timeout error after timeoutMs", async () => {
-    const map = new PendingRequestMap<string, number>();
-    const promise = map.register({ key: "k1", timeoutMs: 1 });
+    const scheduler = makeFakeScheduler();
+    const map = new PendingRequestMap<string, number>(scheduler);
+    const promise = map.register({ key: "k1", timeoutMs: 100 });
+
+    // Timer has been scheduled but not yet fired.
+    expect(scheduler.pendingCount).toBe(1);
+
+    // Advance the fake clock — the timeout handler runs synchronously.
+    scheduler.tick();
+
     await expect(promise).rejects.toThrow(/timed out/i);
   });
 
   test("onTimeout callback provides the rejection error on timeout", async () => {
-    const map = new PendingRequestMap<string, number>();
+    const scheduler = makeFakeScheduler();
+    const map = new PendingRequestMap<string, number>(scheduler);
     const promise = map.register({
       key: "k1",
-      timeoutMs: 1,
+      timeoutMs: 100,
       onTimeout: () => new Error("custom timeout message"),
     });
+
+    scheduler.tick();
+
     await expect(promise).rejects.toThrow("custom timeout message");
   });
 

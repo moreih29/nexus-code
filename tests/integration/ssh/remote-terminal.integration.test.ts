@@ -45,11 +45,7 @@ describe("ssh remote terminal round-trip", () => {
     }
   });
 
-  it("opens a remote agent PTY, verifies pwd/uname, and exits cleanly", async () => {
-    if (!FIXTURE_ENABLED) {
-      console.warn("Skipping ssh remote terminal fixture: set NEXUS_RUN_SSH_PTY_FIXTURE=1");
-      return;
-    }
+  it.skipIf(!FIXTURE_ENABLED)("opens a remote agent PTY, verifies pwd/uname, and exits cleanly", async () => {
     if (!(await isPortOpen(FIXTURE_HOST, FIXTURE_PORT))) {
       console.warn(
         `Skipping ssh remote terminal fixture: ${FIXTURE_HOST}:${FIXTURE_PORT} is unavailable`,
@@ -124,11 +120,7 @@ describe("ssh remote terminal round-trip", () => {
     }
   }, 60_000);
 
-  it("resizes the remote PTY so the child observes the new stty size", async () => {
-    if (!FIXTURE_ENABLED) {
-      console.warn("Skipping ssh remote terminal fixture: set NEXUS_RUN_SSH_PTY_FIXTURE=1");
-      return;
-    }
+  it.skipIf(!FIXTURE_ENABLED)("resizes the remote PTY so the child observes the new stty size", async () => {
     if (!(await isPortOpen(FIXTURE_HOST, FIXTURE_PORT))) {
       console.warn(
         `Skipping ssh remote terminal fixture: ${FIXTURE_HOST}:${FIXTURE_PORT} is unavailable`,
@@ -204,11 +196,7 @@ describe("ssh remote terminal round-trip", () => {
     }
   }, 60_000);
 
-  it("sends remote SIGINT via Ctrl-C and receives pty.exit within 30 s", async () => {
-    if (!FIXTURE_ENABLED) {
-      console.warn("Skipping ssh remote terminal fixture: set NEXUS_RUN_SSH_PTY_FIXTURE=1");
-      return;
-    }
+  it.skipIf(!FIXTURE_ENABLED)("sends remote SIGINT via Ctrl-C and receives pty.exit within 30 s", async () => {
     if (!(await isPortOpen(FIXTURE_HOST, FIXTURE_PORT))) {
       console.warn(
         `Skipping ssh remote terminal fixture: ${FIXTURE_HOST}:${FIXTURE_PORT} is unavailable`,
@@ -273,11 +261,7 @@ describe("ssh remote terminal round-trip", () => {
     }
   }, 60_000);
 
-  it("force-closing the SSH channel delivers pty.exit code=null to the host", async () => {
-    if (!FIXTURE_ENABLED) {
-      console.warn("Skipping ssh remote terminal fixture: set NEXUS_RUN_SSH_PTY_FIXTURE=1");
-      return;
-    }
+  it.skipIf(!FIXTURE_ENABLED)("force-closing the SSH channel delivers pty.exit code=null to the host", async () => {
     if (!(await isPortOpen(FIXTURE_HOST, FIXTURE_PORT))) {
       console.warn(
         `Skipping ssh remote terminal fixture: ${FIXTURE_HOST}:${FIXTURE_PORT} is unavailable`,

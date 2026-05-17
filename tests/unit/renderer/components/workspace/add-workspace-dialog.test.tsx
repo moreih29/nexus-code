@@ -79,13 +79,8 @@ describe("parseSshDestination", () => {
     expect(parseSshDestination("dev host")).toBeNull();
   });
 
-  it("KNOWN-BUG: does not reject double-@ (a@b@c parses as user='a@b' host='c')", () => {
-    // parseSshDestination uses lastIndexOf("@") so a@b@c → user="a@b", host="c"
-    // This is a bug: user "a@b" contains @ which is not a valid unix username.
-    // Expected: null. Actual: {user:"a@b", host:"c"}
-    const result = parseSshDestination("a@b@c");
-    // Document actual (buggy) behavior so the test fails when the bug is fixed:
-    expect(result).toEqual({ user: "a@b", host: "c" });
+  it("returns null for double-@ (a@b@c has @ in user part)", () => {
+    expect(parseSshDestination("a@b@c")).toBeNull();
   });
 
   it("parses IP address host", () => {
@@ -256,13 +251,8 @@ describe("parseSshDestination adversarial", () => {
     expect(parseSshDestination("@")).toBeNull();
   });
 
-  it("KNOWN-BUG: does not reject user with spaces (user name@host)", () => {
-    // parseSshDestination checks hostHasWhitespace(host) but not the user part.
-    // "user name@host" → user="user name" (contains space), host="host"
-    // This is a bug: should return null for malformed user.
-    // Expected: null. Actual: {user:"user name", host:"host"}
-    const result = parseSshDestination("user name@host");
-    expect(result).toEqual({ user: "user name", host: "host" });
+  it("returns null for user with spaces (user name@host has whitespace in user part)", () => {
+    expect(parseSshDestination("user name@host")).toBeNull();
   });
 
   it("handles hostname with tab character", () => {

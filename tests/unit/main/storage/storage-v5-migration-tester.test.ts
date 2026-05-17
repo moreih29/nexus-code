@@ -14,7 +14,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { GlobalStorage } from "../../../../src/main/infra/storage/global-storage";
-import { applyMigrations } from "../../../../src/main/infra/storage/migrations";
+import { applyMigrations, MIGRATIONS } from "../../../../src/main/infra/storage/migrations";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -29,72 +29,36 @@ function uuid(n: number): string {
 }
 
 /**
- * Simulate a DB that has been migrated up to v4 (pre-v5) and already contains
- * local folder_bookmark rows written WITHOUT the `kind` column.
+ * Build a DB at v4 (pre-v5) by running the real production migrations v1–v4.
  *
- * Approach: apply v1–v4 migrations, then insert raw rows that lack `kind`/
- * `connection_profile_id` (they do not exist yet), then apply v5.
+ * This ensures the pre-v5 schema is exactly what the production migration chain
+ * produces, not an independently maintained hand-copy that can drift.
  */
 function buildPreV5Db(): Database {
   const db = makeDb();
 
-  // Apply only v1-v4 by setting schemaVersion to 0 and stopping before v5.
-  // We do this by running applyMigrations normally which creates v4, then we
-  // manually downgrade the schemaVersion back to 4 — but the schema stays at v4.
-  // Simpler: just manually build the v4 schema inline.
+  // Run only the v1–v4 migration steps from the production MIGRATIONS array.
+  // Bootstrap _meta so the version tracking works identically to applyMigrations.
   db.exec(`
-    CREATE TABLE _meta (
+    CREATE TABLE IF NOT EXISTS _meta (
       key   TEXT NOT NULL PRIMARY KEY,
       value TEXT NOT NULL
     );
-
-    CREATE TABLE workspaces (
-      id             TEXT NOT NULL PRIMARY KEY,
-      name           TEXT NOT NULL,
-      root_path      TEXT NOT NULL,
-      location       TEXT,
-      color_tone     TEXT NOT NULL DEFAULT 'default',
-      pinned         INTEGER NOT NULL DEFAULT 0,
-      last_opened_at INTEGER NOT NULL
-    );
-
-    CREATE TABLE folder_bookmarks (
-      id           TEXT    NOT NULL PRIMARY KEY,
-      abs_path     TEXT    NOT NULL,
-      label        TEXT,
-      favorite     INTEGER NOT NULL DEFAULT 0,
-      last_used_at INTEGER NOT NULL,
-      created_at   INTEGER NOT NULL
-    );
-
-    CREATE UNIQUE INDEX idx_folder_bookmarks_abs_path
-      ON folder_bookmarks (abs_path);
-
-    CREATE INDEX idx_folder_bookmarks_recency
-      ON folder_bookmarks (favorite, last_used_at DESC);
-
-    CREATE TABLE connection_profiles (
-      id           TEXT    NOT NULL PRIMARY KEY,
-      label        TEXT,
-      host         TEXT    NOT NULL,
-      user         TEXT,
-      port         INTEGER,
-      identity_file TEXT,
-      auth_mode    TEXT    NOT NULL DEFAULT 'interactive',
-      favorite     INTEGER NOT NULL DEFAULT 0,
-      last_used_at  INTEGER NOT NULL,
-      created_at    INTEGER NOT NULL
-    );
-
-    CREATE UNIQUE INDEX idx_connection_profiles_natural_key
-      ON connection_profiles (host, user, port);
-
-    CREATE INDEX idx_connection_profiles_recency
-      ON connection_profiles (favorite, last_used_at DESC);
   `);
 
-  // Mark schema as v4
-  db.prepare("INSERT INTO _meta (key, value) VALUES ('schemaVersion', '4')").run();
+  let current = 0;
+  for (const migration of MIGRATIONS) {
+    if (migration.version > 4) break;
+    migration.up(db);
+    db.prepare("INSERT OR REPLACE INTO _meta (key, value) VALUES ('schemaVersion', ?)").run(
+      String(migration.version),
+    );
+    current = migration.version;
+  }
+
+  if (current !== 4) {
+    throw new Error(`buildPreV5Db: expected to reach schema v4, got v${current}`);
+  }
 
   return db;
 }

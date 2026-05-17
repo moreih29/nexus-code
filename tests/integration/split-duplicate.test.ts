@@ -64,6 +64,10 @@ mock.module("../../src/renderer/ipc/client", () => ({
 
 import { openOrRevealEditor } from "../../src/renderer/services/editor";
 import { openTerminal } from "../../src/renderer/services/terminal";
+import {
+  createFileTreeKeydownHandler,
+  type FileTreeKeydownDeps,
+} from "../../src/renderer/components/files/keys";
 import { openTab, openTabInNewSplit } from "../../src/renderer/state/operations";
 import { useLayoutStore } from "../../src/renderer/state/stores/layout";
 import { allLeaves, findLeaf } from "../../src/renderer/state/stores/layout/helpers";
@@ -145,104 +149,74 @@ describe("Scenario B3: openOrRevealEditor newSplit on empty layout creates one e
 });
 
 // ---------------------------------------------------------------------------
-// Scenario C — FileTree handleKeyDown branching (dir vs file) — pure logic test
+// Scenario C — FileTree plain-Enter branching (dir vs file)
 //
-// The handleKeyDown function in FileTree.tsx is a React event handler bound to
-// local state (flat, activeIndex, etc.), so we cannot import it directly.
-// Instead we extract the exact branching logic as a testable pure function that
-// mirrors the code in handleKeyDown. This verifies the branch semantics without
-// needing DOM / React, consistent with the established project pattern for
-// keybinding tests (keybindings-global.test.ts).
+// createFileTreeKeydownHandler is the real production handler (exported from
+// keys.ts). Its openOrRevealEditor / toggleExpand deps are injectable so we
+// inject mocks and exercise the actual branch logic. Breaking the Enter branch
+// in keys.ts will cause these tests to fail.
 // ---------------------------------------------------------------------------
 
-interface MockFlatItem {
-  absPath: string;
-  node: { type: "file" | "dir" };
-}
-
-interface MockKeyEvent {
-  key: string;
-  metaKey: boolean;
-  shiftKey: boolean;
-  altKey: boolean;
-  ctrlKey: boolean;
-  target: unknown;
-  defaultPrevented: boolean;
-  preventDefault: () => void;
-}
-
-function makeMockKeyEvent(
-  key: string,
-  opts: {
-    metaKey?: boolean;
-    shiftKey?: boolean;
-    altKey?: boolean;
-    ctrlKey?: boolean;
-    target?: unknown;
-  } = {},
-): MockKeyEvent {
+/** Minimal React-like synthetic key event accepted by createFileTreeKeydownHandler. */
+function makeSyntheticKeyEvent(key: string): React.KeyboardEvent<HTMLDivElement> {
   let prevented = false;
+  // nativeEvent is only used by evaluateContextKey("inputFocus"/"editorFocus", ke)
+  // which inspects ke.target. A null target passes the guard (not in any input/editor).
+  const nativeEvent = { key, target: null } as unknown as KeyboardEvent;
   return {
     key,
-    metaKey: opts.metaKey ?? false,
-    shiftKey: opts.shiftKey ?? false,
-    altKey: opts.altKey ?? false,
-    ctrlKey: opts.ctrlKey ?? false,
-    target: opts.target ?? null,
+    nativeEvent,
     get defaultPrevented() {
       return prevented;
     },
     preventDefault() {
       prevented = true;
     },
-  };
+  } as unknown as React.KeyboardEvent<HTMLDivElement>;
 }
 
-/**
- * Mirrors the plain-Enter / Space branches of FileTree.tsx for routing
- * verification. Cmd+Enter (open-to-side) used to live here too; that
- * keystroke is now driven by the global dispatcher's `openToSide`
- * binding (`when: "fileTreeFocus"`) and is covered by
- * `tests/unit/renderer/keybindings/dispatcher.test.ts`.
- */
-function handleFileTreeKey(
-  item: MockFlatItem,
-  e: MockKeyEvent,
-  deps: {
-    openOrRevealEditor: (input: { workspaceId: string; filePath: string }) => void;
-    toggleExpand: (wsId: string, absPath: string) => void;
-  },
-  workspaceId: string,
-) {
-  const isDir = item.node.type === "dir";
-
-  if (e.key === "Enter" || e.key === " ") {
-    e.preventDefault();
-    if (isDir) {
-      deps.toggleExpand(workspaceId, item.absPath);
-    } else {
-      deps.openOrRevealEditor({ workspaceId, filePath: item.absPath });
-    }
-  }
+/** Minimal FlatItem for an Enter-key routing test. */
+function makeFlatItem(absPath: string, type: "file" | "dir") {
+  return {
+    absPath,
+    depth: 0,
+    node: {
+      absPath,
+      name: absPath.split("/").pop() ?? absPath,
+      type,
+      childrenLoaded: true,
+      children: [],
+    },
+  };
 }
 
 describe("Scenario C3: FileTree plain Enter on a file calls openOrRevealEditor", () => {
   it("routes to openOrRevealEditor for a file on plain Enter", () => {
     const openOrRevealEditorMock = mock(() => {});
-    const fileItem: MockFlatItem = { absPath: "/proj/README.md", node: { type: "file" } };
-    const e = makeMockKeyEvent("Enter", { metaKey: false });
+    const toggleExpandMock = mock(() => {});
 
-    handleFileTreeKey(
-      fileItem,
-      e,
-      {
-        openOrRevealEditor: openOrRevealEditorMock,
-        toggleExpand: mock(() => {}),
-      },
-      "ws-1",
-    );
+    const deps: FileTreeKeydownDeps = {
+      flat: [makeFlatItem("/proj/README.md", "file")],
+      tree: undefined,
+      workspaceId: "ws-1",
+      rootAbsPath: "/proj",
+      activeIndex: 0,
+      setActiveIndex: () => {},
+      scrollToIndex: () => {},
+      openOrRevealEditor: openOrRevealEditorMock,
+      toggleExpand: toggleExpandMock,
+    };
+
+    const handler = createFileTreeKeydownHandler(deps);
+    const e = makeSyntheticKeyEvent("Enter");
+    handler(e);
 
     expect(openOrRevealEditorMock).toHaveBeenCalledTimes(1);
+    expect(openOrRevealEditorMock).toHaveBeenCalledWith({
+      workspaceId: "ws-1",
+      filePath: "/proj/README.md",
+    });
+    expect(toggleExpandMock).not.toHaveBeenCalled();
     expect(e.defaultPrevented).toBe(true);
   });
 });
@@ -251,20 +225,25 @@ describe("Scenario C4: FileTree plain Enter on a dir calls toggleExpand, not ope
   it("routes to toggleExpand for a directory on plain Enter", () => {
     const openOrRevealEditorMock = mock(() => {});
     const toggleExpandMock = mock(() => {});
-    const dirItem: MockFlatItem = { absPath: "/proj/src", node: { type: "dir" } };
-    const e = makeMockKeyEvent("Enter", { metaKey: false });
 
-    handleFileTreeKey(
-      dirItem,
-      e,
-      {
-        openOrRevealEditor: openOrRevealEditorMock,
-        toggleExpand: toggleExpandMock,
-      },
-      "ws-1",
-    );
+    const deps: FileTreeKeydownDeps = {
+      flat: [makeFlatItem("/proj/src", "dir")],
+      tree: undefined,
+      workspaceId: "ws-1",
+      rootAbsPath: "/proj",
+      activeIndex: 0,
+      setActiveIndex: () => {},
+      scrollToIndex: () => {},
+      openOrRevealEditor: openOrRevealEditorMock,
+      toggleExpand: toggleExpandMock,
+    };
+
+    const handler = createFileTreeKeydownHandler(deps);
+    const e = makeSyntheticKeyEvent("Enter");
+    handler(e);
 
     expect(toggleExpandMock).toHaveBeenCalledTimes(1);
+    expect(toggleExpandMock).toHaveBeenCalledWith("ws-1", "/proj/src");
     expect(openOrRevealEditorMock).not.toHaveBeenCalled();
     expect(e.defaultPrevented).toBe(true);
   });

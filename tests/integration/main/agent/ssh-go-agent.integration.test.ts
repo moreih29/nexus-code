@@ -14,13 +14,10 @@ const FIXTURE_PORT = 2223;
 const FIXTURE_USER = process.env.NEXUS_SSH_FIXTURE_USER ?? "nexus-dev";
 const FIXTURE_PASSWORD = process.env.NEXUS_SSH_FIXTURE_PASSWORD ?? "nexus-dev";
 const FIXTURE_REMOTE_PATH = process.env.NEXUS_SSH_FIXTURE_REMOTE_PATH ?? "/home/nexus-dev/workspace";
+const FIXTURE_ENABLED = process.env.NEXUS_RUN_SSH_GO_FIXTURE === "1";
 
 describe("ssh Go agent linux-password fixture", () => {
-  it("bootstraps agent and serves fs operations through SshFsProvider", async () => {
-    if (process.env.NEXUS_RUN_SSH_GO_FIXTURE !== "1") {
-      console.warn("Skipping ssh Go agent fixture test: set NEXUS_RUN_SSH_GO_FIXTURE=1 to opt in");
-      return;
-    }
+  it.skipIf(!FIXTURE_ENABLED)("bootstraps agent and serves fs operations through SshFsProvider", async () => {
     if (!(await isPortOpen(FIXTURE_HOST, FIXTURE_PORT))) {
       console.warn("Skipping ssh Go agent fixture test: 127.0.0.1:2223 is unavailable");
       return;

@@ -88,17 +88,40 @@ describe("agent fs round-trip", () => {
     }
   });
 
-  it("emits ready, then ok / conflict / error responses that match the TS schemas", async () => {
-    const root = await fs.mkdtemp(path.join(tmpdir(), "agent-root-"));
-    const channel = createLocalChannel({ binaryPath: binPath, rootPath: root });
+  /**
+   * Main channel round-trip: each `it` exercises one RPC or domain so a
+   * failure pinpoints the broken method. State flows forward through the
+   * shared variables below — tests run sequentially in declaration order.
+   */
+  describe("main channel round-trip", () => {
+    let root: string;
+    let channel: ReturnType<typeof createLocalChannel>;
 
-    try {
+    beforeAll(async () => {
+      root = await fs.mkdtemp(path.join(tmpdir(), "agent-root-"));
+      channel = createLocalChannel({ binaryPath: binPath, rootPath: root });
       // 1. Ready frame — channel.ready resolves once the server emits it.
       // The channel parses the boot frame internally; the protocol-version
       // check happens inside the pipe and would surface as a ready rejection.
       await channel.ready;
+    });
 
-      // 2. Ok variant — first write of a new file.
+    afterAll(async () => {
+      channel.dispose();
+      if (root) {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it("resolves channel.ready and reports the expected protocol version", () => {
+      // ready already awaited in beforeAll — if we got here, it resolved.
+      // Sanity: protocol version constant is what the integration test
+      // expects today. If the Go side bumps it without TS following, the
+      // ready handshake would have already failed before we got here.
+      expect(AGENT_PROTOCOL_VERSION).toBe("1");
+    });
+
+    it("fs.writeFile returns kind=ok and persists the file on disk", async () => {
       const okParams: FsWriteFileParams = {
         relPath: "hello.txt",
         content: "world",
@@ -108,14 +131,20 @@ describe("agent fs round-trip", () => {
       expect(okResult.kind).toBe("ok");
       const written = await fs.readFile(path.join(root, "hello.txt"), "utf8");
       expect(written).toBe("world");
+    });
 
+    it("fs.createFile creates an empty file", async () => {
       await channel.call("fs.createFile", { relPath: "empty.txt" });
       await expect(fs.readFile(path.join(root, "empty.txt"), "utf8")).resolves.toBe("");
+    });
 
+    it("fs.mkdir creates a directory", async () => {
       await channel.call("fs.mkdir", { relPath: "src" });
       const srcStat = await fs.stat(path.join(root, "src"));
       expect(srcStat.isDirectory()).toBe(true);
+    });
 
+    it("search.text returns matches with progress events (requires hello.txt)", async () => {
       const searchProgress: unknown[] = [];
       const unsubscribeSearch = channel.on(SEARCH_PROGRESS_EVENT, (payload) => {
         searchProgress.push(payload);
@@ -143,10 +172,21 @@ describe("agent fs round-trip", () => {
       expect(searchBatches.flatMap((payload) => payload.batch).map((file) => file.relPath)).toEqual([
         "hello.txt",
       ]);
+    });
 
-      if (gitAvailable) {
+    // Git RPCs are skipped as a group when git is not available on the host.
+    describe("git RPCs (requires git + hello.txt in index)", () => {
+      if (!gitAvailable) {
+        it("skips when git is unavailable", () => {});
+        return;
+      }
+
+      beforeAll(() => {
         expect(spawnSync("git", ["init"], { cwd: root }).status).toBe(0);
         expect(spawnSync("git", ["add", "hello.txt"], { cwd: root }).status).toBe(0);
+      });
+
+      it("git.run returns exit-0 porcelain status", async () => {
         const gitRun = AgentGitRunResultSchema.parse(
           await channel.call(GIT_RUN_METHOD, {
             cwd: root,
@@ -155,7 +195,9 @@ describe("agent fs round-trip", () => {
         );
         expect(gitRun.code).toBe(0);
         expect(gitRun.stdout).toContain("A  hello.txt");
+      });
 
+      it("git.stream emits chunk events and returns exit-0", async () => {
         const gitStreamPayloads: unknown[] = [];
         const unsubscribeGitStream = channel.on(GIT_STREAM_CHUNK_EVENT, (payload) => {
           gitStreamPayloads.push(payload);
@@ -175,7 +217,9 @@ describe("agent fs round-trip", () => {
           .map((payload) => Buffer.from(payload.chunk, "base64").toString("utf8"))
           .join("");
         expect(gitStreamText).toBe("world");
+      });
 
+      it("git.metadata returns operationState=none and null lastFetchedAt", async () => {
         const gitMetadata = AgentGitMetadataResultSchema.parse(
           await channel.call(GIT_METADATA_METHOD, {
             gitDir: path.join(root, ".git"),
@@ -184,14 +228,18 @@ describe("agent fs round-trip", () => {
         );
         expect(gitMetadata.operationState).toEqual({ kind: "none" });
         expect(gitMetadata.lastFetchedAt).toBeNull();
+      });
 
+      it("git.watch emits a changed event on .git mutation, git.unwatch stops it", async () => {
         const gitChanged = waitForAgentEvent(channel, GIT_CHANGED_EVENT);
         await channel.call(GIT_WATCH_METHOD, { gitDir: path.join(root, ".git") });
         await fs.writeFile(path.join(root, ".git", "NEXUS_TEST_MARKER"), "change");
         const gitChangedPayload = AgentGitChangedPayloadSchema.parse(await gitChanged);
         expect(gitChangedPayload.gitDir).toBe(path.join(root, ".git"));
         await channel.call(GIT_UNWATCH_METHOD, { gitDir: path.join(root, ".git") });
+      });
 
+      it("git.getFileContent returns the indexed content of hello.txt", async () => {
         const gitContent = AgentGitGetFileContentResultSchema.parse(
           await channel.call(GIT_GET_FILE_CONTENT_METHOD, {
             ref: "INDEX",
@@ -202,16 +250,23 @@ describe("agent fs round-trip", () => {
         if (gitContent.kind === "ok") {
           expect(gitContent.content).toBe("world");
         }
-      }
+      });
+    });
 
+    it("fs.watch emits a changed event on file creation, fs.unwatch stops it", async () => {
       const changed = waitForAgentEvent(channel, "fs.changed");
       await channel.call("fs.watch", { relPath: "." });
       await fs.writeFile(path.join(root, "watched.txt"), "change");
       const changedPayload = (await changed) as { changes?: Array<{ relPath: string }> };
       expect(changedPayload.changes?.some((change) => change.relPath === "watched.txt")).toBe(true);
       await channel.call("fs.unwatch", { relPath: "." });
+    });
 
-      const externalPath = path.join(await fs.mkdtemp(path.join(tmpdir(), "agent-external-")), "lib.ts");
+    it("fs.readAbsolute reads a file outside the workspace root", async () => {
+      const externalPath = path.join(
+        await fs.mkdtemp(path.join(tmpdir(), "agent-external-")),
+        "lib.ts",
+      );
       await fs.writeFile(externalPath, "external");
       const externalResult = FsReadAbsoluteResultSchema.parse(
         await channel.call("fs.readAbsolute", { absolutePath: externalPath }),
@@ -220,10 +275,10 @@ describe("agent fs round-trip", () => {
       if (externalResult.kind === "ok") {
         expect(externalResult.content).toBe("external");
       }
+    });
 
-      // 3. Conflict variant — expected:false but the file now exists. The
-      // server returns this as a success-shaped frame (channel resolves) with
-      // a discriminated `kind: "conflict"` payload, not as an error frame.
+    it("fs.writeFile returns kind=conflict when expected.exists=false but file already exists", async () => {
+      // hello.txt was written in the first it; writing again with exists:false triggers conflict.
       const conflictResult = FsWriteFileResultSchema.parse(
         await channel.call("fs.writeFile", {
           relPath: "hello.txt",
@@ -235,24 +290,18 @@ describe("agent fs round-trip", () => {
       if (conflictResult.kind === "conflict") {
         expect(conflictResult.actual.exists).toBe(true);
       }
+    });
 
-      // 4. Error frame — path escape rejected by Resolve. The channel rejects
+    it("fs.writeFile rejects an out-of-workspace path with OUT_OF_WORKSPACE error code", async () => {
+      // Error frame — path escape rejected by Resolve. The channel rejects
       // the call with an Error whose `code` is the server's wire code.
       const errorCode = await callExpectErrorCode(channel, "fs.writeFile", {
         relPath: "../escape.txt",
         content: "x",
       });
       expect(AgentFsErrorCodeSchema.parse(errorCode)).toBe("OUT_OF_WORKSPACE");
-
-      // Sanity: protocol version constant is what the integration test
-      // expects today. If the Go side bumps it without TS following, the
-      // ready handshake would have already failed before we got here.
-      expect(AGENT_PROTOCOL_VERSION).toBe("1");
-    } finally {
-      channel.dispose();
-      await fs.rm(root, { recursive: true, force: true });
-    }
-  }, 30_000);
+    });
+  });
 
   it("round-trips unlink, rmdir, and rename through the real agent channel", async () => {
     const root = await fs.mkdtemp(path.join(tmpdir(), "agent-root-"));

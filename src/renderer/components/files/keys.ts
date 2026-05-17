@@ -1,6 +1,6 @@
 import { evaluateContextKey } from "@/keybindings/context-keys";
-import { openOrRevealEditor } from "@/services/editor";
-import { toggleExpand } from "@/state/operations/files";
+import { openOrRevealEditor as defaultOpenOrRevealEditor } from "@/services/editor";
+import { toggleExpand as defaultToggleExpand } from "@/state/operations/files";
 import type { FlatItem, WorkspaceTree } from "@/state/stores/files";
 import { parentOf } from "@/state/stores/files";
 // `openToSide` (⌘↵) is no longer handled here — the global dispatcher
@@ -32,6 +32,10 @@ export function computeParentJumpIndex(
  * Dependencies handed to the keyboard handler. Bundled into a single
  * options object so the function signature doesn't grow unbounded as
  * navigation responsibilities accrue (e.g. multi-select, find-in-tree).
+ *
+ * `openOrRevealEditor` and `toggleExpand` are optional: production code uses
+ * the real implementations by default; tests inject mocks to exercise the
+ * branching logic via the real handler without side effects.
  */
 export interface FileTreeKeydownDeps {
   flat: FlatItem[];
@@ -41,6 +45,10 @@ export interface FileTreeKeydownDeps {
   activeIndex: number;
   setActiveIndex: (next: number) => void;
   scrollToIndex: (index: number) => void;
+  /** Defaults to the real openOrRevealEditor. Override in tests. */
+  openOrRevealEditor?: (input: { workspaceId: string; filePath: string }) => void;
+  /** Defaults to the real toggleExpand. Override in tests. */
+  toggleExpand?: (workspaceId: string, absPath: string) => void;
 }
 
 /**
@@ -64,8 +72,17 @@ export function createFileTreeKeydownHandler(
     const ke = e.nativeEvent;
     if (evaluateContextKey("inputFocus", ke) || evaluateContextKey("editorFocus", ke)) return;
 
-    const { flat, tree, workspaceId, rootAbsPath, activeIndex, setActiveIndex, scrollToIndex } =
-      deps;
+    const {
+      flat,
+      tree,
+      workspaceId,
+      rootAbsPath,
+      activeIndex,
+      setActiveIndex,
+      scrollToIndex,
+      openOrRevealEditor = defaultOpenOrRevealEditor,
+      toggleExpand = defaultToggleExpand,
+    } = deps;
     const item = flat[activeIndex];
     if (!item) return;
     const isDir = item.node.type === "dir";
