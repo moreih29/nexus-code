@@ -17,17 +17,17 @@ import fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { createLocalChannel } from "../../../../src/main/infra/agent/channel/local-channel";
+import { createLocalChannel } from "../../../src/main/infra/agent/channel/local-channel";
 import {
   AgentSearchCompleteSchema,
   AgentSearchProgressPayloadSchema,
   SEARCH_CANCEL_METHOD,
   SEARCH_PROGRESS_EVENT,
   SEARCH_TEXT_METHOD,
-} from "../../../../src/shared/search/protocol";
-import type { AgentChannel } from "../../../../src/main/infra/agent/channel";
+} from "../../../src/shared/search/protocol";
+import type { AgentChannel } from "../../../src/main/infra/agent/channel";
 
-const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
+const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 
 const goAvailable = spawnSync("go", ["version"]).status === 0;
 

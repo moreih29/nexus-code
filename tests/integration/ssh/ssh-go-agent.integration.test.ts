@@ -1,13 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import net from "node:net";
-import { SshFsProvider } from "../../../../src/main/features/fs/bridge/ssh-provider";
+import { SshFsProvider } from "../../../src/main/features/fs/bridge/ssh-provider";
 import {
   LOCAL_AGENT_DIST_DIR,
   ensureRemoteAgent,
-} from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
-import { createSshChannel } from "../../../../src/main/infra/agent/ssh/channel";
-import { spawnNodeBackedPty } from "./node-pty-spawn";
+} from "../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
+import { createSshChannel } from "../../../src/main/infra/agent/ssh/channel";
+import { spawnNodeBackedPty } from "./_helpers/node-pty-spawn";
 
 const FIXTURE_HOST = "127.0.0.1";
 const FIXTURE_PORT = 2223;

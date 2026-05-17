@@ -5,8 +5,8 @@ import { describe, expect, it, mock } from "bun:test";
 import {
   buildHistoryCommitMenuItems,
   type HistoryCommitMenuActions,
-} from "../../../../../../src/renderer/components/files/git/history/commit-menu";
-import type { LogEntry } from "../../../../../../src/shared/git/types";
+} from "../../../../../../../src/renderer/components/files/git/history/commit-menu";
+import type { LogEntry } from "../../../../../../../src/shared/git/types";
 
 const entry: LogEntry = {
   sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

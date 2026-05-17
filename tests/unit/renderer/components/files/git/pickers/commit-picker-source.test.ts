@@ -5,8 +5,8 @@ import { describe, expect, it, mock } from "bun:test";
 import {
   type CommitPickItem,
   createCommitPickerSource,
-} from "../../../../../../src/renderer/components/files/git/commit/picker-source";
-import type { LogEntry } from "../../../../../../src/shared/git/types";
+} from "../../../../../../../src/renderer/components/files/git/commit/picker-source";
+import type { LogEntry } from "../../../../../../../src/shared/git/types";
 
 const commit: LogEntry = {
   sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

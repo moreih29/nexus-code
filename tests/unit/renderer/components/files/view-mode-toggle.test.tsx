@@ -19,7 +19,7 @@ import {
   ViewModeToggle,
   computeNextViewMode,
   computeNextCompact,
-} from "../../../../../../src/renderer/components/files/view-mode-toggle";
+} from "../../../../../src/renderer/components/files/view-mode-toggle";
 
 // ---------------------------------------------------------------------------
 // (a-1) aria-pressed reflects viewMode correctly

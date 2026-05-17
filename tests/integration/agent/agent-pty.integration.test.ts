@@ -3,12 +3,12 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { startAgentPtyHost } from "../../../../src/main/features/pty/agent-host";
-import type { PtyHostHandle } from "../../../../src/main/features/pty/types";
-import type { AgentChannel } from "../../../../src/main/infra/agent/channel";
-import { createLocalChannel } from "../../../../src/main/infra/agent/channel/local-channel";
+import { startAgentPtyHost } from "../../../src/main/features/pty/agent-host";
+import type { PtyHostHandle } from "../../../src/main/features/pty/types";
+import type { AgentChannel } from "../../../src/main/infra/agent/channel";
+import { createLocalChannel } from "../../../src/main/infra/agent/channel/local-channel";
 
-const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
+const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const HIGH_WATERMARK_BYTES = 100_000;
 const LOW_WATERMARK_BYTES = 5_000;

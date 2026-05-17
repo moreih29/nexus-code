@@ -5,8 +5,8 @@ import { describe, expect, it, mock } from "bun:test";
 import {
   createRefPickerSource,
   type RefPickItem,
-} from "../../../../../../src/renderer/components/files/git/pickers/ref-picker-source";
-import type { BranchList, LogEntry, Tag } from "../../../../../../src/shared/git/types";
+} from "../../../../../../../src/renderer/components/files/git/pickers/ref-picker-source";
+import type { BranchList, LogEntry, Tag } from "../../../../../../../src/shared/git/types";
 
 const workspaceId = "ws-ref-picker";
 

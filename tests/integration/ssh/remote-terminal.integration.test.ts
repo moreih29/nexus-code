@@ -11,7 +11,7 @@ import type { AgentChannel } from "../../../src/main/infra/agent/channel";
 import { createSshChannel } from "../../../src/main/infra/agent/ssh/channel";
 import { ensureRemoteAgent } from "../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
 import { AgentManifestSchema } from "../../../src/shared/agent/manifest";
-import { spawnNodeBackedPty } from "../main/agent/node-pty-spawn";
+import { spawnNodeBackedPty } from "./_helpers/node-pty-spawn";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const MEMORY_PATH = path.join(REPO_ROOT, ".nexus", "memory", "empirical-ssh-remote-terminal.md");

@@ -3,9 +3,9 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { AgentBackedProvider } from "../../../../src/main/features/fs/bridge/provider";
-import { GitRegistry } from "../../../../src/main/features/git/domain/registry";
-import { registerGitChannel } from "../../../../src/main/features/git/ipc";
+import type { AgentBackedProvider } from "../../src/main/features/fs/bridge/provider";
+import { GitRegistry } from "../../src/main/features/git/domain/registry";
+import { registerGitChannel } from "../../src/main/features/git/ipc";
 import {
   GIT_CANCEL_METHOD,
   GIT_COMMIT_DETAIL_METHOD,
@@ -15,17 +15,17 @@ import {
   GIT_RUN_METHOD,
   GIT_STATUS_METHOD,
   GIT_STREAM_METHOD,
-} from "../../../../src/shared/git/protocol";
-import { DEFAULT_GIT_PANEL_STATE, type GitStatus } from "../../../../src/shared/git/types";
-import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
+} from "../../src/shared/git/protocol";
+import { DEFAULT_GIT_PANEL_STATE, type GitStatus } from "../../src/shared/git/types";
+import type { WorkspaceMeta } from "../../src/shared/types/workspace";
 import {
   createIpcPair,
   installWindowForPair,
   resetInMemoryIpc,
   setupInMemoryRouter,
   waitFor,
-} from "../../../helpers/ipc-pair";
-import { localSemanticExecutor } from "../../../unit/main/git/helpers/local-semantic-executor";
+} from "../helpers/ipc-pair";
+import { localSemanticExecutor } from "../unit/main/git/helpers/local-semantic-executor";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174022";
 const gitOnPath = findGitOnPath();

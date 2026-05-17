@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 import * as React from "react";
-import type { LogEntry } from "../../../../../../src/shared/git/types";
+import type { LogEntry } from "../../../../../../../src/shared/git/types";
 
 const HISTORY_ROW_HEIGHT_PX = 24;
 const DEFAULT_CLIENT_HEIGHT_PX = 72;
@@ -73,7 +73,7 @@ mock.module("@tanstack/react-virtual", () => ({
 }));
 
 const { HistoryList } = await import(
-  "../../../../../../src/renderer/components/files/git/history/list"
+  "../../../../../../../src/renderer/components/files/git/history/list"
 );
 
 type HistoryListProps = Parameters<typeof HistoryList>[0];

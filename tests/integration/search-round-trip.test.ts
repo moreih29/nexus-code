@@ -1,22 +1,32 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { StreamContext } from "../../../../src/main/infra/ipc-router";
+import type { StreamContext } from "../../src/main/infra/ipc-router";
 import {
   EMPTY_SEARCH_OPTIONS,
   type SearchOptions,
   useSearchStore,
-} from "../../../../src/renderer/state/stores/search";
-import type { FileMatch, SearchComplete } from "../../../../src/shared/search/types";
-import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
+} from "../../src/renderer/state/stores/search";
+import type { FileMatch, SearchComplete } from "../../src/shared/search/types";
+import type { WorkspaceMeta } from "../../src/shared/types/workspace";
 import {
   createIpcPair,
   installWindowForPair,
+  mockGetAllWebContents,
+  mockIpcMain,
   resetInMemoryIpc,
   setupInMemoryRouter,
   waitFor,
-} from "../../../helpers/ipc-pair";
+} from "../helpers/ipc-pair";
+
+// Re-establish the electron mock in case a sibling test file in the same bun
+// worker has overwritten it (mock.module persists across files in a worker).
+mock.module("electron", () => ({
+  ipcMain: mockIpcMain,
+  webContents: { getAllWebContents: mockGetAllWebContents },
+  shell: { showItemInFolder: mock((_path: string) => {}) },
+}));
 
 const WS_A = "123e4567-e89b-12d3-a456-426614174001";
 const WS_B = "123e4567-e89b-12d3-a456-426614174002";
@@ -220,7 +230,7 @@ describe("renderer search round-trip", () => {
 
 async function registerRealSearch(workspaces: { id: string; rootPath: string }[]): Promise<void> {
   const router = await setupInMemoryRouter();
-  const { searchTextStream } = await import("../../../../src/main/features/search");
+  const { searchTextStream } = await import("../../src/main/features/search");
   const providers = new Map(
     workspaces.map(({ id, rootPath }) => [id, makeTestSearchProvider(rootPath)] as const),
   );

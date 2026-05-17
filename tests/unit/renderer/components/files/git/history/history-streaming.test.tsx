@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 import * as React from "react";
-import type { LogEntry } from "../../../../../../src/shared/git/types";
+import type { LogEntry } from "../../../../../../../src/shared/git/types";
 
 type LogStreamArgs = {
   workspaceId?: string;
@@ -47,47 +47,52 @@ const ipcStreamMock = mock((channel: string, method: string, args: LogStreamArgs
   };
 });
 
-mock.module("../../../../../../src/renderer/ipc/client", () => ({
+mock.module("../../../../../../../src/renderer/ipc/client", () => ({
   ipcCall: ipcCallMock,
   ipcListen: mock(() => () => {}),
   ipcStream: ipcStreamMock,
 }));
 
-mock.module("../../../../../../src/renderer/state/stores/git", () => ({
+mock.module("../../../../../../../src/renderer/state/stores/git", () => ({
   useGitStore: (selector: (state: MockGitStoreState) => unknown) => selector(mockGitStoreState),
 }));
 
-mock.module("../../../../../../src/renderer/state/operations/tabs", () => ({
+mock.module("../../../../../../../src/renderer/state/operations/tabs", () => ({
   openOrRevealCommitTab: mock((workspaceId: string, sha: string) => {
     openCommitCalls.push({ workspaceId, sha });
     return { groupId: "group-1", tabId: "tab-1" };
   }),
 }));
 
-mock.module("../../../../../../src/renderer/components/files/git/branch/picker", () => ({
-  BranchPicker: () => null,
+mock.module("../../../../../../../src/renderer/components/files/git/history/ref-switcher", () => ({
+  HistoryRefSwitcher: () => null,
 }));
 
-mock.module("../../../../../../src/renderer/components/files/git/history/list", () => ({
+mock.module("../../../../../../../src/renderer/components/files/git/history/list", () => ({
   HistoryList: (props: MockHistoryListProps) => {
     lastHistoryListProps = props;
     return React.createElement("section", { "aria-label": "mock history list" });
   },
 }));
 
+const realCommitMenu = await import(
+  "../../../../../../../src/renderer/components/files/git/history/commit-menu"
+);
+
 mock.module(
-  "../../../../../../src/renderer/components/files/git/history/commit-menu",
+  "../../../../../../../src/renderer/components/files/git/history/commit-menu",
   () => ({
+    ...realCommitMenu,
     HistoryCommitMenu: () => null,
   }),
 );
 
-mock.module("../../../../../../src/renderer/components/files/git/history/ref-chip", () => ({
+mock.module("../../../../../../../src/renderer/components/files/git/history/ref-chip", () => ({
   RefChipList: () => null,
 }));
 
 const { HistoryPanel } = await import(
-  "../../../../../../src/renderer/components/files/git/history/panel"
+  "../../../../../../../src/renderer/components/files/git/history/panel"
 );
 
 type MockBranchInfo = {

@@ -8,7 +8,7 @@ import {
   type BranchDeleteRequest,
   buildBranchDeleteDialogView,
   confirmBranchDelete,
-} from "../../../../../../src/renderer/components/files/git/branch/picker";
+} from "../../../../../../../src/renderer/components/files/git/branch/picker";
 
 describe("BranchPicker delete confirmation flow", () => {
   it("deletes a fully merged local branch without force and closes the request", async () => {

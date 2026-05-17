@@ -33,10 +33,10 @@ import fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { createLocalChannel } from "../../../../src/main/infra/agent/channel/local-channel";
-import type { AgentChannel } from "../../../../src/main/infra/agent/channel";
+import { createLocalChannel } from "../../../src/main/infra/agent/channel/local-channel";
+import type { AgentChannel } from "../../../src/main/infra/agent/channel";
 
-const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
+const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 
 // Locate typescript-language-server under node_modules/.bin.
 const LSP_BIN_PATH = path.join(REPO_ROOT, "node_modules", ".bin", "typescript-language-server");

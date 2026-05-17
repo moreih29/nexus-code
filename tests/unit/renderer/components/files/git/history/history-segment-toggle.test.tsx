@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { HistorySegmentToggle } from "../../../../../../src/renderer/components/files/git/history/segment-toggle";
+import { HistorySegmentToggle } from "../../../../../../../src/renderer/components/files/git/history/segment-toggle";
 
 describe("HistorySegmentToggle", () => {
   it("renders Changes and History tabs with persisted selection reflected", () => {
