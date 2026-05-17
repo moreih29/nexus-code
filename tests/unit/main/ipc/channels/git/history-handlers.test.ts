@@ -2,8 +2,8 @@
  * Scenario tests for History IPC handlers.
  */
 import { describe, expect, test } from "bun:test";
-import type { GitError } from "../../../../../../src/main/features/git/domain/error";
 import type { GitRegistry } from "../../../../../../src/main/features/git/domain/registry";
+import { isIpcGitErrorResult } from "../../../../../../src/shared/git/error-ipc";
 import {
   checkoutDetachedHandler,
   commitDetailHandler,
@@ -85,13 +85,16 @@ describe("git history IPC handlers", () => {
   });
 
   test("non-repository workspaces surface typed not-repo", async () => {
+    // Per T4 Result-contract migration, GitError outcomes are returned as
+    // IpcGitErrorResult envelopes rather than thrown, so the handler resolves.
     const registry = {
       getOrDetect: async () => null,
     } as unknown as GitRegistry;
 
-    await expect(
-      commitDetailHandler(registry)({ workspaceId: WORKSPACE_ID, sha: "abc123" }),
-    ).rejects.toMatchObject({ kind: "not-repo" } satisfies Partial<GitError>);
+    const result = await commitDetailHandler(registry)({ workspaceId: WORKSPACE_ID, sha: "abc123" });
+    expect(isIpcGitErrorResult(result)).toBe(true);
+    // @ts-expect-error — narrowed by isIpcGitErrorResult check above
+    expect(result.kind).toBe("not-repo");
   });
 });
 

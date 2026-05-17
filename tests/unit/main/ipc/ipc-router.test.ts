@@ -20,6 +20,7 @@ mock.module("electron", () => ({
 
 import { z } from "zod";
 import { broadcast, register, setupRouter, validateArgs } from "../../../../src/main/infra/ipc-router";
+import { ipcErr, ipcOk } from "../../../../src/shared/ipc/result";
 
 // Wire up the handler by calling setupRouter() once
 setupRouter();
@@ -116,6 +117,58 @@ describe("ipc router — ping/pong round trip", () => {
 
     resolveCall?.("done");
     await expect(pending).resolves.toBe("done");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// IpcResult envelope passthrough
+// ---------------------------------------------------------------------------
+
+describe("ipc router — IpcResult passthrough", () => {
+  test("handler returning ipcOk envelope is forwarded as-is (ok=true preserved)", async () => {
+    register("result-ok-test", {
+      call: {
+        doWork: (_args: unknown) => ipcOk({ done: true }),
+      },
+      listen: {},
+    });
+
+    const handler = getIpcCallHandler();
+    const result = await handler({}, "result-ok-test", "doWork", undefined);
+    // The router must not re-wrap or transform the envelope.
+    expect((result as Record<string, unknown>)["ok"]).toBe(true);
+    expect((result as Record<string, unknown>)["value"]).toEqual({ done: true });
+  });
+
+  test("handler returning ipcErr envelope is forwarded as-is (ok=false + kind preserved)", async () => {
+    register("result-err-test", {
+      call: {
+        findItem: (_args: unknown) => ipcErr("not-found", "Item missing"),
+      },
+      listen: {},
+    });
+
+    const handler = getIpcCallHandler();
+    const result = await handler({}, "result-err-test", "findItem", undefined);
+    expect((result as Record<string, unknown>)["ok"]).toBe(false);
+    expect((result as Record<string, unknown>)["kind"]).toBe("not-found");
+    expect((result as Record<string, unknown>)["message"]).toBe("Item missing");
+  });
+
+  test("handler throwing still rejects (bug path unchanged)", async () => {
+    register("result-throw-test", {
+      call: {
+        buggy: (_args: unknown) => {
+          throw new Error("unexpected bug");
+        },
+      },
+      listen: {},
+    });
+
+    const handler = getIpcCallHandler();
+    await expect(handler({}, "result-throw-test", "buggy", undefined)).rejects.toThrow(
+      "unexpected bug",
+    );
   });
 });
 

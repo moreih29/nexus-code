@@ -4,6 +4,7 @@ import path from "node:path";
 import { ipcContract } from "../../../shared/ipc/contract";
 import type { SshErrorCode } from "../../../shared/ssh/errors";
 import { SshErrorCodeSchema } from "../../../shared/ssh/errors";
+import { AuthCancelledError } from "../../infra/agent/ssh/auth-prompt";
 import { parseSshConfig, type SshConfigHost } from "./config";
 import {
   BROWSE_MAX_ENTRIES,
@@ -19,6 +20,7 @@ import type { SshAuthPromptHandler } from "../../infra/agent/ssh/auth-pty";
 import { register, validateArgs } from "../../infra/ipc-router";
 import type { DirEntry } from "../../../shared/fs/types";
 import { DirEntrySchema } from "../../../shared/fs/types";
+import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 
 const c = ipcContract.ssh.call;
 
@@ -55,7 +57,11 @@ export function registerSshBrowseHandlers(
   register("ssh", {
     call: {
       listConfigHosts: listConfigHostsHandler(),
-      openBrowseSession: openBrowseSessionHandler(registry, promptHandler),
+      // openBrowseSession is migrated to the T1 IpcResult contract so auth
+      // cancellation arrives at the renderer as ipcErr("cancelled") — the
+      // router passes the envelope silently without logging, and the
+      // renderer uses ipcCallResult to branch on result.kind.
+      openBrowseSession: openBrowseSessionResultHandler(registry, promptHandler),
       browseSession: browseSessionHandler(registry),
       closeBrowseSession: closeBrowseSessionHandler(registry),
     },
@@ -216,6 +222,42 @@ export function openBrowseSessionHandler(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Result-contract wrappers for browse-session handlers (T1 migration)
+// ---------------------------------------------------------------------------
+
+/**
+ * Wraps openBrowseSessionHandler with the T1 IpcResult contract so auth
+ * cancellation is returned as ipcErr("cancelled") instead of throwing —
+ * keeping Electron's unhandled-handler log silent for expected user actions.
+ * Auth failures surface as ipcErr("auth-failed") for UI display.
+ */
+export function openBrowseSessionResultHandler(
+  registry: SshBrowseSessionRegistry,
+  promptHandler: SshAuthPromptHandler,
+  bootstrap?: (
+    options: EnsureRemoteAgentOptions,
+  ) => ReturnType<typeof ensureRemoteAgent>,
+): (args: unknown) => Promise<ReturnType<typeof ipcOk> | ReturnType<typeof ipcErr>> {
+  const inner = openBrowseSessionHandler(registry, promptHandler, bootstrap);
+  return async (args: unknown) => {
+    try {
+      const result = await inner(args);
+      return ipcOk(result);
+    } catch (error) {
+      if (isAuthCancellation(error)) {
+        return ipcErr("cancelled", "SSH authentication cancelled");
+      }
+      const code = sshErrorCodeFromError(error);
+      if (code) {
+        return ipcErr("auth-failed", messageForSshErrorCode(code), { code });
+      }
+      // Unexpected bug — rethrow so the router logs it.
+      throw error;
+    }
+  };
+}
+
 /**
  * Wraps the bootstrap dispose callback into the SshControlMaster interface
  * so the registry can call dispose() uniformly.
@@ -320,10 +362,31 @@ function closeBrowseSessionStub(): (args: unknown) => void {
 // ---------------------------------------------------------------------------
 
 /**
+ * Walks the error cause chain to detect AuthCancelledError at any depth.
+ * User cancellation is a normal control-flow outcome, not a failure, so the
+ * caller must treat it differently from genuine authentication failures.
+ */
+function isAuthCancellation(error: unknown): boolean {
+  if (error instanceof AuthCancelledError) return true;
+  if (error instanceof Error && error.cause !== undefined) {
+    return isAuthCancellation(error.cause);
+  }
+  return false;
+}
+
+/**
  * Maps arbitrary errors from the agent channel or bootstrap to a typed SSH
  * error with a sanitized message. Raw stderr is never forwarded.
+ *
+ * User-initiated cancellation (AuthCancelledError anywhere in the cause chain)
+ * is returned as ssh.auth-cancelled — no console.error, since it is expected.
+ * Truly unmapped errors are still logged for diagnosability.
  */
 function mapToBrowseError(error: unknown): Error {
+  if (isAuthCancellation(error)) {
+    // Cancellation is a normal outcome — no noise in the console.
+    return createSshErrorObject("ssh.auth-cancelled");
+  }
   const code = sshErrorCodeFromError(error) ?? "ssh.unknown";
   if (code === "ssh.unknown") {
     // The renderer only ever sees the sanitized code. Log the raw cause to
@@ -353,6 +416,8 @@ function messageForSshErrorCode(code: SshErrorCode): string {
       return "SSH connection failed";
     case "ssh.auth-failed":
       return "SSH authentication failed";
+    case "ssh.auth-cancelled":
+      return "SSH authentication cancelled";
     case "ssh.session-expired":
       return "SSH browse session expired";
     case "server.spawn-failed":

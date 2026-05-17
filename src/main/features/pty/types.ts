@@ -11,4 +11,13 @@ export interface PtyHostHandle {
   on: (event: string, cb: EventCallback) => () => void;
   isAlive: () => boolean;
   dispose: () => void;
+  /**
+   * Terminates all active PTY sessions for the given workspace.
+   * Called by `WorkspaceManager.remove()` before the workspace context is
+   * deleted, so sessions are closed on the main side without any renderer
+   * IPC round-trip. This prevents the renderer's post-removal `pty.kill`
+   * calls from reaching a now-missing context and producing spurious
+   * "workspace not found" errors.
+   */
+  closeWorkspaceSessions: (workspaceId: string) => void;
 }

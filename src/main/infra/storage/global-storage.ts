@@ -16,7 +16,9 @@ import { applyMigrations, type SqliteDb } from "./migrations";
 /** Non-secret cap for recent (non-favorite) rows in each entry-point table. */
 const ENTRY_POINT_RECENT_CAP = 20;
 
-export interface FolderBookmark {
+/** Local folder bookmark (abs_path on the host machine). */
+export interface LocalFolderBookmark {
+  kind: "local";
   id: string;
   absPath: string;
   label: string | null;
@@ -24,6 +26,20 @@ export interface FolderBookmark {
   lastUsedAt: number;
   createdAt: number;
 }
+
+/** SSH remote folder bookmark — linked to a connection_profiles row. */
+export interface SshFolderBookmark {
+  kind: "ssh";
+  id: string;
+  absPath: string;
+  connectionProfileId: string;
+  label: string | null;
+  favorite: boolean;
+  lastUsedAt: number;
+  createdAt: number;
+}
+
+export type FolderBookmark = LocalFolderBookmark | SshFolderBookmark;
 
 export interface ConnectionProfile {
   id: string;
@@ -43,6 +59,8 @@ export interface ConnectionProfile {
 interface FolderBookmarkRow {
   id: string;
   abs_path: string;
+  kind: string;
+  connection_profile_id: string | null;
   label: string | null;
   favorite: number;
   last_used_at: number;
@@ -62,8 +80,12 @@ interface ConnectionProfileRow {
   created_at: number;
 }
 
-function rowToFolderBookmark(row: FolderBookmarkRow): FolderBookmark {
-  return {
+/**
+ * Converts a database row to a FolderBookmark discriminated union value.
+ * Returns null for ssh rows that are missing connection_profile_id (damaged rows).
+ */
+function rowToFolderBookmark(row: FolderBookmarkRow): FolderBookmark | null {
+  const base = {
     id: row.id,
     absPath: row.abs_path,
     label: row.label,
@@ -71,6 +93,16 @@ function rowToFolderBookmark(row: FolderBookmarkRow): FolderBookmark {
     lastUsedAt: row.last_used_at,
     createdAt: row.created_at,
   };
+
+  if (row.kind === "ssh") {
+    if (!row.connection_profile_id) {
+      // Damaged row: ssh kind without a connection_profile_id — exclude from results.
+      return null;
+    }
+    return { kind: "ssh", connectionProfileId: row.connection_profile_id, ...base };
+  }
+
+  return { kind: "local", ...base };
 }
 
 function rowToConnectionProfile(row: ConnectionProfileRow): ConnectionProfile {
@@ -252,47 +284,88 @@ export class GlobalStorage {
   // folder_bookmarks
   // -------------------------------------------------------------------------
 
+  /**
+   * Returns all folder bookmarks ordered by recency. SSH bookmarks whose
+   * linked connection_profiles row has been deleted are excluded (orphan hiding).
+   */
   listFolderBookmarks(): FolderBookmark[] {
     const rows = this.db
       .prepare(
-        `SELECT * FROM folder_bookmarks ORDER BY favorite DESC, last_used_at DESC`,
+        `SELECT b.*
+         FROM folder_bookmarks b
+         LEFT JOIN connection_profiles p ON b.connection_profile_id = p.id
+         WHERE b.kind = 'local' OR p.id IS NOT NULL
+         ORDER BY b.favorite DESC, b.last_used_at DESC`,
       )
       .all() as FolderBookmarkRow[];
-    return rows.map(rowToFolderBookmark);
+    return rows.map(rowToFolderBookmark).filter((b): b is FolderBookmark => b !== null);
   }
 
   /**
-   * Upsert a folder bookmark by its natural key (abs_path).
-   * Updates last_used_at on conflict. Evicts oldest non-favorite rows beyond
-   * ENTRY_POINT_RECENT_CAP in the same transaction.
+   * Upsert a folder bookmark by its natural key (local: abs_path; ssh: connection_profile_id +
+   * abs_path). Updates last_used_at on conflict. Evicts the oldest non-favorite, non-orphan rows
+   * beyond ENTRY_POINT_RECENT_CAP in the same transaction.
+   *
+   * The conflict target predicate matches each partial UNIQUE index so that SQLite
+   * can route the conflict correctly without triggering a PK violation on the
+   * unrelated variant's index.
    */
   recordFolderBookmark(params: {
     id: string;
     absPath: string;
     label?: string | null;
+    kind?: "local" | "ssh";
+    connectionProfileId?: string;
   }): void {
     const now = Date.now();
     const db = this.db;
+    const kind = params.kind ?? "local";
 
     // better-sqlite3 exposes .transaction(); the SqliteDb interface used in
     // tests (bun:sqlite Database) also exposes .transaction() with the same
     // synchronous semantics, so this cast is safe in both runtimes.
     const txn = (db as unknown as { transaction: (fn: () => void) => () => void }).transaction(
       () => {
-        db.prepare(
-          `INSERT INTO folder_bookmarks (id, abs_path, label, favorite, last_used_at, created_at)
-           VALUES (?, ?, ?, 0, ?, ?)
-           ON CONFLICT (abs_path) DO UPDATE SET last_used_at = excluded.last_used_at`,
-        ).run(params.id, params.absPath, params.label ?? null, now, now);
+        if (kind === "ssh") {
+          // SSH variant — conflict target is the partial index on (connection_profile_id, abs_path).
+          db.prepare(
+            `INSERT INTO folder_bookmarks
+               (id, abs_path, kind, connection_profile_id, label, favorite, last_used_at, created_at)
+             VALUES (?, ?, 'ssh', ?, ?, 0, ?, ?)
+             ON CONFLICT (connection_profile_id, abs_path) WHERE kind = 'ssh'
+               DO UPDATE SET last_used_at = excluded.last_used_at`,
+          ).run(
+            params.id,
+            params.absPath,
+            params.connectionProfileId ?? null,
+            params.label ?? null,
+            now,
+            now,
+          );
+        } else {
+          // Local variant — conflict target is the partial index on (abs_path).
+          db.prepare(
+            `INSERT INTO folder_bookmarks
+               (id, abs_path, kind, connection_profile_id, label, favorite, last_used_at, created_at)
+             VALUES (?, ?, 'local', NULL, ?, 0, ?, ?)
+             ON CONFLICT (abs_path) WHERE kind = 'local'
+               DO UPDATE SET last_used_at = excluded.last_used_at`,
+          ).run(params.id, params.absPath, params.label ?? null, now, now);
+        }
 
-        // Evict non-favorite rows beyond the cap (oldest first).
+        // Evict non-favorite, non-orphan rows beyond the cap (oldest first).
+        // The orphan filter mirrors listFolderBookmarks so that hidden ssh rows
+        // do not occupy eviction cap slots and cause the visible list to shrink.
         db.prepare(
           `DELETE FROM folder_bookmarks
            WHERE favorite = 0
              AND id NOT IN (
-               SELECT id FROM folder_bookmarks
-               WHERE favorite = 0
-               ORDER BY last_used_at DESC
+               SELECT b.id
+               FROM folder_bookmarks b
+               LEFT JOIN connection_profiles p ON b.connection_profile_id = p.id
+               WHERE (b.kind = 'local' OR p.id IS NOT NULL)
+                 AND b.favorite = 0
+               ORDER BY b.last_used_at DESC
                LIMIT ?
              )`,
         ).run(ENTRY_POINT_RECENT_CAP);

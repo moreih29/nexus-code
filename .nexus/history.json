@@ -15547,6 +15547,454 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-17T08:27:31.358Z",
+      "branch": "feat/add-workspace-modal-redesign",
+      "plan": {
+        "id": 50,
+        "topic": "Add Workspace 모달 UI 재설계 + 원격 북마크 데이터 모델 확장",
+        "issues": [
+          {
+            "id": 1,
+            "title": "모달 셸 재편: local/ssh 탭 제거, 우상단 X 버튼 추가, Cancel 풋터 제거, 단일 메인 뷰 + 서브뷰 라우팅 구조",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "탭리스 단일 뷰 방향 승인(launcher 멘탈모델 부합). 조건: ← Back은 top-left·SSH 서브뷰 ②③단계만 노출, X Close는 top-right 코너 — 반대 코너 배치로 오발 방지(같이 두면 red-flag). 둘 다 size-11(44px), aria-label \"Back\"/\"Close\". Esc는 모달 전체 닫기 유지. 스테일 탭 장치(WorkspaceTab/LAST_TAB_KEY/role=tablist/TAB_* id) 숨김 아닌 완전 제거 — 안 그러면 dead aria-controls/tabpanel로 스크린리더 깨짐. 계약 위반 fix(blocker): dialog content를 surface.floating.bg/border로, overlay bg-black/40→surface.floating.scrim(순흑 리터럴 §11 위반), focus-visible:ring-1→≥2px state.focus.ring, 잉여 shadow-none 제거.",
+                "recorded_at": "2026-05-17T07:38:15.115Z",
+                "agent_id": "a1f8dff417194c2aa"
+              },
+              {
+                "role": "architect",
+                "summary": "모달 2,142줄은 이미 뷰별 컴포넌트로 분해돼 있으나 한 파일에 공존, 상태 머신 암묵적(tab×sshView + connectPhase/addPhase 분산, 콜백 끌어올리기 8개). 권고: 이번 사이클은 add-workspace/ 디렉터리로 파일 분할(순수 구조 변경, behavioral change 0)만 — 루트/local-list/ssh-connection-list/ssh-new-connection/ssh-directory-picker/ssh-helpers/types. 순수 헬퍼는 이미 export·테스트 중이라 경로 갱신만으로 안전. reducer 기반 DialogView discriminated union 전환은 구조+행위 혼재 방지 위해 별도 후속 PR로 분리(Tidy First). 라우터 라이브러리 도입은 과잉으로 기각.",
+                "recorded_at": "2026-05-17T07:38:21.251Z",
+                "agent_id": "a18c97f6ff47be72e"
+              }
+            ],
+            "decision": "탭리스 단일 뷰 + 명시적 닫기/뒤로 컨트롤로 재편한다.\n\n**선택안:**\n- local/ssh 탭 장치(WorkspaceTab 타입, LAST_TAB_KEY, role=\"tablist\"/\"tabpanel\", TAB_* id, handleTabChange, sessionStorage 복원)를 숨김이 아니라 **완전 제거**. 잔존 시 dead aria-controls 참조로 스크린리더가 깨지므로(designer 위험 지적) 부분 비활성화는 불가.\n- 우상단 코너에 X Close 버튼 신설(aria-label=\"Close\", size-11=44px, focus ring ≥2px). 좌상단에 ← Back(aria-label=\"Back\", size-11) — SSH 서브뷰 ②새연결·③디렉토리 단계에서만 노출, ①서버목록·메인뷰엔 미노출. 두 컨트롤은 반대 코너 배치(인접 시 오발 red-flag). Esc/오버레이 클릭은 모달 전체 닫기로 유지.\n- Cancel 버튼 제거. 풋터는 뷰별 primary action만 — 메인뷰 풋터 없음, ②새연결=Connect, ③디렉토리=Add Workspace.\n- 뷰 라우팅: 이번 사이클은 add-workspace/ 디렉터리로 **파일 분할**(순수 구조 변경)만 — add-workspace-dialog.tsx(루트+헤더/풋터/ViewBody), local-list-view.tsx, ssh-connection-list-view.tsx, ssh-new-connection-view.tsx, ssh-directory-picker-view.tsx, ssh-helpers.ts, types.ts. 상태 차원은 tab 제거 후 4개 뷰(main-list / ssh-server-list / ssh-new-connection / ssh-directory-picker)로 정리.\n- 디자인 계약 fix(blocker): dialog content를 surface.floating.bg/border, overlay bg-black/40→surface.floating.scrim(순흑 리터럴 §11 위반), focus-visible:ring-1→≥2px state.focus.ring, 잉여 shadow-none 제거.\n\n**기각 대안:** (1) reducer 기반 DialogView discriminated union 전면 전환 — architect 권고대로 구조+행위 변경이 한 PR에 혼재(Tidy First 위반), 별도 후속 PR로 분리. (2) 탭 장치 숨김만 — dead aria 참조 잔존. (3) 라우터 라이브러리 도입 — 모달 내 4뷰엔 과잉.\n\n**가정:** reducer화는 후속 PR 전제. 이번 사이클은 분할 + tab 차원 제거까지만."
+          },
+          {
+            "id": 2,
+            "title": "메인 뷰 레이아웃: [Open Folder]/[Connect via SSH] 액션 버튼 행 + FAVORITES/RECENT 통합 목록, 로컬/원격 아이콘 구분 행, 빈 상태",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "액션 버튼 행: 두 버튼 동등·둘 다 secondary(ghost/outline) — 목록이 80% 경로의 primary 표면이므로 어느 것도 filled primary 금지(B안 'Open Folder primary' 기각: 로컬 우위 근거 없음). flex-1, gap space-3, 아이콘 FolderOpen/Server, 라벨 끝 '…'. 워크스페이스 행: 선행 아이콘 Folder(로컬)/Server(원격) — 기존 Monitor 제거(Server로 통일). 이름=appUiSm/surface.floating.fg, 경로=appMicro/editor.text.muted(현재 둘 다 app-ui-sm이라 행이 납작 — 한 단계 위계 복원). 원격 경로 user@host:/path: host는 중간생략(JS truncator 필요, CSS 불가), path는 끝 truncate+min-w-0 flex-1(식별 꼬리 보존), 포트22 생략, full 문자열 title 툴팁. 즐겨찾기 행엔 trailing 슬롯에 상시 저채도 Star(editor.text.muted) + hover 시 star/trash. 빈 상태: 공용 EmptyState 컴포넌트(src/renderer/components/ui/empty-state.tsx) 재사용, tone status, 아이콘 FolderPlus, \"No workspaces yet\"/\"Open a folder or connect via SSH to get started.\", CTA 없음(액션 행이 이미 CTA). 섹션은 카드 래핑 금지 — flat section + appLabel 헤딩(tracking-[2.4px] 중복 제거, 역할이 자간 소유).",
+                "recorded_at": "2026-05-17T07:38:31.641Z",
+                "agent_id": "a1f8dff417194c2aa"
+              }
+            ],
+            "decision": "메인 뷰는 액션 버튼 행 + FAVORITES/RECENT 통합 목록으로 구성하며, 목록을 primary 표면으로 둔다.\n\n**선택안:**\n- 액션 버튼 행: [FolderOpen] \"Open Folder…\" / [Server] \"Connect via SSH…\" 두 버튼을 동등 비중·둘 다 secondary(ghost/outline 계열) 처리. 목록이 80% 사용 경로이므로 어느 버튼도 filled primary로 두지 않음. 좌우 나란히, 각 flex-1, gap=space-3(8px), 버튼 높이는 기존 size=\"sm\" geometry. 라벨 끝 '…'로 추가 단계 신호.\n- 섹션: FAVORITES / RECENT를 flat <section> + appLabel uppercase 헤딩(카드 래핑 금지 — 'every block as a card' anti-pattern). RECENT 기본 5개 + \"Show N more\" 토글.\n- 워크스페이스 행: 선행 아이콘 Folder(로컬)/Server(원격). 이름 줄=appUiSm·surface.floating.fg, 경로 줄=appMicro·editor.text.muted(현재 두 줄 모두 app-ui-sm이라 위계 납작 — 한 단계 드롭 복원). 원격 경로 표기 user@host:/path(포트22 생략), host는 중간 생략(JS truncator — CSS 중간생략 불가), path는 끝 truncate+min-w-0 flex-1(식별 꼬리 보존), 행에 full 문자열 title 툴팁. trailing 슬롯: 즐겨찾기 행엔 상시 저채도 Star(editor.text.muted at rest), hover/focus-within 시 Star/Trash 액션(size-11).\n- 빈 상태: 공용 EmptyState 컴포넌트(src/renderer/components/ui/empty-state.tsx) 재사용, tone=\"status\", 아이콘 FolderPlus, 제목 \"No workspaces yet\", 설명 \"Open a folder or connect via SSH to get started.\", CTA 없음(액션 행이 이미 CTA — 중복 버튼은 redundant friction).\n- 계약 fix: text-app-label 옆 tracking-[2.4px] 제거(역할이 자간 소유 §5), 행 py-1.5(6px)→py-2(8px), size-3.5(14px 금지값)→size-4(16px).\n\n**기각 대안:** (1) \"Open Folder\" primary + SSH secondary — 로컬이 기본 목적지라는 1인 사용자 근거 없음, SSH 중심 사용자 편향. (2) 원격 경로 단일 합성 문자열 끝-truncate — 식별성 높은 path 꼬리를 먼저 잘라 정확히 잘못된 끝을 자름. (3) 섹션 카드 래핑 — anti-pattern.\n\n**가정:** 중간생략 truncator 공용 유틸 유무는 구현 시 확인, 없으면 ssh-helpers.ts에 신설."
+          },
+          {
+            "id": 3,
+            "title": "SSH 서브뷰 3단계 흐름: 저장 서버 목록 → 새 연결 폼 → 디렉토리 선택, 헤더 ←/X 동작 및 세션 정리",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "SSH 서브뷰 3단계 흐름 승인 — drill-down으로 ←를 '한 단계 위'로 읽음. 단계 ①서버목록에는 ← 없음(SSH 루트) X만, ②③에 ← 노출. ①은 'New Connection' 항목이 항상 마지막 행으로 있어 진짜 blank 아님 — 그 위에 EmptyState(아이콘 Server, \"No saved connections\"/\"Add a connection to browse its folders.\"). 디렉토리 빈 폴더도 EmptyState(아이콘 Folder, \"This folder is empty.\"). 로딩: LoaderCircle은 state.loading.indicator 색 + 반드시 텍스트 라벨 동반(\"Connecting…\"/\"Loading connections…\"/\"Adding…\"), 리스트 로딩은 Skeleton 행 유지(스피너보다 우수). 에러(CRITICAL): destructive/60·/10 리터럴 전부 제거 → state.error.bg+state.error.border(1px hairline)+state.error.fg+선행 AlertCircle = 색 외 3채널(§7 redundant encoding). 행별 재연결 실패는 행 아래 부착 strip(state.error.bg, AlertCircle, appMicro) + 실패 행 좌측 state.error.border. IPC raw error.message 노출 금지 — DNS/auth/timeout 분류를 복구 문구로 휴먼화, 미상은 일반 폴백. 재연결 실패 시 'Open connection settings'로 해당 프로필 prefill한 new-connection 전이(막다른 길 회피).",
+                "recorded_at": "2026-05-17T07:38:41.548Z",
+                "agent_id": "a1f8dff417194c2aa"
+              }
+            ],
+            "decision": "SSH 서브뷰는 ①서버목록 → ②새연결 폼 → ③디렉토리 선택의 3단계 drill-down으로 구성한다.\n\n**선택안:**\n- ① 서버목록: 저장된 connectionProfile 행 + 항상 마지막에 \"New Connection\" 진입 행. 헤더는 X만(SSH 루트 — ← 없음). 비었으면 New Connection 행 위에 EmptyState(아이콘 Server, \"No saved connections\" / \"Add a connection to browse its folders.\"). 연결 행 선행 아이콘은 Server로 통일(기존 Monitor 제거 — 동일 개념 2형태 §3 위반).\n- ② 새연결 폼: Host / Name(optional) / Port / Identity file 입력 + Connect 버튼. 헤더 ←(①로) + X. 재연결 실패 폴백 진입 시 해당 프로필 prefill.\n- ③ 디렉토리 선택: 경로 바, 폴더 목록(파일은 dim·비활성), Add Workspace 버튼. 헤더 ←(①로, 세션 정리) + X. 빈 폴더는 EmptyState(아이콘 Folder, \"This folder is empty.\").\n- 로딩: LoaderCircle은 state.loading.indicator 색 + 반드시 텍스트 라벨 동반(\"Connecting…\"/\"Loading connections…\"/\"Adding…\"). 리스트 로딩은 Skeleton 행 유지(스피너 단독보다 우수).\n- 에러(CRITICAL redundant encoding): destructive/60·/10 리터럴 전부 제거 → state.error.bg + state.error.border(1px hairline) + state.error.fg + 선행 AlertCircle 아이콘 = 색 외 3채널. 행별 재연결 실패는 행 아래 부착 strip(state.error.bg, AlertCircle, appMicro) + 실패 행 좌측 state.error.border.\n- 에러 문구 휴먼화: IPC raw error.message 직접 노출 금지. DNS/auth/timeout 분류를 원인+복구 문구로 매핑(\"Couldn't connect to host. Check the address and your network, then retry.\"), 미상 오류만 일반 폴백. 재연결 실패 배너에 \"Open connection settings\" 액션 → 해당 프로필 prefill한 ②새연결 전이(막다른 길 회피).\n\n**기각 대안:** (1) ①서버목록에도 ← 노출 — SSH 루트라 뒤로 갈 상위 없음, 혼동. (2) 에러 색 단독 표현 — WCAG §1.4.1 위반. (3) raw error.message 노출 — 복구 경로 없는 기술 문구.\n\n**가정:** 에러 분류 매핑은 기존 SshErrorCode(ssh.connect-failed/auth-failed/session-expired 등) 타입을 활용."
+          },
+          {
+            "id": 4,
+            "title": "원격 북마크 데이터 모델 확장: folder_bookmarks 스키마에 kind/connectionProfileId/remotePath 추가, 마이그레이션, IPC 스키마, 고아 북마크 처리, 원격 워크스페이스 생성·클릭 재연결 흐름",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "migration v5: folder_bookmarks에 kind TEXT NOT NULL DEFAULT 'local'(=ADD COLUMN이 곧 백필, UPDATE 루프 불필요) + connection_profile_id TEXT NULL. abs_path 단독 UNIQUE DROP → partial UNIQUE 2개: local (abs_path) WHERE kind='local', ssh (connection_profile_id, abs_path) WHERE kind='ssh'. recency 인덱스 유지. connection_profile_id는 느슨한 참조(FK 아님) — entry-point 무-FK 분리 원칙 유지, '고아=숨김'을 cascade가 빼앗지 못하게. 별도 remote_bookmarks 테이블/abs_path 합성키 기각. FolderBookmark 타입은 z.discriminatedUnion(\"kind\",[local,ssh]) — WorkspaceLocation 패턴 미러, 소비자 non-null 가드 제거. IPC: list/setFavorite/remove 인자 무변경, record만 z.union(local variant kind .default(\"local\")로 기존 LocalListView 호출부 무중단). 고아 처리(CRITICAL): cascade 아님 — list와 eviction 서브쿼리 양쪽에 LEFT JOIN connection_profiles ... WHERE kind='local' OR p.id IS NOT NULL 동일 필터. 한쪽만 고치면 숨겨진 고아가 RECENT_CAP 슬롯 점유해 보이는 recent<20 버그. partial-index upsert는 ON CONFLICT (cols) WHERE predicate 명시 필수(CRITICAL). 원격 생성: directory-picker create 성공 직후 folderBookmark.record(kind:ssh, connectionProfileId, absPath) — connectionProfileId는 SshBrowseSession에 실어 전달(이미 자리 있음). 원격 행 클릭: connectionProfile로 location 재구성 → sshBrowseSessionId 생략한 workspace.create 직접 호출(계약이 옵셔널 허용, 새 ControlMaster·인증은 main 책임) → 1-스텝. 실패 시 인라인 에러 + 프로필 편집 폴백, 북마크 미삭제. favorite 고아 영구 잔존은 알려진 한계로 수용(후속).",
+                "recorded_at": "2026-05-17T07:38:54.293Z",
+                "agent_id": "a18c97f6ff47be72e"
+              },
+              {
+                "role": "retrospective",
+                "summary": "사이클 종료 종합 — Add Workspace 모달 재설계 5태스크 전부 완료, tester 통합 검증 6/6 acceptance PASS. 원 요청 4개 항목 전부 충족: (1) Cancel 제거+우상단 X, (2) local/ssh 탭 제거+액션 버튼 2개, (3) 서버 목록 유지+연결 후 폴더 선택, (4) 원격 워크스페이스가 recent/favorites에 아이콘 구분+서버·경로 표시. 실행 중 plan 결정 이탈 없음. tester WARNING 1건(LocalListView SSH 재연결 실패 경로 raw error.message 노출)은 Lead가 humanizeSshError 적용으로 즉시 수정. 추가로 orphaned된 구 add-workspace-dialog.tsx re-export shim을 분할 정리 차원에서 제거(importer 0건 확인, tsc 클린). HOW 교차검토는 생략 — tester가 교차태스크 통합검증을 PASS로 마쳤고, 구현이 architect/designer 분석을 거친 plan #50 결정을 그대로 따랐으며 변경 반경이 add-workspace 모듈 + folder_bookmarks 데이터 모델로 한정(마이그레이션 무손실 검증)되어 아키텍처 모호성 미발생. 미해결/후속: (a) reducer 기반 DialogView union 전환은 issue 1 결정대로 후속 PR, (b) SSH 실서버 E2E는 환경 제약상 미검증(계약·mock 수준까지만), (c) 전체 스위트 선행 실패 20건은 commit aee4338 기원 기술부채로 본 사이클 범위 밖.",
+                "recorded_at": "2026-05-17T08:27:23.857Z"
+              }
+            ],
+            "decision": "folder_bookmarks를 discriminated-union 스키마로 확장해 원격 워크스페이스를 통합 recent/favorites에 수용한다.\n\n**선택안:**\n- migration v5: folder_bookmarks에 `kind TEXT NOT NULL DEFAULT 'local'`(ADD COLUMN의 DEFAULT가 곧 기존 행 백필 — UPDATE 루프 불필요, 무손실) + `connection_profile_id TEXT NULL` 추가. abs_path 단독 UNIQUE 인덱스 DROP → partial UNIQUE 2개: `(abs_path) WHERE kind='local'`, `(connection_profile_id, abs_path) WHERE kind='ssh'`. recency 인덱스 (favorite, last_used_at DESC)는 kind 무관 유지. 마이그레이션 함수에 hasColumn 가드 + 주석 필수.\n- connection_profile_id는 **느슨한 참조(FK 아님)**. 근거: entry-point 무-FK 분리 원칙 유지, '고아=숨김' 정책을 cascade가 DB 차원에서 빼앗지 못하게.\n- FolderBookmark 타입 = `z.discriminatedUnion(\"kind\", [local, ssh])` — WorkspaceLocation 패턴 미러, 소비자 non-null 가드 제거. ssh 행인데 connection_profile_id NULL인 손상 행은 safeParse 실패로 자연 제외.\n- IPC: list/setFavorite/remove 인자 무변경(반환 타입만 union 추종). record만 `z.union`([local variant: kind `.default(\"local\")`로 기존 LocalListView 호출부 무중단, ssh variant: connectionProfileId 필수]).\n- 고아 처리(CRITICAL): cascade 삭제 아님. list와 RECENT_CAP eviction 서브쿼리 **양쪽 모두**에 `LEFT JOIN connection_profiles p ON b.connection_profile_id=p.id WHERE b.kind='local' OR p.id IS NOT NULL` 동일 필터 적용. 한쪽만 고치면 숨겨진 고아가 cap 슬롯을 점유해 보이는 recent<20 버그. 고아는 cap 슬롯 미점유 → eviction 우선 대상으로 점진 정리.\n- partial-index upsert(CRITICAL): `recordFolderBookmark`는 kind로 분기, `ON CONFLICT (cols) WHERE <predicate>` 형태로 predicate 명시(누락 시 conflict 미매칭 → PK 위반).\n- 원격 생성 흐름: ③디렉토리 선택의 workspace.create 성공 직후 onWorkspaceCreated 이전에 `folderBookmark.record({kind:\"ssh\", id, connectionProfileId, absPath:currentPath})`. connectionProfileId는 ②새연결 connect 성공 시 connectionProfile.save로 얻어 SshBrowseSession에 실어 ③까지 전달(SshBrowseSession에 자리 존재). record 실패는 silent(워크스페이스 생성 우선).\n- 원격 행 클릭 흐름: connectionProfile로 location 재구성 {kind:\"ssh\", host, user, port, identityFile, authMode, remotePath:bookmark.absPath} → `sshBrowseSessionId` 생략한 workspace.create 직접 호출(계약이 옵셔널 허용 — main이 새 ControlMaster 열고 authMode대로 인증 처리, 모달 추가 작업 없음 → 1-스텝). 성공 시 record로 last_used_at 갱신. 실패 시 인라인 에러 + \"Open connection settings\" 폴백(이슈3), 북마크 미삭제.\n\n**기각 대안:** (1) 별도 remote_bookmarks 테이블 — 통합 목록이 매번 UNION+앱단 머지, eviction/cap 의미 분열. (2) abs_path UNIQUE 유지 + user@host:/path 합성키 — abs_path 의미 오염, host 변경 시 stale. (3) 진짜 FK + ON DELETE SET NULL — 소속 정보 소실, ssh partial UNIQUE (NULL,abs_path) 충돌. (4) ssh 행 클릭도 openBrowseSession→picker 경유 — 합의안('직접 오픈') 위반, 1클릭 일을 3뷰 우회.\n\n**가정/한계:** favorite인 고아 ssh 북마크는 eviction 면제로 영구 잔존 — 빈도 낮아 수용, 후속 정리 대상. 프로필 삭제 후 동일 (host,user,port) 재생성은 새 UUID라 기존 ssh 북마크 영구 고아 — 합의 범위상 수용."
+          }
+        ],
+        "research_summary": "현재 add-workspace-dialog.tsx(2,142줄 단일 파일)는 Radix Dialog 기반, local/ssh 탭 + 풋터(Cancel/Connect/Add) 구조. local 탭=Open Folder + folderBookmark 목록(favorites/recent), ssh 탭=connectionProfile 목록 → openBrowseSession → 디렉토리 선택. 닫기는 Esc/오버레이만(가시 X 버튼 없음). 스타일: Tailwind + design-tokens, 아이콘 lucide-react.\n\n데이터 계층(Explore 검증): folder_bookmarks 테이블(SQLite state.db)은 id/abs_path(UNIQUE)/label/favorite/last_used_at/created_at — 로컬 경로만. connection_profiles 테이블은 id(UUID)/label/host/user/port/identity_file/auth_mode/favorite/last_used_at, natural key (host,user,port). 두 테이블 간 FK 없음. workspace.create는 location 판별 유니온 {kind:\"local\",rootPath} | {kind:\"ssh\",host,user,port,remotePath,identityFile,configAlias,authMode} 이미 수용, sshBrowseSessionId로 인증된 ControlMaster 재사용. WorkspaceLocation은 이미 discriminated union — 북마크 계층도 동일 패턴 미러 가능. IPC 계약 정본: src/shared/ipc/contract.ts, 타입: src/shared/types/entry-points.ts(FolderBookmark/ConnectionProfile), workspace.ts. 마이그레이션: src/main/infra/storage/migrations.ts, 스토리지: global-storage.ts.\n\n사용자와 합의된 설계: 탭 제거→단일 메인 뷰(액션 버튼 2개 + FAVORITES/RECENT), SSH 서버 목록은 'Connect via SSH' 서브뷰 안에, 원격 워크스페이스도 recent/favorites에 아이콘 구분 표시(데이터 모델 확장 포함). 마이크로 결정 권고: 원격 행 클릭=재연결 후 직접 오픈, 고아 북마크=숨김, 원격 표기=user@host:/path(포트22 생략).",
+        "created_at": "2026-05-17T07:33:36.016Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "원격 북마크 데이터 모델 확장 (backend: 스키마·마이그레이션·IPC·스토리지)",
+          "status": "completed",
+          "context": "대상 파일: src/main/infra/storage/migrations.ts(스키마/마이그레이션), src/main/infra/storage/global-storage.ts(recordFolderBookmark/list/eviction ~라인 255-312), src/shared/types/entry-points.ts(FolderBookmark/ConnectionProfile zod 스키마), src/shared/ipc/contract.ts(folderBookmark 채널 ~라인 889-897), src/main/features/entry-points/ipc.ts(핸들러). 현행: folder_bookmarks는 id/abs_path(단독 UNIQUE)/label/favorite/last_used_at/created_at — 로컬 전용. connection_profiles는 id(UUID PK)/host/user/port 등, natural key (host,user,port). ENTRY_POINT_RECENT_CAP=20 비즐겨찾기 eviction. WorkspaceLocation은 이미 discriminated union. plan #50 issue 4 결정 참조.",
+          "acceptance": "1) 기존 로컬 북마크가 있는 state.db에 v5 마이그레이션 적용 시 데이터 무손실, 전 행 kind='local' 백필 확인. 2) folderBookmark.record로 kind='ssh' 북마크 저장/재저장(upsert) 시 partial UNIQUE 정상 동작, PK 위반 없음. 3) connectionProfile 삭제 후 해당 ssh 북마크가 folderBookmark.list 결과에서 제외(고아 숨김). 4) 고아 행이 RECENT_CAP eviction 슬롯을 점유하지 않아 보이는 recent 개수가 정상. 5) 기존 LocalListView의 record 호출(kind 미전달)이 컴파일·런타임 무중단. 6) tsc·기존 entry-points 테스트 통과.",
+          "approach": "migration v5 신설: folder_bookmarks에 `kind TEXT NOT NULL DEFAULT 'local'`(ADD COLUMN DEFAULT가 곧 기존 행 백필) + `connection_profile_id TEXT NULL` 추가. abs_path 단독 UNIQUE 인덱스 DROP → partial UNIQUE 2개: (abs_path) WHERE kind='local', (connection_profile_id, abs_path) WHERE kind='ssh'. recency 인덱스 유지. hasColumn 가드 + 함수 주석 필수. FolderBookmark zod 타입을 z.discriminatedUnion('kind',[local,ssh])로 — ssh variant는 connectionProfileId 필수. record IPC 인자는 z.union([local variant kind .default('local'), ssh variant]) — 기존 LocalListView 호출부 무중단. recordFolderBookmark는 kind 분기 + ON CONFLICT (cols) WHERE <predicate> 형태로 partial-index conflict target 명시. list 쿼리와 eviction 서브쿼리 양쪽에 LEFT JOIN connection_profiles ... WHERE kind='local' OR p.id IS NOT NULL 동일 고아 필터 적용. list/setFavorite/remove 인자는 무변경.",
+          "risk": "partial-index conflict target predicate 누락 시 upsert가 conflict를 못 잡아 PK 위반. eviction 서브쿼리에 고아 필터 누락 시 숨겨진 고아가 cap 슬롯 점유 → recent<20 버그. better-sqlite3의 ON CONFLICT WHERE 구문 지원 확인 필요.",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a32b58ca94a44b88d",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-17T07:41:18.337Z",
+          "result": {
+            "outcome": "success",
+            "summary": "migration v5 추가(folder_bookmarks에 kind/connection_profile_id 컬럼 + partial UNIQUE 인덱스 2개), FolderBookmarkSchema를 z.discriminatedUnion(local|ssh)로 전환, record IPC는 z.union(local variant kind 생략 호환), listFolderBookmarks와 eviction 서브쿼리 양쪽에 LEFT JOIN 고아 필터 적용. tsc 통과, 스토리지 122/122·entry-points 52/52 테스트 통과. contract.ts·entry-points/ipc.ts는 스키마 흐름으로 무변경.",
+            "artifacts": [
+              "src/main/infra/storage/migrations.ts",
+              "src/main/infra/storage/global-storage.ts",
+              "src/shared/types/entry-points.ts",
+              "tests/unit/main/storage/storage-entry-points.test.ts",
+              "tests/unit/main/storage/storage-global.test.ts"
+            ],
+            "recorded_at": "2026-05-17T07:57:45.562Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "모달 파일 분할 + 셸 재편 (탭 제거, X/← 헤더, 풋터, 계약 토큰 fix)",
+          "status": "completed",
+          "context": "대상: src/renderer/components/workspace/add-workspace-dialog.tsx(2,142줄 단일 파일, Radix Dialog 기반). 이미 뷰별 컴포넌트로 내부 분해됨(LocalListView/SshConnectionListView/SshNewConnectionView/SshDirectoryPickerView + DialogHeader/ViewBody/FadeView/DialogFooter). 순수 헬퍼(parseSshDestination 등)는 export되어 별도 테스트 중. .nexus/context/design.md 디자인 계약 준수 필수. plan #50 issue 1 결정 참조.",
+          "acceptance": "1) add-workspace/ 디렉터리 분할 후 tsc·기존 ssh-helper 테스트 통과(import 경로 갱신 포함). 2) 모달에 local/ssh 탭이 더 이상 없고 WorkspaceTab/TAB_* 잔존 코드·dead aria-controls 없음(grep 확인). 3) 우상단 X 클릭 시 모달 닫힘, Esc·오버레이 클릭도 닫힘. 4) ← Back은 ssh 서브뷰 ②③에서만 보이고 한 단계 뒤로 이동. 5) Cancel 버튼 부재. 6) 색 리터럴(bg-black/40, destructive/NN) 및 focus ring 1px 잔존 없음(grep 확인).",
+          "approach": "src/renderer/components/workspace/add-workspace/ 디렉터리로 분할: add-workspace-dialog.tsx(루트+상태머신+DialogHeader/Footer/ViewBody), local-list-view.tsx, ssh-connection-list-view.tsx, ssh-new-connection-view.tsx, ssh-directory-picker-view.tsx, ssh-helpers.ts(순수 함수 — 테스트 import 경로 갱신), types.ts. 이 단계는 behavioral change 0의 순수 구조 이동 우선. 그 다음 셸 재편: 탭 장치 완전 제거(WorkspaceTab 타입, LAST_TAB_KEY, role=tablist/tabpanel, TAB_* id, handleTabChange, sessionStorage 복원 — 숨김 아닌 삭제). 상태 차원을 4뷰(main-list/ssh-server-list/ssh-new-connection/ssh-directory-picker)로 정리. 우상단 X Close 버튼 신설(aria-label=Close, size-11), 좌상단 ← Back(aria-label=Back, size-11 — ssh-new-connection·ssh-directory-picker 단계만 노출). Cancel 버튼 제거, 풋터는 뷰별 primary action만. 계약 fix: dialog content→surface.floating.bg/border, overlay bg-black/40→surface.floating.scrim, focus-visible:ring-1→≥2px state.focus.ring, 잉여 shadow-none 제거.",
+          "risk": "2,142줄 분할 중 import 순환·누락. 탭 제거 시 dead aria 참조 잔존하면 스크린리더 깨짐. 구조 변경과 셸 재편이 한 태스크라 diff가 큼 — 분할(구조)을 먼저 커밋 가능한 단위로 끊을 것.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a363f8b7e822c8d77",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-17T07:41:36.737Z",
+          "result": {
+            "outcome": "success",
+            "summary": "2,142줄 모달을 add-workspace/ 디렉터리 8파일로 분할(types/ssh-helpers/4뷰/루트/index), 구 파일은 re-export shim 유지. 탭 장치 전부 제거(WorkspaceTab/LAST_TAB_KEY/handleTabChange/tablist·tabpanel ARIA), 상태를 4뷰 ModalView 머신으로 재정리. size-11 X Close(상시)·← Back(ssh-new-connection/ssh-directory-picker만) 헤더 추가, Cancel 제거, 풋터는 primary action 있을 때만. 계약 fix: overlay→--floating-scrim, focus ring→ring-2+offset, 에러 배너→--state-error-* semantic var(component.ts에 CSS var 매핑 신설). tsc 통과.",
+            "artifacts": [
+              "src/renderer/components/workspace/add-workspace/",
+              "src/renderer/components/workspace/add-workspace-dialog.tsx",
+              "src/renderer/app.tsx",
+              "src/shared/design-tokens/component.ts"
+            ],
+            "recorded_at": "2026-05-17T07:57:51.902Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "메인 뷰 재구현 + 원격 행 클릭 재연결 흐름",
+          "status": "completed",
+          "context": "분할된 add-workspace/local-list-view.tsx(통합 목록 뷰로 재역할) 및 루트 add-workspace-dialog.tsx. 공용 컴포넌트 재사용: src/renderer/components/ui/empty-state.tsx. folderBookmark.list가 task 1 이후 local/ssh union 반환. connectionProfile.list로 ssh 행의 서버 정보 조인. workspace.create는 sshBrowseSessionId 옵셔널 — 생략 시 main이 새 ControlMaster·인증 처리. plan #50 issue 2 + issue 4(렌더러 원격 클릭 부분) 결정 참조. design.md 계약 준수.",
+          "acceptance": "1) 메인 뷰에 액션 버튼 2개 + FAVORITES/RECENT 통합 목록 렌더, 로컬/원격 행이 Folder/Server 아이콘으로 구분. 2) 원격 행 2줄에 이름 + user@host:/path(포트22 생략) 표시, 긴 host 중간생략·긴 path 끝생략, 전체 문자열 title 툴팁. 3) 원격 행 클릭 시 openBrowseSession 없이 워크스페이스 생성·오픈(1-스텝), 성공 시 recent 갱신. 4) 재연결 실패 시 모달 안 닫히고 인라인 에러 + \"Open connection settings\"로 prefill된 새연결 폼 전이. 5) recent/favorites/서버 모두 없을 때 EmptyState 노출. 6) tsc 통과, 4pt 외 스페이싱·14px 아이콘·색 리터럴 없음.",
+          "approach": "메인 뷰: 상단 액션 버튼 행 [FolderOpen]\"Open Folder…\" / [Server]\"Connect via SSH…\" — 둘 다 secondary, flex-1, gap space-3. FAVORITES/RECENT를 flat <section>+appLabel 헤딩(카드 래핑 금지, tracking-[2.4px] 제거), RECENT 기본 5개+\"Show N more\". 워크스페이스 행: 선행 아이콘 Folder(로컬)/Server(원격), 이름 줄 appUiSm·surface.floating.fg, 경로 줄 appMicro·editor.text.muted. 원격 경로 user@host:/path(포트22 생략) — host 중간생략 truncator(ssh-helpers.ts에 신설, 공용 유틸 유무 먼저 확인), path 끝-truncate+min-w-0 flex-1, 행에 full title 툴팁. 즐겨찾기 행 trailing에 상시 저채도 Star + hover/focus-within Star/Trash(size-11). 빈 상태: EmptyState tone=status, 아이콘 FolderPlus, \"No workspaces yet\"/\"Open a folder or connect via SSH to get started.\". 행 패딩 py-2(8px), 아이콘 size-4. 원격 행 클릭: bookmark.connectionProfileId로 connectionProfile 조회→location {kind:\"ssh\",host,user,port,identityFile,authMode,remotePath:absPath} 재구성→sshBrowseSessionId 생략한 workspace.create 직접 호출→성공 시 folderBookmark.record로 last_used_at 갱신→onWorkspaceCreated. 실패 시 인라인 에러(state.error.* + AlertCircle) + \"Open connection settings\" 폴백(해당 프로필 prefill한 ssh-new-connection 전이).",
+          "risk": "중간생략 truncator로 host 충돌(prod-api-01/02류)이 모호해질 수 있음 — title 툴팁으로 보완. 원격 클릭→create 재연결이 새 ControlMaster라 지연 가능 — 로딩 라벨 필수. 루트 add-workspace-dialog.tsx 라우팅을 task 4와 함께 건드리므로 task 4보다 먼저 완료.",
+          "plan_issue": 2,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a363f8b7e822c8d77",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-17T07:42:03.800Z",
+          "result": {
+            "outcome": "success",
+            "summary": "local-list-view.tsx를 로컬+원격 통합 메인 뷰로 전면 재작성 — FolderBookmark(local|ssh union)와 ConnectionProfile 목록 병렬 로드, 원격 행 클릭은 sshBrowseSessionId 생략한 workspace.create ssh로 1-스텝 재연결. 액션 버튼 행 2개(outline), 행 Folder/Server 아이콘 2줄 레이아웃(host 중간생략+path 끝생략), EmptyState, 재연결 실패 시 ErrorBanner+'Open connection settings' prefill 전이. ssh-helpers에 formatRemotePath/middleTruncate 신설, component.ts에 --editor-text-muted var 추가. tsc 통과.",
+            "artifacts": [
+              "src/renderer/components/workspace/add-workspace/local-list-view.tsx",
+              "src/renderer/components/workspace/add-workspace/types.ts",
+              "src/renderer/components/workspace/add-workspace/ssh-helpers.ts",
+              "src/renderer/components/workspace/add-workspace/ssh-new-connection-view.tsx",
+              "src/renderer/components/workspace/add-workspace/add-workspace-dialog.tsx",
+              "src/shared/design-tokens/component.ts"
+            ],
+            "recorded_at": "2026-05-17T08:04:30.709Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "SSH 서브뷰 3단계 재구현 + 원격 워크스페이스 생성 시 북마크 기록",
+          "status": "completed",
+          "context": "분할된 add-workspace/ssh-connection-list-view.tsx·ssh-new-connection-view.tsx·ssh-directory-picker-view.tsx 및 루트 라우팅. 기존 SshErrorCode(ssh.connect-failed/auth-failed/session-expired/server.spawn-failed 등) 타입 활용. ssh.openBrowseSession→{sessionId,initialPath}. workspace.create는 sshBrowseSessionId로 인증된 ControlMaster 재사용. SshBrowseSession에 connectionProfileId 필드 자리 존재. 공용 EmptyState 재사용. plan #50 issue 3 + issue 4(원격 생성 record 부분) 결정 참조. design.md 계약 준수.",
+          "acceptance": "1) Connect via SSH→①서버목록(저장 프로필 + New Connection 행) 노출, ①은 ← 없고 X만. 2) New Connection→②폼→Connect→③디렉토리 선택 흐름 동작, ②③ 헤더에 ←(한 단계 뒤로)+X 공존. 3) ③에서 폴더 선택·Add Workspace 시 워크스페이스 생성되고 ssh 북마크가 recent에 기록됨(다음 모달 오픈 시 메인 뷰 RECENT에 표시). 4) 연결 실패 시 휴먼 문구 에러 배너(아이콘+border+색 = 3채널), raw error.message 미노출. 5) 빈 서버목록·빈 폴더에 EmptyState. 6) 로딩 시 스피너+텍스트 라벨. 7) tsc 통과.",
+          "approach": "3단계 drill-down: ①서버목록 = connectionProfile 행(선행 아이콘 Server로 통일, Monitor 제거) + 항상 마지막에 \"New Connection\" 진입 행, 헤더 X만(← 없음), 빈 목록은 New Connection 행 위 EmptyState(아이콘 Server, \"No saved connections\"/\"Add a connection to browse its folders.\"). ②새연결 폼 = Host/Name/Port/Identity file + Connect, 헤더 ←(①로)+X, prefill 진입 지원. ③디렉토리 = 경로 바+폴더 목록(파일 dim)+Add Workspace, 헤더 ←(①로,세션정리)+X, 빈 폴더 EmptyState(아이콘 Folder, \"This folder is empty.\"). 로딩: LoaderCircle state.loading.indicator 색 + 텍스트 라벨 필수(\"Connecting…\"/\"Loading connections…\"/\"Adding…\"), 리스트 로딩 Skeleton 행. 에러: destructive/NN 리터럴 전부 제거→state.error.bg+state.error.border+state.error.fg+AlertCircle, 행별 재연결 실패는 행 아래 부착 strip+실패 행 좌측 state.error.border. 에러 휴먼화: raw error.message 노출 금지, SshErrorCode 분류를 원인+복구 문구로 매핑, 미상은 일반 폴백. ②connect 성공 시 connectionProfile.save로 얻은 id를 SshBrowseSession.connectionProfileId에 실어 ③까지 전달. ③Add Workspace 성공 직후(onWorkspaceCreated 이전) folderBookmark.record({kind:\"ssh\",id,connectionProfileId,absPath:currentPath}) — 실패는 silent.",
+          "risk": "루트 add-workspace-dialog.tsx 라우팅을 task 3와 공유 — task 3 완료 후 착수해 충돌 회피. SshBrowseSession에 connectionProfileId를 끝까지 전달하지 않으면 record가 connectionProfileId 누락으로 실패. 세션 정리(← 시 closeBrowseSession) 누락 시 채널 누수.",
+          "plan_issue": 3,
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a363f8b7e822c8d77",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-17T07:42:26.399Z",
+          "result": {
+            "outcome": "success",
+            "summary": "SSH 3서브뷰 재작성 — Monitor→Server 아이콘 전면 교체, humanizeSshError()로 전 에러 휴먼화(raw error.message 미노출), 빈 서버목록·빈 폴더 EmptyState, 에러 상태 redundant encoding(아이콘+border+bg+fg), connectionProfileId를 SshBrowseSession 경유 디렉토리 picker까지 전달, folderBookmark.record ssh variant를 onWorkspaceCreated 이전 호출. port 필드 인라인 검증까지 --state-error-* var로 전환. tsc 클린, 유닛 테스트 44/44 통과.",
+            "artifacts": [
+              "src/renderer/components/workspace/add-workspace/ssh-helpers.ts",
+              "src/renderer/components/workspace/add-workspace/types.ts",
+              "src/renderer/components/workspace/add-workspace/ssh-connection-list-view.tsx",
+              "src/renderer/components/workspace/add-workspace/ssh-new-connection-view.tsx",
+              "src/renderer/components/workspace/add-workspace/ssh-directory-picker-view.tsx"
+            ],
+            "recorded_at": "2026-05-17T08:12:13.581Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "통합 검증 — 마이그레이션·원격 워크스페이스 흐름·재설계 회귀·접근성 스모크",
+          "status": "completed",
+          "context": "task 1~4 완료 후 Add Workspace 모달 재설계 + 원격 북마크 데이터 모델 전체를 검증한다. plan #50 전 issue 결정이 검증 기준. design.md §7 redundant encoding·§10 접근성 게이트, .nexus/context/conventions.md 테스트 룰(라이브러리/스키마 보장 동작 재검증 금지, 상위 시나리오 부분집합 중복 금지) 준수.",
+          "acceptance": "1) v5 마이그레이션 데이터 무손실 + 백필 검증 통과. 2) 고아 ssh 북마크 숨김 + eviction 슬롯 미점유 검증 통과. 3) 원격 워크스페이스 생성→recent 표시→행 클릭 1-스텝 재연결 end-to-end 통과. 4) 재연결 실패 폴백 동작 확인. 5) 로컬 흐름 회귀 없음, dead aria-controls·탭 잔존 코드 없음. 6) 접근성 스모크(focus ring·aria-label·error 3채널) 통과. 7) tsc + 전체 테스트 스위트 그린. 발견 결함은 결함 리포트로 정리.",
+          "approach": "데이터 모델: 기존 로컬 북마크 보유 state.db에 v5 마이그레이션 적용→무손실·kind 백필 확인. ssh 북마크 record upsert 정상, connectionProfile 삭제 후 고아 ssh 북마크가 list·recent에서 사라지고 eviction cap 슬롯 미점유 확인. 흐름: Connect via SSH→새연결→디렉토리 선택→워크스페이스 생성→다음 모달 오픈 시 메인 RECENT에 원격 행 표시→원격 행 클릭→openBrowseSession 없이 1-스텝 재연결·오픈. 재연결 실패 시 인라인 에러+프로필 편집 폴백. 회귀: 탭 제거 후 로컬 Open Folder·favorites/recent·즐겨찾기 토글·삭제가 정상, dead aria 참조 없음. 접근성 스모크: X/← aria-label·focus ring ≥2px·에러 redundant encoding(아이콘+border+색) 확인. tsc·기존 테스트 스위트 통과.",
+          "risk": "Electron+SQLite 마이그레이션은 실DB 픽스처 없이 검증 어려움 — 임시 db 픽스처 필요. SSH 재연결 흐름은 실서버 없이 전체 검증 불가 — 가능 범위는 mock·계약 수준, 실연결은 한계로 명시.",
+          "plan_issue": 4,
+          "deps": [
+            1,
+            3,
+            4
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a82ef125eaf4bf7c0",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-17T07:42:47.927Z",
+          "result": {
+            "outcome": "success",
+            "summary": "통합 검증 PASS — 6개 acceptance 전부 충족. v5 마이그레이션 무손실·kind 백필(tester 작성 storage-v5-migration-tester.test.ts 15케이스), 고아 ssh 북마크 숨김+eviction 슬롯 미점유, partial UNIQUE upsert 정상, 탭 잔존·Monitor·색 리터럴 0건, 접근성(aria-label·ring-2·에러 3채널) 확인. 스토리지 137/137·add-workspace 44/44 통과, tsc 클린. WARNING 1건(LocalListView SSH 재연결 실패 경로 raw error.message 노출)은 Lead가 humanizeSshError 적용으로 즉시 수정·tsc 재확인. 전체 스위트 20건 실패는 T1-T4 이전 commit aee4338에서 기원한 선행 결함(stash 테스트로 확인, 범위 밖).",
+            "artifacts": [
+              "tests/unit/main/storage/storage-v5-migration-tester.test.ts",
+              "src/renderer/components/workspace/add-workspace/local-list-view.tsx"
+            ],
+            "recorded_at": "2026-05-17T08:26:21.346Z"
+          }
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-17T10:47:31.674Z",
+      "branch": "feat/add-workspace-modal-redesign",
+      "plan": {
+        "id": 51,
+        "topic": "워크스페이스 생명주기 근본 수정 — 원자적 생성, 종료 소유권 일원화, IPC 에러 계약 전 채널 표준화",
+        "issues": [
+          {
+            "id": 1,
+            "title": "원자적 워크스페이스 생성 — create와 연결 검증을 단일 트랜잭션으로 묶고 SSH 인증 실패/취소 시 보상 remove (버그2 근본 해결)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "버그2 근본 원인: WorkspaceManager.create(manager.ts:281-305)는 완전 동기 함수로 globalStorage.addWorkspace(:297)+workspaceStorage.openForWorkspace(:298)+contexts.set(:301)+broadcast 'changed'(:303)를 즉시 수행 — 이 시점까지 SSH 연결 0회 시도. SSH 인증은 activate→ensureProviderReady→ensureSshProviderReady→startSshProvider→sshBootstrap(:534)에서 처음. 취소 시 startSshProvider 에러처리(:548-551,587-600)는 채널/부트스트랩 리소스만 정리하고 워크스페이스 메타(context, globalStorage 레코드)는 의도적으로 미정리(부트스트랩 실패=재연결 가능 상태로 간주). 그 결과 '인증 한 번도 성공한 적 없는 워크스페이스'와 '연결됐다 끊긴 워크스페이스'가 구별 불가. 권고: 메인 측에서 create→ensureProviderReady를 단일 try/catch로 감싸는 원자적 경로(workspace.createAndConnect 단일 핸들러 또는 create의 SSH 옵션) 도입, 실패/취소 시 remove로 보상. 원자성 소유자를 WorkspaceManager로 명확화, 렌더러는 단일 호출. testSshHandler(workspace/ipc.ts:93-153)·openBrowseSession(ssh/ipc.ts:122-218)의 try/catch/finally 보상 패턴이 참고 모델. 기각: 렌더러가 activate reject 시 remove 호출하는 보상(architect A2) — 렌더러가 코디네이터인 한계, 진짜 경계 아님, B1 도입 시 폐기될 코드. 열린 질문: 검증 중 모달 닫힘 취소 신호를 CallContext.signal로 전파 가능한지 구현 시 확인.",
+                "recorded_at": "2026-05-17T09:28:41.847Z",
+                "agent_id": "ac3624738968d246c"
+              }
+            ],
+            "decision": "원자적 워크스페이스 생성을 메인 단일 경로로 도입하고, WorkspaceManager를 원자성 소유자로 명확화한다.\n\n**선택안 — validate-then-commit:**\n- 메인에 원자적 생성 경로(별도 핸들러 `workspace.createAndConnect` 권고 — 가산적이라 기존 `create` 무중단·점진 마이그레이션 가능). 렌더러(local-list-view reconnectSshBookmark, ssh-directory-picker, app.tsx)는 create+activate 2단계 호출 대신 이 단일 경로만 호출.\n- SSH 워크스페이스: 연결(ControlMaster 수립 + 인증)을 **워크스페이스 영속화·context 등록·broadcast 이전에** 수행. 인증 취소/실패 시 영속화·등록·broadcast가 일어나지 않았으므로 깨진 워크스페이스가 사이드바에 애초에 나타나지 않음. 수립된 ControlMaster는 실제 세션에서 재사용(openBrowseSession→create의 sshBrowseSessionId 재사용 메커니즘과 동일 원리). 디렉토리 피커 흐름은 이미 browse 세션으로 인증돼 있어 그 경로를 그대로 활용.\n- 로컬 워크스페이스: 연결 검증 불필요 — createAndConnect가 즉시 커밋.\n- 커밋(persist+context+broadcast) 이후 단계에서 실패가 발생하면 보상 `remove()`로 롤백(안전망). 즉 보상은 주 메커니즘이 아니라 커밋 후 잔여 실패 대비용.\n- 취소 신호는 기존 CallContext.signal을 활용(모달 닫힘 등). 인증 취소는 issue 3의 에러 계약상 'cancelled' 부류로 표면화 — 렌더러는 에러 배너 없이 조용히 종료.\n\n**기각 대안:** (1) persist-first + 보상 remove를 주 메커니즘으로 — 워크스페이스가 사이드바에 잠깐 나타났다 취소 시 사라지는 플리커 발생. 사용자가 명시적으로 '취소하면 워크스페이스가 생기지 말아야 한다'고 요구 → commit-after-connect만 충족. (2) 렌더러가 activate reject를 감지해 remove 호출(architect A2) — 렌더러가 트랜잭션 코디네이터 노릇, 진짜 경계 아님, 본 결정으로 폐기.\n\n**가정:** SSH 부트스트랩이 현재 activate(context 존재 전제)에 묶여 있어, 연결을 context 생성 전에 수행하려면 부트스트랩 로직을 context 비의존 형태로 분리해야 함 — 구현 시 manager.ts의 ensureSshProviderReady/startSshProvider 구조를 확인해 분리 가능 범위를 정한다. 분리가 과대하면 'context는 만들되 broadcast·영속화는 연결 성공 후'로 절충하되 broadcast 플리커는 반드시 제거."
+          },
+          {
+            "id": 2,
+            "title": "종료 트랜잭션 소유권 일원화 — WorkspaceManager.remove가 통지 전 PTY 세션을 선종료하고, 조회 실패가 정상인 경로의 not-found를 throw 아닌 no-op으로 (버그1 근본 해결)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "버그1 근본 원인: WorkspaceManager.remove(manager.ts:332-360)가 ctx.close()→contexts.delete(:338)→채널 dispose(:339-349)→broadcast 'removed'(:358) 순으로 메인이 다 지운 뒤 통지. 렌더러 workspace-cleanup.ts:48 리스너가 fan-out→tabs.ts:131 closeAllForWorkspace→killSession→pty.kill IPC. 메인 pty.kill 핸들러→agentHost.call('kill')→channelForWorkspace(agent-host.ts:130)→getAgentChannel(manager.ts:256)→requireContext(:269-275)가 이미 삭제된 context 조회해 throw→ipc:call까지 전파. teardown은 본질적으로 'PTY 세션 종료→채널 정리→context 제거→통지' 순서를 요구하나 메인 remove()는 PTY 세션 종료를 자기 책임으로 안 보고 렌더러 왕복에 위임 — 모순(채널은 직접 dispose하면서). 권고: (B2) remove()가 통지 전 PTY 세션 종료를 자기 책임으로 — AgentPtyHostHandle에 closeWorkspaceSessions(workspaceId) 추가, remove()가 context 삭제 전 호출, 렌더러 killSession fan-out은 멱등 no-op/제거. (A1) getAgentChannel/channelForWorkspace/pty.kill 경로는 not-found를 정상값으로 — tryGetAgentChannel(id):AgentChannel|null 추가, AgentPtyHostHandle.call의 write/resize/ack/kill은 채널 없으면 no-op(이미 disposed 경합을 같은 방식 처리 중 agent-host.ts:43-55), spawn만 throw 유지. requireContext가 정상 경합에 throw하는 게 WARNING — update/activate(throw)와 remove(silent return)의 비일관이 계약 부재 증거. 열린 질문: 메인 PTY 선종료가 before-quit·manager.close()(:204-226)와 코드 공유 가능한지 구현 시 확인. B2는 회귀 테스트 필수(탭 종료·워크스페이스 제거·앱 종료 경로).",
+                "recorded_at": "2026-05-17T09:28:52.067Z",
+                "agent_id": "ac3624738968d246c"
+              }
+            ],
+            "decision": "종료 트랜잭션의 소유권을 WorkspaceManager.remove()로 일원화하고, 조회 실패가 정상인 경로의 not-found를 no-op으로 만든다.\n\n**선택안:**\n- `WorkspaceManager.remove()`가 통지 *이전에* PTY 세션 종료를 자기 책임으로 수행. `AgentPtyHostHandle`에 `closeWorkspaceSessions(workspaceId)` 추가, `remove()`가 context 삭제 전에 호출. 종료 순서를 메인 단일 함수 안에서 보장: PTY 세션 종료 → 채널 dispose → context 삭제 → broadcast 'removed'. teardown이 메인↔렌더러 IPC 왕복에 의존하지 않게 됨.\n- 렌더러 workspace-cleanup의 pty.kill fan-out은 메인이 이미 종료했으므로 멱등 no-op화 또는 제거. 렌더러 측 다른 정리(탭 상태 등)는 유지.\n- not-found 정상화: `getAgentChannel`/`channelForWorkspace`/`pty.kill` 등 '조회 실패가 정상 경합 시나리오'인 경로는 throw하지 않게 — `WorkspaceManager`에 throw하지 않는 변종(`tryGetAgentChannel(id): AgentChannel | null`)을 `requireContext` 기반 `getAgentChannel`과 분리 추가. `AgentPtyHostHandle.call`의 write/resize/ack/kill은 채널이 없으면 no-op(이미 `disposed` 경합을 agent-host.ts:43-55에서 같은 방식으로 처리 중 — 일관). `spawn`만 throw 유지(존재하지 않는 워크스페이스에 spawn은 진짜 버그).\n- `requireContext`의 throw 자체는 update 등 진짜 필수 경로용으로 유지하되, '조회 실패가 정상'인 경로가 그것을 쓰지 않게 호출부를 교정.\n\n**기각 대안:** (1) `requireContext` throw 유지 + ipc:call 라우터에 not-found 특례 추가 — issue 3가 제거하려는 instanceof 특례 목록을 오히려 늘림, 종료 순서 문제(근본)는 미해결. (2) 렌더러가 teardown 순서를 계속 책임 — IPC 왕복 의존이 남아 PTY 외 다른 워크스페이스 스코프 리소스(LSP/watcher 등)에서 동일 not-found 경합 재발.\n\n**가정/리스크:** 메인 PTY 선종료 로직이 앱 종료(before-quit) 및 `WorkspaceManager.close()`(manager.ts:204-226) 경로와 코드를 공유할 수 있는지 구현 시 통합 검토 — 단일 워크스페이스 제거와 전체 종료가 같은 종료 루틴을 재사용하도록. 변경이 teardown 계약을 바꾸므로 탭 종료·워크스페이스 제거·앱 종료 3경로 회귀 테스트 필수."
+          },
+          {
+            "id": 3,
+            "title": "IPC 에러 계약 전 채널 표준화 — 예상된 실패를 판별 가능 Result로 반환·버그성 예외만 throw, ipc:call 라우터 instanceof 특례 목록 제거, 전 채널 점진 마이그레이션",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "현 ipc:call 핸들러(ipc-router/index.ts:180-219)는 에러를 4분기: AbortError→IPC_ABORT_SENTINEL, SSH 인증취소→IPC_ABORT_SENTINEL, GitError→wrapGitErrorAsCallResult, 그외→raw throw→Electron 로그. 이는 에러 계약이 아니라 '알려진 예외 3종 하드코딩 특례 목록' — 분류 비일관(1·2 sentinel, 3 별도 envelope, 나머지 throw), 새 예상실패마다 if 추가(SSH cancel이 그 패치였음, 버그1 not-found도 동일 증상이나 특례에 없어 로그). 근본 결함: 핸들러가 '예상된 실패(취소/이미닫힘/not-found/세션만료)'와 '버그성 예외(unknown channel/잘못된 args/진짜 크래시)'를 타입 수준에서 구분 못 함, 작성자 규칙 부재, 라우터가 사후 instanceof로 추측. IPC_ABORT_SENTINEL은 취소 하나만 표현 가능 — not-found/session-expired 등 구별 필요한 실패를 못 담음(GitError가 별도 envelope 가진 게 그 증거). 권고: 모든 ipc:call 핸들러가 두 부류로 끝나도록 계약 — 예상된 실패는 discriminated Result({ok:false,kind:'not-found'|'cancelled'|'session-expired'|...})로 반환(라우터 통과·무로그, 렌더러 ipcCall이 envelope 해제), 버그성 예외만 throw(라우터 로그=진짜 버그 불변식). testSshHandler가 이미 부분 구현 — 전역 표준 승격. 라우터 instanceof 특례 목록(AbortError/AuthCancelled/GitError 분기) 제거. 사용자 결정으로 전 채널 전면 적용 — 단 채널 단위 점진 마이그레이션으로 반경 통제, 회귀 위험 관리. 기각: 단발 if 추가 누적(현 구조 지속), 단일 sentinel 확장(구별 필요 실패 표현 불가).",
+                "recorded_at": "2026-05-17T09:29:04.483Z",
+                "agent_id": "ac3624738968d246c"
+              },
+              {
+                "role": "retrospective",
+                "summary": "사이클 종료 종합 — 워크스페이스 생명주기 근본 수정 5태스크 완료, tester 통합 검증 6/6 acceptance PASS. 두 사용자 버그 근본 해결: 버그1(닫을 때 'workspace not found')=종료 순서를 WorkspaceManager.remove() 단일 함수가 보장(PTY 세션→채널→context→broadcast) + not-found는 ipcOk no-op. 버그2(SSH 취소 후 깨진 워크스페이스 잔존)=createAndConnectSsh가 인증을 storage/context/broadcast 커밋 이전 수행, 취소 시 미등록. 재발 차단: IPC 에러 계약을 discriminated Result(예상된 실패는 ipcErr 반환, 버그만 throw)로 전 채널 표준화, 라우터 instanceof 특례 목록 완전 제거 — '라우터 로그=진짜 버그' 불변식 성립. 실행 중 plan #51 결정 이탈 없음. tester 결함: CRITICAL 0. WARNING 1(createAndConnectSsh의 미사용 signal 파라미터 + 오해 주석)과 INFO 1(T4가 orphan화한 IPC_ABORT_SENTINEL dead code)은 Lead가 사이클 내 직접 정리 — manager.ts signal 파라미터·주석 교정, client.ts 4개 감지부 제거, abort-sentinel.ts 및 전용 테스트 2파일 삭제, tsc·테스트(99/99) 재확인. HOW 교차검토 생략 — architect가 사전 분석에서 분해·반경을 정의했고 tester가 교차태스크 통합검증을 PASS로 마쳤으며 변경 반경이 워크스페이스 생명주기 + IPC 계층으로 한정. 미해결/후속: (a) LSP 채널은 withCancelDefault(취소 시 throw 안 함)라 라우터 로그 위험 없어 Result 미전환 — 일관성 차원 후속 정리 가능, 우선순위 낮음. (b) 실제 Electron 런타임·SSH 실서버 검증은 환경 제약상 코드경로·mock 수준까지만. (c) discriminated Result IPC 에러 계약은 재사용 패턴 — memory 등재 후보.",
+                "recorded_at": "2026-05-17T10:47:28.357Z"
+              }
+            ],
+            "decision": "ipc:call 에러 처리를 discriminated Result 계약으로 표준화하고, 전 채널에 점진 마이그레이션한다.\n\n**선택안:**\n- 계약: 모든 ipc:call 핸들러는 두 부류로 끝난다 — (a) **예상된 실패**는 판별 가능한 Result 객체로 *반환* (`{ ok: false, kind: \"not-found\" | \"cancelled\" | \"session-expired\" | \"auth-failed\" | ... }` 형태, 도메인별 추가 필드 허용), 라우터는 그대로 통과시키고 절대 로그하지 않음. (b) **버그성 예외**(unknown channel, 잘못된 args, 진짜 크래시)는 그대로 throw, 라우터가 로그. → \"로그가 찍힌다 = 진짜 버그\" 불변식 성립.\n- 공유 타입을 shared 레이어에 정의(Result envelope + kind 열거). 렌더러 `ipcCall`이 envelope을 해제해 호출부에 예상된 실패를 명시적으로 전달(throw가 아닌 값). `testSshHandler`(workspace/ipc.ts:19-21)의 `{ok:true}|{ok:false,code,message}` 패턴을 전역 표준으로 승격.\n- ipc:call 라우터 catch의 instanceof 특례 목록(AbortError/SSH AuthCancelled/GitError 분기)을 제거 — 기존 `IPC_ABORT_SENTINEL`/`wrapGitErrorAsCallResult`는 Result 계약의 한 형태로 흡수('cancelled' kind 등).\n- 마이그레이션은 채널 단위 점진: ① 기반(공유 타입 + 라우터 + 렌더러 ipcCall envelope 해제, 신구 공존 허용) → ② 핵심 채널(workspace/pty/ssh — issue 1·2가 만드는 not-found·cancelled가 이 채널을 통과) → ③ 나머지 전 채널. 각 단계 회귀 검증. 마이그레이션 미완료 채널은 기존 throw 경로를 한시 유지하되, 완료 시 라우터 특례 분기는 전부 제거.\n\n**기각 대안:** (1) 예상된 실패마다 라우터 catch에 instanceof if 추가(현행) — 누적 구조, SSH cancel 패치가 그 증거. (2) 단일 sentinel 확장 — sentinel 하나로는 not-found/session-expired 등 *구별이 필요한* 실패를 못 담음(GitError가 별도 envelope을 가진 게 그 증거).\n\n**가정:** 전 채널 적용은 사용자 명시 결정. 반경이 크므로 채널 단위로 쪼개 각 단계 검증하며, 신구 방식 공존을 마이그레이션 기간 한정 허용해 한 번에 깨지지 않게 한다."
+          }
+        ],
+        "research_summary": "architect 심층 분석(코드 file:line 검증) 완료. 두 버그(워크스페이스 닫을 때 'workspace not found' / SSH 비밀번호 취소했는데 워크스페이스 잔존)는 공통 뿌리: 워크스페이스 생명주기(생성·연결·종료)에 트랜잭션 경계가 없고 책임이 메인 5곳+렌더러에 분산, 단일 소유자 부재.\n\n버그1: WorkspaceManager.remove(manager.ts:332-360)가 context를 먼저 삭제(:338)하고 통지(:358) → 렌더러 workspace-cleanup fan-out이 IPC 왕복으로 뒤늦게 pty.kill 요청 → channelForWorkspace→getAgentChannel→requireContext(:269-275)가 이미 삭제된 context 조회해 throw. teardown 순서를 보장하는 주체 없음. requireContext가 정상 경합 시나리오(방금 닫힌 id)와 프로그래밍 버그를 동일 throw로 처리 — update/activate는 throw, remove는 silent return으로 비일관.\n\n버그2: WorkspaceManager.create(manager.ts:281-305)가 SSH 인증 시도 *이전에* globalStorage.addWorkspace(:297)+contexts.set(:301)+broadcast(:303)로 영속화·사이드바 등록 완료. SSH 인증은 한참 뒤 activate→ensureSshProviderReady→startSshProvider→sshBootstrap(:534)에서 처음 발생. 취소 시 AuthCancelledError로 startSshProvider가 채널만 정리(:548-551,587-600)하고 워크스페이스 메타는 미정리, app.tsx:104 .catch(()=>{})가 reject를 삼킴 → 깨진 워크스페이스 잔존. 원자적 생성 소유자 없음.\n\n공통 출구: 두 버그 모두 예상된 실패가 ipc:call 핸들러(ipc-router/index.ts:180-219)까지 raw throw로 도달해 Electron 스택 로그. 라우터는 AbortError/SSH-cancel/GitError를 instanceof 특례 목록으로 처리 — 새 예상 실패마다 if 추가하는 누적 구조. testSshHandler(workspace/ipc.ts:19-21)는 이미 {ok:true}|{ok:false,code,message} Result 패턴 부분 구현.\n\n사용자 결정: 단발 패치 아닌 근본 수정 3개 직행(architect의 A/B 스테이징 중 임시방편 A2는 폐기). IPC 에러 계약은 전 채널 전면 적용(사용자 명시 선택). 변경 반경 큰 만큼 채널 단위 점진 마이그레이션 + 강한 회귀 검증 필수. architect 미해결 질문 2건: B2의 메인 PTY 선종료가 before-quit/manager.close()와 코드 공유 가능한지, B1 검증 중 취소 신호를 CallContext.signal로 전파 가능한지 — 구현 시 확인.",
+        "created_at": "2026-05-17T09:28:22.895Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T1 — IPC 에러 계약 기반 구축 (공유 Result 타입 + 라우터 + 렌더러 ipcCall)",
+          "status": "completed",
+          "context": "plan #51 issue 3 결정. 현재 ipc:call 라우터(src/main/infra/ipc-router/index.ts:180-219)는 에러를 4분기: AbortError/SSH인증취소→IPC_ABORT_SENTINEL, GitError→wrapGitErrorAsCallResult, 그외→raw throw→Electron 'Error occurred in handler for ipc:call' 로그. testSshHandler(src/main/features/workspace/ipc.ts:19-21)가 {ok:true}|{ok:false,code,message} Result 패턴을 부분 구현 중 — 이를 전역 표준 모델로 삼는다. 렌더러 진입점은 src/renderer/ipc/client.ts의 ipcCall. 이 태스크는 후속 T2~T4가 채널을 마이그레이션할 토대다.",
+          "acceptance": "1) shared에 Result envelope 타입과 kind 열거가 정의되고 main/renderer 양쪽에서 import 가능. 2) ipc:call 라우터가 Result envelope 반환 핸들러를 무로그로 통과시키고, throw는 기존대로 로그. 3) 아직 마이그레이션 안 된 기존 채널(throw 방식)이 전부 무중단 — 기존 IPC_ABORT_SENTINEL/GitError 경로 동작 유지. 4) 렌더러 ipcCall이 envelope을 해제해 호출부에 전달하는 경로 동작. 5) tsc 통과, 기존 ipc-router 테스트 통과.",
+          "approach": "shared 레이어(src/shared/ipc 인근)에 discriminated Result envelope 타입 정의: 성공 `{ok:true, value}` / 예상된 실패 `{ok:false, kind: \"not-found\"|\"cancelled\"|\"session-expired\"|\"auth-failed\"|... , 도메인 추가필드 허용}`. kind 열거는 확장 가능하게. ipc:call 라우터를 신구 공존하도록 개정 — 핸들러가 Result envelope을 반환하면 그대로 통과(무로그), 일반 값을 반환하면 기존처럼 성공 래핑, throw하면 버그로 간주해 로그. 기존 IPC_ABORT_SENTINEL/wrapGitErrorAsCallResult는 Result 계약의 한 형태로 흡수하되, 아직 마이그레이션 안 된 채널 호환을 위해 instanceof 특례 분기는 이 태스크에서 제거하지 말고 유지(제거는 T4). 렌더러 ipcCall이 Result envelope을 인식해 호출부에 예상된 실패를 값으로 전달하는 경로 추가 — envelope 아닌 응답은 기존대로. 호출부 API는 점진 마이그레이션 가능하게 설계(envelope 해제 헬퍼 제공).",
+          "risk": "신구 공존 설계가 어설프면 envelope 형태와 일반 도메인 객체를 라우터가 혼동할 수 있음 — envelope에 명확한 판별 필드(예: 내부 brand 키) 필요. 렌더러 ipcCall 변경이 전 호출부에 영향 — 이 태스크는 하위호환 유지가 핵심.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ad6fe054ef0d49150",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-17T09:31:44.716Z",
+          "result": {
+            "outcome": "success",
+            "summary": "src/shared/ipc/result.ts 신설 — discriminated IpcResult envelope(brand 키 IPC_RESULT_BRAND, ipcOk/ipcErr 생성자, isIpcResult 가드). 라우터는 이미 핸들러 반환값을 투명 전달하므로 IpcResult가 무로그로 렌더러에 도달 — 구조 변경 불필. 렌더러 client.ts에 ipcCallResult/unwrapIpcResult 추가. 기존 IPC_ABORT_SENTINEL/GitError/AuthCancelled 특례 분기는 T4 제거용으로 보존. typecheck 클린, IPC 스위트 108 pass.",
+            "artifacts": [
+              "src/shared/ipc/result.ts",
+              "src/renderer/ipc/client.ts",
+              "tests/unit/shared/ipc-result.test.ts",
+              "tests/unit/main/ipc/ipc-router.test.ts"
+            ],
+            "recorded_at": "2026-05-17T09:40:26.486Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "T2 — 종료 트랜잭션 소유권 일원화 + workspace/pty 채널 Result 마이그레이션",
+          "status": "completed",
+          "context": "plan #51 issue 2 결정. 버그1: WorkspaceManager.remove(src/main/features/workspace/manager.ts:332-360)가 context를 먼저 삭제(:338)·통지(:358)하고, 렌더러 workspace-cleanup이 IPC 왕복으로 뒤늦게 pty.kill→channelForWorkspace(src/main/features/pty/agent-host.ts:130)→getAgentChannel→requireContext(:269-275) throw. 관련: agent-host.ts(call의 write/resize/ack/kill은 disposed 경합을 :43-55에서 no-op 처리 중), src/renderer/state/workspace-cleanup.ts, tabs.ts, manager.close()(:204-226). T1의 Result 계약 위에서 작업.",
+          "acceptance": "1) 워크스페이스를 닫아도 터미널에 'workspace not found' / 'Error occurred in handler for ipc:call' 스택 로그가 더는 안 뜸. 2) 종료 순서가 메인 remove() 단일 함수 안에서 보장(PTY 세션 종료→채널 dispose→context 삭제→broadcast), 렌더러 IPC 왕복 의존 제거. 3) 탭 종료·워크스페이스 제거·앱 종료 3경로에서 PTY 세션·채널 누수 없음. 4) workspace/pty 채널이 Result 계약을 사용, not-found는 throw 아닌 Result 반환. 5) tsc 통과, 관련 테스트(workspace/pty/agent-host/ipc-router) 통과.",
+          "approach": "(a) 종료 소유권: AgentPtyHostHandle에 closeWorkspaceSessions(workspaceId) 추가. WorkspaceManager.remove()가 context 삭제 *이전에* 이를 호출 — 순서를 PTY 세션 종료→채널 dispose→context 삭제→broadcast 'removed'로 메인 단일 함수 안에서 보장. 앱 종료(before-quit)·manager.close()가 같은 종료 루틴을 재사용할 수 있는지 확인해 통합(중복 종료 로직 방지). (b) 렌더러 workspace-cleanup의 pty.kill fan-out은 멱등 no-op화 또는 제거(메인이 이미 종료). 탭 상태 등 다른 정리는 유지. (c) not-found 정상화: WorkspaceManager에 tryGetAgentChannel(id):AgentChannel|null 추가(requireContext throw와 분리). AgentPtyHostHandle.call의 write/resize/ack/kill은 채널 없으면 no-op(기존 disposed 처리와 일관), spawn만 throw 유지. '조회 실패가 정상'인 호출부가 requireContext 경유 getAgentChannel을 안 쓰게 교정. (d) workspace·pty 채널 핸들러를 T1의 Result 계약으로 마이그레이션 — not-found 등 예상된 실패는 {ok:false,kind:\"not-found\"} 반환, 진짜 버그만 throw.",
+          "risk": "teardown 계약 변경 — 탭 종료·워크스페이스 제거·앱 종료 3경로 회귀 필수. 메인 PTY 선종료와 before-quit/manager.close() 통합을 잘못하면 이중 종료 또는 종료 누락. 렌더러 fan-out 제거가 PTY 외 다른 정리(LSP/watcher)까지 지우지 않도록 범위 한정.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ad6fe054ef0d49150",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-17T09:32:08.469Z",
+          "result": {
+            "outcome": "success",
+            "summary": "종료 순서를 WorkspaceManager.remove() 단일 함수 안에서 보장: ptySessionCloser(id)로 PTY 세션 선종료 → ctx.close()+channels.dispose() → contexts.delete() → broadcast removed. 순환의존은 setPtySessionCloser() setter로 해소(main/index.ts wiring). tryGetAgentChannel(id):AgentChannel|null 추가, AgentPtyHostHandle.call은 spawn만 throwing channelForWorkspace, write/resize/ack/kill은 null-safe no-op. PtyHostHandle에 closeWorkspaceSessions 추가. workspace/pty 채널 핸들러 ipcOk() Result 계약 적용. typecheck 클린, ipc/pty/workspace 130 pass, 전체 1694 pass·0 new fail(선행 25건 유지). create()는 미수정(T3 몫).",
+            "artifacts": [
+              "src/main/features/pty/types.ts",
+              "src/main/features/pty/agent-host.ts",
+              "src/main/features/pty/ipc.ts",
+              "src/main/features/workspace/manager.ts",
+              "src/main/features/workspace/ipc.ts",
+              "src/main/index.ts",
+              "tests/unit/main/pty/agent-host-workspace-teardown.test.ts"
+            ],
+            "recorded_at": "2026-05-17T09:47:20.373Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "T3 — 원자적 워크스페이스 생성 (createAndConnect) + ssh 채널 Result 마이그레이션",
+          "status": "completed",
+          "context": "plan #51 issue 1 결정. 버그2: WorkspaceManager.create(src/main/features/workspace/manager.ts:281-305)가 SSH 인증 *이전에* globalStorage.addWorkspace(:297)+contexts.set(:301)+broadcast(:303)로 영속화·사이드바 등록. SSH 인증은 activate→ensureSshProviderReady→startSshProvider→sshBootstrap(:534)에서 처음. 취소(AuthCancelledError) 시 워크스페이스 메타 미정리, 렌더러 app.tsx:104 .catch(()=>{})가 reject 삼킴 → 깨진 워크스페이스 잔존. 렌더러 호출부: src/renderer/components/workspace/add-workspace/local-list-view.tsx(reconnectSshBookmark), ssh-directory-picker-view.tsx, src/renderer/app.tsx(handleWorkspaceCreated). 참고 모델: testSshHandler/openBrowseSession의 try/catch/finally 보상. T2 이후(manager.ts 공유) 착수.",
+          "acceptance": "1) recent 목록에서 SSH 워크스페이스 클릭 → 비밀번호 프롬프트 취소 시 사이드바에 워크스페이스가 생기지 않음(애초에 미등록). 2) SSH 인증 성공 시에만 워크스페이스가 영속화·등록·표시되며 broadcast 플리커 없음. 3) SSH 인증 취소 시 터미널에 에러 스택 로그 없음, 렌더러에 에러 배너 없음. 4) 진짜 인증 실패(잘못된 비밀번호)는 휴먼 에러로 정상 표면화. 5) 로컬 워크스페이스 생성·디렉토리 피커 SSH 생성 흐름 회귀 없음. 6) ssh 채널이 Result 계약 사용. 7) tsc 통과, 관련 테스트(workspace/ssh/add-workspace) 통과.",
+          "approach": "메인에 원자적 생성 경로 workspace.createAndConnect 단일 핸들러 추가(가산적 — 기존 create 무중단). SSH: 연결(ControlMaster 수립+인증)을 워크스페이스 영속화·context 등록·broadcast *이전에* 수행 → 취소/실패 시 아무것도 커밋되지 않아 사이드바에 깨진 워크스페이스가 나타나지 않음. 수립된 ControlMaster는 실제 세션에서 재사용(sshBrowseSessionId 재사용 메커니즘 원리). 디렉토리 피커 흐름은 이미 browse 세션으로 인증돼 있으니 그 경로 활용. 로컬: 연결검증 불필요, 즉시 커밋. 커밋 이후 잔여 실패는 보상 remove()로 롤백(안전망). 취소 신호는 CallContext.signal 활용. SSH 부트스트랩이 activate(context 전제)에 묶여 있으므로 ensureSshProviderReady/startSshProvider 구조를 확인해 context 비의존 형태로 분리 — 분리가 과대하면 'context는 만들되 broadcast·영속화는 연결 성공 후'로 절충(단 broadcast 플리커는 반드시 제거). 렌더러 reconnectSshBookmark·ssh-directory-picker·handleWorkspaceCreated를 createAndConnect 단일 호출로 전환, app.tsx:104의 .catch(()=>{}) 제거. 취소는 issue3 Result 계약상 'cancelled' kind로 받아 에러 배너 없이 조용히 종료. ssh 채널 핸들러를 Result 계약으로 마이그레이션(auth-failed/cancelled/session-expired 등 예상 실패는 Result 반환).",
+          "risk": "SSH 부트스트랩의 context 의존 분리가 예상보다 큰 변경일 수 있음 — 과대 시 절충안(플리커만 제거)으로 후퇴. ControlMaster 재사용을 잘못하면 인증을 2회 요구하거나 세션 누수. 렌더러 3개 호출부 동시 전환 — manager.ts를 T2와 공유하므로 T2 완료 후 착수.",
+          "plan_issue": 1,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ad6fe054ef0d49150",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-17T09:32:35.332Z",
+          "result": {
+            "outcome": "success",
+            "summary": "workspace.createAndConnect 원자적 생성 핸들러 도입 — SSH 인증(phase1)을 storage/context/broadcast 커밋(phase2) 이전에 수행, 인증 취소 시 고아 사이드바 항목 미생성. 렌더러 4개 호출부(reconnectSshBookmark/handleAddWorkspace/connectProfile/handleConnect)를 ipcCallResult로 전환, kind==='cancelled' 시 조용한 종료. ssh 채널 Result 계약 적용. workspace.create 핸들러는 유지(기존 동작), 라우터 특례 분기는 T4용 보존. humanizeSshError가 ssh-connection-list/ssh-new-connection에서 미사용되어 import 제거. typecheck 클린, 테스트 242/242 pass.",
+            "artifacts": [
+              "src/main/features/ssh/ipc.ts",
+              "src/main/features/workspace/ipc.ts",
+              "src/main/features/workspace/manager.ts",
+              "src/shared/ipc/contract.ts",
+              "src/renderer/components/workspace/add-workspace/local-list-view.tsx",
+              "src/renderer/components/workspace/add-workspace/ssh-directory-picker-view.tsx",
+              "src/renderer/components/workspace/add-workspace/ssh-connection-list-view.tsx",
+              "src/renderer/components/workspace/add-workspace/ssh-new-connection-view.tsx"
+            ],
+            "recorded_at": "2026-05-17T09:57:59.456Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "T4 — 나머지 전 채널 Result 계약 마이그레이션 + 라우터 특례 목록 완전 제거",
+          "status": "completed",
+          "context": "plan #51 issue 3 결정의 마지막 단계. T1이 Result 계약 기반을, T2·T3가 workspace/pty/ssh 핵심 채널을 마이그레이션했다. 남은 모든 ipc:call 채널을 동일 계약으로 옮기고, 라우터 catch의 instanceof 특례 분기(AbortError/SSH AuthCancelled/GitError)를 완전히 제거한다. 라우터: src/main/infra/ipc-router/index.ts. ipcContract: src/shared/ipc/contract.ts.",
+          "acceptance": "1) ipcContract의 모든 ipc:call 채널 핸들러가 예상된 실패를 Result 계약으로 반환(잔존 raw throw는 진짜 버그 케이스만). 2) ipc:call 라우터 catch에서 instanceof 특례 분기(AbortError/AuthCancelled/GitError)가 전부 제거되고 단일 규칙만 남음. 3) 기존 IPC_ABORT_SENTINEL·GitError 동작이 Result 계약 형태로 보존돼 호출부 회귀 없음. 4) 정상 사용(취소/이미닫힘/세션만료 등 예상된 실패) 시 Electron 'Error occurred in handler for ipc:call' 로그가 안 뜸. 5) tsc 통과, 전체 테스트 스위트 통과.",
+          "approach": "ipcContract의 전 채널을 순회하며, 각 채널 핸들러에서 '예상된 실패'에 해당하는 throw를 식별해 Result 계약({ok:false,kind})으로 전환. 채널 단위로 묶어 작업하고 각 묶음마다 tsc·테스트로 검증(한 번에 전부 깨지지 않게). 모든 채널 마이그레이션 완료 후 ipc:call 라우터 catch에서 IPC_ABORT_SENTINEL 특례·SSH AuthCancelled 특례·wrapGitErrorAsCallResult 특례 분기를 제거 — 라우터는 'Result envelope이면 통과, 그 외 throw면 로그'의 단일 규칙만 남긴다. GitError는 Result 계약의 한 kind로 정식 편입. 제거 후 \"라우터가 로그를 찍는다 = 진짜 버그\" 불변식이 성립하는지 확인. 마이그레이션에서 누락된 채널이 없도록 ipcContract 전수 대조.",
+          "risk": "전 채널 반경 — 누락 채널 시 라우터 특례 제거 후 그 채널의 예상 실패가 다시 로그를 찍음. 채널 단위 점진 + ipcContract 전수 대조 필수. GitError 편입이 git 호출부 회귀를 부를 수 있음.",
+          "plan_issue": 3,
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ad6fe054ef0d49150",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-17T09:32:55.467Z",
+          "result": {
+            "outcome": "success",
+            "summary": "git ipc 핸들러 15파일을 handleGitHandlerError로 일원화(GitError→IpcGitErrorResult, AbortError→ipcErr('cancelled'), 그 외 rethrow). 라우터 catch의 3개 특례 분기(AbortError/signal.aborted, SSH AuthCancellation, instanceof GitError) 제거 — catch는 'throw error' 단일 규칙만 남음(catch 도달=진짜 버그=로그). 렌더러 unwrapCallResult가 ipcErr('cancelled')→AbortError 감지. typecheck 클린, 신규 회귀 0건(선행 실패 26→25, 오히려 1건 감소). 잔존 이슈: 렌더러 client의 IPC_ABORT_SENTINEL 감지 코드가 이제 미사용(방어적 dead code로 잔존) — 정리 필요. router의 GitError import는 ipc:streamEvent 직렬화 경로가 아직 사용.",
+            "artifacts": [
+              "src/main/features/git/ipc/git-result.ts",
+              "src/main/infra/ipc-router/index.ts",
+              "src/renderer/ipc/client.ts"
+            ],
+            "recorded_at": "2026-05-17T10:25:21.672Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "T5 — 통합 검증 (두 버그 재현·teardown 3경로 회귀·에러 계약 전수)",
+          "status": "completed",
+          "context": "T1~T4 완료 후 워크스페이스 생명주기 근본 수정 전체를 검증한다. plan #51 전 issue 결정이 기준. 원 사용자 버그: (1) 워크스페이스 닫을 때마다 'workspace not found' 에러, (2) recent SSH 워크스페이스 클릭 후 비밀번호 취소 시 깨진 워크스페이스 잔존. conventions.md 테스트 룰 준수.",
+          "acceptance": "1) 워크스페이스 닫기 시 'workspace not found' 로그 재현 불가. 2) SSH 인증 취소 시 워크스페이스 미생성 + 에러 로그 없음, 진짜 실패는 휴먼 에러 표면화. 3) teardown 3경로(탭/워크스페이스/앱 종료) 회귀 없음, PTY·채널 누수 없음. 4) 라우터 instanceof 특례 분기 완전 제거 확인, 예상된 실패에서 Electron 핸들러 로그 안 뜸. 5) tsc + 전체 테스트 스위트 그린(신규 회귀 0건, 기존 선행 실패는 분리 보고). 6) 발견 결함은 파일·라인·심각도로 분류한 리포트.",
+          "approach": "버그 재현 시도: (1) 워크스페이스 닫기 반복 → 터미널에 'workspace not found'/'Error occurred in handler for ipc:call' 로그가 안 뜨는지. (2) SSH 인증 프롬프트 취소 → 사이드바에 워크스페이스 미생성, 에러 로그 없음 확인. 실서버 불가 부분은 mock/계약 수준 + 코드 경로 분석으로 취소가 throw에 닿지 않음을 설명. teardown 회귀: 탭 종료·워크스페이스 제거·앱 종료 3경로에서 PTY 세션·채널 누수 없음, 종료 순서(PTY→채널→context→broadcast) 보장 확인. 에러 계약 전수: ipcContract 전 채널이 Result 계약을 따르는지, 라우터 instanceof 특례 분기가 완전 제거됐는지(grep), 'Result envelope이면 통과/그 외 throw면 로그' 단일 규칙 확인. 진짜 인증 실패는 휴먼 에러로 표면화되는지. tsc + 전체 테스트 스위트 실행 — 신규 실패와 기존 선행 실패(이전 사이클에서 식별된 20건) 구분.",
+          "risk": "SSH 실서버·실제 Electron teardown은 환경상 완전 검증 불가 — mock/계약/코드경로 분석 수준까지만, 한계 명시. teardown 경합은 타이밍 의존이라 단위 테스트로 재현이 어려울 수 있음.",
+          "plan_issue": 2,
+          "deps": [
+            2,
+            3,
+            4
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "acc19ec5aa8631f5a",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-17T09:33:17.229Z",
+          "result": {
+            "outcome": "success",
+            "summary": "통합 검증 PASS — 6/6 acceptance 충족. 버그1: remove() 종료 순서(ptySessionCloser→close→delete→broadcast) 단일 함수 보장, not-found는 ipcOk no-op — 로그 재현 불가. 버그2: createAndConnectSsh가 SSH 부트스트랩을 storage/context/broadcast 커밋 이전 수행 — 취소 시 미등록. 라우터 catch instanceof 특례 분기 완전 제거(grep 확인), git 15핸들러 handleGitHandlerError 일원화. teardown 3경로 누수 없음. typecheck 클린, 전체 1926 pass/25 선행실패·신규 회귀 0. 결함: CRITICAL 0/WARNING 1(manager.ts signal 미사용 주석 오해)/INFO 2(client.ts IPC_ABORT_SENTINEL dead code, LSP 채널 Result 미전환).",
+            "artifacts": [],
+            "recorded_at": "2026-05-17T10:44:28.747Z"
+          }
+        }
+      ]
     }
   ]
 }

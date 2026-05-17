@@ -4,6 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { GitError } from "../../../../src/main/features/git/domain/error";
 import type { GitRegistry } from "../../../../src/main/features/git/domain/registry";
+import { isIpcGitErrorResult } from "../../../../src/shared/git/error-ipc";
 import {
   abortOpHandler,
   cherryPickHandler,
@@ -105,9 +106,13 @@ describe("git workflow IPC handlers", () => {
       },
     } as unknown as GitRegistry;
 
-    await expect(
-      cherryPickHandler(registry)({ workspaceId: WORKSPACE_ID, sha: "abc123" }),
-    ).rejects.toBe(emptyCommitError);
+    // Per T4 Result-contract migration, GitError outcomes resolve as IpcGitErrorResult
+    // instead of rejecting. The refresh ordering is preserved — bumpGeneration and
+    // refreshStatus still run before the handler resolves.
+    const result = await cherryPickHandler(registry)({ workspaceId: WORKSPACE_ID, sha: "abc123" });
+    expect(isIpcGitErrorResult(result)).toBe(true);
+    // @ts-expect-error — narrowed by isIpcGitErrorResult check above
+    expect(result.kind).toBe("empty-commit");
 
     expect(events).toEqual(["getOrDetect", "cherryPick", "bumpGeneration", "refreshStatus"]);
   });

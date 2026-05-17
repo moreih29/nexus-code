@@ -8,6 +8,7 @@ import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";
 import type { CallContext } from "../../../infra/ipc-router";
 import { validateArgs } from "../../../infra/ipc-router";
+import { handleGitHandlerError } from "./git-result";
 
 const c = ipcContract.git.call;
 
@@ -15,100 +16,155 @@ const c = ipcContract.git.call;
  * Builds the createBranch handler. Optional fromRef and checkout flow through
  * GitRepository so branch creation, create-from-ref, and create-and-checkout
  * share one queued implementation.
+ *
+ * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
+ * object so the router stays log-silent and the renderer's ipcCall path
+ * rehydrates it as a typed Error via isIpcGitErrorResult.
  */
 export function createBranchHandler(
   registry: GitRegistry,
-): (args: unknown, ctx?: CallContext) => Promise<void> {
-  return async (args: unknown, ctx?: CallContext): Promise<void> => {
-    const { workspaceId, name, fromRef, checkout } = validateArgs(c.createBranch.args, args);
-    const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-    if (!repo) throw new GitError("not-repo", "Not a Git repository");
+): (args: unknown, ctx?: CallContext) => Promise<unknown> {
+  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
+    try {
+      const { workspaceId, name, fromRef, checkout } = validateArgs(c.createBranch.args, args);
+      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
+      if (!repo) throw new GitError("not-repo", "Not a Git repository");
 
-    await repo.createBranch(name, { startRef: fromRef, checkout: checkout ?? false }, ctx?.signal);
-    await refreshAfterMutation(registry, workspaceId, ctx?.signal);
+      await repo.createBranch(
+        name,
+        { startRef: fromRef, checkout: checkout ?? false },
+        ctx?.signal,
+      );
+      await refreshAfterMutation(registry, workspaceId, ctx?.signal);
+    } catch (error) {
+      return handleGitHandlerError(error);
+    }
   };
 }
 
 /**
  * Builds the local branch delete handler.
+ *
+ * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
+ * object — see createBranchHandler for rationale.
  */
 export function deleteBranchHandler(
   registry: GitRegistry,
-): (args: unknown, ctx?: CallContext) => Promise<void> {
-  return async (args: unknown, ctx?: CallContext): Promise<void> => {
-    const { workspaceId, name, force } = validateArgs(c.deleteBranch.args, args);
-    const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-    if (!repo) throw new GitError("not-repo", "Not a Git repository");
+): (args: unknown, ctx?: CallContext) => Promise<unknown> {
+  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
+    try {
+      const { workspaceId, name, force } = validateArgs(c.deleteBranch.args, args);
+      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
+      if (!repo) throw new GitError("not-repo", "Not a Git repository");
 
-    await repo.deleteBranch(name, force ?? false, ctx?.signal);
-    await refreshAfterMutation(registry, workspaceId, ctx?.signal);
+      await repo.deleteBranch(name, force ?? false, ctx?.signal);
+      await refreshAfterMutation(registry, workspaceId, ctx?.signal);
+    } catch (error) {
+      return handleGitHandlerError(error);
+    }
   };
 }
 
 /**
  * Builds the remote branch delete handler. Kept separate from local deletion
  * because it is irreversible from the local reflog and may require askpass.
+ *
+ * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
+ * object — see createBranchHandler for rationale.
  */
 export function deleteRemoteBranchHandler(
   registry: GitRegistry,
-): (args: unknown, ctx?: CallContext) => Promise<void> {
-  return async (args: unknown, ctx?: CallContext): Promise<void> => {
-    const { workspaceId, remote, name } = validateArgs(c.deleteRemoteBranch.args, args);
-    const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-    if (!repo) throw new GitError("not-repo", "Not a Git repository");
+): (args: unknown, ctx?: CallContext) => Promise<unknown> {
+  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
+    try {
+      const { workspaceId, remote, name } = validateArgs(c.deleteRemoteBranch.args, args);
+      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
+      if (!repo) throw new GitError("not-repo", "Not a Git repository");
 
-    await repo.deleteRemoteBranch(remote, name, ctx?.signal);
-    await refreshAfterMutation(registry, workspaceId, ctx?.signal);
+      await repo.deleteRemoteBranch(remote, name, ctx?.signal);
+      await refreshAfterMutation(registry, workspaceId, ctx?.signal);
+    } catch (error) {
+      return handleGitHandlerError(error);
+    }
   };
 }
 
 /**
  * Builds the local branch rename handler.
+ *
+ * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
+ * object — see createBranchHandler for rationale.
  */
 export function renameBranchHandler(
   registry: GitRegistry,
-): (args: unknown, ctx?: CallContext) => Promise<void> {
-  return async (args: unknown, ctx?: CallContext): Promise<void> => {
-    const { workspaceId, from, to } = validateArgs(c.renameBranch.args, args);
-    const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-    if (!repo) throw new GitError("not-repo", "Not a Git repository");
+): (args: unknown, ctx?: CallContext) => Promise<unknown> {
+  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
+    try {
+      const { workspaceId, from, to } = validateArgs(c.renameBranch.args, args);
+      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
+      if (!repo) throw new GitError("not-repo", "Not a Git repository");
 
-    await repo.renameBranch(from, to, ctx?.signal);
-    await refreshAfterMutation(registry, workspaceId, ctx?.signal);
+      await repo.renameBranch(from, to, ctx?.signal);
+      await refreshAfterMutation(registry, workspaceId, ctx?.signal);
+    } catch (error) {
+      return handleGitHandlerError(error);
+    }
   };
 }
 
 /**
  * Builds the upstream set/unset handler.
+ *
+ * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
+ * object — see createBranchHandler for rationale.
  */
 export function setUpstreamHandler(
   registry: GitRegistry,
-): (args: unknown, ctx?: CallContext) => Promise<void> {
-  return async (args: unknown, ctx?: CallContext): Promise<void> => {
-    const { workspaceId, branch, upstream } = validateArgs(c.setUpstream.args, args);
-    const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-    if (!repo) throw new GitError("not-repo", "Not a Git repository");
+): (args: unknown, ctx?: CallContext) => Promise<unknown> {
+  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
+    try {
+      const { workspaceId, branch, upstream } = validateArgs(c.setUpstream.args, args);
+      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
+      if (!repo) throw new GitError("not-repo", "Not a Git repository");
 
-    await repo.setUpstream(branch, upstream, ctx?.signal);
-    await refreshAfterMutation(registry, workspaceId, ctx?.signal);
+      await repo.setUpstream(branch, upstream, ctx?.signal);
+      await refreshAfterMutation(registry, workspaceId, ctx?.signal);
+    } catch (error) {
+      return handleGitHandlerError(error);
+    }
   };
 }
 
 /**
  * Builds the fast-forward handler. Even an advanced:false no-op refreshes
  * status so FETCH_HEAD and ahead/behind metadata are fresh.
+ *
+ * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
+ * object — see createBranchHandler for rationale.
  */
 export function fastForwardBranchHandler(
   registry: GitRegistry,
-): (args: unknown, ctx?: CallContext) => Promise<GitFastForwardResult> {
-  return async (args: unknown, ctx?: CallContext): Promise<GitFastForwardResult> => {
-    const { workspaceId, branch, remote, remoteRef } = validateArgs(c.fastForwardBranch.args, args);
-    const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-    if (!repo) throw new GitError("not-repo", "Not a Git repository");
+): (args: unknown, ctx?: CallContext) => Promise<unknown> {
+  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
+    try {
+      const { workspaceId, branch, remote, remoteRef } = validateArgs(
+        c.fastForwardBranch.args,
+        args,
+      );
+      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
+      if (!repo) throw new GitError("not-repo", "Not a Git repository");
 
-    const result = await repo.fastForwardBranch(branch, remote, remoteRef, ctx?.signal);
-    await refreshAfterMutation(registry, workspaceId, ctx?.signal);
-    return result;
+      const result: GitFastForwardResult = await repo.fastForwardBranch(
+        branch,
+        remote,
+        remoteRef,
+        ctx?.signal,
+      );
+      await refreshAfterMutation(registry, workspaceId, ctx?.signal);
+      return result;
+    } catch (error) {
+      return handleGitHandlerError(error);
+    }
   };
 }
 

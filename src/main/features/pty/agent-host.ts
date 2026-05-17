@@ -16,7 +16,18 @@ interface WorkspaceSubscription {
 }
 
 export interface AgentPtyWorkspaceManager {
+  /**
+   * Returns the ready agent channel for a workspace, booting it if needed.
+   * Throws when the workspace is not found or the channel cannot be obtained.
+   */
   getAgentChannel(workspaceId: string): Promise<AgentChannel>;
+  /**
+   * Returns the agent channel for a workspace without throwing when the
+   * workspace is not found. Returns `null` when the workspace context does
+   * not exist — used by PTY paths where a missing workspace is a normal
+   * racing condition rather than a bug.
+   */
+  tryGetAgentChannel(workspaceId: string): Promise<AgentChannel | null>;
 }
 
 /**
@@ -55,22 +66,32 @@ class AgentPtyHostHandle implements PtyHostHandle {
     }
 
     const { workspaceId, tabId } = workspaceTabFromArgs(args, method);
-    const channel = await this.channelForWorkspace(workspaceId);
 
-    switch (method) {
-      case "spawn":
-        return this.spawn(channel, args, workspaceId, tabId);
-      case "write":
-        return channel.call("pty.write", args);
-      case "resize":
-        return channel.call("pty.resize", args);
-      case "ack":
-        return channel.call("pty.ack", ackParamsFromArgs(args, workspaceId, tabId));
-      case "kill":
-        return channel.call("pty.kill", args);
-      default:
-        throw new Error(`agentPtyHost.call: unknown method: ${method}`);
+    // For spawn we need the channel or it's a hard error; for the other
+    // methods (write/resize/ack/kill) a missing workspace is a normal racing
+    // condition — the workspace was removed before the renderer-side
+    // fire-and-forget IPC arrived.  Use tryChannelForWorkspace so those
+    // paths return undefined instead of propagating a "workspace not found"
+    // throw that Electron would log as an unhandled handler error.
+    if (method !== "spawn") {
+      const channel = await this.tryChannelForWorkspace(workspaceId);
+      if (!channel) return undefined;
+      switch (method) {
+        case "write":
+          return channel.call("pty.write", args);
+        case "resize":
+          return channel.call("pty.resize", args);
+        case "ack":
+          return channel.call("pty.ack", ackParamsFromArgs(args, workspaceId, tabId));
+        case "kill":
+          return channel.call("pty.kill", args);
+        default:
+          throw new Error(`agentPtyHost.call: unknown method: ${method}`);
+      }
     }
+
+    const channel = await this.channelForWorkspace(workspaceId);
+    return this.spawn(channel, args, workspaceId, tabId);
   }
 
   on(event: string, cb: EventCallback): () => void {
@@ -125,10 +146,45 @@ class AgentPtyHostHandle implements PtyHostHandle {
   }
 
   /**
+   * Terminates all active PTY sessions for the given workspace by emitting
+   * pty.exit events. Called from `WorkspaceManager.remove()` *before* the
+   * workspace context is deleted — this guarantees the renderer sees the
+   * session deaths as a main-initiated event rather than discovering them
+   * via a failed post-removal IPC round-trip.
+   */
+  closeWorkspaceSessions(workspaceId: string): void {
+    const tabIds = Array.from(this.sessionsByWorkspace.get(workspaceId) ?? []);
+    for (const tabId of tabIds) {
+      this.emitExit(workspaceId, tabId, null);
+    }
+    // Clean up the channel subscription so no further agent events arrive
+    // for this workspace after the context is gone.
+    const subscription = this.subscriptions.get(workspaceId);
+    if (subscription) {
+      for (const dispose of subscription.disposers) dispose();
+      this.subscriptions.delete(workspaceId);
+    }
+  }
+
+  /**
    * Gets and subscribes the workspace channel before any PTY RPC uses it.
+   * Throws when the workspace is not found.
    */
   private async channelForWorkspace(workspaceId: string): Promise<AgentChannel> {
     const channel = await this.workspaceManager.getAgentChannel(workspaceId);
+    await channel.ready;
+    this.subscribeWorkspace(workspaceId, channel);
+    return channel;
+  }
+
+  /**
+   * Like `channelForWorkspace` but returns `null` instead of throwing when
+   * the workspace is not found. Used by write/resize/ack/kill where a missing
+   * workspace is a normal racing condition (removal won the race).
+   */
+  private async tryChannelForWorkspace(workspaceId: string): Promise<AgentChannel | null> {
+    const channel = await this.workspaceManager.tryGetAgentChannel(workspaceId);
+    if (!channel) return null;
     await channel.ready;
     this.subscribeWorkspace(workspaceId, channel);
     return channel;

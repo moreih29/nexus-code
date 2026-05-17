@@ -9,7 +9,7 @@ import { GlobalRoots } from "./components/global-roots";
 import { Sidebar } from "./components/workbench/sidebar";
 import { TitleBar } from "./components/workbench/title-bar";
 import { WelcomeScreen } from "./components/workbench/welcome-screen";
-import { AddWorkspaceDialog } from "./components/workspace/add-workspace-dialog";
+import { AddWorkspaceDialog } from "./components/workspace/add-workspace";
 import { WorkspacePanel } from "./components/workspace/panel";
 import { ipcCall } from "./ipc/client";
 import { showRemoveWorkspaceConfirm } from "./components/ui/remove-workspace-dialog";

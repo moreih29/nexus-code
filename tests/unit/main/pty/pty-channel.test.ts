@@ -133,6 +133,8 @@ function makeFixture(): {
   const recorder = new FakeRecorder();
   const agentHost = startAgentPtyHost({
     getAgentChannel: async () => agentChannel,
+    // tryGetAgentChannel mirrors getAgentChannel in normal (non-removed) tests.
+    tryGetAgentChannel: async () => agentChannel,
   });
   const options: PtyChannelOptions = { agentHost, recorder };
   registerPtyChannel(options);
