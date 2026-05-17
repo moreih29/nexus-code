@@ -134,6 +134,47 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  // Extend folder_bookmarks to support SSH remote-path bookmarks.
+  //
+  // Adds a `kind` discriminant (default 'local') so that all pre-existing rows
+  // are automatically backfilled to kind='local' by SQLite's ADD COLUMN DEFAULT
+  // — no separate UPDATE loop is required or permitted.
+  //
+  // The single abs_path UNIQUE index is replaced with two partial UNIQUE indexes:
+  //   - local variant: (abs_path) WHERE kind='local'
+  //   - ssh variant:   (connection_profile_id, abs_path) WHERE kind='ssh'
+  //
+  // The recency index (favorite, last_used_at DESC) is retained unchanged.
+  {
+    version: 5,
+    up: (db) => {
+      // Add kind column with DEFAULT 'local' — SQLite backfills existing rows automatically.
+      if (!hasColumn(db, "folder_bookmarks", "kind")) {
+        db.exec(`ALTER TABLE folder_bookmarks ADD COLUMN kind TEXT NOT NULL DEFAULT 'local';`);
+      }
+
+      // Add connection_profile_id column — NULL for local bookmarks.
+      if (!hasColumn(db, "folder_bookmarks", "connection_profile_id")) {
+        db.exec(`ALTER TABLE folder_bookmarks ADD COLUMN connection_profile_id TEXT NULL;`);
+      }
+
+      // Drop the old single-column abs_path unique index — it covers only the
+      // local variant and would conflict with the new partial indexes below.
+      db.exec(`DROP INDEX IF EXISTS idx_folder_bookmarks_abs_path;`);
+
+      // Partial UNIQUE index for local bookmarks: one abs_path per local kind.
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_folder_bookmarks_local_path
+          ON folder_bookmarks (abs_path) WHERE kind = 'local';
+      `);
+
+      // Partial UNIQUE index for SSH bookmarks: one remote abs_path per connection profile.
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_folder_bookmarks_ssh_path
+          ON folder_bookmarks (connection_profile_id, abs_path) WHERE kind = 'ssh';
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: SqliteDb): void {

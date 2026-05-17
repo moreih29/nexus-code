@@ -21,7 +21,7 @@ import {
   findSshConfigHost,
   parseSshDestination,
   parseSshPort,
-} from "../../../../../src/renderer/components/workspace/add-workspace-dialog";
+} from "../../../../../src/renderer/components/workspace/add-workspace/ssh-helpers";
 
 // ---------------------------------------------------------------------------
 // Fixtures

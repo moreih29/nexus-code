@@ -17,6 +17,8 @@ import {
   FolderBookmarkIdArgsSchema,
   FolderBookmarkRecordArgsSchema,
   FolderBookmarkSchema,
+  LocalFolderBookmarkSchema,
+  SshFolderBookmarkSchema,
   ConnectionProfileSchema,
   ConnectionProfileFavoriteArgsSchema,
   ConnectionProfileIdArgsSchema,
@@ -70,7 +72,7 @@ describe("migration v4 — fresh DB", () => {
     db.close();
   });
 
-  it("creates UNIQUE index on folder_bookmarks(abs_path)", () => {
+  it("creates partial UNIQUE indexes on folder_bookmarks (local_path, ssh_path, recency)", () => {
     const db = makeDb();
     applyMigrations(db);
 
@@ -80,8 +82,11 @@ describe("migration v4 — fresh DB", () => {
       )
       .all() as { name: string }[];
     const names = indexes.map((i) => i.name);
-    expect(names).toContain("idx_folder_bookmarks_abs_path");
+    // v5 replaced the single abs_path index with two partial indexes
+    expect(names).toContain("idx_folder_bookmarks_local_path");
+    expect(names).toContain("idx_folder_bookmarks_ssh_path");
     expect(names).toContain("idx_folder_bookmarks_recency");
+    expect(names).not.toContain("idx_folder_bookmarks_abs_path");
     db.close();
   });
 
@@ -100,13 +105,13 @@ describe("migration v4 — fresh DB", () => {
     db.close();
   });
 
-  it("schemaVersion is 4 after fresh migration", () => {
+  it("schemaVersion is 5 after fresh migration", () => {
     const db = makeDb();
     applyMigrations(db);
     const row = db.prepare("SELECT value FROM _meta WHERE key='schemaVersion'").get() as
       | { value: string }
       | undefined;
-    expect(row?.value).toBe("4");
+    expect(row?.value).toBe("5");
     db.close();
   });
 });
@@ -154,7 +159,7 @@ describe("migration v4 — applied on top of existing v3 DB", () => {
     db.close();
   });
 
-  it("v4 migration is idempotent — second applyMigrations on v4 DB does not throw", () => {
+  it("v5 migration is idempotent — second applyMigrations on v5 DB does not throw", () => {
     const db = makeDb();
     applyMigrations(db);
     expect(() => applyMigrations(db)).not.toThrow();
@@ -162,7 +167,7 @@ describe("migration v4 — applied on top of existing v3 DB", () => {
     const row = db.prepare("SELECT value FROM _meta WHERE key='schemaVersion'").get() as
       | { value: string }
       | undefined;
-    expect(row?.value).toBe("4");
+    expect(row?.value).toBe("5");
     db.close();
   });
 });
@@ -510,10 +515,25 @@ describe("GlobalStorage connectionProfile — setFavorite / remove", () => {
 // ---------------------------------------------------------------------------
 
 describe("IPC zod schema — FolderBookmark", () => {
-  it("FolderBookmarkSchema accepts valid data", () => {
+  it("FolderBookmarkSchema accepts valid local bookmark", () => {
     const result = FolderBookmarkSchema.safeParse({
       id: uuid(1),
+      kind: "local",
       absPath: "/home/user/project",
+      label: null,
+      favorite: false,
+      lastUsedAt: 1700000000000,
+      createdAt: 1700000000000,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("FolderBookmarkSchema accepts valid ssh bookmark", () => {
+    const result = FolderBookmarkSchema.safeParse({
+      id: uuid(1),
+      kind: "ssh",
+      absPath: "/remote/project",
+      connectionProfileId: uuid(2),
       label: null,
       favorite: false,
       lastUsedAt: 1700000000000,
@@ -525,6 +545,7 @@ describe("IPC zod schema — FolderBookmark", () => {
   it("FolderBookmarkSchema rejects empty absPath", () => {
     const result = FolderBookmarkSchema.safeParse({
       id: uuid(1),
+      kind: "local",
       absPath: "",
       label: null,
       favorite: false,
@@ -535,9 +556,10 @@ describe("IPC zod schema — FolderBookmark", () => {
   });
 
   it("FolderBookmarkSchema has no password/secret/privateKey field", () => {
-    const shape = FolderBookmarkSchema.shape;
-    const keys = Object.keys(shape);
-    for (const key of keys) {
+    // FolderBookmarkSchema is a discriminatedUnion — check options instead of shape
+    const localKeys = Object.keys(LocalFolderBookmarkSchema.shape);
+    const sshKeys = Object.keys(SshFolderBookmarkSchema.shape);
+    for (const key of [...localKeys, ...sshKeys]) {
       expect(key.toLowerCase()).not.toMatch(/password|secret|private.?key|token|credential/);
     }
   });

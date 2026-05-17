@@ -76,9 +76,12 @@ export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string
     // Accent
     "--accent": tokens["state.focus.ring"],
     "--accent-foreground": tokens["state.selected.bg"],
-    // Destructive
+    // Destructive / Error state
     "--destructive": tokens["state.error.fg"],
     "--destructive-foreground": tokens["surface.floating.fg"],
+    "--state-error-fg": tokens["state.error.fg"],
+    "--state-error-border": tokens["state.error.border"],
+    "--state-error-bg": tokens["state.error.bg"],
     // Border / input / ring
     "--border": tokens["surface.chrome.border"],
     "--input": tokens["surface.chrome.border"],
@@ -110,6 +113,9 @@ export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string
     "--tab-active-border": tokens["tab.active.border"],
     "--tab-hover-bg": tokens["tab.hover.bg"],
     "--tab-modified-dot": tokens["tab.modified.dot"],
+    // Editor text tokens — exposed for components that display code-adjacent metadata
+    // (paths, remote addresses) and must match the editor surface text scale.
+    "--editor-text-muted": tokens["editor.text.muted"],
     // Status bar tokens — L1 chrome bar region (design.md §9 status bar region).
     "--status-bar-bg": tokens["status.bar.bg"],
     "--status-bar-fg": tokens["status.bar.fg"],

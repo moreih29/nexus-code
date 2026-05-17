@@ -1,10 +1,12 @@
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
-// Folder bookmark
+// Folder bookmark — discriminated union: local path vs SSH remote path.
+// The `kind` field is the discriminant; ssh variant requires connectionProfileId
+// to link back to the corresponding connection_profiles row.
 // ---------------------------------------------------------------------------
 
-export const FolderBookmarkSchema = z.object({
+const FolderBookmarkBaseSchema = z.object({
   id: z.string().uuid(),
   absPath: z.string().min(1),
   label: z.string().nullable(),
@@ -12,6 +14,21 @@ export const FolderBookmarkSchema = z.object({
   lastUsedAt: z.number().int(),
   createdAt: z.number().int(),
 });
+
+export const LocalFolderBookmarkSchema = FolderBookmarkBaseSchema.extend({
+  kind: z.literal("local"),
+});
+
+export const SshFolderBookmarkSchema = FolderBookmarkBaseSchema.extend({
+  kind: z.literal("ssh"),
+  /** UUID of the associated connection_profiles row. */
+  connectionProfileId: z.string().uuid(),
+});
+
+export const FolderBookmarkSchema = z.discriminatedUnion("kind", [
+  LocalFolderBookmarkSchema,
+  SshFolderBookmarkSchema,
+]);
 
 export type FolderBookmark = z.infer<typeof FolderBookmarkSchema>;
 
@@ -40,11 +57,27 @@ export type ConnectionProfile = z.infer<typeof ConnectionProfileSchema>;
 // Mutation args schemas
 // ---------------------------------------------------------------------------
 
-export const FolderBookmarkRecordArgsSchema = z.object({
-  id: z.string().uuid(),
-  absPath: z.string().min(1),
-  label: z.string().nullable().optional(),
-});
+// FolderBookmarkRecordArgsSchema accepts either a local or SSH bookmark for
+// recording. The local variant makes `kind` optional (no value required) so
+// callers that omit kind (existing LocalListView record calls) continue to
+// work at both compile time and runtime without any change at the call site.
+// The storage layer treats absent/undefined kind as "local".
+export const FolderBookmarkRecordArgsSchema = z.union([
+  z.object({
+    id: z.string().uuid(),
+    absPath: z.string().min(1),
+    label: z.string().nullable().optional(),
+    kind: z.literal("local").optional(),
+    connectionProfileId: z.undefined().optional(),
+  }),
+  z.object({
+    id: z.string().uuid(),
+    absPath: z.string().min(1),
+    label: z.string().nullable().optional(),
+    kind: z.literal("ssh"),
+    connectionProfileId: z.string().uuid(),
+  }),
+]);
 
 export type FolderBookmarkRecordArgs = z.infer<typeof FolderBookmarkRecordArgsSchema>;
 
