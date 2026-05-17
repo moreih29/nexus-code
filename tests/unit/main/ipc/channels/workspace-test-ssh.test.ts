@@ -153,7 +153,10 @@ describe("workspace.testSsh handler", () => {
     controller.abort();
 
     expect(channel.dispose).toHaveBeenCalledTimes(1);
-    await expect(promise).rejects.toMatchObject({ name: "AbortError" });
+    // Per T4 Result-contract migration, cancellation resolves with ipcErr("cancelled")
+    // instead of rejecting with AbortError — the router stays log-silent.
+    const result = await promise;
+    expect(result).toMatchObject({ ok: false, kind: "cancelled" });
   });
 
   it("reuses the bootstrap ControlMaster for interactive validation and disposes it", async () => {

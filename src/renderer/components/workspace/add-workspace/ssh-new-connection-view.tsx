@@ -7,14 +7,13 @@ import {
 } from "lucide-react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ipcCall } from "../../../ipc/client";
+import { ipcCall, ipcCallResult } from "../../../ipc/client";
 import { Button } from "../../ui/button";
 import {
   clampHostIndex,
   filterSshConfigHosts,
   findSshConfigHost,
   formatSshHostSummary,
-  humanizeSshError,
   parseSshDestination,
   parseSshPort,
   sshHostOptionId,
@@ -194,47 +193,50 @@ export function SshNewConnectionView({
     setConnectPhase("connecting");
     setErrorMessage(null);
 
-    try {
-      const result = await ipcCall("ssh", "openBrowseSession", {
-        host: dest.host,
-        user: dest.user,
-        port: parsedPort,
-        identityFile: identityFile.trim() || undefined,
-        authMode: "interactive",
-      });
+    // openBrowseSession is migrated to the IpcResult contract — auth
+    // cancellation arrives as ipcErr("cancelled") so the router stays silent
+    // and the renderer branches without showing an error banner.
+    const result = await ipcCallResult("ssh", "openBrowseSession", {
+      host: dest.host,
+      user: dest.user,
+      port: parsedPort,
+      identityFile: identityFile.trim() || undefined,
+      authMode: "interactive",
+    });
 
-      // Connection succeeded → save connectionProfile
-      const profileId = crypto.randomUUID();
-      await ipcCall("connectionProfile", "save", {
-        id: profileId,
-        host: dest.host,
-        user: dest.user ?? "",
-        port: parsedPort,
-        identityFile: identityFile.trim() || undefined,
-        authMode: "interactive",
-        label: name.trim() || undefined,
-      });
-
-      onConnected({
-        sessionId: result.sessionId,
-        initialPath: result.initialPath,
-        host: dest.host,
-        user: dest.user,
-        port: parsedPort,
-        identityFile: identityFile.trim() || undefined,
-        profileId,
-        connectionProfileId: profileId,
-      });
-    } catch (error) {
-      // User cancelled the SSH auth prompt — treat as a silent abort, not an error.
-      // The dialog was already dismissed, so no banner or retry state is needed.
-      if (error instanceof Error && error.name === "AbortError") {
+    if (!result.ok) {
+      // User cancelled the SSH auth prompt — silent stop, no error banner.
+      if (result.kind === "cancelled") {
         setConnectPhase("idle");
         return;
       }
       setConnectPhase("error");
-      setErrorMessage(humanizeSshError(error));
+      setErrorMessage(result.message);
+      return;
     }
+
+    // Connection succeeded → save connectionProfile
+    const profileId = crypto.randomUUID();
+    await ipcCall("connectionProfile", "save", {
+      id: profileId,
+      host: dest.host,
+      user: dest.user ?? "",
+      port: parsedPort,
+      identityFile: identityFile.trim() || undefined,
+      authMode: "interactive",
+      label: name.trim() || undefined,
+    });
+
+    onConnected({
+      sessionId: result.value.sessionId,
+      initialPath: result.value.initialPath,
+      host: dest.host,
+      user: dest.user,
+      port: parsedPort,
+      identityFile: identityFile.trim() || undefined,
+      profileId,
+      connectionProfileId: profileId,
+    });
   }
 
   const activeDescendant =

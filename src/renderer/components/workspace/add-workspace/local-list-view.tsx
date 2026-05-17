@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { ConnectionProfile, FolderBookmark } from "../../../../shared/types/entry-points";
-import { ipcCall } from "../../../ipc/client";
+import { ipcCall, ipcCallResult } from "../../../ipc/client";
 import { Button } from "../../ui/button";
 import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
@@ -120,7 +120,9 @@ export function LocalListView({
     }
 
     try {
-      const meta = await ipcCall("workspace", "create", {
+      // createAndConnect runs SSH auth *before* persisting the workspace, so a
+      // cancelled or failed auth never creates an orphaned sidebar entry.
+      const result = await ipcCallResult("workspace", "createAndConnect", {
         location: {
           kind: "ssh",
           host: profile.host,
@@ -130,8 +132,17 @@ export function LocalListView({
           authMode: (profile.authMode as "interactive" | "key-only") ?? "interactive",
           remotePath: bookmark.absPath,
         },
-        // sshBrowseSessionId omitted — main process opens a new ControlMaster
+        // sshBrowseSessionId omitted — main opens a fresh ControlMaster
       });
+
+      if (!result.ok) {
+        // User cancelled the auth prompt — silently stop, no error banner.
+        if (result.kind === "cancelled") return;
+        // Typed SSH failure (wrong credentials, host unreachable, …).
+        setError(bookmark.id, new Error(result.message), profile.id);
+        return;
+      }
+
       // Update last_used_at
       await ipcCall("folderBookmark", "record", {
         id: bookmark.id,
@@ -140,14 +151,9 @@ export function LocalListView({
         kind: "ssh",
         connectionProfileId: bookmark.connectionProfileId,
       });
-      await onWorkspaceCreated(meta);
+      await onWorkspaceCreated(result.value);
       onClose();
     } catch (error) {
-      // User cancelled the SSH auth prompt — silent stop, no error banner.
-      if (error instanceof Error && error.name === "AbortError") {
-        setActiveBookmarkId(null);
-        return;
-      }
       setError(bookmark.id, error, profile.id);
     } finally {
       setActiveBookmarkId(null);

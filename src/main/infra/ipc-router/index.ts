@@ -1,12 +1,9 @@
 import * as crypto from "node:crypto";
 import type { z } from "zod";
 import {
-  IPC_CALL_RESULT_MARK,
   IPC_GIT_ERROR_MARK,
   type IpcGitErrorPayload,
-  type IpcGitErrorResult,
 } from "../../../shared/git/error-ipc";
-import { IPC_ABORT_SENTINEL } from "../../../shared/ipc/abort-sentinel";
 import {
   type InferArgs,
   type InferComplete,
@@ -16,7 +13,6 @@ import {
 } from "../../../shared/ipc/contract";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import { GitError } from "../../features/git/domain/error";
-import { AuthCancelledError } from "../agent/ssh/auth-prompt";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -178,39 +174,19 @@ export function setupRouter(): void {
 
       const callContext = createCallContext(event, requestId);
       try {
-        return await handler(args, callContext.ctx);
+        const handlerResult = await handler(args, callContext.ctx);
+        // Migrated handlers signal expected outcomes by returning an IpcResult
+        // envelope (see src/shared/ipc/result.ts).  The router passes them
+        // through as-is so the renderer can unwrap them as values — no throw,
+        // no log.  Non-envelope return values follow the existing success path.
+        return handlerResult;
       } catch (error) {
-        // Cancellation envelope path:
-        //   1. Direct ipc:cancel from the renderer → ctx.signal.aborted=true.
-        //   2. AbortError propagated from an internal source (e.g.
-        //      `GitRepository.dispose()` aborting a queued op's controller
-        //      without touching the renderer's signal) — the ctx signal is
-        //      still clean but the call cannot complete. Treat both as the
-        //      same renderer-visible cancellation when the caller supplied
-        //      a signal so we can return the sentinel instead of rejecting,
-        //      which is what suppresses Electron's
-        //      `Error occurred in handler for 'ipc:call'` console log.
-        const isAbortError = error instanceof Error && error.name === "AbortError";
-        if (callContext.ctx?.signal && (callContext.ctx.signal.aborted || isAbortError)) {
-          return IPC_ABORT_SENTINEL;
-        }
-        // SSH authentication cancellation is a normal user action, not a failure.
-        // Walk the cause chain: AuthCancelledError may be wrapped inside a
-        // createSshError envelope by the auth-pty layer. Returning the abort
-        // sentinel keeps Electron's `Error occurred in handler for 'ipc:call'`
-        // console log silent — the renderer's ipcCall detects the sentinel and
-        // throws a local AbortError which the SSH connect handler ignores.
-        if (isSshAuthCancellation(error)) {
-          return IPC_ABORT_SENTINEL;
-        }
-        // Typed Git failures are an expected outcome of mutating ops (no
-        // upstream, missing ref, empty stash, …). Returning them as data
-        // keeps Electron's `Error occurred in handler for 'ipc:call'`
-        // console log silent — the renderer client unwraps the envelope
-        // and rejects the call promise on its side.
-        if (error instanceof GitError) {
-          return wrapGitErrorAsCallResult(error);
-        }
+        // Invariant: reaching this catch means a genuine bug in the handler.
+        // Expected failures (cancellation, SSH auth cancel, Git failures) are
+        // all handled at the handler level and returned as IpcResult envelopes
+        // — they never reach this catch. Any error that does reach here is
+        // unexpected and should be logged by Electron's built-in
+        // "Error occurred in handler for 'ipc:call'" mechanism.
         throw error;
       } finally {
         if (callContext.key) {
@@ -444,39 +420,6 @@ function serializeError(error: unknown): SerializedError {
     return { name: "Error", message: error };
   }
   return { name: "Error", message: "Unknown error" };
-}
-
-/**
- * Walks the error cause chain to detect user-initiated SSH authentication
- * cancellations. AuthCancelledError can be wrapped inside a createSshError
- * envelope by auth-pty, so the chain must be traversed recursively.
- */
-function isSshAuthCancellation(error: unknown): boolean {
-  if (error instanceof AuthCancelledError) return true;
-  if (error instanceof Error && error.cause !== undefined) {
-    return isSshAuthCancellation(error.cause);
-  }
-  return false;
-}
-
-/**
- * Wire format for typed Git failures returned from `ipc:call`. The router
- * returns this object instead of throwing so Electron's built-in
- * unhandled-rejection logger stays quiet for expected outcomes; the
- * renderer's `ipcCall` recognises `IPC_CALL_RESULT_MARK` and rejects the
- * call promise in user code.
- */
-function wrapGitErrorAsCallResult(error: GitError): IpcGitErrorResult {
-  return {
-    [IPC_CALL_RESULT_MARK]: true,
-    name: "GitError",
-    message: error.message,
-    stack: error.stack,
-    kind: error.kind,
-    stderr: error.stderr,
-    argv: error.argv,
-    hint: error.hint,
-  };
 }
 
 /**

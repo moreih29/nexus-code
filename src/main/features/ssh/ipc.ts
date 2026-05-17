@@ -20,6 +20,7 @@ import type { SshAuthPromptHandler } from "../../infra/agent/ssh/auth-pty";
 import { register, validateArgs } from "../../infra/ipc-router";
 import type { DirEntry } from "../../../shared/fs/types";
 import { DirEntrySchema } from "../../../shared/fs/types";
+import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 
 const c = ipcContract.ssh.call;
 
@@ -56,7 +57,11 @@ export function registerSshBrowseHandlers(
   register("ssh", {
     call: {
       listConfigHosts: listConfigHostsHandler(),
-      openBrowseSession: openBrowseSessionHandler(registry, promptHandler),
+      // openBrowseSession is migrated to the T1 IpcResult contract so auth
+      // cancellation arrives at the renderer as ipcErr("cancelled") — the
+      // router passes the envelope silently without logging, and the
+      // renderer uses ipcCallResult to branch on result.kind.
+      openBrowseSession: openBrowseSessionResultHandler(registry, promptHandler),
       browseSession: browseSessionHandler(registry),
       closeBrowseSession: closeBrowseSessionHandler(registry),
     },
@@ -213,6 +218,42 @@ export function openBrowseSessionHandler(
         bootstrapResult.dispose?.();
       }
       throw mapToBrowseError(error);
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Result-contract wrappers for browse-session handlers (T1 migration)
+// ---------------------------------------------------------------------------
+
+/**
+ * Wraps openBrowseSessionHandler with the T1 IpcResult contract so auth
+ * cancellation is returned as ipcErr("cancelled") instead of throwing —
+ * keeping Electron's unhandled-handler log silent for expected user actions.
+ * Auth failures surface as ipcErr("auth-failed") for UI display.
+ */
+export function openBrowseSessionResultHandler(
+  registry: SshBrowseSessionRegistry,
+  promptHandler: SshAuthPromptHandler,
+  bootstrap?: (
+    options: EnsureRemoteAgentOptions,
+  ) => ReturnType<typeof ensureRemoteAgent>,
+): (args: unknown) => Promise<ReturnType<typeof ipcOk> | ReturnType<typeof ipcErr>> {
+  const inner = openBrowseSessionHandler(registry, promptHandler, bootstrap);
+  return async (args: unknown) => {
+    try {
+      const result = await inner(args);
+      return ipcOk(result);
+    } catch (error) {
+      if (isAuthCancellation(error)) {
+        return ipcErr("cancelled", "SSH authentication cancelled");
+      }
+      const code = sshErrorCodeFromError(error);
+      if (code) {
+        return ipcErr("auth-failed", messageForSshErrorCode(code), { code });
+      }
+      // Unexpected bug — rethrow so the router logs it.
+      throw error;
     }
   };
 }

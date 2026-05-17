@@ -444,6 +444,22 @@ export const ipcContract = {
     call: {
       list: call(z.void(), z.array(WorkspaceMetaSchema)),
       create: call(WorkspaceCreateArgsSchema, WorkspaceMetaSchema),
+      /**
+       * Atomic workspace creation: for SSH locations, authenticates and
+       * establishes the ControlMaster *before* persisting the workspace, so
+       * a cancelled or failed auth leaves no orphaned sidebar entry.
+       * For local locations, commits immediately (no connection step).
+       *
+       * Returns an IpcResult envelope:
+       *   ok:true  → WorkspaceMeta (workspace created and committed)
+       *   ok:false → kind "cancelled" (user cancelled auth — silent stop)
+       *              kind "auth-failed" (wrong credentials — show error)
+       *              kind "not-found" (browse session expired, SSH only)
+       *
+       * The result schema here represents the domain success value only;
+       * the router forwards the IpcResult envelope transparently (T1).
+       */
+      createAndConnect: call(WorkspaceCreateArgsSchema, WorkspaceMetaSchema),
       update: call(WorkspaceUpdateArgsSchema, WorkspaceMetaSchema),
       remove: call(WorkspaceIdSchema, z.void()),
       activate: call(WorkspaceIdSchema, z.void()),

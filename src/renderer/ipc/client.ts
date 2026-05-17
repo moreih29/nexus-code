@@ -3,7 +3,16 @@ import {
   isIpcGitErrorResult,
   rehydrateGitErrorFromCause,
 } from "../../shared/git/error-ipc";
-import { isIpcAbortSentinel } from "../../shared/ipc/abort-sentinel";
+import {
+  IPC_RESULT_BRAND,
+  type IpcErrResult,
+  type IpcOkResult,
+  type IpcResult,
+  type IpcResultKind,
+  isIpcErrResult,
+  isIpcOkResult,
+  isIpcResult,
+} from "../../shared/ipc/result";
 import type {
   CallArgs,
   CallChannels,
@@ -63,14 +72,7 @@ export function ipcCall<C extends CallChannels, M extends CallMethods<C>>(
   const signal = opts.signal;
   if (!signal) {
     return (window.ipc.call(channel, method, args) as Promise<unknown>)
-      .then((value) => {
-        // The abort sentinel can arrive on no-signal calls when the main-side
-        // handler returns it to suppress Electron's error log (e.g. SSH auth
-        // cancellation). Re-throw locally as an AbortError so callers that
-        // don't pass a signal still get a recognisable rejection.
-        if (isIpcAbortSentinel(value)) throw createAbortError();
-        return unwrapCallResult<CallReturn<C, M>>(value);
-      })
+      .then((value) => unwrapCallResult<CallReturn<C, M>>(value))
       .catch(rethrowRehydratedGitError);
   }
 
@@ -89,10 +91,7 @@ export function ipcCall<C extends CallChannels, M extends CallMethods<C>>(
       cancel();
     }
     return promise
-      .then((value) => {
-        if (isIpcAbortSentinel(value)) throw createAbortError();
-        return unwrapCallResult<CallReturn<C, M>>(value);
-      })
+      .then((value) => unwrapCallResult<CallReturn<C, M>>(value))
       .catch(rethrowRehydratedGitError)
       .finally(() => {
         signal.removeEventListener("abort", cancel);
@@ -106,12 +105,18 @@ export function ipcCall<C extends CallChannels, M extends CallMethods<C>>(
 /**
  * Resolves a raw `ipc:call` payload into the caller-typed value, throwing
  * the reconstructed error when the main process returned a typed Git
- * failure envelope (see `IPC_CALL_RESULT_MARK`). Done at the client edge
- * so the rest of the renderer treats expected git failures as ordinary
- * promise rejections.
+ * failure envelope (see `IPC_CALL_RESULT_MARK`) or a cancellation result
+ * envelope. Done at the client edge so the rest of the renderer treats
+ * expected git failures as ordinary promise rejections.
+ *
+ * Cancellation detection: migrated handlers return `ipcErr("cancelled")`
+ * instead of throwing (which keeps the router log-silent). This function
+ * converts that envelope back to an AbortError so callers behave the same
+ * as they did with the legacy IPC_ABORT_SENTINEL path.
  */
 function unwrapCallResult<T>(value: unknown): T {
   if (isIpcGitErrorResult(value)) throw gitErrorFromIpcResult(value);
+  if (isIpcErrResult(value) && value.kind === "cancelled") throw createAbortError();
   return value as T;
 }
 
@@ -132,6 +137,108 @@ function rehydrateIfPossible(error: unknown): unknown {
   if (error instanceof Error) rehydrateGitErrorFromCause(error);
   return error;
 }
+
+// ---------------------------------------------------------------------------
+// Result-envelope path (T1 foundation — used by migrated channels)
+// ---------------------------------------------------------------------------
+
+/**
+ * Type-safe `ipc:call` variant for channels whose handler returns an
+ * `IpcResult` envelope (see `src/shared/ipc/result.ts`).
+ *
+ * Unlike `ipcCall`, which throws on expected failures, `ipcCallResult` always
+ * resolves with the IpcResult so the caller can branch on `result.ok`.  This
+ * is the preferred API for channels migrated in T2–T4.
+ *
+ * Cancellation and abort-sentinel handling are identical to `ipcCall`.
+ * Non-envelope responses (e.g. a handler not yet migrated) are wrapped into
+ * `{ ok: true, value }` so callers always receive a consistent shape.
+ *
+ * @example
+ *   const result = await ipcCallResult("workspace", "testSsh", args);
+ *   if (!result.ok) {
+ *     showError(result.kind, result.message);
+ *     return;
+ *   }
+ *   console.log(result.value);
+ */
+export function ipcCallResult<C extends CallChannels, M extends CallMethods<C>>(
+  channel: C,
+  method: M,
+  args: CallArgs<C, M>,
+  opts: IpcCallOptions = {},
+): Promise<IpcResult<CallReturn<C, M>>> {
+  const signal = opts.signal;
+
+  const wrapRaw = (value: unknown): IpcResult<CallReturn<C, M>> => {
+    if (isIpcResult(value)) return value as IpcResult<CallReturn<C, M>>;
+    // Non-envelope response: wrap into an ok result so callers always get a
+    // consistent IpcResult shape regardless of whether the handler is migrated.
+    return { [IPC_RESULT_BRAND]: true, ok: true, value: value as CallReturn<C, M> };
+  };
+
+  if (!signal) {
+    return (window.ipc.call(channel, method, args) as Promise<unknown>)
+      .then((value) => {
+        // Legacy GitError envelope → convert to IpcErrResult so callers get a
+        // consistent IpcResult shape even from channels not yet migrated.
+        if (isIpcGitErrorResult(value)) throw gitErrorFromIpcResult(value);
+        return wrapRaw(value);
+      })
+      .catch(rethrowRehydratedGitError);
+  }
+
+  const requestId = createRequestId();
+  const cancel = () => {
+    window.ipc.cancel(requestId);
+  };
+
+  if (!signal.aborted) {
+    signal.addEventListener("abort", cancel, { once: true });
+  }
+
+  try {
+    const promise = window.ipc.call(channel, method, args, requestId) as Promise<unknown>;
+    if (signal.aborted) {
+      cancel();
+    }
+    return promise
+      .then((value) => {
+        if (isIpcGitErrorResult(value)) throw gitErrorFromIpcResult(value);
+        return wrapRaw(value);
+      })
+      .catch(rethrowRehydratedGitError)
+      .finally(() => {
+        signal.removeEventListener("abort", cancel);
+      });
+  } catch (err) {
+    signal.removeEventListener("abort", cancel);
+    throw rehydrateIfPossible(err);
+  }
+}
+
+/**
+ * Unwrap an `IpcResult` value, throwing an Error when the result represents
+ * an expected failure.  Use this when you want to treat all failures as
+ * exceptions (i.e. you're in a context that already has error-boundary
+ * handling) but still want the router's silent-pass-through behaviour for
+ * the main side.
+ *
+ * @example
+ *   const value = unwrapIpcResult(await ipcCallResult("ssh", "openBrowseSession", args));
+ */
+export function unwrapIpcResult<T>(result: IpcResult<T>): T {
+  if (result.ok) return result.value;
+  const err = new Error(result.message);
+  err.name = `IpcError[${result.kind}]`;
+  (err as unknown as Record<string, unknown>)["kind"] = result.kind;
+  throw err;
+}
+
+// Re-export result type utilities so renderer code only needs to import from
+// this module rather than reaching into shared/ directly.
+export type { IpcResult, IpcOkResult, IpcErrResult, IpcResultKind };
+export { isIpcResult, isIpcOkResult, isIpcErrResult };
 
 /**
  * Subscribe to a broadcast event on the given channel. Returns the

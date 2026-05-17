@@ -119,6 +119,17 @@ export class WorkspaceManager {
   private readonly localChannelFactory: WorkspaceLocalChannelFactory;
   private readonly localAgentCommandResolver: WorkspaceLocalAgentCommandResolver;
 
+  /**
+   * Optional callback invoked by `remove()` before the workspace context is
+   * deleted. Injected after construction (see `setPtySessionCloser`) so the
+   * PTY host and WorkspaceManager can be wired without a circular import.
+   * When set, remove() calls this first so PTY sessions are terminated on the
+   * main side before the renderer's workspace:removed broadcast arrives —
+   * eliminating the "workspace not found" errors that occur when the renderer
+   * tries to kill sessions via IPC after the context is already gone.
+   */
+  private ptySessionCloser: ((workspaceId: string) => void) | null = null;
+
   private readonly contexts = new Map<string, WorkspaceContext>();
   private readonly localChannels = new Map<string, AgentChannel>();
   private readonly localProviderReady = new Map<string, Promise<void>>();
@@ -274,9 +285,94 @@ export class WorkspaceManager {
     return ctx;
   }
 
+  /**
+   * Returns the ready workspace-scoped agent channel, or `null` when the
+   * workspace is not found. Unlike `getAgentChannel`, this method never
+   * throws for a missing workspace — callers where "workspace removed before
+   * IPC arrived" is an expected racing condition should use this form.
+   */
+  async tryGetAgentChannel(id: string): Promise<AgentChannel | null> {
+    if (!this.contexts.has(id)) return null;
+    return this.getAgentChannel(id);
+  }
+
+  /**
+   * Registers the PTY session closer called by `remove()` before the
+   * workspace context is deleted. Wired from `main/index.ts` after both the
+   * WorkspaceManager and the PTY host have been constructed — breaks the
+   * circular dependency without restructuring constructors.
+   */
+  setPtySessionCloser(closer: (workspaceId: string) => void): void {
+    this.ptySessionCloser = closer;
+  }
+
   // ---------------------------------------------------------------------------
   // Mutations
   // ---------------------------------------------------------------------------
+
+  /**
+   * Atomic SSH workspace creation: runs the SSH bootstrap (ControlMaster
+   * authentication) *before* persisting the workspace to storage or
+   * broadcasting to the renderer. If auth is cancelled or fails, nothing
+   * is committed and the caller receives a descriptive error — the sidebar
+   * never shows an orphaned entry.
+   *
+   * On success the workspace is committed (storage + context + broadcast)
+   * and the authenticated ControlMaster is adopted so the first provider
+   * boot reuses the established socket without a second credential prompt.
+   *
+   * Cancellation: when the user dismisses the SSH auth prompt the prompt
+   * hub rejects bootstrap with AuthCancelledError, which the caller maps to
+   * a `cancelled` Result — nothing is committed.
+   */
+  async createAndConnectSsh(opts: WorkspaceCreateOptions): Promise<WorkspaceMeta> {
+    const location = normalizeCreateLocation(opts);
+    if (location.kind !== "ssh") {
+      throw new Error("createAndConnectSsh called for non-SSH location");
+    }
+
+    // Phase 1 — authenticate and establish ControlMaster before any commit.
+    // A cancelled auth prompt rejects bootstrap with AuthCancelledError.
+    const bootstrap = await this.sshBootstrap({
+      host: location.host,
+      user: location.user,
+      port: location.port,
+      identityFile: location.identityFile,
+      authMode: location.authMode,
+      remotePath: location.remotePath,
+    });
+
+    // Phase 2 — commit: persist, register context, broadcast.
+    // Bootstrap succeeded; we now own the ControlMaster.
+    let meta: WorkspaceMeta;
+    try {
+      meta = this.create(opts);
+    } catch (error) {
+      // Commit failed (e.g. storage error). Release the master so its process
+      // does not leak, then surface the underlying error.
+      bootstrap.dispose?.();
+      throw error;
+    }
+
+    // Phase 3 — adopt the established ControlMaster so the workspace's first
+    // provider boot reuses the authenticated socket (no second prompt).
+    if (bootstrap.controlPath) {
+      const master: SshControlMaster = {
+        controlPath: bootstrap.controlPath,
+        host: location.host,
+        user: location.user,
+        port: location.port,
+        identityFile: location.identityFile,
+        dispose: bootstrap.dispose ?? (() => {}),
+      };
+      this.adoptSshControlMaster(meta.id, master);
+    } else {
+      // No reusable ControlMaster (key-only auth, no multiplexing).
+      bootstrap.dispose?.();
+    }
+
+    return meta;
+  }
 
   create(opts: WorkspaceCreateOptions): WorkspaceMeta {
     const id = randomUUID();
@@ -334,6 +430,16 @@ export class WorkspaceManager {
     if (!ctx) {
       return;
     }
+
+    // Step 1 — terminate all PTY sessions for this workspace *before* the
+    // context is deleted. This prevents the renderer's post-removal pty.kill
+    // IPC calls from reaching `requireContext` on a missing workspace and
+    // producing spurious "Error occurred in handler for 'ipc:call'" logs.
+    // The PTY host emits pty.exit events for each live session so the
+    // renderer's dead-terminal banner fires without waiting for IPC.
+    this.ptySessionCloser?.(id);
+
+    // Step 2 — dispose the workspace storage handle and agent channels.
     ctx.close();
     this.contexts.delete(id);
     this.localChannels.get(id)?.dispose();
@@ -355,6 +461,10 @@ export class WorkspaceManager {
       this.stateService.setState({ lastActiveWorkspaceId: this.activeId ?? undefined });
     }
 
+    // Step 3 — broadcast removal so the renderer and main-side subscribers
+    // (gitRegistry, fsWatcher, …) clean up workspace-scoped state. By this
+    // point PTY sessions are already gone so the renderer's cleanup handlers
+    // arrive after the fact — idempotent, not a race.
     this.broadcastFn("workspace", "removed", { id });
     this.connectionStatuses.delete(id);
   }

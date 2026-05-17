@@ -9,10 +9,10 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { ConnectionProfile } from "../../../../shared/types/entry-points";
-import { ipcCall } from "../../../ipc/client";
+import { ipcCall, ipcCallResult } from "../../../ipc/client";
 import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
-import { formatProfileSubtitle, humanizeSshError } from "./ssh-helpers";
+import { formatProfileSubtitle } from "./ssh-helpers";
 import type { SshBrowseSession, SshConnectionListViewProps } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -67,13 +67,23 @@ export function SshConnectionListView({
     setErrorId(null);
     setErrorHuman(null);
     try {
-      const result = await ipcCall("ssh", "openBrowseSession", {
+      // openBrowseSession is migrated to the IpcResult contract — auth
+      // cancellation arrives as ipcErr("cancelled") so the router stays silent
+      // and the renderer branches without showing an error banner.
+      const result = await ipcCallResult("ssh", "openBrowseSession", {
         host: profile.host,
         user: profile.user,
         port: profile.port,
         identityFile: profile.identityFile ?? undefined,
         authMode: profile.authMode as "interactive" | "key-only",
       });
+      if (!result.ok) {
+        // User cancelled the SSH auth prompt — silent stop, no error banner.
+        if (result.kind === "cancelled") return;
+        setErrorId(profile.id);
+        setErrorHuman(result.message);
+        return;
+      }
       // Update usage record
       await ipcCall("connectionProfile", "save", {
         id: profile.id,
@@ -85,8 +95,8 @@ export function SshConnectionListView({
         label: profile.label ?? undefined,
       });
       const session: SshBrowseSession = {
-        sessionId: result.sessionId,
-        initialPath: result.initialPath,
+        sessionId: result.value.sessionId,
+        initialPath: result.value.initialPath,
         host: profile.host,
         user: profile.user,
         port: profile.port,
@@ -95,14 +105,6 @@ export function SshConnectionListView({
         connectionProfileId: profile.id,
       };
       onConnected(session);
-    } catch (error) {
-      // User cancelled the SSH auth prompt — silent stop, no error banner.
-      if (error instanceof Error && error.name === "AbortError") {
-        setConnectingId(null);
-        return;
-      }
-      setErrorId(profile.id);
-      setErrorHuman(humanizeSshError(error));
     } finally {
       setConnectingId(null);
     }

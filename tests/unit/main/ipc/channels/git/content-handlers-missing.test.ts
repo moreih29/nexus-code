@@ -5,14 +5,18 @@
  * now requires a WorkspaceManager with an agent-backed provider.
  *
  * Remaining scenarios:
- *   (a) WORKING ref → throws immediately (before agent call)
- *   (b) Missing manager → throws immediately
- *   (c) Non-agent-backed provider → throws immediately
+ *   (a) WORKING ref → resolves with IpcGitErrorResult (before agent call)
+ *   (b) Missing manager → resolves with IpcGitErrorResult
+ *   (c) Non-agent-backed provider → resolves with IpcGitErrorResult
  *   (d) Agent-backed production path → calls git.getFileContent on the agent
+ *
+ * Per the T4 Result-contract migration, handlers return IpcGitErrorResult wire
+ * objects for GitError outcomes instead of throwing — the router stays log-silent
+ * and the renderer's unwrapCallResult detects the envelope.
  */
 
 import { describe, expect, it } from "bun:test";
-import { GitError } from "../../../../../../src/main/features/git/domain/error";
+import { isIpcGitErrorResult } from "../../../../../../src/shared/git/error-ipc";
 import { getFileContentHandler } from "../../../../../../src/main/features/git/ipc/content-handlers";
 
 // ---------------------------------------------------------------------------
@@ -49,7 +53,7 @@ function makeAgentProvider(returnValue: unknown = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// (a) WORKING ref → throws immediately, agent is NOT called
+// (a) WORKING ref → resolves with IpcGitErrorResult, agent is NOT called
 // ---------------------------------------------------------------------------
 
 describe("content-handlers — WORKING ref throws without calling agent", () => {
@@ -57,28 +61,32 @@ describe("content-handlers — WORKING ref throws without calling agent", () => 
     const { provider } = makeAgentProvider();
     const handler = getFileContentHandler(makeRegistry() as never, makeManager(provider) as never);
 
-    await expect(
-      handler({ workspaceId: VALID_UUID, ref: "WORKING", relPath: "src/foo.ts" }),
-    ).rejects.toThrow(/does not support WORKING/);
+    const result = await handler({ workspaceId: VALID_UUID, ref: "WORKING", relPath: "src/foo.ts" });
+    expect(isIpcGitErrorResult(result)).toBe(true);
+    // @ts-expect-error — narrowed by isIpcGitErrorResult runtime check above
+    expect(result.kind).toBe("unknown");
+    // @ts-expect-error
+    expect(result.message).toMatch(/does not support WORKING/);
   });
 });
 
 // ---------------------------------------------------------------------------
-// (b) Missing manager → throws immediately
+// (b) Missing manager → resolves with IpcGitErrorResult
 // ---------------------------------------------------------------------------
 
 describe("content-handlers — missing manager throws", () => {
   it("throws when manager is not provided", async () => {
     const handler = getFileContentHandler(makeRegistry() as never);
 
-    await expect(
-      handler({ workspaceId: VALID_UUID, ref: "HEAD", relPath: "src/foo.ts" }),
-    ).rejects.toThrow(/workspace manager/);
+    const result = await handler({ workspaceId: VALID_UUID, ref: "HEAD", relPath: "src/foo.ts" });
+    expect(isIpcGitErrorResult(result)).toBe(true);
+    // @ts-expect-error
+    expect(result.message).toMatch(/workspace manager/);
   });
 });
 
 // ---------------------------------------------------------------------------
-// (c) Non-agent-backed provider → throws
+// (c) Non-agent-backed provider → resolves with IpcGitErrorResult
 // ---------------------------------------------------------------------------
 
 describe("content-handlers — non-agent-backed provider throws", () => {
@@ -89,9 +97,10 @@ describe("content-handlers — non-agent-backed provider throws", () => {
       makeManager(nonAgentProvider) as never,
     );
 
-    await expect(
-      handler({ workspaceId: VALID_UUID, ref: "HEAD", relPath: "src/foo.ts" }),
-    ).rejects.toThrow(/agent-backed/);
+    const result = await handler({ workspaceId: VALID_UUID, ref: "HEAD", relPath: "src/foo.ts" });
+    expect(isIpcGitErrorResult(result)).toBe(true);
+    // @ts-expect-error
+    expect(result.message).toMatch(/agent-backed/);
   });
 });
 

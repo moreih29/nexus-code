@@ -191,6 +191,13 @@ app.whenReady().then(async () => {
   });
 
   agentPtyHost = startAgentPtyHost(workspaceManager);
+  // Wire the PTY session closer into WorkspaceManager so remove() can
+  // terminate PTY sessions on the main side before broadcasting removal.
+  // This breaks the construction-time circular dependency: WorkspaceManager
+  // is created first, PTY host second, then they are linked here.
+  workspaceManager.setPtySessionCloser((workspaceId) => {
+    agentPtyHost?.closeWorkspaceSessions(workspaceId);
+  });
   registerPtyChannel({ agentHost: agentPtyHost });
 
   lspHost = startConfiguredLspHost({

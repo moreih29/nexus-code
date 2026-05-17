@@ -2,7 +2,7 @@ import { AlertCircle, ChevronRight, ChevronUp, Folder } from "lucide-react";
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DirEntry } from "../../../../shared/fs/types";
-import { ipcCall } from "../../../ipc/client";
+import { ipcCall, ipcCallResult } from "../../../ipc/client";
 import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
 import { humanizeSshError } from "./ssh-helpers";
@@ -232,7 +232,11 @@ export function SshDirectoryPickerView({
     setAddPhase("creating");
     setAddErrorHuman(null);
     try {
-      const meta = await ipcCall("workspace", "create", {
+      // createAndConnect with sshBrowseSessionId: the directory-picker path
+      // is already authenticated (the user browsed via the browse session).
+      // The main handler detects the browseSessionId and adopts that
+      // ControlMaster, skipping a second auth prompt.
+      const result = await ipcCallResult("workspace", "createAndConnect", {
         location: {
           kind: "ssh",
           host,
@@ -242,10 +246,17 @@ export function SshDirectoryPickerView({
           remotePath: currentPath,
           authMode: "interactive",
         },
-        // Hand off this browse session's authenticated connection so the
+        // Hand off the browse session's authenticated connection so the
         // workspace boots without a second credential prompt.
         sshBrowseSessionId: sessionId,
       });
+
+      if (!result.ok) {
+        // Cancellation or auth failure after the browse session — surface error.
+        setAddErrorHuman(result.message);
+        setAddPhase("idle");
+        return;
+      }
 
       // Record the SSH folder bookmark — before onWorkspaceCreated so
       // it appears in RECENT on the next modal open.
@@ -258,7 +269,7 @@ export function SshDirectoryPickerView({
       }).catch(() => {});
 
       // Session cleanup is handled by unmount effect — no separate call needed.
-      await onWorkspaceCreated(meta);
+      await onWorkspaceCreated(result.value);
       onClose();
     } catch (error) {
       setAddErrorHuman(humanizeSshError(error));

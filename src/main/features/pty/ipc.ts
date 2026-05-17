@@ -5,6 +5,7 @@ import { ipcContract } from "../../../shared/ipc/contract";
 import type { PtyHostHandle } from "./types";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import { TerminalRecorderRegistry, type PtyRecorderSink } from "./recorder";
+import { ipcOk } from "../../../shared/ipc/result";
 
 const c = ipcContract.pty.call;
 
@@ -66,27 +67,35 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
         }
       },
 
-      write: (args: unknown) => {
+      write: async (args: unknown) => {
         const { workspaceId, tabId, data } = validateArgs(c.write.args, args);
-        return agentHost.call("write", { workspaceId, tabId, data });
+        // write/resize/ack/kill are fire-and-forget from the renderer and no-op
+        // when the workspace is already gone — agentHost.call returns undefined
+        // in that case. Return ipcOk so the router stays silent on either path.
+        await agentHost.call("write", { workspaceId, tabId, data });
+        return ipcOk(undefined);
       },
 
-      resize: (args: unknown) => {
+      resize: async (args: unknown) => {
         const { workspaceId, tabId, cols, rows } = validateArgs(c.resize.args, args);
-        return agentHost.call("resize", { workspaceId, tabId, cols, rows }).then((value) => {
-          recorder.handleResize(workspaceId, tabId, cols, rows);
-          return value;
-        });
+        await agentHost.call("resize", { workspaceId, tabId, cols, rows });
+        recorder.handleResize(workspaceId, tabId, cols, rows);
+        return ipcOk(undefined);
       },
 
-      ack: (args: unknown) => {
+      ack: async (args: unknown) => {
         const { workspaceId, tabId, bytesConsumed } = validateArgs(c.ack.args, args);
-        return agentHost.call("ack", { workspaceId, tabId, bytesConsumed });
+        await agentHost.call("ack", { workspaceId, tabId, bytesConsumed });
+        return ipcOk(undefined);
       },
 
       kill: async (args: unknown) => {
         const { workspaceId, tabId } = validateArgs(c.kill.args, args);
-        return agentHost.call("kill", { workspaceId, tabId });
+        // The workspace may already be removed when this arrives from the
+        // renderer's workspace-cleanup fan-out. agentHost.call returns
+        // undefined (no-op) in that case; ipcOk keeps the router silent.
+        await agentHost.call("kill", { workspaceId, tabId });
+        return ipcOk(undefined);
       },
     },
     listen: {
