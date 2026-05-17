@@ -2,18 +2,15 @@
  * Per-workspace registry for lazy Git repository detection. It owns cached
  * RepoInfo state and the GitRepository instance for each workspaceId.
  */
-import path from "node:path";
 import {
   DEFAULT_GIT_OPERATION_STATE,
   DEFAULT_REPO_CAPABILITIES,
   type GitStatus,
   type RepoInfo,
 } from "../../../../shared/git/types";
-import { LocalFsProvider } from "../../fs/bridge/local-provider";
 import { isAgentBackedProvider } from "../../fs/bridge/provider";
 import { AgentGitExecutor } from "../bridge/agent-executor";
 import {
-  isLocalWorkspace,
   requireLocalWorkspace,
   requireWorkspace,
 } from "../../workspace/guards";
@@ -33,14 +30,6 @@ export interface GitRegistryOptions {
   readonly onRepoInfoChanged?: (workspaceId: string, info: RepoInfo) => void;
   readonly coalescer?: StatusCoalescer;
   readonly askpassManager?: GitHelpersIpcManager;
-}
-
-export interface GitCloneExecutionContext {
-  readonly workspaceId: string;
-  readonly bin: GitBinaryInfo;
-  readonly cwd: string;
-  readonly executor: AgentGitExecutor;
-  readonly dispose?: () => void;
 }
 
 /**
@@ -162,67 +151,6 @@ export class GitRegistry {
     this.broadcast("git", "statusChanged", { workspaceId, status });
     this.coalescer?.markRecentlyRefreshed(workspaceId);
     return status;
-  }
-
-  /**
-   * Returns the resolved Git executable path for workspace-agnostic operations
-   * such as clone, where no GitRepository exists yet.
-   */
-  getGitBinaryPath(argv: readonly string[]): string {
-    return this.requireGitBinary(argv).path;
-  }
-
-  /**
-   * Returns the active/requested local workspace executor used for clone.
-   *
-   * Clone validates and cleans up the destination via Electron's local
-   * filesystem APIs, so SSH workspaces are not routed here — doing so would
-   * risk cloning on the remote host while cleaning the local one. Remote
-   * clone is handled out-of-band.
-   */
-  getCloneExecutionContext(workspaceId?: string, destination?: string): GitCloneExecutionContext {
-    if (workspaceId) return this.getWorkspaceCloneExecutionContext(workspaceId);
-
-    const activeWorkspaceId = this.workspaceManager.getActiveId();
-    const activeWorkspace = activeWorkspaceId
-      ? this.workspaceManager.list().find((workspace) => workspace.id === activeWorkspaceId)
-      : undefined;
-    if (activeWorkspaceId && activeWorkspace && isLocalWorkspace(activeWorkspace)) {
-      return this.getWorkspaceCloneExecutionContext(activeWorkspaceId);
-    }
-
-    if (!destination || !path.isAbsolute(destination)) {
-      throw new GitError("clone-destination-invalid", "Clone destination must be absolute", {
-        argv: ["clone", destination ?? ""],
-      });
-    }
-
-    const cwd = path.resolve(destination);
-    const provider = new LocalFsProvider(cwd);
-    const executor = new AgentGitExecutor(provider, { askpassManager: this.askpassManager });
-    return {
-      workspaceId: "local-clone",
-      bin: this.requireGitBinary(["clone"], executor),
-      cwd,
-      executor,
-      dispose: () => provider.dispose(),
-    };
-  }
-
-  private getWorkspaceCloneExecutionContext(workspaceId: string): GitCloneExecutionContext {
-    const resolvedWorkspaceId = workspaceId;
-    const workspace = requireLocalWorkspace(
-      this.workspaceManager,
-      resolvedWorkspaceId,
-      "Git clone",
-    );
-    const executor = this.getAgentExecutor(resolvedWorkspaceId);
-    return {
-      workspaceId: resolvedWorkspaceId,
-      bin: this.requireGitBinary(["clone"], executor),
-      cwd: workspace.location.rootPath,
-      executor,
-    };
   }
 
   /**

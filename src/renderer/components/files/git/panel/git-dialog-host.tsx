@@ -17,7 +17,7 @@ import { PromptDialog } from "../../../ui/prompt-dialog";
 import { BranchCreateDialog } from "../branch/create-dialog";
 import { BranchPicker } from "../branch/picker";
 import type { CommitPickItem } from "../commit/picker-source";
-import { ConfirmDiscardDialog } from "../clone/confirm-discard-dialog";
+import { ConfirmDiscardDialog } from "../dialogs/confirm-discard-dialog";
 import { MergeOptionsDialog } from "../pickers/merge-options-dialog";
 import type { MergeTargetPickItem } from "../pickers/merge-target-picker-source";
 import type { RebaseTargetPickItem } from "../pickers/rebase-target-picker-source";

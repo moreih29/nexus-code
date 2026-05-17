@@ -17,8 +17,6 @@ import type {
   GitMarkResolvedResult,
   GitMergeMode,
   GitMergeResult,
-  GitCloneStreamProgressEvent,
-  GitCloneStreamResultEvent,
   GitRebaseResult,
   GitStatus,
   LogChunk,
@@ -270,16 +268,6 @@ export interface GitBranchFastForwardOptions {
   readonly signal?: AbortSignal;
 }
 
-export interface GitCloneOptions {
-  readonly url: string;
-  readonly parentDir: string;
-  readonly name?: string;
-  readonly branch?: string;
-  readonly recurseSubmodules?: boolean;
-  readonly env?: NodeJS.ProcessEnv;
-  readonly signal?: AbortSignal;
-}
-
 export interface GitPullOptions {
   readonly cwd: string;
   readonly args?: readonly string[];
@@ -328,9 +316,6 @@ export interface GitExecutor {
   branchRename?(options: GitBranchRenameOptions): Promise<void>;
   branchSetUpstream?(options: GitBranchSetUpstreamOptions): Promise<void>;
   branchFastForward?(options: GitBranchFastForwardOptions): Promise<GitFastForwardResult>;
-  clone?(
-    options: GitCloneOptions,
-  ): AsyncGenerator<GitCloneStreamProgressEvent, GitCloneStreamResultEvent, unknown>;
   pull?(options: GitPullOptions): Promise<PullResult>;
   push?(options: GitPushOptions): Promise<PushResult>;
   info?(): Promise<{ binaryPath: string; binaryVersion: string } | null>;

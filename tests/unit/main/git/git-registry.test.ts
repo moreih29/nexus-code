@@ -44,19 +44,6 @@ function makeSshWorkspace(remotePath = "/srv/repo"): WorkspaceMeta {
   };
 }
 
-function makeLocalWorkspace(rootPath = "/Users/test/repo"): WorkspaceMeta {
-  return {
-    id: WORKSPACE_ID,
-    name: "local-workspace",
-    rootPath,
-    location: { kind: "local", rootPath },
-    colorTone: "default",
-    pinned: false,
-    lastOpenedAt: new Date().toISOString(),
-    tabs: [],
-  };
-}
-
 function makeRegistry(
   workspaces: WorkspaceMeta[],
   provider = fakeAgentProvider(),
@@ -99,59 +86,6 @@ describe("GitRegistry agent-backed workspaces", () => {
     });
   });
 
-  it("returns an active local clone execution context", () => {
-    const workspace = makeLocalWorkspace();
-    const { registry } = makeRegistry([workspace], fakeAgentProvider("local"));
-
-    const context = registry.getCloneExecutionContext();
-
-    expect(context.workspaceId).toBe(WORKSPACE_ID);
-    expect(context.bin).toEqual({ path: "/usr/bin/git", version: "test" });
-    expect(context.cwd).toBe(workspace.rootPath);
-    expect(context.executor).toBeDefined();
-  });
-
-  it("creates a transient local clone context when no active workspace is available", () => {
-    const workspace = makeLocalWorkspace();
-    const { registry } = makeRegistry([workspace], fakeAgentProvider("local"), null);
-
-    const context = registry.getCloneExecutionContext(undefined, "/tmp/clone-parent");
-
-    expect(context.workspaceId).toBe("local-clone");
-    expect(context.bin).toEqual({ path: "/usr/bin/git", version: "test" });
-    expect(context.cwd).toBe("/tmp/clone-parent");
-    expect(context.executor).toBeDefined();
-    context.dispose?.();
-  });
-
-  it("rejects transient clone context without an absolute destination", () => {
-    const workspace = makeLocalWorkspace();
-    const { registry } = makeRegistry([workspace], fakeAgentProvider("local"), null);
-
-    expect(() => registry.getCloneExecutionContext(undefined, "relative/path")).toThrow(
-      /Clone destination must be absolute/,
-    );
-  });
-
-  it("blocks SSH clone execution until remote destination cleanup is safe", () => {
-    const workspace = makeSshWorkspace();
-    const { registry } = makeRegistry([workspace], fakeAgentProvider("ssh"));
-
-    expect(() => registry.getCloneExecutionContext(WORKSPACE_ID)).toThrow(
-      /SSH workspaces do not support Git clone/,
-    );
-  });
-
-  it("uses a transient local clone context when the active workspace is SSH but not requested", () => {
-    const workspace = makeSshWorkspace();
-    const { registry } = makeRegistry([workspace], fakeAgentProvider("ssh"));
-
-    const context = registry.getCloneExecutionContext(undefined, "/tmp/clone-parent");
-
-    expect(context.workspaceId).toBe("local-clone");
-    expect(context.cwd).toBe("/tmp/clone-parent");
-    context.dispose?.();
-  });
 });
 
 /** Builds the minimal agent provider required by GitRegistry's non-optional executor path. */

@@ -54,9 +54,6 @@ import {
   GitBlobChunkSchema,
   GitBlobCompleteSchema,
   GitCherryPickResultSchema,
-  GitCloneArgsSchema,
-  GitCloneStreamProgressEventSchema,
-  GitCloneStreamResultEventSchema,
   GitContinueOpResultSchema,
   GitEditorPromptSchema,
   GitEditorSaveArgsSchema,
@@ -801,12 +798,6 @@ export const ipcContract = {
         GitBlobCompleteSchema,
       ),
       stashShow: stream(GitStashIndexArgsSchema, DiffChunkSchema, DiffCompleteSchema),
-      clone: stream(
-        GitCloneArgsSchema,
-        GitCloneStreamProgressEventSchema,
-        GitCloneStreamResultEventSchema,
-        { cancelMode: "handler" },
-      ),
     },
   },
 

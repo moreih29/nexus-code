@@ -161,7 +161,7 @@ export function useGitHelperOccupancy(workspaceId: string): string | null {
 
 /**
  * Installs global prompt listeners and owns the only renderer response path.
- * Mount once from GlobalRoots so clone prompts work without GitPanel mounted.
+ * Mount once from GlobalRoots so credential prompts work without GitPanel mounted.
  */
 export function useGitHelperPrompts(
   deps: GitHelperPromptDeps = DEFAULT_PROMPT_DEPS,

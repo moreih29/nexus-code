@@ -111,7 +111,6 @@ function appMenu(appName: string): MenuItemSpec {
 function fileMenu(isMac: boolean): MenuItemSpec {
   const items: MenuItemSpec[] = [
     cmd("Open File…", COMMANDS.fileOpen),
-    cmd("Clone Repository…", COMMANDS.gitCloneRepository),
     cmd("Save", COMMANDS.fileSave),
     { type: "separator" },
     cmd("Close Editor", COMMANDS.tabClose),

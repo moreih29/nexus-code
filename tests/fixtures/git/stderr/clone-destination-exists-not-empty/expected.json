@@ -1,4 +1,0 @@
-{
-  "kind": "clone-destination-exists",
-  "message": "fatal: destination path 'repo' already exists and is not an empty directory."
-}

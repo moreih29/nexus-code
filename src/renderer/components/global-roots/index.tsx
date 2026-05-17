@@ -7,9 +7,8 @@
 // React tree. A root may own one process-wide listener when the underlying
 // feature must work independently of the active workspace panel.
 
-import { CloneDialogRoot } from "../files/git/clone/dialog";
 import { CommitMessageDialog } from "../files/git/commit/message-dialog";
-import { CredentialPromptDialog } from "../files/git/clone/credential-prompt-dialog";
+import { CredentialPromptDialog } from "../files/git/dialogs/credential-prompt-dialog";
 import { type GitHelperPromptState, useGitHelperPrompts } from "../files/git/hooks/use-git-helper-prompts";
 import { WorkspaceSymbolPaletteRoot } from "../lsp/workspace-symbol-palette";
 import { ConflictResolutionDialogRoot } from "../ui/conflict-dialog";
@@ -28,7 +27,6 @@ export function GlobalRoots(): React.JSX.Element {
       <ConflictResolutionDialogRoot />
       <RemoveWorkspaceDialogRoot />
       <WorkspaceSymbolPaletteRoot />
-      <CloneDialogRoot />
       <GitHelperPromptsRoot />
       <SshAuthPromptsRoot />
       <ToastRoot />
@@ -37,9 +35,9 @@ export function GlobalRoots(): React.JSX.Element {
 }
 
 /**
- * Mounts Git askpass/editor helper prompts once at App level. Clone can run
- * before any Source Control panel exists, so the listener cannot live inside
- * GitPanel.
+ * Mounts Git askpass/editor helper prompts once at App level. Credential
+ * prompts can fire before any Source Control panel exists, so the listener
+ * cannot live inside GitPanel.
  */
 export function GitHelperPromptsRoot(): React.JSX.Element {
   const helperPrompts = useGitHelperPrompts();

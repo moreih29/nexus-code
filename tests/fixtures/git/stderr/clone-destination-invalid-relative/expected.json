@@ -1,4 +1,0 @@
-{
-  "kind": "clone-destination-invalid",
-  "message": "fatal: clone destination './repo' invalid: destination path is not absolute"
-}

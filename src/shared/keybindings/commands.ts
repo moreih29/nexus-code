@@ -44,9 +44,6 @@ export const COMMANDS = {
   // Workspace navigation
   workspaceSymbolSearch: "workspace.symbolSearch",
 
-  // Git / workspace source control
-  gitCloneRepository: "git.cloneRepository",
-
   // Terminal
   terminalNew: "terminal.new",
 

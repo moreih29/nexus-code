@@ -2,7 +2,7 @@
  * FormDialog — renderer-side modal form primitive for multi-field prompts.
  *
  * Uses the same Radix Dialog + Button visual conventions as PromptDialog while
- * allowing callers such as Clone to host several validated fields in one
+ * allowing callers to host several validated fields in one
  * focused modal. Escape and outside-click dismissal both flow through
  * onCancel via Radix's onOpenChange contract.
  */
@@ -84,7 +84,7 @@ export function initialFormDialogValues(
 /**
  * Returns per-field validation state using the dialog's required-field rule
  * and optional custom validator. Required defaults to true to keep submit
- * disablement safe for Clone-like flows.
+ * disablement safe by default.
  */
 export function getFormDialogFieldStates(
   fields: readonly FormDialogField[],
@@ -122,7 +122,7 @@ export function handleFormDialogOpenChange(nextOpen: boolean, onCancel: () => vo
 
 /**
  * Renders the form body without the Radix portal so unit tests can assert the
- * Clone-like field layout in a no-DOM server-render environment.
+ * field layout in a no-DOM server-render environment.
  */
 export function FormDialogContent({
   title,

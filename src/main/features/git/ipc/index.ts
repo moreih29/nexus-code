@@ -15,7 +15,6 @@ import {
   renameBranchHandler,
   setUpstreamHandler,
 } from "./branch-ops-handlers";
-import { cloneStream, type CloneExecutorFactory } from "./clone-handlers";
 import {
   commitAmendHandler,
   commitEmptyHandler,
@@ -74,16 +73,12 @@ import {
 /**
  * Register the Git IPC channel's call handlers, broadcast event placeholders,
  * and cancellable stream handlers.
- *
- * `cloneExecutorFactory` creates a temporary AgentGitExecutor bound to the
- * target parentDir for each clone call. Required for agent-backed clone.
  */
 export function registerGitChannel(
   registry: GitRegistry,
   storage: WorkspaceStorage,
   autofetch?: GitAutofetchScheduler,
   workspaceManager?: import("../../workspace/manager").WorkspaceManager,
-  cloneExecutorFactory?: CloneExecutorFactory,
 ): void {
   register("git", {
     call: {
@@ -151,12 +146,6 @@ export function registerGitChannel(
       diff: diffStream(registry),
       getFileBlob: getFileBlobStream(registry),
       stashShow: stashShowStream(registry),
-      clone: cloneStream(
-        cloneExecutorFactory ??
-          (() => {
-            throw new Error("clone executor factory not provided");
-          }),
-      ),
     },
   });
 }

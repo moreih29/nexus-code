@@ -1,8 +1,7 @@
 export { BranchChip } from "./branch/chip";
-export { CloneDialog, CloneDialogRoot } from "./clone/dialog";
 export { CommitMessageDialog } from "./commit/message-dialog";
-export { CredentialPromptDialog } from "./clone/credential-prompt-dialog";
-export { ConfirmDiscardDialog, type DiscardConfirmRequest } from "./clone/confirm-discard-dialog";
+export { CredentialPromptDialog } from "./dialogs/credential-prompt-dialog";
+export { ConfirmDiscardDialog, type DiscardConfirmRequest } from "./dialogs/confirm-discard-dialog";
 export { GitBranchBar } from "./branch/git-branch-bar";
 export { GitBranchPopover } from "./branch/git-branch-popover";
 export { GitCommitButton } from "./commit/git-commit-button";

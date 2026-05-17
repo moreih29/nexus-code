@@ -14,7 +14,7 @@
 import { useState } from "react";
 import type { BranchList } from "../../../../../shared/git/types";
 import type { GitPushOptions } from "../../../../state/stores/git";
-import type { DiscardConfirmRequest } from "../clone/confirm-discard-dialog";
+import type { DiscardConfirmRequest } from "../dialogs/confirm-discard-dialog";
 import type { BranchCreateRequest } from "../branch/create-dialog";
 import type { MergeOptionsRequest } from "../pickers/merge-options-dialog";
 import type { PromptRequest } from "../../../ui/prompt-dialog";

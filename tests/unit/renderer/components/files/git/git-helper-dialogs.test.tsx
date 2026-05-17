@@ -11,7 +11,7 @@ import {
 import {
   CredentialPromptDialogContent,
   credentialPromptInputType,
-} from "../../../../../../src/renderer/components/files/git/clone/credential-prompt-dialog";
+} from "../../../../../../src/renderer/components/files/git/dialogs/credential-prompt-dialog";
 import {
   __resetGitHelperPromptsForTests,
   type GitHelperPromptState,

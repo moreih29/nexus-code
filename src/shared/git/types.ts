@@ -48,11 +48,6 @@ export const GIT_ERROR_KINDS = [
   "no-merge-base",
   "empty-commit",
   "path-not-conflicted",
-  "clone-destination-invalid",
-  "clone-destination-not-writable",
-  "clone-destination-exists",
-  "clone-name-invalid",
-  "clone-url-invalid",
   "non-fast-forward",
   "protected-branch",
   "pre-receive-hook-rejected",
@@ -342,81 +337,6 @@ export const GitIgnoreAppendResultSchema = z.object({
   alreadyIgnored: z.boolean(),
 });
 export type GitIgnoreAppendResult = z.infer<typeof GitIgnoreAppendResultSchema>;
-
-export const GitClonePhaseSchema = z.enum([
-  "counting",
-  "compressing",
-  "receiving",
-  "resolving",
-  "checkout",
-]);
-export type GitClonePhase = z.infer<typeof GitClonePhaseSchema>;
-
-export const GitCloneArgsSchema = z.object({
-  workspaceId: z.string().uuid().optional(),
-  url: z.string(),
-  destination: z.string(),
-  name: z.string().optional(),
-  branch: z.string().optional(),
-  recurseSubmodules: z.boolean().optional(),
-});
-export type GitCloneArgs = z.infer<typeof GitCloneArgsSchema>;
-
-export const GitCloneStartedEventSchema = z.object({
-  kind: z.literal("started"),
-  absPath: z.string(),
-});
-export type GitCloneStartedEvent = z.infer<typeof GitCloneStartedEventSchema>;
-
-export const GitCloneProgressEventSchema = z.object({
-  kind: z.literal("progress"),
-  phase: GitClonePhaseSchema,
-  pct: z.number().min(0).max(100),
-  received: z.number().int().nonnegative().optional(),
-  total: z.number().int().nonnegative().optional(),
-});
-export type GitCloneProgressEvent = z.infer<typeof GitCloneProgressEventSchema>;
-
-export const GitClonePhaseEventSchema = z.object({
-  kind: z.literal("phase"),
-  phase: GitClonePhaseSchema,
-});
-export type GitClonePhaseEvent = z.infer<typeof GitClonePhaseEventSchema>;
-
-export const GitCloneCompleteEventSchema = z.object({
-  kind: z.literal("complete"),
-  absPath: z.string(),
-});
-export type GitCloneCompleteEvent = z.infer<typeof GitCloneCompleteEventSchema>;
-
-export const GitCloneCancelledEventSchema = z.object({
-  kind: z.literal("cancelled"),
-  absPath: z.string(),
-  cleaned: z.boolean(),
-});
-export type GitCloneCancelledEvent = z.infer<typeof GitCloneCancelledEventSchema>;
-
-export const GitCloneStreamProgressEventSchema = z.discriminatedUnion("kind", [
-  GitCloneStartedEventSchema,
-  GitCloneProgressEventSchema,
-  GitClonePhaseEventSchema,
-]);
-export type GitCloneStreamProgressEvent = z.infer<typeof GitCloneStreamProgressEventSchema>;
-
-export const GitCloneStreamResultEventSchema = z.discriminatedUnion("kind", [
-  GitCloneCompleteEventSchema,
-  GitCloneCancelledEventSchema,
-]);
-export type GitCloneStreamResultEvent = z.infer<typeof GitCloneStreamResultEventSchema>;
-
-export const GitCloneEventSchema = z.discriminatedUnion("kind", [
-  GitCloneStartedEventSchema,
-  GitCloneProgressEventSchema,
-  GitClonePhaseEventSchema,
-  GitCloneCompleteEventSchema,
-  GitCloneCancelledEventSchema,
-]);
-export type GitCloneEvent = z.infer<typeof GitCloneEventSchema>;
 
 export const GitHelperPromptIdSchema = z.string().min(1);
 export type GitHelperPromptId = z.infer<typeof GitHelperPromptIdSchema>;
