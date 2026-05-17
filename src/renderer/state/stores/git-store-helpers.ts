@@ -75,18 +75,35 @@ export function gitStoreErrorFromUnknown(
         : typeof error.name === "string"
           ? error.name
           : "unknown";
-    const details =
+    const rawDetails =
       typeof error.details === "string"
         ? error.details
         : typeof error.stderr === "string"
           ? error.stderr
           : undefined;
+    // `message` frequently degrades to the trimmed stderr when the agent has
+    // no classified summary, leaving `details` (the raw stderr) an exact
+    // repeat. Drop the redundant copy so the banner renders it once.
+    const details =
+      rawDetails && !detailsRepeatMessage(message, rawDetails) ? rawDetails : undefined;
     const hint = isGitActionHint(error.hint) ? error.hint : undefined;
 
     return { kind, message, details, operation, hint };
   }
 
   return { kind: "unknown", message: String(error), operation };
+}
+
+/**
+ * True when `details` carries nothing beyond `message` — an exact match, or
+ * `message` already wholly containing it. A details string that is itself the
+ * *superset* (a short message plus fuller stderr) is kept: it adds context.
+ */
+function detailsRepeatMessage(message: string, details: string): boolean {
+  const m = message.trim();
+  const d = details.trim();
+  if (d.length === 0) return true;
+  return m === d || (m.length > 0 && m.includes(d));
 }
 
 /**

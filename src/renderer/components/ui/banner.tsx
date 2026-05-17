@@ -67,22 +67,28 @@ function InlineBanner({
   return (
     <div
       className={cn(
-        "mx-2 my-1 flex items-start gap-2 rounded-[--radius-container] border px-2 py-2 text-app-ui-sm",
+        "mx-2 my-1 flex flex-col gap-2 rounded-[--radius-container] border px-2 py-2 text-app-ui-sm",
         bannerColorClass(variant),
         className,
       )}
       role={role ?? (variant === "error" ? "alert" : "status")}
       aria-live={ariaLive}
     >
-      <BannerIcon variant={variant} className="mt-0.5 size-3.5 shrink-0" />
-      <div className="min-w-0 flex-1">
-        <p className="whitespace-pre-wrap break-words text-foreground">{message}</p>
-        {details ? (
-          <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">{details}</p>
-        ) : null}
+      <div className="flex items-start gap-2">
+        <BannerIcon variant={variant} className="mt-0.5 size-3.5 shrink-0" />
+        {/* Cap the text region and let it scroll: a long error (e.g. a full
+            git stderr dump) must not push the panel's other controls off
+            screen. Actions live in their own row below so the message keeps
+            the full banner width. */}
+        <div className="min-w-0 flex-1 max-h-48 overflow-y-auto app-scrollbar">
+          <p className="whitespace-pre-wrap break-words text-foreground">{message}</p>
+          {details ? (
+            <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">{details}</p>
+          ) : null}
+        </div>
       </div>
       {actions.length > 0 ? (
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex items-center justify-end gap-1">
           {actions.map((action) => (
             <Button
               key={action.label}
