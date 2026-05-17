@@ -96,6 +96,11 @@ export function SshConnectionListView({
       };
       onConnected(session);
     } catch (error) {
+      // User cancelled the SSH auth prompt — silent stop, no error banner.
+      if (error instanceof Error && error.name === "AbortError") {
+        setConnectingId(null);
+        return;
+      }
       setErrorId(profile.id);
       setErrorHuman(humanizeSshError(error));
     } finally {

@@ -4,6 +4,7 @@ import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { useUIStore } from "../../state/stores/ui";
 import type { WorkspaceConnectionStatus } from "../../state/stores/workspaces";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { folderName, formatSshSecondaryLine, formatSshTooltip } from "../workspace/add-workspace/ssh-helpers";
 import { SidebarResizeHandle } from "./sidebar-resize-handle";
 
 // ---------------------------------------------------------------------------
@@ -52,8 +53,23 @@ export function Sidebar({
           const connectionStatus: WorkspaceConnectionStatus = isSsh
             ? (connectionStatusByWorkspaceId[ws.id] ?? "idle")
             : "idle";
+
+          // For SSH: primary = remote folder leaf, secondary = user@host,
+          // title = full connection + path for tooltip.
+          // For local: primary = ws.name, secondary = parent/folder, title = full path.
+          const sshLocation = ws.location.kind === "ssh" ? ws.location : null;
+          const primaryText = sshLocation
+            ? folderName(sshLocation.remotePath)
+            : ws.name;
           const secondaryText = secondaryWorkspaceText(ws);
-          const secondaryTitle = ws.location.kind === "ssh" ? ws.location.remotePath : ws.rootPath;
+          const secondaryTitle = sshLocation
+            ? formatSshTooltip({
+                user: sshLocation.user,
+                host: sshLocation.host,
+                port: sshLocation.port,
+                remotePath: sshLocation.remotePath,
+              })
+            : ws.rootPath;
 
           return (
             <div key={ws.id} className="relative group mx-2 my-0.5">
@@ -87,7 +103,7 @@ export function Sidebar({
                         isActive ? "text-foreground" : "text-muted-foreground",
                       )}
                     >
-                      {ws.name}
+                      {primaryText}
                     </span>
                     {/* Location hint — micro: 11px, truncate */}
                     <span
@@ -184,15 +200,15 @@ function connectionStatusClassName(status: WorkspaceConnectionStatus): string {
 
 /**
  * Chooses the compact secondary line for local and SSH workspace rows.
+ * SSH: always `user@host` (configAlias is dropped in favour of connection info visibility).
+ * Local: last two path segments for breadcrumb context.
  */
 function secondaryWorkspaceText(workspace: WorkspaceMeta): string {
   if (workspace.location.kind === "ssh") {
-    if (workspace.location.configAlias) {
-      return workspace.location.configAlias;
-    }
-    return workspace.location.user
-      ? `${workspace.location.user}@${workspace.location.host}`
-      : workspace.location.host;
+    return formatSshSecondaryLine({
+      user: workspace.location.user,
+      host: workspace.location.host,
+    });
   }
 
   return workspace.rootPath.split("/").filter(Boolean).slice(-2).join("/");

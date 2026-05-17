@@ -86,7 +86,10 @@ describe("Sidebar workspace rows", () => {
     ]);
 
     expect(html).toContain('aria-label="SSH workspace, idle"');
-    expect(html).toContain('title="/srv/project"');
-    expect(html).toContain("devbox");
+    // title tooltip now shows the full SSH connection string (user@host:port  remotePath)
+    expect(html).toContain('title="deploy@dev.example.com:22  /srv/project"');
+    // Primary line is the remote folder leaf, secondary is user@host (configAlias suppressed)
+    expect(html).toContain("project");
+    expect(html).toContain("deploy@dev.example.com");
   });
 });

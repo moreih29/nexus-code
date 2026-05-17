@@ -16,6 +16,7 @@ import {
 } from "../../../shared/ipc/contract";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import { GitError } from "../../features/git/domain/error";
+import { AuthCancelledError } from "../agent/ssh/auth-prompt";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -191,6 +192,15 @@ export function setupRouter(): void {
         //      `Error occurred in handler for 'ipc:call'` console log.
         const isAbortError = error instanceof Error && error.name === "AbortError";
         if (callContext.ctx?.signal && (callContext.ctx.signal.aborted || isAbortError)) {
+          return IPC_ABORT_SENTINEL;
+        }
+        // SSH authentication cancellation is a normal user action, not a failure.
+        // Walk the cause chain: AuthCancelledError may be wrapped inside a
+        // createSshError envelope by the auth-pty layer. Returning the abort
+        // sentinel keeps Electron's `Error occurred in handler for 'ipc:call'`
+        // console log silent — the renderer's ipcCall detects the sentinel and
+        // throws a local AbortError which the SSH connect handler ignores.
+        if (isSshAuthCancellation(error)) {
           return IPC_ABORT_SENTINEL;
         }
         // Typed Git failures are an expected outcome of mutating ops (no
@@ -434,6 +444,19 @@ function serializeError(error: unknown): SerializedError {
     return { name: "Error", message: error };
   }
   return { name: "Error", message: "Unknown error" };
+}
+
+/**
+ * Walks the error cause chain to detect user-initiated SSH authentication
+ * cancellations. AuthCancelledError can be wrapped inside a createSshError
+ * envelope by auth-pty, so the chain must be traversed recursively.
+ */
+function isSshAuthCancellation(error: unknown): boolean {
+  if (error instanceof AuthCancelledError) return true;
+  if (error instanceof Error && error.cause !== undefined) {
+    return isSshAuthCancellation(error.cause);
+  }
+  return false;
 }
 
 /**

@@ -4,6 +4,7 @@ import path from "node:path";
 import { ipcContract } from "../../../shared/ipc/contract";
 import type { SshErrorCode } from "../../../shared/ssh/errors";
 import { SshErrorCodeSchema } from "../../../shared/ssh/errors";
+import { AuthCancelledError } from "../../infra/agent/ssh/auth-prompt";
 import { parseSshConfig, type SshConfigHost } from "./config";
 import {
   BROWSE_MAX_ENTRIES,
@@ -320,10 +321,31 @@ function closeBrowseSessionStub(): (args: unknown) => void {
 // ---------------------------------------------------------------------------
 
 /**
+ * Walks the error cause chain to detect AuthCancelledError at any depth.
+ * User cancellation is a normal control-flow outcome, not a failure, so the
+ * caller must treat it differently from genuine authentication failures.
+ */
+function isAuthCancellation(error: unknown): boolean {
+  if (error instanceof AuthCancelledError) return true;
+  if (error instanceof Error && error.cause !== undefined) {
+    return isAuthCancellation(error.cause);
+  }
+  return false;
+}
+
+/**
  * Maps arbitrary errors from the agent channel or bootstrap to a typed SSH
  * error with a sanitized message. Raw stderr is never forwarded.
+ *
+ * User-initiated cancellation (AuthCancelledError anywhere in the cause chain)
+ * is returned as ssh.auth-cancelled — no console.error, since it is expected.
+ * Truly unmapped errors are still logged for diagnosability.
  */
 function mapToBrowseError(error: unknown): Error {
+  if (isAuthCancellation(error)) {
+    // Cancellation is a normal outcome — no noise in the console.
+    return createSshErrorObject("ssh.auth-cancelled");
+  }
   const code = sshErrorCodeFromError(error) ?? "ssh.unknown";
   if (code === "ssh.unknown") {
     // The renderer only ever sees the sanitized code. Log the raw cause to
@@ -353,6 +375,8 @@ function messageForSshErrorCode(code: SshErrorCode): string {
       return "SSH connection failed";
     case "ssh.auth-failed":
       return "SSH authentication failed";
+    case "ssh.auth-cancelled":
+      return "SSH authentication cancelled";
     case "ssh.session-expired":
       return "SSH browse session expired";
     case "server.spawn-failed":

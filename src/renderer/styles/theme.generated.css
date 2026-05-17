@@ -132,6 +132,10 @@
   --accent-foreground: oklch(0.3286 0.0017 106.49);
   --destructive: oklch(0.67 0.245 27.33);
   --destructive-foreground: oklch(0.982 0.0041 91.45);
+  --state-error-fg: oklch(0.67 0.245 27.33);
+  --state-error-border: oklch(0.67 0.245 27.33);
+  --state-error-bg: rgba(180, 40, 30, 0.12);
+  --state-warning-fg: oklch(0.76 0.12 82);
   --border: rgba(226, 226, 226, 0.15);
   --input: rgba(226, 226, 226, 0.15);
   --ring: oklch(0.751 0.0031 84.56);
@@ -160,6 +164,7 @@
   --tab-active-border: oklch(0.751 0.0031 84.56);
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: oklch(0.751 0.0031 84.56);
+  --editor-text-muted: oklch(0.6173 0.0019 67.79);
   --status-bar-bg: #252422;
   --status-bar-fg: oklch(0.982 0.0041 91.45);
   --status-bar-item-hover-bg: rgba(255, 255, 255, 0.1);
@@ -204,6 +209,10 @@
   --accent-foreground: oklch(0.3286 0.0017 106.49);
   --destructive: oklch(0.67 0.245 27.33);
   --destructive-foreground: oklch(0.982 0.0041 91.45);
+  --state-error-fg: oklch(0.67 0.245 27.33);
+  --state-error-border: oklch(0.67 0.245 27.33);
+  --state-error-bg: rgba(180, 40, 30, 0.12);
+  --state-warning-fg: oklch(0.76 0.12 82);
   --border: rgba(226, 226, 226, 0.15);
   --input: rgba(226, 226, 226, 0.15);
   --ring: oklch(0.751 0.0031 84.56);
@@ -232,6 +241,7 @@
   --tab-active-border: oklch(0.751 0.0031 84.56);
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: oklch(0.751 0.0031 84.56);
+  --editor-text-muted: oklch(0.6173 0.0019 67.79);
   --status-bar-bg: #252422;
   --status-bar-fg: oklch(0.982 0.0041 91.45);
   --status-bar-item-hover-bg: rgba(255, 255, 255, 0.1);
@@ -276,6 +286,10 @@
   --accent-foreground: oklch(0.32 0.008 245);
   --destructive: oklch(0.67 0.245 27.33);
   --destructive-foreground: oklch(0.96 0.004 240);
+  --state-error-fg: oklch(0.67 0.245 27.33);
+  --state-error-border: oklch(0.67 0.245 27.33);
+  --state-error-bg: rgba(180, 40, 30, 0.12);
+  --state-warning-fg: oklch(0.76 0.12 82);
   --border: rgba(200, 210, 240, 0.15);
   --input: rgba(200, 210, 240, 0.15);
   --ring: oklch(0.72 0.006 245);
@@ -304,6 +318,7 @@
   --tab-active-border: oklch(0.72 0.006 245);
   --tab-hover-bg: rgba(200, 210, 255, 0.05);
   --tab-modified-dot: oklch(0.72 0.006 245);
+  --editor-text-muted: oklch(0.60 0.006 245);
   --status-bar-bg: oklch(0.22 0.007 245);
   --status-bar-fg: oklch(0.96 0.004 240);
   --status-bar-item-hover-bg: rgba(200, 210, 255, 0.11);
@@ -348,6 +363,10 @@
   --accent-foreground: oklch(0.3286 0.0017 106.49);
   --destructive: oklch(0.47 0.22 27);
   --destructive-foreground: oklch(0.22 0.008 100);
+  --state-error-fg: oklch(0.47 0.22 27);
+  --state-error-border: oklch(0.47 0.22 27);
+  --state-error-bg: rgba(160, 30, 20, 0.09);
+  --state-warning-fg: oklch(0.55 0.13 82);
   --border: rgba(50, 45, 30, 0.18);
   --input: rgba(50, 45, 30, 0.18);
   --ring: oklch(0.42 0.008 100);
@@ -376,6 +395,7 @@
   --tab-active-border: oklch(0.42 0.008 100);
   --tab-hover-bg: rgba(26, 25, 15, 0.06);
   --tab-modified-dot: oklch(0.42 0.008 100);
+  --editor-text-muted: oklch(0.50 0.005 95);
   --status-bar-bg: oklch(0.935 0.005 95);
   --status-bar-fg: oklch(0.22 0.008 100);
   --status-bar-item-hover-bg: rgba(26, 25, 15, 0.12);

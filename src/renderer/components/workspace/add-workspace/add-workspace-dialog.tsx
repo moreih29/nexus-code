@@ -266,21 +266,23 @@ function DialogHeader({
   onClose,
 }: DialogHeaderProps): React.JSX.Element {
   return (
-    <div className="shrink-0 border-b border-border px-5 pb-0 pt-5">
-      {/* Title row — ← Back on left, title center-left, X on right */}
-      <div className="flex min-h-[44px] items-center gap-2">
+    <div className="shrink-0 border-b border-border px-5 pb-2 pt-3">
+      {/* Title row — ← Back on left, title center-left, X on right.
+          Back/Close buttons (size-8 = 32px) provide the hit target;
+          py-2 on the wrapper gives sufficient vertical breathing room. */}
+      <div className="flex items-center gap-2">
         {showBack ? (
           <button
             type="button"
             onClick={onBack}
             aria-label="Back"
-            className="inline-flex size-11 shrink-0 items-center justify-center rounded-[--radius-control] text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-[--radius-control] text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50"
           >
             <ArrowLeft className="size-4" aria-hidden="true" />
           </button>
         ) : (
           // Placeholder to keep title aligned when Back is hidden
-          <div className="size-11 shrink-0" aria-hidden="true" />
+          <div className="size-8 shrink-0" aria-hidden="true" />
         )}
 
         <div className="min-w-0 flex-1">
@@ -293,13 +295,11 @@ function DialogHeader({
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="inline-flex size-11 shrink-0 items-center justify-center rounded-[--radius-control] text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          className="inline-flex size-8 shrink-0 items-center justify-center rounded-[--radius-control] text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         >
           <X className="size-4" aria-hidden="true" />
         </button>
       </div>
-
-      <div className="h-0" />
     </div>
   );
 }
@@ -471,7 +471,7 @@ interface DialogFooterProps {
 
 function DialogFooter({ primarySlot }: DialogFooterProps): React.JSX.Element {
   return (
-    <div className="flex h-16 shrink-0 items-center justify-end gap-2 border-t border-border px-5">
+    <div className="flex h-14 shrink-0 items-center justify-end gap-2 border-t border-border px-5">
       {primarySlot}
     </div>
   );

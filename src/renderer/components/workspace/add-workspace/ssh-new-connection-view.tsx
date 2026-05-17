@@ -6,7 +6,7 @@ import {
   Server,
 } from "lucide-react";
 import type { FormEvent, KeyboardEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ipcCall } from "../../../ipc/client";
 import { Button } from "../../ui/button";
 import {
@@ -72,6 +72,10 @@ export function SshNewConnectionView({
   const [connectPhase, setConnectPhase] = useState<SshConnectPhase>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Ref for the host combobox wrapper (input + toggle button + listbox).
+  // Used to detect clicks outside the dropdown and close it.
+  const hostComboboxRef = useRef<HTMLDivElement>(null);
+
   const filteredHosts = useMemo(
     () => filterSshConfigHosts(configHosts, hostInput),
     [configHosts, hostInput],
@@ -102,6 +106,27 @@ export function SshNewConnectionView({
     if (!hostListOpen) return;
     setActiveHostIndex((cur) => clampHostIndex(cur, filteredHosts.length));
   }, [hostListOpen, filteredHosts.length]);
+
+  // Close the host dropdown when the user clicks outside the combobox wrapper.
+  // Listener is only active while the dropdown is open to minimise overhead.
+  useEffect(() => {
+    if (!hostListOpen) return;
+
+    function handlePointerDown(event: PointerEvent): void {
+      if (
+        hostComboboxRef.current &&
+        !hostComboboxRef.current.contains(event.target as Node)
+      ) {
+        setHostListOpen(false);
+        setActiveHostIndex(-1);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [hostListOpen]);
 
   function handleHostInputChange(value: string): void {
     setHostInput(value);
@@ -201,6 +226,12 @@ export function SshNewConnectionView({
         connectionProfileId: profileId,
       });
     } catch (error) {
+      // User cancelled the SSH auth prompt — treat as a silent abort, not an error.
+      // The dialog was already dismissed, so no banner or retry state is needed.
+      if (error instanceof Error && error.name === "AbortError") {
+        setConnectPhase("idle");
+        return;
+      }
       setConnectPhase("error");
       setErrorMessage(humanizeSshError(error));
     }
@@ -233,12 +264,12 @@ export function SshNewConnectionView({
         </div>
       ) : null}
 
-      {/* Host combobox */}
+      {/* Host combobox — ref is used to detect outside clicks and close the dropdown */}
       <div className="flex flex-col gap-2">
         <label htmlFor={NEW_CONN_HOST_INPUT_ID} className="text-app-ui-sm text-foreground">
           Host
         </label>
-        <div className="relative">
+        <div className="relative" ref={hostComboboxRef}>
           <div className="flex items-center gap-2">
             <input
               id={NEW_CONN_HOST_INPUT_ID}

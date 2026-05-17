@@ -139,6 +139,37 @@ export function folderName(absPath: string): string {
 }
 
 /**
+ * Formats the secondary display line for an SSH connection: `user@host`.
+ * Port is intentionally omitted from this short form; use formatSshTooltip
+ * for the full path + port in title attributes.
+ */
+export function formatSshSecondaryLine(params: {
+  user?: string | null;
+  host: string;
+}): string {
+  return params.user ? `${params.user}@${params.host}` : params.host;
+}
+
+/**
+ * Formats the full SSH tooltip string: `user@host:port  remotePath`.
+ * Port 22 is always included for clarity. Double-space separates host from path.
+ */
+export function formatSshTooltip(params: {
+  user?: string | null;
+  host: string;
+  port?: number | null;
+  remotePath: string;
+}): string {
+  const { user, host, port, remotePath } = params;
+  const userPrefix = user ? `${user}@` : "";
+  const resolvedPort = port ?? 22;
+  return `${userPrefix}${host}:${resolvedPort}  ${remotePath}`;
+}
+
+/**
+ * @deprecated Use formatSshSecondaryLine for the row subtitle and
+ * formatSshTooltip for the title attribute tooltip instead.
+ *
  * Formats an SSH remote bookmark's second display line: `user@host:/path`
  * - Port 22 is omitted; non-22 port appended as `user@host:PORT:/path`
  * - Host is middle-truncated in JS when longer than maxHostChars (CSS middle-truncation

@@ -63,7 +63,14 @@ export function ipcCall<C extends CallChannels, M extends CallMethods<C>>(
   const signal = opts.signal;
   if (!signal) {
     return (window.ipc.call(channel, method, args) as Promise<unknown>)
-      .then(unwrapCallResult<CallReturn<C, M>>)
+      .then((value) => {
+        // The abort sentinel can arrive on no-signal calls when the main-side
+        // handler returns it to suppress Electron's error log (e.g. SSH auth
+        // cancellation). Re-throw locally as an AbortError so callers that
+        // don't pass a signal still get a recognisable rejection.
+        if (isIpcAbortSentinel(value)) throw createAbortError();
+        return unwrapCallResult<CallReturn<C, M>>(value);
+      })
       .catch(rethrowRehydratedGitError);
   }
 

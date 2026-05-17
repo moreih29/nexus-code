@@ -4,6 +4,7 @@
  * The visual treatment intentionally follows the existing askpass modal: dark,
  * restrained chrome with the same background, border, and focus tokens.
  */
+import { ArrowBigUp } from "lucide-react";
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import type { SshAuthPrompt } from "../../../shared/ssh/auth-prompt";
@@ -64,6 +65,16 @@ export function SshAuthPromptDialogContent({
       : "SSH password required"
     : "Trust SSH host key";
 
+  // Track Caps Lock state for the password input. onKeyUp is sufficient since
+  // getModifierState reflects the post-key state after each event.
+  const [capsLockOn, setCapsLockOn] = useState(false);
+
+  // onKeyUp fires after each keystroke; getModifierState reflects the current
+  // Caps Lock state at that moment (post-key), making it sufficient for detection.
+  function handleKeyUp(event: React.KeyboardEvent<HTMLInputElement>): void {
+    setCapsLockOn(event.getModifierState("CapsLock"));
+  }
+
   return (
     <>
       <h2 id={titleId} className="text-app-body-emphasis text-foreground">
@@ -81,7 +92,7 @@ export function SshAuthPromptDialogContent({
             {prompt.retry ? (
               <p
                 role="alert"
-                className="rounded-[--radius-control] border border-destructive/40 bg-destructive/10 px-2 py-1 text-app-ui-sm text-destructive"
+                className="rounded-[--radius-control] border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-2 py-1 text-app-ui-sm text-[var(--state-error-fg)]"
               >
                 Authentication failed. Try again.
               </p>
@@ -95,9 +106,21 @@ export function SshAuthPromptDialogContent({
               value={passwordValue}
               autoComplete="off"
               onChange={(event) => onPasswordChange(event.target.value)}
+              onKeyUp={handleKeyUp}
               className="w-full rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
               disabled={busy}
             />
+            {/* Caps Lock warning — icon + text for redundant encoding (not colour alone) */}
+            {capsLockOn ? (
+              <p
+                role="status"
+                aria-live="polite"
+                className="flex items-center gap-1.5 text-app-ui-sm text-[var(--state-warning-fg)]"
+              >
+                <ArrowBigUp className="size-4 shrink-0" aria-hidden="true" />
+                Caps Lock is on
+              </p>
+            ) : null}
             <p className="text-app-ui-sm text-muted-foreground">{prompt.prompt}</p>
           </>
         ) : (

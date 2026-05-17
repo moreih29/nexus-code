@@ -14,7 +14,7 @@ import { ipcCall } from "../../../ipc/client";
 import { Button } from "../../ui/button";
 import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
-import { folderName, formatRemotePath, humanizeSshError } from "./ssh-helpers";
+import { folderName, formatSshSecondaryLine, formatSshTooltip, humanizeSshError } from "./ssh-helpers";
 import type { LocalListViewProps } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -143,6 +143,11 @@ export function LocalListView({
       await onWorkspaceCreated(meta);
       onClose();
     } catch (error) {
+      // User cancelled the SSH auth prompt — silent stop, no error banner.
+      if (error instanceof Error && error.name === "AbortError") {
+        setActiveBookmarkId(null);
+        return;
+      }
       setError(bookmark.id, error, profile.id);
     } finally {
       setActiveBookmarkId(null);
@@ -498,29 +503,25 @@ function BookmarkRow({
   const isFavorite = bookmark.favorite;
   const isLocal = bookmark.kind === "local";
 
-  // Display name: label > folder name
-  const displayName =
-    bookmark.label ??
-    (isLocal
-      ? folderName(bookmark.absPath)
-      : (profile?.label ?? (profile ? profile.host : folderName(bookmark.absPath))));
+  // Primary display line: for SSH, show the remote folder leaf name (last path segment).
+  // For local, use label if set, otherwise derive folder name from the absolute path.
+  const displayName = isLocal
+    ? (bookmark.label ?? folderName(bookmark.absPath))
+    : folderName(bookmark.absPath);
 
-  // Second line: local = absPath, ssh = user@host:/path (port 22 omitted)
+  // Second line: local = full absPath, SSH = user@host (port omitted — full path in tooltip)
   let pathDisplay = bookmark.absPath;
-  let pathFull = bookmark.absPath;
+  // Title tooltip — full details for both local and SSH
+  let titleTooltip = bookmark.absPath;
   if (!isLocal && profile) {
-    const formatted = formatRemotePath({
+    pathDisplay = formatSshSecondaryLine({ user: profile.user, host: profile.host });
+    titleTooltip = formatSshTooltip({
       user: profile.user,
       host: profile.host,
       port: profile.port,
       remotePath: bookmark.absPath,
     });
-    pathDisplay = formatted.display;
-    pathFull = formatted.full;
   }
-
-  // Title tooltip: full name + full path
-  const titleTooltip = `${displayName}\n${pathFull}`;
 
   return (
     <li>
@@ -546,31 +547,31 @@ function BookmarkRow({
         {/* Name + path lines */}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-app-ui-sm text-foreground">{displayName}</span>
-          <span
-            className="block min-w-0 truncate text-app-micro text-[var(--editor-text-muted)]"
-            title={pathFull}
-          >
+          <span className="block min-w-0 truncate text-app-micro text-[var(--editor-text-muted)]">
             {pathDisplay}
           </span>
         </span>
 
-        {/* Trailing: always-visible Star (at-rest muted) + hover/focus Star/Trash actions */}
-        <span className="flex shrink-0 items-center gap-0.5">
-          {/* Always-visible star at rest — indicates favorite state passively */}
+        {/* Trailing action slot — always occupies fixed width to prevent layout shift on hover.
+            At rest: only the star indicator icon is visible (opacity-100 on indicator,
+            opacity-0 on buttons). On hover/focus: buttons fade in, indicator fades out. */}
+        <span className="flex shrink-0 items-center">
+          {/* At-rest star indicator — fades out on row hover/focus */}
           <span
-            className="flex size-4 items-center justify-center text-muted-foreground group-hover:hidden group-focus-within:hidden"
+            className="flex size-8 shrink-0 items-center justify-center text-muted-foreground transition-opacity group-hover:opacity-0 group-focus-within:opacity-0"
             aria-hidden="true"
           >
-            {isFavorite ? <Star className="size-4" fill="currentColor" aria-hidden="true" /> : null}
+            {isFavorite ? <Star className="size-4" fill="currentColor" /> : null}
           </span>
 
-          {/* Action buttons — visible on hover/focus */}
-          <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex group-focus-within:flex">
+          {/* Action buttons — always rendered, opacity-0 at rest to avoid layout shift */}
+          <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
             <button
               type="button"
               aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
               onClick={onToggleFavorite}
-              className="inline-flex size-11 items-center justify-center rounded-[--radius-control] text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+              tabIndex={-1}
+              className="inline-flex size-8 items-center justify-center rounded-[--radius-control] text-muted-foreground outline-none pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             >
               <Star className="size-4" fill={isFavorite ? "currentColor" : "none"} aria-hidden="true" />
             </button>
@@ -578,7 +579,8 @@ function BookmarkRow({
               type="button"
               aria-label="Remove from list"
               onClick={onRemove}
-              className="inline-flex size-11 items-center justify-center rounded-[--radius-control] text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-[var(--state-error-fg)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+              tabIndex={-1}
+              className="inline-flex size-8 items-center justify-center rounded-[--radius-control] text-muted-foreground outline-none pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto hover:bg-[var(--state-hover-bg)] hover:text-[var(--state-error-fg)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             >
               <Trash2 className="size-4" aria-hidden="true" />
             </button>
