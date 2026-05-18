@@ -93,7 +93,6 @@ export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string
     // --- SEALED constants (appended before splitter/motion to match original property order) ---
     ...SEALED,
     // Splitter — island internal hairline
-    "--splitter": tokens["surface.island.border"],
     "--splitter-hover": tokens["surface.floating.border"],
     // Motion (not in SemanticKey — invariant across themes)
     "--motion-fade": "220ms ease",

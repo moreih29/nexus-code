@@ -151,7 +151,6 @@
   --radius-raised: 6px;
   --radius-island: 10px;
   --radius-full: 9999px;
-  --splitter: rgba(226, 226, 226, 0.35);
   --splitter-hover: rgba(226, 226, 226, 0.6);
   --motion-fade: 220ms ease;
   --floating-scrim: rgba(0, 0, 0, 0.5);
@@ -240,7 +239,6 @@
   --radius-raised: 6px;
   --radius-island: 10px;
   --radius-full: 9999px;
-  --splitter: rgba(226, 226, 226, 0.35);
   --splitter-hover: rgba(226, 226, 226, 0.6);
   --motion-fade: 220ms ease;
   --floating-scrim: rgba(0, 0, 0, 0.5);
@@ -329,7 +327,6 @@
   --radius-raised: 6px;
   --radius-island: 10px;
   --radius-full: 9999px;
-  --splitter: rgba(200, 210, 240, 0.35);
   --splitter-hover: rgba(200, 210, 240, 0.6);
   --motion-fade: 220ms ease;
   --floating-scrim: rgba(0, 0, 0, 0.5);
@@ -418,7 +415,6 @@
   --radius-raised: 6px;
   --radius-island: 10px;
   --radius-full: 9999px;
-  --splitter: rgba(50, 45, 30, 0.28);
   --splitter-hover: rgba(50, 45, 30, 0.42);
   --motion-fade: 220ms ease;
   --floating-scrim: rgba(30, 25, 15, 0.45);
@@ -428,7 +424,7 @@
   --state-selected-indicator: oklch(0.42 0.008 100);
   --state-loading-indicator: oklch(0.42 0.008 100);
   --sidebar-item-selected-bg: rgba(26, 25, 15, 0.12);
-  --tab-active-bg: oklch(0.99 0.004 95);
+  --tab-active-bg: oklch(0.998 0.003 95);
   --tab-active-border: oklch(0.42 0.008 100);
   --tab-hover-bg: rgba(26, 25, 15, 0.06);
   --tab-modified-dot: oklch(0.42 0.008 100);
