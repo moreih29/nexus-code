@@ -20,7 +20,6 @@ export function SidebarResizeHandle() {
       min={SIDEBAR_WIDTH_MIN}
       max={SIDEBAR_WIDTH_MAX}
       ariaLabel="Resize sidebar"
-      placement="rightInside"
       onResize={(width, persist) => useUIStore.getState().setSidebarWidth(width, persist)}
       onReset={() => useUIStore.getState().setSidebarWidth(SIDEBAR_WIDTH_DEFAULT, true)}
     />

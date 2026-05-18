@@ -126,19 +126,19 @@ export function ResizeHandle({
       ? POSITION_CLASS.horizontal
       : POSITION_CLASS[placement ?? "rightCentered"];
 
-  // For rightInside, the hit-area is shifted 4px left via -translate-x-1/2.
-  // The indicator must sit at the panel's actual right edge, so we push it
-  // 4px further right (right-0 within the shifted container = panel right - 4px;
-  // right-[-4px] brings it flush with the panel right edge).
-  const indicatorRight = placement === "rightInside" ? "right-[-4px]" : "right-[4px]";
+  // Default (rightCentered): the w-2 (8px) hit-area is centered in the 6px
+  // island gap; a w-0.5 (2px) indicator centers within it at right-[3px].
+  // rightInside: the indicator instead sits flush at the panel's right edge
+  // (right-[-4px] cancels the -translate-x-1/2 inward shift).
+  const indicatorRight = placement === "rightInside" ? "right-[-4px]" : "right-[3px]";
   // Islands model: the gap between panels IS the separator — there is no
   // resting divider line. The indicator appears only on hover (drag
   // affordance) and stays solid while dragging (active feedback).
   const indicatorClass =
     orientation === "horizontal"
       ? isDragging
-        ? "absolute left-0 bottom-[4px] w-full h-0.5 bg-[var(--splitter-hover)]"
-        : "absolute left-0 bottom-[4px] w-full h-0.5 bg-[var(--splitter-hover)] opacity-0 transition-opacity duration-100 group-hover:opacity-100"
+        ? "absolute left-0 bottom-[3px] w-full h-0.5 bg-[var(--splitter-hover)]"
+        : "absolute left-0 bottom-[3px] w-full h-0.5 bg-[var(--splitter-hover)] opacity-0 transition-opacity duration-100 group-hover:opacity-100"
       : isDragging
         ? `absolute ${indicatorRight} top-0 h-full w-0.5 bg-[var(--splitter-hover)]`
         : `absolute ${indicatorRight} top-0 h-full w-0.5 bg-[var(--splitter-hover)] opacity-0 transition-opacity duration-100 group-hover:opacity-100`;

@@ -134,11 +134,11 @@ export function ResizeHandleRatio({
   const indicatorClass =
     orientation === "horizontal"
       ? isDragging
-        ? "absolute left-0 bottom-[4px] w-full h-0.5 bg-[var(--splitter-hover)]"
-        : "absolute left-0 bottom-[4px] w-full h-0.5 bg-[var(--splitter-hover)] opacity-0 transition-opacity duration-100 group-hover:opacity-100"
+        ? "absolute left-0 bottom-[3px] w-full h-0.5 bg-[var(--splitter-hover)]"
+        : "absolute left-0 bottom-[3px] w-full h-0.5 bg-[var(--splitter-hover)] opacity-0 transition-opacity duration-100 group-hover:opacity-100"
       : isDragging
-        ? "absolute right-[4px] top-0 h-full w-0.5 bg-[var(--splitter-hover)]"
-        : "absolute right-[4px] top-0 h-full w-0.5 bg-[var(--splitter-hover)] opacity-0 transition-opacity duration-100 group-hover:opacity-100";
+        ? "absolute right-[3px] top-0 h-full w-0.5 bg-[var(--splitter-hover)]"
+        : "absolute right-[3px] top-0 h-full w-0.5 bg-[var(--splitter-hover)] opacity-0 transition-opacity duration-100 group-hover:opacity-100";
 
   // Expose ratio in 0–100 for the standard ARIA convention.
   const ariaNow = Math.round(ratio * 100);
