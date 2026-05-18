@@ -1,5 +1,5 @@
-import type { SplitNode } from "@/engine/split-engine";
-import { Grid } from "@/engine/split-engine";
+import type { SplitNode } from "@/engine";
+import { Grid } from "@/engine";
 
 /**
  * Returns a layout tree where every tab reference points to a tab that still

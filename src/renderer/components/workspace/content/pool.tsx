@@ -3,7 +3,7 @@
 // element via slotRegistry, or into the App-level view park when its
 // workspace is inactive (see view-park.tsx).
 
-import { Grid } from "@/engine/split-engine";
+import { Grid } from "@/engine";
 import { useLayoutStore } from "../../../state/stores/layout";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
 import { ContentHost } from "./host";

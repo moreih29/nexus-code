@@ -1,4 +1,4 @@
-import { Grid } from "@/engine/split-engine";
+import { Grid } from "@/engine";
 import { closeTab, openTerminalTab, openTabInNewSplit } from "@/state/operations";
 import { useLayoutStore } from "@/state/stores/layout";
 import { useTabsStore } from "@/state/stores/tabs";

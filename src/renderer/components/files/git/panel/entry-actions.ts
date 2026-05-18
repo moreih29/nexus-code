@@ -12,7 +12,7 @@ import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/
 import { ipcCall } from "../../../../ipc/client";
 import { openOrRevealEditor } from "../../../../services/editor";
 import { copyText } from "../../../../utils/clipboard";
-import type { GitPanelOpenDiffInput } from "./git-panel";
+import type { GitPanelOpenDiffInput } from "./panel";
 
 export type EntryActionBanner = { variant: "info" | "error"; message: string };
 

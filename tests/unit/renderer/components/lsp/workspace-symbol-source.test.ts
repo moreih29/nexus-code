@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
-import { createWorkspaceSymbolPaletteSource } from "../../../../../src/renderer/components/lsp/workspace-symbol-source";
-import type { WorkspaceSymbolEntry } from "../../../../../src/renderer/services/lsp/workspace-symbol-registry";
+import { createWorkspaceSymbolPaletteSource } from "../../../../../src/renderer/components/symbol-palette/workspace-symbol-source";
+import type { WorkspaceSymbolEntry } from "../../../../../src/renderer/services/lsp-ux/workspace-symbol-registry";
 
 const greetSymbol: WorkspaceSymbolEntry = {
   name: "Greet",

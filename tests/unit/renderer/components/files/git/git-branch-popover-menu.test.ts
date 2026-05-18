@@ -8,12 +8,12 @@ import {
   BranchChip,
   branchChipGlyph,
 } from "../../../../../../src/renderer/components/files/git/branch/chip";
-import { GitBranchBar } from "../../../../../../src/renderer/components/files/git/branch/git-branch-bar";
+import { GitBranchBar } from "../../../../../../src/renderer/components/files/git/branch/branch-bar";
 import {
   buildGitBranchContextMenuModel,
   GitBranchPopoverContent,
   getGitBranchPrimaryAction,
-} from "../../../../../../src/renderer/components/files/git/branch/git-branch-popover";
+} from "../../../../../../src/renderer/components/files/git/branch/branch-popover";
 import type { BranchInfo, RepoCapabilities } from "../../../../../../src/shared/git/types";
 
 const capabilities: RepoCapabilities = {

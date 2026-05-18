@@ -7,7 +7,7 @@ import {
   buildPublishBranchPrompt,
   buildTagHistoryRevealMessage,
   tagHistoryRef,
-} from "../../../../../../src/renderer/components/files/git/panel/git-panel-actions";
+} from "../../../../../../src/renderer/components/files/git/panel/panel-actions";
 import type { Tag } from "../../../../../../src/shared/git/types";
 
 describe("buildPublishBranchPrompt", () => {

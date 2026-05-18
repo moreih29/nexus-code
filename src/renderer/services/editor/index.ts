@@ -1,6 +1,6 @@
 import type * as Monaco from "monaco-editor";
 import { initializeDiagnosticsStore } from "../../state/stores/diagnostics";
-import { initializeLspServerUxRouter } from "../lsp/server-ux-router";
+import { initializeLspServerUxRouter } from "../lsp-ux/server-ux-router";
 import { initializeLspBridge } from "./lsp/bridge";
 import { initializeModelCache } from "./model/cache";
 import { installMonacoCompensations } from "./runtime/monaco-compensations";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import type { SplitBranch, SplitLeaf, SplitNode } from "../../../../src/renderer/engine/split-engine";
-import { Grid } from "../../../../src/renderer/engine/split-engine";
+import type { SplitBranch, SplitLeaf, SplitNode } from "../../../../src/renderer/engine";
+import { Grid } from "../../../../src/renderer/engine";
 
 // ---------------------------------------------------------------------------
 // Factories

@@ -6,14 +6,14 @@ import { useEffect, useRef, useState } from "react";
 import type { LogEntry } from "../../../../../shared/git/types";
 import { openOrRevealCommitTab } from "../../../../state/operations";
 import { useGitStore } from "../../../../state/stores/git";
-import { GitInlineBanner } from "../panel/git-inline-banner";
+import { GitInlineBanner } from "../panel/inline-banner";
 import { HistoryCommitMenu, type HistoryCommitMenuTarget } from "./commit-menu";
 import { HistoryList } from "./list";
 import { RefChipList } from "./ref-chip";
 import { HistoryRefSwitcher } from "./ref-switcher";
 import type { HistoryRowMenuRequest } from "./row";
 import { HistorySearch } from "./search";
-import { useGitHistoryLoad } from "./use-git-history-load";
+import { useGitHistoryLoad } from "./use-history-load";
 
 interface HistoryPanelProps {
   workspaceId: string;

@@ -5,7 +5,7 @@ import { describe, expect, it } from "bun:test";
 import {
   buildPushGuardBannerView,
   type PushGuardPendingRetry,
-} from "../../../../../../src/renderer/components/files/git/utils/git-push-guard-banner";
+} from "../../../../../../src/renderer/components/files/git/utils/push-guard-banner";
 import type { GitStoreError } from "../../../../../../src/renderer/state/stores/git";
 
 const pending: PushGuardPendingRetry = {

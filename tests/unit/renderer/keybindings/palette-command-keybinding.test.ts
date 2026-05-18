@@ -7,8 +7,8 @@ import {
 import {
   __resetWorkspaceSymbolPaletteStateForTests,
   isWorkspaceSymbolPaletteOpen,
-} from "../../../../src/renderer/components/lsp/workspace-symbol-palette-state";
-import { registerPaletteCommands } from "../../../../src/renderer/keybindings/commands/palette-commands";
+} from "../../../../src/renderer/components/symbol-palette/workspace-symbol-palette-state";
+import { registerPaletteCommands } from "../../../../src/renderer/commands/domains/palette";
 import { evaluateContextKey } from "../../../../src/renderer/keybindings/context-keys";
 import {
   __resetChordStateForTests,

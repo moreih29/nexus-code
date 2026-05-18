@@ -21,7 +21,7 @@ import {
   installGitHelperPromptListeners,
   isPromptForWorkspace,
   useGitHelperPrompts,
-} from "../../../../../../src/renderer/components/files/git/hooks/use-git-helper-prompts";
+} from "../../../../../../src/renderer/components/files/git/hooks/use-helper-prompts";
 import type { ipcCall, ipcListen } from "../../../../../../src/renderer/ipc/client";
 import type { AskpassPrompt, GitEditorPrompt } from "../../../../../../src/shared/git/types";
 
@@ -158,8 +158,8 @@ describe("Global Git helper prompt mounting contract", () => {
   });
 
   it("keeps dialogs/listeners globally mounted rather than GitPanel-owned", async () => {
-    const globalRoots = await Bun.file("src/renderer/components/global-roots/index.tsx").text();
-    const gitPanel = await Bun.file("src/renderer/components/files/git/panel/git-panel.tsx").text();
+    const globalRoots = await Bun.file("src/renderer/components/global-roots.tsx").text();
+    const gitPanel = await Bun.file("src/renderer/components/files/git/panel/panel.tsx").text();
 
     expect(globalRoots).toContain("<GitHelperPromptsRoot />");
     expect(globalRoots).toContain("useGitHelperPrompts");

@@ -16,7 +16,7 @@ import { getDisplayFlat } from "./display";
 import { LOADING_FLASH_DELAY_MS, ROW_HEIGHT_PX } from "./metrics";
 import { FileTreeStatusView } from "./status-view";
 import { FileTreeVirtualBody } from "./virtual-body";
-import { buildFileTreeMenuItems } from "../file-tree-menu";
+import { buildFileTreeMenuItems } from "./menu";
 import { type FileTreeActionTarget, useFileTreeActions } from "../hooks/use-file-tree-actions";
 import { useFileTreePendingCreate } from "../hooks/use-file-tree-pending-create";
 import { useFileTreePendingRename } from "../hooks/use-file-tree-pending-rename";

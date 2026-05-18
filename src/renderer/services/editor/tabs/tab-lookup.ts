@@ -5,7 +5,7 @@
  * "is this file already open in this group?" without mutating state.
  */
 
-import { Grid } from "@/engine/split-engine";
+import { Grid } from "@/engine";
 import { useLayoutStore } from "@/state/stores/layout";
 import type { Tab } from "@/state/stores/tabs";
 import { useTabsStore } from "@/state/stores/tabs";

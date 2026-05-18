@@ -4,7 +4,7 @@ import {
   registerWorkspaceSymbolProvider,
   searchWorkspaceSymbols,
   type WorkspaceSymbolEntry,
-} from "../../../../../src/renderer/services/lsp/workspace-symbol-registry";
+} from "../../../../../src/renderer/services/lsp-ux/workspace-symbol-registry";
 
 const range = {
   startLineNumber: 1,

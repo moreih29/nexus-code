@@ -1,4 +1,4 @@
-import { Grid } from "@/engine/split-engine";
+import { Grid } from "@/engine";
 import type { LayoutNode } from "../../../state/stores/layout/types";
 
 /**

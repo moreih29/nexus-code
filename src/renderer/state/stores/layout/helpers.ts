@@ -5,5 +5,5 @@ export {
   findSplit,
   leftmostLeaf,
   parentSplitOf,
-} from "@/engine/split-engine";
+} from "@/engine";
 export { sanitize } from "./sanitize";

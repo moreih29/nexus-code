@@ -7,9 +7,9 @@ import {
   buildGitFileContextMenuItems,
   buildGitGroupContextMenuItems,
   revealInOSLabel,
-} from "../../../../../../src/renderer/components/files/git/file-row/git-file-context-menu";
-import { GitFileRow } from "../../../../../../src/renderer/components/files/git/file-row/git-file-row";
-import { GitGroup } from "../../../../../../src/renderer/components/files/git/file-row/git-group";
+} from "../../../../../../src/renderer/components/files/git/file-row/file-context-menu";
+import { GitFileRow } from "../../../../../../src/renderer/components/files/git/file-row/row";
+import { GitGroup } from "../../../../../../src/renderer/components/files/git/file-row/group";
 import type { GitStatusEntry } from "../../../../../../src/shared/git/types";
 
 const entry: GitStatusEntry = { relPath: "src/app.ts", xy: ".M", conflictType: null };

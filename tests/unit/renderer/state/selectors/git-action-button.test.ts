@@ -5,7 +5,7 @@ import { describe, expect, it } from "bun:test";
 import {
   type GitActionButtonInput,
   selectGitActionButton,
-} from "../../../../../src/renderer/state/selectors/git-action-button";
+} from "../../../../../src/renderer/state/stores/git/action-button";
 import type { BranchInfo, RepoCapabilities } from "../../../../../src/shared/git/types";
 
 const capabilities: RepoCapabilities = {

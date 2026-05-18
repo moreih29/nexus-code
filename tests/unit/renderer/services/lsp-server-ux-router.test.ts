@@ -3,7 +3,7 @@ import {
   disposeLspServerUxRouter,
   getWorkDoneProgressState,
   routeLspServerEvent,
-} from "../../../../src/renderer/services/lsp/server-ux-router";
+} from "../../../../src/renderer/services/lsp-ux/server-ux-router";
 import type { LspServerEvent } from "../../../../src/shared/lsp";
 
 const originalConsole = {

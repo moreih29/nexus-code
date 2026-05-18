@@ -11,12 +11,12 @@ import { color } from "../../../../../../src/shared/design-tokens";
 const MIN_SMALL_TEXT_CONTRAST = 4.5;
 const GIT_DESTRUCTIVE_CLASS = "git-destructive-text";
 const GIT_SURFACE_FILES = [
-  "src/renderer/components/files/git/commit/git-commit-button.tsx",
-  "src/renderer/components/files/git/file-row/git-file-context-menu.tsx",
-  "src/renderer/components/files/git/file-row/git-file-row.tsx",
-  "src/renderer/components/files/git/file-row/git-group-header.tsx",
-  "src/renderer/components/files/git/file-row/git-status-badge.tsx",
-  "src/renderer/components/files/git/file-row/git-tree-row.tsx",
+  "src/renderer/components/files/git/commit/commit-button.tsx",
+  "src/renderer/components/files/git/file-row/file-context-menu.tsx",
+  "src/renderer/components/files/git/file-row/row.tsx",
+  "src/renderer/components/files/git/file-row/group-header.tsx",
+  "src/renderer/components/files/git/file-row/status-badge.tsx",
+  "src/renderer/components/files/git/file-row/tree-row.tsx",
   "src/renderer/components/files/git/panel/operation-banner.tsx",
   "src/renderer/components/files/git/history/commit-menu.tsx",
   "src/renderer/components/files/git/pickers/tag-picker.tsx",

@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import type { Direction } from "@/engine/split-engine";
-import { Grid } from "@/engine/split-engine";
+import type { Direction } from "@/engine";
+import { Grid } from "@/engine";
 import { stripDanglingTabs } from "./sanitize";
 import type {
   LayoutLeaf,
