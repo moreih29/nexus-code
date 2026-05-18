@@ -296,18 +296,12 @@ export function SshDirectoryPickerView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      {/* Path bar */}
-      <form onSubmit={handlePathSubmit} className="flex flex-col gap-1">
-        {/* Field label on the left; the connection identity (user@host) is
-            separate context, pushed to the right so the two don't read as
-            one run of text. */}
-        <div className="flex items-baseline justify-between gap-2">
-          <label htmlFor="picker-path-input" className="text-app-ui-sm text-foreground">
-            Path
-          </label>
-          <span className="min-w-0 truncate text-app-ui-sm text-muted-foreground">
-            {session.user ? `${session.user}@${host}` : host}
-          </span>
+      {/* Path bar — pinned (shrink-0) so it stays visible while only the
+          directory list below scrolls. */}
+      <form onSubmit={handlePathSubmit} className="flex shrink-0 flex-col gap-1">
+        {/* Connection identity (user@host) heads the path field. */}
+        <div className="truncate text-app-body-emphasis text-foreground">
+          {session.user ? `${session.user}@${host}` : host}
         </div>
         <div className="flex items-center gap-2">
           {!isAtRoot ? (
@@ -326,6 +320,7 @@ export function SshDirectoryPickerView({
           )}
           <input
             id="picker-path-input"
+            aria-label="Remote path"
             ref={pathInputRef}
             value={pathInput}
             onChange={(e) => setPathInput(e.currentTarget.value)}
@@ -440,7 +435,7 @@ export function SshDirectoryPickerView({
       {/* Add error — humanised, redundant encoding */}
       {addErrorHuman ? (
         <div
-          className="flex items-start gap-2 rounded-(--radius-control) border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-2 py-2"
+          className="flex shrink-0 items-start gap-2 rounded-(--radius-control) border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-2 py-2"
           role="alert"
         >
           <AlertCircle
