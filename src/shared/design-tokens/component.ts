@@ -94,8 +94,10 @@ export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string
     ...SEALED,
     // Splitter — island internal hairline
     "--splitter-hover": tokens["surface.floating.border"],
-    // Motion (not in SemanticKey — invariant across themes)
+    // Motion (not in SemanticKey — invariant across themes, design.md §7)
     "--motion-fade": "220ms ease",
+    // Scale entry for popovers/dialogs — kept inside the 150~220ms band.
+    "--motion-scale": "160ms ease",
     // Floating surface scrim — modal backdrop for L3 dialogs/command palette.
     // Uses surface.floating.scrim so the backdrop is theme-switched correctly.
     "--floating-scrim": tokens["surface.floating.scrim"],

@@ -85,7 +85,7 @@ export function ConflictResolutionDialogRoot(): React.JSX.Element {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange} size="md" aria-describedby={undefined}>
-      <RadixDialog.Title className="text-app-body-emphasis font-medium text-foreground">
+      <RadixDialog.Title className="text-app-body-emphasis text-foreground">
         Save conflict — <span className="font-mono">{active?.filename}</span> changed on disk
       </RadixDialog.Title>
       <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">

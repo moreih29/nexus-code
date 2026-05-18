@@ -39,21 +39,25 @@ const SIZE_CLASS: Record<DialogSize, string> = {
   lg: "w-[560px]", // multi-view / large-textarea dialogs
 };
 
-/** Scrim + positioning for the Radix Overlay. Shared with AlertDialog modals. */
-export const DIALOG_OVERLAY_CLASS = "fixed inset-0 z-50 bg-[var(--floating-scrim)]";
+/**
+ * Scrim + positioning for the Radix Overlay. Shared with AlertDialog modals.
+ * The `dialog-overlay` class wires the fade in/out keyframes (globals.css).
+ */
+export const DIALOG_OVERLAY_CLASS = "dialog-overlay fixed inset-0 z-50 bg-[var(--floating-scrim)]";
 
 /**
- * Floating-layer surface classes for a Radix Content node.
- * @param padded - adds the standard `p-5` body inset; pass false for dialogs
+ * Floating-layer surface classes for a Radix Content node. The `dialog-content`
+ * class wires the scale+fade in/out keyframes (globals.css).
+ * @param padded - adds the standard 16px body inset; pass false for dialogs
  *                 that own their own header/footer chrome (e.g. AddWorkspace).
  */
 export function dialogContentClass(size: DialogSize, padded: boolean, className?: string): string {
   return cn(
-    "fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 max-w-[90vw]",
+    "dialog-content fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 max-w-[90vw]",
     "rounded-(--radius-island) border border-[var(--surface-floating-border)]",
     "bg-popover text-popover-foreground outline-none",
     SIZE_CLASS[size],
-    padded && "p-5",
+    padded && "p-4",
     className,
   );
 }
@@ -65,7 +69,7 @@ export interface DialogProps {
   onOpenChange: (open: boolean) => void;
   /** Width step. Default "md". */
   size?: DialogSize;
-  /** Apply the standard `p-5` body inset. Default true. */
+  /** Apply the standard 16px body inset. Default true. */
   padded?: boolean;
   /** Extra classes merged onto the Content node. */
   className?: string;

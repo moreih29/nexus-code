@@ -1,4 +1,4 @@
-import { ArrowLeft, FolderOpen, LoaderCircle, Server, X } from "lucide-react";
+import { ArrowLeft, FolderOpen, LoaderCircle, Server } from "lucide-react";
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useRef, useState } from "react";
 import type { ConnectionProfile } from "../../../../shared/types/entry-points";
@@ -203,10 +203,10 @@ export function AddWorkspaceDialog({
 
       <div className="flex min-h-0 flex-1 flex-col">
         {/* Fixed header */}
-        <DialogHeader view={view} showBack={showBack} onBack={handleBack} onClose={closeAndAbort} />
+        <DialogHeader view={view} showBack={showBack} onBack={handleBack} />
 
         {/* Scrollable body */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
           <ViewBody
             view={view}
             browseSession={browseSession}
@@ -246,15 +246,15 @@ interface DialogHeaderProps {
   readonly view: ModalView;
   readonly showBack: boolean;
   readonly onBack: () => void;
-  readonly onClose: () => void;
 }
 
-function DialogHeader({ view, showBack, onBack, onClose }: DialogHeaderProps): React.JSX.Element {
+function DialogHeader({ view, showBack, onBack }: DialogHeaderProps): React.JSX.Element {
   return (
-    <div className="shrink-0 border-b border-border px-5 pb-2 pt-3">
-      {/* Title row — ← Back on left, title center-left, X on right.
-          Back/Close buttons (size-8 = 32px) provide the hit target;
-          py-2 on the wrapper gives sufficient vertical breathing room. */}
+    <div className="shrink-0 px-4 pb-3 pt-4">
+      {/* Title row — ← Back on the left (intra-dialog navigation between the
+          4 views), title alongside. Flat-first: no header rule and no X close
+          button; Esc / outside-click / Cancel dismiss the dialog. The size-8
+          placeholder keeps the title's left edge fixed when Back is hidden. */}
       <div className="flex items-center gap-2">
         {showBack ? (
           <button
@@ -266,7 +266,6 @@ function DialogHeader({ view, showBack, onBack, onClose }: DialogHeaderProps): R
             <ArrowLeft className="size-4" aria-hidden="true" />
           </button>
         ) : (
-          // Placeholder to keep title aligned when Back is hidden
           <div className="size-8 shrink-0" aria-hidden="true" />
         )}
 
@@ -274,16 +273,6 @@ function DialogHeader({ view, showBack, onBack, onClose }: DialogHeaderProps): R
           <div className="text-app-body-emphasis text-foreground">Add Workspace</div>
           <div className="text-app-ui-sm text-muted-foreground">{viewSubtitle(view)}</div>
         </div>
-
-        {/* X Close button — always visible */}
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="inline-flex size-8 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-        >
-          <X className="size-4" aria-hidden="true" />
-        </button>
       </div>
     </div>
   );
@@ -456,9 +445,7 @@ interface DialogFooterProps {
 
 function DialogFooter({ primarySlot }: DialogFooterProps): React.JSX.Element {
   return (
-    <div className="flex h-14 shrink-0 items-center justify-end gap-2 border-t border-border px-5">
-      {primarySlot}
-    </div>
+    <div className="flex h-14 shrink-0 items-center justify-end gap-2 px-4">{primarySlot}</div>
   );
 }
 

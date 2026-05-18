@@ -78,7 +78,7 @@ export function SaveConfirmDialogRoot(): React.JSX.Element {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange} size="sm" aria-describedby={undefined}>
-      <RadixDialog.Title className="text-app-body-emphasis font-medium text-foreground">
+      <RadixDialog.Title className="text-app-body-emphasis text-foreground">
         Do you want to save the changes you made to{" "}
         <span className="font-mono">{active?.filename}</span>?
       </RadixDialog.Title>

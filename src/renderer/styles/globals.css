@@ -199,3 +199,53 @@
   background: var(--scrollbar-thumb-hover-bg);
   background-clip: padding-box;
 }
+
+/* ---------------------------------------------------------------------------
+   Floating-layer dialog entry/exit motion (design.md §7 — motion.scale).
+   Applied by the shared <Dialog> shell + dialogContentClass() helper, so every
+   modal animates in/out identically. Radix sets data-state on Overlay/Content
+   and keeps the node mounted while a [data-state="closed"] animation runs.
+
+   Only `opacity` and the standalone `scale` property are animated — the
+   centering `translate` is owned by the shell's Tailwind utilities, and
+   `translate` / `scale` are independent CSS properties that compose cleanly
+   (animating `transform` instead would double the -50%/-50% offset).
+   --------------------------------------------------------------------------- */
+
+@keyframes dialog-overlay-show {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes dialog-overlay-hide {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes dialog-content-show {
+  from { opacity: 0; scale: 0.96; }
+  to { opacity: 1; scale: 1; }
+}
+@keyframes dialog-content-hide {
+  from { opacity: 1; scale: 1; }
+  to { opacity: 0; scale: 0.96; }
+}
+
+.dialog-overlay[data-state="open"] {
+  animation: dialog-overlay-show var(--motion-fade);
+}
+.dialog-overlay[data-state="closed"] {
+  animation: dialog-overlay-hide var(--motion-fade) forwards;
+}
+.dialog-content[data-state="open"] {
+  animation: dialog-content-show var(--motion-scale);
+}
+.dialog-content[data-state="closed"] {
+  animation: dialog-content-hide var(--motion-scale) forwards;
+}
+
+/* Respect reduced-motion: dialogs appear/disappear instantly (design.md §7). */
+@media (prefers-reduced-motion: reduce) {
+  .dialog-overlay[data-state],
+  .dialog-content[data-state] {
+    animation: none;
+  }
+}

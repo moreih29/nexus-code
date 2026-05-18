@@ -153,6 +153,7 @@
   --radius-full: 9999px;
   --splitter-hover: rgba(226, 226, 226, 0.6);
   --motion-fade: 220ms ease;
+  --motion-scale: 160ms ease;
   --floating-scrim: rgba(0, 0, 0, 0.5);
   --state-hover-bg: rgba(255, 255, 255, 0.04);
   --state-active-bg: rgba(255, 255, 255, 0.1);
@@ -242,6 +243,7 @@
   --radius-full: 9999px;
   --splitter-hover: rgba(226, 226, 226, 0.6);
   --motion-fade: 220ms ease;
+  --motion-scale: 160ms ease;
   --floating-scrim: rgba(0, 0, 0, 0.5);
   --state-hover-bg: rgba(255, 255, 255, 0.04);
   --state-active-bg: rgba(255, 255, 255, 0.1);
@@ -331,6 +333,7 @@
   --radius-full: 9999px;
   --splitter-hover: rgba(200, 210, 240, 0.6);
   --motion-fade: 220ms ease;
+  --motion-scale: 160ms ease;
   --floating-scrim: rgba(0, 0, 0, 0.5);
   --state-hover-bg: rgba(200, 210, 255, 0.05);
   --state-active-bg: rgba(200, 210, 255, 0.11);
@@ -420,6 +423,7 @@
   --radius-full: 9999px;
   --splitter-hover: rgba(50, 45, 30, 0.42);
   --motion-fade: 220ms ease;
+  --motion-scale: 160ms ease;
   --floating-scrim: rgba(30, 25, 15, 0.45);
   --state-hover-bg: rgba(26, 25, 15, 0.06);
   --state-active-bg: rgba(26, 25, 15, 0.12);
