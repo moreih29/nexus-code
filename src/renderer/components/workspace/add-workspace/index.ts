@@ -10,7 +10,7 @@ export {
 } from "./ssh-helpers";
 // Type exports for downstream tasks (T3, T4)
 export type {
-  LocalListViewProps,
+  MainListViewProps,
   ModalView,
   SshBrowseSession,
   SshConnectionListViewProps,

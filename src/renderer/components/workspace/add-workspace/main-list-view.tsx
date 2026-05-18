@@ -10,7 +10,17 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { ConnectionProfile, FolderBookmark } from "../../../../shared/types/entry-points";
-import { ipcCall, ipcCallResult } from "../../../ipc/client";
+import {
+  createLocalWorkspace,
+  createSshWorkspace,
+  fetchConnectionProfiles,
+  listFolderBookmarks,
+  pickLocalDirectory,
+  recordLocalBookmark,
+  recordSshBookmark,
+  removeFolderBookmark,
+  setFolderBookmarkFavorite,
+} from "../../../services/workspace";
 import { Button } from "../../ui/button";
 import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
@@ -20,20 +30,20 @@ import {
   formatSshTooltip,
   humanizeSshError,
 } from "./ssh-helpers";
-import type { LocalListViewProps } from "./types";
+import type { MainListViewProps } from "./types";
 
 // ---------------------------------------------------------------------------
-// MainListView (LocalListView) — unified local + SSH bookmark list (T3)
+// MainListView — unified local + SSH bookmark list
 // ---------------------------------------------------------------------------
 
 const RECENT_MAX_DEFAULT = 5;
 
-export function LocalListView({
+export function MainListView({
   onWorkspaceCreated,
   onClose,
   onSshServerList,
   onNewConnectionPrefill,
-}: LocalListViewProps): React.JSX.Element {
+}: MainListViewProps): React.JSX.Element {
   const [bookmarks, setBookmarks] = useState<FolderBookmark[]>([]);
   const [profiles, setProfiles] = useState<ConnectionProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,14 +63,10 @@ export function LocalListView({
   const load = useCallback((): (() => void) => {
     let cancelled = false;
     setLoading(true);
-    Promise.all([
-      ipcCall("folderBookmark", "list", undefined),
-      ipcCall("connectionProfile", "list", undefined),
-    ])
+    Promise.all([listFolderBookmarks(), fetchConnectionProfiles()])
       .then(([bookmarkList, profileList]) => {
         if (cancelled) return;
-        const sorted = [...bookmarkList].sort((a, b) => b.lastUsedAt - a.lastUsedAt);
-        setBookmarks(sorted);
+        setBookmarks(bookmarkList);
         setProfiles(profileList);
       })
       .catch(() => {
@@ -87,14 +93,11 @@ export function LocalListView({
     setActiveBookmarkId(bookmark.id);
     clearError();
     try {
-      const meta = await ipcCall("workspace", "create", {
-        location: { kind: "local", rootPath: bookmark.absPath },
-      });
-      await ipcCall("folderBookmark", "record", {
+      const meta = await createLocalWorkspace(bookmark.absPath);
+      await recordLocalBookmark({
         id: bookmark.id,
         absPath: bookmark.absPath,
         label: bookmark.label ?? undefined,
-        kind: "local",
       });
       await onWorkspaceCreated(meta);
       onClose();
@@ -127,16 +130,13 @@ export function LocalListView({
     try {
       // createAndConnect runs SSH auth *before* persisting the workspace, so a
       // cancelled or failed auth never creates an orphaned sidebar entry.
-      const result = await ipcCallResult("workspace", "createAndConnect", {
-        location: {
-          kind: "ssh",
-          host: profile.host,
-          user: profile.user,
-          port: profile.port,
-          identityFile: profile.identityFile ?? undefined,
-          authMode: (profile.authMode as "interactive" | "key-only") ?? "interactive",
-          remotePath: bookmark.absPath,
-        },
+      const result = await createSshWorkspace({
+        host: profile.host,
+        user: profile.user,
+        port: profile.port,
+        identityFile: profile.identityFile ?? undefined,
+        authMode: (profile.authMode as "interactive" | "key-only") ?? "interactive",
+        remotePath: bookmark.absPath,
         // sshBrowseSessionId omitted — main opens a fresh ControlMaster
       });
 
@@ -149,11 +149,10 @@ export function LocalListView({
       }
 
       // Update last_used_at
-      await ipcCall("folderBookmark", "record", {
+      await recordSshBookmark({
         id: bookmark.id,
         absPath: bookmark.absPath,
         label: bookmark.label ?? undefined,
-        kind: "ssh",
         connectionProfileId: bookmark.connectionProfileId,
       });
       await onWorkspaceCreated(result.value);
@@ -172,22 +171,13 @@ export function LocalListView({
     setOpeningFolder(true);
     clearError();
     try {
-      const { canceled, filePaths } = await ipcCall("dialog", "showOpenDirectory", {
-        title: "Select workspace folder",
-      });
-      if (canceled || !filePaths[0]) {
+      const absPath = await pickLocalDirectory();
+      if (!absPath) {
         setOpeningFolder(false);
         return;
       }
-      const absPath = filePaths[0];
-      const meta = await ipcCall("workspace", "create", {
-        location: { kind: "local", rootPath: absPath },
-      });
-      await ipcCall("folderBookmark", "record", {
-        id: crypto.randomUUID(),
-        absPath,
-        kind: "local",
-      });
+      const meta = await createLocalWorkspace(absPath);
+      await recordLocalBookmark({ id: crypto.randomUUID(), absPath });
       await onWorkspaceCreated(meta);
       onClose();
     } catch (error) {
@@ -202,10 +192,7 @@ export function LocalListView({
   async function toggleFavorite(bookmark: FolderBookmark, event: React.MouseEvent): Promise<void> {
     event.stopPropagation();
     try {
-      await ipcCall("folderBookmark", "setFavorite", {
-        id: bookmark.id,
-        favorite: !bookmark.favorite,
-      });
+      await setFolderBookmarkFavorite(bookmark.id, !bookmark.favorite);
       setBookmarks((prev) =>
         prev.map((b) => (b.id === bookmark.id ? { ...b, favorite: !b.favorite } : b)),
       );
@@ -217,7 +204,7 @@ export function LocalListView({
   async function removeBookmark(bookmark: FolderBookmark, event: React.MouseEvent): Promise<void> {
     event.stopPropagation();
     try {
-      await ipcCall("folderBookmark", "remove", { id: bookmark.id });
+      await removeFolderBookmark(bookmark.id);
       setBookmarks((prev) => prev.filter((b) => b.id !== bookmark.id));
       if (errorBookmarkId === bookmark.id) clearError();
     } catch {

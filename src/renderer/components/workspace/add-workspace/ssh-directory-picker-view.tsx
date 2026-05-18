@@ -2,7 +2,13 @@ import { AlertCircle, ChevronRight, CornerLeftUp, Folder } from "lucide-react";
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DirEntry } from "../../../../shared/fs/types";
-import { ipcCall, ipcCallResult } from "../../../ipc/client";
+import {
+  browseSshSession,
+  closeSshBrowseSession,
+  createSshWorkspace,
+  prefetchSshDirectory,
+  recordSshBookmark,
+} from "../../../services/workspace";
 import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
 import { humanizeSshError } from "./ssh-helpers";
@@ -114,16 +120,13 @@ export function SshDirectoryPickerView({
       setBrowseErrorKind(null);
 
       try {
-        const result = await ipcCall("ssh", "browseSession", { sessionId, path });
+        const result = await browseSshSession(sessionId, path);
         if (abortSignal?.aborted) return;
 
-        const dirs = result.entries.filter((e) => e.type === "dir" || e.type === "symlink");
-        const sorted = [...dirs].sort((a, b) => a.name.localeCompare(b.name));
-
-        browseCache.current.set(path, { entries: sorted, truncated: result.truncated });
+        browseCache.current.set(path, { entries: result.entries, truncated: result.truncated });
         setCurrentPath(path);
         setPathInput(path);
-        setEntries(sorted);
+        setEntries(result.entries);
         setTruncated(result.truncated);
         setBrowseErrorHuman(null);
         setBrowseErrorKind(null);
@@ -202,17 +205,10 @@ export function SshDirectoryPickerView({
       const controller = new AbortController();
       hoverAbortRef.current = controller;
 
-      ipcCall("ssh", "browseSession", { sessionId, path: targetPath })
-        .then((result) => {
-          if (controller.signal.aborted) return;
-          const dirs = result.entries
-            .filter((e) => e.type === "dir" || e.type === "symlink")
-            .sort((a, b) => a.name.localeCompare(b.name));
-          browseCache.current.set(targetPath, { entries: dirs, truncated: result.truncated });
-        })
-        .catch(() => {
-          // Prefetch failure is ignored — will retry on actual click
-        });
+      prefetchSshDirectory(sessionId, targetPath).then((result) => {
+        if (controller.signal.aborted || !result) return;
+        browseCache.current.set(targetPath, { entries: result.entries, truncated: result.truncated });
+      });
     }, HOVER_PREFETCH_DELAY_MS);
   }
 
@@ -235,16 +231,13 @@ export function SshDirectoryPickerView({
       // is already authenticated (the user browsed via the browse session).
       // The main handler detects the browseSessionId and adopts that
       // ControlMaster, skipping a second auth prompt.
-      const result = await ipcCallResult("workspace", "createAndConnect", {
-        location: {
-          kind: "ssh",
-          host,
-          user: session.user,
-          port: session.port,
-          identityFile: session.identityFile,
-          remotePath: currentPath,
-          authMode: "interactive",
-        },
+      const result = await createSshWorkspace({
+        host,
+        user: session.user,
+        port: session.port,
+        identityFile: session.identityFile,
+        remotePath: currentPath,
+        authMode: "interactive",
         // Hand off the browse session's authenticated connection so the
         // workspace boots without a second credential prompt.
         sshBrowseSessionId: sessionId,
@@ -260,8 +253,7 @@ export function SshDirectoryPickerView({
       // Record the SSH folder bookmark — before onWorkspaceCreated so
       // it appears in RECENT on the next modal open.
       // Failure is silent — workspace creation already succeeded.
-      await ipcCall("folderBookmark", "record", {
-        kind: "ssh",
+      await recordSshBookmark({
         id: crypto.randomUUID(),
         absPath: currentPath,
         connectionProfileId: session.connectionProfileId,
@@ -281,7 +273,7 @@ export function SshDirectoryPickerView({
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional mount-only cleanup
   useEffect(() => {
     return () => {
-      ipcCall("ssh", "closeBrowseSession", { sessionId }).catch(() => {});
+      void closeSshBrowseSession(sessionId);
     };
   }, []);
 

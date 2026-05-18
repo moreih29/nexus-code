@@ -1,7 +1,13 @@
 import { AlertCircle, ChevronRight, LoaderCircle, Plus, Server, Star, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { ConnectionProfile } from "../../../../shared/types/entry-points";
-import { ipcCall, ipcCallResult } from "../../../ipc/client";
+import {
+  listConnectionProfiles,
+  openSshBrowseSession,
+  removeConnectionProfile,
+  saveConnectionProfile,
+  setConnectionProfileFavorite,
+} from "../../../services/workspace";
 import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
 import { formatProfileSubtitle } from "./ssh-helpers";
@@ -26,10 +32,9 @@ export function SshConnectionListView({
   const loadProfiles = useCallback((): (() => void) => {
     let cancelled = false;
     setLoading(true);
-    ipcCall("connectionProfile", "list", undefined)
-      .then((list) => {
+    listConnectionProfiles()
+      .then((sorted) => {
         if (cancelled) return;
-        const sorted = [...list].sort((a, b) => b.lastUsedAt - a.lastUsedAt);
         setProfiles(sorted);
       })
       .catch(() => {
@@ -62,7 +67,7 @@ export function SshConnectionListView({
       // openBrowseSession is migrated to the IpcResult contract — auth
       // cancellation arrives as ipcErr("cancelled") so the router stays silent
       // and the renderer branches without showing an error banner.
-      const result = await ipcCallResult("ssh", "openBrowseSession", {
+      const result = await openSshBrowseSession({
         host: profile.host,
         user: profile.user,
         port: profile.port,
@@ -77,7 +82,7 @@ export function SshConnectionListView({
         return;
       }
       // Update usage record
-      await ipcCall("connectionProfile", "save", {
+      await saveConnectionProfile({
         id: profile.id,
         host: profile.host,
         user: profile.user,
@@ -108,10 +113,7 @@ export function SshConnectionListView({
   ): Promise<void> {
     event.stopPropagation();
     try {
-      await ipcCall("connectionProfile", "setFavorite", {
-        id: profile.id,
-        favorite: !profile.favorite,
-      });
+      await setConnectionProfileFavorite(profile.id, !profile.favorite);
       setProfiles((prev) =>
         prev.map((p) => (p.id === profile.id ? { ...p, favorite: !p.favorite } : p)),
       );
@@ -123,7 +125,7 @@ export function SshConnectionListView({
   async function removeProfile(profile: ConnectionProfile, event: React.MouseEvent): Promise<void> {
     event.stopPropagation();
     try {
-      await ipcCall("connectionProfile", "remove", { id: profile.id });
+      await removeConnectionProfile(profile.id);
       setProfiles((prev) => prev.filter((p) => p.id !== profile.id));
       if (errorId === profile.id) {
         setErrorId(null);

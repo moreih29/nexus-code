@@ -50,10 +50,10 @@ export interface SshBrowseSession {
 // ---------------------------------------------------------------------------
 
 /**
- * Local folder list view props.
- * Now serves as the unified main-list view (local + SSH bookmarks).
+ * Main list view props.
+ * Serves as the unified main-list view (local + SSH bookmarks).
  */
-export interface LocalListViewProps {
+export interface MainListViewProps {
   readonly onWorkspaceCreated: (meta: WorkspaceMeta) => void | Promise<void>;
   readonly onClose: () => void;
   /** Navigate to ssh-server-list view ("Connect via SSH…" button). */

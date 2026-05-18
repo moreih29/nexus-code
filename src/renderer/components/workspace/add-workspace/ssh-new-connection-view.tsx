@@ -1,7 +1,7 @@
-import { AlertCircle, ChevronDown, ChevronRight, Server } from "lucide-react";
+import { AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ipcCall, ipcCallResult } from "../../../ipc/client";
+import { openSshBrowseSession, saveConnectionProfile } from "../../../services/workspace";
 import { Button } from "../../ui/button";
 import {
   clampHostIndex,
@@ -189,7 +189,7 @@ export function SshNewConnectionView({
     // openBrowseSession is migrated to the IpcResult contract — auth
     // cancellation arrives as ipcErr("cancelled") so the router stays silent
     // and the renderer branches without showing an error banner.
-    const result = await ipcCallResult("ssh", "openBrowseSession", {
+    const result = await openSshBrowseSession({
       host: dest.host,
       user: dest.user,
       port: parsedPort,
@@ -210,7 +210,7 @@ export function SshNewConnectionView({
 
     // Connection succeeded → save connectionProfile
     const profileId = crypto.randomUUID();
-    await ipcCall("connectionProfile", "save", {
+    await saveConnectionProfile({
       id: profileId,
       host: dest.host,
       user: dest.user ?? "",
@@ -427,5 +427,3 @@ export function SshNewConnectionView({
   );
 }
 
-// Re-export for footer button rendering in root dialog
-export { Server };

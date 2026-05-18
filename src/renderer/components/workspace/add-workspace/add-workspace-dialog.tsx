@@ -3,10 +3,10 @@ import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useRef, useState } from "react";
 import type { ConnectionProfile } from "../../../../shared/types/entry-points";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
-import { ipcCall } from "../../../ipc/client";
+import { fetchConnectionProfiles, listSshConfigHosts } from "../../../services/workspace";
 import { Button } from "../../ui/button";
 import { Dialog } from "../../ui/dialog";
-import { LocalListView } from "./local-list-view";
+import { MainListView } from "./main-list-view";
 import { SshConnectionListView } from "./ssh-connection-list-view";
 import { SshDirectoryPickerView } from "./ssh-directory-picker-view";
 import { SshNewConnectionView } from "./ssh-new-connection-view";
@@ -65,7 +65,7 @@ export function AddWorkspaceDialog({
 
     let cancelled = false;
     setConfigHostsLoading(true);
-    ipcCall("ssh", "listConfigHosts", undefined)
+    listSshConfigHosts()
       .then((list) => {
         if (cancelled) return;
         setConfigHosts(list);
@@ -113,7 +113,7 @@ export function AddWorkspaceDialog({
     // Load profile from already-fetched configHosts won't help here;
     // the profile is loaded by LocalListView inline and passed back as an id.
     // We fetch it once here so we can pass the full object to SshNewConnectionView.
-    ipcCall("connectionProfile", "list", undefined)
+    fetchConnectionProfiles()
       .then((profiles) => {
         const profile = profiles.find((p) => p.id === profileId) ?? null;
         setPrefillProfile(profile);
@@ -331,7 +331,7 @@ function ViewBody(props: ViewBodyProps): React.JSX.Element {
   if (view === "main-list") {
     return (
       <FadeView viewKey="main-list">
-        <LocalListView
+        <MainListView
           onWorkspaceCreated={onWorkspaceCreated}
           onClose={onClose}
           onSshServerList={onSshServerList}
