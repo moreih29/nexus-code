@@ -8,6 +8,7 @@
  */
 import type { LogEntry } from "../../../../../shared/git/types";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
+import { relativeTime } from "../utils/relative-time";
 
 export type CommitPickAction = { kind: "commit"; sha: string } | { kind: "pick-from-branch" };
 
@@ -93,19 +94,3 @@ function matchesCommitQuery(item: CommitPickItem, lowerQuery: string): boolean {
     .some((value) => value.toLowerCase().includes(lowerQuery));
 }
 
-/** Formats a compact relative timestamp for commit rows. */
-function relativeTime(isoDate: string): string {
-  const then = Date.parse(isoDate);
-  if (!Number.isFinite(then)) return "unknown time";
-  const seconds = Math.max(0, Math.floor((Date.now() - then) / 1000));
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo ago`;
-  return `${Math.floor(months / 12)}y ago`;
-}

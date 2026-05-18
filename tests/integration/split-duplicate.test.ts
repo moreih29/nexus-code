@@ -68,7 +68,7 @@ import {
   createFileTreeKeydownHandler,
   type FileTreeKeydownDeps,
 } from "../../src/renderer/components/files/keys";
-import { openTab, openTabInNewSplit } from "../../src/renderer/state/operations";
+import { openTerminalTab, openTabInNewSplit } from "../../src/renderer/state/operations";
 import { useLayoutStore } from "../../src/renderer/state/stores/layout";
 import { allLeaves, findLeaf } from "../../src/renderer/state/stores/layout/helpers";
 import {
@@ -296,7 +296,7 @@ describe("Scenario D1: splitRight (useGroupActions mirror) produces a second lea
   beforeEach(resetStores);
 
   it("splitRight creates a new leaf and source leaf still holds original tab", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/workspace" });
+    const tab = openTerminalTab(WS, "terminal", { cwd: "/workspace" });
     const leafId = getLayout().activeGroupId;
 
     const actions = makeSplitActions(WS, leafId, () => tab.id);
@@ -315,7 +315,7 @@ describe("Scenario D2: splitDown (useGroupActions mirror) produces a vertical sp
   beforeEach(resetStores);
 
   it("splitDown creates a vertical split node", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/ws" });
+    const tab = openTerminalTab(WS, "terminal", { cwd: "/ws" });
     const leafId = getLayout().activeGroupId;
 
     const actions = makeSplitActions(WS, leafId, () => tab.id);
@@ -355,7 +355,7 @@ describe("Scenario D4: splitRight (useGroupActions mirror) with empty contextTab
   beforeEach(resetStores);
 
   it("no split occurs when contextTabId is empty string — guard branch in useGroupActions", () => {
-    openTab(WS, "terminal", { cwd: "/ws" });
+    openTerminalTab(WS, "terminal", { cwd: "/ws" });
 
     // Guard: useGroupActions.splitRight does `if (!tabId) return`
     const actions = makeSplitActions(WS, getLayout().activeGroupId, () => "");

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { defaultTimerScheduler, type TimerScheduler } from "../../../shared/util/timer-scheduler";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
 
-export const TERMINAL_DEATH_AGGREGATE_WINDOW_MS = 100;
+const TERMINAL_DEATH_AGGREGATE_WINDOW_MS = 100;
 
 export interface TerminalDeathAggregate {
   tabIds: string[];

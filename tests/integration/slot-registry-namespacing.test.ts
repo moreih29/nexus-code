@@ -51,7 +51,7 @@ mock.module("../../src/renderer/ipc/client", () => ({
 
 import { ownerLeafIdOf } from "../../src/renderer/components/workspace/content/selectors";
 import { slotRegistry } from "../../src/renderer/components/workspace/content/slot-registry";
-import { openTab } from "../../src/renderer/state/operations";
+import { openTerminalTab } from "../../src/renderer/state/operations";
 import { useLayoutStore } from "../../src/renderer/state/stores/layout";
 import type { LayoutNode } from "../../src/renderer/state/stores/layout/types";
 import { useTabsStore } from "../../src/renderer/state/stores/tabs";
@@ -447,7 +447,7 @@ describe("Scenario 5: inactive workspace slot is registered and get returns the 
 
   it("opening a tab in an inactive workspace resolves its leaf correctly via ownerLeafIdOf", () => {
     // openTab on an inactive workspace seeds layout normally
-    openTab(WS2, "terminal", { cwd: "/inactive/root" });
+    openTerminalTab(WS2, "terminal", { cwd: "/inactive/root" });
 
     const ws2Layout = useLayoutStore.getState().byWorkspace[WS2];
     if (!ws2Layout) throw new Error("ws2 layout not found");

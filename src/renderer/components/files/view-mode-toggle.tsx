@@ -61,8 +61,7 @@ export function ViewModeToggle({
   const isTree = viewMode === "tree";
   const hasCompact = compactFolders !== undefined && onCompactChange !== undefined;
 
-  const toggleLabel = isTree ? "리스트로 보기" : "트리로 보기";
-  const toggleLabelEn = isTree ? "View as List" : "View as Tree";
+  const toggleLabel = isTree ? "View as List" : "View as Tree";
 
   function handleToggle() {
     onViewModeChange(computeNextViewMode(viewMode));
@@ -92,8 +91,6 @@ export function ViewModeToggle({
               onClick={handleToggle}
             >
               {isTree ? <ListTree aria-hidden="true" /> : <List aria-hidden="true" />}
-              {/* Screen-reader English copy */}
-              <span className="sr-only">{toggleLabelEn}</span>
             </Button>
           </RadixTooltip.Trigger>
           <RadixTooltip.Portal>
@@ -115,10 +112,10 @@ export function ViewModeToggle({
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  aria-label="폴더 압축 옵션"
+                  aria-label="Compact folders options"
                   aria-haspopup="menu"
                   aria-expanded={popoverOpen}
-                  title="폴더 압축"
+                  title="Compact folders"
                   disabled={disabled}
                   className={cn(
                     "shrink-0 w-4 rounded-l-none px-0",
@@ -135,7 +132,7 @@ export function ViewModeToggle({
                   className="px-2 py-1 text-app-micro bg-muted text-foreground border border-border rounded-(--radius-control) shadow-none"
                   sideOffset={4}
                 >
-                  폴더 압축
+                  Compact folders
                 </RadixTooltip.Content>
               </RadixTooltip.Portal>
             </RadixTooltip.Root>
@@ -144,7 +141,7 @@ export function ViewModeToggle({
             {popoverOpen ? (
               <div
                 role="menu"
-                aria-label="보기 옵션"
+                aria-label="View options"
                 className="absolute right-0 top-9 z-40 min-w-[188px] floating-panel p-1"
                 onKeyDown={(event) => {
                   if (event.key === "Escape") setPopoverOpen(false);
@@ -200,8 +197,7 @@ function CompactMenuItem({ checked, onToggle }: CompactMenuItemProps) {
           </svg>
         ) : null}
       </span>
-      <span>폴더 압축</span>
-      <span className="sr-only">Compact folders</span>
+      <span>Compact folders</span>
     </button>
   );
 }

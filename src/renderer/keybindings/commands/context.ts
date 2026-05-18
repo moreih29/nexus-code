@@ -33,7 +33,7 @@ export function getActiveTabContext(): ActiveTabContext | null {
   return { wsId, leaf: activeLeaf, tabId: activeLeaf.activeTabId };
 }
 
-export function getWorkspaceRootPath(workspaceId: string): string | null {
+function getWorkspaceRootPath(workspaceId: string): string | null {
   return (
     useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId)?.rootPath ?? null
   );

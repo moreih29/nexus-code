@@ -3,6 +3,7 @@ import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/errors";
 import type { FileContent } from "../../../shared/fs/types";
 import type { DiffTabPayload } from "../../../shared/types/tab";
 import { ipcCall, ipcListen } from "../../ipc/client";
+import { isRecord } from "../../utils/is-record";
 import { EMPTY_TREE } from "./diff-refs";
 
 const RELOAD_DEBOUNCE_MS = 120;
@@ -336,13 +337,6 @@ function isMissingContentError(error: unknown): boolean {
   return /invalid object name|path .+ does not exist in|exists on disk, but not in|did not match any file|pathspec .+ did not match|unknown revision or path not in the working tree/i.test(
     message,
   );
-}
-
-/**
- * Narrow unknown values to object records for safe property access.
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 /**

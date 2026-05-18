@@ -42,7 +42,7 @@ mock.module("../../src/renderer/ipc/client", () => ({
   ipcListen: () => () => {},
 }));
 
-import { moveTabToZone, openFileAtZone, openTab } from "../../src/renderer/state/operations";
+import { moveTabToZone, openFileAtZone, openTerminalTab } from "../../src/renderer/state/operations";
 import { useLayoutStore } from "../../src/renderer/state/stores/layout";
 import { allLeaves, findLeaf } from "../../src/renderer/state/stores/layout/helpers";
 import { useTabsStore } from "../../src/renderer/state/stores/tabs";
@@ -75,9 +75,9 @@ describe("Scenario 1: moveTabToZone center", () => {
 
   it("moves a tab from source leaf to destination leaf", () => {
     // Setup: leaf A with tab a1, then split to create leaf B; open tab b1 in B.
-    const a1 = openTab(WS, "terminal", { cwd: "/" });
+    const a1 = openTerminalTab(WS, "terminal", { cwd: "/" });
     useLayoutStore.getState().splitGroup(WS, getLayout().activeGroupId, "horizontal", "after");
-    const b1 = openTab(WS, "terminal", { cwd: "/" });
+    const b1 = openTerminalTab(WS, "terminal", { cwd: "/" });
 
     const ownerOfB1 = findOwnerLeafId(b1.id);
     expect(ownerOfB1).not.toBeNull();
@@ -91,9 +91,9 @@ describe("Scenario 1: moveTabToZone center", () => {
   });
 
   it("hoists the source leaf when its last tab is moved away", () => {
-    const a1 = openTab(WS, "terminal", { cwd: "/" });
+    const a1 = openTerminalTab(WS, "terminal", { cwd: "/" });
     useLayoutStore.getState().splitGroup(WS, getLayout().activeGroupId, "horizontal", "after");
-    const b1 = openTab(WS, "terminal", { cwd: "/" });
+    const b1 = openTerminalTab(WS, "terminal", { cwd: "/" });
     const destLeaf = findOwnerLeafId(b1.id)!;
 
     moveTabToZone(WS, a1.id, { groupId: destLeaf, zone: "center" });
@@ -113,8 +113,8 @@ describe("Scenario 2: moveTabToZone edge", () => {
   beforeEach(resetStores);
 
   it("right zone splits horizontally and tab lands in the new leaf", () => {
-    const t1 = openTab(WS, "terminal", { cwd: "/" });
-    const t2 = openTab(WS, "terminal", { cwd: "/" });
+    const t1 = openTerminalTab(WS, "terminal", { cwd: "/" });
+    const t2 = openTerminalTab(WS, "terminal", { cwd: "/" });
     const sourceLeafId = getLayout().activeGroupId;
     expect(findOwnerLeafId(t1.id)).toBe(sourceLeafId);
     expect(findOwnerLeafId(t2.id)).toBe(sourceLeafId);
@@ -133,8 +133,8 @@ describe("Scenario 2: moveTabToZone edge", () => {
   });
 
   it("bottom zone splits vertically (orientation 'vertical', side 'after')", () => {
-    openTab(WS, "terminal", { cwd: "/" });
-    const t2 = openTab(WS, "terminal", { cwd: "/" });
+    openTerminalTab(WS, "terminal", { cwd: "/" });
+    const t2 = openTerminalTab(WS, "terminal", { cwd: "/" });
     const sourceLeafId = getLayout().activeGroupId;
 
     moveTabToZone(WS, t2.id, { groupId: sourceLeafId, zone: "bottom" });
@@ -155,7 +155,7 @@ describe("Scenario 3: moveTabToZone self-drop guards", () => {
   beforeEach(resetStores);
 
   it("center on own leaf is a no-op", () => {
-    const t1 = openTab(WS, "terminal", { cwd: "/" });
+    const t1 = openTerminalTab(WS, "terminal", { cwd: "/" });
     const ownerLeafId = findOwnerLeafId(t1.id)!;
 
     const result = moveTabToZone(WS, t1.id, { groupId: ownerLeafId, zone: "center" });
@@ -165,7 +165,7 @@ describe("Scenario 3: moveTabToZone self-drop guards", () => {
   });
 
   it("edge on own leaf with single tab is a no-op (would split-then-hoist)", () => {
-    const t1 = openTab(WS, "terminal", { cwd: "/" });
+    const t1 = openTerminalTab(WS, "terminal", { cwd: "/" });
     const ownerLeafId = findOwnerLeafId(t1.id)!;
 
     const result = moveTabToZone(WS, t1.id, { groupId: ownerLeafId, zone: "right" });
@@ -175,8 +175,8 @@ describe("Scenario 3: moveTabToZone self-drop guards", () => {
   });
 
   it("edge on own leaf with multiple tabs IS allowed (creates a split)", () => {
-    const t1 = openTab(WS, "terminal", { cwd: "/" });
-    const t2 = openTab(WS, "terminal", { cwd: "/" });
+    const t1 = openTerminalTab(WS, "terminal", { cwd: "/" });
+    const t2 = openTerminalTab(WS, "terminal", { cwd: "/" });
     const ownerLeafId = findOwnerLeafId(t2.id)!;
 
     const result = moveTabToZone(WS, t2.id, { groupId: ownerLeafId, zone: "right" });
@@ -197,7 +197,7 @@ describe("Scenario 4: openFileAtZone", () => {
   beforeEach(resetStores);
 
   it("center creates a new editor tab in the destination leaf", () => {
-    openTab(WS, "terminal", { cwd: "/" });
+    openTerminalTab(WS, "terminal", { cwd: "/" });
     const destLeafId = getLayout().activeGroupId;
 
     const result = openFileAtZone(WS, "/repo/foo.ts", {
@@ -215,7 +215,7 @@ describe("Scenario 4: openFileAtZone", () => {
   });
 
   it("edge splits and places a new editor tab in the new leaf", () => {
-    openTab(WS, "terminal", { cwd: "/" });
+    openTerminalTab(WS, "terminal", { cwd: "/" });
     const sourceLeafId = getLayout().activeGroupId;
 
     const result = openFileAtZone(WS, "/repo/bar.ts", {
@@ -232,7 +232,7 @@ describe("Scenario 4: openFileAtZone", () => {
 
   it("returns null and removes the orphan tab if dest leaf vanishes", () => {
     // Force failure path: pass a fabricated groupId that doesn't exist.
-    openTab(WS, "terminal", { cwd: "/" });
+    openTerminalTab(WS, "terminal", { cwd: "/" });
     const tabsBefore = Object.keys(useTabsStore.getState().byWorkspace[WS] ?? {}).length;
 
     const result = openFileAtZone(WS, "/repo/baz.ts", {

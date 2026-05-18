@@ -197,7 +197,7 @@ export function createEntry(
  * moves to `phase: "error"` with the mapped error code; on disposal
  * mid-load we abandon early without writing partial state.
  */
-export async function loadEntry(entry: ModelEntry): Promise<void> {
+async function loadEntry(entry: ModelEntry): Promise<void> {
   const deps = depsFor(entry);
   try {
     const workspaceRoot = deps.workspaceRootForInput(entry.input);

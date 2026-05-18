@@ -7,7 +7,8 @@ import { type Tab, useTabsStore } from "../../state/stores/tabs";
 import { useTerminalDeathStore } from "../../state/stores/terminal-deaths";
 import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../state/stores/workspaces";
 import { StatusBar } from "../workbench/status-bar";
-import { ContentPool, LayoutTree } from ".";
+import { ContentPool } from "./content/pool";
+import { LayoutTree } from "./layout/tree";
 import {
   deadTerminalTabs,
   requestReopenForDeadTerminalTabs,

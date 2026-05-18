@@ -57,7 +57,7 @@ mock.module("../../src/renderer/ipc/client", () => ({
 import {
   closeGroup,
   closeTab,
-  openTab,
+  openTerminalTab,
   openTabInNewSplit,
 } from "../../src/renderer/state/operations";
 import { useLayoutStore } from "../../src/renderer/state/stores/layout";
@@ -89,7 +89,7 @@ describe("Scenario 1: openTab creates tab in tabsStore and layout", () => {
   beforeEach(resetStores);
 
   it("tabsStore gains exactly one new Tab record for the workspace", () => {
-    openTab(WS, "terminal", { cwd: "/home/user" });
+    openTerminalTab(WS, "terminal", { cwd: "/home/user" });
 
     const record = useTabsStore.getState().byWorkspace[WS];
     expect(record).toBeDefined();
@@ -97,7 +97,7 @@ describe("Scenario 1: openTab creates tab in tabsStore and layout", () => {
   });
 
   it("the new tab is present in the activeGroupId leaf's tabIds", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/tmp" });
+    const tab = openTerminalTab(WS, "terminal", { cwd: "/tmp" });
 
     const layout = getLayout();
     const leaf = findLeaf(layout.root, layout.activeGroupId);
@@ -106,7 +106,7 @@ describe("Scenario 1: openTab creates tab in tabsStore and layout", () => {
   });
 
   it("the new tab becomes the activeTabId of its leaf", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/tmp" });
+    const tab = openTerminalTab(WS, "terminal", { cwd: "/tmp" });
 
     const layout = getLayout();
     const leaf = findLeaf(layout.root, layout.activeGroupId);
@@ -123,7 +123,7 @@ describe("Scenario 2: openTab with explicit opts.groupId attaches to that leaf",
 
   it("tab lands on the explicitly specified leaf, not the active group", () => {
     // First call establishes a layout with one leaf (the active leaf).
-    const tab1 = openTab(WS, "terminal", { cwd: "/a" });
+    const tab1 = openTerminalTab(WS, "terminal", { cwd: "/a" });
     const layoutAfterFirst = getLayout();
     const firstLeafId = layoutAfterFirst.activeGroupId;
 
@@ -132,7 +132,7 @@ describe("Scenario 2: openTab with explicit opts.groupId attaches to that leaf",
     expect(useLayoutStore.getState().byWorkspace[WS]?.activeGroupId).toBe(newLeafId);
 
     // Open a tab targeting the *first* (now non-active) leaf explicitly.
-    const tab2 = openTab(WS, "terminal", { cwd: "/b" }, { groupId: firstLeafId });
+    const tab2 = openTerminalTab(WS, "terminal", { cwd: "/b" }, { groupId: firstLeafId });
 
     const layoutAfter = getLayout();
     const firstLeaf = findLeaf(layoutAfter.root, firstLeafId);
@@ -156,7 +156,7 @@ describe("Scenario 3: openTab auto-creates layout slice via ensureLayout", () =>
   it("calling openTab with no prior ensureLayout creates byWorkspace[WS] entry", () => {
     expect(useLayoutStore.getState().byWorkspace[WS]).toBeUndefined();
 
-    openTab(WS, "terminal", { cwd: "/auto" });
+    openTerminalTab(WS, "terminal", { cwd: "/auto" });
 
     const layout = useLayoutStore.getState().byWorkspace[WS];
     expect(layout).toBeDefined();
@@ -164,7 +164,7 @@ describe("Scenario 3: openTab auto-creates layout slice via ensureLayout", () =>
   });
 
   it("auto-created layout has a non-empty activeGroupId pointing to an existing leaf", () => {
-    openTab(WS, "terminal", { cwd: "/auto" });
+    openTerminalTab(WS, "terminal", { cwd: "/auto" });
 
     const layout = getLayout();
     const leaf = findLeaf(layout.root, layout.activeGroupId);
@@ -180,7 +180,7 @@ describe("Scenario 4: closeTab removes tab from layout and tabsStore", () => {
   beforeEach(resetStores);
 
   it("tab is absent from layout leaf after closeTab", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/c" });
+    const tab = openTerminalTab(WS, "terminal", { cwd: "/c" });
 
     closeTab(WS, tab.id);
 
@@ -191,7 +191,7 @@ describe("Scenario 4: closeTab removes tab from layout and tabsStore", () => {
   });
 
   it("tab record is absent from tabsStore after closeTab", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/d" });
+    const tab = openTerminalTab(WS, "terminal", { cwd: "/d" });
 
     closeTab(WS, tab.id);
 
@@ -208,7 +208,7 @@ describe("Scenario 5: sole leaf preserved as empty placeholder when last tab clo
   beforeEach(resetStores);
 
   it("root is still a leaf node after closing the only tab", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/e" });
+    const tab = openTerminalTab(WS, "terminal", { cwd: "/e" });
 
     closeTab(WS, tab.id);
 
@@ -217,7 +217,7 @@ describe("Scenario 5: sole leaf preserved as empty placeholder when last tab clo
   });
 
   it("the sole leaf has zero tabIds after closing its only tab", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/f" });
+    const tab = openTerminalTab(WS, "terminal", { cwd: "/f" });
     const leafId = getLayout().activeGroupId;
 
     closeTab(WS, tab.id);
@@ -228,7 +228,7 @@ describe("Scenario 5: sole leaf preserved as empty placeholder when last tab clo
   });
 
   it("tabsStore workspace slice has empty record for the closed tab", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/g" });
+    const tab = openTerminalTab(WS, "terminal", { cwd: "/g" });
 
     closeTab(WS, tab.id);
 
@@ -247,14 +247,14 @@ describe("Scenario 6: non-sole empty leaf collapses, activeGroupId falls back to
 
   it("parent split is replaced by the sibling after last tab in a non-sole leaf closes", () => {
     // Setup: two leaves (split). leafA and leafB side-by-side.
-    openTab(WS, "terminal", { cwd: "/left" });
+    openTerminalTab(WS, "terminal", { cwd: "/left" });
     const leafAId = getLayout().activeGroupId;
 
     // Create the second leaf via splitGroup
     const leafBId = useLayoutStore.getState().splitGroup(WS, leafAId, "horizontal", "after");
 
     // Open a tab in the second leaf (now active)
-    const tabB = openTab(WS, "terminal", { cwd: "/right" }, { groupId: leafBId });
+    const tabB = openTerminalTab(WS, "terminal", { cwd: "/right" }, { groupId: leafBId });
 
     // Root should now be a split
     expect(getLayout().root.kind).toBe("split");
@@ -269,14 +269,14 @@ describe("Scenario 6: non-sole empty leaf collapses, activeGroupId falls back to
   });
 
   it("activeGroupId falls back to the hoisted sibling's leftmost leaf", () => {
-    openTab(WS, "terminal", { cwd: "/left" });
+    openTerminalTab(WS, "terminal", { cwd: "/left" });
     const leafAId = getLayout().activeGroupId;
 
     const leafBId = useLayoutStore.getState().splitGroup(WS, leafAId, "horizontal", "after");
     // Make leafB active
     useLayoutStore.getState().setActiveGroup(WS, leafBId);
 
-    const tabB = openTab(WS, "terminal", { cwd: "/right" }, { groupId: leafBId });
+    const tabB = openTerminalTab(WS, "terminal", { cwd: "/right" }, { groupId: leafBId });
 
     // Confirm active is leafB
     expect(getLayout().activeGroupId).toBe(leafBId);
@@ -297,7 +297,7 @@ describe("Scenario 10: openTabInNewSplit creates new leaf with fresh tab", () =>
   beforeEach(resetStores);
 
   it("returns a newLeafId distinct from the original active group", () => {
-    openTab(WS, "terminal", { cwd: "/base" });
+    openTerminalTab(WS, "terminal", { cwd: "/base" });
     const originalActiveGroupId = getLayout().activeGroupId;
 
     const result = openTabInNewSplit(
@@ -311,7 +311,7 @@ describe("Scenario 10: openTabInNewSplit creates new leaf with fresh tab", () =>
   });
 
   it("new tab is in the new leaf and the new leaf is the active group", () => {
-    openTab(WS, "terminal", { cwd: "/base" });
+    openTerminalTab(WS, "terminal", { cwd: "/base" });
 
     const result = openTabInNewSplit(
       WS,
@@ -327,7 +327,7 @@ describe("Scenario 10: openTabInNewSplit creates new leaf with fresh tab", () =>
   });
 
   it("creates a layout split so root becomes kind:split", () => {
-    openTab(WS, "terminal", { cwd: "/base" });
+    openTerminalTab(WS, "terminal", { cwd: "/base" });
 
     openTabInNewSplit(WS, { type: "terminal", props: { cwd: "/split" } }, "horizontal", "before");
 
@@ -362,11 +362,11 @@ describe("Scenario 11: closeGroup removes a non-sole leaf and its tab records", 
   // 에서 이미 커버됨. 이 통합 케이스는 closeGroup 호출이 tabsStore를 함께 정리
   // 하는 cross-store coordination만 검증한다.
   it("closed leaf의 tab record는 tabsStore에서 제거되고, 살아남은 leaf의 tab record는 보존된다", () => {
-    const tabA = openTab(WS, "terminal", { cwd: "/left" });
+    const tabA = openTerminalTab(WS, "terminal", { cwd: "/left" });
     const leafAId = getLayout().activeGroupId;
 
     const leafBId = useLayoutStore.getState().splitGroup(WS, leafAId, "horizontal", "after");
-    const tabB = openTab(WS, "terminal", { cwd: "/right" }, { groupId: leafBId });
+    const tabB = openTerminalTab(WS, "terminal", { cwd: "/right" }, { groupId: leafBId });
 
     closeGroup(WS, leafBId);
 
@@ -389,7 +389,7 @@ describe("Scenario 12: closeGroup on sole leaf empties it without removing it", 
   // tabsStore에서도 tab record를 제거하는 cross-store coordination만 검증.
 
   it("tab record is removed from tabsStore after sole-leaf closeGroup", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/only" });
+    const tab = openTerminalTab(WS, "terminal", { cwd: "/only" });
     const leafId = getLayout().activeGroupId;
 
     closeGroup(WS, leafId);

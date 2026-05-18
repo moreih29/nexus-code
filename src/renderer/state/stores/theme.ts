@@ -21,7 +21,7 @@ import { ipcCall } from "../../ipc/client";
 // Constants
 // ---------------------------------------------------------------------------
 
-export const THEME_STORAGE_KEY = "themePreference";
+const THEME_STORAGE_KEY = "themePreference";
 
 // OS Auto pair mapping (design.md §8: warm-dark ⇄ warm-light).
 // cool-dark is always P1 (explicit, OS-tracking disabled).

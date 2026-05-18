@@ -82,7 +82,7 @@ export function createWorkspaceSymbolPaletteSource({
   };
 }
 
-export function workspaceSymbolToPaletteItem(
+function workspaceSymbolToPaletteItem(
   symbol: WorkspaceSymbolEntry,
   workspaceRoot: string,
 ): WorkspaceSymbolPaletteItem {

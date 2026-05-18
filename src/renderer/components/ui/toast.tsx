@@ -42,8 +42,8 @@ export interface ToastInput {
  * Re-exported under toast-local names so existing callers stay unchanged.
  * See `shared/util/timing-constants.ts` for the canonical definitions.
  */
-export const TOAST_INFO_MS = UI_TOAST_INFO_MS;
-export const TOAST_ERROR_MS = UI_TOAST_ERROR_MS;
+const TOAST_INFO_MS = UI_TOAST_INFO_MS;
+const TOAST_ERROR_MS = UI_TOAST_ERROR_MS;
 
 /** Sweep interval for the dismissal timer (see canonical doc in shared/util/timing-constants). */
 const TOAST_SWEEP_INTERVAL_MS = UI_TOAST_SWEEP_INTERVAL_MS;

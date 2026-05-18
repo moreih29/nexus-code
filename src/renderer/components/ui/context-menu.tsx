@@ -65,7 +65,7 @@ interface ContextMenuItemProps {
   onSelect: () => void;
 }
 
-export function ContextMenuItem({ label, shortcut, disabled, onSelect }: ContextMenuItemProps) {
+function ContextMenuItem({ label, shortcut, disabled, onSelect }: ContextMenuItemProps) {
   return (
     <RadixContextMenu.Item className={ITEM_CLASS} disabled={disabled} onSelect={onSelect}>
       <span>{label}</span>
@@ -74,7 +74,7 @@ export function ContextMenuItem({ label, shortcut, disabled, onSelect }: Context
   );
 }
 
-export function ContextMenuSeparator() {
+function ContextMenuSeparator() {
   return <RadixContextMenu.Separator className={SEPARATOR_CLASS} />;
 }
 

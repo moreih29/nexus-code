@@ -117,7 +117,7 @@ export function getGitHelperPromptSnapshot(): GitHelperPromptSnapshot {
  * from renderer IPC broadcasts so Source Control panels can show occupancy
  * banners without becoming additional askpass/editor response owners.
  */
-export function subscribeGitHelperPromptSnapshot(listener: () => void): () => void {
+function subscribeGitHelperPromptSnapshot(listener: () => void): () => void {
   promptSubscribers.add(listener);
   return () => {
     promptSubscribers.delete(listener);

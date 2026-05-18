@@ -13,7 +13,7 @@ export { GitStatusBadge } from "./file-row/git-status-badge";
 export { HistoryPanel } from "./history/panel";
 export { HistorySegmentToggle } from "./history/segment-toggle";
 export { useGitOpHotkey } from "./hooks/use-git-op-hotkey";
-export { useGitSession } from "./hooks/use-git-session";
+export { useGitSession } from "../../../state/stores/git";
 export { GitMoreMenu } from "./more-menu";
 export { GitHeader } from "./panel/git-header";
 export { GitInlineBanner } from "./panel/git-inline-banner";

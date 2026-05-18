@@ -413,3 +413,12 @@ function isErrorLike(data: unknown): data is { name?: string; message: string; c
     (!("name" in data) || typeof data.name === "string")
   );
 }
+
+/**
+ * Returns true when the preload IPC bridge is installed in the current
+ * renderer context. Guards against firing IPC calls in unit-test environments
+ * or non-browser contexts where the bridge is absent.
+ */
+export function canUseIpcBridge(): boolean {
+  return typeof window !== "undefined" && "ipc" in window;
+}

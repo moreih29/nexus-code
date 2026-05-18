@@ -46,7 +46,7 @@ interface ConflictResolvedBannerProps {
   isConflicted: boolean;
   /** True when the editor buffer contains `<<<<<<<` conflict markers. */
   hasMarkers: boolean;
-  /** Invoked when the user clicks "해결로 표시" to run markResolved. */
+  /** Invoked when the user clicks "Mark as resolved" to run markResolved. */
   onMarkResolved: () => void;
 }
 
@@ -67,8 +67,8 @@ export function ConflictResolvedBanner({
     <Banner
       display="bar"
       variant="success"
-      message="✓ 모든 충돌 해결됨"
-      actions={[{ label: "해결로 표시", onAction: onMarkResolved }]}
+      message="✓ All conflicts resolved"
+      actions={[{ label: "Mark as resolved", onAction: onMarkResolved }]}
       role="status"
       aria-live="polite"
     />

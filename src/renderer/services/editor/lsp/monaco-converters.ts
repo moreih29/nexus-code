@@ -129,7 +129,7 @@ export function hoverContentsToMarkdown(contents: MarkupContentOrString): Monaco
   return { value: contents.value.replace(MARKDOWN_PLAINTEXT_ESCAPE_PATTERN, "\\$1") };
 }
 
-export function markerSeverity(
+function markerSeverity(
   monaco: typeof Monaco,
   severity: number | undefined,
 ): Monaco.MarkerSeverity {

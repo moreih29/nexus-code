@@ -29,7 +29,6 @@ export interface PaletteSearchSnapshot<TItem extends PaletteItem = PaletteItem> 
 }
 
 export type { TimerScheduler as PaletteScheduler };
-export { defaultTimerScheduler as browserPaletteScheduler };
 
 export function initialPaletteSearchSnapshot<
   TItem extends PaletteItem,

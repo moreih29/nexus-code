@@ -52,14 +52,6 @@ export function showConflictResolution(filename: string): Promise<ConflictResolu
   return pushPrompt(filename);
 }
 
-// Test helper — clears the queue to avoid cross-test bleed.
-export function __resetConflictDialogForTests(): void {
-  for (const p of queue) p.resolve("cancel");
-  queue = [];
-  bus.notify();
-  bus.clear();
-}
-
 /**
  * Mount once at App level (typically inside the root layout). Reads the
  * head of the prompt queue and shows the dialog.

@@ -18,7 +18,7 @@ import { ipcCall } from "../../ipc/client";
 // Constants
 // ---------------------------------------------------------------------------
 
-export const WINDOW_OPACITY_STORAGE_KEY = "windowOpacity";
+const WINDOW_OPACITY_STORAGE_KEY = "windowOpacity";
 
 // ---------------------------------------------------------------------------
 // State shape

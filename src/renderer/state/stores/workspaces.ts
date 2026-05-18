@@ -3,7 +3,7 @@ import type {
   WorkspaceConnectionEventStatus,
   WorkspaceMeta,
 } from "../../../shared/types/workspace";
-import { ipcListen } from "../../ipc/client";
+import { canUseIpcBridge, ipcListen } from "../../ipc/client";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
 
 // ---------------------------------------------------------------------------
@@ -54,7 +54,7 @@ export function selectWorkspaceConnectionStatus(
  * Treats the workspace connection store as the single source of truth for
  * renderer affordances that need to know whether a workspace is online.
  */
-export function workspaceIsOnline(
+function workspaceIsOnline(
   workspace: WorkspaceMeta | undefined,
   status: WorkspaceConnectionStatus,
 ): boolean {
@@ -93,7 +93,7 @@ function pruneConnectionStatuses(
 // ---------------------------------------------------------------------------
 
 const defaultWorkspacesStoreDeps: WorkspacesStoreDeps = {
-  canUseIpcBridge: () => typeof window !== "undefined" && "ipc" in window,
+  canUseIpcBridge,
   listen: ipcListen,
 };
 

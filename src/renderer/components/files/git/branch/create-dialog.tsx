@@ -67,7 +67,7 @@ export function buildBranchCreateFields(
 /**
  * Returns the branch-create dialog title for the active create flow.
  */
-export function branchCreateDialogTitle(request: BranchCreateRequest | null): string {
+function branchCreateDialogTitle(request: BranchCreateRequest | null): string {
   return request?.fromRef ? "Create branch from ref" : "Create branch";
 }
 
@@ -84,7 +84,7 @@ export function branchCreateDialogDescription(request: BranchCreateRequest | nul
 /**
  * Validates names that can be checked locally before invoking Git.
  */
-export function validateBranchCreateName(
+function validateBranchCreateName(
   value: string,
   context: BranchCreateFieldContext,
 ): string | null {

@@ -30,7 +30,7 @@ import { createListenerBus } from "../../../../shared/util/listener-bus";
 let parkEl: HTMLElement | null = null;
 const bus = createListenerBus();
 
-export const viewPark: {
+const viewPark: {
   set(el: HTMLElement | null): void;
   get(): HTMLElement | null;
   subscribe(listener: () => void): () => void;

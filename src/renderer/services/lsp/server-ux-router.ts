@@ -182,7 +182,7 @@ export function routeLspServerEvent(event: LspServerEvent): void {
  * Called when a workspace is removed so its lingering LSP progress state
  * (begin/report frames that never received an "end") doesn't accumulate.
  */
-export function clearProgressForWorkspace(workspaceId: string): void {
+function clearProgressForWorkspace(workspaceId: string): void {
   for (const [key, state] of workDoneProgressByKey) {
     if (state.workspaceId === workspaceId) {
       workDoneProgressByKey.delete(key);

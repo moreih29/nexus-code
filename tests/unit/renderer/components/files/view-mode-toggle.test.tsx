@@ -46,29 +46,14 @@ describe("ViewModeToggle — aria-pressed", () => {
 // ---------------------------------------------------------------------------
 
 describe("ViewModeToggle — accessible label", () => {
-  it("aria-label 트리로 보기 in list mode (Korean)", () => {
-    const html = renderToStaticMarkup(
-      <ViewModeToggle viewMode="list" onViewModeChange={() => {}} />,
-    );
-    // Korean aria-label present
-    expect(html).toContain("트리로 보기");
-  });
-
-  it("aria-label 리스트로 보기 in tree mode", () => {
-    const html = renderToStaticMarkup(
-      <ViewModeToggle viewMode="tree" onViewModeChange={() => {}} />,
-    );
-    expect(html).toContain("리스트로 보기");
-  });
-
-  it("sr-only English copy rendered in list mode", () => {
+  it("aria-label View as Tree in list mode", () => {
     const html = renderToStaticMarkup(
       <ViewModeToggle viewMode="list" onViewModeChange={() => {}} />,
     );
     expect(html).toContain("View as Tree");
   });
 
-  it("sr-only English copy rendered in tree mode", () => {
+  it("aria-label View as List in tree mode", () => {
     const html = renderToStaticMarkup(
       <ViewModeToggle viewMode="tree" onViewModeChange={() => {}} />,
     );
@@ -99,7 +84,7 @@ describe("ViewModeToggle — compact split trigger absent without props", () => 
     const html = renderToStaticMarkup(
       <ViewModeToggle viewMode="list" onViewModeChange={() => {}} />,
     );
-    expect(html).not.toContain('aria-label="폴더 압축 옵션"');
+    expect(html).not.toContain('aria-label="Compact folders options"');
     expect(html).not.toContain("Compact folders");
   });
 
@@ -108,7 +93,7 @@ describe("ViewModeToggle — compact split trigger absent without props", () => 
       <ViewModeToggle viewMode="list" onViewModeChange={() => {}} compactFolders={false} />,
     );
     // compactFolders provided but onCompactChange missing → no trigger
-    expect(html).not.toContain('aria-label="폴더 압축 옵션"');
+    expect(html).not.toContain('aria-label="Compact folders options"');
   });
 });
 
@@ -126,7 +111,7 @@ describe("ViewModeToggle — compact split trigger present with both props", () 
         onCompactChange={() => {}}
       />,
     );
-    expect(html).toContain('aria-label="폴더 압축 옵션"');
+    expect(html).toContain('aria-label="Compact folders options"');
     expect(html).toContain('aria-haspopup="menu"');
   });
 
@@ -156,7 +141,7 @@ describe("ViewModeToggle — compact split trigger present with both props", () 
     );
     // compactFolders=true means the trigger has the ON class; tree toggle is OFF
     expect(html).toContain("ring-inset ring-ring");
-    expect(html).toContain("폴더 압축 옵션");
+    expect(html).toContain("Compact folders options");
   });
 });
 

@@ -9,7 +9,7 @@ import { UI_LOADING_FLASH_DELAY_MS } from "../../../../shared/util/timing-consta
 
 export const ROW_HEIGHT_PX = 24;
 export const INDENT_STEP_PX = 12;
-export const INDENT_BASE_PX = 8;
+const INDENT_BASE_PX = 8;
 
 /**
  * Left padding for a row at the given depth. Used by both the regular

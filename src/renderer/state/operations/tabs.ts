@@ -66,7 +66,7 @@ function openTabRecord(
   return tab;
 }
 
-export function openTab(
+export function openTerminalTab(
   workspaceId: string,
   type: "terminal",
   props: TerminalTabProps,

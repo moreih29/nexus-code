@@ -17,7 +17,7 @@ import { SaveConfirmDialogRoot } from "../ui/save-confirm-dialog";
 import { ToastRoot } from "../ui/toast";
 import { SshAuthPromptDialog } from "../workspace/ssh-auth-prompt-dialog";
 import { ViewParkRoot } from "../workspace/content/view-park";
-import { useSshAuthPrompts } from "../workspace/useSshAuthPrompts";
+import { useSshAuthPrompts } from "../workspace/use-ssh-auth-prompts";
 
 export function GlobalRoots(): React.JSX.Element {
   return (

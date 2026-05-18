@@ -388,5 +388,3 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
 
 // Re-export LayoutNode type for subscriber
 export type { LayoutNode };
-// Export makeEmptyLeaf for subscriber / hydration utilities
-export { makeEmptyLeaf };

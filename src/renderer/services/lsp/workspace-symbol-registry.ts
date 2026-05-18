@@ -58,7 +58,7 @@ export async function searchWorkspaceSymbols(
   return dedupeWorkspaceSymbols(combined);
 }
 
-export function dedupeWorkspaceSymbols<T extends WorkspaceSymbolEntry>(symbols: readonly T[]): T[] {
+function dedupeWorkspaceSymbols<T extends WorkspaceSymbolEntry>(symbols: readonly T[]): T[] {
   const seen = new Set<string>();
   const unique: T[] = [];
 

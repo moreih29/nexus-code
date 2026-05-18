@@ -220,7 +220,7 @@ function defaultFooterForMode(mode: Exclude<BranchPickerMode, "checkout">): stri
 /**
  * Converts a branch picker row into the correct local or remote delete request.
  */
-export function branchDeleteRequestFromItem(item: BranchPickItem): BranchDeleteRequest | null {
+function branchDeleteRequestFromItem(item: BranchPickItem): BranchDeleteRequest | null {
   if (item.kindLabel === "current") return null;
   if (item.action.kind === "checkout") {
     return { kind: "local", name: item.action.ref, force: false };

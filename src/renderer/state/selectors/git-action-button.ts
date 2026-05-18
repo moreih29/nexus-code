@@ -119,7 +119,7 @@ export function selectGitActionButton(input: GitActionButtonInput): GitActionBut
 }
 
 /** Builds a disabled-commit hint without making callers duplicate copy. */
-export function commitReadinessHint(hasDraft: boolean, hasStagedChanges: boolean): string {
+function commitReadinessHint(hasDraft: boolean, hasStagedChanges: boolean): string {
   if (!hasDraft && !hasStagedChanges) return "Stage changes and enter a commit message.";
   if (!hasDraft) return "Enter a commit message.";
   return "Stage changes before committing.";

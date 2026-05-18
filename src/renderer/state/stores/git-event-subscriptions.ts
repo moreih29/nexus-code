@@ -10,10 +10,9 @@
  */
 
 import type { GitAutofetchStateChanged } from "../../../shared/git/types";
-import { ipcListen } from "../../ipc/client";
+import { canUseIpcBridge, ipcListen } from "../../ipc/client";
 import { useGitStore } from "./git";
 import { scheduleStatusHintRefresh } from "./git-draft-persistence";
-import { canUseIpcBridge } from "./git-store-helpers";
 
 /**
  * Applies background autofetch state from main without overwriting unrelated

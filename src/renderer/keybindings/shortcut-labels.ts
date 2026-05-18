@@ -38,7 +38,7 @@ export const isMac = detectIsMac();
  * command has neither a primary nor a chord declaration — callers can
  * conditionally omit the shortcut column in their menu spec.
  */
-export function shortcutFor(command: CommandId): string | undefined {
+function shortcutFor(command: CommandId): string | undefined {
   const primary = findPrimaryBinding(command);
   if (primary?.primary !== undefined) {
     return acceleratorToLabel(primary.primary, { isMac });

@@ -15,7 +15,7 @@ import {
   installSshAuthPromptListeners,
   sshAuthPendingMessage,
   useSshAuthPrompts,
-} from "../../../../src/renderer/components/workspace/useSshAuthPrompts";
+} from "../../../../src/renderer/components/workspace/use-ssh-auth-prompts";
 import type { ipcCall, ipcListen } from "../../../../src/renderer/ipc/client";
 import type { SshAuthPrompt } from "../../../../src/shared/ssh/auth-prompt";
 

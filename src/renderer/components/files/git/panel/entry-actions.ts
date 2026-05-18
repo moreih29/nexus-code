@@ -67,7 +67,7 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
       ctx.onOpenDiff({ workspaceId: ctx.workspaceId, groupKey, entry });
       return;
     }
-    ctx.setBanner({ variant: "info", message: "Diff view를 사용할 수 없습니다" });
+    ctx.setBanner({ variant: "info", message: "Diff view is unavailable." });
   }
 
   function openWorkingTreeFile(entry: GitStatusEntry): void {

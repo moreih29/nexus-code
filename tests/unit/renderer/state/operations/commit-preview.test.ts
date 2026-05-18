@@ -20,7 +20,7 @@ import {
   findCommitTab,
   openEditorTab,
   openOrRevealCommitTab,
-  openTab,
+  openTerminalTab,
 } from "../../../../../src/renderer/state/operations/tabs";
 import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout";
 import { allLeaves, findLeaf } from "../../../../../src/renderer/state/stores/layout/helpers";
@@ -62,7 +62,7 @@ describe("git commit preview operations", () => {
 
   it("reveals an existing commit tab when the same SHA is opened again", () => {
     const first = openOrRevealCommitTab(WS, SHA_A);
-    openTab(WS, "terminal", { cwd: "/worktree" });
+    openTerminalTab(WS, "terminal", { cwd: "/worktree" });
 
     const second = openOrRevealCommitTab(WS, SHA_A);
 

@@ -1,5 +1,5 @@
 import { Grid } from "@/engine/split-engine";
-import { closeTab, openTab, openTabInNewSplit } from "@/state/operations";
+import { closeTab, openTerminalTab, openTabInNewSplit } from "@/state/operations";
 import { useLayoutStore } from "@/state/stores/layout";
 import { useTabsStore } from "@/state/stores/tabs";
 import { killSession } from "./pty-client";
@@ -43,7 +43,7 @@ export function openTerminal(
     return { groupId: newLeafId, tabId };
   }
 
-  const tab = openTab(input.workspaceId, "terminal", { cwd: input.cwd }, { groupId: opts.groupId });
+  const tab = openTerminalTab(input.workspaceId, "terminal", { cwd: input.cwd }, { groupId: opts.groupId });
   return { groupId: groupIdForTab(input.workspaceId, tab.id), tabId: tab.id };
 }
 

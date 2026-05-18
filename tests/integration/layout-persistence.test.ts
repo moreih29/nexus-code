@@ -63,7 +63,7 @@ mock.module("../../src/renderer/ipc/client", () => ({
 
 import { bootstrapAppState } from "../../src/renderer/bootstrap";
 import { openOrRevealEditor } from "../../src/renderer/services/editor";
-import { openTab } from "../../src/renderer/state/operations";
+import { openTerminalTab } from "../../src/renderer/state/operations";
 import { openOrRevealCommitTab } from "../../src/renderer/state/operations/tabs";
 import { unregisterStatePersistence } from "../../src/renderer/state/persistence";
 import { useLayoutStore } from "../../src/renderer/state/stores/layout";
@@ -126,7 +126,7 @@ describe("Scenario 1: snapshot round-trip — buildSnapshot + zod parse passes",
   beforeEach(resetStores);
 
   it("snapshot of a workspace with one terminal tab passes zod parse", () => {
-    openTab(WS, "terminal", { cwd: "/home/user" });
+    openTerminalTab(WS, "terminal", { cwd: "/home/user" });
 
     const snapshot = buildSnapshot(WS);
     expect(snapshot).not.toBeNull();
@@ -144,7 +144,7 @@ describe("Scenario 1: snapshot round-trip — buildSnapshot + zod parse passes",
   });
 
   it("snapshot contains the correct activeGroupId that exists in root", () => {
-    openTab(WS, "terminal", { cwd: "/tmp" });
+    openTerminalTab(WS, "terminal", { cwd: "/tmp" });
 
     const snapshot = buildSnapshot(WS);
     expect(snapshot).not.toBeNull();
@@ -154,7 +154,7 @@ describe("Scenario 1: snapshot round-trip — buildSnapshot + zod parse passes",
   });
 
   it("JSON.stringify → JSON.parse → zod parse round-trip is lossless", () => {
-    openTab(WS, "terminal", { cwd: "/roundtrip" });
+    openTerminalTab(WS, "terminal", { cwd: "/roundtrip" });
 
     const snapshot = buildSnapshot(WS);
     const json = JSON.stringify(snapshot);
@@ -178,7 +178,7 @@ describe("Scenario 2: hydrate restores layout from snapshot", () => {
 
   it("root structure is restored after hydrate", () => {
     // Build a live layout
-    openTab(WS, "terminal", { cwd: "/before" });
+    openTerminalTab(WS, "terminal", { cwd: "/before" });
     const liveLayout = getLayout();
     const snapshot = buildSnapshot(WS)!;
     const knownIds = new Set(Object.keys(useTabsStore.getState().byWorkspace[WS] ?? {}));
@@ -193,7 +193,7 @@ describe("Scenario 2: hydrate restores layout from snapshot", () => {
   });
 
   it("activeGroupId is restored after hydrate", () => {
-    openTab(WS, "terminal", { cwd: "/before" });
+    openTerminalTab(WS, "terminal", { cwd: "/before" });
     const liveLayout = getLayout();
     const snapshot = buildSnapshot(WS)!;
     const knownIds = new Set(Object.keys(useTabsStore.getState().byWorkspace[WS] ?? {}));
@@ -216,7 +216,7 @@ describe("Scenario 3: dangling tabIds stripped during hydrate", () => {
     const danglingTabId = "cccccccc-cccc-4ccc-cccc-cccccccccccc";
 
     // Craft a snapshot with a leaf that has a dangling tabId
-    openTab(WS, "terminal", { cwd: "/clean" });
+    openTerminalTab(WS, "terminal", { cwd: "/clean" });
     const layout = getLayout();
     const leafId = layout.activeGroupId;
 
@@ -363,15 +363,15 @@ describe("Scenario 6: full JSON.stringify → parse → hydrate round-trip", () 
 
   it("multi-tab split layout survives JSON round-trip through hydrate", () => {
     // Build a richer layout: two leaves, two tabs each
-    openTab(WS, "terminal", { cwd: "/left-a" });
+    openTerminalTab(WS, "terminal", { cwd: "/left-a" });
     const leafAId = getLayout().activeGroupId;
 
-    openTab(WS, "terminal", { cwd: "/left-b" }, { groupId: leafAId });
+    openTerminalTab(WS, "terminal", { cwd: "/left-b" }, { groupId: leafAId });
 
     const leafBId = useLayoutStore.getState().splitGroup(WS, leafAId, "horizontal", "after");
 
-    openTab(WS, "terminal", { cwd: "/right-a" }, { groupId: leafBId });
-    openTab(WS, "terminal", { cwd: "/right-b" }, { groupId: leafBId });
+    openTerminalTab(WS, "terminal", { cwd: "/right-a" }, { groupId: leafBId });
+    openTerminalTab(WS, "terminal", { cwd: "/right-b" }, { groupId: leafBId });
 
     const snapshotBefore = buildSnapshot(WS)!;
     const allTabIds = new Set(Object.keys(useTabsStore.getState().byWorkspace[WS] ?? {}));

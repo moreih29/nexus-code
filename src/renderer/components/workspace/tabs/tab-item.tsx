@@ -36,7 +36,7 @@ function PinIcon() {
  * non-editor tabs and for tabs whose model has not yet been attached
  * (the tracker creates entries lazily on model load).
  */
-export function useTabDirty(tab: Tab): boolean {
+function useTabDirty(tab: Tab): boolean {
   const cacheUri = tab.type === "editor" ? filePathToModelUri(tab.props.filePath) : null;
   const subscribe = useCallback(
     (cb: () => void) => (cacheUri ? subscribeFileDirty(cacheUri, cb) : () => {}),
