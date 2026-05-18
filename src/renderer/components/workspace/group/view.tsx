@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { closeEditorWithConfirm } from "@/services/editor";
 import { closeTerminal, openTerminal } from "@/services/terminal";
 import { closeTab } from "@/state/operations/tabs";
-import { useFocusIslandStore } from "@/state/stores/focus-island";
 import type { LayoutLeaf } from "@/state/stores/layout";
 import { useLayoutStore } from "@/state/stores/layout";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
@@ -46,7 +45,6 @@ export function GroupView({
 }: GroupViewProps) {
   const activeGroupId = useLayoutStore((s) => s.byWorkspace[workspaceId]?.activeGroupId ?? null);
   const tabsMap = useTabsStore((s) => s.byWorkspace[workspaceId] ?? EMPTY_TABS);
-  const focusedIsland = useFocusIslandStore((s) => s.focusedIsland);
 
   const layoutStore = useLayoutStore();
 
@@ -197,11 +195,8 @@ export function GroupView({
           sharp. Replaces the previous bright active-group ring, whose
           near-white edge read as a stray strip beside the pane.
           pointer-events-none: a click still reaches the content beneath and
-          activates the group via focusin.
-          Suppressed when the editor island itself is unfocused — in that case
-          the island-level veil in app.tsx provides a single cover layer,
-          avoiding a doubled (too-dark) overlay. */}
-      {!isActive && focusedIsland === "editor" && (
+          activates the group via focusin. */}
+      {!isActive && (
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 bg-[var(--surface-island-inactive-veil)]"

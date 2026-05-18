@@ -1,8 +1,6 @@
 import { Folder, Server, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
-import { useFocusIslandStore } from "../../state/stores/focus-island";
 import { useUIStore } from "../../state/stores/ui";
 import type { WorkspaceConnectionStatus } from "../../state/stores/workspaces";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
@@ -38,33 +36,13 @@ export function Sidebar({
 }: SidebarProps) {
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
   const connectionStatusByWorkspaceId = useWorkspacesStore((s) => s.connectionStatusByWorkspaceId);
-  const focusedIsland = useFocusIslandStore((s) => s.focusedIsland);
-  const setFocusedIsland = useFocusIslandStore((s) => s.setFocusedIsland);
-
-  const [innerEl, setInnerEl] = useState<HTMLElement | null>(null);
-  const innerRef = useCallback((el: HTMLElement | null) => setInnerEl(el), []);
-
-  useEffect(() => {
-    if (!innerEl) return;
-    const onFocusIn = () => setFocusedIsland("sidebar");
-    const onPointerDown = () => setFocusedIsland("sidebar");
-    innerEl.addEventListener("focusin", onFocusIn);
-    innerEl.addEventListener("pointerdown", onPointerDown);
-    return () => {
-      innerEl.removeEventListener("focusin", onFocusIn);
-      innerEl.removeEventListener("pointerdown", onPointerDown);
-    };
-  }, [innerEl, setFocusedIsland]);
 
   return (
     // Islands model (design.md §2): <aside> is a transparent positioning shell;
     // island surface lives on the inner wrapper so overflow-hidden clips content
     // without clipping the absolute-positioned <SidebarResizeHandle>.
     <aside className="relative shrink-0 flex flex-col" style={{ width: sidebarWidth }}>
-      <div
-        ref={innerRef}
-        className="relative flex flex-col flex-1 min-h-0 island-surface rounded-(--radius-island) overflow-hidden"
-      >
+      <div className="flex flex-col flex-1 min-h-0 island-surface rounded-(--radius-island) overflow-hidden">
         <div className="py-3 flex-1 overflow-y-auto app-scrollbar">
           {workspaces.length === 0 && (
             <div className="px-4 py-6 text-center text-app-ui-sm text-muted-foreground">
@@ -184,14 +162,6 @@ export function Sidebar({
             </span>
           </button>
         </div>
-
-        {/* Inactive-island focus veil — design.md §5 */}
-        {focusedIsland !== "sidebar" && (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 bg-[var(--surface-island-inactive-veil)]"
-          />
-        )}
       </div>
       <SidebarResizeHandle />
     </aside>
