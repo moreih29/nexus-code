@@ -1,7 +1,7 @@
 // semantic.ts — SemanticKey vocabulary + empty-key contract.
 //
 // This file defines ONLY types. It holds no color values.
-// Every SemanticKey entry corresponds 1:1 with design.md §9 Region Semantics.
+// Every SemanticKey entry corresponds 1:1 with design.md §10 Region Semantics.
 //
 // SEALED constants (--shadow-*, --radius) are NOT in SemanticKey —
 // they are managed in component.ts so themes cannot override them.
@@ -13,25 +13,23 @@
 
 // ---------------------------------------------------------------------------
 // SemanticKey — flat string union, region.element.role naming convention
-// design.md §9 vocabulary freeze (1:1 correspondence required)
+// design.md §10 vocabulary freeze (1:1 correspondence required)
 // ---------------------------------------------------------------------------
 
 export type SemanticKey =
-  // --- Global Surface (4 surface levels, 12 keys) ---
-  | "surface.canvas.bg"
-  | "surface.canvas.fg"
-  | "surface.chrome.bg"
-  | "surface.chrome.fg"
-  | "surface.chrome.border"
-  | "surface.panel.bg"
-  | "surface.panel.fg"
-  | "surface.panel.border"
+  // --- Global Surface (Islands 3-tier: backdrop / island / floating, 10 keys) ---
+  | "surface.backdrop.bg"
+  | "surface.backdrop.fg"
+  | "surface.island.bg"
+  | "surface.island.fg"
+  | "surface.island.border"
+  | "surface.island.inactive.veil"
   | "surface.floating.bg"
   | "surface.floating.fg"
   | "surface.floating.border"
   | "surface.floating.scrim"
 
-  // --- Global State (15 keys) ---
+  // --- Global State (17 keys) ---
   | "state.hover.bg"
   | "state.active.bg"
   | "state.selected.bg"
@@ -47,6 +45,13 @@ export type SemanticKey =
   | "state.warning.border"
   | "state.warning.bg"
   | "state.loading.indicator"
+  | "state.drag.indicator"
+  | "state.drop.target.bg"
+
+  // --- Global Scrollbar (3 keys) ---
+  | "scrollbar.thumb.bg"
+  | "scrollbar.thumb.hover.bg"
+  | "scrollbar.track.bg"
 
   // --- Global Feedback (6 keys) ---
   | "feedback.success.fg"

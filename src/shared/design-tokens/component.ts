@@ -11,11 +11,12 @@
 // design.md §8 SEALED table:
 //   --shadow-sm ~ --shadow-2xl  → "none"  (no-shadow elevation philosophy)
 //
-// design.md §4 radius 4-step (봉인 해제):
-//   --radius            → "4px"   (control — default interactive element radius)
+// design.md §4 radius 5-step Islands scale:
+//   --radius            → "4px"    (control — default interactive element radius)
 //   --radius-none       → "0px"
 //   --radius-control    → "4px"
-//   --radius-container  → "8px"
+//   --radius-raised     → "6px"    (banners, inline cards)
+//   --radius-island     → "10px"   (islands + floating surfaces)
 //   --radius-full       → "9999px"
 
 import type { SemanticTokenSet } from "./semantic";
@@ -33,11 +34,12 @@ export const SEALED: Record<string, string> = {
   "--shadow-lg": "none",
   "--shadow-xl": "none",
   "--shadow-2xl": "none",
-  // Radius — 4-step system (design.md §4, 봉인 해제)
-  "--radius": "4px", // control = default
+  // Radius — 5-step Islands scale (design.md §4)
+  "--radius": "4px", // control = default interactive element radius
   "--radius-none": "0px",
   "--radius-control": "4px",
-  "--radius-container": "8px",
+  "--radius-raised": "6px",
+  "--radius-island": "10px",
   "--radius-full": "9999px",
 } as const;
 
@@ -55,12 +57,12 @@ export const SEALED: Record<string, string> = {
 export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string> {
   return {
     // --- shadcn color tier (mapped from SemanticKey) ---
-    // Canvas / page background
-    "--background": tokens["surface.canvas.bg"],
-    "--foreground": tokens["surface.canvas.fg"],
-    // Muted surfaces (sidebar, tab bar, titlebar)
-    "--muted": tokens["surface.chrome.bg"],
-    "--muted-foreground": tokens["surface.chrome.fg"],
+    // Page background = island surface (the editor canvas is the primary island)
+    "--background": tokens["surface.island.bg"],
+    "--foreground": tokens["surface.island.fg"],
+    // Muted surface = backdrop frame (titlebar, status bar, island gaps)
+    "--muted": tokens["surface.backdrop.bg"],
+    "--muted-foreground": tokens["surface.backdrop.fg"],
     // Card surfaces
     "--card": tokens["surface.floating.bg"],
     "--card-foreground": tokens["surface.floating.fg"],
@@ -70,9 +72,9 @@ export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string
     // Primary action
     "--primary": tokens["state.selected.bg"],
     "--primary-foreground": tokens["state.selected.fg"],
-    // Secondary
-    "--secondary": tokens["surface.panel.bg"],
-    "--secondary-foreground": tokens["surface.panel.fg"],
+    // Secondary = island surface (panels are islands)
+    "--secondary": tokens["surface.island.bg"],
+    "--secondary-foreground": tokens["surface.island.fg"],
     // Accent
     "--accent": tokens["state.focus.ring"],
     "--accent-foreground": tokens["state.selected.bg"],
@@ -84,14 +86,14 @@ export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string
     "--state-error-bg": tokens["state.error.bg"],
     // Warning state (e.g. Caps Lock hint on the SSH password field)
     "--state-warning-fg": tokens["state.warning.fg"],
-    // Border / input / ring
-    "--border": tokens["surface.chrome.border"],
-    "--input": tokens["surface.chrome.border"],
+    // Border / input / ring — island internal hairline
+    "--border": tokens["surface.island.border"],
+    "--input": tokens["surface.island.border"],
     "--ring": tokens["state.focus.ring"],
     // --- SEALED constants (appended before splitter/motion to match original property order) ---
     ...SEALED,
-    // Splitter
-    "--splitter": tokens["surface.panel.border"],
+    // Splitter — island internal hairline
+    "--splitter": tokens["surface.island.border"],
     "--splitter-hover": tokens["surface.floating.border"],
     // Motion (not in SemanticKey — invariant across themes)
     "--motion-fade": "220ms ease",
@@ -126,5 +128,19 @@ export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string
     "--status-bar-error-fg": tokens["status.bar.error.fg"],
     "--status-bar-warning-bg": tokens["status.bar.warning.bg"],
     "--status-bar-warning-fg": tokens["status.bar.warning.fg"],
+    // Islands surfaces — backdrop frame + island surface + inactive veil (design.md §2/§5)
+    "--surface-backdrop-bg": tokens["surface.backdrop.bg"],
+    "--surface-backdrop-fg": tokens["surface.backdrop.fg"],
+    "--surface-island-bg": tokens["surface.island.bg"],
+    "--surface-island-fg": tokens["surface.island.fg"],
+    "--surface-island-border": tokens["surface.island.border"],
+    "--surface-island-inactive-veil": tokens["surface.island.inactive.veil"],
+    // Drag-and-drop — insertion indicator + valid drop target (design.md §8)
+    "--state-drag-indicator": tokens["state.drag.indicator"],
+    "--state-drop-target-bg": tokens["state.drop.target.bg"],
+    // Scrollbar — thumb / track (design.md §10)
+    "--scrollbar-thumb-bg": tokens["scrollbar.thumb.bg"],
+    "--scrollbar-thumb-hover-bg": tokens["scrollbar.thumb.hover.bg"],
+    "--scrollbar-track-bg": tokens["scrollbar.track.bg"],
   };
 }

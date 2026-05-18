@@ -25,6 +25,7 @@ export {
   spacing,
   spacingInApp,
   radiusScale,
+  islandGeometry,
   borderRadius,
   breakpoint,
 } from "./primitive";

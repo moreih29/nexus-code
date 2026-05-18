@@ -71,20 +71,42 @@ export { fontFamily } from "./fonts";
 export const spacing = [1, 4, 5, 8, 10, 12, 14, 15, 16, 18, 24, 26, 30, 32, 36] as const;
 
 // ---------------------------------------------------------------------------
-// In-app 4pt spacing — design.md §3 canonical 8 steps
+// In-app spacing — design.md §3. 4px base grid plus the Islands `6` step
+// (island gap). Replaces the v2 strict-4pt 8-step list.
 // ---------------------------------------------------------------------------
 
-export const spacingInApp = [2, 4, 8, 12, 16, 24, 32, 48] as const;
+export const spacingInApp = [2, 4, 6, 8, 12, 16, 24, 32, 48] as const;
 
 // ---------------------------------------------------------------------------
-// Border radius — design.md §4: none / control / container / full (4 steps)
+// Border radius — design.md §4: 5-step Islands radius scale.
+//   none(0) / control(4) / raised(6) / island(10) / full
+// `island` is the rounded-rect radius for islands AND floating surfaces.
+// compact density shrinks `island` to 8px (see islandGeometry below).
 // ---------------------------------------------------------------------------
 
 export const radiusScale = {
   none: 0,
   control: 4,
-  container: 8,
+  raised: 6,
+  island: 10,
   full: 9999,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Islands geometry — design.md §3. Fixed, grid-independent constants.
+// Two density modes; `compact` shrinks the island gap and island radius.
+// ---------------------------------------------------------------------------
+
+export const islandGeometry = {
+  gap: 6,
+  gapCompact: 4,
+  radius: 10,
+  radiusCompact: 8,
+  buttonHeight: 28,
+  buttonHeightCompact: 24,
+  buttonMinWidth: 72,
+  inputHeight: 28,
+  inputHeightCompact: 24,
 } as const;
 
 // ---------------------------------------------------------------------------

@@ -13,15 +13,17 @@
 import type { SemanticTokenSet } from "../semantic";
 
 export const warmDark: SemanticTokenSet = {
-  // --- Global Surface ---
-  "surface.canvas.bg": "#1a1917",
-  "surface.canvas.fg": "oklch(0.982 0.0041 91.45)",
-  "surface.chrome.bg": "#252422",
-  "surface.chrome.fg": "oklch(0.638 0.0019 67.79)",
-  "surface.chrome.border": "rgba(226, 226, 226, 0.15)",
-  "surface.panel.bg": "#252422",
-  "surface.panel.fg": "oklch(0.982 0.0041 91.45)",
-  "surface.panel.border": "rgba(226, 226, 226, 0.35)",
+  // --- Global Surface (Islands 3-tier) ---
+  // backdrop = window frame; lighter than islands in dark themes (design.md §2)
+  "surface.backdrop.bg": "#252422",
+  "surface.backdrop.fg": "oklch(0.638 0.0019 67.79)",
+  // island = content surfaces; darker than backdrop so islands sink into the frame
+  "surface.island.bg": "#1a1917",
+  "surface.island.fg": "oklch(0.982 0.0041 91.45)",
+  // island.border = INTERNAL hairline only (never the island's outer edge)
+  "surface.island.border": "rgba(226, 226, 226, 0.35)",
+  // inactive.veil = backdrop-color overlay; dims unfocused islands toward the frame
+  "surface.island.inactive.veil": "rgba(37, 36, 34, 0.55)",
   "surface.floating.bg": "#252422",
   "surface.floating.fg": "oklch(0.982 0.0041 91.45)",
   "surface.floating.border": "rgba(226, 226, 226, 0.6)",
@@ -43,6 +45,13 @@ export const warmDark: SemanticTokenSet = {
   "state.warning.border": "oklch(0.76 0.12 82)",
   "state.warning.bg": "rgba(180, 130, 20, 0.12)",
   "state.loading.indicator": "oklch(0.751 0.0031 84.56)",
+  "state.drag.indicator": "oklch(0.751 0.0031 84.56)",
+  "state.drop.target.bg": "rgba(255, 255, 255, 0.08)",
+
+  // --- Global Scrollbar ---
+  "scrollbar.thumb.bg": "rgba(226, 226, 226, 0.35)",
+  "scrollbar.thumb.hover.bg": "oklch(0.6173 0.0019 67.79)",
+  "scrollbar.track.bg": "transparent",
 
   // --- Global Feedback ---
   "feedback.success.fg": "oklch(0.72 0.14 145)",
@@ -63,8 +72,8 @@ export const warmDark: SemanticTokenSet = {
   "editor.find.highlight": "rgba(200, 180, 100, 0.25)",
   "editor.indent.guide": "rgba(226, 226, 226, 0.15)",
 
-  // --- sidebar ---
-  "sidebar.bg": "#252422",
+  // --- sidebar (island surface) ---
+  "sidebar.bg": "#1a1917",
   "sidebar.fg": "oklch(0.982 0.0041 91.45)",
   "sidebar.item.hover.bg": "rgba(255, 255, 255, 0.04)",
   "sidebar.item.selected.bg": "rgba(255, 255, 255, 0.1)",
@@ -73,20 +82,20 @@ export const warmDark: SemanticTokenSet = {
   "sidebar.badge.bg": "oklch(0.3286 0.0017 106.49)",
   "sidebar.badge.fg": "oklch(0.982 0.0041 91.45)",
 
-  // --- tab ---
-  "tab.bar.bg": "#252422",
+  // --- tab (island surface) ---
+  "tab.bar.bg": "#1a1917",
   "tab.active.bg": "#1a1917",
   "tab.active.fg": "oklch(0.982 0.0041 91.45)",
   "tab.active.border": "oklch(0.751 0.0031 84.56)",
-  "tab.inactive.bg": "#252422",
+  "tab.inactive.bg": "#1a1917",
   "tab.inactive.fg": "oklch(0.638 0.0019 67.79)",
   "tab.hover.bg": "rgba(255, 255, 255, 0.04)",
   "tab.modified.dot": "oklch(0.751 0.0031 84.56)",
 
-  // --- panel ---
-  "panel.bg": "#252422",
+  // --- panel (island surface) ---
+  "panel.bg": "#1a1917",
   "panel.fg": "oklch(0.982 0.0041 91.45)",
-  "panel.header.bg": "#252422",
+  "panel.header.bg": "#1a1917",
   "panel.header.fg": "oklch(0.638 0.0019 67.79)",
   "panel.tab.active.fg": "oklch(0.982 0.0041 91.45)",
   "panel.tab.inactive.fg": "oklch(0.638 0.0019 67.79)",

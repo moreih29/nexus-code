@@ -98,10 +98,10 @@ function gitTokensForTheme(themeId: ThemeId): Record<string, string> {
     ...lanes,
     "--color-git-chip-head-bg": theme["git.label.branch.bg"],
     "--color-git-chip-head-fg": theme["git.label.branch.fg"],
-    "--color-git-chip-border": theme["surface.panel.border"],
+    "--color-git-chip-border": theme["surface.island.border"],
     "--color-git-chip-border-strong": theme["surface.floating.border"],
     "--color-git-chip-hover-bg": theme["state.hover.bg"],
-    "--color-status-banner-fg": theme["surface.canvas.fg"],
+    "--color-status-banner-fg": theme["surface.island.fg"],
     // workspace connection status colors (semantic: success/warning/error/disabled)
     "--color-workspace-connection-idle": isDark
       ? "oklch(0.68 0.003 84)"

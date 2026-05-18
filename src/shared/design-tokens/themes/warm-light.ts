@@ -32,23 +32,19 @@ import type { SemanticTokenSet } from "../semantic";
 // muted fg:   oklch(0.48 0.006 95)   — mid-tone, warm-tinted stone
 
 export const warmLight: SemanticTokenSet = {
-  // --- Global Surface ---
-  // L0: near-white warm canvas
-  "surface.canvas.bg": "oklch(0.965 0.005 95)",
-  // dark warm-tinted foreground for L0
-  "surface.canvas.fg": "oklch(0.22 0.008 100)",
-  // L1: chrome slightly darker than canvas
-  "surface.chrome.bg": "oklch(0.935 0.005 95)",
-  // muted foreground — warm mid-tone
-  "surface.chrome.fg": "oklch(0.48 0.006 95)",
-  // chrome hairline — dark translucent for visible zone boundary on light surface
-  "surface.chrome.border": "rgba(50, 45, 30, 0.18)",
-  // L2: panel at chrome level
-  "surface.panel.bg": "oklch(0.935 0.005 95)",
-  "surface.panel.fg": "oklch(0.22 0.008 100)",
-  // panel border — more opaque than chrome to maintain zone separation
-  "surface.panel.border": "rgba(50, 45, 30, 0.28)",
-  // L3: floating slightly lighter (higher) than chrome — visible elevation
+  // --- Global Surface (Islands 3-tier) ---
+  // backdrop = window frame; DARKER than islands in light themes (design.md §2)
+  "surface.backdrop.bg": "oklch(0.935 0.005 95)",
+  "surface.backdrop.fg": "oklch(0.48 0.006 95)",
+  // island = content surfaces; lightest so islands float above the frame
+  "surface.island.bg": "oklch(0.965 0.005 95)",
+  "surface.island.fg": "oklch(0.22 0.008 100)",
+  // island.border = INTERNAL hairline only (never the island's outer edge)
+  "surface.island.border": "rgba(50, 45, 30, 0.28)",
+  // inactive.veil = backdrop-color overlay; dims unfocused islands toward the frame
+  // (light theme: veil is the darker direction — design.md §5)
+  "surface.island.inactive.veil": "rgba(234, 233, 230, 0.6)",
+  // L3: floating slightly lighter (higher) than backdrop — visible elevation
   "surface.floating.bg": "oklch(0.950 0.004 95)",
   "surface.floating.fg": "oklch(0.22 0.008 100)",
   // floating border — strongest hairline, surface contrast + hairline = elevation
@@ -79,6 +75,14 @@ export const warmLight: SemanticTokenSet = {
   "state.warning.border": "oklch(0.52 0.14 82)",
   "state.warning.bg": "rgba(140, 100, 10, 0.09)",
   "state.loading.indicator": "oklch(0.42 0.008 100)",
+  "state.drag.indicator": "oklch(0.42 0.008 100)",
+  "state.drop.target.bg": "rgba(26, 25, 15, 0.08)",
+
+  // --- Global Scrollbar ---
+  // light theme: thumb is dark-direction translucent (visible on near-white islands)
+  "scrollbar.thumb.bg": "rgba(50, 45, 30, 0.30)",
+  "scrollbar.thumb.hover.bg": "oklch(0.48 0.006 95)",
+  "scrollbar.track.bg": "transparent",
 
   // --- Global Feedback ---
   // Success/info adjusted for light background — darker to maintain contrast
@@ -103,8 +107,8 @@ export const warmLight: SemanticTokenSet = {
   "editor.find.highlight": "rgba(180, 140, 20, 0.28)",
   "editor.indent.guide": "rgba(50, 45, 30, 0.18)",
 
-  // --- sidebar ---
-  "sidebar.bg": "oklch(0.935 0.005 95)",
+  // --- sidebar (island surface) ---
+  "sidebar.bg": "oklch(0.965 0.005 95)",
   "sidebar.fg": "oklch(0.22 0.008 100)",
   "sidebar.item.hover.bg": "rgba(26, 25, 15, 0.06)",
   "sidebar.item.selected.bg": "rgba(26, 25, 15, 0.12)",
@@ -113,21 +117,20 @@ export const warmLight: SemanticTokenSet = {
   "sidebar.badge.bg": "oklch(0.3286 0.0017 106.49)",
   "sidebar.badge.fg": "oklch(0.965 0.005 95)",
 
-  // --- tab ---
-  "tab.bar.bg": "oklch(0.935 0.005 95)",
-  // active tab: canvas-level (lighter) to show elevation above tab bar
+  // --- tab (island surface) ---
+  "tab.bar.bg": "oklch(0.965 0.005 95)",
   "tab.active.bg": "oklch(0.965 0.005 95)",
   "tab.active.fg": "oklch(0.22 0.008 100)",
   "tab.active.border": "oklch(0.42 0.008 100)",
-  "tab.inactive.bg": "oklch(0.935 0.005 95)",
+  "tab.inactive.bg": "oklch(0.965 0.005 95)",
   "tab.inactive.fg": "oklch(0.50 0.005 95)",
   "tab.hover.bg": "rgba(26, 25, 15, 0.06)",
   "tab.modified.dot": "oklch(0.42 0.008 100)",
 
-  // --- panel ---
-  "panel.bg": "oklch(0.935 0.005 95)",
+  // --- panel (island surface) ---
+  "panel.bg": "oklch(0.965 0.005 95)",
   "panel.fg": "oklch(0.22 0.008 100)",
-  "panel.header.bg": "oklch(0.935 0.005 95)",
+  "panel.header.bg": "oklch(0.965 0.005 95)",
   "panel.header.fg": "oklch(0.48 0.006 95)",
   "panel.tab.active.fg": "oklch(0.22 0.008 100)",
   "panel.tab.inactive.fg": "oklch(0.50 0.005 95)",

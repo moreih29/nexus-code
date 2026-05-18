@@ -24,22 +24,17 @@ import type { SemanticTokenSet } from "../semantic";
 // chrome hex used for Electron titleBarOverlay: #22242a
 
 export const coolDark: SemanticTokenSet = {
-  // --- Global Surface ---
-  // L0: dark cool-tinted canvas (≈ #191b1f)
-  "surface.canvas.bg": "oklch(0.18 0.008 245)",
-  // near-white warm parchment equivalent for cool — slightly cooler hue
-  "surface.canvas.fg": "oklch(0.96 0.004 240)",
-  // L1: chrome (≈ #22242a)
-  "surface.chrome.bg": "oklch(0.22 0.007 245)",
-  // muted foreground — cool stone equivalent
-  "surface.chrome.fg": "oklch(0.61 0.006 245)",
-  // chrome hairline — cool-tinted translucent white
-  "surface.chrome.border": "rgba(200, 210, 240, 0.15)",
-  // L2: panel same level as chrome in warm-dark
-  "surface.panel.bg": "oklch(0.22 0.007 245)",
-  "surface.panel.fg": "oklch(0.96 0.004 240)",
-  // panel border — slightly more opaque for zone separation
-  "surface.panel.border": "rgba(200, 210, 240, 0.35)",
+  // --- Global Surface (Islands 3-tier) ---
+  // backdrop = window frame; lighter than islands in dark themes (≈ #22242a)
+  "surface.backdrop.bg": "oklch(0.22 0.007 245)",
+  "surface.backdrop.fg": "oklch(0.61 0.006 245)",
+  // island = content surfaces; darker than backdrop (≈ #191b1f)
+  "surface.island.bg": "oklch(0.18 0.008 245)",
+  "surface.island.fg": "oklch(0.96 0.004 240)",
+  // island.border = INTERNAL hairline only (never the island's outer edge)
+  "surface.island.border": "rgba(200, 210, 240, 0.35)",
+  // inactive.veil = backdrop-color overlay; dims unfocused islands toward the frame
+  "surface.island.inactive.veil": "rgba(34, 36, 42, 0.55)",
   // L3: floating surfaces
   "surface.floating.bg": "oklch(0.22 0.007 245)",
   "surface.floating.fg": "oklch(0.96 0.004 240)",
@@ -66,6 +61,13 @@ export const coolDark: SemanticTokenSet = {
   "state.warning.border": "oklch(0.76 0.12 82)",
   "state.warning.bg": "rgba(180, 130, 20, 0.12)",
   "state.loading.indicator": "oklch(0.72 0.006 245)",
+  "state.drag.indicator": "oklch(0.72 0.006 245)",
+  "state.drop.target.bg": "rgba(200, 210, 255, 0.08)",
+
+  // --- Global Scrollbar ---
+  "scrollbar.thumb.bg": "rgba(200, 210, 240, 0.35)",
+  "scrollbar.thumb.hover.bg": "oklch(0.61 0.006 245)",
+  "scrollbar.track.bg": "transparent",
 
   // --- Global Feedback ---
   // Success/info: hue-agnostic semantic colors (same across themes)
@@ -87,8 +89,8 @@ export const coolDark: SemanticTokenSet = {
   "editor.find.highlight": "rgba(100, 160, 220, 0.28)",
   "editor.indent.guide": "rgba(200, 210, 240, 0.15)",
 
-  // --- sidebar ---
-  "sidebar.bg": "oklch(0.22 0.007 245)",
+  // --- sidebar (island surface) ---
+  "sidebar.bg": "oklch(0.18 0.008 245)",
   "sidebar.fg": "oklch(0.96 0.004 240)",
   "sidebar.item.hover.bg": "rgba(200, 210, 255, 0.05)",
   "sidebar.item.selected.bg": "rgba(200, 210, 255, 0.11)",
@@ -97,20 +99,20 @@ export const coolDark: SemanticTokenSet = {
   "sidebar.badge.bg": "oklch(0.32 0.008 245)",
   "sidebar.badge.fg": "oklch(0.96 0.004 240)",
 
-  // --- tab ---
-  "tab.bar.bg": "oklch(0.22 0.007 245)",
+  // --- tab (island surface) ---
+  "tab.bar.bg": "oklch(0.18 0.008 245)",
   "tab.active.bg": "oklch(0.18 0.008 245)",
   "tab.active.fg": "oklch(0.96 0.004 240)",
   "tab.active.border": "oklch(0.72 0.006 245)",
-  "tab.inactive.bg": "oklch(0.22 0.007 245)",
+  "tab.inactive.bg": "oklch(0.18 0.008 245)",
   "tab.inactive.fg": "oklch(0.61 0.006 245)",
   "tab.hover.bg": "rgba(200, 210, 255, 0.05)",
   "tab.modified.dot": "oklch(0.72 0.006 245)",
 
-  // --- panel ---
-  "panel.bg": "oklch(0.22 0.007 245)",
+  // --- panel (island surface) ---
+  "panel.bg": "oklch(0.18 0.008 245)",
   "panel.fg": "oklch(0.96 0.004 240)",
-  "panel.header.bg": "oklch(0.22 0.007 245)",
+  "panel.header.bg": "oklch(0.18 0.008 245)",
   "panel.header.fg": "oklch(0.61 0.006 245)",
   "panel.tab.active.fg": "oklch(0.96 0.004 240)",
   "panel.tab.inactive.fg": "oklch(0.61 0.006 245)",
