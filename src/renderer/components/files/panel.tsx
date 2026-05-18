@@ -1,7 +1,9 @@
 import { Folder, GitBranch, Search } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/utils/cn";
 import { openDiffTab } from "../../state/operations";
 import { useActiveStore } from "../../state/stores/active";
+import { useFocusIslandStore } from "../../state/stores/focus-island";
 import { useGitStore } from "../../state/stores/git";
 import {
   FILES_PANEL_MODE_DEFAULT,
@@ -46,10 +48,30 @@ export function FilesPanel() {
       (activeWorkspace ? s.filesPanelModes.get(activeWorkspace.id) : undefined) ??
       FILES_PANEL_MODE_DEFAULT,
   );
+  const focusedIsland = useFocusIslandStore((s) => s.focusedIsland);
+  const setFocusedIsland = useFocusIslandStore((s) => s.setFocusedIsland);
+
+  const [innerEl, setInnerEl] = useState<HTMLElement | null>(null);
+  const innerRef = useCallback((el: HTMLElement | null) => setInnerEl(el), []);
+
+  useEffect(() => {
+    if (!innerEl) return;
+    const onFocusIn = () => setFocusedIsland("files");
+    const onPointerDown = () => setFocusedIsland("files");
+    innerEl.addEventListener("focusin", onFocusIn);
+    innerEl.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      innerEl.removeEventListener("focusin", onFocusIn);
+      innerEl.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [innerEl, setFocusedIsland]);
 
   return (
     <aside className="relative shrink-0 flex flex-col" style={{ width: filesPanelWidth }}>
-      <div className="flex flex-col flex-1 min-h-0 island-surface rounded-(--radius-island) overflow-hidden">
+      <div
+        ref={innerRef}
+        className="relative flex flex-col flex-1 min-h-0 island-surface rounded-(--radius-island) overflow-hidden"
+      >
         {activeWorkspace ? (
           <>
             <div className="flex items-center gap-1 px-2 pt-2 pb-2 border-b border-border/50">
@@ -102,6 +124,14 @@ export function FilesPanel() {
             <br />
             to browse files.
           </div>
+        )}
+
+        {/* Inactive-island focus veil — design.md §5 */}
+        {focusedIsland !== "files" && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 bg-[var(--surface-island-inactive-veil)]"
+          />
         )}
       </div>
       <ResizeHandle

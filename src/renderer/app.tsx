@@ -17,6 +17,7 @@ import { ipcCall } from "./ipc/client";
 import { useGlobalKeybindings } from "./keybindings/use-global-keybindings";
 import { initializeEditorServices } from "./services/editor";
 import { useActiveStore } from "./state/stores/active";
+import { useFocusIslandStore } from "./state/stores/focus-island";
 import { useWorkspacesStore } from "./state/stores/workspaces";
 
 export function App() {
@@ -125,6 +126,24 @@ export function App() {
     [workspaces],
   );
 
+  const focusedIsland = useFocusIslandStore((s) => s.focusedIsland);
+  const setFocusedIsland = useFocusIslandStore((s) => s.setFocusedIsland);
+
+  const [editorIslandEl, setEditorIslandEl] = useState<HTMLElement | null>(null);
+  const editorIslandRef = useCallback((el: HTMLElement | null) => setEditorIslandEl(el), []);
+
+  useEffect(() => {
+    if (!editorIslandEl) return;
+    const onFocusIn = () => setFocusedIsland("editor");
+    const onPointerDown = () => setFocusedIsland("editor");
+    editorIslandEl.addEventListener("focusin", onFocusIn);
+    editorIslandEl.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      editorIslandEl.removeEventListener("focusin", onFocusIn);
+      editorIslandEl.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [editorIslandEl, setFocusedIsland]);
+
   // Apply resolved theme to documentElement (data-theme attribute).
   // Also subscribes to OS prefers-color-scheme when preference === "system".
   useThemeEffect();
@@ -161,11 +180,21 @@ export function App() {
           onRemoveWorkspace={handleRemoveWorkspace}
         />
         <FilesPanel />
-        <div className="grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden island-surface rounded-(--radius-island)">
+        <div
+          ref={editorIslandRef}
+          className="relative grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden island-surface rounded-(--radius-island)"
+        >
           {workspaces.length === 0 && <WelcomeScreen onOpenFolder={handleAddWorkspace} />}
           {mountedWorkspaces.map((ws) => (
             <WorkspacePanel key={ws.id} workspace={ws} isActive={ws.id === activeWorkspaceId} />
           ))}
+          {/* Inactive-island focus veil — design.md §5 */}
+          {focusedIsland !== "editor" && (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 bg-[var(--surface-island-inactive-veil)]"
+            />
+          )}
         </div>
       </div>
     </div>
