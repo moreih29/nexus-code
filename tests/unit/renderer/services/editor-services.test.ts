@@ -235,6 +235,10 @@ function createFakeMonaco() {
         eventLog.push(`provider:documentSymbol:${languageId}`);
         return { dispose: () => {} };
       },
+      registerDocumentSemanticTokensProvider(languageId: string) {
+        eventLog.push(`provider:semanticTokens:${languageId}`);
+        return { dispose: () => {} };
+      },
     },
     __providerCalls: providerCalls,
   };
@@ -321,13 +325,14 @@ describe("services/editor model cache", () => {
       version: 1,
       text: "const a = 1;\n",
     });
-    expect(eventLog.slice(0, 7)).toEqual([
+    expect(eventLog.slice(0, 8)).toEqual([
       "provider:hover:typescript",
       "provider:definition:typescript",
       "provider:completion:typescript",
       "provider:reference:typescript",
       "provider:documentHighlight:typescript",
       "provider:documentSymbol:typescript",
+      "provider:semanticTokens:typescript",
       "didOpen:typescript",
     ]);
 
@@ -477,13 +482,14 @@ describe("services/editor model cache", () => {
         },
       },
     ]);
-    expect(eventLog.slice(0, 7)).toEqual([
+    expect(eventLog.slice(0, 8)).toEqual([
       "provider:hover:python",
       "provider:definition:python",
       "provider:completion:python",
       "provider:reference:python",
       "provider:documentHighlight:python",
       "provider:documentSymbol:python",
+      "provider:semanticTokens:python",
       "didOpen:python",
     ]);
 

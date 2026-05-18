@@ -3,6 +3,7 @@
 // broadcast to all renderers.
 
 import { ipcContract } from "../../../shared/ipc/contract";
+import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import type {
   ApplyWorkspaceEditParams,
   ApplyWorkspaceEditResult,
@@ -11,12 +12,12 @@ import type {
   DocumentSymbol,
   HoverResult,
   Location,
+  SemanticTokensResult,
   SymbolInformation,
 } from "../../../shared/lsp";
-import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../infra/agent/ssh/ssh-bootstrap/index";
-import type { LspHostHandle } from "./host";
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
+import type { LspHostHandle } from "./host";
 
 const c = ipcContract.lsp.call;
 const APPLY_EDIT_RESPONSE_TIMEOUT_MS = 10_000;
@@ -221,6 +222,15 @@ export function registerLspChannel(lspHost: LspHostHandle): void {
           lspHost.call("workspaceSymbol", { workspaceId, query }, { signal: ctx?.signal }),
           ctx?.signal,
           [],
+        );
+      },
+
+      semanticTokens: async (args: unknown, ctx?: CallContext) => {
+        const { uri } = validateArgs(c.semanticTokens.args, args);
+        return withCancelDefault<SemanticTokensResult | null>(
+          lspHost.call("semanticTokens", { uri }, { signal: ctx?.signal }),
+          ctx?.signal,
+          null,
         );
       },
 

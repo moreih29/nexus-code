@@ -1,26 +1,27 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { AgentManifestSchema, findLspBinary } from "../../../shared/agent/manifest";
 import {
   ApplyWorkspaceEditParamsSchema,
+  CompletionItemSchema,
   ConfigurationParamsSchema,
+  DocumentHighlightSchema,
+  DocumentSymbolSchema,
+  HoverResultSchema,
+  LocationSchema,
   LSP_CLIENT_CAPABILITIES,
   type LspServerEventMethod,
+  ReferencesArgsSchema,
+  SemanticTokensArgsSchema,
+  SemanticTokensResultSchema,
+  SymbolInformationSchema,
   TextDocumentContentChangeEventSchema,
   TextDocumentIdentifierSchema,
   TextDocumentItemSchema,
   TextDocumentPositionArgsSchema,
-  ReferencesArgsSchema,
-  HoverResultSchema,
-  LocationSchema,
-  CompletionItemSchema,
-  DocumentHighlightSchema,
-  DocumentSymbolSchema,
-  SymbolInformationSchema,
 } from "../../../shared/lsp";
-import { AgentManifestSchema, findLspBinary } from "../../../shared/agent/manifest";
-import { LOCAL_AGENT_DIST_DIR } from "../../infra/agent/ssh/ssh-bootstrap/index";
 import {
   type LspServerSpec,
   resolveLspPreset,
@@ -29,23 +30,14 @@ import {
 import { LSP_DEFAULT_IDLE_MS } from "../../../shared/util/timing-constants";
 import type { AgentChannel } from "../../infra/agent/channel";
 import {
+  LOCAL_AGENT_DIST_DIR,
   LSP_BOOTSTRAP_PROGRESS_EVENT,
   type LspBootstrapProgressEvent,
 } from "../../infra/agent/ssh/ssh-bootstrap/index";
-import type { LspHostCallOptions, LspHostHandle } from "./host";
 import { AgentLspServer } from "./agent-lsp-server";
-import { DiagnosticsDebouncer } from "./diagnostics-debouncer";
-import { asRecord } from "./utils";
 import { flattenInitializationOptions, lookupFlattenedConfig } from "./config-store";
-import {
-  normalizeCompletionResult,
-  normalizeDefinitionResult,
-  normalizeDocumentHighlightResult,
-  normalizeDocumentSymbolResult,
-  normalizeHoverResult,
-  normalizeWorkspaceSymbolResult,
-  parsePublishDiagnostics,
-} from "./result-normalizers";
+import { DiagnosticsDebouncer } from "./diagnostics-debouncer";
+import type { LspHostCallOptions, LspHostHandle } from "./host";
 import {
   firstShowMessageAction,
   parseAgentMessagePayload,
@@ -57,6 +49,16 @@ import {
   parseWorkDoneProgressCreateParams,
   serverExitError,
 } from "./payloads";
+import {
+  normalizeCompletionResult,
+  normalizeDefinitionResult,
+  normalizeDocumentHighlightResult,
+  normalizeDocumentSymbolResult,
+  normalizeHoverResult,
+  normalizeWorkspaceSymbolResult,
+  parsePublishDiagnostics,
+} from "./result-normalizers";
+import { asRecord } from "./utils";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -167,9 +169,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     emit: (payload) => this.emit("diagnostics", payload),
     uriOwner: (uri) => {
       const entry = this.uriIndex.get(uri);
-      return entry
-        ? { workspaceId: entry.workspaceId, languageId: entry.presetLanguageId }
-        : null;
+      return entry ? { workspaceId: entry.workspaceId, languageId: entry.presetLanguageId } : null;
     },
   });
   private nextServerRequestId = 1;
@@ -253,6 +253,16 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         });
       case "workspaceSymbol":
         return this.workspaceSymbol(args, opts);
+      case "semanticTokens":
+        return this.requestByUri(args, opts, {
+          argsSchema: SemanticTokensArgsSchema,
+          lspMethod: "textDocument/semanticTokens/full",
+          capabilityKey: "semanticTokensProvider",
+          emptyResponse: null,
+          outSchema: SemanticTokensResultSchema.nullable(),
+          params: semanticTokensParams,
+          transform: normalizeSemanticTokensResult,
+        });
       default:
         throw new Error(`unknown method: ${method}`);
     }
@@ -920,4 +930,18 @@ function referencesParams(args: {
 
 function documentSymbolParams(args: { uri: string }) {
   return { textDocument: { uri: args.uri } };
+}
+
+function semanticTokensParams(args: { uri: string }) {
+  return { textDocument: { uri: args.uri } };
+}
+
+function normalizeSemanticTokensResult(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (!Array.isArray(r.data)) return null;
+  return {
+    resultId: typeof r.resultId === "string" ? r.resultId : undefined,
+    data: r.data as number[],
+  };
 }

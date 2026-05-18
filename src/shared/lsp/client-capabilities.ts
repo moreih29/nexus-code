@@ -25,5 +25,58 @@ export const LSP_CLIENT_CAPABILITIES = {
     publishDiagnostics: {
       relatedInformation: true,
     },
+    // Advertise full-document semantic tokens support. Without this entry
+    // servers such as typescript-language-server and pyright withhold their
+    // semanticTokensProvider capability. The tokenTypes / tokenModifiers
+    // arrays declare the standard LSP 3.16 legend; servers ignore unknown
+    // entries and only use what they understand.
+    semanticTokens: {
+      requests: {
+        full: true,
+      },
+      tokenTypes: [
+        "namespace",
+        "type",
+        "class",
+        "enum",
+        "interface",
+        "struct",
+        "typeParameter",
+        "parameter",
+        "variable",
+        "property",
+        "enumMember",
+        "event",
+        "function",
+        "method",
+        "macro",
+        "keyword",
+        "modifier",
+        "comment",
+        "string",
+        "number",
+        "regexp",
+        "operator",
+        "decorator",
+        "label",
+      ],
+      tokenModifiers: [
+        "declaration",
+        "definition",
+        "readonly",
+        "static",
+        "deprecated",
+        "abstract",
+        "async",
+        "modification",
+        "documentation",
+        "defaultLibrary",
+      ],
+      formats: ["relative"],
+      multilineTokenSupport: false,
+      overlappingTokenSupport: false,
+      serverCancelSupport: false,
+      augmentsSyntaxTokens: true,
+    },
   },
 } as const;

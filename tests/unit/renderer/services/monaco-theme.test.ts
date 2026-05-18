@@ -77,6 +77,7 @@ function createFakeMonaco(): typeof Monaco & {
       registerReferenceProvider: () => ({ dispose: () => {} }),
       registerDocumentHighlightProvider: () => ({ dispose: () => {} }),
       registerDocumentSymbolProvider: () => ({ dispose: () => {} }),
+      registerDocumentSemanticTokensProvider: () => ({ dispose: () => {} }),
     },
     __defineTheme: defineTheme,
     __themeCalls: themeCalls,
@@ -127,9 +128,7 @@ describe("nexus-dark Monaco theme", () => {
     expect(monaco.__themeCalls).toHaveLength(3);
 
     // warm-dark is the first theme registered; verify its name and colors
-    const warmDarkCall = monaco.__themeCalls.find(
-      (c) => c.name === NEXUS_THEME_NAMES["warm-dark"],
-    );
+    const warmDarkCall = monaco.__themeCalls.find((c) => c.name === NEXUS_THEME_NAMES["warm-dark"]);
     expect(warmDarkCall).toBeDefined();
     expect(warmDarkCall?.theme).toMatchObject({
       base: "vs-dark",

@@ -1,6 +1,6 @@
 import type * as Monaco from "monaco-editor";
-import { EDITOR_PALETTES, type EditorPalette } from "../../../../shared/editor/palette";
 import type { ThemeId } from "../../../../shared/design-tokens";
+import { EDITOR_PALETTES, type EditorPalette } from "../../../../shared/editor/palette";
 
 // ---------------------------------------------------------------------------
 // Monaco theme name registry
@@ -82,6 +82,9 @@ export function buildEditorColors(palette: EditorPalette): Monaco.editor.IColors
 function buildSyntaxRules(palette: EditorPalette): Monaco.editor.ITokenThemeRule[] {
   const fg = (hex: string) => hex.replace(/^#/, "");
   return [
+    // ---------------------------------------------------------------------------
+    // Monarch token types (emitted by Monaco's bundled TS/JS/JSON/HTML/CSS grammars)
+    // ---------------------------------------------------------------------------
     { token: "comment", foreground: fg(palette.syntaxComment), fontStyle: "italic" },
     { token: "keyword", foreground: fg(palette.syntaxKeyword) },
     { token: "annotation", foreground: fg(palette.syntaxKeyword) },
@@ -103,6 +106,35 @@ function buildSyntaxRules(palette: EditorPalette): Monaco.editor.ITokenThemeRule
     { token: "metatag", foreground: fg(palette.syntaxTag) },
     { token: "attribute.name", foreground: fg(palette.syntaxAttribute) },
     { token: "invalid", foreground: fg(palette.syntaxInvalid) },
+    // ---------------------------------------------------------------------------
+    // Semantic token types (design.md §15.1, LSP 3.16 standard names).
+    // Monaco's standalone editor colours semantic tokens via the same `rules`
+    // array as Monarch, matching by token-type name from the provider legend.
+    // Token types emitted by the provider that share a name with Monarch entries
+    // above (keyword, string, number, comment, operator, namespace, function,
+    // type, variable) are already covered. The entries below fill the remaining
+    // standard LSP types that have no Monarch equivalent.
+    //
+    // Legend → palette mapping (frozen §15.1 role set):
+    //   property / enumMember → syntaxProperty
+    //   method                → syntaxFunction  (same callable concept)
+    //   class / interface / struct / enum / typeParameter → syntaxType (via "type" above)
+    //   parameter             → syntaxVariable  (same as variable)
+    //   modifier              → syntaxKeyword   (same as keyword)
+    //   macro                 → syntaxFunction  (callable; folded)
+    //   event                 → syntaxVariable  (runtime value; folded)
+    //   decorator             → syntaxKeyword   (meta/annotation; folded)
+    //   label                 → syntaxVariable  (identifier-like; folded)
+    // ---------------------------------------------------------------------------
+    { token: "property", foreground: fg(palette.syntaxProperty) },
+    { token: "enumMember", foreground: fg(palette.syntaxProperty) },
+    { token: "method", foreground: fg(palette.syntaxFunction) },
+    { token: "parameter", foreground: fg(palette.syntaxVariable) },
+    { token: "modifier", foreground: fg(palette.syntaxKeyword) },
+    { token: "macro", foreground: fg(palette.syntaxFunction) },
+    { token: "event", foreground: fg(palette.syntaxVariable) },
+    { token: "decorator", foreground: fg(palette.syntaxKeyword) },
+    { token: "label", foreground: fg(palette.syntaxVariable) },
   ];
 }
 

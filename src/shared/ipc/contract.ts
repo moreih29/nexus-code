@@ -1,36 +1,4 @@
 import { z } from "zod";
-import { CommandIdSchema } from "../keybindings/commands";
-import {
-  ApplyWorkspaceEditParamsSchema,
-  ApplyWorkspaceEditResultSchema,
-  CompletionItemSchema,
-  DiagnosticSchema,
-  DocumentHighlightSchema,
-  DocumentSymbolSchema,
-  HoverResultSchema,
-  LocationSchema,
-  LspBootstrapProgressEventSchema,
-  LspServerEventSchema,
-  ReferencesArgsSchema,
-  SymbolInformationSchema,
-  TextDocumentContentChangeEventSchema,
-  TextDocumentIdentifierSchema,
-  TextDocumentItemSchema,
-  TextDocumentPositionArgsSchema,
-  WorkspaceSymbolArgsSchema,
-} from "../lsp";
-import { AppStateSchema } from "../types/app-state";
-import {
-  ConnectionProfileFavoriteArgsSchema,
-  ConnectionProfileIdArgsSchema,
-  ConnectionProfileSaveArgsSchema,
-  ConnectionProfileSchema,
-  FolderBookmarkFavoriteArgsSchema,
-  FolderBookmarkIdArgsSchema,
-  FolderBookmarkRecordArgsSchema,
-  FolderBookmarkSchema,
-} from "../types/entry-points";
-import { ColorToneSchema } from "../types/color-tone";
 import {
   DirEntrySchema,
   ExpectedFileStateSchema,
@@ -81,11 +49,28 @@ import {
   StashEntrySchema,
   TagSchema,
 } from "../git/types";
+import { CommandIdSchema } from "../keybindings/commands";
 import {
-  PanelGetViewOptionsArgsSchema,
-  PanelSetViewOptionsArgsSchema,
-  PanelViewOptionsSchema,
-} from "../types/panel";
+  ApplyWorkspaceEditParamsSchema,
+  ApplyWorkspaceEditResultSchema,
+  CompletionItemSchema,
+  DiagnosticSchema,
+  DocumentHighlightSchema,
+  DocumentSymbolSchema,
+  HoverResultSchema,
+  LocationSchema,
+  LspBootstrapProgressEventSchema,
+  LspServerEventSchema,
+  ReferencesArgsSchema,
+  SemanticTokensArgsSchema,
+  SemanticTokensResultSchema,
+  SymbolInformationSchema,
+  TextDocumentContentChangeEventSchema,
+  TextDocumentIdentifierSchema,
+  TextDocumentItemSchema,
+  TextDocumentPositionArgsSchema,
+  WorkspaceSymbolArgsSchema,
+} from "../lsp";
 import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "../search/types";
 import {
   SshAuthCancelArgsSchema,
@@ -93,6 +78,23 @@ import {
   SshAuthRespondArgsSchema,
 } from "../ssh/auth-prompt";
 import { SshErrorCodeSchema } from "../ssh/errors";
+import { AppStateSchema } from "../types/app-state";
+import { ColorToneSchema } from "../types/color-tone";
+import {
+  ConnectionProfileFavoriteArgsSchema,
+  ConnectionProfileIdArgsSchema,
+  ConnectionProfileSaveArgsSchema,
+  ConnectionProfileSchema,
+  FolderBookmarkFavoriteArgsSchema,
+  FolderBookmarkIdArgsSchema,
+  FolderBookmarkRecordArgsSchema,
+  FolderBookmarkSchema,
+} from "../types/entry-points";
+import {
+  PanelGetViewOptionsArgsSchema,
+  PanelSetViewOptionsArgsSchema,
+  PanelViewOptionsSchema,
+} from "../types/panel";
 import { TabMetaSchema } from "../types/tab";
 import {
   WorkspaceConnectionChangedEventSchema,
@@ -556,6 +558,7 @@ export const ipcContract = {
       documentHighlight: call(TextDocumentPositionArgsSchema, z.array(DocumentHighlightSchema)),
       documentSymbol: call(TextDocumentIdentifierSchema, z.array(DocumentSymbolSchema)),
       workspaceSymbol: call(WorkspaceSymbolArgsSchema, z.array(SymbolInformationSchema)),
+      semanticTokens: call(SemanticTokensArgsSchema, SemanticTokensResultSchema.nullable()),
       applyEditResult: call(LspApplyEditResultArgsSchema, z.void()),
     },
     listen: {

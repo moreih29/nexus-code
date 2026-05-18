@@ -15,6 +15,69 @@ import {
 
 const COMPLETION_TRIGGER_CHARACTERS = [".", '"', "'", "`", "/", "@", "<"];
 
+// ---------------------------------------------------------------------------
+// Semantic tokens legend
+//
+// The token types listed here mirror the standard LSP 3.16 legend advertised
+// in client-capabilities.ts. Each string maps to a Monaco token type name
+// used in the semantic rules registered by buildSemanticRules() in
+// monaco-theme.ts. Unknown / unmapped types produce an empty string and are
+// silently ignored by Monaco.
+//
+// Legend → palette mapping (design.md §15.1, frozen 15-role set):
+//   function / method               → "function"   (syntaxFunction)
+//   class / interface / struct      → "type"        (syntaxType)
+//   enum / type / typeParameter     → "type"        (syntaxType)
+//   variable / parameter            → "variable"    (syntaxVariable)
+//   property / enumMember           → "property"    (syntaxProperty)
+//   keyword / modifier              → "keyword"     (syntaxKeyword)
+//   namespace                       → "namespace"   (syntaxNamespace)
+//   string                          → "string"      (syntaxString)
+//   number                          → "number"      (syntaxNumber)
+//   comment                         → "comment"     (syntaxComment)
+//   operator                        → "operator"    (syntaxOperator)
+//
+// Folded (no matching role → nearest existing):
+//   macro     → "function"  (closest callable concept)
+//   event     → "variable"  (runtime value, no better role)
+//   decorator → "keyword"   (meta/annotation intent)
+//   label     → "variable"  (identifier-like, no better role)
+//   regexp    → "string"    (string-like literal)
+// ---------------------------------------------------------------------------
+const SEMANTIC_TOKEN_TYPES: string[] = [
+  "namespace", // 0
+  "type", // 1  class
+  "type", // 2  class
+  "type", // 3  enum
+  "type", // 4  interface
+  "type", // 5  struct
+  "type", // 6  typeParameter
+  "variable", // 7  parameter
+  "variable", // 8  variable
+  "property", // 9  property
+  "property", // 10 enumMember
+  "variable", // 11 event       → folded to variable
+  "function", // 12 function
+  "function", // 13 method
+  "function", // 14 macro       → folded to function
+  "keyword", // 15 keyword
+  "keyword", // 16 modifier     → folded to keyword
+  "comment", // 17 comment
+  "string", // 18 string
+  "number", // 19 number
+  "string", // 20 regexp        → folded to string
+  "operator", // 21 operator
+  "keyword", // 22 decorator    → folded to keyword
+  "variable", // 23 label       → folded to variable
+];
+
+// Monaco's SemanticTokensLegend: the tokenTypes list must match the indices
+// the server uses when encoding the data array.
+const SEMANTIC_TOKENS_LEGEND: Monaco.languages.SemanticTokensLegend = {
+  tokenTypes: SEMANTIC_TOKEN_TYPES,
+  tokenModifiers: [],
+};
+
 /** Curried pre-acquire closure: takes locations + source URI, returns Promise. */
 export type PreAcquireFn = (
   locations: readonly Monaco.languages.Location[],
@@ -195,6 +258,37 @@ export function registerLanguageProviders(
       } catch {
         return [];
       }
+    },
+  });
+
+  monaco.languages.registerDocumentSemanticTokensProvider(languageId, {
+    getLegend(): Monaco.languages.SemanticTokensLegend {
+      return SEMANTIC_TOKENS_LEGEND;
+    },
+
+    async provideDocumentSemanticTokens(
+      model,
+      _lastResultId,
+      token,
+    ): Promise<Monaco.languages.SemanticTokens | null> {
+      if (!isLspLanguage(model.getLanguageId())) return null;
+      try {
+        const signal = tokenToAbortSignal(token);
+        const result = await ipcCall(
+          "lsp",
+          "semanticTokens",
+          { uri: model.uri.toString() },
+          { signal },
+        );
+        if (!result || !isLspLanguage(model.getLanguageId())) return null;
+        return { data: new Uint32Array(result.data), resultId: result.resultId };
+      } catch {
+        return null;
+      }
+    },
+
+    releaseDocumentSemanticTokens(_resultId): void {
+      // Nothing to release for full-document mode.
     },
   });
 }

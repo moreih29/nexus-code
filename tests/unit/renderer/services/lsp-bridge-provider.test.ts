@@ -71,6 +71,8 @@ function createModel(
   } as unknown as Monaco.editor.ITextModel;
 }
 
+type DocumentSemanticTokensProvider = Monaco.languages.DocumentSemanticTokensProvider;
+
 function createFakeMonaco(): typeof Monaco & {
   providers: {
     hover: HoverProvider[];
@@ -79,6 +81,7 @@ function createFakeMonaco(): typeof Monaco & {
     reference: ReferenceProvider[];
     documentHighlight: DocumentHighlightProvider[];
     documentSymbol: DocumentSymbolProvider[];
+    semanticTokens: DocumentSemanticTokensProvider[];
   };
 } {
   const providers = {
@@ -88,6 +91,7 @@ function createFakeMonaco(): typeof Monaco & {
     reference: [] as ReferenceProvider[],
     documentHighlight: [] as DocumentHighlightProvider[],
     documentSymbol: [] as DocumentSymbolProvider[],
+    semanticTokens: [] as DocumentSemanticTokensProvider[],
   };
 
   return {
@@ -129,6 +133,13 @@ function createFakeMonaco(): typeof Monaco & {
         providers.documentSymbol.push(provider);
         return { dispose: () => {} };
       },
+      registerDocumentSemanticTokensProvider: (
+        _languageId: string,
+        provider: DocumentSemanticTokensProvider,
+      ) => {
+        providers.semanticTokens.push(provider);
+        return { dispose: () => {} };
+      },
     },
     providers,
   } as unknown as typeof Monaco & {
@@ -139,6 +150,7 @@ function createFakeMonaco(): typeof Monaco & {
       reference: ReferenceProvider[];
       documentHighlight: DocumentHighlightProvider[];
       documentSymbol: DocumentSymbolProvider[];
+      semanticTokens: DocumentSemanticTokensProvider[];
     };
   };
 }
