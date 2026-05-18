@@ -4,20 +4,17 @@
 // keeps the lifecycle map (workspaceId → languageId → server); this
 // class is intentionally ignorant of how it is registered.
 
-import { type ServerCapabilities, TextDocumentSyncKind } from "../../../shared/lsp";
 import type { TextDocumentContentChangeEvent } from "../../../shared/lsp";
+import { type ServerCapabilities, TextDocumentSyncKind } from "../../../shared/lsp";
 import type { AgentChannel } from "../../infra/agent/channel";
-import type { LspHostCallOptions } from "./host";
 import {
   capabilityValueIsSupported,
   negotiatedTextDocumentOpenClose,
   negotiatedTextDocumentSave,
   negotiatedTextDocumentSyncKind,
 } from "./capability-negotiation";
-import {
-  applyTextDocumentContentChanges,
-  reconstructMissingCache,
-} from "./content-change";
+import { applyTextDocumentContentChanges, reconstructMissingCache } from "./content-change";
+import type { LspHostCallOptions } from "./host";
 import { abortError, asRecord, isObjectLike, jsonRpcId, lspError } from "./utils";
 
 type PendingRequestId = string | number;
@@ -160,6 +157,11 @@ export class AgentLspServer {
     if (value === true) return true;
     if (!isObjectLike(value)) return false;
     return capabilityValueIsSupported(value[sub]);
+  }
+
+  /** Returns the raw capability value for the given key (or undefined). */
+  getCapabilityValue(key: string): unknown {
+    return this.capabilities[key];
   }
 
   handleMessage(message: unknown): boolean {

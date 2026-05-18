@@ -5,6 +5,7 @@ import { z } from "zod";
 import { AgentManifestSchema, findLspBinary } from "../../../shared/agent/manifest";
 import {
   ApplyWorkspaceEditParamsSchema,
+  CANONICAL_TOKEN_TYPES,
   CompletionItemSchema,
   ConfigurationParamsSchema,
   DocumentHighlightSchema,
@@ -14,6 +15,7 @@ import {
   LSP_CLIENT_CAPABILITIES,
   type LspServerEventMethod,
   ReferencesArgsSchema,
+  remapSemanticTokenData,
   SemanticTokensArgsSchema,
   SemanticTokensResultSchema,
   SymbolInformationSchema,
@@ -254,15 +256,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       case "workspaceSymbol":
         return this.workspaceSymbol(args, opts);
       case "semanticTokens":
-        return this.requestByUri(args, opts, {
-          argsSchema: SemanticTokensArgsSchema,
-          lspMethod: "textDocument/semanticTokens/full",
-          capabilityKey: "semanticTokensProvider",
-          emptyResponse: null,
-          outSchema: SemanticTokensResultSchema.nullable(),
-          params: semanticTokensParams,
-          transform: normalizeSemanticTokensResult,
-        });
+        return this.semanticTokensByUri(args, opts);
       default:
         throw new Error(`unknown method: ${method}`);
     }
@@ -403,6 +397,43 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     });
     const normalized = spec.transform ? spec.transform(raw) : raw;
     return spec.outSchema.parse(normalized);
+  }
+
+  private async semanticTokensByUri(args: unknown, opts: LspHostCallOptions): Promise<unknown> {
+    const parsed = SemanticTokensArgsSchema.parse(args);
+    const routed = this.findServerForUri(parsed.uri);
+    if (!routed) return null;
+    if (!routed.server.hasCapability("semanticTokensProvider")) return null;
+
+    // Extract the server's token-type legend from its initialize-response
+    // capabilities. The server capability is keyed "semanticTokensProvider"
+    // and contains either { legend: { tokenTypes: string[] } } or a boolean.
+    const serverLegend = extractServerTokenTypes(
+      routed.server.getCapabilityValue("semanticTokensProvider"),
+    );
+
+    const raw = await routed.server.request(
+      "textDocument/semanticTokens/full",
+      semanticTokensParams(parsed),
+      { signal: opts.signal },
+    );
+
+    const normalized = normalizeSemanticTokensResult(raw);
+    if (!normalized) return SemanticTokensResultSchema.nullable().parse(null);
+
+    // Remap server-legend indices → canonical-legend indices so the renderer
+    // provider's getLegend() (which returns CANONICAL_TOKEN_TYPES) correctly
+    // addresses every token in the data array.
+    const remappedData = remapSemanticTokenData(
+      normalized.data,
+      serverLegend,
+      CANONICAL_TOKEN_TYPES,
+    );
+
+    return SemanticTokensResultSchema.nullable().parse({
+      resultId: normalized.resultId,
+      data: remappedData,
+    });
   }
 
   private async workspaceSymbol(args: unknown, opts: LspHostCallOptions): Promise<unknown[]> {
@@ -936,7 +967,7 @@ function semanticTokensParams(args: { uri: string }) {
   return { textDocument: { uri: args.uri } };
 }
 
-function normalizeSemanticTokensResult(raw: unknown): unknown {
+function normalizeSemanticTokensResult(raw: unknown): { resultId?: string; data: number[] } | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   if (!Array.isArray(r.data)) return null;
@@ -944,4 +975,17 @@ function normalizeSemanticTokensResult(raw: unknown): unknown {
     resultId: typeof r.resultId === "string" ? r.resultId : undefined,
     data: r.data as number[],
   };
+}
+
+// Extracts the server's token-type name list from the semanticTokensProvider
+// capability value as returned in the LSP initialize response. Returns an
+// empty array (no-op remap) when the legend is absent or malformed.
+function extractServerTokenTypes(capabilityValue: unknown): string[] {
+  if (!capabilityValue || typeof capabilityValue !== "object") return [];
+  const cap = capabilityValue as Record<string, unknown>;
+  const legend = cap.legend;
+  if (!legend || typeof legend !== "object") return [];
+  const tokenTypes = (legend as Record<string, unknown>).tokenTypes;
+  if (!Array.isArray(tokenTypes)) return [];
+  return tokenTypes.filter((t): t is string => typeof t === "string");
 }
