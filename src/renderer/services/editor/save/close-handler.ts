@@ -11,7 +11,7 @@
 // serializes per-file disk writes. The two compose: this function may
 // run concurrently for different tabs without races on either side.
 
-import { showSaveConfirm } from "@/components/ui/save-confirm-dialog";
+import { showSaveConfirm } from "@/components/editor/save-confirm-dialog";
 import { useTabsStore } from "@/state/stores/tabs";
 import { basename } from "@/utils/path";
 import { isDirty } from "../model/dirty-tracker";

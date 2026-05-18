@@ -9,7 +9,7 @@
 // Public functions: saveModel(input), installEditorSaveAction(editor, monaco, input).
 
 import type * as Monaco from "monaco-editor";
-import { showConflictResolution } from "../../../components/ui/conflict-dialog";
+import { showConflictResolution } from "../../../components/editor/conflict-dialog";
 import { showToast } from "../../../components/ui/toast";
 import { ipcCall } from "../../../ipc/client";
 import { notifyDidSave } from "../lsp/bridge";

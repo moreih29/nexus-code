@@ -78,7 +78,7 @@ const showConflictResolutionMock = mock((_filename: string) =>
   Promise.resolve("cancel" as "overwrite" | "reload" | "cancel"),
 );
 
-mock.module("../../../../../src/renderer/components/ui/conflict-dialog", () => ({
+mock.module("../../../../../src/renderer/components/editor/conflict-dialog", () => ({
   showConflictResolution: showConflictResolutionMock,
   ConflictResolutionDialogRoot: () => null,
   __resetConflictDialogForTests: () => {},

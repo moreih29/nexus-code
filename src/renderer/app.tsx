@@ -5,7 +5,7 @@ import { bootstrapAppState, bootstrapWorkspaces } from "./bootstrap";
 import { useCommandBridge } from "./commands/use-command-bridge";
 import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
-import { showRemoveWorkspaceConfirm } from "./components/ui/remove-workspace-dialog";
+import { showRemoveWorkspaceConfirm } from "./components/workspace/remove-workspace-dialog";
 import { Sidebar } from "./components/workbench/sidebar";
 import { TitleBar } from "./components/workbench/title-bar";
 import { WelcomeScreen } from "./components/workbench/welcome-screen";
