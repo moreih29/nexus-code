@@ -120,7 +120,9 @@ export const warmLight: SemanticTokenSet = {
 
   // --- tab (island surface) ---
   "tab.bar.bg": "oklch(0.965 0.005 95)",
-  "tab.active.bg": "oklch(0.965 0.005 95)",
+  // Raised chip — brighter than the island bar (light theme: raised = brighter,
+  // matches the editor content surface; JetBrains Islands tab).
+  "tab.active.bg": "oklch(0.99 0.004 95)",
   "tab.active.fg": "oklch(0.22 0.008 100)",
   "tab.active.border": "oklch(0.42 0.008 100)",
   "tab.inactive.bg": "oklch(0.965 0.005 95)",

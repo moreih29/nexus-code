@@ -5,7 +5,6 @@ import { closeTab } from "@/state/operations/tabs";
 import type { LayoutLeaf } from "@/state/stores/layout";
 import { useLayoutStore } from "@/state/stores/layout";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
-import { cn } from "@/utils/cn";
 import { slotRegistry } from "../content/slot-registry";
 import { DropIndicator } from "../dnd/drop-indicator";
 import { useDropTarget } from "../dnd/use-drop-target";
@@ -169,13 +168,7 @@ export function GroupView({
     // biome-ignore lint/a11y/noStaticElementInteractions: click activates group; keyboard handled by focusable children
     <div
       ref={wrapperRef}
-      className={cn(
-        "flex flex-col min-h-0 min-w-0 flex-1",
-        // Active-group signal — an inset ring, NOT a background fill. A fill
-        // would stack another translucent layer over the island surface and
-        // reduce the whole-window translucency (design: one surface layer).
-        isActive && "ring-1 ring-inset ring-[var(--ring)]",
-      )}
+      className="relative flex flex-col min-h-0 min-w-0 flex-1"
       onClick={handleGroupClick}
     >
       <GroupTabBar
@@ -196,6 +189,19 @@ export function GroupView({
         {showPlaceholder && <GroupPlaceholder />}
         {dropZone && <DropIndicator zone={dropZone} />}
       </div>
+
+      {/* Inactive-group focus veil — design.md §5: unfocused panes get a
+          translucent backdrop-coloured veil so only the active pane stays
+          sharp. Replaces the previous bright active-group ring, whose
+          near-white edge read as a stray strip beside the pane.
+          pointer-events-none: a click still reaches the content beneath and
+          activates the group via focusin. */}
+      {!isActive && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[var(--surface-island-inactive-veil)]"
+        />
+      )}
     </div>
   );
 }

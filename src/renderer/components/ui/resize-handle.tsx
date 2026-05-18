@@ -129,14 +129,17 @@ export function ResizeHandle({
   // 4px further right (right-0 within the shifted container = panel right - 4px;
   // right-[-4px] brings it flush with the panel right edge).
   const indicatorRight = placement === "rightInside" ? "right-[-4px]" : "right-[4px]";
+  // Islands model: the gap between panels IS the separator — there is no
+  // resting divider line. The indicator appears only on hover (drag
+  // affordance) and stays solid while dragging (active feedback).
   const indicatorClass =
     orientation === "horizontal"
       ? isDragging
         ? "absolute left-0 bottom-[4px] w-full h-0.5 bg-[var(--splitter-hover)]"
-        : "absolute left-0 bottom-[4px] w-full h-px bg-[var(--splitter)] group-hover:h-0.5 group-hover:bg-[var(--splitter-hover)]"
+        : "absolute left-0 bottom-[4px] w-full h-0.5 bg-[var(--splitter-hover)] opacity-0 transition-opacity duration-100 group-hover:opacity-100"
       : isDragging
         ? `absolute ${indicatorRight} top-0 h-full w-0.5 bg-[var(--splitter-hover)]`
-        : `absolute ${indicatorRight} top-0 h-full w-px bg-[var(--splitter)] group-hover:w-0.5 group-hover:bg-[var(--splitter-hover)]`;
+        : `absolute ${indicatorRight} top-0 h-full w-0.5 bg-[var(--splitter-hover)] opacity-0 transition-opacity duration-100 group-hover:opacity-100`;
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: separator/handle is not a button

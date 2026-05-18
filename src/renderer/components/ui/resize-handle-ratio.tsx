@@ -126,14 +126,17 @@ export function ResizeHandleRatio({
       ? POSITION_CLASS.horizontal
       : POSITION_CLASS[placement ?? "rightCentered"];
 
+  // Islands model: the gap between panels IS the separator — there is no
+  // resting divider line. The indicator appears only on hover (drag
+  // affordance) and stays solid while dragging (active feedback).
   const indicatorClass =
     orientation === "horizontal"
       ? isDragging
         ? "absolute left-0 bottom-[4px] w-full h-0.5 bg-[var(--splitter-hover)]"
-        : "absolute left-0 bottom-[4px] w-full h-px bg-[var(--splitter)] group-hover:h-0.5 group-hover:bg-[var(--splitter-hover)]"
+        : "absolute left-0 bottom-[4px] w-full h-0.5 bg-[var(--splitter-hover)] opacity-0 transition-opacity duration-100 group-hover:opacity-100"
       : isDragging
         ? "absolute right-[4px] top-0 h-full w-0.5 bg-[var(--splitter-hover)]"
-        : "absolute right-[4px] top-0 h-full w-px bg-[var(--splitter)] group-hover:w-0.5 group-hover:bg-[var(--splitter-hover)]";
+        : "absolute right-[4px] top-0 h-full w-0.5 bg-[var(--splitter-hover)] opacity-0 transition-opacity duration-100 group-hover:opacity-100";
 
   // Expose ratio in 0–100 for the standard ARIA convention.
   const ariaNow = Math.round(ratio * 100);

@@ -4,8 +4,8 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { useDragSource } from "@/components/ui/use-drag-source";
 import { DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
-import { isDirty, subscribeFileDirty } from "@/services/editor/model/dirty-tracker";
 import { filePathToModelUri } from "@/services/editor/model/cache";
+import { isDirty, subscribeFileDirty } from "@/services/editor/model/dirty-tracker";
 import { cn } from "@/utils/cn";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
 import { MIME_TAB, type TabDragPayload } from "../dnd/types";
@@ -103,20 +103,25 @@ export function TabItem({
         value={tab.id}
         aria-label={terminalEnded ? `${displayTitle}, terminal ended` : undefined}
         className={cn(
-          // base layout — pr-7 reserves space for the absolute close button
-          "flex items-center gap-2 pl-3 pr-7 h-full",
+          // chip layout — h-7 inset within the h-9 bar; rounded so the active /
+          // hover surface reads as a raised chip (JetBrains Islands tab).
+          // pr-7 reserves space for the absolute close button.
+          "flex items-center gap-2 pl-3 pr-7 h-7 rounded-(--radius-raised)",
           // text
           "text-app-ui-sm whitespace-nowrap select-none cursor-pointer",
-          // rest state: tab.hover.bg overlay (light-theme safe, design.md §7)
-          "text-muted-foreground hover:bg-[var(--tab-hover-bg)] hover:text-foreground",
-          // active state: no background change (avoids L0 depth reversal, design.md §2).
-          // Forward signal: 2px top indicator (state.selected.indicator) + text colour —
-          // redundant encoding: accent line + foreground colour change (design.md §7).
-          "data-[state=active]:text-foreground data-[state=active]:border-t-2 data-[state=active]:border-t-[var(--state-selected-indicator)]",
-          // focus
-          "outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50",
           // reset button defaults
           "bg-transparent",
+          // rest (inactive): flat, muted text — no surface
+          "text-muted-foreground",
+          // hover: chip-shaped surface highlight (light-theme safe, design.md §8)
+          "hover:bg-[var(--tab-hover-bg)] hover:text-foreground",
+          // active (selected): filled raised chip + foreground text. Surface +
+          // colour change satisfy §8 redundant encoding. The fill is a
+          // within-island raised surface (not a canvas/island swap), so no
+          // depth reversal — design.md §2 is about canvas↔island, not this.
+          "data-[state=active]:bg-[var(--tab-active-bg)] data-[state=active]:text-foreground",
+          // focus
+          "outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50",
         )}
       >
         {tab.isPinned && <PinIcon />}

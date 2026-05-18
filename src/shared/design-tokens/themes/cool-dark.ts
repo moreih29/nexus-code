@@ -102,7 +102,8 @@ export const coolDark: SemanticTokenSet = {
 
   // --- tab (island surface) ---
   "tab.bar.bg": "oklch(0.18 0.008 245)",
-  "tab.active.bg": "oklch(0.18 0.008 245)",
+  // Raised chip — lighter than the island bar (JetBrains Islands tab).
+  "tab.active.bg": "oklch(0.25 0.008 245)",
   "tab.active.fg": "oklch(0.96 0.004 240)",
   "tab.active.border": "oklch(0.72 0.006 245)",
   "tab.inactive.bg": "oklch(0.18 0.008 245)",

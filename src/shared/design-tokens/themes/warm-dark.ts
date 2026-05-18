@@ -85,7 +85,9 @@ export const warmDark: SemanticTokenSet = {
 
   // --- tab (island surface) ---
   "tab.bar.bg": "#1a1917",
-  "tab.active.bg": "#1a1917",
+  // Raised chip — lighter than the island bar so the active tab reads as a
+  // distinct surface, not just a text-colour change (JetBrains Islands tab).
+  "tab.active.bg": "#302e28",
   "tab.active.fg": "oklch(0.982 0.0041 91.45)",
   "tab.active.border": "oklch(0.751 0.0031 84.56)",
   "tab.inactive.bg": "#1a1917",

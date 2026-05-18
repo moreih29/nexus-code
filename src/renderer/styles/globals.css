@@ -177,3 +177,25 @@
 .xterm .xterm-screen {
   background-color: transparent !important;
 }
+
+/* xterm's .xterm-viewport is overflow-y:scroll, so it always reserves a
+   scrollbar. Chromium's default classic scrollbar is an opaque light strip
+   that breaks the transparency and reads as a white bar on the dark canvas.
+   Restyle it to the app's thin VSCode-style scrollbar (mirrors @utility
+   app-scrollbar) with a transparent track so the canvas shows through. */
+.xterm .xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb-bg);
+  border-radius: var(--radius-control);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover-bg);
+  background-clip: padding-box;
+}
