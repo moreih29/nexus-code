@@ -1,4 +1,4 @@
-import { AlertCircle, ChevronRight, ChevronUp, Folder } from "lucide-react";
+import { AlertCircle, ChevronRight, Folder, FolderUp } from "lucide-react";
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DirEntry } from "../../../../shared/fs/types";
@@ -306,6 +306,20 @@ export function SshDirectoryPickerView({
           </span>
         </label>
         <div className="flex items-center gap-2">
+          {!isAtRoot ? (
+            <button
+              type="button"
+              aria-label="Go to parent directory"
+              onClick={() => drillDown("..")}
+              disabled={listLoading || addPhase === "creating"}
+              className="inline-flex size-7 shrink-0 items-center justify-center rounded-(--radius-control) border border-border bg-background text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50"
+            >
+              <FolderUp className="size-4" aria-hidden="true" />
+            </button>
+          ) : (
+            // Placeholder keeps the path input's left edge fixed at filesystem root.
+            <div className="size-7 shrink-0" aria-hidden="true" />
+          )}
           <input
             id="picker-path-input"
             ref={pathInputRef}
@@ -315,17 +329,6 @@ export function SshDirectoryPickerView({
             placeholder="/home/user/project"
             className="min-w-0 flex-1 rounded-(--radius-control) border border-border bg-background px-2 py-1 font-mono text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
           />
-          {!isAtRoot ? (
-            <button
-              type="button"
-              aria-label="Go to parent directory"
-              onClick={() => drillDown("..")}
-              disabled={listLoading || addPhase === "creating"}
-              className="inline-flex size-7 shrink-0 items-center justify-center rounded-(--radius-control) border border-border bg-background text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50"
-            >
-              <ChevronUp className="size-4" aria-hidden="true" />
-            </button>
-          ) : null}
         </div>
       </form>
 
