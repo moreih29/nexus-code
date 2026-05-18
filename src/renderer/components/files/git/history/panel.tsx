@@ -4,22 +4,18 @@
  */
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type {
-  CommitDetail,
-  CommitSearchResult,
-  LogEntry,
-} from "../../../../../shared/git/types";
+import type { CommitDetail, CommitSearchResult, LogEntry } from "../../../../../shared/git/types";
 import { ipcCall, ipcStream } from "../../../../ipc/client";
 import { openOrRevealCommitTab } from "../../../../state/operations/tabs";
 import { useGitStore } from "../../../../state/stores/git";
 import { GitInlineBanner } from "../panel/git-inline-banner";
-import { initialLaneState, reduceLanes } from "./graph/lane-assign";
 import { HistoryCommitMenu, type HistoryCommitMenuTarget } from "./commit-menu";
+import { initialLaneState, reduceLanes } from "./graph/lane-assign";
 import { HistoryList } from "./list";
+import { RefChipList } from "./ref-chip";
 import { HistoryRefSwitcher } from "./ref-switcher";
 import type { HistoryRowMenuRequest } from "./row";
 import { HistorySearch } from "./search";
-import { RefChipList } from "./ref-chip";
 
 const HISTORY_PAGE_SIZE = 50;
 const HISTORY_SEARCH_DEBOUNCE_MS = 200;
@@ -149,14 +145,7 @@ export function HistoryPanel({
         },
       });
     },
-    [
-      appendLaneChunk,
-      isCurrentLoad,
-      nextLoadToken,
-      refName,
-      resetLaneState,
-      workspaceId,
-    ],
+    [appendLaneChunk, isCurrentLoad, nextLoadToken, refName, resetLaneState, workspaceId],
   );
 
   useEffect(() => {

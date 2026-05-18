@@ -9,7 +9,10 @@
 import { useMemo, useState } from "react";
 import { useGitStore } from "../../../../state/stores/git";
 import { CommandPalette } from "../../../ui/palette/command-palette";
-import { ConfirmDiscardDialog, type DiscardConfirmRequest } from "../dialogs/confirm-discard-dialog";
+import {
+  ConfirmDiscardDialog,
+  type DiscardConfirmRequest,
+} from "../dialogs/confirm-discard-dialog";
 import {
   createStashPickerSource,
   type StashPickerMode,

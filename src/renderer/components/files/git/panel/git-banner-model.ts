@@ -19,7 +19,7 @@
  * (GitBranchBar) and should never compete for the banner slot.
  */
 
-import type { PushGuardBannerView, PushGuardActionKind } from "../utils/git-push-guard-banner";
+import type { PushGuardActionKind, PushGuardBannerView } from "../utils/git-push-guard-banner";
 
 // ---------------------------------------------------------------------------
 // Input signals — one plain-data record per banner kind.

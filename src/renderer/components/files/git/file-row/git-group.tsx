@@ -16,10 +16,10 @@ import {
 } from "../../file-tree/tree-builder";
 import type { TreeKeyboardRow } from "../../file-tree/use-tree-keyboard";
 import { useTreeKeyboard } from "../../file-tree/use-tree-keyboard";
+import { collectGitEntryPaths } from "../utils/git-status-utils";
 import { GitFileRow } from "./git-file-row";
 import { GitGroupHeader } from "./git-group-header";
 import { GitTreeRow } from "./git-tree-row";
-import { collectGitEntryPaths } from "../utils/git-status-utils";
 
 // ---------------------------------------------------------------------------
 // Types

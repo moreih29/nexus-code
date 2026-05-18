@@ -105,7 +105,9 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
     try {
       const results = [];
       for (const relPath of uniquePaths) {
-        results.push(await ipcCall("git", "addToGitignore", { workspaceId: ctx.workspaceId, relPath }));
+        results.push(
+          await ipcCall("git", "addToGitignore", { workspaceId: ctx.workspaceId, relPath }),
+        );
       }
       const addedCount = results.filter((result) => result.added).length;
       ctx.setBanner({

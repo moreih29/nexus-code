@@ -22,37 +22,37 @@ import {
 import { selectGitActionButton } from "../../../../state/selectors/git-action-button";
 import type { GitPushOptions } from "../../../../state/stores/git";
 import { useGitStore } from "../../../../state/stores/git";
+import { EmptyState } from "../../../ui/empty-state";
 import type { FormDialogField } from "../../../ui/form-dialog";
+import { Skeleton, SkeletonLine } from "../../../ui/skeleton";
+import { useLoaderDelay } from "../../search/useLoaderDelay";
 import { submitBranchCreate } from "../branch/create-dialog";
 import type { BranchPickerMode } from "../branch/picker";
 import { createCommitPickerSource } from "../commit/picker-source";
+import { useGitHelperOccupancy } from "../hooks/use-git-helper-prompts";
+import { useGitOpHotkey } from "../hooks/use-git-op-hotkey";
+import { useGitSession } from "../hooks/use-git-session";
+import { buildSquashCommitDraft } from "../pickers/merge-options-dialog";
+import { createMergeTargetPickerSource } from "../pickers/merge-target-picker-source";
+import { createRebaseTargetPickerSource } from "../pickers/rebase-target-picker-source";
+import type { TagPickerMode } from "../pickers/tag-picker-source";
+import { useGitPanelPickers } from "../pickers/use-git-panel-pickers";
 import { buildRemoteUpstreamWarning } from "../utils/git-more-menu-model";
+import { buildPushGuardBannerView, type PushGuardActionKind } from "../utils/git-push-guard-banner";
+import { buildGitGroups, collectGitEntryPaths } from "../utils/git-status-utils";
+import { createEntryActions } from "./entry-actions";
+import { buildGitBannerModel } from "./git-banner-model";
+import { GitBannerStack } from "./git-banner-stack";
+import { GitDialogHost } from "./git-dialog-host";
+import { GitHeader } from "./git-header";
 import {
   buildErrorAction,
   buildPublishBranchPrompt,
   buildTagHistoryRevealMessage,
   tagHistoryRef,
 } from "./git-panel-actions";
-import { createEntryActions } from "./entry-actions";
-import { buildPushGuardBannerView, type PushGuardActionKind } from "../utils/git-push-guard-banner";
-import { buildGitBannerModel } from "./git-banner-model";
-import { buildGitGroups, collectGitEntryPaths } from "../utils/git-status-utils";
-import { buildSquashCommitDraft } from "../pickers/merge-options-dialog";
-import { createMergeTargetPickerSource } from "../pickers/merge-target-picker-source";
-import { createRebaseTargetPickerSource } from "../pickers/rebase-target-picker-source";
-import type { TagPickerMode } from "../pickers/tag-picker-source";
-import { useGitPanelPickers } from "../pickers/use-git-panel-pickers";
-import { useGitHelperOccupancy } from "../hooks/use-git-helper-prompts";
-import { useGitOpHotkey } from "../hooks/use-git-op-hotkey";
-import { useGitSession } from "../hooks/use-git-session";
-import { useGitDialogs } from "./use-git-dialogs";
-import { EmptyState } from "../../../ui/empty-state";
-import { Skeleton, SkeletonLine } from "../../../ui/skeleton";
-import { GitBannerStack } from "./git-banner-stack";
-import { GitDialogHost } from "./git-dialog-host";
-import { GitHeader } from "./git-header";
 import { GitPanelBody } from "./git-panel-body";
-import { useLoaderDelay } from "../../search/useLoaderDelay";
+import { useGitDialogs } from "./use-git-dialogs";
 
 export interface GitPanelOpenDiffInput {
   workspaceId: string;
@@ -765,9 +765,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           onUndoLastCommit={() => {
             void undoLastCommit(workspaceId);
           }}
-          onToggleCommitOption={(option, value) =>
-            setCommitOption(workspaceId, option, value)
-          }
+          onToggleCommitOption={(option, value) => setCommitOption(workspaceId, option, value)}
           onPushOnly={() => {
             void requestPush();
           }}
@@ -808,9 +806,13 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           branchInfo={branchInfo}
           repoPath={repoPath}
           capabilities={capabilities}
-          autofetchIntervalMin={session?.autofetchIntervalMin ?? DEFAULT_GIT_PANEL_STATE.autofetchIntervalMin}
+          autofetchIntervalMin={
+            session?.autofetchIntervalMin ?? DEFAULT_GIT_PANEL_STATE.autofetchIntervalMin
+          }
           autofetchFetching={session?.autofetchFetching ?? false}
-          autofetchFailed={session?.autofetchLastError !== null && session?.autofetchLastError !== undefined}
+          autofetchFailed={
+            session?.autofetchLastError !== null && session?.autofetchLastError !== undefined
+          }
           onSync={() => {
             void handleSync();
           }}

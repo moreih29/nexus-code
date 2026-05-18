@@ -18,12 +18,12 @@
  * Props accept the single `GitBannerModel` produced by buildGitBannerModel().
  */
 
-import { useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { useState } from "react";
 import { cn } from "../../../../utils/cn";
-import type { GitBannerModel, BannerSlotItem } from "./git-banner-model";
-import { GitInlineBanner } from "./git-inline-banner";
 import type { PushGuardActionKind } from "../utils/git-push-guard-banner";
+import type { BannerSlotItem, GitBannerModel } from "./git-banner-model";
+import { GitInlineBanner } from "./git-inline-banner";
 
 // ---------------------------------------------------------------------------
 // Public props
@@ -84,22 +84,10 @@ function renderBannerItem(item: BannerSlotItem): React.ReactNode {
       );
 
     case "helper-prompt":
-      return (
-        <GitInlineBanner
-          key="helper-prompt"
-          variant="info"
-          message={item.message}
-        />
-      );
+      return <GitInlineBanner key="helper-prompt" variant="info" message={item.message} />;
 
     case "context":
-      return (
-        <GitInlineBanner
-          key="context"
-          variant={item.variant}
-          message={item.message}
-        />
-      );
+      return <GitInlineBanner key="context" variant={item.variant} message={item.message} />;
   }
 }
 
@@ -123,7 +111,9 @@ function CounterRow({ count, expanded, onToggle }: CounterRowProps) {
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
       )}
       aria-expanded={expanded}
-      aria-label={expanded ? "Collapse notifications" : `${count} more notification${count === 1 ? "" : "s"}`}
+      aria-label={
+        expanded ? "Collapse notifications" : `${count} more notification${count === 1 ? "" : "s"}`
+      }
       onClick={onToggle}
     >
       <span className="flex-1 text-left">

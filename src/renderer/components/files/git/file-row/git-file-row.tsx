@@ -6,13 +6,13 @@ import { useState } from "react";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import { ROW_HEIGHT_PX } from "../../file-tree/metrics";
+import { formatGitEntryPath, getGitStatusCode } from "../utils/git-status-utils";
 import {
   type GitContextMenuPoint,
   GitFileContextMenu,
   pointFromMouseEvent,
 } from "./git-file-context-menu";
 import { GitStatusBadge } from "./git-status-badge";
-import { formatGitEntryPath, getGitStatusCode } from "../utils/git-status-utils";
 
 interface GitFileRowProps {
   groupKey: GitExpandedGroupKey;

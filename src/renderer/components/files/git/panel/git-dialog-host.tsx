@@ -9,6 +9,8 @@
  * emptyCommit, branchCreate, stashGroup, addRemote.
  */
 
+import type { GitExpandedGroupKey, GitMergeMode, Tag } from "../../../../../shared/git/types";
+import type { GitPushOptions } from "../../../../state/stores/git";
 import type { FormDialogField } from "../../../ui/form-dialog";
 import { FormDialog } from "../../../ui/form-dialog";
 import { CommandPalette } from "../../../ui/palette/command-palette";
@@ -25,8 +27,6 @@ import { StashPicker } from "../pickers/stash-picker";
 import { TagPicker } from "../pickers/tag-picker";
 import type { GitPanelPickersState } from "../pickers/use-git-panel-pickers";
 import type { GitDialogsState } from "./use-git-dialogs";
-import type { GitExpandedGroupKey, GitMergeMode, Tag } from "../../../../../shared/git/types";
-import type { GitPushOptions } from "../../../../state/stores/git";
 
 export interface GitDialogHostCallbacks {
   workspaceId: string;
@@ -41,11 +41,7 @@ export interface GitDialogHostCallbacks {
   /** Closes the branch-create dialog (also invalidates the in-flight branch list load). */
   onCloseBranchCreateDialog: () => void;
   /** Runs branch creation. */
-  onCreateBranch: (
-    workspaceId: string,
-    name: string,
-    fromRef?: string,
-  ) => Promise<void>;
+  onCreateBranch: (workspaceId: string, name: string, fromRef?: string) => Promise<void>;
   /** Called when the user confirms a merge mode selection. */
   onConfirmMergeOption: (mode: GitMergeMode) => void;
   /** Runs push-with-publish. */

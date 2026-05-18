@@ -21,15 +21,15 @@ import type { ViewMode } from "../../../../../shared/types/panel";
 import type { GitActionButtonState } from "../../../../state/selectors/git-action-button";
 import type { GitStoreError } from "../../../../state/stores/git";
 import { EmptyState } from "../../../ui/empty-state";
-import type { GitCommitMenuEnablement } from "../commit/git-commit-button";
 import { GitBranchBar } from "../branch/git-branch-bar";
+import type { GitCommitMenuEnablement } from "../commit/git-commit-button";
 import { GitCommitInput } from "../commit/git-commit-input";
 import { GitGroup } from "../file-row/git-group";
 import { HistoryPanel } from "../history/panel";
 import { HistorySegmentToggle } from "../history/segment-toggle";
-import { OperationBanner } from "./operation-banner";
-import type { ActiveGitOperationState } from "./operation-banner";
 import type { GitGroupDescriptor } from "../utils/git-status-utils";
+import type { ActiveGitOperationState } from "./operation-banner";
+import { OperationBanner } from "./operation-banner";
 
 export interface GitPanelBodyProps {
   workspaceId: string;
@@ -173,11 +173,7 @@ export function GitPanelBody({
 }: GitPanelBodyProps) {
   return (
     <>
-      <HistorySegmentToggle
-        segment={panelSegment}
-        disabled={isBusy}
-        onChange={onSegmentChange}
-      />
+      <HistorySegmentToggle segment={panelSegment} disabled={isBusy} onChange={onSegmentChange} />
       {panelSegment === "history" ? (
         <HistoryPanel
           workspaceId={workspaceId}
