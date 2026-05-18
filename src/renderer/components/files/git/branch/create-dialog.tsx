@@ -7,6 +7,7 @@ import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import type { BranchList } from "../../../../../shared/git/types";
 import type { CreateBranchOptions } from "../../../../state/stores/git";
+import { Dialog } from "../../../ui/dialog";
 import {
   FormDialogContent,
   type FormDialogField,
@@ -151,34 +152,28 @@ export function BranchCreateDialog({
   }
 
   return (
-    <RadixDialog.Root
+    <Dialog
       open={request !== null}
       onOpenChange={(nextOpen) => handleFormDialogOpenChange(nextOpen, onCancel)}
+      size="md"
     >
-      <RadixDialog.Portal>
-        <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <RadixDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[480px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-island) border border-border bg-background p-5 text-foreground shadow-none outline-none">
-          <RadixDialog.Title className="sr-only">
-            {branchCreateDialogTitle(request)}
-          </RadixDialog.Title>
-          <RadixDialog.Description className="sr-only">
-            {branchCreateDialogDescription(request)}
-          </RadixDialog.Description>
-          <FormDialogContent
-            title={branchCreateDialogTitle(request)}
-            description={branchCreateDialogDescription(request)}
-            fields={fields}
-            values={values}
-            busy={busy}
-            submitLabel="Create"
-            cancelLabel="Cancel"
-            errorClassName="git-destructive-text"
-            onValueChange={handleValueChange}
-            onCancel={onCancel}
-            onSubmit={handleSubmit}
-          />
-        </RadixDialog.Content>
-      </RadixDialog.Portal>
-    </RadixDialog.Root>
+      <RadixDialog.Title className="sr-only">{branchCreateDialogTitle(request)}</RadixDialog.Title>
+      <RadixDialog.Description className="sr-only">
+        {branchCreateDialogDescription(request)}
+      </RadixDialog.Description>
+      <FormDialogContent
+        title={branchCreateDialogTitle(request)}
+        description={branchCreateDialogDescription(request)}
+        fields={fields}
+        values={values}
+        busy={busy}
+        submitLabel="Create"
+        cancelLabel="Cancel"
+        errorClassName="git-destructive-text"
+        onValueChange={handleValueChange}
+        onCancel={onCancel}
+        onSubmit={handleSubmit}
+      />
+    </Dialog>
   );
 }

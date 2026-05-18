@@ -12,6 +12,7 @@
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 
 export type ConflictResolutionChoice = "overwrite" | "reload" | "cancel";
@@ -83,43 +84,29 @@ export function ConflictResolutionDialogRoot(): React.JSX.Element {
   };
 
   return (
-    <RadixDialog.Root open={open} onOpenChange={handleOpenChange}>
-      <RadixDialog.Portal>
-        <RadixDialog.Overlay className="fixed inset-0 bg-black/40 z-50" />
-        <RadixDialog.Content
-          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[440px] max-w-[90vw] rounded-md border border-border bg-background p-5 shadow-lg outline-none"
-          aria-describedby={undefined}
+    <Dialog open={open} onOpenChange={handleOpenChange} size="md" aria-describedby={undefined}>
+      <RadixDialog.Title className="text-app-body-emphasis font-medium text-foreground">
+        Save conflict — <span className="font-mono">{active?.filename}</span> changed on disk
+      </RadixDialog.Title>
+      <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
+        The file was modified on disk after you started editing. Choose how to resolve the conflict.
+      </RadixDialog.Description>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => resolveActive("reload")}
+          autoFocus={false}
         >
-          <RadixDialog.Title className="text-app-body-emphasis font-medium text-foreground">
-            Save conflict — <span className="font-mono">{active?.filename}</span> changed on disk
-          </RadixDialog.Title>
-          <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-            The file was modified on disk after you started editing. Choose how to resolve the
-            conflict.
-          </RadixDialog.Description>
-          <div className="mt-5 flex justify-end gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => resolveActive("reload")}
-              autoFocus={false}
-            >
-              Reload from Disk
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => resolveActive("cancel")}>
-              Cancel
-            </Button>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => resolveActive("overwrite")}
-              autoFocus
-            >
-              Overwrite
-            </Button>
-          </div>
-        </RadixDialog.Content>
-      </RadixDialog.Portal>
-    </RadixDialog.Root>
+          Reload from Disk
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => resolveActive("cancel")}>
+          Cancel
+        </Button>
+        <Button variant="default" size="sm" onClick={() => resolveActive("overwrite")} autoFocus>
+          Overwrite
+        </Button>
+      </div>
+    </Dialog>
   );
 }

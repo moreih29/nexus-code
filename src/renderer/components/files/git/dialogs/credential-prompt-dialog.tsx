@@ -8,6 +8,7 @@ import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import type { AskpassPrompt } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
+import { Dialog } from "../../../ui/dialog";
 
 interface CredentialPromptDialogProps {
   prompt: AskpassPrompt | null;
@@ -108,30 +109,25 @@ export function CredentialPromptDialog({
   }
 
   return (
-    <RadixDialog.Root
+    <Dialog
       open={prompt !== null}
       onOpenChange={(open) => {
         if (!open) onCancel();
       }}
+      size="sm"
+      aria-describedby={undefined}
     >
-      <RadixDialog.Portal>
-        <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <RadixDialog.Content
-          className="fixed left-1/2 top-1/2 z-50 w-[420px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-island) border border-border bg-background p-5 text-foreground shadow-none outline-none"
-          aria-label="Git credentials"
-        >
-          {prompt ? (
-            <CredentialPromptDialogContent
-              prompt={prompt}
-              value={value}
-              busy={busy}
-              onValueChange={setValue}
-              onCancel={onCancel}
-              onSubmit={handleSubmit}
-            />
-          ) : null}
-        </RadixDialog.Content>
-      </RadixDialog.Portal>
-    </RadixDialog.Root>
+      <RadixDialog.Title className="sr-only">Git credentials</RadixDialog.Title>
+      {prompt ? (
+        <CredentialPromptDialogContent
+          prompt={prompt}
+          value={value}
+          busy={busy}
+          onValueChange={setValue}
+          onCancel={onCancel}
+          onSubmit={handleSubmit}
+        />
+      ) : null}
+    </Dialog>
   );
 }

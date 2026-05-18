@@ -8,6 +8,7 @@
 
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useId, useRef, useState } from "react";
+import { Dialog } from "@/components/ui/dialog";
 import { Button } from "./button";
 
 export interface PromptRequest {
@@ -59,56 +60,52 @@ export function PromptDialog({ request, busy = false, onCancel, onConfirm }: Pro
   }
 
   return (
-    <RadixDialog.Root
+    <Dialog
       open={request !== null}
       onOpenChange={(open) => {
         if (!open) onCancel();
       }}
+      size="sm"
     >
-      <RadixDialog.Portal>
-        <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <RadixDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[420px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-island) border border-border bg-background p-5 text-foreground shadow-none outline-none">
-          <RadixDialog.Title className="text-app-body-emphasis text-foreground">
-            {request?.title ?? ""}
-          </RadixDialog.Title>
-          {request?.description ? (
-            <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-              {request.description}
-            </RadixDialog.Description>
-          ) : null}
-          <form className="mt-4 flex flex-col gap-2" onSubmit={handleSubmit}>
-            {showInput ? (
-              <>
-                {request?.label ? (
-                  <label htmlFor={inputId} className="text-app-ui-sm text-foreground">
-                    {request.label}
-                  </label>
-                ) : null}
-                <input
-                  ref={inputRef}
-                  id={inputId}
-                  type="text"
-                  value={value}
-                  onChange={(event) => setValue(event.target.value)}
-                  placeholder={request?.placeholder}
-                  className="w-full rounded-(--radius-control) border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  disabled={busy}
-                />
-              </>
+      <RadixDialog.Title className="text-app-body-emphasis text-foreground">
+        {request?.title ?? ""}
+      </RadixDialog.Title>
+      {request?.description ? (
+        <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
+          {request.description}
+        </RadixDialog.Description>
+      ) : null}
+      <form className="mt-4 flex flex-col gap-2" onSubmit={handleSubmit}>
+        {showInput ? (
+          <>
+            {request?.label ? (
+              <label htmlFor={inputId} className="text-app-ui-sm text-foreground">
+                {request.label}
+              </label>
             ) : null}
-            <div className="mt-3 flex justify-end gap-2">
-              <RadixDialog.Close asChild>
-                <Button type="button" variant="ghost" size="sm" disabled={busy}>
-                  Cancel
-                </Button>
-              </RadixDialog.Close>
-              <Button type="submit" size="sm" disabled={confirmDisabled}>
-                {request?.confirmLabel ?? "OK"}
-              </Button>
-            </div>
-          </form>
-        </RadixDialog.Content>
-      </RadixDialog.Portal>
-    </RadixDialog.Root>
+            <input
+              ref={inputRef}
+              id={inputId}
+              type="text"
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              placeholder={request?.placeholder}
+              className="w-full rounded-(--radius-control) border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              disabled={busy}
+            />
+          </>
+        ) : null}
+        <div className="mt-3 flex justify-end gap-2">
+          <RadixDialog.Close asChild>
+            <Button type="button" variant="ghost" size="sm" disabled={busy}>
+              Cancel
+            </Button>
+          </RadixDialog.Close>
+          <Button type="submit" size="sm" disabled={confirmDisabled}>
+            {request?.confirmLabel ?? "OK"}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }

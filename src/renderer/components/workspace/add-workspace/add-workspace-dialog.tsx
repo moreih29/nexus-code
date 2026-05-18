@@ -5,6 +5,7 @@ import type { ConnectionProfile } from "../../../../shared/types/entry-points";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { ipcCall } from "../../../ipc/client";
 import { Button } from "../../ui/button";
+import { Dialog } from "../../ui/dialog";
 import { LocalListView } from "./local-list-view";
 import { SshConnectionListView } from "./ssh-connection-list-view";
 import { SshDirectoryPickerView } from "./ssh-directory-picker-view";
@@ -185,66 +186,55 @@ export function AddWorkspaceDialog({
   }
 
   return (
-    <RadixDialog.Root
+    <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
         if (!nextOpen) closeAndAbort();
       }}
+      size="lg"
+      padded={false}
+      className="flex flex-col overflow-hidden"
+      contentStyle={{ minHeight: 480, maxHeight: "min(640px, 90vh)" }}
     >
-      <RadixDialog.Portal>
-        <RadixDialog.Overlay className="fixed inset-0 z-50 bg-[var(--floating-scrim)]" />
-        <RadixDialog.Content
-          className="fixed left-1/2 top-1/2 z-50 flex w-[560px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-(--radius-island) border border-[var(--splitter-hover)] bg-popover text-popover-foreground outline-none"
-          style={{ minHeight: 480, maxHeight: "min(640px, 90vh)" }}
-        >
-          <RadixDialog.Title className="sr-only">Add Workspace</RadixDialog.Title>
-          <RadixDialog.Description className="sr-only">
-            Add a local or SSH workspace.
-          </RadixDialog.Description>
+      <RadixDialog.Title className="sr-only">Add Workspace</RadixDialog.Title>
+      <RadixDialog.Description className="sr-only">
+        Add a local or SSH workspace.
+      </RadixDialog.Description>
 
-          <div className="flex min-h-0 flex-1 flex-col">
-            {/* Fixed header */}
-            <DialogHeader
-              view={view}
-              showBack={showBack}
-              onBack={handleBack}
-              onClose={closeAndAbort}
-            />
+      <div className="flex min-h-0 flex-1 flex-col">
+        {/* Fixed header */}
+        <DialogHeader view={view} showBack={showBack} onBack={handleBack} onClose={closeAndAbort} />
 
-            {/* Scrollable body */}
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-              <ViewBody
-                view={view}
-                browseSession={browseSession}
-                prefillProfile={prefillProfile}
-                onViewChange={setView}
-                onWorkspaceCreated={onWorkspaceCreated}
-                onClose={closeAndAbort}
-                onConnected={handleConnected}
-                onNewConnection={handleNewConnection}
-                onNewConnectionPrefill={handleNewConnectionPrefill}
-                onSshServerList={() => setView("ssh-server-list")}
-                configHosts={configHosts}
-                configHostsLoading={configHostsLoading}
-                onConnectPhaseChange={(phase, disabled) => {
-                  setConnectPhase(phase);
-                  setConnectDisabled(disabled);
-                }}
-                onAddPhaseChange={(phase, disabled) => {
-                  setAddPhase(phase);
-                  setAddDisabled(disabled);
-                }}
-              />
-            </div>
+        {/* Scrollable body */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <ViewBody
+            view={view}
+            browseSession={browseSession}
+            prefillProfile={prefillProfile}
+            onViewChange={setView}
+            onWorkspaceCreated={onWorkspaceCreated}
+            onClose={closeAndAbort}
+            onConnected={handleConnected}
+            onNewConnection={handleNewConnection}
+            onNewConnectionPrefill={handleNewConnectionPrefill}
+            onSshServerList={() => setView("ssh-server-list")}
+            configHosts={configHosts}
+            configHostsLoading={configHostsLoading}
+            onConnectPhaseChange={(phase, disabled) => {
+              setConnectPhase(phase);
+              setConnectDisabled(disabled);
+            }}
+            onAddPhaseChange={(phase, disabled) => {
+              setAddPhase(phase);
+              setAddDisabled(disabled);
+            }}
+          />
+        </div>
 
-            {/* Fixed footer — only rendered when there's a primary action */}
-            {primarySlot ? (
-              <DialogFooter primarySlot={primarySlot} />
-            ) : null}
-          </div>
-        </RadixDialog.Content>
-      </RadixDialog.Portal>
-    </RadixDialog.Root>
+        {/* Fixed footer — only rendered when there's a primary action */}
+        {primarySlot ? <DialogFooter primarySlot={primarySlot} /> : null}
+      </div>
+    </Dialog>
   );
 }
 
@@ -259,12 +249,7 @@ interface DialogHeaderProps {
   readonly onClose: () => void;
 }
 
-function DialogHeader({
-  view,
-  showBack,
-  onBack,
-  onClose,
-}: DialogHeaderProps): React.JSX.Element {
+function DialogHeader({ view, showBack, onBack, onClose }: DialogHeaderProps): React.JSX.Element {
   return (
     <div className="shrink-0 border-b border-border px-5 pb-2 pt-3">
       {/* Title row — ← Back on left, title center-left, X on right.

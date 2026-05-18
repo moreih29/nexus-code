@@ -8,6 +8,7 @@ import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import type { GitEditorPrompt } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
+import { Dialog } from "../../../ui/dialog";
 
 interface CommitMessageDialogProps {
   prompt: GitEditorPrompt | null;
@@ -104,30 +105,25 @@ export function CommitMessageDialog({
   }
 
   return (
-    <RadixDialog.Root
+    <Dialog
       open={prompt !== null}
       onOpenChange={(open) => {
         if (!open) onCancel();
       }}
+      size="lg"
+      aria-describedby={undefined}
     >
-      <RadixDialog.Portal>
-        <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <RadixDialog.Content
-          className="fixed left-1/2 top-1/2 z-50 w-[560px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-island) border border-border bg-background p-5 text-foreground shadow-none outline-none"
-          aria-label="Commit message"
-        >
-          {prompt ? (
-            <CommitMessageDialogContent
-              prompt={prompt}
-              content={content}
-              busy={busy}
-              onContentChange={setContent}
-              onCancel={onCancel}
-              onSubmit={handleSubmit}
-            />
-          ) : null}
-        </RadixDialog.Content>
-      </RadixDialog.Portal>
-    </RadixDialog.Root>
+      <RadixDialog.Title className="sr-only">Commit message</RadixDialog.Title>
+      {prompt ? (
+        <CommitMessageDialogContent
+          prompt={prompt}
+          content={content}
+          busy={busy}
+          onContentChange={setContent}
+          onCancel={onCancel}
+          onSubmit={handleSubmit}
+        />
+      ) : null}
+    </Dialog>
   );
 }

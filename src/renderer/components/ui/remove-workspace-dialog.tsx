@@ -9,6 +9,7 @@
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 
 interface PendingPrompt {
@@ -67,30 +68,21 @@ export function RemoveWorkspaceDialogRoot(): React.JSX.Element {
   };
 
   return (
-    <RadixDialog.Root open={open} onOpenChange={handleOpenChange}>
-      <RadixDialog.Portal>
-        <RadixDialog.Overlay className="fixed inset-0 bg-[var(--floating-scrim)] z-50" />
-        <RadixDialog.Content
-          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[420px] max-w-[90vw] rounded-(--radius-island) border border-border bg-background p-5 outline-none"
-          aria-describedby={undefined}
-        >
-          <RadixDialog.Title className="text-app-body-emphasis text-foreground">
-            Remove{" "}
-            <span className="font-medium">&ldquo;{active?.name}&rdquo;</span> from Nexus?
-          </RadixDialog.Title>
-          <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-            The folder on disk is not touched. Only the workspace registration is removed.
-          </RadixDialog.Description>
-          <div className="mt-5 flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => resolveActive(false)}>
-              Cancel
-            </Button>
-            <Button variant="default" size="sm" onClick={() => resolveActive(true)} autoFocus>
-              Remove
-            </Button>
-          </div>
-        </RadixDialog.Content>
-      </RadixDialog.Portal>
-    </RadixDialog.Root>
+    <Dialog open={open} onOpenChange={handleOpenChange} size="sm" aria-describedby={undefined}>
+      <RadixDialog.Title className="text-app-body-emphasis text-foreground">
+        Remove <span className="font-medium">&ldquo;{active?.name}&rdquo;</span> from Nexus?
+      </RadixDialog.Title>
+      <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
+        The folder on disk is not touched. Only the workspace registration is removed.
+      </RadixDialog.Description>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={() => resolveActive(false)}>
+          Cancel
+        </Button>
+        <Button variant="default" size="sm" onClick={() => resolveActive(true)} autoFocus>
+          Remove
+        </Button>
+      </div>
+    </Dialog>
   );
 }

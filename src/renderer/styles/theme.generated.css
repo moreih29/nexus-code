@@ -178,6 +178,7 @@
   --surface-island-fg: oklch(0.982 0.0041 91.45);
   --surface-island-border: rgba(226, 226, 226, 0.35);
   --surface-island-inactive-veil: rgba(37, 36, 34, 0.55);
+  --surface-floating-border: rgba(226, 226, 226, 0.6);
   --state-drag-indicator: oklch(0.751 0.0031 84.56);
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
   --scrollbar-thumb-bg: rgba(226, 226, 226, 0.35);
@@ -266,6 +267,7 @@
   --surface-island-fg: oklch(0.982 0.0041 91.45);
   --surface-island-border: rgba(226, 226, 226, 0.35);
   --surface-island-inactive-veil: rgba(37, 36, 34, 0.55);
+  --surface-floating-border: rgba(226, 226, 226, 0.6);
   --state-drag-indicator: oklch(0.751 0.0031 84.56);
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
   --scrollbar-thumb-bg: rgba(226, 226, 226, 0.35);
@@ -354,6 +356,7 @@
   --surface-island-fg: oklch(0.96 0.004 240);
   --surface-island-border: rgba(200, 210, 240, 0.35);
   --surface-island-inactive-veil: rgba(34, 36, 42, 0.55);
+  --surface-floating-border: rgba(200, 210, 240, 0.6);
   --state-drag-indicator: oklch(0.72 0.006 245);
   --state-drop-target-bg: rgba(200, 210, 255, 0.08);
   --scrollbar-thumb-bg: rgba(200, 210, 240, 0.35);
@@ -442,6 +445,7 @@
   --surface-island-fg: oklch(0.22 0.008 100);
   --surface-island-border: rgba(50, 45, 30, 0.28);
   --surface-island-inactive-veil: rgba(234, 233, 230, 0.6);
+  --surface-floating-border: rgba(50, 45, 30, 0.42);
   --state-drag-indicator: oklch(0.42 0.008 100);
   --state-drop-target-bg: rgba(26, 25, 15, 0.08);
   --scrollbar-thumb-bg: rgba(50, 45, 30, 0.30);

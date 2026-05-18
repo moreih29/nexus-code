@@ -5,11 +5,11 @@
  * restrained chrome with the same background, border, and focus tokens.
  */
 import { ArrowBigUp } from "lucide-react";
-import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import type { SshAuthPrompt } from "../../../shared/ssh/auth-prompt";
 import { copyText } from "../../utils/clipboard";
 import { Button } from "../ui/button";
+import { Dialog } from "../ui/dialog";
 
 interface SshAuthPromptDialogProps {
   readonly prompt: SshAuthPrompt | null;
@@ -37,9 +37,9 @@ export function copySshHostKeyFingerprint(fingerprint: string): void {
 }
 
 /** Returns the masked input type for password/passphrase prompts. */
-export function sshAuthPromptInputType(field: Extract<SshAuthPrompt, { kind: "password" }>["field"]):
-  | "password"
-  | "text" {
+export function sshAuthPromptInputType(
+  field: Extract<SshAuthPrompt, { kind: "password" }>["field"],
+): "password" | "text" {
   return field === "password" || field === "passphrase" ? "password" : "text";
 }
 
@@ -170,34 +170,28 @@ export function SshAuthPromptDialog({
   }
 
   return (
-    <RadixDialog.Root
+    <Dialog
       open={prompt !== null}
       onOpenChange={(open) => {
         if (!open) onCancel();
       }}
+      size="md"
+      aria-labelledby={prompt ? `ssh-auth-title-${prompt.promptId}` : undefined}
+      aria-describedby={prompt ? `ssh-auth-description-${prompt.promptId}` : undefined}
     >
-      <RadixDialog.Portal>
-        <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <RadixDialog.Content
-          className="fixed left-1/2 top-1/2 z-50 w-[440px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-island) border border-border bg-background p-5 text-foreground shadow-none outline-none"
-          aria-labelledby={prompt ? `ssh-auth-title-${prompt.promptId}` : undefined}
-          aria-describedby={prompt ? `ssh-auth-description-${prompt.promptId}` : undefined}
-        >
-          {prompt ? (
-            <SshAuthPromptDialogContent
-              prompt={prompt}
-              passwordValue={passwordValue}
-              pendingMessage={pendingMessage}
-              busy={busy}
-              onPasswordChange={setPasswordValue}
-              onCancel={onCancel}
-              onCopyFingerprint={copySshHostKeyFingerprint}
-              onSubmit={handleSubmit}
-            />
-          ) : null}
-        </RadixDialog.Content>
-      </RadixDialog.Portal>
-    </RadixDialog.Root>
+      {prompt ? (
+        <SshAuthPromptDialogContent
+          prompt={prompt}
+          passwordValue={passwordValue}
+          pendingMessage={pendingMessage}
+          busy={busy}
+          onPasswordChange={setPasswordValue}
+          onCancel={onCancel}
+          onCopyFingerprint={copySshHostKeyFingerprint}
+          onSubmit={handleSubmit}
+        />
+      ) : null}
+    </Dialog>
   );
 }
 

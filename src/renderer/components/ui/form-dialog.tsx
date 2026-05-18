@@ -9,6 +9,7 @@
 
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
+import { Dialog } from "@/components/ui/dialog";
 import { Button } from "./button";
 
 export type FormDialogValues = Record<string, string>;
@@ -262,35 +263,31 @@ export function FormDialog({
   }
 
   return (
-    <RadixDialog.Root
+    <Dialog
       open={open}
       onOpenChange={(nextOpen) => handleFormDialogOpenChange(nextOpen, onCancel)}
+      size="md"
     >
-      <RadixDialog.Portal>
-        <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <RadixDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[480px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-island) border border-border bg-background p-5 text-foreground shadow-none outline-none">
-          <RadixDialog.Title className="sr-only">{title}</RadixDialog.Title>
-          {description ? (
-            <RadixDialog.Description className="sr-only">{description}</RadixDialog.Description>
-          ) : (
-            <RadixDialog.Description className="sr-only" />
-          )}
-          <FormDialogContent
-            title={title}
-            description={description}
-            fields={fields}
-            values={values}
-            busy={busy}
-            submitLabel={submitLabel}
-            cancelLabel={cancelLabel}
-            errorClassName={errorClassName}
-            extraContent={extraContent}
-            onValueChange={handleValueChange}
-            onCancel={onCancel}
-            onSubmit={handleSubmit}
-          />
-        </RadixDialog.Content>
-      </RadixDialog.Portal>
-    </RadixDialog.Root>
+      <RadixDialog.Title className="sr-only">{title}</RadixDialog.Title>
+      {description ? (
+        <RadixDialog.Description className="sr-only">{description}</RadixDialog.Description>
+      ) : (
+        <RadixDialog.Description className="sr-only" />
+      )}
+      <FormDialogContent
+        title={title}
+        description={description}
+        fields={fields}
+        values={values}
+        busy={busy}
+        submitLabel={submitLabel}
+        cancelLabel={cancelLabel}
+        errorClassName={errorClassName}
+        extraContent={extraContent}
+        onValueChange={handleValueChange}
+        onCancel={onCancel}
+        onSubmit={handleSubmit}
+      />
+    </Dialog>
   );
 }

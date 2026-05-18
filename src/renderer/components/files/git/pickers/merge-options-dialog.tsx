@@ -9,6 +9,7 @@ import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import type { GitMergeMode, LogEntry } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
+import { Dialog } from "../../../ui/dialog";
 
 export type MergeOption = "merge-commit" | "fast-forward" | "squash";
 
@@ -172,35 +173,31 @@ export function MergeOptionsDialog({
   }
 
   return (
-    <RadixDialog.Root
+    <Dialog
       open={request !== null}
       onOpenChange={(nextOpen) => {
         if (!nextOpen) onCancel();
       }}
+      size="md"
     >
-      <RadixDialog.Portal>
-        <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <RadixDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[480px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-island) border border-border bg-background p-5 text-foreground shadow-none outline-none">
-          <RadixDialog.Title className="sr-only">
-            {request ? `Merge ${request.targetRef}` : "Merge options"}
-          </RadixDialog.Title>
-          <RadixDialog.Description className="sr-only">
-            {request
-              ? `Choose how to merge ${request.targetRef} into the current branch.`
-              : "Choose a merge strategy."}
-          </RadixDialog.Description>
-          {request ? (
-            <MergeOptionsDialogContent
-              targetRef={request.targetRef}
-              option={option}
-              busy={busy}
-              onOptionChange={setOption}
-              onCancel={onCancel}
-              onSubmit={handleSubmit}
-            />
-          ) : null}
-        </RadixDialog.Content>
-      </RadixDialog.Portal>
-    </RadixDialog.Root>
+      <RadixDialog.Title className="sr-only">
+        {request ? `Merge ${request.targetRef}` : "Merge options"}
+      </RadixDialog.Title>
+      <RadixDialog.Description className="sr-only">
+        {request
+          ? `Choose how to merge ${request.targetRef} into the current branch.`
+          : "Choose a merge strategy."}
+      </RadixDialog.Description>
+      {request ? (
+        <MergeOptionsDialogContent
+          targetRef={request.targetRef}
+          option={option}
+          busy={busy}
+          onOptionChange={setOption}
+          onCancel={onCancel}
+          onSubmit={handleSubmit}
+        />
+      ) : null}
+    </Dialog>
   );
 }

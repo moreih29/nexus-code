@@ -134,6 +134,10 @@ export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string
     "--surface-island-fg": tokens["surface.island.fg"],
     "--surface-island-border": tokens["surface.island.border"],
     "--surface-island-inactive-veil": tokens["surface.island.inactive.veil"],
+    // Floating outer border — the Floating layer (dialogs/menus/popovers) may
+    // carry an outline, unlike islands (design.md §2). Exposed under a properly
+    // named var so dialogs stop borrowing the misnamed --splitter-hover alias.
+    "--surface-floating-border": tokens["surface.floating.border"],
     // Drag-and-drop — insertion indicator + valid drop target (design.md §8)
     "--state-drag-indicator": tokens["state.drag.indicator"],
     "--state-drop-target-bg": tokens["state.drop.target.bg"],
