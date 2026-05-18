@@ -321,7 +321,7 @@ function GitBranchFetchStatus({
     return (
       <div
         role="status"
-        className="mt-2 flex items-center gap-2 rounded-[--radius-control] bg-muted px-2 py-1 text-app-ui-sm text-muted-foreground"
+        className="mt-2 flex items-center gap-2 rounded-(--radius-control) bg-muted px-2 py-1 text-app-ui-sm text-muted-foreground"
       >
         <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
         <span>Fetching…</span>
@@ -334,12 +334,12 @@ function GitBranchFetchStatus({
   return (
     <div
       role="alert"
-      className="mt-2 flex items-center justify-between gap-2 rounded-[--radius-control] bg-muted px-2 py-1 text-app-ui-sm text-muted-foreground"
+      className="mt-2 flex items-center justify-between gap-2 rounded-(--radius-control) bg-muted px-2 py-1 text-app-ui-sm text-muted-foreground"
     >
       <span>Fetch failed</span>
       <button
         type="button"
-        className="rounded-[--radius-control] px-1 text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none"
+        className="rounded-(--radius-control) px-1 text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none"
         onClick={onRetry}
       >
         Retry
@@ -426,7 +426,7 @@ function BranchAutofetchSubmenu({
         role="menuitem"
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none"
+        className="flex w-full items-center justify-between gap-3 rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none"
         onClick={() => onOpenChange(!open)}
       >
         <span>Autofetch</span>
@@ -468,7 +468,7 @@ function ContextMenuButton({
       role="menuitem"
       disabled={disabled}
       title={title}
-      className="flex w-full rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+      className="flex w-full rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
       onClick={onClick}
     >
       {label}

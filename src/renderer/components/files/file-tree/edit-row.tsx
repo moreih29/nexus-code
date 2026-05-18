@@ -89,7 +89,7 @@ export function FileTreeEditRow({
           onBlur={handleBlur}
           className={cn(
             "ml-1 flex-1 min-w-0 text-app-body bg-input/50 outline-none",
-            "border border-border rounded-[--radius-control] px-1 h-5",
+            "border border-border rounded-(--radius-control) px-1 h-5",
             validationError && "border-destructive",
           )}
         />

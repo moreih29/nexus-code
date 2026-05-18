@@ -113,7 +113,7 @@ export function MergeOptionsDialogContent({
               <label
                 key={item.option}
                 htmlFor={inputId}
-                className="flex cursor-pointer items-start gap-3 rounded-[--radius-container] border border-border bg-muted px-3 py-2 text-app-ui-sm"
+                className="flex cursor-pointer items-start gap-3 rounded-(--radius-raised) border border-border bg-muted px-3 py-2 text-app-ui-sm"
               >
                 <input
                   id={inputId}
@@ -134,7 +134,7 @@ export function MergeOptionsDialogContent({
           })}
         </fieldset>
         {option === "squash" ? (
-          <p className="rounded-[--radius-container] border border-border bg-muted px-3 py-2 text-app-ui-sm text-muted-foreground">
+          <p className="rounded-(--radius-raised) border border-border bg-muted px-3 py-2 text-app-ui-sm text-muted-foreground">
             Squash stages the merged changes and fills a commit message draft. Review the staged
             result, then commit manually.
           </p>
@@ -180,7 +180,7 @@ export function MergeOptionsDialog({
     >
       <RadixDialog.Portal>
         <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <RadixDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[480px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-[--radius-container] border border-border bg-background p-5 text-foreground shadow-none outline-none">
+        <RadixDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[480px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-island) border border-border bg-background p-5 text-foreground shadow-none outline-none">
           <RadixDialog.Title className="sr-only">
             {request ? `Merge ${request.targetRef}` : "Merge options"}
           </RadixDialog.Title>

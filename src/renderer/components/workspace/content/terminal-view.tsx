@@ -116,12 +116,12 @@ export function TerminalViewLayout({
   containerRef,
 }: TerminalViewLayoutProps) {
   return (
-    <div className="w-full h-full bg-background flex flex-col min-h-0">
+    <div className="w-full h-full flex flex-col min-h-0">
       {banner}
       <div
         ref={containerRef}
         className={cn(
-          "w-full min-h-0 flex-1 bg-background pointer-events-auto",
+          "w-full min-h-0 flex-1 pointer-events-auto",
           terminalEnded && "opacity-60",
         )}
       />

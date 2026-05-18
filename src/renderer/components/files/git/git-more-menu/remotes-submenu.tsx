@@ -44,7 +44,7 @@ export function RemotesSubmenu({
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={disabled}
-        className="flex w-full items-center justify-between gap-3 rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+        className="flex w-full items-center justify-between gap-3 rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
         onClick={() => onOpenChange(!open)}
       >
         <span>Remote</span>
@@ -91,8 +91,8 @@ function RemoteLabel({ label, muted = false }: { label: string; muted?: boolean 
     <div
       className={
         muted
-          ? "flex w-full rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-muted-foreground"
-          : "flex w-full rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-foreground"
+          ? "flex w-full rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-muted-foreground"
+          : "flex w-full rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground"
       }
     >
       {label}
@@ -132,7 +132,7 @@ function RemoveRemoteSubmenu({
         aria-expanded={open}
         disabled={disabled}
         title={remotes.length === 0 ? "No remotes configured." : undefined}
-        className="flex w-full items-center justify-between gap-3 rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+        className="flex w-full items-center justify-between gap-3 rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
         onClick={() => onOpenChange(!open)}
       >
         <span>Remove remote…</span>

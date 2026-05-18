@@ -59,8 +59,8 @@ function SegmentButton({
       disabled={disabled}
       className={
         selected
-          ? "rounded-[--radius-control] bg-[var(--state-active-bg)] px-3 py-1 text-app-ui-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-          : "rounded-[--radius-control] px-3 py-1 text-app-ui-sm text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
+          ? "rounded-(--radius-control) bg-[var(--state-active-bg)] px-3 py-1 text-app-ui-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          : "rounded-(--radius-control) px-3 py-1 text-app-ui-sm text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
       }
       onClick={onClick}
     >

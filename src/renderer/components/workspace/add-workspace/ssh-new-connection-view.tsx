@@ -255,7 +255,7 @@ export function SshNewConnectionView({
       {/* Error message */}
       {errorMessage ? (
         <div
-          className="flex items-start gap-2 rounded-[--radius-control] border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-2 py-2"
+          className="flex items-start gap-2 rounded-(--radius-control) border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-2 py-2"
           role="alert"
         >
           <AlertCircle
@@ -288,7 +288,7 @@ export function SshNewConnectionView({
               onKeyDown={handleHostKeyDown}
               disabled={connecting}
               placeholder="user@host or ~/.ssh/config alias"
-              className="min-w-0 flex-1 rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
+              className="min-w-0 flex-1 rounded-(--radius-control) border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
             />
             <Button
               type="button"
@@ -307,7 +307,7 @@ export function SshNewConnectionView({
             <div
               id={NEW_CONN_HOST_OPTIONS_ID}
               role="listbox"
-              className="absolute left-0 right-10 top-[calc(100%+4px)] z-10 max-h-44 overflow-y-auto rounded-[--radius-control] border border-border bg-popover p-1 text-popover-foreground"
+              className="absolute left-0 right-10 top-[calc(100%+4px)] z-10 max-h-44 overflow-y-auto rounded-(--radius-control) border border-border bg-popover p-1 text-popover-foreground"
             >
               {filteredHosts.map((host, index) => (
                 <button
@@ -316,13 +316,13 @@ export function SshNewConnectionView({
                   type="button"
                   role="option"
                   aria-selected={index === activeHostIndex}
-                  className="flex w-full min-w-0 flex-col rounded-[--radius-control] px-2 py-2 text-left text-app-ui-sm hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none aria-selected:bg-[var(--state-active-bg)]"
+                  className="flex w-full min-w-0 flex-col rounded-(--radius-control) px-2 py-2 text-left text-app-ui-sm hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none aria-selected:bg-[var(--state-active-bg)]"
                   onClick={() => handleSelectHost(host)}
                 >
                   <span className="truncate text-foreground">{host.alias}</span>
                   <span className="flex items-center gap-1 truncate text-app-ui-sm text-muted-foreground">
                     {formatSshHostSummary(host)}
-                    <span className="shrink-0 rounded-[--radius-control] bg-muted px-1 text-app-micro text-muted-foreground">
+                    <span className="shrink-0 rounded-(--radius-control) bg-muted px-1 text-app-micro text-muted-foreground">
                       ~/.ssh/config
                     </span>
                   </span>
@@ -356,12 +356,12 @@ export function SshNewConnectionView({
           onChange={(e) => setName(e.currentTarget.value)}
           disabled={connecting}
           placeholder="e.g. Production server"
-          className="w-full rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
+          className="w-full rounded-(--radius-control) border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
         />
       </div>
 
       {/* Advanced collapsible */}
-      <div className="rounded-[--radius-control] border border-border px-3 py-2">
+      <div className="rounded-(--radius-control) border border-border px-3 py-2">
         <button
           type="button"
           className="flex w-full items-center justify-between text-left text-app-ui-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
@@ -396,7 +396,7 @@ export function SshNewConnectionView({
                 aria-invalid={portError ? true : undefined}
                 aria-describedby={portError ? NEW_CONN_PORT_ERROR_ID : undefined}
                 placeholder="22"
-                className="w-full rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50 aria-invalid:border-[var(--state-error-border)]"
+                className="w-full rounded-(--radius-control) border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50 aria-invalid:border-[var(--state-error-border)]"
               />
               {portError ? (
                 <p id={NEW_CONN_PORT_ERROR_ID} className="text-app-ui-sm text-[var(--state-error-fg)]">
@@ -414,7 +414,7 @@ export function SshNewConnectionView({
                 onChange={(e) => setIdentityFile(e.currentTarget.value)}
                 disabled={connecting}
                 placeholder="~/.ssh/id_ed25519"
-                className="w-full rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
+                className="w-full rounded-(--radius-control) border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
               />
             </div>
           </div>

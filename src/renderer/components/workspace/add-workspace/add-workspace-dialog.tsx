@@ -194,7 +194,7 @@ export function AddWorkspaceDialog({
       <RadixDialog.Portal>
         <RadixDialog.Overlay className="fixed inset-0 z-50 bg-[var(--floating-scrim)]" />
         <RadixDialog.Content
-          className="fixed left-1/2 top-1/2 z-50 flex w-[560px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[--radius-container] border border-[var(--splitter-hover)] bg-popover text-popover-foreground outline-none"
+          className="fixed left-1/2 top-1/2 z-50 flex w-[560px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-(--radius-island) border border-[var(--splitter-hover)] bg-popover text-popover-foreground outline-none"
           style={{ minHeight: 480, maxHeight: "min(640px, 90vh)" }}
         >
           <RadixDialog.Title className="sr-only">Add Workspace</RadixDialog.Title>
@@ -276,7 +276,7 @@ function DialogHeader({
             type="button"
             onClick={onBack}
             aria-label="Back"
-            className="inline-flex size-8 shrink-0 items-center justify-center rounded-[--radius-control] text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50"
           >
             <ArrowLeft className="size-4" aria-hidden="true" />
           </button>
@@ -295,7 +295,7 @@ function DialogHeader({
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="inline-flex size-8 shrink-0 items-center justify-center rounded-[--radius-control] text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          className="inline-flex size-8 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         >
           <X className="size-4" aria-hidden="true" />
         </button>

@@ -23,6 +23,10 @@ export const AppStateSchema = z.object({
   // Theme preference persisted to appState (authoritative store).
   // localStorage is also written as a boot cache for FOUC prevention.
   themePreference: ThemePreferenceSchema.optional(),
+  // Window opacity (0–1). 1 = fully opaque (default, omitted from storage).
+  // Mirrors Ghostty's background-opacity semantics.
+  // Changing this requires an app restart — `transparent` is constructor-only in Electron.
+  windowOpacity: z.number().min(0).max(1).optional(),
 });
 
 export type WindowBounds = z.infer<typeof WindowBoundsSchema>;

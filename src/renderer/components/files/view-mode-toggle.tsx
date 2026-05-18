@@ -99,7 +99,7 @@ export function ViewModeToggle({
           </RadixTooltip.Trigger>
           <RadixTooltip.Portal>
             <RadixTooltip.Content
-              className="px-2 py-1 text-app-micro bg-muted text-foreground border border-border rounded-[--radius-control] shadow-none"
+              className="px-2 py-1 text-app-micro bg-muted text-foreground border border-border rounded-(--radius-control) shadow-none"
               sideOffset={4}
             >
               {toggleLabel}
@@ -133,7 +133,7 @@ export function ViewModeToggle({
               </RadixTooltip.Trigger>
               <RadixTooltip.Portal>
                 <RadixTooltip.Content
-                  className="px-2 py-1 text-app-micro bg-muted text-foreground border border-border rounded-[--radius-control] shadow-none"
+                  className="px-2 py-1 text-app-micro bg-muted text-foreground border border-border rounded-(--radius-control) shadow-none"
                   sideOffset={4}
                 >
                   폴더 압축
@@ -180,7 +180,7 @@ function CompactMenuItem({ checked, onToggle }: CompactMenuItemProps) {
       type="button"
       role="menuitemcheckbox"
       aria-checked={checked}
-      className="flex w-full items-center gap-2 rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+      className="flex w-full items-center gap-2 rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
       onClick={onToggle}
     >
       {/* Checkmark placeholder — always present in layout to avoid text jump */}

@@ -71,6 +71,30 @@ export interface EditorPalette {
   warningBackground: string;
   infoBackground: string;
   hintBackground: string;
+  // editor surface — translucent (#rrggbbaa) so the macOS window vibrancy
+  // shows through the editor area, matching the translucent island shells.
+  editorBackground: string;
+  // syntax highlighting — design.md §15.1 closed role set (15 roles).
+  // Authored with the Nexus palette (NOT inherited from Monaco vs/vs-dark).
+  // Saturation exception: §8 "색-의미 통제 예외" — hue is permitted beyond the
+  // §1 C ≤ 0.012 chrome limit, held to the minimum chroma for legibility and
+  // WCAG 4.5:1 vs the editor surface. Chromatic hues are constant across themes;
+  // the warm/cool tint lives in the neutral roles (variable/property/comment).
+  syntaxKeyword: string;
+  syntaxString: string;
+  syntaxNumber: string;
+  syntaxComment: string;
+  syntaxFunction: string;
+  syntaxType: string;
+  syntaxVariable: string;
+  syntaxConstant: string;
+  syntaxProperty: string;
+  syntaxOperator: string;
+  syntaxTag: string;
+  syntaxAttribute: string;
+  syntaxNamespace: string;
+  syntaxRegexp: string;
+  syntaxInvalid: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +143,23 @@ const warmDarkPalette: EditorPalette = {
   warningBackground: "#faf9f60d", // warmParchment α 0.05 [MANUAL]
   infoBackground: "#00000000", // transparent [MANUAL — 8-digit for monaco compat]
   hintBackground: "#00000000", // transparent [MANUAL]
+  editorBackground: "#00000000", // fully transparent — editor shows the island surface (no stacked layer)
+  // syntax — derived from OKLCH (§15.1). Chromatic L≈0.78-0.82, neutral fg 0.90.
+  syntaxKeyword: "#f0a27f", // oklch(0.78 0.105 45)  warm-rust   contrast 9.1
+  syntaxString: "#99ce9a", // oklch(0.80 0.090 145) green       contrast 10.4
+  syntaxNumber: "#e3be85", // oklch(0.82 0.085 78)  amber       contrast 10.7
+  syntaxComment: "#888680", // oklch(0.62 0.010 95)  warm dim    contrast 5.2
+  syntaxFunction: "#8ac7ea", // oklch(0.80 0.080 235) blue       contrast 10.2
+  syntaxType: "#90d0e0", // oklch(0.82 0.068 215) cyan        contrast 11.0
+  syntaxVariable: "#dfdeda", // oklch(0.90 0.006 95)  warm fg     contrast 14.0
+  syntaxConstant: "#e3be85", // oklch(0.82 0.085 78)  amber (= number)
+  syntaxProperty: "#dfdeda", // oklch(0.90 0.006 95)  warm fg (= variable)
+  syntaxOperator: "#b9b7b2", // oklch(0.78 0.008 95)  warm dim-fg contrast 9.4
+  syntaxTag: "#f0a27f", // oklch(0.78 0.105 45)  warm-rust (= keyword)
+  syntaxAttribute: "#e3be85", // oklch(0.82 0.085 78)  amber (= number)
+  syntaxNamespace: "#90d0e0", // oklch(0.82 0.068 215) cyan (= type)
+  syntaxRegexp: "#87d3b9", // oklch(0.81 0.085 170) green-teal  contrast 10.8
+  syntaxInvalid: "#f8554c", // oklch(0.67 0.200 27)  error red   contrast 5.7
 };
 
 // ---------------------------------------------------------------------------
@@ -168,6 +209,24 @@ const coolDarkPalette: EditorPalette = {
   warningBackground: "#eff2f40d", // cool fg α 0.05 [MANUAL]
   infoBackground: "#00000000", // transparent [MANUAL]
   hintBackground: "#00000000", // transparent [MANUAL]
+  editorBackground: "#00000000", // fully transparent — editor shows the island surface
+  // syntax — chromatic hues identical to warm-dark; only neutral roles
+  // (variable/property/comment/operator) carry the cool tint (h 245).
+  syntaxKeyword: "#f0a27f", // oklch(0.78 0.105 45)  warm-rust   contrast 9.1
+  syntaxString: "#99ce9a", // oklch(0.80 0.090 145) green       contrast 10.4
+  syntaxNumber: "#e3be85", // oklch(0.82 0.085 78)  amber       contrast 10.7
+  syntaxComment: "#81878c", // oklch(0.62 0.010 245) cool dim    contrast 5.2
+  syntaxFunction: "#8ac7ea", // oklch(0.80 0.080 235) blue       contrast 10.2
+  syntaxType: "#90d0e0", // oklch(0.82 0.068 215) cyan        contrast 11.0
+  syntaxVariable: "#dbdee2", // oklch(0.90 0.006 245) cool fg     contrast 13.9
+  syntaxConstant: "#e3be85", // oklch(0.82 0.085 78)  amber (= number)
+  syntaxProperty: "#dbdee2", // oklch(0.90 0.006 245) cool fg (= variable)
+  syntaxOperator: "#b3b8bc", // oklch(0.78 0.008 245) cool dim-fg contrast 9.4
+  syntaxTag: "#f0a27f", // oklch(0.78 0.105 45)  warm-rust (= keyword)
+  syntaxAttribute: "#e3be85", // oklch(0.82 0.085 78)  amber (= number)
+  syntaxNamespace: "#90d0e0", // oklch(0.82 0.068 215) cyan (= type)
+  syntaxRegexp: "#87d3b9", // oklch(0.81 0.085 170) green-teal  contrast 10.8
+  syntaxInvalid: "#f8554c", // oklch(0.67 0.200 27)  error red   contrast 5.7
 };
 
 // ---------------------------------------------------------------------------
@@ -230,6 +289,24 @@ const warmLightPalette: EditorPalette = {
   warningBackground: "#905e000d", // warning color α 0.05
   infoBackground: "#00000000", // transparent [MANUAL]
   hintBackground: "#00000000", // transparent [MANUAL]
+  editorBackground: "#00000000", // fully transparent — editor shows the island surface
+  // syntax — light reversal: chromatic L≈0.46-0.52 (dark on light), neutral
+  // fg 0.30. Same hues as the dark themes; lightness drops for WCAG on #f4f3f0.
+  syntaxKeyword: "#a14206", // oklch(0.50 0.140 45)  warm-rust   contrast 5.8
+  syntaxString: "#25682c", // oklch(0.46 0.115 145) green       contrast 6.1
+  syntaxNumber: "#8d5f00", // oklch(0.52 0.115 78)  amber       contrast 5.0
+  syntaxComment: "#6b6960", // oklch(0.52 0.014 95)  warm dim    contrast 5.0
+  syntaxFunction: "#00669b", // oklch(0.48 0.130 235) blue       contrast 5.6
+  syntaxType: "#00657b", // oklch(0.46 0.100 215) cyan        contrast 6.0
+  syntaxVariable: "#302e27", // oklch(0.30 0.012 95)  warm fg     contrast 12.3
+  syntaxConstant: "#8d5f00", // oklch(0.52 0.115 78)  amber (= number)
+  syntaxProperty: "#302e27", // oklch(0.30 0.012 95)  warm fg (= variable)
+  syntaxOperator: "#4f4d47", // oklch(0.42 0.010 95)  warm dim-fg contrast 7.6
+  syntaxTag: "#a14206", // oklch(0.50 0.140 45)  warm-rust (= keyword)
+  syntaxAttribute: "#8d5f00", // oklch(0.52 0.115 78)  amber (= number)
+  syntaxNamespace: "#00657b", // oklch(0.46 0.100 215) cyan (= type)
+  syntaxRegexp: "#006d52", // oklch(0.47 0.105 170) green-teal  contrast 5.7
+  syntaxInvalid: "#c00007", // oklch(0.50 0.215 27)  error red   contrast 5.9
 };
 
 // ---------------------------------------------------------------------------

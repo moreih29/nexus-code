@@ -171,7 +171,7 @@ export function FormDialogContent({
                     value={value}
                     onChange={(event) => onValueChange(field.name, event.target.value)}
                     placeholder={field.placeholder}
-                    className={`min-h-20 w-full resize-y rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring ${field.inputClassName ?? ""}`}
+                    className={`min-h-20 w-full resize-y rounded-(--radius-control) border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring ${field.inputClassName ?? ""}`}
                     aria-invalid={error ? true : undefined}
                     aria-describedby={error || field.helperText ? helpId : undefined}
                     disabled={busy}
@@ -187,7 +187,7 @@ export function FormDialogContent({
                     value={value}
                     onChange={(event) => onValueChange(field.name, event.target.value)}
                     placeholder={field.placeholder}
-                    className={`w-full rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring ${field.inputClassName ?? ""}`}
+                    className={`w-full rounded-(--radius-control) border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring ${field.inputClassName ?? ""}`}
                     aria-invalid={error ? true : undefined}
                     aria-describedby={error || field.helperText ? helpId : undefined}
                     disabled={busy}
@@ -268,7 +268,7 @@ export function FormDialog({
     >
       <RadixDialog.Portal>
         <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <RadixDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[480px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-[--radius-container] border border-border bg-background p-5 text-foreground shadow-none outline-none">
+        <RadixDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[480px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-island) border border-border bg-background p-5 text-foreground shadow-none outline-none">
           <RadixDialog.Title className="sr-only">{title}</RadixDialog.Title>
           {description ? (
             <RadixDialog.Description className="sr-only">{description}</RadixDialog.Description>

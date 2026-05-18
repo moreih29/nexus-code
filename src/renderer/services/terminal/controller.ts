@@ -176,6 +176,9 @@ class XtermTerminalController implements TerminalController {
 
     const term = this.deps.createTerminal({
       cursorBlink: true,
+      // allowTransparency lets the translucent theme `background` composite
+      // over the macOS window vibrancy (whole-window translucency).
+      allowTransparency: true,
       fontFamily: fontFamily.monoDisplay,
       fontSize,
       theme: TERMINAL_PALETTES[initialThemeId],
@@ -229,25 +232,17 @@ class XtermTerminalController implements TerminalController {
   }
 
   private loadRendererAddon(term: TerminalLike): void {
+    // Canvas renderer — NOT WebGL. The WebGL addon clears its canvas to an
+    // opaque background and ignores `allowTransparency`, so the terminal can
+    // never be translucent under it. The Canvas addon honors transparency,
+    // which the whole-window vibrancy requires. Trade-off: Canvas is slightly
+    // less performant than WebGL, accepted for the translucency feature.
     try {
-      const webgl = this.deps.createWebglAddon();
-      webgl.onContextLoss(() => {
-        webgl.dispose();
-        if (this.disposed || this.term !== term) return;
-        const canvas = this.deps.createCanvasAddon();
-        term.loadAddon(canvas);
-        this.rendererAddon = canvas;
-      });
-      term.loadAddon(webgl);
-      this.rendererAddon = webgl;
+      const canvas = this.deps.createCanvasAddon();
+      term.loadAddon(canvas);
+      this.rendererAddon = canvas;
     } catch {
-      try {
-        const canvas = this.deps.createCanvasAddon();
-        term.loadAddon(canvas);
-        this.rendererAddon = canvas;
-      } catch {
-        this.rendererAddon = null;
-      }
+      this.rendererAddon = null;
     }
   }
 

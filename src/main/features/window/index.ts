@@ -1,10 +1,10 @@
 import { join } from "node:path";
 import { BrowserWindow, shell } from "electron";
+import type { ThemeId } from "../../../shared/design-tokens";
 import { color } from "../../../shared/design-tokens";
 import { THEMES } from "../../../shared/design-tokens/themes";
-import type { ThemeId } from "../../../shared/design-tokens";
-import type { AppState } from "../../infra/storage/state-service";
 import { isMac } from "../../infra/platform";
+import type { AppState } from "../../infra/storage/state-service";
 
 // Custom titlebar height (px) — must match TitleBar component's h-9 (36px)
 // and titleBarOverlay.height on Win/Linux for visual alignment.
@@ -34,15 +34,17 @@ function getTitleBarColors(themePreference: AppState["themePreference"]): {
   symbol: string;
 } {
   const themeId: ThemeId =
-    themePreference && themePreference in THEMES
-      ? (themePreference as ThemeId)
-      : "warm-dark";
+    themePreference && themePreference in THEMES ? (themePreference as ThemeId) : "warm-dark";
   return THEME_TITLEBAR_COLORS[themeId];
 }
 
 export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   const mac = isMac();
   const { bg: titleBg, symbol: titleSymbol } = getTitleBarColors(appState?.themePreference);
+
+  // `transparent` is a constructor-only Electron option — changing windowOpacity
+  // later requires an app restart to take effect.
+  const wantsTransparency = (appState?.windowOpacity ?? 1) < 1;
 
   const win = new BrowserWindow({
     width: 1280,
@@ -54,7 +56,17 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
     //   - Win/Linux: titleBarOverlay renders themed min/max/close at top-right.
     titleBarStyle: mac ? "hiddenInset" : "hidden",
     ...(mac
-      ? {}
+      ? wantsTransparency
+        ? {
+            // Fully transparent window (NOT vibrancy). Wherever the renderer
+            // paints transparent, the desktop shows through CRISPLY with no
+            // blur/frost. vibrancy gives a softer frosted look; `transparent`
+            // gives the sharp Ghostty-style see-through. The renderer root
+            // (html/body, App root, titlebar) is transparent.
+            transparent: true,
+            backgroundColor: "#00000000",
+          }
+        : {}
       : {
           titleBarOverlay: {
             // Match the renderer titlebar's chrome background for the active theme.

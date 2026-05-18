@@ -20,15 +20,15 @@
 
 import { AlertTriangle, GitBranch, Loader2, Server, XCircle } from "lucide-react";
 import { cn } from "@/utils/cn";
+import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { selectWorkspaceDiagnostics, useDiagnosticsStore } from "../../state/stores/diagnostics";
-import { useGitSession } from "../../state/stores/git";
 import type { GitInFlightOp } from "../../state/stores/git";
+import { useGitSession } from "../../state/stores/git";
 import {
   selectWorkspaceConnectionStatus,
   useWorkspacesStore,
   type WorkspaceConnectionStatus,
 } from "../../state/stores/workspaces";
-import type { WorkspaceMeta } from "../../../shared/types/workspace";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -43,9 +43,7 @@ interface StatusBarProps {
 // ---------------------------------------------------------------------------
 
 export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
-  const workspace = useWorkspacesStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId),
-  );
+  const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
   const connectionStatus = useWorkspacesStore((s) =>
     selectWorkspaceConnectionStatus(s, workspaceId),
   );
@@ -65,9 +63,11 @@ export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
 
   return (
     <div
-      className="flex shrink-0 h-6 items-center border-t border-border select-none overflow-hidden"
+      className="flex shrink-0 h-6 items-center select-none overflow-hidden"
       style={{
-        backgroundColor: "var(--status-bar-bg)",
+        // No backgroundColor — the status bar is transparent so the window
+        // vibrancy shows through (whole-window translucency). It is the
+        // editor island's footer; the island surface shows behind it.
         color: "var(--status-bar-fg)",
       }}
       role="status"

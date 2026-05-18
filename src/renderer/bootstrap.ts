@@ -7,12 +7,13 @@
 
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCall } from "./ipc/client";
-import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
 import { registerStatePersistence } from "./state/persistence";
 import { useLayoutStore } from "./state/stores/layout";
 import { useTabsStore } from "./state/stores/tabs";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
+import { useWindowOpacityStore } from "./state/stores/window-opacity";
+import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
 
 /**
  * Hydrate persisted UI widths, layout snapshots, and tab records from
@@ -39,6 +40,9 @@ export async function bootstrapAppState(): Promise<void> {
   // Hydrate theme from appState (authoritative store).
   // This overwrites the localStorage-based initial value so the two stay in sync.
   useThemeStore.getState().hydrate(state.themePreference);
+
+  // Hydrate window opacity from appState (authoritative store).
+  useWindowOpacityStore.getState().hydrate(state.windowOpacity);
 
   if (state.layoutByWorkspace) {
     for (const [wsId, snap] of Object.entries(state.layoutByWorkspace)) {
@@ -68,6 +72,20 @@ export async function bootstrapAppState(): Promise<void> {
   }
 
   registerStatePersistence();
+
+  // Dev-only console helper for testing window transparency before a settings
+  // UI exists. `__setWindowOpacity(0.5)` dual-writes localStorage + appState
+  // (mirrors what a future settings control will call). The renderer surfaces
+  // update live, but the OS window's `transparent` flag is fixed at
+  // window-creation time — restart the app to see the window go transparent.
+  if (import.meta.env?.DEV) {
+    (window as unknown as { __setWindowOpacity?: (v: number) => void }).__setWindowOpacity = (
+      v: number,
+    ) => {
+      useWindowOpacityStore.getState().setOpacity(v);
+      console.info(`[dev] windowOpacity = ${v} — restart the app to apply the window flag.`);
+    };
+  }
 }
 
 /**

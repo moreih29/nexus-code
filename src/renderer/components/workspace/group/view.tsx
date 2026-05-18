@@ -171,7 +171,10 @@ export function GroupView({
       ref={wrapperRef}
       className={cn(
         "flex flex-col min-h-0 min-w-0 flex-1",
-        isActive && "bg-[var(--tab-active-bg)]",
+        // Active-group signal — an inset ring, NOT a background fill. A fill
+        // would stack another translucent layer over the island surface and
+        // reduce the whole-window translucency (design: one surface layer).
+        isActive && "ring-1 ring-inset ring-[var(--ring)]",
       )}
       onClick={handleGroupClick}
     >

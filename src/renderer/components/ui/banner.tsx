@@ -53,7 +53,7 @@ function BannerIcon({ variant, className }: { variant: BannerVariant; className?
 
 /**
  * Inline display — padded notice box inside a panel scroll area.
- * Geometry: mx-2 my-1, rounded-[--radius-container], border, variable height.
+ * Geometry: mx-2 my-1, rounded-(--radius-raised), border, variable height.
  */
 function InlineBanner({
   variant = "info",
@@ -67,7 +67,7 @@ function InlineBanner({
   return (
     <div
       className={cn(
-        "mx-2 my-1 flex flex-col gap-2 rounded-[--radius-container] border px-2 py-2 text-app-ui-sm",
+        "mx-2 my-1 flex flex-col gap-2 rounded-(--radius-raised) border px-2 py-2 text-app-ui-sm",
         bannerColorClass(variant),
         className,
       )}

@@ -378,7 +378,7 @@ export function LocalListView({
               <button
                 type="button"
                 onClick={() => setShowAllRecent((prev) => !prev)}
-                className="mt-1 w-full rounded-[--radius-control] px-2 py-2 text-left text-app-ui-sm text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                className="mt-1 w-full rounded-(--radius-control) px-2 py-2 text-left text-app-ui-sm text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
               >
                 {showAllRecent ? "Show less" : `Show ${recents.length - RECENT_MAX_DEFAULT} more`}
               </button>
@@ -452,7 +452,7 @@ interface ErrorBannerProps {
 function ErrorBanner({ message, profileId, onSettings }: ErrorBannerProps): React.JSX.Element {
   return (
     <div
-      className="flex flex-col gap-2 rounded-[--radius-control] border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-3 py-2"
+      className="flex flex-col gap-2 rounded-(--radius-control) border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-3 py-2"
       role="alert"
     >
       <div className="flex items-start gap-2">
@@ -466,7 +466,7 @@ function ErrorBanner({ message, profileId, onSettings }: ErrorBannerProps): Reac
         <button
           type="button"
           onClick={() => onSettings(profileId)}
-          className="self-start rounded-[--radius-control] text-app-ui-sm text-[var(--state-error-fg)] underline underline-offset-2 outline-none hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          className="self-start rounded-(--radius-control) text-app-ui-sm text-[var(--state-error-fg)] underline underline-offset-2 outline-none hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         >
           Open connection settings
         </button>
@@ -534,7 +534,7 @@ function BookmarkRow({
           buttons are siblings (not descendants) of the row button — nesting a
           <button> inside a <button> is invalid HTML. */}
       <div
-        className={`group flex items-center rounded-[--radius-control] hover:bg-[var(--state-hover-bg)]${
+        className={`group flex items-center rounded-(--radius-control) hover:bg-[var(--state-hover-bg)]${
           disabled ? " pointer-events-none opacity-50" : ""
         }`}
       >
@@ -543,7 +543,7 @@ function BookmarkRow({
           disabled={disabled}
           onClick={onOpen}
           title={titleTooltip}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-[--radius-control] px-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-(--radius-control) px-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         >
           {/* Leading icon: Folder (local) or Server (ssh) */}
           {reconnecting ? (
@@ -586,7 +586,7 @@ function BookmarkRow({
               aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
               onClick={onToggleFavorite}
               tabIndex={-1}
-              className="inline-flex size-8 items-center justify-center rounded-[--radius-control] text-muted-foreground outline-none pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+              className="inline-flex size-8 items-center justify-center rounded-(--radius-control) text-muted-foreground outline-none pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             >
               <Star
                 className="size-4"
@@ -599,7 +599,7 @@ function BookmarkRow({
               aria-label="Remove from list"
               onClick={onRemove}
               tabIndex={-1}
-              className="inline-flex size-8 items-center justify-center rounded-[--radius-control] text-muted-foreground outline-none pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto hover:bg-[var(--state-hover-bg)] hover:text-[var(--state-error-fg)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+              className="inline-flex size-8 items-center justify-center rounded-(--radius-control) text-muted-foreground outline-none pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto hover:bg-[var(--state-hover-bg)] hover:text-[var(--state-error-fg)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             >
               <Trash2 className="size-4" aria-hidden="true" />
             </button>

@@ -313,7 +313,7 @@ export function SshDirectoryPickerView({
             onChange={(e) => setPathInput(e.currentTarget.value)}
             disabled={addPhase === "creating"}
             placeholder="/home/user/project"
-            className="min-w-0 flex-1 rounded-[--radius-control] border border-border bg-background px-2 py-1 font-mono text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
+            className="min-w-0 flex-1 rounded-(--radius-control) border border-border bg-background px-2 py-1 font-mono text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
           />
           {!isAtRoot ? (
             <button
@@ -321,7 +321,7 @@ export function SshDirectoryPickerView({
               aria-label="Go to parent directory"
               onClick={() => drillDown("..")}
               disabled={listLoading || addPhase === "creating"}
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[--radius-control] border border-border bg-background text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-(--radius-control) border border-border bg-background text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50"
             >
               <ChevronUp className="size-4" aria-hidden="true" />
             </button>
@@ -332,7 +332,7 @@ export function SshDirectoryPickerView({
       {/* Fixed 240px directory list area */}
       <div
         style={{ height: PICKER_LIST_HEIGHT }}
-        className="overflow-hidden rounded-[--radius-control] border border-border"
+        className="overflow-hidden rounded-(--radius-control) border border-border"
       >
         {listLoading ? (
           // Loading: skeleton rows — no generic spinner
@@ -341,7 +341,7 @@ export function SshDirectoryPickerView({
             className="h-full gap-0 overflow-hidden px-0 py-0"
           >
             {(["psk-0", "psk-1", "psk-2", "psk-3", "psk-4", "psk-5"] as const).map((k) => (
-              <SkeletonLine key={k} className="mx-2 my-1 h-8 rounded-[--radius-control]" />
+              <SkeletonLine key={k} className="mx-2 my-1 h-8 rounded-(--radius-control)" />
             ))}
           </Skeleton>
         ) : browseErrorHuman ? (
@@ -349,7 +349,7 @@ export function SshDirectoryPickerView({
           // Redundant encoding: icon + border + bg + fg color
           <div className="flex h-full flex-col items-center justify-center gap-3 px-4">
             <div
-              className="flex w-full items-start gap-2 rounded-[--radius-control] border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-3 py-2"
+              className="flex w-full items-start gap-2 rounded-(--radius-control) border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-3 py-2"
               role="alert"
             >
               <AlertCircle
@@ -436,7 +436,7 @@ export function SshDirectoryPickerView({
       {/* Add error — humanised, redundant encoding */}
       {addErrorHuman ? (
         <div
-          className="flex items-start gap-2 rounded-[--radius-control] border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-2 py-2"
+          className="flex items-start gap-2 rounded-(--radius-control) border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-2 py-2"
           role="alert"
         >
           <AlertCircle

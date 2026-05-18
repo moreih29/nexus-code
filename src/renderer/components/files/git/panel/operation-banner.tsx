@@ -139,7 +139,7 @@ export function OperationBanner({
   return (
     <div
       className={cn(
-        "mx-2 my-1 rounded-[--radius-container] border px-2 py-2 text-app-ui-sm",
+        "mx-2 my-1 rounded-(--radius-raised) border px-2 py-2 text-app-ui-sm",
         bannerColorClass(view.variant),
       )}
       role={view.role}

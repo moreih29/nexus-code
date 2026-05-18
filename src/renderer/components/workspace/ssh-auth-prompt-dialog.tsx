@@ -92,7 +92,7 @@ export function SshAuthPromptDialogContent({
             {prompt.retry ? (
               <p
                 role="alert"
-                className="rounded-[--radius-control] border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-2 py-1 text-app-ui-sm text-[var(--state-error-fg)]"
+                className="rounded-(--radius-control) border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-2 py-1 text-app-ui-sm text-[var(--state-error-fg)]"
               >
                 Authentication failed. Try again.
               </p>
@@ -107,7 +107,7 @@ export function SshAuthPromptDialogContent({
               autoComplete="off"
               onChange={(event) => onPasswordChange(event.target.value)}
               onKeyUp={handleKeyUp}
-              className="w-full rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="w-full rounded-(--radius-control) border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
               disabled={busy}
             />
             {/* Caps Lock warning — icon + text for redundant encoding (not colour alone) */}
@@ -179,7 +179,7 @@ export function SshAuthPromptDialog({
       <RadixDialog.Portal>
         <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
         <RadixDialog.Content
-          className="fixed left-1/2 top-1/2 z-50 w-[440px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-[--radius-container] border border-border bg-background p-5 text-foreground shadow-none outline-none"
+          className="fixed left-1/2 top-1/2 z-50 w-[440px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-island) border border-border bg-background p-5 text-foreground shadow-none outline-none"
           aria-labelledby={prompt ? `ssh-auth-title-${prompt.promptId}` : undefined}
           aria-describedby={prompt ? `ssh-auth-description-${prompt.promptId}` : undefined}
         >
@@ -219,7 +219,7 @@ function HostKeyPromptBody({
       {prompt.keyType ? (
         <p className="text-app-ui-sm text-muted-foreground">Key type: {prompt.keyType}</p>
       ) : null}
-      <div className="rounded-[--radius-control] border border-border bg-muted/30 p-3">
+      <div className="rounded-(--radius-control) border border-border bg-muted/30 p-3">
         <p className="text-app-ui-sm text-muted-foreground">Fingerprint</p>
         <p className="mt-1 break-all font-mono text-[14px] text-foreground">{prompt.fingerprint}</p>
       </div>

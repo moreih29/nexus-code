@@ -64,7 +64,7 @@ export function CommitMessageDialogContent({
           id={textareaId}
           value={content}
           onChange={(event) => onContentChange(event.target.value)}
-          className="min-h-52 w-full resize-y rounded-[--radius-control] border border-border bg-background px-2 py-1 font-mono text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="min-h-52 w-full resize-y rounded-(--radius-control) border border-border bg-background px-2 py-1 font-mono text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
           disabled={busy}
         />
         <p className="text-app-ui-sm text-muted-foreground">{prompt.filePath}</p>
@@ -113,7 +113,7 @@ export function CommitMessageDialog({
       <RadixDialog.Portal>
         <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
         <RadixDialog.Content
-          className="fixed left-1/2 top-1/2 z-50 w-[560px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-[--radius-container] border border-border bg-background p-5 text-foreground shadow-none outline-none"
+          className="fixed left-1/2 top-1/2 z-50 w-[560px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-island) border border-border bg-background p-5 text-foreground shadow-none outline-none"
           aria-label="Commit message"
         >
           {prompt ? (

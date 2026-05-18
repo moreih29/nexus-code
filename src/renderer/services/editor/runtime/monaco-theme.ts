@@ -56,7 +56,54 @@ export function buildEditorColors(palette: EditorPalette): Monaco.editor.IColors
     "editorWarning.background": palette.warningBackground,
     "editorInfo.background": palette.infoBackground,
     "editorHint.background": palette.hintBackground,
+    // editor surface — translucent so the macOS window vibrancy shows through.
+    "editor.background": palette.editorBackground,
+    "editorGutter.background": palette.editorBackground,
   };
+}
+
+// ---------------------------------------------------------------------------
+// buildSyntaxRules — maps EditorPalette.syntax* → Monaco ITokenThemeRule[]
+//
+// design.md §15.1: code syntax is authored with the Nexus palette, replacing
+// the inherited Monaco vs/vs-dark token colors (the old `rules: []`).
+//
+// Monaco's `foreground` field expects a 6-digit hex WITHOUT the leading "#";
+// the syntax* palette values are #rrggbb literals, so we strip it.
+//
+// `token` matches by dotted-prefix: a rule for "string" also colors
+// "string.escape", "string.json", etc. More specific rules (e.g. "string.key")
+// win over shorter prefixes. Token-type names below are the ones emitted by
+// Monaco's bundled Monarch tokenizers (TS/JS/JSON/HTML/CSS). Function/property/
+// variable coloring from Monarch alone is limited — those grammars mostly emit
+// `identifier`; richer coloring would require semantic tokens (future work).
+// ---------------------------------------------------------------------------
+
+function buildSyntaxRules(palette: EditorPalette): Monaco.editor.ITokenThemeRule[] {
+  const fg = (hex: string) => hex.replace(/^#/, "");
+  return [
+    { token: "comment", foreground: fg(palette.syntaxComment), fontStyle: "italic" },
+    { token: "keyword", foreground: fg(palette.syntaxKeyword) },
+    { token: "annotation", foreground: fg(palette.syntaxKeyword) },
+    { token: "string", foreground: fg(palette.syntaxString) },
+    { token: "string.key", foreground: fg(palette.syntaxProperty) },
+    { token: "attribute.value", foreground: fg(palette.syntaxString) },
+    { token: "number", foreground: fg(palette.syntaxNumber) },
+    { token: "constant", foreground: fg(palette.syntaxConstant) },
+    { token: "regexp", foreground: fg(palette.syntaxRegexp) },
+    { token: "operator", foreground: fg(palette.syntaxOperator) },
+    { token: "delimiter", foreground: fg(palette.syntaxOperator) },
+    { token: "type", foreground: fg(palette.syntaxType) },
+    { token: "type.identifier", foreground: fg(palette.syntaxType) },
+    { token: "namespace", foreground: fg(palette.syntaxNamespace) },
+    { token: "function", foreground: fg(palette.syntaxFunction) },
+    { token: "identifier", foreground: fg(palette.syntaxVariable) },
+    { token: "variable", foreground: fg(palette.syntaxVariable) },
+    { token: "tag", foreground: fg(palette.syntaxTag) },
+    { token: "metatag", foreground: fg(palette.syntaxTag) },
+    { token: "attribute.name", foreground: fg(palette.syntaxAttribute) },
+    { token: "invalid", foreground: fg(palette.syntaxInvalid) },
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +133,7 @@ export function initializeMonacoTheme(monaco: typeof Monaco): void {
     monaco.editor.defineTheme(themeName, {
       base: monacoBase(themeId),
       inherit: true,
-      rules: [],
+      rules: buildSyntaxRules(EDITOR_PALETTES[themeId]),
       colors: buildEditorColors(EDITOR_PALETTES[themeId]),
     });
   }

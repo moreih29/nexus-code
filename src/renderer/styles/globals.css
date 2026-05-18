@@ -55,7 +55,9 @@
   html,
   body {
     height: 100%;
-    background-color: var(--background);
+    /* Transparent so the macOS window vibrancy shows through (whole-window
+       translucency). Surfaces paint their own translucent/opaque backgrounds. */
+    background-color: transparent;
     color: var(--foreground);
     font-family: Pretendard, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-weight: 400;
@@ -128,19 +130,50 @@
     height: 8px;
   }
   &::-webkit-scrollbar-track {
-    background: transparent;
+    background: var(--scrollbar-track-bg);
   }
   &::-webkit-scrollbar-thumb {
-    background: var(--color-mist-border);
-    border-radius: 4px;
+    background: var(--scrollbar-thumb-bg);
+    border-radius: var(--radius-control);
     border: 2px solid transparent;
     background-clip: padding-box;
   }
   &::-webkit-scrollbar-thumb:hover {
-    background: var(--color-stone-gray);
+    background: var(--scrollbar-thumb-hover-bg);
     background-clip: padding-box;
   }
   &::-webkit-scrollbar-corner {
     background: transparent;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Island / backdrop surface utilities
+   --window-opacity is set by useWindowOpacityEffect (and the boot script for
+   FOUC prevention). Fallback 1 = fully opaque when no preference is set.
+   island-surface  → primary content island (bg-background at the given alpha).
+   backdrop-surface → chrome areas (titlebar, root) using the muted surface.
+   --------------------------------------------------------------------------- */
+
+@utility island-surface {
+  background-color: color-mix(in oklab, var(--background) calc(var(--window-opacity, 1) * 100%), transparent);
+}
+
+@utility backdrop-surface {
+  background-color: color-mix(in oklab, var(--muted) calc(var(--window-opacity, 1) * 100%), transparent);
+}
+
+/* ---------------------------------------------------------------------------
+   xterm transparency — force the terminal's own DOM surfaces transparent.
+   xterm sets an opaque inline background-color on .xterm / .xterm-viewport
+   from the theme; the Canvas renderer draws the cells transparently
+   (allowTransparency), but the viewport element sits BEHIND that canvas and
+   would otherwise show opaque. !important overrides xterm's inline style so
+   the whole-window vibrancy shows through the terminal.
+   --------------------------------------------------------------------------- */
+
+.xterm,
+.xterm .xterm-viewport,
+.xterm .xterm-screen {
+  background-color: transparent !important;
 }

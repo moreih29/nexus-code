@@ -129,7 +129,7 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
                     }}
                     tabIndex={selected ? 0 : -1}
                     className={cn(
-                      "grid min-h-[52px] cursor-default grid-cols-[1fr_auto] gap-x-3 rounded-[--radius-container] px-3 py-2 text-app-ui-sm",
+                      "grid min-h-[52px] cursor-default grid-cols-[1fr_auto] gap-x-3 rounded-(--radius-control) px-3 py-2 text-app-ui-sm",
                       selected
                         ? destructive
                           ? "bg-destructive/10"

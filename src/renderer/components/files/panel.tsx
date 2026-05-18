@@ -48,60 +48,62 @@ export function FilesPanel() {
   );
 
   return (
-    <aside
-      className="relative shrink-0 bg-muted border-r border-r-border flex flex-col"
-      style={{ width: filesPanelWidth }}
-    >
-      {activeWorkspace ? (
-        <>
-          <div className="flex items-center gap-1 px-2 pt-2 pb-2 border-b border-border/50">
-            {MODE_BUTTONS.map(({ mode, label, Icon }) => {
-              const isActive = filesPanelMode === mode;
-              return (
-                <Button
-                  key={mode}
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={label}
-                  aria-pressed={isActive}
-                  title={label}
-                  className={cn(isActive && "bg-[var(--state-active-bg)] text-foreground")}
-                  onClick={() => setFilesPanelMode(activeWorkspace.id, mode)}
-                >
-                  <Icon />
-                </Button>
-              );
-            })}
-          </div>
-          <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
-            {filesPanelMode === "tree" ? (
-              <div className="flex-1 min-h-0 overflow-hidden">
+    <aside className="relative shrink-0 flex flex-col" style={{ width: filesPanelWidth }}>
+      <div className="flex flex-col flex-1 min-h-0 island-surface rounded-(--radius-island) overflow-hidden">
+        {activeWorkspace ? (
+          <>
+            <div className="flex items-center gap-1 px-2 pt-2 pb-2 border-b border-border/50">
+              {MODE_BUTTONS.map(({ mode, label, Icon }) => {
+                const isActive = filesPanelMode === mode;
+                return (
+                  <Button
+                    key={mode}
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={label}
+                    aria-pressed={isActive}
+                    title={label}
+                    className={cn(isActive && "bg-[var(--state-active-bg)] text-foreground")}
+                    onClick={() => setFilesPanelMode(activeWorkspace.id, mode)}
+                  >
+                    <Icon />
+                  </Button>
+                );
+              })}
+            </div>
+            <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+              {filesPanelMode === "tree" ? (
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  <FileTree
+                    workspaceId={activeWorkspace.id}
+                    rootAbsPath={activeWorkspace.rootPath}
+                  />
+                </div>
+              ) : filesPanelMode === "search" ? (
+                <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                  <SearchPanel workspaceId={activeWorkspace.id} />
+                </div>
+              ) : filesPanelMode === "git" ? (
+                <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                  <GitPanel
+                    workspaceId={activeWorkspace.id}
+                    workspaceRootPath={activeWorkspace.rootPath}
+                    onOpenDiff={openGitDiffFromRow}
+                  />
+                </div>
+              ) : (
                 <FileTree workspaceId={activeWorkspace.id} rootAbsPath={activeWorkspace.rootPath} />
-              </div>
-            ) : filesPanelMode === "search" ? (
-              <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-                <SearchPanel workspaceId={activeWorkspace.id} />
-              </div>
-            ) : filesPanelMode === "git" ? (
-              <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-                <GitPanel
-                  workspaceId={activeWorkspace.id}
-                  workspaceRootPath={activeWorkspace.rootPath}
-                  onOpenDiff={openGitDiffFromRow}
-                />
-              </div>
-            ) : (
-              <FileTree workspaceId={activeWorkspace.id} rootAbsPath={activeWorkspace.rootPath} />
-            )}
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="px-4 py-6 text-center text-app-ui-sm text-muted-foreground">
+            Select a workspace
+            <br />
+            to browse files.
           </div>
-        </>
-      ) : (
-        <div className="px-4 py-6 text-center text-app-ui-sm text-muted-foreground">
-          Select a workspace
-          <br />
-          to browse files.
-        </div>
-      )}
+        )}
+      </div>
       <ResizeHandle
         value={filesPanelWidth}
         min={FILES_PANEL_WIDTH_MIN}

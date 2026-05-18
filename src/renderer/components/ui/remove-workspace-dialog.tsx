@@ -71,7 +71,7 @@ export function RemoveWorkspaceDialogRoot(): React.JSX.Element {
       <RadixDialog.Portal>
         <RadixDialog.Overlay className="fixed inset-0 bg-[var(--floating-scrim)] z-50" />
         <RadixDialog.Content
-          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[420px] max-w-[90vw] rounded-[--radius-container] border border-border bg-background p-5 outline-none"
+          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[420px] max-w-[90vw] rounded-(--radius-island) border border-border bg-background p-5 outline-none"
           aria-describedby={undefined}
         >
           <RadixDialog.Title className="text-app-body-emphasis text-foreground">

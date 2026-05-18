@@ -699,7 +699,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
         <div className="min-h-0 flex-1">
           {showSkeleton ? (
             <Skeleton label="Loading source control">
-              <SkeletonLine className="h-[82px] rounded-[--radius-container] border border-border" />
+              <SkeletonLine className="h-[82px] rounded-(--radius-raised) border border-border" />
               <div className="flex flex-col gap-1">
                 <SkeletonLine className="h-7" />
                 {Array.from({ length: 5 }).map((_, index) => (

@@ -209,9 +209,9 @@ export function SshConnectionListView({
           type="button"
           disabled={busy}
           onClick={onNewConnection}
-          className="flex w-full items-center gap-3 rounded-[--radius-control] px-2 py-2 text-left text-app-ui-sm text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50"
+          className="flex w-full items-center gap-3 rounded-(--radius-control) px-2 py-2 text-left text-app-ui-sm text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50"
         >
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-[--radius-control] border border-dashed border-border">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-(--radius-control) border border-dashed border-border">
             <Plus className="size-4 text-muted-foreground" aria-hidden="true" />
           </span>
           <span className="min-w-0 truncate">New Connection…</span>
@@ -256,7 +256,7 @@ function ConnectionProfileRow({
           <button> inside a <button> is invalid HTML. */}
       <div
         className={[
-          "group flex items-center rounded-[--radius-control] hover:bg-[var(--state-hover-bg)]",
+          "group flex items-center rounded-(--radius-control) hover:bg-[var(--state-hover-bg)]",
           disabled ? "pointer-events-none opacity-50" : "",
           // Error state: left border as redundant visual channel
           hasError ? "border-l-2 border-[var(--state-error-border)]" : "",
@@ -269,7 +269,7 @@ function ConnectionProfileRow({
           disabled={disabled}
           onClick={onConnect}
           className={[
-            "flex min-w-0 flex-1 items-center gap-3 rounded-[--radius-control] px-2 py-2 text-left outline-none",
+            "flex min-w-0 flex-1 items-center gap-3 rounded-(--radius-control) px-2 py-2 text-left outline-none",
             "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
             hasError ? "pl-[calc(0.5rem-2px)]" : "",
           ]
@@ -304,7 +304,7 @@ function ConnectionProfileRow({
               type="button"
               aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
               onClick={onToggleFavorite}
-              className="inline-flex size-11 items-center justify-center rounded-[--radius-control] text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+              className="inline-flex size-11 items-center justify-center rounded-(--radius-control) text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             >
               <Star
                 className="size-4"
@@ -316,7 +316,7 @@ function ConnectionProfileRow({
               type="button"
               aria-label="Remove connection"
               onClick={onRemove}
-              className="inline-flex size-11 items-center justify-center rounded-[--radius-control] text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-[var(--state-error-fg)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+              className="inline-flex size-11 items-center justify-center rounded-(--radius-control) text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-[var(--state-error-fg)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             >
               <Trash2 className="size-4" aria-hidden="true" />
             </button>
@@ -328,7 +328,7 @@ function ConnectionProfileRow({
       {/* Per-row error strip — below the row button, redundant encoding: icon + border + color */}
       {hasError ? (
         <div
-          className="mx-2 mb-1 flex items-start gap-2 rounded-[--radius-control] border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-2 py-1.5"
+          className="mx-2 mb-1 flex items-start gap-2 rounded-(--radius-control) border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-2 py-1.5"
           role="alert"
         >
           <AlertCircle

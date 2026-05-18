@@ -134,7 +134,13 @@ describe("nexus-dark Monaco theme", () => {
     expect(warmDarkCall?.theme).toMatchObject({
       base: "vs-dark",
       inherit: true,
-      rules: [],
+    });
+    // design.md §15.1: syntax colors are authored from the Nexus palette —
+    // the old inherited `rules: []` is deprecated. rules must be populated.
+    expect(warmDarkCall?.theme.rules.length).toBeGreaterThan(0);
+    expect(warmDarkCall?.theme.rules).toContainEqual({
+      token: "keyword",
+      foreground: nexusDarkPalette.syntaxKeyword.replace(/^#/, ""),
     });
     expect(warmDarkCall?.theme.colors).toMatchObject({
       "editor.wordHighlightBackground": nexusDarkPalette.wordHighlightBackground,
@@ -188,6 +194,7 @@ describe("buildEditorColors — mapper", () => {
       warningBackground: "test:warningBackground",
       infoBackground: "test:infoBackground",
       hintBackground: "test:hintBackground",
+      editorBackground: "test:editorBackground",
     };
 
     const result = buildEditorColors(altPalette);
@@ -239,6 +246,7 @@ describe("buildEditorColors — mapper", () => {
   test("monaco token coverage — all expected keys present", () => {
     const result = buildEditorColors(nexusDarkPalette);
     const expectedKeys = [
+      "editor.background",
       "editor.findMatchBackground",
       "editor.findMatchHighlightBackground",
       "editor.findRangeHighlightBackground",
@@ -250,6 +258,7 @@ describe("buildEditorColors — mapper", () => {
       "editor.wordHighlightTextBackground",
       "editorError.background",
       "editorError.foreground",
+      "editorGutter.background",
       "editorHint.background",
       "editorHint.foreground",
       "editorHoverWidget.background",

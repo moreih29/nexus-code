@@ -782,6 +782,15 @@ Monaco 에디터는 UI chrome과 색 요구가 다르다 — 코드 가독성을
 제약을 넘어 hue를 쓰되, **가독성에 필요한 최소 채도로 절제**하고 배경 대비 WCAG 4.5:1을 유지한다.
 근본 톤은 UI 테마(warm/cool)의 hue 패밀리와 조화시킨다 — 무지개색 강조를 쓰지 않는다.
 
+알려진 한계 (현행 발현 범위): 위 15역할은 **목표 집합**이다. 현재 색 부여는 Monaco 기본
+Monarch 토크나이저가 내는 토큰 타입(`keyword` / `string` / `comment` / `number` / `type` /
+`tag` / `regexp` 등)에 매핑되며, 이 고빈도 역할은 정상 발현된다. 그러나 `syntax.function` /
+`syntax.property` / `syntax.variable`은 Monarch가 대부분 `identifier` 하나로 묶어 내보내
+**변별 발현이 제한적**이다. 이 세 역할의 완전한 발현은 LSP semantic token 도입을 전제로 하며,
+이는 별도 사이클의 후속 과제다 — 15역할 팔레트는 그대로 재사용되므로 재작업이 아닌 순수 와이어링
+추가다. 도입 적정 시점: Islands 렌더러 출시 후 실사용에서 갭이 확인되거나, LSP semantic token이
+다른 사유로 와이어링될 때.
+
 ### §15.2 Editor Chrome — EditorPalette
 
 selection / find·match / peek / widget surface / link / diagnostic 등 에디터 chrome 색은

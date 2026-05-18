@@ -17,16 +17,17 @@ import type { SemanticTokenSet } from "../semantic";
 
 // Cool Dark surface palette (OKLCH, near-monochromatic blue-tinted neutrals)
 // L0 canvas:  oklch(0.18 0.008 245)  — very dark cool-blue-tinted background
-// L1 chrome:  oklch(0.22 0.007 245)  — slightly lighter chrome
+// L1 chrome:  oklch(0.278 0.009 250) — backdrop canvas, lighter (1.28:1 vs islands)
 // L2 panel:   oklch(0.22 0.007 245)  — same as chrome (L1/L2 co-level like warm-dark)
 // L3 float:   oklch(0.22 0.007 245)  — floating surfaces match chrome
 // bg canvas hex used for xterm API: #191b1f (approx oklch(0.18 0.008 245))
-// chrome hex used for Electron titleBarOverlay: #22242a
+// chrome hex used for Electron titleBarOverlay: #25292d
 
 export const coolDark: SemanticTokenSet = {
   // --- Global Surface (Islands 3-tier) ---
-  // backdrop = window frame; lighter than islands in dark themes (≈ #22242a)
-  "surface.backdrop.bg": "oklch(0.22 0.007 245)",
+  // backdrop = window frame; lighter than islands in dark themes (≈ #25292d).
+  // 1.28:1 luminance contrast vs island, near-monochromatic (h 250, C 0.009).
+  "surface.backdrop.bg": "oklch(0.278 0.009 250)",
   "surface.backdrop.fg": "oklch(0.61 0.006 245)",
   // island = content surfaces; darker than backdrop (≈ #191b1f)
   "surface.island.bg": "oklch(0.18 0.008 245)",

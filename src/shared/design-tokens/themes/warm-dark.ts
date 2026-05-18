@@ -14,8 +14,9 @@ import type { SemanticTokenSet } from "../semantic";
 
 export const warmDark: SemanticTokenSet = {
   // --- Global Surface (Islands 3-tier) ---
-  // backdrop = window frame; lighter than islands in dark themes (design.md §2)
-  "surface.backdrop.bg": "#252422",
+  // backdrop = window frame; lighter than islands in dark themes (design.md §2).
+  // 1.28:1 luminance contrast vs island, near-monochromatic (h≈110, C 0.007).
+  "surface.backdrop.bg": "#2d2e2a",
   "surface.backdrop.fg": "oklch(0.638 0.0019 67.79)",
   // island = content surfaces; darker than backdrop so islands sink into the frame
   "surface.island.bg": "#1a1917",

@@ -25,7 +25,7 @@ import type { SemanticTokenSet } from "../semantic";
 
 // Warm Light surface palette (OKLCH, near-monochromatic warm-tinted neutrals)
 // L0 canvas:  oklch(0.965 0.005 95)  — near-white warm-tinted (not pure white)
-// L1 chrome:  oklch(0.935 0.005 95)  — slightly darker, same hue family
+// L1 chrome:  oklch(0.889 0.006 120) — backdrop canvas, darker (1.26:1 vs islands)
 // L2 panel:   oklch(0.935 0.005 95)  — co-level with chrome (same as warm-dark L1/L2)
 // L3 float:   oklch(0.950 0.004 95)  — slightly lighter than chrome for elevation
 // dark fg:    oklch(0.22 0.008 100)  — near-black warm-tinted (not pure #000)
@@ -33,8 +33,9 @@ import type { SemanticTokenSet } from "../semantic";
 
 export const warmLight: SemanticTokenSet = {
   // --- Global Surface (Islands 3-tier) ---
-  // backdrop = window frame; DARKER than islands in light themes (design.md §2)
-  "surface.backdrop.bg": "oklch(0.935 0.005 95)",
+  // backdrop = window frame; DARKER than islands in light themes (design.md §2).
+  // 1.26:1 luminance contrast vs island, near-monochromatic (h≈120, C 0.006).
+  "surface.backdrop.bg": "oklch(0.889 0.006 120)",
   "surface.backdrop.fg": "oklch(0.48 0.006 95)",
   // island = content surfaces; lightest so islands float above the frame
   "surface.island.bg": "oklch(0.965 0.005 95)",

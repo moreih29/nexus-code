@@ -2,17 +2,18 @@ import { useMonaco } from "@monaco-editor/react";
 import { useCallback, useEffect, useState } from "react";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { bootstrapAppState, bootstrapWorkspaces } from "./bootstrap";
-import { useThemeEffect } from "./hooks/use-theme-effect";
 import { useCommandBridge } from "./commands/use-command-bridge";
 import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
+import { showRemoveWorkspaceConfirm } from "./components/ui/remove-workspace-dialog";
 import { Sidebar } from "./components/workbench/sidebar";
 import { TitleBar } from "./components/workbench/title-bar";
 import { WelcomeScreen } from "./components/workbench/welcome-screen";
 import { AddWorkspaceDialog } from "./components/workspace/add-workspace";
 import { WorkspacePanel } from "./components/workspace/panel";
+import { useThemeEffect } from "./hooks/use-theme-effect";
+import { useWindowOpacityEffect } from "./hooks/use-window-opacity-effect";
 import { ipcCall } from "./ipc/client";
-import { showRemoveWorkspaceConfirm } from "./components/ui/remove-workspace-dialog";
 import { useGlobalKeybindings } from "./keybindings/use-global-keybindings";
 import { initializeEditorServices } from "./services/editor";
 import { useActiveStore } from "./state/stores/active";
@@ -128,6 +129,9 @@ export function App() {
   // Also subscribes to OS prefers-color-scheme when preference === "system".
   useThemeEffect();
 
+  // Apply --window-opacity CSS property to documentElement.
+  useWindowOpacityEffect();
+
   // Wire the keyboard dispatcher and the Application Menu IPC bridge to
   // the same command registry. Both surfaces resolve to one
   // implementation per command.
@@ -140,7 +144,7 @@ export function App() {
   const mountedWorkspaces = workspaces.filter((w) => mountedIds.has(w.id));
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden backdrop-surface">
       <TitleBar />
       <GlobalRoots />
       <AddWorkspaceDialog
@@ -148,7 +152,7 @@ export function App() {
         onClose={handleCloseAddWorkspace}
         onWorkspaceCreated={handleWorkspaceCreated}
       />
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden gap-[6px] p-[6px]">
         <Sidebar
           workspaces={workspaces}
           activeWorkspaceId={activeWorkspaceId}
@@ -157,7 +161,7 @@ export function App() {
           onRemoveWorkspace={handleRemoveWorkspace}
         />
         <FilesPanel />
-        <div className="grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden">
+        <div className="grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden island-surface rounded-(--radius-island)">
           {workspaces.length === 0 && <WelcomeScreen onOpenFolder={handleAddWorkspace} />}
           {mountedWorkspaces.map((ws) => (
             <WorkspacePanel key={ws.id} workspace={ws} isActive={ws.id === activeWorkspaceId} />

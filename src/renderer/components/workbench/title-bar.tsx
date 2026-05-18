@@ -1,8 +1,8 @@
 import { cn } from "@/utils/cn";
+import type { ThemePreference } from "../../../shared/types/app-state";
 import { useActiveStore } from "../../state/stores/active";
 import { useThemeStore } from "../../state/stores/theme";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
-import type { ThemePreference } from "../../../shared/types/app-state";
 
 // ---------------------------------------------------------------------------
 // TitleBar — custom frameless titlebar
@@ -59,11 +59,9 @@ export function TitleBar() {
     <div
       role="presentation"
       className={cn(
-        // bg-muted = surface.chrome.bg (L1) — same tone as sidebar so chrome
-        // reads as one continuous L-shape.
-        // border-b = surface.chrome.border hairline: P3 zone boundary signal
-        // between titlebar (L1) and the canvas/panel row below (design.md §2).
-        "relative flex shrink-0 items-center bg-muted border-b border-border select-none app-drag",
+        // backdrop-surface provides the window-opacity-aware background.
+        // At opacity 1 (default) it is fully opaque; below 1 it becomes translucent.
+        "relative flex shrink-0 items-center select-none app-drag backdrop-surface",
         TITLEBAR_HEIGHT_CLASS,
       )}
       style={{

@@ -13,7 +13,7 @@
 // Design source: src/shared/design-tokens/themes/*.ts → terminal.* keys.
 // design.md §9 Region Semantics: terminal region vocabulary.
 
-import { formatHex, parse } from "culori";
+import { formatHex, formatHex8, parse } from "culori";
 import type { ITheme } from "@xterm/xterm";
 import { THEMES } from "../design-tokens/themes";
 import type { ThemeId } from "../design-tokens/themes";
@@ -36,6 +36,19 @@ function toHex(value: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// toHexAlpha — like toHex but preserves an explicit alpha as #rrggbbaa.
+// Used only for `background` so the terminal surface is translucent and the
+// macOS window vibrancy shows through (requires allowTransparency on the
+// Terminal instance). All other palette keys stay opaque via toHex.
+// ---------------------------------------------------------------------------
+
+function toHexAlpha(value: string, alpha: number): string {
+  const parsed = parse(value);
+  if (!parsed) return value;
+  return formatHex8({ ...parsed, alpha }) ?? value;
+}
+
+// ---------------------------------------------------------------------------
 // buildTerminalPalette — derive xterm ITheme from a SemanticTokenSet.
 //
 // selectionBackground: ANSI selection in xterm must be a solid hex color.
@@ -46,7 +59,7 @@ function toHex(value: string): string {
 
 function buildTerminalPalette(tokens: SemanticTokenSet, selBg: string): ITheme {
   return {
-    background: toHex(tokens["terminal.bg"]),
+    background: toHexAlpha(tokens["terminal.bg"], 0), // fully transparent — terminal shows the island surface
     foreground: toHex(tokens["terminal.fg"]),
     cursor: toHex(tokens["terminal.cursor.color"]),
     cursorAccent: toHex(tokens["terminal.cursor.accent"]),
