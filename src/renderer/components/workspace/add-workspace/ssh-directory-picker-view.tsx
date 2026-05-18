@@ -1,4 +1,4 @@
-import { AlertCircle, ChevronRight, Folder, FolderUp } from "lucide-react";
+import { AlertCircle, ChevronRight, CornerLeftUp, Folder } from "lucide-react";
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DirEntry } from "../../../../shared/fs/types";
@@ -314,7 +314,7 @@ export function SshDirectoryPickerView({
               disabled={listLoading || addPhase === "creating"}
               className="inline-flex size-7 shrink-0 items-center justify-center rounded-(--radius-control) border border-border bg-background text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50"
             >
-              <FolderUp className="size-4" aria-hidden="true" />
+              <CornerLeftUp className="size-4" aria-hidden="true" />
             </button>
           ) : (
             // Placeholder keeps the path input's left edge fixed at filesystem root.
