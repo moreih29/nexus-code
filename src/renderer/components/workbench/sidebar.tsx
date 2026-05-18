@@ -42,16 +42,20 @@ export function Sidebar({
     // island surface lives on the inner wrapper so overflow-hidden clips content
     // without clipping the absolute-positioned <SidebarResizeHandle>.
     <aside className="relative shrink-0 flex flex-col" style={{ width: sidebarWidth }}>
-      <div className="flex flex-col flex-1 min-h-0 island-surface rounded-(--radius-island) overflow-hidden">
-        <div className="py-3 flex-1 overflow-y-auto app-scrollbar">
-          {workspaces.length === 0 && (
-            <div className="px-4 py-6 text-center text-app-ui-sm text-muted-foreground">
+      <div className="relative flex flex-col flex-1 min-h-0 island-surface rounded-(--radius-island) overflow-hidden">
+        {/* Empty state — centered against the full island (matches files panel
+            and welcome screen); pointer-events-none keeps the bottom Add button
+            clickable underneath the inset-0 overlay. */}
+        {workspaces.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-app-ui-sm text-muted-foreground pointer-events-none">
+            <div>
               No workspaces yet.
               <br />
               Add one to get started.
             </div>
-          )}
-
+          </div>
+        )}
+        <div className="py-3 flex-1 overflow-y-auto app-scrollbar">
           {workspaces.map((ws) => {
             const isActive = ws.id === activeWorkspaceId;
             const isSsh = ws.location.kind === "ssh";

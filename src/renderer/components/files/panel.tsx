@@ -17,7 +17,7 @@ import { Button } from "../ui/button";
 import { ResizeHandle } from "../ui/resize-handle";
 import { FileTree } from "./file-tree";
 import { GitPanel, type GitPanelOpenDiffInput } from "./git";
-import { SearchPanel } from "./search";
+import { SearchPanel } from "./search/panel";
 
 interface ModeButton {
   mode: FilesPanelMode;
@@ -97,10 +97,12 @@ export function FilesPanel() {
             </div>
           </>
         ) : (
-          <div className="px-4 py-6 text-center text-app-ui-sm text-muted-foreground">
-            Select a workspace
-            <br />
-            to browse files.
+          <div className="flex flex-1 items-center justify-center">
+            <div className="px-4 text-center text-app-ui-sm text-muted-foreground">
+              Select a workspace
+              <br />
+              to browse files.
+            </div>
           </div>
         )}
       </div>
