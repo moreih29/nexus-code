@@ -382,7 +382,7 @@ function ViewBody(props: ViewBodyProps): React.JSX.Element {
   }
 
   return (
-    <FadeView viewKey="ssh-directory-picker">
+    <FadeView viewKey="ssh-directory-picker" fill>
       <SshDirectoryPickerView
         session={browseSession}
         onWorkspaceCreated={onWorkspaceCreated}
@@ -400,10 +400,18 @@ function ViewBody(props: ViewBodyProps): React.JSX.Element {
 
 interface FadeViewProps {
   readonly viewKey: string;
+  /**
+   * Lock the view to the dialog body's height (adds min-h-0 so the flex child
+   * is constrained, not content-sized). The view then owns its own internal
+   * scrolling — used by the directory picker so its path bar stays pinned and
+   * only the folder list scrolls. Default false: the view grows to its content
+   * and the dialog body scrolls as a whole.
+   */
+  readonly fill?: boolean;
   readonly children: React.ReactNode;
 }
 
-function FadeView({ viewKey, children }: FadeViewProps): React.JSX.Element {
+function FadeView({ viewKey, fill = false, children }: FadeViewProps): React.JSX.Element {
   const [visible, setVisible] = useState(false);
   const prevKeyRef = useRef<string | null>(null);
 
@@ -429,7 +437,7 @@ function FadeView({ viewKey, children }: FadeViewProps): React.JSX.Element {
 
   return (
     <div
-      className="flex flex-1 flex-col"
+      className={fill ? "flex min-h-0 flex-1 flex-col" : "flex flex-1 flex-col"}
       style={{
         opacity: visible ? 1 : 0,
         transition: visible ? "opacity 200ms ease" : "none",
