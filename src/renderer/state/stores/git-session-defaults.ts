@@ -10,9 +10,8 @@
  */
 import type { GitCommitOptions, LogEntry } from "../../../shared/git/types";
 import { DEFAULT_GIT_PANEL_STATE } from "../../../shared/git/types";
-import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../shared/types/panel";
 import { ipcStream } from "../../ipc/client";
-import type { GitOperationKind, GitSession } from "./git";
+import type { GitOperationKind, GitSession } from "./git/types";
 
 /**
  * Builds a fresh `GitSession` with the project's defaults, allowing
@@ -38,8 +37,6 @@ export function createDefaultSession(overrides: Partial<GitSession> = {}): GitSe
     panelSegment: DEFAULT_GIT_PANEL_STATE.panelSegment,
     historyRef: DEFAULT_GIT_PANEL_STATE.historyRef,
     historyScope: DEFAULT_GIT_PANEL_STATE.historyScope,
-    viewMode: DEFAULT_VIEW_OPTIONS_BY_PANEL.git.viewMode,
-    compactFolders: DEFAULT_VIEW_OPTIONS_BY_PANEL.git.compactFolders,
     inFlightOp: null,
     lastError: null,
     pendingNonFFRetry: null,

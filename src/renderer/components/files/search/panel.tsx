@@ -9,7 +9,7 @@
  *  - Debounces search dispatch via useSearchDebounce.
  *  - Converts running status to delayed loader visibility via useLoaderDelay.
  *  - Loads and persists per-workspace view options (list/tree, compact folders)
- *    via the panel IPC channel.
+ *    via the shared panel-view-options store.
  *  - Provides a live region (role=status) announcing result counts after
  *    the search settles.
  *  - Delegates rendering to SearchInput, SearchStatusHeader, SearchResultsList,
@@ -25,16 +25,19 @@ import {
   type SearchOptions,
   useSearchSession,
   useSearchStore,
-  useSearchViewState,
 } from "../../../state/stores/search";
-import { shouldHandleArrowDown } from "./arrowDown";
+import {
+  usePanelViewOptionsStore,
+  useViewOptions,
+} from "../../../state/stores/panel-view-options";
+import { shouldHandleArrowDown } from "./arrow-down-handoff";
 import { SearchInput } from "./input";
 import { SearchResultsList } from "./results-list";
 import { SearchStatusHeader } from "./status-header";
-import { useGlobalSearchHotkey } from "./useGlobalSearchHotkey";
-import { useLoaderDelay } from "./useLoaderDelay";
-import { useSearchDebounce } from "./useSearchDebounce";
-import { validateRegexPattern } from "./validateRegexPattern";
+import { useGlobalSearchHotkey } from "./use-global-search-hotkey";
+import { useLoaderDelay } from "./use-loader-delay";
+import { useSearchDebounce } from "./use-search-debounce";
+import { validateRegexPattern } from "./validate-regex-pattern";
 
 interface SearchPanelProps {
   workspaceId: string;
@@ -53,12 +56,15 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
   const cancelSearch = useSearchStore((s) => s.cancelSearch);
   const clearSearch = useSearchStore((s) => s.clearSearch);
   const toggleGroup = useSearchStore((s) => s.toggleGroup);
-  const loadViewOptions = useSearchStore((s) => s.loadViewOptions);
-  const setViewMode = useSearchStore((s) => s.setViewMode);
-  const setCompactFolders = useSearchStore((s) => s.setCompactFolders);
   const toggleExpandedDir = useSearchStore((s) => s.toggleExpandedDir);
+  const expandedDirs = useSearchStore(
+    (s) => s.expandedDirsByWorkspace.get(workspaceId) ?? new Set<string>(),
+  );
 
-  const viewState = useSearchViewState(workspaceId);
+  const loadViewOptions = usePanelViewOptionsStore((s) => s.loadViewOptions);
+  const setViewMode = usePanelViewOptionsStore((s) => s.setViewMode);
+  const setCompactFolders = usePanelViewOptionsStore((s) => s.setCompactFolders);
+  const viewState = useViewOptions("search", workspaceId);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   /** Ref to the focus-first-row function exposed by SearchResultsList. */
@@ -69,7 +75,7 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
 
   // Load persisted view options once per workspace mount.
   useEffect(() => {
-    loadViewOptions(workspaceId);
+    loadViewOptions("search", workspaceId);
   }, [workspaceId, loadViewOptions]);
 
   // ---- Live region announce ----
@@ -210,9 +216,9 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
         onToggleOption={handleToggleOption}
         onArrowDown={handleInputArrowDown}
         viewMode={viewState.viewMode}
-        onViewModeChange={(next: ViewMode) => setViewMode(workspaceId, next)}
+        onViewModeChange={(next: ViewMode) => setViewMode("search", workspaceId, next)}
         compactFolders={viewState.compactFolders}
-        onCompactChange={(next) => setCompactFolders(workspaceId, next)}
+        onCompactChange={(next) => setCompactFolders("search", workspaceId, next)}
         viewModeDisabled={!hasResults}
       />
 
@@ -262,7 +268,7 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
             onToggleGroup={(relPath) => toggleGroup(workspaceId, relPath)}
             viewMode={viewState.viewMode}
             compactFolders={viewState.compactFolders}
-            expandedDirs={viewState.expandedDirs}
+            expandedDirs={expandedDirs}
             onToggleDir={(relPath) => toggleExpandedDir(workspaceId, relPath)}
             firstRowFocusRef={firstRowFocusRef}
           />

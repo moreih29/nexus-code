@@ -1,9 +1,10 @@
 /**
- * Search store — view-mode compact/expand edge cases.
+ * Search store — view-mode and expandedDirs edge cases.
  *
- * (e) compact toggle preserves expandedDirs (search side).
- * (f) expandedDirs is session-scoped — closeAllForWorkspace clears it;
- *     and workspaceId change is equivalent (new ws = new viewState, dirs empty).
+ * (e) compact toggle preserves expandedDirs (search side) — now via shared
+ *     panel-view-options store for viewMode/compactFolders, and
+ *     expandedDirsByWorkspace on useSearchStore for expandedDirs.
+ * (f) expandedDirs is session-scoped — closeAllForWorkspace clears it.
  * (g) SearchInput ↓ handoff — onArrowDown called only when results > 0.
  *
  * The IPC client is stubbed before the store import (leaf-only mock).
@@ -24,6 +25,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
     (_ch: string, _m: string, _a: unknown): Promise<unknown> =>
       Promise.resolve({ viewMode: "list", compactFolders: false }),
   ),
+  canUseIpcBridge: mock(() => false),
 }));
 
 mock.module("../../../../../src/renderer/state/workspace-cleanup", () => ({
@@ -35,7 +37,8 @@ mock.module("../../../../../src/renderer/state/workspace-cleanup", () => ({
 // ---------------------------------------------------------------------------
 
 import { useSearchStore } from "../../../../../src/renderer/state/stores/search";
-import { shouldHandleArrowDown } from "../../../../../src/renderer/components/files/search/arrowDown";
+import { usePanelViewOptionsStore } from "../../../../../src/renderer/state/stores/panel-view-options";
+import { shouldHandleArrowDown } from "../../../../../src/renderer/components/files/search/arrow-down-handoff";
 
 const WS_A = "00000000-0000-0000-0000-0000000000cc";
 const WS_B = "00000000-0000-0000-0000-0000000000dd";
@@ -43,7 +46,8 @@ const WS_B = "00000000-0000-0000-0000-0000000000dd";
 function resetStore(): void {
   useSearchStore.getState().closeAllForWorkspace(WS_A);
   useSearchStore.getState().closeAllForWorkspace(WS_B);
-  useSearchStore.setState({ sessions: new Map(), viewStates: new Map() });
+  useSearchStore.setState({ sessions: new Map(), expandedDirsByWorkspace: new Map() });
+  usePanelViewOptionsStore.setState({ entries: new Map() });
 }
 
 // ---------------------------------------------------------------------------
@@ -58,23 +62,23 @@ describe("search store — compact toggle preserves expandedDirs", () => {
     useSearchStore.getState().toggleExpandedDir(WS_A, "src");
     useSearchStore.getState().toggleExpandedDir(WS_A, "lib");
 
-    // Toggle compact on and off.
-    useSearchStore.getState().setCompactFolders(WS_A, true);
-    useSearchStore.getState().setCompactFolders(WS_A, false);
+    // Toggle compact on and off via shared store.
+    usePanelViewOptionsStore.getState().setCompactFolders("search", WS_A, true);
+    usePanelViewOptionsStore.getState().setCompactFolders("search", WS_A, false);
 
-    const vs = useSearchStore.getState().viewStates.get(WS_A);
-    expect(vs?.expandedDirs.has("src")).toBe(true);
-    expect(vs?.expandedDirs.has("lib")).toBe(true);
+    const dirs = useSearchStore.getState().expandedDirsByWorkspace.get(WS_A);
+    expect(dirs?.has("src")).toBe(true);
+    expect(dirs?.has("lib")).toBe(true);
   });
 
   it("setViewMode does not clear expandedDirs", () => {
     useSearchStore.getState().toggleExpandedDir(WS_A, "src/components");
 
-    useSearchStore.getState().setViewMode(WS_A, "tree");
-    useSearchStore.getState().setViewMode(WS_A, "list");
+    usePanelViewOptionsStore.getState().setViewMode("search", WS_A, "tree");
+    usePanelViewOptionsStore.getState().setViewMode("search", WS_A, "list");
 
-    const vs = useSearchStore.getState().viewStates.get(WS_A);
-    expect(vs?.expandedDirs.has("src/components")).toBe(true);
+    const dirs = useSearchStore.getState().expandedDirsByWorkspace.get(WS_A);
+    expect(dirs?.has("src/components")).toBe(true);
   });
 });
 
@@ -85,42 +89,44 @@ describe("search store — compact toggle preserves expandedDirs", () => {
 describe("search store — expandedDirs is session-scoped (cleared on workspace close)", () => {
   beforeEach(resetStore);
 
-  it("closeAllForWorkspace clears expandedDirs but preserves viewMode", () => {
-    useSearchStore.getState().setViewMode(WS_A, "tree");
+  it("closeAllForWorkspace clears expandedDirs but preserves viewMode in shared store", () => {
+    usePanelViewOptionsStore.getState().setViewMode("search", WS_A, "tree");
     useSearchStore.getState().toggleExpandedDir(WS_A, "src");
 
     useSearchStore.getState().closeAllForWorkspace(WS_A);
 
-    const vs = useSearchStore.getState().viewStates.get(WS_A);
-    // viewMode is persisted (survives close).
-    expect(vs?.viewMode).toBe("tree");
+    // viewMode is persisted (stays in shared store entries).
+    const entry = usePanelViewOptionsStore
+      .getState()
+      .entries.get(`search:${WS_A}`);
+    expect(entry?.viewMode).toBe("tree");
     // expandedDirs is session-scoped (cleared on close).
-    expect(vs?.expandedDirs.size).toBe(0);
+    expect(useSearchStore.getState().expandedDirsByWorkspace.has(WS_A)).toBe(false);
   });
 
   it("fresh workspace has empty expandedDirs", () => {
     // WS_B has never had toggleExpandedDir called.
-    useSearchStore.getState().setViewMode(WS_B, "tree");
-    const vs = useSearchStore.getState().viewStates.get(WS_B);
-    expect(vs?.expandedDirs.size).toBe(0);
+    usePanelViewOptionsStore.getState().setViewMode("search", WS_B, "tree");
+    const dirs = useSearchStore.getState().expandedDirsByWorkspace.get(WS_B);
+    expect(dirs?.size ?? 0).toBe(0);
   });
 
   it("two workspaces have independent expandedDirs", () => {
     useSearchStore.getState().toggleExpandedDir(WS_A, "src");
     useSearchStore.getState().toggleExpandedDir(WS_B, "lib");
 
-    expect(useSearchStore.getState().viewStates.get(WS_A)?.expandedDirs.has("src")).toBe(true);
-    expect(useSearchStore.getState().viewStates.get(WS_A)?.expandedDirs.has("lib")).toBe(false);
-    expect(useSearchStore.getState().viewStates.get(WS_B)?.expandedDirs.has("lib")).toBe(true);
-    expect(useSearchStore.getState().viewStates.get(WS_B)?.expandedDirs.has("src")).toBe(false);
+    expect(useSearchStore.getState().expandedDirsByWorkspace.get(WS_A)?.has("src")).toBe(true);
+    expect(useSearchStore.getState().expandedDirsByWorkspace.get(WS_A)?.has("lib")).toBe(false);
+    expect(useSearchStore.getState().expandedDirsByWorkspace.get(WS_B)?.has("lib")).toBe(true);
+    expect(useSearchStore.getState().expandedDirsByWorkspace.get(WS_B)?.has("src")).toBe(false);
   });
 
   it("closeAllForWorkspace on WS_A does not affect WS_B expandedDirs", () => {
     useSearchStore.getState().toggleExpandedDir(WS_B, "docs");
     useSearchStore.getState().closeAllForWorkspace(WS_A);
 
-    const vsB = useSearchStore.getState().viewStates.get(WS_B);
-    expect(vsB?.expandedDirs.has("docs")).toBe(true);
+    const dirsB = useSearchStore.getState().expandedDirsByWorkspace.get(WS_B);
+    expect(dirsB?.has("docs")).toBe(true);
   });
 });
 

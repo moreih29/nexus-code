@@ -8,18 +8,17 @@
  */
 
 import type { GitActionHint } from "../../../shared/git/types";
+import { canUseIpcBridge } from "../../ipc/client";
+import { isRecord } from "../../utils/is-record";
 import type {
   GitOperationKind,
   GitPushOptions,
   GitSession,
   GitStoreError,
   PendingNonFFRetry,
-} from "./git";
+} from "./git/types";
 
-/** Narrow unknown values to object records for safe property access. */
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
+export { isRecord };
 
 /** Find the first rejected `Promise.allSettled` reason in result order. */
 export function firstRejectedReason(
@@ -41,17 +40,9 @@ export function isAbortError(error: unknown): boolean {
  * the panel consumes. The renderer IPC layer copies hint shapes verbatim, so a
  * `kind` string is the only field we need to validate before forwarding.
  */
-export function isGitActionHint(value: unknown): value is GitActionHint {
+function isGitActionHint(value: unknown): value is GitActionHint {
   if (!isRecord(value)) return false;
   return typeof value.kind === "string";
-}
-
-/**
- * Keep renderer-only side effects from firing in unit tests or non-browser
- * contexts where the preload bridge is not installed.
- */
-export function canUseIpcBridge(): boolean {
-  return typeof window !== "undefined" && "ipc" in window;
 }
 
 /**
@@ -121,7 +112,7 @@ export function normalizePushOptions(options: GitPushOptions): GitPushOptions {
  * Finds the current branch label for retry banners; non-FF push failures
  * require a named branch in normal Git flows, so "HEAD" is only a fallback.
  */
-export function currentBranchName(session: GitSession): string {
+function currentBranchName(session: GitSession): string {
   return session.branchInfo?.current ?? session.status?.branch?.current ?? "HEAD";
 }
 

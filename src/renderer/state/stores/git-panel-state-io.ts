@@ -7,9 +7,7 @@
  */
 
 import type { GitPanelStateUpdate } from "../../../shared/git/types";
-import type { ViewMode } from "../../../shared/types/panel";
-import { ipcCall } from "../../ipc/client";
-import { canUseIpcBridge } from "./git-store-helpers";
+import { canUseIpcBridge, ipcCall } from "../../ipc/client";
 
 /**
  * Persist panel-state updates through the git channel. Skipped silently in
@@ -23,19 +21,3 @@ export function persistPanelState(workspaceId: string, update: GitPanelStateUpda
   });
 }
 
-/**
- * Persist panel view-options through the panel channel. Skipped silently in
- * non-browser contexts (tests) where the IPC bridge isn't installed.
- */
-export function persistViewOptions(
-  workspaceId: string,
-  partial: { viewMode?: ViewMode; compactFolders?: boolean },
-): void {
-  if (!canUseIpcBridge()) return;
-
-  ipcCall("panel", "setViewOptions", { workspaceId, panelKind: "git", ...partial }).catch(
-    (error: unknown) => {
-      console.error("[git] setViewOptions failed", error);
-    },
-  );
-}

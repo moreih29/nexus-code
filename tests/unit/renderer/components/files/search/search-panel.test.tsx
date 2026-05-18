@@ -38,10 +38,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 const mockStartSearch = mock((_wsId: string, _query: string, _opts: unknown) => {});
 const mockCancelSearch = mock((_wsId: string) => {});
 const mockToggleGroup = mock((_wsId: string, _relPath: string) => {});
-const mockLoadViewOptions = mock((_wsId: string) => {});
-const mockSetViewMode = mock((_wsId: string, _next: unknown) => {});
-const mockSetCompactFolders = mock((_wsId: string, _next: unknown) => {});
 const mockToggleExpandedDir = mock((_wsId: string, _relPath: string) => {});
+const mockLoadViewOptions = mock((_panelKind: string, _wsId: string) => {});
+const mockSetViewMode = mock((_panelKind: string, _wsId: string, _next: unknown) => {});
+const mockSetCompactFolders = mock((_panelKind: string, _wsId: string, _next: unknown) => {});
 const mockCreateTab = mock((_wsId: string, _args: unknown, _isPreview?: boolean) => ({
   id: "tab-new",
   type: "editor",
@@ -54,11 +54,10 @@ const mockCreateTab = mock((_wsId: string, _args: unknown, _isPreview?: boolean)
 // Current session state — mutated per test.
 let mockSession: unknown;
 
-// Default view state returned by useSearchViewState stub.
+// Default view state returned by useViewOptions stub.
 const DEFAULT_VIEW_STATE = {
   viewMode: "list" as const,
   compactFolders: false,
-  expandedDirs: new Set<string>(),
 };
 
 mock.module("../../../../../../src/renderer/state/stores/search", () => ({
@@ -74,15 +73,24 @@ mock.module("../../../../../../src/renderer/state/stores/search", () => ({
       startSearch: mockStartSearch,
       cancelSearch: mockCancelSearch,
       toggleGroup: mockToggleGroup,
-      loadViewOptions: mockLoadViewOptions,
-      setViewMode: mockSetViewMode,
-      setCompactFolders: mockSetCompactFolders,
       toggleExpandedDir: mockToggleExpandedDir,
+      expandedDirsByWorkspace: new Map<string, Set<string>>(),
     };
     return selector ? selector(store) : store;
   },
   useSearchSession: (_wsId: string) => mockSession,
-  useSearchViewState: (_wsId: string) => DEFAULT_VIEW_STATE,
+}));
+
+mock.module("../../../../../../src/renderer/state/stores/panel-view-options", () => ({
+  usePanelViewOptionsStore: (selector: (s: unknown) => unknown) => {
+    const store = {
+      loadViewOptions: mockLoadViewOptions,
+      setViewMode: mockSetViewMode,
+      setCompactFolders: mockSetCompactFolders,
+    };
+    return selector ? selector(store) : store;
+  },
+  useViewOptions: (_panelKind: string, _wsId: string) => DEFAULT_VIEW_STATE,
 }));
 
 mock.module("../../../../../../src/renderer/state/stores/workspaces", () => ({
@@ -199,10 +207,10 @@ function resetMocks() {
   mockStartSearch.mockClear();
   mockCancelSearch.mockClear();
   mockToggleGroup.mockClear();
+  mockToggleExpandedDir.mockClear();
   mockLoadViewOptions.mockClear();
   mockSetViewMode.mockClear();
   mockSetCompactFolders.mockClear();
-  mockToggleExpandedDir.mockClear();
   mockCreateTab.mockClear();
   mockRequestEditorReveal.mockClear();
   mockSession = undefined;

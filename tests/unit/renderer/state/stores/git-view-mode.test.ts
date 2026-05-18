@@ -1,13 +1,15 @@
 /**
- * Git store — viewMode / compactFolders / expandedTreeNodes unit tests.
+ * Git panel — viewMode / compactFolders / expandedTreeNodes unit tests.
  *
- * (d) expandedTreeNodes toggle + group namespace isolation.
- * (e) compact toggle preserves expandedTreeNodes.
+ * After step 5 of the refactor, viewMode and compactFolders are owned by the
+ * shared usePanelViewOptionsStore (keyed "git:<workspaceId>").  The git
+ * session no longer carries those fields.  These tests verify:
  *
- * The git store imports ipcCall/ipcListen at module load. We stub the ipc
- * module before importing the store (leaf-only mock, per convention).
+ *   (d) toggleExpandedTreeNode group namespace isolation (git store).
+ *   (e) compact/viewMode do not clobber expandedTreeNodes (shared store).
  *
- * Sessions are seeded via useGitStore.setState to avoid async IPC paths.
+ * The setViewMode / setCompactFolders actions are tested via the shared store
+ * rather than via useGitStore.
  */
 
 import { beforeEach, describe, expect, it, mock } from "bun:test";
@@ -19,6 +21,8 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcCall: mock(() => Promise.resolve({})),
   ipcListen: mock(() => () => {}),
+  ipcStream: mock(() => ({ promise: Promise.resolve(undefined), onProgress: mock(() => {}) })),
+  canUseIpcBridge: mock(() => false),
 }));
 
 mock.module("../../../../../src/renderer/state/workspace-cleanup", () => ({
@@ -31,13 +35,13 @@ mock.module("../../../../../src/renderer/state/workspace-cleanup", () => ({
 
 import type { GitSession } from "../../../../../src/renderer/state/stores/git";
 import { useGitStore } from "../../../../../src/renderer/state/stores/git";
+import { usePanelViewOptionsStore } from "../../../../../src/renderer/state/stores/panel-view-options";
 import { DEFAULT_GIT_PANEL_STATE } from "../../../../../src/shared/git/types";
-import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../../../src/shared/types/panel";
 
 const WS_A = "00000000-0000-0000-0000-0000000000aa";
 const WS_B = "00000000-0000-0000-0000-0000000000bb";
 
-/** Minimal default session matching createDefaultSession in the store. */
+/** Minimal git session — no viewMode/compactFolders fields. */
 function makeDefaultSession(overrides: Partial<GitSession> = {}): GitSession {
   return {
     repoInfo: { kind: "detecting" },
@@ -52,8 +56,16 @@ function makeDefaultSession(overrides: Partial<GitSession> = {}): GitSession {
       working: [],
       untracked: [],
     },
-    viewMode: DEFAULT_VIEW_OPTIONS_BY_PANEL.git.viewMode,
-    compactFolders: DEFAULT_VIEW_OPTIONS_BY_PANEL.git.compactFolders,
+    commitOptions: { ...DEFAULT_GIT_PANEL_STATE.commitOptions },
+    autofetchIntervalMin: DEFAULT_GIT_PANEL_STATE.autofetchIntervalMin,
+    autofetchManualPaused: DEFAULT_GIT_PANEL_STATE.autofetchManualPaused,
+    autofetchFetching: false,
+    autofetchConsecutiveFailures: 0,
+    autofetchLastError: null,
+    autofetchPausedBannerVisible: false,
+    panelSegment: DEFAULT_GIT_PANEL_STATE.panelSegment,
+    historyRef: DEFAULT_GIT_PANEL_STATE.historyRef,
+    historyScope: DEFAULT_GIT_PANEL_STATE.historyScope,
     inFlightOp: null,
     lastError: null,
     pendingNonFFRetry: null,
@@ -71,61 +83,56 @@ function seedSession(wsId: string): void {
 
 function resetStore(): void {
   useGitStore.setState({ sessions: new Map() });
+  usePanelViewOptionsStore.setState({ entries: new Map() });
 }
 
 // ---------------------------------------------------------------------------
-// (d-1) setViewMode
+// (d-1) setViewMode — via shared store
 // ---------------------------------------------------------------------------
 
-describe("git store — setViewMode", () => {
+describe("shared store — setViewMode for git panel", () => {
   beforeEach(resetStore);
 
-  it("setViewMode 'list' stored correctly in session", () => {
-    seedSession(WS_A);
-    useGitStore.getState().setViewMode(WS_A, "list");
-    expect(useGitStore.getState().sessions.get(WS_A)?.viewMode).toBe("list");
+  it("setViewMode 'list' stored correctly in shared store", () => {
+    usePanelViewOptionsStore.getState().setViewMode("git", WS_A, "list");
+    expect(usePanelViewOptionsStore.getState().entries.get(`git:${WS_A}`)?.viewMode).toBe("list");
   });
 
-  it("setViewMode 'tree' stored correctly in session", () => {
-    seedSession(WS_A);
-    useGitStore.getState().setViewMode(WS_A, "tree");
-    expect(useGitStore.getState().sessions.get(WS_A)?.viewMode).toBe("tree");
+  it("setViewMode 'tree' stored correctly in shared store", () => {
+    usePanelViewOptionsStore.getState().setViewMode("git", WS_A, "tree");
+    expect(usePanelViewOptionsStore.getState().entries.get(`git:${WS_A}`)?.viewMode).toBe("tree");
   });
 
   it("WS_A and WS_B viewMode are independent", () => {
-    seedSession(WS_A);
-    seedSession(WS_B);
-    useGitStore.getState().setViewMode(WS_A, "tree");
-    useGitStore.getState().setViewMode(WS_B, "list");
+    usePanelViewOptionsStore.getState().setViewMode("git", WS_A, "tree");
+    usePanelViewOptionsStore.getState().setViewMode("git", WS_B, "list");
 
-    expect(useGitStore.getState().sessions.get(WS_A)?.viewMode).toBe("tree");
-    expect(useGitStore.getState().sessions.get(WS_B)?.viewMode).toBe("list");
+    expect(usePanelViewOptionsStore.getState().entries.get(`git:${WS_A}`)?.viewMode).toBe("tree");
+    expect(usePanelViewOptionsStore.getState().entries.get(`git:${WS_B}`)?.viewMode).toBe("list");
   });
 });
 
 // ---------------------------------------------------------------------------
-// (d-2) setCompactFolders
+// (d-2) setCompactFolders — via shared store
 // ---------------------------------------------------------------------------
 
-describe("git store — setCompactFolders", () => {
+describe("shared store — setCompactFolders for git panel", () => {
   beforeEach(resetStore);
 
   it("setCompactFolders true stored correctly", () => {
-    seedSession(WS_A);
-    useGitStore.getState().setCompactFolders(WS_A, true);
-    expect(useGitStore.getState().sessions.get(WS_A)?.compactFolders).toBe(true);
+    usePanelViewOptionsStore.getState().setCompactFolders("git", WS_A, true);
+    expect(usePanelViewOptionsStore.getState().entries.get(`git:${WS_A}`)?.compactFolders).toBe(true);
   });
 
   it("setCompactFolders false stored correctly after true", () => {
-    seedSession(WS_A);
-    useGitStore.getState().setCompactFolders(WS_A, true);
-    useGitStore.getState().setCompactFolders(WS_A, false);
-    expect(useGitStore.getState().sessions.get(WS_A)?.compactFolders).toBe(false);
+    usePanelViewOptionsStore.getState().setCompactFolders("git", WS_A, true);
+    usePanelViewOptionsStore.getState().setCompactFolders("git", WS_A, false);
+    expect(usePanelViewOptionsStore.getState().entries.get(`git:${WS_A}`)?.compactFolders).toBe(false);
   });
 });
 
 // ---------------------------------------------------------------------------
-// (d-3) toggleExpandedTreeNode — group namespace isolation
+// (d-3) toggleExpandedTreeNode — group namespace isolation (git store)
 // ---------------------------------------------------------------------------
 
 describe("git store — toggleExpandedTreeNode group namespace isolation", () => {
@@ -183,10 +190,10 @@ describe("git store — toggleExpandedTreeNode group namespace isolation", () =>
 });
 
 // ---------------------------------------------------------------------------
-// (e) compact toggle preserves expandedTreeNodes
+// (e) compact / viewMode do not clobber expandedTreeNodes
 // ---------------------------------------------------------------------------
 
-describe("git store — compact toggle does not clobber expandedTreeNodes", () => {
+describe("shared store compact/viewMode does not clobber expandedTreeNodes in git store", () => {
   beforeEach(resetStore);
 
   it("setCompactFolders does not clear expandedTreeNodes", () => {
@@ -194,9 +201,9 @@ describe("git store — compact toggle does not clobber expandedTreeNodes", () =
     useGitStore.getState().toggleExpandedTreeNode(WS_A, "staged", "src");
     useGitStore.getState().toggleExpandedTreeNode(WS_A, "working", "lib");
 
-    // Toggle compact on and off.
-    useGitStore.getState().setCompactFolders(WS_A, true);
-    useGitStore.getState().setCompactFolders(WS_A, false);
+    // Toggle compact on and off via shared store.
+    usePanelViewOptionsStore.getState().setCompactFolders("git", WS_A, true);
+    usePanelViewOptionsStore.getState().setCompactFolders("git", WS_A, false);
 
     const nodes = useGitStore.getState().sessions.get(WS_A)?.expandedTreeNodes;
     expect(nodes?.staged).toContain("src");
@@ -207,8 +214,8 @@ describe("git store — compact toggle does not clobber expandedTreeNodes", () =
     seedSession(WS_A);
     useGitStore.getState().toggleExpandedTreeNode(WS_A, "merge", "a");
 
-    useGitStore.getState().setViewMode(WS_A, "list");
-    useGitStore.getState().setViewMode(WS_A, "tree");
+    usePanelViewOptionsStore.getState().setViewMode("git", WS_A, "list");
+    usePanelViewOptionsStore.getState().setViewMode("git", WS_A, "tree");
 
     const nodes = useGitStore.getState().sessions.get(WS_A)?.expandedTreeNodes;
     expect(nodes?.merge).toContain("a");

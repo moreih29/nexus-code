@@ -75,7 +75,7 @@ export function buildErrorAction(
  * Branches on stable GitError.kind when available, with message fallback for
  * Electron IPC error serialization that can strip custom Error properties.
  */
-export function isAuthGitError(error: GitStoreError): boolean {
+function isAuthGitError(error: GitStoreError): boolean {
   if (error.kind === "auth" || error.kind === "auth-required") return true;
   return /authentication failed|could not read username|could not read password|permission denied|terminal prompts disabled/i.test(
     `${error.message}\n${error.details ?? ""}`,

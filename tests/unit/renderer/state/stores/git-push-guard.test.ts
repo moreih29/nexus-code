@@ -44,7 +44,6 @@ import {
   type GitActionHint,
   type GitStatus,
 } from "../../../../../src/shared/git/types";
-import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../../../src/shared/types/panel";
 
 const WORKSPACE_ID = "00000000-0000-0000-0000-000000000015";
 
@@ -186,8 +185,6 @@ function makeSession(): GitSession {
     panelSegment: DEFAULT_GIT_PANEL_STATE.panelSegment,
     historyRef: DEFAULT_GIT_PANEL_STATE.historyRef,
     historyScope: DEFAULT_GIT_PANEL_STATE.historyScope,
-    viewMode: DEFAULT_VIEW_OPTIONS_BY_PANEL.git.viewMode,
-    compactFolders: DEFAULT_VIEW_OPTIONS_BY_PANEL.git.compactFolders,
     inFlightOp: null,
     lastError: null,
     pendingNonFFRetry: null,

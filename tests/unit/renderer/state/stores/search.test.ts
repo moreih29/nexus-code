@@ -54,15 +54,20 @@ const mockIpcStream = mock(
   },
 );
 
-// ipcCall stub — used by the view-options actions (loadViewOptions, setViewMode, etc.)
-const mockIpcCall = mock(
-  (_channel: string, _method: string, _args: unknown): Promise<unknown> =>
-    Promise.resolve({ viewMode: "list", compactFolders: false }),
-);
-
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcStream: mockIpcStream,
-  ipcCall: mockIpcCall,
+}));
+
+mock.module("../../../../../src/renderer/state/stores/panel-view-options", () => ({
+  usePanelViewOptionsStore: {
+    getState: () => ({
+      closeForWorkspace: () => {},
+    }),
+  },
+}));
+
+mock.module("../../../../../src/renderer/state/workspace-cleanup", () => ({
+  registerWorkspaceCleanup: mock(() => () => {}),
 }));
 
 import {
@@ -78,10 +83,9 @@ const BASE_OPTIONS: SearchOptions = { ...EMPTY_SEARCH_OPTIONS };
 function resetStore(): void {
   useSearchStore.getState().closeAllForWorkspace(WS_A);
   useSearchStore.getState().closeAllForWorkspace(WS_B);
-  useSearchStore.setState({ sessions: new Map(), viewStates: new Map() });
+  useSearchStore.setState({ sessions: new Map(), expandedDirsByWorkspace: new Map() });
   controlledStreams.length = 0;
   mockIpcStream.mockClear();
-  mockIpcCall.mockClear();
 }
 
 function batch(relPath: string, preview: string): FileMatch[] {
@@ -282,44 +286,29 @@ describe("renderer search store", () => {
 });
 
 // ---------------------------------------------------------------------------
-// View-state actions (viewMode, compactFolders, expandedDirs)
+// toggleExpandedDir actions
 // ---------------------------------------------------------------------------
 
-describe("search store — view-state actions", () => {
+describe("search store — toggleExpandedDir", () => {
   beforeEach(resetStore);
-
-  it("setViewMode updates viewMode in the view state", () => {
-    useSearchStore.getState().setViewMode(WS_A, "tree");
-    expect(useSearchStore.getState().viewStates.get(WS_A)?.viewMode).toBe("tree");
-  });
-
-  it("setCompactFolders updates compactFolders in the view state", () => {
-    useSearchStore.getState().setCompactFolders(WS_A, true);
-    expect(useSearchStore.getState().viewStates.get(WS_A)?.compactFolders).toBe(true);
-  });
 
   it("toggleExpandedDir adds a dir path; toggling again removes it", () => {
     useSearchStore.getState().toggleExpandedDir(WS_A, "src/components");
-    expect(useSearchStore.getState().viewStates.get(WS_A)?.expandedDirs.has("src/components")).toBe(
-      true,
-    );
+    expect(
+      useSearchStore.getState().expandedDirsByWorkspace.get(WS_A)?.has("src/components"),
+    ).toBe(true);
 
     useSearchStore.getState().toggleExpandedDir(WS_A, "src/components");
-    expect(useSearchStore.getState().viewStates.get(WS_A)?.expandedDirs.has("src/components")).toBe(
-      false,
-    );
+    expect(
+      useSearchStore.getState().expandedDirsByWorkspace.get(WS_A)?.has("src/components"),
+    ).toBe(false);
   });
 
-  it("closeAllForWorkspace resets expandedDirs but retains viewMode", () => {
-    useSearchStore.getState().setViewMode(WS_A, "tree");
+  it("closeAllForWorkspace removes expandedDirsByWorkspace entry for workspace", () => {
     useSearchStore.getState().toggleExpandedDir(WS_A, "src");
 
     useSearchStore.getState().closeAllForWorkspace(WS_A);
 
-    const vs = useSearchStore.getState().viewStates.get(WS_A);
-    // viewMode is persisted — survives the workspace cleanup.
-    expect(vs?.viewMode).toBe("tree");
-    // expandedDirs is session-scoped — cleared on workspace cleanup.
-    expect(vs?.expandedDirs.size).toBe(0);
+    expect(useSearchStore.getState().expandedDirsByWorkspace.has(WS_A)).toBe(false);
   });
 });
