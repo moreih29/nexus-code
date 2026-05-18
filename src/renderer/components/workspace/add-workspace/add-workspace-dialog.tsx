@@ -132,7 +132,9 @@ export function AddWorkspaceDialog({
 
   // Back — one step back in the view stack
   function handleBack(): void {
-    if (view === "ssh-new-connection") {
+    if (view === "ssh-server-list") {
+      setView("main-list");
+    } else if (view === "ssh-new-connection") {
       setPrefillProfile(null);
       setView("ssh-server-list");
     } else if (view === "ssh-directory-picker") {
@@ -140,8 +142,10 @@ export function AddWorkspaceDialog({
     }
   }
 
-  // ← Back is visible only on ssh-new-connection and ssh-directory-picker
-  const showBack = view === "ssh-new-connection" || view === "ssh-directory-picker";
+  // ← Back is visible on every SSH view; main-list is the root (no Back).
+  // From ssh-server-list it returns to the initial local/main view.
+  const showBack =
+    view === "ssh-server-list" || view === "ssh-new-connection" || view === "ssh-directory-picker";
 
   // Footer primary slot — only on form views
   let primarySlot: React.ReactNode = null;
@@ -205,8 +209,9 @@ export function AddWorkspaceDialog({
         {/* Fixed header */}
         <DialogHeader view={view} showBack={showBack} onBack={handleBack} />
 
-        {/* Scrollable body */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+        {/* Scrollable body — flex column so a view can fill the height
+            (the directory picker grows its list into the available space). */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-4">
           <ViewBody
             view={view}
             browseSession={browseSession}
@@ -424,6 +429,7 @@ function FadeView({ viewKey, children }: FadeViewProps): React.JSX.Element {
 
   return (
     <div
+      className="flex flex-1 flex-col"
       style={{
         opacity: visible ? 1 : 0,
         transition: visible ? "opacity 200ms ease" : "none",

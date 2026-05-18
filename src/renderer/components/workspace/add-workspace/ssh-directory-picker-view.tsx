@@ -56,7 +56,6 @@ function extractSshErrorKind(error: unknown): BrowseErrorKind {
   return "retryable";
 }
 
-const PICKER_LIST_HEIGHT = 240; // px — fixed per spec
 const HOVER_PREFETCH_DELAY_MS = 150;
 
 // ---------------------------------------------------------------------------
@@ -296,15 +295,20 @@ export function SshDirectoryPickerView({
   }, [addPhase, addDisabled, onAddPhaseChange]);
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
       {/* Path bar */}
       <form onSubmit={handlePathSubmit} className="flex flex-col gap-1">
-        <label htmlFor="picker-path-input" className="text-app-ui-sm text-foreground">
-          Path
-          <span className="ml-2 text-app-ui-sm text-muted-foreground">
+        {/* Field label on the left; the connection identity (user@host) is
+            separate context, pushed to the right so the two don't read as
+            one run of text. */}
+        <div className="flex items-baseline justify-between gap-2">
+          <label htmlFor="picker-path-input" className="text-app-ui-sm text-foreground">
+            Path
+          </label>
+          <span className="min-w-0 truncate text-app-ui-sm text-muted-foreground">
             {session.user ? `${session.user}@${host}` : host}
           </span>
-        </label>
+        </div>
         <div className="flex items-center gap-2">
           {!isAtRoot ? (
             <button
@@ -332,11 +336,8 @@ export function SshDirectoryPickerView({
         </div>
       </form>
 
-      {/* Fixed 240px directory list area */}
-      <div
-        style={{ height: PICKER_LIST_HEIGHT }}
-        className="overflow-hidden rounded-(--radius-control) border border-border"
-      >
+      {/* Directory list — grows to fill the dialog's available height */}
+      <div className="min-h-0 flex-1 overflow-hidden rounded-(--radius-control) border border-border">
         {listLoading ? (
           // Loading: skeleton rows — no generic spinner
           <Skeleton
