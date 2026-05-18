@@ -41,12 +41,14 @@ interface ResizeHandleRatioProps {
 }
 
 const POSITION_CLASS = {
+  // +3px past the 50% shift so the handle centers in the 6px island gap
+  // (the panel's right edge is the gap's *left* edge, not its centre).
   rightCentered:
-    "group absolute right-0 top-0 h-full w-2 cursor-col-resize translate-x-1/2 [-webkit-app-region:no-drag]",
+    "group absolute right-0 top-0 h-full w-2 cursor-col-resize translate-x-[calc(50%+3px)] [-webkit-app-region:no-drag]",
   rightInside:
     "group absolute right-0 top-0 h-full w-2 cursor-col-resize -translate-x-1/2 [-webkit-app-region:no-drag]",
   horizontal:
-    "group absolute left-0 right-0 bottom-0 h-2 cursor-row-resize translate-y-1/2 [-webkit-app-region:no-drag]",
+    "group absolute left-0 right-0 bottom-0 h-2 cursor-row-resize translate-y-[calc(50%+3px)] [-webkit-app-region:no-drag]",
 } as const;
 
 function clamp(value: number, min: number, max: number): number {
