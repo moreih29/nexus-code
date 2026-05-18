@@ -13,8 +13,8 @@ import type {
 import { copyText } from "../../../../utils/clipboard";
 import { Button } from "../../../ui/button";
 import { useDismissOnOutsideClick } from "../../../ui/use-dismiss-on-outside-click";
-import { BranchChip } from "./chip";
 import { buildAutofetchMenuModel } from "../utils/git-more-menu-model";
+import { BranchChip } from "./chip";
 
 interface GitBranchPopoverProps {
   workspaceId: string;
@@ -209,7 +209,7 @@ export function GitBranchPopover({
         <div
           role="dialog"
           aria-label="Branch details"
-          className="absolute bottom-full left-0 z-40 mb-1 w-[240px] rounded border border-border bg-popover p-2 text-popover-foreground shadow-none"
+          className="absolute bottom-full left-0 z-40 mb-1 w-[240px] floating-panel p-2"
           onKeyDown={(event) => {
             if (event.key === "Escape") setOpen(false);
           }}
@@ -375,7 +375,7 @@ function BranchContextMenu({
   return (
     <div
       role="menu"
-      className="fixed z-50 min-w-[188px] rounded border border-border bg-popover p-1 text-popover-foreground shadow-none"
+      className="fixed z-50 min-w-[188px] floating-panel p-1"
       style={contextMenuStyle(point)}
       onContextMenu={(event) => event.preventDefault()}
       onKeyDown={(event) => {
@@ -433,10 +433,7 @@ function BranchAutofetchSubmenu({
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
       {open ? (
-        <div
-          role="menu"
-          className="absolute left-full top-0 z-50 min-w-[188px] rounded border border-border bg-popover p-1 text-popover-foreground shadow-none"
-        >
+        <div role="menu" className="absolute left-full top-0 z-50 min-w-[188px] floating-panel p-1">
           {buildAutofetchMenuModel(selected).map((item) => (
             <ContextMenuButton
               key={item.intervalMin}

@@ -156,11 +156,19 @@
    --------------------------------------------------------------------------- */
 
 @utility island-surface {
-  background-color: color-mix(in oklab, var(--background) calc(var(--window-opacity, 1) * 100%), transparent);
+  background-color: color-mix(
+    in oklab,
+    var(--background) calc(var(--window-opacity, 1) * 100%),
+    transparent
+  );
 }
 
 @utility backdrop-surface {
-  background-color: color-mix(in oklab, var(--muted) calc(var(--window-opacity, 1) * 100%), transparent);
+  background-color: color-mix(
+    in oklab,
+    var(--muted) calc(var(--window-opacity, 1) * 100%),
+    transparent
+  );
 }
 
 /* ---------------------------------------------------------------------------
@@ -213,20 +221,40 @@
    --------------------------------------------------------------------------- */
 
 @keyframes dialog-overlay-show {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @keyframes dialog-overlay-hide {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 @keyframes dialog-content-show {
-  from { opacity: 0; scale: 0.96; }
-  to { opacity: 1; scale: 1; }
+  from {
+    opacity: 0;
+    scale: 0.96;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
 }
 @keyframes dialog-content-hide {
-  from { opacity: 1; scale: 1; }
-  to { opacity: 0; scale: 0.96; }
+  from {
+    opacity: 1;
+    scale: 1;
+  }
+  to {
+    opacity: 0;
+    scale: 0.96;
+  }
 }
 
 .dialog-overlay[data-state="open"] {
@@ -246,6 +274,31 @@
 @media (prefers-reduced-motion: reduce) {
   .dialog-overlay[data-state],
   .dialog-content[data-state] {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Floating-layer panel surface — popovers, menus, context menus, the command
+   palette (design.md §2 Floating layer / §4 island radius).
+
+   These are mostly custom mount-on-open overlays (not Radix Dialog), so unlike
+   .dialog-content they have no data-state attribute — the scale+fade plays
+   once on mount via a plain animation. The class also OWNS the Floating token
+   set (island radius, floating border, popover surface) so a call site only
+   adds positioning/padding/sizing and cannot drift the surface styling.
+   --------------------------------------------------------------------------- */
+
+.floating-panel {
+  border-radius: var(--radius-island);
+  border: 1px solid var(--surface-floating-border);
+  background-color: var(--popover);
+  color: var(--popover-foreground);
+  animation: dialog-content-show var(--motion-scale);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .floating-panel {
     animation: none;
   }
 }

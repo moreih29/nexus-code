@@ -1,10 +1,4 @@
-import {
-  AlertCircle,
-  ChevronDown,
-  ChevronRight,
-  LoaderCircle,
-  Server,
-} from "lucide-react";
+import { AlertCircle, ChevronDown, ChevronRight, Server } from "lucide-react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ipcCall, ipcCallResult } from "../../../ipc/client";
@@ -53,7 +47,9 @@ export function SshNewConnectionView({
   // Local form state — seeded from prefillProfile when present
   const [hostInput, setHostInput] = useState(() => {
     if (!prefillProfile) return "";
-    return prefillProfile.user ? `${prefillProfile.user}@${prefillProfile.host}` : prefillProfile.host;
+    return prefillProfile.user
+      ? `${prefillProfile.user}@${prefillProfile.host}`
+      : prefillProfile.host;
   });
   const [selectedAlias, setSelectedAlias] = useState<string | null>(null);
   const [name, setName] = useState(prefillProfile?.label ?? "");
@@ -62,9 +58,10 @@ export function SshNewConnectionView({
     return String(prefillProfile.port);
   });
   const [identityFile, setIdentityFile] = useState(prefillProfile?.identityFile ?? "");
-  const [advancedOpen, setAdvancedOpen] = useState(() =>
-    // Open advanced if prefilled with non-default port or identity file
-    !!(prefillProfile && (prefillProfile.port !== 22 || prefillProfile.identityFile)),
+  const [advancedOpen, setAdvancedOpen] = useState(
+    () =>
+      // Open advanced if prefilled with non-default port or identity file
+      !!(prefillProfile && (prefillProfile.port !== 22 || prefillProfile.identityFile)),
   );
   const [hostListOpen, setHostListOpen] = useState(false);
   const [activeHostIndex, setActiveHostIndex] = useState(-1);
@@ -93,8 +90,7 @@ export function SshNewConnectionView({
   }, [selectedHost, hostInput]);
 
   const hostEmpty = hostInput.trim().length === 0;
-  const connectDisabled =
-    connectPhase === "connecting" || hostEmpty || portError !== null;
+  const connectDisabled = connectPhase === "connecting" || hostEmpty || portError !== null;
 
   // Sync footer primary button state
   useEffect(() => {
@@ -112,10 +108,7 @@ export function SshNewConnectionView({
     if (!hostListOpen) return;
 
     function handlePointerDown(event: PointerEvent): void {
-      if (
-        hostComboboxRef.current &&
-        !hostComboboxRef.current.contains(event.target as Node)
-      ) {
+      if (hostComboboxRef.current && !hostComboboxRef.current.contains(event.target as Node)) {
         setHostListOpen(false);
         setActiveHostIndex(-1);
       }
@@ -262,7 +255,9 @@ export function SshNewConnectionView({
             className="mt-0.5 size-3.5 shrink-0 text-[var(--state-error-fg)]"
             aria-hidden="true"
           />
-          <span className="min-w-0 text-app-ui-sm text-[var(--state-error-fg)]">{errorMessage}</span>
+          <span className="min-w-0 text-app-ui-sm text-[var(--state-error-fg)]">
+            {errorMessage}
+          </span>
         </div>
       ) : null}
 
@@ -307,7 +302,7 @@ export function SshNewConnectionView({
             <div
               id={NEW_CONN_HOST_OPTIONS_ID}
               role="listbox"
-              className="absolute left-0 right-10 top-[calc(100%+4px)] z-10 max-h-44 overflow-y-auto rounded-(--radius-control) border border-border bg-popover p-1 text-popover-foreground"
+              className="absolute left-0 right-10 top-[calc(100%+4px)] z-10 max-h-44 overflow-y-auto floating-panel p-1"
             >
               {filteredHosts.map((host, index) => (
                 <button
@@ -399,7 +394,10 @@ export function SshNewConnectionView({
                 className="w-full rounded-(--radius-control) border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50 aria-invalid:border-[var(--state-error-border)]"
               />
               {portError ? (
-                <p id={NEW_CONN_PORT_ERROR_ID} className="text-app-ui-sm text-[var(--state-error-fg)]">
+                <p
+                  id={NEW_CONN_PORT_ERROR_ID}
+                  className="text-app-ui-sm text-[var(--state-error-fg)]"
+                >
                   {portError}
                 </p>
               ) : null}

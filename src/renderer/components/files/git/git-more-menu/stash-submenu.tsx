@@ -7,10 +7,7 @@ import { ChevronRight } from "lucide-react";
 import { useRef } from "react";
 import { createPortal } from "react-dom";
 import { useSubmenuPlacement } from "../../../ui/use-submenu-placement";
-import {
-  buildGitStashMenuModel,
-  type GitStashMenuItemId,
-} from "../utils/git-more-menu-model";
+import { buildGitStashMenuModel, type GitStashMenuItemId } from "../utils/git-more-menu-model";
 import { MenuButton, MenuSeparator, PORTAL_MARKER } from "./menu-primitives";
 
 export function StashSubmenu({
@@ -77,7 +74,7 @@ export function StashSubmenu({
               role="menu"
               data-popover-root={PORTAL_MARKER}
               style={style}
-              className="z-50 max-h-[40vh] min-w-[188px] overflow-y-auto rounded border border-border bg-popover p-1 text-popover-foreground shadow-none"
+              className="floating-panel z-50 max-h-[40vh] min-w-[188px] overflow-y-auto p-1"
             >
               {model.map((item) =>
                 item.kind === "separator" ? (

@@ -44,8 +44,7 @@ export function computeNextCompact(current: boolean): boolean {
 
 // ON-state styling mirrors SearchOptionsToggles: inset ring distinguishes
 // "pressed" from "hover" because ghost hover bg matches pressed bg alone.
-const TOGGLE_ON_CLASS =
-  "bg-[var(--state-active-bg)] text-foreground ring-1 ring-inset ring-ring";
+const TOGGLE_ON_CLASS = "bg-[var(--state-active-bg)] text-foreground ring-1 ring-inset ring-ring";
 
 export function ViewModeToggle({
   viewMode,
@@ -146,7 +145,7 @@ export function ViewModeToggle({
               <div
                 role="menu"
                 aria-label="보기 옵션"
-                className="absolute right-0 top-9 z-40 min-w-[188px] rounded border border-border bg-popover p-1 text-popover-foreground shadow-none"
+                className="absolute right-0 top-9 z-40 min-w-[188px] floating-panel p-1"
                 onKeyDown={(event) => {
                   if (event.key === "Escape") setPopoverOpen(false);
                 }}

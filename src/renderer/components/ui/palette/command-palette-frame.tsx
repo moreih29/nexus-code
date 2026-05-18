@@ -78,7 +78,7 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
         aria-labelledby={titleId}
         data-command-palette-root="true"
         onKeyDown={onKeyDown}
-        className="pointer-events-auto fixed left-1/2 top-[18vh] z-[1] w-[min(560px,calc(100vw-32px))] -translate-x-1/2 rounded-[12px] border border-border bg-popover text-popover-foreground shadow-none"
+        className="pointer-events-auto fixed left-1/2 top-[18vh] z-[1] w-[min(560px,calc(100vw-32px))] -translate-x-1/2 floating-panel"
       >
         <h2 id={titleId} className="sr-only">
           {title}

@@ -11,6 +11,7 @@ import { useMemo, useState } from "react";
 import type { GitStoreError } from "../../../../state/stores/git";
 import { useGitStore } from "../../../../state/stores/git";
 import { Button } from "../../../ui/button";
+import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../../../ui/dialog";
 import { CommandPalette } from "../../../ui/palette/command-palette";
 import { PromptDialog, type PromptRequest } from "../../../ui/prompt-dialog";
 import {
@@ -286,8 +287,8 @@ function BranchDeleteConfirmDialog({
       }}
     >
       <RadixAlertDialog.Portal>
-        <RadixAlertDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <RadixAlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[440px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-island) border border-border bg-background p-5 text-foreground shadow-none outline-none">
+        <RadixAlertDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
+        <RadixAlertDialog.Content className={dialogContentClass("md", true)}>
           <RadixAlertDialog.Title className="text-app-body-emphasis text-foreground">
             {view.title}
           </RadixAlertDialog.Title>

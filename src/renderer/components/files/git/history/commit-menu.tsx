@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CommitDetail, LogEntry } from "../../../../../shared/git/types";
 import { copyText } from "../../../../utils/clipboard";
 import { Button } from "../../../ui/button";
+import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../../../ui/dialog";
 import { useDismissOnOutsideClick } from "../../../ui/use-dismiss-on-outside-click";
 
 export interface HistoryCommitMenuPoint {
@@ -71,7 +72,7 @@ export function HistoryCommitMenu({ target, actions, onClose }: HistoryCommitMen
         <div
           ref={wrapperRef}
           role="menu"
-          className="fixed z-50 min-w-[212px] rounded border border-border bg-popover p-1 text-popover-foreground shadow-none"
+          className="fixed z-50 min-w-[212px] floating-panel p-1"
           style={popoverPositionStyle(target.point)}
           onContextMenu={(event) => event.preventDefault()}
         >
@@ -236,8 +237,8 @@ function HistoryCommitConfirmDialog({
       }}
     >
       <RadixAlertDialog.Portal>
-        <RadixAlertDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <RadixAlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[420px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-island) border border-border bg-background p-5 text-foreground shadow-none outline-none">
+        <RadixAlertDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
+        <RadixAlertDialog.Content className={dialogContentClass("sm", true)}>
           <RadixAlertDialog.Title className="text-app-body-emphasis text-foreground">
             {title}
           </RadixAlertDialog.Title>
