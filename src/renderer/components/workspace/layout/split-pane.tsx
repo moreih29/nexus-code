@@ -15,13 +15,13 @@ export function SplitPane({ workspaceId, split, renderNode }: SplitPaneProps) {
   const isHorizontal = split.orientation === "horizontal";
   const { containerRef, sashProps } = useSplitSash({ workspaceId, split });
 
-  const firstBasis = `${split.ratio * 100}%`;
-  const secondBasis = `${(1 - split.ratio) * 100}%`;
+  const firstBasis = `calc(${split.ratio * 100}% - 3px)`;
+  const secondBasis = `calc(${(1 - split.ratio) * 100}% - 3px)`;
 
   return (
     <div
       ref={containerRef}
-      className={`flex ${isHorizontal ? "flex-row" : "flex-col"} flex-1 min-h-0 min-w-0`}
+      className={`flex ${isHorizontal ? "flex-row" : "flex-col"} flex-1 min-h-0 min-w-0 gap-[6px]`}
     >
       {/* First child */}
       <div

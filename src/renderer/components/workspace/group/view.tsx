@@ -168,7 +168,7 @@ export function GroupView({
     // biome-ignore lint/a11y/noStaticElementInteractions: click activates group; keyboard handled by focusable children
     <div
       ref={wrapperRef}
-      className="relative flex flex-col min-h-0 min-w-0 flex-1"
+      className="relative flex flex-col min-h-0 min-w-0 flex-1 island-surface rounded-(--radius-island) overflow-hidden"
       onClick={handleGroupClick}
     >
       <GroupTabBar

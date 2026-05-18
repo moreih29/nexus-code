@@ -161,8 +161,12 @@ export function App() {
           onRemoveWorkspace={handleRemoveWorkspace}
         />
         <FilesPanel />
-        <div className="grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden island-surface rounded-(--radius-island)">
-          {workspaces.length === 0 && <WelcomeScreen onOpenFolder={handleAddWorkspace} />}
+        <div className="grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden">
+          {workspaces.length === 0 && (
+            <div className="island-surface rounded-(--radius-island) overflow-hidden">
+              <WelcomeScreen onOpenFolder={handleAddWorkspace} />
+            </div>
+          )}
           {mountedWorkspaces.map((ws) => (
             <WorkspacePanel key={ws.id} workspace={ws} isActive={ws.id === activeWorkspaceId} />
           ))}
