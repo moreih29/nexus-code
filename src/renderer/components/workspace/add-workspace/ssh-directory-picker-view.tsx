@@ -321,7 +321,7 @@ export function SshDirectoryPickerView({
               aria-label="Go to parent directory"
               onClick={() => drillDown("..")}
               disabled={listLoading || addPhase === "creating"}
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-(--radius-control) border border-border bg-background text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50"
+              className="inline-flex size-7 shrink-0 items-center justify-center rounded-(--radius-control) border border-border bg-background text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50"
             >
               <ChevronUp className="size-4" aria-hidden="true" />
             </button>
@@ -402,7 +402,7 @@ export function SshDirectoryPickerView({
           </div>
         ) : (
           // Directory list
-          <ul className="h-full overflow-y-auto py-1" aria-label="Directory listing">
+          <ul className="app-scrollbar h-full overflow-y-auto py-1" aria-label="Directory listing">
             {dirEntries.map((entry) => (
               <li key={entry.name}>
                 <button
