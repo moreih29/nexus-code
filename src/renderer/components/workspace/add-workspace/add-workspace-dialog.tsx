@@ -198,7 +198,10 @@ export function AddWorkspaceDialog({
       size="lg"
       padded={false}
       className="flex flex-col overflow-hidden"
-      contentStyle={{ minHeight: 480, maxHeight: "min(640px, 90vh)" }}
+      // Definite height (not min/max) so the flex chain down to the directory
+      // picker's list resolves — the list box gets a real height and scrolls
+      // internally. A fixed height also removes the resize jump between views.
+      contentStyle={{ height: "min(640px, 90vh)" }}
     >
       <RadixDialog.Title className="sr-only">Add Workspace</RadixDialog.Title>
       <RadixDialog.Description className="sr-only">
