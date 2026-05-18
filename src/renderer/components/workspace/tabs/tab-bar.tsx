@@ -76,7 +76,7 @@ export function TabBar({
       <div
         ref={barRef}
         {...{ [DND_TAB_BAR_ATTR]: "" }}
-        className="flex items-center h-9 shrink-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex items-center h-9 shrink-0 overflow-x-auto px-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         <RadixTabs.Root
           value={activeTabId ?? ""}
