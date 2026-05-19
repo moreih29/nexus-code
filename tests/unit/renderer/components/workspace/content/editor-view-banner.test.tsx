@@ -78,12 +78,14 @@ function realFilePathToModelUri(path: string): string {
 }
 
 // Minimal Monaco ITextModel stub — getValue for conflict-marker check,
-// onDidChangeContent for the subscription in useModelHasMarkers.
-// Returns empty content so no conflict markers are detected and the
-// ConflictResolvedBanner never shows.
+// onDidChangeContent for the subscription in useModelHasMarkers, and
+// isDisposed so the dispose guard in useModelHasMarkers can interrogate it
+// without throwing. Returns empty content so no conflict markers are detected
+// and the ConflictResolvedBanner never shows.
 const fakeModel = {
   getValue: () => "",
   onDidChangeContent: () => ({ dispose: () => {} }),
+  isDisposed: () => false,
 };
 
 mock.module("../../../../../../src/renderer/services/editor", () => ({

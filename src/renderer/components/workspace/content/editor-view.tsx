@@ -59,19 +59,30 @@ function useIsFileConflicted(filePath: string, workspaceId: string): boolean {
  * Tracks whether the Monaco model's current text contains conflict markers.
  * Subscribes to `onDidChangeContent` so the value updates in real time as the
  * user accepts conflict blocks.
+ *
+ * `model.isDisposed()` guards every `getValue()` call. The shared-model cache
+ * disposes the underlying TextModel asynchronously (refcount drop, workspace
+ * cleanup, external-model eviction) and the React state can still hold the
+ * stale reference for one render — without the guard, the passive effect
+ * mounts against a disposed model and Monaco throws "Model is disposed!",
+ * which bubbles into the workspace ErrorBoundary and causes dev-mode error
+ * recovery to remount the editor subtree in a loop.
  */
 function useModelHasMarkers(model: Monaco.editor.ITextModel | null): boolean {
   const [hasMarkers, setHasMarkers] = useState<boolean>(() =>
-    model ? hasConflictMarkers(model.getValue()) : false,
+    model && !model.isDisposed() ? hasConflictMarkers(model.getValue()) : false,
   );
 
   useEffect(() => {
-    if (!model) {
+    if (!model || model.isDisposed()) {
       setHasMarkers(false);
       return;
     }
     setHasMarkers(hasConflictMarkers(model.getValue()));
     const disposable = model.onDidChangeContent(() => {
+      // The change event can fire one tick before the cache disposes the model
+      // (reload-from-disk → cleanup paths). Re-check before touching it.
+      if (model.isDisposed()) return;
       setHasMarkers(hasConflictMarkers(model.getValue()));
     });
     return () => disposable.dispose();
