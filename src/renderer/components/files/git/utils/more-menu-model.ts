@@ -119,6 +119,7 @@ export function buildAutofetchMenuModel(
 ): GitAutofetchMenuOption[] {
   return [
     { intervalMin: 0, label: "Off", selected: selected === 0 },
+    { intervalMin: 1, label: "Every 1 min", selected: selected === 1 },
     { intervalMin: 3, label: "Every 3 min", selected: selected === 3 },
   ];
 }

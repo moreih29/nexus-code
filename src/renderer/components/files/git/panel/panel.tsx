@@ -447,7 +447,18 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           else panelUiOps.expandAllTrees(workspaceId);
         }}
         onRefresh={() => {
-          void directOps.refresh(workspaceId);
+          // Refresh button = "give me the freshest state". When the repo
+          // has remotes we fetch first (main-side fetchAll handler runs a
+          // refreshStatus afterward and broadcasts statusChanged, so the
+          // renderer's branch ↑↓ updates without another call). Without
+          // remotes there is nothing to fetch — fall back to the local
+          // re-read so the button still produces a visible refresh on
+          // detached/local-only repos.
+          if (capabilities.remotes.length > 0) {
+            void directOps.fetchAll(workspaceId);
+          } else {
+            void directOps.refresh(workspaceId);
+          }
         }}
         onInit={() => {
           void directOps.init(workspaceId);

@@ -647,11 +647,11 @@ export const DEFAULT_GIT_COMMIT_OPTIONS: GitCommitOptions = {
   noVerify: false,
 };
 
-export const DEFAULT_GIT_AUTOFETCH_INTERVAL_MIN = 3;
+export const DEFAULT_GIT_AUTOFETCH_INTERVAL_MIN = 1;
 
-const GitAutofetchIntervalMinValueSchema = z.union([z.literal(0), z.literal(3)]);
+const GitAutofetchIntervalMinValueSchema = z.union([z.literal(0), z.literal(1), z.literal(3)]);
 
-/** Maps persisted legacy cadence values to the sole supported active interval. */
+/** Maps persisted legacy cadence values onto the supported active intervals. */
 function migrateGitAutofetchIntervalMinInput(value: unknown): unknown {
   if (value === undefined) return value;
   const numeric =
@@ -661,7 +661,11 @@ function migrateGitAutofetchIntervalMinInput(value: unknown): unknown {
         ? Number(value)
         : Number.NaN;
   if (numeric === 0) return 0;
-  if (numeric === 1 || numeric === 3 || numeric === 5 || numeric === 15) {
+  // Currently supported values pass through unchanged.
+  if (numeric === 1 || numeric === 3) return numeric;
+  // Pre-existing wider cadences (5 / 15 min) collapse onto the default —
+  // we no longer offer them in the menu.
+  if (numeric === 5 || numeric === 15) {
     return DEFAULT_GIT_AUTOFETCH_INTERVAL_MIN;
   }
   return value;
