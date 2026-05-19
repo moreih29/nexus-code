@@ -11,9 +11,10 @@ import {
   type FilesPanelMode,
   useUIStore,
 } from "../../state/stores/ui";
-import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../state/stores/workspaces";
 import { EMPTY_TREE } from "../editor/diff-refs";
 import { Button } from "../ui/button";
+import { EmptyState } from "../ui/empty-state";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { ResizeHandle } from "../ui/resize-handle";
 import { FileTree } from "./file-tree";
@@ -47,6 +48,14 @@ export function FilesPanel() {
       (activeWorkspace ? s.filesPanelModes.get(activeWorkspace.id) : undefined) ??
       FILES_PANEL_MODE_DEFAULT,
   );
+  const workspaceOnline = useWorkspacesStore((s) =>
+    activeWorkspace ? selectIsWorkspaceOnline(s, activeWorkspace.id) : true,
+  );
+
+  // For disconnected SSH workspaces, suppress all remote-reading panels so
+  // no IPC call reaches getFs / getAgentChannel before the user connects.
+  const showOffline =
+    activeWorkspace?.location.kind === "ssh" && !workspaceOnline;
 
   return (
     <aside className="relative shrink-0 flex flex-col" style={{ width: filesPanelWidth }}>
@@ -73,7 +82,13 @@ export function FilesPanel() {
               })}
             </div>
             <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
-              {filesPanelMode === "tree" ? (
+              {showOffline ? (
+                <EmptyState
+                  title="Not connected"
+                  description="Connect to the workspace to browse files."
+                  tone="status"
+                />
+              ) : filesPanelMode === "tree" ? (
                 // ErrorBoundary: a crash in the file tree must not collapse
                 // the entire sidebar or prevent switching to other modes.
                 <ErrorBoundary logSource="file-tree-panel">

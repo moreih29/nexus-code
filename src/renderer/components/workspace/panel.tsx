@@ -2,10 +2,16 @@ import { useEffect } from "react";
 import { openTerminal } from "@/services/terminal";
 import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { ipcCallResult } from "../../ipc/client";
 import { useLayoutStore } from "../../state/stores/layout";
 import { type Tab, useTabsStore } from "../../state/stores/tabs";
 import { useTerminalDeathStore } from "../../state/stores/terminal-deaths";
-import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../state/stores/workspaces";
+import {
+  selectIsWorkspaceOnline,
+  selectWorkspaceConnectionStatus,
+  useWorkspacesStore,
+} from "../../state/stores/workspaces";
+import { EmptyState } from "../ui/empty-state";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { StatusBar } from "../workbench/status-bar";
 import { ContentPool } from "./content/pool";
@@ -40,6 +46,9 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
   const tabs = useTabsStore((s) => s.byWorkspace[workspace.id] ?? EMPTY_TABS);
   const aggregate = useTerminalDeathStore((s) => s.aggregateByWorkspaceId[workspace.id] ?? null);
   const workspaceOnline = useWorkspacesStore((s) => selectIsWorkspaceOnline(s, workspace.id));
+  const connectionStatus = useWorkspacesStore((s) =>
+    selectWorkspaceConnectionStatus(s, workspace.id),
+  );
   const deadTerminalCount = deadTerminalTabs(tabs).length;
   const showTerminalStatusBanner = shouldShowWorkspaceTerminalStatusBanner({
     aggregate,
@@ -47,10 +56,18 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
     workspaceOnline,
   });
 
+  // Whether this workspace needs an offline placeholder instead of the normal panel.
+  // Only SSH workspaces that have not yet connected show the placeholder.
+  const isSshWorkspace = workspace.location.kind === "ssh";
+  const showOfflinePlaceholder = isSshWorkspace && !workspaceOnline;
+
   // Auto-seed: ensure layout exists and seed a terminal the first time this
-  // panel mounts with an empty tab slice. Guards against double-seeding by
-  // checking both tabs and layout state.
+  // panel mounts with an empty tab slice. Only runs when the workspace is
+  // online (connected) — skipped for disconnected SSH workspaces to avoid
+  // triggering a password prompt before the user explicitly connects.
   useEffect(() => {
+    if (showOfflinePlaceholder) return;
+
     const layoutStore = useLayoutStore.getState();
     layoutStore.ensureLayout(workspace.id);
 
@@ -60,9 +77,50 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
     if (hasNoTabs) {
       openTerminal({ workspaceId: workspace.id, cwd: workspace.rootPath });
     }
-    // Run only once on mount per workspace id
+    // Re-run when the workspace comes online after starting disconnected so
+    // the terminal seeds once connection is established.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace.id, workspace.rootPath]);
+  }, [workspace.id, workspace.rootPath, showOfflinePlaceholder]);
+
+  function handleConnect() {
+    void ipcCallResult("workspace", "activate", { id: workspace.id }).then((result) => {
+      if (!result.ok) console.warn("[workspace-panel] activate failed", result.message);
+    });
+  }
+
+  if (showOfflinePlaceholder) {
+    const isError = connectionStatus === "error";
+    const sshLabel =
+      workspace.location.kind === "ssh"
+        ? `${workspace.location.user ? `${workspace.location.user}@` : ""}${workspace.location.host}`
+        : "";
+    return (
+      <div
+        className={cn(
+          "col-start-1 row-start-1 flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden relative",
+          isActive ? "visible pointer-events-auto" : "invisible pointer-events-none",
+        )}
+        aria-hidden={!isActive || undefined}
+        inert={!isActive || undefined}
+      >
+        <div className="flex flex-1 items-center justify-center island-surface rounded-(--radius-island) overflow-hidden">
+          <EmptyState
+            title={isError ? "Connection failed" : workspace.name}
+            description={
+              isError
+                ? `Could not connect to ${sshLabel}. Check your SSH settings and try again.`
+                : sshLabel
+                  ? `SSH workspace — ${sshLabel}`
+                  : undefined
+            }
+            actionLabel={isError ? "Retry" : "Connect"}
+            onAction={handleConnect}
+            tone="status"
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (!layout) return null;
 

@@ -91,7 +91,13 @@ export async function bootstrapAppState(): Promise<void> {
 
 /**
  * Load the workspace list from main, push it into the store, and
- * activate the first workspace.
+ * restore the active workspace selection.
+ *
+ * Does NOT call workspace:activate at startup. Main's init() is the source
+ * of truth for the restored active workspace and its conditional auto-connect
+ * (key-only SSH and local connect automatically; interactive SSH restores in
+ * the disconnected state). Calling activate here would both trigger a
+ * connection and wrongly bump the recency list on every app launch.
  */
 export async function bootstrapWorkspaces(
   setAll: (list: WorkspaceMeta[]) => void,
@@ -103,10 +109,5 @@ export async function bootstrapWorkspaces(
   if (list.length > 0) {
     const first = list[0];
     setActiveWorkspaceId(first.id);
-    // Fire-and-forget: activate notifies main of the active workspace; UI state is
-    // already updated locally above.
-    void ipcCallResult("workspace", "activate", { id: first.id }).then((result) => {
-      if (!result.ok) console.warn("[bootstrap] workspace activate failed", result.message);
-    });
   }
 }

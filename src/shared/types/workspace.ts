@@ -62,6 +62,33 @@ export function rootPathFromLocation(location: WorkspaceLocation): string {
 }
 
 /**
+ * Strips trailing slashes from a path so equivalent paths compare equal.
+ * Pure string normalization — performs no filesystem access, so symlinks
+ * and case-insensitive volumes are not resolved (best-effort by design).
+ */
+function normalizeWorkspacePath(rawPath: string): string {
+  const trimmed = rawPath.replace(/\/+$/, "");
+  return trimmed.length > 0 ? trimmed : "/";
+}
+
+/**
+ * Canonical identity key for a workspace location. Two workspaces whose
+ * locations produce the same key refer to the same target and must not
+ * coexist as separate entries — used to dedupe "open workspace" requests.
+ *
+ * Best-effort: an SSH `configAlias` and the host it resolves to are NOT
+ * unified (they may key differently even when they reach the same server).
+ */
+export function workspaceLocationKey(location: WorkspaceLocation): string {
+  if (location.kind === "local") {
+    return `local:${normalizeWorkspacePath(location.rootPath)}`;
+  }
+  const user = location.user ?? "";
+  const port = location.port ?? 22;
+  return `ssh:${user}@${location.host}:${port}:${normalizeWorkspacePath(location.remotePath)}`;
+}
+
+/**
  * Narrows unknown JSON input to plain object records.
  */
 function isRecord(value: unknown): value is Record<string, unknown> {

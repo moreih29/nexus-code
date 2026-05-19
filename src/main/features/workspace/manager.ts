@@ -5,6 +5,7 @@ import {
   rootPathFromLocation,
   type WorkspaceConnectionEventStatus,
   type WorkspaceLocation,
+  workspaceLocationKey,
   WorkspaceLocationSchema,
   type WorkspaceMeta,
 } from "../../../shared/types/workspace";
@@ -204,9 +205,14 @@ export class WorkspaceManager {
     // init() returns. The renderer tracks progress via the
     // connection-status broadcasts; ensureProviderReady is idempotent, so
     // a later renderer-triggered call coalesces onto this same attempt.
-    void this.ensureProviderReady(ctx).catch((error) => {
-      console.error("[workspace] initial provider bootstrap failed", error);
-    });
+    //
+    // Interactive (password) SSH workspaces skip auto-connect: they restore
+    // in the idle/disconnected state and only connect on explicit user action.
+    if (shouldAutoConnect(ctx.getMeta())) {
+      void this.ensureProviderReady(ctx).catch((error) => {
+        console.error("[workspace] initial provider bootstrap failed", error);
+      });
+    }
   }
 
   /**
@@ -243,6 +249,22 @@ export class WorkspaceManager {
 
   list(): WorkspaceMeta[] {
     return Array.from(this.contexts.values()).map((ctx) => ctx.getMeta());
+  }
+
+  /**
+   * Finds an already-registered workspace whose location refers to the same
+   * target (canonical key match), or null when none matches. Used to dedupe
+   * "open workspace" requests so the same folder/host never produces two
+   * separate entries.
+   */
+  findByLocation(location: WorkspaceLocation): WorkspaceMeta | null {
+    const key = workspaceLocationKey(location);
+    for (const ctx of this.contexts.values()) {
+      if (workspaceLocationKey(ctx.getMeta().location) === key) {
+        return ctx.getMeta();
+      }
+    }
+    return null;
   }
 
   getActiveId(): string | null {
@@ -332,6 +354,14 @@ export class WorkspaceManager {
       throw new Error("createAndConnectSsh called for non-SSH location");
     }
 
+    // Dedupe before authenticating: an open request for an already-registered
+    // SSH target focuses the existing workspace and skips a redundant
+    // connection round entirely.
+    const existing = this.findByLocation(location);
+    if (existing) {
+      return this.touchLastOpened(existing.id);
+    }
+
     // Phase 1 — authenticate and establish ControlMaster before any commit.
     // A cancelled auth prompt rejects bootstrap with AuthCancelledError.
     const bootstrap = await this.sshBootstrap({
@@ -376,8 +406,15 @@ export class WorkspaceManager {
   }
 
   create(opts: WorkspaceCreateOptions): WorkspaceMeta {
-    const id = randomUUID();
     const location = normalizeCreateLocation(opts);
+    // Dedupe: an open request for an already-registered location focuses the
+    // existing workspace instead of creating a second entry for the same target.
+    const existing = this.findByLocation(location);
+    if (existing) {
+      return this.touchLastOpened(existing.id);
+    }
+
+    const id = randomUUID();
     const rootPath = rootPathFromLocation(location);
     const name = opts.name ?? defaultWorkspaceName(location);
     const meta: WorkspaceMeta = {
@@ -424,6 +461,15 @@ export class WorkspaceManager {
 
     this.broadcastFn("workspace", "changed", updated);
     return updated;
+  }
+
+  /**
+   * Bumps lastOpenedAt to now so the workspace sorts to the top of the
+   * recency-ordered list. Used when an "open" request resolves to an
+   * already-registered workspace and on explicit user activation.
+   */
+  private touchLastOpened(id: string): WorkspaceMeta {
+    return this.update(id, { lastOpenedAt: new Date().toISOString() });
   }
 
   remove(id: string): void {
@@ -479,6 +525,10 @@ export class WorkspaceManager {
     await this.ensureProviderReady(ctx);
     this.activeId = id;
     this.stateService.setState({ lastActiveWorkspaceId: id });
+    // Explicit activation counts as "opening" the workspace — bump recency so
+    // it sorts to the top of the list on the next load. Startup restoration
+    // does not route through activate(), so it never reorders the list.
+    this.touchLastOpened(id);
   }
 
   async ensureRemoteLspServer(
@@ -806,6 +856,19 @@ export class WorkspaceManager {
       ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
     }
   }
+}
+
+/**
+ * Returns true when a workspace should auto-connect at app startup.
+ * Local workspaces always connect immediately. SSH workspaces only connect
+ * automatically when the authMode is "key-only"; interactive (password) SSH
+ * workspaces restore in the disconnected state and connect on explicit user
+ * action (sidebar click / panel Connect button) to avoid an unsolicited
+ * password prompt during startup.
+ */
+function shouldAutoConnect(meta: WorkspaceMeta): boolean {
+  if (meta.location.kind === "local") return true;
+  return meta.location.authMode === "key-only";
 }
 
 /**

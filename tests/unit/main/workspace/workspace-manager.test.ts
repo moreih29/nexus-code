@@ -236,6 +236,93 @@ describe("WorkspaceManager — create location metadata", () => {
   });
 });
 
+describe("WorkspaceManager — open-request deduplication", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("focuses the existing workspace when the same local path is opened again", () => {
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+    );
+    const rootPath = path.join(tmpDir, "project");
+
+    manager.init();
+    const first = manager.create({ rootPath });
+    // A trailing slash must not defeat the canonical-key match.
+    const second = manager.create({ rootPath: `${rootPath}/` });
+
+    expect(second.id).toBe(first.id);
+    expect(manager.list()).toHaveLength(1);
+
+    manager.close();
+  });
+
+  it("focuses the existing workspace when the same ssh target is opened again", () => {
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+    );
+
+    manager.init();
+    const first = manager.create({
+      location: { kind: "ssh", host: "dev.example.com", remotePath: "/srv/repo" },
+    });
+    const second = manager.create({
+      location: { kind: "ssh", host: "dev.example.com", remotePath: "/srv/repo/" },
+    });
+
+    expect(second.id).toBe(first.id);
+    expect(manager.list()).toHaveLength(1);
+
+    manager.close();
+  });
+
+  it("createAndConnectSsh focuses an existing workspace without re-authenticating", async () => {
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const bootstrap = mock(async (options: { remotePath: string }) => ({
+      remoteCommand: `agent ${options.remotePath}`,
+      platform: { os: "linux" as const, arch: "amd64" as const },
+      uploaded: false,
+    }));
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+      undefined,
+      bootstrap as unknown as WorkspaceSshBootstrap,
+    );
+
+    manager.init();
+    const first = manager.create({
+      location: { kind: "ssh", host: "dev.example.com", remotePath: "/srv/repo" },
+    });
+    const second = await manager.createAndConnectSsh({
+      location: { kind: "ssh", host: "dev.example.com", remotePath: "/srv/repo" },
+    });
+
+    expect(second.id).toBe(first.id);
+    expect(manager.list()).toHaveLength(1);
+    expect(bootstrap).not.toHaveBeenCalled();
+
+    manager.close();
+  });
+});
+
 describe("WorkspaceManager — restart simulation (persistence round-trip)", () => {
   let tmpDir: string;
 
@@ -446,7 +533,8 @@ describe("WorkspaceManager — executor-ready cold boot barrier", () => {
     const meta = workspaceMeta({
       id: "22222222-2222-4222-8222-222222222222",
       name: "remote",
-      location: { kind: "ssh", host: "dev.example.com", remotePath: "/srv/project" },
+      // key-only auth so init() auto-connects (interactive SSH skips auto-connect)
+      location: { kind: "ssh", host: "dev.example.com", remotePath: "/srv/project", authMode: "key-only" },
       rootPath: "/srv/project",
     });
     globalStorage.addWorkspace(meta);
