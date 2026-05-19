@@ -164,6 +164,18 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   );
   const hasChanges = allChangedPaths.length > 0;
   const hasStagedChanges = (session?.status?.staged.length ?? 0) > 0;
+  // Any directory expanded across any group? Drives the single header toggle:
+  // when true the toggle collapses everything, otherwise it expands everything.
+  const expandedTreeNodes = session?.expandedTreeNodes;
+  const hasAnyExpanded = useMemo(() => {
+    if (!expandedTreeNodes) return false;
+    return (
+      expandedTreeNodes.merge.length > 0 ||
+      expandedTreeNodes.staged.length > 0 ||
+      expandedTreeNodes.working.length > 0 ||
+      expandedTreeNodes.untracked.length > 0
+    );
+  }, [expandedTreeNodes]);
   const capabilities: RepoCapabilities = session?.status?.capabilities ?? DEFAULT_REPO_CAPABILITIES;
   const branchInfo = session?.branchInfo ?? null;
   const hasUpstream = branchInfo?.upstream != null;
@@ -430,8 +442,11 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
         showViewToggle={isRepo}
         viewMode={viewMode}
         onViewModeChange={(next) => viewOptActions.setViewMode("git", workspaceId, next)}
-        onExpandAllTrees={() => panelUiOps.expandAllTrees(workspaceId)}
-        onCollapseAllTrees={() => panelUiOps.collapseAllTrees(workspaceId)}
+        hasAnyExpanded={hasAnyExpanded}
+        onToggleAllTrees={() => {
+          if (hasAnyExpanded) panelUiOps.collapseAllTrees(workspaceId);
+          else panelUiOps.expandAllTrees(workspaceId);
+        }}
         onRefresh={() => {
           void directOps.refresh(workspaceId);
         }}

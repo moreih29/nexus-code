@@ -1,11 +1,10 @@
 /**
  * GitHeader renders the Source Control title and top-level action buttons.
  */
-import { RefreshCw } from "lucide-react";
+import { FoldVertical, RefreshCw, UnfoldVertical } from "lucide-react";
 import type { GitAutofetchIntervalMin, RepoCapabilities } from "../../../../../shared/git/types";
 import type { ViewMode } from "../../../../../shared/types/panel";
 import { Button } from "../../../ui/button";
-import { ExpandCollapseButtons } from "../../expand-collapse-buttons";
 import { ViewModeToggle } from "../../view-mode-toggle";
 import { GitMoreMenu } from "../more-menu";
 import type { GitTagPickerMenuMode } from "../utils/more-menu-model";
@@ -21,10 +20,17 @@ interface GitHeaderProps {
   showViewToggle?: boolean;
   viewMode?: ViewMode;
   onViewModeChange?: (next: ViewMode) => void;
-  /** Fires when the user clicks Expand-All on the file-group toolbar. */
-  onExpandAllTrees?: () => void;
-  /** Fires when the user clicks Collapse-All on the file-group toolbar. */
-  onCollapseAllTrees?: () => void;
+  /**
+   * True when at least one directory is currently expanded across any group.
+   * Drives the single toolbar toggle: expanded → "collapse all", fully
+   * collapsed → "expand all".
+   */
+  hasAnyExpanded?: boolean;
+  /**
+   * Fires when the user clicks the expand/collapse toggle. The caller decides
+   * which underlying store action to invoke based on `hasAnyExpanded`.
+   */
+  onToggleAllTrees?: () => void;
   onRefresh: () => void;
   onInit: () => void;
   onFetch: () => void;
@@ -61,8 +67,8 @@ export function GitHeader({
   showViewToggle = false,
   viewMode = "tree",
   onViewModeChange,
-  onExpandAllTrees,
-  onCollapseAllTrees,
+  hasAnyExpanded = false,
+  onToggleAllTrees,
   onRefresh,
   onInit,
   onFetch,
@@ -114,16 +120,27 @@ export function GitHeader({
             disabled={disabled}
           />
         ) : null}
-        {/* Expand/Collapse-all only meaningful when (1) the repo is detected
-            (showViewToggle proxies that), (2) tree mode is active, and
-            (3) at least one group has entries. List mode doesn't render
+        {/* Single expand/collapse toggle — icon + tooltip swap based on the
+            current expanded state. Only meaningful when (1) the repo is
+            detected (showViewToggle proxies that), (2) tree mode is active,
+            and (3) at least one group has entries. List mode doesn't render
             directories at all so there's nothing to expand. */}
-        {showViewToggle && viewMode === "tree" && onExpandAllTrees && onCollapseAllTrees ? (
-          <ExpandCollapseButtons
+        {showViewToggle && viewMode === "tree" && onToggleAllTrees ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={hasAnyExpanded ? "Collapse all folders" : "Expand all folders"}
+            title={hasAnyExpanded ? "Collapse all folders" : "Expand all folders"}
             disabled={disabled || !hasChanges}
-            onExpand={onExpandAllTrees}
-            onCollapse={onCollapseAllTrees}
-          />
+            onClick={onToggleAllTrees}
+          >
+            {hasAnyExpanded ? (
+              <FoldVertical aria-hidden="true" />
+            ) : (
+              <UnfoldVertical aria-hidden="true" />
+            )}
+          </Button>
         ) : null}
         <GitMoreMenu
           disabled={disabled}

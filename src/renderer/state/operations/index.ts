@@ -9,9 +9,7 @@
 
 export { type DropResult, moveTabToZone, openFileAtZone } from "./dnd";
 export {
-  collapseAll,
   ensureRoot,
-  expandAllLoaded,
   loadChildren,
   refresh,
   reveal,

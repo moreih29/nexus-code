@@ -31,18 +31,6 @@ export interface FilesState {
   setChildrenError(workspaceId: string, absPath: string, message: string): void;
   expandDir(workspaceId: string, absPath: string): void;
   collapseDir(workspaceId: string, absPath: string): void;
-  /**
-   * Bulk-set the expanded set to the union of its current contents and the
-   * given absolute paths. Used by the "expand all (already loaded)" toolbar
-   * action — operations layer is responsible for filtering to dirs whose
-   * children are already in the cache.
-   */
-  expandMany(workspaceId: string, absPaths: readonly string[]): void;
-  /**
-   * Reset the expanded set to just the workspace root, leaving the cached
-   * children intact so a subsequent expand of the same dir is instant.
-   */
-  collapseAll(workspaceId: string): void;
   markChildrenStale(workspaceId: string, absPath: string): void;
   wipeSubtree(workspaceId: string, targetPath: string): void;
   /**
