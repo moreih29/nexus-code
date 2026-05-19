@@ -128,16 +128,18 @@ export const appTypeScale = {
     lineHeight: 1.2,
     letterSpacing: 0,
   },
-  // appLabel — uppercase label variant (2.4px letter-spacing is intentional for
-  // ALL-CAPS labels). This role MUST only be used on text that is rendered in
-  // uppercase (via the `uppercase` Tailwind utility or text-transform: uppercase
-  // in CSS). Using it on sentence-case body copy produces over-tracked,
-  // illegible text. For sentence-case small text use appUiSm instead.
+  // appLabel — uppercase label variant. The 1.5px letter-spacing is the single
+  // source of truth for ALL-CAPS label tracking: components MUST consume it via
+  // `text-app-label` and MUST NOT re-tighten it with a `tracking-[…]` override.
+  // This role MUST only be used on text that is rendered in uppercase (via the
+  // `uppercase` Tailwind utility or text-transform: uppercase in CSS). Using it
+  // on sentence-case body copy produces over-tracked, illegible text. For
+  // sentence-case small text use appUiSm instead.
   appLabel: {
     fontFamily: fontFamily.display,
     fontSize: 12,
     fontWeight: 400,
     lineHeight: 1.35,
-    letterSpacing: 2.4,
+    letterSpacing: 1.5,
   },
 } as const;

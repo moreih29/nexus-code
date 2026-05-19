@@ -59,7 +59,7 @@ export function GitGroupHeader({
         }}
       >
         <Chevron className="size-3.5 shrink-0" aria-hidden="true" />
-        <span className="truncate uppercase tracking-[0.08em]">{label}</span>
+        <span className="truncate text-app-label uppercase">{label}</span>
         <span className="shrink-0 rounded bg-muted px-1 text-app-ui-sm">{count}</span>
       </button>
       <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">

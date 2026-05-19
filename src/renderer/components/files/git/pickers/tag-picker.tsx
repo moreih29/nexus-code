@@ -197,9 +197,7 @@ export function CreateTagRefSelector({
     <div className="rounded-sm border border-border bg-muted p-3">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-app-label uppercase tracking-[1.4px] text-muted-foreground">
-            Target ref
-          </div>
+          <div className="text-app-label uppercase text-muted-foreground">Target ref</div>
           <div className="truncate font-mono text-app-ui-sm text-foreground">{refName}</div>
         </div>
         <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onPickRef}>

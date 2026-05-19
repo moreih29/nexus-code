@@ -153,7 +153,7 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
                     {item.kindLabel ? (
                       <div
                         className={cn(
-                          "self-start text-app-label uppercase tracking-[1.4px]",
+                          "self-start text-app-label uppercase",
                           destructive ? "git-destructive-text" : "text-stone-gray",
                         )}
                       >
