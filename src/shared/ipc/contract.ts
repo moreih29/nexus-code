@@ -922,6 +922,23 @@ export const ipcContract = {
     },
     listen: {},
   },
+
+  // Application lifecycle channel.
+  //
+  // Intentionally separate from `appState` (KV store) to preserve cohesion:
+  // `appState` is a key/value persistence channel; `app` is the lifecycle
+  // command channel.  Only imperative, one-shot lifecycle actions live here.
+  app: {
+    call: {
+      /**
+       * Request an application restart.
+       * The renderer must finish all pending IPC writes before calling this.
+       * `reason` is a diagnostic string logged by main before the relaunch.
+       */
+      restart: call(z.object({ reason: z.string().min(1).max(120) }), z.void()),
+    },
+    listen: {},
+  },
 } as const satisfies Record<string, ChannelDefinition>;
 
 export type IpcContract = typeof ipcContract;

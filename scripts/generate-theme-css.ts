@@ -23,6 +23,7 @@ import {
   buildShadcnVars,
   color,
   fontFamily,
+  islandGeometry,
   spacing,
 } from "../src/shared/design-tokens";
 import { DEFAULT_THEME, THEMES } from "../src/shared/design-tokens/themes";
@@ -110,6 +111,34 @@ function gitTokensForTheme(themeId: ThemeId): Record<string, string> {
     "--color-workspace-connection-connecting": theme["state.warning.fg"],
     "--color-workspace-connection-error": theme["state.error.fg"],
   };
+}
+
+// ---------------------------------------------------------------------------
+// emitDensityOverrideBlock — emits :root[data-density='compact'] overrides.
+//
+// Authoritative source: islandGeometry (primitive.ts) compact values.
+// v1 scope: --radius-island + --island-gap only.
+//   --control-h (buttonHeight / inputHeight) is intentionally excluded — v2.
+//
+// Cascade correctness:
+//   :root[data-density='compact'] has higher specificity than :root and any
+//   [data-theme=*] block (attribute selector raises specificity to (0,1,1) vs
+//   :root's (0,0,1) and [data-theme]'s (0,1,0)), so the override wins regardless
+//   of declaration order. We still emit AFTER :root for readability and to keep
+//   the "later block strengthens earlier defaults" mental model intact.
+// ---------------------------------------------------------------------------
+
+function emitDensityOverrideBlock(): string[] {
+  const lines: string[] = [];
+  lines.push("/* density=compact overrides — higher specificity than :root and [data-theme]. */");
+  lines.push("/* Emitted after :root for readability; cascade wins by specificity, not order. */");
+  lines.push(":root[data-density='compact'] {");
+  // v1: --radius-island + --island-gap (islandGeometry compact values as authority)
+  lines.push(`  --radius-island: ${islandGeometry.radiusCompact}px;`);
+  lines.push(`  --island-gap: ${islandGeometry.gapCompact}px;`);
+  // v2 (excluded from v1 scope): --control-h (buttonHeight / inputHeight)
+  lines.push("}");
+  return lines;
 }
 
 export function generateThemeCss(): string {
@@ -201,6 +230,9 @@ export function generateThemeCss(): string {
   // :root — sets default theme (warm-dark) CSS var values.
   // Applies when no [data-theme] attribute is set (e.g. during SSR/initial load
   // before the boot script runs, or when preference is not yet known).
+  //
+  // EMIT ORDER: :root MUST precede :root[data-density='compact'] below.
+  // Both selectors have equal specificity; declaration order is the tiebreaker.
   // ---------------------------------------------------------------------------
   lines.push(":root {");
   for (const [key, value] of Object.entries(defaultSemantic)) {
@@ -211,6 +243,14 @@ export function generateThemeCss(): string {
     lines.push(`  ${key}: ${value};`);
   }
   lines.push("}");
+  lines.push("");
+
+  // ---------------------------------------------------------------------------
+  // :root[data-density='compact'] — density overrides for compact mode.
+  // Emitted AFTER :root to win the specificity tie via cascade order.
+  // Authority: islandGeometry compact values in primitive.ts.
+  // ---------------------------------------------------------------------------
+  lines.push(...emitDensityOverrideBlock());
   lines.push("");
 
   // ---------------------------------------------------------------------------

@@ -1,11 +1,12 @@
 import { CanvasAddon } from "@xterm/addon-canvas";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { Terminal } from "@xterm/xterm";
 import type { ITheme } from "@xterm/xterm";
-import { fontFamily, typeScale } from "../../../shared/design-tokens";
+import { Terminal } from "@xterm/xterm";
+import { fontFamily } from "../../../shared/design-tokens";
 import type { ThemeId } from "../../../shared/design-tokens/themes";
 import { TERMINAL_PALETTES } from "../../../shared/editor/terminal-palette";
+import { resolvedTerminalCursorStyle, resolvedTerminalFontSize } from "../../state/stores/terminal";
 import { createPtyClient } from "./pty-client";
 import type {
   PtyClient,
@@ -21,7 +22,7 @@ type RendererAddon = CanvasAddon | WebglAddon;
 interface TerminalLike {
   readonly element?: HTMLElement;
   readonly rows: number;
-  options: { theme: ITheme | undefined };
+  options: { theme: ITheme | undefined; fontSize: number; cursorStyle: string };
   dispose: () => void;
   loadAddon: (addon: Disposable) => void;
   onData: (callback: (data: string) => void) => Disposable;
@@ -80,6 +81,7 @@ class XtermTerminalController implements TerminalController {
   private lastDims: TerminalDimensions | null = null;
   private ptyClient: PtyClient | null = null;
   private themeListener: ((e: Event) => void) | null = null;
+  private terminalSettingsListener: ((e: Event) => void) | null = null;
 
   constructor(
     private readonly options: TerminalControllerOptions,
@@ -122,6 +124,11 @@ class XtermTerminalController implements TerminalController {
     if (this.themeListener) {
       document.documentElement.removeEventListener("nexus:theme-changed", this.themeListener);
       this.themeListener = null;
+    }
+
+    if (this.terminalSettingsListener) {
+      window.removeEventListener("nexus:terminal-settings-changed", this.terminalSettingsListener);
+      this.terminalSettingsListener = null;
     }
 
     this.dataDisposable?.dispose();
@@ -167,8 +174,18 @@ class XtermTerminalController implements TerminalController {
     term.options.theme = TERMINAL_PALETTES[themeId];
   }
 
+  applyTerminalSettings(): void {
+    if (this.disposed) return;
+    const term = this.term;
+    if (!term) return;
+    term.options.fontSize = resolvedTerminalFontSize();
+    term.options.cursorStyle = resolvedTerminalCursorStyle();
+    // Re-fit after font size change so column/row counts stay accurate.
+    this.runFit();
+  }
+
   private async initialize(): Promise<void> {
-    const fontSize = typeScale.codeUi.fontSize;
+    const fontSize = resolvedTerminalFontSize();
     await this.deps.waitForTerminalFonts(fontSize);
     if (this.disposed) return;
 
@@ -181,6 +198,7 @@ class XtermTerminalController implements TerminalController {
       allowTransparency: true,
       fontFamily: fontFamily.monoDisplay,
       fontSize,
+      cursorStyle: resolvedTerminalCursorStyle(),
       theme: TERMINAL_PALETTES[initialThemeId],
     });
     this.term = term;
@@ -191,6 +209,12 @@ class XtermTerminalController implements TerminalController {
       if (themeId) this.applyTheme(themeId);
     };
     document.documentElement.addEventListener("nexus:theme-changed", this.themeListener);
+
+    // Subscribe to terminal user-settings changes dispatched by useTerminalStore setters.
+    this.terminalSettingsListener = () => {
+      this.applyTerminalSettings();
+    };
+    window.addEventListener("nexus:terminal-settings-changed", this.terminalSettingsListener);
 
     const fitAddon = this.deps.createFitAddon();
     this.fitAddon = fitAddon;

@@ -8,8 +8,11 @@
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, mustSucceed } from "./ipc/client";
 import { registerStatePersistence } from "./state/persistence";
+import { useDensityStore } from "./state/stores/density";
+import { useEditorFontStore } from "./state/stores/editor-font";
 import { useLayoutStore } from "./state/stores/layout";
 import { useTabsStore } from "./state/stores/tabs";
+import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
@@ -41,6 +44,23 @@ export async function bootstrapAppState(): Promise<void> {
   // Hydrate theme from appState (authoritative store).
   // This overwrites the localStorage-based initial value so the two stay in sync.
   useThemeStore.getState().hydrate(state.themePreference);
+
+  // Hydrate density from appState (authoritative store).
+  useDensityStore.getState().hydrate(state.density);
+
+  // Hydrate editor font settings from appState (authoritative store).
+  useEditorFontStore.getState().hydrate({
+    size: state.editorFontSize,
+    family: state.editorFontFamily,
+    ligatures: state.editorFontLigatures,
+    lineHeight: state.editorFontLineHeight,
+  });
+
+  // Hydrate terminal user settings from appState (authoritative store).
+  useTerminalStore.getState().hydrate({
+    fontSize: state.terminalFontSize,
+    cursorStyle: state.terminalCursorStyle,
+  });
 
   // Hydrate window opacity from appState (authoritative store).
   useWindowOpacityStore.getState().hydrate(state.windowOpacity);

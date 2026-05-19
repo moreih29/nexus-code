@@ -22,6 +22,7 @@
       SHA-256: z7VMEqqiuIH7jEUmISh3bpXjm35ukB06vYfvexm7/9Y=
     -->
     <script>(function(){var t=localStorage.getItem("themePreference");var v=["warm-dark","cool-dark","warm-light"];if(t&&v.includes(t)){document.documentElement.setAttribute("data-theme",t);}else{var d=window.matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.setAttribute("data-theme",d?"warm-dark":"warm-light");}var o=localStorage.getItem("windowOpacity");if(o!==null){var n=parseFloat(o);if(!isNaN(n)&&n>=0&&n<=1){document.documentElement.style.setProperty("--window-opacity",String(n));}}})()</script>
+    <script>try{var d=localStorage.getItem("density");if(d==="compact")document.documentElement.setAttribute("data-density","compact");}catch(_){}</script>
     <title>nexus-code</title>
     <link
       rel="preload"

@@ -16525,6 +16525,458 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-19T15:02:08.051Z",
+      "branch": "feat/settings-dialog",
+      "plan": {
+        "id": 53,
+        "topic": "설정 다이얼로그(Floating Dialog) 구현 — Appearance/Editor/Terminal 3카테고리, 9항목, 타이틀바 ⚙ 진입, 즉시 반영·즉시 영속, 투명도 재시작 처리",
+        "issues": [
+          {
+            "id": 1,
+            "title": "다이얼로그 골격 — 좌-우 분할 Floating Dialog 컴포넌트 패턴(기존 dialog.tsx 확장 vs 신규 SettingsDialog 신설, size·padding API)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "권고: 720×520px, 좌 nav 156px / 우 폼 544px, 좌측은 사이드바 섬 패턴 재사용(텍스트만, 아이콘 X — Density 등 메타포 부재), 우측만 overflow-y auto, 다이얼로그 전체 스크롤 금지(좌측 mental map 보전), 닫기 X는 우상단(size-4 lucide), ARIA tablist/tab/tabpanel + sr-only Title 자동 주입. 섹션 헤더 appLabel uppercase + 필드 row 라벨 상단 배치(한국어 라벨 폭 변동에 안전), gap 24/16/8/4 그리드. 기각: lg=560(우측 ~400으로 라벨+컨트롤+힌트 충돌), 200/360 좌측 과잉(작업면 역전), 단일 컬럼+섹션 헤더(9항목 스크롤·jump 불가). 리스크: WARNING 4(lg 협소, 전체 스크롤 mental map, 약어 신호가치, mapping), CRITICAL 1(배너 ARIA live noise — polite+atomic dedupe).",
+                "recorded_at": "2026-05-19T14:10:25.421Z",
+                "agent_id": "aece773efa7e1f776"
+              },
+              {
+                "role": "architect",
+                "summary": "권고: (1) dialog.tsx에 'xl' size 정식 추가(720~760px) + padded={false} prop, padding은 임의 prop 노출 금지(§12 매직넘버 위반). (2) 신규 components/settings/settings-dialog.tsx 합성 컴포넌트 — primitive Dialog를 감싸 nav/content slot 제공. (3) 활성 카테고리는 다이얼로그 내부 useState, zustand 거부(휘발성 UI 상태에 글로벌 store 과적). (4) 위치는 components/settings/ — ui/는 도메인 무지 primitive slot이며 settings vocabulary 누출 금지. (5) props 표면: nav: SettingsNavItem[], defaultActiveId, children: (activeId) => ReactNode 렌더프롭(lazy mounting·패널별 폼 상태 격리). 리스크: xl × max-w-[90vw] 가드 충돌(1024px 미만 좌-우 분할 무너짐), sr-only Title 자동 주입 필요(a11y), 좌측 nav hover/selected 토큰 sidebar.item.* 재사용 강제, 패널 마운트 lifecycle 정책 명시 필요.",
+                "recorded_at": "2026-05-19T14:10:34.170Z",
+                "agent_id": "afc6d83e23c2d542a"
+              }
+            ],
+            "decision": "**채택**: 신규 `components/settings/settings-dialog.tsx` 합성 컴포넌트 + `dialog.tsx`에 `xl` size(720px) + `padded` boolean prop 정식 확장. 외곽 720×520(min-height 480, max-height calc(100vh-96px)). 좌 nav 156px, 우 폼 544px. 좌측 nav는 사이드바 섬 패턴 재사용(grouped: APPEARANCE/EDITOR/TERMINAL, appLabel 헤더 + appBody 항목, selected = state.selected.indicator 4px left bar + state.selected.bg/fg, 아이콘 X — Density 등 메타포 부재). 우측 폼만 overflow-y auto(전체 스크롤 금지로 mental map 보전). 필드 row 라벨 상단 배치(한국어 라벨 폭 변동 안전), gap 24/16/8/4. 닫기 X는 우상단(lucide size-4). 활성 카테고리는 다이얼로그 내부 useState — 휘발성 UI에 zustand 거부. children: (activeId) => ReactNode 렌더프롭 — 패널별 폼 상태 격리·lazy mount. ARIA: role=tablist/tab/tabpanel, sr-only Title 합성 컴포넌트가 자동 주입.\n\n**기각**: ① `dialog.tsx` lg=560 + className width 오버라이드 — §12 매직넘버·shotgun surgery 위반. ② zustand 신설 — 단일 모달 휘발 상태에 글로벌 store 과적. ③ `components/ui/`에 두기 — settings vocabulary가 ui primitive로 누출. ④ 다이얼로그 전체 스크롤 — 좌측 nav 사라지면 카테고리 mental map 손실(designer CRITICAL). ⑤ 아이콘+텍스트 좌측 nav — Density 등 항목이 lucide 12/16 닫힌 집합 메타포에 깔끔히 매핑 안 됨. ⑥ 라벨-컨트롤 2-컬럼 — 한국어 라벨 폭 변동/배너 인라인 시 정렬 깨짐.\n\n**조건/리스크**: xl × 기존 `max-w-[90vw]` 가드 충돌 — 1024px 미만 창에서 좌-우 분할 무너짐, 폴백 동작 명시(좌 nav 접힘 vs 그냥 무너짐) 필요. 패널 mount lifecycle 정책은 \"활성 시 마운트(렌더프롭으로 자연 달성)\" 채택 — Monaco 등 무거운 자식이 패널에 없으므로 안전. nav hover/selected는 반드시 `sidebar.item.*` + `state.*` 토큰 재사용, 새 토큰 정의 금지(§10)."
+          },
+          {
+            "id": 2,
+            "title": "Density 시스템 와이어링 — appState 필드, store, data-density 속성/CSS 변수 토글, primitive.ts의 islandGeometry 컴팩트값을 런타임 전환하는 메커니즘",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "CRITICAL 발견: (1) islandGeometry는 현재 어디서도 emit되지 않는 dead constant — primitive.ts·index.ts 재export·design.md 언급만 있고 CSS 어디에도 소비처 없음. SEALED는 generate-theme-css.ts가 10px 리터럴로 박는 구조. (2) 컨트롤 높이가 Tailwind 매직 클래스 h-6/h-7/h-8로 status-bar/banner/commit-input 등 8+ 파일 분산 — CSS var로 자동 반응 안 함. 권고: v1 범위를 radius-island + island-gap만으로 한정, controlH는 v2 후속 task로 분리(design.md §3 표에 명시). generate-theme-css.ts가 :root와 :root[data-density=\"compact\"]를 별도 cascade로 emit, [data-density]를 documentElement에 theme와 독립 적용(카테시안 폭증 방지). use-density-effect.ts + state/stores/density.ts 신설(theme.ts와 대칭). appState.density: z.enum([\"default\",\"compact\"]).optional() + localStorage 부트 캐시 필수(gap 6→4 시각 시프트로 FOUC급 깜빡임). SEALED 의미를 \"theme-invariant only\"로 component.ts 주석 정정 + design.md §3 v1 범위 명시. nexus:density-changed CustomEvent 컨벤션 미리 도입. 기각: 빌드 타임 두 산출물(reload 강요), inline style 분기(shotgun), [data-theme=\"warm-dark-compact\"] 합성 키(카테시안), theme effect 통합(변경축 다름).",
+                "recorded_at": "2026-05-19T14:10:44.755Z",
+                "agent_id": "afc6d83e23c2d542a"
+              }
+            ],
+            "decision": "**채택**: v1 범위는 `--radius-island`(10→8) + `--island-gap`(6→4) 두 변수만. `--control-h`(28→24)는 v2 후속 task로 분리하고 design.md §3 표에 \"v1 범위\" 주석 명시. 이유: 컨트롤 높이가 Tailwind 매직 클래스(h-6/h-7/h-8)로 8+ 파일에 분산되어 CSS var에 자동 반응하지 않음 — v1에 포함하면 \"라디우스는 작아지고 컨트롤은 안 작아지는 부분 토글\"이 됨(architect CRITICAL). v2는 매직 클래스 전수 치환을 별도 사이클로 다룸.\n\n구현 결정:\n- `scripts/generate-theme-css.ts` 확장하여 `:root[data-density=\"compact\"]` 블록 emit. `:root` 블록 뒤에 emit 순서로 specificity 동률 깨기. primitive.ts `islandGeometry` 값을 정본으로 참조(dead constant 해소).\n- `[data-density]`는 `documentElement`에 적용 — `data-theme`와 독립 cascade(테마 × 밀도 4×2=8 카테시안 폭증 회피).\n- 신규 `state/stores/density.ts` + `hooks/use-density-effect.ts` — theme store/effect 패턴 그대로 차용. theme effect와 통합 거부(변경축 다름, OS media query 의존성 다름).\n- `appState.density: z.enum([\"default\",\"compact\"]).optional()` 추가. **localStorage 부트 캐시 필수** — `<head>` 인라인 스크립트에 density 동기 읽기 추가(gap 6→4 시각 시프트 FOUC 방지).\n- `component.ts`의 SEALED 주석을 \"theme-invariant only(density override는 허용)\"로 의미 정정. design.md §3에 동일 명시.\n- `CustomEvent(\"nexus:density-changed\")` 컨벤션 도입(현재 외부 구독자 없지만 향후 cheap 확장).\n\n**기각**: ① 빌드 타임 두 산출물 스위칭(reload 강요, 실용성 X). ② inline style/CSS-in-JS 컴포넌트 분기(shotgun, locality 파괴). ③ `[data-theme=\"warm-dark-compact\"]` 합성 키(카테시안 폭증, semantic.ts 키 직교성 상실). ④ theme effect에 density 합침(theme.ts↔ui.ts 분리 결정과 모순). ⑤ JS에서 `islandGeometry.gapCompact` 직접 사용(CSS 변수 단일 경로 깨짐, 개별 재정의 강제 불가). ⑥ v1에 controlH 포함(매직 클래스 전수 치환은 별도 scope).\n\n**리스크**: dialog 모서리도 `--radius-island` 사용 → 밀도 토글 시 라이브 라운드 변화 발생(설계상 의도, UX 검증 필요). `scripts/check-off-grid-spacing.ts`의 4px 통과 확인 완료(spacingInApp에 있음)."
+          },
+          {
+            "id": 3,
+            "title": "에디터 폰트 설정 — store 스키마, Monaco 옵션 와이어링 위치, 기본값(토큰 fallback)·사용자 override 합성, '기타(직접 입력)' 폰트 패밀리 검증·폴백",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "권고: (1) appState 평탄 4필드 — editorFontSize(z.union literal 12/13/14/16/18/20), editorFontFamily(z.string sanitize regex 영문/숫자/공백/쉼표/따옴표), editorFontLigatures(z.boolean), editorFontLineHeight(z.union literal 1.0/1.2/1.4) 모두 .optional() — 부재=토큰 기본값. (2) state/stores/editor-font.ts 신설(테마처럼 hydrate/setter/CustomEvent dispatch). (3) 전파는 nexus:editor-font-changed CustomEvent → monaco.editor.getEditors() 순회 updateOptions, Monaco ref store 거부(라이프사이클 결합). (4) selector useEffectiveEditorFont()로 userValue ?? token 합성. CSS family chain: '<user>, JetBrains Mono Nerd Font, Sarasa Term K, ui-monospace, monospace'. document.fonts.check() 사전 검증 + \"현재 적용 중\" 표시. (5) design.md §6에 \"사용자 가독성 설정은 토큰 봉인 예외 — 코드 영역 한정 runtime override\" 1문장 추가. hot-apply, 재시작 불필요. 기각: 단일 객체(partial unset 모호), ui.ts 확장(변경축 다름). 리스크: CRITICAL 2 — 미설치 폰트 적용 안 됨 혼란, family 입력 escape(sanitize 필수). monaco-editor/react options prop 변경의 hot-apply 동작 버전 검증 필요.",
+                "recorded_at": "2026-05-19T14:10:52.825Z",
+                "agent_id": "a445fbcf7fc3a9b42"
+              }
+            ],
+            "decision": "**채택**: 평탄 4필드 + zod 닫힌 enum/sanitize + CustomEvent 전파 + 토큰 fallback selector + design.md §6 예외 1문장 추가.\n\n구현 결정:\n- `appState` 스키마 평탄 4필드 추가(모두 .optional()):\n  - `editorFontSize`: `z.union([z.literal(12), z.literal(13), z.literal(14), z.literal(16), z.literal(18), z.literal(20)])`\n  - `editorFontFamily`: `z.string().min(1).max(120).regex(/^[A-Za-z0-9\\s,'\"]+$/)` — sanitize로 CSS injection 차단\n  - `editorFontLigatures`: `z.boolean()`\n  - `editorFontLineHeight`: `z.union([z.literal(1.0), z.literal(1.2), z.literal(1.4)])`\n  - 부재 = 토큰 기본값 사용\n- 신규 `state/stores/editor-font.ts` — theme.ts 패턴(hydrate/setter/이벤트 dispatch).\n- 전파: `CustomEvent(\"nexus:editor-font-changed\")` → 리스너가 `monaco.editor.getEditors()` 순회 `updateOptions({fontSize, fontFamily, fontLigatures, lineHeight})`. Monaco ref store 거부.\n- selector `useEffectiveEditorFont()` — `userValue ?? token`로 합성. CSS family chain: `<user>, \"JetBrains Mono Nerd Font\", \"Sarasa Term K\", ui-monospace, monospace`.\n- 미설치 폰트 UX: 폼 옆 \"현재 적용 중: <FontFaceSet 측정값>\" 표시, `document.fonts.check()` 사전 검증 후 mismatch 시 inline hint(toast 아님).\n- design.md §6 끝에 1문장 추가: \"사용자 가독성 설정(code 영역 한정)은 토큰 봉인의 명시적 예외 — 토큰 기본값은 미설정 시 fallback 역할만 한다. UI 텍스트 역할(app*)에는 일절 전파 금지.\"\n- hot-apply, 재시작 불필요(restart IPC와 무관).\n\n**기각**: ① 단일 객체 필드 `editorFont: {size,family,…}` — partial unset(`undefined`) 의미 모호, partial patch 봉투(`appState.set({editorFontSize:14})`)와 부조화. ② `ui.ts` 확장 — UI 레이아웃과 변경축 다름, shotgun 유발. ③ `editor.updateOptions()` 직접 호출 — 호출자가 살아있는 인스턴스를 알아야 해 store가 ref 보유 → 라이프사이클 결합. ④ 사이즈 자유 입력 — design.md §6 닫힌 집합 정신 우회.\n\n**리스크**: ① 미설치 family는 브라우저 폰트 fallback이 자동 다음 후보로 가지만 사용자가 \"적용 안 됨\" 혼란 → `document.fonts.check()` 사전 검증 + 명시적 inline 표시로 완화. ② Family 문자열 escape — zod regex 필수, 위반 시 ipcErr(\"invalid-args\"). ③ monaco-editor/react의 `<Editor options>` prop 변경이 hot-apply되는지 버전별 검증(react-monaco-editor는 종종 별도 `updateOptions` 호출 필요) — CustomEvent 패턴이 이 문제를 자연스럽게 회피."
+          },
+          {
+            "id": 4,
+            "title": "터미널 폰트·커서 설정 — terminal/controller.ts 기존 와이어링에 fontSize/cursorStyle 사용자 설정 주입 경로",
+            "status": "decided",
+            "decision": "**채택**: 터미널 controller.ts L177-185 와이어링이 이미 완성되어 있어(fontSize·fontFamily·theme 주입, applyTheme 동적 전환) 사용자 설정 주입 경로만 추가. 이슈 3 패턴과 대칭으로 구현 — 변경축이 다르므로 store/이벤트는 분리.\n\n구현 결정:\n- `appState` 스키마 평탄 2필드 추가:\n  - `terminalFontSize`: `z.union([z.literal(12), z.literal(13), z.literal(14), z.literal(16), z.literal(18), z.literal(20)])` (이슈 3과 동일 닫힌 집합)\n  - `terminalCursorStyle`: `z.enum([\"block\", \"underline\", \"bar\"])` (xterm `ITerminalOptions.cursorStyle` 표준)\n  - 모두 `.optional()` — 부재 = 토큰 기본값\n- 신규 `state/stores/terminal.ts` — editor-font.ts와 대칭, theme.ts 패턴.\n- 전파: `CustomEvent(\"nexus:terminal-settings-changed\")` → `services/terminal/controller.ts`가 수신. 기존 `applyTheme(themeId)` 옆에 `applyTerminalSettings()` 추가 — `terminal.options.fontSize / cursorStyle` 갱신.\n- selector: 토큰 fallback은 `codeUi.fontSize`(현행 사용 중) + `cursorStyle: \"block\"`(xterm 기본).\n- v1에 **터미널 폰트 family는 미포함** — 에디터 폰트 family UX(미설치 검증·sanitize) 패턴 검증 후 v2에서 추가. 사용자 합의된 항목은 fontSize + cursorStyle 두 개로 한정됨.\n\n**기각**: ① font family v1 포함 — 사용자 합의 범위 초과(스코프 크리프), 검증 비용 중복. ② store를 `ui.ts`에 합치기 — 변경축 다름(레이아웃 vs 터미널 콘텐츠). ③ 커서 깜빡임/벨 등 추가 옵션 — 사용자 합의 범위 외, v2.\n\n**리스크**: 낮음 — controller.ts 와이어링이 완성형이고 적용 경로(applyTheme)가 검증됨. xterm fontSize 변경 시 행 높이 재계산 자동 처리. cursorStyle은 xterm options 변경 즉시 반영. Lead 직접 결정 — HOW 미스폰 이유: (1) 와이어링 이미 완성, (2) 결정 축이 단순(스키마·이벤트 이름 명명), (3) 이슈 3 architect 분석 패턴을 그대로 차용 가능, (4) 비가역성 낮음(추후 family/추가 옵션 확장 자유)."
+          },
+          {
+            "id": 5,
+            "title": "진입점 교체 + 재시작 IPC — 타이틀바 WD/CD/WL/OS 텍스트 토글을 Lucide Settings 아이콘 + 다이얼로그 오픈으로 교체, app.relaunch IPC 핸들러 신설, 투명도 변경 시 인라인 재시작 배너 UX",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "권고: 타이틀바 — lucide Settings size-4 우측 끝(현 WD/CD/WL/OS 텍스트 토글 자리), 버튼 외곽 28×28, text-muted-foreground → hover text-foreground + state.hover.bg, pressed 상태(다이얼로그 열림) = state.selected.bg, aria-label \"Open settings\", aria-haspopup=\"dialog\", aria-expanded 동기화. 한 손 cycle 회복은 다이얼로그 안 Theme 행에 segmented control 4-option(드롭다운 아님) — 한 번 열면 1-click cycle. 단축키 미제공(새 컨벤션 학습 비용 > 시연 빈도 가치). 재시작 배너 — 투명도 슬라이더 바로 아래 inline(footer 거부: 원인-결과 인접성), feedback.info.* 토큰 + raised radius 6px + ⓘ size-3, 본문 appUiSm \"투명도 변경은 다음 실행 시 적용됩니다\", Primary \"Restart now\" + Secondary \"Keep working\". 드래그 중 배너 silent, pointer-up release 시점만 평가, 같은 세션 dedupe(value만 갱신), 부팅값으로 되돌리면 사라짐. role=\"status\" aria-live=\"polite\" aria-atomic=\"true\". 기각: 보조 cycle 버튼 병치(titlebar chrome 비대), 우클릭 메뉴(발견 불가), 단축키(학습 비용·충돌). 리스크: CRITICAL ARIA live noise(dedupe 필수), 슬라이더 trailing label 실시간 갱신 유지 필요.",
+                "recorded_at": "2026-05-19T14:11:03.652Z",
+                "agent_id": "aece773efa7e1f776"
+              },
+              {
+                "role": "architect",
+                "summary": "권고: (1) 별도 'app' 채널 신설(appState는 KV, 라이프사이클은 분리축 — 향후 quit/checkForUpdates 등 자연 확장). (2) 시그니처 app.restart({ reason: string }) — reason은 진단/로깅 enum(window-opacity-change 등), 인자 강제로 호출처 자체 문서화. 반환 ipcOk<void>, 렌더러는 fire-and-forget. (3) main 핸들러: validateArgs → logger 기록 → setImmediate(() => { app.relaunch({ args: process.argv.slice(1) }); app.exit(0) }) — 즉시 동기 호출은 ipcOk 봉투 송신 봉쇄. relaunch 인자 명시는 packaged 환경 인자 누락 회피. (4) 렌더러는 store action 경유 — useAppLifecycleStore().requestRestart(reason) → 내부에서 pending appState.set IPC를 await한 뒤 app.restart 호출(직렬화). 컴포넌트 직접 호출 금지. (5) 재시작 필요 신호: windowOpacityStore에 appliedOpacity(부트 hydration 불변) + opacity(사용자 값) + isDirty derived selector. main 재조회 거부(round-trip 비용 + single source 깨짐). 기각: appState.restart(채널 의미 오염), 인자 없는 restart(진단 불가), 즉시 동기 relaunch(봉투 깨짐). 리스크: CRITICAL pending writes 손실 위험(action 내부 await 또는 main flush 필수), WARNING relaunch packaged 환경 인자 누락, family hot-apply 가능하므로 app.restart는 opacity 전용 유지(향후 확장은 reason enum).",
+                "recorded_at": "2026-05-19T14:11:14.397Z",
+                "agent_id": "a445fbcf7fc3a9b42"
+              }
+            ],
+            "decision": "**채택**: 타이틀바 진입점 ⚙ + 다이얼로그 내 segmented theme control + inline 재시작 배너(투명도 전용) + 별도 `app` IPC 채널.\n\nUI 결정:\n- 타이틀바: lucide `Settings` 아이콘 size-4(16px), 버튼 외곽 28×28, 우측 끝(현 WD/CD/WL/OS 텍스트 토글 자리 대체). `text-muted-foreground` → hover `text-foreground` + `state.hover.bg`. 다이얼로그 열림 시 pressed = `state.selected.bg`. `aria-label=\"Open settings\"`, `aria-haspopup=\"dialog\"`, `aria-expanded` 동기화. Esc 닫기 + 포커스 트랩.\n- 한 손 cycle 회복: 다이얼로그 Appearance 패널의 Theme 행에 segmented control 4-option(Warm Dark/Cool Dark/Warm Light/System). 단축키 미제공 — 새 컨벤션 학습 비용 > cycle 빈도.\n- 투명도 재시작 배너: 슬라이더 바로 아래 **inline**(footer 거부 — 원인-결과 인접성). `feedback.info.*` + raised radius 6px + ⓘ size-3 + appUiSm 본문 \"투명도 변경은 다음 실행 시 적용됩니다\". Primary `[Restart now]` + Secondary `[Keep working]`. 드래그 중 silent → pointer-up release 시점만 평가. 같은 세션 dedupe(`aria-live=\"polite\"` + `aria-atomic=\"true\"` + 동일 배너 갱신만, push 안 함). 부팅값으로 돌아오면 배너 사라짐(`isDirty=false`).\n\nIPC 결정:\n- 별도 `app` 채널 신설(라이프사이클 분리축). `appState`에 restart 추가 거부(채널 의미 오염).\n- 시그니처: `app.restart({ reason: string })`. 진단/로깅용 reason 강제, 향후 enum 확장.\n- main 핸들러: `validateArgs` → main logger reason 기록 → `setImmediate(() => { app.relaunch({ args: process.argv.slice(1) }); app.exit(0); })`. 즉시 동기 호출 거부(ipcOk 봉투 송신 봉쇄). `args` 명시는 packaged 환경 인자 누락 회피.\n- 렌더러: 신규 `state/stores/app-lifecycle.ts`의 `requestRestart(reason)` action 경유. **action 내부에서 pending appState.set IPC를 await한 뒤** `app.restart` 호출 — pending writes 손실 방지(CRITICAL). 컴포넌트 직접 ipcCallResult 호출 금지.\n- 재시작 필요 신호: `windowOpacityStore`에 `appliedOpacity`(부트 hydration 즉시 불변) + `opacity`(사용자 값) + `isDirty = appliedOpacity !== opacity` derived selector. main 재조회 거부(round-trip + single-source 깨짐).\n\n**기각**: ① 단축키 cycle — 학습 비용·OS 충돌, 시연 빈도 정당화 부족. ② titlebar 보조 cycle 버튼 병치 — chrome 비대(36px 캔버스에 잡음). ③ 우클릭 컨텍스트 메뉴 cycle — 어포던스 신호 부재, 발견 불가. ④ 다이얼로그 footer 재시작 배너 — 원인 컨트롤과 거리, 인과 매핑 깨짐. ⑤ `appState.restart` 추가 — cohesion 위반. ⑥ 인자 없는 `restart()` — 진단 추적 불가. ⑦ 즉시 동기 `app.relaunch()` — IPC 봉투 송신 봉쇄. ⑧ main에서 \"현재 적용 opacity\" 별도 조회 IPC — round-trip 비용, single source 깨짐.\n\n**리스크**: ① pending writes 손실(CRITICAL) — action 직렬화로 완화. ② `app.relaunch` packaged 환경 인자 누락 — `{args: process.argv.slice(1)}` 명시. ③ family 등 다른 필드는 hot-apply 가능 — `app.restart`는 opacity 전용 유지(향후 확장은 reason enum에 한정)."
+          }
+        ],
+        "research_summary": "현황 조사 결과: (1) themeStore + windowOpacityStore + appState 영속화 동작 중, 타이틀바에 4-cycle 텍스트 토글(WD/CD/WL/OS)이 진입점. (2) Density는 primitive.ts L100-110 islandGeometry 상수에 컴팩트값(gap 4, radius 8, btn 24)이 정의되어 있으나 store/data-density/CSS 변수 토글 모두 미구현. (3) dialog.tsx는 Radix 기반 sm/md/lg 사이즈에 floating 토큰·island radius·scrim 적용 완료, children slot 자유 → 좌-우 분할 가능. padding 16px 고정 제약 있음. (4) Monaco 폰트 와이어링은 monaco-theme.ts 초기화 위치 외 fontFamily/fontSize/lineHeight 주입 hook 미관찰, 사용자 override 경로 없음. CustomEvent 'nexus:theme-changed' 패턴 존재. (5) xterm은 controller.ts L177-185에 fontSize/fontFamily/theme 주입 완료, applyTheme(themeId) 동적 전환 구조 갖춤 → 사용자 설정 주입만 추가하면 완성. (6) 재시작 IPC 부재(app.relaunch 호출 코드 전무), main appState 채널에 restart 메서드 없음. 디자인 봉인: design.md §6 in-app 타입스케일 닫힌 집합 유지, UI 폰트 사용자 변경 불가, 폰트 설정은 코드/터미널만. memory/history에 관련 결정 없음(첫 사이클).",
+        "created_at": "2026-05-19T14:04:06.529Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "design.md §3·§6 명문화 — density v1 범위, SEALED 의미 정정, 사용자 가독성 예외",
+          "status": "completed",
+          "context": ".nexus/context/design.md (§3 Density 표, §6 Typography, §9 SEALED). 결정 이슈 #2·#3에서 도출. islandGeometry CSS 파이프라인이 dead constant였던 점, density 토글 v1 범위가 radius+gap만이고 controlH는 v2로 미루는 점, 사용자 가독성 설정이 code 영역 한정 토큰 봉인 예외라는 점을 문서로 정착시켜야 후속 코드 리뷰 마찰이 줄어듦.",
+          "acceptance": "design.md §3 표에 v1/v2 분리 명시. §6 끝에 사용자 가독성 예외 1문장 추가. §9 SEALED 주석 \"theme-invariant only\" 명시. §12 anti-patterns에 신규 행 추가. 색값·매직넘버 추가 없음. 기존 토큰 vocabulary 변경 없음. Markdown 렌더링 깨짐 없음.",
+          "approach": "§3 Density 표에 각 행 옆에 \"v1: radius·gap만 / v2: controlH\" 라벨 추가. §3 본문에 \"현행 islandGeometry 정본 활용 + :root[data-density='compact'] cascade로 런타임 토글\" 문단 추가. §6 Typography 끝에 1문장 추가: \"사용자 가독성 설정(code/terminal 영역 한정)은 토큰 봉인의 명시적 예외 — 토큰 기본값은 미설정 시 fallback 역할만. UI 텍스트 역할(app*)에는 일절 전파 금지.\" §9 SEALED 표 주석을 \"theme-invariant only — density override는 허용\"으로 의미 정정. §12 anti-patterns에 \"사용자 override를 UI 텍스트(app*)에 전파 금지\" 행 추가.",
+          "risk": "design.md는 다른 모든 코드 리뷰의 기준 문서 — 표현 오류가 후속 task 전체에 마찰. reviewer paired로 grammar/일관성 검증 필수. SEALED 의미 정정이 §11 게이트 조항과 충돌할 가능성(theme-invariant 표현이 게이트 검사 코드 의미를 흔들지) 확인 필요.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "writer",
+            "resume_tier": "bounded",
+            "agent_id": "ab5d1f58d83899a4d"
+          },
+          "created_at": "2026-05-19T14:14:26.401Z",
+          "result": {
+            "outcome": "success",
+            "summary": "design.md §3·§6·§9·§12 5건 편집 완료 — v1/v2 사이클 컬럼·emit 방식 1문장·사용자 가독성 예외 1문장·SEALED theme-invariant 주석·anti-pattern 1행. ACCEPTANCE 6/6 합.",
+            "artifacts": [
+              "/Users/kih/workspaces/areas/nexus-code/.nexus/context/design.md"
+            ],
+            "recorded_at": "2026-05-19T14:33:07.796Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "appState 스키마 확장 — density·editorFont*·terminal* 필드 7개 추가",
+          "status": "completed",
+          "context": "src/shared/types/app-state.ts. 현재 zod 스키마에 windowBounds/lastActiveWorkspaceId/sidebarWidth/filesPanelWidth/layoutByWorkspace/themePreference/windowOpacity만 있음. 결정 #2·#3·#4가 모두 이 스키마 확장을 전제로 함. 부재값=토큰 기본값 contract를 zod .optional()로 표현.",
+          "acceptance": "npm run typecheck 통과. appState 직렬화·역직렬화 round-trip 테스트(가능하면 기존 스키마 테스트 확장). 잘못된 값(예: editorFontSize=15, family에 special char)이 zod parse에서 거부됨. main의 persistence.ts 등 기존 소비자가 컴파일 통과(필드는 optional이므로 자동 호환).",
+          "approach": "app-state.ts AppStateSchema에 다음 추가(모두 .optional()): density: z.enum(['default','compact']); editorFontSize: z.union([z.literal(12), z.literal(13), z.literal(14), z.literal(16), z.literal(18), z.literal(20)]); editorFontFamily: z.string().min(1).max(120).regex(/^[A-Za-z0-9\\s,'\"]+$/); editorFontLigatures: z.boolean(); editorFontLineHeight: z.union([z.literal(1.0), z.literal(1.2), z.literal(1.4)]); terminalFontSize: z.union([z.literal(12), z.literal(13), z.literal(14), z.literal(16), z.literal(18), z.literal(20)]); terminalCursorStyle: z.enum(['block','underline','bar']). 각 필드에 주석으로 \"부재=토큰 기본값\"·\"닫힌 집합\"·\"sanitize regex 이유\" 명시. 기존 필드(themePreference·windowOpacity) 정렬 위치는 유지.",
+          "risk": "family regex가 너무 엄격해 정당한 폰트 이름(예: 한글 폰트명 \"맑은 고딕\")을 거부할 가능성 — design 결정상 family는 영문 system font name만 받는 게 정합적이나, 사용자 환경에 따라 한글 family도 입력 가능. 결정 #3 sanitize regex는 영문/숫자/공백/쉼표/따옴표만 — 그대로 유지(한글 폰트 이름은 v1 미지원, v2 검토).",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "ab76f6bb31789b62f"
+          },
+          "created_at": "2026-05-19T14:14:42.168Z",
+          "result": {
+            "outcome": "success",
+            "summary": "AppStateSchema에 7개 .optional() 필드 추가 — density/editorFont*(4)/terminal*(2). z.literal union·z.enum 닫힌 집합 + family sanitize regex. typecheck 통과. ACCEPTANCE 5/5 합.",
+            "artifacts": [
+              "/Users/kih/workspaces/areas/nexus-code/src/shared/types/app-state.ts"
+            ],
+            "recorded_at": "2026-05-19T14:33:10.783Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "Density CSS 파이프라인 결손 해소 — islandGeometry → :root[data-density] emit + SEALED 의미 정정",
+          "status": "completed",
+          "context": "scripts/generate-theme-css.ts, src/shared/design-tokens/primitive.ts(L100-110 islandGeometry), src/shared/design-tokens/component.ts(SEALED 상수 맵). 결정 #2 architect CRITICAL: islandGeometry는 dead constant이고 SEALED가 10px 리터럴로 emit되는 구조라 density 토글 이전 파이프라인 결손부터 메워야 함.",
+          "acceptance": "빌드 출력 CSS에 :root[data-density=\"compact\"] 블록이 존재하며 그 안에 --radius-island: 8px와 --island-gap: 4px가 들어 있음. documentElement.setAttribute('data-density','compact')을 dev console에서 수동 호출 시 다이얼로그 모서리·아일랜드 갭이 즉시 변함. typecheck 통과. check-off-grid-spacing 스크립트 통과(4px는 기존 grid에 있음).",
+          "approach": "(1) generate-theme-css.ts: 기존 :root 블록 emit 뒤에 :root[data-density=\"compact\"] 블록을 추가로 emit하는 함수 도입. primitive.ts의 islandGeometry default/compact 두 세트 값을 정본으로 참조. (2) emit 변수는 v1 범위로 --radius-island, --island-gap만. --control-h는 명시적으로 v1에서 제외(파이프라인 함수에 주석으로 v2 추후 작업 명시). (3) component.ts의 SEALED 맵 주석을 \"theme-invariant only — density override는 :root[data-density] cascade로 허용됨\"으로 갱신. SEALED 자체 데이터는 그대로 유지(--radius-island: 10px). (4) :root와 :root[data-density='compact'] specificity가 동일하므로 emit 순서로 cascade 우선순위 보장 — 함수 호출 순서를 generate-theme-css.ts의 메인 흐름에서 명시적으로 \":root 먼저, density override 나중에\" 보장하고 주석으로 표기.",
+          "risk": "SEALED 의미 정정이 §11 게이트 코드와 충돌 가능 — generate-theme-css.ts·component.ts에서 SEALED를 검증하는 코드 경로가 있다면 의미 변경 후 그 검증이 깨지지 않는지 확인. emit 순서 의존이 깨지면 specificity 동률에서 default 덮어쓰기 실패 — snapshot 테스트 또는 명시적 주석으로 잠금.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "ad9f0970acd0289bd"
+          },
+          "created_at": "2026-05-19T14:14:59.410Z",
+          "result": {
+            "outcome": "success",
+            "summary": "emitDensityOverrideBlock 함수 추가, islandGeometry 정본 참조로 dead constant 해소. :root(L118) → :root[data-density='compact'](L211) cascade 순서 보장. SEALED에 --island-gap 추가, 주석을 'theme-invariant only'로 정정. SEALED 검증 코드 영향 분석 완료(영향 없음). check-off-grid-spacing 9 위반은 pre-existing. ACCEPTANCE 7/7 합.",
+            "artifacts": [
+              "/Users/kih/workspaces/areas/nexus-code/scripts/generate-theme-css.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/shared/design-tokens/primitive.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/shared/design-tokens/component.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/styles/theme.generated.css"
+            ],
+            "recorded_at": "2026-05-19T14:33:16.291Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "Density store + effect hook + boot script (FOUC 방지)",
+          "status": "completed",
+          "context": "결정 #2 후속. T2(appState 스키마)·T3(CSS 파이프라인) 의존. theme store/effect 패턴(state/stores/theme.ts + hooks/use-theme-effect.ts + index.html boot script)을 그대로 차용.",
+          "acceptance": "density 토글 시 documentElement.dataset.density가 바뀌고 다이얼로그·아일랜드 갭이 실시간 변함. localStorage·appState 이중 영속 확인. 앱 재시작 시 boot script가 painted 첫 프레임에 이미 compact를 적용(FOUC 없음). nexus:density-changed 이벤트가 dispatch됨(dev console에서 addEventListener로 확인). typecheck·biome 통과.",
+          "approach": "(1) src/renderer/state/stores/density.ts 신설: useDensityStore — preference:'default'|'compact', hydrate(value)/setPreference(value), localStorage 'density' key 이중 기록 + ipcCallResult('appState','set',{density}) 영속. theme.ts 패턴 그대로. (2) src/renderer/hooks/use-density-effect.ts 신설: documentElement.dataset.density 동기화 + CustomEvent 'nexus:density-changed' dispatch. (3) src/renderer/app.tsx 또는 bootstrap.ts에서 useDensityEffect 호출 + appState hydrate 시 density 값 store에 주입. (4) src/renderer/index.html <head> 인라인 부트 스크립트에 density 동기 읽기 한 줄 추가(theme과 동일 패턴): localStorage.getItem('density')==='compact' 시 documentElement.setAttribute('data-density','compact'). FOUC 방지의 핵심.",
+          "risk": "boot script가 main bundle보다 먼저 동기 실행되어야 함 — index.html에 인라인으로 박혀야 하고 src 참조 외부 스크립트로 두면 안 됨. theme boot script 위치 참고. localStorage key 충돌은 'density'로 새 key라 안전.",
+          "plan_issue": 2,
+          "deps": [
+            2,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a8c2468b609ddad74"
+          },
+          "created_at": "2026-05-19T14:15:12.123Z",
+          "result": {
+            "outcome": "success",
+            "summary": "density store + use-density-effect + boot script. theme.ts 패턴 그대로 차용. localStorage 'density' key + appState IPC dual-write. 'default'는 attribute 제거·undefined 영속으로 스키마 부재 contract 유지. 인라인 boot 스크립트로 FOUC 방지. ACCEPTANCE 7/7 합.",
+            "artifacts": [
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/state/stores/density.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/hooks/use-density-effect.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/bootstrap.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/app.tsx",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/index.html"
+            ],
+            "recorded_at": "2026-05-19T14:40:31.671Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "editor-font store + Monaco CustomEvent wiring + 토큰 fallback selector",
+          "status": "completed",
+          "context": "결정 #3. T2(appState 스키마) 의존. Monaco 인스턴스 다중 워크스페이스/탭에 일관 적용. theme의 nexus:theme-changed 패턴 참고(services/terminal/controller.ts L189-193, services/editor/runtime/monaco-theme.ts).",
+          "acceptance": "설정 다이얼로그(T9) 미존재 상태에서도 dev console에서 useEditorFontStore.getState().setSize(20) 호출 시 모든 열린 Monaco 인스턴스 폰트 크기 즉시 변함. family/ligatures/lineHeight 동일. nexus:editor-font-changed 이벤트 dispatch 확인. document.fonts.check가 미설치 폰트에 false 반환. typecheck·biome 통과.",
+          "approach": "(1) src/renderer/state/stores/editor-font.ts 신설: 4필드(size/family/ligatures/lineHeight) + hydrate/setter/이벤트 dispatch. 모든 필드 undefined 허용(=토큰 fallback). (2) selector hook src/renderer/hooks/use-effective-editor-font.ts: userValue ?? token (codeTypeScale.codeBody.fontSize, fontFamily.monoDisplay 체인). CSS family chain: <user>, \"JetBrains Mono Nerd Font\", \"Sarasa Term K\", ui-monospace, monospace. (3) Monaco 와이어링: services/editor/runtime/에 신규 listener 모듈 또는 monaco-theme.ts에 subscribeMonacoEditorFontChanges() 추가. window.addEventListener('nexus:editor-font-changed', () => monaco.editor.getEditors().forEach(e => e.updateOptions({fontSize, fontFamily, fontLigatures, lineHeight})}). (4) 미설치 폰트 검증 헬퍼: services/editor/runtime/font-availability.ts — document.fonts.check('12px <family>') 반환, 다이얼로그에서 호출.",
+          "risk": "react-monaco-editor 또는 @monaco-editor/react의 options prop 변경이 자동 hot-apply되지 않을 수 있음(라이브러리 버전 의존). CustomEvent + getEditors().updateOptions 직접 호출 경로는 이 문제를 우회. 미설치 폰트 입력 시 브라우저 자동 fallback이 일어나 사용자가 \"왜 안 바뀜?\" 혼란 — UI에서 \"현재 적용 중\" 측정값 표시는 T9에서 처리.",
+          "plan_issue": 3,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "ac0dd4ad17484b1a2"
+          },
+          "created_at": "2026-05-19T14:15:28.959Z",
+          "result": {
+            "outcome": "success",
+            "summary": "editor-font store · useEffectiveEditorFont · buildEffectiveEditorFont(non-hook) · checkFontAvailable · subscribeMonacoEditorFontChanges 와이어링. nexus:editor-font-changed CustomEvent 수신 → monaco.editor.getEditors() 순회 updateOptions. CSS family chain 수단에 사용자 값 prepend. lineHeight fallback은 디자인 봉인 존중해 codeBody 1.0 아닌 1.4 채택. ACCEPTANCE 7/7 합.",
+            "artifacts": [
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/state/stores/editor-font.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/hooks/use-effective-editor-font.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/services/editor/runtime/font-availability.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/services/editor/runtime/monaco-theme.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/services/editor/index.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/bootstrap.ts"
+            ],
+            "recorded_at": "2026-05-19T14:40:42.384Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "terminal settings store + controller.ts applyTerminalSettings wiring",
+          "status": "completed",
+          "context": "결정 #4. T2 의존. src/renderer/services/terminal/controller.ts L171-193 와이어링이 이미 fontSize·fontFamily·theme 주입 + applyTheme 동적 전환 구조를 가짐 — 사용자 설정 주입 경로만 추가.",
+          "acceptance": "dev console에서 useTerminalStore.getState().setFontSize(20) 호출 시 열린 터미널 폰트 크기 즉시 변함(행 높이 자동 재계산). cursorStyle 'underline'/'bar'/'block' 토글 즉시 반영. dispose 후 listener leak 없음(setInterval로 50회 토글 후 메모리 안정). typecheck·biome 통과.",
+          "approach": "(1) src/renderer/state/stores/terminal.ts 신설: fontSize/cursorStyle 두 필드 + hydrate/setter/이벤트 dispatch. editor-font.ts와 대칭. (2) controller.ts에 applyTerminalSettings() 추가: const{fontSize, cursorStyle} = useTerminalStore.getState(); terminal.options.fontSize = fontSize ?? typeScale.codeUi.fontSize; terminal.options.cursorStyle = cursorStyle ?? 'block'. (3) controller.ts L189-193 패턴 따라 window.addEventListener('nexus:terminal-settings-changed', () => applyTerminalSettings()) 추가. controller가 dispose될 때 listener removeEventListener.",
+          "risk": "controller가 워크스페이스마다 인스턴스 생성되는 구조라 listener 다중 등록 우려 — removeEventListener를 dispose hook에 묶기. xterm fontSize 변경 시 backing PTY columns 재계산 필요할 수 있음(fit addon이 처리).",
+          "plan_issue": 4,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "aea48683e7be6e109"
+          },
+          "created_at": "2026-05-19T14:15:39.419Z",
+          "result": {
+            "outcome": "success",
+            "summary": "terminal store + applyTerminalSettings + nexus:terminal-settings-changed CustomEvent 와이어링. createTerminal 옵션에 store fallback 합성 주입. dispose 시 removeEventListener 링크로 메모리 누수 회피. runFit() 호출로 폰트 변경 후 cols/rows 재계산. ACCEPTANCE 7/7 합.",
+            "artifacts": [
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/state/stores/terminal.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/services/terminal/controller.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/bootstrap.ts"
+            ],
+            "recorded_at": "2026-05-19T14:40:51.512Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "app IPC 채널 신설 + app-lifecycle store + windowOpacity isDirty 확장",
+          "status": "completed",
+          "context": "결정 #5 IPC 부분. T2 의존. 기존 app.relaunch 호출 코드 전무. src/shared/ipc/result.ts(ipcOk/ipcErr 봉투), src/main/features/app-state/index.ts(IPC 핸들러 등록 패턴 참고). windowOpacityStore는 이미 존재(state/stores/window-opacity.ts), appliedOpacity는 신규.",
+          "acceptance": "dev console에서 useAppLifecycleStore.getState().requestRestart('test') 호출 시 앱이 깔끔히 재시작(논리적 인자 보존). isDirty selector가 정확하게 동작: setOpacity(0.5) 후 true, setOpacity(applied) 복원 시 false. pending appState.set IPC를 가짜로 지연시켜도 그 await 후 restart 호출됨(직렬화 확인 — 모킹 테스트). conventions.md ipcOk/ipcErr 봉투 규약 준수(throw 없음). typecheck·biome 통과.",
+          "approach": "(1) src/main/features/app/index.ts 신설(별도 채널): registerAppChannel(ipcMain). restart({reason: string}) 메서드: validateArgs(z.object({reason: z.string().min(1).max(120)})) → logger.info('[app] restart requested', {reason}) → setImmediate(() => { app.relaunch({args: process.argv.slice(1)}); app.exit(0); }) → 즉시 ipcOk(undefined) 반환(setImmediate으로 인해 봉투 송신 후 종료). (2) src/main/index.ts에 registerAppChannel 호출 추가. (3) src/renderer/state/stores/app-lifecycle.ts 신설: requestRestart(reason: string) action. 내부에서 useWindowOpacityStore 등 dirty store의 pending appState.set IPC를 await 후 ipcCallResult('app','restart',{reason}) 호출. (4) windowOpacityStore 확장: appliedOpacity(부트 hydrate 시 즉시 set, 이후 immutable), opacity(사용자 값), isDirty: derived(state) => state.appliedOpacity !== state.opacity. (5) preload에 'app' 채널 노출(host.ipc 매니페스트).",
+          "risk": "CRITICAL — pending writes 손실: setImmediate 시점에 appState.set IPC가 main에서 fs flush 완료 전 quit 가능. 완화책 두 단계: (a) store action 내부 await(렌더러 측 봉투 응답 기다림), (b) main restart 핸들러가 stateService.flush() 호출 후 setImmediate. 둘 다 적용 권고. app.relaunch packaged 환경 인자 누락은 args 명시로 회피.",
+          "plan_issue": 5,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a3ede19abf2328c2e"
+          },
+          "created_at": "2026-05-19T14:15:57.536Z",
+          "result": {
+            "outcome": "success",
+            "summary": "app IPC 채널 신설(contract 계약 + registerAppChannel 핸들러) + app-lifecycle store + windowOpacity에 appliedOpacity/isDirty/pendingWrite 확장. CRITICAL pending writes 손실 완화 2단계 모두 적용: (a) store action이 pendingWrite await 후 IPC 호출, (b) main handler가 stateService.flushNow() 호출 후 setImmediate(relaunch+exit). app.relaunch args process.argv.slice(1) 명시. preload는 범용 브리지라 수정 불필요(contract로 타입 안전 자동 제약). ACCEPTANCE 8/8 합.",
+            "artifacts": [
+              "/Users/kih/workspaces/areas/nexus-code/src/shared/ipc/contract.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/main/features/app/index.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/main/infra/storage/state-service.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/main/index.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/state/stores/window-opacity.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/state/stores/app-lifecycle.ts"
+            ],
+            "recorded_at": "2026-05-19T14:41:05.445Z"
+          }
+        },
+        {
+          "id": 8,
+          "title": "dialog.tsx 정식 확장 — xl size + padded prop",
+          "status": "completed",
+          "context": "결정 #1. src/renderer/components/ui/dialog.tsx 현재 SIZE_CLASS에 sm(420)/md(480)/lg(560)만 존재, padding 16 고정. 결정 #1에 따라 xl 사이즈와 padded boolean prop을 정식 확장 — settings-dialog가 이 prop을 활용해 자체 패딩을 소유.",
+          "acceptance": "size='xl'·padded={false} prop 조합이 빈 다이얼로그를 720×자유높이로 padding 없이 렌더. 기존 form-dialog/prompt-dialog 호출 영향 없음(default 동작 유지). typecheck·biome 통과. max-w-[90vw] 가드로 1024px 미만 창에서 자동 축소(좁은 창에서 깨지는지 수동 확인 — 깨지면 settings-dialog 내부 nav 156px가 같이 줄어드는 폴백 필요한지 T9 단계에서 결정).",
+          "approach": "(1) SIZE_CLASS에 xl: 'w-[720px] max-w-[90vw]' 추가. 기존 max-w-[90vw] 가드는 그대로 유지. (2) DialogContent props에 padded?: boolean (default true) 추가. padded=false 시 기본 p-4 16px 패딩 제거 → children이 자체 패딩 소유. (3) 기존 호출자들(form-dialog.tsx, prompt-dialog.tsx) 영향 없는지 확인(default padded=true가 동작 유지). (4) Storybook/시각 회귀 없는 환경이므로 dev console에서 size='xl'·padded={false} 다이얼로그가 720px·padding 0으로 렌더되는지 수동 확인.",
+          "risk": "기존 호출자가 padded 기본 동작에 암묵적 의존할 가능성 — default true로 둬서 기존 호출자 컴파일/동작 무영향 보장. xl × max-w-[90vw] 충돌은 1024px 미만에서 nav 156px가 비좁아질 수 있음 — 폴백은 T9의 SettingsDialog 컴포넌트가 책임.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "af21e7f474440ffa1"
+          },
+          "created_at": "2026-05-19T14:16:12.413Z",
+          "result": {
+            "outcome": "success",
+            "summary": "DialogSize 타입에 'xl' 추가, SIZE_CLASS에 w-[720px] 엔트리 추가. 발견: padded prop은 이미 완전 구현되어 있었음(add-workspace-dialog가 이미 padded={false} 사용 중). max-w-[90vw]는 dialogContentClass 기본에 이미 적용. typecheck·biome 통과. ACCEPTANCE 5/5 합.",
+            "artifacts": [
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/components/ui/dialog.tsx"
+            ],
+            "recorded_at": "2026-05-19T14:33:19.247Z"
+          }
+        },
+        {
+          "id": 9,
+          "title": "SettingsDialog 합성 + Appearance/Editor/Terminal 패널 + 재시작 배너 + 타이틀바 ⚙ 교체",
+          "status": "completed",
+          "context": "결정 #1·#5의 UI 부분. T4·T5·T6·T7·T8 모두 dep. components/settings/ 도메인 모듈 신설. title-bar.tsx의 WD/CD/WL/OS 텍스트 토글(L92-107)을 lucide Settings 아이콘 + 다이얼로그 오픈 wiring으로 교체.",
+          "acceptance": "타이틀바 ⚙ 클릭 시 SettingsDialog 열림(WD/CD/WL/OS 토글은 사라짐). 좌측 nav 클릭으로 Appearance/Editor/Terminal 패널 전환. 각 컨트롤 조작 즉시 반영(테마/밀도/폰트/터미널). 투명도 드래그 중 배너 없음, release 시 배너 등장, 'Restart now' 클릭 시 앱 재시작, 'Keep working' 클릭 시 배너 dismiss. 부팅값으로 슬라이더 복귀 시 배너 자동 사라짐. font family에 미설치 이름 입력 시 인라인 \"현재 적용 중: <측정값>\" 표시. Esc·바깥 클릭으로 다이얼로그 닫힘. Tab/화살표 키 ARIA 네비 동작. 1024px 미만 창에서 다이얼로그 max-w-[90vw] 폴백(좌-우 분할 무너지더라도 콘텐츠 접근은 보장). typecheck·biome 통과.",
+          "approach": "(1) src/renderer/components/settings/settings-dialog.tsx: Dialog primitive(size='xl', padded={false})를 감싸는 합성 컴포넌트. props: nav: SettingsNavItem[](id/label/group), defaultActiveId?, children: (activeId) => ReactNode 렌더프롭. 내부 useState로 activeId 관리. 좌측 nav 156px + 우측 폼 544px flex 레이아웃. 좌측 nav는 sidebar.item.* 토큰 재사용(grouped header appLabel + appBody 항목 + selected = state.selected.indicator 4px left bar + state.selected.bg/fg). 우측만 overflow-y auto. 우상단 닫기 X(lucide size-4). sr-only Title 자동 주입. ARIA role=tablist/tab/tabpanel + 화살표 키 네비. Esc 닫기 + 포커스 트랩(Radix Dialog 기본). (2) src/renderer/components/settings/panels/appearance-panel.tsx: Theme segmented control(useThemeStore — 4-option Warm Dark/Cool Dark/Warm Light/System) + Density segmented control(useDensityStore — Default/Compact) + Window opacity 슬라이더(useWindowOpacityStore) + 재시작 배너(isDirty 시점만 표시). (3) src/renderer/components/settings/panels/editor-panel.tsx: Font size 슬라이더(닫힌 6단계) + Family 드롭다운(JBM/Sarasa/system) + \"기타(직접 입력)\" 옵션 시 텍스트 입력 + document.fonts.check 결과 \"현재 적용 중\" 표시 + Ligatures 토글 + Line height 세그먼티드(1.0/1.2/1.4). 모두 useEditorFontStore와 양방향 바인딩. (4) src/renderer/components/settings/panels/terminal-panel.tsx: Font size 슬라이더 + Cursor style 세그먼티드(Block/Underline/Bar). useTerminalStore 바인딩. (5) src/renderer/components/settings/restart-banner.tsx: feedback.info.* + raised radius 6px + ⓘ size-3 + appUiSm 본문 + Primary 'Restart now'(useAppLifecycleStore.requestRestart) + Secondary 'Keep working'(local dismiss). role='status' aria-live='polite' aria-atomic='true'. 드래그 중 silent — onPointerUp 시점만 평가. 부팅값으로 복귀 시 isDirty=false → 자동 사라짐. (6) src/renderer/components/workbench/title-bar.tsx: WD/CD/WL/OS 토글 버튼(L92-107) 삭제 + lucide Settings 아이콘 size-4·외곽 28×28·우측 끝 버튼 추가. onClick 시 useSettingsDialogOpenStore(또는 local state lift) toggle. aria-label='Open settings', aria-haspopup='dialog', aria-expanded sync.",
+          "risk": "스코프가 크고 의존성이 5개 task에 걸침 — engineer가 T4-T8 산출물 인터페이스를 정확히 따라가야 함. 다중 워크스페이스에서 다이얼로그 상태 처리(글로벌 vs 워크스페이스별) — 글로벌(로컬 useState 단일 다이얼로그) 채택. 미설치 폰트 UX의 \"현재 적용 중\" 표시가 document.fonts API 가용성에 의존(모든 Electron 버전 지원 확인 필요). 좁은 창 폴백은 v1에서 max-w-[90vw] 자동 축소에 맡기고 명시적 모바일 레이아웃은 v2.",
+          "plan_issue": 1,
+          "deps": [
+            4,
+            5,
+            6,
+            7,
+            8
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a2874106704707d0f"
+          },
+          "created_at": "2026-05-19T14:16:45.826Z",
+          "result": {
+            "outcome": "success",
+            "summary": "T13 검증 후 재작업 3건 완료 — (1) opacity 슬라이더 local preview state 도입 (drag silent, commit에서만 store 반영, useEffect로 외부 동기), (2) 좌측 nav indicator 3px → 4px, (3) aria-controls를 활성 탭에만 부여(lazy mounting 정책 보존). typecheck·biome 통과. 최초 9/9 합 → T13 FAIL 3건 수정 → 재검증 대기.",
+            "artifacts": [
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/state/stores/settings-ui.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/components/settings/types.ts",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/components/settings/segmented-control.tsx",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/components/settings/restart-banner.tsx",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/components/settings/settings-dialog.tsx",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/components/settings/panels/appearance-panel.tsx",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/components/settings/panels/editor-panel.tsx",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/components/settings/panels/terminal-panel.tsx",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/components/workbench/title-bar.tsx",
+              "/Users/kih/workspaces/areas/nexus-code/src/renderer/app.tsx"
+            ],
+            "recorded_at": "2026-05-19T14:59:57.944Z"
+          }
+        },
+        {
+          "id": 10,
+          "title": "[review] design.md §3·§6·§9·§12 갱신 내용 검증",
+          "status": "completed",
+          "context": "T1(writer)의 산출물 검증. design.md는 후속 모든 코드 리뷰의 기준 문서라 표현 오류·일관성 결여가 후속 task 전체에 마찰을 일으킴. 페어링 근거: T1 acceptance에 \"Markdown 렌더링 깨짐 없음·기존 vocabulary 변경 없음\" 등 verifiable 기준이 명시되어 있음.",
+          "acceptance": "위 6개 검사 항목 통과 보고. 통과 못한 항목은 구체 위치(섹션·라인)와 권고 수정안 제시. 페어 task(T1)가 acceptance를 충족하는지 명시적 합/부 판정.",
+          "approach": "T1 산출 디프를 §3·§6·§9·§12 순서로 읽고 다음을 검증: (1) §3 표의 v1/v2 라벨이 결정 #2와 일치하는가(radius·gap만 v1, controlH는 v2). (2) §6 끝 1문장이 \"code/terminal 영역 한정 예외, UI 텍스트 전파 금지\"를 정확히 표현하는가. (3) §9 SEALED 주석이 \"theme-invariant only — density override 허용\" 의미를 손상 없이 전달하는가, §11 게이트 조항과 충돌하지 않는가. (4) §12 anti-pattern 신규 행이 표 형식·문법 일관성을 유지하는가. (5) 색값·매직넘버·신규 토큰이 추가되지 않았는가. (6) 한국어 문법·문장 길이·tone(다른 §과 일치)이 자연스러운가. 불일치 발견 시 writer에게 SendMessage로 재작업 지시.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "reviewer",
+            "resume_tier": "ephemeral",
+            "agent_id": "a75764b94130b95a5"
+          },
+          "created_at": "2026-05-19T14:17:23.857Z",
+          "result": {
+            "outcome": "success",
+            "summary": "T1 design.md 편집 5건 검증 — 6개 검사 항목 모두 PASS. CRITICAL 0/WARNING 0/INFO 1(선택적 문체 순화 제안 — 수정 불필요). 결정 #2와 표 일치, §11 게이트 조항과 충돌 없음 확인. T1 APPROVED.",
+            "artifacts": [],
+            "recorded_at": "2026-05-19T14:41:15.121Z"
+          }
+        },
+        {
+          "id": 11,
+          "title": "[test] Density CSS 파이프라인 — emit 순서·specificity·SEALED 호환 검증",
+          "status": "completed",
+          "context": "T3 산출물 검증. architect WARNING: emit 순서가 깨지면 :root와 :root[data-density='compact'] specificity 동률에서 default가 compact를 덮어쓰는 회귀 가능. SEALED 의미 정정이 §11 게이트 코드에 영향 없는지 확인 필요.",
+          "acceptance": "5개 검사 모두 통과. 회귀 발견 시 정확한 재현 단계와 의심 위치(line) 보고. emit 순서가 generate-theme-css.ts에서 명시적으로 보장되는지(주석·snapshot·order test 중 어떤 메커니즘인지) 보고.",
+          "approach": "(1) 빌드 출력 CSS 파일을 읽어 :root 블록 뒤에 :root[data-density=\"compact\"] 블록이 등장하는 순서 확인(grep + 라인 번호 비교). (2) :root[data-density=\"compact\"] 블록 내부에 정확히 --radius-island: 8px, --island-gap: 4px 두 변수만 존재(불필요한 var 누락 또는 추가 없음). (3) Electron 또는 headless에서 documentElement.setAttribute('data-density','compact') 후 getComputedStyle 검사: --radius-island가 8px로 해결됨. 속성 제거 후 10px 복귀. (4) check-off-grid-spacing 스크립트와 typecheck 통과 확인. (5) SEALED 검증 코드 경로 grep('SEALED', src/) 후 의미 변경(주석)이 검증 코드 의미를 깨지 않는지 코드 리딩.",
+          "plan_issue": 2,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "aa1b6db624ccff715"
+          },
+          "created_at": "2026-05-19T14:17:36.283Z",
+          "result": {
+            "outcome": "success",
+            "summary": "T3 검증 5/5 PASS. 주요 발견 — architect WARNING 재평가: :root[data-density='compact']는 attribute selector 추가로 specificity (0,1,1) > :root (0,0,1)/[data-theme] (0,1,0)— emit 순서 관계없이 specificity로 이김. WARNING 1건(generate-theme-css.ts L125 주석 'equal specificity' 오류)은 Lead가 직접 정정— 'higher specificity than :root and [data-theme]'로 변경 다음 산출물 재생성. INFO 1건(emit order assertion test) v2로 미뢸.",
+            "artifacts": [],
+            "recorded_at": "2026-05-19T14:41:26.270Z"
+          }
+        },
+        {
+          "id": 12,
+          "title": "[test] app IPC restart — pending writes 직렬화 검증 (CRITICAL)",
+          "status": "completed",
+          "context": "T7 산출물 검증. architect CRITICAL: setImmediate 시점에 appState.set IPC가 main에서 fs flush 완료 전 quit 가능 → 사용자가 투명도 변경 직후 Restart now 클릭 시 그 변경값이 영속 안 되는 회귀. 완화책 두 단계(렌더러 action await + main flush)가 실제로 둘 다 적용되고 직렬화가 깨지지 않는지 검증.",
+          "acceptance": "5개 검사 통과. pending writes 직렬화가 두 단계(action await + main flush) 중 어느 것이 적용됐는지 보고. 미적용 시 회귀 시나리오 재현해서 보고(투명도 변경 → restart → 부팅 → 값 사라짐 확인). app.relaunch args 명시 확인(process.argv.slice(1)).",
+          "approach": "(1) 단위 테스트: app-lifecycle store의 requestRestart action이 pending appState.set 봉투 응답을 await 후에만 app.restart IPC를 호출하는지 — ipcCallResult를 mock해서 set 응답을 지연(setTimeout 500ms)시킨 뒤 restart 호출 타이밍 측정. (2) main 핸들러 단위 테스트: restart 메서드가 setImmediate 콜백 전에 stateService.flush()를 await하는지 (또는 적어도 호출하는지) 확인. (3) isDirty selector 케이스 테이블: applied=1, current=1 → false; applied=1, current=0.5 → true; applied=1, current=0.5 → setOpacity(1) → false. (4) preload 매니페스트에 'app' 채널이 정확히 노출되는지 확인(타입스크립트 IpcChannelMap 검증). (5) conventions.md 준수: 핸들러가 throw 안 하고 ipcOk/ipcErr 봉투 반환, validateArgs 실패는 ipcErr('invalid-args').",
+          "plan_issue": 5,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "adf8374691b2f46be"
+          },
+          "created_at": "2026-05-19T14:17:50.384Z",
+          "result": {
+            "outcome": "success",
+            "summary": "T7 검증 5/5 — 검사 1·2·3·4 PASS, 검사 5는 초기 FAIL(LogMeta 타입 위반 TS2353 ×2건)— Lead가 logger 인자를 메시지 문자열로 인라인해 정정 후 typecheck 통과 → PASS. Stage 1(렌더러 await pendingWrite) + Stage 2(main flushNow 동기) 모두 적용 확인. 단위 테스트 18개(window-opacity 8 + app-channel 10) 모두 PASS. 회귀 시나리오 불성립. INFO 2건(isDirty 스펙 서술 모호·autofetchIntervalMin 기존 테스트 실패 3건 — 모두 범위 밖). T7 APPROVED.",
+            "artifacts": [
+              "/Users/kih/workspaces/areas/nexus-code/tests/unit/renderer/state/stores/window-opacity.test.ts",
+              "/Users/kih/workspaces/areas/nexus-code/tests/unit/main/ipc/channels/app-channel.test.ts"
+            ],
+            "recorded_at": "2026-05-19T14:50:24.961Z"
+          }
+        },
+        {
+          "id": 13,
+          "title": "[test] SettingsDialog E2E — UX·ARIA·재시작 배너 전 시나리오 (T4-T9 통합 커버)",
+          "status": "completed",
+          "context": "T9 산출물 검증. T4·T5·T6 개별 store 와이어링도 이 task가 transitively 커버(다이얼로그 컨트롤이 store에 정확히 바인딩되는지 검증함으로써). designer CRITICAL: ARIA live noise dedupe, 드래그 중 silent, 부팅값 복귀 시 isDirty=false. designer WARNING: 좌측 nav mental map, 1024px 미만 폴백.",
+          "acceptance": "9개 시나리오 모두 통과. 각 실패는 재현 단계 + 의심 코드 위치(file:line) + 회귀 심각도(CRITICAL/WARNING/INFO) 보고. CRITICAL 미해결 시 T9를 reopen.",
+          "approach": "(1) 진입점: 타이틀바 ⚙ 클릭 → 다이얼로그 열림, WD/CD/WL/OS 토글이 사라졌는지 확인. aria-expanded 동기화. (2) 좌측 nav: Appearance/Editor/Terminal 키보드 화살표 네비, selected = 4px left bar + state.selected.bg/fg, role=tablist/tab/tabpanel 검사. (3) Appearance — Theme segmented control 4-option 즉시 반영(테마 store 값 변경 + data-theme 속성 변경). Density 토글 시 다이얼로그 자체 모서리·아일랜드 갭 라이브 변화(설계상 의도). (4) Window opacity — 드래그 중 배너 침묵(release까지 보이지 않음), release 시 배너 등장. 같은 세션 두 번째 release 시 push가 아닌 갱신만(role=status aria-live polite atomic). 부팅값으로 복원 시 배너 자동 사라짐(isDirty false). 'Keep working' dismiss → 재변경 시 재출현. 'Restart now' → app 재시작(T12 통과 가정). (5) Editor — Font size 슬라이더 6단계 즉시 반영(getEditors().updateOptions). family 드롭다운 + 기타 입력 + document.fonts.check 측정값 \"현재 적용 중\" 표시. ligatures/lineHeight 토글 즉시 반영. (6) Terminal — fontSize/cursorStyle 즉시 반영, 행 높이 재계산. (7) 닫기: Esc/바깥 클릭/X 버튼 모두 닫힘, 포커스 트랩 확인. (8) 1024px 미만 창 폴백: max-w-[90vw] 자동 축소, 콘텐츠 접근은 보장(좌-우 분할이 좁아져도 깨지지 않음). (9) 다중 워크스페이스: 다이얼로그가 단일 인스턴스(워크스페이스 전환해도 같은 상태).",
+          "plan_issue": 1,
+          "deps": [
+            9
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "a868e196feac3c1cf"
+          },
+          "created_at": "2026-05-19T14:18:12.196Z",
+          "result": {
+            "outcome": "success",
+            "summary": "T9 재검증 — 수정 3건(opacity local preview·border 4px·aria-controls 조건부) 모두 PASS. CRITICAL 0/WARNING 0/INFO 0. typecheck·biome 통과, 변경 범위 두 파일에 국한. T9 APPROVED. 관련 맥락: 첫 검증에서 6/9 PASS → 3/9 FAIL(WARNING) → engineer 재작업 → 재검증 3/3 PASS.",
+            "artifacts": [],
+            "recorded_at": "2026-05-19T15:01:27.361Z"
+          }
+        }
+      ]
     }
   ]
 }

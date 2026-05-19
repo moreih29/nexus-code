@@ -1,12 +1,12 @@
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
 import { initMainLogger } from "../shared/log/main";
-import { installErrorSafetyNet } from "./error-safety-net";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
-import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./infra/agent/ssh/auth-prompt";
-import { NEXUS_AGENT_MODE_ENV } from "./infra/agent/local-agent-resolver";
-import { ensureRemoteAgent } from "./infra/agent/ssh/ssh-bootstrap/index";
-import { createSshChannel } from "./infra/agent/ssh/channel";
+import { installErrorSafetyNet } from "./error-safety-net";
+import { registerAppChannel } from "./features/app";
+import { registerAppStateChannel } from "./features/app-state";
+import { registerDialogChannel } from "./features/dialog";
+import { registerEntryPointsChannels } from "./features/entry-points/ipc";
 import { AgentFsWatcher } from "./features/fs/bridge/agent-watch";
 import { registerFsChannel } from "./features/fs/ipc";
 import { AgentGitWatcher } from "./features/git/bridge/agent-watch";
@@ -20,29 +20,30 @@ import {
   createStatusCoalescer,
   type StatusCoalescer,
 } from "./features/git/domain/status-coalescer";
-import { type LspHostHandle, startConfiguredLspHost } from "./features/lsp/host";
-import { startAgentPtyHost } from "./features/pty/agent-host";
-import type { PtyHostHandle } from "./features/pty/types";
-import { registerAppStateChannel } from "./features/app-state";
-import { registerAutofetchChannel } from "./features/git/ipc/autofetch-handlers";
-import { registerDialogChannel } from "./features/dialog";
 import { registerGitChannel } from "./features/git/ipc";
+import { registerAutofetchChannel } from "./features/git/ipc/autofetch-handlers";
+import { type LspHostHandle, startConfiguredLspHost } from "./features/lsp/host";
 import { registerLspChannel } from "./features/lsp/ipc";
-import { registerPanelChannel } from "./features/panel";
-import { registerPtyChannel } from "./features/pty/ipc";
-import { registerEntryPointsChannels } from "./features/entry-points/ipc";
-import { registerSshChannel, registerSshBrowseHandlers } from "./features/ssh/ipc";
-import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
-import { registerWorkspaceChannel } from "./features/workspace/ipc";
-import { broadcast, setupRouter } from "./infra/ipc-router";
 import { installAppMenu } from "./features/menu";
-import { isMac } from "./infra/platform";
+import { registerPanelChannel } from "./features/panel";
+import { startAgentPtyHost } from "./features/pty/agent-host";
+import { registerPtyChannel } from "./features/pty/ipc";
+import type { PtyHostHandle } from "./features/pty/types";
 import { registerSystemChannel } from "./features/shell/ipc";
+import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
+import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ipc";
+import { createMainWindow } from "./features/window";
+import { registerWorkspaceChannel } from "./features/workspace/ipc";
+import { WorkspaceManager } from "./features/workspace/manager";
+import { NEXUS_AGENT_MODE_ENV } from "./infra/agent/local-agent-resolver";
+import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./infra/agent/ssh/auth-prompt";
+import { createSshChannel } from "./infra/agent/ssh/channel";
+import { ensureRemoteAgent } from "./infra/agent/ssh/ssh-bootstrap/index";
+import { broadcast, setupRouter } from "./infra/ipc-router";
+import { isMac } from "./infra/platform";
 import { GlobalStorage } from "./infra/storage/global-storage";
 import { StateService } from "./infra/storage/state-service";
 import { WorkspaceStorage } from "./infra/storage/workspace-storage";
-import { createMainWindow } from "./features/window";
-import { WorkspaceManager } from "./features/workspace/manager";
 
 // Configure logging transports and renderer IPC relay before any window opens.
 initMainLogger();
@@ -137,6 +138,7 @@ registerWorkspaceChannel(workspaceManager, {
 });
 registerDialogChannel();
 registerAppStateChannel(stateService);
+registerAppChannel(stateService);
 registerFsChannel(workspaceManager, agentFsWatcher, workspaceStorage);
 registerPanelChannel(workspaceStorage);
 registerSshChannel();

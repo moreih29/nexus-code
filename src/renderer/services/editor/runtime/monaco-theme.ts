@@ -1,6 +1,8 @@
 import type * as Monaco from "monaco-editor";
 import type { ThemeId } from "../../../../shared/design-tokens";
 import { EDITOR_PALETTES, type EditorPalette } from "../../../../shared/editor/palette";
+import { buildEffectiveEditorFont } from "../../../hooks/use-effective-editor-font";
+import { EDITOR_FONT_EVENT, useEditorFontStore } from "../../../state/stores/editor-font";
 
 // ---------------------------------------------------------------------------
 // Monaco theme name registry
@@ -204,5 +206,39 @@ export function subscribeMonacoThemeChanges(monaco: typeof Monaco): () => void {
   document.documentElement.addEventListener("nexus:theme-changed", handler);
   return () => {
     document.documentElement.removeEventListener("nexus:theme-changed", handler);
+  };
+}
+
+// ---------------------------------------------------------------------------
+// subscribeMonacoEditorFontChanges — attach a documentElement listener for the
+// nexus:editor-font-changed CustomEvent dispatched by useEditorFontStore setters.
+//
+// On each event the handler reads the current store state (no React subscription),
+// synthesizes the effective font options via buildEffectiveEditorFont, and calls
+// updateOptions() on every live Monaco editor instance via getEditors().
+//
+// Monaco instance refs are NOT stored here — getEditors() provides the live list.
+//
+// Returns a cleanup function (for test teardown; not needed in prod because
+// the listener persists for the app's lifetime).
+// ---------------------------------------------------------------------------
+
+export function subscribeMonacoEditorFontChanges(monaco: typeof Monaco): () => void {
+  const handler = () => {
+    const { size, family, ligatures, lineHeight } = useEditorFontStore.getState();
+    const opts = buildEffectiveEditorFont({ size, family, ligatures, lineHeight });
+    for (const editor of monaco.editor.getEditors()) {
+      editor.updateOptions({
+        fontSize: opts.fontSize,
+        fontFamily: opts.fontFamily,
+        fontLigatures: opts.fontLigatures,
+        lineHeight: opts.lineHeight,
+      });
+    }
+  };
+
+  document.documentElement.addEventListener(EDITOR_FONT_EVENT, handler);
+  return () => {
+    document.documentElement.removeEventListener(EDITOR_FONT_EVENT, handler);
   };
 }

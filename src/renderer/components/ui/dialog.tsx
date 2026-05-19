@@ -31,12 +31,13 @@ import { cn } from "@/utils/cn";
  * the scattered `w-[420px]` / `w-[440px]` / `w-[480px]` / `w-[560px]` magic
  * numbers (design.md §12) — one source of truth, no drift.
  */
-export type DialogSize = "sm" | "md" | "lg";
+export type DialogSize = "sm" | "md" | "lg" | "xl";
 
 const SIZE_CLASS: Record<DialogSize, string> = {
   sm: "w-[420px]", // single-line prompts, confirmations
   md: "w-[480px]", // multi-field forms
   lg: "w-[560px]", // multi-view / large-textarea dialogs
+  xl: "w-[720px]", // split-pane dialogs (e.g. Settings nav 156 + form 544)
 };
 
 /**

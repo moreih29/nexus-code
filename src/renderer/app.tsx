@@ -5,25 +5,33 @@ import { bootstrapAppState, bootstrapWorkspaces } from "./bootstrap";
 import { useCommandBridge } from "./commands/use-command-bridge";
 import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
+import { AppearancePanel } from "./components/settings/panels/appearance-panel";
+import { EditorPanel } from "./components/settings/panels/editor-panel";
+import { TerminalPanel } from "./components/settings/panels/terminal-panel";
+import { SettingsDialog } from "./components/settings/settings-dialog";
 import { ErrorBoundary } from "./components/ui/error-boundary";
-import { showRemoveWorkspaceConfirm } from "./components/workspace/remove-workspace-dialog";
 import { Sidebar } from "./components/workbench/sidebar";
 import { TitleBar } from "./components/workbench/title-bar";
 import { WelcomeScreen } from "./components/workbench/welcome-screen";
 import { AddWorkspaceDialog } from "./components/workspace/add-workspace";
 import { WorkspacePanel } from "./components/workspace/panel";
+import { showRemoveWorkspaceConfirm } from "./components/workspace/remove-workspace-dialog";
+import { useDensityEffect } from "./hooks/use-density-effect";
 import { useThemeEffect } from "./hooks/use-theme-effect";
 import { useWindowOpacityEffect } from "./hooks/use-window-opacity-effect";
 import { ipcCallResult } from "./ipc/client";
 import { useGlobalKeybindings } from "./keybindings/use-global-keybindings";
 import { initializeEditorServices } from "./services/editor";
 import { useActiveStore } from "./state/stores/active";
+import { useSettingsUIStore } from "./state/stores/settings-ui";
 import { useWorkspacesStore } from "./state/stores/workspaces";
 
 export function App() {
   const monaco = useMonaco();
   const { workspaces, setAll } = useWorkspacesStore();
   const { activeWorkspaceId, setActiveWorkspaceId } = useActiveStore();
+  const settingsOpen = useSettingsUIStore((s) => s.settingsOpen);
+  const closeSettings = useSettingsUIStore((s) => s.closeSettings);
 
   // Workspaces that have been activated at least once in this session.
   // Their <WorkspacePanel> stays mounted (CSS-hidden when inactive) so PTYs
@@ -142,6 +150,9 @@ export function App() {
   // Also subscribes to OS prefers-color-scheme when preference === "system".
   useThemeEffect();
 
+  // Apply data-density attribute to documentElement ('compact' sets it; 'default' removes it).
+  useDensityEffect();
+
   // Apply --window-opacity CSS property to documentElement.
   useWindowOpacityEffect();
 
@@ -170,6 +181,19 @@ export function App() {
           onClose={handleCloseAddWorkspace}
           onWorkspaceCreated={handleWorkspaceCreated}
         />
+        <SettingsDialog
+          open={settingsOpen}
+          onOpenChange={(open) => {
+            if (!open) closeSettings();
+          }}
+        >
+          {(activeId) => {
+            if (activeId === "appearance") return <AppearancePanel />;
+            if (activeId === "editor") return <EditorPanel />;
+            if (activeId === "terminal") return <TerminalPanel />;
+            return null;
+          }}
+        </SettingsDialog>
         <div className="flex flex-1 min-h-0 overflow-hidden gap-[6px] p-[6px]">
           <Sidebar
             workspaces={workspaces}

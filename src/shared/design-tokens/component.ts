@@ -5,8 +5,11 @@
 //   - Maps SemanticKey values → shadcn --variable-name convention
 //   - Appends SEALED constants that no theme can override
 //
-// SEALED constants are managed here (not in SemanticKey) so themes
-// cannot accidentally override shadow or radius values.
+// SEALED constants are theme-invariant only (not density-invariant).
+// Themes cannot override them, but density cascade IS allowed:
+//   generate-theme-css.ts emitDensityOverrideBlock() emits
+//   :root[data-density='compact'] overrides for --radius-island and
+//   --island-gap using islandGeometry compact values as the authority.
 //
 // design.md §8 SEALED table:
 //   --shadow-sm ~ --shadow-2xl  → "none"  (no-shadow elevation philosophy)
@@ -16,14 +19,23 @@
 //   --radius-none       → "0px"
 //   --radius-control    → "4px"
 //   --radius-raised     → "6px"    (banners, inline cards)
-//   --radius-island     → "10px"   (islands + floating surfaces)
+//   --radius-island     → "10px"   (islands + floating surfaces; compact: 8px)
 //   --radius-full       → "9999px"
+//   --island-gap        → "6px"    (gap between islands; compact: 4px)
 
 import type { SemanticTokenSet } from "./semantic";
 
 // ---------------------------------------------------------------------------
-// SEALED — immutable constants excluded from SemanticKey.
+// SEALED — theme-invariant only; excluded from SemanticKey so themes cannot
+// accidentally override these values.
 // Declared as a const so generate-theme-css.ts can enumerate them directly.
+//
+// NOTE: "theme-invariant only" does NOT mean density-invariant.
+//   density override は :root[data-density] cascade で許容される.
+//   SEALED の --radius-island: 10px は default (comfortable) 密度の値であり,
+//   compact 密度では generate-theme-css.ts の emitDensityOverrideBlock() が
+//   :root[data-density='compact'] ブロックで 8px に上書きする.
+//   同様に --island-gap も compact で 4px に上書きされる.
 // ---------------------------------------------------------------------------
 
 export const SEALED: Record<string, string> = {
@@ -39,8 +51,12 @@ export const SEALED: Record<string, string> = {
   "--radius-none": "0px",
   "--radius-control": "4px",
   "--radius-raised": "6px",
+  // comfortable (default) density value; compact override → 8px via :root[data-density='compact']
   "--radius-island": "10px",
   "--radius-full": "9999px",
+  // Island layout gap — comfortable (default) density value.
+  // compact override → 4px via :root[data-density='compact'] (emitDensityOverrideBlock).
+  "--island-gap": "6px",
 } as const;
 
 // ---------------------------------------------------------------------------

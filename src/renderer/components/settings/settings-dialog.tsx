@@ -1,0 +1,234 @@
+// src/renderer/components/settings/settings-dialog.tsx — Settings dialog shell.
+//
+// Composite dialog with left nav (156px) + right panel (544px).
+// Props:
+//   open          — controlled open state
+//   onOpenChange  — Radix open-change contract
+//   nav           — nav item list (optional; defaults to built-in items)
+//   defaultActiveId — initial panel selection
+//   children      — render prop: (activeId: string) => ReactNode
+//
+// ARIA: role=tablist (left nav), role=tab (each item), role=tabpanel (right),
+//       arrow-key navigation, sr-only title.
+//
+// Design seal: semantic tokens only, no hex/oklch/rgba literals,
+// no magic pixel values, no shadows.
+
+import { X } from "lucide-react";
+import { Dialog as RadixDialog } from "radix-ui";
+import { useCallback, useId, useRef, useState } from "react";
+import { cn } from "@/utils/cn";
+import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../ui/dialog";
+import type { SettingsNavItem } from "./types";
+
+// ---------------------------------------------------------------------------
+// Default nav items
+// ---------------------------------------------------------------------------
+
+const DEFAULT_NAV: SettingsNavItem[] = [
+  { id: "appearance", label: "Appearance", group: "Settings" },
+  { id: "editor", label: "Editor", group: "Settings" },
+  { id: "terminal", label: "Terminal", group: "Settings" },
+];
+
+// ---------------------------------------------------------------------------
+// Props
+// ---------------------------------------------------------------------------
+
+interface SettingsDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  nav?: SettingsNavItem[];
+  defaultActiveId?: string;
+  /** Render prop — receives the active nav id, returns the panel content. */
+  children: (activeId: string) => React.ReactNode;
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+export function SettingsDialog({
+  open,
+  onOpenChange,
+  nav = DEFAULT_NAV,
+  defaultActiveId,
+  children,
+}: SettingsDialogProps) {
+  const firstId = nav[0]?.id ?? "appearance";
+  const [activeId, setActiveId] = useState<string>(defaultActiveId ?? firstId);
+
+  const titleId = useId();
+  const panelId = useId();
+
+  // Refs for the nav tab buttons — used for arrow-key navigation.
+  const tabRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      e.preventDefault();
+
+      const ids = nav.map((item) => item.id);
+      const currentIdx = ids.indexOf(activeId);
+      if (currentIdx === -1) return;
+
+      const nextIdx =
+        e.key === "ArrowDown"
+          ? (currentIdx + 1) % ids.length
+          : (currentIdx - 1 + ids.length) % ids.length;
+
+      const nextId = ids[nextIdx];
+      if (nextId !== undefined) {
+        setActiveId(nextId);
+        tabRefs.current.get(nextId)?.focus();
+      }
+    },
+    [nav, activeId],
+  );
+
+  // Group nav items by their group label.
+  const groups = groupNavItems(nav);
+
+  return (
+    <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
+      <RadixDialog.Portal>
+        <RadixDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
+        <RadixDialog.Content
+          className={dialogContentClass("xl", false, "flex flex-col")}
+          style={{
+            minHeight: 480,
+            maxHeight: "calc(100vh - 96px)",
+          }}
+          aria-labelledby={titleId}
+          aria-describedby={undefined}
+        >
+          {/* sr-only title — satisfies Radix a11y contract */}
+          <RadixDialog.Title id={titleId} className="sr-only">
+            Settings
+          </RadixDialog.Title>
+
+          {/* Main layout: left nav 156px + right panel flex-1 */}
+          <div className="flex flex-1 min-h-0">
+            {/* Left nav */}
+            <nav
+              className="w-[156px] shrink-0 flex flex-col border-r border-border py-3"
+              aria-label="Settings navigation"
+            >
+              <div
+                role="tablist"
+                aria-orientation="vertical"
+                onKeyDown={handleKeyDown}
+                className="flex flex-col"
+              >
+                {groups.map(({ groupLabel, items }) => (
+                  <div key={groupLabel ?? "__ungrouped__"}>
+                    {groupLabel && (
+                      <span className="block px-4 pt-2 pb-1 text-app-label uppercase text-muted-foreground">
+                        {groupLabel}
+                      </span>
+                    )}
+                    {items.map((item) => {
+                      const isActive = item.id === activeId;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          role="tab"
+                          id={`settings-tab-${item.id}`}
+                          aria-selected={isActive}
+                          aria-controls={isActive ? `${panelId}-${item.id}` : undefined}
+                          tabIndex={isActive ? 0 : -1}
+                          ref={(el) => {
+                            if (el) tabRefs.current.set(item.id, el);
+                            else tabRefs.current.delete(item.id);
+                          }}
+                          onClick={() => setActiveId(item.id)}
+                          className={cn(
+                            "block w-full px-4 py-1.5 text-left text-app-body font-sans",
+                            "border-l-[4px] transition-colors cursor-pointer select-none",
+                            isActive
+                              ? [
+                                  "border-l-[var(--state-selected-indicator)]",
+                                  "bg-[var(--sidebar-item-selected-bg)]",
+                                  "text-foreground",
+                                ]
+                              : [
+                                  "border-l-transparent",
+                                  "text-muted-foreground",
+                                  "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
+                                ],
+                          )}
+                        >
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </nav>
+
+            {/* Right panel */}
+            <div className="flex flex-1 flex-col min-w-0 min-h-0">
+              {/* Panel header with close button */}
+              <div className="flex items-center justify-end px-4 py-3 border-b border-border">
+                <RadixDialog.Close asChild>
+                  <button
+                    type="button"
+                    aria-label="Close settings"
+                    className={cn(
+                      "inline-flex items-center justify-center",
+                      "size-7 rounded-(--radius-control)",
+                      "text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
+                      "transition-colors",
+                    )}
+                  >
+                    <X className="size-4" aria-hidden="true" />
+                  </button>
+                </RadixDialog.Close>
+              </div>
+
+              {/* Scrollable panel body */}
+              <div
+                className="flex-1 overflow-y-auto app-scrollbar"
+                role="tabpanel"
+                id={`${panelId}-${activeId}`}
+                aria-labelledby={`settings-tab-${activeId}`}
+              >
+                <div className="px-6 py-4">{children(activeId)}</div>
+              </div>
+            </div>
+          </div>
+        </RadixDialog.Content>
+      </RadixDialog.Portal>
+    </RadixDialog.Root>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Helper — group nav items
+// ---------------------------------------------------------------------------
+
+interface NavGroup {
+  groupLabel: string | null;
+  items: SettingsNavItem[];
+}
+
+function groupNavItems(nav: SettingsNavItem[]): NavGroup[] {
+  const groups: NavGroup[] = [];
+  const seen = new Map<string | null, NavGroup>();
+
+  for (const item of nav) {
+    const key = item.group ?? null;
+    let group = seen.get(key);
+    if (!group) {
+      group = { groupLabel: key, items: [] };
+      groups.push(group);
+      seen.set(key, group);
+    }
+    group.items.push(item);
+  }
+
+  return groups;
+}

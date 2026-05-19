@@ -151,6 +151,7 @@
   --radius-raised: 6px;
   --radius-island: 10px;
   --radius-full: 9999px;
+  --island-gap: 6px;
   --splitter-hover: rgba(226, 226, 226, 0.6);
   --motion-fade: 220ms ease;
   --motion-scale: 160ms ease;
@@ -205,6 +206,13 @@
   --color-workspace-connection-error: oklch(0.67 0.245 27.33);
 }
 
+/* density=compact overrides — higher specificity than :root and [data-theme]. */
+/* Emitted after :root for readability; cascade wins by specificity, not order. */
+:root[data-density='compact'] {
+  --radius-island: 8px;
+  --island-gap: 4px;
+}
+
 [data-theme="warm-dark"] {
   --background: #1a1917;
   --foreground: oklch(0.982 0.0041 91.45);
@@ -241,6 +249,7 @@
   --radius-raised: 6px;
   --radius-island: 10px;
   --radius-full: 9999px;
+  --island-gap: 6px;
   --splitter-hover: rgba(226, 226, 226, 0.6);
   --motion-fade: 220ms ease;
   --motion-scale: 160ms ease;
@@ -331,6 +340,7 @@
   --radius-raised: 6px;
   --radius-island: 10px;
   --radius-full: 9999px;
+  --island-gap: 6px;
   --splitter-hover: rgba(200, 210, 240, 0.6);
   --motion-fade: 220ms ease;
   --motion-scale: 160ms ease;
@@ -421,6 +431,7 @@
   --radius-raised: 6px;
   --radius-island: 10px;
   --radius-full: 9999px;
+  --island-gap: 6px;
   --splitter-hover: rgba(50, 45, 30, 0.42);
   --motion-fade: 220ms ease;
   --motion-scale: 160ms ease;

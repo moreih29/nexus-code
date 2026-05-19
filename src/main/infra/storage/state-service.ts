@@ -49,6 +49,18 @@ export class StateService {
     this.setState(partial);
   }
 
+  /**
+   * Synchronously flush the current in-memory state to disk.
+   *
+   * Exposed as a public API for callers that must guarantee durability before
+   * a destructive operation (e.g. `app.relaunch`).  The underlying I/O is
+   * synchronous (write + rename), so this method is safe to call without
+   * awaiting in contexts that cannot wait for an async flush cycle.
+   */
+  flushNow(): void {
+    this.flush();
+  }
+
   private flush(): void {
     const dir = path.dirname(this.filePath);
     fs.mkdirSync(dir, { recursive: true });

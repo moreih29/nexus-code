@@ -95,6 +95,15 @@ export const radiusScale = {
 // ---------------------------------------------------------------------------
 // Islands geometry — design.md §3. Fixed, grid-independent constants.
 // Two density modes; `compact` shrinks the island gap and island radius.
+//
+// generate-theme-css.ts が正本（authoritative source）として参照する:
+//   v1: --island-gap (gap / gapCompact) + --radius-island (radius / radiusCompact)
+//         → :root と :root[data-density='compact'] の両ブロックに emit される.
+//   v2: --control-h (buttonHeight / buttonHeightCompact / inputHeight /
+//         inputHeightCompact) — v1 スコープ外. v2 で emit 予定.
+//
+// NOTE: islandGeometry は以前 "dead constant"（定義のみで emit なし）だった.
+//   generate-theme-css.ts の emitDensityOverrideBlock() により解消済み.
 // ---------------------------------------------------------------------------
 
 export const islandGeometry = {

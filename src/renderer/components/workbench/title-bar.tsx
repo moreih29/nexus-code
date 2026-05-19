@@ -1,8 +1,8 @@
+import { Settings } from "lucide-react";
 import { cn } from "@/utils/cn";
-import type { ThemePreference } from "../../../shared/types/app-state";
 import type { WorkspaceLocation } from "../../../shared/types/workspace";
 import { useActiveStore } from "../../state/stores/active";
-import { useThemeStore } from "../../state/stores/theme";
+import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 
 // ---------------------------------------------------------------------------
@@ -15,30 +15,12 @@ import { useWorkspacesStore } from "../../state/stores/workspaces";
 //               We pad the bar's right edge to clear that overlay.
 //
 // Drag region is applied via the `app-drag` utility (see globals.css);
-// interactive children (none today, but planned: workspace switcher, search,
-// etc.) MUST opt out with the `app-no-drag` utility.
+// interactive children MUST opt out with the `app-no-drag` utility.
 // ---------------------------------------------------------------------------
 
 const TITLEBAR_HEIGHT_CLASS = "h-9"; // 36px — matches main/window.ts TITLEBAR_HEIGHT
 const MAC_TRAFFIC_LIGHTS_INSET = 78; // px — clears the three traffic-light buttons
 const WIN_OVERLAY_INSET = 140; // px — clears the Electron-rendered control overlay
-
-// Cycle order for the theme toggle button.
-const THEME_CYCLE: ThemePreference[] = ["warm-dark", "cool-dark", "warm-light", "system"];
-
-const THEME_LABELS: Record<ThemePreference, string> = {
-  "warm-dark": "WD",
-  "cool-dark": "CD",
-  "warm-light": "WL",
-  system: "OS",
-};
-
-const THEME_TITLES: Record<ThemePreference, string> = {
-  "warm-dark": "Theme: Warm Dark",
-  "cool-dark": "Theme: Cool Dark",
-  "warm-light": "Theme: Warm Light",
-  system: "Theme: Follow OS",
-};
 
 export function TitleBar() {
   const isMac = window.host.platform === "darwin";
@@ -48,13 +30,8 @@ export function TitleBar() {
     activeWorkspaceId ? s.workspaces.find((w) => w.id === activeWorkspaceId) : null,
   );
 
-  const { preference, setPreference } = useThemeStore();
-
-  function handleThemeCycle() {
-    const idx = THEME_CYCLE.indexOf(preference);
-    const next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length];
-    if (next !== undefined) setPreference(next);
-  }
+  const settingsOpen = useSettingsUIStore((s) => s.settingsOpen);
+  const toggleSettings = useSettingsUIStore((s) => s.toggleSettings);
 
   return (
     <div
@@ -88,22 +65,24 @@ export function TitleBar() {
         </span>
       )}
 
-      {/* Theme toggle — right-aligned, app-no-drag so click lands */}
+      {/* Settings button — right-aligned, app-no-drag so click lands */}
       <button
         type="button"
-        onClick={handleThemeCycle}
-        title={THEME_TITLES[preference]}
+        onClick={toggleSettings}
+        aria-label="Open settings"
+        aria-haspopup="dialog"
+        aria-expanded={settingsOpen}
         className={cn(
           "app-no-drag ml-auto",
           "flex items-center justify-center",
-          "w-7 h-6 rounded",
-          "text-app-ui-sm text-muted-foreground",
+          "size-7 rounded-(--radius-control)",
+          "text-muted-foreground",
           "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
+          settingsOpen && "bg-[var(--state-selected-bg)] text-foreground",
           "transition-colors duration-150",
         )}
-        aria-label={THEME_TITLES[preference]}
       >
-        {THEME_LABELS[preference]}
+        <Settings className="size-4" aria-hidden="true" />
       </button>
     </div>
   );
