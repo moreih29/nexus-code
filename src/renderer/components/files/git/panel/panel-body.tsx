@@ -3,25 +3,27 @@
  * a detected git repository.
  *
  * Owns: HistorySegmentToggle · HistoryPanel · OperationBanner ·
- *       GitCommitInput · file-group list · GitBranchBar.
+ *       GitCommitInput · file-group list.
+ *
+ * Branch identity / sync actions previously lived in a panel footer
+ * (GitBranchBar) — that footer was removed so the file panel's island
+ * shape (rounded corners on its host) reads cleanly. Branch switching is
+ * now reached from the status bar's branch button; fetch/pull/push are
+ * available from GitMoreMenu (header) and the commit button menu.
  *
  * Owns no state — all values and callbacks come from props.
  */
 
 import type {
-  BranchInfo,
-  GitAutofetchIntervalMin,
   GitCommitOptions,
   GitExpandedGroupKey,
   GitPanelSegment,
   GitStatusEntry,
-  RepoCapabilities,
 } from "../../../../../shared/git/types";
 import type { ViewMode } from "../../../../../shared/types/panel";
-import type { GitActionButtonState } from "../../../../state/stores/git/action-button";
 import type { GitStoreError } from "../../../../state/stores/git";
+import type { GitActionButtonState } from "../../../../state/stores/git/action-button";
 import { EmptyState } from "../../../ui/empty-state";
-import { GitBranchBar } from "../branch/branch-bar";
 import type { GitCommitMenuEnablement } from "../commit/commit-button";
 import { GitCommitInput } from "../commit/commit-input";
 import { GitGroup } from "../file-row/group";
@@ -90,22 +92,6 @@ export interface GitPanelBodyProps {
   onAddToGitignore: (entry: GitStatusEntry) => void;
   onAddPathsToGitignore: (paths: string[]) => void;
   onStashGroup: (paths: string[], label: string) => void;
-
-  // Branch bar
-  branchInfo: BranchInfo | null;
-  repoPath: string | undefined;
-  capabilities: RepoCapabilities;
-  autofetchIntervalMin: GitAutofetchIntervalMin;
-  autofetchFetching: boolean;
-  autofetchFailed: boolean;
-  onSync: () => void;
-  onFetch: () => void;
-  onPull: () => void;
-  onPush: () => void;
-  onPublish: () => void;
-  onSetAutofetchInterval: (intervalMin: GitAutofetchIntervalMin) => void;
-  onSwitchBranch: () => void;
-  onCreateFromRef: () => void;
 }
 
 export function GitPanelBody({
@@ -154,20 +140,6 @@ export function GitPanelBody({
   onAddToGitignore,
   onAddPathsToGitignore,
   onStashGroup,
-  branchInfo,
-  repoPath,
-  capabilities,
-  autofetchIntervalMin,
-  autofetchFetching,
-  autofetchFailed,
-  onSync,
-  onFetch,
-  onPull,
-  onPush,
-  onPublish,
-  onSetAutofetchInterval,
-  onSwitchBranch,
-  onCreateFromRef,
 }: GitPanelBodyProps) {
   return (
     <>
@@ -256,24 +228,6 @@ export function GitPanelBody({
               ))
             )}
           </div>
-          <GitBranchBar
-            workspaceId={workspaceId}
-            branch={branchInfo}
-            repoPath={repoPath}
-            disabled={isBusy}
-            capabilities={capabilities}
-            autofetchIntervalMin={autofetchIntervalMin}
-            autofetchFetching={autofetchFetching}
-            autofetchFailed={autofetchFailed}
-            onSync={onSync}
-            onFetch={onFetch}
-            onPull={onPull}
-            onPush={onPush}
-            onPublish={onPublish}
-            onSetAutofetchInterval={onSetAutofetchInterval}
-            onSwitchBranch={onSwitchBranch}
-            onCreateFromRef={onCreateFromRef}
-          />
         </>
       )}
     </>

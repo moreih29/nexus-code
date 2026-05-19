@@ -15,8 +15,9 @@
  * a "+N" counter row that the component can expand on demand.
  *
  * unborn HEAD is intentionally excluded from the banner stack — it is
- * re-classified as a permanent caption in the branch identity area
- * (GitBranchBar) and should never compete for the banner slot.
+ * not a problem state but a normal "branch not yet realised" condition,
+ * and the status-bar branch segment already labels it as "(no commits)".
+ * Surfacing it here would steal the banner slot from real problems.
  */
 
 import type { PushGuardActionKind, PushGuardBannerView } from "../utils/push-guard-banner";

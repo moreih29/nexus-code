@@ -12,8 +12,9 @@
  * Clicking or pressing Enter/Space on the counter row expands all items
  * in-place (chevron rotates). Clicking again collapses back to 1 slot.
  *
- * unborn HEAD is no longer in the banner stack — it is shown as a
- * permanent caption in the branch identity area (GitBranchBar).
+ * unborn HEAD is not in the banner stack — it is communicated through
+ * the status-bar branch segment's "(no commits)" label rather than
+ * stealing the in-panel banner slot from real problems.
  *
  * Props accept the single `GitBannerModel` produced by buildGitBannerModel().
  */

@@ -4,11 +4,12 @@
  * Thin container — orchestrates store selectors, derived state, and
  * inter-dialog callbacks, then delegates rendering to:
  *   GitHeader       — title + toolbar
- *   GitBannerStack  — inline banner row (unborn / push-guard / error / etc.)
- *   GitPanelBody    — segment toggle + commit input + file list + branch bar
+ *   GitBannerStack  — inline banner row (push-guard / error / etc.)
+ *   GitPanelBody    — segment toggle + commit input + file list
  *   GitDialogHost   — all modal dialogs
  */
 import { useEffect, useMemo } from "react";
+import { useShallow } from "zustand/shallow";
 import { validateGitRemoteUrl } from "../../../../../shared/git/remote-validation";
 import {
   DEFAULT_GIT_PANEL_STATE,
@@ -17,8 +18,8 @@ import {
   type GitStatusEntry,
   type RepoCapabilities,
 } from "../../../../../shared/git/types";
+import { useGitSession, useGitStore } from "../../../../state/stores/git";
 import { selectGitActionButton } from "../../../../state/stores/git/action-button";
-import { useGitStore } from "../../../../state/stores/git";
 import {
   usePanelViewOptionsStore,
   useViewOptions,
@@ -26,21 +27,19 @@ import {
 import { EmptyState } from "../../../ui/empty-state";
 import type { FormDialogField } from "../../../ui/form-dialog";
 import { Skeleton, SkeletonLine } from "../../../ui/skeleton";
-import { useShallow } from "zustand/shallow";
 import { useLoaderDelay } from "../../search/use-loader-delay";
 import { createCommitPickerSource } from "../commit/picker-source";
 import { useGitHelperOccupancy } from "../hooks/use-helper-prompts";
 import { useGitOpHotkey } from "../hooks/use-op-hotkey";
-import { useGitSession } from "../../../../state/stores/git";
 import { createMergeTargetPickerSource } from "../pickers/merge-target-picker-source";
 import { createRebaseTargetPickerSource } from "../pickers/rebase-target-picker-source";
 import { useGitPanelPickers } from "../pickers/use-panel-pickers";
 import { buildPushGuardBannerView } from "../utils/push-guard-banner";
 import { buildGitGroups, collectGitEntryPaths } from "../utils/status-utils";
-import { createEntryActions } from "./entry-actions";
 import { buildGitBannerModel } from "./banner-model";
 import { GitBannerStack } from "./banner-stack";
 import { GitDialogHost } from "./dialog-host";
+import { createEntryActions } from "./entry-actions";
 import { GitHeader } from "./header";
 import { buildErrorAction } from "./panel-actions";
 import { GitPanelBody } from "./panel-body";
@@ -216,12 +215,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   // Dialog + picker state
   // ---------------------------------------------------------------------------
   const dialogs = useGitDialogs();
-  const {
-    setAddRemoteOpen,
-    setEmptyCommitRequest,
-    contextBanner,
-    setContextBanner,
-  } = dialogs;
+  const { setAddRemoteOpen, setEmptyCommitRequest, contextBanner, setContextBanner } = dialogs;
 
   const pickers = useGitPanelPickers();
   const {
@@ -270,7 +264,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     handleCommitAll,
     handleAmend,
     handleCommitAndPush,
-    handleSync,
     requestDiscard,
     requestRemoveRemote,
     requestStashGroup,
@@ -367,7 +360,13 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           setCommitPickerOpen(true);
         },
       }),
-    [currentBranchName, directOps.listBranches, workspaceId, setCommitPickerRef, setCommitPickerOpen],
+    [
+      currentBranchName,
+      directOps.listBranches,
+      workspaceId,
+      setCommitPickerRef,
+      setCommitPickerOpen,
+    ],
   );
   const addRemoteFields = useMemo<FormDialogField[]>(
     () => [
@@ -627,36 +626,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
             void addPathsToGitignore(paths);
           }}
           onStashGroup={requestStashGroup}
-          branchInfo={branchInfo}
-          repoPath={repoPath}
-          capabilities={capabilities}
-          autofetchIntervalMin={
-            session?.autofetchIntervalMin ?? DEFAULT_GIT_PANEL_STATE.autofetchIntervalMin
-          }
-          autofetchFetching={session?.autofetchFetching ?? false}
-          autofetchFailed={
-            session?.autofetchLastError !== null && session?.autofetchLastError !== undefined
-          }
-          onSync={() => {
-            void handleSync();
-          }}
-          onFetch={() => {
-            void directOps.fetchAll(workspaceId);
-          }}
-          onPull={() => {
-            void directOps.pull(workspaceId);
-          }}
-          onPush={() => {
-            void requestPush();
-          }}
-          onPublish={() => {
-            void requestPush();
-          }}
-          onSetAutofetchInterval={(intervalMin) => {
-            void panelUiOps.setAutofetchInterval(workspaceId, intervalMin);
-          }}
-          onSwitchBranch={() => openBranchPicker("switch")}
-          onCreateFromRef={() => setBranchCreateFromPickerOpen(true)}
         />
       )}
 
