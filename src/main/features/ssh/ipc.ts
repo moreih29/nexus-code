@@ -27,6 +27,20 @@ const c = ipcContract.ssh.call;
 const OPEN_BROWSE_TIMEOUT_MS = 30_000;
 
 /**
+ * Resolves the SSH login user. When the caller leaves `user` unset — i.e. the
+ * user typed only a host — default to the local account name, matching plain
+ * `ssh <host>` behaviour, which connects as the current local user.
+ */
+function resolveSshUser(user: string | undefined): string {
+  if (user && user.trim().length > 0) return user;
+  try {
+    return os.userInfo().username;
+  } catch {
+    return process.env.USER ?? process.env.LOGNAME ?? "";
+  }
+}
+
+/**
  * Registers SSH-related main-process IPC handlers.
  */
 export function registerSshChannel(
@@ -134,13 +148,19 @@ export function openBrowseSessionHandler(
     // createBootstrapContext skips interactive auth and password-only hosts
     // fail before the agent channel is ever opened.
     ensureRemoteAgent(options, { promptHandler }),
-): (args: unknown) => Promise<{ sessionId: string; initialPath: string }> {
-  return async (args: unknown): Promise<{ sessionId: string; initialPath: string }> => {
+): (args: unknown) => Promise<{ sessionId: string; initialPath: string; user: string }> {
+  return async (
+    args: unknown,
+  ): Promise<{ sessionId: string; initialPath: string; user: string }> => {
     const params = validateArgs(c.openBrowseSession.args, args);
+
+    // Host-only input leaves `user` unset — fall back to the local account
+    // name so the connection (and the saved profile) has a concrete user.
+    const user = resolveSshUser(params.user);
 
     const bootstrapOptions: EnsureRemoteAgentOptions = {
       host: params.host,
-      user: params.user,
+      user,
       port: params.port,
       identityFile: params.identityFile,
       authMode: params.authMode,
@@ -175,14 +195,18 @@ export function openBrowseSessionHandler(
 
       // Build a ControlMaster handle wrapper so the registry can dispose it.
       const masterHandle: SshControlMaster | null = bootstrapResult.controlPath
-        ? buildMasterHandle(params, bootstrapResult.controlPath, bootstrapResult.dispose)
+        ? buildMasterHandle(
+            { ...params, user },
+            bootstrapResult.controlPath,
+            bootstrapResult.dispose,
+          )
         : null;
 
       // Open the agent channel over the established ControlMaster socket.
       channel = createSshChannel(
         {
           host: params.host,
-          user: params.user,
+          user,
           port: params.port,
           identityFile: params.identityFile,
           authMode: params.authMode,
@@ -208,7 +232,7 @@ export function openBrowseSessionHandler(
       const sessionId = registry.register(channel, masterHandle);
       channel = null; // ownership transferred to registry
 
-      return { sessionId, initialPath };
+      return { sessionId, initialPath, user };
     } catch (error) {
       clearTimeout(timeoutId);
       // Dispose the channel if channel.ready rejected before registry took ownership.

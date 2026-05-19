@@ -24,6 +24,11 @@ export interface OpenBrowseSessionArgs {
 export interface BrowseSessionInfo {
   readonly sessionId: string;
   readonly initialPath: string;
+  /**
+   * The user the session connected as. When the caller omits `user`, the main
+   * process defaults to the local account name and reports it here.
+   */
+  readonly user: string;
 }
 
 /**

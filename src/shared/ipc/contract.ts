@@ -477,7 +477,14 @@ export const ipcContract = {
       listConfigHosts: call(z.void(), z.array(SshConfigHostSchema)),
       openBrowseSession: call(
         SshBrowseConnParamsSchema,
-        z.object({ sessionId: z.string().uuid(), initialPath: z.string() }),
+        z.object({
+          sessionId: z.string().uuid(),
+          initialPath: z.string(),
+          // The user actually connected as — when the caller omits `user`,
+          // the handler defaults to the local account name and reports it
+          // back so the renderer can persist a complete connection profile.
+          user: z.string(),
+        }),
       ),
       browseSession: call(
         SshBrowseSessionIdSchema.extend({ path: z.string() }),

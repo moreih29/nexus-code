@@ -208,12 +208,16 @@ export function SshNewConnectionView({
       return;
     }
 
-    // Connection succeeded → save connectionProfile
+    // Connection succeeded → save connectionProfile.
+    // `result.value.user` is the user actually connected as — when the form
+    // had only a host, the main process resolved it to the local account
+    // name, so the saved profile is always complete.
+    const connectedUser = result.value.user;
     const profileId = crypto.randomUUID();
     await saveConnectionProfile({
       id: profileId,
       host: dest.host,
-      user: dest.user ?? "",
+      user: connectedUser,
       port: parsedPort,
       identityFile: identityFile.trim() || undefined,
       authMode: "interactive",
@@ -224,7 +228,7 @@ export function SshNewConnectionView({
       sessionId: result.value.sessionId,
       initialPath: result.value.initialPath,
       host: dest.host,
-      user: dest.user,
+      user: connectedUser,
       port: parsedPort,
       identityFile: identityFile.trim() || undefined,
       profileId,
