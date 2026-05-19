@@ -5,7 +5,7 @@
  */
 
 import type { ConnectionProfile } from "../../../shared/types/entry-points";
-import { ipcCall } from "../../ipc/client";
+import { type IpcResult, ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 
 // ---------------------------------------------------------------------------
 // List
@@ -13,7 +13,7 @@ import { ipcCall } from "../../ipc/client";
 
 /** Fetch all connection profiles, sorted by most-recently-used descending. */
 export async function listConnectionProfiles(): Promise<ConnectionProfile[]> {
-  const list = await ipcCall("connectionProfile", "list", undefined);
+  const list = unwrapIpcResult(await ipcCallResult("connectionProfile", "list", undefined));
   return [...list].sort((a, b) => b.lastUsedAt - a.lastUsedAt);
 }
 
@@ -22,7 +22,7 @@ export async function listConnectionProfiles(): Promise<ConnectionProfile[]> {
  * Use when the caller does its own sort or when it needs the raw list.
  */
 export async function fetchConnectionProfiles(): Promise<ConnectionProfile[]> {
-  return ipcCall("connectionProfile", "list", undefined);
+  return unwrapIpcResult(await ipcCallResult("connectionProfile", "list", undefined));
 }
 
 // ---------------------------------------------------------------------------
@@ -41,7 +41,31 @@ export interface SaveConnectionProfileArgs {
 
 /** Upsert a connection profile (creates or updates lastUsedAt). */
 export async function saveConnectionProfile(args: SaveConnectionProfileArgs): Promise<void> {
-  await ipcCall("connectionProfile", "save", {
+  unwrapIpcResult(
+    await ipcCallResult("connectionProfile", "save", {
+      id: args.id,
+      host: args.host,
+      user: args.user,
+      port: args.port,
+      identityFile: args.identityFile,
+      authMode: args.authMode,
+      label: args.label,
+    }),
+  );
+}
+
+/**
+ * Upsert a connection profile, returning an IpcResult instead of throwing.
+ *
+ * Use this overload when the caller applies partial-failure policy: the save
+ * is a secondary effect and a failure must not block the primary flow.
+ * The caller can inspect `result.ok` and surface a non-blocking warning while
+ * still proceeding with the primary action that already succeeded.
+ */
+export async function saveConnectionProfileResult(
+  args: SaveConnectionProfileArgs,
+): Promise<IpcResult<void>> {
+  const raw = await ipcCallResult("connectionProfile", "save", {
     id: args.id,
     host: args.host,
     user: args.user,
@@ -50,6 +74,9 @@ export async function saveConnectionProfile(args: SaveConnectionProfileArgs): Pr
     authMode: args.authMode,
     label: args.label,
   });
+  // ipcCallResult returns IpcResult<void> for handlers whose value is undefined.
+  // Cast is safe: the handler returns undefined on success.
+  return raw as IpcResult<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -58,7 +85,7 @@ export async function saveConnectionProfile(args: SaveConnectionProfileArgs): Pr
 
 /** Toggle the favorite flag for a connection profile. */
 export async function setConnectionProfileFavorite(id: string, favorite: boolean): Promise<void> {
-  await ipcCall("connectionProfile", "setFavorite", { id, favorite });
+  unwrapIpcResult(await ipcCallResult("connectionProfile", "setFavorite", { id, favorite }));
 }
 
 // ---------------------------------------------------------------------------
@@ -67,5 +94,5 @@ export async function setConnectionProfileFavorite(id: string, favorite: boolean
 
 /** Remove a connection profile by id. */
 export async function removeConnectionProfile(id: string): Promise<void> {
-  await ipcCall("connectionProfile", "remove", { id });
+  unwrapIpcResult(await ipcCallResult("connectionProfile", "remove", { id }));
 }

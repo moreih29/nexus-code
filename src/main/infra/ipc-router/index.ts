@@ -1,10 +1,8 @@
 import * as crypto from "node:crypto";
 import type { z } from "zod";
 import { createAbortError, isAbortError } from "../../../shared/abort";
-import {
-  IPC_GIT_ERROR_MARK,
-  type IpcGitErrorPayload,
-} from "../../../shared/git/error-ipc";
+import type { AppError } from "../../../shared/error/app-error";
+import { IPC_GIT_ERROR_MARK, type IpcGitErrorPayload } from "../../../shared/git/error-ipc";
 import {
   type InferArgs,
   type InferComplete,
@@ -13,16 +11,13 @@ import {
   type StreamProcedure,
 } from "../../../shared/ipc/contract";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
-import { ipcErr } from "../../../shared/ipc/result";
+import { type IpcErrResult, ipcErr, isIpcErrResult } from "../../../shared/ipc/result";
 import { GitError } from "../../features/git/domain/error";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export interface CallContext {
   requestId?: string;
   signal?: AbortSignal;
+  correlationId?: string;
 }
 
 export interface StreamContext {
@@ -69,13 +64,7 @@ type RegisteredStreamHandlers<C extends ContractChannelName> = [
 type StreamEventPayload =
   | { streamId: string; kind: "progress"; data: unknown }
   | { streamId: string; kind: "complete"; data: unknown }
-  | { streamId: string; kind: "error"; data: SerializedError };
-
-interface SerializedError {
-  name: string;
-  message: string;
-  cause?: IpcGitErrorPayload;
-}
+  | { streamId: string; kind: "error"; data: AppError };
 
 interface PendingStream {
   controller: AbortController;
@@ -104,56 +93,54 @@ type RegisterChannelDef<C extends string> = C extends ContractChannelName
   ? RegisteredChannelDef<C>
   : ChannelDef;
 
+/**
+ * Thrown by `validateArgs` when the caller-supplied arguments fail Zod
+ * schema validation.  The `ipc:call` router catches this error at the IPC
+ * boundary and converts it into an `IpcErrResult<"invalid-args">` with
+ * `category:"invalid-input"` so the renderer can branch on the result
+ * without catching exceptions.
+ *
+ * Handlers do not need to catch this error themselves — throwing it is the
+ * correct signal that propagates to the router-level conversion.  Handlers
+ * that opt into the result-based API should use `isIpcErrResult` on the
+ * return value of `validateArgs` after T7 migration.
+ */
+export class IpcValidationError extends Error {
+  readonly kind = "invalid-args" as const;
+  readonly category = "invalid-input" as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "IpcValidationError";
+  }
+}
+
 const channels = new Map<string, ChannelDef>();
 const pendingCallControllers = new Map<string, AbortController>();
 const pendingStreamControllers = new Map<string, PendingStream>();
 const preCanceledRequests = new PendingRequestMap<string, void>();
 const PRECANCELED_REQUEST_TTL_MS = 30_000;
 
-// ---------------------------------------------------------------------------
-// register
-// ---------------------------------------------------------------------------
-
-/**
- * Register a channel — its event names, the methods it implements, and the
- * zod schemas the router uses to validate inbound `ipc:call` payloads
- * before invoking the channel's method handler. One call per channel,
- * during main-process startup; later calls overwrite (last-registered wins).
- */
 export function register<C extends string>(channelName: C, def: RegisterChannelDef<C>): void {
   channels.set(channelName, def as ChannelDef);
 }
 
-// ---------------------------------------------------------------------------
-// setupRouter — attach the central ipcMain handle (call once from main/index)
-// ---------------------------------------------------------------------------
-
-/**
- * Wire the singleton main-process IPC dispatch surface: one `ipc:call`
- * handler that routes by channel + method, plus an `ipc:cancel` listener
- * that aborts the matching in-flight call or stream. Idempotent in spirit
- * but Electron's ipcMain rejects a second `handle` for the same name —
- * call this exactly once from `main/index`.
- */
 export function setupRouter(): void {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { ipcMain } = require("electron") as typeof import("electron");
   ipcMain.on("ipc:cancel", (event: import("electron").IpcMainEvent, requestId: unknown) => {
     if (typeof requestId !== "string" || requestId.length === 0) return;
-
     const key = requestKey(event, requestId);
     const pending = pendingCallControllers.get(key);
     if (pending) {
       pending.abort();
       return;
     }
-
     const pendingStream = pendingStreamControllers.get(key);
     if (pendingStream) {
       cancelStream(key, pendingStream);
       return;
     }
-
     rememberPreCanceledRequest(key);
   });
   ipcMain.handle(
@@ -166,39 +153,61 @@ export function setupRouter(): void {
       requestId?: unknown,
     ) => {
       const channel = channels.get(channelName);
-      if (!channel) {
-        throw new Error(`ipc:call — unknown channel: ${channelName}`);
-      }
+      if (!channel) throw new Error(`ipc:call — unknown channel: ${channelName}`);
       const handler = channel.call[method];
-      if (typeof handler !== "function") {
+      if (typeof handler !== "function")
         throw new Error(`ipc:call — unknown method: ${channelName}.${method}`);
-      }
-
-      const callContext = createCallContext(event, requestId);
+      const correlationId = crypto.randomUUID();
+      const callContext = createCallContext(event, requestId, correlationId);
       try {
         const handlerResult = await handler(args, callContext.ctx);
-        // Migrated handlers signal expected outcomes by returning an IpcResult
-        // envelope (see src/shared/ipc/result.ts).  The router passes them
-        // through as-is so the renderer can unwrap them as values — no throw,
-        // no log.  Non-envelope return values follow the existing success path.
+        if (
+          isIpcErrResult(handlerResult) &&
+          // `category` is an extension field set by `ipcErr(..., { category })` and
+          // is not declared on the base IpcErrResult interface; cast to access it.
+          (handlerResult as unknown as { category?: string }).category === "bug"
+        ) {
+          // Lazy-require avoids pulling electron into module scope at load time
+          // (shared/log/main imports electron.app which is unavailable in test env).
+          // The try-catch guards against module-cache mismatches in test workers
+          // where another file already loaded the real electron without app mocked.
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { createLogger } =
+              require("../../../shared/log/main") as typeof import("../../../shared/log/main");
+            createLogger("main").error(
+              `ipc:call — bug result from ${channelName}.${method}: ${handlerResult.message}`,
+              { correlationId },
+            );
+          } catch {
+            /* logger unavailable — suppress to allow the IpcErrResult to be returned */
+          }
+        }
         return handlerResult;
       } catch (error) {
-        // Cancellation (AbortError) is a normal outcome — the router converts
-        // it to a "cancelled" IpcResult envelope and emits a quiet debug line.
-        // Any other error reaching this catch is a genuine bug and should be
-        // logged by Electron's built-in "Error occurred in handler for
-        // 'ipc:call'" mechanism via re-throw.
+        if (error instanceof IpcValidationError) {
+          // Handler called validateArgs with invalid args — convert to IpcErrResult.
+          // This is the router-boundary enforcement: the renderer always receives
+          // a typed result rather than a raw rejection.
+          return ipcErr("invalid-args", error.message, { category: "invalid-input" as const });
+        }
         if (isAbortError(error)) {
-          console.debug(
-            `[ipc] cancelled  ${channelName}.${method}  req=${requestId ?? "(none)"}`,
-          );
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { createLogger } =
+              require("../../../shared/log/main") as typeof import("../../../shared/log/main");
+            createLogger("main").debug(
+              `ipc:call — cancelled  ${channelName}.${method}  req=${requestId ?? "(none)"}`,
+              { correlationId },
+            );
+          } catch {
+            /* logger unavailable — suppress */
+          }
           return ipcErr("cancelled", "operation cancelled");
         }
         throw error;
       } finally {
-        if (callContext.key) {
-          pendingCallControllers.delete(callContext.key);
-        }
+        if (callContext.key) pendingCallControllers.delete(callContext.key);
       }
     },
   );
@@ -211,15 +220,11 @@ export function setupRouter(): void {
       args: unknown,
     ) => {
       const channel = channels.get(channelName);
-      if (!channel) {
-        throw new Error(`ipc:streamStart — unknown channel: ${channelName}`);
-      }
+      if (!channel) throw new Error(`ipc:streamStart — unknown channel: ${channelName}`);
       const handler = channel.stream?.[method];
       const descriptor = getStreamDescriptor(channelName, method);
-      if (typeof handler !== "function" || !descriptor) {
+      if (typeof handler !== "function" || !descriptor)
         throw new Error(`ipc:streamStart — unknown method: ${channelName}.${method}`);
-      }
-
       const streamId = crypto.randomUUID();
       const key = requestKey(event, streamId);
       const pendingStream: PendingStream = {
@@ -235,7 +240,6 @@ export function setupRouter(): void {
       setImmediate(() => {
         void runStream(key, pendingStream, descriptor, handler, args);
       });
-
       return { streamId };
     },
   );
@@ -250,9 +254,7 @@ function requestKey(event: { sender?: { id?: number } }, requestId: string): str
 }
 
 function rememberPreCanceledRequest(key: string): void {
-  if (preCanceledRequests.has(key)) {
-    preCanceledRequests.reject(key, new Error("replaced"));
-  }
+  if (preCanceledRequests.has(key)) preCanceledRequests.reject(key, new Error("replaced"));
   preCanceledRequests.register({ key, timeoutMs: PRECANCELED_REQUEST_TTL_MS }).catch(() => {});
 }
 
@@ -263,18 +265,16 @@ function consumePreCanceledRequest(key: string): boolean {
 function createCallContext(
   event: import("electron").IpcMainInvokeEvent,
   requestId: unknown,
+  correlationId: string,
 ): { key?: string; ctx?: CallContext } {
   if (typeof requestId !== "string" || requestId.length === 0) {
-    return {};
+    return { ctx: { correlationId } };
   }
-
   const key = requestKey(event, requestId);
   const controller = new AbortController();
   pendingCallControllers.set(key, controller);
-  if (consumePreCanceledRequest(key)) {
-    controller.abort();
-  }
-  return { key, ctx: { requestId, signal: controller.signal } };
+  if (consumePreCanceledRequest(key)) controller.abort();
+  return { key, ctx: { requestId, signal: controller.signal, correlationId } };
 }
 
 function getStreamDescriptor(channelName: string, method: string): AnyStreamProcedure | undefined {
@@ -282,16 +282,26 @@ function getStreamDescriptor(channelName: string, method: string): AnyStreamProc
   return contract[channelName]?.stream?.[method];
 }
 
+function parseOrInvalidInput<T extends z.ZodTypeAny>(
+  schema: T,
+  value: unknown,
+  prefix: string,
+): z.infer<T> | IpcErrResult<"invalid-args"> {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) {
+    return ipcErr("invalid-args", `${prefix}: ${parsed.error.message}`, {
+      category: "invalid-input" as const,
+    });
+  }
+  return parsed.data as z.infer<T>;
+}
+
 function validateStreamValue<T extends z.ZodTypeAny>(
   schema: T,
   value: unknown,
   label: "args" | "progress" | "result",
-): z.infer<T> {
-  const result = schema.safeParse(value);
-  if (!result.success) {
-    throw new Error(`ipc:streamStart — invalid ${label}: ${result.error.message}`);
-  }
-  return result.data;
+): z.infer<T> | IpcErrResult<"invalid-args"> {
+  return parseOrInvalidInput(schema, value, `ipc:streamStart — invalid ${label}`);
 }
 
 async function runStream(
@@ -303,39 +313,46 @@ async function runStream(
 ): Promise<void> {
   try {
     if (shouldStopStream(key, pendingStream)) return;
-
     const validatedArgs = validateStreamValue(descriptor.args, args, "args");
+    if (isIpcErrResult(validatedArgs)) {
+      sendStreamAppError(pendingStream, validatedArgs.message, "invalid-input");
+      return;
+    }
     if (shouldStopStream(key, pendingStream)) return;
-
-    const generator = await handler(validatedArgs, {
-      signal: pendingStream.controller.signal,
-    });
+    const generator = await handler(validatedArgs, { signal: pendingStream.controller.signal });
     pendingStream.generator = generator;
     if (shouldStopStream(key, pendingStream)) return;
-
     while (true) {
-      const result = await generator.next();
+      const iterResult = await generator.next();
       if (shouldStopStream(key, pendingStream)) return;
-
-      if (result.done) {
+      if (iterResult.done) {
         pendingStream.generatorDone = true;
-        const data = validateStreamValue(descriptor.result, result.value, "result");
+        const validated = validateStreamValue(descriptor.result, iterResult.value, "result");
+        if (isIpcErrResult(validated)) {
+          if (!shouldStopStream(key, pendingStream))
+            sendStreamAppError(pendingStream, validated.message, "invalid-input");
+          return;
+        }
         if (!shouldStopStream(key, pendingStream)) {
           sendStreamEvent(pendingStream, {
             streamId: pendingStream.streamId,
             kind: "complete",
-            data,
+            data: validated,
           });
         }
         return;
       }
-
-      const data = validateStreamValue(descriptor.progress, result.value, "progress");
+      const validated = validateStreamValue(descriptor.progress, iterResult.value, "progress");
+      if (isIpcErrResult(validated)) {
+        if (!shouldStopStream(key, pendingStream))
+          sendStreamAppError(pendingStream, validated.message, "invalid-input");
+        return;
+      }
       if (!shouldStopStream(key, pendingStream)) {
         sendStreamEvent(pendingStream, {
           streamId: pendingStream.streamId,
           kind: "progress",
-          data,
+          data: validated,
         });
       }
     }
@@ -358,13 +375,9 @@ async function cleanupStream(key: string, pendingStream: PendingStream): Promise
     !pendingStream.generatorDone &&
     !pendingStream.closed &&
     !pendingStream.controller.signal.aborted;
-
   pendingStream.closed = true;
   pendingStreamControllers.delete(key);
-
-  if (shouldCloseGenerator) {
-    await pendingStream.generator?.return(undefined).catch(() => {});
-  }
+  if (shouldCloseGenerator) await pendingStream.generator?.return(undefined).catch(() => {});
 }
 
 function shouldStopStream(key: string, pendingStream: PendingStream): boolean {
@@ -377,9 +390,7 @@ function shouldStopStream(key: string, pendingStream: PendingStream): boolean {
 
 function cancelStream(key: string, pendingStream: PendingStream): void {
   pendingStream.controller.abort();
-  if (pendingStream.cancelMode === "handler") {
-    return;
-  }
+  if (pendingStream.cancelMode === "handler") return;
   sendStreamError(pendingStream, createAbortError());
   pendingStream.closed = true;
   pendingStreamControllers.delete(key);
@@ -387,9 +398,7 @@ function cancelStream(key: string, pendingStream: PendingStream): void {
 }
 
 function sendStreamEvent(pendingStream: PendingStream, payload: StreamEventPayload): void {
-  if (!pendingStream.sender.isDestroyed()) {
-    pendingStream.sender.send("ipc:streamEvent", payload);
-  }
+  if (!pendingStream.sender.isDestroyed()) pendingStream.sender.send("ipc:streamEvent", payload);
 }
 
 function sendStreamError(pendingStream: PendingStream, error: unknown): void {
@@ -398,79 +407,49 @@ function sendStreamError(pendingStream: PendingStream, error: unknown): void {
   sendStreamEvent(pendingStream, {
     streamId: pendingStream.streamId,
     kind: "error",
-    data: serializeError(error),
+    data: errorToAppError(error),
   });
 }
 
-function serializeError(error: unknown): SerializedError {
+function sendStreamAppError(
+  pendingStream: PendingStream,
+  message: string,
+  category: AppError["category"],
+): void {
+  if (pendingStream.errorSent) return;
+  pendingStream.errorSent = true;
+  sendStreamEvent(pendingStream, {
+    streamId: pendingStream.streamId,
+    kind: "error",
+    data: { category, message },
+  });
+}
+
+function errorToAppError(error: unknown): AppError {
   if (error instanceof GitError) {
-    const wrapped = repackGitErrorForStream(error);
-    return {
-      name: wrapped.name,
-      message: wrapped.message,
-      cause: extractIpcGitErrorPayload(wrapped),
+    const gitPayload: IpcGitErrorPayload = {
+      [IPC_GIT_ERROR_MARK]: true,
+      kind: error.kind,
+      stderr: error.stderr,
+      argv: error.argv,
+      hint: error.hint,
     };
+    return {
+      category: "failed",
+      domain: "git",
+      code: error.kind,
+      message: error.message,
+      ...{ _gitCause: gitPayload },
+    } as AppError & { _gitCause: IpcGitErrorPayload };
   }
   if (error instanceof Error) {
-    return {
-      name: error.name || "Error",
-      message: error.message,
-    };
+    const category: AppError["category"] = error.name === "AbortError" ? "cancelled" : "failed";
+    return { category, message: error.message };
   }
-  if (typeof error === "string") {
-    return { name: "Error", message: error };
-  }
-  return { name: "Error", message: "Unknown error" };
+  if (typeof error === "string") return { category: "failed", message: error };
+  return { category: "bug", message: "Unknown stream error" };
 }
 
-/**
- * Stream errors still travel through `ipc:streamEvent`'s error data field,
- * which already carries `cause` cleanly via structured clone. This helper
- * keeps the legacy cause envelope path working for those callers without
- * forcing them onto the new call-result shape.
- */
-function repackGitErrorForStream(error: GitError): Error {
-  const payload: IpcGitErrorPayload = {
-    [IPC_GIT_ERROR_MARK]: true,
-    kind: error.kind,
-    stderr: error.stderr,
-    argv: error.argv,
-    hint: error.hint,
-  };
-  const wrapped = new Error(error.message, { cause: payload });
-  wrapped.name = "GitError";
-  if (error.stack) wrapped.stack = error.stack;
-  return wrapped;
-}
-
-/**
- * Reads the GitError envelope back off a stream-side wrapped error.
- */
-function extractIpcGitErrorPayload(error: Error): IpcGitErrorPayload | undefined {
-  const cause = (error as { cause?: unknown }).cause;
-  if (!cause || typeof cause !== "object") return undefined;
-  if ((cause as Record<string, unknown>)[IPC_GIT_ERROR_MARK] !== true) return undefined;
-  return cause as IpcGitErrorPayload;
-}
-
-// ---------------------------------------------------------------------------
-// broadcast — send an event to all active webContents
-// ---------------------------------------------------------------------------
-
-/**
- * Push a channel event to every live renderer. Used by main-side
- * subscriptions (fs.changed, lsp.serverStatus, …) that need fan-out
- * to all open windows.
- *
- * `isDestroyed()` only reports a fully-torn-down webContents; it does not
- * catch the transient state — common during dev HMR reloads and after
- * sleep/wake — where the webContents is alive but its render frame has
- * been disposed. `send()` then throws "Render frame was disposed before
- * WebFrameMain could be accessed". There is no synchronous API to detect
- * that race, so each send is wrapped: a failure to one dead frame must
- * not abort the fan-out to the others, and is benign (the renderer is
- * gone, so the dropped event has no consumer).
- */
 export function broadcast(channelName: string, event: string, args: unknown): void {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { webContents } = require("electron") as typeof import("electron");
@@ -480,26 +459,37 @@ export function broadcast(channelName: string, event: string, args: unknown): vo
     try {
       wc.send("ipc:event", channelName, event, args);
     } catch {
-      // Render frame disposed mid-flight — skip this renderer and continue.
+      /* render frame disposed */
     }
   }
 }
 
-// ---------------------------------------------------------------------------
-// validateArgs — zod parse helper used by channel implementations
-// ---------------------------------------------------------------------------
-
 /**
- * Parse a method's `args` against its zod schema and throw a
- * uniformly-formatted error on failure. Channel handlers call this at
- * the top of their body so a malformed renderer payload never reaches
- * the business logic — the thrown error propagates back to the renderer
- * as an `ipc:call` rejection.
+ * Validate handler arguments against a Zod schema.
+ *
+ * On success returns the parsed (typed) value.  On failure throws
+ * `IpcValidationError` — the `ipc:call` router catches this at the IPC
+ * boundary and converts it into an `IpcErrResult<"invalid-args">` with
+ * `category:"invalid-input"` so the renderer always receives a typed result.
+ *
+ * Handlers do not need to catch `IpcValidationError` themselves.  Handlers
+ * that adopt the result-based API (T7 migration) should instead call this
+ * function and check `isIpcErrResult` on the return — until then the throw
+ * path is fully supported and backward-compatible with all existing handlers.
+ *
+ * @example
+ *   // Legacy throw style (pre-T7):
+ *   const { workspaceId, relPath } = validateArgs(c.readdir.args, args);
+ *
+ *   // Result style (post-T7):
+ *   const parsed = validateArgs(c.readdir.args, args);
+ *   if (isIpcErrResult(parsed)) return parsed;
+ *   const { workspaceId, relPath } = parsed;
  */
 export function validateArgs<T extends z.ZodTypeAny>(schema: T, args: unknown): z.infer<T> {
-  const result = schema.safeParse(args);
-  if (!result.success) {
-    throw new Error(`ipc:call — invalid args: ${result.error.message}`);
+  const parsed = schema.safeParse(args);
+  if (!parsed.success) {
+    throw new IpcValidationError(`ipc:call — invalid args: ${parsed.error.message}`);
   }
-  return result.data;
+  return parsed.data as z.infer<T>;
 }

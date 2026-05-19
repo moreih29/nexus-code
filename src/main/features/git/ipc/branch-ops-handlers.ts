@@ -18,8 +18,8 @@ const c = ipcContract.git.call;
  * share one queued implementation.
  *
  * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object so the router stays log-silent and the renderer's ipcCall path
- * rehydrates it as a typed Error via isIpcGitErrorResult.
+ * object so the router stays log-silent. The renderer's ipcCallResult path
+ * receives this as an IpcErrResult and unwrapGitResult converts it to a thrown Error.
  */
 export function createBranchHandler(
   registry: GitRegistry,

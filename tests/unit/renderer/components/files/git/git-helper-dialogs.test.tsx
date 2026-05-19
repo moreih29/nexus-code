@@ -22,7 +22,7 @@ import {
   isPromptForWorkspace,
   useGitHelperPrompts,
 } from "../../../../../../src/renderer/components/files/git/hooks/use-helper-prompts";
-import type { ipcCall, ipcListen } from "../../../../../../src/renderer/ipc/client";
+import type { ipcCallResult, ipcListen } from "../../../../../../src/renderer/ipc/client";
 import type { AskpassPrompt, GitEditorPrompt } from "../../../../../../src/shared/git/types";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174000";
@@ -327,7 +327,7 @@ function emitPrompt(
 /**
  * Captures the hook's response callbacks with a supplied IPC call seam.
  */
-function readHelperPromptState(call: typeof ipcCall): GitHelperPromptState {
+function readHelperPromptState(call: typeof ipcCallResult): GitHelperPromptState {
   let state: GitHelperPromptState | null = null;
   const listen = (() => () => {}) as typeof ipcListen;
 
@@ -351,14 +351,14 @@ interface IpcCallRecord {
  * Records response/cancel calls without reaching the Electron preload bridge.
  */
 function createIpcCallRecorder(): {
-  readonly call: typeof ipcCall;
+  readonly call: typeof ipcCallResult;
   readonly calls: IpcCallRecord[];
 } {
   const calls: IpcCallRecord[] = [];
   const call = ((channel: string, method: string, args: unknown) => {
     calls.push({ channel, method, args });
-    return Promise.resolve(undefined);
-  }) as typeof ipcCall;
+    return Promise.resolve({ ok: true as const, value: undefined });
+  }) as typeof ipcCallResult;
 
   return { call, calls };
 }

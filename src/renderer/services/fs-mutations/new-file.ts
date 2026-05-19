@@ -12,7 +12,7 @@
  * to clear pending state or keep the input open for retry.
  */
 
-import { ipcCall } from "@/ipc/client";
+import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { openOrRevealEditor } from "@/services/editor";
 import { runFsMutation } from "./helpers";
 
@@ -29,7 +29,9 @@ export async function createNewFile(input: NewFileInput): Promise<boolean> {
   const ok = await runFsMutation({
     ...input,
     ipcAction: (_abs, rel) =>
-      ipcCall("fs", "createFile", { workspaceId: input.workspaceId, relPath: rel }),
+      ipcCallResult("fs", "createFile", { workspaceId: input.workspaceId, relPath: rel }).then(
+        unwrapIpcResult,
+      ),
     errorMessages: {
       fallback: "Couldn't create file.",
       alreadyExists: "A file or folder with that name already exists.",

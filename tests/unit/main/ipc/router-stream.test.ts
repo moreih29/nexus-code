@@ -1,6 +1,22 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 
+// Suppress electron-log output — the router creates a logger at module load
+// time, so we must stub electron-log/main before the router is imported.
+mock.module("electron-log/main", () => ({
+  default: {
+    error: () => {},
+    warn: () => {},
+    info: () => {},
+    debug: () => {},
+    initialize: () => {},
+    transports: {
+      file: { resolvePathFn: undefined, level: "debug", format: undefined },
+      console: { level: "info", format: undefined },
+    },
+  },
+}));
+
 const realIpcContract = await import("../../../../src/shared/ipc/contract");
 
 const StreamArgsSchema = z.object({ token: z.string() });
@@ -61,23 +77,21 @@ const mockOn = mock((_channel: string, _handler: unknown) => {});
 const mockGetAllWebContents = mock(() => [] as TestSender[]);
 
 mock.module("electron", () => ({
-  ipcMain: {
-    handle: mockHandle,
-    on: mockOn,
-  },
-  webContents: {
-    getAllWebContents: mockGetAllWebContents,
-  },
+  ipcMain: { handle: mockHandle, on: mockOn },
+  webContents: { getAllWebContents: mockGetAllWebContents },
+  app: { getPath: () => "/tmp" },
 }));
 
 const { register, setupRouter } = await import("../../../../src/main/infra/ipc-router");
 
 setupRouter();
 
+// Error payloads are now AppError objects with category + message.
+type StreamErrorData = { category: string; message: string };
 type StreamPayload =
   | { streamId: string; kind: "progress"; data: unknown }
   | { streamId: string; kind: "complete"; data: unknown }
-  | { streamId: string; kind: "error"; data: { name: string; message: string } };
+  | { streamId: string; kind: "error"; data: StreamErrorData };
 
 type StreamStartHandler = (
   event: { sender: TestSender },
@@ -121,9 +135,7 @@ function registerStream(method: string, handler: TestStreamHandler): void {
   register("streamTest", {
     call: {},
     listen: {},
-    stream: {
-      [method]: handler,
-    },
+    stream: { [method]: handler },
   });
 }
 
@@ -234,7 +246,8 @@ describe("ipc router stream primitive", () => {
       {
         streamId: result.streamId,
         kind: "error",
-        data: { name: "TypeError", message: "stream exploded" },
+        // AppError shape: thrown Error -> category:"failed"
+        data: { category: "failed", message: "stream exploded" },
       },
     ]);
   });
@@ -272,7 +285,8 @@ describe("ipc router stream primitive", () => {
     expect(sender.send).toHaveBeenCalledWith("ipc:streamEvent", {
       streamId: result.streamId,
       kind: "error",
-      data: { name: "AbortError", message: "The operation was aborted" },
+      // AppError shape: AbortError -> category:"cancelled"
+      data: { category: "cancelled", message: "The operation was aborted" },
     });
 
     nextResult.resolve({ done: false, value: { step: 99 } });
@@ -328,7 +342,8 @@ describe("ipc router stream primitive", () => {
     const [errorEvent] = streamEventsByKind(sender, "error");
     expect(errorEvent.streamId).toBe(result.streamId);
     expect(errorEvent.kind).toBe("error");
-    expect(errorEvent.data.name).toBe("Error");
+    // AppError shape: validation failure -> category:"invalid-input"
+    expect(errorEvent.data.category).toBe("invalid-input");
     expect(errorEvent.data.message).toContain("ipc:streamStart — invalid progress");
   });
 

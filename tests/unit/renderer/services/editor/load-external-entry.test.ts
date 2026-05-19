@@ -13,11 +13,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // IPC mock — replaced per-test via ipcCallMock.mockImplementation
 // ---------------------------------------------------------------------------
 
-const ipcCallMock = mock(() => Promise.resolve(null as unknown));
+const ipcCallMock = mock(() => Promise.resolve({ ok: true as const, value: null as unknown }));
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: ipcCallMock,
+  ipcCallResult: ipcCallMock,
   ipcListen: () => () => {},
+  canUseIpcBridge: () => false,
 }));
 
 // ---------------------------------------------------------------------------
@@ -102,7 +103,9 @@ beforeEach(() => {
 
 describe("loadExternalEntry — success", () => {
   test("returns ModelEntry with origin=external, readOnly=true, originatingWorkspaceId", async () => {
-    ipcCallMock.mockImplementation(() => Promise.resolve(makeFileContent()));
+    ipcCallMock.mockImplementation(() =>
+      Promise.resolve({ ok: true as const, value: makeFileContent() }),
+    );
 
     const entry = await loadExternalEntry(INPUT);
 
@@ -113,7 +116,9 @@ describe("loadExternalEntry — success", () => {
   });
 
   test("sets input workspaceId and filePath from function argument", async () => {
-    ipcCallMock.mockImplementation(() => Promise.resolve(makeFileContent()));
+    ipcCallMock.mockImplementation(() =>
+      Promise.resolve({ ok: true as const, value: makeFileContent() }),
+    );
 
     const entry = await loadExternalEntry(INPUT);
 
@@ -123,8 +128,10 @@ describe("loadExternalEntry — success", () => {
     expect(entry.input.readOnly).toBe(true);
   });
 
-  test("calls ipcCall with fs / readExternal / workspaceId and absolutePath", async () => {
-    ipcCallMock.mockImplementation(() => Promise.resolve(makeFileContent()));
+  test("calls ipcCallResult with fs / readExternal / workspaceId and absolutePath", async () => {
+    ipcCallMock.mockImplementation(() =>
+      Promise.resolve({ ok: true as const, value: makeFileContent() }),
+    );
 
     await loadExternalEntry(INPUT);
 
@@ -141,7 +148,9 @@ describe("loadExternalEntry — success", () => {
   });
 
   test("model is set on entry after success", async () => {
-    ipcCallMock.mockImplementation(() => Promise.resolve(makeFileContent()));
+    ipcCallMock.mockImplementation(() =>
+      Promise.resolve({ ok: true as const, value: makeFileContent() }),
+    );
 
     const entry = await loadExternalEntry(INPUT);
 
@@ -154,7 +163,7 @@ describe("loadExternalEntry — success", () => {
 // ---------------------------------------------------------------------------
 
 describe("loadExternalEntry — IPC error", () => {
-  test("returns entry with phase=error when ipcCall rejects", async () => {
+  test("returns entry with phase=error when ipcCallResult rejects", async () => {
     ipcCallMock.mockImplementation(() =>
       Promise.reject(new Error("NOT_FOUND: /external/src/lib.ts")),
     );
@@ -183,7 +192,10 @@ describe("loadExternalEntry — IPC error", () => {
 describe("loadExternalEntry — binary response", () => {
   test("returns phase=binary when isBinary=true in IPC response", async () => {
     ipcCallMock.mockImplementation(() =>
-      Promise.resolve(makeFileContent({ isBinary: true, content: "" })),
+      Promise.resolve({
+        ok: true as const,
+        value: makeFileContent({ isBinary: true, content: "" }),
+      }),
     );
 
     const entry = await loadExternalEntry(INPUT);
@@ -194,7 +206,10 @@ describe("loadExternalEntry — binary response", () => {
 
   test("binary entry is still origin=external and readOnly=true", async () => {
     ipcCallMock.mockImplementation(() =>
-      Promise.resolve(makeFileContent({ isBinary: true, content: "" })),
+      Promise.resolve({
+        ok: true as const,
+        value: makeFileContent({ isBinary: true, content: "" }),
+      }),
     );
 
     const entry = await loadExternalEntry(INPUT);

@@ -157,3 +157,27 @@ export function ipcErr<K extends IpcResultKind>(
 ): IpcErrResult<K> & Record<string, unknown> {
   return { [IPC_RESULT_BRAND]: true, ok: false, kind, message, ...extra };
 }
+
+// ---------------------------------------------------------------------------
+// Kind → AppErrorCategory mapping
+// ---------------------------------------------------------------------------
+
+/**
+ * Maps an `IpcResultKind` to its corresponding `AppErrorCategory`.
+ *
+ * Used by the renderer client to convert typed IPC failures into AppError
+ * objects that the UI error-surface (T8) can classify without inspecting `kind`.
+ *
+ * Mapping rules:
+ *   - `"cancelled"`    → `"cancelled"`
+ *   - `"invalid-args"` → `"invalid-input"`
+ *   - All other known (and unknown future) kinds → `"failed"` — custom kinds
+ *     introduced by future handlers must not silently produce `"bug"`.
+ */
+export function ipcResultKindToCategory(
+  kind: IpcResultKind,
+): "invalid-input" | "cancelled" | "failed" {
+  if (kind === "cancelled") return "cancelled";
+  if (kind === "invalid-args") return "invalid-input";
+  return "failed";
+}

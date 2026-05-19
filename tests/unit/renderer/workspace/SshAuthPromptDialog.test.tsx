@@ -4,19 +4,19 @@
 import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
-  SshAuthPromptDialogContent,
   copySshHostKeyFingerprint,
+  SshAuthPromptDialogContent,
   sshAuthPromptInputType,
 } from "../../../../src/renderer/components/workspace/ssh-auth-prompt-dialog";
 import {
   __resetSshAuthPromptsForTests,
-  type SshAuthPromptState,
   getSshAuthPromptSnapshot,
   installSshAuthPromptListeners,
+  type SshAuthPromptState,
   sshAuthPendingMessage,
   useSshAuthPrompts,
 } from "../../../../src/renderer/components/workspace/use-ssh-auth-prompts";
-import type { ipcCall, ipcListen } from "../../../../src/renderer/ipc/client";
+import type { ipcCallResult, ipcListen } from "../../../../src/renderer/ipc/client";
 import type { SshAuthPrompt } from "../../../../src/shared/ssh/auth-prompt";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174000";
@@ -207,12 +207,15 @@ describe("Ssh auth prompt FIFO controller", () => {
     __resetSshAuthPromptsForTests();
     const { callbacks } = installPromptListenerHarness();
     emitPrompt(callbacks, makePasswordPrompt({ promptId: "retry", prompt: "Password:" }));
-    emitPrompt(callbacks, makePasswordPrompt({ promptId: "retry", prompt: "Password failed. Try again:" }));
+    emitPrompt(
+      callbacks,
+      makePasswordPrompt({ promptId: "retry", prompt: "Password failed. Try again:" }),
+    );
 
     expect(getSshAuthPromptSnapshot().pendingPrompts).toHaveLength(1);
-    expect(
-      ExtractPasswordPrompt(getSshAuthPromptSnapshot().currentPrompt)?.prompt,
-    ).toBe("Password failed. Try again:");
+    expect(ExtractPasswordPrompt(getSshAuthPromptSnapshot().currentPrompt)?.prompt).toBe(
+      "Password failed. Try again:",
+    );
   });
 });
 
@@ -245,13 +248,16 @@ function installPromptListenerHarness(): {
   return { callbacks };
 }
 
-function emitPrompt(callbacks: Map<string, (prompt: SshAuthPrompt) => void>, prompt: SshAuthPrompt): void {
+function emitPrompt(
+  callbacks: Map<string, (prompt: SshAuthPrompt) => void>,
+  prompt: SshAuthPrompt,
+): void {
   const callback = callbacks.get("sshAuth.prompt");
   if (!callback) throw new Error("Missing sshAuth.prompt listener");
   callback(prompt);
 }
 
-function readSshAuthPromptState(call: typeof ipcCall): SshAuthPromptState {
+function readSshAuthPromptState(call: typeof ipcCallResult): SshAuthPromptState {
   let state: SshAuthPromptState | null = null;
   const listen = (() => () => {}) as typeof ipcListen;
 
@@ -272,14 +278,14 @@ interface IpcCallRecord {
 }
 
 function createIpcCallRecorder(): {
-  readonly call: typeof ipcCall;
+  readonly call: typeof ipcCallResult;
   readonly calls: IpcCallRecord[];
 } {
   const calls: IpcCallRecord[] = [];
   const call = ((channel: string, method: string, args: unknown) => {
     calls.push({ channel, method, args });
-    return Promise.resolve(undefined);
-  }) as typeof ipcCall;
+    return Promise.resolve({ ok: true as const, value: undefined });
+  }) as typeof ipcCallResult;
 
   return { call, calls };
 }

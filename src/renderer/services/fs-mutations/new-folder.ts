@@ -6,7 +6,7 @@
  * unexpanded (matches VSCode — user clicks to drill in).
  */
 
-import { ipcCall } from "@/ipc/client";
+import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { runFsMutation } from "./helpers";
 
 export interface NewFolderInput {
@@ -20,7 +20,9 @@ export async function createNewFolder(input: NewFolderInput): Promise<boolean> {
   return runFsMutation({
     ...input,
     ipcAction: (_abs, rel) =>
-      ipcCall("fs", "mkdir", { workspaceId: input.workspaceId, relPath: rel }),
+      ipcCallResult("fs", "mkdir", { workspaceId: input.workspaceId, relPath: rel }).then(
+        unwrapIpcResult,
+      ),
     errorMessages: {
       fallback: "Couldn't create folder.",
       alreadyExists: "A file or folder with that name already exists.",

@@ -10,7 +10,7 @@
 import type { PanelKind } from "../../../../shared/types/panel";
 import type { ViewMode } from "../../../../shared/types/panel";
 import { STATE_PERSIST_DEBOUNCE_MS } from "../../../../shared/util/timing-constants";
-import { canUseIpcBridge, ipcCall } from "../../../ipc/client";
+import { canUseIpcBridge, ipcCallResult } from "../../../ipc/client";
 
 /** Module-private debounce timers keyed by `panelKind:workspaceId`. */
 const viewOptionsSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -39,13 +39,15 @@ export function scheduleViewOptionsSave(
 
   const handle = setTimeout(() => {
     viewOptionsSaveTimers.delete(key);
-    ipcCall("panel", "setViewOptions", {
+    // Fire-and-forget: view-option persistence is best-effort; local state is never rolled back.
+    void ipcCallResult("panel", "setViewOptions", {
       workspaceId,
       panelKind,
       viewMode,
       compactFolders,
-    }).catch((error: unknown) => {
-      console.error(`[panel-view-options] setViewOptions failed for ${panelKind}`, error);
+    }).then((result) => {
+      if (!result.ok)
+        console.error(`[panel-view-options] setViewOptions failed for ${panelKind}`, result.message);
     });
   }, STATE_PERSIST_DEBOUNCE_MS);
 

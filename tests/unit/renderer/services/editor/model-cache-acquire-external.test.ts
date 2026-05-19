@@ -54,7 +54,7 @@ const realIpcClient = await import("../../../../../src/renderer/ipc/client");
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ...realIpcClient,
-  ipcCall: mock(() => Promise.resolve()),
+  ipcCallResult: mock(() => Promise.resolve({ ok: true as const, value: undefined })),
   ipcListen: () => () => {},
 }));
 

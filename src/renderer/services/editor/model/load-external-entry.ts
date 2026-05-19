@@ -5,7 +5,7 @@
 // confuse server roots.
 
 import { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
-import { ipcCall } from "../../../ipc/client";
+import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { requireMonaco } from "../runtime/monaco-singleton";
 import { ensureModelWithContent } from "./ensure-model";
 import { errorCodeFromUnknown, type ModelEntry } from "./entry";
@@ -44,10 +44,12 @@ export async function loadExternalEntry(input: {
   };
 
   try {
-    const result = await ipcCall("fs", "readExternal", {
-      workspaceId: input.workspaceId,
-      absolutePath: input.filePath,
-    });
+    const result = unwrapIpcResult(
+      await ipcCallResult("fs", "readExternal", {
+        workspaceId: input.workspaceId,
+        absolutePath: input.filePath,
+      }),
+    );
 
     if (result.kind === "missing") {
       entry.phase = "error";

@@ -5,7 +5,7 @@
  */
 
 import type { FolderBookmark } from "../../../shared/types/entry-points";
-import { ipcCall } from "../../ipc/client";
+import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 
 // ---------------------------------------------------------------------------
 // List
@@ -15,7 +15,7 @@ import { ipcCall } from "../../ipc/client";
  * Fetch all folder bookmarks, sorted by most-recently-used descending.
  */
 export async function listFolderBookmarks(): Promise<FolderBookmark[]> {
-  const list = await ipcCall("folderBookmark", "list", undefined);
+  const list = unwrapIpcResult(await ipcCallResult("folderBookmark", "list", undefined));
   return [...list].sort((a, b) => b.lastUsedAt - a.lastUsedAt);
 }
 
@@ -31,12 +31,14 @@ export interface RecordLocalBookmarkArgs {
 
 /** Upsert a local folder bookmark (updates lastUsedAt). */
 export async function recordLocalBookmark(args: RecordLocalBookmarkArgs): Promise<void> {
-  await ipcCall("folderBookmark", "record", {
-    id: args.id,
-    absPath: args.absPath,
-    label: args.label,
-    kind: "local",
-  });
+  unwrapIpcResult(
+    await ipcCallResult("folderBookmark", "record", {
+      id: args.id,
+      absPath: args.absPath,
+      label: args.label,
+      kind: "local",
+    }),
+  );
 }
 
 export interface RecordSshBookmarkArgs {
@@ -48,13 +50,15 @@ export interface RecordSshBookmarkArgs {
 
 /** Upsert an SSH folder bookmark (updates lastUsedAt). */
 export async function recordSshBookmark(args: RecordSshBookmarkArgs): Promise<void> {
-  await ipcCall("folderBookmark", "record", {
-    id: args.id,
-    absPath: args.absPath,
-    label: args.label,
-    kind: "ssh",
-    connectionProfileId: args.connectionProfileId,
-  });
+  unwrapIpcResult(
+    await ipcCallResult("folderBookmark", "record", {
+      id: args.id,
+      absPath: args.absPath,
+      label: args.label,
+      kind: "ssh",
+      connectionProfileId: args.connectionProfileId,
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -63,7 +67,7 @@ export async function recordSshBookmark(args: RecordSshBookmarkArgs): Promise<vo
 
 /** Toggle the favorite flag for a folder bookmark. */
 export async function setFolderBookmarkFavorite(id: string, favorite: boolean): Promise<void> {
-  await ipcCall("folderBookmark", "setFavorite", { id, favorite });
+  unwrapIpcResult(await ipcCallResult("folderBookmark", "setFavorite", { id, favorite }));
 }
 
 // ---------------------------------------------------------------------------
@@ -72,5 +76,5 @@ export async function setFolderBookmarkFavorite(id: string, favorite: boolean): 
 
 /** Remove a folder bookmark by id. */
 export async function removeFolderBookmark(id: string): Promise<void> {
-  await ipcCall("folderBookmark", "remove", { id });
+  unwrapIpcResult(await ipcCallResult("folderBookmark", "remove", { id }));
 }

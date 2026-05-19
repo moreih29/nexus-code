@@ -13,13 +13,13 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 };
 
 // ---------------------------------------------------------------------------
-// Mock ipcCall before importing the store
+// Mock ipcCallResult before importing the store
 // ---------------------------------------------------------------------------
 
-const mockIpcCall = mock(() => Promise.resolve());
+const mockIpcCallResult = mock(() => Promise.resolve({ ok: true, value: undefined }));
 
 mock.module("../../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: mockIpcCall,
+  ipcCallResult: mockIpcCallResult,
 }));
 
 // ---------------------------------------------------------------------------
@@ -50,14 +50,14 @@ function resetStore() {
 describe("useUIStore — filesPanelWidth", () => {
   beforeEach(() => {
     resetStore();
-    mockIpcCall.mockClear();
+    mockIpcCallResult.mockClear();
   });
 
   it("setFilesPanelWidth(300, true) persists with the correct ipc payload", () => {
     useUIStore.getState().setFilesPanelWidth(300, true);
     expect(useUIStore.getState().filesPanelWidth).toBe(300);
-    expect(mockIpcCall).toHaveBeenCalledTimes(1);
-    expect(mockIpcCall).toHaveBeenCalledWith("appState", "set", { filesPanelWidth: 300 });
+    expect(mockIpcCallResult).toHaveBeenCalledTimes(1);
+    expect(mockIpcCallResult).toHaveBeenCalledWith("appState", "set", { filesPanelWidth: 300 });
   });
 
   it("setFilesPanelWidth clamps below MIN to FILES_PANEL_WIDTH_MIN", () => {
@@ -74,7 +74,7 @@ describe("useUIStore — filesPanelWidth", () => {
 describe("useUIStore — hydrate with filesPanelWidth", () => {
   beforeEach(() => {
     resetStore();
-    mockIpcCall.mockClear();
+    mockIpcCallResult.mockClear();
   });
 
   it("hydrate clamps filesPanelWidth below MIN up to FILES_PANEL_WIDTH_MIN", () => {

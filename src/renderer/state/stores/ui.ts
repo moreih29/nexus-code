@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { ipcCall } from "../../ipc/client";
+import { ipcCallResult } from "../../ipc/client";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
 
 // ---------------------------------------------------------------------------
@@ -88,7 +88,10 @@ export const useUIStore = create<UIState>((set) => {
       const next = clampSidebar(width);
       set({ sidebarWidth: next });
       if (persist) {
-        ipcCall("appState", "set", { sidebarWidth: next }).catch(() => {});
+        // Fire-and-forget: local state is source of truth; appState is the durable store.
+        void ipcCallResult("appState", "set", { sidebarWidth: next }).then((result) => {
+          if (!result.ok) console.warn("[ui] appState set failed", result.message);
+        });
       }
     },
 
@@ -96,7 +99,10 @@ export const useUIStore = create<UIState>((set) => {
       const next = clampFilesPanel(width);
       set({ filesPanelWidth: next });
       if (persist) {
-        ipcCall("appState", "set", { filesPanelWidth: next }).catch(() => {});
+        // Fire-and-forget: local state is source of truth; appState is the durable store.
+        void ipcCallResult("appState", "set", { filesPanelWidth: next }).then((result) => {
+          if (!result.ok) console.warn("[ui] appState set failed", result.message);
+        });
       }
     },
 

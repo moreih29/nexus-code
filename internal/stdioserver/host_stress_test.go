@@ -24,6 +24,7 @@ package stdioserver
 
 import (
 	"io"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -157,7 +158,7 @@ func TestDrainAndExitAcceptsNoNewWorkAfterTermination(t *testing.T) {
 		_ = pr.Close()
 	}()
 
-	host := New(d, pr, io.Discard)
+	host := New(d, pr, io.Discard, slog.Default())
 
 	// Flip accepting to false (mirrors what drainAndExit does).
 	host.acceptMu.Lock()
@@ -177,7 +178,7 @@ func TestWriteFrameWithPendingGoroutines(t *testing.T) {
 
 	d := dispatch.New()
 	var buf safeBuffer
-	host := New(d, io.NopCloser(strings_reader("")), &buf)
+	host := New(d, io.NopCloser(strings_reader("")), &buf, slog.Default())
 
 	var wg sync.WaitGroup
 	var written atomic.Int64

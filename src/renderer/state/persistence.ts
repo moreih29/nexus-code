@@ -12,7 +12,7 @@
 
 import { STATE_PERSIST_DEBOUNCE_MS } from "../../shared/util/timing-constants";
 import type { AppState } from "../../shared/types/app-state";
-import { ipcCall } from "../ipc/client";
+import { ipcCallResult } from "../ipc/client";
 import { useLayoutStore } from "./stores/layout";
 import { useTabsStore } from "./stores/tabs";
 
@@ -80,7 +80,10 @@ export function registerStatePersistence(): void {
       }
     }
 
-    ipcCall("appState", "set", { layoutByWorkspace }).catch(() => {});
+    // Fire-and-forget: layout persistence is best-effort; local state is source of truth.
+    void ipcCallResult("appState", "set", { layoutByWorkspace }).then((result) => {
+      if (!result.ok) console.warn("[persistence] appState set failed", result.message);
+    });
   }, STATE_PERSIST_DEBOUNCE_MS);
 
   // Slice-scoped subscriptions: only re-flush when `byWorkspace` (the

@@ -13,17 +13,17 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 };
 
 // ---------------------------------------------------------------------------
-// Mock ipcCall before importing the store
+// Mock ipcCallResult before importing the store
 // ---------------------------------------------------------------------------
 
-const mockIpcCall = mock((_channel: string, _method: string, _args: unknown) =>
-  Promise.resolve([]),
+const mockIpcCallResult = mock((_channel: string, _method: string, _args: unknown) =>
+  Promise.resolve({ ok: true as const, value: [] }),
 );
 
 const mockIpcListen = mock((_channel: string, _event: string, _cb: unknown) => () => {});
 
 mock.module("../../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: mockIpcCall,
+  ipcCallResult: mockIpcCallResult,
   ipcListen: mockIpcListen,
 }));
 
@@ -61,18 +61,18 @@ function dirEntry(name: string, type: DirEntry["type"] = "file"): DirEntry {
 
 function resetStore() {
   useFilesStore.setState({ trees: new Map() });
-  mockIpcCall.mockClear();
+  mockIpcCallResult.mockClear();
   mockIpcListen.mockClear();
 }
 
 function setupReaddir(responses: Map<string, DirEntry[]>) {
-  mockIpcCall.mockImplementation(
+  mockIpcCallResult.mockImplementation(
     (_channel: string, method: string, args: { workspaceId: string; relPath: string }) => {
       if (method === "readdir") {
         const key = args.relPath;
-        return Promise.resolve(responses.get(key) ?? []);
+        return Promise.resolve({ ok: true as const, value: responses.get(key) ?? [] });
       }
-      return Promise.resolve(undefined);
+      return Promise.resolve({ ok: true as const, value: undefined });
     },
   );
 }
@@ -92,12 +92,12 @@ describe("Scenario 4: refresh reloads", () => {
     const before = useFilesStore.getState().trees.get(WS_ID);
     expect(before?.nodes.get(ROOT)?.childrenLoaded).toBe(true);
 
-    mockIpcCall.mockClear();
+    mockIpcCallResult.mockClear();
     setupReaddir(new Map([["", [dirEntry("a.txt", "file"), dirEntry("b.txt", "file")]]]));
 
     await refresh(WS_ID);
 
-    expect(mockIpcCall).toHaveBeenCalledTimes(1);
+    expect(mockIpcCallResult).toHaveBeenCalledTimes(1);
     const after = useFilesStore.getState().trees.get(WS_ID);
     expect(after?.nodes.get(ROOT)?.childrenLoaded).toBe(true);
     expect(after?.nodes.get(ROOT)?.children).toHaveLength(2);
@@ -213,7 +213,7 @@ describe("Scenario 7: fs.changed handler", () => {
     await ensureRoot(WS_ID, ROOT);
     await toggleExpand(WS_ID, srcAbs);
 
-    mockIpcCall.mockClear();
+    mockIpcCallResult.mockClear();
     setupReaddir(
       new Map([
         ["", [dirEntry("src", "dir")]],
@@ -228,7 +228,7 @@ describe("Scenario 7: fs.changed handler", () => {
 
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(mockIpcCall).toHaveBeenCalledWith("fs", "readdir", {
+    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "readdir", {
       workspaceId: WS_ID,
       relPath: "src",
     });
@@ -251,14 +251,14 @@ describe("Scenario 7: fs.changed handler", () => {
     const beforeTree = useFilesStore.getState().trees.get(WS_ID);
     expect(beforeTree?.expanded.has(srcAbs)).toBe(false);
 
-    mockIpcCall.mockClear();
+    mockIpcCallResult.mockClear();
 
     handleFsChanged({
       workspaceId: WS_ID,
       changes: [{ relPath: "src/new.ts", kind: "added" }],
     });
 
-    expect(mockIpcCall).not.toHaveBeenCalledWith("fs", "readdir", expect.anything());
+    expect(mockIpcCallResult).not.toHaveBeenCalledWith("fs", "readdir", expect.anything());
     const afterTree = useFilesStore.getState().trees.get(WS_ID);
     expect(afterTree?.nodes.get(srcAbs)?.childrenLoaded).toBe(false);
   });

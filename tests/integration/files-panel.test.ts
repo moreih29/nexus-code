@@ -56,16 +56,17 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 };
 
 // ---------------------------------------------------------------------------
-// Mock ipcCall globally — all three stores share the same mock handle.
+// Mock ipcCallResult globally — all three stores share the same mock handle.
 // ---------------------------------------------------------------------------
 
-const mockIpcCall = mock((_channel: string, _method: string, _args: unknown) =>
-  Promise.resolve([]),
+const mockIpcCallResult = mock((_channel: string, _method: string, _args: unknown) =>
+  Promise.resolve({ ok: true as const, value: [] }),
 );
 
 mock.module("../../src/renderer/ipc/client", () => ({
-  ipcCall: mockIpcCall,
+  ipcCallResult: mockIpcCallResult,
   ipcListen: () => () => {},
+  canUseIpcBridge: () => false,
 }));
 
 // ---------------------------------------------------------------------------
@@ -93,7 +94,7 @@ function dirEntry(name: string, type: DirEntry["type"] = "file"): DirEntry {
 }
 
 function setupReaddir(responses: Map<string, DirEntry[]>) {
-  mockIpcCall.mockImplementation(
+  mockIpcCallResult.mockImplementation(
     (
       _channel: string,
       method: string,
@@ -101,15 +102,15 @@ function setupReaddir(responses: Map<string, DirEntry[]>) {
     ) => {
       // getExpanded must return { relPaths: [] } — not a plain array.
       if (method === "getExpanded") {
-        return Promise.resolve({ relPaths: [] });
+        return Promise.resolve({ ok: true as const, value: { relPaths: [] } });
       }
       // watch / unwatch / setExpanded resolve void
       if (method === "watch" || method === "unwatch" || method === "setExpanded") {
-        return Promise.resolve(undefined);
+        return Promise.resolve({ ok: true as const, value: undefined });
       }
       const a = args as { workspaceId?: string; relPath?: string };
       const key = a?.relPath ?? "";
-      return Promise.resolve(responses.get(key) ?? []);
+      return Promise.resolve({ ok: true as const, value: responses.get(key) ?? [] });
     },
   );
 }
@@ -118,7 +119,7 @@ function resetAllStores() {
   useFilesStore.setState({ trees: new Map() });
   useTabsStore.setState({ byWorkspace: {} });
   useLayoutStore.setState({ byWorkspace: {} });
-  mockIpcCall.mockClear();
+  mockIpcCallResult.mockClear();
 }
 
 // ---------------------------------------------------------------------------

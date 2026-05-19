@@ -16,7 +16,7 @@ const c = ipcContract.git.call;
  *
  * GitError (expected typed failure such as git-missing) is returned as an
  * IpcGitErrorResult wire object so the router stays log-silent and the
- * renderer's ipcCall path rehydrates it via isIpcGitErrorResult.
+ * renderer's ipcCallResult path receives this as an IpcErrResult and unwrapGitResult converts it to a thrown Error.
  */
 export function getRepoInfoHandler(
   registry: GitRegistry,

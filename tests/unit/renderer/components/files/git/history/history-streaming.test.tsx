@@ -26,6 +26,8 @@ type IpcCallRecord = {
   args: Record<string, unknown>;
 };
 
+const realIpcClient = await import("../../../../../../../src/renderer/ipc/client");
+
 const WORKSPACE_ID = "00000000-0000-0000-0000-000000000014";
 const logStreamCalls: IpcStreamCall[] = [];
 const ipcCallRecords: IpcCallRecord[] = [];
@@ -34,9 +36,10 @@ let lastHistoryListProps: MockHistoryListProps | null = null;
 
 const ipcCallMock = mock((channel: string, method: string, args: Record<string, unknown>) => {
   ipcCallRecords.push({ channel, method, args });
-  if (method === "searchCommits") return Promise.resolve({ kind: "grep", entries: [] });
-  if (method === "commitDetail") return Promise.resolve(null);
-  return Promise.resolve(undefined);
+  if (method === "searchCommits")
+    return Promise.resolve({ ok: true as const, value: { kind: "grep", entries: [] } });
+  if (method === "commitDetail") return Promise.resolve({ ok: true as const, value: null });
+  return Promise.resolve({ ok: true as const, value: undefined });
 });
 
 const ipcStreamMock = mock((channel: string, method: string, args: LogStreamArgs) => {
@@ -48,9 +51,11 @@ const ipcStreamMock = mock((channel: string, method: string, args: LogStreamArgs
 });
 
 mock.module("../../../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: ipcCallMock,
+  ...realIpcClient,
+  ipcCallResult: ipcCallMock,
   ipcListen: mock(() => () => {}),
   ipcStream: ipcStreamMock,
+  canUseIpcBridge: () => false,
 }));
 
 mock.module("../../../../../../../src/renderer/state/stores/git", () => ({

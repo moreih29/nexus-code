@@ -20,7 +20,7 @@ const eventLog: string[] = [];
 };
 
 mock.module("../../../../src/renderer/ipc/client", () => ({
-  ipcCall: mock((channel: string, method: string, args: unknown) => {
+  ipcCallResult: mock((channel: string, method: string, args: unknown) => {
     ipcCalls.push({ channel, method, args });
     if (channel === "lsp" && method === "didOpen") {
       const { languageId } = args as { languageId: string };
@@ -31,12 +31,15 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
       const { relPath } = args as { relPath: string };
       const content = fileContents.get(relPath) ?? "";
       return Promise.resolve({
-        kind: "ok",
-        content,
-        encoding: "utf8",
-        sizeBytes: content.length,
-        isBinary: false,
-        mtime: new Date().toISOString(),
+        ok: true as const,
+        value: {
+          kind: "ok",
+          content,
+          encoding: "utf8",
+          sizeBytes: content.length,
+          isBinary: false,
+          mtime: new Date().toISOString(),
+        },
       });
     }
 
@@ -44,13 +47,16 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
       const { relPath, content } = args as { relPath: string; content: string };
       fileContents.set(relPath, content);
       return Promise.resolve({
-        kind: "ok",
-        mtime: new Date().toISOString(),
-        size: content.length,
+        ok: true as const,
+        value: {
+          kind: "ok",
+          mtime: new Date().toISOString(),
+          size: content.length,
+        },
       });
     }
 
-    return Promise.resolve(undefined);
+    return Promise.resolve({ ok: true as const, value: undefined });
   }),
   ipcListen: mock((channel: string, event: string, callback: (args: unknown) => void) => {
     const record = { channel, event, callback };

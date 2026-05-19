@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, jest, mock, test } from "bun:t
 };
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: mock(() => Promise.resolve()),
+  ipcCallResult: mock(() => Promise.resolve({ ok: true as const, value: undefined })),
   ipcListen: mock(() => () => {}),
 }));
 

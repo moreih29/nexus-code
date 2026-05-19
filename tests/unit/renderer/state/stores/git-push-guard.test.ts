@@ -1,7 +1,7 @@
 /**
  * Git store push guardrail scenario tests.
  *
- * The git store imports ipcCall/ipcListen at module load. Stub the leaf IPC
+ * The git store imports ipcCallResult/ipcListen at module load. Stub the leaf IPC
  * module before importing the store, per the repo's Bun mock convention.
  */
 import { beforeEach, describe, expect, it, mock } from "bun:test";
@@ -25,9 +25,12 @@ if (
 }
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: mock((channel: string, method: string, args: Record<string, unknown>) => {
+  ipcCallResult: mock(async (channel: string, method: string, args: Record<string, unknown>) => {
     ipcCalls.push({ channel, method, args });
-    return ipcImpl(channel, method, args);
+    // ipcImpl may throw (simulating a git error); propagate so the store's catch
+    // path (gitStoreErrorFromUnknown) handles it as before.
+    const value = await ipcImpl(channel, method, args);
+    return { ok: true, value };
   }),
   ipcListen: mock(() => () => {}),
   ipcStream: mock(() => ({ promise: Promise.resolve(undefined), onProgress: mock(() => {}) })),

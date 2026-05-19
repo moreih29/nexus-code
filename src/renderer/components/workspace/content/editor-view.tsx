@@ -3,7 +3,7 @@ import type * as Monaco from "monaco-editor";
 import { useEffect, useState } from "react";
 import { fontFamily, typeScale } from "../../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
-import { ipcCall } from "../../../ipc/client";
+import { ipcCallResult } from "../../../ipc/client";
 import { useSharedModel } from "../../../services/editor";
 import { hasConflictMarkers } from "../../../services/editor/conflict/conflict-parser";
 import { useMonacoThemeName } from "../../../hooks/use-monaco-theme-name";
@@ -133,7 +133,8 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
         <ReadOnlyBanner
           filePath={filePath}
           onRevealInFinder={() => {
-            ipcCall("system", "revealInOS", { absPath: filePath }).catch(() => {});
+            // Fire-and-forget: reveal in OS is a one-shot shell action with no UI feedback.
+            void ipcCallResult("system", "revealInOS", { absPath: filePath });
           }}
         />
       )}

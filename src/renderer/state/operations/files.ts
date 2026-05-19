@@ -8,7 +8,7 @@
 
 import { createKeyedDebouncer } from "../../../shared/util/keyed-debouncer";
 import { FS_EXPANDED_SAVE_DEBOUNCE_MS } from "../../../shared/util/timing-constants";
-import { ipcCall } from "../../ipc/client";
+import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { relPath } from "../../utils/path";
 import { getAncestors } from "../stores/files/helpers";
 import { useFilesStore } from "../stores/files/store";
@@ -26,8 +26,9 @@ function scheduleSave(workspaceId: string): void {
       if (absPath === tree.rootAbsPath) continue;
       relPaths.push(relPath(absPath, tree.rootAbsPath));
     }
-    ipcCall("fs", "setExpanded", { workspaceId, relPaths }).catch((err) => {
-      console.error("[files] setExpanded failed", err);
+    // Fire-and-forget: setExpanded persists the expanded-dirs list; local state is source of truth.
+    void ipcCallResult("fs", "setExpanded", { workspaceId, relPaths }).then((result) => {
+      if (!result.ok) console.error("[files] setExpanded failed", result.message);
     });
   });
 }
@@ -42,7 +43,7 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
 
     let persistedRelPaths: string[] = [];
     try {
-      const result = await ipcCall("fs", "getExpanded", { workspaceId });
+      const result = unwrapIpcResult(await ipcCallResult("fs", "getExpanded", { workspaceId }));
       persistedRelPaths = result.relPaths;
     } catch {
       // Non-fatal — proceed with empty expanded set.
@@ -50,8 +51,9 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
 
     useFilesStore.getState().initTree(workspaceId, rootAbsPath, persistedRelPaths);
 
-    ipcCall("fs", "watch", { workspaceId, relPath: "" }).catch((err) => {
-      console.error("[files] watch root failed", err);
+    // Fire-and-forget: watch registration; tree updates arrive via fs.changed events.
+    void ipcCallResult("fs", "watch", { workspaceId, relPath: "" }).then((result) => {
+      if (!result.ok) console.error("[files] watch root failed", result.message);
     });
 
     await loadChildren(workspaceId, rootAbsPath);
@@ -77,8 +79,10 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
           if (node && node.type === "dir" && !node.childrenLoaded) {
             await loadChildren(workspaceId, abs);
           }
-          ipcCall("fs", "watch", { workspaceId, relPath: rel }).catch((err) => {
-            console.error("[files] watch hydrated dir failed", err);
+          // Fire-and-forget: watch registration; tree updates arrive via fs.changed events.
+          void ipcCallResult("fs", "watch", { workspaceId, relPath: rel }).then((result) => {
+            if (!result.ok)
+              console.error("[files] watch hydrated dir failed", result.message);
           });
         }),
       );
@@ -102,7 +106,7 @@ export async function loadChildren(workspaceId: string, absPath: string): Promis
   useFilesStore.getState().markChildrenLoading(workspaceId, absPath);
 
   try {
-    const entries = await ipcCall("fs", "readdir", { workspaceId, relPath: rel });
+    const entries = unwrapIpcResult(await ipcCallResult("fs", "readdir", { workspaceId, relPath: rel }));
     useFilesStore.getState().setChildren(workspaceId, absPath, entries);
   } catch (err) {
     useFilesStore
@@ -123,14 +127,16 @@ export async function toggleExpand(workspaceId: string, absPath: string): Promis
 
   if (isExpanded) {
     useFilesStore.getState().collapseDir(workspaceId, absPath);
-    ipcCall("fs", "unwatch", { workspaceId, relPath: rel }).catch((err) => {
-      console.error("[files] unwatch failed", err);
+    // Fire-and-forget: unwatch is best-effort cleanup.
+    void ipcCallResult("fs", "unwatch", { workspaceId, relPath: rel }).then((result) => {
+      if (!result.ok) console.error("[files] unwatch failed", result.message);
     });
     scheduleSave(workspaceId);
   } else {
     useFilesStore.getState().expandDir(workspaceId, absPath);
-    ipcCall("fs", "watch", { workspaceId, relPath: rel }).catch((err) => {
-      console.error("[files] watch failed", err);
+    // Fire-and-forget: watch registration; tree updates arrive via fs.changed events.
+    void ipcCallResult("fs", "watch", { workspaceId, relPath: rel }).then((result) => {
+      if (!result.ok) console.error("[files] watch failed", result.message);
     });
     scheduleSave(workspaceId);
 

@@ -13,18 +13,19 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 };
 
 // ---------------------------------------------------------------------------
-// Mock ipcCall before importing the store
+// Mock ipcCallResult before importing the store
 // ---------------------------------------------------------------------------
 
-const mockIpcCall = mock((_channel: string, _method: string, _args: unknown) =>
-  Promise.resolve([]),
+const mockIpcCallResult = mock((_channel: string, _method: string, _args: unknown) =>
+  Promise.resolve({ ok: true as const, value: [] }),
 );
 
 const mockIpcListen = mock((_channel: string, _event: string, _cb: unknown) => () => {});
 
 mock.module("../../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: mockIpcCall,
+  ipcCallResult: mockIpcCallResult,
   ipcListen: mockIpcListen,
+  canUseIpcBridge: () => false,
 }));
 
 // ---------------------------------------------------------------------------
@@ -56,18 +57,18 @@ function dirEntry(name: string, type: DirEntry["type"] = "file"): DirEntry {
 
 function resetStore() {
   useFilesStore.setState({ trees: new Map() });
-  mockIpcCall.mockClear();
+  mockIpcCallResult.mockClear();
   mockIpcListen.mockClear();
 }
 
 function setupReaddir(responses: Map<string, DirEntry[]>) {
-  mockIpcCall.mockImplementation(
+  mockIpcCallResult.mockImplementation(
     (_channel: string, method: string, args: { workspaceId: string; relPath: string }) => {
       if (method === "readdir") {
         const key = args.relPath;
-        return Promise.resolve(responses.get(key) ?? []);
+        return Promise.resolve({ ok: true as const, value: responses.get(key) ?? [] });
       }
-      return Promise.resolve(undefined);
+      return Promise.resolve({ ok: true as const, value: undefined });
     },
   );
 }
@@ -94,11 +95,11 @@ describe("Scenario 1: ensureRoot", () => {
     expect(rootNode?.childrenLoaded).toBe(true);
     expect(rootNode?.children).toHaveLength(2);
 
-    expect(mockIpcCall).toHaveBeenCalledWith("fs", "readdir", {
+    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "readdir", {
       workspaceId: WS_ID,
       relPath: "",
     });
-    expect(mockIpcCall).toHaveBeenCalledWith("fs", "watch", {
+    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "watch", {
       workspaceId: WS_ID,
       relPath: "",
     });
@@ -107,10 +108,10 @@ describe("Scenario 1: ensureRoot", () => {
   it("is a no-op if called again for the same workspaceId", async () => {
     setupReaddir(new Map([["", []]]));
     await ensureRoot(WS_ID, ROOT);
-    mockIpcCall.mockClear();
+    mockIpcCallResult.mockClear();
 
     await ensureRoot(WS_ID, ROOT);
-    expect(mockIpcCall).not.toHaveBeenCalled();
+    expect(mockIpcCallResult).not.toHaveBeenCalled();
   });
 });
 
@@ -146,7 +147,7 @@ describe("Scenario 2: toggleExpand child dir", () => {
     expect(paths).toContain(srcAbs);
     expect(paths).toContain(indexAbs);
 
-    expect(mockIpcCall).toHaveBeenCalledWith("fs", "watch", {
+    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "watch", {
       workspaceId: WS_ID,
       relPath: "src",
     });
@@ -186,7 +187,7 @@ describe("Scenario 3: toggleExpand twice collapses", () => {
     expect(paths).toContain(srcAbs);
     expect(paths).not.toContain(`${srcAbs}/index.ts`);
 
-    expect(mockIpcCall).toHaveBeenCalledWith("fs", "unwatch", {
+    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "unwatch", {
       workspaceId: WS_ID,
       relPath: "src",
     });
@@ -205,7 +206,7 @@ describe("Scenario 10: ensureRoot concurrent calls deduplicate", () => {
 
     await Promise.all([ensureRoot(WS_ID, ROOT), ensureRoot(WS_ID, ROOT)]);
 
-    const readdirCalls = mockIpcCall.mock.calls.filter(([, method]) => method === "readdir");
+    const readdirCalls = mockIpcCallResult.mock.calls.filter(([, method]) => method === "readdir");
     expect(readdirCalls).toHaveLength(1);
   });
 });
@@ -238,11 +239,11 @@ describe("Scenario 11: loadChildren concurrent calls deduplicate", () => {
       return { trees };
     });
 
-    mockIpcCall.mockClear();
+    mockIpcCallResult.mockClear();
 
     await Promise.all([loadChildren(WS_ID, ROOT), loadChildren(WS_ID, ROOT)]);
 
-    const readdirCalls = mockIpcCall.mock.calls.filter(([, method]) => method === "readdir");
+    const readdirCalls = mockIpcCallResult.mock.calls.filter(([, method]) => method === "readdir");
     expect(readdirCalls).toHaveLength(1);
   });
 });

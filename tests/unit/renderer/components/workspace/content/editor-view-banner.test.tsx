@@ -12,13 +12,16 @@ import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 // ---------------------------------------------------------------------------
-// Mock ipcCall before any import that would trigger the renderer ipc module
+// Mock ipcCallResult before any import that would trigger the renderer ipc module
 // ---------------------------------------------------------------------------
 
+const realIpcClient = await import("../../../../../../src/renderer/ipc/client");
 mock.module("../../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: mock(() => Promise.resolve()),
+  ...realIpcClient,
+  ipcCallResult: mock(() => Promise.resolve({ ok: true as const, value: undefined })),
   ipcListen: mock(() => () => {}),
   ipcStream: mock(() => () => {}),
+  canUseIpcBridge: () => false,
 }));
 
 // Mock the git store so EditorView's conflict-banner hooks do not trigger real

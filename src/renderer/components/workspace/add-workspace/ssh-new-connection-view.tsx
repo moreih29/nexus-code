@@ -1,7 +1,10 @@
 import { AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { openSshBrowseSession, saveConnectionProfile } from "../../../services/workspace";
+import { appErrorCancelled, appErrorFailed } from "../../../../shared/error/app-error";
+import { useIpcAction } from "../../../hooks/use-ipc-action";
+import { showToast } from "../../ui/toast";
+import { openSshBrowseSession, saveConnectionProfileResult } from "../../../services/workspace";
 import { Button } from "../../ui/button";
 import {
   clampHostIndex,
@@ -27,15 +30,44 @@ const NEW_CONN_PORT_ERROR_ID = "add-workspace-new-conn-port-error";
 const NEW_CONN_ADVANCED_ID = "add-workspace-new-conn-advanced";
 
 // ---------------------------------------------------------------------------
-// SshNewConnectionView — T8 implementation
+// Module-level helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Show a non-blocking warning toast for a failed connection-profile save.
+ *
+ * The connection succeeded (primary effect) so the workspace flow continues
+ * uninterrupted. This toast informs the user that the profile was not saved
+ * for next time and offers a "Retry save" button that replays only the
+ * secondary save step — never re-connects or re-authenticates.
+ *
+ * Action toasts use role="alert" and never auto-dismiss (per toast.tsx contract),
+ * so the user can act on "Retry save" at their convenience without time pressure.
+ */
+function showSaveFailedToast(onRetrySave: () => void): void {
+  showToast({
+    kind: "error",
+    message: "Connected. This connection couldn't be saved for next time.",
+    actions: [{ label: "Retry save", onAction: onRetrySave }],
+  });
+}
+
+// ---------------------------------------------------------------------------
+// SshNewConnectionView — T10 implementation
 //   - Host combobox (with ssh/config candidates)
 //   - Name (optional)
 //   - Advanced collapsible (Port + Identity file)
 //   - authMode always "interactive"
-//   - Connect → ssh.openBrowseSession → connectionProfile.save → onConnected
+//   - Connect → ssh.openBrowseSession (primary) → connectionProfile.save (secondary)
+//     Partial-failure policy (plan issue-8):
+//       • Primary success + secondary failure → complete the workspace flow and
+//         show a non-blocking toast with "Retry save" (secondary-only retry).
+//       • Primary failure → inline error, form stays open for retry.
+//       • Cancellation (IPC "cancelled") → silent, no banner.
+//   - useIpcAction manages the loading lifecycle; "Connecting…" freeze is
+//     structurally impossible because the hook's try/catch/finally guarantees
+//     state always exits 'loading' on any branch.
 // ---------------------------------------------------------------------------
-
-type SshConnectPhase = "idle" | "connecting" | "error";
 
 export function SshNewConnectionView({
   onConnected,
@@ -65,12 +97,28 @@ export function SshNewConnectionView({
   );
   const [hostListOpen, setHostListOpen] = useState(false);
   const [activeHostIndex, setActiveHostIndex] = useState(-1);
-  const [connectPhase, setConnectPhase] = useState<SshConnectPhase>("idle");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Ref for the host combobox wrapper (input + toggle button + listbox).
   // Used to detect clicks outside the dropdown and close it.
   const hostComboboxRef = useRef<HTMLDivElement>(null);
+
+  // ---------------------------------------------------------------------------
+  // useIpcAction — unified loading lifecycle for the two-stage connect flow.
+  //
+  // The hook's try/catch/finally guarantees that 'loading' always resolves to
+  // 'success', 'error', or 'idle' (cancel), so "Connecting…" can never freeze
+  // regardless of which await fails or when the component unmounts.
+  // ---------------------------------------------------------------------------
+  const { state: connectState, run: runConnect, isPending } = useIpcAction<void>();
+
+  // Map useIpcAction discriminated-union state to the parent's connectPhase API.
+  // The parent footer uses these to drive button label and disabled state.
+  const connectPhase =
+    connectState.status === "loading"
+      ? "connecting"
+      : connectState.status === "error"
+        ? "error"
+        : "idle";
 
   const filteredHosts = useMemo(
     () => filterSshConfigHosts(configHosts, hostInput),
@@ -90,9 +138,11 @@ export function SshNewConnectionView({
   }, [selectedHost, hostInput]);
 
   const hostEmpty = hostInput.trim().length === 0;
-  const connectDisabled = connectPhase === "connecting" || hostEmpty || portError !== null;
 
-  // Sync footer primary button state
+  // connectDisabled: block submit while pending, when host is empty, or when port is invalid.
+  const connectDisabled = isPending || hostEmpty || portError !== null;
+
+  // Sync footer primary button state to parent on every relevant change.
   useEffect(() => {
     onConnectPhaseChange(connectPhase, connectDisabled);
   }, [connectPhase, connectDisabled, onConnectPhaseChange]);
@@ -123,7 +173,6 @@ export function SshNewConnectionView({
   function handleHostInputChange(value: string): void {
     setHostInput(value);
     setSelectedAlias(null);
-    setErrorMessage(null);
     setHostListOpen(true);
     setActiveHostIndex(filteredHosts.length > 0 ? 0 : -1);
   }
@@ -135,7 +184,6 @@ export function SshNewConnectionView({
     setIdentityFile(host.identityFile ?? "");
     setHostListOpen(false);
     setActiveHostIndex(-1);
-    setErrorMessage(null);
   }
 
   function handleHostKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
@@ -167,90 +215,177 @@ export function SshNewConnectionView({
     }
   }
 
-  async function handleConnect(event: FormEvent<HTMLFormElement>): Promise<void> {
+  // ---------------------------------------------------------------------------
+  // handleConnect — two-stage action routed through useIpcAction.run()
+  //
+  // Stage 1 (primary): openSshBrowseSession — establishes the SSH session.
+  //   • Failure (including auth cancellation) → the hook branches automatically:
+  //     - "cancelled" kind → hook state returns to 'idle', no UI surface.
+  //     - Other errors    → hook state = 'error', inline banner rendered below.
+  //
+  // Stage 2 (secondary): saveConnectionProfileResult — persists the profile.
+  //   • Partial-failure policy (plan issue-8): the connection already succeeded,
+  //     so we MUST call onConnected regardless of whether the save succeeds.
+  //     A failed save triggers a non-blocking warning toast + "Retry save" action.
+  //     The "Retry save" callback re-runs the save only — never re-connects.
+  //   • The run() callback always returns void; the hook reaches 'success' in
+  //     both the save-ok and save-fail paths, ensuring loading clears in all cases.
+  // ---------------------------------------------------------------------------
+  function handleConnect(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     if (connectDisabled) return;
 
     const dest = parsedDest;
     if (!dest) {
-      setErrorMessage("Enter a valid host or user@host.");
+      // Form-level validation: host field is required and already non-empty
+      // (connectDisabled blocks the submit when hostEmpty is true).  This guard
+      // defends against the edge where parseSshDestination returns null despite
+      // a non-empty hostInput (e.g. "user@" with no host part).
+      //
+      // We throw an AppError so the hook normalises it into state:'error' and
+      // the inline banner below renders the user message.
+      runConnect(async () => {
+        throw appErrorFailed("Enter a valid host or user@host.", {
+          domain: "ssh",
+          code: "invalid-host",
+        });
+      });
       return;
     }
 
     const parsedPort = parseSshPort(port);
     if (parsedPort === null) {
-      setErrorMessage("Port must be 1–65535.");
+      // Port field already shows an inline error via portError — connectDisabled
+      // prevents reaching this branch.  Guard kept for defensive completeness.
       return;
     }
 
-    setConnectPhase("connecting");
-    setErrorMessage(null);
-
-    // openBrowseSession is migrated to the IpcResult contract — auth
-    // cancellation arrives as ipcErr("cancelled") so the router stays silent
-    // and the renderer branches without showing an error banner.
-    const result = await openSshBrowseSession({
-      host: dest.host,
-      user: dest.user,
-      port: parsedPort,
-      identityFile: identityFile.trim() || undefined,
-      authMode: "interactive",
-    });
-
-    if (!result.ok) {
-      // User cancelled the SSH auth prompt — silent stop, no error banner.
-      if (result.kind === "cancelled") {
-        setConnectPhase("idle");
-        return;
-      }
-      setConnectPhase("error");
-      setErrorMessage(result.message);
-      return;
-    }
-
-    // Connection succeeded → save connectionProfile.
-    // `result.value.user` is the user actually connected as — when the form
-    // had only a host, the main process resolved it to the local account
-    // name, so the saved profile is always complete.
-    const connectedUser = result.value.user;
+    // Capture form values at the moment of submission so closures below are
+    // not affected by subsequent re-renders that change the controlled inputs.
+    const capturedDest = dest;
+    const capturedPort = parsedPort;
+    const capturedIdentityFile = identityFile.trim() || undefined;
+    const capturedName = name.trim() || undefined;
     const profileId = crypto.randomUUID();
-    await saveConnectionProfile({
-      id: profileId,
-      host: dest.host,
-      user: connectedUser,
-      port: parsedPort,
-      identityFile: identityFile.trim() || undefined,
-      authMode: "interactive",
-      label: name.trim() || undefined,
-    });
 
-    onConnected({
-      sessionId: result.value.sessionId,
-      initialPath: result.value.initialPath,
-      host: dest.host,
-      user: connectedUser,
-      port: parsedPort,
-      identityFile: identityFile.trim() || undefined,
-      profileId,
-      connectionProfileId: profileId,
+    runConnect(async (_signal) => {
+      // --- Stage 1: primary effect — establish SSH browse session ---
+      // openBrowseSession is migrated to the IpcResult contract.
+      // auth cancellation arrives as ipcErr("cancelled") so we throw an
+      // AppError category:"cancelled" and the hook silently returns to idle.
+      // _signal is kept in the signature for forward compatibility (AbortSignal
+      // passthrough to openSshBrowseSession once it supports cancellation).
+      const result = await openSshBrowseSession({
+        host: capturedDest.host,
+        user: capturedDest.user,
+        port: capturedPort,
+        identityFile: capturedIdentityFile,
+        authMode: "interactive",
+      });
+
+      if (!result.ok) {
+        if (result.kind === "cancelled") {
+          // Auth prompt dismissed by the user — throw category:'cancelled' so the
+          // hook routes this to idle without surfacing any error UI.
+          throw appErrorCancelled("SSH authentication was cancelled.", { domain: "ssh" });
+        }
+        // Connection failure → throw so the hook transitions to state:'error'.
+        // The inline banner below renders state.error.message.
+        throw appErrorFailed(result.message, { domain: "ssh", code: result.kind });
+      }
+
+      // `result.value.user` is the user actually connected as — when the form
+      // had only a host, the main process resolved it to the local account name,
+      // so the saved profile is always complete.
+      const connectedUser = result.value.user;
+      const sessionId = result.value.sessionId;
+      const initialPath = result.value.initialPath;
+
+      // --- Stage 2: secondary effect — persist the connection profile ---
+      // Partial-failure policy: a failed save must NOT block the workspace flow.
+      // We run the save and inspect the result, but onConnected is called
+      // unconditionally as long as stage 1 succeeded.
+      const saveResult = await saveConnectionProfileResult({
+        id: profileId,
+        host: capturedDest.host,
+        user: connectedUser,
+        port: capturedPort,
+        identityFile: capturedIdentityFile,
+        authMode: "interactive",
+        label: capturedName,
+      });
+
+      if (!saveResult.ok) {
+        // Save failed — build a retry callback that replays only the save step.
+        // The signal from this run() is no longer active after the function
+        // returns (the hook clears it in finally), so the retry is a fresh
+        // independent call not tied to any AbortController.
+        //
+        // "Retry save" re-runs only the secondary effect; it never re-connects
+        // or re-authenticates. The already-established session is untouched.
+        const retrySave = (): void => {
+          void saveConnectionProfileResult({
+            id: profileId,
+            host: capturedDest.host,
+            user: connectedUser,
+            port: capturedPort,
+            identityFile: capturedIdentityFile,
+            authMode: "interactive",
+            label: capturedName,
+          }).then((retryResult) => {
+            if (!retryResult.ok) {
+              // Second attempt also failed — offer another retry via a fresh toast.
+              showSaveFailedToast(retrySave);
+            }
+          });
+        };
+
+        // Non-blocking warning toast: the workspace flow proceeds immediately.
+        // The toast uses role="alert" (action toast) so it never auto-dismisses
+        // and the user can act on the "Retry save" button at their convenience.
+        showSaveFailedToast(retrySave);
+      }
+
+      // Complete the workspace flow regardless of save outcome.
+      // onConnected transitions the parent to the directory picker view.
+      onConnected({
+        sessionId,
+        initialPath,
+        host: capturedDest.host,
+        user: connectedUser,
+        port: capturedPort,
+        identityFile: capturedIdentityFile,
+        profileId,
+        connectionProfileId: profileId,
+      });
     });
   }
+
+  // ---------------------------------------------------------------------------
+  // Derived UI values
+  // ---------------------------------------------------------------------------
 
   const activeDescendant =
     hostListOpen && activeHostIndex >= 0
       ? sshHostOptionId(filteredHosts[activeHostIndex], activeHostIndex)
       : undefined;
 
-  const connecting = connectPhase === "connecting";
+  const connecting = connectState.status === "loading";
+
+  // Inline error message for connection failures.
+  // Cancelled (state:'idle') and save failures (surfaced as toast) do not reach here.
+  const inlineError =
+    connectState.status === "error" ? connectState.error.message : null;
 
   return (
     <form
       id="ssh-new-connection-form"
       className="flex flex-col gap-4"
-      onSubmit={(e) => void handleConnect(e)}
+      onSubmit={(e) => handleConnect(e)}
     >
-      {/* Error message */}
-      {errorMessage ? (
+      {/* Connection error banner — shown for primary (connect) failures only.
+          Cancelled auth and save failures are surfaced elsewhere (silent / toast). */}
+      {inlineError ? (
         <div
           className="flex items-start gap-2 rounded-(--radius-control) border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-2 py-2"
           role="alert"
@@ -260,7 +395,7 @@ export function SshNewConnectionView({
             aria-hidden="true"
           />
           <span className="min-w-0 text-app-ui-sm text-[var(--state-error-fg)]">
-            {errorMessage}
+            {inlineError}
           </span>
         </div>
       ) : null}
@@ -430,4 +565,3 @@ export function SshNewConnectionView({
     </form>
   );
 }
-

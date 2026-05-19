@@ -1,9 +1,5 @@
 import { createAbortError } from "../../shared/abort";
-import {
-  gitErrorFromIpcResult,
-  isIpcGitErrorResult,
-  rehydrateGitErrorFromCause,
-} from "../../shared/git/error-ipc";
+import { GIT_IPC_ERROR_KIND, type GitIpcErrorResult } from "../../shared/git/error-ipc";
 import {
   IPC_RESULT_BRAND,
   type IpcErrResult,
@@ -54,106 +50,18 @@ function createRequestId(): IpcRequestId {
   return `renderer-${nextRequestId++}`;
 }
 
-/**
- * Type-safe `ipc:call` from the renderer. Channel + method + args are
- * checked against the IPC contract so a stale schema fails compilation
- * rather than at runtime.
- *
- * Pass `opts.signal` to make the call cancellable: aborting the signal
- * sends an `ipc:cancel` to the matching main-side request and the
- * returned promise rejects with the abort. Without a signal the call is
- * fire-and-forget for cancellation purposes.
- */
-export function ipcCall<C extends CallChannels, M extends CallMethods<C>>(
-  channel: C,
-  method: M,
-  args: CallArgs<C, M>,
-  opts: IpcCallOptions = {},
-): Promise<CallReturn<C, M>> {
-  const signal = opts.signal;
-  if (!signal) {
-    return (window.ipc.call(channel, method, args) as Promise<unknown>)
-      .then((value) => unwrapCallResult<CallReturn<C, M>>(value))
-      .catch(rethrowRehydratedGitError);
-  }
-
-  const requestId = createRequestId();
-  const cancel = () => {
-    window.ipc.cancel(requestId);
-  };
-
-  if (!signal.aborted) {
-    signal.addEventListener("abort", cancel, { once: true });
-  }
-
-  try {
-    const promise = window.ipc.call(channel, method, args, requestId) as Promise<unknown>;
-    if (signal.aborted) {
-      cancel();
-    }
-    return promise
-      .then((value) => unwrapCallResult<CallReturn<C, M>>(value))
-      .catch(rethrowRehydratedGitError)
-      .finally(() => {
-        signal.removeEventListener("abort", cancel);
-      });
-  } catch (err) {
-    signal.removeEventListener("abort", cancel);
-    throw rehydrateIfPossible(err);
-  }
-}
-
-/**
- * Resolves a raw `ipc:call` payload into the caller-typed value, throwing
- * the reconstructed error when the main process returned a typed Git
- * failure envelope (see `IPC_CALL_RESULT_MARK`) or a cancellation result
- * envelope. Done at the client edge so the rest of the renderer treats
- * expected git failures as ordinary promise rejections.
- *
- * Cancellation detection: migrated handlers return `ipcErr("cancelled")`
- * instead of throwing (which keeps the router log-silent). This function
- * converts that envelope back to an AbortError so callers behave the same
- * as they did with the legacy IPC_ABORT_SENTINEL path.
- */
-function unwrapCallResult<T>(value: unknown): T {
-  if (isIpcGitErrorResult(value)) throw gitErrorFromIpcResult(value);
-  if (isIpcErrResult(value) && value.kind === "cancelled") throw createAbortError();
-  return value as T;
-}
-
-/**
- * Throws the supplied error, restoring typed GitError fields stashed in
- * `cause` by the main-side IPC router (used for stream errors and any
- * non-call rejection that still carries the cause envelope).
- */
-function rethrowRehydratedGitError(error: unknown): never {
-  throw rehydrateIfPossible(error);
-}
-
-/**
- * Mutates and returns the error when it carries a GitError IPC envelope,
- * otherwise returns the original value untouched.
- */
-function rehydrateIfPossible(error: unknown): unknown {
-  if (error instanceof Error) rehydrateGitErrorFromCause(error);
-  return error;
-}
-
 // ---------------------------------------------------------------------------
-// Result-envelope path (T1 foundation — used by migrated channels)
+// Result-envelope path
 // ---------------------------------------------------------------------------
 
 /**
- * Type-safe `ipc:call` variant for channels whose handler returns an
- * `IpcResult` envelope (see `src/shared/ipc/result.ts`).
+ * Type-safe `ipc:call` from the renderer. Always resolves with an `IpcResult`
+ * envelope so callers can branch on `result.ok` without relying on thrown
+ * errors for expected domain failures. Cancellation (AbortSignal) is supported
+ * via the optional `opts.signal` parameter.
  *
- * Unlike `ipcCall`, which throws on expected failures, `ipcCallResult` always
- * resolves with the IpcResult so the caller can branch on `result.ok`.  This
- * is the preferred API for channels migrated in T2–T4.
- *
- * Cancellation and abort-sentinel handling are identical to `ipcCall`.
- * Non-envelope responses (e.g. a handler not yet migrated) are wrapped into
- * `{ ok: true, value }` so callers always receive a consistent shape.
+ * Non-envelope responses are wrapped into `{ ok: true, value }` so callers
+ * always receive a consistent `IpcResult` shape.
  *
  * @example
  *   const result = await ipcCallResult("workspace", "testSsh", args);
@@ -178,15 +86,17 @@ export function ipcCallResult<C extends CallChannels, M extends CallMethods<C>>(
     return { [IPC_RESULT_BRAND]: true, ok: true, value: value as CallReturn<C, M> };
   };
 
+  const handleRejection = (error: unknown): never => {
+    // Cancellation that arrived as a raw rejection (non-IpcResult path):
+    // re-throw as AbortError so abort-aware callers branch on the same type.
+    if (error instanceof Error && error.name === "AbortError") throw error;
+    throw error;
+  };
+
   if (!signal) {
     return (window.ipc.call(channel, method, args) as Promise<unknown>)
-      .then((value) => {
-        // Legacy GitError envelope → convert to IpcErrResult so callers get a
-        // consistent IpcResult shape even from channels not yet migrated.
-        if (isIpcGitErrorResult(value)) throw gitErrorFromIpcResult(value);
-        return wrapRaw(value);
-      })
-      .catch(rethrowRehydratedGitError);
+      .then(wrapRaw)
+      .catch(handleRejection);
   }
 
   const requestId = createRequestId();
@@ -204,17 +114,14 @@ export function ipcCallResult<C extends CallChannels, M extends CallMethods<C>>(
       cancel();
     }
     return promise
-      .then((value) => {
-        if (isIpcGitErrorResult(value)) throw gitErrorFromIpcResult(value);
-        return wrapRaw(value);
-      })
-      .catch(rethrowRehydratedGitError)
+      .then(wrapRaw)
+      .catch(handleRejection)
       .finally(() => {
         signal.removeEventListener("abort", cancel);
       });
   } catch (err) {
     signal.removeEventListener("abort", cancel);
-    throw rehydrateIfPossible(err);
+    throw err;
   }
 }
 
@@ -230,6 +137,63 @@ export function ipcCallResult<C extends CallChannels, M extends CallMethods<C>>(
  */
 export function unwrapIpcResult<T>(result: IpcResult<T>): T {
   if (result.ok) return result.value;
+  const err = new Error(result.message);
+  err.name = `IpcError[${result.kind}]`;
+  (err as unknown as Record<string, unknown>)["kind"] = result.kind;
+  throw err;
+}
+
+/**
+ * Explicit opt-in throw for recovery-impossible callers.
+ *
+ * Use when you hold an `IpcResult` and the only sensible action on failure is
+ * to propagate an exception upward (e.g. inside a top-level error boundary or
+ * an initialization path from which the app cannot recover gracefully).
+ * Prefer `ipcCallResult` + branching on `result.ok` for all other callers.
+ *
+ * Unlike `unwrapIpcResult`, `mustSucceed` is intentionally named to make the
+ * throw-on-failure assumption visible at every callsite.
+ *
+ * @example
+ *   const value = mustSucceed(await ipcCallResult("workspace", "load", args));
+ */
+export function mustSucceed<T>(result: IpcResult<T>): T {
+  return unwrapIpcResult(result);
+}
+
+/**
+ * Unwrap a git-channel `IpcResult`, re-throwing `IpcErrResult<"git-error">`
+ * as a typed Error with `kind`, `stderr`, `argv`, and `hint` fields that
+ * `gitStoreErrorFromUnknown` can read.  `IpcErrResult<"cancelled">` is
+ * converted to an AbortError so the `runOperation` abort detection path works.
+ *
+ * Use this helper wherever git store operations call `ipcCallResult("git", ...)`.
+ * The existing `runOperation` / `failOperation` / `gitStoreErrorFromUnknown`
+ * chain requires thrown errors with these fields, which this function restores.
+ *
+ * @example
+ *   await runOperation(workspaceId, "fetch", (signal) =>
+ *     unwrapGitResult(await ipcCallResult("git", "fetch", { workspaceId, remote }, { signal }))
+ *   );
+ */
+export function unwrapGitResult<T>(result: IpcResult<T>): T {
+  if (result.ok) return result.value;
+  if (result.kind === "cancelled") throw createAbortError();
+  if (result.kind === GIT_IPC_ERROR_KIND) {
+    const r = result as unknown as GitIpcErrorResult;
+    // Reconstruct a GitError-shaped Error so gitStoreErrorFromUnknown can read
+    // `.kind`, `.hint`, `.stderr`, and `.argv` for the inline error banner.
+    const error = new Error(r.message);
+    error.name = "GitError";
+    Object.assign(error, {
+      kind: r.gitKind,
+      stderr: r.stderr,
+      argv: r.argv,
+      hint: r.hint,
+    });
+    throw error;
+  }
+  // Other expected failures: throw a generic IpcError.
   const err = new Error(result.message);
   err.name = `IpcError[${result.kind}]`;
   (err as unknown as Record<string, unknown>)["kind"] = result.kind;
@@ -379,33 +343,104 @@ export function ipcStream<C extends StreamChannels, M extends StreamMethods<C>>(
   };
 }
 
+/**
+ * Converts a stream error payload received from `ipc:streamEvent` into a
+ * renderer-side Error instance.
+ *
+ * The router now sends `AppError` objects (`{ category, message, domain?,
+ * code?, _gitCause? }`).  Four cases are handled:
+ *
+ *   - `category:"cancelled"` => AbortError so abort-aware callers can detect
+ *     the cancellation without inspecting `category`.
+ *   - `_gitCause` present => git fields (`kind`, `stderr`, `argv`, `hint`) are
+ *     copied onto the Error so existing `gitStoreErrorFromUnknown` consumers
+ *     read the same shape as before the AppError migration.
+ *   - Any other AppError shape => plain Error with `message` and optional
+ *     domain-tagged `name`.
+ *   - Legacy `{ name?, message }` shape (pre-migration payloads or test
+ *     harnesses dispatching the old `SerializedError` format) => Error with
+ *     `name` and `message` preserved; `cause` is rehydrated if present.
+ *     This path keeps the migration window regression-free.
+ */
 function createStreamError(data: unknown): Error {
-  if (isErrorLike(data)) {
+  if (isAppErrorLike(data)) {
+    // Cancelled stream — surface as an AbortError so abort-aware callers branch
+    // on the same error type as signal-based cancellations.
+    if (data.category === "cancelled") {
+      return createAbortError();
+    }
+
     const error = new Error(data.message);
-    if (data.name) {
-      error.name = data.name;
+
+    // Rehydrate git-domain errors from the `_gitCause` envelope the router
+    // attaches when converting a GitError to AppError format.
+    const gitCause = (data as Record<string, unknown>)._gitCause;
+    if (gitCause && typeof gitCause === "object") {
+      const cause = gitCause as Record<string, unknown>;
+      Object.assign(error, {
+        kind: cause.kind,
+        stderr: cause.stderr,
+        argv: cause.argv,
+        hint: cause.hint,
+      });
+      error.name = "GitError";
+      return error;
     }
-    if ("cause" in data && data.cause !== undefined) {
-      (error as { cause?: unknown }).cause = data.cause;
+
+    // Non-git failures — assign a domain-tagged name when available.
+    if (data.domain) {
+      error.name = `${data.domain[0]?.toUpperCase() ?? ""}${data.domain.slice(1)}Error`;
     }
-    rehydrateGitErrorFromCause(error);
+
     return error;
   }
 
-  if (typeof data === "string") {
-    return new Error(data);
+  if (isErrorLike(data)) {
+    // Legacy `{ name?, message, cause? }` shape emitted by pre-migration routers
+    // or injected directly by test harnesses.  Preserved so callers that rely on
+    // `error.name` for error classification continue to work unchanged.
+    const error = new Error(data.message);
+    if (data.name) error.name = data.name;
+    if ("cause" in data && data.cause !== undefined) {
+      (error as { cause?: unknown }).cause = data.cause;
+    }
+    return error;
   }
 
+  if (typeof data === "string") return new Error(data);
   return new Error("Stream failed");
 }
 
-function isErrorLike(data: unknown): data is { name?: string; message: string; cause?: unknown } {
+/**
+ * Returns true when `data` is an `AppError` payload from the router.
+ * Distinguished from the legacy shape by the presence of `category`.
+ */
+function isAppErrorLike(
+  data: unknown,
+): data is { category: string; message: string; domain?: string } {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "category" in data &&
+    typeof (data as Record<string, unknown>).category === "string" &&
+    "message" in data &&
+    typeof (data as Record<string, unknown>).message === "string"
+  );
+}
+
+/**
+ * Returns true when `data` has the legacy `{ name?, message, cause? }` shape
+ * emitted by pre-migration routers or test harnesses dispatching old payloads.
+ */
+function isErrorLike(
+  data: unknown,
+): data is { name?: string; message: string; cause?: unknown } {
   return (
     typeof data === "object" &&
     data !== null &&
     "message" in data &&
-    typeof data.message === "string" &&
-    (!("name" in data) || typeof data.name === "string")
+    typeof (data as Record<string, unknown>).message === "string" &&
+    (!("name" in data) || typeof (data as Record<string, unknown>).name === "string")
   );
 }
 

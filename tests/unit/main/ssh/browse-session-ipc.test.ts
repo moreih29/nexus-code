@@ -12,12 +12,12 @@
  *   6. Timeout path disposes bootstrap on expiry.
  */
 import { describe, expect, it, mock } from "bun:test";
+import { SshBrowseSessionRegistry } from "../../../../src/main/features/ssh/browse-session-registry";
 import {
   browseSessionHandler,
   closeBrowseSessionHandler,
   openBrowseSessionHandler,
 } from "../../../../src/main/features/ssh/ipc";
-import { SshBrowseSessionRegistry } from "../../../../src/main/features/ssh/browse-session-registry";
 import type { AgentChannel } from "../../../../src/main/infra/agent/channel";
 import type { SshControlMaster } from "../../../../src/main/infra/agent/ssh/master";
 import type { EnsureRemoteAgentOptions } from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
@@ -40,10 +40,12 @@ function makeChannel(
   };
 }
 
-function makeBootstrapResult(overrides: Partial<{
-  controlPath: string;
-  dispose: () => void;
-}> = {}) {
+function makeBootstrapResult(
+  overrides: Partial<{
+    controlPath: string;
+    dispose: () => void;
+  }> = {},
+) {
   return {
     remoteCommand: "bash -lc 'exec ~/.nexus/bin/agent .'",
     platform: { os: "linux" as const, arch: "amd64" as const },
@@ -72,7 +74,11 @@ describe("openBrowseSessionHandler", () => {
     const bootstrapResult = makeBootstrapResult();
     const bootstrap = mock(async (_opts: EnsureRemoteAgentOptions) => bootstrapResult);
 
-    const handler = openBrowseSessionHandler(registry, mock(() => Promise.resolve()), bootstrap);
+    const handler = openBrowseSessionHandler(
+      registry,
+      mock(() => Promise.resolve()),
+      bootstrap,
+    );
 
     // openBrowseSessionHandler will call bootstrap() then createSshChannel()
     // (hardcoded, not injectable). createSshChannel() will fail because there's
@@ -123,7 +129,11 @@ describe("openBrowseSessionHandler", () => {
     const bootstrapDispose = mock(() => {});
     const bootstrap = mock(async () => makeBootstrapResult({ dispose: bootstrapDispose }));
 
-    const handler = openBrowseSessionHandler(registry, mock(() => Promise.resolve()), bootstrap);
+    const handler = openBrowseSessionHandler(
+      registry,
+      mock(() => Promise.resolve()),
+      bootstrap,
+    );
 
     try {
       await handler({ host: "nonexistent-host-abc123.invalid", authMode: "key-only" });
@@ -370,11 +380,14 @@ describe("closeBrowseSessionHandler", () => {
     const registry = new SshBrowseSessionRegistry();
     const channelDispose = mock(() => {});
     const masterDispose = mock(() => {});
-    const sessionId = registry.register(makeChannel(async () => [], channelDispose), {
-      controlPath: "/tmp/c.sock",
-      host: "h",
-      dispose: masterDispose,
-    });
+    const sessionId = registry.register(
+      makeChannel(async () => [], channelDispose),
+      {
+        controlPath: "/tmp/c.sock",
+        host: "h",
+        dispose: masterDispose,
+      },
+    );
 
     const handler = closeBrowseSessionHandler(registry);
     handler({ sessionId });
@@ -387,7 +400,10 @@ describe("closeBrowseSessionHandler", () => {
   it("closeBrowseSession is idempotent — second call on same id is a no-op", () => {
     const registry = new SshBrowseSessionRegistry();
     const channelDispose = mock(() => {});
-    const sessionId = registry.register(makeChannel(async () => [], channelDispose), null);
+    const sessionId = registry.register(
+      makeChannel(async () => [], channelDispose),
+      null,
+    );
 
     const handler = closeBrowseSessionHandler(registry);
     handler({ sessionId });
@@ -400,9 +416,7 @@ describe("closeBrowseSessionHandler", () => {
   it("closeBrowseSession on unknown id does not throw", () => {
     const registry = new SshBrowseSessionRegistry();
     const handler = closeBrowseSessionHandler(registry);
-    expect(() =>
-      handler({ sessionId: "00000000-0000-4000-8000-000000000000" }),
-    ).not.toThrow();
+    expect(() => handler({ sessionId: "00000000-0000-4000-8000-000000000000" })).not.toThrow();
     registry.dispose();
   });
 });
@@ -417,7 +431,10 @@ describe("cleanup paths", () => {
     const disposes = [mock(() => {}), mock(() => {}), mock(() => {})];
 
     for (const d of disposes) {
-      registry.register(makeChannel(async () => [], d), null);
+      registry.register(
+        makeChannel(async () => [], d),
+        null,
+      );
     }
 
     expect(registry.size()).toBe(3);
@@ -429,7 +446,10 @@ describe("cleanup paths", () => {
   it("dispose() after close() does not double-dispose a closed session", () => {
     const registry = new SshBrowseSessionRegistry();
     const channelDispose = mock(() => {});
-    const sessionId = registry.register(makeChannel(async () => [], channelDispose), null);
+    const sessionId = registry.register(
+      makeChannel(async () => [], channelDispose),
+      null,
+    );
 
     // Explicit close first.
     registry.close(sessionId);
@@ -461,11 +481,9 @@ describe("argument validation", () => {
     const registry = new SshBrowseSessionRegistry();
     const handler = browseSessionHandler(registry);
 
-    const error = await handler({ sessionId: "not-a-uuid", path: "." }).catch(
-      (e: unknown) => e,
-    );
+    const error = await handler({ sessionId: "not-a-uuid", path: "." }).catch((e: unknown) => e);
 
-    // validateArgs throws a ZodError for invalid sessionId format.
+    // validateArgs throws IpcValidationError for invalid sessionId format.
     expect(error).toBeInstanceOf(Error);
     // Must not be ssh.session-expired — it's a validation error.
     expect((error as Error & { code?: string }).code).not.toBe("ssh.session-expired");

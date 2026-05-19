@@ -13,14 +13,15 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 };
 
 // ---------------------------------------------------------------------------
-// Mock ipcCall before importing the store
+// Mock ipcCallResult before importing the store
 // Bun mock.module must be called before the import that uses it.
 // ---------------------------------------------------------------------------
 
-const mockIpcCall = mock(() => Promise.resolve());
+const mockIpcCallResult = mock(() => Promise.resolve({ ok: true, value: undefined }));
 
 mock.module("../../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: mockIpcCall,
+  ipcCallResult: mockIpcCallResult,
+  canUseIpcBridge: () => false,
 }));
 
 // ---------------------------------------------------------------------------
@@ -54,7 +55,7 @@ function resetStore() {
 describe("useUIStore", () => {
   beforeEach(() => {
     resetStore();
-    mockIpcCall.mockClear();
+    mockIpcCallResult.mockClear();
   });
 
   it("hydrate clamps sidebarWidth below MIN up to SIDEBAR_WIDTH_MIN", () => {
@@ -70,8 +71,8 @@ describe("useUIStore", () => {
   it("setSidebarWidth(300, true) persists with the correct ipc payload", () => {
     useUIStore.getState().setSidebarWidth(300, true);
     expect(useUIStore.getState().sidebarWidth).toBe(300);
-    expect(mockIpcCall).toHaveBeenCalledTimes(1);
-    expect(mockIpcCall).toHaveBeenCalledWith("appState", "set", { sidebarWidth: 300 });
+    expect(mockIpcCallResult).toHaveBeenCalledTimes(1);
+    expect(mockIpcCallResult).toHaveBeenCalledWith("appState", "set", { sidebarWidth: 300 });
   });
 
   // -------------------------------------------------------------------------
@@ -80,26 +81,26 @@ describe("useUIStore", () => {
   // additional coverage to add over what we verify directly below.
   // -------------------------------------------------------------------------
 
-  it("setFilesPanelWidth(300, false) updates store but does NOT call ipcCall", () => {
+  it("setFilesPanelWidth(300, false) updates store but does NOT call ipcCallResult", () => {
     useUIStore.getState().setFilesPanelWidth(300, false);
 
     expect(useUIStore.getState().filesPanelWidth).toBe(300);
-    expect(mockIpcCall).not.toHaveBeenCalled();
+    expect(mockIpcCallResult).not.toHaveBeenCalled();
   });
 
-  it("setFilesPanelWidth(350, true) calls ipcCall once with {filesPanelWidth:350}", () => {
+  it("setFilesPanelWidth(350, true) calls ipcCallResult once with {filesPanelWidth:350}", () => {
     useUIStore.getState().setFilesPanelWidth(350, true);
 
     expect(useUIStore.getState().filesPanelWidth).toBe(350);
-    expect(mockIpcCall).toHaveBeenCalledTimes(1);
-    expect(mockIpcCall).toHaveBeenCalledWith("appState", "set", { filesPanelWidth: 350 });
+    expect(mockIpcCallResult).toHaveBeenCalledTimes(1);
+    expect(mockIpcCallResult).toHaveBeenCalledWith("appState", "set", { filesPanelWidth: 350 });
   });
 
   it("repeated non-persist setFilesPanelWidth calls (mousemove drag) do not persist", () => {
     for (let dx = 10; dx <= 100; dx += 10) {
       useUIStore.getState().setFilesPanelWidth(FILES_PANEL_WIDTH_DEFAULT + dx, false);
     }
-    expect(mockIpcCall).not.toHaveBeenCalled();
+    expect(mockIpcCallResult).not.toHaveBeenCalled();
   });
 
   it("a single persist=true commit at mouseup writes the final width once", () => {
@@ -110,8 +111,8 @@ describe("useUIStore", () => {
     const currentWidth = useUIStore.getState().filesPanelWidth;
     useUIStore.getState().setFilesPanelWidth(currentWidth, true);
 
-    expect(mockIpcCall).toHaveBeenCalledTimes(1);
-    expect(mockIpcCall).toHaveBeenCalledWith("appState", "set", { filesPanelWidth: 300 });
+    expect(mockIpcCallResult).toHaveBeenCalledTimes(1);
+    expect(mockIpcCallResult).toHaveBeenCalledWith("appState", "set", { filesPanelWidth: 300 });
   });
 
   it("setFilesPanelWidth clamps below MIN to FILES_PANEL_WIDTH_MIN", () => {
@@ -119,10 +120,10 @@ describe("useUIStore", () => {
     expect(useUIStore.getState().filesPanelWidth).toBe(FILES_PANEL_WIDTH_MIN);
   });
 
-  it("reset (default, persist=true) writes one ipcCall with the default width", () => {
+  it("reset (default, persist=true) writes one ipcCallResult with the default width", () => {
     useUIStore.getState().setFilesPanelWidth(FILES_PANEL_WIDTH_DEFAULT, true);
-    expect(mockIpcCall).toHaveBeenCalledTimes(1);
-    expect(mockIpcCall).toHaveBeenCalledWith("appState", "set", {
+    expect(mockIpcCallResult).toHaveBeenCalledTimes(1);
+    expect(mockIpcCallResult).toHaveBeenCalledWith("appState", "set", {
       filesPanelWidth: FILES_PANEL_WIDTH_DEFAULT,
     });
   });

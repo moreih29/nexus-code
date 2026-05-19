@@ -6,7 +6,7 @@
  */
 
 import type { DirEntry } from "../../../shared/fs/types";
-import { ipcCall, ipcCallResult } from "../../ipc/client";
+import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import type { IpcResult } from "../../ipc/client";
 
 // ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ export async function browseSshSession(
   sessionId: string,
   path: string,
 ): Promise<BrowseSessionResult> {
-  const result = await ipcCall("ssh", "browseSession", { sessionId, path });
+  const result = unwrapIpcResult(await ipcCallResult("ssh", "browseSession", { sessionId, path }));
   const dirs = result.entries
     .filter((e) => e.type === "dir" || e.type === "symlink")
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -97,5 +97,6 @@ export async function prefetchSshDirectory(
  * best-effort cleanup call, typically run on unmount.
  */
 export async function closeSshBrowseSession(sessionId: string): Promise<void> {
-  await ipcCall("ssh", "closeBrowseSession", { sessionId }).catch(() => {});
+  // Fire-and-forget: close is best-effort cleanup; errors are silently ignored.
+  await ipcCallResult("ssh", "closeBrowseSession", { sessionId }).catch(() => {});
 }

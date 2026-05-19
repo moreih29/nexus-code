@@ -3,7 +3,7 @@
 
 import { FS_ERROR, fsErrorMessage } from "../../../../shared/fs/errors";
 import type { FileContent, FsChangedEvent } from "../../../../shared/fs/types";
-import { ipcCall, ipcListen } from "../../../ipc/client";
+import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../../ipc/client";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { relPath } from "../../../utils/path";
 import type { EditorInput } from "../types";
@@ -33,7 +33,9 @@ export function relPathForInput(input: EditorInput): string {
 
 export async function readFileForModel(input: EditorInput): Promise<FileLoadResult> {
   const rp = relPathForInput(input);
-  const result = await ipcCall("fs", "readFile", { workspaceId: input.workspaceId, relPath: rp });
+  const result = unwrapIpcResult(
+    await ipcCallResult("fs", "readFile", { workspaceId: input.workspaceId, relPath: rp }),
+  );
   if (result.kind === "missing") {
     throw new Error(fsErrorMessage(FS_ERROR.NOT_FOUND, input.filePath));
   }

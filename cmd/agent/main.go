@@ -10,7 +10,7 @@
 package main
 
 import (
-	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/nexus-code/nexus-code/internal/dispatch"
@@ -28,15 +28,21 @@ func main() {
 		os.Exit(code)
 	}
 
+	// agentLogger writes structured JSON to stderr. Every record carries the
+	// fixed marker attribute "src":"agent-log" so that the parent process
+	// (pipe.ts) can distinguish these structured lines from panic output and
+	// classifier text that also arrive on the same stderr stream.
+	agentLogger := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("src", "agent-log")
+
 	root := rootPathFromArgv(os.Args)
 	if root == "" {
-		fmt.Fprintln(os.Stderr, "Usage: agent <rootPath>")
+		agentLogger.Error("Usage: agent <rootPath>")
 		os.Exit(2)
 	}
 
 	fsys, err := agentfs.New(root)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		agentLogger.Error("failed to initialize fs", "err", err)
 		os.Exit(2)
 	}
 	git := agentgit.New(root)
@@ -44,7 +50,7 @@ func main() {
 	pty := agentpty.New()
 	search, err := agentsearch.New(root)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		agentLogger.Error("failed to initialize search", "err", err)
 		os.Exit(2)
 	}
 
@@ -55,7 +61,7 @@ func main() {
 	agentpty.Register(d, pty)
 	agentsearch.Register(d, search)
 
-	host := stdioserver.New(d, os.Stdin, os.Stdout)
+	host := stdioserver.New(d, os.Stdin, os.Stdout, agentLogger)
 	fsys.SetEventSink(func(event string, payload any) error {
 		err := host.EmitEvent(event, payload)
 		if event == "fs.changed" {
@@ -81,7 +87,7 @@ func main() {
 	// channel handshake on the TS side can settle. A write failure here
 	// is unrecoverable — without a Ready, the client will time out.
 	if err := host.WriteFrame(proto.Ready()); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		agentLogger.Error("failed to write ready frame", "err", err)
 		os.Exit(1)
 	}
 

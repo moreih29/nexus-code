@@ -9,7 +9,7 @@
  * they delegate into.
  */
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
-import { ipcCall } from "../../../../ipc/client";
+import { ipcCallResult, unwrapGitResult } from "../../../../ipc/client";
 import { openOrRevealEditor } from "../../../../services/editor";
 import { copyText } from "../../../../utils/clipboard";
 import type { GitPanelOpenDiffInput } from "./panel";
@@ -106,7 +106,9 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
       const results = [];
       for (const relPath of uniquePaths) {
         results.push(
-          await ipcCall("git", "addToGitignore", { workspaceId: ctx.workspaceId, relPath }),
+          unwrapGitResult(
+            await ipcCallResult("git", "addToGitignore", { workspaceId: ctx.workspaceId, relPath }),
+          ),
         );
       }
       const addedCount = results.filter((result) => result.added).length;
@@ -161,15 +163,15 @@ async function runSystemPathAction(
   absPath: string,
   setBanner: (banner: EntryActionBanner) => void,
 ): Promise<void> {
-  try {
-    const result = await ipcCall("system", method, { absPath });
-    if (!result.ok) {
-      setBanner({ variant: "error", message: result.error.message });
+  const result = await ipcCallResult("system", method, { absPath });
+  if (result.ok) {
+    // result.value carries { ok: boolean; error?: { message: string } } from the
+    // system channel handler — check the inner ok for path-not-found etc.
+    const inner = result.value as { ok: boolean; error?: { message: string } };
+    if (!inner.ok) {
+      setBanner({ variant: "error", message: inner.error?.message ?? "System path action failed." });
     }
-  } catch (error) {
-    setBanner({
-      variant: "error",
-      message: error instanceof Error ? error.message : "System path action failed.",
-    });
+  } else {
+    setBanner({ variant: "error", message: result.message });
   }
 }

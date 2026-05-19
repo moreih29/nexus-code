@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/errors";
 import type { FileContent } from "../../../shared/fs/types";
 import type { DiffTabPayload } from "../../../shared/types/tab";
-import { ipcCall, ipcListen } from "../../ipc/client";
+import { ipcCallResult, ipcListen, unwrapGitResult, unwrapIpcResult } from "../../ipc/client";
 import { isRecord } from "../../utils/is-record";
 import { EMPTY_TREE } from "./diff-refs";
 
@@ -231,17 +231,21 @@ export async function readSideContent(
 
   const result =
     request.source === "fs"
-      ? await ipcCall(
-          "fs",
-          "readFile",
-          { workspaceId: request.workspaceId, relPath: request.relPath },
-          { signal },
+      ? unwrapIpcResult(
+          await ipcCallResult(
+            "fs",
+            "readFile",
+            { workspaceId: request.workspaceId, relPath: request.relPath },
+            { signal },
+          ),
         )
-      : await ipcCall(
-          "git",
-          "getFileContent",
-          { workspaceId: request.workspaceId, ref: request.ref, relPath: request.relPath },
-          { signal },
+      : unwrapGitResult(
+          await ipcCallResult(
+            "git",
+            "getFileContent",
+            { workspaceId: request.workspaceId, ref: request.ref, relPath: request.relPath },
+            { signal },
+          ),
         );
 
   if (result.kind === "missing") {

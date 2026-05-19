@@ -7,7 +7,7 @@
 
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
-import { ipcCall } from "../../ipc/client";
+import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { openOrRevealEditor, runSaveAndReport } from "../../services/editor";
 import { refresh } from "../../state/operations/files";
 import { useActiveStore } from "../../state/stores/active";
@@ -46,13 +46,15 @@ export function registerFileCommands(): Array<() => void> {
     registerCommand(COMMANDS.fileOpen, async () => {
       const wsId = useActiveStore.getState().activeWorkspaceId;
       if (!wsId) return;
-      const { canceled, filePaths } = await ipcCall("dialog", "showOpenFile", {
-        title: "Open File",
-        filters: [
-          { name: "TypeScript / JavaScript", extensions: ["ts", "tsx", "js", "jsx"] },
-          { name: "All Files", extensions: ["*"] },
-        ],
-      });
+      const { canceled, filePaths } = unwrapIpcResult(
+        await ipcCallResult("dialog", "showOpenFile", {
+          title: "Open File",
+          filters: [
+            { name: "TypeScript / JavaScript", extensions: ["ts", "tsx", "js", "jsx"] },
+            { name: "All Files", extensions: ["*"] },
+          ],
+        }),
+      );
       if (canceled || filePaths.length === 0) return;
       openOrRevealEditor({ workspaceId: wsId, filePath: filePaths[0] });
     }),

@@ -24,7 +24,7 @@
 import { create } from "zustand";
 import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../../shared/types/panel";
 import type { PanelKind, ViewMode } from "../../../../shared/types/panel";
-import { canUseIpcBridge, ipcCall } from "../../../ipc/client";
+import { canUseIpcBridge, ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { cancelViewOptionsSave, scheduleViewOptionsSave } from "./io";
 
 // ---------------------------------------------------------------------------
@@ -87,8 +87,9 @@ export const usePanelViewOptionsStore = create<PanelViewOptionsState>((set, get)
 
     if (!canUseIpcBridge()) return;
 
-    ipcCall("panel", "getViewOptions", { workspaceId, panelKind })
-      .then((opts) => {
+    ipcCallResult("panel", "getViewOptions", { workspaceId, panelKind })
+      .then((result) => {
+        const opts = unwrapIpcResult(result);
         set((state) => {
           const next = new Map(state.entries);
           next.set(key, {

@@ -6,6 +6,7 @@ import { useLayoutStore } from "../../state/stores/layout";
 import { type Tab, useTabsStore } from "../../state/stores/tabs";
 import { useTerminalDeathStore } from "../../state/stores/terminal-deaths";
 import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../state/stores/workspaces";
+import { ErrorBoundary } from "../ui/error-boundary";
 import { StatusBar } from "../workbench/status-bar";
 import { ContentPool } from "./content/pool";
 import { LayoutTree } from "./layout/tree";
@@ -74,25 +75,30 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
       aria-hidden={!isActive || undefined}
       inert={!isActive || undefined}
     >
-      {showTerminalStatusBanner && (
-        <WorkspaceTerminalStatusBanner
-          deadTerminalCount={deadTerminalCount}
-          onReopenAll={() => {
-            requestReopenForDeadTerminalTabs(
-              workspace.id,
-              useTabsStore.getState().byWorkspace[workspace.id] ?? {},
-            );
-          }}
+      {/* ErrorBoundary: a render crash in one workspace panel is isolated so
+          other mounted workspace panels (including any active one) survive.
+          The logSource includes the workspace id for tracing in the log file. */}
+      <ErrorBoundary logSource={`workspace-panel:${workspace.id}`}>
+        {showTerminalStatusBanner && (
+          <WorkspaceTerminalStatusBanner
+            deadTerminalCount={deadTerminalCount}
+            onReopenAll={() => {
+              requestReopenForDeadTerminalTabs(
+                workspace.id,
+                useTabsStore.getState().byWorkspace[workspace.id] ?? {},
+              );
+            }}
+          />
+        )}
+        <LayoutTree
+          workspaceId={workspace.id}
+          root={layout.root}
+          onActivateGroup={(gid) => useLayoutStore.getState().setActiveGroup(workspace.id, gid)}
+          workspaceRootPath={workspace.rootPath}
         />
-      )}
-      <LayoutTree
-        workspaceId={workspace.id}
-        root={layout.root}
-        onActivateGroup={(gid) => useLayoutStore.getState().setActiveGroup(workspace.id, gid)}
-        workspaceRootPath={workspace.rootPath}
-      />
-      <ContentPool workspaceId={workspace.id} isWorkspaceActive={isActive} />
-      <StatusBar workspaceId={workspace.id} />
+        <ContentPool workspaceId={workspace.id} isWorkspaceActive={isActive} />
+        <StatusBar workspaceId={workspace.id} />
+      </ErrorBoundary>
     </div>
   );
 }

@@ -20,9 +20,9 @@ const ipcResults = new Map<string, unknown>();
 };
 
 mock.module("../../../../src/renderer/ipc/client", () => ({
-  ipcCall: mock((channel: string, method: string, args: unknown, opts?: unknown) => {
+  ipcCallResult: mock((channel: string, method: string, args: unknown, opts?: unknown) => {
     ipcCalls.push({ channel, method, args, opts });
-    return Promise.resolve(ipcResults.get(method));
+    return Promise.resolve({ ok: true as const, value: ipcResults.get(method) });
   }),
   ipcListen: mock(() => () => {}),
 }));

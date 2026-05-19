@@ -12,7 +12,7 @@
 // Changing this requires an app restart — `transparent` is constructor-only in Electron.
 
 import { create } from "zustand";
-import { ipcCall } from "../../ipc/client";
+import { ipcCallResult } from "../../ipc/client";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -68,9 +68,12 @@ export const useWindowOpacityStore = create<WindowOpacityState>((set) => {
       if (typeof localStorage !== "undefined") {
         localStorage.setItem(WINDOW_OPACITY_STORAGE_KEY, String(opacity));
       }
-      ipcCall("appState", "set", {
+      // Fire-and-forget: localStorage is the boot cache; appState is the durable store.
+      void ipcCallResult("appState", "set", {
         windowOpacity: opacity === 1 ? undefined : opacity,
-      }).catch(() => {});
+      }).then((result) => {
+        if (!result.ok) console.warn("[window-opacity] appState set failed", result.message);
+      });
     },
   };
 });

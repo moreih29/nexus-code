@@ -7,7 +7,7 @@
  */
 
 import type { GitPanelStateUpdate } from "../../../../shared/git/types";
-import { canUseIpcBridge, ipcCall } from "../../../ipc/client";
+import { canUseIpcBridge, ipcCallResult } from "../../../ipc/client";
 
 /**
  * Persist panel-state updates through the git channel. Skipped silently in
@@ -16,8 +16,9 @@ import { canUseIpcBridge, ipcCall } from "../../../ipc/client";
 export function persistPanelState(workspaceId: string, update: GitPanelStateUpdate): void {
   if (!canUseIpcBridge()) return;
 
-  ipcCall("git", "setPanelState", { workspaceId, ...update }).catch((error: unknown) => {
-    console.error("[git] setPanelState failed", error);
+  // Fire-and-forget: panel state is best-effort; UI is never rolled back on failure.
+  void ipcCallResult("git", "setPanelState", { workspaceId, ...update }).then((result) => {
+    if (!result.ok) console.error("[git] setPanelState failed", result.message);
   });
 }
 

@@ -31,8 +31,8 @@ export function listBranchesHandler(
  * the call returns so branch metadata updates arrive first.
  *
  * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object so the router stays log-silent and the renderer's ipcCall path
- * rehydrates it as a typed Error via isIpcGitErrorResult.
+ * object so the router stays log-silent. The renderer's ipcCallResult path
+ * receives this as an IpcErrResult and unwrapGitResult converts it to a thrown Error.
  */
 export function checkoutHandler(
   registry: GitRegistry,

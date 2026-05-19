@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import type { CommitDetail, CommitFileChange } from "../../../shared/git/types";
-import { ipcCall } from "../../ipc/client";
+import { ipcCallResult, unwrapGitResult } from "../../ipc/client";
 import { closeTab, openDiffTab } from "../../state/operations/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
 import { Button } from "../ui/button";
@@ -32,9 +32,12 @@ export function CommitTab({ workspaceId, sha, tabId }: CommitTabProps) {
     setError(null);
     setLoading(true);
 
-    ipcCall("git", "commitDetail", { workspaceId, sha }, { signal: controller.signal })
-      .then((nextDetail) => {
+    ipcCallResult("git", "commitDetail", { workspaceId, sha }, { signal: controller.signal })
+      .then((ipcRes) => {
         if (controller.signal.aborted) return;
+        // unwrapGitResult throws on git errors so the .catch handler below
+        // receives the typed error with its `.kind` field intact.
+        const nextDetail = unwrapGitResult(ipcRes);
         setDetail(nextDetail);
         useTabsStore.getState().renameTab(workspaceId, tabId, nextDetail.subject);
       })

@@ -3,7 +3,7 @@
 
 import type * as Monaco from "monaco-editor";
 import { CANONICAL_TOKEN_TYPES } from "../../../../shared/lsp/semantic-tokens";
-import { ipcCall } from "../../../ipc/client";
+import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { isLspLanguage } from "./language";
 import {
   hoverContentsToMarkdown,
@@ -61,15 +61,17 @@ export function registerLanguageProviders(
       if (!isLspLanguage(model.getLanguageId())) return null;
       try {
         const signal = tokenToAbortSignal(token);
-        const result = await ipcCall(
-          "lsp",
-          "hover",
-          {
-            uri: model.uri.toString(),
-            line: position.lineNumber - 1,
-            character: position.column - 1,
-          },
-          { signal },
+        const result = unwrapIpcResult(
+          await ipcCallResult(
+            "lsp",
+            "hover",
+            {
+              uri: model.uri.toString(),
+              line: position.lineNumber - 1,
+              character: position.column - 1,
+            },
+            { signal },
+          ),
         );
         if (!result || !isLspLanguage(model.getLanguageId())) return null;
         return {
@@ -87,15 +89,17 @@ export function registerLanguageProviders(
       if (!isLspLanguage(model.getLanguageId())) return null;
       try {
         const signal = tokenToAbortSignal(token);
-        const results = await ipcCall(
-          "lsp",
-          "definition",
-          {
-            uri: model.uri.toString(),
-            line: position.lineNumber - 1,
-            character: position.column - 1,
-          },
-          { signal },
+        const results = unwrapIpcResult(
+          await ipcCallResult(
+            "lsp",
+            "definition",
+            {
+              uri: model.uri.toString(),
+              line: position.lineNumber - 1,
+              character: position.column - 1,
+            },
+            { signal },
+          ),
         );
         if (results.length === 0 || !isLspLanguage(model.getLanguageId())) return null;
         const monacoLocations = results.map((location) =>
@@ -117,15 +121,17 @@ export function registerLanguageProviders(
       if (!isLspLanguage(model.getLanguageId())) return { suggestions: [] };
       try {
         const signal = tokenToAbortSignal(token);
-        const results = await ipcCall(
-          "lsp",
-          "completion",
-          {
-            uri: model.uri.toString(),
-            line: position.lineNumber - 1,
-            character: position.column - 1,
-          },
-          { signal },
+        const results = unwrapIpcResult(
+          await ipcCallResult(
+            "lsp",
+            "completion",
+            {
+              uri: model.uri.toString(),
+              line: position.lineNumber - 1,
+              character: position.column - 1,
+            },
+            { signal },
+          ),
         );
         const word = model.getWordUntilPosition(position);
         const range = {
@@ -155,16 +161,18 @@ export function registerLanguageProviders(
       if (!isLspLanguage(model.getLanguageId())) return [];
       try {
         const signal = tokenToAbortSignal(token);
-        const results = await ipcCall(
-          "lsp",
-          "references",
-          {
-            uri: model.uri.toString(),
-            line: position.lineNumber - 1,
-            character: position.column - 1,
-            includeDeclaration: context.includeDeclaration,
-          },
-          { signal },
+        const results = unwrapIpcResult(
+          await ipcCallResult(
+            "lsp",
+            "references",
+            {
+              uri: model.uri.toString(),
+              line: position.lineNumber - 1,
+              character: position.column - 1,
+              includeDeclaration: context.includeDeclaration,
+            },
+            { signal },
+          ),
         );
         if (!isLspLanguage(model.getLanguageId())) return [];
         const monacoLocations = results.map((location) =>
@@ -187,15 +195,17 @@ export function registerLanguageProviders(
       if (!isLspLanguage(model.getLanguageId())) return [];
       try {
         const signal = tokenToAbortSignal(token);
-        const results = await ipcCall(
-          "lsp",
-          "documentHighlight",
-          {
-            uri: model.uri.toString(),
-            line: position.lineNumber - 1,
-            character: position.column - 1,
-          },
-          { signal },
+        const results = unwrapIpcResult(
+          await ipcCallResult(
+            "lsp",
+            "documentHighlight",
+            {
+              uri: model.uri.toString(),
+              line: position.lineNumber - 1,
+              character: position.column - 1,
+            },
+            { signal },
+          ),
         );
         if (!isLspLanguage(model.getLanguageId())) return [];
         return results.map((highlight) => lspDocumentHighlightToMonacoHighlight(highlight));
@@ -232,11 +242,13 @@ export function registerLanguageProviders(
       if (!isLspLanguage(model.getLanguageId())) return null;
       try {
         const signal = tokenToAbortSignal(token);
-        const result = await ipcCall(
-          "lsp",
-          "semanticTokens",
-          { uri: model.uri.toString() },
-          { signal },
+        const result = unwrapIpcResult(
+          await ipcCallResult(
+            "lsp",
+            "semanticTokens",
+            { uri: model.uri.toString() },
+            { signal },
+          ),
         );
         if (!result || !isLspLanguage(model.getLanguageId())) return null;
         return { data: new Uint32Array(result.data), resultId: result.resultId };

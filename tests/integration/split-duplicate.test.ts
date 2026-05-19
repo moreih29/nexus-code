@@ -50,12 +50,13 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 };
 
 // ---------------------------------------------------------------------------
-// Mock ipcCall
+// Mock ipcCallResult
 // ---------------------------------------------------------------------------
 
 mock.module("../../src/renderer/ipc/client", () => ({
-  ipcCall: mock(() => Promise.resolve()),
+  ipcCallResult: mock(() => Promise.resolve({ ok: true as const, value: undefined })),
   ipcListen: () => () => {},
+  canUseIpcBridge: () => false,
 }));
 
 // ---------------------------------------------------------------------------

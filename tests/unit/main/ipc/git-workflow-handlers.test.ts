@@ -4,7 +4,6 @@
 import { describe, expect, test } from "bun:test";
 import { GitError } from "../../../../src/main/features/git/domain/error";
 import type { GitRegistry } from "../../../../src/main/features/git/domain/registry";
-import { isIpcGitErrorResult } from "../../../../src/shared/git/error-ipc";
 import {
   abortOpHandler,
   cherryPickHandler,
@@ -13,6 +12,7 @@ import {
   mergeHandler,
   rebaseHandler,
 } from "../../../../src/main/features/git/ipc/workflow-handlers";
+import { isIpcGitErrorResult } from "../../../../src/shared/git/error-ipc";
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -112,7 +112,7 @@ describe("git workflow IPC handlers", () => {
     const result = await cherryPickHandler(registry)({ workspaceId: WORKSPACE_ID, sha: "abc123" });
     expect(isIpcGitErrorResult(result)).toBe(true);
     // @ts-expect-error — narrowed by isIpcGitErrorResult check above
-    expect(result.kind).toBe("empty-commit");
+    expect(result.gitKind).toBe("empty-commit");
 
     expect(events).toEqual(["getOrDetect", "cherryPick", "bumpGeneration", "refreshStatus"]);
   });

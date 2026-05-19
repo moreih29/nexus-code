@@ -15,17 +15,19 @@ const ipcCalls: IpcCall[] = [];
 let rejectNext: Error | null = null;
 
 mock.module("../../../../src/renderer/ipc/client", () => ({
-  ipcCall: (channel: string, method: string, args: unknown) => {
+  ipcCallResult: (channel: string, method: string, args: unknown) => {
     ipcCalls.push({ channel, method, args });
     if (rejectNext) {
       const err = rejectNext;
       rejectNext = null;
       return Promise.reject(err);
     }
-    if (channel === "fs" && method === "readdir") return Promise.resolve([]);
-    return Promise.resolve(undefined);
+    if (channel === "fs" && method === "readdir")
+      return Promise.resolve({ ok: true as const, value: [] });
+    return Promise.resolve({ ok: true as const, value: undefined });
   },
   ipcListen: () => () => {},
+  canUseIpcBridge: () => false,
 }));
 
 function installWindow(): void {

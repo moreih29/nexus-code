@@ -15,7 +15,7 @@
 import { create } from "zustand";
 import type { ThemePreference } from "../../../shared/types/app-state";
 import type { ThemeId } from "../../../shared/design-tokens";
-import { ipcCall } from "../../ipc/client";
+import { ipcCallResult } from "../../ipc/client";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -117,9 +117,12 @@ export const useThemeStore = create<ThemeState>((set, get) => {
       if (typeof localStorage !== "undefined") {
         localStorage.setItem(THEME_STORAGE_KEY, preference);
       }
-      ipcCall("appState", "set", { themePreference: preference === "system" ? undefined : preference }).catch(
-        () => {},
-      );
+      // Fire-and-forget: localStorage is the boot cache; appState is the durable store.
+      void ipcCallResult("appState", "set", {
+        themePreference: preference === "system" ? undefined : preference,
+      }).then((result) => {
+        if (!result.ok) console.warn("[theme] appState set failed", result.message);
+      });
     },
 
     resolveFromMediaQuery(isDark) {

@@ -8,7 +8,7 @@
  *   (c) Legacy throw path: isMissingContentError fallback still works when
  *       the IPC call throws a NOT_FOUND-coded error (backward compat).
  *   (d) Console no-noise: {kind:"missing"} path never triggers the error
- *       handler (no throw) — ipcCall itself does not reject.
+ *       handler (no throw) — ipcCallResult itself does not reject.
  *
  * ISOLATION: ipc/client is a leaf module. mock.module is permitted per
  * pattern-bun-mock-conventions Rule 1. Real exports spread (Rule 2).
@@ -22,17 +22,20 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 const realIpcClient = await import("../../../../../src/renderer/ipc/client");
 
 const ipcCallMock = mock(async () => ({
-  kind: "ok" as const,
-  content: "default content",
-  encoding: "utf8" as const,
-  sizeBytes: 15,
-  isBinary: false,
-  mtime: "2024-01-01T00:00:00.000Z",
+  ok: true as const,
+  value: {
+    kind: "ok" as const,
+    content: "default content",
+    encoding: "utf8" as const,
+    sizeBytes: 15,
+    isBinary: false,
+    mtime: "2024-01-01T00:00:00.000Z",
+  },
 }));
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ...realIpcClient,
-  ipcCall: ipcCallMock,
+  ipcCallResult: ipcCallMock,
   ipcListen: () => () => {},
 }));
 
@@ -73,8 +76,8 @@ describe("readSideContent — kind:missing IPC response → placeholder missing,
 
   test("git source: {kind:'missing'} resolves with placeholder:'missing' and empty content", async () => {
     ipcCallMock.mockImplementationOnce(async () => ({
-      kind: "missing" as const,
-      reason: "index" as const,
+      ok: true as const,
+      value: { kind: "missing" as const, reason: "index" as const },
     }));
 
     const request = makeGitRequest("INDEX");
@@ -90,8 +93,8 @@ describe("readSideContent — kind:missing IPC response → placeholder missing,
 
   test("fs source: {kind:'missing'} resolves with placeholder:'missing' and empty content", async () => {
     ipcCallMock.mockImplementationOnce(async () => ({
-      kind: "missing" as const,
-      reason: "not-found" as const,
+      ok: true as const,
+      value: { kind: "missing" as const, reason: "not-found" as const },
     }));
 
     const request = makeFsRequest();
@@ -103,12 +106,12 @@ describe("readSideContent — kind:missing IPC response → placeholder missing,
     expect(result.placeholder).toBe("missing");
   });
 
-  test("kind:missing path does NOT cause ipcCall to throw (resolves cleanly)", async () => {
+  test("kind:missing path does NOT cause ipcCallResult to throw (resolves cleanly)", async () => {
     // This confirms the no-noise design: the IPC call itself resolves.
     let threwDuringIpcCall = false;
     ipcCallMock.mockImplementationOnce(async () => {
       // Simulate what the main process does: resolve, not throw.
-      return { kind: "missing" as const, reason: "index" as const };
+      return { ok: true as const, value: { kind: "missing" as const, reason: "index" as const } };
     });
 
     const request = makeGitRequest("INDEX");
@@ -140,7 +143,7 @@ describe("readSideContent — kind:ok IPC response → content forwarded", () =>
       isBinary: false,
       mtime: "2024-05-01T00:00:00.000Z",
     };
-    ipcCallMock.mockImplementationOnce(async () => okPayload);
+    ipcCallMock.mockImplementationOnce(async () => ({ ok: true as const, value: okPayload }));
 
     const request = makeGitRequest("HEAD");
     const controller = new AbortController();
@@ -155,12 +158,15 @@ describe("readSideContent — kind:ok IPC response → content forwarded", () =>
 
   test("utf8-bom encoding is passed through unchanged", async () => {
     ipcCallMock.mockImplementationOnce(async () => ({
-      kind: "ok" as const,
-      content: "// BOM file\n",
-      encoding: "utf8-bom" as const,
-      sizeBytes: 12,
-      isBinary: false,
-      mtime: "2024-05-01T00:00:00.000Z",
+      ok: true as const,
+      value: {
+        kind: "ok" as const,
+        content: "// BOM file\n",
+        encoding: "utf8-bom" as const,
+        sizeBytes: 12,
+        isBinary: false,
+        mtime: "2024-05-01T00:00:00.000Z",
+      },
     }));
 
     const request = makeGitRequest("HEAD");
@@ -179,7 +185,7 @@ describe("readSideContent — kind:ok IPC response → content forwarded", () =>
 describe("readSideContent — legacy throw: isMissingContentError fallback still works", () => {
   beforeEach(() => ipcCallMock.mockClear());
 
-  test("ipcCall rejection with NOT_FOUND-coded error resolves with placeholder:missing in useDiffContent error handler", async () => {
+  test("ipcCallResult rejection with NOT_FOUND-coded error resolves with placeholder:missing in useDiffContent error handler", async () => {
     // readSideContent itself will throw (old path), but useDiffContent's error handler
     // catches it via isMissingContentError. We verify readSideContent throws.
     const { FS_ERROR } = await import("../../../../../src/shared/fs/errors");

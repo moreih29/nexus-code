@@ -21,9 +21,9 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
     promise: Promise.resolve({ filesScanned: 0, matchesFound: 0, limitHit: false, elapsedMs: 0 }),
     onProgress: mock((_cb: unknown) => () => {}),
   })),
-  ipcCall: mock(
+  ipcCallResult: mock(
     (_ch: string, _m: string, _a: unknown): Promise<unknown> =>
-      Promise.resolve({ viewMode: "list", compactFolders: false }),
+      Promise.resolve({ ok: true as const, value: { viewMode: "list", compactFolders: false } }),
   ),
   canUseIpcBridge: mock(() => false),
 }));
@@ -36,9 +36,9 @@ mock.module("../../../../../src/renderer/state/workspace-cleanup", () => ({
 // Imports — after mocks
 // ---------------------------------------------------------------------------
 
-import { useSearchStore } from "../../../../../src/renderer/state/stores/search";
-import { usePanelViewOptionsStore } from "../../../../../src/renderer/state/stores/panel-view-options";
 import { shouldHandleArrowDown } from "../../../../../src/renderer/components/files/search/arrow-down-handoff";
+import { usePanelViewOptionsStore } from "../../../../../src/renderer/state/stores/panel-view-options";
+import { useSearchStore } from "../../../../../src/renderer/state/stores/search";
 
 const WS_A = "00000000-0000-0000-0000-0000000000cc";
 const WS_B = "00000000-0000-0000-0000-0000000000dd";
@@ -96,9 +96,7 @@ describe("search store — expandedDirs is session-scoped (cleared on workspace 
     useSearchStore.getState().closeAllForWorkspace(WS_A);
 
     // viewMode is persisted (stays in shared store entries).
-    const entry = usePanelViewOptionsStore
-      .getState()
-      .entries.get(`search:${WS_A}`);
+    const entry = usePanelViewOptionsStore.getState().entries.get(`search:${WS_A}`);
     expect(entry?.viewMode).toBe("tree");
     // expandedDirs is session-scoped (cleared on close).
     expect(useSearchStore.getState().expandedDirsByWorkspace.has(WS_A)).toBe(false);
@@ -147,7 +145,13 @@ describe("SearchPanel.handleInputArrowDown — shouldHandleArrowDown guard (g)",
     expect(
       shouldHandleArrowDown({
         query: "foo",
-        options: { isRegExp: false, isCaseSensitive: false, isWordMatch: false, includes: [], excludes: [] },
+        options: {
+          isRegExp: false,
+          isCaseSensitive: false,
+          isWordMatch: false,
+          includes: [],
+          excludes: [],
+        },
         results: [],
         status: "done",
         limitHit: false,
@@ -162,7 +166,13 @@ describe("SearchPanel.handleInputArrowDown — shouldHandleArrowDown guard (g)",
     expect(
       shouldHandleArrowDown({
         query: "foo",
-        options: { isRegExp: false, isCaseSensitive: false, isWordMatch: false, includes: [], excludes: [] },
+        options: {
+          isRegExp: false,
+          isCaseSensitive: false,
+          isWordMatch: false,
+          includes: [],
+          excludes: [],
+        },
         results: [{ relPath: "src/index.ts", matches: [], expanded: true }],
         status: "done",
         limitHit: false,
@@ -177,7 +187,13 @@ describe("SearchPanel.handleInputArrowDown — shouldHandleArrowDown guard (g)",
     expect(
       shouldHandleArrowDown({
         query: "bar",
-        options: { isRegExp: false, isCaseSensitive: false, isWordMatch: false, includes: [], excludes: [] },
+        options: {
+          isRegExp: false,
+          isCaseSensitive: false,
+          isWordMatch: false,
+          includes: [],
+          excludes: [],
+        },
         results: new Array(0),
         status: "done",
         limitHit: false,

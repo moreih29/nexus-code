@@ -19,7 +19,7 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 // ---------------------------------------------------------------------------
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: mock(() => Promise.resolve({})),
+  ipcCallResult: mock(() => Promise.resolve({ ok: true as const, value: {} })),
   ipcListen: mock(() => () => {}),
   ipcStream: mock(() => ({ promise: Promise.resolve(undefined), onProgress: mock(() => {}) })),
   canUseIpcBridge: mock(() => false),
@@ -121,13 +121,17 @@ describe("shared store — setCompactFolders for git panel", () => {
 
   it("setCompactFolders true stored correctly", () => {
     usePanelViewOptionsStore.getState().setCompactFolders("git", WS_A, true);
-    expect(usePanelViewOptionsStore.getState().entries.get(`git:${WS_A}`)?.compactFolders).toBe(true);
+    expect(usePanelViewOptionsStore.getState().entries.get(`git:${WS_A}`)?.compactFolders).toBe(
+      true,
+    );
   });
 
   it("setCompactFolders false stored correctly after true", () => {
     usePanelViewOptionsStore.getState().setCompactFolders("git", WS_A, true);
     usePanelViewOptionsStore.getState().setCompactFolders("git", WS_A, false);
-    expect(usePanelViewOptionsStore.getState().entries.get(`git:${WS_A}`)?.compactFolders).toBe(false);
+    expect(usePanelViewOptionsStore.getState().entries.get(`git:${WS_A}`)?.compactFolders).toBe(
+      false,
+    );
   });
 });
 

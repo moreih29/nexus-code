@@ -16,8 +16,8 @@ const c = ipcContract.git.call;
  * Builds the read-only tag list handler used by ref and tag pickers.
  *
  * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object so the router stays log-silent and the renderer's ipcCall path
- * rehydrates it as a typed Error via isIpcGitErrorResult.
+ * object so the router stays log-silent. The renderer's ipcCallResult path
+ * receives this as an IpcErrResult and unwrapGitResult converts it to a thrown Error.
  */
 export function listTagsHandler(
   registry: GitRegistry,

@@ -30,10 +30,13 @@ const fakeDocumentElement = {
   },
 };
 
+const realIpcClient = await import("../../../../src/renderer/ipc/client");
 mock.module("../../../../src/renderer/ipc/client", () => ({
-  ipcCall: mock(() => Promise.resolve(undefined)),
+  ...realIpcClient,
+  ipcCallResult: mock(() => Promise.resolve({ ok: true as const, value: undefined })),
   ipcListen: mock(() => () => {}),
   ipcStream: mock(() => ({ cancel: () => {} })),
+  canUseIpcBridge: () => false,
 }));
 
 const { initializeEditorServices } = await import("../../../../src/renderer/services/editor");

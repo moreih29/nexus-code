@@ -11,7 +11,7 @@
 import type * as Monaco from "monaco-editor";
 import { showConflictResolution } from "../../../components/editor/conflict-dialog";
 import { showToast } from "../../../components/ui/toast";
-import { ipcCall } from "../../../ipc/client";
+import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { notifyDidSave } from "../lsp/bridge";
 import { getDirtyEntry, markSaved as markDirtyTrackerSaved, updateLoadedMetadata } from "../model/dirty-tracker";
 import { relPathForInput } from "../model/file-loader";
@@ -190,15 +190,17 @@ export async function saveModel(input: EditorInput): Promise<SaveResult> {
               size: dirtyEntryNow.loadedSize,
             } as const);
 
-      const ipcResult = await ipcCall("fs", "writeFile", {
-        workspaceId: resolved.workspaceId,
-        relPath: relPathForInput({
+      const ipcResult = unwrapIpcResult(
+        await ipcCallResult("fs", "writeFile", {
           workspaceId: resolved.workspaceId,
-          filePath: resolved.filePath,
+          relPath: relPathForInput({
+            workspaceId: resolved.workspaceId,
+            filePath: resolved.filePath,
+          }),
+          content,
+          expected,
         }),
-        content,
-        expected,
-      });
+      );
 
       if (ipcResult.kind === "conflict") {
         // No mutation to dirty/baseline — caller will reload or force.

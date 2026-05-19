@@ -7,7 +7,7 @@ import type {
   SymbolInformation,
   TextDocumentContentChangeEvent,
 } from "../../../../shared/lsp";
-import { ipcCall, ipcListen } from "../../../ipc/client";
+import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../../ipc/client";
 import { isLspLanguage } from "./language";
 import {
   lspDiagnosticToMonacoMarker,
@@ -87,7 +87,8 @@ function registerApplyEditListener(monaco: typeof Monaco): void {
       }
     })();
 
-    ipcCall("lsp", "applyEditResult", { requestId: args.requestId, result }).catch(() => {});
+    // Fire-and-forget: applyEditResult is a one-shot ack; LSP server handles timeouts.
+    void ipcCallResult("lsp", "applyEditResult", { requestId: args.requestId, result });
   });
 }
 
@@ -136,7 +137,14 @@ export function notifyDidOpen(
   version: number,
   text: string,
 ): Promise<void> {
-  return ipcCall("lsp", "didOpen", { workspaceId, workspaceRoot, uri, languageId, version, text });
+  return ipcCallResult("lsp", "didOpen", {
+    workspaceId,
+    workspaceRoot,
+    uri,
+    languageId,
+    version,
+    text,
+  }).then(unwrapIpcResult);
 }
 
 export function notifyDidChange(
@@ -144,19 +152,19 @@ export function notifyDidChange(
   version: number,
   contentChanges: TextDocumentContentChangeEvent[],
 ): Promise<void> {
-  return ipcCall("lsp", "didChange", { uri, version, contentChanges });
+  return ipcCallResult("lsp", "didChange", { uri, version, contentChanges }).then(unwrapIpcResult);
 }
 
 export function notifyDidSave(uri: string, text?: string): Promise<void> {
-  return ipcCall("lsp", "didSave", { uri, text });
+  return ipcCallResult("lsp", "didSave", { uri, text }).then(unwrapIpcResult);
 }
 
 export function notifyDidClose(uri: string): Promise<void> {
-  return ipcCall("lsp", "didClose", { uri });
+  return ipcCallResult("lsp", "didClose", { uri }).then(unwrapIpcResult);
 }
 
 export function fetchDocumentSymbols(uri: string, signal?: AbortSignal): Promise<DocumentSymbol[]> {
-  return ipcCall("lsp", "documentSymbol", { uri }, { signal });
+  return ipcCallResult("lsp", "documentSymbol", { uri }, { signal }).then(unwrapIpcResult);
 }
 
 export async function provideWorkspaceSymbols(
@@ -167,7 +175,9 @@ export async function provideWorkspaceSymbols(
 ): Promise<WorkspaceSymbolResult[]> {
   if (query.trim().length < 1) return [];
 
-  const symbols = await ipcCall("lsp", "workspaceSymbol", { workspaceId, query }, { signal });
+  const symbols = unwrapIpcResult(
+    await ipcCallResult("lsp", "workspaceSymbol", { workspaceId, query }, { signal }),
+  );
   return symbols.map((symbol: SymbolInformation) =>
     lspSymbolInformationToWorkspaceSymbol(monaco, symbol),
   );

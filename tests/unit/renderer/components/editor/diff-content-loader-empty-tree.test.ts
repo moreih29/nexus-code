@@ -12,9 +12,9 @@
  * (Rule 2) and declare the mock before importing the module under test.
  *
  * SCOPE:
- *   1. EMPTY_TREE ref → ipcCall is NOT called, returns empty content.
- *   2. Normal git ref ("HEAD") → ipcCall IS called exactly once.
- *   3. AbortSignal already-aborted → ipcCall never called (abort before flight).
+ *   1. EMPTY_TREE ref → ipcCallResult is NOT called, returns empty content.
+ *   2. Normal git ref ("HEAD") → ipcCallResult IS called exactly once.
+ *   3. AbortSignal already-aborted → ipcCallResult never called (abort before flight).
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -25,18 +25,21 @@ const realIpcClient = await import("../../../../../src/renderer/ipc/client");
 
 const ipcCallMock = mock(() =>
   Promise.resolve({
-    kind: "ok" as const,
-    content: "file content",
-    encoding: "utf8" as const,
-    sizeBytes: 12,
-    isBinary: false,
-    mtime: "2024-01-01T00:00:00.000Z",
+    ok: true as const,
+    value: {
+      kind: "ok" as const,
+      content: "file content",
+      encoding: "utf8" as const,
+      sizeBytes: 12,
+      isBinary: false,
+      mtime: "2024-01-01T00:00:00.000Z",
+    },
   }),
 );
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ...realIpcClient,
-  ipcCall: ipcCallMock,
+  ipcCallResult: ipcCallMock,
   ipcListen: () => () => {},
 }));
 
@@ -72,7 +75,7 @@ describe("readSideContent — EMPTY_TREE short-circuit", () => {
     ipcCallMock.mockClear();
   });
 
-  test("returns empty content immediately when ref is EMPTY_TREE — ipcCall not called", async () => {
+  test("returns empty content immediately when ref is EMPTY_TREE — ipcCallResult not called", async () => {
     const request = makeRequest(EMPTY_TREE);
     const controller = new AbortController();
 
@@ -88,7 +91,7 @@ describe("readSideContent — EMPTY_TREE short-circuit", () => {
     expect(result.isBinary).toBe(false);
   });
 
-  test("calls ipcCall exactly once when ref is a normal git ref ('HEAD')", async () => {
+  test("calls ipcCallResult exactly once when ref is a normal git ref ('HEAD')", async () => {
     const request = makeRequest("HEAD");
     const controller = new AbortController();
 
@@ -104,7 +107,7 @@ describe("readSideContent — EMPTY_TREE short-circuit", () => {
     expect(result.content).toBe("file content");
   });
 
-  test("calls ipcCall exactly once when ref is INDEX (working-tree fs source)", async () => {
+  test("calls ipcCallResult exactly once when ref is INDEX (working-tree fs source)", async () => {
     // INDEX ref with source=git → goes through git.getFileContent
     const request = makeRequest("INDEX", "git");
     const controller = new AbortController();

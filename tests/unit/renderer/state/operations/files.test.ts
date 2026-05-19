@@ -13,16 +13,17 @@ import { beforeEach, describe, expect, it, jest, mock } from "bun:test";
 };
 
 // ---------------------------------------------------------------------------
-// Mock ipcCall
+// Mock ipcCallResult
 // ---------------------------------------------------------------------------
 
-const mockIpcCall = mock((_channel: string, _method: string, _args: unknown) =>
-  Promise.resolve(undefined),
+const mockIpcCallResult = mock((_channel: string, _method: string, _args: unknown) =>
+  Promise.resolve({ ok: true as const, value: undefined }),
 );
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: mockIpcCall,
+  ipcCallResult: mockIpcCallResult,
   ipcListen: () => () => {},
+  canUseIpcBridge: () => false,
 }));
 
 // ---------------------------------------------------------------------------
@@ -51,15 +52,17 @@ function dirEntry(name: string, type: DirEntry["type"] = "file"): DirEntry {
 
 function resetStore() {
   useFilesStore.setState({ trees: new Map(), activeAbsPath: new Map() });
-  mockIpcCall.mockClear();
+  mockIpcCallResult.mockClear();
 }
 
 function setupReaddir(responses: Record<string, DirEntry[]>) {
-  mockIpcCall.mockImplementation(
+  mockIpcCallResult.mockImplementation(
     (_channel: string, method: string, args: { workspaceId: string; relPath: string }) => {
-      if (method === "getExpanded") return Promise.resolve({ relPaths: [] });
-      if (method === "readdir") return Promise.resolve(responses[args.relPath] ?? []);
-      return Promise.resolve(undefined);
+      if (method === "getExpanded")
+        return Promise.resolve({ ok: true as const, value: { relPaths: [] } });
+      if (method === "readdir")
+        return Promise.resolve({ ok: true as const, value: responses[args.relPath] ?? [] });
+      return Promise.resolve({ ok: true as const, value: undefined });
     },
   );
 }
@@ -76,9 +79,12 @@ describe("ensureRoot: initializes tree and calls IPC", () => {
 
     await ensureRoot(WS_ID, ROOT);
 
-    expect(mockIpcCall).toHaveBeenCalledWith("fs", "getExpanded", { workspaceId: WS_ID });
-    expect(mockIpcCall).toHaveBeenCalledWith("fs", "watch", { workspaceId: WS_ID, relPath: "" });
-    expect(mockIpcCall).toHaveBeenCalledWith("fs", "readdir", {
+    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "getExpanded", { workspaceId: WS_ID });
+    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "watch", {
+      workspaceId: WS_ID,
+      relPath: "",
+    });
+    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "readdir", {
       workspaceId: WS_ID,
       relPath: "",
     });
@@ -91,17 +97,17 @@ describe("ensureRoot: initializes tree and calls IPC", () => {
   it("does not issue IPC if tree already exists (idempotent)", async () => {
     setupReaddir({ "": [] });
     await ensureRoot(WS_ID, ROOT);
-    mockIpcCall.mockClear();
+    mockIpcCallResult.mockClear();
 
     await ensureRoot(WS_ID, ROOT);
-    expect(mockIpcCall).not.toHaveBeenCalled();
+    expect(mockIpcCallResult).not.toHaveBeenCalled();
   });
 
   it("tolerates getExpanded rejection and still builds tree", async () => {
-    mockIpcCall.mockImplementation((_ch: string, method: string) => {
+    mockIpcCallResult.mockImplementation((_ch: string, method: string) => {
       if (method === "getExpanded") return Promise.reject(new Error("ipc error"));
-      if (method === "readdir") return Promise.resolve([]);
-      return Promise.resolve(undefined);
+      if (method === "readdir") return Promise.resolve({ ok: true as const, value: [] });
+      return Promise.resolve({ ok: true as const, value: undefined });
     });
 
     await expect(ensureRoot(WS_ID, ROOT)).resolves.toBeUndefined();
@@ -131,12 +137,12 @@ describe("loadChildren: calls readdir and updates store", () => {
       trees.set(WS_ID, { ...t, nodes, loading: new Set() });
       return { trees };
     });
-    mockIpcCall.mockClear();
+    mockIpcCallResult.mockClear();
     setupReaddir({ "": [dirEntry("src", "dir"), dirEntry("index.ts")] });
 
     await loadChildren(WS_ID, ROOT);
 
-    expect(mockIpcCall).toHaveBeenCalledWith("fs", "readdir", {
+    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "readdir", {
       workspaceId: WS_ID,
       relPath: "",
     });
@@ -163,9 +169,9 @@ describe("loadChildren: calls readdir and updates store", () => {
       return { trees };
     });
 
-    mockIpcCall.mockImplementation((_ch: string, method: string) => {
+    mockIpcCallResult.mockImplementation((_ch: string, method: string) => {
       if (method === "readdir") return Promise.reject(new Error("EACCES"));
-      return Promise.resolve(undefined);
+      return Promise.resolve({ ok: true as const, value: undefined });
     });
 
     await loadChildren(WS_ID, ROOT);
@@ -188,17 +194,17 @@ describe("toggleExpand: calls watch/unwatch and debounces setExpanded", () => {
     await ensureRoot(WS_ID, ROOT);
 
     const libAbs = `${ROOT}/lib`;
-    mockIpcCall.mockClear();
+    mockIpcCallResult.mockClear();
 
     await toggleExpand(WS_ID, libAbs);
-    expect(mockIpcCall).toHaveBeenCalledWith("fs", "watch", {
+    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "watch", {
       workspaceId: WS_ID,
       relPath: "lib",
     });
 
-    mockIpcCall.mockClear();
+    mockIpcCallResult.mockClear();
     await toggleExpand(WS_ID, libAbs);
-    expect(mockIpcCall).toHaveBeenCalledWith("fs", "unwatch", {
+    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "unwatch", {
       workspaceId: WS_ID,
       relPath: "lib",
     });
@@ -212,9 +218,9 @@ describe("toggleExpand: calls watch/unwatch and debounces setExpanded", () => {
 
       const libAbs = `${ROOT}/lib`;
       const setExpandedArgs: unknown[] = [];
-      mockIpcCall.mockImplementation((_ch: string, method: string, args: unknown) => {
+      mockIpcCallResult.mockImplementation((_ch: string, method: string, args: unknown) => {
         if (method === "setExpanded") setExpandedArgs.push(args);
-        return Promise.resolve(undefined);
+        return Promise.resolve({ ok: true as const, value: undefined });
       });
 
       await toggleExpand(WS_ID, libAbs);
@@ -241,12 +247,12 @@ describe("refresh: reloads subtree via readdir", () => {
     setupReaddir({ "": [dirEntry("old.ts")] });
     await ensureRoot(WS_ID, ROOT);
 
-    mockIpcCall.mockClear();
+    mockIpcCallResult.mockClear();
     setupReaddir({ "": [dirEntry("new.ts")] });
 
     await refresh(WS_ID);
 
-    expect(mockIpcCall).toHaveBeenCalledWith("fs", "readdir", {
+    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "readdir", {
       workspaceId: WS_ID,
       relPath: "",
     });

@@ -1,6 +1,6 @@
 /** Remove an empty directory via fs.rmdir. Recursive delete is intentionally unsupported. */
 
-import { ipcCall } from "@/ipc/client";
+import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { parentOf } from "@/state/stores/files";
 import { basename } from "@/utils/path";
 import { runFsMutation } from "./helpers";
@@ -18,7 +18,9 @@ export async function rmdirPath(input: RmdirInput): Promise<boolean> {
     parentAbsPath: parentOf(input.absPath, input.workspaceRootPath),
     name: basename(input.absPath),
     ipcAction: (_abs, rel) =>
-      ipcCall("fs", "rmdir", { workspaceId: input.workspaceId, relPath: rel }),
+      ipcCallResult("fs", "rmdir", { workspaceId: input.workspaceId, relPath: rel }).then(
+        unwrapIpcResult,
+      ),
     errorMessages: {
       fallback: "Couldn't delete folder.",
       notEmpty: "Folder is not empty. Delete its contents first.",

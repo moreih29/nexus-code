@@ -54,10 +54,17 @@ const (
 // Request is the wire shape of a client → server request frame.
 // `Params` is left as RawMessage so handlers can parse into their own
 // strongly-typed shape without an intermediate any/map round-trip.
+//
+// CorrelationID is the optional cross-process tracing token injected by the
+// Electron IPC router (T3 contract). It is carried through to the request-scoped
+// slog.Logger in the stdioserver so every log line emitted during this request
+// includes the same token, linking the full call chain across process boundaries.
+// The JSON field name `correlationId` is fixed by the TS pipe.ts T6 contract.
 type Request struct {
-	ID     string          `json:"id"`
-	Method string          `json:"method"`
-	Params json.RawMessage `json:"params,omitempty"`
+	ID            string          `json:"id"`
+	Method        string          `json:"method"`
+	Params        json.RawMessage `json:"params,omitempty"`
+	CorrelationID string          `json:"correlationId,omitempty"`
 }
 
 // ErrorFrame is the failure payload nested inside a Response. Code is
@@ -108,8 +115,8 @@ func Event(event string, payload any) EventFrame {
 }
 
 // ParseRequest decodes one NDJSON line into a Request. id and method
-// are required; params is optional. Missing required fields surface as
-// CodedError(CodeProtocolError) so the caller can route them through
+// are required; params and correlationId are optional. Missing required fields
+// surface as CodedError(CodeProtocolError) so the caller can route them through
 // ProtocolFailure with the same code the client expects.
 func ParseRequest(line []byte) (Request, error) {
 	var raw map[string]json.RawMessage
@@ -126,6 +133,12 @@ func ParseRequest(line []byte) (Request, error) {
 	}
 	if params, ok := raw["params"]; ok {
 		req.Params = params
+	}
+	// correlationId is injected by the TS IPC router (T3) and forwarded
+	// verbatim to the request-scoped logger so it appears in every agent log
+	// line emitted during this request's lifetime.
+	if corrRaw, ok := raw["correlationId"]; ok {
+		_ = json.Unmarshal(corrRaw, &req.CorrelationID)
 	}
 	return req, nil
 }

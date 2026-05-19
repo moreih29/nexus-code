@@ -41,12 +41,12 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 };
 
 // ---------------------------------------------------------------------------
-// Mock ipcCall — operations.ts does not call IPC directly but the store
+// Mock ipcCallResult — operations.ts does not call IPC directly but the store
 // modules register listeners that reference ipc/client at import time.
 // ---------------------------------------------------------------------------
 
 mock.module("../../src/renderer/ipc/client", () => ({
-  ipcCall: mock(() => Promise.resolve()),
+  ipcCallResult: mock(() => Promise.resolve({ ok: true as const, value: undefined })),
   ipcListen: () => () => {},
 }));
 

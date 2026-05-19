@@ -48,13 +48,21 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 };
 
 /** Default IPC mock used by tests that do not exercise bootstrap hydration. */
-const defaultIpcCall = (_channel?: string, _method?: string, _args?: unknown): Promise<unknown> =>
-  Promise.resolve(undefined);
-const mockIpcCall = mock(defaultIpcCall);
+const defaultIpcCallResult = (
+  _channel?: string,
+  _method?: string,
+  _args?: unknown,
+): Promise<unknown> => Promise.resolve({ ok: true as const, value: undefined });
+const mockIpcCall = mock(defaultIpcCallResult);
 
 mock.module("../../src/renderer/ipc/client", () => ({
-  ipcCall: mockIpcCall,
+  ipcCallResult: mockIpcCall,
+  mustSucceed: (result: { ok: boolean; value: unknown }) => {
+    if (result.ok) return result.value;
+    throw new Error("mustSucceed failed");
+  },
   ipcListen: () => () => {},
+  canUseIpcBridge: () => false,
 }));
 
 // ---------------------------------------------------------------------------
@@ -86,14 +94,14 @@ const COMMIT_SHA = "abcdef1234567890abcdef1234567890abcdef12";
 
 function resetStores() {
   unregisterStatePersistence();
-  mockIpcCall.mockImplementation(defaultIpcCall);
+  mockIpcCall.mockImplementation(defaultIpcCallResult);
   useTabsStore.setState({ byWorkspace: {} });
   useLayoutStore.setState({ byWorkspace: {} });
 }
 
 afterEach(() => {
   unregisterStatePersistence();
-  mockIpcCall.mockImplementation(defaultIpcCall);
+  mockIpcCall.mockImplementation(defaultIpcCallResult);
 });
 
 function getLayout() {
@@ -446,8 +454,9 @@ describe("Scenario 7: git.commit preview metadata round-trip", () => {
     useTabsStore.setState({ byWorkspace: {} });
     useLayoutStore.setState({ byWorkspace: {} });
     mockIpcCall.mockImplementation((channel: string, method: string) => {
-      if (channel === "appState" && method === "get") return Promise.resolve(reparsedState);
-      return Promise.resolve(undefined);
+      if (channel === "appState" && method === "get")
+        return Promise.resolve({ ok: true as const, value: reparsedState });
+      return Promise.resolve({ ok: true as const, value: undefined });
     });
 
     await bootstrapAppState();

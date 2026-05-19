@@ -28,9 +28,12 @@ import type { EditorTab, Tab } from "../../../../../../src/renderer/state/stores
 // ---------------------------------------------------------------------------
 
 // ipc/client — needed by tabs store's ipcListen call
+const realIpcClient = await import("../../../../../../src/renderer/ipc/client");
 mock.module("../../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: () => Promise.resolve(),
+  ...realIpcClient,
+  ipcCallResult: () => Promise.resolve({ ok: true as const, value: undefined }),
   ipcListen: () => () => {},
+  canUseIpcBridge: () => false,
 }));
 
 // Editor services — subscribeFileDirty / isDirty / filePathToModelUri used by

@@ -56,17 +56,21 @@ mock.module("../../../../../src/renderer/services/editor/runtime/monaco-singleto
 
 const ipcCallMock = mock((_ch: unknown, _method: unknown, _args: unknown) =>
   Promise.resolve({
-    content: "# stub\n",
-    encoding: "utf8",
-    sizeBytes: 8,
-    isBinary: false,
-    mtime: new Date().toISOString(),
+    ok: true as const,
+    value: {
+      content: "# stub\n",
+      encoding: "utf8",
+      sizeBytes: 8,
+      isBinary: false,
+      mtime: new Date().toISOString(),
+    },
   }),
 );
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: ipcCallMock,
+  ipcCallResult: ipcCallMock,
   ipcListen: () => () => {},
+  canUseIpcBridge: () => false,
 }));
 
 const cleanupEntryMock = mock((_entry: unknown) => {});

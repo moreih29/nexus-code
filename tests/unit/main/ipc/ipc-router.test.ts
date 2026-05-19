@@ -1,31 +1,63 @@
 import { describe, expect, mock, test } from "bun:test";
 
 // Mock electron before importing router.
-// Bun mock.module must be called before the import that uses it.
+// All mock.module calls must precede the dynamic imports that trigger them.
 const mockHandle = mock((_channel: string, _handler: unknown) => {});
 const mockOn = mock((_channel: string, _handler: unknown) => {});
 const mockGetAllWebContents = mock(
   () => [] as { isDestroyed: () => boolean; send: (...a: unknown[]) => void }[],
 );
 
-mock.module("electron", () => ({
-  ipcMain: {
-    handle: mockHandle,
-    on: mockOn,
-  },
-  webContents: {
-    getAllWebContents: mockGetAllWebContents,
+// Suppress electron-log output — the router creates a logger at module load
+// time, so we must stub electron-log/main before the router is imported.
+mock.module("electron-log/main", () => ({
+  default: {
+    error: () => {},
+    warn: () => {},
+    info: () => {},
+    debug: () => {},
+    initialize: () => {},
+    transports: {
+      file: { resolvePathFn: undefined, level: "debug", format: undefined },
+      console: { level: "info", format: undefined },
+    },
   },
 }));
 
-import { z } from "zod";
-import { broadcast, register, setupRouter, validateArgs } from "../../../../src/main/infra/ipc-router";
-import { ipcErr, ipcOk } from "../../../../src/shared/ipc/result";
+mock.module("electron", () => ({
+  ipcMain: { handle: mockHandle, on: mockOn },
+  webContents: { getAllWebContents: mockGetAllWebContents },
+  app: { getPath: () => "/tmp" },
+}));
 
-// Wire up the handler by calling setupRouter() once
+// Spy for the facade logger's error method — shared across every createLogger
+// call so a test can assert the router logged a category:"bug" result.
+const mockLogError = mock((..._args: unknown[]) => {});
+
+// Stub shared/log/main so the router's lazy-require of createLogger never
+// pulls in the real electron (which lacks `app` in the test environment).
+// Absolute path without extension matches Bun's module resolution for require().
+mock.module("/Users/kih/workspaces/areas/nexus-code/src/shared/log/main", () => ({
+  createLogger: (_source: string) => ({
+    error: mockLogError,
+    warn: () => {},
+    info: () => {},
+    debug: () => {},
+  }),
+  initMainLogger: () => {},
+}));
+
+// Dynamic imports ensure mock.module stubs take effect before any
+// module in the import graph is evaluated.
+import { z } from "zod";
+
+const { broadcast, register, setupRouter, validateArgs } = await import(
+  "../../../../src/main/infra/ipc-router"
+);
+const { ipcErr, ipcOk, isIpcErrResult } = await import("../../../../src/shared/ipc/result");
+
 setupRouter();
 
-// Retrieve the handler that was passed to ipcMain.handle('ipc:call', ...)
 type IpcHandler = (
   event: { sender?: { id?: number } },
   channelName: string,
@@ -50,10 +82,6 @@ function getIpcCancelHandler(): CancelHandler {
   return entry[1];
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe("ipc router — ping/pong round trip", () => {
   test("ping returns pong", async () => {
     register("hello-test", {
@@ -71,21 +99,27 @@ describe("ipc router — ping/pong round trip", () => {
     expect(result).toBe("pong");
   });
 
-  test("rejects when args fail zod parse", async () => {
+  test("router converts IpcValidationError from validateArgs into invalid-args IpcErrResult", async () => {
+    // validateArgs throws IpcValidationError when args fail schema validation.
+    // The ipc:call router catches it at the boundary and returns a typed IpcErrResult
+    // so the renderer receives a value, not a rejection.
     register("hello-strict", {
       call: {
         echo: (args: unknown) => {
-          validateArgs(z.object({ text: z.string() }), args);
-          return (args as { text: string }).text;
+          // Existing handler style: destructure directly (validateArgs throws on failure).
+          const { text } = validateArgs(z.object({ text: z.string() }), args);
+          return text;
         },
       },
       listen: {},
     });
 
     const handler = getIpcCallHandler();
-    await expect(handler({}, "hello-strict", "echo", { text: 123 })).rejects.toThrow(
-      "ipc:call — invalid args",
-    );
+    const result = await handler({}, "hello-strict", "echo", { text: 123 });
+    expect(isIpcErrResult(result)).toBe(true);
+    expect((result as Record<string, unknown>).kind).toBe("invalid-args");
+    expect((result as Record<string, unknown>).category).toBe("invalid-input");
+    expect(typeof (result as Record<string, unknown>).message).toBe("string");
   });
 
   test("ipc:cancel aborts the matching in-flight call context signal", async () => {
@@ -120,31 +154,22 @@ describe("ipc router — ping/pong round trip", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// IpcResult envelope passthrough
-// ---------------------------------------------------------------------------
-
 describe("ipc router — IpcResult passthrough", () => {
   test("handler returning ipcOk envelope is forwarded as-is (ok=true preserved)", async () => {
     register("result-ok-test", {
-      call: {
-        doWork: (_args: unknown) => ipcOk({ done: true }),
-      },
+      call: { doWork: (_args: unknown) => ipcOk({ done: true }) },
       listen: {},
     });
 
     const handler = getIpcCallHandler();
     const result = await handler({}, "result-ok-test", "doWork", undefined);
-    // The router must not re-wrap or transform the envelope.
     expect((result as Record<string, unknown>)["ok"]).toBe(true);
     expect((result as Record<string, unknown>)["value"]).toEqual({ done: true });
   });
 
   test("handler returning ipcErr envelope is forwarded as-is (ok=false + kind preserved)", async () => {
     register("result-err-test", {
-      call: {
-        findItem: (_args: unknown) => ipcErr("not-found", "Item missing"),
-      },
+      call: { findItem: (_args: unknown) => ipcErr("not-found", "Item missing") },
       listen: {},
     });
 
@@ -169,6 +194,25 @@ describe("ipc router — IpcResult passthrough", () => {
     await expect(handler({}, "result-throw-test", "buggy", undefined)).rejects.toThrow(
       "unexpected bug",
     );
+  });
+
+  test("router forwards category:bug result and does not re-throw it", async () => {
+    register("result-bug-test", {
+      call: {
+        broken: (_args: unknown) =>
+          ipcErr("internal-error", "invariant violated", { category: "bug" as const }),
+      },
+      listen: {},
+    });
+
+    mockLogError.mockClear();
+    const handler = getIpcCallHandler();
+    const result = await handler({}, "result-bug-test", "broken", undefined);
+    expect(isIpcErrResult(result)).toBe(true);
+    expect((result as Record<string, unknown>)["category"]).toBe("bug");
+    // The "log line = real bug" invariant: a category:"bug" result must be
+    // logged by the router even though it travels back as a value, not a throw.
+    expect(mockLogError).toHaveBeenCalled();
   });
 });
 

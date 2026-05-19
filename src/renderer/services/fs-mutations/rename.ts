@@ -1,6 +1,6 @@
 /** Rename/move an entry within its current parent via fs.rename. */
 
-import { ipcCall } from "@/ipc/client";
+import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { loadChildren } from "@/state/operations/files";
 import { parentOf } from "@/state/stores/files";
 import { basename, relPath } from "@/utils/path";
@@ -30,11 +30,13 @@ export async function renamePath(input: RenameInput): Promise<boolean> {
   }
 
   try {
-    await ipcCall("fs", "rename", {
-      workspaceId: input.workspaceId,
-      fromRelPath: fromRel,
-      toRelPath: toRel,
-    });
+    unwrapIpcResult(
+      await ipcCallResult("fs", "rename", {
+        workspaceId: input.workspaceId,
+        fromRelPath: fromRel,
+        toRelPath: toRel,
+      }),
+    );
   } catch (e: unknown) {
     toFsToast(e, {
       fallback: "Couldn't rename item.",

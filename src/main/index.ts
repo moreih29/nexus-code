@@ -1,5 +1,7 @@
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
+import { initMainLogger } from "../shared/log/main";
+import { installErrorSafetyNet } from "./error-safety-net";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./infra/agent/ssh/auth-prompt";
 import { NEXUS_AGENT_MODE_ENV } from "./infra/agent/local-agent-resolver";
@@ -41,6 +43,14 @@ import { StateService } from "./infra/storage/state-service";
 import { WorkspaceStorage } from "./infra/storage/workspace-storage";
 import { createMainWindow } from "./features/window";
 import { WorkspaceManager } from "./features/workspace/manager";
+
+// Configure logging transports and renderer IPC relay before any window opens.
+initMainLogger();
+
+// Install global error safety net immediately after the logger is ready so
+// every subsequent initialisation step is covered. See error-safety-net.ts
+// for the log-only → exit phase-switch instructions.
+installErrorSafetyNet();
 
 setupRouter();
 

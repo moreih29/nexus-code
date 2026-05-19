@@ -2,8 +2,8 @@
  * Integration: IPC round-trip through router + channel + zod validation.
  *
  * Uses a fake ipcMain/webContents harness so the test runs without Electron.
- * Exercises the full path: register → validateArgs (zod) → call handler →
- * broadcast → fake listener.
+ * Exercises the full path: register -> validateArgs (zod) -> call handler ->
+ * broadcast -> fake listener.
  *
  * Monaco + xterm renderer integration requires a browser-level manual scenario.
  */
@@ -36,17 +36,32 @@ const fakeListeners: { isDestroyed: () => boolean; send: ReturnType<typeof mock>
 
 const fakeGetAllWebContents = mock(() => fakeListeners);
 
-mock.module("electron", () => ({
-  ipcMain: {
-    handle: fakeIpcMainHandle,
-    on: fakeIpcMainOn,
-  },
-  webContents: {
-    getAllWebContents: fakeGetAllWebContents,
+// Suppress electron-log output — the router creates a logger at module load
+// time, so we must stub electron-log/main before the router is imported.
+mock.module("electron-log/main", () => ({
+  default: {
+    error: () => {},
+    warn: () => {},
+    info: () => {},
+    debug: () => {},
+    initialize: () => {},
+    transports: {
+      file: { resolvePathFn: undefined, level: "debug", format: undefined },
+      console: { level: "info", format: undefined },
+    },
   },
 }));
 
-import { broadcast, register, setupRouter, validateArgs } from "../../src/main/infra/ipc-router";
+mock.module("electron", () => ({
+  ipcMain: { handle: fakeIpcMainHandle, on: fakeIpcMainOn },
+  webContents: { getAllWebContents: fakeGetAllWebContents },
+  app: { getPath: () => "/tmp" },
+}));
+
+const { broadcast, register, setupRouter, validateArgs } = await import(
+  "../../src/main/infra/ipc-router"
+);
+const { isIpcErrResult } = await import("../../src/shared/ipc/result");
 
 // ---------------------------------------------------------------------------
 // Wire up router once — registers the ipcMain.handle('ipc:call') handler.
@@ -75,6 +90,9 @@ describe("ipc round-trip — call.echo with zod validation", () => {
     register("integration-echo", {
       call: {
         echo: (args: unknown) => {
+          // validateArgs throws IpcValidationError on schema failure.
+          // The router catches it at the IPC boundary and converts it into an
+          // IpcErrResult<"invalid-args"> so the renderer gets a typed result.
           const { val } = validateArgs(echoArgsSchema, args);
           return val.toUpperCase();
         },
@@ -91,18 +109,20 @@ describe("ipc round-trip — call.echo with zod validation", () => {
     expect(result).toBe("HELLO");
   });
 
-  it("call.echo rejects invalid args — missing val field", async () => {
+  it("call.echo returns invalid-args IpcErrResult for missing val field", async () => {
     const handler = getHandler();
-    await expect(handler({}, "integration-echo", "echo", { notVal: 123 })).rejects.toThrow(
-      "ipc:call — invalid args",
-    );
+    const result = await handler({}, "integration-echo", "echo", { notVal: 123 });
+    expect(isIpcErrResult(result)).toBe(true);
+    expect((result as Record<string, unknown>).kind).toBe("invalid-args");
+    expect((result as Record<string, unknown>).category).toBe("invalid-input");
   });
 
-  it("call.echo rejects invalid args — val is not a string", async () => {
+  it("call.echo returns invalid-args IpcErrResult when val is not a string", async () => {
     const handler = getHandler();
-    await expect(handler({}, "integration-echo", "echo", { val: 42 })).rejects.toThrow(
-      "ipc:call — invalid args",
-    );
+    const result = await handler({}, "integration-echo", "echo", { val: 42 });
+    expect(isIpcErrResult(result)).toBe(true);
+    expect((result as Record<string, unknown>).kind).toBe("invalid-args");
+    expect((result as Record<string, unknown>).category).toBe("invalid-input");
   });
 });
 

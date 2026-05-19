@@ -12,7 +12,7 @@
  */
 
 import { showToast } from "@/components/ui/toast";
-import { ipcCall } from "@/ipc/client";
+import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { relPath } from "@/utils/path";
 import { toFsToast } from "./errors";
 
@@ -37,10 +37,12 @@ export async function revealInFinder(input: RevealInput): Promise<void> {
   }
 
   try {
-    await ipcCall("fs", "showItemInFolder", {
-      workspaceId: input.workspaceId,
-      relPath: rel,
-    });
+    unwrapIpcResult(
+      await ipcCallResult("fs", "showItemInFolder", {
+        workspaceId: input.workspaceId,
+        relPath: rel,
+      }),
+    );
   } catch (e: unknown) {
     toFsToast(e, {
       fallback: "Couldn't reveal in Finder.",

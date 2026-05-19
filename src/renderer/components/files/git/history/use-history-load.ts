@@ -7,7 +7,7 @@
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CommitDetail, CommitSearchResult, LogEntry } from "../../../../../shared/git/types";
-import { ipcCall, ipcStream } from "../../../../ipc/client";
+import { ipcCallResult, ipcStream, unwrapGitResult } from "../../../../ipc/client";
 import { initialLaneState, reduceLanes } from "./graph/lane-assign";
 import type { LaneState } from "./graph/lane-assign";
 
@@ -119,14 +119,17 @@ export function useGitHistoryLoad(workspaceId: string, refName: string): UseGitH
       setLoadState(emptyLoadState(true));
       setSelectedSha(null);
       if (isShaPrefixQuery(trimmed)) {
-        ipcCall(
+        ipcCallResult(
           "git",
           "searchCommits",
           { workspaceId, query: trimmed, limit: HISTORY_PAGE_SIZE },
           { signal: controller.signal },
         )
-          .then((result) => {
+          .then((ipcRes) => {
             if (controller.signal.aborted || !isCurrentLoad(token)) return;
+            // unwrapGitResult throws on git errors so the .catch handler below
+            // still receives the typed error with its `.kind` field intact.
+            const result = unwrapGitResult(ipcRes);
             const graphEntries = applySearchResult(result, setLoadState, setSelectedSha);
             setLaneState(reduceLanes(initialLaneState(), graphEntries));
           })

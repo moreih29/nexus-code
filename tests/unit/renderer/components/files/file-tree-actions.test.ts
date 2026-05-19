@@ -8,12 +8,14 @@ const ipcCalls: IpcCall[] = [];
 const confirm = mock(() => true);
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: (channel: string, method: string, args: unknown) => {
+  ipcCallResult: (channel: string, method: string, args: unknown) => {
     ipcCalls.push({ channel, method, args });
-    if (channel === "fs" && method === "readdir") return Promise.resolve([]);
-    return Promise.resolve(undefined);
+    if (channel === "fs" && method === "readdir")
+      return Promise.resolve({ ok: true as const, value: [] });
+    return Promise.resolve({ ok: true as const, value: undefined });
   },
   ipcListen: () => () => {},
+  canUseIpcBridge: () => false,
 }));
 
 const { useFileTreeActions } = await import(

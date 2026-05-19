@@ -1,5 +1,5 @@
 import { TERMINAL_FLOW_CONTROL } from "../../../shared/pty/flow-control";
-import { ipcCall, ipcListen } from "../../ipc/client";
+import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
 import type { PtyClient, PtyClientOptions, TerminalDimensions } from "./types";
 
 const pendingAckBytesBySessionKey = new Map<string, number>();
@@ -20,7 +20,8 @@ function ackData(workspaceId: string, tabId: string, chunk: string): void {
   }
 
   pendingAckBytesBySessionKey.set(key, 0);
-  ipcCall("pty", "ack", { workspaceId, tabId, bytesConsumed: pending }).catch(() => {});
+  // Fire-and-forget: ack is a flow-control notification; terminal still works without it.
+  void ipcCallResult("pty", "ack", { workspaceId, tabId, bytesConsumed: pending });
 }
 
 export function spawnSession(
@@ -35,8 +36,9 @@ export function spawnSession(
   const existing = spawnPromisesBySessionKey.get(key);
   if (existing) return existing;
 
-  const promise = ipcCall("pty", "spawn", { workspaceId, tabId, cwd, cols, rows })
-    .then((result) => {
+  const promise = ipcCallResult("pty", "spawn", { workspaceId, tabId, cwd, cols, rows })
+    .then((ipcRes) => {
+      const result = unwrapIpcResult(ipcRes);
       if (spawnPromisesBySessionKey.get(key) === promise) {
         liveSessions.add(key);
       }
@@ -55,7 +57,8 @@ export function spawnSession(
 }
 
 export function writeSession(workspaceId: string, tabId: string, data: string): void {
-  ipcCall("pty", "write", { workspaceId, tabId, data }).catch(() => {});
+  // Fire-and-forget: write is a terminal data push; failure is visible to the user.
+  void ipcCallResult("pty", "write", { workspaceId, tabId, data });
 }
 
 export function resizeSession(
@@ -63,7 +66,8 @@ export function resizeSession(
   tabId: string,
   { cols, rows }: TerminalDimensions,
 ): void {
-  ipcCall("pty", "resize", { workspaceId, tabId, cols, rows }).catch(() => {});
+  // Fire-and-forget: resize notification; terminal adapts at next draw.
+  void ipcCallResult("pty", "resize", { workspaceId, tabId, cols, rows });
 }
 
 export function killSession(workspaceId: string, tabId: string): void {
@@ -71,7 +75,8 @@ export function killSession(workspaceId: string, tabId: string): void {
   liveSessions.delete(key);
   spawnPromisesBySessionKey.delete(key);
   pendingAckBytesBySessionKey.delete(key);
-  ipcCall("pty", "kill", { workspaceId, tabId }).catch(() => {});
+  // Fire-and-forget: kill is a best-effort cleanup; PTY exits independently.
+  void ipcCallResult("pty", "kill", { workspaceId, tabId });
 }
 
 export function createPtyClient({

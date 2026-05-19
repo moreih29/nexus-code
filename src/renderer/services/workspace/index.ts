@@ -22,6 +22,7 @@ export {
   listConnectionProfiles,
   fetchConnectionProfiles,
   saveConnectionProfile,
+  saveConnectionProfileResult,
   setConnectionProfileFavorite,
   removeConnectionProfile,
 } from "./connection-profiles";

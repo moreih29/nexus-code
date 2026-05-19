@@ -15,7 +15,7 @@ const mockIpcListen = mock((_ch: string, _ev: string, _cb: unknown) => () => {})
 };
 
 mock.module("../../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: mock(() => Promise.resolve()),
+  ipcCallResult: mock(() => Promise.resolve({ ok: true as const, value: undefined })),
   ipcListen: mockIpcListen,
 }));
 

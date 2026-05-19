@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { AskpassPrompt, GitEditorPrompt } from "../../../../../shared/git/types";
-import { ipcCall, ipcListen } from "../../../../ipc/client";
+import { ipcCallResult, ipcListen } from "../../../../ipc/client";
 
 export interface GitHelperPromptSnapshot {
   readonly pendingCredentialPrompts: readonly AskpassPrompt[];
@@ -16,7 +16,7 @@ export interface GitHelperPromptSnapshot {
 }
 
 export interface GitHelperPromptDeps {
-  readonly call?: typeof ipcCall;
+  readonly call?: typeof ipcCallResult;
   readonly listen?: typeof ipcListen;
 }
 
@@ -47,7 +47,7 @@ const EMPTY_PROMPT_SNAPSHOT: GitHelperPromptSnapshot = {
   editorPrompt: null,
 };
 const DEFAULT_PROMPT_DEPS: Required<GitHelperPromptDeps> = {
-  call: ipcCall,
+  call: ipcCallResult,
   listen: ipcListen,
 };
 
@@ -177,8 +177,9 @@ export function useGitHelperPrompts(
       const prompt = credentialPrompt;
       if (!prompt) return;
       clearCredentialPrompt(prompt.promptId);
-      call("askpass", "respond", { promptId: prompt.promptId, value }).catch((error) => {
-        console.error("[git] credential response failed", error);
+      // Fire-and-forget: send credential to main; errors logged only.
+      void call("askpass", "respond", { promptId: prompt.promptId, value }).then((result) => {
+        if (!result.ok) console.error("[git] credential response failed", result.message);
       });
     },
     [call, credentialPrompt],
@@ -188,8 +189,9 @@ export function useGitHelperPrompts(
     const prompt = credentialPrompt;
     if (!prompt) return;
     clearCredentialPrompt(prompt.promptId);
-    call("askpass", "cancel", { promptId: prompt.promptId }).catch((error) => {
-      console.error("[git] credential cancel failed", error);
+    // Fire-and-forget: cancel credential prompt in main; errors logged only.
+    void call("askpass", "cancel", { promptId: prompt.promptId }).then((result) => {
+      if (!result.ok) console.error("[git] credential cancel failed", result.message);
     });
   }, [call, credentialPrompt]);
 
@@ -198,8 +200,9 @@ export function useGitHelperPrompts(
       const prompt = editorPrompt;
       if (!prompt) return;
       clearEditorPrompt(prompt.promptId);
-      call("editor", "save", { promptId: prompt.promptId, content }).catch((error) => {
-        console.error("[git] commit message save failed", error);
+      // Fire-and-forget: send commit message to main; errors logged only.
+      void call("editor", "save", { promptId: prompt.promptId, content }).then((result) => {
+        if (!result.ok) console.error("[git] commit message save failed", result.message);
       });
     },
     [call, editorPrompt],
@@ -209,8 +212,9 @@ export function useGitHelperPrompts(
     const prompt = editorPrompt;
     if (!prompt) return;
     clearEditorPrompt(prompt.promptId);
-    call("editor", "cancel", { promptId: prompt.promptId }).catch((error) => {
-      console.error("[git] commit message cancel failed", error);
+    // Fire-and-forget: cancel commit editor in main; errors logged only.
+    void call("editor", "cancel", { promptId: prompt.promptId }).then((result) => {
+      if (!result.ok) console.error("[git] commit message cancel failed", result.message);
     });
   }, [call, editorPrompt]);
 

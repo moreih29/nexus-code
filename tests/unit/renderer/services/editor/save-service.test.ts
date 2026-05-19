@@ -16,23 +16,21 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 // promote-policy and lsp-bridge are NOT mocked:
 //   - promoteAllPreviewTabsForFile reads useTabsStore which initialises to
 //     { byWorkspace: {} } — calling it is a no-op when no tabs are registered.
-//   - notifyDidSave calls ipcCall, which IS mocked below.
+//   - notifyDidSave calls ipcCallResult, which IS mocked below.
 // file-loader IS mocked: relPathForInput calls useWorkspacesStore which throws
 // WORKSPACE_NOT_FOUND when no workspaces are seeded.
 const realDirty = await import("../../../../../src/renderer/services/editor/model/dirty-tracker");
-const realModelCache = await import(
-  "../../../../../src/renderer/services/editor/model/cache"
-);
+const realModelCache = await import("../../../../../src/renderer/services/editor/model/cache");
 const realFileLoader = await import(
   "../../../../../src/renderer/services/editor/model/file-loader"
 );
 
 const ipcCallMock = mock((_service: unknown, _method: unknown, _args: unknown) =>
-  Promise.resolve({ mtime: "T1", size: 42 }),
+  Promise.resolve({ ok: true as const, value: { mtime: "T1", size: 42 } }),
 );
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: ipcCallMock,
+  ipcCallResult: ipcCallMock,
   ipcListen: () => () => {},
 }));
 
@@ -127,7 +125,9 @@ afterEach(() => {
     loadedSize: 10,
   }));
   getResolvedModelMock.mockImplementation(() => null);
-  ipcCallMock.mockImplementation(() => Promise.resolve({ mtime: "T1", size: 42 }));
+  ipcCallMock.mockImplementation(() =>
+    Promise.resolve({ ok: true as const, value: { mtime: "T1", size: 42 } }),
+  );
   showConflictResolutionMock.mockImplementation(() => Promise.resolve("cancel"));
 });
 
@@ -163,7 +163,7 @@ describe("saveModel read-only guard", () => {
 });
 
 describe("saveModel conflict", () => {
-  test("returns conflict when ipcCall reports a disk mtime mismatch", async () => {
+  test("returns conflict when ipcCallResult reports a disk mtime mismatch", async () => {
     // Outer dirty check: isDirty=true so the gate is entered.
     // Inner dirty re-check: also isDirty=true so the IPC write is attempted.
     getDirtyEntryMock.mockImplementation(() => ({
@@ -177,8 +177,11 @@ describe("saveModel conflict", () => {
     // the renderer's baseline snapshot — another process modified the file.
     ipcCallMock.mockImplementation(() =>
       Promise.resolve({
-        kind: "conflict",
-        actual: { exists: true, mtime: "T2", size: 99 },
+        ok: true as const,
+        value: {
+          kind: "conflict",
+          actual: { exists: true, mtime: "T2", size: 99 },
+        },
       }),
     );
 
@@ -197,7 +200,7 @@ describe("saveModel conflict", () => {
 describe("saveModel superseded", () => {
   test("middle call returns superseded when displaced by a third concurrent call", async () => {
     // Three concurrent saveModel calls on the same file:
-    //   p1 — starts running; its ipcCall is held open by a deferred promise.
+    //   p1 — starts running; its ipcCallResult is held open by a deferred promise.
     //   p2 — queues behind p1.
     //   p3 — displaces p2 in the queue, causing p2's sequentializer promise
     //         to reject with SaveSupersededError → saveModel returns "superseded".
@@ -219,10 +222,10 @@ describe("saveModel superseded", () => {
       callCount += 1;
       if (callCount === 1) {
         // First call: hold open so the gate stays occupied.
-        return firstIpcHeld.then(() => ({ mtime: "T1", size: 10 }));
+        return firstIpcHeld.then(() => ({ ok: true as const, value: { mtime: "T1", size: 10 } }));
       }
       // Third call (p3's fn): resolves immediately.
-      return Promise.resolve({ mtime: "T2", size: 20 });
+      return Promise.resolve({ ok: true as const, value: { mtime: "T2", size: 20 } });
     });
 
     const p1 = saveModel(INPUT);
@@ -237,7 +240,7 @@ describe("saveModel superseded", () => {
     const r2 = await p2;
     expect(r2.kind).toBe("superseded");
 
-    // Release p1's ipcCall so both p1 and p3 can finish.
+    // Release p1's ipcCallResult so both p1 and p3 can finish.
     resolveFirstIpc(undefined);
     const [r1, r3] = await Promise.all([p1, p3]);
     expect(r1.kind).toBe("saved");
@@ -251,7 +254,7 @@ describe("saveModel race — dirty=false re-check inside gate", () => {
     // so execution enters sequentializer.run(). Inside the gate the entry
     // is re-read (save-service.ts line ~67) and isDirty is now false — the
     // user undid all changes while the gate was being entered. The function
-    // must short-circuit with "not-dirty" without touching ipcCall or markSaved.
+    // must short-circuit with "not-dirty" without touching ipcCallResult or markSaved.
     getResolvedModelMock.mockImplementation(() => makeResolvedModel());
 
     let callIndex = 0;
@@ -285,7 +288,9 @@ describe("saveModel race — dirty=false re-check inside gate", () => {
 describe("saveModelInteractive — no conflict", () => {
   test("returns saved result directly without showing dialog", async () => {
     getResolvedModelMock.mockImplementation(() => makeResolvedModel());
-    ipcCallMock.mockImplementation(() => Promise.resolve({ mtime: "T1", size: 42 }));
+    ipcCallMock.mockImplementation(() =>
+      Promise.resolve({ ok: true as const, value: { mtime: "T1", size: 42 } }),
+    );
 
     const result = await saveModelInteractive(INPUT);
 
@@ -313,8 +318,11 @@ describe("saveModelInteractive — conflict, user cancels", () => {
     getResolvedModelMock.mockImplementation(() => makeResolvedModel());
     ipcCallMock.mockImplementation(() =>
       Promise.resolve({
-        kind: "conflict",
-        actual: { exists: true, mtime: "T2", size: 99 },
+        ok: true as const,
+        value: {
+          kind: "conflict",
+          actual: { exists: true, mtime: "T2", size: 99 },
+        },
       }),
     );
     showConflictResolutionMock.mockImplementation(() => Promise.resolve("cancel"));
@@ -333,8 +341,11 @@ describe("saveModelInteractive — conflict, user chooses reload", () => {
     getResolvedModelMock.mockImplementation(() => makeResolvedModel());
     ipcCallMock.mockImplementation(() =>
       Promise.resolve({
-        kind: "conflict",
-        actual: { exists: true, mtime: "T2", size: 99 },
+        ok: true as const,
+        value: {
+          kind: "conflict",
+          actual: { exists: true, mtime: "T2", size: 99 },
+        },
       }),
     );
     showConflictResolutionMock.mockImplementation(() => Promise.resolve("reload"));
@@ -358,12 +369,15 @@ describe("saveModelInteractive — conflict, user chooses overwrite", () => {
       if (ipcCallCount === 1) {
         // Initial fs.writeFile → conflict
         return Promise.resolve({
-          kind: "conflict",
-          actual: { exists: true, mtime: "T2", size: 99 },
+          ok: true as const,
+          value: {
+            kind: "conflict",
+            actual: { exists: true, mtime: "T2", size: 99 },
+          },
         });
       }
       // Retry fs.writeFile or notifyDidSave → success
-      return Promise.resolve({ mtime: "T3", size: 42 });
+      return Promise.resolve({ ok: true as const, value: { mtime: "T3", size: 42 } });
     });
 
     showConflictResolutionMock.mockImplementation(() => Promise.resolve("overwrite"));
@@ -375,7 +389,7 @@ describe("saveModelInteractive — conflict, user chooses overwrite", () => {
     // diskDiverged is cleared after successful retry
     expect(clearDiskDivergedMock).toHaveBeenCalledWith(INPUT);
     // At minimum: the initial conflicting write + the retry write.
-    // notifyDidSave may or may not call ipcCall depending on which lsp/bridge
+    // notifyDidSave may or may not call ipcCallResult depending on which lsp/bridge
     // mock is active (model-entry.test.ts replaces it process-globally).
     expect(ipcCallMock.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
@@ -388,11 +402,14 @@ describe("saveModelInteractive — conflict, user chooses overwrite", () => {
       ipcCallCount += 1;
       if (ipcCallCount === 1) {
         return Promise.resolve({
-          kind: "conflict",
-          actual: { exists: false },
+          ok: true as const,
+          value: {
+            kind: "conflict",
+            actual: { exists: false },
+          },
         });
       }
-      return Promise.resolve({ mtime: "T-new", size: 30 });
+      return Promise.resolve({ ok: true as const, value: { mtime: "T-new", size: 30 } });
     });
 
     showConflictResolutionMock.mockImplementation(() => Promise.resolve("overwrite"));

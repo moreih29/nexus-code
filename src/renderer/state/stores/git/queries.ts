@@ -18,7 +18,7 @@ import type {
   StashEntry,
   Tag,
 } from "../../../../shared/git/types";
-import { ipcCall } from "../../../ipc/client";
+import { ipcCallResult, unwrapGitResult } from "../../../ipc/client";
 import { collectRecentCommits } from "./session-defaults";
 import type { GitStoreContext } from "./store-context";
 
@@ -36,7 +36,9 @@ export function createQueriesSlice(_ctx: GitStoreContext): QueriesSlice {
   return {
     async listBranches(workspaceId, signal) {
       try {
-        return await ipcCall("git", "listBranches", { workspaceId }, signal ? { signal } : {});
+        return unwrapGitResult(
+          await ipcCallResult("git", "listBranches", { workspaceId }, signal ? { signal } : {}),
+        );
       } catch (error) {
         if (signal?.aborted) return undefined;
         throw error;
@@ -45,7 +47,9 @@ export function createQueriesSlice(_ctx: GitStoreContext): QueriesSlice {
 
     async listTags(workspaceId, signal) {
       try {
-        return await ipcCall("git", "listTags", { workspaceId }, signal ? { signal } : {});
+        return unwrapGitResult(
+          await ipcCallResult("git", "listTags", { workspaceId }, signal ? { signal } : {}),
+        );
       } catch (error) {
         if (signal?.aborted) return undefined;
         throw error;
@@ -54,11 +58,13 @@ export function createQueriesSlice(_ctx: GitStoreContext): QueriesSlice {
 
     async listRemoteTags(workspaceId, remote, signal) {
       try {
-        return await ipcCall(
-          "git",
-          "listRemoteTags",
-          { workspaceId, remote },
-          signal ? { signal } : {},
+        return unwrapGitResult(
+          await ipcCallResult(
+            "git",
+            "listRemoteTags",
+            { workspaceId, remote },
+            signal ? { signal } : {},
+          ),
         );
       } catch (error) {
         if (signal?.aborted) return undefined;
@@ -68,7 +74,9 @@ export function createQueriesSlice(_ctx: GitStoreContext): QueriesSlice {
 
     async listStashes(workspaceId, signal) {
       try {
-        return await ipcCall("git", "stashList", { workspaceId }, signal ? { signal } : {});
+        return unwrapGitResult(
+          await ipcCallResult("git", "stashList", { workspaceId }, signal ? { signal } : {}),
+        );
       } catch (error) {
         if (signal?.aborted) return undefined;
         throw error;

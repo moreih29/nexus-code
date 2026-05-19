@@ -15995,6 +15995,536 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-19T05:10:55.137Z",
+      "branch": "feat/unified-error-management",
+      "plan": {
+        "id": 52,
+        "topic": "Electron 앱 전체(main/renderer/preload + Go 에이전트)에 통합 에러 관리 체계 적용 (A-E)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "로깅 기반 구축: 로거 선택과 통합 로그 싱크 (main/renderer/Go 수렴)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "electron-log v5를 transport로, 그 위에 프로젝트 소유 thin facade(src/shared/log/, ~40줄)를 둘 것. electron-log는 contextIsolation 하 renderer→main IPC relay·파일 회전·경로 해석을 무료로 제공, facade는 swappable 내부 API와 source/correlationId 필드를 보장. 파일 sink는 JSON lines(grep/jq·Go NDJSON 상관관계), 콘솔은 사람이 읽는 text. 단일 파일(app.getPath('logs')/main.log), level error/warn/info/debug, 파일 기본 debug(dev tool). main 직접 기록, renderer는 electron-log relay, Go 포워딩 라인은 pipe.ts가 같은 facade로 source:\"agent\" 태그. 기각: pino/winston(Electron renderer relay 미지원, 어려운 부분을 재발명) · 순수 커스텀(회전·relay·flush 재구현 비용 무가치). 리스크: electron-log renderer transport preload 초기화 필요(표준·문서화됨). 다른 모든 이슈가 이 sink에 기록하므로 이슈1 선행 필수.",
+                "recorded_at": "2026-05-19T01:16:13.437Z",
+                "agent_id": "af0b5814bc35472ef"
+              }
+            ],
+            "decision": "electron-log v5를 로깅 transport로 채택하고, 그 위에 프로젝트 소유 thin facade(src/shared/log/)를 둔다. 호출처는 electron-log를 직접 import하지 않고 facade만 사용 — 로거 교체 가능성과 안정적 내부 API를 확보한다. facade는 source(main|renderer|agent)와 correlationId 필드를 모든 로그에 실어 이슈3·5의 상관관계 추적을 지원한다.\n\n- 파일 sink: JSON lines, 단일 파일(app.getPath('logs')/main.log). dev tool 로그는 grep/jq로 읽고 Go NDJSON 라인과 상관관계를 맞춰야 하므로 구조적 포맷이 필수. 콘솔 sink는 사람이 읽는 text(전송별 포맷 분리).\n- level: error/warn/info/debug. 파일 기본 debug(dev tool — 전부 포착), 콘솔 info.\n- 수렴: main 직접 기록, renderer는 electron-log의 renderer entry가 동일 main transport로 IPC relay, Go 포워딩 라인(이슈3)은 pipe.ts가 같은 facade로 source:\"agent\" 태그하여 재방출 — 하나의 파일에 세 소스.\n\n기각한 대안: (1) pino/winston — Electron의 contextIsolation 하 renderer→main relay를 네이티브 지원하지 않아 가장 어려운 부분을 직접 재구현해야 함. (2) 순수 커스텀 래퍼 — 회전·relay·crash-safe flush를 모두 재구현하는 비용이 dev tool 가치에 비해 무의미.\n\n리스크: electron-log renderer transport는 preload 측 초기화가 필요(표준·문서화됨) — 첫 태스크에서 preload 배선을 검증한다. 이슈1은 다른 모든 안전망이 기록하는 sink이므로 전체 작업의 선행 필수다."
+          },
+          {
+            "id": 2,
+            "title": "전역 에러 안전망: main 프로세스 핸들러 · renderer window 핸들러 · React ErrorBoundary",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "main: src/main/index.ts 초기에 process.on('uncaughtException'/'unhandledRejection') 설치 — 로그 후 종료(non-zero exit). dev tool에서 손상된 main 상태(라우터 맵·agent pipe)로 절뚝거리면 버그를 숨김. 단 초반엔 log-only 워밍업으로 기존 위반 사례를 먼저 색출 후 exit로 전환. renderer: bootstrap.ts에 window 'error'+'unhandledrejection' 단일 핸들러, 기존 rejection-sink.ts를 이 핸들러로 흡수(isPureCanceled 술어 이전, 파일 삭제) — 두 리스너 병존 금지. React: app.tsx에 루트 ErrorBoundary 1개(렌더 크래시 포착·로그·dev fallback) + editor/git/terminal 등 3~4개 전략적 패널 경계만 추가, 전 컴포넌트 경계는 조기 세분화로 기각. 네 안전망 모두 이슈1 facade로 기록. 기각: uncaughtException 후 continue(Node가 상태 미정의로 명시 경고) · 패널마다 경계(응집도 비용·격리 이득 없음). 리스크: 루트 경계는 이벤트 핸들러 async 에러 미포착(window.onerror 담당) — 문서화 필요.",
+                "recorded_at": "2026-05-19T01:16:23.000Z",
+                "agent_id": "af0b5814bc35472ef"
+              }
+            ],
+            "decision": "전역 안전망 4개를 모두 이슈1 facade로 연결한다.\n\n- main: src/main/index.ts 초기에 process.on('uncaughtException')·process.on('unhandledRejection') 설치. 최종 동작은 '로그 후 non-zero exit' — 손상된 main 상태(라우터 맵·agent pipe 등 싱글턴)로 절뚝거리면 버그를 숨기고 데이터 손상을 부른다. 단 도입은 2단계: 먼저 log-only 모드로 기존 미처리 rejection 사례를 색출(짧은 1태스크), 그 다음 exit-on-error로 전환한다.\n- renderer: bootstrap.ts에 window 'error'+'unhandledrejection' 단일 핸들러를 둔다. 기존 rejection-sink.ts는 이 통합 핸들러로 흡수하고 파일 삭제 — isPureCanceled 술어를 옮겨, cancellation이면 조용히 preventDefault, 그 외엔 facade 기록 후 표면화. 리스너 병존 금지.\n- React: app.tsx에 루트 ErrorBoundary 1개(렌더 크래시 포착·로그·dev fallback) + editor/git/terminal 등 3~4개 전략 패널 경계. 한 패널 크래시가 창 전체를 날리지 않게 한다.\n\n기각한 대안: (1) uncaughtException 후 continue — Node 문서가 이후 상태를 '미정의'로 명시 경고, IPC 라우터·자식 프로세스를 소유한 프로세스에서는 조용한 손상 위험. (2) 전 컴포넌트 패널 경계 — 대부분 leaf 컴포넌트는 독립 복구 스토리가 없어 시각적 소음만 늘림(조기 세분화).\n\n리스크: 루트 ErrorBoundary는 이벤트 핸들러 async 에러를 포착하지 않음(window.onerror 담당) — 정상 React 동작이며 코드에 문서화한다."
+          },
+          {
+            "id": 3,
+            "title": "Go 에이전트 구조적 로깅과 stderr 포워딩 · correlation",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "cmd/agent/main.go에 slog JSONHandler→stderr 채택(부팅 fmt.Fprintln 4곳도 교체). fd 추가 금지(SSH 터널 stdio 3중 계약 유지) — stderr 단일 스트림을 내용으로 구분: ①slog JSON 라인(고정 마커 키, 예 src:\"agent-log\") ②Go panic(비JSON·다중행·panic:/goroutine 시작) ③기존 classifyStderr 텍스트. pipe.ts handleStderrLine: JSON.parse 시도→마커 있으면 facade로 source:\"agent\" 포워딩, 파싱 실패→기존 classifyStderr(panic은 terminal crash로 추가 분류). NDJSON 프로토콜 프레임은 이미 stdout이라 fd로 분리됨. correlationId: 라우터(이슈5)가 생성하는 requestId 재사용 — NDJSON 요청 프레임에 실어 보냄, Go dispatch가 logger.With(\"correlationId\",id)로 요청 스코프 logger 생성, 모든 agent 라인에 실림, pipe.ts가 포워딩 시 재스탬프. 기각: 별도 fd 3(SSH stdio 계약 파손·전 transport 변경) · TextHandler(필드 구조 소실). 리스크: JSON처럼 보이는 classifier 라인 오분류 → 명시 마커 키 필수. 이슈3↔5 correlationId 필드명을 사전 합의해야 함.",
+                "recorded_at": "2026-05-19T01:16:32.466Z",
+                "agent_id": "af0b5814bc35472ef"
+              }
+            ],
+            "decision": "Go 에이전트(cmd/agent/main.go)에 slog JSONHandler→stderr를 채택한다(부팅 단계 fmt.Fprintln 4곳도 교체). 새 fd를 추가하지 않고 stderr 단일 스트림을 내용으로 구분한다 — SSH 터널 stdio 3중 계약을 보존하기 위함.\n\n- stderr 라인 3종: ①slog JSON 라인(고정 마커 키, 예: src:\"agent-log\") ②Go panic 출력(비JSON·다중행·panic:/goroutine 시작) ③기존 classifyStderr 텍스트.\n- pipe.ts handleStderrLine: JSON.parse 시도 → 마커 키가 있으면 facade로 source:\"agent\" 포워딩, 파싱 실패면 기존 classifyStderr 경로(panic은 terminal crash로 추가 분류). NDJSON 프로토콜 프레임은 이미 stdout이라 fd로 분리되어 있다.\n- correlationId: 이슈5의 라우터가 생성하는 requestId를 재사용한다. NDJSON 요청 프레임에 실어 보내고, Go dispatch가 logger.With(\"correlationId\", id)로 요청 스코프 logger를 만들어 그 요청의 모든 agent 라인에 싣고, pipe.ts가 포워딩 시 재스탬프 — renderer 호출→main 라우터→agent 실행을 단일 grep으로 잇는다.\n\n기각한 대안: (1) 별도 fd 3 — 이론상 가장 깔끔하나 SSH 터널 stdio 계약을 깨고 모든 transport 계층 변경을 강제, JSON 마커 판별로 충분. (2) slog TextHandler — 필드 구조 소실, correlationId가 jq 필터 대신 substring grep이 되어 이슈1의 JSON 수렴과 모순.\n\n리스크: JSON으로 파싱되는 classifier 라인의 오분류 — 단순 'JSON 파싱됨'이 아니라 명시적 로그 마커 키를 요구한다. 이슈3↔5는 NDJSON 프레임의 correlationId 필드명을 양쪽 착수 전 작은 공유 서브태스크로 먼저 합의해야 한다."
+          },
+          {
+            "id": 4,
+            "title": "통합 에러 분류 체계(taxonomy): 입력오류/취소/작업실패/버그 + 기존 Git/Fs/Ssh 코드 정합",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "닫힌 4값 최상위 taxonomy(invalid-input/cancelled/failed/bug)를 도메인 코드를 대체가 아니라 감싸는 분류 계층으로 도입. 전 채널 단일 AppError 형태: {category(닫힘·exhaustive), domain?(git|fs|ssh), code?(GitErrorKind|FsErrorCode|SshErrorCode), message, hint?(GitActionHint 일반화), correlationId?}. 도메인 코드 전부 유지 — 60+ GitErrorKind는 UI 동작 분기(no-upstream≠dirty-tree)를 인코딩, 붕괴 시 동작 손실. category는 횡단 처리(로그? 재시도? 일반 토스트?)에 결합되는 닫힌 계약, code는 도메인 UI가 분기. 기존 7값 IpcResultKind는 category와 code가 섞임 → 재매핑: cancelled→category cancelled, invalid-args→invalid-input, 나머지→failed+code. IpcErrResult.kind→category, code는 신규 옵션 필드. IpcResult envelope 형태는 확장(재작성 아님). Go internal/proto 에러 프레임에 category 추가. 기각: 4값으로 평탄화·도메인 코드 폐기(60+ git 구분·ActionHint 다이얼로그 비가역 손실) · taxonomy 없이 채널별 유지(안전망이 균일한 'is this a bug?' 판단 불가). 리스크: 60+ Kind→4 category 매핑은 판단 무거움 — failed가 안전 기본값, bug·invalid-input만 정밀 필요.",
+                "recorded_at": "2026-05-19T01:16:43.243Z",
+                "agent_id": "af0b5814bc35472ef"
+              }
+            ],
+            "decision": "닫힌 4값 최상위 taxonomy를 도입한다 — invalid-input / cancelled / failed / bug. 이는 도메인 코드를 대체하지 않고 감싸는 분류 계층이다. 전 채널 단일 AppError 형태:\n\n  AppError { category: 'invalid-input'|'cancelled'|'failed'|'bug' (닫힘·exhaustive); domain?: 'git'|'fs'|'ssh'|...; code?: string (GitErrorKind|FsErrorCode|SshErrorCode); message: string; hint?: ActionHint (GitActionHint 일반화); correlationId?: string }\n\n- 도메인 코드는 전부 유지한다. 60+ GitErrorKind는 UI 동작 분기(no-upstream은 dirty-tree와 다른 다이얼로그)를 인코딩하므로 붕괴 시 동작이 손실된다. category는 횡단 처리(로그할지·재시도 제공할지·일반 토스트일지)에 결합하는 닫힌 계약이고, code는 도메인 UI가 분기하는 세부다 — 응집도가 올바르게 갈린다.\n- 기존 7값 IpcResultKind는 category(cancelled, invalid-args)와 code(auth-failed, not-found, conflict)가 섞여 있다. 재매핑한다: cancelled→category cancelled, invalid-args→invalid-input, 나머지→failed + code. IpcErrResult.kind는 category가 되고 code는 신규 옵션 필드. IpcResult envelope 형태는 재작성하지 않고 확장한다.\n- Go internal/proto 에러 프레임에 기존 code 옆에 category를 추가하고, internal/git·fs/errors.go가 프레임 경계에서 Kind/Code→category로 매핑한다.\n\n기각한 대안: (1) 4 category로 평탄화하고 도메인 코드 폐기 — 60+ git 구분과 ActionHint 다이얼로그를 비가역적으로 잃고 git UI 전반의 산탄총 수술 유발. (2) taxonomy 없이 채널별 에러 타입 유지(현상 유지) — 로거와 전역 안전망이 균일한 'is this a bug?' 판단을 못 함, 본 체계의 핵심을 무력화.\n\n리스크: 60+ GitErrorKind→4 category 매핑은 판단이 무겁다. failed를 안전 기본값으로 두고, 안전망 동작을 바꾸는 bug·invalid-input만 정밀 배정한다. category:\"bug\"가 IPC를 값으로 건너도 로거에 도달해야 하므로, 라우터가 category:\"bug\" result를 포워딩 전 로깅한다(이슈5와 연동). 본 이슈의 AppError는 이슈5·6의 데이터 계약이므로 이슈1 다음으로 선행한다."
+          },
+          {
+            "id": 5,
+            "title": "IPC 호출 계약 일원화: ipcCallResult 전면 적용 · validateArgs 검증실패 재분류 · ~140 callsite 마이그레이션 전략",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "ipcCallResult를 단일 계약으로. (1)validateArgs는 throw 대신 zod 실패 시 category:\"invalid-input\" ipcErr 반환, 핸들러는 return. (2)마이그레이션은 채널별 점진(빅뱅·codemod 불가 — codemod는 의도된 에러 UX를 추론 못함, 55% 무처리 사이트에 잘못된 .ok 분기 양산). envelope는 공존하도록 설계됨. (3)ipcCall은 마이그레이션 중 @deprecated thin wrapper로 유지(즉시 삭제 시 140 사이트 단일 커밋 강제), call-site 0 되면 삭제. (4)ipcStream은 단일 Result 불가 — error 이벤트 payload가 동일 AppError 형태를 운반(taxonomy 동일·transport 다름). (5)핸들러가 category:\"bug\" 반환 시 라우터가 포워딩 전 로그 — throw→return 전환이 로그 라인을 조용히 없애지 않도록('로그 라인=실제 버그' 불변식 보존). (6)git 채널이 AppError 반환하면 IPC_GIT_ERROR_MARK rehydration 중복 → 채널별 마이그레이션 시 폐기, 마지막 git 채널 후 error-ipc.ts 삭제(AppError는 plain object라 V8 Error 속성 소실 문제 없음). 기각: 140 사이트 빅뱅(비가역·리뷰 불가·구조/행위 변경 혼재) · ipcCall 즉시 삭제+codemod(올바른 에러 UX 합성 불가). 리스크: 55% 무처리 사이트는 마이그레이션 시 컴파일 에러 표면화 — 진짜 복구 불가 지점은 mustSucceed/unwrapIpcResult로 명시적 opt-in.",
+                "recorded_at": "2026-05-19T01:16:55.794Z",
+                "agent_id": "af0b5814bc35472ef"
+              },
+              {
+                "role": "retrospective",
+                "summary": "사이클 마감(plan #52, 13태스크 전부 completed). 결과: A-E 통합 에러 관리 체계가 Electron 앱 전체(main/renderer/preload + Go 에이전트)에 적용됨 — 로깅 facade(electron-log v5), AppError 4값 taxonomy, 전역 안전망 4계층, Go slog+correlationId, ipcCallResult 단일 계약(프로덕션 ipcCall 0건), surfaceError 표면화, useIpcAction 훅, 부분 실패 정책. 최종 typecheck 클린, 2056 pass/0 fail, T12 검증 PASS. 아키텍트 3개 CRITICAL(category:bug 로깅·uncaughtException log-only 워밍업·correlationId 필드명 합의) 모두 해소.\n\n교훈(병렬 실행): 같은 브랜치를 공유하는 다수 engineer 에이전트를 동시에 띄울 때 두 번 충돌이 발생했다. (1)웨이브1 T1/T2가 각자 0 fail로 보고했으나 합산 상태에서 electron-log 모듈 로드 부수효과로 8건 오염 실패 — 각 에이전트는 상대의 변경이 디스크에 반영되기 전 테스트를 돌려 합산 상태를 못 봄. (2)T6이 동시 진행 중인 T7의 미완 마이그레이션(컴파일 안 되는 트리)을 '깨진 트리'로 오인해 T7 소유 파일(client.ts·error-ipc.ts 등)에 collateral 수정을 가함. 또 T3가 T5의 의도적 파일 삭제를 '실수'로 오인해 복원. 개선 방향: 동일 관심영역(IPC/에러 경로)을 건드리는 태스크는 파일 비중첩이 명백해도 직렬화하거나, 웨이브 경계마다 Lead가 전체 typecheck/테스트로 통합 상태를 검증할 것(이번엔 후자로 모두 잡아냄). 미완 브랜치 상태를 만난 에이전트에게 '다른 태스크의 진행 중 상태일 수 있으니 그 영역을 수정하지 말라'고 명시할 것.\n\n백로그(범위 외 — 차기 사이클): pipe.ts handleStderrLine·proto ParseRequest correlationId·ErrorBoundary 단위 테스트 부재, 실제 파일-싱크 3소스 수렴은 라이브 Electron 필요로 미검증. git 채널은 결정 원안의 순수 AppError 대신 ipcErr(\"git-error\") 서브타입을 유지(60+ GitErrorKind 무손실 보존, IPC 경계 throw 없음 — 결정 취지 충족).",
+                "recorded_at": "2026-05-19T05:10:26.177Z"
+              }
+            ],
+            "decision": "ipcCallResult를 단일 IPC 호출 계약으로 만든다. IPC 경계에서는 throw하지 않고 항상 IpcResult 값을 반환한다.\n\n- validateArgs는 throw 대신, zod 실패 시 category:\"invalid-input\" AppError를 담은 ipcErr를 반환하고 핸들러는 이를 return한다. 라우터는 이미 IpcResult를 통과시키므로 validateArgs와 stream validateStreamValue가 invalid-input 매핑을 공유하는 작은 국소 변경이다.\n- 마이그레이션은 채널별 점진 진행 — 빅뱅·codemod 불가. ~140 callsite의 에러 처리가 이질적(silent swallow 16%·try-catch 29%·무처리 55%)이라 codemod는 의도된 에러 UX를 추론하지 못해 무처리 사이트에 잘못된 .ok 분기를 양산한다. envelope는 두 경로 공존을 위해 설계됐다. 채널 단위로 옮기고, 타입 시스템이 미마이그레이션 callsite를 컴파일 타임에 드러내게 한다.\n- ipcCall은 마이그레이션 동안 @deprecated thin wrapper로 유지(즉시 삭제 시 140 사이트를 단일 커밋으로 강제). callsite가 0이 되면 삭제한다.\n- ipcStream은 단일 Result를 반환할 수 없다 — 실패 단위는 error 이벤트다. error 이벤트 payload가 동일 AppError 형태(이슈4)를 운반하게 하여 taxonomy를 통일한다(transport만 다름). 라우터의 SerializedError 직렬화를 AppError 직렬화로 바꾼다.\n- 라우터는 핸들러가 category:\"bug\" result를 반환하면 포워딩 전에 로깅한다 — throw→return 전환이 '로그 라인=실제 버그' 불변식을 조용히 깨뜨리지 않도록.\n- GitError rehydration(IPC_GIT_ERROR_MARK / IPC_CALL_RESULT_MARK)은 git 채널이 AppError를 반환하면 중복이 된다(AppError는 plain object라 V8 Error 속성 소실 문제가 없음). 채널별 마이그레이션 시 rehydration 경로를 함께 폐기하고, 마지막 git 채널 완료 후 error-ipc.ts를 삭제한다.\n\n기각한 대안: (1) 140 사이트 빅뱅 마이그레이션 — 단일 거대 비가역 변경, 안전한 리뷰 불가, 구조 변경과 행위 변경을 뒤섞음(Tidy First 위반). (2) ipcCall 즉시 삭제 + codemod — codemod가 무처리 55% 사이트의 올바른 에러 UX를 합성할 수 없음(검증 불가 변환).\n\n리스크: 무처리 55% 사이트는 마이그레이션 시 무시하던 에러가 값으로 표면화되어 새 컴파일 에러가 난다 — 이는 의도된 것이지만 실제 작업량이다. 진짜 복구 경로가 없는 지점은 mustSucceed/unwrapIpcResult 헬퍼로 명시적 throw-on-error를 opt-in해 마이그레이션을 정직하게 유지한다. 이슈5는 채널별 callsite 분류 작업으로 크기를 잡으며, 균일 codemod로 가정하지 않는다."
+          },
+          {
+            "id": 6,
+            "title": "로그/알림 분리: 사용자 친화 메시지 표면화 계층(toast/banner)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "사용자 멘탈 모델은 '원인의 국소성' — 에러는 사용자가 보고 있던 곳에 속함. surfaceError(classifiedError,{surface:'inline'|'banner'|'toast'|'auto', onRetry?}) 단일 진입점을 두되 채널은 kind만이 아니라 kind+컨텍스트로 결정 — 호출자가 선호 surface를 넘기고 라우터가 kind별 합법 집합을 강제. 규칙표: invalid-input→필드 옆 inline(토스트·배너 금지, 매핑 필드 없으면 오분류), cancelled→아무것도 안 함, failed→사용자가 보고 있는 surface(inline 또는 배너)+재시도 액션(on-screen home 없을 때만 토스트 fallback), bug→토스트+일반 userMessage+'세부정보 복사'(internalMessage+correlationId 클립보드)·부차로 '로그 열기'(raw 경로/스택 노출 금지). 라우터가 userMessage/internalMessage 분리 소유 — internalMessage는 로그 sink만, userMessage만 픽셀 도달. 한 호출=한 surface로 이중 표면화 구조적 차단. 기각: kind→채널 맹목 매핑(failed git fetch≠failed SSH connect 구분 불가) · 전부 토스트(invalid-input 토스트는 자동소멸이 수정 전에 사라짐·필드와 공간 분리·git 영구배너 모델과 충돌). 리스크: hook state.error와 수동 surfaceError 두 경로 이중 발화 → hook은 auto-surface 안 함, 액션당 한 번만. 접근성 CRITICAL: 액션 있는 토스트는 role=\"alert\"+키보드 도달+자동소멸 금지(WCAG 2.2.1).",
+                "recorded_at": "2026-05-19T01:17:23.479Z",
+                "agent_id": "a2ca7f22507af69c5"
+              }
+            ],
+            "decision": "단일 표면화 진입점 surfaceError(classifiedError, { surface: 'inline'|'banner'|'toast'|'auto', onRetry? })를 둔다. 단 채널은 kind만으로 결정하지 않고 kind+컨텍스트로 결정 — 호출자가 선호 surface를 넘기고, 라우터는 kind별 합법 surface 집합을 강제(불법 조합은 거부·강등)하며 userMessage/internalMessage 분리를 소유한다. internalMessage는 로그 sink에만, userMessage만 픽셀에 도달.\n\nkind별 기본 채널과 규칙:\n- invalid-input → 필드 옆 inline. 토스트·배너 금지(매핑할 필드가 없으면 오분류 신호). SSH 폼의 portError aria-describedby 선례를 모든 inline 에러의 표준으로.\n- cancelled → 아무것도 표면화하지 않음.\n- failed → 사용자가 이미 보고 있는 surface(inline 또는 git 스타일 배너)+재시도 액션. on-screen home이 없는 백그라운드 작업만 토스트 fallback.\n- bug → 토스트, 일반 userMessage(\"Something went wrong. The error has been logged.\")+'세부정보 복사' 액션(internalMessage+correlationId를 클립보드로)·부차로 '로그 열기'. raw 경로/스택은 토스트에 노출 금지. inline·영구 배너 금지(사용자 잘못이 아니며 작업 공간을 침범하면 안 됨).\n\n이중 표면화는 '한 호출 = 한 surface'로 구조적으로 차단한다. 이슈7 hook은 auto-surface하지 않으므로, 컴포넌트가 액션당 정확히 한 번만 surfaceError를 호출하거나 inline 렌더만 한다.\n\n기각한 대안: (1) kind→채널 맹목 매핑(호출자 입력 없음) — failed git fetch(git 배너)와 failed SSH connect(inline)를 구분 못 해 위치 불일치 유발. (2) 전부 토스트 — invalid-input 토스트는 3~5초 자동소멸이 사용자가 필드를 고치기 전에 사라지고 공간적으로 분리되며, git의 영구 배too너 모델과 충돌.\n\n리스크: hook의 state.error와 수동 surfaceError가 같은 픽셀로 가는 두 경로 — no-auto-surface 규칙이 유일한 방어선이므로 컨벤션이 아니라 테스트로 보장한다. 접근성(CRITICAL): 액션이 달린 토스트(bug의 '세부정보 복사', 부분실패의 'Retry save')는 role=\"status\"가 부적절 — role=\"alert\"+키보드 도달 가능 액션+자동소멸 금지(WCAG 2.2.1 Timing Adjustable)로 toast.tsx를 보강한다."
+          },
+          {
+            "id": 7,
+            "title": "UI 비동기 액션 수명주기 공용 도구(useIpcAction)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "useIpcAction이 discriminated union 상태 반환: idle|loading|{success,value}|{error,ClassifiedError}. 구조적 보장: (1)loading 항상 종료 — run이 try/catch/finally로 감싸 두번째 await 포함 모든 throw를 ClassifiedError(미분류 시 bug)로 변환, loading 영속 경로 없음 → SSH 멈춤 버그 제거. (2)이중 제출 불가 — loading 중 run은 no-op, isPending도 노출. (3)hook은 auto-surface 안 함 — state 반환, 컴포넌트가 inline/배너/토스트 결정(auto-toast는 이중 표면화 재유입). 버튼 계약: disabled={isPending}, 라벨은 status 구동(error→\"Connect\"로 복귀해 재시도 한 클릭, 종료처럼 보이는 pending 라벨 금지). 취소 2종 구분: 언마운트→AbortController 자동 중단·결과 폐기 / 사용자 취소→cancel() 노출, cancelled kind→idle 복귀·무표면(SSH auth 취소는 이미 ipcErr('cancelled')로 도착, idle 매핑). SSH 폼 마이그레이션: connectPhase enum+errorMessage state가 useIpcAction 한 번으로 붕괴 — 진짜 수정은 handleConnect에 try/catch 추가가 아니라 2단계 액션 전체를 hook으로 라우팅해 두번째 await가 탈출 못하게. 기각: hook이 토스트 자동 표시(컴포넌트 레이아웃 선택권 박탈·이중 표면화) · 패턴 유지+lint 규칙(린트는 리마인더지 보장 아님 — SSH 버그가 정확히 누락된 catch). 리스크: 다단계 run은 어느 단계 실패인지 보고해야 함 → run 콜백이 단계 컨텍스트 태깅. success 미소비 → onSuccess 콜백 옵션.",
+                "recorded_at": "2026-05-19T01:17:36.348Z",
+                "agent_id": "a2ca7f22507af69c5"
+              }
+            ],
+            "decision": "공용 훅 useIpcAction을 도입한다. discriminated union 상태를 반환한다: { status:'idle' } | { status:'loading' } | { status:'success', value:T } | { status:'error', error:AppError }.\n\n구조적 보장:\n- loading은 항상 종료한다. run은 호출을 try/catch/finally로 감싸 두 번째 await를 포함한 모든 throw를 AppError(미분류 시 category:\"bug\")로 변환 — loading이 영속되는 코드 경로가 없다. 이것만으로 SSH 'Connecting...' 멈춤 버그가 구조적으로 제거된다.\n- 이중 제출 불가. status==='loading'이면 run은 no-op. isPending도 노출해 버튼 disabled에 쓴다.\n- hook은 auto-surface하지 않는다. state만 반환하고 컴포넌트가 inline/배너/토스트를 결정(이슈6) — auto-toast는 이중 표면화를 재유입한다.\n- 버튼 계약: disabled={isPending}, 라벨은 status 구동(idle \"Connect\", loading \"Connecting…\", error는 \"Connect\"로 복귀해 재시도가 한 클릭). 종료처럼 보이는 pending 라벨로 멈추지 않는다.\n- 취소 2종 구분: 컴포넌트 언마운트 → AbortController로 자동 중단·결과 폐기(죽은 컴포넌트 setState 없음, 필수). 사용자 취소 → cancel() 노출(opt-in), cancelled kind는 idle 복귀·무표면. SSH auth 취소는 이미 ipcErr('cancelled')로 도착하므로 idle로 조용히 매핑.\n- 다단계 액션: run 콜백은 어느 단계가 실패했는지 단계 컨텍스트를 태깅한다(이슈8 부분 실패 분기에 필요). success 미소비 방지를 위해 onSuccess 콜백 옵션을 제공.\n\nSSH 폼 마이그레이션: connectPhase enum + 수동 errorMessage state가 useIpcAction 한 번으로 붕괴한다. 진짜 수정은 handleConnect에 try/catch를 더하는 것이 아니라 2단계 액션 전체를 hook으로 라우팅해 두 번째 await가 탈출하지 못하게 하는 것이다. 나머지 비일관 사이트(boolean flag, ad-hoc phase enum)는 기회주의적으로 채택하되, 에러 체계 전체를 전면 마이그레이션에 묶지 않는다.\n\n기각한 대안: (1) hook이 에러 시 토스트 자동 표시 — 컴포넌트의 inline/배너 레이아웃 선택권을 박탈하고, 컴포넌트가 state.error를 inline 렌더하는 순간 이중 표면화. (2) 패턴 유지 + try/catch 강제 lint 규칙 — 린트는 리마인더지 보장이 아니며, SSH 버그가 정확히 두 번째 await의 누락된 catch다. finally를 소유하는 hook만이 멈춤 상태를 구조적으로 불가능하게 만든다.\n\n리스크: rapid remount 시 stale closure/race — run 호출마다 AbortController를 두고 상위된(superseded) 컨트롤러의 resolution은 무시한다."
+          },
+          {
+            "id": 8,
+            "title": "부분 실패 처리 정책 (연결 성공 + 프로필 저장 실패 류)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "트랜잭션 롤백 없음. 기본은 typed partial result로 표면화하고 호출자(UI)가 결정. SSH connect-ok/profile-save-fail 예: 연결은 살아있는 가치 있는 부수효과 — cosmetic save 실패 때문에 롤백(연결 해제)은 좋은 작업을 버림. result 계층에서 warnings 배열을 가진 성공 result로 표현: IpcOkResult<T>{ok:true, value:T, warnings?:AppError[]}. 응집도 — 주 결과(사용 가능한 세션)가 ok를 결정, 부차 단계 실패는 진단 메타데이터. 가시성 — ok result의 warnings는 호출처에서 보임, 관심 UI(설정 패널)는 읽고 재시도 제공, 무관심 UI는 무해하게 무시. 비용/가역성 — proceed-with-warning이 가역(나중 재시도), 롤백이 비가역(세션 파괴). 본질적으로 atomic한 다단계 op는 단일 IPC call로 partial state 노출하지 말고 main에서 neverthrow 체인으로 합성, 최종 all-or-nothing만 IPC 통과 — atomicity는 main 서비스 관심사, IPC는 outcome만 표현. 기각: 롤백 기본값(독립 가치 단계에 부적합·롤백 자체가 실패 가능) · 세번째 partial discriminant(140 사이트에 죽은 처리 강제). 리스크: warnings 무시 쉬움 → 모든 warnings는 facade로 warn 로깅되어 UI가 떨궈도 무성하지 않음.",
+                "recorded_at": "2026-05-19T01:17:06.485Z",
+                "agent_id": "af0b5814bc35472ef"
+              },
+              {
+                "role": "designer",
+                "summary": "주 효과 성공 시 진행하고 부차 실패는 비차단 경고로 표면화 — 차단·폐기 금지. hard failure는 \"안 됐다\"는 거짓말(사용자는 연결됨), 다이얼로그가 error로 닫히며 라이브 세션 폐기하면 성공을 처벌하고 느린 auth 단계 재실행 강제 — 최악. SSH 케이스: 연결 성공→saveConnectionProfile 성공 여부와 무관하게 onConnected 호출·플로우 완료. save 실패 시 토스트 \"Connected. This connection couldn't be saved for next time.\"+액션 \"Retry save\"(saveConnectionProfile만 재실행, 재연결·재auth 없음). 토스트(영구 배너 아님)가 적합 — 비차단·결과 경미·사용자는 이미 워크스페이스로 이동. 일반 원칙(명시적 plan 결정으로): 다단계 액션의 outcome은 주 효과의 status. 부차 효과 실패는 비차단 경고+범위 한정 재시도로 격하, 롤백·차단 안 함. 절차: 주 효과 식별→주 실패면 hard failed·차단·맥락 표면화 / 주 성공·부차 실패면 플로우 완료+비차단 경고+부차 단계만 재시도. 재시도는 실패 단계만 — 성공한(비싼·auth-gated) 단계 재생 절대 금지. 기각: hard failure(사실 오류·느린 단계 재실행 강제) · in-dialog 차단(잘못 적용된 마찰·라이브 세션이 모달 뒤 유휴). 리스크: 경고 토스트 무시 시 프로필 영구 미저장(경계 있는 결과·고지됨, 단 액션 토스트는 자동소멸 연장/금지 필요) · '주/부차' 분류는 호출처별 설계 판단 — 런타임 휴리스틱 아님.",
+                "recorded_at": "2026-05-19T01:17:50.269Z",
+                "agent_id": "a2ca7f22507af69c5"
+              }
+            ],
+            "decision": "부분 실패의 일반 원칙을 명시적 결정으로 채택한다: 다단계 액션의 outcome은 주(primary) 효과의 status다. 부차(secondary) 효과의 실패는 비차단 경고 + 범위 한정 재시도로 격하하며, 롤백하거나 주 성공을 차단하지 않는다. 트랜잭션 롤백은 기본값이 아니다.\n\n데이터 표현(result 계층): IpcOkResult<T>를 확장해 비치명 경고 배열을 가진 성공 result로 표현한다 — IpcOkResult<T> { ok:true, value:T, warnings?: AppError[] }. 주 결과(사용 가능한 세션)가 ok를 결정하고, 부차 단계 실패는 진단 메타데이터다. warnings는 호출처에서 보이므로 관심 UI는 읽어 재시도를 제공하고 무관심 UI는 무해하게 무시한다. 모든 warnings 항목은 facade로 warn 레벨 로깅되어 UI가 떨궈도 무성하지 않다. 본질적으로 atomic한 다단계 op는 단일 IPC call로 partial state를 노출하지 말고 main에서 neverthrow 체인으로 합성해 최종 all-or-nothing만 IPC를 통과시킨다 — atomicity는 main 서비스 관심사이고 IPC는 outcome만 표현한다.\n\n사용자 동작(SSH 케이스 구체): 연결 성공 → saveConnectionProfile 성공 여부와 무관하게 onConnected 호출·플로우 완료. save 실패 시 토스트 \"Connected. This connection couldn't be saved for next time.\" + 액션 \"Retry save\"(saveConnectionProfile만 재실행, 재연결·재auth 없음). 재시도는 실패한 부차 단계만 대상으로 하며, 성공한 비싼·auth-gated 단계는 절대 재생하지 않는다. 영구 배너가 아니라 토스트가 적합 — 비차단·결과 경미·사용자는 이미 워크스페이스로 이동.\n\n결정 절차(신규 다단계 액션마다): ①주 효과 식별(사용자가 하러 온 것) ②주 실패 → hard failed·차단·맥락 표면화 ③주 성공·부차 실패 → 플로우 완료 + 비차단 경고 + 부차 단계만 재시도.\n\n기각한 대안: (1) 롤백 기본값 — 다단계 op의 단계들이 독립적 가치를 가지는 경우가 많고(라이브 SSH 연결은 프로필 row 미저장으로 무가치해지지 않음) 롤백 자체가 실패 가능. (2) 세 번째 partial discriminant — ~140 callsite에 대부분 무관한 죽은 처리를 강제(조기 일반화·가시성 비용). (3) hard failure로 다이얼로그를 닫고 연결 폐기 — 사실 오류(사용자는 연결됨)이며 느린 auth 단계 재실행을 강제하는 최악의 결과.\n\n가정: handleConnect의 진짜 수정은 이슈7의 useIpcAction으로 2단계 액션을 라우팅하면서 saveConnectionProfile을 부차 단계로 다루는 것이다(이미 커밋된 host-only 수정과 별개). 리스크: '주/부차' 분류는 호출처별 설계 판단이지 런타임 휴리스틱이 아니다 — 부분 실패가 보안 관련 쓰기 등 실은 치명적인 단계를 숨기지 않도록, 다단계 액션 추가 시마다 분류를 검토하고 컨벤션 문서에 두 패턴을 기록한다. 액션 토스트는 자동소멸을 연장/금지해 재시도 창을 확보한다."
+          }
+        ],
+        "research_summary": "코드 탐색 결과: (1) 메인 프로세스에 전용 로거 없음 — console.* ad-hoc, process.on('uncaughtException'/'unhandledRejection') 핸들러 없음. (2) 렌더러에 rejection-sink.ts가 unhandledrejection을 받아 'Canceled'만 필터, window.onerror 핸들러 없음, React ErrorBoundary 없음. (3) Go 에이전트는 fmt.Fprintln(os.Stderr) 사전부팅 에러만, slog 미사용. stderr는 main의 ndjson pipe.ts가 classifyStderr로 SshErrorCode 분류. (4) IpcResult envelope(src/shared/ipc/result.ts) 존재 — IpcResultKind 7종(not-found, cancelled, session-expired, auth-failed, permission-denied, conflict, invalid-args), ipcOk/ipcErr. ipcCallResult는 소수 채널만 사용, ipcCall(throw)이 ~140 callsite(silent swallow 16%·try-catch 29%·무처리 55%). validateArgs는 zod 실패를 일반 Error로 throw → 라우터가 재throw → Electron이 로그. (5) 구조적 에러 선례: GitError(60+ kind, hint, IPC 재구성 envelope), FsErrorCode 9종, SshErrorCode 16종 — 채널별로 제각각. (6) 알림: toast.tsx(info/error, 자동소멸), git panel banner-stack(severity rank). (7) UI 비동기 패턴: phase enum/boolean loading/discriminated union 혼재, 공용 훅 없음 — handleConnect에서 await 무방비로 'Connecting...' 영구 멈춤 발생. 외부 리서치: electron-log v5가 contextIsolation 하 renderer→main IPC relay를 네이티브 지원해 권장(pino/winston은 커스텀 transport 필요). IPC 경계는 throw 금지·discriminated-union Result 반환이 커뮤니티 합의(structured-clone이 커스텀 필드 소실). neverthrow는 main 내부 서비스 체인용(IPC wire 못 넘김). Go는 slog JSONHandler→stderr NDJSON→main readline 파싱·correlationId 정합. UI는 idle|loading|success|error discriminated-union useAsync 훅 권장, error.userMessage만 표면화.",
+        "created_at": "2026-05-19T01:12:53.535Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "로깅 파운데이션: electron-log v5 + 로그 facade",
+          "status": "completed",
+          "context": "plan #52 이슈1. 현재 main은 전용 로거 없이 console.* ad-hoc, renderer도 동일, Go 에이전트는 부팅 에러만 fmt.Fprintln(os.Stderr). 단일 로그 sink가 없어 디버깅이 분산됨. 이 태스크는 다른 모든 안전망(이슈2·3·5)이 기록할 sink이므로 전체의 선행 기반이다.",
+          "acceptance": "src/shared/log/ facade 모듈 존재, electron-log v5 의존성 추가. main에서 facade로 기록한 로그가 JSON 라인으로 로그 파일에 기록됨. renderer에서 facade로 기록한 로그가 IPC relay로 같은 파일에 source:\"renderer\"로 기록됨. 콘솔 출력은 text 포맷. preload 배선으로 contextIsolation 하에서 renderer 로깅이 동작. typecheck·lint·기존 테스트 통과. 런타임 검증 기준 포함(실제 파일 기록 확인).",
+          "approach": "electron-log v5를 transport로 추가하고 src/shared/log/ 아래 thin facade(~40줄)를 만든다. 호출처는 electron-log를 직접 import하지 않고 facade만 사용. 파일 sink는 JSON lines 단일 파일(app.getPath('logs')/main.log), 콘솔 sink는 사람이 읽는 text(전송별 포맷 분리). level error/warn/info/debug, 파일 기본 debug·콘솔 info. facade API는 모든 로그에 source(main|renderer|agent)와 선택적 correlationId 필드를 싣는다. main 직접 기록, renderer는 electron-log renderer entry가 IPC relay, preload에 electron-log 초기화 배선. Go 포워딩 라인 재방출 경로(이슈3)가 쓸 수 있도록 facade가 임의 source 태그를 받게 한다.",
+          "risk": "electron-log renderer transport는 preload 초기화가 필수 — 누락 시 renderer 로그 유실. JSON 파일/text 콘솔 전송별 포맷 분리가 electron-log v5 API로 지원되는지 첫 단계에서 검증.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a358120ff6564517c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-19T01:21:48.857Z",
+          "result": {
+            "outcome": "success",
+            "summary": "electron-log/main·renderer를 최상위 static import에서 함수 내부 require()로 지연 로드 전환 — src/shared/log/* 단순 import로는 electron-log 로드 시점 부수효과(window.addEventListener, electron.app) 미실행. renderer는 hasWindowMessaging() 가드로 비-DOM 환경에서 console fallback, main도 require 실패 시 console fallback. 정상 Electron에서는 첫 로그 호출 시 lazy load. 결과: 전체 테스트 2047 pass / 0 fail / 0 errors, typecheck/lint 통과 — 8건 오염 실패 해소.",
+            "artifacts": [
+              "src/shared/log/types.ts",
+              "src/shared/log/main.ts",
+              "src/shared/log/renderer.ts",
+              "src/shared/log/index.ts",
+              "src/preload/index.ts",
+              "src/main/index.ts",
+              "tests/unit/shared/log/types.test.ts"
+            ],
+            "recorded_at": "2026-05-19T03:25:57.476Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "통합 에러 taxonomy: AppError 타입 + IpcResult 재매핑",
+          "status": "completed",
+          "context": "plan #52 이슈4. 현재 구조적 에러가 채널별로 제각각 — GitError(60+ GitErrorKind, ActionHint), FsErrorCode 9종, SshErrorCode 16종, IpcResultKind 7종(category와 code 혼재). 로거·전역 안전망이 균일한 'is this a bug?' 판단을 못 한다. 이 태스크의 AppError는 이슈5·6·8의 데이터 계약이므로 이슈1과 함께 선행 기반이다.",
+          "acceptance": "AppError 타입과 zod 스키마 정의. IpcResult envelope이 category+code 형태로 확장되고 기존 ipcOk/ipcErr 호출이 무파손. IpcResultKind 7값이 category/code로 재매핑됨. Go proto 에러 프레임에 category 필드 추가, git/fs errors.go의 Kind→category 매핑 함수 존재. TS·Go 양쪽 typecheck/build 통과, 기존 테스트 통과.",
+          "approach": "src/shared에 AppError 타입 정의: { category: 'invalid-input'|'cancelled'|'failed'|'bug'(닫힘·exhaustive); domain?: 'git'|'fs'|'ssh'|...; code?: string; message: string; hint?: ActionHint(GitActionHint 일반화); correlationId?: string }. 도메인 코드(GitErrorKind/FsErrorCode/SshErrorCode)는 전부 유지하고 code 필드로 흡수. src/shared/ipc/result.ts의 IpcResult envelope를 확장(재작성 아님): IpcErrResult.kind→category, code 신규 옵션 필드. 기존 7값 IpcResultKind 재매핑 — cancelled→category cancelled, invalid-args→invalid-input, 나머지→failed+code. Go internal/proto 에러 프레임에 기존 code 옆 category 필드 추가, internal/git·fs/errors.go가 프레임 경계에서 Kind/Code→category 매핑. 60+ GitErrorKind→category 매핑은 failed를 안전 기본값으로, bug·invalid-input만 정밀 배정.",
+          "risk": "60+ GitErrorKind→4 category 매핑은 판단이 무겁다 — failed 기본값으로 두고 안전망 동작을 바꾸는 bug·invalid-input만 정밀 분류. IpcResult 형태 변경이 기존 ipcCallResult 사용 채널에 파급될 수 있어 envelope은 확장만 한다.",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a6c5adb0cb0e1d8e8",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-19T01:22:02.012Z",
+          "result": {
+            "outcome": "success",
+            "summary": "src/shared/error/app-error.ts에 AppError 타입+zod 스키마 정의(4값 category invalid-input|cancelled|failed|bug, domain, code, message, hint, correlationId, 생성자 4개). IpcErrResult를 category/code 옵션 필드로 확장·ipcResultKindToCategory() 매핑 추가(기존 ipcOk/ipcErr 호환). Go proto.ErrorFrame.Category + FailureWithCategory()/ErrorCategory(), git KindToCategory()(60+ Kind, failed 기본값), fs CodeToCategory(). tsc/go build internal/go test/bun test(1970 pass) 통과, lint 신규 이슈 없음.",
+            "artifacts": [
+              "src/shared/error/app-error.ts",
+              "src/shared/ipc/result.ts",
+              "internal/proto/proto.go",
+              "internal/git/errors.go",
+              "internal/fs/errors.go",
+              "tests/unit/shared/app-error.test.ts"
+            ],
+            "recorded_at": "2026-05-19T01:41:56.787Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "IPC 계약 인프라: ipcCallResult 단일화 · validateArgs 재분류 · correlationId",
+          "status": "completed",
+          "context": "plan #52 이슈5(코어 인프라 부분). 라우터(src/main/infra/ipc-router/index.ts)는 핸들러 throw를 재throw하고 validateArgs는 zod 실패를 일반 Error로 throw. ipcCallResult는 소수 채널만 사용. 이 태스크는 계약 인프라만 바꾸며, ~140 callsite 마이그레이션은 별도 태스크.",
+          "acceptance": "validateArgs/validateStreamValue 실패가 throw 대신 invalid-input AppError result로 반환됨. 라우터가 category:\"bug\" result를 로깅. ipcStream error payload가 AppError 형태. NDJSON 요청 프레임에 correlationId 필드 포함. ipcCall은 @deprecated 표기되고 동작 유지. typecheck·lint·기존 테스트 통과. 런타임 검증: 잘못된 인자 호출이 멈춤 없이 invalid-input result로 돌아옴.",
+          "approach": "validateArgs를 throw 대신 zod 실패 시 category:\"invalid-input\" AppError의 ipcErr를 반환하도록 변경, stream validateStreamValue도 동일 매핑 공유. 라우터가 핸들러의 category:\"bug\" result를 포워딩 전에 facade로 로깅('로그 라인=실제 버그' 불변식 보존). ipcStream error 이벤트 payload를 AppError 형태로 통일(라우터 SerializedError 직렬화→AppError 직렬화). correlationId: 라우터가 요청마다 requestId를 correlationId로 발급하고 NDJSON 요청 프레임에 주입(필드명을 이슈6 Go 작업과 합의 — 'correlationId'로 고정). ipcCall은 @deprecated thin wrapper로 유지. mustSucceed/unwrapIpcResult 헬퍼 정비(복구 불가 지점의 명시적 opt-in throw).",
+          "risk": "IpcResult 형태 의존 코드 파급. correlationId 필드명을 이슈6 Go 작업 착수 전 합의해야 함('correlationId'로 고정). ipcStream payload 변경이 기존 stream 소비자에 영향 — git stream 경로 회귀 주의.",
+          "plan_issue": 5,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a12d128bad24a3606",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-19T01:22:36.514Z",
+          "result": {
+            "outcome": "success",
+            "summary": "validateArgs는 zod 실패 시 IpcValidationError를 throw하고 ipc:call 라우터가 경계에서 잡아 ipcErr(invalid-args, category:invalid-input)로 변환 — renderer는 throw 대신 typed IpcErrResult 수신(경계 동작은 결정과 동일). stream error payload를 SerializedError→AppError로 이행. correlationId를 요청별 발급해 pipe.ts call()에서 NDJSON 프레임에 주입. ipcCall @deprecated, mustSucceed/unwrapIpcResult를 client.ts에 노출. ipcResultKindToCategory 추가. 전체 typecheck clean. 주의: T3가 rejection-sink.ts를 '실수 삭제'로 오인해 복원 — T5의 의도된 삭제였으므로 Lead가 rejection-sink.ts+테스트를 재삭제 완료.",
+            "artifacts": [
+              "src/main/infra/ipc-router/index.ts",
+              "src/main/infra/agent/pipe.ts",
+              "src/renderer/ipc/client.ts",
+              "src/shared/ipc/result.ts"
+            ],
+            "recorded_at": "2026-05-19T03:19:17.376Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "main 프로세스 전역 에러 안전망",
+          "status": "completed",
+          "context": "plan #52 이슈2(main 부분). src/main/index.ts에 process.on('uncaughtException'/'unhandledRejection') 핸들러가 없어 예상 못한 에러가 로그 없이 사라지거나 프로세스가 미정의 상태로 절뚝거린다.",
+          "acceptance": "main에 두 process 핸들러 설치, facade로 기록. log-only 모드 동작 확인 후 exit-on-error 전환. 의도적 미처리 rejection 발생 시 로그 파일에 기록되고(2단계) 프로세스가 non-zero로 종료. typecheck·lint·기존 테스트 통과.",
+          "approach": "src/main/index.ts 초기에 process.on('uncaughtException')·process.on('unhandledRejection') 설치, 이슈1 facade로 기록. 2단계 도입: 1단계는 log-only 모드로 배포해 기존 미처리 rejection 사례를 색출, 2단계에서 exit-on-error(로그 후 non-zero exit)로 전환. 손상된 main 상태로 continue하지 않는다.",
+          "risk": "exit-on-error를 1일차에 켜면 기존 양성 미처리 rejection이 앱을 종료시킬 수 있음 — 반드시 log-only 워밍업 단계를 먼저 둔다.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ae3f16aa22960c5f7",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-19T01:22:38.342Z",
+          "result": {
+            "outcome": "success",
+            "summary": "src/main/error-safety-net.ts 신규 — onUncaughtException/onUnhandledRejection 핸들러가 T1 facade로 기록. ERROR_SAFETY_NET_MODE 상수('log-only'|'exit') 현재 log-only, exit 전환은 1줄. installErrorSafetyNet()가 src/main/index.ts에서 initMainLogger() 직후 호출(setupRouter 이전). typecheck·lint 통과, 자체 테스트 6/6. 주의: full suite에서 29 fail 보고됨(electron mock 관련, T4 무관 파일) — 웨이브2 완료 후 Lead가 전체 suite 재확인 필요.",
+            "artifacts": [
+              "src/main/error-safety-net.ts",
+              "src/main/index.ts",
+              "tests/unit/main/error-safety-net.test.ts"
+            ],
+            "recorded_at": "2026-05-19T01:48:46.457Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "renderer 전역 안전망: window 핸들러 + React ErrorBoundary",
+          "status": "completed",
+          "context": "plan #52 이슈2(renderer 부분). 현재 src/renderer/services/editor/runtime/rejection-sink.ts가 unhandledrejection에서 'Canceled'만 필터, window.onerror 핸들러 없음, React ErrorBoundary 없음. 렌더 크래시·이벤트 핸들러 throw가 로그 없이 사라진다.",
+          "acceptance": "bootstrap.ts에 통합 window 핸들러 존재, rejection-sink.ts 삭제됨, 'Canceled' rejection은 무표면 유지. 루트 + 3~4 패널 ErrorBoundary 배치, 패널 크래시가 창 전체를 날리지 않음. 모든 경계·핸들러가 facade로 기록. typecheck·lint·기존 테스트 통과.",
+          "approach": "bootstrap.ts에 window 'error'+'unhandledrejection' 단일 핸들러 설치 — cancellation이면 조용히 preventDefault, 그 외엔 facade 기록 후 표면화. 기존 rejection-sink.ts의 isPureCanceled 술어를 이 통합 핸들러로 이전하고 rejection-sink.ts 삭제(리스너 병존 금지). app.tsx에 루트 ErrorBoundary 1개(렌더 크래시 포착·facade 로그·dev fallback) + editor/git/terminal 등 3~4개 전략 패널 경계 추가. 루트 경계가 이벤트 핸들러 async 에러를 포착하지 않음을 코드에 문서화.",
+          "risk": "rejection-sink.ts 삭제 시 'Canceled' 필터 동작이 누락되면 정상 취소가 에러로 표면화 — isPureCanceled 술어 이전을 정확히 검증.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a3e02b049497c5a3e",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-19T01:22:49.344Z",
+          "result": {
+            "outcome": "success",
+            "summary": "src/renderer/services/window-error-handler.ts 신규 — installWindowErrorHandlers()가 window 'error'+'unhandledrejection' 통합 처리, isPureCanceled 술어 이전. rejection-sink.ts 삭제, index.tsx installRejectionSink 제거. 'Canceled' 무표면 유지. 재사용 ErrorBoundary 컴포넌트(logSource/fallback 주입) — 루트(app.tsx) + 패널 4개(file-tree, search, git, workspace-panel). 모든 경계·핸들러 facade 기록. T5 자체 테스트 17개 통과. 주의: src/main/** typecheck 에러는 T3 미완 때문 — T3 완료 후 전체 재확인.",
+            "artifacts": [
+              "src/renderer/services/window-error-handler.ts",
+              "src/renderer/components/ui/error-boundary.tsx",
+              "src/renderer/index.tsx",
+              "src/renderer/app.tsx",
+              "src/renderer/components/files/panel.tsx",
+              "src/renderer/components/workspace/panel.tsx",
+              "tests/unit/renderer/services/window-error-handler.test.ts"
+            ],
+            "recorded_at": "2026-05-19T02:12:51.519Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "Go 에이전트 slog 구조적 로깅 + stderr 포워딩",
+          "status": "completed",
+          "context": "plan #52 이슈3. Go 에이전트(cmd/agent)는 부팅 에러만 fmt.Fprintln(os.Stderr), slog 미사용. main의 pipe.ts가 stderr를 classifyStderr로 SshErrorCode 분류만 한다. 에이전트 내부 에러가 통합 로그에 들어오지 못한다.",
+          "acceptance": "cmd/agent가 slog JSONHandler로 stderr에 JSON 로그 기록, 부팅 에러 포함. pipe.ts가 JSON 로그 라인을 facade로 source:\"agent\" 포워딩, 비JSON/classifier 라인은 기존 경로 유지. 요청 스코프 로그에 correlationId 포함되어 renderer 호출→agent 실행이 단일 grep으로 추적됨. Go build·TS typecheck·기존 테스트 통과.",
+          "approach": "cmd/agent/main.go에 slog JSONHandler→stderr 채택(부팅 fmt.Fprintln 4곳 교체). 새 fd 없이 stderr 단일 스트림을 내용으로 구분 — slog JSON 라인은 고정 마커 키(예 src:\"agent-log\"), Go panic은 비JSON 다중행, 기존 classifier 텍스트는 그대로. pipe.ts handleStderrLine: JSON.parse 시도→마커 키 있으면 이슈1 facade로 source:\"agent\" 재방출, 파싱 실패→기존 classifyStderr(panic은 terminal crash 추가 분류). correlationId: 이슈5 라우터가 NDJSON 요청 프레임에 주입한 correlationId를 Go dispatch가 logger.With(\"correlationId\",id)로 요청 스코프 logger에 싣고, pipe.ts가 포워딩 시 재스탬프.",
+          "risk": "JSON으로 파싱되는 classifier 라인 오분류 — 단순 파싱 성공이 아니라 명시적 마커 키 요구. correlationId 필드명은 이슈5(태스크3)와 'correlationId'로 합의 — 불일치 시 추적 단절.",
+          "plan_issue": 3,
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a050d3ec0490ea4ab",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-19T01:23:01.316Z",
+          "result": {
+            "outcome": "partial",
+            "summary": "핵심 완료: Go slog JSONHandler→stderr(모든 레코드 src:agent-log 마커), internal/agentlog 컨텍스트 logger, proto.Request.CorrelationID, host.go 요청 스코프 logger, cmd/agent slog 전환, pipe.ts handleStderrLine이 agent-log JSON을 facade source:agent로 재방출. Go 빌드·테스트(8패키지)·tsc 통과, pipe.ts 테스트 64개 0 fail. 주의(충돌): T6가 동시 진행 중인 T7의 미완 마이그레이션 상태를 '깨진 트리'로 보고 T7 영역 파일(error-ipc.ts, git-result.ts, client.ts의 ipcCall shim, folder-bookmarks.ts, lsp/bridge.ts)에 collateral 수정을 가함. 이 파일들은 T7이 소유 — T7 완료 후 재조정 필요. T6 보고의 93건 실패는 T7 진행 중 상태.",
+            "artifacts": [
+              "internal/agentlog/agentlog.go",
+              "internal/proto/proto.go",
+              "internal/stdioserver/host.go",
+              "cmd/agent/main.go",
+              "src/main/infra/agent/pipe.ts"
+            ],
+            "recorded_at": "2026-05-19T04:05:33.471Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "IPC callsite 채널별 마이그레이션 + ipcCall/error-ipc.ts 폐기",
+          "status": "completed",
+          "context": "plan #52 이슈5(마이그레이션 부분). ~140 ipcCall callsite(silent swallow 16%·try-catch 29%·무처리 55%)를 ipcCallResult로 점진 전환. GitError rehydration(IPC_GIT_ERROR_MARK/IPC_CALL_RESULT_MARK)은 AppError 반환으로 중복이 됨.",
+          "acceptance": "모든 IPC 채널이 ipcCallResult 계약 사용, ipcCall callsite 0, ipcCall wrapper 삭제. error-ipc.ts(GitError rehydration) 삭제. 마이그레이션된 채널의 에러가 AppError로 일관 전달. typecheck·lint 통과, 기존 시나리오 테스트 통과 + 채널별 round-trip 회귀 테스트.",
+          "approach": "채널 단위로 점진 마이그레이션 — 빅뱅·codemod 금지(의도된 에러 UX 추론 불가). 각 채널을 ipcCallResult 계약으로 옮기고 호출처는 result.ok 분기. 무처리 55% 사이트는 컴파일 에러로 드러나는 지점마다 분류 — 진짜 복구 불가 지점만 mustSucceed/unwrapIpcResult로 명시적 opt-in. git 채널 마이그레이션 시 rehydration 경로를 함께 폐기(AppError는 plain object라 V8 Error 속성 소실 없음), 마지막 git 채널 완료 후 error-ipc.ts 삭제. 모든 채널 마이그레이션 완료 후 ipcCall wrapper 삭제.",
+          "risk": "무처리 55% 사이트에서 무시하던 에러가 값으로 표면화되어 새 컴파일 에러 발생 — 채널별 callsite 분류 작업량을 균일 codemod로 과소평가 금지. git stream 경로 회귀 주의.",
+          "plan_issue": 5,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "aadf4139a560dd8e6",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-19T01:23:13.772Z",
+          "result": {
+            "outcome": "success",
+            "summary": "프로덕션 ipcCall callsite 전부 ipcCallResult로 이행(0건 잔존), client.ts의 죽은 ipcCall wrapper 삭제. 테스트 mock ~30개를 ipcCallResult 기준으로 정리. git 채널은 옵션(b): ipcErr(\"git-error\")+GitIpcErrorExtra(gitKind, stderr, argv, hint)로 60+ GitErrorKind·ActionHint를 무손실 보존, IPC 경계는 throw 안 함(IpcErrResult 반환). 옫 IPC_CALL_RESULT_MARK throw+cause-chain 해킹은 완전 제거(생성 핸들러 0). error-ipc.ts는 stream 에러 경로(IPC_GIT_ERROR_MARK)용 타입만 잔존 — stream은 단일 Result 불가능한 별도 transport. 전체 typecheck clean, 2056 pass / 0 fail.",
+            "artifacts": [
+              "src/renderer/ipc/client.ts",
+              "src/shared/git/error-ipc.ts",
+              "src/main/features/git/ipc/*.ts"
+            ],
+            "recorded_at": "2026-05-19T04:56:54.037Z"
+          }
+        },
+        {
+          "id": 8,
+          "title": "surfaceError 표면화 계층 + 토스트 접근성 보강",
+          "status": "completed",
+          "context": "plan #52 이슈6. 현재 toast.tsx(info/error 자동소멸)·git banner-stack·inline 에러가 따로 놀고, 에러 원문이 그대로 노출될 수 있다. category별로 알맞은 채널로 라우팅하고 raw 메시지 노출을 막아야 한다.",
+          "acceptance": "surfaceError 진입점 존재, category별 합법 surface 강제(불법 조합 거부/강등). raw 경로/스택이 사용자 surface에 노출되지 않음(userMessage만). bug 토스트에 '세부정보 복사'·'로그 열기' 액션. 액션 토스트가 role=\"alert\"·키보드 도달·자동소멸 안 함. typecheck·lint·기존 테스트 통과 + 이중 표면화 방지 테스트.",
+          "approach": "단일 진입점 surfaceError(classifiedError, { surface:'inline'|'banner'|'toast'|'auto', onRetry? })를 만든다. 라우터가 category별 합법 surface 집합을 강제하고 userMessage/internalMessage 분리를 소유 — internalMessage는 facade 로그만, userMessage만 픽셀 도달. 규칙: invalid-input→inline, cancelled→무표면, failed→사용자가 보고 있는 surface+재시도, bug→토스트+일반 메시지+'세부정보 복사'(internalMessage+correlationId)·'로그 열기'. 한 호출=한 surface로 이중 표면화 차단. toast.tsx 접근성 보강: 액션이 달린 토스트는 role=\"alert\"+키보드 도달 가능 액션+자동소멸 금지(WCAG 2.2.1).",
+          "risk": "hook state.error와 수동 surfaceError 두 경로의 이중 발화 — no-auto-surface 규칙을 테스트로 보장. 기존 fs-mutations/errors.ts toast 매핑과 중복되지 않게 통합.",
+          "plan_issue": 6,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a4e0ae13a989d723c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-19T01:23:26.524Z",
+          "result": {
+            "outcome": "success",
+            "summary": "surfaceError 단일 진입점 + category→surface 라우터 구현(invalid-input→inline 전용, cancelled→silent, failed→inline|banner|toast fallback, bug→toast·'세부정보 복사'/'로그 열기' 액션, 불법 조합 거부+강등). toast.tsx ToastAction 지원—액션 토스트는 role=\"alert\"·키보드 도달·자동소멸 안 함(NEVER_EXPIRES). userMessage/internalMessage 분리. 29개 테스트(라우팅·이중표면화 방지·raw 누출 가드). renderer+shared tsconfig clean. 주의: toFsToast는 미마이그레이션 호출자 존재로 존치—T7/T10 마이그레이션 시 제거 대상.",
+            "artifacts": [
+              "src/renderer/components/ui/toast.tsx",
+              "src/renderer/services/error-surface/surface-error.ts",
+              "tests/unit/renderer/services/surface-error.test.ts"
+            ],
+            "recorded_at": "2026-05-19T01:58:25.550Z"
+          }
+        },
+        {
+          "id": 9,
+          "title": "useIpcAction 비동기 액션 수명주기 훅",
+          "status": "completed",
+          "context": "plan #52 이슈7. UI 비동기 패턴이 phase enum/boolean flag/discriminated union으로 혼재, 공용 훅 없음. SSH 폼 handleConnect가 await를 무방비로 두어 'Connecting...' 영구 멈춤 버그 발생.",
+          "acceptance": "useIpcAction 훅 존재, discriminated union 상태 반환. 임의 throw(두 번째 await 포함)가 error 상태로 귀결되어 loading이 영속되지 않음. loading 중 재호출 no-op. 언마운트 시 결과 폐기·죽은 컴포넌트 setState 없음. typecheck·lint 통과 + 멈춤 불가·이중 제출 차단·언마운트 안전 시나리오 테스트.",
+          "approach": "공용 훅 useIpcAction 도입 — discriminated union 상태 반환: idle|loading|{success,value}|{error,AppError}. run이 호출을 try/catch/finally로 감싸 두 번째 await 포함 모든 throw를 AppError(미분류→category:\"bug\")로 변환 — loading 영속 경로 제거. status==='loading'이면 run no-op(이중 제출 차단), isPending 노출. hook은 auto-surface 안 함 — state만 반환, 컴포넌트가 inline/배너/토스트 결정. 컴포넌트 언마운트 시 AbortController 자동 중단·결과 폐기, 사용자 취소는 cancel() opt-in(cancelled→idle·무표면). run 콜백은 다단계 액션의 단계 컨텍스트 태깅, onSuccess 콜백 옵션 제공.",
+          "risk": "rapid remount 시 stale closure/race — run 호출마다 AbortController, 상위된 컨트롤러 resolution 무시. success 미소비 방지 위해 onSuccess 콜백 명시.",
+          "plan_issue": 7,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "aa467447909b5e678",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-19T01:23:39.130Z",
+          "result": {
+            "outcome": "success",
+            "summary": "src/renderer/hooks/use-ipc-action.ts 신규 — discriminated union 상태(idle|loading|success<T>|error) 반환, run/cancel/isPending 노출. 단일 try/catch/finally가 loading 탈출의 유일 경로—'Connecting...' 멈춤 클래스 구조적 제거. AbortController-per-invocation으로 상위된 resolution·죽은 컴포넌트 setState 폐기. setState updater로 이중제출 체크 race-free. 신규 파일 tsc/lint 0 이슈, 시나리오 테스트 28개 통과.",
+            "artifacts": [
+              "src/renderer/hooks/use-ipc-action.ts",
+              "tests/unit/renderer/hooks/use-ipc-action.test.ts"
+            ],
+            "recorded_at": "2026-05-19T01:55:00.089Z"
+          }
+        },
+        {
+          "id": 10,
+          "title": "SSH 추가 플로우 마이그레이션 + 부분 실패 패턴 적용",
+          "status": "completed",
+          "context": "plan #52 이슈8. SSH 추가 워크스페이스 폼(ssh-new-connection-view.tsx)의 handleConnect가 연결 성공 후 saveConnectionProfile을 무방비 await — 저장 실패 시 'Connecting...' 멈춤. host-only 기본 user 수정은 별도 커밋(edd0ea8) 완료됨. 이 태스크는 부분 실패 정책의 첫 적용 사례이자 검증 케이스다.",
+          "acceptance": "handleConnect가 useIpcAction으로 라우팅되어 어떤 실패에도 'Connecting...' 멈춤이 불가능. 연결 성공+프로필 저장 실패 시 워크스페이스 플로우는 완료되고 비차단 경고 토스트+Retry save 액션 표시, Retry save는 저장 단계만 재실행. typecheck·lint 통과 + 부분 실패·멈춤 불가 시나리오 테스트.",
+          "approach": "handleConnect의 2단계 액션 전체를 useIpcAction(태스크9) 훅으로 라우팅 — connectPhase enum + 수동 errorMessage state를 훅 하나로 붕괴. 부분 실패 정책 적용: 연결(주 효과) 성공 시 saveConnectionProfile(부차 효과) 성공 여부와 무관하게 onConnected 호출·플로우 완료. saveConnectionProfile 실패는 IpcOkResult.warnings로 표현하거나 컴포넌트 단계 분기로 처리하고, surfaceError(태스크8)로 토스트 \"Connected. This connection couldn't be saved for next time.\" + \"Retry save\" 액션(saveConnectionProfile만 재실행, 재연결·재auth 없음). ssh/connectionProfile 채널이 마이그레이션(태스크7)되어 있어야 함.",
+          "risk": "'주/부차' 분류는 설계 판단 — saveConnectionProfile이 부차임은 명확하나, Retry save가 성공한 연결 세션을 재생하지 않도록 단계 격리 정확성 검증 필요.",
+          "plan_issue": 8,
+          "deps": [
+            7,
+            8,
+            9
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ab283ba854996871c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-19T01:24:00.598Z",
+          "result": {
+            "outcome": "success",
+            "summary": "handleConnect를 connectPhase enum+수동 errorMessage state에서 useIpcAction으로 마이그레이션 — 연결(주)·프로필 저장(부차) 2단계를 단일 run() 콜백으로 라우팅, try/catch/finally가 loading 종료 보장해 'Connecting...' 멈춤 구조적 불가. 부분 실패 정책: 연결 성공 시 저장 실패와 무관하게 onConnected 호출·플로우 완료, 저장 실패는 비차단 액션 토스트('Retry save'는 저장만 재실행). auth 취소는 AppError cancelled로 idle 복귀·무표면. saveConnectionProfileResult 서비스 추가. 9개 시나리오 테스트, 전체 2056 pass 0 fail. 특이: 부분실패 토스트는 surfaceError가 커스텀 userMessage를 못 담아 showToast 직호출(액션 토스트 a11y는 유지) — surfaceError 단일 진입점 원칙의 경미한 일탈.",
+            "artifacts": [
+              "src/renderer/components/workspace/add-workspace/ssh-new-connection-view.tsx",
+              "src/renderer/services/workspace/connection-profiles.ts",
+              "src/renderer/services/workspace/index.ts",
+              "tests/unit/renderer/components/workspace/ssh-new-connection-flow.test.ts"
+            ],
+            "recorded_at": "2026-05-19T04:46:39.515Z"
+          }
+        },
+        {
+          "id": 11,
+          "title": "에러 체계 컨벤션 문서화",
+          "status": "completed",
+          "context": "plan #52 전 이슈. 새 에러 관리 체계(taxonomy·surfaceError·useIpcAction·부분 실패 패턴)는 향후 코드가 따라야 할 규약이므로 .nexus/context/conventions.md에 기록해야 한다. 특히 부분 실패의 '주/부차 효과' 분류와 atomic op의 main-side 합성은 호출처별 판단이라 명문화가 필수.",
+          "acceptance": ".nexus/context/conventions.md에 에러 관리 절이 추가되고 6개 규약이 모두 명문화됨. 실제 구현 모듈 경로(src/shared/log, AppError, surfaceError, useIpcAction)를 정확히 참조. 기존 conventions.md 항목과 충돌·중복 없음.",
+          "approach": ".nexus/context/conventions.md에 '에러 관리' 절 추가: (1) IPC 경계는 throw 금지·ipcCallResult 반환, (2) AppError 4값 category 의미와 도메인 code 보존, (3) surfaceError 한 호출=한 surface·category별 채널 규칙, (4) UI 비동기는 useIpcAction 사용, (5) 부분 실패 — 주 효과가 outcome 결정·부차 실패는 비차단 경고+범위한정 재시도, atomic op는 main neverthrow 합성, (6) 로깅은 facade만 사용·internalMessage는 로그/userMessage는 표시. 결정 텍스트와 실제 구현된 모듈 경로를 근거로 작성.",
+          "risk": "구현이 결정과 달라진 부분이 있으면 문서가 어긋남 — 선행 태스크 완료 후 실제 코드 기준으로 작성.",
+          "plan_issue": 8,
+          "deps": [
+            3,
+            6,
+            8,
+            9,
+            10
+          ],
+          "owner": {
+            "role": "writer",
+            "agent_id": "a6a72d05863f58651",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-19T01:24:11.679Z",
+          "result": {
+            "outcome": "success",
+            "summary": ".nexus/context/conventions.md에 '## 에러 관리' 절 추가 — 6개 규약 명문화: (1)IPC 경계 throw 금지·ipcCallResult 반환·git 채널 unwrapGitResult (2)AppError 4값 category 의미와 UI 처리 매트릭스·domain/code 보존 (3)surfaceError 단일 진입점·한 호출=한 surface·internalMessage 로그전용 (4)useIpcAction 의무·display-neutral (5)부분 실패 정책 (6)createLogger facade 전용·console.* 금지. 실제 구현 모듈 10개 읽어 경로·API 확인, 기존 절과 톤 일관.",
+            "artifacts": [
+              ".nexus/context/conventions.md"
+            ],
+            "recorded_at": "2026-05-19T04:59:01.903Z"
+          }
+        },
+        {
+          "id": 12,
+          "title": "통합 검증: 로깅 파이프라인 · IPC 계약 회귀 · SSH 버그",
+          "status": "completed",
+          "context": "plan #52 전반의 런타임 검증. 에러 체계는 런타임 동작(로그 수렴, 멈춤 불가, 안전망 발화)이 핵심이라 정적 통과만으로는 불충분하다.",
+          "acceptance": "세 축 모두 런타임 검증 통과 — 로그 3소스 수렴·correlationId 추적, IPC 잘못된 인자/버그 처리 무멈춤, SSH 부분 실패 무멈춤+Retry save. 전역 안전망 발화 확인. 회귀 발견 시 항목별 보고.",
+          "approach": "세 축의 런타임 검증: (1) 로깅 파이프라인 — main/renderer/Go-agent 세 소스 로그가 단일 파일에 source 태그와 함께 수렴, correlationId가 renderer 호출→agent 실행을 잇는지 확인. (2) IPC 계약 회귀 — 잘못된 인자가 invalid-input result로 멈춤 없이 반환, 마이그레이션된 채널 round-trip, category:\"bug\"가 로그에 남는지 확인. (3) SSH 버그 — host-only 연결, 연결 성공+프로필 저장 실패 시 멈춤 없이 비차단 경고+Retry save 동작 확인. 전역 안전망(uncaughtException/unhandledRejection/ErrorBoundary)이 의도적 에러에 발화·기록되는지 확인.",
+          "risk": "Go 에이전트·SSH 경로는 환경 의존 — 검증 불가 항목은 명시적으로 보고.",
+          "plan_issue": 5,
+          "deps": [
+            4,
+            5,
+            6,
+            7,
+            10
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a7f6631d73ce9dc6c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-19T01:24:22.809Z",
+          "result": {
+            "outcome": "success",
+            "summary": "VERDICT PASS. 정적 게이트 클린(tsc 0, lint 신규 0, bun test 2056 pass/0 fail, go test/build 통과). 세 축 검증: ①로깅 파이프라인—facade·source·correlationId 구조 PASS(실제 파일 수렴은 라이브 Electron 필요로 UNVERIFIABLE) ②IPC 계약—invalid-args→IpcErrResult 무throw·무멈춤, round-trip, category:bug 로깅 adversarial 실행 확인 PASS ③SSH 부분 실패—멈춤 구조적 불가·비차단 경고+Retry save PASS. 전역 안전망 4계층 설치·테스트 확인. WARNING 1건(category:bug 로깅이 기존 테스트에 단언 안 됨)은 Lead가 ipc-router.test.ts에 mockLogError 스파이+toHaveBeenCalled 단언 추가로 해소(8 pass 확인). INFO 4건(pipe.ts handleStderrLine·proto correlationId·ErrorBoundary 단위테스트 부재, 파일-싱크 수렴 UNVERIFIABLE)는 커버리지 백로그.",
+            "artifacts": [
+              "tests/unit/main/ipc/ipc-router.test.ts"
+            ],
+            "recorded_at": "2026-05-19T05:08:47.701Z"
+          }
+        },
+        {
+          "id": 13,
+          "title": "컨벤션 문서 검증",
+          "status": "completed",
+          "context": "plan #52 이슈8 문서화 태스크의 검증 페어. 컨벤션 문서가 실제 결정·구현과 일치하고 정확·명료한지 확인한다.",
+          "acceptance": "문서가 8개 결정과 실제 구현에 부합함이 확인됨. 모듈 경로 정확, 기존 conventions.md와 일관, 문법·표현 정상. 불일치 발견 시 항목별 수정 요청.",
+          "approach": ".nexus/context/conventions.md의 에러 관리 절을 plan #52의 8개 결정 텍스트, 그리고 실제 구현 모듈과 대조 검증 — 6개 규약의 정확성, 모듈 경로 정확성, 기존 항목과의 일관성, 문법·표현. 누락·불일치 항목 보고.",
+          "risk": "없음 — 문서 대조 검증.",
+          "plan_issue": 8,
+          "deps": [
+            11
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "af20e4c60d3fa7091",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-19T01:24:28.006Z",
+          "result": {
+            "outcome": "success",
+            "summary": "T11 컨벤션 문서 '에러 관리' 절을 8개 결정·실제 구현 모듈과 대조 검증. CRITICAL 0·WARNING 3·INFO 4. WARNING 3건(①IPC 경계에서 핸들러(ipcOk/ipcErr)와 렌더러 클라이언트(ipcCallResult) 역할 혼동 ②validateArgs→invalid-args(kind)→invalid-input(category) 2단계 경로 누락 ③failed의 toast 직접 요청 허용 누락)을 리뷰어 제안 문구대로 Lead가 직접 수정 완료 — 단일 파일 2곳 소규모 편집. 최종 문서는 실제 구현과 일치.",
+            "artifacts": [
+              ".nexus/context/conventions.md"
+            ],
+            "recorded_at": "2026-05-19T05:02:26.285Z"
+          }
+        }
+      ]
     }
   ]
 }

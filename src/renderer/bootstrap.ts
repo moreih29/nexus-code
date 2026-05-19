@@ -6,7 +6,7 @@
  */
 
 import type { WorkspaceMeta } from "../shared/types/workspace";
-import { ipcCall } from "./ipc/client";
+import { ipcCallResult, mustSucceed } from "./ipc/client";
 import { registerStatePersistence } from "./state/persistence";
 import { useLayoutStore } from "./state/stores/layout";
 import { useTabsStore } from "./state/stores/tabs";
@@ -30,7 +30,8 @@ export async function bootstrapAppState(): Promise<void> {
   // itself must be live before the first user-initiated workspace removal.
   initializeWorkspaceLifecycle();
 
-  const state = await ipcCall("appState", "get", undefined);
+  // Bootstrap is an initialization path — no recovery possible if appState is unavailable.
+  const state = mustSucceed(await ipcCallResult("appState", "get", undefined));
 
   useUIStore.getState().hydrate({
     sidebarWidth: state.sidebarWidth,
@@ -96,11 +97,16 @@ export async function bootstrapWorkspaces(
   setAll: (list: WorkspaceMeta[]) => void,
   setActiveWorkspaceId: (id: string | null) => void,
 ): Promise<void> {
-  const list = await ipcCall("workspace", "list", undefined);
+  // Bootstrap is an initialization path — no recovery possible if workspace list is unavailable.
+  const list = mustSucceed(await ipcCallResult("workspace", "list", undefined));
   setAll(list);
   if (list.length > 0) {
     const first = list[0];
     setActiveWorkspaceId(first.id);
-    ipcCall("workspace", "activate", { id: first.id }).catch(() => {});
+    // Fire-and-forget: activate notifies main of the active workspace; UI state is
+    // already updated locally above.
+    void ipcCallResult("workspace", "activate", { id: first.id }).then((result) => {
+      if (!result.ok) console.warn("[bootstrap] workspace activate failed", result.message);
+    });
   }
 }

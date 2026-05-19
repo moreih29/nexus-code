@@ -24,9 +24,12 @@ const ipcCalls: Array<{ channel: string; method: string; args: Record<string, un
 let ipcImpl: IpcImpl = async () => ({});
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: mock((channel: string, method: string, args: Record<string, unknown>) => {
+  ipcCallResult: mock(async (channel: string, method: string, args: Record<string, unknown>) => {
     ipcCalls.push({ channel, method, args });
-    return ipcImpl(channel, method, args);
+    // ipcImpl may throw or return a value; if it throws, propagate so the store
+    // catch path (gitStoreErrorFromUnknown) handles it as before.
+    const value = await ipcImpl(channel, method, args);
+    return { ok: true, value };
   }),
   ipcListen: mock(() => () => {}),
   ipcStream: mock(() => ({ promise: Promise.resolve(undefined), onProgress: mock(() => {}) })),
@@ -150,9 +153,13 @@ describe("git operation lifecycle — abort-supersede", () => {
     ipcImpl = async (_ch, method) => {
       if (method === "fetch") {
         if (!resolveOp1) {
-          return new Promise<void>((res) => { resolveOp1 = res; });
+          return new Promise<void>((res) => {
+            resolveOp1 = res;
+          });
         }
-        return new Promise<void>((res) => { resolveOp2 = res; });
+        return new Promise<void>((res) => {
+          resolveOp2 = res;
+        });
       }
       return {};
     };
@@ -189,7 +196,9 @@ describe("git operation lifecycle — abort-supersede", () => {
 
     ipcImpl = async (_ch, method) => {
       if (method === "stage") {
-        return new Promise<void>((res) => { resolveStage = res; });
+        return new Promise<void>((res) => {
+          resolveStage = res;
+        });
       }
       if (method === "unstage") return;
       return {};
@@ -279,9 +288,13 @@ describe("git operation lifecycle — failOperation ignores superseded errors", 
       if (method === "fetch") {
         callCount += 1;
         if (callCount === 1) {
-          return new Promise<void>((_, rej) => { rejectOp1 = rej; });
+          return new Promise<void>((_, rej) => {
+            rejectOp1 = rej;
+          });
         }
-        return new Promise<void>((res) => { resolveOp2 = res; });
+        return new Promise<void>((res) => {
+          resolveOp2 = res;
+        });
       }
       return {};
     };

@@ -14,7 +14,7 @@ import {
   GIT_COMMIT_DRAFT_SAVE_DEBOUNCE_MS,
   GIT_STATUS_HINT_DEBOUNCE_MS,
 } from "../../../../shared/util/timing-constants";
-import { ipcCall } from "../../../ipc/client";
+import { ipcCallResult, unwrapGitResult } from "../../../ipc/client";
 import { useGitStore } from "./index";
 import { persistPanelState } from "./panel-state-io";
 
@@ -115,7 +115,7 @@ async function refreshStatusFromHint(workspaceId: string): Promise<void> {
   if (!current || current.repoInfo.kind !== "repo") return;
 
   try {
-    const status = await ipcCall("git", "getStatus", { workspaceId });
+    const status = unwrapGitResult(await ipcCallResult("git", "getStatus", { workspaceId }));
     useGitStore.setState((state) => {
       const session = state.sessions.get(workspaceId);
       if (!session || session.repoInfo.kind !== "repo") return state;

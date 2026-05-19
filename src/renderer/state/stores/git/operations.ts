@@ -23,7 +23,7 @@ import type {
   PullResult,
   PushResult,
 } from "../../../../shared/git/types";
-import { ipcCall } from "../../../ipc/client";
+import { ipcCallResult, unwrapGitResult } from "../../../ipc/client";
 import { cancelCommitDraftSave } from "./draft-persistence";
 import { persistPanelState } from "./panel-state-io";
 import { resolveCommitOptions } from "./session-defaults";
@@ -109,30 +109,30 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
   return {
     async stage(workspaceId, relPaths) {
       if (relPaths.length === 0) return;
-      await runOperation(workspaceId, "stage", (signal) =>
-        ipcCall("git", "stage", { workspaceId, relPaths }, { signal }),
+      await runOperation(workspaceId, "stage", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "stage", { workspaceId, relPaths }, { signal })),
       );
     },
 
     async unstage(workspaceId, relPaths) {
       if (relPaths.length === 0) return;
-      await runOperation(workspaceId, "unstage", (signal) =>
-        ipcCall("git", "unstage", { workspaceId, relPaths }, { signal }),
+      await runOperation(workspaceId, "unstage", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "unstage", { workspaceId, relPaths }, { signal })),
       );
     },
 
     async discard(workspaceId, relPaths, source) {
       if (relPaths.length === 0) return;
-      await runOperation(workspaceId, "discard", (signal) =>
-        ipcCall("git", "discardChanges", { workspaceId, relPaths, source }, { signal }),
+      await runOperation(workspaceId, "discard", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "discardChanges", { workspaceId, relPaths, source }, { signal })),
       );
     },
 
     async commit(workspaceId, options = {}) {
       const message = options.message ?? get().sessions.get(workspaceId)?.commitDraft ?? "";
       const commitOptions = resolveCommitOptions(workspaceId, options, get().sessions);
-      const result = await runOperation(workspaceId, "commit", (signal) =>
-        ipcCall(
+      const result = await runOperation(workspaceId, "commit", async (signal) =>
+        unwrapGitResult(await ipcCallResult(
           "git",
           "commit",
           {
@@ -144,22 +144,22 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
             noVerify: commitOptions.noVerify,
           },
           { signal },
-        ),
+        )),
       );
 
       if (result) {
         clearCommitDraftAfterCommit(workspaceId);
       }
 
-      return result;
+      return result as CommitResult | undefined;
     },
 
     async commitAmend(workspaceId, options = {}) {
       const message = options.message ?? get().sessions.get(workspaceId)?.commitDraft ?? "";
       const commitOptions = resolveCommitOptions(workspaceId, options, get().sessions);
       const inlineMessage = message.trim().length > 0 ? message : undefined;
-      const result = await runOperation(workspaceId, "commit", (signal) =>
-        ipcCall(
+      const result = await runOperation(workspaceId, "commit", async (signal) =>
+        unwrapGitResult(await ipcCallResult(
           "git",
           "commitAmend",
           {
@@ -170,20 +170,20 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
             noVerify: commitOptions.noVerify,
           },
           { signal },
-        ),
+        )),
       );
 
       if (result) {
         clearCommitDraftAfterCommit(workspaceId);
       }
 
-      return result;
+      return result as CommitResult | undefined;
     },
 
     async commitEmpty(workspaceId, message) {
       const commitOptions = resolveCommitOptions(workspaceId, {}, get().sessions);
-      const result = await runOperation(workspaceId, "commit", (signal) =>
-        ipcCall(
+      const result = await runOperation(workspaceId, "commit", async (signal) =>
+        unwrapGitResult(await ipcCallResult(
           "git",
           "commitEmpty",
           {
@@ -194,55 +194,55 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
             noVerify: commitOptions.noVerify,
           },
           { signal },
-        ),
+        )),
       );
 
       if (result) {
         clearCommitDraftAfterCommit(workspaceId);
       }
 
-      return result;
+      return result as CommitResult | undefined;
     },
 
     async undoLastCommit(workspaceId) {
-      await runOperation(workspaceId, "undoLastCommit", (signal) =>
-        ipcCall("git", "undoLastCommit", { workspaceId }, { signal }),
+      await runOperation(workspaceId, "undoLastCommit", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "undoLastCommit", { workspaceId }, { signal })),
       );
     },
 
     async fetch(workspaceId, remote) {
-      await runOperation(workspaceId, "fetch", (signal) =>
-        ipcCall("git", "fetch", { workspaceId, remote }, { signal }),
+      await runOperation(workspaceId, "fetch", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "fetch", { workspaceId, remote }, { signal })),
       );
     },
 
     async fetchAll(workspaceId) {
-      return runOperation(workspaceId, "fetch", (signal) =>
-        ipcCall("git", "fetchAll", { workspaceId }, { signal }),
-      );
+      return runOperation(workspaceId, "fetch", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "fetchAll", { workspaceId }, { signal })),
+      ) as Promise<GitFetchAllResult | undefined>;
     },
 
     async pull(workspaceId) {
-      return runOperation(workspaceId, "pull", (signal) =>
-        ipcCall("git", "pull", { workspaceId }, { signal }),
-      );
+      return runOperation(workspaceId, "pull", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "pull", { workspaceId }, { signal })),
+      ) as Promise<PullResult | undefined>;
     },
 
     async push(workspaceId, options = {}) {
       const originalPushOpts = normalizePushOptions(options);
       const ctrl = beginOperation(workspaceId, "push");
       try {
-        const result = await ipcCall(
+        const result = unwrapGitResult(await ipcCallResult(
           "git",
           "push",
           { workspaceId, force: originalPushOpts.force, publish: originalPushOpts.publish },
           { signal: ctrl.signal },
-        );
+        ));
         updateExistingSession(workspaceId, (session) => ({
           ...session,
           pendingNonFFRetry: null,
         }));
-        return result;
+        return result as PushResult;
       } catch (error) {
         if (controllers.get(workspaceId) === ctrl && !isAbortError(error)) {
           const lastError = gitStoreErrorFromUnknown(error, "push");
@@ -259,15 +259,15 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
     },
 
     async pushTags(workspaceId, remote) {
-      await runOperation(workspaceId, "pushTags", (signal) =>
-        ipcCall("git", "pushTags", { workspaceId, remote }, { signal }),
+      await runOperation(workspaceId, "pushTags", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "pushTags", { workspaceId, remote }, { signal })),
       );
     },
 
     async sync(workspaceId) {
-      const result = await runOperation(workspaceId, "sync", (signal) =>
-        ipcCall("git", "sync", { workspaceId }, { signal }),
-      );
+      const result = await runOperation(workspaceId, "sync", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "sync", { workspaceId }, { signal })),
+      ) as GitSyncResult | undefined;
       if (result?.pulled === "error" && result.pullError) {
         recordEnvelopeError(workspaceId, "sync", result.pullError);
       }
@@ -275,20 +275,20 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
     },
 
     async stash(workspaceId, message) {
-      await runOperation(workspaceId, "stash", (signal) =>
-        ipcCall("git", "stash", { workspaceId, message }, { signal }),
+      await runOperation(workspaceId, "stash", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "stash", { workspaceId, message }, { signal })),
       );
     },
 
     async stashPop(workspaceId) {
-      await runOperation(workspaceId, "stashPop", (signal) =>
-        ipcCall("git", "stashPop", { workspaceId }, { signal }),
+      await runOperation(workspaceId, "stashPop", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "stashPop", { workspaceId }, { signal })),
       );
     },
 
     async stashApply(workspaceId, index) {
       const result = await runOperation(workspaceId, "stashApply", async (signal) => {
-        await ipcCall("git", "stashApply", { workspaceId, index }, { signal });
+        unwrapGitResult(await ipcCallResult("git", "stashApply", { workspaceId, index }, { signal }));
         return true;
       });
       return result === true;
@@ -296,7 +296,7 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
 
     async stashDrop(workspaceId, index) {
       const result = await runOperation(workspaceId, "stashDrop", async (signal) => {
-        await ipcCall("git", "stashDrop", { workspaceId, index }, { signal });
+        unwrapGitResult(await ipcCallResult("git", "stashDrop", { workspaceId, index }, { signal }));
         return true;
       });
       return result === true;
@@ -305,72 +305,72 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
     async stashGroup(workspaceId, paths, message) {
       if (paths.length === 0) return false;
       const result = await runOperation(workspaceId, "stashGroup", async (signal) => {
-        await ipcCall("git", "stashGroup", { workspaceId, paths, message }, { signal });
+        unwrapGitResult(await ipcCallResult("git", "stashGroup", { workspaceId, paths, message }, { signal }));
         return true;
       });
       return result === true;
     },
 
     async checkout(workspaceId, ref) {
-      await runOperation(workspaceId, "checkout", (signal) =>
-        ipcCall("git", "checkout", { workspaceId, ref }, { signal }),
+      await runOperation(workspaceId, "checkout", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "checkout", { workspaceId, ref }, { signal })),
       );
     },
 
     async checkoutDetached(workspaceId, sha) {
-      await runOperation(workspaceId, "checkoutDetached", (signal) =>
-        ipcCall("git", "checkoutDetached", { workspaceId, sha }, { signal }),
+      await runOperation(workspaceId, "checkoutDetached", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "checkoutDetached", { workspaceId, sha }, { signal })),
       );
     },
 
     async checkoutTracking(workspaceId, remoteRef) {
-      await runOperation(workspaceId, "checkoutTracking", (signal) =>
-        ipcCall("git", "checkoutTracking", { workspaceId, remoteRef }, { signal }),
+      await runOperation(workspaceId, "checkoutTracking", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "checkoutTracking", { workspaceId, remoteRef }, { signal })),
       );
     },
 
     async merge(workspaceId, branch, mode = "default") {
-      return runOperation(workspaceId, "merge", (signal) =>
-        ipcCall("git", "merge", { workspaceId, branch, mode }, { signal }),
-      );
+      return runOperation(workspaceId, "merge", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "merge", { workspaceId, branch, mode }, { signal })),
+      ) as Promise<GitMergeResult | undefined>;
     },
 
     async rebase(workspaceId, onto) {
-      return runOperation(workspaceId, "rebase", (signal) =>
-        ipcCall("git", "rebase", { workspaceId, onto }, { signal }),
-      );
+      return runOperation(workspaceId, "rebase", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "rebase", { workspaceId, onto }, { signal })),
+      ) as Promise<GitRebaseResult | undefined>;
     },
 
     async cherryPick(workspaceId, sha) {
       const result = await runOperation(workspaceId, "cherryPick", async (signal) => {
-        await ipcCall("git", "cherryPick", { workspaceId, sha }, { signal });
+        unwrapGitResult(await ipcCallResult("git", "cherryPick", { workspaceId, sha }, { signal }));
         return true;
       });
       return result === true;
     },
 
     async abortOp(workspaceId) {
-      await runOperation(workspaceId, "abortOp", (signal) =>
-        ipcCall("git", "abortOp", { workspaceId }, { signal }),
+      await runOperation(workspaceId, "abortOp", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "abortOp", { workspaceId }, { signal })),
       );
     },
 
     async continueOp(workspaceId) {
-      return runOperation(workspaceId, "continueOp", (signal) =>
-        ipcCall("git", "continueOp", { workspaceId }, { signal }),
-      );
+      return runOperation(workspaceId, "continueOp", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "continueOp", { workspaceId }, { signal })),
+      ) as Promise<GitContinueOpResult | undefined>;
     },
 
     async markResolved(workspaceId, paths) {
       if (paths.length === 0) return undefined;
-      return runOperation(workspaceId, "markResolved", (signal) =>
-        ipcCall("git", "markResolved", { workspaceId, paths }, { signal }),
-      );
+      return runOperation(workspaceId, "markResolved", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "markResolved", { workspaceId, paths }, { signal })),
+      ) as Promise<GitMarkResolvedResult | undefined>;
     },
 
     async resetSoft(workspaceId, targetSha) {
       const result = await runOperation(workspaceId, "resetSoft", async (signal) => {
-        await ipcCall("git", "resetSoft", { workspaceId, targetSha }, { signal });
+        unwrapGitResult(await ipcCallResult("git", "resetSoft", { workspaceId, targetSha }, { signal }));
         return true;
       });
       return result === true;
@@ -381,49 +381,49 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
         typeof checkoutOrOptions === "boolean"
           ? { checkout: checkoutOrOptions }
           : (checkoutOrOptions ?? {});
-      await runOperation(workspaceId, "createBranch", (signal) =>
-        ipcCall(
+      await runOperation(workspaceId, "createBranch", async (signal) =>
+        unwrapGitResult(await ipcCallResult(
           "git",
           "createBranch",
           { workspaceId, name, checkout: options.checkout, fromRef: options.fromRef },
           { signal },
-        ),
+        )),
       );
     },
 
     async deleteBranch(workspaceId, name, force) {
-      await runOperationStrict(workspaceId, "deleteBranch", (signal) =>
-        ipcCall("git", "deleteBranch", { workspaceId, name, force }, { signal }),
+      await runOperationStrict(workspaceId, "deleteBranch", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "deleteBranch", { workspaceId, name, force }, { signal })),
       );
     },
 
     async deleteRemoteBranch(workspaceId, remote, name) {
-      await runOperationStrict(workspaceId, "deleteRemoteBranch", (signal) =>
-        ipcCall("git", "deleteRemoteBranch", { workspaceId, remote, name }, { signal }),
+      await runOperationStrict(workspaceId, "deleteRemoteBranch", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "deleteRemoteBranch", { workspaceId, remote, name }, { signal })),
       );
     },
 
     async renameBranch(workspaceId, from, to) {
-      await runOperationStrict(workspaceId, "renameBranch", (signal) =>
-        ipcCall("git", "renameBranch", { workspaceId, from, to }, { signal }),
+      await runOperationStrict(workspaceId, "renameBranch", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "renameBranch", { workspaceId, from, to }, { signal })),
       );
     },
 
     async setUpstream(workspaceId, branch, upstream) {
-      await runOperationStrict(workspaceId, "setUpstream", (signal) =>
-        ipcCall("git", "setUpstream", { workspaceId, branch, upstream }, { signal }),
+      await runOperationStrict(workspaceId, "setUpstream", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "setUpstream", { workspaceId, branch, upstream }, { signal })),
       );
     },
 
     async fastForwardBranch(workspaceId, branch, remote, remoteRef) {
-      return runOperation(workspaceId, "fastForwardBranch", (signal) =>
-        ipcCall("git", "fastForwardBranch", { workspaceId, branch, remote, remoteRef }, { signal }),
-      );
+      return runOperation(workspaceId, "fastForwardBranch", async (signal) =>
+        unwrapGitResult(await ipcCallResult("git", "fastForwardBranch", { workspaceId, branch, remote, remoteRef }, { signal })),
+      ) as Promise<GitFastForwardResult | undefined>;
     },
 
     async addRemote(workspaceId, name, url) {
       const result = await runOperation(workspaceId, "addRemote", async (signal) => {
-        await ipcCall("git", "addRemote", { workspaceId, name, url }, { signal });
+        unwrapGitResult(await ipcCallResult("git", "addRemote", { workspaceId, name, url }, { signal }));
         return true;
       });
       return result === true;
@@ -431,7 +431,7 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
 
     async removeRemote(workspaceId, name) {
       const result = await runOperation(workspaceId, "removeRemote", async (signal) => {
-        await ipcCall("git", "removeRemote", { workspaceId, name }, { signal });
+        unwrapGitResult(await ipcCallResult("git", "removeRemote", { workspaceId, name }, { signal }));
         return true;
       });
       return result === true;
@@ -439,12 +439,12 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
 
     async createTag(workspaceId, name, options = {}) {
       const result = await runOperation(workspaceId, "createTag", async (signal) => {
-        await ipcCall(
+        unwrapGitResult(await ipcCallResult(
           "git",
           "createTag",
           { workspaceId, name, ref: options.ref, message: options.message },
           { signal },
-        );
+        ));
         return true;
       });
       return result === true;
@@ -452,7 +452,7 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
 
     async deleteTag(workspaceId, name) {
       const result = await runOperation(workspaceId, "deleteTag", async (signal) => {
-        await ipcCall("git", "deleteTag", { workspaceId, name }, { signal });
+        unwrapGitResult(await ipcCallResult("git", "deleteTag", { workspaceId, name }, { signal }));
         return true;
       });
       return result === true;
@@ -460,7 +460,7 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
 
     async deleteRemoteTag(workspaceId, remote, name) {
       const result = await runOperation(workspaceId, "deleteRemoteTag", async (signal) => {
-        await ipcCall("git", "deleteRemoteTag", { workspaceId, remote, name }, { signal });
+        unwrapGitResult(await ipcCallResult("git", "deleteRemoteTag", { workspaceId, remote, name }, { signal }));
         return true;
       });
       return result === true;
@@ -475,13 +475,14 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
         autofetchLastError: null,
         autofetchConsecutiveFailures: 0,
       }));
-      try {
-        await ipcCall("autofetch", "setSchedule", {
-          workspaceId,
-          intervalMin: autofetchIntervalMin,
-        });
-      } catch (error) {
-        console.error("[git] autofetch setSchedule failed", error);
+      const result = await ipcCallResult("autofetch", "setSchedule", {
+        workspaceId,
+        intervalMin: autofetchIntervalMin,
+      });
+      // Fire-and-forget: autofetch scheduling errors are non-critical; UI state
+      // was already updated optimistically above.
+      if (!result.ok) {
+        console.error("[git] autofetch setSchedule failed", result.message);
       }
     },
 
@@ -490,10 +491,11 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
         ...session,
         autofetchManualPaused: true,
       }));
-      try {
-        await ipcCall("autofetch", "pause", { workspaceId });
-      } catch (error) {
-        console.error("[git] autofetch pause failed", error);
+      const result = await ipcCallResult("autofetch", "pause", { workspaceId });
+      // Fire-and-forget: autofetch pause errors are non-critical; UI state
+      // was already updated optimistically above.
+      if (!result.ok) {
+        console.error("[git] autofetch pause failed", result.message);
       }
     },
 
@@ -505,10 +507,11 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
         autofetchLastError: null,
         autofetchConsecutiveFailures: 0,
       }));
-      try {
-        await ipcCall("autofetch", "resume", { workspaceId });
-      } catch (error) {
-        console.error("[git] autofetch resume failed", error);
+      const result = await ipcCallResult("autofetch", "resume", { workspaceId });
+      // Fire-and-forget: autofetch resume errors are non-critical; UI state
+      // was already updated optimistically above.
+      if (!result.ok) {
+        console.error("[git] autofetch resume failed", result.message);
       }
     },
 

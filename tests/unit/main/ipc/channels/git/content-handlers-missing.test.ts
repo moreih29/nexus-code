@@ -16,8 +16,8 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { isIpcGitErrorResult } from "../../../../../../src/shared/git/error-ipc";
 import { getFileContentHandler } from "../../../../../../src/main/features/git/ipc/content-handlers";
+import { isIpcGitErrorResult } from "../../../../../../src/shared/git/error-ipc";
 
 // ---------------------------------------------------------------------------
 // Minimal stub helpers
@@ -61,10 +61,14 @@ describe("content-handlers — WORKING ref throws without calling agent", () => 
     const { provider } = makeAgentProvider();
     const handler = getFileContentHandler(makeRegistry() as never, makeManager(provider) as never);
 
-    const result = await handler({ workspaceId: VALID_UUID, ref: "WORKING", relPath: "src/foo.ts" });
+    const result = await handler({
+      workspaceId: VALID_UUID,
+      ref: "WORKING",
+      relPath: "src/foo.ts",
+    });
     expect(isIpcGitErrorResult(result)).toBe(true);
     // @ts-expect-error — narrowed by isIpcGitErrorResult runtime check above
-    expect(result.kind).toBe("unknown");
+    expect(result.gitKind).toBe("unknown");
     // @ts-expect-error
     expect(result.message).toMatch(/does not support WORKING/);
   });
@@ -142,6 +146,9 @@ describe("content-handlers — agent-backed production path", () => {
 
     await handler({ workspaceId: VALID_UUID, ref: sha, relPath: "deep/file.ts" });
 
-    expect(calls[0]).toMatchObject({ method: "git.getFileContent", params: { ref: sha, relPath: "deep/file.ts" } });
+    expect(calls[0]).toMatchObject({
+      method: "git.getFileContent",
+      params: { ref: sha, relPath: "deep/file.ts" },
+    });
   });
 });

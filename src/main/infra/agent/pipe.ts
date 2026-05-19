@@ -14,8 +14,82 @@ import type { Readable, Writable } from "node:stream";
 import { z } from "zod";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import type { SshErrorCode } from "../../../shared/ssh/errors";
+import { createLogger } from "../../../shared/log/main";
+import type { LogLevel } from "../../../shared/log/types";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Marker value written by the Go agent's slog logger on every structured log
+ * record. Only lines that parse as JSON and carry this exact marker are
+ * forwarded through the facade; all other stderr lines (panic output, SSH
+ * classifier text) continue through the existing classifyStderr path.
+ *
+ * The value "agent-log" and the key "src" are fixed by the Go T6 contract in
+ * cmd/agent/main.go — renaming either side must be kept in sync.
+ */
+const AGENT_LOG_SRC_MARKER = "agent-log";
+
+/**
+ * Lazy logger bound to source "agent" for forwarding Go slog records.
+ * Created once on first use so that the module can be imported in test
+ * environments without triggering electron-log initialization.
+ */
+let agentFacadeLogger: ReturnType<typeof createLogger> | null = null;
+function getAgentLogger(): ReturnType<typeof createLogger> {
+  if (agentFacadeLogger === null) {
+    agentFacadeLogger = createLogger("agent");
+  }
+  return agentFacadeLogger;
+}
+
+/**
+ * The subset of a Go slog JSON record that pipe.ts reads when forwarding.
+ * Unrecognised fields are ignored — forward-compatibility is intentional.
+ */
+interface AgentLogRecord {
+  /** Fixed marker that identifies this line as a structured agent log entry. */
+  src: typeof AGENT_LOG_SRC_MARKER;
+  /** slog log level string (e.g. "INFO", "ERROR"). */
+  level?: string;
+  /** Human-readable log message. */
+  msg?: string;
+  /** Optional cross-process correlation token injected by the IPC router. */
+  correlationId?: string;
+}
+
+/**
+ * Returns true when the parsed JSON object is a structured agent log record
+ * that should be forwarded through the logging facade rather than classified
+ * as an SSH/spawn error.
+ */
+function isAgentLogRecord(value: unknown): value is AgentLogRecord {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value as Record<string, unknown>).src === AGENT_LOG_SRC_MARKER
+  );
+}
+
+/**
+ * Maps a slog level string to the nearest facade log level.
+ * slog uses uppercase names ("DEBUG", "INFO", "WARN", "ERROR"); unknown
+ * values default to "info" so unexpected future levels are not silently lost.
+ */
+function slogLevelToFacade(level: string | undefined): LogLevel {
+  switch (level?.toUpperCase()) {
+    case "DEBUG":
+      return "debug";
+    case "WARN":
+    case "WARNING":
+      return "warn";
+    case "ERROR":
+      return "error";
+    default:
+      return "info";
+  }
+}
 
 /**
  * Byte threshold above which the stdout source is paused to prevent
@@ -67,7 +141,24 @@ export interface NdjsonPipeDependencies {
 
 export interface NdjsonPipe {
   readonly ready: Promise<void>;
-  call<TResult = unknown>(method: string, params?: unknown): Promise<TResult>;
+  /**
+   * Send a JSON-RPC-style request to the agent and return the resolved result.
+   *
+   * @param method     The agent method name (e.g. `"lsp.spawn"`).
+   * @param params     The request payload — must be JSON-serialisable.
+   * @param correlationId  Optional cross-process correlation token issued by the
+   *                       IPC router.  When supplied it is included in the NDJSON
+   *                       frame as `correlationId` so the Go agent can attach the
+   *                       same token to its own log entries and error responses,
+   *                       linking the full call chain across process boundaries.
+   *                       The field name `correlationId` is fixed by the Go-side
+   *                       T6 contract — do not rename.
+   */
+  call<TResult = unknown>(
+    method: string,
+    params?: unknown,
+    correlationId?: string,
+  ): Promise<TResult>;
   on(event: string, callback: NdjsonEventCallback): () => void;
   /** Local cleanup — rejects ready/inflight, clears listeners. Owner kills the child. */
   dispose(): void;
@@ -182,9 +273,43 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     emitEvent(frame.event, frame.payload);
   }
 
-  /** Classifies one stderr line without exposing the raw text to callers. */
+  /**
+   * Handles one stderr line. Two paths:
+   *
+   * 1. **Agent log record** — if the line parses as JSON and carries the
+   *    `"src":"agent-log"` marker (written by the Go slog JSONHandler), the
+   *    record is forwarded through the logging facade with source "agent".
+   *    The correlationId field, when present, is passed as log metadata so
+   *    the entry appears alongside the originating IPC call in the log file.
+   *
+   * 2. **Classifier / panic output** — all other lines (non-JSON, JSON without
+   *    the marker, multi-line panic traces) continue through the existing
+   *    classifyStderr path unchanged. This keeps SSH error detection working
+   *    and avoids misclassifying any JSON-shaped SSH diagnostic text as an
+   *    agent log record.
+   */
   function handleStderrLine(line: string): void {
     if (disposed || terminalError || line.length === 0) return;
+
+    // Attempt JSON parse only for lines that look like objects — this avoids
+    // the overhead on the overwhelming majority of classifier / panic lines.
+    if (line.charCodeAt(0) === 0x7b /* '{' */) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        // Not valid JSON — fall through to classifyStderr below.
+      }
+      if (isAgentLogRecord(parsed)) {
+        const log = getAgentLogger();
+        const level = slogLevelToFacade(parsed.level);
+        const msg = parsed.msg ?? "(no message)";
+        const meta =
+          parsed.correlationId !== undefined ? { correlationId: parsed.correlationId } : undefined;
+        log[level](msg, meta);
+        return;
+      }
+    }
 
     const code = deps.classifyStderr(line);
     if (code) {
@@ -222,7 +347,11 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
 
   return {
     ready,
-    call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
+    call<TResult = unknown>(
+      method: string,
+      params?: unknown,
+      correlationId?: string,
+    ): Promise<TResult> {
       if (disposed) {
         return Promise.reject(createDisposedError());
       }
@@ -231,9 +360,16 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       }
 
       const requestId = `r-${nextRequestId++}`;
+      // Build the request frame.  `correlationId` is included only when
+      // provided so the wire format stays minimal for internal calls that
+      // do not originate from a renderer IPC request.
+      const frame: Record<string, unknown> = { id: requestId, method, params };
+      if (correlationId !== undefined) {
+        frame.correlationId = correlationId;
+      }
       let line: string;
       try {
-        line = `${JSON.stringify({ id: requestId, method, params })}\n`;
+        line = `${JSON.stringify(frame)}\n`;
       } catch (error) {
         return Promise.reject(createSshError("server.protocol-error", error));
       }

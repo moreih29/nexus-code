@@ -13,18 +13,19 @@ import { beforeEach, describe, expect, it, jest, mock } from "bun:test";
 };
 
 // ---------------------------------------------------------------------------
-// Mock ipcCall before importing the store
+// Mock ipcCallResult before importing the store
 // ---------------------------------------------------------------------------
 
-const mockIpcCall = mock((_channel: string, _method: string, _args: unknown) =>
-  Promise.resolve([]),
+const mockIpcCallResult = mock((_channel: string, _method: string, _args: unknown) =>
+  Promise.resolve({ ok: true as const, value: [] }),
 );
 
 const mockIpcListen = mock((_channel: string, _event: string, _cb: unknown) => () => {});
 
 mock.module("../../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: mockIpcCall,
+  ipcCallResult: mockIpcCallResult,
   ipcListen: mockIpcListen,
+  canUseIpcBridge: () => false,
 }));
 
 // ---------------------------------------------------------------------------
@@ -52,7 +53,7 @@ function dirEntry(name: string, type: DirEntry["type"] = "file"): DirEntry {
 
 function resetStore() {
   useFilesStore.setState({ trees: new Map() });
-  mockIpcCall.mockClear();
+  mockIpcCallResult.mockClear();
   mockIpcListen.mockClear();
 }
 
@@ -67,10 +68,13 @@ describe("Scenario 8: ensureRoot hydrates persisted expanded paths", () => {
     const srcAbs = `${ROOT}/src`;
     const componentsAbs = `${ROOT}/src/components`;
 
-    mockIpcCall.mockImplementation(
+    mockIpcCallResult.mockImplementation(
       (_channel: string, method: string, args: { workspaceId: string; relPath: string }) => {
         if (method === "getExpanded") {
-          return Promise.resolve({ relPaths: ["src", "src/components"] });
+          return Promise.resolve({
+            ok: true as const,
+            value: { relPaths: ["src", "src/components"] },
+          });
         }
         if (method === "readdir") {
           const responses: Record<string, DirEntry[]> = {
@@ -78,9 +82,9 @@ describe("Scenario 8: ensureRoot hydrates persisted expanded paths", () => {
             src: [dirEntry("components", "dir")],
             "src/components": [dirEntry("Button.tsx", "file")],
           };
-          return Promise.resolve(responses[args.relPath] ?? []);
+          return Promise.resolve({ ok: true as const, value: responses[args.relPath] ?? [] });
         }
-        return Promise.resolve(undefined);
+        return Promise.resolve({ ok: true as const, value: undefined });
       },
     );
 
@@ -91,20 +95,23 @@ describe("Scenario 8: ensureRoot hydrates persisted expanded paths", () => {
     expect(tree?.expanded.has(componentsAbs)).toBe(true);
     expect(tree?.nodes.get(srcAbs)?.childrenLoaded).toBe(true);
     expect(tree?.nodes.get(componentsAbs)?.childrenLoaded).toBe(true);
-    expect(mockIpcCall).toHaveBeenCalledWith("fs", "watch", { workspaceId: WS_ID, relPath: "src" });
-    expect(mockIpcCall).toHaveBeenCalledWith("fs", "watch", {
+    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "watch", {
+      workspaceId: WS_ID,
+      relPath: "src",
+    });
+    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "watch", {
       workspaceId: WS_ID,
       relPath: "src/components",
     });
   });
 
   it("proceeds gracefully when getExpanded throws (non-fatal)", async () => {
-    mockIpcCall.mockImplementation((_channel: string, method: string, _args: unknown) => {
+    mockIpcCallResult.mockImplementation((_channel: string, method: string, _args: unknown) => {
       if (method === "getExpanded") {
         return Promise.reject(new Error("storage not open"));
       }
-      if (method === "readdir") return Promise.resolve([]);
-      return Promise.resolve(undefined);
+      if (method === "readdir") return Promise.resolve({ ok: true as const, value: [] });
+      return Promise.resolve({ ok: true as const, value: undefined });
     });
 
     await expect(ensureRoot(WS_ID, ROOT)).resolves.toBeUndefined();
@@ -126,25 +133,26 @@ describe("Scenario 9: toggleExpand debounces setExpanded persist", () => {
     try {
       const srcAbs = `${ROOT}/src`;
 
-      mockIpcCall.mockImplementation(
+      mockIpcCallResult.mockImplementation(
         (_channel: string, method: string, args: { workspaceId: string; relPath: string }) => {
-          if (method === "getExpanded") return Promise.resolve({ relPaths: [] });
+          if (method === "getExpanded")
+            return Promise.resolve({ ok: true as const, value: { relPaths: [] } });
           if (method === "readdir") {
             const responses: Record<string, DirEntry[]> = {
               "": [dirEntry("src", "dir")],
               src: [dirEntry("index.ts", "file")],
             };
-            return Promise.resolve(responses[args.relPath] ?? []);
+            return Promise.resolve({ ok: true as const, value: responses[args.relPath] ?? [] });
           }
-          return Promise.resolve(undefined);
+          return Promise.resolve({ ok: true as const, value: undefined });
         },
       );
 
       await ensureRoot(WS_ID, ROOT);
-      mockIpcCall.mockClear();
+      mockIpcCallResult.mockClear();
 
       const setExpandedCalls: { workspaceId: string; relPaths: string[] }[] = [];
-      mockIpcCall.mockImplementation(
+      mockIpcCallResult.mockImplementation(
         (
           _channel: string,
           method: string,
@@ -152,10 +160,11 @@ describe("Scenario 9: toggleExpand debounces setExpanded persist", () => {
         ) => {
           if (method === "setExpanded") {
             setExpandedCalls.push({ workspaceId: args.workspaceId, relPaths: args.relPaths ?? [] });
-            return Promise.resolve(undefined);
+            return Promise.resolve({ ok: true as const, value: undefined });
           }
-          if (method === "readdir") return Promise.resolve([dirEntry("index.ts", "file")]);
-          return Promise.resolve(undefined);
+          if (method === "readdir")
+            return Promise.resolve({ ok: true as const, value: [dirEntry("index.ts", "file")] });
+          return Promise.resolve({ ok: true as const, value: undefined });
         },
       );
 
@@ -189,31 +198,34 @@ describe("Scenario 12: ensureRoot hydrate parallel readdir", () => {
       readdirResponses[d] = [];
     }
 
-    mockIpcCall.mockImplementation(
+    mockIpcCallResult.mockImplementation(
       (_channel: string, method: string, args: { workspaceId: string; relPath: string }) => {
         if (method === "getExpanded") {
-          return Promise.resolve({ relPaths: dirs });
+          return Promise.resolve({ ok: true as const, value: { relPaths: dirs } });
         }
         if (method === "readdir") {
-          return Promise.resolve(readdirResponses[args.relPath] ?? []);
+          return Promise.resolve({
+            ok: true as const,
+            value: readdirResponses[args.relPath] ?? [],
+          });
         }
-        return Promise.resolve(undefined);
+        return Promise.resolve({ ok: true as const, value: undefined });
       },
     );
 
     await ensureRoot(WS_ID, ROOT);
 
-    const readdirCalls = mockIpcCall.mock.calls.filter(([, m]) => m === "readdir");
+    const readdirCalls = mockIpcCallResult.mock.calls.filter(([, m]) => m === "readdir");
     expect(readdirCalls).toHaveLength(11);
   });
 
   it("ancestors-first: depth-1 readdir completes before depth-2 readdir is issued", async () => {
     const callOrder: string[] = [];
 
-    mockIpcCall.mockImplementation(
+    mockIpcCallResult.mockImplementation(
       (_channel: string, method: string, args: { workspaceId: string; relPath: string }) => {
         if (method === "getExpanded") {
-          return Promise.resolve({ relPaths: ["a", "a/b", "c"] });
+          return Promise.resolve({ ok: true as const, value: { relPaths: ["a", "a/b", "c"] } });
         }
         if (method === "readdir") {
           callOrder.push(args.relPath);
@@ -223,9 +235,9 @@ describe("Scenario 12: ensureRoot hydrate parallel readdir", () => {
             "a/b": [],
             c: [],
           };
-          return Promise.resolve(responses[args.relPath] ?? []);
+          return Promise.resolve({ ok: true as const, value: responses[args.relPath] ?? [] });
         }
-        return Promise.resolve(undefined);
+        return Promise.resolve({ ok: true as const, value: undefined });
       },
     );
 

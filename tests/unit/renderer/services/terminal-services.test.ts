@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
+import type { TerminalControllerDeps } from "../../../../src/renderer/services/terminal/controller";
 import type {
   PtyClientOptions,
   TerminalDimensions,
 } from "../../../../src/renderer/services/terminal/types";
-import type { TerminalControllerDeps } from "../../../../src/renderer/services/terminal/controller";
 
 type IpcCallRecord = { channel: string; method: string; args: unknown };
 type ListenerRecord = { channel: string; event: string; callback: (args: unknown) => void };
@@ -28,7 +28,9 @@ const listeners: ListenerRecord[] = [];
     removeEventListener(): void {},
     addListener(): void {},
     removeListener(): void {},
-    dispatchEvent(): boolean { return false; },
+    dispatchEvent(): boolean {
+      return false;
+    },
   }),
 };
 
@@ -48,10 +50,11 @@ const listeners: ListenerRecord[] = [];
 };
 
 mock.module("../../../../src/renderer/ipc/client", () => ({
-  ipcCall: mock((channel: string, method: string, args: unknown) => {
+  ipcCallResult: mock((channel: string, method: string, args: unknown) => {
     ipcCalls.push({ channel, method, args });
-    if (channel === "pty" && method === "spawn") return Promise.resolve({ pid: 1234 });
-    return Promise.resolve(undefined);
+    if (channel === "pty" && method === "spawn")
+      return Promise.resolve({ ok: true as const, value: { pid: 1234 } });
+    return Promise.resolve({ ok: true as const, value: undefined });
   }),
   ipcListen: mock((channel: string, event: string, callback: (args: unknown) => void) => {
     const record = { channel, event, callback };

@@ -12,16 +12,46 @@
  * Strategy. The main-side router catches a GitError before throwing and
  * stores its typed fields under `cause` as a plain object marked with
  * `IPC_GIT_ERROR_MARK`. `cause` survives structured clone, so the marked
- * object reaches the renderer. The renderer's `ipcCall` recognizes the
- * marker and copies the fields back onto the Error instance, leaving
- * `name === "GitError"`, `message`, and `stack` untouched.
+ * object reaches the renderer. The renderer's stream error handler recognizes
+ * the `_gitCause` field and copies the git fields onto the Error instance,
+ * leaving `name === "GitError"`, `message`, and `stack` untouched.
  *
  * This module owns the wire shape so `src/main/ipc/router.ts` and
  * `src/renderer/ipc/client.ts` agree on it without importing from each
  * other's process boundary.
  */
 
+import type { IpcErrResult } from "../ipc/result";
 import type { GitActionHint } from "./types";
+
+// ---------------------------------------------------------------------------
+// IpcResult-envelope git error types (new format — used by migrated handlers)
+// ---------------------------------------------------------------------------
+
+/**
+ * IpcResult kind used by all Git expected failures in migrated handlers.
+ * Shared here so the renderer can import it without crossing the main-process
+ * rootDir boundary.
+ */
+export const GIT_IPC_ERROR_KIND = "git-error" as const;
+
+/**
+ * Extra fields attached to an `ipcErr("git-error")` envelope.
+ * Plain serialisable values so structured-clone preserves them exactly.
+ */
+export interface GitIpcErrorExtra {
+  /** GitErrorKind string — discriminator for the error banner and hint logic. */
+  readonly gitKind: string;
+  readonly stderr: string;
+  readonly argv: readonly string[];
+  readonly hint?: GitActionHint;
+}
+
+export type GitIpcErrorResult = IpcErrResult<typeof GIT_IPC_ERROR_KIND> & GitIpcErrorExtra;
+
+// ---------------------------------------------------------------------------
+// Legacy cause-envelope git error types (old format — kept for backward compat)
+// ---------------------------------------------------------------------------
 
 /** Sentinel placed on the cause object so the renderer can identify the envelope. */
 export const IPC_GIT_ERROR_MARK = "__ipcGitError";
@@ -55,11 +85,18 @@ export interface IpcGitErrorResult {
 }
 
 /**
- * True when a value is the envelope produced by `wrapGitErrorAsResult`.
+ * True when a value is a Git error result envelope — either the legacy
+ * sentinel-based format (IPC_CALL_RESULT_MARK) or the new ipcErr("git-error")
+ * envelope (GIT_IPC_ERROR_KIND). Accepts both so the function works during
+ * the migration from the old format to the new.
  */
 export function isIpcGitErrorResult(value: unknown): value is IpcGitErrorResult {
   if (!value || typeof value !== "object") return false;
-  return (value as Record<string, unknown>)[IPC_CALL_RESULT_MARK] === true;
+  const v = value as Record<string, unknown>;
+  // New format: ipcErr("git-error", ...) envelope.
+  if (v.ok === false && v.kind === GIT_IPC_ERROR_KIND) return true;
+  // Legacy format: { [IPC_CALL_RESULT_MARK]: true, ... }
+  return v[IPC_CALL_RESULT_MARK] === true;
 }
 
 /**

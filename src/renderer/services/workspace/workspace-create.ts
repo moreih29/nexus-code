@@ -6,7 +6,8 @@
  */
 
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
-import { ipcCall, ipcCallResult } from "../../ipc/client";
+import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
+import type { CallReturn } from "../../ipc/types";
 import type { IpcResult } from "../../ipc/client";
 
 // ---------------------------------------------------------------------------
@@ -18,9 +19,11 @@ import type { IpcResult } from "../../ipc/client";
  * Throws on IPC error (the caller handles it).
  */
 export async function createLocalWorkspace(rootPath: string): Promise<WorkspaceMeta> {
-  return ipcCall("workspace", "create", {
-    location: { kind: "local", rootPath },
-  });
+  return unwrapIpcResult(
+    await ipcCallResult("workspace", "create", {
+      location: { kind: "local", rootPath },
+    }),
+  );
 }
 
 /**
@@ -28,9 +31,11 @@ export async function createLocalWorkspace(rootPath: string): Promise<WorkspaceM
  * Returns `null` when the user cancels; the selected path otherwise.
  */
 export async function pickLocalDirectory(): Promise<string | null> {
-  const { canceled, filePaths } = await ipcCall("dialog", "showOpenDirectory", {
-    title: "Select workspace folder",
-  });
+  const { canceled, filePaths } = unwrapIpcResult(
+    await ipcCallResult("dialog", "showOpenDirectory", {
+      title: "Select workspace folder",
+    }),
+  );
   if (canceled || !filePaths[0]) return null;
   return filePaths[0];
 }
@@ -79,8 +84,6 @@ export async function createSshWorkspace(
  * Fetch ~/.ssh/config host entries for the new-connection form combobox.
  * Returns an empty array on error.
  */
-export async function listSshConfigHosts(): Promise<
-  Awaited<ReturnType<typeof ipcCall<"ssh", "listConfigHosts">>>
-> {
-  return ipcCall("ssh", "listConfigHosts", undefined);
+export async function listSshConfigHosts(): Promise<CallReturn<"ssh", "listConfigHosts">> {
+  return unwrapIpcResult(await ipcCallResult("ssh", "listConfigHosts", undefined));
 }

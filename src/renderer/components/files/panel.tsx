@@ -14,6 +14,7 @@ import {
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { EMPTY_TREE } from "../editor/diff-refs";
 import { Button } from "../ui/button";
+import { ErrorBoundary } from "../ui/error-boundary";
 import { ResizeHandle } from "../ui/resize-handle";
 import { FileTree } from "./file-tree";
 import { GitPanel, type GitPanelOpenDiffInput } from "./git";
@@ -73,24 +74,36 @@ export function FilesPanel() {
             </div>
             <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
               {filesPanelMode === "tree" ? (
-                <div className="flex-1 min-h-0 overflow-hidden">
-                  <FileTree
-                    workspaceId={activeWorkspace.id}
-                    rootAbsPath={activeWorkspace.rootPath}
-                  />
-                </div>
+                // ErrorBoundary: a crash in the file tree must not collapse
+                // the entire sidebar or prevent switching to other modes.
+                <ErrorBoundary logSource="file-tree-panel">
+                  <div className="flex-1 min-h-0 overflow-hidden">
+                    <FileTree
+                      workspaceId={activeWorkspace.id}
+                      rootAbsPath={activeWorkspace.rootPath}
+                    />
+                  </div>
+                </ErrorBoundary>
               ) : filesPanelMode === "search" ? (
-                <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-                  <SearchPanel workspaceId={activeWorkspace.id} />
-                </div>
+                // ErrorBoundary: search panel crash is isolated — git and file
+                // tree panels remain functional.
+                <ErrorBoundary logSource="search-panel">
+                  <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                    <SearchPanel workspaceId={activeWorkspace.id} />
+                  </div>
+                </ErrorBoundary>
               ) : filesPanelMode === "git" ? (
-                <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-                  <GitPanel
-                    workspaceId={activeWorkspace.id}
-                    workspaceRootPath={activeWorkspace.rootPath}
-                    onOpenDiff={openGitDiffFromRow}
-                  />
-                </div>
+                // ErrorBoundary: git panel crash is isolated — the editor and
+                // terminal panels in the workspace remain unaffected.
+                <ErrorBoundary logSource="git-panel">
+                  <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                    <GitPanel
+                      workspaceId={activeWorkspace.id}
+                      workspaceRootPath={activeWorkspace.rootPath}
+                      onOpenDiff={openGitDiffFromRow}
+                    />
+                  </div>
+                </ErrorBoundary>
               ) : (
                 <FileTree workspaceId={activeWorkspace.id} rootAbsPath={activeWorkspace.rootPath} />
               )}

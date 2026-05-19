@@ -128,11 +128,15 @@ mock.module("../../../../../../src/renderer/services/editor/tabs", () => ({
 
 // ipc/client stub
 mock.module("../../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: mock(() =>
-    Promise.resolve({ filesScanned: 0, matchesFound: 0, limitHit: false, elapsedMs: 0 }),
+  ipcCallResult: mock(() =>
+    Promise.resolve({
+      ok: true as const,
+      value: { filesScanned: 0, matchesFound: 0, limitHit: false, elapsedMs: 0 },
+    }),
   ),
   ipcListen: mock(() => () => {}),
   ipcStream: mock(() => ({ cancel: () => {} })),
+  canUseIpcBridge: () => false,
 }));
 
 // workspace-cleanup stub

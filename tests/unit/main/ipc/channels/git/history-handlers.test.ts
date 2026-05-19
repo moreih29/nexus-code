@@ -3,13 +3,13 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { GitRegistry } from "../../../../../../src/main/features/git/domain/registry";
-import { isIpcGitErrorResult } from "../../../../../../src/shared/git/error-ipc";
 import {
   checkoutDetachedHandler,
   commitDetailHandler,
   resetSoftHandler,
   searchCommitsHandler,
 } from "../../../../../../src/main/features/git/ipc/history-handlers";
+import { isIpcGitErrorResult } from "../../../../../../src/shared/git/error-ipc";
 
 const WORKSPACE_ID = "22222222-2222-4222-8222-222222222222";
 
@@ -91,10 +91,13 @@ describe("git history IPC handlers", () => {
       getOrDetect: async () => null,
     } as unknown as GitRegistry;
 
-    const result = await commitDetailHandler(registry)({ workspaceId: WORKSPACE_ID, sha: "abc123" });
+    const result = await commitDetailHandler(registry)({
+      workspaceId: WORKSPACE_ID,
+      sha: "abc123",
+    });
     expect(isIpcGitErrorResult(result)).toBe(true);
     // @ts-expect-error — narrowed by isIpcGitErrorResult check above
-    expect(result.kind).toBe("not-repo");
+    expect(result.gitKind).toBe("not-repo");
   });
 });
 

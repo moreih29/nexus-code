@@ -6,7 +6,7 @@
  */
 
 import type { RepoInfo } from "../../../../shared/git/types";
-import { ipcCall } from "../../../ipc/client";
+import { ipcCallResult, unwrapGitResult } from "../../../ipc/client";
 import { cancelCommitDraftSave, cancelStatusHintRefresh } from "./draft-persistence";
 import { firstRejectedReason, gitStoreErrorFromUnknown } from "./store-helpers";
 import { createDefaultSession } from "./session-defaults";
@@ -33,11 +33,15 @@ export function createSessionLifecycleSlice(ctx: GitStoreContext): SessionLifecy
         return { sessions: next };
       });
 
+      // Fetch repo info, status, and panel state in parallel. Each call uses
+      // ipcCallResult so IpcErrResult("git-error") or "cancelled" are returned
+      // as values rather than rejections, preserving allSettled semantics for
+      // partial load resilience.
       const [repoInfoResult, statusResult, panelStateResult] =
         await Promise.allSettled([
-          ipcCall("git", "getRepoInfo", { workspaceId }),
-          ipcCall("git", "getStatus", { workspaceId }),
-          ipcCall("git", "getPanelState", { workspaceId }),
+          ipcCallResult("git", "getRepoInfo", { workspaceId }).then(unwrapGitResult),
+          ipcCallResult("git", "getStatus", { workspaceId }).then(unwrapGitResult),
+          ipcCallResult("git", "getPanelState", { workspaceId }).then(unwrapGitResult),
         ]);
 
       updateExistingSession(workspaceId, (session) => {
@@ -96,8 +100,12 @@ export function createSessionLifecycleSlice(ctx: GitStoreContext): SessionLifecy
 
     async refresh(workspaceId) {
       await runOperation(workspaceId, "refresh", async (signal) => {
-        const repoInfo = await ipcCall("git", "refreshDetection", { workspaceId }, { signal });
-        const status = await ipcCall("git", "getStatus", { workspaceId }, { signal });
+        const repoInfo = unwrapGitResult(
+          await ipcCallResult("git", "refreshDetection", { workspaceId }, { signal }),
+        );
+        const status = unwrapGitResult(
+          await ipcCallResult("git", "getStatus", { workspaceId }, { signal }),
+        );
         updateExistingSession(workspaceId, (session) => ({
           ...session,
           repoInfo,
@@ -111,8 +119,12 @@ export function createSessionLifecycleSlice(ctx: GitStoreContext): SessionLifecy
 
     async init(workspaceId) {
       return runOperation(workspaceId, "init", async (signal) => {
-        const repoInfo = await ipcCall("git", "init", { workspaceId }, { signal });
-        const status = await ipcCall("git", "getStatus", { workspaceId }, { signal });
+        const repoInfo = unwrapGitResult(
+          await ipcCallResult("git", "init", { workspaceId }, { signal }),
+        );
+        const status = unwrapGitResult(
+          await ipcCallResult("git", "getStatus", { workspaceId }, { signal }),
+        );
         updateExistingSession(workspaceId, (session) => ({
           ...session,
           repoInfo,
