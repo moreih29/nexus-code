@@ -1,5 +1,6 @@
 import { cn } from "@/utils/cn";
 import type { ThemePreference } from "../../../shared/types/app-state";
+import type { WorkspaceLocation } from "../../../shared/types/workspace";
 import { useActiveStore } from "../../state/stores/active";
 import { useThemeStore } from "../../state/stores/theme";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
@@ -72,15 +73,18 @@ export function TitleBar() {
       {/* Brand — uppercase small-label per the warm design system */}
       <span className="text-app-label text-muted-foreground uppercase">Nexus Code</span>
 
-      {/* Active workspace name — centered, editorial caption tone */}
+      {/* Active workspace name — centered, editorial caption tone.
+          SSH workspaces append "(ssh: <host>)" so the remote target is
+          visible alongside the user-chosen workspace name. */}
       {activeWorkspace && (
         <span
           className={cn(
             "absolute left-1/2 -translate-x-1/2",
             "text-app-body-emphasis text-foreground truncate max-w-[40%]",
           )}
+          title={workspaceTitleLabel(activeWorkspace.name, activeWorkspace.location)}
         >
-          {activeWorkspace.name}
+          {workspaceTitleLabel(activeWorkspace.name, activeWorkspace.location)}
         </span>
       )}
 
@@ -103,4 +107,16 @@ export function TitleBar() {
       </button>
     </div>
   );
+}
+
+/**
+ * Produces the centered title-bar label. Local workspaces show just the
+ * workspace name; SSH workspaces append "(ssh: <host>)" where <host> is
+ * the SSH config alias when present, else "user@host", else the host alone.
+ */
+function workspaceTitleLabel(name: string, location: WorkspaceLocation): string {
+  if (location.kind !== "ssh") return name;
+  const host =
+    location.configAlias ?? (location.user ? `${location.user}@${location.host}` : location.host);
+  return `${name} (ssh: ${host})`;
 }

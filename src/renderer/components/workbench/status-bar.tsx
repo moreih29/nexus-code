@@ -3,32 +3,35 @@
 // Mounted at the bottom of each WorkspacePanel (not as a global app-wide bar).
 // Height h-6 (24px). Receives the workspaceId of the panel it lives in.
 //
-// Segment layout — extendable list (future: cursor position, language, line ending):
-//   LEFT:  connection status · git branch + ahead/behind · error count · warning count
+// Segment layout — unified across local and SSH workspaces:
+//   LEFT:  git branch (always; "no git" fallback) · error count · warning count
 //   RIGHT: git in-flight operation indicator
+//
+// SSH connection state is conveyed by the sidebar's ConnectionStatusDot, so
+// the status bar intentionally omits the account@host segment to keep a
+// single layout for both local and SSH workspaces.
 //
 // Data sources (all reactive, never stale):
 //   - workspaceId             → prop (required)
 //   - git session             → useGitSession(workspaceId)
-//   - workspace connection    → useWorkspacesStore
 //   - Monaco diagnostics      → useDiagnosticsStore (per-workspace via selector)
+//
+// Git session is loaded eagerly here (loadInitial is idempotent) so the
+// branch segment populates without requiring the user to open the Git panel.
+// statusChanged / repoInfoChanged broadcasts keep branchInfo live afterward.
 //
 // Design:
 //   - status.bar.* tokens via CSS custom properties (design.md §9)
 //   - redundant encoding for errors/warnings: color + glyph (design.md §7)
-//   - neutral / empty render when repo absent
+//   - neutral / dimmed render when repo absent
 
-import { AlertTriangle, GitBranch, Loader2, Server, XCircle } from "lucide-react";
+import { AlertTriangle, GitBranch, Loader2, XCircle } from "lucide-react";
+import { useEffect } from "react";
 import { cn } from "@/utils/cn";
-import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import type { BranchInfo } from "../../../shared/git/types";
 import { selectWorkspaceDiagnostics, useDiagnosticsStore } from "../../state/stores/diagnostics";
 import type { GitInFlightOp } from "../../state/stores/git";
-import { useGitSession } from "../../state/stores/git";
-import {
-  selectWorkspaceConnectionStatus,
-  useWorkspacesStore,
-  type WorkspaceConnectionStatus,
-} from "../../state/stores/workspaces";
+import { useGitSession, useGitStore } from "../../state/stores/git";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -43,23 +46,25 @@ interface StatusBarProps {
 // ---------------------------------------------------------------------------
 
 export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
-  const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
-  const connectionStatus = useWorkspacesStore((s) =>
-    selectWorkspaceConnectionStatus(s, workspaceId),
-  );
+  const loadInitial = useGitStore((s) => s.loadInitial);
 
-  // Git session for this workspace — undefined when git not yet loaded
-  // or workspace has no git repo.
+  // Git session for this workspace — undefined until loadInitial completes.
   const gitSession = useGitSession(workspaceId);
 
   const { errorCount, warningCount } = useDiagnosticsStore((s) =>
     selectWorkspaceDiagnostics(s, workspaceId),
   );
 
-  const branchInfo = gitSession?.branchInfo ?? null;
+  // Eagerly load the git session so the branch segment fills in without the
+  // user opening the Git panel. loadInitial short-circuits when the session
+  // already exists, so re-running on workspaceId changes is safe.
+  useEffect(() => {
+    void loadInitial(workspaceId);
+  }, [loadInitial, workspaceId]);
+
   const isRepo = gitSession?.repoInfo.kind === "repo";
+  const branchInfo = isRepo ? (gitSession?.branchInfo ?? null) : null;
   const inFlightOp = gitSession?.inFlightOp ?? null;
-  const isSsh = workspace?.location.kind === "ssh";
 
   return (
     <div
@@ -75,20 +80,8 @@ export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
     >
       {/* LEFT segments */}
       <div className="flex items-center flex-1 min-w-0">
-        {/* Connection status — SSH workspaces only */}
-        {isSsh && workspace && (
-          <ConnectionSegment workspace={workspace} status={connectionStatus} />
-        )}
-
-        {/* Git branch + ahead/behind — when repo is active */}
-        {isRepo && branchInfo && (
-          <BranchSegment
-            branch={branchInfo.current}
-            ahead={branchInfo.ahead}
-            behind={branchInfo.behind}
-            isUnborn={branchInfo.isUnborn}
-          />
-        )}
+        {/* Git branch — always rendered; falls back to "no git" when no repo */}
+        <BranchSegment branchInfo={branchInfo} />
 
         {/* Error count — always shown (count may be 0) */}
         <DiagnosticSegment kind="error" count={errorCount} />
@@ -106,65 +99,20 @@ export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
 }
 
 // ---------------------------------------------------------------------------
-// Connection segment (SSH only)
-// ---------------------------------------------------------------------------
-
-const CONNECTION_LABELS: Record<WorkspaceConnectionStatus, string> = {
-  idle: "Disconnected",
-  connecting: "Connecting…",
-  connected: "Connected",
-  reconnecting: "Reconnecting…",
-  error: "Connection error",
-};
-
-function ConnectionSegment({
-  workspace,
-  status,
-}: {
-  workspace: WorkspaceMeta;
-  status: WorkspaceConnectionStatus;
-}): React.JSX.Element {
-  const statusLabel = CONNECTION_LABELS[status];
-  const host =
-    workspace.location.kind === "ssh"
-      ? (workspace.location.configAlias ??
-        (workspace.location.user
-          ? `${workspace.location.user}@${workspace.location.host}`
-          : workspace.location.host))
-      : "";
-
-  return (
-    <StatusBarItem
-      title={`SSH ${statusLabel}: ${host}`}
-      className={cn(
-        status === "error" && "bg-[var(--status-bar-error-bg)] text-[var(--status-bar-error-fg)]",
-        status === "connected" && "text-[var(--status-bar-fg)]",
-        (status === "connecting" || status === "reconnecting") &&
-          "text-[var(--status-bar-fg)] opacity-70",
-        status === "idle" && "opacity-50",
-      )}
-    >
-      <Server className="size-3 shrink-0" aria-hidden="true" />
-      <span className="truncate max-w-32">{host || statusLabel}</span>
-    </StatusBarItem>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Branch segment
 // ---------------------------------------------------------------------------
 
-function BranchSegment({
-  branch,
-  ahead,
-  behind,
-  isUnborn,
-}: {
-  branch: string;
-  ahead: number;
-  behind: number;
-  isUnborn: boolean;
-}): React.JSX.Element {
+function BranchSegment({ branchInfo }: { branchInfo: BranchInfo | null }): React.JSX.Element {
+  if (!branchInfo) {
+    return (
+      <StatusBarItem title="No git repository" className="opacity-50">
+        <GitBranch className="size-3 shrink-0" aria-hidden="true" />
+        <span className="truncate max-w-40">no git</span>
+      </StatusBarItem>
+    );
+  }
+
+  const { current: branch, ahead, behind, isUnborn } = branchInfo;
   const aheadBehind = !isUnborn && (ahead > 0 || behind > 0) ? ` ↑${ahead} ↓${behind}` : "";
   const label = isUnborn ? `${branch} (no commits)` : `${branch}${aheadBehind}`;
 
