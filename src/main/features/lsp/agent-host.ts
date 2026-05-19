@@ -177,10 +177,30 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   private nextServerRequestId = 1;
   private disposed = false;
 
+  /**
+   * Fire-and-forget document notifications — they carry no observable result,
+   * so a disposed host resolves them quietly instead of throwing (see call()).
+   */
+  private static readonly NOTIFICATION_METHODS = new Set([
+    "didOpen",
+    "didChange",
+    "didSave",
+    "didClose",
+  ]);
+
   constructor(private readonly workspaceManager: AgentLspWorkspaceManager) {}
 
   async call(method: string, args: unknown, opts: LspHostCallOptions = {}): Promise<unknown> {
     if (this.disposed) {
+      // Document notifications can arrive after dispose() during app shutdown:
+      // the LSP host is torn down on `before-quit` while the renderer is still
+      // alive and emitting didClose as its editor models close. The host being
+      // gone is the correct end state, so these resolve quietly — only
+      // request-style methods (whose callers expect a result) still surface
+      // the disposed error.
+      if (AgentLspHostHandleImpl.NOTIFICATION_METHODS.has(method)) {
+        return null;
+      }
       throw new Error("LSP host disposed");
     }
 

@@ -333,6 +333,22 @@ describe("AgentLspHostHandle", () => {
     ).toBe(true);
   });
 
+  test("resolves document notifications quietly after dispose, still throws for requests", async () => {
+    const channel = new FakeAgentChannel();
+    const host = startAgentLspHost({ getAgentChannel: async () => channel });
+    host.dispose();
+
+    // Fire-and-forget notifications can arrive after dispose() during app
+    // shutdown (the renderer is still emitting didClose as editor models
+    // close) — they must resolve quietly rather than surfacing a handler error.
+    await expect(host.call("didClose", { uri: URI })).resolves.toBeNull();
+
+    // Request-style methods still surface the disposed error to their callers.
+    await expect(host.call("hover", { uri: URI, line: 0, character: 0 })).rejects.toThrow(
+      "LSP host disposed",
+    );
+  });
+
   test("normalizes definition, completion, and diagnostics on the agent path", async () => {
     const channel = new FakeAgentChannel();
     const host = startAgentLspHost({
