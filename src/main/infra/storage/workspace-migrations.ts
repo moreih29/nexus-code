@@ -136,6 +136,20 @@ export const WORKSPACE_DB_MIGRATIONS: WorkspaceMigration[] = [
       );
     },
   },
+  // v6 → drop the compact_folders column from panel_view_options. The feature
+  //      was retired in favour of an explicit expand/collapse-all toolbar so
+  //      the value was never written meaningfully after v6 ships. SQLite 3.35+
+  //      supports `ALTER TABLE … DROP COLUMN`; better-sqlite3 12.x bundles a
+  //      modern enough engine. Guarded by hasColumn so re-running over an
+  //      already-migrated DB is a no-op.
+  {
+    version: 6,
+    up: (db) => {
+      if (hasColumn(db, "panel_view_options", "compact_folders")) {
+        db.exec("ALTER TABLE panel_view_options DROP COLUMN compact_folders;");
+      }
+    },
+  },
 ];
 
 /**

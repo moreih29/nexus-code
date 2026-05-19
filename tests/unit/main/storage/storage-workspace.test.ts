@@ -541,7 +541,10 @@ describe("WorkspaceStorage schema v5 migration for git panel preferences", () =>
     const version = migratedDb
       .prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'")
       .get() as { value: string };
-    expect(version.value).toBe("5");
+    // Bumped to "6" when the compact_folders column was dropped. The legacy
+    // git_panel_state preference columns asserted above were added by v5
+    // and remain stable across the v6 migration.
+    expect(version.value).toBe("6");
     migratedDb.close();
 
     const reopened = new WorkspaceStorage(tmpDir, bunSqliteFactory);
