@@ -11,10 +11,8 @@
  */
 
 import { ChevronDown, List, ListTree } from "lucide-react";
-import { Tooltip as RadixTooltip } from "radix-ui";
 import { useCallback, useRef, useState } from "react";
 import { cn } from "@/utils/cn";
-import { UI_TOOLTIP_DELAY_MS } from "../../../shared/util/timing-constants";
 import { Button } from "../ui/button";
 import { useDismissOnOutsideClick } from "../ui/use-dismiss-on-outside-click";
 
@@ -67,99 +65,76 @@ export function ViewModeToggle({
     onViewModeChange(computeNextViewMode(viewMode));
   }
 
+  // Tooltip: handled via native `title=` on each Button. We previously wrapped
+  // these in `<RadixTooltip.Trigger asChild>` for styling consistency, but
+  // radix-ui's Tooltip + PopperAnchor effect chain triggers an infinite
+  // setState loop with React 19 (see radix-ui/primitives#3799 family). Other
+  // call sites in this app already rely on `title=` for hover hints — aligning
+  // here keeps that one rule consistent and dodges the upstream bug.
   return (
-    <RadixTooltip.Provider delayDuration={UI_TOOLTIP_DELAY_MS}>
-      <div className="relative flex items-center">
-        {/* ── Main toggle button ── */}
-        <RadixTooltip.Root>
-          <RadixTooltip.Trigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label={toggleLabel}
-              aria-pressed={isTree}
-              title={toggleLabel}
-              disabled={disabled}
-              className={cn(
-                "shrink-0",
-                // When compact split is present, square off the right edge so
-                // the two buttons read as a joined group.
-                hasCompact && "rounded-r-none",
-                isTree && TOGGLE_ON_CLASS,
-              )}
-              onClick={handleToggle}
-            >
-              {isTree ? <ListTree aria-hidden="true" /> : <List aria-hidden="true" />}
-            </Button>
-          </RadixTooltip.Trigger>
-          <RadixTooltip.Portal>
-            <RadixTooltip.Content
-              className="px-2 py-1 text-app-micro bg-muted text-foreground border border-border rounded-(--radius-control) shadow-none"
-              sideOffset={4}
-            >
-              {toggleLabel}
-            </RadixTooltip.Content>
-          </RadixTooltip.Portal>
-        </RadixTooltip.Root>
+    <div className="relative flex items-center">
+      {/* ── Main toggle button ── */}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label={toggleLabel}
+        aria-pressed={isTree}
+        title={toggleLabel}
+        disabled={disabled}
+        className={cn(
+          "shrink-0",
+          // When compact split is present, square off the right edge so
+          // the two buttons read as a joined group.
+          hasCompact && "rounded-r-none",
+          isTree && TOGGLE_ON_CLASS,
+        )}
+        onClick={handleToggle}
+      >
+        {isTree ? <ListTree aria-hidden="true" /> : <List aria-hidden="true" />}
+      </Button>
 
-        {/* ── Compact folders split trigger — only when both props provided ── */}
-        {hasCompact ? (
-          <div className="relative" ref={compactWrapperRef}>
-            <RadixTooltip.Root>
-              <RadixTooltip.Trigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Compact folders options"
-                  aria-haspopup="menu"
-                  aria-expanded={popoverOpen}
-                  title="Compact folders"
-                  disabled={disabled}
-                  className={cn(
-                    "shrink-0 w-4 rounded-l-none px-0",
-                    compactFolders && TOGGLE_ON_CLASS,
-                  )}
-                  onClick={() => setPopoverOpen((prev) => !prev)}
-                >
-                  <ChevronDown className="size-3" aria-hidden="true" />
-                  <span className="sr-only">Compact folders</span>
-                </Button>
-              </RadixTooltip.Trigger>
-              <RadixTooltip.Portal>
-                <RadixTooltip.Content
-                  className="px-2 py-1 text-app-micro bg-muted text-foreground border border-border rounded-(--radius-control) shadow-none"
-                  sideOffset={4}
-                >
-                  Compact folders
-                </RadixTooltip.Content>
-              </RadixTooltip.Portal>
-            </RadixTooltip.Root>
+      {/* ── Compact folders split trigger — only when both props provided ── */}
+      {hasCompact ? (
+        <div className="relative" ref={compactWrapperRef}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Compact folders options"
+            aria-haspopup="menu"
+            aria-expanded={popoverOpen}
+            title="Compact folders"
+            disabled={disabled}
+            className={cn("shrink-0 w-4 rounded-l-none px-0", compactFolders && TOGGLE_ON_CLASS)}
+            onClick={() => setPopoverOpen((prev) => !prev)}
+          >
+            <ChevronDown className="size-3" aria-hidden="true" />
+            <span className="sr-only">Compact folders</span>
+          </Button>
 
-            {/* ── Compact popover ── */}
-            {popoverOpen ? (
-              <div
-                role="menu"
-                aria-label="View options"
-                className="absolute right-0 top-9 z-40 min-w-[188px] floating-panel p-1"
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") setPopoverOpen(false);
+          {/* ── Compact popover ── */}
+          {popoverOpen ? (
+            <div
+              role="menu"
+              aria-label="View options"
+              className="absolute right-0 top-9 z-40 min-w-[188px] floating-panel p-1"
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setPopoverOpen(false);
+              }}
+            >
+              <CompactMenuItem
+                checked={!!compactFolders}
+                onToggle={() => {
+                  onCompactChange(computeNextCompact(!!compactFolders));
+                  setPopoverOpen(false);
                 }}
-              >
-                <CompactMenuItem
-                  checked={!!compactFolders}
-                  onToggle={() => {
-                    onCompactChange(computeNextCompact(!!compactFolders));
-                    setPopoverOpen(false);
-                  }}
-                />
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    </RadixTooltip.Provider>
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
