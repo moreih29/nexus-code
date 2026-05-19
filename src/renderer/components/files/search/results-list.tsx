@@ -29,6 +29,12 @@ import { useTreeKeyboard } from "../file-tree/use-tree-keyboard";
 import { SearchResultFileRow } from "./result-file-row";
 import { SearchResultMatchRow } from "./result-match-row";
 
+// Stable empty fallback for the optional `expandedDirs` prop. A parameter
+// default of `= new Set()` would create a fresh Set on every render where
+// the prop is undefined, invalidating downstream `useMemo` deps every tick.
+// Read-only by convention (consumers only call `.has()`).
+const EMPTY_EXPANDED_DIRS: ReadonlySet<string> = new Set<string>();
+
 // ---------------------------------------------------------------------------
 // Flat row types
 // ---------------------------------------------------------------------------
@@ -80,7 +86,7 @@ function accumulateMatchCounts(node: PathTreeNode, matchMap: Map<string, number>
  */
 function walkTreeRows(
   node: PathTreeNode,
-  expandedDirs: Set<string>,
+  expandedDirs: ReadonlySet<string>,
   matchCountMap: Map<string, number>,
   rows: FlatRow[],
   groupByPath: Map<string, FileGroup>,
@@ -110,7 +116,7 @@ function walkTreeRows(
 function buildTreeRows(
   results: FileGroup[],
   compactFolders: boolean,
-  expandedDirs: Set<string>,
+  expandedDirs: ReadonlySet<string>,
 ): FlatRow[] {
   if (results.length === 0) return [];
 
@@ -150,7 +156,7 @@ function buildTreeRows(
 // Row → TreeKeyboardRow adapter
 // ---------------------------------------------------------------------------
 
-function toKeyboardRow(row: FlatRow, expandedDirs: Set<string>): TreeKeyboardRow {
+function toKeyboardRow(row: FlatRow, expandedDirs: ReadonlySet<string>): TreeKeyboardRow {
   if (row.kind === "dir") {
     return {
       kind: "dir",
@@ -185,7 +191,7 @@ interface SearchResultsListProps {
   /** When provided, tree mode is active. */
   viewMode?: "list" | "tree";
   compactFolders?: boolean;
-  expandedDirs?: Set<string>;
+  expandedDirs?: ReadonlySet<string>;
   onToggleDir?: (relPath: string) => void;
   /** Ref to expose the first-row focus method to the parent (SearchPanel). */
   firstRowFocusRef?: React.MutableRefObject<(() => void) | null>;
@@ -198,7 +204,7 @@ export function SearchResultsList({
   onToggleGroup,
   viewMode = "list",
   compactFolders = false,
-  expandedDirs = new Set(),
+  expandedDirs = EMPTY_EXPANDED_DIRS,
   onToggleDir,
   firstRowFocusRef,
 }: SearchResultsListProps) {

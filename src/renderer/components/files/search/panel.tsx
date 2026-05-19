@@ -20,16 +20,13 @@ import { CircleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
 import type { ViewMode } from "../../../../shared/types/panel";
+import { usePanelViewOptionsStore, useViewOptions } from "../../../state/stores/panel-view-options";
 import {
   EMPTY_SEARCH_OPTIONS,
   type SearchOptions,
   useSearchSession,
   useSearchStore,
 } from "../../../state/stores/search";
-import {
-  usePanelViewOptionsStore,
-  useViewOptions,
-} from "../../../state/stores/panel-view-options";
 import { shouldHandleArrowDown } from "./arrow-down-handoff";
 import { SearchInput } from "./input";
 import { SearchResultsList } from "./results-list";
@@ -42,6 +39,20 @@ import { validateRegexPattern } from "./validate-regex-pattern";
 interface SearchPanelProps {
   workspaceId: string;
 }
+
+// Stable empty fallback for the `expandedDirs` selector below.
+//
+// Zustand v5 invokes React's `useSyncExternalStore` directly with no
+// equality-function adapter, so the selector return value is compared by
+// `Object.is`. A selector that builds `new Set()` (or `[]` / `{}`) inside
+// `??` produces a fresh reference on every read — `Object.is` reports a
+// change, React calls `forceStoreRerender`, the selector runs again, and
+// the snapshot keeps "drifting" → "Maximum update depth exceeded" with a
+// "getSnapshot should be cached" warning. Hoisting one shared instance
+// gives the selector a stable identity when the workspace has no entry.
+// Treated as read-only by convention (the store reducer never reaches for
+// this constant; it manufactures its own writable Set when needed).
+const EMPTY_EXPANDED_DIRS: ReadonlySet<string> = new Set<string>();
 
 export function SearchPanel({ workspaceId }: SearchPanelProps) {
   const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
@@ -58,7 +69,7 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
   const toggleGroup = useSearchStore((s) => s.toggleGroup);
   const toggleExpandedDir = useSearchStore((s) => s.toggleExpandedDir);
   const expandedDirs = useSearchStore(
-    (s) => s.expandedDirsByWorkspace.get(workspaceId) ?? new Set<string>(),
+    (s) => s.expandedDirsByWorkspace.get(workspaceId) ?? EMPTY_EXPANDED_DIRS,
   );
 
   const loadViewOptions = usePanelViewOptionsStore((s) => s.loadViewOptions);
