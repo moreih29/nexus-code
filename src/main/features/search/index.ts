@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { createAbortError } from "../../../shared/abort";
 import type {
   InferArgs,
   InferComplete,
@@ -169,8 +170,3 @@ function normalizeSearchError(error: unknown): unknown {
   return error;
 }
 
-function createAbortError(): Error {
-  const error = new Error("aborted");
-  error.name = "AbortError";
-  return error;
-}

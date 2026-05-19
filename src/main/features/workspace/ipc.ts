@@ -1,3 +1,4 @@
+import { createAbortError, isAbortError } from "../../../shared/abort";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { type SshErrorCode, SshErrorCodeSchema } from "../../../shared/ssh/errors";
 import {
@@ -270,22 +271,6 @@ function throwIfAborted(signal?: AbortSignal): void {
     return;
   }
   throw createAbortError();
-}
-
-/**
- * Creates the cancellation error shape consumed by the IPC router.
- */
-function createAbortError(): Error {
-  const error = new Error("The operation was aborted");
-  error.name = "AbortError";
-  return error;
-}
-
-/**
- * Detects the standard AbortError shape.
- */
-function isAbortError(error: unknown): error is Error {
-  return error instanceof Error && error.name === "AbortError";
 }
 
 /**

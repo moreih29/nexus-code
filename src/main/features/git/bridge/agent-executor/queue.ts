@@ -4,6 +4,7 @@
  * provider, so pulling them out of the main file keeps the executor focused
  * on the IPC method surface and its parameter wiring.
  */
+import { createAbortError, throwIfAborted } from "../../../../../shared/abort";
 import {
   gitMissingError,
   unknownGitError,
@@ -68,18 +69,7 @@ export class AsyncQueue<T> {
   }
 }
 
-/** Throws an AbortError when the supplied signal is already aborted. */
-export function throwIfAborted(signal?: AbortSignal): void {
-  if (!signal?.aborted) return;
-  throw createAbortError();
-}
-
-/** Constructs a DOMException-shaped abort error for stream cancellation. */
-export function createAbortError(): Error {
-  const error = new Error("The operation was aborted");
-  error.name = "AbortError";
-  return error;
-}
+export { createAbortError, throwIfAborted };
 
 /**
  * Maps a raw runner failure into a typed `GitError`. The recognized cases

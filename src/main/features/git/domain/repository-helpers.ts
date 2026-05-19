@@ -10,6 +10,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+export { createAbortError, isAbortError, throwIfAborted } from "../../../../shared/abort";
 import type {
   BranchInfo,
   BranchList,
@@ -114,13 +115,6 @@ function isEnoent(error: unknown): boolean {
 }
 
 /**
- * Detects the standard AbortError shape emitted by the IPC cancellation path.
- */
-export function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === "AbortError";
-}
-
-/**
  * Copies the stable, renderer-facing subset of a pull GitError into the sync
  * envelope. The full Error instance stays main-process-only; sync needs only
  * enough detail to preserve the existing inline banner copy.
@@ -211,23 +205,6 @@ export function collectDiscardPathsets(
  */
 function entryIsSelected(entry: GitStatusEntry, selected: Set<string>): boolean {
   return selected.has(entry.relPath) || (entry.oldRelPath ? selected.has(entry.oldRelPath) : false);
-}
-
-/**
- * Throws the standard abort error shape before spawning or streaming Git.
- */
-export function throwIfAborted(signal: AbortSignal): void {
-  if (!signal.aborted) return;
-  throw createAbortError();
-}
-
-/**
- * Creates the standard AbortError shape used across queued repository ops.
- */
-export function createAbortError(): Error {
-  const error = new Error("The operation was aborted");
-  error.name = "AbortError";
-  return error;
 }
 
 /**

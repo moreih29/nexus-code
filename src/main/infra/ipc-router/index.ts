@@ -1,5 +1,6 @@
 import * as crypto from "node:crypto";
 import type { z } from "zod";
+import { createAbortError, isAbortError } from "../../../shared/abort";
 import {
   IPC_GIT_ERROR_MARK,
   type IpcGitErrorPayload,
@@ -12,6 +13,7 @@ import {
   type StreamProcedure,
 } from "../../../shared/ipc/contract";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
+import { ipcErr } from "../../../shared/ipc/result";
 import { GitError } from "../../features/git/domain/error";
 
 // ---------------------------------------------------------------------------
@@ -181,12 +183,17 @@ export function setupRouter(): void {
         // no log.  Non-envelope return values follow the existing success path.
         return handlerResult;
       } catch (error) {
-        // Invariant: reaching this catch means a genuine bug in the handler.
-        // Expected failures (cancellation, SSH auth cancel, Git failures) are
-        // all handled at the handler level and returned as IpcResult envelopes
-        // — they never reach this catch. Any error that does reach here is
-        // unexpected and should be logged by Electron's built-in
-        // "Error occurred in handler for 'ipc:call'" mechanism.
+        // Cancellation (AbortError) is a normal outcome — the router converts
+        // it to a "cancelled" IpcResult envelope and emits a quiet debug line.
+        // Any other error reaching this catch is a genuine bug and should be
+        // logged by Electron's built-in "Error occurred in handler for
+        // 'ipc:call'" mechanism via re-throw.
+        if (isAbortError(error)) {
+          console.debug(
+            `[ipc] cancelled  ${channelName}.${method}  req=${requestId ?? "(none)"}`,
+          );
+          return ipcErr("cancelled", "operation cancelled");
+        }
         throw error;
       } finally {
         if (callContext.key) {
@@ -393,12 +400,6 @@ function sendStreamError(pendingStream: PendingStream, error: unknown): void {
     kind: "error",
     data: serializeError(error),
   });
-}
-
-function createAbortError(): Error {
-  const error = new Error("The operation was aborted");
-  error.name = "AbortError";
-  return error;
 }
 
 function serializeError(error: unknown): SerializedError {

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { isAbortError } from "../../../shared/abort";
 import {
   rootPathFromLocation,
   type WorkspaceConnectionEventStatus,
@@ -837,9 +838,3 @@ function sshChannelOptionsFromLocation(
   };
 }
 
-/**
- * Detects channel disposal errors so workspace removal does not look like SSH failure.
- */
-function isAbortError(error: unknown): error is Error {
-  return error instanceof Error && error.name === "AbortError";
-}

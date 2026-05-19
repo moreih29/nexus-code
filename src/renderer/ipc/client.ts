@@ -1,3 +1,4 @@
+import { createAbortError } from "../../shared/abort";
 import {
   gitErrorFromIpcResult,
   isIpcGitErrorResult,
@@ -376,12 +377,6 @@ export function ipcStream<C extends StreamChannels, M extends StreamMethods<C>>(
       cancelKnownStream();
     },
   };
-}
-
-function createAbortError(): Error {
-  const error = new Error("The operation was aborted");
-  error.name = "AbortError";
-  return error;
 }
 
 function createStreamError(data: unknown): Error {
