@@ -20,18 +20,26 @@
 // branch segment populates without requiring the user to open the Git panel.
 // statusChanged / repoInfoChanged broadcasts keep branchInfo live afterward.
 //
+// Diagnostic segments:
+//   - VSCode-style glyph + count, no background fill. Color (red/amber) is
+//     applied to icon + count text only; zero-count segments are dimmed.
+//   - Clicking a non-zero segment opens a popover listing each diagnostic
+//     grouped by file. Clicking a row opens the file at that line.
+//
 // Design:
 //   - status.bar.* tokens via CSS custom properties (design.md §9)
 //   - redundant encoding for errors/warnings: color + glyph (design.md §7)
 //   - neutral / dimmed render when repo absent
 
 import { AlertTriangle, GitBranch, Loader2, XCircle } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/utils/cn";
 import type { BranchInfo } from "../../../shared/git/types";
 import { selectWorkspaceDiagnostics, useDiagnosticsStore } from "../../state/stores/diagnostics";
 import type { GitInFlightOp } from "../../state/stores/git";
 import { useGitSession, useGitStore } from "../../state/stores/git";
+import { BranchPicker } from "../files/git/branch/picker";
+import { type DiagnosticKind, DiagnosticPopover } from "./diagnostic-popover";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -68,7 +76,12 @@ export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
 
   return (
     <div
-      className="flex shrink-0 h-6 items-center select-none overflow-hidden"
+      // No overflow-hidden — diagnostic popovers anchor at `bottom-full` and
+      // extend upward into the editor area. The WorkspacePanel root keeps
+      // overflow-hidden to bound visual leaks within the panel, so removing
+      // it here just unclips the popover without losing layout containment.
+      // Each segment already truncates its own text, so the row stays sized.
+      className="relative flex shrink-0 h-6 items-center select-none"
       style={{
         // No backgroundColor — the status bar is transparent so the window
         // vibrancy shows through (whole-window translucency). It is the
@@ -80,14 +93,15 @@ export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
     >
       {/* LEFT segments */}
       <div className="flex items-center flex-1 min-w-0">
-        {/* Git branch — always rendered; falls back to "no git" when no repo */}
-        <BranchSegment branchInfo={branchInfo} />
+        {/* Git branch — clickable when a repo is present (opens the switch
+            branch picker); dimmed "no git" placeholder otherwise. */}
+        <BranchSegment workspaceId={workspaceId} branchInfo={branchInfo} />
 
-        {/* Error count — always shown (count may be 0) */}
-        <DiagnosticSegment kind="error" count={errorCount} />
+        {/* Error count — clickable when count > 0, opens a popover list */}
+        <DiagnosticSegment kind="error" count={errorCount} workspaceId={workspaceId} />
 
-        {/* Warning count — always shown (count may be 0) */}
-        <DiagnosticSegment kind="warning" count={warningCount} />
+        {/* Warning count — same treatment as errors */}
+        <DiagnosticSegment kind="warning" count={warningCount} workspaceId={workspaceId} />
       </div>
 
       {/* RIGHT segments */}
@@ -100,9 +114,22 @@ export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
 
 // ---------------------------------------------------------------------------
 // Branch segment
+//
+// When the workspace is a git repo with a known branch the segment is a
+// button that opens the existing BranchPicker (switch mode = checkout).
+// When the workspace has no repo (or repo is still detecting), the segment
+// renders as a dimmed, non-interactive "no git" placeholder.
 // ---------------------------------------------------------------------------
 
-function BranchSegment({ branchInfo }: { branchInfo: BranchInfo | null }): React.JSX.Element {
+function BranchSegment({
+  workspaceId,
+  branchInfo,
+}: {
+  workspaceId: string;
+  branchInfo: BranchInfo | null;
+}): React.JSX.Element {
+  const [pickerOpen, setPickerOpen] = useState(false);
+
   if (!branchInfo) {
     return (
       <StatusBarItem title="No git repository" className="opacity-50">
@@ -117,47 +144,115 @@ function BranchSegment({ branchInfo }: { branchInfo: BranchInfo | null }): React
   const label = isUnborn ? `${branch} (no commits)` : `${branch}${aheadBehind}`;
 
   return (
-    <StatusBarItem title={`Git branch: ${label}`}>
-      <GitBranch className="size-3 shrink-0" aria-hidden="true" />
-      <span className="truncate max-w-40">{label}</span>
-    </StatusBarItem>
+    <>
+      <button
+        type="button"
+        title={`Git branch: ${label} — click to switch`}
+        aria-label={`Switch branch (currently ${label})`}
+        onClick={() => setPickerOpen(true)}
+        className={cn(
+          "inline-flex items-center gap-1 h-full px-2",
+          "text-app-ui-sm font-sans leading-none",
+          "hover:bg-[var(--status-bar-item-hover-bg)] focus-visible:bg-[var(--status-bar-item-hover-bg)] focus-visible:outline-none transition-colors",
+        )}
+      >
+        <GitBranch className="size-3 shrink-0" aria-hidden="true" />
+        <span className="truncate max-w-40">{label}</span>
+      </button>
+      {/* BranchPicker is controlled; mounting it always while keeping `open`
+          off lets the picker's internal source/state initialise lazily on
+          first open without re-creating dialogs each toggle. */}
+      <BranchPicker
+        workspaceId={workspaceId}
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+      />
+    </>
   );
 }
 
 // ---------------------------------------------------------------------------
 // Diagnostic (error / warning) segment
+//
+// Visual: glyph + count, color (red/amber) applied to the icon and number
+// only — no background fill. Zero-count segments are dimmed and not
+// interactive (no popover to show). Color tokens reuse
+// --status-bar-{kind}-bg as the glyph foreground; the "bg" name predates
+// the glyph-only style and refers to the saturated hue, not a fill role.
+//
+// Interaction: clicking a non-zero segment opens a popover listing the
+// diagnostics grouped by file. The trigger and popover share a wrapper
+// div so useDismissOnOutsideClick treats clicks on either as "inside".
 // ---------------------------------------------------------------------------
 
 function DiagnosticSegment({
   kind,
   count,
+  workspaceId,
 }: {
-  kind: "error" | "warning";
+  kind: DiagnosticKind;
   count: number;
+  workspaceId: string;
 }): React.JSX.Element {
   const isError = kind === "error";
   const noun = isError ? "error" : "warning";
   const title = `${count} ${noun}${count !== 1 ? "s" : ""}`;
+  const Icon = isError ? XCircle : AlertTriangle;
+  const glyphColor = isError ? "var(--status-bar-error-bg)" : "var(--status-bar-warning-bg)";
+
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const disabled = count === 0;
+
+  // If the count drops to zero while the popover is open, close it. The
+  // popover itself also self-closes when its list goes empty, but driving
+  // the trigger state here keeps aria-expanded honest.
+  useEffect(() => {
+    if (disabled && open) setOpen(false);
+  }, [disabled, open]);
 
   return (
-    <StatusBarItem
-      title={title}
-      className={cn(
-        // Redundant encoding: color + icon glyph (design.md §7 axis-4)
-        count > 0 && isError && "bg-[var(--status-bar-error-bg)] text-[var(--status-bar-error-fg)]",
-        count > 0 &&
-          !isError &&
-          "bg-[var(--status-bar-warning-bg)] text-[var(--status-bar-warning-fg)]",
-      )}
-    >
-      {/* Glyph: provides redundant non-color encoding */}
-      {isError ? (
-        <XCircle className="size-3 shrink-0" aria-hidden="true" />
-      ) : (
-        <AlertTriangle className="size-3 shrink-0" aria-hidden="true" />
-      )}
-      <span>{count}</span>
-    </StatusBarItem>
+    <div ref={wrapperRef} className="relative inline-flex h-full">
+      <button
+        type="button"
+        title={title}
+        disabled={disabled}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={title}
+        onClick={() => {
+          if (!disabled) setOpen((v) => !v);
+        }}
+        className={cn(
+          "inline-flex items-center gap-1 h-full px-2",
+          "text-app-ui-sm font-sans leading-none",
+          // Hover/focus affordance only when interactive.
+          !disabled &&
+            "hover:bg-[var(--status-bar-item-hover-bg)] focus-visible:bg-[var(--status-bar-item-hover-bg)] focus-visible:outline-none transition-colors",
+          // Dim the entire segment to muted-foreground when there's nothing
+          // to look at; keep the segment visible so the user can read "0".
+          disabled && "text-muted-foreground/70 cursor-default",
+        )}
+      >
+        <Icon
+          className="size-3 shrink-0"
+          // Glyph color: keep the severity hue even at count=0 so the icon
+          // reads as "error slot" / "warning slot"; dim via opacity rather
+          // than swapping color so the meaning stays consistent.
+          style={{ color: glyphColor, opacity: disabled ? 0.45 : 1 }}
+          aria-hidden="true"
+        />
+        <span style={!disabled ? { color: glyphColor } : undefined}>{count}</span>
+      </button>
+      {open ? (
+        <DiagnosticPopover
+          workspaceId={workspaceId}
+          kind={kind}
+          wrapperRef={wrapperRef}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </div>
   );
 }
 
