@@ -24,6 +24,24 @@ interface StatusCoalescerEntry {
 
 interface StatusCoalescerOptions {
   readonly delayMs: number;
+  /**
+   * How long after a `markRecentlyRefreshed()` call the coalescer ignores
+   * incoming `schedule()` requests. Separated from `delayMs` (the trailing
+   * debounce) because the watcher-feedback storm needs a longer dead-zone
+   * than the responsive debounce window:
+   *
+   *   - `git status` itself can rewrite `.git/index` (racy index stat cache).
+   *   - The Go agent debounces `.git` watcher events by 300 ms before
+   *     emitting `git.changed`.
+   *
+   * So a status refresh produces a watcher event ~300–400 ms later. If the
+   * suppression window equals the (typically 100 ms) debounce window, the
+   * coalescer schedules another refresh, that refresh writes the index
+   * again, and the loop never settles. Default suppression is 1 000 ms so
+   * the feedback period is structurally broken without slowing genuine
+   * external `git` activity by more than ~one second.
+   */
+  readonly suppressionMs?: number;
   readonly scheduler?: TimerScheduler;
 }
 
@@ -32,17 +50,22 @@ interface StatusCoalescerOptions {
  */
 export function createStatusCoalescer({
   delayMs,
+  suppressionMs,
   scheduler,
 }: StatusCoalescerOptions): StatusCoalescer {
   const entries = new Map<string, StatusCoalescerEntry>();
   const timers: KeyedDebouncer<string> = createKeyedDebouncer<string>({ delayMs, scheduler });
   const lastRefreshedAt = new Map<string, number>();
+  // Default to 1 s: longer than the Go-side `.git` watcher debounce (300 ms)
+  // plus a safety margin, short enough that genuine external git activity
+  // still feels responsive.
+  const effectiveSuppressionMs = suppressionMs ?? Math.max(delayMs, 1_000);
 
   return {
     schedule(workspaceId, runFn) {
       const now = Date.now();
       const lastAt = lastRefreshedAt.get(workspaceId);
-      if (lastAt !== undefined && now - lastAt < delayMs) {
+      if (lastAt !== undefined && now - lastAt < effectiveSuppressionMs) {
         return;
       }
 

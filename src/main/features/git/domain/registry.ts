@@ -144,8 +144,19 @@ export class GitRegistry {
 
   /**
    * Refreshes status through the repository queue and broadcasts the result.
+   *
+   * `markRecentlyRefreshed` is called BOTH at entry and after the broadcast.
+   * `git status` itself can rewrite `.git/index` (racy index stat cache),
+   * which the Go-side `.git` watcher then reports back as a change. Without
+   * the up-front mark, the watcher event arrives ~300 ms later (agent
+   * debounce) and slips past the coalescer's suppression window — the
+   * coalescer schedules another refresh, that refresh writes the index
+   * again, and the loop never settles. Marking on entry guarantees the
+   * suppression window already covers the self-induced watcher event by
+   * the time the agent delivers it.
    */
   async refreshStatus(workspaceId: string, signal?: AbortSignal): Promise<GitStatus> {
+    this.coalescer?.markRecentlyRefreshed(workspaceId);
     const repo = await this.getOrDetect(workspaceId, signal);
     const status = repo ? await repo.refreshStatus(signal) : createEmptyGitStatus();
     this.broadcast("git", "statusChanged", { workspaceId, status });
