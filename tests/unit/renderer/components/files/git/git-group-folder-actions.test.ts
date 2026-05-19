@@ -19,7 +19,6 @@ import { describe, expect, it, mock } from "bun:test";
 import {
   buildPathTree,
   collectDescendantLeafPaths,
-  compactPathTree,
 } from "../../../../../../src/renderer/components/files/file-tree/tree-builder";
 
 // ---------------------------------------------------------------------------
@@ -49,18 +48,6 @@ describe("collectDescendantLeafPaths — deep nesting", () => {
     const aNode = root.children!.find((n) => n.relPath === "a")!;
     const paths = collectDescendantLeafPaths(aNode).sort();
     expect(paths).toEqual(["a/b/c/d/deep1.ts", "a/b/c/d/deep2.ts", "a/b/shallow.ts"]);
-  });
-});
-
-describe("collectDescendantLeafPaths — after compactPathTree", () => {
-  it("still returns correct paths from a compacted chain node", () => {
-    const root = buildPathTree(["x/y/z/file1.ts", "x/y/z/file2.ts", "x/y/z/file3.ts"]);
-    const compacted = compactPathTree(root);
-    // After compaction: root → "x/y/z" (dir) → 3 files
-    const chainNode = compacted.children![0];
-    expect(chainNode.displayName).toBe("x/y/z");
-    const paths = collectDescendantLeafPaths(chainNode).sort();
-    expect(paths).toEqual(["x/y/z/file1.ts", "x/y/z/file2.ts", "x/y/z/file3.ts"]);
   });
 });
 

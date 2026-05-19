@@ -74,7 +74,6 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
 
   const loadViewOptions = usePanelViewOptionsStore((s) => s.loadViewOptions);
   const setViewMode = usePanelViewOptionsStore((s) => s.setViewMode);
-  const setCompactFolders = usePanelViewOptionsStore((s) => s.setCompactFolders);
   const viewState = useViewOptions("search", workspaceId);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -228,8 +227,6 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
         onArrowDown={handleInputArrowDown}
         viewMode={viewState.viewMode}
         onViewModeChange={(next: ViewMode) => setViewMode("search", workspaceId, next)}
-        compactFolders={viewState.compactFolders}
-        onCompactChange={(next) => setCompactFolders("search", workspaceId, next)}
         viewModeDisabled={!hasResults}
       />
 
@@ -278,7 +275,6 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
             results={session.results}
             onToggleGroup={(relPath) => toggleGroup(workspaceId, relPath)}
             viewMode={viewState.viewMode}
-            compactFolders={viewState.compactFolders}
             expandedDirs={expandedDirs}
             onToggleDir={(relPath) => toggleExpandedDir(workspaceId, relPath)}
             firstRowFocusRef={firstRowFocusRef}

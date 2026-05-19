@@ -11,7 +11,6 @@ import type { ViewMode } from "../../../../../shared/types/panel";
 import {
   buildPathTree,
   collectDescendantLeafPaths,
-  compactPathTree,
   type PathTreeNode,
 } from "../../file-tree/tree-builder";
 import type { TreeKeyboardRow } from "../../file-tree/use-tree-keyboard";
@@ -31,7 +30,6 @@ interface GitGroupProps {
   entries: GitStatusEntry[];
   expanded: boolean;
   viewMode?: ViewMode;
-  compactFolders?: boolean;
   /** relPaths of expanded tree nodes for this group */
   expandedTreeNodes?: string[];
   onToggle: () => void;
@@ -95,7 +93,6 @@ export function GitGroup({
   entries,
   expanded,
   viewMode = "list",
-  compactFolders = false,
   expandedTreeNodes = [],
   onToggle,
   onToggleTreeNode,
@@ -177,7 +174,6 @@ export function GitGroup({
       <GitGroupTree
         groupKey={groupKey}
         entries={entries}
-        compactFolders={compactFolders}
         expandedTreeNodes={expandedTreeNodes}
         onToggleTreeNode={onToggleTreeNode}
         canStage={canStageRows}
@@ -204,7 +200,6 @@ export function GitGroup({
 interface GitGroupTreeProps {
   groupKey: GitExpandedGroupKey;
   entries: GitStatusEntry[];
-  compactFolders: boolean;
   expandedTreeNodes: string[];
   onToggleTreeNode?: (relPath: string) => void;
   canStage: boolean;
@@ -224,7 +219,6 @@ interface GitGroupTreeProps {
 function GitGroupTree({
   groupKey,
   entries,
-  compactFolders,
   expandedTreeNodes,
   onToggleTreeNode,
   canStage,
@@ -250,9 +244,8 @@ function GitGroupTree({
   // Build path tree.
   const tree = useMemo(() => {
     const relPaths = entries.map((e) => e.relPath);
-    const raw = buildPathTree(relPaths);
-    return compactFolders ? compactPathTree(raw) : raw;
-  }, [entries, compactFolders]);
+    return buildPathTree(relPaths);
+  }, [entries]);
 
   const expandedSet = useMemo(() => new Set(expandedTreeNodes), [expandedTreeNodes]);
 

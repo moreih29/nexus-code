@@ -2,9 +2,9 @@
  * Debounced setViewOptions IPC persister for the shared panel-view-options store.
  *
  * A per-(panelKind × workspaceId) timer map collapses rapid successive writes
- * (e.g. quickly toggling compact on/off) into a single IPC call per settle
- * period. The cancel helper is called when the workspace is closed so no
- * stale write fires after the session is gone.
+ * (e.g. quickly toggling list/tree) into a single IPC call per settle period.
+ * The cancel helper is called when the workspace is closed so no stale write
+ * fires after the session is gone.
  */
 
 import type { PanelKind } from "../../../../shared/types/panel";
@@ -20,16 +20,14 @@ function timerKey(panelKind: PanelKind, workspaceId: string): string {
 }
 
 /**
- * Schedule a debounced persist of viewMode + compactFolders for a
- * (panelKind, workspaceId) pair. Repeated calls within
- * STATE_PERSIST_DEBOUNCE_MS reset the timer so only the final value reaches
- * storage.
+ * Schedule a debounced persist of viewMode for a (panelKind, workspaceId)
+ * pair. Repeated calls within STATE_PERSIST_DEBOUNCE_MS reset the timer so
+ * only the final value reaches storage.
  */
 export function scheduleViewOptionsSave(
   panelKind: PanelKind,
   workspaceId: string,
   viewMode: ViewMode,
-  compactFolders: boolean,
 ): void {
   if (!canUseIpcBridge()) return;
 
@@ -44,7 +42,6 @@ export function scheduleViewOptionsSave(
       workspaceId,
       panelKind,
       viewMode,
-      compactFolders,
     }).then((result) => {
       if (!result.ok)
         console.error(`[panel-view-options] setViewOptions failed for ${panelKind}`, result.message);

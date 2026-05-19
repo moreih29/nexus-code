@@ -371,8 +371,8 @@ export class WorkspaceStorage {
     }
 
     const row = entry.db
-      .prepare("SELECT view_mode, compact_folders FROM panel_view_options WHERE panel_kind = ?")
-      .get(panelKind) as { view_mode: string; compact_folders: number } | undefined;
+      .prepare("SELECT view_mode FROM panel_view_options WHERE panel_kind = ?")
+      .get(panelKind) as { view_mode: string } | undefined;
 
     if (!row) {
       return { ...DEFAULT_VIEW_OPTIONS_BY_PANEL[panelKind] };
@@ -380,7 +380,6 @@ export class WorkspaceStorage {
 
     const parsed = PanelViewOptionsSchema.safeParse({
       viewMode: row.view_mode,
-      compactFolders: row.compact_folders !== 0,
     });
     if (!parsed.success) {
       console.warn(
@@ -395,8 +394,8 @@ export class WorkspaceStorage {
   /**
    * Persists partial view options for the given panel kind.
    * Reads the current persisted row (or defaults) and merges the provided
-   * partial before writing, so callers may update viewMode or compactFolders
-   * independently. Uses INSERT OR REPLACE to upsert the row atomically.
+   * partial before writing. Uses INSERT OR REPLACE to upsert the row
+   * atomically.
    */
   setPanelViewOptions(
     workspaceId: string,
@@ -413,9 +412,9 @@ export class WorkspaceStorage {
 
     entry.db
       .prepare(
-        `INSERT OR REPLACE INTO panel_view_options (panel_kind, view_mode, compact_folders)
-         VALUES (?, ?, ?)`,
+        `INSERT OR REPLACE INTO panel_view_options (panel_kind, view_mode)
+         VALUES (?, ?)`,
       )
-      .run(panelKind, merged.viewMode, merged.compactFolders ? 1 : 0);
+      .run(panelKind, merged.viewMode);
   }
 }

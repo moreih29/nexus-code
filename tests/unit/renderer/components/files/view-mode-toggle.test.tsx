@@ -1,8 +1,7 @@
 /**
  * ViewModeToggle unit tests.
  *
- * (a) aria-pressed semantics, click→viewMode toggle, popover absent when
- *     compactFolders/onCompactChange not provided, checkable item wiring.
+ * (a) aria-pressed semantics, accessible labels, click→viewMode toggle helper.
  *
  * Environment: bun:test, renderToStaticMarkup (no DOM / no jsdom).
  */
@@ -18,7 +17,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   ViewModeToggle,
   computeNextViewMode,
-  computeNextCompact,
 } from "../../../../../src/renderer/components/files/view-mode-toggle";
 
 // ---------------------------------------------------------------------------
@@ -72,113 +70,5 @@ describe("ViewModeToggle — click toggles viewMode", () => {
 
   it("computeNextViewMode returns 'list' when current is 'tree'", () => {
     expect(computeNextViewMode("tree")).toBe("list");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// (a-4) compact split trigger not rendered when compact props absent
-// ---------------------------------------------------------------------------
-
-describe("ViewModeToggle — compact split trigger absent without props", () => {
-  it("does NOT render compact trigger when compactFolders is not provided", () => {
-    const html = renderToStaticMarkup(
-      <ViewModeToggle viewMode="list" onViewModeChange={() => {}} />,
-    );
-    expect(html).not.toContain('aria-label="Compact folders options"');
-    expect(html).not.toContain("Compact folders");
-  });
-
-  it("does NOT render compact trigger when onCompactChange is omitted", () => {
-    const html = renderToStaticMarkup(
-      <ViewModeToggle viewMode="list" onViewModeChange={() => {}} compactFolders={false} />,
-    );
-    // compactFolders provided but onCompactChange missing → no trigger
-    expect(html).not.toContain('aria-label="Compact folders options"');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// (a-5) compact split trigger rendered when both props provided
-// ---------------------------------------------------------------------------
-
-describe("ViewModeToggle — compact split trigger present with both props", () => {
-  it("renders compact split trigger button when both compactFolders and onCompactChange provided", () => {
-    const html = renderToStaticMarkup(
-      <ViewModeToggle
-        viewMode="list"
-        onViewModeChange={() => {}}
-        compactFolders={false}
-        onCompactChange={() => {}}
-      />,
-    );
-    expect(html).toContain('aria-label="Compact folders options"');
-    expect(html).toContain('aria-haspopup="menu"');
-  });
-
-  it("TOGGLE_ON_CLASS NOT applied to compact trigger when compactFolders=false", () => {
-    const html = renderToStaticMarkup(
-      <ViewModeToggle
-        viewMode="tree"
-        onViewModeChange={() => {}}
-        compactFolders={false}
-        onCompactChange={() => {}}
-      />,
-    );
-    // The toggle button gets the ON class, but the compact trigger should not
-    // (compactFolders=false). We check the compact trigger aria-label is present
-    // and the ring class appears only once (for the main toggle, not the compact trigger).
-    expect(html).toContain("ring-inset ring-ring");
-  });
-
-  it("TOGGLE_ON_CLASS applied to compact trigger when compactFolders=true", () => {
-    const html = renderToStaticMarkup(
-      <ViewModeToggle
-        viewMode="list"
-        onViewModeChange={() => {}}
-        compactFolders={true}
-        onCompactChange={() => {}}
-      />,
-    );
-    // compactFolders=true means the trigger has the ON class; tree toggle is OFF
-    expect(html).toContain("ring-inset ring-ring");
-    expect(html).toContain("Compact folders options");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// (a-6) menuitemcheckbox role and aria-checked reflect compactFolders
-//        (popover is server-side-rendered only when popoverOpen=true, which
-//         is a React state; static render always sees popoverOpen=false, so
-//         popover content is absent on initial render — that's correct per spec)
-// ---------------------------------------------------------------------------
-
-describe("ViewModeToggle — popover absent on initial render (correct)", () => {
-  it("popover menu not in static markup (state=closed on initial render)", () => {
-    const html = renderToStaticMarkup(
-      <ViewModeToggle
-        viewMode="list"
-        onViewModeChange={() => {}}
-        compactFolders={false}
-        onCompactChange={() => {}}
-      />,
-    );
-    // On initial render popoverOpen=false so no role=menu in output.
-    expect(html).not.toContain('role="menu"');
-    expect(html).not.toContain('role="menuitemcheckbox"');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// (a-7) CompactMenuItem toggle logic — exercised via the real
-//        computeNextCompact helper that CompactMenuItem's onToggle calls.
-// ---------------------------------------------------------------------------
-
-describe("ViewModeToggle — CompactMenuItem logic (computeNextCompact)", () => {
-  it("computeNextCompact returns false when compactFolders is true", () => {
-    expect(computeNextCompact(true)).toBe(false);
-  });
-
-  it("computeNextCompact returns true when compactFolders is false", () => {
-    expect(computeNextCompact(false)).toBe(true);
   });
 });

@@ -74,7 +74,6 @@ export interface GitPanelBodyProps {
   // File group list
   groups: GitGroupDescriptor[];
   viewMode: ViewMode;
-  compactFolders: boolean;
   expandedGroups: Record<string, boolean>;
   expandedTreeNodes: Record<string, string[]>;
   onToggleGroup: (key: GitExpandedGroupKey) => void;
@@ -139,7 +138,6 @@ export function GitPanelBody({
   onPullOnly,
   groups,
   viewMode,
-  compactFolders,
   expandedGroups,
   expandedTreeNodes,
   onToggleGroup,
@@ -229,7 +227,6 @@ export function GitPanelBody({
                   entries={group.entries}
                   expanded={expandedGroups[group.key]}
                   viewMode={viewMode}
-                  compactFolders={compactFolders}
                   expandedTreeNodes={expandedTreeNodes[group.key]}
                   onToggle={() => onToggleGroup(group.key)}
                   onToggleTreeNode={(relPath) => onToggleTreeNode(group.key, relPath)}

@@ -179,6 +179,8 @@ interface GitState {
     groupKey: GitExpandedGroupKey,
     relPath: string,
   ) => void;
+  expandAllTrees: (workspaceId: string) => void;
+  collapseAllTrees: (workspaceId: string) => void;
   closeAllForWorkspace: (workspaceId: string) => void;
 }
 

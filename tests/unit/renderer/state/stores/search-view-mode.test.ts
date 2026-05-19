@@ -1,9 +1,9 @@
 /**
  * Search store — view-mode and expandedDirs edge cases.
  *
- * (e) compact toggle preserves expandedDirs (search side) — now via shared
- *     panel-view-options store for viewMode/compactFolders, and
- *     expandedDirsByWorkspace on useSearchStore for expandedDirs.
+ * (e) viewMode toggle preserves expandedDirs (search side) — viewMode lives
+ *     in the shared panel-view-options store and expandedDirsByWorkspace on
+ *     useSearchStore.
  * (f) expandedDirs is session-scoped — closeAllForWorkspace clears it.
  * (g) SearchInput ↓ handoff — onArrowDown called only when results > 0.
  *
@@ -23,7 +23,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   })),
   ipcCallResult: mock(
     (_ch: string, _m: string, _a: unknown): Promise<unknown> =>
-      Promise.resolve({ ok: true as const, value: { viewMode: "list", compactFolders: false } }),
+      Promise.resolve({ ok: true as const, value: { viewMode: "list" } }),
   ),
   canUseIpcBridge: mock(() => false),
 }));
@@ -51,25 +51,11 @@ function resetStore(): void {
 }
 
 // ---------------------------------------------------------------------------
-// (e) compact toggle preserves expandedDirs
+// (e) viewMode toggle preserves expandedDirs
 // ---------------------------------------------------------------------------
 
-describe("search store — compact toggle preserves expandedDirs", () => {
+describe("search store — viewMode toggle preserves expandedDirs", () => {
   beforeEach(resetStore);
-
-  it("setCompactFolders does not clear expandedDirs", () => {
-    // Add some expanded dirs.
-    useSearchStore.getState().toggleExpandedDir(WS_A, "src");
-    useSearchStore.getState().toggleExpandedDir(WS_A, "lib");
-
-    // Toggle compact on and off via shared store.
-    usePanelViewOptionsStore.getState().setCompactFolders("search", WS_A, true);
-    usePanelViewOptionsStore.getState().setCompactFolders("search", WS_A, false);
-
-    const dirs = useSearchStore.getState().expandedDirsByWorkspace.get(WS_A);
-    expect(dirs?.has("src")).toBe(true);
-    expect(dirs?.has("lib")).toBe(true);
-  });
 
   it("setViewMode does not clear expandedDirs", () => {
     useSearchStore.getState().toggleExpandedDir(WS_A, "src/components");

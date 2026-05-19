@@ -5,6 +5,7 @@ import { RefreshCw } from "lucide-react";
 import type { GitAutofetchIntervalMin, RepoCapabilities } from "../../../../../shared/git/types";
 import type { ViewMode } from "../../../../../shared/types/panel";
 import { Button } from "../../../ui/button";
+import { ExpandCollapseButtons } from "../../expand-collapse-buttons";
 import { ViewModeToggle } from "../../view-mode-toggle";
 import { GitMoreMenu } from "../more-menu";
 import type { GitTagPickerMenuMode } from "../utils/more-menu-model";
@@ -19,9 +20,11 @@ interface GitHeaderProps {
   /** When true the repo is not yet detected/initialised — ViewModeToggle is hidden. */
   showViewToggle?: boolean;
   viewMode?: ViewMode;
-  compactFolders?: boolean;
   onViewModeChange?: (next: ViewMode) => void;
-  onCompactFoldersChange?: (next: boolean) => void;
+  /** Fires when the user clicks Expand-All on the file-group toolbar. */
+  onExpandAllTrees?: () => void;
+  /** Fires when the user clicks Collapse-All on the file-group toolbar. */
+  onCollapseAllTrees?: () => void;
   onRefresh: () => void;
   onInit: () => void;
   onFetch: () => void;
@@ -57,9 +60,9 @@ export function GitHeader({
   capabilities,
   showViewToggle = false,
   viewMode = "tree",
-  compactFolders = false,
   onViewModeChange,
-  onCompactFoldersChange,
+  onExpandAllTrees,
+  onCollapseAllTrees,
   onRefresh,
   onInit,
   onFetch,
@@ -108,9 +111,18 @@ export function GitHeader({
           <ViewModeToggle
             viewMode={viewMode}
             onViewModeChange={onViewModeChange}
-            compactFolders={compactFolders}
-            onCompactChange={onCompactFoldersChange}
             disabled={disabled}
+          />
+        ) : null}
+        {/* Expand/Collapse-all only meaningful when (1) the repo is detected
+            (showViewToggle proxies that), (2) tree mode is active, and
+            (3) at least one group has entries. List mode doesn't render
+            directories at all so there's nothing to expand. */}
+        {showViewToggle && viewMode === "tree" && onExpandAllTrees && onCollapseAllTrees ? (
+          <ExpandCollapseButtons
+            disabled={disabled || !hasChanges}
+            onExpand={onExpandAllTrees}
+            onCollapse={onCollapseAllTrees}
           />
         ) : null}
         <GitMoreMenu

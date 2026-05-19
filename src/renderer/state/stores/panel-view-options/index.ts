@@ -1,18 +1,16 @@
 /**
  * Shared per-(workspace × panelKind) view options store.
  *
- * Both the git panel and the search panel need the same two view options
- * (viewMode, compactFolders) with the same IPC persistence semantics. This
- * store centralises that logic rather than duplicating it in each panel's
- * store.
+ * Both the git panel and the search panel need the same view options
+ * (currently: viewMode) with the same IPC persistence semantics. This store
+ * centralises that logic rather than duplicating it in each panel's store.
  *
  * State shape:
- *   entries: Map<`${PanelKind}:${workspaceId}`, { viewMode; compactFolders }>
+ *   entries: Map<`${PanelKind}:${workspaceId}`, { viewMode }>
  *
  * Actions:
  *   loadViewOptions(panelKind, workspaceId) — seed from IPC; skips if loaded.
  *   setViewMode(panelKind, workspaceId, next) — update + debounced persist.
- *   setCompactFolders(panelKind, workspaceId, next) — update + debounced persist.
  *   closeForWorkspace(workspaceId) — cancel timers; keep entries.
  *
  * Selectors:
@@ -33,14 +31,12 @@ import { cancelViewOptionsSave, scheduleViewOptionsSave } from "./io";
 
 export interface PanelViewEntry {
   viewMode: ViewMode;
-  compactFolders: boolean;
 }
 
 interface PanelViewOptionsState {
   entries: Map<string, PanelViewEntry>;
   loadViewOptions: (panelKind: PanelKind, workspaceId: string) => void;
   setViewMode: (panelKind: PanelKind, workspaceId: string, next: ViewMode) => void;
-  setCompactFolders: (panelKind: PanelKind, workspaceId: string, next: boolean) => void;
   closeForWorkspace: (workspaceId: string) => void;
 }
 
@@ -92,10 +88,7 @@ export const usePanelViewOptionsStore = create<PanelViewOptionsState>((set, get)
         const opts = unwrapIpcResult(result);
         set((state) => {
           const next = new Map(state.entries);
-          next.set(key, {
-            viewMode: opts.viewMode,
-            compactFolders: opts.compactFolders,
-          });
+          next.set(key, { viewMode: opts.viewMode });
           return { entries: next };
         });
       })
@@ -111,25 +104,13 @@ export const usePanelViewOptionsStore = create<PanelViewOptionsState>((set, get)
       const updated: PanelViewEntry = { ...cur, viewMode: next };
       const map = new Map(state.entries);
       map.set(key, updated);
-      scheduleViewOptionsSave(panelKind, workspaceId, updated.viewMode, updated.compactFolders);
-      return { entries: map };
-    });
-  },
-
-  setCompactFolders(panelKind, workspaceId, next) {
-    const key = entryKey(panelKind, workspaceId);
-    set((state) => {
-      const cur = state.entries.get(key) ?? { ...DEFAULT_VIEW_OPTIONS_BY_PANEL[panelKind] };
-      const updated: PanelViewEntry = { ...cur, compactFolders: next };
-      const map = new Map(state.entries);
-      map.set(key, updated);
-      scheduleViewOptionsSave(panelKind, workspaceId, updated.viewMode, updated.compactFolders);
+      scheduleViewOptionsSave(panelKind, workspaceId, updated.viewMode);
       return { entries: map };
     });
   },
 
   closeForWorkspace(workspaceId) {
-    // Cancel pending debounce timers; KEEP entries (persisted viewMode/compactFolders survive).
+    // Cancel pending debounce timers; KEEP entries (persisted viewMode survives).
     cancelViewOptionsSave(workspaceId);
   },
 }));

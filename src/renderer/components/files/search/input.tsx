@@ -29,8 +29,6 @@ interface SearchInputProps {
   /** View-mode toggle props forwarded to SearchOptionsToggles. */
   viewMode: ViewMode;
   onViewModeChange: (next: ViewMode) => void;
-  compactFolders: boolean;
-  onCompactChange: (next: boolean) => void;
   viewModeDisabled?: boolean;
 }
 
@@ -46,8 +44,6 @@ export function SearchInput({
   onArrowDown,
   viewMode,
   onViewModeChange,
-  compactFolders,
-  onCompactChange,
   viewModeDisabled,
 }: SearchInputProps) {
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -102,8 +98,6 @@ export function SearchInput({
             onToggle={onToggleOption}
             viewMode={viewMode}
             onViewModeChange={onViewModeChange}
-            compactFolders={compactFolders}
-            onCompactChange={onCompactChange}
             viewModeDisabled={viewModeDisabled}
           />
         </div>

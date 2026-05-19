@@ -1,7 +1,8 @@
 import { Folder, GitBranch, Search } from "lucide-react";
 import { cn } from "@/utils/cn";
-import { openDiffTab } from "../../state/operations";
+import { collapseAll, expandAllLoaded, openDiffTab } from "../../state/operations";
 import { useActiveStore } from "../../state/stores/active";
+import { useFilesStore } from "../../state/stores/files";
 import { useGitStore } from "../../state/stores/git";
 import {
   FILES_PANEL_MODE_DEFAULT,
@@ -17,6 +18,7 @@ import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { ResizeHandle } from "../ui/resize-handle";
+import { ExpandCollapseButtons } from "./expand-collapse-buttons";
 import { FileTree } from "./file-tree";
 import { GitPanel, type GitPanelOpenDiffInput } from "./git";
 import { SearchPanel } from "./search/panel";
@@ -57,29 +59,55 @@ export function FilesPanel() {
   const showOffline =
     activeWorkspace?.location.kind === "ssh" && !workspaceOnline;
 
+  // The "expand/collapse all" buttons only make sense when the file tree is
+  // mounted AND has finished loading the root. We read the workspace's tree
+  // slice with a stable selector — `useFilesStore` is a Zustand v5 store, so
+  // returning a derived primitive (boolean) keeps Object.is comparisons clean.
+  const fileTreeReady = useFilesStore((s) =>
+    activeWorkspace
+      ? (s.trees.get(activeWorkspace.id)?.nodes.get(activeWorkspace.rootPath)
+          ?.childrenLoaded ?? false)
+      : false,
+  );
+
   return (
     <aside className="relative shrink-0 flex flex-col" style={{ width: filesPanelWidth }}>
       <div className="flex flex-col flex-1 min-h-0 island-surface rounded-(--radius-island) overflow-hidden">
         {activeWorkspace ? (
           <>
-            <div className="flex items-center gap-1 px-2 pt-2 pb-2 border-b border-border/50">
-              {MODE_BUTTONS.map(({ mode, label, Icon }) => {
-                const isActive = filesPanelMode === mode;
-                return (
-                  <Button
-                    key={mode}
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={label}
-                    aria-pressed={isActive}
-                    title={label}
-                    className={cn(isActive && "bg-[var(--state-active-bg)] text-foreground")}
-                    onClick={() => setFilesPanelMode(activeWorkspace.id, mode)}
-                  >
-                    <Icon />
-                  </Button>
-                );
-              })}
+            <div className="flex items-center justify-between gap-1 px-2 pt-2 pb-2 border-b border-border/50">
+              <div className="flex items-center gap-1">
+                {MODE_BUTTONS.map(({ mode, label, Icon }) => {
+                  const isActive = filesPanelMode === mode;
+                  return (
+                    <Button
+                      key={mode}
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={label}
+                      aria-pressed={isActive}
+                      title={label}
+                      className={cn(isActive && "bg-[var(--state-active-bg)] text-foreground")}
+                      onClick={() => setFilesPanelMode(activeWorkspace.id, mode)}
+                    >
+                      <Icon />
+                    </Button>
+                  );
+                })}
+              </div>
+              {filesPanelMode === "tree" && !showOffline ? (
+                <ExpandCollapseButtons
+                  disabled={!fileTreeReady}
+                  expandLabel="Expand all loaded folders"
+                  collapseLabel="Collapse all folders"
+                  onExpand={() => {
+                    void expandAllLoaded(activeWorkspace.id);
+                  }}
+                  onCollapse={() => {
+                    void collapseAll(activeWorkspace.id);
+                  }}
+                />
+              ) : null}
             </div>
             <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
               {showOffline ? (

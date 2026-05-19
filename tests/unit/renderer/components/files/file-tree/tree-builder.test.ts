@@ -1,29 +1,17 @@
 /**
- * Unit tests for tree-builder.ts — buildPathTree and compactPathTree.
+ * Unit tests for tree-builder.ts — buildPathTree and collectDescendantLeafPaths.
  */
 
 import { describe, expect, it } from "bun:test";
 import {
   buildPathTree,
   collectDescendantLeafPaths,
-  compactPathTree,
   type PathTreeNode,
 } from "../../../../../../src/renderer/components/files/file-tree/tree-builder";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Collect relPaths in DFS order (skipping the root). */
-function collectRelPaths(node: PathTreeNode): string[] {
-  const out: string[] = [];
-  function walk(n: PathTreeNode) {
-    if (n.relPath !== "") out.push(n.relPath);
-    for (const child of n.children ?? []) walk(child);
-  }
-  walk(node);
-  return out;
-}
 
 function childrenOf(node: PathTreeNode, relPath: string): PathTreeNode[] {
   function find(n: PathTreeNode): PathTreeNode | undefined {
@@ -114,86 +102,6 @@ describe("buildPathTree", () => {
 });
 
 // ---------------------------------------------------------------------------
-// compactPathTree
-// ---------------------------------------------------------------------------
-
-describe("compactPathTree", () => {
-  it("compact: 단일 dir 체인 합치기 (a/b/c/file.ts → 'a/b/c' dir + leaf)", () => {
-    const root = buildPathTree(["a/b/c/file.ts"]);
-    const compacted = compactPathTree(root);
-
-    // Root should have exactly one child representing the collapsed chain.
-    expect(compacted.children).toHaveLength(1);
-    const chain = compacted.children![0];
-    expect(chain.kind).toBe("dir");
-    expect(chain.displayName).toBe("a/b/c");
-
-    // The chain node should have one file child.
-    expect(chain.children).toHaveLength(1);
-    expect(chain.children![0].kind).toBe("file");
-    expect(chain.children![0].name).toBe("file.ts");
-  });
-
-  it("compact 종료조건 (i) 자식이 file: a/b.ts → 'a' 그대로", () => {
-    const root = buildPathTree(["a/b.ts"]);
-    const compacted = compactPathTree(root);
-
-    // 'a' has one child but it's a file → not compacted.
-    expect(compacted.children).toHaveLength(1);
-    const aNode = compacted.children![0];
-    expect(aNode.kind).toBe("dir");
-    expect(aNode.displayName).toBe("a");
-
-    expect(aNode.children).toHaveLength(1);
-    expect(aNode.children![0].kind).toBe("file");
-  });
-
-  it("compact 종료조건 (ii) 자식 ≥ 2: a/b.ts, a/c.ts → 'a' 그대로", () => {
-    const root = buildPathTree(["a/b.ts", "a/c.ts"]);
-    const compacted = compactPathTree(root);
-
-    expect(compacted.children).toHaveLength(1);
-    const aNode = compacted.children![0];
-    expect(aNode.kind).toBe("dir");
-    expect(aNode.displayName).toBe("a");
-
-    // Both files are still children of 'a'.
-    expect(aNode.children).toHaveLength(2);
-  });
-
-  it("compact 종료조건 (iii) 루트 자체는 압축 금지", () => {
-    // Even if root has a single dir child, root itself is not compacted away.
-    const root = buildPathTree(["src/index.ts"]);
-    const compacted = compactPathTree(root);
-
-    // Root is still the root (relPath === "").
-    expect(compacted.relPath).toBe("");
-    expect(compacted.kind).toBe("dir");
-    expect(compacted.children).toBeDefined();
-  });
-
-  it("no-op on already flat tree (only root files)", () => {
-    const root = buildPathTree(["a.ts", "b.ts"]);
-    const compacted = compactPathTree(root);
-
-    // Files at root level — nothing to compact.
-    expect(compacted.children).toHaveLength(2);
-    expect(compacted.children!.every((c) => c.kind === "file")).toBe(true);
-  });
-
-  it("deep chain preserves file relPaths", () => {
-    const root = buildPathTree(["x/y/z/deep.ts"]);
-    const compacted = compactPathTree(root);
-
-    const chain = compacted.children![0];
-    expect(chain.displayName).toBe("x/y/z");
-
-    // The leaf should retain its full relPath.
-    expect(chain.children![0].relPath).toBe("x/y/z/deep.ts");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // collectDescendantLeafPaths
 // ---------------------------------------------------------------------------
 
@@ -218,16 +126,6 @@ describe("collectDescendantLeafPaths", () => {
     const root = buildPathTree(["src/utils/helper.ts", "src/index.ts", "README.md"]);
     const paths = collectDescendantLeafPaths(root);
     expect(paths.sort()).toEqual(["README.md", "src/index.ts", "src/utils/helper.ts"]);
-  });
-
-  it("compact 후에도 children 유지되어 leaf walk 정상", () => {
-    const root = buildPathTree(["a/b/c/file1.ts", "a/b/c/file2.ts"]);
-    const compacted = compactPathTree(root);
-    // After compaction, root has one child: 'a/b/c' dir with two file children.
-    const chainNode = compacted.children![0];
-    expect(chainNode.kind).toBe("dir");
-    const paths = collectDescendantLeafPaths(chainNode);
-    expect(paths.sort()).toEqual(["a/b/c/file1.ts", "a/b/c/file2.ts"]);
   });
 
   it("dir with no children → empty array", () => {

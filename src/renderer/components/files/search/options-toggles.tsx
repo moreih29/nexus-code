@@ -1,6 +1,6 @@
 /**
  * Search input option toggles: CaseSensitive, WholeWord, Regex, then a 1px
- * mist-border divider, then a ViewModeToggle (list ↔ tree + compact folders).
+ * mist-border divider, then a ViewModeToggle (list ↔ tree).
  */
 
 import { CaseSensitive, Regex, WholeWord } from "lucide-react";
@@ -19,10 +19,6 @@ interface SearchOptionsTogglesProps {
   viewMode: ViewMode;
   /** Called when the user switches list ↔ tree. */
   onViewModeChange: (next: ViewMode) => void;
-  /** Current compact-folders setting. */
-  compactFolders: boolean;
-  /** Called when the user toggles compact folders. */
-  onCompactChange: (next: boolean) => void;
   /** Disable the view-mode toggle when there are no results to show. */
   viewModeDisabled?: boolean;
 }
@@ -39,8 +35,6 @@ export function SearchOptionsToggles({
   onToggle,
   viewMode,
   onViewModeChange,
-  compactFolders,
-  onCompactChange,
   viewModeDisabled = false,
 }: SearchOptionsTogglesProps) {
   return (
@@ -86,8 +80,6 @@ export function SearchOptionsToggles({
       <ViewModeToggle
         viewMode={viewMode}
         onViewModeChange={onViewModeChange}
-        compactFolders={compactFolders}
-        onCompactChange={onCompactChange}
         disabled={viewModeDisabled}
       />
     </>

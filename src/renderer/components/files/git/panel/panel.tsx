@@ -116,6 +116,8 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
       setHistoryRef: s.setHistoryRef,
       setExpandedGroup: s.setExpandedGroup,
       toggleExpandedTreeNode: s.toggleExpandedTreeNode,
+      expandAllTrees: s.expandAllTrees,
+      collapseAllTrees: s.collapseAllTrees,
     })),
   );
 
@@ -123,7 +125,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const viewOptActions = usePanelViewOptionsStore(
     useShallow((s) => ({
       setViewMode: s.setViewMode,
-      setCompactFolders: s.setCompactFolders,
       loadViewOptions: s.loadViewOptions,
     })),
   );
@@ -400,7 +401,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   // ---------------------------------------------------------------------------
   const headerDisabled = isBusy || isLoading;
   const isRepo = session?.repoInfo.kind === "repo";
-  const { viewMode, compactFolders } = viewOptions;
+  const { viewMode } = viewOptions;
   const panelSegment = session?.panelSegment ?? DEFAULT_GIT_PANEL_STATE.panelSegment;
   const historyRef = session?.historyRef ?? DEFAULT_GIT_PANEL_STATE.historyRef;
   const menuEnablement = {
@@ -428,9 +429,9 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
         capabilities={capabilities}
         showViewToggle={isRepo}
         viewMode={viewMode}
-        compactFolders={compactFolders}
         onViewModeChange={(next) => viewOptActions.setViewMode("git", workspaceId, next)}
-        onCompactFoldersChange={(next) => viewOptActions.setCompactFolders("git", workspaceId, next)}
+        onExpandAllTrees={() => panelUiOps.expandAllTrees(workspaceId)}
+        onCollapseAllTrees={() => panelUiOps.collapseAllTrees(workspaceId)}
         onRefresh={() => {
           void directOps.refresh(workspaceId);
         }}
@@ -581,7 +582,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           }}
           groups={groups}
           viewMode={viewMode}
-          compactFolders={compactFolders}
           expandedGroups={session?.expandedGroups ?? {}}
           expandedTreeNodes={session?.expandedTreeNodes ?? {}}
           onToggleGroup={(key) =>

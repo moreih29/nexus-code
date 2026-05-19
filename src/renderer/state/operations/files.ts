@@ -147,6 +147,73 @@ export async function toggleExpand(workspaceId: string, absPath: string): Promis
   }
 }
 
+/**
+ * Bulk-expand every directory whose children are already cached.
+ *
+ * Skips dirs whose children have never been loaded (`childrenLoaded === false`)
+ * so the operation is free of IPC and instant — no `fs.readdir` storms even on
+ * a 10k-folder workspace. For each newly-expanded dir, registers an `fs.watch`
+ * so subsequent filesystem changes propagate as if the user had clicked each
+ * row by hand. Persistence is debounced through the same `scheduleSave` path
+ * used by toggleExpand.
+ */
+export async function expandAllLoaded(workspaceId: string): Promise<void> {
+  const tree = useFilesStore.getState().trees.get(workspaceId);
+  if (!tree) return;
+
+  const toExpand: string[] = [];
+  for (const [absPath, node] of tree.nodes) {
+    if (node.type !== "dir") continue;
+    if (!node.childrenLoaded) continue;
+    if (tree.expanded.has(absPath)) continue;
+    toExpand.push(absPath);
+  }
+  if (toExpand.length === 0) return;
+
+  useFilesStore.getState().expandMany(workspaceId, toExpand);
+
+  // Re-register watches for the newly-expanded dirs. Watches were dropped
+  // when the user originally collapsed each one, so the cached children
+  // stop receiving change events otherwise.
+  for (const absPath of toExpand) {
+    const rel = relPath(absPath, tree.rootAbsPath);
+    void ipcCallResult("fs", "watch", { workspaceId, relPath: rel }).then((result) => {
+      if (!result.ok) console.error("[files] watch (expand-all) failed", result.message);
+    });
+  }
+
+  scheduleSave(workspaceId);
+}
+
+/**
+ * Collapse every directory in the workspace tree, leaving only the workspace
+ * root expanded. Cached children stay in memory so re-expanding any directory
+ * is instant. Each previously-watched dir gets an `fs.unwatch` to release
+ * resources symmetrically with the per-row collapse path.
+ */
+export async function collapseAll(workspaceId: string): Promise<void> {
+  const tree = useFilesStore.getState().trees.get(workspaceId);
+  if (!tree) return;
+
+  const toUnwatch: string[] = [];
+  for (const absPath of tree.expanded) {
+    if (absPath === tree.rootAbsPath) continue;
+    toUnwatch.push(absPath);
+  }
+  if (toUnwatch.length === 0) return;
+
+  useFilesStore.getState().collapseAll(workspaceId);
+
+  for (const absPath of toUnwatch) {
+    const rel = relPath(absPath, tree.rootAbsPath);
+    void ipcCallResult("fs", "unwatch", { workspaceId, relPath: rel }).then((result) => {
+      if (!result.ok) console.error("[files] unwatch (collapse-all) failed", result.message);
+    });
+  }
+
+  scheduleSave(workspaceId);
+}
+
 export async function refresh(workspaceId: string, absPath?: string): Promise<void> {
   const tree = useFilesStore.getState().trees.get(workspaceId);
   if (!tree) return;

@@ -41,7 +41,6 @@ const mockToggleGroup = mock((_wsId: string, _relPath: string) => {});
 const mockToggleExpandedDir = mock((_wsId: string, _relPath: string) => {});
 const mockLoadViewOptions = mock((_panelKind: string, _wsId: string) => {});
 const mockSetViewMode = mock((_panelKind: string, _wsId: string, _next: unknown) => {});
-const mockSetCompactFolders = mock((_panelKind: string, _wsId: string, _next: unknown) => {});
 const mockCreateTab = mock((_wsId: string, _args: unknown, _isPreview?: boolean) => ({
   id: "tab-new",
   type: "editor",
@@ -57,7 +56,6 @@ let mockSession: unknown;
 // Default view state returned by useViewOptions stub.
 const DEFAULT_VIEW_STATE = {
   viewMode: "list" as const,
-  compactFolders: false,
 };
 
 mock.module("../../../../../../src/renderer/state/stores/search", () => ({
@@ -86,7 +84,6 @@ mock.module("../../../../../../src/renderer/state/stores/panel-view-options", ()
     const store = {
       loadViewOptions: mockLoadViewOptions,
       setViewMode: mockSetViewMode,
-      setCompactFolders: mockSetCompactFolders,
     };
     return selector ? selector(store) : store;
   },
@@ -203,8 +200,6 @@ function makeFileGroup(overrides: Partial<FileGroup> = {}): FileGroup {
 const VIEW_PROPS = {
   viewMode: "list" as const,
   onViewModeChange: () => {},
-  compactFolders: false,
-  onCompactChange: () => {},
 };
 
 function resetMocks() {
@@ -214,7 +209,6 @@ function resetMocks() {
   mockToggleExpandedDir.mockClear();
   mockLoadViewOptions.mockClear();
   mockSetViewMode.mockClear();
-  mockSetCompactFolders.mockClear();
   mockCreateTab.mockClear();
   mockRequestEditorReveal.mockClear();
   mockSession = undefined;

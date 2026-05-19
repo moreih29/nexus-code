@@ -7,8 +7,8 @@
  *     { kind: "match", group, matchIdx }
  *
  * Tree mode:
- *   Builds a directory tree via buildPathTree / compactPathTree, then produces
- *   a flat ordered row array including dir rows:
+ *   Builds a directory tree via buildPathTree, then produces a flat ordered
+ *   row array including dir rows:
  *     { kind: "dir",   node, matchCount }
  *     { kind: "file",  group }
  *     { kind: "match", group, matchIdx }
@@ -23,7 +23,7 @@ import { revealEditorAt } from "@/services/editor/tabs";
 import type { FileGroup } from "../../../state/stores/search";
 import { ROW_HEIGHT_PX } from "../file-tree/metrics";
 import type { PathTreeNode } from "../file-tree/tree-builder";
-import { buildPathTree, compactPathTree } from "../file-tree/tree-builder";
+import { buildPathTree } from "../file-tree/tree-builder";
 import type { TreeKeyboardRow } from "../file-tree/use-tree-keyboard";
 import { useTreeKeyboard } from "../file-tree/use-tree-keyboard";
 import { SearchResultFileRow } from "./result-file-row";
@@ -115,16 +115,12 @@ function walkTreeRows(
 
 function buildTreeRows(
   results: FileGroup[],
-  compactFolders: boolean,
   expandedDirs: ReadonlySet<string>,
 ): FlatRow[] {
   if (results.length === 0) return [];
 
   const relPaths = results.map((g) => g.relPath);
-  let tree = buildPathTree(relPaths);
-  if (compactFolders) {
-    tree = compactPathTree(tree);
-  }
+  const tree = buildPathTree(relPaths);
 
   // Map relPath → FileGroup for O(1) lookup during walk.
   const groupByPath = new Map<string, FileGroup>(results.map((g) => [g.relPath, g]));
@@ -190,7 +186,6 @@ interface SearchResultsListProps {
   onToggleGroup: (relPath: string) => void;
   /** When provided, tree mode is active. */
   viewMode?: "list" | "tree";
-  compactFolders?: boolean;
   expandedDirs?: ReadonlySet<string>;
   onToggleDir?: (relPath: string) => void;
   /** Ref to expose the first-row focus method to the parent (SearchPanel). */
@@ -203,7 +198,6 @@ export function SearchResultsList({
   results,
   onToggleGroup,
   viewMode = "list",
-  compactFolders = false,
   expandedDirs = EMPTY_EXPANDED_DIRS,
   onToggleDir,
   firstRowFocusRef,
@@ -217,8 +211,8 @@ export function SearchResultsList({
   // Build flat rows — memoised on the inputs that can change their content.
   const flatRows = useMemo<FlatRow[]>(() => {
     if (!isTree) return buildListRows(results);
-    return buildTreeRows(results, compactFolders, expandedDirs);
-  }, [results, isTree, compactFolders, expandedDirs]);
+    return buildTreeRows(results, expandedDirs);
+  }, [results, isTree, expandedDirs]);
 
   // Convert to TreeKeyboardRow for the keyboard hook.
   const keyboardRows = useMemo<TreeKeyboardRow[]>(

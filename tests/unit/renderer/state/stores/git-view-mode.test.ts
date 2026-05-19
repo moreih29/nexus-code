@@ -1,15 +1,15 @@
 /**
- * Git panel — viewMode / compactFolders / expandedTreeNodes unit tests.
+ * Git panel — viewMode / expandedTreeNodes unit tests.
  *
- * After step 5 of the refactor, viewMode and compactFolders are owned by the
- * shared usePanelViewOptionsStore (keyed "git:<workspaceId>").  The git
- * session no longer carries those fields.  These tests verify:
+ * viewMode is owned by the shared usePanelViewOptionsStore (keyed
+ * "git:<workspaceId>"). The git session does not carry that field. These
+ * tests verify:
  *
  *   (d) toggleExpandedTreeNode group namespace isolation (git store).
- *   (e) compact/viewMode do not clobber expandedTreeNodes (shared store).
+ *   (e) viewMode does not clobber expandedTreeNodes (shared store).
  *
- * The setViewMode / setCompactFolders actions are tested via the shared store
- * rather than via useGitStore.
+ * The setViewMode action is tested via the shared store rather than via
+ * useGitStore.
  */
 
 import { beforeEach, describe, expect, it, mock } from "bun:test";
@@ -41,7 +41,7 @@ import { DEFAULT_GIT_PANEL_STATE } from "../../../../../src/shared/git/types";
 const WS_A = "00000000-0000-0000-0000-0000000000aa";
 const WS_B = "00000000-0000-0000-0000-0000000000bb";
 
-/** Minimal git session — no viewMode/compactFolders fields. */
+/** Minimal git session — no viewMode field. */
 function makeDefaultSession(overrides: Partial<GitSession> = {}): GitSession {
   return {
     repoInfo: { kind: "detecting" },
@@ -113,30 +113,7 @@ describe("shared store — setViewMode for git panel", () => {
 });
 
 // ---------------------------------------------------------------------------
-// (d-2) setCompactFolders — via shared store
-// ---------------------------------------------------------------------------
-
-describe("shared store — setCompactFolders for git panel", () => {
-  beforeEach(resetStore);
-
-  it("setCompactFolders true stored correctly", () => {
-    usePanelViewOptionsStore.getState().setCompactFolders("git", WS_A, true);
-    expect(usePanelViewOptionsStore.getState().entries.get(`git:${WS_A}`)?.compactFolders).toBe(
-      true,
-    );
-  });
-
-  it("setCompactFolders false stored correctly after true", () => {
-    usePanelViewOptionsStore.getState().setCompactFolders("git", WS_A, true);
-    usePanelViewOptionsStore.getState().setCompactFolders("git", WS_A, false);
-    expect(usePanelViewOptionsStore.getState().entries.get(`git:${WS_A}`)?.compactFolders).toBe(
-      false,
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// (d-3) toggleExpandedTreeNode — group namespace isolation (git store)
+// (d-2) toggleExpandedTreeNode — group namespace isolation (git store)
 // ---------------------------------------------------------------------------
 
 describe("git store — toggleExpandedTreeNode group namespace isolation", () => {
@@ -194,25 +171,11 @@ describe("git store — toggleExpandedTreeNode group namespace isolation", () =>
 });
 
 // ---------------------------------------------------------------------------
-// (e) compact / viewMode do not clobber expandedTreeNodes
+// (e) viewMode does not clobber expandedTreeNodes
 // ---------------------------------------------------------------------------
 
-describe("shared store compact/viewMode does not clobber expandedTreeNodes in git store", () => {
+describe("shared store viewMode does not clobber expandedTreeNodes in git store", () => {
   beforeEach(resetStore);
-
-  it("setCompactFolders does not clear expandedTreeNodes", () => {
-    seedSession(WS_A);
-    useGitStore.getState().toggleExpandedTreeNode(WS_A, "staged", "src");
-    useGitStore.getState().toggleExpandedTreeNode(WS_A, "working", "lib");
-
-    // Toggle compact on and off via shared store.
-    usePanelViewOptionsStore.getState().setCompactFolders("git", WS_A, true);
-    usePanelViewOptionsStore.getState().setCompactFolders("git", WS_A, false);
-
-    const nodes = useGitStore.getState().sessions.get(WS_A)?.expandedTreeNodes;
-    expect(nodes?.staged).toContain("src");
-    expect(nodes?.working).toContain("lib");
-  });
 
   it("setViewMode does not clear expandedTreeNodes", () => {
     seedSession(WS_A);

@@ -14,11 +14,7 @@ export interface PathTreeNode {
   relPath: string;
   kind: "dir" | "file";
   depth: number;
-  /**
-   * Display label for the node. For most nodes this equals `name`. After
-   * `compactPathTree` single-dir-child chains are collapsed and
-   * `displayName` becomes the concatenated segment, e.g. "src/utils/lib".
-   */
+  /** Display label for the node. Currently always equals `name`. */
   displayName: string;
   children?: PathTreeNode[];
 }
@@ -130,28 +126,6 @@ export function buildPathTree(paths: readonly string[]): PathTreeNode {
 }
 
 // ---------------------------------------------------------------------------
-// compactPathTree
-// ---------------------------------------------------------------------------
-
-/**
- * Compact a path tree by collapsing single-dir-child chains.
- *
- * A node is compacted into its sole dir-child when:
- * 1. It has exactly one child, AND
- * 2. That child is a directory (kind === "dir"), AND
- * 3. The node is NOT the root itself (relPath === "").
- *
- * The collapsed node receives a `displayName` that concatenates the
- * parent and child segment with "/", e.g. "src" + "utils" → "src/utils".
- * Chaining continues recursively until one of the stop conditions is met:
- *  (i)  The child is a file.
- *  (ii) There are 2 or more children.
- * (iii) The node being examined is the root.
- *
- * The original `relPath` and `depth` values are preserved unchanged so
- * that callers can still resolve the correct filesystem path.
- */
-// ---------------------------------------------------------------------------
 // collectDescendantLeafPaths
 // ---------------------------------------------------------------------------
 
@@ -160,45 +134,8 @@ export function buildPathTree(paths: readonly string[]): PathTreeNode {
  *
  * - If the node is a file, returns `[node.relPath]`.
  * - If the node is a dir, recurses through all children and flattens results.
- *
- * Works correctly on both raw and compacted trees because compaction preserves
- * all `children` references.
  */
 export function collectDescendantLeafPaths(node: PathTreeNode): string[] {
   if (node.kind === "file") return [node.relPath];
   return node.children?.flatMap(collectDescendantLeafPaths) ?? [];
-}
-
-// ---------------------------------------------------------------------------
-// compactPathTree
-// ---------------------------------------------------------------------------
-
-export function compactPathTree(root: PathTreeNode): PathTreeNode {
-  function compactNode(node: PathTreeNode): PathTreeNode {
-    // Recurse children first.
-    if (node.children && node.children.length > 0) {
-      node = { ...node, children: node.children.map(compactNode) };
-    }
-
-    // Root itself is never compacted (condition iii).
-    if (node.relPath === "") return node;
-
-    // Compact while: single dir-child.
-    while (node.children && node.children.length === 1 && node.children[0].kind === "dir") {
-      const only = node.children[0];
-      node = {
-        ...node,
-        displayName: `${node.displayName}/${only.displayName}`,
-        // Take the child's relPath (deeper path) so the node represents the
-        // leaf of the compacted chain.
-        relPath: only.relPath,
-        depth: only.depth,
-        children: only.children,
-      };
-    }
-
-    return node;
-  }
-
-  return compactNode(root);
 }

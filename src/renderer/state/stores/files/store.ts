@@ -140,6 +140,39 @@ export const useFilesStore = create<FilesState>((set, get) => {
       });
     },
 
+    expandMany(workspaceId, absPaths) {
+      if (absPaths.length === 0) return;
+      set((state) => {
+        const t = get().trees.get(workspaceId);
+        if (!t) return state;
+        // Skip the clone if the set would not actually change — keeps the
+        // useSyncExternalStore snapshot reference stable for no-op calls.
+        let changed = false;
+        for (const p of absPaths) {
+          if (!t.expanded.has(p)) {
+            changed = true;
+            break;
+          }
+        }
+        if (!changed) return state;
+        const next = cloneTree(t);
+        for (const p of absPaths) next.expanded.add(p);
+        return { trees: setTree(state.trees, workspaceId, next) };
+      });
+    },
+
+    collapseAll(workspaceId) {
+      set((state) => {
+        const t = get().trees.get(workspaceId);
+        if (!t) return state;
+        // No-op when only the root is already expanded.
+        if (t.expanded.size === 1 && t.expanded.has(t.rootAbsPath)) return state;
+        const next = cloneTree(t);
+        next.expanded = new Set([t.rootAbsPath]);
+        return { trees: setTree(state.trees, workspaceId, next) };
+      });
+    },
+
     markChildrenStale(workspaceId, absPath) {
       set((state) => {
         const t = state.trees.get(workspaceId);

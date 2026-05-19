@@ -8,7 +8,6 @@ export type ViewMode = z.infer<typeof ViewModeSchema>;
 
 export const PanelViewOptionsSchema = z.object({
   viewMode: ViewModeSchema,
-  compactFolders: z.boolean(),
 });
 export type PanelViewOptions = z.infer<typeof PanelViewOptionsSchema>;
 
@@ -22,11 +21,10 @@ export const PanelSetViewOptionsArgsSchema = z.object({
   workspaceId: z.string(),
   panelKind: PanelKindSchema,
   viewMode: ViewModeSchema.optional(),
-  compactFolders: z.boolean().optional(),
 });
 export type PanelSetViewOptionsArgs = z.infer<typeof PanelSetViewOptionsArgsSchema>;
 
 export const DEFAULT_VIEW_OPTIONS_BY_PANEL: Record<PanelKind, PanelViewOptions> = {
-  search: { viewMode: "list", compactFolders: false },
-  git: { viewMode: "tree", compactFolders: false },
+  search: { viewMode: "list" },
+  git: { viewMode: "tree" },
 };
