@@ -19,7 +19,14 @@ ipcRenderer.on("ipc:event", (_event, channelName: string, eventName: string, arg
   const set = listeners.get(key);
   if (set) {
     for (const cb of set) {
-      cb(args);
+      try {
+        cb(args);
+      } catch (err) {
+        // Isolate listener failures so one buggy subscriber does not
+        // abort the rest of the fanout, and tag the log with the
+        // channel:event key so we can find the offending site quickly.
+        console.error(`[ipc:event listener threw] key=${key}`, err, "args=", args);
+      }
     }
   }
 });

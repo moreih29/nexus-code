@@ -321,7 +321,7 @@ describe("AgentLspHostHandle", () => {
       ),
     ).toBe(true);
 
-    const hover = await host.call("hover", { uri: URI, line: 0, character: 1 });
+    const hover = await host.call("hover", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 1 });
     expect(hover).toEqual({ contents: "agent hover" });
     expect(
       channel.calls.some(
@@ -341,10 +341,10 @@ describe("AgentLspHostHandle", () => {
     // Fire-and-forget notifications can arrive after dispose() during app
     // shutdown (the renderer is still emitting didClose as editor models
     // close) — they must resolve quietly rather than surfacing a handler error.
-    await expect(host.call("didClose", { uri: URI })).resolves.toBeNull();
+    await expect(host.call("didClose", { workspaceId: WORKSPACE_ID, uri: URI })).resolves.toBeNull();
 
     // Request-style methods still surface the disposed error to their callers.
-    await expect(host.call("hover", { uri: URI, line: 0, character: 0 })).rejects.toThrow(
+    await expect(host.call("hover", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 0 })).rejects.toThrow(
       "LSP host disposed",
     );
   });
@@ -367,7 +367,7 @@ describe("AgentLspHostHandle", () => {
     });
     await Promise.resolve();
 
-    const definition = await host.call("definition", { uri: URI, line: 0, character: 1 });
+    const definition = await host.call("definition", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 1 });
     expect(definition).toEqual([
       {
         uri: URI,
@@ -378,10 +378,12 @@ describe("AgentLspHostHandle", () => {
       },
     ]);
 
-    const completion = await host.call("completion", { uri: URI, line: 0, character: 1 });
+    const completion = await host.call("completion", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 1 });
     expect(completion).toEqual([{ label: "agentCompletion" }]);
     expect(diagnostics).toEqual([
       {
+        workspaceId: WORKSPACE_ID,
+        languageId: "python",
         uri: URI,
         diagnostics: [
           {
@@ -521,14 +523,14 @@ describe("AgentLspHostHandle", () => {
       text: "print(1)\n",
     });
 
-    const hoverBeforeDispose = await host.call("hover", { uri: URI, line: 0, character: 1 });
+    const hoverBeforeDispose = await host.call("hover", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 1 });
     expect(hoverBeforeDispose).toEqual({ contents: "agent hover" });
 
     for (const listener of channel.lifecycleListeners) {
       listener({ type: "disposed" });
     }
 
-    const hoverAfterDispose = await host.call("hover", { uri: URI, line: 0, character: 1 });
+    const hoverAfterDispose = await host.call("hover", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 1 });
     expect(hoverAfterDispose).toBeNull();
   });
 
@@ -595,7 +597,7 @@ describe("AgentLspHostHandle", () => {
       stderrTail: "panic: out of memory",
     });
 
-    const hoverAfterExit = await host.call("hover", { uri: URI, line: 0, character: 1 });
+    const hoverAfterExit = await host.call("hover", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 1 });
     expect(hoverAfterExit).toBeNull();
   });
 });

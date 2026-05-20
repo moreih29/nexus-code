@@ -101,6 +101,14 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
     gitStatusCoalescer?.cancel(removedWorkspaceId);
     gitAutofetch?.disposeWorkspace(removedWorkspaceId);
     gitRegistry?.dispose(removedWorkspaceId);
+    // Clean up per-workspace LSP enabled-languages key so deleted workspaces
+    // don't accumulate in appState indefinitely.
+    const currentState = stateService.getState();
+    const currentLspMap = currentState.lspEnabledLanguagesByWorkspace ?? {};
+    if (currentLspMap[removedWorkspaceId] !== undefined) {
+      const { [removedWorkspaceId]: _removed, ...rest } = currentLspMap;
+      stateService.setState({ lspEnabledLanguagesByWorkspace: rest });
+    }
   }
   forwardBroadcast(channelName, event, args);
 }
@@ -199,8 +207,15 @@ app.whenReady().then(async () => {
 
   lspHost = startConfiguredLspHost({
     workspaceManager,
+    agentHostOptions: {
+      isLanguageEnabled: (workspaceId, languageId) => {
+        const state = stateService.getState();
+        const enabled = state.lspEnabledLanguagesByWorkspace?.[workspaceId] ?? [];
+        return enabled.includes(languageId as "typescript" | "python");
+      },
+    },
   });
-  registerLspChannel(lspHost);
+  registerLspChannel(lspHost, stateService);
 
   // Pass persisted appState so titleBarOverlay color matches the user's saved theme.
   wireAutofetchWindowFocus(createMainWindow(stateService.getState()));

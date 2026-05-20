@@ -2,6 +2,8 @@
 // No module-level state — all state (registeredProviderLanguages) is managed by the caller.
 
 import type * as Monaco from "monaco-editor";
+import { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
+import { parseWorkspaceUri } from "../../../../shared/fs/workspace-uri";
 import { CANONICAL_TOKEN_TYPES } from "../../../../shared/lsp/semantic-tokens";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { isLspLanguage } from "./language";
@@ -15,6 +17,22 @@ import {
 } from "./monaco-converters";
 
 const COMPLETION_TRIGGER_CHARACTERS = [".", '"', "'", "`", "/", "@", "<"];
+
+/**
+ * Recover (workspaceId, lspUri) from a Monaco model whose URI is a
+ * workspace-scoped cacheUri (`nexus-ws://${workspaceId}${absPath}`).
+ * Returns null when the model URI is not workspace-scoped — providers
+ * skip the LSP call in that case (Monaco's built-in providers may still
+ * fire, but our IPC routing requires the workspace context to exist).
+ */
+function modelLspContext(model: Monaco.editor.ITextModel): { workspaceId: string; lspUri: string } | null {
+  const parsed = parseWorkspaceUri(model.uri.toString());
+  if (!parsed) return null;
+  return {
+    workspaceId: parsed.workspaceId,
+    lspUri: absolutePathToFileUri(parsed.absolutePath),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Semantic tokens legend
@@ -47,6 +65,7 @@ export function registerLanguageProviders(
   languageId: string,
   registeredLanguages: Set<string>,
   fetchDocumentSymbols: (
+    workspaceId: string,
     uri: string,
     signal?: AbortSignal,
   ) => Promise<import("../../../../shared/lsp").DocumentSymbol[]>,
@@ -59,6 +78,8 @@ export function registerLanguageProviders(
   monaco.languages.registerHoverProvider(languageId, {
     async provideHover(model, position, token) {
       if (!isLspLanguage(model.getLanguageId())) return null;
+      const ctx = modelLspContext(model);
+      if (!ctx) return null;
       try {
         const signal = tokenToAbortSignal(token);
         const result = unwrapIpcResult(
@@ -66,7 +87,8 @@ export function registerLanguageProviders(
             "lsp",
             "hover",
             {
-              uri: model.uri.toString(),
+              workspaceId: ctx.workspaceId,
+              uri: ctx.lspUri,
               line: position.lineNumber - 1,
               character: position.column - 1,
             },
@@ -87,6 +109,8 @@ export function registerLanguageProviders(
   monaco.languages.registerDefinitionProvider(languageId, {
     async provideDefinition(model, position, token) {
       if (!isLspLanguage(model.getLanguageId())) return null;
+      const ctx = modelLspContext(model);
+      if (!ctx) return null;
       try {
         const signal = tokenToAbortSignal(token);
         const results = unwrapIpcResult(
@@ -94,7 +118,8 @@ export function registerLanguageProviders(
             "lsp",
             "definition",
             {
-              uri: model.uri.toString(),
+              workspaceId: ctx.workspaceId,
+              uri: ctx.lspUri,
               line: position.lineNumber - 1,
               character: position.column - 1,
             },
@@ -103,7 +128,7 @@ export function registerLanguageProviders(
         );
         if (results.length === 0 || !isLspLanguage(model.getLanguageId())) return null;
         const monacoLocations = results.map((location) =>
-          lspLocationToMonacoLocation(monaco, location),
+          lspLocationToMonacoLocation(monaco, location, ctx.workspaceId),
         );
         // Pre-acquire result models so monaco's peek widget can resolve
         // them via createModelReference without throwing "Model not found".
@@ -119,6 +144,8 @@ export function registerLanguageProviders(
     triggerCharacters: COMPLETION_TRIGGER_CHARACTERS,
     async provideCompletionItems(model, position, _context, token) {
       if (!isLspLanguage(model.getLanguageId())) return { suggestions: [] };
+      const ctx = modelLspContext(model);
+      if (!ctx) return { suggestions: [] };
       try {
         const signal = tokenToAbortSignal(token);
         const results = unwrapIpcResult(
@@ -126,7 +153,8 @@ export function registerLanguageProviders(
             "lsp",
             "completion",
             {
-              uri: model.uri.toString(),
+              workspaceId: ctx.workspaceId,
+              uri: ctx.lspUri,
               line: position.lineNumber - 1,
               character: position.column - 1,
             },
@@ -159,6 +187,8 @@ export function registerLanguageProviders(
   monaco.languages.registerReferenceProvider(languageId, {
     async provideReferences(model, position, context, token) {
       if (!isLspLanguage(model.getLanguageId())) return [];
+      const ctx = modelLspContext(model);
+      if (!ctx) return [];
       try {
         const signal = tokenToAbortSignal(token);
         const results = unwrapIpcResult(
@@ -166,7 +196,8 @@ export function registerLanguageProviders(
             "lsp",
             "references",
             {
-              uri: model.uri.toString(),
+              workspaceId: ctx.workspaceId,
+              uri: ctx.lspUri,
               line: position.lineNumber - 1,
               character: position.column - 1,
               includeDeclaration: context.includeDeclaration,
@@ -176,7 +207,7 @@ export function registerLanguageProviders(
         );
         if (!isLspLanguage(model.getLanguageId())) return [];
         const monacoLocations = results.map((location) =>
-          lspLocationToMonacoLocation(monaco, location),
+          lspLocationToMonacoLocation(monaco, location, ctx.workspaceId),
         );
         // Pre-acquire — same rationale as provideDefinition. Find-references
         // peek can include many locations; we still pre-acquire all of them
@@ -193,6 +224,8 @@ export function registerLanguageProviders(
   monaco.languages.registerDocumentHighlightProvider(languageId, {
     async provideDocumentHighlights(model, position, token) {
       if (!isLspLanguage(model.getLanguageId())) return [];
+      const ctx = modelLspContext(model);
+      if (!ctx) return [];
       try {
         const signal = tokenToAbortSignal(token);
         const results = unwrapIpcResult(
@@ -200,7 +233,8 @@ export function registerLanguageProviders(
             "lsp",
             "documentHighlight",
             {
-              uri: model.uri.toString(),
+              workspaceId: ctx.workspaceId,
+              uri: ctx.lspUri,
               line: position.lineNumber - 1,
               character: position.column - 1,
             },
@@ -218,9 +252,11 @@ export function registerLanguageProviders(
   monaco.languages.registerDocumentSymbolProvider(languageId, {
     async provideDocumentSymbols(model, token) {
       if (!isLspLanguage(model.getLanguageId())) return [];
+      const ctx = modelLspContext(model);
+      if (!ctx) return [];
       try {
         const signal = tokenToAbortSignal(token);
-        const results = await fetchDocumentSymbols(model.uri.toString(), signal);
+        const results = await fetchDocumentSymbols(ctx.workspaceId, ctx.lspUri, signal);
         if (!isLspLanguage(model.getLanguageId())) return [];
         return results.map((symbol) => lspDocumentSymbolToMonacoSymbol(symbol));
       } catch {
@@ -240,13 +276,15 @@ export function registerLanguageProviders(
       token,
     ): Promise<Monaco.languages.SemanticTokens | null> {
       if (!isLspLanguage(model.getLanguageId())) return null;
+      const ctx = modelLspContext(model);
+      if (!ctx) return null;
       try {
         const signal = tokenToAbortSignal(token);
         const result = unwrapIpcResult(
           await ipcCallResult(
             "lsp",
             "semanticTokens",
-            { uri: model.uri.toString() },
+            { workspaceId: ctx.workspaceId, uri: ctx.lspUri },
             { signal },
           ),
         );

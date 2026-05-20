@@ -28,6 +28,15 @@ function makeManager(
       if (!workspace) throw new Error(`workspace not found: ${id}`);
       return { fs: provider };
     },
+    // getFs gates the async git paths (getOrDetect / refreshDetection /
+    // reinit) on fs-provider readiness; the production WorkspaceManager
+    // builds this around ensureProviderReady. Tests can resolve
+    // immediately because the fake provider is wired from construction.
+    getFs: async (id: string) => {
+      const workspace = workspaces.find((candidate) => candidate.id === id);
+      if (!workspace) throw new Error(`workspace not found: ${id}`);
+      return provider;
+    },
   };
 }
 

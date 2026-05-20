@@ -1,6 +1,6 @@
 import { closeEditorWithConfirm } from "@/services/editor";
 import { isDirty } from "@/services/editor/model/dirty-tracker";
-import { filePathToModelUri } from "@/services/editor/model/cache";
+import { cacheUriFor } from "@/services/editor/model/cache";
 import type { CloseTabOutcome } from "@/services/editor/save/close-handler";
 import { closeEditor, openOrRevealEditor } from "@/services/editor/tabs";
 import { closeTerminal, openTerminal } from "@/services/terminal";
@@ -102,7 +102,7 @@ export function useGroupActions({
     for (const id of getTabIds()) {
       const tab = wsRecord[id];
       if (tab?.type !== "editor") continue;
-      if (isDirty(filePathToModelUri(tab.props.filePath))) continue;
+      if (isDirty(cacheUriFor(tab.props.workspaceId, tab.props.filePath))) continue;
       closeEditor(id);
     }
   }

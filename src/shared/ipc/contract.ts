@@ -78,7 +78,7 @@ import {
   SshAuthRespondArgsSchema,
 } from "../ssh/auth-prompt";
 import { SshErrorCodeSchema } from "../ssh/errors";
-import { AppStateSchema } from "../types/app-state";
+import { AppStateSchema, LspLanguageIdSchema } from "../types/app-state";
 import { ColorToneSchema } from "../types/color-tone";
 import {
   ConnectionProfileFavoriteArgsSchema,
@@ -266,8 +266,17 @@ const LspDidOpenArgsSchema = TextDocumentItemSchema.extend({
   workspaceRoot: z.string(),
 });
 
-const LspDidChangeArgsSchema = z.object({
+// Shared "uri scoped to a workspace" identifier for renderer → main LSP
+// IPC. Every notification / request carries workspaceId so the host can
+// route to the right LSP server even when the same physical file URI is
+// open across multiple workspaces. See workspace-uri.ts and agent-host.ts
+// for the routing seam.
+const LspWorkspaceScopedUriSchema = z.object({
+  workspaceId: z.string(),
   uri: TextDocumentIdentifierSchema.shape.uri,
+});
+
+const LspDidChangeArgsSchema = LspWorkspaceScopedUriSchema.extend({
   version: TextDocumentItemSchema.shape.version,
   contentChanges: z.array(TextDocumentContentChangeEventSchema).refine((changes) => {
     const hasFull = changes.some((change) => !("range" in change));
@@ -276,14 +285,29 @@ const LspDidChangeArgsSchema = z.object({
   }, "contentChanges must not mix full and incremental change events"),
 });
 
-const LspDidSaveArgsSchema = z.object({
-  uri: TextDocumentIdentifierSchema.shape.uri,
+const LspDidSaveArgsSchema = LspWorkspaceScopedUriSchema.extend({
   text: TextDocumentItemSchema.shape.text.optional(),
 });
 
+// Main → renderer diagnostics events. Carries workspaceId so the
+// renderer-side listener can reconstruct the cacheUri for the right
+// Monaco model — without it, two workspaces holding the same physical
+// file would race on marker assignment.
 const LspDiagnosticsEventSchema = z.object({
+  workspaceId: z.string(),
   uri: TextDocumentIdentifierSchema.shape.uri,
   diagnostics: z.array(DiagnosticSchema),
+});
+
+// Main → renderer broadcast emitted when the host's LRU eviction
+// disposes a workspace's LSP server(s) (see LSP_MAX_ACTIVE_WORKSPACES).
+// The renderer's model cache uses it to reset `lspOpened` on affected
+// entries so the next interaction re-issues didOpen against a freshly
+// spawned server. languageId is optional — when present only entries
+// for that language are reset; when absent the entire workspace is reset.
+const LspWorkspaceResetEventSchema = z.object({
+  workspaceId: z.string(),
+  languageId: z.string().optional(),
 });
 
 const LspApplyEditEventSchema = z.object({
@@ -557,22 +581,45 @@ export const ipcContract = {
       didOpen: call(LspDidOpenArgsSchema, z.void()),
       didChange: call(LspDidChangeArgsSchema, z.void()),
       didSave: call(LspDidSaveArgsSchema, z.void()),
-      didClose: call(TextDocumentIdentifierSchema, z.void()),
+      didClose: call(LspWorkspaceScopedUriSchema, z.void()),
       hover: call(TextDocumentPositionArgsSchema, HoverResultSchema.nullable()),
       definition: call(TextDocumentPositionArgsSchema, z.array(LocationSchema)),
       completion: call(TextDocumentPositionArgsSchema, z.array(CompletionItemSchema)),
       references: call(ReferencesArgsSchema, z.array(LocationSchema)),
       documentHighlight: call(TextDocumentPositionArgsSchema, z.array(DocumentHighlightSchema)),
-      documentSymbol: call(TextDocumentIdentifierSchema, z.array(DocumentSymbolSchema)),
+      documentSymbol: call(LspWorkspaceScopedUriSchema, z.array(DocumentSymbolSchema)),
       workspaceSymbol: call(WorkspaceSymbolArgsSchema, z.array(SymbolInformationSchema)),
       semanticTokens: call(SemanticTokensArgsSchema, SemanticTokensResultSchema.nullable()),
       applyEditResult: call(LspApplyEditResultArgsSchema, z.void()),
+      // Per-workspace LSP language toggle (renderer → main).
+      // `languages` is the new complete set — main computes the diff and
+      // disposes servers for any removed languages synchronously.
+      setEnabledLanguages: call(
+        z.object({
+          workspaceId: z.string().uuid(),
+          languages: z.array(LspLanguageIdSchema),
+        }),
+        z.void(),
+      ),
+      getEnabledLanguages: call(
+        z.object({ workspaceId: z.string().uuid() }),
+        z.object({ languages: z.array(LspLanguageIdSchema) }),
+      ),
     },
     listen: {
       diagnostics: listen(LspDiagnosticsEventSchema),
       applyEdit: listen(LspApplyEditEventSchema),
       serverEvent: listen(LspServerEventSchema),
       "bootstrap.progress": listen(LspBootstrapProgressEventSchema),
+      workspaceReset: listen(LspWorkspaceResetEventSchema),
+      // Broadcast after setEnabledLanguages completes so every open renderer
+      // window can update its UI state. Payload mirrors setEnabledLanguages args.
+      enabledLanguagesChanged: listen(
+        z.object({
+          workspaceId: z.string().uuid(),
+          languages: z.array(LspLanguageIdSchema),
+        }),
+      ),
     },
   },
 

@@ -4,21 +4,23 @@
 // React binding lives in `./use-shared-model.ts`.
 
 import type * as Monaco from "monaco-editor";
-import { absolutePathToFileUri, fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
+import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
+import { parseWorkspaceUri, workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import type { FileErrorCode } from "../../../utils/file-error";
 import { initializeMonacoSingleton } from "../runtime/monaco-singleton";
-import { loadExternalEntry } from "./load-external-entry";
 import {
   cleanupEntry,
   createEntry,
   errorCodeFromUnknown,
   type ModelEntry,
   notifySubscribers,
+  rehydrateEntry,
   reloadEntryFromDisk,
   type SharedModelState,
   snapshot,
 } from "./entry";
+import { loadExternalEntry } from "./load-external-entry";
 
 export { isMonacoReady, onMonacoReady } from "../runtime/monaco-singleton";
 export type { SharedModelPhase, SharedModelState } from "./entry";
@@ -34,19 +36,53 @@ export interface ReleasedModelInfo {
 
 export type ModelReleaseSubscriber = (released: ReleasedModelInfo) => void;
 
-export function filePathToModelUri(filePath: string): string {
-  return absolutePathToFileUri(filePath);
+/**
+ * Build the cacheUri that identifies a (workspace, file) pair in the model
+ * cache and Monaco's model registry. The URI uses the `nexus-ws` scheme
+ * with the workspaceId in the authority slot, so the SAME physical file
+ * opened from two different workspaces produces two distinct cacheUris
+ * (and therefore two independent ModelEntry / Monaco TextModel instances).
+ *
+ * Renderer-only. The main side translates back to a plain file:// URI at
+ * the LSP server boundary — see workspace-uri.ts.
+ */
+export function cacheUriFor(workspaceId: string, filePath: string): string {
+  return workspaceUriFor(workspaceId, filePath);
 }
 
 /**
- * Inverse of `filePathToModelUri`. Returns null when the cacheUri is not
- * one we produced (defensive — protects callers from mistakenly slicing
- * an unrelated string). Callers that need the file path of a tracked
- * model should always use this rather than slicing the prefix off
- * inline; the prefix shape is owned here.
+ * Inverse of `cacheUriFor`. Returns null when the URI is neither a
+ * workspace-scoped cacheUri nor a plain file:// URI — defensive against
+ * accidentally slicing unrelated strings. Callers that need the file
+ * path of a tracked model should always use this rather than slicing
+ * the prefix off inline; the prefix shape is owned here.
+ *
+ * Accepts both forms:
+ *   - `nexus-ws://${workspaceId}${path}` (the canonical cacheUri after
+ *     the cross-workspace cache-isolation work).
+ *   - `file://${path}` (some upstream paths and historical call sites
+ *     still produce file URIs; they round-trip cleanly to the same
+ *     absolute path because the workspace prefix only adds routing
+ *     context, not a different filesystem identity).
+ *
+ * Callers that also need the workspaceId should use `parseCacheUri`
+ * instead — this helper drops it for the common "I just need the path"
+ * call sites that already have workspaceId from another source.
  */
 export function cacheUriToFilePath(cacheUri: string): string | null {
+  const workspaceParsed = parseWorkspaceUri(cacheUri);
+  if (workspaceParsed) return workspaceParsed.absolutePath;
   return fileUriToAbsolutePath(cacheUri);
+}
+
+/**
+ * Full parse of a cacheUri into its `(workspaceId, filePath)` pair. Use
+ * this when both halves are needed (e.g. LSP cross-file navigation
+ * routing the open back through the correct workspace).
+ */
+export function parseCacheUri(cacheUri: string): { workspaceId: string; filePath: string } | null {
+  const parsed = parseWorkspaceUri(cacheUri);
+  return parsed ? { workspaceId: parsed.workspaceId, filePath: parsed.absolutePath } : null;
 }
 
 export function initializeModelCache(monaco: typeof Monaco): void {
@@ -62,7 +98,7 @@ const entries = new Map<string, ModelEntry>();
 const releaseSubscribers = new Set<ModelReleaseSubscriber>();
 
 function cacheUriForInput(input: EditorInput): string {
-  return filePathToModelUri(input.filePath);
+  return cacheUriFor(input.workspaceId, input.filePath);
 }
 
 export function subscribeOnRelease(callback: ModelReleaseSubscriber): () => void {
@@ -168,6 +204,8 @@ export function releaseModel(input: EditorInput): void {
 export interface ResolvedModelView {
   model: Monaco.editor.ITextModel;
   cacheUri: string;
+  /** Workspace-blind `file://` form used in LSP IPC payloads. */
+  lspUri: string;
   workspaceId: string;
   filePath: string;
   languageId: string;
@@ -180,6 +218,7 @@ export function getResolvedModel(input: EditorInput): ResolvedModelView | null {
   return {
     model: entry.model,
     cacheUri: entry.cacheUri,
+    lspUri: entry.lspUri,
     workspaceId: entry.input.workspaceId,
     filePath: entry.input.filePath,
     languageId: entry.languageId,
@@ -237,6 +276,61 @@ export function clearDiskDiverged(input: EditorInput): void {
   if (entry.diskDiverged === undefined) return;
   entry.diskDiverged = undefined;
   notifySubscribers(entry);
+}
+
+/**
+ * Mark tracked entries as no-longer-opened on the LSP side. The renderer's
+ * LSP bridge calls this after receiving `lsp:workspaceReset` from main.
+ *
+ * When `languageId` is provided only entries for that language within the
+ * workspace are reset; when omitted every entry for the workspace is reset
+ * (backward-compatible, used by LRU full-workspace eviction).
+ *
+ * The function only flips bookkeeping fields — actual respawn is
+ * lazy (next keystroke triggers rehydrate) and/or eager (workspace
+ * activation calls `rehydrateLspForWorkspace`).
+ */
+export function resetLspStateForWorkspace(workspaceId: string, languageId?: string): void {
+  for (const entry of entries.values()) {
+    if (entry.input.workspaceId !== workspaceId) continue;
+    if (languageId && entry.languageId !== languageId) continue;
+    if (entry.disposed) continue;
+    entry.lspOpened = false;
+    entry.lspNeedsRehydrate = true;
+    // Reset the open promise to a settled state so callers awaiting it
+    // immediately observe the new lspOpened flag and decide whether to
+    // re-issue didOpen.
+    entry.didOpenPromise = Promise.resolve();
+  }
+}
+
+/**
+ * Eagerly re-issue didOpen for entries whose LSP server-side state was
+ * dropped. Called from the renderer when the workspace becomes active again
+ * — without this, the user has to type before hover/completion start working
+ * in the revisited workspace.
+ *
+ * When `languageId` is provided only entries for that language are
+ * rehydrated; when omitted every eligible entry for the workspace is
+ * rehydrated (backward-compatible, full-workspace path).
+ *
+ * Errors are swallowed per-entry so a single failed rehydrate doesn't
+ * block the rest.
+ */
+export function rehydrateLspForWorkspace(workspaceId: string, languageId?: string): void {
+  for (const entry of entries.values()) {
+    if (entry.input.workspaceId !== workspaceId) continue;
+    if (languageId && entry.languageId !== languageId) continue;
+    if (entry.disposed || entry.lspOpened) continue;
+    // Skip entries that have never been opened (initial load still in
+    // flight) — only re-issue didOpen for entries the host had once
+    // accepted and then evicted.
+    if (!entry.lspNeedsRehydrate) continue;
+    void rehydrateEntry(entry).catch(() => {
+      // rehydrateEntry already records lspDegraded on failure; we keep
+      // the loop running so unrelated entries still respawn.
+    });
+  }
 }
 
 /**

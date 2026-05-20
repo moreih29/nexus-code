@@ -5,7 +5,7 @@
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { isDirty } from "../../services/editor/model/dirty-tracker";
-import { filePathToModelUri } from "../../services/editor/model/cache";
+import { cacheUriFor } from "../../services/editor/model/cache";
 import { closeEditor } from "../../services/editor/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
 import { closeTabById, getActiveTabContext } from "../context";
@@ -40,7 +40,7 @@ export function registerTabCommands(): Array<() => void> {
       for (const id of ctx.leaf.tabIds) {
         const tab = wsRecord[id];
         if (tab?.type !== "editor") continue;
-        if (isDirty(filePathToModelUri(tab.props.filePath))) continue;
+        if (isDirty(cacheUriFor(tab.props.workspaceId, tab.props.filePath))) continue;
         closeEditor(id);
       }
     }),

@@ -2,7 +2,11 @@
 // The Go agent owns the LSP server processes; this module exposes the stable
 // handle consumed by IPC.
 
-import { startAgentLspHost, type AgentLspWorkspaceManager } from "./agent-host";
+import {
+  type AgentLspHostOptions,
+  type AgentLspWorkspaceManager,
+  startAgentLspHost,
+} from "./agent-host";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,11 +26,22 @@ export interface LspHostHandle {
   on: (event: string, cb: EventCallback) => () => void;
   isAlive: () => boolean;
   dispose: () => void;
+  /**
+   * Dispose the LSP server for a single language within a workspace and
+   * broadcast a workspaceLspReset event for that (workspace, language) pair.
+   * No-op when the server is not live. Called from the IPC layer when the
+   * user toggles a language off.
+   */
+  disposeLanguage: (workspaceId: string, languageId: string, reason: string) => void;
 }
 
 export interface LspHostSelectionOptions {
   workspaceManager: AgentLspWorkspaceManager;
-  agentHostFactory?: (workspaceManager: AgentLspWorkspaceManager) => LspHostHandle;
+  agentHostOptions?: AgentLspHostOptions;
+  agentHostFactory?: (
+    workspaceManager: AgentLspWorkspaceManager,
+    options?: AgentLspHostOptions,
+  ) => LspHostHandle;
 }
 
 export function startConfiguredLspHost(options: LspHostSelectionOptions): LspHostHandle {
@@ -34,5 +49,6 @@ export function startConfiguredLspHost(options: LspHostSelectionOptions): LspHos
     throw new Error("workspaceManager is required for LSP host startup");
   }
 
-  return (options.agentHostFactory ?? startAgentLspHost)(options.workspaceManager);
+  const factory = options.agentHostFactory ?? startAgentLspHost;
+  return factory(options.workspaceManager, options.agentHostOptions ?? {});
 }

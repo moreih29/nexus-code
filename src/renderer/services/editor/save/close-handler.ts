@@ -15,7 +15,7 @@ import { showSaveConfirm } from "@/components/editor/save-confirm-dialog";
 import { useTabsStore } from "@/state/stores/tabs";
 import { basename } from "@/utils/path";
 import { isDirty } from "../model/dirty-tracker";
-import { filePathToModelUri } from "../model/cache";
+import { cacheUriFor } from "../model/cache";
 import { closeEditor } from "../tabs";
 import { reportSaveFailure, saveModelInteractive } from "./service";
 
@@ -41,7 +41,7 @@ export async function closeEditorWithConfirm(
   }
 
   const filePath = tab.props.filePath;
-  if (!isDirty(filePathToModelUri(filePath))) {
+  if (!isDirty(cacheUriFor(workspaceId, filePath))) {
     closeEditor(tabId);
     return "closed";
   }

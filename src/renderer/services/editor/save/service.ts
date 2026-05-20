@@ -219,7 +219,7 @@ export async function saveModel(input: EditorInput): Promise<SaveResult> {
       // disk-diverged marker is now stale.
       clearDiskDiverged(input);
 
-      notifyDidSave(resolved.cacheUri, content).catch(() => {});
+      notifyDidSave(resolved.workspaceId, resolved.lspUri, content).catch(() => {});
 
       return { kind: "saved", mtime: ipcResult.mtime, size: ipcResult.size } satisfies SaveResult;
     });

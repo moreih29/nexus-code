@@ -4,7 +4,7 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { useDragSource } from "@/components/ui/use-drag-source";
 import { DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
-import { filePathToModelUri } from "@/services/editor/model/cache";
+import { cacheUriFor } from "@/services/editor/model/cache";
 import { isDirty, subscribeFileDirty } from "@/services/editor/model/dirty-tracker";
 import { cn } from "@/utils/cn";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
@@ -37,7 +37,10 @@ function PinIcon() {
  * (the tracker creates entries lazily on model load).
  */
 function useTabDirty(tab: Tab): boolean {
-  const cacheUri = tab.type === "editor" ? filePathToModelUri(tab.props.filePath) : null;
+  const cacheUri =
+    tab.type === "editor"
+      ? cacheUriFor(tab.props.workspaceId, tab.props.filePath)
+      : null;
   const subscribe = useCallback(
     (cb: () => void) => (cacheUri ? subscribeFileDirty(cacheUri, cb) : () => {}),
     [cacheUri],

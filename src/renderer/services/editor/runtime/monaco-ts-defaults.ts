@@ -55,11 +55,34 @@ interface CompilerOptions {
   allowJs?: boolean;
 }
 
+// monaco-editor's TypeScript contribution registers a separate Monaco
+// provider for each of these capabilities. setModeConfiguration is the
+// only public hook that prevents those provider registrations at load
+// time — silencing them is the difference between Monaco "racing our
+// LSP and showing Loading… while the built-in worker answers" and
+// "delegating to our LSP entirely".
+interface ModeConfiguration {
+  completionItems?: boolean;
+  hovers?: boolean;
+  documentSymbols?: boolean;
+  definitions?: boolean;
+  references?: boolean;
+  documentHighlights?: boolean;
+  rename?: boolean;
+  diagnostics?: boolean;
+  documentRangeFormattingEdits?: boolean;
+  signatureHelp?: boolean;
+  onTypeFormattingEdits?: boolean;
+  codeActions?: boolean;
+  inlayHints?: boolean;
+}
+
 interface LanguageDefaults {
   setDiagnosticsOptions(options: DiagnosticsOptions): void;
   setCompilerOptions(options: CompilerOptions): void;
   setExtraLibs(libs: ReadonlyArray<unknown>): void;
   setEagerModelSync(value: boolean): void;
+  setModeConfiguration?(config: ModeConfiguration): void;
 }
 
 interface TypeScriptApi {
@@ -81,12 +104,11 @@ function neutralize(defaults: LanguageDefaults): void {
     noSyntaxValidation: true,
     noSuggestionDiagnostics: true,
   });
-  // Strip the worker's type universe. With noLib + empty extraLibs the
-  // worker still parses but has no symbols to look up, so providers
-  // (hover, completion, definition, signatureHelp, …) resolve immediately
-  // with nothing to return and Monaco's hover widget no longer shows a
-  // stale "Loading…" while waiting on a built-in response that will never
-  // be useful.
+  // Strip the worker's type universe — defense-in-depth in case the
+  // language contribution's providers somehow get registered (e.g. by a
+  // monaco bundle that ignores setModeConfiguration). With noLib + empty
+  // extraLibs the worker has no symbols to look up so any provider it
+  // does back resolves to empty quickly.
   defaults.setCompilerOptions({
     noLib: true,
     allowNonTsExtensions: true,
@@ -94,6 +116,31 @@ function neutralize(defaults: LanguageDefaults): void {
   });
   defaults.setExtraLibs([]);
   defaults.setEagerModelSync(false);
+  // The real silencer: tell the TS contribution to skip registering ANY
+  // Monaco provider for TS/JS files. Without this, monaco's built-in
+  // hover provider races our LSP — even when we return quickly, Monaco's
+  // hover widget keeps a "Loading…" placeholder while it waits for the
+  // built-in worker to also respond. On .tsx specifically the worker
+  // can stall (JSX with noLib leaves it with nothing meaningful to do),
+  // so the placeholder persists across the entire hover lifecycle and
+  // the user perceives the LSP as "stuck" even though our provider
+  // already resolved. Disable every feature we own through the LSP so
+  // Monaco hands the entire suite over.
+  defaults.setModeConfiguration?.({
+    completionItems: false,
+    hovers: false,
+    documentSymbols: false,
+    definitions: false,
+    references: false,
+    documentHighlights: false,
+    rename: false,
+    diagnostics: false,
+    documentRangeFormattingEdits: false,
+    signatureHelp: false,
+    onTypeFormattingEdits: false,
+    codeActions: false,
+    inlayHints: false,
+  });
 }
 
 export function neutralizeBuiltInTypeScriptWorker(monaco: typeof Monaco): void {

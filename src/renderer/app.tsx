@@ -1,13 +1,14 @@
 import { useMonaco } from "@monaco-editor/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { WorkspaceMeta } from "../shared/types/workspace";
-import { bootstrapAppState, bootstrapWorkspaces } from "./bootstrap";
+import { bootstrapAppState, bootstrapLspEnabled, bootstrapWorkspaces } from "./bootstrap";
 import { useCommandBridge } from "./commands/use-command-bridge";
 import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
 import { AppearancePanel } from "./components/settings/panels/appearance-panel";
 import { EditorPanel } from "./components/settings/panels/editor-panel";
 import { TerminalPanel } from "./components/settings/panels/terminal-panel";
+import { WorkspacesPanel } from "./components/settings/panels/workspaces-panel";
 import { SettingsDialog } from "./components/settings/settings-dialog";
 import type { SettingsNavItem } from "./components/settings/types";
 import { ErrorBoundary } from "./components/ui/error-boundary";
@@ -22,6 +23,7 @@ import { useWindowOpacityEffect } from "./hooks/use-window-opacity-effect";
 import { ipcCallResult } from "./ipc/client";
 import { useGlobalKeybindings } from "./keybindings/use-global-keybindings";
 import { initializeEditorServices } from "./services/editor";
+import { rehydrateLspForWorkspace } from "./services/editor/model/cache";
 import { useActiveStore } from "./state/stores/active";
 import { useEditorFontStore } from "./state/stores/editor-font";
 import { useSettingsUIStore } from "./state/stores/settings-ui";
@@ -35,6 +37,8 @@ export function App() {
   const { workspaces, setAll } = useWorkspacesStore();
   const { activeWorkspaceId, setActiveWorkspaceId } = useActiveStore();
   const settingsOpen = useSettingsUIStore((s) => s.settingsOpen);
+  const settingsInitialActiveId = useSettingsUIStore((s) => s.initialActiveId);
+  const settingsInitialWorkspaceId = useSettingsUIStore((s) => s.initialWorkspaceId);
   const closeSettings = useSettingsUIStore((s) => s.closeSettings);
 
   // Settings nav — each row carries an optional `dirty` dot. Dirty is
@@ -92,8 +96,7 @@ export function App() {
   const settingsNav = useMemo<SettingsNavItem[]>(() => {
     const snap = settingsSnapshot;
     const appearanceDirty =
-      snap !== null &&
-      (themePreference !== snap.themePreference || opacity !== snap.opacity);
+      snap !== null && (themePreference !== snap.themePreference || opacity !== snap.opacity);
     const editorDirty =
       snap !== null &&
       (editorFontSize !== snap.editorFontSize ||
@@ -125,6 +128,12 @@ export function App() {
         group: "Settings",
         keywords: ["font", "size", "cursor"],
         dirty: terminalDirty,
+      },
+      {
+        id: "workspaces",
+        label: "Workspaces",
+        group: "Settings",
+        keywords: ["lsp", "language", "server", "typescript", "python"],
       },
     ];
   }, [
@@ -161,6 +170,18 @@ export function App() {
     bootstrapWorkspaces(setAll, setActiveWorkspaceId);
   }, []);
 
+  // Boot: hydrate per-workspace LSP enabled-languages state.
+  // Runs after workspaces are loaded so the list is non-empty and every
+  // workspace's enabled list is fetched in one parallel batch. The store is
+  // populated before any editor model fires its first didOpen (models are
+  // mounted lazily when their tab becomes visible, after the workspace panel
+  // renders, which is after this effect runs).
+  useEffect(() => {
+    if (workspaces.length > 0) {
+      void bootstrapLspEnabled(workspaces);
+    }
+  }, [workspaces]);
+
   // Mark the active workspace as mounted (one-way; lazy-mount + persist).
   useEffect(() => {
     if (!activeWorkspaceId) return;
@@ -170,6 +191,20 @@ export function App() {
       next.add(activeWorkspaceId);
       return next;
     });
+  }, [activeWorkspaceId]);
+
+  // Eager LSP rehydrate on workspace activation. The main-side host
+  // caps concurrent live LSP servers (LSP_MAX_ACTIVE_WORKSPACES) and
+  // evicts the LRU one when a third workspace's first file opens; the
+  // evicted workspace's model entries then sit with `lspOpened: false`
+  // until something pokes them. Calling `rehydrateLspForWorkspace`
+  // here means "switching back into a workspace immediately re-issues
+  // didOpen for its open files," so hover/completion start working
+  // before the user even types. The function is a no-op for entries
+  // that are already opened, so it's safe to fire on every activation.
+  useEffect(() => {
+    if (!activeWorkspaceId) return;
+    rehydrateLspForWorkspace(activeWorkspaceId);
   }, [activeWorkspaceId]);
 
   // Prune mounted set when a workspace disappears. Tab-record cleanup
@@ -290,11 +325,14 @@ export function App() {
             if (!open) closeSettings();
           }}
           nav={settingsNav}
+          defaultActiveId={settingsInitialActiveId}
         >
           {(activeId) => {
             if (activeId === "appearance") return <AppearancePanel />;
             if (activeId === "editor") return <EditorPanel />;
             if (activeId === "terminal") return <TerminalPanel />;
+            if (activeId === "workspaces")
+              return <WorkspacesPanel initialWorkspaceId={settingsInitialWorkspaceId} />;
             return null;
           }}
         </SettingsDialog>
@@ -305,6 +343,9 @@ export function App() {
             onSelectWorkspace={handleSelectWorkspace}
             onAddWorkspace={handleAddWorkspace}
             onRemoveWorkspace={handleRemoveWorkspace}
+            onOpenWorkspaceSettings={(wsId) => {
+              useSettingsUIStore.getState().openSettingsAt("workspaces", wsId);
+            }}
           />
           <FilesPanel />
           <div className="grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden">
