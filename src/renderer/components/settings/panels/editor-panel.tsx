@@ -110,21 +110,23 @@ export function EditorPanel() {
     isCustomFamily ? (family ?? "") : "",
   );
 
-  // Font availability check for custom family.
-  const [fontAvailableMsg, setFontAvailableMsg] = useState<string | null>(null);
+  // Font availability check for custom family. `null` = no check yet; `true` =
+  // detected on the system; `false` = browser fell back (font not installed
+  // or name typo). We show the result as a strongly-worded status line so
+  // users don't mistake the silent fallback for a successful apply.
+  const [fontAvailable, setFontAvailable] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (familySelect !== "__custom__") {
-      setFontAvailableMsg(null);
+      setFontAvailable(null);
       return;
     }
-    if (!customFamilyInput.trim()) {
-      setFontAvailableMsg(null);
+    const trimmed = customFamilyInput.trim();
+    if (!trimmed) {
+      setFontAvailable(null);
       return;
     }
-    const available = checkFontAvailable(customFamilyInput.trim());
-    const measured = available ? customFamilyInput.trim() : "(not available)";
-    setFontAvailableMsg(`Current: ${measured}`);
+    setFontAvailable(checkFontAvailable(trimmed));
   }, [familySelect, customFamilyInput]);
 
   const handleFamilySelectChange = useCallback(
@@ -133,7 +135,7 @@ export function EditorPanel() {
       if (val !== "__custom__") {
         setFamily(val === FAMILY_SYSTEM_VALUE ? undefined : val);
         setCustomFamilyInput("");
-        setFontAvailableMsg(null);
+        setFontAvailable(null);
       }
     },
     [setFamily],
@@ -232,8 +234,15 @@ export function EditorPanel() {
                 "focus-visible:ring-1 focus-visible:ring-ring",
               )}
             />
-            {fontAvailableMsg && (
-              <span className="text-app-ui-sm text-muted-foreground">{fontAvailableMsg}</span>
+            {fontAvailable === true && (
+              <span className="text-app-ui-sm text-muted-foreground">
+                Detected on this system.
+              </span>
+            )}
+            {fontAvailable === false && (
+              <span className="text-app-ui-sm text-[var(--state-warning-fg)]">
+                Not found on this system — the preview will use the fallback font.
+              </span>
             )}
           </div>
         )}

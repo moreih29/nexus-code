@@ -21,7 +21,7 @@
 // no magic pixel values, no shadows.
 
 import { Search, X } from "lucide-react";
-import { Dialog as RadixDialog, VisuallyHidden as RadixVisuallyHidden } from "radix-ui";
+import { Dialog as RadixDialog } from "radix-ui";
 import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { cn } from "@/utils/cn";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../ui/dialog";
@@ -80,7 +80,6 @@ export function SettingsDialog({
   const [activeId, setActiveId] = useState<string>(defaultActiveId ?? firstId);
   const [query, setQuery] = useState("");
 
-  const titleId = useId();
   const panelId = useId();
   const searchId = useId();
 
@@ -141,16 +140,15 @@ export function SettingsDialog({
             // content beyond this height scrolls inside the right panel.
             height: "clamp(480px, 80vh, 640px)",
           }}
-          aria-labelledby={titleId}
           aria-describedby={undefined}
         >
-          {/* Visually-hidden title — satisfies Radix's screen-reader contract
-              without leaking a visible "Settings" heading into the dialog body.
-              Using Radix's VisuallyHidden primitive (instead of Tailwind's
-              `sr-only`) is the pattern the Dialog runtime warning links to. */}
-          <RadixVisuallyHidden.Root asChild>
-            <RadixDialog.Title id={titleId}>Settings</RadixDialog.Title>
-          </RadixVisuallyHidden.Root>
+          {/* Visually-hidden title — Radix wires the aria-labelledby itself
+              when Title is rendered as a direct child of Content. Mirroring
+              the form-dialog.tsx pattern that already works in this codebase
+              (the manual `aria-labelledby` + `id` we had before was racing
+              Radix's own wiring and the runtime warning fired despite the
+              Title being present). */}
+          <RadixDialog.Title className="sr-only">Settings</RadixDialog.Title>
 
           {/* Main layout: left nav + right panel flex-1 */}
           <div className="flex flex-1 min-h-0">
