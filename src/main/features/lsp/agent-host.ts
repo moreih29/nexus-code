@@ -117,16 +117,27 @@ const DidOpenArgsSchema = TextDocumentItemSchema.extend({
   workspaceRoot: z.string(),
 });
 
-const DidChangeArgsSchema = z.object({
+// Every URI-scoped IPC call from the renderer carries workspaceId so the
+// host can route to the right LSP server even when two workspaces open
+// the same physical file (e.g. parent + nested-child workspace
+// registrations sharing a frontend/src/main.tsx). The renderer derives
+// workspaceId from the model's cacheUri (workspace-uri.ts) — uri itself
+// stays in `file://` form because that is what the LSP server expects.
+const WorkspaceScopedUriArgsSchema = z.object({
+  workspaceId: z.string(),
   uri: TextDocumentIdentifierSchema.shape.uri,
+});
+
+const DidChangeArgsSchema = WorkspaceScopedUriArgsSchema.extend({
   version: TextDocumentItemSchema.shape.version,
   contentChanges: z.array(TextDocumentContentChangeEventSchema),
 });
 
-const DidSaveArgsSchema = z.object({
-  uri: TextDocumentIdentifierSchema.shape.uri,
+const DidSaveArgsSchema = WorkspaceScopedUriArgsSchema.extend({
   text: TextDocumentItemSchema.shape.text.optional(),
 });
+
+const DidCloseArgsSchema = WorkspaceScopedUriArgsSchema;
 
 const WorkspaceSymbolArgsSchema = z.object({
   workspaceId: z.string(),
@@ -154,7 +165,17 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   private readonly workspaceServers = new Map<string, Map<string, AgentLspServer>>();
   private readonly serversById = new Map<string, AgentLspServer>();
   private readonly serverPromises = new Map<string, Promise<AgentLspServer | null>>();
-  private readonly uriIndex = new Map<string, { workspaceId: string; presetLanguageId: string }>();
+  // uriIndex: workspace → uri → presetLanguageId.
+  //
+  // Two workspaces can both open the same physical `file://` URI (e.g. a
+  // parent workspace and a nested workspace registered separately by the
+  // user). Routing by uri alone collides — whichever workspace registered
+  // the URI last wins, and hover/completion/etc. for the other workspace
+  // hangs because the renderer's request targets a server that no longer
+  // owns the entry. Nesting by workspaceId keeps the two entries
+  // independent so each workspace's LSP server handles its own copy of
+  // the document.
+  private readonly uriIndex = new Map<string, Map<string, string>>();
   private readonly configurationStore = new Map<string, Map<string, Map<string, unknown>>>();
   private readonly pendingServerRequests = new Map<string, PendingServerRequest>();
   private readonly channelDisposers = new Map<AgentChannel, Array<() => void>>();
@@ -164,15 +185,11 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   // completes (or fails).
   private readonly pendingSpawnByCorrelation = new Map<string, PendingSpawn>();
   private readonly pendingSpawnByServerId = new Map<string, PendingSpawn>();
-  // Per-URI state for textDocument/publishDiagnostics debouncing.
+  // Per-(workspace, URI) state for textDocument/publishDiagnostics debouncing.
   private readonly diagnosticsDebouncer = new DiagnosticsDebouncer({
     debounceMs: DIAGNOSTICS_DEBOUNCE_MS,
     leadingIdleMs: DIAGNOSTICS_LEADING_IDLE_MS,
     emit: (payload) => this.emit("diagnostics", payload),
-    uriOwner: (uri) => {
-      const entry = this.uriIndex.get(uri);
-      return entry ? { workspaceId: entry.workspaceId, languageId: entry.presetLanguageId } : null;
-    },
   });
   private nextServerRequestId = 1;
   private disposed = false;
@@ -265,7 +282,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         });
       case "documentSymbol":
         return this.requestByUri(args, opts, {
-          argsSchema: TextDocumentIdentifierSchema,
+          argsSchema: DidCloseArgsSchema,
           lspMethod: "textDocument/documentSymbol",
           capabilityKey: "documentSymbolProvider",
           emptyResponse: [],
@@ -356,16 +373,13 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         text: parsed.text,
       },
     });
-    this.uriIndex.set(parsed.uri, {
-      workspaceId: parsed.workspaceId,
-      presetLanguageId,
-    });
+    this.recordUriOwnership(parsed.workspaceId, parsed.uri, presetLanguageId);
     return null;
   }
 
   private async didChange(args: unknown): Promise<null> {
     const parsed = DidChangeArgsSchema.parse(args);
-    const routed = this.findServerForUri(parsed.uri);
+    const routed = this.findServer(parsed.workspaceId, parsed.uri);
     if (!routed) return null;
 
     await routed.server.notifyTextDocumentDidChange({
@@ -377,7 +391,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
 
   private async didSave(args: unknown): Promise<null> {
     const parsed = DidSaveArgsSchema.parse(args);
-    const routed = this.findServerForUri(parsed.uri);
+    const routed = this.findServer(parsed.workspaceId, parsed.uri);
     if (!routed) return null;
 
     await routed.server.notifyTextDocumentDidSave({
@@ -388,8 +402,8 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   }
 
   private async didClose(args: unknown): Promise<null> {
-    const parsed = TextDocumentIdentifierSchema.parse(args);
-    const routed = this.findServerForUri(parsed.uri);
+    const parsed = DidCloseArgsSchema.parse(args);
+    const routed = this.findServer(parsed.workspaceId, parsed.uri);
     if (!routed) return null;
 
     await routed.server.notifyTextDocumentDidClose({
@@ -397,14 +411,18 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     });
     // Flush any pending diagnostics for this URI before it is removed from the
     // index — the renderer expects a final consistent state on close.
-    this.diagnosticsDebouncer.flush(parsed.uri);
-    this.uriIndex.delete(parsed.uri);
+    this.diagnosticsDebouncer.flush(parsed.workspaceId, parsed.uri);
+    this.dropUriOwnership(parsed.workspaceId, parsed.uri);
     return null;
   }
 
-  private async requestByUri<A>(args: unknown, opts: LspHostCallOptions, spec: RequestSpec<A>) {
+  private async requestByUri<A extends { workspaceId: string; uri: string }>(
+    args: unknown,
+    opts: LspHostCallOptions,
+    spec: RequestSpec<A>,
+  ) {
     const parsed = spec.argsSchema.parse(args);
-    const routed = this.findServerForUri((parsed as { uri: string }).uri);
+    const routed = this.findServer(parsed.workspaceId, parsed.uri);
     if (!routed) {
       return spec.outSchema.parse(spec.emptyResponse);
     }
@@ -421,7 +439,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
 
   private async semanticTokensByUri(args: unknown, opts: LspHostCallOptions): Promise<unknown> {
     const parsed = SemanticTokensArgsSchema.parse(args);
-    const routed = this.findServerForUri(parsed.uri);
+    const routed = this.findServer(parsed.workspaceId, parsed.uri);
     if (!routed) return null;
     if (!routed.server.hasCapability("semanticTokensProvider")) return null;
 
@@ -590,16 +608,48 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     this.serversById.set(server.serverId, server);
   }
 
-  private findServerForUri(uri: string): { server: AgentLspServer; context: ServerContext } | null {
-    const entry = this.uriIndex.get(uri);
-    if (!entry) return null;
-    const server = this.workspaceServers.get(entry.workspaceId)?.get(entry.presetLanguageId);
+  /**
+   * Resolve the LSP server that owns `(workspaceId, uri)`. Returns null
+   * when the workspace has not opened this URI (yet, or any more — the
+   * common case during workspace switches when a model is mounted but
+   * didOpen hasn't routed). Callers must handle null gracefully.
+   *
+   * Pairs intentionally route by both workspaceId AND uri: two workspaces
+   * holding the same physical file each have their own LSP server
+   * instance, and routing by uri alone would conflate them.
+   */
+  private findServer(
+    workspaceId: string,
+    uri: string,
+  ): { server: AgentLspServer; context: ServerContext } | null {
+    const presetLanguageId = this.uriIndex.get(workspaceId)?.get(uri);
+    if (!presetLanguageId) return null;
+    const server = this.workspaceServers.get(workspaceId)?.get(presetLanguageId);
     return server
-      ? {
-          server,
-          context: { workspaceId: entry.workspaceId, languageId: entry.presetLanguageId },
-        }
+      ? { server, context: { workspaceId, languageId: presetLanguageId } }
       : null;
+  }
+
+  /** Record which preset language owns `(workspaceId, uri)` after didOpen. */
+  private recordUriOwnership(
+    workspaceId: string,
+    uri: string,
+    presetLanguageId: string,
+  ): void {
+    let workspaceMap = this.uriIndex.get(workspaceId);
+    if (!workspaceMap) {
+      workspaceMap = new Map();
+      this.uriIndex.set(workspaceId, workspaceMap);
+    }
+    workspaceMap.set(uri, presetLanguageId);
+  }
+
+  /** Drop the URI's index entry on didClose, leaving the workspace's other URIs intact. */
+  private dropUriOwnership(workspaceId: string, uri: string): void {
+    const workspaceMap = this.uriIndex.get(workspaceId);
+    if (!workspaceMap) return;
+    workspaceMap.delete(uri);
+    if (workspaceMap.size === 0) this.uriIndex.delete(workspaceId);
   }
 
   private subscribeChannel(channel: AgentChannel): void {
@@ -660,10 +710,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       server.disposePending(serverExitError(parsed));
       this.serversById.delete(parsed.serverId);
       this.workspaceServers.get(server.workspaceId)?.delete(server.languageId);
-      this.removeUriIndexEntriesWhere(
-        (entry) =>
-          entry.workspaceId === server.workspaceId && entry.presetLanguageId === server.languageId,
-      );
+      this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
     }
 
     // applyEdit-style server requests held in pendingServerRequests are
@@ -688,10 +735,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       server.dispose();
       this.serversById.delete(server.serverId);
       this.workspaceServers.get(server.workspaceId)?.delete(server.languageId);
-      this.removeUriIndexEntriesWhere(
-        (entry) =>
-          entry.workspaceId === server.workspaceId && entry.presetLanguageId === server.languageId,
-      );
+      this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
     }
   }
 
@@ -824,7 +868,17 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     if (msg.method === "textDocument/publishDiagnostics") {
       const parsed = parsePublishDiagnostics(msg.params);
       if (parsed) {
-        this.diagnosticsDebouncer.schedule(parsed);
+        // Attach workspace + language context so the debouncer payload
+        // emitted to the renderer carries everything the diagnostics
+        // listener needs to reconstruct the right Monaco model's
+        // cacheUri. Without workspaceId, two workspaces holding the same
+        // physical file would write into the same marker layer.
+        this.diagnosticsDebouncer.schedule({
+          workspaceId: context.workspaceId,
+          languageId: context.languageId,
+          uri: parsed.uri,
+          diagnostics: parsed.diagnostics,
+        });
       }
       return;
     }
@@ -883,14 +937,20 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     return pending ? { workspaceId: pending.workspaceId, languageId: pending.languageId } : null;
   }
 
-  private removeUriIndexEntriesWhere(
-    predicate: (entry: { workspaceId: string; presetLanguageId: string }) => boolean,
-  ): void {
-    for (const [uri, entry] of this.uriIndex) {
-      if (predicate(entry)) {
-        this.uriIndex.delete(uri);
-      }
+  /**
+   * Drop every URI owned by the (workspaceId, presetLanguageId) server,
+   * collapsing the workspace's inner map when it becomes empty. Called
+   * from the server-exited and channel-dispose paths so a torn-down LSP
+   * does not leave stale entries that would mis-route subsequent
+   * requests for the same workspace + URI to a defunct server.
+   */
+  private dropUriOwnershipForServer(workspaceId: string, presetLanguageId: string): void {
+    const workspaceMap = this.uriIndex.get(workspaceId);
+    if (!workspaceMap) return;
+    for (const [uri, owningPreset] of workspaceMap) {
+      if (owningPreset === presetLanguageId) workspaceMap.delete(uri);
     }
+    if (workspaceMap.size === 0) this.uriIndex.delete(workspaceId);
   }
 
   private emit(event: string, args: unknown): void {

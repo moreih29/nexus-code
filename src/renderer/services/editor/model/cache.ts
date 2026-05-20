@@ -4,7 +4,8 @@
 // React binding lives in `./use-shared-model.ts`.
 
 import type * as Monaco from "monaco-editor";
-import { absolutePathToFileUri, fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
+import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
+import { parseWorkspaceUri, workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import type { FileErrorCode } from "../../../utils/file-error";
 import { initializeMonacoSingleton } from "../runtime/monaco-singleton";
@@ -34,19 +35,53 @@ export interface ReleasedModelInfo {
 
 export type ModelReleaseSubscriber = (released: ReleasedModelInfo) => void;
 
-export function filePathToModelUri(filePath: string): string {
-  return absolutePathToFileUri(filePath);
+/**
+ * Build the cacheUri that identifies a (workspace, file) pair in the model
+ * cache and Monaco's model registry. The URI uses the `nexus-ws` scheme
+ * with the workspaceId in the authority slot, so the SAME physical file
+ * opened from two different workspaces produces two distinct cacheUris
+ * (and therefore two independent ModelEntry / Monaco TextModel instances).
+ *
+ * Renderer-only. The main side translates back to a plain file:// URI at
+ * the LSP server boundary — see workspace-uri.ts.
+ */
+export function cacheUriFor(workspaceId: string, filePath: string): string {
+  return workspaceUriFor(workspaceId, filePath);
 }
 
 /**
- * Inverse of `filePathToModelUri`. Returns null when the cacheUri is not
- * one we produced (defensive — protects callers from mistakenly slicing
- * an unrelated string). Callers that need the file path of a tracked
- * model should always use this rather than slicing the prefix off
- * inline; the prefix shape is owned here.
+ * Inverse of `cacheUriFor`. Returns null when the URI is neither a
+ * workspace-scoped cacheUri nor a plain file:// URI — defensive against
+ * accidentally slicing unrelated strings. Callers that need the file
+ * path of a tracked model should always use this rather than slicing
+ * the prefix off inline; the prefix shape is owned here.
+ *
+ * Accepts both forms:
+ *   - `nexus-ws://${workspaceId}${path}` (the canonical cacheUri after
+ *     the cross-workspace cache-isolation work).
+ *   - `file://${path}` (some upstream paths and historical call sites
+ *     still produce file URIs; they round-trip cleanly to the same
+ *     absolute path because the workspace prefix only adds routing
+ *     context, not a different filesystem identity).
+ *
+ * Callers that also need the workspaceId should use `parseCacheUri`
+ * instead — this helper drops it for the common "I just need the path"
+ * call sites that already have workspaceId from another source.
  */
 export function cacheUriToFilePath(cacheUri: string): string | null {
+  const workspaceParsed = parseWorkspaceUri(cacheUri);
+  if (workspaceParsed) return workspaceParsed.absolutePath;
   return fileUriToAbsolutePath(cacheUri);
+}
+
+/**
+ * Full parse of a cacheUri into its `(workspaceId, filePath)` pair. Use
+ * this when both halves are needed (e.g. LSP cross-file navigation
+ * routing the open back through the correct workspace).
+ */
+export function parseCacheUri(cacheUri: string): { workspaceId: string; filePath: string } | null {
+  const parsed = parseWorkspaceUri(cacheUri);
+  return parsed ? { workspaceId: parsed.workspaceId, filePath: parsed.absolutePath } : null;
 }
 
 export function initializeModelCache(monaco: typeof Monaco): void {
@@ -62,7 +97,7 @@ const entries = new Map<string, ModelEntry>();
 const releaseSubscribers = new Set<ModelReleaseSubscriber>();
 
 function cacheUriForInput(input: EditorInput): string {
-  return filePathToModelUri(input.filePath);
+  return cacheUriFor(input.workspaceId, input.filePath);
 }
 
 export function subscribeOnRelease(callback: ModelReleaseSubscriber): () => void {
@@ -168,6 +203,8 @@ export function releaseModel(input: EditorInput): void {
 export interface ResolvedModelView {
   model: Monaco.editor.ITextModel;
   cacheUri: string;
+  /** Workspace-blind `file://` form used in LSP IPC payloads. */
+  lspUri: string;
   workspaceId: string;
   filePath: string;
   languageId: string;
@@ -180,6 +217,7 @@ export function getResolvedModel(input: EditorInput): ResolvedModelView | null {
   return {
     model: entry.model,
     cacheUri: entry.cacheUri,
+    lspUri: entry.lspUri,
     workspaceId: entry.input.workspaceId,
     filePath: entry.input.filePath,
     languageId: entry.languageId,

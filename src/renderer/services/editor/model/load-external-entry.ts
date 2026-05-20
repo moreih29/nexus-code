@@ -5,6 +5,7 @@
 // confuse server roots.
 
 import { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
+import { workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { requireMonaco } from "../runtime/monaco-singleton";
 import { ensureModelWithContent } from "./ensure-model";
@@ -14,7 +15,13 @@ export async function loadExternalEntry(input: {
   workspaceId: string;
   filePath: string;
 }): Promise<ModelEntry> {
-  const cacheUri = absolutePathToFileUri(input.filePath);
+  // cacheUri identifies the Monaco model and the entry in our cache map.
+  // It is workspace-scoped so the same physical file opened from two
+  // different workspaces produces two independent entries (see
+  // workspace-uri.ts). lspUri is the canonical file:// form we send to
+  // the LSP server and use in IPC payloads — workspace-blind by design.
+  const cacheUri = workspaceUriFor(input.workspaceId, input.filePath);
+  const lspUri = absolutePathToFileUri(input.filePath);
   const monaco = requireMonaco();
   const monacoUri = monaco.Uri.parse(cacheUri);
 
@@ -26,7 +33,7 @@ export async function loadExternalEntry(input: {
       readOnly: true,
     },
     cacheUri,
-    lspUri: monacoUri.toString(),
+    lspUri,
     monacoUri,
     languageId: "",
     refCount: 0,

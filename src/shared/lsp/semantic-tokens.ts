@@ -10,7 +10,11 @@ import { DocumentUriSchema } from "./primitives";
 // requests full-document mode only; delta (edits) mode is not used.
 // ---------------------------------------------------------------------------
 
+// Renderer → main IPC argument shape for semantic-tokens requests. The
+// `workspaceId` field scopes the request to a specific workspace's LSP
+// server (see text-document.ts for the same pattern on other requests).
 export const SemanticTokensArgsSchema = z.object({
+  workspaceId: z.string(),
   uri: DocumentUriSchema,
 });
 export type SemanticTokensArgs = z.infer<typeof SemanticTokensArgsSchema>;

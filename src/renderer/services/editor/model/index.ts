@@ -19,15 +19,16 @@ export { ensureModelWithContent } from "./ensure-model";
 export { relPathForInput, workspaceRootForInput } from "./file-loader";
 export {
   acquireModel,
+  cacheUriFor,
   cacheUriToFilePath,
   clearDiskDiverged,
   type EntryMetadata,
-  filePathToModelUri,
   forceDisposeExternalsForWorkspace,
   getEntryMetadata,
   getModelSnapshot,
   getResolvedModel,
   initializeModelCache,
+  parseCacheUri,
   type ReleasedModelInfo,
   reloadModelFromDisk,
   type ResolvedModelView,

@@ -2,6 +2,8 @@
 // Extracted from EditorView so providers are registered once per workspace, not per editor instance.
 
 import type * as Monaco from "monaco-editor";
+import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
+import { workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import type {
   DocumentSymbol,
   SymbolInformation,
@@ -61,11 +63,19 @@ function registerDiagnosticsListener(monaco: typeof Monaco): void {
   if (diagnosticsUnlisten) return;
 
   diagnosticsUnlisten = ipcListen("lsp", "diagnostics", (args) => {
-    const model = monaco.editor.getModel(monaco.Uri.parse(args.uri));
+    // args.uri arrives in `file://` form (what the LSP server emitted).
+    // Monaco models are keyed by the workspace-scoped cacheUri
+    // (`nexus-ws://${workspaceId}/…`) so we have to reconstruct that
+    // identifier from the (workspaceId, uri) pair before looking the
+    // model up. Two workspaces holding the same physical file each have
+    // their own model — this is exactly the disambiguation step.
+    const absolutePath = fileUriToAbsolutePath(args.uri);
+    if (absolutePath === null) return;
+    const cacheUri = workspaceUriFor(args.workspaceId, absolutePath);
+    const model = monaco.editor.getModel(monaco.Uri.parse(cacheUri));
     if (!model) return;
 
-    const modelUri = model.uri.toString();
-    if (!knownModelUris.has(args.uri) && !knownModelUris.has(modelUri)) return;
+    if (!knownModelUris.has(cacheUri) && !knownModelUris.has(model.uri.toString())) return;
 
     monaco.editor.setModelMarkers(
       model,
@@ -148,23 +158,32 @@ export function notifyDidOpen(
 }
 
 export function notifyDidChange(
+  workspaceId: string,
   uri: string,
   version: number,
   contentChanges: TextDocumentContentChangeEvent[],
 ): Promise<void> {
-  return ipcCallResult("lsp", "didChange", { uri, version, contentChanges }).then(unwrapIpcResult);
+  return ipcCallResult("lsp", "didChange", { workspaceId, uri, version, contentChanges }).then(
+    unwrapIpcResult,
+  );
 }
 
-export function notifyDidSave(uri: string, text?: string): Promise<void> {
-  return ipcCallResult("lsp", "didSave", { uri, text }).then(unwrapIpcResult);
+export function notifyDidSave(workspaceId: string, uri: string, text?: string): Promise<void> {
+  return ipcCallResult("lsp", "didSave", { workspaceId, uri, text }).then(unwrapIpcResult);
 }
 
-export function notifyDidClose(uri: string): Promise<void> {
-  return ipcCallResult("lsp", "didClose", { uri }).then(unwrapIpcResult);
+export function notifyDidClose(workspaceId: string, uri: string): Promise<void> {
+  return ipcCallResult("lsp", "didClose", { workspaceId, uri }).then(unwrapIpcResult);
 }
 
-export function fetchDocumentSymbols(uri: string, signal?: AbortSignal): Promise<DocumentSymbol[]> {
-  return ipcCallResult("lsp", "documentSymbol", { uri }, { signal }).then(unwrapIpcResult);
+export function fetchDocumentSymbols(
+  workspaceId: string,
+  uri: string,
+  signal?: AbortSignal,
+): Promise<DocumentSymbol[]> {
+  return ipcCallResult("lsp", "documentSymbol", { workspaceId, uri }, { signal }).then(
+    unwrapIpcResult,
+  );
 }
 
 export async function provideWorkspaceSymbols(
@@ -179,6 +198,6 @@ export async function provideWorkspaceSymbols(
     await ipcCallResult("lsp", "workspaceSymbol", { workspaceId, query }, { signal }),
   );
   return symbols.map((symbol: SymbolInformation) =>
-    lspSymbolInformationToWorkspaceSymbol(monaco, symbol),
+    lspSymbolInformationToWorkspaceSymbol(monaco, symbol, workspaceId),
   );
 }

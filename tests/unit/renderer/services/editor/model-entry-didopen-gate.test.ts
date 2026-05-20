@@ -69,6 +69,9 @@ function makeHarness(
         createModel: () => model,
       },
     })) as unknown as ModelEntryDeps["requireMonaco"],
+    attachGitSubscription: mock(() => () => {}),
+    subscribeGitStatusChanged: mock(() => () => {}),
+    absolutePathToFileUri: (path: string) => `file://${path}`,
   };
   const input = {
     workspaceId: "ws-1",
@@ -96,7 +99,9 @@ describe("ModelEntry didOpen ordering gate", () => {
 
     expect(entry.lspOpened).toBe(true);
     expect(harness.notifyDidChange).toHaveBeenCalledTimes(1);
-    expect(harness.notifyDidChange.mock.calls[0]?.[1]).toBe(2);
+    // notifyDidChange signature: (workspaceId, uri, version, contentChanges).
+    // version lives at index 2 now that workspaceId scopes every IPC call.
+    expect(harness.notifyDidChange.mock.calls[0]?.[2]).toBe(2);
   });
 
   test("didOpen failure marks lspDegraded and subsequent didChange is skipped safely", async () => {
@@ -130,7 +135,9 @@ describe("ModelEntry didOpen ordering gate", () => {
     await flushAsyncWork();
 
     expect(harness.notifyDidClose).toHaveBeenCalledTimes(1);
-    expect(harness.notifyDidClose.mock.calls[0]?.[0]).toBe("file:///workspace/src/a.ts");
+    // notifyDidClose signature is (workspaceId, uri); the lspUri lives at index 1.
+    expect(harness.notifyDidClose.mock.calls[0]?.[0]).toBe("ws-1");
+    expect(harness.notifyDidClose.mock.calls[0]?.[1]).toBe("file:///workspace/src/a.ts");
   });
 
   test("forceDispose-style cleanup of external entry waits for in-flight didOpen", async () => {
@@ -167,6 +174,7 @@ describe("ModelEntry didOpen ordering gate", () => {
     await entry.didOpenPromise;
     await flushAsyncWork();
 
-    expect(harness.notifyDidChange.mock.calls.map((call) => call[1])).toEqual([2, 3]);
+    // version is the 3rd positional arg now (after workspaceId, uri).
+    expect(harness.notifyDidChange.mock.calls.map((call) => call[2])).toEqual([2, 3]);
   });
 });

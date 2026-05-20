@@ -13,11 +13,17 @@ describe("ipcContract.lsp.call.didSave", () => {
   test("accepts a save notification with optional text", () => {
     expect(
       schema.safeParse({
+        workspaceId: "11111111-1111-4111-8111-111111111111",
         uri: "file:///workspace/src/index.ts",
         text: "const value = 1;\n",
       }).success,
     ).toBe(true);
-    expect(schema.safeParse({ uri: "file:///workspace/src/index.ts" }).success).toBe(true);
+    expect(
+      schema.safeParse({
+        workspaceId: "11111111-1111-4111-8111-111111111111",
+        uri: "file:///workspace/src/index.ts",
+      }).success,
+    ).toBe(true);
   });
 });
 
@@ -76,7 +82,11 @@ describe("ipcContract.lsp.listen.diagnostics", () => {
   const schema = ipcContract.lsp.listen.diagnostics.args;
 
   test("accepts empty diagnostics array", () => {
-    const result = schema.safeParse({ uri: "file:///src/index.ts", diagnostics: [] });
+    const result = schema.safeParse({
+      workspaceId: "11111111-1111-4111-8111-111111111111",
+      uri: "file:///src/index.ts",
+      diagnostics: [],
+    });
     expect(result.success).toBe(true);
   });
 

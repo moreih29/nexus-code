@@ -2,6 +2,8 @@
 // No module-level state — all functions accept monaco as a parameter.
 
 import type * as Monaco from "monaco-editor";
+import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
+import { workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import type {
   Diagnostic,
   DiagnosticRelatedInformation,
@@ -29,12 +31,31 @@ export function lspRangeToMonacoRange(range: Range): Monaco.IRange {
   };
 }
 
+/**
+ * Convert an LSP Location (always `file://` from the server) into a Monaco
+ * Location whose URI is the workspace-scoped cacheUri (`nexus-ws://…`).
+ * The cacheUri is what Monaco model identity uses, so passing through
+ * `file://` here would point at no model and the peek widget would
+ * throw "Model not found" on click.
+ *
+ * `workspaceId` is the workspace from which the LSP request originated.
+ * Cross-file navigation results inherit that workspace context — clicking
+ * a definition that lives outside the workspace tree still opens a model
+ * scoped to the requesting workspace, which matches how the user is
+ * navigating from within that workspace.
+ *
+ * Non-file URIs (e.g. tsserver's volar virtual schemes) pass through
+ * untranslated so Monaco can fall back to its own handlers.
+ */
 export function lspLocationToMonacoLocation(
   monaco: typeof Monaco,
   location: Location,
+  workspaceId: string,
 ): Monaco.languages.Location {
+  const absPath = fileUriToAbsolutePath(location.uri);
+  const uri = absPath !== null ? workspaceUriFor(workspaceId, absPath) : location.uri;
   return {
-    uri: monaco.Uri.parse(location.uri),
+    uri: monaco.Uri.parse(uri),
     range: lspRangeToMonacoRange(location.range),
   };
 }
@@ -84,13 +105,14 @@ export type WorkspaceSymbolResult = {
 export function lspSymbolInformationToWorkspaceSymbol(
   monaco: typeof Monaco,
   symbol: SymbolInformation,
+  workspaceId: string,
 ): WorkspaceSymbolResult {
   return {
     name: symbol.name,
     kind: lspSymbolKindToMonacoKind(symbol.kind),
     tags: symbol.tags as Monaco.languages.SymbolTag[] | undefined,
     containerName: symbol.containerName,
-    location: lspLocationToMonacoLocation(monaco, symbol.location),
+    location: lspLocationToMonacoLocation(monaco, symbol.location, workspaceId),
   };
 }
 

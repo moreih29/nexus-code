@@ -159,7 +159,7 @@ describe("AC 2a: didClose lifecycle", () => {
     expect(emitted).toHaveLength(1); // timer pending
 
     // didClose must flush the pending diagnostic BEFORE uriIndex is cleared.
-    await host.call("didClose", { uri: URI });
+    await host.call("didClose", { workspaceId: WORKSPACE_ID, uri: URI });
 
     // Flush must have happened immediately (no timer advance needed).
     expect(emitted).toHaveLength(2);
@@ -197,7 +197,7 @@ describe("AC 2a: didClose lifecycle", () => {
     expect(emitted).toHaveLength(1);
 
     // Close: flushes v99, clears state.
-    await host.call("didClose", { uri: URI });
+    await host.call("didClose", { workspaceId: WORKSPACE_ID, uri: URI });
     expect(emitted).toHaveLength(2);
 
     // Re-open the same URI. The server is the same (same workspace + language).
@@ -239,7 +239,7 @@ describe("AC 2a: didClose lifecycle", () => {
     expect(emitted).toHaveLength(1);
 
     // Close with no pending timer — should not emit a second time.
-    await host.call("didClose", { uri: URI });
+    await host.call("didClose", { workspaceId: WORKSPACE_ID, uri: URI });
     expect(emitted).toHaveLength(1);
 
     // No stale fire after.

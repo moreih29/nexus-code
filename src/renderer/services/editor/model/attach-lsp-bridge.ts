@@ -50,7 +50,7 @@ export function attachLspBridge(
     if (contentChanges.length === 0) return;
     await entry.didOpenPromise;
     if (!entry.lspOpened || entry.disposed) return;
-    deps.notifyDidChange(entry.lspUri, version, contentChanges).catch(() => {
+    deps.notifyDidChange(entry.input.workspaceId, entry.lspUri, version, contentChanges).catch(() => {
       entry.lspDegraded = true;
     });
   });

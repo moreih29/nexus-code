@@ -2,6 +2,7 @@
 // Owns: model creation, dirty-tracker attachment, LSP open/change/close, fs subscription.
 
 import type * as Monaco from "monaco-editor";
+import { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
 import { type FileErrorCode, parseFileErrorCode } from "../../../utils/file-error";
 import { isLspLanguage } from "../lsp/language";
 import {
@@ -50,6 +51,7 @@ const defaultModelEntryDeps = {
   registerKnownModelUri,
   unregisterKnownModelUri,
   requireMonaco: () => requireMonaco(),
+  absolutePathToFileUri,
 };
 
 export type ModelEntryDeps = typeof defaultModelEntryDeps;
@@ -162,10 +164,17 @@ export function createEntry(
   const origin: "workspace" | "external" = input.origin ?? "workspace";
   const readOnly = input.readOnly === true;
   const entryInput = input;
+  // cacheUri carries the workspace-scoped `nexus-ws://` scheme that
+  // identifies this entry uniquely per (workspace, file) pair. lspUri is
+  // the canonical `file://` form we use in IPC payloads and forward to
+  // the LSP server; it is workspace-blind by design. Both forms refer to
+  // the same underlying file path on disk — only the routing context
+  // differs.
+  const lspUri = deps.absolutePathToFileUri(input.filePath);
   const entry: ModelEntry = {
     input: entryInput,
     cacheUri,
-    lspUri: monacoUri.toString(),
+    lspUri,
     monacoUri,
     languageId: "",
     refCount: 0,
@@ -370,7 +379,7 @@ async function notifyDidCloseAfterDidOpen(entry: ModelEntry): Promise<void> {
   if (!entry.lspOpened) return;
 
   try {
-    await depsFor(entry).notifyDidClose(entry.lspUri);
+    await depsFor(entry).notifyDidClose(entry.input.workspaceId, entry.lspUri);
   } catch {
     entry.lspDegraded = true;
   }
@@ -396,7 +405,7 @@ export function cleanupEntry(entry: ModelEntry): void {
   deps.unregisterKnownModelUri(entry.lspUri);
 
   const didClosePromise = entry.lspOpened
-    ? deps.notifyDidClose(entry.lspUri)
+    ? deps.notifyDidClose(entry.input.workspaceId, entry.lspUri)
     : notifyDidCloseAfterDidOpen(entry);
   didClosePromise.catch(() => {
     entry.lspDegraded = true;

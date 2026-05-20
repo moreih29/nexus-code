@@ -75,6 +75,12 @@ export class GitRegistry {
    * their `{ kind: "non-repo" }` result and return null.
    */
   async getOrDetect(workspaceId: string, signal?: AbortSignal): Promise<GitRepository | null> {
+    // Wait for the workspace's fs provider to wire up before reaching for
+    // the agent executor. Without this, detection requests that arrive
+    // during the bootstrap window throw "workspace agent provider is not
+    // available" — see getRepoInfo() for the user-visible symptom and
+    // tryGetAgentExecutor() for the sync fallback path.
+    await this.workspaceManager.getFs(workspaceId);
     const executor = this.getAgentExecutor(workspaceId);
     this.resolveWorkspaceRoot(workspaceId, "Git repository detection", executor);
     this.requireGitBinary(["rev-parse", "--show-toplevel", "--git-dir"], executor);
@@ -95,9 +101,22 @@ export class GitRegistry {
 
   /**
    * Returns the current cached info without importing renderer-side state.
+   *
+   * Tolerates the workspace-bootstrap race: when the fs provider has not
+   * been wired yet (channel still spawning, SSH still handshaking) we
+   * report `{ kind: "detecting" }` instead of throwing. The renderer
+   * already paints that as a loading skeleton, and the real info arrives
+   * once `startDetection` (async, awaits readiness) completes and emits
+   * `onRepoInfoChanged`.
+   *
+   * Prior to this guard, calling getRepoInfo within the bootstrap window
+   * surfaced "workspace agent provider is not available" via the IPC
+   * channel — a transient error that looked like a real failure to the
+   * user even though the workspace was simply not yet wired.
    */
   getRepoInfo(workspaceId: string): RepoInfo {
-    const executor = this.getAgentExecutor(workspaceId);
+    const executor = this.tryGetAgentExecutor(workspaceId);
+    if (!executor) return { kind: "detecting" };
     this.resolveWorkspaceRoot(workspaceId, "Git repository info", executor);
 
     if ((!this.bin && !executor) || this.gitUnavailable) return { kind: "non-repo" };
@@ -112,6 +131,7 @@ export class GitRegistry {
    * Initializes a repository at the workspace root, then re-runs detection.
    */
   async reinit(workspaceId: string, signal?: AbortSignal): Promise<RepoInfo> {
+    await this.workspaceManager.getFs(workspaceId);
     const executor = this.getAgentExecutor(workspaceId);
     const workspaceRoot = this.resolveWorkspaceRoot(workspaceId, "Git initialization", executor);
     const bin = this.requireGitBinary(["init"], executor);
@@ -130,6 +150,7 @@ export class GitRegistry {
    * Forces repository detection to run again and updates the cached state.
    */
   async refreshDetection(workspaceId: string, signal?: AbortSignal): Promise<RepoInfo> {
+    await this.workspaceManager.getFs(workspaceId);
     const executor = this.getAgentExecutor(workspaceId);
     this.resolveWorkspaceRoot(workspaceId, "Git repository detection", executor);
     this.requireGitBinary(["rev-parse", "--show-toplevel", "--git-dir"], executor);
@@ -367,14 +388,35 @@ export class GitRegistry {
   }
 
   private getAgentExecutor(workspaceId: string): AgentGitExecutor {
+    const executor = this.tryGetAgentExecutor(workspaceId);
+    if (!executor) {
+      throw new Error("workspace agent provider is not available");
+    }
+    return executor;
+  }
+
+  /**
+   * Like `getAgentExecutor` but returns null instead of throwing when the
+   * workspace's fs provider has not yet been wired. Synchronous callers
+   * use this to fall back to a "detecting" state during the bootstrap
+   * window; async callers should `await workspaceManager.getFs(id)`
+   * first and then use the throwing variant (which is then guaranteed
+   * to succeed).
+   */
+  private tryGetAgentExecutor(workspaceId: string): AgentGitExecutor | null {
     const provider = this.workspaceManager.requireContext(workspaceId).fs;
     if (!isAgentBackedProvider(provider) || provider.isAgentAvailable?.() === false) {
-      throw new Error("workspace agent provider is not available");
+      return null;
     }
     return new AgentGitExecutor(
       () => {
         const current = this.workspaceManager.requireContext(workspaceId).fs;
         if (!isAgentBackedProvider(current) || current.isAgentAvailable?.() === false) {
+          // The inner closure still throws — by the time we reach the
+          // closure we have already produced an executor, which means
+          // the caller is in the middle of running a request. A provider
+          // disappearing mid-request (e.g., workspace closed) is a hard
+          // error and should surface, not silently no-op.
           throw new Error("workspace agent provider is not available");
         }
         return current;
