@@ -35,6 +35,7 @@ func New() *Service {
 func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("lsp.spawn", service.Spawn)
 	d.Register("lsp.send", service.Send)
+	d.Register("lsp.notify", service.Notify)
 	d.Register("lsp.cancel", service.Cancel)
 	d.Register("lsp.shutdown", service.Shutdown)
 	d.Register("lsp.respondServerRequest", service.RespondServerRequest)
@@ -140,6 +141,28 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 func (s *Service) Send(_ context.Context, raw json.RawMessage) (any, error) {
 	var p SendParams
 	if err := decodeParams(raw, &p, "lsp.send params must include serverId and message"); err != nil {
+		return nil, err
+	}
+	server, err := s.lookupServer(p.ServerID)
+	if err != nil {
+		return nil, err
+	}
+	server.resetIdleTimer()
+	if err := server.sendRaw(p.Message); err != nil {
+		return nil, err
+	}
+	return struct{}{}, nil
+}
+
+// Notify handles lsp.notify — the fire-and-forget path for LSP notifications
+// (textDocument/didOpen, didChange, didSave, didClose).  The TS client sends
+// these without awaiting the ack so the request pipeline is not stalled for
+// a semantically-empty round-trip on every keystroke.  The handler forwards
+// the message to the LSP child process and returns a void ack just like Send,
+// but having a dedicated method name keeps the intent unambiguous on both sides.
+func (s *Service) Notify(_ context.Context, raw json.RawMessage) (any, error) {
+	var p NotifyParams
+	if err := decodeParams(raw, &p, "lsp.notify params must include serverId and message"); err != nil {
 		return nil, err
 	}
 	server, err := s.lookupServer(p.ServerID)

@@ -34,6 +34,7 @@ function makeChannel(
   return {
     ready: Promise.resolve(),
     call: mock(callFn) as AgentChannel["call"],
+    fire: mock(() => {}),
     on: mock(() => () => {}),
     onLifecycle: mock(() => () => {}),
     dispose: disposeFn,

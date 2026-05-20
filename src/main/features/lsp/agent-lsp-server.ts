@@ -89,9 +89,16 @@ export class AgentLspServer {
     });
   }
 
-  async notify(method: string, params: unknown): Promise<void> {
+  notify(method: string, params: unknown): void {
     if (this.disposed) return;
-    await this.sendMessage({ jsonrpc: "2.0", method, params });
+    // LSP notifications carry no id and expect no response — wrapping them in
+    // a request/response round-trip (channel.call) made the agent hold outMu
+    // and occupy a pendingRequests slot for every keystroke.  channel.fire()
+    // writes the frame and absorbs the ack without blocking the caller.
+    this.channel.fire("lsp.notify", {
+      serverId: this.serverId,
+      message: { jsonrpc: "2.0", method, params },
+    });
   }
 
   async notifyTextDocumentDidOpen(params: {

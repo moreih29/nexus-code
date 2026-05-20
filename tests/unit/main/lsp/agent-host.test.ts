@@ -82,7 +82,10 @@ class FakeAgentChannel implements AgentChannel {
       } as TResult;
     }
 
-    if (method === "lsp.send") {
+    // lsp.send carries requests (hover/definition/completion) that need a response.
+    // lsp.notify carries fire-and-forget notifications (didOpen/didChange/…) but
+    // the fake still needs to handle them to emit server-push events in tests.
+    if (method === "lsp.send" || method === "lsp.notify") {
       const message = (params as { message?: { id?: unknown; method?: string } }).message;
       if (message?.method === "textDocument/didOpen") {
         queueMicrotask(() => {
@@ -152,6 +155,13 @@ class FakeAgentChannel implements AgentChannel {
     }
 
     return {} as TResult;
+  }
+
+  fire(method: string, params?: unknown): void {
+    // Delegate to call() so recorded calls and event emissions remain testable.
+    // The real channel ignores the returned promise; tests can inspect
+    // this.calls to verify fire() was used for notification methods.
+    void this.call(method, params);
   }
 
   on(event: string, callback: ChannelEventCallback): () => void {
@@ -229,6 +239,10 @@ class SharedAgentChannel implements AgentChannel {
       });
     }
     return {} as TResult;
+  }
+
+  fire(_method: string, _params?: unknown): void {
+    // No-op for the shared-channel fake: notifications don't need simulation here.
   }
 
   on(event: string, callback: ChannelEventCallback): () => void {
@@ -312,10 +326,12 @@ describe("AgentLspHostHandle", () => {
       ],
     });
 
+    // textDocument/didOpen is an LSP notification — sent via lsp.notify
+    // (fire-and-forget) rather than lsp.send (awaited RPC).
     expect(
       channel.calls.some(
         (call) =>
-          call.method === "lsp.send" &&
+          call.method === "lsp.notify" &&
           (call.params as { message?: { method?: string } }).message?.method ===
             "textDocument/didOpen",
       ),

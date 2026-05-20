@@ -43,6 +43,8 @@ class ChannelDisposeTestChannel implements AgentChannel {
     return {} as TResult;
   }
 
+  fire(_method: string, _params?: unknown): void {}
+
   on(event: string, callback: ChannelEventCallback): () => void {
     let listeners = this.eventListeners.get(event);
     if (!listeners) {

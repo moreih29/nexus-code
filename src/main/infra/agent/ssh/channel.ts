@@ -144,6 +144,14 @@ function createAuthenticatedSshChannel(
         pendingCalls.push({ method, params, resolve: resolve as (value: unknown) => void, reject });
       });
     },
+    fire(method: string, params?: unknown): void {
+      // Fire-and-forget: delegates to the inner channel's fire().
+      // If auth is still in progress the notification is dropped — LSP
+      // text-sync state will be rebuilt on the next didOpen after the
+      // auth handshake completes.
+      if (disposed || !inner) return;
+      inner.fire(method, params);
+    },
     on(event: string, callback: ChannelEventCallback): () => void {
       return events.subscribe(event, callback, (e) => {
         const liveInner = inner;

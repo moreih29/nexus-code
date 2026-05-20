@@ -82,6 +82,7 @@ describe("createFsProvider", () => {
           mtime: "2026-01-01T00:00:00.000Z",
         };
       },
+      fire: () => {},
       on: () => () => {},
       onLifecycle: () => () => {},
       dispose: () => {},
@@ -122,6 +123,7 @@ describe("createFsProvider", () => {
     const channel: SshChannel = {
       ready: Promise.resolve(),
       call: async () => ({ unexpected: true }),
+      fire: () => {},
       on: () => () => {},
       onLifecycle: () => () => {},
       dispose: () => {},

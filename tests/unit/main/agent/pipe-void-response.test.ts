@@ -131,3 +131,44 @@ describe("createNdjsonPipe void-response shim", () => {
     expect((err as unknown as { code: string }).code).toBe("server.protocol-error");
   });
 });
+
+describe("createNdjsonPipe fire() — fire-and-forget notification path", () => {
+  it("writes a frame to stdin and returns immediately without awaiting the ack", () => {
+    const { stdin, pipe } = buildPipe();
+
+    // fire() must return void synchronously — it does not return a Promise.
+    const result = pipe.fire("lsp.notify", { serverId: "srv-1", message: {} });
+    expect(result).toBeUndefined();
+
+    // The frame must have been written to stdin.
+    expect(stdin.writes).toHaveLength(1);
+    const frame = JSON.parse(stdin.writes[0]!) as { id: string; method: string };
+    expect(frame.method).toBe("lsp.notify");
+    expect(typeof frame.id).toBe("string");
+  });
+
+  it("does not crash the channel when the ack response arrives after fire()", async () => {
+    const { stdout, stdin, pipe } = buildPipe();
+
+    pipe.fire("lsp.notify", { serverId: "srv-1", message: {} });
+    const requestId = (JSON.parse(stdin.writes[0]!) as { id: string }).id;
+
+    // Simulate the agent sending back its void ack for the notification.
+    stdout.emitData(Buffer.from(JSON.stringify({ id: requestId, result: null }) + "\n", "utf8"));
+
+    // Channel must remain alive — a subsequent call must succeed.
+    const second = pipe.call("lsp.send", { serverId: "srv-1", message: {} });
+    const secondId = (JSON.parse(stdin.writes[1]!) as { id: string }).id;
+    stdout.emitData(Buffer.from(JSON.stringify({ id: secondId, result: { ok: true } }) + "\n", "utf8"));
+
+    await expect(second).resolves.toEqual({ ok: true });
+  });
+
+  it("silently no-ops when the pipe is disposed", () => {
+    const { pipe } = buildPipe();
+    pipe.dispose();
+
+    // Must not throw even after disposal.
+    expect(() => pipe.fire("lsp.notify", {})).not.toThrow();
+  });
+});

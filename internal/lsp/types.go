@@ -59,6 +59,12 @@ type SendParams struct {
 	Message  json.RawMessage `json:"message"`
 }
 
+// NotifyParams is the wire shape for lsp.notify — identical to SendParams.
+// The separate method name signals that the caller is sending an LSP
+// notification and does not await a meaningful response; the handler
+// forwards the message and returns a void ack without blocking the caller.
+type NotifyParams = SendParams
+
 type CancelParams struct {
 	ServerID  string          `json:"serverId"`
 	RequestID json.RawMessage `json:"requestId"`

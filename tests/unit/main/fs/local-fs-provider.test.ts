@@ -6,6 +6,7 @@ function makeChannel(resultFor: (method: string, params?: unknown) => unknown): 
   return {
     ready: Promise.resolve(),
     call: mock(async (method: string, params?: unknown) => resultFor(method, params)),
+    fire: mock(() => {}),
     on: mock(() => () => {}),
     onLifecycle: mock(() => () => {}),
     dispose: mock(() => {}),

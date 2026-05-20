@@ -81,6 +81,14 @@ export function createReconnectingProcessChannel(
       if (!active) return Promise.reject(createAgentReconnectError("agent.reconnect-unavailable"));
       return active.pipe.call<TResult>(method, params);
     },
+    fire(method: string, params?: unknown): void {
+      // Fire-and-forget: delegates to the pipe's fire() which writes the frame
+      // and absorbs the ack without blocking.  During reconnect the notification
+      // is silently dropped — LSP text-sync state will be rebuilt on the next
+      // didOpen after the reconnect completes.
+      if (state === "disposed" || terminalError || state === "reconnecting" || !active) return;
+      active.pipe.fire(method, params);
+    },
     on(event: string, callback: ChannelEventCallback): () => void {
       return events.subscribe(event, callback, (e) => attachPipeEvent(active?.pipe ?? null, e));
     },

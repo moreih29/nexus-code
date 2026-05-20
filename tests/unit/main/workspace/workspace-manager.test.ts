@@ -128,6 +128,7 @@ function makeLifecycleChannel(ready: Promise<void> = Promise.resolve()): {
   const channel: SshChannel = {
     ready,
     call: mock(async () => []),
+    fire: mock(() => {}),
     on: mock(() => () => {}),
     onLifecycle: mock((callback: (event: SshChannelLifecycleEvent) => void) => {
       lifecycleCallback = callback;
@@ -593,6 +594,7 @@ describe("WorkspaceManager — ssh activation lifecycle", () => {
         calls.push({ method, params });
         return [{ name: "src", type: "dir" }];
       }),
+      fire: mock(() => {}),
       on: mock(() => () => {}),
       onLifecycle: mock(() => () => {}),
       dispose: mock(() => {}),
@@ -821,6 +823,7 @@ describe("WorkspaceManager — ssh activation lifecycle", () => {
     const channel: SshChannel = {
       ready: Promise.reject(failure),
       call: mock(async () => []),
+      fire: mock(() => {}),
       on: mock(() => () => {}),
       onLifecycle: mock(() => () => {}),
       dispose: mock(() => {}),
@@ -860,6 +863,7 @@ describe("WorkspaceManager — ssh activation lifecycle", () => {
       {
         ready: Promise.resolve(),
         call: mock(async () => []),
+        fire: mock(() => {}),
         on: mock(() => () => {}),
         onLifecycle: mock(() => () => {}),
         dispose: firstDispose,
@@ -867,6 +871,7 @@ describe("WorkspaceManager — ssh activation lifecycle", () => {
       {
         ready: Promise.resolve(),
         call: mock(async () => []),
+        fire: mock(() => {}),
         on: mock(() => () => {}),
         onLifecycle: mock(() => () => {}),
         dispose: secondDispose,
@@ -913,6 +918,7 @@ describe("WorkspaceManager — ssh activation lifecycle", () => {
     const channel: SshChannel = {
       ready: Promise.reject(failure),
       call: mock(async () => []),
+      fire: mock(() => {}),
       on: mock(() => () => {}),
       onLifecycle: mock(() => () => {}),
       dispose: mock(() => {}),

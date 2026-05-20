@@ -54,6 +54,7 @@ describe("workspace.testSsh handler", () => {
         calls.push({ method, params });
         return [];
       }),
+      fire: mock(() => {}),
       on: mock(() => () => {}),
       onLifecycle: mock(() => () => {}),
       dispose: mock(() => {}),
@@ -106,6 +107,7 @@ describe("workspace.testSsh handler", () => {
     const channel: SshChannel = {
       ready: Promise.reject(rawError),
       call: mock(async () => []),
+      fire: mock(() => {}),
       on: mock(() => () => {}),
       onLifecycle: mock(() => () => {}),
       dispose: mock(() => {}),
@@ -135,6 +137,7 @@ describe("workspace.testSsh handler", () => {
     const channel: SshChannel = {
       ready: ready.promise,
       call: mock(async () => []),
+      fire: mock(() => {}),
       on: mock(() => () => {}),
       onLifecycle: mock(() => () => {}),
       dispose: mock(() => {
@@ -172,6 +175,7 @@ describe("workspace.testSsh handler", () => {
     const channel: SshChannel = {
       ready: Promise.resolve(),
       call: mock(async () => []),
+      fire: mock(() => {}),
       on: mock(() => () => {}),
       onLifecycle: mock(() => () => {}),
       dispose: mock(() => {}),

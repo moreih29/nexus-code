@@ -35,6 +35,7 @@ class FakeAgentChannel implements AgentChannel {
     this.calls.push({ method, params });
     return (method === "pty.spawn" ? { pid: 1 } : undefined) as T;
   }
+  fire(_method: string, _params?: unknown): void {}
   on(_event: string, _cb: ChannelEventCallback): () => void {
     return () => {};
   }

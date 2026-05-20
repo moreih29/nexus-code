@@ -24,6 +24,7 @@ function makeChannel(disposeFn = mock(() => {})): AgentChannel {
   return {
     ready: Promise.resolve(),
     call: mock(async () => undefined),
+    fire: mock(() => {}),
     on: mock(() => () => {}),
     onLifecycle: mock(() => () => {}),
     dispose: disposeFn,

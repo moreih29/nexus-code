@@ -159,6 +159,14 @@ export interface NdjsonPipe {
     params?: unknown,
     correlationId?: string,
   ): Promise<TResult>;
+  /**
+   * Sends a fire-and-forget notification to the agent. Writes the NDJSON frame
+   * and registers the pending id so the agent's ack response is absorbed cleanly
+   * when it arrives, but returns immediately without awaiting the ack. This
+   * keeps the outMu on the Go side free and avoids occupying a pendingRequests
+   * slot for the entire round-trip on every LSP notification keystroke.
+   */
+  fire(method: string, params?: unknown): void;
   on(event: string, callback: NdjsonEventCallback): () => void;
   /** Local cleanup — rejects ready/inflight, clears listeners. Owner kills the child. */
   dispose(): void;
@@ -397,6 +405,22 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       });
 
       return promise;
+    },
+    fire(method: string, params?: unknown): void {
+      // LSP notifications (didOpen/didChange/didSave/didClose) are
+      // fire-and-forget: the agent receives and forwards them, then sends back
+      // a void ack, but the caller must not block waiting for that ack because
+      // it would occupy a pendingRequests slot and hold the agent's outMu for
+      // the full round-trip on every keystroke.  We still register the request
+      // id so the incoming ack response is matched and absorbed cleanly by the
+      // pending-request machinery — without registration, an unmatched id would
+      // trigger a protocol-error and tear the channel down.
+      if (disposed || terminalError) return;
+      this.call(method, params).catch(() => {
+        // Absorb transport and agent errors silently: notification delivery is
+        // best-effort (the LSP server may have exited, the channel may be
+        // reconnecting) and callers are not awaiting this result.
+      });
     },
     on(event: string, callback: NdjsonEventCallback): () => void {
       let callbacks = listeners.get(event);
