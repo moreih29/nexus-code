@@ -3,7 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import type { ITheme } from "@xterm/xterm";
 import { Terminal } from "@xterm/xterm";
-import { fontFamily } from "../../../shared/design-tokens";
+import { fontFamily, DEFAULT_THEME, THEMES } from "../../../shared/design-tokens";
 import type { ThemeId } from "../../../shared/design-tokens/themes";
 import { TERMINAL_PALETTES } from "../../../shared/editor/terminal-palette";
 import { resolvedTerminalCursorStyle, resolvedTerminalFontSize } from "../../state/stores/terminal";
@@ -161,10 +161,14 @@ class XtermTerminalController implements TerminalController {
 
   private resolveCurrentThemeId(): ThemeId {
     const attr = document.documentElement.getAttribute("data-theme");
-    if (attr === "warm-dark" || attr === "cool-dark" || attr === "warm-light") {
-      return attr;
+    // Validate via the theme registry — a string only passes if it's a
+    // registered ThemeId. This lets us add themes without touching this
+    // function. Using `in` (vs Object.prototype.hasOwnProperty.call) is safe
+    // here because THEMES is a plain object literal with no prototype tricks.
+    if (attr !== null && attr in THEMES) {
+      return attr as ThemeId;
     }
-    return "warm-dark";
+    return DEFAULT_THEME;
   }
 
   applyTheme(themeId: ThemeId): void {

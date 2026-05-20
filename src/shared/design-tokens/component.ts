@@ -122,12 +122,15 @@ export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string
     "--state-hover-bg": tokens["state.hover.bg"],
     "--state-active-bg": tokens["state.active.bg"],
     "--state-selected-bg": tokens["state.selected.bg"],
+    "--state-selected-fg": tokens["state.selected.fg"],
     "--state-selected-indicator": tokens["state.selected.indicator"],
     "--state-loading-indicator": tokens["state.loading.indicator"],
     // Sidebar-region selected background — sidebar.item.selected.bg is scoped to the
     // sidebar surface level and differs from state.selected.bg (design.md §9).
     // The indicator color uses the shared --state-selected-indicator token (C-1 unification).
     "--sidebar-item-selected-bg": tokens["sidebar.item.selected.bg"],
+    "--sidebar-item-selected-fg": tokens["sidebar.item.selected.fg"],
+    "--sidebar-icon-fg": tokens["sidebar.icon.fg"],
     // Tab surface tokens — exposed so tab-bar components use semantic values
     // rather than static frosted-veil primitives (design.md §9 tab region).
     "--tab-active-bg": tokens["tab.active.bg"],

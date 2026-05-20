@@ -109,26 +109,34 @@ export function FileTreeRow({
       style={{ paddingLeft: indentPaddingLeft(depth), height: ROW_HEIGHT_PX }}
       className={cn(
         "flex items-center w-full text-left cursor-pointer select-none",
+        // Reserve a 2px left indicator slot (design.md §8 — selected state uses
+        // a left indicator alongside background change; redundant encoding).
         "border-l-2 border-l-transparent",
         "hover:bg-[var(--state-hover-bg)]",
         "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
-        isSelected && "bg-[var(--state-hover-bg)] border-l-border text-foreground",
+        // Selected: sidebar-region selected tokens + state.selected.indicator
+        // (matches workbench/sidebar.tsx — single selection vocabulary across
+        // sibling sidebar regions).
+        isSelected &&
+          "bg-[var(--sidebar-item-selected-bg)] border-l-[var(--state-selected-indicator)] text-[var(--sidebar-item-selected-fg)]",
       )}
     >
       {isDir ? (
         <ChevronRightIcon
           className={cn(
-            "size-3.5 shrink-0 text-stone-gray transition-transform duration-150 ease-out",
+            // §14 closed icon grid: size-3 (12px) only. text-[var(--sidebar-icon-fg)]
+            // routes through the semantic layer instead of the stoneGray primitive.
+            "size-3 shrink-0 text-[var(--sidebar-icon-fg)] transition-transform duration-150 ease-out",
             isExpanded && "rotate-90",
             isLoading && "opacity-50 animate-pulse",
           )}
         />
       ) : (
-        <span className="size-3.5 shrink-0" aria-hidden />
+        <span className="size-3 shrink-0" aria-hidden />
       )}
       <TypeIcon
         className={cn(
-          "size-3.5 shrink-0 ml-1 text-stone-gray",
+          "size-3 shrink-0 ml-1 text-[var(--sidebar-icon-fg)]",
           isLoading && "opacity-50 animate-pulse",
         )}
         strokeWidth={1.5}

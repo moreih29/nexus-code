@@ -30,6 +30,16 @@ const editorOptions = {
   fontFamily: fontFamily.monoBody,
   scrollBeyondLastLine: false,
   automaticLayout: true,
+  // Monaco's standalone editor disables LSP semantic tokens by default —
+  // 'semanticHighlighting.enabled' defaults to 'configuredByTheme' which
+  // requires a theme-level `semanticHighlighting` flag, but that property
+  // does NOT exist on IStandaloneThemeData and is silently dropped by
+  // monaco.editor.defineTheme(). Setting the editor option directly is the
+  // canonical way to enable semantic-tokens rendering, per Monaco's
+  // official sample (microsoft/monaco-editor PR #2103). Without this flag,
+  // registerDocumentSemanticTokensProvider keeps being called but Monaco
+  // discards the returned tokens entirely.
+  "semanticHighlighting.enabled": true,
 } satisfies Monaco.editor.IStandaloneEditorConstructionOptions;
 
 /**

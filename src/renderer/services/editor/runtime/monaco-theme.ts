@@ -1,5 +1,9 @@
 import type * as Monaco from "monaco-editor";
-import type { ThemeId } from "../../../../shared/design-tokens";
+import {
+  THEME_SOURCES,
+  THEME_SOURCE_BY_ID,
+  type ThemeId,
+} from "../../../../shared/design-tokens";
 import { EDITOR_PALETTES, type EditorPalette } from "../../../../shared/editor/palette";
 import { buildEffectiveEditorFont } from "../../../hooks/use-effective-editor-font";
 import { EDITOR_FONT_EVENT, useEditorFontStore } from "../../../state/stores/editor-font";
@@ -9,13 +13,12 @@ import { EDITOR_FONT_EVENT, useEditorFontStore } from "../../../state/stores/edi
 //
 // Each ThemeId maps to a Monaco theme name string. Monaco's theme names are
 // global strings; we namespace them as "nexus-<theme-id>".
+// Derived from THEME_SOURCES so adding a theme auto-extends the registry.
 // ---------------------------------------------------------------------------
 
-export const NEXUS_THEME_NAMES: Record<ThemeId, string> = {
-  "warm-dark": "nexus-warm-dark",
-  "cool-dark": "nexus-cool-dark",
-  "warm-light": "nexus-warm-light",
-};
+export const NEXUS_THEME_NAMES: Record<ThemeId, string> = Object.fromEntries(
+  THEME_SOURCES.map((source) => [source.id, `nexus-${source.id}`]),
+) as Record<ThemeId, string>;
 
 // ---------------------------------------------------------------------------
 // buildEditorColors — maps EditorPalette → Monaco IColors
@@ -111,16 +114,17 @@ function buildSyntaxRules(palette: EditorPalette): Monaco.editor.ITokenThemeRule
     // ---------------------------------------------------------------------------
     // Semantic token types (design.md §15.1, LSP 3.16 standard names).
     // Monaco's standalone editor colours semantic tokens via the same `rules`
-    // array as Monarch, matching by token-type name from the provider legend.
-    // Token types emitted by the provider that share a name with Monarch entries
-    // above (keyword, string, number, comment, operator, namespace, function,
-    // type, variable) are already covered. The entries below fill the remaining
-    // standard LSP types that have no Monarch equivalent.
+    // array as Monarch, matching by **exact token-type name** from the provider
+    // legend. Monaco does NOT do prefix matching across unrelated names — the
+    // "type" Monarch rule above does NOT match a `class` semantic token; the
+    // legend name must appear verbatim as a `token` key. Every canonical
+    // CANONICAL_TOKEN_TYPES entry needs an explicit rule below to receive a
+    // colour, or it falls back to Monarch's underlying token (or default fg).
     //
     // Legend → palette mapping (frozen §15.1 role set):
+    //   class / enum / interface / struct / typeParameter → syntaxType
     //   property / enumMember → syntaxProperty
     //   method                → syntaxFunction  (same callable concept)
-    //   class / interface / struct / enum / typeParameter → syntaxType (via "type" above)
     //   parameter             → syntaxVariable  (same as variable)
     //   modifier              → syntaxKeyword   (same as keyword)
     //   macro                 → syntaxFunction  (callable; folded)
@@ -128,6 +132,11 @@ function buildSyntaxRules(palette: EditorPalette): Monaco.editor.ITokenThemeRule
     //   decorator             → syntaxKeyword   (meta/annotation; folded)
     //   label                 → syntaxVariable  (identifier-like; folded)
     // ---------------------------------------------------------------------------
+    { token: "class", foreground: fg(palette.syntaxType) },
+    { token: "enum", foreground: fg(palette.syntaxType) },
+    { token: "interface", foreground: fg(palette.syntaxType) },
+    { token: "struct", foreground: fg(palette.syntaxType) },
+    { token: "typeParameter", foreground: fg(palette.syntaxType) },
     { token: "property", foreground: fg(palette.syntaxProperty) },
     { token: "enumMember", foreground: fg(palette.syntaxProperty) },
     { token: "method", foreground: fg(palette.syntaxFunction) },
@@ -137,17 +146,31 @@ function buildSyntaxRules(palette: EditorPalette): Monaco.editor.ITokenThemeRule
     { token: "event", foreground: fg(palette.syntaxVariable) },
     { token: "decorator", foreground: fg(palette.syntaxKeyword) },
     { token: "label", foreground: fg(palette.syntaxVariable) },
+    // ---------------------------------------------------------------------------
+    // Pyright extensions — pyright emits custom token types beyond LSP 3.16
+    // (declared in CANONICAL_TOKEN_TYPES so they survive remap). Without these
+    // rules, references to stdlib functions (`os.getenv`, `print`) and built-in
+    // constants (`True`, `None`) render without semantic colour.
+    // ---------------------------------------------------------------------------
+    { token: "intrinsic", foreground: fg(palette.syntaxFunction) },
+    { token: "magicFunction", foreground: fg(palette.syntaxFunction) },
+    { token: "builtinConstant", foreground: fg(palette.syntaxKeyword) },
+    { token: "selfParameter", foreground: fg(palette.syntaxVariable), fontStyle: "italic" },
+    { token: "clsParameter", foreground: fg(palette.syntaxVariable), fontStyle: "italic" },
   ];
 }
 
 // ---------------------------------------------------------------------------
-// Theme base: warm-light uses "vs" (light base); dark themes use "vs-dark".
+// Theme base: light themes use "vs"; dark themes use "vs-dark".
 // This ensures Monaco's built-in token colorization starts from the right
 // luminance baseline before our palette overrides apply.
+//
+// Driven by ThemeSource.base metadata so the function does not need a
+// per-theme `if` branch when new themes land.
 // ---------------------------------------------------------------------------
 
 function monacoBase(themeId: ThemeId): Monaco.editor.BuiltinTheme {
-  return themeId === "warm-light" ? "vs" : "vs-dark";
+  return THEME_SOURCE_BY_ID[themeId].base === "light" ? "vs" : "vs-dark";
 }
 
 // ---------------------------------------------------------------------------
@@ -164,6 +187,13 @@ export function initializeMonacoTheme(monaco: typeof Monaco): void {
   if (initializedThemeMonacos.has(monaco)) return;
 
   for (const [themeId, themeName] of Object.entries(NEXUS_THEME_NAMES) as [ThemeId, string][]) {
+    // Note: enabling LSP semantic tokens is done via the editor option
+    // `'semanticHighlighting.enabled': true` (see editor-view.tsx), NOT
+    // via a theme property — Monaco's IStandaloneThemeData has no
+    // `semanticHighlighting` field, so any attempt to set it on
+    // defineTheme is silently dropped. The theme just needs to define
+    // rules whose `token` names match the semantic-token legend entries
+    // (CANONICAL_TOKEN_TYPES in shared/lsp/semantic-tokens.ts).
     monaco.editor.defineTheme(themeName, {
       base: monacoBase(themeId),
       inherit: true,

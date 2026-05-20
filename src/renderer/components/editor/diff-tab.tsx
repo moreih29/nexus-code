@@ -36,6 +36,11 @@ const diffEditorOptions = {
   automaticLayout: true,
 } satisfies Monaco.editor.IDiffEditorConstructionOptions;
 
+// IDiffEditorConstructionOptions doesn't include semanticHighlighting.enabled
+// in its type but the runtime accepts it (the underlying single editors
+// honour IGlobalEditorOptions). Cast handles the type gap.
+(diffEditorOptions as Record<string, unknown>)["semanticHighlighting.enabled"] = true;
+
 /**
  * Returns true only after `status` has been "refreshing" for longer than
  * REFRESHING_INDICATOR_DELAY_MS.  This prevents a visible flicker for fast

@@ -1,12 +1,18 @@
 // src/renderer/components/settings/settings-dialog.tsx — Settings dialog shell.
 //
-// Composite dialog with left nav (156px) + right panel (544px).
+// Composite dialog with left nav + right panel. Inner widths are derived from
+// the dialog `xl` size (720px) minus the SETTINGS_NAV_WIDTH constant below —
+// the magic 156/544 split lived only at the callsite before.
+//
+// Left nav now carries a search box at the top and an optional dirty-dot per
+// row so users can scan which panels they've already touched in this session.
+//
 // Props:
-//   open          — controlled open state
-//   onOpenChange  — Radix open-change contract
-//   nav           — nav item list (optional; defaults to built-in items)
+//   open           — controlled open state
+//   onOpenChange   — Radix open-change contract
+//   nav            — nav item list (optional; defaults to built-in items)
 //   defaultActiveId — initial panel selection
-//   children      — render prop: (activeId: string) => ReactNode
+//   children       — render prop: (activeId: string) => ReactNode
 //
 // ARIA: role=tablist (left nav), role=tab (each item), role=tabpanel (right),
 //       arrow-key navigation, sr-only title.
@@ -14,9 +20,9 @@
 // Design seal: semantic tokens only, no hex/oklch/rgba literals,
 // no magic pixel values, no shadows.
 
-import { X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { Dialog as RadixDialog } from "radix-ui";
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { cn } from "@/utils/cn";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../ui/dialog";
 import type { SettingsNavItem } from "./types";
@@ -26,10 +32,25 @@ import type { SettingsNavItem } from "./types";
 // ---------------------------------------------------------------------------
 
 const DEFAULT_NAV: SettingsNavItem[] = [
-  { id: "appearance", label: "Appearance", group: "Settings" },
-  { id: "editor", label: "Editor", group: "Settings" },
-  { id: "terminal", label: "Terminal", group: "Settings" },
+  { id: "appearance", label: "Appearance", group: "Settings", keywords: ["theme", "opacity"] },
+  {
+    id: "editor",
+    label: "Editor",
+    group: "Settings",
+    keywords: ["font", "size", "family", "ligatures", "line height"],
+  },
+  {
+    id: "terminal",
+    label: "Terminal",
+    group: "Settings",
+    keywords: ["font", "size", "cursor"],
+  },
 ];
+
+// Left-nav width — single source of truth for the Settings dialog split.
+// Lives here (not as a global token) because no other surface composes the
+// same layout; surface this constant if a second consumer ever appears.
+const SETTINGS_NAV_WIDTH_PX = 180;
 
 // ---------------------------------------------------------------------------
 // Props
@@ -57,19 +78,33 @@ export function SettingsDialog({
 }: SettingsDialogProps) {
   const firstId = nav[0]?.id ?? "appearance";
   const [activeId, setActiveId] = useState<string>(defaultActiveId ?? firstId);
+  const [query, setQuery] = useState("");
 
-  const titleId = useId();
   const panelId = useId();
+  const searchId = useId();
 
   // Refs for the nav tab buttons — used for arrow-key navigation.
   const tabRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+
+  // Filter nav items by the search query. Matches label + keywords (case-
+  // insensitive substring). The active item stays visible even when filtered
+  // out so the right panel doesn't blank.
+  const filteredNav = useMemo<SettingsNavItem[]>(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return nav;
+    return nav.filter((item) => {
+      if (item.id === activeId) return true;
+      if (item.label.toLowerCase().includes(q)) return true;
+      return (item.keywords ?? []).some((k) => k.toLowerCase().includes(q));
+    });
+  }, [nav, query, activeId]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
       if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
       e.preventDefault();
 
-      const ids = nav.map((item) => item.id);
+      const ids = filteredNav.map((item) => item.id);
       const currentIdx = ids.indexOf(activeId);
       if (currentIdx === -1) return;
 
@@ -84,11 +119,11 @@ export function SettingsDialog({
         tabRefs.current.get(nextId)?.focus();
       }
     },
-    [nav, activeId],
+    [filteredNav, activeId],
   );
 
   // Group nav items by their group label.
-  const groups = groupNavItems(nav);
+  const groups = groupNavItems(filteredNav);
 
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -97,24 +132,73 @@ export function SettingsDialog({
         <RadixDialog.Content
           className={dialogContentClass("xl", false, "flex flex-col")}
           style={{
-            minHeight: 480,
-            maxHeight: "calc(100vh - 96px)",
+            // Fixed-height dialog: the body never reflows when controls change,
+            // so the user never sees the modal jump as they tweak a slider /
+            // toggle a section. Viewport-only clamp keeps small displays usable
+            // (480 floor) while preventing oversized modals on large displays
+            // (640 ceiling). Panels themselves carry `overflow-y-auto` so any
+            // content beyond this height scrolls inside the right panel.
+            height: "clamp(480px, 80vh, 640px)",
           }}
-          aria-labelledby={titleId}
           aria-describedby={undefined}
         >
-          {/* sr-only title — satisfies Radix a11y contract */}
-          <RadixDialog.Title id={titleId} className="sr-only">
-            Settings
-          </RadixDialog.Title>
+          {/* Visually-hidden title — Radix wires the aria-labelledby itself
+              when Title is rendered as a direct child of Content. Mirroring
+              the form-dialog.tsx pattern that already works in this codebase
+              (the manual `aria-labelledby` + `id` we had before was racing
+              Radix's own wiring and the runtime warning fired despite the
+              Title being present). */}
+          <RadixDialog.Title className="sr-only">Settings</RadixDialog.Title>
 
-          {/* Main layout: left nav 156px + right panel flex-1 */}
+          {/* Main layout: left nav + right panel flex-1 */}
           <div className="flex flex-1 min-h-0">
-            {/* Left nav */}
+            {/* Left nav — width sourced from SETTINGS_NAV_WIDTH_PX (no magic literal) */}
             <nav
-              className="w-[156px] shrink-0 flex flex-col border-r border-border py-3"
+              style={{ width: SETTINGS_NAV_WIDTH_PX }}
+              className="shrink-0 flex flex-col border-r border-border py-3"
               aria-label="Settings navigation"
             >
+              {/* Search */}
+              <div className="px-3 pb-2">
+                <label htmlFor={searchId} className="sr-only">
+                  Search settings
+                </label>
+                <div
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-(--radius-control)",
+                    "border border-border bg-background px-2 py-1",
+                    "focus-within:ring-1 focus-within:ring-ring",
+                  )}
+                >
+                  <Search
+                    className="size-3 shrink-0 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <input
+                    id={searchId}
+                    type="text"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search"
+                    className={cn(
+                      "min-w-0 flex-1 bg-transparent text-app-ui-sm text-foreground outline-none",
+                      "placeholder:text-muted-foreground",
+                    )}
+                  />
+                  {query !== "" && (
+                    <button
+                      type="button"
+                      aria-label="Clear search"
+                      onClick={() => setQuery("")}
+                      className="inline-flex shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="size-3" aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Nav tabs */}
               <div
                 role="tablist"
                 aria-orientation="vertical"
@@ -145,13 +229,17 @@ export function SettingsDialog({
                           }}
                           onClick={() => setActiveId(item.id)}
                           className={cn(
-                            "block w-full px-4 py-1.5 text-left text-app-body font-sans",
-                            "border-l-[4px] transition-colors cursor-pointer select-none",
+                            "flex w-full items-center justify-between gap-2 px-4 py-1.5 text-left text-app-body font-sans",
+                            // 2px indicator — matches workbench/sidebar.tsx and file-tree row.
+                            // The settings nav is a Floating-layer surface (design.md §2),
+                            // so it uses state.selected.* tokens rather than the sidebar
+                            // region's tokens (different region → different vocabulary).
+                            "border-l-2 transition-colors cursor-pointer select-none",
                             isActive
                               ? [
                                   "border-l-[var(--state-selected-indicator)]",
-                                  "bg-[var(--sidebar-item-selected-bg)]",
-                                  "text-foreground",
+                                  "bg-[var(--state-selected-bg)]",
+                                  "text-[var(--state-selected-fg)]",
                                 ]
                               : [
                                   "border-l-transparent",
@@ -160,12 +248,25 @@ export function SettingsDialog({
                                 ],
                           )}
                         >
-                          {item.label}
+                          <span className="truncate">{item.label}</span>
+                          {item.dirty && (
+                            <span
+                              role="img"
+                              aria-label="modified"
+                              title="Modified in this session"
+                              className="size-1.5 shrink-0 rounded-full bg-[var(--state-selected-indicator)]"
+                            />
+                          )}
                         </button>
                       );
                     })}
                   </div>
                 ))}
+                {filteredNav.length === 0 && (
+                  <div className="px-4 py-3 text-app-ui-sm text-muted-foreground">
+                    No matches.
+                  </div>
+                )}
               </div>
             </nav>
 

@@ -437,7 +437,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       semanticTokensParams(parsed),
       { signal: opts.signal },
     );
-
     const normalized = normalizeSemanticTokensResult(raw);
     if (!normalized) return SemanticTokensResultSchema.nullable().parse(null);
 

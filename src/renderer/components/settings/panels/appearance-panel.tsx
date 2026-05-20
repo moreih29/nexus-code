@@ -1,41 +1,38 @@
 // src/renderer/components/settings/panels/appearance-panel.tsx
 //
-// Controls: Theme (segmented 4) + Density (segmented 2) +
-//           Window Opacity (slider 0.5–1.0 step 0.05 + value label) +
-//           Restart banner (conditional on opacity isDirty).
+// Controls: Theme (grid of visual theme cards) + Window Opacity (slider 0–100%).
 //
-// Design seal: semantic tokens only, no hex/oklch/rgba literals,
-// no magic pixel values, no shadows.
+// Theme picker: each ThemeSource produces one card showing the theme's
+// dominant colors (bg + fg + accent + four syntax roles) so users select by
+// visual identity, not just by name. Selection commits immediately — the
+// resolved theme is applied via the [data-theme] attribute by useThemeEffect.
+//
+// Window opacity applies immediately via --window-opacity CSS var; the macOS
+// BrowserWindow is created with `transparent: true` unconditionally so no
+// restart is ever needed.
+//
+// Design seal: semantic tokens only on the chrome surrounding the cards.
+// The card swatches intentionally use raw theme colors (the swatches ARE the
+// theme preview — that's the whole point of this picker).
 
-import { Slider } from "radix-ui";
+import { RadioGroup, Slider } from "radix-ui";
 import { useEffect, useState } from "react";
+import {
+  DEFAULT_THEME,
+  THEME_SOURCES,
+  type ThemeId,
+  type ThemeSource,
+} from "../../../../shared/design-tokens";
 import { cn } from "@/utils/cn";
-import type { ThemePreference } from "../../../../shared/types/app-state";
-import type { DensityPreference } from "../../../state/stores/density";
-import { useDensityStore } from "../../../state/stores/density";
 import { useThemeStore } from "../../../state/stores/theme";
 import { useWindowOpacityStore } from "../../../state/stores/window-opacity";
-import { RestartBanner } from "../restart-banner";
-import type { SegmentedOption } from "../segmented-control";
-import { SegmentedControl } from "../segmented-control";
+import { SettingsSection } from "../section";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const THEME_OPTIONS: SegmentedOption<ThemePreference>[] = [
-  { value: "warm-dark", label: "Warm Dark" },
-  { value: "cool-dark", label: "Cool Dark" },
-  { value: "warm-light", label: "Warm Light" },
-  { value: "system", label: "System" },
-];
-
-const DENSITY_OPTIONS: SegmentedOption<DensityPreference>[] = [
-  { value: "default", label: "Default" },
-  { value: "compact", label: "Compact" },
-];
-
-const OPACITY_MIN = 0.5;
+const OPACITY_MIN = 0;
 const OPACITY_MAX = 1.0;
 const OPACITY_STEP = 0.05;
 
@@ -47,14 +44,10 @@ export function AppearancePanel() {
   const themePreference = useThemeStore((s) => s.preference);
   const setThemePreference = useThemeStore((s) => s.setPreference);
 
-  const densityPreference = useDensityStore((s) => s.preference);
-  const setDensityPreference = useDensityStore((s) => s.setPreference);
-
   const opacity = useWindowOpacityStore((s) => s.opacity);
   const setOpacity = useWindowOpacityStore((s) => s.setOpacity);
 
   // Local preview — updated on every drag tick for real-time value label.
-  // setOpacity (→ IPC + isDirty) is only called on pointer-up (onValueCommit).
   const [localOpacity, setLocalOpacity] = useState<number>(opacity);
 
   // Keep local preview in sync when the store changes outside this component
@@ -65,30 +58,39 @@ export function AppearancePanel() {
 
   const opacityPercent = Math.round(localOpacity * 100);
 
+  const themeDirty = themePreference !== DEFAULT_THEME;
+  const opacityDirty = opacity !== 1;
+
   return (
     <div className="flex flex-col gap-6">
-      {/* Section: Theme */}
-      <SettingsSection label="Theme">
-        <SegmentedControl
-          options={THEME_OPTIONS}
+      {/* Section: Theme — grid of visual cards */}
+      <SettingsSection
+        label="Theme"
+        dirty={themeDirty}
+        onReset={() => setThemePreference(DEFAULT_THEME)}
+      >
+        <RadioGroup.Root
+          aria-label="Theme"
           value={themePreference}
-          onChange={setThemePreference}
-          label="Theme"
-        />
-      </SettingsSection>
-
-      {/* Section: Density */}
-      <SettingsSection label="Density">
-        <SegmentedControl
-          options={DENSITY_OPTIONS}
-          value={densityPreference}
-          onChange={setDensityPreference}
-          label="Density"
-        />
+          onValueChange={(value: string) => setThemePreference(value as ThemeId)}
+          className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+        >
+          {THEME_SOURCES.map((source) => (
+            <ThemeCard
+              key={source.id}
+              source={source}
+              selected={themePreference === source.id}
+            />
+          ))}
+        </RadioGroup.Root>
       </SettingsSection>
 
       {/* Section: Window Opacity */}
-      <SettingsSection label="Window opacity">
+      <SettingsSection
+        label="Window opacity"
+        dirty={opacityDirty}
+        onReset={() => setOpacity(1)}
+      >
         <div className="flex items-center gap-3">
           <Slider.Root
             min={OPACITY_MIN}
@@ -96,10 +98,10 @@ export function AppearancePanel() {
             step={OPACITY_STEP}
             value={[localOpacity]}
             onValueChange={(vals) => {
-              if (vals[0] !== undefined) setLocalOpacity(vals[0]);
-            }}
-            onValueCommit={(vals) => {
-              if (vals[0] !== undefined) setOpacity(vals[0]);
+              if (vals[0] !== undefined) {
+                setLocalOpacity(vals[0]);
+                setOpacity(vals[0]);
+              }
             }}
             aria-label="Window opacity"
             className="relative flex flex-1 touch-none select-none items-center"
@@ -109,7 +111,7 @@ export function AppearancePanel() {
             </Slider.Track>
             <Slider.Thumb
               className={cn(
-                "block size-4 rounded-full border border-border bg-background",
+                "block size-4 rounded-full border border-[var(--state-selected-bg)] bg-[var(--state-selected-bg)]",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 "transition-colors",
               )}
@@ -119,21 +121,131 @@ export function AppearancePanel() {
             {opacityPercent}%
           </span>
         </div>
-        <RestartBanner />
       </SettingsSection>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Local helper
+// ThemeCard — visual preview + name. Click anywhere on the card to select.
+//
+// The card itself paints with the theme's own surface colors so each card is
+// a faithful preview of "what the app will look like if I pick this".
 // ---------------------------------------------------------------------------
 
-function SettingsSection({ label, children }: { label: string; children: React.ReactNode }) {
+interface ThemeCardProps {
+  source: ThemeSource;
+  selected: boolean;
+}
+
+function ThemeCard({ source, selected }: ThemeCardProps) {
+  // Two rows of swatches paint the theme's own colours:
+  //   row 1 — surface chrome:  bg.primary, bg.secondary, bg.floating, fg.muted, accent
+  //   row 2 — syntax accents:  keyword, string, number, function, type
+  const surfaceSwatches: { value: string; label: string }[] = [
+    { value: source.bg.primary, label: "bg" },
+    { value: source.bg.secondary, label: "panel" },
+    { value: source.bg.floating, label: "float" },
+    { value: source.fg.muted, label: "muted" },
+    { value: source.accent, label: "accent" },
+  ];
+  const syntaxSwatches: { value: string; label: string }[] = [
+    { value: source.syntax.keyword, label: "keyword" },
+    { value: source.syntax.string, label: "string" },
+    { value: source.syntax.number, label: "number" },
+    { value: source.syntax.function, label: "function" },
+    { value: source.syntax.type, label: "type" },
+  ];
+
   return (
-    <div className="flex flex-col gap-2">
-      <span className="text-app-ui-sm text-muted-foreground">{label}</span>
-      {children}
-    </div>
+    <RadioGroup.Item
+      value={source.id}
+      className={cn(
+        "group relative flex flex-col overflow-hidden",
+        "rounded-(--radius-raised) border text-left",
+        "transition-[border-color,box-shadow]",
+        selected
+          ? "border-[var(--state-selected-indicator)] ring-1 ring-[var(--state-selected-indicator)]"
+          : "border-border hover:border-[var(--surface-floating-border)]",
+      )}
+      // The card paints with the theme's own surface so it previews itself.
+      style={{ background: source.bg.primary, color: source.fg.primary }}
+    >
+      {/* Header — name, base tag */}
+      <div
+        className="flex items-center justify-between gap-2 px-3 py-2"
+        style={{ background: source.bg.secondary, color: source.fg.primary }}
+      >
+        <span className="text-app-body-emphasis truncate" style={{ color: source.fg.primary }}>
+          {source.name}
+        </span>
+        <span
+          className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 text-app-micro uppercase tracking-[1px]"
+          style={{
+            background: source.bg.floating,
+            color: source.fg.muted,
+            border: `1px solid ${source.border}`,
+          }}
+        >
+          {source.base}
+        </span>
+      </div>
+
+      {/* Surface swatch row */}
+      <div className="flex gap-1 px-3 pt-2">
+        {surfaceSwatches.map((s) => (
+          <Swatch key={s.label} value={s.value} title={`${s.label}: ${s.value}`} large />
+        ))}
+      </div>
+
+      {/* Syntax swatch row */}
+      <div className="flex gap-1 px-3 pt-1.5">
+        {syntaxSwatches.map((s) => (
+          <Swatch key={s.label} value={s.value} title={`${s.label}: ${s.value}`} large />
+        ))}
+      </div>
+
+      {/* Tiny code preview — three lines, hand-coloured so each card actually
+          shows keyword / string / function / comment hues in context. */}
+      <div
+        className="mt-2 px-3 pb-2.5 font-mono text-app-micro leading-tight"
+        style={{ color: source.fg.primary }}
+      >
+        <div>
+          <span style={{ color: source.syntax.comment, fontStyle: "italic" }}>
+            {"// "}{source.description}
+          </span>
+        </div>
+        <div className="truncate">
+          <span style={{ color: source.syntax.keyword }}>const</span>{" "}
+          <span style={{ color: source.syntax.variable }}>theme</span>{" "}
+          <span style={{ color: source.syntax.operator }}>=</span>{" "}
+          <span style={{ color: source.syntax.function }}>load</span>
+          <span style={{ color: source.syntax.operator }}>(</span>
+          <span style={{ color: source.syntax.string }}>{`"${source.id}"`}</span>
+          <span style={{ color: source.syntax.operator }}>);</span>
+        </div>
+      </div>
+    </RadioGroup.Item>
+  );
+}
+
+interface SwatchProps {
+  value: string;
+  title: string;
+  large?: boolean;
+}
+
+function Swatch({ value, title, large }: SwatchProps) {
+  return (
+    <span
+      title={title}
+      aria-hidden
+      className={cn(
+        "block rounded-[3px] border border-black/10 dark:border-white/10",
+        large ? "h-4 flex-1" : "size-3",
+      )}
+      style={{ background: value }}
+    />
   );
 }

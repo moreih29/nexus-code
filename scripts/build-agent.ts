@@ -35,10 +35,16 @@ const LSP_BUNDLES = [
     extraDependencies: ["typescript"],
   },
   {
+    // basedpyright is a community fork of microsoft/pyright that adds the
+    // language-server features Microsoft keeps behind closed-source Pylance —
+    // most importantly the semanticTokensProvider that the renderer relies
+    // on for syntax-aware colouring. The fork preserves pyright's bin names
+    // (`pyright-langserver`) and `langserver.index.js` entry path, so the
+    // launcher and manifest lookup keys stay byte-identical.
     name: "pyright-langserver",
-    packageName: "pyright",
+    packageName: "basedpyright",
     languages: ["python"],
-    entry: "node_modules/pyright/langserver.index.js",
+    entry: "node_modules/basedpyright/langserver.index.js",
     launcher: "bin/pyright-langserver",
     argsTemplate: ["--stdio"],
     extraDependencies: [],

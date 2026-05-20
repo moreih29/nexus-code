@@ -25,11 +25,15 @@ export const LSP_CLIENT_CAPABILITIES = {
     publishDiagnostics: {
       relatedInformation: true,
     },
-    // Advertise full-document semantic tokens support. Without this entry
-    // servers such as typescript-language-server and pyright withhold their
-    // semanticTokensProvider capability. The tokenTypes / tokenModifiers
-    // arrays declare the standard LSP 3.16 legend; servers ignore unknown
-    // entries and only use what they understand.
+    // Advertise full-document semantic tokens support. Servers gate the
+    // semanticTokensProvider capability behind this entry: typescript-
+    // language-server, basedpyright, and similar checkers all decline to
+    // advertise it when the client legend is missing. Note that upstream
+    // microsoft/pyright does NOT implement semantic tokens at all (the
+    // feature lives in closed-source Pylance) — we bundle basedpyright,
+    // the community fork that ships it under MIT. The tokenTypes /
+    // tokenModifiers arrays declare the standard LSP 3.16 legend; servers
+    // ignore unknown entries and only use what they understand.
     semanticTokens: {
       requests: {
         full: true,

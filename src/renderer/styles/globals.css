@@ -209,6 +209,31 @@
 }
 
 /* ---------------------------------------------------------------------------
+   Settings → Terminal preview cursor blink.
+   1.2s on/off cycle mirrors xterm's default blink cadence. The `.preview-cursor-blink`
+   utility opts in; we don't apply blinking to real terminals (xterm handles that itself).
+   --------------------------------------------------------------------------- */
+
+@keyframes preview-cursor-blink {
+  0%, 49% {
+    opacity: 1;
+  }
+  50%, 100% {
+    opacity: 0;
+  }
+}
+
+@utility preview-cursor-blink {
+  animation: preview-cursor-blink 1.2s steps(1, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .preview-cursor-blink {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
    Floating-layer dialog entry/exit motion (design.md §7 — motion.scale).
    Applied by the shared <Dialog> shell + dialogContentClass() helper, so every
    modal animates in/out identically. Radix sets data-state on Overlay/Content

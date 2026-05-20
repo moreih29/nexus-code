@@ -1,10 +1,14 @@
 import { z } from "zod";
+import { THEME_SOURCES } from "../design-tokens";
 import { WorkspaceLayoutSnapshotSchema } from "./layout";
 
-// ThemeId is the single source of truth — imported from design-tokens so the
-// zod enum stays in sync with the runtime registry without duplication.
+// ThemePreferenceSchema mirrors the registered ThemeId set. The "system"
+// preference was retired when external themes replaced the first-party
+// warm/cool pair (only one light variant ships, so OS Auto can't pick a
+// matching dark partner deterministically).
 // design.md §8 decision: "ThemeId를 shared 단일소스로 참조 — zod enum 이중정의 금지"
-export const ThemePreferenceSchema = z.enum(["warm-dark", "cool-dark", "warm-light", "system"]);
+const themeIds = THEME_SOURCES.map((s) => s.id) as [string, ...string[]];
+export const ThemePreferenceSchema = z.enum(themeIds);
 export type ThemePreference = z.infer<typeof ThemePreferenceSchema>;
 
 export const WindowBoundsSchema = z.object({
@@ -31,17 +35,10 @@ export const AppStateSchema = z.object({
   // UI density — 닫힌 집합; 부재=토큰 fallback ('default').
   density: z.enum(["default", "compact"]).optional(),
 
-  // Editor font size in px — 닫힌 집합; 부재=토큰 fallback (14).
-  editorFontSize: z
-    .union([
-      z.literal(12),
-      z.literal(13),
-      z.literal(14),
-      z.literal(16),
-      z.literal(18),
-      z.literal(20),
-    ])
-    .optional(),
+  // Editor font size in px — integer, clamped to [8, 32]; 부재=토큰 fallback (16).
+  // Widened from a closed set so the Settings dialog can offer a numeric
+  // stepper instead of a discrete slider (user-driven UX change).
+  editorFontSize: z.number().int().min(8).max(32).optional(),
 
   // Editor font family — sanitize: CSS injection 차단 (/^[A-Za-z0-9\s,'"]+$/); 부재=토큰 fallback.
   editorFontFamily: z
@@ -59,17 +56,10 @@ export const AppStateSchema = z.object({
     .union([z.literal(1.0), z.literal(1.2), z.literal(1.4)])
     .optional(),
 
-  // Terminal font size in px — 닫힌 집합; 부재=토큰 fallback (14).
-  terminalFontSize: z
-    .union([
-      z.literal(12),
-      z.literal(13),
-      z.literal(14),
-      z.literal(16),
-      z.literal(18),
-      z.literal(20),
-    ])
-    .optional(),
+  // Terminal font size in px — integer, clamped to [8, 32]; 부재=토큰 fallback (14).
+  // Widened from a closed set so the Settings dialog can offer a numeric
+  // stepper instead of a discrete slider.
+  terminalFontSize: z.number().int().min(8).max(32).optional(),
 
   // Terminal cursor style — 닫힌 집합; 부재=토큰 fallback ('block').
   terminalCursorStyle: z.enum(["block", "underline", "bar"]).optional(),
