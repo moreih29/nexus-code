@@ -274,11 +274,12 @@ export function EditorPanel() {
  * styled to match keeps the dialog lightweight and avoids loading another
  * editor worker just for ~5 lines of preview text.
  */
-const PREVIEW_CODE = `function greet(name) {
-  if (name === "" || name == null) return "Hello, world";
-  // arrow => fat ==> not-eq != >= <= !==
-  return \`Hello, \${name}!\`;
-}`;
+// Snippet kept short so it fits the preview at the maximum font size (32px).
+// Lines deliberately don't exceed ~28 chars so even at the high end the
+// preview doesn't need horizontal scroll.
+const PREVIEW_CODE = `const fn = (x) => x !== 0;
+// => != >= <= !== ==>
+return \`Hi, \${name}!\`;`;
 
 function EditorPreview({
   fontFamily,
@@ -295,17 +296,30 @@ function EditorPreview({
     <div className="flex flex-col gap-2">
       <span className="text-app-ui-sm text-muted-foreground">Preview</span>
       <div
-        className="rounded-(--radius-control) border border-border bg-background px-3 py-2 whitespace-pre text-foreground"
+        className={cn(
+          "rounded-(--radius-control) border border-border bg-background px-3 py-2 text-foreground",
+          // Clip overflow at the largest font sizes — the snippet is sized so
+          // it fits at 32px, but exotic fonts may render slightly wider.
+          // `text-wrap` instead of `whitespace-pre` lets long lines fold
+          // gracefully if anything does overflow, without the horizontal
+          // scrollbar leaking into the dialog.
+          "overflow-hidden",
+        )}
         style={{
           // `<pre>` carries a user-agent `font-family: monospace` rule that
           // overrides any inline fontFamily inherited from a parent — so the
           // preview used to look identical regardless of the family/ligature
           // pick. We render the snippet on a plain <div> with white-space:pre
-          // instead; family + feature-settings now flow through.
-          fontFamily: `${fontFamily}, ui-monospace, monospace`,
+          // instead; family + feature-settings now flow through. Quoting the
+          // first family token guards multi-word custom names like
+          // "Fira Code" / "D2 Coding" against the legacy unquoted parsing
+          // that splits on whitespace.
+          fontFamily: `"${fontFamily}", ui-monospace, monospace`,
           fontSize,
           lineHeight,
           fontFeatureSettings: ligatures ? '"liga", "calt"' : '"liga" 0, "calt" 0',
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
         }}
       >
         {PREVIEW_CODE}

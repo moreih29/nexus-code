@@ -21,7 +21,7 @@
 // no magic pixel values, no shadows.
 
 import { Search, X } from "lucide-react";
-import { Dialog as RadixDialog } from "radix-ui";
+import { Dialog as RadixDialog, VisuallyHidden as RadixVisuallyHidden } from "radix-ui";
 import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { cn } from "@/utils/cn";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../ui/dialog";
@@ -144,10 +144,13 @@ export function SettingsDialog({
           aria-labelledby={titleId}
           aria-describedby={undefined}
         >
-          {/* sr-only title — satisfies Radix a11y contract */}
-          <RadixDialog.Title id={titleId} className="sr-only">
-            Settings
-          </RadixDialog.Title>
+          {/* Visually-hidden title — satisfies Radix's screen-reader contract
+              without leaking a visible "Settings" heading into the dialog body.
+              Using Radix's VisuallyHidden primitive (instead of Tailwind's
+              `sr-only`) is the pattern the Dialog runtime warning links to. */}
+          <RadixVisuallyHidden.Root asChild>
+            <RadixDialog.Title id={titleId}>Settings</RadixDialog.Title>
+          </RadixVisuallyHidden.Root>
 
           {/* Main layout: left nav + right panel flex-1 */}
           <div className="flex flex-1 min-h-0">
