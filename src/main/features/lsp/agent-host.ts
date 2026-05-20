@@ -623,33 +623,8 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     uri: string,
   ): { server: AgentLspServer; context: ServerContext } | null {
     const presetLanguageId = this.uriIndex.get(workspaceId)?.get(uri);
-    if (!presetLanguageId) {
-      // DEBUG: trace why a request can't be routed
-      const wsHas = this.uriIndex.has(workspaceId);
-      const uriCount = this.uriIndex.get(workspaceId)?.size ?? 0;
-      console.log(
-        "[findServer] no route",
-        "workspaceId=",
-        workspaceId.slice(0, 8),
-        "uri=",
-        uri.split("/").pop(),
-        "workspaceHasIndex=",
-        wsHas,
-        "uriCount=",
-        uriCount,
-      );
-      return null;
-    }
+    if (!presetLanguageId) return null;
     const server = this.workspaceServers.get(workspaceId)?.get(presetLanguageId);
-    if (!server) {
-      console.log(
-        "[findServer] indexed but server missing",
-        "workspaceId=",
-        workspaceId.slice(0, 8),
-        "presetLanguageId=",
-        presetLanguageId,
-      );
-    }
     return server
       ? { server, context: { workspaceId, languageId: presetLanguageId } }
       : null;
