@@ -295,15 +295,20 @@ function EditorPreview({
     <div className="flex flex-col gap-2">
       <span className="text-app-ui-sm text-muted-foreground">Preview</span>
       <div
-        className="rounded-(--radius-control) border border-border bg-background px-3 py-2"
+        className="rounded-(--radius-control) border border-border bg-background px-3 py-2 whitespace-pre text-foreground"
         style={{
+          // `<pre>` carries a user-agent `font-family: monospace` rule that
+          // overrides any inline fontFamily inherited from a parent — so the
+          // preview used to look identical regardless of the family/ligature
+          // pick. We render the snippet on a plain <div> with white-space:pre
+          // instead; family + feature-settings now flow through.
           fontFamily: `${fontFamily}, ui-monospace, monospace`,
           fontSize,
           lineHeight,
           fontFeatureSettings: ligatures ? '"liga", "calt"' : '"liga" 0, "calt" 0',
         }}
       >
-        <pre className="m-0 whitespace-pre text-foreground">{PREVIEW_CODE}</pre>
+        {PREVIEW_CODE}
       </div>
     </div>
   );

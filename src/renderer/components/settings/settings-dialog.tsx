@@ -133,8 +133,13 @@ export function SettingsDialog({
         <RadixDialog.Content
           className={dialogContentClass("xl", false, "flex flex-col")}
           style={{
-            minHeight: 480,
-            maxHeight: "calc(100vh - 96px)",
+            // Fixed-height dialog: the body never reflows when controls change,
+            // so the user never sees the modal jump as they tweak a slider /
+            // toggle a section. Viewport-only clamp keeps small displays usable
+            // (480 floor) while preventing oversized modals on large displays
+            // (640 ceiling). Panels themselves carry `overflow-y-auto` so any
+            // content beyond this height scrolls inside the right panel.
+            height: "clamp(480px, 80vh, 640px)",
           }}
           aria-labelledby={titleId}
           aria-describedby={undefined}

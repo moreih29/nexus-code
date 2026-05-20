@@ -37,10 +37,16 @@ export function App() {
   const settingsOpen = useSettingsUIStore((s) => s.settingsOpen);
   const closeSettings = useSettingsUIStore((s) => s.closeSettings);
 
-  // Settings nav — computed here so each row can carry a `dirty` dot. A panel
-  // is "dirty" when any of its stored fields diverges from the token fallback
-  // (i.e. user has touched the value). Each field reads with a primitive
-  // selector to keep the useSyncExternalStore identity stable across ticks.
+  // Settings nav — each row carries an optional `dirty` dot. Dirty is
+  // **session-scoped**: it means "this value changed while the current
+  // Settings dialog session was open", not "this value diverges from the
+  // built-in default". Settings auto-persist on every setter call, so once
+  // the user closes the dialog we treat the new values as the new baseline.
+  //
+  // Implementation: when settingsOpen flips false → true we snapshot every
+  // tracked field. While the dialog is open, dirty = current !== snapshot.
+  // When the dialog closes, the snapshot is wiped so the next open starts
+  // clean.
   const themePreference = useThemeStore((s) => s.preference);
   const opacity = useWindowOpacityStore((s) => s.opacity);
   const editorFontSize = useEditorFontStore((s) => s.size);
@@ -49,47 +55,89 @@ export function App() {
   const editorFontLineHeight = useEditorFontStore((s) => s.lineHeight);
   const terminalFontSize = useTerminalStore((s) => s.fontSize);
   const terminalCursorStyle = useTerminalStore((s) => s.cursorStyle);
-  const settingsNav = useMemo<SettingsNavItem[]>(
-    () => [
+
+  interface SettingsSnapshot {
+    themePreference: typeof themePreference;
+    opacity: number;
+    editorFontSize: typeof editorFontSize;
+    editorFontFamily: typeof editorFontFamily;
+    editorFontLigatures: typeof editorFontLigatures;
+    editorFontLineHeight: typeof editorFontLineHeight;
+    terminalFontSize: typeof terminalFontSize;
+    terminalCursorStyle: typeof terminalCursorStyle;
+  }
+  const [settingsSnapshot, setSettingsSnapshot] = useState<SettingsSnapshot | null>(null);
+
+  // Capture on open, clear on close. We deliberately depend only on
+  // settingsOpen so the snapshot is taken exactly once per session and never
+  // updated mid-session (otherwise dirty would always be false).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: snapshot is captured at the moment of opening; mid-session reads must not refresh it
+  useEffect(() => {
+    if (settingsOpen) {
+      setSettingsSnapshot({
+        themePreference,
+        opacity,
+        editorFontSize,
+        editorFontFamily,
+        editorFontLigatures,
+        editorFontLineHeight,
+        terminalFontSize,
+        terminalCursorStyle,
+      });
+    } else {
+      setSettingsSnapshot(null);
+    }
+  }, [settingsOpen]);
+
+  const settingsNav = useMemo<SettingsNavItem[]>(() => {
+    const snap = settingsSnapshot;
+    const appearanceDirty =
+      snap !== null &&
+      (themePreference !== snap.themePreference || opacity !== snap.opacity);
+    const editorDirty =
+      snap !== null &&
+      (editorFontSize !== snap.editorFontSize ||
+        editorFontFamily !== snap.editorFontFamily ||
+        editorFontLigatures !== snap.editorFontLigatures ||
+        editorFontLineHeight !== snap.editorFontLineHeight);
+    const terminalDirty =
+      snap !== null &&
+      (terminalFontSize !== snap.terminalFontSize ||
+        terminalCursorStyle !== snap.terminalCursorStyle);
+    return [
       {
         id: "appearance",
         label: "Appearance",
         group: "Settings",
         keywords: ["theme", "opacity"],
-        // Dirty when the user has explicitly chosen anything other than the
-        // built-in default (warm-dark theme + 100% opacity).
-        dirty: themePreference !== "warm-dark" || opacity !== 1,
+        dirty: appearanceDirty,
       },
       {
         id: "editor",
         label: "Editor",
         group: "Settings",
         keywords: ["font", "size", "family", "ligatures", "line height"],
-        dirty:
-          editorFontSize !== undefined ||
-          editorFontFamily !== undefined ||
-          editorFontLigatures !== undefined ||
-          editorFontLineHeight !== undefined,
+        dirty: editorDirty,
       },
       {
         id: "terminal",
         label: "Terminal",
         group: "Settings",
         keywords: ["font", "size", "cursor"],
-        dirty: terminalFontSize !== undefined || terminalCursorStyle !== undefined,
+        dirty: terminalDirty,
       },
-    ],
-    [
-      themePreference,
-      opacity,
-      editorFontSize,
-      editorFontFamily,
-      editorFontLigatures,
-      editorFontLineHeight,
-      terminalFontSize,
-      terminalCursorStyle,
-    ],
-  );
+    ];
+  }, [
+    settingsSnapshot,
+    themePreference,
+    opacity,
+    editorFontSize,
+    editorFontFamily,
+    editorFontLigatures,
+    editorFontLineHeight,
+    terminalFontSize,
+    terminalCursorStyle,
+  ]);
 
   // Workspaces that have been activated at least once in this session.
   // Their <WorkspacePanel> stays mounted (CSS-hidden when inactive) so PTYs
