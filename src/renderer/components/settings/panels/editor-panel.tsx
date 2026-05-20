@@ -86,7 +86,11 @@ export function EditorPanel() {
   const setLineHeight = useEditorFontStore((s) => s.setLineHeight);
 
   const effectiveSize = size ?? DEFAULT_FONT_SIZE_TOKEN;
-  const effectiveFamily = family && family !== "" ? family : "JetBrains Mono Nerd Font";
+  // For preview we want the *literal* user choice to render. If family is
+  // undefined ("System" in the select), fall back to plain ui-monospace so
+  // the user sees the system mono font — picking JetBrains Mono Nerd Font as
+  // the silent fallback made "System" and "JetBrains Mono" look identical.
+  const previewFamilyStack = family && family !== "" ? family : "ui-monospace";
   const effectiveLineHeight = lineHeight ?? DEFAULT_LINE_HEIGHT_TOKEN;
   const effectiveLigatures = ligatures ?? false;
 
@@ -159,7 +163,7 @@ export function EditorPanel() {
       {/* Persistent preview — reflects every editor setting in real time so
           the user can judge their choices before closing the dialog. */}
       <EditorPreview
-        fontFamily={effectiveFamily}
+        fontFamily={previewFamilyStack}
         fontSize={effectiveSize}
         lineHeight={effectiveLineHeight}
         ligatures={effectiveLigatures}
