@@ -106,10 +106,22 @@ async function handleServerRequest(lspHost: LspHostHandle, args: unknown): Promi
  * during startup and not maintain it per-event.
  */
 export function registerLspChannel(lspHost: LspHostHandle): void {
-  // Forward host diagnostics events to renderers.
+  // Forward host diagnostics events to renderers. The host's debouncer
+  // emits `{ workspaceId, languageId, uri, diagnostics }`; we keep
+  // workspaceId so the renderer's listener can reconstruct the
+  // workspace-scoped cacheUri for the right Monaco model. Without
+  // workspaceId the listener's `workspaceUriFor(undefined, …)` throws
+  // immediately ("Cannot read properties of undefined (reading 'length')"
+  // from the empty-string guard) and Monaco never receives the markers,
+  // which in turn looks to the user like the LSP "just stops responding"
+  // after a workspace switch.
   lspHost.on("diagnostics", (args) => {
-    const { uri, diagnostics } = args as { uri: string; diagnostics: unknown[] };
-    broadcast("lsp", "diagnostics", { uri, diagnostics });
+    const { workspaceId, uri, diagnostics } = args as {
+      workspaceId: string;
+      uri: string;
+      diagnostics: unknown[];
+    };
+    broadcast("lsp", "diagnostics", { workspaceId, uri, diagnostics });
   });
 
   lspHost.on("serverRequest", (args) => {
