@@ -16977,6 +16977,132 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-20T16:15:11.898Z",
+      "branch": "feat/terminal-osc-notifications",
+      "plan": {
+        "id": 54,
+        "topic": "워크스페이스 터미널 → AI 하네스 알림 (Claude Code / Codex / OpenCode)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "I1: PTY spawn 시 TERM_PROGRAM 환경변수 주입 — Claude Code가 우리를 '지원 터미널'로 인식해 OSC 9를 자동 emit하도록 함",
+            "status": "decided",
+            "decision": "PTY spawn 시 env에 TERM_PROGRAM=ghostty + TERM_PROGRAM_VERSION=1.0 주입. 위치: Electron main IPC spawn 핸들러(src/main/features/pty/ipc.ts) — 사용자 env에 이미 같은 키가 있으면 덮어쓰지 않음(사용자 의도 우선)"
+          },
+          {
+            "id": 2,
+            "title": "I2: main 프로세스에서 OSC 9/777/99 정규식 파서 + Electron Notification + 포커스 가드",
+            "status": "decided",
+            "decision": "main 프로세스 agent-host의 handleData() 직후, broadcast 직전에 OSC 9/777/99 정규식 파싱. 매칭된 sequence는 chunk에서 제거하지 않고 그대로 forward(xterm.js 안전). 매칭 시 Electron Notification 생성, 본문 prefix로 [워크스페이스명] 부착. 포커스 가드: BrowserWindow 활성 + 해당 탭 active면 OS 알림 스킵하고 in-app event만 emit (in-app toast UI는 차후)",
+            "analysis": [
+              {
+                "role": "retrospective",
+                "summary": "Cycle 회고: 3 태스크(env injection, OSC parser/dispatcher, click handler) 모두 success. 신규 단위 테스트 22개(harness-env 5 + osc-notification 17) 전부 통과, 변경 파일 lint 0 errors, typecheck clean. baseline 회귀 0건 — 베어 main과 동일 스코프 비교 시 pre-existing 7 failures(storage)와 1 hang(workspace-manager.test.ts)이 양쪽에 동일하게 발현됨을 확인. 베이스라인 정리는 cycle 범위 밖으로 사용자에게 보고. 엔지니어 1차 lint 18 errors 누락은 acceptance 작성 시 'biome lint pass' 항목 명시 누락에서 비롯 — 후속 cycle에서 모든 engineer 위임에 'lint+typecheck+test 모두 통과'를 명시적 acceptance로 포함하는 패턴 권장.",
+                "recorded_at": "2026-05-20T16:15:11.533Z"
+              }
+            ]
+          },
+          {
+            "id": 3,
+            "title": "I3: 알림 클릭 → 해당 워크스페이스/탭으로 점프",
+            "status": "decided",
+            "decision": "Notification.on('click') → main → renderer로 'activate workspace/tab' IPC 전송. 기존 워크스페이스/탭 선택 IPC가 있으면 재사용, 없으면 신규 broadcast 채널(notification.click 이벤트) 추가하고 renderer가 구독해 selection state 업데이트"
+          }
+        ],
+        "research_summary": "cmux의 `GhosttyTerminalView.swift:3381-3411`에서 GHOSTTY_ACTION_DESKTOP_NOTIFICATION 콜백을 받아 알림을 띄우며, 주석 명시: \"Suppress OSC notifications for workspaces with active Claude hook sessions. The hook system manages notifications with proper lifecycle tracking; raw OSC notifications would duplicate or outlive the structured hooks.\" → 즉 raw OSC가 default 경로, hooks는 옵션. Claude Code 공식 docs(code.claude.com/docs/en/terminal-config) 확인: \"By default Claude Code sends a desktop notification only in Ghostty, Kitty, and iTerm2\"로 TERM_PROGRAM 기반 자동 OSC 9 emit. warp는 `references/warp/app/src/terminal/view.rs:11318-11352` `PluggableNotification`이 OSC 9를 파싱하고 `workspace/view.rs:13046`이 `NotificationContext::BlockOrigin { window_id, pane_group_id, pane_id }`로 클릭 시 점프 정보 박음. 우리 앱 PTY 흐름은 `src/main/features/pty/agent-host.ts:220-235` handleData → `src/main/features/pty/ipc.ts:24-32` broadcast로 흘러가며 chunk마다 workspaceId/tabId가 포함됨. Electron Notification API 사용 + BrowserWindow focus 검사로 포커스 가드 구현 가능. 사용자 의사결정: TERM_PROGRAM 값은 'ghostty' (Claude Code의 ghostty 분기가 표준 OSC 9를 emit해 정규식 캐치 용이).",
+        "created_at": "2026-05-20T15:26:13.935Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "PTY spawn env에 TERM_PROGRAM=ghostty 주입",
+          "status": "completed",
+          "context": "Claude Code는 TERM_PROGRAM이 ghostty/iTerm.app/kitty 중 하나로 인식될 때만 자동으로 OSC 9 알림 escape sequence를 emit한다 (공식 docs: code.claude.com/docs/en/terminal-config). 우리 PTY spawn IPC(`src/main/features/pty/ipc.ts:47-68`)는 이미 env 파라미터를 받아 Go agent로 그대로 전달한다(Go쪽 `internal/pty/service.go:392-418` mergeEnv가 process env 위에 overlay). 현재 renderer는 env를 비워서 보내고 있다. spawn 처리 시 caller env에 TERM_PROGRAM이 없으면 'ghostty'로 설정하고, TERM_PROGRAM_VERSION이 없으면 '1.0'으로 설정한다. caller가 명시한 값은 절대 덮어쓰지 않는다.",
+          "acceptance": "- `src/main/features/pty/ipc.ts`의 spawn 핸들러가 agentHost.call에 넘기는 env에 TERM_PROGRAM=ghostty가 포함됨 (caller가 다른 값 명시 시 제외)\n- 헬퍼 단위 테스트가 통과: (a) 입력 undefined → output에 TERM_PROGRAM=ghostty, TERM_PROGRAM_VERSION=1.0 (b) 입력 {TERM_PROGRAM: 'iTerm.app'} → 그대로 보존, TERM_PROGRAM_VERSION만 추가\n- `bun run typecheck` 통과\n- 기존 spawn 동작이 깨지지 않음 (계약 변경 없음, schema 그대로)",
+          "approach": "`src/main/features/pty/ipc.ts:47-68`의 spawn 핸들러에서 agentHost.call 직전에 env를 한번 normalize하는 헬퍼 함수 추가. 시그니처: `injectHarnessTerminalEnv(env: Record<string,string> | undefined): Record<string,string>` — 입력 env(undefined 허용)를 받아 TERM_PROGRAM/TERM_PROGRAM_VERSION이 없으면 추가한 새 객체 반환. 헬퍼는 inline으로 ipc.ts 안에 두거나, 의도가 명확하면 `src/main/features/pty/harness-env.ts` 같은 새 파일로 분리. 헬퍼 단위 테스트 1개: 빈 env → ghostty/1.0 주입; 사용자 TERM_PROGRAM=foo 있으면 유지.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "persistent",
+            "agent_id": "a0c3d12a923cb6a53"
+          },
+          "created_at": "2026-05-20T15:28:02.906Z",
+          "result": {
+            "outcome": "success",
+            "summary": "injectHarnessTerminalEnv 헬퍼 + ipc.ts spawn 핸들러 통합. 단위 테스트 5/5 통과, typecheck clean. caller env가 항상 우선, 입력 mutate 없음.",
+            "artifacts": [
+              "src/main/features/pty/harness-env.ts",
+              "src/main/features/pty/ipc.ts",
+              "tests/unit/main/pty/harness-env.test.ts"
+            ],
+            "recorded_at": "2026-05-20T15:31:20.113Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "OSC 9/777/99 파서 + Electron Notification + 포커스 가드",
+          "status": "completed",
+          "context": "우리 PTY 데이터는 `src/main/features/pty/agent-host.ts:220-235` handleData에서 UTF-8 디코드된 후 `src/main/features/pty/ipc.ts:24-32`의 broadcast로 renderer에 흐른다. 각 chunk에 `{workspaceId, tabId, chunk}`가 동반된다. 여기서 chunk를 정규식으로 훑어 OSC 9 (`\\\\x1b]9;본문\\\\x07`), OSC 777 (`\\\\x1b]777;notify;Title;Body\\\\x07`), OSC 99 (`\\\\x1b]99;파라미터;본문\\\\x1b\\\\\\\\`)를 추출한다. 매칭 시 Electron Notification API로 OS 알림을 띄운다. WorkspaceManager(`src/main/features/workspace/manager.ts`)에서 workspaceId로 WorkspaceMeta를 조회해 name을 가져와 본문 prefix로 `[워크스페이스명]` 부착. 포커스 가드: BrowserWindow.getFocusedWindow()가 우리 창이면 OS 알림 스킵하고 listen 채널로 in-app 이벤트만 emit(추후 toast UI 자리). 매칭된 escape sequence는 chunk에서 제거하지 않고 그대로 forward — xterm.js가 모르는 OSC는 무시하므로 안전하고, 제거 시 buffer 경계 짤림 위험.",
+          "acceptance": "- `src/main/features/pty/osc-notification.ts` 신설, `extractOscNotifications` 순수함수 + `OscNotificationDispatcher` 클래스 export\n- `src/main/features/pty/ipc.ts`의 `agentHost.on('data', ...)` 핸들러가 broadcast 직전에 dispatcher.handleChunk 호출\n- WorkspaceManager에 워크스페이스 이름 조회 API 존재(없었으면 추가)\n- 포커스된 BrowserWindow가 있을 때 Electron Notification 생성 스킵 (단위 테스트로 검증)\n- 매칭된 OSC sequence가 chunk에서 제거되지 않음 — broadcast로 가는 chunk는 입력과 동일\n- 단위 테스트 `osc-notification.test.ts` 통과: extract 3종 + dispatcher focus guard + workspace prefix\n- `bun run typecheck` 통과",
+          "approach": "새 파일 `src/main/features/pty/osc-notification.ts`에 두 가지 export:\n1) `extractOscNotifications(chunk: string): Array<{ kind: 'osc9'|'osc99'|'osc777', title?: string, body: string }>` — 순수 함수, 정규식 매칭만 수행, 단위 테스트 용이\n2) `class OscNotificationDispatcher` — Lead가 `workspaceManager: WorkspaceManager`와 `getFocusedWindow: () => BrowserWindow | null` 의존성 주입받음. 메서드 `handleChunk(workspaceId, tabId, chunk)`가 extract → workspace name lookup → Notification 생성 → click 시 broadcast 이벤트 발사. (click 핸들러 정확한 동작은 Task 3에서 마무리, 일단 console.log placeholder)\n\ndispatcher 인스턴스화는 `src/main/features/pty/ipc.ts` register 시점에 dependencies에 끼워넣기. agentHost.on('data')에서 broadcast 직전 dispatcher.handleChunk 호출.\n\nWorkspaceManager에 name lookup 메서드가 이미 있는지 확인 — 없으면 `getName(workspaceId): string | null` 1줄짜리 헬퍼 추가. WorkspaceManager의 `contexts: Map<string, WorkspaceContext>`을 통해 meta.name 접근.\n\n포커스 가드 — BrowserWindow는 ipc.ts에서 직접 import 가능. window manager가 별도면 그 핸들 사용.\n\n정규식 패턴 (greedy 주의, 본문에 ESC/BEL 미허용으로 종료 명확):\n- OSC 9: /\\\\x1b\\\\]9;([^\\\\x07\\\\x1b]*)(?:\\\\x07|\\\\x1b\\\\\\\\)/g\n- OSC 777: /\\\\x1b\\\\]777;notify;([^;]*);([^\\\\x07\\\\x1b]*)(?:\\\\x07|\\\\x1b\\\\\\\\)/g\n- OSC 99: /\\\\x1b\\\\]99;([^;]*);([^\\\\x07\\\\x1b]*)(?:\\\\x07|\\\\x1b\\\\\\\\)/g\n\n단위 테스트:\n- extract: 각 형식별 1개씩, 한 chunk에 여러 매치, OSC 없는 chunk → 빈 배열\n- dispatcher: focus guard로 알림 미발사 케이스, workspace 이름 prefix 포함 케이스 (Electron Notification은 모킹)",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "persistent",
+            "agent_id": "a0c3d12a923cb6a53"
+          },
+          "created_at": "2026-05-20T15:28:33.174Z",
+          "result": {
+            "outcome": "success",
+            "summary": "OSC 9/777/99 순수 파서 + 포커스 가드 디스패처 구현. WorkspaceManager.getName() 추가. ipc.ts data 콜백에 dispatcher.handleChunk 삽입, 청크 원본 그대로 broadcast. lint 1차에 18 errors 발생, 2차 재지명으로 0/0까지 정리. 단위 테스트 14/14 + typecheck clean.",
+            "artifacts": [
+              "src/main/features/pty/osc-notification.ts",
+              "src/main/features/pty/ipc.ts",
+              "src/main/features/workspace/manager.ts",
+              "src/main/index.ts",
+              "tests/unit/main/pty/osc-notification.test.ts"
+            ],
+            "recorded_at": "2026-05-20T15:38:44.836Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "알림 클릭 → 워크스페이스/탭 점프",
+          "status": "completed",
+          "context": "Task 2가 만든 Electron Notification 인스턴스의 click 이벤트에서 해당 workspaceId/tabId로 점프해야 한다. 기존 `ipcContract.workspace.activate`(call: WorkspaceIdSchema → void) 핸들러가 main의 `WorkspaceManager.activate(id)`를 호출한다(`src/main/features/workspace/ipc.ts:128-131`). 하지만 이는 renderer→main 방향이고, 우리는 main 내부에서 직접 workspaceManager.activate를 부르면 됨. 추가로 main → renderer로 \"이 workspaceId/tabId를 활성화/포커스해라\"는 broadcast 이벤트가 필요(workspace 활성화 + 해당 탭으로 스크롤/선택). 기존 listen 채널 `workspace.attention`(WorkspaceIdSchema)이 비슷한 의도 — workspace 주의를 끄는 용도로 보임. 새 listen 채널 `pty.notificationClick`(payload: {workspaceId, tabId}) 추가 또는 기존 attention 재사용 검토 필요.",
+          "acceptance": "- IPC 계약에 main → renderer broadcast 채널이 추가됨 (이름은 엔지니어 재량, 위치/명명 명확)\n- OscNotificationDispatcher의 Notification.on('click') 핸들러가 (a) main에서 workspaceManager.activate(workspaceId) 호출 (b) BrowserWindow show/focus (c) broadcast로 renderer에 workspaceId/tabId 전달\n- renderer가 broadcast를 구독해 해당 workspace를 활성화하고 해당 tab을 선택\n- `bun run typecheck` 통과\n- 가능하면 click 핸들러 unit test 1개 (Notification 모킹)",
+          "approach": "두 단계:\n1) main → renderer broadcast 채널 추가 — `ipcContract.pty.listen.notificationClick`에 `z.object({workspaceId: z.string(), tabId: z.string()})` 스키마 추가. 또는 workspace 영역에 추가하는 게 더 자연스러우면 `workspace.listen.activateRequested`로 명명.\n2) Task 2의 OscNotificationDispatcher click 핸들러에서:\n   - main 측: workspaceManager.activate(workspaceId) 직접 호출 + window.show()/focus()로 앱 자체를 전면 (BrowserWindow.getAllWindows()[0])\n   - renderer 측: 추가한 listen 채널을 구독해 해당 workspace를 active로 만들고, 해당 tabId의 터미널 탭을 선택\n\nrenderer 쪽 워크스페이스/탭 선택 코드 경로 — `src/renderer/state/`나 `src/renderer/services/`에서 active workspace/tab 관리하는 모듈 찾아 구독자 wire. 이미 있는 selection slice 재사용. 코드 흐름: `subscribe('pty', 'notificationClick', ({workspaceId, tabId}) => { selectWorkspace(workspaceId); selectTab(tabId); })`.\n\n단위 테스트 1개 또는 IPC 통합 테스트: Notification click 시뮬레이션 → broadcast 발사 + workspaceManager.activate 호출 검증 (의존성 모킹).",
+          "plan_issue": 3,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "persistent",
+            "agent_id": "a0c3d12a923cb6a53"
+          },
+          "created_at": "2026-05-20T15:28:55.669Z",
+          "result": {
+            "outcome": "success",
+            "summary": "pty.listen.notificationClick IPC schema 추가. dispatcher click 핸들러에 activateWorkspace + focusMainWindow + broadcast wired. renderer subscriber 신규 파일 추가, bootstrap에서 1회 호출. test 48/48, lint 0, typecheck clean.",
+            "artifacts": [
+              "src/shared/ipc/contract.ts",
+              "src/main/features/pty/osc-notification.ts",
+              "src/main/features/pty/ipc.ts",
+              "src/renderer/state/notification-click.ts",
+              "src/renderer/bootstrap.ts",
+              "tests/unit/main/pty/osc-notification.test.ts"
+            ],
+            "recorded_at": "2026-05-20T15:45:00.683Z"
+          }
+        }
+      ]
     }
   ]
 }

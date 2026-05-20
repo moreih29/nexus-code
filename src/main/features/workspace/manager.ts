@@ -298,6 +298,15 @@ export class WorkspaceManager {
   }
 
   /**
+   * Returns the display name of the workspace, or `null` when no workspace
+   * with the given id is registered. Safe for use in fire-and-forget paths
+   * where a missing workspace is an expected race condition.
+   */
+  getName(id: string): string | null {
+    return this.contexts.get(id)?.getMeta().name ?? null;
+  }
+
+  /**
    * Returns an open workspace context or throws with the standard not-found message.
    */
   requireContext(id: string): WorkspaceContext {

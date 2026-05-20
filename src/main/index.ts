@@ -203,7 +203,7 @@ app.whenReady().then(async () => {
   workspaceManager.setPtySessionCloser((workspaceId) => {
     agentPtyHost?.closeWorkspaceSessions(workspaceId);
   });
-  registerPtyChannel({ agentHost: agentPtyHost });
+  registerPtyChannel({ agentHost: agentPtyHost, workspaceManager });
 
   lspHost = startConfiguredLspHost({
     workspaceManager,

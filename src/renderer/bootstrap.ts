@@ -17,6 +17,7 @@ import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
+import { startNotificationClickListener } from "./state/notification-click";
 import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
 
 /**
@@ -33,6 +34,9 @@ export async function bootstrapAppState(): Promise<void> {
   // registered cleanup functions sit in memory regardless, but the listener
   // itself must be live before the first user-initiated workspace removal.
   initializeWorkspaceLifecycle();
+
+  // Wire the OS notification click → workspace activate + tab reveal listener.
+  startNotificationClickListener();
 
   // Bootstrap is an initialization path — no recovery possible if appState is unavailable.
   const state = mustSucceed(await ipcCallResult("appState", "get", undefined));

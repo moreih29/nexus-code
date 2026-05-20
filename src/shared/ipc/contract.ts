@@ -573,6 +573,7 @@ export const ipcContract = {
       // data: args is string chunk — validation skipped on hot path
       data: listen(PtyWorkspaceTabSchema.extend({ chunk: z.string() })),
       exit: listen(PtyWorkspaceTabSchema.extend({ code: z.number().int().nullable() })),
+      notificationClick: listen(z.object({ workspaceId: z.string(), tabId: z.string() })),
     },
   },
 

@@ -6,12 +6,17 @@ import type { PtyHostHandle } from "./types";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import { TerminalRecorderRegistry, type PtyRecorderSink } from "./recorder";
 import { ipcOk } from "../../../shared/ipc/result";
+import { injectHarnessTerminalEnv } from "./harness-env";
+import { OscNotificationDispatcher } from "./osc-notification";
+import type { WorkspaceNameLookup } from "./osc-notification";
 
 const c = ipcContract.pty.call;
 
 export interface PtyChannelOptions {
   agentHost: PtyHostHandle;
   recorder?: PtyRecorderSink;
+  /** Provides workspace display names and activation for OS notifications. */
+  workspaceManager?: WorkspaceNameLookup & { activate(id: string): Promise<void> };
 }
 
 /**
@@ -21,6 +26,23 @@ export interface PtyChannelOptions {
 export function registerPtyChannel(options: PtyChannelOptions): void {
   const { agentHost } = options;
   const recorder = options.recorder ?? new TerminalRecorderRegistry();
+  const wm = options.workspaceManager;
+  // BrowserWindow is accessed lazily (require) to avoid a static electron
+  // import that breaks test environments where electron is partially mocked.
+  const getElectron = (): typeof import("electron") =>
+    require("electron") as typeof import("electron");
+  const dispatcher = new OscNotificationDispatcher({
+    workspaceManager: wm ?? { getName: () => null },
+    getFocusedWindow: () => getElectron().BrowserWindow.getFocusedWindow(),
+    activateWorkspace: wm ? (id) => wm.activate(id) : undefined,
+    focusMainWindow: () => {
+      const win = getElectron().BrowserWindow.getAllWindows()[0];
+      if (!win) return;
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    },
+  });
 
   agentHost.on("data", (args) => {
     const { workspaceId, tabId, chunk } = args as {
@@ -29,6 +51,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
       chunk: string;
     };
     recorder.appendData(workspaceId, tabId, chunk);
+    dispatcher.handleChunk(workspaceId, tabId, chunk);
     broadcast("pty", "data", { workspaceId, tabId, chunk });
   });
 
@@ -47,6 +70,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
       spawn: async (args: unknown) => {
         const { workspaceId, tabId, cwd, cols, rows, env } = validateArgs(c.spawn.args, args);
         recorder.start(workspaceId, tabId, cols, rows);
+        const enrichedEnv = injectHarnessTerminalEnv(env);
         try {
           // The shell is resolved by the agent on its own host — for a
           // remote workspace that is the SSH host, not this machine.
@@ -58,7 +82,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
             cwd,
             cols,
             rows,
-            env,
+            env: enrichedEnv,
           });
           return result as { pid: number };
         } catch (error) {
@@ -101,6 +125,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
     listen: {
       data: {},
       exit: {},
+      notificationClick: {},
     },
   });
 }
