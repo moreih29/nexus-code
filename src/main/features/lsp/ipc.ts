@@ -144,53 +144,64 @@ export function registerLspChannel(lspHost: LspHostHandle): void {
       },
 
       didChange: async (args: unknown) => {
-        const { uri, version, contentChanges } = validateArgs(c.didChange.args, args);
-        await lspHost.call("didChange", { uri, version, contentChanges });
+        const { workspaceId, uri, version, contentChanges } = validateArgs(c.didChange.args, args);
+        await lspHost.call("didChange", { workspaceId, uri, version, contentChanges });
       },
 
       didSave: async (args: unknown) => {
-        const { uri, text } = validateArgs(c.didSave.args, args);
-        await lspHost.call("didSave", { uri, text });
+        const { workspaceId, uri, text } = validateArgs(c.didSave.args, args);
+        await lspHost.call("didSave", { workspaceId, uri, text });
       },
 
       didClose: async (args: unknown) => {
-        const { uri } = validateArgs(c.didClose.args, args);
-        await lspHost.call("didClose", { uri });
+        const { workspaceId, uri } = validateArgs(c.didClose.args, args);
+        await lspHost.call("didClose", { workspaceId, uri });
       },
 
       hover: async (args: unknown, ctx?: CallContext) => {
-        const { uri, line, character } = validateArgs(c.hover.args, args);
+        const { workspaceId, uri, line, character } = validateArgs(c.hover.args, args);
         return withCancelDefault<HoverResult | null>(
-          lspHost.call("hover", { uri, line, character }, { signal: ctx?.signal }),
+          lspHost.call("hover", { workspaceId, uri, line, character }, { signal: ctx?.signal }),
           ctx?.signal,
           null,
         );
       },
 
       definition: async (args: unknown, ctx?: CallContext) => {
-        const { uri, line, character } = validateArgs(c.definition.args, args);
+        const { workspaceId, uri, line, character } = validateArgs(c.definition.args, args);
         return withCancelDefault<Location[]>(
-          lspHost.call("definition", { uri, line, character }, { signal: ctx?.signal }),
+          lspHost.call(
+            "definition",
+            { workspaceId, uri, line, character },
+            { signal: ctx?.signal },
+          ),
           ctx?.signal,
           [],
         );
       },
 
       completion: async (args: unknown, ctx?: CallContext) => {
-        const { uri, line, character } = validateArgs(c.completion.args, args);
+        const { workspaceId, uri, line, character } = validateArgs(c.completion.args, args);
         return withCancelDefault<CompletionItem[]>(
-          lspHost.call("completion", { uri, line, character }, { signal: ctx?.signal }),
+          lspHost.call(
+            "completion",
+            { workspaceId, uri, line, character },
+            { signal: ctx?.signal },
+          ),
           ctx?.signal,
           [],
         );
       },
 
       references: async (args: unknown, ctx?: CallContext) => {
-        const { uri, line, character, includeDeclaration } = validateArgs(c.references.args, args);
+        const { workspaceId, uri, line, character, includeDeclaration } = validateArgs(
+          c.references.args,
+          args,
+        );
         return withCancelDefault<Location[]>(
           lspHost.call(
             "references",
-            { uri, line, character, includeDeclaration },
+            { workspaceId, uri, line, character, includeDeclaration },
             { signal: ctx?.signal },
           ),
           ctx?.signal,
@@ -199,18 +210,22 @@ export function registerLspChannel(lspHost: LspHostHandle): void {
       },
 
       documentHighlight: async (args: unknown, ctx?: CallContext) => {
-        const { uri, line, character } = validateArgs(c.documentHighlight.args, args);
+        const { workspaceId, uri, line, character } = validateArgs(c.documentHighlight.args, args);
         return withCancelDefault<DocumentHighlight[]>(
-          lspHost.call("documentHighlight", { uri, line, character }, { signal: ctx?.signal }),
+          lspHost.call(
+            "documentHighlight",
+            { workspaceId, uri, line, character },
+            { signal: ctx?.signal },
+          ),
           ctx?.signal,
           [],
         );
       },
 
       documentSymbol: async (args: unknown, ctx?: CallContext) => {
-        const { uri } = validateArgs(c.documentSymbol.args, args);
+        const { workspaceId, uri } = validateArgs(c.documentSymbol.args, args);
         return withCancelDefault<DocumentSymbol[]>(
-          lspHost.call("documentSymbol", { uri }, { signal: ctx?.signal }),
+          lspHost.call("documentSymbol", { workspaceId, uri }, { signal: ctx?.signal }),
           ctx?.signal,
           [],
         );
@@ -226,9 +241,9 @@ export function registerLspChannel(lspHost: LspHostHandle): void {
       },
 
       semanticTokens: async (args: unknown, ctx?: CallContext) => {
-        const { uri } = validateArgs(c.semanticTokens.args, args);
+        const { workspaceId, uri } = validateArgs(c.semanticTokens.args, args);
         return withCancelDefault<SemanticTokensResult | null>(
-          lspHost.call("semanticTokens", { uri }, { signal: ctx?.signal }),
+          lspHost.call("semanticTokens", { workspaceId, uri }, { signal: ctx?.signal }),
           ctx?.signal,
           null,
         );
