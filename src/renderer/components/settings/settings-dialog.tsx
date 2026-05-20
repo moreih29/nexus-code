@@ -45,6 +45,12 @@ const DEFAULT_NAV: SettingsNavItem[] = [
     group: "Settings",
     keywords: ["font", "size", "cursor"],
   },
+  {
+    id: "workspaces",
+    label: "Workspaces",
+    group: "Settings",
+    keywords: ["lsp", "language", "server", "typescript", "python"],
+  },
 ];
 
 // Left-nav width — single source of truth for the Settings dialog split.
@@ -170,10 +176,7 @@ export function SettingsDialog({
                     "focus-within:ring-1 focus-within:ring-ring",
                   )}
                 >
-                  <Search
-                    className="size-3 shrink-0 text-muted-foreground"
-                    aria-hidden="true"
-                  />
+                  <Search className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
                   <input
                     id={searchId}
                     type="text"
@@ -263,9 +266,7 @@ export function SettingsDialog({
                   </div>
                 ))}
                 {filteredNav.length === 0 && (
-                  <div className="px-4 py-3 text-app-ui-sm text-muted-foreground">
-                    No matches.
-                  </div>
+                  <div className="px-4 py-3 text-app-ui-sm text-muted-foreground">No matches.</div>
                 )}
               </div>
             </nav>
