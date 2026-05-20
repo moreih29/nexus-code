@@ -27,8 +27,19 @@ export const BUILTIN_LSP_PRESETS = [
 
 export type BuiltinLspPresetLanguageId = (typeof BUILTIN_LSP_PRESETS)[number]["languageId"];
 
+// Monaco assigns distinct languageIds per file extension —
+//   .ts  → "typescript"
+//   .tsx → "typescriptreact"
+//   .js  → "javascript"
+//   .jsx → "javascriptreact"
+// typescript-language-server handles all four flavours natively (passes the
+// languageId through to tsserver, which switches JSX parsing accordingly).
+// On our side we just need to route every variant to the same preset so the
+// LSP host shares one server per workspace across all four.
 export const LSP_LANGUAGE_PRESET_ALIASES = {
   javascript: "typescript",
+  typescriptreact: "typescript",
+  javascriptreact: "typescript",
 } as const satisfies Record<string, BuiltinLspPresetLanguageId>;
 
 export type LspLanguagePresetAlias = keyof typeof LSP_LANGUAGE_PRESET_ALIASES;

@@ -18,14 +18,20 @@ import {
   type LSP_LANGUAGE_PRESET_ALIASES,
 } from "../../../../shared/lsp/config";
 
-const JAVASCRIPT_LSP_COVERAGE = [
+// All Monaco languageIds that should route through our LSP bridge. This
+// must mirror LSP_LANGUAGE_PRESET_ALIASES — every aliased Monaco id needs
+// to opt in here, or the renderer silently drops didOpen for that
+// language and Monaco's built-in TS worker takes over with wrong defaults.
+const TYPESCRIPT_VARIANT_ALIASES = [
   "javascript",
+  "typescriptreact",
+  "javascriptreact",
 ] as const satisfies readonly (keyof typeof LSP_LANGUAGE_PRESET_ALIASES)[];
 
 export const LSP_LANGUAGES: readonly (
   | (typeof BUILTIN_LSP_PRESETS)[number]["languageId"]
-  | (typeof JAVASCRIPT_LSP_COVERAGE)[number]
-)[] = [...BUILTIN_LSP_PRESETS.map((preset) => preset.languageId), ...JAVASCRIPT_LSP_COVERAGE];
+  | (typeof TYPESCRIPT_VARIANT_ALIASES)[number]
+)[] = [...BUILTIN_LSP_PRESETS.map((preset) => preset.languageId), ...TYPESCRIPT_VARIANT_ALIASES];
 export type LspLanguage = (typeof LSP_LANGUAGES)[number];
 
 export function isLspLanguage(languageId: string): languageId is LspLanguage {

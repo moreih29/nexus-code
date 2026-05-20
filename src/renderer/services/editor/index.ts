@@ -5,6 +5,7 @@ import { initializeLspBridge } from "./lsp/bridge";
 import { initializeModelCache } from "./model/cache";
 import { installMonacoCompensations } from "./runtime/monaco-compensations";
 import { initializeMonacoTheme, subscribeMonacoEditorFontChanges } from "./runtime/monaco-theme";
+import { neutralizeBuiltInTypeScriptWorker } from "./runtime/monaco-ts-defaults";
 import { startPromoteOnDirtyPolicy } from "./tabs/promote-policy";
 
 export { useSharedModel } from "./model/use-shared-model";
@@ -22,6 +23,12 @@ export function initializeEditorServices(monaco: typeof Monaco): void {
   initializeMonacoTheme(monaco);
   subscribeMonacoEditorFontChanges(monaco);
   initializeModelCache(monaco);
+  // Neutralize Monaco's built-in TS/JS worker before any model opens — it
+  // would otherwise compete with our LSP for diagnostics, hover, completion,
+  // etc., and on .tsx it can hang the hover widget on "Loading…" because the
+  // worker's parser can't make sense of JSX without an explicit jsx option.
+  // See monaco-ts-defaults.ts for the full rationale.
+  neutralizeBuiltInTypeScriptWorker(monaco);
   initializeLspBridge(monaco);
   installMonacoCompensations(monaco);
   initializeLspServerUxRouter();
