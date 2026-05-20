@@ -73,7 +73,13 @@ export function FilesPanel() {
                     aria-label={label}
                     aria-pressed={isActive}
                     title={label}
-                    className={cn(isActive && "bg-[var(--state-active-bg)] text-foreground")}
+                    // Persistent mode pick → state.selected.* (not state.active.bg,
+                    // which is the transient mouse-down overlay — design.md §8).
+                    // aria-pressed supplies the redundant signal channel.
+                    className={cn(
+                      isActive &&
+                        "bg-[var(--state-selected-bg)] text-[var(--state-selected-fg)]",
+                    )}
                     onClick={() => setFilesPanelMode(activeWorkspace.id, mode)}
                   >
                     <Icon />

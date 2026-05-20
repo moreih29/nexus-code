@@ -12,6 +12,14 @@ import { cn } from "@/utils/cn";
 import { checkFontAvailable } from "../../../services/editor/runtime/font-availability";
 import type { EditorFontLineHeight, EditorFontSize } from "../../../state/stores/editor-font";
 import { useEditorFontStore } from "../../../state/stores/editor-font";
+import { Checkbox } from "../../ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../ui/select";
 import type { SegmentedOption } from "../segmented-control";
 import { SegmentedControl } from "../segmented-control";
 
@@ -30,10 +38,15 @@ const LINE_HEIGHT_OPTIONS: SegmentedOption<string>[] = [
   { value: "1.4", label: "1.4" },
 ];
 
+// Sentinel for "use the platform fallback (no override)". Stored as the explicit
+// "__system__" string in the Select UI because Radix Select reserves the empty
+// string for "no value selected". Mapped back to "" / undefined at the boundary.
+const FAMILY_SYSTEM_VALUE = "__system__";
+
 const DEFAULT_FONT_FAMILIES = [
   { value: "JetBrains Mono Nerd Font", label: "JetBrains Mono" },
   { value: "Sarasa Term K", label: "Sarasa Term K" },
-  { value: "", label: "System" },
+  { value: FAMILY_SYSTEM_VALUE, label: "System" },
   { value: "__custom__", label: "Other..." },
 ];
 
@@ -87,7 +100,11 @@ export function EditorPanel() {
     family !== "" &&
     !DEFAULT_FONT_FAMILIES.some((f) => f.value === family && f.value !== "__custom__");
   const [familySelect, setFamilySelect] = useState<string>(
-    isCustomFamily ? "__custom__" : (family ?? ""),
+    isCustomFamily
+      ? "__custom__"
+      : family && family !== ""
+        ? family
+        : FAMILY_SYSTEM_VALUE,
   );
   const [customFamilyInput, setCustomFamilyInput] = useState<string>(
     isCustomFamily ? (family ?? "") : "",
@@ -107,15 +124,16 @@ export function EditorPanel() {
     }
     const available = checkFontAvailable(customFamilyInput.trim());
     const measured = available ? customFamilyInput.trim() : "(not available)";
-    setFontAvailableMsg(`현재 적용 중: ${measured}`);
+    setFontAvailableMsg(`Current: ${measured}`);
   }, [familySelect, customFamilyInput]);
 
   const handleFamilySelectChange = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const val = e.target.value;
+    (val: string) => {
       setFamilySelect(val);
       if (val !== "__custom__") {
-        setFamily(val === "" ? undefined : val);
+        // FAMILY_SYSTEM_VALUE is a UI-only sentinel — translate back to undefined
+        // so the store stays "use the codeBody token fallback".
+        setFamily(val === FAMILY_SYSTEM_VALUE ? undefined : val);
         setCustomFamilyInput("");
         setFontAvailableMsg(null);
       }
@@ -132,7 +150,6 @@ export function EditorPanel() {
     [setFamily],
   );
 
-  const familySelectId = useId();
   const customFamilyId = useId();
   const ligaturesId = useId();
 
@@ -155,9 +172,12 @@ export function EditorPanel() {
             <Slider.Track className="relative h-1 w-full grow rounded-(--radius-control) bg-muted border border-border">
               <Slider.Range className="absolute h-full rounded-(--radius-control) bg-[var(--state-selected-bg)]" />
             </Slider.Track>
+            {/* Thumb uses the selected-state token so it pops against the muted
+                track on every theme. bg-background made the thumb blend on
+                Floating surfaces where popover bg ≈ background. */}
             <Slider.Thumb
               className={cn(
-                "block size-4 rounded-full border border-border bg-background",
+                "block size-4 rounded-full border border-[var(--state-selected-bg)] bg-[var(--state-selected-bg)]",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 "transition-colors",
               )}
@@ -171,22 +191,18 @@ export function EditorPanel() {
 
       {/* Font family */}
       <SettingsSection label="Font family">
-        <select
-          id={familySelectId}
-          value={familySelect}
-          onChange={handleFamilySelectChange}
-          className={cn(
-            "w-full rounded-(--radius-control) border border-border bg-background px-2 py-1",
-            "text-app-body text-foreground outline-none",
-            "focus-visible:ring-1 focus-visible:ring-ring",
-          )}
-        >
-          {DEFAULT_FONT_FAMILIES.map((f) => (
-            <option key={f.value} value={f.value}>
-              {f.label}
-            </option>
-          ))}
-        </select>
+        <Select value={familySelect} onValueChange={handleFamilySelectChange}>
+          <SelectTrigger ariaLabel="Font family">
+            <SelectValue placeholder="Select font family" />
+          </SelectTrigger>
+          <SelectContent>
+            {DEFAULT_FONT_FAMILIES.map((f) => (
+              <SelectItem key={f.value} value={f.value}>
+                {f.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {familySelect === "__custom__" && (
           <div className="flex flex-col gap-1 mt-1">
             <input
@@ -208,15 +224,14 @@ export function EditorPanel() {
         )}
       </SettingsSection>
 
-      {/* Ligatures */}
+      {/* Ligatures — Radix Checkbox keeps the glyph/accent inside the token system
+          (native <input type="checkbox"> falls back to OS chrome on macOS). */}
       <SettingsSection label="Font ligatures">
         <label htmlFor={ligaturesId} className="flex items-center gap-2 cursor-pointer">
-          <input
+          <Checkbox
             id={ligaturesId}
-            type="checkbox"
             checked={ligatures ?? false}
-            onChange={(e) => setLigatures(e.target.checked)}
-            className="rounded-(--radius-control) accent-[var(--state-selected-bg)]"
+            onCheckedChange={(v) => setLigatures(v === true)}
           />
           <span className="text-app-body text-foreground">Enable ligatures</span>
         </label>

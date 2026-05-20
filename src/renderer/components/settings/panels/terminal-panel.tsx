@@ -71,9 +71,11 @@ export function TerminalPanel() {
             <Slider.Track className="relative h-1 w-full grow rounded-(--radius-control) bg-muted border border-border">
               <Slider.Range className="absolute h-full rounded-(--radius-control) bg-[var(--state-selected-bg)]" />
             </Slider.Track>
+            {/* Thumb takes the selected-state tone so it stays visible against
+                Floating-layer popover bg (bg-background blended with it). */}
             <Slider.Thumb
               className={cn(
-                "block size-4 rounded-full border border-border bg-background",
+                "block size-4 rounded-full border border-[var(--state-selected-bg)] bg-[var(--state-selected-bg)]",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 "transition-colors",
               )}

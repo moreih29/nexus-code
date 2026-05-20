@@ -1,6 +1,8 @@
 // src/renderer/components/settings/settings-dialog.tsx — Settings dialog shell.
 //
-// Composite dialog with left nav (156px) + right panel (544px).
+// Composite dialog with left nav + right panel. Inner widths are derived from
+// the dialog `xl` size (720px) minus the SETTINGS_NAV_WIDTH constant below —
+// the magic 156/544 split lived only at the callsite before.
 // Props:
 //   open          — controlled open state
 //   onOpenChange  — Radix open-change contract
@@ -30,6 +32,11 @@ const DEFAULT_NAV: SettingsNavItem[] = [
   { id: "editor", label: "Editor", group: "Settings" },
   { id: "terminal", label: "Terminal", group: "Settings" },
 ];
+
+// Left-nav width — single source of truth for the Settings dialog split.
+// Lives here (not as a global token) because no other surface composes the
+// same layout; surface this constant if a second consumer ever appears.
+const SETTINGS_NAV_WIDTH_PX = 156;
 
 // ---------------------------------------------------------------------------
 // Props
@@ -110,9 +117,10 @@ export function SettingsDialog({
 
           {/* Main layout: left nav 156px + right panel flex-1 */}
           <div className="flex flex-1 min-h-0">
-            {/* Left nav */}
+            {/* Left nav — width sourced from SETTINGS_NAV_WIDTH_PX (no magic literal) */}
             <nav
-              className="w-[156px] shrink-0 flex flex-col border-r border-border py-3"
+              style={{ width: SETTINGS_NAV_WIDTH_PX }}
+              className="shrink-0 flex flex-col border-r border-border py-3"
               aria-label="Settings navigation"
             >
               <div
@@ -146,12 +154,16 @@ export function SettingsDialog({
                           onClick={() => setActiveId(item.id)}
                           className={cn(
                             "block w-full px-4 py-1.5 text-left text-app-body font-sans",
-                            "border-l-[4px] transition-colors cursor-pointer select-none",
+                            // 2px indicator — matches workbench/sidebar.tsx and file-tree row.
+                            // The settings nav is a Floating-layer surface (design.md §2),
+                            // so it uses state.selected.* tokens rather than the sidebar
+                            // region's tokens (different region → different vocabulary).
+                            "border-l-2 transition-colors cursor-pointer select-none",
                             isActive
                               ? [
                                   "border-l-[var(--state-selected-indicator)]",
-                                  "bg-[var(--sidebar-item-selected-bg)]",
-                                  "text-foreground",
+                                  "bg-[var(--state-selected-bg)]",
+                                  "text-[var(--state-selected-fg)]",
                                 ]
                               : [
                                   "border-l-transparent",
