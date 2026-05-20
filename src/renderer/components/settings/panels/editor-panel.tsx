@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../ui/select";
+import { SettingsRow, SettingsSection } from "../section";
 import type { SegmentedOption } from "../segmented-control";
 import { SegmentedControl } from "../segmented-control";
 
@@ -146,10 +147,30 @@ export function EditorPanel() {
   const customFamilyId = useId();
   const ligaturesId = useId();
 
+  // Reset helpers — clearing each field returns it to undefined (token fallback).
+  const resetFamily = () => {
+    setFamily(undefined);
+    setFamilySelect(FAMILY_SYSTEM_VALUE);
+    setCustomFamilyInput("");
+  };
+
   return (
     <div className="flex flex-col gap-5">
+      {/* Persistent preview — reflects every editor setting in real time so
+          the user can judge their choices before closing the dialog. */}
+      <EditorPreview
+        fontFamily={effectiveFamily}
+        fontSize={effectiveSize}
+        lineHeight={effectiveLineHeight}
+        ligatures={effectiveLigatures}
+      />
+
       {/* Font size — compact stepper on the right of its label */}
-      <SettingsRow label="Font size">
+      <SettingsRow
+        label="Font size"
+        dirty={size !== undefined}
+        onReset={() => setSize(undefined)}
+      >
         <NumberInput
           value={effectiveSize}
           onChange={(n) => setSize(n as EditorFontSize)}
@@ -162,7 +183,11 @@ export function EditorPanel() {
       </SettingsRow>
 
       {/* Line height — also compact on the right */}
-      <SettingsRow label="Line height">
+      <SettingsRow
+        label="Line height"
+        dirty={lineHeight !== undefined}
+        onReset={() => setLineHeight(undefined)}
+      >
         <SegmentedControl
           options={LINE_HEIGHT_OPTIONS}
           value={lineHeightToValue(lineHeight)}
@@ -172,7 +197,11 @@ export function EditorPanel() {
       </SettingsRow>
 
       {/* Font family — full-width Select */}
-      <SettingsSection label="Font family">
+      <SettingsSection
+        label="Font family"
+        dirty={family !== undefined}
+        onReset={resetFamily}
+      >
         <Select value={familySelect} onValueChange={handleFamilySelectChange}>
           <SelectTrigger ariaLabel="Font family">
             <SelectValue placeholder="Select font family" />
@@ -207,7 +236,11 @@ export function EditorPanel() {
       </SettingsSection>
 
       {/* Ligatures — Checkbox + explanation + live preview */}
-      <SettingsSection label="Font ligatures">
+      <SettingsSection
+        label="Font ligatures"
+        dirty={ligatures !== undefined}
+        onReset={() => setLigatures(undefined)}
+      >
         <label htmlFor={ligaturesId} className="flex items-center gap-2 cursor-pointer">
           <Checkbox
             id={ligaturesId}
@@ -218,59 +251,32 @@ export function EditorPanel() {
         </label>
         <p className="text-app-ui-sm text-muted-foreground">
           Renders multi-character sequences like <code>=&gt;</code>, <code>!=</code>,{" "}
-          <code>&gt;=</code> as single glyphs when the font supports it.
+          <code>&gt;=</code> as single glyphs when the font supports it. Toggle to see the
+          effect in the preview above.
         </p>
-        <LigaturePreview
-          fontFamily={effectiveFamily}
-          fontSize={effectiveSize}
-          lineHeight={effectiveLineHeight}
-          ligatures={effectiveLigatures}
-        />
       </SettingsSection>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Layout helpers
+// Live editor preview
 // ---------------------------------------------------------------------------
 
 /**
- * Horizontal row — label on the left, compact control on the right.
- * Used for controls that hug their natural width (NumberInput, segmented).
+ * Persistent snippet at the top of the Editor panel. Mirrors every setting
+ * (family, size, line-height, ligatures) so the user can judge their picks
+ * without leaving the dialog. Intentionally not a Monaco instance — pure HTML
+ * styled to match keeps the dialog lightweight and avoids loading another
+ * editor worker just for ~5 lines of preview text.
  */
-function SettingsRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-4">
-      <span className="text-app-body text-foreground">{label}</span>
-      <div className="flex items-center">{children}</div>
-    </div>
-  );
-}
+const PREVIEW_CODE = `function greet(name) {
+  if (name === "" || name == null) return "Hello, world";
+  // arrow => fat ==> not-eq != >= <= !==
+  return \`Hello, \${name}!\`;
+}`;
 
-/**
- * Vertical section — label above, full-width control below.
- * Used for controls that benefit from the available width (Select, preview).
- */
-function SettingsSection({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <span className="text-app-ui-sm text-muted-foreground">{label}</span>
-      {children}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Ligature live preview
-// ---------------------------------------------------------------------------
-
-/**
- * Tiny rendered snippet mirroring the editor's font settings, with
- * `font-feature-settings` toggled by the `ligatures` flag. Lets users see the
- * before/after of common multi-char glyphs before committing to the toggle.
- */
-function LigaturePreview({
+function EditorPreview({
   fontFamily,
   fontSize,
   lineHeight,
@@ -282,19 +288,19 @@ function LigaturePreview({
   ligatures: boolean;
 }) {
   return (
-    <div
-      className="rounded-(--radius-control) border border-border bg-background px-3 py-2"
-      style={{
-        fontFamily: `${fontFamily}, ui-monospace, monospace`,
-        fontSize,
-        lineHeight,
-        fontFeatureSettings: ligatures ? '"liga", "calt"' : '"liga" 0, "calt" 0',
-      }}
-    >
-      <code className="block whitespace-pre text-foreground">
-        {`const fn = (x) => x !== 0 && x >= 1;
-// arrow: -> => fat: ==> not-eq: != >= <=`}
-      </code>
+    <div className="flex flex-col gap-2">
+      <span className="text-app-ui-sm text-muted-foreground">Preview</span>
+      <div
+        className="rounded-(--radius-control) border border-border bg-background px-3 py-2"
+        style={{
+          fontFamily: `${fontFamily}, ui-monospace, monospace`,
+          fontSize,
+          lineHeight,
+          fontFeatureSettings: ligatures ? '"liga", "calt"' : '"liga" 0, "calt" 0',
+        }}
+      >
+        <pre className="m-0 whitespace-pre text-foreground">{PREVIEW_CODE}</pre>
+      </div>
     </div>
   );
 }

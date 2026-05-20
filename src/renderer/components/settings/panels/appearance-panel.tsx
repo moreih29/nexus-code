@@ -16,6 +16,7 @@ import { cn } from "@/utils/cn";
 import type { ThemePreference } from "../../../../shared/types/app-state";
 import { useThemeStore } from "../../../state/stores/theme";
 import { useWindowOpacityStore } from "../../../state/stores/window-opacity";
+import { SettingsSection } from "../section";
 import type { SegmentedOption } from "../segmented-control";
 import { SegmentedControl } from "../segmented-control";
 
@@ -57,10 +58,17 @@ export function AppearancePanel() {
 
   const opacityPercent = Math.round(localOpacity * 100);
 
+  const themeDirty = themePreference !== "warm-dark";
+  const opacityDirty = opacity !== 1;
+
   return (
     <div className="flex flex-col gap-6">
       {/* Section: Theme */}
-      <SettingsSection label="Theme">
+      <SettingsSection
+        label="Theme"
+        dirty={themeDirty}
+        onReset={() => setThemePreference("warm-dark")}
+      >
         <SegmentedControl
           options={THEME_OPTIONS}
           value={themePreference}
@@ -70,7 +78,11 @@ export function AppearancePanel() {
       </SettingsSection>
 
       {/* Section: Window Opacity */}
-      <SettingsSection label="Window opacity">
+      <SettingsSection
+        label="Window opacity"
+        dirty={opacityDirty}
+        onReset={() => setOpacity(1)}
+      >
         <div className="flex items-center gap-3">
           <Slider.Root
             min={OPACITY_MIN}
@@ -108,15 +120,3 @@ export function AppearancePanel() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Local helper
-// ---------------------------------------------------------------------------
-
-function SettingsSection({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <span className="text-app-ui-sm text-muted-foreground">{label}</span>
-      {children}
-    </div>
-  );
-}

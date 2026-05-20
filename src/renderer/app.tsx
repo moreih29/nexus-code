@@ -1,5 +1,5 @@
 import { useMonaco } from "@monaco-editor/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { bootstrapAppState, bootstrapWorkspaces } from "./bootstrap";
 import { useCommandBridge } from "./commands/use-command-bridge";
@@ -9,6 +9,7 @@ import { AppearancePanel } from "./components/settings/panels/appearance-panel";
 import { EditorPanel } from "./components/settings/panels/editor-panel";
 import { TerminalPanel } from "./components/settings/panels/terminal-panel";
 import { SettingsDialog } from "./components/settings/settings-dialog";
+import type { SettingsNavItem } from "./components/settings/types";
 import { ErrorBoundary } from "./components/ui/error-boundary";
 import { Sidebar } from "./components/workbench/sidebar";
 import { TitleBar } from "./components/workbench/title-bar";
@@ -22,7 +23,11 @@ import { ipcCallResult } from "./ipc/client";
 import { useGlobalKeybindings } from "./keybindings/use-global-keybindings";
 import { initializeEditorServices } from "./services/editor";
 import { useActiveStore } from "./state/stores/active";
+import { useEditorFontStore } from "./state/stores/editor-font";
 import { useSettingsUIStore } from "./state/stores/settings-ui";
+import { useTerminalStore } from "./state/stores/terminal";
+import { useThemeStore } from "./state/stores/theme";
+import { useWindowOpacityStore } from "./state/stores/window-opacity";
 import { useWorkspacesStore } from "./state/stores/workspaces";
 
 export function App() {
@@ -31,6 +36,60 @@ export function App() {
   const { activeWorkspaceId, setActiveWorkspaceId } = useActiveStore();
   const settingsOpen = useSettingsUIStore((s) => s.settingsOpen);
   const closeSettings = useSettingsUIStore((s) => s.closeSettings);
+
+  // Settings nav — computed here so each row can carry a `dirty` dot. A panel
+  // is "dirty" when any of its stored fields diverges from the token fallback
+  // (i.e. user has touched the value). Each field reads with a primitive
+  // selector to keep the useSyncExternalStore identity stable across ticks.
+  const themePreference = useThemeStore((s) => s.preference);
+  const opacity = useWindowOpacityStore((s) => s.opacity);
+  const editorFontSize = useEditorFontStore((s) => s.size);
+  const editorFontFamily = useEditorFontStore((s) => s.family);
+  const editorFontLigatures = useEditorFontStore((s) => s.ligatures);
+  const editorFontLineHeight = useEditorFontStore((s) => s.lineHeight);
+  const terminalFontSize = useTerminalStore((s) => s.fontSize);
+  const terminalCursorStyle = useTerminalStore((s) => s.cursorStyle);
+  const settingsNav = useMemo<SettingsNavItem[]>(
+    () => [
+      {
+        id: "appearance",
+        label: "Appearance",
+        group: "Settings",
+        keywords: ["theme", "opacity"],
+        // Dirty when the user has explicitly chosen anything other than the
+        // built-in default (warm-dark theme + 100% opacity).
+        dirty: themePreference !== "warm-dark" || opacity !== 1,
+      },
+      {
+        id: "editor",
+        label: "Editor",
+        group: "Settings",
+        keywords: ["font", "size", "family", "ligatures", "line height"],
+        dirty:
+          editorFontSize !== undefined ||
+          editorFontFamily !== undefined ||
+          editorFontLigatures !== undefined ||
+          editorFontLineHeight !== undefined,
+      },
+      {
+        id: "terminal",
+        label: "Terminal",
+        group: "Settings",
+        keywords: ["font", "size", "cursor"],
+        dirty: terminalFontSize !== undefined || terminalCursorStyle !== undefined,
+      },
+    ],
+    [
+      themePreference,
+      opacity,
+      editorFontSize,
+      editorFontFamily,
+      editorFontLigatures,
+      editorFontLineHeight,
+      terminalFontSize,
+      terminalCursorStyle,
+    ],
+  );
 
   // Workspaces that have been activated at least once in this session.
   // Their <WorkspacePanel> stays mounted (CSS-hidden when inactive) so PTYs
@@ -182,6 +241,7 @@ export function App() {
           onOpenChange={(open) => {
             if (!open) closeSettings();
           }}
+          nav={settingsNav}
         >
           {(activeId) => {
             if (activeId === "appearance") return <AppearancePanel />;

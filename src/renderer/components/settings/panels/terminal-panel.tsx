@@ -10,6 +10,7 @@
 import type { TerminalCursorStyle, TerminalFontSize } from "../../../state/stores/terminal";
 import { useTerminalStore } from "../../../state/stores/terminal";
 import { NumberInput } from "../../ui/number-input";
+import { SettingsRow } from "../section";
 import type { SegmentedOption } from "../segmented-control";
 import { SegmentedControl } from "../segmented-control";
 
@@ -72,7 +73,11 @@ export function TerminalPanel() {
   return (
     <div className="flex flex-col gap-5">
       {/* Font size — compact stepper */}
-      <SettingsRow label="Font size">
+      <SettingsRow
+        label="Font size"
+        dirty={fontSize !== undefined}
+        onReset={() => setFontSize(undefined)}
+      >
         <NumberInput
           value={effectiveSize}
           onChange={(n) => setFontSize(n as TerminalFontSize)}
@@ -85,7 +90,11 @@ export function TerminalPanel() {
       </SettingsRow>
 
       {/* Cursor style — segmented with shape previews */}
-      <SettingsRow label="Cursor style">
+      <SettingsRow
+        label="Cursor style"
+        dirty={cursorStyle !== undefined}
+        onReset={() => setCursorStyle(undefined)}
+      >
         <SegmentedControl
           options={CURSOR_OPTIONS}
           value={cursorStyle ?? "block"}
@@ -93,19 +102,6 @@ export function TerminalPanel() {
           label="Cursor style"
         />
       </SettingsRow>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Layout helper — label on the left, compact control on the right
-// ---------------------------------------------------------------------------
-
-function SettingsRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-4">
-      <span className="text-app-body text-foreground">{label}</span>
-      <div className="flex items-center">{children}</div>
     </div>
   );
 }
