@@ -10,7 +10,17 @@ export const BUILTIN_LSP_PRESETS = [
     languageId: "typescript",
     binary: "typescript-language-server",
     args: ["--stdio"],
-    initializationOptions: {},
+    // typescript-language-server forwards `hostInfo` and `preferences`
+    // into tsserver's session. With an empty object the server has been
+    // observed to fall into an inferred-project default where JSX
+    // parsing is off for .tsx files even with a valid local tsconfig
+    // declaring `"jsx": "react-jsx"`. `hostInfo` identifies the editor
+    // (VSCode sends "vscode") and `preferences: {}` opts us into the
+    // configured-client codepath rather than the never-configured one.
+    initializationOptions: {
+      hostInfo: "nexus-code",
+      preferences: {},
+    },
   },
   {
     languageId: "python",
@@ -70,4 +80,41 @@ export function resolveLspPreset(languageId: string): LspServerSpec | null {
 
 export function isSupportedLspLanguage(languageId: string): languageId is SupportedLspLanguageId {
   return resolveLspPresetLanguageId(languageId) !== null;
+}
+
+/**
+ * Coerce a Monaco-derived `languageId` to the LSP-canonical id based on the
+ * file URI extension.
+ *
+ * Why this exists: Monaco's built-in typescript contribution registers a
+ * single languageId "typescript" against both `.ts` and `.tsx` (and
+ * "javascript" against both `.js` and `.jsx`). It does NOT register a
+ * separate "typescriptreact" / "javascriptreact" languageId. So a `.tsx`
+ * file's `model.getLanguageId()` returns "typescript", and forwarding that
+ * verbatim to typescript-language-server causes tsserver to open the file
+ * with ScriptKind.TS (not TSX). With JSX parsing off the source
+ *   `return <RouterProvider router={router} />;`
+ * is parsed as a comparison + division + unterminated regex, surfacing as
+ *   2:1   "'RouterProvider' is declared but its value is never read"
+ *   27:11 "'RouterProvider' refers to a value, but is being used as a type"
+ *   27:26 "'>' expected"
+ *   27:42 "Unterminated regular expression literal"
+ * The fix is to send the LSP the languageId that matches the file
+ * extension regardless of what Monaco's contribution table says.
+ */
+export function lspLanguageIdForUri(monacoLanguageId: string, uri: string): string {
+  const lower = uri.toLowerCase();
+  if (
+    (monacoLanguageId === "typescript" || monacoLanguageId === "typescriptreact") &&
+    lower.endsWith(".tsx")
+  ) {
+    return "typescriptreact";
+  }
+  if (
+    (monacoLanguageId === "javascript" || monacoLanguageId === "javascriptreact") &&
+    lower.endsWith(".jsx")
+  ) {
+    return "javascriptreact";
+  }
+  return monacoLanguageId;
 }

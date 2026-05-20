@@ -10,11 +10,59 @@
 
 export const LSP_CLIENT_CAPABILITIES = {
   workspace: {
+    // typescript-language-server (and most LSP servers) gate "multi-root
+    // project" / "extended project tracking" logic behind this advertisement.
+    // Without it the server falls back to a single-rootUri view with
+    // inferred-project defaults — which on monorepo-rooted .tsx files
+    // manifests as JSX parsing being silently disabled (the visible
+    // symptom: `<Component />` is parsed as a generic instantiation, so
+    // "value used as type" + "declared but never read" appear on the
+    // import line simultaneously).
+    workspaceFolders: true,
+    // Server can request workspace/configuration. agent-host already
+    // handles the inbound request (server-messages.go path), but servers
+    // only emit it when this capability is advertised.
+    configuration: true,
+    // Server can request workspace/applyEdit (rename / code-action
+    // outcomes). The renderer's applyWorkspaceEdit bridges into Monaco.
+    applyEdit: true,
     didChangeWatchedFiles: {
       dynamicRegistration: true,
     },
+    // workspaceSymbol routing exists in agent-host (call("workspaceSymbol")),
+    // but servers gate the workspaceSymbolProvider capability on this entry.
+    symbol: {},
+  },
+  // Server can request window/workDoneProgress/create. agent-host handles
+  // it; advertise here so the server emits progress at all.
+  window: {
+    workDoneProgress: true,
   },
   textDocument: {
+    // Static synchronization advertisement. We do not emit willSave /
+    // willSaveWaitUntil, so those are explicitly false; didSave is on.
+    synchronization: {
+      didSave: true,
+      willSave: false,
+      willSaveWaitUntil: false,
+    },
+    hover: {
+      contentFormat: ["markdown", "plaintext"],
+    },
+    completion: {
+      completionItem: {
+        snippetSupport: false,
+        documentationFormat: ["markdown", "plaintext"],
+        deprecatedSupport: true,
+      },
+    },
+    definition: {
+      // We normalize results as Location[], not LocationLink — opt out
+      // of linkSupport so servers send the plain shape.
+      linkSupport: false,
+    },
+    references: {},
+    documentHighlight: {},
     documentSymbol: {
       hierarchicalDocumentSymbolSupport: true,
     },

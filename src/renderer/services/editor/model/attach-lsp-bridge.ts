@@ -1,7 +1,7 @@
 /** Sends LSP didOpen and wires the model's content-change listener to forward didChange notifications. */
 
 import type * as Monaco from "monaco-editor";
-import { resolveLspPresetLanguageId } from "../../../../shared/lsp/config";
+import { lspLanguageIdForUri, resolveLspPresetLanguageId } from "../../../../shared/lsp/config";
 import type { ModelEntry, ModelEntryDeps } from "./entry";
 
 export interface AttachLspBridgeResult {
@@ -44,7 +44,7 @@ export function rehydrateEntryLspOpened(entry: ModelEntry, deps: RehydrateDeps):
       entry.lspUri,
       entry.input.workspaceId,
       workspaceRoot,
-      entry.languageId,
+      lspLanguageIdForUri(entry.languageId, entry.lspUri),
       entry.version,
       text,
     )
@@ -90,7 +90,7 @@ export function attachLspBridge(
           entry.lspUri,
           entry.input.workspaceId,
           workspaceRoot,
-          entry.languageId,
+          lspLanguageIdForUri(entry.languageId, entry.lspUri),
           entry.version,
           entry.lastLoadedValue,
         )
