@@ -4,6 +4,7 @@ import {
   isSupportedLspLanguage,
   resolveLspPreset,
 } from "../../../src/shared/lsp/config";
+import { LSP_FEATURE_ENABLED } from "../../../src/shared/lsp/feature-flag";
 
 describe("built-in LSP presets", () => {
   test("includes Pyright for Python", () => {
@@ -22,6 +23,7 @@ describe("built-in LSP presets", () => {
     expect(opts["python.analysis.typeCheckingMode"]).toBe("standard");
     expect(opts["python.analysis.autoImportCompletions"]).toBe(true);
 
-    expect(isSupportedLspLanguage("python")).toBe(true);
+    // isSupportedLspLanguage returns false when LSP_FEATURE_ENABLED is false.
+    expect(isSupportedLspLanguage("python")).toBe(LSP_FEATURE_ENABLED);
   });
 });

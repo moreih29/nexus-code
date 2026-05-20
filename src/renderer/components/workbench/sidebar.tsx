@@ -1,4 +1,5 @@
 import { Folder, Server, X } from "lucide-react";
+import { LSP_FEATURE_ENABLED } from "../../../shared/lsp/feature-flag";
 import { Tooltip as RadixTooltip } from "radix-ui";
 import { cn } from "@/utils/cn";
 import type { LspLanguageId } from "../../../shared/types/app-state";
@@ -157,18 +158,19 @@ export function Sidebar({
 
                       {isSsh && <ConnectionStatusDot status={connectionStatus} />}
 
-                      {/* LSP language chips — always visible, right-aligned before the remove button.
-                          right-9 keeps them clear of the absolute-right-2 remove button (size-5 = 20px + 8px gap). */}
-                      <div className="absolute top-1/2 -translate-y-1/2 right-9 flex items-center gap-0.5">
-                        {CHIP_LANGUAGES.map((lang) => (
-                          <LspLanguageChip
-                            key={lang}
-                            workspaceId={ws.id}
-                            languageId={lang}
-                            enabled={enabledLanguages.includes(lang)}
-                          />
-                        ))}
-                      </div>
+                      {/* LSP language chips — hidden while LSP_FEATURE_ENABLED is false. */}
+                      {LSP_FEATURE_ENABLED && (
+                        <div className="absolute top-1/2 -translate-y-1/2 right-9 flex items-center gap-0.5">
+                          {CHIP_LANGUAGES.map((lang) => (
+                            <LspLanguageChip
+                              key={lang}
+                              workspaceId={ws.id}
+                              languageId={lang}
+                              enabled={enabledLanguages.includes(lang)}
+                            />
+                          ))}
+                        </div>
+                      )}
 
                       {/* Remove button — appears on hover, sibling (not nested) so HTML stays valid */}
                       <button

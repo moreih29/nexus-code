@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { LspHostHandle } from "../../../../src/main/features/lsp/host";
 import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
+import { LSP_FEATURE_ENABLED } from "../../../../src/shared/lsp/feature-flag";
 
 const mockSend = mock((..._args: unknown[]) => {});
 const mockGetAllWebContents = mock(() => [{ isDestroyed: () => false, send: mockSend }]);
@@ -51,8 +52,13 @@ class FakeLspHost implements LspHostHandle {
   dispose(): void {}
 }
 
+// These tests exercise the live event-forwarding path that is only active
+// when LSP_FEATURE_ENABLED is true. Skip them when the flag is off so the
+// suite stays green during the policy review period.
+const testIfEnabled = LSP_FEATURE_ENABLED ? test : test.skip;
+
 describe("registerLspChannel", () => {
-  test("forwards host serverEvent messages over lsp.serverEvent", () => {
+  testIfEnabled("forwards host serverEvent messages over lsp.serverEvent", () => {
     const host = new FakeLspHost();
     registerLspChannel(host);
 
@@ -67,7 +73,7 @@ describe("registerLspChannel", () => {
     expect(mockSend).toHaveBeenCalledWith("ipc:event", "lsp", "serverEvent", event);
   });
 
-  test("forwards agent bootstrap progress over lsp.bootstrap.progress", () => {
+  testIfEnabled("forwards agent bootstrap progress over lsp.bootstrap.progress", () => {
     const host = new FakeLspHost();
     registerLspChannel(host);
 

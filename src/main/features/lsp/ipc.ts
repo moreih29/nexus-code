@@ -2,6 +2,7 @@
 // Renderer calls are forwarded to the LSP host, and diagnostics events are
 // broadcast to all renderers.
 
+import { LSP_FEATURE_ENABLED } from "../../../shared/lsp/feature-flag";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import type {
@@ -118,6 +119,40 @@ async function handleServerRequest(lspHost: LspHostHandle, args: unknown): Promi
  * during startup and not maintain it per-event.
  */
 export function registerLspChannel(lspHost: LspHostHandle, stateService: StateService): void {
+  if (!LSP_FEATURE_ENABLED) {
+    // Feature gate: LSP is globally disabled. Register only the minimal
+    // listen-side stubs so the renderer's ipcListen calls don't error on
+    // missing channels, and return empty/noop responses for every call.
+    register("lsp", {
+      call: {
+        didOpen: async () => {},
+        didChange: async () => {},
+        didSave: async () => {},
+        didClose: async () => {},
+        hover: async () => null,
+        definition: async () => [],
+        completion: async () => [],
+        references: async () => [],
+        documentHighlight: async () => [],
+        documentSymbol: async () => [],
+        workspaceSymbol: async () => [],
+        semanticTokens: async () => null,
+        applyEditResult: async () => {},
+        getEnabledLanguages: async () => ({ languages: [] }),
+        setEnabledLanguages: async () => {},
+      },
+      listen: {
+        diagnostics: {},
+        applyEdit: {},
+        serverEvent: {},
+        "bootstrap.progress": {},
+        workspaceReset: {},
+        enabledLanguagesChanged: {},
+      },
+    });
+    return;
+  }
+
   // Forward host diagnostics events to renderers. The host's debouncer
   // emits `{ workspaceId, languageId, uri, diagnostics }`; we keep
   // workspaceId so the renderer's listener can reconstruct the

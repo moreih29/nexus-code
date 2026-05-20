@@ -10,6 +10,7 @@
 // both columns.
 
 import { Folder, Server } from "lucide-react";
+import { LSP_FEATURE_ENABLED } from "../../../../shared/lsp/feature-flag";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/utils/cn";
 import type { LspLanguageId } from "../../../../shared/types/app-state";
@@ -162,33 +163,35 @@ function WorkspaceDetail({ workspaceId }: { workspaceId: string }) {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Language Servers section */}
-      <section>
-        <h2 className="text-app-ui-sm text-muted-foreground mb-1">Language Servers</h2>
-        <p className="text-app-micro text-muted-foreground mb-4">
-          Enable the language servers you want to run for this workspace. Disabled servers free up
-          memory.
-        </p>
+      {/* Language Servers section — hidden while LSP_FEATURE_ENABLED is false. */}
+      {LSP_FEATURE_ENABLED && (
+        <section>
+          <h2 className="text-app-ui-sm text-muted-foreground mb-1">Language Servers</h2>
+          <p className="text-app-micro text-muted-foreground mb-4">
+            Enable the language servers you want to run for this workspace. Disabled servers free up
+            memory.
+          </p>
 
-        <div className="flex flex-col gap-3">
-          {LANGUAGE_ITEMS.map(({ id, label, Logo }) => {
-            const checked = enabledLanguages.includes(id);
-            return (
-              <div key={id} className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Logo className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="text-app-body text-foreground">{label}</span>
+          <div className="flex flex-col gap-3">
+            {LANGUAGE_ITEMS.map(({ id, label, Logo }) => {
+              const checked = enabledLanguages.includes(id);
+              return (
+                <div key={id} className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Logo className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="text-app-body text-foreground">{label}</span>
+                  </div>
+                  <Switch
+                    checked={checked}
+                    onCheckedChange={(v) => handleToggle(id, v)}
+                    aria-label={`${checked ? "Disable" : "Enable"} ${label} language server`}
+                  />
                 </div>
-                <Switch
-                  checked={checked}
-                  onCheckedChange={(v) => handleToggle(id, v)}
-                  aria-label={`${checked ? "Disable" : "Enable"} ${label} language server`}
-                />
-              </div>
-            );
-          })}
-        </div>
-      </section>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* mt-8 spacer — reserved for future detail sections */}
     </div>
