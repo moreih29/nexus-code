@@ -29,7 +29,20 @@ import {
   resolveLspPreset,
   resolveLspPresetLanguageId,
 } from "../../../shared/lsp/config";
-import { LSP_DEFAULT_IDLE_MS } from "../../../shared/util/timing-constants";
+import {
+  LSP_COMPLETION_TIMEOUT_MS,
+  LSP_CONSECUTIVE_TIMEOUT_LIMIT,
+  LSP_DEFAULT_IDLE_MS,
+  LSP_DEFINITION_TIMEOUT_MS,
+  LSP_DOCUMENT_HIGHLIGHT_TIMEOUT_MS,
+  LSP_DOCUMENT_SYMBOL_TIMEOUT_MS,
+  LSP_HOVER_TIMEOUT_MS,
+  LSP_MAX_ACTIVE_WORKSPACES,
+  LSP_REFERENCES_TIMEOUT_MS,
+  LSP_SEMANTIC_TOKENS_TIMEOUT_MS,
+  LSP_SERVER_WEDGE_GRACE_MS,
+  LSP_WORKSPACE_SYMBOL_TIMEOUT_MS,
+} from "../../../shared/util/timing-constants";
 import type { AgentChannel } from "../../infra/agent/channel";
 import {
   LOCAL_AGENT_DIST_DIR,
@@ -153,11 +166,60 @@ const SERVER_EVENT_METHODS = new Set<string>([
 ]);
 
 // ---------------------------------------------------------------------------
+// Per-method request timeout table
+//
+// All keyed by the public method name used by call(). didOpen / didChange /
+// didSave / didClose are notifications and intentionally absent — their
+// resolution does not block any UI.
+// ---------------------------------------------------------------------------
+
+const REQUEST_TIMEOUT_MS: Record<string, number> = {
+  hover: LSP_HOVER_TIMEOUT_MS,
+  definition: LSP_DEFINITION_TIMEOUT_MS,
+  completion: LSP_COMPLETION_TIMEOUT_MS,
+  references: LSP_REFERENCES_TIMEOUT_MS,
+  documentHighlight: LSP_DOCUMENT_HIGHLIGHT_TIMEOUT_MS,
+  documentSymbol: LSP_DOCUMENT_SYMBOL_TIMEOUT_MS,
+  workspaceSymbol: LSP_WORKSPACE_SYMBOL_TIMEOUT_MS,
+  semanticTokens: LSP_SEMANTIC_TOKENS_TIMEOUT_MS,
+};
+
+/**
+ * Sentinel error class identifying a request that exceeded its bounded
+ * wall-clock window. The IPC layer recognises it and returns the
+ * method-appropriate empty value instead of propagating the rejection,
+ * so the renderer's hover/completion widget closes cleanly rather than
+ * staying in "Loading…" forever.
+ */
+export class LspRequestTimeoutError extends Error {
+  readonly kind = "lsp-request-timeout";
+  constructor(method: string, timeoutMs: number) {
+    super(`LSP request ${method} timed out after ${timeoutMs}ms`);
+    this.name = "LspRequestTimeoutError";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Host
 // ---------------------------------------------------------------------------
 
-export function startAgentLspHost(workspaceManager: AgentLspWorkspaceManager): LspHostHandle {
-  return new AgentLspHostHandleImpl(workspaceManager);
+export interface AgentLspHostOptions {
+  /** Override the LRU cap. Tests bump this to disable eviction. */
+  maxActiveWorkspaces?: number;
+  /**
+   * Gate called before spawning a new LSP server for (workspaceId, languageId).
+   * Return false to suppress spawn (language not enabled for this workspace).
+   * Defaults to `() => true` so callers without per-language access control
+   * (tests, existing usages) continue to work unchanged.
+   */
+  isLanguageEnabled?: (workspaceId: string, languageId: string) => boolean;
+}
+
+export function startAgentLspHost(
+  workspaceManager: AgentLspWorkspaceManager,
+  options: AgentLspHostOptions = {},
+): LspHostHandle {
+  return new AgentLspHostHandleImpl(workspaceManager, options);
 }
 
 class AgentLspHostHandleImpl implements LspHostHandle {
@@ -191,6 +253,47 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     leadingIdleMs: DIAGNOSTICS_LEADING_IDLE_MS,
     emit: (payload) => this.emit("diagnostics", payload),
   });
+  /**
+   * Wall-clock timestamp of the last activity (any call/notify that
+   * resolved to a real server) for each workspace. Drives the LRU
+   * eviction policy in `evictLruWorkspaceIfNeeded`. We use `Date.now`
+   * directly rather than a monotonic counter so timestamps survive
+   * across reconnects when callers compare on resume.
+   */
+  private readonly workspaceLastActivity = new Map<string, number>();
+  /**
+   * Number of consecutive request timeouts per (workspaceId, languageId)
+   * server. Key = `${workspaceId}\0${languageId}`. Incremented by
+   * `trackTimeout`, cleared by `resetTimeoutCount` on a successful
+   * response, and wiped entirely when the server is disposed. When the
+   * count reaches LSP_CONSECUTIVE_TIMEOUT_LIMIT the server is wedge-
+   * restarted via `disposeWorkspaceServers`.
+   */
+  private readonly serverTimeoutCount = new Map<string, number>();
+  /**
+   * Wall-clock timestamp recorded in `rememberServer` for each
+   * (workspaceId, languageId) server. Key = `${workspaceId}\0${languageId}`.
+   * Used by `trackTimeout` to enforce the LSP_SERVER_WEDGE_GRACE_MS
+   * window during which timeout counts are not incremented — some
+   * servers (tsserver, basedpyright) are slow to initialize and would
+   * otherwise be wedge-restarted immediately.
+   */
+  private readonly serverSpawnedAt = new Map<string, number>();
+  /**
+   * Soft cap on the number of workspaces with live LSP servers. When the
+   * (N+1)-th workspace's first didOpen would push us over the cap, the
+   * LRU workspace is disposed first. See LSP_MAX_ACTIVE_WORKSPACES for
+   * the rationale and tuning.
+   */
+  private readonly maxActiveWorkspaces: number;
+  /**
+   * Optional predicate gate injected at construction time. Checked in
+   * `getOrCreateServer` before any spawn is attempted. Returning false
+   * suppresses spawn and returns null — the renderer entry stays dark.
+   * Defaults to always-true so callers without per-language control
+   * (tests, plain `startAgentLspHost()`) are unaffected.
+   */
+  private readonly isLanguageEnabled: (workspaceId: string, languageId: string) => boolean;
   private nextServerRequestId = 1;
   private disposed = false;
 
@@ -205,7 +308,13 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     "didClose",
   ]);
 
-  constructor(private readonly workspaceManager: AgentLspWorkspaceManager) {}
+  constructor(
+    private readonly workspaceManager: AgentLspWorkspaceManager,
+    options: AgentLspHostOptions = {},
+  ) {
+    this.maxActiveWorkspaces = options.maxActiveWorkspaces ?? LSP_MAX_ACTIVE_WORKSPACES;
+    this.isLanguageEnabled = options.isLanguageEnabled ?? (() => true);
+  }
 
   async call(method: string, args: unknown, opts: LspHostCallOptions = {}): Promise<unknown> {
     if (this.disposed) {
@@ -231,65 +340,95 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       case "didClose":
         return this.didClose(args);
       case "hover":
-        return this.requestByUri(args, opts, {
-          argsSchema: TextDocumentPositionArgsSchema,
-          lspMethod: "textDocument/hover",
-          capabilityKey: "hoverProvider",
-          emptyResponse: null,
-          outSchema: HoverResultSchema.nullable(),
-          params: textDocumentPositionParams,
-          transform: normalizeHoverResult,
-        });
+        return this.requestByUri(
+          args,
+          opts,
+          {
+            argsSchema: TextDocumentPositionArgsSchema,
+            lspMethod: "textDocument/hover",
+            capabilityKey: "hoverProvider",
+            emptyResponse: null,
+            outSchema: HoverResultSchema.nullable(),
+            params: textDocumentPositionParams,
+            transform: normalizeHoverResult,
+          },
+          "hover",
+        );
       case "definition":
-        return this.requestByUri(args, opts, {
-          argsSchema: TextDocumentPositionArgsSchema,
-          lspMethod: "textDocument/definition",
-          capabilityKey: "definitionProvider",
-          emptyResponse: [],
-          outSchema: z.array(LocationSchema),
-          params: textDocumentPositionParams,
-          transform: normalizeDefinitionResult,
-        });
+        return this.requestByUri(
+          args,
+          opts,
+          {
+            argsSchema: TextDocumentPositionArgsSchema,
+            lspMethod: "textDocument/definition",
+            capabilityKey: "definitionProvider",
+            emptyResponse: [],
+            outSchema: z.array(LocationSchema),
+            params: textDocumentPositionParams,
+            transform: normalizeDefinitionResult,
+          },
+          "definition",
+        );
       case "completion":
-        return this.requestByUri(args, opts, {
-          argsSchema: TextDocumentPositionArgsSchema,
-          lspMethod: "textDocument/completion",
-          capabilityKey: "completionProvider",
-          emptyResponse: [],
-          outSchema: z.array(CompletionItemSchema),
-          params: textDocumentPositionParams,
-          transform: normalizeCompletionResult,
-        });
+        return this.requestByUri(
+          args,
+          opts,
+          {
+            argsSchema: TextDocumentPositionArgsSchema,
+            lspMethod: "textDocument/completion",
+            capabilityKey: "completionProvider",
+            emptyResponse: [],
+            outSchema: z.array(CompletionItemSchema),
+            params: textDocumentPositionParams,
+            transform: normalizeCompletionResult,
+          },
+          "completion",
+        );
       case "references":
-        return this.requestByUri(args, opts, {
-          argsSchema: ReferencesArgsSchema,
-          lspMethod: "textDocument/references",
-          capabilityKey: "referencesProvider",
-          emptyResponse: [],
-          outSchema: z.array(LocationSchema),
-          params: referencesParams,
-          transform: normalizeDefinitionResult,
-        });
+        return this.requestByUri(
+          args,
+          opts,
+          {
+            argsSchema: ReferencesArgsSchema,
+            lspMethod: "textDocument/references",
+            capabilityKey: "referencesProvider",
+            emptyResponse: [],
+            outSchema: z.array(LocationSchema),
+            params: referencesParams,
+            transform: normalizeDefinitionResult,
+          },
+          "references",
+        );
       case "documentHighlight":
-        return this.requestByUri(args, opts, {
-          argsSchema: TextDocumentPositionArgsSchema,
-          lspMethod: "textDocument/documentHighlight",
-          capabilityKey: "documentHighlightProvider",
-          emptyResponse: [],
-          outSchema: z.array(DocumentHighlightSchema),
-          params: textDocumentPositionParams,
-          transform: normalizeDocumentHighlightResult,
-        });
+        return this.requestByUri(
+          args,
+          opts,
+          {
+            argsSchema: TextDocumentPositionArgsSchema,
+            lspMethod: "textDocument/documentHighlight",
+            capabilityKey: "documentHighlightProvider",
+            emptyResponse: [],
+            outSchema: z.array(DocumentHighlightSchema),
+            params: textDocumentPositionParams,
+            transform: normalizeDocumentHighlightResult,
+          },
+          "documentHighlight",
+        );
       case "documentSymbol":
-        return this.requestByUri(args, opts, {
-          argsSchema: DidCloseArgsSchema,
-          lspMethod: "textDocument/documentSymbol",
-          capabilityKey: "documentSymbolProvider",
-          emptyResponse: [],
-          outSchema: z.array(DocumentSymbolSchema),
-          params: documentSymbolParams,
-          transform: normalizeDocumentSymbolResult,
-        });
+        return this.requestByUri(
+          args,
+          opts,
+          {
+            argsSchema: DidCloseArgsSchema,
+            lspMethod: "textDocument/documentSymbol",
+            capabilityKey: "documentSymbolProvider",
+            emptyResponse: [],
+            outSchema: z.array(DocumentSymbolSchema),
+            params: documentSymbolParams,
+            transform: normalizeDocumentSymbolResult,
+          },
+          "documentSymbol",
+        );
       case "workspaceSymbol":
         return this.workspaceSymbol(args, opts);
       case "semanticTokens":
@@ -343,6 +482,9 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     this.workspaceServers.clear();
     this.serverPromises.clear();
     this.uriIndex.clear();
+    this.workspaceLastActivity.clear();
+    this.serverTimeoutCount.clear();
+    this.serverSpawnedAt.clear();
     this.pendingServerRequests.clear();
     this.pendingSpawnByCorrelation.clear();
     this.pendingSpawnByServerId.clear();
@@ -353,11 +495,23 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     this.listeners.clear();
   }
 
+  /**
+   * Dispose the LSP server for a single (workspaceId, languageId) pair,
+   * then broadcast a workspaceLspReset event for that language. No-op when
+   * the server is not currently live. Called from the IPC layer when the user
+   * toggles a language off via `setEnabledLanguages`.
+   */
+  disposeLanguage(workspaceId: string, languageId: string, reason: string): void {
+    if (this.disposed) return;
+    this.disposeWorkspaceServers(workspaceId, reason, { languageId });
+  }
+
   private async didOpen(args: unknown): Promise<null> {
     const parsed = DidOpenArgsSchema.parse(args);
     const presetLanguageId = resolveLspPresetLanguageId(parsed.languageId);
     if (!presetLanguageId) return null;
 
+    this.touchWorkspace(parsed.workspaceId);
     const server = await this.getOrCreateServer(
       parsed.workspaceId,
       parsed.languageId,
@@ -381,6 +535,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     const parsed = DidChangeArgsSchema.parse(args);
     const routed = this.findServer(parsed.workspaceId, parsed.uri);
     if (!routed) return null;
+    this.touchWorkspace(parsed.workspaceId);
 
     await routed.server.notifyTextDocumentDidChange({
       textDocument: { uri: parsed.uri, version: parsed.version },
@@ -393,6 +548,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     const parsed = DidSaveArgsSchema.parse(args);
     const routed = this.findServer(parsed.workspaceId, parsed.uri);
     if (!routed) return null;
+    this.touchWorkspace(parsed.workspaceId);
 
     await routed.server.notifyTextDocumentDidSave({
       textDocument: { uri: parsed.uri },
@@ -405,6 +561,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     const parsed = DidCloseArgsSchema.parse(args);
     const routed = this.findServer(parsed.workspaceId, parsed.uri);
     if (!routed) return null;
+    this.touchWorkspace(parsed.workspaceId);
 
     await routed.server.notifyTextDocumentDidClose({
       textDocument: { uri: parsed.uri },
@@ -420,6 +577,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     args: unknown,
     opts: LspHostCallOptions,
     spec: RequestSpec<A>,
+    methodName: string,
   ) {
     const parsed = spec.argsSchema.parse(args);
     const routed = this.findServer(parsed.workspaceId, parsed.uri);
@@ -429,10 +587,22 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     if (!routed.server.hasCapability(spec.capabilityKey)) {
       return spec.outSchema.parse(spec.emptyResponse);
     }
+    this.touchWorkspace(parsed.workspaceId);
 
-    const raw = await routed.server.request(spec.lspMethod, spec.params(parsed), {
-      signal: opts.signal,
-    });
+    let raw: unknown;
+    try {
+      raw = await withRequestTimeout(
+        (signal) => routed.server.request(spec.lspMethod, spec.params(parsed), { signal }),
+        opts.signal,
+        methodName,
+      );
+    } catch (error) {
+      if (error instanceof LspRequestTimeoutError) {
+        this.trackTimeout(routed.context.workspaceId, routed.context.languageId);
+      }
+      throw error;
+    }
+    this.resetTimeoutCount(routed.context.workspaceId, routed.context.languageId);
     const normalized = spec.transform ? spec.transform(raw) : raw;
     return spec.outSchema.parse(normalized);
   }
@@ -442,6 +612,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     const routed = this.findServer(parsed.workspaceId, parsed.uri);
     if (!routed) return null;
     if (!routed.server.hasCapability("semanticTokensProvider")) return null;
+    this.touchWorkspace(parsed.workspaceId);
 
     // Extract the server's token-type legend from its initialize-response
     // capabilities. The server capability is keyed "semanticTokensProvider"
@@ -450,11 +621,24 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       routed.server.getCapabilityValue("semanticTokensProvider"),
     );
 
-    const raw = await routed.server.request(
-      "textDocument/semanticTokens/full",
-      semanticTokensParams(parsed),
-      { signal: opts.signal },
-    );
+    let raw: unknown;
+    try {
+      raw = await withRequestTimeout(
+        (signal) =>
+          routed.server.request("textDocument/semanticTokens/full", semanticTokensParams(parsed), {
+            signal,
+          }),
+        opts.signal,
+        "semanticTokens",
+      );
+    } catch (error) {
+      if (error instanceof LspRequestTimeoutError) {
+        this.trackTimeout(routed.context.workspaceId, routed.context.languageId);
+      }
+      throw error;
+    }
+    this.resetTimeoutCount(routed.context.workspaceId, routed.context.languageId);
+
     const normalized = normalizeSemanticTokensResult(raw);
     if (!normalized) return SemanticTokensResultSchema.nullable().parse(null);
 
@@ -479,10 +663,24 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       this.workspaceServers.get(parsed.workspaceId)?.values() ?? [],
     ).filter((server) => server.hasCapability("workspaceSymbolProvider"));
     if (servers.length === 0) return [];
+    this.touchWorkspace(parsed.workspaceId);
 
     const settled = await Promise.allSettled(
       servers.map(async (server) => {
-        const raw = await server.request("workspace/symbol", { query: parsed.query }, opts);
+        let raw: unknown;
+        try {
+          raw = await withRequestTimeout(
+            (signal) => server.request("workspace/symbol", { query: parsed.query }, { signal }),
+            opts.signal,
+            "workspaceSymbol",
+          );
+        } catch (error) {
+          if (error instanceof LspRequestTimeoutError) {
+            this.trackTimeout(server.workspaceId, server.languageId);
+          }
+          throw error;
+        }
+        this.resetTimeoutCount(server.workspaceId, server.languageId);
         return normalizeWorkspaceSymbolResult(raw);
       }),
     );
@@ -506,12 +704,24 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     const presetLanguageId = resolveLspPresetLanguageId(languageId);
     if (!preset || !presetLanguageId) return null;
 
+    // Language-enabled gate: checked before looking up an existing server so
+    // a toggle-off that already disposed the server doesn't accidentally
+    // recreate it on the next didOpen from a still-open editor tab.
+    if (!this.isLanguageEnabled(workspaceId, presetLanguageId)) return null;
+
     const existing = this.workspaceServers.get(workspaceId)?.get(presetLanguageId);
     if (existing) return existing;
 
     const key = `${workspaceId}\0${presetLanguageId}`;
     const pending = this.serverPromises.get(key);
     if (pending) return pending;
+
+    // Before allocating a brand-new server for this workspace, make
+    // room: if N other workspaces are already live, evict the LRU one.
+    // Eviction emits a "workspaceLspReset" event so the renderer can
+    // reset its `lspOpened` markers and re-issue didOpen on the next
+    // interaction. See LSP_MAX_ACTIVE_WORKSPACES for the rationale.
+    this.evictLruWorkspaceIfNeeded(workspaceId);
 
     const promise = this.spawnServer(workspaceId, presetLanguageId, workspaceRoot, preset).finally(
       () => {
@@ -520,6 +730,102 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     );
     this.serverPromises.set(key, promise);
     return promise;
+  }
+
+  /**
+   * Update the LRU clock for `workspaceId`. Called from every code
+   * path that resolves to a live server — didOpen/didChange/didSave/
+   * didClose, request-style methods (hover, definition, …), and
+   * workspaceSymbol. The "currently used" set is therefore exactly the
+   * set of workspaces with recent activity, and the eviction policy
+   * picks off the oldest first.
+   */
+  private touchWorkspace(workspaceId: string): void {
+    this.workspaceLastActivity.set(workspaceId, Date.now());
+  }
+
+  /**
+   * Find and dispose the least-recently-used workspace's LSP servers
+   * when adding a new workspace would push the live count past the
+   * cap. The workspace currently being spawned is excluded from the
+   * candidate set so we never evict the workspace that just touched
+   * `getOrCreateServer`.
+   *
+   * Emits the `workspaceLspReset` event so the renderer can clear
+   * `lspOpened` on the evicted workspace's entries; the next user
+   * interaction (typing, workspace activation) triggers a fresh
+   * didOpen and respawns the LSP.
+   */
+  private evictLruWorkspaceIfNeeded(activeWorkspaceId: string): void {
+    if (this.workspaceServers.has(activeWorkspaceId)) return;
+    if (this.workspaceServers.size < this.maxActiveWorkspaces) return;
+
+    let lruWorkspaceId: string | null = null;
+    let lruTime = Number.POSITIVE_INFINITY;
+    for (const wsId of this.workspaceServers.keys()) {
+      if (wsId === activeWorkspaceId) continue;
+      const t = this.workspaceLastActivity.get(wsId) ?? 0;
+      if (t < lruTime) {
+        lruTime = t;
+        lruWorkspaceId = wsId;
+      }
+    }
+    if (lruWorkspaceId) {
+      this.disposeWorkspaceServers(lruWorkspaceId, "evicted by LRU cap");
+    }
+  }
+
+  /**
+   * Dispose LSP server(s) for `workspaceId`. When `options.languageId` is
+   * provided only the server for that language is disposed; otherwise every
+   * server for the workspace is disposed (full workspace reset).
+   *
+   * Broadcasts a `workspaceLspReset` event so the renderer-side model cache
+   * resets `lspOpened` on affected entries. Idempotent — a second call for
+   * the same (workspaceId[, languageId]) that is already gone is a no-op.
+   */
+  private disposeWorkspaceServers(
+    workspaceId: string,
+    reason: string,
+    options?: { languageId?: string },
+  ): void {
+    const servers = this.workspaceServers.get(workspaceId);
+    if (!servers) return;
+
+    const targetLanguageId = options?.languageId;
+
+    if (targetLanguageId) {
+      // Single-language dispose: only remove the specified server.
+      const server = servers.get(targetLanguageId);
+      if (!server) return;
+      this.diagnosticsDebouncer.clearForServer(server.workspaceId, server.languageId);
+      this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
+      this.serversById.delete(server.serverId);
+      server.dispose();
+      servers.delete(targetLanguageId);
+      const serverKey = `${workspaceId}\0${targetLanguageId}`;
+      this.serverTimeoutCount.delete(serverKey);
+      this.serverSpawnedAt.delete(serverKey);
+      if (servers.size === 0) {
+        this.workspaceServers.delete(workspaceId);
+        this.workspaceLastActivity.delete(workspaceId);
+      }
+      this.emit("workspaceLspReset", { workspaceId, languageId: targetLanguageId, reason });
+    } else {
+      // Full workspace dispose.
+      for (const server of servers.values()) {
+        this.diagnosticsDebouncer.clearForServer(server.workspaceId, server.languageId);
+        this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
+        this.serversById.delete(server.serverId);
+        server.dispose();
+        const serverKey = `${workspaceId}\0${server.languageId}`;
+        this.serverTimeoutCount.delete(serverKey);
+        this.serverSpawnedAt.delete(serverKey);
+      }
+      this.workspaceServers.delete(workspaceId);
+      this.workspaceLastActivity.delete(workspaceId);
+      this.emit("workspaceLspReset", { workspaceId, reason });
+    }
   }
 
   private async spawnServer(
@@ -606,6 +912,13 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     }
     workspaceServers.set(server.languageId, server);
     this.serversById.set(server.serverId, server);
+    // Record spawn time so trackTimeout can enforce the grace window during
+    // which slow-to-initialize servers are not wedge-restarted.
+    const serverKey = `${server.workspaceId}\0${server.languageId}`;
+    this.serverSpawnedAt.set(serverKey, Date.now());
+    // Reset any leftover timeout count from a previous server instance for
+    // this (workspace, language) slot (e.g. after a wedge-restart).
+    this.serverTimeoutCount.delete(serverKey);
   }
 
   /**
@@ -625,17 +938,11 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     const presetLanguageId = this.uriIndex.get(workspaceId)?.get(uri);
     if (!presetLanguageId) return null;
     const server = this.workspaceServers.get(workspaceId)?.get(presetLanguageId);
-    return server
-      ? { server, context: { workspaceId, languageId: presetLanguageId } }
-      : null;
+    return server ? { server, context: { workspaceId, languageId: presetLanguageId } } : null;
   }
 
   /** Record which preset language owns `(workspaceId, uri)` after didOpen. */
-  private recordUriOwnership(
-    workspaceId: string,
-    uri: string,
-    presetLanguageId: string,
-  ): void {
+  private recordUriOwnership(workspaceId: string, uri: string, presetLanguageId: string): void {
     let workspaceMap = this.uriIndex.get(workspaceId);
     if (!workspaceMap) {
       workspaceMap = new Map();
@@ -711,6 +1018,12 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       this.serversById.delete(parsed.serverId);
       this.workspaceServers.get(server.workspaceId)?.delete(server.languageId);
       this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
+
+      // Clean up wedge-detection state for the exited server so a respawn
+      // starts with a fresh count and spawn timestamp.
+      const serverKey = `${server.workspaceId}\0${server.languageId}`;
+      this.serverTimeoutCount.delete(serverKey);
+      this.serverSpawnedAt.delete(serverKey);
     }
 
     // applyEdit-style server requests held in pendingServerRequests are
@@ -953,6 +1266,46 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     if (workspaceMap.size === 0) this.uriIndex.delete(workspaceId);
   }
 
+  /**
+   * Record a timeout for the `(workspaceId, languageId)` server. Calls
+   * within LSP_SERVER_WEDGE_GRACE_MS of the server's spawn time are
+   * silently ignored — some language servers (tsserver, basedpyright)
+   * are slow to finish initialisation and would otherwise be cycled
+   * immediately. Once the grace window has elapsed, every call increments
+   * the consecutive counter; reaching LSP_CONSECUTIVE_TIMEOUT_LIMIT
+   * triggers `disposeWorkspaceServers` with the specific `languageId`.
+   */
+  private trackTimeout(workspaceId: string, languageId: string): void {
+    const serverKey = `${workspaceId}\0${languageId}`;
+    const spawnedAt = this.serverSpawnedAt.get(serverKey);
+    if (spawnedAt !== undefined && Date.now() - spawnedAt < LSP_SERVER_WEDGE_GRACE_MS) {
+      // Inside grace window — do not count.
+      return;
+    }
+    const count = (this.serverTimeoutCount.get(serverKey) ?? 0) + 1;
+    if (count >= LSP_CONSECUTIVE_TIMEOUT_LIMIT) {
+      this.serverTimeoutCount.delete(serverKey);
+      console.warn(
+        `[lsp-agent] ${workspaceId}/${languageId} wedged (${LSP_CONSECUTIVE_TIMEOUT_LIMIT} consecutive timeouts) — restarting`,
+      );
+      this.disposeWorkspaceServers(workspaceId, "LSP server wedged (3 consecutive timeouts)", {
+        languageId,
+      });
+    } else {
+      this.serverTimeoutCount.set(serverKey, count);
+    }
+  }
+
+  /**
+   * Reset the consecutive-timeout counter for the `(workspaceId,
+   * languageId)` server. Called whenever a request completes successfully
+   * so a single transient stall followed by a recovery is not penalised.
+   */
+  private resetTimeoutCount(workspaceId: string, languageId: string): void {
+    const serverKey = `${workspaceId}\0${languageId}`;
+    this.serverTimeoutCount.delete(serverKey);
+  }
+
   private emit(event: string, args: unknown): void {
     for (const cb of this.listeners.get(event) ?? []) {
       cb(args);
@@ -968,6 +1321,57 @@ interface RequestSpec<A> {
   outSchema: z.ZodTypeAny;
   params: (args: A) => unknown;
   transform?: (raw: unknown) => unknown;
+}
+
+/**
+ * Run an LSP request under a wall-clock budget. On expiry an internal
+ * AbortController fires, cancelling the request at the server boundary
+ * (via the signal the agent-lsp-server consumes), and the function
+ * rejects with `LspRequestTimeoutError`. The caller (the IPC layer)
+ * recognises that error and returns the method-appropriate empty value
+ * instead of letting it crash through the renderer's provider.
+ *
+ * The external signal (renderer-side cancellation) is composed with the
+ * internal one so either trigger cancels the request. A cancellation
+ * from the renderer is allowed to propagate as a plain abort error —
+ * the IPC layer already swallows those.
+ */
+async function withRequestTimeout<T>(
+  exec: (signal: AbortSignal) => Promise<T>,
+  externalSignal: AbortSignal | undefined,
+  methodName: string,
+): Promise<T> {
+  const timeoutMs = REQUEST_TIMEOUT_MS[methodName];
+  if (timeoutMs === undefined) {
+    // No bounded budget configured for this method — pass through
+    // unchanged. Used as a defensive default; we intentionally list
+    // every routable method in REQUEST_TIMEOUT_MS.
+    return exec(externalSignal ?? new AbortController().signal);
+  }
+
+  const internal = new AbortController();
+  let timedOut = false;
+  const onExternalAbort = () => internal.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) internal.abort();
+    else externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+  }
+  const timer = setTimeout(() => {
+    timedOut = true;
+    internal.abort();
+  }, timeoutMs);
+
+  try {
+    return await exec(internal.signal);
+  } catch (error) {
+    if (timedOut && !externalSignal?.aborted) {
+      throw new LspRequestTimeoutError(methodName, timeoutMs);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    externalSignal?.removeEventListener("abort", onExternalAbort);
+  }
 }
 
 // ---------------------------------------------------------------------------

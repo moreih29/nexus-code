@@ -55,6 +55,7 @@ function makeHarness(
     subscribeFsChanged: mock(() => () => {}),
     workspaceRootForInput: mock(() => "/workspace"),
     isLspLanguage: mock(() => true),
+    isLspEnabledForWorkspace: mock(() => true),
     ensureProvidersFor: mock(() => {}),
     monacoContentChangesToLsp: mock((changes: Change[]) => changes),
     notifyDidChange,

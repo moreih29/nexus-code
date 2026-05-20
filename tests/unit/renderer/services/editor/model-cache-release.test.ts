@@ -48,7 +48,11 @@ const { acquireModel, releaseModel, subscribeOnRelease } = await import(
 );
 
 const INPUT = { workspaceId: "ws-a", filePath: "/workspace/src/a.ts" };
-const CACHE_URI = "file:///workspace/src/a.ts";
+// cacheUri carries the workspace-scoped `nexus-ws://` scheme so the same
+// physical file opened from two workspaces has two distinct cache keys.
+// The mocked createEntry in this suite uses the supplied cacheUri for
+// both cacheUri and lspUri — match the real `cacheUriFor` output here.
+const CACHE_URI = "nexus-ws://ws-a/workspace/src/a.ts";
 
 describe("model-cache subscribeOnRelease", () => {
   beforeEach(() => {

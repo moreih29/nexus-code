@@ -46,6 +46,71 @@ export const FS_EXPANDED_SAVE_DEBOUNCE_MS = 200;
  */
 export const LSP_DEFAULT_IDLE_MS = 30 * 60 * 1000;
 
+/**
+ * Maximum number of workspaces whose LSP servers can be live
+ * simultaneously. This is a **safety net**, not the primary resource
+ * control — users govern per-workspace per-language LSP allocation
+ * explicitly via the sidebar chips and the Workspaces settings panel
+ * (new workspaces default to no LSP enabled). The cap only kicks in
+ * if the user has opted four workspaces into LSP at once, which on
+ * 16GB machines (4× tsserver ≈ 6–10GB) is the practical limit before
+ * macOS begins page-compressing aggressively and inter-process
+ * latency spikes into seconds.
+ *
+ * The evicted workspace's renderer-side model entries are notified via
+ * `lsp:workspaceReset` so the next interaction triggers a fresh
+ * didOpen and respawn — see services/editor/model/cache.ts.
+ */
+export const LSP_MAX_ACTIVE_WORKSPACES = 4;
+
+// ---------------------------------------------------------------------------
+// LSP per-request timeouts
+//
+// Even with healthy routing, a memory-pressured tsserver can stall a
+// request for tens of seconds. Without a timeout the renderer's hover /
+// completion widget shows "Loading…" indefinitely. We bound each request
+// kind to a reasonable maximum and resolve with an empty response on
+// expiry — the request is also cancelled at the server boundary so
+// tsserver doesn't keep working on a result nobody is waiting for.
+//
+// The values are tuned per-method:
+// - hover / documentHighlight: low (interactive feedback); a hover that
+//   takes 8s+ is effectively useless.
+// - completion / references / workspaceSymbol: medium (user explicitly
+//   waits, the result is worth more time).
+// - semanticTokens / documentSymbol: medium (whole-file work, runs once
+//   per open).
+// ---------------------------------------------------------------------------
+
+/**
+ * How many consecutive request timeouts on the same LSP server trigger
+ * an automatic wedge-restart. The server is disposed and a
+ * `workspaceReset(workspaceId, languageId)` broadcast lets the renderer
+ * clear `lspOpened`; the next user interaction naturally respawns the
+ * server. Three is the threshold: a single transient stall (tsserver
+ * GC pause) should not trigger a restart, but three consecutive hangs
+ * indicates the server is truly stuck.
+ */
+export const LSP_CONSECUTIVE_TIMEOUT_LIMIT = 3;
+
+/**
+ * Grace window after an LSP server spawns during which consecutive
+ * timeouts are NOT counted toward the wedge-restart limit. Some
+ * language servers (tsserver, basedpyright) are slow to finish
+ * initializing and will time out on the first requests; counting those
+ * toward the wedge threshold would cause unnecessary rapid cycling.
+ */
+export const LSP_SERVER_WEDGE_GRACE_MS = 60_000;
+
+export const LSP_HOVER_TIMEOUT_MS = 8_000;
+export const LSP_DEFINITION_TIMEOUT_MS = 10_000;
+export const LSP_COMPLETION_TIMEOUT_MS = 15_000;
+export const LSP_REFERENCES_TIMEOUT_MS = 15_000;
+export const LSP_DOCUMENT_HIGHLIGHT_TIMEOUT_MS = 5_000;
+export const LSP_DOCUMENT_SYMBOL_TIMEOUT_MS = 10_000;
+export const LSP_WORKSPACE_SYMBOL_TIMEOUT_MS = 15_000;
+export const LSP_SEMANTIC_TOKENS_TIMEOUT_MS = 10_000;
+
 // ---------------------------------------------------------------------------
 // State persistence
 // ---------------------------------------------------------------------------

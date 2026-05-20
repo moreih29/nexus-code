@@ -9,7 +9,11 @@ import type {
   SymbolInformation,
   TextDocumentContentChangeEvent,
 } from "../../../../shared/lsp";
+import type { LspLanguageId } from "../../../../shared/types/app-state";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../../ipc/client";
+import { useActiveStore } from "../../../state/stores/active";
+import { isLspEnabledForWorkspace, useLspEnabledStore } from "../../../state/stores/lsp-enabled";
+import { rehydrateLspForWorkspace, resetLspStateForWorkspace } from "../model/cache";
 import { isLspLanguage } from "./language";
 import {
   lspDiagnosticToMonacoMarker,
@@ -46,6 +50,8 @@ const knownModelUris = new Set<string>();
 let monacoRef: typeof Monaco | null = null;
 let diagnosticsUnlisten: (() => void) | null = null;
 let applyEditUnlisten: (() => void) | null = null;
+let workspaceResetUnlisten: (() => void) | null = null;
+let enabledLanguagesChangedUnlisten: (() => void) | null = null;
 let preAcquireFn: PreAcquireFn = async () => {};
 
 function setMonaco(monaco: typeof Monaco): void {
@@ -57,6 +63,10 @@ function setMonaco(monaco: typeof Monaco): void {
   diagnosticsUnlisten = null;
   applyEditUnlisten?.();
   applyEditUnlisten = null;
+  workspaceResetUnlisten?.();
+  workspaceResetUnlisten = null;
+  enabledLanguagesChangedUnlisten?.();
+  enabledLanguagesChangedUnlisten = null;
 }
 
 function registerDiagnosticsListener(monaco: typeof Monaco): void {
@@ -82,6 +92,55 @@ function registerDiagnosticsListener(monaco: typeof Monaco): void {
       MARKER_OWNER,
       args.diagnostics.map((diagnostic) => lspDiagnosticToMonacoMarker(monaco, diagnostic)),
     );
+  });
+}
+
+function registerWorkspaceResetListener(): void {
+  if (workspaceResetUnlisten) return;
+
+  // The main-side LSP host emits `workspaceReset` when its LRU cap
+  // evicts a workspace's servers. We mirror that into the renderer's
+  // model cache so every entry's `lspOpened` is cleared; the user's
+  // next interaction (typing, or workspace activation) triggers a
+  // fresh didOpen and respawns the LSP. Without this, the entries
+  // would think the file is still open server-side and silently land
+  // didChange notifications in the void.
+  workspaceResetUnlisten = ipcListen("lsp", "workspaceReset", (args) => {
+    resetLspStateForWorkspace(args.workspaceId, args.languageId);
+  });
+}
+
+function registerEnabledLanguagesChangedListener(): void {
+  if (enabledLanguagesChangedUnlisten) return;
+
+  enabledLanguagesChangedUnlisten = ipcListen("lsp", "enabledLanguagesChanged", (args) => {
+    const { workspaceId, languages } = args as {
+      workspaceId: string;
+      languages: LspLanguageId[];
+    };
+
+    // Compute the newly-added languages before updating the store so we
+    // can trigger a rehydrate for them on the active workspace.
+    const prev = useLspEnabledStore.getState().byWorkspace[workspaceId] ?? [];
+    const prevSet = new Set<string>(prev);
+    const added = languages.filter((lang) => !prevSet.has(lang));
+
+    // Update the store — this also unblocks future isLspEnabledForWorkspace reads.
+    useLspEnabledStore.getState().setForWorkspace(workspaceId, languages);
+
+    // For newly-added languages, eagerly rehydrate if the workspace is
+    // currently active. The workspaceReset broadcast handles removed languages.
+    if (added.length > 0) {
+      const activeWorkspaceId = useActiveStore.getState().activeWorkspaceId;
+      if (activeWorkspaceId === workspaceId) {
+        for (const lang of added) {
+          // isLspEnabledForWorkspace now returns true after the store update above.
+          if (isLspEnabledForWorkspace(workspaceId, lang)) {
+            rehydrateLspForWorkspace(workspaceId, lang);
+          }
+        }
+      }
+    }
   });
 }
 
@@ -115,6 +174,8 @@ export function initializeLspBridge(monaco: typeof Monaco): void {
   setMonaco(monaco);
   registerDiagnosticsListener(monaco);
   registerApplyEditListener(monaco);
+  registerWorkspaceResetListener();
+  registerEnabledLanguagesChangedListener();
 }
 
 export function ensureProvidersFor(languageId: string): void {

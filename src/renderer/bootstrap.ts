@@ -5,11 +5,13 @@
  * Functions here are plain async — callers own the `useEffect` wrapper.
  */
 
+import type { LspLanguageId } from "../shared/types/app-state";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, mustSucceed } from "./ipc/client";
 import { registerStatePersistence } from "./state/persistence";
 import { useEditorFontStore } from "./state/stores/editor-font";
 import { useLayoutStore } from "./state/stores/layout";
+import { useLspEnabledStore } from "./state/stores/lsp-enabled";
 import { useTabsStore } from "./state/stores/tabs";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
@@ -126,4 +128,32 @@ export async function bootstrapWorkspaces(
     const first = list[0];
     setActiveWorkspaceId(first.id);
   }
+}
+
+/**
+ * Hydrate the per-workspace LSP enabled-languages store for all known
+ * workspaces. Must be called after `bootstrapWorkspaces` so the workspace
+ * list is available, and before any `attachLspBridge` call that gates on
+ * `isLspEnabledForWorkspace`.
+ *
+ * Queries main for each workspace's enabled list in parallel then bulk-loads
+ * into the store in one shot so the sync getter sees a fully populated state
+ * before any editor model fires its first didOpen.
+ */
+export async function bootstrapLspEnabled(workspaces: WorkspaceMeta[]): Promise<void> {
+  if (workspaces.length === 0) return;
+
+  const entries = await Promise.all(
+    workspaces.map(async (ws) => {
+      const result = await ipcCallResult("lsp", "getEnabledLanguages", { workspaceId: ws.id });
+      if (!result.ok) return [ws.id, []] as const;
+      return [ws.id, result.value.languages] as const;
+    }),
+  );
+
+  const initial: Record<string, LspLanguageId[]> = {};
+  for (const [wsId, langs] of entries) {
+    initial[wsId] = langs as LspLanguageId[];
+  }
+  useLspEnabledStore.getState().hydrateAll(initial);
 }

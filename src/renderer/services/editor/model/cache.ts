@@ -9,17 +9,18 @@ import { parseWorkspaceUri, workspaceUriFor } from "../../../../shared/fs/worksp
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import type { FileErrorCode } from "../../../utils/file-error";
 import { initializeMonacoSingleton } from "../runtime/monaco-singleton";
-import { loadExternalEntry } from "./load-external-entry";
 import {
   cleanupEntry,
   createEntry,
   errorCodeFromUnknown,
   type ModelEntry,
   notifySubscribers,
+  rehydrateEntry,
   reloadEntryFromDisk,
   type SharedModelState,
   snapshot,
 } from "./entry";
+import { loadExternalEntry } from "./load-external-entry";
 
 export { isMonacoReady, onMonacoReady } from "../runtime/monaco-singleton";
 export type { SharedModelPhase, SharedModelState } from "./entry";
@@ -275,6 +276,61 @@ export function clearDiskDiverged(input: EditorInput): void {
   if (entry.diskDiverged === undefined) return;
   entry.diskDiverged = undefined;
   notifySubscribers(entry);
+}
+
+/**
+ * Mark tracked entries as no-longer-opened on the LSP side. The renderer's
+ * LSP bridge calls this after receiving `lsp:workspaceReset` from main.
+ *
+ * When `languageId` is provided only entries for that language within the
+ * workspace are reset; when omitted every entry for the workspace is reset
+ * (backward-compatible, used by LRU full-workspace eviction).
+ *
+ * The function only flips bookkeeping fields — actual respawn is
+ * lazy (next keystroke triggers rehydrate) and/or eager (workspace
+ * activation calls `rehydrateLspForWorkspace`).
+ */
+export function resetLspStateForWorkspace(workspaceId: string, languageId?: string): void {
+  for (const entry of entries.values()) {
+    if (entry.input.workspaceId !== workspaceId) continue;
+    if (languageId && entry.languageId !== languageId) continue;
+    if (entry.disposed) continue;
+    entry.lspOpened = false;
+    entry.lspNeedsRehydrate = true;
+    // Reset the open promise to a settled state so callers awaiting it
+    // immediately observe the new lspOpened flag and decide whether to
+    // re-issue didOpen.
+    entry.didOpenPromise = Promise.resolve();
+  }
+}
+
+/**
+ * Eagerly re-issue didOpen for entries whose LSP server-side state was
+ * dropped. Called from the renderer when the workspace becomes active again
+ * — without this, the user has to type before hover/completion start working
+ * in the revisited workspace.
+ *
+ * When `languageId` is provided only entries for that language are
+ * rehydrated; when omitted every eligible entry for the workspace is
+ * rehydrated (backward-compatible, full-workspace path).
+ *
+ * Errors are swallowed per-entry so a single failed rehydrate doesn't
+ * block the rest.
+ */
+export function rehydrateLspForWorkspace(workspaceId: string, languageId?: string): void {
+  for (const entry of entries.values()) {
+    if (entry.input.workspaceId !== workspaceId) continue;
+    if (languageId && entry.languageId !== languageId) continue;
+    if (entry.disposed || entry.lspOpened) continue;
+    // Skip entries that have never been opened (initial load still in
+    // flight) — only re-issue didOpen for entries the host had once
+    // accepted and then evicted.
+    if (!entry.lspNeedsRehydrate) continue;
+    void rehydrateEntry(entry).catch(() => {
+      // rehydrateEntry already records lspDegraded on failure; we keep
+      // the loop running so unrelated entries still respawn.
+    });
+  }
 }
 
 /**

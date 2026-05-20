@@ -3,8 +3,8 @@
 
 import type * as Monaco from "monaco-editor";
 import { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
+import { isLspEnabledForWorkspace } from "../../../state/stores/lsp-enabled";
 import { type FileErrorCode, parseFileErrorCode } from "../../../utils/file-error";
-import { isLspLanguage } from "../lsp/language";
 import {
   ensureProvidersFor,
   monacoContentChangesToLsp,
@@ -14,12 +14,13 @@ import {
   registerKnownModelUri,
   unregisterKnownModelUri,
 } from "../lsp/bridge";
+import { isLspLanguage } from "../lsp/language";
 import { requireMonaco } from "../runtime/monaco-singleton";
 import type { EditorInput } from "../types";
 import { attachDirtyAndUriTracking } from "./attach-dirty-and-uri-tracking";
 import { attachFsSubscription } from "./attach-fs-subscription";
 import { attachGitSubscription } from "./attach-git-subscription";
-import { attachLspBridge } from "./attach-lsp-bridge";
+import { attachLspBridge, rehydrateEntryLspOpened } from "./attach-lsp-bridge";
 import {
   attachDirtyTracker,
   detachDirtyTracker,
@@ -43,6 +44,7 @@ const defaultModelEntryDeps = {
   attachGitSubscription,
   workspaceRootForInput,
   isLspLanguage,
+  isLspEnabledForWorkspace,
   ensureProvidersFor,
   monacoContentChangesToLsp,
   notifyDidChange,
@@ -86,6 +88,14 @@ export interface ModelEntry {
   lspOpened: boolean;
   didOpenPromise?: Promise<void>;
   lspDegraded?: boolean;
+  /**
+   * Sticky flag set by the cache when the main-side LSP host evicts this
+   * workspace (LSP_MAX_ACTIVE_WORKSPACES). The content-change handler
+   * uses it to distinguish "initial didOpen still pending" (false) from
+   * "server-side state lost, re-issue didOpen before forwarding more
+   * changes" (true). Cleared on a successful rehydrate.
+   */
+  lspNeedsRehydrate?: boolean;
   disposed: boolean;
   subscribers: Set<() => void>;
   origin: "workspace" | "external";
@@ -143,6 +153,17 @@ export function notifySubscribers(entry: ModelEntry): void {
 
 function depsFor(entry: ModelEntry): ModelEntryDeps {
   return entry.deps ?? defaultModelEntryDeps;
+}
+
+/**
+ * Re-issue didOpen against the LSP host for entries whose server-side
+ * state was dropped (LRU eviction). Wraps `rehydrateEntryLspOpened`
+ * with the entry's resolved deps so callers in the cache layer can
+ * trigger respawn without threading deps themselves. No-op when the
+ * entry is already opened, disposed, or has no model yet.
+ */
+export function rehydrateEntry(entry: ModelEntry): Promise<void> {
+  return rehydrateEntryLspOpened(entry, depsFor(entry));
 }
 
 /**

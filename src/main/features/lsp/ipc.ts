@@ -15,8 +15,11 @@ import type {
   SemanticTokensResult,
   SymbolInformation,
 } from "../../../shared/lsp";
+import type { LspLanguageId } from "../../../shared/types/app-state";
 import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../infra/agent/ssh/ssh-bootstrap/index";
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
+import type { StateService } from "../../infra/storage/state-service";
+import { LspRequestTimeoutError } from "./agent-host";
 import type { LspHostHandle } from "./host";
 
 const c = ipcContract.lsp.call;
@@ -52,6 +55,15 @@ export async function withCancelDefault<T>(
     return (await promise) as T;
   } catch (error) {
     if (signal?.aborted) return emptyValue;
+    // A bounded LSP request that exceeded its wall-clock budget. The
+    // renderer's provider was waiting on this — returning the method-
+    // appropriate empty value (instead of throwing) lets the hover /
+    // completion widget close cleanly. The original cause is logged so
+    // operators can correlate with tsserver pressure / memory state.
+    if (error instanceof LspRequestTimeoutError) {
+      console.warn(`[lsp] ${error.message} — returning empty result`);
+      return emptyValue;
+    }
     throw error;
   }
 }
@@ -105,7 +117,7 @@ async function handleServerRequest(lspHost: LspHostHandle, args: unknown): Promi
  * Single entry point so `main/index` can hand the LSP host handle over once
  * during startup and not maintain it per-event.
  */
-export function registerLspChannel(lspHost: LspHostHandle): void {
+export function registerLspChannel(lspHost: LspHostHandle, stateService: StateService): void {
   // Forward host diagnostics events to renderers. The host's debouncer
   // emits `{ workspaceId, languageId, uri, diagnostics }`; we keep
   // workspaceId so the renderer's listener can reconstruct the
@@ -136,6 +148,19 @@ export function registerLspChannel(lspHost: LspHostHandle): void {
 
   lspHost.on(LSP_BOOTSTRAP_PROGRESS_EVENT, (args) => {
     broadcast("lsp", "bootstrap.progress", args);
+  });
+
+  // LRU eviction in the agent host disposes a workspace's LSP servers
+  // and emits this event. Forwarding it to the renderer lets the model
+  // cache clear `lspOpened` on entries belonging to the evicted
+  // workspace, so the next interaction (typing, activation) re-issues
+  // didOpen and respawns a fresh server. See LSP_MAX_ACTIVE_WORKSPACES.
+  lspHost.on("workspaceLspReset", (args) => {
+    const { workspaceId, languageId } = args as {
+      workspaceId: string;
+      languageId?: string;
+    };
+    broadcast("lsp", "workspaceReset", { workspaceId, ...(languageId ? { languageId } : {}) });
   });
 
   register("lsp", {
@@ -265,12 +290,51 @@ export function registerLspChannel(lspHost: LspHostHandle): void {
         const { requestId, result } = validateArgs(c.applyEditResult.args, args);
         resolveRendererApplyEdit(requestId, result);
       },
+
+      getEnabledLanguages: async (args: unknown) => {
+        const { workspaceId } = validateArgs(c.getEnabledLanguages.args, args);
+        const state = stateService.getState();
+        const languages = (state.lspEnabledLanguagesByWorkspace?.[workspaceId] ??
+          []) as LspLanguageId[];
+        return { languages };
+      },
+
+      setEnabledLanguages: async (args: unknown) => {
+        const { workspaceId, languages } = validateArgs(c.setEnabledLanguages.args, args);
+        const state = stateService.getState();
+        const existing =
+          state.lspEnabledLanguagesByWorkspace ?? ({} as Record<string, LspLanguageId[]>);
+        const prev = (existing[workspaceId] ?? []) as LspLanguageId[];
+
+        // Persist the new set atomically.
+        stateService.setState({
+          lspEnabledLanguagesByWorkspace: {
+            ...existing,
+            [workspaceId]: languages,
+          },
+        });
+
+        // Dispose servers for any language that was just removed.
+        // disposeLanguage emits workspaceLspReset for that language, which
+        // the workspaceLspReset listener above forwards to all renderers.
+        const newSet = new Set<string>(languages);
+        for (const lang of prev) {
+          if (!newSet.has(lang)) {
+            lspHost.disposeLanguage(workspaceId, lang, "user-toggle-off");
+          }
+        }
+
+        // Broadcast so all open renderer windows can sync their UI.
+        broadcast("lsp", "enabledLanguagesChanged", { workspaceId, languages });
+      },
     },
     listen: {
       diagnostics: {},
       applyEdit: {},
       serverEvent: {},
       "bootstrap.progress": {},
+      workspaceReset: {},
+      enabledLanguagesChanged: {},
     },
   });
 }

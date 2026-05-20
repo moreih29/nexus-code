@@ -18,12 +18,26 @@ export const WindowBoundsSchema = z.object({
   height: z.number(),
 });
 
+// Closed set of language IDs that can be enabled per workspace for LSP.
+// Mirrors BUILTIN_LSP_PRESETS — update both when new language servers ship.
+export const LspLanguageIdSchema = z.enum(["typescript", "python"]);
+export type LspLanguageId = z.infer<typeof LspLanguageIdSchema>;
+
 export const AppStateSchema = z.object({
   windowBounds: WindowBoundsSchema.optional(),
   lastActiveWorkspaceId: z.string().optional(),
   sidebarWidth: z.number().int().positive().optional(),
   filesPanelWidth: z.number().int().positive().optional(),
   layoutByWorkspace: z.record(z.string().uuid(), WorkspaceLayoutSnapshotSchema).optional(),
+  // Per-workspace list of LSP languages the user has explicitly enabled.
+  // Key = workspaceId (UUID). Absent key (or absent field) means no
+  // languages enabled (default OFF). Optional rather than `.default({})`
+  // so the inferred output type matches the rest of the schema's
+  // optional-field convention — every consumer of `AppState` already
+  // narrows undefined → empty record at the call site.
+  lspEnabledLanguagesByWorkspace: z
+    .record(z.string().uuid(), z.array(LspLanguageIdSchema))
+    .optional(),
   // Theme preference persisted to appState (authoritative store).
   // localStorage is also written as a boot cache for FOUC prevention.
   themePreference: ThemePreferenceSchema.optional(),
@@ -52,9 +66,7 @@ export const AppStateSchema = z.object({
   editorFontLigatures: z.boolean().optional(),
 
   // Editor line height — 닫힌 집합; 부재=토큰 fallback (1.4).
-  editorFontLineHeight: z
-    .union([z.literal(1.0), z.literal(1.2), z.literal(1.4)])
-    .optional(),
+  editorFontLineHeight: z.union([z.literal(1.0), z.literal(1.2), z.literal(1.4)]).optional(),
 
   // Terminal font size in px — integer, clamped to [8, 32]; 부재=토큰 fallback (14).
   // Widened from a closed set so the Settings dialog can offer a numeric
