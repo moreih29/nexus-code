@@ -16,7 +16,6 @@ import { WelcomeScreen } from "./components/workbench/welcome-screen";
 import { AddWorkspaceDialog } from "./components/workspace/add-workspace";
 import { WorkspacePanel } from "./components/workspace/panel";
 import { showRemoveWorkspaceConfirm } from "./components/workspace/remove-workspace-dialog";
-import { useDensityEffect } from "./hooks/use-density-effect";
 import { useThemeEffect } from "./hooks/use-theme-effect";
 import { useWindowOpacityEffect } from "./hooks/use-window-opacity-effect";
 import { ipcCallResult } from "./ipc/client";
@@ -149,9 +148,6 @@ export function App() {
   // Apply resolved theme to documentElement (data-theme attribute).
   // Also subscribes to OS prefers-color-scheme when preference === "system".
   useThemeEffect();
-
-  // Apply data-density attribute to documentElement ('compact' sets it; 'default' removes it).
-  useDensityEffect();
 
   // Apply --window-opacity CSS property to documentElement.
   useWindowOpacityEffect();

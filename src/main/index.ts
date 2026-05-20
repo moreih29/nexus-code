@@ -3,7 +3,6 @@ import { app, BrowserWindow } from "electron";
 import { initMainLogger } from "../shared/log/main";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { installErrorSafetyNet } from "./error-safety-net";
-import { registerAppChannel } from "./features/app";
 import { registerAppStateChannel } from "./features/app-state";
 import { registerDialogChannel } from "./features/dialog";
 import { registerEntryPointsChannels } from "./features/entry-points/ipc";
@@ -138,7 +137,6 @@ registerWorkspaceChannel(workspaceManager, {
 });
 registerDialogChannel();
 registerAppStateChannel(stateService);
-registerAppChannel(stateService);
 registerFsChannel(workspaceManager, agentFsWatcher, workspaceStorage);
 registerPanelChannel(workspaceStorage);
 registerSshChannel();

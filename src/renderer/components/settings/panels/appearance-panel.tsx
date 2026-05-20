@@ -1,8 +1,11 @@
 // src/renderer/components/settings/panels/appearance-panel.tsx
 //
-// Controls: Theme (segmented 4) + Density (segmented 2) +
-//           Window Opacity (slider 0.5–1.0 step 0.05 + value label) +
-//           Restart banner (conditional on opacity isDirty).
+// Controls: Theme (segmented 4) + Window Opacity (slider 0–100% step 5).
+//
+// Window opacity applies immediately via --window-opacity CSS var; the macOS
+// BrowserWindow is created with `transparent: true` unconditionally so no
+// restart is ever needed. (Density was removed — the v2 cycle's button-height
+// adjustments never landed, so the toggle produced no perceptible change.)
 //
 // Design seal: semantic tokens only, no hex/oklch/rgba literals,
 // no magic pixel values, no shadows.
@@ -11,11 +14,8 @@ import { Slider } from "radix-ui";
 import { useEffect, useState } from "react";
 import { cn } from "@/utils/cn";
 import type { ThemePreference } from "../../../../shared/types/app-state";
-import type { DensityPreference } from "../../../state/stores/density";
-import { useDensityStore } from "../../../state/stores/density";
 import { useThemeStore } from "../../../state/stores/theme";
 import { useWindowOpacityStore } from "../../../state/stores/window-opacity";
-import { RestartBanner } from "../restart-banner";
 import type { SegmentedOption } from "../segmented-control";
 import { SegmentedControl } from "../segmented-control";
 
@@ -30,12 +30,7 @@ const THEME_OPTIONS: SegmentedOption<ThemePreference>[] = [
   { value: "system", label: "System" },
 ];
 
-const DENSITY_OPTIONS: SegmentedOption<DensityPreference>[] = [
-  { value: "default", label: "Default" },
-  { value: "compact", label: "Compact" },
-];
-
-const OPACITY_MIN = 0.5;
+const OPACITY_MIN = 0;
 const OPACITY_MAX = 1.0;
 const OPACITY_STEP = 0.05;
 
@@ -47,14 +42,11 @@ export function AppearancePanel() {
   const themePreference = useThemeStore((s) => s.preference);
   const setThemePreference = useThemeStore((s) => s.setPreference);
 
-  const densityPreference = useDensityStore((s) => s.preference);
-  const setDensityPreference = useDensityStore((s) => s.setPreference);
-
   const opacity = useWindowOpacityStore((s) => s.opacity);
   const setOpacity = useWindowOpacityStore((s) => s.setOpacity);
 
   // Local preview — updated on every drag tick for real-time value label.
-  // setOpacity (→ IPC + isDirty) is only called on pointer-up (onValueCommit).
+  // setOpacity (→ IPC + CSS var apply) is only called on pointer-up (onValueCommit).
   const [localOpacity, setLocalOpacity] = useState<number>(opacity);
 
   // Keep local preview in sync when the store changes outside this component
@@ -77,16 +69,6 @@ export function AppearancePanel() {
         />
       </SettingsSection>
 
-      {/* Section: Density */}
-      <SettingsSection label="Density">
-        <SegmentedControl
-          options={DENSITY_OPTIONS}
-          value={densityPreference}
-          onChange={setDensityPreference}
-          label="Density"
-        />
-      </SettingsSection>
-
       {/* Section: Window Opacity */}
       <SettingsSection label="Window opacity">
         <div className="flex items-center gap-3">
@@ -96,10 +78,12 @@ export function AppearancePanel() {
             step={OPACITY_STEP}
             value={[localOpacity]}
             onValueChange={(vals) => {
-              if (vals[0] !== undefined) setLocalOpacity(vals[0]);
-            }}
-            onValueCommit={(vals) => {
-              if (vals[0] !== undefined) setOpacity(vals[0]);
+              // Preview drag tick — also push to the store so the CSS var
+              // updates live as the user drags (no flash on commit).
+              if (vals[0] !== undefined) {
+                setLocalOpacity(vals[0]);
+                setOpacity(vals[0]);
+              }
             }}
             aria-label="Window opacity"
             className="relative flex flex-1 touch-none select-none items-center"
@@ -107,8 +91,6 @@ export function AppearancePanel() {
             <Slider.Track className="relative h-1 w-full grow rounded-(--radius-control) bg-muted border border-border">
               <Slider.Range className="absolute h-full rounded-(--radius-control) bg-[var(--state-selected-bg)]" />
             </Slider.Track>
-            {/* Thumb takes the selected-state tone so it stays visible against
-                Floating-layer popover bg (bg-background blended with it). */}
             <Slider.Thumb
               className={cn(
                 "block size-4 rounded-full border border-[var(--state-selected-bg)] bg-[var(--state-selected-bg)]",
@@ -121,7 +103,6 @@ export function AppearancePanel() {
             {opacityPercent}%
           </span>
         </div>
-        <RestartBanner />
       </SettingsSection>
     </div>
   );

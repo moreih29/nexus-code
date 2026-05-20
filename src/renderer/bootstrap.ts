@@ -8,7 +8,6 @@
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, mustSucceed } from "./ipc/client";
 import { registerStatePersistence } from "./state/persistence";
-import { useDensityStore } from "./state/stores/density";
 import { useEditorFontStore } from "./state/stores/editor-font";
 import { useLayoutStore } from "./state/stores/layout";
 import { useTabsStore } from "./state/stores/tabs";
@@ -44,9 +43,6 @@ export async function bootstrapAppState(): Promise<void> {
   // Hydrate theme from appState (authoritative store).
   // This overwrites the localStorage-based initial value so the two stay in sync.
   useThemeStore.getState().hydrate(state.themePreference);
-
-  // Hydrate density from appState (authoritative store).
-  useDensityStore.getState().hydrate(state.density);
 
   // Hydrate editor font settings from appState (authoritative store).
   useEditorFontStore.getState().hydrate({

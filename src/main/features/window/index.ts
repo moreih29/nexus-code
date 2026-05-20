@@ -42,9 +42,12 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   const mac = isMac();
   const { bg: titleBg, symbol: titleSymbol } = getTitleBarColors(appState?.themePreference);
 
-  // `transparent` is a constructor-only Electron option — changing windowOpacity
-  // later requires an app restart to take effect.
-  const wantsTransparency = (appState?.windowOpacity ?? 1) < 1;
+  // `transparent` is a constructor-only Electron option — it must be set at
+  // window creation time. We always enable it on macOS so the renderer can
+  // freely adjust --window-opacity at runtime via CSS color-mix without ever
+  // requiring an app restart. At 100% opacity the surfaces paint fully opaque
+  // and the desktop is invisible — visually equivalent to a non-transparent
+  // window (minus the native shadow, an acceptable trade for restart-free UX).
 
   const win = new BrowserWindow({
     width: 1280,
@@ -56,17 +59,12 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
     //   - Win/Linux: titleBarOverlay renders themed min/max/close at top-right.
     titleBarStyle: mac ? "hiddenInset" : "hidden",
     ...(mac
-      ? wantsTransparency
-        ? {
-            // Fully transparent window (NOT vibrancy). Wherever the renderer
-            // paints transparent, the desktop shows through CRISPLY with no
-            // blur/frost. vibrancy gives a softer frosted look; `transparent`
-            // gives the sharp Ghostty-style see-through. The renderer root
-            // (html/body, App root, titlebar) is transparent.
-            transparent: true,
-            backgroundColor: "#00000000",
-          }
-        : {}
+      ? {
+          // Always-transparent macOS window. Wherever the renderer paints
+          // transparent, the desktop shows through CRISPLY with no blur/frost.
+          transparent: true,
+          backgroundColor: "#00000000",
+        }
       : {
           titleBarOverlay: {
             // Match the renderer titlebar's chrome background for the active theme.
