@@ -47,6 +47,14 @@ export type SemanticTokensResult = z.infer<typeof SemanticTokensResultSchema>;
 //   number                                → syntaxNumber
 //   operator                              → syntaxOperator
 //   event / label                         → syntaxVariable (folded)
+//
+// Pyright extension tokens (last block before sentinel): pyright emits custom
+// token types beyond LSP 3.16 standard. We accept them into the canonical
+// legend so they survive the remap step; monaco-theme.ts buildSyntaxRules then
+// maps them to existing palette roles (intrinsic/magicFunction → syntaxFunction,
+// builtinConstant → syntaxKeyword, self/clsParameter → syntaxVariable).
+// Without this extension pyright's tokens would fall to the sentinel and
+// import-references like `os.getenv(...)` would render with no semantic colour.
 // ---------------------------------------------------------------------------
 export const CANONICAL_TOKEN_TYPES: readonly string[] = [
   "namespace", // 0
@@ -73,17 +81,23 @@ export const CANONICAL_TOKEN_TYPES: readonly string[] = [
   "operator", // 21
   "decorator", // 22
   "label", // 23
-  // Sentinel slot (index 24): used for token types that are not in the
+  // Pyright extensions (24-28): not in LSP 3.16 but emitted by pyright.
+  "intrinsic", // 24 — pyright: stdlib functions (print, len, etc.)
+  "builtinConstant", // 25 — pyright: True, False, None, Ellipsis, NotImplemented
+  "selfParameter", // 26 — pyright: `self` parameter
+  "clsParameter", // 27 — pyright: `cls` parameter
+  "magicFunction", // 28 — pyright: __init__, __str__, dunder methods
+  // Sentinel slot (last index): used for token types that are not in the
   // canonical list. Keeping the tuple in the output preserves delta-chain
   // integrity (LSP data is delta-encoded; dropping a tuple shifts every
   // subsequent token's position). Monaco has no theme rule for "unknown" so
   // sentinel tokens receive no semantic colour and fall back to Monarch
   // highlighting — the correct behaviour for unrecognised types.
-  "unknown", // 24  sentinel — no theme rule; Monarch fallback
+  "unknown", // 29  sentinel — no theme rule; Monarch fallback
 ] as const;
 
 /** Index of the sentinel slot in CANONICAL_TOKEN_TYPES. */
-export const SENTINEL_TOKEN_TYPE_INDEX = 24;
+export const SENTINEL_TOKEN_TYPE_INDEX = 29;
 
 // ---------------------------------------------------------------------------
 // remapSemanticTokenData

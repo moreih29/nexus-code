@@ -1,6 +1,12 @@
 import { describe, expect, mock, test } from "bun:test";
 import type * as Monaco from "monaco-editor";
-import { nexusDarkPalette } from "../../../../src/shared/editor/palette";
+import { EDITOR_PALETTES } from "../../../../src/shared/editor/palette";
+
+// Anchor the test against a single representative dark palette. The previous
+// `nexusDarkPalette` export was retired when the adapter-based theme system
+// replaced the inline palette constants — every palette is now derived from
+// theme-sources.ts. github-dark is the new default theme (DEFAULT_THEME).
+const nexusDarkPalette = EDITOR_PALETTES["github-dark"];
 
 // Stub document.documentElement before importing the monaco-theme module.
 // subscribeMonacoThemeChanges (called by initializeMonacoTheme) attaches a
@@ -90,8 +96,8 @@ function createFakeMonaco(): typeof Monaco & {
   };
 }
 
-describe("nexus-dark Monaco theme — two distinct instances are tracked independently", () => {
-  test("each instance gets defineTheme called once per theme (3 themes), regardless of the other", () => {
+describe("nexus Monaco themes — two distinct instances are tracked independently", () => {
+  test("each instance gets defineTheme called once per registered theme, regardless of the other", () => {
     const monacoA = createFakeMonaco();
     const monacoB = createFakeMonaco();
 
@@ -102,9 +108,10 @@ describe("nexus-dark Monaco theme — two distinct instances are tracked indepen
     // Second instance: first call should register (not share WeakSet entry with A)
     initializeMonacoTheme(monacoB);
 
-    // initializeMonacoTheme now registers all 3 ThemeId themes per instance
-    expect(monacoA.__defineTheme).toHaveBeenCalledTimes(3);
-    expect(monacoB.__defineTheme).toHaveBeenCalledTimes(3);
+    // initializeMonacoTheme registers every ThemeId once per instance.
+    const themeCount = Object.keys(NEXUS_THEME_NAMES).length;
+    expect(monacoA.__defineTheme).toHaveBeenCalledTimes(themeCount);
+    expect(monacoB.__defineTheme).toHaveBeenCalledTimes(themeCount);
   });
 
   test("buildEditorColors reference values match editor palette exactly", () => {
@@ -119,50 +126,53 @@ describe("nexus-dark Monaco theme — two distinct instances are tracked indepen
   });
 });
 
-describe("nexus-dark Monaco theme", () => {
-  test("defines warm-dark word-highlight colors once per Monaco instance (3 themes total)", () => {
+describe("nexus Monaco themes", () => {
+  test("defines github-dark word-highlight colors once per Monaco instance", () => {
     const monaco = createFakeMonaco();
 
     initializeMonacoTheme(monaco);
     initializeMonacoTheme(monaco);
 
-    // 3 themes registered (warm-dark, cool-dark, warm-light); second call is no-op
-    expect(monaco.__defineTheme).toHaveBeenCalledTimes(3);
-    expect(monaco.__themeCalls).toHaveLength(3);
+    // Every registered theme is defined exactly once; second call is no-op.
+    const themeCount = Object.keys(NEXUS_THEME_NAMES).length;
+    expect(monaco.__defineTheme).toHaveBeenCalledTimes(themeCount);
+    expect(monaco.__themeCalls).toHaveLength(themeCount);
 
-    // warm-dark is the first theme registered; verify its name and colors
-    const warmDarkCall = monaco.__themeCalls.find((c) => c.name === NEXUS_THEME_NAMES["warm-dark"]);
-    expect(warmDarkCall).toBeDefined();
-    expect(warmDarkCall?.theme).toMatchObject({
+    // Verify the default theme (github-dark) is registered with expected shape.
+    const githubDarkCall = monaco.__themeCalls.find(
+      (c) => c.name === NEXUS_THEME_NAMES["github-dark"],
+    );
+    expect(githubDarkCall).toBeDefined();
+    expect(githubDarkCall?.theme).toMatchObject({
       base: "vs-dark",
       inherit: true,
     });
     // design.md §15.1: syntax colors are authored from the Nexus palette —
     // the old inherited `rules: []` is deprecated. rules must be populated.
-    expect(warmDarkCall?.theme.rules.length).toBeGreaterThan(0);
-    expect(warmDarkCall?.theme.rules).toContainEqual({
+    expect(githubDarkCall?.theme.rules.length).toBeGreaterThan(0);
+    expect(githubDarkCall?.theme.rules).toContainEqual({
       token: "keyword",
       foreground: nexusDarkPalette.syntaxKeyword.replace(/^#/, ""),
     });
-    expect(warmDarkCall?.theme.colors).toMatchObject({
+    expect(githubDarkCall?.theme.colors).toMatchObject({
       "editor.wordHighlightBackground": nexusDarkPalette.wordHighlightBackground,
       "editor.wordHighlightStrongBackground": nexusDarkPalette.wordHighlightStrongBackground,
       "editor.wordHighlightTextBackground": nexusDarkPalette.wordHighlightTextBackground,
     });
   });
 
-  test("initializeEditorServices initializes all themes once (3 themes, no duplicates)", () => {
+  test("initializeEditorServices initializes every theme once (no duplicates)", () => {
     const monaco = createFakeMonaco();
 
     initializeEditorServices(monaco);
     initializeEditorServices(monaco);
 
-    // 3 themes registered; second initializeEditorServices call is no-op
-    expect(monaco.__defineTheme).toHaveBeenCalledTimes(3);
+    const themeCount = Object.keys(NEXUS_THEME_NAMES).length;
+    expect(monaco.__defineTheme).toHaveBeenCalledTimes(themeCount);
     const registeredNames = monaco.__themeCalls.map((call) => call.name);
-    expect(registeredNames).toContain(NEXUS_THEME_NAMES["warm-dark"]);
-    expect(registeredNames).toContain(NEXUS_THEME_NAMES["cool-dark"]);
-    expect(registeredNames).toContain(NEXUS_THEME_NAMES["warm-light"]);
+    for (const expectedName of Object.values(NEXUS_THEME_NAMES)) {
+      expect(registeredNames).toContain(expectedName);
+    }
   });
 });
 

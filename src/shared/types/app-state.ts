@@ -1,10 +1,14 @@
 import { z } from "zod";
+import { THEME_SOURCES } from "../design-tokens";
 import { WorkspaceLayoutSnapshotSchema } from "./layout";
 
-// ThemeId is the single source of truth — imported from design-tokens so the
-// zod enum stays in sync with the runtime registry without duplication.
+// ThemePreferenceSchema mirrors the registered ThemeId set. The "system"
+// preference was retired when external themes replaced the first-party
+// warm/cool pair (only one light variant ships, so OS Auto can't pick a
+// matching dark partner deterministically).
 // design.md §8 decision: "ThemeId를 shared 단일소스로 참조 — zod enum 이중정의 금지"
-export const ThemePreferenceSchema = z.enum(["warm-dark", "cool-dark", "warm-light", "system"]);
+const themeIds = THEME_SOURCES.map((s) => s.id) as [string, ...string[]];
+export const ThemePreferenceSchema = z.enum(themeIds);
 export type ThemePreference = z.infer<typeof ThemePreferenceSchema>;
 
 export const WindowBoundsSchema = z.object({

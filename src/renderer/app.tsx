@@ -252,8 +252,8 @@ export function App() {
     [workspaces],
   );
 
-  // Apply resolved theme to documentElement (data-theme attribute).
-  // Also subscribes to OS prefers-color-scheme when preference === "system".
+  // Apply resolved theme to documentElement (data-theme attribute) and
+  // dispatch "nexus:theme-changed" for Monaco / xterm sync.
   useThemeEffect();
 
   // Apply --window-opacity CSS property to documentElement.

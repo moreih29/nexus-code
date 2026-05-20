@@ -47,19 +47,16 @@ export { buildShadcnVars, SEALED } from "./component";
 // ---------------------------------------------------------------------------
 
 export type { ThemeId } from "./themes";
+export { THEMES, DEFAULT_THEME, THEME_SOURCES, THEME_SOURCE_BY_ID } from "./themes";
 
 // ---------------------------------------------------------------------------
-// Backward-compat alias: buildSemanticTokens() was the old API consumed by
-// generate-theme-css.ts. It now delegates to buildShadcnVars(warmDark).
+// theme-adapter — exposes buildSemanticTokens / buildEditorPalette to
+// downstream consumers (palette.ts, tests, scripts).
 // ---------------------------------------------------------------------------
 
-import { warmDark } from "./themes/warm-dark";
-import { buildShadcnVars } from "./component";
-
-/** @deprecated Use buildShadcnVars(theme) with an explicit theme. */
-export function buildSemanticTokens(): Record<string, string> {
-  return buildShadcnVars(warmDark);
-}
+export { buildSemanticTokens, buildEditorPalette } from "./theme-adapter";
+export type { EditorPalette } from "./theme-adapter";
+export type { ThemeSource } from "./theme-sources";
 
 // ---------------------------------------------------------------------------
 // Typography — in-app type scale (design.md §5)

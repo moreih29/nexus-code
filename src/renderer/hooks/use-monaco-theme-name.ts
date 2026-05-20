@@ -1,7 +1,7 @@
 // src/renderer/hooks/use-monaco-theme-name.ts — Derives the Monaco theme name
 // from the resolved Nexus theme in the theme store.
 //
-// Returns the Monaco-registered string (e.g. "nexus-warm-dark") that
+// Returns the Monaco-registered string (e.g. "nexus-github-dark") that
 // corresponds to the currently resolved ThemeId so editor components can pass
 // it as the initial `theme` prop without hardcoding a single palette.
 //

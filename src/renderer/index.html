@@ -1,27 +1,27 @@
 <!doctype html>
-<html lang="en" data-theme="warm-dark">
+<html lang="en" data-theme="github-dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!--
       Content-Security-Policy: the inline boot script below requires an explicit
       SHA-256 hash allowance. If a CSP header is added to the Electron session
-      (e.g. via session.defaultSession.webRequest.onHeadersReceived), include:
-        'sha256-z7VMEqqiuIH7jEUmISh3bpXjm35ukB06vYfvexm7/9Y='
-      in the script-src directive.
+      (e.g. via session.defaultSession.webRequest.onHeadersReceived), include
+      the script's SHA-256 hash in the script-src directive.
       The meta CSP is intentionally omitted here because Electron's sandbox
       enforces its own policy; a meta tag would be a second, potentially
       conflicting policy.
     -->
     <!--
       Boot script — runs synchronously before first paint (FOUC prevention).
-      1. Theme: reads localStorage["themePreference"], falls back to OS
-         prefers-color-scheme → warm-dark / warm-light pair.
+      1. Theme: reads localStorage["themePreference"] and applies if it matches
+         a known theme id. Falls back to "github-dark" (DEFAULT_THEME).
+         The valid theme list is duplicated here because this script must run
+         before any module loads; keep it in sync with theme-sources.ts.
       2. Window opacity: reads localStorage["windowOpacity"], sets
          --window-opacity CSS property if a valid number in [0,1] is stored.
-      SHA-256: z7VMEqqiuIH7jEUmISh3bpXjm35ukB06vYfvexm7/9Y=
     -->
-    <script>(function(){var t=localStorage.getItem("themePreference");var v=["warm-dark","cool-dark","warm-light"];if(t&&v.includes(t)){document.documentElement.setAttribute("data-theme",t);}else{var d=window.matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.setAttribute("data-theme",d?"warm-dark":"warm-light");}var o=localStorage.getItem("windowOpacity");if(o!==null){var n=parseFloat(o);if(!isNaN(n)&&n>=0&&n<=1){document.documentElement.style.setProperty("--window-opacity",String(n));}}})()</script>
+    <script>(function(){var t=localStorage.getItem("themePreference");var v=["github-dark","github-light","dracula","one-dark-pro","monokai","tokyo-night","solarized-dark","nord","catppuccin-mocha","gruvbox-dark"];if(t&&v.indexOf(t)>=0){document.documentElement.setAttribute("data-theme",t);}else{document.documentElement.setAttribute("data-theme","github-dark");}var o=localStorage.getItem("windowOpacity");if(o!==null){var n=parseFloat(o);if(!isNaN(n)&&n>=0&&n<=1){document.documentElement.style.setProperty("--window-opacity",String(n));}}})()</script>
     <title>nexus-code</title>
     <link
       rel="preload"

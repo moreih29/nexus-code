@@ -10,21 +10,19 @@
 //
 // Consumed by: src/renderer/services/terminal/controller.ts
 //
-// Design source: src/shared/design-tokens/themes/*.ts → terminal.* keys.
-// design.md §9 Region Semantics: terminal region vocabulary.
+// Design source: src/shared/design-tokens/theme-sources.ts (each ThemeSource
+// supplies a `selectionSolid` hex; the rest is derived from semantic tokens).
 
-import { formatHex, formatHex8, parse } from "culori";
+import { formatHex, parse } from "culori";
 import type { ITheme } from "@xterm/xterm";
-import { THEMES } from "../design-tokens/themes";
-import type { ThemeId } from "../design-tokens/themes";
+import { THEMES, THEME_SOURCES, type ThemeId } from "../design-tokens";
 import type { SemanticTokenSet } from "../design-tokens/semantic";
 
 // ---------------------------------------------------------------------------
 // toHex — convert any CSS color string culori can parse to #rrggbb.
 // rgba() alpha is intentionally discarded: xterm renders its own selection
 // overlay on top of the background; passing a semi-transparent rgba would
-// produce incorrect results. For selectionBackground we use a dedicated
-// solid approximation baked into each theme's palette below.
+// produce incorrect results.
 // Returns the original string if culori cannot parse it (should not happen
 // for values in themes/*.ts, but avoids silent breakage).
 // ---------------------------------------------------------------------------
@@ -36,30 +34,15 @@ function toHex(value: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// toHexAlpha — like toHex but preserves an explicit alpha as #rrggbbaa.
-// Used only for `background` so the terminal surface is translucent and the
-// macOS window vibrancy shows through (requires allowTransparency on the
-// Terminal instance). All other palette keys stay opaque via toHex.
-// ---------------------------------------------------------------------------
-
-function toHexAlpha(value: string, alpha: number): string {
-  const parsed = parse(value);
-  if (!parsed) return value;
-  return formatHex8({ ...parsed, alpha }) ?? value;
-}
-
-// ---------------------------------------------------------------------------
 // buildTerminalPalette — derive xterm ITheme from a SemanticTokenSet.
 //
 // selectionBackground: ANSI selection in xterm must be a solid hex color.
-// The semantic token is rgba — we pre-bake a solid approximation per theme:
-//   warm-dark / warm-light terminal: rgba(255,255,255,0.10) on #1a1917 → #2e2d2b
-//   cool-dark terminal: rgba(200,210,255,0.12) on oklch(0.18,0.008,245)≈#191b1f → #2c2e36
+// Each ThemeSource pre-bakes one in `selectionSolid`; we pass that through.
 // ---------------------------------------------------------------------------
 
 function buildTerminalPalette(tokens: SemanticTokenSet, selBg: string): ITheme {
   return {
-    background: toHexAlpha(tokens["terminal.bg"], 0), // fully transparent — terminal shows the island surface
+    background: "#00000000", // fully transparent — terminal shows the island surface
     foreground: toHex(tokens["terminal.fg"]),
     cursor: toHex(tokens["terminal.cursor.color"]),
     cursorAccent: toHex(tokens["terminal.cursor.accent"]),
@@ -85,17 +68,13 @@ function buildTerminalPalette(tokens: SemanticTokenSet, selBg: string): ITheme {
 }
 
 // ---------------------------------------------------------------------------
-// TERMINAL_PALETTES — pre-built ITheme per ThemeId.
-//
-// selectionBackground solid approximations (rgba blended onto terminal.bg):
-//   warm-dark:  rgba(255,255,255,0.10) on #1a1917 → approx #2e2d2b
-//   cool-dark:  rgba(200,210,255,0.12) on #191b1f → approx #2e303a
-//   warm-light: rgba(255,255,255,0.12) on #1a1917 → approx #2f2e2c
-//               (terminal.bg is also #1a1917 in warm-light — inverted zone)
+// TERMINAL_PALETTES — pre-built ITheme per ThemeId. Iterates THEME_SOURCES
+// so a new theme is auto-included when it ships in theme-sources.ts.
 // ---------------------------------------------------------------------------
 
-export const TERMINAL_PALETTES: Record<ThemeId, ITheme> = {
-  "warm-dark": buildTerminalPalette(THEMES["warm-dark"], "#2e2d2b"),
-  "cool-dark": buildTerminalPalette(THEMES["cool-dark"], "#2e303a"),
-  "warm-light": buildTerminalPalette(THEMES["warm-light"], "#2f2e2c"),
-};
+export const TERMINAL_PALETTES: Record<ThemeId, ITheme> = Object.fromEntries(
+  THEME_SOURCES.map((source) => [
+    source.id,
+    buildTerminalPalette(THEMES[source.id], source.selectionSolid),
+  ]),
+) as Record<ThemeId, ITheme>;
