@@ -29,9 +29,17 @@ export const EDITOR_FONT_EVENT = "nexus:editor-font-changed" as const;
 // Types
 // ---------------------------------------------------------------------------
 
-// Mirror the closed sets declared in AppStateSchema.
-export type EditorFontSize = 12 | 13 | 14 | 16 | 18 | 20;
+// Font size: integer in [8, 32] — matches AppStateSchema.editorFontSize.
+// Line height: closed set of three steps — matches AppStateSchema.editorFontLineHeight.
+export type EditorFontSize = number;
 export type EditorFontLineHeight = 1.0 | 1.2 | 1.4;
+
+const EDITOR_FONT_SIZE_MIN = 8;
+const EDITOR_FONT_SIZE_MAX = 32;
+
+function isValidEditorFontSize(n: number): boolean {
+  return Number.isInteger(n) && n >= EDITOR_FONT_SIZE_MIN && n <= EDITOR_FONT_SIZE_MAX;
+}
 
 // ---------------------------------------------------------------------------
 // State shape
@@ -72,8 +80,7 @@ function readStoredSize(): EditorFontSize | undefined {
   const raw = localStorage.getItem(STORAGE_KEY_SIZE);
   if (raw === null) return undefined;
   const n = Number(raw);
-  const valid: EditorFontSize[] = [12, 13, 14, 16, 18, 20];
-  return (valid as number[]).includes(n) ? (n as EditorFontSize) : undefined;
+  return isValidEditorFontSize(n) ? n : undefined;
 }
 
 function readStoredFamily(): string | undefined {

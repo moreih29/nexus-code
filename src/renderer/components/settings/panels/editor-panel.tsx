@@ -1,18 +1,21 @@
 // src/renderer/components/settings/panels/editor-panel.tsx
 //
-// Controls: Font size (slider 6 closed steps) + Family (dropdown + custom input +
-//           font availability indicator) + Ligatures (toggle) + Line height (segmented 3).
+// Controls:
+//   - Font size: numeric input + ▲▼ stepper (12–32, step 1)
+//   - Font family: token-sealed Select + custom-name input branch
+//   - Font ligatures: Radix Checkbox + live mini-preview that toggles `liga`
+//   - Line height: SegmentedControl (1.0 / 1.2 / 1.4), inline with its label
 //
 // Design seal: semantic tokens only, no hex/oklch/rgba literals,
 // no magic pixel values, no shadows.
 
-import { Slider } from "radix-ui";
 import { useCallback, useEffect, useId, useState } from "react";
 import { cn } from "@/utils/cn";
 import { checkFontAvailable } from "../../../services/editor/runtime/font-availability";
 import type { EditorFontLineHeight, EditorFontSize } from "../../../state/stores/editor-font";
 import { useEditorFontStore } from "../../../state/stores/editor-font";
 import { Checkbox } from "../../ui/checkbox";
+import { NumberInput } from "../../ui/number-input";
 import {
   Select,
   SelectContent,
@@ -27,10 +30,8 @@ import { SegmentedControl } from "../segmented-control";
 // Constants
 // ---------------------------------------------------------------------------
 
-// Closed set of font size steps.
-const FONT_SIZE_STEPS: EditorFontSize[] = [12, 13, 14, 16, 18, 20];
-// Index-based slider: 0–5.
-const FONT_SIZE_SLIDER_MAX = FONT_SIZE_STEPS.length - 1;
+const FONT_SIZE_MIN: EditorFontSize = 8;
+const FONT_SIZE_MAX: EditorFontSize = 32;
 
 const LINE_HEIGHT_OPTIONS: SegmentedOption<string>[] = [
   { value: "1", label: "1.0" },
@@ -38,9 +39,10 @@ const LINE_HEIGHT_OPTIONS: SegmentedOption<string>[] = [
   { value: "1.4", label: "1.4" },
 ];
 
-// Sentinel for "use the platform fallback (no override)". Stored as the explicit
-// "__system__" string in the Select UI because Radix Select reserves the empty
-// string for "no value selected". Mapped back to "" / undefined at the boundary.
+// Sentinel for "use the platform fallback (no override)". Stored as the
+// explicit "__system__" string in the Select UI because Radix Select reserves
+// the empty string for "no value selected". Mapped back to undefined at the
+// boundary.
 const FAMILY_SYSTEM_VALUE = "__system__";
 
 const DEFAULT_FONT_FAMILIES = [
@@ -56,15 +58,6 @@ const DEFAULT_LINE_HEIGHT_TOKEN: EditorFontLineHeight = 1.4;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function sizeToIndex(size: EditorFontSize | undefined): number {
-  const idx = FONT_SIZE_STEPS.indexOf(size ?? DEFAULT_FONT_SIZE_TOKEN);
-  return idx >= 0 ? idx : FONT_SIZE_STEPS.indexOf(DEFAULT_FONT_SIZE_TOKEN);
-}
-
-function indexToSize(idx: number): EditorFontSize {
-  return FONT_SIZE_STEPS[idx] ?? DEFAULT_FONT_SIZE_TOKEN;
-}
 
 function lineHeightToValue(lh: EditorFontLineHeight | undefined): string {
   if (lh === undefined) return String(DEFAULT_LINE_HEIGHT_TOKEN);
@@ -91,8 +84,10 @@ export function EditorPanel() {
   const setLigatures = useEditorFontStore((s) => s.setLigatures);
   const setLineHeight = useEditorFontStore((s) => s.setLineHeight);
 
-  const fontSizeIndex = sizeToIndex(size);
   const effectiveSize = size ?? DEFAULT_FONT_SIZE_TOKEN;
+  const effectiveFamily = family && family !== "" ? family : "JetBrains Mono Nerd Font";
+  const effectiveLineHeight = lineHeight ?? DEFAULT_LINE_HEIGHT_TOKEN;
+  const effectiveLigatures = ligatures ?? false;
 
   // Determine whether the current family is a preset or custom.
   const isCustomFamily =
@@ -131,8 +126,6 @@ export function EditorPanel() {
     (val: string) => {
       setFamilySelect(val);
       if (val !== "__custom__") {
-        // FAMILY_SYSTEM_VALUE is a UI-only sentinel — translate back to undefined
-        // so the store stays "use the codeBody token fallback".
         setFamily(val === FAMILY_SYSTEM_VALUE ? undefined : val);
         setCustomFamilyInput("");
         setFontAvailableMsg(null);
@@ -154,42 +147,31 @@ export function EditorPanel() {
   const ligaturesId = useId();
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Font size */}
-      <SettingsSection label="Font size">
-        <div className="flex items-center gap-3">
-          <Slider.Root
-            min={0}
-            max={FONT_SIZE_SLIDER_MAX}
-            step={1}
-            value={[fontSizeIndex]}
-            onValueChange={(vals) => {
-              if (vals[0] !== undefined) setSize(indexToSize(vals[0]));
-            }}
-            aria-label="Editor font size"
-            className="relative flex flex-1 touch-none select-none items-center"
-          >
-            <Slider.Track className="relative h-1 w-full grow rounded-(--radius-control) bg-muted border border-border">
-              <Slider.Range className="absolute h-full rounded-(--radius-control) bg-[var(--state-selected-bg)]" />
-            </Slider.Track>
-            {/* Thumb uses the selected-state token so it pops against the muted
-                track on every theme. bg-background made the thumb blend on
-                Floating surfaces where popover bg ≈ background. */}
-            <Slider.Thumb
-              className={cn(
-                "block size-4 rounded-full border border-[var(--state-selected-bg)] bg-[var(--state-selected-bg)]",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                "transition-colors",
-              )}
-            />
-          </Slider.Root>
-          <span className="w-8 text-right text-app-ui-sm text-muted-foreground tabular-nums">
-            {effectiveSize}px
-          </span>
-        </div>
-      </SettingsSection>
+    <div className="flex flex-col gap-5">
+      {/* Font size — compact stepper on the right of its label */}
+      <SettingsRow label="Font size">
+        <NumberInput
+          value={effectiveSize}
+          onChange={(n) => setSize(n as EditorFontSize)}
+          min={FONT_SIZE_MIN}
+          max={FONT_SIZE_MAX}
+          step={1}
+          suffix="px"
+          ariaLabel="Editor font size"
+        />
+      </SettingsRow>
 
-      {/* Font family */}
+      {/* Line height — also compact on the right */}
+      <SettingsRow label="Line height">
+        <SegmentedControl
+          options={LINE_HEIGHT_OPTIONS}
+          value={lineHeightToValue(lineHeight)}
+          onChange={(v) => setLineHeight(valueToLineHeight(v))}
+          label="Line height"
+        />
+      </SettingsRow>
+
+      {/* Font family — full-width Select */}
       <SettingsSection label="Font family">
         <Select value={familySelect} onValueChange={handleFamilySelectChange}>
           <SelectTrigger ariaLabel="Font family">
@@ -224,26 +206,25 @@ export function EditorPanel() {
         )}
       </SettingsSection>
 
-      {/* Ligatures — Radix Checkbox keeps the glyph/accent inside the token system
-          (native <input type="checkbox"> falls back to OS chrome on macOS). */}
+      {/* Ligatures — Checkbox + explanation + live preview */}
       <SettingsSection label="Font ligatures">
         <label htmlFor={ligaturesId} className="flex items-center gap-2 cursor-pointer">
           <Checkbox
             id={ligaturesId}
-            checked={ligatures ?? false}
+            checked={effectiveLigatures}
             onCheckedChange={(v) => setLigatures(v === true)}
           />
           <span className="text-app-body text-foreground">Enable ligatures</span>
         </label>
-      </SettingsSection>
-
-      {/* Line height */}
-      <SettingsSection label="Line height">
-        <SegmentedControl
-          options={LINE_HEIGHT_OPTIONS}
-          value={lineHeightToValue(lineHeight)}
-          onChange={(v) => setLineHeight(valueToLineHeight(v))}
-          label="Line height"
+        <p className="text-app-ui-sm text-muted-foreground">
+          Renders multi-character sequences like <code>=&gt;</code>, <code>!=</code>,{" "}
+          <code>&gt;=</code> as single glyphs when the font supports it.
+        </p>
+        <LigaturePreview
+          fontFamily={effectiveFamily}
+          fontSize={effectiveSize}
+          lineHeight={effectiveLineHeight}
+          ligatures={effectiveLigatures}
         />
       </SettingsSection>
     </div>
@@ -251,14 +232,69 @@ export function EditorPanel() {
 }
 
 // ---------------------------------------------------------------------------
-// Local helper
+// Layout helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Horizontal row — label on the left, compact control on the right.
+ * Used for controls that hug their natural width (NumberInput, segmented).
+ */
+function SettingsRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-app-body text-foreground">{label}</span>
+      <div className="flex items-center">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * Vertical section — label above, full-width control below.
+ * Used for controls that benefit from the available width (Select, preview).
+ */
 function SettingsSection({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-2">
       <span className="text-app-ui-sm text-muted-foreground">{label}</span>
       {children}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Ligature live preview
+// ---------------------------------------------------------------------------
+
+/**
+ * Tiny rendered snippet mirroring the editor's font settings, with
+ * `font-feature-settings` toggled by the `ligatures` flag. Lets users see the
+ * before/after of common multi-char glyphs before committing to the toggle.
+ */
+function LigaturePreview({
+  fontFamily,
+  fontSize,
+  lineHeight,
+  ligatures,
+}: {
+  fontFamily: string;
+  fontSize: number;
+  lineHeight: number;
+  ligatures: boolean;
+}) {
+  return (
+    <div
+      className="rounded-(--radius-control) border border-border bg-background px-3 py-2"
+      style={{
+        fontFamily: `${fontFamily}, ui-monospace, monospace`,
+        fontSize,
+        lineHeight,
+        fontFeatureSettings: ligatures ? '"liga", "calt"' : '"liga" 0, "calt" 0',
+      }}
+    >
+      <code className="block whitespace-pre text-foreground">
+        {`const fn = (x) => x !== 0 && x >= 1;
+// arrow: -> => fat: ==> not-eq: != >= <=`}
+      </code>
     </div>
   );
 }

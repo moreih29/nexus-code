@@ -31,17 +31,10 @@ export const AppStateSchema = z.object({
   // UI density — 닫힌 집합; 부재=토큰 fallback ('default').
   density: z.enum(["default", "compact"]).optional(),
 
-  // Editor font size in px — 닫힌 집합; 부재=토큰 fallback (14).
-  editorFontSize: z
-    .union([
-      z.literal(12),
-      z.literal(13),
-      z.literal(14),
-      z.literal(16),
-      z.literal(18),
-      z.literal(20),
-    ])
-    .optional(),
+  // Editor font size in px — integer, clamped to [8, 32]; 부재=토큰 fallback (16).
+  // Widened from a closed set so the Settings dialog can offer a numeric
+  // stepper instead of a discrete slider (user-driven UX change).
+  editorFontSize: z.number().int().min(8).max(32).optional(),
 
   // Editor font family — sanitize: CSS injection 차단 (/^[A-Za-z0-9\s,'"]+$/); 부재=토큰 fallback.
   editorFontFamily: z
@@ -59,17 +52,10 @@ export const AppStateSchema = z.object({
     .union([z.literal(1.0), z.literal(1.2), z.literal(1.4)])
     .optional(),
 
-  // Terminal font size in px — 닫힌 집합; 부재=토큰 fallback (14).
-  terminalFontSize: z
-    .union([
-      z.literal(12),
-      z.literal(13),
-      z.literal(14),
-      z.literal(16),
-      z.literal(18),
-      z.literal(20),
-    ])
-    .optional(),
+  // Terminal font size in px — integer, clamped to [8, 32]; 부재=토큰 fallback (14).
+  // Widened from a closed set so the Settings dialog can offer a numeric
+  // stepper instead of a discrete slider.
+  terminalFontSize: z.number().int().min(8).max(32).optional(),
 
   // Terminal cursor style — 닫힌 집합; 부재=토큰 fallback ('block').
   terminalCursorStyle: z.enum(["block", "underline", "bar"]).optional(),

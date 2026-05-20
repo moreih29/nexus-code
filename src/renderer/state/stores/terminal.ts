@@ -24,7 +24,8 @@ import { ipcCallResult } from "../../ipc/client";
 // Types
 // ---------------------------------------------------------------------------
 
-export type TerminalFontSize = 12 | 13 | 14 | 16 | 18 | 20;
+// Font size: integer in [8, 32] — matches AppStateSchema.terminalFontSize.
+export type TerminalFontSize = number;
 export type TerminalCursorStyle = "block" | "underline" | "bar";
 
 // ---------------------------------------------------------------------------
