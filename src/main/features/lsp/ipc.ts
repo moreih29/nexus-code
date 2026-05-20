@@ -172,11 +172,15 @@ export function registerLspChannel(lspHost: LspHostHandle): void {
 
       hover: async (args: unknown, ctx?: CallContext) => {
         const { workspaceId, uri, line, character } = validateArgs(c.hover.args, args);
-        return withCancelDefault<HoverResult | null>(
+        const tag = `[main hover ${workspaceId.slice(0, 8)} ${uri.split("/").pop()}]`;
+        console.log(tag, "received");
+        const result = await withCancelDefault<HoverResult | null>(
           lspHost.call("hover", { workspaceId, uri, line, character }, { signal: ctx?.signal }),
           ctx?.signal,
           null,
         );
+        console.log(tag, "responded", result === null ? "null" : "data");
+        return result;
       },
 
       definition: async (args: unknown, ctx?: CallContext) => {

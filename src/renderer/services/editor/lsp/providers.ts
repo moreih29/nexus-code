@@ -79,28 +79,35 @@ export function registerLanguageProviders(
     async provideHover(model, position, token) {
       if (!isLspLanguage(model.getLanguageId())) return null;
       const ctx = modelLspContext(model);
-      if (!ctx) return null;
+      if (!ctx) {
+        console.log("[hover] no ctx — model.uri:", model.uri.toString(), "lang:", model.getLanguageId());
+        return null;
+      }
+      const traceTag = `[hover ${ctx.workspaceId.slice(0, 8)} ${ctx.lspUri.split("/").pop()}]`;
+      console.log(traceTag, "start", position.lineNumber, position.column);
       try {
         const signal = tokenToAbortSignal(token);
-        const result = unwrapIpcResult(
-          await ipcCallResult(
-            "lsp",
-            "hover",
-            {
-              workspaceId: ctx.workspaceId,
-              uri: ctx.lspUri,
-              line: position.lineNumber - 1,
-              character: position.column - 1,
-            },
-            { signal },
-          ),
+        const ipcResult = await ipcCallResult(
+          "lsp",
+          "hover",
+          {
+            workspaceId: ctx.workspaceId,
+            uri: ctx.lspUri,
+            line: position.lineNumber - 1,
+            character: position.column - 1,
+          },
+          { signal },
         );
+        console.log(traceTag, "ipc returned");
+        const result = unwrapIpcResult(ipcResult);
+        console.log(traceTag, "unwrapped", result === null ? "null" : "has-data");
         if (!result || !isLspLanguage(model.getLanguageId())) return null;
         return {
           contents: [hoverContentsToMarkdown(result.contents)],
           range: result.range ? lspRangeToMonacoRange(result.range) : undefined,
         };
-      } catch {
+      } catch (err) {
+        console.log(traceTag, "threw", err);
         return null;
       }
     },
