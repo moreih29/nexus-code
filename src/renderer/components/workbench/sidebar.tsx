@@ -47,8 +47,6 @@ interface SidebarProps {
   onSelectWorkspace: (id: string) => void;
   onAddWorkspace: () => void;
   onRemoveWorkspace: (id: string) => void;
-  /** Called when the user selects "Workspace Settings…" from the context menu. */
-  onOpenWorkspaceSettings?: (workspaceId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -61,7 +59,6 @@ export function Sidebar({
   onSelectWorkspace,
   onAddWorkspace,
   onRemoveWorkspace,
-  onOpenWorkspaceSettings,
 }: SidebarProps) {
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
   const connectionStatusByWorkspaceId = useWorkspacesStore((s) => s.connectionStatusByWorkspaceId);
@@ -123,7 +120,10 @@ export function Sidebar({
 
   // DnD hook — manages drag source / drop target state and produces event-prop
   // helpers for each row. Cursor styling and opacity are derived from its state.
+  // workspaces is passed so the hook can suppress no-op drop indicators
+  // (drop positions where the source would end up exactly where it started).
   const { dragSourceId, dropTarget, getRowDragProps } = useWorkspaceRowDnd({
+    workspaces,
     onReorder: handleReorder,
   });
 
@@ -301,11 +301,6 @@ export function Sidebar({
                 kind: "item",
                 label: ws.pinned ? "Unpin" : "Pin to top",
                 onSelect: () => togglePin(ws),
-              },
-              {
-                kind: "item",
-                label: "Workspace Settings…",
-                onSelect: () => onOpenWorkspaceSettings?.(ws.id),
               },
             ]}
           />

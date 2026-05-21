@@ -8,7 +8,6 @@ import { GlobalRoots } from "./components/global-roots";
 import { AppearancePanel } from "./components/settings/panels/appearance-panel";
 import { EditorPanel } from "./components/settings/panels/editor-panel";
 import { TerminalPanel } from "./components/settings/panels/terminal-panel";
-import { WorkspacesPanel } from "./components/settings/panels/workspaces-panel";
 import { SettingsDialog } from "./components/settings/settings-dialog";
 import type { SettingsNavItem } from "./components/settings/types";
 import { ErrorBoundary } from "./components/ui/error-boundary";
@@ -38,7 +37,6 @@ export function App() {
   const { activeWorkspaceId, setActiveWorkspaceId } = useActiveStore();
   const settingsOpen = useSettingsUIStore((s) => s.settingsOpen);
   const settingsInitialActiveId = useSettingsUIStore((s) => s.initialActiveId);
-  const settingsInitialWorkspaceId = useSettingsUIStore((s) => s.initialWorkspaceId);
   const closeSettings = useSettingsUIStore((s) => s.closeSettings);
 
   // Settings nav — each row carries an optional `dirty` dot. Dirty is
@@ -128,12 +126,6 @@ export function App() {
         group: "Settings",
         keywords: ["font", "size", "cursor"],
         dirty: terminalDirty,
-      },
-      {
-        id: "workspaces",
-        label: "Workspaces",
-        group: "Settings",
-        keywords: ["lsp", "language", "server", "typescript", "python"],
       },
     ];
   }, [
@@ -331,8 +323,6 @@ export function App() {
             if (activeId === "appearance") return <AppearancePanel />;
             if (activeId === "editor") return <EditorPanel />;
             if (activeId === "terminal") return <TerminalPanel />;
-            if (activeId === "workspaces")
-              return <WorkspacesPanel initialWorkspaceId={settingsInitialWorkspaceId} />;
             return null;
           }}
         </SettingsDialog>
@@ -343,9 +333,6 @@ export function App() {
             onSelectWorkspace={handleSelectWorkspace}
             onAddWorkspace={handleAddWorkspace}
             onRemoveWorkspace={handleRemoveWorkspace}
-            onOpenWorkspaceSettings={(wsId) => {
-              useSettingsUIStore.getState().openSettingsAt("workspaces", wsId);
-            }}
           />
           <FilesPanel />
           <div className="grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden">

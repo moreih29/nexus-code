@@ -32,6 +32,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import {
   hasWorkspaceRowMime,
   MIME_WORKSPACE_ROW,
@@ -62,6 +63,12 @@ export interface ReorderArgs {
 }
 
 export interface UseWorkspaceRowDndOptions {
+  /**
+   * The workspaces list currently rendered, in display order (pinned group
+   * first, then unpinned). Used to detect no-op drops (drop position equals
+   * the source's current position) so the indicator can be suppressed.
+   */
+  workspaces: WorkspaceMeta[];
   /** Called once per successful drop with the resolved reorder parameters. */
   onReorder: (args: ReorderArgs) => void;
 }
@@ -112,11 +119,57 @@ export function dropPositionFromCoords(
   return clientY < midY ? "before" : "after";
 }
 
+/**
+ * Detects "ghost" drop positions that would leave the source row exactly
+ * where it already is.
+ *
+ * Two adjacent rows share a single physical gap, but the half-row model
+ * produces two indicator placements for it: "after row N" (bottom half of N)
+ * and "before row N+1" (top half of N+1). When the source row is one of
+ * these neighbors, one of the two placements is a no-op — visible to the
+ * user but committing the drop does nothing. Hiding the no-op indicator
+ * gives a strict 1:1 mapping between what the user sees and what will move.
+ *
+ * Cross-group drops are NEVER treated as no-ops because they always carry
+ * the side effect of flipping the `pinned` flag.
+ */
+export function isNoOpDropPosition(args: {
+  workspaces: WorkspaceMeta[];
+  sourceId: string;
+  targetId: string;
+  position: "before" | "after";
+  targetGroup: "pinned" | "unpinned";
+}): boolean {
+  const { workspaces, sourceId, targetId, position, targetGroup } = args;
+  const source = workspaces.find((w) => w.id === sourceId);
+  if (!source) return false;
+
+  // Cross-group drops always change the pinned flag — never a no-op.
+  const sourceGroup: "pinned" | "unpinned" = source.pinned ? "pinned" : "unpinned";
+  if (sourceGroup !== targetGroup) return false;
+
+  // Filter to the source's group to compute adjacency, since the rendered
+  // list interleaves pinned and unpinned but adjacency is per-group.
+  const group = workspaces.filter((w) =>
+    targetGroup === "pinned" ? w.pinned : !w.pinned,
+  );
+  const sourceIdx = group.findIndex((w) => w.id === sourceId);
+  const targetIdx = group.findIndex((w) => w.id === targetId);
+  if (sourceIdx === -1 || targetIdx === -1) return false;
+
+  // "before target" at the row directly after source → source stays put.
+  if (position === "before" && targetIdx === sourceIdx + 1) return true;
+  // "after target" at the row directly before source → source stays put.
+  if (position === "after" && targetIdx === sourceIdx - 1) return true;
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
 export function useWorkspaceRowDnd({
+  workspaces,
   onReorder,
 }: UseWorkspaceRowDndOptions): UseWorkspaceRowDndResult {
   const [dragSourceId, setDragSourceId] = useState<string | null>(null);
@@ -127,6 +180,13 @@ export function useWorkspaceRowDnd({
   const onReorderRef = useRef(onReorder);
   useEffect(() => {
     onReorderRef.current = onReorder;
+  });
+
+  // Latest workspaces snapshot in a ref so dragover can run no-op detection
+  // without rebuilding event handlers on every list change.
+  const workspacesRef = useRef(workspaces);
+  useEffect(() => {
+    workspacesRef.current = workspaces;
   });
 
   // Track current source payload in a ref so dragover / drop handlers can
@@ -191,6 +251,25 @@ export function useWorkspaceRowDnd({
         const rect = e.currentTarget.getBoundingClientRect();
         const position = dropPositionFromCoords(rect, e.clientY);
 
+        // Suppress the indicator when the drop would leave the source in
+        // its current spot. Without this filter the user sees two indicator
+        // positions for one physical gap (after row N vs before row N+1)
+        // and only one of them produces a real movement.
+        const sourcePayload = sourcePayloadRef.current;
+        if (sourcePayload) {
+          const noOp = isNoOpDropPosition({
+            workspaces: workspacesRef.current,
+            sourceId: sourcePayload.workspaceId,
+            targetId: rowId,
+            position,
+            targetGroup: rowGroup,
+          });
+          if (noOp) {
+            setDropTarget(null);
+            return;
+          }
+        }
+
         setDropTarget((prev) => {
           if (prev?.rowId === rowId && prev.position === position && prev.targetGroup === rowGroup) {
             return prev; // no change — avoid spurious re-render
@@ -217,6 +296,21 @@ export function useWorkspaceRowDnd({
 
         const rect = e.currentTarget.getBoundingClientRect();
         const position = dropPositionFromCoords(rect, e.clientY);
+
+        // Mirror onDragOver's no-op filter so a drop that snuck through
+        // (e.g. before the dragover state caught up) still doesn't fire a
+        // useless IPC round-trip.
+        const noOp = isNoOpDropPosition({
+          workspaces: workspacesRef.current,
+          sourceId,
+          targetId: rowId,
+          position,
+          targetGroup: rowGroup,
+        });
+        if (noOp) {
+          setDropTarget(null);
+          return;
+        }
 
         const args: ReorderArgs = {
           id: sourceId,
