@@ -129,6 +129,33 @@ function writeDist(): {
   return { distDir, sha256: agent.sha256, nodeSha256: node.sha256, lspSha256: lsp.sha256 };
 }
 
+function writeDistWithWrapper(): {
+  distDir: string;
+  sha256: string;
+  wrapperSha256: string;
+} {
+  const { distDir, sha256 } = writeDist();
+  const wrapperPayload = Buffer.from("fake-claude-wrapper-binary");
+  const wrapper = artifactMetadata(wrapperPayload);
+  fs.writeFileSync(path.join(distDir, "claude-wrapper"), wrapperPayload);
+  // Overwrite manifest.json to include the wrapper field
+  const existing = JSON.parse(
+    fs.readFileSync(path.join(distDir, "manifest.json"), "utf8"),
+  ) as object;
+  fs.writeFileSync(
+    path.join(distDir, "manifest.json"),
+    JSON.stringify({
+      ...existing,
+      wrapper: {
+        path: "claude-wrapper",
+        sha256: wrapper.sha256,
+        size: wrapper.size,
+      },
+    }),
+  );
+  return { distDir, sha256, wrapperSha256: wrapper.sha256 };
+}
+
 async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
@@ -438,5 +465,158 @@ describe("ssh-bootstrap", () => {
     result.dispose?.();
     await unlinkSeen;
     expect(unlinkCalls).toEqual([result.controlPath]);
+  });
+
+  // ── Acceptance tests for Task 4: wrapper SFTP upload + remoteBinDir ──
+
+  it("acceptance-1: uploads wrapper exactly once when manifest.wrapper is set", async () => {
+    const { distDir, sha256, wrapperSha256 } = writeDistWithWrapper();
+    const sftpInputs: string[] = [];
+    const runner = mock(async (command: string, args: string[], input?: Buffer | string) => {
+      const remoteCommand = args.at(-1) ?? "";
+      if (command === "ssh" && remoteCommand === "uname -ms") return { stdout: "Linux x86_64\n" };
+      if (command === "ssh" && remoteCommand.startsWith("printf")) {
+        return { stdout: "/home/deploy\n" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("cat ~/.nexus-code/manifest.json")) {
+        return { stdout: "" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("mkdir -p")) return { stdout: "" };
+      if (command === "sftp") {
+        sftpInputs.push(String(input));
+        return { stdout: "" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("if command -v sha256sum")) {
+        const isWrapper = remoteCommand.includes("bin/claude");
+        return { stdout: `${isWrapper ? wrapperSha256 : sha256}\n` };
+      }
+      if (command === "ssh" && remoteCommand.includes("cat > ~/.nexus-code/manifest.json")) {
+        return { stdout: "" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("index=0")) return { stdout: "" };
+      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
+    }) as SshBootstrapRunner;
+
+    await ensureRemoteAgent(
+      { host: "dev.example.com", user: "deploy", remotePath: "/repo" },
+      { distDir, runner, now: () => new Date("2026-05-12T00:00:00.000Z") },
+    );
+
+    // Exactly two SFTP calls: one for the agent binary, one for the wrapper
+    const wrapperSftpInputs = sftpInputs.filter((s) => s.includes(".nexus-code/bin/claude"));
+    const agentSftpInputs = sftpInputs.filter((s) => s.includes("bin/agent-"));
+    expect(wrapperSftpInputs).toHaveLength(1);
+    expect(agentSftpInputs).toHaveLength(1);
+    // Wrapper upload must include chmod 755
+    expect(wrapperSftpInputs[0]).toContain("chmod 755");
+  });
+
+  it("acceptance-2: skips wrapper upload when manifest.wrapper is undefined", async () => {
+    const { distDir, sha256 } = writeDist();
+    const sftpInputs: string[] = [];
+    const runner = mock(async (command: string, args: string[], input?: Buffer | string) => {
+      const remoteCommand = args.at(-1) ?? "";
+      if (command === "ssh" && remoteCommand === "uname -ms") return { stdout: "Linux x86_64\n" };
+      if (command === "ssh" && remoteCommand.startsWith("printf")) {
+        return { stdout: "/home/deploy\n" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("cat ~/.nexus-code/manifest.json")) {
+        return { stdout: "" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("mkdir -p")) return { stdout: "" };
+      if (command === "sftp") {
+        sftpInputs.push(String(input));
+        return { stdout: "" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("if command -v sha256sum")) {
+        return { stdout: `${sha256}\n` };
+      }
+      if (command === "ssh" && remoteCommand.includes("cat > ~/.nexus-code/manifest.json")) {
+        return { stdout: "" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("index=0")) return { stdout: "" };
+      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
+    }) as SshBootstrapRunner;
+
+    await ensureRemoteAgent(
+      { host: "dev.example.com", user: "deploy", remotePath: "/repo" },
+      { distDir, runner, now: () => new Date("2026-05-12T00:00:00.000Z") },
+    );
+
+    // No SFTP call targeting bin/claude
+    const wrapperSftpInputs = sftpInputs.filter((s) => s.includes(".nexus-code/bin/claude"));
+    expect(wrapperSftpInputs).toHaveLength(0);
+  });
+
+  it("acceptance-3: SFTP uploadFile passes executable=true and issues chmod 755 for wrapper", async () => {
+    const { distDir, sha256, wrapperSha256 } = writeDistWithWrapper();
+    const sftpBatchInputs: string[] = [];
+    const runner = mock(async (command: string, args: string[], input?: Buffer | string) => {
+      const remoteCommand = args.at(-1) ?? "";
+      if (command === "ssh" && remoteCommand === "uname -ms") return { stdout: "Linux x86_64\n" };
+      if (command === "ssh" && remoteCommand.startsWith("printf")) {
+        return { stdout: "/home/deploy\n" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("cat ~/.nexus-code/manifest.json")) {
+        return { stdout: "" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("mkdir -p")) return { stdout: "" };
+      if (command === "sftp") {
+        sftpBatchInputs.push(String(input));
+        return { stdout: "" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("if command -v sha256sum")) {
+        // Return the correct sha256 based on which file is being verified
+        const isWrapper = remoteCommand.includes("bin/claude");
+        return { stdout: `${isWrapper ? wrapperSha256 : sha256}\n` };
+      }
+      if (command === "ssh" && remoteCommand.includes("cat > ~/.nexus-code/manifest.json")) {
+        return { stdout: "" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("index=0")) return { stdout: "" };
+      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
+    }) as SshBootstrapRunner;
+
+    await ensureRemoteAgent(
+      { host: "dev.example.com", user: "deploy", remotePath: "/repo" },
+      { distDir, runner, now: () => new Date("2026-05-12T00:00:00.000Z") },
+    );
+
+    // The SFTP batch for the wrapper must contain chmod 755 (mode preservation)
+    const wrapperBatch = sftpBatchInputs.find((s) => s.includes(".nexus-code/bin/claude"));
+    expect(wrapperBatch).toBeDefined();
+    expect(wrapperBatch).toContain("chmod 755");
+  });
+
+  it("acceptance-4: EnsureRemoteAgentResult exposes remoteBinDir as absolute path", async () => {
+    const { distDir, sha256 } = writeDist();
+    const runner = mock(async (command: string, args: string[]) => {
+      const remoteCommand = args.at(-1) ?? "";
+      if (command === "ssh" && remoteCommand === "uname -ms") return { stdout: "Linux x86_64\n" };
+      if (command === "ssh" && remoteCommand.startsWith("printf")) {
+        return { stdout: "/home/deploy\n" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("cat ~/.nexus-code/manifest.json")) {
+        return {
+          stdout: JSON.stringify({
+            version: "0.1.0",
+            os: "linux",
+            arch: "amd64",
+            sha256,
+            installedAt: "2026-05-12T00:00:00.000Z",
+          }),
+        };
+      }
+      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
+    }) as SshBootstrapRunner;
+
+    const result = await ensureRemoteAgent(
+      { host: "dev.example.com", user: "deploy", remotePath: "/repo" },
+      { distDir, runner },
+    );
+
+    expect(result.remoteBinDir).toBeDefined();
+    expect(result.remoteBinDir.startsWith("/")).toBe(true);
+    expect(result.remoteBinDir).toBe("/home/deploy/.nexus-code/bin");
   });
 });

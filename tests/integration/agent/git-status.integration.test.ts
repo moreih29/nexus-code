@@ -36,8 +36,10 @@ describe("agent git.status round-trip", () => {
 
   beforeAll(async () => {
     buildDir = await fs.mkdtemp(path.join(tmpdir(), "agent-git-status-build-"));
-    gitHome = path.join(buildDir, "git-home");
-    await fs.mkdir(gitHome);
+    // gitHome은 /tmp 하위에 별도 생성한다 — buildDir(tmpdir() 기반)이 macOS에서
+    // `/var/folders/<2>/<random>/T/...`로 길어, HOME 안쪽 `.nexus-code/sockets/h-<12>.sock`
+    // 경로가 sun_path 104자 한계를 초과해 hookserver path-too-long warn이 stderr로 누출된다.
+    gitHome = await fs.mkdtemp(path.join("/tmp", "ng-"));
     binPath = path.join(buildDir, "agent");
     const build = spawnSync("go", ["build", "-o", binPath, "./cmd/agent"], {
       cwd: REPO_ROOT,
@@ -50,6 +52,9 @@ describe("agent git.status round-trip", () => {
   afterAll(async () => {
     if (buildDir) {
       await fs.rm(buildDir, { recursive: true, force: true });
+    }
+    if (gitHome) {
+      await fs.rm(gitHome, { recursive: true, force: true });
     }
     binPath = "";
     buildDir = "";

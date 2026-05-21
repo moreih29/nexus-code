@@ -189,6 +189,64 @@ describe("claude-wrapper.sh — JSON 이스케이프 검증", () => {
   });
 });
 
+describe("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
+  /**
+   * Acceptance 1: NEXUS_AGENT_BIN이 설정되면 settings.json의 command 필드에
+   * 리터럴 "${NEXUS_AGENT_BIN}" hook <sub> 형태가 기록된다.
+   * (경로 자체가 아닌 변수 참조가 그대로 저장되어야 한다.)
+   */
+  test("NEXUS_AGENT_BIN 설정 시 settings.json command 필드에 리터럴 ${NEXUS_AGENT_BIN}이 포함된다", () => {
+    const hookBin = path.join(tmpDir, "simple", "agent-darwin");
+    const { exitCode, settings, parseError } = runWrapper(hookBin);
+
+    expect(parseError).toBeUndefined();
+    expect(exitCode).toBe(0);
+
+    const hooks = (settings as Record<string, unknown>)["hooks"] as Record<string, unknown>;
+    for (const event of HOOK_EVENT_NAMES) {
+      const eventKey = toHookKey(event);
+      const cmd = (hooks[eventKey] as Array<{ hooks: Array<{ command: string }> }>)[0].hooks[0]
+        .command;
+      // 리터럴 변수 참조가 command에 있어야 한다 (확장된 실제 경로가 아님).
+      expect(cmd).toContain("${NEXUS_AGENT_BIN}");
+      // hook subcommand 명도 포함되어야 한다.
+      expect(cmd).toContain(event);
+    }
+  });
+
+  /**
+   * Acceptance 2: NEXUS_AGENT_BIN 미설정 시 stderr에 경고를 출력하고
+   * settings 파일을 생성하지 않으며 진짜 claude를 exec한다.
+   */
+  test("NEXUS_AGENT_BIN 미설정 시 stderr 경고 출력 + settings 주입 없이 passthrough한다", () => {
+    const fakeBinDir = path.join(tmpDir, "bin");
+    createFakeClaude(fakeBinDir);
+
+    const capturePath = path.join(tmpDir, "captured-settings.json");
+
+    const result = spawnSync("bash", [WRAPPER_PATH], {
+      env: {
+        NEXUS_IN_APP: "1",
+        NEXUS_AGENT_SOCKET: socketPath,
+        NEXUS_HOOK_TOKEN: "test-token-abc",
+        // NEXUS_AGENT_BIN 미설정
+        NEXUS_CAPTURE_SETTINGS_TO: capturePath,
+        PATH: `${fakeBinDir}:${process.env["PATH"] ?? ""}`,
+      },
+      timeout: 5000,
+      encoding: "utf8",
+    });
+
+    // 진짜 claude(fake)로 passthrough되므로 exit 0
+    expect(result.status).toBe(0);
+    // settings 파일이 생성되지 않아야 한다
+    expect(fs.existsSync(capturePath)).toBe(false);
+    // stderr에 경고 문구가 있어야 한다
+    expect(result.stderr).toContain("NEXUS_AGENT_BIN is not set");
+    expect(result.stderr).toContain("hook injection skipped");
+  });
+});
+
 describe("claude-wrapper.sh — 다른 wrapper 회피 (무한 루프 방지)", () => {
   /**
    * 시나리오: PATH 에 cmux 와 우리 wrapper 가 함께 있을 때, find_real_claude 가
@@ -228,6 +286,68 @@ describe("claude-wrapper.sh — 다른 wrapper 회피 (무한 루프 방지)", (
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("REAL_CLAUDE_CALLED");
     expect(result.stdout).not.toContain("FAKE_WRAPPER_CALLED");
+  });
+});
+
+describe("claude-wrapper.sh — NEXUS_WRAPPER_SELF_DIR SSH 시나리오", () => {
+  /**
+   * Acceptance 3: NEXUS_WRAPPER_SELF_DIR이 /home/u/.nexus-code/bin (SSH 경로)으로 설정되면
+   * find_real_claude가 그 디렉터리를 self로 skip하고 다음 후보를 선택한다.
+   */
+  test("NEXUS_WRAPPER_SELF_DIR 설정 시 해당 디렉터리의 claude를 self로 skip한다", () => {
+    // SSH 배포 경로처럼 보이는 디렉터리에 wrapper 마커가 없는 가짜 claude를 배치.
+    // (실제로는 이 경로가 self_dir이어서 skip되어야 한다.)
+    const sshBinDir = path.join(tmpDir, "home", "u", ".nexus-code", "bin");
+    fs.mkdirSync(sshBinDir, { recursive: true });
+    const sshClaude = path.join(sshBinDir, "claude");
+    fs.writeFileSync(sshClaude, "#!/usr/bin/env bash\necho SSH_SELF_CALLED\nexit 0\n");
+    fs.chmodSync(sshClaude, 0o755);
+
+    // 실제 선택되어야 할 진짜 claude.
+    const realDir = path.join(tmpDir, "usr", "local", "bin");
+    fs.mkdirSync(realDir, { recursive: true });
+    const realClaude = path.join(realDir, "claude");
+    fs.writeFileSync(realClaude, "#!/usr/bin/env bash\necho REAL_CLAUDE_CALLED\nexit 0\n");
+    fs.chmodSync(realClaude, 0o755);
+
+    const result = spawnSync("bash", [WRAPPER_PATH], {
+      env: {
+        // NEXUS_WRAPPER_SELF_DIR을 sshBinDir로 설정해 self skip 강제
+        NEXUS_WRAPPER_SELF_DIR: sshBinDir,
+        PATH: `${sshBinDir}:${realDir}:/bin:/usr/bin`,
+      },
+      timeout: 5000,
+      encoding: "utf8",
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("REAL_CLAUDE_CALLED");
+    expect(result.stdout).not.toContain("SSH_SELF_CALLED");
+  });
+});
+
+describe("claude-wrapper.sh — bash 3.2 호환성", () => {
+  /**
+   * Acceptance 4: wrapper 셔뱅의 bash(또는 sh)로 syntax check를 수행한다.
+   * bash -n은 문법만 검사하고 실행하지 않는다.
+   */
+  test("bash -n syntax check 통과 (bash 3.2 호환)", () => {
+    const result = spawnSync("bash", ["-n", WRAPPER_PATH], {
+      timeout: 5000,
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+  });
+
+  test("sh -n syntax check 통과 (POSIX 호환)", () => {
+    const result = spawnSync("sh", ["-n", WRAPPER_PATH], {
+      timeout: 5000,
+      encoding: "utf8",
+    });
+    // sh -n은 [[ ]] 등 bash 확장에서 실패할 수 있으므로 exit 0만 요구
+    // macOS /bin/sh는 bash임 — 실제로는 통과해야 한다.
+    expect(result.status).toBe(0);
   });
 });
 

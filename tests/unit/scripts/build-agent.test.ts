@@ -86,6 +86,77 @@ describe("build-agent manifest writer", () => {
     expect(pyright?.sha256).toBe(
       createHash("sha256").update("pyright-langserver-payload").digest("hex"),
     );
+
+    // wrapper가 없으면 manifest.wrapper는 undefined여야 한다.
+    expect(manifest.wrapper).toBeUndefined();
+  });
+
+  // Acceptance test 3: wrapper sha256/size 산출 정확성
+  test("wrapperArtifact 제공 시 manifest에 wrapper 항목이 기록된다", async () => {
+    const outDir = path.join(tmpDir, "dist-wrapper-manifest");
+    fs.mkdirSync(path.join(outDir, "runtime"), { recursive: true });
+    fs.mkdirSync(path.join(outDir, "lsp"), { recursive: true });
+    fs.mkdirSync(path.join(outDir, "bin"), { recursive: true });
+
+    const agentArtifacts = AGENT_BUILD_TARGETS.map((target) => {
+      const artifactPath = `agent-0.1.0-${target.os}-${target.arch}`;
+      fs.writeFileSync(path.join(outDir, artifactPath), `${target.os}-${target.arch}-agent`);
+      return { ...target, path: artifactPath };
+    });
+
+    const nodeArtifacts = AGENT_BUILD_TARGETS.map((target) => {
+      const artifactPath = `runtime/node-v20.19.0-${target.os}-${target.arch}.tar.gz`;
+      fs.writeFileSync(path.join(outDir, artifactPath), `${target.os}-${target.arch}-node`);
+      return { ...target, version: "v20.19.0", path: artifactPath, entry: "bin/node" };
+    });
+
+    const lspArtifacts = [
+      {
+        name: "typescript-language-server",
+        packageName: "typescript-language-server",
+        version: "5.1.3",
+        languages: ["typescript", "javascript"],
+        path: "lsp/typescript-language-server-5.1.3.tar.gz",
+        entry: "node_modules/typescript-language-server/lib/cli.mjs",
+        launcher: "bin/typescript-language-server",
+        argsTemplate: ["--stdio"],
+      },
+    ];
+    for (const artifact of lspArtifacts) {
+      fs.writeFileSync(path.join(outDir, artifact.path), `${artifact.name}-payload`);
+    }
+
+    // tmp wrapper 파일 생성 (실제 파일로 sha256/size 검증)
+    const wrapperContent = "#!/usr/bin/env bash\nexec claude-real \"$@\"\n";
+    const wrapperDest = path.join(outDir, "bin", "claude");
+    fs.writeFileSync(wrapperDest, wrapperContent);
+    const expectedSha256 = createHash("sha256").update(wrapperContent).digest("hex");
+    const expectedSize = Buffer.byteLength(wrapperContent);
+
+    const wrapperArtifact = {
+      path: path.join("bin", "claude"),
+      sha256: expectedSha256,
+      size: expectedSize,
+    };
+
+    await writeAgentManifest({
+      outDir,
+      version: "0.1.0",
+      protocolVersion: "1",
+      agentArtifacts,
+      nodeArtifacts,
+      lspArtifacts,
+      wrapperArtifact,
+    });
+
+    const manifest = AgentManifestSchema.parse(
+      JSON.parse(fs.readFileSync(path.join(outDir, "manifest.json"), "utf8")),
+    );
+
+    expect(manifest.wrapper).toBeDefined();
+    expect(manifest.wrapper?.path).toBe(path.join("bin", "claude"));
+    expect(manifest.wrapper?.sha256).toBe(expectedSha256);
+    expect(manifest.wrapper?.size).toBe(expectedSize);
   });
 });
 

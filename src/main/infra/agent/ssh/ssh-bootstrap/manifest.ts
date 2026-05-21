@@ -21,7 +21,7 @@ import {
 } from "./types";
 
 export const RemoteArtifactRecordSchema = z.object({
-  kind: z.enum(["agent", "node", "lsp"]),
+  kind: z.enum(["agent", "node", "lsp", "wrapper"]),
   name: z.string(),
   version: z.string(),
   os: AgentArtifactPlatformSchema.shape.os.optional(),
@@ -182,6 +182,16 @@ export function remoteNodeRuntimeDir(
 /** Where an LSP archive version unpacks on the remote. */
 export function remoteLspBinaryDir(lsp: LspBinaryManifestEntry): string {
   return `${REMOTE_AGENT_ROOT}/lsp/${lsp.name}-${lsp.version}`;
+}
+
+/** Stable cache key for the wrapper binary. */
+export function wrapperArtifactKey(): string {
+  return "wrapper:claude";
+}
+
+/** The fixed remote path for the wrapper binary. */
+export function remoteWrapperBinaryPath(): string {
+  return `${REMOTE_AGENT_ROOT}/bin/claude`;
 }
 
 /** Resolves a `~/`-prefixed remote path against the resolved $HOME. */

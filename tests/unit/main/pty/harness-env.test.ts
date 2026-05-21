@@ -1,47 +1,30 @@
 /**
  * injectHarnessTerminalEnv() 단위 테스트.
  *
- * getAgentBinDir() 가 electron.app.isPackaged 를 사용하므로
- * mock.module("electron")을 먼저 선언하고 dynamic import로 대상 모듈을 로드한다.
+ * T5 시그니처 변경: binDir은 HarnessTerminalEnvContext의 필수 필드로 이동.
+ * getAgentBinDir() 직접 호출이 제거되었으므로 electron mock 없이 테스트 가능하다.
  */
 
-import { describe, expect, mock, test } from "bun:test";
-import path from "node:path";
-import { LOCAL_AGENT_DIST_DIR } from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/types";
+import { describe, expect, test } from "bun:test";
+import { injectHarnessTerminalEnv } from "../../../../src/main/features/pty/harness-env";
 
-// -------------------------------------------------------------------------
-// electron mock — 모든 import보다 먼저 위치해야 mock이 올바르게 적용된다.
-// isPackaged=false(dev 모드)로 고정하여 경로를 결정론적으로 만든다.
-// -------------------------------------------------------------------------
-mock.module("electron", () => ({
-  app: {
-    isPackaged: false,
-  },
-}));
-
-// mock.module 이후 dynamic import로 대상 모듈 로드.
-const { injectHarnessTerminalEnv } = await import(
-  "../../../../src/main/features/pty/harness-env"
-);
-
-// isPackaged=false 시 getAgentBinDir()가 반환하는 경로.
-const EXPECTED_BIN_DIR = path.join(LOCAL_AGENT_DIST_DIR, "bin");
+const FAKE_BIN_DIR = "/fake/agent/bin";
+const FAKE_AGENT_BIN = "/fake/agent/bin/agent-1.0.0-darwin-arm64";
 
 describe("injectHarnessTerminalEnv — 기존 TERM_PROGRAM 동작 유지", () => {
-  test("undefined input → ghostty 기본값 + NEXUS_IN_APP 포함", () => {
+  test("context 없음 + undefined input → ghostty 기본값 포함", () => {
     const result = injectHarnessTerminalEnv(undefined);
     expect(result.TERM_PROGRAM).toBe("ghostty");
     expect(result.TERM_PROGRAM_VERSION).toBe("1.0");
-    expect(result.NEXUS_IN_APP).toBe("1");
   });
 
-  test("caller-supplied TERM_PROGRAM 보존", () => {
+  test("context 없음 + caller-supplied TERM_PROGRAM 보존", () => {
     const result = injectHarnessTerminalEnv({ TERM_PROGRAM: "iTerm.app" });
     expect(result.TERM_PROGRAM).toBe("iTerm.app");
     expect(result.TERM_PROGRAM_VERSION).toBe("1.0");
   });
 
-  test("caller-supplied TERM_PROGRAM_VERSION 보존", () => {
+  test("context 없음 + caller-supplied TERM_PROGRAM_VERSION 보존", () => {
     const result = injectHarnessTerminalEnv({ TERM_PROGRAM_VERSION: "2.0" });
     expect(result.TERM_PROGRAM).toBe("ghostty");
     expect(result.TERM_PROGRAM_VERSION).toBe("2.0");
@@ -55,40 +38,98 @@ describe("injectHarnessTerminalEnv — 기존 TERM_PROGRAM 동작 유지", () =>
   });
 });
 
-describe("injectHarnessTerminalEnv — PATH prepend", () => {
-  test("PATH 앞에 getAgentBinDir() prepend (base 레벨)", () => {
-    // env에 PATH 없을 때 base PATH에 binDir이 포함된다.
-    const result = injectHarnessTerminalEnv({});
-    expect(result.PATH).toContain(EXPECTED_BIN_DIR);
-    expect(result.PATH?.startsWith(EXPECTED_BIN_DIR)).toBe(true);
+describe("injectHarnessTerminalEnv — context 없음 시 PATH/NEXUS_* 미주입", () => {
+  test("context 없으면 NEXUS_IN_APP 미설정", () => {
+    const result = injectHarnessTerminalEnv(undefined);
+    expect(result.NEXUS_IN_APP).toBeUndefined();
   });
 
-  test("caller PATH가 없을 때 base PATH가 설정됨", () => {
+  test("context 없으면 NEXUS_WRAPPER_SELF_DIR 미설정", () => {
     const result = injectHarnessTerminalEnv(undefined);
-    expect(result.PATH).toContain(EXPECTED_BIN_DIR);
+    expect(result.NEXUS_WRAPPER_SELF_DIR).toBeUndefined();
+  });
+
+  test("context 없으면 NEXUS_WORKSPACE_ID / TAB_ID 미설정", () => {
+    const result = injectHarnessTerminalEnv(undefined);
+    expect(result.NEXUS_WORKSPACE_ID).toBeUndefined();
+    expect(result.NEXUS_TAB_ID).toBeUndefined();
+  });
+});
+
+describe("injectHarnessTerminalEnv — PATH prepend (context.binDir 기반)", () => {
+  test("env에 PATH 없을 때 binDir이 PATH 맨 앞에 설정된다", () => {
+    const result = injectHarnessTerminalEnv(
+      {},
+      { binDir: FAKE_BIN_DIR, workspaceId: "ws-1", tabId: "tab-1" },
+    );
+    expect(result.PATH).toContain(FAKE_BIN_DIR);
+    expect(result.PATH?.startsWith(FAKE_BIN_DIR)).toBe(true);
+  });
+
+  test("env에 PATH 없고 process.env.PATH 있으면 binDir:process.env.PATH 형태", () => {
+    const result = injectHarnessTerminalEnv(
+      undefined,
+      { binDir: FAKE_BIN_DIR, workspaceId: "ws-1", tabId: "tab-1" },
+    );
+    expect(result.PATH?.startsWith(FAKE_BIN_DIR)).toBe(true);
   });
 
   test("caller PATH를 직접 설정하면 caller 값이 우선(spread 규칙)", () => {
     // 기존 패턴: caller key가 이긴다.
     const callerPath = "/custom/bin:/usr/local/bin";
-    const result = injectHarnessTerminalEnv({ PATH: callerPath });
+    const result = injectHarnessTerminalEnv(
+      { PATH: callerPath },
+      { binDir: FAKE_BIN_DIR, workspaceId: "ws-1", tabId: "tab-1" },
+    );
     expect(result.PATH).toBe(callerPath);
   });
 });
 
-describe("injectHarnessTerminalEnv — NEXUS_* 주입", () => {
-  test("NEXUS_IN_APP=1 항상 주입", () => {
-    const result = injectHarnessTerminalEnv(undefined);
+describe("injectHarnessTerminalEnv — NEXUS_* 주입 (acceptance #6, #7)", () => {
+  test("acceptance #6: binDir + agentBin 제공 시 PATH prepend, NEXUS_WRAPPER_SELF_DIR, NEXUS_AGENT_BIN 설정", () => {
+    const result = injectHarnessTerminalEnv(undefined, {
+      binDir: "/foo",
+      workspaceId: "ws-1",
+      tabId: "tab-1",
+      agentBin: "/foo/agent",
+    });
+    expect(result.PATH?.startsWith("/foo")).toBe(true);
+    expect(result.NEXUS_WRAPPER_SELF_DIR).toBe("/foo");
+    expect(result.NEXUS_AGENT_BIN).toBe("/foo/agent");
+  });
+
+  test("acceptance #7: binDir만 제공(agentBin optional) — NEXUS_AGENT_BIN 미주입", () => {
+    const result = injectHarnessTerminalEnv(undefined, {
+      binDir: "/foo",
+      workspaceId: "ws-1",
+      tabId: "tab-1",
+    });
+    expect(result.PATH?.startsWith("/foo")).toBe(true);
+    expect(result.NEXUS_WRAPPER_SELF_DIR).toBe("/foo");
+    expect(result.NEXUS_AGENT_BIN).toBeUndefined();
+  });
+
+  test("NEXUS_IN_APP=1 항상 주입 (context 있을 때)", () => {
+    const result = injectHarnessTerminalEnv(undefined, {
+      binDir: FAKE_BIN_DIR,
+      workspaceId: "ws-1",
+      tabId: "tab-1",
+    });
     expect(result.NEXUS_IN_APP).toBe("1");
   });
 
-  test("NEXUS_WRAPPER_SELF_DIR = getAgentBinDir()", () => {
-    const result = injectHarnessTerminalEnv(undefined);
-    expect(result.NEXUS_WRAPPER_SELF_DIR).toBe(EXPECTED_BIN_DIR);
+  test("NEXUS_WRAPPER_SELF_DIR = context.binDir", () => {
+    const result = injectHarnessTerminalEnv(undefined, {
+      binDir: FAKE_BIN_DIR,
+      workspaceId: "ws-1",
+      tabId: "tab-1",
+    });
+    expect(result.NEXUS_WRAPPER_SELF_DIR).toBe(FAKE_BIN_DIR);
   });
 
   test("context.workspaceId / tabId 주입", () => {
     const result = injectHarnessTerminalEnv(undefined, {
+      binDir: FAKE_BIN_DIR,
       workspaceId: "ws-1",
       tabId: "tab-2",
     });
@@ -98,15 +139,17 @@ describe("injectHarnessTerminalEnv — NEXUS_* 주입", () => {
 
   test("context.agentBin 제공 시 NEXUS_AGENT_BIN 설정", () => {
     const result = injectHarnessTerminalEnv(undefined, {
+      binDir: FAKE_BIN_DIR,
       workspaceId: "ws-1",
       tabId: "tab-1",
-      agentBin: "/path/to/agent-bin",
+      agentBin: FAKE_AGENT_BIN,
     });
-    expect(result.NEXUS_AGENT_BIN).toBe("/path/to/agent-bin");
+    expect(result.NEXUS_AGENT_BIN).toBe(FAKE_AGENT_BIN);
   });
 
   test("context.agentBin 미제공 시 NEXUS_AGENT_BIN 미설정", () => {
     const result = injectHarnessTerminalEnv(undefined, {
+      binDir: FAKE_BIN_DIR,
       workspaceId: "ws-1",
       tabId: "tab-1",
     });
@@ -115,6 +158,7 @@ describe("injectHarnessTerminalEnv — NEXUS_* 주입", () => {
 
   test("context.agentSocket / hookToken 제공 시 설정", () => {
     const result = injectHarnessTerminalEnv(undefined, {
+      binDir: FAKE_BIN_DIR,
       workspaceId: "ws-1",
       tabId: "tab-1",
       agentSocket: "/tmp/nexus.sock",
@@ -127,18 +171,10 @@ describe("injectHarnessTerminalEnv — NEXUS_* 주입", () => {
   test("caller NEXUS_* 값이 기본값을 override", () => {
     const result = injectHarnessTerminalEnv(
       { NEXUS_IN_APP: "0", NEXUS_WORKSPACE_ID: "caller-ws" },
-      { workspaceId: "ws-1", tabId: "tab-1" },
+      { binDir: FAKE_BIN_DIR, workspaceId: "ws-1", tabId: "tab-1" },
     );
     // caller env가 spread에서 이긴다.
     expect(result.NEXUS_IN_APP).toBe("0");
     expect(result.NEXUS_WORKSPACE_ID).toBe("caller-ws");
-  });
-});
-
-describe("injectHarnessTerminalEnv — context 미제공", () => {
-  test("context 없으면 NEXUS_WORKSPACE_ID / TAB_ID 미설정", () => {
-    const result = injectHarnessTerminalEnv(undefined);
-    expect(result.NEXUS_WORKSPACE_ID).toBeUndefined();
-    expect(result.NEXUS_TAB_ID).toBeUndefined();
   });
 });

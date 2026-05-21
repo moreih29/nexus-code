@@ -52,6 +52,8 @@ export interface EnsureRemoteAgentResult {
   readonly uploaded: boolean;
   readonly controlPath?: string;
   readonly dispose?: () => void;
+  /** Absolute path of the remote bin directory, e.g. `/home/user/.nexus-code/bin`. */
+  readonly remoteBinDir: string;
 }
 
 export interface EnsureRemoteLspServerOptions extends EnsureRemoteAgentOptions {

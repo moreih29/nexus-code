@@ -14,10 +14,9 @@
 //     연결을 닫는다. Claude Code는 응답이 없는 exit 0을 native fallback으로 처리한다.
 //
 // macOS socket path 104자 제한 대응:
-// socketPath = filepath.Join(os.TempDir(), "nexus-h-" + shortHash(agentKey) + ".sock")
+// socketPath = filepath.Join(agentpaths.SocketsDir(), "h-" + shortHash(agentKey) + ".sock")
 // agentKey = rootPath + pid. shortHash = sha256[:12] hex = 12자.
-// "nexus-h-" + 12 + ".sock" = 21자. os.TempDir() + "/" + 21자 ≤ 104자를 보장한다.
-// (macOS /var/folders/.../T/ 기준 최대 ~70자 + 21자 = 91자 이내)
+// "h-" + 12 + ".sock" = 19자. ~/.nexus-code/sockets/ 기준 최대 ~50자 + 19자 ≤ 104자를 보장한다.
 package hookserver
 
 import (
@@ -27,6 +26,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -34,7 +34,10 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/agentpaths"
 )
 
 // connDeadline 은 hook 클라이언트 연결 1개에 허용하는 최대 응답 대기 시간이다.
@@ -115,9 +118,15 @@ type Server struct {
 // 0600 퍼미션으로 생성한 후 accept loop goroutine을 시작한다.
 // socketPath가 macOS 104자 제한을 초과하면 에러를 반환한다.
 func New(agentKey string, sink EventSink) (*Server, error) {
-	socketPath := makeSocketPath(agentKey)
+	// 1. 소켓 경로 결정
+	socketPath, socketsDir, err := makeSocketPath(agentKey)
+	if err != nil {
+		return nil, fmt.Errorf("hookserver: %w", err)
+	}
+
+	// 2. path 길이 가드
 	if len(socketPath) > maxSocketPathLen {
-		return nil, fmt.Errorf("hookserver: socket path too long (%d > %d): %s",
+		return nil, fmt.Errorf("hookserver: socket path too long (%d > %d, under ~/.nexus-code/sockets/): %s",
 			len(socketPath), maxSocketPathLen, socketPath)
 	}
 
@@ -126,15 +135,24 @@ func New(agentKey string, sink EventSink) (*Server, error) {
 		return nil, fmt.Errorf("hookserver: token generation failed: %w", err)
 	}
 
-	// 이전 소켓 파일이 남아 있으면 제거한다.
+	// 3. 소켓 디렉토리 보장
+	if err := agentpaths.EnsureDir(socketsDir); err != nil {
+		return nil, fmt.Errorf("hookserver: %w", err)
+	}
+
+	// 4. stale 소켓 청소 (자기 소켓 등록 전)
+	cleanStaleSockets(socketsDir, filepath.Base(socketPath))
+
+	// 5. 이전 소켓 파일이 남아 있으면 제거한다.
 	_ = os.Remove(socketPath)
 
+	// 6. listen
 	ln, err := net.Listen("unix", socketPath)
 	if err != nil {
 		return nil, fmt.Errorf("hookserver: listen failed: %w", err)
 	}
 
-	// 소켓 파일을 소유자만 접근 가능하도록 0600으로 설정한다.
+	// 7. 소켓 파일을 소유자만 접근 가능하도록 0600으로 설정한다.
 	if err := os.Chmod(socketPath, 0600); err != nil {
 		_ = ln.Close()
 		_ = os.Remove(socketPath)
@@ -330,12 +348,76 @@ func (s *Server) connDeadline() time.Duration {
 	return connDeadline
 }
 
-// makeSocketPath 는 agentKey를 sha256 해싱해 짧은 소켓 경로를 생성한다.
+// makeSocketPath 는 agentKey를 sha256 해싱해 ~/.nexus-code/sockets/ 아래 소켓 경로를 생성한다.
 // macOS 104자 제한을 회피하기 위해 해시 앞 12자만 사용한다.
-func makeSocketPath(agentKey string) string {
+// 반환값: (socketPath, socketsDir, error)
+func makeSocketPath(agentKey string) (string, string, error) {
+	socketsDir, err := agentpaths.SocketsDir()
+	if err != nil {
+		return "", "", err
+	}
 	h := sha256.Sum256([]byte(agentKey))
 	short := hex.EncodeToString(h[:])[:12]
-	return filepath.Join(os.TempDir(), "nexus-h-"+short+".sock")
+	socketPath := filepath.Join(socketsDir, "h-"+short+".sock")
+	return socketPath, socketsDir, nil
+}
+
+// cleanStaleSockets 는 socketsDir 내 h-*.sock 파일 중 stale 상태인 파일을 제거한다.
+// self(selfBasename)는 항상 보존한다.
+// stale 기준: mtime이 60초 이상 경과 AND Unix 소켓에 연결 불가(ECONNREFUSED 또는 500ms 내 연결 실패).
+// 불확실한 경우(에러가 명확하지 않을 때)는 파일을 보존한다.
+func cleanStaleSockets(socketsDir, selfBasename string) {
+	entries, err := os.ReadDir(socketsDir)
+	if err != nil {
+		return
+	}
+
+	now := time.Now()
+	for _, entry := range entries {
+		name := entry.Name()
+
+		// h-*.sock 패턴만 처리한다.
+		matched, err := filepath.Match("h-*.sock", name)
+		if err != nil || !matched {
+			continue
+		}
+
+		// self는 항상 보존한다.
+		if name == selfBasename {
+			continue
+		}
+
+		fullPath := filepath.Join(socketsDir, name)
+
+		// mtime이 60초 미만이면 보존한다 (fresh).
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if now.Sub(info.ModTime()) < 60*time.Second {
+			continue
+		}
+
+		// 500ms 이내에 Unix 소켓 연결을 시도해 살아있는지 확인한다.
+		conn, err := net.DialTimeout("unix", fullPath, 500*time.Millisecond)
+		if err == nil {
+			// 연결 성공 — 살아있는 소켓이므로 보존한다.
+			conn.Close()
+			continue
+		}
+
+		// 연결 실패 에러를 분류한다.
+		// ECONNREFUSED이면 dead socket이므로 제거한다.
+		// 다른 에러(permission denied, 경로 오류, timeout 등)는 불확실하므로 보존한다.
+		var sysErr syscall.Errno
+		if !errors.As(err, &sysErr) || sysErr != syscall.ECONNREFUSED {
+			// ECONNREFUSED가 아닌 에러 — 불확실, 보존한다.
+			continue
+		}
+
+		// dead + old → 제거한다.
+		_ = os.Remove(fullPath)
+	}
 }
 
 // AgentKey 는 rootPath와 pid로 hookserver 소켓 경로의 고유 키를 만든다.

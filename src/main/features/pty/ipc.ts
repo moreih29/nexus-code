@@ -10,7 +10,6 @@ import { injectHarnessTerminalEnv } from "./harness-env";
 import { OscNotificationDispatcher } from "./osc-notification";
 import type { WorkspaceNameLookup } from "./osc-notification";
 import type { HookInfo } from "../workspace/manager";
-import { getAgentBinaryPath } from "../../infra/agent/getAgentBinDir";
 
 const c = ipcContract.pty.call;
 
@@ -25,11 +24,17 @@ export interface PtyChannelOptions {
    * spawn 핸들러가 env를 캡처하기 전에 await하여 channel.ready / hook.getInfo
    * pull 완료 시점이 hookInfo 조회보다 앞서도록 강제한다. 반환 채널 객체
    * 자체는 사용하지 않고 ready 동기화 목적으로만 호출한다.
+   *
+   * `getWrapperBinDir` / `getWrapperAgentBin` — 워크스페이스 종류에 따라
+   * 래퍼 bin 디렉터리와 agent 바이너리 절대 경로를 반환한다. null 반환 시
+   * wrapper 관련 env 주입을 skip한다.
    */
   workspaceManager?: WorkspaceNameLookup & {
     activate(id: string): Promise<void>;
     getHookInfo(workspaceId: string): HookInfo | null;
     getAgentChannel(workspaceId: string): Promise<unknown>;
+    getWrapperBinDir(workspaceId: string): string | null;
+    getWrapperAgentBin(workspaceId: string): string | null;
   };
 }
 
@@ -95,13 +100,21 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
         }
         // workspaceManager.getHookInfo로 pull 기반 소켓/토큰 조회 후 env에 주입한다.
         const hookInfo = wm?.getHookInfo(workspaceId) ?? null;
-        const enrichedEnv = injectHarnessTerminalEnv(env, {
-          workspaceId,
-          tabId,
-          agentBin: getAgentBinaryPath(),
-          agentSocket: hookInfo?.socketPath,
-          hookToken: hookInfo?.token,
-        });
+        // wrapper bin 디렉터리와 agent 바이너리 경로를 워크스페이스 종류에 따라 결정한다.
+        // null이면 wrapper 관련 env 주입을 skip (graceful 패턴 유지).
+        const wrapperBinDir = wm?.getWrapperBinDir(workspaceId) ?? null;
+        const wrapperAgentBin = wm?.getWrapperAgentBin(workspaceId) ?? null;
+        const enrichedEnv =
+          wrapperBinDir !== null
+            ? injectHarnessTerminalEnv(env, {
+                binDir: wrapperBinDir,
+                workspaceId,
+                tabId,
+                agentBin: wrapperAgentBin ?? undefined,
+                agentSocket: hookInfo?.socketPath,
+                hookToken: hookInfo?.token,
+              })
+            : injectHarnessTerminalEnv(env);
         try {
           // The shell is resolved by the agent on its own host — for a
           // remote workspace that is the SSH host, not this machine.

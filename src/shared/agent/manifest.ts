@@ -38,6 +38,12 @@ export const LspBinaryManifestEntrySchema = z.object({
   argsTemplate: z.array(z.string()),
 });
 
+export const WrapperManifestEntrySchema = z.object({
+  path: z.string().min(1),
+  sha256: Sha256Schema,
+  size: ArtifactSizeSchema,
+});
+
 export const AgentManifestSchema = z.object({
   version: z.string().min(1),
   protocolVersion: z.string().min(1),
@@ -46,6 +52,7 @@ export const AgentManifestSchema = z.object({
     node: z.array(NodeRuntimeManifestEntrySchema).min(1),
   }),
   lspBinaries: z.array(LspBinaryManifestEntrySchema),
+  wrapper: z.optional(WrapperManifestEntrySchema),
 });
 
 export type AgentArtifactPlatform = z.infer<typeof AgentArtifactPlatformSchema>;
@@ -53,6 +60,7 @@ export type AgentManifest = z.infer<typeof AgentManifestSchema>;
 export type AgentBinaryManifestEntry = z.infer<typeof AgentBinaryManifestEntrySchema>;
 export type NodeRuntimeManifestEntry = z.infer<typeof NodeRuntimeManifestEntrySchema>;
 export type LspBinaryManifestEntry = z.infer<typeof LspBinaryManifestEntrySchema>;
+export type WrapperManifestEntry = z.infer<typeof WrapperManifestEntrySchema>;
 
 export function findAgentBinary(
   manifest: AgentManifest,

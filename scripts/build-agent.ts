@@ -113,7 +113,7 @@ export async function buildAgentDistribution(
   const lspArtifacts = await buildLspBundles({ rootDir, outDir, run });
 
   // claude 래퍼 스크립트를 bin/claude로 배치.
-  await copyClaudeWrapper({ rootDir, outDir });
+  const wrapperArtifact = await copyClaudeWrapper({ rootDir, outDir });
 
   await writeAgentManifest({
     outDir,
@@ -122,6 +122,7 @@ export async function buildAgentDistribution(
     agentArtifacts,
     nodeArtifacts,
     lspArtifacts,
+    wrapperArtifact,
   });
   console.log(`Built agent distribution in ${outDir}`);
 }
@@ -154,6 +155,7 @@ export async function writeAgentManifest(args: {
   readonly agentArtifacts: readonly ManifestArtifactInput[];
   readonly nodeArtifacts: readonly RuntimeArtifactInput[];
   readonly lspArtifacts: readonly LspArtifactInput[];
+  readonly wrapperArtifact?: { readonly path: string; readonly sha256: string; readonly size: number };
 }): Promise<void> {
   const binaries: AgentBinaryManifestEntry[] = [];
   for (const artifact of args.agentArtifacts) {
@@ -184,6 +186,7 @@ export async function writeAgentManifest(args: {
     binaries,
     runtime: { node },
     lspBinaries,
+    wrapper: args.wrapperArtifact,
   });
   await fs.writeFile(
     path.join(args.outDir, "manifest.json"),

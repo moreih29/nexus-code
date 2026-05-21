@@ -20,6 +20,7 @@ import {
   findNodeRuntime,
   type LspBinaryManifestEntry,
   type NodeRuntimeManifestEntry,
+  type WrapperManifestEntry,
 } from "../../../../../shared/agent/manifest";
 import {
   authenticateSshControlMaster,
@@ -39,6 +40,8 @@ import {
   remoteAgentBinaryPath,
   remoteLspBinaryDir,
   remoteNodeRuntimeDir,
+  remoteWrapperBinaryPath,
+  wrapperArtifactKey,
   writeRemoteManifest,
 } from "./manifest";
 import {
@@ -178,6 +181,19 @@ export async function ensureRemoteAgent(
 
     const remoteHome = await detectRemoteHome(sshOptions, runner);
 
+    if (localManifest.wrapper) {
+      await ensureRemoteWrapper(
+        sshOptions,
+        runner,
+        now,
+        distDir,
+        localManifest.wrapper,
+        dependencies.onProgress,
+      );
+    }
+
+    const remoteBinDir = absoluteRemotePath(remoteHome, `${REMOTE_AGENT_ROOT}/bin`);
+
     // On success, ownership of a ControlMaster authenticated *here* passes to
     // the caller via `dispose`. When the caller supplied its own controlPath
     // (a reused master), we surface that path back but no dispose handle —
@@ -189,6 +205,7 @@ export async function ensureRemoteAgent(
       uploaded: ensured.uploaded,
       controlPath: authenticatedMaster?.controlPath ?? options.controlPath,
       dispose: authenticatedMaster ? () => authenticatedMaster.dispose() : undefined,
+      remoteBinDir,
     };
   } catch (error) {
     // This function never returned, so the caller has no dispose handle.
@@ -527,6 +544,47 @@ async function ensureRemoteLspArchive(
         );
       },
       prune: () => pruneRemoteVersions(options, runner, `${REMOTE_AGENT_ROOT}/lsp/${lsp.name}-*`),
+    },
+    onProgress,
+  );
+}
+
+/** Uploads the Claude wrapper binary to the fixed remote path `~/.nexus-code/bin/claude`. */
+async function ensureRemoteWrapper(
+  options: EnsureRemoteAgentOptions,
+  runner: SshBootstrapRunner,
+  now: () => Date,
+  distDir: string,
+  wrapper: WrapperManifestEntry,
+  onProgress?: (event: LspBootstrapProgressEvent) => void,
+): Promise<ArtifactEnsureResult> {
+  const remotePath = remoteWrapperBinaryPath();
+  return ensureRemoteArtifact(
+    options,
+    runner,
+    now,
+    {
+      key: wrapperArtifactKey(),
+      record: {
+        kind: "wrapper",
+        name: "claude",
+        version: "0",
+        path: remotePath,
+        sha256: wrapper.sha256,
+        size: wrapper.size,
+      },
+      progressName: "claude-wrapper",
+      install: () =>
+        uploadAndVerifyFile({
+          options,
+          runner,
+          localPath: path.resolve(distDir, wrapper.path),
+          remotePath,
+          sha256: wrapper.sha256,
+          executable: true,
+          remoteAgentRoot: REMOTE_AGENT_ROOT,
+        }),
+      prune: () => Promise.resolve(),
     },
     onProgress,
   );

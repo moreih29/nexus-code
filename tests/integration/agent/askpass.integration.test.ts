@@ -80,7 +80,9 @@ describe("agent askpass round-trip", () => {
     if (!gitAvailable) return;
 
     const root = await fs.mkdtemp(path.join(tmpdir(), "agent-askpass-root-"));
-    const home = await fs.mkdtemp(path.join(tmpdir(), "agent-askpass-home-"));
+    // home은 /tmp 하위에 짧게 생성한다 — tmpdir() 기반이면 macOS에서
+    // `/var/folders/...` 경로가 길어 hookserver socket path가 sun_path 104자를 초과한다.
+    const home = await fs.mkdtemp(path.join("/tmp", "ng-"));
     const prompts: string[] = [];
     const serverState = { authorizedHeader: "" };
     const server = await startAuthGitServer(serverState);

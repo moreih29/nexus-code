@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { isAbortError } from "../../../shared/abort";
@@ -41,6 +42,13 @@ import {
   ensureRemoteLspServer as defaultEnsureRemoteLspServer,
   type SshBootstrapDependencies,
 } from "../../infra/agent/ssh/ssh-bootstrap/index";
+import {
+  getAgentBinDir,
+  getAgentBinaryPath,
+} from "../../infra/agent/getAgentBinDir";
+import { AgentManifestSchema } from "../../../shared/agent/manifest";
+import type { RemoteAgentPlatform } from "../../infra/agent/ssh/ssh-bootstrap/index";
+import { LOCAL_AGENT_DIST_DIR } from "../../infra/agent/ssh/ssh-bootstrap/types";
 import { WorkspaceContext } from "./context";
 
 // ---------------------------------------------------------------------------
@@ -358,6 +366,47 @@ export class WorkspaceManager {
    */
   getHookInfo(workspaceId: string): HookInfo | null {
     return this.hookInfoByWorkspace.get(workspaceId) ?? null;
+  }
+
+  /**
+   * 워크스페이스 종류에 따라 래퍼 바이너리가 위치하는 bin 디렉터리의 절대 경로를 반환한다.
+   *
+   * - 로컬 워크스페이스: 로컬 배포 bin 디렉터리 (`getAgentBinDir()`)
+   * - SSH 워크스페이스:  bootstrap 결과의 `remoteBinDir` (절대 경로)
+   * - 워크스페이스 없음 / 채널 없음: null
+   */
+  getWrapperBinDir(workspaceId: string): string | null {
+    const ctx = this.contexts.get(workspaceId);
+    if (!ctx) return null;
+    const meta = ctx.getMeta();
+    if (meta.location.kind === "local") {
+      return getAgentBinDir();
+    }
+    const bootstrap = this.sshBootstraps.get(workspaceId);
+    if (!bootstrap) return null;
+    return bootstrap.remoteBinDir;
+  }
+
+  /**
+   * 워크스페이스 종류에 따라 에이전트 바이너리의 절대 경로를 반환한다.
+   *
+   * - 로컬 워크스페이스: 로컬 배포 agent 바이너리 경로 (`getAgentBinaryPath()`)
+   * - SSH 워크스페이스:  `${remoteBinDir}/agent-<version>-<os>-<arch>` (bootstrap 결과에서 조립)
+   * - 워크스페이스 없음 / bootstrap 없음: null
+   */
+  getWrapperAgentBin(workspaceId: string): string | null {
+    const ctx = this.contexts.get(workspaceId);
+    if (!ctx) return null;
+    const meta = ctx.getMeta();
+    if (meta.location.kind === "local") {
+      return getAgentBinaryPath() ?? null;
+    }
+    const bootstrap = this.sshBootstraps.get(workspaceId);
+    if (!bootstrap) return null;
+    const { remoteBinDir, platform } = bootstrap;
+    const binaryName = resolveRemoteAgentBinaryName(platform);
+    if (!binaryName) return null;
+    return `${remoteBinDir}/${binaryName}`;
   }
 
   /**
@@ -1135,5 +1184,29 @@ function sshChannelOptionsFromLocation(
     remoteCommand,
     controlPath,
   };
+}
+
+/**
+ * Derives the agent binary filename for the given remote platform by reading
+ * the local manifest. The installed binary on the remote follows the same
+ * naming convention: `agent-<version>-<os>-<arch>`.
+ *
+ * Returns null when the manifest cannot be read or parsed.
+ */
+function resolveRemoteAgentBinaryName(platform: RemoteAgentPlatform): string | null {
+  const { app } = require("electron") as typeof import("electron");
+  const distDir = app.isPackaged
+    ? path.join(process.resourcesPath, "agent")
+    : LOCAL_AGENT_DIST_DIR;
+  const manifestPath = path.join(distDir, "manifest.json");
+  if (!fs.existsSync(manifestPath)) return null;
+  try {
+    const manifest = AgentManifestSchema.parse(
+      JSON.parse(fs.readFileSync(manifestPath, "utf8")),
+    );
+    return `agent-${manifest.version}-${platform.os}-${platform.arch}`;
+  } catch {
+    return null;
+  }
 }
 
