@@ -189,6 +189,48 @@ describe("claude-wrapper.sh — JSON 이스케이프 검증", () => {
   });
 });
 
+describe("claude-wrapper.sh — 다른 wrapper 회피 (무한 루프 방지)", () => {
+  /**
+   * 시나리오: PATH 에 cmux 와 우리 wrapper 가 함께 있을 때, find_real_claude 가
+   * 다른 wrapper 를 진짜 claude 로 오인해 서로 exec 하는 무한 루프에 빠지면 안 된다.
+   * 헤더 첫 5 줄의 magic 마커("nexus-code claude wrapper" / "cmux claude wrapper")
+   * 를 발견하면 그 후보를 skip 하고 다음으로 넘어가야 한다.
+   */
+  test("PATH 에 wrapper 마커 후보가 있어도 진짜 claude 까지 fall-through 한다", () => {
+    // cmux 스타일 마커를 가진 fake wrapper.
+    const fakeWrapperDir = path.join(tmpDir, "fake-cmux-bin");
+    fs.mkdirSync(fakeWrapperDir, { recursive: true });
+    const fakeWrapperPath = path.join(fakeWrapperDir, "claude");
+    fs.writeFileSync(
+      fakeWrapperPath,
+      "#!/usr/bin/env bash\n# cmux claude wrapper - injects hooks\necho FAKE_WRAPPER_CALLED\nexit 0\n",
+    );
+    fs.chmodSync(fakeWrapperPath, 0o755);
+
+    // 마커 없는 진짜 claude 역할.
+    const realDir = path.join(tmpDir, "real-bin");
+    fs.mkdirSync(realDir, { recursive: true });
+    const realPath = path.join(realDir, "claude");
+    fs.writeFileSync(realPath, "#!/usr/bin/env bash\necho REAL_CLAUDE_CALLED\nexit 0\n");
+    fs.chmodSync(realPath, 0o755);
+
+    // NEXUS_IN_APP 미설정 → 우리 wrapper 는 passthrough 모드.
+    // fake-cmux 가 real 보다 PATH 우선순위 앞이어도 마커 검사로 skip 되어야 한다.
+    // PATH 에 /bin·/usr/bin 도 포함해야 wrapper 내부의 head·grep 외부 명령이 동작한다.
+    const result = spawnSync("bash", [WRAPPER_PATH], {
+      env: {
+        PATH: `${fakeWrapperDir}:${realDir}:/bin:/usr/bin`,
+      },
+      timeout: 5000,
+      encoding: "utf8",
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("REAL_CLAUDE_CALLED");
+    expect(result.stdout).not.toContain("FAKE_WRAPPER_CALLED");
+  });
+});
+
 /**
  * hook 이벤트 이름("session-start")을 JSON 키("SessionStart")로 변환한다.
  */

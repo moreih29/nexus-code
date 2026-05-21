@@ -136,6 +136,7 @@
   --state-error-border: #f85149;
   --state-error-bg: rgba(255, 255, 255, 0.06);
   --state-warning-fg: #d29922;
+  --state-warning-bg: rgba(255, 255, 255, 0.06);
   --border: #30363d;
   --input: #30363d;
   --ring: #1f6feb;
@@ -240,6 +241,7 @@
   --state-error-border: #f85149;
   --state-error-bg: rgba(255, 255, 255, 0.06);
   --state-warning-fg: #d29922;
+  --state-warning-bg: rgba(255, 255, 255, 0.06);
   --border: #30363d;
   --input: #30363d;
   --ring: #1f6feb;
@@ -337,6 +339,7 @@
   --state-error-border: #cf222e;
   --state-error-bg: rgba(0, 0, 0, 0.06);
   --state-warning-fg: #9a6700;
+  --state-warning-bg: rgba(0, 0, 0, 0.06);
   --border: #d0d7de;
   --input: #d0d7de;
   --ring: #0969da;
@@ -434,6 +437,7 @@
   --state-error-border: #ff5555;
   --state-error-bg: rgba(255, 255, 255, 0.06);
   --state-warning-fg: #f1fa8c;
+  --state-warning-bg: rgba(255, 255, 255, 0.06);
   --border: #191a21;
   --input: #191a21;
   --ring: #bd93f9;
@@ -531,6 +535,7 @@
   --state-error-border: #e06c75;
   --state-error-bg: rgba(255, 255, 255, 0.06);
   --state-warning-fg: #e5c07b;
+  --state-warning-bg: rgba(255, 255, 255, 0.06);
   --border: #181a1f;
   --input: #181a1f;
   --ring: #61afef;
@@ -628,6 +633,7 @@
   --state-error-border: #f92672;
   --state-error-bg: rgba(255, 255, 255, 0.06);
   --state-warning-fg: #e6db74;
+  --state-warning-bg: rgba(255, 255, 255, 0.06);
   --border: #1e1f1c;
   --input: #1e1f1c;
   --ring: #a6e22e;
@@ -725,6 +731,7 @@
   --state-error-border: #f7768e;
   --state-error-bg: rgba(255, 255, 255, 0.06);
   --state-warning-fg: #e0af68;
+  --state-warning-bg: rgba(255, 255, 255, 0.06);
   --border: #15161e;
   --input: #15161e;
   --ring: #7aa2f7;
@@ -822,6 +829,7 @@
   --state-error-border: #dc322f;
   --state-error-bg: rgba(255, 255, 255, 0.06);
   --state-warning-fg: #b58900;
+  --state-warning-bg: rgba(255, 255, 255, 0.06);
   --border: #073642;
   --input: #073642;
   --ring: #268bd2;
@@ -919,6 +927,7 @@
   --state-error-border: #bf616a;
   --state-error-bg: rgba(255, 255, 255, 0.06);
   --state-warning-fg: #ebcb8b;
+  --state-warning-bg: rgba(255, 255, 255, 0.06);
   --border: #3b4252;
   --input: #3b4252;
   --ring: #88c0d0;
@@ -1016,6 +1025,7 @@
   --state-error-border: #f38ba8;
   --state-error-bg: rgba(255, 255, 255, 0.06);
   --state-warning-fg: #f9e2af;
+  --state-warning-bg: rgba(255, 255, 255, 0.06);
   --border: #181825;
   --input: #181825;
   --ring: #89b4fa;
@@ -1113,6 +1123,7 @@
   --state-error-border: #fb4934;
   --state-error-bg: rgba(255, 255, 255, 0.06);
   --state-warning-fg: #fabd2f;
+  --state-warning-bg: rgba(255, 255, 255, 0.06);
   --border: #3c3836;
   --input: #3c3836;
   --ring: #fabd2f;

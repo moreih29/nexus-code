@@ -6,14 +6,27 @@
 
 set -euo pipefail
 
-# 1) 실제 claude 바이너리 탐색 — 자신이 위치한 디렉터리는 건너뜀.
+# 1) 실제 claude 바이너리 탐색.
+#   - 자신이 위치한 디렉터리는 건너뜀 (자기 자신 재호출 방지).
+#   - 다른 인앱 wrapper(우리/cmux 등)도 magic 헤더 코멘트로 식별해 skip한다.
+#     이 검사가 없으면 cmux 와 우리 wrapper 가 함께 PATH 에 있을 때 서로를
+#     "진짜 claude" 로 오인해 무한 exec 루프에 빠진다.
 find_real_claude() {
   local self_dir
   self_dir="$(cd "$(dirname "$0")" && pwd)"
   local IFS=:
   for d in $PATH; do
     [[ "$d" == "$self_dir" ]] && continue
-    [[ -x "$d/claude" ]] && printf '%s' "$d/claude" && return 0
+    local cand="$d/claude"
+    [[ -x "$cand" ]] || continue
+    # 첫 5 줄 안에 알려진 wrapper 헤더 문자열이 있으면 이 후보는 wrapper 다.
+    # 진짜 claude 바이너리는 binary 라 grep 매칭이 발생하지 않는다.
+    if head -n 5 "$cand" 2>/dev/null \
+        | grep -qE 'nexus-code claude wrapper|cmux claude wrapper'; then
+      continue
+    fi
+    printf '%s' "$cand"
+    return 0
   done
   return 1
 }
