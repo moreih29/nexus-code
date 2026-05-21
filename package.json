@@ -6,7 +6,7 @@
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "dev:fresh": "bun run clean && electron-vite dev",
+    "dev:fresh": "bun run clean && bun run scripts/build-agent.ts && electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc -b tsconfig.json",
