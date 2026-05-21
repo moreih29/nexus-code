@@ -426,6 +426,9 @@ export class WorkspaceManager {
     const id = randomUUID();
     const rootPath = rootPathFromLocation(location);
     const name = opts.name ?? defaultWorkspaceName(location);
+    // New workspaces are always placed at the tail of the unpinned group so
+    // they appear below existing items without perturbing existing positions.
+    const sortOrder = this.globalStorage.nextTailSortOrder("unpinned");
     const meta: WorkspaceMeta = {
       id,
       name,
@@ -435,6 +438,8 @@ export class WorkspaceManager {
       pinned: false,
       lastOpenedAt: new Date().toISOString(),
       tabs: [],
+      sortOrder,
+      pinnedSortOrder: 0,
     };
 
     this.globalStorage.addWorkspace(meta);
@@ -463,13 +468,117 @@ export class WorkspaceManager {
     if (!ctx) {
       throw new Error(`workspace not found: ${id}`);
     }
+    const current = ctx.getMeta();
     const normalizedPartial = normalizeWorkspaceUpdate(partial);
+
+    // Pin toggle: when the pinned flag changes, move the workspace to the tail
+    // of its new group and zero the sort column for the group it leaves.
+    // This keeps drag-and-drop positions stable for the retained group.
+    const pinnedChanged =
+      normalizedPartial.pinned !== undefined && normalizedPartial.pinned !== current.pinned;
+
+    if (pinnedChanged) {
+      const newPinned = normalizedPartial.pinned as boolean;
+      const targetGroup: "pinned" | "unpinned" = newPinned ? "pinned" : "unpinned";
+      const tailPos = this.globalStorage.nextTailSortOrder(targetGroup);
+      // Moving to pinned group: pinned_sort_order = tail, sort_order = 0.
+      // Moving to unpinned group: sort_order = tail, pinned_sort_order = 0.
+      const newSortOrder = newPinned ? 0 : tailPos;
+      const newPinnedSortOrder = newPinned ? tailPos : 0;
+
+      // Write sort columns + pinned flag together, then update other fields.
+      this.globalStorage.updateSortOrder(id, {
+        sortOrder: newSortOrder,
+        pinnedSortOrder: newPinnedSortOrder,
+        pinned: newPinned,
+      });
+      // Strip pinned from the general updateWorkspace call to avoid double-write.
+      const { pinned: _pinned, ...restPartial } = normalizedPartial;
+      if (Object.keys(restPartial).length > 0) {
+        this.globalStorage.updateWorkspace(id, restPartial);
+      }
+      const updated: WorkspaceMeta = {
+        ...current,
+        ...normalizedPartial,
+        sortOrder: newSortOrder,
+        pinnedSortOrder: newPinnedSortOrder,
+      };
+      ctx.setMeta(updated);
+      this.broadcastFn("workspace", "changed", updated);
+      return updated;
+    }
+
     this.globalStorage.updateWorkspace(id, normalizedPartial);
-    const updated: WorkspaceMeta = { ...ctx.getMeta(), ...normalizedPartial };
+    const updated: WorkspaceMeta = { ...current, ...normalizedPartial };
     ctx.setMeta(updated);
 
     this.broadcastFn("workspace", "changed", updated);
     return updated;
+  }
+
+  /**
+   * Moves a workspace to a new position within the sidebar list.
+   *
+   * `targetGroup` specifies which group the item lands in; when it differs from
+   * the item's current group the `pinned` flag is automatically flipped and the
+   * source group's sort column is zeroed.
+   *
+   * Position anchoring (mutually exclusive):
+   *   - Neither `beforeId` nor `afterId` → tail of `targetGroup`.
+   *   - `beforeId` only → immediately after that item (midpoint with its successor).
+   *   - `afterId` only → immediately before that item (midpoint with its predecessor).
+   *
+   * When the gap between neighbours collapses to < 2 the group is rebalanced
+   * first and the new position is recomputed.  In that case `workspace.reordered`
+   * is broadcast carrying every affected row so the renderer can refresh the whole
+   * list in one pass; otherwise the lighter `workspace.changed` event is used.
+   *
+   * The entire read-compute-write sequence runs inside a single SQLite transaction.
+   */
+  reorder(
+    id: string,
+    opts: {
+      beforeId?: string;
+      afterId?: string;
+      targetGroup: "pinned" | "unpinned";
+    },
+  ): WorkspaceMeta {
+    const ctx = this.contexts.get(id);
+    if (!ctx) {
+      throw new Error(`workspace not found: ${id}`);
+    }
+
+    const current = ctx.getMeta();
+    const result = this.globalStorage.reorderWorkspace(id, {
+      currentPinned: current.pinned,
+      ...opts,
+    });
+
+    const finalMeta: WorkspaceMeta = {
+      ...current,
+      pinned: opts.targetGroup === "pinned",
+      sortOrder: result.sortOrder,
+      pinnedSortOrder: result.pinnedSortOrder,
+    };
+
+    // Update in-memory context after the storage transaction commits.
+    ctx.setMeta(finalMeta);
+
+    // Broadcast outside the transaction so IPC calls never run inside a DB lock.
+    if (result.rebalancedRows) {
+      // Merge the reordered workspace's new values into the rebalanced set so
+      // every row in the group is accounted for in the bulk event.
+      const merged = result.rebalancedRows.map((r) =>
+        r.id === id
+          ? { id: r.id, sortOrder: finalMeta.sortOrder, pinnedSortOrder: finalMeta.pinnedSortOrder }
+          : r,
+      );
+      this.broadcastFn("workspace", "reordered", merged);
+    } else {
+      this.broadcastFn("workspace", "changed", finalMeta);
+    }
+
+    return finalMeta;
   }
 
   /**

@@ -118,6 +118,10 @@ export function registerWorkspaceChannel(
         const { id, ...partial } = validateArgs(c.update.args, args);
         return manager.update(id, partial);
       },
+      reorder: (args: unknown) => {
+        const { id, beforeId, afterId, targetGroup } = validateArgs(c.reorder.args, args);
+        return manager.reorder(id, { beforeId, afterId, targetGroup });
+      },
       remove: (args: unknown) => {
         const { id } = validateArgs(c.remove.args, args);
         // remove() is idempotent — a missing workspace is silently ignored.
@@ -136,6 +140,7 @@ export function registerWorkspaceChannel(
       removed: {},
       attention: {},
       connectionChanged: {},
+      reordered: {},
     },
   });
 }

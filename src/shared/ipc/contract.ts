@@ -236,6 +236,37 @@ const WorkspaceTestSshArgsSchema = z.object({
   remotePath: z.string().min(1),
 });
 
+/**
+ * Arguments for repositioning a workspace within the sidebar.
+ * `beforeId` and `afterId` are mutually exclusive: providing both is invalid.
+ * Providing neither places the workspace at the tail of `targetGroup`.
+ */
+export const WorkspaceReorderArgsSchema = z
+  .object({
+    id: z.string().uuid(),
+    beforeId: z.string().uuid().optional(),
+    afterId: z.string().uuid().optional(),
+    targetGroup: z.enum(["pinned", "unpinned"]),
+  })
+  .refine((data) => !(data.beforeId && data.afterId), {
+    message: "beforeId and afterId are mutually exclusive",
+  });
+
+/**
+ * Bulk sort-order update emitted after a group rebalance so the renderer can
+ * refresh every affected row's position in one pass.
+ */
+export const WorkspaceReorderedEventSchema = z.object({
+  orders: z.array(
+    z.object({
+      id: z.string().uuid(),
+      sortOrder: z.number().int(),
+      pinnedSortOrder: z.number().int(),
+      pinned: z.boolean(),
+    }),
+  ),
+});
+
 // Browse-session connection params — WorkspaceTestSshArgsSchema minus remotePath.
 const SshBrowseConnParamsSchema = z.object({
   host: z.string().min(1),
@@ -484,6 +515,7 @@ export const ipcContract = {
        */
       createAndConnect: call(WorkspaceCreateArgsSchema, WorkspaceMetaSchema),
       update: call(WorkspaceUpdateArgsSchema, WorkspaceMetaSchema),
+      reorder: call(WorkspaceReorderArgsSchema, WorkspaceMetaSchema),
       remove: call(WorkspaceIdSchema, z.void()),
       activate: call(WorkspaceIdSchema, z.void()),
       testSsh: call(WorkspaceTestSshArgsSchema, WorkspaceTestSshResultSchema),
@@ -493,6 +525,7 @@ export const ipcContract = {
       removed: listen(WorkspaceIdSchema),
       attention: listen(WorkspaceIdSchema),
       connectionChanged: listen(WorkspaceConnectionChangedEventSchema),
+      reordered: listen(WorkspaceReorderedEventSchema),
     },
   },
 

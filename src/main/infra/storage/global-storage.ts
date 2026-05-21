@@ -132,6 +132,8 @@ interface WorkspaceRow {
   color_tone: string;
   pinned: number;
   last_opened_at: number;
+  sort_order: number;
+  pinned_sort_order: number;
 }
 
 /**
@@ -182,6 +184,8 @@ function rowToMeta(row: WorkspaceRow): WorkspaceMeta {
     pinned: row.pinned === 1,
     lastOpenedAt: new Date(row.last_opened_at).toISOString(),
     tabs: [],
+    sortOrder: row.sort_order,
+    pinnedSortOrder: row.pinned_sort_order,
   });
 }
 
@@ -221,7 +225,11 @@ export class GlobalStorage {
 
   listWorkspaces(): WorkspaceMeta[] {
     const rows = this.db
-      .prepare("SELECT * FROM workspaces ORDER BY last_opened_at DESC")
+      .prepare(
+        `SELECT * FROM workspaces
+         ORDER BY pinned DESC,
+                  (CASE pinned WHEN 1 THEN pinned_sort_order ELSE sort_order END) ASC`,
+      )
       .all() as WorkspaceRow[];
     return rows.map(rowToMeta);
   }
@@ -233,8 +241,9 @@ export class GlobalStorage {
     this.db
       .prepare(
         `INSERT INTO workspaces
-           (id, name, root_path, location, color_tone, pinned, last_opened_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           (id, name, root_path, location, color_tone, pinned, last_opened_at,
+            sort_order, pinned_sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         normalized.id,
@@ -244,6 +253,8 @@ export class GlobalStorage {
         normalized.colorTone ?? "default",
         normalized.pinned ? 1 : 0,
         normalized.lastOpenedAt ? new Date(normalized.lastOpenedAt).getTime() : Date.now(),
+        normalized.sortOrder,
+        normalized.pinnedSortOrder,
       );
   }
 
@@ -278,6 +289,308 @@ export class GlobalStorage {
 
   removeWorkspace(id: string): void {
     this.db.prepare("DELETE FROM workspaces WHERE id = ?").run(id);
+  }
+
+  /**
+   * Atomically updates sort-order columns (and optionally the pinned flag) for
+   * a single workspace row. Used by WorkspaceManager.reorder() and the pin-
+   * toggle path in WorkspaceManager.update() where both sort columns and the
+   * pinned bit must change in the same write.
+   */
+  updateSortOrder(
+    id: string,
+    values: { sortOrder: number; pinnedSortOrder: number; pinned?: boolean },
+  ): void {
+    if (values.pinned !== undefined) {
+      this.db
+        .prepare(
+          `UPDATE workspaces
+           SET sort_order = ?, pinned_sort_order = ?, pinned = ?
+           WHERE id = ?`,
+        )
+        .run(values.sortOrder, values.pinnedSortOrder, values.pinned ? 1 : 0, id);
+    } else {
+      this.db
+        .prepare(
+          `UPDATE workspaces
+           SET sort_order = ?, pinned_sort_order = ?
+           WHERE id = ?`,
+        )
+        .run(values.sortOrder, values.pinnedSortOrder, id);
+    }
+  }
+
+  /**
+   * Atomically repositions a workspace row within the given target group.
+   *
+   * The entire read-neighbours → compute-midpoint → write sequence runs inside
+   * a single SQLite transaction so concurrent reads never observe a partial state.
+   * When the gap between neighbours collapses to < 2 the group is rebalanced
+   * first and the position is recomputed; the returned `rebalancedRows` field
+   * carries the updated values for every row so the caller can broadcast a bulk
+   * event.
+   *
+   * Cross-group moves (targetGroup differs from currentPinned) zero the source
+   * group's sort column so the item no longer participates in the old group's
+   * ordering.
+   */
+  reorderWorkspace(
+    id: string,
+    params: {
+      currentPinned: boolean;
+      targetGroup: "pinned" | "unpinned";
+      beforeId?: string;
+      afterId?: string;
+    },
+  ): {
+    sortOrder: number;
+    pinnedSortOrder: number;
+    rebalancedRows?: Array<{ id: string; sortOrder: number; pinnedSortOrder: number }>;
+  } {
+    const { currentPinned, targetGroup, beforeId, afterId } = params;
+    const newPinned = targetGroup === "pinned";
+    const pinnedChanged = newPinned !== currentPinned;
+
+    let rebalancedRows:
+      | Array<{ id: string; sortOrder: number; pinnedSortOrder: number }>
+      | undefined;
+    let sortOrder = 0;
+    let pinnedSortOrder = 0;
+
+    const db = this.db;
+    const txn = (
+      db as unknown as { transaction: (fn: () => void) => () => void }
+    ).transaction(() => {
+      let positionResult = this.computeInsertPosition({
+        groupKind: targetGroup,
+        beforeId,
+        afterId,
+      });
+
+      if ("rebalance" in positionResult) {
+        rebalancedRows = this.rebalanceGroup(targetGroup);
+        // After rebalance, positions are step-1024 so the gap will be ≥ 1024.
+        positionResult = this.computeInsertPosition({
+          groupKind: targetGroup,
+          beforeId,
+          afterId,
+        });
+        if ("rebalance" in positionResult) {
+          throw new Error(`rebalance did not open a gap for workspace reorder: ${id}`);
+        }
+      }
+
+      const position = positionResult.position;
+      sortOrder = targetGroup === "unpinned" ? position : 0;
+      pinnedSortOrder = targetGroup === "pinned" ? position : 0;
+
+      this.updateSortOrder(id, {
+        sortOrder,
+        pinnedSortOrder,
+        pinned: pinnedChanged ? newPinned : undefined,
+      });
+    });
+
+    txn();
+    return { sortOrder, pinnedSortOrder, rebalancedRows };
+  }
+
+  // -------------------------------------------------------------------------
+  // Workspace sort-order helpers
+  // -------------------------------------------------------------------------
+
+  /**
+   * Returns the tail position for a new workspace appended to the given group.
+   * The tail is max(existing positions) + 1024.  If the group is empty, 1024 is
+   * returned so the first row gets a non-zero, rebalance-safe position.
+   */
+  nextTailSortOrder(groupKind: "pinned" | "unpinned"): number {
+    const col = groupKind === "pinned" ? "pinned_sort_order" : "sort_order";
+    const pinnedFilter = groupKind === "pinned" ? 1 : 0;
+    const row = this.db
+      .prepare(
+        `SELECT MAX(${col}) AS max_val
+         FROM workspaces
+         WHERE pinned = ?`,
+      )
+      .get(pinnedFilter) as { max_val: number | null };
+    const maxVal = row.max_val ?? 0;
+    return maxVal + 1024;
+  }
+
+  /**
+   * Computes the sort-order position for a workspace being inserted adjacent to
+   * a reference row within the given group.
+   *
+   * - Both `beforeId` and `afterId` absent → tail position (max + 1024, or 1024
+   *   when the group is empty).
+   * - Both `beforeId` and `afterId` present → invalid; throws.
+   * - Only `beforeId` present → insert immediately after that row (midpoint
+   *   between beforeId and its successor; or beforeId + 1024 if beforeId is last).
+   * - Only `afterId` present → insert immediately before that row (midpoint
+   *   between afterId and its predecessor; or afterId − 1024 if afterId is first,
+   *   but never below 1 so rebalance is signalled if the gap collapses to 0).
+   *
+   * Returns `{ position: number }` when a concrete position is available, or
+   * `{ rebalance: true }` when the gap between neighbors has collapsed to < 2
+   * and the caller must rebalance the group before retrying.
+   */
+  computeInsertPosition(params: {
+    groupKind: "pinned" | "unpinned";
+    beforeId?: string;
+    afterId?: string;
+  }): { position: number } | { rebalance: true } {
+    const { groupKind, beforeId, afterId } = params;
+
+    if (beforeId !== undefined && afterId !== undefined) {
+      throw new Error(
+        "computeInsertPosition: beforeId and afterId are mutually exclusive",
+      );
+    }
+
+    const col = groupKind === "pinned" ? "pinned_sort_order" : "sort_order";
+    const pinnedFilter = groupKind === "pinned" ? 1 : 0;
+
+    // No reference → tail insertion.
+    if (beforeId === undefined && afterId === undefined) {
+      return { position: this.nextTailSortOrder(groupKind) };
+    }
+
+    // Insert after `beforeId`: midpoint between beforeId and its next neighbor.
+    if (beforeId !== undefined) {
+      const refRow = this.db
+        .prepare(
+          `SELECT ${col} AS pos FROM workspaces WHERE id = ? AND pinned = ?`,
+        )
+        .get(beforeId, pinnedFilter) as { pos: number } | undefined;
+
+      if (!refRow) {
+        throw new Error(
+          `computeInsertPosition: beforeId row not found in ${groupKind} group`,
+        );
+      }
+
+      const nextRow = this.db
+        .prepare(
+          `SELECT ${col} AS pos
+           FROM workspaces
+           WHERE pinned = ? AND ${col} > ?
+           ORDER BY ${col} ASC
+           LIMIT 1`,
+        )
+        .get(pinnedFilter, refRow.pos) as { pos: number } | undefined;
+
+      if (!nextRow) {
+        // beforeId is the last row; append after it.
+        return { position: refRow.pos + 1024 };
+      }
+
+      const gap = nextRow.pos - refRow.pos;
+      if (gap < 2) {
+        return { rebalance: true };
+      }
+
+      return { position: Math.floor((refRow.pos + nextRow.pos) / 2) };
+    }
+
+    // Insert before `afterId`: midpoint between afterId and its previous neighbor.
+    const refRow = this.db
+      .prepare(
+        `SELECT ${col} AS pos FROM workspaces WHERE id = ? AND pinned = ?`,
+      )
+      .get(afterId!, pinnedFilter) as { pos: number } | undefined;
+
+    if (!refRow) {
+      throw new Error(
+        `computeInsertPosition: afterId row not found in ${groupKind} group`,
+      );
+    }
+
+    const prevRow = this.db
+      .prepare(
+        `SELECT ${col} AS pos
+         FROM workspaces
+         WHERE pinned = ? AND ${col} < ?
+         ORDER BY ${col} DESC
+         LIMIT 1`,
+      )
+      .get(pinnedFilter, refRow.pos) as { pos: number } | undefined;
+
+    if (!prevRow) {
+      // afterId is the first row; prepend before it.
+      const newPos = refRow.pos - 1024;
+      if (newPos < 1) {
+        return { rebalance: true };
+      }
+      return { position: newPos };
+    }
+
+    const gap = refRow.pos - prevRow.pos;
+    if (gap < 2) {
+      return { rebalance: true };
+    }
+
+    return { position: Math.floor((prevRow.pos + refRow.pos) / 2) };
+  }
+
+  /**
+   * Rebalances the sort positions of all workspaces within the given group by
+   * reassigning step-1024 positions (1024, 2048, 3072, …) ordered by the
+   * current sort column then by id as a tiebreaker for deterministic output.
+   *
+   * Returns every row that was touched with its new position values so that the
+   * caller can broadcast the changes to interested parties.
+   */
+  rebalanceGroup(
+    groupKind: "pinned" | "unpinned",
+  ): Array<{ id: string; sortOrder: number; pinnedSortOrder: number }> {
+    const col = groupKind === "pinned" ? "pinned_sort_order" : "sort_order";
+    const pinnedFilter = groupKind === "pinned" ? 1 : 0;
+
+    const rows = this.db
+      .prepare(
+        `SELECT id, sort_order, pinned_sort_order
+         FROM workspaces
+         WHERE pinned = ?
+         ORDER BY ${col} ASC, id ASC`,
+      )
+      .all(pinnedFilter) as { id: string; sort_order: number; pinned_sort_order: number }[];
+
+    const updateUnpinned = this.db.prepare(
+      "UPDATE workspaces SET sort_order = ? WHERE id = ?",
+    );
+    const updatePinned = this.db.prepare(
+      "UPDATE workspaces SET pinned_sort_order = ? WHERE id = ?",
+    );
+
+    const results: Array<{ id: string; sortOrder: number; pinnedSortOrder: number }> = [];
+
+    const db = this.db;
+    const txn = (
+      db as unknown as { transaction: (fn: () => void) => () => void }
+    ).transaction(() => {
+      rows.forEach((row, index) => {
+        const newPos = (index + 1) * 1024;
+        if (groupKind === "pinned") {
+          updatePinned.run(newPos, row.id);
+          results.push({
+            id: row.id,
+            sortOrder: row.sort_order,
+            pinnedSortOrder: newPos,
+          });
+        } else {
+          updateUnpinned.run(newPos, row.id);
+          results.push({
+            id: row.id,
+            sortOrder: newPos,
+            pinnedSortOrder: row.pinned_sort_order,
+          });
+        }
+      });
+    });
+
+    txn();
+    return results;
   }
 
   // -------------------------------------------------------------------------

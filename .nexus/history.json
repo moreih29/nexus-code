@@ -17103,6 +17103,425 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-21T01:38:15.093Z",
+      "branch": "feat/workspace-pin-and-reorder",
+      "plan": {
+        "id": 55,
+        "topic": "워크스페이스 사이드바: 드래그 순서 변경 + Pin 풀세트 (컨텍스트 메뉴 + 행 내부 핀 아이콘 + 그룹 구분선 + 호버 토글 핀버튼)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "DB schema v6: sort_order 컬럼 설계 (단일 vs 그룹별, 스파스 step, 백필)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "v6 마이그레이션: 두 컬럼 `sort_order INTEGER NOT NULL DEFAULT 0` + `pinned_sort_order INTEGER NOT NULL DEFAULT 0`. step=1024 스파스. `hasColumn` 가드 (v5 패턴 mirror). 백필: `last_opened_at DESC` 순회하며 그룹별 1024, 2048, 3072... 부여. Idempotent: `sort_order = 0`인 row만 백필 (replay 안전). 인덱스: `CREATE INDEX idx_workspaces_order ON workspaces (pinned DESC, sort_order ASC)`. 트랜잭션은 `db.transaction(...)` (global-storage.ts:327 패턴). Nullable 거부 — 모든 row가 항상 위치를 갖는 게 자연스러움.",
+                "recorded_at": "2026-05-21T00:38:30.162Z",
+                "agent_id": "a2330419c164a2e3f"
+              }
+            ],
+            "decision": "**채택**: 마이그레이션 v6에서 `workspaces` 테이블에 두 컬럼 추가 — `sort_order INTEGER NOT NULL DEFAULT 0` + `pinned_sort_order INTEGER NOT NULL DEFAULT 0`. step=1024 스파스 백필. `hasColumn` 가드 (v5 패턴). 백필은 `sort_order = 0`인 row만 대상 — replay 안전. 인덱스: `CREATE INDEX IF NOT EXISTS idx_workspaces_order ON workspaces (pinned DESC, sort_order ASC)`. 전체 작업은 `db.transaction(...)` (global-storage.ts:327 패턴).\n\n**기각**: nullable 컬럼 — 모든 ORDER BY가 COALESCE 필요, \"정렬 없음\" 상태가 의미 없음. dense step (1, 2, 3) — 첫 인접 드래그마다 즉시 rebalance, 비용 비대칭.\n\n**근거**: 두 컬럼 분리는 pin 토글 비용을 reorder 알고리즘과 디커플링. ~20 row 스케일에서 컬럼 하나 더의 비용은 무시할 만함. step=1024는 ~10번 인접 삽입까지 rebalance 없이 흡수."
+          },
+          {
+            "id": 2,
+            "title": "ORDER BY 전략: 단일 쿼리 vs 분리, 그룹별 sort 범위",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "단일 쿼리 `ORDER BY pinned DESC, sort_order ASC` 사용. JS 분할 거부 (정렬 로직 중복, upsert마다 재정렬 비용). 그룹별 별도 컬럼(`sort_order`, `pinned_sort_order`) — pin 토글 시 reorder 알고리즘과 결합 회피. unpin할 때 원래 unpinned 위치를 잃지 않으려면 별도 컬럼이 유리. 단점: 컬럼 하나 더 = 마이그레이션/쓰기 비용 약간 증가하지만 ~20개 row 스케일에서 미미.",
+                "recorded_at": "2026-05-21T00:38:35.337Z",
+                "agent_id": "a2330419c164a2e3f"
+              }
+            ],
+            "decision": "**채택**: 단일 SQL 쿼리 `SELECT * FROM workspaces ORDER BY pinned DESC, sort_order ASC`. global-storage.ts:222-227의 ORDER BY 절만 교체. 각 그룹은 자기 sort_order 범위를 가짐 (pinned=true row는 `pinned_sort_order`, false row는 `sort_order` 사용 — issue #1의 두 컬럼 설계와 정합).\n\n**기각**: JS 측 분할 — 정렬 로직 중복, upsert마다 재정렬 비용 (lastOpenedAt 갱신이 매 activation마다 발생하므로 hot path). 단일 sort_order 공유 범위 — pin 토글 시 인접 그룹 boundary와 midpoint 충돌, 토글이 reorder math를 트리거하게 됨.\n\n**근거**: SQL이 정렬을 담당하면 인덱스 활용 가능, 코드는 단순. 두 컬럼 분리는 pin/reorder를 직교 축으로 진화시킴."
+          },
+          {
+            "id": 3,
+            "title": "Sparse sort_order 알고리즘: midpoint, rebalance trigger, 위치 계산 위치 (renderer vs main)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Midpoint: `new = floor((prev + next) / 2)`. Edge: top → `min - 1024`, bottom → `max + 1024`, empty → `1024`. Rebalance trigger: `(next - prev) < 2`. Rebalance 절차: 같은 트랜잭션 안에서 영향 그룹만 `UPDATE workspaces SET sort_order = rowNum * 1024 ORDER BY (sort_order, id)`. 위치 계산은 **main 측**에서 실행 — renderer의 stale neighbor 데이터 회피, 두 윈도우 동시 드래그 시 충돌 방지. 트랜잭션으로 read-neighbors → compute → write 직렬화.",
+                "recorded_at": "2026-05-21T00:38:39.868Z",
+                "agent_id": "a2330419c164a2e3f"
+              }
+            ],
+            "decision": "**채택**: 미드포인트 알고리즘은 **main 측에서 실행** (renderer 아님). 공식: `new = floor((prev + next) / 2)`. 엣지 케이스 — 최상단 = `min - 1024`, 최하단 = `max + 1024`, 빈 그룹 = `1024`. Rebalance trigger = `(next - prev) < 2` (또는 계산된 `new == prev` / `new == next`). Rebalance 절차: 같은 트랜잭션 안에서 영향 받는 그룹만 `UPDATE workspaces SET <order_col> = rowNum * 1024 ORDER BY (<order_col>, id)`.\n\n**기각**: renderer 측 계산 — stale neighbor 데이터 문제, 두 윈도우 동시 드래그 시 silent collision. `gap < 16` rebalance threshold — 너무 공격적, ~20 row 스케일에서 불필요한 write 폭증.\n\n**근거**: 데이터 로컬리티 (계산이 데이터 옆에 있어야 트랜잭션 보장). gap<2는 strict floor로 sparse budget 소진 시에만 발화."
+          },
+          {
+            "id": 4,
+            "title": "IPC 표면: 기존 update 확장 vs workspace.reorder 신규 vs setSortOrders 벌크",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "3가지 옵션 비교:\n- Opt1 (update 확장): 표면 최소, but renderer가 stale neighbor로 midpoint 계산 → 동시성 충돌. **반대**\n- Opt2 (workspace.reorder 신규): 알고리즘이 데이터 옆에, rebalance 자연스러움, IPC verb가 user action에 매핑. **추천**\n- Opt3 (setSortOrders 벌크): renderer가 ordering rule 재구현. **반대**, 단 내부 rebalance broadcast로는 채택\n결정: Opt2 채택. Public IPC = `workspace.reorder({id, beforeId?, afterId?})` + 기존 `update`로 pinned 토글. 추가 listen 이벤트 `workspace.reordered` (벌크 rebalance 전용)는 `{orders: Array<{id, sortOrder, pinnedSortOrder}>}`.",
+                "recorded_at": "2026-05-21T00:38:46.448Z",
+                "agent_id": "a2330419c164a2e3f"
+              }
+            ],
+            "decision": "**채택**: Architect의 Opt2 — public IPC = `workspace.reorder({id, beforeId?, afterId?, targetGroup?: \"pinned\" | \"unpinned\"})` 신규 추가. pinned 토글은 **기존** `workspace.update({id, pinned})` 그대로 사용 (이미 `WorkspaceUpdateArgsSchema`가 수용). 추가 listen 이벤트 `workspace.reordered({orders: Array<{id, sortOrder, pinnedSortOrder}>})` — 벌크 rebalance 전용. 단일 행 변경은 기존 `workspace.changed`로 처리.\n\n**기각**: Opt1 (update에 sortOrder 추가) — renderer 측 midpoint 계산 강제. Opt3 (setSortOrders 벌크만) — renderer가 ordering rule 재구현, 무엇이 옳은 위치인지 main이 모름. 별도 setPinned IPC 추가 — 기존 update 재사용 가능한데 surface 늘리는 건 낭비.\n\n**근거**: 하나의 user action (드래그 드롭) = 하나의 IPC verb. 알고리즘이 main에 살면 동시성/트랜잭션이 자연스럽게 해결. `targetGroup` 파라미터는 issue #11의 크로스 섹션 드래그 시 필요."
+          },
+          {
+            "id": 5,
+            "title": "Renderer store 반응: upsert 항상 재정렬 vs reorder 액션 신설 vs list refetch",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "(a) upsert마다 재정렬 거부: `lastOpenedAt` 갱신이 매 activation마다 발생(manager.ts:481), 정렬 필드가 layout과 무관한데 매번 재정렬 = locality of behavior 위반. (c) `setAll` 재패치 거부: 기존 broadcast 패턴과 단절. 결정 = (b): `upsert`는 in-place 유지, 신규 `reorder` 액션이 `workspace.reordered` 벌크 이벤트 소비 + 단일 행 `changed`는 `applySortedInsert(meta)` 헬퍼로 sortOrder/pinnedSortOrder 비교해 신규 인덱스 찾아 삽입. O(n)이지만 n 작음. ⚠ WARNING: upsert가 정렬 영향 / 무영향 변경 양쪽을 처리하는 게 fragile — applySortedInsert가 매 호출마다 sort field 체크하도록.",
+                "recorded_at": "2026-05-21T00:38:54.047Z",
+                "agent_id": "a2330419c164a2e3f"
+              }
+            ],
+            "decision": "**채택**: 옵션 (b) — `upsert`는 in-place 갱신 그대로 유지, 신규 `reorder(orders)` 액션 추가. 단일 행 `workspace.changed` 수신 시 `applySortedInsert(meta)` 헬퍼가 신규 sortOrder/pinnedSortOrder를 현재 배열과 비교해 올바른 인덱스로 이동. 벌크 `workspace.reordered` 수신 시 `reorder()` 액션이 server-supplied id 순서대로 배열 재구성.\n\n**기각**: (a) upsert마다 재정렬 — lastOpenedAt 갱신이 hot path인데 sort 필드와 무관한 변경에도 재정렬 발생, locality of behavior 위반. (c) setAll 재패치 — broadcast 패턴 단절.\n\n**근거**: 단일 행 변경의 일반 경로는 `applySortedInsert` (O(n), n 작음). 벌크는 별도 액션 — broadcast topic 분리. ⚠ 후속 위험: upsert 호출자가 sort field 변경을 인지하지 못한 채 사용할 가능성 — applySortedInsert 내부에서 매번 sort field 체크 필수."
+          },
+          {
+            "id": 6,
+            "title": "Pin 상태 영구 표시 위치 (행 내부 어디에)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "3 placement 비교:\n- A) 폴더/서버 아이콘을 핀 아이콘으로 대체 — 폭 절약, but kind 신호 손실. **반대**\n- B) 폴더/서버 아이콘 우상단에 8×8 핀 배지 — kind 유지, but 작은 타겟 + 시각적 fussy\n- C) **LSP 칩 왼쪽 12px 전용 핀 슬롯, 영구 (hover-only 아님)** — 스캔 가능, 명확. **추천**\n결정: C. 위치 = `right-9`에 핀 배지 (LSP 칩 cluster를 `right-14`로 시프트). 색상 = `text-[var(--state-selected-indicator)]` (active 행 좌측 액센트와 동일 — redundant encoding).",
+                "recorded_at": "2026-05-21T00:39:23.113Z",
+                "agent_id": "a2131b8974c9e00af"
+              }
+            ],
+            "decision": "**채택**: 옵션 C — LSP 칩 왼쪽 12px 전용 핀 슬롯, 영구 표시. 핀 슬롯은 `right-9`에 배치. LSP 칩 cluster는 `right-14`로 시프트. 색상 = `text-[var(--state-selected-indicator)]` (active 행 좌측 액센트와 동일 — 색 + 위치 + 형태 중복 인코딩).\n\n**기각**: A (folder 아이콘 대체) — local/SSH kind 신호 손실. B (8×8 corner 배지) — 너무 작은 hit target, 12px 미만에서 형태 인식 불가.\n\n**근거**: 행 내부 슬롯이 이미 빽빽하지만, 핀은 영구 시각 신호가 필요한 메타데이터. 우측 스택의 우선순위 = (LSP 칩 ← right-14) > (핀 ← right-9) > (X ← right-2). SSH 점은 `bottom-2 right-2`로 X와 시각적 stack 다른 축이라 충돌 없음."
+          },
+          {
+            "id": 7,
+            "title": "Pin 토글 컨트롤: 컨텍스트 메뉴 + 호버 버튼 — 영구 배지와 호버 버튼 통합 여부",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "핵심 통찰: **영구 배지와 호버 토글 버튼을 분리하면 시각적 충돌** + X 버튼 옆에 핀 토글이 있으면 mis-click 위험 (destructive vs reversible 인접). 해결: **영구 배지 자체가 토글**. pinned 상태일 때 = 항상 opaque, clickable, `aria-pressed=\"true\"`, 툴팁 \"Unpin\". unpinned 상태 = `opacity-0 group-hover:opacity-100 focus-visible:opacity-100`, `aria-pressed=\"false\"`, 툴팁 \"Pin to top\". 컨텍스트 메뉴 항목: \"Pin to top\" / \"Unpin\" 상호배타. Tab order: row → pin toggle → X. ⚠ A11y: 툴팁 텍스트 반드시 상태별 분기 (아이콘만으로는 부족).",
+                "recorded_at": "2026-05-21T00:39:28.727Z",
+                "agent_id": "a2131b8974c9e00af"
+              }
+            ],
+            "decision": "**채택**: **영구 배지와 호버 토글을 단일 컴포넌트로 통합**. 한 슬롯의 두 상태:\n- pinned 상태: `opacity-100`, opaque 핀 아이콘, clickable, `aria-pressed=\"true\"`, 툴팁 \"Unpin\"\n- unpinned 상태: `opacity-0 group-hover:opacity-100 focus-visible:opacity-100`, outlined 핀 아이콘, `aria-pressed=\"false\"`, 툴팁 \"Pin to top\"\n\n컨텍스트 메뉴 (\"Workspace Settings…\" 위에): `pinned ? \"Unpin\" : \"Pin to top\"` 단일 항목. Tab order: 행 버튼 → 핀 토글 → X 제거 버튼.\n\n**기각**: 영구 배지 + 별도 호버 토글 (분리) — 시각적 중복, mis-click 위험 (X 버튼 인접 시 destructive vs reversible 혼동). 아이콘 색만으로 상태 표시 — A11y 위반 (색각 이상 사용자, 스크린리더 사용자에게 정보 손실).\n\n**근거**: 한 슬롯이 표시와 액션 모두 담당하면 사용자는 모델을 하나만 학습. 툴팁 텍스트 분기가 색 + 형태 의존을 보강하여 redundant encoding 충족."
+          },
+          {
+            "id": 8,
+            "title": "그룹 구분: hairline / 섹션 라벨 / 갭 단독 / 없음",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "5가지 옵션 비교:\n- a) 내부 hairline — over-signal. **반대**\n- b) 섹션 라벨만 — +20px 헤더 비용, 한 그룹만일 때 redundant\n- c) 갭 단독 — 미스되기 쉬움\n- d) 핀 아이콘만 — 첫 인상에서 실패\n- e) **갭 + 조건부 라벨** — 양쪽 신호, 우아한 collapse. **추천**\n결정: e. **양 그룹 모두 존재**할 때만 8px 갭 + 11px uppercase muted 라벨 (\"Pinned\" / \"Recent\"). 한 그룹만 = 라벨/갭 모두 생략 (오늘과 동일한 모습). 사이드바 폭 <200px = 라벨 생략, 갭만 유지.",
+                "recorded_at": "2026-05-21T00:39:34.754Z",
+                "agent_id": "a2131b8974c9e00af"
+              }
+            ],
+            "decision": "**채택**: 옵션 (e) — 갭 + 조건부 라벨. 양 그룹 모두 entries 존재할 때만: 8px 갭 + 11px uppercase muted 라벨 (\"Pinned\" / \"Recent\"). 라벨 스타일: `text-app-micro text-muted-foreground tracking-wide px-4`. 사이드바 폭 <200px = 라벨 생략 (갭 유지). 한 그룹만 존재 = 라벨도 갭도 없음 (오늘 동일).\n\n**기각**: 내부 hairline (a) — Islands design.md 허용은 하지만 핀 그룹 분리에는 over-signal. 라벨만 (b) — 한 그룹만일 때 redundant. 갭 단독 (c) — 첫 인상에서 핀 의미 전달 실패. 핀 아이콘만 (d) — 신규 사용자에게 \"왜 이게 위에?\" 의문 남김.\n\n**근거**: 양쪽 신호가 우아하게 collapse. 좁은 사이드바도 graceful degradation."
+          },
+          {
+            "id": 9,
+            "title": "드래그 트리거: 전용 핸들 vs 행 전체 + 이동 임계값",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "전용 핸들 거부: +16px 폭 or 폴더/SSH kind 신호 파괴. 추천: **행 전체 + 5px Manhattan 이동 임계값**. `mousedown` 좌표 기록 → `mousemove`에서 거리 > 5px일 때만 native HTML5 drag 시작 → 그 이하면 click으로 처리하여 `onSelectWorkspace`. signifier = `cursor-grab` (hover) / `cursor-grabbing` (drag). 명시적 핸들 없음 (Finder / VSCode Explorer / macOS sidebar 관례 일치). ⚠ Discoverability 약간 손실 — 첫 핀 시 \"Tip: drag rows to reorder\" one-shot 툴팁(post-MVP).",
+                "recorded_at": "2026-05-21T00:39:40.753Z",
+                "agent_id": "a2131b8974c9e00af"
+              }
+            ],
+            "decision": "**채택**: 행 전체 + 5px Manhattan 이동 임계값. 구현: `onPointerDown`이 시작 좌표 기록 → `onPointerMove`에서 거리 > 5px 되면 native HTML5 `dragstart` 트리거 (또는 React DnD lib 없이 직접 dataTransfer 설정) → 그 이하 거리에서 `onPointerUp` 발생 시 click으로 간주하여 `onSelectWorkspace`. Signifier = `cursor-grab` (hover) / `cursor-grabbing` (active drag). 명시적 핸들 없음.\n\n**기각**: 전용 ⋮⋮ 핸들 — +16px 폭 또는 folder/SSH kind 아이콘 파괴. 호버 시 핸들 노출 (folder 아이콘 자리에 ⋮⋮ 토글) — fussy, hover state 복잡도 폭증.\n\n**근거**: Finder / VSCode Explorer / macOS sidebar 관례. 명시적 핸들의 discoverability 이득은 작고, 폭 비용이 큼 (좁은 사이드바). 5px 임계값은 일반적인 click-vs-drag 판별 휴리스틱."
+          },
+          {
+            "id": 10,
+            "title": "드래그 시각 피드백: 인디케이터 형태 + 기존 DropIndicator 재사용 여부",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "- **Source row**: `opacity-40` in-place (layout 보존), no transform. Native drag image이 ghost 역할.\n- **Drop indicator**: **2px 가로 바** (row inner content 폭 = `left-2 right-2`), 색 = `bg-[var(--state-selected-indicator)]`, 행 사이 gap 중심에 위치, 100-150ms ease-out transition.\n- **기존 DropIndicator 재사용 반대**: `drop-indicator.tsx:19-25`는 zone-fill 모델 (top/bottom/left/right/center = 스플릿 페인 방향). row insertion 의미와 다름 — 같은 form, 다른 meaning = Consistency & Mapping 위반.\n- 결정: 새 컴포넌트 `RowDropIndicator` 작성. props = `before-row | after-row`.",
+                "recorded_at": "2026-05-21T00:39:46.403Z",
+                "agent_id": "a2131b8974c9e00af"
+              }
+            ],
+            "decision": "**채택**: Source row = `opacity-40` in-place (layout 보존, native drag image이 ghost 역할). Drop indicator = **2px 가로 바**, `left-2 right-2` (행 inner content 폭), `bg-[var(--state-selected-indicator)]`, 행 사이 gap 중심 위치, 100-150ms ease-out fade-in. 새 컴포넌트 `RowDropIndicator` 작성 — props `{ position: \"before\" | \"after\", rowId: string }`.\n\n**기각**: 기존 `dnd/drop-indicator.tsx` 재사용 — `top/bottom/left/right/center` zone-fill 모델은 split-pane 의미. 행 insertion은 다른 의미. 같은 form 다른 meaning은 Consistency & Mapping 위반.\n\n**근거**: 2px 가로 바는 Notion / Linear / Figma 공통 패턴. `--state-selected-indicator` 재사용은 \"selected\" + \"drop target here\" 의미 공유 — 둘 다 \"여기\"를 가리킴."
+          },
+          {
+            "id": 11,
+            "title": "크로스섹션 드래그 시 pin 상태 자동 전환 여부",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "**자동 전환 찬성**. 일반 행을 핀 섹션에 떨구면 auto-pin. 핀 행을 섹션 갭 아래로 떨구면 auto-unpin. 동일한 가로 바 인디케이터 사용 — 사용자는 드래그 중 섹션 라벨 변화로 의도를 미리 telegraph 받음. 별도 confirmation 불필요. ⚠ Risk: 의도치 않은 unpin (핀된 마지막 슬롯 지나서 떨구면 unpin). Mitigation: 갭에 떨굴 때만 전환되도록 명확히, 드롭 바 위치가 \"Pinned\" / \"Recent\" 라벨 컨텍스트 안에 있을 때 의도가 명확함.",
+                "recorded_at": "2026-05-21T00:39:52.277Z",
+                "agent_id": "a2131b8974c9e00af"
+              }
+            ],
+            "decision": "**채택 (Lead 중재)**: Designer 안 — **크로스 섹션 드래그 시 pin 자동 전환 허용**. 단 조건부:\n- 핀 섹션 안에 떨굼 → `pinned = true` 자동 설정\n- 갭 또는 일반 섹션 안에 떨굼 → `pinned = false` 자동 설정\n- 드롭 인디케이터는 동일 (2px 가로 바). 섹션 라벨 (\"Pinned\" / \"Recent\")이 드래그 중 사용자에게 의도를 telegraph.\n- IPC 호출 시 `targetGroup` 명시 (issue #4 결정대로).\n\n**Architect 반대 의견 처리**: \"semantic vs layout 분리\" 우려는 타당하지만 — (a) 섹션 라벨이 명확한 시각 boundary를 제공하여 의도 telegraph가 작동, (b) drag 동작 자체가 의도적 행위로 우발적이라기보다 명시적, (c) 분리 강제 시 사용자가 \"왜 못 끌어가지?\" 좌절. UX 일관성 > 의미론적 분리.\n\n**기각**: 자동 전환 거부 (Architect 안) — 드래그를 거부하면 사용자는 두 단계 (먼저 unpin → 그다음 드래그)로 강제됨, 단일 user action의 결과를 두 IPC로 쪼개야 함. Drop snap-back — 시각적으로 혼란.\n\n**근거**: 라벨이 있는 한 의도가 명확. 우발적 toggle 위험은 designer가 제안한 \"갭 안에 떨굴 때만 전환\" 규칙으로 충분히 완화."
+          },
+          {
+            "id": 12,
+            "title": "라이프사이클: 신규 워크스페이스 정렬 위치 + 핀 토글 시 위치 + unpin 시 이전 위치 기억 여부",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "신규 생성: `sort_order = max(unpinned) + 1024`, `pinned_sort_order = 0`. 맨 아래 삽입 — 새 워크스페이스는 이미 active로 시각적 prominence 획득, top 삽입 시 사용자 큐레이션 순서와 충돌. 제거: 갭 통합 안 함 (midpoint 충돌 시 rebalance가 알아서 처리, 삭제마다 rewrite는 불필요한 shotgun surgery). Pin 토글: 대상 그룹 tail로 (`max(target group) + 1024`). 원본 그룹 컬럼 값은 unchanged 유지 → 나중에 unpin 시 prior 위치 복원 가능 (designer 결정 사항 — 메모리 of position을 원하지 않으면 0으로 zero).",
+                "recorded_at": "2026-05-21T00:39:00.073Z",
+                "agent_id": "a2330419c164a2e3f"
+              }
+            ],
+            "decision": "**채택**: \n- **신규 워크스페이스 생성**: `sort_order = max(unpinned_sort_order) + 1024`, `pinned_sort_order = 0`. 일반 섹션 맨 아래에 추가. 활성화로 자동 전환되어 시각적 prominence는 확보됨.\n- **워크스페이스 제거**: 갭 통합 안 함. midpoint 충돌 시 rebalance가 자연스럽게 처리.\n- **Pin 토글**: 대상 그룹 tail로 (`max(target group) + 1024`). **원본 그룹의 컬럼 값은 zero로 리셋** (소스 컬럼 보존 안 함 — \"remember last unpinned position\" 거부).\n\n**기각**: 신규 워크스페이스 top 삽입 — 사용자 큐레이션 순서와 충돌. 제거 시 갭 통합 — 매 삭제마다 모든 row UPDATE = shotgun surgery. 원본 컬럼 값 보존 (memory of position) — 사용자 모델 복잡화 (\"내가 어디 두었더라?\"). MVP는 명료한 동작 우선.\n\n**근거**: 단순성이 예측가능성을 만든다. 위치 기억은 향후 사용자 피드백으로 옵션 추가 가능."
+          },
+          {
+            "id": 13,
+            "title": "동시성: 두 윈도우/탭에서 동시 드래그 시 sort_order 충돌 방지",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "동시 드래그 충돌 위험: 두 윈도우/탭이 동시에 같은 인접 쌍 사이에 삽입 시도 → 동일 midpoint 계산. 완화: WorkspaceManager.update 경계에서 read-neighbors → compute-midpoint → write를 단일 better-sqlite3 트랜잭션으로 감쌈 (global-storage.ts:327 패턴). 트랜잭션 안에서 SELECT FOR UPDATE 동등성을 SQLite write transaction이 보장. 직렬화는 main 프로세스 내에서만; 두 프로세스 동시는 better-sqlite3가 WAL 모드라도 write를 직렬화하므로 안전.",
+                "recorded_at": "2026-05-21T00:39:05.882Z",
+                "agent_id": "a2330419c164a2e3f"
+              }
+            ],
+            "decision": "**채택**: `WorkspaceManager` 안에서 reorder의 read-neighbors → compute-midpoint → write 시퀀스를 단일 better-sqlite3 트랜잭션으로 감싸 직렬화. 트랜잭션은 `global-storage.ts:327` 패턴 (`db.transaction(() => {...})()`) 사용. better-sqlite3는 WAL 모드라도 동일 DB write는 직렬화하므로 main 프로세스 내부 동시성은 트랜잭션으로 충분.\n\n**기각**: optimistic concurrency (version 컬럼 + CAS) — 워크스페이스 규모(~20)에 비해 과도. SQLite mutex 외 별도 락 — 추가 복잡도 무가치.\n\n**근거**: better-sqlite3는 synchronous, 트랜잭션이 atomic + isolated를 자연스럽게 보장. 두 윈도우/탭이 같은 main 프로세스를 통해 IPC하므로 main의 트랜잭션 직렬화가 충분."
+          },
+          {
+            "id": 14,
+            "title": "마이그레이션 리플레이 안전성 + 폴백 (broadcast 누락 시)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "마이그레이션 replay 안전성: v6 백필이 `sort_order = 0`인 row만 갱신 (DEFAULT 값) — 이미 non-default 값이 있는 row 건드리지 않음. 부분 실패 후 재부팅 시 idempotent. 브로드캐스트 누락 폴백: `workspace.reordered` 이벤트 드롭 시 renderer 순서가 DB와 drift. 완화: `workspace.changed` 수신 시 신규 sortOrder가 현재 renderer의 neighbor 위치와 불일치 → cache-miss로 간주, `workspace.list` 재패치 트리거. 또는 단순화: 모든 reorder 후 renderer가 list 재패치 (이벤트 누락 무관).",
+                "recorded_at": "2026-05-21T00:39:11.340Z",
+                "agent_id": "a2330419c164a2e3f"
+              }
+            ],
+            "decision": "**채택**: \n- **마이그레이션 replay**: v6 백필이 `sort_order = 0`인 row만 갱신. `hasColumn` 가드 + DEFAULT 0이 idempotent를 보장.\n- **broadcast 누락 폴백**: `applySortedInsert(meta)` 헬퍼가 신규 sortOrder/pinnedSortOrder를 현재 renderer의 neighbor 배열 위치와 비교 → 불일치 감지 시 cache-miss로 간주하여 `workspace.list` 재패치. 이는 단일 행 broadcast 누락에도 대응.\n- 벌크 `workspace.reordered` 누락 시: 다음 단일 row `changed` 또는 명시적 refresh action에서 자동 복구.\n\n**기각**: 모든 reorder 후 무조건 list 재패치 — broadcast 패턴과 불일치, 네트워크/IPC 비용 증가. version 카운터 — over-engineering.\n\n**근거**: applySortedInsert가 sort field 일관성을 매번 검증하면 일반 경로(broadcast 도착) + 폴백 경로(broadcast 누락) 모두 같은 코드로 커버. 신뢰성 vs 단순성 균형."
+          }
+        ],
+        "research_summary": "## 코드베이스 검토\n\n### 현재 동작 (검증됨)\n- DB 정렬: `SELECT * FROM workspaces ORDER BY last_opened_at DESC` (`src/main/infra/storage/global-storage.ts:222-227`)\n- `workspaces` 테이블에 `pinned INTEGER` 컬럼이 v1부터 존재 (`migrations.ts:73`) 하지만 ORDER BY/UI 어디서도 사용 안 함 (dead 컬럼)\n- `WorkspaceUpdateArgsSchema`는 이미 `pinned: z.boolean().optional()` 수용 (`src/shared/ipc/contract.ts:209-214`) → 핀 토글은 기존 update IPC로 충분\n- `WorkspaceMeta`에 `pinned: z.boolean()` 필드 존재 (`src/shared/types/workspace.ts:143`)\n- 마이그레이션 현재 v5; v6 자리는 비어있음. v5 패턴(`hasColumn` 가드 + `ALTER TABLE ADD COLUMN DEFAULT`)이 idempotent 표준\n- 렌더러 store `upsert`는 in-place 갱신만, 재정렬 안 함 (`src/renderer/state/stores/workspaces.ts:157-167`)\n- `workspace.changed` 브로드캐스트는 lastOpenedAt 갱신마다 발생 (`manager.ts:481`)\n\n### Sidebar UI (검증됨)\n- 행 구조: 폴더/서버 아이콘(16px) + 2-line 텍스트 + LSP 칩(right-9) + X 버튼(right-2, hover) + SSH 연결 점(bottom-2 right-2)\n- 이미 `ContextMenuRoot` 래핑됨, \"Workspace Settings…\" 한 항목만 존재 (`sidebar.tsx:194-204`) — Pin/Unpin 추가는 한 줄\n- 사이드바 폭 user-resizable, 약 180px까지 좁아질 수 있음\n\n### 기존 DnD 모듈\n- `src/renderer/components/workspace/dnd/` 모듈 존재. 하지만 **tab/file 전용** (`MIME_TAB`, `MIME_FILE`만 처리), zone이 top/right/bottom/left/center (스플릿 페인 의미) — 행 사이 삽입 의미와 맞지 않음\n- `DropIndicator`는 zone-fill 방식 (`drop-indicator.tsx:19-25`)\n\n### 디자인 시스템 제약 (`.nexus/context/design.md`)\n- Islands 모델. 그림자 봉인 (`--shadow-*: none`)\n- 섬 *외곽*에 hairline 금지, 섬 *내부*에는 hairline 허용 (리스트 행 구분/섹션 divider)\n- 4px 베이스 그리드, redundant interaction encoding 원칙\n- semantic 토큰만 사용 (`text-muted-foreground`, `--state-hover-bg` 등)\n\n### 프로젝트 컨벤션 (`.nexus/context/conventions.md`)\n- IPC 핸들러는 throw하지 않고 `ipcOk`/`ipcErr` 봉투 반환\n- 브로드캐스트 상관관계 키는 도메인 식별자(workspaceId)\n- 부분 실패 정책: 주 효과 성공 여부로 판정\n\n## HOW 분석 (architect + designer 병렬 수행, 양쪽 모두 \"approved with conditions\")\n\n### Architect 핵심 결론\n- `sort_order INTEGER NOT NULL DEFAULT 0` + 별도 `pinned_sort_order` 두 컬럼, step=1024 스파스\n- ORDER BY: `pinned DESC, sort_order ASC` 단일 쿼리 + idx 인덱스\n- 미드포인트 알고리즘은 **main 측에서 실행** (renderer의 stale neighbor 데이터 문제 회피)\n- 새 IPC `workspace.reorder({id, beforeId?, afterId?})` + 기존 `update`로 pinned 토글 + 벌크 rebalance용 `workspace.reordered` 브로드캐스트\n- 렌더러 store: `upsert`는 그대로, `reorder` 액션 신설 + `applySortedInsert` 헬퍼로 단일행 changed 처리\n- 크로스 섹션 드래그 → pin 자동 전환 **반대** (semantic vs layout 분리)\n- 신규 workspace = `max(unpinned) + 1024` 위치, 제거 시 갭 통합 안 함\n\n### Designer 핵심 결론  \n- Pin 영구 배지 + 호버 토글 버튼은 **통합** (영구 배지 자체가 토글). pinned일 때는 항상 opaque, unpinned일 때는 opacity-0 group-hover:opacity-100\n- 위치: `right-9` 핀 슬롯 (LSP 칩 cluster를 `right-14`로 시프트)\n- 그룹 구분: **갭 + 조건부 섹션 라벨** (\"Pinned\" / \"Recent\" 11px uppercase, 양 그룹 모두 존재할 때만)\n- 드래그 트리거: **행 전체 + 5px 이동 임계값** (Finder/VSCode 관례)\n- 드래그 인디케이터: **2px 가로 바**, `bg-[var(--state-selected-indicator)]` (활성행 액센트와 동일 색)\n- 기존 DropIndicator는 **재사용 안 함**, 새로운 `RowDropIndicator` 작성 (zone-fill ≠ insertion-between)\n- 크로스 섹션 드래그 → pin **자동 전환 찬성** (UX 일관성 — 라벨 변화가 의도 telegraph)\n\n### Architect ↔ Designer 충돌\n크로스 섹션 드래그 시 pin 자동 전환:\n- Architect: 반대 (semantic vs layout 분리)\n- Designer: 찬성 (UX 일관성)\n→ Lead가 issue #11에서 결정 필요\n\n### Designer가 추가 제기한 의제\n- 좁은 사이드바(<200px)에서 LSP 칩 hover-only 노출\n- 접근성: `aria-pressed`, 툴팁 텍스트 상태별 분기 (Pin to top / Unpin)\n- 색 대비 검증: `--state-selected-indicator` vs `--sidebar-item-selected-bg` 3:1 (WCAG 1.4.11)\n\n## 외부 지식 활용\n- `.nexus/history.json`: 워크스페이스 핀/리오더 관련 사이클 없음 (검색 결과 0)\n- `.nexus/memory/`: 직접 관련 항목 없음. broadcast correlation, ipc-stream 패턴은 적용 대상\n",
+        "created_at": "2026-05-21T00:38:20.983Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "DB schema v6: sort_order 컬럼 + 인덱스 + 백필 + 정렬 쿼리",
+          "status": "completed",
+          "context": "현재 `workspaces` 테이블은 `ORDER BY last_opened_at DESC`로 정렬 (`global-storage.ts:222-227`). `pinned INTEGER` 컬럼은 v1부터 존재하지만 사용되지 않음. v5까지의 마이그레이션 패턴은 `hasColumn` 가드 + `ALTER TABLE ADD COLUMN DEFAULT` 형태가 표준 (`migrations.ts`).",
+          "acceptance": "- v6 마이그레이션이 fresh DB와 기존 DB(v5에서 업그레이드) 양쪽에서 idempotent하게 실행 (replay 시 두 번째 실행은 noop)\n- `listWorkspaces()`가 pinned=true는 위, 같은 그룹 내에서는 sort_order 오름차순으로 반환\n- 백필 후 기존 워크스페이스의 시각적 순서가 `last_opened_at` 기준과 동일하게 보존됨\n- step=1024 스파스가 검증됨 (인접 두 row의 차이가 1024)\n- `computeInsertPosition`이 가운데 삽입 시 midpoint 반환, 그룹 비어있으면 1024, gap<2면 rebalance 신호 반환\n- 단위 테스트: 마이그레이션 백필 + listWorkspaces 정렬 + 헬퍼 함수 3종",
+          "approach": "1. `migrations.ts`에 v6 마이그레이션 추가:\n   - `hasColumn(workspaces, sort_order)` 가드 후 `ALTER TABLE workspaces ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`\n   - 동일하게 `pinned_sort_order INTEGER NOT NULL DEFAULT 0` 추가\n   - 인덱스 `CREATE INDEX IF NOT EXISTS idx_workspaces_order ON workspaces (pinned DESC, sort_order ASC)`\n   - 백필: `sort_order = 0`인 row만 대상, `last_opened_at DESC` 순회하며 pinned/unpinned 그룹 분리해 각각 1024, 2048, 3072... 부여. `db.transaction(...)` 패턴으로 감쌈\n2. `global-storage.ts:listWorkspaces()` ORDER BY 절을 `pinned DESC, sort_order ASC`로 교체. pinned=true row는 `pinned_sort_order` 컬럼, false는 `sort_order` 컬럼이 정렬 기준\n3. 새 헬퍼 추가:\n   - `computeInsertPosition(groupKind, beforeId?, afterId?)`: midpoint 계산 + rebalance trigger 검사\n   - `rebalanceGroup(groupKind)`: 영향 그룹만 `UPDATE ... SET <col> = rowNum * 1024 ORDER BY (<col>, id)`\n   - `nextTailSortOrder(groupKind)`: `max(<col>) + 1024`",
+          "risk": "백필 시 트랜잭션 안에서 안전하게 row 순회 + UPDATE 해야 함. better-sqlite3 트랜잭션 패턴(`db.transaction(...)()` 호출)을 정확히 따라야 부분 실패 후 idempotent.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7ef3b25fc324777d",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-21T00:42:48.726Z",
+          "result": {
+            "outcome": "success",
+            "summary": "v6 마이그레이션 추가 (sort_order + pinned_sort_order 컬럼 + 인덱스 + step=1024 스파스 백필). WorkspaceRow에 두 컬럼 추가. listWorkspaces() ORDER BY를 CASE 기반 단일 절로 교체. computeInsertPosition / rebalanceGroup / nextTailSortOrder 헬퍼 추가. 98 단위 테스트 통과, typecheck 통과. rowToMeta()는 T2에서 처리.",
+            "artifacts": [
+              "src/main/infra/storage/migrations.ts",
+              "src/main/infra/storage/global-storage.ts",
+              "tests/unit/main/storage/storage-global.test.ts",
+              "tests/unit/main/storage/storage-entry-points.test.ts",
+              "tests/unit/main/storage/storage-v5-migration-tester.test.ts"
+            ],
+            "recorded_at": "2026-05-21T00:54:19.510Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "WorkspaceManager.reorder + 라이프사이클 통합 + broadcast 이벤트",
+          "status": "completed",
+          "context": "현재 `WorkspaceManager` (`src/main/features/workspace/manager.ts`)는 `update(id, partial)`, `remove(id)`, `create()` 라이프사이클을 갖고 있고 변경 시 `workspace.changed` / `workspace.removed`를 broadcast함. reorder 액션 자체는 없음. lastOpenedAt 갱신마다 changed 브로드캐스트가 발생 (`manager.ts:481`).",
+          "acceptance": "- `reorder()` 호출이 단일 트랜잭션 안에서 read+compute+write 직렬화됨\n- 일반 경로: 단일 `workspace.changed` broadcast (변경 row의 sortOrder/pinnedSortOrder 포함)\n- rebalance 경로: `workspace.reordered` 이벤트 발생, 모든 영향 row의 신규 값 포함\n- 크로스 그룹 reorder 시 pinned flag 자동 변경됨 + 이전 그룹 컬럼 zero\n- 신규 워크스페이스가 일반 섹션 맨 아래에 배치됨\n- pin 토글이 대상 그룹 tail로 이동시킴\n- 단위 테스트: 동시 reorder 호출 race (두 호출 직렬화 검증), 크로스 그룹 자동 전환, rebalance 트리거",
+          "approach": "1. `WorkspaceManager.reorder(id, target: {beforeId?, afterId?, targetGroup: \"pinned\"|\"unpinned\"})` 신규 메서드:\n   - 전체 시퀀스를 `globalStorage.db.transaction(...)` 안에서 실행\n   - target 그룹의 인접 row sortOrder 읽기 → `computeInsertPosition` 호출 (Task 1의 헬퍼)\n   - rebalance trigger 시: 그룹 rebalance → 모든 변경 row를 `workspace.reordered` 이벤트로 broadcast\n   - 일반 경로: 단일 row 변경 → `workspace.changed` broadcast\n   - targetGroup이 현재 row의 pinned 상태와 다르면 `pinned` flag도 동시에 toggle (issue #11 결정 — 크로스 섹션 자동 전환)\n2. `create()` 수정: 신규 워크스페이스에 `sort_order = nextTailSortOrder(\"unpinned\")`, `pinned_sort_order = 0` 부여\n3. `update(id, {pinned: true})` 수정: pinned가 toggle될 때 대상 그룹 tail로 이동 (`pinned_sort_order = nextTailSortOrder(\"pinned\")` 또는 그 역). 원본 그룹 컬럼은 0으로 리셋 (위치 기억 안 함)\n4. `WorkspaceMeta` 타입에 `sortOrder`, `pinnedSortOrder` 필드 추가 (`src/shared/types/workspace.ts`), `WorkspaceMetaSchema` 갱신, `rowToMeta()` (`global-storage.ts:174-186`)에서 매핑",
+          "risk": "WorkspaceMeta 타입 확장이 광범위한 영향 — 모든 호출자가 새 필드를 무시하는지 확인 필요. `update()`가 partial이므로 sortOrder 변경 없이도 다른 필드 갱신 가능해야 함 (기존 동작 보존).",
+          "plan_issue": 3,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7ef3b25fc324777d",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-21T00:43:11.951Z",
+          "result": {
+            "outcome": "success",
+            "summary": "WorkspaceMeta에 sortOrder/pinnedSortOrder 필드 추가 (zod preprocess default 0), rowToMeta + addWorkspace 연결, GlobalStorage.updateSortOrder + reorderWorkspace (트랜잭셔널) 추가, WorkspaceManager.create() 신규 워크스페이스를 unpinned tail에 배치, update() 에서 pin-toggle 시 대상 그룹 tail 이동 + 원본 그룹 컬럼 zero, reorder() 신규 메서드가 크로스 그룹 flip + rebalance + workspace.changed/reordered broadcast 라우팅 처리. typecheck 통과.",
+            "artifacts": [
+              "src/shared/types/workspace.ts",
+              "src/main/infra/storage/global-storage.ts",
+              "src/main/features/workspace/manager.ts",
+              "tests/unit/main/storage/storage-reorder.test.ts"
+            ],
+            "recorded_at": "2026-05-21T01:00:39.858Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "IPC: workspace.reorder + workspace.reordered 이벤트 추가",
+          "status": "completed",
+          "context": "`src/shared/ipc/contract.ts:466-497` workspace 채널은 `list/create/createAndConnect/update/remove/activate/testSsh` call + `changed/removed/attention/connectionChanged` listen을 노출. `update`는 이미 `pinned: z.boolean().optional()`을 수용하므로 pin 토글은 추가 작업 불필요. 핸들러는 `src/main/features/workspace/ipc.ts:43-141`.",
+          "acceptance": "- `ipcCallResult(\"workspace\", \"reorder\", {...})`가 renderer에서 호출 가능\n- `ipcListen(\"workspace\", \"reordered\", handler)`가 renderer에서 구독 가능\n- validateArgs가 잘못된 인자(beforeId+afterId 동시, 없음 등)를 `invalid-args`로 거부\n- 핸들러는 `ipcOk`/`ipcErr` 봉투 규칙 준수\n- 단위 테스트: validateArgs 실패 케이스, 성공 케이스 메타 반환",
+          "approach": "1. `src/shared/ipc/contract.ts`:\n   - 신규 zod 스키마 `WorkspaceReorderArgsSchema = z.object({id: z.string().uuid(), beforeId: z.string().uuid().optional(), afterId: z.string().uuid().optional(), targetGroup: z.enum([\"pinned\",\"unpinned\"])})`. `beforeId` XOR `afterId` 조건은 refine으로 검증.\n   - `WorkspaceReorderedEventSchema = z.object({orders: z.array(z.object({id: z.string().uuid(), sortOrder: z.number().int(), pinnedSortOrder: z.number().int(), pinned: z.boolean()}))})`\n   - `workspace.call.reorder: call(WorkspaceReorderArgsSchema, WorkspaceMetaSchema)` 추가\n   - `workspace.listen.reordered: listen(WorkspaceReorderedEventSchema)` 추가\n2. `src/main/features/workspace/ipc.ts`:\n   - `reorder` 핸들러 추가 — `validateArgs(c.reorder.args, args)` → `manager.reorder(id, target)` → ipcOk(meta)\n   - `listen` 객체에 `reordered: {}` 추가\n3. `src/renderer/ipc/client.ts` 또는 관련 타입 파일에서 자동 생성되는 채널 타입에 `reorder`가 노출되는지 확인 (계약 기반이라면 자동)",
+          "risk": "기존 contract.ts 구조와 일관성 유지. zod refine으로 XOR 검증 시 에러 메시지가 사용자 친화적이어야 함 (renderer가 invalid-input으로 매핑).",
+          "plan_issue": 4,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7ef3b25fc324777d",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-21T00:43:26.478Z",
+          "result": {
+            "outcome": "success",
+            "summary": "WorkspaceReorderArgsSchema (refine로 beforeId/afterId XOR 검증) + WorkspaceReorderedEventSchema 추가. workspace.call.reorder + workspace.listen.reordered 계약 맵에 와이어링. ipc.ts 핸들러와 listen 항목 추가. 계약 검증 + 핸들러 위임 테스트 2개 신규. typecheck 통과.",
+            "artifacts": [
+              "src/shared/ipc/contract.ts",
+              "src/main/features/workspace/ipc.ts",
+              "tests/unit/shared/contract/ipc-contract-workspace-reorder.test.ts",
+              "tests/unit/main/ipc/channels/workspace-reorder.test.ts"
+            ],
+            "recorded_at": "2026-05-21T01:04:40.385Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "Renderer store: applySortedInsert 헬퍼 + reorder 액션 + workspace.reordered 구독",
+          "status": "completed",
+          "context": "`src/renderer/state/stores/workspaces.ts`의 `upsert`는 in-place 갱신만 수행 (배열 위치 유지). `workspace.changed`는 `lastOpenedAt` hot path에서도 발생하므로 무조건 재정렬은 부적절. broadcast 누락 시 폴백 필요.",
+          "acceptance": "- `workspace.changed` 수신 시 sort field가 동일하면 in-place, 다르면 정렬 위치로 이동\n- `workspace.reordered` 수신 시 배열이 server-supplied 순서대로 재구성됨\n- broadcast가 누락된 경우 (테스트로 simulate) `applySortedInsert`가 불일치 감지하고 `workspace.list` 재패치\n- lastOpenedAt만 변경된 changed 이벤트는 재정렬 일으키지 않음 (hot path 보호)\n- 단위 테스트: applySortedInsert 6가지 시나리오 (top/middle/bottom 삽입, 그룹 간 이동, sort field 변경 없음, neighbor 모순)",
+          "approach": "1. `workspaces.ts`에 `applySortedInsert(state, meta)` 순수 함수 추가:\n   - 기존 배열에서 meta.id 제거\n   - sortOrder/pinnedSortOrder/pinned 기준으로 올바른 인덱스 계산\n   - 신규 인덱스에 삽입\n   - neighbor 비교가 모순(예: 현재 store의 neighbor 위치와 신규 값이 불일치)일 경우 `workspace.list` 재패치 트리거 (폴백)\n2. `upsert(meta)` 동작 변경: 기존 in-place 동작은 sort field가 동일한 경우만 적용. sort field(`sortOrder`, `pinnedSortOrder`, `pinned`) 변경 감지 시 `applySortedInsert` 경로\n3. `setAll(workspaces)` 동작 유지 (서버가 이미 정렬된 배열 반환)\n4. 신규 `reorder(orders)` 액션 추가 — 벌크 rebalance 처리:\n   - 각 order의 id로 store 메타 갱신 + 새 정렬 순서대로 배열 재구성\n5. `workspace.reordered` 이벤트 구독 추가:\n   ```\n   deps.listen(\"workspace\", \"reordered\", ({orders}) => set(state => reorderApply(state, orders)))\n   ```\n6. `setConnectionStatus` / `removed` cleanup은 그대로 유지",
+          "risk": "applySortedInsert의 \"neighbor 모순 감지\" 로직이 false-positive 일으키면 매번 list 재패치하게 됨. 검증 기준은 \"신규 sortOrder가 현재 store의 양쪽 neighbor 사이에 들어맞는가\" 단순 비교로 한정.",
+          "plan_issue": 5,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7ef3b25fc324777d",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-21T00:43:44.687Z",
+          "result": {
+            "outcome": "success",
+            "summary": "applySortedInsert 순수 함수 추가 (이진 탐색 + 이웃 정합성 검증). upsert에 hot-path sort-field 가드 + stale-store fetchList 폴백 추가. reorder 벌크 액션 + workspace.reordered 구독 추가. typecheck 통과.",
+            "artifacts": [
+              "src/renderer/state/stores/workspaces.ts",
+              "tests/unit/renderer/state/stores/apply-sorted-insert.test.ts",
+              "tests/unit/renderer/state/stores/workspaces.test.ts"
+            ],
+            "recorded_at": "2026-05-21T01:14:00.511Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "Sidebar UI: PinToggle 컴포넌트 + 컨텍스트 메뉴 Pin/Unpin + 그룹 구분 + 섹션 라벨",
+          "status": "completed",
+          "context": "`src/renderer/components/workbench/sidebar.tsx`는 현재 단일 평면 리스트를 렌더. 행 내부 우측 스택은 `right-9` LSP 칩, `right-2` X 버튼, `bottom-2 right-2` SSH dot. ContextMenu는 \"Workspace Settings…\" 단일 항목.",
+          "acceptance": "- 핀된 행은 PinToggle이 항상 보임 (opacity-100), 그렇지 않으면 hover/focus 시에만\n- PinToggle 클릭 / 컨텍스트 메뉴 항목 클릭 / 키보드 Enter 모두 pin 토글 동작\n- 양 그룹 모두 비어있지 않을 때 \"Pinned\"/\"Recent\" 라벨 표시, 한 그룹만 있으면 라벨/갭 모두 생략\n- sidebarWidth < 200px일 때 라벨 자동 숨김, 갭은 유지\n- aria-pressed가 핀 상태 반영, 툴팁 텍스트가 상태별 분기\n- 단일 그룹 → 양 그룹 → 단일 그룹 전환이 자연스럽게 작동 (마지막 핀 해제 시 라벨 사라짐)\n- 시각 검증: 다크/라이트 테마에서 `--state-selected-indicator` 대비가 WCAG 1.4.11 (3:1) 충족",
+          "approach": "1. 새 컴포넌트 `src/renderer/components/workbench/pin-toggle.tsx`:\n   - props: `{pinned: boolean, workspaceName: string, onToggle: () => void}`\n   - pinned=true: opacity-100, filled pin icon, `aria-pressed=\"true\"`, 툴팁 \"Unpin\"\n   - pinned=false: `opacity-0 group-hover:opacity-100 focus-visible:opacity-100`, outlined pin icon, `aria-pressed=\"false\"`, 툴팁 \"Pin to top\"\n   - 색상: `text-[var(--state-selected-indicator)]` (pinned), `text-muted-foreground` (unpinned hover)\n2. `sidebar.tsx` 행 마크업 수정:\n   - LSP 칩 cluster 위치를 `right-9`에서 `right-14`로 이동\n   - 신규 핀 슬롯을 `right-9`에 배치 (PinToggle 렌더)\n   - Tab order: 행 버튼 → PinToggle → X 버튼\n3. 컨텍스트 메뉴 항목 추가 (`sidebar.tsx:195-203`):\n   ```\n   {kind: \"item\", label: ws.pinned ? \"Unpin\" : \"Pin to top\", onSelect: () => togglePin(ws.id)}\n   ```\n   \"Workspace Settings…\" 위에 위치\n4. 그룹 분리 렌더링:\n   - workspaces 배열을 `pinned`/`unpinned` 두 그룹으로 분할 (이미 정렬되어 있으므로 첫 unpinned 인덱스 찾기)\n   - 양 그룹 모두 entries 존재할 때만 두 그룹 사이에 8px 갭 + 11px uppercase 라벨 \"Pinned\" / \"Recent\" (`text-app-micro text-muted-foreground tracking-wide px-4`)\n   - sidebarWidth < 200px이면 라벨 생략 (갭 유지) — `useUIStore.sidebarWidth` 구독\n5. `togglePin(id)` 핸들러: `ipcCallResult(\"workspace\", \"update\", {id, pinned: !current})` (useIpcAction 훅 사용 — 컨벤션)",
+          "risk": "우측 스택 3-element 배치 (`right-2` X, `right-9` Pin, `right-14` LSP)가 좁은 사이드바에서 텍스트 truncate와 충돌. 텍스트 영역의 padding-right 충분히 확보 (~80px) 필요. SSH dot은 `bottom-2 right-2`로 X 버튼과 다른 시각 축이므로 그대로 둠.",
+          "plan_issue": 7,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7ef3b25fc324777d",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-21T00:44:08.256Z",
+          "result": {
+            "outcome": "success",
+            "summary": "PinToggle 컴포넌트 신규 (lucide Pin 아이콘, aria-pressed, 상태별 opacity/fill/color, Radix tooltip). sidebar.tsx에 pinned/unpinned 두 그룹 렌더 + 8px 갭 + sidebarWidth>=200일 때 조건부 \"Pinned\"/\"Recent\" 라벨. LSP 칩 right-9 → right-14, 핀 슬롯 right-9, pr-16. 컨텍스트 메뉴 \"Pin to top\"/\"Unpin\" 항목. togglePin을 useIpcAction으로 와이어링. typecheck 통과.",
+            "artifacts": [
+              "src/renderer/components/workbench/pin-toggle.tsx",
+              "src/renderer/components/workbench/sidebar.tsx",
+              "tests/unit/renderer/components/workbench/pin-toggle.test.tsx",
+              "tests/unit/renderer/components/workbench/split-workspace-groups.test.ts"
+            ],
+            "recorded_at": "2026-05-21T01:21:56.245Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "Sidebar UI: 드래그-앤-드롭 인프라 + RowDropIndicator + 크로스 섹션 자동 전환",
+          "status": "completed",
+          "context": "기존 `src/renderer/components/workspace/dnd/` 모듈은 tab/file 전용 (`MIME_TAB`, `MIME_FILE`), DropIndicator는 zone-fill 모델. 행 insertion은 다른 의미이므로 신규 작성 필요. 행 클릭(워크스페이스 선택)과 드래그(reorder) 구분에 5px 이동 임계값 사용.",
+          "acceptance": "- 5px 미만 이동 시 클릭으로 처리 (워크스페이스 선택), 5px 이상 시 드래그 시작\n- 드래그 중 source row opacity-40, native drag image이 ghost로 보임\n- 행 사이/그룹 사이에 2px 가로 바 인디케이터 표시 (마우스 위치 기반으로 before/after 결정)\n- 일반 섹션 행을 핀 섹션 안에 드롭 → pinned=true 자동 설정 + 위치 적용\n- 핀 섹션 행을 일반 섹션 안에 드롭 → pinned=false 자동 설정 + 위치 적용\n- 동일 섹션 내 reorder는 pinned 변경 없이 위치만 변경\n- 키보드 사용자: 드래그는 불가능하지만 컨텍스트 메뉴 Pin/Unpin으로 fallback\n- 통합 테스트: 단일 섹션 reorder + 크로스 섹션 자동 pin + 클릭 vs 드래그 임계값",
+          "approach": "1. 신규 파일 `src/renderer/components/workbench/dnd/row-drop-indicator.tsx`:\n   - props: `{position: \"before\" | \"after\"}`\n   - 2px 가로 바, `left-2 right-2`, `bg-[var(--state-selected-indicator)]`\n   - 100-150ms ease-out fade-in\n2. 신규 파일 `src/renderer/components/workbench/dnd/workspace-row-drag.ts`:\n   - MIME 상수 `MIME_WORKSPACE_ROW = \"application/x-nexus-workspace-row\"`\n   - 페이로드 타입 `{workspaceId: string, sourcePinned: boolean}`\n   - `parseWorkspaceDragPayload(dt)` 헬퍼\n3. 신규 hook `useWorkspaceRowDnd({workspaces, onReorder})`:\n   - `onPointerDown(rowId, event)`: 시작 좌표 기록 `{x, y, id}`\n   - `onPointerMove(event)`: 거리 > 5px일 때 dataTransfer 설정 + dragstart 트리거\n   - `onPointerUp`: 임계값 미만이면 click으로 전달 (`onSelectWorkspace`)\n   - `onDragOver(rowId, event)`: 페이로드 검증, 마우스 위치 기반으로 before/after 결정, dropIndicator 위치 state 갱신\n   - `onDrop(rowId, event)`: 드롭 위치 + 섹션 라벨 위치 기반으로 `targetGroup` 결정 (드롭 좌표가 \"Pinned\" 섹션 안 → pinned, \"Recent\" 섹션 안 → unpinned)\n   - 콜백 `onReorder({id, beforeId?, afterId?, targetGroup})` 호출\n4. `sidebar.tsx` 통합:\n   - 각 행에 hook의 이벤트 핸들러 wiring\n   - `cursor-grab`/`cursor-grabbing` 클래스 추가\n   - 드래그 중 source row `opacity-40`\n   - RowDropIndicator를 행 사이 슬롯에 렌더\n   - 섹션 갭에 드롭 시 (라벨 영역) `targetGroup` 결정 가능\n5. 핸들러: `useIpcAction(\"workspace\", \"reorder\", ...)` 사용. error 시 `surfaceError` 호출 (컨벤션)",
+          "risk": "drop zone 판정이 마우스 좌표 + 섹션 라벨 위치 의존 → 좁은 사이드바에서 라벨 숨김 시에도 갭 영역에서 드롭이 올바른 그룹을 식별해야 함. 갭 위치를 별도 ref로 추적하여 좌표 비교.",
+          "plan_issue": 9,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7ef3b25fc324777d",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-21T00:44:30.511Z",
+          "result": {
+            "outcome": "success",
+            "summary": "DnD 인프라 신규: RowDropIndicator (2px 액센트 바, top/bottom 위치), workspace-row-drag.ts (MIME + payload + parseWorkspaceDragPayload), useWorkspaceRowDnd 훅 (native HTML5 drag, dragSourceId/dropTarget state, getRowDragProps factory, pure dropPositionFromCoords). sidebar.tsx에 hook 통합 (cursor-grab/grabbing, opacity-40 source row, RowDropIndicator 삽입 바, PinToggle/X 버튼 draggable=false, runReorder IPC 액션). typecheck 통과.",
+            "artifacts": [
+              "src/renderer/components/workbench/dnd/row-drop-indicator.tsx",
+              "src/renderer/components/workbench/dnd/workspace-row-drag.ts",
+              "src/renderer/components/workbench/dnd/use-workspace-row-dnd.ts",
+              "src/renderer/components/workbench/pin-toggle.tsx",
+              "src/renderer/components/workbench/sidebar.tsx",
+              "tests/unit/renderer/components/workbench/dnd/row-drop-indicator.test.tsx",
+              "tests/unit/renderer/components/workbench/dnd/workspace-row-drag.test.ts",
+              "tests/unit/renderer/components/workbench/dnd/drop-position.test.ts"
+            ],
+            "recorded_at": "2026-05-21T01:28:16.725Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "통합 테스트: 마이그레이션 + IPC + 드래그/핀 동작 + 동시성",
+          "status": "completed",
+          "context": "앞선 5개 태스크가 만든 변경을 end-to-end로 검증. 단위 테스트는 각 태스크의 acceptance에 포함되어 있으므로 여기서는 시나리오 통합 + edge case.",
+          "acceptance": "- 모든 시나리오 통과\n- 마이그레이션 백필 후 DB row의 sortOrder 분포가 step=1024 만족\n- 동시 reorder 2회 직렬화 검증 (트랜잭션 격리)\n- broadcast drop 시 폴백 경로 발화 검증\n- 기존 통합 테스트 회귀 없음\n- 테스트 컨벤션 (`.nexus/context/conventions.md` \"테스트 룰\") 준수: zod / 타입 시스템이 보장하는 것은 재검증하지 않음, 상위 시나리오가 커버하는 부분집합은 별도 케이스로 두지 않음",
+          "approach": "1. `tests/integration/workspace-reorder/` 또는 동등 위치에 통합 테스트 작성\n2. 시나리오:\n   - 마이그레이션 v5 → v6 업그레이드 시 기존 워크스페이스 시각 순서 보존\n   - reorder IPC가 단일 행 broadcast + DB 정합\n   - 크로스 섹션 드래그 시 pinned 자동 전환 + 두 컬럼 갱신 확인\n   - rebalance trigger 검증 (인접 두 워크스페이스 사이에 10회 이상 삽입하여 gap<2 도달, rebalance 발화 후 workspace.reordered 이벤트 + 모든 row의 sortOrder가 1024 step으로 재배치)\n   - 동시 reorder 시뮬레이션: 두 호출이 Promise.all로 동시 발사되어도 트랜잭션 직렬화로 충돌 없음\n   - broadcast 누락 폴백: workspace.changed 이벤트를 한 번 drop하고 다음 reorder에서 store의 applySortedInsert가 불일치 감지 + list 재패치 트리거하는지 확인\n3. 회귀 방지:\n   - lastOpenedAt 갱신만 발생하는 workspace.changed가 재정렬 일으키지 않는지 (hot path 보호)\n   - 핀 토글 / 일반 update / activate 등 기존 기능이 그대로 작동",
+          "risk": "test fixture 셋업이 무거워질 수 있음 (Electron renderer + main IPC stub). 기존 통합 테스트 헬퍼(`tests/integration/ssh/_helpers/ssh-fixture.ts`) 같은 패턴 재사용. 실제 Electron 부팅 대신 main의 WorkspaceManager + GlobalStorage를 직접 인스턴스화하여 IPC 경로만 mock.",
+          "plan_issue": 14,
+          "deps": [
+            6
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a6440abff402bb364",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-21T00:44:49.830Z",
+          "result": {
+            "outcome": "success",
+            "summary": "통합 테스트 7개 시나리오 전부 통과: 마이그레이션 워이드포이터적 순서, 단일 그룹 reorder broadcast, 크로스 섹션 자동 pin, rebalance trigger + reordered 벌크, 동시 reorder 직렬화, broadcast 누락 폴백, hot-path lastOpenedAt 보호. 단위 테스트 1916 pass (신규 61개 포함) + 통합 217 pass. 사전 존재 실패 25건은 모두 T1-T6 변경과 무관 (git stash 검증 완료). typecheck 깨끗.",
+            "artifacts": [
+              "tests/integration/workspace-reorder/workspace-reorder.test.ts"
+            ],
+            "recorded_at": "2026-05-21T01:37:50.730Z"
+          }
+        }
+      ]
     }
   ]
 }

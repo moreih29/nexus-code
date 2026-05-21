@@ -141,7 +141,7 @@ describe("AC-1: v5 migration on DB with pre-existing local bookmarks", () => {
     db.close();
   });
 
-  it("schemaVersion advances to 5 after v5 migration on a v4 database", () => {
+  it("schemaVersion advances to 6 after running all migrations on a v4 database", () => {
     const db = buildPreV5Db();
     applyMigrations(db);
 
@@ -149,7 +149,7 @@ describe("AC-1: v5 migration on DB with pre-existing local bookmarks", () => {
       .prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'")
       .get() as { value: string } | undefined;
 
-    expect(row?.value).toBe("5");
+    expect(row?.value).toBe("6");
     db.close();
   });
 

@@ -3,7 +3,7 @@ import type {
   WorkspaceConnectionEventStatus,
   WorkspaceMeta,
 } from "../../../shared/types/workspace";
-import { canUseIpcBridge, ipcListen } from "../../ipc/client";
+import { canUseIpcBridge, ipcCallResult, ipcListen, mustSucceed } from "../../ipc/client";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
 
 // ---------------------------------------------------------------------------
@@ -24,11 +24,97 @@ export interface WorkspacesState {
   upsert: (meta: WorkspaceMeta) => void;
   remove: (id: string) => void;
   setConnectionStatus: (id: string, status: WorkspaceConnectionStatus) => void;
+  /** Bulk-update sort positions after a server-side group rebalance. */
+  reorder: (orders: Array<{ id: string; sortOrder: number; pinnedSortOrder: number; pinned: boolean }>) => void;
 }
 
 interface WorkspacesStoreDeps {
   canUseIpcBridge: () => boolean;
   listen: typeof ipcListen;
+  /** Injected so tests can verify fallback behaviour without real IPC. */
+  fetchList?: () => Promise<WorkspaceMeta[]>;
+}
+
+// ---------------------------------------------------------------------------
+// Sort helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the effective sort key for a workspace within the unified list.
+ * Primary sort: pinned rows float above unpinned rows (pinned=true → 0, false → 1).
+ * Secondary sort: the group-specific order column (ascending).
+ */
+function sortKey(meta: WorkspaceMeta): [number, number] {
+  const groupOrdinal = meta.pinned ? 0 : 1;
+  const orderWithinGroup = meta.pinned ? meta.pinnedSortOrder : meta.sortOrder;
+  return [groupOrdinal, orderWithinGroup ?? 0];
+}
+
+/**
+ * Compares two workspaces using their (pinned DESC, groupOrder ASC) sort keys.
+ */
+function compareSortKey(a: WorkspaceMeta, b: WorkspaceMeta): number {
+  const [ag, ao] = sortKey(a);
+  const [bg, bo] = sortKey(b);
+  if (ag !== bg) return ag - bg;
+  return ao - bo;
+}
+
+/**
+ * Inserts `meta` into the correct sorted position within `workspaces`.
+ *
+ * The list is ordered by: pinned DESC, then the group-specific order column ASC.
+ * The function removes any existing entry for `meta.id` first, then finds the
+ * insertion index via binary search on the effective sort key, and inserts.
+ *
+ * Returns the new array and a `consistent` flag.  `consistent` is false when
+ * the inserted item's sort key conflicts with its immediate neighbours — which
+ * signals that the local store is stale and a full list re-fetch is needed.
+ */
+export function applySortedInsert(
+  workspaces: WorkspaceMeta[],
+  meta: WorkspaceMeta,
+): { workspaces: WorkspaceMeta[]; consistent: boolean } {
+  // Remove the old entry for this id so we re-insert at the correct position.
+  const without = workspaces.filter((w) => w.id !== meta.id);
+  const [mg, mo] = sortKey(meta);
+
+  // Binary search for the insertion point.
+  let lo = 0;
+  let hi = without.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    const [wg, wo] = sortKey(without[mid]);
+    if (wg < mg || (wg === mg && wo <= mo)) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  const insertIdx = lo;
+
+  const result = [...without.slice(0, insertIdx), meta, ...without.slice(insertIdx)];
+
+  // Consistency check: the item's sort key must sit strictly between its neighbours.
+  // A tie (equal sort key) is also inconsistent — two items cannot legitimately
+  // share the same position without a prior rebalance broadcast being missed.
+  const prev = result[insertIdx - 1];
+  const next = result[insertIdx + 1];
+  let consistent = true;
+  if (prev) {
+    const [pg, po] = sortKey(prev);
+    if (pg > mg || (pg === mg && po >= mo)) {
+      consistent = false;
+    }
+  }
+  if (next) {
+    const [ng, no] = sortKey(next);
+    if (ng < mg || (ng === mg && no <= mo)) {
+      consistent = false;
+    }
+  }
+
+  return { workspaces: result, consistent };
 }
 
 /**
@@ -92,33 +178,69 @@ function pruneConnectionStatuses(
 // Store
 // ---------------------------------------------------------------------------
 
+/**
+ * Fetches the current workspace list from the main process and returns it.
+ * Used as the fallback when a sort-position inconsistency is detected after a
+ * `workspace.changed` event arrives with an unexpected order.
+ */
+async function defaultFetchList(): Promise<WorkspaceMeta[]> {
+  return mustSucceed(await ipcCallResult("workspace", "list", undefined));
+}
+
 const defaultWorkspacesStoreDeps: WorkspacesStoreDeps = {
   canUseIpcBridge,
   listen: ipcListen,
+  fetchList: defaultFetchList,
 };
 
 /**
  * Creates the workspace store with injectable IPC dependencies for tests.
  */
 export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspacesStoreDeps) {
-  return create<WorkspacesState>((set) => {
+  // Resolve the fallback fetch function once at store creation time so the
+  // closure captures the injected value (important for tests).
+  const fetchList = deps.fetchList ?? defaultFetchList;
+
+  return create<WorkspacesState>((set, get) => {
     // Subscribe to main-process changed events so store stays in sync.
     // `removed` is handled by the central workspace-cleanup registry; only
-    // `changed` needs an inline ipcListen here (it's a workspaces-only event,
-    // not a generic lifecycle signal).
+    // `changed` and `reordered` need inline ipcListen here.
     if (deps.canUseIpcBridge()) {
       deps.listen("workspace", "changed", (meta) => {
         set((state) => {
-          const idx = state.workspaces.findIndex((w) => w.id === meta.id);
-          if (idx === -1) {
-            // New workspace received via broadcast
+          const existing = state.workspaces.find((w) => w.id === meta.id);
+
+          if (!existing) {
+            // New workspace — append at tail; setAll will reorder on next full load.
             return { workspaces: [...state.workspaces, meta] };
           }
-          const next = [...state.workspaces];
-          next[idx] = meta;
-          return { workspaces: next };
+
+          // Hot-path guard: if only non-sort fields changed (e.g. lastOpenedAt),
+          // update in place without triggering a re-sort.
+          const sortFieldsChanged =
+            meta.sortOrder !== existing.sortOrder ||
+            meta.pinnedSortOrder !== existing.pinnedSortOrder ||
+            meta.pinned !== existing.pinned;
+
+          if (!sortFieldsChanged) {
+            const next = state.workspaces.map((w) => (w.id === meta.id ? meta : w));
+            return { workspaces: next };
+          }
+
+          // Sort position changed — re-insert at the correct position.
+          const { workspaces: sorted, consistent } = applySortedInsert(state.workspaces, meta);
+
+          if (!consistent) {
+            // Store is stale; trigger an async full re-fetch outside the setter.
+            void fetchList().then((list) => {
+              get().setAll(list);
+            });
+          }
+
+          return { workspaces: sorted };
         });
       });
+
       deps.listen("workspace", "connectionChanged", ({ workspaceId, status }) => {
         set((state) => ({
           connectionStatusByWorkspaceId: {
@@ -126,6 +248,11 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
             [workspaceId]: statusFromConnectionEvent(status),
           },
         }));
+      });
+
+      // Bulk rebalance event: main sends new positions for every affected row.
+      deps.listen("workspace", "reordered", ({ orders }) => {
+        get().reorder(orders);
       });
     }
 
@@ -156,13 +283,34 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
 
       upsert(meta) {
         set((state) => {
-          const idx = state.workspaces.findIndex((w) => w.id === meta.id);
-          if (idx === -1) {
+          const existing = state.workspaces.find((w) => w.id === meta.id);
+
+          if (!existing) {
+            // New workspace — append at tail; sort will be applied on next setAll.
             return { workspaces: [...state.workspaces, meta] };
           }
-          const next = [...state.workspaces];
-          next[idx] = meta;
-          return { workspaces: next };
+
+          // Hot-path guard: if sort fields are unchanged, update in place.
+          const sortFieldsChanged =
+            meta.sortOrder !== existing.sortOrder ||
+            meta.pinnedSortOrder !== existing.pinnedSortOrder ||
+            meta.pinned !== existing.pinned;
+
+          if (!sortFieldsChanged) {
+            const next = state.workspaces.map((w) => (w.id === meta.id ? meta : w));
+            return { workspaces: next };
+          }
+
+          // Sort position changed — re-insert at the correct position.
+          const { workspaces: sorted, consistent } = applySortedInsert(state.workspaces, meta);
+
+          if (!consistent) {
+            void fetchList().then((list) => {
+              get().setAll(list);
+            });
+          }
+
+          return { workspaces: sorted };
         });
       },
 
@@ -184,6 +332,23 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
             [id]: status,
           },
         }));
+      },
+
+      reorder(orders) {
+        set((state) => {
+          // Patch each row's sort fields, then re-sort the full array.
+          const patched = state.workspaces.map((w) => {
+            const update = orders.find((o) => o.id === w.id);
+            if (!update) return w;
+            return {
+              ...w,
+              sortOrder: update.sortOrder,
+              pinnedSortOrder: update.pinnedSortOrder,
+              pinned: update.pinned,
+            };
+          });
+          return { workspaces: patched.sort(compareSortKey) };
+        });
       },
     };
   });

@@ -124,7 +124,11 @@ export const WorkspaceMetaSchema = z.preprocess(
         : undefined);
     const rootPath = rootPathFromLocationInput(location) ?? value.rootPath;
 
+    // Default sort-order fields to 0 so callers that pre-date this field
+    // (persisted data, IPC payloads, tests) parse without validation failure.
     return {
+      sortOrder: 0,
+      pinnedSortOrder: 0,
       ...value,
       location,
       rootPath,
@@ -143,6 +147,10 @@ export const WorkspaceMetaSchema = z.preprocess(
     pinned: z.boolean(),
     lastOpenedAt: z.string().datetime().optional(),
     tabs: z.array(TabMetaSchema),
+    /** Sort position within the unpinned group. 0 means "not yet positioned". */
+    sortOrder: z.number().int(),
+    /** Sort position within the pinned group. 0 means "not yet positioned". */
+    pinnedSortOrder: z.number().int(),
   }),
 );
 

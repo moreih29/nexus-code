@@ -105,13 +105,13 @@ describe("migration v4 — fresh DB", () => {
     db.close();
   });
 
-  it("schemaVersion is 5 after fresh migration", () => {
+  it("schemaVersion is 6 after fresh migration", () => {
     const db = makeDb();
     applyMigrations(db);
     const row = db.prepare("SELECT value FROM _meta WHERE key='schemaVersion'").get() as
       | { value: string }
       | undefined;
-    expect(row?.value).toBe("5");
+    expect(row?.value).toBe("6");
     db.close();
   });
 });
@@ -159,7 +159,7 @@ describe("migration v4 — applied on top of existing v3 DB", () => {
     db.close();
   });
 
-  it("v5 migration is idempotent — second applyMigrations on v5 DB does not throw", () => {
+  it("migration is idempotent — second applyMigrations does not throw", () => {
     const db = makeDb();
     applyMigrations(db);
     expect(() => applyMigrations(db)).not.toThrow();
@@ -167,7 +167,7 @@ describe("migration v4 — applied on top of existing v3 DB", () => {
     const row = db.prepare("SELECT value FROM _meta WHERE key='schemaVersion'").get() as
       | { value: string }
       | undefined;
-    expect(row?.value).toBe("5");
+    expect(row?.value).toBe("6");
     db.close();
   });
 });
