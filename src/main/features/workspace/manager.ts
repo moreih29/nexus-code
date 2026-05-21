@@ -107,6 +107,26 @@ function normalizeWorkspaceUpdate(
 }
 
 // ---------------------------------------------------------------------------
+// hook.getInfo 응답 타입 — pull 기반으로 워크스페이스별 hookserver 접속 정보를 보관한다.
+// ---------------------------------------------------------------------------
+
+/** agent가 hook.getInfo RPC로 반환하는 hookserver 접속 정보. */
+export interface HookInfo {
+  readonly socketPath: string;
+  readonly token: string;
+}
+
+/**
+ * hook.getInfo 응답 타입 가드.
+ * socketPath / token 둘 다 문자열이어야 유효 응답으로 간주한다.
+ */
+function isHookInfo(value: unknown): value is HookInfo {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.socketPath === "string" && typeof v.token === "string";
+}
+
+// ---------------------------------------------------------------------------
 // WorkspaceManager — global singleton, created once in main/index.ts.
 // ---------------------------------------------------------------------------
 
@@ -142,6 +162,8 @@ export class WorkspaceManager {
   // id, awaiting their first provider boot. Consumed by startSshProvider.
   private readonly adoptedSshMasters = new Map<string, SshControlMaster>();
   private readonly connectionStatuses = new Map<string, WorkspaceConnectionEventStatus>();
+  // pull 기반 hookserver 접속 정보 캐시 — channel.ready 직후 hook.getInfo RPC로 채워진다.
+  private readonly hookInfoByWorkspace = new Map<string, HookInfo>();
   private activeId: string | null = null;
 
   constructor(
@@ -315,6 +337,14 @@ export class WorkspaceManager {
       throw new Error(`workspace not found: ${id}`);
     }
     return ctx;
+  }
+
+  /**
+   * pull 기반으로 조회되어 메모리에 저장된 hookserver 접속 정보를 반환한다.
+   * ensureProviderReady 완료 전이거나 RPC 실패 시 null을 반환한다.
+   */
+  getHookInfo(workspaceId: string): HookInfo | null {
+    return this.hookInfoByWorkspace.get(workspaceId) ?? null;
   }
 
   /**
@@ -620,6 +650,8 @@ export class WorkspaceManager {
     // leak its ssh process.
     this.adoptedSshMasters.get(id)?.dispose();
     this.adoptedSshMasters.delete(id);
+    // hookserver 접속 정보는 워크스페이스 제거 시 함께 삭제한다.
+    this.hookInfoByWorkspace.delete(id);
     this.globalStorage.removeWorkspace(id);
 
     if (this.activeId === id) {
@@ -758,6 +790,26 @@ export class WorkspaceManager {
       throw error;
     }
 
+    // channel.ready 완료 직후 hook.getInfo를 pull해서 hookserver 접속 정보를 캐싱한다.
+    // agent 내부에서 최대 5s 대기하므로 30s default timeout 안에 반드시 응답이 온다.
+    try {
+      const raw = await channel.call("hook.getInfo", {});
+      if (!isHookInfo(raw)) {
+        throw new Error("hook.getInfo 응답이 올바르지 않음 (socketPath/token 누락)");
+      }
+      this.hookInfoByWorkspace.set(meta.id, raw);
+    } catch (err) {
+      disposeLifecycleListener();
+      if (this.localChannels.get(meta.id) === channel) {
+        this.localChannels.delete(meta.id);
+      }
+      channel.dispose();
+      ctx.setFsProvider(createInitialFsProvider(meta));
+      throw new Error(
+        `워크스페이스 ${meta.id} agent hook 초기화 실패: ${(err as Error).message}`,
+      );
+    }
+
     const provider = new AgentFsProvider("local", channel, { disposeChannel: true });
     ctx.setFsProvider(provider, () => {
       disposeLifecycleListener();
@@ -878,6 +930,29 @@ export class WorkspaceManager {
         throw error;
       }
       throw error;
+    }
+
+    // channel.ready 완료 직후 hook.getInfo를 pull해서 hookserver 접속 정보를 캐싱한다.
+    // SSH 환경에서 latency가 더 클 수 있으나 30s default timeout이 충분하다.
+    try {
+      const raw = await channel.call("hook.getInfo", {});
+      if (!isHookInfo(raw)) {
+        throw new Error("hook.getInfo 응답이 올바르지 않음 (socketPath/token 누락)");
+      }
+      this.hookInfoByWorkspace.set(meta.id, raw);
+    } catch (err) {
+      disposeLifecycleListener();
+      this.broadcastConnectionStatus(meta.id, "error");
+      if (this.sshChannels.get(meta.id) === channel) {
+        this.sshChannels.delete(meta.id);
+      }
+      this.sshBootstraps.delete(meta.id);
+      bootstrap.dispose?.();
+      channel.dispose();
+      ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
+      throw new Error(
+        `워크스페이스 ${meta.id} agent hook 초기화 실패: ${(err as Error).message}`,
+      );
     }
 
     ctx.setFsProvider(createFsProvider(providerMeta, channel), () => {

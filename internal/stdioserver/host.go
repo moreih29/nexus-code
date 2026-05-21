@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -138,6 +139,37 @@ func (h *Host) Run() {
 		_ = h.WriteFrame(proto.ProtocolFailure(proto.ProtocolErrorID, err.Error()))
 	}
 	h.drainAndExit(0)
+}
+
+// StartHeartbeat 는 interval마다 "agent.heartbeat" 이벤트를 emit하는 goroutine을
+// 시작한다. interval이 0 이하면 아무것도 하지 않는다(heartbeat 비활성화).
+//
+// host.Run() 호출 직전에 한 번 불러야 한다 — h.ctx 취소(드레인)가 ticker를 정지한다.
+// seq는 atomic counter로 단조 증가하며, uptimeMs는 StartHeartbeat 최초 호출 시점
+// 기준 경과 시간(ms)이다.
+func (h *Host) StartHeartbeat(interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+	startTime := time.Now()
+	var seq atomic.Int64
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				n := seq.Add(1)
+				uptime := time.Since(startTime)
+				_ = h.EmitEvent("agent.heartbeat", map[string]any{
+					"seq":      n,
+					"uptimeMs": uptime.Milliseconds(),
+				})
+			case <-h.ctx.Done():
+				return
+			}
+		}
+	}()
 }
 
 // InstallSigtermHandler arranges for a single SIGTERM to trigger a

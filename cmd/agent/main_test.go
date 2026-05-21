@@ -59,7 +59,7 @@ func TestServerNDJSONAndSIGTERM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// agent.hookServerReady 이벤트가 Ready frame 직후 emit될 수 있으므로
+	// heartbeat 이벤트 등 서버 push 프레임이 응답 앞에 올 수 있으므로
 	// id:"escape" 응답이 올 때까지 이벤트 프레임을 건너뛴다.
 	var line string
 	for {

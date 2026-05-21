@@ -1,4 +1,4 @@
-// Claude feature 진입점 — broker / IPC / hook-handler / agent-ready-cache 모두 wiring.
+// Claude feature 진입점 — broker / IPC / hook-handler wiring.
 //
 // setupClaudeFeature()를 src/main/index.ts의 app.whenReady() 이후에 호출한다.
 
@@ -6,7 +6,6 @@ import { broadcast } from "../../infra/ipc-router";
 import { ClaudeStatusBroker } from "./status";
 import { registerClaudeChannel } from "./ipc";
 import { registerHookHandler } from "./hook-handler";
-import { AgentReadyCache } from "./agent-ready-cache";
 import type { PtyHostHandle } from "../pty/types";
 import type { WorkspaceNameLookup } from "./hook-handler";
 
@@ -15,7 +14,7 @@ import type { WorkspaceNameLookup } from "./hook-handler";
 // ---------------------------------------------------------------------------
 
 export interface SetupClaudeFeatureOptions {
-  /** PTY 이벤트(exit / agent.hookServerReady / claude.hook) 구독에 사용한다. */
+  /** PTY 이벤트(exit / claude.hook) 구독에 사용한다. */
   agentHost: PtyHostHandle;
   /** 워크스페이스 이름 조회 + tryGetAgentChannel 용도. */
   workspaceManager: WorkspaceNameLookup & {
@@ -39,8 +38,6 @@ export interface SetupClaudeFeatureOptions {
 export interface SetupClaudeFeatureResult {
   /** 모든 구독을 해제하는 함수. */
   dispose: () => void;
-  /** hookserver 접속 정보 캐시 — registerPtyChannel에 주입한다. */
-  hookReadyCache: AgentReadyCache;
 }
 
 /**
@@ -48,11 +45,12 @@ export interface SetupClaudeFeatureResult {
  *
  * 1. ClaudeStatusBroker 생성.
  * 2. IPC 채널 등록.
- * 3. AgentReadyCache 생성 + agentHost.on("agent.hookServerReady") 구독.
- * 4. hook-handler 등록 + agentHost.on("claude.hook") 구독.
- * 5. PTY exit 시 broker.clear 구독.
+ * 3. hook-handler 등록 + agentHost.on("claude.hook") 구독.
+ * 4. PTY exit 시 broker.clear 구독.
  *
- * @returns { dispose, hookReadyCache }
+ * hookserver 접속 정보는 pull 기반으로 WorkspaceManager.getHookInfo()에서 조회한다.
+ *
+ * @returns { dispose }
  */
 export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupClaudeFeatureResult {
   const { agentHost, workspaceManager } = options;
@@ -65,18 +63,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
   // 2. IPC 채널 등록 (setupRouter() 이후에 호출되어야 함).
   registerClaudeChannel(broker);
 
-  // 3. AgentReadyCache — agent.hookServerReady 수신 시 소켓/토큰 캐싱.
-  const readyCache = new AgentReadyCache();
-  const offReady = agentHost.on("agent.hookServerReady", (payload) => {
-    // agent-host relay에서 workspaceId를 페이로드에 추가했으므로 그대로 사용.
-    const p = payload as Record<string, unknown>;
-    const workspaceId = typeof p?.workspaceId === "string" ? p.workspaceId : "";
-    if (workspaceId) {
-      readyCache.handleReadyEvent(workspaceId, payload);
-    }
-  });
-
-  // 4. hook-handler 등록.
+  // 3. hook-handler 등록.
   const getFocusedWindow =
     options.getFocusedWindow ??
     (() => {
@@ -103,7 +90,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     },
   });
 
-  // 5. PTY exit 시 broker.clear — 탭 종료 시 상태 항목 제거(메모리 누수 방지).
+  // 4. PTY exit 시 broker.clear — 탭 종료 시 상태 항목 제거(메모리 누수 방지).
   const offExit = agentHost.on("exit", (args) => {
     const a = args as Record<string, unknown>;
     const workspaceId = typeof a?.workspaceId === "string" ? a.workspaceId : null;
@@ -113,20 +100,12 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     }
   });
 
-  // hookReadyCache와 dispose 함수 반환.
   return {
-    hookReadyCache: readyCache,
     dispose: () => {
-      offReady();
       offHook();
       offExit();
     },
   };
 }
 
-// ---------------------------------------------------------------------------
-// AgentReadyCache 공개 export — harness-env.ts가 import해서 사용한다.
-// ---------------------------------------------------------------------------
-export { AgentReadyCache } from "./agent-ready-cache";
-export type { HookServerInfo } from "./agent-ready-cache";
 export { ClaudeStatusBroker } from "./status";

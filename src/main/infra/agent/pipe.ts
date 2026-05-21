@@ -107,8 +107,16 @@ const STDOUT_BACKPRESSURE_HWM = 1 * 1024 * 1024; // 1 MiB
  */
 const STDOUT_BACKPRESSURE_LWM = 64 * 1024; // 64 KiB
 
+/** Event name emitted by the Go agent at a regular heartbeat interval. */
+const AGENT_HEARTBEAT_EVENT = "agent.heartbeat";
+
 const ReadyFrameSchema = z
-  .object({ type: z.literal("ready"), protocolVersion: z.string().optional() })
+  .object({
+    type: z.literal("ready"),
+    protocolVersion: z.string().optional(),
+    methods: z.array(z.string()).optional(),
+    heartbeatIntervalMs: z.number().optional(),
+  })
   .passthrough();
 const ResponseResultFrameSchema = z.object({ id: z.string(), result: z.unknown() }).passthrough();
 const ResponseErrorFrameSchema = z.object({ id: z.string(), error: z.unknown() }).passthrough();
@@ -117,7 +125,7 @@ const EventFrameSchema = z
   .passthrough();
 
 type ParsedFrame =
-  | { kind: "ready"; protocolVersion?: string }
+  | { kind: "ready"; protocolVersion?: string; methods?: string[]; heartbeatIntervalMs?: number }
   | { kind: "response"; id: string; result: unknown }
   | { kind: "error-response"; id: string; error: unknown }
   | { kind: "event"; event: string; payload: unknown };
@@ -141,6 +149,10 @@ export interface NdjsonPipeDependencies {
 
 export interface NdjsonPipe {
   readonly ready: Promise<void>;
+  /** Agent methods advertised in the ready frame. Available after ready resolves. */
+  readonly methods?: readonly string[];
+  /** Heartbeat interval in milliseconds advertised in the ready frame. */
+  readonly heartbeatIntervalMs?: number;
   /**
    * Send a JSON-RPC-style request to the agent and return the resolved result.
    *
@@ -202,6 +214,15 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   let rejectReady!: (error: Error) => void;
   let readySettled = false;
 
+  // Capabilities from the ready frame — populated once ready arrives.
+  let capabilityMethods: readonly string[] | undefined;
+  let capabilityHeartbeatIntervalMs: number | undefined;
+
+  // Heartbeat watchdog state.
+  let lastHeartbeatAt = 0;
+  let heartbeatWarned = false;
+  let heartbeatWatchdogTimer: ReturnType<typeof setInterval> | null = null;
+
   const ready = new Promise<void>((resolve, reject) => {
     resolveReady = () => {
       if (readySettled) return;
@@ -215,6 +236,16 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     };
   });
   ready.catch(() => {});
+
+  /** Clears the heartbeat watchdog timer and resets its state. */
+  function clearHeartbeatWatchdog(): void {
+    if (heartbeatWatchdogTimer !== null) {
+      clearInterval(heartbeatWatchdogTimer);
+      heartbeatWatchdogTimer = null;
+    }
+    lastHeartbeatAt = 0;
+    heartbeatWarned = false;
+  }
 
   /** Rejects all in-flight requests with the same terminal transport error. */
   function rejectPendingRequests(error: Error): void {
@@ -255,6 +286,33 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
         selfFail(createSshError("server.protocol-version-mismatch"));
         return;
       }
+      // Store capabilities from the ready frame.
+      if (frame.methods !== undefined) {
+        capabilityMethods = frame.methods;
+      }
+      if (frame.heartbeatIntervalMs !== undefined) {
+        capabilityHeartbeatIntervalMs = frame.heartbeatIntervalMs;
+        // Start the watchdog: fire if 3 consecutive heartbeats are missed.
+        const intervalMs = frame.heartbeatIntervalMs;
+        const watchdogIntervalMs = intervalMs * 3;
+        lastHeartbeatAt = Date.now();
+        const timer = setInterval(() => {
+          if (disposed || terminalError) return;
+          if (Date.now() - lastHeartbeatAt >= watchdogIntervalMs) {
+            if (!heartbeatWarned) {
+              heartbeatWarned = true;
+              console.warn(
+                `[agent-pipe] heartbeat watchdog: no heartbeat received for >${watchdogIntervalMs}ms (interval=${intervalMs}ms, 3-miss policy)`,
+              );
+            }
+          }
+        }, watchdogIntervalMs);
+        // Unref so the timer does not keep the event loop alive in Node/Bun.
+        if (typeof (timer as NodeJS.Timeout).unref === "function") {
+          (timer as NodeJS.Timeout).unref();
+        }
+        heartbeatWatchdogTimer = timer;
+      }
       resolveReady();
       return;
     }
@@ -278,6 +336,12 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       return;
     }
 
+    // Heartbeat: update the watchdog timestamp and reset the warned flag so a
+    // recovered agent suppresses further warnings.
+    if (frame.event === AGENT_HEARTBEAT_EVENT) {
+      lastHeartbeatAt = Date.now();
+      heartbeatWarned = false;
+    }
     emitEvent(frame.event, frame.payload);
   }
 
@@ -355,6 +419,12 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
 
   return {
     ready,
+    get methods(): readonly string[] | undefined {
+      return capabilityMethods;
+    },
+    get heartbeatIntervalMs(): number | undefined {
+      return capabilityHeartbeatIntervalMs;
+    },
     call<TResult = unknown>(
       method: string,
       params?: unknown,
@@ -441,6 +511,7 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      clearHeartbeatWatchdog();
       const error = createDisposedError();
       rejectReady(error);
       rejectPendingRequests(error);
@@ -449,6 +520,7 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     fail(error: Error): void {
       if (terminalError) return;
       terminalError = error;
+      clearHeartbeatWatchdog();
       rejectReady(error);
       rejectPendingRequests(error);
     },
@@ -561,7 +633,12 @@ function parseFrame(line: string): ParsedFrame {
 
   const ready = ReadyFrameSchema.safeParse(parsed);
   if (ready.success) {
-    return { kind: "ready", protocolVersion: ready.data.protocolVersion };
+    return {
+      kind: "ready",
+      protocolVersion: ready.data.protocolVersion,
+      methods: ready.data.methods,
+      heartbeatIntervalMs: ready.data.heartbeatIntervalMs,
+    };
   }
 
   if (!isRecord(parsed)) {

@@ -47,11 +47,28 @@ func TestSuccessCoercesNilResultToExplicitNull(t *testing.T) {
 }
 
 func TestReadyFrameIncludesVersions(t *testing.T) {
-	data, err := json.Marshal(Ready())
+	// methods 슬라이스와 heartbeat 간격을 함께 전달한 경우 wire 포맷 확인.
+	data, err := json.Marshal(Ready([]string{"fs.readFile", "git.log"}, 10_000))
 	if err != nil {
 		t.Fatalf("Marshal ready: %v", err)
 	}
-	want := `{"type":"ready","protocolVersion":"1","serverVersion":"0.1.0"}`
+	want := `{"type":"ready","protocolVersion":"1","serverVersion":"0.1.0","methods":["fs.readFile","git.log"],"heartbeatIntervalMs":10000}`
+	if string(data) != want {
+		t.Fatalf("ready frame = %s, want %s", data, want)
+	}
+}
+
+func TestReadyFrameNilMethodsCoercedToEmptySlice(t *testing.T) {
+	// nil methods는 빈 슬라이스로 변환되어 JSON "methods":[] 로 직렬화된다.
+	f := Ready(nil, 0)
+	if f.Methods == nil {
+		t.Fatal("Ready(nil, 0).Methods must not be nil — want empty slice")
+	}
+	data, err := json.Marshal(f)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	want := `{"type":"ready","protocolVersion":"1","serverVersion":"0.1.0","methods":[],"heartbeatIntervalMs":0}`
 	if string(data) != want {
 		t.Fatalf("ready frame = %s, want %s", data, want)
 	}

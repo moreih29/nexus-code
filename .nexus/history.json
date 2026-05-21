@@ -17984,6 +17984,245 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-21T08:46:47.984Z",
+      "branch": "feat/claude-code-hook-integration",
+      "plan": {
+        "id": 57,
+        "topic": "Agent ↔ Electron RPC 재설계 (handshake + heartbeat + pull-based hook info)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Ready 프레임 확장: 추가 필드와 호환성 정책",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Ready 프레임에 `methods: string[]`, `heartbeatIntervalMs` 추가. `hookReady: boolean` 같은 상태 snapshot은 stale될 수 있어 기각 — pull(hook.getInfo)이 single source of truth. capabilities 중첩 객체도 사용처 없는 구조화로 기각. ReadyFrameSchema가 passthrough라 추가 필드 무손실 수용 가능.",
+                "recorded_at": "2026-05-21T08:23:53.812Z",
+                "agent_id": "a689940ba60b135d0"
+              }
+            ],
+            "decision": "Ready 프레임을 `{type:\"ready\", protocolVersion:\"1\", methods:string[], heartbeatIntervalMs:number}`로 확장. methods는 dispatch.Registered 메서드 이름 리스트, heartbeatIntervalMs=10000. TS의 ReadyFrameSchema에 두 필드 optional 추가(passthrough 유지). 기각: hookReady boolean — pull이 SSOT여야 하므로 snapshot은 lie가 됨. 기각: capabilities 중첩 객체 — YAGNI."
+          },
+          {
+            "id": 2,
+            "title": "Heartbeat 신호 도입: frequency, 페이로드 형태, TS측 정책",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "10s interval, payload `{type:\"heartbeat\", seq, uptimeMs}`. TS측 30s(3-miss) 무응답시 로그 + 채널 상태 metric만, 자동 재시작은 다음 사이클. 5s는 outMu/stdout 트래픽 과다.",
+                "recorded_at": "2026-05-21T08:23:56.220Z",
+                "agent_id": "a689940ba60b135d0"
+              }
+            ],
+            "decision": "10s interval, agent emit event `agent.heartbeat` with payload `{seq:number, uptimeMs:number}`. TS측 30s(3-miss) 무응답 시 console.warn + 채널 상태 메트릭 갱신만. 자동 재시작/탭 마킹은 다음 사이클 분리. 기각: 5s — outMu/stdout 노이즈 과다. 기각: 자동 재시작 — irreversibility ↑, scope creep."
+          },
+          {
+            "id": 3,
+            "title": "hook.getInfo RPC 메서드 설계: 블로킹 의미와 응답 스키마",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "옵션 A(서버측 보류) 채택. handler가 `select { ready-ch / ctx.Done() / 5s timeout }`, outMu는 응답 직전만 hold. dispatch가 goroutine별이라 다른 RPC 블록 안 됨. polling 옵션 B는 client side state machine 증가 + frame 트래픽 증가로 기각. 조건: handler 내부 wait는 buffered ready-channel(또는 sync.Once + close) 사용.",
+                "recorded_at": "2026-05-21T08:23:59.965Z",
+                "agent_id": "a689940ba60b135d0"
+              }
+            ],
+            "decision": "옵션 A 채택: agent의 `hook.getInfo` handler가 hookserver ready 채널을 select로 대기, 5s timeout. ready 채널은 hookserver 부팅 직후 close하는 단발 채널(sync.Once 패턴). 응답 shape: `{socketPath:string, token:string}` 또는 timeout 시 `proto.Failure(CodeUnavailable, \"hook server not ready\")`. handler가 보류해도 다른 goroutine RPC는 정상 처리. 기각: 옵션 B(즉답+polling) — TS 복잡도 증가, 보류 시간 사실상 <1s라 polling 필요 없음."
+          },
+          {
+            "id": 4,
+            "title": "PTY spawn 흐름 변경: AgentReadyCache 폐기와 await 지점",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "옵션 B(ensureProviderReady가 hook info까지 hold) 채택 — Locality of Behavior. provider ready resolve 직전 `await agentChannel.call(\"hook.getInfo\")` + 결과 캐시. PTY ipc는 동기 lookup만. timeout(5s) 시 ensureProviderReady reject, PTY spawn은 명시적 error(\"Agent hook unavailable\")로 silent degrade 금지. 옵션 A(spawn handler 내 await)는 shotgun surgery.",
+                "recorded_at": "2026-05-21T08:24:03.318Z",
+                "agent_id": "a689940ba60b135d0"
+              }
+            ],
+            "decision": "옵션 B 채택: WorkspaceManager.startLocalProvider / startSshProvider에서 channel.ready await 직후 `const hookInfo = await channel.call(\"hook.getInfo\")` 호출, hookInfo를 provider 메타에 캐시. PTY ipc.ts spawn handler는 캐시 동기 조회만(`workspaceManager.getHookInfo(workspaceId)`). hook.getInfo timeout 시 startProvider는 reject — 워크스페이스 진입 자체 실패로 surface, 사용자에게 \"Agent hook unavailable\" 명시적 에러. 기각: 옵션 A(spawn handler 내 await) — shotgun surgery, hook 의존 다른 path마다 await 반복 필요."
+          },
+          {
+            "id": 5,
+            "title": "agent.hookServerReady 이벤트와 host-level listener 처리 (잔류 vs 제거)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "옵션 A(완전 제거) 채택 — agent emit, TS listener, AgentReadyCache 전부 삭제. dead code 누적 = 부채. 미래 UI indicator 필요시 pull(hook.getInfo) + 캐시 무효화 이벤트로 재도입. \"미래 UI\" 가설(emit 유지) 기각 — YAGNI.",
+                "recorded_at": "2026-05-21T08:24:05.389Z",
+                "agent_id": "a689940ba60b135d0"
+              }
+            ],
+            "decision": "옵션 A(완전 제거) 채택. agent의 `agent.hookServerReady` emit 제거(cmd/agent/main.go:125-130), TS의 host-level listener 제거(features/claude/index.ts:70-89), AgentReadyCache 클래스 + 파일 삭제, agent-host.ts의 hookServerReady relay 제거, registerPtyChannel의 hookReadyCache 옵션 제거. 이전 race-fix 시도(ensureWorkspaceSubscribed, setAgentChannelReadyHook)는 이미 git restore로 회수됨. 기각: emit 유지 — YAGNI, 쓰이지 않는 데이터 흐름."
+          },
+          {
+            "id": 6,
+            "title": "검증 전략: Go unit test, TS unit test, 수동 smoke 범위",
+            "status": "decided",
+            "decision": "Go 측: dispatch_test 스타일로 `hook.getInfo` handler 단위 테스트(준비 전/후/timeout 3 case). TS 측: pipe.ts ReadyFrame 확장 파싱 + heartbeat 이벤트 무시 안 되는지 검증하는 단위 테스트. WorkspaceManager의 hook.getInfo 캐시 동작은 통합 테스트 1개. PTY spawn ipc는 hook.getInfo 통과한 후 env 주입 단위 테스트. 수동 smoke: 앱 빌드 → 새 워크스페이스 → 새 PTY 탭 → `claude` 실행 → hook 발사 확인. 자동 race 재현 테스트는 비결정성으로 skip(다음 사이클).",
+            "analysis": [
+              {
+                "role": "retrospective",
+                "summary": "RPC 재설계 사이클 완료. 4 axis architect 권고 모두 채택 (issue 1-5 만장일치). 핵심 통찰: 기존 인프라(id 기반 call/response, ready frame, dispatch.Register)가 이미 RPC-shaped라 변경 surface가 좁았다. 6 task 모두 success outcome, escalation 0건, 회귀 0건. 미커버 영역(NOT_FOUND 진단, LSP L1/L2 분리)은 대화에서 별 사이클로 합의됨.",
+                "recorded_at": "2026-05-21T08:46:47.753Z"
+              }
+            ]
+          }
+        ],
+        "research_summary": "현재 구조 매핑 결과: TS `src/main/infra/agent/pipe.ts`는 이미 id 기반 RPC(`r-{n}`), 30s timeout, ready 프레임(`{\"type\":\"ready\",\"protocolVersion\":\"1\"}`), backpressure(HWM 1MiB/LWM 64KiB), structured stderr log 포워딩을 모두 갖고 있다. Go `internal/stdioserver` + `internal/dispatch`는 method→handler 맵 + outMu 직렬화 + ctx 전파를 갖고 있다. Hookserver는 별도 Unix socket을 들고 `SocketPath()`/`Token()` 노출. 현재 `cmd/agent/main.go:126`에서 부팅 직후 `agent.hookServerReady` 이벤트를 1회 push하고, TS는 `features/claude/agent-ready-cache.ts`에 받아 적어 두었다가 PTY spawn 시 조회하는 push 기반 구조. 이 push가 race의 근원(이벤트 도착 전 spawn / listener 등록 전 emit). 재설계는 transport 자체를 안 바꾸고 application 레이어에서 (a) ready 프레임에 capabilities 노출 (b) heartbeat 신호 추가 (c) `hook.getInfo` RPC를 추가해 PTY spawn이 pull로 가져가도록 한다. 기존 인프라(id, pendingRequests, dispatch.Register)가 그대로 토대가 되므로 변경은 좁다. 관련 메모: pattern-lsp-channel-bottleneck-axes.md(L1/L2 직교 분리 — 본 사이클에선 토대만 깔고 미해결), empirical-reconnecting-channel-backpressure.md(기존 backpressure 정책 존재 확인).",
+        "created_at": "2026-05-21T08:22:16.421Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Go agent: Ready 프레임 확장 + heartbeat ticker + hook.getInfo handler + hookserver ready signal",
+          "status": "completed",
+          "context": "Go agent 전반 RPC 인프라 확장. (a) internal/proto/proto.go의 Ready()가 methods 리스트와 heartbeatIntervalMs를 포함하도록 확장. (b) internal/stdioserver/host.go에 10s 주기 heartbeat ticker(seq, uptimeMs) 추가. (c) internal/hookserver/server.go에 readyCh(sync.Once + close) 추가 + WaitReady(ctx, timeout) 메서드. (d) cmd/agent/main.go에 hook.getInfo dispatch handler 등록(hooksrv가 nil이어도 등록, nil인 경우 즉시 CodeUnavailable 반환). (e) cmd/agent/main.go에서 agent.hookServerReady emit 제거.",
+          "acceptance": "go build ./... 성공. go test ./internal/hookserver/... 기존 테스트 모두 통과. 새 Ready 프레임에 methods/heartbeatIntervalMs 포함됨. agent.hookServerReady emit 제거됨.",
+          "approach": "1) proto.Ready()에 methods []string, heartbeatIntervalMs int 필드 추가. 2) host.go에 startHeartbeat(ctx, interval) goroutine, EmitEvent(\"agent.heartbeat\", {seq, uptimeMs}). 3) hookserver에 readyCh chan struct{}, sync.Once로 close. New()에서 Listen 성공 후 close. WaitReady(ctx) → select {readyCh / ctx.Done()}. 4) cmd/agent/main.go: dispatch.Register(\"hook.getInfo\", handler). handler가 hookserver nil 가드 + 5s timeout context + WaitReady → 응답 {socketPath, token} 또는 CodeUnavailable. methods 리스트는 dispatch에서 가져옴(dispatch에 Methods() 메서드 추가 필요).",
+          "risk": "heartbeat ticker가 outMu를 짧게 hold — LSP/PTY 트래픽이 많을 때 미세한 jitter 가능. interval 10s라 영향 작음.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a731397f2eac521d5",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-21T08:25:31.370Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Go agent RPC infra 추가: proto.Ready 확장, host.StartHeartbeat, hookserver.WaitReady, dispatch.Methods, hook.getInfo handler. agent.hookServerReady emit 제거. Go build clean, all targeted unit tests pass.",
+            "recorded_at": "2026-05-21T08:31:51.760Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "TS pipe.ts: ReadyFrameSchema 확장 + heartbeat 이벤트 처리 + 무heartbeat 경고",
+          "status": "completed",
+          "context": "src/main/infra/agent/pipe.ts의 ReadyFrameSchema에 methods/heartbeatIntervalMs optional 추가. ParsedFrame ready variant에 methods/heartbeatIntervalMs 포함. NdjsonPipe 인터페이스에 readonly methods?: string[], heartbeatIntervalMs?: number 추가 또는 ready resolve 시 capabilities 전달. heartbeat 이벤트가 일반 event 흐름을 안 깨도록 emitEvent에 그대로 흘려 보내거나 내부에서 swallow하고 시계만 갱신. 30s(3-miss) 무heartbeat 시 console.warn 한 번.",
+          "acceptance": "bun test src/main/infra/agent/pipe.test.ts 통과. 새 ready 필드 파싱 정상. heartbeat 이벤트 흐름이 기존 event 라우팅 깨뜨리지 않음.",
+          "approach": "ReadyFrameSchema 확장(passthrough 유지). ready resolve callback이 capabilities를 받도록 시그니처 미세 변경 — 또는 NdjsonPipe에 getCapabilities() getter. handleStdoutLine에 heartbeat event 도착 시 lastHeartbeatAt timestamp 갱신. heartbeat 이벤트는 그대로 listeners에도 전달(필요 시 외부 구독자가 받을 수 있게). setInterval로 (interval*3)마다 lastHeartbeatAt 검사, 초과 시 한 번만 warn. dispose 시 interval clear.",
+          "risk": "setInterval 누수 위험 — dispose/fail 경로에서 clear 누락 시. 테스트로 확인.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a8d93720443f36dbe",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-21T08:25:44.645Z",
+          "result": {
+            "outcome": "success",
+            "summary": "pipe.ts 확장: ReadyFrameSchema(methods, heartbeatIntervalMs), AGENT_HEARTBEAT_EVENT 상수, watchdog setInterval(3-miss), dispose/fail cleanup. typecheck clean.",
+            "recorded_at": "2026-05-21T08:34:34.135Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "WorkspaceManager에 hook.getInfo 통합 + AgentReadyCache + push 경로 전면 제거",
+          "status": "completed",
+          "context": "push 기반 hookServerReady 흐름을 pull로 전환하고 잔재 코드 제거. (1) features/workspace/manager.ts의 startLocalProvider/startSshProvider가 channel.ready await 후 channel.call(\"hook.getInfo\", undefined) await, 받은 {socketPath, token}을 provider 메타 또는 별도 Map<workspaceId, HookInfo>에 저장. (2) WorkspaceManager에 getHookInfo(workspaceId): HookInfo | null public 메서드. (3) AgentReadyCache 파일 삭제. (4) features/claude/index.ts에서 hookServerReady listener + readyCache 인스턴스 + return 필드 제거. (5) features/pty/agent-host.ts에서 hookServerReady relay 제거. (6) features/pty/ipc.ts의 hookReadyCache 옵션 → workspaceManager 직접 의존으로 변경, spawn handler가 workspaceManager.getHookInfo(workspaceId) 동기 조회 후 env 주입. (7) main/index.ts wiring 갱신. timeout 시 startProvider reject — provider 실패로 surface.",
+          "acceptance": "bun run typecheck 통과(또는 동등). bun test 의 기존 테스트(workspace/pty/claude) regression 없음. 새 워크스페이스 진입 시 channel.ready와 hook.getInfo가 함께 완료된 후에야 PTY spawn이 hook env를 받음.",
+          "approach": "manager.ts: HookInfo 저장 Map + getHookInfo + start*Provider 두 곳에 await + timeout 처리. 삭제: features/claude/agent-ready-cache.ts. 정리: claude/index.ts(70-89 listener 블록, 옵션의 readyCache 관련, return 필드), pty/agent-host.ts(hookServerReady 관련 코드), pty/ipc.ts(hookReadyCache 옵션 → workspaceManager 사용), pty/types.ts(필요 시 PtyHostHandle hookServerReady 관련 정의 제거), main/index.ts(setupClaudeFeature가 hookReadyCache return 안 하므로 registerPtyChannel 호출 인자 변경). harness-env.ts는 그대로(env 박는 자리 동일).",
+          "risk": "SSH provider 쪽 startSshProvider에 hook.getInfo timeout이 SSH 부팅 latency를 못 견딜 가능성 — timeout 5s 너무 짧을 수 있음. 필요 시 7-10s로 조정.",
+          "plan_issue": 4,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "aecb42e87a249f428",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-21T08:26:02.578Z",
+          "result": {
+            "outcome": "success",
+            "summary": "WorkspaceManager.hookInfoByWorkspace + getHookInfo + start*Provider await hook.getInfo. AgentReadyCache 파일 삭제, claude/index/agent-host/pty.ipc/main wiring 전부 정리. typecheck clean, 0 hook-related grep hits in src/.",
+            "recorded_at": "2026-05-21T08:41:31.413Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "Go unit test: hook.getInfo handler 3-case",
+          "status": "completed",
+          "context": "새 hook.getInfo handler에 대한 단위 테스트 추가. case A: hookserver가 이미 ready 상태에서 호출 → 즉시 {socketPath, token}. case B: handler 호출 후 1초 뒤 ready → 응답 도착. case C: 5s timeout 초과 → CodeUnavailable error.",
+          "acceptance": "go test ./internal/hookserver/... 신규 3 case 통과. 기존 테스트 regression 없음.",
+          "approach": "internal/hookserver/server_test.go에 테스트 추가 또는 cmd/agent/main_test.go에 통합 테스트. dispatch.New() + RegisterHookInfoHandler를 직접 호출하는 방식. hookserver를 New()하되 Listen 전후 시점을 제어. context.WithTimeout으로 case C 검증.",
+          "plan_issue": 6,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a731397f2eac521d5",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-21T08:26:09.503Z",
+          "result": {
+            "outcome": "success",
+            "summary": "hook_getinfo_test.go: 4 case (Ready, RealServer, NilServer, Timeout). go test ./cmd/agent 1.061s pass. hookInfoProvider interface로 fake/real 분리.",
+            "recorded_at": "2026-05-21T08:41:34.018Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "TS unit test: pipe.ts Ready 확장 + heartbeat 흐름",
+          "status": "completed",
+          "context": "pipe.ts 변경에 대한 단위 테스트. (1) `{type:\"ready\", protocolVersion:\"1\", methods:[\"fs.readdir\"], heartbeatIntervalMs:10000}` 프레임 파싱 후 ready resolve + capabilities 노출. (2) ready 이후 `{event:\"agent.heartbeat\", payload:{seq:1, uptimeMs:100}}` 프레임 정상 라우팅 + 내부 watchdog 갱신. (3) lastHeartbeatAt 30s 초과 시 warn 1회.",
+          "acceptance": "bun test src/main/infra/agent/pipe.test.ts 신규 3 case 통과. 기존 테스트 영향 없음.",
+          "approach": "기존 pipe.test.ts 있으면 확장, 없으면 신규. fake stdout Readable에 NDJSON 프레임 주입. fake timer로 watchdog 검증. console.warn mocking.",
+          "plan_issue": 6,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a8d93720443f36dbe",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-21T08:26:16.014Z",
+          "result": {
+            "outcome": "success",
+            "summary": "tests/unit/main/agent/pipe-ready-heartbeat.test.ts: 3 cases (7 sub-cases). watchdog 조건 off-by-one (> → >=) 수정. agent suite 76/0 pass.",
+            "recorded_at": "2026-05-21T08:41:36.127Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "통합 검증: 빌드 + 기존 테스트 + 정적 분석 + 수동 smoke 가이드",
+          "status": "completed",
+          "context": "모든 코드 변경 후 검증 단계. go build + go test ./... + bun typecheck + bun test 전체 실행. 회귀 없는지 확인. 사용자에게 수동 smoke 절차(새 워크스페이스 → PTY 탭 → claude 실행) 가이드 작성.",
+          "acceptance": "go build ./... + go test ./... + bun run typecheck + bun test 전부 통과. 회귀 0건. 수동 smoke 가이드 1단락 작성.",
+          "approach": "tester가 build/test 명령 실행. 실패 시 escalation. 마지막에 manual smoke 절차 한 줄로 요약해 사용자 보고서에 포함.",
+          "plan_issue": 6,
+          "deps": [
+            3,
+            4,
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a8bb929f950a9eece",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-21T08:26:22.722Z",
+          "result": {
+            "outcome": "success",
+            "summary": "All 7 검증 항목 PASS. go build/test 완전 통과, TS typecheck clean, agent unit suite 76/0, full unit 2091 pass with 24 pre-existing failures 신규 없음, grep 재고 0건. smoke 가이드 1단락 제공.",
+            "recorded_at": "2026-05-21T08:46:42.242Z"
+          }
+        }
+      ]
     }
   ]
 }

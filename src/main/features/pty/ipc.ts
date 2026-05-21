@@ -9,7 +9,7 @@ import { ipcOk } from "../../../shared/ipc/result";
 import { injectHarnessTerminalEnv } from "./harness-env";
 import { OscNotificationDispatcher } from "./osc-notification";
 import type { WorkspaceNameLookup } from "./osc-notification";
-import type { AgentReadyCache } from "../claude/agent-ready-cache";
+import type { HookInfo } from "../workspace/manager";
 import { getAgentBinaryPath } from "../../infra/agent/getAgentBinDir";
 
 const c = ipcContract.pty.call;
@@ -17,13 +17,14 @@ const c = ipcContract.pty.call;
 export interface PtyChannelOptions {
   agentHost: PtyHostHandle;
   recorder?: PtyRecorderSink;
-  /** Provides workspace display names and activation for OS notifications. */
-  workspaceManager?: WorkspaceNameLookup & { activate(id: string): Promise<void> };
   /**
-   * hookserver 접속 정보 캐시 — PTY spawn 시 NEXUS_AGENT_SOCKET / NEXUS_HOOK_TOKEN
-   * env에 실제 값을 주입하기 위해 사용한다. 미제공 시 값을 설정하지 않는다.
+   * Provides workspace display names, activation for OS notifications, and
+   * pull 기반 hookserver 접속 정보 조회(getHookInfo).
    */
-  hookReadyCache?: AgentReadyCache;
+  workspaceManager?: WorkspaceNameLookup & {
+    activate(id: string): Promise<void>;
+    getHookInfo(workspaceId: string): HookInfo | null;
+  };
 }
 
 /**
@@ -32,7 +33,6 @@ export interface PtyChannelOptions {
  */
 export function registerPtyChannel(options: PtyChannelOptions): void {
   const { agentHost } = options;
-  const { hookReadyCache } = options;
   const recorder = options.recorder ?? new TerminalRecorderRegistry();
   const wm = options.workspaceManager;
   // BrowserWindow is accessed lazily (require) to avoid a static electron
@@ -78,8 +78,8 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
       spawn: async (args: unknown) => {
         const { workspaceId, tabId, cwd, cols, rows, env } = validateArgs(c.spawn.args, args);
         recorder.start(workspaceId, tabId, cols, rows);
-        // hookReadyCache에서 소켓/토큰 조회 후 env에 주입한다.
-        const hookInfo = hookReadyCache?.getHookInfo(workspaceId);
+        // workspaceManager.getHookInfo로 pull 기반 소켓/토큰 조회 후 env에 주입한다.
+        const hookInfo = wm?.getHookInfo(workspaceId) ?? null;
         const enrichedEnv = injectHarnessTerminalEnv(env, {
           workspaceId,
           tabId,

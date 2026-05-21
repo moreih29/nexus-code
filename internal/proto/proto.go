@@ -44,6 +44,12 @@ const (
 	// deployed Go agent.
 	CodeUnsupported = "unsupported-method"
 
+	// CodeUnavailable is returned when a requested subsystem exists in the
+	// dispatch table but is not yet ready or was not started. Callers may
+	// retry after a short back-off; unlike CodeUnsupported, the method name
+	// is known and the subsystem is expected to become available.
+	CodeUnavailable = "server.unavailable"
+
 	// ProtocolErrorID is the synthetic request id used when a parse
 	// failure happens before we can recover the real id from the raw
 	// line. Clients should treat it as unmatched and surface it as a
@@ -91,10 +97,18 @@ type Response struct {
 // ReadyFrame is the one-shot boot frame the server writes to stdout
 // before accepting requests. The client uses it as both a liveness
 // probe and a protocol-version check.
+//
+// Methods lists the RPC method names the server has registered.
+// An empty slice is valid and means no domain methods beyond the built-ins.
+//
+// HeartbeatIntervalMs is the interval at which the server will emit
+// "agent.heartbeat" events. A value of 0 means heartbeat is disabled.
 type ReadyFrame struct {
-	Type            string `json:"type"`
-	ProtocolVersion string `json:"protocolVersion"`
-	ServerVersion   string `json:"serverVersion"`
+	Type                string   `json:"type"`
+	ProtocolVersion     string   `json:"protocolVersion"`
+	ServerVersion       string   `json:"serverVersion"`
+	Methods             []string `json:"methods"`
+	HeartbeatIntervalMs int      `json:"heartbeatIntervalMs"`
 }
 
 // EventFrame is a server → client broadcast frame. It deliberately has no id:
@@ -105,8 +119,21 @@ type EventFrame struct {
 }
 
 // Ready builds the canonical boot frame.
-func Ready() ReadyFrame {
-	return ReadyFrame{Type: "ready", ProtocolVersion: ProtocolVersion, ServerVersion: ServerVersion}
+//
+// methods is the list of RPC method names the server has registered;
+// an empty (non-nil) slice is valid. heartbeatIntervalMs is the
+// advertised heartbeat interval in milliseconds; 0 means disabled.
+func Ready(methods []string, heartbeatIntervalMs int) ReadyFrame {
+	if methods == nil {
+		methods = []string{}
+	}
+	return ReadyFrame{
+		Type:                "ready",
+		ProtocolVersion:     ProtocolVersion,
+		ServerVersion:       ServerVersion,
+		Methods:             methods,
+		HeartbeatIntervalMs: heartbeatIntervalMs,
+	}
 }
 
 // Event builds the canonical server-push frame.
@@ -203,6 +230,14 @@ func (e CodedError) Error() string { return e.Msg }
 // code. Used by ParseRequest and the host's protocolMessage shaper.
 func ProtocolError(message string) CodedError {
 	return CodedError{Code: CodeProtocolError, Msg: message}
+}
+
+// NewError builds a CodedError with an arbitrary stable code.
+// Domain handlers use this to attach a specific wire code (e.g.
+// CodeUnavailable) to an error return without constructing a
+// Response directly.
+func NewError(code, message string) CodedError {
+	return CodedError{Code: code, Msg: message}
 }
 
 // ErrorCode extracts the stable wire code from an error. Domain types

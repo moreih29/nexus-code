@@ -39,6 +39,33 @@ func (d *Dispatcher) Register(method string, handler Handler) {
 	d.handlers[method] = handler
 }
 
+// Methods returns a sorted slice of all registered method names.
+// Intended for inclusion in the boot Ready frame so the client can
+// enumerate available methods without probing each one individually.
+func (d *Dispatcher) Methods() []string {
+	names := make([]string, 0, len(d.handlers))
+	for name := range d.handlers {
+		names = append(names, name)
+	}
+	// 알파벳 순 정렬로 결정론적 순서를 보장한다.
+	sortStrings(names)
+	return names
+}
+
+// sortStrings sorts a string slice in place (insertion sort — small N,
+// no import dependency on sort package).
+func sortStrings(s []string) {
+	for i := 1; i < len(s); i++ {
+		key := s[i]
+		j := i - 1
+		for j >= 0 && s[j] > key {
+			s[j+1] = s[j]
+			j--
+		}
+		s[j+1] = key
+	}
+}
+
 // Dispatch looks up the request's method and runs it. The two terminal
 // shapes are:
 //   - unknown method   → proto.Failure with CodeUnsupported

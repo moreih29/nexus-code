@@ -22,6 +22,7 @@ package hookserver
 
 import (
 	"bufio"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -97,6 +98,12 @@ type Server struct {
 	closeOnce sync.Once
 	done      chan struct{} // Close() 호출 시 닫혀 accept loop를 깨운다
 
+	// readyCh 는 net.Listener가 성공적으로 생성된 직후 한 번 닫힌다.
+	// WaitReady(ctx)가 이 채널로 대기하므로 pull 기반 hook.getInfo RPC가
+	// 준비 여부를 race 없이 확인할 수 있다.
+	readyCh   chan struct{}
+	readyOnce sync.Once
+
 	// testDeadlineNs 가 0이 아니면 connDeadline() 대신 이 값(나노초)을 사용한다.
 	// atomic 읽기/쓰기로 race-free하게 접근한다. 테스트 전용.
 	testDeadlineNs atomic.Int64
@@ -140,7 +147,11 @@ func New(agentKey string, sink EventSink) (*Server, error) {
 		listener:   ln,
 		sink:       sink,
 		done:       make(chan struct{}),
+		readyCh:    make(chan struct{}),
 	}
+
+	// net.Listener 생성 직후 readyCh를 닫아 WaitReady 대기자를 깨운다.
+	s.readyOnce.Do(func() { close(s.readyCh) })
 
 	go s.acceptLoop()
 	return s, nil
@@ -151,6 +162,18 @@ func (s *Server) SocketPath() string { return s.socketPath }
 
 // Token 은 hook 클라이언트 인증에 사용하는 nonce 토큰을 반환한다.
 func (s *Server) Token() string { return s.token }
+
+// WaitReady 는 서버가 accept 가능한 상태가 될 때까지 ctx가 취소되기 전까지 대기한다.
+// New()가 성공하면 즉시 반환한다 — readyCh는 net.Listener 생성 직후에 닫힌다.
+// ctx 취소나 deadline 초과 시 ctx.Err()를 반환한다.
+func (s *Server) WaitReady(ctx context.Context) error {
+	select {
+	case <-s.readyCh:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
 
 // SetEventSink 는 hook 이벤트를 push할 sink 콜백을 설정한다.
 // host 생성 후 와이어링하는 기존 패턴(fs/git/pty의 SetEventSink)을 따른다.
