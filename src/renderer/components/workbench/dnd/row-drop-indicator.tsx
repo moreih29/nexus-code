@@ -1,47 +1,32 @@
 /**
- * RowDropIndicator — 2px horizontal insertion-line shown during workspace row
- * drag-and-drop to indicate the intended drop position.
+ * RowDropIndicator — 2px horizontal insertion-line shown inside an active
+ * drop slot during workspace row drag-and-drop.
  *
- * Pure presentational. All state lives in useWorkspaceRowDnd.
- * Drawn as an absolute-positioned bar flush to the top or bottom of the row
- * container using the selected-indicator color token.
- *
- * Not related to the workspace/dnd DropIndicator (zone-fill model) — that
- * component is for panel layout drops.
+ * Pure presentational. The parent slot owns positioning and visibility; this
+ * component just paints the bar with the accent-color token.
  */
 
 import { cn } from "@/utils/cn";
-
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
-export interface RowDropIndicatorProps {
-  /** Whether to place the bar above ("before") or below ("after") the row. */
-  position: "before" | "after";
-}
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 /**
- * Renders a 2px accent-colored bar at the top or bottom of its relative
- * container. The container must have `position: relative` (the workspace row
- * wrapper already satisfies this).
+ * Renders a 2px accent-colored bar centred vertically inside a relatively-
+ * positioned parent. The parent (a drop slot) controls when this is shown.
  */
-export function RowDropIndicator({ position }: RowDropIndicatorProps) {
+export function RowDropIndicator() {
   return (
     <div
       aria-hidden="true"
       className={cn(
-        // Size and colour — accent bar spanning the interior width of the row.
-        "absolute left-2 right-2 h-0.5 bg-[var(--state-selected-indicator)]",
-        // Never intercept pointer events on the row or overlay buttons.
+        // Size and colour — accent bar spanning the slot interior.
+        "absolute left-2 right-2 top-1/2 -translate-y-1/2 h-0.5 rounded-full",
+        "bg-[var(--state-selected-indicator)]",
+        // Never intercept pointer events on the slot itself.
         "pointer-events-none",
         "transition-opacity duration-100 ease-out",
-        // Position: top edge for "before", bottom edge for "after".
-        position === "before" ? "top-0" : "bottom-0",
       )}
     />
   );

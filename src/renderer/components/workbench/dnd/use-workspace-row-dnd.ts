@@ -1,34 +1,27 @@
 /**
- * useWorkspaceRowDnd — HTML5 native drag-and-drop hook for workspace sidebar rows.
+ * useWorkspaceRowDnd — HTML5 native drag-and-drop hook for workspace sidebar
+ * rows, built on an explicit drop-slot model.
  *
  * DESIGN
  * ------
- * Each sidebar row is made draggable via the native HTML5 drag API
- * (draggable={true} on the container div). This delegates mouse-distance
- * detection and click/drag discrimination entirely to the browser — the
- * browser only fires dragstart after the user moves the pointer a few pixels,
- * so click handlers are never suppressed accidentally.
+ * For N workspaces in a group, the sidebar renders N+1 drop slots: one above
+ * each row and one below the last row. Adjacent slots between two rows are
+ * shared (a single physical slot owns the gap between row K and row K+1).
+ * This eliminates the ambiguity of the half-row model, where each physical
+ * gap had two indicator placements ("after row K" and "before row K+1") and
+ * only one of them actually moved the source.
  *
- * Terminology:
- *   - Source row    — the row the user started dragging.
- *   - Target row    — the row currently under the cursor during dragover.
- *   - Drop position — "before" (cursor in top half of row) or "after" (bottom).
- *   - Target group  — "pinned" or "unpinned", derived from which section the
- *                     cursor is in during dragover / at drop time.
+ * Hook responsibilities are split between:
+ *   - getRowDragSourceProps(rowId, pinned)  — drag SOURCE only (dragstart/end)
+ *   - getSlotDropProps(slot)                — drop TARGET only (dragover/drop)
  *
- * CROSS-SECTION REORDER
- * ---------------------
- * When the cursor enters a row that belongs to a different section than the
- * source, targetGroup is set accordingly. The caller's onReorder receives the
- * resolved targetGroup so the IPC handler can flip the pinned flag atomically.
- *
- * NO-OP DROP
- * ----------
- * Dropping the source row immediately before or after itself (i.e. no real
- * position change) calls onReorder with no beforeId/afterId so that the IPC
- * handler places it at tail of its current group — which is effectively a
- * no-op from the user's perspective. A stricter same-neighbour check would
- * add complexity for little benefit; the server handles idempotent reorders.
+ * NO-OP SUPPRESSION
+ * -----------------
+ * When the source row is one of a slot's neighbours within the same group,
+ * dropping there would leave the source in its current spot. Such slots are
+ * suppressed (no indicator, no drop) so what the user sees maps 1:1 to what
+ * will move. Cross-group drops are never classified as no-ops because they
+ * flip the `pinned` flag.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -44,14 +37,21 @@ import {
 // Public types
 // ---------------------------------------------------------------------------
 
-/** Identifies where the cursor is hovering during a drag. */
-export interface DropTarget {
-  /** ID of the row the cursor is currently over. */
-  rowId: string;
-  /** Whether the indicator should appear above ("before") or below ("after"). */
-  position: "before" | "after";
-  /** Which section the drop will land in; drives pin-toggle on cross-group drop. */
-  targetGroup: "pinned" | "unpinned";
+/**
+ * Describes one drop slot. `beforeId` is the row immediately below the slot
+ * (undefined when the slot is at the very bottom of its group); `afterId` is
+ * the row immediately above the slot (undefined when the slot is at the very
+ * top of its group). When both are set, the slot lives between two rows.
+ */
+export interface SlotInfo {
+  /** Stable React key + identity used by the hook to track the active slot. */
+  key: string;
+  /** Section the slot belongs to; drives the pinned flag on drop. */
+  group: "pinned" | "unpinned";
+  /** Row immediately below this slot (undefined → slot is at group bottom). */
+  beforeId?: string;
+  /** Row immediately above this slot (undefined → slot is at group top). */
+  afterId?: string;
 }
 
 /** Arguments forwarded to the caller when a drop is committed. */
@@ -64,9 +64,8 @@ export interface ReorderArgs {
 
 export interface UseWorkspaceRowDndOptions {
   /**
-   * The workspaces list currently rendered, in display order (pinned group
-   * first, then unpinned). Used to detect no-op drops (drop position equals
-   * the source's current position) so the indicator can be suppressed.
+   * Workspaces in current display order. Used to detect no-op slots
+   * (those adjacent to the source row within the same group).
    */
   workspaces: WorkspaceMeta[];
   /** Called once per successful drop with the resolved reorder parameters. */
@@ -76,91 +75,98 @@ export interface UseWorkspaceRowDndOptions {
 export interface UseWorkspaceRowDndResult {
   /** ID of the row currently being dragged, or null when not dragging. */
   dragSourceId: string | null;
-  /** Current drop target position, or null when not over a valid target. */
-  dropTarget: DropTarget | null;
+  /** Key of the slot currently being hovered, or null. */
+  activeSlotKey: string | null;
   /**
-   * Returns drag-event props to spread onto a draggable row container div.
-   *
-   * @param rowId    — ID of the workspace this row represents.
-   * @param pinned   — Current pinned state of the workspace.
-   * @param rowGroup — Which section the row lives in ("pinned" | "unpinned").
+   * Returns drag-source props (dragstart/dragend) to spread on a row.
+   * Rows DO NOT receive dragover/drop — those live on slots.
    */
-  getRowDragProps: (
-    rowId: string,
-    pinned: boolean,
-    rowGroup: "pinned" | "unpinned",
-  ) => {
+  getRowDragSourceProps: (rowId: string, pinned: boolean) => {
     draggable: true;
     onDragStart: (e: React.DragEvent<HTMLElement>) => void;
     onDragEnd: (e: React.DragEvent<HTMLElement>) => void;
-    onDragOver: (e: React.DragEvent<HTMLElement>) => void;
-    onDrop: (e: React.DragEvent<HTMLElement>) => void;
-    onDragEnter: (e: React.DragEvent<HTMLElement>) => void;
   };
+  /** Returns drop-target props (dragover/drop) to spread on a slot. */
+  getSlotDropProps: (slot: SlotInfo) => {
+    onDragEnter: (e: React.DragEvent<HTMLElement>) => void;
+    onDragOver: (e: React.DragEvent<HTMLElement>) => void;
+    onDragLeave: (e: React.DragEvent<HTMLElement>) => void;
+    onDrop: (e: React.DragEvent<HTMLElement>) => void;
+  };
+  /**
+   * Returns true when `slot` is suppressed for the current source — used by
+   * the renderer to skip the visual indicator / hit area. When no drag is
+   * in progress this returns false so slots stay neutral.
+   */
+  isSlotSuppressed: (slot: SlotInfo) => boolean;
 }
 
 // ---------------------------------------------------------------------------
-// Pure helper — exported for unit tests
+// Pure helpers — exported for unit tests
 // ---------------------------------------------------------------------------
 
 /**
- * Determines the drop position ("before" or "after") based on the cursor's
- * Y coordinate relative to the target row's bounding rectangle.
- *
- * The row is divided into equal halves: cursor in the top half → "before"
- * (insert above the target), cursor in the bottom half → "after" (insert
- * below the target).
+ * Builds the ordered list of drop slots for one workspace group. For N rows
+ * the result has N+1 slots: one above each row plus one below the last row.
+ * An empty group yields no slots — pinning an unpinned workspace into an
+ * empty pinned group is done via the context menu, not drag.
  */
-export function dropPositionFromCoords(
-  rect: DOMRect,
-  clientY: number,
-): "before" | "after" {
-  const midY = rect.top + rect.height / 2;
-  return clientY < midY ? "before" : "after";
+export function buildSlotsForGroup(
+  group: WorkspaceMeta[],
+  groupKind: "pinned" | "unpinned",
+): SlotInfo[] {
+  if (group.length === 0) return [];
+
+  const slots: SlotInfo[] = [];
+
+  // Top slot — above the first row.
+  slots.push({
+    key: `${groupKind}:top:${group[0].id}`,
+    group: groupKind,
+    beforeId: group[0].id,
+  });
+
+  // Between slots — one per adjacent row pair.
+  for (let i = 0; i < group.length - 1; i += 1) {
+    slots.push({
+      key: `${groupKind}:between:${group[i].id}:${group[i + 1].id}`,
+      group: groupKind,
+      beforeId: group[i + 1].id,
+      afterId: group[i].id,
+    });
+  }
+
+  // Bottom slot — below the last row.
+  slots.push({
+    key: `${groupKind}:bottom:${group[group.length - 1].id}`,
+    group: groupKind,
+    afterId: group[group.length - 1].id,
+  });
+
+  return slots;
 }
 
 /**
- * Detects "ghost" drop positions that would leave the source row exactly
- * where it already is.
- *
- * Two adjacent rows share a single physical gap, but the half-row model
- * produces two indicator placements for it: "after row N" (bottom half of N)
- * and "before row N+1" (top half of N+1). When the source row is one of
- * these neighbors, one of the two placements is a no-op — visible to the
- * user but committing the drop does nothing. Hiding the no-op indicator
- * gives a strict 1:1 mapping between what the user sees and what will move.
- *
- * Cross-group drops are NEVER treated as no-ops because they always carry
- * the side effect of flipping the `pinned` flag.
+ * A slot is no-op for the given source when dropping there would leave the
+ * source at its current position. This is true exactly when both the source
+ * and the slot live in the same group and the slot is one of the source's
+ * direct neighbours (above or below). Cross-group slots always represent a
+ * pin-flag flip, so they are never no-ops.
  */
-export function isNoOpDropPosition(args: {
-  workspaces: WorkspaceMeta[];
-  sourceId: string;
-  targetId: string;
-  position: "before" | "after";
-  targetGroup: "pinned" | "unpinned";
+export function isSlotNoOp(args: {
+  source: WorkspaceMeta;
+  slot: SlotInfo;
 }): boolean {
-  const { workspaces, sourceId, targetId, position, targetGroup } = args;
-  const source = workspaces.find((w) => w.id === sourceId);
-  if (!source) return false;
-
-  // Cross-group drops always change the pinned flag — never a no-op.
+  const { source, slot } = args;
   const sourceGroup: "pinned" | "unpinned" = source.pinned ? "pinned" : "unpinned";
-  if (sourceGroup !== targetGroup) return false;
 
-  // Filter to the source's group to compute adjacency, since the rendered
-  // list interleaves pinned and unpinned but adjacency is per-group.
-  const group = workspaces.filter((w) =>
-    targetGroup === "pinned" ? w.pinned : !w.pinned,
-  );
-  const sourceIdx = group.findIndex((w) => w.id === sourceId);
-  const targetIdx = group.findIndex((w) => w.id === targetId);
-  if (sourceIdx === -1 || targetIdx === -1) return false;
+  // Cross-group drop always changes state (pinned flip) — never a no-op.
+  if (sourceGroup !== slot.group) return false;
 
-  // "before target" at the row directly after source → source stays put.
-  if (position === "before" && targetIdx === sourceIdx + 1) return true;
-  // "after target" at the row directly before source → source stays put.
-  if (position === "after" && targetIdx === sourceIdx - 1) return true;
+  // The slot directly above the source row: dropping there keeps source in place.
+  if (slot.beforeId === source.id) return true;
+  // The slot directly below the source row: same — keeps source in place.
+  if (slot.afterId === source.id) return true;
   return false;
 }
 
@@ -173,53 +179,56 @@ export function useWorkspaceRowDnd({
   onReorder,
 }: UseWorkspaceRowDndOptions): UseWorkspaceRowDndResult {
   const [dragSourceId, setDragSourceId] = useState<string | null>(null);
-  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
+  const [activeSlotKey, setActiveSlotKey] = useState<string | null>(null);
 
-  // Keep a stable ref to onReorder so event handlers capture it without
-  // needing to be recreated every time the callback identity changes.
+  // Stable refs so handlers don't have to be recreated on each prop change.
   const onReorderRef = useRef(onReorder);
   useEffect(() => {
     onReorderRef.current = onReorder;
   });
 
-  // Latest workspaces snapshot in a ref so dragover can run no-op detection
-  // without rebuilding event handlers on every list change.
   const workspacesRef = useRef(workspaces);
   useEffect(() => {
     workspacesRef.current = workspaces;
   });
 
-  // Track current source payload in a ref so dragover / drop handlers can
-  // read it without closing over stale state.
   const sourcePayloadRef = useRef<WorkspaceRowDragPayload | null>(null);
 
-  // Belt-and-suspenders: reset drag state if the user drops outside the
-  // sidebar or the drag is cancelled by the OS.
+  // Belt-and-suspenders: clean up if drag is cancelled or dropped outside.
   useEffect(() => {
     function onDocDragEnd() {
       setDragSourceId(null);
-      setDropTarget(null);
+      setActiveSlotKey(null);
       sourcePayloadRef.current = null;
     }
     document.addEventListener("dragend", onDocDragEnd);
     return () => document.removeEventListener("dragend", onDocDragEnd);
   }, []);
 
-  const getRowDragProps = useCallback(
-    (rowId: string, pinned: boolean, rowGroup: "pinned" | "unpinned") => {
+  /**
+   * Resolves the source row from refs and returns the slot's no-op status
+   * for that source. Returns false if no drag is in progress.
+   */
+  const slotIsSuppressedForCurrentSource = useCallback((slot: SlotInfo): boolean => {
+    const payload = sourcePayloadRef.current;
+    if (!payload) return false;
+    const source = workspacesRef.current.find((w) => w.id === payload.workspaceId);
+    if (!source) return false;
+    return isSlotNoOp({ source, slot });
+  }, []);
+
+  const getRowDragSourceProps = useCallback(
+    (rowId: string, pinned: boolean) => {
       function onDragStart(e: React.DragEvent<HTMLElement>) {
         if (!e.dataTransfer) return;
 
-        const payload: WorkspaceRowDragPayload = {
-          workspaceId: rowId,
-          pinned,
-        };
+        const payload: WorkspaceRowDragPayload = { workspaceId: rowId, pinned };
 
         e.dataTransfer.effectAllowed = "move";
         e.dataTransfer.setData(MIME_WORKSPACE_ROW, JSON.stringify(payload));
 
-        // Use the element itself as drag image anchored at top-left to leave
-        // room for the drop-indicator on the target row.
+        // Use the row element itself as the drag ghost so the cursor stays
+        // anchored to the row content the user is moving.
         e.dataTransfer.setDragImage(e.currentTarget, 0, 0);
 
         sourcePayloadRef.current = payload;
@@ -227,16 +236,26 @@ export function useWorkspaceRowDnd({
       }
 
       function onDragEnd(_e: React.DragEvent<HTMLElement>) {
-        // State reset on dragend — fires whether the drop was accepted or not.
         setDragSourceId(null);
-        setDropTarget(null);
+        setActiveSlotKey(null);
         sourcePayloadRef.current = null;
       }
 
+      return {
+        draggable: true as const,
+        onDragStart,
+        onDragEnd,
+      };
+    },
+    [],
+  );
+
+  const getSlotDropProps = useCallback(
+    (slot: SlotInfo) => {
       function onDragEnter(e: React.DragEvent<HTMLElement>) {
         if (!e.dataTransfer) return;
         if (!hasWorkspaceRowMime(e.dataTransfer.types)) return;
-        // Accept the drag so dragover fires.
+        if (slotIsSuppressedForCurrentSource(slot)) return;
         e.preventDefault();
       }
 
@@ -244,38 +263,24 @@ export function useWorkspaceRowDnd({
         if (!e.dataTransfer) return;
         if (!hasWorkspaceRowMime(e.dataTransfer.types)) return;
 
-        // Required to allow drop on this element.
+        // Suppressed slots don't preventDefault → browser will refuse the
+        // drop and indicator stays hidden.
+        if (slotIsSuppressedForCurrentSource(slot)) {
+          if (activeSlotKey === slot.key) setActiveSlotKey(null);
+          return;
+        }
+
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";
 
-        const rect = e.currentTarget.getBoundingClientRect();
-        const position = dropPositionFromCoords(rect, e.clientY);
+        if (activeSlotKey !== slot.key) setActiveSlotKey(slot.key);
+      }
 
-        // Suppress the indicator when the drop would leave the source in
-        // its current spot. Without this filter the user sees two indicator
-        // positions for one physical gap (after row N vs before row N+1)
-        // and only one of them produces a real movement.
-        const sourcePayload = sourcePayloadRef.current;
-        if (sourcePayload) {
-          const noOp = isNoOpDropPosition({
-            workspaces: workspacesRef.current,
-            sourceId: sourcePayload.workspaceId,
-            targetId: rowId,
-            position,
-            targetGroup: rowGroup,
-          });
-          if (noOp) {
-            setDropTarget(null);
-            return;
-          }
-        }
-
-        setDropTarget((prev) => {
-          if (prev?.rowId === rowId && prev.position === position && prev.targetGroup === rowGroup) {
-            return prev; // no change — avoid spurious re-render
-          }
-          return { rowId, position, targetGroup: rowGroup };
-        });
+      function onDragLeave(_e: React.DragEvent<HTMLElement>) {
+        // Only clear the active slot if it's the one being left; this avoids
+        // flicker when the cursor moves between sibling overlay elements
+        // that all belong to the same slot.
+        if (activeSlotKey === slot.key) setActiveSlotKey(null);
       }
 
       function onDrop(e: React.DragEvent<HTMLElement>) {
@@ -286,53 +291,32 @@ export function useWorkspaceRowDnd({
         e.preventDefault();
         e.stopPropagation();
 
-        const sourceId = payload.workspaceId;
-
-        // Skip if dropped onto itself.
-        if (sourceId === rowId) {
-          setDropTarget(null);
-          return;
-        }
-
-        const rect = e.currentTarget.getBoundingClientRect();
-        const position = dropPositionFromCoords(rect, e.clientY);
-
-        // Mirror onDragOver's no-op filter so a drop that snuck through
-        // (e.g. before the dragover state caught up) still doesn't fire a
-        // useless IPC round-trip.
-        const noOp = isNoOpDropPosition({
-          workspaces: workspacesRef.current,
-          sourceId,
-          targetId: rowId,
-          position,
-          targetGroup: rowGroup,
-        });
-        if (noOp) {
-          setDropTarget(null);
+        if (slotIsSuppressedForCurrentSource(slot)) {
+          setActiveSlotKey(null);
           return;
         }
 
         const args: ReorderArgs = {
-          id: sourceId,
-          targetGroup: rowGroup,
-          ...(position === "before" ? { beforeId: rowId } : { afterId: rowId }),
+          id: payload.workspaceId,
+          targetGroup: slot.group,
+          ...(slot.beforeId ? { beforeId: slot.beforeId } : {}),
+          ...(!slot.beforeId && slot.afterId ? { afterId: slot.afterId } : {}),
         };
 
         onReorderRef.current(args);
-        setDropTarget(null);
+        setActiveSlotKey(null);
       }
 
-      return {
-        draggable: true as const,
-        onDragStart,
-        onDragEnd,
-        onDragEnter,
-        onDragOver,
-        onDrop,
-      };
+      return { onDragEnter, onDragOver, onDragLeave, onDrop };
     },
-    [], // stable — all mutable values read via refs
+    [activeSlotKey, slotIsSuppressedForCurrentSource],
   );
 
-  return { dragSourceId, dropTarget, getRowDragProps };
+  return {
+    dragSourceId,
+    activeSlotKey,
+    getRowDragSourceProps,
+    getSlotDropProps,
+    isSlotSuppressed: slotIsSuppressedForCurrentSource,
+  };
 }

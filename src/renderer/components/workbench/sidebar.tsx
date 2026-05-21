@@ -1,4 +1,5 @@
 import { Folder, Server, X } from "lucide-react";
+import React from "react";
 import { LSP_FEATURE_ENABLED } from "../../../shared/lsp/feature-flag";
 import { Tooltip as RadixTooltip } from "radix-ui";
 import { cn } from "@/utils/cn";
@@ -23,8 +24,12 @@ import {
 import { LspLanguageChip } from "./lsp-language-chip";
 import { PinToggle } from "./pin-toggle";
 import { SidebarResizeHandle } from "./sidebar-resize-handle";
-import { RowDropIndicator } from "./dnd/row-drop-indicator";
-import { useWorkspaceRowDnd } from "./dnd/use-workspace-row-dnd";
+import { RowDropSlot } from "./dnd/row-drop-slot";
+import {
+  buildSlotsForGroup,
+  type SlotInfo,
+  useWorkspaceRowDnd,
+} from "./dnd/use-workspace-row-dnd";
 import { useIpcAction } from "../../hooks/use-ipc-action";
 import { ipcCallResult } from "../../ipc/client";
 import { surfaceError } from "../../services/error-surface/surface-error";
@@ -118,14 +123,21 @@ export function Sidebar({
     });
   }
 
-  // DnD hook — manages drag source / drop target state and produces event-prop
-  // helpers for each row. Cursor styling and opacity are derived from its state.
-  // workspaces is passed so the hook can suppress no-op drop indicators
-  // (drop positions where the source would end up exactly where it started).
-  const { dragSourceId, dropTarget, getRowDragProps } = useWorkspaceRowDnd({
+  // DnD hook — drag source / drop target state for the slot-based DnD model.
+  // workspaces is passed so the hook can suppress no-op slots (those adjacent
+  // to the source row in the same group).
+  const {
+    dragSourceId,
+    activeSlotKey,
+    getRowDragSourceProps,
+    getSlotDropProps,
+    isSlotSuppressed,
+  } = useWorkspaceRowDnd({
     workspaces,
     onReorder: handleReorder,
   });
+
+  const isDragging = dragSourceId !== null;
 
   // Split workspaces into pinned and unpinned groups; the server-returned order
   // within each group is already correct (sort_order / pinned_sort_order ASC).
@@ -133,6 +145,27 @@ export function Sidebar({
   const hasBothGroups = pinnedGroup.length > 0 && unpinnedGroup.length > 0;
   // Show section labels only when both groups are present AND the sidebar is wide enough.
   const showLabels = hasBothGroups && sidebarWidth >= 200;
+
+  // Pre-compute slot lists once per render so renderWorkspaceRow can index in.
+  const pinnedSlots = buildSlotsForGroup(pinnedGroup, "pinned");
+  const unpinnedSlots = buildSlotsForGroup(unpinnedGroup, "unpinned");
+
+  /**
+   * Renders a slot if it's not suppressed for the current source. Returning
+   * null keeps the DOM minimal when nothing should be drop-targetable.
+   */
+  function renderSlot(slot: SlotInfo) {
+    if (isSlotSuppressed(slot)) return null;
+    return (
+      <RowDropSlot
+        key={slot.key}
+        slot={slot}
+        active={activeSlotKey === slot.key}
+        isDragging={isDragging}
+        dropProps={getSlotDropProps(slot)}
+      />
+    );
+  }
 
   /**
    * Renders a single workspace row with all overlay buttons (Pin, Remove),
@@ -143,11 +176,9 @@ export function Sidebar({
    * Remove button carry draggable={false} so pointer-down on them never
    * initiates a drag.
    */
-  function renderWorkspaceRow(ws: WorkspaceMeta, rowGroup: "pinned" | "unpinned") {
+  function renderWorkspaceRow(ws: WorkspaceMeta) {
     const isActive = ws.id === activeWorkspaceId;
     const isDragSource = dragSourceId === ws.id;
-    const isDropBefore = dropTarget?.rowId === ws.id && dropTarget.position === "before";
-    const isDropAfter = dropTarget?.rowId === ws.id && dropTarget.position === "after";
 
     const isSsh = ws.location.kind === "ssh";
     const Icon = isSsh ? Server : Folder;
@@ -171,7 +202,7 @@ export function Sidebar({
       : ws.rootPath;
 
     const enabledLanguages = lspByWorkspace[ws.id] ?? [];
-    const rowDragProps = getRowDragProps(ws.id, ws.pinned, rowGroup);
+    const rowDragProps = getRowDragSourceProps(ws.id, ws.pinned);
 
     return (
       <ContextMenuRoot key={ws.id}>
@@ -185,15 +216,12 @@ export function Sidebar({
           */}
           <div
             className={cn(
-              "relative group mx-2 my-0.5",
+              "relative group mx-2",
               "cursor-grab",
               isDragSource && "cursor-grabbing opacity-40",
             )}
             {...rowDragProps}
           >
-            {/* Drop indicator bar — shown above this row when cursor is in top half. */}
-            {isDropBefore && <RowDropIndicator position="before" />}
-
             <button
               type="button"
               aria-current={isActive ? "page" : undefined}
@@ -289,9 +317,6 @@ export function Sidebar({
             >
               <X className="size-3" aria-hidden="true" />
             </button>
-
-            {/* Drop indicator bar — shown below this row when cursor is in bottom half. */}
-            {isDropAfter && <RowDropIndicator position="after" />}
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
@@ -329,13 +354,21 @@ export function Sidebar({
         )}
         <RadixTooltip.Provider delayDuration={UI_TOOLTIP_DELAY_MS}>
           <div className="py-3 flex-1 overflow-y-auto app-scrollbar">
-            {/* Pinned group — rendered first; always float to the top of the list. */}
+            {/* Pinned group — rendered first; always float to the top of the list.
+                For N rows, pinnedSlots has N+1 entries; the indices align as
+                [slot 0, row 0, slot 1, row 1, ..., row N-1, slot N]. */}
             {showLabels && pinnedGroup.length > 0 && (
               <div className="text-app-micro text-muted-foreground tracking-wide uppercase px-4 py-1">
                 Pinned
               </div>
             )}
-            {pinnedGroup.map((ws) => renderWorkspaceRow(ws, "pinned"))}
+            {pinnedGroup.length > 0 && renderSlot(pinnedSlots[0])}
+            {pinnedGroup.map((ws, i) => (
+              <React.Fragment key={ws.id}>
+                {renderWorkspaceRow(ws)}
+                {renderSlot(pinnedSlots[i + 1])}
+              </React.Fragment>
+            ))}
 
             {/* Gap + optional "Recent" label between groups — only when both are non-empty. */}
             {hasBothGroups && (
@@ -344,7 +377,13 @@ export function Sidebar({
               </div>
             )}
 
-            {unpinnedGroup.map((ws) => renderWorkspaceRow(ws, "unpinned"))}
+            {unpinnedGroup.length > 0 && renderSlot(unpinnedSlots[0])}
+            {unpinnedGroup.map((ws, i) => (
+              <React.Fragment key={ws.id}>
+                {renderWorkspaceRow(ws)}
+                {renderSlot(unpinnedSlots[i + 1])}
+              </React.Fragment>
+            ))}
           </div>
         </RadixTooltip.Provider>
 
