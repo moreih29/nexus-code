@@ -59,11 +59,19 @@ func TestServerNDJSONAndSIGTERM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !scanner.Scan() {
-		t.Fatalf("missing escape response: %v", scanner.Err())
+	// agent.hookServerReady 이벤트가 Ready frame 직후 emit될 수 있으므로
+	// id:"escape" 응답이 올 때까지 이벤트 프레임을 건너뛴다.
+	var line string
+	for {
+		if !scanner.Scan() {
+			t.Fatalf("missing escape response: %v", scanner.Err())
+		}
+		line = scanner.Text()
+		if strings.Contains(line, `"id":"escape"`) {
+			break
+		}
 	}
-	line := scanner.Text()
-	if !strings.Contains(line, `"id":"escape"`) || !strings.Contains(line, `"error":{"code":"OUT_OF_WORKSPACE"`) {
+	if !strings.Contains(line, `"error":{"code":"OUT_OF_WORKSPACE"`) {
 		t.Fatalf("escape response mismatch: %s", line)
 	}
 

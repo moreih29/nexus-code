@@ -17522,6 +17522,468 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-21T06:29:56.331Z",
+      "branch": "feat/claude-code-hook-integration",
+      "plan": {
+        "id": 56,
+        "topic": "Claude Code 인앱 알림 + 워크스페이스/탭 인디케이터 구현",
+        "issues": [
+          {
+            "id": 1,
+            "title": "claude 래퍼 스크립트 — 위치/PATH 주입/dev·packaged 모두 동작",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "래퍼 위치: dist/agent/bin/claude (옵션 a) 권고. scripts/build-agent.ts 단일 빌드 파이프라인에 흡수, packaged 시 agent 동봉 규칙과 동일. (b) resources/bin은 산출물 위치 이원화로 분기 비용, (c) 런타임 추출은 무결성/race 부담으로 과설계. PATH 주입은 harness-env.ts(이미 TERM_PROGRAM 주입 패턴). 경로 분기는 getAgentBinDir() 헬퍼 1곳에 — dev는 app.getAppPath()/dist/agent/bin, packaged는 process.resourcesPath/agent/bin. 진짜 claude는 래퍼가 PATH split + realpath 비교로 self skip(cmux 패턴), main이 NEXUS_SELF_DIR env로 비교 단순화. settings 전달은 --settings <임시파일경로> — inline JSON은 argv 한계(Linux 128KB) + ps 노출. 임시 파일은 app.getPath('userData')/run/<pid>/settings.json + 종료 cleanup.",
+                "recorded_at": "2026-05-21T04:51:42.538Z",
+                "agent_id": "ad2e8dbe9a1554c63"
+              },
+              {
+                "role": "failure-note",
+                "summary": "T10 verify에서 발견된 critical JSON 이슈: scripts/assets/claude-wrapper.sh:51의 HOOK_CMD_PREFIX=\"\\\"$HOOK_BIN\\\" hook\"를 heredoc에 substitute하면 생성 JSON이 `\"command\":\"\"/path/to/agent\" hook session-start\"`가 되어 invalid JSON. JSON.parse 실패 → Claude Code가 hooks 등록 자체를 거부할 가능성 높음. 재현 확인: bun JSON.parse 결과 빈 출력. Fix 필요: HOOK_BIN을 JSON-escape하거나 jq로 settings JSON 생성. wrapper 단위 테스트로 생성 JSON valid JSON parse 가능 검증 추가 필요.",
+                "recorded_at": "2026-05-21T06:23:29.401Z",
+                "agent_id": "a4e828be89db16415"
+              }
+            ],
+            "decision": "**선택: dist/agent/bin/claude bash 래퍼 + scripts/build-agent.ts에서 함께 빌드/배치 + harness-env.ts에서 PATH prepend**\n\n구현 디테일:\n- 래퍼 위치: scripts/build-agent.ts에 `copyClaudeWrapper()` 단계 추가, 소스 `scripts/assets/claude-wrapper.sh`를 `dist/agent/bin/claude`로 chmod +x 복사. manifest.json에도 등재.\n- 경로 헬퍼: src/main/infra/agent/local-agent-resolver.ts 옆에 `getAgentBinDir(): string` 추가. 분기는 `app.isPackaged ? path.join(process.resourcesPath, \"agent/bin\") : path.join(LOCAL_AGENT_DIST_DIR, \"bin\")`.\n- PATH 주입: harness-env.ts의 injectHarnessTerminalEnv()를 확장해 입력 env의 PATH 맨 앞에 getAgentBinDir() prepend. 호출자가 이미 설정한 PATH가 있으면 그 뒤에 붙음.\n- env 추가 (역시 harness-env.ts):\n  - `NEXUS_IN_APP=1` — 래퍼가 \"in-app 환경\" 감지용 (cmux의 CMUX_SURFACE_ID 역할)\n  - `NEXUS_WRAPPER_SELF_DIR=<getAgentBinDir()>` — 래퍼가 PATH 순회하며 self skip 비교용\n  - `NEXUS_AGENT_SOCKET=<path>` + `NEXUS_HOOK_TOKEN=<nonce>` — Axis B hook receiver 인증용\n  - `NEXUS_WORKSPACE_ID`, `NEXUS_TAB_ID` — hook가 어느 탭 상태인지 식별\n- 래퍼 스크립트(scripts/assets/claude-wrapper.sh): cmux의 Resources/bin/claude를 단순화하여 (i) NEXUS_IN_APP=1 검사 → 아니면 진짜 claude passthrough, (ii) self-skip하며 PATH 순회로 진짜 claude 발견, (iii) settings JSON을 임시파일에 작성 후 `--settings <path> --session-id <uuidgen>` exec. cmux의 Vertex/Bedrock auth 보존 로직은 1차 범위 제외(필요 시 후속).\n- settings JSON 내용: 다음 issue #4·#6에서 결정. 1차에는 hook 명령 = `<getAgentBinDir()>/../agent-<plat>-<arch> hook <subcmd>` 형태(절대경로). NEXUS_HOOK_TOKEN/SOCKET은 hook 프로세스에 env로 자동 전파.\n\n**기각:**\n- (b) resources/bin 별도 디렉토리 — agent 산출물과 위치가 갈라져 build/runtime 분기가 두 군데 생김. 단일 파이프라인 원칙 위반.\n- (c) 런타임 임시 디렉토리 추출 — 무결성 검증·버전 관리·race 부담. 직접 동봉으로 해결 가능한 문제에 과설계.\n- inline JSON --settings — argv 길이 한계 + ps 출력 노출(토큰 누설 위험).\n\n**가정:**\n- electron-builder 도입 시 `extraResources`로 `dist/agent`를 `process.resourcesPath/agent`로 매핑할 것이라는 전제. 패키징 구체화는 별도 사이클.\n- macOS/Linux 1차. Windows는 .cmd 변형 필요하지만 후속.</decision>\n</invoke>"
+          },
+          {
+            "id": 2,
+            "title": "hook receiver — Go agent 서브커맨드 vs 별도 IPC 채널",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "hook receiver: Go agent에 hook 서브커맨드 추가 (옵션 a) 권고. agent 바이너리 1개 재사용, NDJSON 채널 기존 인프라 활용, sync 응답이 agent↔main 기존 request/reply로 자연스러움. (b) main 별도 Unix 소켓 listener는 채널 중복 + main 표면 증가, (c) HTTP는 포트 충돌·로컬 보안 약함, (d) FIFO는 양방향 sync 어려움+Win 불가로 모두 기각. 위조 방어: 부모 agent가 ENV로 NEXUS_AGENT_SOCKET + NEXUS_HOOK_TOKEN(spawn별 nonce) 주입, 토큰 미일치 시 즉시 거부. Sync PermissionRequest 흐름: hook 프로세스 stdin JSON → 부모 agent에 hook_request NDJSON → main → renderer 결정 UI → 사용자 응답 → main → agent → hook stdout JSON write → exit. 125s blocking은 agent in-flight request map에 correlation id로 보관.",
+                "recorded_at": "2026-05-21T04:52:21.315Z",
+                "agent_id": "ad2e8dbe9a1554c63"
+              }
+            ],
+            "decision": "**선택: Go agent에 `hook` 서브커맨드 추가**\n\n구현 골격:\n- `cmd/agent/main.go`의 첫 줄에서 argv[1] 분기 — `askpassExitFromArgv` 옆에 `if os.Args[1] == \"hook\" { os.Exit(runHookClient(os.Args[2:])) }` 추가.\n- 새 패키지 `internal/hookclient/`에 `Run(subcommand string)` 추가. 책임:\n  1. ENV에서 `NEXUS_AGENT_SOCKET`, `NEXUS_HOOK_TOKEN`, `NEXUS_WORKSPACE_ID`, `NEXUS_TAB_ID` 읽기 — 미설정 시 stdin 그냥 drain 후 exit 0 (claude를 죽이지 않음).\n  2. stdin에서 JSON payload 읽기 (Claude Code가 보낸 hook 이벤트).\n  3. 부모 agent 프로세스의 Unix 도메인 소켓(`NEXUS_AGENT_SOCKET`)에 connect.\n  4. NDJSON 요청 송신: `{\"type\":\"hook\",\"token\":\"...\",\"subcommand\":\"notification\",\"workspaceId\":\"...\",\"tabId\":\"...\",\"payload\":{...}}`.\n  5. 응답 NDJSON line 1개 대기 — `{ok:true, stdout?:string, exitCode?:number}`. sync hook(PermissionRequest)은 stdout JSON을 그대로 stdout으로 write, 비동기 hook은 그냥 exit 0.\n  6. 타임아웃: PermissionRequest는 130s, 그 외 15s. 초과 시 stderr 경고 + exit 1 (Claude Code는 hook 실패를 무시).\n- 부모 agent 측 서버는 issue #3에서 정의.\n- 인증: 토큰 일치 + workspaceId/tabId가 agent가 알고 있는 spawn한 PTY 세션과 일치해야 처리. 불일치 시 즉시 close.\n\n**기각:**\n- (b) main 별도 Unix 소켓 listener — main에 새로운 transport+프로토콜 추가, 경로 race, ENV 누출 시 외부 위조 가능성. 우리는 이미 main↔agent IPC를 가지고 있는데 같은 일을 하는 채널을 둘로 늘리는 건 책임 분리가 아니라 중복.\n- (c) HTTP localhost — 포트 충돌, 모든 로컬 프로세스가 접근 가능(브라우저 fetch도 가능). 보안 약함.\n- (d) FIFO — 양방향 sync 응답 구현 까다로움, Windows 불가.\n\n**가정:**\n- agent가 PTY를 spawn할 때 Unix 도메인 소켓을 새로 listen해야 함 (현재는 stdin/stdout NDJSON만 사용). 이건 issue #3에서 다룬다 — 기존 agent dispatch에 hook 채널을 어떻게 연결할지.\n- agent 바이너리가 hook 서브커맨드로 호출되었을 때 일반 PTY/FS/Git 등 서비스를 init 하지 않아야 함 (빠른 시작). argv 분기를 최상단에서 처리하면 자연스럽게 보장됨.</decision>\n"
+          },
+          {
+            "id": 3,
+            "title": "hook → main IPC 경로 + workspace/tab id 전달 메커니즘",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Hook IPC 경로: agent에 별도 Unix 소켓 listen이 유일한 답(parent fd 노출은 보안/lifetime 위험). 신규 internal/hookserver 패키지 — os.TempDir()/nexus-agent-<workspaceIdHash>.sock, perm 0600, agent 시작 시 listen / 종료 시 unlink. ENV `NEXUS_AGENT_SOCKET`+`NEXUS_HOOK_TOKEN` 주입(Axis A 결정 재사용). hook 프로세스 연결당 1개 NDJSON 프레임 → agent가 hookId=uuid 부여 → in-flight map{hookId→conn} 등록 → main으로 EmitEvent `claude.hook` 페이로드 `{hookId, workspaceId, tabId, subcommand, payload}` push. 연결은 응답 올 때까지 open 유지(125s blocking 수용). 응답 경로: main→agent dispatch 신규 메서드 `claude.respondHook { hookId, response }` → agent map에서 conn 꺼내 stdout JSON write → conn close → hook 프로세스 exit. agent 측 120s deadline → 누락 시 default deny write 후 close. 주의: macOS socket path 104자 제한 — workspaceId UUID 전체 대신 short hash 사용.",
+                "recorded_at": "2026-05-21T04:54:08.533Z",
+                "agent_id": "ad2e8dbe9a1554c63"
+              }
+            ],
+            "decision": "**선택: agent에 별도 Unix 도메인 소켓 listener + main↔agent에 신규 `claude.hook` push 이벤트 + `claude.respondHook` dispatch 메서드**\n\n구현 골격:\n- `internal/hookserver/` 신규 패키지:\n  - `New(workspaceId string, eventSink func(name string, payload any) error)`로 생성. agent 시작 직후 listen.\n  - 소켓 경로: `os.TempDir() + \"/nexus-agent-\" + shortHash(workspaceId, pid) + \".sock\"` — macOS 104자 제한 회피용 short hash(workspaceId UUID + pid의 12-char sha256 prefix). `os.Remove` 후 listen, perm 0600.\n  - 단일 NDJSON 프레임/conn 프로토콜. 요청 검증: `{type:\"hook\", token, workspaceId, tabId, subcommand, payload}` zod-equivalent struct unmarshal.\n  - 토큰 비교 후 hookId(uuid) 발급, in-flight map `map[string]net.Conn` 보관(mutex 보호), eventSink로 `claude.hook` 이벤트 push.\n  - 120s context deadline — 초과 시 default `{permissionDecision:\"deny\", reason:\"timeout\"}` write 후 close.\n  - agent 종료 시 listener close + 소켓 unlink.\n- agent 토큰/소켓 path는 main이 PTY spawn 시 ENV로 함께 넘기지 않고, agent가 자체 생성해 main에 한 번 보고 → main이 캐시 → harness-env.ts가 spawn 시 PTY env로 주입. 이렇게 하면 토큰이 main 소유.\n  - 신규 agent→main 이벤트 `agent.hookServerReady { socketPath, token }` (workspace당 1회, agent boot 시).\n  - main은 agent당 1개 entry로 캐시. PTY spawn 시 env injection 함수가 캐시에서 읽어 inject.\n- dispatch 신규 inbound 메서드 `claude.respondHook { hookId, response: {stdout?, exitCode?} }`. agent는 map에서 conn 꺼내 응답 write + close + delete from map.\n- ipcContract 추가: `claude` 채널의 push 이벤트 `hookRequest { hookId, workspaceId, tabId, subcommand, payload }` (main→renderer 전파는 status broker에서) + main→agent call `respondHook { hookId, response }`.\n\n**기각:**\n- main이 직접 listen — 이전 issue #2에서 기각된 이유 동일(채널 중복).\n- hook 프로세스가 부모 stdin/stdout 공유 — 기술적으로 fd 상속 강제 불가, 보안/lifetime 문제.\n- 토큰 main 측 생성 후 ENV로 agent에 push — 토큰을 두 군데 동기화하느니 agent가 본인이 생성 후 보고하는 게 source-of-truth 단일.\n\n**가정:**\n- agent dispatch는 현재 main→agent call 양방향 지원함(internal/dispatch). 신규 메서드 등록은 internal/{claude|pty}/register.go에서 dispatch 등록과 동일 패턴. 만약 미지원이면 dispatch 자체 확장 필요(별도 task).</decision>\n"
+          },
+          {
+            "id": 4,
+            "title": "main 측 Claude status broker — 상태 enum + 이벤트 broadcast",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Status broker: enum 5상태 `running | idle | needsInput | permissionPending | error` — cmux 4상태에서 permissionPending 분리(modal UI/우선순위/단축키 축이 일반 needsInput과 다름). store consumer는 `isAttentionRequired = needsInput || permissionPending` helper로 합쳐 사용해 디자인 복잡도 흡수. persist 없음 — Claude Code 재시작 시 idle 복귀이므로 stale 복원은 잘못된 정보. 메모리 only Map<workspaceId+tabId, State>. 위치는 src/main/features/claude/status.ts — pty는 transport, claude는 도메인(Cohesion). 채널은 신규 `claude` + `status` 이벤트, pty 채널 확장은 의미 오염. 페이로드 schema: `{workspaceId, tabId, status, message?, since: number}` (Date.now ms). zod는 shared/ipc/contract.ts 확장. tab close 시 broker에서 entry 제거 — leak 방지로 pty exit 이벤트 구독 필수.",
+                "recorded_at": "2026-05-21T04:54:18.244Z",
+                "agent_id": "ad2e8dbe9a1554c63"
+              }
+            ],
+            "decision": "**선택: 5-상태 enum `running | idle | needsInput | permissionPending | error` + 메모리 only + src/main/features/claude/status.ts + 신규 `claude` IPC 채널 + `status` 이벤트 broadcast**\n\n구현 골격:\n- 상태 enum (zod):\n  ```ts\n  // src/shared/claude/status.ts\n  export const ClaudeStatusSchema = z.enum([\n    \"idle\",              // 세션 종료 후 또는 Stop hook 직후\n    \"running\",           // SessionStart / UserPromptSubmit / PreToolUse\n    \"needsInput\",        // Notification hook (60s idle 등 일반 입력 대기)\n    \"permissionPending\", // PermissionRequest hook 진행 중 (sync, 사용자 결정 대기)\n    \"error\",             // Claude Code 비정상 종료 / hook 실패 등\n  ]);\n  ```\n- broker 위치: `src/main/features/claude/` 신규 폴더 — `status.ts`(broker), `ipc.ts`(채널 등록), `index.ts`(barrel). pty는 transport / claude는 도메인이라 축이 다름.\n- broker 인터페이스:\n  ```ts\n  class ClaudeStatusBroker {\n    set(workspaceId: string, tabId: string, status: ClaudeStatus, message?: string): void;\n    get(workspaceId: string, tabId: string): { status: ClaudeStatus; message?: string; since: number } | null;\n    clear(workspaceId: string, tabId: string): void;\n    snapshot(): Array<{ workspaceId, tabId, status, message?, since }>;\n  }\n  ```\n  - 내부 저장: `Map<\"${workspaceId}:${tabId}\", State>` 메모리 only.\n  - set 시 변경 있을 때만 broadcast(`claude` 채널, `status` 이벤트, payload `{workspaceId, tabId, status, message?, since}`).\n- pty exit 이벤트 구독: agentHost.on(\"exit\", ...)에서 `broker.clear(workspaceId, tabId)` 호출 → leak 방지. tab close도 같은 경로(pty exit이 선행됨).\n- renderer snapshot 동기화: 신규 IPC call `claude.snapshot()` → 현재 모든 (ws,tab) 상태 반환. renderer가 store init 시 1회 호출, 이후 status broadcast로 incremental 업데이트.\n- ipcContract 확장(`src/shared/ipc/contract.ts`):\n  - `claude.call.snapshot: { args: z.object({}), result: z.array(StatusEntrySchema) }`\n  - `claude.listen.status: StatusEntrySchema`\n  - `claude.listen.hookRequest: HookRequestSchema` (PermissionRequest 전용, issue #6에서 결정)\n- hook 이벤트 → broker 매핑 (status.ts 내부):\n  | hook subcommand | 결과 상태 | 부가 |\n  |---|---|---|\n  | session-start | running | message=null |\n  | user-prompt-submit | running | 알림 제거 |\n  | pre-tool-use | running (sync) | 알림 제거, 응답 즉시 `{}` |\n  | notification | needsInput | message=hook.payload.message |\n  | permission-request | permissionPending | 사용자 결정 대기, issue #6에서 처리 |\n  | stop | idle | 알림 제거 |\n  | session-end | (entry 제거) | clear |\n\n**기각:**\n- 4상태(cmux 동일) — permission과 일반 input 대기는 UI 우선순위/표현이 다름. helper(`isAttentionRequired`)로 합치는 건 가능하되 enum은 분리가 정보 보존 측면에서 우월.\n- persist (~/.nexus-code/claude-sessions.json 같은 디스크 저장) — Claude Code가 재시작 시 항상 idle이므로 stale 상태 복원은 잘못된 정보 표출. 메모리만으로 충분.\n- pty 채널 확장(spawn/data/exit + status) — pty는 transport 추상화, status는 도메인 의미. 한 채널에 묶으면 schema가 의미별로 갈라져 zod union이 비대해짐.\n\n**가정:**\n- 워크스페이스 close 시 agentHost teardown이 PTY exit를 fan-out으로 발사 → broker가 자동 cleanup. 만약 비정상 종료 경로가 이를 보장하지 않으면 workspace 제거 hook(GlobalStorage.workspaces:removed)에서도 broker.clear를 호출해야 함.</decision>\n"
+          },
+          {
+            "id": 5,
+            "title": "renderer 인디케이터 UI — 위치/형태/SSH dot과 시각 분리",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "위치는 탭+사이드바 동시 표시(옵션 C) — 탭은 정밀(어느 탭), 사이드바는 집계(어느 워크스페이스). 형태는 **SSH dot(원형 채움) vs Claude lucide 외곽선 글리프**로 형태 차원에서 분리(색이 아니라 형태). 상태별 매핑: idle=숨김, running=`loader` 정적(회전 X) + `state.loading.indicator`, needsInput=`circle-dot` + 신규 `tab.claude.attention.fg`(info hue), permissionPending=`circle-alert` + `state.warning.fg` + 탭 좌측 2px attention indicator bar + 탭 배경 미세 tint, error=`triangle-alert` + `state.error.fg`. running은 spinner 금지(§7 위반, PTY 출력이 이미 모션). 사이드바 집계는 워크스페이스 행 오른쪽 끝에 가장 긴급 1개 글리프 + 카운트≥2이면 appMicro 11px 숫자. 우선순위: permissionPending > error > needsInput > running. ARIA live region: 탭바 polite, permissionPending만 assertive 고려. 새 토큰(`tab.claude.running.fg`, `tab.claude.attention.fg`, `tab.attention.indicator`)은 semantic.ts 추가 + 10개 테마 전수 정의 필요. 기각: A(탭만)·B(사이드바만)는 정밀↔집계 한쪽 누락, D(running spinner)는 §7 모션 절제 위반.",
+                "recorded_at": "2026-05-21T04:57:46.988Z",
+                "agent_id": "aa2a5e38eb50adc4f"
+              }
+            ],
+            "decision": "**선택: 탭+사이드바 동시 표시(designer 권고안 채택), SSH는 원형 채움 dot · Claude는 lucide 외곽선 글리프로 형태 차원 분리**\n\n핵심 디테일:\n- **탭 인디케이터** (`src/renderer/components/workspace/tabs/tab-item.tsx`):\n  - 라벨 왼쪽 8px 갭으로 12px lucide 글리프(`size-3`) 배치.\n  - 상태별 글리프/토큰:\n    | 상태 | 글리프(lucide) | 색 토큰 | 부가 |\n    |---|---|---|---|\n    | idle | (숨김) | — | 슬롯 자체 미렌더 |\n    | running | `loader` (정적) | `state.loading.indicator` | 글리프만 |\n    | needsInput | `circle-dot` | `tab.claude.attention.fg` (info hue, 신규) | inactive 탭에 2px left bar |\n    | permissionPending | `circle-alert` | `state.warning.fg` | 2px left bar + `state.warning.bg` 6% tint |\n    | error | `triangle-alert` | `state.error.fg` | 2px left bar |\n  - 활성 탭은 글리프 풀톤, **inactive 탭도 풀톤 유지**(attention은 inactive에서 더 강해야 함).\n  - `aria-label`: \"Claude: waiting for permission\" 등 상태별 명시 (lucide aria-hidden 기본을 override).\n\n- **사이드바 워크스페이스 행 집계** (`src/renderer/components/workbench/sidebar.tsx`):\n  - 위치: 워크스페이스 행 **오른쪽 끝**(`absolute right-2 top-1/2 -translate-y-1/2` 또는 flex의 마지막 child). SSH dot은 기존대로 워크스페이스 아이콘 우하단 유지 — **위치 자체가 다르므로 즉시 분리 인지**.\n  - 표시 조건: 해당 워크스페이스의 탭 중 attention 필요(`needsInput | permissionPending | error`)가 있을 때 가장 긴급 1개만 글리프로. running-only는 표시 안 함(워크스페이스 행이 너무 시끄러워짐).\n  - 우선순위: `permissionPending > error > needsInput`.\n  - 카운트 ≥ 2이면 글리프 옆에 `appMicro`(11px) 숫자 (예: \"⚠ 2\"). primitive 토큰 없이 `text-(--color-...)` 직접 사용 금지 — 컴포넌트는 `appMicro` 역할 토큰 참조.\n\n- **inactive 탭 attention indicator bar**:\n  - 탭 좌측 2px 직각 bar (`rounded-none`), neutral selected indicator(3px, `state.selected.indicator`)와 두께/색 모두 분리.\n  - 신규 토큰 `tab.attention.indicator` — needsInput=info hue, permissionPending=warning hue, error=error hue로 셋업.\n\n- **신규 semantic 토큰** (10개 테마 전수 정의 필요):\n  - `tab.claude.running.fg`\n  - `tab.claude.attention.fg` (info hue, SSH connecting 노랑과 명백히 다른 cyan/blue 계열)\n  - `tab.attention.indicator` (좌측 bar 색)\n  - `state.warning.fg`, `state.warning.bg`가 이미 §10에 정의되어 있으면 재사용, 없으면 별도 추가.\n\n- **모션**: running spinner 금지(§7 + PTY 출력 자체가 모션). 상태 전이는 `motion.fade` 150~220ms.\n\n- **a11y**:\n  - 탭바 컨테이너 `role=\"status\" aria-live=\"polite\"`. permissionPending 전이만 가상 ARIA assertive 토스트로 보강 검토(별도 task).\n  - WCAG 본문 4.5:1 / UI 3:1 게이트는 신규 토큰이 10개 테마 모두에서 통과해야 함.\n\n**기각:**\n- A(탭만 표시) — 워크스페이스 비활성/사이드바만 보일 때 부름 놓침.\n- B(사이드바만 표시) — 어느 탭인지 알려면 추가 클릭, 멀티탭 IDE 정합성 부족.\n- D(running을 spinner로) — §7 모션 절제 위반 + PTY 출력 모션과 중복.\n- SSH dot과 같은 위치/같은 형태로 색만 다르게 → 의미 충돌(designer CRITICAL 지적).\n\n**가정:**\n- 신규 토큰을 10개 테마(github-dark/light, dracula, one-dark-pro, monokai, tokyo-night, solarized-dark, nord, catppuccin-mocha, gruvbox-dark) 모두 정의하는 작업은 별도 sub-task로 분리(`theme-sources.ts` ThemeSource 레코드 확장).\n- info hue가 모든 테마에서 connecting 노랑과 시각적으로 분명히 다른지 reviewer 검증 필요.</decision>\n"
+          },
+          {
+            "id": 6,
+            "title": "PermissionRequest sync hook 처리 — 1차 범위 포함 여부",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "PermissionRequest 1차 범위는 옵션 (3) passthrough + permissionPending 상태만. 근거: 평가 기준 1순위가 단순성, 모달/단축키/도구컨텍스트는 부피 크고 호환성 깨기 어려움. native PTY prompt 이미 잘 동작하므로 사용자 가치 손실은 UX 개선분에 한정. 1차 포함 경계: 양방향 소켓 + claude.respondHook dispatch(인프라 비용 낮음, 빼면 재설계), permissionPending enum + attention indicator(사용자 시선 신호로 가치), main handler가 PermissionRequest 수신 즉시 `{permissionDecision:\"passthrough\"}` 응답(또는 spec 동등한 skip-hook 값). 제외: 모달 UI, allow/deny 단축키, allow once/always 정책 저장, 도구별 컨텍스트 패널 — permission domain 모듈 placeholder만 두고 후속 PR. 기각 (1) 풀구현(범위 초과), (2) 인프라 제거(재설계 비용 더 큼). 주의: passthrough 응답값은 Claude Code hook 스펙 확인 필요 — 미확인 시 응답 생략 + 짧은 timeout으로 native prompt에 자연 fallback도 동등.",
+                "recorded_at": "2026-05-21T04:59:44.439Z",
+                "agent_id": "ad2e8dbe9a1554c63"
+              }
+            ],
+            "decision": "**선택: 옵션 (3) askPassthrough — 양방향 인프라+permissionPending 상태+attention 인디케이터까지는 1차 포함, 사용자 결정 UI(모달/단축키/도구 컨텍스트)는 후속 PR**\n\n1차 포함 경계:\n- ✅ 양방향 Unix 소켓 (`internal/hookserver`)\n- ✅ dispatch 신규 메서드 `claude.respondHook { hookId, response }`\n- ✅ broker enum의 `permissionPending` 상태\n- ✅ 탭/사이드바 attention indicator (designer 결정대로 `circle-alert` + warning hue + 좌측 bar + 배경 tint)\n- ✅ macOS Notification 발사 (focus 분기는 기존 osc-notification.ts 패턴 그대로 — title=\"[workspace name] Claude needs permission\", body=hook payload의 tool 이름 등 가능한 컨텍스트)\n- ✅ main 측 handler가 PermissionRequest hook 수신 즉시 응답 송신:\n  - 1차 응답 정책: Claude Code의 hook spec을 별도 task로 확인 후, \"passthrough\"에 해당하는 응답값을 박는다. **확인 실패 시엔 응답을 생략하고 짧은 timeout(2~3초)으로 처리 → Claude Code가 native PTY prompt로 자연 fallback**.\n  - 이렇게 하면 사용자는 (1) 우리 알림 + 인디케이터로 \"결정 필요\" 인지 → (2) 탭으로 이동 → (3) PTY에서 native prompt에 답변. UX 흐름이 깨지지 않음.\n\n❌ 후속 PR (placeholder만 두고 1차 제외):\n- 인앱 modal/inline panel UI (\"Allow / Deny / Allow once\" 버튼)\n- 키보드 단축키\n- 도구별 컨텍스트 패널 (어떤 도구를 어떤 인자로 부르려는지 풍부한 표시)\n- Allow once/always 정책 저장\n- `src/main/features/claude/permission.ts` 파일은 1차에서 생성하되 `handlePermissionRequest()` 함수 안에 TODO 주석으로 \"후속 PR에서 modal UI 호출\" 명시. 1차에서는 timeout passthrough만.\n\n**기각:**\n- 옵션 (1) 풀구현 — 1차 범위 초과, 디자인 부재 상태에서 출시 후 UX 변경 비용 큼.\n- 옵션 (2) 인프라 제거 — 양방향 소켓을 나중에 다시 뚫는 비용이 1차 절약분보다 큼. permissionPending 상태도 빼면 enum 변경이 ipc-contract zod까지 흔들고 향후 추가 비용 +α.\n\n**가정:**\n- Claude Code의 PermissionRequest hook 응답 spec 확인이 별도 micro-task로 분리됨(researcher 사용). 확인 결과에 따라 응답값 결정.\n- \"Allow once/always\" 정책은 후속 사이클에서 별도 plan 세션으로.</decision>\n"
+          },
+          {
+            "id": 7,
+            "title": "OSC 알림과 hook 알림 통합 — preferredNotifChannel + osc-notification.ts fallback 정책",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "알림 채널 통합은 옵션 (1) — `preferredNotifChannel: \"notifications_disabled\"`를 settings JSON에 주입, hook 단일 채널. 근거: dedupe(옵션 2)는 두 source의 timing/payload 차이로 영구 race, fallback(옵션 3)은 \"어떤 경로가 정상인가\" 정의가 흐려지고 분기마다 테스트 매트릭스 2배(Visibility 손상). 조건: osc-notification.ts는 **삭제하지 말고 유지** — (i) claude 외 다른 CLI(일반 shell/agent 보조 프로세스)가 OSC 9/777 보낼 수 있어 PTY 알림 채널로 의미 재정의, (ii) 향후 claude 외 도구 재사용. claude 워크스페이스에서 OSC와 hook 알림 중복 발사 없음을 검증할 통합 테스트 1개 필요. 기각 (2) dedupe(race+ROI 음수), (3) fallback(in-app 감지 실패는 버그 신호인데 가리면 진단 어려움, native PTY prompt가 사용자 무알림 방지). 주의: settings 키 이름 `preferredNotifChannel`은 cmux 관찰값 — Claude Code 실제 스펙 확인 필요.",
+                "recorded_at": "2026-05-21T04:59:55.004Z",
+                "agent_id": "ad2e8dbe9a1554c63"
+              },
+              {
+                "role": "retrospective",
+                "summary": "Cycle 완결 검토 — 원 요청(claude 알림 + 워크스페이스/탭 표시 + SSH 인디케이터 분리) scope 내 누락 없음. 11개 task 모두 verify pass(typecheck 0, 단위 33+34+28+23+4+17 = 139 신규 pass, Go race + build pass, 통합 17 pass). T10 verify가 JSON escape critical을 사이클 내에서 발견 → T11 fix → 사이클 내 close. cross-task 통합은 tests/integration/claude-hook.test.ts의 round-trip 17 pass로 검증(shared→Go agent→main→renderer 전체 layer 일치). architect cross-task HOW 스킵 — (a) 모든 deliverable이 acceptance verify pass, (b) round-trip 통합 테스트가 layer 간 호환 검증, (c) critical은 사이클 내 자체 발견·수정으로 미해결 risk 없음. 후속 PR로 의도적 분리: PermissionRequest 모달 UI / electron-builder 패키징 / Allow once/always 정책 — 모두 1차 결정에 명시. 사전 존재 23 fail은 우리 영역 외(LSP/editor cache/git/storage/terminal) — 회귀 아님.",
+                "recorded_at": "2026-05-21T06:29:56.247Z"
+              }
+            ],
+            "decision": "**선택: 옵션 (1) — settings JSON에 `preferredNotifChannel: \"notifications_disabled\"` (또는 spec 등가) 주입 + osc-notification.ts는 삭제하지 않고 일반 PTY 알림 채널로 의미 재정의**\n\n구현 디테일:\n- claude 래퍼가 작성하는 settings JSON에 `preferredNotifChannel: \"notifications_disabled\"` 키를 박는다. 이로써 Claude Code는 OSC 9/99/777 채널로 알림을 발사하지 않는다.\n- osc-notification.ts는 그대로 유지. 두 이유:\n  1. claude 외에 다른 CLI(일반 shell 작업, agent가 띄운 보조 프로세스, 사용자가 직접 echo OSC를 보내는 스크립트 등)도 OSC 9/777을 보낼 수 있다. 우리 PTY는 \"claude 전용 터미널\"이 아니라 일반 터미널이므로 OSC 알림 채널은 PTY 도메인의 정당한 기능.\n  2. 향후 다른 코딩 도구(예: Aider, Cursor agent CLI 등)가 OSC를 통해 알림을 보내는 경우 즉시 활용 가능.\n- 단, 코멘트 보강: osc-notification.ts 파일 헤더에 \"Claude Code는 hook 채널로 알림을 보내고 OSC 채널은 비활성화됨. 이 파서는 claude 외 일반 PTY 알림용\"이라고 명시.\n- 통합 테스트 1개 (tests/integration): claude 워크스페이스를 띄우고 모의 PTY에 OSC 9 본문 + 동시에 모의 hook notification 송신 → Electron Notification이 hook 측에서만 1회 발사되고 OSC 측은 무발사(또는 Claude Code 측이 OSC를 끄므로 그런 시나리오 자체가 발생 안 함을 dispatcher 입력 검증으로 확인).\n- spec 검증 micro-task: `preferredNotifChannel` 키 이름은 cmux 관찰값 — Claude Code 공식 docs에서 정확한 키 이름과 disable 값 확인 필요(researcher).\n\n**기각:**\n- 옵션 (2) dedupe — OSC와 hook의 timing/payload가 다른 source라 timestamp/hash 매칭이 영구 race. 한쪽이 0.5초 늦게 와도 동일성 판정 어려움. 복잡도 대비 가치 없음.\n- 옵션 (3) hook 미설치 워크스페이스에 OSC fallback — in-app 감지 실패 자체가 버그 신호인데 fallback으로 가리면 진단 어려움. 또한 NEXUS_IN_APP=0 경로는 우리 래퍼가 claude를 그냥 passthrough하는 경로라 settings JSON 주입도 안 되니 OSC가 살아있어 자연 fallback과 다름없음 — 별도 코드 path 안 만들어도 됨.\n\n**가정:**\n- claude 래퍼 fallback(NEXUS_IN_APP=0 / 소켓 unavailable) 시 그냥 진짜 claude를 unchanged exec하면, Claude Code는 평소대로 OSC를 보낼 것이고 osc-notification.ts가 받아서 일반 OSC 알림 발사. fallback 경로도 알림은 보존된다.</decision>\n"
+          }
+        ],
+        "research_summary": "cmux 소스 분석 완료(references/cmux/Resources/bin/claude + CLI/cmux.swift + CLI/CMUXCLI+AgentHookDefinitions.swift): cmux는 (1) bash 래퍼 `claude`를 PATH에 prepend, (2) 래퍼가 CMUX_SURFACE_ID 등 in-cmux 감지 후 진짜 claude를 `--settings <JSON> --session-id <uuid>`로 호출, (3) JSON에 7개 hook(SessionStart/UserPromptSubmit/PreToolUse/Notification/Stop/SessionEnd/PermissionRequest) 등록 + `preferredNotifChannel: notifications_disabled`로 OSC 끔, (4) 각 hook 커맨드는 stdin JSON 읽어서 `cmux hooks claude <subcmd>` → Unix 소켓으로 `set_status` 송신, (5) AgentHookRuntimeStatus enum {running, idle, needsInput, error}로 매핑, (6) PermissionRequest는 125s sync blocking hook으로 permissions/ExitPlanMode/AskUserQuestion 모두 커버. nexus-code 측: src/main/features/pty/osc-notification.ts에 OSC 9/99/777 파서 + Electron Notification 발사 + workspace focused/unfocused 분기 이미 구현. src/main/features/pty/ipc.ts:34-45가 agentHost data 스트림에 dispatcher wiring. harness-env.ts가 TERM_PROGRAM=ghostty 주입. SSH 인디케이터는 src/renderer/components/workbench/sidebar.tsx:417 ConnectionStatusDot — sidebar workspace 아이콘 우하단 8px(size-2) rounded-full dot, 색은 --color-workspace-connection-{idle,connected,connecting,error}, SSH 워크스페이스에만 표시. 탭 UI는 src/renderer/components/workspace/tabs/tab-bar.tsx + tab-item.tsx. Go agent는 cmd/agent/main.go + internal/{pty,fs,git,lsp,search,dispatch,stdioserver}, NDJSON stdin/stdout 통신. IPC pattern은 register/broadcast/ipcContract closed schema + IpcResult 봉투(conventions.md). 디자인은 Islands 모델, lucide-react 12/16 only, semantic 토큰만 사용, 무그림자.",
+        "created_at": "2026-05-21T04:50:09.292Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Claude Code hook spec 1차 출처 확인",
+          "status": "completed",
+          "context": "래퍼 스크립트가 settings JSON에 박을 키 이름/값을 1차 출처로 확정. cmux 관찰값 의존 금지. 확인 항목: (1) preferredNotifChannel 정확한 키 이름과 OSC 끄는 값, (2) hooks 객체의 SessionStart/UserPromptSubmit/PreToolUse/Notification/Stop/SessionEnd/PermissionRequest 7종 존재 여부 + matcher/command/timeout/async 스키마, (3) --settings 플래그가 path/inline 어느 쪽 받는지, (4) --session-id 플래그 존재 + 인터랙티브 사용 가능 여부, (5) PermissionRequest hook 응답 형식 — passthrough 등가 값, 응답 키 이름(permissionDecision?), 응답 생략/timeout 시 Claude 동작, (6) Notification hook payload 필드. 이 정보 없으면 issue #1·#6·#7 결정이 잘못된 키 이름으로 구현될 위험.",
+          "acceptance": "Anthropic 공식 docs(docs.anthropic.com / docs.claude.com) 또는 Claude Code 공식 저장소를 1차 출처로 인용해 6개 항목 모두 답변. 결과를 .nexus/memory/external-claude-code-hook-spec.md에 정리(키 이름, schema 예시, 인용 URL 포함). PermissionRequest hook이 spec에 없거나 다른 이름이면 그 사실 명시. passthrough 응답값이 spec에 없으면 timeout 기반 fallback이 유일한 옵션이라는 결론 명시.",
+          "approach": "claude-code-guide subagent에 1차 출처 인용 강제. Anthropic 공식 docs 우선, 다음으로 claude CLI --help/config schema, 마지막으로 패키지 메타. WebSearch + WebFetch.",
+          "risk": "PermissionRequest hook이 cmux 관찰값과 다르거나 존재하지 않으면 issue #6 1차 범위가 자동 축소되어 permissionPending 상태/인디케이터도 빠져야 함 → T6, T7, T8에 변경 부담 전파.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "researcher",
+            "agent_id": "ac979f8ea664fe0ed",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-21T05:02:57.508Z",
+          "result": {
+            "outcome": "success",
+            "summary": "6개 항목 모두 1차 출처(code.claude.com docs) 인용 확인. preferredNotifChannel=notifications_disabled 확정. PermissionRequest 응답은 allow|deny 둘뿐, passthrough 값 없음 — native fallback은 '응답 생략(exit 0)'이 유일한 메커니즘. timeout 시 fallback 동작과 --session-id 인터랙티브 재사용 동작은 spec 미기술. .nexus/memory/external-claude-code-hook-spec.md 작성됨.",
+            "artifacts": [
+              ".nexus/memory/external-claude-code-hook-spec.md"
+            ],
+            "recorded_at": "2026-05-21T05:29:19.063Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "claude 래퍼 스크립트 + getAgentBinDir + harness-env 확장",
+          "status": "completed",
+          "context": "issue #1 결정 구현. cmux의 Resources/bin/claude를 단순화한 bash 래퍼를 scripts/assets/claude-wrapper.sh로 두고, scripts/build-agent.ts의 빌드 산출물(dist/agent/bin/claude)로 chmod +x 복사. src/main/infra/agent/local-agent-resolver.ts 옆에 getAgentBinDir() 헬퍼 신설(dev: path.join(LOCAL_AGENT_DIST_DIR, \"bin\") · packaged: path.join(process.resourcesPath, \"agent/bin\")). src/main/features/pty/harness-env.ts의 injectHarnessTerminalEnv()를 확장해 PATH 맨 앞에 getAgentBinDir() prepend + NEXUS_IN_APP=1 + NEXUS_WRAPPER_SELF_DIR + NEXUS_AGENT_SOCKET + NEXUS_HOOK_TOKEN + NEXUS_WORKSPACE_ID + NEXUS_TAB_ID 주입. 소켓/토큰은 T5 hookserver가 보고한 값(main 캐시)에서 가져옴 — T5 완료 후 wiring. 래퍼는 (i) NEXUS_IN_APP=1 검사 후 진짜 claude passthrough 분기, (ii) PATH 순회 + self-skip(realpath 비교)으로 진짜 claude 발견, (iii) settings JSON을 임시 파일(app.getPath('userData')/run/<pid>/settings.json)에 쓰고 --settings <path> --session-id <uuidgen> exec. settings JSON 내용은 T1 결과에 따라 키 이름 확정.",
+          "acceptance": "(1) scripts/assets/claude-wrapper.sh 신설, shellcheck pass. (2) bun run scripts/build-agent.ts 실행 시 dist/agent/bin/claude로 chmod +x 복사됨, manifest.json에 등재. (3) `bun test tests/integration` 중 새 케이스에서 mock spawn 시 env에 NEXUS_IN_APP=1과 PATH prefix가 포함됨 검증. (4) getAgentBinDir() 단위 테스트(dev/packaged 분기). (5) injectHarnessTerminalEnv() 단위 테스트 — caller 키가 NEXUS_* 충돌 시 caller 값이 win 보존. (6) 래퍼를 직접 실행(NEXUS_IN_APP=0)했을 때 진짜 claude passthrough 시나리오 수동 검증.",
+          "approach": "scripts/assets/claude-wrapper.sh를 references/cmux/Resources/bin/claude를 참조해 작성하되 Vertex/Bedrock 보존 로직, NODE_OPTIONS 처리 등 1차 범위 외 로직은 제외. scripts/build-agent.ts에 copyClaudeWrapper(rootDir, outDir) 단계 추가. T1(researcher) 완료 후 settings JSON 키 이름 확정하여 HOOKS_JSON 변수에 박음.",
+          "risk": "macOS Gatekeeper가 unsigned bash 스크립트를 packaged 앱에서 실행하지 못할 가능성. dev에서는 무관하지만 packaging 시 별도 처리 필요(별도 task). PATH에 prepend된 dir에 다른 도구가 같은 이름으로 있을 가능성(`claude`는 다른 alias로 충돌 적음).",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ab39e1fc73ac0b749",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-21T05:03:23.845Z",
+          "result": {
+            "outcome": "success",
+            "summary": "claude-wrapper.sh + build-agent.ts copyClaudeWrapper() + getAgentBinDir.ts + harness-env.ts PATH/NEXUS_* 주입 + ipc.ts 호출처 업데이트. typecheck 0, 단위 35 pass, bash syntax OK, 755 권한. NEXUS_AGENT_SOCKET/HOOK_TOKEN은 optional로 주입 경로만 연결되고 실제 값은 T6 agent-ready-cache와 연결 시에 채워짐.",
+            "artifacts": [
+              "scripts/assets/claude-wrapper.sh",
+              "scripts/build-agent.ts",
+              "src/main/infra/agent/getAgentBinDir.ts",
+              "src/main/features/pty/harness-env.ts",
+              "src/main/features/pty/ipc.ts",
+              "tests/unit/main/agent/get-agent-bin-dir.test.ts",
+              "tests/unit/main/pty/harness-env.test.ts",
+              "tests/unit/main/pty/pty-channel.test.ts",
+              "tests/unit/scripts/build-agent.test.ts"
+            ],
+            "recorded_at": "2026-05-21T05:37:41.991Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "shared/claude/status.ts enum + ipcContract claude 채널 스키마",
+          "status": "completed",
+          "context": "issue #3·#4 결정 구현의 shared 레이어. src/shared/claude/status.ts에 ClaudeStatusSchema zod enum 정의(`idle|running|needsInput|permissionPending|error`). src/shared/ipc/contract.ts의 ipcContract에 신규 `claude` 채널 추가 — call: snapshot(zod.object({}) → array<StatusEntry>), listen: status(StatusEntry), listen: hookRequest(HookRequest for PermissionRequest 1차는 main에서만 사용·broadcast 미정이면 omit). StatusEntry = `{workspaceId, tabId, status: ClaudeStatusSchema, message?: string, since: number}`. HookRequest = `{hookId, workspaceId, tabId, subcommand, payload: z.unknown()}`. main↔agent NDJSON 레벨 schema도 같은 파일에 둬서 두 transport가 같은 정본 참조.",
+          "acceptance": "(1) src/shared/claude/status.ts 신설, ClaudeStatusSchema + StatusEntrySchema + HookRequestSchema + 응답 schema export. (2) src/shared/ipc/contract.ts 확장 — claude.call.snapshot, claude.listen.status 등록. (3) bun run typecheck pass. (4) 단위 테스트: 각 상태 enum 값이 round-trip parse 가능, StatusEntry의 since 필드는 양의 정수.",
+          "approach": "기존 ipcContract 다른 채널(pty/git/fs 등)의 schema 작성 패턴 따라가기. zod enum + z.object 조합. shared/ipc/result.ts 패턴 활용.",
+          "risk": "enum 변경 시 main/renderer/agent 3곳을 동기화해야 함. shared가 source of truth라 자동 propagate되지만 빌드 순서 의존.",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "abaae01d2ff7db286",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-21T05:03:40.304Z",
+          "result": {
+            "outcome": "success",
+            "summary": "shared/claude/status.ts 신설(ClaudeStatusSchema 5-state, StatusEntrySchema, HookRequestSchema, HookResponseSchema) + ipcContract에 claude.call.snapshot/listen.status 등록. typecheck 0 에러, 단위 23 pass. HookRequest는 main↔agent 내부 검증용으로 IPC contract에는 미등록(T6에서 필요 시 추가).",
+            "artifacts": [
+              "src/shared/claude/status.ts",
+              "src/shared/ipc/contract.ts",
+              "tests/unit/shared/claude/status.test.ts"
+            ],
+            "recorded_at": "2026-05-21T05:26:36.226Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "Go agent — hook 서브커맨드 + internal/hookclient",
+          "status": "completed",
+          "context": "issue #2 결정 구현. cmd/agent/main.go의 askpassExitFromArgv 옆에 `if len(os.Args)>=2 && os.Args[1]==\"hook\" { os.Exit(hookclient.Run(os.Args[2:])) }` 추가. 새 패키지 internal/hookclient: (1) ENV에서 NEXUS_AGENT_SOCKET/NEXUS_HOOK_TOKEN/NEXUS_WORKSPACE_ID/NEXUS_TAB_ID 읽기 — 미설정 시 stdin drain 후 exit 0(claude 죽이지 않음), (2) stdin JSON payload 읽기, (3) NEXUS_AGENT_SOCKET에 dial, (4) NDJSON 요청 송신 `{type,token,workspaceId,tabId,subcommand,payload}`, (5) 응답 1 line 대기 `{ok,stdout?,exitCode?}`, (6) sync hook이면 stdout JSON write, 비동기면 exit 0. timeout: PermissionRequest 130s · 그 외 15s. 초과 시 stderr 경고 + exit 1.",
+          "acceptance": "(1) cmd/agent/main.go에 hook 분기 추가, hook 이외 인자는 기존 PTY 서비스 init 경로로 떨어짐 검증. (2) internal/hookclient 패키지 + Run() 함수. (3) go test internal/hookclient — env 미설정 시 즉시 exit, 정상 시 ndjson 송수신, timeout. (4) hook 서브커맨드는 일반 PTY/FS/Git 서비스를 init하지 않아야 함(빠른 시작 보장) — main.go 분기가 최상단에 위치하는지 코드 리뷰.",
+          "approach": "internal/dispatch 패턴 모방. net.Dial(\"unix\", path) + bufio.NewReader. Subcommand 매핑은 시간문에 단순 switch.",
+          "risk": "socket connect 실패 시 claude를 죽이지 않도록 silent fallback이 필요. stderr 경고만 출력. unix socket이 없는 OS(Windows)는 별도 처리 필요 — 1차 macOS/Linux 한정.",
+          "plan_issue": 2,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ae024ea434a9fa99c",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-21T05:03:59.613Z",
+          "result": {
+            "outcome": "success",
+            "summary": "cmd/agent/main.go 최상단에 hook 서브커맨드 분기 추가(askpass 앞, 서비스 init 전). internal/hookclient 신규 — ENV 읽기 → stdin JSON → Unix 소켓 NDJSON 송수신 → stdout write → exit. 6개 단위 테스트 pass, go build 성공. silent fallback(소켓 없으면 exit 0), timeout 시 exit 1로 claude 죽이지 않음. 표준 라이브러리만 사용.",
+            "artifacts": [
+              "cmd/agent/main.go",
+              "internal/hookclient/run.go",
+              "internal/hookclient/run_test.go"
+            ],
+            "recorded_at": "2026-05-21T05:31:53.403Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "Go agent — hookserver + boot wiring + claude.respondHook dispatch + agent.hookServerReady 이벤트",
+          "status": "completed",
+          "context": "issue #2·#3 결정 구현. 새 패키지 internal/hookserver: New(workspaceId string, eventSink func(name string, payload any) error) → 소켓 경로 os.TempDir()/nexus-agent-<shortHash(workspaceId,pid)>.sock, perm 0600, listen. 단일 NDJSON 프레임/conn 프로토콜. 요청 unmarshal 후 token 비교, hookId(uuid) 발급, in-flight map[hookId]net.Conn 보관(mutex), eventSink로 'claude.hook' push. 120s context deadline → 초과 시 default {\"permissionDecision\":\"deny\",\"reason\":\"timeout\"} write 후 close. agent 종료 시 listener close + unlink. cmd/agent/main.go boot 시 hookserver init → 생성한 socketPath/token을 host.EmitEvent(\"agent.hookServerReady\", {socketPath,token})로 main에 1회 푸시. internal/dispatch에 inbound 메서드 claude.respondHook 등록 — {hookId, response} 받아 hookserver의 in-flight map에서 conn 꺼내 응답 write + close + delete. main 측은 agent.hookServerReady 수신 후 워크스페이스별 캐시에 저장(별도 task에서).",
+          "acceptance": "(1) internal/hookserver 패키지 + go test — listen/accept/in-flight map race-free, timeout 동작, unlink. (2) cmd/agent/main.go에 hookserver init + EmitEvent(\"agent.hookServerReady\",...) wiring. (3) dispatch에 claude.respondHook 등록 + main→agent call 단방향 수신 가능 검증. (4) hookId generation uuid v4 또는 짧은 random hex. (5) macOS socket path 104자 한계 검증 — workspaceId UUID 풀 길이로도 안전한 shortHash 길이 확인. (6) hookserver는 PTY 서비스와 같은 lifecycle(agent 종료 시 cleanup).",
+          "approach": "internal/stdioserver의 lifecycle 관리 패턴 차용. uuid는 crypto/rand로 단순 hex. shortHash는 sha256(workspaceId + pid)[:12] hex. dispatch 등록은 기존 register 패턴 따라가기.",
+          "risk": "in-flight map의 leak — context cancel/conn close 시 반드시 entry 제거. macOS 104자 socket path 제약을 잘못 계산하면 listen 실패. agent dispatch가 main→agent 단방향 inbound call을 현재 지원하는지 검증 필요(미지원 시 별도 dispatch 확장 task 발생).",
+          "plan_issue": 3,
+          "deps": [
+            3,
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ae024ea434a9fa99c",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-21T05:04:23.340Z",
+          "result": {
+            "outcome": "success",
+            "summary": "internal/hookserver 신규 — Unix 소켓 listen + 토큰 검증 + hookId 발급 + in-flight map + 120s deadline goroutine(default exit 0 응답 = native fallback). cmd/agent/main.go boot wiring + agent.hookServerReady 이벤트 emit. dispatch에 claude.respondHook 등록. 소켓 경로 74자(macOS 104자 이내) — nexus-h- + sha256[:12]. go test -race pass, cmd/agent test pass, build 성공.",
+            "artifacts": [
+              "internal/hookserver/server.go",
+              "internal/hookserver/register.go",
+              "internal/hookserver/server_test.go",
+              "cmd/agent/main.go",
+              "cmd/agent/main_test.go"
+            ],
+            "recorded_at": "2026-05-21T05:40:39.897Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "main features/claude — broker + ipc 채널 + hookHandler + permission passthrough + agent ready 캐시",
+          "status": "completed",
+          "context": "issue #3·#4·#6·#7 결정 구현. src/main/features/claude/ 신규 폴더 — status.ts(ClaudeStatusBroker class with Map<workspaceId:tabId, State>·set/get/clear/snapshot, set 시 변경 있을 때만 broadcast), ipc.ts(register 'claude' 채널 + snapshot call + status listen broadcast), hookHandler.ts(claude.hook 이벤트 받아 subcommand→broker 매핑: session-start→running, user-prompt-submit→running·알림 제거, pre-tool-use→sync 응답 즉시 {}, notification→needsInput·Notification 발사, permission-request→permissionPending·Notification 발사·passthrough 응답 또는 짧은 timeout, stop→idle, session-end→clear), permission.ts(handlePermissionRequest passthrough placeholder + TODO 후속 PR 모달), agent-ready-cache.ts(agent.hookServerReady 수신해 workspaceId→{socketPath,token} 캐시; harness-env.ts에서 spawn 시 조회). Notification 발사는 기존 osc-notification.ts의 패턴 재사용(focus 분기·workspaceName prefix·notificationClick broadcast로 탭 reveal). pty exit 시 broker.clear 호출(agentHost.on(\"exit\") 구독). osc-notification.ts 파일 헤더에 \"Claude는 hook 채널 사용·OSC는 일반 PTY 알림용\" 코멘트 보강.",
+          "acceptance": "(1) src/main/features/claude/{status,ipc,hookHandler,permission,agent-ready-cache,index}.ts 신설. (2) src/main/index.ts에 setupClaudeFeature() 호출 wiring. (3) bun test tests/unit — broker set/get/clear/snapshot/broadcast dedupe. (4) hookHandler subcommand 매핑 단위 테스트 — 7종 subcommand × 상태 전이. (5) PermissionRequest 1차 응답: T1 결과의 passthrough 등가 값 사용, 없으면 응답 생략 + 2~3초 timeout으로 native PTY prompt fallback. (6) Notification 발사 시 focus 분기 동작(unfocused만 OS 알림, focused는 in-app broadcast). (7) pty exit 시 해당 (ws,tab) entry 자동 cleanup 검증. (8) osc-notification.ts 코멘트 보강. (9) agent.hookServerReady 미수신 시 harness-env.ts가 hook env 주입을 생략(있는 워크스페이스만 hook 가능, 없는 워크스페이스는 OSC fallback 자연 동작).",
+          "approach": "기존 src/main/features/pty/ipc.ts와 osc-notification.ts 패턴을 거의 그대로 차용. broker는 EventEmitter 패턴이 아니라 ipc-router broadcast 직접 호출(기존 conventions). Notification ctor injection은 osc-notification.ts와 동일.",
+          "risk": "PermissionRequest 1차 passthrough 응답값이 spec 미확정 상태에서 잘못 박히면 Claude가 deny로 해석할 수 있음 → T1 결과 강제 의존. broker leak — pty exit 외 비정상 종료 경로(workspace remove 등)에서도 cleanup 보장 필요. 신규 ipc 채널 register 순서가 router 초기화보다 빠르면 race.",
+          "plan_issue": 4,
+          "deps": [
+            1,
+            2,
+            3,
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ab39e1fc73ac0b749",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-21T05:04:54.723Z",
+          "result": {
+            "outcome": "success",
+            "summary": "src/main/features/claude/{status,ipc,hook-handler,permission,agent-ready-cache,index} 신설 + setupClaudeFeature() main 와이어링 + harness-env.ts에 agent-ready-cache 연결로 실제 소켓/토큰/agent bin path 주입 + osc-notification.ts 헤더 코멘트 보강. permission 핸들러는 1차 exit 0 placeholder — 후속 PR에서 modal UI 연결. T6 신규 33 tests pass, typecheck 0, 전체 회귀 23 fail은 사전 존재(LSP/editor cache/git/terminal/storage — 우리 작업 이외 영역).",
+            "artifacts": [
+              "src/main/features/claude/status.ts",
+              "src/main/features/claude/ipc.ts",
+              "src/main/features/claude/hook-handler.ts",
+              "src/main/features/claude/permission.ts",
+              "src/main/features/claude/agent-ready-cache.ts",
+              "src/main/features/claude/index.ts",
+              "src/main/features/pty/agent-host.ts",
+              "src/main/features/pty/ipc.ts",
+              "src/main/features/pty/osc-notification.ts",
+              "src/main/infra/agent/getAgentBinDir.ts",
+              "src/main/index.ts",
+              "tests/unit/main/claude/status-broker.test.ts",
+              "tests/unit/main/claude/agent-ready-cache.test.ts",
+              "tests/unit/main/claude/hook-handler.test.ts"
+            ],
+            "recorded_at": "2026-05-21T05:53:35.958Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "renderer claude store + IPC 구독 + isAttentionRequired helper",
+          "status": "completed",
+          "context": "issue #4·#5 결정의 renderer side. src/renderer/state/stores/claude-status.ts 신설 — zustand store: `Map<\"${wsId}:${tabId}\", StatusEntry>` (또는 두 단계 nested record). 액션: setMany(entries) for snapshot, set(entry) for incremental. selectors: selectStatusForTab(wsId,tabId), selectWorkspaceAggregateStatus(wsId) — 워크스페이스 내 가장 긴급한 상태 1개(priority: permissionPending>error>needsInput>running>idle) + 카운트. isAttentionRequired(status) helper = ['needsInput','permissionPending','error'].includes(status). src/renderer/bootstrap.ts에 (1) ipcCallResult('claude','snapshot') 1회 호출로 store init, (2) listen('claude','status') 구독으로 incremental 업데이트 wiring.",
+          "acceptance": "(1) src/renderer/state/stores/claude-status.ts 신설, zustand store + 3 selector + helper export. (2) bootstrap.ts에서 IPC 구독 wiring + 초기 snapshot fetch. (3) 단위 테스트 — set/setMany dedupe, selector identity stability(같은 입력 재호출 시 같은 reference 반환). (4) 워크스페이스 close 시 store에서 해당 wsId entries 정리. (5) selectIsWorkspaceAttention(wsId) 같은 boolean shortcut 셀렉터 추가.",
+          "approach": "기존 src/renderer/state/stores/terminal-deaths.ts와 tabs.ts 패턴 차용. zustand store + shallow equality selector. broadcast listen은 src/renderer/ipc/client.ts의 기존 헬퍼 사용.",
+          "risk": "selector identity 깨지면 .nexus/memory의 snapshot-boundary 패턴 위반으로 LazyVStack 행이 통째로 re-render. selector 작성 시 stable empty fallback + shallow 비교 강제.",
+          "plan_issue": 4,
+          "deps": [
+            3,
+            6
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a217ea77068ec60c8",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-21T05:05:13.862Z",
+          "result": {
+            "outcome": "success",
+            "summary": "src/renderer/state/stores/claude-status.ts 신설 — zustand store(byWorkspace record-of-record) + 3 selector + isAttentionRequired helper + ATTENTION_STATUSES 상수. bootstrap.ts/app.tsx에 snapshot 호출 + status broadcast 구독 wiring. snapshot 실패 시 silent 빈 store 유지. 34 tests pass, typecheck 0. selectWorkspaceAggregateStatus는 매 호출마다 새 객체 반환 — 호출자 useMemo/shallow 점그.",
+            "artifacts": [
+              "src/renderer/state/stores/claude-status.ts",
+              "src/renderer/bootstrap.ts",
+              "src/renderer/app.tsx",
+              "tests/unit/renderer/state/claude-status.test.ts"
+            ],
+            "recorded_at": "2026-05-21T05:59:08.131Z"
+          }
+        },
+        {
+          "id": 8,
+          "title": "신규 semantic 토큰 신설 + 10개 테마 전수 색값 정의",
+          "status": "completed",
+          "context": "issue #5 결정의 토큰 레이어. src/shared/design-tokens/semantic.ts에 신규 SemanticKey 추가: `tab.claude.running.fg`, `tab.claude.attention.fg`(info hue), `tab.attention.indicator`. 필요 시 `state.warning.fg`/`state.warning.bg`도 추가(이미 §10 vocabulary에 있는지 확인 후). theme-sources.ts의 10개 ThemeSource(github-dark/light, dracula, one-dark-pro, monokai, tokyo-night, solarized-dark, nord, catppuccin-mocha, gruvbox-dark) 각각에 색값 정의. info hue는 SSH connecting 노랑과 시각적으로 분명히 다른 cyan/blue 계열로. theme-adapter.ts가 ThemeSource → SemanticTokenSet 변환할 때 신규 키 매핑 추가. WCAG 본문 4.5:1 / UI 3:1 게이트 모든 테마에서 통과해야 함.",
+          "acceptance": "(1) semantic.ts에 신규 4개 키 추가, Record<SemanticKey,string> 타입 충족(누락 시 TS2741). (2) theme-sources.ts 10개 ThemeSource 모두에 신규 키 색값 정의. (3) theme-adapter.ts 매핑 함수 확장. (4) generate-theme-css 실행 후 theme.generated.css에 신규 변수 emit 검증. (5) 각 테마에서 WCAG 본문 4.5:1 게이트 통과 — design.md §11. (6) 단위 테스트: 10개 테마 × 4개 신규 키 = 40개 값 모두 정의됨 컴파일 + 런타임 assertion.",
+          "approach": "design.md §15.2 EditorPalette 추가 패턴 차용 — semantic.ts에 키만 정의(빈 키 계약), theme-sources.ts에 값 채움, adapter가 일괄 매핑. 색 선택은 각 테마의 정체성 보존 + WCAG 게이트 만족 OKLCH 값.",
+          "risk": "10개 테마 중 일부에서 info hue가 connecting 노랑과 명도/채도가 가까워 변별 약할 수 있음 — 사이드바 집계 글리프 시각 충돌 검증 필요(reviewer). 라이트 테마(github-light)에서 background 대비 attention 색이 너무 흐려질 위험.",
+          "plan_issue": 5,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a5900ba7fa1bca63b",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-21T05:05:35.535Z",
+          "result": {
+            "outcome": "success",
+            "summary": "신규 SemanticKey 3개(tab.claude.running.fg, tab.claude.attention.fg, tab.attention.indicator) 추가, state.warning.fg/bg는 이미 존재해 재사용. 10개 테마 전수에서 WCAG 4.5:1 게이트 모두 PASS. solarized-dark는 source.info가 4.08:1로 부족해 #2397e8로 override(4.76:1). attention.fg는 모든 테마에서 SSH connecting 노랑과 DISTINCT. 23 tests pass, CSS 33 emissions(11 테마 × 3 키).",
+            "artifacts": [
+              "src/shared/design-tokens/semantic.ts",
+              "src/shared/design-tokens/theme-sources.ts",
+              "src/shared/design-tokens/theme-adapter.ts",
+              "src/shared/design-tokens/component.ts",
+              "src/renderer/styles/theme.generated.css",
+              "tests/unit/shared/design-tokens.test.ts",
+              ".nexus/artifacts/56/T8-token-summary.md"
+            ],
+            "recorded_at": "2026-05-21T05:30:57.267Z"
+          }
+        },
+        {
+          "id": 9,
+          "title": "renderer 탭 인디케이터 + 사이드바 워크스페이스 행 집계 글리프",
+          "status": "completed",
+          "context": "issue #5 결정의 UI 레이어. (A) src/renderer/components/workspace/tabs/tab-item.tsx 확장 — 라벨 왼쪽 8px 갭으로 12px lucide 글리프 슬롯 추가. selectStatusForTab(wsId, tabId)로 상태 구독. 매핑: idle=null(슬롯 미렌더), running=Loader 정적+state.loading.indicator, needsInput=CircleDot+tab.claude.attention.fg, permissionPending=CircleAlert+state.warning.fg+탭 좌측 2px attention indicator bar+state.warning.bg 6% tint, error=TriangleAlert+state.error.fg+left bar. aria-label 상태별. active vs inactive 둘 다 글리프 풀톤 유지. (B) src/renderer/components/workbench/sidebar.tsx 확장 — 워크스페이스 행 오른쪽 끝(SSH dot 위치와 분리)에 selectWorkspaceAggregateStatus(wsId) 기반 단일 글리프. 우선순위: permissionPending>error>needsInput, running-only 워크스페이스는 표시 안 함. 카운트≥2면 글리프 옆 appMicro 11px 숫자. (C) 탭바 컨테이너에 role=\"status\" aria-live=\"polite\".",
+          "acceptance": "(1) tab-item.tsx 글리프 슬롯 추가, 5상태 시각 매핑 동작. (2) inactive 탭에 좌측 2px bar(rounded-none) — selected indicator 3px와 두께 분리. (3) sidebar.tsx 워크스페이스 행 우측 집계 글리프 — SSH dot과 위치 분리. (4) 컴포넌트 테스트: 각 상태별 글리프/색/bar 렌더링 검증. (5) ARIA: 탭바 polite live region, 글리프 aria-label 상태별 명시. (6) 시각 검증(verify 스킬): dev에서 mock claude PTY로 모든 상태 표시 스크린샷.",
+          "approach": "기존 tab-item.tsx와 sidebar.tsx의 ConnectionStatusDot 패턴 차용. lucide-react import는 size-3(12px). store selector identity 안정성을 위해 useSyncExternalStore + 단일 객체 selector 패턴(zustand). 4px 그리드 + island radius 준수.",
+          "risk": "tab-item 렌더링 hot path — TabItemView equatable 패턴 위반 시 typing latency 회귀. 신규 prop은 모두 stable primitive(status enum + boolean)로 받고 equality 함수 업데이트 필수(.nexus/memory/pattern-pty-m3-cleanup, snapshot-boundary 참조).",
+          "plan_issue": 5,
+          "deps": [
+            7,
+            8
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a217ea77068ec60c8",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-21T05:06:00.595Z",
+          "result": {
+            "outcome": "success",
+            "summary": "tab-item.tsx 글리프 슬롯 + 5상태 매핑 + 좌측 attention bar(needsInput/permission/error) + aria-label. sidebar workspace row에 ClaudeWorkspaceIndicator(SSH dot 우하단과 위치 분리된 우측 글리프 + count≥2 숫자). typecheck 0, tab-item 17 + sidebar 11 = 28 tests pass, renderer 전체 1238 pass 회귀 없음.",
+            "artifacts": [
+              "src/renderer/components/workspace/tabs/tab-item.tsx",
+              "src/renderer/components/workbench/sidebar.tsx",
+              "tests/unit/renderer/components/workspace/tabs/tab-item-claude.test.tsx",
+              "tests/unit/renderer/components/workbench/sidebar-claude-indicator.test.tsx"
+            ],
+            "recorded_at": "2026-05-21T06:13:39.640Z"
+          }
+        },
+        {
+          "id": 10,
+          "title": "통합 테스트 + 수동 verify — hook 알림/인디케이터 round-trip",
+          "status": "completed",
+          "context": "issue #4·#7 검증. (A) tests/integration/claude-hook.test.ts — mock claude PTY 시나리오: (1) hook 클라이언트가 fake JSON을 stdin으로 받아 agent socket으로 전달 → main이 claude.hook 이벤트 수신 → broker 상태 전이 → 'claude' broadcast 발사 → renderer mock subscriber에 도달. (2) Notification 발사 1회만(OSC와 중복 없음). (3) pty exit 시 broker entry 자동 cleanup. (4) PermissionRequest 1차 passthrough — hookclient가 응답 받고 정상 exit, Claude Code의 native prompt 경로 보존 가정. (B) 수동 verify — dev에서 실제 claude 바이너리를 PTY에서 spawn해 (i) idle 60초 → needsInput 인디케이터 + Notification, (ii) ls /private 같은 권한 필요 명령 → permissionPending 인디케이터 + Notification, (iii) 응답 종료 → idle. 스크린샷 첨부.",
+          "acceptance": "(1) tests/integration 신규 케이스 통과. (2) OSC 중복 발사 없음 — osc-notification.ts dispatcher가 hook 발사 후 호출되지 않음 또는 호출돼도 dedupe(현재 정책상 Claude Code가 OSC를 끄므로 호출 자체가 없어야 정상). (3) dev verify 결과 .nexus/artifacts/<cycle>/claude-indicator-states.png 등 첨부. (4) 모든 상태(running/needsInput/permissionPending/error)가 실제 Claude Code 동작에서 관찰됨 — error는 claude 강제 종료로 유발.",
+          "approach": "tests/integration의 기존 IPC round-trip 패턴 차용. mock dispatcher injection + IPC subscriber assertion. 수동 verify는 verify 스킬로 dev 앱 실행 + screenshot.",
+          "risk": "실제 Claude Code의 hook 발사 시점/내용이 spec 가정과 다르면 verify 실패 → T1 결과 재검토 필요. 통합 테스트가 PTY 실제 spawn에 의존하면 CI 환경에서 flaky — node-pty + bash 의존 분리 검토.",
+          "plan_issue": 7,
+          "deps": [
+            6,
+            9
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a4e828be89db16415",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-21T05:06:22.861Z",
+          "result": {
+            "outcome": "partial",
+            "summary": "tests/integration/claude-hook.test.ts 신규 17 tests pass (hook round-trip + Notification 하나씩 + pty exit cleanup + permission passthrough). 빌드/배포 verify PASS — dist/agent/bin/claude 존재·755·3108B, 4 플랫폼 agent binary 존재, 래퍼 passthrough/in-app 분기 정상. 실행 시 settings JSON에 preferredNotifChannel=notifications_disabled + 7 hooks 모두 주입. **CRITICAL 발견**: HOOK_CMD_PREFIX escape 이슈로 생성 JSON이 invalid (`\"command\":\"\"/path/agent\" hook ...`) — JSON.parse 실패 재현 확인. T11 fix task 추가함.",
+            "artifacts": [
+              "tests/integration/claude-hook.test.ts"
+            ],
+            "recorded_at": "2026-05-21T06:24:09.649Z"
+          }
+        },
+        {
+          "id": 11,
+          "title": "claude-wrapper.sh JSON escape 수정 + valid JSON 단위 테스트",
+          "status": "completed",
+          "context": "T10 verify가 발견한 critical: scripts/assets/claude-wrapper.sh이 생성하는 settings JSON이 invalid. HOOK_CMD_PREFIX=\"\\\"$HOOK_BIN\\\" hook\"가 heredoc 안 `\"command\":\"$HOOK_CMD_PREFIX session-start\"`에 substitute되면 결과는 `\"command\":\"\"/path/to/agent\" hook session-start\"`가 되어 JSON 파서가 reject. 직접 재현: bun JSON.parse 빈 출력. Claude Code도 같은 JSON 파서로 settings를 받아들이므로 hook 등록 전체 실패 가능.\n\nFix 방향:\n- 가장 안전: settings JSON을 jq로 빌드 (`jq -n --arg bin \"$HOOK_BIN\" '{...}'`). 하지만 jq가 사용자 시스템에 항상 있다고 보장 못 함.\n- 차안: HOOK_BIN의 백슬래시/따옴표를 sed로 escape 후 JSON 문자열 안에 박기 — `ESCAPED_HOOK_BIN=$(printf '%s' \"$HOOK_BIN\" | sed 's/\\\\/\\\\\\\\/g; s/\\\"/\\\\\\\"/g')` → HOOK_CMD_PREFIX=\"\\\\\\\"$ESCAPED_HOOK_BIN\\\\\\\" hook\" → heredoc 내 `\"command\":\"$HOOK_CMD_PREFIX session-start\"`로 박으면 결과는 `\"command\":\"\\\"/path/to/agent\\\" hook session-start\"` (valid JSON, command value = `\"/path/to/agent\" hook session-start` shell 명령).\n- 추가: 단위 테스트가 wrapper 실행 → 생성된 settings JSON을 JSON.parse → 7개 hook 모두 valid string command 검증.",
+          "acceptance": "(1) scripts/assets/claude-wrapper.sh의 HOOK_CMD_PREFIX 빌드 로직을 위 차안 또는 동등한 방법으로 수정. (2) tests/unit/scripts/build-agent.test.ts 또는 별도 wrapper 테스트 파일에 시나리오 추가 — fake socket + fake HOOK_BIN(공백 포함 경로) 로 wrapper 실행 후, 생성된 settings JSON 파일을 읽어 `JSON.parse` → hooks 7종 모두 존재 + 각 command가 정상 string으로 파싱됨 검증. (3) HOOK_BIN에 backslash·따옴표 포함된 경로도 처리 (edge case 1개 정도). (4) shellcheck 통과. (5) bun typecheck + 신규 wrapper unit test 통과.",
+          "approach": "claude-wrapper.sh 51-65 라인 영역 수정. ESCAPED_HOOK_BIN 도입 후 HOOK_CMD_PREFIX에 backslash-escape된 quote 사용. wrapper 직접 실행 + 생성 JSON 검증하는 bun 단위 테스트는 child_process로 wrapper 실행, env 주입, 임시 socket 파일 만들기, 생성된 settings JSON 경로 추적 후 JSON.parse.",
+          "risk": "wrapper는 PTY가 실제로 사용하는 production code path — 회귀 위험. settings JSON 경로가 임시 파일이라 wrapper exec 직전에 trap이 cleanup하므로 단위 테스트에서 캡처 어려움. 해결: 테스트용 fake real claude를 만들어 settings 파일을 다른 경로로 복사하게 하거나, 환경 변수로 임시 파일 보존 flag 추가.",
+          "plan_issue": 1,
+          "deps": [
+            2,
+            10
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ab39e1fc73ac0b749",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-21T06:23:51.984Z",
+          "result": {
+            "outcome": "success",
+            "summary": "HOOK_BIN 경로의 backslash/따옴표를 sed로 JSON-escape 후 HOOK_CMD_PREFIX에 backslash-escape된 quote 사용. NEXUS_CAPTURE_SETTINGS_TO test escape hatch 추가. 공백/따옴표/백슬래시 포함 경로 견는 상황 전수에서 생성 JSON이 valid JSON으로 parse 검증. 4 tests pass, typecheck 0, shellcheck clean.",
+            "artifacts": [
+              "scripts/assets/claude-wrapper.sh",
+              "tests/unit/scripts/claude-wrapper.test.ts"
+            ],
+            "recorded_at": "2026-05-21T06:29:23.780Z"
+          }
+        }
+      ]
     }
   ]
 }

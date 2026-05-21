@@ -1,5 +1,5 @@
-import { Folder, Server, X } from "lucide-react";
-import React from "react";
+import { CircleAlert, CircleDot, Folder, Server, TriangleAlert, X } from "lucide-react";
+import React, { useMemo } from "react";
 import { LSP_FEATURE_ENABLED } from "../../../shared/lsp/feature-flag";
 import { Tooltip as RadixTooltip } from "radix-ui";
 import { cn } from "@/utils/cn";
@@ -34,6 +34,10 @@ import { useIpcAction } from "../../hooks/use-ipc-action";
 import { ipcCallResult } from "../../ipc/client";
 import { surfaceError } from "../../services/error-surface/surface-error";
 import { appErrorFailed } from "../../../shared/error/app-error";
+import {
+  selectWorkspaceAggregateStatus,
+  useClaudeStatusStore,
+} from "../../state/stores/claude-status";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -270,6 +274,10 @@ export function Sidebar({
 
             {isSsh && <ConnectionStatusDot status={connectionStatus} />}
 
+            {/* Claude 집계 인디케이터 — 워크스페이스 행 오른쪽 끝 attention 글리프.
+                SSH dot(아이콘 우하단 원형 채움)과 위치/형태가 명확히 분리됨. */}
+            <ClaudeWorkspaceIndicator workspaceId={ws.id} />
+
             {/* LSP language chips — shifted to right-14 to leave room for the pin slot.
                 draggable={false} prevents drag initiation when clicking the chip. */}
             {LSP_FEATURE_ENABLED && (
@@ -408,6 +416,91 @@ export function Sidebar({
       </div>
       <SidebarResizeHandle />
     </aside>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Claude 워크스페이스 집계 인디케이터
+// ---------------------------------------------------------------------------
+
+/**
+ * 워크스페이스 행 오른쪽 끝에 Claude 세션 집계 상태를 표시한다.
+ *
+ * 표시 조건: needsInput | permissionPending | error 탭이 하나 이상 있을 때.
+ * running-only 워크스페이스는 표시하지 않는다(사이드바 혼잡 방지).
+ * 우선순위: permissionPending(4) > error(3) > needsInput(2).
+ * 카운트 ≥ 2이면 글리프 옆에 appMicro(11px) 숫자를 표시한다.
+ */
+function ClaudeWorkspaceIndicator({ workspaceId }: { workspaceId: string }) {
+  // workspaceId の tab record のみを購読し、selectWorkspaceAggregateStatus をメモ化する。
+  // byWorkspace[workspaceId] が変わったときだけ再計算されるので LazyVStack thrashing を防ぐ。
+  const wsTabs = useClaudeStatusStore((s) => s.byWorkspace[workspaceId]);
+  const aggregate = useMemo(() => {
+    if (wsTabs === undefined) return null;
+    // selectWorkspaceAggregateStatus はストア全体を受け取るが、byWorkspace の
+    // 当該 workspaceId スライスだけあれば十分なので最小限の形で渡す。
+    return selectWorkspaceAggregateStatus(
+      { byWorkspace: { [workspaceId]: wsTabs } } as Parameters<
+        typeof selectWorkspaceAggregateStatus
+      >[0],
+      workspaceId,
+    );
+  }, [wsTabs, workspaceId]);
+
+  // attention 필요 상태가 없으면(count === 0 또는 null) 렌더하지 않는다.
+  if (!aggregate || aggregate.count === 0) return null;
+
+  const { status, count } = aggregate;
+
+  // 글리프/색 매핑 — tab-item.tsx와 동일한 token 규칙.
+  let glyph: React.ReactNode;
+  if (status === "permissionPending") {
+    glyph = (
+      <CircleAlert
+        width={12}
+        height={12}
+        strokeWidth={1.5}
+        className="shrink-0 text-(--state-warning-fg)"
+      />
+    );
+  } else if (status === "error") {
+    glyph = (
+      <TriangleAlert
+        width={12}
+        height={12}
+        strokeWidth={1.5}
+        className="shrink-0 text-(--state-error-fg)"
+      />
+    );
+  } else {
+    // needsInput
+    glyph = (
+      <CircleDot
+        width={12}
+        height={12}
+        strokeWidth={1.5}
+        className="shrink-0 text-(--tab-claude-attention-fg)"
+      />
+    );
+  }
+
+  const countLabel = count >= 2 ? count : undefined;
+  const ariaLabel = `${count} Claude session${count === 1 ? "" : "s"} need attention`;
+
+  return (
+    <span
+      role="status"
+      aria-label={ariaLabel}
+      title={ariaLabel}
+      className="absolute top-1/2 -translate-y-1/2 right-20 flex items-center gap-1 pointer-events-none"
+    >
+      {glyph}
+      {countLabel !== undefined && (
+        <span aria-hidden className="text-app-micro text-muted-foreground">
+          {countLabel}
+        </span>
+      )}
+    </span>
   );
 }
 

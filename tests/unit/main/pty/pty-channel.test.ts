@@ -14,6 +14,9 @@ const mockSend = mock((..._args: unknown[]) => {});
 const mockGetAllWebContents = mock(() => [{ isDestroyed: () => false, send: mockSend }]);
 
 mock.module("electron", () => ({
+  app: {
+    isPackaged: false,
+  },
   ipcMain: {
     handle: mockHandle,
     on: mockOn,

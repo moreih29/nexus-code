@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { AgentManifestSchema } from "../../../src/shared/agent/manifest";
-import { AGENT_BUILD_TARGETS, writeAgentManifest } from "../../../scripts/build-agent";
+import { AGENT_BUILD_TARGETS, writeAgentManifest, copyClaudeWrapper } from "../../../scripts/build-agent";
 
 let tmpDir: string;
 
@@ -86,5 +86,49 @@ describe("build-agent manifest writer", () => {
     expect(pyright?.sha256).toBe(
       createHash("sha256").update("pyright-langserver-payload").digest("hex"),
     );
+  });
+});
+
+describe("copyClaudeWrapper", () => {
+  // 실제 wrapper 소스 경로(레포 루트 기준)
+  const repoRoot = path.resolve(import.meta.dir, "../../..");
+
+  test("wrapper를 <outDir>/bin/claude로 복사하고 실행 권한 설정", async () => {
+    const outDir = path.join(tmpDir, "dist-wrapper");
+    const result = await copyClaudeWrapper({ rootDir: repoRoot, outDir });
+
+    // 파일이 존재해야 한다.
+    const destPath = path.join(outDir, "bin", "claude");
+    expect(fs.existsSync(destPath)).toBe(true);
+
+    // 실행 비트 확인 (Unix 권한: 0o755).
+    const stat = fs.statSync(destPath);
+    // eslint-disable-next-line no-bitwise
+    expect(stat.mode & 0o755).toBe(0o755);
+
+    // 반환값 경로 확인.
+    expect(result.path).toBe(path.join("bin", "claude"));
+
+    // sha256 / size 일치 검증.
+    const content = fs.readFileSync(destPath);
+    const expectedSha = createHash("sha256").update(content).digest("hex");
+    expect(result.sha256).toBe(expectedSha);
+    expect(result.size).toBe(content.length);
+  });
+
+  test("소스 wrapper에 shebang이 포함되어 있음", async () => {
+    const outDir = path.join(tmpDir, "dist-wrapper-shebang");
+    await copyClaudeWrapper({ rootDir: repoRoot, outDir });
+
+    const destPath = path.join(outDir, "bin", "claude");
+    const firstLine = fs.readFileSync(destPath, "utf8").split("\n")[0];
+    expect(firstLine).toBe("#!/usr/bin/env bash");
+  });
+
+  test("소스 파일이 없으면 에러를 던진다", async () => {
+    const outDir = path.join(tmpDir, "dist-no-src");
+    await expect(
+      copyClaudeWrapper({ rootDir: "/nonexistent-root-12345", outDir }),
+    ).rejects.toThrow();
   });
 });

@@ -112,6 +112,9 @@ export async function buildAgentDistribution(
   const nodeArtifacts = await downloadNodeRuntimes({ outDir, nodeVersion }, dependencies.fetch);
   const lspArtifacts = await buildLspBundles({ rootDir, outDir, run });
 
+  // claude 래퍼 스크립트를 bin/claude로 배치.
+  await copyClaudeWrapper({ rootDir, outDir });
+
   await writeAgentManifest({
     outDir,
     version,
@@ -121,6 +124,27 @@ export async function buildAgentDistribution(
     lspArtifacts,
   });
   console.log(`Built agent distribution in ${outDir}`);
+}
+
+/**
+ * scripts/assets/claude-wrapper.sh 를 <outDir>/bin/claude 로 복사하고
+ * 실행 권한(0o755)을 설정한다. 파일이 없으면 에러를 던진다.
+ */
+export async function copyClaudeWrapper(args: {
+  readonly rootDir: string;
+  readonly outDir: string;
+}): Promise<{ readonly path: string; readonly sha256: string; readonly size: number }> {
+  const src = path.join(args.rootDir, "scripts", "assets", "claude-wrapper.sh");
+  const binDir = path.join(args.outDir, "bin");
+  const dest = path.join(binDir, "claude");
+
+  await fs.mkdir(binDir, { recursive: true });
+  await fs.copyFile(src, dest);
+  await fs.chmod(dest, 0o755);
+
+  const metadata = await fileMetadata(dest);
+  console.log(`Copied claude wrapper to ${dest} (sha256=${metadata.sha256})`);
+  return { path: path.join("bin", "claude"), ...metadata };
 }
 
 export async function writeAgentManifest(args: {

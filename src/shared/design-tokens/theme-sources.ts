@@ -110,6 +110,15 @@ export interface ThemeSource {
   error: string;
   /** Info state foreground (git untracked, info badge). */
   info: string;
+
+  // --- Claude indicator overrides (optional, issue #5) ---
+  /**
+   * Foreground color for the Claude attention glyph (tab.claude.attention.fg).
+   * Required to satisfy WCAG 4.5:1 against the theme's island background.
+   * Falls back to `source.info` in the adapter when not specified.
+   * Use only when `source.info` fails the contrast gate against `bg.primary`.
+   */
+  claudeAttentionFg?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -388,6 +397,9 @@ export const THEME_SOURCES = [
     warning: "#b58900",
     error: "#dc322f",
     info: "#268bd2",
+    // #268bd2 (source.info) contrasts at 4.08:1 against #002b36 (bg.primary) — fails WCAG 4.5:1.
+    // Brightened Solarized blue (#2397e8) reaches 4.76:1 while preserving the CIE-uniform hue.
+    claudeAttentionFg: "#2397e8",
   },
 
   // ===========================================================================

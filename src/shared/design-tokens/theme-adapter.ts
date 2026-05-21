@@ -288,6 +288,16 @@ export function buildSemanticTokens(source: ThemeSource): SemanticTokenSet {
     "tab.inactive.fg": source.fg.muted,
     "tab.hover.bg": o(0.04),
     "tab.modified.dot": source.accent,
+    // Claude status indicators (issue #5 — aliases to existing semantic values)
+    // tab.claude.running.fg aliases state.loading.indicator (same accent hue) — no new raw value needed.
+    "tab.claude.running.fg": source.accent,
+    // tab.claude.attention.fg: info hue, visually distinct from source.warning (SSH connecting yellow).
+    // source.info is the per-theme info/cyan/blue; claudeAttentionFg overrides it when source.info
+    // fails WCAG 4.5:1 against bg.primary (only solarized-dark requires the override).
+    "tab.claude.attention.fg": source.claudeAttentionFg ?? source.info,
+    // tab.attention.indicator: inactive tab left 2px bar — uses same attention hue as default.
+    // Component switches to state.warning.fg / state.error.fg at runtime per state.
+    "tab.attention.indicator": source.claudeAttentionFg ?? source.info,
 
     // --- panel ---
     "panel.bg": source.bg.primary,

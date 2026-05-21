@@ -169,6 +169,9 @@
   --tab-active-border: #1f6feb;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #1f6feb;
+  --tab-claude-running-fg: #1f6feb;
+  --tab-claude-attention-fg: #58a6ff;
+  --tab-attention-indicator: #58a6ff;
   --editor-text-muted: #8b949e;
   --status-bar-bg: #161b22;
   --status-bar-fg: #c9d1d9;
@@ -270,6 +273,9 @@
   --tab-active-border: #1f6feb;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #1f6feb;
+  --tab-claude-running-fg: #1f6feb;
+  --tab-claude-attention-fg: #58a6ff;
+  --tab-attention-indicator: #58a6ff;
   --editor-text-muted: #8b949e;
   --status-bar-bg: #161b22;
   --status-bar-fg: #c9d1d9;
@@ -364,6 +370,9 @@
   --tab-active-border: #0969da;
   --tab-hover-bg: rgba(0, 0, 0, 0.04);
   --tab-modified-dot: #0969da;
+  --tab-claude-running-fg: #0969da;
+  --tab-claude-attention-fg: #0969da;
+  --tab-attention-indicator: #0969da;
   --editor-text-muted: #656d76;
   --status-bar-bg: #f6f8fa;
   --status-bar-fg: #1f2328;
@@ -458,6 +467,9 @@
   --tab-active-border: #bd93f9;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #bd93f9;
+  --tab-claude-running-fg: #bd93f9;
+  --tab-claude-attention-fg: #8be9fd;
+  --tab-attention-indicator: #8be9fd;
   --editor-text-muted: #6272a4;
   --status-bar-bg: #21222c;
   --status-bar-fg: #f8f8f2;
@@ -552,6 +564,9 @@
   --tab-active-border: #61afef;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #61afef;
+  --tab-claude-running-fg: #61afef;
+  --tab-claude-attention-fg: #61afef;
+  --tab-attention-indicator: #61afef;
   --editor-text-muted: #5c6370;
   --status-bar-bg: #21252b;
   --status-bar-fg: #abb2bf;
@@ -646,6 +661,9 @@
   --tab-active-border: #a6e22e;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #a6e22e;
+  --tab-claude-running-fg: #a6e22e;
+  --tab-claude-attention-fg: #66d9ef;
+  --tab-attention-indicator: #66d9ef;
   --editor-text-muted: #75715e;
   --status-bar-bg: #1e1f1c;
   --status-bar-fg: #f8f8f2;
@@ -740,6 +758,9 @@
   --tab-active-border: #7aa2f7;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #7aa2f7;
+  --tab-claude-running-fg: #7aa2f7;
+  --tab-claude-attention-fg: #7dcfff;
+  --tab-attention-indicator: #7dcfff;
   --editor-text-muted: #565f89;
   --status-bar-bg: #16161e;
   --status-bar-fg: #c0caf5;
@@ -834,6 +855,9 @@
   --tab-active-border: #268bd2;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #268bd2;
+  --tab-claude-running-fg: #268bd2;
+  --tab-claude-attention-fg: #2397e8;
+  --tab-attention-indicator: #2397e8;
   --editor-text-muted: #586e75;
   --status-bar-bg: #073642;
   --status-bar-fg: #839496;
@@ -928,6 +952,9 @@
   --tab-active-border: #88c0d0;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #88c0d0;
+  --tab-claude-running-fg: #88c0d0;
+  --tab-claude-attention-fg: #88c0d0;
+  --tab-attention-indicator: #88c0d0;
   --editor-text-muted: #616e88;
   --status-bar-bg: #3b4252;
   --status-bar-fg: #d8dee9;
@@ -1022,6 +1049,9 @@
   --tab-active-border: #89b4fa;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #89b4fa;
+  --tab-claude-running-fg: #89b4fa;
+  --tab-claude-attention-fg: #89dceb;
+  --tab-attention-indicator: #89dceb;
   --editor-text-muted: #6c7086;
   --status-bar-bg: #181825;
   --status-bar-fg: #cdd6f4;
@@ -1116,6 +1146,9 @@
   --tab-active-border: #fabd2f;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #fabd2f;
+  --tab-claude-running-fg: #fabd2f;
+  --tab-claude-attention-fg: #83a598;
+  --tab-attention-indicator: #83a598;
   --editor-text-muted: #928374;
   --status-bar-bg: #1d2021;
   --status-bar-fg: #ebdbb2;

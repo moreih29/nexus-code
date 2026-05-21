@@ -1,4 +1,4 @@
-import { Lock, X } from "lucide-react";
+import { CircleAlert, CircleDot, Loader, Lock, TriangleAlert, X } from "lucide-react";
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,8 @@ import { DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
 import { cacheUriFor } from "@/services/editor/model/cache";
 import { isDirty, subscribeFileDirty } from "@/services/editor/model/dirty-tracker";
 import { cn } from "@/utils/cn";
+import type { ClaudeStatus } from "../../../../shared/claude/status";
+import { selectStatusForTab, useClaudeStatusStore } from "../../../state/stores/claude-status";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
 import { MIME_TAB, type TabDragPayload } from "../dnd/types";
 
@@ -49,6 +51,106 @@ function useTabDirty(tab: Tab): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }
 
+/**
+ * Claude 상태에 대응하는 aria-label 텍스트를 반환한다.
+ * 스크린리더가 "Claude: waiting for permission" 등 명시적 레이블을 읽는다.
+ */
+function claudeAriaLabel(status: ClaudeStatus): string {
+  switch (status) {
+    case "running":
+      return "Claude: running";
+    case "needsInput":
+      return "Claude: waiting for input";
+    case "permissionPending":
+      return "Claude: waiting for permission";
+    case "error":
+      return "Claude: error";
+    case "idle":
+      return "Claude: idle";
+  }
+}
+
+/**
+ * Claude 상태 글리프 컴포넌트. idle이면 null을 반환해 슬롯 자체를 렌더하지 않는다.
+ *
+ * 글리프 크기는 design.md §14 기준 12px(size-3). 색 토큰은 semantic CSS 변수 참조.
+ * Redundant encoding을 위해 글리프 형태 + 색을 조합한다.
+ */
+function ClaudeGlyph({ status }: { status: ClaudeStatus }) {
+  if (status === "idle") return null;
+
+  // aria-label은 부모가 tabindex가 없는 span에 붙으므로, role="img" + aria-label로
+  // 스크린리더가 내용을 읽을 수 있게 한다.
+  const label = claudeAriaLabel(status);
+
+  if (status === "running") {
+    return (
+      <span role="img" aria-label={label}>
+        <Loader
+          width={12}
+          height={12}
+          strokeWidth={1.5}
+          className="shrink-0 text-(--state-loading-indicator)"
+        />
+      </span>
+    );
+  }
+  if (status === "needsInput") {
+    return (
+      <span role="img" aria-label={label}>
+        <CircleDot
+          width={12}
+          height={12}
+          strokeWidth={1.5}
+          className="shrink-0 text-(--tab-claude-attention-fg)"
+        />
+      </span>
+    );
+  }
+  if (status === "permissionPending") {
+    return (
+      <span role="img" aria-label={label}>
+        <CircleAlert
+          width={12}
+          height={12}
+          strokeWidth={1.5}
+          className="shrink-0 text-(--state-warning-fg)"
+        />
+      </span>
+    );
+  }
+  if (status === "error") {
+    return (
+      <span role="img" aria-label={label}>
+        <TriangleAlert
+          width={12}
+          height={12}
+          strokeWidth={1.5}
+          className="shrink-0 text-(--state-error-fg)"
+        />
+      </span>
+    );
+  }
+  return null;
+}
+
+/**
+ * 상태별 attention bar 색 CSS 변수를 반환한다.
+ * idle/running은 bar를 렌더하지 않으므로 null을 반환한다.
+ */
+function attentionBarClass(status: ClaudeStatus): string | null {
+  switch (status) {
+    case "needsInput":
+      return "bg-(--tab-attention-indicator)";
+    case "permissionPending":
+      return "bg-(--state-warning-fg)";
+    case "error":
+      return "bg-(--state-error-fg)";
+    default:
+      return null;
+  }
+}
+
 export interface TabItemProps {
   workspaceId: string;
   leafId: string;
@@ -76,6 +178,17 @@ export function TabItem({
   const dirty = useTabDirty(tab);
   const terminalEnded = tab.type === "terminal" && Boolean(tab.props.dead);
 
+  // Claude 세션 상태 구독 — status string primitive만 추출해 identity 안정.
+  const claudeStatus: ClaudeStatus | undefined = useClaudeStatusStore((state) =>
+    selectStatusForTab(state, workspaceId, tab.id)?.status,
+  );
+
+  // attention bar 클래스 — needsInput/permissionPending/error일 때 좌측 2px bar 표시.
+  const barClass = claudeStatus ? attentionBarClass(claudeStatus) : null;
+
+  // permissionPending 배경 tint — 탭 배경에 6% warning 색 오버레이.
+  const isPermissionPending = claudeStatus === "permissionPending";
+
   // VSCode anchors the drag image at (0, 0) of the tab DOM so the cursor sits
   // at the top-left corner, leaving room for drop-border feedback.
   const { onDragStart } = useDragSource({
@@ -102,6 +215,15 @@ export function TabItem({
         }
       }}
     >
+      {/* 좌측 attention bar — needsInput/permissionPending/error 상태에서 2px 수직 bar 표시.
+          selected indicator(3px, --state-selected-indicator)와 두께/색으로 시각 분리됨. */}
+      {barClass && (
+        <span
+          aria-hidden
+          className={cn("absolute left-0 top-1 bottom-1 w-0.5 rounded-none shrink-0", barClass)}
+        />
+      )}
+
       <RadixTabs.Trigger
         value={tab.id}
         aria-label={terminalEnded ? `${displayTitle}, terminal ended` : undefined}
@@ -123,6 +245,8 @@ export function TabItem({
           // within-island raised surface (not a canvas/island swap), so no
           // depth reversal — design.md §2 is about canvas↔island, not this.
           "data-[state=active]:bg-[var(--tab-active-bg)] data-[state=active]:text-foreground",
+          // permissionPending 탭 배경 warning tint — 6% opacity, redundant encoding 보조.
+          isPermissionPending && "bg-(--state-warning-bg)/[0.06]",
           // focus
           "outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50",
         )}
@@ -138,6 +262,10 @@ export function TabItem({
               className="shrink-0 text-muted-foreground"
             />
           </span>
+        )}
+        {/* Claude 상태 글리프 슬롯 — idle이면 미렌더. 활성/비활성 탭 모두 풀톤 opacity. */}
+        {claudeStatus && claudeStatus !== "idle" && (
+          <ClaudeGlyph status={claudeStatus} />
         )}
         <span className={tab.isPreview ? "italic" : undefined}>
           {displayTitle}

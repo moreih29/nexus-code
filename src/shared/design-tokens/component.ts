@@ -100,8 +100,9 @@ export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string
     "--state-error-fg": tokens["state.error.fg"],
     "--state-error-border": tokens["state.error.border"],
     "--state-error-bg": tokens["state.error.bg"],
-    // Warning state (e.g. Caps Lock hint on the SSH password field)
+    // Warning state (e.g. Caps Lock hint on the SSH password field, permissionPending tint)
     "--state-warning-fg": tokens["state.warning.fg"],
+    "--state-warning-bg": tokens["state.warning.bg"],
     // Border / input / ring — island internal hairline
     "--border": tokens["surface.island.border"],
     "--input": tokens["surface.island.border"],
@@ -137,6 +138,13 @@ export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string
     "--tab-active-border": tokens["tab.active.border"],
     "--tab-hover-bg": tokens["tab.hover.bg"],
     "--tab-modified-dot": tokens["tab.modified.dot"],
+    // Claude status indicator tokens — issue #5, designer decision.
+    // running.fg aliases state.loading.indicator (same accent hue).
+    // attention.fg is info hue (cyan/blue), visually distinct from SSH connecting yellow.
+    // attention.indicator is the inactive tab left 2px bar default color (info hue).
+    "--tab-claude-running-fg": tokens["tab.claude.running.fg"],
+    "--tab-claude-attention-fg": tokens["tab.claude.attention.fg"],
+    "--tab-attention-indicator": tokens["tab.attention.indicator"],
     // Editor text tokens — exposed for components that display code-adjacent metadata
     // (paths, remote addresses) and must match the editor surface text scale.
     "--editor-text-muted": tokens["editor.text.muted"],

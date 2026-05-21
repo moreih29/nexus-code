@@ -7,8 +7,9 @@
 
 import type { LspLanguageId } from "../shared/types/app-state";
 import type { WorkspaceMeta } from "../shared/types/workspace";
-import { ipcCallResult, mustSucceed } from "./ipc/client";
+import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
 import { registerStatePersistence } from "./state/persistence";
+import { useClaudeStatusStore } from "./state/stores/claude-status";
 import { useEditorFontStore } from "./state/stores/editor-font";
 import { useLayoutStore } from "./state/stores/layout";
 import { useLspEnabledStore } from "./state/stores/lsp-enabled";
@@ -134,6 +135,28 @@ export async function bootstrapWorkspaces(
     const first = list[0];
     setActiveWorkspaceId(first.id);
   }
+}
+
+/**
+ * Claude 세션 상태 store를 초기화하고 status broadcast 구독을 설정한다.
+ *
+ * 1. snapshot call로 현재 모든 (workspaceId, tabId) 상태를 store에 로드한다.
+ * 2. claude:status 이벤트를 구독해 incremental 갱신을 처리한다.
+ *
+ * 워크스페이스 제거 정리는 workspace-cleanup registry(registerWorkspaceCleanup)가
+ * 담당하므로 여기서 별도로 구독하지 않는다.
+ */
+export async function bootstrapClaudeStatus(): Promise<void> {
+  // 현재 모든 탭의 Claude 상태를 snapshot으로 로드한다.
+  const result = await ipcCallResult("claude", "snapshot", {});
+  if (result.ok) {
+    useClaudeStatusStore.getState().setMany(result.value);
+  }
+
+  // 이후 상태 변경은 status broadcast로 incremental 갱신된다.
+  ipcListen("claude", "status", (entry) => {
+    useClaudeStatusStore.getState().set(entry);
+  });
 }
 
 /**

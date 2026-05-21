@@ -205,12 +205,20 @@ class AgentPtyHostHandle implements PtyHostHandle {
 
     const offData = channel.on("pty.data", (payload) => this.handleData(payload));
     const offExit = channel.on("pty.exit", (payload) => this.handleExit(payload));
+    // claude.hook / agent.hookServerReady 이벤트를 PtyHostHandle.on 구독자에게 relay한다.
+    // setupClaudeFeature 가 PtyHostHandle.on("agent.hookServerReady", ...) 등으로 구독한다.
+    const offHookServerReady = channel.on("agent.hookServerReady", (payload) =>
+      this.emit("agent.hookServerReady", { workspaceId, ...asRecord(payload) }),
+    );
+    const offClaudeHook = channel.on("claude.hook", (payload) =>
+      this.emit("claude.hook", payload),
+    );
     const offLifecycle = channel.onLifecycle((event) => {
       this.handleLifecycle(workspaceId, event);
     });
     this.subscriptions.set(workspaceId, {
       channel,
-      disposers: [offData, offExit, offLifecycle],
+      disposers: [offData, offExit, offHookServerReady, offClaudeHook, offLifecycle],
     });
   }
 

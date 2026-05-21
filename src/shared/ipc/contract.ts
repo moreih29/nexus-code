@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { StatusEntrySchema } from "../claude/status";
 import {
   DirEntrySchema,
   ExpectedFileStateSchema,
@@ -1024,6 +1025,30 @@ export const ipcContract = {
       restart: call(z.object({ reason: z.string().min(1).max(120) }), z.void()),
     },
     listen: {},
+  },
+
+  // Claude Code 세션 상태 채널.
+  //
+  // 탭별 Claude 세션 상태(running / needsInput / permissionPending 등)를
+  // main→renderer로 broadcast하고, renderer init 시 전체 snapshot을 제공한다.
+  // hook 요청(HookRequest/HookResponse)은 main↔agent NDJSON 전용이므로
+  // 이 채널에 등록하지 않는다 — shared/claude/status.ts를 공통 출처로 참조한다.
+  claude: {
+    call: {
+      /**
+       * 현재 모든 (workspaceId, tabId) 쌍의 Claude 세션 상태를 반환한다.
+       * renderer가 store 초기화 시 1회 호출하며, 이후에는 status 이벤트로
+       * incremental 업데이트를 받는다.
+       */
+      snapshot: call(z.object({}), z.array(StatusEntrySchema)),
+    },
+    listen: {
+      /**
+       * 특정 (workspaceId, tabId)의 상태가 변경될 때마다 main이 broadcast한다.
+       * 변경이 없는 동일 상태 재설정은 발사하지 않는다.
+       */
+      status: listen(StatusEntrySchema),
+    },
   },
 } as const satisfies Record<string, ChannelDefinition>;
 

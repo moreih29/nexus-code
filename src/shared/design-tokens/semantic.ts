@@ -82,7 +82,7 @@ export type SemanticKey =
   | "sidebar.badge.bg"
   | "sidebar.badge.fg"
 
-  // --- IDE Region: tab (8 keys) ---
+  // --- IDE Region: tab (11 keys) ---
   | "tab.bar.bg"
   | "tab.active.bg"
   | "tab.active.fg"
@@ -91,6 +91,10 @@ export type SemanticKey =
   | "tab.inactive.fg"
   | "tab.hover.bg"
   | "tab.modified.dot"
+  // Claude status indicators (issue #5 — designer decision)
+  | "tab.claude.running.fg"     // loader glyph color in running state (info/accent hue)
+  | "tab.claude.attention.fg"   // needsInput glyph color — info hue, visually distinct from SSH connecting yellow
+  | "tab.attention.indicator"   // inactive tab left 2px bar — info/warning/error, dynamic per state at component level
 
   // --- IDE Region: panel (7 keys) ---
   | "panel.bg"

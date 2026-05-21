@@ -16,6 +16,8 @@ import (
 	"github.com/nexus-code/nexus-code/internal/dispatch"
 	agentfs "github.com/nexus-code/nexus-code/internal/fs"
 	agentgit "github.com/nexus-code/nexus-code/internal/git"
+	"github.com/nexus-code/nexus-code/internal/hookclient"
+	"github.com/nexus-code/nexus-code/internal/hookserver"
 	agentlsp "github.com/nexus-code/nexus-code/internal/lsp"
 	"github.com/nexus-code/nexus-code/internal/proto"
 	agentpty "github.com/nexus-code/nexus-code/internal/pty"
@@ -24,6 +26,12 @@ import (
 )
 
 func main() {
+	// hook 서브커맨드 분기 — PTY/FS/Git/LSP 서비스 init 전에 처리해 빠른 시작을 보장한다.
+	// Claude Code는 hook 이벤트 발생 시 `agent hook <subcommand>` 형태로 호출한다.
+	if len(os.Args) >= 2 && os.Args[1] == "hook" {
+		os.Exit(hookclient.Run(os.Args[2:]))
+	}
+
 	if code, ok := askpassExitFromArgv(os.Args); ok {
 		os.Exit(code)
 	}
@@ -54,12 +62,24 @@ func main() {
 		os.Exit(2)
 	}
 
+	// hookserver를 시작한다. 실패(소켓 경로 초과 등)하면 경고만 로그하고
+	// hook 비활성화 모드로 계속 운영한다 — agent 기본 기능은 영향 없음.
+	var hooksrv *hookserver.Server
+	if hs, err := hookserver.New(hookserver.AgentKey(root), nil); err != nil {
+		agentLogger.Warn("hookserver unavailable", "err", err)
+	} else {
+		hooksrv = hs
+	}
+
 	d := dispatch.New()
 	agentfs.Register(d, fsys)
 	agentgit.Register(d, git)
 	agentlsp.Register(d, lsp)
 	agentpty.Register(d, pty)
 	agentsearch.Register(d, search)
+	if hooksrv != nil {
+		hookserver.Register(d, hooksrv)
+	}
 
 	host := stdioserver.New(d, os.Stdin, os.Stdout, agentLogger)
 	fsys.SetEventSink(func(event string, payload any) error {
@@ -77,10 +97,18 @@ func main() {
 	lsp.SetEventSink(host.EmitEvent)
 	pty.SetEventSink(host.EmitEvent)
 	search.SetEventSink(host.EmitEvent)
+	if hooksrv != nil {
+		// hookserver의 EventSink를 host가 생성된 뒤 연결한다.
+		// 다른 서비스(fs/git/pty)의 SetEventSink와 같은 패턴.
+		hooksrv.SetEventSink(host.EmitEvent)
+	}
 	defer fsys.Close()
 	defer git.Close()
 	defer lsp.Close()
 	defer pty.Close()
+	if hooksrv != nil {
+		defer hooksrv.Close()
+	}
 	host.InstallSigtermHandler()
 
 	// Ready frame must reach the client before any other output so the
@@ -89,6 +117,16 @@ func main() {
 	if err := host.WriteFrame(proto.Ready()); err != nil {
 		agentLogger.Error("failed to write ready frame", "err", err)
 		os.Exit(1)
+	}
+
+	// hookserver가 성공적으로 시작된 경우 main에 소켓 경로와 토큰을 1회 push한다.
+	// main은 이 이벤트를 수신해 워크스페이스별 캐시에 저장한 뒤 PTY spawn 시
+	// NEXUS_AGENT_SOCKET / NEXUS_HOOK_TOKEN ENV로 주입한다.
+	if hooksrv != nil {
+		_ = host.EmitEvent("agent.hookServerReady", map[string]any{
+			"socketPath": hooksrv.SocketPath(),
+			"token":      hooksrv.Token(),
+		})
 	}
 
 	host.Run()

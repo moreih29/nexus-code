@@ -25,6 +25,8 @@ import { type LspHostHandle, startConfiguredLspHost } from "./features/lsp/host"
 import { registerLspChannel } from "./features/lsp/ipc";
 import { installAppMenu } from "./features/menu";
 import { registerPanelChannel } from "./features/panel";
+import { setupClaudeFeature } from "./features/claude/index";
+import type { AgentReadyCache } from "./features/claude/agent-ready-cache";
 import { startAgentPtyHost } from "./features/pty/agent-host";
 import { registerPtyChannel } from "./features/pty/ipc";
 import type { PtyHostHandle } from "./features/pty/types";
@@ -77,6 +79,8 @@ const stateService = new StateService(path.join(userData, "state.json"));
 // the wiring that constructed each disposer.
 let lspHost: LspHostHandle | null = null;
 let agentPtyHost: PtyHostHandle | null = null;
+let claudeReadyCache: AgentReadyCache | null = null;
+let disposeClaudeFeature: (() => void) | null = null;
 let gitRegistry: GitRegistry | null = null;
 let gitWatcher: AgentGitWatcher | null = null;
 let gitStatusCoalescer: StatusCoalescer | null = null;
@@ -203,7 +207,17 @@ app.whenReady().then(async () => {
   workspaceManager.setPtySessionCloser((workspaceId) => {
     agentPtyHost?.closeWorkspaceSessions(workspaceId);
   });
-  registerPtyChannel({ agentHost: agentPtyHost, workspaceManager });
+
+  // Claude feature 초기화 — broker / hook-handler / agent-ready-cache wiring.
+  // registerPtyChannel보다 먼저 호출해 hookReadyCache 참조를 확보한다.
+  const claudeSetup = setupClaudeFeature({
+    agentHost: agentPtyHost,
+    workspaceManager,
+  });
+  claudeReadyCache = claudeSetup.hookReadyCache;
+  disposeClaudeFeature = claudeSetup.dispose;
+
+  registerPtyChannel({ agentHost: agentPtyHost, workspaceManager, hookReadyCache: claudeReadyCache });
 
   lspHost = startConfiguredLspHost({
     workspaceManager,
@@ -241,6 +255,7 @@ app.on("window-all-closed", () => {
 // safe regardless of how far whenReady() progressed.
 app.on("before-quit", () => {
   sshBrowseRegistry.dispose();
+  disposeClaudeFeature?.();
   agentPtyHost?.dispose();
   lspHost?.dispose();
   agentFsWatcher?.dispose();

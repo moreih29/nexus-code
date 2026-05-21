@@ -1,6 +1,19 @@
 // OSC escape sequence parser and Electron notification dispatcher.
 // Supports OSC 9, OSC 777 (notify), and OSC 99 — the three variants that
-// Claude Code and compatible terminal tools emit to request OS notifications.
+// terminal tools may emit to request OS notifications.
+//
+// Claude Code 통합 알림 채널 재정의 (T7 결정):
+// Claude Code 세션에서는 `preferredNotifChannel: "notifications_disabled"` 설정이
+// 래퍼 scripts/assets/claude-wrapper.sh에 의해 주입되므로 Claude Code 자체는
+// OSC 9/777/99 채널로 알림을 발사하지 않는다.
+// Claude Code 알림은 hook 채널(internal/hookserver → "claude.hook" NDJSON 이벤트 →
+// src/main/features/claude/hook-handler.ts)을 통해 처리된다.
+//
+// 이 파서는 Claude Code 이외의 일반 PTY 알림 전용 채널로 의미가 재정의된다:
+//   - 사용자가 직접 실행하는 shell 스크립트의 OSC 알림
+//   - Claude 이외의 CLI 도구(aider, 기타 AI agent CLI 등)가 보내는 알림
+//   - NEXUS_IN_APP=0 경로(래퍼 passthrough) — Claude Code가 원래 동작으로 OSC 발사
+// OSC 채널 비활성화 시에도 이 파서를 제거하지 않는 이유는 위와 같다.
 
 import { broadcast } from "../../infra/ipc-router";
 

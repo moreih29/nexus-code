@@ -73,8 +73,12 @@ export function TabBar({
           as a tab-bar drop zone. The inner List is used for measurement
           so the "|" insertion line is positioned relative to the actual
           tab strip. */}
+      {/* role="status" aria-live="polite" — Claude 상태 변경 시 스크린리더에 안내.
+          탭 글리프 aria-label이 변경되면 live region이 polite하게 알린다. */}
       <div
         ref={barRef}
+        role="status"
+        aria-live="polite"
         {...{ [DND_TAB_BAR_ATTR]: "" }}
         className="flex items-center h-9 shrink-0 overflow-x-auto px-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >

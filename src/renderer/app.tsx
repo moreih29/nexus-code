@@ -1,7 +1,12 @@
 import { useMonaco } from "@monaco-editor/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { WorkspaceMeta } from "../shared/types/workspace";
-import { bootstrapAppState, bootstrapLspEnabled, bootstrapWorkspaces } from "./bootstrap";
+import {
+  bootstrapAppState,
+  bootstrapClaudeStatus,
+  bootstrapLspEnabled,
+  bootstrapWorkspaces,
+} from "./bootstrap";
 import { useCommandBridge } from "./commands/use-command-bridge";
 import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
@@ -166,6 +171,11 @@ export function App() {
   // Boot: hydrate UI state (sidebar width, files panel) and layout/tabs from persisted app state.
   useEffect(() => {
     bootstrapAppState();
+  }, []);
+
+  // Boot: Claude 세션 상태 snapshot 로드 및 status broadcast 구독 설정.
+  useEffect(() => {
+    void bootstrapClaudeStatus();
   }, []);
 
   // Boot: load workspaces from main, activate first.
