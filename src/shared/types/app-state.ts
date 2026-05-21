@@ -28,6 +28,13 @@ export const AppStateSchema = z.object({
   lastActiveWorkspaceId: z.string().optional(),
   sidebarWidth: z.number().int().positive().optional(),
   filesPanelWidth: z.number().int().positive().optional(),
+  // Sidebar (workspace switcher strip) hidden state. Persisted so a
+  // restart preserves the layout the user last chose. Absent = visible.
+  sidebarHidden: z.boolean().optional(),
+  // Files panel (tree/git/search column) hidden state. Persisted
+  // independently of `sidebarHidden`; both toggle together only via the
+  // ⌘⇧B command, never via storage coupling.
+  filesPanelHidden: z.boolean().optional(),
   layoutByWorkspace: z.record(z.string().uuid(), WorkspaceLayoutSnapshotSchema).optional(),
   // Per-workspace list of LSP languages the user has explicitly enabled.
   // Key = workspaceId (UUID). Absent key (or absent field) means no

@@ -32,6 +32,7 @@ describe("parseAccelerator", () => {
   it("parses CmdOrCtrl+W", () => {
     expect(parseAccelerator("CmdOrCtrl+W")).toEqual({
       cmd: true,
+      ctrl: false,
       shift: false,
       alt: false,
       codes: ["KeyW"],
@@ -41,6 +42,7 @@ describe("parseAccelerator", () => {
   it("parses Shift+Enter (no cmd)", () => {
     expect(parseAccelerator("Shift+Enter")).toEqual({
       cmd: false,
+      ctrl: false,
       shift: true,
       alt: false,
       codes: ["Enter"],
@@ -50,9 +52,30 @@ describe("parseAccelerator", () => {
   it("parses bare letter token U", () => {
     expect(parseAccelerator("U")).toEqual({
       cmd: false,
+      ctrl: false,
       shift: false,
       alt: false,
       codes: ["KeyU"],
+    });
+  });
+
+  it("parses Cmd+Ctrl+Up as a literal two-modifier combo (Mac)", () => {
+    expect(parseAccelerator("Cmd+Ctrl+Up")).toEqual({
+      cmd: true,
+      ctrl: true,
+      shift: false,
+      alt: false,
+      codes: ["ArrowUp"],
+    });
+  });
+
+  it("parses Cmd+, with comma as the key token", () => {
+    expect(parseAccelerator("Cmd+,")).toEqual({
+      cmd: true,
+      ctrl: false,
+      shift: false,
+      alt: false,
+      codes: ["Comma"],
     });
   });
 
@@ -65,11 +88,20 @@ describe("parseAccelerator", () => {
     expect(p.codes.slice().sort()).toEqual(["Backslash", "Slash"]);
   });
 
-  it("treats Cmd/Command/Ctrl/Control all as the cmd modifier", () => {
+  it("treats CmdOrCtrl/Cmd/Command/Meta as the cmd modifier", () => {
+    expect(parseAccelerator("CmdOrCtrl+W").cmd).toBe(true);
     expect(parseAccelerator("Cmd+W").cmd).toBe(true);
     expect(parseAccelerator("Command+W").cmd).toBe(true);
-    expect(parseAccelerator("Ctrl+W").cmd).toBe(true);
-    expect(parseAccelerator("Control+W").cmd).toBe(true);
+    expect(parseAccelerator("Meta+W").cmd).toBe(true);
+  });
+
+  it("treats bare Ctrl/Control as the literal ctrl modifier (separate from cmd)", () => {
+    const ctrl = parseAccelerator("Ctrl+W");
+    expect(ctrl.cmd).toBe(false);
+    expect(ctrl.ctrl).toBe(true);
+    const control = parseAccelerator("Control+W");
+    expect(control.cmd).toBe(false);
+    expect(control.ctrl).toBe(true);
   });
 
   it("rejects accelerators with two key tokens", () => {
@@ -132,6 +164,42 @@ describe("matchesEvent", () => {
       matchesEvent(p, ev("Enter", { shiftKey: true, metaKey: true }) as unknown as KeyboardEvent),
     ).toBe(false);
   });
+
+  it("matches Cmd+Ctrl+Up only when both metaKey and ctrlKey are held", () => {
+    const p = parseAccelerator("Cmd+Ctrl+Up");
+    // both modifiers held → match
+    expect(
+      matchesEvent(
+        p,
+        ev("ArrowUp", { metaKey: true, ctrlKey: true }) as unknown as KeyboardEvent,
+      ),
+    ).toBe(true);
+    // only meta → no match (this is what CmdOrCtrl+Up would catch instead)
+    expect(matchesEvent(p, ev("ArrowUp", { metaKey: true }) as unknown as KeyboardEvent)).toBe(
+      false,
+    );
+    // only ctrl → no match
+    expect(matchesEvent(p, ev("ArrowUp", { ctrlKey: true }) as unknown as KeyboardEvent)).toBe(
+      false,
+    );
+    // adding shift breaks the match (strict modifier set)
+    expect(
+      matchesEvent(
+        p,
+        ev("ArrowUp", {
+          metaKey: true,
+          ctrlKey: true,
+          shiftKey: true,
+        }) as unknown as KeyboardEvent,
+      ),
+    ).toBe(false);
+  });
+
+  it("matches Cmd+, on Comma key with metaKey", () => {
+    const p = parseAccelerator("Cmd+,");
+    expect(matchesEvent(p, ev("Comma", { metaKey: true }) as unknown as KeyboardEvent)).toBe(true);
+    expect(matchesEvent(p, ev("Comma") as unknown as KeyboardEvent)).toBe(false);
+  });
 });
 
 describe("acceleratorToLabel", () => {
@@ -153,6 +221,15 @@ describe("acceleratorToLabel", () => {
 
   it("renders Shift+Enter as ⇧↵ on Mac", () => {
     expect(acceleratorToLabel("Shift+Enter", { isMac: true })).toBe("⇧↵");
+  });
+
+  it("renders Cmd+Ctrl+Up as ⌘⌃↑ on Mac", () => {
+    expect(acceleratorToLabel("Cmd+Ctrl+Up", { isMac: true })).toBe("⌘⌃↑");
+  });
+
+  it("renders Cmd+, with a literal comma", () => {
+    expect(acceleratorToLabel("Cmd+,", { isMac: true })).toBe("⌘,");
+    expect(acceleratorToLabel("Cmd+,", { isMac: false })).toBe("⌘+,");
   });
 });
 

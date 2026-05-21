@@ -24,10 +24,12 @@ import { useGlobalKeybindings } from "./keybindings/use-global-keybindings";
 import { initializeEditorServices } from "./services/editor";
 import { rehydrateLspForWorkspace } from "./services/editor/model/cache";
 import { useActiveStore } from "./state/stores/active";
+import { useAddWorkspaceUIStore } from "./state/stores/add-workspace-ui";
 import { useEditorFontStore } from "./state/stores/editor-font";
 import { useSettingsUIStore } from "./state/stores/settings-ui";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
+import { useUIStore } from "./state/stores/ui";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
 import { useWorkspacesStore } from "./state/stores/workspaces";
 
@@ -38,6 +40,12 @@ export function App() {
   const settingsOpen = useSettingsUIStore((s) => s.settingsOpen);
   const settingsInitialActiveId = useSettingsUIStore((s) => s.initialActiveId);
   const closeSettings = useSettingsUIStore((s) => s.closeSettings);
+  // Left-column visibility flags. Conditional render (not display:none)
+  // so the ResizeHandle children inside Sidebar/FilesPanel don't leak
+  // pointer events while hidden, and so width state stays in the store
+  // ready to restore on re-show.
+  const sidebarHidden = useUIStore((s) => s.sidebarHidden);
+  const filesPanelHidden = useUIStore((s) => s.filesPanelHidden);
 
   // Settings nav — each row carries an optional `dirty` dot. Dirty is
   // **session-scoped**: it means "this value changed while the current
@@ -144,7 +152,11 @@ export function App() {
   // Their <WorkspacePanel> stays mounted (CSS-hidden when inactive) so PTYs
   // survive workspace switches. Pruned when the workspace itself disappears.
   const [mountedIds, setMountedIds] = useState<Set<string>>(() => new Set());
-  const [addWorkspaceOpen, setAddWorkspaceOpen] = useState(false);
+  // Add Workspace dialog state lives in a dedicated store so the
+  // `workspace.add` keyboard command (⌘N) can open it without prop drilling.
+  const addWorkspaceOpen = useAddWorkspaceUIStore((s) => s.addWorkspaceOpen);
+  const openAddWorkspace = useAddWorkspaceUIStore((s) => s.openAddWorkspace);
+  const closeAddWorkspace = useAddWorkspaceUIStore((s) => s.closeAddWorkspace);
 
   useEffect(() => {
     if (!monaco) return;
@@ -244,8 +256,8 @@ export function App() {
   );
 
   const handleAddWorkspace = useCallback(() => {
-    setAddWorkspaceOpen(true);
-  }, []);
+    openAddWorkspace();
+  }, [openAddWorkspace]);
 
   const handleWorkspaceCreated = useCallback(
     async (meta: WorkspaceMeta) => {
@@ -260,8 +272,8 @@ export function App() {
   );
 
   const handleCloseAddWorkspace = useCallback(() => {
-    setAddWorkspaceOpen(false);
-  }, []);
+    closeAddWorkspace();
+  }, [closeAddWorkspace]);
 
   const handleRemoveWorkspace = useCallback(
     async (id: string) => {
@@ -327,14 +339,16 @@ export function App() {
           }}
         </SettingsDialog>
         <div className="flex flex-1 min-h-0 overflow-hidden gap-[6px] p-[6px]">
-          <Sidebar
-            workspaces={workspaces}
-            activeWorkspaceId={activeWorkspaceId}
-            onSelectWorkspace={handleSelectWorkspace}
-            onAddWorkspace={handleAddWorkspace}
-            onRemoveWorkspace={handleRemoveWorkspace}
-          />
-          <FilesPanel />
+          {!sidebarHidden && (
+            <Sidebar
+              workspaces={workspaces}
+              activeWorkspaceId={activeWorkspaceId}
+              onSelectWorkspace={handleSelectWorkspace}
+              onAddWorkspace={handleAddWorkspace}
+              onRemoveWorkspace={handleRemoveWorkspace}
+            />
+          )}
+          {!filesPanelHidden && <FilesPanel />}
           <div className="grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden">
             {workspaces.length === 0 && (
               <div className="flex flex-col island-surface rounded-(--radius-island) overflow-hidden">

@@ -99,6 +99,9 @@ function appMenu(appName: string): MenuItemSpec {
     submenu: [
       { type: "role", role: "about", label: `About ${appName}` },
       { type: "separator" },
+      // macOS convention: Settings… right under About, ⌘, accelerator.
+      cmd("Settings…", COMMANDS.settingsOpen),
+      { type: "separator" },
       { type: "role", role: "hide" },
       { type: "role", role: "hideOthers" },
       { type: "role", role: "unhide" },
@@ -110,6 +113,8 @@ function appMenu(appName: string): MenuItemSpec {
 
 function fileMenu(isMac: boolean): MenuItemSpec {
   const items: MenuItemSpec[] = [
+    cmd("New Workspace…", COMMANDS.workspaceAdd),
+    { type: "separator" },
     cmd("Open File…", COMMANDS.fileOpen),
     cmd("Save", COMMANDS.fileSave),
     { type: "separator" },
@@ -119,8 +124,11 @@ function fileMenu(isMac: boolean): MenuItemSpec {
     cmd("Refresh Files", COMMANDS.filesRefresh),
   ];
 
-  // Win/Linux don't get the App menu, so Quit lives in File.
+  // Win/Linux don't get the App menu, so Quit (and Settings, which on
+  // macOS lives in the App menu) live in File instead.
   if (!isMac) {
+    items.push({ type: "separator" });
+    items.push(cmd("Settings…", COMMANDS.settingsOpen));
     items.push({ type: "separator" });
     items.push({ type: "role", role: "quit", label: "Exit" });
   }
@@ -155,6 +163,9 @@ function viewMenu(): MenuItemSpec {
     type: "submenu",
     label: "View",
     submenu: [
+      cmd("Toggle Files Panel", COMMANDS.workbenchToggleFilesPanel),
+      cmd("Toggle Sidebar", COMMANDS.workbenchToggleSidebar),
+      { type: "separator" },
       cmd("Reveal in Finder", COMMANDS.pathReveal),
       cmd("Copy Path", COMMANDS.pathCopy),
       cmd("Copy Relative Path", COMMANDS.pathCopyRelative),
@@ -175,6 +186,9 @@ function workspaceMenu(): MenuItemSpec {
     type: "submenu",
     label: "Workspace",
     submenu: [
+      cmd("Previous Workspace", COMMANDS.workspaceFocusPrev),
+      cmd("Next Workspace", COMMANDS.workspaceFocusNext),
+      { type: "separator" },
       cmd("Split Right", COMMANDS.groupSplitRight),
       cmd("Split Down", COMMANDS.groupSplitDown),
       cmd("Close Group", COMMANDS.groupClose),

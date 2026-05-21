@@ -33,6 +33,8 @@ function clampFilesPanel(value: number): number {
 interface HydrateOpts {
   sidebarWidth?: number;
   filesPanelWidth?: number;
+  sidebarHidden?: boolean;
+  filesPanelHidden?: boolean;
 }
 
 export type FilesPanelMode = "tree" | "search" | "git";
@@ -42,12 +44,27 @@ export const FILES_PANEL_MODE_DEFAULT: FilesPanelMode = "tree";
 interface UIState {
   sidebarWidth: number;
   filesPanelWidth: number;
+  /**
+   * Visibility flags for the two left-hand columns. `false` (visible) is
+   * the default; the ⌘B / ⌘⇧B commands flip these. Widths persist
+   * independently so re-opening restores the user's drag-set width.
+   */
+  sidebarHidden: boolean;
+  filesPanelHidden: boolean;
   /** Per-workspace files-panel view mode. Missing entry → falls back to default. */
   filesPanelModes: Map<string, FilesPanelMode>;
   hydrate(opts: HydrateOpts): void;
   setSidebarWidth(width: number, persist?: boolean): void;
   setFilesPanelWidth(width: number, persist?: boolean): void;
   setFilesPanelMode(workspaceId: string, mode: FilesPanelMode): void;
+  /** Toggle the Files Panel (tree/git/search column) visibility. Persists. */
+  toggleFilesPanel(): void;
+  /**
+   * "Sidebar" in the VSCode sense — toggle both columns together. If
+   * either is currently hidden, show both; otherwise hide both. Persists
+   * both flags in one IPC write.
+   */
+  toggleSidebar(): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,9 +88,11 @@ export const useUIStore = create<UIState>((set) => {
   return {
     sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
     filesPanelWidth: FILES_PANEL_WIDTH_DEFAULT,
+    sidebarHidden: false,
+    filesPanelHidden: false,
     filesPanelModes: new Map(),
 
-    hydrate({ sidebarWidth, filesPanelWidth }) {
+    hydrate({ sidebarWidth, filesPanelWidth, sidebarHidden, filesPanelHidden }) {
       set({
         sidebarWidth:
           sidebarWidth !== undefined ? clampSidebar(sidebarWidth) : SIDEBAR_WIDTH_DEFAULT,
@@ -81,6 +100,8 @@ export const useUIStore = create<UIState>((set) => {
           filesPanelWidth !== undefined
             ? clampFilesPanel(filesPanelWidth)
             : FILES_PANEL_WIDTH_DEFAULT,
+        sidebarHidden: sidebarHidden ?? false,
+        filesPanelHidden: filesPanelHidden ?? false,
       });
     },
 
@@ -113,6 +134,39 @@ export const useUIStore = create<UIState>((set) => {
         const next = new Map(state.filesPanelModes);
         next.set(workspaceId, mode);
         return { filesPanelModes: next };
+      });
+    },
+
+    toggleFilesPanel() {
+      let next = false;
+      set((state) => {
+        next = !state.filesPanelHidden;
+        return { filesPanelHidden: next };
+      });
+      void ipcCallResult("appState", "set", { filesPanelHidden: next }).then((result) => {
+        if (!result.ok) console.warn("[ui] appState set failed", result.message);
+      });
+    },
+
+    toggleSidebar() {
+      // If anything is hidden, reveal everything; otherwise hide everything.
+      // Mirrors VSCode's ⌘B semantics on a layout with two columns.
+      let nextSidebarHidden = false;
+      let nextFilesPanelHidden = false;
+      set((state) => {
+        const anythingHidden = state.sidebarHidden || state.filesPanelHidden;
+        nextSidebarHidden = !anythingHidden;
+        nextFilesPanelHidden = !anythingHidden;
+        return {
+          sidebarHidden: nextSidebarHidden,
+          filesPanelHidden: nextFilesPanelHidden,
+        };
+      });
+      void ipcCallResult("appState", "set", {
+        sidebarHidden: nextSidebarHidden,
+        filesPanelHidden: nextFilesPanelHidden,
+      }).then((result) => {
+        if (!result.ok) console.warn("[ui] appState set failed", result.message);
       });
     },
   };

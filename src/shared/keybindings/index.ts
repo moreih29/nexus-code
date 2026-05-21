@@ -96,6 +96,19 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
 
   // Workspace navigation
   { command: COMMANDS.workspaceSymbolSearch, primary: "CmdOrCtrl+Shift+O" },
+  // Cmd+Ctrl is a literal two-modifier combo (see keybinding-parse.ts);
+  // intentionally not CmdOrCtrl so Cmd alone (used heavily by Monaco)
+  // doesn't accidentally trigger workspace switching.
+  { command: COMMANDS.workspaceFocusPrev, primary: "Cmd+Ctrl+Up" },
+  { command: COMMANDS.workspaceFocusNext, primary: "Cmd+Ctrl+Down" },
+  { command: COMMANDS.workspaceAdd, primary: "CmdOrCtrl+N" },
+
+  // Settings
+  { command: COMMANDS.settingsOpen, primary: "CmdOrCtrl+," },
+
+  // Workbench layout
+  { command: COMMANDS.workbenchToggleFilesPanel, primary: "CmdOrCtrl+B" },
+  { command: COMMANDS.workbenchToggleSidebar, primary: "CmdOrCtrl+Shift+B" },
 
   // Terminal
   { command: COMMANDS.terminalNew, primary: "CmdOrCtrl+T" },

@@ -141,14 +141,19 @@ function maskLeaderModifiers(
   secondary: ParsedKeystroke,
 ): KeyboardEvent {
   const stripCmd = leader.cmd && !secondary.cmd;
+  const stripCtrl = leader.ctrl && !secondary.ctrl;
   const stripShift = leader.shift && !secondary.shift;
   const stripAlt = leader.alt && !secondary.alt;
-  if (!stripCmd && !stripShift && !stripAlt) return e;
+  if (!stripCmd && !stripCtrl && !stripShift && !stripAlt) return e;
   return {
     code: e.code,
     key: e.key,
+    // `stripCmd` (the CmdOrCtrl shorthand path) zeroes both physical
+    // modifiers because either could have been the one matched at the
+    // leader; `stripCtrl` only clears `ctrlKey` because a literal Ctrl
+    // leader specifically held Control, not Meta.
     metaKey: stripCmd ? false : e.metaKey,
-    ctrlKey: stripCmd ? false : e.ctrlKey,
+    ctrlKey: stripCmd || stripCtrl ? false : e.ctrlKey,
     shiftKey: stripShift ? false : e.shiftKey,
     altKey: stripAlt ? false : e.altKey,
   } as KeyboardEvent;

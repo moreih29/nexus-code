@@ -44,6 +44,8 @@ export async function bootstrapAppState(): Promise<void> {
   useUIStore.getState().hydrate({
     sidebarWidth: state.sidebarWidth,
     filesPanelWidth: state.filesPanelWidth,
+    sidebarHidden: state.sidebarHidden,
+    filesPanelHidden: state.filesPanelHidden,
   });
 
   // Hydrate theme from appState (authoritative store).

@@ -17,11 +17,23 @@ import type { AcceleratorString } from "./index";
 
 export interface ParsedKeystroke {
   /**
-   * `CmdOrCtrl` token. Matches `metaKey` on Mac or `ctrlKey` on
-   * Win/Linux. The dispatcher accepts either via `(meta || ctrl)`
-   * so a single declaration covers both platforms.
+   * `CmdOrCtrl` or explicit `Cmd`/`Command`/`Meta`. Matches `metaKey`
+   * on Mac or `ctrlKey` on Win/Linux for `CmdOrCtrl`; matches `metaKey`
+   * specifically for explicit `Cmd` (only meaningful on Mac).
+   *
+   * When `ctrl` is also true, this becomes a literal "Cmd AND Ctrl"
+   * combo (Mac-only realistic; the dispatcher then requires both
+   * `metaKey` and `ctrlKey`).
    */
   cmd: boolean;
+  /**
+   * Explicit `Ctrl`/`Control` token. Matches `ctrlKey` strictly. Used
+   * for combos like `Cmd+Ctrl+Up` where we need to distinguish the two
+   * physical modifiers on Mac. Bare `Ctrl+X` (without `Cmd`) means
+   * "Control + X" literally, not "CmdOrCtrl + X" — use `CmdOrCtrl`
+   * for the cross-platform shorthand.
+   */
+  ctrl: boolean;
   shift: boolean;
   alt: boolean;
   /**
@@ -44,13 +56,16 @@ export function parseAccelerator(accel: AcceleratorString): ParsedKeystroke {
   if (tokens.length === 0) throw new Error(`empty accelerator: ${JSON.stringify(accel)}`);
 
   let cmd = false;
+  let ctrl = false;
   let shift = false;
   let alt = false;
   let codes: readonly string[] | null = null;
 
   for (const tok of tokens) {
-    if (MOD_TOKENS_CMD_OR_CTRL.has(tok) || MOD_TOKENS_CMD.has(tok) || MOD_TOKENS_CTRL.has(tok)) {
+    if (MOD_TOKENS_CMD_OR_CTRL.has(tok) || MOD_TOKENS_CMD.has(tok)) {
       cmd = true;
+    } else if (MOD_TOKENS_CTRL.has(tok)) {
+      ctrl = true;
     } else if (MOD_TOKENS_SHIFT.has(tok)) {
       shift = true;
     } else if (MOD_TOKENS_ALT.has(tok)) {
@@ -66,7 +81,7 @@ export function parseAccelerator(accel: AcceleratorString): ParsedKeystroke {
   if (codes === null) {
     throw new Error(`accelerator ${JSON.stringify(accel)} has no key token`);
   }
-  return { cmd, shift, alt, codes };
+  return { cmd, ctrl, shift, alt, codes };
 }
 
 function tokenToCodes(tok: string): readonly string[] {
@@ -112,6 +127,7 @@ function tokenToCodes(tok: string): readonly string[] {
     case "Slash":
       return ["Slash"];
     case "Comma":
+    case ",":
       return ["Comma"];
     case "Period":
       return ["Period"];
@@ -145,17 +161,28 @@ function tokenToCodes(tok: string): readonly string[] {
  * (extra Cmd) — so two bindings can coexist with overlapping keys but
  * different modifier sets.
  *
- * Cmd vs Ctrl is treated as the same physical modifier (`metaKey ||
- * ctrlKey`) so a single `CmdOrCtrl+W` declaration works on every
- * platform without branching.
+ * Modifier matrix:
+ *   - `cmd && !ctrl` (CmdOrCtrl shorthand): `metaKey || ctrlKey`, but
+ *     not both — that ambiguous case belongs to a `Cmd+Ctrl` binding.
+ *   - `cmd && ctrl` (literal Cmd+Ctrl combo): `metaKey && ctrlKey`.
+ *   - `!cmd && ctrl` (literal Ctrl-only): `ctrlKey && !metaKey`.
+ *   - `!cmd && !ctrl`: neither modifier pressed.
  */
 export function matchesEvent(p: ParsedKeystroke, e: KeyboardEvent): boolean {
   if (!p.codes.includes(e.code)) return false;
-  // Reject "both Cmd and Ctrl pressed" — ambiguous and not what users
-  // mean by either alone.
-  if (e.metaKey && e.ctrlKey) return false;
-  const cmdActive = e.metaKey || e.ctrlKey;
-  if (p.cmd !== cmdActive) return false;
+
+  if (p.cmd && p.ctrl) {
+    if (!(e.metaKey && e.ctrlKey)) return false;
+  } else if (p.cmd) {
+    // CmdOrCtrl shorthand: accept either, reject ambiguous "both".
+    if (e.metaKey && e.ctrlKey) return false;
+    if (!(e.metaKey || e.ctrlKey)) return false;
+  } else if (p.ctrl) {
+    if (!e.ctrlKey || e.metaKey) return false;
+  } else {
+    if (e.metaKey || e.ctrlKey) return false;
+  }
+
   if (p.shift !== e.shiftKey) return false;
   if (p.alt !== e.altKey) return false;
   return true;
@@ -206,6 +233,14 @@ function keyTokenToLabel(tok: string, opts: LabelOptions): string {
       case "Return":
         return "↵";
     }
+  }
+  switch (tok) {
+    case "Comma":
+    case ",":
+      return ",";
+    case "Period":
+    case ".":
+      return ".";
   }
   if (tok.length === 1) return tok.toUpperCase();
   return tok;

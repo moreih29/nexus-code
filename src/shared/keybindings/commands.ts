@@ -43,6 +43,20 @@ export const COMMANDS = {
 
   // Workspace navigation
   workspaceSymbolSearch: "workspace.symbolSearch",
+  // Cycle the active workspace one slot up/down in the sidebar order
+  // (pinned rows float above unpinned; wrap-around at both ends).
+  workspaceFocusPrev: "workspace.focusPrev",
+  workspaceFocusNext: "workspace.focusNext",
+  // Open the Add Workspace dialog.
+  workspaceAdd: "workspace.add",
+
+  // Settings
+  settingsOpen: "settings.open",
+
+  // Workbench layout toggles
+  // ⌘B = files panel only; ⌘⇧B = both columns (VSCode-style full sidebar).
+  workbenchToggleFilesPanel: "workbench.toggleFilesPanel",
+  workbenchToggleSidebar: "workbench.toggleSidebar",
 
   // Terminal
   terminalNew: "terminal.new",

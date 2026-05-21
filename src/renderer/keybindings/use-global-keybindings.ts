@@ -17,8 +17,11 @@ import { registerFileCommands } from "../commands/domains/file";
 import { registerGroupCommands } from "../commands/domains/group";
 import { registerPaletteCommands } from "../commands/domains/palette";
 import { registerPathCommands } from "../commands/domains/path";
+import { registerSettingsCommands } from "../commands/domains/settings";
 import { registerTabCommands } from "../commands/domains/tab";
 import { registerTerminalCommands } from "../commands/domains/terminal";
+import { registerWorkbenchCommands } from "../commands/domains/workbench";
+import { registerWorkspaceCommands } from "../commands/domains/workspace";
 import { handleGlobalKeyDown } from "./dispatcher";
 
 export function useGlobalKeybindings(): void {
@@ -30,6 +33,9 @@ export function useGlobalKeybindings(): void {
       ...registerPathCommands(),
       ...registerPaletteCommands(),
       ...registerTerminalCommands(),
+      ...registerWorkspaceCommands(),
+      ...registerSettingsCommands(),
+      ...registerWorkbenchCommands(),
     ];
 
     // Capture phase puts our handler ahead of Monaco's standalone
