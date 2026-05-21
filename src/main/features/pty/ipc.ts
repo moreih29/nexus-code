@@ -20,10 +20,16 @@ export interface PtyChannelOptions {
   /**
    * Provides workspace display names, activation for OS notifications, and
    * pull 기반 hookserver 접속 정보 조회(getHookInfo).
+   *
+   * `getAgentChannel`은 hookInfo가 fresh함을 보장하기 위해 사용된다 —
+   * spawn 핸들러가 env를 캡처하기 전에 await하여 channel.ready / hook.getInfo
+   * pull 완료 시점이 hookInfo 조회보다 앞서도록 강제한다. 반환 채널 객체
+   * 자체는 사용하지 않고 ready 동기화 목적으로만 호출한다.
    */
   workspaceManager?: WorkspaceNameLookup & {
     activate(id: string): Promise<void>;
     getHookInfo(workspaceId: string): HookInfo | null;
+    getAgentChannel(workspaceId: string): Promise<unknown>;
   };
 }
 
@@ -78,6 +84,15 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
       spawn: async (args: unknown) => {
         const { workspaceId, tabId, cwd, cols, rows, env } = validateArgs(c.spawn.args, args);
         recorder.start(workspaceId, tabId, cols, rows);
+        // hookInfo는 반드시 channel.ready 이후에 읽어야 fresh가 보장된다.
+        // channel reconnect 직후 호출 시 stale 캐시(이전 boot의 socket path)가
+        // env에 박혀 죽은 소켓으로 향하는 hook 클라이언트가 생성될 수 있다.
+        // wm.getAgentChannel은 ensureProviderReady를 트리거하며 그 끝에 hook.getInfo
+        // 결과가 hookInfoByWorkspace에 셋팅되므로, 이 await 이후의 getHookInfo는
+        // 최신 값임을 구조적으로 보장한다. 반환 채널 객체는 사용하지 않는다.
+        if (wm) {
+          await wm.getAgentChannel(workspaceId);
+        }
         // workspaceManager.getHookInfo로 pull 기반 소켓/토큰 조회 후 env에 주입한다.
         const hookInfo = wm?.getHookInfo(workspaceId) ?? null;
         const enrichedEnv = injectHarnessTerminalEnv(env, {

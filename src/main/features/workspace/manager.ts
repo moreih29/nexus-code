@@ -126,6 +126,19 @@ function isHookInfo(value: unknown): value is HookInfo {
   return typeof v.socketPath === "string" && typeof v.token === "string";
 }
 
+/**
+ * `hook.getInfo` 응답이 `server.unavailable` 코드인지 판정한다.
+ * agent 쪽에서 hookserver 생성에 실패한 graceful degrade 신호이며,
+ * 워크스페이스 전체 boot를 죽이지 않고 Claude hook 기능만 비활성으로
+ * 운영해야 한다. CodedError와 errorFromServerFrame이 `code` 속성을
+ * Error에 attach하므로 그 값을 검사한다.
+ */
+function isHookUnavailable(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const code = (err as { code?: unknown }).code;
+  return code === "server.unavailable";
+}
+
 // ---------------------------------------------------------------------------
 // WorkspaceManager — global singleton, created once in main/index.ts.
 // ---------------------------------------------------------------------------
@@ -792,6 +805,10 @@ export class WorkspaceManager {
 
     // channel.ready 완료 직후 hook.getInfo를 pull해서 hookserver 접속 정보를 캐싱한다.
     // agent 내부에서 최대 5s 대기하므로 30s default timeout 안에 반드시 응답이 온다.
+    //
+    // server.unavailable 코드는 agent가 hookserver 생성에 실패한 graceful degrade
+    // 신호다 — 워크스페이스 전체 boot를 죽이지 않고 hookInfo만 비운 채로 계속 진행한다.
+    // (push 시절 동작과 동등: hookserver 없으면 Claude hook 기능만 꺼지고 워크스페이스는 정상)
     try {
       const raw = await channel.call("hook.getInfo", {});
       if (!isHookInfo(raw)) {
@@ -799,15 +816,22 @@ export class WorkspaceManager {
       }
       this.hookInfoByWorkspace.set(meta.id, raw);
     } catch (err) {
-      disposeLifecycleListener();
-      if (this.localChannels.get(meta.id) === channel) {
-        this.localChannels.delete(meta.id);
+      if (isHookUnavailable(err)) {
+        console.warn(
+          `[workspace] hookserver unavailable for ${meta.id}; Claude Code hook integration disabled for this session.`,
+        );
+        this.hookInfoByWorkspace.delete(meta.id);
+      } else {
+        disposeLifecycleListener();
+        if (this.localChannels.get(meta.id) === channel) {
+          this.localChannels.delete(meta.id);
+        }
+        channel.dispose();
+        ctx.setFsProvider(createInitialFsProvider(meta));
+        throw new Error(
+          `워크스페이스 ${meta.id} agent hook 초기화 실패: ${(err as Error).message}`,
+        );
       }
-      channel.dispose();
-      ctx.setFsProvider(createInitialFsProvider(meta));
-      throw new Error(
-        `워크스페이스 ${meta.id} agent hook 초기화 실패: ${(err as Error).message}`,
-      );
     }
 
     const provider = new AgentFsProvider("local", channel, { disposeChannel: true });
@@ -934,6 +958,10 @@ export class WorkspaceManager {
 
     // channel.ready 완료 직후 hook.getInfo를 pull해서 hookserver 접속 정보를 캐싱한다.
     // SSH 환경에서 latency가 더 클 수 있으나 30s default timeout이 충분하다.
+    //
+    // server.unavailable 코드는 agent가 hookserver 생성에 실패한 graceful degrade
+    // 신호다. SSH 원격에서는 socket 경로 길이 제한(macOS 104자)에 걸릴 가능성이
+    // 로컬보다 높으므로 graceful 처리가 특히 중요하다.
     try {
       const raw = await channel.call("hook.getInfo", {});
       if (!isHookInfo(raw)) {
@@ -941,18 +969,25 @@ export class WorkspaceManager {
       }
       this.hookInfoByWorkspace.set(meta.id, raw);
     } catch (err) {
-      disposeLifecycleListener();
-      this.broadcastConnectionStatus(meta.id, "error");
-      if (this.sshChannels.get(meta.id) === channel) {
-        this.sshChannels.delete(meta.id);
+      if (isHookUnavailable(err)) {
+        console.warn(
+          `[workspace] hookserver unavailable for ${meta.id}; Claude Code hook integration disabled for this session.`,
+        );
+        this.hookInfoByWorkspace.delete(meta.id);
+      } else {
+        disposeLifecycleListener();
+        this.broadcastConnectionStatus(meta.id, "error");
+        if (this.sshChannels.get(meta.id) === channel) {
+          this.sshChannels.delete(meta.id);
+        }
+        this.sshBootstraps.delete(meta.id);
+        bootstrap.dispose?.();
+        channel.dispose();
+        ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
+        throw new Error(
+          `워크스페이스 ${meta.id} agent hook 초기화 실패: ${(err as Error).message}`,
+        );
       }
-      this.sshBootstraps.delete(meta.id);
-      bootstrap.dispose?.();
-      channel.dispose();
-      ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
-      throw new Error(
-        `워크스페이스 ${meta.id} agent hook 초기화 실패: ${(err as Error).message}`,
-      );
     }
 
     ctx.setFsProvider(createFsProvider(providerMeta, channel), () => {
@@ -1017,6 +1052,9 @@ export class WorkspaceManager {
     this.sshChannels.delete(workspaceId);
     this.sshBootstraps.delete(workspaceId);
     this.sshProviderReady.delete(workspaceId);
+    // Stale hookInfo는 채널이 죽은 시점에 무효 — 다음 boot가 다시 채운다.
+    // 보존해두면 reconnect 직후 spawn이 죽은 소켓 경로를 env에 박을 수 있다.
+    this.hookInfoByWorkspace.delete(workspaceId);
     ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
   }
 
@@ -1048,6 +1086,9 @@ export class WorkspaceManager {
     if (event.type !== "disposed") {
       this.localChannels.delete(workspaceId);
       this.localProviderReady.delete(workspaceId);
+      // Stale hookInfo는 채널이 죽은 시점에 무효 — 다음 boot가 다시 채운다.
+      // 보존해두면 reconnect 직후 spawn이 죽은 소켓 경로를 env에 박을 수 있다.
+      this.hookInfoByWorkspace.delete(workspaceId);
       ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
     }
   }

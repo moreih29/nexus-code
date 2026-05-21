@@ -57,6 +57,14 @@ type Host struct {
 	termOnce  sync.Once // ensures drainAndExit fires at most once
 	accepting bool      // accept new requests until SIGTERM flips this
 	acceptMu  sync.Mutex
+
+	// shutdownHooks 는 drainAndExit가 os.Exit 호출 직전에 등록 순서대로 동기 실행할
+	// 콜백 목록이다. SIGTERM 경로에서는 defer가 우회되므로(os.Exit), 소켓 파일
+	// 정리처럼 명시적 cleanup이 필요한 자원은 이 훅으로 등록해야 한다.
+	// forceExitAfter 데드라인 안에서 hooks가 끝나지 않으면 hook은 잘리지만 프로세스는
+	// 종료된다 — 멈춘 hook이 셧다운을 막을 수 없다.
+	hooksMu       sync.Mutex
+	shutdownHooks []func()
 }
 
 // New constructs a Host bound to the given dispatcher and stdio streams.
@@ -172,6 +180,36 @@ func (h *Host) StartHeartbeat(interval time.Duration) {
 	}()
 }
 
+// RegisterShutdownHook 는 drainAndExit가 os.Exit 호출 직전에 등록 순서대로
+// 실행할 cleanup 콜백을 추가한다. SIGTERM 시 defer가 우회되므로, hookserver
+// 소켓 파일 정리 등 명시적 정리가 필요한 자원은 이 훅을 사용한다.
+//
+// hooks 자체가 hang하더라도 forceExitAfter 데드라인이 프로세스 종료를 보장한다.
+// Run() 전에 한 번 이상 호출 가능하다.
+func (h *Host) RegisterShutdownHook(fn func()) {
+	if fn == nil {
+		return
+	}
+	h.hooksMu.Lock()
+	defer h.hooksMu.Unlock()
+	h.shutdownHooks = append(h.shutdownHooks, fn)
+}
+
+// runShutdownHooks 는 등록된 cleanup 콜백을 순서대로 실행한다. drainAndExit가
+// in-flight handler를 기다린 직후, os.Exit 호출 직전에 한 번 호출된다.
+// 개별 hook panic은 격리되어 다음 hook 진행을 막지 않는다.
+func (h *Host) runShutdownHooks() {
+	h.hooksMu.Lock()
+	hooks := append([]func(){}, h.shutdownHooks...)
+	h.hooksMu.Unlock()
+	for _, fn := range hooks {
+		func() {
+			defer func() { _ = recover() }()
+			fn()
+		}()
+	}
+}
+
 // InstallSigtermHandler arranges for a single SIGTERM to trigger a
 // graceful drain + exit. Safe to call exactly once before Run.
 func (h *Host) InstallSigtermHandler() {
@@ -226,8 +264,13 @@ func (h *Host) isAccepting() bool {
 }
 
 // drainAndExit stops accepting new work, waits up to forceExitAfter for
-// in-flight handlers to flush, then exits. termOnce guarantees that a
-// race between EOF and SIGTERM cannot enter this path twice.
+// in-flight handlers to flush, runs registered shutdown hooks, then exits.
+// termOnce guarantees that a race between EOF and SIGTERM cannot enter
+// this path twice.
+//
+// shutdownHooks run AFTER handler drain (so cleanup sees no concurrent
+// activity) but UNDER the same forceExit ceiling — a hung hook cannot
+// stall shutdown past forceExitAfter.
 func (h *Host) drainAndExit(code int) {
 	h.termOnce.Do(func() {
 		h.acceptMu.Lock()
@@ -236,7 +279,8 @@ func (h *Host) drainAndExit(code int) {
 
 		// AfterFunc + a select on the same deadline gives us "exit
 		// even if Wait() itself blocks", which Wait can do when a
-		// handler is stuck in a syscall.
+		// handler is stuck in a syscall. The same forceExit covers
+		// the shutdown-hook execution window below.
 		forceExit := time.AfterFunc(forceExitAfter, func() { os.Exit(code) })
 		done := make(chan struct{})
 		go func() {
@@ -245,10 +289,14 @@ func (h *Host) drainAndExit(code int) {
 		}()
 		select {
 		case <-done:
-			forceExit.Stop()
+			// Continue past the select to run shutdown hooks before exit.
 		case <-time.After(forceExitAfter):
 			os.Exit(code)
 		}
+		// Hooks run synchronously under the same forceExit timer.
+		// If a hook hangs the AfterFunc above still trips os.Exit on time.
+		h.runShutdownHooks()
+		forceExit.Stop()
 		h.cancel()
 		os.Exit(code)
 	})

@@ -121,7 +121,11 @@ func main() {
 	defer lsp.Close()
 	defer pty.Close()
 	if hooksrv != nil {
-		defer hooksrv.Close()
+		// SIGTERM 경로는 os.Exit가 defer를 우회하므로 shutdown hook으로 등록한다.
+		// hookserver는 /tmp/nexus-h-*.sock 파일을 생성하므로 정리하지 않으면
+		// 재부팅 시 다른 pid → 다른 경로가 되어 orphan 소켓이 누적된다.
+		// 정상 EOF 종료에서도 동일 경로로 실행되므로 defer는 제거하고 hook 일원화한다.
+		host.RegisterShutdownHook(func() { _ = hooksrv.Close() })
 	}
 	host.InstallSigtermHandler()
 

@@ -292,6 +292,11 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       }
       if (frame.heartbeatIntervalMs !== undefined) {
         capabilityHeartbeatIntervalMs = frame.heartbeatIntervalMs;
+      }
+      // Start the watchdog only when the server advertises a positive interval.
+      // proto.go contract: heartbeatIntervalMs === 0 means heartbeat disabled.
+      // Without the `> 0` guard, setInterval(fn, 0) busy-loops every microtask.
+      if (frame.heartbeatIntervalMs !== undefined && frame.heartbeatIntervalMs > 0) {
         // Start the watchdog: fire if 3 consecutive heartbeats are missed.
         const intervalMs = frame.heartbeatIntervalMs;
         const watchdogIntervalMs = intervalMs * 3;
