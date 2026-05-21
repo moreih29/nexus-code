@@ -18563,6 +18563,131 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-21T14:41:09.134Z",
+      "branch": "feat/claude-code-hook-integration",
+      "plan": {
+        "id": 59,
+        "topic": "PTY 셸이 사용자 rc 실행 후에도 wrapper bin이 PATH 맨 앞에 유지되도록 ZDOTDIR shim + precmd 보강",
+        "issues": [
+          {
+            "id": 1,
+            "title": "shim dir 생애주기 — 어디에 언제 만들고 언제 정리하는지 (workspace/tab 단위? PTY 세션 단위?), 권한, 동시 세션 충돌 처리",
+            "status": "decided",
+            "decision": "**채택**: shim dir은 **워크스페이스 단위 + 영구 위치**.\n\n- 경로: `~/.nexus-code/shim/<workspaceId>/` (이전 cycle의 `~/.nexus-code/` 루트 일관성)\n- 하위: `.zshrc`, `.zshenv`, `bashrc` 3 파일\n- 생성 시점: 워크스페이스 부팅 시 1회 (`startLocalProvider`/`startSshProvider`와 동일 라이프사이클), 이미 존재하면 idempotent overwrite\n- 정리: WorkspaceManager의 lifecycle terminal handler에서 ws 제거 시 `fs.rm({recursive,force})`. ws 삭제되기 전엔 다음 PTY 세션이 그대로 재사용 — 매 spawn 시 새로 만들 필요 없음\n- 권한: 디렉토리 0700, 파일 0644 (read-only for group/other 충분)\n- 동시 PTY 세션: 같은 ws의 여러 탭이 동일 shim dir 공유 — shim 콘텐츠가 동일하므로 안전. ZDOTDIR도 그대로 가리킴\n- 충돌: workspaceId가 UUID/v4 형식이라 ws간 충돌 없음\n- agentpaths 활용: Go 안 씀(이 영역은 main process만), TS는 `runtimeDirs.ts`에 `shimDirFor(workspaceId)` helper 추가 후 사용\n\n비선택안: tab-level shim — 매 spawn당 fs 작업 늘고 같은 정보 중복. 거절.\nPTY-session shim — 같은 이유로 거절."
+          },
+          {
+            "id": 2,
+            "title": "zsh / bash shim 콘텐츠 — 사용자 원본 rc 체이닝 방식, precmd/PROMPT_COMMAND 훅 주입, NEXUS_WRAPPER_SELF_DIR 맨 앞 prepend 및 중복 제거 로직",
+            "status": "decided",
+            "decision": "**채택**: zsh와 bash 양쪽에 동일 의미의 prepend 훅 주입.\n\n**zsh shim (`.zshrc`)**:\n```sh\n# 1. 사용자 원본 rc 체이닝 — NEXUS_USER_ZDOTDIR이 있으면 그쪽, 없으면 $HOME\nif [ -n \"${NEXUS_USER_ZDOTDIR-}\" ] && [ -f \"$NEXUS_USER_ZDOTDIR/.zshrc\" ]; then\n  source \"$NEXUS_USER_ZDOTDIR/.zshrc\"\nelif [ -f \"$HOME/.zshrc\" ]; then\n  source \"$HOME/.zshrc\"\nfi\n\n# 2. precmd 훅 등록 — 매 프롬프트 직전 PATH 재배열\n_nexus_prepend_wrapper() {\n  [ -z \"${NEXUS_WRAPPER_SELF_DIR-}\" ] && return\n  case \":$PATH:\" in\n    \":$NEXUS_WRAPPER_SELF_DIR:\"*) ;;\n    *) PATH=\"$NEXUS_WRAPPER_SELF_DIR:${PATH//:$NEXUS_WRAPPER_SELF_DIR:/:}\" ;;\n  esac\n}\nautoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook precmd _nexus_prepend_wrapper\n\n# 3. 즉시 1회 호출 — interactive 첫 명령(which claude 등) 보호\n_nexus_prepend_wrapper\n```\n\n**zsh shim (`.zshenv`)**:\n```sh\n# .zshenv는 non-interactive에도 source됨 — script도 보호\nif [ -n \"${NEXUS_USER_ZDOTDIR-}\" ] && [ -f \"$NEXUS_USER_ZDOTDIR/.zshenv\" ]; then\n  source \"$NEXUS_USER_ZDOTDIR/.zshenv\"\nelif [ -f \"$HOME/.zshenv\" ]; then\n  source \"$HOME/.zshenv\"\nfi\n```\n(precmd는 interactive only이라 .zshenv에는 안 넣음)\n\n**bash shim (`bashrc`)**:\n```sh\n# 1. 사용자 ~/.bashrc 체이닝\nif [ -f \"$HOME/.bashrc\" ]; then\n  source \"$HOME/.bashrc\"\nfi\n\n# 2. PROMPT_COMMAND 훅 등록\n_nexus_prepend_wrapper() {\n  [ -z \"${NEXUS_WRAPPER_SELF_DIR-}\" ] && return\n  case \":$PATH:\" in\n    \":$NEXUS_WRAPPER_SELF_DIR:\"*) ;;\n    *) PATH=\"$NEXUS_WRAPPER_SELF_DIR:${PATH//:$NEXUS_WRAPPER_SELF_DIR:/:}\" ;;\n  esac\n}\nPROMPT_COMMAND=\"_nexus_prepend_wrapper${PROMPT_COMMAND:+; $PROMPT_COMMAND}\"\n\n# 3. 즉시 1회 호출\n_nexus_prepend_wrapper\n```\n\n**중복 제거 정밀도**: bash 3.2가 `${var//pattern/replacement}` 지원 — 양 셸 모두 동작 (이전 task에서 wrapper bash 3.2 호환 검증과 동일 기준).\n\n비선택안: 매 명령마다 PATH 검사 (zsh `preexec`) — 과도, precmd로 충분."
+          },
+          {
+            "id": 3,
+            "title": "PTY spawn env 주입 — ZDOTDIR/NEXUS_USER_ZDOTDIR(zsh), --rcfile/BASH_ENV(bash) 조정, 원본 ZDOTDIR 보존, 셌 종류 감지하고 분기",
+            "status": "decided",
+            "decision": "**채택**: spawn 시점에 PTY env / argv 두 갈래 모두 조작.\n\n**셸 감지**: `args.shell` 또는 env.SHELL의 basename. `zsh*`/`bash*` 두 케이스만 분기. 그 외(`fish`, `nu` 등)는 shim 비적용 — 기존 PATH prepend만 동작 (graceful — 우리 wrapper가 PATH 중간으로 밀려 있어도 hook 자체는 settings.json 절대경로로 동작)\n\n**zsh 분기**:\n- env 추가:\n  - `NEXUS_USER_ZDOTDIR = env.ZDOTDIR ?? \"\"` (사용자 원본 보존; 미설정이면 빈 문자열 → shim이 $HOME fallback)\n  - `ZDOTDIR = shimDir` (위 결정 1에서 결정한 `~/.nexus-code/shim/<wsId>`)\n- argv 변경 없음 — zsh가 ZDOTDIR을 자연스럽게 따름\n\n**bash 분기**:\n- env 변경 없음 (BASH_ENV는 non-interactive 전용이라 부적합)\n- argv 변경: shell 명령에 `--rcfile <shimDir>/bashrc -i` 추가. login shell이 필요한 경우는 `--login`도 함께. 기존 셸 인자 보존\n- 단, agent의 pty 서비스가 args를 어떻게 받는지 확인 필요 — `internal/pty/service.go:Spawn`에 `args []string` 필드 존재 시 그쪽 채움. 없으면 wrapper 셸 명령으로 우회\n\n**호출 위치**: `src/main/features/pty/ipc.ts:spawn`. 현재 `injectHarnessTerminalEnv`로 env 통합 — 이 함수에 zsh/bash 분기를 추가하거나, 별도 helper(`applyShellPathShim`)로 분리 후 호출. 별도 helper 분리 권장 (책임 분명).\n\n**workspaceId 의존**: shim dir이 ws 단위라 helper는 `workspaceId`와 `shimDir`을 입력으로 받음. shim dir 생성은 spawn보다 앞 단계(WorkspaceManager 부팅 시)에서 1회 — spawn은 dir 사용만 함.\n\n**비활성화 조건**: NEXUS_WRAPPER_SELF_DIR 미설정 / 셸이 zsh/bash 아님 → shim 미적용. 기존 동작과 동일하게 fallback.\n\n**테스트 가능성**: zsh/bash 분기 로직과 shim 콘텐츠 생성을 순수 함수로 분리. spawn 통합은 mock 기반 unit test로 검증.",
+            "analysis": [
+              {
+                "role": "retrospective",
+                "summary": "Plan #59 cycle 완료. 3 axis → 3 task. Task 2는 1차 mock.module bleed(simple failure)로 1회 reroute → 옵션 C(DI 도입) 재작업 후 PASS.\n\n**통합 흐름**: runtimeDirs.{shimDir,writeShimFiles,removeShimDir} → WorkspaceManager 부팅 시 1회 writeShim + lifecycle 종료 시 removeShim → pty/ipc.ts:spawn이 wm.getWrapperBinDir truthy일 때 applyShellPathShim 호출 → zsh는 ZDOTDIR env, bash는 --rcfile argv로 shim 활성화 → 셸이 사용자 rc source 후 precmd/PROMPT_COMMAND 훅이 매 프롬프트마다 NEXUS_WRAPPER_SELF_DIR을 PATH 맨 앞으로 재배열. 이로써 `which claude`가 우리 wrapper를 가리킴.\n\n**부수 변경**: bash 분기 동작 위해 Go SpawnParams에 Args 필드 + service.go exec.Command(shell, p.Args...) + IPC contract args optional 추가. backward-compatible (renderer 미전송 시 기존 동작 동일).\n\n**자동 회귀**: 80/80 PTY + 11/11 workspace + 18/18 runtimeDirs + 3 e2e structural — baseline 37 fail → with-cycle 34 fail (NET -3 개선).\n\n**HOW skip 정당화**: 단일 axis cycle, 변경 반경 작음(3 신규 + 6 수정), 모듈 contained, 검증 강도 충분.\n\n**INFO (별도 수정 불필요)**: zshrc/bashrc의 `${PATH//:$DIR:/:}` dedup 패턴이 trailing 위치 중복을 제거 못 함 — 실제 운용에서는 wrapper가 항상 맨 앞이라 cosmetic만, 기능 결함 아님.\n\n**머지 후 검증 권고**: empirical 부록의 5 항목 — 사용자가 직접 `which claude` 결과를 wrapper 경로로 확인, 사용자 .zshrc alias 보존 확인 등.",
+                "recorded_at": "2026-05-21T14:41:09.057Z",
+                "agent_id": "lead"
+              }
+            ]
+          }
+        ],
+        "research_summary": "직전 진단에서 확정된 사실: (1) wrapper 파일·NEXUS env·소켓 경로 모두 정상 동작. (2) 사용자 .zshrc가 PATH를 자체 prepend해 `dist/agent/bin`을 PATH 중간으로 밀어냄 — `which -a claude` 결과에 `~/.local/bin/claude`가 1순위, 우리 wrapper가 3순위로 잡힘. (3) PATH 출력에서 사용자 dotfile prepend 부분이 두 번 나타나는 게 결정적 증거. (4) cmux도 같은 문제 미해결 — 우리가 풀면 차별점. (5) 본 cycle 비범위: fish 등 zsh/bash 외 셸. 본 cycle 영역: zsh+bash 시나리오에서 셸이 rc 실행을 끝낸 시점에 NEXUS_WRAPPER_SELF_DIR이 PATH의 맨 앞에 있도록 보장. 구현 후보: ZDOTDIR을 임시 shim dir로 가리키고 그 안 .zshrc/.zshenv가 (a) 사용자 원본 ZDOTDIR을 source한 뒤 (b) precmd 훅으로 PATH 재배열 + 즉시 prepend. bash는 --rcfile로 동등 처리. 관련 파일: src/main/features/pty/{ipc.ts,harness-env.ts}, src/main/features/workspace/manager.ts(이전 cycle 산출물).",
+        "created_at": "2026-05-21T13:56:18.130Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "runtimeDirs.shimDirFor + zsh/bash shim 콘텐츠 생성 헬퍼",
+          "status": "completed",
+          "context": "Plan #59 Issue 1+2. 직전 cycle의 `src/main/infra/agent/runtimeDirs.ts`에 워크스페이스별 shim 디렉토리 helper와 shim 파일 콘텐츠 생성을 추가한다. Plan #58의 헬퍼 컨벤션(`root/binDir/socketsDir/ensureDir`)을 따른다. 본 task는 순수 함수+fs 헬퍼만 — PTY spawn 통합은 Task 2.",
+          "acceptance": "**`src/main/infra/agent/runtimeDirs.ts` 추가 API**:\n- `shimDir(workspaceId: string): string` → `<root>/shim/<workspaceId>` 절대경로 (단순 경로 조립, fs 작업 없음)\n- `writeShimFiles(workspaceId: string): Promise<{ dir: string; zshrc: string; zshenv: string; bashrc: string }>` — shimDir에 `.zshrc`, `.zshenv`, `bashrc` 3 파일을 idempotent 작성. dir은 0700, 파일은 0644. 콘텐츠는 Plan #58 Issue 2 decision 그대로:\n\n`.zshrc`:\n```sh\nif [ -n \"${NEXUS_USER_ZDOTDIR-}\" ] && [ -f \"$NEXUS_USER_ZDOTDIR/.zshrc\" ]; then\n  source \"$NEXUS_USER_ZDOTDIR/.zshrc\"\nelif [ -f \"$HOME/.zshrc\" ]; then\n  source \"$HOME/.zshrc\"\nfi\n\n_nexus_prepend_wrapper() {\n  [ -z \"${NEXUS_WRAPPER_SELF_DIR-}\" ] && return\n  case \":$PATH:\" in\n    \":$NEXUS_WRAPPER_SELF_DIR:\"*) ;;\n    *) PATH=\"$NEXUS_WRAPPER_SELF_DIR:${PATH//:$NEXUS_WRAPPER_SELF_DIR:/:}\" ;;\n  esac\n}\nautoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook precmd _nexus_prepend_wrapper\n_nexus_prepend_wrapper\n```\n\n`.zshenv` (사용자 원본 체이닝만):\n```sh\nif [ -n \"${NEXUS_USER_ZDOTDIR-}\" ] && [ -f \"$NEXUS_USER_ZDOTDIR/.zshenv\" ]; then\n  source \"$NEXUS_USER_ZDOTDIR/.zshenv\"\nelif [ -f \"$HOME/.zshenv\" ]; then\n  source \"$HOME/.zshenv\"\nfi\n```\n\n`bashrc`:\n```sh\nif [ -f \"$HOME/.bashrc\" ]; then\n  source \"$HOME/.bashrc\"\nfi\n\n_nexus_prepend_wrapper() {\n  [ -z \"${NEXUS_WRAPPER_SELF_DIR-}\" ] && return\n  case \":$PATH:\" in\n    \":$NEXUS_WRAPPER_SELF_DIR:\"*) ;;\n    *) PATH=\"$NEXUS_WRAPPER_SELF_DIR:${PATH//:$NEXUS_WRAPPER_SELF_DIR:/:}\" ;;\n  esac\n}\nPROMPT_COMMAND=\"_nexus_prepend_wrapper${PROMPT_COMMAND:+; $PROMPT_COMMAND}\"\n_nexus_prepend_wrapper\n```\n\n- `removeShimDir(workspaceId: string): Promise<void>` — `fs.rm({recursive,force})` 멱등. 존재 안 하면 silent\n\n**단위 테스트** (`tests/unit/main/agent/runtimeDirs.test.ts` 확장):\n1. `shimDir(id)` → `<root>/shim/<id>` 절대경로 매칭\n2. `writeShimFiles(id)` → 3 파일 생성 확인 + 콘텐츠 hash 안정 (snapshot 또는 exact match)\n3. 재호출 idempotent — 같은 호출 두 번에 fs 변경 없음\n4. `removeShimDir(id)` → 디렉토리 제거 + 다시 부르면 에러 없음\n5. dir mode 0700, 파일 mode 0644\n\n**셸 호환 syntax 검증**:\n- 생성된 zshrc/bashrc를 `bash -n` / `sh -n`으로 syntax check 통과\n- bash 3.2 비호환 문법 미사용 grep\n\n**검증 명령**:\n- `bun test tests/unit/main/agent/runtimeDirs.test.ts` 통과\n- `bun run typecheck` 통과\n\n**완료 보고**: 수정/추가 파일, git diff --stat, 테스트 결과, acceptance 1~5 PASS 확인. commit 금지.",
+          "risk": "콘텐츠 변경 시 snapshot 테스트가 깨질 수 있으나 shim 콘텐츠는 stable spec이므로 OK.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a60095c9a1445974f",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-21T13:57:49.300Z",
+          "result": {
+            "outcome": "success",
+            "summary": "runtimeDirs.ts에 shimDir/writeShimFiles/removeShimDir 3 export 추가. zsh .zshrc(원본 rc 체이닝 + precmd PATH prepend), .zshenv(rc 체이닝만), bashrc(PROMPT_COMMAND prepend) 콘텐츠 spec 정확. dir 0700/files 0644 멱등, 18/18 unit 테스트 PASS (8 기존 + 10 신규) + bash -n/sh -n syntax check + bash 4+ 문법 0 매칭. Tester 12 acceptance 단위 재검증 PASS.",
+            "artifacts": [
+              "src/main/infra/agent/runtimeDirs.ts",
+              "tests/unit/main/agent/runtimeDirs.test.ts"
+            ],
+            "recorded_at": "2026-05-21T14:03:38.137Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "PTY spawn 통합 — 셸 감지 + ZDOTDIR/argv 분기 + WorkspaceManager 라이프사이클",
+          "status": "completed",
+          "context": "Plan #59 Issue 3. Task 1의 헬퍼를 활용해 spawn 시점에 zsh/bash 분기로 shim을 활성화한다. WorkspaceManager가 워크스페이스 부팅 시 shim 파일을 만들고, terminal lifecycle handler에서 정리한다.",
+          "acceptance": "**WorkspaceManager 라이프사이클** (`src/main/features/workspace/manager.ts`):\n- `startLocalProvider` / `startSshProvider`에서 `runtimeDirs.writeShimFiles(workspaceId)` 호출 (1회). hookInfo 셋업 흐름과 같은 try 안에 두되, shim 실패는 graceful warn 후 진행 (PATH 우선순위만 깨질 뿐 hook 자체는 동작)\n- 채널 lifecycle terminal handler(직전 cycle에서 `hookInfoByWorkspace.delete`를 추가한 자리)에 `runtimeDirs.removeShimDir(workspaceId)` 호출 추가\n\n**spawn 통합** (`src/main/features/pty/ipc.ts`):\n- 별도 helper 분리 — `applyShellPathShim(args: {shell?: string; env: Env; argv?: string[]; shimDir: string}): { env: Env; argv?: string[] }` (또는 동등 구조). 새 파일 `src/main/features/pty/shell-shim.ts` 신설\n- 셸 감지: `args.shell` 또는 `env.SHELL`의 basename을 추출. `zsh`/`bash` 정확히 매칭 (`zsh-5.9` 등 버전 suffix 허용). 미매칭이면 입력 그대로 반환 (no-op)\n- zsh 분기: env에 `NEXUS_USER_ZDOTDIR = env.ZDOTDIR ?? \"\"`, `ZDOTDIR = shimDir` 추가. argv 변경 없음\n- bash 분기: argv에 `--rcfile <shimDir>/bashrc` + `-i` 추가 (기존 argv 보존). agent pty service가 args를 받지 않으면 셸 명령으로 우회하지 말고 정직히 보고\n- `pty/ipc.ts:spawn`에서 `wm.getWrapperBinDir(workspaceId)` 호출 결과가 truthy일 때만 `applyShellPathShim` 적용. null이면 기존 동작\n- shimDir은 `runtimeDirs.shimDir(workspaceId)` 호출로 얻음\n\n**agent pty service 점검** (`internal/pty/service.go`):\n- `Spawn`이 args를 받는지 확인. 받으면 `--rcfile` 인자를 그대로 전달. 안 받으면 본 task 범위에서 args 지원을 추가하거나, 셸 명령 wrap (`bash -c 'exec bash --rcfile ... -i'`) 중 한 가지 선택 — 결정 근거 보고\n\n**단위 테스트**:\n1. `applyShellPathShim` — `shell=/bin/zsh` → env에 ZDOTDIR/NEXUS_USER_ZDOTDIR 셋업 + argv 무변경\n2. `applyShellPathShim` — `shell=/bin/bash` → argv에 `--rcfile ${shimDir}/bashrc -i` 추가\n3. `applyShellPathShim` — `shell=/bin/fish` → 입력 그대로 반환\n4. WorkspaceManager lifecycle: 부팅 시 writeShimFiles 호출 1회, terminal handler에서 removeShimDir 호출 1회 (mock fs)\n5. `pty/ipc.ts:spawn`: getWrapperBinDir null → shim 미적용 (기존 흐름 유지)\n6. 기존 spawn 테스트 회귀 0\n\n**검증 명령**:\n- `bun test tests/unit/main/pty/` 통과\n- `bun test tests/unit/main/workspace/` 통과\n- `bun run typecheck` 통과\n- 회귀 0 (baseline = with-change failure count 동일)\n\n**완료 보고**: 수정/추가 파일, agent pty service args 처리 결정 근거, 테스트 결과, acceptance 1~6 PASS 확인. commit 금지.",
+          "risk": "agent pty.Spawn이 args를 안 받으면 bash 분기 구현 옵션이 깨끗하지 않을 수 있음 — engineer 보고 후 Lead 판단 필요.",
+          "plan_issue": 3,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a43492c062f76906a",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-21T13:58:15.655Z",
+          "result": {
+            "outcome": "success",
+            "summary": "PTY spawn 흐름에 applyShellPathShim 통합 완료. shell-shim.ts(순수 함수), WorkspaceManager(writeShimFiles/removeShimDir DI), pty/ipc.ts(spawn shim 적용), 그리고 Go SpawnParams.Args + service.go exec.Command(shell, p.Args...) + IPC contract args optional 추가. 1차 구현의 mock.module bleed는 옵션 C(DI 도입)으로 격리 수정. Tester 1차 FAIL → 재작업 → 2차 PASS. 80/80 PTY + 11/11 workspace + 18/18 runtimeDirs 테스트, baseline 37 fail → with-cycle 34 fail (NET -3, 오염 제거 + 의도된 개선 3건). typecheck/go build/go test clean.",
+            "artifacts": [
+              "src/main/features/pty/shell-shim.ts",
+              "src/main/features/pty/ipc.ts",
+              "src/main/features/workspace/manager.ts",
+              "internal/pty/types.go",
+              "internal/pty/service.go",
+              "src/shared/ipc/contract.ts",
+              "tests/unit/main/pty/shell-shim.test.ts",
+              "tests/unit/main/pty/ipc-shim-integration.test.ts",
+              "tests/unit/main/workspace/manager-shim-lifecycle.test.ts"
+            ],
+            "recorded_at": "2026-05-21T14:35:23.092Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "실측 e2e — which claude / 7 hook 발화 / 사용자 rc 비파괴 확인",
+          "status": "completed",
+          "context": "Plan #59의 의도가 실제로 통과하는지 사용자 환경 시뮬레이션으로 검증한다. 본 cycle 환경에서 electron 실행 가능 여부와 별개로 가능한 시나리오는 자동/구조적 검증으로 매핑.",
+          "acceptance": "아래 3 시나리오를 검증해 `.nexus/memory/empirical-claude-hook-ssh-e2e.md`에 추가 절을 작성:\n\n1. **wrapper PATH 우선순위 보장** — zsh와 bash 시뮬레이션 환경 각각에서:\n   - shim dir 생성 → 셸 호출 (예: `ZDOTDIR=<shimDir> NEXUS_WRAPPER_SELF_DIR=/tmp/test-wrap zsh -i -c 'echo $PATH | head -c 200; which claude'`) → PATH 맨 앞에 `NEXUS_WRAPPER_SELF_DIR` 위치 확인\n   - 사용자 .zshrc에 `PATH=/usr/local/test:$PATH` 같은 prepend가 있더라도 우리 wrapper가 결과적으로 최우선\n   - bash도 `--rcfile <shimDir>/bashrc -i` 인자로 동일 검증\n\n2. **사용자 원본 rc 비파괴** — shim이 source한 후에도 사용자가 정의한 alias/함수/PATH 추가가 살아 있는지. 예: 사용자 .zshrc에 `alias foo=bar` → shim 경유 셸에서 `foo` alias 동작\n\n3. **셸 미감지 케이스 graceful** — fish/nu 등 미지원 셸: shim 비활성, 기존 PATH prepend 동작\n\n각 시나리오 PASS/STRUCT-PASS/DEFERRED 분류 + 관찰 명령·출력 인용. DEFERRED는 electron 실행 필요 등 환경 제약으로 한정.\n\n`.nexus/memory/empirical-claude-hook-ssh-e2e.md`에 \"Plan #59 부록\" 절로 append (덮어쓰기 X).\n\n**Verdict**: 모든 시나리오 PASS or STRUCT-PASS → VERDICT: PASS. 어느 하나라도 코드 결함 확인 시 FAIL.",
+          "risk": "사용자의 실제 .zshrc/.bashrc는 다양해 corner case 모두 커버 불가 — 핵심 시나리오만 검증하고 다른 케이스는 머지 후 사용자가 직접 확인.",
+          "plan_issue": 3,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a973305b1d1ddc71d",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-21T13:58:33.141Z",
+          "result": {
+            "outcome": "success",
+            "summary": "실측 e2e 3 시나리오 모두 PASS (실제 셔 호출 및 함수 직접 실행). zsh ZDOTDIR / bash --rcfile 경로 모두 NEXUS_WRAPPER_SELF_DIR이 PATH 맨 앞 유지. 사용자 alias/function/PATH 추가 보존 확인. fish/dash 등 미지원 셔은 no-op. INFO 1건(trailing PATH dedup 미완성) — 기능 결함 아니므로 별도 수정 불필요. .nexus/memory/empirical-claude-hook-ssh-e2e.md에 'Plan #59 부록' 절 240행 append 완료 — merge 전 사용자 검증 5항목 명시.",
+            "artifacts": [
+              ".nexus/memory/empirical-claude-hook-ssh-e2e.md"
+            ],
+            "recorded_at": "2026-05-21T14:40:53.855Z"
+          }
+        }
+      ]
     }
   ]
 }

@@ -46,6 +46,10 @@ import {
   getAgentBinDir,
   getAgentBinaryPath,
 } from "../../infra/agent/getAgentBinDir";
+import {
+  writeShimFiles as defaultWriteShimFiles,
+  removeShimDir as defaultRemoveShimDir,
+} from "../../infra/agent/runtimeDirs";
 import { AgentManifestSchema } from "../../../shared/agent/manifest";
 import type { RemoteAgentPlatform } from "../../infra/agent/ssh/ssh-bootstrap/index";
 import { LOCAL_AGENT_DIST_DIR } from "../../infra/agent/ssh/ssh-bootstrap/types";
@@ -71,6 +75,13 @@ export type WorkspaceSshLspBootstrap = (
 ) => Promise<EnsureRemoteLspServerResult>;
 export type WorkspaceLocalChannelFactory = (options: CreateLocalChannelOptions) => AgentChannel;
 export type WorkspaceLocalAgentCommandResolver = () => LocalAgentCommand;
+export type WriteShimFilesFn = (workspaceId: string) => Promise<{
+  dir: string;
+  zshrc: string;
+  zshenv: string;
+  bashrc: string;
+}>;
+export type RemoveShimDirFn = (workspaceId: string) => Promise<void>;
 
 /**
  * Builds a local workspace location from legacy create/update inputs.
@@ -161,6 +172,8 @@ export class WorkspaceManager {
   private readonly sshLspBootstrap: WorkspaceSshLspBootstrap;
   private readonly localChannelFactory: WorkspaceLocalChannelFactory;
   private readonly localAgentCommandResolver: WorkspaceLocalAgentCommandResolver;
+  private readonly writeShimFiles: WriteShimFilesFn;
+  private readonly removeShimDir: RemoveShimDirFn;
 
   /**
    * Optional callback invoked by `remove()` before the workspace context is
@@ -197,6 +210,8 @@ export class WorkspaceManager {
     localChannelFactory: WorkspaceLocalChannelFactory = createLocalChannel,
     localAgentCommandResolver: WorkspaceLocalAgentCommandResolver = resolveLocalAgentCommand,
     sshLspBootstrap: WorkspaceSshLspBootstrap = defaultEnsureRemoteLspServer,
+    writeShimFiles: WriteShimFilesFn = defaultWriteShimFiles,
+    removeShimDir: RemoveShimDirFn = defaultRemoveShimDir,
   ) {
     this.globalStorage = globalStorage;
     this.workspaceStorage = workspaceStorage;
@@ -207,6 +222,8 @@ export class WorkspaceManager {
     this.sshLspBootstrap = sshLspBootstrap;
     this.localChannelFactory = localChannelFactory;
     this.localAgentCommandResolver = localAgentCommandResolver;
+    this.writeShimFiles = writeShimFiles;
+    this.removeShimDir = removeShimDir;
   }
 
   // ---------------------------------------------------------------------------
@@ -883,6 +900,17 @@ export class WorkspaceManager {
       }
     }
 
+    // PTY shim 파일을 workspace-specific 디렉터리에 기록한다.
+    // 실패해도 PATH 우선순위가 깨질 뿐 hook 자체는 settings.json 절대경로로 동작하므로
+    // graceful warn 후 boot를 계속 진행한다.
+    try {
+      await this.writeShimFiles(meta.id);
+    } catch (shimErr) {
+      console.warn(
+        `[workspace] shim file write failed for ${meta.id}; shell PATH priority may be degraded: ${(shimErr as Error).message}`,
+      );
+    }
+
     const provider = new AgentFsProvider("local", channel, { disposeChannel: true });
     ctx.setFsProvider(provider, () => {
       disposeLifecycleListener();
@@ -1039,6 +1067,17 @@ export class WorkspaceManager {
       }
     }
 
+    // PTY shim 파일을 workspace-specific 디렉터리에 기록한다.
+    // SSH 워크스페이스의 shim은 로컬 프로세스용 — 원격 PATH 제어가 목적이 아니라
+    // 로컬 PTY spawn 시 env/args 주입을 위한 것이다. 실패는 graceful warn.
+    try {
+      await this.writeShimFiles(meta.id);
+    } catch (shimErr) {
+      console.warn(
+        `[workspace] shim file write failed for ${meta.id}; shell PATH priority may be degraded: ${(shimErr as Error).message}`,
+      );
+    }
+
     ctx.setFsProvider(createFsProvider(providerMeta, channel), () => {
       disposeLifecycleListener();
       channel.dispose();
@@ -1105,6 +1144,12 @@ export class WorkspaceManager {
     // 보존해두면 reconnect 직후 spawn이 죽은 소켓 경로를 env에 박을 수 있다.
     this.hookInfoByWorkspace.delete(workspaceId);
     ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
+    // PTY shim 디렉터리 정리 — fire-and-forget, error swallow는 warn으로.
+    this.removeShimDir(workspaceId).catch((err: unknown) => {
+      console.warn(
+        `[workspace] shim dir removal failed for ${workspaceId}: ${(err as Error).message}`,
+      );
+    });
   }
 
   /**
@@ -1139,6 +1184,12 @@ export class WorkspaceManager {
       // 보존해두면 reconnect 직후 spawn이 죽은 소켓 경로를 env에 박을 수 있다.
       this.hookInfoByWorkspace.delete(workspaceId);
       ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
+      // PTY shim 디렉터리 정리 — fire-and-forget, error swallow는 warn으로.
+      this.removeShimDir(workspaceId).catch((err: unknown) => {
+        console.warn(
+          `[workspace] shim dir removal failed for ${workspaceId}: ${(err as Error).message}`,
+        );
+      });
     }
   }
 }

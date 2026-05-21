@@ -594,6 +594,7 @@ export const ipcContract = {
           cols: z.number().int().positive(),
           rows: z.number().int().positive(),
           env: z.record(z.string()).optional(),
+          args: z.array(z.string()).optional(),
         }),
         z.object({ pid: z.number().int() }),
       ),

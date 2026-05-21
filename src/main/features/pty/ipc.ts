@@ -7,6 +7,8 @@ import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import { TerminalRecorderRegistry, type PtyRecorderSink } from "./recorder";
 import { ipcOk } from "../../../shared/ipc/result";
 import { injectHarnessTerminalEnv } from "./harness-env";
+import { applyShellPathShim } from "./shell-shim";
+import { shimDir } from "../../infra/agent/runtimeDirs";
 import { OscNotificationDispatcher } from "./osc-notification";
 import type { WorkspaceNameLookup } from "./osc-notification";
 import type { HookInfo } from "../workspace/manager";
@@ -87,7 +89,10 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
   register("pty", {
     call: {
       spawn: async (args: unknown) => {
-        const { workspaceId, tabId, cwd, cols, rows, env } = validateArgs(c.spawn.args, args);
+        const { workspaceId, tabId, cwd, cols, rows, env, args: spawnArgs } = validateArgs(
+          c.spawn.args,
+          args,
+        );
         recorder.start(workspaceId, tabId, cols, rows);
         // hookInfo는 반드시 channel.ready 이후에 읽어야 fresh가 보장된다.
         // channel reconnect 직후 호출 시 stale 캐시(이전 boot의 socket path)가
@@ -104,7 +109,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
         // null이면 wrapper 관련 env 주입을 skip (graceful 패턴 유지).
         const wrapperBinDir = wm?.getWrapperBinDir(workspaceId) ?? null;
         const wrapperAgentBin = wm?.getWrapperAgentBin(workspaceId) ?? null;
-        const enrichedEnv =
+        let enrichedEnv =
           wrapperBinDir !== null
             ? injectHarnessTerminalEnv(env, {
                 binDir: wrapperBinDir,
@@ -115,6 +120,24 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
                 hookToken: hookInfo?.token,
               })
             : injectHarnessTerminalEnv(env);
+
+        // Shell shim: when a wrapperBinDir is available, apply the per-shell
+        // shim so that the wrapper bin stays at the front of PATH even after
+        // the user's startup files prepend their own entries.
+        // Only applied when wrapperBinDir is truthy — null means no harness.
+        let shimmedArgs: string[] | undefined = spawnArgs;
+        if (wrapperBinDir !== null) {
+          const wsShimDir = shimDir(workspaceId);
+          const shimResult = applyShellPathShim({
+            shell: enrichedEnv.SHELL ?? env?.SHELL,
+            env: enrichedEnv,
+            args: spawnArgs,
+            shimDir: wsShimDir,
+          });
+          enrichedEnv = shimResult.env;
+          shimmedArgs = shimResult.args;
+        }
+
         try {
           // The shell is resolved by the agent on its own host — for a
           // remote workspace that is the SSH host, not this machine.
@@ -127,6 +150,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
             cols,
             rows,
             env: enrichedEnv,
+            ...(shimmedArgs !== undefined ? { args: shimmedArgs } : {}),
           });
           return result as { pid: number };
         } catch (error) {

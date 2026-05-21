@@ -29,6 +29,7 @@ type SpawnParams struct {
 	TabID       string            `json:"tabId"`
 	Cwd         string            `json:"cwd"`
 	Shell       string            `json:"shell,omitempty"`
+	Args        []string          `json:"args,omitempty"`
 	Cols        int               `json:"cols"`
 	Rows        int               `json:"rows"`
 	Env         map[string]string `json:"env,omitempty"`

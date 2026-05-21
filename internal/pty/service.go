@@ -112,7 +112,7 @@ func (s *Service) Spawn(_ context.Context, raw json.RawMessage) (any, error) {
 	if shell == "" {
 		shell = defaultShell()
 	}
-	cmd := exec.Command(shell)
+	cmd := exec.Command(shell, p.Args...)
 	cmd.Dir = p.Cwd
 	cmd.Env = mergeEnv(p.Env)
 	cmd.SysProcAttr = newSysProcAttr()
