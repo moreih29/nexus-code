@@ -523,10 +523,12 @@ export class WorkspaceManager {
    * the item's current group the `pinned` flag is automatically flipped and the
    * source group's sort column is zeroed.
    *
-   * Position anchoring (mutually exclusive):
+   * Position anchoring (mutually exclusive, natural-language semantics):
    *   - Neither `beforeId` nor `afterId` → tail of `targetGroup`.
-   *   - `beforeId` only → immediately after that item (midpoint with its successor).
-   *   - `afterId` only → immediately before that item (midpoint with its predecessor).
+   *   - `beforeId` only → the new row goes IMMEDIATELY BEFORE that item
+   *     (midpoint with its predecessor; or `beforeId.pos − 1024` when first).
+   *   - `afterId` only → the new row goes IMMEDIATELY AFTER that item
+   *     (midpoint with its successor; or `afterId.pos + 1024` when last).
    *
    * When the gap between neighbours collapses to < 2 the group is rebalanced
    * first and the new position is recomputed.  In that case `workspace.reordered`

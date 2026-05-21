@@ -199,11 +199,26 @@ describe("WorkspaceManager.reorder — same group", () => {
     expect(result.pinned).toBe(false);
   });
 
-  it("reorder with beforeId=id2 places id3 between id2 and id3's original position", () => {
-    // Move id1 to after id2: midpoint of 2048 and 3072 = floor(5120/2) = 2560
+  it("reorder with beforeId=id2 places id1 immediately before id2", () => {
+    // Initial sort_orders: id1=1024, id2=2048, id3=3072.
+    // beforeId=id2 means "land BEFORE id2"; predecessor of id2 (excluding id1's
+    // own row is irrelevant because id1's pos shifts) is id1 at 1024.
+    // Midpoint(1024, 2048) = floor(3072/2) = 1536.
     const result = fixtures.manager.reorder(id1, {
       targetGroup: "unpinned",
       beforeId: id2,
+    });
+    expect(result.sortOrder).toBe(1536);
+    expect(result.pinnedSortOrder).toBe(0);
+  });
+
+  it("reorder with afterId=id2 places id1 immediately after id2", () => {
+    // Initial sort_orders: id1=1024, id2=2048, id3=3072.
+    // afterId=id2 means "land AFTER id2"; successor of id2 is id3 at 3072.
+    // Midpoint(2048, 3072) = floor(5120/2) = 2560.
+    const result = fixtures.manager.reorder(id1, {
+      targetGroup: "unpinned",
+      afterId: id2,
     });
     expect(result.sortOrder).toBe(2560);
     expect(result.pinnedSortOrder).toBe(0);
@@ -329,9 +344,11 @@ describe("WorkspaceManager.reorder — rebalance", () => {
     fixtures.broadcast.mockClear();
 
     // Move a new third workspace between uuid(1) and uuid(2) — gap < 2 → rebalance.
+    // Natural semantics: beforeId=uuid(2) means "land BEFORE uuid(2)";
+    // predecessor of uuid(2) is uuid(1), and the gap there is 1 (< 2) → rebalance.
     const id3 = createWs(fixtures.manager, 3);
     fixtures.broadcast.mockClear();
-    fixtures.manager.reorder(id3, { targetGroup: "unpinned", beforeId: uuid(1) });
+    fixtures.manager.reorder(id3, { targetGroup: "unpinned", beforeId: uuid(2) });
 
     const calls = fixtures.broadcast.mock.calls;
     expect(calls.length).toBe(1);

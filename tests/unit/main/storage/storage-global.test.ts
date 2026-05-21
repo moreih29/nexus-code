@@ -568,17 +568,61 @@ describe("GlobalStorage.computeInsertPosition", () => {
     expect(result).toEqual({ position: 3072 });
   });
 
-  it("returns midpoint when inserting after a row that has a successor", () => {
+  it("beforeId: midpoint between the row's predecessor and itself", () => {
     insertWs(uuid(1), 0, 1024, 0);
     insertWs(uuid(2), 0, 3072, 0);
-    // Insert after uuid(1): midpoint of 1024 and 3072 = floor(4096/2) = 2048
-    const result = storage.computeInsertPosition({ groupKind: "unpinned", beforeId: uuid(1) });
+    // Insert BEFORE uuid(2): midpoint of uuid(1)=1024 and uuid(2)=3072 = 2048
+    const result = storage.computeInsertPosition({ groupKind: "unpinned", beforeId: uuid(2) });
     expect(result).toEqual({ position: 2048 });
   });
 
-  it("signals rebalance when the gap between neighbors collapses to < 2", () => {
+  it("afterId: midpoint between the row and its successor", () => {
     insertWs(uuid(1), 0, 1024, 0);
-    insertWs(uuid(2), 0, 1025, 0); // gap = 1, below threshold
+    insertWs(uuid(2), 0, 3072, 0);
+    // Insert AFTER uuid(1): midpoint of uuid(1)=1024 and uuid(2)=3072 = 2048
+    const result = storage.computeInsertPosition({ groupKind: "unpinned", afterId: uuid(1) });
+    expect(result).toEqual({ position: 2048 });
+  });
+
+  it("beforeId on the first row of the group: floor(pos/2)", () => {
+    insertWs(uuid(1), 0, 2048, 0);
+    insertWs(uuid(2), 0, 3072, 0);
+    // Insert BEFORE uuid(1): no predecessor → floor(2048/2) = 1024
+    const result = storage.computeInsertPosition({ groupKind: "unpinned", beforeId: uuid(1) });
+    expect(result).toEqual({ position: 1024 });
+  });
+
+  it("beforeId on the first row with default step preserves room above", () => {
+    insertWs(uuid(1), 0, 1024, 0);
+    // floor(1024/2) = 512 — fits between implicit 0 and the existing first row.
+    const result = storage.computeInsertPosition({ groupKind: "unpinned", beforeId: uuid(1) });
+    expect(result).toEqual({ position: 512 });
+  });
+
+  it("afterId on the last row of the group: pos + 1024", () => {
+    insertWs(uuid(1), 0, 1024, 0);
+    insertWs(uuid(2), 0, 2048, 0);
+    // Insert AFTER uuid(2): no successor → 2048 + 1024 = 3072
+    const result = storage.computeInsertPosition({ groupKind: "unpinned", afterId: uuid(2) });
+    expect(result).toEqual({ position: 3072 });
+  });
+
+  it("signals rebalance when neighbours collapse to gap < 2 (beforeId path)", () => {
+    insertWs(uuid(1), 0, 1024, 0);
+    insertWs(uuid(2), 0, 1025, 0); // gap between predecessor and uuid(2) = 1
+    const result = storage.computeInsertPosition({ groupKind: "unpinned", beforeId: uuid(2) });
+    expect(result).toEqual({ rebalance: true });
+  });
+
+  it("signals rebalance when neighbours collapse to gap < 2 (afterId path)", () => {
+    insertWs(uuid(1), 0, 1024, 0);
+    insertWs(uuid(2), 0, 1025, 0); // gap between uuid(1) and successor = 1
+    const result = storage.computeInsertPosition({ groupKind: "unpinned", afterId: uuid(1) });
+    expect(result).toEqual({ rebalance: true });
+  });
+
+  it("signals rebalance when beforeId is first row and pos − 1024 would underflow", () => {
+    insertWs(uuid(1), 0, 1, 0); // first row at the bottom of the range
     const result = storage.computeInsertPosition({ groupKind: "unpinned", beforeId: uuid(1) });
     expect(result).toEqual({ rebalance: true });
   });

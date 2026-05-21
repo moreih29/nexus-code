@@ -238,8 +238,13 @@ const WorkspaceTestSshArgsSchema = z.object({
 
 /**
  * Arguments for repositioning a workspace within the sidebar.
+ *
+ * Natural-language semantics:
+ *   - `beforeId` set → the moved workspace lands IMMEDIATELY BEFORE that row.
+ *   - `afterId` set  → the moved workspace lands IMMEDIATELY AFTER that row.
+ *   - Both unset    → the workspace lands at the tail of `targetGroup`.
+ *
  * `beforeId` and `afterId` are mutually exclusive: providing both is invalid.
- * Providing neither places the workspace at the tail of `targetGroup`.
  */
 export const WorkspaceReorderArgsSchema = z
   .object({

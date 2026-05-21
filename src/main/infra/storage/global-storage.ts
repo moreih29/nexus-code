@@ -422,14 +422,18 @@ export class GlobalStorage {
    * Computes the sort-order position for a workspace being inserted adjacent to
    * a reference row within the given group.
    *
-   * - Both `beforeId` and `afterId` absent → tail position (max + 1024, or 1024
-   *   when the group is empty).
-   * - Both `beforeId` and `afterId` present → invalid; throws.
-   * - Only `beforeId` present → insert immediately after that row (midpoint
-   *   between beforeId and its successor; or beforeId + 1024 if beforeId is last).
-   * - Only `afterId` present → insert immediately before that row (midpoint
-   *   between afterId and its predecessor; or afterId − 1024 if afterId is first,
-   *   but never below 1 so rebalance is signalled if the gap collapses to 0).
+   * Natural-language semantics — `beforeId` and `afterId` describe where the
+   * NEW row will sit relative to the reference row:
+   *
+   * - Both absent → tail position (max + 1024, or 1024 when the group is empty).
+   * - Both present → invalid; throws.
+   * - Only `beforeId` present → insert the new row IMMEDIATELY BEFORE that row
+   *   (midpoint between beforeId's predecessor and beforeId; or
+   *   `floor(beforeId.pos / 2)` if beforeId is the first row of the group, with
+   *   a rebalance signal when that would underflow to < 1).
+   * - Only `afterId` present → insert the new row IMMEDIATELY AFTER that row
+   *   (midpoint between afterId and afterId's successor; or afterId + 1024 if
+   *   afterId is the last row of the group).
    *
    * Returns `{ position: number }` when a concrete position is available, or
    * `{ rebalance: true }` when the gap between neighbors has collapsed to < 2
@@ -456,7 +460,7 @@ export class GlobalStorage {
       return { position: this.nextTailSortOrder(groupKind) };
     }
 
-    // Insert after `beforeId`: midpoint between beforeId and its next neighbor.
+    // Insert BEFORE `beforeId`: midpoint between beforeId's predecessor and beforeId.
     if (beforeId !== undefined) {
       const refRow = this.db
         .prepare(
@@ -470,30 +474,37 @@ export class GlobalStorage {
         );
       }
 
-      const nextRow = this.db
+      const prevRow = this.db
         .prepare(
           `SELECT ${col} AS pos
            FROM workspaces
-           WHERE pinned = ? AND ${col} > ?
-           ORDER BY ${col} ASC
+           WHERE pinned = ? AND ${col} < ?
+           ORDER BY ${col} DESC
            LIMIT 1`,
         )
         .get(pinnedFilter, refRow.pos) as { pos: number } | undefined;
 
-      if (!nextRow) {
-        // beforeId is the last row; append after it.
-        return { position: refRow.pos + 1024 };
+      if (!prevRow) {
+        // beforeId is the first row of the group; midpoint between an
+        // implicit lower bound (0) and the row itself, so a top-of-group
+        // insert always lands above the existing first row (and stays a
+        // positive integer). Rebalance only when the midpoint underflows.
+        const newPos = Math.floor(refRow.pos / 2);
+        if (newPos < 1) {
+          return { rebalance: true };
+        }
+        return { position: newPos };
       }
 
-      const gap = nextRow.pos - refRow.pos;
+      const gap = refRow.pos - prevRow.pos;
       if (gap < 2) {
         return { rebalance: true };
       }
 
-      return { position: Math.floor((refRow.pos + nextRow.pos) / 2) };
+      return { position: Math.floor((prevRow.pos + refRow.pos) / 2) };
     }
 
-    // Insert before `afterId`: midpoint between afterId and its previous neighbor.
+    // Insert AFTER `afterId`: midpoint between afterId and afterId's successor.
     const refRow = this.db
       .prepare(
         `SELECT ${col} AS pos FROM workspaces WHERE id = ? AND pinned = ?`,
@@ -506,31 +517,27 @@ export class GlobalStorage {
       );
     }
 
-    const prevRow = this.db
+    const nextRow = this.db
       .prepare(
         `SELECT ${col} AS pos
          FROM workspaces
-         WHERE pinned = ? AND ${col} < ?
-         ORDER BY ${col} DESC
+         WHERE pinned = ? AND ${col} > ?
+         ORDER BY ${col} ASC
          LIMIT 1`,
       )
       .get(pinnedFilter, refRow.pos) as { pos: number } | undefined;
 
-    if (!prevRow) {
-      // afterId is the first row; prepend before it.
-      const newPos = refRow.pos - 1024;
-      if (newPos < 1) {
-        return { rebalance: true };
-      }
-      return { position: newPos };
+    if (!nextRow) {
+      // afterId is the last row; append after it.
+      return { position: refRow.pos + 1024 };
     }
 
-    const gap = refRow.pos - prevRow.pos;
+    const gap = nextRow.pos - refRow.pos;
     if (gap < 2) {
       return { rebalance: true };
     }
 
-    return { position: Math.floor((prevRow.pos + refRow.pos) / 2) };
+    return { position: Math.floor((refRow.pos + nextRow.pos) / 2) };
   }
 
   /**

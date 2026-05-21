@@ -196,8 +196,9 @@ describe("single-group reorder — DB consistency + workspace.changed broadcast"
     createWs(fixtures.manager, 4);
     fixtures.broadcast.mockClear();
 
-    // Reorder: move ws-1 to after ws-3 (beforeId = id3 means insert immediately after id3).
-    fixtures.manager.reorder(id1, { targetGroup: "unpinned", beforeId: id3 });
+    // Reorder: move ws-1 to land AFTER ws-3 — afterId=id3 (natural semantics:
+    // new row sits immediately after id3; midpoint of id3=3072 and ws-4=4096).
+    fixtures.manager.reorder(id1, { targetGroup: "unpinned", afterId: id3 });
 
     const calls = fixtures.broadcast.mock.calls as [string, string, unknown][];
     // Exactly one broadcast for a non-rebalancing move.
@@ -220,6 +221,109 @@ describe("single-group reorder — DB consistency + workspace.changed broadcast"
     // ws-2 and ws-3 positions must be untouched (single-row update only).
     expect(ws2Row.sortOrder).toBe(2048);
     expect(ws3Row.sortOrder).toBe(3072);
+  });
+
+  // --- Regression: user-reported drop-slot scenarios -----------------------
+  // These tests assert visible list order via manager.list() — not raw sort
+  // numbers — so any future inversion of beforeId/afterId semantics will
+  // fail loudly here rather than silently shipping again.
+
+  it("regression: drop d onto the slot ABOVE a → list order [d, a, b, c]", () => {
+    // [a, b, c, d] → drag d to the top slot (beforeId = a) → [d, a, b, c]
+    const ida = createWs(fixtures.manager, 1);
+    const idb = createWs(fixtures.manager, 2);
+    const idc = createWs(fixtures.manager, 3);
+    const idd = createWs(fixtures.manager, 4);
+    fixtures.broadcast.mockClear();
+
+    fixtures.manager.reorder(idd, { targetGroup: "unpinned", beforeId: ida });
+
+    // Read directly from storage so the test compares visible (sorted) order,
+    // not the manager.list() Map-insertion order which doesn't re-sort on
+    // reorder. This is the source of truth the sidebar actually renders.
+    const order = fixtures.globalDb
+      .prepare(
+        `SELECT id FROM workspaces
+         WHERE pinned = 0
+         ORDER BY (CASE pinned WHEN 1 THEN pinned_sort_order ELSE sort_order END) ASC`,
+      )
+      .all()
+      .map((r) => (r as { id: string }).id);
+    expect(order).toEqual([idd, ida, idb, idc]);
+  });
+
+  it("regression: drop b onto the slot BELOW d → list order [a, c, d, b]", () => {
+    // [a, b, c, d] → drag b to the bottom slot (afterId = d) → [a, c, d, b]
+    const ida = createWs(fixtures.manager, 1);
+    const idb = createWs(fixtures.manager, 2);
+    const idc = createWs(fixtures.manager, 3);
+    const idd = createWs(fixtures.manager, 4);
+    fixtures.broadcast.mockClear();
+
+    fixtures.manager.reorder(idb, { targetGroup: "unpinned", afterId: idd });
+
+    // Read directly from storage so the test compares visible (sorted) order,
+    // not the manager.list() Map-insertion order which doesn't re-sort on
+    // reorder. This is the source of truth the sidebar actually renders.
+    const order = fixtures.globalDb
+      .prepare(
+        `SELECT id FROM workspaces
+         WHERE pinned = 0
+         ORDER BY (CASE pinned WHEN 1 THEN pinned_sort_order ELSE sort_order END) ASC`,
+      )
+      .all()
+      .map((r) => (r as { id: string }).id);
+    expect(order).toEqual([ida, idc, idd, idb]);
+  });
+
+  it("regression: drop b onto the slot ABOVE c (between a&b's old slot and c) → [a, b, c, d] unchanged", () => {
+    // beforeId=c means "land BEFORE c"; b is already directly before c, so the
+    // server-side computation places b right between its predecessor (a) and c.
+    // Final order remains [a, b, c, d] — this is a no-op equivalent, surfaced
+    // by the renderer's isSlotNoOp suppression rule.
+    const ida = createWs(fixtures.manager, 1);
+    const idb = createWs(fixtures.manager, 2);
+    const idc = createWs(fixtures.manager, 3);
+    const idd = createWs(fixtures.manager, 4);
+    fixtures.broadcast.mockClear();
+
+    fixtures.manager.reorder(idb, { targetGroup: "unpinned", beforeId: idc });
+
+    // Read directly from storage so the test compares visible (sorted) order,
+    // not the manager.list() Map-insertion order which doesn't re-sort on
+    // reorder. This is the source of truth the sidebar actually renders.
+    const order = fixtures.globalDb
+      .prepare(
+        `SELECT id FROM workspaces
+         WHERE pinned = 0
+         ORDER BY (CASE pinned WHEN 1 THEN pinned_sort_order ELSE sort_order END) ASC`,
+      )
+      .all()
+      .map((r) => (r as { id: string }).id);
+    expect(order).toEqual([ida, idb, idc, idd]);
+  });
+
+  it("regression: drop a onto the slot BELOW c → list order [b, c, a, d]", () => {
+    const ida = createWs(fixtures.manager, 1);
+    const idb = createWs(fixtures.manager, 2);
+    const idc = createWs(fixtures.manager, 3);
+    const idd = createWs(fixtures.manager, 4);
+    fixtures.broadcast.mockClear();
+
+    fixtures.manager.reorder(ida, { targetGroup: "unpinned", afterId: idc });
+
+    // Read directly from storage so the test compares visible (sorted) order,
+    // not the manager.list() Map-insertion order which doesn't re-sort on
+    // reorder. This is the source of truth the sidebar actually renders.
+    const order = fixtures.globalDb
+      .prepare(
+        `SELECT id FROM workspaces
+         WHERE pinned = 0
+         ORDER BY (CASE pinned WHEN 1 THEN pinned_sort_order ELSE sort_order END) ASC`,
+      )
+      .all()
+      .map((r) => (r as { id: string }).id);
+    expect(order).toEqual([idb, idc, ida, idd]);
   });
 });
 
@@ -342,8 +446,9 @@ describe("rebalance trigger — bulk reordered event + 1024-step redistribution"
     fixtures.broadcast.mockClear();
 
     // Reorder id3 to be inserted between uuid(101) and uuid(102).
-    // Gap between 100 and 101 is 1 (<2), so rebalance fires.
-    fixtures.manager.reorder(id3, { targetGroup: "unpinned", beforeId: uuid(101) });
+    // Natural semantics: beforeId=uuid(102) means "land BEFORE uuid(102)";
+    // predecessor of uuid(102) is uuid(101), and that gap is 1 (<2) → rebalance.
+    fixtures.manager.reorder(id3, { targetGroup: "unpinned", beforeId: uuid(102) });
 
     const calls = fixtures.broadcast.mock.calls as [string, string, unknown][];
     expect(calls.length).toBe(1);
