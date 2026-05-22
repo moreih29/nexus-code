@@ -1,8 +1,11 @@
 /**
- * ClaudeWorkspaceIndicator 렌더 테스트 (sidebar.tsx 내부 컴포넌트).
+ * 워크스페이스 카드 상태 칩 렌더 테스트 (sidebar.tsx 내부 WorkspaceRow).
  *
  * useClaudeStatusStore를 모킹해 워크스페이스 집계 상태를 주입한다.
  * renderToStaticMarkup으로 DOM 없이 실행.
+ *
+ * 기존 ClaudeWorkspaceIndicator (absolute right-20 span)를 제거하고
+ * WorkspaceStatusChip (1줄 그리드 인라인 셀)으로 대체한 이후의 테스트.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -53,6 +56,7 @@ mock.module("../../../../../src/renderer/state/stores/claude-status", () => {
     selectIsWorkspaceAttention: () => false,
     EMPTY_TABS: {},
     ATTENTION_STATUSES: ["needsInput", "permissionPending", "error"],
+    WORKSPACE_VISIBLE_STATUSES: ["running", "completed", "needsInput", "permissionPending", "error"],
     isAttentionRequired: (s: unknown) =>
       s !== undefined && ["needsInput", "permissionPending", "error"].includes(s as string),
   };
@@ -107,30 +111,30 @@ function renderSidebarForWs(): string {
 }
 
 // ---------------------------------------------------------------------------
-// running-only — 인디케이터 없음
+// running-only — 칩 렌더 (running은 WORKSPACE_VISIBLE_STATUSES에 포함)
 // ---------------------------------------------------------------------------
 
-describe("ClaudeWorkspaceIndicator — running-only 워크스페이스", () => {
+describe("WorkspaceStatusChip — running-only 워크스페이스", () => {
   beforeEach(resetAll);
 
-  test("running 탭만 있으면 attention 인디케이터가 렌더되지 않는다", () => {
+  test("running 탭이 있으면 'Claude: running' aria-label이 렌더된다", () => {
     mockWsTabs = { t1: makeEntry("t1", "running") };
     const html = renderSidebarForWs();
-    expect(html).not.toContain("need attention");
+    expect(html).toContain("Claude: running");
   });
 });
 
 // ---------------------------------------------------------------------------
-// needsInput — 인디케이터 렌더 + aria-label
+// needsInput — 칩 렌더 + aria-label
 // ---------------------------------------------------------------------------
 
-describe("ClaudeWorkspaceIndicator — needsInput", () => {
+describe("WorkspaceStatusChip — needsInput", () => {
   beforeEach(resetAll);
 
-  test("needsInput 탭이 있으면 'need attention' aria-label이 렌더된다", () => {
+  test("needsInput 탭이 있으면 'Claude: waiting for input' aria-label이 렌더된다", () => {
     mockWsTabs = { t1: makeEntry("t1", "needsInput") };
     const html = renderSidebarForWs();
-    expect(html).toContain("need attention");
+    expect(html).toContain("Claude: waiting for input");
   });
 
   test("tab-claude-attention-fg 토큰 클래스가 적용된다", () => {
@@ -144,7 +148,7 @@ describe("ClaudeWorkspaceIndicator — needsInput", () => {
 // permissionPending — 최고 우선순위
 // ---------------------------------------------------------------------------
 
-describe("ClaudeWorkspaceIndicator — permissionPending 우선순위", () => {
+describe("WorkspaceStatusChip — permissionPending 우선순위", () => {
   beforeEach(resetAll);
 
   test("permissionPending + needsInput 혼합 시 state-warning-fg(permissionPending 우선)가 사용된다", () => {
@@ -154,7 +158,7 @@ describe("ClaudeWorkspaceIndicator — permissionPending 우선순위", () => {
     };
     const html = renderSidebarForWs();
     expect(html).toContain("state-warning-fg");
-    expect(html).toContain("need attention");
+    expect(html).toContain("Claude: waiting for permission");
   });
 });
 
@@ -162,7 +166,7 @@ describe("ClaudeWorkspaceIndicator — permissionPending 우선순위", () => {
 // error — state-error-fg
 // ---------------------------------------------------------------------------
 
-describe("ClaudeWorkspaceIndicator — error", () => {
+describe("WorkspaceStatusChip — error", () => {
   beforeEach(resetAll);
 
   test("error 탭이 있으면 state-error-fg 토큰 클래스가 적용된다", () => {
@@ -182,51 +186,53 @@ describe("ClaudeWorkspaceIndicator — error", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 카운트 표시
+// 카운트 표시 — attention count >= 2 이면 숫자 표시
 // ---------------------------------------------------------------------------
 
-describe("ClaudeWorkspaceIndicator — 카운트 표시", () => {
+describe("WorkspaceStatusChip — 카운트 표시", () => {
   beforeEach(resetAll);
 
-  test("attention 탭이 1개이면 aria-label이 단수형('session')을 사용한다", () => {
+  test("attention 탭이 1개이면 'Input' 레이블이 렌더된다(숫자 없음)", () => {
     mockWsTabs = { t1: makeEntry("t1", "needsInput") };
     const html = renderSidebarForWs();
-    expect(html).toContain("1 Claude session");
-    // count=1 이면 숫자 span이 없다.
+    // count=1이면 레이블('Input')이 표시되고 숫자 >1<는 없다.
+    expect(html).toContain(">Input<");
     expect(html).not.toContain(">1<");
   });
 
-  test("attention 탭이 2개이면 appMicro span에 숫자가 렌더된다", () => {
+  test("attention 탭이 2개이면 숫자 '2'가 렌더된다", () => {
     mockWsTabs = {
       t1: makeEntry("t1", "needsInput"),
       t2: makeEntry("t2", "error"),
     };
     const html = renderSidebarForWs();
-    expect(html).toContain("text-app-micro");
     expect(html).toContain(">2<");
   });
 
-  test("attention 탭이 3개이면 aria-label이 복수형('sessions')을 사용한다", () => {
+  test("attention 탭이 3개이면 숫자 '3'이 렌더된다", () => {
     mockWsTabs = {
       t1: makeEntry("t1", "needsInput"),
       t2: makeEntry("t2", "error"),
       t3: makeEntry("t3", "permissionPending"),
     };
     const html = renderSidebarForWs();
-    expect(html).toContain("3 Claude sessions need attention");
+    expect(html).toContain(">3<");
   });
 });
 
 // ---------------------------------------------------------------------------
-// 상태 없음
+// 상태 없음 (idle)
 // ---------------------------------------------------------------------------
 
-describe("ClaudeWorkspaceIndicator — 상태 없음", () => {
+describe("WorkspaceStatusChip — 상태 없음", () => {
   beforeEach(resetAll);
 
-  test("Claude 상태가 없으면 인디케이터가 렌더되지 않는다", () => {
+  test("Claude 상태가 없으면 칩이 렌더되지 않는다", () => {
     const html = renderSidebarForWs();
-    expect(html).not.toContain("need attention");
+    // 칩의 role="status"가 없어야 한다.
+    expect(html).not.toContain("Claude: waiting for input");
+    expect(html).not.toContain("Claude: running");
+    expect(html).not.toContain("Claude: error");
   });
 });
 
@@ -234,13 +240,13 @@ describe("ClaudeWorkspaceIndicator — 상태 없음", () => {
 // SSH dot과 형태 분리
 // ---------------------------------------------------------------------------
 
-describe("ClaudeWorkspaceIndicator — SSH dot과 형태 분리", () => {
+describe("WorkspaceStatusChip — SSH dot과 형태 분리", () => {
   beforeEach(resetAll);
 
-  test("Claude 인디케이터는 rounded-full dot 형태를 사용하지 않는다(local WS)", () => {
+  test("Claude 칩은 rounded-full dot 형태를 사용하지 않는다(local WS)", () => {
     mockWsTabs = { t1: makeEntry("t1", "needsInput") };
     const html = renderSidebarForWs();
-    // local 워크스페이스에는 SSH dot이 없고 claude 인디케이터도 외곽선 글리프.
+    // local 워크스페이스에는 SSH dot이 없고 claude 칩도 외곽선 글리프.
     expect(html).not.toContain("rounded-full");
   });
 });

@@ -1,4 +1,4 @@
-import { CircleAlert, CircleDot, Folder, Server, TriangleAlert, X } from "lucide-react";
+import { Folder, Server, X } from "lucide-react";
 import React, { useMemo } from "react";
 import { LSP_FEATURE_ENABLED } from "../../../shared/lsp/feature-flag";
 import { Tooltip as RadixTooltip } from "radix-ui";
@@ -37,7 +37,10 @@ import { appErrorFailed } from "../../../shared/error/app-error";
 import {
   selectWorkspaceAggregateStatus,
   useClaudeStatusStore,
+  WORKSPACE_VISIBLE_STATUSES,
 } from "../../state/stores/claude-status";
+import { useGitStore } from "../../state/stores/git/index";
+import { WorkspaceStatusChip } from "../sidebar/workspace-status-chip";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -56,6 +59,282 @@ interface SidebarProps {
   onSelectWorkspace: (id: string) => void;
   onAddWorkspace: () => void;
   onRemoveWorkspace: (id: string) => void;
+}
+
+// ---------------------------------------------------------------------------
+// WorkspaceRow 컴포넌트 — hooks 사용을 위해 별도 컴포넌트로 분리
+// ---------------------------------------------------------------------------
+
+interface WorkspaceRowProps {
+  ws: WorkspaceMeta;
+  isActive: boolean;
+  isDragSource: boolean;
+  sidebarWidth: number;
+  enabledLanguages: LspLanguageId[];
+  rowDragProps: React.HTMLAttributes<HTMLElement>;
+  connectionStatus: WorkspaceConnectionStatus;
+  onSelectWorkspace: (id: string) => void;
+  onTogglePin: (ws: WorkspaceMeta) => void;
+  onRemoveWorkspace: (id: string) => void;
+}
+
+/**
+ * 워크스페이스 사이드바 행 컴포넌트.
+ *
+ * 3줄 그리드 카드 구조:
+ * 1줄: [Icon 16] name  [Chip]
+ * 2줄: message preview (StatusEntry.message — 없으면 미렌더)
+ * 3줄: branch · path
+ */
+function WorkspaceRow({
+  ws,
+  isActive,
+  isDragSource,
+  sidebarWidth,
+  enabledLanguages,
+  rowDragProps,
+  connectionStatus,
+  onSelectWorkspace,
+  onTogglePin,
+  onRemoveWorkspace,
+}: WorkspaceRowProps) {
+  const isSsh = ws.location.kind === "ssh";
+  const Icon = isSsh ? Server : Folder;
+
+  // For SSH: primary = remote folder leaf, secondary = user@host,
+  // title = full connection + path for tooltip.
+  // For local: primary = ws.name, secondary = parent/folder, title = full path.
+  const sshLocation = ws.location.kind === "ssh" ? ws.location : null;
+  const primaryText = sshLocation ? folderName(sshLocation.remotePath) : ws.name;
+  const secondaryTitle = sshLocation
+    ? formatSshTooltip({
+        user: sshLocation.user,
+        host: sshLocation.host,
+        port: sshLocation.port,
+        remotePath: sshLocation.remotePath,
+      })
+    : ws.rootPath;
+
+  // Claude 세션 집계 상태 구독 — wsTabs slice만 구독해 thrashing 방지.
+  const wsTabs = useClaudeStatusStore((s) => s.byWorkspace[ws.id]);
+  const aggregate = useMemo(() => {
+    if (wsTabs === undefined) return null;
+    return selectWorkspaceAggregateStatus(
+      { byWorkspace: { [ws.id]: wsTabs } } as Parameters<typeof selectWorkspaceAggregateStatus>[0],
+      ws.id,
+    );
+  }, [wsTabs, ws.id]);
+
+  // 칩에 표시할 상태 — WORKSPACE_VISIBLE_STATUSES에 포함된 경우에만 표시.
+  const chipStatus =
+    aggregate && WORKSPACE_VISIBLE_STATUSES.includes(aggregate.status)
+      ? aggregate.status
+      : null;
+
+  // needsInput 상태의 가장 최신 message를 카드 2번째 줄에 표시한다.
+  // 여러 탭이 있을 경우 가장 마지막으로 변경된 entry의 message를 사용한다.
+  const previewMessage = useMemo(() => {
+    if (!wsTabs) return null;
+    const entries = Object.values(wsTabs);
+    // 모든 탭 중 message가 있는 entry만 필터링 후 since 역순 정렬.
+    const withMessage = entries
+      .filter((e) => e.message !== undefined && e.message !== "")
+      .sort((a, b) => b.since - a.since);
+    return withMessage.length > 0 ? (withMessage[0].message ?? null) : null;
+  }, [wsTabs]);
+
+  // git 세션에서 현재 브랜치 이름을 가져온다.
+  const branchName = useGitStore((s) => {
+    const session = s.sessions.get(ws.id);
+    return session?.branchInfo?.current ?? session?.status?.branch?.current ?? null;
+  });
+
+  // 3번째 줄: branch · path 형식. branch가 없으면 path만 표시.
+  const thirdLine = useMemo(() => {
+    const pathHint = isSsh
+      ? formatSshSecondaryLine({
+          user: sshLocation?.user,
+          host: sshLocation?.host ?? "",
+        })
+      : secondaryWorkspaceText(ws);
+    if (branchName) {
+      return `${branchName} · ${pathHint}`;
+    }
+    return pathHint;
+  }, [branchName, isSsh, sshLocation, ws]);
+
+  // permissionPending/error 상태이면 카드 좌측에 2px 색 border-l 표시.
+  // 활성 카드의 --state-selected-indicator border-l과 배타적으로 처리한다.
+  const attentionBorderClass =
+    !isActive && chipStatus === "permissionPending"
+      ? "border-l-[var(--state-warning-fg)]"
+      : !isActive && chipStatus === "error"
+        ? "border-l-[var(--state-error-fg)]"
+        : null;
+
+  // needsInput 상태이면 1줄 name을 font-semibold로 강조한다.
+  const nameEmphasis = chipStatus === "needsInput";
+
+  // 사이드바 폭 220px 미만이면 칩 레이블 숨기고 글리프만 표시 (compact 모드).
+  const chipCompact = sidebarWidth < 220;
+
+  return (
+    <ContextMenuRoot key={ws.id}>
+      <ContextMenuTrigger>
+        {/*
+          The outer div is the drag handle for the entire row.
+          `cursor-grab` signals draggability at rest; `cursor-grabbing`
+          overrides it while this row is being dragged.
+          PinToggle and Remove button carry draggable={false} so clicking
+          them never accidentally starts a drag.
+        */}
+        <div
+          className={cn(
+            "relative group mx-2",
+            "cursor-grab",
+            isDragSource && "cursor-grabbing opacity-40",
+          )}
+          {...(rowDragProps as React.HTMLAttributes<HTMLDivElement>)}
+        >
+          <button
+            type="button"
+            aria-current={isActive ? "page" : undefined}
+            onClick={() => onSelectWorkspace(ws.id)}
+            className={cn(
+              // base layout — left accent bar 예약(border-l-2 transparent)으로 폭 안정.
+              "block w-full px-3 py-2.5 rounded-(--radius-control) border-l-2 border-l-transparent",
+              // reserve right space for absolute overlay buttons (Pin + X)
+              "pr-10",
+              // text + interaction
+              "text-left cursor-pointer select-none font-sans transition-colors",
+              "text-foreground",
+              // 선택 상태: sidebar.item.selected.bg + state.selected.indicator 2px 좌측 accent.
+              isActive
+                ? "bg-[var(--sidebar-item-selected-bg)] border-l-[var(--state-selected-indicator)]"
+                : cn(
+                    // 비활성: transparent bg + hover
+                    "bg-transparent hover:bg-[var(--state-hover-bg)]",
+                    // attention 상태 좌측 2px border (활성과 배타)
+                    attentionBorderClass,
+                  ),
+            )}
+          >
+            {/*
+              3줄 그리드:
+              - col 1: 16px 아이콘
+              - col 2: 가변 폭 텍스트
+              - col 3: auto (칩)
+            */}
+            <span className="grid grid-cols-[16px_minmax(0,1fr)_auto] items-start gap-2">
+              {/* 아이콘 — mt-0.5 로 1줄 텍스트 baseline 보정 */}
+              <Icon
+                className="size-4 shrink-0 text-muted-foreground mt-0.5"
+                aria-hidden="true"
+              />
+
+              {/* 텍스트 영역 — 2/3줄 가변 높이 */}
+              <span className="min-w-0">
+                {/* 1줄: workspace 이름 */}
+                <span
+                  className={cn(
+                    "block text-app-body-emphasis truncate min-w-0",
+                    isActive ? "text-foreground" : "text-muted-foreground",
+                    nameEmphasis && "font-semibold",
+                  )}
+                >
+                  {primaryText}
+                </span>
+
+                {/* 2줄: message preview — message가 있을 때만 렌더 */}
+                {previewMessage && (
+                  <span
+                    className={cn(
+                      "block text-app-ui-sm mt-0.5 line-clamp-1",
+                      isActive ? "text-foreground/70" : "text-muted-foreground",
+                    )}
+                  >
+                    {previewMessage}
+                  </span>
+                )}
+
+                {/* 3줄: branch · path */}
+                <span
+                  className={cn(
+                    "block text-app-micro mt-1 line-clamp-1 truncate",
+                    isActive ? "text-foreground/70" : "text-muted-foreground/70",
+                  )}
+                  title={secondaryTitle}
+                >
+                  {thirdLine}
+                  {/* LSP 언어 칩 — 3줄 끝 우측 인라인, 상시 노출 */}
+                  {LSP_FEATURE_ENABLED &&
+                    CHIP_LANGUAGES.map((lang) => (
+                      <LspLanguageChip
+                        key={lang}
+                        workspaceId={ws.id}
+                        languageId={lang}
+                        enabled={enabledLanguages.includes(lang)}
+                      />
+                    ))}
+                </span>
+              </span>
+
+              {/* 칩 영역 — 1줄 우측 인라인 (justify-self-end) */}
+              <span className="justify-self-end mt-0.5">
+                {chipStatus && (
+                  <WorkspaceStatusChip
+                    status={chipStatus}
+                    count={aggregate?.count}
+                    compact={chipCompact}
+                  />
+                )}
+              </span>
+            </span>
+          </button>
+
+          {isSsh && <ConnectionStatusDot status={connectionStatus} />}
+
+          {/* Pin toggle — absolute right-9, hover 시 노출. */}
+          <PinToggle
+            pinned={ws.pinned}
+            workspaceName={ws.name}
+            onToggle={() => onTogglePin(ws)}
+            draggable={false}
+          />
+
+          {/* Remove button — hover 시 fade-in. */}
+          <button
+            type="button"
+            draggable={false}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemoveWorkspace(ws.id);
+            }}
+            aria-label={`Remove workspace ${ws.name}`}
+            className={cn(
+              "absolute top-1/2 -translate-y-1/2 right-2 inline-flex items-center justify-center",
+              "size-5 rounded-(--radius-control)",
+              "text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
+              "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity",
+            )}
+          >
+            <X className="size-3" aria-hidden="true" />
+          </button>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItems
+          items={[
+            {
+              kind: "item",
+              label: ws.pinned ? "Unpin" : "Pin to top",
+              onSelect: () => onTogglePin(ws),
+            },
+          ]}
+        />
+      </ContextMenuContent>
+    </ContextMenuRoot>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -171,177 +450,6 @@ export function Sidebar({
     );
   }
 
-  /**
-   * Renders a single workspace row with all overlay buttons (Pin, Remove),
-   * the context menu, and drag-and-drop wiring.
-   *
-   * Tab order by DOM position: row button → PinToggle → Remove button.
-   * Drag-and-drop: the outer div is the draggable handle. PinToggle and the
-   * Remove button carry draggable={false} so pointer-down on them never
-   * initiates a drag.
-   */
-  function renderWorkspaceRow(ws: WorkspaceMeta) {
-    const isActive = ws.id === activeWorkspaceId;
-    const isDragSource = dragSourceId === ws.id;
-
-    const isSsh = ws.location.kind === "ssh";
-    const Icon = isSsh ? Server : Folder;
-    const connectionStatus: WorkspaceConnectionStatus = isSsh
-      ? (connectionStatusByWorkspaceId[ws.id] ?? "idle")
-      : "idle";
-
-    // For SSH: primary = remote folder leaf, secondary = user@host,
-    // title = full connection + path for tooltip.
-    // For local: primary = ws.name, secondary = parent/folder, title = full path.
-    const sshLocation = ws.location.kind === "ssh" ? ws.location : null;
-    const primaryText = sshLocation ? folderName(sshLocation.remotePath) : ws.name;
-    const secondaryText = secondaryWorkspaceText(ws);
-    const secondaryTitle = sshLocation
-      ? formatSshTooltip({
-          user: sshLocation.user,
-          host: sshLocation.host,
-          port: sshLocation.port,
-          remotePath: sshLocation.remotePath,
-        })
-      : ws.rootPath;
-
-    const enabledLanguages = lspByWorkspace[ws.id] ?? [];
-    const rowDragProps = getRowDragSourceProps(ws.id, ws.pinned);
-
-    return (
-      <ContextMenuRoot key={ws.id}>
-        <ContextMenuTrigger>
-          {/*
-            The outer div is the drag handle for the entire row.
-            `cursor-grab` signals draggability at rest; `cursor-grabbing`
-            overrides it while this row is being dragged.
-            PinToggle and Remove button carry draggable={false} so clicking
-            them never accidentally starts a drag.
-          */}
-          <div
-            className={cn(
-              "relative group mx-2",
-              "cursor-grab",
-              isDragSource && "cursor-grabbing opacity-40",
-            )}
-            {...rowDragProps}
-          >
-            <button
-              type="button"
-              aria-current={isActive ? "page" : undefined}
-              onClick={() => onSelectWorkspace(ws.id)}
-              className={cn(
-                // base layout — left accent bar reserved (border-l-2 transparent) so width is stable across states
-                "block w-full px-4 py-2 rounded-(--radius-control) border-l-2 border-l-transparent",
-                // reserve right space so all overlay buttons (LSP chips + Pin + X) don't overlap text
-                "pr-16",
-                // text + interaction
-                "text-left cursor-pointer select-none font-sans transition-colors",
-                "text-foreground",
-                // selected state: sidebar.item.selected.bg bg + state.selected.indicator 2px left accent
-                // Shared single-language token with tab selection (plan #48 C-1, design.md §7).
-                isActive
-                  ? "bg-[var(--sidebar-item-selected-bg)] border-l-[var(--state-selected-indicator)]"
-                  : // rest/hover state: transparent bg + state.hover.bg on hover (light-theme safe, design.md §7)
-                    "bg-transparent hover:bg-[var(--state-hover-bg)]",
-              )}
-            >
-              <span className="grid grid-cols-[16px_minmax(0,1fr)] items-center gap-2">
-                <Icon
-                  className="size-4 shrink-0 text-muted-foreground"
-                  aria-hidden="true"
-                />
-                <span className="min-w-0">
-                  {/* Workspace name — 14px body, truncate for long names */}
-                  <span
-                    className={cn(
-                      "block text-app-body-emphasis truncate min-w-0",
-                      isActive ? "text-foreground" : "text-muted-foreground",
-                    )}
-                  >
-                    {primaryText}
-                  </span>
-                  {/* Location hint — micro: 11px, truncate */}
-                  <span
-                    className="block text-app-micro text-muted-foreground mt-0.5 truncate min-w-0"
-                    title={secondaryTitle}
-                  >
-                    {secondaryText}
-                  </span>
-                </span>
-              </span>
-            </button>
-
-            {isSsh && <ConnectionStatusDot status={connectionStatus} />}
-
-            {/* Claude 집계 인디케이터 — 워크스페이스 행 오른쪽 끝 attention 글리프.
-                SSH dot(아이콘 우하단 원형 채움)과 위치/형태가 명확히 분리됨. */}
-            <ClaudeWorkspaceIndicator workspaceId={ws.id} />
-
-            {/* LSP language chips — shifted to right-14 to leave room for the pin slot.
-                draggable={false} prevents drag initiation when clicking the chip. */}
-            {LSP_FEATURE_ENABLED && (
-              <div
-                className="absolute top-1/2 -translate-y-1/2 right-14 flex items-center gap-0.5"
-                draggable={false}
-              >
-                {CHIP_LANGUAGES.map((lang) => (
-                  <LspLanguageChip
-                    key={lang}
-                    workspaceId={ws.id}
-                    languageId={lang}
-                    enabled={enabledLanguages.includes(lang)}
-                  />
-                ))}
-              </div>
-            )}
-
-            {/* Pin toggle — right-9, between LSP chips and remove button.
-                Tab order: row button → PinToggle → Remove (DOM order).
-                draggable={false} prevents drag initiation from this button. */}
-            <PinToggle
-              pinned={ws.pinned}
-              workspaceName={ws.name}
-              onToggle={() => togglePin(ws)}
-              draggable={false}
-            />
-
-            {/* Remove button — appears on hover.
-                draggable={false} prevents drag initiation from this button. */}
-            <button
-              type="button"
-              draggable={false}
-              onClick={(e) => {
-                e.stopPropagation();
-                onRemoveWorkspace(ws.id);
-              }}
-              aria-label={`Remove workspace ${ws.name}`}
-              className={cn(
-                "absolute top-1/2 -translate-y-1/2 right-2 inline-flex items-center justify-center",
-                "size-5 rounded-(--radius-control)",
-                "text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-                "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity",
-              )}
-            >
-              <X className="size-3" aria-hidden="true" />
-            </button>
-          </div>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuItems
-            items={[
-              {
-                kind: "item",
-                label: ws.pinned ? "Unpin" : "Pin to top",
-                onSelect: () => togglePin(ws),
-              },
-            ]}
-          />
-        </ContextMenuContent>
-      </ContextMenuRoot>
-    );
-  }
-
   return (
     // Islands model (design.md §2): <aside> is a transparent positioning shell;
     // island surface lives on the inner wrapper so overflow-hidden clips content
@@ -373,7 +481,22 @@ export function Sidebar({
             {pinnedGroup.length > 0 && renderSlot(pinnedSlots[0])}
             {pinnedGroup.map((ws, i) => (
               <React.Fragment key={ws.id}>
-                {renderWorkspaceRow(ws)}
+                <WorkspaceRow
+                  ws={ws}
+                  isActive={ws.id === activeWorkspaceId}
+                  isDragSource={dragSourceId === ws.id}
+                  sidebarWidth={sidebarWidth}
+                  enabledLanguages={lspByWorkspace[ws.id] ?? []}
+                  rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
+                  connectionStatus={
+                    ws.location.kind === "ssh"
+                      ? (connectionStatusByWorkspaceId[ws.id] ?? "idle")
+                      : "idle"
+                  }
+                  onSelectWorkspace={onSelectWorkspace}
+                  onTogglePin={togglePin}
+                  onRemoveWorkspace={onRemoveWorkspace}
+                />
                 {renderSlot(pinnedSlots[i + 1])}
               </React.Fragment>
             ))}
@@ -388,7 +511,22 @@ export function Sidebar({
             {unpinnedGroup.length > 0 && renderSlot(unpinnedSlots[0])}
             {unpinnedGroup.map((ws, i) => (
               <React.Fragment key={ws.id}>
-                {renderWorkspaceRow(ws)}
+                <WorkspaceRow
+                  ws={ws}
+                  isActive={ws.id === activeWorkspaceId}
+                  isDragSource={dragSourceId === ws.id}
+                  sidebarWidth={sidebarWidth}
+                  enabledLanguages={lspByWorkspace[ws.id] ?? []}
+                  rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
+                  connectionStatus={
+                    ws.location.kind === "ssh"
+                      ? (connectionStatusByWorkspaceId[ws.id] ?? "idle")
+                      : "idle"
+                  }
+                  onSelectWorkspace={onSelectWorkspace}
+                  onTogglePin={togglePin}
+                  onRemoveWorkspace={onRemoveWorkspace}
+                />
                 {renderSlot(unpinnedSlots[i + 1])}
               </React.Fragment>
             ))}
@@ -420,89 +558,8 @@ export function Sidebar({
 }
 
 // ---------------------------------------------------------------------------
-// Claude 워크스페이스 집계 인디케이터
+// Connection status dot
 // ---------------------------------------------------------------------------
-
-/**
- * 워크스페이스 행 오른쪽 끝에 Claude 세션 집계 상태를 표시한다.
- *
- * 표시 조건: needsInput | permissionPending | error 탭이 하나 이상 있을 때.
- * running-only 워크스페이스는 표시하지 않는다(사이드바 혼잡 방지).
- * 우선순위: permissionPending(4) > error(3) > needsInput(2).
- * 카운트 ≥ 2이면 글리프 옆에 appMicro(11px) 숫자를 표시한다.
- */
-function ClaudeWorkspaceIndicator({ workspaceId }: { workspaceId: string }) {
-  // workspaceId の tab record のみを購読し、selectWorkspaceAggregateStatus をメモ化する。
-  // byWorkspace[workspaceId] が変わったときだけ再計算されるので LazyVStack thrashing を防ぐ。
-  const wsTabs = useClaudeStatusStore((s) => s.byWorkspace[workspaceId]);
-  const aggregate = useMemo(() => {
-    if (wsTabs === undefined) return null;
-    // selectWorkspaceAggregateStatus はストア全体を受け取るが、byWorkspace の
-    // 当該 workspaceId スライスだけあれば十分なので最小限の形で渡す。
-    return selectWorkspaceAggregateStatus(
-      { byWorkspace: { [workspaceId]: wsTabs } } as Parameters<
-        typeof selectWorkspaceAggregateStatus
-      >[0],
-      workspaceId,
-    );
-  }, [wsTabs, workspaceId]);
-
-  // attention 필요 상태가 없으면(count === 0 또는 null) 렌더하지 않는다.
-  if (!aggregate || aggregate.count === 0) return null;
-
-  const { status, count } = aggregate;
-
-  // 글리프/색 매핑 — tab-item.tsx와 동일한 token 규칙.
-  let glyph: React.ReactNode;
-  if (status === "permissionPending") {
-    glyph = (
-      <CircleAlert
-        width={12}
-        height={12}
-        strokeWidth={1.5}
-        className="shrink-0 text-(--state-warning-fg)"
-      />
-    );
-  } else if (status === "error") {
-    glyph = (
-      <TriangleAlert
-        width={12}
-        height={12}
-        strokeWidth={1.5}
-        className="shrink-0 text-(--state-error-fg)"
-      />
-    );
-  } else {
-    // needsInput
-    glyph = (
-      <CircleDot
-        width={12}
-        height={12}
-        strokeWidth={1.5}
-        className="shrink-0 text-(--tab-claude-attention-fg)"
-      />
-    );
-  }
-
-  const countLabel = count >= 2 ? count : undefined;
-  const ariaLabel = `${count} Claude session${count === 1 ? "" : "s"} need attention`;
-
-  return (
-    <span
-      role="status"
-      aria-label={ariaLabel}
-      title={ariaLabel}
-      className="absolute top-1/2 -translate-y-1/2 right-20 flex items-center gap-1 pointer-events-none"
-    >
-      {glyph}
-      {countLabel !== undefined && (
-        <span aria-hidden className="text-app-micro text-muted-foreground">
-          {countLabel}
-        </span>
-      )}
-    </span>
-  );
-}
 
 /**
  * Renders the compact SSH connection indicator with text for assistive tech.

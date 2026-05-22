@@ -197,10 +197,15 @@ describe("TabItem — running 상태", () => {
     const html = renderTabItem();
     expect(html).not.toContain("rounded-none");
   });
+
+  test("Loader 글리프에 animate-spin 클래스가 포함된다", () => {
+    const html = renderTabItem();
+    expect(html).toContain("animate-spin");
+  });
 });
 
 // ---------------------------------------------------------------------------
-// needsInput — CircleDot + tab.claude.attention.fg + attention bar
+// needsInput — CircleDot + tab.claude.attention.fg (attention bar 제거됨)
 // ---------------------------------------------------------------------------
 
 describe("TabItem — needsInput 상태", () => {
@@ -218,19 +223,14 @@ describe("TabItem — needsInput 상태", () => {
     expect(html).toContain("tab-claude-attention-fg");
   });
 
-  test("좌측 attention bar(rounded-none)가 렌더된다", () => {
+  test("좌측 attention bar(rounded-none)가 없다 — bar 제거됨", () => {
     const html = renderTabItem();
-    expect(html).toContain("rounded-none");
-  });
-
-  test("attention bar가 tab-attention-indicator 토큰을 사용한다", () => {
-    const html = renderTabItem();
-    expect(html).toContain("tab-attention-indicator");
+    expect(html).not.toContain("rounded-none");
   });
 });
 
 // ---------------------------------------------------------------------------
-// permissionPending — CircleAlert + state.warning.fg + attention bar + tint
+// permissionPending — CircleAlert + state.warning.fg + tint (attention bar 제거됨)
 // ---------------------------------------------------------------------------
 
 describe("TabItem — permissionPending 상태", () => {
@@ -248,9 +248,9 @@ describe("TabItem — permissionPending 상태", () => {
     expect(html).toContain("state-warning-fg");
   });
 
-  test("좌측 attention bar(rounded-none)가 렌더된다", () => {
+  test("좌측 attention bar(rounded-none)가 없다 — bar 제거됨", () => {
     const html = renderTabItem();
-    expect(html).toContain("rounded-none");
+    expect(html).not.toContain("rounded-none");
   });
 
   test("배경 warning tint 클래스(state-warning-bg)가 포함된다", () => {
@@ -260,7 +260,7 @@ describe("TabItem — permissionPending 상태", () => {
 });
 
 // ---------------------------------------------------------------------------
-// error — TriangleAlert + state.error.fg + attention bar
+// error — TriangleAlert + state.error.fg (attention bar 제거됨)
 // ---------------------------------------------------------------------------
 
 describe("TabItem — error 상태", () => {
@@ -278,9 +278,9 @@ describe("TabItem — error 상태", () => {
     expect(html).toContain("state-error-fg");
   });
 
-  test("좌측 attention bar(rounded-none)가 렌더된다", () => {
+  test("좌측 attention bar(rounded-none)가 없다 — bar 제거됨", () => {
     const html = renderTabItem();
-    expect(html).toContain("rounded-none");
+    expect(html).not.toContain("rounded-none");
   });
 });
 

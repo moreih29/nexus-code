@@ -92,7 +92,7 @@ function ClaudeGlyph({ status }: { status: ClaudeStatus }) {
           width={12}
           height={12}
           strokeWidth={1.5}
-          className="shrink-0 text-(--state-loading-indicator)"
+          className="shrink-0 text-(--state-loading-indicator) motion-safe:animate-spin"
         />
       </span>
     );
@@ -148,24 +148,6 @@ function ClaudeGlyph({ status }: { status: ClaudeStatus }) {
   return null;
 }
 
-/**
- * 상태별 attention bar 색 CSS 변수를 반환한다.
- * idle/running은 bar를 렌더하지 않으므로 null을 반환한다.
- */
-function attentionBarClass(status: ClaudeStatus): string | null {
-  switch (status) {
-    case "completed":
-      return "bg-(--tab-attention-indicator)";
-    case "needsInput":
-      return "bg-(--tab-attention-indicator)";
-    case "permissionPending":
-      return "bg-(--state-warning-fg)";
-    case "error":
-      return "bg-(--state-error-fg)";
-    default:
-      return null;
-  }
-}
 
 export interface TabItemProps {
   workspaceId: string;
@@ -199,9 +181,6 @@ export function TabItem({
     selectStatusForTab(state, workspaceId, tab.id)?.status,
   );
 
-  // attention bar 클래스 — needsInput/permissionPending/error일 때 좌측 2px bar 표시.
-  const barClass = claudeStatus ? attentionBarClass(claudeStatus) : null;
-
   // permissionPending 배경 tint — 탭 배경에 6% warning 색 오버레이.
   const isPermissionPending = claudeStatus === "permissionPending";
 
@@ -231,15 +210,6 @@ export function TabItem({
         }
       }}
     >
-      {/* 좌측 attention bar — needsInput/permissionPending/error 상태에서 2px 수직 bar 표시.
-          selected indicator(3px, --state-selected-indicator)와 두께/색으로 시각 분리됨. */}
-      {barClass && (
-        <span
-          aria-hidden
-          className={cn("absolute left-0 top-1 bottom-1 w-0.5 rounded-none shrink-0", barClass)}
-        />
-      )}
-
       <RadixTabs.Trigger
         value={tab.id}
         aria-label={terminalEnded ? `${displayTitle}, terminal ended` : undefined}

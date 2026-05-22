@@ -61,6 +61,21 @@ export const ATTENTION_STATUSES: readonly ClaudeStatus[] = [
 ];
 
 /**
+ * 워크스페이스 카드에 칩으로 표시할 상태 목록. idle은 칩 없음이므로 제외한다.
+ * running/completed/needsInput/permissionPending/error 5개 상태가 해당한다.
+ *
+ * ATTENTION_STATUSES와 구분: ATTENTION_STATUSES는 "사용자 입력이 필요한 상태"의 시맨틱이고,
+ * WORKSPACE_VISIBLE_STATUSES는 "카드에 칩을 렌더할 상태"의 시각화 정책이다.
+ */
+export const WORKSPACE_VISIBLE_STATUSES: readonly ClaudeStatus[] = [
+  "running",
+  "completed",
+  "needsInput",
+  "permissionPending",
+  "error",
+];
+
+/**
  * 상태 우선순위 매핑.
  * permissionPending(5) > error(4) > needsInput(3) > completed(2) > running(1) > idle(0)
  *
