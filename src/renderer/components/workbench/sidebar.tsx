@@ -40,7 +40,7 @@ import {
   WORKSPACE_VISIBLE_STATUSES,
 } from "../../state/stores/claude-status";
 import { useGitStore } from "../../state/stores/git/index";
-import { WorkspaceStatusChip } from "../sidebar/workspace-status-chip";
+import { WorkspaceStatusGlyph } from "../sidebar/workspace-status-glyph";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -69,7 +69,6 @@ interface WorkspaceRowProps {
   ws: WorkspaceMeta;
   isActive: boolean;
   isDragSource: boolean;
-  sidebarWidth: number;
   enabledLanguages: LspLanguageId[];
   rowDragProps: React.HTMLAttributes<HTMLElement>;
   connectionStatus: WorkspaceConnectionStatus;
@@ -90,7 +89,6 @@ function WorkspaceRow({
   ws,
   isActive,
   isDragSource,
-  sidebarWidth,
   enabledLanguages,
   rowDragProps,
   connectionStatus,
@@ -125,8 +123,10 @@ function WorkspaceRow({
     );
   }, [wsTabs, ws.id]);
 
-  // 칩에 표시할 상태 — WORKSPACE_VISIBLE_STATUSES에 포함된 경우에만 표시.
-  const chipStatus =
+  // 글리프에 표시할 상태 — WORKSPACE_VISIBLE_STATUSES에 포함된 경우에만 표시.
+  // wsTabs가 undefined(StatusEntry가 한 번도 없었던 워크스페이스)이면 aggregate가 null이라
+  // 글리프가 렌더되지 않는다. 한 번이라도 세션을 시작한 워크스페이스만 글리프가 노출된다.
+  const glyphStatus =
     aggregate && WORKSPACE_VISIBLE_STATUSES.includes(aggregate.status)
       ? aggregate.status
       : null;
@@ -166,17 +166,14 @@ function WorkspaceRow({
   // permissionPending/error 상태이면 카드 좌측에 2px 색 border-l 표시.
   // 활성 카드의 --state-selected-indicator border-l과 배타적으로 처리한다.
   const attentionBorderClass =
-    !isActive && chipStatus === "permissionPending"
+    !isActive && glyphStatus === "permissionPending"
       ? "border-l-[var(--state-warning-fg)]"
-      : !isActive && chipStatus === "error"
+      : !isActive && glyphStatus === "error"
         ? "border-l-[var(--state-error-fg)]"
         : null;
 
   // needsInput 상태이면 1줄 name을 font-semibold로 강조한다.
-  const nameEmphasis = chipStatus === "needsInput";
-
-  // 사이드바 폭 220px 미만이면 칩 레이블 숨기고 글리프만 표시 (compact 모드).
-  const chipCompact = sidebarWidth < 220;
+  const nameEmphasis = glyphStatus === "needsInput";
 
   return (
     <ContextMenuRoot key={ws.id}>
@@ -220,17 +217,22 @@ function WorkspaceRow({
             )}
           >
             {/*
-              3줄 그리드:
-              - col 1: 16px 아이콘
-              - col 2: 가변 폭 텍스트
-              - col 3: auto (칩)
+              2열 그리드:
+              - col 1: 16px (ssh/local 아이콘 + 그 아래 작은 상태 글리프)
+              - col 2: 가변 폭 텍스트(이름 / message / branch·path)
+
+              칩은 더 이상 1줄 우측에 두지 않는다 — 사용자 결정으로 ssh/local 아이콘 아래에
+              레이블 없이 글리프만 노출한다(시각 노이즈 최소화).
             */}
-            <span className="grid grid-cols-[16px_minmax(0,1fr)_auto] items-start gap-2">
-              {/* 아이콘 — mt-0.5 로 1줄 텍스트 baseline 보정 */}
-              <Icon
-                className="size-4 shrink-0 text-muted-foreground mt-0.5"
-                aria-hidden="true"
-              />
+            <span className="grid grid-cols-[16px_minmax(0,1fr)] items-start gap-2">
+              {/* col 1: ssh/local 아이콘 + 상태 글리프(세로 정렬) */}
+              <span className="flex flex-col items-center gap-1 mt-0.5">
+                <Icon
+                  className="size-4 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                {glyphStatus && <WorkspaceStatusGlyph status={glyphStatus} />}
+              </span>
 
               {/* 텍스트 영역 — 2/3줄 가변 높이 */}
               <span className="min-w-0">
@@ -279,16 +281,6 @@ function WorkspaceRow({
                 </span>
               </span>
 
-              {/* 칩 영역 — 1줄 우측 인라인 (justify-self-end) */}
-              <span className="justify-self-end mt-0.5">
-                {chipStatus && (
-                  <WorkspaceStatusChip
-                    status={chipStatus}
-                    count={aggregate?.count}
-                    compact={chipCompact}
-                  />
-                )}
-              </span>
             </span>
           </button>
 
@@ -485,7 +477,6 @@ export function Sidebar({
                   ws={ws}
                   isActive={ws.id === activeWorkspaceId}
                   isDragSource={dragSourceId === ws.id}
-                  sidebarWidth={sidebarWidth}
                   enabledLanguages={lspByWorkspace[ws.id] ?? []}
                   rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
                   connectionStatus={
@@ -515,7 +506,6 @@ export function Sidebar({
                   ws={ws}
                   isActive={ws.id === activeWorkspaceId}
                   isDragSource={dragSourceId === ws.id}
-                  sidebarWidth={sidebarWidth}
                   enabledLanguages={lspByWorkspace[ws.id] ?? []}
                   rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
                   connectionStatus={

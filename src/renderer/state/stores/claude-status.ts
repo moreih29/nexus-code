@@ -61,13 +61,17 @@ export const ATTENTION_STATUSES: readonly ClaudeStatus[] = [
 ];
 
 /**
- * 워크스페이스 카드에 칩으로 표시할 상태 목록. idle은 칩 없음이므로 제외한다.
- * running/completed/needsInput/permissionPending/error 5개 상태가 해당한다.
+ * 워크스페이스 카드에 글리프로 표시할 상태 목록. 6개 상태 모두 포함된다.
+ *
+ * idle도 포함하는 이유: 사용자가 한 번이라도 세션을 시작한 워크스페이스(StatusEntry가 존재)는
+ * "사용자가 확인 완료한 dim 상태(회색 체크)"로 표시한다. StatusEntry 자체가 없는
+ * 워크스페이스는 wsTabs가 undefined라 호출자(WorkspaceRow)에서 글리프를 렌더하지 않는다.
  *
  * ATTENTION_STATUSES와 구분: ATTENTION_STATUSES는 "사용자 입력이 필요한 상태"의 시맨틱이고,
- * WORKSPACE_VISIBLE_STATUSES는 "카드에 칩을 렌더할 상태"의 시각화 정책이다.
+ * WORKSPACE_VISIBLE_STATUSES는 "카드에 글리프를 렌더할 상태"의 시각화 정책이다.
  */
 export const WORKSPACE_VISIBLE_STATUSES: readonly ClaudeStatus[] = [
+  "idle",
   "running",
   "completed",
   "needsInput",
