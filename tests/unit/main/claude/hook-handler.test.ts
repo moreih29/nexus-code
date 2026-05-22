@@ -3,8 +3,7 @@
  *
  * - 7종 subcommand × 상태 전이 매핑 검증.
  * - notification/permission-request의 OS 알림 발사 검증(focus 분기).
- * - permission-request가 즉시 respondHook { exitCode: 0 } 호출하는지.
- * - pre-tool-use가 즉시 respondHook { exitCode: 0 } 호출하는지.
+ * - 모든 subcommand가 즉시 respondHook { exitCode: 0 } 호출하는지(hook 프로세스 해제).
  */
 
 import { describe, expect, mock, test, beforeEach } from "bun:test";
@@ -37,6 +36,9 @@ const { registerHookHandler } = await import(
 );
 const { ClaudeStatusBroker } = await import(
   "../../../../src/main/features/claude/status"
+);
+const { ActiveContextStore } = await import(
+  "../../../../src/main/features/claude/active-context"
 );
 
 // ---------------------------------------------------------------------------
@@ -127,6 +129,7 @@ function makeHookAgentHost() {
 
 interface Harness {
   broker: InstanceType<typeof ClaudeStatusBroker>;
+  activeContext: InstanceType<typeof ActiveContextStore>;
   brokerCalls: Array<{ channel: string; event: string; args: unknown }>;
   agentHost: ReturnType<typeof makeHookAgentHost>;
   channel: MockAgentChannel;
@@ -153,6 +156,7 @@ function makeHarness(focused: boolean = false): Harness {
   });
 
   const broker = new ClaudeStatusBroker(broadcastFn);
+  const activeContext = new ActiveContextStore();
   const agentHost = makeHookAgentHost();
   const channel = makeChannel();
   const { FakeNotification: FN, instances: notifInstances } = makeNotificationCtor();
@@ -163,6 +167,7 @@ function makeHarness(focused: boolean = false): Harness {
 
   registerHookHandler({
     broker,
+    activeContext,
     agentHost,
     channelProvider: {
       tryGetAgentChannel: async () => channel as unknown as import("../../../../../src/main/infra/agent/channel").AgentChannel,
@@ -175,6 +180,7 @@ function makeHarness(focused: boolean = false): Harness {
 
   return {
     broker,
+    activeContext,
     brokerCalls,
     agentHost,
     channel,
@@ -204,12 +210,32 @@ describe("hook-handler — subcommand 상태 전이", () => {
     expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
   });
 
-  test("stop → idle", async () => {
-    const { broker, emit } = makeHarness();
+  test("stop — 사용자가 그 탭을 보고 있으면(앱 포커스+active 일치) idle로 직행", async () => {
+    const { broker, activeContext, emit } = makeHarness(true /* focused */);
+    activeContext.set("ws-test", "tab-test");
     broker.set("ws-test", "tab-test", "running");
     emit(makeHookPayload("stop"));
     await new Promise((r) => setTimeout(r, 0));
     expect(broker.get("ws-test", "tab-test")?.status).toBe("idle");
+  });
+
+  test("stop — 다른 탭을 보고 있으면 completed로 전이", async () => {
+    const { broker, activeContext, emit } = makeHarness(true /* focused */);
+    activeContext.set("ws-test", "other-tab"); // 다른 탭
+    broker.set("ws-test", "tab-test", "running");
+    emit(makeHookPayload("stop"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("completed");
+  });
+
+  test("stop — 앱 비포커스 상태이면 active 일치해도 completed로 전이", async () => {
+    const { broker, activeContext, emit } = makeHarness(false /* unfocused */);
+    activeContext.set("ws-test", "tab-test"); // 동일 탭이지만
+    broker.set("ws-test", "tab-test", "running");
+    emit(makeHookPayload("stop"));
+    await new Promise((r) => setTimeout(r, 0));
+    // 앱이 백그라운드면 사용자가 보고 있지 않다고 본다.
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("completed");
   });
 
   test("session-end → broker.clear (항목 제거)", async () => {
@@ -267,16 +293,59 @@ describe("hook-handler — respondHook 호출", () => {
     expect((args as { response: { exitCode: number } }).response.exitCode).toBe(0);
   });
 
-  test("session-start: respondHook 호출하지 않음", async () => {
+  test("session-start: 즉시 claude.respondHook { exitCode:0 } 호출", async () => {
     const { channel, emit } = makeHarness();
     emit(makeHookPayload("session-start"));
     await new Promise((r) => setTimeout(r, 10));
-    expect(channel.callArgs).toHaveLength(0);
+    expect(channel.callArgs.length).toBeGreaterThanOrEqual(1);
+    const [method, args] = channel.callArgs[0];
+    expect(method).toBe("claude.respondHook");
+    expect((args as { response: { exitCode: number } }).response.exitCode).toBe(0);
+  });
+
+  test("user-prompt-submit: 즉시 claude.respondHook { exitCode:0 } 호출", async () => {
+    const { channel, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit"));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(channel.callArgs.length).toBeGreaterThanOrEqual(1);
+    const [method, args] = channel.callArgs[0];
+    expect(method).toBe("claude.respondHook");
+    expect((args as { response: { exitCode: number } }).response.exitCode).toBe(0);
+  });
+
+  test("notification: 즉시 claude.respondHook { exitCode:0 } 호출", async () => {
+    const { channel, emit } = makeHarness();
+    emit(makeHookPayload("notification", { message: "ping" }));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(channel.callArgs.length).toBeGreaterThanOrEqual(1);
+    const [method, args] = channel.callArgs[0];
+    expect(method).toBe("claude.respondHook");
+    expect((args as { response: { exitCode: number } }).response.exitCode).toBe(0);
+  });
+
+  test("stop: 즉시 claude.respondHook { exitCode:0 } 호출", async () => {
+    const { channel, emit } = makeHarness();
+    emit(makeHookPayload("stop"));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(channel.callArgs.length).toBeGreaterThanOrEqual(1);
+    const [method, args] = channel.callArgs[0];
+    expect(method).toBe("claude.respondHook");
+    expect((args as { response: { exitCode: number } }).response.exitCode).toBe(0);
+  });
+
+  test("session-end: 즉시 claude.respondHook { exitCode:0 } 호출", async () => {
+    const { channel, emit } = makeHarness();
+    emit(makeHookPayload("session-end"));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(channel.callArgs.length).toBeGreaterThanOrEqual(1);
+    const [method, args] = channel.callArgs[0];
+    expect(method).toBe("claude.respondHook");
+    expect((args as { response: { exitCode: number } }).response.exitCode).toBe(0);
   });
 });
 
-describe("hook-handler — Notification OS 알림 발사(focus 분기)", () => {
-  test("앱 비포커스 시 notification hook에서 OS 알림 발사", async () => {
+describe("hook-handler — Notification OS 알림 발사(active context 분기)", () => {
+  test("앱 비포커스 시 notification hook OS 알림 발사", async () => {
     const { notifInstances, emit } = makeHarness(false /* unfocused */);
     emit(makeHookPayload("notification", { message: "task done" }));
     await new Promise((r) => setTimeout(r, 0));
@@ -284,20 +353,80 @@ describe("hook-handler — Notification OS 알림 발사(focus 분기)", () => {
     expect(notifInstances[0].shown).toBe(true);
   });
 
-  test("앱 포커스 시 notification hook에서 OS 알림 미발사", async () => {
-    const { notifInstances, emit } = makeHarness(true /* focused */);
+  test("앱 포커스 + active 다른 탭 시 notification hook OS 알림 발사", async () => {
+    const { notifInstances, activeContext, emit } = makeHarness(true /* focused */);
+    activeContext.set("ws-test", "other-tab");
     emit(makeHookPayload("notification", { message: "task done" }));
     await new Promise((r) => setTimeout(r, 0));
-    // 포커스 상태 — OS 알림 발사 없음.
+    expect(notifInstances.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("앱 포커스 + active 일치 시 notification hook OS 알림 미발사", async () => {
+    const { notifInstances, activeContext, emit } = makeHarness(true /* focused */);
+    activeContext.set("ws-test", "tab-test");
+    emit(makeHookPayload("notification", { message: "task done" }));
+    await new Promise((r) => setTimeout(r, 0));
     expect(notifInstances).toHaveLength(0);
   });
 
-  test("앱 비포커스 시 permission-request hook에서 OS 알림 발사", async () => {
+  test("앱 비포커스 시 permission-request hook OS 알림 발사", async () => {
     const { notifInstances, emit } = makeHarness(false);
     emit(makeHookPayload("permission-request", { tool_name: "Bash" }));
     await new Promise((r) => setTimeout(r, 0));
     expect(notifInstances.length).toBeGreaterThanOrEqual(1);
     expect(notifInstances[0].title).toContain("Permission");
+  });
+
+  test("앱 포커스 + active 다른 탭 시 permission-request OS 알림 발사", async () => {
+    const { notifInstances, activeContext, emit } = makeHarness(true /* focused */);
+    activeContext.set("ws-test", "other-tab");
+    emit(makeHookPayload("permission-request", { tool_name: "Bash" }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notifInstances.length).toBeGreaterThanOrEqual(1);
+    expect(notifInstances[0].title).toContain("Permission");
+  });
+
+  test("앱 포커스 + active 일치 시 permission-request OS 알림 미발사", async () => {
+    const { notifInstances, activeContext, emit } = makeHarness(true /* focused */);
+    activeContext.set("ws-test", "tab-test");
+    emit(makeHookPayload("permission-request", { tool_name: "Bash" }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notifInstances).toHaveLength(0);
+  });
+});
+
+describe("hook-handler — Stop 알림 발사(active context 분기)", () => {
+  test("사용자가 그 탭을 보고 있으면 Stop 알림 미발사", async () => {
+    const { notifInstances, activeContext, emit } = makeHarness(true /* focused */);
+    activeContext.set("ws-test", "tab-test");
+    emit(makeHookPayload("stop"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notifInstances).toHaveLength(0);
+  });
+
+  test("사용자가 다른 탭을 보고 있으면 Stop OS 알림 발사", async () => {
+    const { notifInstances, activeContext, emit } = makeHarness(true /* focused */);
+    activeContext.set("ws-test", "other-tab");
+    emit(makeHookPayload("stop"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notifInstances.length).toBeGreaterThanOrEqual(1);
+    expect(notifInstances[0].body).toBe("Response complete");
+  });
+
+  test("앱 비포커스 시 Stop OS 알림 발사 (active 일치 무관)", async () => {
+    const { notifInstances, activeContext, emit } = makeHarness(false /* unfocused */);
+    activeContext.set("ws-test", "tab-test");
+    emit(makeHookPayload("stop"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notifInstances.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("active context 미설정 시 Stop OS 알림 발사", async () => {
+    const { notifInstances, emit } = makeHarness(true /* focused */);
+    // activeContext.set 호출 안 함 → null
+    emit(makeHookPayload("stop"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notifInstances.length).toBeGreaterThanOrEqual(1);
   });
 });
 

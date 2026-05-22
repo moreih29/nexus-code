@@ -1042,6 +1042,30 @@ export const ipcContract = {
        * incremental 업데이트를 받는다.
        */
       snapshot: call(z.object({}), z.array(StatusEntrySchema)),
+      /**
+       * renderer가 현재 사용자가 보고 있는 (workspaceId, tabId) 컨텍스트를
+       * main에 push한다. main은 Stop hook 처리 시 이 캐시를 참조해 알림
+       * 발사 여부를 결정한다 (사용자가 그 탭을 보고 있으면 알림 생략).
+       *
+       * 둘 다 null이면 "활성 탭 없음"으로 처리되어 모든 Stop이 알림을 발사한다.
+       * 활성 탭 변경 시마다 push한다 (디바운스 없음 — 변경 빈도 낮음).
+       */
+      setActiveContext: call(
+        z.object({
+          workspaceId: z.string().nullable(),
+          tabId: z.string().nullable(),
+        }),
+        z.void(),
+      ),
+      /**
+       * 사용자가 (workspaceId, tabId) 탭을 활성화했음을 main에 알린다.
+       * 해당 탭이 completed 상태였다면 idle로 전이시킨다.
+       * renderer는 setActiveContext와 함께 호출한다.
+       */
+      markSeen: call(
+        z.object({ workspaceId: z.string(), tabId: z.string() }),
+        z.void(),
+      ),
     },
     listen: {
       /**

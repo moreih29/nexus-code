@@ -19,6 +19,7 @@ import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
 import { startNotificationClickListener } from "./state/notification-click";
+import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
 import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
 
 /**
@@ -157,6 +158,10 @@ export async function bootstrapClaudeStatus(): Promise<void> {
   ipcListen("claude", "status", (entry) => {
     useClaudeStatusStore.getState().set(entry);
   });
+
+  // active workspace/tab을 main에 push하는 구독 시작 + 사용자가 탭을 활성화하면
+  // markSeen IPC로 completed→idle 자동 전이.
+  startClaudeActiveContextSync();
 }
 
 /**

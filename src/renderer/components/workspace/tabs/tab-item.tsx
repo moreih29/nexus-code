@@ -1,4 +1,4 @@
-import { CircleAlert, CircleDot, Loader, Lock, TriangleAlert, X } from "lucide-react";
+import { CircleAlert, CircleCheck, CircleDot, Loader, Lock, TriangleAlert, X } from "lucide-react";
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
@@ -59,6 +59,8 @@ function claudeAriaLabel(status: ClaudeStatus): string {
   switch (status) {
     case "running":
       return "Claude: running";
+    case "completed":
+      return "Claude: response complete";
     case "needsInput":
       return "Claude: waiting for input";
     case "permissionPending":
@@ -91,6 +93,18 @@ function ClaudeGlyph({ status }: { status: ClaudeStatus }) {
           height={12}
           strokeWidth={1.5}
           className="shrink-0 text-(--state-loading-indicator)"
+        />
+      </span>
+    );
+  }
+  if (status === "completed") {
+    return (
+      <span role="img" aria-label={label}>
+        <CircleCheck
+          width={12}
+          height={12}
+          strokeWidth={1.5}
+          className="shrink-0 text-(--tab-claude-attention-fg)"
         />
       </span>
     );
@@ -140,6 +154,8 @@ function ClaudeGlyph({ status }: { status: ClaudeStatus }) {
  */
 function attentionBarClass(status: ClaudeStatus): string | null {
   switch (status) {
+    case "completed":
+      return "bg-(--tab-attention-indicator)";
     case "needsInput":
       return "bg-(--tab-attention-indicator)";
     case "permissionPending":

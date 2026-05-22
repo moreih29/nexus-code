@@ -5,10 +5,13 @@ import { z } from "zod";
 // ---------------------------------------------------------------------------
 
 /**
- * Claude Code 세션의 5가지 실행 상태.
+ * Claude Code 세션의 6가지 실행 상태.
  *
- * - idle            : 세션 종료 후 또는 Stop hook 직후 — 조용한 기본 상태.
+ * - idle            : 세션 미시작 또는 사용자가 completed를 확인한 후 — 조용한 기본 상태.
  * - running         : SessionStart / UserPromptSubmit / PreToolUse 진행 중.
+ * - completed       : Stop hook 직후 — 응답이 끝나 사용자가 확인해야 함을 표시. 다음
+ *                     SessionStart/UserPromptSubmit/PreToolUse로 자동 running 전이되거나,
+ *                     사용자가 해당 탭을 활성화하면 (markSeen IPC) idle로 전이된다.
  * - needsInput      : Notification hook 수신 — 일반 사용자 입력 대기 (60s idle 등).
  * - permissionPending: PermissionRequest hook 진행 중 — 사용자 결정 대기 (sync).
  * - error           : Claude Code 비정상 종료 또는 hook 처리 실패.
@@ -16,6 +19,7 @@ import { z } from "zod";
 export const ClaudeStatusSchema = z.enum([
   "idle",
   "running",
+  "completed",
   "needsInput",
   "permissionPending",
   "error",

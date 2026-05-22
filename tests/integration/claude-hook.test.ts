@@ -53,6 +53,7 @@ mock.module("electron", () => ({
 // ---------------------------------------------------------------------------
 
 import { ClaudeStatusBroker } from "../../src/main/features/claude/status";
+import { ActiveContextStore } from "../../src/main/features/claude/active-context";
 import { registerHookHandler } from "../../src/main/features/claude/hook-handler";
 import { OscNotificationDispatcher } from "../../src/main/features/pty/osc-notification";
 import type { HookHandlerDeps } from "../../src/main/features/claude/hook-handler";
@@ -148,11 +149,13 @@ function makeDeps(overrides?: Partial<HookHandlerDeps>): {
   }) as unknown as typeof import("electron").Notification;
 
   const broker = new ClaudeStatusBroker(broadcastFn);
+  const activeContext = new ActiveContextStore();
   const agentHost = new FakeAgentHost();
   const channel = new FakeAgentChannel();
 
   const deps: HookHandlerDeps = {
     broker,
+    activeContext,
     agentHost,
     channelProvider: {
       tryGetAgentChannel: async (_id: string) => channel,
@@ -166,7 +169,7 @@ function makeDeps(overrides?: Partial<HookHandlerDeps>): {
     ...overrides,
   };
 
-  return { deps, broker, agentHost, channel, broadcastCalls, notificationCtor, notificationInstances };
+  return { deps, broker, activeContext, agentHost, channel, broadcastCalls, notificationCtor, notificationInstances };
 }
 
 /** hook 이벤트 payload를 만드는 헬퍼 */
@@ -225,7 +228,7 @@ describe("시나리오 1: hook round-trip — 5종 subcommand", () => {
     expect(last.status).toBe("running");
   });
 
-  it("user-prompt-submit → broker.set(running) + notificationClick broadcast", async () => {
+  it("user-prompt-submit → broker.set(running)", async () => {
     // given: 사전에 needsInput 상태로 설정
     ctx.broker.set("ws-1", "tab-1", "needsInput", "기다리는 중");
     ctx.broadcastCalls.length = 0; // 기존 broadcast 기록 초기화
@@ -234,14 +237,13 @@ describe("시나리오 1: hook round-trip — 5종 subcommand", () => {
     await Promise.resolve();
     await new Promise((r) => setTimeout(r, 0));
 
-    // then: running 전환
+    // then: running 전환 — attention indicator 해제는 broker.set의
+    // status 변경이 처리한다 (notificationClick broadcast는 yank back 버그라 제거됨).
     expect(ctx.broker.get("ws-1", "tab-1")?.status).toBe("running");
-
-    // then: notificationClick broadcast 발사 (인디케이터 해제)
     const clickBroadcasts = ctx.broadcastCalls.filter(
       (c) => c.channel === "pty" && c.event === "notificationClick",
     );
-    expect(clickBroadcasts.length).toBeGreaterThanOrEqual(1);
+    expect(clickBroadcasts).toHaveLength(0);
   });
 
   it("notification → broker.set(needsInput, message) + OS 알림 발사", async () => {
@@ -262,8 +264,8 @@ describe("시나리오 1: hook round-trip — 5종 subcommand", () => {
     expect(ctx.notificationInstances[0].showCalled).toBe(true);
   });
 
-  it("stop → broker.set(idle) + notificationClick broadcast", async () => {
-    // given: running 상태에서 stop
+  it("stop (앱 비포커스) → broker.set(completed) + OS 알림 발사", async () => {
+    // given: running 상태에서 stop. 기본 ctx는 getFocusedWindow=null(비포커스).
     ctx.broker.set("ws-1", "tab-1", "running");
     ctx.broadcastCalls.length = 0;
 
@@ -271,14 +273,33 @@ describe("시나리오 1: hook round-trip — 5종 subcommand", () => {
     await Promise.resolve();
     await new Promise((r) => setTimeout(r, 0));
 
-    // then: idle 전환
-    expect(ctx.broker.get("ws-1", "tab-1")?.status).toBe("idle");
+    // then: completed 전환 (사용자 확인 필요)
+    expect(ctx.broker.get("ws-1", "tab-1")?.status).toBe("completed");
 
-    // then: notificationClick broadcast
-    const clickBroadcasts = ctx.broadcastCalls.filter(
-      (c) => c.channel === "pty" && c.event === "notificationClick",
-    );
-    expect(clickBroadcasts.length).toBeGreaterThanOrEqual(1);
+    // then: OS 알림 발사
+    expect(ctx.notificationInstances.length).toBeGreaterThanOrEqual(1);
+    expect(ctx.notificationInstances.at(-1)?.body).toBe("Response complete");
+  });
+
+  it("stop (사용자가 그 탭을 보는 중) → broker.set(idle) + 알림 미발사", async () => {
+    // given: 포커스 + active context 일치
+    ctx = makeDeps({
+      getFocusedWindow: () =>
+        ({ isMinimized: () => false } as unknown as import("electron").BrowserWindow),
+    });
+    teardown = registerHookHandler(ctx.deps);
+    ctx.activeContext.set("ws-1", "tab-1");
+    ctx.broker.set("ws-1", "tab-1", "running");
+    ctx.broadcastCalls.length = 0;
+
+    ctx.agentHost.emit("claude.hook", makeHookPayload("stop"));
+    await Promise.resolve();
+    await new Promise((r) => setTimeout(r, 0));
+
+    // then: idle로 직행 (completed 거치지 않음)
+    expect(ctx.broker.get("ws-1", "tab-1")?.status).toBe("idle");
+    // then: OS 알림 미발사
+    expect(ctx.notificationInstances).toHaveLength(0);
   });
 
   it("session-end → broker entry 제거", async () => {

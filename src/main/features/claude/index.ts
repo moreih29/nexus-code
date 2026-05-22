@@ -4,6 +4,7 @@
 
 import { broadcast } from "../../infra/ipc-router";
 import { ClaudeStatusBroker } from "./status";
+import { ActiveContextStore } from "./active-context";
 import { registerClaudeChannel } from "./ipc";
 import { registerHookHandler } from "./hook-handler";
 import type { PtyHostHandle } from "../pty/types";
@@ -57,11 +58,12 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
 
   const broadcastFn = options.broadcastFn ?? broadcast;
 
-  // 1. Status broker 생성.
+  // 1. Status broker + active context store 생성.
   const broker = new ClaudeStatusBroker(broadcastFn);
+  const activeContext = new ActiveContextStore();
 
   // 2. IPC 채널 등록 (setupRouter() 이후에 호출되어야 함).
-  registerClaudeChannel(broker);
+  registerClaudeChannel(broker, activeContext);
 
   // 3. hook-handler 등록.
   const getFocusedWindow =
@@ -73,6 +75,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
 
   const offHook = registerHookHandler({
     broker,
+    activeContext,
     agentHost,
     channelProvider: workspaceManager,
     workspaceManager,

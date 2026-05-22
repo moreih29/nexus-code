@@ -47,6 +47,12 @@ export const EMPTY_TABS: Record<string, StatusEntry> = {};
 
 /**
  * 주의 필요 상태 목록. isAttentionRequired와 집계 selector에서 공통으로 사용한다.
+ *
+ * 주의: completed는 의도적으로 제외한다. completed는 "응답 종료"를 탭 인디케이터로만
+ * 표시하고, OS 알림은 hook-handler에서 별도로 발사한다. 사이드바 워크스페이스
+ * 집계에는 "사용자 입력이 필요한 진짜 attention"(needsInput/permissionPending/error)
+ * 만 잡혀야 한다 — 그렇지 않으면 ClaudeWorkspaceIndicator가 completed를 needsInput
+ * 글리프로 렌더하는 부정확한 시각화를 유발한다.
  */
 export const ATTENTION_STATUSES: readonly ClaudeStatus[] = [
   "needsInput",
@@ -56,14 +62,17 @@ export const ATTENTION_STATUSES: readonly ClaudeStatus[] = [
 
 /**
  * 상태 우선순위 매핑.
- * permissionPending(4) > error(3) > needsInput(2) > running(1) > idle(0)
+ * permissionPending(5) > error(4) > needsInput(3) > completed(2) > running(1) > idle(0)
+ *
+ * completed는 running 위 / needsInput 아래로 둔다. 응답이 끝났음을 알리는 약한 attention.
  */
 const STATUS_PRIORITY: Record<ClaudeStatus, number> = {
   idle: 0,
   running: 1,
-  needsInput: 2,
-  error: 3,
-  permissionPending: 4,
+  completed: 2,
+  needsInput: 3,
+  error: 4,
+  permissionPending: 5,
 };
 
 // ---------------------------------------------------------------------------
