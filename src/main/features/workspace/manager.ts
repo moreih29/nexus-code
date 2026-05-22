@@ -457,11 +457,16 @@ export class WorkspaceManager {
    * 절대 경로를 반환한다. PTY 셸-셤(ZDOTDIR / --rcfile) 활성화 여부를 결정할 때
    * 사용된다.
    *
-   * - 로컬 워크스페이스: `process.env.SHELL` (main process가 launchd에서 시작된
-   *   환경에서는 비어있을 수 있음 — 그 경우 null)
+   * - 로컬 워크스페이스: `process.env.SHELL`. 없으면 `/bin/zsh`로 폴백.
+   *   macOS Catalina(2019)부터 사용자 기본 셸이 zsh고, Finder/Spotlight로 띄운
+   *   launchd 자식 프로세스는 `$SHELL`이 비어있을 수 있어서다.
+   *   폴백이 zsh 한정인 이유는 zsh 셤 활성화가 `ZDOTDIR` **환경변수 주입**으로
+   *   끝나기 때문 — 실제 셸이 bash/fish여도 그 env는 무시되므로 무해.
+   *   (반면 bash 셤은 `--rcfile` 인자 주입이라 다른 셸에 잘못 박으면 깨짐.)
    * - SSH 워크스페이스:  bootstrap이 부트스트랩 시점에 remote에서 `$SHELL`을
-   *   조회해둔 값 (없으면 null)
-   * - 워크스페이스 없음 / bootstrap 없음 / 알 수 없음: null
+   *   조회해둔 값. 없으면 null — 원격 셸을 모를 때 bash로 잘못 폴백하면
+   *   원격 사용자의 fish/csh를 깨뜨릴 수 있어서 보수적으로 셤 skip.
+   * - 워크스페이스 없음 / bootstrap 없음: null
    *
    * null 반환은 "셤 적용 건너뛰기" 신호다. 그 경우에도 spawn-time PATH prepend는
    * 그대로 살아있어서 wrapper bin은 PATH에 존재하지만, precmd 훅이 미등록되므로
@@ -473,7 +478,7 @@ export class WorkspaceManager {
     const meta = ctx.getMeta();
     if (meta.location.kind === "local") {
       const shell = process.env.SHELL;
-      return shell !== undefined && shell.length > 0 ? shell : null;
+      return shell !== undefined && shell.length > 0 ? shell : "/bin/zsh";
     }
     const bootstrap = this.sshBootstraps.get(workspaceId);
     if (!bootstrap) return null;

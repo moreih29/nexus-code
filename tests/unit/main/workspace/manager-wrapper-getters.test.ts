@@ -10,8 +10,11 @@
  * - acceptance #3: getWrapperBinDir(unknownWs) → null
  * - acceptance #4: getWrapperAgentBin(localWs) → getAgentBinaryPath() 동일 값
  * - acceptance #5: getWrapperAgentBin(sshWs)  → remoteBinDir/agent-<...> 형식
- * - acceptance #6: getWrapperShell(localWs)   → process.env.SHELL (없으면 null)
- * - acceptance #7: getWrapperShell(sshWs)     → bootstrap.remoteShell (없으면 null)
+ * - acceptance #6: getWrapperShell(localWs)   → process.env.SHELL,
+ *                                                없으면 /bin/zsh로 폴백
+ *                                                (macOS Catalina+ 기본 셸 가정)
+ * - acceptance #7: getWrapperShell(sshWs)     → bootstrap.remoteShell,
+ *                                                없으면 null (원격은 폴백 안 함)
  * - acceptance #8: getWrapperShell(unknownWs) → null
  * - acceptance #9: getWrapperShimDir(localWs) → shimDir(workspaceId) (로컬 fs 경로)
  * - acceptance #10: getWrapperShimDir(sshWs)  → bootstrap.remoteShimDir (원격 절대 경로)
@@ -294,7 +297,10 @@ describe("WorkspaceManager.getWrapperShell — acceptance #6, #7, #8", () => {
     }
   });
 
-  test("#6b: 로컬 워크스페이스 + process.env.SHELL 미설정 → null", () => {
+  test("#6b: 로컬 워크스페이스 + process.env.SHELL 미설정 → /bin/zsh 폴백", () => {
+    // Finder/Spotlight로 띄운 macOS launchd 자식 프로세스에서는 $SHELL이
+    // 비어있을 수 있다. 이 경우 사용자 기본 셸이 zsh인 것으로 가정하고
+    // 폴백 — 실제 셸이 bash/fish여도 ZDOTDIR 주입은 무해하다.
     delete process.env.SHELL;
     try {
       const { manager, globalDb } = makeManager();
@@ -305,14 +311,16 @@ describe("WorkspaceManager.getWrapperShell — acceptance #6, #7, #8", () => {
 
       const result = manager.getWrapperShell(meta.id);
 
-      expect(result).toBeNull();
+      expect(result).toBe("/bin/zsh");
       globalDb.close();
     } finally {
       restoreShell();
     }
   });
 
-  test("#6c: 로컬 워크스페이스 + process.env.SHELL=빈문자열 → null", () => {
+  test("#6c: 로컬 워크스페이스 + process.env.SHELL=빈문자열 → /bin/zsh 폴백", () => {
+    // 빈문자열도 "값 없음"으로 취급해야 한다 — 일부 셸/launchd 조합에서는
+    // $SHELL이 unset이 아니라 빈문자열로 들어올 수 있다.
     process.env.SHELL = "";
     try {
       const { manager, globalDb } = makeManager();
@@ -323,7 +331,7 @@ describe("WorkspaceManager.getWrapperShell — acceptance #6, #7, #8", () => {
 
       const result = manager.getWrapperShell(meta.id);
 
-      expect(result).toBeNull();
+      expect(result).toBe("/bin/zsh");
       globalDb.close();
     } finally {
       restoreShell();
