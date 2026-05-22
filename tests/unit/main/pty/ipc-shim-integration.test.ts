@@ -1,12 +1,16 @@
 /**
  * ipc-shim-integration.test.ts
  *
- * Acceptance criteria 13-14:
- *  13. spawn → wm.getWrapperBinDir truthy + shell=zsh
+ * Acceptance criteria 13-14 (+ 15):
+ *  13. spawn → wm.getWrapperBinDir truthy + wm.getWrapperShell="/bin/zsh"
  *      → ZDOTDIR/NEXUS_USER_ZDOTDIR injected into env sent to agentHost
  *  14. spawn → wm.getWrapperBinDir null → shim not applied (existing flow preserved)
+ *  15. spawn → wm.getWrapperBinDir truthy + wm.getWrapperShell=null
+ *      → shim not applied; PATH prepend still occurs (NEXUS_WRAPPER_SELF_DIR set)
  *
- * Tests that applyShellPathShim is correctly wired into the pty/ipc.ts spawn path.
+ * Tests that applyShellPathShim is correctly wired into the pty/ipc.ts spawn
+ * path and that the shell resolution comes from WorkspaceManager, not from
+ * renderer-supplied env.SHELL.
  */
 
 import { describe, expect, mock, test } from "bun:test";
@@ -114,6 +118,8 @@ function getIpcCallHandler(): IpcHandler {
 
 function makeFixture(opts: {
   wrapperBinDir: string | null;
+  wrapperShell?: string | null;
+  wrapperShimDir?: string | null;
   env?: Record<string, string>;
 }): { handler: IpcHandler; agentChannel: FakeAgentChannel } {
   const agentChannel = new FakeAgentChannel();
@@ -123,6 +129,19 @@ function makeFixture(opts: {
     tryGetAgentChannel: async () => agentChannel,
   });
 
+  // Default shell — most acceptance tests want the shim to fire on zsh.
+  // Callers that exercise the shell=null skip path pass wrapperShell: null
+  // explicitly.
+  const wrapperShell =
+    opts.wrapperShell === undefined ? "/bin/zsh" : opts.wrapperShell;
+  // Default shim dir — mimics what WorkspaceManager.getWrapperShimDir would
+  // return for a local workspace. Tests that need to exercise the
+  // shimDir=null skip path pass null explicitly.
+  const wrapperShimDir =
+    opts.wrapperShimDir === undefined
+      ? `/mock/.nexus-code/shim/${WORKSPACE_ID}`
+      : opts.wrapperShimDir;
+
   const wm: PtyChannelOptions["workspaceManager"] = {
     getName: () => "test-ws",
     activate: async () => {},
@@ -130,6 +149,8 @@ function makeFixture(opts: {
     getAgentChannel: async () => agentChannel,
     getWrapperBinDir: () => opts.wrapperBinDir,
     getWrapperAgentBin: () => null,
+    getWrapperShell: () => wrapperShell,
+    getWrapperShimDir: () => wrapperShimDir,
   };
 
   registerPtyChannel({ agentHost, workspaceManager: wm });
@@ -142,18 +163,23 @@ function makeFixture(opts: {
 // ---------------------------------------------------------------------------
 
 describe("acceptance 13: spawn with zsh + wrapperBinDir → shim env injected", () => {
-  test("ZDOTDIR and NEXUS_USER_ZDOTDIR are present in env sent to agentHost (zsh)", async () => {
+  test("ZDOTDIR and NEXUS_USER_ZDOTDIR are present in env sent to agentHost (zsh from wm.getWrapperShell)", async () => {
     const BIN_DIR = "/mock/.nexus-code/bin";
-    const { handler, agentChannel } = makeFixture({ wrapperBinDir: BIN_DIR });
+    const { handler, agentChannel } = makeFixture({
+      wrapperBinDir: BIN_DIR,
+      wrapperShell: "/bin/zsh",
+    });
 
-    // Pass SHELL=zsh so the shim detects zsh
+    // Note: caller env does NOT include SHELL — proving that the shim now
+    // relies on wm.getWrapperShell rather than env.SHELL (the actual bug we
+    // fixed: renderer never forwards SHELL).
     const spawnArgsPayload = {
       workspaceId: WORKSPACE_ID,
       tabId: TAB_ID,
       cwd: "/repo",
       cols: 80,
       rows: 24,
-      env: { SHELL: "/bin/zsh", PATH: "/usr/bin" },
+      env: { PATH: "/usr/bin" },
     };
 
     await handler({}, "pty", "spawn", spawnArgsPayload);
@@ -194,5 +220,40 @@ describe("acceptance 14: spawn with wrapperBinDir=null → shim not applied", ()
     expect(sentEnv.NEXUS_USER_ZDOTDIR).toBeUndefined();
     // Also wrapper env should not be injected
     expect(sentEnv.NEXUS_IN_APP).toBeUndefined();
+  });
+});
+
+describe("acceptance 15: spawn with wrapperBinDir truthy + wrapperShell=null → shim skipped, PATH prepend still applies", () => {
+  test("ZDOTDIR is not injected but NEXUS_WRAPPER_SELF_DIR / PATH prepend still apply", async () => {
+    const BIN_DIR = "/mock/.nexus-code/bin";
+    const { handler, agentChannel } = makeFixture({
+      wrapperBinDir: BIN_DIR,
+      wrapperShell: null,
+    });
+
+    // Note: caller env is intentionally omitted so that harness-env's base
+    // PATH (with wrapper bin prepended) is not overridden by a caller-provided
+    // PATH. The intent here is to verify that wrapperShell=null skips ZDOTDIR
+    // injection while keeping the PATH prepend / NEXUS_* env intact.
+    const spawnArgsPayload = {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_ID,
+      cwd: "/repo",
+      cols: 80,
+      rows: 24,
+    };
+
+    await handler({}, "pty", "spawn", spawnArgsPayload);
+
+    expect(agentChannel.spawnCalls).toHaveLength(1);
+    const sentEnv = agentChannel.spawnCalls[0].env!;
+
+    // Shim should NOT have run (no shell info)
+    expect(sentEnv.ZDOTDIR).toBeUndefined();
+    expect(sentEnv.NEXUS_USER_ZDOTDIR).toBeUndefined();
+    // ...but PATH prepend + wrapper env should still apply.
+    expect(sentEnv.NEXUS_WRAPPER_SELF_DIR).toBe(BIN_DIR);
+    expect(sentEnv.NEXUS_IN_APP).toBe("1");
+    expect(sentEnv.PATH?.startsWith(BIN_DIR)).toBe(true);
   });
 });

@@ -199,8 +199,13 @@ describe("ssh-bootstrap", () => {
     expect(result.remoteCommand).toBe(
       buildRemoteAgentCommand(remoteAgentBinaryPath("0.1.0", result.platform), "/repo"),
     );
-    // uname -ms + printf "$HOME" + cat manifest.json — no upload round trip.
-    expect(runner).toHaveBeenCalledTimes(3);
+    // uname -ms + printf "$HOME" + echo "$SHELL" + cat manifest.json
+    // — no upload round trip. The echo "$SHELL" probe throws ("unexpected
+    // command") because this mock doesn't handle it; detectRemoteShell
+    // swallows that error and returns undefined, so result.remoteShell stays
+    // undefined. The call still counts toward the runner's invocation total.
+    expect(runner).toHaveBeenCalledTimes(4);
+    expect(result.remoteShell).toBeUndefined();
   });
 
   it("falls back from sftp to cat upload and retries sha256 mismatch once", async () => {
@@ -617,6 +622,202 @@ describe("ssh-bootstrap", () => {
 
     expect(result.remoteBinDir).toBeDefined();
     expect(result.remoteBinDir.startsWith("/")).toBe(true);
+    expect(result.remoteBinDir).toBe("/home/deploy/.nexus-code/bin");
+  });
+
+  it("detectRemoteShell: surfaces remote $SHELL as remoteShell when echo returns an absolute path", async () => {
+    const { distDir, sha256 } = writeDist();
+    const runner = mock(async (command: string, args: string[]) => {
+      const remoteCommand = args.at(-1) ?? "";
+      if (command === "ssh" && remoteCommand === "uname -ms") return { stdout: "Linux x86_64\n" };
+      if (command === "ssh" && remoteCommand.startsWith("printf")) {
+        return { stdout: "/home/deploy\n" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("echo")) {
+        // detectRemoteShell uses `echo "$SHELL"` — distinct prefix from
+        // detectRemoteHome's `printf '%s\n' "$HOME"` so the mock can
+        // distinguish them.
+        return { stdout: "/bin/zsh\n" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("cat ~/.nexus-code/manifest.json")) {
+        return {
+          stdout: JSON.stringify({
+            version: "0.1.0",
+            os: "linux",
+            arch: "amd64",
+            sha256,
+            installedAt: "2026-05-12T00:00:00.000Z",
+          }),
+        };
+      }
+      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
+    }) as SshBootstrapRunner;
+
+    const result = await ensureRemoteAgent(
+      { host: "dev.example.com", user: "deploy", remotePath: "/repo" },
+      { distDir, runner },
+    );
+
+    expect(result.remoteShell).toBe("/bin/zsh");
+  });
+
+  it("uploads PTY shim rc files when workspaceId is provided and surfaces remoteShimDir", async () => {
+    const { distDir, sha256 } = writeDist();
+    const uploadedShimContents = new Map<string, string>();
+    const runner = mock(async (command: string, args: string[], input?: Buffer | string) => {
+      const remoteCommand = args.at(-1) ?? "";
+      if (command === "ssh" && remoteCommand === "uname -ms") return { stdout: "Linux x86_64\n" };
+      if (command === "ssh" && remoteCommand.startsWith("printf")) {
+        return { stdout: "/home/deploy\n" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("echo")) {
+        return { stdout: "/bin/zsh\n" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("cat ~/.nexus-code/manifest.json")) {
+        return {
+          stdout: JSON.stringify({
+            version: "0.1.0",
+            os: "linux",
+            arch: "amd64",
+            sha256,
+            installedAt: "2026-05-12T00:00:00.000Z",
+          }),
+        };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("mkdir -p")) {
+        return { stdout: "" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("cat >")) {
+        // The shim files arrive as `cat > <remoteShimDir>/<name>` with
+        // content streamed via stdin. `quoteShellArg` leaves the path
+        // unquoted when it's all safe chars (alnum, `-`, `_`, `.`, `/`,
+        // `~`, etc.), which is always the case for our shim paths — so we
+        // capture everything after `cat > ` rather than expecting quotes.
+        const match = remoteCommand.match(/^cat > (\S+)$/);
+        if (match) {
+          uploadedShimContents.set(match[1], String(input ?? ""));
+        }
+        return { stdout: "" };
+      }
+      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
+    }) as SshBootstrapRunner;
+
+    const WS_ID = "ws-shim-upload-test";
+    const result = await ensureRemoteAgent(
+      {
+        host: "dev.example.com",
+        user: "deploy",
+        remotePath: "/repo",
+        workspaceId: WS_ID,
+      },
+      { distDir, runner },
+    );
+
+    // remoteShimDir must be the remote absolute path that mirrors the
+    // local layout: `<remoteHome>/.nexus-code/shim/<workspaceId>`.
+    expect(result.remoteShimDir).toBe(`/home/deploy/.nexus-code/shim/${WS_ID}`);
+
+    // All three shim files must have been uploaded to that directory.
+    const expectedZshrc = `/home/deploy/.nexus-code/shim/${WS_ID}/.zshrc`;
+    const expectedZshenv = `/home/deploy/.nexus-code/shim/${WS_ID}/.zshenv`;
+    const expectedBashrc = `/home/deploy/.nexus-code/shim/${WS_ID}/bashrc`;
+    expect(uploadedShimContents.has(expectedZshrc)).toBe(true);
+    expect(uploadedShimContents.has(expectedZshenv)).toBe(true);
+    expect(uploadedShimContents.has(expectedBashrc)).toBe(true);
+
+    // Content sanity: the zshrc must contain the precmd hook + the env var
+    // it depends on. Bashrc must contain the PROMPT_COMMAND wiring.
+    expect(uploadedShimContents.get(expectedZshrc)).toContain("_nexus_prepend_wrapper");
+    expect(uploadedShimContents.get(expectedZshrc)).toContain("NEXUS_WRAPPER_SELF_DIR");
+    expect(uploadedShimContents.get(expectedZshrc)).toContain("add-zsh-hook precmd");
+    expect(uploadedShimContents.get(expectedBashrc)).toContain("PROMPT_COMMAND");
+    expect(uploadedShimContents.get(expectedZshenv)).toContain("NEXUS_USER_ZDOTDIR");
+  });
+
+  it("omits PTY shim upload when workspaceId is not provided (LSP-only bootstrap stays compatible)", async () => {
+    const { distDir, sha256 } = writeDist();
+    let shimCatCalls = 0;
+    const runner = mock(async (command: string, args: string[]) => {
+      const remoteCommand = args.at(-1) ?? "";
+      if (command === "ssh" && remoteCommand === "uname -ms") return { stdout: "Linux x86_64\n" };
+      if (command === "ssh" && remoteCommand.startsWith("printf")) {
+        return { stdout: "/home/deploy\n" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("echo")) {
+        return { stdout: "/bin/zsh\n" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("cat ~/.nexus-code/manifest.json")) {
+        return {
+          stdout: JSON.stringify({
+            version: "0.1.0",
+            os: "linux",
+            arch: "amd64",
+            sha256,
+            installedAt: "2026-05-12T00:00:00.000Z",
+          }),
+        };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("mkdir -p")) {
+        // Without workspaceId there must be no mkdir for the shim subdir.
+        // Surface this by failing the test if we see a path starting with
+        // `~/.nexus-code/shim/`.
+        if (remoteCommand.includes("/.nexus-code/shim/")) {
+          throw new Error(`unexpected shim mkdir: ${remoteCommand}`);
+        }
+        return { stdout: "" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("cat >")) {
+        shimCatCalls += 1;
+        return { stdout: "" };
+      }
+      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
+    }) as SshBootstrapRunner;
+
+    const result = await ensureRemoteAgent(
+      { host: "dev.example.com", user: "deploy", remotePath: "/repo" },
+      { distDir, runner },
+    );
+
+    expect(result.remoteShimDir).toBeUndefined();
+    // No `cat >` for shim files when no workspaceId is given.
+    expect(shimCatCalls).toBe(0);
+  });
+
+  it("detectRemoteShell: returns undefined remoteShell when remote $SHELL is empty (graceful skip)", async () => {
+    const { distDir, sha256 } = writeDist();
+    const runner = mock(async (command: string, args: string[]) => {
+      const remoteCommand = args.at(-1) ?? "";
+      if (command === "ssh" && remoteCommand === "uname -ms") return { stdout: "Linux x86_64\n" };
+      if (command === "ssh" && remoteCommand.startsWith("printf")) {
+        return { stdout: "/home/deploy\n" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("echo")) {
+        // Empty $SHELL on the remote (e.g. unset). Must NOT throw — the
+        // caller's bootstrap should still succeed; we simply don't get a
+        // shell hint and the shim is skipped downstream.
+        return { stdout: "\n" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("cat ~/.nexus-code/manifest.json")) {
+        return {
+          stdout: JSON.stringify({
+            version: "0.1.0",
+            os: "linux",
+            arch: "amd64",
+            sha256,
+            installedAt: "2026-05-12T00:00:00.000Z",
+          }),
+        };
+      }
+      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
+    }) as SshBootstrapRunner;
+
+    const result = await ensureRemoteAgent(
+      { host: "dev.example.com", user: "deploy", remotePath: "/repo" },
+      { distDir, runner },
+    );
+
+    expect(result.remoteShell).toBeUndefined();
+    // Bootstrap itself must still have succeeded — remoteBinDir present.
     expect(result.remoteBinDir).toBe("/home/deploy/.nexus-code/bin");
   });
 });

@@ -8,7 +8,6 @@ import { TerminalRecorderRegistry, type PtyRecorderSink } from "./recorder";
 import { ipcOk } from "../../../shared/ipc/result";
 import { injectHarnessTerminalEnv } from "./harness-env";
 import { applyShellPathShim } from "./shell-shim";
-import { shimDir } from "../../infra/agent/runtimeDirs";
 import { OscNotificationDispatcher } from "./osc-notification";
 import type { WorkspaceNameLookup } from "./osc-notification";
 import type { HookInfo } from "../workspace/manager";
@@ -30,6 +29,16 @@ export interface PtyChannelOptions {
    * `getWrapperBinDir` / `getWrapperAgentBin` — 워크스페이스 종류에 따라
    * 래퍼 bin 디렉터리와 agent 바이너리 절대 경로를 반환한다. null 반환 시
    * wrapper 관련 env 주입을 skip한다.
+   *
+   * `getWrapperShell` — 해당 워크스페이스의 PTY가 사용할 로그인 셸의 절대 경로.
+   * 로컬은 main process의 `$SHELL`, SSH는 부트스트랩 시 remote에서 조회한 값을
+   * 돌려준다. null 반환 시 ZDOTDIR/--rcfile 셤 적용을 skip한다(PATH prepend는
+   * wrapperBinDir 경로로 그대로 적용됨).
+   *
+   * `getWrapperShimDir` — 그 워크스페이스의 PTY가 source할 끼움 rc 파일들이
+   * 놓인 디렉터리의 절대 경로. 로컬이면 로컬 fs 경로, SSH면 부트스트랩이 원격에
+   * 업로드해둔 원격 절대 경로. null이면 셤 디렉터리 자체를 결정할 수 없음을
+   * 뜻하며 셤 적용을 skip한다.
    */
   workspaceManager?: WorkspaceNameLookup & {
     activate(id: string): Promise<void>;
@@ -37,6 +46,8 @@ export interface PtyChannelOptions {
     getAgentChannel(workspaceId: string): Promise<unknown>;
     getWrapperBinDir(workspaceId: string): string | null;
     getWrapperAgentBin(workspaceId: string): string | null;
+    getWrapperShell(workspaceId: string): string | null;
+    getWrapperShimDir(workspaceId: string): string | null;
   };
 }
 
@@ -121,21 +132,42 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
               })
             : injectHarnessTerminalEnv(env);
 
-        // Shell shim: when a wrapperBinDir is available, apply the per-shell
-        // shim so that the wrapper bin stays at the front of PATH even after
-        // the user's startup files prepend their own entries.
-        // Only applied when wrapperBinDir is truthy — null means no harness.
+        // Shell shim activation: requires three things from WorkspaceManager.
+        //   1. wrapperBinDir   — the bin directory whose contents the shim
+        //                        re-prepends to PATH on every prompt.
+        //   2. wrapperShell    — the actual login shell that will run on the
+        //                        target host (local `$SHELL`, or the
+        //                        bootstrap-cached remote `$SHELL`). Without
+        //                        it `applyShellPathShim` cannot pick the
+        //                        right activation strategy (ZDOTDIR vs
+        //                        --rcfile), so we skip.
+        //   3. wrapperShimDir  — the directory that actually contains the
+        //                        `.zshrc`/`.zshenv`/`bashrc` shim files on
+        //                        the host where the spawned shell runs.
+        //                        For local workspaces this is a local fs
+        //                        path; for SSH workspaces it is the remote
+        //                        absolute path that the SSH bootstrap
+        //                        uploaded the shim files into.
+        //
+        // When any of the three is missing, PATH prepend has already run
+        // above so the wrapper bin still appears in PATH (just not
+        // re-prepended on every prompt). This is the safe degraded mode —
+        // wrapper still wins on a clean rc, only loses ground when the user
+        // rc explicitly reorders PATH.
         let shimmedArgs: string[] | undefined = spawnArgs;
         if (wrapperBinDir !== null) {
-          const wsShimDir = shimDir(workspaceId);
-          const shimResult = applyShellPathShim({
-            shell: enrichedEnv.SHELL ?? env?.SHELL,
-            env: enrichedEnv,
-            args: spawnArgs,
-            shimDir: wsShimDir,
-          });
-          enrichedEnv = shimResult.env;
-          shimmedArgs = shimResult.args;
+          const wrapperShell = wm?.getWrapperShell(workspaceId) ?? null;
+          const wrapperShimDir = wm?.getWrapperShimDir(workspaceId) ?? null;
+          if (wrapperShell !== null && wrapperShimDir !== null) {
+            const shimResult = applyShellPathShim({
+              shell: wrapperShell,
+              env: enrichedEnv,
+              args: spawnArgs,
+              shimDir: wrapperShimDir,
+            });
+            enrichedEnv = shimResult.env;
+            shimmedArgs = shimResult.args;
+          }
         }
 
         try {

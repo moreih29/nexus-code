@@ -49,6 +49,7 @@ import {
 import {
   writeShimFiles as defaultWriteShimFiles,
   removeShimDir as defaultRemoveShimDir,
+  shimDir,
 } from "../../infra/agent/runtimeDirs";
 import { AgentManifestSchema } from "../../../shared/agent/manifest";
 import type { RemoteAgentPlatform } from "../../infra/agent/ssh/ssh-bootstrap/index";
@@ -424,6 +425,59 @@ export class WorkspaceManager {
     const binaryName = resolveRemoteAgentBinaryName(platform);
     if (!binaryName) return null;
     return `${remoteBinDir}/${binaryName}`;
+  }
+
+  /**
+   * 워크스페이스의 PTY 셸-셤 디렉터리(=`.zshrc`/`.zshenv`/`bashrc` 끼움 파일이
+   * 놓인 위치)의 절대 경로를 반환한다. `ipc.ts`의 spawn 핸들러가 이 값을
+   * ZDOTDIR(zsh) 또는 `--rcfile`(bash) 인자로 사용한다.
+   *
+   * - 로컬 워크스페이스: 로컬 `~/.nexus-code/shim/<workspaceId>` (=`shimDir()`).
+   *   끼움 파일들은 워크스페이스 부팅 시 `writeShimFiles()`로 이미 작성돼 있다.
+   * - SSH 워크스페이스:  bootstrap이 부트스트랩 시점에 원격에 업로드한
+   *   `<remoteHome>/.nexus-code/shim/<workspaceId>` 절대 경로
+   *   (`bootstrap.remoteShimDir`). 부트스트랩 결과에 없으면 null —
+   *   workspaceId 누락 또는 업로드 실패 케이스로, 셤 적용을 skip해야 함.
+   * - 워크스페이스 없음: null
+   */
+  getWrapperShimDir(workspaceId: string): string | null {
+    const ctx = this.contexts.get(workspaceId);
+    if (!ctx) return null;
+    const meta = ctx.getMeta();
+    if (meta.location.kind === "local") {
+      return shimDir(workspaceId);
+    }
+    const bootstrap = this.sshBootstraps.get(workspaceId);
+    if (!bootstrap) return null;
+    return bootstrap.remoteShimDir ?? null;
+  }
+
+  /**
+   * 워크스페이스 종류에 따라 그 워크스페이스의 PTY에서 사용할 로그인 셸의
+   * 절대 경로를 반환한다. PTY 셸-셤(ZDOTDIR / --rcfile) 활성화 여부를 결정할 때
+   * 사용된다.
+   *
+   * - 로컬 워크스페이스: `process.env.SHELL` (main process가 launchd에서 시작된
+   *   환경에서는 비어있을 수 있음 — 그 경우 null)
+   * - SSH 워크스페이스:  bootstrap이 부트스트랩 시점에 remote에서 `$SHELL`을
+   *   조회해둔 값 (없으면 null)
+   * - 워크스페이스 없음 / bootstrap 없음 / 알 수 없음: null
+   *
+   * null 반환은 "셤 적용 건너뛰기" 신호다. 그 경우에도 spawn-time PATH prepend는
+   * 그대로 살아있어서 wrapper bin은 PATH에 존재하지만, precmd 훅이 미등록되므로
+   * 사용자 rc가 PATH를 재정렬하면 wrapper가 뒤로 밀릴 수 있다.
+   */
+  getWrapperShell(workspaceId: string): string | null {
+    const ctx = this.contexts.get(workspaceId);
+    if (!ctx) return null;
+    const meta = ctx.getMeta();
+    if (meta.location.kind === "local") {
+      const shell = process.env.SHELL;
+      return shell !== undefined && shell.length > 0 ? shell : null;
+    }
+    const bootstrap = this.sshBootstraps.get(workspaceId);
+    if (!bootstrap) return null;
+    return bootstrap.remoteShell ?? null;
   }
 
   /**
@@ -974,6 +1028,11 @@ export class WorkspaceManager {
         remotePath: meta.location.remotePath,
         cachedRemoteArch: meta.location.remoteArch,
         controlPath: adoptedMaster?.controlPath,
+        // Pass workspaceId so the bootstrap also uploads the per-workspace
+        // shim rc files (`.zshrc`/`.zshenv`/`bashrc`) into the remote's
+        // `~/.nexus-code/shim/<workspaceId>/`, making them available to the
+        // remote PTY's zsh `ZDOTDIR` / bash `--rcfile` activation.
+        workspaceId: meta.id,
       });
     } catch (error) {
       // Bootstrap failed before any channel existed. Release the adopted

@@ -75,11 +75,20 @@ export function shimDir(workspaceId: string): string {
 
 // ---------------------------------------------------------------------------
 // Shim file content templates
+//
+// These constants are exported so that callers running on hosts other than
+// the local machine (notably the SSH bootstrap, which uploads the same shim
+// files to the remote `~/.nexus-code/shim/<workspaceId>/`) can write the
+// exact same content without duplicating the templates.
+//
+// The shim is shell-rooted (zsh / bash) and references the runtime env
+// variables `NEXUS_USER_ZDOTDIR` / `NEXUS_WRAPPER_SELF_DIR` so the same file
+// works regardless of which workspace or which host it ends up on.
 // ---------------------------------------------------------------------------
 
 /** zsh .zshrc shim: sources the user's original .zshrc and registers a
  * precmd hook to keep NEXUS_WRAPPER_SELF_DIR at the front of PATH. */
-const ZSHRC_CONTENT = `# Nexus PTY shim — sourced via ZDOTDIR at PTY spawn time.
+export const ZSHRC_CONTENT = `# Nexus PTY shim — sourced via ZDOTDIR at PTY spawn time.
 if [ -n "\${NEXUS_USER_ZDOTDIR-}" ] && [ -f "$NEXUS_USER_ZDOTDIR/.zshrc" ]; then
   source "$NEXUS_USER_ZDOTDIR/.zshrc"
 elif [ -f "$HOME/.zshrc" ]; then
@@ -99,7 +108,7 @@ _nexus_prepend_wrapper
 
 /** zsh .zshenv shim: sources the user's original .zshenv, loaded by zsh
  * before any other startup file. */
-const ZSHENV_CONTENT = `# Nexus PTY shim — sourced via ZDOTDIR at PTY spawn time.
+export const ZSHENV_CONTENT = `# Nexus PTY shim — sourced via ZDOTDIR at PTY spawn time.
 if [ -n "\${NEXUS_USER_ZDOTDIR-}" ] && [ -f "$NEXUS_USER_ZDOTDIR/.zshenv" ]; then
   source "$NEXUS_USER_ZDOTDIR/.zshenv"
 elif [ -f "$HOME/.zshenv" ]; then
@@ -109,7 +118,7 @@ fi
 
 /** bash bashrc shim: sources the user's original .bashrc and registers a
  * PROMPT_COMMAND entry to keep NEXUS_WRAPPER_SELF_DIR at the front of PATH. */
-const BASHRC_CONTENT = `# Nexus PTY shim — passed via --rcfile at PTY spawn time.
+export const BASHRC_CONTENT = `# Nexus PTY shim — passed via --rcfile at PTY spawn time.
 if [ -f "$HOME/.bashrc" ]; then
   source "$HOME/.bashrc"
 fi

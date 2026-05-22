@@ -23,6 +23,11 @@ import {
   type WrapperManifestEntry,
 } from "../../../../../shared/agent/manifest";
 import {
+  BASHRC_CONTENT,
+  ZSHENV_CONTENT,
+  ZSHRC_CONTENT,
+} from "../../runtimeDirs";
+import {
   authenticateSshControlMaster,
   type AuthenticateSshControlMasterDependencies,
   type SshAuthPromptHandler,
@@ -180,6 +185,7 @@ export async function ensureRemoteAgent(
     );
 
     const remoteHome = await detectRemoteHome(sshOptions, runner);
+    const remoteShell = await detectRemoteShell(sshOptions, runner);
 
     if (localManifest.wrapper) {
       await ensureRemoteWrapper(
@@ -194,6 +200,16 @@ export async function ensureRemoteAgent(
 
     const remoteBinDir = absoluteRemotePath(remoteHome, `${REMOTE_AGENT_ROOT}/bin`);
 
+    // PTY shim files: only when the caller scoped the bootstrap to a
+    // workspace (the PTY spawn path always does; the LSP path does not).
+    // We mirror runtimeDirs.shimDir's `<root>/shim/<workspaceId>` layout on
+    // the remote so the spawned shell's ZDOTDIR / --rcfile points at a path
+    // that actually exists there. The content is workspace-agnostic —
+    // every shim file is the same bytes, only the directory is per-workspace.
+    const remoteShimDir = options.workspaceId
+      ? await ensureRemoteShimFiles(sshOptions, runner, remoteHome, options.workspaceId)
+      : undefined;
+
     // On success, ownership of a ControlMaster authenticated *here* passes to
     // the caller via `dispose`. When the caller supplied its own controlPath
     // (a reused master), we surface that path back but no dispose handle —
@@ -206,6 +222,8 @@ export async function ensureRemoteAgent(
       controlPath: authenticatedMaster?.controlPath ?? options.controlPath,
       dispose: authenticatedMaster ? () => authenticatedMaster.dispose() : undefined,
       remoteBinDir,
+      ...(remoteShell !== undefined ? { remoteShell } : {}),
+      ...(remoteShimDir !== undefined ? { remoteShimDir } : {}),
     };
   } catch (error) {
     // This function never returned, so the caller has no dispose handle.
@@ -370,6 +388,30 @@ async function detectRemoteHome(
     throw createSshError("server.protocol-error", new Error(`invalid remote HOME: ${home}`));
   }
   return home;
+}
+
+/**
+ * Reads the remote `$SHELL` so the PTY layer can decide whether to install
+ * the per-workspace zsh/bash shim on that workspace's spawned shells.
+ *
+ * Best-effort: when `$SHELL` is unset on the remote or the command fails for
+ * any reason, returns `undefined` instead of throwing. The caller treats
+ * `undefined` as "skip shim activation" — the spawn-time PATH prepend still
+ * applies, only the precmd hook is forgone. We use `echo` (not `printf`) to
+ * keep the command shape clearly distinct from `detectRemoteHome` for tests
+ * and tracing.
+ */
+async function detectRemoteShell(
+  options: EnsureRemoteAgentOptions,
+  runner: SshBootstrapRunner,
+): Promise<string | undefined> {
+  try {
+    const result = await runSsh(options, runner, `echo "$SHELL"`);
+    const shell = result.stdout.trim();
+    return shell.startsWith("/") ? shell : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -547,6 +589,57 @@ async function ensureRemoteLspArchive(
     },
     onProgress,
   );
+}
+
+/**
+ * Uploads the per-workspace PTY shim rc files (`.zshrc`, `.zshenv`, `bashrc`)
+ * to `<remoteHome>/.nexus-code/shim/<workspaceId>/` and returns that
+ * directory's absolute path. The content of every file is identical to what
+ * `runtimeDirs.writeShimFiles()` writes locally — both ends share the same
+ * exported constants (`ZSHRC_CONTENT` / `ZSHENV_CONTENT` / `BASHRC_CONTENT`)
+ * so there is exactly one source of truth.
+ *
+ * The shim files reference runtime env vars (`NEXUS_USER_ZDOTDIR` /
+ * `NEXUS_WRAPPER_SELF_DIR`) only, so a single write is correct for any
+ * subsequent spawn against this workspace — no per-spawn re-upload needed.
+ *
+ * Each file is written via `cat > path` with the content streamed as
+ * runner stdin, matching the existing pattern used for `manifest.json`
+ * and the LSP launcher script. Idempotent: re-runs overwrite in place.
+ */
+async function ensureRemoteShimFiles(
+  options: EnsureRemoteAgentOptions,
+  runner: SshBootstrapRunner,
+  remoteHome: string,
+  workspaceId: string,
+): Promise<string> {
+  const remoteShimDir = absoluteRemotePath(
+    remoteHome,
+    `${REMOTE_AGENT_ROOT}/shim/${workspaceId}`,
+  );
+  // mkdir -p first; subsequent `cat > <file>` will inherit the 0o700-ish
+  // umask of the remote user. We do not chmod the files explicitly —
+  // they are plain rc files, not executables, and the default user-owned
+  // mode is sufficient.
+  await runSsh(options, runner, `mkdir -p ${quoteShellArg(remoteShimDir)}`);
+
+  const files: ReadonlyArray<{ name: string; content: string }> = [
+    { name: ".zshrc", content: ZSHRC_CONTENT },
+    { name: ".zshenv", content: ZSHENV_CONTENT },
+    { name: "bashrc", content: BASHRC_CONTENT },
+  ];
+
+  for (const file of files) {
+    const remotePath = `${remoteShimDir}/${file.name}`;
+    await runSsh(
+      options,
+      runner,
+      `cat > ${quoteShellArg(remotePath)}`,
+      file.content,
+    );
+  }
+
+  return remoteShimDir;
 }
 
 /** Uploads the Claude wrapper binary to the fixed remote path `~/.nexus-code/bin/claude`. */

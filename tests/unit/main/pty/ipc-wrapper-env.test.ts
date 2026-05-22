@@ -122,6 +122,12 @@ function makeFixtureWithManager(opts: {
     getAgentChannel: async () => agentChannel,
     getWrapperBinDir: () => opts.wrapperBinDir,
     getWrapperAgentBin: () => opts.wrapperAgentBin,
+    // These tests focus on harness env / PATH prepend, not on shim activation.
+    // Returning null from both shell + shimDir skips the shell shim branch —
+    // keeping the assertions on NEXUS_* env vars unaffected by which shell
+    // (or where) happens to be configured.
+    getWrapperShell: () => null,
+    getWrapperShimDir: () => null,
   };
 
   const options: PtyChannelOptions = { agentHost, workspaceManager: wm };

@@ -43,6 +43,15 @@ export interface EnsureRemoteAgentOptions extends Omit<SshMasterOptions, "remote
   readonly remotePath: string;
   readonly cachedRemoteArch?: RemoteAgentPlatform;
   readonly authMode?: "interactive" | "key-only";
+  /**
+   * Workspace identifier. When provided, the bootstrap additionally uploads
+   * the per-workspace PTY shim rc files (`.zshrc` / `.zshenv` / `bashrc`)
+   * into `${remoteHome}/.nexus-code/shim/<workspaceId>/` and surfaces that
+   * absolute path back as `remoteShimDir`. Omit on the LSP path or other
+   * callers that do not spawn an interactive shell — the bootstrap stays
+   * backwards-compatible and simply does not write any shim files.
+   */
+  readonly workspaceId?: string;
 }
 
 export interface EnsureRemoteAgentResult {
@@ -54,6 +63,24 @@ export interface EnsureRemoteAgentResult {
   readonly dispose?: () => void;
   /** Absolute path of the remote bin directory, e.g. `/home/user/.nexus-code/bin`. */
   readonly remoteBinDir: string;
+  /**
+   * Absolute path of the remote user's login shell (the value of `$SHELL` on
+   * the remote), e.g. `/bin/zsh`. `undefined` when the remote did not expose
+   * `$SHELL` or detection failed — callers should treat that as "shell shim
+   * not applicable" and fall back gracefully (skip ZDOTDIR / --rcfile
+   * injection rather than guessing).
+   */
+  readonly remoteShell?: string;
+  /**
+   * Absolute path of the workspace-specific shim directory **on the remote
+   * host**, e.g. `/home/user/.nexus-code/shim/<workspaceId>`. Populated only
+   * when `EnsureRemoteAgentOptions.workspaceId` is provided. The path is the
+   * remote analogue of `runtimeDirs.shimDir(workspaceId)` and contains the
+   * uploaded `.zshrc` / `.zshenv` / `bashrc` shim files that the remote zsh
+   * / bash should source via `ZDOTDIR` or `--rcfile`. `undefined` when the
+   * caller opted out of shim deployment (e.g. LSP-only bootstrap).
+   */
+  readonly remoteShimDir?: string;
 }
 
 export interface EnsureRemoteLspServerOptions extends EnsureRemoteAgentOptions {
