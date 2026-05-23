@@ -205,7 +205,8 @@ describe("TabItem — running 상태", () => {
 });
 
 // ---------------------------------------------------------------------------
-// needsInput — CircleDot + tab.claude.attention.fg (attention bar 제거됨)
+// needsInput — MessageCircleQuestion + tab.claude.attention.fg + pulse
+// (completed와 같은 색 토큰을 공유하므로 pulse + 아이콘 형태로 시각 구분)
 // ---------------------------------------------------------------------------
 
 describe("TabItem — needsInput 상태", () => {
@@ -221,6 +222,11 @@ describe("TabItem — needsInput 상태", () => {
   test("tab-claude-attention-fg 토큰 클래스가 적용된다", () => {
     const html = renderTabItem();
     expect(html).toContain("tab-claude-attention-fg");
+  });
+
+  test("needsInput 글리프는 pulse 애니메이션이 적용된다 (completed와 시각적 구분)", () => {
+    const html = renderTabItem();
+    expect(html).toContain("motion-safe:animate-pulse");
   });
 
   test("좌측 attention bar(rounded-none)가 없다 — bar 제거됨", () => {

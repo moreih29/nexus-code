@@ -14,7 +14,8 @@ const c = ipcContract.claude.call;
  *
  * - call.snapshot: 현재 모든 (workspaceId, tabId) 상태 반환. renderer 초기화 시 1회 호출.
  * - call.setActiveContext: renderer가 활성 탭 변경 시 push. main이 캐싱해 Stop 알림 결정에 사용.
- * - call.markSeen: 사용자가 탭을 활성화했음을 통지. completed 상태였다면 idle로 전이.
+ * - call.markSeen: 사용자가 탭을 활성화했음을 통지. completed/needsInput 상태였다면
+ *   idle로 전이한다. permissionPending/error는 사용자의 명시적 조치 전까지 보존한다.
  * - listen.status: 상태 변경 시 broker가 직접 broadcast하므로 여기서는 빈 객체로 선언.
  */
 export function registerClaudeChannel(
@@ -31,9 +32,15 @@ export function registerClaudeChannel(
       },
       markSeen: async (args: unknown) => {
         const { workspaceId, tabId } = validateArgs(c.markSeen.args, args);
-        // completed 상태인 탭만 idle로 전이. 다른 상태(running/needsInput 등)는 보존한다.
+        // 사용자가 탭을 봤다는 사실 자체가 알림 의미를 소실시키는 상태만
+        // idle로 전이한다:
+        //  - completed: 응답이 끝났음을 알리는 표시 → 봤으면 끝.
+        //  - needsInput: Claude가 입력을 기다린다는 알림 → 사용자가 탭을 보고
+        //    있으면 곧 입력하거나 닫을 것이므로 글리프는 의미를 잃는다.
+        // permissionPending/error/running은 보존 — 사용자의 명시적 조치 또는
+        // 시스템 응답 전까지 시각 표시가 유효해야 한다.
         const entry = broker.get(workspaceId, tabId);
-        if (entry?.status === "completed") {
+        if (entry?.status === "completed" || entry?.status === "needsInput") {
           broker.set(workspaceId, tabId, "idle");
         }
         return ipcOk(undefined);

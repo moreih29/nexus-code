@@ -59,6 +59,12 @@ export type StatusEntry = z.infer<typeof StatusEntrySchema>;
  *
  * payload는 Claude Code가 hook 프로세스 stdin에 쓴 원본 JSON을 그대로 담는다.
  * subcommand별 payload 구조가 다르므로 z.unknown()으로 받아 각 handler에서 구체화한다.
+ *
+ * assistantText는 Stop hook subcommand에서만 채워지는 옵션 필드다. hookclient가
+ * payload의 transcript_path를 직접 읽어 마지막 assistant 메시지 텍스트를 단일
+ * 줄로 정규화 + truncate한 값. transcript가 없거나 파싱 실패 시 undefined.
+ * Hook 실행 호스트(로컬 또는 SSH 원격)와 transcript_path가 동일 fs이므로 main이
+ * 호스트별 fs 라우팅을 알 필요 없다.
  */
 export const HookRequestSchema = z.object({
   hookId: z.string().min(1),
@@ -66,6 +72,7 @@ export const HookRequestSchema = z.object({
   tabId: z.string().min(1),
   subcommand: z.string().min(1),
   payload: z.unknown(),
+  assistantText: z.string().optional(),
 });
 
 export type HookRequest = z.infer<typeof HookRequestSchema>;

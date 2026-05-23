@@ -14,7 +14,7 @@
 //     때 워크스페이스 B의 알림은 받아야 한다.
 //
 // subcommand 매핑:
-//   session-start      → broker.set(running) + respondHook
+//   session-start      → broker.set(idle) + respondHook — 입력 대기, 글리프 없음
 //   user-prompt-submit → broker.set(running) + respondHook
 //   pre-tool-use       → broker.set(running) + respondHook
 //   notification       → broker.set(needsInput) + (그 탭 안 보면) OS 알림 + respondHook
@@ -188,8 +188,11 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
 
   switch (subcommand) {
     case "session-start": {
-      // 세션 시작 — running 상태로 전환 후 즉시 응답(async hook).
-      broker.set(workspaceId, tabId, "running");
+      // 세션 시작 — Claude가 사용자 입력 대기 상태로 들어간다. 실제 동작이
+      // 시작되는 시점은 user-prompt-submit이므로 SessionStart는 running이
+      // 아니다. broker에 entry는 만들어 두되 idle로 두면 글리프는 안 보이고
+      // (idle 글리프는 null), 첫 프롬프트 제출 시 running으로 자연 전이된다.
+      broker.set(workspaceId, tabId, "idle");
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
       break;
     }
@@ -251,12 +254,25 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
       //  - 사용자가 그 탭을 보고 있으면: idle로 직행 (이미 보고 있으니 알림/인디케이터 모두 불필요).
       //  - 그렇지 않으면: completed 전이 + OS 알림 발사. 사용자가 탭을 활성화하면
       //    markSeen IPC로 idle 전이된다.
+      //
+      // assistantText는 hookclient가 같은 호스트에서 transcript_path를 직접 읽어
+      // 추출해 둔 마지막 assistant 메시지(단일 줄, 최대 500자). 비어있을 수 있다
+      // (transcript 없음/파싱 실패 등 silent fallback) — 그 경우 사이드바는
+      // 글리프만 표시된다.
+      const assistantText = parsed.data.assistantText;
+
       if (isViewingThisTab) {
         broker.set(workspaceId, tabId, "idle");
       } else {
-        broker.set(workspaceId, tabId, "completed");
+        broker.set(workspaceId, tabId, "completed", assistantText);
         const title = `[${workspaceName}] Claude`;
-        fireOsNotification(workspaceId, tabId, title, "Response complete", deps);
+        // OS 알림은 짧은 본문이 적합 — 응답 미리보기가 있으면 그것을, 없으면
+        // 정적 텍스트를 보낸다. 사이드바 카드는 카드 자체 컷(50자)으로 다시 자른다.
+        const body =
+          assistantText !== undefined && assistantText !== ""
+            ? assistantText
+            : "Response complete";
+        fireOsNotification(workspaceId, tabId, title, body, deps);
       }
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
       break;

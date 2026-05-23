@@ -1,4 +1,10 @@
-import { CircleAlert, CircleCheck, CircleDot, Loader, TriangleAlert } from "lucide-react";
+import {
+  CircleAlert,
+  CircleCheck,
+  Loader,
+  MessageCircleQuestion,
+  TriangleAlert,
+} from "lucide-react";
 import type React from "react";
 import { cn } from "@/utils/cn";
 import type { ClaudeStatus } from "../../../shared/claude/status";
@@ -19,19 +25,20 @@ export interface WorkspaceStatusGlyphProps {
 /**
  * 상태별 글리프·색 매핑.
  *
- * 사이드바 워크스페이스 카드의 ssh/local 아이콘 아래에 표시되는 작은 인디케이터.
+ * 사이드바 워크스페이스 카드의 메시지 줄 인라인에 표시되는 작은 인디케이터.
  * 레이블·배경 없이 글리프만 렌더한다(시각 노이즈 최소화).
  *
- * | 상태             | 글리프         | 색 토큰                      | 비고                 |
- * |------------------|----------------|------------------------------|----------------------|
- * | idle             | CircleCheck    | text-muted-foreground        | 사용자 확인 완료 dim |
- * | running          | Loader (spin)  | text-emerald-500             | 동작 중              |
- * | completed        | CircleCheck    | --tab-claude-attention-fg    | 응답 종료(미확인)    |
- * | needsInput       | CircleDot      | --tab-claude-attention-fg    | 입력 필요            |
- * | permissionPending| CircleAlert    | --state-warning-fg           | 권한 승인 필요       |
- * | error            | TriangleAlert  | --state-error-fg             | 에러                 |
+ * | 상태             | 글리프                | 색 토큰                      | 비고                          |
+ * |------------------|-----------------------|------------------------------|-------------------------------|
+ * | idle             | (없음)                | —                            | 글리프 자체 미렌더            |
+ * | running          | Loader (spin)         | text-emerald-500             | 동작 중                       |
+ * | completed        | CircleCheck           | --tab-claude-attention-fg    | 응답 종료(미확인)             |
+ * | needsInput       | MessageCircleQuestion | --tab-claude-attention-fg    | 입력 필요 — pulse 애니메이션  |
+ * | permissionPending| CircleAlert           | --state-warning-fg           | 권한 승인 필요                |
+ * | error            | TriangleAlert         | --state-error-fg             | 에러                          |
  *
- * running 초록·idle 회색·completed 파랑은 사용자 직접 지정.
+ * idle은 시각 노이즈 줄이기 위해 글리프를 그리지 않는다. running 초록·completed
+ * 파랑은 사용자 직접 지정. needsInput은 completed와 같은 색이지만 pulse로 구분.
  */
 
 interface GlyphConfig {
@@ -46,16 +53,12 @@ interface GlyphConfig {
     className?: string;
   }>;
   spin?: boolean;
+  /** attention을 끌기 위한 pulse 애니메이션 적용 여부 */
+  pulse?: boolean;
 }
 
-function getGlyphConfig(status: ClaudeStatus): GlyphConfig {
+function getGlyphConfig(status: Exclude<ClaudeStatus, "idle">): GlyphConfig {
   switch (status) {
-    case "idle":
-      return {
-        ariaLabel: "Claude: idle",
-        colorClass: "text-muted-foreground",
-        Icon: CircleCheck,
-      };
     case "running":
       return {
         ariaLabel: "Claude: running",
@@ -73,7 +76,8 @@ function getGlyphConfig(status: ClaudeStatus): GlyphConfig {
       return {
         ariaLabel: "Claude: waiting for input",
         colorClass: "text-(--tab-claude-attention-fg)",
-        Icon: CircleDot,
+        Icon: MessageCircleQuestion,
+        pulse: true,
       };
     case "permissionPending":
       return {
@@ -97,17 +101,22 @@ function getGlyphConfig(status: ClaudeStatus): GlyphConfig {
 /**
  * 워크스페이스 카드의 작은 상태 글리프.
  *
- * ssh/local 아이콘(16px) 셀 아래에 12px 글리프로 렌더한다.
- * 배경·패딩·레이블 없이 색과 형태로만 상태를 전달한다.
+ * 메시지 줄 인라인에 12px 글리프로 렌더한다. idle 상태는 글리프 자체를 그리지
+ * 않는다(null 반환). 배경·패딩·레이블 없이 색과 형태로만 상태를 전달한다.
  */
 export function WorkspaceStatusGlyph({ status }: WorkspaceStatusGlyphProps) {
-  const { ariaLabel, colorClass, Icon, spin } = getGlyphConfig(status);
+  if (status === "idle") return null;
+  const { ariaLabel, colorClass, Icon, spin, pulse } = getGlyphConfig(status);
 
   return (
     <span
       role="status"
       aria-label={ariaLabel}
-      className={cn("inline-flex shrink-0", colorClass)}
+      className={cn(
+        "inline-flex shrink-0",
+        colorClass,
+        pulse && "motion-safe:animate-pulse",
+      )}
     >
       <Icon
         width={12}

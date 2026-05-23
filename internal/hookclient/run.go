@@ -41,13 +41,31 @@ const (
 
 // hookRequest 는 agent의 hookserver로 전송하는 NDJSON 요청 프레임이다.
 // 필드명은 shared/claude/status.ts의 HookRequestSchema와 일치한다.
+//
+// AssistantText는 Stop subcommand에서만 채운다 — hookclient가 payload의
+// transcript_path를 직접 읽어 마지막 assistant 메시지를 추출한 결과.
+// 다른 subcommand에서는 빈 문자열이며 omitempty로 wire에서 생략된다.
 type hookRequest struct {
-	Type        string          `json:"type"`
-	Token       string          `json:"token"`
-	WorkspaceID string          `json:"workspaceId"`
-	TabID       string          `json:"tabId"`
-	Subcommand  string          `json:"subcommand"`
-	Payload     json.RawMessage `json:"payload"`
+	Type           string          `json:"type"`
+	Token          string          `json:"token"`
+	WorkspaceID    string          `json:"workspaceId"`
+	TabID          string          `json:"tabId"`
+	Subcommand     string          `json:"subcommand"`
+	Payload        json.RawMessage `json:"payload"`
+	AssistantText  string          `json:"assistantText,omitempty"`
+}
+
+// stopSubcmd 는 Claude 응답 종료 hook 이벤트의 subcommand 이름.
+// Stop hook 진입 시점에만 transcript 파싱을 수행한다.
+const stopSubcmd = "stop"
+
+// stopPayload 는 Stop hook payload에서 transcript 경로를 추출하기 위한 부분 스키마.
+// Claude Code는 snake_case로 보내며, 다른 자동화 시스템이 camelCase를 보낼 수도
+// 있어 둘 다 받는다(cmux의 firstString(keys: ["transcript_path","transcriptPath"])
+// 패턴 차용).
+type stopPayload struct {
+	TranscriptPath      string `json:"transcript_path"`
+	TranscriptPathCamel string `json:"transcriptPath"`
 }
 
 // hookResponse 는 agent로부터 받는 NDJSON 응답 프레임이다.
@@ -124,14 +142,30 @@ func runWithContext(
 		}
 	}
 
+	// Stop hook은 payload에 응답 본문이 들어있지 않다 — transcript_path만 제공.
+	// 사이드바 카드 응답 미리보기를 위해 같은 호스트에서 transcript jsonl을 직접
+	// 읽어 마지막 assistant 메시지 텍스트를 추출한다. SSH 워크스페이스에서도
+	// hookclient는 원격 호스트에서 실행되므로 transcript 경로도 같은 fs에 있어
+	// 호스트별 라우팅이 필요 없다.
+	//
+	// 어떤 실패든 silent fallback — assistantText 빈 문자열로 두고 hook 흐름은
+	// 그대로 진행한다(omitempty로 wire에서 생략됨).
+	assistantText := ""
+	if subcommand == stopSubcmd {
+		if path := transcriptPathFromPayload(payload); path != "" {
+			assistantText = extractLastAssistantText(path)
+		}
+	}
+
 	// NDJSON 요청 한 줄을 송신한다.
 	req := hookRequest{
-		Type:        "hook",
-		Token:       token,
-		WorkspaceID: workspaceID,
-		TabID:       tabID,
-		Subcommand:  subcommand,
-		Payload:     payload,
+		Type:          "hook",
+		Token:         token,
+		WorkspaceID:   workspaceID,
+		TabID:         tabID,
+		Subcommand:    subcommand,
+		Payload:       payload,
+		AssistantText: assistantText,
 	}
 	if err := writeNDJSON(conn, req); err != nil {
 		fmt.Fprintf(os.Stderr, "nexus hook: send failed: %v\n", err)
@@ -225,4 +259,21 @@ func readStdinPayload() (json.RawMessage, error) {
 // Claude Code가 파이프 상대방이 읽지 않은 채 닫힐 때 SIGPIPE를 받지 않도록 한다.
 func drainStdin() {
 	_, _ = io.Copy(io.Discard, os.Stdin)
+}
+
+// transcriptPathFromPayload 는 payload에서 transcript 경로를 추출한다.
+// Claude Code의 snake_case(`transcript_path`)와 일부 호환 시스템의
+// camelCase(`transcriptPath`) 모두 시도한다. payload 파싱 실패는 silent.
+func transcriptPathFromPayload(payload json.RawMessage) string {
+	if len(payload) == 0 {
+		return ""
+	}
+	var p stopPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return ""
+	}
+	if p.TranscriptPath != "" {
+		return p.TranscriptPath
+	}
+	return p.TranscriptPathCamel
 }

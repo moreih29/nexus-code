@@ -1,4 +1,4 @@
-import { Folder, Server, X } from "lucide-react";
+import { Folder, GitBranch, Server, X } from "lucide-react";
 import React, { useMemo } from "react";
 import { LSP_FEATURE_ENABLED } from "../../../shared/lsp/feature-flag";
 import { Tooltip as RadixTooltip } from "radix-ui";
@@ -17,7 +17,6 @@ import {
   ContextMenuTrigger,
 } from "../ui/context-menu";
 import {
-  folderName,
   formatSshSecondaryLine,
   formatSshTooltip,
 } from "../workspace/add-workspace/ssh-helpers";
@@ -80,10 +79,15 @@ interface WorkspaceRowProps {
 /**
  * 워크스페이스 사이드바 행 컴포넌트.
  *
- * 3줄 그리드 카드 구조:
- * 1줄: [Icon 16] name  [Chip]
- * 2줄: message preview (StatusEntry.message — 없으면 미렌더)
- * 3줄: branch · path
+ * 4~5줄 그리드 카드 구조 (SSH는 사이에 user@host 한 줄이 추가됨):
+ * 1줄: [Icon 16] ws.name
+ * (SSH 전용) user@host
+ * 2줄: path (+ LSP 칩) — 로컬: rootPath의 마지막 2 세그먼트, SSH: remotePath의 마지막 2 세그먼트
+ * 3줄: [GitBranch 아이콘] branch (있을 때만)
+ * 4줄: [Glyph] message preview (둘 다 없으면 미렌더, 50자 컷)
+ *
+ * SSH 카드는 로컬 카드와 동일한 정보 구조를 따르되, user@host가 워크스페이스
+ * 이름 바로 아래 한 줄로 추가된다. primary는 ws.name으로 통일한다(로컬과 동일).
  */
 function WorkspaceRow({
   ws,
@@ -99,11 +103,11 @@ function WorkspaceRow({
   const isSsh = ws.location.kind === "ssh";
   const Icon = isSsh ? Server : Folder;
 
-  // For SSH: primary = remote folder leaf, secondary = user@host,
-  // title = full connection + path for tooltip.
-  // For local: primary = ws.name, secondary = parent/folder, title = full path.
+  // primary는 로컬/SSH 모두 ws.name으로 통일한다. SSH 카드는 별도의 user@host
+  // 라인이 워크스페이스 이름 바로 아래에 추가된다. tooltip은 정보량이 많은
+  // 쪽이 풀 컨텍스트(SSH 연결 정보 + 원격 경로, 로컬은 절대 경로).
   const sshLocation = ws.location.kind === "ssh" ? ws.location : null;
-  const primaryText = sshLocation ? folderName(sshLocation.remotePath) : ws.name;
+  const primaryText = ws.name;
   const secondaryTitle = sshLocation
     ? formatSshTooltip({
         user: sshLocation.user,
@@ -112,6 +116,13 @@ function WorkspaceRow({
         remotePath: sshLocation.remotePath,
       })
     : ws.rootPath;
+  // SSH 카드 이름 아래에 노출되는 한 줄(user@host). 로컬은 null.
+  const sshUserHostLine = sshLocation
+    ? formatSshSecondaryLine({
+        user: sshLocation.user,
+        host: sshLocation.host,
+      })
+    : null;
 
   // Claude 세션 집계 상태 구독 — wsTabs slice만 구독해 thrashing 방지.
   const wsTabs = useClaudeStatusStore((s) => s.byWorkspace[ws.id]);
@@ -131,16 +142,21 @@ function WorkspaceRow({
       ? aggregate.status
       : null;
 
-  // needsInput 상태의 가장 최신 message를 카드 2번째 줄에 표시한다.
-  // 여러 탭이 있을 경우 가장 마지막으로 변경된 entry의 message를 사용한다.
+  // 카드 4번째 줄에 표시할 메시지 — 가장 최신 StatusEntry의 message 첫 줄을
+  // 50자로 컷한다. 멀티라인 마크다운/코드블록이 와도 첫 줄만, 50자 초과 시
+  // 말줄임 기호를 붙인다. 여러 탭이 있을 경우 가장 마지막에 변경된 entry의
+  // message를 사용한다.
   const previewMessage = useMemo(() => {
     if (!wsTabs) return null;
     const entries = Object.values(wsTabs);
-    // 모든 탭 중 message가 있는 entry만 필터링 후 since 역순 정렬.
     const withMessage = entries
       .filter((e) => e.message !== undefined && e.message !== "")
       .sort((a, b) => b.since - a.since);
-    return withMessage.length > 0 ? (withMessage[0].message ?? null) : null;
+    if (withMessage.length === 0) return null;
+    const raw = withMessage[0].message;
+    if (raw === undefined) return null;
+    const firstLine = raw.split("\n")[0].trim();
+    return firstLine.length > 50 ? `${firstLine.slice(0, 50)}…` : firstLine;
   }, [wsTabs]);
 
   // git 세션에서 현재 브랜치 이름을 가져온다.
@@ -149,19 +165,9 @@ function WorkspaceRow({
     return session?.branchInfo?.current ?? session?.status?.branch?.current ?? null;
   });
 
-  // 3번째 줄: branch · path 형식. branch가 없으면 path만 표시.
-  const thirdLine = useMemo(() => {
-    const pathHint = isSsh
-      ? formatSshSecondaryLine({
-          user: sshLocation?.user,
-          host: sshLocation?.host ?? "",
-        })
-      : secondaryWorkspaceText(ws);
-    if (branchName) {
-      return `${branchName} · ${pathHint}`;
-    }
-    return pathHint;
-  }, [branchName, isSsh, sshLocation, ws]);
+  // 경로 한 줄 — 로컬/SSH 모두 마지막 2 세그먼트만 표시(로컬과 SSH 모두
+  // secondaryWorkspaceText가 처리).
+  const pathLine = useMemo(() => secondaryWorkspaceText(ws), [ws]);
 
   // permissionPending/error 상태이면 카드 좌측에 2px 색 border-l 표시.
   // 활성 카드의 --state-selected-indicator border-l과 배타적으로 처리한다.
@@ -218,23 +224,22 @@ function WorkspaceRow({
           >
             {/*
               2열 그리드:
-              - col 1: 16px (ssh/local 아이콘 + 그 아래 작은 상태 글리프)
-              - col 2: 가변 폭 텍스트(이름 / message / branch·path)
+              - col 1: 16px (ssh/local 아이콘만 — 글리프는 메시지 줄로 이동)
+              - col 2: 가변 폭 텍스트(이름 / path / branch / glyph+message)
 
-              칩은 더 이상 1줄 우측에 두지 않는다 — 사용자 결정으로 ssh/local 아이콘 아래에
-              레이블 없이 글리프만 노출한다(시각 노이즈 최소화).
+              글리프는 더 이상 좌측 컬럼에 세로 배치하지 않는다 — 메시지와 의미적으로
+              한 줄에 묶이므로 4번째 줄 인라인으로 옮긴다.
             */}
             <span className="grid grid-cols-[16px_minmax(0,1fr)] items-start gap-2">
-              {/* col 1: ssh/local 아이콘 + 상태 글리프(세로 정렬) */}
-              <span className="flex flex-col items-center gap-1 mt-0.5">
+              {/* col 1: ssh/local 아이콘 */}
+              <span className="flex items-start mt-0.5">
                 <Icon
                   className="size-4 shrink-0 text-muted-foreground"
                   aria-hidden="true"
                 />
-                {glyphStatus && <WorkspaceStatusGlyph status={glyphStatus} />}
               </span>
 
-              {/* 텍스트 영역 — 2/3줄 가변 높이 */}
+              {/* 텍스트 영역 — 1~4줄 가변 높이 */}
               <span className="min-w-0">
                 {/* 1줄: workspace 이름 */}
                 <span
@@ -247,28 +252,28 @@ function WorkspaceRow({
                   {primaryText}
                 </span>
 
-                {/* 2줄: message preview — message가 있을 때만 렌더 */}
-                {previewMessage && (
+                {/* SSH 전용: user@host 한 줄(이름 바로 아래). 로컬에서는 미렌더. */}
+                {sshUserHostLine && (
                   <span
                     className={cn(
-                      "block text-app-ui-sm mt-0.5 line-clamp-1",
-                      isActive ? "text-foreground/70" : "text-muted-foreground",
+                      "block text-app-micro mt-0.5 line-clamp-1 truncate",
+                      isActive ? "text-foreground/70" : "text-muted-foreground/70",
                     )}
                   >
-                    {previewMessage}
+                    {sshUserHostLine}
                   </span>
                 )}
 
-                {/* 3줄: branch · path */}
+                {/* 2줄: path (+ LSP 언어 칩) */}
                 <span
                   className={cn(
-                    "block text-app-micro mt-1 line-clamp-1 truncate",
+                    "block text-app-micro mt-0.5 line-clamp-1 truncate",
                     isActive ? "text-foreground/70" : "text-muted-foreground/70",
                   )}
                   title={secondaryTitle}
                 >
-                  {thirdLine}
-                  {/* LSP 언어 칩 — 3줄 끝 우측 인라인, 상시 노출 */}
+                  {pathLine}
+                  {/* LSP 언어 칩 — path 줄 끝 우측 인라인, 상시 노출 */}
                   {LSP_FEATURE_ENABLED &&
                     CHIP_LANGUAGES.map((lang) => (
                       <LspLanguageChip
@@ -279,6 +284,40 @@ function WorkspaceRow({
                       />
                     ))}
                 </span>
+
+                {/* 3줄: branch — 있을 때만. GitBranch 아이콘으로 시각적 affordance. */}
+                {branchName && (
+                  <span
+                    className={cn(
+                      "flex items-center gap-1 mt-0.5 text-app-micro min-w-0",
+                      isActive ? "text-foreground/70" : "text-muted-foreground/70",
+                    )}
+                  >
+                    <GitBranch
+                      width={10}
+                      height={10}
+                      strokeWidth={1.5}
+                      aria-hidden="true"
+                      className="shrink-0"
+                    />
+                    <span className="truncate">{branchName}</span>
+                  </span>
+                )}
+
+                {/* 4줄: glyph + message — 둘 중 하나라도 있을 때만 */}
+                {(glyphStatus || previewMessage) && (
+                  <span
+                    className={cn(
+                      "flex items-center gap-1.5 mt-1 text-app-ui-sm min-w-0",
+                      isActive ? "text-foreground/70" : "text-muted-foreground",
+                    )}
+                  >
+                    {glyphStatus && <WorkspaceStatusGlyph status={glyphStatus} />}
+                    {previewMessage && (
+                      <span className="truncate">{previewMessage}</span>
+                    )}
+                  </span>
+                )}
               </span>
 
             </span>
@@ -587,19 +626,16 @@ function connectionStatusClassName(status: WorkspaceConnectionStatus): string {
 }
 
 /**
- * Chooses the compact secondary line for local and SSH workspace rows.
- * SSH: always `user@host` (configAlias is dropped in favour of connection info visibility).
- * Local: last two path segments for breadcrumb context.
+ * 카드의 경로 한 줄을 만든다. 로컬/SSH 모두 동일한 규칙: 절대경로의 마지막 두
+ * 세그먼트만 노출(breadcrumb context). SSH의 user@host는 카드 상단 별도 줄로
+ * 분리되었으므로 여기서는 처리하지 않는다.
  */
 function secondaryWorkspaceText(workspace: WorkspaceMeta): string {
-  if (workspace.location.kind === "ssh") {
-    return formatSshSecondaryLine({
-      user: workspace.location.user,
-      host: workspace.location.host,
-    });
-  }
-
-  return workspace.rootPath.split("/").filter(Boolean).slice(-2).join("/");
+  const path =
+    workspace.location.kind === "ssh"
+      ? workspace.location.remotePath
+      : workspace.rootPath;
+  return path.split("/").filter(Boolean).slice(-2).join("/");
 }
 
 // ---------------------------------------------------------------------------

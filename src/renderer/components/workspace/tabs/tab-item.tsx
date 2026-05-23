@@ -1,4 +1,12 @@
-import { CircleAlert, CircleCheck, CircleDot, Loader, Lock, TriangleAlert, X } from "lucide-react";
+import {
+  CircleAlert,
+  CircleCheck,
+  Loader,
+  Lock,
+  MessageCircleQuestion,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
@@ -110,9 +118,11 @@ function ClaudeGlyph({ status }: { status: ClaudeStatus }) {
     );
   }
   if (status === "needsInput") {
+    // completed(정적 체크)와 같은 attention 색 토큰을 공유하므로, pulse 모션과
+    // 아이콘(MessageCircleQuestion) 형태로 시각적 구분을 추가한다.
     return (
-      <span role="img" aria-label={label}>
-        <CircleDot
+      <span role="img" aria-label={label} className="motion-safe:animate-pulse">
+        <MessageCircleQuestion
           width={12}
           height={12}
           strokeWidth={1.5}

@@ -53,12 +53,16 @@ type EventSink func(name string, payload any) error
 
 // HookEventPayload 는 EventSink에 "claude.hook" 이벤트로 전달하는 페이로드다.
 // 필드명은 src/shared/claude/status.ts의 HookRequestSchema와 일치한다.
+//
+// AssistantText는 Stop hook에서만 채워지는 옵션 필드 — hookclient가 transcript_path
+// 를 직접 읽어 마지막 assistant 메시지를 단일 줄로 정규화·truncate한 결과.
 type HookEventPayload struct {
-	HookID      string          `json:"hookId"`
-	WorkspaceID string          `json:"workspaceId"`
-	TabID       string          `json:"tabId"`
-	Subcommand  string          `json:"subcommand"`
-	Payload     json.RawMessage `json:"payload"`
+	HookID        string          `json:"hookId"`
+	WorkspaceID   string          `json:"workspaceId"`
+	TabID         string          `json:"tabId"`
+	Subcommand    string          `json:"subcommand"`
+	Payload       json.RawMessage `json:"payload"`
+	AssistantText string          `json:"assistantText,omitempty"`
 }
 
 // HookResponse 는 main이 Respond()를 통해 hook 클라이언트에게 전달하는 응답이다.
@@ -70,12 +74,13 @@ type HookResponse struct {
 
 // hookWireRequest 는 hookclient가 송신하는 NDJSON 요청 프레임이다.
 type hookWireRequest struct {
-	Type        string          `json:"type"`
-	Token       string          `json:"token"`
-	WorkspaceID string          `json:"workspaceId"`
-	TabID       string          `json:"tabId"`
-	Subcommand  string          `json:"subcommand"`
-	Payload     json.RawMessage `json:"payload"`
+	Type          string          `json:"type"`
+	Token         string          `json:"token"`
+	WorkspaceID   string          `json:"workspaceId"`
+	TabID         string          `json:"tabId"`
+	Subcommand    string          `json:"subcommand"`
+	Payload       json.RawMessage `json:"payload"`
+	AssistantText string          `json:"assistantText,omitempty"`
 }
 
 // hookWireResponse 는 hook 클라이언트에게 돌려보내는 NDJSON 응답 프레임이다.
@@ -304,11 +309,12 @@ func (s *Server) handleConn(conn net.Conn) {
 	s.sinkMu.Unlock()
 
 	payload := HookEventPayload{
-		HookID:      hookID,
-		WorkspaceID: req.WorkspaceID,
-		TabID:       req.TabID,
-		Subcommand:  req.Subcommand,
-		Payload:     req.Payload,
+		HookID:        hookID,
+		WorkspaceID:   req.WorkspaceID,
+		TabID:         req.TabID,
+		Subcommand:    req.Subcommand,
+		Payload:       req.Payload,
+		AssistantText: req.AssistantText,
 	}
 	if sink != nil {
 		if err := sink("claude.hook", payload); err != nil {

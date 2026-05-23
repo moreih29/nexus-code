@@ -118,22 +118,18 @@ function renderSidebarForWs(): string {
 }
 
 // ---------------------------------------------------------------------------
-// idle — 회색 글리프 (사용자 확인 완료 dim 상태)
+// idle — 글리프 미렌더 (시각 노이즈 최소화: idle은 attention이 필요 없으므로
+// 글리프 자체를 그리지 않는다. running/needsInput/error 등 실제 신호 카드만
+// 글리프가 보인다.)
 // ---------------------------------------------------------------------------
 
 describe("WorkspaceStatusGlyph — idle", () => {
   beforeEach(resetAll);
 
-  test("idle 탭이 있으면 'Claude: idle' aria-label이 렌더된다", () => {
+  test("idle 탭만 있으면 'Claude: idle' aria-label이 렌더되지 않는다", () => {
     mockWsTabs = { t1: makeEntry("t1", "idle") };
     const html = renderSidebarForWs();
-    expect(html).toContain("Claude: idle");
-  });
-
-  test("idle 글리프는 muted-foreground 색 클래스를 사용한다", () => {
-    mockWsTabs = { t1: makeEntry("t1", "idle") };
-    const html = renderSidebarForWs();
-    expect(html).toContain("text-muted-foreground");
+    expect(html).not.toContain("Claude: idle");
   });
 });
 
@@ -195,6 +191,12 @@ describe("WorkspaceStatusGlyph — needsInput", () => {
     mockWsTabs = { t1: makeEntry("t1", "needsInput") };
     const html = renderSidebarForWs();
     expect(html).toContain("tab-claude-attention-fg");
+  });
+
+  test("needsInput 글리프는 pulse 애니메이션이 적용된다 (completed와 시각적 구분)", () => {
+    mockWsTabs = { t1: makeEntry("t1", "needsInput") };
+    const html = renderSidebarForWs();
+    expect(html).toContain("motion-safe:animate-pulse");
   });
 });
 

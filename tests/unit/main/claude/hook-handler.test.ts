@@ -200,7 +200,9 @@ describe("hook-handler — subcommand 상태 전이", () => {
     const { broker, emit } = makeHarness();
     emit(makeHookPayload("session-start"));
     await new Promise((r) => setTimeout(r, 0));
-    expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
+    // session-start는 idle — Claude가 사용자 입력 대기 상태로 들어간다.
+    // running은 user-prompt-submit/pre-tool-use부터 실제 작업이 시작될 때.
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("idle");
   });
 
   test("user-prompt-submit → running", async () => {
@@ -236,6 +238,33 @@ describe("hook-handler — subcommand 상태 전이", () => {
     await new Promise((r) => setTimeout(r, 0));
     // 앱이 백그라운드면 사용자가 보고 있지 않다고 본다.
     expect(broker.get("ws-test", "tab-test")?.status).toBe("completed");
+  });
+
+  test("stop — 비-active 탭 + assistantText 있음 → completed + message에 텍스트", async () => {
+    const { broker, activeContext, emit } = makeHarness(true /* focused */);
+    activeContext.set("ws-test", "other-tab"); // 다른 탭
+    broker.set("ws-test", "tab-test", "running");
+    // hookclient가 transcript를 읽어 채워서 보낸 payload를 시뮬레이션.
+    emit({
+      ...makeHookPayload("stop"),
+      assistantText: "Here is the answer to your question.",
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    const entry = broker.get("ws-test", "tab-test");
+    expect(entry?.status).toBe("completed");
+    expect(entry?.message).toBe("Here is the answer to your question.");
+  });
+
+  test("stop — 비-active 탭 + assistantText 미포함 → completed + message undefined", async () => {
+    // transcript가 없거나 파싱 실패 등 silent fallback 경로. 글리프만 표시되어야.
+    const { broker, activeContext, emit } = makeHarness(true /* focused */);
+    activeContext.set("ws-test", "other-tab");
+    broker.set("ws-test", "tab-test", "running");
+    emit(makeHookPayload("stop")); // assistantText 미포함
+    await new Promise((r) => setTimeout(r, 0));
+    const entry = broker.get("ws-test", "tab-test");
+    expect(entry?.status).toBe("completed");
+    expect(entry?.message).toBeUndefined();
   });
 
   test("session-end → broker.clear (항목 제거)", async () => {
