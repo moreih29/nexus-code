@@ -166,7 +166,7 @@
   --sidebar-item-selected-bg: rgba(31, 111, 235, 0.2);
   --sidebar-item-selected-fg: #c9d1d9;
   --sidebar-icon-fg: #8b949e;
-  --tab-active-bg: #0d1117;
+  --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #1f6feb;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #1f6feb;
@@ -271,7 +271,7 @@
   --sidebar-item-selected-bg: rgba(31, 111, 235, 0.2);
   --sidebar-item-selected-fg: #c9d1d9;
   --sidebar-icon-fg: #8b949e;
-  --tab-active-bg: #0d1117;
+  --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #1f6feb;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #1f6feb;
@@ -369,7 +369,7 @@
   --sidebar-item-selected-bg: rgba(9, 105, 218, 0.2);
   --sidebar-item-selected-fg: #1f2328;
   --sidebar-icon-fg: #656d76;
-  --tab-active-bg: #ffffff;
+  --tab-active-bg: rgba(0, 0, 0, 0.08);
   --tab-active-border: #0969da;
   --tab-hover-bg: rgba(0, 0, 0, 0.04);
   --tab-modified-dot: #0969da;
@@ -467,7 +467,7 @@
   --sidebar-item-selected-bg: rgba(189, 147, 249, 0.2);
   --sidebar-item-selected-fg: #f8f8f2;
   --sidebar-icon-fg: #6272a4;
-  --tab-active-bg: #282a36;
+  --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #bd93f9;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #bd93f9;
@@ -565,7 +565,7 @@
   --sidebar-item-selected-bg: rgba(97, 175, 239, 0.2);
   --sidebar-item-selected-fg: #abb2bf;
   --sidebar-icon-fg: #5c6370;
-  --tab-active-bg: #282c34;
+  --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #61afef;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #61afef;
@@ -663,7 +663,7 @@
   --sidebar-item-selected-bg: rgba(166, 226, 46, 0.2);
   --sidebar-item-selected-fg: #f8f8f2;
   --sidebar-icon-fg: #75715e;
-  --tab-active-bg: #272822;
+  --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #a6e22e;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #a6e22e;
@@ -761,7 +761,7 @@
   --sidebar-item-selected-bg: rgba(122, 162, 247, 0.2);
   --sidebar-item-selected-fg: #c0caf5;
   --sidebar-icon-fg: #565f89;
-  --tab-active-bg: #1a1b26;
+  --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #7aa2f7;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #7aa2f7;
@@ -859,7 +859,7 @@
   --sidebar-item-selected-bg: rgba(38, 139, 210, 0.2);
   --sidebar-item-selected-fg: #839496;
   --sidebar-icon-fg: #586e75;
-  --tab-active-bg: #002b36;
+  --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #268bd2;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #268bd2;
@@ -957,7 +957,7 @@
   --sidebar-item-selected-bg: rgba(136, 192, 208, 0.2);
   --sidebar-item-selected-fg: #d8dee9;
   --sidebar-icon-fg: #616e88;
-  --tab-active-bg: #2e3440;
+  --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #88c0d0;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #88c0d0;
@@ -1055,7 +1055,7 @@
   --sidebar-item-selected-bg: rgba(137, 180, 250, 0.2);
   --sidebar-item-selected-fg: #cdd6f4;
   --sidebar-icon-fg: #6c7086;
-  --tab-active-bg: #1e1e2e;
+  --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #89b4fa;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #89b4fa;
@@ -1153,7 +1153,7 @@
   --sidebar-item-selected-bg: rgba(250, 189, 47, 0.2);
   --sidebar-item-selected-fg: #ebdbb2;
   --sidebar-icon-fg: #928374;
-  --tab-active-bg: #282828;
+  --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #fabd2f;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-modified-dot: #fabd2f;

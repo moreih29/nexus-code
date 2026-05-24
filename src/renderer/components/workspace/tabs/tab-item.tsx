@@ -227,7 +227,8 @@ export function TabItem({
           // chip layout — h-7 inset within the h-9 bar; rounded so the active /
           // hover surface reads as a raised chip (JetBrains Islands tab).
           // pr-7 reserves space for the absolute close button.
-          "flex items-center gap-2 pl-3 pr-7 h-7 rounded-(--radius-raised)",
+          // relative: positioning context for the active-state ::after underline.
+          "relative flex items-center gap-2 pl-3 pr-7 h-7 rounded-(--radius-raised)",
           // text
           "text-app-ui-sm whitespace-nowrap select-none cursor-pointer",
           // reset button defaults
@@ -241,15 +242,38 @@ export function TabItem({
           // within-island raised surface (not a canvas/island swap), so no
           // depth reversal — design.md §2 is about canvas↔island, not this.
           "data-[state=active]:bg-[var(--tab-active-bg)] data-[state=active]:text-foreground",
+          // active accent underline — JetBrains Islands canon (EditorTabs.underline*):
+          // 2px tall bottom-edge line, inset 8px on each side, fully rounded ends.
+          // 사이드바와 동일한 --state-selected-indicator 토큰 공유 → "이 파랑은
+          // 활성 의미"라는 색 어휘를 유지하면서 위치만 변주(세로 리스트=좌측 2px,
+          // 가로 탭=하단 2px). 그레이스케일에서도 위치 단서가 잔존해 접근성 OK.
+          "data-[state=active]:after:content-['']",
+          "data-[state=active]:after:absolute data-[state=active]:after:left-2 data-[state=active]:after:right-2",
+          "data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5",
+          "data-[state=active]:after:rounded-full",
+          "data-[state=active]:after:bg-[var(--state-selected-indicator)]",
+          // preview tab + active: italic 라벨이 "임시 활성"을 이미 신호하므로
+          // underline alpha를 60%로 낮춰 "정착되지 않은 선택"임을 보조 표현.
+          // dirty가 발생해 promoteFromPreview되면 isPreview=false가 되어 자동 복원.
+          tab.isPreview && "data-[state=active]:after:opacity-60",
+          // inactive tab의 보조 아이콘(Pin/Lock/Claude 글리프)을 65% alpha로
+          // 감쇠 — JB canon `EditorTabs.unselectedAlpha` 대응. 활성 탭은 풀톤
+          // 유지로 시각적 우선순위를 명확히 한다. 텍스트는 이미 text-muted-foreground
+          // 로 dim 처리되어 있으므로 추가 opacity 안 적용(이중 dim 방지).
+          "data-[state=inactive]:[&_[data-tab-icon]]:opacity-65",
           // permissionPending 탭 배경 warning tint — 6% opacity, redundant encoding 보조.
           isPermissionPending && "bg-(--state-warning-bg)/[0.06]",
           // focus
           "outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50",
         )}
       >
-        {tab.isPinned && <PinIcon />}
+        {tab.isPinned && (
+          <span data-tab-icon className="inline-flex">
+            <PinIcon />
+          </span>
+        )}
         {tab.type === "editor" && (tab.props.readOnly || tab.props.origin === "external") && (
-          <span role="img" aria-label="Read-only">
+          <span data-tab-icon role="img" aria-label="Read-only">
             <Lock
               aria-hidden
               width={12}
@@ -259,9 +283,12 @@ export function TabItem({
             />
           </span>
         )}
-        {/* Claude 상태 글리프 슬롯 — idle이면 미렌더. 활성/비활성 탭 모두 풀톤 opacity. */}
+        {/* Claude 상태 글리프 슬롯 — idle이면 미렌더. data-tab-icon 마커로
+            비활성 탭에서는 65% alpha로 감쇠된다(활성 탭은 풀톤 유지). */}
         {claudeStatus && claudeStatus !== "idle" && (
-          <ClaudeGlyph status={claudeStatus} />
+          <span data-tab-icon className="inline-flex">
+            <ClaudeGlyph status={claudeStatus} />
+          </span>
         )}
         <span className={tab.isPreview ? "italic" : undefined}>
           {displayTitle}

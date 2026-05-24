@@ -281,7 +281,13 @@ export function buildSemanticTokens(source: ThemeSource): SemanticTokenSet {
 
     // --- tab ---
     "tab.bar.bg": source.bg.secondary,
-    "tab.active.bg": source.bg.primary,
+    // tab.active.bg는 island surface(source.bg.primary)와 한 단계 차이가 나야
+    // 활성 탭이 보인다. 직전까지 bg.primary와 동일 hex를 공유해 fill이 사실상
+    // 비가시였고 활성 단서가 텍스트 색 하나로 축약돼 있었음(JetBrains Islands
+    // canon이 권장하는 3중 단서 중 1개만 작동). overlay(0.08)은 다크는 흰색 8%
+    // 오버레이로 islands보다 살짝 밝게, 라이트는 검정 8%로 살짝 어둡게 만들어
+    // ≥1.2:1 대비를 확보한다(state.hover.bg=o(0.04)와도 명확히 구분).
+    "tab.active.bg": o(0.08),
     "tab.active.fg": source.fg.primary,
     "tab.active.border": source.accent,
     "tab.inactive.bg": source.bg.secondary,
