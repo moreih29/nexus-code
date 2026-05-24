@@ -8,19 +8,22 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { useContextMenuHandoff } from "@/components/ui/use-context-menu-handoff";
+import { findLeaf } from "@/engine";
 import { useDelayedLoading } from "../../../hooks/use-delayed-loading";
 import { openOrRevealEditor } from "../../../services/editor";
-import { ensureRoot, toggleExpand } from "../../../state/operations/files";
+import { ensureRoot, reveal, toggleExpand } from "../../../state/operations/files";
 import { selectFlat, useFilesStore } from "../../../state/stores/files";
-import { getDisplayFlat } from "./display";
-import { LOADING_FLASH_DELAY_MS, ROW_HEIGHT_PX } from "./metrics";
-import { FileTreeStatusView } from "./status-view";
-import { FileTreeVirtualBody } from "./virtual-body";
-import { buildFileTreeMenuItems } from "./menu";
+import { useLayoutStore } from "../../../state/stores/layout";
+import { useTabsStore } from "../../../state/stores/tabs";
 import { type FileTreeActionTarget, useFileTreeActions } from "../hooks/use-file-tree-actions";
 import { useFileTreePendingCreate } from "../hooks/use-file-tree-pending-create";
 import { useFileTreePendingRename } from "../hooks/use-file-tree-pending-rename";
 import { createFileTreeKeydownHandler } from "../keys";
+import { getDisplayFlat } from "./display";
+import { buildFileTreeMenuItems } from "./menu";
+import { LOADING_FLASH_DELAY_MS, ROW_HEIGHT_PX } from "./metrics";
+import { FileTreeStatusView } from "./status-view";
+import { FileTreeVirtualBody } from "./virtual-body";
 
 interface FileTreeProps {
   workspaceId: string;
@@ -65,6 +68,26 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
     const path = flat[activeIndex]?.absPath ?? null;
     useFilesStore.getState().setActiveAbsPath(workspaceId, path);
   }, [flat, activeIndex, workspaceId]);
+
+  // Active 에디터 탭이 가리키는 파일의 절대경로. editor / editor.diff 만 대상.
+  // 터미널·git.commit 등 파일을 가지지 않는 탭이 활성일 때는 null이고, 그러는
+  // 동안에는 트리 하이라이트를 건드리지 않는다(기존 상태 유지).
+  const layoutForWs = useLayoutStore((s) => s.byWorkspace[workspaceId]);
+  const tabsForWs = useTabsStore((s) => s.byWorkspace[workspaceId]);
+  const activeEditorAbsPath = useMemo<string | null>(() => {
+    if (!layoutForWs) return null;
+    const leaf = findLeaf(layoutForWs.root, layoutForWs.activeGroupId);
+    const tabId = leaf?.activeTabId;
+    if (!tabId) return null;
+    const tab = tabsForWs?.[tabId];
+    if (!tab) return null;
+    if (tab.type === "editor") return tab.props.filePath;
+    if (tab.type === "editor.diff" && tab.props.relPath) {
+      return `${rootAbsPath}/${tab.props.relPath}`;
+    }
+    return null;
+  }, [layoutForWs, tabsForWs, rootAbsPath]);
+
   // Anchor for the right-click menu — set in the row's onContextMenu (bubble
   // phase) so it lands in state before Radix's Trigger opens the menu.
   const [contextTarget, setContextTarget] = useState<FileTreeActionTarget | null>(null);
@@ -104,6 +127,35 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
     estimateSize: () => ROW_HEIGHT_PX,
     overscan: 10,
   });
+
+  // ---------------------------------------------------------------------------
+  // Auto-reveal: 활성 에디터 탭이 가리키는 파일을 트리에서 하이라이트
+  // ---------------------------------------------------------------------------
+  // 탭 클릭/키보드 이동/외부 reveal 모두 같은 effect로 처리된다.
+  // Phase 1: 부모 디렉터리를 펼친다. reveal()이 ancestors를 expanded에 추가하고
+  // 필요한 children을 IPC로 로드한다. 워크스페이스 루트 바깥의 경로는 무시.
+  // flat을 deps에 넣어 트리 init 직후 / 자식 로드 직후에도 effect가 다시 돌아
+  // 경로가 아직 보이지 않으면 reveal을 재시도한다. 이미 flat에 있으면 no-op.
+  useEffect(() => {
+    if (!activeEditorAbsPath) return;
+    if (activeEditorAbsPath !== rootAbsPath && !activeEditorAbsPath.startsWith(`${rootAbsPath}/`)) {
+      return;
+    }
+    if (flat.some((f) => f.absPath === activeEditorAbsPath)) return;
+    void reveal(workspaceId, activeEditorAbsPath);
+  }, [activeEditorAbsPath, workspaceId, rootAbsPath, flat]);
+
+  // Phase 2: flat 리스트가 해당 경로를 포함하게 되면 activeIndex 갱신 + 스크롤.
+  // reveal()이 비동기로 children을 로드하면 flat이 변하면서 이 effect가 다시
+  // 돌아 인덱스를 찾는다. flat에 아직 없는 경우 no-op이 되고, 다음 store
+  // 업데이트(자식 로드 완료) 후 재시도된다.
+  useEffect(() => {
+    if (!activeEditorAbsPath) return;
+    const idx = flat.findIndex((f) => f.absPath === activeEditorAbsPath);
+    if (idx < 0) return;
+    setActiveIndexLocal(idx);
+    virtualizer.scrollToIndex(idx, { align: "auto" });
+  }, [activeEditorAbsPath, flat, virtualizer]);
 
   // Empty / loading / error pose. Returns null for "pre-200ms hidden" so
   // the caller mirrors the same condition.
