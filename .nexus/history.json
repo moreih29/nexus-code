@@ -18688,6 +18688,960 @@
           }
         }
       ]
+    },
+    {
+      "completed_at": "2026-05-24T13:01:05.702Z",
+      "branch": "main",
+      "plan": {
+        "id": 60,
+        "topic": "Raw/Preview 토글 — .md / .mdx / .html / .svg 렌더링 뷰",
+        "issues": [
+          {
+            "id": 1,
+            "title": "렌더링 엔진 선택 — markdown / html / svg 각각의 라이브러리·기법",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "권고: markdown은 react-markdown + remark-gfm (rehype-raw 미사용 — dangerouslySetInnerHTML 경로 차단). html은 iframe srcdoc + sandbox=\"\" (모든 토큰 제거). svg는 &lt;img src={blobURL(type:\"image/svg+xml\")}&gt;. 세 경로 모두 React 컴포넌트 경계 안에서 격리. markdown-it/marked 대안은 HTML 문자열 출력이라 결국 sanitizer 의존성(DOMPurify) 필요 → 의존성 +1, 신뢰 경계 추가. 채택 안 함.",
+                "recorded_at": "2026-05-24T04:56:39.488Z",
+                "agent_id": "a1bff149b62a65ae6"
+              }
+            ],
+            "decision": "markdown = react-markdown + remark-gfm (rehype-raw 미사용). html = iframe srcdoc + sandbox=\"\" + allow=\"\" + referrerpolicy=\"no-referrer\". svg = <img src={blobURL(\"image/svg+xml\")}>. 세 경로 모두 React 컴포넌트 경계 안에서 격리. DOMPurify/markdown-it/marked 대안은 sanitizer 의존성 + 신뢰 경계 추가라 비채택."
+          },
+          {
+            "id": 2,
+            "title": "MDX 처리 정책 — JSX 평가가 임의 코드 실행이므로 안전 전략을 정해야 함",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "CRITICAL 권고: v1에서 .mdx는 preview 거부, raw-only. 토글은 disabled로 노출 + 툴팁 \"MDX preview is disabled for security\". 근거: @mdx-js의 안전 모드라도 JSX 표현식 평가는 본질적으로 임의 코드 실행 — contextIsolation renderer라도 같은 React 컨텍스트에서 함수가 돈다. .mdx 빈도가 낮아 사용성 손실 최소. JSX 토큰 이스케이프 대안은 사용자가 \"MDX를 봤다\"고 오인하게 만들고 후속 안전모드 도입 시 호환성 부담.",
+                "recorded_at": "2026-05-24T04:56:45.399Z",
+                "agent_id": "a1bff149b62a65ae6"
+              }
+            ],
+            "decision": ".mdx는 v1에서 preview 거부, raw-only. 토글은 disabled 상태로 노출하고 툴팁 \"MDX preview is disabled for security\". JSX 평가가 본질적으로 임의 코드 실행이라 워크스페이스 신뢰 불가 원칙과 양립 불가. v2에서 안전 평가 기법(샌드박스 iframe + MDX 컴파일러 격리)이 검증되면 재검토."
+          },
+          {
+            "id": 3,
+            "title": "HTML/SVG sandbox 모델 — iframe sandbox 속성·workspace 파일 접근·CSP 전략",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "CRITICAL 권고: iframe = `sandbox=\"\"` (모든 토큰 제거, W3C 명세상 가장 엄격), `srcdoc=` inline 주입, `allow=\"\"`, `referrerpolicy=\"no-referrer\"`. 워크스페이스 file:// 접근은 v1에서 차단 — 이미지는 broken 상태로 두고, IPC 기반 blob-URL 변환 게이트는 별도 plan(v2). SVG는 항상 &lt;img&gt; 경유 (inline 금지 — &lt;script&gt;/&lt;foreignObject&gt;가 부모 DOM과 같은 origin에서 실행 위험). Shadow DOM은 보안 경계가 아닌 스타일 캡슐화라 부적합.",
+                "recorded_at": "2026-05-24T04:56:50.819Z",
+                "agent_id": "a1bff149b62a65ae6"
+              }
+            ],
+            "decision": "iframe = sandbox=\"\" + srcdoc + allow=\"\" + referrerpolicy=\"no-referrer\". SVG는 항상 <img>+blob URL 경유, inline svg 금지. **workspace 파일 접근(이미지)은 v1에 포함** — Electron `protocol.handle` 기반 custom scheme `nexus-workspace://{workspaceId}/{relPath}` 등록 (main process). main에서 path resolve + rootPath prefix 검증 후 fs stream 응답. 잘못된 workspaceId·경로 escape는 404. dev(http://localhost)와 prod(file://) 양쪽 동일하게 동작."
+          },
+          {
+            "id": 4,
+            "title": "토글 상태 위치 — 탭별(tabs store) vs EditorView 로컬 state vs 별도 store",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "권고: EditorTab 브랜치에 viewMode?: \"raw\"|\"preview\" 추가. default는 \"raw\"로 selector에서 처리. 근거: (1) 탭 이동·분할 시 viewMode 보존이 사용자 기대 — tabs store는 이미 동일 객체 참조. (2) EditorView 로컬 useState는 ContentHost의 view park 이동·preview-slot 재활용 시나리오에서 remount → state 초기화 (preview→raw 갑작스러운 복귀 버그). (3) 별도 슬라이스는 (workspaceId, tabId) Map 수동 GC 필요 → closeAllForWorkspace 동기화 부담. Tab discriminated union이 코드베이스 컨벤션과 정렬.",
+                "recorded_at": "2026-05-24T04:56:57.166Z",
+                "agent_id": "a1bff149b62a65ae6"
+              },
+              {
+                "role": "designer",
+                "summary": "디자이너 동의: viewMode가 탭별 영속이어야 사용자 멘탈 모델(같은 README를 두 split에서 raw + preview로 동시 보기)이 가능. Tab union 부착 권고.",
+                "recorded_at": "2026-05-24T04:57:17.177Z",
+                "agent_id": "ad96ddb99b5f7f26f"
+              }
+            ],
+            "decision": "EditorTab 브랜치에 viewMode?: \"raw\"|\"preview\" 옵션 필드 추가 (default = \"raw\"). tabs store가 분할/이동/cleanup 라이프사이클을 이미 소유하므로 자동 GC. 같은 파일을 두 split에서 raw/preview 동시 표시 가능 (별 객체). EditorView 로컬 useState · 별도 슬라이스 비채택."
+          },
+          {
+            "id": 5,
+            "title": "토글 UI 형태·위치 + 라이브 동기화 메커니즘 (designer/architect 결합)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "권고: model.onDidChangeContent 단일 구독 + rAF 1tick coalesce(또는 80-120ms trailing debounce). React state로 markdown **문자열** 보유. 큰 파일(MAX_PREVIEW_BYTES = 512KB) 초과 시 preview 자르고 banner. 근거: (1) useModelHasMarkers의 검증된 패턴(onDidChangeContent → setState + model.isDisposed() 가드) 그대로 차용. (2) 매 렌더 model.getValue()는 큰 파일에서 N회 동기 호출 — state 보유 시 commit 당 1회. (3) 1MB md에서 react-markdown AST 재파싱 수십 ms — rAF coalesce면 60fps 유지하면서 \"즉시 반영\" 체감 유지. 300ms debounce는 \"즉시 반영\" 결정과 충돌.",
+                "recorded_at": "2026-05-24T04:57:04.148Z",
+                "agent_id": "a1bff149b62a65ae6"
+              },
+              {
+                "role": "designer",
+                "summary": "UX 보완 (r2): Preview 모드 중 외부 수정 reflow 시 스크롤 점프 우려 → preview 컨테이너 스크롤 위치를 비율 기준(scrollTop/scrollHeight) 으로 저장·복원. raw 편집 시에도 동일.",
+                "recorded_at": "2026-05-24T04:57:14.294Z",
+                "agent_id": "ad96ddb99b5f7f26f"
+              },
+              {
+                "role": "designer",
+                "summary": "토글 UI: Segmented 2-segment [Raw | Preview]. 위치: EditorView 헤더 우측 (ReadOnlyBanner와 동일 컨테이너, 후보 B). 시각: 24px height(compact 20px), 라디우스 4px, 텍스트 라벨 \"Raw\"/\"Preview\", active = control.segment.active.bg + text.primary, inactive = control.track.bg + text.tertiary, hairline border.subtle. role=\"radiogroup\" + role=\"radio\" 좌우 화살표. 미지원 파일은 토글 미렌더. JetBrains Writerside/Markdown segmented 패턴 따름.",
+                "recorded_at": "2026-05-24T04:58:32.820Z",
+                "agent_id": "ad96ddb99b5f7f26f"
+              }
+            ],
+            "decision": "UI 형태: Segmented control 2-segment [Raw | Preview]. 위치: EditorView 헤더 우측 (ReadOnlyBanner와 같은 컨테이너의 우측 슬롯; flex: 0 0 auto). 시각: height 24px(compact 20px), radius 4px(control), active 세그먼트는 control.segment.active.bg + text.primary, inactive는 text.tertiary, hairline border.subtle, 무그림자, 200ms ease-out transition. 접근성: role=\"radiogroup\" + 각 세그먼트 role=\"radio\" + aria-checked, 좌우 화살표 이동, focus-visible 2px outline. previewable 아닐 때 토글 미렌더. 라이브 동기화: model.onDidChangeContent + rAF 1tick coalesce, React state(string), model.isDisposed() 가드, MAX_PREVIEW_BYTES=512KB truncate+banner, 스크롤 위치는 비율(scrollTop/scrollHeight) 저장·복원.</decision>\n"
+          },
+          {
+            "id": 6,
+            "title": "마크다운 링크·이미지 라우팅 — 상대경로 .md → 내부 openOrRevealEditor / 상대 이미지 → file:// / http(s) → shell.openExternal 분기 규칙",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "권고:\n- 상대경로 .md/.mdx: openOrRevealEditor({workspaceId, filePath: resolve(currentDir, href)}). rootPath prefix 검증 필수 (CRITICAL — `../../../etc/passwd` escape 차단).\n- 상대경로 이미지: v1 미표시 (placeholder). file:// 게이트는 별도 plan.\n- http(s)://: rehype link transform에서 onClick + ipc.shell.openExternal. main process setWindowOpenHandler 패턴 일관.\n- #anchor: preview 컨테이너 내부 scrollIntoView.\n- 스킴 allowlist = {http, https, mailto}만 외부로 라우팅. vscode:/file: 등 기타 OS 핸들러 부수 효과 차단. 나머지는 무시 + console.warn.",
+                "recorded_at": "2026-05-24T04:57:10.588Z",
+                "agent_id": "a1bff149b62a65ae6"
+              }
+            ],
+            "decision": "링크 분기: 상대경로 .md/.mdx → resolve + rootPath prefix 검증 → openOrRevealEditor. 상대경로 이미지 → 동일 검증 후 `nexus-workspace://` URL로 변환 표시. 스킴 allowlist = {http, https, mailto}만 shell.openExternal IPC. #anchor → preview 컨테이너 scrollIntoView. vscode:/file:/javascript:/data: 등 차단 + console.warn. **동일 allowlist 유틸을 `setWindowOpenHandler`(main)에도 적용**해 기존 무차별 openExternal 가드 강화."
+          }
+        ],
+        "research_summary": "사전 코드 조사:\n1) ContentHost(src/renderer/components/workspace/content/host.tsx)가 tab.type별로 EditorView/DiffTab/CommitTab/TerminalView로 분기. EditorView는 useSharedModel(workspaceId, filePath) → Monaco ITextModel을 받아 @monaco-editor/react로 표시. key={filePath}로 prop swap 시 remount.\n2) useSharedModel의 cache.ts/entry.ts는 attach-fs-subscription을 통해 외부 fs.changed 이벤트 시 readAndPlaceContent로 model을 재반영. 따라서 외부 수정 → preview 자동 reflow는 model.onDidChangeContent 한 곳에서 일괄 처리 가능 (raw 편집 시도 같은 이벤트).\n3) 기존 react-markdown / markdown-it / marked / @mdx-js 의존성 0. react-markdown + remark-gfm 도입이 React 19 환경에 가장 자연스러움 (bundle 일부 증가 인지).\n4) tab은 discriminated union(state/stores/tabs.ts). Tab 인터페이스에 viewMode 필드를 추가하거나, 별도 슬라이스(예: useEditorViewModeStore)로 (workspaceId, tabId) → 'raw'|'preview' 매핑 가능.\n5) 보안: 워크스페이스의 임의 HTML/MDX/SVG는 신뢰 불가. HTML은 sandbox iframe(srcdoc), SVG는 <img>+blob URL이 안전. MDX의 JSX 평가는 임의 코드 실행이라 v1에서는 평가하지 않고 .md와 동일 파이프라인으로 처리(JSX는 텍스트 또는 정적 스킵)하는 게 합리적.\n6) 링크 라우팅: shell.openExternal IPC가 main에 존재. 내부 파일 라우팅은 openOrRevealEditor 사용.\n7) UI 우상단 위치 — 사용자 요청 명시. ReadOnlyBanner/ConflictResolvedBanner와 같은 EditorView 헤더 영역에 자연스럽게 통합 가능.\n8) 디자인 시스템(.nexus/context/design.md)은 Islands 모델: 섬 내부 헤더·툴바·divider는 hairline 또는 미세 명도차 허용. 토글은 섬 내부 컨트롤이므로 control 라디우스(4px), 베이스 그리드 준수 필요.\n9) 사용자 결정 사항: (a) 위치=에디터 우상단 (b) 기본=raw (c) 대상=.md/.mdx/.html/.svg 만 (d) 엔진 선정은 auto-plan 내부 결정 (e) 외부 수정 자동 reflow + raw 편집→preview 즉시 반영.\n사전 확인된 미해결 6축을 issue로 분할하여 architect/designer 합의로 결정한다.",
+        "created_at": "2026-05-24T04:53:30.477Z"
+      },
+      "tasks": []
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-24T14:23:28.633Z",
+      "branch": "feat/plan-61-tab-menu",
+      "plan": {
+        "id": 61,
+        "topic": "에디터 탭바 + 메뉴 확장 — 신규 파일/터미널/웹브라우저 선택",
+        "issues": [
+          {
+            "id": 1,
+            "title": "+ 메뉴 UX 패턴 + 트리거 디자인",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "## Issue 1 — + 메뉴 UX 패턴 + 트리거 디자인\n\n### 사용자 관점 (mental model)\n현재 tab-bar.tsx:124-132의 + 버튼은 클릭 즉시 터미널을 띄운다. 사용자는 이 버튼을 \"마지막 탭 오른쪽에 새 무언가를 연다\"로 이해해 왔고, 항목이 3개로 늘면 의도와 결과의 매핑(Consistency & Mapping)이 한 번에 깨진다. 또 IDE 사용자(VSCode/JetBrains/Zed 경험자)는 \"+ 가 메뉴를 연다\"보다 \"+ 옆 ▾ caret이 메뉴를 연다\"는 분리 패턴에 더 익숙하다(VSCode 터미널 패널, JetBrains \"New\" 액션 모두 분리형).\n\n### 결정 후보 (2안)\n\n**A. Split Button (+ 단독 클릭 = 디폴트 액션 / 별도 ▾ caret = 메뉴)**\n- 기본 동작 = \"신규 파일\" 즉시 실행 (가장 빈도 높은 IDE 사용 패턴, 워크스페이스가 코드 편집이 1차이므로)\n- ▾ caret(ChevronDown size-3, lucide)로 dropdown 열기. caret 자체도 24×24 hit target 확보\n- caret hover 시 + 본체와 분리된 hover 영역으로 시각화 (state.hover.bg 토큰)\n- 키보드: Tab → +(Enter=신규파일), Tab → caret(Enter/Space=메뉴 열림, 아래화살표 시에도 열림)\n\n**B. Single + + Dropdown (단일 + 클릭 = 메뉴 / 디폴트 액션 없음)**\n- + 한 번 클릭하면 항상 메뉴가 열린다. 모든 액션이 동등하게 메뉴에서 선택.\n- 구현·인지 부하 단순. caret 시각 노이즈 없음.\n- 단점: 가장 빈번한 액션(신규 파일)도 매번 2클릭 비용. 기존 \"+ → 터미널 즉시\" 행동을 깨고 항상 메뉴를 통과시키는 것이 모든 사용자에게 마찰.\n\n### 권장: A (Split Button)\n근거:\n1. **Hierarchy & Signifier** — caret(▾)이 \"여기엔 추가 옵션이 있다\"는 표준 signifier. + 단독에는 그 메타정보가 없어 사용자가 메뉴 존재 자체를 발견하지 못한다.\n2. **Load & Flow** — IDE 1차 액션(신규 파일)이 1클릭. Hick's Law 마찰 회피.\n3. **Consistency & Mapping** — split button은 macOS/VSCode/JetBrains 공통 패턴. \"마지막 선택 기억(MRU)\"은 후속 동일 클릭이 다른 결과를 내므로 mapping 예측가능성 위반 → 비추천.\n\n### 메뉴 패턴 (A 안 기준)\n- **컴포넌트**: Radix `DropdownMenu` (현재 ui/에 직접 wrapper는 없으나 radix-ui 패키지에 포함되어 신규 라이브러리 도입 아님). 또는 기존 `ContextMenu` wrapper와 동일 톤으로 `dropdown-menu.tsx` 박형 wrapper 1개 신설 권고 — Radix `DropdownMenu`는 trigger를 좌클릭/Enter/Space/ArrowDown 모두로 열며 우클릭은 별도 ContextMenu 영역으로 분리되므로 의미가 섞이지 않는다.\n- **항목 순서·아이콘** (top-down, 빈도×관련성 기준):\n  1. New File · `FilePlus` · `⌘N`\n  2. New Terminal · `SquareTerminal` · `⌃⇧\\`` (또는 환경 기존 단축키)\n  3. New Browser · `Globe` · 단축키 없음(저빈도)\n  순서 근거: 코드 IDE에서 신규 파일이 최빈, 터미널 차순, 브라우저는 보조 도구. 이 순서를 디폴트 액션(A안)과 정합시킨다.\n- **시각 토큰**: 항목 좌측 아이콘 16px(`size-4`, design.md §14 md), 우측 단축키는 `text-muted-foreground font-mono text-app-micro` (context-menu.tsx의 ITEM_CLASS와 동일 톤 유지로 §10 일관성).\n- **첫 항목 포커스**: dropdown 열림 시 첫 항목(New File)에 자동 포커스 (Radix DropdownMenu 기본 동작).\n\n### 키보드 네비\n- 트리거 포커스: Tab으로 도달, `focus-visible` 2px ring (state.focus.ring, design.md §11)\n- Open: Enter/Space/ArrowDown\n- 이동: ArrowDown/ArrowUp 순환\n- 실행: Enter\n- 닫기: Esc (포커스는 caret로 복귀)\n- 우클릭 + 버튼 위에서: **별도 컨텍스트 메뉴 없음** — 트리거가 좌클릭/caret 두 경로를 이미 제공하므로 우클릭은 OS 기본(no-op) 유지하여 의미 중복 회피.\n\n### Trade-offs\n| Option | Pros | Cons | Tradeoff | Recommend |\n|---|---|---|---|---|\n| A. Split (+/▾) | 빈도 액션 1클릭, 메뉴 발견 가능, IDE 컨벤션 | 트리거 폭 증가(약 +20px), 두 hit zone 분리 정확도 요구 | 빈도 최적화 ↔ 시각 단순성 | ✓ — IDE 사용 패턴 최적합 |\n| B. + 단독 + 메뉴 | 트리거 폭 최소, 인지 모델 단일 | 모든 액션 2클릭, 디폴트 가속 불가 | 시각 단순성 ↔ 액션 비용 | ✗ — 빈도 액션 마찰 누적 |\n\n### 위험 + 완화\n- **caret hit target** 24×24 미만이면 WCAG 2.5.5 미달 → caret 컨테이너를 size-6(24px) 확보, 시각적 아이콘은 size-3(12px)로 중앙 정렬\n- **사용자가 caret 존재 미발견** → caret과 + 사이 1px hairline(`surface.island.border`)으로 분할 표시. design.md §1 2축(섬 내부 미세 구획에 hairline 허용) 위반 아님.\n- **모바일/터치 — 비대상**: 데스크톱 IDE이므로 hover discovery 가능.\n\n### Visual Hierarchy\n+ 본체와 caret이 동일 ghost 톤(text-muted-foreground)으로 시작 → hover 시 둘 다 foreground. 디폴트 액션(+ 본체)이 더 큰 hit zone(28×28)을 차지하고 caret은 보조(16×28) — 시각적 무게가 빈도와 비례.\n\n### State Coverage\n9-state 중 +, caret 각각: default / hover / focus / active / disabled(워크스페이스 없을 때) 필수. loading/error/success/empty는 트리거 자체에는 부적용. dropdown 열림 = `data-state=open`으로 caret rotate(180°) 옵션은 INFO 권고(필수 아님).\n\n### Accessibility\n- + aria-label=\"New file\" (디폴트 액션 명시), caret aria-label=\"More new tab options\" + aria-haspopup=\"menu\"\n- Dropdown role=\"menu\", 항목 role=\"menuitem\"\n- 단축키 텍스트는 시각 표시일 뿐 — 실제 단축키 등록은 별도(이 issue 범위 외, lead/architect 영역)\n\n### Anti-pattern Check\n- gradient/glassmorphism 없음. menu 항목 nesting 없음. caret rotate 모션 시 `motion.fade` 200ms 이내 — bounce 금지.",
+                "recorded_at": "2026-05-24T13:03:27.339Z",
+                "agent_id": "designer-61"
+              }
+            ],
+            "decision": "단일 + 클릭 = 드롭다운 메뉴 (B안). Designer는 split button(A)을 권장했으나 Lead override — 사용자의 원 요청이 \"+ 버튼 누르면 메뉴 뜨고 셋 중 선택\"으로 명시적. 추가 caret/디폴트 액션은 사용자 의도와 다른 패턴이고 학습 비용 증가. \n\n세부:\n- 컴포넌트: Radix DropdownMenu wrapper 신설 (src/renderer/components/ui/dropdown-menu.tsx, context-menu와 동일 톤)\n- 항목 순서: New File · New Terminal · New Browser\n- 아이콘 (lucide): FilePlus / SquareTerminal / Globe\n- 단축키: ⌘N(New File), Terminal/Browser는 단축키 없음 (v1 범위)\n- 키보드: Tab → +(Enter/Space=메뉴 열기) → 자동으로 첫 항목 포커스 → 화살표/Esc 표준\n- 트리거 + 버튼은 기존 위치/크기 유지, hover/active 토큰 그대로"
+          },
+          {
+            "id": 2,
+            "title": "신규 파일: untitled 버퍼 모델 + 저장 흐름",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "## Issue 2 — 신규 파일 UX (untitled 버퍼 저장 흐름)\n\n### 사용자 관점 (mental model)\n사용자는 \"신규 파일\" 액션 후 \"곧장 코드를 입력하고 나중에 저장 위치를 정한다\"는 흐름을 기대한다(VSCode/Sublime/Zed 공통). 워크스페이스가 이미 열려 있으므로 사용자의 기본 멘탈 모델은 \"이 워크스페이스 안에 새 파일을 만든다\"이며, 저장 다이얼로그가 워크스페이스 root에서 시작하지 않으면 \"여기가 어디지\" 마찰이 발생한다.\n\n### 결정 후보 (2안)\n\n**A. 즉시 untitled 탭 생성 → ⌘S에서 native Save 다이얼로그 (워크스페이스 root 시작)**\n- IDE 표준 흐름. 입력 → 저장 위치 결정 단계 분리.\n- 다이얼로그 기본 경로 = 워크스페이스 root (활성 파일트리 디렉토리는 활성 상태가 불명확할 때 잘못된 위치로 유도).\n- 저장 성공 시 untitled 탭 → editor 탭으로 in-place 전환(같은 tab.id 유지, props 교체) → 사용자가 \"탭이 사라졌다\" 느끼지 않음.\n\n**B. 클릭 즉시 inline rename prompt → 이름 입력 후 빈 파일 생성**\n- 파일트리의 \"New File\" 흐름(이미 있는 패턴, 컨벤션 일관).\n- 단점: 사용자가 이름을 먼저 정해야 하는 강제 — \"초안 메모/스크래치\" 사용 시나리오(빈도 높음)에서 마찰. 그리고 + 메뉴의 New File과 파일트리의 New File이 의미상 다른 두 동작이 되어 Consistency 위반.\n\n### 권장: A\n근거:\n1. **Load & Flow** — 이름 결정은 useful friction이지만 \"지금 당장 메모\"라는 빈도 시나리오에서는 harmful. 저장 시점까지 미루는 게 IDE 컨벤션.\n2. **Consistency & Mapping** — VSCode/Sublime/Zed 모두 A 흐름. 사용자 기존 경험 직결.\n3. 파일트리 \"New File\"(B 흐름)은 \"특정 위치를 명시한 새 파일\", 탭바 \"New File\"(A 흐름)은 \"위치 미정 임시 버퍼\"로 의도 분리.\n\n### 세부 UX 결정\n\n**탭 제목**: `Untitled-1`, `Untitled-2`, …\n- 대문자 시작 — design.md §6 appBody가 sentence-case 컨벤션이지만 \"Untitled\"는 고유 라벨(파일명 슬롯)이므로 카피보다 파일 명명 컨벤션 우선. VSCode/JetBrains/Zed 전부 `Untitled-N` 사용 — 컨벤션 일치.\n- 카운터는 워크스페이스 단위로 1부터 증가, 닫혀도 재사용하지 않음(닫고 다시 만들면 Untitled-2, 충돌 회피). MAX 인덱스를 상태에 저장하는 방식은 architect 결정.\n\n**dirty 표시**: 기존 흐름 그대로 활용\n- tab-item.tsx의 `useTabDirty` + `tab-modified-dot` 토큰이 dirty이면 점을 표시.\n- untitled 버퍼는 **생성 즉시 dirty=true**로 시작 — 어떤 입력도 없어도 \"저장되지 않은 상태\"임을 redundant encoding(dot + 제목)으로 신호.\n- 단, 빈 버퍼에서 한 글자도 안 친 채 닫으면 확인 다이얼로그 없이 무손실 폐기(아래 정책).\n\n**첫 저장(⌘S)**:\n- Native Save 다이얼로그 발화. 기본 위치 = `workspace.root`.\n- 활성 디렉토리(파일트리에서 현재 expand된 곳)는 ambiguous → **사용하지 않음**. 사용자가 다이얼로그에서 직접 이동.\n- 기본 파일명 = `Untitled-1` 그대로 채워 두되 .txt 확장자는 강제하지 않음(사용자가 결정). Save 버튼 라벨 = OS 기본(\"저장\"/\"Save\")으로 OS 컨벤션 위반 회피.\n- 저장 성공 → 탭 제목이 즉시 파일명으로 갱신 + dirty 해제 + 파일트리 reveal(option, 후속 사이클).\n- 저장 실패 → toast (category=failed, banner 가능. 컨벤션상 inline은 입력 폼 대상이므로 toast가 적합). untitled 상태 그대로 유지.\n- 저장 취소(사용자가 다이얼로그 닫음) → untitled 그대로, **에러/메시지 없음**(cancelled = silent, conventions.md AppError category 정합).\n\n**워크스페이스 닫을 때 dirty untitled 처리**:\n- 결정 후보 1: 확인 다이얼로그(`prompt-dialog.tsx` 사용 — 이미 존재). \"Save / Don't Save / Cancel\" 3액션.\n- 결정 후보 2: 무조건 폐기(macOS 일부 앱 패턴).\n- **권장**: 1. 데이터 손실 위험은 useful friction. VSCode/Atom과 동일. dirty가 아닌 untitled(빈 버퍼 그대로 닫기)는 즉시 폐기 — 사용자가 의도적으로 빈 채로 닫는 시나리오에 마찰 없음.\n\n### Trade-offs\n| Option | Pros | Cons | Tradeoff | Recommend |\n|---|---|---|---|---|\n| A. untitled 즉시 + ⌘S 저장 | IDE 표준, 입력 즉시 가능, 스크래치 시나리오 흡수 | dirty 모델 + 저장 다이얼로그 흐름 구현 필요 | 빠른 시작 ↔ 흐름 복잡도 | ✓ — IDE 컨벤션 + 빈도 |\n| B. 이름 먼저 + 빈 파일 즉시 생성 | 구현 단순, 파일트리 흐름과 동형 | 스크래치 마찰, 두 + 메뉴/파일트리 의도 동일화로 차별성 상실 | 단순성 ↔ 시나리오 적합도 | ✗ — 스크래치 마찰 |\n\n### 위험 + 완화\n- **사용자가 dirty untitled 잊고 워크스페이스 전환**: 워크스페이스 전환 시점에도 동일 확인 다이얼로그 발화(요구사항 명시 안 됐으나 안전망으로 강력 권고).\n- **저장 위치 혼란**: 다이얼로그 제목에 워크스페이스명 포함 시 멘탈 모델 강화 (\"Save to <workspace>\"). 단 OS 표준 다이얼로그 커스터마이즈 한계 존재 — 가능한 범위만.\n- **여러 untitled 동시 열림**: 카운터 단조 증가 정책으로 충돌 회피. dirty 점이 각각 표시되어 식별 가능.\n- **VSCode 차이**: VSCode는 ⌘S 시 첫 줄 텍스트로 파일명 추정. 이 사이클에서는 도입하지 않음(저빈도 + UX 학습 비용). `Untitled-N` 그대로.\n\n### Visual Hierarchy\n탭 제목 `Untitled-1` + dirty dot — 기존 editor 탭과 동일한 시각 토큰 사용(별도 변형 없음). preview italic은 적용 안 함(untitled는 preview 개념 부적합 — 사용자가 명시적으로 만든 탭).\n\n### State Coverage\n- default(빈 버퍼) / loading(저장 진행 중 — 다이얼로그 표시 시) / error(저장 실패 toast) / success(저장 성공 — 탭 제목 갱신으로 암시) / empty(빈 버퍼 = default 동일, 별도 빈 상태 일러스트 불필요)\n- 빈 버퍼 placeholder/안내 텍스트: 권고 안 함. Monaco의 빈 에디터는 그 자체로 명확한 시그니파이어(커서 깜빡임).\n\n### Accessibility\n- 탭 aria-label에 dirty 상태 명시 권고: `aria-label=\"Untitled-1, unsaved\"` (terminalEnded와 동일 패턴, tab-item.tsx:225 참고)\n- 저장 다이얼로그는 OS 네이티브 → 접근성 OS 보장\n- 확인 다이얼로그(prompt-dialog.tsx)는 이미 focus trap + Esc 처리되어 있음 — 그대로 사용\n\n### Anti-pattern Check\n- \"Untitled\" 카피를 placeholder로 대체하지 말 것(§ UX writing: placeholder ≠ label).\n- 저장 성공 시 toast 발화 안 함(과잉 피드백). 탭 제목 변경 + dirty dot 해제만으로 충분.\n- 다이얼로그에 gradient/glow 금지(기존 ui/dialog.tsx 사용으로 자동 회피).",
+                "recorded_at": "2026-05-24T13:04:36.216Z",
+                "agent_id": "designer-61"
+              },
+              {
+                "role": "architect",
+                "summary": "## Issue 2 — 신규 파일: untitled 모델 식별/저장 흐름 (기술 분석)\n\n### 현재 상태 (코드 확인)\n- `EditorInput = { workspaceId, filePath, origin?, readOnly? }` (src/renderer/services/editor/types.ts)\n- 모델 캐시 키: `cacheUriFor(workspaceId, filePath)` = `nexus-ws://{workspaceId}{absolutePath}` — `absolutePath`는 반드시 `/`로 시작해야 throw (src/shared/fs/workspace-uri.ts:48). 즉 \"filePath가 절대 경로\" 라는 invariant이 캐시 전체에 박혀있음.\n- 영속화는 EditorTabProps에 `{filePath, workspaceId}` 형태로 직렬화 (src/shared/types/layout.ts). 직렬화 스키마는 `filePath: z.string()` 으로 임의 문자열 허용 → 가짜 경로도 통과는 함.\n- 저장은 `saveModel` → `ipcCallResult(\"fs\", \"writeFile\", {workspaceId, relPath, content, expected})` (src/renderer/services/editor/save/service.ts:194). `relPath`는 `relPathForInput` 으로 EditorInput에서 계산 → 가짜 경로면 워크스페이스 루트 밖이 되어 IPC가 실패. 즉 **untitled를 절대 그대로 저장에 흘려보낼 수 없음**.\n- `fs.writeFile`은 `expected` (mtime/size) optimistic concurrency를 강제, 새 파일에는 `{exists:false}` 형태 사용 → untitled 첫 저장도 동일 채널 재사용 가능. 별도 IPC 불필요.\n- `fs.createFile`도 이미 있음 (O_EXCL) — 빈 파일 선생성 후 모델 교체 패턴 가능.\n- `showSaveDialog`는 **IPC가 아직 없음** (src/main/features/dialog/index.ts에 showOpenFile/showOpenDirectory만 존재). 신설 필요.\n- shared-model 캐시는 `entries.get(cacheUri)` ref-counted, `acquireModel`/`releaseModel`로만 진입. 캐시 URI를 바꾸려면 사실상 새 entry를 생성하고 기존 모델을 dispose해야 함 (rename 경로 없음).\n\n### 결정 후보 (2개로 좁힘)\n\n**A. Monaco 표준 `untitled:` 스킴 + 별도 origin 분기**\n- EditorInput 확장: `origin: \"untitled\"` 추가. `filePath` 대신 `untitledId`(예: `Untitled-1`) 보유.\n- cacheUriFor를 분기: untitled면 `untitled://{workspaceId}/{untitledId}` 반환 (workspace-uri.ts의 absolute-path 강제를 우회하는 새 빌더 필요).\n- 카운터: 워크스페이스 스코프 `Map<workspaceId, number>` — 한 워크스페이스에서 `Untitled-1, Untitled-2…` 단조 증가. 워크스페이스 cleanup에서 카운터도 리셋.\n- 첫 저장: `dialog.showSaveDialog` IPC 신설 → 사용자가 워크스페이스 내부/외부 경로 선택 → `fs.writeFile`(`expected:{exists:false}`) → 새 EditorInput으로 `acquireModel` → 모델 내용 복사(getValue → setValue) → 탭 props 교체(`replacePreviewTab` 비슷한 store action 신설) → untitled 모델 `releaseModel` → notifyDidSave.\n- Pros: VSCode와 동일한 멘탈모델; 절대경로 invariant 깨지 않음; 가짜 경로로 인한 IPC 오류 표면 없음.\n- Cons: EditorInput, cache.ts, ensure-model, file-loader, save-service 모두 untitled 분기 추가 — shotgun surgery가 크다.\n\n**B. 가짜 절대경로 + origin 마커 (\"file:///workspaces/{id}/__untitled__-N\")**\n- EditorInput을 그대로 두고 `filePath`에 워크스페이스 루트 밖 가짜 경로를 박음, `origin: \"untitled\"` 마커로 구분.\n- cacheUri는 기존 빌더 통과 가능 (`/` 시작 요구는 충족).\n- 카운터는 동일 (워크스페이스 스코프).\n- 첫 저장: showSaveDialog → fs.writeFile → 새 EditorInput으로 acquire → 내용 복사 → 탭 props 교체 → untitled release.\n- 저장 외 경로(LSP didOpen, 파일 워처)는 `origin === \"untitled\"` 가드로 일제히 차단해야 함.\n- Pros: 캐시/URI 인프라 수정 0; 직렬화 스키마 변경 없음.\n- Cons: 가짜 경로가 LSP/fs watcher/git status 등으로 새어나갈 위험 (Locality of Behavior 손상); 절대경로 invariant이 \"untitled origin은 가짜다\" 라는 암묵 규칙으로 약화; 디버깅 시 fs와 무관한 가짜 경로가 로그에 나옴.\n\n### 권장안: A — Monaco `untitled:` 스킴 + origin 분기\n근거:\n- nexus-ws cache key가 `workspaceId` 격리를 보장하듯, `untitled:` 도 같은 격리축 위에서 직교 추가가 가능. parseWorkspaceUri를 untitled까지 인식하게 확장하면 LSP 경로/fs-watcher가 자연스럽게 \"untitled origin은 skip\" 결정 가능.\n- shotgun surgery 비용은 크지만 1회성이고, B의 \"가짜 경로가 새지 않도록 매번 가드 추가\" 영구 비용보다 작음.\n- VSCode 패턴이라 멘탈모델 학습 비용 0.\n\n### 첫 저장 흐름 권장 (A 기준)\n1. 사용자 Cmd+S → save-service가 origin===\"untitled\" 감지 → `dialog.showSaveDialog` IPC 호출 (신설 필요, 기존 dialog 패턴 그대로 추가)\n2. 사용자 경로 확정 → `fs.writeFile`({workspaceId, relPath: pathRelativeToWorkspaceRoot, content, expected:{exists:false}})\n   - 워크스페이스 밖 저장이면 `origin: \"external\"`로 처리(현재도 external 경로 존재)\n3. 새 EditorInput으로 `acquireModel` → 새 모델은 디스크에서 content 로드\n4. 탭 props 교체: 신규 store action 필요 — `replaceUntitledWithEditor(workspaceId, tabId, newProps, title)`. `replacePreviewTab`/`replaceCommitPreviewTab`과 동일한 패턴, 단 isPreview는 false로 강제(저장은 명시적 액션).\n5. untitled 모델 `releaseModel` → ref가 1이면 자동 dispose → `forceDisposeExternalsForWorkspace` 와 유사한 hygiene가 필요할 수 있음\n\n### 워크스페이스 종료 시 untitled 폐기\n- 현재 `closeAllForWorkspace`에서 terminal만 killSession 호출. untitled는 탭 record 제거만으로는 dirty 모델이 남을 수 있음 (model cache는 별도 ref-count).\n- `forceDisposeExternalsForWorkspace`가 origin===\"external\" 만 처리 → **origin===\"untitled\" 도 같은 훅에 추가** 필요. dirty 상태도 사용자 컨펌 없이 폐기 (워크스페이스 자체가 사라지므로 복구 불가능).\n- 대안: 워크스페이스 종료 전 untitled dirty 탭 컨펌 UI — 별도 결정. 첫 단계는 그냥 폐기 권장.\n\n### 다중 untitled 카운터: 워크스페이스 스코프 권장\n- 전역 카운터는 워크스페이스 간 번호 점프(`Untitled-7` 가 새 워크스페이스에서 갑자기 등장)로 혼란.\n- 워크스페이스 스코프는 워크스페이스 마다 1부터 시작 → VSCode와 동일.\n- 카운터는 in-memory only; 영속 불필요(재시작 시 모든 untitled가 폐기되므로). 만약 untitled를 재시작 보존하려면 별도 plan 필요 — v1은 폐기 명확화 권장.\n\n### 영향받는 파일/모듈 (추정)\n- src/renderer/services/editor/types.ts — EditorInput에 origin: \"untitled\" 추가 (이미 union의 일부로 확장)\n- src/renderer/services/editor/model/cache.ts — cacheUriForInput 분기, forceDispose 훅 확장\n- src/shared/fs/workspace-uri.ts — untitled URI 빌더 신설 또는 별도 모듈 (예: untitled-uri.ts)\n- src/renderer/services/editor/save/service.ts — origin===\"untitled\" 시 showSaveDialog 흐름 분기\n- src/renderer/state/stores/tabs.ts — replaceUntitledWithEditor 액션 신설, defaultTitle 분기\n- src/shared/ipc/contract.ts + src/main/features/dialog/index.ts — showSaveDialog IPC 추가\n- src/shared/types/layout.ts — SerializedTab의 EditorTabPropsSchema 영향 평가 (untitled를 영속화 안 하면 직렬화 단계에서 필터 필요)\n- src/renderer/state/persistence.ts — toSnapshot에서 untitled 탭 제외 로직\n\n### 리스크 / Cost & Risk Symmetry (CRITICAL/WARNING)\n- **CRITICAL** untitled 모델이 LSP didOpen으로 새어나가면 서버가 의미 없는 URI에 대해 진단을 만들고 양쪽 상태가 영구 불일치. cache.ts 의 didOpen 게이트에 origin===\"untitled\" 차단 가드 필수.\n- **WARNING** untitled를 직렬화하면 재시작 후 dispose 안 된 모델이 부활 → 카운터 충돌. persistence.toSnapshot에서 필터링 또는 SerializedTab 스키마에서 origin 마커 강제.\n- **WARNING** 첫 저장 시 dirty 마커가 새 EditorInput으로 정확히 인계되지 않으면 \"저장 직후 dirty=true\"가 보일 수 있음. saveModel의 markDirtyTrackerSaved를 새 entry에 대해 명시적으로 호출하는 단계 누락 주의.\n- **INFO** Cmd+S 이외의 경로(자동 저장, 닫기 confirm)도 동일한 showSaveDialog 흐름으로 합류시켜야 함 — close-handler.ts 확인 필요.\n",
+                "recorded_at": "2026-05-24T13:05:42.616Z",
+                "agent_id": "architect"
+              }
+            ],
+            "decision": "Monaco untitled: 스킴 + 워크스페이스 스코프 카운터 + showSaveDialog IPC 신설 (Architect/Designer 양측 A안).\n\n기술:\n- URI: `untitled:Untitled-N` (Monaco 표준 패턴). parseWorkspaceUri 확장하여 untitled origin 인식. shared-model 캐시는 origin=\"untitled\"로 분기 — LSP/fs-watcher 양측에서 untitled origin은 skip.\n- 카운터: 워크스페이스 스코프, 닫혀도 재사용 안함 (단조 증가, persisted)\n- 신규 IPC: dialog.showSaveDialog (범용 — untitled 외 \"다른 이름으로 저장\"에도 활용 가능)\n- 첫 저장: showSaveDialog(default=workspace.root) → fs.writeFile → 새 EditorInput으로 acquireModel → tabs.replaceUntitledWithEditor 액션 (replacePreviewTab 패턴 차용) → untitled releaseModel\n- 워크스페이스 종료: forceDisposeExternalsForWorkspace에 origin===\"untitled\" 추가, dirty 무관 폐기. dirty untitled 컨펌 다이얼로그는 v1 범위 밖 (메모리에 follow-up 등록).\n\nUX:\n- 탭 제목: Untitled-1, Untitled-2 …\n- 생성 즉시 dirty=true (저장되지 않음 신호, 점 표시 활용)\n- 저장 다이얼로그 기본 경로: workspace.root (활성 디렉토리 추적 안함 — 모호성 회피)\n- 저장 실패: toast(category=failed). 저장 취소: silent."
+          },
+          {
+            "id": 3,
+            "title": "웹브라우저 탭 데이터 모델 + 영속화 범위",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "## Issue 3 — 웹브라우저 탭 데이터 모델 + 영속화 범위 (기술 분석)\n\n### 현재 상태 (코드 확인)\n- Tab discriminated union: `EditorTab | DiffTab | TerminalTab | GitCommitTab` (src/renderer/state/stores/tabs.ts:63). 각 분기 type literal + props.\n- 영속화: `toSnapshot` 이 `Object.values(tabRecord) as LayoutSnapshot[\"tabs\"]` 로 그대로 직렬화 (src/renderer/state/persistence.ts:38). zod schema는 src/shared/types/layout.ts의 `SerializedTabSchema` discriminatedUnion — 새 타입 추가하려면 이 스키마에 한 분기 추가 필요.\n- 저장 위치: `appState.set` IPC → main의 storage 모듈에 layoutByWorkspace로 통합 저장. 별도 tabs storage 없음.\n- 직렬화 form은 `{id, type, title, props, isPreview?, isPinned?}` 4분기 — viewMode 같은 추가 필드는 현재 누락 (renderer Tab에는 viewMode 있는데 직렬화에는 없음 — Lead가 별건으로 알아두면 됨).\n- `closeAllForWorkspace`는 terminal만 killSession; 다른 타입 cleanup은 없음. 브라우저 탭은 main 쪽 WebContentsView를 destroy해야 하므로 동일한 패턴 필요.\n\n### 결정 후보 (2개로 좁힘)\n\n**A. 최소 영속화 — `{initialUrl, partition}` 만 저장, 재시작 시 lastUrl=initialUrl로 복원**\n- BrowserTab props: `{ workspaceId: string, initialUrl: string, partition: string }` (직렬화 필드)\n- 런타임 휘발 상태: `currentUrl`, `canGoBack`, `canGoForward`, `isLoading`, `title` — 모두 store에 두되 직렬화 제외 (예: 런타임 전용 별도 zustand store, 또는 Tab 객체에 `runtime?:` 추가 후 toSnapshot에서 strip)\n- 히스토리 스택은 WebContentsView 자체가 관리 → 인스턴스 소멸 시 휘발 (의도된 동작)\n- partition: `persist:browser-${workspaceId}` — 워크스페이스 단위 격리, 동일 워크스페이스 내 다중 탭은 쿠키/세션 공유 (브라우저 멘탈모델과 일치)\n- Pros: 직렬화 폭 좁아서 schema 깨질 일 적음; storage-restart 테스트 부담 최소; 명료한 invariant \"재시작=새 세션 시작\"\n- Cons: 사용자가 여러 탭에서 작업하다 재시작하면 모든 탭이 initial URL로 돌아감 — 워크플로 단절. URL을 검색 결과 페이지로 두면 거기에서 다시 탐색 필요.\n\n**B. 최근 URL 영속화 — `{initialUrl, lastUrl, partition}` 저장, 히스토리 스택은 휘발**\n- BrowserTab props: `{ workspaceId, initialUrl, lastUrl, partition }`\n- 매 navigate 후 lastUrl을 store에 commit → STATE_PERSIST_DEBOUNCE_MS(250ms) debounce로 자동 영속\n- 재시작 시 lastUrl을 로드. 히스토리 스택은 비어있음 (뒤로가기 불가) — 트레이드오프 명시\n- Pros: 사용자 워크플로 보존; 영속 폭은 여전히 좁음(단일 string)\n- Cons: 매 navigate마다 persistence flush 트리거 → 디바운스가 있어도 빈번한 navigate(SPA route change)에서 storage write 빈도 상승; 메모리/디스크 비용 측정 필요. 직렬화 schema 한 칸 늘어남.\n\n### 권장안: B — 최근 URL 영속화\n근거:\n- 사용자 가치: 브라우저 탭의 핵심 가치는 \"지금 보던 곳으로 돌아오기\". A는 이걸 깨고, B는 한 줄 추가로 보존. 비용 대비 가치가 비대칭적으로 B 쪽으로 기움.\n- 비용: persistence는 이미 250ms debounced + diff-기반. SPA pushState로 인한 navigate가 빈번해도 실제 IPC write는 짧은 burst 1회. 측정 없이도 안전 범위.\n- 히스토리 스택까지 영속화하는 옵션 C는 즉시 배제: WebContents의 NavigationHistory는 직렬화 가능하지만, 재방문 시 모든 페이지를 다시 fetch하므로 \"복원\"이 가짜 — 인스턴스 자체가 사라지면 진짜 뒤로가기는 불가능. UX 가짜를 짓느니 명료한 \"재시작=한 탭=한 페이지\" 모델이 낫다.\n\n### 런타임 휘발 상태 분리 전략\n\n세 가지 선택지:\n1. **별도 zustand store**: `useBrowserRuntimeStore` — `Record<tabId, {currentUrl, canGoBack, ...}>`. Tab 객체는 영속 필드만.\n2. **Tab 객체에 `runtime?:` 옵셔널 필드**: persistence.toSnapshot에서 strip. 단순하지만 직렬화/직렬화-역과정 양쪽에 strip 로직.\n3. **WebContents에서 직접 구독**: store 거치지 않고 React hook이 view 인스턴스의 이벤트(did-navigate, page-title-updated)를 직접 구독.\n\n권장: **1번 (별도 store) + 3번 보완**. 별도 store가 cohesion 가장 좋음 — 영속/휘발 경계가 store 경계와 일치. 컴포넌트는 useBrowserRuntimeStore(tabId) hook으로 URL/네비게이션 상태 구독. WebContentsView 이벤트는 main → renderer broadcast로 store 업데이트.\n\n### WebContentsView 인스턴스 lifecycle (Issue 4의 일부지만 데이터 모델과 맞물림)\n- WebContentsView는 비직렬 → renderer에 인스턴스 핸들이 없고, main이 `Map<tabId, WebContentsView>` 보유 (Issue 4에서 더 상세).\n- 탭 mount: main에 `browser.create({tabId, workspaceId, url, partition})` IPC → main이 view 생성·attach·loadURL. renderer는 placeholder div만 렌더.\n- 탭 unmount: `browser.destroy({tabId})` IPC → main이 view 제거.\n- 그룹/스플릿 가로지를 때 인스턴스 이전: **이전하지 않고 setBounds로 새 위치만 통보**. 인스턴스는 첫 mount 시 생성, 마지막 unmount 시 destroy. 그룹 이동은 단순한 layout 변경 → main의 view는 같은 인스턴스, bounds만 변경. 한 탭이 동시에 두 그룹에 있는 경우는 layout 모델상 없으므로 race 없음.\n- WARNING: 탭이 close 직후 같은 워크스페이스에서 같은 URL로 다시 열어도 별도 인스턴스(쿠키만 partition 공유). VSCode webview의 \"retain context\" 옵션은 본 v1에서 보류.\n\n### 영속화 범위 명세 (권장안 기준)\n- 직렬: `{workspaceId: UUID, initialUrl: string(URL or empty), lastUrl: string(URL or empty), partition: string}`. zod에서 url 검증은 별도 정규화 함수 통과 후 — http/https만 허용 (Issue 6과 정합)\n- 휘발: currentUrl, title, favicon, canGoBack/Forward, isLoading, error, history stack(WebContents 내부)\n- title은 store에 캐시하되 영속 제외 — 직렬화된 `title` 필드는 \"Browser\" 또는 lastUrl의 도메인. 런타임에는 view의 page-title-updated 이벤트로 덮어쓰기.\n\n### 영향받는 파일/모듈\n- src/renderer/state/stores/tabs.ts — Tab union에 `BrowserTab` 추가, CreateTabArgs 확장, defaultTitle 분기, closeAllForWorkspace에서 main으로 browser.destroy fan-out\n- src/renderer/state/stores/browser-runtime.ts — 신설, 런타임 상태 보관\n- src/shared/types/layout.ts — SerializedTabSchema에 browser 분기 추가\n- src/shared/ipc/contract.ts — browser 네임스페이스 신설 (create/navigate/setBounds/destroy/back/forward/reload)\n- src/renderer/state/persistence.ts — 변경 없음 (스키마 변경이 흡수)\n- src/renderer/components/editor-area/* — placeholder 컴포넌트 신설\n\n### 리스크 (CRITICAL/WARNING)\n- **CRITICAL** SerializedTab discriminatedUnion에 browser 분기 추가 후, 기존 user의 영속 데이터는 browser 탭이 없으므로 통과. 그러나 새 버전에서 browser 탭을 만든 뒤 구버전 클라이언트로 롤백 시 schema 검증 실패 → migration 정책 정의 필요. (storage-restart.test.ts 갱신 필요)\n- **WARNING** lastUrl이 file:// 또는 javascript: 스킴으로 영속되면 재시작 직후 보안 정책 검증 전에 실행될 수 있음. Schema 단에서 http/https만 허용하도록 z.string().regex 또는 refine 적용 필수 (Issue 6과 정합 — EXTERNAL_SCHEME_ALLOWLIST 와 다른 \"navigation_allowlist\"가 필요할 수 있음).\n- **WARNING** workspace 삭제 시 closeAllForWorkspace는 renderer 측만 정리. WebContentsView 자체는 main의 Map에 살아남아 leak. closeAllForWorkspace에서 모든 browser 탭에 대해 `browser.destroy` IPC fan-out, 또는 main 측이 `workspace:removed` 이벤트로 자체 정리 (Issue 6의 partition cleanup과 동일 훅에 합칠 수 있음).\n- **INFO** title 필드는 직렬화 폼에 있지만 사실상 휘발 — 직렬화된 title은 재시작 직후 \"Loading...\"류 placeholder, view가 로드되면 덮어쓰기. defaultTitle 함수에 합리적 기본값(lastUrl의 hostname) 필요.\n",
+                "recorded_at": "2026-05-24T13:07:00.596Z",
+                "agent_id": "architect"
+              }
+            ],
+            "decision": "최근 URL만 영속화 + 별도 휘발 store 분리 (Architect B안).\n\n데이터 모델:\n- Tab 확장: `BrowserTab { type: \"browser\", props: { initialUrl, lastUrl, partition } }`. partition은 `persist:browser-<workspaceId>` 고정 패턴이라 derived여도 됨 — 그래도 명시 보존 (워크스페이스 이동 시 안전).\n- 영속 필드: initialUrl(첫 진입), lastUrl(SPA pushState 포함 250ms debounced 갱신), partition\n- 영속하지 않음: 히스토리 스택(재방문 시 가짜 navigation 됨), 스크롤 위치, 폼 상태\n- 런타임 store 신설: `useBrowserRuntimeStore` — `Map<tabId, { currentUrl, title, canGoBack, canGoForward, isLoading }>`. main → renderer 이벤트로 업데이트.\n- WebContentsView 인스턴스: main 측 `Map<tabId, WebContentsView>` registry. 탭 mount/unmount에 IPC create/destroy 호출. 인스턴스는 워크스페이스 전환 시 보존 안함 (closeAllForWorkspace에서 destroy).\n\n복원:\n- 워크스페이스 재진입: 저장된 lastUrl로 loadURL. 단 lastUrl 스킴은 NAVIGATION_SCHEME_ALLOWLIST 재검증 후 통과만 사용.\n- 검증 실패 시 빈 상태 화면(initialUrl 무시)."
+          },
+          {
+            "id": 4,
+            "title": "WebContentsView 오버레이 동기화 전략",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "## Issue 4 — WebContentsView 오버레이 동기화 전략 (기술 분석)\n\n### 현재 상태 (코드 확인)\n- main window는 `BrowserWindow` 직접 생성, contentView는 기본 root. WebContentsView 첨부 시 `mainWindow.contentView.addChildView(view)` 패턴.\n- 기존 BrowserView/WebContentsView 사용처 없음 — 신규 인프라.\n- IPC contract는 zod schema + register/listen 분리 패턴이 명확 (src/shared/ipc/contract.ts, src/main/infra/ipc-router.ts). 새 namespace는 동일 패턴으로 추가.\n- 워크스페이스 cleanup은 renderer 쪽 registry만 존재. main 쪽은 `workspaceManager.remove` 내부에서 명시적 dispose 호출 (예: pty `setPtySessionCloser`). browser도 같은 훅 패턴 필요.\n\n### 위치/크기 갱신 트리거 — 결정 후보 2개\n\n**A. renderer가 권위자: ResizeObserver + IPC**\n- placeholder div에 ResizeObserver → 변경 시 `browser.setBounds({tabId, x, y, width, height})` IPC\n- 활성 탭 전환 시 `browser.setActive({tabId, visible:true/false})` IPC 또는 setBounds {0,0,0,0}\n- rAF coalesce: ResizeObserver callback 내부에서 직접 IPC 호출하지 않고 `requestAnimationFrame` 으로 한 프레임당 1회만 전송. tab 드래그/리사이즈 중 다발 호출을 자연스럽게 압축.\n- Pros: 권위가 renderer(레이아웃 소스)에 있어 일관성. 메인 윈도우 리사이즈도 결국 placeholder div 크기 변경으로 귀결 → 단일 경로.\n- Cons: IPC 1-frame 지연 → 빠른 드래그 시 view가 placeholder 뒤를 좇아 보이는 trailing(잔상) 발생. 사용자 인지 가능한 수준.\n\n**B. main이 권위자: BrowserWindow resize 이벤트 + renderer가 anchor 메시지 전달**\n- renderer가 layout 변경 시 anchor 정보(groupId, edge ratios)만 IPC → main이 자체적으로 BrowserWindow.contentBounds로부터 절대 좌표 계산\n- BrowserWindow의 resize 이벤트는 main이 직접 듣고 즉시 view들 reposition\n- Pros: window resize trailing 없음, IPC 라운드트립 0회.\n- Cons: layout 트리(split/leaf 비율, sidebar/files panel 너비)를 main이 알아야 함 → renderer 권위 모델 깨짐. layout.ts 의 모든 변경에 main 측 거울이 필요. 비용 과대.\n\n### 권장: A + rAF coalesce\n근거:\n- Layout 권위는 명백히 renderer (layout store, files panel/sidebar resize 모두 renderer 책임). B는 권위를 분산시켜 Cohesion 손상.\n- Trailing은 ResizeObserver를 placeholder가 아닌 그 한 단계 위 컨테이너(스플릿 박스)에 attach하는 식으로 줄일 수 있음. 또한 mainWindow의 `will-resize` 이벤트는 main에서 직접 listen → setBounds로 보정 (renderer를 거치지 않는 fast path). 즉 정상 경로는 renderer 권위, fast path 보정만 main 측.\n\n### 비활성 탭 처리 — 후보 2개\n\n**P1. `setBounds {x:?, y:?, width:0, height:0}` (또는 화면 밖)**\n- view는 살아있고 webContents는 그대로 활성. 음악/타이머/소켓은 백그라운드에서 계속 동작.\n- Pros: 탭 활성화 시 즉시 보이기, 상태 보존.\n- Cons: GPU/CPU 점유 지속.\n\n**P2. `mainWindow.contentView.removeChildView(view)`** (view 인스턴스는 보존, 트리에서만 제거)\n- 비활성 탭은 화면에서 빠지고 paint도 멈춤. webContents는 살아있어 hidden 이벤트 발생.\n- Pros: 자원 절약, 의도 명확 (DOM detach 같음).\n- Cons: addChildView/removeChildView 빈도 높아짐. removeChildView/addChildView 와 `setVisible(false)` 의 paint 정지 동작이 Electron 버전에 따라 미묘하게 다름 (context7로 확인 필요).\n\n권장: **P2 (removeChildView) + 활성 view만 트리에 attach**. 추가로 비활성 view는 `setBackgroundThrottling(true)` 으로 백그라운드 자원 절감. 음악 재생 등은 v1 지원 범위 밖으로 명시.\nNote: Issue 3에서 결정한 \"한 탭=한 인스턴스\" 정책과 직교 — 트리 attach/detach는 인스턴스 보존을 깨지 않음.\n\n### 멀티 인스턴스 (스플릿 그룹) — `Map<tabId, WebContentsView>`\n- WeakMap 불가: WebContentsView는 GC 대상이지만 main이 destroy()를 명시 호출해야 자원 해제. 강한 참조 Map 필요.\n- 자료구조: `class BrowserTabRegistry { private views: Map<string, { view: WebContentsView, workspaceId: string }> }` — workspaceId 보존이 cleanup에 필요.\n- 같은 탭이 두 그룹에 동시 표시: layout 모델상 불가능 (탭은 하나의 leaf에만 속함). 즉 setBounds 충돌 없음.\n- 다른 탭들이 동시에 visible (스플릿 화면)인 경우: 각각 별도 view 인스턴스, 각각 setBounds 호출 → 정상.\n\n### DevTools 토글 — 후보 2개\n**D1. 분리 창** (`view.webContents.openDevTools({mode: \"detach\"})`)\n- Pros: 메인 레이아웃에 영향 없음, 작은 패널에서도 사용 가능.\n- Cons: 창 관리 부담(메인 창 닫힐 때 devtools도 함께 닫히도록).\n\n**D2. 도크 (split 패널에 inline)**\n- Pros: 사용자가 한 화면에 보기.\n- Cons: 본 plan의 layout 모델은 도크 슬롯 개념 없음 — split의 한 쪽을 차지하게 되면 layout이 brittle.\n\n권장: **D1 detach**. 단순하고 메인 layout과 독립. devtools 단축키는 mainWindow 포커스 시 활성 browser 탭에 위임.\n\n### 메인 윈도우 리사이즈/풀스크린/디스플레이 변경\n- BrowserWindow.on(\"resize\") → main이 활성 view들에 대해 lastBounds 재적용 (renderer ResizeObserver 보조)\n- 풀스크린 진입/이탈 → \"resize\" 트리거되므로 별도 처리 불필요\n- 디스플레이 변경 (해상도/DPI scaling) → \"resize\" 또는 \"display-metrics-changed\" (screen 모듈) — `screen.on(\"display-metrics-changed\")` 로 명시 처리\n\n### IPC 채널 설계 (권장)\n\nnamespace: `browser`\n- call:\n  - `create({tabId, workspaceId, url, partition, bounds})` → void (idempotent: 동일 tabId 재호출 무시)\n  - `destroy({tabId})` → void (idempotent)\n  - `setBounds({tabId, x, y, width, height})` → void\n  - `setActive({tabId, active})` → void (트리 attach/detach 제어)\n  - `navigate({tabId, url})` → void (validation main에서 재실행 — Issue 6)\n  - `goBack({tabId})` / `goForward({tabId})` / `reload({tabId})` → void\n  - `openDevTools({tabId})` → void\n- listen:\n  - `navigated({tabId, url, title, canGoBack, canGoForward})` — did-navigate / page-title-updated 합본\n  - `loadingChanged({tabId, isLoading})`\n  - `error({tabId, errorCode, errorDescription, validatedUrl})` — did-fail-load\n\ncreate는 destroy와 짝. setBounds는 빈도 높음 → throttle 권장(main 측 16ms throttle, renderer는 rAF coalesce로 이미 줄여서 보냄 — 이중 안전망).\n\n### 비직렬 인스턴스 관리 클래스 (권장 구조)\n\nsrc/main/features/browser/registry.ts (신설):\n```\nclass BrowserViewRegistry {\n  private views = new Map<string, {view: WebContentsView, workspaceId: string, bounds: Bounds, active: boolean}>()\n  create(args): void\n  destroy(tabId): void  // workspace cleanup 훅에서 fan-out\n  setBounds(tabId, bounds): void\n  setActive(tabId, active): void  // addChildView/removeChildView\n  destroyByWorkspace(workspaceId): void\n  destroyAll(): void  // app quit\n}\n```\nWorkspaceManager.setPtySessionCloser 와 동일 패턴으로 `setBrowserCloser(cb)` 추가 또는 main/index.ts 에서 `workspace.removed` 이벤트를 main 측에서도 listen하여 registry.destroyByWorkspace 호출.\n\n### 영향받는 파일/모듈\n- src/main/features/browser/registry.ts — 신설\n- src/main/features/browser/ipc.ts — 신설 (registry adapter)\n- src/main/features/browser/index.ts — 신설 (entry)\n- src/main/index.ts — workspace.removed 시 browser cleanup 훅 추가\n- src/shared/ipc/contract.ts — browser namespace\n- src/renderer/components/editor-area/BrowserTabView.tsx — 신설 (placeholder + ResizeObserver + lifecycle)\n- src/renderer/state/stores/browser-runtime.ts — 신설 (Issue 3 권장안과 정합)\n\n### 리스크 (CRITICAL/WARNING)\n- **CRITICAL** browser.create IPC가 tabId 중복 검증 없이 호출되면 기존 view 위에 새 view가 덮어써져 leak. registry.create는 반드시 \"이미 있으면 무시 or 기존 view destroy\" 정책 명시.\n- **CRITICAL** 워크스페이스 삭제 시 registry.destroyByWorkspace 누락 → view + partition session leak. main/index.ts 의 cleanup 와이어링이 이 issue의 핵심 매듭.\n- **WARNING** setBounds 빈도 폭주 (탭 드래그) — rAF coalesce + main 측 16ms throttle 이중 안전망 필요. 측정 없는 최적화는 보류하되, 안전망 자체는 비용이 낮으므로 처음부터 포함 권장.\n- **WARNING** addChildView/removeChildView 빈도가 활성 탭 전환마다 발생 → Electron 내부 cost는 측정 전 미지. v1에서는 setBounds {0,0,0,0} 와 비교 측정 후 결정해도 됨 (reversible decision). 처음에는 단순한 setBounds 0 방식으로 시작하고 자원 문제 측정 시 P2로 전환하는 점진 경로도 가능.\n- **INFO** DevTools detach 시 자식 window가 mainWindow의 closed 이벤트를 따라가도록 명시 — Electron 기본 동작이지만 verify 필요.\n- **INFO** display-metrics-changed는 macOS 디스플레이 hot-plug에서만 발생 — 일반 사용에서는 거의 안 닿음. v1 우선순위 낮음.\n",
+                "recorded_at": "2026-05-24T13:08:24.325Z",
+                "agent_id": "architect"
+              }
+            ],
+            "decision": "Renderer 권위 + ResizeObserver + rAF coalesce, 비활성 탭은 removeChildView (Architect 권장).\n\n동기화 엔진:\n- Placeholder div + ResizeObserver on workspace content root. div getBoundingClientRect → main.browser.setBounds IPC. rAF coalesce.\n- Main 측 안전망: mainWindow `will-resize` 이벤트로 추가 setBounds 보정 (renderer 지연 시 시각적 lag 회피).\n- DPR 고려: `Math.round(rect.x * dpr)` 변환은 main이 담당 (renderer는 CSS 좌표만 송신).\n\n비활성 탭:\n- mainWindow.contentView.removeChildView(view) — view 인스턴스는 보존, paint만 정지\n- 백그라운드 자원 절감: setBackgroundThrottling(true). 음악 재생/타이머는 v1 미지원 (명시)\n- 활성 전환 시 addChildView + 즉시 setBounds\n\n멀티 인스턴스:\n- 강참조 Map<tabId, { view, workspaceId }> (BrowserTabRegistry 클래스)\n- 한 탭은 한 leaf에만 속하므로 setBounds 충돌 없음\n- 스플릿 동시 표시: leaf별로 독립 view, 각각 자기 placeholder bbox로 동기화\n\nIPC 네임스페이스 (browser.*):\n- create/destroy/setBounds/setActive/navigate/goBack/goForward/reload/openDevTools (요청)\n- listen: navigated/loadingChanged/error/titleUpdated (브로드캐스트)\n\nDevTools: 항상 detach 모드로 분리 창. ⌘⌥I 단축키."
+          },
+          {
+            "id": 5,
+            "title": "URL 바 입력 디스패치 (URL vs 검색)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "## Issue 5 — URL 바 입력 디스패치 (URL vs 검색)\n\n### 사용자 관점 (mental model)\n사용자는 주소창에 무엇이든 친다. 멘탈 모델은 단일: \"여기에 친 걸 알아서 처리해 줘\". 이걸 강제로 \"URL 모드 / 검색 모드\"로 토글시키는 UI는 1990년대 브라우저 패턴이고 현대 omnibox(Chrome/Edge/Safari/Arc/Firefox 모두)는 입력 내용에서 의도를 자동 판별한다. 사용자는 분류 규칙을 의식하지 않으며, 잘못 분류됐을 때만 \"왜 검색이 됐지?\"를 체감한다 — 즉 **오류 시 즉시 회복 가능성**이 분류 정확도보다 중요하다.\n\n### 결정 후보 (2안)\n\n**A. Omnibox (Chrome 패턴) — 자동 분류 + 입력 중 힌트**\n- 입력 분류 규칙 (우선순위 순):\n  1. 스킴 명시 (`http://`, `https://`, `file://`, `about:`) → 직접 navigate\n  2. 도메인 패턴: 공백 없음 + 점(.) 포함 + 점 좌우에 alnum/hyphen + TLD 길이 2+ → `https://` 자동 prepend\n  3. localhost / IP 패턴 (`localhost:3000`, `127.0.0.1`, `192.168.x.x`) → `http://` prepend (HTTPS 강제 시 로컬 개발 마찰)\n  4. 그 외(공백 포함, 점 없음, 한글, 자연어) → 검색 엔진으로 폴백\n- 입력 중 dropdown 힌트 표시: \"Go to <URL>\" 또는 \"Search for <query>\" — 사용자가 분류 결과를 사전 확인 가능, 잘못된 분류를 Enter 전에 알아챔.\n\n**B. Strict — 스킴 명시만 직접, 나머지 모두 검색**\n- 규칙 단순: `http(s)://` 있으면 직접, 없으면 무조건 검색.\n- 단점: `github.com` 같은 빈도 입력이 검색으로 처리되어 매번 마찰. 사용자가 매번 `https://`를 타이핑하거나 검색 결과에서 한 번 더 클릭.\n\n### 권장: A (Omnibox)\n근거:\n1. **Consistency & Mapping** — 모든 주요 브라우저(Chrome/Edge/Safari/Firefox/Arc/Brave) 패턴. 사용자 기존 멘탈 모델과 정확히 일치.\n2. **Load & Flow** — 입력 중 힌트로 분류 결과 가시화 → 잘못된 분류를 Enter 전에 회복 가능. extrinsic cognitive load(매번 스킴 결정) 제거.\n3. localhost/IP는 개발자 사용 빈도가 매우 높은 IDE 컨텍스트 특성상 별도 처리 명시 — 일반 omnibox보다 한 단계 더 개발 친화.\n\n### 검색 엔진 폴백\n- **결정 후보**: 사용자 선택권 vs 고정값(Google).\n- **권장**: 고정값(Google)으로 시작, 후속 사이클에 settings 옵션 추가.\n- 근거: 이 사이클 범위(브라우저 도입 v1)에서 settings UI까지 확장하면 작업 폭증. Google 디폴트는 Chrome/Edge 디폴트와 일치하므로 안전한 출발점. 단 사용자 선택권 부재를 settings 후속 항목으로 명시적으로 issue화.\n- 폴백 URL 형식: `https://www.google.com/search?q={encoded}` — 추적 파라미터 없음.\n\n### about:blank / 홈페이지\n- 새 브라우저 탭 초기 URL = **빈 상태(empty state) 화면, NOT about:blank**\n- 사용자 관점: 빈 회색 화면(about:blank)은 \"로딩 실패\" 또는 \"고장\"으로 오인됨. 빈 상태 디자인(`empty-state.tsx` 활용)으로 명시:\n  - 큰 Globe 아이콘(decorative, size-12 정도 — design.md §14 아이콘 그리드 예외, 빈 상태 일러스트는 그리드 종속 아님)\n  - \"Enter a URL or search\" 헤딩 (appBodyEmphasis)\n  - URL 바 자동 포커스 + 자동 전체 선택(빈 상태이므로 선택할 텍스트 없음, 그냥 caret 표시)\n  - 단축키 힌트 INFO: `⌘L` to focus address bar\n- 향후 사이클에서 즐겨찾기/최근 방문 표시 가능 — 이 사이클은 빈 상태만.\n\n### 단축키\n- `⌘L` = URL 바 포커스 + 전체 선택 (Chrome/Safari/Firefox 표준)\n- `⌘R` = 새로고침 (표준)\n- `⌘[` = 뒤로, `⌘]` = 앞으로 (macOS Safari/Chrome 표준)\n- `Cmd+Shift+R` = 캐시 무시 새로고침 (표준)\n- `Esc` = URL 바 포커스 중이면 입력 취소(원래 URL로 복원) + blur — Chrome 동작.\n- 모든 단축키는 macOS 컨벤션 우선(Cmd), Windows/Linux는 별도 사이클(이 사이클 범위 외).\n\n### 주소창 UX\n\n**포커스 시 전체 선택**:\n- 클릭 1회 = 전체 선택(현재 URL 전부 하이라이트). Chrome/Safari 동작과 동일.\n- 클릭 2회 또는 더블클릭 = 단어 선택, 그 후엔 일반 caret. 이 단계는 OS contenteditable 기본 동작 의존.\n- `⌘L` 호출 = 전체 선택.\n\n**입력 중 자동완성 범위 (이 사이클)**:\n- **권장: history만** (현재 워크스페이스/세션에서 방문한 URL — partition별로 분리)\n- 검색 제안(Google Suggest) **미포함** — 외부 네트워크 요청 + 프라이버시 결정 필요로 별도 사이클.\n- dropdown은 최대 5개 항목, 입력 prefix 매칭 + recency 가중. 컴포넌트는 기존 `command-palette` 패턴 또는 Radix Popover 신규 wrapper(`ui/popover.tsx` 미존재 시 추가 불가 — radix-ui는 이미 의존성이므로 wrapper만 신규).\n- 자동완성 항목 키보드: ArrowDown으로 진입, ArrowUp/Down 이동, Enter 실행, Esc 닫기 + caret로 복귀.\n- INFO: 입력 중 항목 highlight는 prefix 굵게 표시 (matched portion bold), 시각 차이를 통해 매칭 영역 인지.\n\n### URL 바 시각 디자인 (간략)\n- 높이 28px(design.md §3 입력 필드 기본). 라디우스 `--radius-control` (4px).\n- 좌측 prefix 영역(스킴 표시 또는 보안 표시 자물쇠 아이콘 — 후속 사이클).\n- 우측 actions: refresh(`RotateCw` size-3, hover만 표시 가능). 단 항상 표시가 발견 가능성 측면에서 더 안전 — INFO로 항상 표시 권고.\n- placeholder = \"Search or enter URL\" (Chrome 카피와 일치, 사용자 학습 비용 0).\n\n### Trade-offs\n| Option | Pros | Cons | Tradeoff | Recommend |\n|---|---|---|---|---|\n| A. Omnibox(자동 분류 + 힌트) | 브라우저 컨벤션, 사용자 학습 0, 회복 용이 | 분류 규칙 구현 + 힌트 dropdown 필요 | 기능 완성도 ↔ 구현 폭 | ✓ — 컨벤션 정합 |\n| B. Strict(스킴만 직접) | 분류 로직 0, 결정적 | 빈도 입력 마찰 누적, 사용자 학습 부담 | 단순성 ↔ 사용성 | ✗ — 마찰 누적 |\n\n### 위험 + 완화\n- **잘못된 도메인 분류** (예: 한글 도메인, IDN): 점 + alnum 규칙만으로는 한글 도메인 미커버. 입력 중 힌트가 \"Search for ...\"로 뜨면 사용자가 ⌘+Enter로 강제 URL 처리 가능 — Chrome 패턴 차용.\n- **검색 폴백 프라이버시**: Google 고정은 사용자 동의 없는 외부 송신. settings에서 검색 엔진 변경 + \"off\"(검색 폴백 자체 비활성) 옵션을 후속 사이클에 issue화. 이 사이클 v1은 동의 가정.\n- **자동완성 history 누출**: 워크스페이스 partition별로 격리(선결정 항목)되어 자연 격리. 추가 위험 없음.\n- **단축키 충돌**: `⌘R`은 기존 IDE 내 다른 단축키(re-run 등)와 충돌 가능 — 단축키 스코프가 활성 탭 타입에 종속되므로 브라우저 탭 활성 시에만 발화하도록 제한. Architect와 협의 필요.\n- **단축키 발견성**: `⌘L`은 hover tooltip 또는 설정/도움말에 표시 — 학습 비용 완화.\n\n### Visual Hierarchy\nURL 바는 브라우저 탭 콘텐츠 최상단(navigation toolbar)의 단일 가장 강한 시각 요소. 입력 자체가 1차 액션 — back/forward/refresh 아이콘 버튼은 ghost 톤으로 보조. 보안 indicator(자물쇠)는 색 단독 의존 금지 — 아이콘 형태로 redundant encoding.\n\n### State Coverage\nURL 바 9-state:\n- default / hover(border 미세 변화) / focus(state.focus.ring 2px) / active(typing 중 — focus와 동일 + caret) / disabled(브라우저 탭 외에는 비활성 아님, 동일 컴포넌트가 안 쓰임) / loading(페이지 로딩 중 — 좌측 작은 스피너 또는 progress 가능, INFO) / error(잘못된 URL — banner로 페이지 영역에 표시, URL 바 자체는 inline error border) / success(N/A — 페이지 로딩 성공은 페이지가 표시되는 것이 곧 신호) / empty(빈 입력 = default 동일)\n- 자동완성 dropdown: empty(history 없음) / loading(prefix 매칭 중 — 즉시 처리되므로 보통 skip) / 정상 / 닫힘 — 모두 명시 필요.\n\n### Accessibility\n- URL 바 `role=\"combobox\"` + `aria-autocomplete=\"list\"` + `aria-expanded` + `aria-controls`로 dropdown 연결\n- 자동완성 dropdown `role=\"listbox\"`, 항목 `role=\"option\"` + `aria-selected`\n- 분류 결과 힌트는 `aria-live=\"polite\"`로 스크린리더에 알림 (\"Will search for\", \"Will go to\")\n- 단축키는 시각 사용자뿐 아니라 키보드 사용자 핵심 — 모든 액션이 단축키 도달 가능해야 함 (back/forward/refresh 충족).\n\n### Anti-pattern Check\n- URL 바를 gradient/glow로 강조 금지. 표준 input 톤(`bg-input` 또는 floating surface) 유지.\n- 자동완성 dropdown은 floating 표면 — design.md §2 floating 토큰 사용. shadow 금지(§5).\n- placeholder를 label 대체로 쓰지 말 것 — URL 바는 시각적 위치(toolbar)가 label 역할이므로 placeholder만으로 충분(예외적 케이스, OK).\n- about:blank 회피로 빈 상태 디자인 적용 — \"blank screen with no guidance\" anti-pattern 회피.",
+                "recorded_at": "2026-05-24T13:06:09.301Z",
+                "agent_id": "designer-61"
+              }
+            ],
+            "decision": "Omnibox 패턴 + Google 고정 폴백 + 빈 상태 시작 화면 (Designer A안).\n\n입력 디스패치 규칙 (우선순위):\n1. 스킴 명시 (http://, https://) → 그대로 navigate\n2. localhost / 127.0.0.1 / IPv4 패턴 → http:// 보정 (개발자 UX, IDE 컨텍스트 특수)\n3. 점 포함 + 공백 없음 + TLD-like (예: example.com, sub.example.co.kr) → https:// 보정\n4. 그 외 → Google 검색 (`https://www.google.com/search?q={encoded}`, 추적 파라미터 없음)\n5. about:, file:, javascript:, data: 명시 입력 → 차단 + 인라인 메시지 (\"Only http/https URLs allowed\"). v1은 단순화.\n\n검색 엔진 사용자 선택권: 후속 사이클 settings UI에서 추가. 메모리에 follow-up 등록.\n\n새 브라우저 탭 초기 상태:\n- about:blank가 아닌 커스텀 빈 상태 (Globe 아이콘 + \"Enter a URL or search\" + URL 바 자동 포커스)\n- empty-state.tsx 활용\n\n단축키 (macOS):\n- ⌘L: URL 바 포커스 + 전체 선택\n- ⌘R: 새로고침\n- ⌘[ / ⌘]: 뒤로/앞으로\n- ⌘⇧R: 캐시 무시 새로고침\n- Esc (URL 바 포커스 중): 원래 URL 복원 + blur\n- 단축키 스코프는 브라우저 탭 활성일 때만 — 다른 탭 타입과 충돌 회피 (⌘R 등)\n\n주소창:\n- 포커스 시 전체 선택 (Chrome 동작)\n- 입력 자동완성: v1 없음 (히스토리/즐겨찾기 인프라 미존재)"
+          },
+          {
+            "id": 6,
+            "title": "브라우저 보안 정책 + partition cleanup",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "## Issue 6 — 브라우저 보안 정책 + partition cleanup (기술 분석)\n\n### 현재 상태 (코드 확인)\n- 메인 윈도우 webPreferences: `contextIsolation: true, sandbox: true, nodeIntegration: false` (src/main/features/window/index.ts:78). 이미 모범 기본값.\n- setWindowOpenHandler 하드닝: EXTERNAL_SCHEME_ALLOWLIST(http/https/mailto) 외 deny + log (window/index.ts:95). WebContentsView에도 동일 정책 재사용 가능.\n- 외부 URL 검증: `isExternalSchemeAllowed` (src/shared/security/url-scheme.ts). 단 이 함수는 `shell.openExternal` 전용 — 브라우저 탭 안에서 *navigate* 허용할 스킴은 별개 정의 필요(http/https는 명백, file/data/blob/about/javascript는 차단).\n- 워크스페이스 삭제 flow는 manager.remove(id) → ptySessionCloser → context.close → broadcastFn(\"workspace\",\"removed\"). main 쪽에 추가 cleanup 훅을 끼울 자리는 ptySessionCloser 옆 또는 broadcastFn 직후가 자연스러움. 별도 main-side workspace-cleanup registry는 현재 없으나 패턴 신설 가능.\n- session/partition API 기존 사용처 없음 — 모든 신규.\n\n### webPreferences 정책 — 결정 후보 2개\n\n**A. 메인 윈도우와 완전 동일** (contextIsolation/sandbox/nodeIntegration off)\n- `webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, partition: 'persist:browser-<workspaceId>' }`\n- 추가 명시: `webSecurity: true` (default true이지만 명시), `allowRunningInsecureContent: false`, `experimentalFeatures: false`\n- Pros: 메인과 정책 일관, 외부 사이트의 모든 권한 최소화. attack surface 최소.\n- Cons: preload 스크립트로 일부 사이트 호환성 손상 가능 — 그러나 본 v1은 preload 주입 의도 없음 → 영향 없음.\n\n**B. A + 추가 격리** (sandbox 강제, devTools 개발 빌드 한정)\n- A에 더해 `devTools: process.env.NODE_ENV === \"development\"` — 프로덕션 빌드에서 사용자가 임의 사이트의 DevTools를 열어 dev 환경을 흉내내는 사회공학 공격 차단.\n- Pros: 추가 안전망.\n- Cons: 사용자 디버깅 불가. 본 앱 사용자는 개발자가 다수일 가능성 — 너무 폐쇄적일 수 있음.\n\n권장: **A + devTools는 항상 활성**. 사용자가 개발자 도구 호환을 원하는 IDE류 앱; B의 안전망은 본 앱 타깃 사용자에게 비용이 큼. DevTools 자체는 외부 사이트 코드를 더 보여줄 뿐, 코드 실행 권한 추가 부여 아님.\n\n### 권한 요청 정책 (`session.setPermissionRequestHandler`)\n\n권장 매트릭스 (v1 명확한 거부 정책):\n- `media` (camera/microphone): **deny**. 추후 UI 컨펌으로 풀 수 있는 가역적 결정.\n- `geolocation`: **deny**\n- `notifications`: **deny** (호스트 OS 알림과 충돌)\n- `midi`, `midiSysex`: **deny**\n- `pointerLock`, `fullscreen`: **deny** (브라우저 탭이 메인 창 레이아웃을 벗어나는 시도 차단)\n- `openExternal` (사이트에서 `shell.openExternal` 트리거): **deny via permission handler**; navigation hook에서 EXTERNAL_SCHEME_ALLOWLIST 통과한 URL만 별도 처리\n- `clipboard-read`: **deny**\n- `clipboard-sanitized-write`: **allow** (북마크/주소 복사 UX)\n- `display-capture`: **deny**\n\n`setPermissionCheckHandler` 도 동일 매트릭스로 동기 응답.\n\n### 네비게이션 가드\n\n3겹 방어 (외부 → 내부 → 팝업):\n1. `will-navigate`: top-frame 네비게이션. URL 파싱 후 http/https만 통과. 그 외 차단 + 로그.\n2. `will-frame-navigate`: iframe 네비게이션. http/https/about:blank 통과 (about:blank는 SPA에서 정상). data: 차단.\n3. `setWindowOpenHandler`: window.open. 후보 2개:\n   - **W1. 항상 deny + EXTERNAL_SCHEME_ALLOWLIST 통과 시 shell.openExternal** — 메인 윈도우 패턴 그대로. 단순.\n   - **W2. http/https는 같은 탭에서 navigate, 그 외 deny** — 사용자 의도 추정. SPA의 OAuth 팝업 워크플로가 빈번하다면 합리적.\n\n권장: **W2 (같은 탭 navigate) + http/https 외 deny + 추가로 `target=_blank` 가 \"새 브라우저 탭으로 열고 싶다\" 의도일 수 있으나 v1은 같은 탭 navigate**로 단순화. 사용자 피드백으로 v2에서 \"새 탭 열기\" 추가 — 가역적 결정.\n\n별도 결정: 사이트가 `target=_blank`로 외부 사이트로 보내려고 할 때 사용자가 \"이 사이트를 진짜 새 탭에서 열고 싶다\"는 욕구 강함. 그러나 W2가 같은 탭 navigate면 뒤로가기로 복원 가능 → UX 손상 작음.\n\n### 다운로드 정책\n\n- `will-download` 핸들러: v1은 **허용 + Downloads 폴더 강제**.\n  - `item.setSavePath(path.join(app.getPath(\"downloads\"), item.getFilename()))` — 사용자 다이얼로그 생략(IDE에서 다이얼로그 폭주 방지) 또는 `setSaveDialogOptions`로 한 번 확인.\n- 차단 옵션도 있으나 사용자 가치를 강하게 침해 — v1에서 허용 권장.\n- 다운로드 진행 이벤트는 v1에서 무시 (alert/toast 없음); v2에서 진행 UI 추가 가능.\n\n### 파일 업로드 (file input)\n- 기본 허용. Electron은 file input에 native dialog를 자동 매핑 — 추가 코드 불필요.\n- `setPermissionRequestHandler` 의 `media` deny 가 카메라/마이크 캡처 차단하므로 위장된 file input 우회 없음.\n\n### Partition 정책 — 결정 후보 2개\n\n**P1. `persist:browser-<workspaceId>`** (워크스페이스 단위 격리)\n- 같은 워크스페이스 내 모든 브라우저 탭은 쿠키/localStorage 공유 (일반 브라우저 멘탈모델).\n- 다른 워크스페이스는 완전 격리.\n- Pros: 브라우저 사용자 멘탈모델 일치. 한 워크스페이스에서 로그인 → 모든 탭에서 활용.\n- Cons: 워크스페이스 삭제 시 모든 세션 데이터 손실 (의도된 동작).\n\n**P2. `persist:browser-global`** (전역 단일 partition)\n- 모든 워크스페이스가 동일 세션. 워크스페이스 격리 약함.\n- Pros: 사용자가 워크스페이스 잦게 변경해도 로그인 유지.\n- Cons: 워크스페이스 = 컨텍스트 격리 단위라는 본 앱 invariant 깨짐. 보안 도메인 혼합.\n\n권장: **P1**. 본 앱이 workspace 격리를 최상위 invariant로 다루므로 (cache.ts의 nexus-ws URI 가 이미 같은 결정) — 일관성. P2는 보안 도메인을 흐리고 cleanup 결정도 어려움(전역이면 언제 비울 것인가?).\n\n### Partition Cleanup — 결정 후보 2개\n\n**C1. 워크스페이스 삭제 즉시 `session.fromPartition(partition).clearStorageData()`**\n- WorkspaceManager.remove() 안에서 (또는 ptySessionCloser 옆 새 훅에서) 동기 호출.\n- Pros: 즉시 자원/디스크 해제. 의도 명확.\n- Cons: 사용자가 워크스페이스 삭제 직후 \"복원\"을 원해도 세션 복구 불가 (단 워크스페이스 자체도 복구 안 되므로 일관).\n\n**C2. 지연 cleanup — 다음 app 시작 시 살아있는 workspace 목록과 partition 디렉터리 비교 후 고아 partition 정리**\n- Pros: 실행 중 race 없음.\n- Cons: 디스크 사용량이 누적; 사용자가 실수로 워크스페이스 삭제 후 즉시 재추가하면 같은 partition 이름 → 데이터 부활 가능(혼란).\n\n권장: **C1 즉시 cleanup**. main 측에 새 훅 `setBrowserCloser(closer: (workspaceId: string) => void)` 를 WorkspaceManager에 추가 (`setPtySessionCloser` 와 동일 패턴), `BrowserViewRegistry.destroyByWorkspace` 가 view 정리 + clearStorageData 동시 수행.\n\n추가 안전망: app `before-quit` 시점에 destroyAll() 호출 — view 인스턴스가 살아있으면 quit이 늦어질 수 있음.\n\n### DevTools 정책\n\n권장: **항상 활성 + detach 모드만 허용**. webPreferences.devTools 기본값(true) 유지. 사용자 단축키 → `view.webContents.openDevTools({mode:\"detach\"})`. 도크 모드(`mode:\"right\"` 등)는 main layout과 충돌하므로 차단.\n\n### 영향받는 파일/모듈\n- src/shared/security/url-scheme.ts — 또는 별도 `navigation-allowlist.ts` 신설: 브라우저 *navigation* 용 스킴 검사 (http/https + about:blank 옵셔널). openExternal 용 ALLOWLIST와 분리.\n- src/main/features/browser/security.ts — 신설: webPreferences 생성기, setPermissionRequestHandler 등록기, will-navigate/will-frame-navigate/setWindowOpenHandler 등록기\n- src/main/features/browser/registry.ts — Issue 4와 동일 파일에서 create 시 security 적용\n- src/main/features/workspace/manager.ts — `setBrowserCloser` 메서드 추가, `remove()` 내부에서 ptySessionCloser와 동일 위치에서 호출\n- src/main/index.ts — workspaceManager.setBrowserCloser(registry.destroyByWorkspace) 와이어링; app.before-quit에서 destroyAll\n\n### 리스크 (CRITICAL/WARNING/INFO)\n- **CRITICAL** will-navigate / setWindowOpenHandler 누락 시 `file://`, `javascript:`, `data:` 스킴이 브라우저 탭 내에서 실행 가능 → 로컬 파일 노출, XSS 유사 위험. 정책 등록 누락 검출은 unit test로 강제 (security.ts 단위 테스트에서 모킹된 webContents에 핸들러가 다 등록되는지 검증).\n- **CRITICAL** clearStorageData가 destroy 이전 호출되면 활성 webContents에서 race로 partial state. 순서: 1) view destroy, 2) clearStorageData. registry.destroyByWorkspace에서 await 순서 명시.\n- **CRITICAL** lastUrl을 영속에서 복원할 때 (Issue 3) 스킴 재검증 없으면 악성 영속 데이터로 file:// 로드 가능. 복원 경로에서 `isNavigationSchemeAllowed(lastUrl)` 가드 필수.\n- **WARNING** setPermissionRequestHandler 미등록 시 Chromium 기본은 prompt — 본 앱은 prompt UI가 없으므로 사실상 무한 대기 또는 자동 deny. 명시적 deny가 안전.\n- **WARNING** download 경로를 Downloads 폴더로 강제하면 같은 이름 파일이 덮어쓰여질 수 있음 — `getFilename` 충돌 시 suffix 추가 정책 필요(예: `(1)`).\n- **WARNING** WebContentsView가 navigation hook 등록 전에 loadURL이 호출되면 race로 첫 페이지 검증 우회. registry.create는 반드시 (1) view 생성 → (2) hook 등록 → (3) loadURL 순서로 직렬화.\n- **INFO** webContents.session에서 `setUserAgent` 명시는 v1 보류. 기본 Electron UA가 일부 사이트에서 차단될 수 있으나 측정 후 결정.\n- **INFO** persist 디렉터리 위치는 `app.getPath(\"userData\")/Partitions/<partition>` — 사용자에게 노출되지 않으나 OS 백업 정책 영향. v1 문서화만.\n",
+                "recorded_at": "2026-05-24T13:10:01.063Z",
+                "agent_id": "architect"
+              },
+              {
+                "role": "retrospective",
+                "summary": "\n# Plan 61 cross-task 통합 리뷰 (Architect 회고)\n\nagent_id: architect\n\n## 종합 결론\n**approach requires revision** — Browser/IPC/Security 패스는 견고하지만, 사이클 핵심 사용자 시나리오 두 가지가 **렌더링 dispatch 누락**으로 실제 동작하지 않는다.\n\n| Path | 상태 |\n| --- | --- |\n| + 드롭다운 메뉴 → New File | UntitledTab 생성됨, **에디터 미렌더 (빈 화면)** — CRITICAL |\n| + 드롭다운 메뉴 → New Terminal | 정상 |\n| + 드롭다운 메뉴 → New Browser | BrowserTab 생성됨, **lastUrl 미적용** — WARNING |\n| Workspace remove 시 PTY/Browser/Untitled cleanup | 순서·idempotency OK |\n| Security 3겹 가드 + allowlist | OK |\n| IPC contract 패턴 | OK |\n| Persistence (UntitledTab strip) | 의도 부합 |\n\n---\n\n## CRITICAL (출시 차단)\n\n### C1. UntitledTab 렌더 dispatch 누락 — `src/renderer/components/workspace/content/host.tsx:119-157`\nContentHost가 dispatch하는 분기: `terminal / editor / editor.diff / git.commit / browser`. **`untitled` 분기 없음 → null 리턴**.\n- `+ → New File` 클릭 시 `openNewUntitledTab`(operations/tabs.ts:235)이 `Tab { type: \"untitled\", props: { untitledIndex } }`를 생성하고 layout에 attach함.\n- 그러나 ContentHost가 untitled를 받으면 inner는 `null`. 사용자에게는 탭만 떴을 뿐 입력할 Monaco 인스턴스가 없다.\n- `saveUntitledModel`은 `getResolvedModel({ workspaceId, filePath: tabTitle, origin: \"untitled\" })`을 호출하지만, 그 시점까지 **아무 곳에서도 `acquireModel`을 부르지 않음** — 모델 자체가 캐시에 존재하지 않아 \"buffer not available\" 에러 토스트로 끝난다.\n- 즉 본 사이클의 메인 사용 흐름(파일 새로 만들고 타이핑 후 저장)이 0% 동작.\n- **수정 방향**: ContentHost에 `tab.type === \"untitled\" ? <UntitledEditorView ...>` 분기 추가. UntitledEditorView는 mount 시 `acquireModel({ workspaceId, filePath: tab.title, origin: \"untitled\" })` 호출하고 Monaco에 모델 attach. `createUntitledEntry`가 cache.ts:170에서 분기 처리 준비된 상태이므로 attach만 연결하면 됨.\n\n### C2. UntitledTab close 시 모델 누수 가능성 — `src/renderer/components/workspace/group/view.tsx:89-96`\n`handleCloseTab`에서 `untitled` 타입을 `closeTab(workspaceId, tabId)`로 처리하는데, `closeTab`은 layout/tabs store만 정리할 뿐 cache.ts의 model entry는 건드리지 않음.\n- 정상 패스(workspace remove)에서는 `forceDisposeExternalsForWorkspace`가 `origin === \"untitled\"`도 강제 폐기하지만, **단일 탭 close에서는 release 호출 없음**.\n- 워크스페이스 활성 중에 N개의 untitled 탭을 만들고 닫는 행동을 반복하면 Monaco model이 누적된다.\n- C1이 우선 수정되어 acquireModel이 실제로 발생하기 시작하면 즉시 표면화된다.\n- **수정 방향**: closeTab 직전 `releaseModel({ workspaceId, filePath: tab.title, origin: \"untitled\" })` 호출. 또는 close 시 dirty면 확인 다이얼로그(이건 이슈 2 decision에서 v1 범위 밖으로 명시 — 모델 release만 추가).\n\n---\n\n## WARNING\n\n### W1. `resolveInitialBrowserUrl` (T23) 미연결 — `src/renderer/state/operations/browser.ts:186`\nT23에서 추가된 `resolveInitialBrowserUrl(props)`는 lastUrl을 `isNavigationSchemeAllowed`로 검증해 통과한 것만 사용하고, 검증 실패 시 null을 리턴해 \"빈 상태 화면\" 진입을 유도하는 함수다.\n- **전 코드베이스에서 호출 0회.** BrowserTabView가 mount 시 직접 `initialUrl || BLANK_TAB_URL`로 `browser.create`를 호출한다 (browser-view.tsx:108).\n- 결과:\n  - 영속화된 `lastUrl`이 무시되고 항상 `about:blank`만 로드된다 → 워크스페이스 재진입 시 마지막 URL 복원 불가 (이슈 3 decision의 핵심 약속 깨짐).\n  - allowlist 재검증(이슈 6 decision의 보안 약속) 코드는 작성되었으나 실행되지 않는다.\n- **현재 보안 영향은 낮음**: `lastUrl`은 main의 `did-navigate` 이벤트로만 채워지고, did-navigate 이전에 will-navigate가 allowlist를 통과해야만 발사된다. 즉 lastUrl에는 이미 http/https만 들어간다. 그러나 향후 storage 직접 편집/마이그레이션 결함으로 비표준 lastUrl이 유입되면 즉시 무방비.\n- **수정 방향**: BrowserTabView의 mount effect에서 `const url = resolveInitialBrowserUrl({ initialUrl, lastUrl, partition }) ?? BLANK_TAB_URL` 사용하도록 변경.\n\n### W2. about:blank fallback vs \"커스텀 빈 상태\" — 의도/구현 gap\n이슈 5 decision: \"about:blank가 아닌 커스텀 빈 상태 (Globe 아이콘 + 'Enter a URL or search' + URL 바 자동 포커스)\".\n- 구현 (browser-view.tsx:68,97-98):\n  - WebContentsView는 `about:blank`를 로드하지만 `showEmptyState` 오버레이가 `pointer-events-none`로 그 위를 덮음.\n  - 결과적으로 사용자에게는 \"커스텀 빈 상태\"가 보임 — UX 의도 충족.\n- 그러나 미세한 차이:\n  - 페이지 타이틀이 `about:blank`로 broadcast됨 → `titleUpdated` 이벤트로 탭 제목이 \"New Tab\" → \"\" 또는 \"about:blank\"로 잠시 변할 가능성. tabs.ts:167 `defaultTitle`은 \"New Tab\"인데 page-title-updated 이벤트로 덮어쓰기.\n  - DevTools 열면 `about:blank`가 보임 — 개발자에게 약간의 혼란 가능.\n- 사용자 영향 작지만 의도 100% 정합은 아님. Lead 판단 필요: 후속 이슈로 follow-up 등록할지 즉시 보정할지.\n- **즉시 보정 옵션**: 타이틀 이벤트에서 `about:blank`면 무시 (registry/ipc에서 필터). v1 범위 안에서 최소.\n\n### W3. 메뉴 결손 — 사용자 요청 매핑 부분\n사용자 원 요청: \"+ 누르면 메뉴 뜨고 신규 파일/터미널/브라우저 선택\". **이건 충족.**\n- 그러나 이슈 1 decision에 \"단축키: ⌘N(New File)\" 명시 — 탭바 드롭다운에 `⌘N` shortcut 라벨이 표시되는데(tab-bar.tsx:150), **실제 ⌘N 단축키는 어디에도 binding되지 않음.** 메뉴/keybindings.json에 새 항목이 없고, `registerFileCommands`에도 `fileNew` 같은 새 command 없음.\n- 결과: UI에 `⌘N` 표시되는데 누르면 아무 일도 안 일어난다 → false affordance.\n- **수정 방향**: ⌘N command 등록 (file 도메인에 `fileNew` 또는 `tabNewUntitled` 추가) + keybindings에 매핑, OR 드롭다운의 ⌘N 라벨 제거.\n- 추가로 File menu (template.ts:114-137)에는 새 항목(New File/Terminal/Browser) 어느 것도 없다 — 메뉴를 통한 진입은 탭바 + 버튼 한 곳뿐. 사용자가 메뉴를 추가 요청하지는 않았으므로 follow-up 후보로만 기록.\n\n---\n\n## INFO (개선 여지)\n\n### I1. Bootstrap 순서 — 정확\n`bootstrap.ts:42-54` 순서:\n1. `initializeWorkspaceLifecycle()` (workspace:removed 리스너)\n2. `startNotificationClickListener()`\n3. `initBrowserRuntimeSubscriptions()` (browser.* IPC → runtime store)\n4. `initBrowserLastUrlPersistence()` (runtime → tabs store debounced)\n\n순서 정합 ✓. 둘 다 호출됨 ✓. HMR-safe (operations/browser.ts:64-67, 132-134에서 unsubs 재설치).\n\n### I2. Cleanup 흐름 — 정확\n`WorkspaceManager.remove` 순서 (manager.ts:786-842):\n1. `ptySessionCloser?.(id)` — PTY 동기 종료\n2. `browserCloser(id)` — view destroy(동기) + clearStorageData(fire-and-forget)\n3. `ctx.close()` + Map 정리\n4. `broadcast(\"workspace\", \"removed\", { id })` → renderer cleanup registry → `useTabsStore.closeAllForWorkspace` (terminal kill) + `forceDisposeExternalsForWorkspace` (external + untitled 모델 release) + `useUntitledCounterStore.clearWorkspace`\n- C2 한계 (개별 탭 close는 release 안 함)를 제외하면 워크스페이스 단위 cleanup은 완전.\n\n### I3. Store 경계 — 명확\n- `useBrowserRuntimeStore` (volatile Map) ↔ `useTabsStore.BrowserTab` (persisted props.lastUrl)\n- `currentUrl` 변화 → `initBrowserLastUrlPersistence`가 250ms debounce → `setBrowserLastUrl` 호출 → tabs store 갱신 → persistence.ts의 byWorkspace ref change → debounced appState write.\n- 두 store 사이 단방향, 디바운스 격리, 경계 깔끔.\n- 미세 관찰: `findWorkspaceForTab`(operations/browser.ts:113)이 O(workspaces × tabs) 선형 스캔이지만 path가 이미 250ms debounce 안에 있으니 문제 없음.\n\n### I4. Security 3겹 — 일관\n- `installNavigationGuards`(security.ts:111-181)가 `will-navigate` / `will-frame-navigate` / `setWindowOpenHandler` 모두 `isNavigationSchemeAllowed`만 사용 ✓.\n- `resolveInitialBrowserUrl` 도 `isNavigationSchemeAllowed` 사용 ✓ (단 W1대로 호출되지 않음).\n- 단일 모듈(navigation-allowlist.ts)이 모든 검증 진입점.\n\n### I5. IPC 패턴 — 정합\n`browser.*` / `dialog.showSaveDialog` 둘 다 기존 `call(Args, Result)` / `listen(Args)` 패턴 그대로. `z.string().url()` 강제로 `about:blank`는 schema 거부 가능성이 있어 보였으나 BrowserTabView가 `about:blank`를 직접 보낸다 — 확인하니 `z.string().url()`이 `about:blank`를 통과시키는지가 의문. WHATWG URL parser는 통과시키지만 Node의 zod url validator 동작에 따라 다를 수 있음. **잠재 latent 버그** — 만약 zod가 `about:blank`를 reject하면 browser.create 자체가 실패해 빈 탭이 안 뜬다. 빠른 확인 권장.\n\n### I6. UntitledTab persistence strip — 의도 부합\n`persistence.ts:36-39`에서 type===\"untitled\" 필터링. 이슈 2 decision의 \"닫혀도 재사용 안함, 단조 증가, persisted\"는 카운터(useUntitledCounterStore)에 한정이고 untitled 탭 자체는 세션 한정 — Lead 의도 일치 ✓.\n\n### I7. forceDisposeExternalsForWorkspace 함수명\n\"externals\" 함수가 untitled도 처리하면서 함수명에 untitled 흔적 없음 → 의도 코멘트로만 추적 가능 (cache.ts:355-378). 후속에 `forceDisposeWorkspaceScopedEntries`로 rename 검토 가치 있음. INFO only.\n\n---\n\n## Risks / 미해결 질문\n- **R1**: I5의 zod `z.string().url()` ↔ `about:blank` 호환성. 빌드 시점에 schema validate 실패할 수 있음. 실제 dev 환경에서 BrowserTabView mount 후 IPC error 로그 확인 필요.\n- **R2**: 사이클 close 시점에 C1을 따로 후속 사이클로 미루면 사용자에겐 \"New File 버튼은 동작하지 않는다\"가 인상된다. 본 사이클 verdict 측면에서 close 가능 여부 문제.\n\n## 권고 (Lead 판단용)\n- **본 사이클 close 전 최소한 C1 + W1 처리.** 둘 다 dispatch/wiring 한두 줄 수정으로 끝나는 규모지만, 차치하면 본 사이클의 사용자 보이는 가치가 절반 이하로 떨어진다.\n- C2 / W2 / W3는 follow-up 이슈 등록으로 정리 가능 — 단 W3의 `⌘N` false affordance는 라벨 제거 1줄로 즉시 차단 권장.\n- I5의 R1만 30초 확인.\n\n## 검토 파일 (절대경로)\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/components/workspace/content/host.tsx\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/components/workspace/content/browser-view.tsx\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/components/workspace/group/view.tsx\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/components/workspace/tabs/tab-bar.tsx\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/state/operations/tabs.ts\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/state/operations/browser.ts\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/state/stores/tabs.ts\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/state/stores/browser-runtime.ts\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/state/persistence.ts\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/bootstrap.ts\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/services/editor/save/save-untitled-handler.ts\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/services/editor/model/cache.ts\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/services/editor/model/entry.ts\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/commands/domains/file.ts\n- /Users/kih/workspaces/areas/nexus-code/src/main/index.ts\n- /Users/kih/workspaces/areas/nexus-code/src/main/features/browser/index.ts\n- /Users/kih/workspaces/areas/nexus-code/src/main/features/browser/security.ts\n- /Users/kih/workspaces/areas/nexus-code/src/main/features/browser/registry.ts\n- /Users/kih/workspaces/areas/nexus-code/src/main/features/browser/ipc.ts\n- /Users/kih/workspaces/areas/nexus-code/src/main/features/workspace/manager.ts\n- /Users/kih/workspaces/areas/nexus-code/src/main/features/menu/template.ts\n- /Users/kih/workspaces/areas/nexus-code/src/shared/ipc/contract.ts\n- /Users/kih/workspaces/areas/nexus-code/src/shared/security/navigation-allowlist.ts\n- /Users/kih/workspaces/areas/nexus-code/src/shared/types/tab.ts\n- /Users/kih/workspaces/areas/nexus-code/src/shared/types/layout.ts\n\n## Completion Report\n- 검토 범위: Plan 61의 T12~T24 cross-task 통합 (보안, IPC, store 경계, lifecycle, bootstrap, persistence)\n- 발견: CRITICAL 2 / WARNING 3 / INFO 7\n- 권고: **approach requires revision** — C1(UntitledTab dispatch 누락) + W1(resolveInitialBrowserUrl 미연결) 본 사이클 내 수정 후 close.\n- 미해결 위험: R1(zod url ↔ about:blank), R2(사용자 가치 가용성)\n",
+                "recorded_at": "2026-05-24T14:09:04.862Z",
+                "agent_id": "architect"
+              },
+              {
+                "role": "retrospective",
+                "summary": "## Verdict\n**Approved-with-follow-up**\n\nC1/C2/W1 1차 리뷰 지적사항 모두 의도대로 반영 완료. CRITICAL 신규 GAP 없음. 사이클 close 가능.\n\n## C1 검증 — ContentHost untitled dispatch\n- `src/renderer/components/workspace/content/host.tsx` L144-151: `tab.type === \"untitled\"` 분기 추가, `EditorView`에 `filePath=\"Untitled-{idx}\"`, `origin=\"untitled\"`, `tabId`, `key=\"untitled-{idx}\"` 전달. 의도 정확히 일치.\n- `src/renderer/components/workspace/content/editor-view.tsx` L33-46: `origin?: \"workspace\" | \"external\" | \"untitled\"` prop 시그니처 추가, L174-175 propagation. 타입 정합.\n- 테스트(`host-untitled-dispatch.test.tsx`)는 ContentHost 자체가 createPortal/DOM ref라 SSR 불가하므로 dispatch 동치 조건(EditorView + origin=\"untitled\")만 검증 — 합리적인 우회.\n\n## C2 검증 — UntitledTab close releaseModel\n- `src/renderer/components/workspace/group/view.tsx` L90-100: untitled 분기 추가, `releaseModel({workspaceId, filePath: \"Untitled-{idx}\", origin: \"untitled\"})` 호출 후 `closeTab`. cacheUriForInput이 `untitled://{ws}/{filePath}` 키를 생성하므로 정확한 엔트리 매칭.\n- 테스트(`untitled-tab-close.test.ts`)는 real cache + stubbed entry로 refCount 0 → cleanupEntry 호출 검증. 정확.\n\n## W1 검증 — resolveInitialBrowserUrl 연결\n- `src/renderer/components/workspace/content/browser-view.tsx` L109: `resolveInitialBrowserUrl({initialUrl, lastUrl, partition}) ?? BLANK_TAB_URL` 형태로 mount IPC에 연결. allowlist 미통과 → about:blank fallback. 정확.\n- showEmptyState L98-99: `(currentUrl === \"\" || currentUrl === BLANK_TAB_URL) && lastUrl === \"\"`. 새 탭/유효 https/차단 케이스 모두 정상 동작 (단, 차단 케이스에서 toolbar에 잠시 lastUrl이 노출되는 cosmetic 잔존 — INFO).\n\n## 신규 GAP 분석\n\n### 새 회귀 없음 검증\n1. **useSharedModel origin 전파 변경(L45)**: HEAD에선 origin 자체를 discard했음. 변경 후엔 EditorView에서 받은 origin을 그대로 sharedInput에 묶음. 기존 workspace 탭은 host.tsx editor 분기가 여전히 origin을 안 넘기므로 `undefined`로 들어가 cache.ts L168/172 분기 미진입 → `createEntry`(workspace 경로). 동작 동일.\n2. **browser-view showEmptyState**: T27 fix는 mount 시점에 URL만 정함. showEmptyState 분기는 lastUrl/currentUrl 기반이라 변경 없음 — 깨지지 않음.\n\n### 사전 존재 미해결 항목 (본 사이클 scope 외, follow-up 권고)\n- **GAP-A (WARNING/follow-up)**: host.tsx editor 분기(L138-143)가 `tab.props.origin`을 EditorView에 forwarding 하지 않음. 외부 파일 탭(`origin=\"external\"`)이 useSharedModel를 거치며 `origin=undefined`로 acquireModel → `loadExternalEntry` 우회 → `createEntry`(workspace 경로)로 falsy하게 라우팅. HEAD 시점부터 존재한 latent 결함. Plan 61 cross-task 범위 밖이지만 useSharedModel 행위 변경으로 노출 표면이 커진 만큼 메모리 등록 가치 있음.\n- **GAP-B (INFO/follow-up, 1차 리뷰 W2)**: 차단된 스킴이 lastUrl에 남아있는 경우 UrlBar에 그 값이 노출되고 showEmptyState=false가 되어 빈 about:blank이 보임. 보안상 차단은 정상 수행. 표면 다듬기 차원.\n- **GAP-C (INFO/follow-up, 1차 리뷰 W3)**: ⌘N 단축키는 GroupView 외 어디서도 활성화 안 됨. 사용자 원 요청(+ 메뉴)에는 부합하나 키보드 affordance는 미흡. 별도 task로 분리 가능.\n\n## 사용자 원 요청 vs 구현 점검\n\"+ 누르면 메뉴 뜨고 신규 파일/터미널/브라우저 선택\" → tab-bar.tsx에서 메뉴 3종(new untitled, new terminal, new browser) 전달, GroupView 핸들러 3개 모두 wiring 됨(L110-123). 핵심 동작 누락 없음.\n\n## Follow-up 권고 (메모리 등록 대상)\n1. GAP-A: host.tsx editor 분기가 tab.props.origin/readOnly를 EditorView로 forwarding 하도록 — external 탭 LSP/readOnly 경로 회복.\n2. GAP-B: BrowserTabView가 lastUrl을 표시용으로 sanitize (allowlist 통과한 값만 currentUrl 폴백).\n3. GAP-C: ⌘N/⌘T 등 워크스페이스 단위 키보드 단축키 wiring.\n\n세 항목 모두 본 사이클 close 후 신규 사이클/메모리로 이관.\n\n## 위치 요약 (CRITICAL/WARNING 없음, 모든 fix 검증 통과)\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/components/workspace/content/host.tsx\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/components/workspace/content/editor-view.tsx\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/services/editor/model/use-shared-model.ts\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/components/workspace/group/view.tsx\n- /Users/kih/workspaces/areas/nexus-code/src/renderer/components/workspace/content/browser-view.tsx",
+                "recorded_at": "2026-05-24T14:22:34.469Z"
+              }
+            ],
+            "decision": "엄격 webPreferences + 권한 deny 매트릭스 + 3겹 네비게이션 가드 + 즉시 partition cleanup (Architect 권장).\n\nwebPreferences:\n- contextIsolation: true\n- nodeIntegration: false\n- sandbox: true\n- webSecurity: true\n- (메인 윈도우 기본값과 동일)\n\n권한 정책 (`session.setPermissionRequestHandler` + `setPermissionCheckHandler`):\n- deny: media (camera/mic), geolocation, notifications, midi, midiSysex, pointerLock, fullscreen, openExternal, clipboard-read, display-capture\n- allow: clipboard-sanitized-write (북마크/URL 복사용)\n\n네비게이션 가드 (3겹):\n1. will-navigate: top-frame. NAVIGATION_SCHEME_ALLOWLIST = [\"http:\", \"https:\"] 만 통과\n2. will-frame-navigate: iframe. http/https/about:blank 통과 (SPA 정상 동작), data: 차단\n3. setWindowOpenHandler: window.open → http/https는 **같은 탭에서 navigate** (W2안, SPA OAuth 흐름 대응), 그 외 deny\n\n신규 모듈: src/shared/security/navigation-allowlist.ts — NAVIGATION_SCHEME_ALLOWLIST (in-frame navigate용, EXTERNAL_SCHEME_ALLOWLIST와 별도 — openExternal과 in-frame은 의미 다름)\n\n다운로드 / 업로드:\n- v1: will-download은 OS 기본 동작 (다운로드 폴더로 직접 저장). 차단도 사용자 알림도 없음. file input 업로드 허용.\n\nPartition cleanup:\n- 워크스페이스 삭제 시 즉시 session.fromPartition(`persist:browser-<workspaceId>`).clearStorageData()\n- WorkspaceManager에 `setBrowserCloser` 훅 신설 (setPtySessionCloser 패턴 동일)\n- 모든 view destroy 완료 후 clearStorageData (순서 중요)\n\nDevTools: 항상 활성, detach 분리 창. 개발/프로덕션 동일."
+          }
+        ],
+        "research_summary": "현재 상태: src/renderer/components/workspace/tabs/tab-bar.tsx:128 의 + 버튼이 onNewTerminalTab을 직접 호출. Tab discriminated union(state/stores/tabs.ts)은 editor/editor.diff/terminal/git.commit 4종. EditorTab은 plan 60에서 viewMode(raw/preview) 추가됨.\n\n선결정 (사용자 합의):\n1) 웹브라우저 = Electron WebContentsView (Electron 30+ 표준, BrowserView deprecated). DOM 외부 오버레이라 React 레이아웃과 setBounds 동기화 필요. <webview> 태그는 deprecated 흐름이라 제외.\n2) 신규 파일 = VSCode 방식 untitled 버퍼. 메모리 모델로 열고 첫 저장 시 Save As.\n3) 브라우저 세션 = persist:browser-<workspaceId> 워크스페이스별 partition. 쿠키/캐시 독립.\n\n기존 보안 인프라 (plan 60에서 구축됨):\n- src/shared/security/url-scheme.ts: EXTERNAL_SCHEME_ALLOWLIST = [http, https, mailto]\n- src/main/features/window/index.ts: setWindowOpenHandler 하드닝됨\n- src/main/features/custom-protocols/nexus-workspace.ts: 워크스페이스 파일 접근용 커스텀 스킴\n\n이 사이클은 위 인프라를 활용. 외부 조사 없음 — Electron 공식 API와 VSCode untitled 패턴은 일반 지식. 결정 포인트는 모두 UX/아키텍처 트레이드오프이므로 HOW 분석으로 풀이.",
+        "created_at": "2026-05-24T13:01:05.775Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "의존성 추가 — react-markdown + remark-gfm",
+          "status": "completed",
+          "context": "package.json에 react-markdown 미설치. tm-grammars 등 최근 패턴처럼 dependencies 섹션에 정렬 위치 유지.",
+          "acceptance": "- `react-markdown@^9` + `remark-gfm@^4` dependencies 추가. bun.lock 갱신.\n- bun install 후 typecheck 통과 (기존 import 영향 없음).\n- 추가 외 변경 없음 (devDeps/scripts 손대지 않음).",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-24T04:59:17.415Z",
+          "result": {
+            "outcome": "success",
+            "summary": "react-markdown@9.1.0 + remark-gfm@4.0.1 추가. bun.lock 갱신. typecheck 통과. electron-rebuild 자동 실행됨.",
+            "artifacts": [
+              "package.json",
+              "bun.lock"
+            ],
+            "recorded_at": "2026-05-24T05:14:10.541Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "tabs store: EditorTab.viewMode + setViewMode + isPreviewable 헬퍼",
+          "status": "completed",
+          "context": "src/renderer/state/stores/tabs.ts에 Tab discriminated union 정의. EditorTab 브랜치만 viewMode 가짐. preview 대상 판정은 확장자 기반: .md|.markdown|.mdx|.html|.htm|.svg. .mdx는 isPreviewSupported=false로 별도 표시(토글 disabled용).",
+          "acceptance": "- EditorTab.viewMode?: \"raw\" | \"preview\" (옵션, default 처리는 selector에서).\n- TabsState에 setViewMode(workspaceId, tabId, mode) action 추가.\n- 새 유틸 `src/renderer/services/editor/preview/previewable.ts`:\n  - `isPreviewable(filePath): \"supported\" | \"mdx-disabled\" | \"none\"`\n  - 확장자 매칭은 lowercase + endsWith.\n- TS 컴파일 통과. 기존 createTab/replacePreviewTab 시그니처 비파괴.",
+          "plan_issue": 4,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-24T04:59:24.992Z",
+          "result": {
+            "outcome": "success",
+            "summary": "EditorTab.viewMode 옵션 필드 + setViewMode action 추가. src/renderer/services/editor/preview/previewable.ts 신규 (isPreviewable + previewEngineFor). 테스트 7 pass. typecheck 통과.",
+            "artifacts": [
+              "src/renderer/state/stores/tabs.ts",
+              "src/renderer/services/editor/preview/previewable.ts",
+              "tests/unit/renderer/services/editor/previewable.test.ts"
+            ],
+            "recorded_at": "2026-05-24T05:16:38.791Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "ViewModeToggle 컴포넌트 — segmented control (Raw|Preview)",
+          "status": "completed",
+          "context": "EditorView 헤더 우측에 부착할 segmented 2-segment 컨트롤. 디자인 시스템 토큰만 사용. ReadOnlyBanner와 같은 컨테이너의 우측 슬롯.",
+          "acceptance": "- 새 파일 `src/renderer/components/editor/preview/view-mode-toggle.tsx`.\n- props: { mode: \"raw\"|\"preview\", onChange(mode), disabled?: boolean, disabledReason?: string }.\n- ARIA: 외곽 div role=\"radiogroup\", 두 button role=\"radio\" + aria-checked, 좌우 화살표 키로 세그먼트 이동, Space로 활성.\n- 시각: height 24px(compact 20px), radius 4px, hairline border, 무그림자, 200ms ease-out. active 세그먼트는 control.segment.active.bg + text.primary, inactive는 text.tertiary, hover는 state.hover.surface.\n- disabled일 때 두 세그먼트 모두 비활성 + title 속성으로 disabledReason 노출.\n- 디자인 토큰 외 임의 hex/px 금지. 토큰 부재 시 component 토큰 정의 추가 (design.md 컨벤션 따라 `src/shared/design-tokens/` 갱신).",
+          "plan_issue": 5,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-24T04:59:34.253Z",
+          "result": {
+            "outcome": "success",
+            "summary": "기존 SegmentedControl(`src/renderer/components/settings/segmented-control.tsx`)에 disabled / disabledReason 지원 추가. ViewModeToggle wrapper 신규 생성. 기존 캴포넌트가 aria-pressed 패턴(role=radio on button 금지)을 쓰고 있어 designer의 role=radiogroup 권고 대신 프로젝트 기존 a11y 패턴 준수.",
+            "artifacts": [
+              "src/renderer/components/settings/segmented-control.tsx",
+              "src/renderer/components/editor/preview/view-mode-toggle.tsx"
+            ],
+            "recorded_at": "2026-05-24T05:18:19.108Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "링크/스킴 라우팅 유틸 — allowlist + rootPath prefix 검증",
+          "status": "completed",
+          "context": "markdown 안의 링크는 4부류 (워크스페이스 내부 파일 / http(s) 외부 / mailto / anchor / 차단). 워크스페이스 경로 escape(`../../etc/passwd`)는 CRITICAL 차단 대상. shell.openExternal IPC는 main process(setWindowOpenHandler 패턴)로 라우팅.",
+          "acceptance": "- 새 파일 `src/renderer/services/editor/preview/link-router.ts`.\n- `classifyLinkHref(href: string, ctx: {currentFileAbsPath, workspaceRootAbsPath, kind?: \"link\"|\"image\"}): {kind:\"internal-file\", absPath:string, relPath:string} | {kind:\"external\", href:string} | {kind:\"anchor\", id:string} | {kind:\"blocked\", reason:string}`.\n- 분기: `#id` → anchor, `http://`·`https://`·`mailto:` → `isExternalSchemeAllowed` 통과 시 external (task 11의 공유 유틸 사용), 상대경로 또는 `./` 시작 → resolve 후 rootPath prefix 검증 통과 시 internal-file 아니면 blocked, 기타 스킴(vscode:/file:/javascript:/data:) → blocked.\n- rootPath 검증은 `path.resolve(dirname(currentFileAbsPath), href)` 후 `absPath === workspaceRootAbsPath || absPath.startsWith(workspaceRootAbsPath + sep)`.\n- image kind일 때 anchor는 invalid(blocked), 그 외 분기는 동일.\n- 단위 테스트: 4부류 + 3가지 escape 케이스(.., 절대경로, symlink-like) + javascript:/data:/vscode: 차단 + Windows 경로 호환. tests/unit/renderer/services/editor/preview/link-router.test.ts.",
+          "plan_issue": 6,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-24T04:59:44.806Z",
+          "result": {
+            "outcome": "success",
+            "summary": "classifyLinkHref 구현 (anchor / external / internal-file / blocked 4-way). POSIX path helper inline. workspace prefix 검증 + ../ escape 차단. 기존 isWithinWorkspace / relPath 재사용. 테스트 12 pass.",
+            "artifacts": [
+              "src/renderer/services/editor/preview/link-router.ts",
+              "tests/unit/renderer/services/editor/preview/link-router.test.ts"
+            ],
+            "recorded_at": "2026-05-24T05:20:16.735Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "MarkdownPreview 컴포넌트 — react-markdown + remark-gfm + 링크 라우팅 + byte cap",
+          "status": "completed",
+          "context": ".md(및 .mdx의 raw 모드만 — preview는 disabled)를 React 트리에서 렌더. rehype-raw 미사용 (raw HTML 무력화). 이미지는 v1 placeholder.",
+          "acceptance": "- 새 파일 `src/renderer/components/editor/preview/markdown-preview.tsx`.\n- props: { source: string, currentFileAbsPath: string, workspaceId: string, workspaceRootAbsPath: string }.\n- ReactMarkdown 사용, remarkPlugins=[remarkGfm], rehypePlugins 비움(=raw HTML 비활성).\n- components override:\n  - `a`: classifyLinkHref → internal-file은 openOrRevealEditor, external은 ipc shell.openExternal(allowlist 통과 시), anchor는 컨테이너 내 scrollIntoView, blocked는 onClick preventDefault + console.warn.\n  - `img`: 상대경로 → classifyLinkHref(image-context)로 검증 후 통과 시 `buildWorkspaceUrl(workspaceId, relPath)` (nexus-workspace:// 스킴)로 변환 표시. blocked 시 placeholder 아이콘. http(s)는 그대로 표시. data: 차단.\n- byte cap: source.length > 512*1024 시 truncate + 상단 inline banner \"Preview truncated at 512 KB\". 상수는 `MAX_PREVIEW_BYTES`로 분리(같은 폴더 constants.ts).\n- 타이포: design.md preview 영역 가이드 (heading scale, code block, table hairline-only, link 호버 underline). 토큰 부재 시 component 토큰 추가.\n- 자체 클래스로 격리, max-width 72ch.",
+          "plan_issue": 1,
+          "deps": [
+            1,
+            4
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-24T04:59:58.137Z",
+          "result": {
+            "outcome": "success",
+            "summary": "MarkdownPreview 구현: ReactMarkdown + remarkGfm, rehype-raw 미사용. a/img 오버라이드가 classifyLinkHref로 라우팅. external은 window.open(_blank,noopener,noreferrer)로 setWindowOpenHandler 경유. internal-file은 openOrRevealEditor. 이미지는 buildWorkspaceUrl(nexus-workspace://). #anchor 는 내부 scrollIntoView. blocked에 인라인 placeholder. byte cap 공용. typecheck 통과.",
+            "artifacts": [
+              "src/renderer/components/editor/preview/markdown-preview.tsx"
+            ],
+            "recorded_at": "2026-05-24T05:27:24.709Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "HtmlPreview 컴포넌트 — sandbox=\"\" iframe + srcdoc",
+          "status": "completed",
+          "context": ".html 파일의 미리보기. 임의 script/fetch/storage 차단이 절대 우선. iframe sandbox 토큰 0개 = W3C 명세상 최강 격리.",
+          "acceptance": "- 새 파일 `src/renderer/components/editor/preview/html-preview.tsx`.\n- props: { source: string } — workspace 경로는 v1에서 사용 안 함.\n- iframe 속성: sandbox=\"\" (literally empty string), allow=\"\", referrerpolicy=\"no-referrer\", srcDoc={source 또는 truncated}, width/height 100%, border:0.\n- byte cap 512KB 동일 처리.\n- 자식 iframe 안에서 script 실행 불가 (sandbox=\"\"), 외부 fetch 불가, same-origin 차단. 테스트는 task 9에서.",
+          "plan_issue": 3,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-24T05:00:04.059Z",
+          "result": {
+            "outcome": "success",
+            "summary": "HtmlPreview 구현: iframe sandbox=\"\" + allow=\"\" + referrerPolicy=no-referrer + srcDoc. byte cap 512KB 처리 포함. constants.ts 공용 유틸 추가 (capPreviewSource + MAX_PREVIEW_BYTES). typecheck 통과.",
+            "artifacts": [
+              "src/renderer/components/editor/preview/html-preview.tsx",
+              "src/renderer/components/editor/preview/constants.ts"
+            ],
+            "recorded_at": "2026-05-24T05:21:16.817Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "SvgPreview 컴포넌트 — img + blob URL",
+          "status": "completed",
+          "context": ".svg 파일을 inline svg 대신 <img>로 렌더해 script/foreignObject를 브라우저 디폴트로 무력화.",
+          "acceptance": "- 새 파일 `src/renderer/components/editor/preview/svg-preview.tsx`.\n- props: { source: string }.\n- useEffect로 source → new Blob([source], {type:\"image/svg+xml\"}) → URL.createObjectURL → state. cleanup에서 URL.revokeObjectURL.\n- <img src={blobUrl} alt=\"SVG preview\" /> + max-width 100%, max-height 100%, object-fit:contain. 배경 surface.canvas 토큰 (다크/라이트에서 흑색 stroke 가시).\n- source 변경 시 새 blob 재생성 + 이전 URL revoke.\n- byte cap 동일 처리.",
+          "plan_issue": 3,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-24T05:00:09.893Z",
+          "result": {
+            "outcome": "success",
+            "summary": "SvgPreview 구현: useSvgBlobUrl 훅으로 source 변경마다 Blob([],image/svg+xml) + URL.createObjectURL, 이전 URL revoke. <img>로 렌더해 script/foreignObject 무력화. backdrop 배경으로 흔 stroke 가시성. typecheck 통과.",
+            "artifacts": [
+              "src/renderer/components/editor/preview/svg-preview.tsx"
+            ],
+            "recorded_at": "2026-05-24T05:21:23.946Z"
+          }
+        },
+        {
+          "id": 8,
+          "title": "EditorView 통합 — 헤더 슬롯 + viewMode 분기 + 라이브 sync + 스크롤 보존",
+          "status": "completed",
+          "context": "EditorView가 토글 + Monaco/Preview pane 분기 + onDidChangeContent 구독 + 외부 변경 reconcile 후 동일 경로로 흐름.",
+          "acceptance": "- src/renderer/components/workspace/content/editor-view.tsx 수정:\n  - isPreviewable(filePath) 호출 → \"supported\" / \"mdx-disabled\" / \"none\" 분기.\n  - \"none\"일 때 토글 미렌더 + Monaco만 표시 (현행 그대로).\n  - \"supported\"/\"mdx-disabled\" 일 때 헤더 우측 슬롯에 ViewModeToggle 부착 (mdx-disabled는 disabled=true + tooltip).\n  - tab.viewMode === \"preview\"일 때 Monaco 자리에 preview pane 렌더 (확장자별 Markdown/Html/Svg).\n  - 라이브 sync: model.onDidChangeContent → rAF 1tick coalesce → setState(source). model.isDisposed() 가드.\n  - 스크롤 위치: preview 컨테이너 ref에 scrollTop/scrollHeight 비율 저장(useRef), source 변경 후 useLayoutEffect로 복원.\n- 헤더 컨테이너는 flex로 ReadOnlyBanner(좌, flex-1 min-w-0)와 ViewModeToggle(우, flex-0) 공존.\n- preview 모드에서도 model은 살아있음 (raw로 돌아오면 Monaco가 재마운트 없이 표시되도록 EditorView 마운트 유지 — preview는 형제 컴포넌트가 아니라 동일 컨테이너 내 분기 렌더).\n- 기존 ConflictResolvedBanner / 에러 EmptyState는 그대로.",
+          "plan_issue": 5,
+          "deps": [
+            3,
+            5,
+            6,
+            7
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-24T05:00:22.698Z",
+          "result": {
+            "outcome": "success",
+            "summary": "EditorView 통합 완료. host.tsx에서 tabId prop 포워딩. isPreviewable / previewEngineFor 분기. useTabsStore로 viewMode 흐르고 setViewMode 디스패치. useModelSource 훅으로 onDidChangeContent + rAF coalesce 라이브 sync. preview 모드에서도 Monaco mount 유지(CSS hidden)해 토글 증시 복귀. mdx-disabled는 토글 disabled + tooltip. 기존 banner 테스트 3 pass.",
+            "artifacts": [
+              "src/renderer/components/workspace/content/host.tsx",
+              "src/renderer/components/workspace/content/editor-view.tsx",
+              "tests/unit/renderer/components/workspace/content/editor-view-banner.test.tsx"
+            ],
+            "recorded_at": "2026-05-24T05:27:36.552Z"
+          }
+        },
+        {
+          "id": 9,
+          "title": "보안·라우팅 회귀 테스트",
+          "status": "completed",
+          "context": "신뢰 불가 워크스페이스 콘텐츠에 대한 핵심 보안 가정을 회귀로 고정.",
+          "acceptance": "- tests/unit/renderer/services/editor/preview/ 아래 다음 파일:\n  - link-router.test.ts — task 4에서 작성.\n  - markdown-security.test.tsx — `<script>alert(1)</script>` 들어간 source 렌더 시 DOM에 script 노드 없음. `<a href=\"javascript:...\">` onClick → 외부 호출 없음 + warn.\n  - mdx-disabled.test.tsx — .mdx 경로일 때 isPreviewable === \"mdx-disabled\", 토글 disabled + tooltip 메시지 노출.\n  - byte-cap.test.tsx — 512KB+1 source 시 truncate banner 표시.\n  - workspace-image-url.test.tsx — markdown의 `![alt](./img.png)`이 `nexus-workspace://{wsId}/img.png`로 변환되어 img.src에 들어가는지.\n- tests/unit/main/features/custom-protocols/nexus-workspace.test.ts — task 10에서 작성.\n- tests/unit/shared/security/url-scheme.test.ts — task 11에서 작성.\n- 모든 테스트 bun test 통과.",
+          "plan_issue": 2,
+          "deps": [
+            5,
+            8
+          ],
+          "owner": {
+            "role": "tester"
+          },
+          "created_at": "2026-05-24T05:00:30.530Z",
+          "result": {
+            "outcome": "success",
+            "summary": "markdown-security.test.tsx 8개 (script 이스케이프, iframe 이스케이프, javascript:/data: href 차단, workspace 이미지 nexus-workspace:// 변환, escape placeholder, byte cap banner). view-mode-toggle.test.tsx 2개 (aria-pressed, disabled+reason). 전체 plan-60 테스트 7개 파일 55 pass / 0 fail. biome clean.",
+            "artifacts": [
+              "tests/unit/renderer/services/editor/preview/markdown-security.test.tsx",
+              "tests/unit/renderer/services/editor/preview/view-mode-toggle.test.tsx"
+            ],
+            "recorded_at": "2026-05-24T05:29:58.934Z"
+          }
+        },
+        {
+          "id": 10,
+          "title": "Custom protocol — nexus-workspace:// (main 등록 + 경로 검증)",
+          "status": "completed",
+          "context": "workspace 파일을 안전하게 렌더러로 노출하는 protocol scheme. dev(localhost)·prod(file://) 양쪽에서 동일 동작. main process의 `protocol.handle(\"nexus-workspace\", ...)` 사용. 잘못된 workspaceId / rootPath escape는 404.",
+          "acceptance": "- `src/main/features/custom-protocols/` 또는 동등 위치에 새 파일.\n- `protocol.registerSchemesAsPrivileged([{scheme:\"nexus-workspace\", privileges:{standard:true, secure:true, supportFetchAPI:false, corsEnabled:false}}])`를 `app.whenReady` 전 호출.\n- `protocol.handle(\"nexus-workspace\", async (req) => …)`:\n  - URL 파싱: `nexus-workspace://{workspaceId}/{relPath}` (host=workspaceId, pathname=relPath).\n  - workspaceId → useWorkspacesStore 동치 (main에는 별도 workspace registry가 있으면 그쪽; 없으면 IPC 또는 setting 통해 rootPath 조회 — 기존 패턴 확인 후 결정).\n  - relPath을 rootPath와 join → path.resolve → rootPath prefix 검증 (symlink escape는 fs.realpath로 확인 권장).\n  - 검증 통과 시 `Response`로 파일 스트림(`net.fetch(url)` 또는 fs 스트림 + MIME 헤더). 실패 시 404.\n- 새 IPC는 추가하지 않음 (protocol.handle이 IPC와 독립).\n- 단위 테스트: rootPath 정상 / .. escape 거부 / 존재하지 않는 workspaceId 거부 / symlink escape 거부. tests/unit/main/features/custom-protocols/nexus-workspace.test.ts.\n- 렌더러 측 헬퍼: `src/renderer/services/editor/preview/workspace-url.ts` — `buildWorkspaceUrl(workspaceId, relPath): string` (URL encode 포함).",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-24T05:13:02.765Z",
+          "result": {
+            "outcome": "success",
+            "summary": "nexus-workspace:// custom protocol 구현. handler가 traversal/absolute/symlink escape/SSH 모두 404 차단. main 부팅 와이어링: registerSchemesAsPrivileged(whenReady 이전) + installNexusWorkspaceProtocol(init 이후). buildWorkspaceUrl 렌더러 헤퍼. supportFetchAPI=false (img src= 용도만). 테스트 9 pass.",
+            "artifacts": [
+              "src/main/features/custom-protocols/nexus-workspace.ts",
+              "src/renderer/services/editor/preview/workspace-url.ts",
+              "src/main/index.ts",
+              "tests/unit/main/features/custom-protocols/nexus-workspace.test.ts"
+            ],
+            "recorded_at": "2026-05-24T05:20:24.913Z"
+          }
+        },
+        {
+          "id": 11,
+          "title": "setWindowOpenHandler 하드닝 — 동일 스킴 allowlist 적용",
+          "status": "completed",
+          "context": "기존 `src/main/features/window/index.ts:95-98`이 임의 URL을 shell.openExternal에 무차별 전달. 새 link-router의 allowlist(http/https/mailto)와 동일 유틸을 적용해 vscode://·file://·javascript:·data: 등 OS 핸들러 트램폴린 공격면을 차단.",
+          "acceptance": "- `src/shared/security/url-scheme.ts` (또는 동등) 신규: `isExternalSchemeAllowed(url: string): boolean`. allowlist = {http, https, mailto}. renderer link-router와 main setWindowOpenHandler가 같은 함수를 공유.\n- src/main/features/window/index.ts의 setWindowOpenHandler가 위 검사 후만 shell.openExternal 호출. 거부 시 main 로거로 warn 기록.\n- 단위 테스트: allowlist 통과/차단 매트릭스 (http, https, mailto, file, vscode, cursor, javascript, data, ftp). tests/unit/shared/security/url-scheme.test.ts.",
+          "plan_issue": 6,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-24T05:13:10.313Z",
+          "result": {
+            "outcome": "success",
+            "summary": "EXTERNAL_SCHEME_ALLOWLIST + isExternalSchemeAllowed 신규, setWindowOpenHandler가 allowlist 통과 시에만 shell.openExternal 호출. 차단 시 createLogger(\"window-open-handler\")로 warn. URL 생성자가 프로토콜 소문자 정규화 수행하므로 case-insensitive 자동 처리됨. 테스트 통과.",
+            "artifacts": [
+              "src/shared/security/url-scheme.ts",
+              "src/main/features/window/index.ts",
+              "tests/unit/shared/security/url-scheme.test.ts"
+            ],
+            "recorded_at": "2026-05-24T05:18:28.733Z"
+          }
+        },
+        {
+          "id": 12,
+          "title": "NAVIGATION_SCHEME_ALLOWLIST 신설",
+          "status": "completed",
+          "context": "브라우저 탭의 in-frame navigation은 openExternal과 의미가 다르다 — http/https만 허용. EXTERNAL_SCHEME_ALLOWLIST(http/https/mailto)와 별도 모듈로 분리해 미스 적용 방지.",
+          "acceptance": "- src/shared/security/navigation-allowlist.ts 신설: NAVIGATION_SCHEME_ALLOWLIST = [\"http:\", \"https:\"], isNavigationSchemeAllowed(url: string): boolean\n- 단위 테스트: http/https 통과, file/javascript/data/about/mailto 차단\n- typecheck pass",
+          "approach": "url-scheme.ts의 동일 패턴 차용 — URL 파싱 후 protocol 비교. 잘못된 URL은 false 반환.",
+          "plan_issue": 6,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ad5413c94e65bb2d6",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-24T13:13:35.842Z",
+          "result": {
+            "outcome": "success",
+            "summary": "navigation-allowlist 모듈 신설. http/https 통과, file/javascript/data/about/mailto 차단. self-verified: typecheck clean + 12 tests pass.",
+            "artifacts": [
+              "src/shared/security/navigation-allowlist.ts",
+              "tests/unit/shared/security/navigation-allowlist.test.ts"
+            ],
+            "recorded_at": "2026-05-24T13:21:54.768Z"
+          }
+        },
+        {
+          "id": 13,
+          "title": "Tab union 확장 + persistence schema",
+          "status": "completed",
+          "context": "Tab discriminated union(state/stores/tabs.ts)에 UntitledTab과 BrowserTab 추가. 영속 schema(SerializedTab)도 함께 확장 — BrowserTab은 lastUrl까지 영속, UntitledTab은 영속하지 않음(휘발).",
+          "acceptance": "- src/renderer/state/stores/tabs.ts: UntitledTab/BrowserTab 타입 추가, Tab union/CreateTabArgs 확장\n- src/shared/types/tab.ts (또는 layout.ts): SerializedTab에 BrowserTab 직렬화 schema 추가. UntitledTab은 직렬화에서 제외(persistence.ts에서 strip)\n- defaultTitle 확장: untitled=Untitled-N (카운터는 별도 store), browser=initialUrl 호스트 추출\n- typecheck pass, persistence 단위 테스트 통과 (BrowserTab roundtrip, UntitledTab strip)",
+          "approach": "기존 EditorTab/TerminalTab 패턴 차용. UntitledTab은 workspaceId + tabId + untitledIndex(워크스페이스 스코프 카운터). BrowserTab은 { initialUrl, lastUrl, partition }. persistence.ts toSnapshot에서 untitled 분기 추가.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a1f60394bb2720e3b",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-24T13:13:44.719Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Tab union에 UntitledTab/BrowserTab 추가. useUntitledCounterStore 신설 (워크스페이스별 monotonic, useTerminalDeathStore 패턴, registerWorkspaceCleanup 연결). browser는 완전 영속, untitled는 toSnapshot에서 strip. 46개 테스트 pass, typecheck clean.",
+            "artifacts": [
+              "src/shared/types/tab.ts",
+              "src/shared/types/layout.ts",
+              "src/renderer/state/stores/tabs.ts",
+              "src/renderer/state/persistence.ts",
+              "tests/unit/renderer/state/stores/tabs/new-tab-types.test.ts"
+            ],
+            "recorded_at": "2026-05-24T13:28:31.039Z"
+          }
+        },
+        {
+          "id": 14,
+          "title": "DropdownMenu wrapper + 탭바 + 메뉴 (stub 핸들러)",
+          "status": "completed",
+          "context": "기존 src/renderer/components/workspace/tabs/tab-bar.tsx:128의 + 버튼은 onNewTerminalTab 직접 호출. 단일 + 클릭 → DropdownMenu로 변경. 항목: New File/New Terminal/New Browser. 핸들러는 일단 stub(콘솔 로그 또는 toast), 실제 와이어링은 T13에서.",
+          "acceptance": "- src/renderer/components/ui/dropdown-menu.tsx 신설: Radix DropdownMenu wrapper (context-menu.tsx와 동일 톤). 아이콘 슬롯 + 단축키 hint 슬롯 지원\n- tab-bar.tsx: + 버튼이 DropdownMenuTrigger가 됨. 메뉴 항목 3개 (FilePlus/SquareTerminal/Globe + 라벨 + ⌘N hint on New File)\n- 키보드: Tab/Enter/Space로 메뉴 열기, 화살표 네비, Esc 닫기\n- 시각: 기존 + 버튼 hover/active 토큰 유지\n- 핸들러: console.log(\"[stub] new <kind>\") — T13에서 실 와이어링",
+          "approach": "radix-ui/react-dropdown-menu는 이미 의존성(context-menu도 radix). 동일 패턴으로 wrapper 작성. 아이콘 size-3.5 inline-start, 단축키 inline-end (text-muted-foreground text-app-ui-sm).",
+          "plan_issue": 1,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ac4b54206cbd03631",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-24T13:13:56.029Z",
+          "result": {
+            "outcome": "success",
+            "summary": "DropdownMenu wrapper 신설 + tab-bar + 버튼을 드롭다운 트리거로 교체. New Terminal은 onNewTerminalTab 실 호출 유지 (회귀 없음), New File/Browser는 stub. typecheck clean + 7개 tab-bar 테스트 pass.",
+            "artifacts": [
+              "src/renderer/components/ui/dropdown-menu.tsx",
+              "src/renderer/components/workspace/tabs/tab-bar.tsx"
+            ],
+            "recorded_at": "2026-05-24T13:28:48.997Z"
+          }
+        },
+        {
+          "id": 15,
+          "title": "dialog.showSaveDialog IPC 신설",
+          "status": "completed",
+          "context": "Untitled 첫 저장 + 향후 \"다른 이름으로 저장\"에 범용 활용. main의 dialog 모듈에 추가, renderer ipc/client에서 호출 가능.",
+          "acceptance": "- src/main/features/dialog/index.ts: showSaveDialog handler 추가 — opts: { defaultPath?, filters?, title? } → { canceled, filePath? }\n- src/shared/ipc/contract.ts: dialog.showSaveDialog 채널 시그니처 등록\n- preload 노출 + renderer ipc/client에서 호출 가능\n- 단위 테스트: cancel 시 canceled=true, 경로 선택 시 filePath 반환 (main 측 Electron dialog는 모킹)\n- typecheck pass",
+          "approach": "Electron의 dialog.showSaveDialog 직접 wrap. 워크스페이스 root 디폴트는 호출 측에서 전달.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ae2660468347567af",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-24T13:14:02.531Z",
+          "result": {
+            "outcome": "success",
+            "summary": "dialog.showSaveDialog IPC 신설. 기존 showOpenFile/showOpenDirectory 패턴 따름. preload는 generic bridge라 수정 불필요. bookmark 필드 제외. typecheck/테스트 clean.",
+            "artifacts": [
+              "src/shared/ipc/contract.ts",
+              "src/main/features/dialog/index.ts",
+              "tests/unit/main/features/dialog/show-save-dialog.test.ts"
+            ],
+            "recorded_at": "2026-05-24T13:24:44.620Z"
+          }
+        },
+        {
+          "id": 16,
+          "title": "Untitled 모델 생성 + 워크스페이스 카운터 + shared-model 캐시 분기",
+          "status": "completed",
+          "context": "Monaco URI = `untitled:Untitled-N`. shared-model 캐시(services/editor/model/cache.ts)는 origin=\"untitled\"로 분기 — LSP/fs-watcher가 untitled origin을 skip. 워크스페이스 카운터는 단조 증가, 닫혀도 재사용 안함, persisted.",
+          "acceptance": "- parseWorkspaceUri 확장: untitled origin 인식\n- services/editor/model/cache.ts: origin=\"untitled\" 분기 — fs.readFile 호출 없음, 빈 content 모델 생성\n- 워크스페이스 카운터 store/persistence: useUntitledCounterStore 또는 workspaces.ts에 필드 추가\n- LSP 등록 위치에서 untitled origin skip\n- fs-watcher 등록 위치에서 untitled origin skip\n- 신규 모델은 dirty=true로 시작 (savePoint 미설정)\n- typecheck pass",
+          "approach": "parseWorkspaceUri에 origin=\"untitled\" 케이스 추가. cache.ts의 acquireModel은 origin 분기로 untitled 시 빈 텍스트 모델 즉시 반환 (IPC 없음). 카운터는 워크스페이스마다 markObservable한 number, 영속 필드.",
+          "plan_issue": 2,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a709535757716e5af",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-24T13:14:11.560Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Untitled 모델 생성 흐름 구현. URI: untitled://{workspaceId}/Untitled-{N} (workspace-isolated). createUntitledEntry가 loadEntry 우회해 LSP/fs-watcher 자연 skip. 초기 dirty=true, IPC 없이 즉시 ready. diagnostic-popover도 cascade 수정. typecheck clean.",
+            "artifacts": [
+              "src/shared/fs/workspace-uri.ts",
+              "src/renderer/services/editor/types.ts",
+              "src/renderer/services/editor/model/entry.ts",
+              "src/renderer/services/editor/model/cache.ts",
+              "src/renderer/components/workbench/diagnostic-popover.tsx",
+              "tests/unit/shared/workspace-uri.test.ts",
+              "tests/unit/renderer/services/editor/model-cache-acquire-untitled.test.ts"
+            ],
+            "recorded_at": "2026-05-24T13:36:36.465Z"
+          }
+        },
+        {
+          "id": 17,
+          "title": "Untitled 첫 저장 흐름 + replaceUntitledWithEditor",
+          "status": "completed",
+          "context": "Untitled 모델의 ⌘S → showSaveDialog → fs.writeFile → 새 EditorInput으로 acquireModel → 탭 props 교체 → untitled releaseModel. 기존 replacePreviewTab 패턴 차용.",
+          "acceptance": "- save service(services/editor/save/service.ts) 확장: origin===\"untitled\" 분기 → dialog.showSaveDialog(default=workspace.root, filename=Untitled-N) → 사용자 경로 확정 → fs.writeFile (workspace 안 vs 밖 분기) → 새 EditorInput으로 acquireModel → tabs.replaceUntitledWithEditor 액션 호출 → untitled releaseModel\n- tabs store: replaceUntitledWithEditor(workspaceId, tabId, newProps, title) 액션 추가\n- 저장 취소: silent (에러 없음, untitled 유지)\n- 저장 실패(fs error): toast(category=failed)\n- 단위 테스트: 정상 저장(워크스페이스 안/밖), 취소, 실패 3시나리오",
+          "approach": "기존 isDirty 흐름 그대로 활용 (Monaco onDidChangeContent → dirty 마커). 저장 시점에 dialog → write → swap. Swap 후 dirty 해제는 새 모델의 savePoint 설정으로 자동.",
+          "plan_issue": 2,
+          "deps": [
+            4,
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a1285d67af60b7980",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-24T13:14:21.276Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Untitled 첫 저장 흐름 완성. saveUntitledModel 신설 — showSaveDialog → fs.writeFile → acquireModel → markSaved → replaceUntitledWithEditor → untitled release. COMMANDS.fileSave에서 tab.type==='untitled' 분기. 독립 모듈로 분리해 save service 테스트 오염 회피. 3개 시나리오 + 기존 11개 테스트 pass. typecheck clean.",
+            "artifacts": [
+              "src/renderer/state/stores/tabs.ts",
+              "src/renderer/commands/domains/file.ts",
+              "src/renderer/services/editor/save/service.ts",
+              "src/renderer/services/editor/save/save-untitled-handler.ts",
+              "tests/unit/renderer/services/editor/save-untitled.test.ts"
+            ],
+            "recorded_at": "2026-05-24T13:50:12.729Z"
+          }
+        },
+        {
+          "id": 18,
+          "title": "Untitled 워크스페이스 종료 cleanup",
+          "status": "completed",
+          "context": "closeAllForWorkspace에서 untitled 모델이 메모리에 잔존 가능. forceDisposeExternalsForWorkspace에 origin===\"untitled\" 추가, dirty 무관 폐기.",
+          "acceptance": "- forceDisposeExternalsForWorkspace 확장: origin===\"untitled\" 도 폐기 대상\n- 워크스페이스 닫기 후 untitled 모델이 cache에 남지 않음을 단위 테스트로 검증\n- dirty 컨펌 다이얼로그는 구현하지 않음 — 메모리 follow-up 등록",
+          "approach": "기존 함수 시그니처/패턴 그대로 origin 비교 조건만 확장.",
+          "plan_issue": 2,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "af4858d57ff98fdf4",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-24T13:14:27.583Z",
+          "result": {
+            "outcome": "success",
+            "summary": "forceDisposeExternalsForWorkspace에 origin=\"untitled\" 타겟 추가 — input.workspaceId 명칭 일치 조건. 외부(external) cleanup 회귀 없음. 4개 신규 테스트 (다수 untitled, dirty 무관, cross-workspace 격리, mixed). typecheck clean. 기존 18개 editor 테스트 실패는 bun mock.module leakage 이슈로 이 작업 무관 (동일 실패가 변경 전 커밋에서도 재현).",
+            "artifacts": [
+              "src/renderer/services/editor/model/cache.ts",
+              "tests/unit/renderer/services/editor/model-cache-workspace-cleanup.test.ts"
+            ],
+            "recorded_at": "2026-05-24T13:39:28.402Z"
+          }
+        },
+        {
+          "id": 19,
+          "title": "Main 측 BrowserTabRegistry + browser.* IPC + 보안 정책",
+          "status": "completed",
+          "context": "Electron WebContentsView 인스턴스 lifecycle 관리. 강한 보안 정책(webPreferences/권한/네비 가드/window.open) 적용. partition은 persist:browser-<workspaceId>.",
+          "acceptance": "- src/main/features/browser/registry.ts: BrowserTabRegistry 클래스 — Map<tabId, { view: WebContentsView, workspaceId, partition }> + create/destroy/get\n- src/main/features/browser/security.ts: webPreferences (contextIsolation/nodeIntegration:false/sandbox:true/webSecurity:true), 권한 deny 매트릭스 (media/geolocation/notifications/midi/pointerLock/fullscreen/openExternal/clipboard-read/display-capture deny, clipboard-sanitized-write allow), will-navigate/will-frame-navigate NAVIGATION_SCHEME_ALLOWLIST 가드, setWindowOpenHandler (http/https same-tab navigate, 그 외 deny)\n- src/main/features/browser/ipc.ts: browser.* 요청 (create/destroy/setBounds/setActive/navigate/goBack/goForward/reload/openDevTools) + 브로드캐스트 이벤트 (navigated/loadingChanged/error/titleUpdated)\n- 비활성 탭: removeChildView, 활성 탭: addChildView + setBounds + setBackgroundThrottling(true) on inactive\n- 단위 테스트: NAVIGATION_SCHEME_ALLOWLIST 가드 (http/https 통과, file/javascript/data 차단), setWindowOpenHandler 정책",
+          "approach": "기존 main/features/window 패턴 차용. registry는 BrowserWindow 참조 보유. setBounds는 DPR 변환을 main이 담당.",
+          "risk": "CRITICAL: addChildView 빈도가 높으면 메인 윈도우 contentView 트리 비용 측정 필요. removeChildView/setVisible Electron 버전 동작 차이 — Electron 36+ 기준 동작 검증 필요. will-navigate 가드 누락 시 javascript:/data: 스킴 실행 위험.",
+          "plan_issue": 4,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a68821f523b7f07ba",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-24T13:14:42.636Z",
+          "result": {
+            "outcome": "success",
+            "summary": "BrowserTabRegistry + browser.* IPC + 3겹 네비 가드 + permission deny matrix 구현. duplicate create는 destroy-recreate 정책. Electron 41 will-frame-navigate 타입 누락 권장 cast 명시. 53개 신규 테스트 모두 pass, 기존 테스트 회귀 없음.",
+            "artifacts": [
+              "src/shared/ipc/contract.ts",
+              "src/main/index.ts",
+              "src/main/features/browser/security.ts",
+              "src/main/features/browser/registry.ts",
+              "src/main/features/browser/ipc.ts",
+              "src/main/features/browser/index.ts",
+              "tests/unit/main/features/browser/security.test.ts",
+              "tests/unit/main/features/browser/registry.test.ts"
+            ],
+            "recorded_at": "2026-05-24T13:38:04.084Z"
+          }
+        },
+        {
+          "id": 20,
+          "title": "WorkspaceManager setBrowserCloser 훅 + partition cleanup",
+          "status": "completed",
+          "context": "워크스페이스 삭제 시 해당 워크스페이스의 모든 BrowserTab 인스턴스 destroy + session.fromPartition().clearStorageData() 호출. 기존 setPtySessionCloser 패턴 동일.",
+          "acceptance": "- WorkspaceManager에 setBrowserCloser(closer: (workspaceId: string) => Promise&lt;void&gt;) 추가\n- closer 구현: registry.entries() 순회 → workspaceId 일치 view 모두 destroy → session.fromPartition(`persist:browser-${workspaceId}`).clearStorageData() (순서: view destroy 완료 후 clearStorageData)\n- 워크스페이스 삭제 시점에서 closer 호출됨을 확인 (기존 cleanup 흐름 연결)\n- 단위 테스트: closer 호출 시 모든 view destroy + clearStorageData 1회 호출",
+          "approach": "setPtySessionCloser와 동일 시그니처. WorkspaceManager 측에서 closer가 등록되면 워크스페이스 삭제 흐름에 자동 합류.",
+          "plan_issue": 6,
+          "deps": [
+            8
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "aa75ba9de7310c6de",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-24T13:14:49.046Z",
+          "result": {
+            "outcome": "success",
+            "summary": "WorkspaceManager.setBrowserCloser + BrowserTabRegistry.listByWorkspace + registerBrowserCloser 구현. setPtySessionCloser 패턴 일치. main/index.ts에서 initBrowserFeature 직후 연결. closer는 view 전부 destroy 후 session.fromPartition().clearStorageData() 순서 보장. 11개 테스트 pass.",
+            "artifacts": [
+              "src/main/features/browser/registry.ts",
+              "src/main/features/browser/index.ts",
+              "src/main/features/workspace/manager.ts",
+              "src/main/index.ts",
+              "tests/unit/main/workspace/browser-closer.test.ts"
+            ],
+            "recorded_at": "2026-05-24T13:50:54.291Z"
+          }
+        },
+        {
+          "id": 21,
+          "title": "Renderer 브라우저 탭 UI (BrowserTabView + URL 바 + 네비 컨트롤 + 빈 상태 + 단축키)",
+          "status": "completed",
+          "context": "renderer 측 브라우저 탭 컴포넌트. placeholder div + ResizeObserver → main.browser.setBounds. URL 바(Omnibox 디스패치), 뒤로/앞으로/새로고침, 빈 상태(Globe 아이콘 + 자동 포커스 URL 바), 단축키(⌘L/⌘R/⌘[/⌘]/⌘⇧R/Esc).",
+          "acceptance": "- src/renderer/components/workspace/content/browser-view.tsx: 마운트 시 browser.create IPC, 언마운트 시 browser.destroy. placeholder div ResizeObserver → rAF coalesced setBounds. 활성 전환 시 setActive\n- src/renderer/components/editor/browser/url-bar.tsx: 입력 디스패치 (스킴 명시→그대로, localhost→http://, 점+TLD→https://, 그 외→Google 검색, blocked schemes→인라인 에러)\n- src/renderer/components/editor/browser/nav-controls.tsx: 뒤로/앞으로/새로고침 버튼 (useBrowserRuntimeStore canGoBack/canGoForward/isLoading 구독)\n- src/renderer/components/editor/browser/empty-state.tsx: about:blank 대신 Globe + \"Enter a URL or search\" + URL 바 자동 포커스\n- 단축키: 브라우저 탭 활성 시만 — ⌘L 포커스 + 전체 선택, ⌘R 새로고침, ⌘[ 뒤로, ⌘] 앞으로, ⌘⇧R 캐시 무시, Esc(URL 바 포커스 중) 원래 URL 복원 + blur, ⌘⌥I openDevTools\n- 단위 테스트: URL 디스패치 분류기 (예제 12케이스 — http/https/localhost/IPv4/example.com/sub.example.co.kr/검색어/file:/javascript:/data:/about:/공백 포함)",
+          "approach": "placeholder div의 ResizeObserver가 ContentHost 안에서 동작. rAF coalesce는 plan 60의 useModelSource 패턴 차용. 단축키는 useEffect 등록, 브라우저 탭 활성 selectorlevel.",
+          "plan_issue": 5,
+          "deps": [
+            2,
+            8,
+            11
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-24T13:15:04.335Z",
+          "result": {
+            "outcome": "success",
+            "summary": "BrowserTabView + URL바 + 네비 컨트롤 + 빈 상태 + 6개 단축키. ResizeObserver rAF coalesce (useModelSource 패턴 차용). URL 분류기 25개 테스트 (12케이스 교차). FIRST_LOAD_URL=google fallback 이슈 노트 (T24에서 보정 고려).",
+            "artifacts": [
+              "src/renderer/components/workspace/content/host.tsx",
+              "src/renderer/components/workspace/content/browser-view.tsx",
+              "src/renderer/components/editor/browser/url-bar.tsx",
+              "src/renderer/components/editor/browser/nav-controls.tsx",
+              "src/renderer/components/editor/browser/empty-state.tsx",
+              "src/renderer/services/browser/url-classifier.ts",
+              "tests/unit/renderer/services/browser/url-classifier.test.ts"
+            ],
+            "recorded_at": "2026-05-24T13:57:10.831Z"
+          }
+        },
+        {
+          "id": 22,
+          "title": "useBrowserRuntimeStore + main → renderer 이벤트 와이어링",
+          "status": "completed",
+          "context": "WebContentsView의 휘발 상태(currentUrl/title/canGoBack/canGoForward/isLoading)를 renderer에서 구독. main이 view 이벤트(did-navigate/did-stop-loading/page-title-updated)를 broadcast하고 renderer가 store 업데이트.",
+          "acceptance": "- src/renderer/state/stores/browser-runtime.ts: Map<tabId, BrowserRuntimeState> + 셀렉터 + 업데이트 액션\n- main: did-navigate/did-navigate-in-page/did-finish-load/did-fail-load/did-start-loading/did-stop-loading/page-title-updated 이벤트를 browser.navigated/loadingChanged/error/titleUpdated 브로드캐스트\n- renderer: 이벤트 구독 → store dispatch\n- 탭 destroy 시 store 정리\n- 단위 테스트: store action 응답",
+          "approach": "기존 zustand store 패턴. main 이벤트 구독은 registry.create 시점에 등록.",
+          "plan_issue": 3,
+          "deps": [
+            8
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a9431e34543f7e3d4",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-24T13:15:11.239Z",
+          "result": {
+            "outcome": "success",
+            "summary": "useBrowserRuntimeStore + 4개 IPC 이벤트(navigated/loadingChanged/error/titleUpdated) 구독 완성. bootstrapAppState에서 initBrowserRuntimeSubscriptions 호출. did-fail-load 시 loadingChanged broadcast 추가. 탭 destroy 시 removeRuntime은 소비자 그룹 책임. 44 테스트 pass, typecheck clean.",
+            "artifacts": [
+              "src/renderer/state/stores/browser-runtime.ts",
+              "src/renderer/state/operations/browser.ts",
+              "src/renderer/bootstrap.ts",
+              "src/main/features/browser/ipc.ts",
+              "tests/unit/renderer/state/stores/browser-runtime.test.ts",
+              "tests/unit/main/features/browser/ipc-broadcast.test.ts"
+            ],
+            "recorded_at": "2026-05-24T13:49:09.086Z"
+          }
+        },
+        {
+          "id": 23,
+          "title": "BrowserTab 영속화 + 복원 시 스킴 재검증",
+          "status": "completed",
+          "context": "lastUrl 250ms debounced 영속. 복원 시 NAVIGATION_SCHEME_ALLOWLIST 재검증 → 통과만 loadURL, 실패 시 빈 상태 (initialUrl도 사용 안함).",
+          "acceptance": "- persistence.ts: BrowserTab snapshot에 { initialUrl, lastUrl, partition } 포함\n- 마이그레이션: 기존 SerializedTab에서 BrowserTab 미존재 시 무시(silent drop) — schema version은 기존 정책 따름\n- runtime store의 currentUrl 변경 시 BrowserTab.lastUrl 250ms debounced 갱신\n- 워크스페이스 재진입: BrowserTab 마운트 시 lastUrl로 browser.navigate. lastUrl 스킴이 NAVIGATION_SCHEME_ALLOWLIST 통과 못하면 빈 상태\n- 단위 테스트: roundtrip (write → read), 스킴 검증 (javascript: 입력 시 빈 상태)",
+          "approach": "기존 persistence 패턴 + plan 60에서 본 capPreviewSource 같은 가드 패턴.",
+          "plan_issue": 3,
+          "deps": [
+            2,
+            11
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-24T13:15:20.254Z",
+          "result": {
+            "outcome": "success",
+            "summary": "BrowserTab lastUrl 250ms debounced 영속 구현 + resolveInitialBrowserUrl helper. setBrowserLastUrl 액션 추가 (no-op safety). initBrowserLastUrlPersistence: zustand subscribe 기반 + keyed-debouncer. 부트스트랩에서 호출 필요 — T24 또는 별도로 와이어링 대상. 19개 테스트 pass.",
+            "artifacts": [
+              "src/shared/util/timing-constants.ts",
+              "src/renderer/state/stores/tabs.ts",
+              "src/renderer/state/operations/browser.ts",
+              "tests/unit/renderer/state/operations/browser.test.ts"
+            ],
+            "recorded_at": "2026-05-24T13:54:36.275Z"
+          }
+        },
+        {
+          "id": 24,
+          "title": "+ 메뉴 콜백 와이어링 (New File / Terminal / Browser)",
+          "status": "completed",
+          "context": "T3에서 stub으로 둔 메뉴 핸들러를 실 동작에 연결. New File → untitled 탭 생성, New Terminal → 기존 흐름, New Browser → BrowserTab 생성.",
+          "acceptance": "- src/renderer/state/operations/tabs.ts (또는 신규 파일): openNewUntitledTab(workspaceId), openNewBrowserTab(workspaceId) 추가. openNewTerminalTab은 기존 사용\n- tab-bar.tsx의 메뉴 핸들러 와이어링\n- New File: untitled 카운터 증가 → createTab({type:\"untitled\", props:{...}}) → 활성화\n- New Browser: createTab({type:\"browser\", props:{initialUrl:\"\", lastUrl:\"\", partition:`persist:browser-${workspaceId}`}}) → 활성화 (browser.create IPC는 BrowserTabView mount 시 자동)\n- 통합 smoke 테스트: + 메뉴 클릭 → 3종 탭 각각 생성 → 닫기 동작 확인 (메인 프로세스는 모킹)",
+          "approach": "기존 operations/tabs.ts 패턴 그대로 확장.",
+          "plan_issue": 1,
+          "deps": [
+            3,
+            6,
+            10
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "aa5dde4adfd69849b",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-24T13:15:27.216Z",
+          "result": {
+            "outcome": "success",
+            "summary": "+ 메뉴 완전 와이어링 — New File/Terminal/Browser 실 동작. initBrowserLastUrlPersistence bootstrap 등록. FIRST_LOAD_URL google 제거 → about:blank 로 교체 (showEmptyState가 about:blank도 빈 상태로 처리). 9개 smoke 테스트 + 91개 전체 pass.",
+            "artifacts": [
+              "src/renderer/state/operations/tabs.ts",
+              "src/renderer/state/operations/index.ts",
+              "src/renderer/components/workspace/tabs/tab-bar.tsx",
+              "src/renderer/components/workspace/group/tab-bar.tsx",
+              "src/renderer/components/workspace/group/view.tsx",
+              "src/renderer/bootstrap.ts",
+              "src/renderer/components/workspace/content/browser-view.tsx",
+              "tests/unit/renderer/components/workspace/tabs/tab-bar.test.tsx",
+              "tests/unit/renderer/state/operations/tabs-new-types.test.ts"
+            ],
+            "recorded_at": "2026-05-24T14:02:59.386Z"
+          }
+        },
+        {
+          "id": 25,
+          "title": "[CRITICAL] ContentHost에 untitled 분기 추가",
+          "status": "completed",
+          "context": "사이클 종료 리뷰에서 architect가 발견 — ContentHost(src/renderer/components/workspace/content/host.tsx:119-157)가 terminal/editor/editor.diff/git.commit/browser만 dispatch하고 untitled 분기 없음. \"New File\" 클릭 시 빈 화면. 본 사이클의 메인 사용자 흐름 0% 동작.",
+          "acceptance": "- host.tsx에 tab.type===\"untitled\" 분기 추가 — Monaco editor 마운트해서 untitled 모델 표시\n- EditorView 기존 로직 재활용 가능 — EditorInput 만들어 acquireModel하면 createUntitledEntry가 자동 실행. props.untitledIndex로 EditorInput 구성.\n- 통합 smoke: + 메뉴 → New File → 탭 열림 → Monaco 에디터 보임 → 텍스트 입력 가능 → ⌘S → saveUntitledModel 호출됨\n- typecheck clean",
+          "approach": "EditorView는 EditorInput을 받음 (workspaceId + filePath + origin). untitled의 경우 filePath=\"Untitled-N\" + origin=\"untitled\" + workspaceId 조합으로 EditorInput 만들어 EditorView 마운트. host.tsx에서 untitled props에서 untitledIndex 꺼내 EditorInput 빌드 → EditorView 렌더.",
+          "risk": "CRITICAL: 메인 사용자 흐름이 동작하지 않음. 사이클 close 차단 사유.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a300c06ac534c3d3e",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-24T14:09:52.871Z",
+          "result": {
+            "outcome": "success",
+            "summary": "host.tsx 에 untitled 분기 추가 — EditorView 마운트 (origin=\"untitled\"). EditorView에 origin prop 확장. useSharedModel의 origin drop 버그 동시 수정 (cache untitled URI 스킴 도달 필수). 43 테스트 pass, typecheck clean.",
+            "artifacts": [
+              "src/renderer/components/workspace/content/host.tsx",
+              "src/renderer/components/workspace/content/editor-view.tsx",
+              "src/renderer/services/editor/model/use-shared-model.ts",
+              "tests/unit/renderer/components/workspace/content/host-untitled-dispatch.test.tsx"
+            ],
+            "recorded_at": "2026-05-24T14:14:06.888Z"
+          }
+        },
+        {
+          "id": 26,
+          "title": "[CRITICAL] UntitledTab 개별 close 시 releaseModel",
+          "status": "completed",
+          "context": "사이클 종료 리뷰에서 architect가 발견 — workspace 단위 cleanup은 forceDispose가 잡지만, 개별 탭 close(group/view.tsx:89-96)는 releaseModel 호출 없음. C1 수정 후 즉시 표면화 — 사용자가 untitled 탭을 닫을 때마다 Monaco 모델 누수.",
+          "acceptance": "- group/view.tsx의 handleCloseTab에 tab.type===\"untitled\" 분기 추가 — Monaco 모델 releaseModel 호출\n- editor 탭 닫을 때 releaseModel 패턴(closeEditor) 차용 가능 — EditorInput으로 release\n- 단위 테스트: untitled 탭 close 시 cache.entries에서 제거됨",
+          "approach": "handleCloseTab의 editor 분기와 동일한 흐름 — closeEditor 또는 releaseModel(EditorInput) 호출. EditorInput은 props.untitledIndex로 재구성.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "aed8a5f3ad34f6f55",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-24T14:09:59.252Z",
+          "result": {
+            "outcome": "success",
+            "summary": "view.tsx handleCloseTab에 tab.type==='untitled' 분기 추가 — releaseModel 호출. editor 분기와 동일 톤. 4개 시나리오 테스트 (single, dual, independent, no-op) pass.",
+            "artifacts": [
+              "src/renderer/components/workspace/group/view.tsx",
+              "tests/unit/renderer/components/workspace/group/untitled-tab-close.test.ts"
+            ],
+            "recorded_at": "2026-05-24T14:14:32.383Z"
+          }
+        },
+        {
+          "id": 27,
+          "title": "[WARNING] resolveInitialBrowserUrl을 BrowserTabView에 연결",
+          "status": "completed",
+          "context": "사이클 종료 리뷰에서 architect가 발견 — T23에서 만든 resolveInitialBrowserUrl 함수가 어디서도 호출 안됨. BrowserTabView가 `initialUrl || about:blank`만 사용 → lastUrl 영속화(이슈 3) + allowlist 재검증(이슈 6) 둘 다 깨짐.",
+          "acceptance": "- BrowserTabView 마운트 시 resolveInitialBrowserUrl(tab.props) 호출하여 lastUrl 검증 후 사용\n- null 반환 시 about:blank (현재처럼)\n- 비-null이면 lastUrl로 navigate\n- 단위 테스트: lastUrl에 javascript:/data: 등 위험 스킴 있으면 about:blank, http/https면 그대로",
+          "approach": "browser-view.tsx의 currentUrl 초기 결정 부분에 resolveInitialBrowserUrl(tab.props) 호출. import는 @/state/operations/browser.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a36a45ecceb4cada5",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-24T14:10:05.341Z",
+          "result": {
+            "outcome": "success",
+            "summary": "browser-view.tsx 마운트 시 초기 URL = resolveInitialBrowserUrl(props) ?? BLANK_TAB_URL. 6개 테스트 (javascript:/data: 차단, http/https 통과, 빈 lastUrl, null-coalesce) pass.",
+            "artifacts": [
+              "src/renderer/components/workspace/content/browser-view.tsx",
+              "tests/unit/renderer/components/workspace/content/browser-view.test.tsx"
+            ],
+            "recorded_at": "2026-05-24T14:19:24.847Z"
+          }
+        }
+      ]
     }
   ]
 }
