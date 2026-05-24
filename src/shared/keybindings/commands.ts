@@ -31,6 +31,10 @@ export const COMMANDS = {
   tabCloseSaved: "tab.closeSaved",
   tabCloseAll: "tab.closeAll",
   tabPinToggle: "tab.pinToggle",
+  // Cycle the active tab one slot left/right inside the active group's
+  // tabIds (wraps at both ends, no-op when the group has ≤1 tabs).
+  tabFocusPrev: "tab.focusPrev",
+  tabFocusNext: "tab.focusNext",
 
   // Groups (panels)
   groupSplitRight: "group.splitRight",

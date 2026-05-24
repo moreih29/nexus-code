@@ -81,6 +81,11 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
   { command: COMMANDS.tabCloseAll, chord: ["CmdOrCtrl+K", "CmdOrCtrl+W"] },
   // VSCode's binding holds Cmd through the chord (⌘K ⌘⇧↵).
   { command: COMMANDS.tabPinToggle, chord: ["CmdOrCtrl+K", "CmdOrCtrl+Shift+Enter"] },
+  // Active-group tab cycling. Same Cmd+Ctrl modifier shape as
+  // workspaceFocusPrev/Next (literal two-modifier combo, not CmdOrCtrl)
+  // so Cmd-alone shortcuts inside Monaco aren't accidentally captured.
+  { command: COMMANDS.tabFocusPrev, primary: "Cmd+Ctrl+Left" },
+  { command: COMMANDS.tabFocusNext, primary: "Cmd+Ctrl+Right" },
 
   // Groups (panels)
   // `\\` here matches both Backslash and Slash physical keys, so

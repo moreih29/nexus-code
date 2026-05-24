@@ -4,11 +4,44 @@
 
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
-import { isDirty } from "../../services/editor/model/dirty-tracker";
 import { cacheUriFor } from "../../services/editor/model/cache";
+import { isDirty } from "../../services/editor/model/dirty-tracker";
 import { closeEditor } from "../../services/editor/tabs";
+import { useLayoutStore } from "../../state/stores/layout";
 import { useTabsStore } from "../../state/stores/tabs";
 import { closeTabById, getActiveTabContext } from "../context";
+
+/**
+ * Cycle the active tab one slot inside the active group's `tabIds` by
+ * `delta`, wrapping at both ends. No-op when the group has 0 or 1 tabs,
+ * or when there is no active tab context (no workspace / no active leaf).
+ *
+ * Mirrors `cycleActiveWorkspace` in shape so the two navigation pairs
+ * behave consistently (wrap-around, single-slot delta).
+ */
+function cycleActiveTab(delta: 1 | -1): void {
+  const ctx = getActiveTabContext();
+  if (!ctx) return;
+  const { tabIds } = ctx.leaf;
+  if (tabIds.length < 2) return;
+
+  const currentIndex = tabIds.indexOf(ctx.tabId);
+  // Active tab id not found in the leaf (mid-removal race) — fall back
+  // to the natural end so the keystroke still feels responsive.
+  const nextIndex =
+    currentIndex < 0
+      ? delta === 1
+        ? 0
+        : tabIds.length - 1
+      : (currentIndex + delta + tabIds.length) % tabIds.length;
+
+  useLayoutStore.getState().setActiveTabInGroup({
+    workspaceId: ctx.wsId,
+    groupId: ctx.leaf.id,
+    tabId: tabIds[nextIndex],
+    activateGroup: true,
+  });
+}
 
 export function registerTabCommands(): Array<() => void> {
   return [
@@ -61,5 +94,8 @@ export function registerTabCommands(): Array<() => void> {
       if (!ctx) return;
       useTabsStore.getState().togglePin(ctx.wsId, ctx.tabId);
     }),
+
+    registerCommand(COMMANDS.tabFocusPrev, () => cycleActiveTab(-1)),
+    registerCommand(COMMANDS.tabFocusNext, () => cycleActiveTab(1)),
   ];
 }
