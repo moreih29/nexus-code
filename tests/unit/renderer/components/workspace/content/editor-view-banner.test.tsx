@@ -35,10 +35,18 @@ mock.module("../../../../../../src/renderer/state/stores/git", () => ({
 }));
 
 // Mock the workspaces store to avoid its IPC bridge setup.
+// The hook MUST apply the selector — EditorView calls
+//   useWorkspacesStore((s) => s.workspaces.find(...)?.rootPath ?? "")
+// to feed `workspaceRootAbsPath` into the breadcrumb, and feeding the raw
+// state object through `relPath` would blow up on `rootPath.endsWith`.
 mock.module("../../../../../../src/renderer/state/stores/workspaces", () => ({
-  useWorkspacesStore: Object.assign(mock(() => ({ workspaces: [] })), {
-    getState: mock(() => ({ workspaces: [] })),
-  }),
+  useWorkspacesStore: Object.assign(
+    mock((selector?: (s: unknown) => unknown) => {
+      const state = { workspaces: [] };
+      return typeof selector === "function" ? selector(state) : state;
+    }),
+    { getState: mock(() => ({ workspaces: [] })) },
+  ),
 }));
 
 // Tabs store — EditorView reads viewMode for its own tab from here. The

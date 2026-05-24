@@ -20,6 +20,7 @@ import { SvgPreview } from "../../editor/preview/svg-preview";
 import { ViewModeToggle } from "../../editor/preview/view-mode-toggle";
 import { EmptyState } from "../../ui/empty-state";
 import { ConflictResolvedBanner } from "./conflict-resolved-banner";
+import { EditorBreadcrumbs } from "./editor-breadcrumbs";
 import { ReadOnlyBanner } from "./read-only-banner";
 import { useEditorMount } from "./use-editor-mount";
 
@@ -255,8 +256,17 @@ export function EditorView({ filePath, workspaceId, tabId }: EditorViewProps) {
         />
       )}
 
-      {previewSupport !== "none" && (
-        <div className="flex justify-end px-2 py-1 border-b border-[var(--surface-island-border)]">
+      {/*
+        Toolbar row — always shown for editor tabs. Left: workspace-relative
+        breadcrumb so the user can locate the file at a glance. Right: the
+        Raw/Preview toggle, present only when the file extension supports
+        rendering (markdown/html/svg). For non-previewable files the row
+        still appears so the breadcrumb keeps a consistent location across
+        all editor tabs.
+      */}
+      <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-[var(--surface-island-border)]">
+        <EditorBreadcrumbs filePath={filePath} workspaceRootAbsPath={workspaceRootAbsPath} />
+        {previewSupport !== "none" && (
           <ViewModeToggle
             mode={viewMode}
             onChange={(mode) => setViewMode(workspaceId, tabId, mode)}
@@ -265,8 +275,8 @@ export function EditorView({ filePath, workspaceId, tabId }: EditorViewProps) {
               previewSupport === "mdx-disabled" ? "MDX preview is disabled for security" : undefined
             }
           />
-        </div>
-      )}
+        )}
+      </div>
 
       {/*
         Keep Monaco mounted at all times — toggling to Preview only hides it
