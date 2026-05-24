@@ -231,12 +231,13 @@ function WorkspaceRow({
               한 줄에 묶이므로 4번째 줄 인라인으로 옮긴다.
             */}
             <span className="grid grid-cols-[16px_minmax(0,1fr)] items-start gap-2">
-              {/* col 1: ssh/local 아이콘 */}
-              <span className="flex items-start mt-0.5">
+              {/* col 1: ssh/local 아이콘 + (SSH일 때) 연결 상태 인디케이터 */}
+              <span className="flex flex-col items-center gap-1 mt-0.5">
                 <Icon
                   className="size-4 shrink-0 text-muted-foreground"
                   aria-hidden="true"
                 />
+                {isSsh && <ConnectionStatusDot status={connectionStatus} />}
               </span>
 
               {/* 텍스트 영역 — 1~4줄 가변 높이 */}
@@ -322,8 +323,6 @@ function WorkspaceRow({
 
             </span>
           </button>
-
-          {isSsh && <ConnectionStatusDot status={connectionStatus} />}
 
           {/* Pin toggle — absolute right-9, hover 시 노출. */}
           <PinToggle
@@ -601,7 +600,9 @@ function ConnectionStatusDot({ status }: { status: WorkspaceConnectionStatus }) 
       aria-label={label}
       title={label}
       className={cn(
-        "absolute bottom-2 right-2 size-2 rounded-full ring-1 ring-background",
+        // SSH 아이콘 바로 아래 인라인 배치. ring-background로 hover/active
+        // 배경색과의 대비를 유지한다.
+        "size-2 rounded-full ring-1 ring-background",
         connectionStatusClassName(status),
       )}
     />
