@@ -157,20 +157,18 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
     virtualizer.scrollToIndex(idx, { align: "auto" });
   }, [activeEditorAbsPath, flat, virtualizer]);
 
-  // Empty / loading / error pose. Returns null for "pre-200ms hidden" so
-  // the caller mirrors the same condition.
-  if (flat.length === 0) {
-    return (
-      <FileTreeStatusView
-        workspaceId={workspaceId}
-        rootAbsPath={rootAbsPath}
-        rootError={tree?.errors.get(rootAbsPath)}
-        isLoading={isLoading}
-        showLoading={showLoading}
-        treeKnown={!!tree}
-      />
-    );
-  }
+  // NOTE: Don't return early on empty `flat` — the StatusView used to be
+  // returned in a separate JSX branch when no rows were present, but that
+  // meant `containerRef` was never attached during the empty pose. When
+  // the first non-empty tree arrived and the virtual body suddenly took
+  // over the JSX, `@tanstack/react-virtual` had been initialized against
+  // a null scroll element and its ResizeObserver attached too late —
+  // leaving the container measurement stuck at the parent's collapsed
+  // size and rendering only ~1 row of overscan even when 18 rows had
+  // loaded. We now always render the scrollable container, and swap the
+  // *inner* content between StatusView and VirtualBody so the virtualizer
+  // sees a stable scroll element from mount-time onwards.
+  const showStatusView = flat.length === 0;
 
   const handleKeyDown = createFileTreeKeydownHandler({
     flat,
@@ -229,28 +227,39 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
           onContextMenu={handleAreaContextMenu}
           className="h-full overflow-auto app-scrollbar focus:outline-none"
         >
-          <FileTreeVirtualBody
-            workspaceId={workspaceId}
-            tree={tree}
-            displayFlat={displayFlat}
-            flat={flat}
-            activeAbsPath={activeAbsPath}
-            virtualizer={virtualizer}
-            onRowClick={handleRowClick}
-            onRowDoubleClick={handleRowDoubleClick}
-            onRowContextMenu={(flatIdx, item) => {
-              if (flatIdx >= 0) setActiveIndex(flatIdx);
-              setContextTarget({ absPath: item.absPath, type: item.node.type });
-            }}
-            onPendingCommit={async (name) => {
-              await pendingCreate.commit(name);
-            }}
-            onPendingCancel={pendingCreate.cancel}
-            onPendingRenameCommit={async (name) => {
-              await pendingRename.commit(name);
-            }}
-            onPendingRenameCancel={pendingRename.cancel}
-          />
+          {showStatusView ? (
+            <FileTreeStatusView
+              workspaceId={workspaceId}
+              rootAbsPath={rootAbsPath}
+              rootError={tree?.errors.get(rootAbsPath)}
+              isLoading={isLoading}
+              showLoading={showLoading}
+              treeKnown={!!tree}
+            />
+          ) : (
+            <FileTreeVirtualBody
+              workspaceId={workspaceId}
+              tree={tree}
+              displayFlat={displayFlat}
+              flat={flat}
+              activeAbsPath={activeAbsPath}
+              virtualizer={virtualizer}
+              onRowClick={handleRowClick}
+              onRowDoubleClick={handleRowDoubleClick}
+              onRowContextMenu={(flatIdx, item) => {
+                if (flatIdx >= 0) setActiveIndex(flatIdx);
+                setContextTarget({ absPath: item.absPath, type: item.node.type });
+              }}
+              onPendingCommit={async (name) => {
+                await pendingCreate.commit(name);
+              }}
+              onPendingCancel={pendingCreate.cancel}
+              onPendingRenameCommit={async (name) => {
+                await pendingRename.commit(name);
+              }}
+              onPendingRenameCancel={pendingRename.cancel}
+            />
+          )}
         </div>
       </ContextMenuTrigger>
 
