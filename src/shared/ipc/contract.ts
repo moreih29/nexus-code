@@ -683,6 +683,18 @@ export const ipcContract = {
         }),
         z.object({ canceled: z.boolean(), filePaths: z.array(z.string()) }),
       ),
+      showSaveDialog: call(
+        z
+          .object({
+            title: z.string().optional(),
+            defaultPath: z.string().optional(),
+            filters: z
+              .array(z.object({ name: z.string(), extensions: z.array(z.string()) }))
+              .optional(),
+          })
+          .optional(),
+        z.object({ canceled: z.boolean(), filePath: z.string().optional() }),
+      ),
     },
     listen: {},
   },
@@ -1009,6 +1021,103 @@ export const ipcContract = {
       remove: call(ConnectionProfileIdArgsSchema, z.void()),
     },
     listen: {},
+  },
+
+  // ---------------------------------------------------------------------------
+  // Embedded browser tab channel.
+  //
+  // renderer → main: create / destroy / layout / navigation commands.
+  // main → renderer: navigated / loadingChanged / error / titleUpdated events.
+  //
+  // All call handlers are fire-and-forget (return z.void()).  Security
+  // policy (navigation guards, permission handler, webPreferences) is applied
+  // entirely on the main side; the renderer only sends CSS-coordinate bounds.
+  // ---------------------------------------------------------------------------
+  browser: {
+    call: {
+      /** Create (or replace) the WebContentsView backing `tabId`. */
+      create: call(
+        z.object({
+          tabId: z.string().uuid(),
+          workspaceId: z.string().uuid(),
+          url: z.string().url(),
+          partition: z.string().min(1),
+        }),
+        z.void(),
+      ),
+      /** Destroy the WebContentsView and release all resources for `tabId`. */
+      destroy: call(z.object({ tabId: z.string().uuid() }), z.void()),
+      /**
+       * Resize/reposition the view.
+       * `x`, `y`, `width`, `height` are CSS pixels — main converts to
+       * physical pixels using `dpr` (devicePixelRatio).
+       */
+      setBounds: call(
+        z.object({
+          tabId: z.string().uuid(),
+          x: z.number(),
+          y: z.number(),
+          width: z.number(),
+          height: z.number(),
+          dpr: z.number().positive(),
+        }),
+        z.void(),
+      ),
+      /** Attach (active=true) or detach (active=false) the view. */
+      setActive: call(
+        z.object({ tabId: z.string().uuid(), active: z.boolean() }),
+        z.void(),
+      ),
+      /** Navigate the tab to `url`. */
+      navigate: call(
+        z.object({ tabId: z.string().uuid(), url: z.string().url() }),
+        z.void(),
+      ),
+      goBack: call(z.object({ tabId: z.string().uuid() }), z.void()),
+      goForward: call(z.object({ tabId: z.string().uuid() }), z.void()),
+      /** Reload the tab; pass `ignoreCache:true` for a hard reload. */
+      reload: call(
+        z.object({ tabId: z.string().uuid(), ignoreCache: z.boolean().optional() }),
+        z.void(),
+      ),
+      /** Toggle DevTools for the tab (opens detached, closes if already open). */
+      openDevTools: call(z.object({ tabId: z.string().uuid() }), z.void()),
+    },
+    listen: {
+      /**
+       * Emitted after each committed navigation.
+       * Carries the new URL and back/forward availability flags.
+       */
+      navigated: listen(
+        z.object({
+          tabId: z.string().uuid(),
+          url: z.string(),
+          canGoBack: z.boolean(),
+          canGoForward: z.boolean(),
+        }),
+      ),
+      /** Emitted when the loading spinner should be shown or hidden. */
+      loadingChanged: listen(
+        z.object({ tabId: z.string().uuid(), isLoading: z.boolean() }),
+      ),
+      /**
+       * Emitted when a navigation fails (network error, blocked scheme, etc.).
+       * `code` is the Chromium net error code; `description` is a human-readable
+       * message; `url` is the URL that failed to load.
+       */
+      error: listen(
+        z.object({
+          tabId: z.string().uuid(),
+          code: z.number().int(),
+          description: z.string(),
+          url: z.string(),
+        }),
+      ),
+      /** Emitted when the page title changes. */
+      titleUpdated: listen(
+        z.object({ tabId: z.string().uuid(), title: z.string() }),
+      ),
+    },
   },
 
   // Application lifecycle channel.
