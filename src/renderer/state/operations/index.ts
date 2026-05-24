@@ -21,6 +21,8 @@ export {
   findCommitTab,
   openDiffTab,
   openEditorTab,
+  openNewBrowserTab,
+  openNewUntitledTab,
   openOrRevealCommitTab,
   openTerminalTab,
   openTabInNewSplit,

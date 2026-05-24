@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { closeEditorWithConfirm } from "@/services/editor";
+import { releaseModel } from "@/services/editor/model";
 import { closeTerminal, openTerminal } from "@/services/terminal";
-import { closeTab } from "@/state/operations/tabs";
+import { closeTab, openNewBrowserTab, openNewUntitledTab } from "@/state/operations/tabs";
 import type { LayoutLeaf } from "@/state/stores/layout";
 import { useLayoutStore } from "@/state/stores/layout";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
@@ -86,13 +87,38 @@ export function GroupView({
       void closeEditorWithConfirm(workspaceId, tabId);
       return;
     }
-    if (tab?.type === "editor.diff" || tab?.type === "git.commit") {
+    if (tab?.type === "untitled") {
+      // Release the Monaco model before removing the tab so the ref-count
+      // drops to zero and the TextModel is disposed (no memory leak).
+      releaseModel({
+        workspaceId,
+        filePath: `Untitled-${tab.props.untitledIndex}`,
+        origin: "untitled",
+      });
+      closeTab(workspaceId, tabId);
+      return;
+    }
+    if (
+      tab?.type === "editor.diff" ||
+      tab?.type === "git.commit" ||
+      tab?.type === "browser"
+    ) {
       closeTab(workspaceId, tabId);
     }
   }
 
   function handleNewTerminalTab() {
     openTerminal({ workspaceId, cwd: workspaceRootPath }, { groupId: leaf.id });
+    onActivateGroup(leaf.id);
+  }
+
+  function handleNewUntitledTab() {
+    openNewUntitledTab(workspaceId);
+    onActivateGroup(leaf.id);
+  }
+
+  function handleNewBrowserTab() {
+    openNewBrowserTab(workspaceId);
     onActivateGroup(leaf.id);
   }
 
@@ -181,6 +207,8 @@ export function GroupView({
         onSelectTab={handleSelectTab}
         onCloseTab={handleCloseTab}
         onNewTerminalTab={handleNewTerminalTab}
+        onNewUntitledTab={handleNewUntitledTab}
+        onNewBrowserTab={handleNewBrowserTab}
         onActivateGroup={onActivateGroup}
       />
 

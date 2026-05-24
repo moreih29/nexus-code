@@ -21,6 +21,10 @@ import { useWindowOpacityStore } from "./state/stores/window-opacity";
 import { startNotificationClickListener } from "./state/notification-click";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
 import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
+import {
+  initBrowserLastUrlPersistence,
+  initBrowserRuntimeSubscriptions,
+} from "./state/operations/browser";
 
 /**
  * Hydrate persisted UI widths, layout snapshots, and tab records from
@@ -39,6 +43,15 @@ export async function bootstrapAppState(): Promise<void> {
 
   // Wire the OS notification click → workspace activate + tab reveal listener.
   startNotificationClickListener();
+
+  // Wire browser tab runtime event subscriptions (navigated / loadingChanged /
+  // error / titleUpdated) so useBrowserRuntimeStore stays up-to-date.
+  initBrowserRuntimeSubscriptions();
+
+  // Wire last-URL persistence: debounces currentUrl changes from the runtime
+  // store and flushes them to the tabs store so the URL survives app restarts.
+  // Must be called after initBrowserRuntimeSubscriptions.
+  initBrowserLastUrlPersistence();
 
   // Bootstrap is an initialization path — no recovery possible if appState is unavailable.
   const state = mustSucceed(await ipcCallResult("appState", "get", undefined));

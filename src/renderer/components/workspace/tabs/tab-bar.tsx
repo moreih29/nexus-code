@@ -1,7 +1,14 @@
-import { Plus } from "lucide-react";
+import { FilePlus, Globe, Plus, SquareTerminal } from "lucide-react";
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRoot,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { DND_TAB_BAR_ATTR } from "@/components/workspace/dnd/markers";
 import { basename } from "@/utils/path";
 import { UI_TOOLTIP_DELAY_MS } from "../../../../shared/util/timing-constants";
@@ -17,6 +24,8 @@ interface TabBarProps {
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
   onNewTerminalTab: () => void;
+  onNewUntitledTab: () => void;
+  onNewBrowserTab: () => void;
   onTabContextMenu?: (tabId: string, event: React.MouseEvent) => void;
 }
 
@@ -28,6 +37,8 @@ export function TabBar({
   onSelectTab,
   onCloseTab,
   onNewTerminalTab,
+  onNewUntitledTab,
+  onNewBrowserTab,
   onTabContextMenu,
 }: TabBarProps) {
   const { barRef, tabsListRef, insertion } = useTabBarDropTarget({ workspaceId, leafId });
@@ -120,16 +131,34 @@ export function TabBar({
             )}
           </RadixTabs.List>
 
-          {/* New terminal tab button */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8 shrink-0 text-muted-foreground hover:text-foreground ml-0"
-            onClick={onNewTerminalTab}
-            aria-label="New terminal tab"
-          >
-            <Plus aria-hidden width={16} height={16} strokeWidth={1.5} />
-          </Button>
+          {/* New tab dropdown */}
+          <DropdownMenuRoot>
+            <DropdownMenuTrigger>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 shrink-0 text-muted-foreground hover:text-foreground ml-0"
+                aria-label="New tab"
+              >
+                <Plus aria-hidden width={16} height={16} strokeWidth={1.5} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="bottom" sideOffset={4}>
+              <DropdownMenuItem onSelect={() => onNewUntitledTab()}>
+                <FilePlus aria-hidden className="size-3.5 mr-1.5 shrink-0" />
+                <span className="flex-1">New File</span>
+                <DropdownMenuShortcut>⌘N</DropdownMenuShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onNewTerminalTab()}>
+                <SquareTerminal aria-hidden className="size-3.5 mr-1.5 shrink-0" />
+                <span className="flex-1">New Terminal</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onNewBrowserTab()}>
+                <Globe aria-hidden className="size-3.5 mr-1.5 shrink-0" />
+                <span className="flex-1">New Browser</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenuRoot>
         </RadixTabs.Root>
       </div>
     </RadixTooltip.Provider>
