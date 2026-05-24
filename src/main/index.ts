@@ -4,6 +4,11 @@ import { initMainLogger } from "../shared/log/main";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { installErrorSafetyNet } from "./error-safety-net";
 import { registerAppStateChannel } from "./features/app-state";
+import { setupClaudeFeature } from "./features/claude/index";
+import {
+  installNexusWorkspaceProtocol,
+  registerNexusWorkspaceSchemes,
+} from "./features/custom-protocols/nexus-workspace";
 import { registerDialogChannel } from "./features/dialog";
 import { registerEntryPointsChannels } from "./features/entry-points/ipc";
 import { AgentFsWatcher } from "./features/fs/bridge/agent-watch";
@@ -25,7 +30,6 @@ import { type LspHostHandle, startConfiguredLspHost } from "./features/lsp/host"
 import { registerLspChannel } from "./features/lsp/ipc";
 import { installAppMenu } from "./features/menu";
 import { registerPanelChannel } from "./features/panel";
-import { setupClaudeFeature } from "./features/claude/index";
 import { startAgentPtyHost } from "./features/pty/agent-host";
 import { registerPtyChannel } from "./features/pty/ipc";
 import type { PtyHostHandle } from "./features/pty/types";
@@ -54,6 +58,10 @@ initMainLogger();
 installErrorSafetyNet();
 
 setupRouter();
+
+// Register the nexus-workspace:// custom scheme as a privileged standard
+// scheme.  Must be called before app.whenReady().
+registerNexusWorkspaceSchemes();
 
 // Dev runs must execute the agent from Go sources so an out-of-date
 // `dist/agent` cannot silently route requests to an outdated dispatcher.
@@ -163,6 +171,10 @@ app.whenReady().then(async () => {
   installAppMenu();
 
   await workspaceManager.init();
+
+  // Install the nexus-workspace:// protocol handler after the workspace
+  // manager is initialised so workspace lookups resolve correctly.
+  installNexusWorkspaceProtocol(workspaceManager);
 
   gitStatusCoalescer = createStatusCoalescer({ delayMs: GIT_STATUS_COALESCE_DEBOUNCE_MS });
   gitHelpersIpc = new GitHelpersIpcManager({ userDataDir: userData, broadcast: forwardBroadcast });
