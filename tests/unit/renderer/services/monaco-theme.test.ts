@@ -87,6 +87,13 @@ function createFakeMonaco(): typeof Monaco & {
       registerDocumentHighlightProvider: () => ({ dispose: () => {} }),
       registerDocumentSymbolProvider: () => ({ dispose: () => {} }),
       registerDocumentSemanticTokensProvider: () => ({ dispose: () => {} }),
+      // Stubs required by registerExtraLanguages (extra-languages.ts) so the
+      // initializeEditorServices call inside theme tests doesn't throw on a
+      // missing fake. The theme tests don't assert on these — they exist
+      // only to keep the call chain alive.
+      register: () => {},
+      setMonarchTokensProvider: () => ({ dispose: () => {} }),
+      setTokensProvider: () => ({ dispose: () => {} }),
     },
     __defineTheme: defineTheme,
     __themeCalls: themeCalls,

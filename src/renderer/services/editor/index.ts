@@ -3,6 +3,7 @@ import { initializeDiagnosticsStore } from "../../state/stores/diagnostics";
 import { initializeLspServerUxRouter } from "../lsp-ux/server-ux-router";
 import { initializeLspBridge } from "./lsp/bridge";
 import { initializeModelCache } from "./model/cache";
+import { registerExtraLanguages } from "./runtime/extra-languages";
 import { installMonacoCompensations } from "./runtime/monaco-compensations";
 import { initializeMonacoTheme, subscribeMonacoEditorFontChanges } from "./runtime/monaco-theme";
 import { neutralizeBuiltInTypeScriptWorker } from "./runtime/monaco-ts-defaults";
@@ -34,4 +35,7 @@ export function initializeEditorServices(monaco: typeof Monaco): void {
   initializeLspServerUxRouter();
   startPromoteOnDirtyPolicy();
   initializeDiagnosticsStore(monaco);
+  // Monaco basic-languages가 커버하지 못하는 TOML / Makefile / .env / Nix /
+  // Justfile / go.mod / go.sum 을 보강 등록 (TextMate + Monarch).
+  registerExtraLanguages(monaco);
 }
