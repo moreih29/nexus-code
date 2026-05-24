@@ -1,0 +1,130 @@
+/**
+ * BrowserTabView — initial URL resolution unit tests.
+ *
+ * Verifies the URL decision that BrowserTabView makes on mount:
+ *   resolveInitialBrowserUrl(tab.props) ?? "about:blank"
+ *
+ * Test cases covering the two acceptance-criteria scenarios:
+ *   1. lastUrl="javascript:alert(1)" → resolves to null → component uses about:blank
+ *   2. lastUrl="https://example.com"  → resolves to the URL → component uses it directly
+ *   3. lastUrl="" (empty tab)          → resolves to null → component uses about:blank
+ *   4. null-coalescing: non-null result passes through unchanged
+ *   5. null result falls back to BLANK_TAB_URL ("about:blank")
+ *
+ * Why this approach:
+ *   bun:test runs in a pure JavaScript environment with no DOM (document/window
+ *   are unavailable). React's createRoot requires a real DOM node, so full-mount
+ *   tests are not feasible without adding a DOM-simulator dependency (forbidden by
+ *   constraints). Instead we test the URL decision logic — which is the single
+ *   change introduced by this task — via the same resolveInitialBrowserUrl call
+ *   that the component now uses, paired with the null-coalesce-to-BLANK_TAB_URL
+ *   step. This covers the complete URL resolution path from props to the value
+ *   that reaches ipcCallResult("browser", "create", { url }).
+ *
+ * The DOM-level assertion (that ipcCallResult actually receives the URL) is
+ * covered by the integration / E2E test suite (Tester scope). The unit tests
+ * here guard the URL decision logic that feeds into that call.
+ */
+
+// ---------------------------------------------------------------------------
+// Shim window.ipc so imports of ipc/client do not throw.
+// (Same pattern as browser.test.ts in the operations layer.)
+// ---------------------------------------------------------------------------
+(globalThis as Record<string, unknown>).window = {
+  ipc: {
+    call: () => Promise.resolve(null),
+    listen: () => {},
+    off: () => {},
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Imports (after shims)
+// ---------------------------------------------------------------------------
+
+import { describe, expect, it } from "bun:test";
+import { resolveInitialBrowserUrl } from "../../../../../../src/renderer/state/operations/browser";
+import type { BrowserTabProps } from "../../../../../../src/renderer/state/stores/tabs";
+
+// ---------------------------------------------------------------------------
+// Constants — mirror the private constant in browser-view.tsx so tests remain
+// decoupled from the implementation file.
+// ---------------------------------------------------------------------------
+
+const BLANK_TAB_URL = "about:blank";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a minimal BrowserTabProps for test purposes.
+ * Mirrors the props that BrowserTabView receives from host.tsx.
+ */
+function makeProps(lastUrl: string, initialUrl = ""): BrowserTabProps {
+  return {
+    initialUrl,
+    lastUrl,
+    partition: "persist:browser-test-ws",
+  };
+}
+
+/**
+ * Replicate the exact URL computation that BrowserTabView performs on mount:
+ *   resolveInitialBrowserUrl({ initialUrl, lastUrl, partition }) ?? BLANK_TAB_URL
+ *
+ * This function is the single source-of-truth under test — it is structurally
+ * identical to the expression inserted into browser-view.tsx.
+ */
+function computeMountUrl(lastUrl: string, initialUrl = ""): string {
+  return resolveInitialBrowserUrl(makeProps(lastUrl, initialUrl)) ?? BLANK_TAB_URL;
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe("BrowserTabView — computeMountUrl (resolveInitialBrowserUrl ?? BLANK_TAB_URL)", () => {
+  // Acceptance-criteria scenario 1: dangerous scheme → about:blank
+  it("returns about:blank when lastUrl is javascript: (blocked by allowlist)", () => {
+    expect(computeMountUrl("javascript:alert(1)")).toBe(BLANK_TAB_URL);
+  });
+
+  // Acceptance-criteria scenario 2: valid https URL → preserved
+  it("returns the lastUrl when it is a valid https URL", () => {
+    expect(computeMountUrl("https://example.com")).toBe("https://example.com");
+  });
+
+  // Complementary case: empty lastUrl (new tab) → about:blank
+  it("returns about:blank when lastUrl is empty", () => {
+    expect(computeMountUrl("")).toBe(BLANK_TAB_URL);
+  });
+
+  // Valid http URL passes through
+  it("returns the lastUrl when it is a valid http URL", () => {
+    expect(computeMountUrl("http://example.com/path")).toBe("http://example.com/path");
+  });
+
+  // data: scheme is blocked → about:blank
+  it("returns about:blank when lastUrl is a data: scheme", () => {
+    expect(computeMountUrl("data:text/html,<h1>hi</h1>")).toBe(BLANK_TAB_URL);
+  });
+
+  // null-coalescing: resolveInitialBrowserUrl returns null → falls back to BLANK_TAB_URL
+  it("falls back to BLANK_TAB_URL when resolveInitialBrowserUrl returns null", () => {
+    const result = resolveInitialBrowserUrl(makeProps("file:///etc/passwd"));
+    expect(result).toBeNull();
+    // Component computes: result ?? BLANK_TAB_URL
+    const mountUrl = result ?? BLANK_TAB_URL;
+    expect(mountUrl).toBe(BLANK_TAB_URL);
+  });
+
+  // non-null result passes through null-coalescing unchanged
+  it("passes through a non-null URL from resolveInitialBrowserUrl unchanged", () => {
+    const result = resolveInitialBrowserUrl(makeProps("https://valid.example.com"));
+    expect(result).toBe("https://valid.example.com");
+    // Component computes: result ?? BLANK_TAB_URL
+    const mountUrl = result ?? BLANK_TAB_URL;
+    expect(mountUrl).toBe("https://valid.example.com");
+  });
+});

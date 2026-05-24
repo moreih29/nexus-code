@@ -1,0 +1,244 @@
+/**
+ * Unit tests for the browser URL classifier.
+ *
+ * Covers 12 input categories:
+ *   1.  http://  explicit scheme                        → navigate (as-is)
+ *   2.  https:// explicit scheme                        → navigate (as-is)
+ *   3.  localhost (with path)                           → navigate (http://)
+ *   4.  127.0.0.1 (with port)                           → navigate (http://)
+ *   5.  Raw IPv4 address                                → navigate (http://)
+ *   6.  example.com (simple domain)                     → navigate (https://)
+ *   7.  sub.example.co.kr (multi-level TLD)             → navigate (https://)
+ *   8.  Plain search query (no dot, spaces)             → search (Google)
+ *   9.  file: scheme                                    → blocked
+ *  10.  javascript: scheme                              → blocked
+ *  11.  data: scheme                                    → blocked
+ *  12.  about: scheme                                   → blocked
+ */
+
+import { describe, expect, it } from "bun:test";
+import { classifyUrl } from "../../../../../src/renderer/services/browser/url-classifier";
+
+// ---------------------------------------------------------------------------
+// 1. http:// explicit scheme
+// ---------------------------------------------------------------------------
+
+describe("classifyUrl — explicit http:// scheme", () => {
+  it("navigates as-is for http://example.com", () => {
+    const result = classifyUrl("http://example.com");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("http://example.com");
+  });
+
+  it("preserves path and query for http://example.com/path?q=1", () => {
+    const result = classifyUrl("http://example.com/path?q=1");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("http://example.com/path?q=1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2. https:// explicit scheme
+// ---------------------------------------------------------------------------
+
+describe("classifyUrl — explicit https:// scheme", () => {
+  it("navigates as-is for https://example.com", () => {
+    const result = classifyUrl("https://example.com");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("https://example.com");
+  });
+
+  it("preserves fragment for https://example.com/page#section", () => {
+    const result = classifyUrl("https://example.com/page#section");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("https://example.com/page#section");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3. localhost
+// ---------------------------------------------------------------------------
+
+describe("classifyUrl — localhost", () => {
+  it("adds http:// for bare localhost", () => {
+    const result = classifyUrl("localhost");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("http://localhost");
+  });
+
+  it("adds http:// for localhost with path", () => {
+    const result = classifyUrl("localhost/app");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("http://localhost/app");
+  });
+
+  it("adds http:// for localhost with port", () => {
+    const result = classifyUrl("localhost:3000");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("http://localhost:3000");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4. 127.0.0.1
+// ---------------------------------------------------------------------------
+
+describe("classifyUrl — 127.0.0.1", () => {
+  it("adds http:// for 127.0.0.1", () => {
+    const result = classifyUrl("127.0.0.1");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("http://127.0.0.1");
+  });
+
+  it("adds http:// for 127.0.0.1 with port", () => {
+    const result = classifyUrl("127.0.0.1:8080");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("http://127.0.0.1:8080");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. Raw IPv4
+// ---------------------------------------------------------------------------
+
+describe("classifyUrl — raw IPv4", () => {
+  it("adds http:// for 192.168.1.1", () => {
+    const result = classifyUrl("192.168.1.1");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("http://192.168.1.1");
+  });
+
+  it("adds http:// for 10.0.0.1:4000", () => {
+    const result = classifyUrl("10.0.0.1:4000");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("http://10.0.0.1:4000");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. example.com (simple domain)
+// ---------------------------------------------------------------------------
+
+describe("classifyUrl — simple domain", () => {
+  it("adds https:// for example.com", () => {
+    const result = classifyUrl("example.com");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("https://example.com");
+  });
+
+  it("adds https:// for example.com/path", () => {
+    const result = classifyUrl("example.com/path");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("https://example.com/path");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. sub.example.co.kr (multi-level TLD)
+// ---------------------------------------------------------------------------
+
+describe("classifyUrl — multi-level TLD", () => {
+  it("adds https:// for sub.example.co.kr", () => {
+    const result = classifyUrl("sub.example.co.kr");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("https://sub.example.co.kr");
+  });
+
+  it("adds https:// for api.service.io with path", () => {
+    const result = classifyUrl("api.service.io/v2/items");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("https://api.service.io/v2/items");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. Plain search query
+// ---------------------------------------------------------------------------
+
+describe("classifyUrl — search query", () => {
+  it("returns Google search for a plain phrase", () => {
+    const result = classifyUrl("hello world");
+    expect(result.kind).toBe("search");
+    expect(result.url).toBe("https://www.google.com/search?q=hello%20world");
+  });
+
+  it("returns Google search for a phrase with spaces and punctuation", () => {
+    const result = classifyUrl("how to use react hooks?");
+    expect(result.kind).toBe("search");
+    expect(result.url).toContain("https://www.google.com/search?q=");
+    expect(result.url).toContain("react");
+  });
+
+  it("trims whitespace before classifying", () => {
+    const result = classifyUrl("  hello world  ");
+    expect(result.kind).toBe("search");
+    expect(result.url).toBe("https://www.google.com/search?q=hello%20world");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. file: scheme — blocked
+// ---------------------------------------------------------------------------
+
+describe("classifyUrl — file: scheme (blocked)", () => {
+  it("blocks file:///etc/passwd", () => {
+    const result = classifyUrl("file:///etc/passwd");
+    expect(result.kind).toBe("blocked");
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("file");
+  });
+
+  it("blocks file:// prefix", () => {
+    const result = classifyUrl("file://localhost/path");
+    expect(result.kind).toBe("blocked");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10. javascript: scheme — blocked
+// ---------------------------------------------------------------------------
+
+describe("classifyUrl — javascript: scheme (blocked)", () => {
+  it("blocks javascript:alert(1)", () => {
+    const result = classifyUrl("javascript:alert(1)");
+    expect(result.kind).toBe("blocked");
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("javascript");
+  });
+
+  it("blocks javascript: with mixed case", () => {
+    const result = classifyUrl("JavaScript:void(0)");
+    expect(result.kind).toBe("blocked");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 11. data: scheme — blocked
+// ---------------------------------------------------------------------------
+
+describe("classifyUrl — data: scheme (blocked)", () => {
+  it("blocks data:text/html,<h1>test</h1>", () => {
+    const result = classifyUrl("data:text/html,<h1>test</h1>");
+    expect(result.kind).toBe("blocked");
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("data");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 12. about: scheme — blocked
+// ---------------------------------------------------------------------------
+
+describe("classifyUrl — about: scheme (blocked)", () => {
+  it("blocks about:blank", () => {
+    const result = classifyUrl("about:blank");
+    expect(result.kind).toBe("blocked");
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("about");
+  });
+
+  it("blocks about:newtab", () => {
+    const result = classifyUrl("about:newtab");
+    expect(result.kind).toBe("blocked");
+  });
+});
