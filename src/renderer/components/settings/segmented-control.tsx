@@ -28,6 +28,13 @@ interface SegmentedControlProps<T extends string> {
   /** Accessible label for the group. */
   label: string;
   id?: string;
+  /**
+   * Disables every segment. The current `value` is still shown as
+   * pressed, but onChange will not fire. `disabledReason` populates the
+   * native `title` tooltip so the user sees why interaction is locked.
+   */
+  disabled?: boolean;
+  disabledReason?: string;
 }
 
 export function SegmentedControl<T extends string>({
@@ -36,6 +43,8 @@ export function SegmentedControl<T extends string>({
   onChange,
   label,
   id,
+  disabled,
+  disabledReason,
 }: SegmentedControlProps<T>) {
   const groupId = id ?? `segmented-${label.toLowerCase().replace(/\s+/g, "-")}`;
 
@@ -43,7 +52,12 @@ export function SegmentedControl<T extends string>({
     <fieldset
       aria-label={label}
       id={groupId}
-      className="inline-flex rounded-(--radius-raised) border border-border bg-muted p-0.5 gap-0.5"
+      disabled={disabled}
+      title={disabled ? disabledReason : undefined}
+      className={cn(
+        "inline-flex rounded-(--radius-raised) border border-border bg-muted p-0.5 gap-0.5",
+        disabled && "opacity-60",
+      )}
     >
       {options.map((opt) => {
         const isSelected = opt.value === value;
@@ -52,6 +66,7 @@ export function SegmentedControl<T extends string>({
             key={opt.value}
             type="button"
             aria-pressed={isSelected}
+            disabled={disabled}
             onClick={() => onChange(opt.value)}
             className={cn(
               "inline-flex items-center justify-center gap-1.5",
@@ -59,6 +74,7 @@ export function SegmentedControl<T extends string>({
               isSelected
                 ? "bg-[var(--state-selected-bg)] text-[var(--state-selected-fg)]"
                 : "bg-transparent text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
+              disabled && "cursor-not-allowed",
             )}
           >
             {opt.icon && (

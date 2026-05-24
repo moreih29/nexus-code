@@ -215,10 +215,12 @@
    --------------------------------------------------------------------------- */
 
 @keyframes preview-cursor-blink {
-  0%, 49% {
+  0%,
+  49% {
     opacity: 1;
   }
-  50%, 100% {
+  50%,
+  100% {
     opacity: 0;
   }
 }
@@ -326,4 +328,222 @@
   .floating-panel {
     animation: none;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Markdown preview pane — `.md-preview` scoped element rules.
+
+   react-markdown intentionally ships unstyled HTML; we apply our design
+   system tokens here instead of installing @tailwindcss/typography (which
+   would pull in its own opinionated palette). All values reference semantic
+   tokens, so light/dark themes flip automatically.
+
+   Scope: every rule below is namespaced to `.md-preview …` so it cannot
+   bleed into Monaco's own DOM or other parts of the app that happen to
+   render `<h1>` or `<table>`.
+   --------------------------------------------------------------------------- */
+
+.md-preview {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--surface-island-fg);
+  word-wrap: break-word;
+}
+
+/*
+ * Scrollbars — match the app's VSCode-style thin scrollbar instead of the
+ * native Chromium chrome. Both the outer container (.md-preview) and any
+ * inner overflow (pre / table x-scroll) inherit the same styling via the
+ * descendant selector.
+ */
+.md-preview::-webkit-scrollbar,
+.md-preview ::-webkit-scrollbar {
+  width: 10px;
+  height: 8px;
+}
+.md-preview::-webkit-scrollbar-track,
+.md-preview ::-webkit-scrollbar-track {
+  background: var(--scrollbar-track-bg);
+}
+.md-preview::-webkit-scrollbar-thumb,
+.md-preview ::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb-bg);
+  border-radius: var(--radius-control);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.md-preview::-webkit-scrollbar-thumb:hover,
+.md-preview ::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover-bg);
+  background-clip: padding-box;
+}
+.md-preview::-webkit-scrollbar-corner,
+.md-preview ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.md-preview > div > *:first-child {
+  margin-top: 0;
+}
+
+/* Headings — modular scale, bottom hairline on H1/H2 to anchor sections. */
+.md-preview h1,
+.md-preview h2,
+.md-preview h3,
+.md-preview h4,
+.md-preview h5,
+.md-preview h6 {
+  margin-top: 1.5em;
+  margin-bottom: 0.6em;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.005em;
+}
+.md-preview h1 {
+  font-size: 1.875em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--surface-island-border);
+}
+.md-preview h2 {
+  font-size: 1.5em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--surface-island-border);
+}
+.md-preview h3 {
+  font-size: 1.25em;
+}
+.md-preview h4 {
+  font-size: 1.05em;
+}
+.md-preview h5,
+.md-preview h6 {
+  font-size: 1em;
+  color: var(--editor-text-muted);
+}
+
+/* Paragraphs and inline content */
+.md-preview p {
+  margin: 0 0 1em 0;
+}
+.md-preview strong {
+  font-weight: 600;
+}
+.md-preview em {
+  font-style: italic;
+}
+
+/* Links — accent color, underline only on hover to keep body text calm. */
+.md-preview a {
+  color: var(--state-selected-indicator);
+  text-decoration: none;
+}
+.md-preview a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Lists */
+.md-preview ul,
+.md-preview ol {
+  margin: 0 0 1em 0;
+  padding-left: 1.75em;
+}
+.md-preview li {
+  margin: 0.25em 0;
+}
+.md-preview li > ul,
+.md-preview li > ol {
+  margin: 0.25em 0 0.25em 0;
+}
+
+/* Task lists from remark-gfm — checkbox alignment + removed bullet. */
+.md-preview li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -1.4em;
+}
+.md-preview input[type="checkbox"] {
+  margin-right: 0.5em;
+  vertical-align: middle;
+}
+
+/* Inline code — subtle surface lift, monospace, small padding. */
+.md-preview code {
+  font-family: var(--font-mono-body, ui-monospace, SFMono-Regular, monospace);
+  font-size: 0.9em;
+  padding: 0.15em 0.4em;
+  background: var(--surface-backdrop-bg);
+  border: 1px solid var(--surface-island-border);
+  border-radius: var(--radius-control);
+}
+
+/* Code blocks — full surface, scrollable, no inline padding on inner code. */
+.md-preview pre {
+  margin: 0 0 1em 0;
+  padding: 1em;
+  background: var(--surface-backdrop-bg);
+  border: 1px solid var(--surface-island-border);
+  border-radius: var(--radius-raised);
+  overflow-x: auto;
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+.md-preview pre code {
+  display: block;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  font-size: 1em;
+}
+
+/* Tables — full width, hairline rows only, header weight + subtle stripe. */
+.md-preview table {
+  border-collapse: collapse;
+  margin: 0 0 1em 0;
+  width: 100%;
+  display: block;
+  overflow-x: auto;
+  font-size: 0.95em;
+}
+.md-preview thead {
+  border-bottom: 2px solid var(--surface-island-border);
+}
+.md-preview th {
+  padding: 0.5em 0.75em;
+  text-align: left;
+  font-weight: 600;
+  background: var(--surface-backdrop-bg);
+}
+.md-preview td {
+  padding: 0.5em 0.75em;
+  border-bottom: 1px solid var(--surface-island-border);
+}
+.md-preview tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Blockquote — left rule + muted text. */
+.md-preview blockquote {
+  margin: 0 0 1em 0;
+  padding: 0.4em 1em;
+  border-left: 3px solid var(--surface-island-border);
+  color: var(--editor-text-muted);
+}
+.md-preview blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+/* Horizontal rules — full-width hairline, generous spacing. */
+.md-preview hr {
+  border: 0;
+  height: 1px;
+  background: var(--surface-island-border);
+  margin: 2em 0;
+}
+
+/* Images and inline media — never overflow the column. */
+.md-preview img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-control);
 }
