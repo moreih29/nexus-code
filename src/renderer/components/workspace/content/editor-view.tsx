@@ -3,14 +3,21 @@ import type * as Monaco from "monaco-editor";
 import { useEffect, useState } from "react";
 import { fontFamily, typeScale } from "../../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
+import { useMonacoThemeName } from "../../../hooks/use-monaco-theme-name";
 import { ipcCallResult } from "../../../ipc/client";
 import { useSharedModel } from "../../../services/editor";
 import { hasConflictMarkers } from "../../../services/editor/conflict/conflict-parser";
-import { useMonacoThemeName } from "../../../hooks/use-monaco-theme-name";
+import { isPreviewable, previewEngineFor } from "../../../services/editor/preview/previewable";
 import { useGitSession, useGitStore } from "../../../state/stores/git";
+import { useTabsStore } from "../../../state/stores/tabs";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
-import { relPath } from "../../../utils/path";
+import { cn } from "../../../utils/cn";
 import { fileErrorMessage } from "../../../utils/file-error";
+import { relPath } from "../../../utils/path";
+import { HtmlPreview } from "../../editor/preview/html-preview";
+import { MarkdownPreview } from "../../editor/preview/markdown-preview";
+import { SvgPreview } from "../../editor/preview/svg-preview";
+import { ViewModeToggle } from "../../editor/preview/view-mode-toggle";
 import { EmptyState } from "../../ui/empty-state";
 import { ConflictResolvedBanner } from "./conflict-resolved-banner";
 import { ReadOnlyBanner } from "./read-only-banner";
@@ -22,6 +29,13 @@ export { createCrossFileOpenCodeEditorOpener } from "../../../services/editor/ta
 interface EditorViewProps {
   filePath: string;
   workspaceId: string;
+  /**
+   * Owning tab id, threaded through by ContentHost. Used to read/write the
+   * per-tab `viewMode` (raw/preview) in the tabs store. Splits of the same
+   * file can therefore hold one tab in raw mode and another in preview
+   * mode independently.
+   */
+  tabId: string;
 }
 
 const editorOptions = {
@@ -54,8 +68,8 @@ function useIsFileConflicted(filePath: string, workspaceId: string): boolean {
   const repoRoot =
     session.repoInfo.kind === "repo"
       ? session.repoInfo.topLevel
-      : useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId)?.rootPath ??
-        null;
+      : (useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId)?.rootPath ??
+        null);
 
   if (!repoRoot) return false;
 
@@ -78,6 +92,55 @@ function useIsFileConflicted(filePath: string, workspaceId: string): boolean {
  * which bubbles into the workspace ErrorBoundary and causes dev-mode error
  * recovery to remount the editor subtree in a loop.
  */
+/**
+ * Live-tracks the Monaco model's text as React state, coalesced to one
+ * update per animation frame. Used by the Preview panes so raw edits flow
+ * into the rendered output without re-reading `model.getValue()` on every
+ * render. External-change reconciliation also fires `onDidChangeContent`
+ * once the cache replaces the buffer, so this single subscription covers
+ * both "user typed" and "file changed on disk" reflows.
+ *
+ * EAGER RESYNC ON MODEL IDENTITY CHANGE
+ *   `useEffect` runs after commit, so the first render after a raw→preview
+ *   toggle would otherwise show the stale `""` source until the effect
+ *   fires. For `<iframe srcDoc>` consumers (HtmlPreview) that initial empty
+ *   document can latch and the pane stays blank. We use the "adjust state
+ *   during render" pattern (React docs §Derived State) to pull the new
+ *   model's value synchronously whenever its identity changes.
+ */
+function useModelSource(model: Monaco.editor.ITextModel | null): string {
+  const [trackedModel, setTrackedModel] = useState(model);
+  const [source, setSource] = useState<string>(() =>
+    model && !model.isDisposed() ? model.getValue() : "",
+  );
+
+  if (trackedModel !== model) {
+    setTrackedModel(model);
+    setSource(model && !model.isDisposed() ? model.getValue() : "");
+  }
+
+  useEffect(() => {
+    if (!model || model.isDisposed()) return;
+
+    let rafId: number | null = null;
+    const flush = () => {
+      rafId = null;
+      if (!model.isDisposed()) setSource(model.getValue());
+    };
+    const sub = model.onDidChangeContent(() => {
+      if (model.isDisposed()) return;
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(flush);
+    });
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      sub.dispose();
+    };
+  }, [model]);
+
+  return source;
+}
+
 function useModelHasMarkers(model: Monaco.editor.ITextModel | null): boolean {
   const [hasMarkers, setHasMarkers] = useState<boolean>(() =>
     model && !model.isDisposed() ? hasConflictMarkers(model.getValue()) : false,
@@ -101,7 +164,7 @@ function useModelHasMarkers(model: Monaco.editor.ITextModel | null): boolean {
   return hasMarkers;
 }
 
-export function EditorView({ filePath, workspaceId }: EditorViewProps) {
+export function EditorView({ filePath, workspaceId, tabId }: EditorViewProps) {
   const { model, phase, errorCode, readOnly } = useSharedModel({ workspaceId, filePath });
   const monacoTheme = useMonacoThemeName();
 
@@ -117,6 +180,31 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
   const isConflicted = useIsFileConflicted(filePath, workspaceId);
   const hasMarkers = useModelHasMarkers(!readOnly ? (model ?? null) : null);
   const markResolved = useGitStore((s) => s.markResolved);
+
+  // ----- Raw/Preview view-mode wiring (plan 60) ----------------------------
+  // previewSupport stays stable for a given filePath because EditorView keys
+  // on filePath; computing it inline avoids a memo. View mode reads from the
+  // tabs store so split tabs of the same file can hold independent modes.
+  const previewSupport = isPreviewable(filePath);
+  const storedViewMode = useTabsStore((s) =>
+    s.byWorkspace[workspaceId]?.[tabId]?.type === "editor"
+      ? s.byWorkspace[workspaceId]?.[tabId]
+      : null,
+  );
+  const viewMode =
+    storedViewMode && storedViewMode.type === "editor" ? (storedViewMode.viewMode ?? "raw") : "raw";
+  const setViewMode = useTabsStore((s) => s.setViewMode);
+
+  // Live markdown/html/svg source — subscribed only when actually previewing,
+  // since react-markdown re-parses on every state update and we don't want to
+  // pay that cost when the user keeps the toggle on Raw.
+  const showPreview = viewMode === "preview" && previewSupport === "supported";
+  const previewSource = useModelSource(showPreview ? (model ?? null) : null);
+
+  // Workspace root for link/image resolution inside the markdown renderer.
+  const workspaceRootAbsPath = useWorkspacesStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
+  );
 
   if (phase === "loading" || (phase === "ready" && !model)) {
     return <EmptyState title="Loading…" tone="status" className="min-h-0" />;
@@ -142,8 +230,8 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
     const repoRoot =
       session.repoInfo.kind === "repo"
         ? session.repoInfo.topLevel
-        : useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId)?.rootPath ??
-          null;
+        : (useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId)?.rootPath ??
+          null);
     if (!repoRoot) return;
     void markResolved(workspaceId, [relPath(filePath, repoRoot)]);
   }
@@ -166,14 +254,77 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
           onMarkResolved={handleMarkResolved}
         />
       )}
-      <Editor
-        height="100%"
-        keepCurrentModel
-        saveViewState={false}
-        onMount={onMount}
-        theme={monacoTheme}
-        options={editorOptions}
-      />
+
+      {previewSupport !== "none" && (
+        <div className="flex justify-end px-2 py-1 border-b border-[var(--surface-island-border)]">
+          <ViewModeToggle
+            mode={viewMode}
+            onChange={(mode) => setViewMode(workspaceId, tabId, mode)}
+            disabled={previewSupport === "mdx-disabled"}
+            disabledReason={
+              previewSupport === "mdx-disabled" ? "MDX preview is disabled for security" : undefined
+            }
+          />
+        </div>
+      )}
+
+      {/*
+        Keep Monaco mounted at all times — toggling to Preview only hides it
+        via CSS. Unmounting would tear down the model attachment and force a
+        heavyweight re-create cycle when the user toggles back to Raw.
+      */}
+      <div className={cn("flex-1 min-h-0", showPreview && "hidden")}>
+        <Editor
+          height="100%"
+          keepCurrentModel
+          saveViewState={false}
+          onMount={onMount}
+          theme={monacoTheme}
+          options={editorOptions}
+        />
+      </div>
+
+      {showPreview && (
+        <div className="flex-1 min-h-0">
+          <PreviewPane
+            filePath={filePath}
+            workspaceId={workspaceId}
+            workspaceRootAbsPath={workspaceRootAbsPath}
+            source={previewSource}
+          />
+        </div>
+      )}
     </div>
   );
+}
+
+interface PreviewPaneProps {
+  filePath: string;
+  workspaceId: string;
+  workspaceRootAbsPath: string;
+  source: string;
+}
+
+/**
+ * Dispatches the concrete preview component based on the file's extension.
+ * Pulled out so EditorView's render stays linear and the dispatch table is
+ * easy to extend (e.g. adding `.json` schema preview later).
+ */
+function PreviewPane({ filePath, workspaceId, workspaceRootAbsPath, source }: PreviewPaneProps) {
+  const engine = previewEngineFor(filePath);
+  switch (engine) {
+    case "markdown":
+      return (
+        <MarkdownPreview
+          source={source}
+          workspaceId={workspaceId}
+          currentFileAbsPath={filePath}
+          workspaceRootAbsPath={workspaceRootAbsPath}
+        />
+      );
+    case "html":
+      return <HtmlPreview source={source} />;
+    case "svg":
+      return <SvgPreview source={source} />;
+  }
 }

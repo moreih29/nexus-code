@@ -41,6 +41,23 @@ mock.module("../../../../../../src/renderer/state/stores/workspaces", () => ({
   }),
 }));
 
+// Tabs store — EditorView reads viewMode for its own tab from here. The
+// banner tests render non-previewable files (.ts), so the toggle never shows
+// and the selector path collapses to "raw" by default, but we still need a
+// store stub that responds to selectors without an IPC bridge.
+const realTabsStore = await import("../../../../../../src/renderer/state/stores/tabs");
+mock.module("../../../../../../src/renderer/state/stores/tabs", () => ({
+  ...realTabsStore,
+  useTabsStore: Object.assign(
+    mock((selector: (s: unknown) => unknown) =>
+      selector({ byWorkspace: {}, setViewMode: () => {} }),
+    ),
+    {
+      getState: mock(() => ({ byWorkspace: {}, setViewMode: () => {} })),
+    },
+  ),
+}));
+
 // ---------------------------------------------------------------------------
 // Mock @monaco-editor/react — the Editor component renders a canvas in real
 // code, which cannot run under bun:test (no DOM). Replace with a div stub.
@@ -135,7 +152,7 @@ describe("EditorView — ReadOnlyBanner integration", () => {
     mockPhase = "ready";
 
     const html = renderToStaticMarkup(
-      <EditorView filePath="/external/lib/types.ts" workspaceId="ws-1" />,
+      <EditorView filePath="/external/lib/types.ts" workspaceId="ws-1" tabId="tab-1" />,
     );
 
     expect(html).toContain("Read-only");
@@ -148,7 +165,7 @@ describe("EditorView — ReadOnlyBanner integration", () => {
     mockPhase = "ready";
 
     const html = renderToStaticMarkup(
-      <EditorView filePath="/workspace/src/index.ts" workspaceId="ws-1" />,
+      <EditorView filePath="/workspace/src/index.ts" workspaceId="ws-1" tabId="tab-1" />,
     );
 
     expect(html).not.toContain("Read-only");
@@ -160,7 +177,7 @@ describe("EditorView — ReadOnlyBanner integration", () => {
     mockPhase = "loading";
 
     const html = renderToStaticMarkup(
-      <EditorView filePath="/external/lib/types.ts" workspaceId="ws-1" />,
+      <EditorView filePath="/external/lib/types.ts" workspaceId="ws-1" tabId="tab-1" />,
     );
 
     expect(html).not.toContain("Read-only");

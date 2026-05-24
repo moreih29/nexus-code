@@ -131,8 +131,12 @@ export function ContentHost({
         // out from under it — triggering "InstantiationService has been disposed"
         // when setModel ran against the half-torn editor. Remounting on filePath
         // change gives @monaco-editor/react a clean dispose + create cycle.
+        //
+        // tabId is forwarded so EditorView can read its own viewMode from the
+        // tabs store (Raw/Preview toggle per-tab persistence — plan 60).
         <EditorView
           key={tab.props.filePath}
+          tabId={tab.id}
           filePath={tab.props.filePath}
           workspaceId={workspaceId}
         />
