@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { EditorInput } from "@/services/editor/types";
 import { killSession } from "@/services/terminal/pty-client";
 import { basename } from "@/utils/path";
-import type { DiffTabPayload, GitCommitTabPayload } from "../../../shared/types/tab";
+import type { BrowserTabPayload, DiffTabPayload, GitCommitTabPayload } from "../../../shared/types/tab";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
 import {
   recordTerminalDeathForAggregate,
@@ -21,9 +21,14 @@ export interface TerminalTabProps {
   dead?: boolean;
 }
 
+export interface UntitledTabProps {
+  untitledIndex: number;
+}
+
 export type EditorTabProps = EditorInput;
 export type DiffTabProps = DiffTabPayload;
 export type GitCommitTabProps = GitCommitTabPayload;
+export type BrowserTabProps = BrowserTabPayload;
 
 interface TabBase {
   id: string;
@@ -60,7 +65,17 @@ export interface GitCommitTab extends TabBase {
   props: GitCommitTabProps;
 }
 
-export type Tab = EditorTab | DiffTab | TerminalTab | GitCommitTab;
+export interface UntitledTab extends TabBase {
+  type: "untitled";
+  props: UntitledTabProps;
+}
+
+export interface BrowserTab extends TabBase {
+  type: "browser";
+  props: BrowserTabProps;
+}
+
+export type Tab = EditorTab | DiffTab | TerminalTab | GitCommitTab | UntitledTab | BrowserTab;
 
 // ---------------------------------------------------------------------------
 // State shape — flat record registry; ordering and active state live in layout.ts
@@ -76,7 +91,9 @@ export type CreateTabArgs =
   | { type: "editor"; props: EditorTabProps }
   | { type: "editor.diff"; props: DiffTabProps }
   | { type: "git.commit"; props: GitCommitTabProps }
-  | { type: "terminal"; props: TerminalTabProps };
+  | { type: "terminal"; props: TerminalTabProps }
+  | { type: "untitled"; props: UntitledTabProps }
+  | { type: "browser"; props: BrowserTabProps };
 
 interface TabsState {
   byWorkspace: Record<string, Record<string, Tab>>;
@@ -99,6 +116,22 @@ interface TabsState {
    * non-editor tab types or unknown ids.
    */
   setViewMode: (workspaceId: string, tabId: string, mode: "raw" | "preview") => void;
+  /**
+   * Promote an untitled tab to a saved editor tab. Replaces the tab's type,
+   * props, and title in-place, preserving the tab id, isPinned, and
+   * isPreview flags. No-op when the tab does not exist or is not untitled.
+   */
+  replaceUntitledWithEditor: (
+    workspaceId: string,
+    tabId: string,
+    props: EditorTabProps,
+    title: string,
+  ) => void;
+  /**
+   * Persist the most-recently visited URL for a browser tab.
+   * No-op when the tab does not exist or is not of type "browser".
+   */
+  setBrowserLastUrl: (workspaceId: string, tabId: string, lastUrl: string) => void;
 }
 
 /**
@@ -130,6 +163,15 @@ export function defaultTitle(args: CreateTabArgs): string {
     return basename(args.props.relPath) || "Diff";
   }
   if (args.type === "git.commit") return `commit ${args.props.sha.slice(0, 7)}`;
+  if (args.type === "untitled") return `Untitled-${args.props.untitledIndex}`;
+  if (args.type === "browser") {
+    if (!args.props.initialUrl) return "New Tab";
+    try {
+      return new URL(args.props.initialUrl).host || "New Tab";
+    } catch {
+      return "New Tab";
+    }
+  }
   return basename(args.props.filePath) || "Editor";
 }
 
@@ -162,6 +204,10 @@ export const useTabsStore = create<TabsState>((set, get) => {
         tab = { ...base, type: "editor.diff", props: args.props };
       } else if (args.type === "git.commit") {
         tab = { ...base, type: "git.commit", props: args.props };
+      } else if (args.type === "untitled") {
+        tab = { ...base, type: "untitled", props: args.props };
+      } else if (args.type === "browser") {
+        tab = { ...base, type: "browser", props: args.props };
       } else {
         tab = { ...base, type: "terminal", props: args.props };
       }
@@ -333,6 +379,51 @@ export const useTabsStore = create<TabsState>((set, get) => {
       });
     },
 
+    replaceUntitledWithEditor(workspaceId, tabId, props, title) {
+      set((state) => {
+        const wsRecord = state.byWorkspace[workspaceId];
+        if (!wsRecord || !(tabId in wsRecord)) return state;
+        const tab = wsRecord[tabId];
+        if (tab.type !== "untitled") return state;
+        const next: EditorTab = {
+          id: tab.id,
+          title,
+          isPreview: tab.isPreview,
+          isPinned: tab.isPinned,
+          type: "editor",
+          props,
+        };
+        return {
+          byWorkspace: {
+            ...state.byWorkspace,
+            [workspaceId]: {
+              ...wsRecord,
+              [tabId]: next,
+            },
+          },
+        };
+      });
+    },
+
+    setBrowserLastUrl(workspaceId, tabId, lastUrl) {
+      set((state) => {
+        const wsRecord = state.byWorkspace[workspaceId];
+        if (!wsRecord || !(tabId in wsRecord)) return state;
+        const tab = wsRecord[tabId];
+        if (tab.type !== "browser") return state;
+        const next: BrowserTab = {
+          ...tab,
+          props: { ...tab.props, lastUrl },
+        };
+        return {
+          byWorkspace: {
+            ...state.byWorkspace,
+            [workspaceId]: { ...wsRecord, [tabId]: next },
+          },
+        };
+      });
+    },
+
     togglePin(workspaceId, tabId) {
       set((state) => {
         const wsRecord = state.byWorkspace[workspaceId];
@@ -375,6 +466,55 @@ export const useTabsStore = create<TabsState>((set, get) => {
         return { byWorkspace: next };
       });
       useTerminalDeathStore.getState().clearWorkspace(workspaceId);
+    },
+  };
+});
+
+// ---------------------------------------------------------------------------
+// Untitled counter store — workspace-scoped, monotonically increasing.
+// Persisted (via persistence.ts) as part of the normal flush cycle so the
+// next session starts above the previously-used index. Not co-located with
+// workspaces.ts because the counter is pure renderer UI state — not
+// workspace metadata that the main process manages.
+// ---------------------------------------------------------------------------
+
+interface UntitledCounterState {
+  /** Next untitled index to assign, keyed by workspaceId. Starts at 1. */
+  nextByWorkspace: Record<string, number>;
+  /**
+   * Claim the next untitled index for a workspace and advance the counter.
+   * Returns the claimed index (1-based, never reused).
+   */
+  claimNext: (workspaceId: string) => number;
+  /** Reset a workspace's counter (used on workspace cleanup). */
+  clearWorkspace: (workspaceId: string) => void;
+}
+
+export const useUntitledCounterStore = create<UntitledCounterState>((set, get) => {
+  registerWorkspaceCleanup((id) => {
+    get().clearWorkspace(id);
+  });
+
+  return {
+    nextByWorkspace: {},
+
+    claimNext(workspaceId) {
+      const current = get().nextByWorkspace[workspaceId] ?? 1;
+      set((state) => ({
+        nextByWorkspace: {
+          ...state.nextByWorkspace,
+          [workspaceId]: current + 1,
+        },
+      }));
+      return current;
+    },
+
+    clearWorkspace(workspaceId) {
+      set((state) => {
+        const next = { ...state.nextByWorkspace };
+        delete next[workspaceId];
+        return { nextByWorkspace: next };
+      });
     },
   };
 });
