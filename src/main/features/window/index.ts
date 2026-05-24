@@ -1,16 +1,16 @@
 import { join } from "node:path";
 import { BrowserWindow, shell } from "electron";
-import {
-  DEFAULT_THEME,
-  THEME_SOURCE_BY_ID,
-  type ThemeId,
-} from "../../../shared/design-tokens";
+import { DEFAULT_THEME, THEME_SOURCE_BY_ID, type ThemeId } from "../../../shared/design-tokens";
+import { createLogger } from "../../../shared/log/main";
+import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { isMac } from "../../infra/platform";
 import type { AppState } from "../../infra/storage/state-service";
 
 // Custom titlebar height (px) — must match TitleBar component's h-9 (36px)
 // and titleBarOverlay.height on Win/Linux for visual alignment.
 const TITLEBAR_HEIGHT = 36;
+
+const logger = createLogger("window-open-handler");
 
 // ---------------------------------------------------------------------------
 // titleBarOverlay color helpers
@@ -93,7 +93,11 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   }
 
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (isExternalSchemeAllowed(url)) {
+      shell.openExternal(url);
+    } else {
+      logger.warn(`Blocked window.open with disallowed scheme: ${url}`);
+    }
     return { action: "deny" };
   });
 
