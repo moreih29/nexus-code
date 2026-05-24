@@ -4,9 +4,13 @@
 // 없는 흔한 파일들을 보강한다.
 //
 // 전략: TextMate grammar(JSON) + vscode-textmate + vscode-oniguruma 스택을
-// 인라인 브리지로 monaco.languages.setTokensProvider에 연결한다. VSCode 호환
-// grammar 5종(TOML / Makefile / .env / Nix / Justfile)은 tm-grammars(shikijs)
-// 에서 발췌해 그대로 사용.
+// 인라인 브리지로 monaco.languages.setTokensProvider에 연결한다.
+//
+//   - VSCode 호환 grammar 5종 (TOML / Makefile / .env / Nix / Justfile)은
+//     tm-grammars(shikijs)에서 발췌.
+//   - go.mod / go.sum 은 tm-grammars에도 없어 자체 Monarch로 작성. DSL이
+//     단순(module / require / replace / exclude / retract / go / toolchain
+//     + semver) 해서 ~30줄로 충분.
 //
 // monaco-editor-textmate 패키지는 Snyk에서 inactive로 분류되어 직접 의존하지
 // 않고, 브리지 ~30줄을 여기에 인라인한다. tokensProvider는 TextMate scope의
@@ -180,19 +184,74 @@ function getRegistry(): Promise<Registry> {
 }
 
 // ---------------------------------------------------------------------------
+// go.mod / go.sum — 자체 Monarch (tm-grammars에 없음)
+// ---------------------------------------------------------------------------
+
+/**
+ * go.mod DSL: module / require / replace / exclude / retract / go / toolchain
+ * 디렉티브 + semver(v1.2.3, v1.2.3-pre.1+meta) + 경로 인용 문자열 + 주석.
+ */
+const GOMOD_MONARCH: Monaco.languages.IMonarchLanguage = {
+  defaultToken: "",
+  keywords: ["module", "require", "replace", "exclude", "retract", "go", "toolchain"],
+  tokenizer: {
+    root: [
+      [/\/\/.*$/, "comment"],
+      [/"([^"\\]|\\.)*"/, "string"],
+      [/\b(module|require|replace|exclude|retract|go|toolchain)\b/, "keyword"],
+      // semver — required after `require` / `replace`. /go.mod 접미사도 매칭.
+      [/\bv\d+\.\d+\.\d+(?:-[\w.+-]+)?(?:\+[\w.+-]+)?(?:\/go\.mod)?\b/, "number"],
+      [/=>/, "operator"],
+      [/[()]/, "@brackets"],
+      // 모듈 경로 (github.com/foo/bar 형태). identifier 토큰으로 처리.
+      [/[a-zA-Z0-9_./~-]+/, "identifier"],
+      [/[ \t]+/, ""],
+    ],
+  },
+};
+
+/**
+ * go.sum: 한 줄 = `<module-path> <version> h1:<base64>=`. 또는 `/go.mod`
+ * 접미사가 붙은 라인. 매우 단순 — 모듈 경로(identifier), 버전(number),
+ * 해시(string).
+ */
+const GOSUM_MONARCH: Monaco.languages.IMonarchLanguage = {
+  defaultToken: "",
+  tokenizer: {
+    root: [
+      [/^[^\s]+/, "identifier"],
+      [/\bv\d+\.\d+\.\d+(?:-[\w.+-]+)?(?:\+[\w.+-]+)?(?:\/go\.mod)?\b/, "number"],
+      [/h1:[A-Za-z0-9+/=]+/, "string"],
+      [/[ \t]+/, ""],
+    ],
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
 /**
  * Monaco에 우리 보강 언어들을 등록한다. initializeEditorServices()에서 호출.
  *
- * 등록만 먼저 동기로 해두면 파일 매핑은 즉시 작동하고, grammar 도착 전 토큰은
- * plaintext로 그려졌다가 grammar 도착 후 re-tokenize 된다(Monaco 표준 동작).
+ * - TextMate 5종: WASM + grammar 비동기 로드 후 setTokensProvider. 등록 자체는
+ *   사용자가 첫 .toml/.nix/... 파일을 열기 전에 끝나야 깜빡임이 없다. fire-and
+ *   -forget이지만 WASM 로드 ~수십 ms 안에 완료되므로 실사용 영향 없음.
+ * - go.mod / go.sum: 동기 Monarch 등록.
  *
  * 오류는 console.error로만 보고하고 throw하지 않는다 — 보강 언어 등록 실패가
  * 전체 에디터 부팅을 막아선 안 됨(타 언어들은 모두 정상 동작).
  */
 export function registerExtraLanguages(monaco: typeof Monaco): void {
+  // ---- go.mod / go.sum: 동기 ----
+  monaco.languages.register({ id: "gomod", filenames: ["go.mod"] });
+  monaco.languages.setMonarchTokensProvider("gomod", GOMOD_MONARCH);
+  monaco.languages.register({ id: "gosum", filenames: ["go.sum"] });
+  monaco.languages.setMonarchTokensProvider("gosum", GOSUM_MONARCH);
+
+  // ---- TextMate 5종: 비동기. 등록만 먼저 동기로 해두면 파일 매핑은 즉시
+  // 작동하고, grammar 도착 전 토큰은 plaintext로 그려졌다가 grammar 도착 후
+  // re-tokenize 된다(Monaco 표준 동작). ----
   for (const spec of TM_LANGUAGES) {
     monaco.languages.register({
       id: spec.id,
