@@ -36,7 +36,7 @@ export type DiagnosticKind = "error" | "warning";
 
 interface MarkerItem {
   filePath: string;
-  origin: "workspace" | "external";
+  origin: "workspace" | "external" | "untitled";
   startLine: number;
   startColumn: number;
   endLine: number;

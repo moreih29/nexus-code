@@ -79,10 +79,11 @@ const realModelEntry = await import(
   "../../../../../src/renderer/services/editor/model/entry"
 );
 
-mock.module("../../../../../src/renderer/services/editor/model/entry", () => ({
-  ...realModelEntry,
-  cleanupEntry: cleanupEntryMock,
-  createEntry: (input: { workspaceId: string; filePath: string }, cacheUri: string) => ({
+function makeStubEntry(
+  input: { workspaceId: string; filePath: string; origin?: string; readOnly?: boolean },
+  cacheUri: string,
+) {
+  return {
     input,
     cacheUri,
     lspUri: cacheUri,
@@ -92,12 +93,23 @@ mock.module("../../../../../src/renderer/services/editor/model/entry", () => ({
     model: null,
     loadPromise: Promise.resolve(),
     subscribers: new Set<() => void>(),
-    origin: (input as { origin?: string }).origin ?? "workspace",
-    readOnly: (input as { readOnly?: boolean }).readOnly ?? false,
+    origin: (input.origin ?? "workspace") as "workspace" | "external" | "untitled",
+    readOnly: input.readOnly ?? false,
     disposed: false,
-    originatingWorkspaceId:
-      (input as { origin?: string }).origin === "external" ? input.workspaceId : undefined,
-  }),
+    originatingWorkspaceId: input.origin === "external" ? input.workspaceId : undefined,
+  };
+}
+
+mock.module("../../../../../src/renderer/services/editor/model/entry", () => ({
+  ...realModelEntry,
+  cleanupEntry: cleanupEntryMock,
+  createEntry: (input: { workspaceId: string; filePath: string }, cacheUri: string) =>
+    makeStubEntry(input as { workspaceId: string; filePath: string; origin?: string; readOnly?: boolean }, cacheUri),
+  createUntitledEntry: (input: { workspaceId: string; filePath: string }, cacheUri: string) =>
+    makeStubEntry(
+      { ...input as { workspaceId: string; filePath: string; origin?: string }, origin: "untitled" },
+      cacheUri,
+    ),
 }));
 
 const { acquireModel, forceDisposeExternalsForWorkspace, getModelSnapshot, releaseModel } =
@@ -114,6 +126,12 @@ function extInputB(filePath: string) {
 }
 function wsInputA(filePath: string) {
   return { workspaceId: WS_A, filePath };
+}
+function untitledInputA(name: string) {
+  return { workspaceId: WS_A, filePath: name, origin: "untitled" as const };
+}
+function untitledInputB(name: string) {
+  return { workspaceId: WS_B, filePath: name, origin: "untitled" as const };
 }
 
 beforeEach(() => {
@@ -183,5 +201,68 @@ describe("forceDisposeExternalsForWorkspace", () => {
   test("is a no-op when no external entries exist for the workspace", () => {
     forceDisposeExternalsForWorkspace("ws-nonexistent");
     expect(cleanupEntryMock).not.toHaveBeenCalled();
+  });
+
+  // --- untitled model cleanup ---
+
+  test("disposes untitled entries for the closed workspace", async () => {
+    const u1 = untitledInputA("Untitled-1");
+    const u2 = untitledInputA("Untitled-2");
+
+    await acquireModel(u1);
+    await acquireModel(u2);
+
+    forceDisposeExternalsForWorkspace(WS_A);
+
+    expect(getModelSnapshot(u1)).toBeNull();
+    expect(getModelSnapshot(u2)).toBeNull();
+    expect(cleanupEntryMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("disposes untitled entries regardless of dirty state", async () => {
+    // Dirty state is irrelevant — workspace is gone, no recovery is possible.
+    const u1 = untitledInputA("Untitled-dirty");
+
+    await acquireModel(u1);
+
+    forceDisposeExternalsForWorkspace(WS_A);
+
+    expect(getModelSnapshot(u1)).toBeNull();
+    expect(cleanupEntryMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("leaves untitled entries from other workspaces intact", async () => {
+    const u1 = untitledInputB("Untitled-1");
+
+    await acquireModel(u1);
+
+    forceDisposeExternalsForWorkspace(WS_A);
+
+    expect(getModelSnapshot(u1)).not.toBeNull();
+    expect(cleanupEntryMock).not.toHaveBeenCalled();
+    releaseModel(u1);
+  });
+
+  test("disposes both external and untitled entries for the closed workspace simultaneously", async () => {
+    const ext1 = extInputA("/ext/wsc-combo-ext.py");
+    const u1 = untitledInputA("Untitled-1");
+    const b1 = extInputB("/ext/wsc-combo-b.ts");
+    const ub1 = untitledInputB("Untitled-1");
+
+    await acquireModel(ext1);
+    await acquireModel(u1);
+    await acquireModel(b1);
+    await acquireModel(ub1);
+
+    forceDisposeExternalsForWorkspace(WS_A);
+
+    expect(getModelSnapshot(ext1)).toBeNull();
+    expect(getModelSnapshot(u1)).toBeNull();
+    expect(getModelSnapshot(b1)).not.toBeNull();
+    expect(getModelSnapshot(ub1)).not.toBeNull();
+    expect(cleanupEntryMock).toHaveBeenCalledTimes(2);
+
+    releaseModel(b1);
+    releaseModel(ub1);
   });
 });

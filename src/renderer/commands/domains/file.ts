@@ -9,6 +9,8 @@ import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { openOrRevealEditor, runSaveAndReport } from "../../services/editor";
+import { saveUntitledModel } from "../../services/editor/save/save-untitled-handler";
+import { showToast } from "../../components/ui/toast";
 import { refresh } from "../../state/operations/files";
 import { useActiveStore } from "../../state/stores/active";
 import { useFilesStore } from "../../state/stores/files";
@@ -63,7 +65,15 @@ export function registerFileCommands(): Array<() => void> {
       const ctx = getActiveTabContext();
       if (!ctx) return;
       const tab = useTabsStore.getState().byWorkspace[ctx.wsId]?.[ctx.tabId];
-      if (tab?.type !== "editor") return;
+      if (!tab) return;
+      if (tab.type === "untitled") {
+        saveUntitledModel(ctx.wsId, ctx.tabId).catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          showToast({ kind: "error", message: `Save failed: ${message}` });
+        });
+        return;
+      }
+      if (tab.type !== "editor") return;
       runSaveAndReport({ workspaceId: ctx.wsId, filePath: tab.props.filePath });
     }),
   ];

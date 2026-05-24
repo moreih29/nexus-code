@@ -24,6 +24,7 @@ import { attachLspBridge, rehydrateEntryLspOpened } from "./attach-lsp-bridge";
 import {
   attachDirtyTracker,
   detachDirtyTracker,
+  getDirtyEntry,
   markSaved as markDirtyTrackerSaved,
 } from "./dirty-tracker";
 import {
@@ -98,7 +99,7 @@ export interface ModelEntry {
   lspNeedsRehydrate?: boolean;
   disposed: boolean;
   subscribers: Set<() => void>;
-  origin: "workspace" | "external";
+  origin: "workspace" | "external" | "untitled";
   readOnly: boolean;
   deps?: ModelEntryDeps;
   /** Set only when origin === "external"; identifies the workspace the opener came from. */
@@ -182,7 +183,7 @@ export function createEntry(
 ): ModelEntry {
   const monaco = deps.requireMonaco();
   const monacoUri = monaco.Uri.parse(cacheUri);
-  const origin: "workspace" | "external" = input.origin ?? "workspace";
+  const origin: "workspace" | "external" = (input.origin ?? "workspace") as "workspace" | "external";
   const readOnly = input.readOnly === true;
   const entryInput = input;
   // cacheUri carries the workspace-scoped `nexus-ws://` scheme that
@@ -216,6 +217,83 @@ export function createEntry(
   };
 
   entry.loadPromise = loadEntry(entry);
+  return entry;
+}
+
+/**
+ * Construct a `ModelEntry` for an untitled (unsaved, no-backing-file) buffer.
+ *
+ * Unlike `createEntry`, this path:
+ *   - Does NOT perform any fs I/O — the model starts with empty content.
+ *   - Does NOT attach an LSP bridge — untitled buffers have no file URI to
+ *     route to the language server.
+ *   - Does NOT subscribe to fs.changed events — there is no file on disk
+ *     to watch.
+ *   - Immediately moves the entry to `phase: "ready"`.
+ *   - Sets up the dirty tracker with `savedAlternativeVersionId=0` so that
+ *     the fresh model (whose altVersionId starts at 1) is dirty from the
+ *     start — reflecting that there is no save-point to compare against.
+ *
+ * The `cacheUri` (= monacoUri) should be `untitled://{workspaceId}/Untitled-{N}`
+ * — produced by `untitledCacheUriFor` from workspace-uri.ts.
+ */
+export function createUntitledEntry(
+  input: EditorInput,
+  cacheUri: string,
+  deps: Pick<ModelEntryDeps, "requireMonaco" | "attachDirtyTracker" | "registerKnownModelUri">,
+): ModelEntry {
+  const monaco = deps.requireMonaco();
+  const monacoUri = monaco.Uri.parse(cacheUri);
+
+  const model = monaco.editor.getModel(monacoUri) ?? monaco.editor.createModel("", undefined, monacoUri);
+
+  const entry: ModelEntry = {
+    input,
+    cacheUri,
+    // lspUri is unused for untitled entries — no LSP routing ever happens.
+    // We set it to the cacheUri as a safe non-empty placeholder so
+    // cleanupEntry's unregisterKnownModelUri call is harmless.
+    lspUri: cacheUri,
+    monacoUri,
+    languageId: model.getLanguageId(),
+    refCount: 0,
+    version: 1,
+    phase: "ready",
+    model,
+    lastLoadedValue: "",
+    loadPromise: Promise.resolve(),
+    lspOpened: false,
+    didOpenPromise: Promise.resolve(),
+    lspDegraded: false,
+    disposed: false,
+    subscribers: new Set(),
+    origin: "untitled",
+    readOnly: false,
+  };
+
+  // Attach the dirty tracker so downstream consumers (tab indicator,
+  // save service, close-handler) can observe dirty state normally.
+  // Setting savedAlternativeVersionId=0 immediately after attach ensures
+  // isDirty=true from the start: a fresh Monaco model's altVersionId
+  // begins at 1, which will never equal 0.
+  deps.attachDirtyTracker({
+    cacheUri,
+    model,
+    loadedMtime: "",
+    loadedSize: 0,
+  });
+  const dirtyEntry = getDirtyEntry(cacheUri);
+  if (dirtyEntry) {
+    dirtyEntry.savedAlternativeVersionId = 0;
+    dirtyEntry.isDirty = true;
+  }
+
+  // Register the cacheUri in the LSP known-model map so that any
+  // provider dispatching on URI can find this entry (even though we
+  // skip LSP for untitled, registration keeps unregisterKnownModelUri
+  // consistent at cleanup time).
+  deps.registerKnownModelUri(cacheUri);
+
   return entry;
 }
 

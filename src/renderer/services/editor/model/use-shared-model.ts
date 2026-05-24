@@ -42,7 +42,7 @@ export function useSharedModel(input: EditorInput): SharedModelState {
     let cancelled = false;
     let acquired = false;
     let unsubscribe = () => {};
-    const sharedInput = { workspaceId, filePath };
+    const sharedInput: EditorInput = { workspaceId, filePath, origin: input.origin };
 
     if (!monacoReady) {
       setState({ phase: "loading", model: null, readOnly: false });
@@ -84,7 +84,7 @@ export function useSharedModel(input: EditorInput): SharedModelState {
         releaseModel(sharedInput);
       }
     };
-  }, [workspaceId, filePath, monacoReady]);
+  }, [workspaceId, filePath, input.origin, monacoReady]);
 
   return state;
 }
