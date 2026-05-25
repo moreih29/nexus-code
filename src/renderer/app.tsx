@@ -13,6 +13,7 @@ import { GlobalRoots } from "./components/global-roots";
 import { AboutPanel } from "./components/settings/panels/about-panel";
 import { AppearancePanel } from "./components/settings/panels/appearance-panel";
 import { EditorPanel } from "./components/settings/panels/editor-panel";
+import { NotificationsPanel } from "./components/settings/panels/notifications-panel";
 import { TerminalPanel } from "./components/settings/panels/terminal-panel";
 import { SettingsDialog } from "./components/settings/settings-dialog";
 import type { SettingsNavItem } from "./components/settings/types";
@@ -140,6 +141,12 @@ export function App() {
         group: "Settings",
         keywords: ["font", "size", "cursor"],
         dirty: terminalDirty,
+      },
+      {
+        id: "notifications",
+        label: "Notifications",
+        group: "Settings",
+        keywords: ["alert", "desktop", "os", "notification", "claude"],
       },
       {
         id: "about",
@@ -352,6 +359,7 @@ export function App() {
             if (activeId === "appearance") return <AppearancePanel />;
             if (activeId === "editor") return <EditorPanel />;
             if (activeId === "terminal") return <TerminalPanel />;
+            if (activeId === "notifications") return <NotificationsPanel />;
             if (activeId === "about") return <AboutPanel />;
             return null;
           }}

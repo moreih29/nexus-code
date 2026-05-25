@@ -17,6 +17,7 @@ import { useTabsStore } from "./state/stores/tabs";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
+import { useNotificationsStore } from "./state/stores/notifications";
 import { useUpdatesStore } from "./state/stores/updates";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
 import { startNotificationClickListener } from "./state/notification-click";
@@ -106,6 +107,10 @@ export async function bootstrapAppState(): Promise<void> {
     autoCheckEnabled: state.autoCheckForUpdates,
   });
   initUpdatesSubscriptions();
+
+  // Hydrate OS notification toggle so the Notifications panel reflects
+  // persisted state on first render.
+  useNotificationsStore.getState().hydrate(state.osNotificationsEnabled);
 
   if (state.layoutByWorkspace) {
     for (const [wsId, snap] of Object.entries(state.layoutByWorkspace)) {

@@ -146,7 +146,10 @@ class FakeNotification {
   show() {}
 }
 
-function makeHarness(focused: boolean = false): Harness {
+function makeHarness(
+  focused: boolean = false,
+  opts: { notificationsEnabled?: () => boolean } = {},
+): Harness {
   const brokerCalls: Array<{ channel: string; event: string; args: unknown }> = [];
   const broadcastCalls: Array<{ channel: string; event: string; args: unknown }> = [];
 
@@ -176,6 +179,7 @@ function makeHarness(focused: boolean = false): Harness {
     getFocusedWindow,
     electronNotificationCtor: FN as unknown as typeof import("electron").Notification,
     broadcastFn,
+    notificationsEnabled: opts.notificationsEnabled,
   });
 
   return {
@@ -473,5 +477,68 @@ describe("hook-handler — 유효하지 않은 payload 무시", () => {
     await new Promise((r) => setTimeout(r, 0));
     // 상태 변화 없어야 함.
     expect(broker.snapshot()).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// notificationsEnabled 마스터 토글
+//
+// 가드는 fireOsNotification 진입 직전에 위치한다. OS 알림 발사만 차단되고
+// broker/active-context/응답 처리는 그대로 진행되어야 한다 — in-app 인디케이터
+// (사이드바 attention 등)가 토글 영향을 받지 않는 게 의도된 동작이다.
+// ---------------------------------------------------------------------------
+
+describe("hook-handler — notificationsEnabled 마스터 토글", () => {
+  test("토글 off 시 Notification 훅의 OS 알림이 발사되지 않는다", async () => {
+    const { notifInstances, broker, emit } = makeHarness(false, {
+      notificationsEnabled: () => false,
+    });
+    emit(
+      makeHookPayload("notification", { message: "ping" }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notifInstances.length).toBe(0);
+    // broker는 정상 갱신 — 사이드바 인디케이터는 토글 영향 없음.
+    expect(broker.snapshot().length).toBeGreaterThan(0);
+  });
+
+  test("토글 off 시 Permission Request OS 알림이 발사되지 않는다", async () => {
+    const { notifInstances, broker, emit } = makeHarness(false, {
+      notificationsEnabled: () => false,
+    });
+    emit(
+      makeHookPayload("permission-request", {
+        tool_name: "Bash",
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notifInstances.length).toBe(0);
+    expect(broker.snapshot().length).toBeGreaterThan(0);
+  });
+
+  test("토글 off 시 Stop(응답 완료) OS 알림이 발사되지 않는다", async () => {
+    const { notifInstances, broker, emit } = makeHarness(false, {
+      notificationsEnabled: () => false,
+    });
+    emit(makeHookPayload("stop"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notifInstances.length).toBe(0);
+    expect(broker.snapshot().length).toBeGreaterThan(0);
+  });
+
+  test("토글 getter가 매번 평가된다 — 도중에 false→true 전환되면 다음 발사부터 즉시 반영", async () => {
+    let enabled = false;
+    const { notifInstances, emit } = makeHarness(false, {
+      notificationsEnabled: () => enabled,
+    });
+
+    emit(makeHookPayload("stop"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notifInstances.length).toBe(0);
+
+    enabled = true;
+    emit({ ...makeHookPayload("stop"), tabId: "tab-test-2" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notifInstances.length).toBe(1);
   });
 });

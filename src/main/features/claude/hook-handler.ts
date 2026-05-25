@@ -71,6 +71,12 @@ export interface HookHandlerDeps {
   activateWorkspace?: (workspaceId: string) => Promise<void>;
   /** 앱 창 포커스 콜백 — 알림 클릭 시 호출. */
   focusMainWindow?: () => void;
+  /**
+   * OS 알림 마스터 토글 getter — 사용자가 Settings에서 끈 경우 false.
+   * 매 호출마다 평가하므로 토글 변경이 즉시 반영된다. 미제공 시(기본) 항상 true.
+   * 발사 직전에 검사하므로 in-app status broker(사이드바 인디케이터)는 영향받지 않는다.
+   */
+  notificationsEnabled?: () => boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +150,13 @@ function fireOsNotification(
   body: string,
   deps: HookHandlerDeps,
 ): void {
+  // 사용자 마스터 토글 가드. in-app status broker(글리프/카드)는 이미 호출자에서
+  // 처리되었으므로, 여기서만 막아도 sidebar attention 등 시각 피드백은 정상.
+  // 사이드바·탭 인디케이터 ↔ OS 알림이 분리 제어되는 의도된 설계다.
+  if (deps.notificationsEnabled !== undefined && !deps.notificationsEnabled()) {
+    return;
+  }
+
   const broadcastFn = deps.broadcastFn ?? broadcast;
   const NotificationCtor =
     deps.electronNotificationCtor ??

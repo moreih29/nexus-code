@@ -98,6 +98,14 @@ export const AppStateSchema = z.object({
   // the user can still trigger a manual check from the About panel or the
   // App menu — manual triggers always respond regardless of this setting.
   autoCheckForUpdates: z.boolean().default(true),
+
+  // OS-level desktop notifications master toggle. When true (default), the
+  // claude hook handler fires Electron `Notification`s on Notification /
+  // PermissionRequest / Stop hooks while the user is not viewing the active
+  // tab. When false, all three pathways are suppressed at the single
+  // `fireOsNotification` gate. The in-app status broker (sidebar indicator
+  // glyphs, attention badges) is unaffected — only OS-level notifications.
+  osNotificationsEnabled: z.boolean().default(true),
 });
 
 export type WindowBounds = z.infer<typeof WindowBoundsSchema>;

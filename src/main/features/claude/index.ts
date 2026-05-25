@@ -30,6 +30,11 @@ export interface SetupClaudeFeatureOptions {
   electronNotificationCtor?: typeof import("electron").Notification;
   /** broadcast 함수 주입 — 테스트용. */
   broadcastFn?: (channel: string, event: string, args: unknown) => void;
+  /**
+   * OS 알림 마스터 토글 getter — Settings에서 끈 경우 false 반환.
+   * hook-handler에 forward한다. 매 발사 직전 평가되므로 즉시 반영.
+   */
+  notificationsEnabled?: () => boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -82,6 +87,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     getFocusedWindow,
     electronNotificationCtor: options.electronNotificationCtor,
     broadcastFn,
+    notificationsEnabled: options.notificationsEnabled,
     activateWorkspace: (id) => workspaceManager.activate(id),
     focusMainWindow: () => {
       const electron = require("electron") as typeof import("electron");

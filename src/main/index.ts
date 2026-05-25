@@ -268,9 +268,12 @@ app.whenReady().then(async () => {
   });
 
   // Claude feature 초기화 — broker / hook-handler wiring.
+  // notificationsEnabled getter는 Settings의 OS 알림 토글을 실시간 반영한다.
+  // 매 발사 직전 stateService를 조회하므로 토글 변경이 즉시 효력.
   const claudeSetup = setupClaudeFeature({
     agentHost: agentPtyHost,
     workspaceManager,
+    notificationsEnabled: () => stateService.getState().osNotificationsEnabled ?? true,
   });
   disposeClaudeFeature = claudeSetup.dispose;
 
