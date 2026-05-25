@@ -12,6 +12,7 @@ import { openOrRevealEditor, runSaveAndReport } from "../../services/editor";
 import { saveUntitledModel } from "../../services/editor/save/save-untitled-handler";
 import { showToast } from "../../components/ui/toast";
 import { refresh } from "../../state/operations/files";
+import { openNewUntitledTab } from "../../state/operations/tabs";
 import { useActiveStore } from "../../state/stores/active";
 import { useFilesStore } from "../../state/stores/files";
 import { useTabsStore } from "../../state/stores/tabs";
@@ -19,6 +20,15 @@ import { getActiveTabContext } from "../context";
 
 export function registerFileCommands(): Array<() => void> {
   return [
+    // ⌘N — open a new untitled buffer in the active workspace's active
+    // group. No-op when no workspace is active so the shortcut never
+    // surfaces a confusing error state. Mirrors VSCode's File ▸ New File.
+    registerCommand(COMMANDS.fileNew, () => {
+      const wsId = useActiveStore.getState().activeWorkspaceId;
+      if (!wsId) return;
+      openNewUntitledTab(wsId);
+    }),
+
     registerCommand(COMMANDS.filesRefresh, () => {
       const wsId = useActiveStore.getState().activeWorkspaceId;
       if (!wsId) return;

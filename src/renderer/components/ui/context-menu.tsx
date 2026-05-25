@@ -3,8 +3,16 @@
  * whole app. Callers compose menus declaratively using {@link ContextMenuItem}
  * children and `<ContextMenuSeparator />`. Keeps every menu visually
  * consistent and avoids re-typing the long Tailwind className for each item.
+ *
+ * BROWSER-OVERLAY SUSPEND
+ * Same rationale as `DropdownMenuRoot`: WebContentsView is a native overlay
+ * above the renderer DOM, so a context menu opened on top of a browser tab
+ * would render underneath unless we suspend the browser view for the
+ * duration the menu is open. See `state/stores/browser-suspend.ts`.
  */
 import { ContextMenu as RadixContextMenu } from "radix-ui";
+import { useState } from "react";
+import { useBrowserSuspendWhile } from "@/state/stores/browser-suspend";
 
 const CONTENT_CLASS =
   "bg-popover text-popover-foreground border border-border rounded-(--radius-control) shadow-none py-1 min-w-[180px] z-50";
@@ -20,7 +28,22 @@ interface ContextMenuRootProps {
 }
 
 export function ContextMenuRoot({ children, onOpenChange }: ContextMenuRootProps) {
-  return <RadixContextMenu.Root onOpenChange={onOpenChange}>{children}</RadixContextMenu.Root>;
+  // Hold a browser-suspend claim while the menu is open so it can paint above
+  // any WebContentsView overlay.  Radix Root stays uncontrolled — we only
+  // mirror its open state via the callback.
+  const [open, setOpen] = useState(false);
+  useBrowserSuspendWhile(open);
+
+  return (
+    <RadixContextMenu.Root
+      onOpenChange={(next) => {
+        setOpen(next);
+        onOpenChange?.(next);
+      }}
+    >
+      {children}
+    </RadixContextMenu.Root>
+  );
 }
 
 interface ContextMenuTriggerProps {

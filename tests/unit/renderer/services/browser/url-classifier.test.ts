@@ -10,7 +10,7 @@
  *   6.  example.com (simple domain)                     → navigate (https://)
  *   7.  sub.example.co.kr (multi-level TLD)             → navigate (https://)
  *   8.  Plain search query (no dot, spaces)             → search (Google)
- *   9.  file: scheme                                    → blocked
+ *   9.  file:// scheme                                  → navigate (as-is)
  *  10.  javascript: scheme                              → blocked
  *  11.  data: scheme                                    → blocked
  *  12.  about: scheme                                   → blocked
@@ -177,20 +177,24 @@ describe("classifyUrl — search query", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 9. file: scheme — blocked
+// 9. file:// scheme — navigate (as-is)
+//
+// Local-file navigation is opt-in.  webSecurity + sandbox on the WebContents
+// still enforce same-origin and cross-document constraints, so allowing the
+// scheme through the classifier does not relax the renderer's overall policy.
 // ---------------------------------------------------------------------------
 
-describe("classifyUrl — file: scheme (blocked)", () => {
-  it("blocks file:///etc/passwd", () => {
-    const result = classifyUrl("file:///etc/passwd");
-    expect(result.kind).toBe("blocked");
-    expect(result.error).toBeDefined();
-    expect(result.error).toContain("file");
+describe("classifyUrl — file:// scheme (navigate)", () => {
+  it("navigates as-is for file:///Users/x/notes.html", () => {
+    const result = classifyUrl("file:///Users/x/notes.html");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("file:///Users/x/notes.html");
   });
 
-  it("blocks file:// prefix", () => {
+  it("navigates as-is for file://localhost/path", () => {
     const result = classifyUrl("file://localhost/path");
-    expect(result.kind).toBe("blocked");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("file://localhost/path");
   });
 });
 

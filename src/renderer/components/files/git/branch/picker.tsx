@@ -8,6 +8,7 @@ import { AlertDialog as RadixAlertDialog } from "radix-ui";
 import type React from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { useMemo, useState } from "react";
+import { useBrowserSuspendWhile } from "../../../../state/stores/browser-suspend";
 import type { GitStoreError } from "../../../../state/stores/git";
 import { useGitStore } from "../../../../state/stores/git";
 import { Button } from "../../../ui/button";
@@ -278,6 +279,10 @@ function BranchDeleteConfirmDialog({
 }) {
   const view = buildBranchDeleteDialogView(request);
   const confirmDisabled = busy;
+
+  // Suspend embedded WebContentsViews while open so the modal renders above
+  // any browser tab.  See `state/stores/browser-suspend.ts`.
+  useBrowserSuspendWhile(request !== null);
 
   return (
     <RadixAlertDialog.Root

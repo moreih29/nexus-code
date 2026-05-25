@@ -24,6 +24,7 @@
  */
 
 import { Dialog as RadixDialog } from "radix-ui";
+import { useBrowserSuspendWhile } from "@/state/stores/browser-suspend";
 import { cn } from "@/utils/cn";
 
 /**
@@ -105,6 +106,11 @@ export function Dialog({
   children,
   ...rest
 }: DialogProps): React.JSX.Element {
+  // Suspend embedded browser views while the dialog is open so the modal's
+  // scrim and content render above any WebContentsView overlay.  See
+  // `state/stores/browser-suspend.ts` for the refcount details.
+  useBrowserSuspendWhile(open);
+
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>

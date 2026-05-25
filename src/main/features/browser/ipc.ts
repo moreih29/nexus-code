@@ -107,8 +107,8 @@ export function registerBrowserChannel(registry: BrowserTabRegistry): void {
       },
 
       setBounds: (args: unknown) => {
-        const { tabId, x, y, width, height, dpr } = validateArgs(c.setBounds.args, args);
-        registry.setBounds({ tabId, x, y, width, height, dpr });
+        const { tabId, x, y, width, height } = validateArgs(c.setBounds.args, args);
+        registry.setBounds({ tabId, x, y, width, height });
         return ipcOk(undefined);
       },
 
@@ -145,6 +145,18 @@ export function registerBrowserChannel(registry: BrowserTabRegistry): void {
       openDevTools: (args: unknown) => {
         const { tabId } = validateArgs(c.openDevTools.args, args);
         registry.openDevTools({ tabId });
+        return ipcOk(undefined);
+      },
+
+      suspendAll: (args: unknown) => {
+        validateArgs(c.suspendAll.args, args);
+        registry.suspendAll();
+        return ipcOk(undefined);
+      },
+
+      resumeAll: (args: unknown) => {
+        validateArgs(c.resumeAll.args, args);
+        registry.resumeAll();
         return ipcOk(undefined);
       },
     },

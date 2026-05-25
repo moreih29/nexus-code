@@ -22,16 +22,18 @@ describe("isNavigationSchemeAllowed", () => {
     expect(isNavigationSchemeAllowed("https://example.com/path?q=1")).toBe(true);
   });
 
+  test("permits file:// URIs (local HTML / documents)", () => {
+    // User-opt-in scheme.  webSecurity + sandbox still constrain
+    // cross-origin reads even though the scheme passes the allowlist.
+    expect(isNavigationSchemeAllowed("file:///Users/x/notes.html")).toBe(true);
+  });
+
   // -------------------------------------------------------------------------
   // Blocked schemes — must return false
   // -------------------------------------------------------------------------
 
   test("blocks mailto: URIs (OS mail handler, not in-frame content)", () => {
     expect(isNavigationSchemeAllowed("mailto:foo@bar.com")).toBe(false);
-  });
-
-  test("blocks file: URIs (local filesystem exposure)", () => {
-    expect(isNavigationSchemeAllowed("file:///etc/passwd")).toBe(false);
   });
 
   test("blocks javascript: URIs (code execution in renderer)", () => {

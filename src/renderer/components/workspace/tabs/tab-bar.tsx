@@ -152,6 +152,7 @@ export function TabBar({
               <DropdownMenuItem onSelect={() => onNewTerminalTab()}>
                 <SquareTerminal aria-hidden className="size-3.5 mr-1.5 shrink-0" />
                 <span className="flex-1">New Terminal</span>
+                <DropdownMenuShortcut>⌘T</DropdownMenuShortcut>
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onNewBrowserTab()}>
                 <Globe aria-hidden className="size-3.5 mr-1.5 shrink-0" />

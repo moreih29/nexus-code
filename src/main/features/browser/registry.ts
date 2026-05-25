@@ -8,8 +8,10 @@
  *                attaches it to the main window's contentView.
  *   destroy()  — closes the WebContents, detaches the view, removes the entry.
  *   setActive() — attach (active=true) or detach (active=false) the view.
- *   setBounds() — resize/reposition; DPR conversion happens here (renderer
- *                 sends CSS px, we multiply by devicePixelRatio here).
+ *   setBounds() — resize/reposition.  Coordinates are CSS pixels (DIPs) on
+ *                 every platform — `WebContentsView.setBounds()` uses the
+ *                 same coordinate system as the window's contentView, which
+ *                 Chromium handles in DIPs.  No DPR conversion happens here.
  *
  * DUPLICATE CREATE
  * ----------------
@@ -44,18 +46,35 @@ interface TabEntry {
   view: WebContentsView;
   workspaceId: string;
   partition: string;
-  /** Whether the view is currently attached to the main window's contentView. */
+  /**
+   * Whether this tab is the active tab in its group.
+   *
+   * The view is actually attached to the window iff `active && !registry.suspended`.
+   * Decoupling these two flags lets the global suspendAll/resumeAll cycle
+   * detach every active view temporarily without losing the per-tab activation
+   * state we restore on resume.
+   */
   active: boolean;
+  /**
+   * Last bounds applied via setBounds().  Cached so resumeAll() can re-apply
+   * them after re-attaching — Electron does NOT preserve bounds across
+   * remove/addChildView pairs.
+   */
+  lastBounds: CssBounds | null;
 }
 
-/** The CSS-coordinate bounds as sent by the renderer. */
+/**
+ * The CSS-coordinate bounds (DIPs) as sent by the renderer.
+ *
+ * Electron's `WebContentsView.setBounds()` accepts these coordinates verbatim
+ * — the window's contentView is itself laid out in DIPs on every platform —
+ * so no devicePixelRatio conversion is performed.
+ */
 export interface CssBounds {
   x: number;
   y: number;
   width: number;
   height: number;
-  /** Device-pixel-ratio — used here to convert CSS px → physical px. */
-  dpr: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,6 +84,16 @@ export interface CssBounds {
 export class BrowserTabRegistry {
   private readonly win: BrowserWindow;
   private readonly tabs = new Map<string, TabEntry>();
+  /**
+   * Global "everything is hidden right now" toggle.
+   *
+   * Driven by `suspendAll`/`resumeAll`.  While true, every TabEntry with
+   * `active=true` is forcibly detached from the window so DOM overlays
+   * (dropdown menus, modal dialogs, drag-to-split indicators) can paint above
+   * the area the browser would otherwise cover.  The renderer holds the
+   * refcount; this class only sees the boolean edge.
+   */
+  private suspended = false;
 
   constructor(win: BrowserWindow) {
     this.win = win;
@@ -112,7 +141,7 @@ export class BrowserTabRegistry {
     // is enabled from the start to conserve resources until the tab is shown.
     view.webContents.setBackgroundThrottling(true);
 
-    const entry: TabEntry = { view, workspaceId, partition, active: false };
+    const entry: TabEntry = { view, workspaceId, partition, active: false, lastBounds: null };
     this.tabs.set(tabId, entry);
 
     // Begin loading the initial URL.  Will-navigate guards are already wired.
@@ -179,26 +208,32 @@ export class BrowserTabRegistry {
   /**
    * Resizes and repositions the view.
    *
-   * Coordinates are CSS pixels (as measured in the renderer); this method
-   * performs the DPR conversion before calling `view.setBounds` so that the
-   * view covers the correct physical pixels on HiDPI displays.
+   * Coordinates are CSS pixels (DIPs) as measured by the renderer's
+   * `getBoundingClientRect()`. `WebContentsView.setBounds()` consumes the
+   * same coordinate system that the parent BrowserWindow uses for its
+   * contentView, which Chromium lays out in DIPs on every platform — so no
+   * devicePixelRatio multiplication is required here.
    *
-   * `Math.round` is used (not `Math.floor`) so that fractional CSS coordinates
-   * accumulate to the nearest physical pixel without drift.
+   * `Math.round` collapses fractional sub-pixel values to integer DIPs,
+   * matching what `setBounds` accepts.
    */
   setBounds(args: CssBounds & { tabId: string }): void {
-    const { tabId, x, y, width, height, dpr } = args;
+    const { tabId, x, y, width, height } = args;
     const entry = this.tabs.get(tabId);
     if (!entry) {
       logger.warn(`[setBounds] unknown tabId: ${tabId}`);
       return;
     }
 
+    // Cache so resumeAll() can re-apply after a suspend/resume cycle —
+    // Electron does not preserve bounds across removeChildView/addChildView.
+    entry.lastBounds = { x, y, width, height };
+
     entry.view.setBounds({
-      x: Math.round(x * dpr),
-      y: Math.round(y * dpr),
-      width: Math.round(width * dpr),
-      height: Math.round(height * dpr),
+      x: Math.round(x),
+      y: Math.round(y),
+      width: Math.round(width),
+      height: Math.round(height),
     });
   }
 
@@ -209,10 +244,16 @@ export class BrowserTabRegistry {
   /**
    * Activates or deactivates the view for `tabId`.
    *
-   * Active   → view is added to the main window's contentView, background
-   *             throttling is disabled so animations stay smooth.
+   * Active   → view is added to the main window's contentView (unless the
+   *             registry is currently suspended), background throttling is
+   *             disabled so animations stay smooth.
    * Inactive → view is removed from the main window's contentView, background
    *             throttling is enabled to conserve CPU/GPU resources.
+   *
+   * The actual attachment depends on `active && !this.suspended` — during a
+   * global suspend window (open dropdown / modal / drag) every active view is
+   * detached on the registry side without disturbing the per-tab `active`
+   * flag, so `resumeAll` can restore exactly the same set.
    */
   setActive(args: { tabId: string; active: boolean }): void {
     const { tabId, active } = args;
@@ -225,18 +266,93 @@ export class BrowserTabRegistry {
     if (entry.active === active) return; // no-op
 
     if (active) {
-      this.win.contentView.addChildView(entry.view);
+      // While suspended we record the desired state but don't actually attach.
+      // resumeAll() will pick this entry up and addChildView at that point.
+      if (!this.suspended) {
+        this.attachAndRestoreBounds(entry);
+      }
       entry.view.webContents.setBackgroundThrottling(false);
     } else {
-      try {
-        this.win.contentView.removeChildView(entry.view);
-      } catch {
-        // View may already be detached.
-      }
+      this.safeRemoveChildView(entry);
       entry.view.webContents.setBackgroundThrottling(true);
     }
 
     entry.active = active;
+  }
+
+  /**
+   * `addChildView` followed by re-applying the cached `lastBounds`.  Electron
+   * resets a WebContentsView's geometry on every addChildView, so without this
+   * the view would reappear at (0, 0) sized 0×0.
+   */
+  private attachAndRestoreBounds(entry: TabEntry): void {
+    this.win.contentView.addChildView(entry.view);
+    const b = entry.lastBounds;
+    if (b) {
+      entry.view.setBounds({
+        x: Math.round(b.x),
+        y: Math.round(b.y),
+        width: Math.round(b.width),
+        height: Math.round(b.height),
+      });
+    }
+  }
+
+  /**
+   * removeChildView that swallows the "already removed" race window — the
+   * view may have been detached implicitly by a window close or a prior
+   * suspend cycle.
+   */
+  private safeRemoveChildView(entry: TabEntry): void {
+    try {
+      this.win.contentView.removeChildView(entry.view);
+    } catch {
+      // View may already be detached.
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // suspendAll / resumeAll — global overlay-friendly visibility toggle
+  // -------------------------------------------------------------------------
+
+  /**
+   * Detach every currently-active WebContentsView from the window's
+   * contentView so DOM overlays (dropdown menus, modal dialogs, drag-to-split
+   * indicators) can render above where the browser would otherwise paint.
+   *
+   * The WebContents instances are NOT destroyed — page state (scroll
+   * position, in-progress form input, audio) is preserved.  Background
+   * throttling is left untouched on purpose: a momentary overlay should not
+   * starve a tab that just had its audio playing.
+   *
+   * Pair every `suspendAll` with a matching `resumeAll`.  The renderer holds
+   * the refcount; calling `suspendAll` twice in a row is idempotent on this
+   * side (the second call is a no-op).
+   */
+  suspendAll(): void {
+    if (this.suspended) return;
+    this.suspended = true;
+    for (const entry of this.tabs.values()) {
+      if (entry.active) {
+        this.safeRemoveChildView(entry);
+      }
+    }
+  }
+
+  /**
+   * Re-attach every WebContentsView that was active when the matching
+   * `suspendAll` ran, and re-apply each view's cached bounds so it lands in
+   * exactly the same position as before — Electron does not preserve bounds
+   * across remove/addChildView.
+   */
+  resumeAll(): void {
+    if (!this.suspended) return;
+    this.suspended = false;
+    for (const entry of this.tabs.values()) {
+      if (entry.active) {
+        this.attachAndRestoreBounds(entry);
+      }
+    }
   }
 
   // -------------------------------------------------------------------------

@@ -10,11 +10,15 @@
  * unit testing without any renderer context.
  *
  * PRIORITY ORDER (evaluated top-down, first match wins):
- *   1. Blocked schemes (file:, javascript:, data:, about:)       → blocked
- *   2. Explicit http:// or https://                              → navigate (as-is)
+ *   1. Blocked schemes (javascript:, data:, about:)              → blocked
+ *   2. Explicit http://, https://, or file:// scheme             → navigate (as-is)
  *   3. localhost / 127.0.0.1 / IPv4 with optional port           → navigate (http://)
  *   4. No-space string with dot + TLD-like suffix                → navigate (https://)
  *   5. Anything else                                             → search
+ *
+ * file: is in the allowed set (alongside http/https) so users can open
+ * local HTML / documents from disk.  See navigation-allowlist.ts for the
+ * security rationale and constraints (webSecurity + sandbox still apply).
  */
 
 // ---------------------------------------------------------------------------
@@ -36,10 +40,16 @@ export interface UrlClassifierResult {
 // ---------------------------------------------------------------------------
 
 /** Schemes that must never be loaded in the embedded browser. */
-const BLOCKED_SCHEME_RE = /^(about:|file:|javascript:|data:)/i;
+const BLOCKED_SCHEME_RE = /^(about:|javascript:|data:)/i;
 
-/** Explicit http or https scheme — navigate as-is. */
-const EXPLICIT_HTTP_RE = /^https?:\/\//i;
+/**
+ * Explicit http/https/file scheme — navigate as-is.
+ *
+ * file:// is allowed so users can open local HTML / documents.  The
+ * `//` is required in the regex to avoid matching arbitrary `xxx:` text
+ * that happens to start with the same letters.
+ */
+const EXPLICIT_HTTP_RE = /^(https?|file):\/\//i;
 
 /** localhost, 127.0.0.1, or any IPv4 address (with optional port). */
 const LOCAL_ADDRESS_RE =

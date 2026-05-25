@@ -140,14 +140,16 @@ export function BrowserTabView({
     const el = placeholderRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const dpr = window.devicePixelRatio ?? 1;
+    // Bounds are CSS pixels (DIPs).  WebContentsView.setBounds() on the main
+    // side consumes the same DIP coordinate system that the BrowserWindow's
+    // contentView is laid out in, so no devicePixelRatio conversion is needed
+    // — Chromium handles HiDPI scaling internally.
     void ipcCallResult("browser", "setBounds", {
       tabId,
       x: rect.left,
       y: rect.top,
       width: rect.width,
       height: rect.height,
-      dpr,
     });
   }, [tabId]);
 

@@ -1049,8 +1049,12 @@ export const ipcContract = {
       destroy: call(z.object({ tabId: z.string().uuid() }), z.void()),
       /**
        * Resize/reposition the view.
-       * `x`, `y`, `width`, `height` are CSS pixels — main converts to
-       * physical pixels using `dpr` (devicePixelRatio).
+       *
+       * `x`, `y`, `width`, `height` are CSS pixels (DIPs) as measured by
+       * the renderer's `getBoundingClientRect()`. `WebContentsView.setBounds()`
+       * consumes the same DIP coordinate system on every platform, so the
+       * main process passes them through verbatim — no devicePixelRatio
+       * conversion is required.
        */
       setBounds: call(
         z.object({
@@ -1059,7 +1063,6 @@ export const ipcContract = {
           y: z.number(),
           width: z.number(),
           height: z.number(),
-          dpr: z.number().positive(),
         }),
         z.void(),
       ),
@@ -1082,6 +1085,23 @@ export const ipcContract = {
       ),
       /** Toggle DevTools for the tab (opens detached, closes if already open). */
       openDevTools: call(z.object({ tabId: z.string().uuid() }), z.void()),
+      /**
+       * Detach every active WebContentsView from the main window's contentView,
+       * so DOM overlays (dropdown menus, modal dialogs, drag indicators) can
+       * paint above the area the browser would otherwise occupy.
+       *
+       * WebContents are NOT destroyed — page state (scroll, form input, audio)
+       * is preserved.  Pair every `suspendAll` call with a `resumeAll` once the
+       * overlay closes.  The renderer holds the refcount; main only sees a
+       * suspended/not-suspended boolean toggle.
+       */
+      suspendAll: call(z.object({}), z.void()),
+      /**
+       * Re-attach every WebContentsView that was active before the matching
+       * `suspendAll` call and re-apply each view's last known bounds, so the
+       * browser content reappears in the same position as before.
+       */
+      resumeAll: call(z.object({}), z.void()),
     },
     listen: {
       /**

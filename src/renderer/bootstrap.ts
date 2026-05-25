@@ -25,6 +25,7 @@ import {
   initBrowserLastUrlPersistence,
   initBrowserRuntimeSubscriptions,
 } from "./state/operations/browser";
+import { initBrowserSuspendDragListener } from "./state/operations/browser-suspend";
 
 /**
  * Hydrate persisted UI widths, layout snapshots, and tab records from
@@ -52,6 +53,13 @@ export async function bootstrapAppState(): Promise<void> {
   // store and flushes them to the tabs store so the URL survives app restarts.
   // Must be called after initBrowserRuntimeSubscriptions.
   initBrowserLastUrlPersistence();
+
+  // Document-level dragstart/dragend listener that detaches every active
+  // WebContentsView while a tab/file drag is in flight, so DOM drop zones can
+  // receive dragover events inside what would otherwise be the browser's
+  // native overlay area (the cause of "browser tab cannot be dragged to a new
+  // split").
+  initBrowserSuspendDragListener();
 
   // Bootstrap is an initialization path — no recovery possible if appState is unavailable.
   const state = mustSucceed(await ipcCallResult("appState", "get", undefined));

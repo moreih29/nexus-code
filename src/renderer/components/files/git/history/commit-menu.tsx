@@ -7,6 +7,7 @@ import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CommitDetail, LogEntry } from "../../../../../shared/git/types";
 import { copyText } from "../../../../utils/clipboard";
+import { useBrowserSuspendWhile } from "../../../../state/stores/browser-suspend";
 import { Button } from "../../../ui/button";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../../../ui/dialog";
 import { useDismissOnOutsideClick } from "../../../ui/use-dismiss-on-outside-click";
@@ -228,6 +229,10 @@ function HistoryCommitConfirmDialog({
       ? "This leaves your branch and views the commit in detached HEAD mode."
       : "Soft reset keeps changes staged so you can recommit them.";
   const confirmLabel = request?.kind === "checkout" ? "Checkout Detached" : "Reset Soft";
+
+  // Suspend embedded WebContentsViews while open so the modal renders above
+  // any browser tab.  See `state/stores/browser-suspend.ts`.
+  useBrowserSuspendWhile(request !== null);
 
   return (
     <RadixAlertDialog.Root

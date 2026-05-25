@@ -210,10 +210,14 @@ describe("installNavigationGuards — will-navigate", () => {
     expect(ev.prevented).toBe(true);
   });
 
-  test("blocks file: navigation", () => {
+  test("permits file: navigation (user-opt-in local content)", () => {
+    // file: is in the navigation allowlist so users can open local HTML
+    // documents.  webSecurity + sandbox on the WebContents still constrain
+    // cross-origin behaviour at runtime; this guard only ensures the scheme
+    // is not blocked at the navigation layer.
     const ev = makeFakeEvent();
-    wc.emit("will-navigate", ev, "file:///etc/passwd");
-    expect(ev.prevented).toBe(true);
+    wc.emit("will-navigate", ev, "file:///Users/x/notes.html");
+    expect(ev.prevented).toBe(false);
   });
 
   test("blocks about: navigation (about:blank is not useful as top-level)", () => {

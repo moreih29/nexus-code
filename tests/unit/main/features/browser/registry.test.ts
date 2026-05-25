@@ -10,7 +10,7 @@
  *   2. create() duplicate — destroy+recreate; old view is removed.
  *   3. destroy() — view removed, webContents.close() called, entry deleted.
  *   4. destroy() unknown tabId — no-op, no throw.
- *   5. setBounds() — DPR multiplication + Math.round applied.
+ *   5. setBounds() — DIP pass-through with Math.round.
  *   6. setActive(true) — view added back, throttling disabled.
  *   7. setActive(false) — view removed, throttling enabled.
  *   8. setActive() no-op when already in target state.
@@ -226,31 +226,36 @@ describe("BrowserTabRegistry", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 5. setBounds — DPR conversion
+  // 5. setBounds — DIP pass-through
+  //
+  // WebContentsView.setBounds() consumes the same DIP coordinate system that
+  // the parent BrowserWindow's contentView uses, so the registry passes the
+  // renderer's getBoundingClientRect() values through verbatim (Math.round
+  // collapses sub-pixel values to integers).  No devicePixelRatio scaling.
   // -------------------------------------------------------------------------
 
   describe("setBounds()", () => {
-    test("multiplies CSS px by dpr and rounds to nearest integer", () => {
+    test("rounds fractional DIPs to nearest integer", () => {
       const { registry } = makeRegistry();
       registry.create(BASE_ARGS);
 
-      registry.setBounds({ tabId: BASE_ARGS.tabId, x: 10.3, y: 20.7, width: 800.5, height: 600.1, dpr: 2 });
+      registry.setBounds({ tabId: BASE_ARGS.tabId, x: 10.3, y: 20.7, width: 800.5, height: 600.1 });
 
       const entry = registry.get(BASE_ARGS.tabId)!;
       const view = entry.view as unknown as FakeWebContentsView;
       expect(view.bounds).toEqual({
-        x: Math.round(10.3 * 2),
-        y: Math.round(20.7 * 2),
-        width: Math.round(800.5 * 2),
-        height: Math.round(600.1 * 2),
+        x: Math.round(10.3),
+        y: Math.round(20.7),
+        width: Math.round(800.5),
+        height: Math.round(600.1),
       });
     });
 
-    test("dpr=1 passes through values rounded", () => {
+    test("integer DIPs pass through unchanged", () => {
       const { registry } = makeRegistry();
       registry.create(BASE_ARGS);
 
-      registry.setBounds({ tabId: BASE_ARGS.tabId, x: 0, y: 36, width: 1280, height: 764, dpr: 1 });
+      registry.setBounds({ tabId: BASE_ARGS.tabId, x: 0, y: 36, width: 1280, height: 764 });
 
       const entry = registry.get(BASE_ARGS.tabId)!;
       const view = entry.view as unknown as FakeWebContentsView;
@@ -260,7 +265,7 @@ describe("BrowserTabRegistry", () => {
     test("unknown tabId is a no-op", () => {
       const { registry } = makeRegistry();
       expect(() => {
-        registry.setBounds({ tabId: "ffffffff-0000-0000-0000-000000000000", x: 0, y: 0, width: 100, height: 100, dpr: 1 });
+        registry.setBounds({ tabId: "ffffffff-0000-0000-0000-000000000000", x: 0, y: 0, width: 100, height: 100 });
       }).not.toThrow();
     });
   });
@@ -317,6 +322,119 @@ describe("BrowserTabRegistry", () => {
       const childrenBefore = [...win.contentView.children];
       registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
       expect(win.contentView.children).toEqual(childrenBefore);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 8b. suspendAll / resumeAll — overlay-friendly visibility toggle
+  //
+  // Asserts that the global suspend/resume cycle detaches every active view,
+  // re-attaches them on resume, and re-applies the cached bounds so the view
+  // lands in the same position as before — Electron resets a view's geometry
+  // on every addChildView, so without bounds restoration the resumed view
+  // would reappear at (0, 0) sized 0×0.
+  // -------------------------------------------------------------------------
+
+  describe("suspendAll() / resumeAll()", () => {
+    test("suspendAll detaches every active view; resumeAll re-attaches them", () => {
+      const { registry, win } = makeRegistry();
+
+      const A = { ...BASE_ARGS, tabId: "aaaaaaaa-0000-0000-0000-000000000001" };
+      const B = { ...BASE_ARGS, tabId: "aaaaaaaa-0000-0000-0000-000000000002" };
+      registry.create(A);
+      registry.create(B);
+      registry.setActive({ tabId: A.tabId, active: true });
+      registry.setActive({ tabId: B.tabId, active: true });
+
+      const aView = registry.get(A.tabId)!.view as unknown as FakeWebContentsView;
+      const bView = registry.get(B.tabId)!.view as unknown as FakeWebContentsView;
+      expect(win.contentView.children).toContain(aView);
+      expect(win.contentView.children).toContain(bView);
+
+      registry.suspendAll();
+      expect(win.contentView.children).not.toContain(aView);
+      expect(win.contentView.children).not.toContain(bView);
+
+      registry.resumeAll();
+      expect(win.contentView.children).toContain(aView);
+      expect(win.contentView.children).toContain(bView);
+    });
+
+    test("resumeAll re-applies the cached bounds after re-attaching", () => {
+      const { registry } = makeRegistry();
+      registry.create(BASE_ARGS);
+      registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
+      registry.setBounds({ tabId: BASE_ARGS.tabId, x: 100, y: 200, width: 800, height: 600 });
+
+      const view = registry.get(BASE_ARGS.tabId)!.view as unknown as FakeWebContentsView;
+      // FakeContentView swaps the bounds reference on every addChildView when
+      // we drive setBounds manually — but the real Electron behaviour resets
+      // the view's internal layout.  Verify that resumeAll calls setBounds
+      // again with the cached values.
+      view.bounds = null;
+
+      registry.suspendAll();
+      registry.resumeAll();
+
+      expect(view.bounds).toEqual({ x: 100, y: 200, width: 800, height: 600 });
+    });
+
+    test("suspendAll leaves inactive tabs untouched", () => {
+      const { registry, win } = makeRegistry();
+      registry.create(BASE_ARGS);
+      // never setActive(true) — entry exists but view is detached
+
+      const view = registry.get(BASE_ARGS.tabId)!.view as unknown as FakeWebContentsView;
+      expect(win.contentView.children).not.toContain(view);
+
+      registry.suspendAll();
+      registry.resumeAll();
+
+      // Still inactive — must not have been promoted to active by the cycle.
+      expect(win.contentView.children).not.toContain(view);
+    });
+
+    test("setActive(true) during suspend defers the attach until resumeAll", () => {
+      const { registry, win } = makeRegistry();
+      registry.create(BASE_ARGS);
+
+      registry.suspendAll();
+      registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
+      const view = registry.get(BASE_ARGS.tabId)!.view as unknown as FakeWebContentsView;
+      // Activation requested while suspended — view stays detached for now.
+      expect(win.contentView.children).not.toContain(view);
+
+      registry.resumeAll();
+      // Resume picks up the pending activation.
+      expect(win.contentView.children).toContain(view);
+    });
+
+    test("suspendAll is idempotent — second call is a no-op", () => {
+      const { registry, win } = makeRegistry();
+      registry.create(BASE_ARGS);
+      registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
+      const view = registry.get(BASE_ARGS.tabId)!.view as unknown as FakeWebContentsView;
+
+      registry.suspendAll();
+      // Calling suspendAll again must not throw or re-trigger detach paths
+      // (the second removeChildView would log a warn but should be inert).
+      registry.suspendAll();
+      expect(win.contentView.children).not.toContain(view);
+
+      registry.resumeAll();
+      expect(win.contentView.children).toContain(view);
+    });
+
+    test("resumeAll without a prior suspend is a no-op", () => {
+      const { registry, win } = makeRegistry();
+      registry.create(BASE_ARGS);
+      registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
+      const view = registry.get(BASE_ARGS.tabId)!.view as unknown as FakeWebContentsView;
+      const before = [...win.contentView.children];
+
+      registry.resumeAll();
+      expect(win.contentView.children).toEqual(before);
+      expect(win.contentView.children).toContain(view);
     });
   });
 

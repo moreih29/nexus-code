@@ -61,6 +61,9 @@ export interface KeybindingDecl {
  */
 export const KEYBINDINGS: readonly KeybindingDecl[] = [
   // File / editor
+  // ⌘N opens a new untitled file (VSCode parity). The previous
+  // ⌘N → Add Workspace binding has moved to ⌘⇧N (see below).
+  { command: COMMANDS.fileNew, primary: "CmdOrCtrl+N" },
   { command: COMMANDS.fileOpen, primary: "CmdOrCtrl+E" },
   { command: COMMANDS.fileOpen, primary: "CmdOrCtrl+O" },
   { command: COMMANDS.fileSave, primary: "CmdOrCtrl+S" },
@@ -106,7 +109,10 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
   // doesn't accidentally trigger workspace switching.
   { command: COMMANDS.workspaceFocusPrev, primary: "Cmd+Ctrl+Up" },
   { command: COMMANDS.workspaceFocusNext, primary: "Cmd+Ctrl+Down" },
-  { command: COMMANDS.workspaceAdd, primary: "CmdOrCtrl+N" },
+  // ⌘⇧N opens the Add Workspace dialog.  Moved from ⌘N to free that
+  // up for `file.new` (untitled buffer), matching VSCode's File ▸ New File
+  // convention.
+  { command: COMMANDS.workspaceAdd, primary: "CmdOrCtrl+Shift+N" },
 
   // Settings
   { command: COMMANDS.settingsOpen, primary: "CmdOrCtrl+," },
