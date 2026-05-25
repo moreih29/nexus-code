@@ -11,7 +11,10 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { pollGithubReleases } from "../../../../../src/main/features/updates/poller";
+import {
+  createConditionalCache,
+  pollGithubReleases,
+} from "../../../../../src/main/features/updates/poller";
 
 // ---------------------------------------------------------------------------
 // Helpers — build minimal GitHub release objects
@@ -228,6 +231,104 @@ describe("pollGithubReleases — draft exclusion", () => {
     expect(result.kind).toBe("newer");
     if (result.kind === "newer") {
       expect(result.latest).toBe("0.2.0");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Case 10 — ETag conditional request: first poll stores ETag, second poll
+// sends If-None-Match and reuses the cached release list on 304.
+//
+// Pins the rate-limit-savings contract: GitHub does not count 304 responses
+// against the unauthenticated 60 req/h budget, so the cached path must
+// resolve without re-parsing a response body.
+// ---------------------------------------------------------------------------
+
+describe("pollGithubReleases — ETag conditional requests", () => {
+  test("second poll sends If-None-Match and resolves from cache on 304", async () => {
+    const cache = createConditionalCache();
+    const seenIfNoneMatch: Array<string | undefined> = [];
+    const releases = [release("0.2.0")];
+
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      seenIfNoneMatch.push(headers["If-None-Match"]);
+      if (headers["If-None-Match"] === '"v1"') {
+        // 304: GitHub does not return a body on Not Modified — caller must
+        // use the cached release list. response.json() should not be called.
+        return {
+          ok: false,
+          status: 304,
+          headers: {
+            get(name: string): string | null {
+              return name.toLowerCase() === "etag" ? '"v1"' : null;
+            },
+          },
+        } as unknown as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        headers: {
+          get(name: string): string | null {
+            return name.toLowerCase() === "etag" ? '"v1"' : null;
+          },
+        },
+        json: async () => releases,
+      } as unknown as Response;
+    };
+
+    const r1 = await pollGithubReleases({
+      channel: "stable",
+      currentVersion: "0.1.0",
+      fetchImpl,
+      cache,
+    });
+    expect(r1.kind).toBe("newer");
+    if (r1.kind === "newer") expect(r1.latest).toBe("0.2.0");
+    expect(seenIfNoneMatch[0]).toBeUndefined();
+    expect(cache.etag).toBe('"v1"');
+    expect(cache.releases?.length).toBe(1);
+
+    const r2 = await pollGithubReleases({
+      channel: "stable",
+      currentVersion: "0.1.0",
+      fetchImpl,
+      cache,
+    });
+    expect(seenIfNoneMatch[1]).toBe('"v1"');
+    // Same release list resolves from the cache, so the verdict is identical.
+    expect(r2.kind).toBe("newer");
+    if (r2.kind === "newer") expect(r2.latest).toBe("0.2.0");
+  });
+
+  test("304 with no cached releases is reported as a protocol error", async () => {
+    // Defensive path: a 304 should only ever follow a prior 200 in the same
+    // cache. If a 304 arrives with cache.releases still null, that is an
+    // invariant violation worth surfacing instead of silently treating as
+    // "current".
+    const cache = createConditionalCache();
+    cache.etag = '"v1"'; // synthetic — populated without a prior 200
+    const fetchImpl: typeof fetch = async () =>
+      ({
+        ok: false,
+        status: 304,
+        headers: {
+          get(): string | null {
+            return null;
+          },
+        },
+      }) as unknown as Response;
+
+    const result = await pollGithubReleases({
+      channel: "stable",
+      currentVersion: "0.1.0",
+      fetchImpl,
+      cache,
+    });
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") {
+      expect(result.message).toMatch(/304/);
     }
   });
 });

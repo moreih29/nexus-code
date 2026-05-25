@@ -36,7 +36,11 @@ import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import type { StateService } from "../../infra/storage/state-service";
 import type { TimerScheduler } from "../../../shared/util/timer-scheduler";
 import { defaultTimerScheduler } from "../../../shared/util/timer-scheduler";
-import { pollGithubReleases, type PollResult } from "./poller";
+import {
+  createConditionalCache,
+  pollGithubReleases,
+  type PollResult,
+} from "./poller";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -104,12 +108,34 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
   // ------------------------------------------------------------------
   let lastBroadcastKey: string | null = null;
 
+  // ------------------------------------------------------------------
+  // Shared ETag cache for GitHub conditional requests.
+  //
+  // GitHub does not count 304 Not Modified responses against the
+  // unauthenticated rate limit (60 req/h per IP). Reusing this single
+  // cache across every poll keeps repeated checks effectively free until
+  // the release list actually changes — which is the normal steady state.
+  // Without it, `bun run dev` hot reloads or frequent "Check for Updates"
+  // clicks could quickly exhaust the IP's hourly budget.
+  // ------------------------------------------------------------------
+  const conditionalCache = createConditionalCache();
+
   function broadcastStatus(payload: StatusPayload): void {
     // Build a dedupe key from kind + latest (if present).
     const dedupeKey = buildDedupeKey(payload);
 
-    if (dedupeKey !== null && dedupeKey === lastBroadcastKey) {
-      logger.debug("updates: skipping duplicate broadcast", { key: dedupeKey } as never);
+    // Dedupe is intended to suppress noisy *auto-poll* repeats (the same
+    // "newer" notice every ~30 minutes, or repeated "error" while offline).
+    // Manual triggers are the user's explicit ask for an answer — silently
+    // dropping the response leaves them clicking a no-op button. So we
+    // bypass dedupe whenever trigger=manual and still record the key so
+    // the *next* auto-poll dedupes against this latest broadcast.
+    if (
+      payload.trigger !== "manual" &&
+      dedupeKey !== null &&
+      dedupeKey === lastBroadcastKey
+    ) {
+      logger.info(`updates: skip dup broadcast key=${dedupeKey}`);
       return;
     }
 
@@ -117,6 +143,10 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
       lastBroadcastKey = dedupeKey;
     }
 
+    // Diagnostic: confirm the broadcast actually leaves the main process.
+    // If this line fires but the renderer toast never appears, the gap is
+    // in the renderer-side `initUpdatesSubscriptions` listener, not here.
+    logger.info(`updates: broadcast kind=${payload.kind} trigger=${payload.trigger}`);
     broadcast("updates", "statusChanged", payload);
   }
 
@@ -133,6 +163,7 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
       channel,
       currentVersion,
       fetchImpl,
+      cache: conditionalCache,
     });
 
     const shouldBroadcast = shouldBroadcastResult(result, trigger, ignoredVersion);
@@ -245,6 +276,11 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
     call: {
       check: (args: unknown) => {
         const { trigger } = validateArgs(c.check.args, args);
+        // Diagnostic: confirms the IPC handler is reached. Settings panel's
+        // "Check for Updates" button takes this path. Comparing this with
+        // `checkManual() entry` tells us whether the menu and the panel
+        // share a single failure point or diverge.
+        logger.info(`updates: IPC check trigger=${trigger}`);
         poll(trigger);
         return ipcOk(undefined);
       },
@@ -277,6 +313,10 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
       fireAutoPoll();
     },
     checkManual(): void {
+      // Diagnostic: confirms the menu's onCheckForUpdates callback actually
+      // reaches the updates domain. If menu logs `clicked` but this never
+      // fires, the closure over `updatesHandle` in index.ts is broken.
+      logger.info(`updates: checkManual() entry`);
       poll("manual");
     },
   };

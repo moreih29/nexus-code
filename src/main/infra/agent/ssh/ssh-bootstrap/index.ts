@@ -33,6 +33,7 @@ import {
   type SshAuthPromptHandler,
 } from "../auth-pty";
 import { createSshError } from "../../pipe";
+import { getAgentDistDir } from "../../getAgentBinDir";
 import {
   absoluteRemotePath,
   agentArtifactKey,
@@ -351,7 +352,7 @@ async function createBootstrapContext(
   readonly authenticatedMaster: Awaited<ReturnType<typeof authenticateSshControlMaster>> | null;
 }> {
   const runner = dependencies.runner ?? defaultRunner;
-  const distDir = dependencies.distDir ?? LOCAL_AGENT_DIST_DIR;
+  const distDir = dependencies.distDir ?? getAgentDistDir();
   const now = dependencies.now ?? (() => new Date());
   const shouldAuthenticate =
     options.authMode === "interactive" && dependencies.promptHandler && !options.controlPath;

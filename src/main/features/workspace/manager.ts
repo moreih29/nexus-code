@@ -53,7 +53,7 @@ import {
 } from "../../infra/agent/runtimeDirs";
 import { AgentManifestSchema } from "../../../shared/agent/manifest";
 import type { RemoteAgentPlatform } from "../../infra/agent/ssh/ssh-bootstrap/index";
-import { LOCAL_AGENT_DIST_DIR } from "../../infra/agent/ssh/ssh-bootstrap/types";
+import { getAgentDistDir } from "../../infra/agent/getAgentBinDir";
 import { WorkspaceContext } from "./context";
 
 // ---------------------------------------------------------------------------
@@ -1344,10 +1344,7 @@ function sshChannelOptionsFromLocation(
  * Returns null when the manifest cannot be read or parsed.
  */
 function resolveRemoteAgentBinaryName(platform: RemoteAgentPlatform): string | null {
-  const { app } = require("electron") as typeof import("electron");
-  const distDir = app.isPackaged
-    ? path.join(process.resourcesPath, "agent")
-    : LOCAL_AGENT_DIST_DIR;
+  const distDir = getAgentDistDir();
   const manifestPath = path.join(distDir, "manifest.json");
   if (!fs.existsSync(manifestPath)) return null;
   try {

@@ -1,4 +1,4 @@
-# Nexus Code — Release Guide
+# NexusCode — Release Guide
 
 ## Release Notes 체크리스트
 
@@ -68,10 +68,10 @@
 8. **동작 확인**
    - GitHub Release에 아래 파일이 모두 첨부되었는지 확인한다:
      ```
-     Nexus Code-X.Y.Z-arm64.dmg
-     Nexus Code-X.Y.Z-arm64.zip
-     Nexus Code-X.Y.Z-x64.dmg
-     Nexus Code-X.Y.Z-x64.zip
+     NexusCode-X.Y.Z-arm64.dmg
+     NexusCode-X.Y.Z-arm64.zip
+     NexusCode-X.Y.Z-x64.dmg
+     NexusCode-X.Y.Z-x64.zip
      latest-mac.yml
      ```
    - arm64 / x64 DMG를 각각 설치하여 앱 버전 및 업데이트 채널이 올바른지 확인한다.

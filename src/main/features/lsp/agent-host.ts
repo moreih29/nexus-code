@@ -45,10 +45,10 @@ import {
 } from "../../../shared/util/timing-constants";
 import type { AgentChannel } from "../../infra/agent/channel";
 import {
-  LOCAL_AGENT_DIST_DIR,
   LSP_BOOTSTRAP_PROGRESS_EVENT,
   type LspBootstrapProgressEvent,
 } from "../../infra/agent/ssh/ssh-bootstrap/index";
+import { getAgentDistDir } from "../../infra/agent/getAgentBinDir";
 import { AgentLspServer } from "./agent-lsp-server";
 import { flattenInitializationOptions, lookupFlattenedConfig } from "./config-store";
 import { DiagnosticsDebouncer } from "./diagnostics-debouncer";
@@ -1397,13 +1397,14 @@ function resolveLspCommandFromManifest(preset: LspServerSpec): {
   readonly binaryPath: string;
   readonly args: readonly string[];
 } | null {
-  const manifestPath = path.join(LOCAL_AGENT_DIST_DIR, "manifest.json");
+  const distDir = getAgentDistDir();
+  const manifestPath = path.join(distDir, "manifest.json");
   if (!fs.existsSync(manifestPath)) return null;
   try {
     const manifest = AgentManifestSchema.parse(JSON.parse(fs.readFileSync(manifestPath, "utf8")));
     const lsp = findLspBinary(manifest, { name: preset.binary });
     if (!lsp) return null;
-    const extractedDir = path.join(LOCAL_AGENT_DIST_DIR, "lsp", `${lsp.name}-${lsp.version}`);
+    const extractedDir = path.join(distDir, "lsp", `${lsp.name}-${lsp.version}`);
     const entry = path.join(extractedDir, lsp.entry);
     if (!fs.existsSync(entry)) return null;
     return { binaryPath: "node", args: [entry, ...preset.args] };

@@ -3,7 +3,7 @@
 Use this when automated CI does not run on Windows with Git for Windows.
 
 1. Install Git for Windows and ensure `git.exe` is on `PATH`.
-2. Launch Nexus Code from PowerShell on the feature branch.
+2. Launch NexusCode from PowerShell on the feature branch.
 3. Open a repository whose `origin` is an HTTPS remote requiring credentials.
 4. Run Fetch or Push from Source Control.
 5. Verify the “Awaiting credentials…” banner appears, username then password prompts reuse one modal, cancel aborts the Git operation, and a successful response lets Git continue.

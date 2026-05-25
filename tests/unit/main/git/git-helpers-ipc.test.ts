@@ -32,7 +32,7 @@ describe("helpers-launcher", () => {
       { askpass: true, editor: true },
       {
         connection: { socketPath: "/tmp/nexus.sock", token: "token-123" },
-        electronPath: "/Applications/Nexus Code.app/Contents/MacOS/Nexus Code",
+        electronPath: "/Applications/NexusCode.app/Contents/MacOS/NexusCode",
         helperDir: "/app/helpers",
         wrapperDir,
         baseEnv: {},

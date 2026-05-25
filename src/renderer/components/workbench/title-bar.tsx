@@ -48,7 +48,7 @@ export function TitleBar() {
       }}
     >
       {/* Brand — uppercase small-label per the warm design system */}
-      <span className="text-app-label text-muted-foreground uppercase">Nexus Code</span>
+      <span className="text-app-label text-muted-foreground uppercase">NexusCode</span>
 
       {/* Active workspace name — centered, editorial caption tone.
           SSH workspaces append "(ssh: <host>)" so the remote target is

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { AgentManifestSchema, findAgentBinary } from "../../../shared/agent/manifest";
-import { LOCAL_AGENT_DIST_DIR } from "./ssh/ssh-bootstrap/index";
+import { getAgentDistDir } from "./getAgentBinDir";
 
 export interface LocalAgentCommand {
   readonly binaryPath: string;
@@ -45,7 +45,7 @@ export function resolveLocalAgentCommand(
 ): LocalAgentCommand {
   const mode = options.mode ?? "auto";
   const env = options.env ?? process.env;
-  const distDir = options.distDir ?? LOCAL_AGENT_DIST_DIR;
+  const distDir = options.distDir ?? getAgentDistDir();
 
   if (mode === "source") {
     return sourceCommand();

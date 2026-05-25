@@ -1,4 +1,4 @@
-# Nexus Code
+# NexusCode
 
 Multi-workspace VSCode-style editor for macOS — Monaco + LSP + PTY in one window.
 
@@ -13,10 +13,10 @@ Download the latest release from the [Releases page](https://github.com/moreih29
 
 | Your Mac | File to download |
 |---|---|
-| Apple Silicon (M1/M2/M3/M4) | `Nexus Code-X.Y.Z-arm64.dmg` |
-| Intel | `Nexus Code-X.Y.Z-x64.dmg` |
+| Apple Silicon (M1/M2/M3/M4) | `NexusCode-X.Y.Z-arm64.dmg` |
+| Intel | `NexusCode-X.Y.Z-x64.dmg` |
 
-Mount the `.dmg`, drag **Nexus Code** into `/Applications`, and open it.
+Mount the `.dmg`, drag **NexusCode** into `/Applications`, and open it.
 
 > **First run:** macOS Gatekeeper will block the app because it is not yet notarized.
 > See [docs/INSTALL.md](docs/INSTALL.md) for the exact bypass steps for macOS 14 and 15+.

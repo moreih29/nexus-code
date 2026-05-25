@@ -546,6 +546,20 @@ export function createSshError(code: SshErrorCode, cause?: unknown): SshError {
   const error = new Error(messageForSshErrorCode(code), { cause }) as SshError;
   error.name = "SshError";
   (error as Error & { code: SshErrorCode }).code = code;
+  // 진단 로그: 모든 SshError 생성 시점을 main.log에 남긴다. packaged 앱에서
+  // SSH 흐름이 logger를 거의 안 거치는 구조라 protocol-error의 throw 위치를
+  // 추적하려면 이 한 줄이 결정적 단서가 된다. cause는 message + stack을 잘라
+  // 남기고, 호출 stack은 별도 field에.
+  try {
+    const causeMsg = cause instanceof Error ? cause.message : (cause === undefined ? "" : String(cause));
+    const causeSnippet = causeMsg.slice(0, 300);
+    const stack = (error.stack ?? "").split("\n").slice(1, 6).join(" | ");
+    getMalformedStdoutLogger().warn(
+      `SshError throw: code=${code} cause=${causeSnippet} stack=${stack}`,
+    );
+  } catch {
+    // 로깅 실패는 무시.
+  }
   return error;
 }
 
@@ -597,12 +611,24 @@ const MALFORMED_LINE_PREVIEW_CHARS = 256;
  * ready state so callers can distinguish boot-time pollution (ready=false,
  * usually shell profile output) from mid-session corruption (ready=true).
  */
+let malformedStdoutDiagnosticLogger: ReturnType<typeof createLogger> | null = null;
+function getMalformedStdoutLogger(): ReturnType<typeof createLogger> {
+  if (malformedStdoutDiagnosticLogger === null) {
+    malformedStdoutDiagnosticLogger = createLogger("agent-pipe");
+  }
+  return malformedStdoutDiagnosticLogger;
+}
+
 function logMalformedStdoutLine(line: string, ready: boolean, error: unknown): void {
   const preview = escapeControlChars(line.slice(0, MALFORMED_LINE_PREVIEW_CHARS));
   const truncated = line.length > MALFORMED_LINE_PREVIEW_CHARS ? "…" : "";
   const reason = error instanceof Error ? error.message : String(error);
-  console.warn(
-    `[agent-pipe] stdout NDJSON parse failed (ready=${ready}, len=${line.length}, reason=${reason}): ${preview}${truncated}`,
+  // `createLogger`를 거쳐 electron-log file transport에 남도록 한다. 이전엔
+  // `console.warn`을 직접 호출해 packaged 앱의 main.log에 남지 않았는데,
+  // SSH 원격 agent stdout pollution 진단의 1순위 단서가 이 줄이라 파일
+  // 가시성이 중요하다.
+  getMalformedStdoutLogger().warn(
+    `stdout NDJSON parse failed (ready=${ready}, len=${line.length}, reason=${reason}): ${preview}${truncated}`,
   );
 }
 
@@ -647,6 +673,9 @@ function parseFrame(line: string): ParsedFrame {
   }
 
   if (!isRecord(parsed)) {
+    getMalformedStdoutLogger().warn(
+      `parseFrame: parsed value is not a record. line=${escapeControlChars(line.slice(0, MALFORMED_LINE_PREVIEW_CHARS))}`,
+    );
     throw createSshError("server.protocol-error");
   }
 
@@ -654,6 +683,9 @@ function parseFrame(line: string): ParsedFrame {
   const hasError = hasOwnKey(parsed, "error");
   const hasEvent = hasOwnKey(parsed, "event");
   if (hasResult && hasError) {
+    getMalformedStdoutLogger().warn(
+      `parseFrame: frame has both result and error. line=${escapeControlChars(line.slice(0, MALFORMED_LINE_PREVIEW_CHARS))}`,
+    );
     throw createSshError("server.protocol-error");
   }
 
@@ -693,6 +725,9 @@ function parseFrame(line: string): ParsedFrame {
     };
   }
 
+  getMalformedStdoutLogger().warn(
+    `parseFrame: frame matched no known schema. hasResult=${hasResult} hasError=${hasError} hasEvent=${hasEvent} line=${escapeControlChars(line.slice(0, MALFORMED_LINE_PREVIEW_CHARS))}`,
+  );
   throw createSshError("server.protocol-error");
 }
 

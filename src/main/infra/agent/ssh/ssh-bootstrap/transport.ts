@@ -146,7 +146,7 @@ async function uploadFile(
     await runner(
       "sftp",
       buildSftpArgs(options),
-      `put ${localPath} ${sftpRemotePath(remotePath)}\n${chmod}`,
+      `put ${sftpQuotePath(localPath)} ${sftpRemotePath(remotePath)}\n${chmod}`,
     );
   } catch {
     const mode = opts.executable ? "755" : "644";
@@ -187,9 +187,35 @@ export function quoteShellArg(value: string): string {
   return singleQuoteShellArg(value);
 }
 
-/** Strips `~/` from a path because sftp interprets it literally as a file. */
+/**
+ * sftp 명령 파서는 공백을 인자 구분자로 처리하므로, 공백·특수문자가 들어 있는
+ * 경로는 반드시 따옴표로 감싸야 한다 (shell quoting과는 별개의 sftp 자체
+ * 파서). 공백 경로가 unquoted로 sftp `put`에 전달되면 첫 토큰만 인자로
+ * 인식되어 엉뚱한 파일이 업로드되거나 sha256 검증이 실패한다 — `productName`이
+ * `Nexus Code`이던 시절 `/Applications/Nexus Code.app/...` 경로에서 발현됐던
+ * 회귀를 안전망으로 잡는다.
+ *
+ * OpenSSH sftp는 double-quote(`"`)로 감싼 인자를 단일 token으로 처리한다.
+ * 경로 안의 `"` 문자는 안전하게 escape할 표준이 없으므로 거부한다 — 실무에서
+ * 일반적인 macOS/Linux 경로에 `"`가 들어가는 일은 거의 없다.
+ */
+export function sftpQuotePath(value: string): string {
+  if (value.includes('"')) {
+    throw new Error(
+      `sftp path contains an embedded double-quote, refusing to quote safely: ${value}`,
+    );
+  }
+  return `"${value}"`;
+}
+
+/**
+ * Strips `~/` (sftp interprets it as a literal filename) then sftp-quotes the
+ * result so that paths containing spaces — e.g. `/Applications/Nexus Code.app`
+ * inside a packaged build — survive the sftp tokenizer intact.
+ */
 export function sftpRemotePath(value: string): string {
-  return value.startsWith("~/") ? value.slice(2) : value;
+  const stripped = value.startsWith("~/") ? value.slice(2) : value;
+  return sftpQuotePath(stripped);
 }
 
 /** Always single-quotes the value, escaping embedded quotes safely. */

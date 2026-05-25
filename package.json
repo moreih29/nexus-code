@@ -1,5 +1,6 @@
 {
   "name": "nexus-code",
+  "productName": "NexusCode",
   "version": "0.1.0",
   "description": "Multi-workspace VSCode-style editor for macOS. Monaco + LSP + PTY in one window.",
   "private": true,

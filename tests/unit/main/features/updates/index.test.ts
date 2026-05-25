@@ -106,8 +106,18 @@ function makeFetch(releases: FakeRelease[]): typeof fetch {
     ({
       ok: true,
       status: 200,
+      // Minimal Headers stub — poller reads `etag` to populate its
+      // conditional-request cache. Returning null mimics a response with no
+      // ETag, which keeps the cache empty and disables 304 short-circuiting
+      // for downstream calls (these tests focus on broadcast semantics, not
+      // conditional-request behavior — that contract lives in poller.test.ts).
+      headers: {
+        get(): string | null {
+          return null;
+        },
+      },
       json: async () => releases,
-    }) as Response;
+    }) as unknown as Response;
 }
 
 function makeNewerFetch(latestTag = "0.2.0"): typeof fetch {
@@ -296,11 +306,16 @@ describe("installUpdatesDomain — Case D: ignoredUpdateVersion != latest allows
 });
 
 // ---------------------------------------------------------------------------
-// Case E — dedupe: same latest twice → only one broadcast
+// Case E — manual triggers bypass dedupe
+//
+// Dedupe is meant to suppress noisy auto-poll repeats (same "newer" notice
+// every ~30 minutes, or repeated errors while offline). Manual triggers are
+// the user's explicit ask for an answer — silently dropping the response
+// would leave them clicking a no-op button. This test pins that policy.
 // ---------------------------------------------------------------------------
 
-describe("installUpdatesDomain — Case E: dedupe on identical latest", () => {
-  test("second consecutive poll with same latest is not broadcast again", async () => {
+describe("installUpdatesDomain — Case E: manual triggers bypass dedupe", () => {
+  test("second consecutive manual poll with same latest still broadcasts", async () => {
     const calls: BroadcastCall[] = [];
     const broadcast = (ch: string, ev: string, payload: unknown) => {
       calls.push({ channel: ch, event: ev, payload });
@@ -333,8 +348,9 @@ describe("installUpdatesDomain — Case E: dedupe on identical latest", () => {
         (c.payload as { kind: string }).kind === "newer",
     ).length;
 
-    // The second call must not add another "newer" broadcast.
-    expect(countAfterSecond).toBe(countAfterFirst);
+    // The second manual call must add exactly one more "newer" broadcast.
+    expect(countAfterFirst).toBe(1);
+    expect(countAfterSecond).toBe(countAfterFirst + 1);
   });
 });
 

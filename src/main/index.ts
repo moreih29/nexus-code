@@ -1,6 +1,6 @@
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
-import { initMainLogger } from "../shared/log/main";
+import { createLogger, initMainLogger } from "../shared/log/main";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { installErrorSafetyNet } from "./error-safety-net";
 import { registerAppStateChannel } from "./features/app-state";
@@ -47,6 +47,7 @@ import { createSshChannel } from "./infra/agent/ssh/channel";
 import { ensureRemoteAgent } from "./infra/agent/ssh/ssh-bootstrap/index";
 import { broadcast, setupRouter } from "./infra/ipc-router";
 import { isMac } from "./infra/platform";
+import { syncUserShellPath } from "./infra/shell-path";
 import { GlobalStorage } from "./infra/storage/global-storage";
 import { StateService } from "./infra/storage/state-service";
 import { WorkspaceStorage } from "./infra/storage/workspace-storage";
@@ -76,6 +77,15 @@ if (!app.isPackaged) {
   process.env[NEXUS_AGENT_MODE_ENV] ??= "source";
 }
 
+// macOS / Linux GUI 앱은 launchd 기본 PATH(`/usr/bin:/bin:/usr/sbin:/sbin`)만
+// 받기 때문에 자식 프로세스(PTY shell, ssh, sftp)가 사용자 `~/.local/bin`,
+// `/opt/homebrew/bin`, `~/.cargo/bin` 등을 못 본다. packaged 모드에서만
+// 사용자 login+interactive shell의 `$PATH`를 한 번 동기화한다. dev 모드는
+// 부모 shell PATH가 이미 살아 있어서 동기화 불필요(또한 부팅 지연 회피).
+if (app.isPackaged) {
+  syncUserShellPath();
+}
+
 const userData = app.getPath("userData");
 
 const globalStorage = GlobalStorage.openFile(path.join(userData, "state.db"));
@@ -96,6 +106,11 @@ let gitHelpersIpc: GitHelpersIpcManager | null = null;
 let gitAutofetch: GitAutofetchScheduler | null = null;
 let agentFsWatcher: AgentFsWatcher | null = null;
 let updatesHandle: UpdatesDomainHandle | null = null;
+
+// Module-level loggers used by menu and bootstrap callbacks. Bound here once
+// (rather than inside each callback) so the source field stays consistent
+// across the run for easy filtering in main.log.
+const menuLogger = createLogger("menu");
 
 function forwardBroadcast(channelName: string, event: string, args: unknown): void {
   broadcast(channelName, event, args);
@@ -192,6 +207,11 @@ app.whenReady().then(async () => {
   // during boot.
   installAppMenu({
     onCheckForUpdates: () => {
+      // Diagnostic log: verifies the menu click reaches the main-process
+      // callback (Cocoa menu → fireCommand → onCheckForUpdates). If this
+      // line never fires when the user clicks the menu item, the breakage
+      // is upstream of the updates domain (menu wiring itself).
+      menuLogger.info(`menu: Check for Updates clicked (handle=${updatesHandle ? "ready" : "null"})`);
       updatesHandle?.checkManual();
     },
   });

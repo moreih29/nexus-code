@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
@@ -37,6 +37,22 @@ const CHANNEL_DEFINES = {
   __NEXUS_REMOTE_AGENT_ROOT__: JSON.stringify(NEXUS_REMOTE_AGENT_ROOT),
   __NEXUS_REMOTE_AGENT_MANIFEST__: JSON.stringify(NEXUS_REMOTE_AGENT_MANIFEST),
   __NEXUS_CHANNEL__: JSON.stringify(NEXUS_CHANNEL),
+};
+
+// ---------------------------------------------------------------------------
+// App version build-time constant for renderer surfaces (e.g. About panel).
+//
+// Renderer cannot call `app.getVersion()` directly, so we read the version
+// from package.json at config-evaluation time and inject it via Vite define.
+// Consumed through the `__APP_VERSION__` ambient declaration in
+// `src/renderer/types/build-define.d.ts`.
+// ---------------------------------------------------------------------------
+const APP_VERSION = (
+  JSON.parse(readFileSync(resolve(__dirname, "package.json"), "utf-8")) as { version: string }
+).version;
+
+const RENDERER_DEFINES = {
+  __APP_VERSION__: JSON.stringify(APP_VERSION),
 };
 
 // ---------------------------------------------------------------------------
@@ -85,6 +101,7 @@ export default defineConfig({
   },
   renderer: {
     root: resolve(__dirname, "src/renderer"),
+    define: RENDERER_DEFINES,
     build: {
       rollupOptions: {
         input: {
