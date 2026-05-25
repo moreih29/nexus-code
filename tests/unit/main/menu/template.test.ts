@@ -122,6 +122,34 @@ describe("buildMenuTemplate (mac)", () => {
     expect(cmds).toContain(COMMANDS.groupFocusUp);
     expect(cmds).toContain(COMMANDS.groupFocusDown);
   });
+
+  it("places 'Check for Updates...' immediately after About in the App menu", () => {
+    const appSubmenu = specs[0];
+    if (appSubmenu.type !== "submenu") throw new Error("unreachable");
+    const items = appSubmenu.submenu;
+    const aboutIdx = items.findIndex((s) => s.type === "role" && s.role === "about");
+    expect(aboutIdx).toBeGreaterThanOrEqual(0);
+    const next = items[aboutIdx + 1];
+    expect(next).toBeDefined();
+    expect(next.type).toBe("command");
+    if (next.type !== "command") throw new Error("unreachable");
+    expect(next.command).toBe(COMMANDS.updatesCheck);
+    expect(next.label).toBe("Check for Updates...");
+  });
+
+  it("places 'Check for Updates...' before Settings in the App menu", () => {
+    const appSubmenu = specs[0];
+    if (appSubmenu.type !== "submenu") throw new Error("unreachable");
+    const items = appSubmenu.submenu;
+    const checkIdx = items.findIndex(
+      (s) => s.type === "command" && s.command === COMMANDS.updatesCheck,
+    );
+    const settingsIdx = items.findIndex(
+      (s) => s.type === "command" && s.command === COMMANDS.settingsOpen,
+    );
+    expect(checkIdx).toBeGreaterThanOrEqual(0);
+    expect(settingsIdx).toBeGreaterThan(checkIdx);
+  });
 });
 
 describe("buildMenuTemplate (win/linux)", () => {

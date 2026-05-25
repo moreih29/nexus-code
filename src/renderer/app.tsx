@@ -13,6 +13,7 @@ import { GlobalRoots } from "./components/global-roots";
 import { AppearancePanel } from "./components/settings/panels/appearance-panel";
 import { EditorPanel } from "./components/settings/panels/editor-panel";
 import { TerminalPanel } from "./components/settings/panels/terminal-panel";
+import { UpdatesPanel } from "./components/settings/panels/updates-panel";
 import { SettingsDialog } from "./components/settings/settings-dialog";
 import type { SettingsNavItem } from "./components/settings/types";
 import { ErrorBoundary } from "./components/ui/error-boundary";
@@ -35,6 +36,7 @@ import { useSettingsUIStore } from "./state/stores/settings-ui";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
+import { useUpdatesStore } from "./state/stores/updates";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
 import { useWorkspacesStore } from "./state/stores/workspaces";
 
@@ -70,6 +72,8 @@ export function App() {
   const editorFontLineHeight = useEditorFontStore((s) => s.lineHeight);
   const terminalFontSize = useTerminalStore((s) => s.fontSize);
   const terminalCursorStyle = useTerminalStore((s) => s.cursorStyle);
+  const updateChannel = useUpdatesStore((s) => s.channel);
+  const setUpdateChannel = useUpdatesStore((s) => s.setChannel);
 
   interface SettingsSnapshot {
     themePreference: typeof themePreference;
@@ -139,6 +143,12 @@ export function App() {
         group: "Settings",
         keywords: ["font", "size", "cursor"],
         dirty: terminalDirty,
+      },
+      {
+        id: "updates",
+        label: "Updates",
+        group: "Settings",
+        keywords: ["channel", "stable", "beta", "version"],
       },
     ];
   }, [
@@ -345,6 +355,10 @@ export function App() {
             if (activeId === "appearance") return <AppearancePanel />;
             if (activeId === "editor") return <EditorPanel />;
             if (activeId === "terminal") return <TerminalPanel />;
+            if (activeId === "updates")
+              return (
+                <UpdatesPanel channel={updateChannel} onChannelChange={setUpdateChannel} />
+              );
             return null;
           }}
         </SettingsDialog>

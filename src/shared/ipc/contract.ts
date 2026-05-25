@@ -1279,6 +1279,71 @@ export const ipcContract = {
       status: listen(StatusEntrySchema),
     },
   },
+  // ---------------------------------------------------------------------------
+  // App-update channel.
+  //
+  // Polls the GitHub Releases API for a newer version and broadcasts the
+  // result to all renderer windows.  The renderer can also trigger a manual
+  // check via `updates.check` and suppress a specific release via
+  // `updates.setIgnoredVersion`.
+  //
+  // Discriminated-union status payloads:
+  //   { kind: "checking",  trigger: "auto" | "manual" }
+  //   { kind: "newer",     trigger, current, latest, releaseUrl }
+  //   { kind: "current",   trigger, current, latest? }
+  //   { kind: "error",     trigger, message }
+  //
+  // "checking" is only broadcast for trigger="manual" (with a 3-second delay).
+  // "newer" / "current" / "error" are broadcast for both triggers, but "current"
+  // and "error" from an auto-poll are suppressed — the renderer only reacts to
+  // manual-triggered status changes in those two cases.
+  // ---------------------------------------------------------------------------
+  updates: {
+    call: {
+      /** Trigger an update check.  `trigger:"manual"` always broadcasts a result. */
+      check: call(z.object({ trigger: z.enum(["auto", "manual"]) }), z.void()),
+      /**
+       * Persist the version string the user wants to ignore.
+       * Pass `null` to clear a previously ignored version.
+       */
+      setIgnoredVersion: call(z.object({ version: z.string().nullable() }), z.void()),
+      /**
+       * Open the GitHub release page URL in the system default browser.
+       * The main process validates the scheme (https only) before calling
+       * shell.openExternal, so the renderer never touches the OS handler directly.
+       */
+      openReleasePage: call(z.object({ url: z.string().url() }), z.void()),
+    },
+    listen: {
+      /**
+       * Broadcast by main whenever the update status changes.
+       * Uses a discriminated union on `kind`.
+       */
+      statusChanged: listen(
+        z.discriminatedUnion("kind", [
+          z.object({ kind: z.literal("checking"), trigger: z.enum(["auto", "manual"]) }),
+          z.object({
+            kind: z.literal("newer"),
+            trigger: z.enum(["auto", "manual"]),
+            current: z.string(),
+            latest: z.string(),
+            releaseUrl: z.string(),
+          }),
+          z.object({
+            kind: z.literal("current"),
+            trigger: z.enum(["auto", "manual"]),
+            current: z.string(),
+            latest: z.string().optional(),
+          }),
+          z.object({
+            kind: z.literal("error"),
+            trigger: z.enum(["auto", "manual"]),
+            message: z.string(),
+          }),
+        ]),
+      ),
+    },
+  },
 } as const satisfies Record<string, ChannelDefinition>;
 
 export type IpcContract = typeof ipcContract;

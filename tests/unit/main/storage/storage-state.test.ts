@@ -27,9 +27,14 @@ describe("StateService", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("returns empty state when file does not exist", () => {
+  it("returns default state when file does not exist", () => {
     const svc = new StateService(path.join(tmpDir, "state.json"));
-    expect(svc.getState()).toEqual({});
+    const state = svc.getState();
+    // Fields with .default() in the schema are materialised even on first run.
+    expect(state.updateChannel).toBe("stable");
+    expect(state.ignoredUpdateVersion).toBeNull();
+    // Optional fields without defaults are absent.
+    expect(state.lastActiveWorkspaceId).toBeUndefined();
   });
 
   it("setState writes state.json and getState returns the merged value", () => {

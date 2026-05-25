@@ -82,6 +82,15 @@ export const AppStateSchema = z.object({
 
   // Terminal cursor style — 닫힌 집합; 부재=토큰 fallback ('block').
   terminalCursorStyle: z.enum(["block", "underline", "bar"]).optional(),
+
+  // Update channel — "stable" follows non-prerelease tags only; "beta" also
+  // includes prerelease tags (e.g. v1.2.0-beta.1).  Defaults to "stable".
+  updateChannel: z.enum(["stable", "beta"]).default("stable"),
+
+  // Version string that the user chose to ignore.  When the poller finds this
+  // version as the latest, the statusChanged event is suppressed silently.
+  // Reset to null when the user changes updateChannel.
+  ignoredUpdateVersion: z.string().nullable().default(null),
 });
 
 export type WindowBounds = z.infer<typeof WindowBoundsSchema>;

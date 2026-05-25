@@ -13,8 +13,23 @@ import type { AgentArtifactPlatform } from "../../../../../shared/agent/manifest
 
 export const REMOTE_AGENT_PROTOCOL_MAJOR = "1";
 export const REMOTE_AGENT_VERSION = "0.1.0";
-export const REMOTE_AGENT_ROOT = "~/.nexus-code";
-export const REMOTE_AGENT_MANIFEST = `${REMOTE_AGENT_ROOT}/manifest.json`;
+
+/**
+ * 원격 호스트에서 에이전트가 설치되는 루트 경로.
+ *
+ * Build-time `define`으로 stable/beta 채널에 따라 분리 (`~/.nexus-code` vs
+ * `~/.nexus-code-beta`). 디버깅 시 `NEXUS_REMOTE_AGENT_ROOT` env로 강제
+ * 가능 (escape hatch).
+ *
+ * `__NEXUS_REMOTE_AGENT_ROOT__` 글로벌은 `electron.vite.config.ts`의 main
+ * config `define`이 빌드 시점에 문자열로 치환한다. 테스트 환경에서는
+ * `tests/setup-globals.ts`가 globalThis에 기본값을 박는다.
+ */
+export const REMOTE_AGENT_ROOT: string =
+  process.env.NEXUS_REMOTE_AGENT_ROOT ?? __NEXUS_REMOTE_AGENT_ROOT__;
+
+export const REMOTE_AGENT_MANIFEST: string =
+  process.env.NEXUS_REMOTE_AGENT_MANIFEST ?? __NEXUS_REMOTE_AGENT_MANIFEST__;
 export const LOCAL_AGENT_DIST_DIR = path.join(process.cwd(), "dist", "agent");
 export const LSP_BOOTSTRAP_PROGRESS_EVENT = "lsp.bootstrap.progress";
 

@@ -98,6 +98,7 @@ function appMenu(appName: string): MenuItemSpec {
     role: "appMenu",
     submenu: [
       { type: "role", role: "about", label: `About ${appName}` },
+      cmd("Check for Updates...", COMMANDS.updatesCheck),
       { type: "separator" },
       // macOS convention: Settings… right under About, ⌘, accelerator.
       cmd("Settings…", COMMANDS.settingsOpen),

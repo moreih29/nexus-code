@@ -37,6 +37,7 @@ import { registerSystemChannel } from "./features/shell/ipc";
 import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
 import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ipc";
 import { getBrowserRegistry, initBrowserFeature, registerBrowserCloser } from "./features/browser";
+import { installUpdatesDomain, type UpdatesDomainHandle } from "./features/updates";
 import { createMainWindow } from "./features/window";
 import { registerWorkspaceChannel } from "./features/workspace/ipc";
 import { WorkspaceManager } from "./features/workspace/manager";
@@ -94,6 +95,7 @@ let gitStatusCoalescer: StatusCoalescer | null = null;
 let gitHelpersIpc: GitHelpersIpcManager | null = null;
 let gitAutofetch: GitAutofetchScheduler | null = null;
 let agentFsWatcher: AgentFsWatcher | null = null;
+let updatesHandle: UpdatesDomainHandle | null = null;
 
 function forwardBroadcast(channelName: string, event: string, args: unknown): void {
   broadcast(channelName, event, args);
@@ -163,13 +165,39 @@ registerSshBrowseHandlers(sshBrowseRegistry, (prompt) => sshAuthPromptHub.reques
 registerSshAuthPromptIpcChannels(sshAuthPromptHub);
 registerSystemChannel({ openNewWindow: () => createMainWindow(stateService.getState()) });
 
+// Install the updates domain. IPC handlers are registered synchronously here;
+// the initial auto-poll fires inside app.whenReady() via runInitialAutoPoll().
+updatesHandle = installUpdatesDomain({
+  broadcast: forwardBroadcast,
+  stateService,
+  currentVersion: app.getVersion(),
+});
+
 app.whenReady().then(async () => {
+  // Sync the macOS About panel with current product metadata.
+  // applicationVersion comes from package.json via app.getVersion();
+  // copyright matches the electron-builder.yml owner slug.
+  if (isMac()) {
+    app.setAboutPanelOptions({
+      applicationName: app.getName(),
+      applicationVersion: app.getVersion(),
+      copyright: `Copyright © 2026 moreih29`,
+    });
+  }
+
   // Replace Electron's default menu (which still binds Cmd+W to "Close
   // Window" and Cmd+R to "Reload") with our command-driven template
   // before any window opens. Menu accelerators belong to the menu, not
   // the renderer, so installing late lets the defaults steal keystrokes
   // during boot.
-  installAppMenu();
+  installAppMenu({
+    onCheckForUpdates: () => {
+      updatesHandle?.checkManual();
+    },
+  });
+
+  // Fire the one-time silent auto update check now that the app is ready.
+  updatesHandle?.runInitialAutoPoll();
 
   await workspaceManager.init();
 

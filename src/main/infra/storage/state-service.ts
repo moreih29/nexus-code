@@ -26,12 +26,16 @@ export class StateService {
   }
 
   private load(): AppState {
+    // Parse an empty object first to materialise all `.default()` values.
+    // This is the fallback used on first run or when the persisted file is
+    // absent / corrupt.
+    const empty = AppStateSchema.parse({});
     try {
       const raw = fs.readFileSync(this.filePath, "utf8");
       const parsed = AppStateSchema.safeParse(JSON.parse(raw));
-      return parsed.success ? parsed.data : {};
+      return parsed.success ? parsed.data : empty;
     } catch {
-      return {};
+      return empty;
     }
   }
 

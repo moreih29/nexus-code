@@ -58,6 +58,10 @@ export const COMMANDS = {
   // Settings
   settingsOpen: "settings.open",
 
+  // Updates — dispatched directly to the main-process updates domain
+  // (never forwarded to the renderer via IPC).
+  updatesCheck: "updates.check",
+
   // Workbench layout toggles
   // ⌘B = files panel only; ⌘⇧B = both columns (VSCode-style full sidebar).
   workbenchToggleFilesPanel: "workbench.toggleFilesPanel",

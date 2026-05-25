@@ -12,21 +12,27 @@
  */
 
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from "electron";
+import { COMMANDS } from "../../../shared/keybindings/commands";
 import type { CommandId } from "../../../shared/keybindings/commands";
 import { isMac } from "../../infra/platform";
 import { buildMenuTemplate, type MenuItemSpec } from "./template";
 
-export function installAppMenu(): void {
+export interface InstallAppMenuOptions {
+  /** Called when the user clicks "Check for Updates..." in the App menu. */
+  onCheckForUpdates?: () => void;
+}
+
+export function installAppMenu(options: InstallAppMenuOptions = {}): void {
   const template = buildMenuTemplate({
     isMac: isMac(),
     appName: app.getName(),
   });
 
-  const electronTemplate = template.map(toElectron);
+  const electronTemplate = template.map((spec) => toElectron(spec, options));
   Menu.setApplicationMenu(Menu.buildFromTemplate(electronTemplate));
 }
 
-function toElectron(spec: MenuItemSpec): MenuItemConstructorOptions {
+function toElectron(spec: MenuItemSpec, options: InstallAppMenuOptions): MenuItemConstructorOptions {
   switch (spec.type) {
     case "separator":
       return { type: "separator" };
@@ -38,8 +44,12 @@ function toElectron(spec: MenuItemSpec): MenuItemConstructorOptions {
 
     case "submenu":
       return spec.role !== undefined
-        ? { label: spec.label, role: spec.role, submenu: spec.submenu.map(toElectron) }
-        : { label: spec.label, submenu: spec.submenu.map(toElectron) };
+        ? {
+            label: spec.label,
+            role: spec.role,
+            submenu: spec.submenu.map((s) => toElectron(s, options)),
+          }
+        : { label: spec.label, submenu: spec.submenu.map((s) => toElectron(s, options)) };
 
     case "command":
       return {
@@ -64,18 +74,25 @@ function toElectron(spec: MenuItemSpec): MenuItemConstructorOptions {
         // the default registration so Cocoa continues to handle them
         // natively against whatever element owns focus.
         registerAccelerator: false,
-        click: () => fireCommand(spec.command),
+        click: () => fireCommand(spec.command, options),
       };
   }
 }
 
 /**
- * Bridge a menu click into the focused renderer. Commands operate on
- * the active workspace / active editor / active group — all of which
- * are renderer state — so we route through IPC rather than running
- * anything in the main process.
+ * Bridge a menu click into the appropriate handler.
+ *
+ * Main-process commands (e.g. `updates.check`) are dispatched directly
+ * to an injected callback so no renderer round-trip is needed.
+ * All other commands are forwarded to the focused renderer via IPC, since
+ * they operate on renderer-owned state (active workspace, active editor, etc.).
  */
-function fireCommand(id: CommandId): void {
+function fireCommand(id: CommandId, options: InstallAppMenuOptions): void {
+  if (id === COMMANDS.updatesCheck && options.onCheckForUpdates !== undefined) {
+    options.onCheckForUpdates();
+    return;
+  }
+
   const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
   if (!win || win.isDestroyed()) return;
   win.webContents.send("ipc:event", "command", "invoke", { id });

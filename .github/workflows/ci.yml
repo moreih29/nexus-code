@@ -1,0 +1,59 @@
+# CI workflow — PR + main push 트리거.
+# electron-builder는 실행하지 않는다. PR 피드백 시간 최소화가 목적.
+# build dry-run은 electron-vite build(out/ 산출)까지만 수행.
+#
+# macos-14 단일 runner를 쓰는 이유:
+#   - node-pty/better-sqlite3 postinstall rebuild가 macOS 환경을 요구한다.
+#   - typecheck/lint는 OS 무관하지만 bun test 중 electron 관련 native require가
+#     macOS에서만 안정적으로 통과한다.
+#   - Linux runner로 분리하면 native rebuild 실패 위험이 있고, PR 하나에 두 runner를
+#     띄우면 피드백 시간이 늘어난다.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    name: CI checks
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install JS dependencies
+        # --frozen-lockfile: lockfile 변경을 CI에서 허용하지 않는다.
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Test
+        run: bun run test
+
+      - name: Build agent (dry-run)
+        # Go cross-compile + Node runtime download + LSP bundle.
+        # CGO 미사용이므로 macOS runner에서도 linux 타겟 포함 전 플랫폼 빌드 가능.
+        run: bun run scripts/build-agent.ts
+
+      - name: Build renderer (dry-run)
+        # electron-vite build — out/ 디렉터리 산출.
+        # electron-builder는 실행하지 않는다 (CI 피드백 시간 절약).
+        run: bun run build

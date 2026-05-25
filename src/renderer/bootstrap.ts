@@ -17,6 +17,7 @@ import { useTabsStore } from "./state/stores/tabs";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
+import { useUpdatesStore } from "./state/stores/updates";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
 import { startNotificationClickListener } from "./state/notification-click";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
@@ -26,6 +27,7 @@ import {
   initBrowserRuntimeSubscriptions,
 } from "./state/operations/browser";
 import { initBrowserOverlayAutoSuspend } from "./state/operations/browser-suspend-auto";
+import { initUpdatesSubscriptions } from "./state/operations/updates";
 
 /**
  * Hydrate persisted UI widths, layout snapshots, and tab records from
@@ -96,6 +98,10 @@ export async function bootstrapAppState(): Promise<void> {
 
   // Hydrate window opacity from appState (authoritative store).
   useWindowOpacityStore.getState().hydrate(state.windowOpacity);
+
+  // Hydrate update channel from appState and install the statusChanged listener.
+  useUpdatesStore.getState().hydrate(state.updateChannel);
+  initUpdatesSubscriptions();
 
   if (state.layoutByWorkspace) {
     for (const [wsId, snap] of Object.entries(state.layoutByWorkspace)) {

@@ -1,0 +1,36 @@
+appId: com.moreih29.nexus-code
+productName: "Nexus Code"
+
+directories:
+  buildResources: build
+  output: dist
+
+artifactName: "${productName}-${version}-${arch}.${ext}"
+
+extraResources:
+  - from: dist/agent
+    to: agent
+
+asar: true
+asarUnpack:
+  - "**/*.node"
+  - "node_modules/node-pty/**"
+  - "node_modules/better-sqlite3/**"
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  identity: null
+  notarize: false
+
+publish:
+  provider: github
+  owner: moreih29
+  repo: nexus-code

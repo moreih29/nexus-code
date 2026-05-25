@@ -1,0 +1,121 @@
+# Release workflow — triggered when a GitHub Release is created (published or pre-release).
+# Two-job pipeline:
+#   1. build-agent  — ubuntu-latest (cross-compile Go + Node runtime + LSP bundle 모두 산출)
+#   2. package      — matrix: macos-14 (arm64 native) + macos-13 (x64 native)
+#                     native modules (node-pty, better-sqlite3)는 postinstall에서 runner 아치로 rebuild.
+#
+# Apple code-signing: identity=null, notarize=false (electron-builder.yml 그대로).
+# Secret: GITHUB_TOKEN 한 개만 사용. Apple secrets 없음.
+
+name: Release
+
+on:
+  release:
+    types: [created]
+
+permissions:
+  contents: write  # release asset 업로드에 필요
+
+jobs:
+  # ── Job 1: Agent 크로스컴파일 ────────────────────────────────────────────
+  # ubuntu-latest를 쓰는 이유: CGO 미사용 Go 바이너리 + Node runtime download +
+  # LSP bundle은 OS 독립적이라 어느 runner에서도 OK. macOS runner 분당 과금이
+  # ubuntu 대비 10x이므로 ubuntu에서 먼저 처리 후 artifact로 공유한다.
+  build-agent:
+    name: Build agent (cross-compile)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build agent (all platforms)
+        run: bun run scripts/build-agent.ts
+
+      - name: Upload agent artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-dist
+          path: dist/agent
+          # package job이 즉시 소비하므로 1일이면 충분
+          retention-days: 1
+
+  # ── Job 2: Electron 패키징 ────────────────────────────────────────────────
+  # matrix runner 선택 이유:
+  #   macos-14  → Apple Silicon (arm64 native). node-pty/better-sqlite3가 arm64로 rebuild됨.
+  #   macos-13  → Intel (x64 native). 동일 이유로 x64 native rebuild.
+  #   한 runner에서 --arm64 --x64 universal build를 시도하면 electron-rebuild가
+  #   한쪽 arch만 올바르게 빌드하므로 반드시 arch별 native runner를 분리한다.
+  package:
+    name: Package (${{ matrix.arch }})
+    needs: build-agent
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      matrix:
+        include:
+          - runner: macos-14   # Apple Silicon
+            arch: arm64
+          - runner: macos-13   # Intel
+            arch: x64
+
+    env:
+      # NEXUS_CHANNEL 분기:
+      #   prerelease=true  → 'beta'  (pre-release 릴리스는 beta 채널로 업데이트 전달)
+      #   prerelease=false → 'stable' (정식 릴리스)
+      # GitHub Actions의 삼항 표현식: `condition && 'true-val' || 'false-val'`
+      NEXUS_CHANNEL: ${{ github.event.release.prerelease && 'beta' || 'stable' }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install JS dependencies
+        # postinstall에서 electron-rebuild -f -w node-pty,better-sqlite3 실행.
+        # --frozen-lockfile로 lockfile 변경을 방지한다.
+        run: bun install --frozen-lockfile
+
+      - name: Download agent artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-dist
+          path: dist/agent
+
+      - name: Build renderer (electron-vite)
+        run: bun run build
+
+      - name: Package with electron-builder
+        # bun x / bunx는 bun의 npx 대체 CLI다.
+        # `bun x electron-builder` 형태를 선택한 이유:
+        #   - 이 프로젝트는 bun을 package manager로 사용하므로 bun의 bin 해석 경로를 따르는 것이 일관성에 맞는다.
+        #   - `npx electron-builder`는 npm이 설치되어 있지 않으면 실패할 수 있고,
+        #     `node_modules/.bin/electron-builder`는 경로 하드코딩이라 유지보수에 불리하다.
+        #   - `bun run electron-builder`는 package.json script가 아닌 바이너리 직접 실행을 지원하지 않으므로 부적절.
+        #   - 따라서 `bun x electron-builder`가 bun 생태계에서 가장 표준적인 형태.
+        run: >
+          bun x electron-builder
+          --mac dmg zip
+          --${{ matrix.arch }}
+          --publish always
