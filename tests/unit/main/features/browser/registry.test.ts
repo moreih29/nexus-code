@@ -41,6 +41,7 @@ class FakeWebContents {
   session = { setPermissionRequestHandler: mock(() => {}) };
 
   isDestroyed() { return this.destroyed; }
+  isLoading() { return false; }
   setBackgroundThrottling(val: boolean) { this.backgroundThrottling = val; }
   isDevToolsOpened() { return this.devToolsOpen; }
   openDevTools(_opts: unknown) { this.devToolsOpen = true; }
@@ -49,6 +50,7 @@ class FakeWebContents {
   reload() { this.reloadCalled++; }
   reloadIgnoringCache() { this.reloadIgnoringCacheCalled++; }
   close() { this.closeCalled++; }
+  insertCSS(_css: string) { return Promise.resolve("k"); }
   on(_event: string, _handler: unknown) {}
   setWindowOpenHandler(_handler: unknown) {}
 

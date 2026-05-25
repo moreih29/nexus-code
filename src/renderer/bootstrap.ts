@@ -25,7 +25,6 @@ import {
   initBrowserLastUrlPersistence,
   initBrowserRuntimeSubscriptions,
 } from "./state/operations/browser";
-import { initBrowserSuspendDragListener } from "./state/operations/browser-suspend";
 
 /**
  * Hydrate persisted UI widths, layout snapshots, and tab records from
@@ -54,12 +53,12 @@ export async function bootstrapAppState(): Promise<void> {
   // Must be called after initBrowserRuntimeSubscriptions.
   initBrowserLastUrlPersistence();
 
-  // Document-level dragstart/dragend listener that detaches every active
-  // WebContentsView while a tab/file drag is in flight, so DOM drop zones can
-  // receive dragover events inside what would otherwise be the browser's
-  // native overlay area (the cause of "browser tab cannot be dragged to a new
-  // split").
-  initBrowserSuspendDragListener();
+  // Drag-time browser-overlay suspend is now claimed/released from
+  // `use-drag-source.ts` directly (React bubble-phase `onDragStart` → one-shot
+  // document `dragend`).  No bootstrap-time global listener is required —
+  // doing it from React's handler avoids a capture-phase race against
+  // `setData` that would otherwise leave the WebContentsView covering the
+  // drop zone.
 
   // Bootstrap is an initialization path — no recovery possible if appState is unavailable.
   const state = mustSucceed(await ipcCallResult("appState", "get", undefined));

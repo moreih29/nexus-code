@@ -30,6 +30,7 @@
 import { WebContentsView } from "electron";
 import type { BrowserWindow } from "electron";
 import { createLogger } from "../../../shared/log/main";
+import { installAppScrollbarStyle } from "./page-style";
 import {
   buildBrowserTabWebPreferences,
   installNavigationGuards,
@@ -135,6 +136,11 @@ export class BrowserTabRegistry {
     // stubbed here; callers (ipc.ts) attach broadcast callbacks by listening
     // to the WebContents events directly after create() returns.
     installNavigationGuards(view.webContents);
+
+    // Replace the native Chromium scrollbar with our app-wide thin scrollbar
+    // style on every page load.  Independent of navigation security — purely
+    // visual — so it lives in its own module.
+    installAppScrollbarStyle(view.webContents);
 
     // Start the view in the inactive (detached) state.  The caller must call
     // setActive(true) + setBounds() to make it visible.  Background throttling

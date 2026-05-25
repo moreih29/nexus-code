@@ -115,6 +115,8 @@ class FakeWebContents {
 
   setBackgroundThrottling(val: boolean) { this.backgroundThrottling = val; }
   isDestroyed() { return this.destroyed; }
+  isLoading() { return false; }
+  insertCSS(_css: string) { return Promise.resolve("k"); }
   setWindowOpenHandler() {}
   loadURL(_url: string) { return Promise.resolve(); }
 
