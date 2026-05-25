@@ -74,13 +74,13 @@ mock.module("react", () => ({
 // without hitting a real preload bridge.
 // ---------------------------------------------------------------------------
 
-const ipcCalls: Array<{ channel: string; method: string }> = [];
+const ipcCalls: Array<{ channel: string; method: string; args: unknown }> = [];
 
 const realIpcClient = await import("../../../../../src/renderer/ipc/client");
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ...realIpcClient,
-  ipcCallResult: mock(async (channel: string, method: string) => {
-    ipcCalls.push({ channel, method });
+  ipcCallResult: mock(async (channel: string, method: string, args: unknown) => {
+    ipcCalls.push({ channel, method, args });
     return { ok: true as const, value: undefined };
   }),
 }));
@@ -164,15 +164,15 @@ describe("useDragSource — browser-suspend integration", () => {
 
     // After dragstart: count=1, suspendAll IPC fired exactly once.
     expect(useBrowserSuspendStore.getState().count).toBe(1);
-    expect(ipcCalls).toEqual([{ channel: "browser", method: "suspendAll" }]);
+    expect(ipcCalls).toEqual([{ channel: "browser", method: "suspendAll", args: { captureSnapshot: false } }]);
 
     // Simulate dragend on document — our one-shot listener should fire.
     docStub.dispatchEvent(new Event("dragend"));
 
     expect(useBrowserSuspendStore.getState().count).toBe(0);
     expect(ipcCalls).toEqual([
-      { channel: "browser", method: "suspendAll" },
-      { channel: "browser", method: "resumeAll" },
+      { channel: "browser", method: "suspendAll", args: { captureSnapshot: false } },
+      { channel: "browser", method: "resumeAll", args: {} },
     ]);
   });
 

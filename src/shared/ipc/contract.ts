@@ -1086,20 +1086,37 @@ export const ipcContract = {
       /** Toggle DevTools for the tab (opens detached, closes if already open). */
       openDevTools: call(z.object({ tabId: z.string().uuid() }), z.void()),
       /**
-       * Detach every active WebContentsView from the main window's contentView,
-       * so DOM overlays (dropdown menus, modal dialogs, drag indicators) can
-       * paint above the area the browser would otherwise occupy.
+       * Hide every active WebContentsView so DOM overlays (dropdown menus,
+       * modal dialogs, drag indicators) can paint above the area the browser
+       * would otherwise occupy.
        *
-       * WebContents are NOT destroyed — page state (scroll, form input, audio)
-       * is preserved.  Pair every `suspendAll` call with a `resumeAll` once the
-       * overlay closes.  The renderer holds the refcount; main only sees a
-       * suspended/not-suspended boolean toggle.
+       * Mechanism follows the VSCode pattern: when `captureSnapshot` is true
+       * the main process first calls `webContents.capturePage()` on every
+       * active view, broadcasts the resulting JPEG dataURL via
+       * `browser.snapshot`, and only then hides the view via
+       * `setVisible(false)`.  The renderer overlays the snapshot in DOM, so
+       * the area underneath the modal still shows the page content rather
+       * than going blank.
+       *
+       * `captureSnapshot: false` skips the capture entirely and hides
+       * immediately — used by drag operations where any delay would break
+       * drag-to-split responsiveness.  The brief grey area during a drag is
+       * acceptable because drop indicators paint over it within one frame.
+       *
+       * WebContents are never destroyed — page state (scroll, form input,
+       * audio) is preserved.  The renderer holds the refcount; main only
+       * sees a suspended/not-suspended toggle.  Pair every `suspendAll`
+       * with a `resumeAll` once the overlay closes.
        */
-      suspendAll: call(z.object({}), z.void()),
+      suspendAll: call(
+        z.object({ captureSnapshot: z.boolean() }),
+        z.void(),
+      ),
       /**
-       * Re-attach every WebContentsView that was active before the matching
-       * `suspendAll` call and re-apply each view's last known bounds, so the
-       * browser content reappears in the same position as before.
+       * Re-show every WebContentsView that was active when the matching
+       * `suspendAll` ran via `setVisible(true)`.  Broadcasts a `snapshot`
+       * event with `cleared: true` for every tab so the renderer drops its
+       * cached snapshot image and exposes the live view again.
        */
       resumeAll: call(z.object({}), z.void()),
     },
@@ -1136,6 +1153,28 @@ export const ipcContract = {
       /** Emitted when the page title changes. */
       titleUpdated: listen(
         z.object({ tabId: z.string().uuid(), title: z.string() }),
+      ),
+      /**
+       * Snapshot event paired with `suspendAll` / `resumeAll`.
+       *
+       * `dataUrl` form: a JPEG dataURL of the page as it appeared right
+       * before the view was hidden.  The renderer overlays this image
+       * absolutely over the placeholder so a freshly-opened modal sees a
+       * still frame of the page rather than a blank area.
+       *
+       * `cleared: true` form: the suspend window has ended (resumeAll) and
+       * the renderer should drop the cached image so the live view shows
+       * through again.
+       */
+      snapshot: listen(
+        z.discriminatedUnion("kind", [
+          z.object({
+            kind: z.literal("set"),
+            tabId: z.string().uuid(),
+            dataUrl: z.string(),
+          }),
+          z.object({ kind: z.literal("cleared"), tabId: z.string().uuid() }),
+        ]),
       ),
     },
   },

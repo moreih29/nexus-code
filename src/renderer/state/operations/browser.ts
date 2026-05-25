@@ -94,6 +94,24 @@ export function initBrowserRuntimeSubscriptions(): void {
       useBrowserRuntimeStore.getState().setRuntime(tabId, { title });
     }),
   );
+
+  // Hide-and-screenshot pattern: main captures a JPEG of the page before
+  // calling `setVisible(false)` and broadcasts it here.  The renderer paints
+  // the dataURL as an absolute overlay over the placeholder so a freshly
+  // opened modal sees a still frame rather than a blank area.  The matching
+  // `cleared` event clears the cache when the modal closes and the native
+  // view is shown again.
+  activeUnsubs.push(
+    ipcListen("browser", "snapshot", (payload) => {
+      if (payload.kind === "set") {
+        useBrowserRuntimeStore
+          .getState()
+          .setRuntime(payload.tabId, { snapshot: payload.dataUrl });
+      } else {
+        useBrowserRuntimeStore.getState().setRuntime(payload.tabId, { snapshot: null });
+      }
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------

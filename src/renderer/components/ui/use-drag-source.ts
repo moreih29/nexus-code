@@ -105,7 +105,12 @@ export function useDragSource<T>({
       // the way of any drop target — claim the suspend slot now and release
       // it on the next document `dragend`.  Bubble-phase ensures `setData`
       // above has finished and any drop-target observer can see our MIME.
-      const release = useBrowserSuspendStore.getState().claim();
+      //
+      // `captureSnapshot: false` because a drag needs the view hidden
+      // immediately for drop targets to receive `dragover` — the 30-100ms
+      // capturePage round-trip would lag the drag noticeably.  Drop
+      // indicators paint over the briefly-grey area within one frame.
+      const release = useBrowserSuspendStore.getState().claim({ captureSnapshot: false });
       const onDragEnd = () => {
         release();
         document.removeEventListener("dragend", onDragEnd);

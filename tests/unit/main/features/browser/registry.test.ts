@@ -51,6 +51,16 @@ class FakeWebContents {
   reloadIgnoringCache() { this.reloadIgnoringCacheCalled++; }
   close() { this.closeCalled++; }
   insertCSS(_css: string) { return Promise.resolve("k"); }
+  // Fake capturePage returns a non-empty NativeImage-shaped object whose
+  // `toJPEG(quality)` yields a Buffer large enough to survive the registry's
+  // TINY_DATA_URL_THRESHOLD filter (~3KB).  Tests that need a "tiny" capture
+  // (page still loading) override `capturePage` per-instance.
+  capturePage(): Promise<{ isEmpty(): boolean; toJPEG(q: number): Buffer }> {
+    return Promise.resolve({
+      isEmpty: () => false,
+      toJPEG: (_q: number) => Buffer.alloc(3000, 0xff),
+    });
+  }
   on(_event: string, _handler: unknown) {}
   setWindowOpenHandler(_handler: unknown) {}
 
@@ -67,6 +77,7 @@ class FakeWebContents {
 class FakeWebContentsView {
   webContents = new FakeWebContents();
   bounds: { x: number; y: number; width: number; height: number } | null = null;
+  visible = true;
 
   constructor(public opts: unknown) {
     createdViews.push(this);
@@ -74,6 +85,10 @@ class FakeWebContentsView {
 
   setBounds(b: { x: number; y: number; width: number; height: number }) {
     this.bounds = b;
+  }
+
+  setVisible(visible: boolean) {
+    this.visible = visible;
   }
 }
 
@@ -328,17 +343,16 @@ describe("BrowserTabRegistry", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 8b. suspendAll / resumeAll — overlay-friendly visibility toggle
+  // 8b. suspendAll / resumeAll — VSCode-style hide-and-screenshot pattern
   //
-  // Asserts that the global suspend/resume cycle detaches every active view,
-  // re-attaches them on resume, and re-applies the cached bounds so the view
-  // lands in the same position as before — Electron resets a view's geometry
-  // on every addChildView, so without bounds restoration the resumed view
-  // would reappear at (0, 0) sized 0×0.
+  // The active view is hidden via setVisible(false) (NOT removeChildView) so
+  // the contentView tree stays intact and bounds are preserved.  When
+  // captureSnapshot=true the page is captured to a JPEG dataURL BEFORE the
+  // hide, returned from the call so ipc.ts can broadcast it to the renderer.
   // -------------------------------------------------------------------------
 
   describe("suspendAll() / resumeAll()", () => {
-    test("suspendAll detaches every active view; resumeAll re-attaches them", () => {
+    test("captureSnapshot=true: hides active views via setVisible(false), returns dataURL list", async () => {
       const { registry, win } = makeRegistry();
 
       const A = { ...BASE_ARGS, tabId: "aaaaaaaa-0000-0000-0000-000000000001" };
@@ -350,93 +364,192 @@ describe("BrowserTabRegistry", () => {
 
       const aView = registry.get(A.tabId)!.view as unknown as FakeWebContentsView;
       const bView = registry.get(B.tabId)!.view as unknown as FakeWebContentsView;
+      // Both views stay in the tree — the suspend cycle only flips visibility.
+      expect(win.contentView.children).toContain(aView);
+      expect(win.contentView.children).toContain(bView);
+      expect(aView.visible).toBe(true);
+      expect(bView.visible).toBe(true);
+
+      const snapshots = await registry.suspendAll({ captureSnapshot: true });
+      expect(snapshots.length).toBe(2);
+      // Both snapshots are non-null (FakeWebContents returns a 3KB JPEG).
+      for (const s of snapshots) {
+        expect(s.dataUrl).not.toBeNull();
+        expect(s.dataUrl).toMatch(/^data:image\/jpeg;base64,/);
+      }
+      // Views are hidden but still in the tree.
+      expect(aView.visible).toBe(false);
+      expect(bView.visible).toBe(false);
       expect(win.contentView.children).toContain(aView);
       expect(win.contentView.children).toContain(bView);
 
-      registry.suspendAll();
-      expect(win.contentView.children).not.toContain(aView);
-      expect(win.contentView.children).not.toContain(bView);
-
-      registry.resumeAll();
-      expect(win.contentView.children).toContain(aView);
-      expect(win.contentView.children).toContain(bView);
+      const resumed = registry.resumeAll();
+      expect(resumed).toEqual(expect.arrayContaining([A.tabId, B.tabId]));
+      expect(aView.visible).toBe(true);
+      expect(bView.visible).toBe(true);
     });
 
-    test("resumeAll re-applies the cached bounds after re-attaching", () => {
+    test("captureSnapshot=false: hides immediately without capturing", async () => {
       const { registry } = makeRegistry();
       registry.create(BASE_ARGS);
       registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
-      registry.setBounds({ tabId: BASE_ARGS.tabId, x: 100, y: 200, width: 800, height: 600 });
-
       const view = registry.get(BASE_ARGS.tabId)!.view as unknown as FakeWebContentsView;
-      // FakeContentView swaps the bounds reference on every addChildView when
-      // we drive setBounds manually — but the real Electron behaviour resets
-      // the view's internal layout.  Verify that resumeAll calls setBounds
-      // again with the cached values.
-      view.bounds = null;
 
-      registry.suspendAll();
-      registry.resumeAll();
+      // Override capturePage to fail loudly if it's called — captureSnapshot=false
+      // is supposed to skip capture entirely (drag-mode path).
+      const wc = view.webContents as unknown as FakeWebContents;
+      let capturePageCalled = false;
+      wc.capturePage = (() => {
+        capturePageCalled = true;
+        return Promise.resolve({
+          isEmpty: () => false,
+          toJPEG: () => Buffer.alloc(3000),
+        });
+      }) as FakeWebContents["capturePage"];
 
-      expect(view.bounds).toEqual({ x: 100, y: 200, width: 800, height: 600 });
+      const snapshots = await registry.suspendAll({ captureSnapshot: false });
+      expect(snapshots).toEqual([]);
+      expect(capturePageCalled).toBe(false);
+      // View is hidden via setVisible(false), not detached.
+      expect(view.visible).toBe(false);
     });
 
-    test("suspendAll leaves inactive tabs untouched", () => {
-      const { registry, win } = makeRegistry();
-      registry.create(BASE_ARGS);
-      // never setActive(true) — entry exists but view is detached
-
-      const view = registry.get(BASE_ARGS.tabId)!.view as unknown as FakeWebContentsView;
-      expect(win.contentView.children).not.toContain(view);
-
-      registry.suspendAll();
-      registry.resumeAll();
-
-      // Still inactive — must not have been promoted to active by the cycle.
-      expect(win.contentView.children).not.toContain(view);
-    });
-
-    test("setActive(true) during suspend defers the attach until resumeAll", () => {
-      const { registry, win } = makeRegistry();
-      registry.create(BASE_ARGS);
-
-      registry.suspendAll();
-      registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
-      const view = registry.get(BASE_ARGS.tabId)!.view as unknown as FakeWebContentsView;
-      // Activation requested while suspended — view stays detached for now.
-      expect(win.contentView.children).not.toContain(view);
-
-      registry.resumeAll();
-      // Resume picks up the pending activation.
-      expect(win.contentView.children).toContain(view);
-    });
-
-    test("suspendAll is idempotent — second call is a no-op", () => {
-      const { registry, win } = makeRegistry();
+    test("tiny capture returns dataUrl=null (page still loading guard)", async () => {
+      const { registry } = makeRegistry();
       registry.create(BASE_ARGS);
       registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
       const view = registry.get(BASE_ARGS.tabId)!.view as unknown as FakeWebContentsView;
 
-      registry.suspendAll();
-      // Calling suspendAll again must not throw or re-trigger detach paths
-      // (the second removeChildView would log a warn but should be inert).
-      registry.suspendAll();
-      expect(win.contentView.children).not.toContain(view);
+      // Capture returns a buffer too small to be a real page screenshot.
+      const wc = view.webContents as unknown as FakeWebContents;
+      wc.capturePage = (() =>
+        Promise.resolve({
+          isEmpty: () => false,
+          toJPEG: () => Buffer.alloc(50),
+        })) as FakeWebContents["capturePage"];
 
-      registry.resumeAll();
-      expect(win.contentView.children).toContain(view);
+      const snapshots = await registry.suspendAll({ captureSnapshot: true });
+      expect(snapshots.length).toBe(1);
+      expect(snapshots[0].dataUrl).toBeNull();
+      // View still hidden — the snapshot threshold only gates the broadcast.
+      expect(view.visible).toBe(false);
     });
 
-    test("resumeAll without a prior suspend is a no-op", () => {
-      const { registry, win } = makeRegistry();
+    test("isEmpty capture returns dataUrl=null", async () => {
+      const { registry } = makeRegistry();
       registry.create(BASE_ARGS);
       registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
       const view = registry.get(BASE_ARGS.tabId)!.view as unknown as FakeWebContentsView;
-      const before = [...win.contentView.children];
+
+      const wc = view.webContents as unknown as FakeWebContents;
+      wc.capturePage = (() =>
+        Promise.resolve({
+          isEmpty: () => true,
+          toJPEG: () => Buffer.alloc(3000),
+        })) as FakeWebContents["capturePage"];
+
+      const snapshots = await registry.suspendAll({ captureSnapshot: true });
+      expect(snapshots[0].dataUrl).toBeNull();
+    });
+
+    test("capturePage rejection: dataUrl=null, hide still proceeds", async () => {
+      const { registry } = makeRegistry();
+      registry.create(BASE_ARGS);
+      registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
+      const view = registry.get(BASE_ARGS.tabId)!.view as unknown as FakeWebContentsView;
+
+      const wc = view.webContents as unknown as FakeWebContents;
+      wc.capturePage = (() => Promise.reject(new Error("boom"))) as FakeWebContents["capturePage"];
+
+      const snapshots = await registry.suspendAll({ captureSnapshot: true });
+      expect(snapshots[0].dataUrl).toBeNull();
+      expect(view.visible).toBe(false);
+    });
+
+    test("suspendAll leaves inactive tabs untouched (visible stays as-is)", async () => {
+      const { registry } = makeRegistry();
+      registry.create(BASE_ARGS);
+      // never setActive(true) — entry exists but view is not attached.
+
+      const view = registry.get(BASE_ARGS.tabId)!.view as unknown as FakeWebContentsView;
+      const visibleBefore = view.visible;
+
+      await registry.suspendAll({ captureSnapshot: true });
+      registry.resumeAll();
+
+      // Inactive tabs are not part of the suspend cycle — their visible flag
+      // is untouched.
+      expect(view.visible).toBe(visibleBefore);
+    });
+
+    test("setActive(true) during suspend attaches and immediately hides", async () => {
+      const { registry, win } = makeRegistry();
+      registry.create(BASE_ARGS);
+
+      await registry.suspendAll({ captureSnapshot: false });
+      // No active tabs at the time of suspend — registry is suspended state.
+      registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
+      const view = registry.get(BASE_ARGS.tabId)!.view as unknown as FakeWebContentsView;
+      // Attached to the tree (setVisible-based suspend keeps views in the tree).
+      expect(win.contentView.children).toContain(view);
+      // But hidden because we're in a suspend window.
+      expect(view.visible).toBe(false);
 
       registry.resumeAll();
-      expect(win.contentView.children).toEqual(before);
-      expect(win.contentView.children).toContain(view);
+      expect(view.visible).toBe(true);
+    });
+
+    test("suspendAll is idempotent — second call returns empty list", async () => {
+      const { registry } = makeRegistry();
+      registry.create(BASE_ARGS);
+      registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
+
+      const first = await registry.suspendAll({ captureSnapshot: true });
+      expect(first.length).toBe(1);
+
+      // Already suspended — second call must be a no-op (no double-capture,
+      // no double-hide).
+      const second = await registry.suspendAll({ captureSnapshot: true });
+      expect(second).toEqual([]);
+    });
+
+    test("resumeAll without a prior suspend returns empty list", () => {
+      const { registry } = makeRegistry();
+      registry.create(BASE_ARGS);
+      registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
+
+      const resumed = registry.resumeAll();
+      expect(resumed).toEqual([]);
+    });
+
+    test("resumeAll mid-capture bails out the suspend's hide step (race guard)", async () => {
+      const { registry } = makeRegistry();
+      registry.create(BASE_ARGS);
+      registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
+      const view = registry.get(BASE_ARGS.tabId)!.view as unknown as FakeWebContentsView;
+
+      // Hand-hold the capture so resumeAll can interleave between
+      // suspendAll's `await` and its hide step.
+      const wc = view.webContents as unknown as FakeWebContents;
+      let resolveCapture!: (img: { isEmpty(): boolean; toJPEG(): Buffer }) => void;
+      const captureGate = new Promise<{
+        isEmpty(): boolean;
+        toJPEG(): Buffer;
+      }>((res) => {
+        resolveCapture = res;
+      });
+      wc.capturePage = (() => captureGate) as FakeWebContents["capturePage"];
+
+      // Kick off suspendAll, race resumeAll in before the capture resolves.
+      const suspendPromise = registry.suspendAll({ captureSnapshot: true });
+      registry.resumeAll();
+      // Now let the capture resolve — suspendAll's post-await guard should
+      // notice the generation bump and skip the setVisible(false) step.
+      resolveCapture({ isEmpty: () => false, toJPEG: () => Buffer.alloc(3000) });
+      await suspendPromise;
+
+      // View was shown by the resume; suspend's hide was correctly suppressed.
+      expect(view.visible).toBe(true);
     });
   });
 

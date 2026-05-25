@@ -36,6 +36,13 @@ export interface BrowserRuntimeState {
   canGoBack: boolean;
   canGoForward: boolean;
   isLoading: boolean;
+  /**
+   * Cached page snapshot (JPEG dataURL) painted as an absolute overlay over
+   * the placeholder area while the native WebContentsView is hidden by a
+   * suspendAll cycle.  `null` means no snapshot is active — the live view
+   * is visible, or no snapshot was captured.
+   */
+  snapshot: string | null;
 }
 
 type BrowserRuntimeMap = Map<string, BrowserRuntimeState>;
@@ -46,6 +53,7 @@ const DEFAULT_RUNTIME: BrowserRuntimeState = {
   canGoBack: false,
   canGoForward: false,
   isLoading: false,
+  snapshot: null,
 };
 
 interface BrowserRuntimeStore {

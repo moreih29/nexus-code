@@ -64,13 +64,13 @@ describe("useBrowserSuspendStore.claim()", () => {
     const release = useBrowserSuspendStore.getState().claim();
     expect(useBrowserSuspendStore.getState().count).toBe(1);
     expect(ipcCalls).toEqual([
-      { channel: "browser", method: "suspendAll", args: {} },
+      { channel: "browser", method: "suspendAll", args: { captureSnapshot: true } },
     ]);
 
     release();
     expect(useBrowserSuspendStore.getState().count).toBe(0);
     expect(ipcCalls).toEqual([
-      { channel: "browser", method: "suspendAll", args: {} },
+      { channel: "browser", method: "suspendAll", args: { captureSnapshot: true } },
       { channel: "browser", method: "resumeAll", args: {} },
     ]);
   });
@@ -85,7 +85,7 @@ describe("useBrowserSuspendStore.claim()", () => {
     expect(useBrowserSuspendStore.getState().count).toBe(2);
     // Only the first claim should have fired IPC.
     expect(ipcCalls).toEqual([
-      { channel: "browser", method: "suspendAll", args: {} },
+      { channel: "browser", method: "suspendAll", args: { captureSnapshot: true } },
     ]);
 
     // Releasing one of two does NOT fire resumeAll — content stays suspended.
@@ -97,7 +97,7 @@ describe("useBrowserSuspendStore.claim()", () => {
     release2();
     expect(useBrowserSuspendStore.getState().count).toBe(0);
     expect(ipcCalls).toEqual([
-      { channel: "browser", method: "suspendAll", args: {} },
+      { channel: "browser", method: "suspendAll", args: { captureSnapshot: true } },
       { channel: "browser", method: "resumeAll", args: {} },
     ]);
   });

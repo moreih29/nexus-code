@@ -12,6 +12,28 @@
  *                 every platform — `WebContentsView.setBounds()` uses the
  *                 same coordinate system as the window's contentView, which
  *                 Chromium handles in DIPs.  No DPR conversion happens here.
+ *   suspendAll() — capture (optional) + hide every active view so DOM
+ *                  overlays (modals/menus/drag indicators) can render above.
+ *   resumeAll() — show every previously-active view.
+ *
+ * SUSPEND VS SETACTIVE
+ * --------------------
+ * Two independent visibility axes:
+ *   active   — driven by setActive.  Tab is the active tab in its group.
+ *              Controls tree attachment (addChildView / removeChildView).
+ *   visible  — driven by suspendAll / resumeAll.  Controls per-view
+ *              `setVisible()` for the duration of an overlay.  Decoupled so
+ *              a resumeAll can restore visibility without disturbing which
+ *              tab is "active".
+ *
+ * The view is actually drawn iff `active && !suspended`.
+ *
+ * VSCode REFERENCE
+ * ----------------
+ * The hide-and-screenshot pattern mirrors VSCode's
+ * `references/vscode/src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts`
+ * — capture the page first, hide afterwards, and let the renderer paint
+ * the captured image where the native view used to be.
  *
  * DUPLICATE CREATE
  * ----------------
@@ -82,6 +104,12 @@ export interface CssBounds {
 // Registry
 // ---------------------------------------------------------------------------
 
+/** One snapshot result for `suspendAll` — `dataUrl` is null when capture failed. */
+export interface SuspendSnapshot {
+  tabId: string;
+  dataUrl: string | null;
+}
+
 export class BrowserTabRegistry {
   private readonly win: BrowserWindow;
   private readonly tabs = new Map<string, TabEntry>();
@@ -89,12 +117,22 @@ export class BrowserTabRegistry {
    * Global "everything is hidden right now" toggle.
    *
    * Driven by `suspendAll`/`resumeAll`.  While true, every TabEntry with
-   * `active=true` is forcibly detached from the window so DOM overlays
-   * (dropdown menus, modal dialogs, drag-to-split indicators) can paint above
-   * the area the browser would otherwise cover.  The renderer holds the
-   * refcount; this class only sees the boolean edge.
+   * `active=true` is held at `setVisible(false)` so DOM overlays (dropdown
+   * menus, modal dialogs, drag-to-split indicators) can paint above where
+   * the browser would otherwise cover.  The renderer holds the refcount;
+   * this class only sees the boolean edge.
    */
   private suspended = false;
+  /**
+   * Bumped at every suspendAll → snapshot capture and every resumeAll.
+   * Used to bail out of a hide path when resumeAll races mid-capture.
+   *
+   * A capture-then-hide cycle records the generation before its `await`,
+   * and skips the actual `setVisible(false)` step if the generation has
+   * advanced — meaning resumeAll already ran and the view is supposed to
+   * be visible.
+   */
+  private suspendGeneration = 0;
 
   constructor(win: BrowserWindow) {
     this.win = win;
@@ -272,10 +310,16 @@ export class BrowserTabRegistry {
     if (entry.active === active) return; // no-op
 
     if (active) {
-      // While suspended we record the desired state but don't actually attach.
-      // resumeAll() will pick this entry up and addChildView at that point.
-      if (!this.suspended) {
-        this.attachAndRestoreBounds(entry);
+      // Always attach to the contentView — the visible/hidden axis is
+      // handled separately via setVisible() so suspendAll/resumeAll can
+      // toggle painting without re-attaching the view.
+      this.attachAndRestoreBounds(entry);
+      // If the registry is currently suspended (an overlay is in progress),
+      // immediately hide the freshly-attached view so it doesn't paint above
+      // the modal.  resumeAll() will call setVisible(true) once the overlay
+      // closes.
+      if (this.suspended && !entry.view.webContents.isDestroyed()) {
+        entry.view.setVisible(false);
       }
       entry.view.webContents.setBackgroundThrottling(false);
     } else {
@@ -318,47 +362,127 @@ export class BrowserTabRegistry {
   }
 
   // -------------------------------------------------------------------------
-  // suspendAll / resumeAll — global overlay-friendly visibility toggle
+  // suspendAll / resumeAll — overlay-friendly visibility toggle (VSCode style)
   // -------------------------------------------------------------------------
 
   /**
-   * Detach every currently-active WebContentsView from the window's
-   * contentView so DOM overlays (dropdown menus, modal dialogs, drag-to-split
-   * indicators) can render above where the browser would otherwise paint.
+   * Hide every currently-active WebContentsView so DOM overlays can render
+   * above the area the browser would otherwise cover.
    *
-   * The WebContents instances are NOT destroyed — page state (scroll
+   * When `captureSnapshot` is `true` the page is first captured with
+   * `webContents.capturePage()`, encoded to a JPEG dataURL, and returned to
+   * the caller — the caller (ipc.ts) broadcasts each snapshot so the
+   * renderer can overlay it before the live view goes dark.  This is the
+   * VSCode hide-and-screenshot pattern; without it the modal would render
+   * over a blank area.
+   *
+   * When `captureSnapshot` is `false` the hide path runs synchronously
+   * (sub-millisecond) — used by drag operations where any delay would block
+   * `dragover` events from reaching the DOM drop targets.
+   *
+   * The WebContents instances are never destroyed — page state (scroll
    * position, in-progress form input, audio) is preserved.  Background
    * throttling is left untouched on purpose: a momentary overlay should not
    * starve a tab that just had its audio playing.
    *
-   * Pair every `suspendAll` with a matching `resumeAll`.  The renderer holds
-   * the refcount; calling `suspendAll` twice in a row is idempotent on this
-   * side (the second call is a no-op).
+   * Idempotent — a second call while already suspended returns an empty
+   * snapshot list without re-hiding.
+   *
+   * RACE GUARD
+   * ----------
+   * `resumeAll()` may run between this method's `capturePage` and its final
+   * `setVisible(false)`.  Each call snapshots the current `suspendGeneration`
+   * and bails out before hiding if the generation has advanced, leaving the
+   * view visible — exactly what resume requested.
    */
-  suspendAll(): void {
-    if (this.suspended) return;
+  async suspendAll(opts: { captureSnapshot: boolean }): Promise<SuspendSnapshot[]> {
+    if (this.suspended) return [];
     this.suspended = true;
-    for (const entry of this.tabs.values()) {
-      if (entry.active) {
-        this.safeRemoveChildView(entry);
+    const gen = ++this.suspendGeneration;
+
+    const activeEntries: Array<[string, TabEntry]> = [];
+    for (const [tabId, entry] of this.tabs) {
+      if (entry.active && !entry.view.webContents.isDestroyed()) {
+        activeEntries.push([tabId, entry]);
       }
     }
+
+    let snapshots: SuspendSnapshot[] = [];
+    if (opts.captureSnapshot) {
+      snapshots = await this.captureActiveSnapshots(activeEntries);
+    }
+
+    // Bail if resumeAll ran while we were capturing — the view is supposed
+    // to be visible now, hiding here would re-introduce the blank area the
+    // user just dismissed.
+    if (gen !== this.suspendGeneration) return [];
+
+    for (const [, entry] of activeEntries) {
+      if (entry.view.webContents.isDestroyed()) continue;
+      entry.view.setVisible(false);
+    }
+
+    return snapshots;
   }
 
   /**
-   * Re-attach every WebContentsView that was active when the matching
-   * `suspendAll` ran, and re-apply each view's cached bounds so it lands in
-   * exactly the same position as before — Electron does not preserve bounds
-   * across remove/addChildView.
+   * Re-show every WebContentsView that was active when the matching
+   * `suspendAll` ran.
+   *
+   * Returns the list of tabIds that were re-shown — the caller broadcasts a
+   * `snapshot {cleared: true}` event for each so the renderer drops its
+   * cached image and exposes the live view again.
    */
-  resumeAll(): void {
-    if (!this.suspended) return;
+  resumeAll(): string[] {
+    if (!this.suspended) return [];
     this.suspended = false;
-    for (const entry of this.tabs.values()) {
-      if (entry.active) {
-        this.attachAndRestoreBounds(entry);
+    // Bump generation so any in-flight suspendAll capture skips its hide step.
+    this.suspendGeneration++;
+
+    const resumed: string[] = [];
+    for (const [tabId, entry] of this.tabs) {
+      if (entry.active && !entry.view.webContents.isDestroyed()) {
+        entry.view.setVisible(true);
+        resumed.push(tabId);
       }
     }
+    return resumed;
+  }
+
+  /**
+   * Parallel `capturePage()` → JPEG dataURL for each active entry.
+   *
+   * The JPEG payload is roughly 5–10× smaller than the PNG dataURL Electron
+   * returns from `nativeImage.toDataURL()`, which matters because the result
+   * crosses the IPC boundary as a broadcast payload to the renderer.
+   *
+   * `dataUrl` is set to `null` when capture failed, returned an empty image
+   * (page not yet rendered), or produced a payload too small to be a real
+   * page snapshot — the renderer treats `null` as "no overlay available"
+   * and keeps the existing placeholder.
+   */
+  private async captureActiveSnapshots(
+    activeEntries: Array<[string, TabEntry]>,
+  ): Promise<SuspendSnapshot[]> {
+    const TINY_DATA_URL_THRESHOLD = 2_000; // ~150x150 solid-colour JPEG floor
+
+    const captures = activeEntries.map(async ([tabId, entry]): Promise<SuspendSnapshot> => {
+      try {
+        const img = await entry.view.webContents.capturePage();
+        if (img.isEmpty()) return { tabId, dataUrl: null };
+        const buf = img.toJPEG(75);
+        const dataUrl = `data:image/jpeg;base64,${buf.toString("base64")}`;
+        if (dataUrl.length < TINY_DATA_URL_THRESHOLD) {
+          return { tabId, dataUrl: null };
+        }
+        return { tabId, dataUrl };
+      } catch (err) {
+        logger.warn(`[suspendAll] capturePage failed for ${tabId}: ${(err as Error).message}`);
+        return { tabId, dataUrl: null };
+      }
+    });
+
+    return Promise.all(captures);
   }
 
   // -------------------------------------------------------------------------

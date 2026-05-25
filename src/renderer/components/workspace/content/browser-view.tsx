@@ -90,6 +90,12 @@ export function BrowserTabView({
   const canGoBack = runtime?.canGoBack ?? false;
   const canGoForward = runtime?.canGoForward ?? false;
   const isLoading = runtime?.isLoading ?? false;
+  // Page snapshot painted as an absolute overlay while the native view is
+  // hidden by a suspendAll cycle.  When set, it shows the last frame of the
+  // page captured by main right before `setVisible(false)` — letting a
+  // modal/dropdown render above a still image rather than a blank area.
+  // Cleared back to null when `resumeAll` broadcasts a `cleared` event.
+  const snapshot = runtime?.snapshot ?? null;
 
   // Empty state: show when no real URL has been committed for this tab.
   // `about:blank` is used as the synthetic initial load and is treated as
@@ -285,6 +291,21 @@ export function BrowserTabView({
           aria-hidden="true"
           data-browser-placeholder={tabId}
         />
+        {/* Suspend-time snapshot overlay.  Painted as an absolute-fill <img>
+            so DOM modals/menus rendered above still see a still image of the
+            page rather than a blank area.  Only mounted when a snapshot is
+            available — the native WebContentsView paints above this <img>
+            whenever it's visible, so there's no double-rendering during the
+            normal "view shown" state. */}
+        {snapshot && (
+          <img
+            src={snapshot}
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            className="absolute inset-0 w-full h-full object-cover object-left-top pointer-events-none select-none"
+          />
+        )}
       </div>
     </div>
   );

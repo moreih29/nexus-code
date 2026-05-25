@@ -119,6 +119,12 @@ class FakeWebContents {
   insertCSS(_css: string) { return Promise.resolve("k"); }
   setWindowOpenHandler() {}
   loadURL(_url: string) { return Promise.resolve(); }
+  capturePage() {
+    return Promise.resolve({
+      isEmpty: () => false,
+      toJPEG: (_q: number) => Buffer.alloc(3000, 0xff),
+    });
+  }
 
   /** Trigger all registered handlers for the given event. */
   emit(event: string, ...args: unknown[]) {
@@ -132,6 +138,7 @@ class FakeWebContentsView {
   webContents = new FakeWebContents();
   constructor(public opts: unknown) {}
   setBounds() {}
+  setVisible(_v: boolean) {}
 }
 
 class FakeContentView {

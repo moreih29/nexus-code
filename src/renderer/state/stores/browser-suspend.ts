@@ -31,6 +31,23 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import { ipcCallResult } from "@/ipc/client";
 
+/**
+ * Options passed to `claim()` to tell main whether to capture a page
+ * snapshot before hiding the view.
+ *
+ * - `captureSnapshot: true` (default) — used by overlays (modals, dropdowns,
+ *   context menus).  Pays the 30–100ms capturePage cost so the renderer can
+ *   show a still frame under the modal scrim instead of a blank area.
+ *
+ * - `captureSnapshot: false` — used by drag-source claims.  Hides the view
+ *   immediately so `dragover` events can reach DOM drop targets without
+ *   delay.  The brief grey area during a drag is acceptable because drop
+ *   indicators paint on top of it within one frame.
+ */
+export interface BrowserSuspendClaimOptions {
+  captureSnapshot?: boolean;
+}
+
 interface BrowserSuspendState {
   /** Number of currently active claims.  Exposed for debug introspection. */
   count: number;
@@ -40,18 +57,27 @@ interface BrowserSuspendState {
    * Calling the returned `release` more than once is harmless — only the
    * first call decrements the counter.  Designed so React StrictMode's
    * double-invoked cleanup does not corrupt the count.
+   *
+   * Only the 0 → 1 edge fires `suspendAll`, so a second claim that requests
+   * different snapshot-capture semantics does NOT re-issue the IPC.  When
+   * an overlay claim is followed by a drag claim, the screenshot taken at
+   * the overlay's 0→1 edge stays in place for the rest of the suspend
+   * window — which is the intended UX (drag-time grey is only a concern
+   * when drag is the FIRST claim).
    */
-  claim(): () => void;
+  claim(opts?: BrowserSuspendClaimOptions): () => void;
 }
 
 export const useBrowserSuspendStore = create<BrowserSuspendState>((set, get) => ({
   count: 0,
-  claim() {
+  claim(opts) {
+    const captureSnapshot = opts?.captureSnapshot ?? true;
     const next = get().count + 1;
     set({ count: next });
     if (next === 1) {
-      // Edge transition 0 → 1 — main process detaches all active views.
-      void ipcCallResult("browser", "suspendAll", {});
+      // Edge transition 0 → 1 — main process captures (optionally) and hides
+      // every active view.
+      void ipcCallResult("browser", "suspendAll", { captureSnapshot });
     }
 
     let released = false;
@@ -63,8 +89,8 @@ export const useBrowserSuspendStore = create<BrowserSuspendState>((set, get) => 
       // never wraps to negative and resumeAll still fires correctly.
       set({ count: Math.max(0, after) });
       if (after <= 0) {
-        // Edge transition 1 → 0 — main process re-attaches every active view
-        // and re-applies the cached bounds so it lands where it was before.
+        // Edge transition 1 → 0 — main process shows every active view and
+        // broadcasts snapshot-cleared so the renderer drops its cached image.
         void ipcCallResult("browser", "resumeAll", {});
       }
     };
