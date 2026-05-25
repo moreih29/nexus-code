@@ -112,6 +112,16 @@ export function initBrowserRuntimeSubscriptions(): void {
       }
     }),
   );
+
+  // DevTools toggle broadcast — drives the inline split layout.  When `open`
+  // becomes true the renderer mounts its DevTools region and starts a
+  // ResizeObserver that sends `setDevToolsBounds`; when it returns to false
+  // the region unmounts and the page region reclaims the full content area.
+  activeUnsubs.push(
+    ipcListen("browser", "devtoolsToggled", ({ tabId, open }) => {
+      useBrowserRuntimeStore.getState().setRuntime(tabId, { devtoolsOpen: open });
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------

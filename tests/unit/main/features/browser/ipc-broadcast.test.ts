@@ -119,6 +119,13 @@ class FakeWebContents {
   insertCSS(_css: string) { return Promise.resolve("k"); }
   setWindowOpenHandler() {}
   loadURL(_url: string) { return Promise.resolve(); }
+  // DevTools hooks required by registry.openDevTools — exercised by the
+  // devtoolsToggled broadcast test below.
+  devToolsOpen = false;
+  isDevToolsOpened() { return this.devToolsOpen; }
+  openDevTools(_opts: unknown) { this.devToolsOpen = true; }
+  closeDevTools() { this.devToolsOpen = false; }
+  setDevToolsWebContents(_wc: unknown) {}
   capturePage() {
     return Promise.resolve({
       isEmpty: () => false,
@@ -333,5 +340,35 @@ describe("registerBrowserChannel — WebContents event → broadcast", () => {
     );
     expect(call).toBeDefined();
     expect(call!.args).toEqual({ tabId: TAB_ID, title: "My Page Title" });
+  });
+
+  // -------------------------------------------------------------------------
+  // 7. openDevTools IPC → devtoolsToggled broadcast
+  // -------------------------------------------------------------------------
+  //
+  // Each `openDevTools` IPC call must broadcast the new docked-DevTools state
+  // so the renderer can mount / unmount its splitter region.  The broadcast
+  // is what the renderer listens to (NOT the call's return value) — the
+  // renderer only fire-and-forgets the toggle IPC.
+
+  test("openDevTools IPC fires browser:devtoolsToggled with the new open state", () => {
+    makeSetup();
+    // Invoke the IPC handler directly via the captured channel def.
+    capturedChannelDef!.call["openDevTools"]({ tabId: TAB_ID });
+
+    const openCall = broadcastCalls.find(
+      (c) => c.channel === "browser" && c.event === "devtoolsToggled",
+    );
+    expect(openCall).toBeDefined();
+    expect(openCall!.args).toEqual({ tabId: TAB_ID, open: true });
+
+    // Second call closes — same broadcast with `open: false`.
+    broadcastCalls.length = 0;
+    capturedChannelDef!.call["openDevTools"]({ tabId: TAB_ID });
+    const closeCall = broadcastCalls.find(
+      (c) => c.channel === "browser" && c.event === "devtoolsToggled",
+    );
+    expect(closeCall).toBeDefined();
+    expect(closeCall!.args).toEqual({ tabId: TAB_ID, open: false });
   });
 });

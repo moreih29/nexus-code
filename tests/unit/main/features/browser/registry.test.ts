@@ -46,6 +46,17 @@ class FakeWebContents {
   isDevToolsOpened() { return this.devToolsOpen; }
   openDevTools(_opts: unknown) { this.devToolsOpen = true; }
   closeDevTools() { this.devToolsOpen = false; }
+  /**
+   * Records the WebContents passed in so tests can verify the registry's
+   * inline-dock wiring (we expect the page view's webContents to receive a
+   * `setDevToolsWebContents(<devtoolsView.webContents>)` call before
+   * `openDevTools` so Chromium renders the DevTools front-end into the
+   * provided sibling view rather than opening its own host window).
+   */
+  setDevToolsWebContentsCalls: unknown[] = [];
+  setDevToolsWebContents(wc: unknown): void {
+    this.setDevToolsWebContentsCalls.push(wc);
+  }
   loadURL(url: string) { this.loadURLCalls.push(url); return Promise.resolve(); }
   reload() { this.reloadCalled++; }
   reloadIgnoringCache() { this.reloadIgnoringCacheCalled++; }
@@ -666,6 +677,136 @@ describe("BrowserTabRegistry", () => {
 
       const wc = registry.get(BASE_ARGS.tabId)!.view.webContents as unknown as FakeWebContents;
       expect(wc.reloadCalled).toBe(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 12.5  openDevTools / setDevToolsBounds — inline dock lifecycle
+  // -------------------------------------------------------------------------
+
+  describe("inline-docked DevTools", () => {
+    test("openDevTools allocates a sibling view, wires it, and reports open=true", () => {
+      const { registry, win } = makeRegistry();
+      registry.create(BASE_ARGS);
+      registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
+      // Page view is now in the window — the sibling is what we're checking.
+      const beforeChildren = win.contentView.children.length;
+
+      const result = registry.openDevTools({ tabId: BASE_ARGS.tabId });
+
+      expect(result).toEqual({ open: true });
+      // A second WebContentsView was constructed for DevTools.
+      expect(createdViews.length).toBe(2);
+      const pageView = createdViews[0];
+      const devtoolsView = createdViews[1];
+      // The sibling view is attached to the window.
+      expect(win.contentView.children).toContain(devtoolsView);
+      expect(win.contentView.children.length).toBe(beforeChildren + 1);
+      // The page WebContents was told to render DevTools into the sibling.
+      const pageWc = pageView.webContents as FakeWebContents;
+      expect(pageWc.setDevToolsWebContentsCalls.length).toBe(1);
+      expect(pageWc.setDevToolsWebContentsCalls[0]).toBe(devtoolsView.webContents);
+      expect(pageWc.devToolsOpen).toBe(true);
+    });
+
+    test("openDevTools called twice closes — detaches the sibling, returns open=false", () => {
+      const { registry, win } = makeRegistry();
+      registry.create(BASE_ARGS);
+      registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
+      registry.openDevTools({ tabId: BASE_ARGS.tabId });
+      const devtoolsView = createdViews[1];
+
+      const result = registry.openDevTools({ tabId: BASE_ARGS.tabId });
+
+      expect(result).toEqual({ open: false });
+      // Sibling view is removed from the window but NOT destroyed — open path
+      // reuses it on the next toggle.
+      expect(win.contentView.children).not.toContain(devtoolsView);
+      const pageWc = createdViews[0].webContents as FakeWebContents;
+      expect(pageWc.devToolsOpen).toBe(false);
+    });
+
+    test("setDevToolsBounds positions the sibling view after open", () => {
+      const { registry } = makeRegistry();
+      registry.create(BASE_ARGS);
+      registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
+      registry.openDevTools({ tabId: BASE_ARGS.tabId });
+      const devtoolsView = createdViews[1];
+
+      registry.setDevToolsBounds({
+        tabId: BASE_ARGS.tabId,
+        x: 10,
+        y: 200,
+        width: 800,
+        height: 280,
+      });
+
+      expect(devtoolsView.bounds).toEqual({ x: 10, y: 200, width: 800, height: 280 });
+    });
+
+    test("setDevToolsBounds before open caches bounds; openDevTools then applies them", () => {
+      const { registry } = makeRegistry();
+      registry.create(BASE_ARGS);
+      registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
+
+      // Bounds arrive before the user clicks the toggle — no devtools view
+      // yet, so the call is a silent cache.  No crash, no spurious view.
+      registry.setDevToolsBounds({
+        tabId: BASE_ARGS.tabId,
+        x: 0,
+        y: 100,
+        width: 400,
+        height: 200,
+      });
+      expect(createdViews.length).toBe(1);
+
+      registry.openDevTools({ tabId: BASE_ARGS.tabId });
+      const devtoolsView = createdViews[1];
+      // Cached bounds were applied during open's attachAndRestoreBounds path.
+      expect(devtoolsView.bounds).toEqual({ x: 0, y: 100, width: 400, height: 200 });
+    });
+
+    test("setActive(false) detaches the sibling; setActive(true) re-attaches it", () => {
+      const { registry, win } = makeRegistry();
+      registry.create(BASE_ARGS);
+      registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
+      registry.openDevTools({ tabId: BASE_ARGS.tabId });
+      const devtoolsView = createdViews[1];
+
+      registry.setActive({ tabId: BASE_ARGS.tabId, active: false });
+      expect(win.contentView.children).not.toContain(devtoolsView);
+
+      registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
+      expect(win.contentView.children).toContain(devtoolsView);
+    });
+
+    test("suspendAll mirrors the hide onto the open devtools sibling", async () => {
+      const { registry } = makeRegistry();
+      registry.create(BASE_ARGS);
+      registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
+      registry.openDevTools({ tabId: BASE_ARGS.tabId });
+      const devtoolsView = createdViews[1];
+
+      await registry.suspendAll({ captureSnapshot: false });
+      expect(devtoolsView.visible).toBe(false);
+
+      registry.resumeAll();
+      expect(devtoolsView.visible).toBe(true);
+    });
+
+    test("destroy closes the sibling WebContents and removes it from the window", () => {
+      const { registry, win } = makeRegistry();
+      registry.create(BASE_ARGS);
+      registry.setActive({ tabId: BASE_ARGS.tabId, active: true });
+      registry.openDevTools({ tabId: BASE_ARGS.tabId });
+      const devtoolsView = createdViews[1];
+      const devtoolsWc = devtoolsView.webContents as FakeWebContents;
+
+      registry.destroy({ tabId: BASE_ARGS.tabId });
+
+      expect(win.contentView.children).not.toContain(devtoolsView);
+      expect(devtoolsWc.closeCalled).toBe(1);
+      expect(registry.get(BASE_ARGS.tabId)).toBeUndefined();
     });
   });
 

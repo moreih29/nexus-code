@@ -84,6 +84,27 @@ interface TabEntry {
    * remove/addChildView pairs.
    */
   lastBounds: CssBounds | null;
+  /**
+   * Sibling WebContentsView that hosts the DevTools UI when DevTools is
+   * open for this tab.  Lazily created on first `openDevTools` call and
+   * reused across toggles (kept around once allocated — destroying and
+   * recreating is wasted work; calls to `closeDevTools` only detach it
+   * from the window).  Set back to `null` only on tab `destroy`.
+   */
+  devtoolsView: WebContentsView | null;
+  /**
+   * Last bounds applied via `setDevToolsBounds`.  Same role as `lastBounds`
+   * — re-applied whenever the devtools view is re-attached after a
+   * suspend/resume or setActive(true) cycle.
+   */
+  devtoolsBounds: CssBounds | null;
+  /**
+   * Whether DevTools is currently open and docked for this tab.  Used so
+   * `openDevTools` can implement the toggle, `setActive`/suspend can mirror
+   * the page-view visibility decisions onto the devtools view, and ipc.ts
+   * can broadcast the right `devtoolsToggled` payload.
+   */
+  devtoolsOpen: boolean;
 }
 
 /**
@@ -185,7 +206,16 @@ export class BrowserTabRegistry {
     // is enabled from the start to conserve resources until the tab is shown.
     view.webContents.setBackgroundThrottling(true);
 
-    const entry: TabEntry = { view, workspaceId, partition, active: false, lastBounds: null };
+    const entry: TabEntry = {
+      view,
+      workspaceId,
+      partition,
+      active: false,
+      lastBounds: null,
+      devtoolsView: null,
+      devtoolsBounds: null,
+      devtoolsOpen: false,
+    };
     this.tabs.set(tabId, entry);
 
     // Begin loading the initial URL.  Will-navigate guards are already wired.
@@ -214,6 +244,21 @@ export class BrowserTabRegistry {
     if (!entry) {
       logger.warn(`[destroy] unknown tabId: ${tabId}`);
       return;
+    }
+
+    // Tear down the DevTools sibling view first if one was ever allocated.
+    // Mirrors the page-view cleanup below — detach then close WebContents.
+    if (entry.devtoolsView !== null) {
+      try {
+        this.win.contentView.removeChildView(entry.devtoolsView);
+      } catch {
+        // May already be detached (closed before destroy).
+      }
+      if (!entry.devtoolsView.webContents.isDestroyed()) {
+        entry.devtoolsView.webContents.close();
+      }
+      entry.devtoolsView = null;
+      entry.devtoolsOpen = false;
     }
 
     // Detach from the window's view hierarchy.
@@ -314,16 +359,32 @@ export class BrowserTabRegistry {
       // handled separately via setVisible() so suspendAll/resumeAll can
       // toggle painting without re-attaching the view.
       this.attachAndRestoreBounds(entry);
+      // Mirror the attach on the devtools sibling view when DevTools is
+      // open — otherwise switching to another tab and back would leave the
+      // devtools view detached from the window.
+      if (entry.devtoolsOpen && entry.devtoolsView !== null) {
+        this.attachAndRestoreDevtoolsBounds(entry);
+      }
       // If the registry is currently suspended (an overlay is in progress),
       // immediately hide the freshly-attached view so it doesn't paint above
       // the modal.  resumeAll() will call setVisible(true) once the overlay
       // closes.
       if (this.suspended && !entry.view.webContents.isDestroyed()) {
         entry.view.setVisible(false);
+        if (
+          entry.devtoolsView !== null &&
+          !entry.devtoolsView.webContents.isDestroyed()
+        ) {
+          entry.devtoolsView.setVisible(false);
+        }
       }
       entry.view.webContents.setBackgroundThrottling(false);
     } else {
       this.safeRemoveChildView(entry);
+      // Detach the devtools sibling view too — same lifecycle axis.
+      if (entry.devtoolsOpen && entry.devtoolsView !== null) {
+        this.safeRemoveDevtoolsChildView(entry);
+      }
       entry.view.webContents.setBackgroundThrottling(true);
     }
 
@@ -356,6 +417,35 @@ export class BrowserTabRegistry {
   private safeRemoveChildView(entry: TabEntry): void {
     try {
       this.win.contentView.removeChildView(entry.view);
+    } catch {
+      // View may already be detached.
+    }
+  }
+
+  /**
+   * DevTools-view equivalent of `attachAndRestoreBounds`.  Caller has
+   * already verified `entry.devtoolsView !== null`.
+   */
+  private attachAndRestoreDevtoolsBounds(entry: TabEntry): void {
+    const dt = entry.devtoolsView;
+    if (dt === null) return;
+    this.win.contentView.addChildView(dt);
+    const b = entry.devtoolsBounds;
+    if (b !== null) {
+      dt.setBounds({
+        x: Math.round(b.x),
+        y: Math.round(b.y),
+        width: Math.round(b.width),
+        height: Math.round(b.height),
+      });
+    }
+  }
+
+  /** DevTools-view equivalent of `safeRemoveChildView`. */
+  private safeRemoveDevtoolsChildView(entry: TabEntry): void {
+    if (entry.devtoolsView === null) return;
+    try {
+      this.win.contentView.removeChildView(entry.devtoolsView);
     } catch {
       // View may already be detached.
     }
@@ -420,6 +510,15 @@ export class BrowserTabRegistry {
     for (const [, entry] of activeEntries) {
       if (entry.view.webContents.isDestroyed()) continue;
       entry.view.setVisible(false);
+      // Mirror the hide onto the DevTools host view so its OS-level overlay
+      // doesn't paint above a DOM modal either.
+      if (
+        entry.devtoolsOpen &&
+        entry.devtoolsView !== null &&
+        !entry.devtoolsView.webContents.isDestroyed()
+      ) {
+        entry.devtoolsView.setVisible(false);
+      }
     }
 
     return snapshots;
@@ -443,6 +542,13 @@ export class BrowserTabRegistry {
     for (const [tabId, entry] of this.tabs) {
       if (entry.active && !entry.view.webContents.isDestroyed()) {
         entry.view.setVisible(true);
+        if (
+          entry.devtoolsOpen &&
+          entry.devtoolsView !== null &&
+          !entry.devtoolsView.webContents.isDestroyed()
+        ) {
+          entry.devtoolsView.setVisible(true);
+        }
         resumed.push(tabId);
       }
     }
@@ -541,16 +647,95 @@ export class BrowserTabRegistry {
     }
   }
 
-  openDevTools(args: { tabId: string }): void {
+  /**
+   * Toggle inline-docked DevTools for `tabId`.  Returns the new
+   * `{ open }` state so the IPC layer can broadcast a `devtoolsToggled`
+   * event to the renderer.
+   *
+   * INLINE DOCK MECHANISM
+   * ---------------------
+   * The DevTools UI is rendered into a sibling `WebContentsView` (allocated
+   * lazily on first open and reused across toggles) that we add to the
+   * window's contentView at the bounds the renderer provides via
+   * `setDevToolsBounds`.  `setDevToolsWebContents` tells Chromium to render
+   * the DevTools front-end into that sibling instead of opening its own
+   * top-level window.
+   *
+   * The `mode: "detach"` flag passed to `openDevTools` is what stops
+   * Chromium from also creating its default DevTools host window — it sees
+   * the explicit setDevToolsWebContents wiring as the host and follows
+   * that instead.
+   */
+  openDevTools(args: { tabId: string }): { open: boolean } {
     const entry = this.tabs.get(args.tabId);
     if (!entry) {
       logger.warn(`[openDevTools] unknown tabId: ${args.tabId}`);
+      return { open: false };
+    }
+
+    if (entry.devtoolsOpen) {
+      // Close: drop the DevTools front-end and detach the host view from
+      // the window.  The WebContentsView and its WebContents are KEPT so
+      // the next open can reuse the same host (cheaper than re-allocating).
+      if (!entry.view.webContents.isDestroyed()) {
+        entry.view.webContents.closeDevTools();
+      }
+      this.safeRemoveDevtoolsChildView(entry);
+      entry.devtoolsOpen = false;
+      return { open: false };
+    }
+
+    // Open path — lazily allocate the host view.
+    if (entry.devtoolsView === null) {
+      entry.devtoolsView = new WebContentsView({});
+    }
+
+    // Attach the host view to the window when the tab is currently active.
+    // If the tab is inactive (background) the renderer will not be sending
+    // bounds yet — that's fine, attach lazily on the next setActive(true).
+    if (entry.active) {
+      this.attachAndRestoreDevtoolsBounds(entry);
+      // Mirror the suspend state — a global suspendAll may be in progress
+      // when the user opens DevTools (unlikely but harmless to handle).
+      if (this.suspended && !entry.devtoolsView.webContents.isDestroyed()) {
+        entry.devtoolsView.setVisible(false);
+      }
+    }
+
+    entry.view.webContents.setDevToolsWebContents(entry.devtoolsView.webContents);
+    entry.view.webContents.openDevTools({ mode: "detach" });
+    entry.devtoolsOpen = true;
+    return { open: true };
+  }
+
+  /**
+   * Resize/reposition the DevTools host WebContentsView for `tabId`.
+   *
+   * Coordinates follow the same DIP convention as `setBounds`.  Cached on
+   * the entry so setActive(true) can re-apply them on re-attach.  When
+   * DevTools is currently closed for the tab, the bounds are cached but
+   * not applied — the next openDevTools call will use them.
+   */
+  setDevToolsBounds(args: CssBounds & { tabId: string }): void {
+    const { tabId, x, y, width, height } = args;
+    const entry = this.tabs.get(tabId);
+    if (!entry) {
+      logger.warn(`[setDevToolsBounds] unknown tabId: ${tabId}`);
       return;
     }
-    if (!entry.view.webContents.isDevToolsOpened()) {
-      entry.view.webContents.openDevTools({ mode: "detach" });
-    } else {
-      entry.view.webContents.closeDevTools();
+
+    entry.devtoolsBounds = { x, y, width, height };
+
+    if (
+      entry.devtoolsView !== null &&
+      !entry.devtoolsView.webContents.isDestroyed()
+    ) {
+      entry.devtoolsView.setBounds({
+        x: Math.round(x),
+        y: Math.round(y),
+        width: Math.round(width),
+        height: Math.round(height),
+      });
     }
   }
 

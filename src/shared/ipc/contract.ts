@@ -1083,8 +1083,36 @@ export const ipcContract = {
         z.object({ tabId: z.string().uuid(), ignoreCache: z.boolean().optional() }),
         z.void(),
       ),
-      /** Toggle DevTools for the tab (opens detached, closes if already open). */
+      /**
+       * Toggle DevTools for the tab, docked inline as a sibling
+       * WebContentsView within the browser tab area.
+       *
+       * Mechanism: main creates a sibling `WebContentsView` to host the
+       * DevTools UI and wires it to the page's WebContents via
+       * `setDevToolsWebContents()`.  The renderer reserves a region under the
+       * page (default 40 % of the content area, resizable via a horizontal
+       * splitter) and sends `setDevToolsBounds` to position the host view.
+       *
+       * After the toggle, main broadcasts `devtoolsToggled` so the renderer
+       * can show / hide the splitter region.
+       */
       openDevTools: call(z.object({ tabId: z.string().uuid() }), z.void()),
+      /**
+       * Resize/reposition the DevTools-host WebContentsView for `tabId`.
+       *
+       * No-op when DevTools is not currently open for the tab.  Coordinates
+       * are CSS pixels (DIPs), same convention as `setBounds`.
+       */
+      setDevToolsBounds: call(
+        z.object({
+          tabId: z.string().uuid(),
+          x: z.number(),
+          y: z.number(),
+          width: z.number(),
+          height: z.number(),
+        }),
+        z.void(),
+      ),
       /**
        * Hide every active WebContentsView so DOM overlays (dropdown menus,
        * modal dialogs, drag indicators) can paint above the area the browser
@@ -1175,6 +1203,14 @@ export const ipcContract = {
           }),
           z.object({ kind: z.literal("cleared"), tabId: z.string().uuid() }),
         ]),
+      ),
+      /**
+       * Emitted after every `openDevTools` toggle.  Carries the new
+       * docked-DevTools state so the renderer can show / hide its splitter
+       * region and start / stop reporting `setDevToolsBounds`.
+       */
+      devtoolsToggled: listen(
+        z.object({ tabId: z.string().uuid(), open: z.boolean() }),
       ),
     },
   },

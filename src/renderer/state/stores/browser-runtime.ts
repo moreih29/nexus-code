@@ -43,6 +43,15 @@ export interface BrowserRuntimeState {
    * is visible, or no snapshot was captured.
    */
   snapshot: string | null;
+  /**
+   * Whether DevTools is currently open and docked for this tab.
+   *
+   * Driven by the `browser.devtoolsToggled` IPC event so the renderer can
+   * (a) show / hide its splitter region, (b) start / stop the
+   * `setDevToolsBounds` ResizeObserver, (c) reflect an "active" style on
+   * the toolbar toggle button.
+   */
+  devtoolsOpen: boolean;
 }
 
 type BrowserRuntimeMap = Map<string, BrowserRuntimeState>;
@@ -54,6 +63,7 @@ const DEFAULT_RUNTIME: BrowserRuntimeState = {
   canGoForward: false,
   isLoading: false,
   snapshot: null,
+  devtoolsOpen: false,
 };
 
 interface BrowserRuntimeStore {

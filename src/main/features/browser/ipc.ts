@@ -144,7 +144,16 @@ export function registerBrowserChannel(registry: BrowserTabRegistry): void {
 
       openDevTools: (args: unknown) => {
         const { tabId } = validateArgs(c.openDevTools.args, args);
-        registry.openDevTools({ tabId });
+        const { open } = registry.openDevTools({ tabId });
+        // Tell the renderer to show/hide the splitter and start/stop
+        // reporting setDevToolsBounds for this tab.
+        broadcast("browser", "devtoolsToggled", { tabId, open });
+        return ipcOk(undefined);
+      },
+
+      setDevToolsBounds: (args: unknown) => {
+        const { tabId, x, y, width, height } = validateArgs(c.setDevToolsBounds.args, args);
+        registry.setDevToolsBounds({ tabId, x, y, width, height });
         return ipcOk(undefined);
       },
 
@@ -185,6 +194,7 @@ export function registerBrowserChannel(registry: BrowserTabRegistry): void {
       error: {},
       titleUpdated: {},
       snapshot: {},
+      devtoolsToggled: {},
     },
   });
 }
