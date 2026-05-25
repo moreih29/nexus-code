@@ -1,6 +1,6 @@
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
-import { createLogger, initMainLogger } from "../shared/log/main";
+import { initMainLogger } from "../shared/log/main";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { installErrorSafetyNet } from "./error-safety-net";
 import { registerAppStateChannel } from "./features/app-state";
@@ -107,11 +107,6 @@ let gitAutofetch: GitAutofetchScheduler | null = null;
 let agentFsWatcher: AgentFsWatcher | null = null;
 let updatesHandle: UpdatesDomainHandle | null = null;
 
-// Module-level loggers used by menu and bootstrap callbacks. Bound here once
-// (rather than inside each callback) so the source field stays consistent
-// across the run for easy filtering in main.log.
-const menuLogger = createLogger("menu");
-
 function forwardBroadcast(channelName: string, event: string, args: unknown): void {
   broadcast(channelName, event, args);
 }
@@ -207,11 +202,6 @@ app.whenReady().then(async () => {
   // during boot.
   installAppMenu({
     onCheckForUpdates: () => {
-      // Diagnostic log: verifies the menu click reaches the main-process
-      // callback (Cocoa menu → fireCommand → onCheckForUpdates). If this
-      // line never fires when the user clicks the menu item, the breakage
-      // is upstream of the updates domain (menu wiring itself).
-      menuLogger.info(`menu: Check for Updates clicked (handle=${updatesHandle ? "ready" : "null"})`);
       updatesHandle?.checkManual();
     },
   });

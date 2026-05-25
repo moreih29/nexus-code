@@ -143,10 +143,6 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
       lastBroadcastKey = dedupeKey;
     }
 
-    // Diagnostic: confirm the broadcast actually leaves the main process.
-    // If this line fires but the renderer toast never appears, the gap is
-    // in the renderer-side `initUpdatesSubscriptions` listener, not here.
-    logger.info(`updates: broadcast kind=${payload.kind} trigger=${payload.trigger}`);
     broadcast("updates", "statusChanged", payload);
   }
 
@@ -286,11 +282,6 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
     call: {
       check: (args: unknown) => {
         const { trigger } = validateArgs(c.check.args, args);
-        // Diagnostic: confirms the IPC handler is reached. Settings panel's
-        // "Check for Updates" button takes this path. Comparing this with
-        // `checkManual() entry` tells us whether the menu and the panel
-        // share a single failure point or diverge.
-        logger.info(`updates: IPC check trigger=${trigger}`);
         poll(trigger);
         return ipcOk(undefined);
       },
@@ -323,10 +314,6 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
       fireAutoPoll();
     },
     checkManual(): void {
-      // Diagnostic: confirms the menu's onCheckForUpdates callback actually
-      // reaches the updates domain. If menu logs `clicked` but this never
-      // fires, the closure over `updatesHandle` in index.ts is broken.
-      logger.info(`updates: checkManual() entry`);
       poll("manual");
     },
   };
