@@ -99,8 +99,12 @@ export async function bootstrapAppState(): Promise<void> {
   // Hydrate window opacity from appState (authoritative store).
   useWindowOpacityStore.getState().hydrate(state.windowOpacity);
 
-  // Hydrate update channel from appState and install the statusChanged listener.
-  useUpdatesStore.getState().hydrate(state.updateChannel);
+  // Hydrate update preferences (channel + auto-check toggle) from appState
+  // and install the statusChanged listener.
+  useUpdatesStore.getState().hydrate({
+    channel: state.updateChannel,
+    autoCheckEnabled: state.autoCheckForUpdates,
+  });
   initUpdatesSubscriptions();
 
   if (state.layoutByWorkspace) {

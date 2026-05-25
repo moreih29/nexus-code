@@ -91,6 +91,13 @@ export const AppStateSchema = z.object({
   // version as the latest, the statusChanged event is suppressed silently.
   // Reset to null when the user changes updateChannel.
   ignoredUpdateVersion: z.string().nullable().default(null),
+
+  // Auto-check toggle. When true (default), the updates domain fires one
+  // silent GH Releases poll at app startup and surfaces a toast if a newer
+  // version is available. When false, the auto-poll is skipped entirely;
+  // the user can still trigger a manual check from the About panel or the
+  // App menu — manual triggers always respond regardless of this setting.
+  autoCheckForUpdates: z.boolean().default(true),
 });
 
 export type WindowBounds = z.infer<typeof WindowBoundsSchema>;

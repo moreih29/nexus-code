@@ -226,6 +226,16 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
 
   function fireAutoPoll(): void {
     if (autoPollFired) return;
+    // Respect the user's preference: when autoCheckForUpdates is false the
+    // auto-poll is skipped silently. We do NOT mark `autoPollFired = true`
+    // here — if the user re-enables the setting later (channel change path
+    // or future direct toggle wiring), the poll should fire then. Manual
+    // checks (App menu / About panel button) bypass this gate entirely.
+    const enabled = stateService.getState().autoCheckForUpdates ?? true;
+    if (!enabled) {
+      logger.info("updates: auto-poll suppressed (autoCheckForUpdates=false)");
+      return;
+    }
     autoPollFired = true;
     poll("auto");
   }

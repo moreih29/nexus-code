@@ -145,6 +145,7 @@ function makeCurrentFetch(tag = "0.1.0"): typeof fetch {
 type AppStatePartial = {
   updateChannel?: "stable" | "beta";
   ignoredUpdateVersion?: string | null;
+  autoCheckForUpdates?: boolean;
 };
 
 function makeStateService(initial: AppStatePartial = {}) {
@@ -454,5 +455,44 @@ describe("installUpdatesDomain — Case G: 3-second progress broadcast via timer
     expect(afterFire.length).toBe(1);
     const checkingPayload = afterFire[0].payload as { kind: string; trigger: string };
     expect(checkingPayload.trigger).toBe("manual");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Case H — autoCheckForUpdates=false suppresses auto-poll but keeps manual
+// ---------------------------------------------------------------------------
+
+describe("installUpdatesDomain — Case H: autoCheckForUpdates toggle gates auto-poll only", () => {
+  test("auto-poll is silent when toggle is off; manual still broadcasts", async () => {
+    const calls: BroadcastCall[] = [];
+    const broadcast = (ch: string, ev: string, payload: unknown) => {
+      calls.push({ channel: ch, event: ev, payload });
+    };
+    const stateService = makeStateService({ autoCheckForUpdates: false });
+
+    const handle = installUpdatesDomain({
+      broadcast,
+      stateService: stateService as never,
+      currentVersion: "0.1.0",
+      fetchImpl: makeNewerFetch("0.2.0"),
+    });
+
+    // Auto-poll path should suppress without contacting the fetch mock —
+    // the toggle gate sits in front of the poll itself.
+    handle.runInitialAutoPoll();
+    await new Promise((r) => setTimeout(r, 10));
+    const autoBroadcasts = calls.filter((c) => c.event === "statusChanged");
+    expect(autoBroadcasts.length).toBe(0);
+
+    // Manual path ignores the toggle — user clicked the button, they
+    // expect a response.
+    handle.checkManual();
+    await new Promise((r) => setTimeout(r, 10));
+    const manualNewer = calls.filter(
+      (c) =>
+        c.event === "statusChanged" &&
+        (c.payload as { kind: string }).kind === "newer",
+    );
+    expect(manualNewer.length).toBe(1);
   });
 });
