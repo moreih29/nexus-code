@@ -24,7 +24,6 @@
  */
 
 import { Dialog as RadixDialog } from "radix-ui";
-import { useBrowserSuspendWhile } from "@/state/stores/browser-suspend";
 import { cn } from "@/utils/cn";
 
 /**
@@ -106,10 +105,12 @@ export function Dialog({
   children,
   ...rest
 }: DialogProps): React.JSX.Element {
-  // Suspend embedded browser views while the dialog is open so the modal's
-  // scrim and content render above any WebContentsView overlay.  See
-  // `state/stores/browser-suspend.ts` for the refcount details.
-  useBrowserSuspendWhile(open);
+  // Browser-overlay suspend is handled centrally by the MutationObserver-based
+  // auto-suspend in `state/operations/browser-suspend-auto.ts`, which watches
+  // body for any Radix `[role="dialog"]` portal element.  See that module
+  // for the rationale — wiring suspend per-component would silently miss
+  // any dialog that bypasses this wrapper (e.g. the Settings dialog using
+  // RadixDialog.Root directly).
 
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>

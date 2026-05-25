@@ -25,6 +25,7 @@ import {
   initBrowserLastUrlPersistence,
   initBrowserRuntimeSubscriptions,
 } from "./state/operations/browser";
+import { initBrowserOverlayAutoSuspend } from "./state/operations/browser-suspend-auto";
 
 /**
  * Hydrate persisted UI widths, layout snapshots, and tab records from
@@ -53,12 +54,17 @@ export async function bootstrapAppState(): Promise<void> {
   // Must be called after initBrowserRuntimeSubscriptions.
   initBrowserLastUrlPersistence();
 
-  // Drag-time browser-overlay suspend is now claimed/released from
-  // `use-drag-source.ts` directly (React bubble-phase `onDragStart` → one-shot
-  // document `dragend`).  No bootstrap-time global listener is required —
-  // doing it from React's handler avoids a capture-phase race against
-  // `setData` that would otherwise leave the WebContentsView covering the
-  // drop zone.
+  // Drag-time browser-overlay suspend is claimed/released from
+  // `use-drag-source.ts` directly (React bubble-phase `onDragStart` →
+  // one-shot document `dragend` + unmount cleanup).  Doing it from React's
+  // handler avoids a capture-phase race against `setData` that would
+  // otherwise leave the WebContentsView covering the drop zone.
+  //
+  // Modal / dropdown / context-menu / popover overlays are handled by the
+  // MutationObserver-based auto-suspend below — it watches body for any
+  // Radix portal element so callsites bypassing our wrapper (e.g. the
+  // Settings dialog using RadixDialog.Root directly) still trigger suspend.
+  initBrowserOverlayAutoSuspend();
 
   // Bootstrap is an initialization path — no recovery possible if appState is unavailable.
   const state = mustSucceed(await ipcCallResult("appState", "get", undefined));

@@ -21,7 +21,7 @@
  * document-level capture listener would race against React and silently
  * leave the WebContentsView attached — see commit history for the bug.
  */
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { color } from "../../../shared/design-tokens";
 import { useBrowserSuspendStore } from "../../state/stores/browser-suspend";
 
@@ -83,6 +83,23 @@ export function useDragSource<T>({
   dragImage,
   effectAllowed = "move",
 }: UseDragSourceOptions<T>): UseDragSourceResult {
+  // Holds the release callback for the currently-active suspend claim, if any.
+  //
+  // Stored in a ref (rather than a closure-local variable) so the unmount
+  // cleanup below can release a stale claim when the source element
+  // disappears mid-drag.  This is the common case during drag-to-split:
+  // the dragged TabItem moves from the source leaf's tab-bar to the
+  // destination leaf's tab-bar, which unmounts the source React node
+  // before the OS dispatches `dragend` to it.  Without unmount cleanup the
+  // suspend claim was held forever and every browser tab in the app stayed
+  // setVisible(false).
+  const releaseRef = useRef<(() => void) | null>(null);
+
+  const releaseClaim = useCallback(() => {
+    releaseRef.current?.();
+    releaseRef.current = null;
+  }, []);
+
   const onDragStart = useCallback(
     (e: React.DragEvent<HTMLElement>) => {
       if (!e.dataTransfer) return;
@@ -100,28 +117,42 @@ export function useDragSource<T>({
         applyTextDragImage(e, dragImage.text, offset);
       }
 
-      // Browser-overlay suspend.  This runs in React's bubble-phase handler,
-      // so the WebContentsView covering the panel is already known to be in
-      // the way of any drop target — claim the suspend slot now and release
-      // it on the next document `dragend`.  Bubble-phase ensures `setData`
-      // above has finished and any drop-target observer can see our MIME.
+      // Browser-overlay suspend.  Runs in React's bubble-phase handler so
+      // `setData` above has already populated the MIME types by the time
+      // the suspend kicks in.  See commit history for the capture-phase
+      // race that motivates the bubble-phase placement.
       //
       // `captureSnapshot: false` because a drag needs the view hidden
       // immediately for drop targets to receive `dragover` — the 30-100ms
       // capturePage round-trip would lag the drag noticeably.  Drop
       // indicators paint over the briefly-grey area within one frame.
-      const release = useBrowserSuspendStore.getState().claim({ captureSnapshot: false });
+      //
+      // Defensively release any prior stranded claim (shouldn't normally
+      // happen since dragstart implies the previous drag has ended).
+      releaseClaim();
+      releaseRef.current = useBrowserSuspendStore
+        .getState()
+        .claim({ captureSnapshot: false });
+
+      // Pair with a one-shot document `dragend` — the standard path when
+      // the source element is still in the DOM at drop time.
       const onDragEnd = () => {
-        release();
+        releaseClaim();
         document.removeEventListener("dragend", onDragEnd);
       };
-      // `dragend` fires on the source even when the drop is cancelled (Esc,
-      // dropped outside any target, dropped in another window), so this
-      // one-shot listener cannot leak the claim.
       document.addEventListener("dragend", onDragEnd);
     },
-    [mime, payload, dragImage, effectAllowed],
+    [mime, payload, dragImage, effectAllowed, releaseClaim],
   );
+
+  // Unmount safety net.  If the source React node is removed mid-drag —
+  // e.g. drag-to-split moves a TabItem to a new leaf's tab-bar, unmounting
+  // the original — the OS does not always dispatch `dragend` on a detached
+  // element, and the document-level listener above never fires.  Release
+  // here as a last resort.
+  useEffect(() => {
+    return releaseClaim;
+  }, [releaseClaim]);
 
   return { onDragStart };
 }

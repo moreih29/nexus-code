@@ -58,16 +58,31 @@ if (typeof (globalThis as Record<string, unknown>).Event === "undefined") {
 }
 
 // ---------------------------------------------------------------------------
-// Mock react.useCallback as identity — the hook is invoked outside a render
-// tree in these tests, but its only React dependency is the useCallback
-// wrapper.  Mirrors the pattern used in `ref-chip.test.tsx`.
+// Mock the React hooks the source under test uses, so it can be invoked
+// without a renderer.  `useEffect` cleanups are collected into a module-level
+// array so tests can manually invoke them to simulate component unmount.
+// Mirrors the pattern used in `ref-chip.test.tsx`.
 // ---------------------------------------------------------------------------
+
+const pendingCleanups: Array<() => void> = [];
 
 const realReact = await import("react");
 mock.module("react", () => ({
   ...realReact,
   useCallback: <T extends (...args: never[]) => unknown>(callback: T) => callback,
+  useRef: <T>(initial: T) => ({ current: initial }),
+  useEffect: (cb: () => void | (() => void)) => {
+    const ret = cb();
+    if (typeof ret === "function") pendingCleanups.push(ret);
+  },
 }));
+
+/** Run all pending useEffect cleanups (simulates component unmount). */
+function flushCleanups(): void {
+  while (pendingCleanups.length > 0) {
+    pendingCleanups.shift()?.();
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Mock the IPC client so the suspend store can call suspendAll/resumeAll
@@ -231,6 +246,37 @@ describe("useDragSource — browser-suspend integration", () => {
 
     expect(useBrowserSuspendStore.getState().count).toBe(0);
     // Only one resumeAll, not two.
+    expect(ipcCalls.filter((c) => c.method === "resumeAll").length).toBe(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // 4. Unmount safety net — component disappears mid-drag.
+  //
+  // Drag-to-split moves a TabItem to a different leaf's tab-bar, unmounting
+  // the source React node BEFORE the OS dispatches `dragend` on it.  The
+  // document-level listener never fires in that case, but the useEffect
+  // cleanup must still release the claim so the browser view doesn't stay
+  // setVisible(false) forever.
+  // -------------------------------------------------------------------------
+
+  test("unmount mid-drag releases the claim even when dragend never fires", () => {
+    useBrowserSuspendStore.setState({ count: 0 });
+    ipcCalls.length = 0;
+    // Drain any pending cleanups left over from prior tests.
+    pendingCleanups.length = 0;
+
+    const onDragStart = buildOnDragStart();
+    onDragStart(
+      fakeDragEvent(docStub.createElement("div")) as unknown as React.DragEvent<HTMLElement>,
+    );
+
+    expect(useBrowserSuspendStore.getState().count).toBe(1);
+
+    // Simulate component unmount WITHOUT dispatching dragend first — this is
+    // the drag-to-split scenario where the TabItem moves to a new leaf.
+    flushCleanups();
+
+    expect(useBrowserSuspendStore.getState().count).toBe(0);
     expect(ipcCalls.filter((c) => c.method === "resumeAll").length).toBe(1);
   });
 });

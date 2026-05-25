@@ -4,7 +4,6 @@
 
 import { AlertDialog as RadixAlertDialog } from "radix-ui";
 import type { GitExpandedGroupKey } from "../../../../../shared/git/types";
-import { useBrowserSuspendWhile } from "../../../../state/stores/browser-suspend";
 import { Button } from "../../../ui/button";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../../../ui/dialog";
 
@@ -29,11 +28,6 @@ export function ConfirmDiscardDialog({
   onCancel,
   onConfirm,
 }: ConfirmDiscardDialogProps) {
-  // Hold a browser-suspend claim while the dialog is open so the modal scrim
-  // and content render above any embedded WebContentsView.  See
-  // `state/stores/browser-suspend.ts`.
-  useBrowserSuspendWhile(request !== null);
-
   return (
     <RadixAlertDialog.Root
       open={request !== null}

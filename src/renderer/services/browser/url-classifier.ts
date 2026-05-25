@@ -12,13 +12,25 @@
  * PRIORITY ORDER (evaluated top-down, first match wins):
  *   1. Blocked schemes (javascript:, data:, about:)              → blocked
  *   2. Explicit http://, https://, or file:// scheme             → navigate (as-is)
- *   3. localhost / 127.0.0.1 / IPv4 with optional port           → navigate (http://)
- *   4. No-space string with dot + TLD-like suffix                → navigate (https://)
- *   5. Anything else                                             → search
+ *   3. Absolute file path (`/...`)                               → navigate (file://)
+ *   4. localhost / 127.0.0.1 / IPv4 with optional port           → navigate (http://)
+ *   5. No-space string with dot + TLD-like suffix
+ *      AND no slash before the first dot                         → navigate (https://)
+ *   6. Anything else                                             → search
  *
  * file: is in the allowed set (alongside http/https) so users can open
  * local HTML / documents from disk.  See navigation-allowlist.ts for the
  * security rationale and constraints (webSecurity + sandbox still apply).
+ *
+ * THE SLASH-BEFORE-DOT GUARD (rule 5)
+ * Without this guard, a partial file path like `Users/kih/notes.html` gets
+ * mistaken for a domain because `.html` matches the 2-6-letter TLD pattern,
+ * and we'd auto-prefix it with `https://` → `https://users/kih/notes.html`
+ * → ERR_NAME_NOT_RESOLVED.  The guard distinguishes:
+ *   `example.com/foo.html`  — dot before slash → real domain.
+ *   `Users/kih/notes.html`  — slash before dot → path-like, NOT a domain.
+ *                              Falls through to search rather than navigate.
+ * The user's expected path-form (`/Users/...`) is handled by rule 3 above.
  */
 
 // ---------------------------------------------------------------------------
@@ -90,22 +102,43 @@ export function classifyUrl(raw: string): UrlClassifierResult {
     };
   }
 
-  // 2. Explicit http:// or https://
+  // 2. Explicit http://, https://, or file:// scheme
   if (EXPLICIT_HTTP_RE.test(input)) {
     return { kind: "navigate", url: input };
   }
 
-  // 3. Local address (localhost / 127.0.0.1 / raw IPv4)
+  // 3. Absolute file path (`/Users/foo`, `/home/me/x.html`).
+  //    The user explicitly opted into file:// support; an unambiguous
+  //    leading slash is the safest auto-prefix because no remote URL form
+  //    starts with `/`.
+  if (input.startsWith("/")) {
+    return { kind: "navigate", url: `file://${input}` };
+  }
+
+  // 4. Local address (localhost / 127.0.0.1 / raw IPv4)
   if (LOCAL_ADDRESS_RE.test(input)) {
     return { kind: "navigate", url: `http://${input}` };
   }
 
-  // 4. Domain-like string (has a dot, no spaces, TLD-like suffix)
+  // 5. Domain-like string (has a dot, no spaces, TLD-like suffix).
+  //
+  //    Slash-before-dot guard: an input like `Users/kih/notes.html` matches
+  //    DOMAIN_LIKE_RE because `.html` looks like a 2-6 letter TLD, but it
+  //    is clearly a relative file path — the slash appears BEFORE the
+  //    first dot.  Real domains have the dot in the host (which precedes
+  //    any path slash): `example.com/foo.html`.  Fall through to search
+  //    when the slash comes first; users wanting a local file should
+  //    write the leading `/` (rule 3) or the full `file://` scheme (rule 2).
   if (DOMAIN_LIKE_RE.test(input)) {
-    return { kind: "navigate", url: `https://${input}` };
+    const slashIdx = input.indexOf("/");
+    const dotIdx = input.indexOf(".");
+    if (slashIdx === -1 || dotIdx < slashIdx) {
+      return { kind: "navigate", url: `https://${input}` };
+    }
+    // slash precedes the first dot → path-like, fall through.
   }
 
-  // 5. Fallback: Google search
+  // 6. Fallback: Google search
   return {
     kind: "search",
     url: `https://www.google.com/search?q=${encodeURIComponent(input)}`,

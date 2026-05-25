@@ -199,6 +199,61 @@ describe("classifyUrl — file:// scheme (navigate)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 9b. Absolute file path — auto-prefix file://
+//
+// Users that type `/Users/...` (omitting the file:// scheme) should land on
+// the same local file as `file:///Users/...`.  No other rule starts with a
+// leading slash so this is an unambiguous shortcut.
+// ---------------------------------------------------------------------------
+
+describe("classifyUrl — absolute file path (auto-prefix file://)", () => {
+  it("prepends file:// to a Unix-style absolute path", () => {
+    const result = classifyUrl("/Users/kih/workspaces/notes.html");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("file:///Users/kih/workspaces/notes.html");
+  });
+
+  it("handles paths with no file extension", () => {
+    const result = classifyUrl("/etc/hosts");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("file:///etc/hosts");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9c. Path-like input WITHOUT leading slash — must NOT be classified as
+// https://domain.com.  Falls through to search.
+//
+// `Users/kih/foo.html` matches the loose domain-like regex because `.html`
+// is 2-6 letters and looks like a TLD, but the slash before the dot is the
+// telltale sign that this is a path, not a domain.  The guard added in the
+// classifier rule 5 must catch this; otherwise auto-prefix turns it into
+// `https://users/kih/foo.html` which fails with ERR_NAME_NOT_RESOLVED.
+// ---------------------------------------------------------------------------
+
+describe("classifyUrl — path-like input without leading slash (search fallback)", () => {
+  it("does not auto-prefix https:// when the slash precedes the dot", () => {
+    const result = classifyUrl("Users/kih/foo.html");
+    expect(result.kind).toBe("search");
+    // Confirm it didn't sneak through as https://users/kih/foo.html.
+    expect(result.url).not.toContain("//users/");
+  });
+
+  it("falls through to search for path-like input ending in another extension", () => {
+    const result = classifyUrl("documents/report.pdf");
+    expect(result.kind).toBe("search");
+  });
+
+  // The complementary positive case: real domain with a path/extension stays
+  // a navigate.  Pins that we only excluded the slash-before-dot inputs.
+  it("still navigates https:// for a real domain followed by a slash-path", () => {
+    const result = classifyUrl("example.com/foo.html");
+    expect(result.kind).toBe("navigate");
+    expect(result.url).toBe("https://example.com/foo.html");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 10. javascript: scheme — blocked
 // ---------------------------------------------------------------------------
 

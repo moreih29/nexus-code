@@ -5,7 +5,6 @@ import { AlertDialog as RadixAlertDialog } from "radix-ui";
 import { useMemo, useState } from "react";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "@/components/ui/dialog";
 import type { Tag } from "../../../../../shared/git/types";
-import { useBrowserSuspendWhile } from "../../../../state/stores/browser-suspend";
 import { useGitStore } from "../../../../state/stores/git";
 import { Button } from "../../../ui/button";
 import { FormDialog, type FormDialogField, type FormDialogValues } from "../../../ui/form-dialog";
@@ -223,10 +222,6 @@ function TagDeleteConfirmDialog({
   onCancel: () => void;
   onConfirm: (request: DeleteTagRequest) => void;
 }) {
-  // Suspend embedded WebContentsViews while open so the modal renders above
-  // any browser tab.  See `state/stores/browser-suspend.ts`.
-  useBrowserSuspendWhile(request !== null);
-
   return (
     <RadixAlertDialog.Root
       open={request !== null}

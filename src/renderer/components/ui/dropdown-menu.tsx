@@ -4,18 +4,15 @@
  * / {@link ContextMenuItem} so the two menus stay visually consistent.
  *
  * BROWSER-OVERLAY SUSPEND
- * Every Root tracks its own open state internally so it can claim a browser
- * suspend slot while open. WebContentsView paints above the renderer DOM, so
- * without this claim a dropdown opening over a browser tab would render
- * underneath the page.  See `state/stores/browser-suspend.ts` for the
- * refcount details.
+ * Handled centrally by `state/operations/browser-suspend-auto.ts`'s
+ * MutationObserver — it watches body for any Radix popper container and
+ * claims a suspend slot while one is present, so embedded browser views
+ * are hidden under DOM menus without per-wrapper wiring.
  *
  * Public surface: DropdownMenuRoot · DropdownMenuTrigger · DropdownMenuContent
  *                 DropdownMenuItem · DropdownMenuShortcut · DropdownMenuSeparator
  */
 import { DropdownMenu as RadixDropdownMenu } from "radix-ui";
-import { useState } from "react";
-import { useBrowserSuspendWhile } from "@/state/stores/browser-suspend";
 
 const CONTENT_CLASS =
   "bg-popover text-popover-foreground border border-border rounded-(--radius-control) shadow-none py-1 min-w-[180px] z-50";
@@ -35,21 +32,8 @@ interface DropdownMenuRootProps {
 }
 
 export function DropdownMenuRoot({ children, onOpenChange }: DropdownMenuRootProps) {
-  // Track open state locally so we can hold a browser-suspend claim for the
-  // duration of the menu being open.  Radix Root remains uncontrolled —
-  // we only mirror its open state via the callback.
-  const [open, setOpen] = useState(false);
-  useBrowserSuspendWhile(open);
-
   return (
-    <RadixDropdownMenu.Root
-      onOpenChange={(next) => {
-        setOpen(next);
-        onOpenChange?.(next);
-      }}
-    >
-      {children}
-    </RadixDropdownMenu.Root>
+    <RadixDropdownMenu.Root onOpenChange={onOpenChange}>{children}</RadixDropdownMenu.Root>
   );
 }
 
