@@ -29,7 +29,7 @@ import { useCallback, useId, useState } from "react";
 import { ipcCallResult } from "../../../ipc/client";
 import { useUpdatesStore } from "../../../state/stores/updates";
 import { Button } from "../../ui/button";
-import { Checkbox } from "../../ui/checkbox";
+import { Switch } from "../../ui/switch";
 
 // ---------------------------------------------------------------------------
 // Static product metadata
@@ -51,7 +51,7 @@ export function AboutPanel() {
 
   const handleAutoCheckChange = useCallback(
     (next: boolean) => {
-      // Optimistic local update so the checkbox flips immediately.
+      // Optimistic local update so the switch flips immediately.
       setAutoCheckEnabled(next);
       // Persist to AppState — fire-and-forget. Failure to persist keeps the
       // visible state and main will re-hydrate on next boot. The poll guard
@@ -71,26 +71,42 @@ export function AboutPanel() {
   }, [checking]);
 
   return (
-    <div className="flex flex-col items-center gap-3 py-8 text-center">
-      <div className="text-app-body-emphasis text-foreground">{APP_NAME}</div>
-      <div className="text-app-body text-muted-foreground">Version {__APP_VERSION__}</div>
-      <div className="text-app-ui-sm text-muted-foreground">{COPYRIGHT}</div>
+    <div className="flex flex-col gap-6">
+      {/* Product identity — left-aligned stack to match every other
+          Settings panel (Appearance / Editor / Terminal / Notifications). */}
+      <div className="flex flex-col gap-1">
+        <div className="text-app-body-emphasis text-foreground">{APP_NAME}</div>
+        <div className="text-app-ui-sm text-muted-foreground">
+          Version {__APP_VERSION__}
+        </div>
+        <div className="text-app-ui-sm text-muted-foreground">{COPYRIGHT}</div>
+      </div>
 
-      <label
-        htmlFor={autoCheckId}
-        className="mt-6 flex items-center gap-2 cursor-pointer"
-      >
-        <Checkbox
+      {/* Auto-check row — stacked label + helper on the left, Switch
+          pinned right. Same pattern as the Notifications panel. */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-1 min-w-0">
+          <label
+            htmlFor={autoCheckId}
+            className="text-app-body text-foreground cursor-pointer"
+          >
+            Automatically check for updates
+          </label>
+          <p className="text-app-ui-sm text-muted-foreground">
+            Fire one silent GitHub Releases check at app startup. Manual
+            checks below always run regardless of this setting.
+          </p>
+        </div>
+        <Switch
           id={autoCheckId}
           checked={autoCheckEnabled}
-          onCheckedChange={(v) => handleAutoCheckChange(v === true)}
+          onCheckedChange={handleAutoCheckChange}
+          className="shrink-0 mt-1"
         />
-        <span className="text-app-body text-foreground">
-          Automatically check for updates on startup
-        </span>
-      </label>
+      </div>
 
-      <div className="mt-2">
+      {/* Manual check action — small button, left-aligned. */}
+      <div>
         <Button
           variant="outline"
           size="sm"

@@ -15,7 +15,7 @@
 import { useCallback, useId } from "react";
 import { ipcCallResult } from "../../../ipc/client";
 import { useNotificationsStore } from "../../../state/stores/notifications";
-import { Checkbox } from "../../ui/checkbox";
+import { Switch } from "../../ui/switch";
 
 export function NotificationsPanel() {
   const osEnabled = useNotificationsStore((s) => s.osEnabled);
@@ -25,7 +25,7 @@ export function NotificationsPanel() {
 
   const handleOsToggleChange = useCallback(
     (next: boolean) => {
-      // Optimistic local update so the checkbox flips immediately.
+      // Optimistic local update so the switch flips immediately.
       setOsEnabled(next);
       // Persist to AppState — main reads via `stateService.getState()` on
       // every hook fire, so the change takes effect on the next hook event
@@ -37,28 +37,32 @@ export function NotificationsPanel() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <label
-          htmlFor={osToggleId}
-          className="flex items-center gap-2 cursor-pointer"
-        >
-          <Checkbox
-            id={osToggleId}
-            checked={osEnabled}
-            onCheckedChange={(v) => handleOsToggleChange(v === true)}
-          />
-          <span className="text-app-body text-foreground">
+      {/* Row: stacked label + helper on the left, Switch pinned right —
+          mirrors the macOS / VSCode settings pattern used elsewhere in
+          this app. items-start so the switch lines up with the title row,
+          not the bottom of the helper text. */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-1 min-w-0">
+          <label
+            htmlFor={osToggleId}
+            className="text-app-body text-foreground cursor-pointer"
+          >
             Show desktop notifications
-          </span>
-        </label>
-        <p className="text-app-ui-sm text-muted-foreground">
-          When Claude needs your attention (response complete, permission
-          request, or a notification hook), the app surfaces an OS-level
-          desktop notification — but only while you are not viewing that tab.
-          Turning this off suppresses all such notifications. In-app
-          indicators (sidebar attention dot, response preview) remain
-          regardless.
-        </p>
+          </label>
+          <p className="text-app-ui-sm text-muted-foreground">
+            When Claude needs your attention (response complete, permission
+            request, or a notification hook), the app surfaces an OS-level
+            desktop notification — but only while you are not viewing that
+            tab. In-app indicators (sidebar attention dot, response preview)
+            remain regardless.
+          </p>
+        </div>
+        <Switch
+          id={osToggleId}
+          checked={osEnabled}
+          onCheckedChange={handleOsToggleChange}
+          className="shrink-0 mt-1"
+        />
       </div>
     </div>
   );
