@@ -25,6 +25,18 @@ export const GitCommitTabPayloadSchema = z.object({
 });
 export type GitCommitTabPayload = z.infer<typeof GitCommitTabPayloadSchema>;
 
+/**
+ * BrowserTab payload — fully persisted. `partition` follows the
+ * `persist:browser-${workspaceId}` convention; the caller is responsible
+ * for constructing the correct value before creating a tab.
+ */
+export const BrowserTabPayloadSchema = z.object({
+  initialUrl: z.string(),
+  lastUrl: z.string(),
+  partition: z.string(),
+});
+export type BrowserTabPayload = z.infer<typeof BrowserTabPayloadSchema>;
+
 export const TabMetaSchema = z.discriminatedUnion("type", [
   TabBaseSchema.extend({
     type: z.literal("terminal"),

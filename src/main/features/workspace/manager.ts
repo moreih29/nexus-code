@@ -187,6 +187,16 @@ export class WorkspaceManager {
    */
   private ptySessionCloser: ((workspaceId: string) => void) | null = null;
 
+  /**
+   * Optional async callback invoked by `remove()` after the PTY sessions are
+   * closed and before the workspace:removed broadcast. Injected after
+   * construction (see `setBrowserCloser`) so the browser registry and
+   * WorkspaceManager can be wired without a circular import.
+   * When set, remove() awaits this to destroy all browser views and clear the
+   * workspace's storage partition before the context is deleted.
+   */
+  private browserCloser: ((workspaceId: string) => Promise<void>) | null = null;
+
   private readonly contexts = new Map<string, WorkspaceContext>();
   private readonly localChannels = new Map<string, AgentChannel>();
   private readonly localProviderReady = new Map<string, Promise<void>>();
@@ -506,6 +516,19 @@ export class WorkspaceManager {
     this.ptySessionCloser = closer;
   }
 
+  /**
+   * Registers the browser closer called by `remove()` before the workspace
+   * context is deleted. Wired from `main/index.ts` after both the
+   * WorkspaceManager and the browser registry have been initialised — breaks
+   * the construction-time circular dependency without restructuring constructors.
+   *
+   * The closer destroys all WebContentsViews for the workspace and clears the
+   * workspace's storage partition via session.fromPartition().clearStorageData().
+   */
+  setBrowserCloser(closer: (workspaceId: string) => Promise<void>): void {
+    this.browserCloser = closer;
+  }
+
   // ---------------------------------------------------------------------------
   // Mutations
   // ---------------------------------------------------------------------------
@@ -773,6 +796,18 @@ export class WorkspaceManager {
     // The PTY host emits pty.exit events for each live session so the
     // renderer's dead-terminal banner fires without waiting for IPC.
     this.ptySessionCloser?.(id);
+
+    // Step 1b — destroy all browser views for this workspace and schedule
+    // clearStorageData. View destroys happen synchronously inside the async
+    // closer before the first await, so they complete before the context is
+    // deleted below. clearStorageData is fire-and-forget relative to remove().
+    if (this.browserCloser) {
+      void this.browserCloser(id).catch((err: unknown) => {
+        console.warn(
+          `[workspace] browser closer failed for ${id}: ${(err as Error).message}`,
+        );
+      });
+    }
 
     // Step 2 — dispose the workspace storage handle and agent channels.
     ctx.close();

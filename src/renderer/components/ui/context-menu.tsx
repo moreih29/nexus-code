@@ -3,6 +3,10 @@
  * whole app. Callers compose menus declaratively using {@link ContextMenuItem}
  * children and `<ContextMenuSeparator />`. Keeps every menu visually
  * consistent and avoids re-typing the long Tailwind className for each item.
+ *
+ * BROWSER-OVERLAY SUSPEND
+ * Handled centrally by `state/operations/browser-suspend-auto.ts` — see
+ * that module for the rationale.
  */
 import { ContextMenu as RadixContextMenu } from "radix-ui";
 

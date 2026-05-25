@@ -26,6 +26,15 @@ export function registerDialogChannel(): void {
         });
         return { canceled: result.canceled, filePaths: result.filePaths };
       },
+      showSaveDialog: async (args: unknown) => {
+        const opts = validateArgs(c.showSaveDialog.args, args) ?? {};
+        const result = await dialog.showSaveDialog({
+          title: opts.title,
+          defaultPath: opts.defaultPath,
+          filters: opts.filters,
+        });
+        return { canceled: result.canceled, filePath: result.filePath };
+      },
     },
     listen: {},
   });

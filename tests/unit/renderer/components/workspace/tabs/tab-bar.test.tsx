@@ -118,6 +118,8 @@ function renderBar(tabs: Tab[], activeTabId = "tab-1"): string {
       onSelectTab={() => {}}
       onCloseTab={() => {}}
       onNewTerminalTab={() => {}}
+      onNewUntitledTab={() => {}}
+      onNewBrowserTab={() => {}}
     />,
   );
 }

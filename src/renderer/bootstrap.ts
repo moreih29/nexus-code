@@ -21,6 +21,11 @@ import { useWindowOpacityStore } from "./state/stores/window-opacity";
 import { startNotificationClickListener } from "./state/notification-click";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
 import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
+import {
+  initBrowserLastUrlPersistence,
+  initBrowserRuntimeSubscriptions,
+} from "./state/operations/browser";
+import { initBrowserOverlayAutoSuspend } from "./state/operations/browser-suspend-auto";
 
 /**
  * Hydrate persisted UI widths, layout snapshots, and tab records from
@@ -39,6 +44,27 @@ export async function bootstrapAppState(): Promise<void> {
 
   // Wire the OS notification click → workspace activate + tab reveal listener.
   startNotificationClickListener();
+
+  // Wire browser tab runtime event subscriptions (navigated / loadingChanged /
+  // error / titleUpdated) so useBrowserRuntimeStore stays up-to-date.
+  initBrowserRuntimeSubscriptions();
+
+  // Wire last-URL persistence: debounces currentUrl changes from the runtime
+  // store and flushes them to the tabs store so the URL survives app restarts.
+  // Must be called after initBrowserRuntimeSubscriptions.
+  initBrowserLastUrlPersistence();
+
+  // Drag-time browser-overlay suspend is claimed/released from
+  // `use-drag-source.ts` directly (React bubble-phase `onDragStart` →
+  // one-shot document `dragend` + unmount cleanup).  Doing it from React's
+  // handler avoids a capture-phase race against `setData` that would
+  // otherwise leave the WebContentsView covering the drop zone.
+  //
+  // Modal / dropdown / context-menu / popover overlays are handled by the
+  // MutationObserver-based auto-suspend below — it watches body for any
+  // Radix portal element so callsites bypassing our wrapper (e.g. the
+  // Settings dialog using RadixDialog.Root directly) still trigger suspend.
+  initBrowserOverlayAutoSuspend();
 
   // Bootstrap is an initialization path — no recovery possible if appState is unavailable.
   const state = mustSucceed(await ipcCallResult("appState", "get", undefined));

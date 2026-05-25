@@ -36,6 +36,7 @@ import type { PtyHostHandle } from "./features/pty/types";
 import { registerSystemChannel } from "./features/shell/ipc";
 import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
 import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ipc";
+import { getBrowserRegistry, initBrowserFeature, registerBrowserCloser } from "./features/browser";
 import { createMainWindow } from "./features/window";
 import { registerWorkspaceChannel } from "./features/workspace/ipc";
 import { WorkspaceManager } from "./features/workspace/manager";
@@ -241,11 +242,29 @@ app.whenReady().then(async () => {
   registerLspChannel(lspHost, stateService);
 
   // Pass persisted appState so titleBarOverlay color matches the user's saved theme.
-  wireAutofetchWindowFocus(createMainWindow(stateService.getState()));
+  const mainWin = createMainWindow(stateService.getState());
+  wireAutofetchWindowFocus(mainWin);
+
+  // Initialise the embedded browser tab subsystem.  Must be called after the
+  // main window is created so the registry can hold a strong reference to it.
+  initBrowserFeature(mainWin);
+  // Wire the browser closer into WorkspaceManager so remove() destroys all
+  // browser views and clears the workspace's storage partition before the
+  // workspace context is deleted. Must be called after initBrowserFeature so
+  // the registry singleton is available.
+  registerBrowserCloser(workspaceManager);
+  mainWin.on("closed", () => {
+    getBrowserRegistry()?.disposeAll();
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      wireAutofetchWindowFocus(createMainWindow(stateService.getState()));
+      const newWin = createMainWindow(stateService.getState());
+      wireAutofetchWindowFocus(newWin);
+      initBrowserFeature(newWin);
+      newWin.on("closed", () => {
+        getBrowserRegistry()?.disposeAll();
+      });
     }
   });
 });

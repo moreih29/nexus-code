@@ -9,7 +9,10 @@ import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { openOrRevealEditor, runSaveAndReport } from "../../services/editor";
+import { saveUntitledModel } from "../../services/editor/save/save-untitled-handler";
+import { showToast } from "../../components/ui/toast";
 import { refresh } from "../../state/operations/files";
+import { openNewUntitledTab } from "../../state/operations/tabs";
 import { useActiveStore } from "../../state/stores/active";
 import { useFilesStore } from "../../state/stores/files";
 import { useTabsStore } from "../../state/stores/tabs";
@@ -17,6 +20,15 @@ import { getActiveTabContext } from "../context";
 
 export function registerFileCommands(): Array<() => void> {
   return [
+    // ⌘N — open a new untitled buffer in the active workspace's active
+    // group. No-op when no workspace is active so the shortcut never
+    // surfaces a confusing error state. Mirrors VSCode's File ▸ New File.
+    registerCommand(COMMANDS.fileNew, () => {
+      const wsId = useActiveStore.getState().activeWorkspaceId;
+      if (!wsId) return;
+      openNewUntitledTab(wsId);
+    }),
+
     registerCommand(COMMANDS.filesRefresh, () => {
       const wsId = useActiveStore.getState().activeWorkspaceId;
       if (!wsId) return;
@@ -63,7 +75,15 @@ export function registerFileCommands(): Array<() => void> {
       const ctx = getActiveTabContext();
       if (!ctx) return;
       const tab = useTabsStore.getState().byWorkspace[ctx.wsId]?.[ctx.tabId];
-      if (tab?.type !== "editor") return;
+      if (!tab) return;
+      if (tab.type === "untitled") {
+        saveUntitledModel(ctx.wsId, ctx.tabId).catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          showToast({ kind: "error", message: `Save failed: ${message}` });
+        });
+        return;
+      }
+      if (tab.type !== "editor") return;
       runSaveAndReport({ workspaceId: ctx.wsId, filePath: tab.props.filePath });
     }),
   ];

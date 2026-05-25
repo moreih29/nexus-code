@@ -105,6 +105,13 @@ export function Dialog({
   children,
   ...rest
 }: DialogProps): React.JSX.Element {
+  // Browser-overlay suspend is handled centrally by the MutationObserver-based
+  // auto-suspend in `state/operations/browser-suspend-auto.ts`, which watches
+  // body for any Radix `[role="dialog"]` portal element.  See that module
+  // for the rationale — wiring suspend per-component would silently miss
+  // any dialog that bypasses this wrapper (e.g. the Settings dialog using
+  // RadixDialog.Root directly).
+
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>

@@ -158,7 +158,7 @@ export function App() {
   // survive workspace switches. Pruned when the workspace itself disappears.
   const [mountedIds, setMountedIds] = useState<Set<string>>(() => new Set());
   // Add Workspace dialog state lives in a dedicated store so the
-  // `workspace.add` keyboard command (⌘N) can open it without prop drilling.
+  // `workspace.add` keyboard command (⌘⇧N) can open it without prop drilling.
   const addWorkspaceOpen = useAddWorkspaceUIStore((s) => s.addWorkspaceOpen);
   const openAddWorkspace = useAddWorkspaceUIStore((s) => s.openAddWorkspace);
   const closeAddWorkspace = useAddWorkspaceUIStore((s) => s.closeAddWorkspace);

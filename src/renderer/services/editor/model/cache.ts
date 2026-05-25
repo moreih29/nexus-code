@@ -8,10 +8,11 @@ import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
 import { parseWorkspaceUri, workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import type { FileErrorCode } from "../../../utils/file-error";
-import { initializeMonacoSingleton } from "../runtime/monaco-singleton";
+import { initializeMonacoSingleton, requireMonaco } from "../runtime/monaco-singleton";
 import {
   cleanupEntry,
   createEntry,
+  createUntitledEntry,
   errorCodeFromUnknown,
   type ModelEntry,
   notifySubscribers,
@@ -20,7 +21,9 @@ import {
   type SharedModelState,
   snapshot,
 } from "./entry";
+import { attachDirtyTracker } from "./dirty-tracker";
 import { loadExternalEntry } from "./load-external-entry";
+import { registerKnownModelUri } from "../lsp/bridge";
 
 export { isMonacoReady, onMonacoReady } from "../runtime/monaco-singleton";
 export type { SharedModelPhase, SharedModelState } from "./entry";
@@ -98,6 +101,13 @@ const entries = new Map<string, ModelEntry>();
 const releaseSubscribers = new Set<ModelReleaseSubscriber>();
 
 function cacheUriForInput(input: EditorInput): string {
+  if (input.origin === "untitled") {
+    // Untitled buffers use the `untitled://` scheme for workspace isolation.
+    // `filePath` for untitled inputs holds the display name (e.g. "Untitled-1"),
+    // not an absolute file-system path. The resulting URI is the cacheUri AND
+    // the Monaco monacoUri — no separate translation step is needed.
+    return `untitled://${input.workspaceId}/${input.filePath}`;
+  }
   return cacheUriFor(input.workspaceId, input.filePath);
 }
 
@@ -157,6 +167,14 @@ export async function acquireModel(input: EditorInput): Promise<SharedModelState
   if (!entry) {
     if (input.origin === "external") {
       entry = await loadExternalEntry(input);
+    } else if (input.origin === "untitled") {
+      // Untitled buffers: no fs IPC, no LSP registration, no fs-watcher.
+      // The model starts with empty content and is immediately ready.
+      entry = createUntitledEntry(input, cacheUri, {
+        requireMonaco,
+        attachDirtyTracker,
+        registerKnownModelUri,
+      });
     } else {
       entry = createEntry(input, cacheUri);
     }
@@ -238,7 +256,7 @@ export function getResolvedModel(input: EditorInput): ResolvedModelView | null {
 export interface EntryMetadata {
   workspaceId: string;
   filePath: string;
-  origin: "workspace" | "external";
+  origin: "workspace" | "external" | "untitled";
   readOnly: boolean;
 }
 
@@ -334,17 +352,25 @@ export function rehydrateLspForWorkspace(workspaceId: string, languageId?: strin
 }
 
 /**
- * Force-dispose all external model entries whose originatingWorkspaceId matches
- * the given workspaceId. Called when a workspace closes so externally-opened
- * read-only models are not held in memory indefinitely.
+ * Force-dispose all external and untitled model entries associated with the
+ * given workspaceId. Called when a workspace closes so externally-opened
+ * read-only models and unsaved untitled buffers are not held in memory
+ * indefinitely.
  *
  * This bypasses the normal refCount mechanism intentionally — the tabs
  * referencing these models are already removed by `closeAllForWorkspace` in
  * the tabs store, so there will be no further release() calls to drain them.
+ *
+ * Untitled buffers are disposed regardless of dirty state: the workspace
+ * itself is gone, so there is no recovery path for any unsaved content.
  */
 export function forceDisposeExternalsForWorkspace(workspaceId: string): void {
   for (const [cacheUri, entry] of entries) {
-    if (entry.origin === "external" && entry.originatingWorkspaceId === workspaceId) {
+    const isExternalForWorkspace =
+      entry.origin === "external" && entry.originatingWorkspaceId === workspaceId;
+    const isUntitledForWorkspace =
+      entry.origin === "untitled" && entry.input.workspaceId === workspaceId;
+    if (isExternalForWorkspace || isUntitledForWorkspace) {
       entries.delete(cacheUri);
       cleanupEntry(entry);
     }

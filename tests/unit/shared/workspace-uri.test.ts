@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   fileUriToWorkspaceUri,
+  parseUntitledCacheUri,
   parseWorkspaceUri,
+  untitledCacheUriFor,
   workspaceUriFor,
   workspaceUriToFileUri,
   WORKSPACE_URI_SCHEME,
@@ -67,5 +69,52 @@ describe("workspace URI helpers", () => {
     expect(workspaceUriFor(ID, "/shared/file.tsx")).not.toBe(
       workspaceUriFor(other, "/shared/file.tsx"),
     );
+  });
+});
+
+describe("untitled URI helpers", () => {
+  test("builds untitled:// scheme with workspaceId authority and Untitled-N path", () => {
+    expect(untitledCacheUriFor(ID, 1)).toBe(`untitled://${ID}/Untitled-1`);
+    expect(untitledCacheUriFor(ID, 42)).toBe(`untitled://${ID}/Untitled-42`);
+  });
+
+  test("parseUntitledCacheUri round-trips through untitledCacheUriFor", () => {
+    const uri = untitledCacheUriFor(ID, 3);
+    const parsed = parseUntitledCacheUri(uri);
+    expect(parsed).toEqual({ workspaceId: ID, untitledIndex: 3 });
+  });
+
+  test("parseUntitledCacheUri returns null for nexus-ws URIs", () => {
+    const wsUri = workspaceUriFor(ID, "/workspace/file.ts");
+    expect(parseUntitledCacheUri(wsUri)).toBeNull();
+  });
+
+  test("parseUntitledCacheUri returns null for file:// URIs", () => {
+    expect(parseUntitledCacheUri("file:///some/file.ts")).toBeNull();
+  });
+
+  test("parseUntitledCacheUri returns null for malformed untitled URIs", () => {
+    expect(parseUntitledCacheUri("untitled://")).toBeNull();
+    expect(parseUntitledCacheUri(`untitled://${ID}`)).toBeNull();
+    expect(parseUntitledCacheUri(`untitled://${ID}/NotUntitled`)).toBeNull();
+  });
+
+  test("two workspaces with the same untitled index produce distinct URIs", () => {
+    const other = "99999999-8888-7777-6666-555555555555";
+    expect(untitledCacheUriFor(ID, 1)).not.toBe(untitledCacheUriFor(other, 1));
+  });
+
+  test("parseWorkspaceUri returns null for untitled:// URIs", () => {
+    const untitledUri = untitledCacheUriFor(ID, 1);
+    expect(parseWorkspaceUri(untitledUri)).toBeNull();
+  });
+
+  test("untitledCacheUriFor rejects empty workspaceId", () => {
+    expect(() => untitledCacheUriFor("", 1)).toThrow();
+  });
+
+  test("untitledCacheUriFor rejects non-positive index", () => {
+    expect(() => untitledCacheUriFor(ID, 0)).toThrow();
+    expect(() => untitledCacheUriFor(ID, -1)).toThrow();
   });
 });

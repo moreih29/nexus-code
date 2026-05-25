@@ -19,6 +19,7 @@ import {
   type Tab,
   type TerminalTabProps,
   useTabsStore,
+  useUntitledCounterStore,
 } from "../stores/tabs";
 
 export interface TabLocation {
@@ -222,6 +223,37 @@ export function revealTab(workspaceId: string, groupId: string, tabId: string): 
 export function closeTab(workspaceId: string, tabId: string): void {
   useLayoutStore.getState().detachTab(workspaceId, tabId);
   useTabsStore.getState().removeTab(workspaceId, tabId);
+}
+
+/**
+ * Open a new untitled buffer in the active group.
+ *
+ * Claims the next monotonically-increasing untitled index from
+ * `useUntitledCounterStore`, creates an untitled tab record, attaches it to
+ * the active layout leaf, and activates it.
+ */
+export function openNewUntitledTab(workspaceId: string): Tab {
+  const index = useUntitledCounterStore.getState().claimNext(workspaceId);
+  return openTabRecord(workspaceId, { type: "untitled", props: { untitledIndex: index } });
+}
+
+/**
+ * Open a new blank browser tab in the active group.
+ *
+ * Creates a browser tab with an empty initialUrl/lastUrl so BrowserTabView
+ * starts in the empty state (no navigation yet). The Chromium partition is
+ * scoped per-workspace to isolate session data (cookies, cache) across
+ * workspaces.
+ */
+export function openNewBrowserTab(workspaceId: string): Tab {
+  return openTabRecord(workspaceId, {
+    type: "browser",
+    props: {
+      initialUrl: "",
+      lastUrl: "",
+      partition: `persist:browser-${workspaceId}`,
+    },
+  });
 }
 
 /**

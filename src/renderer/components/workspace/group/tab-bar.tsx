@@ -32,6 +32,8 @@ interface GroupTabBarProps {
   onSelectTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
   onNewTerminalTab: () => void;
+  onNewUntitledTab: () => void;
+  onNewBrowserTab: () => void;
   onActivateGroup: (groupId: string) => void;
 }
 
@@ -45,6 +47,8 @@ export function GroupTabBar({
   onSelectTab,
   onCloseTab,
   onNewTerminalTab,
+  onNewUntitledTab,
+  onNewBrowserTab,
   onActivateGroup,
 }: GroupTabBarProps) {
   const [contextTabId, setContextTabId] = useState<string | null>(null);
@@ -102,6 +106,8 @@ export function GroupTabBar({
             onSelectTab={onSelectTab}
             onCloseTab={onCloseTab}
             onNewTerminalTab={onNewTerminalTab}
+            onNewUntitledTab={onNewUntitledTab}
+            onNewBrowserTab={onNewBrowserTab}
             onTabContextMenu={(tabId) => setContextTabId(tabId)}
           />
         </div>

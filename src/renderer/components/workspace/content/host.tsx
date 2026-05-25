@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { CommitTab } from "@/components/editor/commit-tab";
 import { DiffTab } from "@/components/editor/diff-tab";
 import type { Tab } from "@/state/stores/tabs";
+import { BrowserTabView } from "./browser-view";
 import { EditorView } from "./editor-view";
 import { useSlotElement } from "./slot-registry";
 import { TerminalView } from "./terminal-view";
@@ -140,10 +141,27 @@ export function ContentHost({
           filePath={tab.props.filePath}
           workspaceId={workspaceId}
         />
+      ) : tab.type === "untitled" ? (
+        <EditorView
+          key={`untitled-${tab.props.untitledIndex}`}
+          tabId={tab.id}
+          filePath={`Untitled-${tab.props.untitledIndex}`}
+          workspaceId={workspaceId}
+          origin="untitled"
+        />
       ) : tab.type === "editor.diff" ? (
         <DiffTab {...tab.props} />
       ) : tab.type === "git.commit" ? (
         <CommitTab workspaceId={workspaceId} sha={tab.props.sha} tabId={tab.id} />
+      ) : tab.type === "browser" ? (
+        <BrowserTabView
+          tabId={tab.id}
+          workspaceId={workspaceId}
+          initialUrl={tab.props.initialUrl}
+          lastUrl={tab.props.lastUrl}
+          partition={tab.props.partition}
+          isActive={isActiveTab && isWorkspaceActive}
+        />
       ) : null}
     </div>
   );

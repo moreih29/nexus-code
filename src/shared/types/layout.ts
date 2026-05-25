@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DiffTabPayloadSchema, GitCommitTabPayloadSchema } from "./tab";
+import { BrowserTabPayloadSchema, DiffTabPayloadSchema, GitCommitTabPayloadSchema } from "./tab";
 
 // ---------------------------------------------------------------------------
 // Tab props schemas (serialization form — mirrors renderer/state/stores/tabs.ts
@@ -22,6 +22,9 @@ export type DiffTabProps = z.infer<typeof DiffTabPropsSchema>;
 
 export const GitCommitTabPropsSchema = GitCommitTabPayloadSchema;
 export type GitCommitTabProps = z.infer<typeof GitCommitTabPropsSchema>;
+
+export const BrowserTabPropsSchema = BrowserTabPayloadSchema;
+export type BrowserTabProps = z.infer<typeof BrowserTabPropsSchema>;
 
 // ---------------------------------------------------------------------------
 // SerializedTab
@@ -57,6 +60,14 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     type: z.literal("git.commit"),
     title: z.string(),
     props: GitCommitTabPropsSchema,
+    isPreview: z.boolean().optional(),
+    isPinned: z.boolean().optional(),
+  }),
+  z.object({
+    id: z.string().uuid(),
+    type: z.literal("browser"),
+    title: z.string(),
+    props: BrowserTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
   }),

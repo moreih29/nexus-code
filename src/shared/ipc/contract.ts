@@ -683,6 +683,18 @@ export const ipcContract = {
         }),
         z.object({ canceled: z.boolean(), filePaths: z.array(z.string()) }),
       ),
+      showSaveDialog: call(
+        z
+          .object({
+            title: z.string().optional(),
+            defaultPath: z.string().optional(),
+            filters: z
+              .array(z.object({ name: z.string(), extensions: z.array(z.string()) }))
+              .optional(),
+          })
+          .optional(),
+        z.object({ canceled: z.boolean(), filePath: z.string().optional() }),
+      ),
     },
     listen: {},
   },
@@ -1009,6 +1021,198 @@ export const ipcContract = {
       remove: call(ConnectionProfileIdArgsSchema, z.void()),
     },
     listen: {},
+  },
+
+  // ---------------------------------------------------------------------------
+  // Embedded browser tab channel.
+  //
+  // renderer → main: create / destroy / layout / navigation commands.
+  // main → renderer: navigated / loadingChanged / error / titleUpdated events.
+  //
+  // All call handlers are fire-and-forget (return z.void()).  Security
+  // policy (navigation guards, permission handler, webPreferences) is applied
+  // entirely on the main side; the renderer only sends CSS-coordinate bounds.
+  // ---------------------------------------------------------------------------
+  browser: {
+    call: {
+      /** Create (or replace) the WebContentsView backing `tabId`. */
+      create: call(
+        z.object({
+          tabId: z.string().uuid(),
+          workspaceId: z.string().uuid(),
+          url: z.string().url(),
+          partition: z.string().min(1),
+        }),
+        z.void(),
+      ),
+      /** Destroy the WebContentsView and release all resources for `tabId`. */
+      destroy: call(z.object({ tabId: z.string().uuid() }), z.void()),
+      /**
+       * Resize/reposition the view.
+       *
+       * `x`, `y`, `width`, `height` are CSS pixels (DIPs) as measured by
+       * the renderer's `getBoundingClientRect()`. `WebContentsView.setBounds()`
+       * consumes the same DIP coordinate system on every platform, so the
+       * main process passes them through verbatim — no devicePixelRatio
+       * conversion is required.
+       */
+      setBounds: call(
+        z.object({
+          tabId: z.string().uuid(),
+          x: z.number(),
+          y: z.number(),
+          width: z.number(),
+          height: z.number(),
+        }),
+        z.void(),
+      ),
+      /** Attach (active=true) or detach (active=false) the view. */
+      setActive: call(
+        z.object({ tabId: z.string().uuid(), active: z.boolean() }),
+        z.void(),
+      ),
+      /** Navigate the tab to `url`. */
+      navigate: call(
+        z.object({ tabId: z.string().uuid(), url: z.string().url() }),
+        z.void(),
+      ),
+      goBack: call(z.object({ tabId: z.string().uuid() }), z.void()),
+      goForward: call(z.object({ tabId: z.string().uuid() }), z.void()),
+      /** Reload the tab; pass `ignoreCache:true` for a hard reload. */
+      reload: call(
+        z.object({ tabId: z.string().uuid(), ignoreCache: z.boolean().optional() }),
+        z.void(),
+      ),
+      /**
+       * Toggle DevTools for the tab, docked inline as a sibling
+       * WebContentsView within the browser tab area.
+       *
+       * Mechanism: main creates a sibling `WebContentsView` to host the
+       * DevTools UI and wires it to the page's WebContents via
+       * `setDevToolsWebContents()`.  The renderer reserves a region under the
+       * page (default 40 % of the content area, resizable via a horizontal
+       * splitter) and sends `setDevToolsBounds` to position the host view.
+       *
+       * After the toggle, main broadcasts `devtoolsToggled` so the renderer
+       * can show / hide the splitter region.
+       */
+      openDevTools: call(z.object({ tabId: z.string().uuid() }), z.void()),
+      /**
+       * Resize/reposition the DevTools-host WebContentsView for `tabId`.
+       *
+       * No-op when DevTools is not currently open for the tab.  Coordinates
+       * are CSS pixels (DIPs), same convention as `setBounds`.
+       */
+      setDevToolsBounds: call(
+        z.object({
+          tabId: z.string().uuid(),
+          x: z.number(),
+          y: z.number(),
+          width: z.number(),
+          height: z.number(),
+        }),
+        z.void(),
+      ),
+      /**
+       * Hide every active WebContentsView so DOM overlays (dropdown menus,
+       * modal dialogs, drag indicators) can paint above the area the browser
+       * would otherwise occupy.
+       *
+       * Mechanism follows the VSCode pattern: when `captureSnapshot` is true
+       * the main process first calls `webContents.capturePage()` on every
+       * active view, broadcasts the resulting JPEG dataURL via
+       * `browser.snapshot`, and only then hides the view via
+       * `setVisible(false)`.  The renderer overlays the snapshot in DOM, so
+       * the area underneath the modal still shows the page content rather
+       * than going blank.
+       *
+       * `captureSnapshot: false` skips the capture entirely and hides
+       * immediately — used by drag operations where any delay would break
+       * drag-to-split responsiveness.  The brief grey area during a drag is
+       * acceptable because drop indicators paint over it within one frame.
+       *
+       * WebContents are never destroyed — page state (scroll, form input,
+       * audio) is preserved.  The renderer holds the refcount; main only
+       * sees a suspended/not-suspended toggle.  Pair every `suspendAll`
+       * with a `resumeAll` once the overlay closes.
+       */
+      suspendAll: call(
+        z.object({ captureSnapshot: z.boolean() }),
+        z.void(),
+      ),
+      /**
+       * Re-show every WebContentsView that was active when the matching
+       * `suspendAll` ran via `setVisible(true)`.  Broadcasts a `snapshot`
+       * event with `cleared: true` for every tab so the renderer drops its
+       * cached snapshot image and exposes the live view again.
+       */
+      resumeAll: call(z.object({}), z.void()),
+    },
+    listen: {
+      /**
+       * Emitted after each committed navigation.
+       * Carries the new URL and back/forward availability flags.
+       */
+      navigated: listen(
+        z.object({
+          tabId: z.string().uuid(),
+          url: z.string(),
+          canGoBack: z.boolean(),
+          canGoForward: z.boolean(),
+        }),
+      ),
+      /** Emitted when the loading spinner should be shown or hidden. */
+      loadingChanged: listen(
+        z.object({ tabId: z.string().uuid(), isLoading: z.boolean() }),
+      ),
+      /**
+       * Emitted when a navigation fails (network error, blocked scheme, etc.).
+       * `code` is the Chromium net error code; `description` is a human-readable
+       * message; `url` is the URL that failed to load.
+       */
+      error: listen(
+        z.object({
+          tabId: z.string().uuid(),
+          code: z.number().int(),
+          description: z.string(),
+          url: z.string(),
+        }),
+      ),
+      /** Emitted when the page title changes. */
+      titleUpdated: listen(
+        z.object({ tabId: z.string().uuid(), title: z.string() }),
+      ),
+      /**
+       * Snapshot event paired with `suspendAll` / `resumeAll`.
+       *
+       * `dataUrl` form: a JPEG dataURL of the page as it appeared right
+       * before the view was hidden.  The renderer overlays this image
+       * absolutely over the placeholder so a freshly-opened modal sees a
+       * still frame of the page rather than a blank area.
+       *
+       * `cleared: true` form: the suspend window has ended (resumeAll) and
+       * the renderer should drop the cached image so the live view shows
+       * through again.
+       */
+      snapshot: listen(
+        z.discriminatedUnion("kind", [
+          z.object({
+            kind: z.literal("set"),
+            tabId: z.string().uuid(),
+            dataUrl: z.string(),
+          }),
+          z.object({ kind: z.literal("cleared"), tabId: z.string().uuid() }),
+        ]),
+      ),
+      /**
+       * Emitted after every `openDevTools` toggle.  Carries the new
+       * docked-DevTools state so the renderer can show / hide its splitter
+       * region and start / stop reporting `setDevToolsBounds`.
+       */
+      devtoolsToggled: listen(
+        z.object({ tabId: z.string().uuid(), open: z.boolean() }),
+      ),
+    },
   },
 
   // Application lifecycle channel.

@@ -102,3 +102,57 @@ export function fileUriToWorkspaceUri(workspaceId: string, fileUri: string): str
   if (absolutePath === null) return null;
   return workspaceUriFor(workspaceId, absolutePath);
 }
+
+// ---------------------------------------------------------------------------
+// Untitled URI helpers — workspace-scoped cache key for unsaved buffers.
+//
+// Format:  untitled://{workspaceId}/Untitled-{N}
+//
+// Using the `untitled` scheme communicates "no on-disk backing" to both
+// Monaco and our own plumbing (LSP bridge, fs-watcher skip). The authority
+// slot carries the workspaceId so that two workspaces that each open their
+// first untitled file get distinct Monaco models and distinct cache entries.
+//
+// This URI doubles as both the cacheUri (model-cache key) and the Monaco
+// monacoUri (monaco.editor.createModel), so no separate translation step
+// is needed in the cache layer.
+// ---------------------------------------------------------------------------
+
+const UNTITLED_SCHEME = "untitled";
+const UNTITLED_URI_PREFIX = `${UNTITLED_SCHEME}://`;
+
+/**
+ * Build a workspace-scoped untitled URI.
+ *
+ *   untitled://{workspaceId}/Untitled-{untitledIndex}
+ */
+export function untitledCacheUriFor(workspaceId: string, untitledIndex: number): string {
+  if (workspaceId.length === 0) {
+    throw new Error("untitledCacheUriFor: workspaceId must be non-empty");
+  }
+  if (!Number.isInteger(untitledIndex) || untitledIndex < 1) {
+    throw new Error(`untitledCacheUriFor: untitledIndex must be a positive integer, got ${untitledIndex}`);
+  }
+  return `${UNTITLED_URI_PREFIX}${workspaceId}/Untitled-${untitledIndex}`;
+}
+
+/**
+ * Parse an untitled cacheUri produced by `untitledCacheUriFor`. Returns
+ * null when the URI does not match the expected format.
+ */
+export function parseUntitledCacheUri(
+  uri: string,
+): { workspaceId: string; untitledIndex: number } | null {
+  if (!uri.startsWith(UNTITLED_URI_PREFIX)) return null;
+  const rest = uri.slice(UNTITLED_URI_PREFIX.length);
+  // rest = "{workspaceId}/Untitled-{N}"
+  const slashIdx = rest.indexOf("/");
+  if (slashIdx <= 0) return null;
+  const workspaceId = rest.slice(0, slashIdx);
+  const namePart = rest.slice(slashIdx + 1); // "Untitled-{N}"
+  const match = /^Untitled-(\d+)$/.exec(namePart);
+  if (!match) return null;
+  const untitledIndex = parseInt(match[1], 10);
+  if (!Number.isFinite(untitledIndex) || untitledIndex < 1) return null;
+  return { workspaceId, untitledIndex };
+}

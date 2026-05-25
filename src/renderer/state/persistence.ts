@@ -31,11 +31,12 @@ function toSnapshot(workspaceId: string): LayoutSnapshot | null {
 
   if (!layout) return null;
 
-  // Tab is structurally compatible with SerializedTab — both share the same
-  // (type, props) invariant enforced at createTab. The discriminated-union
-  // narrowing isn't expressible on the renderer-side Tab type yet, so we
-  // assert into the snapshot's tabs shape here.
-  const tabs = Object.values(tabRecord) as LayoutSnapshot["tabs"];
+  // Strip UntitledTab entries — they are session-only and must not be
+  // restored on next boot (a new untitled index would be assigned instead).
+  // BrowserTab and all other types are persisted as-is.
+  const tabs = Object.values(tabRecord).filter(
+    (t) => t.type !== "untitled",
+  ) as LayoutSnapshot["tabs"];
   return {
     root: layout.root,
     activeGroupId: layout.activeGroupId,

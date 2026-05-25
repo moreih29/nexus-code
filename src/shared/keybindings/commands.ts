@@ -17,6 +17,7 @@ import { z } from "zod";
 
 export const COMMANDS = {
   // File / editor
+  fileNew: "file.new",
   fileOpen: "file.open",
   fileSave: "file.save",
   filesRefresh: "files.refresh",

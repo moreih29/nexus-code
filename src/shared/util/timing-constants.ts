@@ -189,3 +189,15 @@ export const GIT_COMMIT_DRAFT_SAVE_DEBOUNCE_MS = 500;
  * window collapses save-cascades into one call.
  */
 export const GIT_STATUS_HINT_DEBOUNCE_MS = 150;
+
+// ---------------------------------------------------------------------------
+// Browser tabs
+// ---------------------------------------------------------------------------
+
+/**
+ * Trailing-edge debounce window for persisting a browser tab's `lastUrl`.
+ * URL changes can arrive in rapid succession during page redirects and
+ * client-side navigation; this window coalesces them into a single store
+ * write per tab so persistence isn't hammered on every navigation step.
+ */
+export const BROWSER_LAST_URL_SAVE_DEBOUNCE_MS = 250;

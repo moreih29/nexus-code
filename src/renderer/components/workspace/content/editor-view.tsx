@@ -37,6 +37,12 @@ interface EditorViewProps {
    * mode independently.
    */
   tabId: string;
+  /**
+   * Model origin forwarded to the shared-model cache. Defaults to "workspace"
+   * when omitted. Must be "untitled" for unsaved new-file buffers so the
+   * cache routes to `createUntitledEntry` (no fs I/O, no LSP, immediate ready).
+   */
+  origin?: "workspace" | "external" | "untitled";
 }
 
 const editorOptions = {
@@ -165,8 +171,8 @@ function useModelHasMarkers(model: Monaco.editor.ITextModel | null): boolean {
   return hasMarkers;
 }
 
-export function EditorView({ filePath, workspaceId, tabId }: EditorViewProps) {
-  const { model, phase, errorCode, readOnly } = useSharedModel({ workspaceId, filePath });
+export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewProps) {
+  const { model, phase, errorCode, readOnly } = useSharedModel({ workspaceId, filePath, origin });
   const monacoTheme = useMonacoThemeName();
 
   const { onMount } = useEditorMount({
