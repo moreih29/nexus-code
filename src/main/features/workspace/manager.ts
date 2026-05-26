@@ -102,9 +102,18 @@ function normalizeCreateLocation(opts: WorkspaceCreateOptions): WorkspaceLocatio
 
 /**
  * Derives the default display name for local and SSH workspace locations.
+ *
+ * SSH 의 경우 remotePath 의 마지막 폴더 이름을 사용한다. 사이드바 primary
+ * 라인이 host 가 아니라 "프로젝트 폴더"로 읽혀야 워크스페이스 식별이 자연
+ * 스럽다 — user@host 정보는 sidebar 의 sub-line 에서 별도로 노출된다.
+ * remotePath 가 root("/") 이거나 비어있는 fallback 케이스에서만 alias/host
+ * 를 사용한다.
  */
 function defaultWorkspaceName(location: WorkspaceLocation): string {
   if (location.kind === "ssh") {
+    // remotePath 는 항상 POSIX 형식 — path.posix.basename 사용.
+    const folder = path.posix.basename(location.remotePath ?? "");
+    if (folder && folder !== "~") return folder;
     return location.configAlias || location.host;
   }
   return path.basename(location.rootPath);
