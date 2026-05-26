@@ -110,9 +110,11 @@ describe("BrowserTabView — computeMountUrl (resolveInitialBrowserUrl ?? BLANK_
     expect(computeMountUrl("data:text/html,<h1>hi</h1>")).toBe(BLANK_TAB_URL);
   });
 
-  // null-coalescing: resolveInitialBrowserUrl returns null → falls back to BLANK_TAB_URL
+  // null-coalescing: resolveInitialBrowserUrl returns null → falls back to BLANK_TAB_URL.
+  // Use a scheme that is genuinely blocked (javascript:) — file: was previously blocked
+  // but is now explicitly allowed per navigation-allowlist.ts (users may open local HTML).
   it("falls back to BLANK_TAB_URL when resolveInitialBrowserUrl returns null", () => {
-    const result = resolveInitialBrowserUrl(makeProps("file:///etc/passwd"));
+    const result = resolveInitialBrowserUrl(makeProps("javascript:void(0)"));
     expect(result).toBeNull();
     // Component computes: result ?? BLANK_TAB_URL
     const mountUrl = result ?? BLANK_TAB_URL;

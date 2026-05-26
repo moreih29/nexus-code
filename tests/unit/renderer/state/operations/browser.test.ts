@@ -347,9 +347,11 @@ describe("resolveInitialBrowserUrl", () => {
     expect(result).toBeNull();
   });
 
-  it("returns null for a file: scheme", () => {
-    const result = resolveInitialBrowserUrl(makeProps("file:///etc/passwd"));
-    expect(result).toBeNull();
+  it("accepts a file: scheme — production policy explicitly opt-in to local file navigation", () => {
+    // NAVIGATION_SCHEME_ALLOWLIST 가 file: 을 명시 포함 (navigation-allowlist.ts 주석 참고).
+    // 사용자가 로컬 HTML/문서를 열 수 있도록 의도된 정책. webSecurity/sandbox 가 cross-origin 을 막는다.
+    const result = resolveInitialBrowserUrl(makeProps("file:///home/user/note.html"));
+    expect(result).toBe("file:///home/user/note.html");
   });
 
   it("does not fall back to initialUrl when lastUrl fails validation", () => {

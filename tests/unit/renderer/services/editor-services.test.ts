@@ -20,6 +20,15 @@ const eventLog: string[] = [];
 };
 
 mock.module("../../../../src/renderer/ipc/client", () => ({
+  // src/renderer/ipc/client.ts 의 다른 export 가 누락되면 named-import 가 SyntaxError 로
+  // 터진다. 본 테스트가 직접 쓰지 않는 export 도 no-op 으로 보강.
+  canUseIpcBridge: () => true,
+  unwrapIpcResult: <T>(r: { ok: boolean; value: T }): T => r.value,
+  mustSucceed: <T>(r: { ok: boolean; value: T }): T => r.value,
+  unwrapGitResult: <T>(r: { ok: boolean; value: T }): T => r.value,
+  isIpcResult: () => true,
+  isIpcOkResult: () => true,
+  isIpcErrResult: () => false,
   ipcCallResult: mock((channel: string, method: string, args: unknown) => {
     ipcCalls.push({ channel, method, args });
     if (channel === "lsp" && method === "didOpen") {

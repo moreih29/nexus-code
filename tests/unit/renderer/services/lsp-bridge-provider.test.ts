@@ -20,11 +20,20 @@ const ipcResults = new Map<string, unknown>();
 };
 
 mock.module("../../../../src/renderer/ipc/client", () => ({
+  // src/renderer/ipc/client.ts 의 다른 named export 가 누락되면 import 가 SyntaxError.
+  canUseIpcBridge: () => true,
+  unwrapIpcResult: <T>(r: { ok: boolean; value: T }): T => r.value,
+  mustSucceed: <T>(r: { ok: boolean; value: T }): T => r.value,
+  unwrapGitResult: <T>(r: { ok: boolean; value: T }): T => r.value,
+  isIpcResult: () => true,
+  isIpcOkResult: () => true,
+  isIpcErrResult: () => false,
   ipcCallResult: mock((channel: string, method: string, args: unknown, opts?: unknown) => {
     ipcCalls.push({ channel, method, args, opts });
     return Promise.resolve({ ok: true as const, value: ipcResults.get(method) });
   }),
   ipcListen: mock(() => () => {}),
+  ipcStream: mock(() => ({ cancel: () => {} })),
 }));
 
 const { ensureProvidersFor, initializeLspBridge, provideWorkspaceSymbols } = await import(

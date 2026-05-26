@@ -162,12 +162,46 @@ function ensureMatchMedia(win: unknown): void {
       return win;
     },
     set(value: unknown) {
+      // Tests that replace globalThis.window with a partial IPC stub
+      // (e.g. {ipc: {...}}) inadvertently strip the happy-dom DOM APIs
+      // (addEventListener, removeEventListener, etc.). Subsequent test
+      // files that render React components calling window.addEventListener
+      // then TypeError.
+      //
+      // Inject minimum DOM API stubs into the override so global hotkey
+      // listeners and similar don't crash. Tests that need real DOM should
+      // not override window at all (rely on happy-dom).
+      if (value !== null && typeof value === "object") {
+        const v = value as Record<string, unknown>;
+        if (typeof v.addEventListener !== "function") {
+          v.addEventListener = () => {};
+        }
+        if (typeof v.removeEventListener !== "function") {
+          v.removeEventListener = () => {};
+        }
+        if (typeof v.dispatchEvent !== "function") {
+          v.dispatchEvent = () => true;
+        }
+      }
       _override = value;
       _hasOverride = true;
       ensureMatchMedia(value);
     },
   });
 })();
+
+// happy-dom 가 MutationObserver 를 제공하지 않으므로 no-op stub. browser-suspend-auto
+// 가 bootstrap 시 document.body 의 MutationObserver 를 설치하는데, 옵저버가 자동
+// 실행되는지 자체는 본 test scope 밖이라 no-op 으로 충분.
+(globalThis as Record<string, unknown>).MutationObserver ??=
+  class MutationObserver {
+    constructor(_cb: unknown) {}
+    observe(_target: unknown, _options?: unknown): void {}
+    disconnect(): void {}
+    takeRecords(): unknown[] {
+      return [];
+    }
+  };
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

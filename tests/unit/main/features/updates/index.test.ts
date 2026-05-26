@@ -62,8 +62,13 @@ mock.module("../../../../../src/shared/ipc/result", () => ({
 // Mock: shared/ipc/contract — minimal stub with updates.call.check etc.
 // ---------------------------------------------------------------------------
 
+// real ipcContract 위에 updates 부분만 override — bun:test mock.module leak 으로
+// 다른 테스트가 workspace/fs/dialog 등을 참조할 때 누락되면 cascade fail.
+const realIpcContractMod = await import("../../../../../src/shared/ipc/contract");
 mock.module("../../../../../src/shared/ipc/contract", () => ({
+  ...realIpcContractMod,
   ipcContract: {
+    ...realIpcContractMod.ipcContract,
     updates: {
       call: {
         check: { args: {} },

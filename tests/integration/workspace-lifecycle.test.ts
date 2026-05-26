@@ -14,6 +14,14 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+// manager.activate() 가 local agent provider 를 시작하면서 getAgentBinDir.ts 의
+// getElectronApp().isPackaged 를 평가 — bun:test 환경에서 electron.app 이 undefined 면 crash.
+// dev 모드 baseline 으로 isPackaged=false 만 제공해서 LOCAL_AGENT_DIST_DIR 경로로 fallback.
+mock.module("electron", () => ({
+  app: { isPackaged: false },
+}));
+
 import { GlobalStorage } from "../../src/main/infra/storage/global-storage";
 import { StateService } from "../../src/main/infra/storage/state-service";
 import { WorkspaceStorage } from "../../src/main/infra/storage/workspace-storage";

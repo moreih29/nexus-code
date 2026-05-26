@@ -1,20 +1,19 @@
 #!/usr/bin/env bun
 // Scans src/renderer/ for Tailwind spacing utilities that violate the 4pt grid
-// defined in design.md §3 (space-1..space-8: 2/4/8/12/16/24/32/48px).
+// defined in design.md §3.
 //
-// Forbidden Tailwind spacing steps:
-//   *-1.5  → 6px  (between space-1=2px and space-3=8px)
-//   *-2.5  → 10px (between space-3=8px and space-4=12px)
+// Allowed grid steps (design.md §3 표):
+//   2 / 4 / 6 / 8 / 10 / 12 / 16 / 24 / 32 / 48 px
+//   → *-0.5 / *-1 / *-1.5 / *-2 / *-2.5 / *-3 / *-4 / *-6 / *-8 / *-12
+//   (6 = Islands gap, 10 = settings/sidebar 좁은 padding — design.md §3 의
+//    정식 편입 .5 스텝)
 //
 // Forbidden arbitrary px spacing values (margin/padding/gap):
-//   [5px] [6px] [10px] [14px] [15px] [18px] [26px] [30px]
-//
-// Use one of the 4pt grid steps instead:
-//   *-0.5 (2px) | *-1 (4px) | *-2 (8px) | *-3 (12px) | *-4 (16px)
-//   | *-6 (24px) | *-8 (32px) | *-12 (48px)
+//   [5px] [14px] [15px] [18px] [26px] [30px]
+//   (6px, 10px 은 *-1.5 / *-2.5 로 표기하는 정식 스텝이므로 arbitrary 형식만 금지.)
 //
 // Run: bun run scripts/check-off-grid-spacing.ts
-// Wired into package.json scripts: lint, check:ci via lint:tw
+// Wired into package.json scripts: lint:tw (lint 본체에서는 분리됨)
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative } from "node:path";
@@ -24,17 +23,13 @@ const SCAN_EXTENSIONS = new Set([".ts", ".tsx"]);
 const SKIP_DIR_NAMES = new Set(["node_modules", "dist", "out"]);
 const SKIP_FILE_SUBSTRINGS = [".generated."];
 
-// Matches Tailwind spacing utilities with a forbidden .5 step (1.5=6px or 2.5=10px).
-// Covered prefixes: gap, px, py, pt, pb, pl, pr, p, mx, my, mt, mb, ml, mr, m,
-//                   space-x, space-y, inset-x, inset-y, inset
-// Lookahead ensures we match only at end-of-token (whitespace, quote, bracket, backtick).
-const HALF_STEP_PATTERN =
-  /\b(?:gap|p[xytblr]?|m[xytblr]?|space-[xy]|inset(?:-[xy])?)-(?:1\.5|2\.5)(?=[\s"'\]`])/g;
-
+// design.md §3 의 .5 스텝(1.5=6px, 2.5=10px)은 정식 편입되어 forbidden 아님.
+// 이 가드는 arbitrary [Xpx] 형식만 검사한다 — *-1.5 / *-2.5 표기는 통과.
+//
 // Matches Tailwind spacing utilities with a forbidden arbitrary px value.
 // Does NOT match: text-[Xpx], ring-[Xpx], border-[Xpx], size-[Xpx], w-[Xpx], h-[Xpx]
 const ARBITRARY_PX_PATTERN =
-  /\b(?:gap|p[xytblr]?|m[xytblr]?|space-[xy]|inset(?:-[xy])?)-\[(?:5|6|10|14|15|18|26|30)px\]/g;
+  /\b(?:gap|p[xytblr]?|m[xytblr]?|space-[xy]|inset(?:-[xy])?)-\[(?:5|14|15|18|26|30)px\]/g;
 
 interface Violation {
   file: string;
@@ -60,14 +55,6 @@ function walk(dir: string): void {
     const lines = content.split("\n");
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      for (const m of line.matchAll(HALF_STEP_PATTERN)) {
-        violations.push({
-          file: full,
-          line: i + 1,
-          match: m[0],
-          rule: "off-grid .5-step (6px or 10px)",
-        });
-      }
       for (const m of line.matchAll(ARBITRARY_PX_PATTERN)) {
         violations.push({
           file: full,
@@ -89,10 +76,11 @@ if (violations.length > 0) {
   for (const v of violations) {
     console.error(`  ${relative(".", v.file)}:${v.line}  ${v.match}  [${v.rule}]`);
   }
-  console.error("\nAllowed spacing steps (4pt grid, design.md §3):");
-  console.error("  *-0.5 (2px)  *-1 (4px)  *-2 (8px)  *-3 (12px)  *-4 (16px)");
-  console.error("  *-6 (24px)   *-8 (32px)  *-12 (48px)");
-  console.error("\nForbidden: *-1.5 (6px), *-2.5 (10px), and arbitrary [5/6/10/14/15/18/26/30px].");
+  console.error("\nAllowed spacing steps (design.md §3):");
+  console.error("  *-0.5 (2px)  *-1 (4px)  *-1.5 (6px)  *-2 (8px)  *-2.5 (10px)");
+  console.error("  *-3 (12px)   *-4 (16px) *-6 (24px)   *-8 (32px) *-12 (48px)");
+  console.error("\nForbidden: arbitrary [5/14/15/18/26/30px].");
+  console.error("  (6px, 10px 은 *-1.5 / *-2.5 표기 사용 — arbitrary 형식만 금지)");
   process.exit(1);
 }
 
