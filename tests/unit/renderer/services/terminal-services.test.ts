@@ -137,6 +137,8 @@ function makeTerminalControllerDeps(
       write: (data) => {
         writes.push(data);
       },
+      // Shift+Enter → "\\\r" 전송 위한 key handler intercept. test 에서는 no-op.
+      attachCustomKeyEventHandler: () => {},
     }),
     createFitAddon: () => ({
       dispose: () => {},

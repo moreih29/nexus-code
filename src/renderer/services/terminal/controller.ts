@@ -29,6 +29,7 @@ interface TerminalLike {
   open: (parent: HTMLElement) => void;
   refresh: (start: number, end: number) => void;
   write: (data: string) => void;
+  attachCustomKeyEventHandler: (handler: (event: KeyboardEvent) => boolean) => void;
 }
 type FitAddonLike = Pick<FitAddon, "dispose" | "fit" | "proposeDimensions">;
 type ResizeObserverLike = Pick<ResizeObserver, "disconnect" | "observe">;
@@ -239,6 +240,24 @@ class XtermTerminalController implements TerminalController {
     this.ptyClient = ptyClient;
 
     this.dataDisposable = term.onData((data) => ptyClient.write(data));
+
+    // Shift+Enter → "\\\r" (literal backslash + CR).
+    //
+    // 이유: xterm.js 의 기본 동작은 Shift+Enter 를 일반 Enter 와 동일하게 CR 만
+    // 보낸다. Claude Code 같은 TUI 는 multi-line 입력을 "\" + Enter 패턴으로
+    // universal 지원하고 (Anthropic 공식 문서), 일반 bash/zsh readline 도 동일
+    // 패턴을 line continuation 으로 인식한다. 단일 sequence 로 두 환경 모두 호환.
+    //
+    // return false: xterm.js 의 기본 키 처리 (Enter → CR 전송) 를 차단.
+    // attachCustomKeyEventHandler 의 contract 상 false 반환 시 default 처리 skip.
+    term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+      if (event.type === "keydown" && event.key === "Enter" && event.shiftKey) {
+        ptyClient.write("\\\r");
+        return false;
+      }
+      return true;
+    });
+
     if (this.options.autoSpawn !== false) {
       ptyClient.spawn(initialDimensions).catch((error: unknown) => {
         if (!this.disposed) {
