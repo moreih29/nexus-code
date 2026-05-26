@@ -41,6 +41,18 @@ interface CompiledChord {
   when: WhenExpr | null;
 }
 
+/**
+ * Cached platform flag. Renderer module load happens after the DOM is
+ * available, so `navigator` is safe to read here. We only need this
+ * once per session — the user does not switch OS mid-run.
+ *
+ * Used by `matchesEvent` to disambiguate the `CmdOrCtrl` shorthand:
+ * on Mac it means ⌘ exclusively (so xterm keeps its ⌃-letter shortcuts);
+ * on Win/Linux it means Ctrl exclusively.
+ */
+const IS_MAC =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPod|iPad/i.test(navigator.platform || "");
+
 const PRIMARIES: CompiledPrimary[] = [];
 const CHORDS: CompiledChord[] = [];
 
@@ -97,7 +109,7 @@ export function resolveEvent(e: KeyboardEvent, pendingLeader: string | null): Re
       // strict-superset relaxation that still lets every VSCode-style
       // press complete.
       const masked = maskLeaderModifiers(e, c.leader, c.secondary);
-      if (matchesEvent(c.secondary, masked)) {
+      if (matchesEvent(c.secondary, masked, IS_MAC)) {
         return { kind: "chord-completed", command: c.decl.command };
       }
     }
@@ -105,13 +117,13 @@ export function resolveEvent(e: KeyboardEvent, pendingLeader: string | null): Re
   }
 
   for (const p of PRIMARIES) {
-    if (!matchesEvent(p.parsed, e)) continue;
+    if (!matchesEvent(p.parsed, e, IS_MAC)) continue;
     if (!whenMatches(p.when, e)) continue;
     return { kind: "single", command: p.decl.command };
   }
 
   for (const c of CHORDS) {
-    if (!matchesEvent(c.leader, e)) continue;
+    if (!matchesEvent(c.leader, e, IS_MAC)) continue;
     if (!whenMatches(c.when, e)) continue;
     return { kind: "chord-leader", leaderId: c.leaderId };
   }

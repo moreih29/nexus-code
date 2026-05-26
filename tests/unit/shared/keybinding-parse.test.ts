@@ -114,54 +114,96 @@ describe("parseAccelerator", () => {
 });
 
 describe("matchesEvent", () => {
-  it("matches Cmd+W via metaKey on Mac", () => {
+  it("matches CmdOrCtrl+W via metaKey on Mac", () => {
     const p = parseAccelerator("CmdOrCtrl+W");
-    expect(matchesEvent(p, ev("KeyW", { metaKey: true }) as unknown as KeyboardEvent)).toBe(true);
+    expect(matchesEvent(p, ev("KeyW", { metaKey: true }) as unknown as KeyboardEvent, true)).toBe(
+      true,
+    );
   });
 
-  it("matches Cmd+W via ctrlKey on Win/Linux", () => {
+  it("matches CmdOrCtrl+W via ctrlKey on Win/Linux", () => {
     const p = parseAccelerator("CmdOrCtrl+W");
-    expect(matchesEvent(p, ev("KeyW", { ctrlKey: true }) as unknown as KeyboardEvent)).toBe(true);
+    expect(matchesEvent(p, ev("KeyW", { ctrlKey: true }) as unknown as KeyboardEvent, false)).toBe(
+      true,
+    );
   });
 
-  it("rejects Cmd+W when Shift is also held", () => {
+  it("rejects CmdOrCtrl+R on bare ⌃R on Mac (xterm Ctrl-letter shortcuts pass through)", () => {
+    // Regression: previously ⌃R on Mac fired `files.refresh` because
+    // `CmdOrCtrl` accepted either metaKey or ctrlKey on every OS. After
+    // narrowing, Mac requires metaKey for CmdOrCtrl bindings — so the
+    // terminal's reverse-i-search (Ctrl+R) is no longer hijacked.
+    const p = parseAccelerator("CmdOrCtrl+R");
+    expect(matchesEvent(p, ev("KeyR", { ctrlKey: true }) as unknown as KeyboardEvent, true)).toBe(
+      false,
+    );
+  });
+
+  it("rejects CmdOrCtrl+R on bare ⌘R on Win/Linux", () => {
+    // Mirror of the Mac case for non-Mac OSes: metaKey alone is usually
+    // the Win/Super key and not part of our shortcut catalogue.
+    const p = parseAccelerator("CmdOrCtrl+R");
+    expect(matchesEvent(p, ev("KeyR", { metaKey: true }) as unknown as KeyboardEvent, false)).toBe(
+      false,
+    );
+  });
+
+  it("rejects CmdOrCtrl+W when Shift is also held", () => {
     const p = parseAccelerator("CmdOrCtrl+W");
     expect(
-      matchesEvent(p, ev("KeyW", { metaKey: true, shiftKey: true }) as unknown as KeyboardEvent),
+      matchesEvent(
+        p,
+        ev("KeyW", { metaKey: true, shiftKey: true }) as unknown as KeyboardEvent,
+        true,
+      ),
     ).toBe(false);
   });
 
-  it("rejects Cmd+W when both Cmd and Ctrl are held (ambiguous)", () => {
+  it("rejects CmdOrCtrl+W when both Cmd and Ctrl are held (ambiguous, reserved for Cmd+Ctrl bindings)", () => {
     const p = parseAccelerator("CmdOrCtrl+W");
     expect(
-      matchesEvent(p, ev("KeyW", { metaKey: true, ctrlKey: true }) as unknown as KeyboardEvent),
+      matchesEvent(
+        p,
+        ev("KeyW", { metaKey: true, ctrlKey: true }) as unknown as KeyboardEvent,
+        true,
+      ),
     ).toBe(false);
   });
 
   it("matches plain U with no modifiers (chord secondary)", () => {
     const p = parseAccelerator("U");
-    expect(matchesEvent(p, ev("KeyU") as unknown as KeyboardEvent)).toBe(true);
+    expect(matchesEvent(p, ev("KeyU") as unknown as KeyboardEvent, true)).toBe(true);
   });
 
   it("rejects U when Cmd is held (prevents ⌘U from completing chord that wants plain U)", () => {
     const p = parseAccelerator("U");
-    expect(matchesEvent(p, ev("KeyU", { metaKey: true }) as unknown as KeyboardEvent)).toBe(false);
+    expect(matchesEvent(p, ev("KeyU", { metaKey: true }) as unknown as KeyboardEvent, true)).toBe(
+      false,
+    );
   });
 
-  it("matches CmdOrCtrl+\\ on both Backslash and Slash physical keys", () => {
+  it("matches CmdOrCtrl+\\ on both Backslash and Slash physical keys (Mac)", () => {
     const p = parseAccelerator("CmdOrCtrl+\\");
-    expect(matchesEvent(p, ev("Backslash", { metaKey: true }) as unknown as KeyboardEvent)).toBe(
+    expect(
+      matchesEvent(p, ev("Backslash", { metaKey: true }) as unknown as KeyboardEvent, true),
+    ).toBe(true);
+    expect(matchesEvent(p, ev("Slash", { metaKey: true }) as unknown as KeyboardEvent, true)).toBe(
       true,
     );
-    expect(matchesEvent(p, ev("Slash", { metaKey: true }) as unknown as KeyboardEvent)).toBe(true);
   });
 
   it("matches Shift+Enter without Cmd", () => {
     const p = parseAccelerator("Shift+Enter");
-    expect(matchesEvent(p, ev("Enter", { shiftKey: true }) as unknown as KeyboardEvent)).toBe(true);
+    expect(matchesEvent(p, ev("Enter", { shiftKey: true }) as unknown as KeyboardEvent, true)).toBe(
+      true,
+    );
     // ⌘⇧Enter must not match (extra modifier)
     expect(
-      matchesEvent(p, ev("Enter", { shiftKey: true, metaKey: true }) as unknown as KeyboardEvent),
+      matchesEvent(
+        p,
+        ev("Enter", { shiftKey: true, metaKey: true }) as unknown as KeyboardEvent,
+        true,
+      ),
     ).toBe(false);
   });
 
@@ -172,16 +214,17 @@ describe("matchesEvent", () => {
       matchesEvent(
         p,
         ev("ArrowUp", { metaKey: true, ctrlKey: true }) as unknown as KeyboardEvent,
+        true,
       ),
     ).toBe(true);
     // only meta → no match (this is what CmdOrCtrl+Up would catch instead)
-    expect(matchesEvent(p, ev("ArrowUp", { metaKey: true }) as unknown as KeyboardEvent)).toBe(
-      false,
-    );
+    expect(
+      matchesEvent(p, ev("ArrowUp", { metaKey: true }) as unknown as KeyboardEvent, true),
+    ).toBe(false);
     // only ctrl → no match
-    expect(matchesEvent(p, ev("ArrowUp", { ctrlKey: true }) as unknown as KeyboardEvent)).toBe(
-      false,
-    );
+    expect(
+      matchesEvent(p, ev("ArrowUp", { ctrlKey: true }) as unknown as KeyboardEvent, true),
+    ).toBe(false);
     // adding shift breaks the match (strict modifier set)
     expect(
       matchesEvent(
@@ -191,14 +234,33 @@ describe("matchesEvent", () => {
           ctrlKey: true,
           shiftKey: true,
         }) as unknown as KeyboardEvent,
+        true,
       ),
     ).toBe(false);
   });
 
-  it("matches Cmd+, on Comma key with metaKey", () => {
+  it("matches bare Ctrl+W on ctrlKey only, on either OS", () => {
+    // Literal `Ctrl+...` (not the CmdOrCtrl shorthand) means Control,
+    // not "platform primary". Behaviour is identical Mac/non-Mac.
+    const p = parseAccelerator("Ctrl+W");
+    expect(matchesEvent(p, ev("KeyW", { ctrlKey: true }) as unknown as KeyboardEvent, true)).toBe(
+      true,
+    );
+    expect(matchesEvent(p, ev("KeyW", { ctrlKey: true }) as unknown as KeyboardEvent, false)).toBe(
+      true,
+    );
+    // ⌘W (no ctrlKey) must not satisfy a literal Ctrl binding.
+    expect(matchesEvent(p, ev("KeyW", { metaKey: true }) as unknown as KeyboardEvent, true)).toBe(
+      false,
+    );
+  });
+
+  it("matches Cmd+, on Comma key with metaKey (Mac)", () => {
     const p = parseAccelerator("Cmd+,");
-    expect(matchesEvent(p, ev("Comma", { metaKey: true }) as unknown as KeyboardEvent)).toBe(true);
-    expect(matchesEvent(p, ev("Comma") as unknown as KeyboardEvent)).toBe(false);
+    expect(matchesEvent(p, ev("Comma", { metaKey: true }) as unknown as KeyboardEvent, true)).toBe(
+      true,
+    );
+    expect(matchesEvent(p, ev("Comma") as unknown as KeyboardEvent, true)).toBe(false);
   });
 });
 

@@ -161,22 +161,38 @@ function tokenToCodes(tok: string): readonly string[] {
  * (extra Cmd) — so two bindings can coexist with overlapping keys but
  * different modifier sets.
  *
+ * `isMac` resolves the platform meaning of the `CmdOrCtrl` shorthand:
+ *   - On Mac, `CmdOrCtrl+R` matches **only** ⌘R; bare ⌃R passes through
+ *     so terminal apps (xterm) keep their Ctrl-letter shortcuts like
+ *     `Ctrl+R` (reverse-i-search), `Ctrl+W` (delete-word), `Ctrl+T`
+ *     (transpose). Holding both ⌘ and ⌃ is still rejected — that
+ *     ambiguous combo is reserved for explicit `Cmd+Ctrl+...` bindings.
+ *   - On Win/Linux, `CmdOrCtrl+R` matches **only** Ctrl+R (metaKey is
+ *     usually the Windows/Super key and not part of our shortcut set).
+ *
  * Modifier matrix:
- *   - `cmd && !ctrl` (CmdOrCtrl shorthand): `metaKey || ctrlKey`, but
- *     not both — that ambiguous case belongs to a `Cmd+Ctrl` binding.
- *   - `cmd && ctrl` (literal Cmd+Ctrl combo): `metaKey && ctrlKey`.
- *   - `!cmd && ctrl` (literal Ctrl-only): `ctrlKey && !metaKey`.
+ *   - `cmd && ctrl` (literal Cmd+Ctrl combo, Mac-only realistically):
+ *     requires `metaKey && ctrlKey`.
+ *   - `cmd && !ctrl` (CmdOrCtrl shorthand): Mac → `metaKey && !ctrlKey`;
+ *     non-Mac → `ctrlKey && !metaKey`.
+ *   - `!cmd && ctrl` (literal Ctrl-only): `ctrlKey && !metaKey` on every
+ *     platform — used by bindings that genuinely mean "Control".
  *   - `!cmd && !ctrl`: neither modifier pressed.
  */
-export function matchesEvent(p: ParsedKeystroke, e: KeyboardEvent): boolean {
+export function matchesEvent(p: ParsedKeystroke, e: KeyboardEvent, isMac: boolean): boolean {
   if (!p.codes.includes(e.code)) return false;
 
   if (p.cmd && p.ctrl) {
     if (!(e.metaKey && e.ctrlKey)) return false;
   } else if (p.cmd) {
-    // CmdOrCtrl shorthand: accept either, reject ambiguous "both".
-    if (e.metaKey && e.ctrlKey) return false;
-    if (!(e.metaKey || e.ctrlKey)) return false;
+    // CmdOrCtrl shorthand: pick the platform's "primary" modifier and
+    // require the other to be absent. The "absent" side matters most on
+    // Mac, where bare ⌃-letter shortcuts belong to the terminal/shell.
+    if (isMac) {
+      if (!e.metaKey || e.ctrlKey) return false;
+    } else {
+      if (!e.ctrlKey || e.metaKey) return false;
+    }
   } else if (p.ctrl) {
     if (!e.ctrlKey || e.metaKey) return false;
   } else {
