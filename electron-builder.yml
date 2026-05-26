@@ -18,14 +18,13 @@ asarUnpack:
   - "node_modules/better-sqlite3/**"
 
 mac:
+  # Apple Silicon (arm64) 만 정식 배포. Intel x64 가 필요하면 CLI 에서 `--x64` 명시.
   target:
     - target: dmg
       arch:
-        - x64
         - arm64
     - target: zip
       arch:
-        - x64
         - arm64
   identity: null
   notarize: false

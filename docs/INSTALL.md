@@ -9,7 +9,8 @@
 | Mac 종류 | 파일명 |
 |---|---|
 | Apple Silicon (M1/M2/M3/M4) | `NexusCode-X.Y.Z-arm64.dmg` |
-| Intel | `NexusCode-X.Y.Z-x64.dmg` |
+
+> Intel (x64) 빌드는 정식 배포에 포함되지 않는다. Intel 머신 사용자는 [Self-build](#self-build) 절차로 직접 빌드한다.
 
 ### 2. 설치
 
@@ -72,18 +73,21 @@ bun install
 bun run package:mac:current
 ```
 
-전체 아키텍처(arm64 + x64)를 모두 빌드하려면:
+`package:mac` 은 DMG + ZIP (auto-updater 용) 까지 함께 만든다 — 기본은 arm64. Intel x64 머신이거나 cross-build 가 필요하면 다음과 같이 직접 호출한다.
 
 ```bash
-bun run package:mac
+bun run scripts/build-agent.ts && bun run build
+bun x electron-builder --mac dmg --x64 --publish never
 ```
+
+> 단일 머신에서 `--arm64 --x64` 를 함께 빌드하면 node-pty / better-sqlite3 의 native rebuild 가 한쪽 아키텍처만 정확히 잡힌다 — Cross-arch 빌드는 GitHub Actions 의 매트릭스 같은 별도 native 러너 분리 환경에서만 안전하다.
 
 ### 산출물 위치
 
 ```
 dist/
   NexusCode-X.Y.Z-arm64.dmg
-  NexusCode-X.Y.Z-x64.dmg
+  NexusCode-X.Y.Z-arm64.zip
 ```
 
 ### Self-built 앱 실행
