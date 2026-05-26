@@ -435,11 +435,16 @@ export function BrowserTabView({
             {/* Splitter — drag to resize the DevTools panel.  3px tall with
                 a hover halo for affordance.  `role="separator"` and
                 `aria-orientation="horizontal"` mark it as a sizing widget
-                for assistive tech. */}
+                for assistive tech. Keyboard resize is intentionally not
+                exposed (pointer-only affordance), so the strict separator
+                a11y rules are suppressed below. */}
+            {/* biome-ignore lint/a11y/useFocusableInteractive lint/a11y/useSemanticElements: pointer-only splitter; no semantic HTML element exists for a draggable splitter handle. */}
             <div
               role="separator"
               aria-orientation="horizontal"
               aria-label="Resize DevTools"
+              aria-valuenow={devtoolsHeight}
+              aria-valuemin={MIN_DEVTOOLS_HEIGHT}
               onPointerDown={onSplitterPointerDown}
               className={cn(
                 "h-[3px] cursor-row-resize",

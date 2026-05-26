@@ -572,6 +572,7 @@ async function writeEmpiricalMemory(args: {
   const excerpt = args.transcript
     .split(/\r?\n/)
     .filter((line) => line.includes("__PWD__") || line.includes("__UNAME__"))
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequence removal — \x1b (ESC) is the literal sequence we need to strip.
     .map((line) => line.replaceAll(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ""))
     .slice(-4)
     .join("\n");

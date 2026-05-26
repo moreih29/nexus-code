@@ -17,7 +17,7 @@ const FAKE_RESOURCES_PATH = "/Applications/NexusCode.app/Contents/Resources";
 
 mock.module("electron", () => ({
   app: {
-    isPackaged: false, // 기본값: dev 모드. 개별 테스트에서 재정의.
+    // 기본값: dev 모드 (_isPackaged=false). 개별 테스트에서 _isPackaged를 재정의.
     get isPackaged() {
       return _isPackaged;
     },

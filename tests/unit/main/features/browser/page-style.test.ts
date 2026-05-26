@@ -52,7 +52,9 @@ function fakeWebContents(opts?: { loading?: boolean; destroyed?: boolean }): Fak
       return Promise.resolve("css-key");
     },
     emit(event) {
-      this.listeners.get(event)?.forEach((cb) => cb());
+      this.listeners.get(event)?.forEach((cb) => {
+        cb();
+      });
     },
   };
 }

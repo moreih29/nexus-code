@@ -78,6 +78,7 @@ export async function saveUntitledModel(workspaceId: string, tabId: string): Pro
     chosenPath === workspace.rootPath || chosenPath.startsWith(rootWithSep);
   const writeRelPath = isInsideWorkspace ? chosenPath.slice(rootWithSep.length) : chosenPath;
 
+  // biome-ignore lint/suspicious/noImplicitAnyLet: writeFileResult type narrows from unwrapIpcResult inside the try block; an explicit annotation would duplicate the IPC contract.
   let writeFileResult;
   try {
     writeFileResult = unwrapIpcResult(

@@ -21,7 +21,7 @@
       2. Window opacity: reads localStorage["windowOpacity"], sets
          --window-opacity CSS property if a valid number in [0,1] is stored.
     -->
-    <script>(function(){var t=localStorage.getItem("themePreference");var v=["github-dark","github-light","dracula","one-dark-pro","monokai","tokyo-night","solarized-dark","nord","catppuccin-mocha","gruvbox-dark"];if(t&&v.indexOf(t)>=0){document.documentElement.setAttribute("data-theme",t);}else{document.documentElement.setAttribute("data-theme","github-dark");}var o=localStorage.getItem("windowOpacity");if(o!==null){var n=parseFloat(o);if(!isNaN(n)&&n>=0&&n<=1){document.documentElement.style.setProperty("--window-opacity",String(n));}}})()</script>
+    <script>(function(){var t=localStorage.getItem("themePreference");var v=["github-dark","github-light","dracula","one-dark-pro","monokai","tokyo-night","solarized-dark","nord","catppuccin-mocha","gruvbox-dark"];if(t&&v.indexOf(t)>=0){document.documentElement.setAttribute("data-theme",t);}else{document.documentElement.setAttribute("data-theme","github-dark");}var o=localStorage.getItem("windowOpacity");var n;if(o!==null){n=parseFloat(o);if(!isNaN(n)&&n>=0&&n<=1){document.documentElement.style.setProperty("--window-opacity",String(n));}}})()</script>
     <title>nexus-code</title>
     <link
       rel="preload"

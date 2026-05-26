@@ -37,7 +37,9 @@ const docStub: DocStub = {
     this.listeners.get(type)?.delete(cb);
   },
   dispatchEvent(event) {
-    this.listeners.get(event.type)?.forEach((cb) => cb(event));
+    this.listeners.get(event.type)?.forEach((cb) => {
+      cb(event);
+    });
   },
   createElement(tag) {
     return { _tag: tag };
@@ -153,6 +155,7 @@ function buildOnDragStart() {
   // Drive the hook through its public surface — useDragSource is exported
   // independent of React rendering, so the returned callback can be invoked
   // directly in tests.
+  // biome-ignore lint/correctness/useHookAtTopLevel: test helper exercises the hook outside of a React tree; bun:test provides the React shim.
   return useDragSource({
     mime: "application/x-nexus-tab",
     payload: { tabId: "t-1", workspaceId: "w-1" },

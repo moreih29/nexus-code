@@ -17,7 +17,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // ---------------------------------------------------------------------------
 
 // Track calls for assertion
-let mockSessionPermHandler: ((wc: unknown, perm: string, cb: (ok: boolean) => void) => void) | null = null;
+const mockSessionPermHandler: ((wc: unknown, perm: string, cb: (ok: boolean) => void) => void) | null = null;
 
 mock.module("electron", () => ({
   WebContentsView: class {},

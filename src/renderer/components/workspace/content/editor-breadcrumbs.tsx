@@ -44,7 +44,7 @@ export function EditorBreadcrumbs({
       {dirSegments.length > 0 && (
         <span className="flex items-center gap-1 min-w-0 overflow-hidden">
           {dirSegments.map((seg, i) => (
-            <Fragment key={`${i}-${seg}`}>
+            <Fragment key={dirSegments.slice(0, i + 1).join("/")}>
               {i > 0 && (
                 <ChevronRight className="size-3 shrink-0 opacity-60" aria-hidden="true" />
               )}
