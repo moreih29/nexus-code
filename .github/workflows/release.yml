@@ -1,8 +1,17 @@
 # Release workflow — triggered when a GitHub Release is created (published or pre-release).
 # Two-job pipeline:
 #   1. build-agent  — ubuntu-latest (cross-compile Go + Node runtime + LSP bundle 모두 산출)
-#   2. package      — matrix: macos-14 (arm64 native) + macos-13 (x64 native)
-#                     native modules (node-pty, better-sqlite3)는 postinstall에서 runner 아치로 rebuild.
+#   2. package      — macos-14 (Apple Silicon arm64 native)
+#
+# Apple Silicon arm64 만 지원. 이전엔 macos-13 (Intel x64) 매트릭스가 있었으나
+# macos-13 러너 풀이 큐 대기로 자주 묶이고 사용자층 대비 비용 효율이 떨어져 제외.
+# 향후 x64 가 다시 필요해지면 matrix 로 복귀 가능 — 단 그 경우 `gh release upload` step 이
+# 매트릭스 잡 간 race condition 없이 한 번만 모든 자산을 모아 올리도록 재설계 필요.
+#
+# Publish 방식:
+#   electron-builder 의 내장 publish 는 기존 published release ↔ 자체 draft 모드의
+#   호환성 충돌이 있어 사용하지 않는다 (자산을 silent skip 함). `--publish never` 로
+#   dist/ 산출물만 만들고, 별도 step 에서 `gh release upload --clobber` 로 명시 첨부.
 #
 # Apple code-signing: identity=null, notarize=false (electron-builder.yml 그대로).
 # Secret: GITHUB_TOKEN 한 개만 사용. Apple secrets 없음.
@@ -52,24 +61,12 @@ jobs:
           # package job이 즉시 소비하므로 1일이면 충분
           retention-days: 1
 
-  # ── Job 2: Electron 패키징 ────────────────────────────────────────────────
-  # matrix runner 선택 이유:
-  #   macos-14  → Apple Silicon (arm64 native). node-pty/better-sqlite3가 arm64로 rebuild됨.
-  #   macos-13  → Intel (x64 native). 동일 이유로 x64 native rebuild.
-  #   한 runner에서 --arm64 --x64 universal build를 시도하면 electron-rebuild가
-  #   한쪽 arch만 올바르게 빌드하므로 반드시 arch별 native runner를 분리한다.
+  # ── Job 2: Electron 패키징 (arm64 only) ──────────────────────────────────
+  # macos-14 = Apple Silicon native. node-pty/better-sqlite3가 arm64로 rebuild됨.
   package:
-    name: Package (${{ matrix.arch }})
+    name: Package (arm64)
     needs: build-agent
-    runs-on: ${{ matrix.runner }}
-
-    strategy:
-      matrix:
-        include:
-          - runner: macos-14   # Apple Silicon
-            arch: arm64
-          - runner: macos-13   # Intel
-            arch: x64
+    runs-on: macos-14
 
     env:
       # NEXUS_CHANNEL 분기:
@@ -107,15 +104,22 @@ jobs:
         run: bun run build
 
       - name: Package with electron-builder
-        # bun x / bunx는 bun의 npx 대체 CLI다.
-        # `bun x electron-builder` 형태를 선택한 이유:
-        #   - 이 프로젝트는 bun을 package manager로 사용하므로 bun의 bin 해석 경로를 따르는 것이 일관성에 맞는다.
-        #   - `npx electron-builder`는 npm이 설치되어 있지 않으면 실패할 수 있고,
-        #     `node_modules/.bin/electron-builder`는 경로 하드코딩이라 유지보수에 불리하다.
-        #   - `bun run electron-builder`는 package.json script가 아닌 바이너리 직접 실행을 지원하지 않으므로 부적절.
-        #   - 따라서 `bun x electron-builder`가 bun 생태계에서 가장 표준적인 형태.
+        # `--publish never` 로 dist/ 산출물만 만든다.
+        # electron-builder 내장 publish 는 기존 published release ↔ draft 모드 충돌로
+        # 자산을 silent skip 하는 케이스가 있어 신뢰 못 함. 첨부는 다음 step 이 담당.
         run: >
           bun x electron-builder
           --mac dmg zip
-          --${{ matrix.arch }}
-          --publish always
+          --arm64
+          --publish never
+
+      - name: Upload assets to release
+        # `tag_name` 이 곧 release 식별자. `--clobber` 는 같은 이름 자산이 있으면 덮어쓴다
+        # (workflow 재실행 안전성). latest-mac.yml 은 electron-updater 가 새 버전 감지에 쓰는
+        # 메타파일이라 반드시 함께 올린다.
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            dist/*.dmg dist/*.dmg.blockmap \
+            dist/*.zip dist/*.zip.blockmap \
+            dist/latest-mac.yml \
+            --clobber
