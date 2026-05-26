@@ -241,18 +241,27 @@ class XtermTerminalController implements TerminalController {
 
     this.dataDisposable = term.onData((data) => ptyClient.write(data));
 
-    // Shift+Enter → "\\\r" (literal backslash + CR).
+    // Shift+Enter → ESC + CR ("\x1b\r"). Option/Alt+Enter 표준 시퀀스.
     //
-    // 이유: xterm.js 의 기본 동작은 Shift+Enter 를 일반 Enter 와 동일하게 CR 만
-    // 보낸다. Claude Code 같은 TUI 는 multi-line 입력을 "\" + Enter 패턴으로
-    // universal 지원하고 (Anthropic 공식 문서), 일반 bash/zsh readline 도 동일
-    // 패턴을 line continuation 으로 인식한다. 단일 sequence 로 두 환경 모두 호환.
+    // 이유: xterm.js 의 기본 동작은 Shift+Enter 를 일반 Enter (CR) 와 동일하게
+    // 보내 Claude Code 등 TUI 가 multi-line 으로 인식 못한다.
     //
-    // return false: xterm.js 의 기본 키 처리 (Enter → CR 전송) 를 차단.
-    // attachCustomKeyEventHandler 의 contract 상 false 반환 시 default 처리 skip.
+    // 후보 시퀀스 중 ESC+CR 을 선택:
+    //   - "\\\r" (backslash+CR): 빈 input 에서는 작동하나, 텍스트 buffer 가
+    //     있는 상태에서 Claude Code 가 마지막 "\" 패턴을 인식하지 못하고 그대로
+    //     submit 처리. char-by-char 단계 결합에서 race.
+    //   - "\x1b\r" (ESC+CR): macOS 의 Option+Enter 표준 시퀀스. Claude Code 가
+    //     "Option as Meta" 설정 환경에서 multi-line 신호로 인식 (공식 docs).
+    //     bash/zsh readline 에서도 ESC+CR 은 "self-insert-newline" 으로 동작.
+    //
+    // preventDefault + stopPropagation: xterm.js 의 textInput 보조 listener 가
+    // Enter 의 "\r" 를 추가로 onData 에 흘려보내 race 가 발생하는 케이스 대응.
+    // return false 만으론 textarea 의 native input 경로를 완전히 차단하지 못함.
     term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
       if (event.type === "keydown" && event.key === "Enter" && event.shiftKey) {
-        ptyClient.write("\\\r");
+        event.preventDefault();
+        event.stopPropagation();
+        ptyClient.write("\x1b\r");
         return false;
       }
       return true;
