@@ -24,3 +24,6 @@ plugins/
 # opencode nexus
 opencode.json
 .opencode/
+
+# local-only scripts & their outputs (never committed)
+scripts/_local/
