@@ -37,10 +37,31 @@ function toElectron(spec: MenuItemSpec, options: InstallAppMenuOptions): MenuIte
     case "separator":
       return { type: "separator" };
 
-    case "role":
-      return spec.label !== undefined
-        ? { role: spec.role, label: spec.label }
-        : { role: spec.role };
+    case "role": {
+      // Selective accelerator unregistration for `copy`:
+      //   macOS Cocoa intercepts ⌘C before the renderer keydown listener fires
+      //   and dispatches `webContents.copy()`, which only copies the *DOM*
+      //   selection. xterm.js v6 renders to a canvas — its visible selection
+      //   is a canvas overlay, not a DOM `window.getSelection()` — so the
+      //   Cocoa-driven copy writes empty to the clipboard.
+      //
+      //   `registerAccelerator: false` keeps the menu item (and its visible
+      //   ⌘C label) but skips the OS-level shortcut registration. Then the
+      //   keydown event flows to the renderer, where xterm's customKeyEvent
+      //   handler can copy the canvas selection via IPC, Monaco handles its
+      //   own ⌘C, and plain `<input>`/`<textarea>` get Chromium's native
+      //   in-element copy handler (which does not depend on the menu role).
+      //
+      //   Cut/paste/selectAll keep the default registration because they have
+      //   no canvas-vs-DOM mismatch — Cocoa's native dispatch reaches the
+      //   correct target in every focus context.
+      const base: MenuItemConstructorOptions =
+        spec.label !== undefined
+          ? { role: spec.role, label: spec.label }
+          : { role: spec.role };
+      if (spec.role === "copy") base.registerAccelerator = false;
+      return base;
+    }
 
     case "submenu":
       return spec.role !== undefined

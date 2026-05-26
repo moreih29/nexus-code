@@ -7,6 +7,7 @@ import { fontFamily, DEFAULT_THEME, THEMES } from "../../../shared/design-tokens
 import type { ThemeId } from "../../../shared/design-tokens/themes";
 import { TERMINAL_PALETTES } from "../../../shared/editor/terminal-palette";
 import { resolvedTerminalCursorStyle, resolvedTerminalFontSize } from "../../state/stores/terminal";
+import { copyTextViaIpc } from "../../utils/clipboard";
 import { createPtyClient } from "./pty-client";
 import type {
   PtyClient,
@@ -18,14 +19,22 @@ import type {
 
 type Disposable = { dispose: () => void };
 
+type OscHandlerCallback = (data: string) => boolean | Promise<boolean>;
+interface ParserLike {
+  registerOscHandler: (ident: number, callback: OscHandlerCallback) => Disposable;
+}
+
 type RendererAddon = CanvasAddon | WebglAddon;
 interface TerminalLike {
   readonly element?: HTMLElement;
   readonly rows: number;
+  readonly parser: ParserLike;
   options: { theme: ITheme | undefined; fontSize: number; cursorStyle: string };
   dispose: () => void;
   loadAddon: (addon: Disposable) => void;
   onData: (callback: (data: string) => void) => Disposable;
+  onSelectionChange: (callback: () => void) => Disposable;
+  getSelection: () => string;
   open: (parent: HTMLElement) => void;
   refresh: (start: number, end: number) => void;
   write: (data: string) => void;
@@ -77,6 +86,9 @@ class XtermTerminalController implements TerminalController {
   private fitAddon: FitAddonLike | null = null;
   private rendererAddon: RendererAddon | null = null;
   private dataDisposable: Disposable | null = null;
+  private selectionDisposable: Disposable | null = null;
+  private selectionWriteTimer: ReturnType<typeof setTimeout> | null = null;
+  private oscDisposables: Disposable[] = [];
   private resizeObserver: ResizeObserverLike | null = null;
   private pendingRaf: number | null = null;
   private lastDims: TerminalDimensions | null = null;
@@ -134,6 +146,14 @@ class XtermTerminalController implements TerminalController {
 
     this.dataDisposable?.dispose();
     this.dataDisposable = null;
+    this.selectionDisposable?.dispose();
+    this.selectionDisposable = null;
+    if (this.selectionWriteTimer !== null) {
+      clearTimeout(this.selectionWriteTimer);
+      this.selectionWriteTimer = null;
+    }
+    for (const d of this.oscDisposables) d.dispose();
+    this.oscDisposables = [];
     this.ptyClient?.dispose();
     this.ptyClient = null;
     this.resizeObserver?.disconnect();
@@ -241,6 +261,28 @@ class XtermTerminalController implements TerminalController {
 
     this.dataDisposable = term.onData((data) => ptyClient.write(data));
 
+    this.registerOscHandlers(term);
+
+    // 드래그/키보드 셀렉션 → 시스템 클립보드 (iTerm2 "Copy on selection" 기본 동작).
+    //
+    // IPC 경로로 보냄: renderer 의 `navigator.clipboard.writeText` 는 user
+    // activation 없이 호출하면 Chromium Async Clipboard API 가 silent reject.
+    // PTY 콜백/selection 이벤트는 클릭 컨텍스트가 없어서 거의 항상 거부됨.
+    // main process `electron.clipboard.writeText` (IPC) 는 게이트 없음.
+    //
+    // Debounce: drag 중 mousemove 마다 onSelectionChange 가 발사되어 IPC 가
+    // flooding. trailing-edge timer 로 합쳐 한 번만 쓰도록 한다. 타이머는
+    // 인스턴스 필드로 보관해 dispose() 에서 정리 가능.
+    this.selectionDisposable = term.onSelectionChange(() => {
+      if (this.selectionWriteTimer !== null) clearTimeout(this.selectionWriteTimer);
+      this.selectionWriteTimer = setTimeout(() => {
+        this.selectionWriteTimer = null;
+        if (this.disposed) return;
+        const text = term.getSelection();
+        if (text) copyTextViaIpc(text);
+      }, 50);
+    });
+
     // Shift+Enter → ESC + CR ("\x1b\r"). Option/Alt+Enter 표준 시퀀스.
     //
     // 이유: xterm.js 의 기본 동작은 Shift+Enter 를 일반 Enter (CR) 와 동일하게
@@ -257,8 +299,36 @@ class XtermTerminalController implements TerminalController {
     // preventDefault + stopPropagation: xterm.js 의 textInput 보조 listener 가
     // Enter 의 "\r" 를 추가로 onData 에 흘려보내 race 가 발생하는 케이스 대응.
     // return false 만으론 textarea 의 native input 경로를 완전히 차단하지 못함.
+    // Cmd+C / Ctrl+C copy-when-selected. iTerm2 / Terminal.app parity.
+    //
+    // 경로:
+    //   menu/index.ts 에서 role:copy 의 OS-level accelerator 등록을 해제했으므로
+    //   ⌘C 가 Cocoa 에 가로채이지 않고 keydown 으로 이 핸들러까지 도달한다.
+    //
+    // 분기:
+    //   - 셀렉션 있으면: IPC 클립보드로 쓰고 return false (xterm 의 기본 SIGINT
+    //     송신을 차단). 셀렉션 → 복사 한 동작으로 완결.
+    //   - 셀렉션 없으면: fall through (return true) — xterm 이 평소대로 ^C 를
+    //     PTY 로 보내서 실행 중 프로세스에 SIGINT 전달.
+    //
+    // macOS 의 Cmd, Linux/Windows 의 Ctrl 둘 다 인정. Linux/Windows 에서 Ctrl+C
+    // 는 보통 SIGINT 만 기대하지만, 셀렉션이 있을 때 복사 우선은 모든 모던
+    // 터미널(iTerm2, WezTerm, Windows Terminal) 공통 동작.
     term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
-      if (event.type === "keydown" && event.key === "Enter" && event.shiftKey) {
+      if (event.type !== "keydown") return true;
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "c") {
+        const selection = term.getSelection();
+        if (selection) {
+          copyTextViaIpc(selection);
+          event.preventDefault();
+          event.stopPropagation();
+          return false;
+        }
+        // 셀렉션 없으면 SIGINT 경로로 보내기 위해 xterm 기본 처리에 위임.
+      }
+
+      if (event.key === "Enter" && event.shiftKey) {
         event.preventDefault();
         event.stopPropagation();
         ptyClient.write("\x1b\r");
@@ -285,6 +355,114 @@ class XtermTerminalController implements TerminalController {
     this.resizeObserver.observe(this.options.container);
 
     if (this.disposed) this.dispose();
+  }
+
+  // ---------------------------------------------------------------------------
+  // OSC handlers — iTerm2 가 지원하는 시퀀스 중 자주 쓰이는 항목 등록.
+  //
+  // xterm.js 기본: 0/1/2 (창 제목), 4 (팔레트 set), 8 (하이퍼링크), 10/11/12
+  //   (fg/bg/cursor color), 104/110/111/112 (리셋). 추가 등록 불필요.
+  // 본 앱 등록: 52, 7, 22, 133, 1337.
+  // 알림용 9/777/99 는 main process(`osc-notification.ts`)에서 PTY chunk 레벨로
+  //   인터셉트되므로 여기서 다시 등록하지 않는다.
+  //
+  // 핸들러는 `term.parser.registerOscHandler(ident, cb)` 로 등록. cb 인자 data 는
+  // `ESC ] <ident> ;` 와 종결자(BEL 또는 ST) 사이의 본문. 반환 true=흡수, false=
+  // 다음 핸들러로 패스. 미지원 시퀀스는 raw escape 가 화면에 새어 깨질 수 있어,
+  // 등록 핸들러는 항상 true 반환.
+  // ---------------------------------------------------------------------------
+  private registerOscHandlers(term: TerminalLike): void {
+    const dispatchCwd = (path: string): void => {
+      window.dispatchEvent(
+        new CustomEvent("nexus:terminal-cwd", {
+          detail: { tabId: this.options.tabId, path },
+        }),
+      );
+    };
+
+    const writeClipboardFromBase64 = (b64: string): void => {
+      try {
+        // IPC 경로 사용: OSC 52 는 PTY 데이터 콜백에서 도달하므로 user
+        // activation 이 없어 `navigator.clipboard.writeText` 가 거부된다.
+        copyTextViaIpc(atob(b64));
+      } catch {
+        // base64 디코드 실패는 silently drop. 셸이 잘못된 시퀀스를 보낸 경우라
+        // 사용자에게 피드백 줄 가치 없음.
+      }
+    };
+
+    // OSC 52 — set/get clipboard (xterm 표준).
+    //   `ESC ] 52 ; <targets> ; <base64|?> ST`
+    //   targets: c|p|q|s|0..7. payload "?" 는 read 요청 — 보안상 응답 안 함
+    //   (시스템 클립보드를 임의 TUI 가 읽도록 허용하면 비밀번호 등 탈취 위험).
+    //   Claude Code, neovim "+register, tmux set-clipboard, lazygit 등이 사용.
+    this.oscDisposables.push(
+      term.parser.registerOscHandler(52, (data) => {
+        const semi = data.indexOf(";");
+        if (semi < 0) return true;
+        const payload = data.slice(semi + 1);
+        if (payload === "" || payload === "?") return true;
+        writeClipboardFromBase64(payload);
+        return true;
+      }),
+    );
+
+    // OSC 7 — current working directory 보고.
+    //   `ESC ] 7 ; file://<host>/<path> ST`
+    //   zsh chpwd_functions / fish 가 자동 emit. 본 앱은 CustomEvent 로 디스패치
+    //   해 새 터미널 "Open here" 등 후속 기능이 구독 가능하도록.
+    this.oscDisposables.push(
+      term.parser.registerOscHandler(7, (data) => {
+        try {
+          const url = new URL(data);
+          dispatchCwd(decodeURIComponent(url.pathname));
+        } catch {
+          // 잘못된 URL 형식 무시.
+        }
+        return true;
+      }),
+    );
+
+    // OSC 22 — 마우스 커서 모양 변경.
+    //   `ESC ] 22 ; <css-cursor-name> ST`  (e.g. "pointer", "text", "default")
+    //   빈 문자열은 기본값으로 리셋.
+    this.oscDisposables.push(
+      term.parser.registerOscHandler(22, (data) => {
+        const el = term.element;
+        if (el) el.style.cursor = data || "";
+        return true;
+      }),
+    );
+
+    // OSC 133 — FinalTerm semantic prompt marks (A=prompt-start, B=command-start,
+    //   C=output-start, D=command-end). 셸 통합 — Starship/Powerlevel10k 가 자동
+    //   emit. 본 앱은 흡수만 — raw escape 가 화면에 새는 것 방지. 후속 UX(명령
+    //   단위 점프/마지막 출력 선택)에서 이 hook 을 확장.
+    this.oscDisposables.push(term.parser.registerOscHandler(133, () => true));
+
+    // OSC 1337 — iTerm2 proprietary. 본 앱은 SetMark/CurrentDir/Copy 3개만 동작.
+    //   나머지(File=, SetUserVar, Anchor, Badge, AttentionRequested, Cursor*…)
+    //   는 흡수만 — 본 앱에 대응 기능 없거나 스코프 밖.
+    this.oscDisposables.push(
+      term.parser.registerOscHandler(1337, (data) => {
+        if (data === "SetMark") {
+          // TODO: 셸 통합 마크 저장. 현재는 흡수만.
+          return true;
+        }
+        if (data.startsWith("CurrentDir=")) {
+          dispatchCwd(data.slice("CurrentDir=".length));
+          return true;
+        }
+        if (data.startsWith("Copy=")) {
+          // `Copy=<targets>:<base64>` — targets 는 무시(시스템 클립보드만 사용).
+          const rest = data.slice("Copy=".length);
+          const colon = rest.indexOf(":");
+          if (colon >= 0) writeClipboardFromBase64(rest.slice(colon + 1));
+          return true;
+        }
+        return true; // 미지원 1337 서브커맨드 흡수.
+      }),
+    );
   }
 
   private loadRendererAddon(term: TerminalLike): void {

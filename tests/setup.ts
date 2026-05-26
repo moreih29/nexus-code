@@ -34,6 +34,14 @@ mock.module("@xterm/xterm", () => ({
   Terminal: class Terminal {
     readonly element: HTMLElement | undefined = undefined;
     readonly rows: number = 24;
+    readonly parser = {
+      registerOscHandler(
+        _ident: number,
+        _cb: (data: string) => boolean | Promise<boolean>,
+      ): typeof disposable {
+        return disposable;
+      },
+    };
     options: { theme: unknown } = { theme: undefined };
 
     dispose(): void {}
@@ -41,6 +49,8 @@ mock.module("@xterm/xterm", () => ({
     onData(_callback: (data: string) => void): typeof disposable { return disposable; }
     onResize(_callback: (size: { cols: number; rows: number }) => void): typeof disposable { return disposable; }
     onTitleChange(_callback: (title: string) => void): typeof disposable { return disposable; }
+    onSelectionChange(_callback: () => void): typeof disposable { return disposable; }
+    getSelection(): string { return ""; }
     open(_parent: HTMLElement): void {}
     refresh(_start: number, _end: number): void {}
     write(_data: string): void {}

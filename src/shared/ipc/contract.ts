@@ -1003,6 +1003,27 @@ export const ipcContract = {
     listen: {},
   },
 
+  // ---------------------------------------------------------------------------
+  // clipboard — write to the system clipboard from the main process.
+  //
+  // Why a dedicated channel: renderer's `navigator.clipboard.writeText` requires
+  // transient user activation under Chromium Async Clipboard API. Non-gesture
+  // call sites (OSC 52 from a TUI, xterm drag-selection without an explicit
+  // click) silently reject. The main-process `electron.clipboard.writeText`
+  // has no activation gate — it is the documented escape hatch.
+  //
+  // Read is intentionally not exposed: letting renderer code (or any TUI via
+  // OSC 52 `?`) read the system clipboard is a privacy/secret-exfiltration
+  // risk. Same posture as `browser/security.ts`'s `clipboard-sanitized-write`
+  // grant — write is OK, read is not.
+  // ---------------------------------------------------------------------------
+  clipboard: {
+    call: {
+      writeText: call(z.object({ text: z.string() }), z.object({ ok: z.literal(true) })),
+    },
+    listen: {},
+  },
+
   folderBookmark: {
     call: {
       list: call(z.void(), z.array(FolderBookmarkSchema)),

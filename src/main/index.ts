@@ -27,6 +27,7 @@ import {
 import { registerGitChannel } from "./features/git/ipc";
 import { registerAutofetchChannel } from "./features/git/ipc/autofetch-handlers";
 import { type LspHostHandle, startConfiguredLspHost } from "./features/lsp/host";
+import { registerClipboardChannel } from "./features/clipboard/ipc";
 import { registerLspChannel } from "./features/lsp/ipc";
 import { installAppMenu } from "./features/menu";
 import { registerPanelChannel } from "./features/panel";
@@ -174,6 +175,7 @@ registerSshChannel();
 registerSshBrowseHandlers(sshBrowseRegistry, (prompt) => sshAuthPromptHub.request(prompt));
 registerSshAuthPromptIpcChannels(sshAuthPromptHub);
 registerSystemChannel({ openNewWindow: () => createMainWindow(stateService.getState()) });
+registerClipboardChannel();
 
 // Install the updates domain. IPC handlers are registered synchronously here;
 // the initial auto-poll fires inside app.whenReady() via runInitialAutoPoll().

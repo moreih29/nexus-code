@@ -129,9 +129,12 @@ function makeTerminalControllerDeps(
     createTerminal: () => ({
       element: undefined,
       rows: 24,
+      parser: { registerOscHandler: () => ({ dispose: () => {} }) },
       dispose: () => {},
       loadAddon: () => {},
       onData: () => ({ dispose: () => {} }),
+      onSelectionChange: () => ({ dispose: () => {} }),
+      getSelection: () => "",
       open: () => {},
       refresh: () => {},
       write: (data) => {
