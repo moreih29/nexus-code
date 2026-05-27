@@ -68,4 +68,5 @@ export const SHORTCUTS = {
   copyPath: shortcutFor(COMMANDS.pathCopy) ?? "",
   copyRelativePath: shortcutFor(COMMANDS.pathCopyRelative) ?? "",
   openToSide: shortcutFor(COMMANDS.openToSide) ?? "",
+  fileRename: shortcutFor(COMMANDS.fileRename) ?? "",
 } as const;

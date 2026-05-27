@@ -54,7 +54,7 @@ export function buildFileTreeMenuItems(
     items.push({
       kind: "item",
       label: "Rename",
-      shortcut: "F2",
+      shortcut: SHORTCUTS.fileRename || undefined,
       onSelect: actions.rename,
     });
     items.push({

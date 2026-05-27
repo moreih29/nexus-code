@@ -24,6 +24,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/cn";
 import { createListenerBus } from "../../../shared/util/listener-bus";
@@ -31,9 +32,10 @@ import {
   UI_TOAST_ERROR_MS,
   UI_TOAST_INFO_MS,
   UI_TOAST_SWEEP_INTERVAL_MS,
+  UI_TOAST_WARNING_MS,
 } from "../../../shared/util/timing-constants";
 
-export type ToastKind = "info" | "error";
+export type ToastKind = "info" | "error" | "warning";
 
 /** A single action button attached to a toast. */
 export interface ToastAction {
@@ -61,14 +63,15 @@ export interface ToastInput {
 }
 
 /**
- * Default auto-dismiss durations. Errors hold longer so the user can
- * still read the toast after switching focus to investigate.
+ * Default auto-dismiss durations. Errors and warnings hold longer so the
+ * user can still read the toast after switching focus to investigate.
  *
  * Re-exported under toast-local names so existing callers stay unchanged.
  * See `shared/util/timing-constants.ts` for the canonical definitions.
  */
 const TOAST_INFO_MS = UI_TOAST_INFO_MS;
 const TOAST_ERROR_MS = UI_TOAST_ERROR_MS;
+const TOAST_WARNING_MS = UI_TOAST_WARNING_MS;
 
 /** Sweep interval for the dismissal timer (see canonical doc in shared/util/timing-constants). */
 const TOAST_SWEEP_INTERVAL_MS = UI_TOAST_SWEEP_INTERVAL_MS;
@@ -97,7 +100,9 @@ let active: ActiveToast[] = [];
 const bus = createListenerBus();
 
 function defaultDuration(kind: ToastKind): number {
-  return kind === "error" ? TOAST_ERROR_MS : TOAST_INFO_MS;
+  if (kind === "error") return TOAST_ERROR_MS;
+  if (kind === "warning") return TOAST_WARNING_MS;
+  return TOAST_INFO_MS;
 }
 
 /** Imperative entry point; safe to call from any module. */
@@ -165,23 +170,38 @@ export function ToastRoot(): React.JSX.Element | null {
       {toasts.map((t) => {
         // Action toasts use role="alert" (assertive) so assistive technology
         // announces them immediately and the user knows buttons are available.
-        // Plain toasts use role="status" (polite) to avoid interrupting flow.
+        // Plain toasts (including warning) use role="status" (polite) to avoid
+        // interrupting flow — warning signals a user-decision point, not a
+        // system failure requiring immediate attention (Nielsen H5 / WCAG).
         const hasActions = t.actions.length > 0;
         const role: "alert" | "status" = hasActions ? "alert" : "status";
+        // aria-live mirrors role: assertive for alert, polite for status.
+        const ariaLive: "assertive" | "polite" = hasActions ? "assertive" : "polite";
 
         return (
           <div
             key={t.id}
             role={role}
+            aria-live={ariaLive}
             className={cn(
               "flex flex-col gap-2 rounded-(--radius-raised) border px-3 py-2 shadow-none text-app-ui-sm",
               t.kind === "error"
                 ? "bg-destructive text-destructive-foreground border-destructive"
-                : "bg-popover text-popover-foreground border-border",
+                : t.kind === "warning"
+                  ? "bg-[var(--state-warning-bg)] text-[var(--state-warning-fg)] border-[var(--state-warning-border)]"
+                  : "bg-popover text-popover-foreground border-border",
             )}
           >
-            {/* Message row with dismiss button */}
+            {/* Message row with optional warning icon and dismiss button.
+                The icon provides a second encoding channel for warning severity
+                (WCAG 1.4.1 — not colour alone). */}
             <div className="flex items-start gap-2">
+              {t.kind === "warning" ? (
+                <TriangleAlert
+                  className="size-4 shrink-0 mt-px"
+                  aria-hidden="true"
+                />
+              ) : null}
               <span className="flex-1 break-words">{t.message}</span>
               <Button
                 variant="ghost"

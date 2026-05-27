@@ -6,6 +6,7 @@
  * file moves stay invisible.
  */
 
+export { confirmAndDeletePath } from "./confirm-delete";
 export type { NewFileInput } from "./new-file";
 export { createNewFile } from "./new-file";
 export type { NewFolderInput } from "./new-folder";

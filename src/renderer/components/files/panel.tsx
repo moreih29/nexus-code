@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { Folder, GitBranch, Search } from "lucide-react";
 import { cn } from "@/utils/cn";
+import { ipcCallResult } from "../../ipc/client";
 import { openDiffTab } from "../../state/operations";
 import { useActiveStore } from "../../state/stores/active";
 import { useGitStore } from "../../state/stores/git";
@@ -17,6 +19,7 @@ import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { ResizeHandle } from "../ui/resize-handle";
+import { showToast } from "../ui/toast";
 import { FileTree } from "./file-tree";
 import { GitPanel, type GitPanelOpenDiffInput } from "./git";
 import { SearchPanel } from "./search/panel";
@@ -32,6 +35,33 @@ const MODE_BUTTONS: ModeButton[] = [
   { mode: "search", label: "Find in workspace", Icon: Search },
   { mode: "git", label: "Source control", Icon: GitBranch },
 ];
+
+// ---------------------------------------------------------------------------
+// Reconnect helper — exported so unit tests can verify the async logic
+// without mounting the full component.
+// ---------------------------------------------------------------------------
+
+/**
+ * SSH 워크스페이스 재연결을 시도한다.
+ * - 성공: main 프로세스가 connectionChanged 이벤트를 broadcast해 store가 업데이트됨.
+ * - 실패: 사용자에게 토스트로 안내.
+ *
+ * `workspace.activate` IPC는 내부적으로 `ensureProviderReady`를 호출하므로,
+ * 이전 연결이 실패(sshProviderReady 캐시 제거됨)한 상태에서 다시 호출하면
+ * 새 SSH 부트스트랩을 시작한다.
+ */
+export async function reconnectWorkspace(
+  workspaceId: string,
+  deps: {
+    callActivate: (id: string) => Promise<{ ok: boolean; message?: string }>;
+    onError: (message: string) => void;
+  },
+): Promise<void> {
+  const result = await deps.callActivate(workspaceId);
+  if (!result.ok) {
+    deps.onError("Failed to reconnect. Check your SSH settings.");
+  }
+}
 
 export function FilesPanel() {
   const filesPanelWidth = useUIStore((s) => s.filesPanelWidth);
@@ -56,6 +86,20 @@ export function FilesPanel() {
   // no IPC call reaches getFs / getAgentChannel before the user connects.
   const showOffline =
     activeWorkspace?.location.kind === "ssh" && !workspaceOnline;
+
+  // 재연결 진행 중 여부 — Reconnect 버튼을 disabled 처리하고 라벨을 변경하는 데 사용.
+  const [isReconnecting, setIsReconnecting] = useState(false);
+
+  const handleReconnect = (): void => {
+    if (!activeWorkspace || isReconnecting) return;
+    setIsReconnecting(true);
+    void reconnectWorkspace(activeWorkspace.id, {
+      callActivate: (id) => ipcCallResult("workspace", "activate", { id }),
+      onError: (message) => showToast({ kind: "error", message }),
+    }).finally(() => {
+      setIsReconnecting(false);
+    });
+  };
 
   return (
     <aside className="relative shrink-0 flex flex-col" style={{ width: filesPanelWidth }}>
@@ -93,6 +137,9 @@ export function FilesPanel() {
                   title="Not connected"
                   description="Connect to the workspace to browse files."
                   tone="status"
+                  actionLabel={isReconnecting ? "Reconnecting…" : "Reconnect"}
+                  onAction={handleReconnect}
+                  disabled={isReconnecting}
                 />
               ) : filesPanelMode === "tree" ? (
                 // ErrorBoundary: a crash in the file tree must not collapse

@@ -5,4 +5,4 @@ import "./subscriber";
 export { parentOf, selectFlat } from "./helpers";
 export { useFilesStore } from "./store";
 export { handleFsChanged } from "./subscriber";
-export type { FilesState, FlatItem, TreeNode, WorkspaceTree } from "./types";
+export type { FilesState, FlatItem, PendingRenameRequest, TreeNode, WorkspaceTree } from "./types";

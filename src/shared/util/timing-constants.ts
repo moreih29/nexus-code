@@ -158,6 +158,13 @@ export const UI_TOAST_INFO_MS = 4_000;
 export const UI_TOAST_ERROR_MS = 6_000;
 
 /**
+ * Auto-dismiss for warning-kind toasts. Matches the error duration — warnings
+ * are user-decision points (e.g. "folder is not empty") that the user may need
+ * to read after switching focus to investigate.
+ */
+export const UI_TOAST_WARNING_MS = 6_000;
+
+/**
  * Sweep interval for the toast dismissal timer. Single periodic sweep
  * avoids one-timer-per-toast races; 250ms is fast enough that a 4000ms
  * toast is dismissed within ~2 frames of its deadline.

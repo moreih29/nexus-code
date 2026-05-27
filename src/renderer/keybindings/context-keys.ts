@@ -57,6 +57,13 @@ function isInCodeEditor(target: HTMLElement | null): boolean {
   return closest(target, ".cm-editor") != null || closest(target, ".monaco-editor") != null;
 }
 
+// DATA-LOSS-CRITICAL CONTRACT: `isInPlainInput` は "本物の" テキスト入力
+// (inline create/rename edit row, 検索ボックスなど) にフォーカスがある間だけ
+// true を返さなければならない。`inputFocus` を `when` 条件に持つキーバインド
+// (例: `fileRename` の `when: "fileTreeFocus && !inputFocus"`) はこの関数を
+// 頼りに edit row が開いている間の二重発火を抑制する。
+// 誤って false を返すと、rename/create 入力中に F2 が再発火して入力データが
+// 失われる。変更時はキーボードテストを必ず実施すること。
 function isInPlainInput(target: HTMLElement | null): boolean {
   if (!target) return false;
   // Embedded editors expose their textarea/contentEditable host. We

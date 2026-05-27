@@ -11,9 +11,18 @@ export const useFilesStore = create<FilesState>((set, get) => {
     get().closeAllForWorkspace(id);
   });
 
+  // requestRename용 단조 증가 카운터. 클로저에 보관하여 set/get 없이 접근.
+  let renameRequestCounter = 0;
+
   return {
     trees: new Map(),
     activeAbsPath: new Map(),
+    pendingRenameRequest: null,
+
+    requestRename(absPath) {
+      renameRequestCounter += 1;
+      set({ pendingRenameRequest: { absPath, requestId: renameRequestCounter } });
+    },
 
     setActiveAbsPath(workspaceId, absPath) {
       set((state) => {

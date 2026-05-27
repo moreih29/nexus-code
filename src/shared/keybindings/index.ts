@@ -75,6 +75,17 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
   // tree so ⌘↵ inside a code editor still inserts a new line.
   { command: COMMANDS.openToSide, primary: "CmdOrCtrl+Enter", when: "fileTreeFocus" },
 
+  // Inline rename for the focused file-tree row. `!inputFocus` prevents
+  // double-fire when the rename/create edit row is already open.
+  { command: COMMANDS.fileRename, primary: "F2", when: "fileTreeFocus && !inputFocus" },
+
+  // Delete / Backspace — 포커스된 파일트리 행 삭제.
+  // CRITICAL: `!inputFocus` 는 DATA-LOSS 방지 guard 다.
+  // edit-row (create/rename 입력창)가 열린 상태에서 Delete 가 발화하면
+  // 입력 내용이 날아가고 부모 행이 삭제되는 데이터 손실이 발생한다.
+  { command: COMMANDS.fileDelete, primary: "Delete", when: "fileTreeFocus && !inputFocus" },
+  { command: COMMANDS.fileDelete, primary: "Backspace", when: "fileTreeFocus && !inputFocus" },
+
   // Tabs
   { command: COMMANDS.tabClose, primary: "CmdOrCtrl+W" },
   { command: COMMANDS.tabCloseOthers, primary: "CmdOrCtrl+Alt+T" },

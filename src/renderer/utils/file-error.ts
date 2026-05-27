@@ -20,6 +20,7 @@ export function parseFileErrorCode(message: string): FileErrorCode {
     FS_ERROR.NOT_EMPTY,
     FS_ERROR.NOT_DIRECTORY,
     FS_ERROR.CROSS_DEVICE,
+    FS_ERROR.UNSUPPORTED_REMOTE,
   ];
   for (const code of candidates) {
     if (hasFsErrorCode(message, code)) return code;
@@ -50,6 +51,8 @@ export function fileErrorMessage(
       return "Path is not a folder.";
     case FS_ERROR.CROSS_DEVICE:
       return "Can't move across filesystems.";
+    case FS_ERROR.UNSUPPORTED_REMOTE:
+      return "Operation not supported for remote workspaces.";
     case "OTHER":
       return "Failed to open file.";
   }

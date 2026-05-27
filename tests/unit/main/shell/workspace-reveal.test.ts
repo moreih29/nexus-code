@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { showItemInFolderHandler } from "../../../../src/main/features/shell/workspace-reveal";
+import { FS_ERROR } from "../../../../src/shared/fs/errors";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174000";
@@ -49,7 +50,7 @@ describe("showItemInFolderHandler", () => {
     expect(shell.showItemInFolder).toHaveBeenCalledWith(filePath);
   });
 
-  it("rejects SSH workspaces before revealing a local path", async () => {
+  it("rejects SSH workspaces with UNSUPPORTED_REMOTE fs error code", async () => {
     const shell = { showItemInFolder: mock((_absPath: string) => {}) };
     const workspace: WorkspaceMeta = {
       ...makeLocalWorkspace(),
@@ -62,7 +63,22 @@ describe("showItemInFolderHandler", () => {
         workspaceId: WORKSPACE_ID,
         relPath: "src/index.ts",
       }),
-    ).rejects.toThrow("SSH workspaces do not support reveal workspace files");
+    ).rejects.toThrow(`${FS_ERROR.UNSUPPORTED_REMOTE}: ${WORKSPACE_ID}`);
+
+    expect(shell.showItemInFolder).not.toHaveBeenCalled();
+  });
+
+  it("re-throws non-SSH errors unchanged", async () => {
+    // Simulate a workspace-not-found error (not UnsupportedSshWorkspaceError)
+    const shell = { showItemInFolder: mock((_absPath: string) => {}) };
+    const emptyManager = { list: () => [] };
+
+    await expect(
+      showItemInFolderHandler(emptyManager as never, shell)({
+        workspaceId: WORKSPACE_ID,
+        relPath: "src/index.ts",
+      }),
+    ).rejects.toThrow("workspace not found");
 
     expect(shell.showItemInFolder).not.toHaveBeenCalled();
   });
