@@ -962,6 +962,43 @@ export class GitRepository {
   }
 
   /**
+   * Filters the input `relPaths` down to those Git treats as ignored
+   * (matches `.gitignore` / `.git/info/exclude` / core.excludesfile).
+   *
+   * Used by the file-tree to lazily dim ignored entries in the renderer's
+   * viewport. We deliberately avoid `status --ignored` because that walks
+   * every ignored directory (`node_modules`, `dist`, ...) on each status
+   * push; lazy per-viewport calls scale with what the user actually sees.
+   *
+   * `git check-ignore` exits 1 when zero paths match — that is the normal
+   * outcome and is mapped to an empty result rather than an error.
+   */
+  async checkIgnore(relPaths: readonly string[], signal?: AbortSignal): Promise<string[]> {
+    if (relPaths.length === 0) return [];
+    return this.queue(async (queuedSignal) => {
+      try {
+        // `-z` requires `--stdin`, which our executor does not expose. We pass
+        // paths via argv and instead disable C-style path quoting through
+        // `-c core.quotePath=false` — that way newline-split returns the same
+        // utf-8 bytes we sent in. Filenames containing literal `\n` would
+        // still defeat the parser; those are vanishingly rare in real repos
+        // and would already break most Git tooling.
+        const { stdout } = await this.run(
+          ["-c", "core.quotePath=false", "check-ignore", "--", ...relPaths],
+          queuedSignal,
+        );
+        return stdout
+          .split("\n")
+          .map((line) => line.trimEnd()) // strip CR on Windows
+          .filter((p) => p.length > 0);
+      } catch (err) {
+        if (err instanceof GitError && err.exitCode === 1) return [];
+        throw err;
+      }
+    }, signal);
+  }
+
+  /**
    * Streams diff output in bounded chunks so IPC can apply back-pressure.
    */
   async *diff(

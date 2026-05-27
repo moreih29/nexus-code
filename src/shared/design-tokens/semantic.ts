@@ -143,6 +143,8 @@ export type SemanticKey =
   | "git.status.deleted.fg"
   | "git.status.untracked.fg"
   | "git.status.conflict.fg"
+  | "git.status.renamed.fg"
+  | "git.status.ignored.fg"
 
   // --- IDE Region: status bar (11 keys) ---
   | "status.bar.bg"

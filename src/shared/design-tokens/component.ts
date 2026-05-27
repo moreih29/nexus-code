@@ -161,6 +161,15 @@ export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string
     "--status-bar-modified-fg": tokens["status.bar.modified.fg"],
     "--status-bar-untracked-fg": tokens["status.bar.untracked.fg"],
     "--status-bar-conflict-fg": tokens["status.bar.conflict.fg"],
+    // Explorer file tree git decoration letter chips (design.md §1 monochromatic
+    // exception — color carried only by the 16x16 chip glyph, not the filename).
+    "--git-status-added-fg": tokens["git.status.added.fg"],
+    "--git-status-modified-fg": tokens["git.status.modified.fg"],
+    "--git-status-deleted-fg": tokens["git.status.deleted.fg"],
+    "--git-status-untracked-fg": tokens["git.status.untracked.fg"],
+    "--git-status-conflict-fg": tokens["git.status.conflict.fg"],
+    "--git-status-renamed-fg": tokens["git.status.renamed.fg"],
+    "--git-status-ignored-fg": tokens["git.status.ignored.fg"],
     // Islands surfaces — backdrop frame + island surface + inactive veil (design.md §2/§5)
     "--surface-backdrop-bg": tokens["surface.backdrop.bg"],
     "--surface-backdrop-fg": tokens["surface.backdrop.fg"],

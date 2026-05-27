@@ -887,6 +887,20 @@ export const ipcContract = {
       ),
       openFileAtHead: call(GitRelPathArgsSchema, GitOpenFileAtHeadResultSchema),
       addToGitignore: call(GitRelPathArgsSchema, GitIgnoreAppendResultSchema),
+      /**
+       * Filters the input `relPaths` down to those Git considers ignored
+       * (matched by `.gitignore` / `.git/info/exclude` / core.excludesfile).
+       * The renderer file tree calls this lazily for paths in the viewport
+       * so we never enumerate ignored files via `status --ignored` (which
+       * would walk `node_modules` and friends on every status push).
+       *
+       * Returns the subset that *is* ignored. Paths not in the response
+       * should be cached as "not ignored" until `.gitignore` changes.
+       */
+      checkIgnore: call(
+        GitRelPathsArgsSchema,
+        z.object({ ignored: z.array(z.string()) }),
+      ),
       getPanelState: call(GitWorkspaceIdSchema, GitPanelStateSchema),
       setPanelState: call(GitSetPanelStateArgsSchema, z.void()),
     },

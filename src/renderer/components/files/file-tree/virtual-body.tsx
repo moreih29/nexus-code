@@ -12,8 +12,20 @@ import type { Virtualizer } from "@tanstack/react-virtual";
 import type { FlatItem, WorkspaceTree } from "../../../state/stores/files";
 import type { DisplayItem } from "./display";
 import { FileTreeEditRow } from "./edit-row";
+import type { GitDecorationKind } from "./git-decoration";
 import { ROW_HEIGHT_PX } from "./metrics";
 import { FileTreeRow } from "./row";
+
+/**
+ * Lookups passed from the parent so the body stays a pure renderer. The
+ * file-tree owns the git store subscription + ignored-cache enqueuing and
+ * exposes the per-row answers as two synchronous functions; this body
+ * forwards them to each row without re-reading the stores itself.
+ */
+export interface FileTreeDecorationLookup {
+  decoration: (absPath: string, isDir: boolean) => GitDecorationKind | undefined;
+  isIgnored: (absPath: string, isDir: boolean) => boolean;
+}
 
 interface FileTreeVirtualBodyProps {
   workspaceId: string;
@@ -22,6 +34,7 @@ interface FileTreeVirtualBodyProps {
   flat: FlatItem[];
   activeAbsPath: string | undefined;
   virtualizer: Virtualizer<HTMLDivElement, Element>;
+  decorationLookup: FileTreeDecorationLookup;
   onRowClick: (idx: number, item: FlatItem, e?: React.MouseEvent) => void;
   onRowDoubleClick: (idx: number, item: FlatItem) => void;
   onRowContextMenu: (idx: number, item: FlatItem) => void;
@@ -38,6 +51,7 @@ export function FileTreeVirtualBody({
   flat,
   activeAbsPath,
   virtualizer,
+  decorationLookup,
   onRowClick,
   onRowDoubleClick,
   onRowContextMenu,
@@ -89,6 +103,9 @@ export function FileTreeVirtualBody({
 
         const isExpanded = tree?.expanded.has(item.absPath) ?? false;
         const flatIdx = flat.findIndex((f) => f.absPath === item.absPath);
+        const isDir = item.node.type === "dir";
+        const decoration = decorationLookup.decoration(item.absPath, isDir);
+        const isIgnored = !isDir && decorationLookup.isIgnored(item.absPath, isDir);
         return (
           <div key={item.absPath} style={wrapperStyle}>
             <FileTreeRow
@@ -99,6 +116,8 @@ export function FileTreeVirtualBody({
               isExpanded={isExpanded}
               isSelected={item.absPath === activeAbsPath}
               isLoading={tree?.loading.has(item.absPath) ?? false}
+              decoration={decoration}
+              isIgnored={isIgnored}
               onToggle={() => onRowClick(flatIdx, item)}
               onClick={(e) => onRowClick(flatIdx, item, e)}
               onDoubleClick={() => onRowDoubleClick(flatIdx, item)}

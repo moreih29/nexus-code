@@ -21,6 +21,7 @@ import {
   commitHandler,
   undoLastCommitHandler,
 } from "./commit-handlers";
+import { checkIgnoreHandler } from "./check-ignore-handlers";
 import { getFileContentHandler } from "./content-handlers";
 import { diffStream } from "./diff-stream";
 import { getFileBlobStream, openFileAtHeadHandler } from "./file-handlers";
@@ -116,6 +117,7 @@ export function registerGitChannel(
       getFileContent: getFileContentHandler(registry, workspaceManager),
       openFileAtHead: openFileAtHeadHandler(registry),
       addToGitignore: addToGitignoreHandler(registry),
+      checkIgnore: checkIgnoreHandler(registry),
       listBranches: listBranchesHandler(registry),
       listTags: listTagsHandler(registry),
       listRemoteTags: listRemoteTagsHandler(registry),

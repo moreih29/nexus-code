@@ -12,6 +12,12 @@
 import { ChevronDown, ChevronRight, Folder, FolderOpen, Minus, Plus, Trash2 } from "lucide-react";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
+import {
+  type GitDecorationKind,
+  kindToColorVar,
+  kindToLetter,
+  kindToTooltip,
+} from "../../file-tree/git-decoration";
 import { INDENT_STEP_PX } from "../../file-tree/metrics";
 import { GitFileRow } from "./row";
 
@@ -33,7 +39,13 @@ interface GitTreeRowDirProps extends GitTreeRowBase {
   displayName: string;
   relPath: string;
   isExpanded: boolean;
-  childCount: number;
+  /**
+   * Highest-priority decoration kind among the folder's descendants. Drives
+   * the single trailing letter chip (M/A/D/U/...). Undefined when the folder
+   * has no flagged descendants — shouldn't happen in practice because the
+   * group's tree is built from entries that are themselves flagged.
+   */
+  decoration?: GitDecorationKind;
   onToggle: () => void;
   /** Called when the user clicks the stage (plus) action on a dir row. */
   onStagePaths?: () => void;
@@ -73,7 +85,7 @@ export function GitTreeRow(props: GitTreeRowProps) {
     const {
       displayName,
       isExpanded,
-      childCount,
+      decoration,
       onToggle,
       onStagePaths,
       onUnstagePaths,
@@ -153,9 +165,17 @@ export function GitTreeRow(props: GitTreeRowProps) {
             </Button>
           ) : null}
         </div>
-        <span className="shrink-0 rounded bg-muted px-1 text-app-ui-sm text-muted-foreground">
-          {childCount}
-        </span>
+        {decoration !== undefined && (
+          <span
+            className="inline-flex shrink-0 items-center justify-center pl-1 pr-1 font-mono text-app-ui-sm leading-none"
+            style={{ color: kindToColorVar(decoration) }}
+            role="img"
+            aria-label={`Git ${kindToTooltip(decoration)}`}
+            title={kindToTooltip(decoration)}
+          >
+            {kindToLetter(decoration)}
+          </span>
+        )}
       </div>
     );
   }

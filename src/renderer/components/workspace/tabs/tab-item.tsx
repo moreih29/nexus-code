@@ -23,11 +23,13 @@ import { isDirty, subscribeFileDirty } from "@/services/editor/model/dirty-track
 import { cn } from "@/utils/cn";
 import { basename } from "@/utils/path";
 import type { ClaudeStatus } from "../../../../shared/claude/status";
-import { getFileIcon } from "../../files/file-tree/icons";
 import { useBrowserRuntimeStore } from "../../../state/stores/browser-runtime";
 import { selectStatusForTab, useClaudeStatusStore } from "../../../state/stores/claude-status";
+import { useTabGitDecoration } from "../../../state/stores/git/use-tab-decoration";
 import { useTabEditingStore } from "../../../state/stores/tab-editing";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
+import { kindToColorVar } from "../../files/file-tree/git-decoration";
+import { getFileIcon } from "../../files/file-tree/icons";
 import { MIME_TAB, type TabDragPayload } from "../dnd/types";
 
 /**
@@ -271,6 +273,17 @@ export function TabItem({
     tab.type === "browser" ? (s.runtimes.get(tab.id)?.faviconUrl ?? null) : null,
   );
 
+  // Git decoration — 파일트리 row와 동일한 시맨틱: editor 탭의 작업트리 상태
+  // (modified / added / deleted / untracked / conflict / renamed)를 라벨 색으로,
+  // .gitignore 매칭 파일은 opacity-50로 dim한다. editor 외 탭은 hook이 빈 결과 반환.
+  const { decoration: gitDecoration, isIgnored: gitIgnored } = useTabGitDecoration(tab);
+  const labelColor =
+    gitDecoration !== undefined
+      ? kindToColorVar(gitDecoration)
+      : gitIgnored
+        ? kindToColorVar("ignored")
+        : undefined;
+
   // ---------------------------------------------------------------------
   // Inline rename — 터미널 탭만. 더블클릭 또는 컨텍스트 메뉴 "Rename Tab" 진입.
   //
@@ -464,7 +477,17 @@ export function TabItem({
             spellCheck={false}
           />
         ) : (
-          <span className={tab.isPreview ? "italic" : undefined}>
+          <span
+            className={cn(
+              tab.isPreview && "italic",
+              // Ignored 파일 탭은 라벨이 receded — 파일트리 row와 동일한 신호.
+              gitIgnored && "opacity-50",
+            )}
+            // Inline color는 active 탭의 text-foreground / inactive 의 text-muted-foreground
+            // cascade를 모두 이긴다 (선택 상태에서도 git 색이 살아남). undefined일 땐
+            // 기존 색 그대로 상속.
+            style={labelColor ? { color: labelColor } : undefined}
+          >
             {displayTitle}
             {terminalEnded && (
               <span aria-hidden className="text-muted-foreground/60">

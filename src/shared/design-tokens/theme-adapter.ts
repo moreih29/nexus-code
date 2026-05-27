@@ -350,8 +350,18 @@ export function buildSemanticTokens(source: ThemeSource): SemanticTokenSet {
     "git.status.added.fg": source.success,
     "git.status.modified.fg": source.warning,
     "git.status.deleted.fg": source.error,
-    "git.status.untracked.fg": source.info,
+    // untracked: VSCode parity — added and untracked both read green. The
+    // "new file" semantic is shared; the chip letter (A vs U) carries the
+    // distinction. Earlier mapping used `info` (blue) which read as a
+    // foreign signal next to the rest of the git palette.
+    "git.status.untracked.fg": source.success,
     "git.status.conflict.fg": source.error,
+    // renamed: structural change, not a value change — use muted fg so it
+    // reads as a secondary signal in the explorer alongside the M/A letters.
+    "git.status.renamed.fg": source.fg.muted,
+    // ignored: dim the entire row when the file is under .gitignore.
+    // Uses muted fg so the file is still readable but visually receded.
+    "git.status.ignored.fg": source.fg.muted,
 
     // --- status bar (uses backdrop layer) ---
     "status.bar.bg": source.bg.secondary,
@@ -367,7 +377,8 @@ export function buildSemanticTokens(source: ThemeSource): SemanticTokenSet {
     // status bar surface (no chip fill).
     "status.bar.added.fg": source.success,
     "status.bar.modified.fg": source.warning,
-    "status.bar.untracked.fg": source.info,
+    // untracked shares the green hue (see git.status.untracked.fg above).
+    "status.bar.untracked.fg": source.success,
     "status.bar.conflict.fg": source.error,
 
     // --- terminal.ansi 16 keys ---

@@ -13,6 +13,9 @@ import { useDelayedLoading } from "../../../hooks/use-delayed-loading";
 import { openOrRevealEditor } from "../../../services/editor";
 import { ensureRoot, reveal, toggleExpand } from "../../../state/operations/files";
 import { selectFlat, useFilesStore } from "../../../state/stores/files";
+import { useGitSession, useGitStore } from "../../../state/stores/git";
+import { selectGitDecorations } from "../../../state/stores/git/decorations";
+import { useIgnoredStore } from "../../../state/stores/git/ignored";
 import { useLayoutStore } from "../../../state/stores/layout";
 import { useTabsStore } from "../../../state/stores/tabs";
 import { type FileTreeActionTarget, useFileTreeActions } from "../hooks/use-file-tree-actions";
@@ -23,7 +26,7 @@ import { getDisplayFlat } from "./display";
 import { buildFileTreeMenuItems } from "./menu";
 import { LOADING_FLASH_DELAY_MS, ROW_HEIGHT_PX } from "./metrics";
 import { FileTreeStatusView } from "./status-view";
-import { FileTreeVirtualBody } from "./virtual-body";
+import { type FileTreeDecorationLookup, FileTreeVirtualBody } from "./virtual-body";
 
 interface FileTreeProps {
   workspaceId: string;
@@ -87,6 +90,59 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
     }
     return null;
   }, [layoutForWs, tabsForWs, rootAbsPath]);
+
+  // ---------------------------------------------------------------------------
+  // Git decorations
+  // ---------------------------------------------------------------------------
+  // Subscribe to the workspace's git session so any `statusChanged` push
+  // re-renders the tree. The actual decoration Maps are built lazily on
+  // first access (`selectGitDecorations` memoizes on the session reference).
+  // Ignored-flag subscription pulls from the ignored store's version so
+  // batch flushes propagate without re-running the heavier decoration
+  // selector.
+  const gitSession = useGitSession(workspaceId);
+  const ignoredVersion = useIgnoredStore((s) => s.byWorkspace.get(workspaceId)?.version ?? 0);
+  const repoTopLevel = gitSession?.repoInfo.kind === "repo" ? gitSession.repoInfo.topLevel : null;
+  const decorationMaps = useMemo(() => {
+    // gitSession dep ensures recompute on statusChanged; selectGitDecorations
+    // returns the same reference for the same session via its WeakMap cache.
+    void gitSession;
+    return selectGitDecorations(useGitStore.getState(), workspaceId, rootAbsPath);
+  }, [gitSession, workspaceId, rootAbsPath]);
+
+  const decorationLookup = useMemo<FileTreeDecorationLookup>(() => {
+    // Read once per render — Zustand provides stable function identities.
+    const enqueueCheck = useIgnoredStore.getState().enqueueCheck;
+    const isIgnoredFn = useIgnoredStore.getState().isIgnored;
+    return {
+      decoration: (absPath, isDir) =>
+        isDir ? decorationMaps.folders.get(absPath) : decorationMaps.files.get(absPath),
+      isIgnored: (absPath, isDir) => {
+        if (isDir) return false;
+        if (!repoTopLevel) return false;
+        // Skip if the file already has a status decoration — it cannot be
+        // ignored at the same time (untracked vs ignored is mutually exclusive
+        // in porcelain v2).
+        if (decorationMaps.files.has(absPath)) return false;
+        const flag = isIgnoredFn(workspaceId, absPath);
+        if (flag === undefined) {
+          // Compute relPath for the IPC call. Forward-slash join is safe
+          // because the file-tree itself uses forward slashes throughout.
+          const root = repoTopLevel.replace(/[\\/]+$/, "");
+          if (absPath.startsWith(`${root}/`)) {
+            const relPath = absPath.slice(root.length + 1);
+            enqueueCheck(workspaceId, absPath, relPath);
+          }
+          return false;
+        }
+        // ignoredVersion is read in the outer subscriber — referenced here
+        // to keep the dependency live for re-renders when batch flushes
+        // arrive.
+        void ignoredVersion;
+        return flag;
+      },
+    };
+  }, [decorationMaps, workspaceId, repoTopLevel, ignoredVersion]);
 
   // Anchor for the right-click menu — set in the row's onContextMenu (bubble
   // phase) so it lands in state before Radix's Trigger opens the menu.
@@ -244,6 +300,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
               flat={flat}
               activeAbsPath={activeAbsPath}
               virtualizer={virtualizer}
+              decorationLookup={decorationLookup}
               onRowClick={handleRowClick}
               onRowDoubleClick={handleRowDoubleClick}
               onRowContextMenu={(flatIdx, item) => {

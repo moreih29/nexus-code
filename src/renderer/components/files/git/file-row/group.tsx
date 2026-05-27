@@ -8,6 +8,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
 import type { ViewMode } from "../../../../../shared/types/panel";
+import { type GitDecorationKind, kindFromEntry, maxKind } from "../../file-tree/git-decoration";
 import {
   buildPathTree,
   collectDescendantLeafPaths,
@@ -80,11 +81,35 @@ function flattenTree(
   }
 }
 
-/** Count the leaf (file) descendants of a dir node. */
-function countLeaves(node: PathTreeNode): number {
-  if (node.kind === "file") return 1;
-  if (!node.children) return 0;
-  return node.children.reduce((sum, c) => sum + countLeaves(c), 0);
+/**
+ * Returns the highest-priority decoration kind among the dir node's leaf
+ * descendants. Used to paint a single letter chip (M/A/D/...) on the
+ * folder row instead of the old file-count badge — the panel header
+ * already carries the total count, so per-folder counts were redundant.
+ *
+ * Returns undefined when no leaf matches an entry (defensive — should
+ * not happen in practice because tree nodes are built from entry paths).
+ */
+function dominantKindForDir(
+  node: PathTreeNode,
+  entryByRelPath: Map<string, GitStatusEntry>,
+): GitDecorationKind | undefined {
+  let result: GitDecorationKind | undefined;
+  const visit = (n: PathTreeNode): void => {
+    if (n.kind === "file") {
+      const entry = entryByRelPath.get(n.relPath);
+      if (!entry) return;
+      const kind = kindFromEntry(entry);
+      if (kind === null) return;
+      result = result === undefined ? kind : maxKind(result, kind);
+      return;
+    }
+    if (n.children) {
+      for (const child of n.children) visit(child);
+    }
+  };
+  visit(node);
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -328,7 +353,7 @@ function GitGroupTree({
               displayName={node.displayName}
               relPath={node.relPath}
               isExpanded={expandedSet.has(node.relPath)}
-              childCount={countLeaves(node)}
+              decoration={dominantKindForDir(node, entryByRelPath)}
               treeItemProps={rowProps}
               onFocus={() => setFocusedIndex(idx)}
               onToggle={() => handleToggle(node.relPath)}

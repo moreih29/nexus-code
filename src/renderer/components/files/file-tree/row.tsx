@@ -3,6 +3,12 @@ import { useDragSource } from "@/components/ui/use-drag-source";
 import { type FileDragPayload, MIME_FILE } from "@/components/workspace/dnd/types";
 import { cn } from "@/utils/cn";
 import type { TreeNode } from "../../../state/stores/files";
+import {
+  type GitDecorationKind,
+  kindToColorVar,
+  kindToLetter,
+  kindToTooltip,
+} from "./git-decoration";
 import { FOLDER_ICON, FOLDER_OPEN_ICON, getFileIcon } from "./icons";
 import { indentPaddingLeft, ROW_HEIGHT_PX } from "./metrics";
 
@@ -40,6 +46,19 @@ interface FileTreeRowProps {
   isExpanded: boolean;
   isSelected: boolean;
   isLoading?: boolean;
+  /**
+   * Git decoration kind for this row, if any. Files surface a colored
+   * letter chip; directories surface only the propagated chip (no name
+   * recoloring) so deep trees do not feel noisy (design.md §1 — color
+   * carried by the chip glyph alone).
+   */
+  decoration?: GitDecorationKind;
+  /**
+   * True when the file is matched by `.gitignore`. Dims the row so
+   * ignored entries (e.g. inside `node_modules`) recede visually. Folder
+   * rows never receive this — only files Git confirms as ignored.
+   */
+  isIgnored?: boolean;
   onToggle: () => void; // dir click
   onClick: (e: React.MouseEvent) => void; // file click
   /**
@@ -67,6 +86,8 @@ export function FileTreeRow({
   isExpanded,
   isSelected,
   isLoading = false,
+  decoration,
+  isIgnored = false,
   onToggle,
   onClick,
   onDoubleClick,
@@ -142,7 +163,64 @@ export function FileTreeRow({
         strokeWidth={1.5}
         aria-hidden="true"
       />
-      <span className="ml-2 truncate min-w-0 text-app-body">{node.name}</span>
+      <span
+        className={cn(
+          "ml-2 truncate min-w-0 text-app-body",
+          // Ignored rows recede visually — VSCode parity.
+          isIgnored && "opacity-50",
+        )}
+        // Filename color mirrors VSCode's git decoration (added=green,
+        // modified=yellow, deleted/conflict=red, untracked=blue, renamed=
+        // muted). Inline style wins over the button's selected-fg color
+        // cascade so the git signal stays visible on selected rows.
+        // Ignored rows without an explicit status entry still pick up the
+        // muted ignored fg on top of opacity-50 for a stronger receding cue.
+        style={effectiveNameColor(decoration, isIgnored)}
+      >
+        {node.name}
+      </span>
+      {decoration !== undefined && <GitDecorationChip kind={decoration} />}
     </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Decoration chip — single colored character at the row's trailing edge.
+// Mirrors the Source Control panel's GitStatusBadge but trims size+spacing
+// to fit the trailing slot of an explorer row.
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolves the inline color style for the filename text. Returns
+ * `undefined` when no git signal applies — the row then inherits the
+ * normal foreground from its surface tokens.
+ *
+ * Precedence: an explicit decoration kind (M/A/D/R/U/!) always wins; the
+ * ignored case applies only to files Git confirmed as ignored AND that
+ * carry no other status (a path cannot be untracked and ignored at the
+ * same time in porcelain v2).
+ */
+function effectiveNameColor(
+  decoration: GitDecorationKind | undefined,
+  isIgnored: boolean,
+): React.CSSProperties | undefined {
+  if (decoration !== undefined) return { color: kindToColorVar(decoration) };
+  if (isIgnored) return { color: kindToColorVar("ignored") };
+  return undefined;
+}
+
+function GitDecorationChip({ kind }: { kind: GitDecorationKind }) {
+  const letter = kindToLetter(kind);
+  const tooltip = kindToTooltip(kind);
+  return (
+    <span
+      className="ml-auto pl-1 pr-2 inline-flex shrink-0 items-center justify-center font-mono text-app-ui-sm leading-none"
+      style={{ color: kindToColorVar(kind) }}
+      role="img"
+      aria-label={`Git ${tooltip}`}
+      title={tooltip}
+    >
+      {letter}
+    </span>
   );
 }

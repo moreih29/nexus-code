@@ -12,6 +12,7 @@
 import type { GitAutofetchStateChanged } from "../../../../shared/git/types";
 import { canUseIpcBridge, ipcListen } from "../../../ipc/client";
 import { scheduleStatusHintRefresh } from "./draft-persistence";
+import { shouldInvalidateIgnoredCache, useIgnoredStore } from "./ignored";
 import { useGitStore } from "./index";
 import { sanitizeExpandedTreeNodes } from "./panel-ui";
 
@@ -101,5 +102,14 @@ export function installGitEventSubscriptions(): void {
     const session = useGitStore.getState().sessions.get(workspaceId);
     if (!session || session.repoInfo.kind !== "repo") return;
     scheduleStatusHintRefresh(workspaceId);
+    // `.gitignore` edits (and `.git/info/exclude`) invalidate every
+    // cached ignored decision for the workspace. The ignored cache
+    // refills lazily on the next viewport check.
+    for (const change of changes) {
+      if (shouldInvalidateIgnoredCache(change.relPath)) {
+        useIgnoredStore.getState().clearWorkspace(workspaceId);
+        break;
+      }
+    }
   });
 }
