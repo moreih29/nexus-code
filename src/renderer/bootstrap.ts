@@ -117,13 +117,21 @@ export async function bootstrapAppState(): Promise<void> {
       try {
         const tabsMap: Record<
           string,
-          (typeof snap.tabs)[number] & { isPreview: boolean; isPinned: boolean }
+          (typeof snap.tabs)[number] & {
+            isPreview: boolean;
+            isPinned: boolean;
+            defaultTitle: string;
+          }
         > = {};
         for (const t of snap.tabs) {
           const isPreview =
             "isPreview" in t && typeof t.isPreview === "boolean" ? t.isPreview : false;
           const isPinned = "isPinned" in t && typeof t.isPinned === "boolean" ? t.isPinned : false;
-          tabsMap[t.id] = { ...t, isPreview, isPinned };
+          // 마이그레이션: defaultTitle 필드가 없는 옛 스냅샷은 현재 title을 fallback으로
+          // 사용. 이후 정상 동작 — set 경로들이 같은 invariant를 유지한다.
+          const defaultTitle =
+            "defaultTitle" in t && typeof t.defaultTitle === "string" ? t.defaultTitle : t.title;
+          tabsMap[t.id] = { ...t, isPreview, isPinned, defaultTitle };
         }
         useTabsStore.setState((s) => ({
           byWorkspace: { ...s.byWorkspace, [wsId]: tabsMap },

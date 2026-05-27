@@ -39,7 +39,9 @@ export function CommitTab({ workspaceId, sha, tabId }: CommitTabProps) {
         // receives the typed error with its `.kind` field intact.
         const nextDetail = unwrapGitResult(ipcRes);
         setDetail(nextDetail);
-        useTabsStore.getState().renameTab(workspaceId, tabId, nextDetail.subject);
+        // commit subject는 사용자 수동 rename이 아닌 자동 감지된 메타데이터이므로
+        // setProcessTitle로 갱신. 사용자가 별도로 rename해두면 그 customTitle이 그대로 보존된다.
+        useTabsStore.getState().setProcessTitle(workspaceId, tabId, nextDetail.subject);
       })
       .catch((fetchError) => {
         if (controller.signal.aborted) return;

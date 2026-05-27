@@ -32,9 +32,38 @@ export type BrowserTabProps = BrowserTabPayload;
 
 interface TabBase {
   id: string;
+  /**
+   * 표시용 타이틀 — derived: customTitle ?? processTitle ?? defaultTitle.
+   * 모든 set 경로(rename / setProcessTitle / createTab)가 이 invariant를 유지한다.
+   * 호출자는 항상 tab.title을 그대로 읽으면 된다.
+   */
   title: string;
+  /**
+   * 탭 생성 시점에 계산된 기본 타이틀. customTitle / processTitle 둘 다 비어있을 때
+   * fallback. createTab 이후 변경되지 않는다.
+   */
+  defaultTitle: string;
+  /**
+   * 사용자가 수동으로 설정한 타이틀. 설정되면 processTitle을 가리고 title을 고정.
+   * undefined로 비우면 자동(processTitle/defaultTitle)으로 복귀.
+   */
+  customTitle?: string;
+  /**
+   * 자동 감지된 타이틀. 터미널은 OSC 0/1/2(xterm.js onTitleChange), 브라우저는
+   * page-title-updated로 갱신. customTitle이 있으면 표시에는 영향 없음.
+   */
+  processTitle?: string;
   isPreview: boolean;
   isPinned: boolean;
+}
+
+/** title invariant 계산: customTitle ?? processTitle ?? defaultTitle. */
+function computeDisplayTitle(parts: {
+  defaultTitle: string;
+  customTitle?: string;
+  processTitle?: string;
+}): string {
+  return parts.customTitle ?? parts.processTitle ?? parts.defaultTitle;
 }
 
 export interface EditorTab extends TabBase {
@@ -99,7 +128,20 @@ interface TabsState {
   byWorkspace: Record<string, Record<string, Tab>>;
   createTab: (workspaceId: string, args: CreateTabArgs, isPreview?: boolean) => Tab;
   removeTab: (workspaceId: string, tabId: string) => void;
+  /**
+   * 사용자 수동 rename. title === "" (또는 trim 후 빈 문자열)이면 customTitle을
+   * clear해 processTitle/defaultTitle로 자동 복귀시킨다.
+   * 외부 호출자(commit detail fetch 등)는 setProcessTitle을 써야 의미가 맞다 —
+   * renameTab은 사용자 의지의 의미를 가진다.
+   */
   renameTab: (workspaceId: string, tabId: string, title: string) => void;
+  /**
+   * 자동 감지 타이틀 갱신. terminal OSC 0/1/2, browser page-title-updated 등에서
+   * 호출. title === null 또는 빈 문자열이면 processTitle을 clear. customTitle이
+   * 설정되어 있으면 표시 title은 바뀌지 않지만 processTitle 값은 갱신된다 —
+   * 사용자가 나중에 customTitle을 clear할 때 최신 processTitle로 복귀하기 위함.
+   */
+  setProcessTitle: (workspaceId: string, tabId: string, title: string | null) => void;
   setTerminalDead: (workspaceId: string, tabId: string, dead: boolean) => void;
   closeAllForWorkspace: (workspaceId: string) => void;
   promoteFromPreview: (workspaceId: string, tabId: string) => void;
@@ -191,9 +233,12 @@ export const useTabsStore = create<TabsState>((set, get) => {
     byWorkspace: {},
 
     createTab(workspaceId, args, isPreview = false) {
+      const dt = defaultTitle(args);
       const base = {
         id: crypto.randomUUID(),
-        title: defaultTitle(args),
+        // 초기 customTitle / processTitle 둘 다 없으므로 derived title = defaultTitle.
+        title: dt,
+        defaultTitle: dt,
         isPreview,
         isPinned: false,
       };
@@ -250,12 +295,54 @@ export const useTabsStore = create<TabsState>((set, get) => {
       set((state) => {
         const wsRecord = state.byWorkspace[workspaceId];
         if (!wsRecord || !(tabId in wsRecord)) return state;
+        const tab = wsRecord[tabId];
+
+        // trim 후 빈 문자열은 customTitle clear로 해석 — processTitle/defaultTitle로 복귀.
+        const trimmed = title.trim();
+        const nextCustom = trimmed === "" ? undefined : trimmed;
+        const nextDisplay = computeDisplayTitle({
+          defaultTitle: tab.defaultTitle,
+          customTitle: nextCustom,
+          processTitle: tab.processTitle,
+        });
+
+        if (nextCustom === tab.customTitle && nextDisplay === tab.title) return state;
+
         return {
           byWorkspace: {
             ...state.byWorkspace,
             [workspaceId]: {
               ...wsRecord,
-              [tabId]: { ...wsRecord[tabId], title },
+              [tabId]: { ...tab, customTitle: nextCustom, title: nextDisplay },
+            },
+          },
+        };
+      });
+    },
+
+    setProcessTitle(workspaceId, tabId, title) {
+      set((state) => {
+        const wsRecord = state.byWorkspace[workspaceId];
+        if (!wsRecord || !(tabId in wsRecord)) return state;
+        const tab = wsRecord[tabId];
+
+        // 빈 문자열 / null → processTitle clear.
+        const trimmed = title === null ? "" : title.trim();
+        const nextProcess = trimmed === "" ? undefined : trimmed;
+        const nextDisplay = computeDisplayTitle({
+          defaultTitle: tab.defaultTitle,
+          customTitle: tab.customTitle,
+          processTitle: nextProcess,
+        });
+
+        if (nextProcess === tab.processTitle && nextDisplay === tab.title) return state;
+
+        return {
+          byWorkspace: {
+            ...state.byWorkspace,
+            [workspaceId]: {
+              ...wsRecord,
+              [tabId]: { ...tab, processTitle: nextProcess, title: nextDisplay },
             },
           },
         };
@@ -323,7 +410,17 @@ export const useTabsStore = create<TabsState>((set, get) => {
         const tab = wsRecord[tabId];
         // Only editor tabs have a preview slot; replace is otherwise a no-op.
         if (tab.type !== "editor") return state;
-        const next: EditorTab = { ...tab, props, title, isPreview: true };
+        // 탭이 가리키는 파일이 바뀌므로 defaultTitle을 새 파일 이름으로 갱신하고
+        // 기존 customTitle / processTitle은 의미가 없어 clear.
+        const next: EditorTab = {
+          ...tab,
+          props,
+          title,
+          defaultTitle: title,
+          customTitle: undefined,
+          processTitle: undefined,
+          isPreview: true,
+        };
         return {
           byWorkspace: {
             ...state.byWorkspace,
@@ -344,10 +441,15 @@ export const useTabsStore = create<TabsState>((set, get) => {
         // Commit preview has its own slot; editor previews are intentionally
         // left untouched by this replacement path.
         if (tab.type !== "git.commit") return state;
+        // SHA가 바뀌므로 defaultTitle을 새 placeholder("commit XXXXXXX")로 갱신하고
+        // 기존 custom/process는 clear (이전 commit의 subject 등이 남으면 안 됨).
         const next: GitCommitTab = {
           ...tab,
           props: { workspaceId, sha },
           title,
+          defaultTitle: title,
+          customTitle: undefined,
+          processTitle: undefined,
           isPreview: true,
         };
         return {
@@ -385,9 +487,12 @@ export const useTabsStore = create<TabsState>((set, get) => {
         if (!wsRecord || !(tabId in wsRecord)) return state;
         const tab = wsRecord[tabId];
         if (tab.type !== "untitled") return state;
+        // Untitled → 저장된 editor 전이. 새 파일명을 defaultTitle로 잡고
+        // custom/process는 비운 상태로 시작.
         const next: EditorTab = {
           id: tab.id,
           title,
+          defaultTitle: title,
           isPreview: tab.isPreview,
           isPinned: tab.isPinned,
           type: "editor",

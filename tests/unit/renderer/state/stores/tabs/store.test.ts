@@ -124,6 +124,75 @@ describe("useTabsStore — renameTab", () => {
     expect(updated.type).toBe(tab.type);
     expect(updated.props).toEqual(tab.props);
   });
+
+  it("renameTab은 customTitle을 갱신하고 defaultTitle/processTitle은 그대로 둔다", () => {
+    const tab = useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
+    useTabsStore.getState().setProcessTitle(WS_A, tab.id, "claude");
+    useTabsStore.getState().renameTab(WS_A, tab.id, "내 작업창");
+
+    const updated = useTabsStore.getState().byWorkspace[WS_A][tab.id];
+    expect(updated.title).toBe("내 작업창");
+    expect(updated.customTitle).toBe("내 작업창");
+    expect(updated.processTitle).toBe("claude"); // 보존
+    expect(updated.defaultTitle).toBe("Terminal"); // 보존
+  });
+
+  it("renameTab(\"\")는 customTitle을 clear해 processTitle로 복귀시킨다", () => {
+    const tab = useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
+    useTabsStore.getState().setProcessTitle(WS_A, tab.id, "lazygit");
+    useTabsStore.getState().renameTab(WS_A, tab.id, "Override");
+    expect(useTabsStore.getState().byWorkspace[WS_A][tab.id].title).toBe("Override");
+
+    useTabsStore.getState().renameTab(WS_A, tab.id, "");
+    const updated = useTabsStore.getState().byWorkspace[WS_A][tab.id];
+    expect(updated.customTitle).toBeUndefined();
+    expect(updated.title).toBe("lazygit"); // processTitle로 복귀
+  });
+
+  it("custom 없이 process 없이는 defaultTitle로 복귀", () => {
+    const tab = useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
+    useTabsStore.getState().renameTab(WS_A, tab.id, "X");
+    useTabsStore.getState().renameTab(WS_A, tab.id, "");
+
+    expect(useTabsStore.getState().byWorkspace[WS_A][tab.id].title).toBe("Terminal");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// setProcessTitle — 자동 감지 타이틀 갱신
+// ---------------------------------------------------------------------------
+
+describe("useTabsStore — setProcessTitle", () => {
+  beforeEach(reset);
+
+  it("processTitle 설정 시 customTitle 없으면 display title 갱신", () => {
+    const tab = useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
+    useTabsStore.getState().setProcessTitle(WS_A, tab.id, "lazygit");
+
+    const updated = useTabsStore.getState().byWorkspace[WS_A][tab.id];
+    expect(updated.processTitle).toBe("lazygit");
+    expect(updated.title).toBe("lazygit");
+  });
+
+  it("customTitle 있으면 processTitle 변경이 display title을 흔들지 않는다", () => {
+    const tab = useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
+    useTabsStore.getState().renameTab(WS_A, tab.id, "Pinned");
+    useTabsStore.getState().setProcessTitle(WS_A, tab.id, "lazygit");
+
+    const updated = useTabsStore.getState().byWorkspace[WS_A][tab.id];
+    expect(updated.title).toBe("Pinned"); // customTitle 우선
+    expect(updated.processTitle).toBe("lazygit"); // 값은 갱신됨 — 추후 custom clear 시 복귀용
+  });
+
+  it("setProcessTitle(null)은 processTitle clear", () => {
+    const tab = useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
+    useTabsStore.getState().setProcessTitle(WS_A, tab.id, "lazygit");
+    useTabsStore.getState().setProcessTitle(WS_A, tab.id, null);
+
+    const updated = useTabsStore.getState().byWorkspace[WS_A][tab.id];
+    expect(updated.processTitle).toBeUndefined();
+    expect(updated.title).toBe("Terminal"); // defaultTitle로 복귀
+  });
 });
 
 // ---------------------------------------------------------------------------
