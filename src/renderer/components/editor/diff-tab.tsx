@@ -1,3 +1,4 @@
+import { useMonaco } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { lazy, type ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { fontFamily, typeScale } from "../../../shared/design-tokens";
@@ -11,6 +12,7 @@ import {
   REFRESHING_INDICATOR_DELAY_MS,
   useDiffContent,
 } from "./diff-content-loader";
+import { languageIdForPath } from "./language-id-for-path";
 import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
 
@@ -70,6 +72,10 @@ export function DiffTab(payload: DiffTabPayload) {
   const { left, right, status, reload } = useDiffContent(payload);
   const showRefreshing = useDelayedRefreshing(status);
   const monacoTheme = useMonacoThemeName();
+  // @monaco-editor/react가 monaco를 lazy 로딩하는 동안에는 null. DiffEditor
+  // 자체도 monaco가 도착해야 mount되므로 그동안 우리도 prop을 "plaintext"로
+  // 두면 되고, 도착 후 재렌더에서 올바른 languageId가 흘러간다.
+  const monaco = useMonaco();
   const leftContent = readyContentFor(left);
   const rightContent = readyContentFor(right);
   const blocking = blockingPlaceholder(left, right, leftContent, rightContent);
@@ -103,6 +109,16 @@ export function DiffTab(payload: DiffTabPayload) {
     );
   }
 
+  // @monaco-editor/react의 DiffEditor는 prop이 비면 language를 'text'로
+  // 하드코딩해 Monaco의 URI 기반 자동 감지를 막는다 (suren-atoyan/monaco-react
+  // `src/utils/index.ts` 의 `getOrCreateModel`). 그래서 path → languageId를
+  // 직접 풀어 넘긴다. monaco 로딩 전이거나 매칭 실패면 Monaco 자체 기본값과
+  // 같은 "plaintext"로 폴백.
+  const originalLanguage =
+    (monaco ? languageIdForPath(monaco, leftContent.request.relPath) : undefined) ?? "plaintext";
+  const modifiedLanguage =
+    (monaco ? languageIdForPath(monaco, rightContent.request.relPath) : undefined) ?? "plaintext";
+
   return (
     <DiffShell left={left} right={right} showRefreshing={showRefreshing} onReload={reload}>
       <MissingContentNotice side="left" content={leftContent} />
@@ -113,6 +129,8 @@ export function DiffTab(payload: DiffTabPayload) {
             height="100%"
             original={leftContent.content}
             modified={rightContent.content}
+            originalLanguage={originalLanguage}
+            modifiedLanguage={modifiedLanguage}
             originalModelPath={modelPathFor(leftContent)}
             modifiedModelPath={modelPathFor(rightContent)}
             theme={monacoTheme}
