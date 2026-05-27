@@ -13,6 +13,7 @@ import { DND_TAB_BAR_ATTR } from "@/components/workspace/dnd/markers";
 import { basename } from "@/utils/path";
 import { UI_TOOLTIP_DELAY_MS } from "../../../../shared/util/timing-constants";
 import type { EditorTab, Tab } from "../../../state/stores/tabs";
+import { formatDiffRefPair } from "../../editor/format-diff-refs";
 import { useTabBarDropTarget } from "../dnd/use-tab-bar-drop-target";
 import { TabItem } from "./tab-item";
 
@@ -76,6 +77,22 @@ export function TabBar({
     return suffixMap;
   }, [tabs]);
 
+  // Diff 탭은 항상 `leftRef..rightRef` 보조 텍스트를 달아 같은 파일의 일반
+  // 에디터 탭과 구분되게 한다. 아이콘(FileDiff vs 확장자 아이콘)으로도
+  // 구분되지만 텍스트 단서가 있으면 ref가 다른 두 diff(예: HEAD..WORKING vs
+  // INDEX..WORKING)도 한눈에 갈린다. external 탭의 parent-dir suffix와는
+  // 슬롯(`parentDirSuffix`)을 공유하지만 diff 탭은 `editor` 타입이 아니어서
+  // 두 맵의 키가 겹치지 않으므로 우선순위 충돌은 발생하지 않는다.
+  const diffTabRefSuffix = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const t of tabs) {
+      if (t.type === "editor.diff") {
+        map.set(t.id, formatDiffRefPair(t.props.leftRef, t.props.rightRef));
+      }
+    }
+    return map;
+  }, [tabs]);
+
   return (
     <RadixTooltip.Provider delayDuration={UI_TOOLTIP_DELAY_MS}>
       {/* Outer wrapper carries the data-dnd-tab-bar marker AND the drop
@@ -114,7 +131,7 @@ export function TabBar({
                 leafId={leafId}
                 tab={tab}
                 displayTitle={tab.title}
-                parentDirSuffix={externalTabParentDir.get(tab.id)}
+                parentDirSuffix={diffTabRefSuffix.get(tab.id) ?? externalTabParentDir.get(tab.id)}
                 onCloseTab={onCloseTab}
                 onTabContextMenu={onTabContextMenu}
               />

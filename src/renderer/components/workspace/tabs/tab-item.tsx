@@ -230,6 +230,11 @@ export interface TabItemProps {
   leafId: string;
   tab: Tab;
   displayTitle: string;
+  /**
+   * 라벨 뒤에 `· {suffix}` 형태로 붙는 muted 보조 텍스트. 호출 측이 결정한다:
+   *   - 같은 basename의 external 에디터 탭 ≥2개 → 부모 디렉토리 이름.
+   *   - diff 탭(editor.diff) → `leftRef..rightRef` ref 쌍.
+   */
   parentDirSuffix?: string;
   onCloseTab: (id: string) => void;
   onTabContextMenu?: (tabId: string, event: React.MouseEvent) => void;
