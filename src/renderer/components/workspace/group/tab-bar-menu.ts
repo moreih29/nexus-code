@@ -17,6 +17,13 @@ const REVEAL_LABEL = isMac ? "Reveal in Finder" : "Reveal in File Explorer";
 export interface TabContextInfo {
   isPinned: boolean;
   isEditor: boolean;
+  /**
+   * 터미널 탭일 때만 "Rename Tab" 항목을 노출하기 위한 플래그.
+   * 사용자 요구: 자동 이름 갱신(OSC)이 있는 터미널 탭에서만 사용자 customTitle을
+   * 덮어쓸 수 있게 한다. editor/browser/diff 탭은 시스템이 결정한 이름이 옳다고
+   * 보고 rename UI를 노출하지 않는다.
+   */
+  isTerminal: boolean;
 }
 
 interface BuildOptions {
@@ -26,6 +33,8 @@ interface BuildOptions {
   copyPath: () => void;
   copyRelativePath: () => void;
   revealInFinder: () => void;
+  /** "Rename Tab" 메뉴 항목 클릭 시 — inline 편집 모드 진입. */
+  renameTab: () => void;
 }
 
 export function buildGroupTabBarMenuItems({
@@ -35,6 +44,7 @@ export function buildGroupTabBarMenuItems({
   copyPath,
   copyRelativePath,
   revealInFinder,
+  renameTab,
 }: BuildOptions): MenuItemSpec[] {
   if (!context) return [];
 
@@ -46,6 +56,17 @@ export function buildGroupTabBarMenuItems({
     shortcut: SHORTCUTS.pinTab,
     onSelect: togglePin,
   });
+
+  // 터미널 탭에 한해서 Rename 항목을 노출. 더블클릭 진입 경로와 동일한
+  // 편집 모드(useTabEditingStore.startEditing)를 활성화한다.
+  if (context.isTerminal) {
+    items.push({
+      kind: "item",
+      label: "Rename Tab…",
+      onSelect: renameTab,
+    });
+  }
+
   items.push({ kind: "separator" });
 
   items.push({

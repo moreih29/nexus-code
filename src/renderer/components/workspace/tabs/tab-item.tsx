@@ -1,24 +1,90 @@
 import {
   CircleAlert,
   CircleCheck,
+  File,
+  FileDiff,
+  GitCommit,
+  Globe,
   Loader,
   Lock,
   MessageCircleQuestion,
+  SquareTerminal,
   TriangleAlert,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { useDragSource } from "@/components/ui/use-drag-source";
 import { DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
 import { cacheUriFor } from "@/services/editor/model/cache";
 import { isDirty, subscribeFileDirty } from "@/services/editor/model/dirty-tracker";
 import { cn } from "@/utils/cn";
+import { basename } from "@/utils/path";
 import type { ClaudeStatus } from "../../../../shared/claude/status";
+import { getFileIcon } from "../../files/file-tree/icons";
+import { useBrowserRuntimeStore } from "../../../state/stores/browser-runtime";
 import { selectStatusForTab, useClaudeStatusStore } from "../../../state/stores/claude-status";
+import { useTabEditingStore } from "../../../state/stores/tab-editing";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
 import { MIME_TAB, type TabDragPayload } from "../dnd/types";
+
+/**
+ * 브라우저 탭 favicon 표시 — 페이지가 advertise한 URL이 있으면 그것, 없으면 Globe
+ * 기본 아이콘. URL 로드 실패(404 / 차단 / 잘못된 URL)는 onError로 Globe fallback.
+ *
+ * faviconUrl이 바뀌면 errored 상태를 reset해 새 URL을 다시 시도한다.
+ * 사이즈 12px(size-3), shrink-0으로 탭 chip 내부에서 텍스트와 정렬.
+ */
+function BrowserFaviconIcon({ faviconUrl }: { faviconUrl: string | null }) {
+  const [errored, setErrored] = useState(false);
+  useEffect(() => {
+    setErrored(false);
+  }, [faviconUrl]);
+
+  if (!faviconUrl || errored) {
+    return (
+      <Globe
+        aria-hidden
+        width={12}
+        height={12}
+        strokeWidth={1.5}
+        className="shrink-0 text-muted-foreground"
+      />
+    );
+  }
+  return (
+    // biome-ignore lint/a11y/useAltText: decorative tab favicon; aria-hidden hides from AT
+    <img
+      aria-hidden
+      src={faviconUrl}
+      width={12}
+      height={12}
+      onError={() => setErrored(true)}
+      className="shrink-0 size-3 object-contain"
+    />
+  );
+}
+
+/**
+ * 탭 type별 아이콘 결정. browser 탭은 별도 favicon 컴포넌트가 처리하므로 null.
+ *
+ *  - terminal: SquareTerminal (일관 아이콘)
+ *  - editor: 파일 확장자 기반 — 파일트리와 같은 `getFileIcon`을 재사용해 일관성 유지
+ *  - editor.diff: FileDiff (좌우 비교 의미)
+ *  - git.commit: GitCommit
+ *  - untitled: File (저장 전 빈 파일)
+ *  - browser: null — favicon 컴포넌트가 별도 슬롯에서 처리
+ */
+function tabTypeIcon(tab: Tab): LucideIcon | null {
+  if (tab.type === "terminal") return SquareTerminal;
+  if (tab.type === "editor") return getFileIcon(basename(tab.props.filePath));
+  if (tab.type === "editor.diff") return FileDiff;
+  if (tab.type === "git.commit") return GitCommit;
+  if (tab.type === "untitled") return File;
+  return null; // browser
+}
 
 function PinIcon() {
   return (
@@ -194,6 +260,52 @@ export function TabItem({
   // permissionPending 배경 tint — 탭 배경에 6% warning 색 오버레이.
   const isPermissionPending = claudeStatus === "permissionPending";
 
+  // 브라우저 탭 favicon — type === "browser"일 때만 runtime store에서 lookup.
+  // 다른 type이면 항상 null (조건부 hook 회피를 위해 selector 자체는 항상 호출).
+  const faviconUrl = useBrowserRuntimeStore((s) =>
+    tab.type === "browser" ? (s.runtimes.get(tab.id)?.faviconUrl ?? null) : null,
+  );
+
+  // ---------------------------------------------------------------------
+  // Inline rename — 터미널 탭만. 더블클릭 또는 컨텍스트 메뉴 "Rename Tab" 진입.
+  //
+  // 진입 트리거 2개를 동일 store(useTabEditingStore.editingTabId)로 묶어 어느
+  // 경로든 같은 모드로 들어간다. 한 번에 한 탭만 편집 가능(store 단일성 보장).
+  //
+  // 키 핸들링:
+  //   - Enter / blur: commit — renameTab(workspaceId, tabId, value)
+  //     * 빈 문자열은 store가 customTitle clear로 해석 → processTitle / defaultTitle로 복귀
+  //   - Escape: cancel — 값 적용 안 함
+  // ---------------------------------------------------------------------
+  const isEditing = useTabEditingStore((s) => s.editingTabId === tab.id);
+  // 초기 입력값: 사용자가 이전에 지은 customTitle이 있으면 그것, 없으면 표시 title.
+  // displayTitle에는 parent-dir suffix 등이 포함될 수 있는데 그건 호출 측 가공이므로
+  // 편집 input에는 tab.customTitle ?? tab.title을 사용한다.
+  const [editValue, setEditValue] = useState(tab.customTitle ?? tab.title);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  // 편집 모드 진입 시: 최신 customTitle/title을 input value로 초기화 + focus/select.
+  // (이전 편집 세션의 stale value를 들고 들어가지 않도록 진입 시점에 reset.)
+  useEffect(() => {
+    if (!isEditing) return;
+    setEditValue(tab.customTitle ?? tab.title);
+    // focus는 다음 paint에 — input mount 이후 보장.
+    const id = requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [isEditing, tab.customTitle, tab.title]);
+
+  function commitEdit(value: string): void {
+    useTabsStore.getState().renameTab(workspaceId, tab.id, value);
+    useTabEditingStore.getState().cancelEditing();
+  }
+
+  function cancelEdit(): void {
+    useTabEditingStore.getState().cancelEditing();
+  }
+
   // VSCode anchors the drag image at (0, 0) of the tab DOM so the cursor sits
   // at the top-left corner, leaving room for drop-border feedback.
   const { onDragStart } = useDragSource({
@@ -211,10 +323,15 @@ export function TabItem({
       draggable
       onDragStart={onDragStart}
       onContextMenu={(e) => onTabContextMenu?.(tab.id, e)}
-      // VSCode parity: double-click on a preview tab promotes it. We have no
-      // sticky/maximize behaviour to branch on (multiEditorTabsControl checks
-      // `isPinned` first, but that's their *sticky* concept) — promote-only.
+      // 더블클릭 동작은 탭 type별로 분기:
+      //  - terminal: inline rename 진입 (사용자 요구 — 컨텍스트 메뉴 Rename과 동일 경로)
+      //  - 그 외 isPreview 탭: VSCode parity로 promote-from-preview
+      // terminal 탭은 isPreview일 일이 없으므로 두 분기가 mutually exclusive.
       onDoubleClick={() => {
+        if (tab.type === "terminal") {
+          useTabEditingStore.getState().startEditing(tab.id);
+          return;
+        }
         if (tab.isPreview) {
           useTabsStore.getState().promoteFromPreview(workspaceId, tab.id);
         }
@@ -272,6 +389,26 @@ export function TabItem({
             <PinIcon />
           </span>
         )}
+        {/* Type 아이콘 — browser는 favicon, 그 외는 파일트리와 동일한 확장자 기반 또는
+            전용 lucide 아이콘. 가장 앞쪽(pin 다음)에 두어 탭 타입을 즉각 식별 가능. */}
+        {tab.type === "browser" ? (
+          <span data-tab-icon className="inline-flex" aria-hidden>
+            <BrowserFaviconIcon faviconUrl={faviconUrl} />
+          </span>
+        ) : (() => {
+          const TypeIcon = tabTypeIcon(tab);
+          if (!TypeIcon) return null;
+          return (
+            <span data-tab-icon className="inline-flex" aria-hidden>
+              <TypeIcon
+                width={12}
+                height={12}
+                strokeWidth={1.5}
+                className="shrink-0 text-muted-foreground"
+              />
+            </span>
+          );
+        })()}
         {tab.type === "editor" && (tab.props.readOnly || tab.props.origin === "external") && (
           <span data-tab-icon role="img" aria-label="Read-only">
             <Lock
@@ -290,18 +427,51 @@ export function TabItem({
             <ClaudeGlyph status={claudeStatus} />
           </span>
         )}
-        <span className={tab.isPreview ? "italic" : undefined}>
-          {displayTitle}
-          {terminalEnded && (
-            <span aria-hidden className="text-muted-foreground/60">
-              {" "}
-              ·
-            </span>
-          )}
-          {parentDirSuffix && (
-            <span className="text-muted-foreground/60"> · {parentDirSuffix}</span>
-          )}
-        </span>
+        {isEditing ? (
+          // Inline rename input — 트리거 내부에 위치하므로 클릭/키보드 이벤트가
+          // RadixTabs.Trigger로 bubble하지 않도록 stopPropagation. Enter commit,
+          // Escape cancel, blur는 commit으로 처리(macOS 텍스트 필드 컨벤션).
+          <input
+            ref={inputRef}
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                e.stopPropagation();
+                commitEdit(editValue);
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                cancelEdit();
+              } else {
+                // 다른 키는 input 내부 처리에 위임하되 트리거로 bubble은 막는다
+                // (예: ArrowLeft/Right로 탭 전환되는 등 키바인딩 충돌 방지).
+                e.stopPropagation();
+              }
+            }}
+            onBlur={() => commitEdit(editValue)}
+            onClick={(e) => e.stopPropagation()}
+            // 입력 모드에서는 부모 트리거가 active state로 잡혀 있어도 input이
+            // 시각적으로 자연스럽게 노출되도록 transparent 배경 + 인라인 폭.
+            className="bg-transparent outline-none border-0 px-0 m-0 w-32 text-app-ui-sm text-foreground"
+            aria-label="Rename tab"
+            spellCheck={false}
+          />
+        ) : (
+          <span className={tab.isPreview ? "italic" : undefined}>
+            {displayTitle}
+            {terminalEnded && (
+              <span aria-hidden className="text-muted-foreground/60">
+                {" "}
+                ·
+              </span>
+            )}
+            {parentDirSuffix && (
+              <span className="text-muted-foreground/60"> · {parentDirSuffix}</span>
+            )}
+          </span>
+        )}
         {/* Dirty indicator — inline after label so it never overlaps the close button.
             Always visible when dirty (including on hover), per design.md §7 redundant encoding. */}
         {dirty && (

@@ -9,7 +9,7 @@
  * `group-tab-bar-menu.ts` as a pure builder so the branching logic can
  * be unit-tested without mounting React.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   ContextMenuContent,
   ContextMenuItems,
@@ -17,6 +17,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { createPathActions } from "@/services/fs-mutations";
+import { useTabEditingStore } from "@/state/stores/tab-editing";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
 import { TabBar } from "../tabs/tab-bar";
 import { buildGroupTabBarMenuItems, type TabContextInfo } from "./tab-bar-menu";
@@ -53,11 +54,22 @@ export function GroupTabBar({
 }: GroupTabBarProps) {
   const [contextTabId, setContextTabId] = useState<string | null>(null);
 
+  // Focus handoff guard — Radix ContextMenu가 close 후 기본적으로 trigger로 focus를
+  // 복귀시키는데, Rename Tab… 클릭으로 inline input이 막 mount된 직후 그 focus
+  // 복귀가 input의 blur를 즉시 트리거해 commit→cancel→사라짐 깜빡임을 만든다.
+  // file-tree inline-edit가 이미 동일 문제에 같은 패턴으로 해결되어 있다 —
+  // 핸드오프가 발생할 때만 onCloseAutoFocus.preventDefault()로 Radix가 비켜서게 한다.
+  const renameHandoffInFlight = useRef(false);
+
   const contextTab = contextTabId
     ? useTabsStore.getState().byWorkspace[workspaceId]?.[contextTabId]
     : null;
   const contextInfo: TabContextInfo | null = contextTab
-    ? { isPinned: !!contextTab.isPinned, isEditor: contextTab.type === "editor" }
+    ? {
+        isPinned: !!contextTab.isPinned,
+        isEditor: contextTab.type === "editor",
+        isTerminal: contextTab.type === "terminal",
+      }
     : null;
 
   const actions = useGroupActions({
@@ -85,6 +97,15 @@ export function GroupTabBar({
     useTabsStore.getState().togglePin(workspaceId, contextTabId);
   }
 
+  function renameTab() {
+    if (!contextTabId) return;
+    // Radix가 곧 close 시점에 trigger로 focus를 복귀시키는데, 그게 input의 blur로
+    // 이어져 commit→cancel→사라짐을 유발. close 직전 flag를 세워 onCloseAutoFocus
+    // 가드에서 prevent하도록 한다. 한 번 쓰고 reset.
+    renameHandoffInFlight.current = true;
+    useTabEditingStore.getState().startEditing(contextTabId);
+  }
+
   const menuItems = buildGroupTabBarMenuItems({
     context: contextInfo,
     actions,
@@ -92,6 +113,7 @@ export function GroupTabBar({
     copyPath: pathActions.copyPath,
     copyRelativePath: pathActions.copyRelativePath,
     revealInFinder: pathActions.revealInFinder,
+    renameTab,
   });
 
   return (
@@ -113,7 +135,14 @@ export function GroupTabBar({
         </div>
       </ContextMenuTrigger>
 
-      <ContextMenuContent>
+      <ContextMenuContent
+        onCloseAutoFocus={(e) => {
+          if (renameHandoffInFlight.current) {
+            e.preventDefault();
+            renameHandoffInFlight.current = false;
+          }
+        }}
+      >
         <ContextMenuItems items={menuItems} />
       </ContextMenuContent>
     </ContextMenuRoot>

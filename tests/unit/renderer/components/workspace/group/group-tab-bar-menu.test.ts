@@ -34,9 +34,9 @@ function labelsOf(items: ReturnType<typeof buildGroupTabBarMenuItems>): string[]
     .map((it) => it.label);
 }
 
-const editorContext: TabContextInfo = { isPinned: false, isEditor: true };
-const editorPinnedContext: TabContextInfo = { isPinned: true, isEditor: true };
-const terminalContext: TabContextInfo = { isPinned: false, isEditor: false };
+const editorContext: TabContextInfo = { isPinned: false, isEditor: true, isTerminal: false };
+const editorPinnedContext: TabContextInfo = { isPinned: true, isEditor: true, isTerminal: false };
+const terminalContext: TabContextInfo = { isPinned: false, isEditor: false, isTerminal: true };
 
 describe("buildGroupTabBarMenuItems", () => {
   it("returns an empty list when there is no context tab", () => {
@@ -48,11 +48,12 @@ describe("buildGroupTabBarMenuItems", () => {
         copyPath: noop,
         copyRelativePath: noop,
         revealInFinder: noop,
+        renameTab: noop,
       }),
     ).toEqual([]);
   });
 
-  it("editor (unpinned) menu — full close family + Split + Copy Path family", () => {
+  it("editor (unpinned) menu — full close family + Split + Copy Path family (no Rename)", () => {
     const items = buildGroupTabBarMenuItems({
       context: editorContext,
       actions: noopActions,
@@ -60,6 +61,7 @@ describe("buildGroupTabBarMenuItems", () => {
       copyPath: noop,
       copyRelativePath: noop,
       revealInFinder: noop,
+      renameTab: noop,
     });
     expect(labelsOf(items)).toEqual([
       "Pin Tab",
@@ -84,13 +86,14 @@ describe("buildGroupTabBarMenuItems", () => {
       copyPath: noop,
       copyRelativePath: noop,
       revealInFinder: noop,
+      renameTab: noop,
     });
     const firstItem = items.find((it) => it.kind === "item");
     if (!firstItem || firstItem.kind !== "item") throw new Error("expected item");
     expect(firstItem.label).toBe("Unpin Tab");
   });
 
-  it("terminal context — Copy Path family is omitted (editor-only)", () => {
+  it("terminal context — Rename Tab is included, Copy Path family is omitted", () => {
     const items = buildGroupTabBarMenuItems({
       context: terminalContext,
       actions: noopActions,
@@ -98,9 +101,11 @@ describe("buildGroupTabBarMenuItems", () => {
       copyPath: noop,
       copyRelativePath: noop,
       revealInFinder: noop,
+      renameTab: noop,
     });
     expect(labelsOf(items)).toEqual([
       "Pin Tab",
+      "Rename Tab…",
       "Close",
       "Close Others",
       "Close All to the Right",
@@ -111,8 +116,25 @@ describe("buildGroupTabBarMenuItems", () => {
     ]);
   });
 
-  // Reveal-in-Finder editor/terminal branching is already covered by the
-  // full label-list tests above (editor menu includes it, terminal menu
-  // doesn't). Dispatch wiring is plain JS (the spec stores onSelect
-  // verbatim) — not worth a dedicated test.
+  it("renameTab onSelect는 클릭 시 호출된다 (메뉴 dispatch 검증)", () => {
+    let called = 0;
+    const items = buildGroupTabBarMenuItems({
+      context: terminalContext,
+      actions: noopActions,
+      togglePin: noop,
+      copyPath: noop,
+      copyRelativePath: noop,
+      revealInFinder: noop,
+      renameTab: () => {
+        called += 1;
+      },
+    });
+    const rename = items.find(
+      (it): it is Extract<typeof it, { kind: "item" }> =>
+        it.kind === "item" && it.label === "Rename Tab…",
+    );
+    if (!rename) throw new Error("Rename Tab item missing");
+    rename.onSelect();
+    expect(called).toBe(1);
+  });
 });
