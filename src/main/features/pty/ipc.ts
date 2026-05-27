@@ -221,6 +221,16 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
         await agentHost.call("kill", { workspaceId, tabId });
         return ipcOk(undefined);
       },
+
+      foregroundProcess: async (args: unknown) => {
+        const { workspaceId, tabId } = validateArgs(c.foregroundProcess.args, args);
+        // agentHost.call이 워크스페이스 race로 undefined를 반환할 수 있어 빈 이름으로 fallback.
+        // renderer는 빈 이름을 "정보 없음"으로 해석해 기존 title을 유지한다.
+        const result = (await agentHost.call("foregroundProcess", { workspaceId, tabId })) as
+          | { name: string }
+          | undefined;
+        return ipcOk({ name: result?.name ?? "" });
+      },
     },
     listen: {
       data: {},

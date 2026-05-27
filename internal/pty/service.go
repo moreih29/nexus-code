@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -16,6 +17,7 @@ import (
 
 	creackpty "github.com/creack/pty"
 	"github.com/nexus-code/nexus-code/internal/dispatch"
+	"golang.org/x/sys/unix"
 )
 
 // Service owns the registry of active PTY-backed terminal sessions.
@@ -63,6 +65,7 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("pty.resize", service.Resize)
 	d.Register("pty.ack", service.Ack)
 	d.Register("pty.kill", service.Kill)
+	d.Register("pty.foregroundProcess", service.ForegroundProcess)
 }
 
 // SetEventSink wires the service to the stdio host after both are constructed.
@@ -217,6 +220,54 @@ func (s *Service) Kill(_ context.Context, raw json.RawMessage) (any, error) {
 	}
 	session.stop(syscall.SIGKILL)
 	return struct{}{}, nil
+}
+
+// ForegroundProcess returns the basename of the program currently in the PTY
+// foreground process group.
+//
+// Used by the renderer to label tabs running OSC-mute TUIs: when xterm.js
+// detects alt-screen ENTER (`\x1b[?47h` / `\x1b[?1047h` / `\x1b[?1049h`), it
+// calls this RPC once and applies the returned name as the tab's
+// processTitle. Repeat polling is intentionally avoided — TUIs sit in a single
+// process for their whole session, and child commands they spawn (e.g. lazygit
+// shelling out to `git`) are short-lived.
+//
+// Lookup path: TIOCGPGRP ioctl on the master fd gives the foreground process
+// group id, then `ps -o comm= -p PGID` resolves the program name. We strip any
+// leading path so callers see "lazygit" rather than "/usr/local/bin/lazygit".
+//
+// All error paths return an empty `Name` rather than failing the RPC: the
+// renderer treats empty as "no info" and leaves the existing title alone, so
+// silent fallback never overwrites a working OSC-based title with empty.
+func (s *Service) ForegroundProcess(_ context.Context, raw json.RawMessage) (any, error) {
+	var p ForegroundProcessParams
+	if err := decodeParams(raw, &p, "pty.foregroundProcess params must include workspaceId and tabId"); err != nil {
+		return nil, err
+	}
+	key, err := keyFrom(p.WorkspaceID, p.TabID, "pty.foregroundProcess")
+	if err != nil {
+		return nil, err
+	}
+	session := s.lookup(key)
+	if session == nil {
+		return ForegroundProcessResult{Name: ""}, nil
+	}
+	pgid, ioErr := unix.IoctlGetInt(int(session.master.Fd()), unix.TIOCGPGRP)
+	if ioErr != nil || pgid <= 0 {
+		return ForegroundProcessResult{Name: ""}, nil
+	}
+	// `ps -o comm= -p PGID`: -o comm= prints only the COMM column (no header),
+	// macOS와 Linux 모두 동일한 형태로 동작. 짧은 실행 시간(~30ms)이라 alt-enter
+	// 같은 sporadic 호출에는 충분.
+	out, execErr := exec.Command("ps", "-o", "comm=", "-p", strconv.Itoa(pgid)).Output()
+	if execErr != nil {
+		return ForegroundProcessResult{Name: ""}, nil
+	}
+	name := strings.TrimSpace(string(out))
+	if idx := strings.LastIndex(name, "/"); idx >= 0 {
+		name = name[idx+1:]
+	}
+	return ForegroundProcessResult{Name: name}, nil
 }
 
 // newSession links process state with its flow-control condition variable.

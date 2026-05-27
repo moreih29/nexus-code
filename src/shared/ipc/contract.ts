@@ -608,6 +608,19 @@ export const ipcContract = {
       ),
       ack: call(PtyWorkspaceTabSchema.extend({ bytesConsumed: z.number().int() }), z.void()),
       kill: call(PtyWorkspaceTabSchema, z.void()),
+      /**
+       * 현재 PTY foreground process group leader의 program basename을 조회한다.
+       *
+       * 사용처: renderer가 xterm.js의 alt-screen ENTER CSI(`\x1b[?47h` / `?1047h`
+       * / `?1049h`)를 감지하면 이 RPC를 1회 호출해 결과를 탭의 processTitle로
+       * 적용. lazygit / lazydocker / vim / less / htop 같이 OSC를 발사하지 않는
+       * TUI도 이름이 잡힌다. claude처럼 OSC를 발사하는 프로그램은 OSC 경로가
+       * 병행으로 적용되며 두 경로의 결과가 일치(둘 다 "claude")한다.
+       *
+       * 실패 시 (세션 없음 / ioctl 실패 / ps 실패) `name`은 빈 문자열. 호출자는
+       * 빈 결과를 "정보 없음"으로 해석해 기존 title을 덮어쓰지 않는다.
+       */
+      foregroundProcess: call(PtyWorkspaceTabSchema, z.object({ name: z.string() })),
     },
     listen: {
       // data: args is string chunk — validation skipped on hot path

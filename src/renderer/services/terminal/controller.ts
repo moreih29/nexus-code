@@ -6,7 +6,9 @@ import { Terminal } from "@xterm/xterm";
 import { fontFamily, DEFAULT_THEME, THEMES } from "../../../shared/design-tokens";
 import type { ThemeId } from "../../../shared/design-tokens/themes";
 import { TERMINAL_PALETTES } from "../../../shared/editor/terminal-palette";
+import { ipcCallResult } from "../../ipc/client";
 import { resolvedTerminalCursorStyle, resolvedTerminalFontSize } from "../../state/stores/terminal";
+import { useTabsStore } from "../../state/stores/tabs";
 import { copyTextViaIpc } from "../../utils/clipboard";
 import { createPtyClient } from "./pty-client";
 import type {
@@ -20,8 +22,22 @@ import type {
 type Disposable = { dispose: () => void };
 
 type OscHandlerCallback = (data: string) => boolean | Promise<boolean>;
+/**
+ * xterm.js v5의 registerCsiHandler public API는 callback에 IParams 객체가 아닌
+ * `(number | number[])[]` 형태의 직접 배열을 넘긴다. 각 entry는 단일 number
+ * (보통의 CSI param) 또는 number[] (sub-params; `:` separator가 있는 경우).
+ *
+ * 우리는 alt-screen 진입/종료(`\x1b[?47h/l`, `?1047h/l`, `?1049h/l`)만 감지하면
+ * 되며 sub-params는 사용하지 않는다 — entry가 number일 때만 검사하고 array는
+ * skip한다.
+ */
+type CsiParamsLike = ReadonlyArray<number | number[]>;
 interface ParserLike {
   registerOscHandler: (ident: number, callback: OscHandlerCallback) => Disposable;
+  registerCsiHandler: (
+    id: { prefix?: string; intermediates?: string; final: string },
+    callback: (params: CsiParamsLike) => boolean,
+  ) => Disposable;
 }
 
 type RendererAddon = CanvasAddon | WebglAddon;
@@ -29,11 +45,23 @@ interface TerminalLike {
   readonly element?: HTMLElement;
   readonly rows: number;
   readonly parser: ParserLike;
+  /**
+   * xterm.js의 buffer.active.type. "normal" 또는 "alternate".
+   * TUI(claude/lazygit/lazydocker/vim/less/htop)는 시작 시 alternate screen으로
+   * 진입한다(\\x1b[?1049h). ls/grep/cat 같은 단발 명령은 normal screen에서 출력.
+   * onTitleChange 콜백 시점에 이 값을 확인해 alternate 상태일 때만 title을 수용한다.
+   */
+  readonly buffer: { active: { type: "normal" | "alternate" } };
   options: { theme: ITheme | undefined; fontSize: number; cursorStyle: string };
   dispose: () => void;
   loadAddon: (addon: Disposable) => void;
   onData: (callback: (data: string) => void) => Disposable;
   onSelectionChange: (callback: () => void) => Disposable;
+  /**
+   * xterm.js의 OSC 0/1/2(window title) 시퀀스 수신 콜백. claude/lazygit/lazydocker
+   * 같은 TUI가 자신의 이름/상태를 title 시퀀스로 보내면 여기로 도착한다.
+   */
+  onTitleChange: (callback: (title: string) => void) => Disposable;
   getSelection: () => string;
   open: (parent: HTMLElement) => void;
   refresh: (start: number, end: number) => void;
@@ -44,6 +72,31 @@ type FitAddonLike = Pick<FitAddon, "dispose" | "fit" | "proposeDimensions">;
 type ResizeObserverLike = Pick<ResizeObserver, "disconnect" | "observe">;
 
 export const TERMINAL_REOPENED_SEPARATOR = "─────────────  reopened  ─────────────";
+
+/**
+ * shell prompt가 OSC 2로 발사하는 title인지 판정한다.
+ *
+ * bash `PROMPT_COMMAND`, zsh `precmd_functions` 등이 매 prompt마다 OSC 2를 발사하는데
+ * 형태가 거의 항상 `user@host:cwd` 또는 cwd 단독(절대/홈 경로) — 그 패턴을 거른다.
+ *
+ * 규칙 (어느 하나라도 충족 시 prompt-like로 판정):
+ *  - 문자열에 `/`가 포함 → cwd 또는 path-like (lazygit/claude 같은 TUI는 슬래시 없음)
+ *  - 문자열이 `~`로 시작 → 홈 경로 prompt
+ *  - `@`와 `:`가 동시에 포함 → `user@host:` 패턴
+ *
+ * lazygit / lazydocker / claude / less 같은 TUI는 단일 단어이거나 `:` / `@`를 함께
+ * 갖지 않으므로 통과한다. vim의 경우 일부 setting에서 "filename (path) - VIM" 같은
+ * 형태가 가능하지만 그런 경우 `/`가 들어가 거부될 가능성 — 사용자가 customTitle로
+ * 직접 지정하는 경로로 대체 가능.
+ *
+ * exported는 단위 테스트용. production 호출 경로는 controller 내부.
+ */
+export function isShellPromptLikeTitle(title: string): boolean {
+  if (title.includes("/")) return true;
+  if (title.startsWith("~")) return true;
+  if (title.includes("@") && title.includes(":")) return true;
+  return false;
+}
 
 export interface TerminalControllerDeps {
   waitForTerminalFonts: (fontSize: number) => Promise<void>;
@@ -87,6 +140,9 @@ class XtermTerminalController implements TerminalController {
   private rendererAddon: RendererAddon | null = null;
   private dataDisposable: Disposable | null = null;
   private selectionDisposable: Disposable | null = null;
+  private titleDisposable: Disposable | null = null;
+  private altEnterDisposable: Disposable | null = null;
+  private altExitDisposable: Disposable | null = null;
   private selectionWriteTimer: ReturnType<typeof setTimeout> | null = null;
   private oscDisposables: Disposable[] = [];
   private resizeObserver: ResizeObserverLike | null = null;
@@ -148,6 +204,12 @@ class XtermTerminalController implements TerminalController {
     this.dataDisposable = null;
     this.selectionDisposable?.dispose();
     this.selectionDisposable = null;
+    this.titleDisposable?.dispose();
+    this.titleDisposable = null;
+    this.altEnterDisposable?.dispose();
+    this.altEnterDisposable = null;
+    this.altExitDisposable?.dispose();
+    this.altExitDisposable = null;
     if (this.selectionWriteTimer !== null) {
       clearTimeout(this.selectionWriteTimer);
       this.selectionWriteTimer = null;
@@ -260,6 +322,104 @@ class XtermTerminalController implements TerminalController {
     this.ptyClient = ptyClient;
 
     this.dataDisposable = term.onData((data) => ptyClient.write(data));
+
+    // OSC 0/1/2(window title) — xterm.js 내부 파서가 시퀀스를 수신해 onTitleChange로
+    // 노출한다. claude / lazygit / lazydocker 같은 TUI가 자기 이름/상태를 보내면
+    // 탭의 processTitle을 그것으로 갱신해 표시 title이 바뀐다.
+    // 사용자가 직접 rename으로 customTitle을 설정해두면 표시는 그대로 유지된다.
+    //
+    // 빈 문자열은 store가 processTitle clear로 해석 → 자동 복귀.
+    //
+    // 두 단계 필터:
+    //   1) Alternate screen buffer 가드 — 가장 강한 신호.
+    //      TUI(claude/lazygit/lazydocker/vim/less/htop)는 시작 시 alternate
+    //      screen으로 진입(\\x1b[?1049h)한 뒤 자기 이름을 OSC 2로 발사한다.
+    //      반면 ls/grep/cat 같은 단발 명령은 normal screen에서 출력되며, 일부
+    //      zsh 플러그인(starship 등)이 preexec hook에서 OSC 2로 "ls -G" 같은
+    //      현재 명령을 발사해 탭 이름을 흔드는 케이스가 있다. buffer.active.type
+    //      이 "alternate"일 때만 받아 두 신호를 깔끔히 분리한다.
+    //   2) Shell prompt 패턴 필터 — 백업.
+    //      alternate screen인데도 `user@host:cwd` 형태를 보내는 변종 prompt
+    //      대응. `/`, `~`, `@`+`:` 동시 포함이면 거부.
+    //
+    // 거부된 OSC는 silently drop — store 갱신 안 함.
+    // 빈 문자열도 alternate 가드에 막혀 그대로 통과시 store가 clear로 해석하지만,
+    // alternate 종료 시점에 빈 OSC는 normal screen에서 발사되므로 자연스럽게 무시된다.
+    this.titleDisposable = term.onTitleChange((title) => {
+      if (this.disposed) return;
+      if (term.buffer.active.type !== "alternate") return;
+      if (isShellPromptLikeTitle(title)) return;
+      useTabsStore
+        .getState()
+        .setProcessTitle(this.options.workspaceId, this.options.tabId, title);
+    });
+
+    // alt → ENTER 전이 시 PTY의 foreground process 이름을 IPC로 가져와 processTitle로
+    // 적용한다. lazygit / lazydocker / vim / less / htop처럼 OSC를 발사하지 않는 TUI도
+    // 이 경로로 잡힌다. claude처럼 OSC도 발사하는 프로그램은 OSC 경로가 병행 적용되며
+    // 두 결과가 일치(둘 다 "claude")하므로 충돌 없음.
+    //
+    // ls/grep/cat 같은 단발 명령은 normal screen에서 실행되므로 이 핸들러 자체가
+    // 호출되지 않아 자연스럽게 가드.
+    //
+    // 빈 이름은 RPC 실패 fallback이므로 기존 title 유지 — setProcessTitle 호출 안 함.
+    this.altEnterDisposable = term.parser.registerCsiHandler(
+      { prefix: "?", final: "h" },
+      (params) => {
+        for (const entry of params) {
+          if (typeof entry !== "number") continue;
+          if (entry === 47 || entry === 1047 || entry === 1049) {
+            // fire-and-forget — CSI handler는 동기 반환해야 xterm.js의 parser
+            // pipeline이 블록되지 않는다. 응답은 비동기로 store에 반영.
+            void (async () => {
+              if (this.disposed) return;
+              const result = await ipcCallResult("pty", "foregroundProcess", {
+                workspaceId: this.options.workspaceId,
+                tabId: this.options.tabId,
+              });
+              if (this.disposed) return;
+              if (!result.ok) return;
+              const name = result.value.name.trim();
+              if (name === "") return; // 정보 없음 — 기존 title 유지
+              useTabsStore
+                .getState()
+                .setProcessTitle(this.options.workspaceId, this.options.tabId, name);
+            })().catch(() => {
+              // ipc 실패는 silent — Claude Code의 OSC 경로가 대안으로 작동하거나
+              // 사용자가 customTitle로 직접 지정 가능.
+            });
+            break;
+          }
+        }
+        return false; // xterm.js 기본 buffer swap에 위임
+      },
+    );
+
+    // alt → normal 전이 시 processTitle을 clear해 defaultTitle / customTitle로
+    // 자연 복귀. TUI(claude/lazygit/vim/less)는 종료 시 `\x1b[?47l` / `\x1b[?1047l`
+    // / `\x1b[?1049l` 중 하나를 발사한다. 세 변형 모두 prefix="?", final="l"이며
+    // params[0]가 47/1047/1049. handler는 return false로 xterm.js 기본 buffer
+    // swap 동작에 위임한다 — 우리는 부수효과(processTitle clear)만 추가.
+    //
+    // customTitle은 보존된다 (setProcessTitle(null)은 processTitle만 clear).
+    this.altExitDisposable = term.parser.registerCsiHandler(
+      { prefix: "?", final: "l" },
+      (params) => {
+        for (const entry of params) {
+          // sub-params(`:` separator) array는 alt-screen 변형에서 사용되지 않음 — skip.
+          if (typeof entry !== "number") continue;
+          if (entry === 47 || entry === 1047 || entry === 1049) {
+            if (!this.disposed) {
+              useTabsStore
+                .getState()
+                .setProcessTitle(this.options.workspaceId, this.options.tabId, null);
+            }
+            break;
+          }
+        }
+        return false; // 기본 xterm.js 동작(buffer swap) 그대로 진행
+      },
+    );
 
     this.registerOscHandlers(term);
 

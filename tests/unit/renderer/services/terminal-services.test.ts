@@ -49,11 +49,16 @@ const listeners: ListenerRecord[] = [];
   fonts: { load: () => Promise.resolve([]) },
 };
 
+// foregroundProcess RPC가 반환할 mock 응답 — 테스트별로 setForegroundProcessName으로 변경.
+let mockForegroundProcessName = "lazygit";
+
 mock.module("../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: mock((channel: string, method: string, args: unknown) => {
     ipcCalls.push({ channel, method, args });
     if (channel === "pty" && method === "spawn")
       return Promise.resolve({ ok: true as const, value: { pid: 1234 } });
+    if (channel === "pty" && method === "foregroundProcess")
+      return Promise.resolve({ ok: true as const, value: { name: mockForegroundProcessName } });
     return Promise.resolve({ ok: true as const, value: undefined });
   }),
   ipcListen: mock((channel: string, event: string, callback: (args: unknown) => void) => {
@@ -76,7 +81,7 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
 const { closeTerminal, createTerminalController, openTerminal } = await import(
   "../../../../src/renderer/services/terminal"
 );
-const { TERMINAL_REOPENED_SEPARATOR } = await import(
+const { TERMINAL_REOPENED_SEPARATOR, isShellPromptLikeTitle } = await import(
   "../../../../src/renderer/services/terminal/controller"
 );
 const { createPtyClient } = await import("../../../../src/renderer/services/terminal/pty-client");
@@ -125,20 +130,57 @@ function makeTerminalControllerDeps(
   const spawnCalls: TerminalDimensions[] = [];
   const ptyWrites: string[] = [];
   let ptyOptions: PtyClientOptions | null = null;
+  // 가변 buffer state — 테스트에서 setBufferType("alternate" | "normal")로 전환해
+  // alternate screen 가드 동작을 검증한다. 기본값은 "alternate"로 두어 기존 OSC
+  // title sync 테스트들이 별도 setup 없이 통과하도록 한다(TUI 시나리오 가정).
+  const bufferState: { active: { type: "normal" | "alternate" } } = {
+    active: { type: "alternate" },
+  };
   // controller.ts:317에서 attachCustomKeyEventHandler를 호출해 keydown 가로채기
   // 핸들러를 등록한다. 테스트에서 합성 KeyboardEvent로 호출해 분기를 검증하기
   // 위해 핸들러를 capture한다.
   let capturedKeyHandler: ((event: KeyboardEvent) => boolean) | null = null;
+  // onTitleChange callback도 동일하게 capture — OSC 0/1/2 시나리오 검증용.
+  let capturedTitleHandler: ((title: string) => void) | null = null;
+  // alt screen exit CSI handler. params로 47/1047/1049 중 하나가 들어오면 alt→normal
+  // 전이로 해석되어 processTitle clear가 발사된다. xterm.js v5 API의 params는
+  // (number | number[])[] 직접 배열 형태.
+  let capturedAltExitHandler:
+    | ((params: ReadonlyArray<number | number[]>) => boolean)
+    | null = null;
+  // alt screen ENTER CSI handler — TUI 시작 시 fg process 이름 IPC로 가져와 processTitle.
+  let capturedAltEnterHandler:
+    | ((params: ReadonlyArray<number | number[]>) => boolean)
+    | null = null;
   const deps: TerminalControllerDeps = {
     waitForTerminalFonts: () => Promise.resolve(),
     createTerminal: () => ({
       element: undefined,
       rows: 24,
-      parser: { registerOscHandler: () => ({ dispose: () => {} }) },
+      parser: {
+        registerOscHandler: () => ({ dispose: () => {} }),
+        registerCsiHandler: (
+          id: { prefix?: string; intermediates?: string; final: string },
+          cb: (params: ReadonlyArray<number | number[]>) => boolean,
+        ) => {
+          // controller가 prefix:"?", final:"l"(exit) / final:"h"(enter) 두 핸들러 등록.
+          if (id.prefix === "?" && id.final === "l") {
+            capturedAltExitHandler = cb;
+          } else if (id.prefix === "?" && id.final === "h") {
+            capturedAltEnterHandler = cb;
+          }
+          return { dispose: () => {} };
+        },
+      },
+      buffer: bufferState,
       dispose: () => {},
       loadAddon: () => {},
       onData: () => ({ dispose: () => {} }),
       onSelectionChange: () => ({ dispose: () => {} }),
+      onTitleChange: (handler) => {
+        capturedTitleHandler = handler;
+        return { dispose: () => {} };
+      },
       getSelection: () => "",
       open: () => {},
       refresh: () => {},
@@ -183,6 +225,12 @@ function makeTerminalControllerDeps(
     ptyWrites,
     getPtyOptions: () => ptyOptions,
     getKeyHandler: () => capturedKeyHandler,
+    getTitleHandler: () => capturedTitleHandler,
+    getAltExitHandler: () => capturedAltExitHandler,
+    getAltEnterHandler: () => capturedAltEnterHandler,
+    setBufferType(type: "normal" | "alternate"): void {
+      bufferState.active.type = type;
+    },
   };
 }
 
@@ -773,6 +821,352 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
       handler(fakeKeyEvent({ type: "keyup", key: "Home" }) as unknown as KeyboardEvent),
     ).toBe(true);
     expect(harness.ptyWrites).toEqual([]);
+
+    controller.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isShellPromptLikeTitle — shell prompt OSC 필터 휴리스틱
+// ---------------------------------------------------------------------------
+describe("isShellPromptLikeTitle", () => {
+  it("path / cwd 포함 → prompt-like로 판정", () => {
+    expect(isShellPromptLikeTitle("kih@MacBookPro:~/workspaces/project")).toBe(true);
+    expect(isShellPromptLikeTitle("/Users/kih/path")).toBe(true);
+    expect(isShellPromptLikeTitle("~/path")).toBe(true);
+    expect(isShellPromptLikeTitle("user@host:/abs/path")).toBe(true);
+  });
+
+  it("TUI 단일 단어 → 통과", () => {
+    expect(isShellPromptLikeTitle("lazygit")).toBe(false);
+    expect(isShellPromptLikeTitle("claude")).toBe(false);
+    expect(isShellPromptLikeTitle("lazydocker")).toBe(false);
+    expect(isShellPromptLikeTitle("less")).toBe(false);
+    expect(isShellPromptLikeTitle("vim README.md")).toBe(false);
+  });
+
+  it("@만 있고 : 없음 → 통과 (이메일 등 비-prompt 가능)", () => {
+    expect(isShellPromptLikeTitle("@anthropic")).toBe(false);
+  });
+
+  it("빈 문자열 → 통과 (store가 clear로 해석)", () => {
+    expect(isShellPromptLikeTitle("")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OSC 0/1/2 title sync — claude / lazygit / lazydocker가 자신의 이름/상태를
+// 보내면 탭의 processTitle이 갱신되어야 한다.
+// ---------------------------------------------------------------------------
+describe("services/terminal controller — OSC title sync", () => {
+  beforeEach(() => {
+    resetStores();
+    resetIpc();
+  });
+
+  async function setupWithTab() {
+    const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: tab.id,
+        cwd: "/workspace",
+        container: {} as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const titleHandler = harness.getTitleHandler();
+    if (!titleHandler) throw new Error("onTitleChange handler was not registered");
+    return { harness, controller, tab, titleHandler };
+  }
+
+  it("OSC title 수신 → tab.processTitle 갱신 + display title 변경", async () => {
+    const { controller, tab, titleHandler } = await setupWithTab();
+
+    titleHandler("lazygit");
+
+    const updated = useTabsStore.getState().byWorkspace[WS][tab.id];
+    expect(updated.processTitle).toBe("lazygit");
+    expect(updated.title).toBe("lazygit");
+
+    controller.dispose();
+  });
+
+  it("customTitle 있을 때 OSC title은 processTitle만 갱신 — display는 보존", async () => {
+    const { controller, tab, titleHandler } = await setupWithTab();
+    useTabsStore.getState().renameTab(WS, tab.id, "Pinned");
+
+    titleHandler("lazygit");
+
+    const updated = useTabsStore.getState().byWorkspace[WS][tab.id];
+    expect(updated.customTitle).toBe("Pinned");
+    expect(updated.processTitle).toBe("lazygit");
+    expect(updated.title).toBe("Pinned");
+
+    controller.dispose();
+  });
+
+  it("빈 OSC title은 processTitle clear → defaultTitle로 복귀", async () => {
+    const { controller, tab, titleHandler } = await setupWithTab();
+    titleHandler("lazygit");
+    titleHandler("");
+
+    const updated = useTabsStore.getState().byWorkspace[WS][tab.id];
+    expect(updated.processTitle).toBeUndefined();
+    expect(updated.title).toBe("Terminal");
+
+    controller.dispose();
+  });
+
+  it("normal screen에서 발사된 title은 무시 — ls/grep 같은 단발 명령 가드", async () => {
+    // 새 harness — buffer 기본 alternate를 normal로 전환해 단발 명령 시나리오 재현.
+    const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
+    const harness = makeTerminalControllerDeps();
+    harness.setBufferType("normal");
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: tab.id,
+        cwd: "/workspace",
+        container: {} as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const titleHandler = harness.getTitleHandler();
+    if (!titleHandler) throw new Error("title handler missing");
+
+    // zsh preexec hook이 현재 명령을 OSC 2로 발사하는 케이스 — buffer는 여전히 normal.
+    titleHandler("ls -G");
+
+    const updated = useTabsStore.getState().byWorkspace[WS][tab.id];
+    expect(updated.processTitle).toBeUndefined();
+    expect(updated.title).toBe("Terminal");
+
+    controller.dispose();
+  });
+
+  it("alternate ↔ normal 전이를 거치는 시나리오 — TUI title만 적용 + 종료 시 자동 복귀", async () => {
+    const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
+    const harness = makeTerminalControllerDeps();
+    harness.setBufferType("normal"); // 처음 shell은 normal screen
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: tab.id,
+        cwd: "/workspace",
+        container: {} as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const titleHandler = harness.getTitleHandler();
+    const altExitHandler = harness.getAltExitHandler();
+    if (!titleHandler) throw new Error("title handler missing");
+    if (!altExitHandler) throw new Error("alt-exit handler missing");
+
+    // shell preexec — 무시되어야 함
+    titleHandler("ls -G");
+    expect(useTabsStore.getState().byWorkspace[WS][tab.id].processTitle).toBeUndefined();
+
+    // 사용자가 lazygit 실행 → alternate 진입 → "lazygit" 발사
+    harness.setBufferType("alternate");
+    titleHandler("lazygit");
+    expect(useTabsStore.getState().byWorkspace[WS][tab.id].title).toBe("lazygit");
+
+    // lazygit 종료 → alt screen exit CSI 발사(`\x1b[?1049l`) → processTitle clear → defaultTitle 복귀
+    harness.setBufferType("normal");
+    const ret = altExitHandler([1049]);
+    expect(ret).toBe(false); // xterm.js 기본 buffer swap에 위임
+    const updated = useTabsStore.getState().byWorkspace[WS][tab.id];
+    expect(updated.processTitle).toBeUndefined();
+    expect(updated.title).toBe("Terminal");
+
+    controller.dispose();
+  });
+
+  it("alt-exit CSI handler가 47 / 1047 / 1049 세 변형 모두 처리", async () => {
+    const variants = [47, 1047, 1049];
+    for (const v of variants) {
+      const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
+      const harness = makeTerminalControllerDeps();
+      const controller = createTerminalController(
+        {
+          workspaceId: WS,
+          tabId: tab.id,
+          cwd: "/workspace",
+          container: {} as HTMLElement,
+          autoSpawn: false,
+        },
+        harness.deps,
+      );
+      await flushTerminalInit();
+      const titleHandler = harness.getTitleHandler();
+      const altExit = harness.getAltExitHandler();
+      if (!titleHandler || !altExit) throw new Error("handlers missing");
+
+      titleHandler("claude");
+      expect(useTabsStore.getState().byWorkspace[WS][tab.id].title).toBe("claude");
+
+      altExit([v]);
+      expect(useTabsStore.getState().byWorkspace[WS][tab.id].title).toBe("Terminal");
+
+      controller.dispose();
+      useTabsStore.getState().removeTab(WS, tab.id);
+    }
+  });
+
+  it("alt-exit CSI가 47/1047/1049 외 param이면 processTitle 보존 (다른 CSI ?...l 시퀀스 가드)", async () => {
+    const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: tab.id,
+        cwd: "/workspace",
+        container: {} as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const titleHandler = harness.getTitleHandler();
+    const altExit = harness.getAltExitHandler();
+    if (!titleHandler || !altExit) throw new Error("handlers missing");
+
+    titleHandler("claude");
+    // 25 = DECTCEM(cursor hide), 우리 alt 가드 대상이 아님
+    altExit([25]);
+    expect(useTabsStore.getState().byWorkspace[WS][tab.id].title).toBe("claude");
+
+    controller.dispose();
+  });
+
+  it("alt-enter 시 fg process RPC 호출 → processTitle 적용 (OSC 없는 lazygit 시나리오)", async () => {
+    mockForegroundProcessName = "lazygit";
+    const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: tab.id,
+        cwd: "/workspace",
+        container: {} as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const altEnter = harness.getAltEnterHandler();
+    if (!altEnter) throw new Error("alt-enter handler missing");
+
+    // alt-screen ENTER — fire-and-forget RPC 호출 후 즉시 false 반환
+    const ret = altEnter([1049]);
+    expect(ret).toBe(false);
+
+    // 비동기 IPC 응답 처리 대기
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(ipcCalls).toContainEqual({
+      channel: "pty",
+      method: "foregroundProcess",
+      args: { workspaceId: WS, tabId: tab.id },
+    });
+    expect(useTabsStore.getState().byWorkspace[WS][tab.id].title).toBe("lazygit");
+
+    controller.dispose();
+  });
+
+  it("alt-enter RPC가 빈 이름 반환 시 기존 title 보존 (RPC 실패 fallback)", async () => {
+    mockForegroundProcessName = ""; // fallback
+    const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: tab.id,
+        cwd: "/workspace",
+        container: {} as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const altEnter = harness.getAltEnterHandler();
+    if (!altEnter) throw new Error("alt-enter handler missing");
+
+    altEnter([1049]);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const updated = useTabsStore.getState().byWorkspace[WS][tab.id];
+    expect(updated.processTitle).toBeUndefined();
+    expect(updated.title).toBe("Terminal");
+
+    controller.dispose();
+    mockForegroundProcessName = "lazygit"; // restore default
+  });
+
+  it("alt-enter param이 47/1047/1049 외면 RPC 호출 안 함 (cursor show 등 다른 ?h 시퀀스 가드)", async () => {
+    const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: tab.id,
+        cwd: "/workspace",
+        container: {} as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const altEnter = harness.getAltEnterHandler();
+    if (!altEnter) throw new Error("alt-enter handler missing");
+
+    altEnter([25]); // DECTCEM cursor show — 우리 대상 아님
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(
+      ipcCalls.some((c) => c.channel === "pty" && c.method === "foregroundProcess"),
+    ).toBe(false);
+
+    controller.dispose();
+  });
+
+  it("customTitle은 alt-exit에도 보존된다 — processTitle만 clear", async () => {
+    const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
+    useTabsStore.getState().renameTab(WS, tab.id, "내 작업창");
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: tab.id,
+        cwd: "/workspace",
+        container: {} as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const titleHandler = harness.getTitleHandler();
+    const altExit = harness.getAltExitHandler();
+    if (!titleHandler || !altExit) throw new Error("handlers missing");
+
+    titleHandler("claude");
+    altExit([1049]);
+
+    const updated = useTabsStore.getState().byWorkspace[WS][tab.id];
+    expect(updated.customTitle).toBe("내 작업창");
+    expect(updated.processTitle).toBeUndefined();
+    expect(updated.title).toBe("내 작업창");
 
     controller.dispose();
   });

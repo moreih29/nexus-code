@@ -41,8 +41,15 @@ mock.module("@xterm/xterm", () => ({
       ): typeof disposable {
         return disposable;
       },
+      registerCsiHandler(
+        _id: { prefix?: string; intermediates?: string; final: string },
+        _cb: (params: ReadonlyArray<number | number[]>) => boolean,
+      ): typeof disposable {
+        return disposable;
+      },
     };
     options: { theme: unknown } = { theme: undefined };
+    readonly buffer = { active: { type: "normal" as "normal" | "alternate" } };
 
     dispose(): void {}
     loadAddon(_addon: unknown): void {}

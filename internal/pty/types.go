@@ -68,6 +68,24 @@ type KillParams struct {
 	TabID       string `json:"tabId"`
 }
 
+// ForegroundProcessParams is the wire shape for pty.foregroundProcess.
+// Returns the basename of the program currently in the PTY foreground process
+// group — used by the renderer to label tabs running OSC-mute TUIs (lazygit,
+// lazydocker, vim, less, htop). For OSC-aware programs (claude), the OSC title
+// path runs in parallel and typically wins; the two are consistent in practice.
+type ForegroundProcessParams struct {
+	WorkspaceID string `json:"workspaceId"`
+	TabID       string `json:"tabId"`
+}
+
+// ForegroundProcessResult returns the basename of the foreground process group
+// leader, or empty string when the lookup fails (no session, ioctl error, or ps
+// failure). Callers treat an empty name as "no info" and skip the tab update —
+// never overwriting a previously-set title with empty.
+type ForegroundProcessResult struct {
+	Name string `json:"name"`
+}
+
 // DataPayload is emitted on pty.data with Chunk carrying base64 raw PTY bytes.
 type DataPayload struct {
 	WorkspaceID string `json:"workspaceId"`

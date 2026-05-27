@@ -85,6 +85,8 @@ class AgentPtyHostHandle implements PtyHostHandle {
           return channel.call("pty.ack", ackParamsFromArgs(args, workspaceId, tabId));
         case "kill":
           return channel.call("pty.kill", args);
+        case "foregroundProcess":
+          return channel.call("pty.foregroundProcess", args);
         default:
           throw new Error(`agentPtyHost.call: unknown method: ${method}`);
       }
