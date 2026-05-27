@@ -123,7 +123,12 @@ function makeTerminalControllerDeps(
 ) {
   const writes: string[] = [];
   const spawnCalls: TerminalDimensions[] = [];
+  const ptyWrites: string[] = [];
   let ptyOptions: PtyClientOptions | null = null;
+  // controller.ts:317에서 attachCustomKeyEventHandler를 호출해 keydown 가로채기
+  // 핸들러를 등록한다. 테스트에서 합성 KeyboardEvent로 호출해 분기를 검증하기
+  // 위해 핸들러를 capture한다.
+  let capturedKeyHandler: ((event: KeyboardEvent) => boolean) | null = null;
   const deps: TerminalControllerDeps = {
     waitForTerminalFonts: () => Promise.resolve(),
     createTerminal: () => ({
@@ -140,8 +145,9 @@ function makeTerminalControllerDeps(
       write: (data) => {
         writes.push(data);
       },
-      // Shift+Enter → "\\\r" 전송 위한 key handler intercept. test 에서는 no-op.
-      attachCustomKeyEventHandler: () => {},
+      attachCustomKeyEventHandler: (handler) => {
+        capturedKeyHandler = handler;
+      },
     }),
     createFitAddon: () => ({
       dispose: () => {},
@@ -159,7 +165,9 @@ function makeTerminalControllerDeps(
           spawnCalls.push({ ...dimensions });
           return spawnImpl(dimensions);
         },
-        write: () => {},
+        write: (data) => {
+          ptyWrites.push(data);
+        },
         resize: () => {},
         dispose: () => {},
       };
@@ -168,7 +176,14 @@ function makeTerminalControllerDeps(
     requestAnimationFrame: () => 1,
     cancelAnimationFrame: () => {},
   };
-  return { deps, spawnCalls, writes, getPtyOptions: () => ptyOptions };
+  return {
+    deps,
+    spawnCalls,
+    writes,
+    ptyWrites,
+    getPtyOptions: () => ptyOptions,
+    getKeyHandler: () => capturedKeyHandler,
+  };
 }
 
 describe("services/terminal open and close", () => {
@@ -579,6 +594,185 @@ describe("services/terminal controller reopen", () => {
     await expect(controller.reopen()).resolves.toBeUndefined();
     // No separator written when the session was already live.
     expect(harness.writes).toEqual([]);
+
+    controller.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Custom key handler — line-begin/line-end → Ctrl+A/Ctrl+E 치환.
+//
+// 배경: Claude Code TUI(Ink)가 `\x1b[H`/`\x1b[F`를 line-begin/end로 인식하지
+//   않고, 우리 환경의 xterm.js도 Home/End를 PTY로 보내지 않는 합산 이슈로 인해
+//   라인 단축키가 무반응이었다. cmux 실측에서 `^A`/`^E`로 치환해 보냄을 확인.
+//   readline 표준이라 Claude Code / bash / zsh 모두 호환.
+//
+// macOS 컨벤션 양쪽 모두 매핑:
+//   - 외장 풀사이즈 키보드: 단독 Home / End
+//   - 내장 키보드(Home/End 키 없음): Cmd+← / Cmd+→
+// ---------------------------------------------------------------------------
+describe("services/terminal controller — 라인 단축키 치환", () => {
+  beforeEach(() => {
+    resetStores();
+    resetIpc();
+  });
+
+  async function setupHandler() {
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-keymap",
+        cwd: "/workspace",
+        container: {} as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const handler = harness.getKeyHandler();
+    if (!handler) throw new Error("customKey handler was not registered");
+    return { harness, controller, handler };
+  }
+
+  // 이 파일은 globalThis.window를 plain stub으로 덮어써 happy-dom의 KeyboardEvent
+  // 가 사용 불가능하다. 핸들러가 참조하는 필드만 갖는 fake로 충분.
+  interface FakeKeyEvent {
+    type: string;
+    key: string;
+    shiftKey?: boolean;
+    metaKey?: boolean;
+    ctrlKey?: boolean;
+    altKey?: boolean;
+    defaultPrevented: boolean;
+    preventDefault(): void;
+    stopPropagation(): void;
+  }
+  function fakeKeyEvent(opts: {
+    type?: string;
+    key: string;
+    shiftKey?: boolean;
+    metaKey?: boolean;
+    ctrlKey?: boolean;
+    altKey?: boolean;
+  }): FakeKeyEvent {
+    const event: FakeKeyEvent = {
+      type: opts.type ?? "keydown",
+      key: opts.key,
+      shiftKey: opts.shiftKey,
+      metaKey: opts.metaKey,
+      ctrlKey: opts.ctrlKey,
+      altKey: opts.altKey,
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+      stopPropagation() {},
+    };
+    return event;
+  }
+
+  it("Home 단독 keydown → \\x01 송신 + 기본 동작 차단", async () => {
+    const { harness, controller, handler } = await setupHandler();
+    const event = fakeKeyEvent({ key: "Home" });
+
+    const result = handler(event as unknown as KeyboardEvent);
+
+    expect(result).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    expect(harness.ptyWrites).toEqual(["\x01"]);
+
+    controller.dispose();
+  });
+
+  it("End 단독 keydown → \\x05 송신 + 기본 동작 차단", async () => {
+    const { harness, controller, handler } = await setupHandler();
+    const event = fakeKeyEvent({ key: "End" });
+
+    const result = handler(event as unknown as KeyboardEvent);
+
+    expect(result).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    expect(harness.ptyWrites).toEqual(["\x05"]);
+
+    controller.dispose();
+  });
+
+  it("Cmd+ArrowLeft (macOS 내장 키보드 line-begin) → \\x01 송신", async () => {
+    const { harness, controller, handler } = await setupHandler();
+    const event = fakeKeyEvent({ key: "ArrowLeft", metaKey: true });
+
+    const result = handler(event as unknown as KeyboardEvent);
+
+    expect(result).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    expect(harness.ptyWrites).toEqual(["\x01"]);
+
+    controller.dispose();
+  });
+
+  it("Cmd+ArrowRight (macOS 내장 키보드 line-end) → \\x05 송신", async () => {
+    const { harness, controller, handler } = await setupHandler();
+    const event = fakeKeyEvent({ key: "ArrowRight", metaKey: true });
+
+    const result = handler(event as unknown as KeyboardEvent);
+
+    expect(result).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    expect(harness.ptyWrites).toEqual(["\x05"]);
+
+    controller.dispose();
+  });
+
+  it("modifier 동반 Home/End / 추가 modifier 동반 Cmd+arrow는 통과", async () => {
+    const { harness, controller, handler } = await setupHandler();
+
+    // Shift+Home: selection 확장 — 통과
+    expect(
+      handler(fakeKeyEvent({ key: "Home", shiftKey: true }) as unknown as KeyboardEvent),
+    ).toBe(true);
+    // Cmd+End (Home/End 키와 modifier 조합): 통과 — 정의되지 않은 시퀀스라 보존
+    expect(
+      handler(fakeKeyEvent({ key: "End", metaKey: true }) as unknown as KeyboardEvent),
+    ).toBe(true);
+    // Ctrl+Home: buffer-top 의도: 통과
+    expect(
+      handler(fakeKeyEvent({ key: "Home", ctrlKey: true }) as unknown as KeyboardEvent),
+    ).toBe(true);
+    // Alt+End: word-level 의도: 통과
+    expect(
+      handler(fakeKeyEvent({ key: "End", altKey: true }) as unknown as KeyboardEvent),
+    ).toBe(true);
+    // Shift+Cmd+ArrowLeft: macOS selection 확장 의도: 통과
+    expect(
+      handler(
+        fakeKeyEvent({ key: "ArrowLeft", metaKey: true, shiftKey: true }) as unknown as KeyboardEvent,
+      ),
+    ).toBe(true);
+    // Option+ArrowRight: word-jump 의도: 통과 (meta 없이 alt 단독)
+    expect(
+      handler(fakeKeyEvent({ key: "ArrowRight", altKey: true }) as unknown as KeyboardEvent),
+    ).toBe(true);
+    // 단독 ArrowLeft/ArrowRight (modifier 없음): cursor 이동 — 통과
+    expect(
+      handler(fakeKeyEvent({ key: "ArrowLeft" }) as unknown as KeyboardEvent),
+    ).toBe(true);
+    expect(
+      handler(fakeKeyEvent({ key: "ArrowRight" }) as unknown as KeyboardEvent),
+    ).toBe(true);
+
+    expect(harness.ptyWrites).toEqual([]);
+
+    controller.dispose();
+  });
+
+  it("keyup은 통과 — keydown만 인터셉트", async () => {
+    const { harness, controller, handler } = await setupHandler();
+
+    expect(
+      handler(fakeKeyEvent({ type: "keyup", key: "Home" }) as unknown as KeyboardEvent),
+    ).toBe(true);
+    expect(harness.ptyWrites).toEqual([]);
 
     controller.dispose();
   });

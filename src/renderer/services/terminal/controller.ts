@@ -334,6 +334,62 @@ class XtermTerminalController implements TerminalController {
         ptyClient.write("\x1b\r");
         return false;
       }
+
+      // Line-begin / line-end → Ctrl+A / Ctrl+E 치환.
+      //
+      // 배경: Claude Code TUI(Ink 기반)의 입력 박스는 `\x1b[H`/`\x1b[F`(Home/End
+      //   normal sequence)를 line-begin/end로 매핑하지 않아 외부 터미널(iTerm2 등)
+      //   에서도 Home/End가 안 먹는다. 우리 환경에선 추가로 xterm.js가 Electron
+      //   textarea를 거치며 Cocoa 키바인딩에 가로채여 PTY로 시퀀스 자체를 전송하지
+      //   않는 케이스가 관찰됐다 (`cat -v` 후 무반응으로 확인).
+      //
+      // cmux가 동일 문제를 우회하는 방식을 실측해 채택: cmux에서 `cat -v`를 실행하면
+      //   line-begin은 `^A`(0x01), line-end는 `^E`(0x05)로 송신된다. Claude Code /
+      //   bash / zsh의 readline 표준 키바인딩이 모두 Ctrl+A/E를 line-begin/end로
+      //   인식하므로 호환성이 가장 넓다.
+      //
+      // macOS 컨벤션:
+      //   - 풀사이즈 외장 키보드: Home / End 키 단독 → line-begin / line-end
+      //   - 내장 키보드(Home/End 키 없음): Cmd+← / Cmd+→ → line-begin / line-end
+      //   브라우저(Chromium)는 Cmd+arrow를 별도 변환 없이 KeyboardEvent로 그대로
+      //   전달하므로 양쪽 모두 직접 잡아 ^A/^E로 치환한다.
+      //
+      // modifier 가드:
+      //   - Shift+Home/End, Shift+Cmd+arrow: selection 확장 — 통과.
+      //   - Ctrl+Home/End: 스크롤백 buffer top/bottom 의도 — 통과.
+      //   - Alt/Option+arrow: word-jump 의도 — 통과 (Claude Code도 자체 word-jump 사용).
+      //
+      // Trade-off: vim normal mode에서 Ctrl+A는 increment number 의미라
+      //   부작용 가능. vim 사용자는 0/$/g/G를 쓰는 것이 일반적이라 드문 케이스로
+      //   간주한다. 향후 호환성 이슈 보고 시 setting 토글 도입.
+      const isHome =
+        (event.key === "Home" &&
+          !event.shiftKey &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey) ||
+        (event.key === "ArrowLeft" &&
+          event.metaKey &&
+          !event.shiftKey &&
+          !event.ctrlKey &&
+          !event.altKey);
+      const isEnd =
+        (event.key === "End" &&
+          !event.shiftKey &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey) ||
+        (event.key === "ArrowRight" &&
+          event.metaKey &&
+          !event.shiftKey &&
+          !event.ctrlKey &&
+          !event.altKey);
+      if (isHome || isEnd) {
+        event.preventDefault();
+        event.stopPropagation();
+        ptyClient.write(isHome ? "\x01" : "\x05");
+        return false;
+      }
       return true;
     });
 
