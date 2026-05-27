@@ -8,9 +8,10 @@
 import type { RepoInfo } from "../../../../shared/git/types";
 import { ipcCallResult, unwrapGitResult } from "../../../ipc/client";
 import { cancelCommitDraftSave, cancelStatusHintRefresh } from "./draft-persistence";
-import { firstRejectedReason, gitStoreErrorFromUnknown } from "./store-helpers";
+import { sanitizeExpandedTreeNodes } from "./panel-ui";
 import { createDefaultSession } from "./session-defaults";
 import type { GitStoreContext } from "./store-context";
+import { firstRejectedReason, gitStoreErrorFromUnknown } from "./store-helpers";
 
 export interface SessionLifecycleSlice {
   loadInitial: (workspaceId: string) => Promise<void>;
@@ -37,19 +38,14 @@ export function createSessionLifecycleSlice(ctx: GitStoreContext): SessionLifecy
       // ipcCallResult so IpcErrResult("git-error") or "cancelled" are returned
       // as values rather than rejections, preserving allSettled semantics for
       // partial load resilience.
-      const [repoInfoResult, statusResult, panelStateResult] =
-        await Promise.allSettled([
-          ipcCallResult("git", "getRepoInfo", { workspaceId }).then(unwrapGitResult),
-          ipcCallResult("git", "getStatus", { workspaceId }).then(unwrapGitResult),
-          ipcCallResult("git", "getPanelState", { workspaceId }).then(unwrapGitResult),
-        ]);
+      const [repoInfoResult, statusResult, panelStateResult] = await Promise.allSettled([
+        ipcCallResult("git", "getRepoInfo", { workspaceId }).then(unwrapGitResult),
+        ipcCallResult("git", "getStatus", { workspaceId }).then(unwrapGitResult),
+        ipcCallResult("git", "getPanelState", { workspaceId }).then(unwrapGitResult),
+      ]);
 
       updateExistingSession(workspaceId, (session) => {
-        const firstError = firstRejectedReason(
-          repoInfoResult,
-          statusResult,
-          panelStateResult,
-        );
+        const firstError = firstRejectedReason(repoInfoResult, statusResult, panelStateResult);
         return {
           ...session,
           repoInfo: repoInfoResult.status === "fulfilled" ? repoInfoResult.value : session.repoInfo,
@@ -65,9 +61,19 @@ export function createSessionLifecycleSlice(ctx: GitStoreContext): SessionLifecy
             panelStateResult.status === "fulfilled"
               ? { ...panelStateResult.value.expandedGroups }
               : session.expandedGroups,
+          // Sanitize persisted directory paths against the fresh status —
+          // paths that no longer correspond to a directory in the current
+          // tree (file committed, discarded, or staged into a different
+          // group between sessions) get dropped here so the header
+          // expand/collapse toggle's `hasAnyExpanded` count reflects what
+          // the user actually sees in the panel. Without this, the toggle
+          // shows "already expanded" against visibly-collapsed folders.
           expandedTreeNodes:
             panelStateResult.status === "fulfilled"
-              ? { ...panelStateResult.value.expandedTreeNodes }
+              ? sanitizeExpandedTreeNodes(
+                  { ...panelStateResult.value.expandedTreeNodes },
+                  statusResult.status === "fulfilled" ? statusResult.value : null,
+                )
               : session.expandedTreeNodes,
           commitOptions:
             panelStateResult.status === "fulfilled"
@@ -112,6 +118,11 @@ export function createSessionLifecycleSlice(ctx: GitStoreContext): SessionLifecy
           status,
           statusFetching: false,
           branchInfo: status.branch,
+          // Re-align expanded directory paths with the fresh status — see
+          // loadInitial for the rationale. A refresh can wipe a directory
+          // out of the tree (commit, discard, gitignore) without the user
+          // touching the toggle, so the invariant must hold here too.
+          expandedTreeNodes: sanitizeExpandedTreeNodes(session.expandedTreeNodes, status),
           lastError: null,
         }));
       });

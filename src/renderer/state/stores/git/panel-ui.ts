@@ -29,8 +29,12 @@ import type { GitStoreContext } from "./store-context";
  * Collect every directory prefix that appears across a list of status
  * entries. `expandAllTrees` writes this set into `expandedTreeNodes[groupKey]`
  * so the renderer's tree view reveals every leaf without a per-row click.
+ *
+ * Exported because `sanitizeExpandedTreeNodes` (below) and the renderer's
+ * status-hydration paths use the same projection to keep persisted
+ * expansion state aligned with the workspace's current status.
  */
-function dirsFromEntries(entries: readonly GitStatusEntry[]): string[] {
+export function dirsFromEntries(entries: readonly GitStatusEntry[]): string[] {
   const dirs = new Set<string>();
   for (const entry of entries) {
     const parts = entry.relPath.split("/");
@@ -42,12 +46,61 @@ function dirsFromEntries(entries: readonly GitStatusEntry[]): string[] {
   return [...dirs];
 }
 
+/**
+ * Drop every persisted directory path that is no longer a directory in the
+ * workspace's current status. `expandedTreeNodes` is persisted across app
+ * runs (and across git operations within a run), but a path becomes stale
+ * the moment its last entry is committed, discarded, or staged into a
+ * different group — the path simply isn't a directory in the new tree.
+ *
+ * Why this matters: `hasAnyExpanded` in the panel uses the array lengths
+ * to decide whether the header toggle should read "Expand all" or
+ * "Collapse all". Without this sanitize, stale paths inflate the count so
+ * the toggle shows "already expanded" while the user sees collapsed
+ * folders — first click then runs `collapseAllTrees` (a no-op visually)
+ * and only the second click actually expands the trees.
+ *
+ * Invariant: after status flows through this function, every path in
+ * `expandedTreeNodes[group]` is a real intermediate directory of an entry
+ * in `status[group]`. Empty group → empty array.
+ */
+export function sanitizeExpandedTreeNodes(
+  treeNodes: GitExpandedTreeNodes,
+  status: {
+    merge: readonly GitStatusEntry[];
+    staged: readonly GitStatusEntry[];
+    working: readonly GitStatusEntry[];
+    untracked: readonly GitStatusEntry[];
+  } | null,
+): GitExpandedTreeNodes {
+  if (!status) return treeNodes;
+  const intersect = (paths: readonly string[], entries: readonly GitStatusEntry[]): string[] => {
+    if (paths.length === 0) return [];
+    const validDirs = new Set(dirsFromEntries(entries));
+    const out = paths.filter((p) => validDirs.has(p));
+    // Preserve referential identity when nothing was dropped — store
+    // consumers (zustand selectors) avoid re-rendering on shallow equality
+    // for unchanged groups.
+    return out.length === paths.length ? (paths as string[]) : out;
+  };
+  return {
+    merge: intersect(treeNodes.merge, status.merge),
+    staged: intersect(treeNodes.staged, status.staged),
+    working: intersect(treeNodes.working, status.working),
+    untracked: intersect(treeNodes.untracked, status.untracked),
+  };
+}
+
 export interface PanelUiSlice {
   setPanelSegment: (workspaceId: string, segment: GitPanelSegment) => void;
   setHistoryRef: (workspaceId: string, ref: string) => void;
   setHistoryScope: (workspaceId: string, scope: GitHistoryScope) => void;
   setExpandedGroup: (workspaceId: string, group: GitExpandedGroupKey, expanded: boolean) => void;
-  toggleExpandedTreeNode: (workspaceId: string, groupKey: GitExpandedGroupKey, relPath: string) => void;
+  toggleExpandedTreeNode: (
+    workspaceId: string,
+    groupKey: GitExpandedGroupKey,
+    relPath: string,
+  ) => void;
   /**
    * Expand every directory in every group of the active git session, and
    * flip every group header to expanded so the dirs are actually visible.
@@ -63,7 +116,11 @@ export interface PanelUiSlice {
   setCommitDraft: (workspaceId: string, text: string) => void;
   flushCommitDraft: (workspaceId: string) => void;
   flushAllCommitDrafts: () => void;
-  setCommitOption: <K extends keyof GitCommitOptions>(workspaceId: string, option: K, value: GitCommitOptions[K]) => void;
+  setCommitOption: <K extends keyof GitCommitOptions>(
+    workspaceId: string,
+    option: K,
+    value: GitCommitOptions[K],
+  ) => void;
 }
 
 export function createPanelUiSlice(ctx: GitStoreContext): PanelUiSlice {

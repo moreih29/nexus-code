@@ -11,8 +11,9 @@
 
 import type { GitAutofetchStateChanged } from "../../../../shared/git/types";
 import { canUseIpcBridge, ipcListen } from "../../../ipc/client";
-import { useGitStore } from "./index";
 import { scheduleStatusHintRefresh } from "./draft-persistence";
+import { useGitStore } from "./index";
+import { sanitizeExpandedTreeNodes } from "./panel-ui";
 
 /**
  * Applies background autofetch state from main without overwriting unrelated
@@ -61,6 +62,11 @@ export function installGitEventSubscriptions(): void {
         status,
         statusFetching: false,
         branchInfo: status.branch,
+        // Drop persisted directory paths that the new status no longer
+        // covers — keeps the header expand/collapse toggle's count
+        // honest after background status pushes (commit landed, file
+        // discarded via terminal, gitignore added, etc).
+        expandedTreeNodes: sanitizeExpandedTreeNodes(session.expandedTreeNodes, status),
         pendingNonFFRetry:
           session.pendingNonFFRetry?.branch === status.branch?.current
             ? session.pendingNonFFRetry
