@@ -136,3 +136,14 @@ type RenameParams struct {
 	FromRelPath string `json:"fromRelPath"`
 	ToRelPath   string `json:"toRelPath"`
 }
+
+// CopyFileParams — fs.copyFile request shape.
+type CopyFileParams struct {
+	SrcRelPath string `json:"srcRelPath"`
+	DstRelPath string `json:"dstRelPath"`
+}
+
+// RemoveAllParams — fs.removeAll request shape.
+type RemoveAllParams struct {
+	RelPath string `json:"relPath"`
+}

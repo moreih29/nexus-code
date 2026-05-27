@@ -76,7 +76,11 @@ export function FileTreeVirtualBody({
 
         if (item.kind === "pending") {
           return (
-            <div key={`pending-${item.parentAbsPath}`} style={wrapperStyle}>
+            <div
+              key={`pending-${item.parentAbsPath}`}
+              style={wrapperStyle}
+              data-file-tree-row-type="pending"
+            >
               <FileTreeEditRow
                 kind={item.entryKind}
                 depth={item.depth}
@@ -89,7 +93,11 @@ export function FileTreeVirtualBody({
 
         if (item.kind === "rename") {
           return (
-            <div key={`rename-${item.absPath}`} style={wrapperStyle}>
+            <div
+              key={`rename-${item.absPath}`}
+              style={wrapperStyle}
+              data-file-tree-row-type="rename"
+            >
               <FileTreeEditRow
                 kind={item.entryKind}
                 depth={item.depth}
@@ -107,7 +115,12 @@ export function FileTreeVirtualBody({
         const decoration = decorationLookup.decoration(item.absPath, isDir);
         const isIgnored = !isDir && decorationLookup.isIgnored(item.absPath, isDir);
         return (
-          <div key={item.absPath} style={wrapperStyle}>
+          <div
+            key={item.absPath}
+            style={wrapperStyle}
+            data-file-tree-row-type={item.node.type}
+            data-file-tree-row-path={item.absPath}
+          >
             <FileTreeRow
               workspaceId={workspaceId}
               absPath={item.absPath}

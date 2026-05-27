@@ -112,3 +112,28 @@ export const FsRenameParamsSchema = z.object({
   toRelPath: RelPathSchema,
 });
 export type FsRenameParams = z.infer<typeof FsRenameParamsSchema>;
+
+// ---------------------------------------------------------------------------
+// fs.copyFile — copy a file within the bound workspace. Both paths must
+// be workspace-relative. Fails if the destination already exists — the
+// renderer handles overwrite-confirm flows before calling this.
+// ---------------------------------------------------------------------------
+
+export const FS_COPY_FILE_METHOD = "fs.copyFile" as const;
+
+export const FsCopyFileParamsSchema = z.object({
+  fromRelPath: RelPathSchema,
+  toRelPath: RelPathSchema,
+});
+export type FsCopyFileParams = z.infer<typeof FsCopyFileParamsSchema>;
+
+// ---------------------------------------------------------------------------
+// fs.removeAll — recursively remove a file or directory. Unlike rmdir,
+// this does NOT require the target to be empty — it removes everything at
+// the given path, including non-empty directories.
+// ---------------------------------------------------------------------------
+
+export const FS_REMOVE_ALL_METHOD = "fs.removeAll" as const;
+
+export const FsRemoveAllParamsSchema = z.object({ relPath: RelPathSchema });
+export type FsRemoveAllParams = z.infer<typeof FsRemoveAllParamsSchema>;

@@ -32,6 +32,14 @@ export const COMMANDS = {
   // `when: "fileTreeFocus && !inputFocus"` — CRITICAL: `!inputFocus` 조건이
   // 없으면 edit-row 입력 도중 Delete가 부모 행 삭제를 유발해 데이터 손실.
   fileDelete: "file.delete",
+  // File clipboard cut/copy/paste (Mac: Cmd+Option+V = Move Item Here).
+  fileCopy: "file.copy",
+  fileCut: "file.cut",
+  filePaste: "file.paste",
+  fileMoveHere: "file.moveHere",
+  // Enter-triggered rename — Mac only (VSCode parity). On Windows/Linux
+  // Enter opens the file; rename is F2 on all platforms.
+  fileRenameByEnter: "file.renameByEnter",
 
   // Tabs
   tabClose: "tab.close",

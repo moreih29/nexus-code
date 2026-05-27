@@ -58,3 +58,19 @@ export function renameHandler(manager: WorkspaceManager): (args: unknown) => Pro
     await fs.rename(fromRelPath, toRelPath);
   };
 }
+
+export function copyFileHandler(manager: WorkspaceManager): (args: unknown) => Promise<void> {
+  return async (args: unknown): Promise<void> => {
+    const { workspaceId, fromRelPath, toRelPath } = validateArgs(c.copyFile.args, args);
+    const fs = await manager.getFs(workspaceId);
+    await fs.copyFile(fromRelPath, toRelPath);
+  };
+}
+
+export function removeAllHandler(manager: WorkspaceManager): (args: unknown) => Promise<void> {
+  return async (args: unknown): Promise<void> => {
+    const { workspaceId, relPath } = validateArgs(c.removeAll.args, args);
+    const fs = await manager.getFs(workspaceId);
+    await fs.removeAll(relPath);
+  };
+}

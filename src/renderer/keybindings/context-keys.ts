@@ -23,6 +23,9 @@
  *                        (`role="tree"`).
  *   - `terminalFocus`  — target is inside an xterm.js terminal.
  *   - `commandPaletteFocus` — target is inside the command palette modal.
+ *   - `isMac`             — resolved via navigator.platform, not DOM target.
+ *                           Always evaluates to the same value for a given
+ *                           device; safe to use in `when` expressions.
  *
  * Unknown names resolve to `false`. Treating an unknown context key
  * as "not active" matches VSCode's behaviour and keeps a typo'd
@@ -48,6 +51,8 @@ export function evaluateContextKey(name: string, event: KeyboardEvent): boolean 
       return isInTerminal(target);
     case "commandPaletteFocus":
       return isInCommandPalette(target);
+    case "isMac":
+      return IS_MAC; // resolved at module load, stable per device
     default:
       return false;
   }
@@ -94,3 +99,7 @@ function closest(target: HTMLElement | null, selector: string): Element | null {
   if (!target || typeof target.closest !== "function") return null;
   return target.closest(selector);
 }
+
+// Stable per-device flag. Evaluated once at module load.
+const IS_MAC =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPod|iPad/i.test(navigator.platform || "");

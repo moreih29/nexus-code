@@ -21,6 +21,7 @@ import { useTabsStore } from "../../../state/stores/tabs";
 import { type FileTreeActionTarget, useFileTreeActions } from "../hooks/use-file-tree-actions";
 import { useFileTreePendingCreate } from "../hooks/use-file-tree-pending-create";
 import { useFileTreePendingRename } from "../hooks/use-file-tree-pending-rename";
+import { useFileTreeDropTarget } from "../hooks/use-file-tree-drop-target";
 import { createFileTreeKeydownHandler } from "../keys";
 import { getDisplayFlat } from "./display";
 import { buildFileTreeMenuItems } from "./menu";
@@ -150,6 +151,9 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
 
   const pendingCreate = useFileTreePendingCreate({ workspaceId, rootAbsPath });
   const pendingRename = useFileTreePendingRename({ workspaceId, rootAbsPath });
+
+  // Drag-and-drop: container-level native event listener for file move/copy.
+  useFileTreeDropTarget({ containerRef, workspaceId, workspaceRootPath: rootAbsPath });
 
   // New-File / New-Folder need their inline-edit row mounted *after* the
   // ContextMenu's FocusScope releases — see useContextMenuHandoff for

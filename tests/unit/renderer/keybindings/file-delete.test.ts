@@ -51,6 +51,17 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// ShowConfirmDialog mock — confirm-delete now uses this instead of window.confirm.
+// Default: resolves to true (confirm). Tests that need cancel can override.
+// ---------------------------------------------------------------------------
+
+let confirmDialogResult = true;
+mock.module("../../../../src/renderer/components/ui/confirm-dialog", () => ({
+  showConfirmDialog: () => Promise.resolve(confirmDialogResult),
+  ConfirmDialogRoot: () => null,
+}));
+
+// ---------------------------------------------------------------------------
 // 임포트 (shim 설치 후)
 // ---------------------------------------------------------------------------
 
@@ -162,9 +173,8 @@ beforeEach(() => {
   __resetChordStateForTests();
   resetStores();
   ipcCalls.length = 0;
-  // confirm: 기본 true (삭제 확인)
+  confirmDialogResult = true; // default: confirm accepts
   (globalThis as Record<string, unknown>).window = {
-    confirm: mock(() => true),
     ipc: {
       call: (channel: string, method: string, args: unknown) => {
         ipcCalls.push({ channel, method, args });
@@ -293,14 +303,12 @@ describe("fileDelete 핸들러 — root 경로이면 no-op", () => {
 
 describe("confirmAndDeletePath helper — confirm cancel", () => {
   it("confirm이 false를 반환하면 unlink/rmdir가 호출되지 않는다", async () => {
-    (globalThis as Record<string, unknown>).window = {
-      confirm: () => false,
-    };
+    confirmDialogResult = false;
 
     const result = await confirmAndDeletePath(WS_ID, ROOT, FILE_PATH, "file");
 
     expect(result).toBe(false);
-    expect(ipcCalls.filter((c) => c.method === "unlink" || c.method === "rmdir")).toHaveLength(0);
+    expect(ipcCalls.filter((c) => c.method === "unlink" || c.method === "rmdir" || c.method === "removeAll")).toHaveLength(0);
   });
 });
 
@@ -310,9 +318,7 @@ describe("confirmAndDeletePath helper — confirm cancel", () => {
 
 describe("confirmAndDeletePath helper — file vs dir 분기", () => {
   it("nodeType='file'이면 fs.unlink 호출", async () => {
-    (globalThis as Record<string, unknown>).window = {
-      confirm: () => true,
-    };
+    confirmDialogResult = true;
 
     await confirmAndDeletePath(WS_ID, ROOT, FILE_PATH, "file");
 
@@ -321,10 +327,8 @@ describe("confirmAndDeletePath helper — file vs dir 분기", () => {
     expect((unlinkCall?.args as { relPath: string }).relPath).toBe("src/index.ts");
   });
 
-  it("nodeType='dir'이면 fs.rmdir 호출", async () => {
-    (globalThis as Record<string, unknown>).window = {
-      confirm: () => true,
-    };
+  it("nodeType='dir'이면 fs.rmdir 호출 (removeDir → rmdir first)", async () => {
+    confirmDialogResult = true;
     ipcCalls.length = 0;
 
     await confirmAndDeletePath(WS_ID, ROOT, DIR_PATH, "dir");

@@ -51,3 +51,58 @@ export async function renamePath(input: RenameInput): Promise<boolean> {
   await loadChildren(input.workspaceId, parentAbsPath);
   return true;
 }
+
+// ---------------------------------------------------------------------------
+// movePath — move an entry to a different parent directory via fs.rename
+// ---------------------------------------------------------------------------
+
+export interface MoveInput {
+  workspaceId: string;
+  workspaceRootPath: string;
+  srcAbsPath: string;
+  dstDirAbsPath: string;
+}
+
+export async function movePath(input: MoveInput): Promise<boolean> {
+  const fromRel = relPath(input.srcAbsPath, input.workspaceRootPath);
+  const toAbsPath = `${input.dstDirAbsPath}/${basename(input.srcAbsPath)}`;
+  const toRel = relPath(toAbsPath, input.workspaceRootPath);
+
+  // Same-directory no-op — the source is already at the destination path.
+  if (toRel === fromRel) return true;
+
+  // Workspace boundary check on both source and destination.
+  if (fromRel === input.srcAbsPath || toRel === toAbsPath) {
+    toFsToast(new Error(FS_ERROR.OUT_OF_WORKSPACE), {
+      fallback: "This path is outside the workspace.",
+    });
+    return false;
+  }
+
+  try {
+    unwrapIpcResult(
+      await ipcCallResult("fs", "rename", {
+        workspaceId: input.workspaceId,
+        fromRelPath: fromRel,
+        toRelPath: toRel,
+      }),
+    );
+  } catch (e: unknown) {
+    toFsToast(e, {
+      fallback: "Couldn't move item.",
+      alreadyExists: "A file or folder with that name already exists at the destination.",
+      crossDevice: "Can't move across filesystems.",
+      notFound: "Item not found.",
+      permissionDenied: "Permission denied while moving item.",
+    });
+    return false;
+  }
+
+  // Refresh both the source parent and the destination parent.
+  const srcParent = parentOf(input.srcAbsPath, input.workspaceRootPath);
+  await loadChildren(input.workspaceId, srcParent);
+  if (srcParent !== input.dstDirAbsPath) {
+    await loadChildren(input.workspaceId, input.dstDirAbsPath);
+  }
+  return true;
+}

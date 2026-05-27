@@ -26,6 +26,18 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
       return Promise.resolve({ ok: true as const, value: [] });
     return Promise.resolve({ ok: true as const, value: undefined });
   },
+  unwrapIpcResult: <T>(result: { ok: boolean; value: T }) => {
+    if (result.ok) return result.value;
+    throw new Error("IPC error");
+  },
+  mustSucceed: <T>(result: { ok: boolean; value: T }) => {
+    if (result.ok) return result.value;
+    throw new Error("IPC error");
+  },
+  unwrapGitResult: <T>(result: { ok: boolean; value: T }) => {
+    if (result.ok) return result.value;
+    throw new Error("Git IPC error");
+  },
   ipcListen: () => () => {},
   canUseIpcBridge: () => false,
 }));

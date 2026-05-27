@@ -59,6 +59,8 @@ interface FileTreeRowProps {
    * rows never receive this — only files Git confirms as ignored.
    */
   isIgnored?: boolean;
+  /** True when this row is in the cut clipboard (VSCode parity: dimmed). */
+  isCut?: boolean;
   onToggle: () => void; // dir click
   onClick: (e: React.MouseEvent) => void; // file click
   /**
@@ -88,6 +90,7 @@ export function FileTreeRow({
   isLoading = false,
   decoration,
   isIgnored = false,
+  isCut = false,
   onToggle,
   onClick,
   onDoubleClick,
@@ -111,7 +114,7 @@ export function FileTreeRow({
     mime: MIME_FILE,
     payload,
     dragImage: { kind: "label", text: node.name },
-    effectAllowed: "copy",
+    effectAllowed: "copyMove",
   });
 
   return (
@@ -140,6 +143,10 @@ export function FileTreeRow({
         // sibling sidebar regions).
         isSelected &&
           "bg-[var(--sidebar-item-selected-bg)] border-l-[var(--state-selected-indicator)] text-[var(--sidebar-item-selected-fg)]",
+        // Cut state: opacified + muted border (redundant encoding, WCAG 1.4.1).
+        // The data attribute is consumed by the DnD hook for DOM hit-testing and
+        // by CSS selectors in globals.css for visual styling.
+        isCut && "opacity-40 border-l-[var(--state-disabled-border)]",
       )}
     >
       {isDir ? (

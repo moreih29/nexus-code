@@ -11,16 +11,20 @@ import {
   WriteFileResultSchema,
 } from "../../../../shared/fs/types";
 import {
+  FS_COPY_FILE_METHOD,
   FS_CREATE_FILE_METHOD,
   FS_MKDIR_METHOD,
   FS_READ_ABSOLUTE_METHOD,
+  FS_REMOVE_ALL_METHOD,
   FS_RENAME_METHOD,
   FS_RMDIR_METHOD,
   FS_UNLINK_METHOD,
   FS_WRITE_FILE_METHOD,
+  type FsCopyFileParams,
   type FsCreateFileParams,
   type FsMkdirParams,
   type FsReadAbsoluteParams,
+  type FsRemoveAllParams,
   type FsRenameParams,
   type FsRmdirParams,
   type FsUnlinkParams,
@@ -110,6 +114,17 @@ export class AgentFsProvider implements AgentBackedProvider {
       fromRelPath,
       toRelPath,
     } satisfies FsRenameParams);
+  }
+
+  async copyFile(fromRelPath: string, toRelPath: string): Promise<void> {
+    await this.callAgent(FS_COPY_FILE_METHOD, {
+      fromRelPath,
+      toRelPath,
+    } satisfies FsCopyFileParams);
+  }
+
+  async removeAll(relPath: string): Promise<void> {
+    await this.callAgent(FS_REMOVE_ALL_METHOD, { relPath } satisfies FsRemoveAllParams);
   }
 
   async callAgentMethod<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {

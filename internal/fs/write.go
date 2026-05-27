@@ -233,6 +233,37 @@ func (s *Service) Rename(ctx context.Context, raw json.RawMessage) (any, error) 
 	return struct{}{}, nil
 }
 
+// RemoveAll implements fs.removeAll. It removes the directory tree at relPath
+// recursively. Files and symlink entries are refused so a stale caller cannot
+// delete a file by routing it through the recursive directory removal method.
+func (s *Service) RemoveAll(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p RemoveAllParams
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, proto.ProtocolError("fs.removeAll params must include relPath")
+	}
+	if p.RelPath == "" {
+		return nil, proto.ProtocolError("fs.removeAll relPath is required")
+	}
+	abs, err := s.Resolve(p.RelPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(abs)
+	if err != nil {
+		return nil, mapWriteError(err, abs)
+	}
+	if !info.IsDir() {
+		return nil, FSError{Code: CodeNotDirectory, Path: abs}
+	}
+	if err := os.RemoveAll(abs); err != nil {
+		return nil, mapWriteError(err, abs)
+	}
+	return struct{}{}, nil
+}
+
 // expectedConflict compares the caller's expectation against the actual
 // on-disk state. Returns (actualState, true) when the wire shape must
 // carry the divergent state back; (nil, false) when the write may proceed.

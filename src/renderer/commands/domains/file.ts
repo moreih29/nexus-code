@@ -11,6 +11,7 @@ import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { openOrRevealEditor, runSaveAndReport } from "../../services/editor";
 import { saveUntitledModel } from "../../services/editor/save/save-untitled-handler";
 import { confirmAndDeletePath } from "../../services/fs-mutations";
+import { handleCopy, handleCut, handlePaste } from "../../services/file-clipboard";
 import { showToast } from "../../components/ui/toast";
 import { refresh } from "../../state/operations/files";
 import { openNewUntitledTab } from "../../state/operations/tabs";
@@ -102,6 +103,58 @@ export function registerFileCommands(): Array<() => void> {
       }
       if (tab.type !== "editor") return;
       runSaveAndReport({ workspaceId: ctx.wsId, filePath: tab.props.filePath });
+    }),
+
+    // File clipboard — copy/cut/paste scoped to file-tree focus.
+    // wsId is validated inside handleCopy/handleCut; handlePaste is self-contained.
+    registerCommand(COMMANDS.fileCopy, () => {
+      const wsId = useActiveStore.getState().activeWorkspaceId;
+      if (!wsId) return;
+      const filesState = useFilesStore.getState();
+      const tree = filesState.trees.get(wsId);
+      if (!tree) return;
+      const absPath = filesState.activeAbsPath.get(wsId);
+      if (!absPath || absPath === tree.rootAbsPath) return;
+      const node = tree.nodes.get(absPath);
+      if (!node) return;
+      handleCopy({
+        workspaceId: wsId,
+        workspaceRootPath: tree.rootAbsPath,
+        entries: [{ relPath: absPath.slice(tree.rootAbsPath.length + 1), absPath }],
+      });
+    }),
+    registerCommand(COMMANDS.fileCut, () => {
+      const wsId = useActiveStore.getState().activeWorkspaceId;
+      if (!wsId) return;
+      const filesState = useFilesStore.getState();
+      const tree = filesState.trees.get(wsId);
+      if (!tree) return;
+      const absPath = filesState.activeAbsPath.get(wsId);
+      if (!absPath || absPath === tree.rootAbsPath) return;
+      const node = tree.nodes.get(absPath);
+      if (!node) return;
+      handleCut({
+        workspaceId: wsId,
+        workspaceRootPath: tree.rootAbsPath,
+        entries: [{ relPath: absPath.slice(tree.rootAbsPath.length + 1), absPath }],
+      });
+    }),
+    registerCommand(COMMANDS.filePaste, () => {
+      handlePaste().catch(() => {});
+    }),
+    registerCommand(COMMANDS.fileMoveHere, () => {
+      handlePaste().catch(() => {});
+    }),
+    // Enter-triggered rename — Mac only (scoped by when: "isMac").
+    registerCommand(COMMANDS.fileRenameByEnter, () => {
+      const wsId = useActiveStore.getState().activeWorkspaceId;
+      if (!wsId) return;
+      const filesState = useFilesStore.getState();
+      const path = filesState.activeAbsPath.get(wsId);
+      if (!path) return;
+      const tree = filesState.trees.get(wsId);
+      if (!tree || path === tree.rootAbsPath) return;
+      filesState.requestRename(path);
     }),
 
     // Delete / Backspace — 파일트리 포커스 상태에서 현재 행 삭제.

@@ -13,8 +13,10 @@ import { getExpandedHandler, setExpandedHandler } from "./expanded-handlers";
 import { readdirHandler, readExternalHandler, readFileHandler, statHandler } from "./read-handlers";
 import { unwatchHandler, watchHandler } from "./watch-handlers";
 import {
+  copyFileHandler,
   createFileHandler,
   mkdirHandler,
+  removeAllHandler,
   renameHandler,
   rmdirHandler,
   unlinkHandler,
@@ -44,6 +46,8 @@ export function registerFsChannel(
       unlink: unlinkHandler(manager),
       rmdir: rmdirHandler(manager),
       rename: renameHandler(manager),
+      copyFile: copyFileHandler(manager),
+      removeAll: removeAllHandler(manager),
       showItemInFolder: showItemInFolderHandler(manager),
     },
     listen: {

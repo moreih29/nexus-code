@@ -26,6 +26,8 @@ export interface FsProvider {
   unlink(relPath: string): Promise<void>;
   rmdir(relPath: string): Promise<void>;
   rename(fromRelPath: string, toRelPath: string): Promise<void>;
+  copyFile(fromRelPath: string, toRelPath: string): Promise<void>;
+  removeAll(relPath: string): Promise<void>;
   dispose?(): void;
 }
 

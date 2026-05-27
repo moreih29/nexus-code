@@ -86,6 +86,17 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
   { command: COMMANDS.fileDelete, primary: "Delete", when: "fileTreeFocus && !inputFocus" },
   { command: COMMANDS.fileDelete, primary: "Backspace", when: "fileTreeFocus && !inputFocus" },
 
+  // File clipboard — cut/copy/paste. Scoped to file-tree focus, not in edit row.
+  { command: COMMANDS.fileCopy, primary: "CmdOrCtrl+C", when: "fileTreeFocus && !inputFocus" },
+  { command: COMMANDS.fileCut, primary: "CmdOrCtrl+X", when: "fileTreeFocus && !inputFocus" },
+  { command: COMMANDS.filePaste, primary: "CmdOrCtrl+V", when: "fileTreeFocus && !inputFocus" },
+  // Finder convention: Cmd+Option+V = Move Item Here (always move, no cut required).
+  { command: COMMANDS.fileMoveHere, primary: "Cmd+Option+V", when: "fileTreeFocus && !inputFocus" },
+
+  // Enter-triggered inline rename — Mac only (VSCode parity).
+  // F2 is the universal rename key across all platforms.
+  { command: COMMANDS.fileRenameByEnter, primary: "Enter", when: "fileTreeFocus && !inputFocus && isMac" },
+
   // Tabs
   { command: COMMANDS.tabClose, primary: "CmdOrCtrl+W" },
   { command: COMMANDS.tabCloseOthers, primary: "CmdOrCtrl+Alt+T" },

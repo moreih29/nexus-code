@@ -396,6 +396,152 @@ func TestRenameOutOfWorkspaceRejects(t *testing.T) {
 	}
 }
 
+func TestCopyFileViaDispatcher(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src.txt")
+	must(t, os.WriteFile(src, []byte("payload"), 0o644))
+
+	dispatchOK(t, mustFS(t, root), "fs.copyFile", map[string]any{
+		"srcRelPath": "src.txt",
+		"dstRelPath": "dst.txt",
+	})
+
+	got, err := os.ReadFile(filepath.Join(root, "dst.txt"))
+	must(t, err)
+	if string(got) != "payload" {
+		t.Fatalf("copied file content mismatch: got %q", got)
+	}
+	// Source must remain intact.
+	if gotSrc, err := os.ReadFile(filepath.Join(root, "src.txt")); err != nil || string(gotSrc) != "payload" {
+		t.Fatalf("source should remain after copy: bytes=%q err=%v", gotSrc, err)
+	}
+}
+
+func TestCopyFileTargetAlreadyExists(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(root, "src.txt"), []byte("src"), 0o644))
+	must(t, os.WriteFile(filepath.Join(root, "dst.txt"), []byte("dst"), 0o644))
+
+	_, err := mustFS(t, root).CopyFile(context.Background(), mustJSON(t, map[string]any{
+		"srcRelPath": "src.txt",
+		"dstRelPath": "dst.txt",
+	}))
+	assertFSError(t, err, CodeAlreadyExists)
+	// Target must be unchanged.
+	if got, readErr := os.ReadFile(filepath.Join(root, "dst.txt")); readErr != nil || string(got) != "dst" {
+		t.Fatalf("target should remain unchanged: bytes=%q err=%v", got, readErr)
+	}
+}
+
+func TestCopyFileDirectory(t *testing.T) {
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "src-dir")
+	must(t, os.Mkdir(srcDir, 0o755))
+	must(t, os.WriteFile(filepath.Join(srcDir, "a.txt"), []byte("a"), 0o644))
+	must(t, os.Mkdir(filepath.Join(srcDir, "sub"), 0o755))
+	must(t, os.WriteFile(filepath.Join(srcDir, "sub", "b.txt"), []byte("b"), 0o644))
+
+	dispatchOK(t, mustFS(t, root), "fs.copyFile", map[string]any{
+		"srcRelPath": "src-dir",
+		"dstRelPath": "dst-dir",
+	})
+
+	// Check recursive copy.
+	dstDir := filepath.Join(root, "dst-dir")
+	if info, err := os.Lstat(dstDir); err != nil || !info.IsDir() {
+		t.Fatalf("dst directory missing: info=%v err=%v", info, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(dstDir, "a.txt")); err != nil || string(got) != "a" {
+		t.Fatalf("copied file in dir mismatch: bytes=%q err=%v", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(dstDir, "sub", "b.txt")); err != nil || string(got) != "b" {
+		t.Fatalf("copied nested file mismatch: bytes=%q err=%v", got, err)
+	}
+	// Source must remain intact.
+	if got, err := os.ReadFile(filepath.Join(srcDir, "a.txt")); err != nil || string(got) != "a" {
+		t.Fatalf("source dir should remain after copy: bytes=%q err=%v", got, err)
+	}
+}
+
+func TestCopyFileSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink permissions vary on Windows")
+	}
+	root := t.TempDir()
+	target := filepath.Join(root, "target.txt")
+	must(t, os.WriteFile(target, []byte("target-content"), 0o644))
+	link := filepath.Join(root, "link.txt")
+	must(t, os.Symlink("target.txt", link))
+
+	dispatchOK(t, mustFS(t, root), "fs.copyFile", map[string]any{
+		"srcRelPath": "link.txt",
+		"dstRelPath": "link-copy.txt",
+	})
+
+	// The destination must be a symlink pointing to the same target.
+	dstLink := filepath.Join(root, "link-copy.txt")
+	info, err := os.Lstat(dstLink)
+	must(t, err)
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("destination is not a symlink")
+	}
+	linkTarget, err := os.Readlink(dstLink)
+	must(t, err)
+	if linkTarget != "target.txt" {
+		t.Fatalf("symlink target mismatch: got %s, want target.txt", linkTarget)
+	}
+	// Following the link should reach the content.
+	if got, err := os.ReadFile(dstLink); err != nil || string(got) != "target-content" {
+		t.Fatalf("following copied symlink failed: bytes=%q err=%v", got, err)
+	}
+	// Source symlink must remain intact.
+	if infoSrc, err := os.Lstat(link); err != nil || infoSrc.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("source symlink should remain: err=%v", err)
+	}
+}
+
+func TestRemoveAllNonEmptyDirViaDispatcher(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "stuff")
+	must(t, os.Mkdir(dir, 0o755))
+	must(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("x"), 0o644))
+	must(t, os.Mkdir(filepath.Join(dir, "sub"), 0o755))
+	must(t, os.WriteFile(filepath.Join(dir, "sub", "b.txt"), []byte("y"), 0o644))
+
+	dispatchOK(t, mustFS(t, root), "fs.removeAll", map[string]any{
+		"relPath": "stuff",
+	})
+	if _, err := os.Lstat(dir); !os.IsNotExist(err) {
+		t.Fatalf("expected directory tree removed, got err=%v", err)
+	}
+}
+
+func TestRemoveAllEmptyDirViaDispatcher(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.Mkdir(filepath.Join(root, "empty-dir"), 0o755))
+
+	dispatchOK(t, mustFS(t, root), "fs.removeAll", map[string]any{
+		"relPath": "empty-dir",
+	})
+	if _, err := os.Lstat(filepath.Join(root, "empty-dir")); !os.IsNotExist(err) {
+		t.Fatalf("expected empty directory removed, got err=%v", err)
+	}
+}
+
+func TestRemoveAllFileRejects(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "file.txt")
+	must(t, os.WriteFile(file, []byte("payload"), 0o644))
+
+	_, err := mustFS(t, root).RemoveAll(context.Background(), mustJSON(t, map[string]any{
+		"relPath": "file.txt",
+	}))
+	assertFSError(t, err, CodeNotDirectory)
+	if got, readErr := os.ReadFile(file); readErr != nil || string(got) != "payload" {
+		t.Fatalf("file should remain after rejected removeAll: bytes=%q err=%v", got, readErr)
+	}
+}
+
 // --- helpers -----------------------------------------------------------
 
 func mustFS(t *testing.T, root string) *Service {

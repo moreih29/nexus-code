@@ -87,6 +87,8 @@ func Register(d *dispatch.Dispatcher, fsys *Service) {
 	d.Register("fs.unlink", fsys.Unlink)
 	d.Register("fs.rmdir", fsys.Rmdir)
 	d.Register("fs.rename", fsys.Rename)
+	d.Register("fs.copyFile", fsys.CopyFile)
+	d.Register("fs.removeAll", fsys.RemoveAll)
 	d.Register("fs.watch", fsys.Watch)
 	d.Register("fs.unwatch", fsys.Unwatch)
 }

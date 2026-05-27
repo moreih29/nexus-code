@@ -1004,6 +1004,18 @@ export const ipcContract = {
         }),
         z.void(),
       ),
+      copyFile: call(
+        z.object({
+          workspaceId: z.string().uuid(),
+          fromRelPath: FsMutationRelPathSchema,
+          toRelPath: FsMutationRelPathSchema,
+        }),
+        z.void(),
+      ),
+      removeAll: call(
+        z.object({ workspaceId: z.string().uuid(), relPath: FsMutationRelPathSchema }),
+        z.void(),
+      ),
       readExternal: call(
         z.object({ workspaceId: z.string().uuid(), absolutePath: z.string() }),
         FileReadResultSchema,
