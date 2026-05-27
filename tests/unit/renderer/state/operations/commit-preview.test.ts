@@ -126,7 +126,7 @@ describe("git commit preview operations", () => {
     expect(commitTabs()).toHaveLength(2);
   });
 
-  it("keeps editor preview slots independent from commit preview replacement", () => {
+  it("evicts a clean editor preview slot when a commit preview opens (unified slot)", () => {
     useLayoutStore.getState().ensureLayout(WS);
     const groupId = getLayout().activeGroupId;
     const editor = openEditorTab(
@@ -137,20 +137,14 @@ describe("git commit preview operations", () => {
     );
 
     const commit = openOrRevealCommitTab(WS, SHA_A, { groupId });
-    const replacedCommit = openOrRevealCommitTab(WS, SHA_B, { groupId });
 
-    expect(replacedCommit.tabId).toBe(commit.tabId);
-    expect(replacedCommit.tabId).not.toBe(editor.id);
-    expect(tabRecord(editor.id)).toMatchObject({
-      type: "editor",
-      props: { workspaceId: WS, filePath: "/repo/src/app.ts" },
-      isPreview: true,
-    });
-    expect(tabRecord(replacedCommit.tabId)).toMatchObject({
+    // Editor preview was clean → closed. Commit preview takes the slot.
+    expect(tabRecord(editor.id)).toBeUndefined();
+    expect(tabRecord(commit.tabId)).toMatchObject({
       type: "git.commit",
-      props: { workspaceId: WS, sha: SHA_B },
+      props: { workspaceId: WS, sha: SHA_A },
       isPreview: true,
     });
-    expect(findLeaf(getLayout().root, groupId)?.tabIds).toEqual([editor.id, replacedCommit.tabId]);
+    expect(findLeaf(getLayout().root, groupId)?.tabIds).toEqual([commit.tabId]);
   });
 });

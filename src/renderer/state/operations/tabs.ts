@@ -8,6 +8,8 @@
  * directly so the cross-store invariants live in one place.
  */
 
+import { cacheUriFor } from "@/services/editor/model/cache";
+import { isDirty } from "@/services/editor/model/dirty-tracker";
 import { useLayoutStore } from "../stores/layout";
 import { allLeaves, findLeaf } from "../stores/layout/helpers";
 import {
@@ -34,11 +36,15 @@ export interface OpenCommitTabOptions {
 
 /**
  * Create a new tab and attach it to a group in the layout.
+ *
+ * `opts.index` slots the new tab at a specific position in the leaf's `tabIds`
+ * — used by the unified preview-slot reclaim path to make the new preview
+ * visually replace the closed one. Omit for "append to end" behaviour.
  */
 function openTabRecord(
   workspaceId: string,
   args: CreateTabArgs,
-  opts?: { groupId?: string | "active" },
+  opts?: { groupId?: string | "active"; index?: number },
   isPreview = false,
 ): Tab {
   const tabsStore = useTabsStore.getState();
@@ -56,7 +62,7 @@ function openTabRecord(
 
   const tab = tabsStore.createTab(workspaceId, args, isPreview);
 
-  layoutStore.attachTab(workspaceId, groupId, tab.id);
+  layoutStore.attachTab(workspaceId, groupId, tab.id, opts?.index);
   layoutStore.setActiveTabInGroup({
     workspaceId,
     groupId,
@@ -65,6 +71,74 @@ function openTabRecord(
   });
 
   return tab;
+}
+
+// ---------------------------------------------------------------------------
+// Unified preview-slot policy
+// ---------------------------------------------------------------------------
+// Invariant: a layout leaf holds at most one preview tab — regardless of type
+// (editor / editor.diff / git.commit). VSCode parity. When a new preview is
+// about to be created and a preview of a *different* type already occupies the
+// slot, we reclaim it (promote-or-close) before inserting the new one at the
+// same index. Same-type collisions stay on the type-specific replace path
+// because each tab type has props-shape-specific clearing rules.
+
+export interface PreviewSlotInfo {
+  groupId: string;
+  tabId: string;
+  /** Snapshot of the slot's tab record at lookup time. */
+  tab: Tab;
+  /** Position in the leaf's tabIds — used to slot the replacement in place. */
+  index: number;
+}
+
+/**
+ * Locate the single preview tab in a group (any type). The unified open paths
+ * keep at most one preview per leaf, so the first match is the canonical slot.
+ */
+export function findAnyPreviewTabInGroup(
+  workspaceId: string,
+  groupId: string,
+): PreviewSlotInfo | null {
+  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
+  if (!layout) return null;
+  const leaf = findLeaf(layout.root, groupId);
+  if (!leaf) return null;
+  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+  for (let i = 0; i < leaf.tabIds.length; i++) {
+    const tabId = leaf.tabIds[i];
+    if (!tabId) continue;
+    const tab = tabsById[tabId];
+    if (tab?.isPreview) {
+      return { groupId: leaf.id, tabId, tab, index: i };
+    }
+  }
+  return null;
+}
+
+/**
+ * Free the slot occupied by `slot.tab` so a *different-type* preview can move
+ * in. Callers must have already verified `slot.tab.type !== <new-type>`.
+ *
+ *   - Editor with unsaved buffer (dirty=true): promote to permanent so the
+ *     user never loses unsaved work. The new preview is inserted right after
+ *     (index + 1) so it visually takes the "next slot" without displacing the
+ *     promoted tab.
+ *   - Everything else (clean editor / diff / commit preview): close the slot
+ *     (detach from layout + delete record). The new preview takes its index.
+ *
+ * Returns the index at which the new preview tab should be inserted.
+ */
+export function reclaimPreviewSlot(workspaceId: string, slot: PreviewSlotInfo): number {
+  if (slot.tab.type === "editor") {
+    const cacheUri = cacheUriFor(slot.tab.props.workspaceId, slot.tab.props.filePath);
+    if (isDirty(cacheUri)) {
+      useTabsStore.getState().promoteFromPreview(workspaceId, slot.tabId);
+      return slot.index + 1;
+    }
+  }
+  closeTab(workspaceId, slot.tabId);
+  return slot.index;
 }
 
 export function openTerminalTab(
@@ -82,14 +156,31 @@ export function openTerminalTab(
 export function openEditorTab(
   workspaceId: string,
   props: EditorTabProps,
-  opts?: { groupId?: string | "active" },
+  opts?: { groupId?: string | "active"; index?: number },
   isPreview = false,
 ): Tab {
   return openTabRecord(workspaceId, { type: "editor", props }, opts, isPreview);
 }
 
 /**
- * Open a read-only source-control diff tab in the active group.
+ * Open a read-only source-control diff tab with VSCode-parity preview semantics.
+ *
+ * Default behaviour (`opts.preview !== false`):
+ *   1. If a diff tab matching the same (relPath, leftRef, rightRef, oldRelPath)
+ *      already exists in the target group, reveal it instead of creating a
+ *      duplicate. The matched tab is left as-is (preview stays preview,
+ *      permanent stays permanent).
+ *   2. Otherwise, if a diff preview slot exists in the target group, replace
+ *      its props in-place — the user is "peeking" through SCM rows.
+ *   3. Otherwise, create a fresh tab with `isPreview: true` (italic title).
+ *
+ * Opt-out (`opts.preview === false`, e.g. double-click in the panel row):
+ *   1. Same reveal-existing check; but any matched preview tab is promoted to
+ *      permanent so the double-click feels like a commit.
+ *   2. Otherwise, create a fresh permanent tab.
+ *
+ * Mirrors `openOrRevealCommitTab` / `openOrRevealEditor`, keeping a consistent
+ * mental model across the three "click a row to open a read-only thing" flows.
  */
 export function openDiffTab(
   workspaceId: string,
@@ -97,7 +188,7 @@ export function openDiffTab(
   leftRef: string,
   rightRef: string,
   oldRelPath?: string,
-  opts?: { groupId?: string | "active" },
+  opts?: { groupId?: string | "active"; preview?: boolean },
 ): Tab {
   const props: DiffTabProps = {
     workspaceId,
@@ -106,7 +197,88 @@ export function openDiffTab(
     rightRef,
     ...(oldRelPath ? { oldRelPath } : {}),
   };
-  return openTabRecord(workspaceId, { type: "editor.diff", props }, opts);
+  const allowPreview = opts?.preview !== false;
+
+  useLayoutStore.getState().ensureLayout(workspaceId);
+  const groupId = resolveTargetGroupId(workspaceId, opts?.groupId);
+
+  // Reveal-if-opened (active-target-group only — mirrors file-tree single-click
+  // which uses `findEditorTabInGroup(activeGroupId, ...)`. Cross-group reveal
+  // would surprise users who explicitly opened a duplicate in a split.)
+  const existing = findDiffTabInGroup(workspaceId, groupId, props);
+  if (existing) {
+    revealTab(workspaceId, existing.groupId, existing.tabId);
+    if (!allowPreview) {
+      useTabsStore.getState().promoteFromPreview(workspaceId, existing.tabId);
+    }
+    const revealed = useTabsStore.getState().byWorkspace[workspaceId]?.[existing.tabId];
+    if (revealed) return revealed;
+  }
+
+  if (allowPreview) {
+    const slot = findAnyPreviewTabInGroup(workspaceId, groupId);
+    if (slot) {
+      if (slot.tab.type === "editor.diff") {
+        // Same-type slot — swap props in place via the type-specific replace
+        // (keeps id, isPreview=true, clears stale custom/process titles).
+        const title = defaultTitle({ type: "editor.diff", props });
+        useTabsStore.getState().replaceDiffPreviewTab(workspaceId, slot.tabId, props, title);
+        revealTab(workspaceId, slot.groupId, slot.tabId);
+        const replaced = useTabsStore.getState().byWorkspace[workspaceId]?.[slot.tabId];
+        if (replaced) return replaced;
+      } else {
+        // Cross-type slot — reclaim (promote dirty editor / close otherwise),
+        // then insert the new preview at the freed index for visual continuity.
+        const insertIndex = reclaimPreviewSlot(workspaceId, slot);
+        return openTabRecord(
+          workspaceId,
+          { type: "editor.diff", props },
+          { groupId, index: insertIndex },
+          true,
+        );
+      }
+    }
+  }
+
+  return openTabRecord(workspaceId, { type: "editor.diff", props }, { groupId }, allowPreview);
+}
+
+/**
+ * Identity for diff tab matching: two diffs are "the same" iff they target the
+ * same path and ref pair (and same rename source, if any). All four fields are
+ * required for stability because a single relPath can have multiple
+ * concurrent diff views (e.g. HEAD..WORKING vs INDEX..WORKING).
+ */
+function isSameDiff(a: DiffTabProps, b: DiffTabProps): boolean {
+  return (
+    a.relPath === b.relPath &&
+    a.leftRef === b.leftRef &&
+    a.rightRef === b.rightRef &&
+    (a.oldRelPath ?? null) === (b.oldRelPath ?? null)
+  );
+}
+
+/**
+ * Look up an existing diff tab matching `props` within a single layout group.
+ * Returns null when the group does not exist or has no matching tab.
+ */
+function findDiffTabInGroup(
+  workspaceId: string,
+  groupId: string,
+  props: DiffTabProps,
+): TabLocation | null {
+  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
+  if (!layout) return null;
+  const leaf = findLeaf(layout.root, groupId);
+  if (!leaf) return null;
+
+  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+  const tabId = leaf.tabIds.find((id) => {
+    const tab = tabsById[id];
+    return tab?.type === "editor.diff" && isSameDiff(tab.props, props);
+  });
+  if (!tabId) return null;
+  return { groupId: leaf.id, tabId };
 }
 
 /**
@@ -135,26 +307,6 @@ export function findCommitTab(workspaceId: string, sha: string): TabLocation | n
   }
 
   return null;
-}
-
-/**
- * Find the reusable commit-preview slot in a single layout group.
- */
-function findCommitPreviewTabInGroup(workspaceId: string, groupId: string): TabLocation | null {
-  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
-  if (!layout) return null;
-
-  const leaf = findLeaf(layout.root, groupId);
-  if (!leaf) return null;
-
-  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
-  const tabId = leaf.tabIds.find((id) => {
-    const tab = tabsById[id];
-    return tab?.type === "git.commit" && tab.isPreview;
-  });
-
-  if (!tabId) return null;
-  return { groupId: leaf.id, tabId };
 }
 
 /**
@@ -191,12 +343,25 @@ export function openOrRevealCommitTab(
   const props: GitCommitTabProps = { workspaceId, sha };
 
   if (allowPreview) {
-    const previewSlot = findCommitPreviewTabInGroup(workspaceId, groupId);
-    if (previewSlot) {
-      const title = defaultTitle({ type: "git.commit", props });
-      useTabsStore.getState().replaceCommitPreviewTab(workspaceId, previewSlot.tabId, sha, title);
-      revealTab(workspaceId, previewSlot.groupId, previewSlot.tabId);
-      return previewSlot;
+    const slot = findAnyPreviewTabInGroup(workspaceId, groupId);
+    if (slot) {
+      if (slot.tab.type === "git.commit") {
+        // Same-type slot — swap sha in place via the type-specific replace.
+        const title = defaultTitle({ type: "git.commit", props });
+        useTabsStore.getState().replaceCommitPreviewTab(workspaceId, slot.tabId, sha, title);
+        revealTab(workspaceId, slot.groupId, slot.tabId);
+        return { groupId: slot.groupId, tabId: slot.tabId };
+      }
+      // Cross-type slot — reclaim (promote dirty editor / close otherwise),
+      // then insert the new commit preview at the freed index.
+      const insertIndex = reclaimPreviewSlot(workspaceId, slot);
+      const tab = openTabRecord(
+        workspaceId,
+        { type: "git.commit", props },
+        { groupId, index: insertIndex },
+        true,
+      );
+      return { groupId, tabId: tab.id };
     }
   }
 

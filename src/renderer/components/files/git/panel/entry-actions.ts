@@ -26,7 +26,11 @@ export interface EntryActionContext {
 }
 
 export interface EntryActions {
-  openChanges(entry: GitStatusEntry, groupKey: GitExpandedGroupKey): void;
+  openChanges(
+    entry: GitStatusEntry,
+    groupKey: GitExpandedGroupKey,
+    opts?: { preview: boolean },
+  ): void;
   absolutePathForEntry(entry: GitStatusEntry): string | null;
   openWorkingTreeFile(entry: GitStatusEntry): void;
   revealEntryInOS(entry: GitStatusEntry): void;
@@ -48,11 +52,16 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
     return joinRootAndGitRelPath(root, entry.relPath);
   }
 
-  function openChanges(entry: GitStatusEntry, groupKey: GitExpandedGroupKey): void {
+  function openChanges(
+    entry: GitStatusEntry,
+    groupKey: GitExpandedGroupKey,
+    opts?: { preview: boolean },
+  ): void {
     // Conflict entries (unmerged) contain conflict markers in the working tree.
     // Opening them as a diff would hit INDEX stage-0 which does not exist for
     // unmerged files. Instead, open the working-tree file in the in-app editor
-    // so the user can edit conflict markers directly.
+    // so the user can edit conflict markers directly. Preview semantics for
+    // this branch are owned by openOrRevealEditor's own defaults.
     if (entry.conflictType !== null) {
       const absPath = absolutePathForEntry(entry);
       if (!absPath) {
@@ -64,7 +73,12 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
     }
 
     if (ctx.onOpenDiff) {
-      ctx.onOpenDiff({ workspaceId: ctx.workspaceId, groupKey, entry });
+      ctx.onOpenDiff({
+        workspaceId: ctx.workspaceId,
+        groupKey,
+        entry,
+        ...(opts ? { preview: opts.preview } : {}),
+      });
       return;
     }
     ctx.setBanner({ variant: "info", message: "Diff view is unavailable." });

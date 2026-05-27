@@ -17,7 +17,12 @@ import { GitStatusBadge } from "./status-badge";
 interface GitFileRowProps {
   groupKey: GitExpandedGroupKey;
   entry: GitStatusEntry;
-  onOpenDiff: () => void;
+  /**
+   * 호출 측이 결정하는 diff 열기 동작. `opts` 미지정 시 preview(임시) 슬롯
+   * 재사용 흐름으로 해석되도록 상위에서 default 처리한다 — 파일트리 single-click
+   * 패턴과 동일. 더블클릭 시에는 `{ preview: false }`를 명시해 permanent로 승격.
+   */
+  onOpenDiff: (opts?: { preview: boolean }) => void;
   onStage?: () => void;
   onUnstage?: () => void;
   onDiscard: () => void;
@@ -71,7 +76,10 @@ export function GitFileRow({
         style={{ height: ROW_HEIGHT_PX }}
         title={pathLabel}
         aria-label={`Open diff for ${pathLabel}`}
-        onClick={onOpenDiff}
+        // single click — preview(임시 슬롯) 흐름으로 위임. 더블클릭은 onClick이
+        // 먼저 fire되어 preview를 띄운 직후 promote되므로 별도 처리 불필요.
+        onClick={() => onOpenDiff()}
+        onDoubleClick={() => onOpenDiff({ preview: false })}
         onContextMenu={(event) => {
           event.preventDefault();
           setContextMenuPoint(pointFromMouseEvent(event));

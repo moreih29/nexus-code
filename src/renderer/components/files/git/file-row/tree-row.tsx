@@ -46,7 +46,8 @@ interface GitTreeRowDirProps extends GitTreeRowBase {
 interface GitTreeRowLeafProps extends GitTreeRowBase {
   kind: "leaf";
   entry: GitStatusEntry;
-  onOpenDiff: () => void;
+  /** See `GitFileRowProps.onOpenDiff` — preview default with double-click promote. */
+  onOpenDiff: (opts?: { preview: boolean }) => void;
   onStage?: () => void;
   onUnstage?: () => void;
   onDiscard: () => void;

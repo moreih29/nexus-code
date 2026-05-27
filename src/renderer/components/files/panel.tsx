@@ -152,11 +152,21 @@ export function FilesPanel() {
   );
 }
 
-function openGitDiffFromRow({ workspaceId, groupKey, entry }: GitPanelOpenDiffInput): void {
+function openGitDiffFromRow({
+  workspaceId,
+  groupKey,
+  entry,
+  preview,
+}: GitPanelOpenDiffInput): void {
   const isUnborn =
     useGitStore.getState().sessions.get(workspaceId)?.status?.branch?.isUnborn ?? false;
   const refs = refsForGitGroup(groupKey, isUnborn);
-  openDiffTab(workspaceId, entry.relPath, refs.leftRef, refs.rightRef, entry.oldRelPath);
+  // preview 미지정 시 openDiffTab의 default(preview=true)에 위임 — 파일트리
+  // single-click과 동일한 임시 슬롯 재사용 흐름. 더블클릭은 `preview=false`로
+  // permanent 승격.
+  openDiffTab(workspaceId, entry.relPath, refs.leftRef, refs.rightRef, entry.oldRelPath, {
+    ...(preview === false ? { preview: false } : {}),
+  });
 }
 
 export function refsForGitGroup(

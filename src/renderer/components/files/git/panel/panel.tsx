@@ -50,6 +50,12 @@ export interface GitPanelOpenDiffInput {
   workspaceId: string;
   groupKey: GitExpandedGroupKey;
   entry: GitStatusEntry;
+  /**
+   * When `false`, opens the diff as a permanent tab (double-click on the SCM
+   * row). When omitted or `true`, the receiving side uses preview-slot reuse
+   * — single-click peek semantics, matching the file tree.
+   */
+  preview?: boolean;
 }
 
 interface GitPanelProps {
@@ -625,8 +631,8 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           onMarkResolved={(entry) => {
             void directOps.markResolved(workspaceId, [entry.relPath]);
           }}
-          onOpenDiff={(entry, groupKey) => {
-            openChanges(entry, groupKey);
+          onOpenDiff={(entry, groupKey, opts) => {
+            openChanges(entry, groupKey, opts);
           }}
           onOpenFile={openWorkingTreeFile}
           onRevealInOS={revealEntryInOS}

@@ -152,6 +152,19 @@ interface TabsState {
     title: string,
   ) => void;
   replaceCommitPreviewTab: (workspaceId: string, tabId: string, sha: string, title: string) => void;
+  /**
+   * Swap a diff preview tab's props (path / refs) in place, keeping its id and
+   * `isPreview: true`. Used by `openDiffTab` for VSCode-style "click another
+   * file in the SCM panel → reuse the preview slot" behaviour. Title is
+   * recomputed externally and passed in so this method stays a pure state op.
+   * No-op on non-`editor.diff` tab ids.
+   */
+  replaceDiffPreviewTab: (
+    workspaceId: string,
+    tabId: string,
+    props: DiffTabProps,
+    title: string,
+  ) => void;
   togglePin: (workspaceId: string, tabId: string) => void;
   /**
    * Toggle the raw/preview render mode for an editor tab. No-op on
@@ -413,6 +426,36 @@ export const useTabsStore = create<TabsState>((set, get) => {
         // 탭이 가리키는 파일이 바뀌므로 defaultTitle을 새 파일 이름으로 갱신하고
         // 기존 customTitle / processTitle은 의미가 없어 clear.
         const next: EditorTab = {
+          ...tab,
+          props,
+          title,
+          defaultTitle: title,
+          customTitle: undefined,
+          processTitle: undefined,
+          isPreview: true,
+        };
+        return {
+          byWorkspace: {
+            ...state.byWorkspace,
+            [workspaceId]: {
+              ...wsRecord,
+              [tabId]: next,
+            },
+          },
+        };
+      });
+    },
+
+    replaceDiffPreviewTab(workspaceId, tabId, props, title) {
+      set((state) => {
+        const wsRecord = state.byWorkspace[workspaceId];
+        if (!wsRecord || !(tabId in wsRecord)) return state;
+        const tab = wsRecord[tabId];
+        // editor.diff 슬롯만 대상 — editor / git.commit preview는 자기 액션이 책임.
+        if (tab.type !== "editor.diff") return state;
+        // path / refs가 바뀌므로 defaultTitle을 새 값으로 갱신하고
+        // 이전 custom/process title은 의미가 없어 clear (이전 파일/ref의 잔재 제거).
+        const next: DiffTab = {
           ...tab,
           props,
           title,

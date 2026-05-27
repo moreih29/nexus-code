@@ -84,7 +84,11 @@ export interface GitPanelBodyProps {
   onUnstagePaths: (paths: string[]) => void;
   onDiscardPaths: (paths: string[], description: string, source: GitExpandedGroupKey) => void;
   onMarkResolved: (entry: GitStatusEntry) => void;
-  onOpenDiff: (entry: GitStatusEntry, groupKey: GitExpandedGroupKey) => void;
+  onOpenDiff: (
+    entry: GitStatusEntry,
+    groupKey: GitExpandedGroupKey,
+    opts?: { preview: boolean },
+  ) => void;
   onOpenFile: (entry: GitStatusEntry) => void;
   onRevealInOS: (entry: GitStatusEntry) => void;
   onCopyPath: (entry: GitStatusEntry) => void;
@@ -212,8 +216,8 @@ export function GitPanelBody({
                   onMarkResolved={(entry) => {
                     onMarkResolved(entry);
                   }}
-                  onOpenDiff={(entry, groupKey) => {
-                    onOpenDiff(entry, groupKey);
+                  onOpenDiff={(entry, groupKey, opts) => {
+                    onOpenDiff(entry, groupKey, opts);
                   }}
                   onOpenFile={onOpenFile}
                   onRevealInOS={onRevealInOS}

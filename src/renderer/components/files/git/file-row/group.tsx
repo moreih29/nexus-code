@@ -38,7 +38,11 @@ interface GitGroupProps {
   onUnstagePaths: (paths: string[]) => void;
   onDiscardPaths: (paths: string[], description: string, source: GitExpandedGroupKey) => void;
   onMarkResolved: (entry: GitStatusEntry) => void;
-  onOpenDiff: (entry: GitStatusEntry, groupKey: GitExpandedGroupKey) => void;
+  onOpenDiff: (
+    entry: GitStatusEntry,
+    groupKey: GitExpandedGroupKey,
+    opts?: { preview: boolean },
+  ) => void;
   onOpenFile: (entry: GitStatusEntry) => void;
   onRevealInOS: (entry: GitStatusEntry) => void;
   onCopyPath: (entry: GitStatusEntry) => void;
@@ -150,7 +154,7 @@ export function GitGroup({
               key={`${groupKey}:${entry.oldRelPath ?? ""}:${entry.relPath}`}
               groupKey={groupKey}
               entry={entry}
-              onOpenDiff={() => onOpenDiff(entry, groupKey)}
+              onOpenDiff={(opts) => onOpenDiff(entry, groupKey, opts)}
               onStage={canStageRows ? () => onStagePaths([entry.relPath]) : undefined}
               onUnstage={canUnstage ? () => onUnstagePaths([entry.relPath]) : undefined}
               onDiscard={() => onDiscardPaths([entry.relPath], entry.relPath, groupKey)}
@@ -208,7 +212,11 @@ interface GitGroupTreeProps {
   onUnstagePaths: (paths: string[]) => void;
   onDiscardPaths: (paths: string[], description: string, source: GitExpandedGroupKey) => void;
   onMarkResolved: (entry: GitStatusEntry) => void;
-  onOpenDiff: (entry: GitStatusEntry, groupKey: GitExpandedGroupKey) => void;
+  onOpenDiff: (
+    entry: GitStatusEntry,
+    groupKey: GitExpandedGroupKey,
+    opts?: { preview: boolean },
+  ) => void;
   onOpenFile: (entry: GitStatusEntry) => void;
   onRevealInOS: (entry: GitStatusEntry) => void;
   onCopyPath: (entry: GitStatusEntry) => void;
@@ -344,7 +352,7 @@ function GitGroupTree({
             entry={entry}
             treeItemProps={rowProps}
             onFocus={() => setFocusedIndex(idx)}
-            onOpenDiff={() => onOpenDiff(entry, groupKey)}
+            onOpenDiff={(opts) => onOpenDiff(entry, groupKey, opts)}
             onStage={canStage ? () => onStagePaths([entry.relPath]) : undefined}
             onUnstage={canUnstage ? () => onUnstagePaths([entry.relPath]) : undefined}
             onDiscard={() => onDiscardPaths([entry.relPath], entry.relPath, groupKey)}

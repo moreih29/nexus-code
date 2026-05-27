@@ -6,11 +6,17 @@
  * `open-external-editor.ts`); this file is just the open/reveal entry.
  */
 
-import { openEditorTab, openTabInNewSplit, revealTab } from "@/state/operations/tabs";
+import {
+  findAnyPreviewTabInGroup,
+  openEditorTab,
+  openTabInNewSplit,
+  reclaimPreviewSlot,
+  revealTab,
+} from "@/state/operations/tabs";
 import { useLayoutStore } from "@/state/stores/layout";
 import { defaultTitle, useTabsStore } from "@/state/stores/tabs";
 import type { EditorInput, EditorTabLocation, OpenEditorOptions } from "../types";
-import { findEditorTabInGroup, findPreviewTabInGroup } from "./tab-lookup";
+import { findEditorTabInGroup } from "./tab-lookup";
 
 // When true, single-click file opens use a shared preview slot per group
 // (VSCode-style: italic title, replaced on next single-click).
@@ -63,15 +69,26 @@ export function openOrRevealEditor(
   if (allowPreview) {
     const layout = useLayoutStore.getState().byWorkspace[editorInput.workspaceId];
     if (layout) {
-      const previewSlot = findPreviewTabInGroup(editorInput.workspaceId, layout.activeGroupId);
-      if (previewSlot) {
-        // Reuse the existing preview slot: swap filePath/title, keep isPreview=true.
-        const newTitle = defaultTitle({ type: "editor", props: editorInput });
-        useTabsStore
-          .getState()
-          .replacePreviewTab(editorInput.workspaceId, previewSlot.tabId, editorInput, newTitle);
-        revealTab(editorInput.workspaceId, previewSlot.groupId, previewSlot.tabId);
-        return previewSlot;
+      const slot = findAnyPreviewTabInGroup(editorInput.workspaceId, layout.activeGroupId);
+      if (slot) {
+        if (slot.tab.type === "editor") {
+          // Same-type slot — swap filePath/title in place, keep isPreview=true.
+          const newTitle = defaultTitle({ type: "editor", props: editorInput });
+          useTabsStore
+            .getState()
+            .replacePreviewTab(editorInput.workspaceId, slot.tabId, editorInput, newTitle);
+          revealTab(editorInput.workspaceId, slot.groupId, slot.tabId);
+          return { groupId: slot.groupId, tabId: slot.tabId };
+        }
+        // Cross-type slot (diff / commit preview) — reclaim and slot in place.
+        const insertIndex = reclaimPreviewSlot(editorInput.workspaceId, slot);
+        const tab = openEditorTab(
+          editorInput.workspaceId,
+          editorInput,
+          { groupId: layout.activeGroupId, index: insertIndex },
+          true,
+        );
+        return { groupId: layout.activeGroupId, tabId: tab.id };
       }
     }
   }
