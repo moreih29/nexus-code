@@ -51,7 +51,9 @@ export function MarkdownPreview({
   workspaceRootAbsPath,
 }: MarkdownPreviewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const { text, truncated } = capPreviewSource(source);
+  // Strip a leading YAML frontmatter block before truncation so the cap
+  // applies to the body the user actually sees rendered.
+  const { text, truncated } = capPreviewSource(stripFrontmatter(source));
 
   const linkCtx: LinkClassifyContext = useMemo(
     () => ({ currentFileAbsPath, workspaceRootAbsPath, kind: "link" }),
@@ -151,6 +153,55 @@ export function MarkdownPreview({
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Strip a leading YAML frontmatter block (Jekyll/Hugo/Obsidian convention)
+ * from a markdown source so it is not rendered in the preview.
+ *
+ *   ---
+ *   key: value
+ *   ---
+ *   <body>
+ *
+ * Two-stage match (see also the YAML-signature guard inside the body):
+ *   - Fence: `---` at byte 0 (BOM tolerated), then any content, then a
+ *     line that is exactly `---`, terminated by newline or end-of-file.
+ *   - Guard: the matched block must contain at least one YAML-key line
+ *     (`identifier:` at the start of a line). This protects live-preview
+ *     users from accidentally erasing a markdown body that happens to sit
+ *     between two `---` thematic breaks while they are typing.
+ *
+ * If either stage fails the source is returned unchanged and react-markdown
+ * renders the lone `---` as a normal thematic break (`<hr>`).
+ */
+export function stripFrontmatter(source: string): string {
+  const FRONTMATTER_RE = /^\uFEFF?---\r?\n(?:[\s\S]*?\r?\n)?---(?:\r?\n|$)/u;
+  const match = FRONTMATTER_RE.exec(source);
+  if (!match) return source;
+
+  // YAML-signature guard. In a live preview, every keystroke re-renders.
+  // A user typing `---\n# title\n---` (markdown body sandwiched between
+  // two `---` thematic breaks) would otherwise have their visible body
+  // silently erased \u2014 micromark / remark-frontmatter / gray-matter all
+  // share this failure mode because the token rule is purely fence-based.
+  // We additionally require that the matched block contain at least one
+  // YAML-key-looking line (`identifier:` at start of line, m-flag).
+  // Real frontmatter always satisfies this; markdown bodies between two
+  // `---` rarely do. On failure we leave the source intact, so the opening
+  // `---` renders as a normal `<hr>` \u2014 same outcome as VS Code / remark-
+  // frontmatter when the closing fence is missing.
+  const inner = match[0]
+    .replace(/^\uFEFF?---\r?\n/u, "")
+    .replace(/\r?\n---(?:\r?\n|$)/u, "");
+  // YAML 1.2 allows any non-control Unicode character in plain keys.
+  // `\p{L}` covers letters in every script (Hangul, Hiragana, Cyrillic, …),
+  // `\p{N}` covers digits, `_` and `-` are the standard symbol additions.
+  // First char excludes digit/`-` so list markers (`- item`) cannot match.
+  const HAS_YAML_KEY = /^[\p{L}_][\p{L}\p{N}_-]*\s*:/mu;
+  if (!HAS_YAML_KEY.test(inner)) return source;
+
+  return source.replace(FRONTMATTER_RE, "");
+}
 
 /**
  * Resolve a markdown image `src` to a URL safe to drop into `<img>`:

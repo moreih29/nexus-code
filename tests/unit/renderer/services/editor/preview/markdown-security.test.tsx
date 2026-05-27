@@ -30,7 +30,7 @@ mock.module("../../../../../../src/shared/log/renderer", () => ({
   }),
 }));
 
-const { MarkdownPreview } = await import(
+const { MarkdownPreview, stripFrontmatter } = await import(
   "../../../../../../src/renderer/components/editor/preview/markdown-preview"
 );
 const { MAX_PREVIEW_BYTES, PREVIEW_TRUNCATED_MESSAGE } = await import(
@@ -103,6 +103,109 @@ describe("MarkdownPreview — workspace image rewriting", () => {
     );
     expect(html).not.toContain("nexus-workspace://");
     expect(html).toContain("[image]");
+  });
+});
+
+describe("MarkdownPreview — YAML frontmatter", () => {
+  test("a leading `---` YAML block is stripped from the rendered output", () => {
+    const source = [
+      "---",
+      "title: Hello",
+      "tags: [a, b]",
+      "---",
+      "",
+      "# Body heading",
+      "",
+      "Body paragraph.",
+    ].join("\n");
+    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
+    expect(html).not.toContain("title: Hello");
+    expect(html).not.toContain("tags:");
+    expect(html).toContain("Body heading");
+    expect(html).toContain("Body paragraph.");
+  });
+
+  test("a thematic break (`---`) deeper in the document is preserved (not treated as frontmatter)", () => {
+    const source = ["# Heading", "", "Para one.", "", "---", "", "Para two."].join("\n");
+    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
+    // The body must survive; an <hr> remains where the thematic break was.
+    expect(html).toContain("Para one.");
+    expect(html).toContain("Para two.");
+    expect(html).toContain("<hr");
+  });
+
+  describe("stripFrontmatter — unit", () => {
+    test("strips a CRLF-terminated frontmatter block", () => {
+      const src = "---\r\nfoo: bar\r\n---\r\nbody\r\n";
+      expect(stripFrontmatter(src)).toBe("body\r\n");
+    });
+
+    test("leaves an empty `---\\n---` block intact (no YAML signature → fall through)", () => {
+      // Two adjacent `---` lines are indistinguishable from two thematic
+      // breaks. The signature guard makes us prefer the safer
+      // interpretation: render as `<hr><hr>`, do not silently swallow the
+      // body below.
+      const src = "---\n---\nbody";
+      expect(stripFrontmatter(src)).toBe(src);
+    });
+
+    test("leaves a markdown body that happens to sit between two `---` intact (user typing case)", () => {
+      // The motivating case: a live-preview user typing
+      //   ---
+      //   # title
+      //   ---
+      // must NOT have `# title` disappear. No `key:` line → guard rejects.
+      const src = "---\n# title\n---\nmore";
+      expect(stripFrontmatter(src)).toBe(src);
+    });
+
+    test("leaves a list/paragraph between two `---` intact (no YAML key)", () => {
+      const src = "---\n- item one\n- item two\n---\nbody";
+      expect(stripFrontmatter(src)).toBe(src);
+    });
+
+    test("strips when the YAML body contains at least one `key: value` line, even alongside comments", () => {
+      const src = "---\n# a yaml comment\ntitle: hello\n---\nbody";
+      expect(stripFrontmatter(src)).toBe("body");
+    });
+
+    test("strips when the YAML key is a non-ASCII identifier (Hangul)", () => {
+      const src = "---\n제목: 안녕하세요\n---\nbody";
+      expect(stripFrontmatter(src)).toBe("body");
+    });
+
+    test("strips when the YAML key is a non-ASCII identifier (Hiragana / mixed)", () => {
+      const src = "---\nタイトル: hello\nauthor: 김\n---\nbody";
+      expect(stripFrontmatter(src)).toBe("body");
+    });
+
+    test("does NOT confuse a `-` list marker with a YAML key (first char must be letter or `_`)", () => {
+      const src = "---\n- item one\n-key: still not a key\n---\nbody";
+      expect(stripFrontmatter(src)).toBe(src);
+    });
+
+    test("strips when the document ends exactly at the closing fence", () => {
+      expect(stripFrontmatter("---\nfoo: bar\n---")).toBe("");
+    });
+
+    test("tolerates a leading UTF-8 BOM before the opening fence", () => {
+      expect(stripFrontmatter("﻿---\nfoo: bar\n---\nbody")).toBe("body");
+    });
+
+    test("does NOT strip a `---` that is not at byte 0", () => {
+      const src = "intro\n---\nfoo: bar\n---\nbody";
+      expect(stripFrontmatter(src)).toBe(src);
+    });
+
+    test("does NOT strip if the opening fence has trailing whitespace", () => {
+      const src = "--- \nfoo: bar\n---\nbody";
+      expect(stripFrontmatter(src)).toBe(src);
+    });
+
+    test("is a no-op when no frontmatter is present", () => {
+      const src = "# heading\n\nparagraph";
+      expect(stripFrontmatter(src)).toBe(src);
+    });
   });
 });
 
