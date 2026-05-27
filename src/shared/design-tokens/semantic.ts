@@ -144,7 +144,7 @@ export type SemanticKey =
   | "git.status.untracked.fg"
   | "git.status.conflict.fg"
 
-  // --- IDE Region: status bar (7 keys) ---
+  // --- IDE Region: status bar (11 keys) ---
   | "status.bar.bg"
   | "status.bar.fg"
   | "status.bar.item.hover.bg"
@@ -152,6 +152,13 @@ export type SemanticKey =
   | "status.bar.error.fg"
   | "status.bar.warning.bg"
   | "status.bar.warning.fg"
+  // Branch changes segment — count chips next to the branch indicator.
+  // Each maps to the same semantic hue as the editor's git gutter so a file
+  // marked "modified" in the diff reads the same color in the status bar.
+  | "status.bar.added.fg"      // `+N` staged
+  | "status.bar.modified.fg"   // `~N` working (unstaged modify/delete)
+  | "status.bar.untracked.fg"  // `?N` untracked (new file)
+  | "status.bar.conflict.fg"   // `!N` merge conflict (priority — rendered first)
 
   // --- terminal.ansi.* 16 ANSI palette keys ---
   | "terminal.ansi.black"

@@ -156,6 +156,11 @@ export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string
     "--status-bar-error-fg": tokens["status.bar.error.fg"],
     "--status-bar-warning-bg": tokens["status.bar.warning.bg"],
     "--status-bar-warning-fg": tokens["status.bar.warning.fg"],
+    // Branch changes segment — fg only (colored count text, no chip fill).
+    "--status-bar-added-fg": tokens["status.bar.added.fg"],
+    "--status-bar-modified-fg": tokens["status.bar.modified.fg"],
+    "--status-bar-untracked-fg": tokens["status.bar.untracked.fg"],
+    "--status-bar-conflict-fg": tokens["status.bar.conflict.fg"],
     // Islands surfaces — backdrop frame + island surface + inactive veil (design.md §2/§5)
     "--surface-backdrop-bg": tokens["surface.backdrop.bg"],
     "--surface-backdrop-fg": tokens["surface.backdrop.fg"],

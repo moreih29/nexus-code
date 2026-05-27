@@ -4,8 +4,13 @@
 // Height h-6 (24px). Receives the workspaceId of the panel it lives in.
 //
 // Segment layout — unified across local and SSH workspaces:
-//   LEFT:  git branch (always; "no git" fallback) · error count · warning count
+//   LEFT:  git branch · changes (+~?!) · error count · warning count
 //   RIGHT: git in-flight operation indicator
+//
+// The changes segment renders inline with the branch button (separate click
+// target) and shows only the non-zero tokens; the whole segment disappears in
+// a clean tree. Clicking it switches the files panel to Source Control —
+// consistent with how diagnostic counts open their popover.
 //
 // SSH connection state is conveyed by the sidebar's ConnectionStatusDot, so
 // the status bar intentionally omits the account@host segment to keep a
@@ -34,10 +39,11 @@
 import { AlertTriangle, GitBranch, Loader2, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/utils/cn";
-import type { BranchInfo } from "../../../shared/git/types";
+import type { BranchInfo, GitStatus } from "../../../shared/git/types";
 import { selectWorkspaceDiagnostics, useDiagnosticsStore } from "../../state/stores/diagnostics";
 import type { GitInFlightOp } from "../../state/stores/git";
 import { useGitSession, useGitStore } from "../../state/stores/git";
+import { useUIStore } from "../../state/stores/ui";
 import { BranchPicker } from "../files/git/branch/picker";
 import { type DiagnosticKind, DiagnosticPopover } from "./diagnostic-popover";
 
@@ -72,6 +78,10 @@ export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
 
   const isRepo = gitSession?.repoInfo.kind === "repo";
   const branchInfo = isRepo ? (gitSession?.branchInfo ?? null) : null;
+  // Status groups feed the +~?! changes segment. Null when the workspace is
+  // not a repo or the first status fetch hasn't landed yet — the segment
+  // gracefully renders nothing in that case.
+  const status = isRepo ? (gitSession?.status ?? null) : null;
   const inFlightOp = gitSession?.inFlightOp ?? null;
 
   return (
@@ -96,6 +106,10 @@ export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
         {/* Git branch — clickable when a repo is present (opens the switch
             branch picker); dimmed "no git" placeholder otherwise. */}
         <BranchSegment workspaceId={workspaceId} branchInfo={branchInfo} />
+
+        {/* Branch changes (+ staged · ~ modified · ? untracked · ! conflict).
+            Renders nothing when the tree is clean or status hasn't loaded. */}
+        <ChangesSegment workspaceId={workspaceId} status={status} />
 
         {/* Error count — clickable when count > 0, opens a popover list */}
         <DiagnosticSegment kind="error" count={errorCount} workspaceId={workspaceId} />
@@ -168,6 +182,110 @@ function BranchSegment({
         onClose={() => setPickerOpen(false)}
       />
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Changes segment
+//
+// Renders the branch's working state as colored count tokens next to the
+// branch button. Follows the +~?! convention shared with git-prompt.sh /
+// posh-git / vim-airline / Starship so users transferring from those
+// environments read it without learning a new notation:
+//
+//   +N  staged    — index has N changes ready to commit       (success hue)
+//   ~N  modified  — working tree has N unstaged modify/delete (warning hue)
+//   ?N  untracked — N new files git does not yet know about   (info hue)
+//   !N  conflict  — N files in merge conflict (rendered FIRST) (error hue)
+//
+// Empty tokens are omitted (0 count → no chip), and a fully clean tree
+// hides the whole segment so the status bar stays quiet during steady
+// state. Conflict tokens lead so position itself signals priority
+// (design.md §7 redundant encoding: color + position + glyph).
+//
+// Click target: opens the Source Control panel via setFilesPanelMode. This
+// matches diagnostic segment semantics — counts are summaries; the panel
+// is where action happens. The whole segment is a single button so the
+// click area is comfortable even on a 24px-tall bar.
+// ---------------------------------------------------------------------------
+
+function ChangesSegment({
+  workspaceId,
+  status,
+}: {
+  workspaceId: string;
+  status: GitStatus | null;
+}): React.JSX.Element | null {
+  const setFilesPanelMode = useUIStore((s) => s.setFilesPanelMode);
+
+  if (!status) return null;
+
+  const stagedCount = status.staged.length;
+  const workingCount = status.working.length;
+  const untrackedCount = status.untracked.length;
+  const conflictCount = status.merge.length;
+  const totalCount = stagedCount + workingCount + untrackedCount + conflictCount;
+
+  // Clean tree — hide the whole segment so the bar reads "quiet" on idle.
+  if (totalCount === 0) return null;
+
+  // Tokens, in render order. Conflicts lead so the most urgent state is
+  // the first thing the eye reaches after the branch name.
+  const tokens: Array<{ glyph: string; count: number; color: string; label: string }> = [];
+  if (conflictCount > 0) {
+    tokens.push({
+      glyph: "!",
+      count: conflictCount,
+      color: "var(--status-bar-conflict-fg)",
+      label: `${conflictCount} unresolved conflict${conflictCount === 1 ? "" : "s"}`,
+    });
+  }
+  if (stagedCount > 0) {
+    tokens.push({
+      glyph: "+",
+      count: stagedCount,
+      color: "var(--status-bar-added-fg)",
+      label: `${stagedCount} staged`,
+    });
+  }
+  if (workingCount > 0) {
+    tokens.push({
+      glyph: "~",
+      count: workingCount,
+      color: "var(--status-bar-modified-fg)",
+      label: `${workingCount} modified`,
+    });
+  }
+  if (untrackedCount > 0) {
+    tokens.push({
+      glyph: "?",
+      count: untrackedCount,
+      color: "var(--status-bar-untracked-fg)",
+      label: `${untrackedCount} untracked`,
+    });
+  }
+
+  const title = `${tokens.map((t) => t.label).join(", ")} — click to open Source Control`;
+
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={() => setFilesPanelMode(workspaceId, "git")}
+      className={cn(
+        "inline-flex items-center gap-1.5 h-full px-2",
+        "text-app-ui-sm font-sans leading-none tabular-nums",
+        "hover:bg-[var(--status-bar-item-hover-bg)] focus-visible:bg-[var(--status-bar-item-hover-bg)] focus-visible:outline-none transition-colors",
+      )}
+    >
+      {tokens.map((t) => (
+        <span key={t.glyph} style={{ color: t.color }} className="inline-flex items-baseline">
+          <span aria-hidden="true">{t.glyph}</span>
+          <span>{t.count}</span>
+        </span>
+      ))}
+    </button>
   );
 }
 

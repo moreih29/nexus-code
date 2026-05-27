@@ -361,6 +361,14 @@ export function buildSemanticTokens(source: ThemeSource): SemanticTokenSet {
     "status.bar.error.fg": source.base === "light" ? "#ffffff" : source.bg.primary,
     "status.bar.warning.bg": source.warning,
     "status.bar.warning.fg": source.bg.primary,
+    // Branch changes segment hues — reuse the same source semantics as the
+    // editor's git gutter (git.status.*) so "modified" reads identically in
+    // both surfaces. fg-only: counts are rendered as colored text on the
+    // status bar surface (no chip fill).
+    "status.bar.added.fg": source.success,
+    "status.bar.modified.fg": source.warning,
+    "status.bar.untracked.fg": source.info,
+    "status.bar.conflict.fg": source.error,
 
     // --- terminal.ansi 16 keys ---
     "terminal.ansi.black": source.ansi.black,
