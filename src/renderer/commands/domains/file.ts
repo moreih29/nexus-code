@@ -10,6 +10,7 @@ import { registerCommand } from "../../commands/registry";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { openOrRevealEditor, runSaveAndReport } from "../../services/editor";
 import { saveUntitledModel } from "../../services/editor/save/save-untitled-handler";
+import { confirmAndDeletePath } from "../../services/fs-mutations";
 import { showToast } from "../../components/ui/toast";
 import { refresh } from "../../state/operations/files";
 import { openNewUntitledTab } from "../../state/operations/tabs";
@@ -55,6 +56,22 @@ export function registerFileCommands(): Array<() => void> {
       );
     }),
 
+    // F2 — 파일트리 포커스 상태에서 현재 행의 인라인 rename 진입.
+    // activeAbsPath가 루트이거나 없으면 no-op. rename 입력창이 열린 상태에서는
+    // when:"!inputFocus" 조건이 막아 이 핸들러까지 도달하지 않는다.
+    registerCommand(COMMANDS.fileRename, () => {
+      const wsId = useActiveStore.getState().activeWorkspaceId;
+      if (!wsId) return;
+      const filesState = useFilesStore.getState();
+      const path = filesState.activeAbsPath.get(wsId);
+      if (!path) return;
+      // 워크스페이스 루트는 rename 불가 (startRename 내부와 동일한 guard)
+      const tree = filesState.trees.get(wsId);
+      const rootAbsPath = tree?.rootAbsPath;
+      if (path === rootAbsPath) return;
+      filesState.requestRename(path);
+    }),
+
     registerCommand(COMMANDS.fileOpen, async () => {
       const wsId = useActiveStore.getState().activeWorkspaceId;
       if (!wsId) return;
@@ -85,6 +102,24 @@ export function registerFileCommands(): Array<() => void> {
       }
       if (tab.type !== "editor") return;
       runSaveAndReport({ workspaceId: ctx.wsId, filePath: tab.props.filePath });
+    }),
+
+    // Delete / Backspace — 파일트리 포커스 상태에서 현재 행 삭제.
+    // when:"fileTreeFocus && !inputFocus" 조건이 dispatcher 레벨에서 edit-row
+    // 입력 중 발화를 막는다. 핸들러에서도 root / missing-node guard를 유지한다.
+    registerCommand(COMMANDS.fileDelete, () => {
+      const wsId = useActiveStore.getState().activeWorkspaceId;
+      if (!wsId) return;
+      const filesState = useFilesStore.getState();
+      const absPath = filesState.activeAbsPath.get(wsId);
+      if (!absPath) return;
+      const tree = filesState.trees.get(wsId);
+      if (!tree) return;
+      // 워크스페이스 루트는 삭제 불가
+      if (absPath === tree.rootAbsPath) return;
+      const node = tree.nodes.get(absPath);
+      if (!node) return;
+      confirmAndDeletePath(wsId, tree.rootAbsPath, absPath, node.type).catch(() => {});
     }),
   ];
 }

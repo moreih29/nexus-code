@@ -26,6 +26,8 @@ export interface FsToastMessages {
   notDirectory?: string;
   /** Override for CROSS_DEVICE. */
   crossDevice?: string;
+  /** Override for UNSUPPORTED_REMOTE (e.g. SSH workspace). */
+  unsupportedRemote?: string;
 }
 
 export function toFsToast(error: unknown, msgs: FsToastMessages): void {
@@ -42,7 +44,9 @@ export function toFsToast(error: unknown, msgs: FsToastMessages): void {
     return;
   }
   if (hasFsErrorCode(error, FS_ERROR.NOT_EMPTY)) {
-    showToast({ kind: "error", message: msgs.notEmpty ?? "Folder is not empty." });
+    // NOT_EMPTY is a user-decision point (system is healthy), not a system
+    // error — designer decision: warning severity, polite aria-live (Nielsen H5).
+    showToast({ kind: "warning", message: msgs.notEmpty ?? "Folder is not empty." });
     return;
   }
   if (hasFsErrorCode(error, FS_ERROR.NOT_DIRECTORY)) {
@@ -51,6 +55,10 @@ export function toFsToast(error: unknown, msgs: FsToastMessages): void {
   }
   if (hasFsErrorCode(error, FS_ERROR.CROSS_DEVICE)) {
     showToast({ kind: "error", message: msgs.crossDevice ?? "Can't move across filesystems." });
+    return;
+  }
+  if (hasFsErrorCode(error, FS_ERROR.UNSUPPORTED_REMOTE)) {
+    showToast({ kind: "error", message: msgs.unsupportedRemote ?? "Operation not supported for remote workspaces." });
     return;
   }
   showToast({ kind: "error", message: msgs.fallback });

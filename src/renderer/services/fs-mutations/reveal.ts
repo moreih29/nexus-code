@@ -47,6 +47,7 @@ export async function revealInFinder(input: RevealInput): Promise<void> {
     toFsToast(e, {
       fallback: "Couldn't reveal in Finder.",
       notFound: "File no longer exists on disk.",
+      unsupportedRemote: "Reveal in Finder is only available for local workspaces.",
     });
   }
 }

@@ -24,6 +24,14 @@ export const COMMANDS = {
   // Opens the focused file-tree row in a side split (VSCode parity:
   // explorer-only, scoped via `when: "fileTreeFocus"`).
   openToSide: "explorer.openToSide",
+  // Inline rename for the focused file-tree row. Scoped via
+  // `when: "fileTreeFocus && !inputFocus"` — does not fire while an
+  // edit row (create/rename input) is already active.
+  fileRename: "file.rename",
+  // Delete the focused file-tree row (Delete / Backspace). Scoped via
+  // `when: "fileTreeFocus && !inputFocus"` — CRITICAL: `!inputFocus` 조건이
+  // 없으면 edit-row 입력 도중 Delete가 부모 행 삭제를 유발해 데이터 손실.
+  fileDelete: "file.delete",
 
   // Tabs
   tabClose: "tab.close",

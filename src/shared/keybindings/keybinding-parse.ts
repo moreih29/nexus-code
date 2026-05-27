@@ -151,6 +151,8 @@ function tokenToCodes(tok: string): readonly string[] {
     case "`":
       return ["Backquote"];
     default:
+      // F1-F12 function keys: code === key === "F1", "F2", …
+      if (/^F[1-9]$|^F1[0-2]$/.test(tok)) return [tok];
       throw new Error(`unsupported accelerator token: ${tok}`);
   }
 }

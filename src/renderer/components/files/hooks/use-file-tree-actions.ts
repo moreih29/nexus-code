@@ -10,9 +10,8 @@
  * rendering / virtualization code.
  */
 import { openOrRevealEditor } from "@/services/editor";
-import { createPathActions, rmdirPath, unlinkPath } from "@/services/fs-mutations";
+import { confirmAndDeletePath, createPathActions } from "@/services/fs-mutations";
 import { parentOf } from "@/state/stores/files";
-import { basename } from "@/utils/path";
 import type { EntryKind } from "../file-tree/display";
 
 export interface FileTreeActionTarget {
@@ -90,20 +89,10 @@ export function useFileTreeActions({
     startRename(t.absPath);
   }
 
-  function confirmDelete(t: FileTreeActionTarget): boolean {
-    const confirmFn = globalThis.window?.confirm ?? globalThis.confirm;
-    if (typeof confirmFn !== "function") return true;
-    const kindLabel = t.type === "dir" ? "folder" : "file";
-    return confirmFn(`Delete ${kindLabel} "${basename(t.absPath)}"?`);
-  }
-
   async function deleteTarget(): Promise<boolean> {
     const t = getTarget();
-    if (!t || t.isRoot || !confirmDelete(t)) return false;
-    if (t.type === "dir") {
-      return rmdirPath({ workspaceId, workspaceRootPath: rootAbsPath, absPath: t.absPath });
-    }
-    return unlinkPath({ workspaceId, workspaceRootPath: rootAbsPath, absPath: t.absPath });
+    if (!t || t.isRoot) return false;
+    return confirmAndDeletePath(workspaceId, rootAbsPath, t.absPath, t.type);
   }
 
   return {

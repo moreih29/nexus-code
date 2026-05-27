@@ -6,11 +6,12 @@
  * and local paths need to be checked before Electron's best-effort API runs.
  */
 import fs from "node:fs";
-import { fsCodeFromErrno, fsErrorMessage } from "../../../shared/fs/errors";
+import { FS_ERROR, fsCodeFromErrno, fsErrorMessage } from "../../../shared/fs/errors";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { validateArgs } from "../../infra/ipc-router";
 import { resolveLocalWorkspacePath } from "../workspace/path-safety";
 import type { WorkspaceManager } from "../workspace/manager";
+import { UnsupportedSshWorkspaceError } from "../workspace/guards";
 import { getElectronSystemShell, type SystemShell } from "./open-path";
 
 const c = ipcContract.fs.call;
@@ -21,7 +22,15 @@ export function showItemInFolderHandler(
 ): (args: unknown) => Promise<void> {
   return async (args: unknown): Promise<void> => {
     const { workspaceId, relPath } = validateArgs(c.showItemInFolder.args, args);
-    const abs = resolveLocalWorkspacePath(manager, workspaceId, relPath, "reveal workspace files");
+    let abs: string;
+    try {
+      abs = resolveLocalWorkspacePath(manager, workspaceId, relPath, "reveal workspace files");
+    } catch (e: unknown) {
+      if (e instanceof UnsupportedSshWorkspaceError) {
+        throw new Error(fsErrorMessage(FS_ERROR.UNSUPPORTED_REMOTE, workspaceId));
+      }
+      throw e;
+    }
 
     try {
       await fs.promises.access(abs);
