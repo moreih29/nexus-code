@@ -1298,6 +1298,17 @@ export const ipcContract = {
        * 변경이 없는 동일 상태 재설정은 발사하지 않는다.
        */
       status: listen(StatusEntrySchema),
+      /**
+       * 특정 (workspaceId, tabId) entry가 broker에서 제거되었음을 알린다.
+       * `pty.exit` 또는 `session-end` hook 처리 시 발사된다.
+       *
+       * status broadcast만으로는 "삭제"를 표현할 수 없어 별도 이벤트로 분리했다
+       * (StatusEntry는 status enum이 항상 set이라 sentinel을 만들 수 없다).
+       * Renderer는 이 이벤트를 받으면 useClaudeStatusStore.clearTab을 호출해
+       * 자기 사본에서 entry를 제거한다 — 그렇지 않으면 마지막 broadcast된 running
+       * 상태가 사이드바·탭 인디케이터에 그대로 남는다.
+       */
+      cleared: listen(z.object({ workspaceId: z.string(), tabId: z.string() })),
     },
   },
   // ---------------------------------------------------------------------------

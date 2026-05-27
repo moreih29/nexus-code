@@ -58,11 +58,21 @@ export class ClaudeStatusBroker {
   }
 
   /**
-   * 특정 (workspaceId, tabId) 항목을 맵에서 제거한다.
-   * PTY 세션 종료 / 탭 닫기 시 호출해 메모리 누수를 방지한다.
+   * 특정 (workspaceId, tabId) 항목을 맵에서 제거하고 renderer에 cleared 이벤트를
+   * broadcast한다.
+   *
+   * PTY 세션 종료 / `session-end` hook 시 호출된다. broadcast가 빠지면 renderer
+   * 의 useClaudeStatusStore에 마지막 status가 그대로 남아 사이드바 워크스페이스
+   * 인디케이터와 탭 인디케이터가 stale running으로 보이는 버그가 발생한다.
+   *
+   * 존재하지 않는 entry를 clear하는 경우엔 broadcast를 생략한다 (set의 dedupe와
+   * 동일한 noise 억제 정책).
    */
   clear(workspaceId: string, tabId: string): void {
-    this.map.delete(`${workspaceId}:${tabId}`);
+    const key = `${workspaceId}:${tabId}`;
+    if (!this.map.has(key)) return;
+    this.map.delete(key);
+    this.broadcastFn("claude", "cleared", { workspaceId, tabId });
   }
 
   /**

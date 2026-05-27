@@ -121,4 +121,22 @@ describe("ClaudeStatusBroker — broadcast 동작", () => {
     expect(entry.since).toBeGreaterThanOrEqual(before);
     expect(entry.since).toBeLessThanOrEqual(after);
   });
+
+  test("clear 시 cleared 이벤트 broadcast — renderer가 stale 상태를 정리하도록", () => {
+    const { broker, calls } = makeBroker();
+    broker.set("ws-1", "tab-1", "running");
+    const setCalls = calls.length;
+    broker.clear("ws-1", "tab-1");
+    expect(calls).toHaveLength(setCalls + 1);
+    const evt = calls[setCalls];
+    expect(evt.channel).toBe("claude");
+    expect(evt.event).toBe("cleared");
+    expect(evt.args).toEqual({ workspaceId: "ws-1", tabId: "tab-1" });
+  });
+
+  test("없는 entry를 clear하면 broadcast 생략 (noise 억제)", () => {
+    const { broker, calls } = makeBroker();
+    broker.clear("ws-x", "tab-x");
+    expect(calls).toHaveLength(0);
+  });
 });

@@ -200,6 +200,14 @@ export async function bootstrapClaudeStatus(): Promise<void> {
     useClaudeStatusStore.getState().set(entry);
   });
 
+  // PTY exit / session-end 시 main이 broker entry를 제거하며 cleared를 발사한다.
+  // 받는 즉시 renderer 사본에서 해당 (workspaceId, tabId) 항목을 제거해야 한다 —
+  // 그러지 않으면 마지막 broadcast된 running 상태가 사이드바·탭 인디케이터에
+  // 그대로 남는다.
+  ipcListen("claude", "cleared", ({ workspaceId, tabId }) => {
+    useClaudeStatusStore.getState().clearTab(workspaceId, tabId);
+  });
+
   // active workspace/tab을 main에 push하는 구독 시작 + 사용자가 탭을 활성화하면
   // markSeen IPC로 completed→idle 자동 전이.
   startClaudeActiveContextSync();
