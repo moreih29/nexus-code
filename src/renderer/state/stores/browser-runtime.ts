@@ -52,6 +52,12 @@ export interface BrowserRuntimeState {
    * the toolbar toggle button.
    */
   devtoolsOpen: boolean;
+  /**
+   * 페이지가 advertise한 favicon URL. Chromium의 page-favicon-updated 이벤트에서
+   * 받은 후보 배열의 첫 번째 entry. 비어있으면 기본 아이콘(Globe)이 표시된다.
+   * runtime store에만 보관 — 앱 재시작 시 페이지가 다시 로드되며 자연스럽게 갱신.
+   */
+  faviconUrl: string | null;
 }
 
 type BrowserRuntimeMap = Map<string, BrowserRuntimeState>;
@@ -64,6 +70,7 @@ const DEFAULT_RUNTIME: BrowserRuntimeState = {
   isLoading: false,
   snapshot: null,
   devtoolsOpen: false,
+  faviconUrl: null,
 };
 
 interface BrowserRuntimeStore {

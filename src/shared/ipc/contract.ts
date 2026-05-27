@@ -1204,6 +1204,20 @@ export const ipcContract = {
         z.object({ tabId: z.string().uuid(), title: z.string() }),
       ),
       /**
+       * Emitted when the page advertises favicon(s).
+       *
+       * `favicons` 는 페이지가 link rel="icon"으로 선언한 URL 후보 배열. Chromium은
+       * 가장 적절한 후보를 골라 첫 번째 entry로 넘긴다 (apple-touch-icon, png 등).
+       * `null`은 favicon이 없거나 페이지가 명시적으로 비웠음을 의미.
+       * 사용자가 보는 탭 아이콘 표시에 사용한다 (renderer가 첫 후보로 표시).
+       */
+      faviconUpdated: listen(
+        z.object({
+          tabId: z.string().uuid(),
+          favicons: z.array(z.string()).nullable(),
+        }),
+      ),
+      /**
        * Snapshot event paired with `suspendAll` / `resumeAll`.
        *
        * `dataUrl` form: a JPEG dataURL of the page as it appeared right
