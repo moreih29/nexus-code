@@ -18,12 +18,7 @@ import {
   revealEditorActiveFile,
   toggleExpand,
 } from "../../../state/operations/files";
-import {
-  selectFlat,
-  selectFocus,
-  selectIsSelected,
-  useFilesStore,
-} from "../../../state/stores/files";
+import { selectFlat, selectIsSelected, useFilesStore } from "../../../state/stores/files";
 import { useGitSession, useGitStore } from "../../../state/stores/git";
 import { selectGitDecorations } from "../../../state/stores/git/decorations";
 import { useIgnoredStore } from "../../../state/stores/git/ignored";
@@ -67,11 +62,17 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   const isLoading = tree?.loading.has(rootAbsPath) ?? false;
   const showLoading = useDelayedLoading(isLoading, LOADING_FLASH_DELAY_MS);
 
-  // Focus is the single source of truth in the store.
-  // Derive the numeric index from the flat list so the keyboard handler
-  // and virtualizer stay in sync without any component-local state for
-  // the active row.
-  const focusPath = useFilesStore((s) => selectFocus(s, workspaceId));
+  // Subscribe to the full per-workspace FileSelection object — not just
+  // `focus`. Every selection reducer (singleSelection / toggle / extend /
+  // selectAllHierarchical / clearToFocus / setFocus / clearSelection) returns
+  // a new FileSelection, so subscribing to the object reference catches
+  // updates to focus AND paths AND anchor — `selectAllHierarchical` after
+  // a single-select leaves focus untouched but balloons paths; subscribing
+  // to focus alone would skip the re-render and rows would render stale
+  // selection visuals until something else triggered a render (e.g. clicking
+  // away to another tab). Derive focusPath from the captured selection.
+  const selection = useFilesStore((s) => s.selection.get(workspaceId));
+  const focusPath = selection?.focus ?? null;
   const activeIndex = useMemo(() => {
     if (!focusPath) return 0;
     const idx = flat.findIndex((f) => f.absPath === focusPath);
