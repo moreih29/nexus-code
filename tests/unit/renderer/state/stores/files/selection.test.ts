@@ -13,6 +13,7 @@ import {
   isFocused,
   isSelected,
   selectAll,
+  selectAllHierarchical,
   singleSelection,
   toggleInSelection,
 } from "../../../../../../src/renderer/state/stores/files/selection";
@@ -101,11 +102,14 @@ describe("getOperablePaths", () => {
 // ---------------------------------------------------------------------------
 
 describe("singleSelection", () => {
-  it("sets focus = anchor = path, paths = empty set", () => {
+  it("sets focus = anchor = path and paths = {path}", () => {
     const sel = singleSelection("/r/c");
     expect(sel.focus).toBe("/r/c");
     expect(sel.anchor).toBe("/r/c");
-    expect(sel.paths.size).toBe(0);
+    // paths carries the clicked path so subsequent Cmd-click toggles see
+    // the implicit single-selection as part of the base set.
+    expect(sel.paths.size).toBe(1);
+    expect(sel.paths.has("/r/c")).toBe(true);
   });
 });
 
@@ -177,7 +181,9 @@ describe("extendSelection", () => {
     const base = singleSelection("/outside");
     const sel = extendSelection(base, "/outside", "/r/c", flatPaths);
     expect(sel.focus).toBe("/r/c");
-    expect(sel.paths.size).toBe(0);
+    // singleSelection now seeds paths with the chosen path.
+    expect(sel.paths.size).toBe(1);
+    expect(sel.paths.has("/r/c")).toBe(true);
   });
 
   it("uses focus as effective anchor when explicit anchor is null", () => {
@@ -209,5 +215,62 @@ describe("selectAll", () => {
     expect(sel.focus).toBeNull();
     expect(sel.anchor).toBeNull();
     expect(sel.paths.size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// selectAllHierarchical (VSCode parity Cmd+A)
+// ---------------------------------------------------------------------------
+
+describe("selectAllHierarchical", () => {
+  const ROOT = "/r";
+  // Nested layout — focused row sits inside /r/dir/sub.
+  //   /r
+  //   ├─ a            (depth 1)
+  //   ├─ dir          (depth 1)
+  //   │  ├─ b         (depth 2)
+  //   │  └─ sub       (depth 2)
+  //   │     └─ c      (depth 3)  ← focus
+  //   └─ d            (depth 1)
+  const nested = ["/r/a", "/r/dir", "/r/dir/b", "/r/dir/sub", "/r/dir/sub/c", "/r/d"];
+
+  it("first press selects the focused row's parent subtree", () => {
+    const base = singleSelection("/r/dir/sub/c");
+    const next = selectAllHierarchical(base, nested, ROOT);
+    // scope = /r/dir/sub → candidate = ["/r/dir/sub", "/r/dir/sub/c"]
+    expect(next.paths.has("/r/dir/sub")).toBe(true);
+    expect(next.paths.has("/r/dir/sub/c")).toBe(true);
+    expect(next.paths.has("/r/dir")).toBe(false);
+    expect(next.paths.has("/r/a")).toBe(false);
+    // Focus stays put.
+    expect(next.focus).toBe("/r/dir/sub/c");
+  });
+
+  it("second press widens to the next level up", () => {
+    let sel = singleSelection("/r/dir/sub/c");
+    sel = selectAllHierarchical(sel, nested, ROOT); // 1st: /r/dir/sub subtree
+    sel = selectAllHierarchical(sel, nested, ROOT); // 2nd: /r/dir subtree
+    expect(sel.paths.has("/r/dir")).toBe(true);
+    expect(sel.paths.has("/r/dir/b")).toBe(true);
+    expect(sel.paths.has("/r/dir/sub")).toBe(true);
+    expect(sel.paths.has("/r/dir/sub/c")).toBe(true);
+    expect(sel.paths.has("/r/a")).toBe(false);
+    expect(sel.paths.has("/r/d")).toBe(false);
+  });
+
+  it("walks all the way up to the workspace root (full flat selection)", () => {
+    let sel = singleSelection("/r/dir/sub/c");
+    sel = selectAllHierarchical(sel, nested, ROOT); // scope: /r/dir/sub
+    sel = selectAllHierarchical(sel, nested, ROOT); // scope: /r/dir
+    sel = selectAllHierarchical(sel, nested, ROOT); // scope: /r (root)
+    for (const p of nested) {
+      expect(sel.paths.has(p)).toBe(true);
+    }
+  });
+
+  it("returns sel unchanged when flatPaths is empty", () => {
+    const sel = singleSelection("/r/dir/sub/c");
+    const next = selectAllHierarchical(sel, [], ROOT);
+    expect(next).toBe(sel);
   });
 });

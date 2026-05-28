@@ -48,11 +48,17 @@ export function emptySelection(): FileSelection {
 }
 
 /**
- * Single-select: focus=path, anchor=path, paths={} (empty — single focus is
- * the implicit selection, consistent with `getOperablePaths` above).
+ * Single-select: focus=path, anchor=path, paths={path}.
+ *
+ * The focused row is also a member of `paths` so subsequent Cmd-click
+ * extensions can find it via `toggleInSelection`'s `sel.paths` base. Earlier
+ * iteration left `paths` empty and relied on `getOperablePaths`'s focus
+ * fallback, but the toggle reducer reads from `sel.paths` only — that gap
+ * silently dropped the first-clicked row on the second (Cmd-)click. VSCode's
+ * listWidget treats a single click identically (focus + selection length=1).
  */
 export function singleSelection(path: string): FileSelection {
-  return { focus: path, anchor: path, paths: new Set() };
+  return { focus: path, anchor: path, paths: new Set([path]) };
 }
 
 // ---------------------------------------------------------------------------
@@ -112,4 +118,65 @@ export function selectAll(flatPaths: readonly string[]): FileSelection {
     anchor: flatPaths[0],
     paths: new Set(flatPaths),
   };
+}
+
+/**
+ * Hierarchical select-all (VSCode parity).
+ *
+ * One press widens the scope by one level. The "scope" is the focused row's
+ * ancestor; selection becomes that scope's visible subtree (the scope itself
+ * + every flat row underneath it). When the current `sel.paths` already
+ * covers the candidate scope, the scope walks one level up, so repeated
+ * presses cumulatively widen until the workspace root is reached — at which
+ * point the entire flat list is selected.
+ *
+ * Self-contained on `absPath` strings: parentDir does prefix arithmetic
+ * against `rootAbsPath` so this helper keeps the "no helpers/store imports"
+ * discipline this module is built on.
+ */
+export function selectAllHierarchical(
+  sel: FileSelection,
+  flatPaths: readonly string[],
+  rootAbsPath: string,
+): FileSelection {
+  if (flatPaths.length === 0) return sel;
+  const focus = sel.focus ?? flatPaths[0];
+
+  const descendantsUnder = (scope: string): string[] => {
+    if (scope === rootAbsPath) return [...flatPaths];
+    const prefix = `${scope}/`;
+    return flatPaths.filter((p) => p === scope || p.startsWith(prefix));
+  };
+
+  // First step: focus's immediate parent dir. Each subsequent step climbs
+  // one level whenever the current sel.paths already covers the candidate.
+  let scope = parentDir(focus, rootAbsPath);
+  let candidate = descendantsUnder(scope);
+
+  while (candidate.length > 0 && candidate.every((p) => sel.paths.has(p))) {
+    if (scope === rootAbsPath) {
+      // Ceiling reached — full flat selection.
+      return { focus, anchor: focus, paths: new Set(flatPaths) };
+    }
+    scope = parentDir(scope, rootAbsPath);
+    candidate = descendantsUnder(scope);
+  }
+
+  return { focus, anchor: focus, paths: new Set(candidate) };
+}
+
+/**
+ * Parent directory of `absPath` within the workspace rooted at `rootAbsPath`.
+ * Returns `rootAbsPath` when the path is the root itself, has no slash
+ * structure, or its parent would otherwise fall outside the workspace.
+ *
+ * Kept private to this module so the path-arithmetic detail does not leak
+ * into the selection vocabulary.
+ */
+function parentDir(absPath: string, rootAbsPath: string): string {
+  if (absPath === rootAbsPath) return rootAbsPath;
+  const idx = absPath.lastIndexOf("/");
+  if (idx <= 0) return rootAbsPath;
+  const parent = absPath.slice(0, idx);
+  return parent.length < rootAbsPath.length ? rootAbsPath : parent;
 }

@@ -84,8 +84,9 @@ describe("revealEditorActiveFile — file NOT in selection.paths", () => {
     // Prior selection cleared.
     expect(selectIsSelected(s, WS, FILE_A)).toBe(false);
     expect(selectIsSelected(s, WS, FILE_B)).toBe(false);
-    // paths should be empty (single-selection has empty paths set).
-    expect(selectIsSelected(s, WS, FILE_C)).toBe(false);
+    // singleSelection seeds paths with the activated file so Cmd-click
+    // extensions can find it later.
+    expect(selectIsSelected(s, WS, FILE_C)).toBe(true);
   });
 });
 

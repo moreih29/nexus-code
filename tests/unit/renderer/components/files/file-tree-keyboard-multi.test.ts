@@ -104,8 +104,8 @@ beforeEach(resetStore);
 // Cmd+A — selectAllVisible
 // ---------------------------------------------------------------------------
 
-describe("createFileTreeKeydownHandler — Cmd+A selects all visible", () => {
-  it("Cmd+A fills selection.paths with all flat paths", () => {
+describe("createFileTreeKeydownHandler — Cmd+A hierarchical select-all", () => {
+  it("Cmd+A from a flat-root-level row fills paths with that scope's descendants", () => {
     const handler = createFileTreeKeydownHandler({
       flat,
       flatPaths,
@@ -120,11 +120,13 @@ describe("createFileTreeKeydownHandler — Cmd+A selects all visible", () => {
     handler(makeKeyEvent("a", { metaKey: true }));
 
     const s = useFilesStore.getState();
+    // With every path's immediate parent being ROOT, the first press already
+    // expands to the workspace root scope — which contains every flat row.
     for (const p of PATHS) {
       expect(selectIsSelected(s, WS, p)).toBe(true);
     }
-    // Focus moves to last item (selectAll behaviour).
-    expect(selectFocus(s, WS)).toBe(PATHS[PATHS.length - 1]);
+    // Focus stays put (hierarchical select-all does not relocate the cursor).
+    expect(selectFocus(s, WS)).toBe(PATHS[0]);
   });
 });
 
@@ -133,7 +135,7 @@ describe("createFileTreeKeydownHandler — Cmd+A selects all visible", () => {
 // ---------------------------------------------------------------------------
 
 describe("createFileTreeKeydownHandler — Escape clears to focus", () => {
-  it("Escape after Cmd+A clears paths but keeps focus", () => {
+  it("Escape after Cmd+A collapses paths to the focused row only", () => {
     useFilesStore.getState().selectAllVisible(WS, PATHS);
     const lastFocus = selectFocus(useFilesStore.getState(), WS);
 
@@ -152,8 +154,14 @@ describe("createFileTreeKeydownHandler — Escape clears to focus", () => {
 
     const s = useFilesStore.getState();
     expect(selectFocus(s, WS)).toBe(lastFocus);
+    // Only the focused path remains (matches the canonical singleSelection
+    // shape used everywhere else).
     for (const p of PATHS) {
-      expect(selectIsSelected(s, WS, p)).toBe(false);
+      if (p === lastFocus) {
+        expect(selectIsSelected(s, WS, p)).toBe(true);
+      } else {
+        expect(selectIsSelected(s, WS, p)).toBe(false);
+      }
     }
   });
 });

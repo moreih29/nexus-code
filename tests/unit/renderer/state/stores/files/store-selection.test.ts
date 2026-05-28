@@ -56,12 +56,14 @@ beforeEach(resetStore);
 // ---------------------------------------------------------------------------
 
 describe("setSingleSelection", () => {
-  it("sets focus and clears paths", () => {
+  it("sets focus and seeds paths with {path}", () => {
     useFilesStore.getState().setSingleSelection(WS, "/r/b");
     const s = useFilesStore.getState();
     expect(selectFocus(s, WS)).toBe("/r/b");
     expect(selectIsFocused(s, WS, "/r/b")).toBe(true);
-    expect(selectIsSelected(s, WS, "/r/b")).toBe(false); // paths is empty
+    // paths now carries the clicked path so subsequent Cmd-click toggles
+    // do not silently drop the first-clicked row.
+    expect(selectIsSelected(s, WS, "/r/b")).toBe(true);
   });
 
   it("replaces a prior selection", () => {
@@ -141,14 +143,15 @@ describe("selectAllVisible", () => {
 // ---------------------------------------------------------------------------
 
 describe("clearToFocus", () => {
-  it("keeps focus but wipes paths and resets anchor to focus", () => {
+  it("keeps focus and collapses paths to the canonical {focus} shape", () => {
     useFilesStore.getState().selectAllVisible(WS, flatPaths);
     useFilesStore.getState().clearToFocus(WS);
     const s = useFilesStore.getState();
     // Focus stays at the last item selected by selectAll
     expect(selectFocus(s, WS)).toBe("/r/e");
-    // paths cleared
-    for (const p of flatPaths) {
+    // Only the focused path remains selected (matches singleSelection shape).
+    expect(selectIsSelected(s, WS, "/r/e")).toBe(true);
+    for (const p of flatPaths.filter((p) => p !== "/r/e")) {
       expect(selectIsSelected(s, WS, p)).toBe(false);
     }
   });

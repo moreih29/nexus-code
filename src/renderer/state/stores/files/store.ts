@@ -5,6 +5,7 @@ import {
   emptySelection,
   extendSelection,
   selectAll,
+  selectAllHierarchical,
   singleSelection,
   toggleInSelection,
 } from "./selection";
@@ -36,8 +37,15 @@ export const useFilesStore = create<FilesState>((set, get) => {
     setSingleSelection(workspaceId, path) {
       set((state) => {
         const cur = state.selection.get(workspaceId);
-        // No-op when focus already equals path and paths is empty (stable reference).
-        if (cur && cur.focus === path && cur.paths.size === 0 && cur.anchor === path) {
+        // No-op when paths already equals exactly {path} with focus/anchor on it
+        // (stable reference; matches the post-Fix shape of singleSelection).
+        if (
+          cur &&
+          cur.focus === path &&
+          cur.anchor === path &&
+          cur.paths.size === 1 &&
+          cur.paths.has(path)
+        ) {
           return state;
         }
         const next = new Map(state.selection);
@@ -72,12 +80,33 @@ export const useFilesStore = create<FilesState>((set, get) => {
       });
     },
 
+    selectAllVisibleHierarchical(workspaceId, flatPaths, rootAbsPath) {
+      set((state) => {
+        const cur = state.selection.get(workspaceId) ?? emptySelection();
+        const next = new Map(state.selection);
+        next.set(workspaceId, selectAllHierarchical(cur, flatPaths, rootAbsPath));
+        return { selection: next };
+      });
+    },
+
     clearToFocus(workspaceId) {
       set((state) => {
         const cur = state.selection.get(workspaceId);
-        if (!cur || (cur.paths.size === 0 && cur.anchor === cur.focus)) return state;
+        if (!cur) return state;
+        // Already in the canonical single-selection shape — no-op.
+        if (
+          cur.focus !== null &&
+          cur.anchor === cur.focus &&
+          cur.paths.size === 1 &&
+          cur.paths.has(cur.focus)
+        ) {
+          return state;
+        }
         const next = new Map(state.selection);
-        const cleared: FileSelection = { focus: cur.focus, anchor: cur.focus, paths: new Set() };
+        const cleared: FileSelection =
+          cur.focus !== null
+            ? singleSelection(cur.focus)
+            : { focus: null, anchor: null, paths: new Set() };
         next.set(workspaceId, cleared);
         return { selection: next };
       });

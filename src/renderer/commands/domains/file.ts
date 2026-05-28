@@ -165,10 +165,11 @@ export function registerFileCommands(): Array<() => void> {
       filesState.requestRename(path);
     }),
 
-    // Delete / Backspace — 파일트리 포커스 상태에서 현재 행(들) 삭제.
+    // Backspace — 파일트리 포커스 상태에서 현재 행(들) 삭제.
+    //   local 워크스페이스: 휴지통으로 이동(복구 가능).
+    //   SSH 워크스페이스: 원격 휴지통이 없으므로 영구 삭제(confirm-delete가 자체 분기).
     // when:"fileTreeFocus && !inputFocus" 조건이 dispatcher 레벨에서 edit-row
     // 입력 중 발화를 막는다. 핸들러에서도 root / missing-node guard를 유지한다.
-    // Phase C: selectOperablePaths가 selection.paths를 distinctParents로 줄인 후 반환.
     registerCommand(COMMANDS.fileDelete, () => {
       const wsId = useActiveStore.getState().activeWorkspaceId;
       if (!wsId) return;
@@ -179,11 +180,29 @@ export function registerFileCommands(): Array<() => void> {
       const paths = selectOperablePaths(filesState, wsId);
       if (paths.length === 0) return;
 
-      // 워크스페이스 루트는 삭제 불가 — root가 paths에 들어오는 경우를 방어.
       const deletable = paths.filter((p) => p !== tree.rootAbsPath && tree.nodes.has(p));
       if (deletable.length === 0) return;
 
       confirmAndDeleteBatch(wsId, tree.rootAbsPath, deletable).catch(() => {});
+    }),
+
+    // Cmd+Backspace — 영구 삭제(휴지통 우회). local·SSH 모두 동일하게 적용.
+    registerCommand(COMMANDS.fileDeletePermanent, () => {
+      const wsId = useActiveStore.getState().activeWorkspaceId;
+      if (!wsId) return;
+      const filesState = useFilesStore.getState();
+      const tree = filesState.trees.get(wsId);
+      if (!tree) return;
+
+      const paths = selectOperablePaths(filesState, wsId);
+      if (paths.length === 0) return;
+
+      const deletable = paths.filter((p) => p !== tree.rootAbsPath && tree.nodes.has(p));
+      if (deletable.length === 0) return;
+
+      confirmAndDeleteBatch(wsId, tree.rootAbsPath, deletable, { forcePermanent: true }).catch(
+        () => {},
+      );
     }),
   ];
 }

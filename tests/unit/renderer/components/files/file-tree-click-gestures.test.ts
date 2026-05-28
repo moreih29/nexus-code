@@ -90,11 +90,13 @@ beforeEach(resetStore);
 // ---------------------------------------------------------------------------
 
 describe("handleRowClick — plain click", () => {
-  it("plain click on file → single-selects", () => {
+  it("plain click on file → single-selects (paths seeded with clicked path)", () => {
     handleRowClick(PATHS[1], "file", makeMouseEvent(), PATHS);
     const s = useFilesStore.getState();
     expect(selectFocus(s, WS)).toBe(PATHS[1]);
-    expect(selectIsSelected(s, WS, PATHS[1])).toBe(false); // paths is empty on single
+    // singleSelection now puts the clicked path in paths so Cmd-click
+    // can extend correctly. Any other prior path is gone.
+    expect(selectIsSelected(s, WS, PATHS[1])).toBe(true);
     expect(selectIsSelected(s, WS, PATHS[0])).toBe(false);
   });
 

@@ -154,6 +154,7 @@ export function FileTreeVirtualBody({
               isSelected={isPathSelected(item.absPath)}
               isFocused={item.absPath === activeAbsPath}
               isCut={isPathCut(item.absPath)}
+              isRoot={item.absPath === tree?.rootAbsPath}
               isLoading={tree?.loading.has(item.absPath) ?? false}
               decoration={decoration}
               isIgnored={isIgnored}

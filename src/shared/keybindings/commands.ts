@@ -28,10 +28,17 @@ export const COMMANDS = {
   // `when: "fileTreeFocus && !inputFocus"` — does not fire while an
   // edit row (create/rename input) is already active.
   fileRename: "file.rename",
-  // Delete the focused file-tree row (Delete / Backspace). Scoped via
-  // `when: "fileTreeFocus && !inputFocus"` — CRITICAL: `!inputFocus` 조건이
-  // 없으면 edit-row 입력 도중 Delete가 부모 행 삭제를 유발해 데이터 손실.
+  // Delete the focused file-tree row(s). Two variants:
+  //   - `fileDelete` (Backspace): local → OS Trash (recoverable);
+  //     SSH → permanent (no remote trash exists).
+  //   - `fileDeletePermanent` (Cmd+Backspace): always permanent, both
+  //     local and SSH. Mirrors macOS Finder's "⌫ → Trash, ⌘⌫ → Empty"
+  //     gesture pair adapted for our remote-aware deletion.
+  // Both are scoped via `when: "fileTreeFocus && !inputFocus"` — CRITICAL:
+  // `!inputFocus` 조건이 없으면 edit-row 입력 도중 Delete가 부모 행 삭제를
+  // 유발해 데이터 손실.
   fileDelete: "file.delete",
+  fileDeletePermanent: "file.deletePermanent",
   // File clipboard cut/copy/paste (Mac: Cmd+Option+V = Move Item Here).
   fileCopy: "file.copy",
   fileCut: "file.cut",

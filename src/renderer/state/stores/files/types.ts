@@ -71,8 +71,19 @@ export interface FilesState {
   toggleSelection(workspaceId: string, path: string): void;
   /** Shift+click / Shift+Arrow: extend range from anchor to target. */
   extendSelectionTo(workspaceId: string, target: string, flatPaths: readonly string[]): void;
-  /** Cmd+A: select all visible rows. */
+  /** Cmd+A: select all visible rows (single press, flat ceiling). */
   selectAllVisible(workspaceId: string, flatPaths: readonly string[]): void;
+  /**
+   * Cmd+A (hierarchical, VSCode parity): each press widens the scope by
+   * one level — focused row's siblings → that scope's siblings → ... → all
+   * visible rows. Resets to focused-siblings when sel.paths doesn't already
+   * cover the candidate scope.
+   */
+  selectAllVisibleHierarchical(
+    workspaceId: string,
+    flatPaths: readonly string[],
+    rootAbsPath: string,
+  ): void;
   /** Escape: keep focus, wipe paths/anchor. */
   clearToFocus(workspaceId: string): void;
   /** Move focus without changing the selected set (modifier-free arrow). */

@@ -223,33 +223,43 @@ afterEach(() => {
 // 1. KEYBINDINGS 테이블 검사
 // ---------------------------------------------------------------------------
 
-describe("KEYBINDINGS 테이블 — fileDelete", () => {
-  // Policy: delete is PERMANENT (no trash recovery), so we require the
-  // explicit Cmd-modifier gesture. Plain Delete / Backspace must NOT trigger
-  // the destructive operation — a stray keypress should be inert.
-  it("Cmd+Backspace primary 바인딩이 KEYBINDINGS에 등록됨", () => {
+describe("KEYBINDINGS 테이블 — fileDelete / fileDeletePermanent", () => {
+  // Policy update: paired gesture for trash-aware deletion.
+  //   Backspace     → fileDelete (local = trash, SSH = permanent)
+  //   Cmd+Backspace → fileDeletePermanent (always permanent)
+  it("Backspace primary 바인딩이 fileDelete 에 등록됨", () => {
     const decl = KEYBINDINGS.find(
-      (k) => k.command === COMMANDS.fileDelete && k.primary === "Cmd+Backspace",
+      (k) => k.command === COMMANDS.fileDelete && k.primary === "Backspace",
+    );
+    expect(decl).not.toBeUndefined();
+  });
+
+  it("Backspace when 조건이 정확히 'fileTreeFocus && !inputFocus' 이다", () => {
+    const decl = KEYBINDINGS.find(
+      (k) => k.command === COMMANDS.fileDelete && k.primary === "Backspace",
+    );
+    expect(decl?.when).toBe("fileTreeFocus && !inputFocus");
+  });
+
+  it("Cmd+Backspace primary 바인딩이 fileDeletePermanent 에 등록됨", () => {
+    const decl = KEYBINDINGS.find(
+      (k) => k.command === COMMANDS.fileDeletePermanent && k.primary === "Cmd+Backspace",
     );
     expect(decl).not.toBeUndefined();
   });
 
   it("Cmd+Backspace when 조건이 정확히 'fileTreeFocus && !inputFocus' 이다", () => {
     const decl = KEYBINDINGS.find(
-      (k) => k.command === COMMANDS.fileDelete && k.primary === "Cmd+Backspace",
+      (k) => k.command === COMMANDS.fileDeletePermanent && k.primary === "Cmd+Backspace",
     );
     expect(decl?.when).toBe("fileTreeFocus && !inputFocus");
   });
 
-  it("plain Delete / Backspace 는 fileDelete 에 바인딩되지 않는다 (data-loss guard)", () => {
+  it("plain Delete 는 fileDelete 에 바인딩되지 않는다 (Backspace 단일 gesture)", () => {
     const plainDelete = KEYBINDINGS.find(
       (k) => k.command === COMMANDS.fileDelete && k.primary === "Delete",
     );
-    const plainBackspace = KEYBINDINGS.find(
-      (k) => k.command === COMMANDS.fileDelete && k.primary === "Backspace",
-    );
     expect(plainDelete).toBeUndefined();
-    expect(plainBackspace).toBeUndefined();
   });
 });
 
@@ -448,10 +458,21 @@ describe("confirmAndDeletePath helper — workspace kind branching", () => {
 // 7. dispatcher: when 조건에 의한 scoping
 // ---------------------------------------------------------------------------
 
-describe("dispatcher — Cmd+Backspace when 조건 scoping", () => {
-  it("tree 안에서 Cmd+Backspace → file.delete 커맨드가 발화한다", () => {
+describe("dispatcher — Backspace / Cmd+Backspace when 조건 scoping", () => {
+  it("tree 안에서 plain Backspace → file.delete (휴지통) 커맨드가 발화한다", () => {
     const deleteFn = mock(() => {});
     registerCommand(COMMANDS.fileDelete, deleteFn as () => void);
+
+    const e = makeEvent("Backspace", { code: "Backspace", target: treeTarget() });
+    handleGlobalKeyDown(e);
+
+    expect(deleteFn).toHaveBeenCalledTimes(1);
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  it("tree 안에서 Cmd+Backspace → file.deletePermanent 커맨드가 발화한다", () => {
+    const permanentFn = mock(() => {});
+    registerCommand(COMMANDS.fileDeletePermanent, permanentFn as () => void);
 
     const e = makeEvent("Backspace", {
       code: "Backspace",
@@ -460,18 +481,8 @@ describe("dispatcher — Cmd+Backspace when 조건 scoping", () => {
     });
     handleGlobalKeyDown(e);
 
-    expect(deleteFn).toHaveBeenCalledTimes(1);
+    expect(permanentFn).toHaveBeenCalledTimes(1);
     expect(e.defaultPrevented).toBe(true);
-  });
-
-  it("plain Backspace (modifier 없음) → 발화 안 함 (data-loss guard)", () => {
-    const deleteFn = mock(() => {});
-    registerCommand(COMMANDS.fileDelete, deleteFn as () => void);
-
-    const e = makeEvent("Backspace", { code: "Backspace", target: treeTarget() });
-    handleGlobalKeyDown(e);
-
-    expect(deleteFn).not.toHaveBeenCalled();
   });
 
   it("plain Delete (modifier 없음) → 발화 안 함 (data-loss guard)", () => {

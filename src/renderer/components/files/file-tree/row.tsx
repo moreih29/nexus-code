@@ -63,6 +63,12 @@ interface FileTreeRowProps {
   isFocused?: boolean;
   isLoading?: boolean;
   /**
+   * True when this row represents the workspace root. The root is never
+   * draggable — drag-source semantics for the workspace itself have no
+   * destination. Directories OTHER than the root are draggable like files.
+   */
+  isRoot?: boolean;
+  /**
    * Git decoration kind for this row, if any. Files surface a colored
    * letter chip; directories surface only the propagated chip (no name
    * recoloring) so deep trees do not feel noisy (design.md §1 — color
@@ -106,6 +112,7 @@ export function FileTreeRow({
   isSelected,
   isFocused = false,
   isLoading = false,
+  isRoot = false,
   decoration,
   isIgnored = false,
   isCut = false,
@@ -122,8 +129,9 @@ export function FileTreeRow({
   // and aligns vertically across the tree regardless of nesting depth.
   const TypeIcon = isDir ? (isExpanded ? FOLDER_OPEN_ICON : FOLDER_ICON) : getFileIcon(node.name);
 
-  // Drag source — files only. Directories aren't draggable; opening "the
-  // folder" as an editor tab has no semantics.
+  // Drag source — everything except the workspace root. Directories are
+  // draggable (move/copy a folder into another folder); the root is the
+  // only exception because it has no meaningful destination.
   //
   // Phase E: payload and drag-image label are resolved at dragstart time so
   // they reflect the current multi-selection state:
@@ -206,9 +214,9 @@ export function FileTreeRow({
       // directory drop target and which path to drop into.
       data-file-tree-row-type={node.type}
       data-file-tree-row-path={absPath}
-      draggable={!isDir}
-      onDragStart={isDir ? undefined : handleDragStart}
-      onDragEnd={isDir ? undefined : () => setIsDragging(false)}
+      draggable={!isRoot}
+      onDragStart={isRoot ? undefined : handleDragStart}
+      onDragEnd={isRoot ? undefined : () => setIsDragging(false)}
       style={{ paddingLeft: indentPaddingLeft(depth), height: ROW_HEIGHT_PX }}
       className={cn(
         "flex items-center w-full text-left cursor-pointer select-none",

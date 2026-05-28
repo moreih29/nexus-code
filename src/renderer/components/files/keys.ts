@@ -96,10 +96,13 @@ export function createFileTreeKeydownHandler(
     const isMac = evaluateContextKey("isMac", ke);
     const isSelectAll = (isMac ? e.metaKey : e.ctrlKey) && e.key === "a";
 
-    // Cmd/Ctrl+A — select all visible rows.
+    // Cmd/Ctrl+A — hierarchical select-all (VSCode parity).
+    // First press: focused row's siblings + their visible descendants.
+    // Subsequent presses widen one level until the workspace root is reached
+    // (final ceiling = the entire flat list).
     if (isSelectAll) {
       e.preventDefault();
-      useFilesStore.getState().selectAllVisible(workspaceId, flatPaths);
+      useFilesStore.getState().selectAllVisibleHierarchical(workspaceId, flatPaths, rootAbsPath);
       return;
     }
 
