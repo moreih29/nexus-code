@@ -79,13 +79,15 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
   // double-fire when the rename/create edit row is already open.
   { command: COMMANDS.fileRename, primary: "F2", when: "fileTreeFocus && !inputFocus" },
 
-  // Delete the focused file-tree row(s). Single Backspace gesture:
+  // Delete the focused file-tree row(s). macOS Finder parity — Cmd+Backspace,
+  // not plain Backspace (which would clash with the convention that ⌫ alone
+  // is "edit text" everywhere else on the platform):
   //   - local workspace → move to Trash (recoverable).
   //   - SSH workspace   → permanent delete (no remote trash exists).
   // CRITICAL: `!inputFocus` is the data-loss guard for an open edit-row.
   {
     command: COMMANDS.fileDelete,
-    primary: "Backspace",
+    primary: "Cmd+Backspace",
     when: "fileTreeFocus && !inputFocus",
   },
 

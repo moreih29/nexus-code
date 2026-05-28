@@ -165,7 +165,7 @@ export function registerFileCommands(): Array<() => void> {
       filesState.requestRename(path);
     }),
 
-    // Backspace — 파일트리 포커스 상태에서 현재 행(들) 삭제.
+    // Cmd+Backspace — 파일트리 포커스 상태에서 현재 행(들) 삭제 (macOS Finder parity).
     //   local 워크스페이스: 휴지통으로 이동(복구 가능).
     //   SSH 워크스페이스: 원격 휴지통이 없으므로 영구 삭제(confirm-delete가 자체 분기).
     // when:"fileTreeFocus && !inputFocus" 조건이 dispatcher 레벨에서 edit-row
