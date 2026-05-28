@@ -50,6 +50,32 @@ export function buildFileTreeMenuItems(
     items.push({ kind: "separator" });
   }
 
+  // Clipboard group (VSCode parity). Cut/Copy act on the right-clicked entry;
+  // Paste drops into the folder (or the file's parent). Paste is disabled when
+  // the file clipboard is empty.
+  if (!isRoot) {
+    items.push({
+      kind: "item",
+      label: "Cut",
+      shortcut: SHORTCUTS.fileCut || undefined,
+      onSelect: actions.cut,
+    });
+    items.push({
+      kind: "item",
+      label: "Copy",
+      shortcut: SHORTCUTS.fileCopy || undefined,
+      onSelect: actions.copy,
+    });
+  }
+  items.push({
+    kind: "item",
+    label: "Paste",
+    shortcut: SHORTCUTS.filePaste || undefined,
+    disabled: !actions.canPaste,
+    onSelect: actions.paste,
+  });
+  items.push({ kind: "separator" });
+
   if (!isRoot) {
     items.push({
       kind: "item",

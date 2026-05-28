@@ -65,20 +65,21 @@ mock.module("../../../../src/renderer/components/ui/confirm-dialog", () => ({
 // 임포트 (shim 설치 후)
 // ---------------------------------------------------------------------------
 
+import { registerFileCommands } from "../../../../src/renderer/commands/domains/file";
 import {
   __resetCommandsForTests,
   registerCommand,
 } from "../../../../src/renderer/commands/registry";
-import { registerFileCommands } from "../../../../src/renderer/commands/domains/file";
 import {
   __resetChordStateForTests,
   handleGlobalKeyDown,
 } from "../../../../src/renderer/keybindings/dispatcher";
-import { useFilesStore } from "../../../../src/renderer/state/stores/files";
+import { confirmAndDeletePath } from "../../../../src/renderer/services/fs-mutations/confirm-delete";
 import { useActiveStore } from "../../../../src/renderer/state/stores/active";
+import { useFilesStore } from "../../../../src/renderer/state/stores/files";
+import { useWorkspacesStore } from "../../../../src/renderer/state/stores/workspaces";
 import { COMMANDS } from "../../../../src/shared/keybindings/commands";
 import { KEYBINDINGS } from "../../../../src/shared/keybindings/index";
-import { confirmAndDeletePath } from "../../../../src/renderer/services/fs-mutations/confirm-delete";
 
 // ---------------------------------------------------------------------------
 // 헬퍼
@@ -118,8 +119,7 @@ function treeTarget(): HTMLElement {
   return {
     tagName: "DIV",
     isContentEditable: false,
-    closest: (sel: string) =>
-      sel === '[role="tree"]' ? ({} as HTMLElement) : null,
+    closest: (sel: string) => (sel === '[role="tree"]' ? ({} as HTMLElement) : null),
   } as unknown as HTMLElement;
 }
 
@@ -128,8 +128,7 @@ function treeInputTarget(): HTMLElement {
   return {
     tagName: "INPUT",
     isContentEditable: false,
-    closest: (sel: string) =>
-      sel === '[role="tree"]' ? ({} as HTMLElement) : null,
+    closest: (sel: string) => (sel === '[role="tree"]' ? ({} as HTMLElement) : null),
   } as unknown as HTMLElement;
 }
 
@@ -154,16 +153,41 @@ function resetStores() {
     pendingRenameRequest: null,
   });
   useActiveStore.setState({ activeWorkspaceId: null });
+  useWorkspacesStore.setState({ workspaces: [] });
+}
+
+/**
+ * Seed the workspaces store with a single workspace whose location.kind
+ * drives the delete-routing branch in `confirmAndDeletePath`:
+ *   - "local" → fs.trash
+ *   - "ssh"   → fs.unlink / fs.removeAll
+ */
+function seedWorkspaceKind(kind: "local" | "ssh"): void {
+  const location =
+    kind === "local"
+      ? { kind: "local" as const, rootPath: ROOT }
+      : { kind: "ssh" as const, host: "dev.example.com", remotePath: ROOT };
+  useWorkspacesStore.setState({
+    workspaces: [
+      {
+        id: WS_ID,
+        name: "ws",
+        rootPath: ROOT,
+        location,
+        colorTone: "default",
+        pinned: false,
+        tabs: [],
+        sortOrder: 0,
+        pinnedSortOrder: 0,
+      } as never,
+    ],
+  });
 }
 
 function initWorkspace(activePath: string = FILE_PATH) {
   useFilesStore.getState().initTree(WS_ID, ROOT, []);
-  useFilesStore.getState().setChildren(WS_ID, ROOT, [
-    { name: "src", type: "dir" },
-  ]);
-  useFilesStore.getState().setChildren(WS_ID, DIR_PATH, [
-    { name: "index.ts", type: "file" },
-  ]);
+  useFilesStore.getState().setChildren(WS_ID, ROOT, [{ name: "src", type: "dir" }]);
+  useFilesStore.getState().setChildren(WS_ID, DIR_PATH, [{ name: "index.ts", type: "file" }]);
   useFilesStore.getState().setActiveAbsPath(WS_ID, activePath);
   useActiveStore.setState({ activeWorkspaceId: WS_ID });
 }
@@ -200,32 +224,32 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("KEYBINDINGS 테이블 — fileDelete", () => {
-  it("Delete primary 바인딩이 KEYBINDINGS에 등록됨", () => {
+  // Policy: delete is PERMANENT (no trash recovery), so we require the
+  // explicit Cmd-modifier gesture. Plain Delete / Backspace must NOT trigger
+  // the destructive operation — a stray keypress should be inert.
+  it("Cmd+Backspace primary 바인딩이 KEYBINDINGS에 등록됨", () => {
     const decl = KEYBINDINGS.find(
-      (k) => k.command === COMMANDS.fileDelete && k.primary === "Delete",
+      (k) => k.command === COMMANDS.fileDelete && k.primary === "Cmd+Backspace",
     );
     expect(decl).not.toBeUndefined();
   });
 
-  it("Backspace primary 바인딩이 KEYBINDINGS에 등록됨", () => {
+  it("Cmd+Backspace when 조건이 정확히 'fileTreeFocus && !inputFocus' 이다", () => {
     const decl = KEYBINDINGS.find(
-      (k) => k.command === COMMANDS.fileDelete && k.primary === "Backspace",
+      (k) => k.command === COMMANDS.fileDelete && k.primary === "Cmd+Backspace",
     );
-    expect(decl).not.toBeUndefined();
+    expect(decl?.when).toBe("fileTreeFocus && !inputFocus");
   });
 
-  it("Delete when 조건이 정확히 'fileTreeFocus && !inputFocus' 이다", () => {
-    const decl = KEYBINDINGS.find(
+  it("plain Delete / Backspace 는 fileDelete 에 바인딩되지 않는다 (data-loss guard)", () => {
+    const plainDelete = KEYBINDINGS.find(
       (k) => k.command === COMMANDS.fileDelete && k.primary === "Delete",
     );
-    expect(decl?.when).toBe("fileTreeFocus && !inputFocus");
-  });
-
-  it("Backspace when 조건이 정확히 'fileTreeFocus && !inputFocus' 이다", () => {
-    const decl = KEYBINDINGS.find(
+    const plainBackspace = KEYBINDINGS.find(
       (k) => k.command === COMMANDS.fileDelete && k.primary === "Backspace",
     );
-    expect(decl?.when).toBe("fileTreeFocus && !inputFocus");
+    expect(plainDelete).toBeUndefined();
+    expect(plainBackspace).toBeUndefined();
   });
 });
 
@@ -241,12 +265,24 @@ describe("fileDelete 핸들러 — wsId 없으면 no-op", () => {
       initWorkspace();
       useActiveStore.setState({ activeWorkspaceId: null });
 
-      const e = makeEvent("Delete", { code: "Delete", target: treeTarget() });
+      const e = makeEvent("Backspace", {
+        code: "Backspace",
+        target: treeTarget(),
+        metaKey: true,
+      });
       handleGlobalKeyDown(e);
       // 비동기 핸들러가 있으므로 tick 대기
       await new Promise((r) => setTimeout(r, 10));
 
-      expect(ipcCalls.filter((c) => c.method === "unlink" || c.method === "rmdir")).toHaveLength(0);
+      expect(
+        ipcCalls.filter(
+          (c) =>
+            c.method === "trash" ||
+            c.method === "unlink" ||
+            c.method === "rmdir" ||
+            c.method === "removeAll",
+        ),
+      ).toHaveLength(0);
     } finally {
       unregisters.forEach((u) => u());
     }
@@ -265,11 +301,23 @@ describe("fileDelete 핸들러 — activeAbsPath 없으면 no-op", () => {
       // 활성 경로를 null로 리셋
       useFilesStore.getState().setActiveAbsPath(WS_ID, null);
 
-      const e = makeEvent("Delete", { code: "Delete", target: treeTarget() });
+      const e = makeEvent("Backspace", {
+        code: "Backspace",
+        target: treeTarget(),
+        metaKey: true,
+      });
       handleGlobalKeyDown(e);
       await new Promise((r) => setTimeout(r, 10));
 
-      expect(ipcCalls.filter((c) => c.method === "unlink" || c.method === "rmdir")).toHaveLength(0);
+      expect(
+        ipcCalls.filter(
+          (c) =>
+            c.method === "trash" ||
+            c.method === "unlink" ||
+            c.method === "rmdir" ||
+            c.method === "removeAll",
+        ),
+      ).toHaveLength(0);
     } finally {
       unregisters.forEach((u) => u());
     }
@@ -286,11 +334,23 @@ describe("fileDelete 핸들러 — root 경로이면 no-op", () => {
     try {
       initWorkspace(ROOT); // 활성 경로 = 루트
 
-      const e = makeEvent("Delete", { code: "Delete", target: treeTarget() });
+      const e = makeEvent("Backspace", {
+        code: "Backspace",
+        target: treeTarget(),
+        metaKey: true,
+      });
       handleGlobalKeyDown(e);
       await new Promise((r) => setTimeout(r, 10));
 
-      expect(ipcCalls.filter((c) => c.method === "unlink" || c.method === "rmdir")).toHaveLength(0);
+      expect(
+        ipcCalls.filter(
+          (c) =>
+            c.method === "trash" ||
+            c.method === "unlink" ||
+            c.method === "rmdir" ||
+            c.method === "removeAll",
+        ),
+      ).toHaveLength(0);
     } finally {
       unregisters.forEach((u) => u());
     }
@@ -302,13 +362,22 @@ describe("fileDelete 핸들러 — root 경로이면 no-op", () => {
 // ---------------------------------------------------------------------------
 
 describe("confirmAndDeletePath helper — confirm cancel", () => {
-  it("confirm이 false를 반환하면 unlink/rmdir가 호출되지 않는다", async () => {
+  it("confirm이 false를 반환하면 trash/unlink/rmdir/removeAll 모두 호출되지 않는다", async () => {
     confirmDialogResult = false;
+    seedWorkspaceKind("local");
 
     const result = await confirmAndDeletePath(WS_ID, ROOT, FILE_PATH, "file");
 
     expect(result).toBe(false);
-    expect(ipcCalls.filter((c) => c.method === "unlink" || c.method === "rmdir" || c.method === "removeAll")).toHaveLength(0);
+    expect(
+      ipcCalls.filter(
+        (c) =>
+          c.method === "trash" ||
+          c.method === "unlink" ||
+          c.method === "rmdir" ||
+          c.method === "removeAll",
+      ),
+    ).toHaveLength(0);
   });
 });
 
@@ -316,26 +385,62 @@ describe("confirmAndDeletePath helper — confirm cancel", () => {
 // 6. helper: file vs dir 분기
 // ---------------------------------------------------------------------------
 
-describe("confirmAndDeletePath helper — file vs dir 분기", () => {
-  it("nodeType='file'이면 fs.unlink 호출", async () => {
+describe("confirmAndDeletePath helper — workspace kind branching", () => {
+  it("local workspace + nodeType='file' → fs.trash (recoverable via OS Trash)", async () => {
     confirmDialogResult = true;
+    seedWorkspaceKind("local");
+
+    await confirmAndDeletePath(WS_ID, ROOT, FILE_PATH, "file");
+
+    const trashCall = ipcCalls.find((c) => c.channel === "fs" && c.method === "trash");
+    expect(trashCall).toBeDefined();
+    expect((trashCall?.args as { relPath: string }).relPath).toBe("src/index.ts");
+    // No permanent-delete fallback on the local path.
+    expect(ipcCalls.some((c) => c.method === "unlink")).toBe(false);
+  });
+
+  it("local workspace + nodeType='dir' → fs.trash (entire subtree to Trash)", async () => {
+    confirmDialogResult = true;
+    seedWorkspaceKind("local");
+    ipcCalls.length = 0;
+
+    await confirmAndDeletePath(WS_ID, ROOT, DIR_PATH, "dir");
+
+    const trashCall = ipcCalls.find((c) => c.channel === "fs" && c.method === "trash");
+    expect(trashCall).toBeDefined();
+    expect((trashCall?.args as { relPath: string }).relPath).toBe("src");
+    expect(ipcCalls.some((c) => c.method === "removeAll")).toBe(false);
+  });
+
+  it("ssh workspace + nodeType='file' → fs.unlink (no remote trash, permanent)", async () => {
+    confirmDialogResult = true;
+    seedWorkspaceKind("ssh");
 
     await confirmAndDeletePath(WS_ID, ROOT, FILE_PATH, "file");
 
     const unlinkCall = ipcCalls.find((c) => c.channel === "fs" && c.method === "unlink");
     expect(unlinkCall).toBeDefined();
     expect((unlinkCall?.args as { relPath: string }).relPath).toBe("src/index.ts");
+    expect(ipcCalls.some((c) => c.method === "trash")).toBe(false);
   });
 
-  it("nodeType='dir'이면 fs.rmdir 호출 (removeDir → rmdir first)", async () => {
+  it("ssh workspace + nodeType='dir' → fs.removeAll (recursive, permanent)", async () => {
+    // The user has already confirmed the "this cannot be undone" prompt, so
+    // removeDir goes straight to removeAll. rmdir was removed to silence the
+    // noisy NOT_EMPTY / NOT_FOUND `ipcMain.handle` log on every non-trivial
+    // folder delete.
     confirmDialogResult = true;
+    seedWorkspaceKind("ssh");
     ipcCalls.length = 0;
 
     await confirmAndDeletePath(WS_ID, ROOT, DIR_PATH, "dir");
 
     const rmdirCall = ipcCalls.find((c) => c.channel === "fs" && c.method === "rmdir");
-    expect(rmdirCall).toBeDefined();
-    expect((rmdirCall?.args as { relPath: string }).relPath).toBe("src");
+    expect(rmdirCall).toBeUndefined();
+    const removeAllCall = ipcCalls.find((c) => c.channel === "fs" && c.method === "removeAll");
+    expect(removeAllCall).toBeDefined();
+    expect((removeAllCall?.args as { relPath: string }).relPath).toBe("src");
+    expect(ipcCalls.some((c) => c.method === "trash")).toBe(false);
   });
 });
 
@@ -343,54 +448,65 @@ describe("confirmAndDeletePath helper — file vs dir 분기", () => {
 // 7. dispatcher: when 조건에 의한 scoping
 // ---------------------------------------------------------------------------
 
-describe("dispatcher — Delete/Backspace when 조건 scoping", () => {
-  it("tree 안에서 Delete → file.delete 커맨드가 발화한다", () => {
+describe("dispatcher — Cmd+Backspace when 조건 scoping", () => {
+  it("tree 안에서 Cmd+Backspace → file.delete 커맨드가 발화한다", () => {
     const deleteFn = mock(() => {});
     registerCommand(COMMANDS.fileDelete, deleteFn as () => void);
 
-    const e = makeEvent("Delete", { code: "Delete", target: treeTarget() });
+    const e = makeEvent("Backspace", {
+      code: "Backspace",
+      target: treeTarget(),
+      metaKey: true,
+    });
     handleGlobalKeyDown(e);
 
     expect(deleteFn).toHaveBeenCalledTimes(1);
     expect(e.defaultPrevented).toBe(true);
   });
 
-  it("tree 안에서 Backspace → file.delete 커맨드가 발화한다", () => {
+  it("plain Backspace (modifier 없음) → 발화 안 함 (data-loss guard)", () => {
     const deleteFn = mock(() => {});
     registerCommand(COMMANDS.fileDelete, deleteFn as () => void);
 
     const e = makeEvent("Backspace", { code: "Backspace", target: treeTarget() });
     handleGlobalKeyDown(e);
 
-    expect(deleteFn).toHaveBeenCalledTimes(1);
-    expect(e.defaultPrevented).toBe(true);
+    expect(deleteFn).not.toHaveBeenCalled();
   });
 
-  it("tree 안의 INPUT에서 Delete → 발화 안 함 (inputFocus=true)", () => {
+  it("plain Delete (modifier 없음) → 발화 안 함 (data-loss guard)", () => {
     const deleteFn = mock(() => {});
     registerCommand(COMMANDS.fileDelete, deleteFn as () => void);
 
-    const e = makeEvent("Delete", { code: "Delete", target: treeInputTarget() });
+    const e = makeEvent("Delete", { code: "Delete", target: treeTarget() });
     handleGlobalKeyDown(e);
 
     expect(deleteFn).not.toHaveBeenCalled();
   });
 
-  it("tree 안의 INPUT에서 Backspace → 발화 안 함 (inputFocus=true)", () => {
+  it("tree 안의 INPUT에서 Cmd+Backspace → 발화 안 함 (inputFocus=true)", () => {
     const deleteFn = mock(() => {});
     registerCommand(COMMANDS.fileDelete, deleteFn as () => void);
 
-    const e = makeEvent("Backspace", { code: "Backspace", target: treeInputTarget() });
+    const e = makeEvent("Backspace", {
+      code: "Backspace",
+      target: treeInputTarget(),
+      metaKey: true,
+    });
     handleGlobalKeyDown(e);
 
     expect(deleteFn).not.toHaveBeenCalled();
   });
 
-  it("트리 바깥에서 Delete → 발화 안 함 (fileTreeFocus=false)", () => {
+  it("트리 바깥에서 Cmd+Backspace → 발화 안 함 (fileTreeFocus=false)", () => {
     const deleteFn = mock(() => {});
     registerCommand(COMMANDS.fileDelete, deleteFn as () => void);
 
-    const e = makeEvent("Delete", { code: "Delete", target: outsideTarget() });
+    const e = makeEvent("Backspace", {
+      code: "Backspace",
+      target: outsideTarget(),
+      metaKey: true,
+    });
     handleGlobalKeyDown(e);
 
     expect(deleteFn).not.toHaveBeenCalled();
@@ -418,6 +534,14 @@ describe("use-file-tree-actions 회귀 — isRoot 대상 no-op", () => {
     ipcCalls.length = 0;
     await actions.delete();
 
-    expect(ipcCalls.filter((c) => c.method === "unlink" || c.method === "rmdir")).toHaveLength(0);
+    expect(
+      ipcCalls.filter(
+        (c) =>
+          c.method === "trash" ||
+          c.method === "unlink" ||
+          c.method === "rmdir" ||
+          c.method === "removeAll",
+      ),
+    ).toHaveLength(0);
   });
 });

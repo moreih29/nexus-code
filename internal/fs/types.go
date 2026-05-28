@@ -132,15 +132,25 @@ type RmdirParams struct {
 }
 
 // RenameParams — fs.rename request shape.
+//
+// Overwrite mirrors CopyFileParams: by default an existing destination is
+// rejected (ALREADY_EXISTS); with Overwrite=true the caller has already
+// obtained user confirmation, so the destination is removed first.
 type RenameParams struct {
 	FromRelPath string `json:"fromRelPath"`
 	ToRelPath   string `json:"toRelPath"`
+	Overwrite   bool   `json:"overwrite,omitempty"`
 }
 
 // CopyFileParams — fs.copyFile request shape.
+//
+// Overwrite is opt-in: by default the destination must not exist (O_EXCL
+// semantics). When the caller has obtained explicit user confirmation it may
+// set Overwrite=true to replace an existing destination.
 type CopyFileParams struct {
-	SrcRelPath string `json:"srcRelPath"`
-	DstRelPath string `json:"dstRelPath"`
+	FromRelPath string `json:"fromRelPath"`
+	ToRelPath   string `json:"toRelPath"`
+	Overwrite   bool   `json:"overwrite,omitempty"`
 }
 
 // RemoveAllParams — fs.removeAll request shape.

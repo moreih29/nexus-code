@@ -19,9 +19,9 @@ import { useIgnoredStore } from "../../../state/stores/git/ignored";
 import { useLayoutStore } from "../../../state/stores/layout";
 import { useTabsStore } from "../../../state/stores/tabs";
 import { type FileTreeActionTarget, useFileTreeActions } from "../hooks/use-file-tree-actions";
+import { useFileTreeDropTarget } from "../hooks/use-file-tree-drop-target";
 import { useFileTreePendingCreate } from "../hooks/use-file-tree-pending-create";
 import { useFileTreePendingRename } from "../hooks/use-file-tree-pending-rename";
-import { useFileTreeDropTarget } from "../hooks/use-file-tree-drop-target";
 import { createFileTreeKeydownHandler } from "../keys";
 import { getDisplayFlat } from "./display";
 import { buildFileTreeMenuItems } from "./menu";
@@ -209,10 +209,21 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   // reveal()이 비동기로 children을 로드하면 flat이 변하면서 이 effect가 다시
   // 돌아 인덱스를 찾는다. flat에 아직 없는 경우 no-op이 되고, 다음 store
   // 업데이트(자식 로드 완료) 후 재시도된다.
+  //
+  // lastRevealedRef 가드: 이미 reveal한 에디터 경로는 다시 reveal하지 않는다.
+  // 가드가 없으면 사용자가 폴더를 클릭(→ toggleExpand로 flat 변경)하는 순간
+  // 이 effect가 재실행되어 activeIndex를 "열려 있는 에디터 파일"로 되돌리고,
+  // 동기화 effect가 store의 activeAbsPath까지 덮어써 수동 선택을 잃는다 —
+  // 복사/붙여넣기 타깃이 선택한 폴더가 아니라 에디터 파일의 부모(루트)로
+  // 잡히던 버그의 원인. idx<0(아직 flat에 없음)이면 ref를 갱신하지 않아
+  // 자식 로드 후 재시도된다.
+  const lastRevealedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!activeEditorAbsPath) return;
+    if (lastRevealedRef.current === activeEditorAbsPath) return;
     const idx = flat.findIndex((f) => f.absPath === activeEditorAbsPath);
     if (idx < 0) return;
+    lastRevealedRef.current = activeEditorAbsPath;
     setActiveIndexLocal(idx);
     virtualizer.scrollToIndex(idx, { align: "auto" });
   }, [activeEditorAbsPath, flat, virtualizer]);

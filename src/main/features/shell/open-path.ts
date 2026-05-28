@@ -25,6 +25,15 @@ type SystemPathResult =
 export interface SystemShell {
   openPath(absPath: string): Promise<string>;
   showItemInFolder(absPath: string): void;
+  /**
+   * Move a path to the operating system's recycle bin. Throws on
+   * permission or unknown errors. ENOENT (missing path) IS expected to
+   * throw on macOS / Linux — the trash handler treats it as a no-op so
+   * stale tree rows don't surface as user-facing errors.
+   *
+   * Electron's `shell.trashItem` (renderer + main) is the implementation.
+   */
+  trashItem(absPath: string): Promise<void>;
 }
 
 /**

@@ -113,6 +113,129 @@ describe("ensureRoot: initializes tree and calls IPC", () => {
     await expect(ensureRoot(WS_ID, ROOT)).resolves.toBeUndefined();
     expect(useFilesStore.getState().trees.get(WS_ID)).toBeDefined();
   });
+
+  it("prunes persisted rels whose fs.watch returns NOT_FOUND (stale-row cleanup)", async () => {
+    // Scenario: previous session persisted three expanded paths. The user
+    // deleted "stale" externally between sessions, so its watch fails
+    // NOT_FOUND. "good" still exists. After ensureRoot completes, the
+    // store must (a) drop "stale" from the in-memory expanded set and
+    // (b) persist a setExpanded payload that excludes "stale".
+    const setExpandedCalls: string[][] = [];
+
+    mockIpcCallResult.mockImplementation(
+      (
+        _ch: string,
+        method: string,
+        args: { workspaceId: string; relPath?: string; relPaths?: string[] },
+      ) => {
+        if (method === "getExpanded") {
+          return Promise.resolve({
+            ok: true as const,
+            value: { relPaths: ["good", "stale"] },
+          });
+        }
+        if (method === "readdir") {
+          // Root lists "good" (dir) but NOT "stale" — it was deleted on disk.
+          if (args.relPath === "") {
+            return Promise.resolve({
+              ok: true as const,
+              value: [{ name: "good", type: "dir" } as DirEntry],
+            });
+          }
+          if (args.relPath === "good") {
+            return Promise.resolve({ ok: true as const, value: [] });
+          }
+          return Promise.resolve({ ok: true as const, value: [] });
+        }
+        if (method === "watch") {
+          if (args.relPath === "stale") {
+            return Promise.resolve({
+              ok: false as const,
+              kind: "fs-error",
+              message: "NOT_FOUND: /test/workspace/stale",
+            });
+          }
+          return Promise.resolve({ ok: true as const, value: undefined });
+        }
+        if (method === "setExpanded") {
+          setExpandedCalls.push(args.relPaths ?? []);
+          return Promise.resolve({ ok: true as const, value: undefined });
+        }
+        return Promise.resolve({ ok: true as const, value: undefined });
+      },
+    );
+
+    await ensureRoot(WS_ID, ROOT);
+
+    // In-memory: "stale" abs path is gone, "good" remains.
+    const tree = useFilesStore.getState().trees.get(WS_ID);
+    expect(tree?.expanded.has(`${ROOT}/stale`)).toBe(false);
+    expect(tree?.expanded.has(`${ROOT}/good`)).toBe(true);
+
+    // Persisted: at least one prune-time setExpanded fired and excludes "stale".
+    expect(setExpandedCalls.length).toBeGreaterThan(0);
+    const lastSave = setExpandedCalls[setExpandedCalls.length - 1];
+    expect(lastSave).toContain("good");
+    expect(lastSave).not.toContain("stale");
+  });
+
+  it("does NOT prune on non-NOT_FOUND watch failures (transient permission etc.)", async () => {
+    // A PERMISSION_DENIED is a real failure but the file may exist —
+    // pruning would silently drop user-requested state. Only NOT_FOUND
+    // is the unambiguous "this is gone" signal.
+    const setExpandedCalls: string[][] = [];
+
+    mockIpcCallResult.mockImplementation(
+      (
+        _ch: string,
+        method: string,
+        args: { workspaceId: string; relPath?: string; relPaths?: string[] },
+      ) => {
+        if (method === "getExpanded") {
+          return Promise.resolve({
+            ok: true as const,
+            value: { relPaths: ["locked"] },
+          });
+        }
+        if (method === "readdir") {
+          if (args.relPath === "") {
+            return Promise.resolve({
+              ok: true as const,
+              value: [{ name: "locked", type: "dir" } as DirEntry],
+            });
+          }
+          return Promise.resolve({ ok: true as const, value: [] });
+        }
+        if (method === "watch") {
+          if (args.relPath === "locked") {
+            return Promise.resolve({
+              ok: false as const,
+              kind: "fs-error",
+              message: "PERMISSION_DENIED: /test/workspace/locked",
+            });
+          }
+          return Promise.resolve({ ok: true as const, value: undefined });
+        }
+        if (method === "setExpanded") {
+          setExpandedCalls.push(args.relPaths ?? []);
+          return Promise.resolve({ ok: true as const, value: undefined });
+        }
+        return Promise.resolve({ ok: true as const, value: undefined });
+      },
+    );
+
+    await ensureRoot(WS_ID, ROOT);
+
+    const tree = useFilesStore.getState().trees.get(WS_ID);
+    expect(tree?.expanded.has(`${ROOT}/locked`)).toBe(true);
+    // No prune-time setExpanded — only the (potentially zero) debounced
+    // saves from earlier should appear. We assert no save was issued from
+    // the prune branch by checking either nothing was saved or what was
+    // saved still includes "locked".
+    for (const save of setExpandedCalls) {
+      expect(save).toContain("locked");
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

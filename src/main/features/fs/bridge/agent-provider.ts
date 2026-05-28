@@ -1,16 +1,5 @@
 import { z } from "zod";
 import {
-  type DirEntry,
-  DirEntrySchema,
-  type ExpectedFileStateContract,
-  type FileReadResult,
-  FileReadResultSchema,
-  type FsStat,
-  FsStatSchema,
-  type WriteFileResult,
-  WriteFileResultSchema,
-} from "../../../../shared/fs/types";
-import {
   FS_COPY_FILE_METHOD,
   FS_CREATE_FILE_METHOD,
   FS_MKDIR_METHOD,
@@ -30,6 +19,17 @@ import {
   type FsUnlinkParams,
   type FsWriteFileParams,
 } from "../../../../shared/fs/protocol";
+import {
+  type DirEntry,
+  DirEntrySchema,
+  type ExpectedFileStateContract,
+  type FileReadResult,
+  FileReadResultSchema,
+  type FsStat,
+  FsStatSchema,
+  type WriteFileResult,
+  WriteFileResultSchema,
+} from "../../../../shared/fs/types";
 import type { SshErrorCode } from "../../../../shared/ssh/errors";
 import type { AgentChannel } from "../../../infra/agent/channel";
 import type { AgentBackedProvider } from "./provider";
@@ -109,17 +109,19 @@ export class AgentFsProvider implements AgentBackedProvider {
     await this.callAgent(FS_RMDIR_METHOD, { relPath } satisfies FsRmdirParams);
   }
 
-  async rename(fromRelPath: string, toRelPath: string): Promise<void> {
+  async rename(fromRelPath: string, toRelPath: string, overwrite?: boolean): Promise<void> {
     await this.callAgent(FS_RENAME_METHOD, {
       fromRelPath,
       toRelPath,
+      overwrite,
     } satisfies FsRenameParams);
   }
 
-  async copyFile(fromRelPath: string, toRelPath: string): Promise<void> {
+  async copyFile(fromRelPath: string, toRelPath: string, overwrite?: boolean): Promise<void> {
     await this.callAgent(FS_COPY_FILE_METHOD, {
       fromRelPath,
       toRelPath,
+      overwrite,
     } satisfies FsCopyFileParams);
   }
 

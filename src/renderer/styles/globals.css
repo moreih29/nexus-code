@@ -547,3 +547,22 @@
   height: auto;
   border-radius: var(--radius-control);
 }
+
+/* ---------------------------------------------------------------------------
+   File-tree drag & drop feedback
+   ---------------------------------------------------------------------------
+   The drop-target hook sets `data-file-tree-dnd-target` on the directory row
+   under the cursor, or on the tree container itself for a drop into the
+   workspace root (empty-space drop). Mirrors VSCode's `list.dropBackground`
+   treatment: a tinted background on the row plus an inset accent outline. */
+[role="treeitem"][data-file-tree-dnd-target] {
+  background-color: var(--state-drop-target-bg);
+  outline: 1px solid var(--state-selected-indicator);
+  outline-offset: -1px;
+  border-radius: var(--radius-control);
+}
+[role="tree"][data-file-tree-dnd-target] {
+  outline: 1px solid var(--state-selected-indicator);
+  outline-offset: -2px;
+  border-radius: var(--radius-control);
+}

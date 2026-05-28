@@ -7,16 +7,20 @@
 // React tree. A root may own one process-wide listener when the underlying
 // feature must work independently of the active workspace panel.
 
-import { CommitMessageDialog } from "./files/git/commit/message-dialog";
-import { CredentialPromptDialog } from "./files/git/dialogs/credential-prompt-dialog";
-import { type GitHelperPromptState, useGitHelperPrompts } from "./files/git/hooks/use-helper-prompts";
-import { WorkspaceSymbolPaletteRoot } from "./symbol-palette/workspace-symbol-palette";
 import { ConflictResolutionDialogRoot } from "./editor/conflict-dialog";
 import { SaveConfirmDialogRoot } from "./editor/save-confirm-dialog";
-import { RemoveWorkspaceDialogRoot } from "./workspace/remove-workspace-dialog";
+import { CommitMessageDialog } from "./files/git/commit/message-dialog";
+import { CredentialPromptDialog } from "./files/git/dialogs/credential-prompt-dialog";
+import {
+  type GitHelperPromptState,
+  useGitHelperPrompts,
+} from "./files/git/hooks/use-helper-prompts";
+import { WorkspaceSymbolPaletteRoot } from "./symbol-palette/workspace-symbol-palette";
+import { ConfirmDialogRoot } from "./ui/confirm-dialog";
 import { ToastRoot } from "./ui/toast";
-import { SshAuthPromptDialog } from "./workspace/ssh-auth-prompt-dialog";
 import { ViewParkRoot } from "./workspace/content/view-park";
+import { RemoveWorkspaceDialogRoot } from "./workspace/remove-workspace-dialog";
+import { SshAuthPromptDialog } from "./workspace/ssh-auth-prompt-dialog";
 import { useSshAuthPrompts } from "./workspace/use-ssh-auth-prompts";
 
 export function GlobalRoots(): React.JSX.Element {
@@ -24,6 +28,7 @@ export function GlobalRoots(): React.JSX.Element {
     <>
       <ViewParkRoot />
       <SaveConfirmDialogRoot />
+      <ConfirmDialogRoot />
       <ConflictResolutionDialogRoot />
       <RemoveWorkspaceDialogRoot />
       <WorkspaceSymbolPaletteRoot />

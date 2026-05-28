@@ -1,9 +1,5 @@
 import { z } from "zod";
-import {
-  ExpectedFileStateSchema,
-  FileReadResultSchema,
-  WriteFileResultSchema,
-} from "./types";
+import { ExpectedFileStateSchema, FileReadResultSchema, WriteFileResultSchema } from "./types";
 
 /**
  * NDJSON method signatures for fs.* operations on the agent.
@@ -110,13 +106,15 @@ export const FS_RENAME_METHOD = "fs.rename" as const;
 export const FsRenameParamsSchema = z.object({
   fromRelPath: RelPathSchema,
   toRelPath: RelPathSchema,
+  overwrite: z.boolean().optional(),
 });
 export type FsRenameParams = z.infer<typeof FsRenameParamsSchema>;
 
 // ---------------------------------------------------------------------------
 // fs.copyFile — copy a file within the bound workspace. Both paths must
-// be workspace-relative. Fails if the destination already exists — the
-// renderer handles overwrite-confirm flows before calling this.
+// be workspace-relative. Fails with ALREADY_EXISTS when the destination
+// exists unless `overwrite` is set — the renderer obtains user confirmation
+// before retrying with overwrite=true.
 // ---------------------------------------------------------------------------
 
 export const FS_COPY_FILE_METHOD = "fs.copyFile" as const;
@@ -124,6 +122,7 @@ export const FS_COPY_FILE_METHOD = "fs.copyFile" as const;
 export const FsCopyFileParamsSchema = z.object({
   fromRelPath: RelPathSchema,
   toRelPath: RelPathSchema,
+  overwrite: z.boolean().optional(),
 });
 export type FsCopyFileParams = z.infer<typeof FsCopyFileParamsSchema>;
 

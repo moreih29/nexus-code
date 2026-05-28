@@ -7,6 +7,9 @@
  */
 
 export { confirmAndDeletePath } from "./confirm-delete";
+export type { CopyFileInput } from "./copy-file";
+export { copyPathWithAutoRename } from "./copy-file";
+export { incrementFileName } from "./increment-name";
 export type { NewFileInput } from "./new-file";
 export { createNewFile } from "./new-file";
 export type { NewFolderInput } from "./new-folder";
@@ -21,5 +24,7 @@ export type { RevealInput } from "./reveal";
 export { revealInFinder } from "./reveal";
 export type { RmdirInput } from "./rmdir";
 export { rmdirPath } from "./rmdir";
+export type { TrashPathInput } from "./trash";
+export { trashPath } from "./trash";
 export type { UnlinkInput } from "./unlink";
 export { unlinkPath } from "./unlink";

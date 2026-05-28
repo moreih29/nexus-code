@@ -12,22 +12,34 @@ mock.module("../../../../../src/renderer/components/ui/toast", () => ({
   },
 }));
 
+// movePath now asks the user before overwriting (VSCode parity); the test
+// drives that decision via `confirmReply` per case.
+let confirmReply: boolean = true;
+mock.module("../../../../../src/renderer/components/ui/confirm-dialog", () => ({
+  showConfirmDialog: () => Promise.resolve(confirmReply),
+}));
+
 type IpcCall = { channel: string; method: string; args: unknown };
 const WS = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 const ROOT = "/repo";
 const ipcCalls: IpcCall[] = [];
 let rejectNext: Error | null = null;
+// Per-test readdir result so the pre-check can simulate "destination has a
+// name collision" without affecting later refresh readdirs.
+let readdirEntries: Array<{ name: string; type: "file" | "dir" | "symlink" }> = [];
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: (channel: string, method: string, args: unknown) => {
     ipcCalls.push({ channel, method, args });
+    // readdir always succeeds — the pre-check is supposed to be silent on its
+    // own behalf. rejectNext applies only to subsequent writes.
+    if (channel === "fs" && method === "readdir")
+      return Promise.resolve({ ok: true as const, value: readdirEntries });
     if (rejectNext) {
       const err = rejectNext;
       rejectNext = null;
       return Promise.reject(err);
     }
-    if (channel === "fs" && method === "readdir")
-      return Promise.resolve({ ok: true as const, value: [] });
     return Promise.resolve({ ok: true as const, value: undefined });
   },
   unwrapIpcResult: <T>(result: { ok: boolean; value: T }) => {
@@ -50,9 +62,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 // Imports (after mocks are installed)
 // ---------------------------------------------------------------------------
 
-const { movePath, renamePath } = await import(
-  "../../../../../src/renderer/services/fs-mutations"
-);
+const { movePath, renamePath } = await import("../../../../../src/renderer/services/fs-mutations");
 const { useFilesStore } = await import("../../../../../src/renderer/state/stores/files");
 
 // ---------------------------------------------------------------------------
@@ -88,9 +98,7 @@ function resetTree(): void {
     { name: "dir", type: "dir" },
     { name: "other", type: "dir" },
   ]);
-  useFilesStore.getState().setChildren(WS, `${ROOT}/dir`, [
-    { name: "nested.ts", type: "file" },
-  ]);
+  useFilesStore.getState().setChildren(WS, `${ROOT}/dir`, [{ name: "nested.ts", type: "file" }]);
   useFilesStore.getState().setChildren(WS, `${ROOT}/other`, []);
 }
 
@@ -103,6 +111,8 @@ describe("movePath", () => {
     ipcCalls.length = 0;
     toastCalls.length = 0;
     rejectNext = null;
+    readdirEntries = [];
+    confirmReply = true;
     installWindow();
     resetTree();
   });
@@ -128,12 +138,14 @@ describe("movePath", () => {
         workspaceId: WS,
         fromRelPath: "dir/nested.ts",
         toRelPath: "other/nested.ts",
+        overwrite: false,
       },
     });
 
-    // Should refresh both source parent and dest parent via readdir
+    // readdir is now called 3x: the destination pre-check + the two refresh
+    // calls (source parent + dest parent) after the move.
     const readdirCalls = ipcCalls.filter((c) => c.method === "readdir");
-    expect(readdirCalls).toHaveLength(2);
+    expect(readdirCalls).toHaveLength(3);
   });
 
   // ---- Same-dir no-op ----
@@ -166,10 +178,35 @@ describe("movePath", () => {
     expect(toastCalls.map((c) => c.message)).toEqual(["Item not found."]);
   });
 
-  // ---- ALREADY_EXISTS toast ----
+  // ---- Replace-on-collision (VSCode parity) ----
 
-  it("returns false with already-exists toast when target name collides", async () => {
-    rejectNext = new Error("ALREADY_EXISTS: /repo/other/nested.ts");
+  it("prompts to replace when the destination has a colliding name; calls rename with overwrite=true on confirm", async () => {
+    readdirEntries = [{ name: "nested.ts", type: "file" }];
+    confirmReply = true;
+
+    const ok = await movePath({
+      workspaceId: WS,
+      workspaceRootPath: ROOT,
+      srcAbsPath: `${ROOT}/dir/nested.ts`,
+      dstDirAbsPath: `${ROOT}/other`,
+    });
+
+    expect(ok).toBe(true);
+    const renameCalls = ipcCalls.filter((c) => c.method === "rename");
+    expect(renameCalls).toHaveLength(1);
+    expect(renameCalls[0].args).toEqual({
+      workspaceId: WS,
+      fromRelPath: "dir/nested.ts",
+      toRelPath: "other/nested.ts",
+      overwrite: true,
+    });
+    // No error toast was raised — the collision was handled by the prompt.
+    expect(toastCalls).toEqual([]);
+  });
+
+  it("returns false and does not call rename when the user cancels the replace prompt", async () => {
+    readdirEntries = [{ name: "nested.ts", type: "file" }];
+    confirmReply = false;
 
     const ok = await movePath({
       workspaceId: WS,
@@ -179,9 +216,8 @@ describe("movePath", () => {
     });
 
     expect(ok).toBe(false);
-    expect(toastCalls.map((c) => c.message)).toEqual([
-      "A file or folder with that name already exists at the destination.",
-    ]);
+    expect(ipcCalls.filter((c) => c.method === "rename")).toHaveLength(0);
+    expect(toastCalls).toEqual([]);
   });
 
   // ---- Out-of-workspace guard (source) ----
@@ -195,9 +231,7 @@ describe("movePath", () => {
     });
 
     expect(ok).toBe(false);
-    expect(toastCalls.map((c) => c.message)).toEqual([
-      "This path is outside the workspace.",
-    ]);
+    expect(toastCalls.map((c) => c.message)).toEqual(["This path is outside the workspace."]);
     // No IPC should have been made
     expect(ipcCalls.filter((c) => c.method === "rename")).toHaveLength(0);
   });
@@ -213,9 +247,7 @@ describe("movePath", () => {
     });
 
     expect(ok).toBe(false);
-    expect(toastCalls.map((c) => c.message)).toEqual([
-      "This path is outside the workspace.",
-    ]);
+    expect(toastCalls.map((c) => c.message)).toEqual(["This path is outside the workspace."]);
     expect(ipcCalls.filter((c) => c.method === "rename")).toHaveLength(0);
   });
 

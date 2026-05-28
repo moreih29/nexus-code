@@ -4,13 +4,14 @@
  * channel itself stays a thin map without growing.
  */
 import { register } from "../../../infra/ipc-router";
-import { showItemInFolderHandler } from "../../shell/workspace-reveal";
 import type { WorkspaceStorage } from "../../../infra/storage/workspace-storage";
-import type { WorkspaceManager } from "../../workspace/manager";
 import { searchTextStream } from "../../search";
+import { showItemInFolderHandler } from "../../shell/workspace-reveal";
+import type { WorkspaceManager } from "../../workspace/manager";
 import type { AgentFsWatcher } from "../bridge/agent-watch";
 import { getExpandedHandler, setExpandedHandler } from "./expanded-handlers";
 import { readdirHandler, readExternalHandler, readFileHandler, statHandler } from "./read-handlers";
+import { trashHandler } from "./trash-handler";
 import { unwatchHandler, watchHandler } from "./watch-handlers";
 import {
   copyFileHandler,
@@ -48,6 +49,7 @@ export function registerFsChannel(
       rename: renameHandler(manager),
       copyFile: copyFileHandler(manager),
       removeAll: removeAllHandler(manager),
+      trash: trashHandler(manager),
       showItemInFolder: showItemInFolderHandler(manager),
     },
     listen: {

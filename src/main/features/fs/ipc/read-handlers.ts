@@ -1,26 +1,47 @@
 /**
  * Read-only fs handlers — readdir / stat / readFile / readExternal.
+ *
+ * readdir/stat catch agent-thrown fs errors (NOT_FOUND, PERMISSION_DENIED, …)
+ * and return them as a typed `ipcErr` envelope instead of letting them throw.
+ * This keeps Electron's `ipcMain.handle` invocation logger silent for the
+ * expected-failure paths — most notably restoring a persisted expanded-tree
+ * after the user has deleted folders on disk between sessions.
  */
-import { ipcContract } from "../../../../shared/ipc/contract";
 import type { DirEntry, FileReadResult, FsStat } from "../../../../shared/fs/types";
-import type { WorkspaceManager } from "../../workspace/manager";
+import { ipcContract } from "../../../../shared/ipc/contract";
 import { validateArgs } from "../../../infra/ipc-router";
+import type { WorkspaceManager } from "../../workspace/manager";
+import { type FsIpcErrorResult, fsErrorToIpcResult, isFsError } from "./fs-result";
 
 const c = ipcContract.fs.call;
 
-export function readdirHandler(manager: WorkspaceManager): (args: unknown) => Promise<DirEntry[]> {
-  return async (args: unknown): Promise<DirEntry[]> => {
+export function readdirHandler(
+  manager: WorkspaceManager,
+): (args: unknown) => Promise<DirEntry[] | FsIpcErrorResult> {
+  return async (args: unknown): Promise<DirEntry[] | FsIpcErrorResult> => {
     const { workspaceId, relPath } = validateArgs(c.readdir.args, args);
     const fs = await manager.getFs(workspaceId);
-    return fs.readdir(relPath);
+    try {
+      return await fs.readdir(relPath);
+    } catch (error) {
+      if (isFsError(error)) return fsErrorToIpcResult(error);
+      throw error;
+    }
   };
 }
 
-export function statHandler(manager: WorkspaceManager): (args: unknown) => Promise<FsStat> {
-  return async (args: unknown): Promise<FsStat> => {
+export function statHandler(
+  manager: WorkspaceManager,
+): (args: unknown) => Promise<FsStat | FsIpcErrorResult> {
+  return async (args: unknown): Promise<FsStat | FsIpcErrorResult> => {
     const { workspaceId, relPath } = validateArgs(c.stat.args, args);
     const fs = await manager.getFs(workspaceId);
-    return fs.stat(relPath);
+    try {
+      return await fs.stat(relPath);
+    } catch (error) {
+      if (isFsError(error)) return fsErrorToIpcResult(error);
+      throw error;
+    }
   };
 }
 

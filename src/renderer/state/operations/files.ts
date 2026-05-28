@@ -6,12 +6,23 @@
  * and dispatch the resulting state changes through the store's reducers.
  */
 
+import { FS_ERROR } from "../../../shared/fs/errors";
 import { createKeyedDebouncer } from "../../../shared/util/keyed-debouncer";
 import { FS_EXPANDED_SAVE_DEBOUNCE_MS } from "../../../shared/util/timing-constants";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { relPath } from "../../utils/path";
 import { getAncestors } from "../stores/files/helpers";
 import { useFilesStore } from "../stores/files/store";
+
+/**
+ * True when an `IpcErrResult.message` string carries the NOT_FOUND fs
+ * error code as its prefix. Used to single out the "stale persisted
+ * path" case from genuine watch failures (permissions etc.) during
+ * `ensureRoot` hydration.
+ */
+function isNotFoundMessage(message: string): boolean {
+  return message.startsWith(`${FS_ERROR.NOT_FOUND}:`);
+}
 
 // Module-level singletons — shared across all subscribers within this module.
 const _saveDebouncer = createKeyedDebouncer<string>({ delayMs: FS_EXPANDED_SAVE_DEBOUNCE_MS });
@@ -68,6 +79,14 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
       else groupsByDepth.set(depth, [rel]);
     }
 
+    // Track persisted rels whose underlying path no longer exists on disk.
+    // These accumulate from `fs.watch` NOT_FOUND envelopes during hydration
+    // and are pruned from both the in-memory expanded set and the persisted
+    // KV at the end of `ensureRoot` — without this, the same stale rels
+    // would re-fire `fs.watch` (and noise the renderer console) on every
+    // subsequent app start.
+    const staleRels = new Set<string>();
+
     const sortedDepths = Array.from(groupsByDepth.keys()).sort((a, b) => a - b);
     for (const depth of sortedDepths) {
       const group = groupsByDepth.get(depth);
@@ -79,13 +98,44 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
           if (node && node.type === "dir" && !node.childrenLoaded) {
             await loadChildren(workspaceId, abs);
           }
-          // Fire-and-forget: watch registration; tree updates arrive via fs.changed events.
-          void ipcCallResult("fs", "watch", { workspaceId, relPath: rel }).then((result) => {
-            if (!result.ok)
+          // Awaited (was fire-and-forget) so we can observe NOT_FOUND
+          // results and prune them. The tree itself still updates lazily
+          // via `fs.changed` events; awaiting here only delays the
+          // ensureRoot resolution by one round-trip per persisted dir.
+          const result = await ipcCallResult("fs", "watch", { workspaceId, relPath: rel });
+          if (!result.ok) {
+            if (isNotFoundMessage(result.message)) {
+              staleRels.add(rel);
+            } else {
               console.error("[files] watch hydrated dir failed", result.message);
-          });
+            }
+          }
         }),
       );
+    }
+
+    // Prune stale rels from the in-memory expanded set and persist the
+    // cleaned list synchronously (we bypass `scheduleSave`'s debounce so
+    // the cleanup lands before any user-driven expand/collapse can race).
+    if (staleRels.size > 0) {
+      const store = useFilesStore.getState();
+      for (const rel of staleRels) {
+        store.collapseDir(workspaceId, `${rootAbsPath}/${rel}`);
+      }
+      const tree = useFilesStore.getState().trees.get(workspaceId);
+      if (tree) {
+        const remainingRels: string[] = [];
+        for (const absPath of tree.expanded) {
+          if (absPath === tree.rootAbsPath) continue;
+          remainingRels.push(relPath(absPath, tree.rootAbsPath));
+        }
+        void ipcCallResult("fs", "setExpanded", {
+          workspaceId,
+          relPaths: remainingRels,
+        }).then((res) => {
+          if (!res.ok) console.error("[files] prune setExpanded failed", res.message);
+        });
+      }
     }
   })();
 
@@ -106,7 +156,9 @@ export async function loadChildren(workspaceId: string, absPath: string): Promis
   useFilesStore.getState().markChildrenLoading(workspaceId, absPath);
 
   try {
-    const entries = unwrapIpcResult(await ipcCallResult("fs", "readdir", { workspaceId, relPath: rel }));
+    const entries = unwrapIpcResult(
+      await ipcCallResult("fs", "readdir", { workspaceId, relPath: rel }),
+    );
     useFilesStore.getState().setChildren(workspaceId, absPath, entries);
   } catch (err) {
     useFilesStore

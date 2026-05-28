@@ -897,10 +897,7 @@ export const ipcContract = {
        * Returns the subset that *is* ignored. Paths not in the response
        * should be cached as "not ignored" until `.gitignore` changes.
        */
-      checkIgnore: call(
-        GitRelPathsArgsSchema,
-        z.object({ ignored: z.array(z.string()) }),
-      ),
+      checkIgnore: call(GitRelPathsArgsSchema, z.object({ ignored: z.array(z.string()) })),
       getPanelState: call(GitWorkspaceIdSchema, GitPanelStateSchema),
       setPanelState: call(GitSetPanelStateArgsSchema, z.void()),
     },
@@ -1001,6 +998,7 @@ export const ipcContract = {
           workspaceId: z.string().uuid(),
           fromRelPath: FsMutationRelPathSchema,
           toRelPath: FsMutationRelPathSchema,
+          overwrite: z.boolean().optional(),
         }),
         z.void(),
       ),
@@ -1009,10 +1007,25 @@ export const ipcContract = {
           workspaceId: z.string().uuid(),
           fromRelPath: FsMutationRelPathSchema,
           toRelPath: FsMutationRelPathSchema,
+          overwrite: z.boolean().optional(),
         }),
         z.void(),
       ),
       removeAll: call(
+        z.object({ workspaceId: z.string().uuid(), relPath: FsMutationRelPathSchema }),
+        z.void(),
+      ),
+      // ----------------------------------------------------------------
+      // fs.trash — Local workspaces only. Moves the path to the OS
+      // recycle bin via Electron's `shell.trashItem`, where the user can
+      // restore it. SSH (remote) workspaces have no host trash equivalent;
+      // callers MUST branch on workspace kind in the renderer and call
+      // `fs.removeAll` (with an explicit "permanent" confirm) for remote.
+      //
+      // Idempotent on ENOENT (a stale row whose underlying path has
+      // disappeared resolves silently — same posture as `fs.removeAll`).
+      // ----------------------------------------------------------------
+      trash: call(
         z.object({ workspaceId: z.string().uuid(), relPath: FsMutationRelPathSchema }),
         z.void(),
       ),
@@ -1127,15 +1140,9 @@ export const ipcContract = {
         z.void(),
       ),
       /** Attach (active=true) or detach (active=false) the view. */
-      setActive: call(
-        z.object({ tabId: z.string().uuid(), active: z.boolean() }),
-        z.void(),
-      ),
+      setActive: call(z.object({ tabId: z.string().uuid(), active: z.boolean() }), z.void()),
       /** Navigate the tab to `url`. */
-      navigate: call(
-        z.object({ tabId: z.string().uuid(), url: z.string().url() }),
-        z.void(),
-      ),
+      navigate: call(z.object({ tabId: z.string().uuid(), url: z.string().url() }), z.void()),
       goBack: call(z.object({ tabId: z.string().uuid() }), z.void()),
       goForward: call(z.object({ tabId: z.string().uuid() }), z.void()),
       /** Reload the tab; pass `ignoreCache:true` for a hard reload. */
@@ -1196,10 +1203,7 @@ export const ipcContract = {
        * sees a suspended/not-suspended toggle.  Pair every `suspendAll`
        * with a `resumeAll` once the overlay closes.
        */
-      suspendAll: call(
-        z.object({ captureSnapshot: z.boolean() }),
-        z.void(),
-      ),
+      suspendAll: call(z.object({ captureSnapshot: z.boolean() }), z.void()),
       /**
        * Re-show every WebContentsView that was active when the matching
        * `suspendAll` ran via `setVisible(true)`.  Broadcasts a `snapshot`
@@ -1222,9 +1226,7 @@ export const ipcContract = {
         }),
       ),
       /** Emitted when the loading spinner should be shown or hidden. */
-      loadingChanged: listen(
-        z.object({ tabId: z.string().uuid(), isLoading: z.boolean() }),
-      ),
+      loadingChanged: listen(z.object({ tabId: z.string().uuid(), isLoading: z.boolean() })),
       /**
        * Emitted when a navigation fails (network error, blocked scheme, etc.).
        * `code` is the Chromium net error code; `description` is a human-readable
@@ -1239,9 +1241,7 @@ export const ipcContract = {
         }),
       ),
       /** Emitted when the page title changes. */
-      titleUpdated: listen(
-        z.object({ tabId: z.string().uuid(), title: z.string() }),
-      ),
+      titleUpdated: listen(z.object({ tabId: z.string().uuid(), title: z.string() })),
       /**
        * Emitted when the page advertises favicon(s).
        *
@@ -1283,9 +1283,7 @@ export const ipcContract = {
        * docked-DevTools state so the renderer can show / hide its splitter
        * region and start / stop reporting `setDevToolsBounds`.
        */
-      devtoolsToggled: listen(
-        z.object({ tabId: z.string().uuid(), open: z.boolean() }),
-      ),
+      devtoolsToggled: listen(z.object({ tabId: z.string().uuid(), open: z.boolean() })),
     },
   },
 
@@ -1340,10 +1338,7 @@ export const ipcContract = {
        * 해당 탭이 completed 상태였다면 idle로 전이시킨다.
        * renderer는 setActiveContext와 함께 호출한다.
        */
-      markSeen: call(
-        z.object({ workspaceId: z.string(), tabId: z.string() }),
-        z.void(),
-      ),
+      markSeen: call(z.object({ workspaceId: z.string(), tabId: z.string() }), z.void()),
     },
     listen: {
       /**

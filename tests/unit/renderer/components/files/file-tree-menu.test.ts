@@ -25,6 +25,10 @@ const noopActions: Actions = {
   newFolder: () => {},
   rename: () => {},
   delete: async () => true,
+  copy: () => {},
+  cut: () => {},
+  paste: () => {},
+  canPaste: true,
 };
 
 function labelsOf(items: ReturnType<typeof buildFileTreeMenuItems>): string[] {
@@ -45,6 +49,9 @@ describe("buildFileTreeMenuItems", () => {
     expect(labelsOf(items)).toEqual([
       "Open",
       "Open to the Side",
+      "Cut",
+      "Copy",
+      "Paste",
       "Rename",
       "Delete",
       "Reveal in Finder",
@@ -58,6 +65,9 @@ describe("buildFileTreeMenuItems", () => {
     expect(labelsOf(items)).toEqual([
       "New File",
       "New Folder",
+      "Cut",
+      "Copy",
+      "Paste",
       "Rename",
       "Delete",
       "Reveal in Finder",
@@ -71,6 +81,9 @@ describe("buildFileTreeMenuItems", () => {
     expect(labelsOf(items)).toEqual([
       "Open",
       "Open to the Side",
+      "Cut",
+      "Copy",
+      "Paste",
       "Rename",
       "Delete",
       "Reveal in Finder",
@@ -87,7 +100,25 @@ describe("buildFileTreeMenuItems", () => {
       { absPath: "/repo", type: "dir", isRoot: true },
       noopActions,
     );
-    expect(labelsOf(items)).toEqual(["New File", "New Folder", "Reveal in Finder", "Copy Path"]);
+    expect(labelsOf(items)).toEqual([
+      "New File",
+      "New Folder",
+      "Paste",
+      "Reveal in Finder",
+      "Copy Path",
+    ]);
+  });
+
+  it("disables Paste when the clipboard is empty", () => {
+    const items = buildFileTreeMenuItems(
+      { absPath: "/repo/a.ts", type: "file" },
+      { ...noopActions, canPaste: false },
+    );
+    const paste = items.find(
+      (it): it is Extract<typeof it, { kind: "item" }> =>
+        it.kind === "item" && it.label === "Paste",
+    );
+    expect(paste?.disabled).toBe(true);
   });
 
   it("shows Rename with the F2 shortcut for non-root targets", () => {

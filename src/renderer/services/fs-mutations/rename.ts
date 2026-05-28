@@ -1,10 +1,12 @@
 /** Rename/move an entry within its current parent via fs.rename. */
 
+import { showConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { loadChildren } from "@/state/operations/files";
 import { parentOf } from "@/state/stores/files";
 import { basename, relPath } from "@/utils/path";
 import { FS_ERROR } from "../../../shared/fs/errors";
+import { listDirNames } from "./dir-listing";
 import { toFsToast } from "./errors";
 
 export interface RenameInput {
@@ -64,8 +66,9 @@ export interface MoveInput {
 }
 
 export async function movePath(input: MoveInput): Promise<boolean> {
+  const name = basename(input.srcAbsPath);
   const fromRel = relPath(input.srcAbsPath, input.workspaceRootPath);
-  const toAbsPath = `${input.dstDirAbsPath}/${basename(input.srcAbsPath)}`;
+  const toAbsPath = `${input.dstDirAbsPath}/${name}`;
   const toRel = relPath(toAbsPath, input.workspaceRootPath);
 
   // Same-directory no-op — the source is already at the destination path.
@@ -79,12 +82,37 @@ export async function movePath(input: MoveInput): Promise<boolean> {
     return false;
   }
 
+  // Pre-check the destination directory for a name collision. Doing it
+  // ourselves (rather than letting the agent's rename throw ALREADY_EXISTS)
+  // keeps the main-process IPC log clean AND lets us prompt the user the way
+  // VSCode does. If the readdir itself fails we fall through and let the
+  // rename surface the genuine error.
+  let overwrite = false;
+  try {
+    const dstDirRel = relPath(input.dstDirAbsPath, input.workspaceRootPath);
+    const existing = await listDirNames(input.workspaceId, dstDirRel);
+    if (existing.has(name)) {
+      const ok = await showConfirmDialog({
+        title: "Replace existing item",
+        description: `A file or folder named "${name}" already exists at the destination. Do you want to replace it?`,
+        confirmLabel: "Replace",
+        cancelLabel: "Cancel",
+        variant: "destructive",
+      });
+      if (!ok) return false;
+      overwrite = true;
+    }
+  } catch {
+    // readdir failed (e.g. permission) — proceed and let rename report it.
+  }
+
   try {
     unwrapIpcResult(
       await ipcCallResult("fs", "rename", {
         workspaceId: input.workspaceId,
         fromRelPath: fromRel,
         toRelPath: toRel,
+        overwrite,
       }),
     );
   } catch (e: unknown) {

@@ -10,8 +10,15 @@
  * rendering / virtualization code.
  */
 import { openOrRevealEditor } from "@/services/editor";
+import {
+  handleCopy,
+  handleCut,
+  handlePaste,
+  useFileClipboardStore,
+} from "@/services/file-clipboard";
 import { confirmAndDeletePath, createPathActions } from "@/services/fs-mutations";
 import { parentOf } from "@/state/stores/files";
+import { relPath } from "@/utils/path";
 import type { EntryKind } from "../file-tree/display";
 
 export interface FileTreeActionTarget {
@@ -95,6 +102,41 @@ export function useFileTreeActions({
     return confirmAndDeletePath(workspaceId, rootAbsPath, t.absPath, t.type);
   }
 
+  // Clipboard — Cut/Copy capture the right-clicked entry; Paste targets the
+  // right-clicked node explicitly (dir → into itself; file → into its parent)
+  // so it does not depend on the tree's selection state.
+  function copy() {
+    const t = getTarget();
+    if (!t || t.isRoot) return;
+    handleCopy({
+      workspaceId,
+      workspaceRootPath: rootAbsPath,
+      entries: [{ relPath: relPath(t.absPath, rootAbsPath), absPath: t.absPath }],
+    });
+  }
+
+  function cut() {
+    const t = getTarget();
+    if (!t || t.isRoot) return;
+    handleCut({
+      workspaceId,
+      workspaceRootPath: rootAbsPath,
+      entries: [{ relPath: relPath(t.absPath, rootAbsPath), absPath: t.absPath }],
+    });
+  }
+
+  function paste() {
+    const t = getTarget();
+    void handlePaste(t?.absPath ?? null);
+  }
+
+  // Read clipboard state at call time (not a reactive subscription, so this
+  // stays a plain factory callable outside React). The menu reads `canPaste`
+  // when it is rebuilt, and the right-click that opens the menu already
+  // triggers a re-render (setContextTarget), so the value is current.
+  const clip = useFileClipboardStore.getState();
+  const canPaste = clip.kind !== null && clip.entries.length > 0;
+
   return {
     open,
     openToSide,
@@ -105,5 +147,9 @@ export function useFileTreeActions({
     newFolder,
     rename,
     delete: deleteTarget,
+    copy,
+    cut,
+    paste,
+    canPaste,
   };
 }

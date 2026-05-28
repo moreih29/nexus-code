@@ -223,7 +223,12 @@ func (s *Service) Rename(ctx context.Context, raw json.RawMessage) (any, error) 
 		return nil, err
 	}
 	if _, err := os.Lstat(toAbs); err == nil {
-		return nil, FSError{Code: CodeAlreadyExists, Path: toAbs}
+		if !p.Overwrite {
+			return nil, FSError{Code: CodeAlreadyExists, Path: toAbs}
+		}
+		if err := os.RemoveAll(toAbs); err != nil {
+			return nil, mapWriteError(err, toAbs)
+		}
 	} else if !errors.Is(err, iofs.ErrNotExist) {
 		return nil, mapWriteError(err, toAbs)
 	}
@@ -253,6 +258,14 @@ func (s *Service) RemoveAll(ctx context.Context, raw json.RawMessage) (any, erro
 	}
 	info, err := os.Lstat(abs)
 	if err != nil {
+		// Idempotent: a missing path is treated as success. Matches the
+		// stdlib's `os.RemoveAll` contract and lets the renderer call
+		// removeAll without first asking "does this still exist?" — which
+		// would otherwise log a noisy ipcMain error every time a stale
+		// row's delete races with a refresh.
+		if errors.Is(err, iofs.ErrNotExist) {
+			return struct{}{}, nil
+		}
 		return nil, mapWriteError(err, abs)
 	}
 	if !info.IsDir() {

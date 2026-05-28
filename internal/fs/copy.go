@@ -18,17 +18,17 @@ import (
 func (s *Service) CopyFile(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p CopyFileParams
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, proto.ProtocolError("fs.copyFile params must include srcRelPath and dstRelPath")
+		return nil, proto.ProtocolError("fs.copyFile params must include fromRelPath and toRelPath")
 	}
-	if p.SrcRelPath == "" || p.DstRelPath == "" {
-		return nil, proto.ProtocolError("fs.copyFile srcRelPath and dstRelPath are required")
+	if p.FromRelPath == "" || p.ToRelPath == "" {
+		return nil, proto.ProtocolError("fs.copyFile fromRelPath and toRelPath are required")
 	}
 
-	srcAbs, err := s.Resolve(p.SrcRelPath)
+	srcAbs, err := s.Resolve(p.FromRelPath)
 	if err != nil {
 		return nil, err
 	}
-	dstAbs, err := s.Resolve(p.DstRelPath)
+	dstAbs, err := s.Resolve(p.ToRelPath)
 	if err != nil {
 		return nil, err
 	}
@@ -42,9 +42,16 @@ func (s *Service) CopyFile(ctx context.Context, raw json.RawMessage) (any, error
 		return nil, mapWriteError(err, srcAbs)
 	}
 
-	// Destination must NOT exist — O_EXCL semantics.
+	// Destination existence check. By default the destination must NOT exist
+	// (O_EXCL semantics). With Overwrite=true the caller has confirmed a
+	// replace, so an existing destination is removed first.
 	if _, err := os.Lstat(dstAbs); err == nil {
-		return nil, FSError{Code: CodeAlreadyExists, Path: dstAbs}
+		if !p.Overwrite {
+			return nil, FSError{Code: CodeAlreadyExists, Path: dstAbs}
+		}
+		if err := os.RemoveAll(dstAbs); err != nil {
+			return nil, mapWriteError(err, dstAbs)
+		}
 	} else if !errors.Is(err, iofs.ErrNotExist) {
 		return nil, mapWriteError(err, dstAbs)
 	}

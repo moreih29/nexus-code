@@ -6,22 +6,34 @@
  * pattern mirrors `useTabBarDropTarget` and `useDropTarget` from the workspace
  * DnD system.
  *
+ * Target resolution (VSCode parity):
+ *   - cursor over a directory row     → that directory
+ *   - cursor over a file/symlink row  → that file's parent directory
+ *   - cursor over empty space         → the workspace root
+ *
  * Behaviour:
- *   - dragover: hit-test DOM rows via `elementFromPoint`, filter for directory
- *     rows, apply `data-file-tree-dnd-target` highlighting, set dropEffect.
+ *   - dragover: resolve the drop directory, highlight its row (or the whole
+ *     tree for a root drop) via `data-file-tree-dnd-target`, set dropEffect.
  *   - drop:   parse `MIME_FILE` payload, determine move vs copy (modifier key),
- *     validate (no self-drop, target must be a dir within the same workspace),
- *     call `movePath` or `ipcCallResult("fs","copyFile",…)`.
- *   - dragleave / drop: clear target highlight.
+ *     then `movePath` (move) or `copyPathWithAutoRename` (copy).
+ *   - dragleave / dragend / drop: clear target highlight.
  */
 
-import { useEffect, type RefObject } from "react";
-import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
-import { movePath } from "@/services/fs-mutations";
-import { loadChildren } from "@/state/operations/files";
+import { type RefObject, useEffect } from "react";
+import { copyPathWithAutoRename, movePath } from "@/services/fs-mutations";
+import { loadChildren, toggleExpand } from "@/state/operations/files";
 import { parentOf } from "@/state/stores/files/helpers";
+import { useFilesStore } from "@/state/stores/files/store";
 import { basename, relPath } from "@/utils/path";
-import { MIME_FILE, type FileDragPayload } from "../../workspace/dnd/types";
+import { type FileDragPayload, MIME_FILE } from "../../workspace/dnd/types";
+
+/**
+ * Delay (ms) before a closed directory under the cursor auto-expands
+ * during a drag. VSCode uses 500ms in its tree.ts; we match that — long
+ * enough that a casual fly-over doesn't expand every folder, short
+ * enough that an intentional pause feels responsive.
+ */
+const DRAG_EXPAND_DELAY_MS = 500;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,13 +46,19 @@ interface UseFileTreeDropTargetOptions {
   workspaceRootPath: string;
 }
 
+interface DropTarget {
+  /** Absolute path of the directory the drop resolves into. */
+  dir: string;
+  /** Element to highlight — the directory's row, or the tree for a root drop. */
+  highlightEl: HTMLElement;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function isCopyModifier(e: DragEvent): boolean {
-  const isMac =
-    typeof window !== "undefined" && window.host?.platform === "darwin";
+  const isMac = typeof window !== "undefined" && window.host?.platform === "darwin";
   return isMac ? e.altKey : e.ctrlKey;
 }
 
@@ -49,10 +67,7 @@ function parseFilePayload(e: DragEvent): FileDragPayload | null {
     const raw = e.dataTransfer?.getData(MIME_FILE);
     if (!raw) return null;
     const parsed: { workspaceId?: string; filePath?: string } = JSON.parse(raw);
-    if (
-      typeof parsed.workspaceId !== "string" ||
-      typeof parsed.filePath !== "string"
-    ) {
+    if (typeof parsed.workspaceId !== "string" || typeof parsed.filePath !== "string") {
       return null;
     }
     return { workspaceId: parsed.workspaceId, filePath: parsed.filePath };
@@ -61,26 +76,46 @@ function parseFilePayload(e: DragEvent): FileDragPayload | null {
   }
 }
 
-function findTargetDirElement(
+/** Locate the rendered row element for an absolute path, if currently mounted. */
+function findRowByPath(treeEl: HTMLElement, absPath: string): HTMLElement | null {
+  const rows = treeEl.querySelectorAll<HTMLElement>('[role="treeitem"][data-file-tree-row-path]');
+  for (const row of rows) {
+    if (row.getAttribute("data-file-tree-row-path") === absPath) return row;
+  }
+  return null;
+}
+
+/**
+ * Resolve the directory a drop at (x, y) targets, and the element to
+ * highlight. A directory row targets itself; a file row targets its parent;
+ * empty space targets the workspace root (highlighting the whole tree).
+ */
+function resolveDropTarget(
   x: number,
   y: number,
   treeEl: HTMLElement,
-): HTMLElement | null {
-  // Start from the element under the cursor and walk up to find a
-  // [role="treeitem"] that also has data-file-tree-row-type="dir".
+  rootPath: string,
+): DropTarget {
   let el = document.elementFromPoint(x, y);
   while (el && el !== treeEl && el !== document.body) {
     const treeitem = el.closest?.('[role="treeitem"]');
     if (treeitem instanceof HTMLElement) {
+      const path = treeitem.getAttribute("data-file-tree-row-path");
       const type = treeitem.getAttribute("data-file-tree-row-type");
-      if (type === "dir") return treeitem;
-      // Hit a non-dir treeitem row — this is not a valid drop target.
-      return null;
+      if (path) {
+        if (type === "dir") {
+          return { dir: path, highlightEl: treeitem };
+        }
+        // File / symlink row → drop into its parent directory.
+        const parent = parentOf(path, rootPath);
+        return { dir: parent, highlightEl: findRowByPath(treeEl, parent) ?? treeEl };
+      }
+      break;
     }
-    // Element is not inside a treeitem — check its parent.
     el = (el as HTMLElement).parentElement;
   }
-  return null;
+  // Empty space → workspace root; highlight the whole tree.
+  return { dir: rootPath, highlightEl: findRowByPath(treeEl, rootPath) ?? treeEl };
 }
 
 let currentTarget: HTMLElement | null = null;
@@ -102,6 +137,56 @@ function setTargetHighlight(el: HTMLElement): void {
 }
 
 // ---------------------------------------------------------------------------
+// Drag-over auto-expand (VSCode parity)
+//
+// When the cursor lingers over a CLOSED directory row during a drag, we
+// expand it after `DRAG_EXPAND_DELAY_MS` so the user can drill into deep
+// targets without releasing the drag. The state is module-scoped (mirroring
+// `currentTarget` above) because there is one drag at a time per browser
+// window. Every drag-leave / drag-end / drop site clears it.
+// ---------------------------------------------------------------------------
+
+let expandHoverPath: string | null = null;
+let expandHoverTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearExpandHover(): void {
+  if (expandHoverTimer !== null) {
+    clearTimeout(expandHoverTimer);
+    expandHoverTimer = null;
+  }
+  expandHoverPath = null;
+}
+
+/**
+ * Schedule an auto-expand of `absPath` if the cursor stays over it long
+ * enough. No-op when the path is already the scheduled target, when it
+ * is already expanded, or when the workspace state has no record of it.
+ */
+function scheduleExpandHover(workspaceId: string, absPath: string): void {
+  if (expandHoverPath === absPath) return;
+  clearExpandHover();
+
+  const tree = useFilesStore.getState().trees.get(workspaceId);
+  if (!tree) return;
+  const node = tree.nodes.get(absPath);
+  if (!node || node.type !== "dir") return;
+  // Already expanded — nothing to do.
+  if (tree.expanded.has(absPath)) return;
+
+  expandHoverPath = absPath;
+  expandHoverTimer = setTimeout(() => {
+    // Re-check on fire — the user may have collapsed/moved during the wait.
+    const currentTree = useFilesStore.getState().trees.get(workspaceId);
+    const currentNode = currentTree?.nodes.get(absPath);
+    if (currentNode?.type === "dir" && !currentTree?.expanded.has(absPath)) {
+      void toggleExpand(workspaceId, absPath);
+    }
+    expandHoverPath = null;
+    expandHoverTimer = null;
+  }, DRAG_EXPAND_DELAY_MS);
+}
+
+// ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
@@ -119,81 +204,79 @@ export function useFileTreeDropTarget({
       if (!e.dataTransfer?.types.includes(MIME_FILE)) return;
       e.preventDefault();
 
-      const target = findTargetDirElement(e.clientX, e.clientY, el);
-      if (!target) {
-        clearTargetHighlight();
-        e.dataTransfer.dropEffect = "none";
-        return;
-      }
+      const copy = isCopyModifier(e);
+      const { dir, highlightEl } = resolveDropTarget(e.clientX, e.clientY, el, rootPath);
 
-      const targetPath = target.getAttribute("data-file-tree-row-path");
-      if (!targetPath || targetPath === rootPath) {
-        clearTargetHighlight();
-        e.dataTransfer.dropEffect = "none";
-        return;
-      }
-
-      // Self-drop prevention — compute after resolving the drag payload.
-      const payload = parseFilePayload(e);
-      if (payload) {
-        if (parentOf(payload.filePath, rootPath) === targetPath) {
+      // Self-drop is a no-op for moves only — a copy into the same folder is
+      // valid (it produces a "… copy" via auto-rename). Payload may be absent
+      // during dragover (some browsers withhold getData), so only skip when we
+      // can positively confirm the same-parent move.
+      if (!copy) {
+        const payload = parseFilePayload(e);
+        if (payload && parentOf(payload.filePath, rootPath) === dir) {
           clearTargetHighlight();
+          clearExpandHover();
           e.dataTransfer.dropEffect = "none";
           return;
         }
       }
 
-      setTargetHighlight(target);
-      e.dataTransfer.dropEffect = isCopyModifier(e) ? "copy" : "move";
+      setTargetHighlight(highlightEl);
+      e.dataTransfer.dropEffect = copy ? "copy" : "move";
+
+      // Auto-expand the hovered closed folder after a short dwell. Files
+      // (where `dir` is the parent) get clearExpandHover so the timer
+      // doesn't fire on a passing file row.
+      const targetIsDirRow = highlightEl.getAttribute("data-file-tree-row-type") === "dir";
+      if (targetIsDirRow) {
+        scheduleExpandHover(wsId, dir);
+      } else {
+        clearExpandHover();
+      }
     };
 
     const handleDrop = async (e: DragEvent): Promise<void> => {
       if (!e.dataTransfer?.types.includes(MIME_FILE)) return;
       e.preventDefault();
       clearTargetHighlight();
+      clearExpandHover();
 
       const payload = parseFilePayload(e);
       if (!payload || payload.workspaceId !== wsId) return;
 
-      const target = findTargetDirElement(e.clientX, e.clientY, el);
-      if (!target) return;
-
-      const dstDir = target.getAttribute("data-file-tree-row-path");
-      if (!dstDir || dstDir === rootPath) return;
-
-      // Self-drop: no-op if the file is already inside this folder.
-      if (parentOf(payload.filePath, rootPath) === dstDir) return;
-
       const copy = isCopyModifier(e);
+      const { dir } = resolveDropTarget(e.clientX, e.clientY, el, rootPath);
+
+      // Move into the file's current folder is a no-op.
+      if (!copy && parentOf(payload.filePath, rootPath) === dir) return;
 
       try {
         if (copy) {
+          const name = basename(payload.filePath);
           const fromRel = relPath(payload.filePath, rootPath);
-          const toAbs = `${dstDir}/${basename(payload.filePath)}`;
-          const toRel = relPath(toAbs, rootPath);
-          unwrapIpcResult(
-            await ipcCallResult("fs", "copyFile", {
-              workspaceId: wsId,
-              fromRelPath: fromRel,
-              toRelPath: toRel,
-            }),
-          );
+          const toRel = relPath(`${dir}/${name}`, rootPath);
+          await copyPathWithAutoRename({
+            workspaceId: wsId,
+            fromRelPath: fromRel,
+            toRelPath: toRel,
+          });
         } else {
           await movePath({
             workspaceId: wsId,
             workspaceRootPath: rootPath,
             srcAbsPath: payload.filePath,
-            dstDirAbsPath: dstDir,
+            dstDirAbsPath: dir,
           });
         }
-        await loadChildren(wsId, dstDir);
+        await loadChildren(wsId, dir);
       } catch {
-        // Errors surface via toasts within movePath / unwrapIpcResult.
+        // Errors surface via toasts within movePath / copyPathWithAutoRename.
       }
     };
 
     const handleDragEnd = (): void => {
       clearTargetHighlight();
+      clearExpandHover();
     };
 
     el.addEventListener("dragover", handleDragOver, true);
@@ -207,6 +290,7 @@ export function useFileTreeDropTarget({
       el.removeEventListener("dragleave", handleDragEnd, true);
       el.removeEventListener("dragend", handleDragEnd, true);
       clearTargetHighlight();
+      clearExpandHover();
     };
   }, [containerRef, wsId, rootPath]);
 }

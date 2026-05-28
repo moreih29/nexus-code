@@ -2,8 +2,9 @@
  * Write fs handlers — thin IPC adapters over the workspace's agent-backed
  * filesystem provider.
  */
-import { ipcContract } from "../../../../shared/ipc/contract";
+
 import type { WriteFileResult } from "../../../../shared/fs/types";
+import { ipcContract } from "../../../../shared/ipc/contract";
 import { validateArgs } from "../../../infra/ipc-router";
 import type { WorkspaceManager } from "../../workspace/manager";
 
@@ -53,17 +54,17 @@ export function rmdirHandler(manager: WorkspaceManager): (args: unknown) => Prom
 
 export function renameHandler(manager: WorkspaceManager): (args: unknown) => Promise<void> {
   return async (args: unknown): Promise<void> => {
-    const { workspaceId, fromRelPath, toRelPath } = validateArgs(c.rename.args, args);
+    const { workspaceId, fromRelPath, toRelPath, overwrite } = validateArgs(c.rename.args, args);
     const fs = await manager.getFs(workspaceId);
-    await fs.rename(fromRelPath, toRelPath);
+    await fs.rename(fromRelPath, toRelPath, overwrite);
   };
 }
 
 export function copyFileHandler(manager: WorkspaceManager): (args: unknown) => Promise<void> {
   return async (args: unknown): Promise<void> => {
-    const { workspaceId, fromRelPath, toRelPath } = validateArgs(c.copyFile.args, args);
+    const { workspaceId, fromRelPath, toRelPath, overwrite } = validateArgs(c.copyFile.args, args);
     const fs = await manager.getFs(workspaceId);
-    await fs.copyFile(fromRelPath, toRelPath);
+    await fs.copyFile(fromRelPath, toRelPath, overwrite);
   };
 }
 

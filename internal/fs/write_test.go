@@ -382,6 +382,56 @@ func TestRenameTargetExistsRejects(t *testing.T) {
 	}
 }
 
+// TestRenameOverwriteReplacesExisting — with overwrite=true an existing
+// destination is removed first and the rename proceeds. Used by the move
+// flow after the user confirms a replace.
+func TestRenameOverwriteReplacesExisting(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(root, "src.txt"), []byte("new"), 0o644))
+	must(t, os.WriteFile(filepath.Join(root, "dst.txt"), []byte("old"), 0o644))
+
+	dispatchOK(t, mustFS(t, root), "fs.rename", map[string]any{
+		"fromRelPath": "src.txt",
+		"toRelPath":   "dst.txt",
+		"overwrite":   true,
+	})
+
+	if got, err := os.ReadFile(filepath.Join(root, "dst.txt")); err != nil || string(got) != "new" {
+		t.Fatalf("destination should be replaced: bytes=%q err=%v", got, err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "src.txt")); !os.IsNotExist(err) {
+		t.Fatalf("source should be gone after rename, err=%v", err)
+	}
+}
+
+// TestRenameOverwriteReplacesNonEmptyDir — rename overwrite must clear a
+// pre-existing destination directory tree, not refuse it.
+func TestRenameOverwriteReplacesNonEmptyDir(t *testing.T) {
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "src-dir")
+	must(t, os.Mkdir(srcDir, 0o755))
+	must(t, os.WriteFile(filepath.Join(srcDir, "keep.txt"), []byte("keep"), 0o644))
+	dstDir := filepath.Join(root, "dst-dir")
+	must(t, os.Mkdir(dstDir, 0o755))
+	must(t, os.WriteFile(filepath.Join(dstDir, "stale.txt"), []byte("stale"), 0o644))
+
+	dispatchOK(t, mustFS(t, root), "fs.rename", map[string]any{
+		"fromRelPath": "src-dir",
+		"toRelPath":   "dst-dir",
+		"overwrite":   true,
+	})
+
+	if got, err := os.ReadFile(filepath.Join(dstDir, "keep.txt")); err != nil || string(got) != "keep" {
+		t.Fatalf("moved file missing after overwrite: bytes=%q err=%v", got, err)
+	}
+	if _, err := os.Lstat(filepath.Join(dstDir, "stale.txt")); !os.IsNotExist(err) {
+		t.Fatalf("stale file should be removed, err=%v", err)
+	}
+	if _, err := os.Lstat(srcDir); !os.IsNotExist(err) {
+		t.Fatalf("source dir should be gone after rename, err=%v", err)
+	}
+}
+
 func TestRenameOutOfWorkspaceRejects(t *testing.T) {
 	root := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(root, "old.txt"), []byte("old"), 0o644))
@@ -402,8 +452,8 @@ func TestCopyFileViaDispatcher(t *testing.T) {
 	must(t, os.WriteFile(src, []byte("payload"), 0o644))
 
 	dispatchOK(t, mustFS(t, root), "fs.copyFile", map[string]any{
-		"srcRelPath": "src.txt",
-		"dstRelPath": "dst.txt",
+		"fromRelPath": "src.txt",
+		"toRelPath":   "dst.txt",
 	})
 
 	got, err := os.ReadFile(filepath.Join(root, "dst.txt"))
@@ -423,13 +473,58 @@ func TestCopyFileTargetAlreadyExists(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(root, "dst.txt"), []byte("dst"), 0o644))
 
 	_, err := mustFS(t, root).CopyFile(context.Background(), mustJSON(t, map[string]any{
-		"srcRelPath": "src.txt",
-		"dstRelPath": "dst.txt",
+		"fromRelPath": "src.txt",
+		"toRelPath":   "dst.txt",
 	}))
 	assertFSError(t, err, CodeAlreadyExists)
 	// Target must be unchanged.
 	if got, readErr := os.ReadFile(filepath.Join(root, "dst.txt")); readErr != nil || string(got) != "dst" {
 		t.Fatalf("target should remain unchanged: bytes=%q err=%v", got, readErr)
+	}
+}
+
+// TestCopyFileOverwriteReplacesExisting — with overwrite=true an existing
+// destination is replaced rather than rejected (the renderer sets this only
+// after the user confirms a replace).
+func TestCopyFileOverwriteReplacesExisting(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(root, "src.txt"), []byte("new"), 0o644))
+	must(t, os.WriteFile(filepath.Join(root, "dst.txt"), []byte("old"), 0o644))
+
+	dispatchOK(t, mustFS(t, root), "fs.copyFile", map[string]any{
+		"fromRelPath": "src.txt",
+		"toRelPath":   "dst.txt",
+		"overwrite":   true,
+	})
+
+	if got, err := os.ReadFile(filepath.Join(root, "dst.txt")); err != nil || string(got) != "new" {
+		t.Fatalf("destination should be replaced: bytes=%q err=%v", got, err)
+	}
+}
+
+// TestCopyFileOverwriteReplacesNonEmptyDir — overwrite must clear a pre-existing
+// destination directory tree before copying (os.RemoveAll semantics), not merge.
+func TestCopyFileOverwriteReplacesNonEmptyDir(t *testing.T) {
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "src-dir")
+	must(t, os.Mkdir(srcDir, 0o755))
+	must(t, os.WriteFile(filepath.Join(srcDir, "keep.txt"), []byte("keep"), 0o644))
+
+	dstDir := filepath.Join(root, "dst-dir")
+	must(t, os.Mkdir(dstDir, 0o755))
+	must(t, os.WriteFile(filepath.Join(dstDir, "stale.txt"), []byte("stale"), 0o644))
+
+	dispatchOK(t, mustFS(t, root), "fs.copyFile", map[string]any{
+		"fromRelPath": "src-dir",
+		"toRelPath":   "dst-dir",
+		"overwrite":   true,
+	})
+
+	if got, err := os.ReadFile(filepath.Join(dstDir, "keep.txt")); err != nil || string(got) != "keep" {
+		t.Fatalf("copied file missing after overwrite: bytes=%q err=%v", got, err)
+	}
+	if _, err := os.Lstat(filepath.Join(dstDir, "stale.txt")); !os.IsNotExist(err) {
+		t.Fatalf("stale file should be removed by overwrite, err=%v", err)
 	}
 }
 
@@ -442,8 +537,8 @@ func TestCopyFileDirectory(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(srcDir, "sub", "b.txt"), []byte("b"), 0o644))
 
 	dispatchOK(t, mustFS(t, root), "fs.copyFile", map[string]any{
-		"srcRelPath": "src-dir",
-		"dstRelPath": "dst-dir",
+		"fromRelPath": "src-dir",
+		"toRelPath":   "dst-dir",
 	})
 
 	// Check recursive copy.
@@ -474,8 +569,8 @@ func TestCopyFileSymlink(t *testing.T) {
 	must(t, os.Symlink("target.txt", link))
 
 	dispatchOK(t, mustFS(t, root), "fs.copyFile", map[string]any{
-		"srcRelPath": "link.txt",
-		"dstRelPath": "link-copy.txt",
+		"fromRelPath": "link.txt",
+		"toRelPath":   "link-copy.txt",
 	})
 
 	// The destination must be a symlink pointing to the same target.
@@ -540,6 +635,17 @@ func TestRemoveAllFileRejects(t *testing.T) {
 	if got, readErr := os.ReadFile(file); readErr != nil || string(got) != "payload" {
 		t.Fatalf("file should remain after rejected removeAll: bytes=%q err=%v", got, readErr)
 	}
+}
+
+// TestRemoveAllMissingIsNoop — removeAll on a path that no longer exists must
+// succeed silently (matches stdlib os.RemoveAll). The renderer relies on this
+// to avoid logging "Error occurred in handler" when a stale row's delete races
+// with a tree refresh.
+func TestRemoveAllMissingIsNoop(t *testing.T) {
+	root := t.TempDir()
+	dispatchOK(t, mustFS(t, root), "fs.removeAll", map[string]any{
+		"relPath": "never-existed",
+	})
 }
 
 // --- helpers -----------------------------------------------------------

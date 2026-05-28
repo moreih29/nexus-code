@@ -1,17 +1,22 @@
 /**
- * removeDir — delete a directory, falling back to recursive delete when non-empty.
+ * removeDir — delete a directory tree.
  *
- * Flow:
- *   1. Try fs.rmdir (empty-directory delete). Success → loadChildren & return.
- *   2. If NOT_EMPTY, try fs.removeAll (recursive delete). Success → loadChildren & return.
- *   3. On any error that isn't NOT_EMPTY on step 1, or any error on step 2: toast & return false.
+ * The caller has already confirmed "Delete <folder> and its contents" via
+ * `confirmAndDeletePath`, so we go straight to `fs.removeAll` (recursive).
+ * Earlier versions tried `fs.rmdir` first and fell back on NOT_EMPTY, but
+ * that path produced a noisy "Error occurred in handler for 'ipc:call':
+ * NOT_EMPTY" log on every non-empty folder delete even though the operation
+ * succeeded via the fallback. `removeAll` handles both empty and non-empty
+ * directories, and the agent treats a missing path as a no-op — so this
+ * implementation produces no main-process error log on the happy path or on
+ * a stale-row race.
  */
 
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { loadChildren } from "@/state/operations/files";
 import { parentOf } from "@/state/stores/files";
 import { relPath } from "@/utils/path";
-import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/errors";
+import { FS_ERROR } from "../../../shared/fs/errors";
 import { toFsToast } from "./errors";
 
 export interface RemoveDirInput {
@@ -32,37 +37,18 @@ export async function removeDir(input: RemoveDirInput): Promise<boolean> {
     return false;
   }
 
-  // Step 1: try rmdir (empty directory fast path).
   try {
-    unwrapIpcResult(
-      await ipcCallResult("fs", "rmdir", { workspaceId, relPath: rel }),
-    );
-    await loadChildren(workspaceId, parentAbsPath);
-    return true;
+    unwrapIpcResult(await ipcCallResult("fs", "removeAll", { workspaceId, relPath: rel }));
   } catch (e: unknown) {
-    if (hasFsErrorCode(e, FS_ERROR.NOT_EMPTY)) {
-      // Step 2: fallback to recursive removeAll.
-      try {
-        unwrapIpcResult(
-          await ipcCallResult("fs", "removeAll", { workspaceId, relPath: rel }),
-        );
-        await loadChildren(workspaceId, parentAbsPath);
-        return true;
-      } catch (removeAllErr: unknown) {
-        toFsToast(removeAllErr, {
-          fallback: "Couldn't delete folder.",
-          notFound: "Folder not found.",
-          permissionDenied: "Permission denied while deleting folder.",
-        });
-        return false;
-      }
-    }
-
     toFsToast(e, {
       fallback: "Couldn't delete folder.",
       notFound: "Folder not found.",
       permissionDenied: "Permission denied while deleting folder.",
+      notDirectory: "That path is not a folder.",
     });
     return false;
   }
+
+  await loadChildren(workspaceId, parentAbsPath);
+  return true;
 }

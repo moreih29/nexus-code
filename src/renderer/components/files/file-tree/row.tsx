@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useDragSource } from "@/components/ui/use-drag-source";
 import { type FileDragPayload, MIME_FILE } from "@/components/workspace/dnd/types";
 import { cn } from "@/utils/cn";
@@ -116,6 +116,13 @@ export function FileTreeRow({
     dragImage: { kind: "label", text: node.name },
     effectAllowed: "copyMove",
   });
+  // Dim the source row while it is being dragged (VSCode parity — the dragged
+  // entry fades so the floating drag label / drop target stand out).
+  const [isDragging, setIsDragging] = useState(false);
+  const handleDragStart = (e: React.DragEvent<HTMLButtonElement>): void => {
+    setIsDragging(true);
+    onDragStart(e);
+  };
 
   return (
     <button
@@ -128,8 +135,14 @@ export function FileTreeRow({
       onDoubleClick={isDir ? undefined : onDoubleClick}
       onContextMenu={onContextMenu}
       title={node.name}
+      // DnD hit-testing: the drop-target hook walks up to the [role="treeitem"]
+      // element and reads these to decide whether the cursor is over a valid
+      // directory drop target and which path to drop into.
+      data-file-tree-row-type={node.type}
+      data-file-tree-row-path={absPath}
       draggable={!isDir}
-      onDragStart={isDir ? undefined : onDragStart}
+      onDragStart={isDir ? undefined : handleDragStart}
+      onDragEnd={isDir ? undefined : () => setIsDragging(false)}
       style={{ paddingLeft: indentPaddingLeft(depth), height: ROW_HEIGHT_PX }}
       className={cn(
         "flex items-center w-full text-left cursor-pointer select-none",
@@ -147,6 +160,8 @@ export function FileTreeRow({
         // The data attribute is consumed by the DnD hook for DOM hit-testing and
         // by CSS selectors in globals.css for visual styling.
         isCut && "opacity-40 border-l-[var(--state-disabled-border)]",
+        // Drag source: fade while this row is the one being dragged.
+        isDragging && "opacity-40",
       )}
     >
       {isDir ? (
