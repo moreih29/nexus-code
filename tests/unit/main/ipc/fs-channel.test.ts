@@ -218,7 +218,24 @@ describe("fs write handlers — provider delegation", () => {
     await mkdirHandler(manager as never)({ workspaceId: WORKSPACE_ID, relPath: "src" });
 
     expect(createFile.mock.calls).toEqual([["new.txt"]]);
-    expect(mkdir.mock.calls).toEqual([["src"]]);
+    // `recursive` flows through as `undefined` when the caller omits it —
+    // the handler still passes it positionally so the provider signature
+    // is consistent across recursive / non-recursive sites.
+    expect(mkdir.mock.calls).toEqual([["src", undefined]]);
+  });
+
+  it("mkdirHandler forwards the recursive flag for nested inline-create", async () => {
+    const mkdir = mock(async () => {});
+    const { provider } = makeProvider({ mkdir });
+    const { manager } = makeManager(provider);
+
+    await mkdirHandler(manager as never)({
+      workspaceId: WORKSPACE_ID,
+      relPath: "src/components",
+      recursive: true,
+    });
+
+    expect(mkdir.mock.calls).toEqual([["src/components", true]]);
   });
 
   it("unlinkHandler delegates workspace-relative paths to the workspace provider", async () => {

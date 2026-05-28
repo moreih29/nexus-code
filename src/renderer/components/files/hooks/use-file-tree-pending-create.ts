@@ -23,14 +23,14 @@ interface UseFileTreePendingCreateOptions {
 
 /**
  * Toggle the parent open if it isn't already, so the inline-edit row is
- * visible when the pending sentinel is injected. The workspace root is
- * always rendered as expanded by the tree, so we skip the toggle in
- * that case.
+ * visible when the pending sentinel is injected. The workspace root used
+ * to be guaranteed-expanded, but the WorkspaceRootHeader chevron now lets
+ * the user collapse it, so the root must be expanded the same way as any
+ * other parent before its child sentinel can render.
  */
 function expandIfCollapsed(workspaceId: string, parentAbsPath: string): void {
   const tree = useFilesStore.getState().trees.get(workspaceId);
   if (!tree) return;
-  if (parentAbsPath === tree.rootAbsPath) return;
   if (tree.expanded.has(parentAbsPath)) return;
   toggleExpand(workspaceId, parentAbsPath);
 }

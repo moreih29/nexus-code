@@ -125,6 +125,56 @@ describe("getDisplayFlat", () => {
     }
   });
 
+  it("anchors at the workspace root when root is sliced off (production shape)", () => {
+    // In index.tsx the root row is sliced off and rendered separately by
+    // WorkspaceRootHeader, so `flat` here mirrors that: depth >= 1 only.
+    // With rootAbsPath supplied, parentAbsPath===root must still anchor a
+    // sentinel as if root were a synthetic depth-0 parent at index -1.
+    const f = flat([
+      ["/r/dir1", dirNode("dir1"), 1],
+      ["/r/dir1/inner.ts", fileNode("inner.ts"), 2],
+      ["/r/dir2", dirNode("dir2"), 1],
+      ["/r/file-a.ts", fileNode("file-a.ts"), 1],
+    ]);
+    const out = getDisplayFlat(f, { parentAbsPath: "/r", kind: "file" }, null, "/r");
+
+    // Sentinel lands after the last dir-subtree at depth-1, before file-a.
+    expect(out.map((it) => (it.kind === "pending" ? "PENDING" : it.absPath))).toEqual([
+      "/r/dir1",
+      "/r/dir1/inner.ts",
+      "/r/dir2",
+      "PENDING",
+      "/r/file-a.ts",
+    ]);
+    const pending = out[3];
+    if (pending.kind !== "pending") throw new Error("expected pending");
+    expect(pending.depth).toBe(1);
+    expect(pending.parentAbsPath).toBe("/r");
+  });
+
+  it("inserts sentinel at the top when the sliced root has only file-children", () => {
+    const f = flat([
+      ["/r/a.ts", fileNode("a.ts"), 1],
+      ["/r/b.ts", fileNode("b.ts"), 1],
+    ]);
+    const out = getDisplayFlat(f, { parentAbsPath: "/r", kind: "file" }, null, "/r");
+    expect(out.map((it) => (it.kind === "pending" ? "PENDING" : it.absPath))).toEqual([
+      "PENDING",
+      "/r/a.ts",
+      "/r/b.ts",
+    ]);
+  });
+
+  it("anchors at root even when flat is empty (root just expanded, no children loaded yet)", () => {
+    const out = getDisplayFlat([], { parentAbsPath: "/r", kind: "folder" }, null, "/r");
+    expect(out).toHaveLength(1);
+    expect(out[0].kind).toBe("pending");
+    if (out[0].kind === "pending") {
+      expect(out[0].depth).toBe(1);
+      expect(out[0].parentAbsPath).toBe("/r");
+    }
+  });
+
   it("replaces the target row with a rename edit item", () => {
     const f = flat([
       ["/r", dirNode("r"), 0],

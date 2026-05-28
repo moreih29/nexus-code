@@ -97,8 +97,8 @@ export class AgentFsProvider implements AgentBackedProvider {
     await this.callAgent(FS_CREATE_FILE_METHOD, { relPath } satisfies FsCreateFileParams);
   }
 
-  async mkdir(relPath: string): Promise<void> {
-    await this.callAgent(FS_MKDIR_METHOD, { relPath } satisfies FsMkdirParams);
+  async mkdir(relPath: string, recursive?: boolean): Promise<void> {
+    await this.callAgent(FS_MKDIR_METHOD, { relPath, recursive } satisfies FsMkdirParams);
   }
 
   async unlink(relPath: string): Promise<void> {

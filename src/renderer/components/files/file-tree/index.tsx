@@ -20,7 +20,12 @@ import {
   revealEditorActiveFile,
   toggleExpand,
 } from "../../../state/operations/files";
-import { selectFlat, selectIsSelected, useFilesStore } from "../../../state/stores/files";
+import {
+  parentOf,
+  selectFlat,
+  selectIsSelected,
+  useFilesStore,
+} from "../../../state/stores/files";
 import { useGitSession, useGitStore } from "../../../state/stores/git";
 import { selectGitDecorations } from "../../../state/stores/git/decorations";
 import { useIgnoredStore } from "../../../state/stores/git/ignored";
@@ -207,8 +212,8 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   // right child position. Recomputed on every render — cheap pure
   // function over an already-cheap flat array.
   const displayFlat = useMemo(
-    () => getDisplayFlat(flat, pendingCreate.pending, pendingRename.pending),
-    [flat, pendingCreate.pending, pendingRename.pending],
+    () => getDisplayFlat(flat, pendingCreate.pending, pendingRename.pending, rootAbsPath),
+    [flat, pendingCreate.pending, pendingRename.pending, rootAbsPath],
   );
 
   const virtualizer = useVirtualizer({
@@ -421,18 +426,29 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   }
 
   // Root header action wiring (VSCode parity, MenuId.ViewTitle/navigation).
-  // The header click handlers do NOT go through the right-click target
-  // pipeline — they always operate on the workspace root regardless of
-  // current selection. New File / New Folder skip the context-menu handoff
-  // because no Radix FocusScope is open when the icon is clicked.
+  // Refresh / Collapse always target the workspace as a whole. New File /
+  // New Folder follow VSCode's `openExplorerAndCreate` (fileActions.ts):
+  // resolve the create parent from the currently focused row — a focused
+  // dir is itself the parent, a focused file uses its containing dir, and
+  // an empty selection falls back to the workspace root. This lets the
+  // header buttons act on whichever folder the user just clicked into,
+  // matching Explorer behavior. New File / New Folder skip the context-menu
+  // handoff because no Radix FocusScope is open when the icon is clicked.
+  const resolveHeaderCreateParent = (): string => {
+    if (!focusPath) return rootAbsPath;
+    const node = tree?.nodes.get(focusPath);
+    if (!node) return rootAbsPath;
+    if (node.type === "dir") return focusPath;
+    return parentOf(focusPath, rootAbsPath);
+  };
   const handleHeaderToggle = () => {
     void toggleExpand(workspaceId, rootAbsPath);
   };
   const handleHeaderNewFile = () => {
-    pendingCreate.startCreate(rootAbsPath, "file");
+    pendingCreate.startCreate(resolveHeaderCreateParent(), "file");
   };
   const handleHeaderNewFolder = () => {
-    pendingCreate.startCreate(rootAbsPath, "folder");
+    pendingCreate.startCreate(resolveHeaderCreateParent(), "folder");
   };
   const handleHeaderRefresh = () => {
     void refresh(workspaceId);
@@ -450,7 +466,15 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   return (
     <ContextMenuRoot onOpenChange={(open) => !open && setContextTargets([])}>
       <ContextMenuTrigger>
-        <div className="flex h-full flex-col">
+        {/*
+          Named hover group covering header + virtualized body. The header's
+          action cluster reads `group-hover/filetree:opacity-100` so the four
+          icons (New File / New Folder / Refresh / Collapse) stay revealed as
+          long as the pointer is anywhere over the file-tree pane — matches
+          VSCode's title-bar action visibility, which is bound to the whole
+          view rather than just its title strip.
+         */}
+        <div className="group/filetree flex h-full flex-col">
           <WorkspaceRootHeader
             rootAbsPath={rootAbsPath}
             isExpanded={rootExpanded}

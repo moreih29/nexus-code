@@ -22,7 +22,13 @@ export interface FsProvider {
     expected?: ExpectedFileStateContract,
   ): Promise<WriteFileResult>;
   createFile(relPath: string): Promise<void>;
-  mkdir(relPath: string): Promise<void>;
+  /**
+   * Create a directory. `recursive` opts into os.MkdirAll on the agent so
+   * intermediate segments are materialised (needed for the renderer's
+   * nested-path inline-create — e.g. "src/foo/bar"). Default is single-level
+   * mkdir so unrelated callers still get NOT_FOUND for missing parents.
+   */
+  mkdir(relPath: string, recursive?: boolean): Promise<void>;
   unlink(relPath: string): Promise<void>;
   rmdir(relPath: string): Promise<void>;
   rename(fromRelPath: string, toRelPath: string, overwrite?: boolean): Promise<void>;

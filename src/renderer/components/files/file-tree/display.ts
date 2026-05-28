@@ -13,6 +13,13 @@
  * the sentinel is dropped — the caller should expand the parent before
  * calling startCreate.
  *
+ * Workspace-root parent is a special case: `flat` excludes the root row
+ * (it's hoisted into <WorkspaceRootHeader>), so a `parentAbsPath` equal
+ * to `rootAbsPath` would not be found by a naive lookup. Pass the root
+ * path explicitly so we can treat it as a synthetic depth-0 anchor at
+ * index -1 and scan its direct (depth-1) children for the dir/file
+ * boundary just like any other parent.
+ *
  * Lives outside file-tree.tsx so the position-calculation can be unit
  * tested without React.
  */
@@ -51,6 +58,7 @@ export function getDisplayFlat(
   flat: FlatItem[],
   pending: PendingCreate | null,
   pendingRename: PendingRename | null = null,
+  rootAbsPath?: string,
 ): DisplayItem[] {
   const real: DisplayItem[] = flat.map((item) => {
     if (pendingRename?.absPath === item.absPath) {
@@ -66,11 +74,22 @@ export function getDisplayFlat(
   });
   if (!pending) return real;
 
-  const parentIdx = flat.findIndex((it) => it.absPath === pending.parentAbsPath);
-  if (parentIdx === -1) return real;
-
-  const parent = flat[parentIdx];
-  const childDepth = parent.depth + 1;
+  // Workspace-root case: root isn't in `flat` (sliced off in index.tsx
+  // because the header renders it separately), so treat it as a synthetic
+  // depth-0 anchor at index -1. Scan starts from i=0 and the boundary
+  // logic below collapses cleanly — parentDepth=0 means the "leave the
+  // subtree" guard never fires (no row in `flat` has depth ≤ 0).
+  let parentIdx: number;
+  let parentDepth: number;
+  if (rootAbsPath !== undefined && pending.parentAbsPath === rootAbsPath) {
+    parentIdx = -1;
+    parentDepth = 0;
+  } else {
+    parentIdx = flat.findIndex((it) => it.absPath === pending.parentAbsPath);
+    if (parentIdx === -1) return real;
+    parentDepth = flat[parentIdx].depth;
+  }
+  const childDepth = parentDepth + 1;
 
   // Walk forward from the parent row, stopping either when we leave the
   // parent's subtree (depth <= parent.depth) or when we hit the first
@@ -79,7 +98,7 @@ export function getDisplayFlat(
   let insertIdx = flat.length;
   for (let i = parentIdx + 1; i < flat.length; i++) {
     const item = flat[i];
-    if (item.depth <= parent.depth) {
+    if (item.depth <= parentDepth) {
       insertIdx = i;
       break;
     }

@@ -99,16 +99,18 @@ export function WorkspaceRootHeader({
 }: WorkspaceRootHeaderProps) {
   const name = basename(rootAbsPath) || rootAbsPath;
   return (
-    // <header> is the right semantic for "introduces the section below". The
-    // Tailwind `group` utility is a separate concept (hover-state propagation
-    // to the action cluster). Right-click anywhere on the strip surfaces the
-    // root context menu — the inner toggle button and action buttons handle
-    // their own click semantics, so this listener only matters for the gaps
-    // between them and the workspace-name label area.
+    // <header> is the right semantic for "introduces the section below".
+    // Hover-state propagation for the action cluster is driven by a named
+    // Tailwind group (`group/filetree`) on the FileTree's outer wrapper —
+    // matches VSCode where the title-bar actions stay visible as long as
+    // the explorer view is hovered, not just its title strip. Right-click
+    // anywhere on the header surfaces the root context menu; the inner
+    // toggle button and action buttons handle their own click semantics,
+    // so this listener only matters for the gaps between them.
     // biome-ignore lint/a11y/noStaticElementInteractions: right-click delegation on a header strip — keyboard users access the same context menu via Menu key on the focused button below.
     <header
       className={cn(
-        "group flex h-6 shrink-0 items-center gap-1 pl-2 pr-1.5",
+        "flex h-6 shrink-0 items-center gap-1 pl-2 pr-1.5",
         "border-b border-border/50 select-none",
       )}
       onContextMenu={onContextMenu}
@@ -138,15 +140,18 @@ export function WorkspaceRootHeader({
       </button>
 
       {/*
-        Action cluster: hover-only by default, focus-within keeps it visible
-        when a keyboard user tabs into one of the buttons. Spacing matches
-        the icon-button density in tab-bar.tsx.
+        Action cluster: hidden by default, revealed whenever the user is
+        hovering anywhere over the file-tree (the `group/filetree` ancestor
+        wraps both this header and the virtualized body in index.tsx).
+        focus-within keeps it visible when a keyboard user tabs into one
+        of the buttons. Spacing matches the icon-button density in
+        tab-bar.tsx.
        */}
       <div
         className={cn(
           "flex shrink-0 items-center gap-0.5",
           "opacity-0 transition-opacity",
-          "group-hover:opacity-100 focus-within:opacity-100",
+          "group-hover/filetree:opacity-100 focus-within:opacity-100",
         )}
       >
         <ActionButton label="New File" onClick={onNewFile}>

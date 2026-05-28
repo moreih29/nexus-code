@@ -984,7 +984,19 @@ export const ipcContract = {
         z.void(),
       ),
       createFile: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), z.void()),
-      mkdir: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), z.void()),
+      mkdir: call(
+        z.object({
+          workspaceId: z.string().uuid(),
+          relPath: z.string(),
+          // Optional — when true the agent uses os.MkdirAll so intermediate
+          // segments are materialised. The renderer's New File / New Folder
+          // flow sets this so a user-typed nested name like "src/foo/bar"
+          // creates the chain in one shot (VSCode parity, fileActions.ts
+          // applyBulkEdit/ResourceFileEdit).
+          recursive: z.boolean().optional(),
+        }),
+        z.void(),
+      ),
       unlink: call(
         z.object({ workspaceId: z.string().uuid(), relPath: FsMutationRelPathSchema }),
         z.void(),
