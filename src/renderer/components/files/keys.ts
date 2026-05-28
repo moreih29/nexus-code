@@ -108,7 +108,29 @@ export function createFileTreeKeydownHandler(
 
     if (e.key === "Escape") {
       e.preventDefault();
-      useFilesStore.getState().clearToFocus(workspaceId);
+      // Two-step deselect, mirroring macOS Finder:
+      //
+      //   1) Range / multi-select state  → narrow to single focused row
+      //      (existing clearToFocus behaviour).
+      //   2) Single-row or already empty → fully clear so the next
+      //      New File / New Folder / Paste targets the workspace root
+      //      via the existing `focus=null → rootAbsPath` fallback.
+      //
+      // Without step 2 the file tree had no way back to "nothing selected"
+      // once the user clicked any row, which left workspace-root creation
+      // gated by happening to never click anything (or by accumulating
+      // multi-select state and pressing Esc until it collapsed).
+      const store = useFilesStore.getState();
+      const sel = store.selection.get(workspaceId);
+      const inSingleOrEmpty =
+        !sel ||
+        sel.focus === null ||
+        (sel.anchor === sel.focus && sel.paths.size === 1 && sel.paths.has(sel.focus));
+      if (inSingleOrEmpty) {
+        store.clearSelection(workspaceId);
+      } else {
+        store.clearToFocus(workspaceId);
+      }
       return;
     }
 

@@ -20,12 +20,7 @@ import {
   revealEditorActiveFile,
   toggleExpand,
 } from "../../../state/operations/files";
-import {
-  parentOf,
-  selectFlat,
-  selectIsSelected,
-  useFilesStore,
-} from "../../../state/stores/files";
+import { parentOf, selectFlat, selectIsSelected, useFilesStore } from "../../../state/stores/files";
 import { useGitSession, useGitStore } from "../../../state/stores/git";
 import { selectGitDecorations } from "../../../state/stores/git/decorations";
 import { useIgnoredStore } from "../../../state/stores/git/ignored";
@@ -493,6 +488,19 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
             aria-activedescendant={focusRowId}
             onKeyDown={handleKeyDown}
             onContextMenu={handleAreaContextMenu}
+            // Empty-area left click → fully clear selection so the next
+            // New File / New Folder / Paste lands at the workspace root.
+            // Click hits inside any row (regular / pending / rename — all
+            // tagged with data-file-tree-row-type) bubble up here too, so
+            // the closest() guard ensures we don't undo the row's own
+            // setSingleSelection. The container has overflow-auto so the
+            // scrollable backdrop below the last row is a legitimate
+            // target even when the tree is densely populated.
+            onClick={(e) => {
+              const target = e.target as HTMLElement;
+              if (target.closest("[data-file-tree-row-type]")) return;
+              useFilesStore.getState().clearSelection(workspaceId);
+            }}
             className="flex-1 min-h-0 overflow-auto app-scrollbar focus:outline-none"
           >
             {showStatusView ? (

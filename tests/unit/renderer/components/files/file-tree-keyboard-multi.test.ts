@@ -131,15 +131,12 @@ describe("createFileTreeKeydownHandler — Cmd+A hierarchical select-all", () =>
 });
 
 // ---------------------------------------------------------------------------
-// Escape — clearToFocus
+// Escape — two-step deselect (range/multi → single → empty)
 // ---------------------------------------------------------------------------
 
-describe("createFileTreeKeydownHandler — Escape clears to focus", () => {
-  it("Escape after Cmd+A collapses paths to the focused row only", () => {
-    useFilesStore.getState().selectAllVisible(WS, PATHS);
-    const lastFocus = selectFocus(useFilesStore.getState(), WS);
-
-    const handler = createFileTreeKeydownHandler({
+describe("createFileTreeKeydownHandler — Escape two-step deselect", () => {
+  function buildHandler() {
+    return createFileTreeKeydownHandler({
       flat,
       flatPaths,
       tree: undefined,
@@ -149,20 +146,55 @@ describe("createFileTreeKeydownHandler — Escape clears to focus", () => {
       setActiveIndex: () => {},
       scrollToIndex: () => {},
     });
+  }
 
-    handler(makeKeyEvent("Escape"));
+  it("first Escape after Cmd+A narrows multi-select to the focused row", () => {
+    useFilesStore.getState().selectAllVisible(WS, PATHS);
+    const lastFocus = selectFocus(useFilesStore.getState(), WS);
+
+    buildHandler()(makeKeyEvent("Escape"));
 
     const s = useFilesStore.getState();
     expect(selectFocus(s, WS)).toBe(lastFocus);
-    // Only the focused path remains (matches the canonical singleSelection
-    // shape used everywhere else).
     for (const p of PATHS) {
-      if (p === lastFocus) {
-        expect(selectIsSelected(s, WS, p)).toBe(true);
-      } else {
-        expect(selectIsSelected(s, WS, p)).toBe(false);
-      }
+      expect(selectIsSelected(s, WS, p)).toBe(p === lastFocus);
     }
+  });
+
+  it("Escape on canonical single selection fully clears (focus=null, paths empty)", () => {
+    // beforeEach already established a single selection on PATHS[0].
+    expect(selectFocus(useFilesStore.getState(), WS)).toBe(PATHS[0]);
+
+    buildHandler()(makeKeyEvent("Escape"));
+
+    const s = useFilesStore.getState();
+    expect(selectFocus(s, WS)).toBeNull();
+    for (const p of PATHS) {
+      expect(selectIsSelected(s, WS, p)).toBe(false);
+    }
+  });
+
+  it("two presses from a Cmd+A state reach the empty state", () => {
+    useFilesStore.getState().selectAllVisible(WS, PATHS);
+
+    const handler = buildHandler();
+    handler(makeKeyEvent("Escape")); // narrow
+    handler(makeKeyEvent("Escape")); // clear
+
+    const s = useFilesStore.getState();
+    expect(selectFocus(s, WS)).toBeNull();
+    for (const p of PATHS) {
+      expect(selectIsSelected(s, WS, p)).toBe(false);
+    }
+  });
+
+  it("Escape on already-empty selection is a safe no-op", () => {
+    useFilesStore.setState({ trees: new Map(), selection: new Map() });
+
+    buildHandler()(makeKeyEvent("Escape"));
+
+    const s = useFilesStore.getState();
+    expect(selectFocus(s, WS)).toBeNull();
   });
 });
 
