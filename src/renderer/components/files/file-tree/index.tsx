@@ -279,6 +279,21 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   function handleRowClick(_idx: number, item: (typeof flat)[number], e?: React.MouseEvent) {
     const store = useFilesStore.getState();
 
+    // WAI-ARIA tree widget pattern: rows are `tabIndex={-1}` and the container
+    // owns the single tab stop (`tabIndex={0}`). Clicking a `<button tabIndex=-1>`
+    // does NOT reliably move keyboard focus to it on macOS Chromium — focus can
+    // remain on whatever element had it before the click (body, previously-active
+    // Monaco, ...). Without an explicit move, subsequent shortcuts that gate on
+    // `fileTreeFocus` (Cmd+Backspace = permanent delete, Cmd+A = hierarchical
+    // select-all) silently no-op because the keydown's `closest('[role="tree"]')`
+    // walk fails from the unrelated focus target.
+    //
+    // Refocusing the container on every row interaction is the same trick VSCode's
+    // listWidget uses (focus stays on the list element, `aria-activedescendant`
+    // surfaces the active row). `preventScroll` prevents the browser from
+    // re-aligning the scroll container when focus moves.
+    containerRef.current?.focus({ preventScroll: true });
+
     if (e?.shiftKey) {
       // Shift-click: extend range from anchor to this row.
       store.extendSelectionTo(workspaceId, item.absPath, flatPaths);
