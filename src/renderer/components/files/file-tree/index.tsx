@@ -13,7 +13,9 @@ import { useDelayedLoading } from "../../../hooks/use-delayed-loading";
 import { openOrRevealEditor } from "../../../services/editor";
 import { useFileClipboardStore } from "../../../services/file-clipboard";
 import {
+  collapseAll,
   ensureRoot,
+  refresh,
   reveal,
   revealEditorActiveFile,
   toggleExpand,
@@ -32,6 +34,7 @@ import { createFileTreeKeydownHandler } from "../keys";
 import { getDisplayFlat } from "./display";
 import { buildFileTreeMenuItems } from "./menu";
 import { LOADING_FLASH_DELAY_MS, ROW_HEIGHT_PX } from "./metrics";
+import { WorkspaceRootHeader } from "./root-header";
 import { FileTreeStatusView } from "./status-view";
 import { type FileTreeDecorationLookup, FileTreeVirtualBody } from "./virtual-body";
 
@@ -49,10 +52,20 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   // trigger "Maximum update depth exceeded". Using `tree` as the useMemo dep
   // keeps the flat array stable between unrelated store updates.
   const tree = useFilesStore((s) => s.trees.get(workspaceId));
+  // `flat` excludes the workspace root: the root is rendered separately by
+  // <WorkspaceRootHeader> above the virtualized list. selectFlat() always
+  // returns the root as `[0]` (depth=0), so slicing it off here gives the
+  // children-only view every consumer below (virtualizer, Cmd+A, keyboard
+  // nav, click handlers) now operates on.
+  //
+  // When the root is collapsed, selectFlat returns just [root]; slicing
+  // yields [] and the tree shows empty — exactly what the user expects
+  // when they collapse the workspace header.
   const flat = useMemo(() => {
     if (!tree) return [];
-    return selectFlat(useFilesStore.getState(), workspaceId);
+    return selectFlat(useFilesStore.getState(), workspaceId).slice(1);
   }, [tree, workspaceId]);
+  const rootExpanded = tree ? tree.expanded.has(rootAbsPath) : true;
 
   // ensureRoot on mount/workspaceId change
   useEffect(() => {
@@ -276,7 +289,12 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   // loaded. We now always render the scrollable container, and swap the
   // *inner* content between StatusView and VirtualBody so the virtualizer
   // sees a stable scroll element from mount-time onwards.
-  const showStatusView = flat.length === 0;
+  // Status view (loading / error / "empty folder") only makes sense when the
+  // user is actually trying to look at the root's children. If the user has
+  // explicitly collapsed the root via the header chevron, an empty area is
+  // the correct pose — showing "This folder is empty" would misrepresent
+  // intentional collapse as a content-absence state.
+  const showStatusView = flat.length === 0 && rootExpanded;
 
   // Build the flat path list once per render (same shape as what
   // extendSelectionTo/selectAllVisible need). Declared before handleKeyDown
@@ -402,82 +420,121 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
     }
   }
 
+  // Root header action wiring (VSCode parity, MenuId.ViewTitle/navigation).
+  // The header click handlers do NOT go through the right-click target
+  // pipeline — they always operate on the workspace root regardless of
+  // current selection. New File / New Folder skip the context-menu handoff
+  // because no Radix FocusScope is open when the icon is clicked.
+  const handleHeaderToggle = () => {
+    void toggleExpand(workspaceId, rootAbsPath);
+  };
+  const handleHeaderNewFile = () => {
+    pendingCreate.startCreate(rootAbsPath, "file");
+  };
+  const handleHeaderNewFolder = () => {
+    pendingCreate.startCreate(rootAbsPath, "folder");
+  };
+  const handleHeaderRefresh = () => {
+    void refresh(workspaceId);
+  };
+  const handleHeaderCollapseAll = () => {
+    void collapseAll(workspaceId);
+  };
+  const handleHeaderContextMenu = (_e: React.MouseEvent<HTMLDivElement>) => {
+    // Right-click anywhere on the header → root-target context menu. The
+    // ContextMenuTrigger wrapping us still receives the bubbled event and
+    // opens the menu; we only need to populate contextTargets first.
+    setContextTargets([{ absPath: rootAbsPath, type: "dir", isRoot: true }]);
+  };
+
   return (
     <ContextMenuRoot onOpenChange={(open) => !open && setContextTargets([])}>
       <ContextMenuTrigger>
-        <div
-          ref={containerRef}
-          role="tree"
-          tabIndex={0}
-          aria-multiselectable="true"
-          aria-activedescendant={focusRowId}
-          onKeyDown={handleKeyDown}
-          onContextMenu={handleAreaContextMenu}
-          className="h-full overflow-auto app-scrollbar focus:outline-none"
-        >
-          {showStatusView ? (
-            <FileTreeStatusView
-              workspaceId={workspaceId}
-              rootAbsPath={rootAbsPath}
-              rootError={tree?.errors.get(rootAbsPath)}
-              isLoading={isLoading}
-              showLoading={showLoading}
-              treeKnown={!!tree}
-            />
-          ) : (
-            <FileTreeVirtualBody
-              workspaceId={workspaceId}
-              tree={tree}
-              displayFlat={displayFlat}
-              flat={flat}
-              activeAbsPath={activeAbsPath}
-              isPathSelected={isPathSelected}
-              isPathCut={isPathCut}
-              encodeRowId={encodeRowId}
-              virtualizer={virtualizer}
-              decorationLookup={decorationLookup}
-              onRowClick={handleRowClick}
-              onRowDoubleClick={handleRowDoubleClick}
-              onRowContextMenu={(flatIdx, item) => {
-                if (flatIdx >= 0) {
-                  // Right-click selection policy (Phase B — unchanged):
-                  // - clicked row is in selection.paths → only move focus (keep selection).
-                  // - clicked row is not in selection  → single-select it.
-                  const sel = useFilesStore.getState().selection.get(workspaceId);
-                  const inSet = sel ? sel.paths.has(item.absPath) : false;
-                  if (inSet) {
-                    useFilesStore.getState().setFocus(workspaceId, item.absPath);
-                  } else {
-                    useFilesStore.getState().setSingleSelection(workspaceId, item.absPath);
-                  }
-
-                  // Phase C — build contextTargets from the post-update selection.
-                  // Re-read selection after update above to reflect the new state.
-                  const selAfter = useFilesStore.getState().selection.get(workspaceId);
-                  if (selAfter && selAfter.paths.size > 0 && selAfter.paths.has(item.absPath)) {
-                    // Multi-select: expose all selected paths as targets.
-                    const targets: FileTreeActionTarget[] = [];
-                    for (const p of selAfter.paths) {
-                      const node = useFilesStore.getState().trees.get(workspaceId)?.nodes.get(p);
-                      if (node) targets.push({ absPath: p, type: node.type });
+        <div className="flex h-full flex-col">
+          <WorkspaceRootHeader
+            rootAbsPath={rootAbsPath}
+            isExpanded={rootExpanded}
+            onToggle={handleHeaderToggle}
+            onNewFile={handleHeaderNewFile}
+            onNewFolder={handleHeaderNewFolder}
+            onRefresh={handleHeaderRefresh}
+            onCollapseAll={handleHeaderCollapseAll}
+            onContextMenu={handleHeaderContextMenu}
+          />
+          <div
+            ref={containerRef}
+            role="tree"
+            tabIndex={0}
+            aria-multiselectable="true"
+            aria-activedescendant={focusRowId}
+            onKeyDown={handleKeyDown}
+            onContextMenu={handleAreaContextMenu}
+            className="flex-1 min-h-0 overflow-auto app-scrollbar focus:outline-none"
+          >
+            {showStatusView ? (
+              <FileTreeStatusView
+                workspaceId={workspaceId}
+                rootAbsPath={rootAbsPath}
+                rootError={tree?.errors.get(rootAbsPath)}
+                isLoading={isLoading}
+                showLoading={showLoading}
+                treeKnown={!!tree}
+              />
+            ) : (
+              <FileTreeVirtualBody
+                workspaceId={workspaceId}
+                tree={tree}
+                displayFlat={displayFlat}
+                flat={flat}
+                activeAbsPath={activeAbsPath}
+                isPathSelected={isPathSelected}
+                isPathCut={isPathCut}
+                encodeRowId={encodeRowId}
+                virtualizer={virtualizer}
+                decorationLookup={decorationLookup}
+                onRowClick={handleRowClick}
+                onRowDoubleClick={handleRowDoubleClick}
+                onRowContextMenu={(flatIdx, item) => {
+                  if (flatIdx >= 0) {
+                    // Right-click selection policy (Phase B — unchanged):
+                    // - clicked row is in selection.paths → only move focus (keep selection).
+                    // - clicked row is not in selection  → single-select it.
+                    const sel = useFilesStore.getState().selection.get(workspaceId);
+                    const inSet = sel ? sel.paths.has(item.absPath) : false;
+                    if (inSet) {
+                      useFilesStore.getState().setFocus(workspaceId, item.absPath);
+                    } else {
+                      useFilesStore.getState().setSingleSelection(workspaceId, item.absPath);
                     }
-                    setContextTargets(targets);
-                  } else {
-                    // Single: just the clicked row.
-                    setContextTargets([{ absPath: item.absPath, type: item.node.type }]);
+
+                    // Phase C — build contextTargets from the post-update selection.
+                    // Re-read selection after update above to reflect the new state.
+                    const selAfter = useFilesStore.getState().selection.get(workspaceId);
+                    if (selAfter && selAfter.paths.size > 0 && selAfter.paths.has(item.absPath)) {
+                      // Multi-select: expose all selected paths as targets.
+                      const targets: FileTreeActionTarget[] = [];
+                      for (const p of selAfter.paths) {
+                        const node = useFilesStore.getState().trees.get(workspaceId)?.nodes.get(p);
+                        if (node) targets.push({ absPath: p, type: node.type });
+                      }
+                      setContextTargets(targets);
+                    } else {
+                      // Single: just the clicked row.
+                      setContextTargets([{ absPath: item.absPath, type: item.node.type }]);
+                    }
                   }
-                }
-              }}
-              onPendingCommit={async (name) => {
-                await pendingCreate.commit(name);
-              }}
-              onPendingCancel={pendingCreate.cancel}
-              onPendingRenameCommit={async (name) => {
-                await pendingRename.commit(name);
-              }}
-              onPendingRenameCancel={pendingRename.cancel}
-            />
-          )}
+                }}
+                onPendingCommit={async (name) => {
+                  await pendingCreate.commit(name);
+                }}
+                onPendingCancel={pendingCreate.cancel}
+                onPendingRenameCommit={async (name) => {
+                  await pendingRename.commit(name);
+                }}
+                onPendingRenameCancel={pendingRename.cancel}
+              />
+            )}
+          </div>
         </div>
       </ContextMenuTrigger>
 

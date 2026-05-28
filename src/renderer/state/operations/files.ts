@@ -257,6 +257,41 @@ export function revealEditorActiveFile(workspaceId: string, activeFile: string):
   }
 }
 
+/**
+ * Collapse every expanded directory in the workspace tree except the root.
+ *
+ * VSCode parity (`workbench.files.action.collapseExplorerFolders`): keeps
+ * the workspace root expanded so children stay visible, and folds every
+ * descendant directory shut. Persists the resulting expanded set via the
+ * same `fs.setExpanded` debouncer used by `toggleExpand`.
+ *
+ * Unwatching the collapsed dirs is fire-and-forget — same policy as
+ * `toggleExpand`'s collapse branch. Subsequent re-expansion re-issues a
+ * `fs.watch` per dir.
+ */
+export async function collapseAll(workspaceId: string): Promise<void> {
+  const tree = useFilesStore.getState().trees.get(workspaceId);
+  if (!tree) return;
+
+  const { rootAbsPath } = tree;
+  const targets: string[] = [];
+  for (const absPath of tree.expanded) {
+    if (absPath === rootAbsPath) continue;
+    targets.push(absPath);
+  }
+  if (targets.length === 0) return;
+
+  const store = useFilesStore.getState();
+  for (const absPath of targets) {
+    store.collapseDir(workspaceId, absPath);
+    const rel = relPath(absPath, rootAbsPath);
+    void ipcCallResult("fs", "unwatch", { workspaceId, relPath: rel }).then((result) => {
+      if (!result.ok) console.error("[files] unwatch failed", result.message);
+    });
+  }
+  scheduleSave(workspaceId);
+}
+
 export async function reveal(workspaceId: string, absPath: string): Promise<void> {
   const tree = useFilesStore.getState().trees.get(workspaceId);
   if (!tree) return;
