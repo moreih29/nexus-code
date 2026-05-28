@@ -200,9 +200,11 @@ export function useDropTarget(opts: UseDropTargetOptions): UseDropTargetResult {
           if (srcWs !== workspaceId) return;
           moveTabToZone(workspaceId, tabId, { groupId, zone });
         } else {
-          const { workspaceId: srcWs, filePath } = parsed.payload;
+          const { workspaceId: srcWs, filePaths } = parsed.payload;
           if (srcWs !== workspaceId) return;
-          openFileAtZone(workspaceId, filePath, { groupId, zone });
+          // For editor-open drops, use the primary path (filePaths[0]).
+          // Multi-select drag onto an editor group opens only the grabbed file.
+          openFileAtZone(workspaceId, filePaths[0], { groupId, zone });
         }
       } finally {
         reset();

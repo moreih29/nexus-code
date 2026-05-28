@@ -362,6 +362,12 @@ In-app 텍스트 역할은 위 5개(`app*`) + 코드 2개(`code*`)가 전부인 
 
 `success`는 컨트롤의 인터랙션 상태가 아니라 피드백 레이어다 — `feedback.success.*`로 분리(§10).
 
+> **다중선택 리스트/트리 focus** — 파일트리처럼 다중선택 행이 공존하는 컨텍스트에서는
+> 키보드 포커스(lead 행)를 선택 배경(`sidebar.item.selected.bg`)과 시각적으로 분리해야 한다.
+> 이때 `state.focus.ring` 대신 `sidebar.item.focus.border`(dotted 1px inset outline)를 사용한다.
+> 이유: `state.focus.ring`은 폼 컨트롤의 `:focus-visible` 링으로도 사용되므로,
+> 파일트리 고유의 "포커스 행" 신호가 같은 토큰을 재사용하면 두 컨텍스트의 스타일이 충돌한다.
+
 ### 라이트 테마 오버레이 방향
 
 다크 테마에서 hover/active 오버레이는 밝은 방향으로, 라이트 테마에서는 **어두운 방향**으로 반전된다.
@@ -543,6 +549,7 @@ primitive 토큰(`--color-mist-border` 등)으로 직접 칠하던 것을 semant
 | sidebar.item.selected.bg | 선택 항목 배경 |
 | sidebar.item.selected.fg | 선택 항목 텍스트 |
 | sidebar.item.indicator | 선택 항목 좌측 indicator |
+| sidebar.item.focus.border | 키보드 포커스 행의 dotted outline 색 (다중선택 focus Trait — `state.focus.ring`과 분리; 파일트리 전용, 폼 컨트롤 focus ring과 충돌 방지) |
 | sidebar.icon.fg | 파일 트리 아이콘 기본색 |
 | sidebar.badge.bg | 배지 배경 |
 | sidebar.badge.fg | 배지 텍스트 |
@@ -725,6 +732,8 @@ FOUC 방지를 위해 `index.html <head>` 인라인 부트 스크립트가 `loca
 - [ ] error: error 토큰 색 + 아이콘 + border 변화
 - [ ] disabled: opacity 감소 + pointer-events none
 - [ ] loading: `state.loading.indicator` 스피너 + 텍스트 레이블
+- [ ] 다중선택 리스트/트리: lead(focus) 행은 `sidebar.item.focus.border`로 dotted outline — `state.focus.ring`과 분리
+- [ ] 다중선택 가능한 리스트/트리 컨테이너에 `aria-multiselectable="true"` + `aria-activedescendant="{focused-row-id}"` — VSCode `listWidget.ts` / `listView.ts` 패턴 (roving-tabindex와 혼용 금지, 컨테이너 단일 `tabIndex=0` 유지)
 
 ### 에디터·아이콘 체크리스트
 

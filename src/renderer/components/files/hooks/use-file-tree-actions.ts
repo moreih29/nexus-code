@@ -9,6 +9,7 @@
  * Finder, New File, Rename, Delete) plug in without touching the tree
  * rendering / virtualization code.
  */
+import { showToast } from "@/components/ui/toast";
 import { openOrRevealEditor } from "@/services/editor";
 import {
   handleCopy,
@@ -16,7 +17,7 @@ import {
   handlePaste,
   useFileClipboardStore,
 } from "@/services/file-clipboard";
-import { confirmAndDeletePath, createPathActions } from "@/services/fs-mutations";
+import { confirmAndDeleteBatch, createPathActions, distinctParents } from "@/services/fs-mutations";
 import { parentOf } from "@/state/stores/files";
 import { relPath } from "@/utils/path";
 import type { EntryKind } from "../file-tree/display";
@@ -36,7 +37,16 @@ export interface FileTreeActionTarget {
 interface UseFileTreeActionsOptions {
   workspaceId: string;
   rootAbsPath: string;
-  getTarget: () => FileTreeActionTarget | null;
+  /**
+   * Returns the current context-menu targets, already resolved with the
+   * Phase B right-click policy:
+   *   - clicked row is in selection.paths → [all paths in selection set]
+   *   - clicked row is not in selection   → [clicked row only]
+   *   - empty-area right-click            → [root-target]
+   *
+   * Replaces the old `getTarget: () => T | null` (single-target) API.
+   */
+  getTargets: () => FileTreeActionTarget[];
   /**
    * Begin an inline-create row for a new file/folder under the
    * resolved parent. The hook owns the parent-resolution rule
@@ -51,30 +61,37 @@ interface UseFileTreeActionsOptions {
 export function useFileTreeActions({
   workspaceId,
   rootAbsPath,
-  getTarget,
+  getTargets,
   startCreate,
   startRename,
 }: UseFileTreeActionsOptions) {
+  // For single-target path actions (reveal, copy path) use the first target.
   const pathActions = createPathActions({
     workspaceId,
     workspaceRootPath: rootAbsPath,
-    getAbsPath: () => getTarget()?.absPath ?? null,
+    getAbsPath: () => getTargets()[0]?.absPath ?? null,
   });
 
   function resolveCreateParent(): string {
-    const t = getTarget();
+    const ts = getTargets();
+    const t = ts[0];
     if (!t) return rootAbsPath;
     if (t.type === "dir") return t.absPath;
     return parentOf(t.absPath, rootAbsPath);
   }
+
   function open() {
-    const t = getTarget();
+    // Single-target only — Open makes no sense for multiple files at once.
+    const ts = getTargets();
+    const t = ts[0];
     if (!t || t.type !== "file") return;
     openOrRevealEditor({ workspaceId, filePath: t.absPath });
   }
 
   function openToSide() {
-    const t = getTarget();
+    // Single-target only.
+    const ts = getTargets();
+    const t = ts[0];
     if (!t || t.type !== "file") return;
     openOrRevealEditor(
       { workspaceId, filePath: t.absPath },
@@ -91,49 +108,83 @@ export function useFileTreeActions({
   }
 
   function rename() {
-    const t = getTarget();
+    const ts = getTargets();
+    // Multi-selection rename: inform user and no-op (Phase B parity).
+    if (ts.length > 1) {
+      showToast({ kind: "info", message: "Rename one item at a time" });
+      return;
+    }
+    const t = ts[0];
     if (!t || t.isRoot) return;
     startRename(t.absPath);
   }
 
   async function deleteTarget(): Promise<boolean> {
-    const t = getTarget();
-    if (!t || t.isRoot) return false;
-    return confirmAndDeletePath(workspaceId, rootAbsPath, t.absPath, t.type);
+    const ts = getTargets();
+    // Filter out root targets — deleting the workspace root is never allowed.
+    const deletable = ts.filter((t) => !t.isRoot);
+    if (deletable.length === 0) return false;
+
+    return confirmAndDeleteBatch(
+      workspaceId,
+      rootAbsPath,
+      deletable.map((t) => t.absPath),
+    );
   }
 
-  // Clipboard — Cut/Copy capture the right-clicked entry; Paste targets the
-  // right-clicked node explicitly (dir → into itself; file → into its parent)
-  // so it does not depend on the tree's selection state.
+  // ---------------------------------------------------------------------------
+  // Clipboard — Phase D: full multi-selection support.
+  // ---------------------------------------------------------------------------
+
   function copy() {
-    const t = getTarget();
-    if (!t || t.isRoot) return;
-    handleCopy({
-      workspaceId,
-      workspaceRootPath: rootAbsPath,
-      entries: [{ relPath: relPath(t.absPath, rootAbsPath), absPath: t.absPath }],
-    });
+    const ts = getTargets();
+    // Filter root targets — copying the workspace root makes no sense.
+    const copyable = ts.filter((t) => !t.isRoot);
+    if (copyable.length === 0) return;
+
+    // Apply distinctParents so copying a parent + child doesn't double-copy.
+    const absPaths = distinctParents(copyable.map((t) => t.absPath));
+    const entries = absPaths.map((abs) => ({
+      relPath: relPath(abs, rootAbsPath),
+      absPath: abs,
+    }));
+
+    handleCopy({ workspaceId, workspaceRootPath: rootAbsPath, entries });
+
+    // N≥2: acknowledge multi-copy (single copy is silent, matching Phase C delete).
+    if (entries.length >= 2) {
+      showToast({ kind: "info", message: `Copied ${entries.length} items` });
+    }
   }
 
   function cut() {
-    const t = getTarget();
-    if (!t || t.isRoot) return;
-    handleCut({
-      workspaceId,
-      workspaceRootPath: rootAbsPath,
-      entries: [{ relPath: relPath(t.absPath, rootAbsPath), absPath: t.absPath }],
-    });
+    const ts = getTargets();
+    const cuttable = ts.filter((t) => !t.isRoot);
+    if (cuttable.length === 0) return;
+
+    const absPaths = distinctParents(cuttable.map((t) => t.absPath));
+    const entries = absPaths.map((abs) => ({
+      relPath: relPath(abs, rootAbsPath),
+      absPath: abs,
+    }));
+
+    handleCut({ workspaceId, workspaceRootPath: rootAbsPath, entries });
+
+    if (entries.length >= 2) {
+      showToast({ kind: "info", message: `Cut ${entries.length} items` });
+    }
   }
 
   function paste() {
-    const t = getTarget();
+    const ts = getTargets();
+    const t = ts[0];
     void handlePaste(t?.absPath ?? null);
   }
 
   // Read clipboard state at call time (not a reactive subscription, so this
   // stays a plain factory callable outside React). The menu reads `canPaste`
   // when it is rebuilt, and the right-click that opens the menu already
-  // triggers a re-render (setContextTarget), so the value is current.
+  // triggers a re-render (setContextTargets), so the value is current.
   const clip = useFileClipboardStore.getState();
   const canPaste = clip.kind !== null && clip.entries.length > 0;
 

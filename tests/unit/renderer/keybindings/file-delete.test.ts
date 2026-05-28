@@ -149,7 +149,7 @@ const DIR_PATH = "/ws/project/src";
 function resetStores() {
   useFilesStore.setState({
     trees: new Map(),
-    activeAbsPath: new Map(),
+    selection: new Map(),
     pendingRenameRequest: null,
   });
   useActiveStore.setState({ activeWorkspaceId: null });
@@ -188,7 +188,7 @@ function initWorkspace(activePath: string = FILE_PATH) {
   useFilesStore.getState().initTree(WS_ID, ROOT, []);
   useFilesStore.getState().setChildren(WS_ID, ROOT, [{ name: "src", type: "dir" }]);
   useFilesStore.getState().setChildren(WS_ID, DIR_PATH, [{ name: "index.ts", type: "file" }]);
-  useFilesStore.getState().setActiveAbsPath(WS_ID, activePath);
+  useFilesStore.getState().setSingleSelection(WS_ID, activePath);
   useActiveStore.setState({ activeWorkspaceId: WS_ID });
 }
 
@@ -298,8 +298,8 @@ describe("fileDelete 핸들러 — activeAbsPath 없으면 no-op", () => {
     const unregisters = registerFileCommands();
     try {
       initWorkspace();
-      // 활성 경로를 null로 리셋
-      useFilesStore.getState().setActiveAbsPath(WS_ID, null);
+      // 활성 경로를 null로 리셋 — clearSelection으로 focus를 null로 만든다
+      useFilesStore.getState().clearSelection(WS_ID);
 
       const e = makeEvent("Backspace", {
         code: "Backspace",
@@ -332,7 +332,7 @@ describe("fileDelete 핸들러 — root 경로이면 no-op", () => {
   it("activeAbsPath가 rootAbsPath와 같으면 IPC 호출 없음", async () => {
     const unregisters = registerFileCommands();
     try {
-      initWorkspace(ROOT); // 활성 경로 = 루트
+      initWorkspace(ROOT); // 활성 경로 = 루트 (setSingleSelection(ROOT))
 
       const e = makeEvent("Backspace", {
         code: "Backspace",
@@ -526,7 +526,7 @@ describe("use-file-tree-actions 회귀 — isRoot 대상 no-op", () => {
     const actions = useFileTreeActions({
       workspaceId: WS_ID,
       rootAbsPath: ROOT,
-      getTarget: () => ({ absPath: ROOT, type: "dir" as const, isRoot: true }),
+      getTargets: () => [{ absPath: ROOT, type: "dir" as const, isRoot: true }],
       startCreate: () => {},
       startRename: () => {},
     });

@@ -131,6 +131,9 @@ export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string
     // The indicator color uses the shared --state-selected-indicator token (C-1 unification).
     "--sidebar-item-selected-bg": tokens["sidebar.item.selected.bg"],
     "--sidebar-item-selected-fg": tokens["sidebar.item.selected.fg"],
+    // Focus border for the keyboard-focused row in multi-select (design.md §10 sidebar family,
+    // separate from --ring / state.focus.ring which drives form-control focus rings globally).
+    "--sidebar-item-focus-border": tokens["sidebar.item.focus.border"],
     "--sidebar-icon-fg": tokens["sidebar.icon.fg"],
     // Tab surface tokens — exposed so tab-bar components use semantic values
     // rather than static frosted-veil primitives (design.md §9 tab region).

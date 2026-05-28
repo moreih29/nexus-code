@@ -1,14 +1,15 @@
+import { showToast } from "@/components/ui/toast";
 import { evaluateContextKey } from "@/keybindings/context-keys";
 import { openOrRevealEditor as defaultOpenOrRevealEditor } from "@/services/editor";
 import { toggleExpand as defaultToggleExpand } from "@/state/operations/files";
 import type { FlatItem, WorkspaceTree } from "@/state/stores/files";
-import { parentOf } from "@/state/stores/files";
+import { parentOf, useFilesStore } from "@/state/stores/files";
 // `openToSide` (⌘↵) is no longer handled here — the global dispatcher
 // fires `COMMANDS.openToSide` with `when: "fileTreeFocus"`, which
 // covers any row in the tree without component-local plumbing.
 //
-// What stays here is the local navigation (Arrows / Enter / Space) the
-// global dispatcher has no business owning.
+// What stays here is the local navigation (Arrows / Enter / Space / Escape /
+// Cmd+A) the global dispatcher has no business owning.
 
 /**
  * Returns the flat-list index of the parent dir for the given item, or null if
@@ -39,6 +40,8 @@ export function computeParentJumpIndex(
  */
 export interface FileTreeKeydownDeps {
   flat: FlatItem[];
+  /** Pre-computed absPath list — passed to selectAllVisible / extendSelectionTo. */
+  flatPaths: readonly string[];
   tree: WorkspaceTree | undefined;
   workspaceId: string;
   rootAbsPath: string;
@@ -49,6 +52,8 @@ export interface FileTreeKeydownDeps {
   openOrRevealEditor?: (input: { workspaceId: string; filePath: string }) => void;
   /** Defaults to the real toggleExpand. Override in tests. */
   toggleExpand?: (workspaceId: string, absPath: string) => void;
+  /** Begins inline rename. Called on F2 with single selection. Override in tests. */
+  startRename?: (absPath: string) => void;
 }
 
 /**
@@ -74,6 +79,7 @@ export function createFileTreeKeydownHandler(
 
     const {
       flat,
+      flatPaths,
       tree,
       workspaceId,
       rootAbsPath,
@@ -82,10 +88,26 @@ export function createFileTreeKeydownHandler(
       scrollToIndex,
       openOrRevealEditor = defaultOpenOrRevealEditor,
       toggleExpand = defaultToggleExpand,
+      startRename,
     } = deps;
     const item = flat[activeIndex];
     if (!item) return;
     const isDir = item.node.type === "dir";
+    const isMac = evaluateContextKey("isMac", ke);
+    const isSelectAll = (isMac ? e.metaKey : e.ctrlKey) && e.key === "a";
+
+    // Cmd/Ctrl+A — select all visible rows.
+    if (isSelectAll) {
+      e.preventDefault();
+      useFilesStore.getState().selectAllVisible(workspaceId, flatPaths);
+      return;
+    }
+
+    if (e.key === "Escape") {
+      e.preventDefault();
+      useFilesStore.getState().clearToFocus(workspaceId);
+      return;
+    }
 
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -115,10 +137,27 @@ export function createFileTreeKeydownHandler(
       }
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
+      // Enter/Space act on the focused row only (multi-select is preserved).
       if (isDir) {
         toggleExpand(workspaceId, item.absPath);
       } else {
         openOrRevealEditor({ workspaceId, filePath: item.absPath });
+      }
+    } else if (e.key === "F2") {
+      e.preventDefault();
+      // F2 rename: single-focus only. Multi-select shows a toast and no-ops.
+      const sel = useFilesStore.getState().selection.get(workspaceId);
+      if (sel && sel.paths.size > 1) {
+        showToast({ kind: "info", message: "Rename one item at a time" });
+        return;
+      }
+      // Root cannot be renamed — mirror the guard in the global fileRename command.
+      if (item.absPath === rootAbsPath) return;
+      if (startRename) {
+        startRename(item.absPath);
+      } else {
+        // Fallback: publish via the store bridge so the PendingRename hook fires.
+        useFilesStore.getState().requestRename(item.absPath);
       }
     }
   };

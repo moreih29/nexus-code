@@ -45,8 +45,6 @@ const { useWorkspacesStore } = await import("../../../../../src/renderer/state/s
 type LocationKind = "local" | "ssh";
 
 function seedWorkspace(kind: LocationKind): void {
-  // Minimal-shape WorkspaceMeta cast — the helper only reads `id` and
-  // `location.kind`. Skipping the full meta keeps the test focused.
   const location =
     kind === "local"
       ? { kind: "local" as const, rootPath: ROOT }
@@ -86,32 +84,34 @@ function installWindow(): void {
 }
 
 function resetTree(): void {
-  useFilesStore.setState({ trees: new Map(), activeAbsPath: new Map() });
+  useFilesStore.setState({ trees: new Map(), selection: new Map() });
   useFilesStore.getState().initTree(WS, ROOT, []);
   useFilesStore.getState().setChildren(WS, ROOT, [
     { name: "a.ts", type: "file" },
+    { name: "b.ts", type: "file" },
     { name: "dir", type: "dir" },
     { name: "ln", type: "symlink" },
   ]);
 }
 
-describe("useFileTreeActions rename/delete routing", () => {
+// ---------------------------------------------------------------------------
+// Single-target delete (N=1) — regression for existing behaviour
+// ---------------------------------------------------------------------------
+
+describe("useFileTreeActions — single-target delete routing", () => {
   beforeEach(() => {
     ipcCalls.length = 0;
     confirm.mockClear();
     installWindow();
     resetTree();
-    // Default to local — most tests exercise the trash path. SSH-specific
-    // tests re-seed to the SSH variant.
     seedWorkspace("local");
   });
 
   it("routes file delete to fs.trash on a local workspace", async () => {
-    const target = { absPath: `${ROOT}/a.ts`, type: "file" as const };
     const actions = useFileTreeActions({
       workspaceId: WS,
       rootAbsPath: ROOT,
-      getTarget: () => target,
+      getTargets: () => [{ absPath: `${ROOT}/a.ts`, type: "file" as const }],
       startCreate: () => {},
       startRename: () => {},
     });
@@ -129,7 +129,7 @@ describe("useFileTreeActions rename/delete routing", () => {
     const actions = useFileTreeActions({
       workspaceId: WS,
       rootAbsPath: ROOT,
-      getTarget: () => ({ absPath: `${ROOT}/dir`, type: "dir" }),
+      getTargets: () => [{ absPath: `${ROOT}/dir`, type: "dir" as const }],
       startCreate: () => {},
       startRename: () => {},
     });
@@ -148,7 +148,7 @@ describe("useFileTreeActions rename/delete routing", () => {
     const actions = useFileTreeActions({
       workspaceId: WS,
       rootAbsPath: ROOT,
-      getTarget: () => ({ absPath: `${ROOT}/a.ts`, type: "file" }),
+      getTargets: () => [{ absPath: `${ROOT}/a.ts`, type: "file" as const }],
       startCreate: () => {},
       startRename: () => {},
     });
@@ -164,13 +164,10 @@ describe("useFileTreeActions rename/delete routing", () => {
 
   it("falls back to fs.removeAll for directories on SSH workspaces (no remote trash)", async () => {
     seedWorkspace("ssh");
-    // The confirm dialog already promised "Delete <folder> and its contents",
-    // so removeDir skips the empty-only rmdir attempt and asks the agent for
-    // a recursive removeAll directly.
     const actions = useFileTreeActions({
       workspaceId: WS,
       rootAbsPath: ROOT,
-      getTarget: () => ({ absPath: `${ROOT}/dir`, type: "dir" }),
+      getTargets: () => [{ absPath: `${ROOT}/dir`, type: "dir" as const }],
       startCreate: () => {},
       startRename: () => {},
     });
@@ -189,7 +186,7 @@ describe("useFileTreeActions rename/delete routing", () => {
     const actions = useFileTreeActions({
       workspaceId: WS,
       rootAbsPath: ROOT,
-      getTarget: () => ({ absPath: `${ROOT}/a.ts`, type: "file" }),
+      getTargets: () => [{ absPath: `${ROOT}/a.ts`, type: "file" as const }],
       startCreate: () => {},
       startRename,
     });
@@ -204,7 +201,7 @@ describe("useFileTreeActions rename/delete routing", () => {
     const actions = useFileTreeActions({
       workspaceId: WS,
       rootAbsPath: ROOT,
-      getTarget: () => ({ absPath: ROOT, type: "dir", isRoot: true }),
+      getTargets: () => [{ absPath: ROOT, type: "dir" as const, isRoot: true }],
       startCreate: () => {},
       startRename,
     });
@@ -214,5 +211,101 @@ describe("useFileTreeActions rename/delete routing", () => {
 
     expect(startRename).not.toHaveBeenCalled();
     expect(ipcCalls).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-target delete (N≥2) — Phase C batch behaviour
+// ---------------------------------------------------------------------------
+
+describe("useFileTreeActions — multi-target delete (batch)", () => {
+  beforeEach(() => {
+    ipcCalls.length = 0;
+    confirm.mockClear();
+    installWindow();
+    resetTree();
+    seedWorkspace("local");
+  });
+
+  it("deletes two files via fs.trash on local workspace", async () => {
+    const actions = useFileTreeActions({
+      workspaceId: WS,
+      rootAbsPath: ROOT,
+      getTargets: () => [
+        { absPath: `${ROOT}/a.ts`, type: "file" as const },
+        { absPath: `${ROOT}/b.ts`, type: "file" as const },
+      ],
+      startCreate: () => {},
+      startRename: () => {},
+    });
+
+    await actions.delete();
+
+    const trashCalls = ipcCalls.filter((c) => c.method === "trash");
+    expect(trashCalls).toHaveLength(2);
+    const relPaths = trashCalls.map((c) => (c.args as { relPath: string }).relPath);
+    expect(relPaths).toContain("a.ts");
+    expect(relPaths).toContain("b.ts");
+  });
+
+  it("multi-target rename shows toast and does not call startRename", () => {
+    const startRename = mock(() => {});
+    const actions = useFileTreeActions({
+      workspaceId: WS,
+      rootAbsPath: ROOT,
+      getTargets: () => [
+        { absPath: `${ROOT}/a.ts`, type: "file" as const },
+        { absPath: `${ROOT}/b.ts`, type: "file" as const },
+      ],
+      startCreate: () => {},
+      startRename,
+    });
+
+    actions.rename();
+
+    expect(startRename).not.toHaveBeenCalled();
+  });
+
+  it("distinctParents applied: parent+child → only parent deleted", async () => {
+    // Seed: dir has child a.ts
+    useFilesStore.getState().setChildren(WS, `${ROOT}/dir`, [{ name: "a.ts", type: "file" }]);
+
+    const actions = useFileTreeActions({
+      workspaceId: WS,
+      rootAbsPath: ROOT,
+      // Both dir and its child — distinctParents should reduce to just dir.
+      getTargets: () => [
+        { absPath: `${ROOT}/dir`, type: "dir" as const },
+        { absPath: `${ROOT}/dir/a.ts`, type: "file" as const },
+      ],
+      startCreate: () => {},
+      startRename: () => {},
+    });
+
+    await actions.delete();
+
+    const trashCalls = ipcCalls.filter((c) => c.method === "trash");
+    // Only the parent dir should be trashed, not the child.
+    expect(trashCalls).toHaveLength(1);
+    expect((trashCalls[0].args as { relPath: string }).relPath).toBe("dir");
+  });
+
+  it("root target filtered out of multi-delete, only non-root paths deleted", async () => {
+    const actions = useFileTreeActions({
+      workspaceId: WS,
+      rootAbsPath: ROOT,
+      getTargets: () => [
+        { absPath: ROOT, type: "dir" as const, isRoot: true },
+        { absPath: `${ROOT}/a.ts`, type: "file" as const },
+      ],
+      startCreate: () => {},
+      startRename: () => {},
+    });
+
+    await actions.delete();
+
+    const trashCalls = ipcCalls.filter((c) => c.method === "trash");
+    expect(trashCalls).toHaveLength(1);
+    expect((trashCalls[0].args as { relPath: string }).relPath).toBe("a.ts");
   });
 });

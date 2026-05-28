@@ -1,12 +1,17 @@
 import { create } from "zustand";
 import { registerWorkspaceCleanup } from "../../workspace-cleanup";
 import { cloneTree, setTree, sortEntries } from "./helpers";
-import type { FilesState, TreeNode, WorkspaceTree } from "./types";
+import {
+  emptySelection,
+  extendSelection,
+  selectAll,
+  singleSelection,
+  toggleInSelection,
+} from "./selection";
+import type { FileSelection, FilesState, TreeNode, WorkspaceTree } from "./types";
 
 export const useFilesStore = create<FilesState>((set, get) => {
   // Drop all workspace-keyed state when its workspace is removed.
-  // The central registry installs the IPC listener once; here we only
-  // declare what to do.
   registerWorkspaceCleanup((id) => {
     get().closeAllForWorkspace(id);
   });
@@ -16,7 +21,7 @@ export const useFilesStore = create<FilesState>((set, get) => {
 
   return {
     trees: new Map(),
-    activeAbsPath: new Map(),
+    selection: new Map(),
     pendingRenameRequest: null,
 
     requestRename(absPath) {
@@ -24,15 +29,84 @@ export const useFilesStore = create<FilesState>((set, get) => {
       set({ pendingRenameRequest: { absPath, requestId: renameRequestCounter } });
     },
 
-    setActiveAbsPath(workspaceId, absPath) {
+    // -------------------------------------------------------------------------
+    // Selection reducers
+    // -------------------------------------------------------------------------
+
+    setSingleSelection(workspaceId, path) {
       set((state) => {
-        const cur = state.activeAbsPath.get(workspaceId) ?? null;
-        if (cur === absPath) return state;
-        const next = new Map(state.activeAbsPath);
-        next.set(workspaceId, absPath);
-        return { activeAbsPath: next };
+        const cur = state.selection.get(workspaceId);
+        // No-op when focus already equals path and paths is empty (stable reference).
+        if (cur && cur.focus === path && cur.paths.size === 0 && cur.anchor === path) {
+          return state;
+        }
+        const next = new Map(state.selection);
+        next.set(workspaceId, singleSelection(path));
+        return { selection: next };
       });
     },
+
+    toggleSelection(workspaceId, path) {
+      set((state) => {
+        const cur = state.selection.get(workspaceId) ?? emptySelection();
+        const next = new Map(state.selection);
+        next.set(workspaceId, toggleInSelection(cur, path));
+        return { selection: next };
+      });
+    },
+
+    extendSelectionTo(workspaceId, target, flatPaths) {
+      set((state) => {
+        const cur = state.selection.get(workspaceId) ?? emptySelection();
+        const next = new Map(state.selection);
+        next.set(workspaceId, extendSelection(cur, cur.anchor, target, flatPaths));
+        return { selection: next };
+      });
+    },
+
+    selectAllVisible(workspaceId, flatPaths) {
+      set((state) => {
+        const next = new Map(state.selection);
+        next.set(workspaceId, selectAll(flatPaths));
+        return { selection: next };
+      });
+    },
+
+    clearToFocus(workspaceId) {
+      set((state) => {
+        const cur = state.selection.get(workspaceId);
+        if (!cur || (cur.paths.size === 0 && cur.anchor === cur.focus)) return state;
+        const next = new Map(state.selection);
+        const cleared: FileSelection = { focus: cur.focus, anchor: cur.focus, paths: new Set() };
+        next.set(workspaceId, cleared);
+        return { selection: next };
+      });
+    },
+
+    setFocus(workspaceId, path) {
+      set((state) => {
+        const cur = state.selection.get(workspaceId);
+        if (cur && cur.focus === path) return state;
+        const next = new Map(state.selection);
+        // Preserve anchor and paths — only move the focus cursor.
+        const existing = cur ?? emptySelection();
+        next.set(workspaceId, { ...existing, focus: path });
+        return { selection: next };
+      });
+    },
+
+    clearSelection(workspaceId) {
+      set((state) => {
+        if (!state.selection.has(workspaceId)) return state;
+        const next = new Map(state.selection);
+        next.set(workspaceId, emptySelection());
+        return { selection: next };
+      });
+    },
+
+    // -------------------------------------------------------------------------
+    // Tree reducers (unchanged logic, preserved verbatim)
+    // -------------------------------------------------------------------------
 
     initTree(workspaceId, rootAbsPath, persistedRelPaths) {
       const existing = get().trees.get(workspaceId);
@@ -202,8 +276,8 @@ export const useFilesStore = create<FilesState>((set, get) => {
     closeAllForWorkspace(workspaceId) {
       set((state) => {
         const hasTree = state.trees.has(workspaceId);
-        const hasActive = state.activeAbsPath.has(workspaceId);
-        if (!hasTree && !hasActive) return state;
+        const hasSel = state.selection.has(workspaceId);
+        if (!hasTree && !hasSel) return state;
 
         const patch: Partial<FilesState> = {};
         if (hasTree) {
@@ -211,10 +285,10 @@ export const useFilesStore = create<FilesState>((set, get) => {
           nextTrees.delete(workspaceId);
           patch.trees = nextTrees;
         }
-        if (hasActive) {
-          const nextActive = new Map(state.activeAbsPath);
-          nextActive.delete(workspaceId);
-          patch.activeAbsPath = nextActive;
+        if (hasSel) {
+          const nextSel = new Map(state.selection);
+          nextSel.delete(workspaceId);
+          patch.selection = nextSel;
         }
         return patch;
       });

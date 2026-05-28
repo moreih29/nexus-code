@@ -31,8 +31,26 @@ export type DragImageSpec =
 
 export interface UseDragSourceOptions<T> {
   mime: string;
+  /**
+   * The payload to serialize into the MIME slot.
+   * When `getPayload` is also provided, `getPayload` takes precedence and
+   * `payload` is used only as a stable identity for the `useCallback` dep.
+   */
   payload: T;
-  dragImage: DragImageSpec;
+  /**
+   * Optional: called at dragstart time to produce the actual payload that
+   * will be serialized. Use when the payload must reflect runtime state (e.g.
+   * the current multi-selection set) that should not be captured at render time.
+   *
+   * When omitted the static `payload` prop is used (existing behaviour).
+   */
+  getPayload?: () => T;
+  /**
+   * Static drag image spec, or a function that is called at dragstart time to
+   * produce the spec. Use the function form when the image label depends on
+   * runtime state (e.g. "3 items" vs the filename for multi-select DnD).
+   */
+  dragImage: DragImageSpec | (() => DragImageSpec);
   effectAllowed?: DataTransfer["effectAllowed"];
 }
 
@@ -80,6 +98,7 @@ function applyTextDragImage(
 export function useDragSource<T>({
   mime,
   payload,
+  getPayload,
   dragImage,
   effectAllowed = "move",
 }: UseDragSourceOptions<T>): UseDragSourceResult {
@@ -105,16 +124,21 @@ export function useDragSource<T>({
       if (!e.dataTransfer) return;
 
       e.dataTransfer.effectAllowed = effectAllowed;
-      e.dataTransfer.setData(mime, JSON.stringify(payload));
+      // Resolve payload: prefer getPayload() (runtime) over static payload.
+      const actualPayload = getPayload ? getPayload() : payload;
+      e.dataTransfer.setData(mime, JSON.stringify(actualPayload));
 
-      if (dragImage.kind === "self") {
+      // Resolve drag image: support function form for dynamic labels.
+      const resolvedDragImage = typeof dragImage === "function" ? dragImage() : dragImage;
+
+      if (resolvedDragImage.kind === "self") {
         // Use the source element directly — VSCode anchors at (0, 0) so the
         // cursor sits at the top-left of the dragged element, leaving room
         // for drop-border feedback on the destination.
         e.dataTransfer.setDragImage(e.currentTarget, 0, 0);
       } else {
-        const offset = dragImage.offset ?? [-10, -10];
-        applyTextDragImage(e, dragImage.text, offset);
+        const offset = resolvedDragImage.offset ?? [-10, -10];
+        applyTextDragImage(e, resolvedDragImage.text, offset);
       }
 
       // Browser-overlay suspend.  Runs in React's bubble-phase handler so
@@ -130,9 +154,7 @@ export function useDragSource<T>({
       // Defensively release any prior stranded claim (shouldn't normally
       // happen since dragstart implies the previous drag has ended).
       releaseClaim();
-      releaseRef.current = useBrowserSuspendStore
-        .getState()
-        .claim({ captureSnapshot: false });
+      releaseRef.current = useBrowserSuspendStore.getState().claim({ captureSnapshot: false });
 
       // Pair with a one-shot document `dragend` — the standard path when
       // the source element is still in the DOM at drop time.
@@ -142,7 +164,7 @@ export function useDragSource<T>({
       };
       document.addEventListener("dragend", onDragEnd);
     },
-    [mime, payload, dragImage, effectAllowed, releaseClaim],
+    [mime, payload, getPayload, dragImage, effectAllowed, releaseClaim],
   );
 
   // Unmount safety net.  If the source React node is removed mid-drag —
