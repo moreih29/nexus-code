@@ -28,9 +28,15 @@ export const COMMANDS = {
   // `when: "fileTreeFocus && !inputFocus"` — does not fire while an
   // edit row (create/rename input) is already active.
   fileRename: "file.rename",
-  // Delete the focused file-tree row (Delete / Backspace). Scoped via
-  // `when: "fileTreeFocus && !inputFocus"` — CRITICAL: `!inputFocus` 조건이
-  // 없으면 edit-row 입력 도중 Delete가 부모 행 삭제를 유발해 데이터 손실.
+  // Delete the focused file-tree row(s). Cmd+Backspace (macOS Finder parity):
+  //   - local workspace → OS Trash (recoverable).
+  //   - SSH workspace   → permanent delete (no remote trash exists).
+  // Plain Backspace does NOT delete — it is reserved for text editing
+  // everywhere else on the platform and a single-keystroke delete would
+  // be too easy to trigger by accident.
+  // Scoped via `when: "fileTreeFocus && !inputFocus"` — CRITICAL: the
+  // `!inputFocus` condition prevents the edit-row (create/rename input)
+  // from accidentally deleting the parent row mid-typing.
   fileDelete: "file.delete",
   // File clipboard cut/copy/paste (Mac: Cmd+Option+V = Move Item Here).
   fileCopy: "file.copy",

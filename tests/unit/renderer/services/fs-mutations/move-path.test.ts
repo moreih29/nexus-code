@@ -91,7 +91,7 @@ function installWindow(): void {
 }
 
 function resetTree(): void {
-  useFilesStore.setState({ trees: new Map(), activeAbsPath: new Map() });
+  useFilesStore.setState({ trees: new Map(), selection: new Map() });
   useFilesStore.getState().initTree(WS, ROOT, []);
   useFilesStore.getState().setChildren(WS, ROOT, [
     { name: "a.ts", type: "file" },

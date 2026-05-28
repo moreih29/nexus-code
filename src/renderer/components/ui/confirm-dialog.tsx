@@ -12,10 +12,30 @@
  */
 
 import { Dialog as RadixDialog } from "radix-ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { createListenerBus } from "../../../shared/util/listener-bus";
+
+/**
+ * Grace window (ms) that suppresses keyboard-synthesized clicks on the dialog
+ * buttons immediately after mount. macOS Cmd+Backspace (the file-delete
+ * shortcut) emits a residual NSAction in the same event-loop tick that
+ * Chromium translates into a `detail: 0` (keyboard-synthesized) click on the
+ * first focusable button — which happens to be Cancel — and the dialog
+ * dismisses itself before the user ever sees it.
+ *
+ * Diagnosed by ruling out Radix's `onOpenChange` (never fired) and confirming
+ * the call site is the Cancel `onClick` via a React-event stack trace. The
+ * fix swallows clicks that (a) arrive within the grace window AND (b) carry
+ * `detail === 0` — true mouse clicks (`detail >= 1`) are always honoured.
+ *
+ * 120 ms is well below human reaction time (~250 ms minimum for a planned
+ * key press) so keyboard users who confirm-on-mount only feel one harmless
+ * retry; well above the residual NSAction window so the spurious click is
+ * reliably absorbed.
+ */
+const MOUNT_CLICK_GRACE_MS = 120;
 
 export interface ConfirmDialogRequest {
   title: string;
@@ -61,10 +81,20 @@ function resolveActive(confirmed: boolean): void {
  */
 export function ConfirmDialogRoot(): React.JSX.Element {
   const [active, setActive] = useState<PendingPrompt | null>(getActive());
+  // Timestamp captured every time a new prompt becomes active — read by
+  // the click handlers below to absorb residual keyboard-synthesized
+  // clicks. See MOUNT_CLICK_GRACE_MS for the rationale.
+  const mountAtRef = useRef<number>(0);
 
   useEffect(() => {
     return bus.subscribe(() => setActive(getActive()));
   }, []);
+
+  // Re-arm the grace window on every new prompt, not just the very first
+  // open — sequential destructive confirms each need protection.
+  useEffect(() => {
+    if (active !== null) mountAtRef.current = performance.now();
+  }, [active]);
 
   const open = active !== null;
   const cancelLabel = active?.cancelLabel ?? "Cancel";
@@ -81,6 +111,31 @@ export function ConfirmDialogRoot(): React.JSX.Element {
     }
   };
 
+  // Drop keyboard-synthesized clicks that fire within the grace window
+  // (see MOUNT_CLICK_GRACE_MS doc). `detail === 0` is the standard
+  // browser flag for "this click came from a keyboard activation, not a
+  // pointer," so true mouse interactions always pass through unaffected.
+  const isResidualKeyboardClick = (e: React.MouseEvent): boolean => {
+    if (e.detail !== 0) return false;
+    return performance.now() - mountAtRef.current < MOUNT_CLICK_GRACE_MS;
+  };
+
+  const handleCancelClick = (e: React.MouseEvent): void => {
+    if (isResidualKeyboardClick(e)) {
+      e.preventDefault();
+      return;
+    }
+    resolveActive(false);
+  };
+
+  const handleConfirmClick = (e: React.MouseEvent): void => {
+    if (isResidualKeyboardClick(e)) {
+      e.preventDefault();
+      return;
+    }
+    resolveActive(true);
+  };
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange} size="sm" aria-describedby={undefined}>
       <RadixDialog.Title className="text-app-body-emphasis text-foreground">
@@ -92,10 +147,10 @@ export function ConfirmDialogRoot(): React.JSX.Element {
         </RadixDialog.Description>
       ) : null}
       <div className="mt-5 flex justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={() => resolveActive(false)}>
+        <Button variant="ghost" size="sm" onClick={handleCancelClick}>
           {cancelLabel}
         </Button>
-        <Button variant={variant} size="sm" onClick={() => resolveActive(true)} autoFocus>
+        <Button variant={variant} size="sm" onClick={handleConfirmClick} autoFocus>
           {confirmLabel}
         </Button>
       </div>

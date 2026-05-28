@@ -165,6 +165,7 @@
   --state-loading-indicator: #1f6feb;
   --sidebar-item-selected-bg: rgba(31, 111, 235, 0.2);
   --sidebar-item-selected-fg: #c9d1d9;
+  --sidebar-item-focus-border: rgba(201, 209, 217, 0.6);
   --sidebar-icon-fg: #8b949e;
   --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #1f6feb;
@@ -281,6 +282,7 @@
   --state-loading-indicator: #1f6feb;
   --sidebar-item-selected-bg: rgba(31, 111, 235, 0.2);
   --sidebar-item-selected-fg: #c9d1d9;
+  --sidebar-item-focus-border: rgba(201, 209, 217, 0.6);
   --sidebar-icon-fg: #8b949e;
   --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #1f6feb;
@@ -390,6 +392,7 @@
   --state-loading-indicator: #0969da;
   --sidebar-item-selected-bg: rgba(9, 105, 218, 0.2);
   --sidebar-item-selected-fg: #1f2328;
+  --sidebar-item-focus-border: rgba(31, 35, 40, 0.6);
   --sidebar-icon-fg: #656d76;
   --tab-active-bg: rgba(0, 0, 0, 0.08);
   --tab-active-border: #0969da;
@@ -499,6 +502,7 @@
   --state-loading-indicator: #bd93f9;
   --sidebar-item-selected-bg: rgba(189, 147, 249, 0.2);
   --sidebar-item-selected-fg: #f8f8f2;
+  --sidebar-item-focus-border: rgba(248, 248, 242, 0.6);
   --sidebar-icon-fg: #6272a4;
   --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #bd93f9;
@@ -608,6 +612,7 @@
   --state-loading-indicator: #61afef;
   --sidebar-item-selected-bg: rgba(97, 175, 239, 0.2);
   --sidebar-item-selected-fg: #abb2bf;
+  --sidebar-item-focus-border: rgba(171, 178, 191, 0.6);
   --sidebar-icon-fg: #5c6370;
   --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #61afef;
@@ -717,6 +722,7 @@
   --state-loading-indicator: #a6e22e;
   --sidebar-item-selected-bg: rgba(166, 226, 46, 0.2);
   --sidebar-item-selected-fg: #f8f8f2;
+  --sidebar-item-focus-border: rgba(248, 248, 242, 0.6);
   --sidebar-icon-fg: #75715e;
   --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #a6e22e;
@@ -826,6 +832,7 @@
   --state-loading-indicator: #7aa2f7;
   --sidebar-item-selected-bg: rgba(122, 162, 247, 0.2);
   --sidebar-item-selected-fg: #c0caf5;
+  --sidebar-item-focus-border: rgba(192, 202, 245, 0.6);
   --sidebar-icon-fg: #565f89;
   --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #7aa2f7;
@@ -935,6 +942,7 @@
   --state-loading-indicator: #268bd2;
   --sidebar-item-selected-bg: rgba(38, 139, 210, 0.2);
   --sidebar-item-selected-fg: #839496;
+  --sidebar-item-focus-border: rgba(131, 148, 150, 0.6);
   --sidebar-icon-fg: #586e75;
   --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #268bd2;
@@ -1044,6 +1052,7 @@
   --state-loading-indicator: #88c0d0;
   --sidebar-item-selected-bg: rgba(136, 192, 208, 0.2);
   --sidebar-item-selected-fg: #d8dee9;
+  --sidebar-item-focus-border: rgba(216, 222, 233, 0.6);
   --sidebar-icon-fg: #616e88;
   --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #88c0d0;
@@ -1153,6 +1162,7 @@
   --state-loading-indicator: #89b4fa;
   --sidebar-item-selected-bg: rgba(137, 180, 250, 0.2);
   --sidebar-item-selected-fg: #cdd6f4;
+  --sidebar-item-focus-border: rgba(205, 214, 244, 0.6);
   --sidebar-icon-fg: #6c7086;
   --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #89b4fa;
@@ -1262,6 +1272,7 @@
   --state-loading-indicator: #fabd2f;
   --sidebar-item-selected-bg: rgba(250, 189, 47, 0.2);
   --sidebar-item-selected-fg: #ebdbb2;
+  --sidebar-item-focus-border: rgba(235, 219, 178, 0.6);
   --sidebar-icon-fg: #928374;
   --tab-active-bg: rgba(255, 255, 255, 0.08);
   --tab-active-border: #fabd2f;

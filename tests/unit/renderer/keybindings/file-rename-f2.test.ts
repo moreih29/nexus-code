@@ -33,17 +33,17 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
 // 임포트 (shim 설치 후)
 // ---------------------------------------------------------------------------
 
+import { registerFileCommands } from "../../../../src/renderer/commands/domains/file";
 import {
   __resetCommandsForTests,
   registerCommand,
 } from "../../../../src/renderer/commands/registry";
-import { registerFileCommands } from "../../../../src/renderer/commands/domains/file";
 import {
   __resetChordStateForTests,
   handleGlobalKeyDown,
 } from "../../../../src/renderer/keybindings/dispatcher";
-import { useFilesStore } from "../../../../src/renderer/state/stores/files";
 import { useActiveStore } from "../../../../src/renderer/state/stores/active";
+import { useFilesStore } from "../../../../src/renderer/state/stores/files";
 import { COMMANDS } from "../../../../src/shared/keybindings/commands";
 import { KEYBINDINGS } from "../../../../src/shared/keybindings/index";
 
@@ -85,8 +85,7 @@ function treeTarget(): HTMLElement {
   return {
     tagName: "DIV",
     isContentEditable: false,
-    closest: (sel: string) =>
-      sel === '[role="tree"]' ? ({} as HTMLElement) : null,
+    closest: (sel: string) => (sel === '[role="tree"]' ? ({} as HTMLElement) : null),
   } as unknown as HTMLElement;
 }
 
@@ -95,8 +94,7 @@ function treeInputTarget(): HTMLElement {
   return {
     tagName: "INPUT",
     isContentEditable: false,
-    closest: (sel: string) =>
-      sel === '[role="tree"]' ? ({} as HTMLElement) : null,
+    closest: (sel: string) => (sel === '[role="tree"]' ? ({} as HTMLElement) : null),
   } as unknown as HTMLElement;
 }
 
@@ -117,7 +115,7 @@ function resetStores() {
   // files 스토어: 새 인스턴스로 완전 초기화
   useFilesStore.setState({
     trees: new Map(),
-    activeAbsPath: new Map(),
+    selection: new Map(),
     pendingRenameRequest: null,
   });
   useActiveStore.setState({ activeWorkspaceId: null });
@@ -126,8 +124,8 @@ function resetStores() {
 function initWorkspace() {
   // 트리 초기화
   useFilesStore.getState().initTree(WS_ID, ROOT, []);
-  // 활성 경로 설정
-  useFilesStore.getState().setActiveAbsPath(WS_ID, FILE_PATH);
+  // 포커스 설정
+  useFilesStore.getState().setSingleSelection(WS_ID, FILE_PATH);
   // 활성 워크스페이스 설정
   useActiveStore.setState({ activeWorkspaceId: WS_ID });
 }
@@ -151,16 +149,12 @@ afterEach(() => {
 // 1. KEYBINDINGS 테이블 검사
 describe("KEYBINDINGS 테이블 — fileRename", () => {
   it("F2 primary 바인딩이 KEYBINDINGS에 등록돼 있다", () => {
-    const decl = KEYBINDINGS.find(
-      (k) => k.command === COMMANDS.fileRename && k.primary === "F2",
-    );
+    const decl = KEYBINDINGS.find((k) => k.command === COMMANDS.fileRename && k.primary === "F2");
     expect(decl).not.toBeUndefined();
   });
 
   it("when 조건이 정확히 'fileTreeFocus && !inputFocus' 이다", () => {
-    const decl = KEYBINDINGS.find(
-      (k) => k.command === COMMANDS.fileRename && k.primary === "F2",
-    );
+    const decl = KEYBINDINGS.find((k) => k.command === COMMANDS.fileRename && k.primary === "F2");
     expect(decl?.when).toBe("fileTreeFocus && !inputFocus");
   });
 });
@@ -172,7 +166,7 @@ describe("fileRename 핸들러 — wsId 없을 때 no-op", () => {
     try {
       // wsId 없음 (기본값 null)
       useFilesStore.getState().initTree(WS_ID, ROOT, []);
-      useFilesStore.getState().setActiveAbsPath(WS_ID, FILE_PATH);
+      useFilesStore.getState().setSingleSelection(WS_ID, FILE_PATH);
       // activeWorkspaceId는 null로 유지
 
       const e = makeEvent("F2", { code: "F2", target: treeTarget() });
@@ -192,7 +186,7 @@ describe("fileRename 핸들러 — root 경로이면 no-op", () => {
     try {
       initWorkspace();
       // 활성 경로를 루트로 변경
-      useFilesStore.getState().setActiveAbsPath(WS_ID, ROOT);
+      useFilesStore.getState().setSingleSelection(WS_ID, ROOT);
 
       const e = makeEvent("F2", { code: "F2", target: treeTarget() });
       handleGlobalKeyDown(e);

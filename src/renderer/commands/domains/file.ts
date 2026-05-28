@@ -7,16 +7,16 @@
 
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
+import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { openOrRevealEditor, runSaveAndReport } from "../../services/editor";
 import { saveUntitledModel } from "../../services/editor/save/save-untitled-handler";
-import { confirmAndDeletePath } from "../../services/fs-mutations";
 import { handleCopy, handleCut, handlePaste } from "../../services/file-clipboard";
-import { showToast } from "../../components/ui/toast";
+import { confirmAndDeleteBatch } from "../../services/fs-mutations";
 import { refresh } from "../../state/operations/files";
 import { openNewUntitledTab } from "../../state/operations/tabs";
 import { useActiveStore } from "../../state/stores/active";
-import { useFilesStore } from "../../state/stores/files";
+import { selectFocus, selectOperablePaths, useFilesStore } from "../../state/stores/files";
 import { useTabsStore } from "../../state/stores/tabs";
 import { getActiveTabContext } from "../context";
 
@@ -40,7 +40,7 @@ export function registerFileCommands(): Array<() => void> {
     registerCommand(COMMANDS.openToSide, () => {
       const wsId = useActiveStore.getState().activeWorkspaceId;
       if (!wsId) return;
-      const path = useFilesStore.getState().activeAbsPath.get(wsId);
+      const path = selectFocus(useFilesStore.getState(), wsId);
       if (!path) return;
       // Mirror the file-tree's local "open in side split" — the
       // explorer publishes the active row's absPath to the store so
@@ -64,7 +64,7 @@ export function registerFileCommands(): Array<() => void> {
       const wsId = useActiveStore.getState().activeWorkspaceId;
       if (!wsId) return;
       const filesState = useFilesStore.getState();
-      const path = filesState.activeAbsPath.get(wsId);
+      const path = selectFocus(filesState, wsId);
       if (!path) return;
       // 워크스페이스 루트는 rename 불가 (startRename 내부와 동일한 guard)
       const tree = filesState.trees.get(wsId);
@@ -106,22 +106,27 @@ export function registerFileCommands(): Array<() => void> {
     }),
 
     // File clipboard — copy/cut/paste scoped to file-tree focus.
-    // wsId is validated inside handleCopy/handleCut; handlePaste is self-contained.
+    // Phase D: selectOperablePaths returns the full multi-selection after
+    // distinctParents, so keybinding gestures work on N items just like the
+    // context-menu copy/cut actions. Root path is filtered; no-op if empty.
     registerCommand(COMMANDS.fileCopy, () => {
       const wsId = useActiveStore.getState().activeWorkspaceId;
       if (!wsId) return;
       const filesState = useFilesStore.getState();
       const tree = filesState.trees.get(wsId);
       if (!tree) return;
-      const absPath = filesState.activeAbsPath.get(wsId);
-      if (!absPath || absPath === tree.rootAbsPath) return;
-      const node = tree.nodes.get(absPath);
-      if (!node) return;
-      handleCopy({
-        workspaceId: wsId,
-        workspaceRootPath: tree.rootAbsPath,
-        entries: [{ relPath: absPath.slice(tree.rootAbsPath.length + 1), absPath }],
-      });
+      const absPaths = selectOperablePaths(filesState, wsId).filter(
+        (p) => p !== tree.rootAbsPath && tree.nodes.has(p),
+      );
+      if (absPaths.length === 0) return;
+      const entries = absPaths.map((p) => ({
+        relPath: p.slice(tree.rootAbsPath.length + 1),
+        absPath: p,
+      }));
+      handleCopy({ workspaceId: wsId, workspaceRootPath: tree.rootAbsPath, entries });
+      if (entries.length >= 2) {
+        showToast({ kind: "info", message: `Copied ${entries.length} items` });
+      }
     }),
     registerCommand(COMMANDS.fileCut, () => {
       const wsId = useActiveStore.getState().activeWorkspaceId;
@@ -129,15 +134,18 @@ export function registerFileCommands(): Array<() => void> {
       const filesState = useFilesStore.getState();
       const tree = filesState.trees.get(wsId);
       if (!tree) return;
-      const absPath = filesState.activeAbsPath.get(wsId);
-      if (!absPath || absPath === tree.rootAbsPath) return;
-      const node = tree.nodes.get(absPath);
-      if (!node) return;
-      handleCut({
-        workspaceId: wsId,
-        workspaceRootPath: tree.rootAbsPath,
-        entries: [{ relPath: absPath.slice(tree.rootAbsPath.length + 1), absPath }],
-      });
+      const absPaths = selectOperablePaths(filesState, wsId).filter(
+        (p) => p !== tree.rootAbsPath && tree.nodes.has(p),
+      );
+      if (absPaths.length === 0) return;
+      const entries = absPaths.map((p) => ({
+        relPath: p.slice(tree.rootAbsPath.length + 1),
+        absPath: p,
+      }));
+      handleCut({ workspaceId: wsId, workspaceRootPath: tree.rootAbsPath, entries });
+      if (entries.length >= 2) {
+        showToast({ kind: "info", message: `Cut ${entries.length} items` });
+      }
     }),
     registerCommand(COMMANDS.filePaste, () => {
       handlePaste().catch(() => {});
@@ -150,29 +158,33 @@ export function registerFileCommands(): Array<() => void> {
       const wsId = useActiveStore.getState().activeWorkspaceId;
       if (!wsId) return;
       const filesState = useFilesStore.getState();
-      const path = filesState.activeAbsPath.get(wsId);
+      const path = selectFocus(filesState, wsId);
       if (!path) return;
       const tree = filesState.trees.get(wsId);
       if (!tree || path === tree.rootAbsPath) return;
       filesState.requestRename(path);
     }),
 
-    // Delete / Backspace — 파일트리 포커스 상태에서 현재 행 삭제.
+    // Cmd+Backspace — 파일트리 포커스 상태에서 현재 행(들) 삭제 (macOS Finder parity).
+    //   local 워크스페이스: 휴지통으로 이동(복구 가능).
+    //   SSH 워크스페이스: 원격 휴지통이 없으므로 영구 삭제(confirm-delete가 자체 분기).
     // when:"fileTreeFocus && !inputFocus" 조건이 dispatcher 레벨에서 edit-row
     // 입력 중 발화를 막는다. 핸들러에서도 root / missing-node guard를 유지한다.
     registerCommand(COMMANDS.fileDelete, () => {
       const wsId = useActiveStore.getState().activeWorkspaceId;
       if (!wsId) return;
       const filesState = useFilesStore.getState();
-      const absPath = filesState.activeAbsPath.get(wsId);
-      if (!absPath) return;
       const tree = filesState.trees.get(wsId);
       if (!tree) return;
-      // 워크스페이스 루트는 삭제 불가
-      if (absPath === tree.rootAbsPath) return;
-      const node = tree.nodes.get(absPath);
-      if (!node) return;
-      confirmAndDeletePath(wsId, tree.rootAbsPath, absPath, node.type).catch(() => {});
+
+      const paths = selectOperablePaths(filesState, wsId);
+      if (paths.length === 0) return;
+
+      const deletable = paths.filter((p) => p !== tree.rootAbsPath && tree.nodes.has(p));
+      if (deletable.length === 0) return;
+
+      confirmAndDeleteBatch(wsId, tree.rootAbsPath, deletable).catch(() => {});
     }),
+
   ];
 }

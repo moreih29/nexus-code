@@ -3,6 +3,30 @@
 import "./subscriber";
 
 export { parentOf, selectFlat } from "./helpers";
+export {
+  emptySelection,
+  extendSelection,
+  getOperablePaths,
+  isFocused,
+  isSelected,
+  selectAll,
+  singleSelection,
+  toggleInSelection,
+} from "./selection";
+export {
+  selectFocus,
+  selectFocusedPaths,
+  selectIsFocused,
+  selectIsSelected,
+  selectOperablePaths,
+} from "./selectors";
 export { useFilesStore } from "./store";
 export { handleFsChanged } from "./subscriber";
-export type { FilesState, FlatItem, PendingRenameRequest, TreeNode, WorkspaceTree } from "./types";
+export type {
+  FileSelection,
+  FilesState,
+  FlatItem,
+  PendingRenameRequest,
+  TreeNode,
+  WorkspaceTree,
+} from "./types";

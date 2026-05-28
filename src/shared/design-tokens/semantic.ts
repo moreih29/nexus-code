@@ -72,12 +72,13 @@ export type SemanticKey =
   | "editor.find.highlight"
   | "editor.indent.guide"
 
-  // --- IDE Region: sidebar (9 keys) ---
+  // --- IDE Region: sidebar (10 keys) ---
   | "sidebar.bg"
   | "sidebar.fg"
   | "sidebar.item.hover.bg"
   | "sidebar.item.selected.bg"
   | "sidebar.item.selected.fg"
+  | "sidebar.item.focus.border"
   | "sidebar.icon.fg"
   | "sidebar.badge.bg"
   | "sidebar.badge.fg"
@@ -92,9 +93,9 @@ export type SemanticKey =
   | "tab.hover.bg"
   | "tab.modified.dot"
   // Claude status indicators (issue #5 — designer decision)
-  | "tab.claude.running.fg"     // loader glyph color in running state (info/accent hue)
-  | "tab.claude.attention.fg"   // needsInput glyph color — info hue, visually distinct from SSH connecting yellow
-  | "tab.attention.indicator"   // inactive tab left 2px bar — info/warning/error, dynamic per state at component level
+  | "tab.claude.running.fg" // loader glyph color in running state (info/accent hue)
+  | "tab.claude.attention.fg" // needsInput glyph color — info hue, visually distinct from SSH connecting yellow
+  | "tab.attention.indicator" // inactive tab left 2px bar — info/warning/error, dynamic per state at component level
 
   // --- IDE Region: panel (7 keys) ---
   | "panel.bg"
@@ -157,10 +158,10 @@ export type SemanticKey =
   // Branch changes segment — count chips next to the branch indicator.
   // Each maps to the same semantic hue as the editor's git gutter so a file
   // marked "modified" in the diff reads the same color in the status bar.
-  | "status.bar.added.fg"      // `+N` staged
-  | "status.bar.modified.fg"   // `~N` working (unstaged modify/delete)
-  | "status.bar.untracked.fg"  // `?N` untracked (new file)
-  | "status.bar.conflict.fg"   // `!N` merge conflict (priority — rendered first)
+  | "status.bar.added.fg" // `+N` staged
+  | "status.bar.modified.fg" // `~N` working (unstaged modify/delete)
+  | "status.bar.untracked.fg" // `?N` untracked (new file)
+  | "status.bar.conflict.fg" // `!N` merge conflict (priority — rendered first)
 
   // --- terminal.ansi.* 16 ANSI palette keys ---
   | "terminal.ansi.black"

@@ -17,10 +17,23 @@ export interface TabDragPayload {
   sourceGroupId: string;
 }
 
-/** Payload written to dataTransfer when a file-tree row is the drag source. */
+/**
+ * Payload written to dataTransfer when a file-tree row is the drag source.
+ *
+ * Invariants (enforced by `buildFileDragPayload`):
+ *   - `filePaths` is non-empty.
+ *   - All entries are absolute POSIX paths (strings).
+ *   - `filePaths[0]` is the "primary" path — the row the user actually grabbed.
+ *     For editor-open drops (drag file onto a workspace group) only the primary
+ *     is used; for file-tree move/copy all paths are processed.
+ *   - Entries have already been reduced by `distinctParents` at dragstart so
+ *     no path in the list is a descendant of another.
+ *
+ * Phase E: replaces the single `filePath: string` field to support multi-select DnD.
+ */
 export interface FileDragPayload {
   workspaceId: string;
-  filePath: string;
+  filePaths: readonly string[];
 }
 
 /**

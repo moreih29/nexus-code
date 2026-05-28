@@ -149,7 +149,7 @@ const DIR_PATH = "/ws/project/src";
 function resetStores() {
   useFilesStore.setState({
     trees: new Map(),
-    activeAbsPath: new Map(),
+    selection: new Map(),
     pendingRenameRequest: null,
   });
   useActiveStore.setState({ activeWorkspaceId: null });
@@ -188,7 +188,7 @@ function initWorkspace(activePath: string = FILE_PATH) {
   useFilesStore.getState().initTree(WS_ID, ROOT, []);
   useFilesStore.getState().setChildren(WS_ID, ROOT, [{ name: "src", type: "dir" }]);
   useFilesStore.getState().setChildren(WS_ID, DIR_PATH, [{ name: "index.ts", type: "file" }]);
-  useFilesStore.getState().setActiveAbsPath(WS_ID, activePath);
+  useFilesStore.getState().setSingleSelection(WS_ID, activePath);
   useActiveStore.setState({ activeWorkspaceId: WS_ID });
 }
 
@@ -224,10 +224,10 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("KEYBINDINGS 테이블 — fileDelete", () => {
-  // Policy: delete is PERMANENT (no trash recovery), so we require the
-  // explicit Cmd-modifier gesture. Plain Delete / Backspace must NOT trigger
-  // the destructive operation — a stray keypress should be inert.
-  it("Cmd+Backspace primary 바인딩이 KEYBINDINGS에 등록됨", () => {
+  // macOS Finder parity: Cmd+Backspace deletes (local = trash, SSH = permanent).
+  // Plain Backspace must NOT delete — it is the universal "edit text" key
+  // and a single-keystroke delete is too easy to trigger by accident.
+  it("Cmd+Backspace primary 바인딩이 fileDelete 에 등록됨", () => {
     const decl = KEYBINDINGS.find(
       (k) => k.command === COMMANDS.fileDelete && k.primary === "Cmd+Backspace",
     );
@@ -241,15 +241,18 @@ describe("KEYBINDINGS 테이블 — fileDelete", () => {
     expect(decl?.when).toBe("fileTreeFocus && !inputFocus");
   });
 
-  it("plain Delete / Backspace 는 fileDelete 에 바인딩되지 않는다 (data-loss guard)", () => {
-    const plainDelete = KEYBINDINGS.find(
-      (k) => k.command === COMMANDS.fileDelete && k.primary === "Delete",
-    );
+  it("plain Backspace 는 fileDelete 에 바인딩되지 않는다", () => {
     const plainBackspace = KEYBINDINGS.find(
       (k) => k.command === COMMANDS.fileDelete && k.primary === "Backspace",
     );
-    expect(plainDelete).toBeUndefined();
     expect(plainBackspace).toBeUndefined();
+  });
+
+  it("plain Delete 는 fileDelete 에 바인딩되지 않는다", () => {
+    const plainDelete = KEYBINDINGS.find(
+      (k) => k.command === COMMANDS.fileDelete && k.primary === "Delete",
+    );
+    expect(plainDelete).toBeUndefined();
   });
 });
 
@@ -298,8 +301,8 @@ describe("fileDelete 핸들러 — activeAbsPath 없으면 no-op", () => {
     const unregisters = registerFileCommands();
     try {
       initWorkspace();
-      // 활성 경로를 null로 리셋
-      useFilesStore.getState().setActiveAbsPath(WS_ID, null);
+      // 활성 경로를 null로 리셋 — clearSelection으로 focus를 null로 만든다
+      useFilesStore.getState().clearSelection(WS_ID);
 
       const e = makeEvent("Backspace", {
         code: "Backspace",
@@ -332,7 +335,7 @@ describe("fileDelete 핸들러 — root 경로이면 no-op", () => {
   it("activeAbsPath가 rootAbsPath와 같으면 IPC 호출 없음", async () => {
     const unregisters = registerFileCommands();
     try {
-      initWorkspace(ROOT); // 활성 경로 = 루트
+      initWorkspace(ROOT); // 활성 경로 = 루트 (setSingleSelection(ROOT))
 
       const e = makeEvent("Backspace", {
         code: "Backspace",
@@ -464,7 +467,7 @@ describe("dispatcher — Cmd+Backspace when 조건 scoping", () => {
     expect(e.defaultPrevented).toBe(true);
   });
 
-  it("plain Backspace (modifier 없음) → 발화 안 함 (data-loss guard)", () => {
+  it("plain Backspace (modifier 없음) → 발화 안 함 (text-edit 키와 충돌 방지)", () => {
     const deleteFn = mock(() => {});
     registerCommand(COMMANDS.fileDelete, deleteFn as () => void);
 
@@ -474,7 +477,7 @@ describe("dispatcher — Cmd+Backspace when 조건 scoping", () => {
     expect(deleteFn).not.toHaveBeenCalled();
   });
 
-  it("plain Delete (modifier 없음) → 발화 안 함 (data-loss guard)", () => {
+  it("plain Delete → 발화 안 함", () => {
     const deleteFn = mock(() => {});
     registerCommand(COMMANDS.fileDelete, deleteFn as () => void);
 
@@ -526,7 +529,7 @@ describe("use-file-tree-actions 회귀 — isRoot 대상 no-op", () => {
     const actions = useFileTreeActions({
       workspaceId: WS_ID,
       rootAbsPath: ROOT,
-      getTarget: () => ({ absPath: ROOT, type: "dir" as const, isRoot: true }),
+      getTargets: () => [{ absPath: ROOT, type: "dir" as const, isRoot: true }],
       startCreate: () => {},
       startRename: () => {},
     });

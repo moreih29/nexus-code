@@ -88,6 +88,17 @@ export function useEditorMount({
   const onMount = useCallback(
     (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco): void => {
       editorRef.current = editor;
+      // Clear the ref the moment Monaco disposes this editor instance — usually
+      // when EditorView re-renders to a non-`<Editor>` branch (phase = "error" /
+      // "binary" / loading-with-no-model). The component-unmount cleanup below
+      // runs only when the whole EditorView unmounts, so without this hook the
+      // ref would keep pointing at a disposed editor and a subsequent
+      // `useSharedModelAttach` effect could call setModel on it — surfacing as
+      // "InstantiationService has been disposed". Mirrors VSCode's own pattern
+      // of treating editor.dispose as the canonical liveness signal.
+      editor.onDidDispose(() => {
+        if (editorRef.current === editor) editorRef.current = null;
+      });
       rememberAsTemporary(editor);
       attachSharedModel(editor);
       // Publish the live editor so the registry effect can fire. setState

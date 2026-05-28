@@ -20449,6 +20449,271 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-28T05:49:24.766Z",
+      "branch": "feat/files-phase-4-multi-select",
+      "plan": {
+        "id": 64,
+        "topic": "파일 트리 다중선택(multi-select) 도입 — VSCode 패리티 기준",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Selection 모델 — store 형태와 3채널(anchor/focus/selection) 도입",
+            "status": "decided",
+            "decision": "**선택: 통합 struct `selection: Map<wsId, {anchor: string|null, focus: string|null, paths: Set<string>}>` 를 store에 도입하고, 기존 `activeAbsPath` Map은 제거. 컴포넌트-로컬 `activeIndex` useState 폐지 — focus는 store에서 읽어 `flat.findIndex(focusAbsPath)`로 매 렌더 도출.**\n\n근거:\n- VSCode의 3 Trait(anchor/focus/selection) 의미가 한 묶음으로 함께 변경되므로 통합 struct가 cohesion 축에 맞음. setSelection이 호출되면 focus/anchor도 같이 옮겨가는 경우가 대부분이라 분리 키 3개로 두면 동기화 부담만 증가.\n- `activeAbsPath`는 이미 derived(focus 한 값)이므로 별도 유지하면 sync 버그 표면이 늘어남. 신규 struct의 `focus` 필드가 그 역할을 대체.\n- 컴포넌트-로컬 activeIndex 폐지: 현재 `setActiveIndex`가 store mirror를 매번 호출하는 양방향 동기화는 useEffect race 위험. focus를 store 단일 source of truth로 두면 `lastRevealedRef`-style 가드들이 단순해짐.\n\n기각:\n- 분리 키 3개(`anchor`, `focus`, `selection` 별 Map): VSCode Trait 패턴 흉내이나 본 프로젝트는 Zustand 단일 store. 3 Map은 atomic 업데이트가 어려워 partial update race 위험.\n- `activeAbsPath` 유지 + `selection` 신설(중복): mirror 동기화 부담 영구화.\n\n영속화: VSCode는 선택을 영속화하지 않음(워크스페이스 재오픈 시 선택 비움). 동일하게 비영속. 영속되는 것은 `expanded` 집합뿐.\n\n타입 위치: `src/renderer/state/stores/files/types.ts`. 헬퍼(`isSelected`, `getOperablePaths`, `extendSelectionTo`): `src/renderer/state/stores/files/selection.ts` 신규."
+          },
+          {
+            "id": 2,
+            "title": "클릭 제스처 매핑 — Cmd/Ctrl-toggle, Shift-range, plain (open-to-side 충돌 해소)",
+            "status": "decided",
+            "decision": "**선택: VSCode 패리티로 통일. Cmd/Ctrl-click = selection 토글, Shift-click = anchor→target 범위 추가, plain click = 단일선택 교체. 현재 코드의 \"Cmd/Ctrl-click → 사이드로 열기\"는 제거하고 기존 `Cmd+\\\\`(파일트리 포커스 시) 키바인딩 또는 우클릭 메뉴 \"Open to Side\"로 대체.**\n\n근거:\n- 사용자 직접 지시(\"VSCode 기준 최대한 맞추는 형태로\")가 결정적 — Cmd/Ctrl-click의 의미 충돌은 VSCode 쪽 의미(토글)가 승.\n- `Cmd+\\\\`는 이미 `COMMANDS.openToSide` + `when: \"fileTreeFocus\"`로 글로벌 디스패처에 등록되어 있어 대체 경로 확보됨.\n- VSCode 동작: 디렉터리 행에 plain click도 단일선택 + toggleExpand. 현재 코드는 toggleExpand만 하고 선택은 갱신하지 않음 — 이것도 VSCode 패리티로 맞춤(handleRowClick에서 모든 행에 setSingleSelection 적용 후 dir이면 toggleExpand).\n\n세부 규칙:\n- plain click: `selection = {focus = anchor = clicked}`; dir이면 추가로 toggleExpand; file이면 추가로 openOrRevealEditor.\n- Cmd/Ctrl-click: `paths.toggle(clicked)`; focus·anchor → clicked; 에디터 오픈 없음.\n- Shift-click: anchor가 null이면 anchor를 현재 focus(없으면 clicked)로 설정; `paths = OR(prev, range(anchor, clicked))`; focus → clicked; anchor 보존.\n- double-click(file): 기존 동작 유지(영구 탭으로 열기).\n\n기각:\n- 양쪽 모두 살리기(Cmd+Click=토글 / Alt+Click=사이드 열기): VSCode 자체가 Alt+Click을 사이드 분기로 쓰지 않음. 추가 modifier가 학습 비용만 증가.\n- \"Cmd+Click은 토글로 옮기되, 다중선택 비활성 워크스페이스에서는 사이드 열기\": 동작 비결정성, UX 일관성 깨짐.\n\n마이그레이션: 기존 사용자가 Cmd+Click=사이드를 사용해왔다면 행동 변화. 릴리스 노트에 명시 + 새 ‟Open to Side\" 가시성을 우클릭 메뉴에서 확인."
+          },
+          {
+            "id": 3,
+            "title": "키보드 제스처 매핑 — Arrow / Cmd+A / Escape / Enter",
+            "status": "decided",
+            "decision": "**선택: 매핑 — plain Arrow Up/Down = focus 이동 + selection 단일 교체, Cmd/Ctrl+A = 보이는 flat 행 전부 선택, Escape = selection을 focus만 남기고 clear, Enter on multi-selection = focused(lead) 행만 open(파일) 또는 toggleExpand(dir). Shift+Arrow는 도입하지 않음(VSCode 패리티).**\n\n근거:\n- VSCode base tree(`listWidget.ts` L363–401)에는 Shift+Arrow 범위 확장이 미구현. 사용자 지시(\"최대한 VSCode와 맞추는 형태\")에 따라 도입하지 않음.\n- Cmd/Ctrl+A: VSCode `listWidget.ts` L403–419에서 group filter 적용한 전체 선택. 본 프로젝트에는 group 개념 없음 → 보이는(=flat에 존재하는) 모든 행을 paths에 채움. 가상화로 화면 밖 행도 flat에 있으면 포함.\n- Escape: VSCode L421–429는 selection + anchor 둘 다 clear. 본 프로젝트는 focus를 유지해야 키보드 lead가 사라지지 않으므로 \"paths = {focus}, anchor = focus\" 로 단일 선택으로 축소(VSCode와 미세 차이: VSCode는 selection 전체 비움이지만 focus는 유지 — 동일한 의미. paths를 빈 Set으로 두면 다음 Arrow가 어디서 시작할지 모호해짐. focus 한 항목 유지가 본 코드베이스에 더 자연스러움).\n- Enter: 다중선택 상태에서 모든 파일을 동시에 여는 것은 VSCode도 안 함. lead 한 항목만 open.\n\n세부:\n- Arrow: `paths = {focus = anchor = neighbor}`, scrollToIndex.\n- Cmd/Ctrl+A: `paths = new Set(flat.map(r => r.absPath))`, anchor/focus 보존.\n- Escape: `paths = {focus}, anchor = focus`.\n- Enter/Space: dir → toggleExpand(focus); file → openOrRevealEditor(focus). 다중선택 보존 여부: Enter도 plain Arrow처럼 다중선택을 단일로 축소하지 않고 그대로 둠(메뉴/우클릭과 일관성 — 작업 의도가 명확히 lead 1개일 때만 단일로 축소).\n- F2: 단일선택일 때만 rename 시작; 다중이면 no-op + 작은 토스트(\"Rename one item at a time\").\n\n기각:\n- Shift+Arrow 도입: VSCode 미지원, 학습 가치 낮음.\n- Escape에서 paths 전체 비움: focus가 있는데 paths가 비는 상태는 우리 모델에서 의미 불명(이후 Arrow가 anchor도 없는 상태에서 무엇을 기준으로 움직일지 모호)."
+          },
+          {
+            "id": 4,
+            "title": "우클릭 selection 정책 — getTargets() 반환 규칙",
+            "status": "decided",
+            "decision": "**선택: 우클릭 정책은 \"선택 밖이면 단일선택으로 교체, 선택 안이면 보존\". `getTargets()` 반환 규칙은 `selection.paths.has(focus) ? [...selection.paths] : [focus]`. 단, 우클릭 직전 이 정책을 적용해 selection을 갱신.**\n\n근거:\n- VSCode `getContext(focus, selection, respectMultiSelection=true)` (explorerView.ts L96–143): selection.length>1이면 selection 반환, 아니면 focus. 우클릭 자체는 selection을 바꾸지 않음. 하지만 우클릭이 selection 밖 행에서 발생하면 사용자는 \"이 행에 대해 메뉴를 띄웠다\"는 의도가 명확 — VSCode 실제 동작(코드 경로와 무관하게 사용자 체감)은 우클릭 시 focus를 옮기고 selection을 단일로 축소함.\n- 본 코드베이스에서 검증 가능한 정책: `setContextTarget` 직전에 selection 갱신. selection.paths.has(rightClickedPath) === true이면 selection 그대로 두고 focus만 right-clicked 행으로; false이면 selection = {right-clicked}, focus = anchor = right-clicked.\n- `getTargets()`는 이 정책 이후 호출되므로 `selection.paths.has(focus)` 가드 한 줄로 충분.\n\n세부:\n- `handleRowContextMenu(idx, item, e)` 전에 selection 갱신 로직 추가.\n- 기존 `setActiveIndex(flatIdx)` 호출은 새 selection 정책 함수가 대체(focus·anchor·paths 한 번에 설정).\n- 빈 영역 우클릭: `selection.paths.clear(); focus = root; anchor = root;` — 메뉴는 root 컨텍스트로 빌드.\n- ContextMenuRoot의 `onOpenChange(open=false)` 시 setContextTarget(null)은 유지(메뉴 닫힘 시 selection 영향 없음).\n\n기각:\n- \"우클릭이 selection을 일절 건드리지 않음\" (순수 VSCode 코드 경로): UX상 사용자가 다중선택 후 외부 행을 우클릭하면 \"왜 메뉴가 다른 행들에 적용되지?\"라는 혼란. 검증 가능한 UX는 위 정책.\n- \"우클릭이 항상 단일 교체\": 다중선택 컨텍스트에서 가장 흔한 use-case(선택 후 우클릭 → 일괄 작업)를 차단."
+          },
+          {
+            "id": 5,
+            "title": "Lead vs Editor-revealed 분리 정책 (auto-reveal 충돌)",
+            "status": "decided",
+            "decision": "**선택: VSCode `selectActiveFile` 동작 그대로 매칭. active editor의 파일이 이미 selection.paths에 포함되어 있으면 no-op; 아니면 selection을 그 파일 단일로 교체(`paths = {file}, focus = anchor = file`). 다중선택은 active editor 변경 시 의도적으로 clobber됨. `lastRevealedRef` 가드는 유지하여 동일 파일에 대해 재clobber 방지.**\n\n근거:\n- VSCode `explorerView.ts` L422–436: `focus.length===1 && selection.length===1 && both === activeFile`일 때만 no-op. 다중 선택 중에 active editor가 selection에 속한 파일을 가리키더라도 clobber. 본 결정도 동일한 시맨틱.\n- 다만 본 프로젝트의 lastRevealedRef 가드는 \"auto-reveal로 인한 중복 호출 방지\"용이지 다중선택 보호용이 아님. 가드는 그대로 두되, clobber는 active editor 변경 이벤트 자체에서 발생.\n- 다중선택을 보존하는 정책으로 가면(active file이 selection에 있을 때 no-op): 사용자가 5개 파일 선택 후 그중 하나를 editor에서 열면 selection이 5개 그대로 → \"auto-reveal\"의 본래 의도(현재 작업 중 파일이 트리에서 보임)는 만족되지만, \"이 5개에 대해 일괄 작업하려는 의도\"가 보존됨. 이 형태가 더 사용자 친화적.\n\n조정안 (사용자 친화적 보강):\n- `paths.has(activeFile)`이면 no-op (selection 보존). focus만 activeFile로 이동, anchor 보존.\n- `!paths.has(activeFile)`이면 단일 교체.\n\n이 조정은 VSCode 원문 동작과 미세 차이(VSCode는 selection.length===1 조건 추가)지만, 본 프로젝트에서 사용자 의도 보존이 더 가치 있음. 결정: 조정안 채택.\n\n기각:\n- 순수 VSCode 동작(selection.length===1일 때만 no-op): 다중선택 워크플로우(여러 파일 골라두고 하나씩 열어 검토 → 일괄 작업) 차단.\n- auto-reveal 자체 비활성화: 사용자 트리 인지(현재 어디 작업 중인지)의 핵심 기능 — 제거 불가.\n\n세부 구현:\n- `src/renderer/components/files/file-tree/index.tsx` L221–229의 Phase 2 effect를 수정. `setActiveIndexLocal(idx)` 대신 새 selection helper `revealEditorActiveFile(workspaceId, activeFile)`을 호출.\n- helper 본체: `if (paths.has(file)) { focus = file } else { selection = single(file) }`."
+          },
+          {
+            "id": 6,
+            "title": "Ancestry collapse — distinctParents 알고리즘 위치와 적용 지점",
+            "status": "decided",
+            "decision": "**선택: `src/renderer/services/fs-mutations/distinct-parents.ts` 신규 파일에 순수 함수 `distinctParents(paths: readonly string[]): string[]` 추가. 적용 지점은 (1) batch delete 진입, (2) cut/copy 엔트리 빌드, (3) DnD dragstart의 selection 확장 시.**\n\n알고리즘:\n```ts\nexport function distinctParents(paths: readonly string[]): string[] {\n  // 1. dedupe and sort by length asc so parents appear before descendants\n  const unique = [...new Set(paths)].sort((a, b) => a.length - b.length);\n  const out: string[] = [];\n  for (const p of unique) {\n    // skip if any prior selected path is a strict prefix (parent) of p\n    if (out.some(parent => p === parent || p.startsWith(parent + \"/\"))) continue;\n    out.push(p);\n  }\n  return out;\n}\n```\n\n근거:\n- VSCode `fileActions.ts` L97 `resources.distinctParents(elements, e=>e.resource)` 패턴 그대로. 정렬 후 prefix 검사 O(n log n + nk)이며 selection 크기 n은 작음.\n- Pure function — IPC 의존 없음. fs-mutations 위치는 사용자(소비자) 코드와 가까운 곳.\n- 입력 invariant: 모두 abs path, 동일 workspace root.\n\n적용 지점:\n1. **Batch delete**: `confirmAndDeleteBatch(workspaceId, root, paths[])` 진입에서 `paths = distinctParents(paths)` 후 confirm.\n2. **Cut/Copy**: `useFileTreeActions.cut()` / `.copy()` 에서 `getTargets()` 결과를 distinctParents 통과시킨 후 `handleCut/handleCopy({entries: filtered.map(p => ({relPath, absPath: p}))})`.\n3. **DnD dragstart**: selection 확장 결정 시 `filePaths = distinctParents(rawSelection)`. 자손이 부모와 함께 드래그되는 경우 자손 제거.\n4. **Paste loop**: paste는 이미 entries[]를 받아 루프 도는 구조이므로 진입 시 distinctParents 한 번 추가하면 안전.\n\n기각:\n- 호출부마다 inline 구현: 4 군데에서 동일 알고리즘 반복 → DRY 위반.\n- store 내부 selection getter에서 자동 적용: selection 자체는 사용자 의도(부모+자식 동시 선택 가능해야 시각적 표시도 정확) 보존이 맞음. distinctParents는 \"작업 시점\"에만 적용 — VSCode 패턴.\n\n테스트: `tests/unit/renderer/services/fs-mutations/distinct-parents.test.ts` 신규 — 부모+자식 케이스, dedup, 순서 보존, 빈 입력, 단일 항목, 서로 무관한 형제 항목."
+          },
+          {
+            "id": 7,
+            "title": "삭제 dialog — 다중 항목 confirm 메시지 + 휴지통/영구 분기 유지",
+            "status": "decided",
+            "decision": "**선택: `confirmAndDeleteBatch(workspaceId, root, paths[])`를 `services/fs-mutations/confirm-delete.ts`에 추가. 메시지는 1=기존 단일 메시지(이름 + 종류), 2-3=각 이름 콤마, 4+=\"N items\"; 휴지통/영구 분기는 workspace.location.kind로 기존 단일 함수와 동일하게. 루프는 distinctParents → confirm 1회 → per-path try/await; 결과는 단일 토스트로 집계.**\n\n근거:\n- VSCode 실제 동작: 1개 = \"Are you sure you want to delete 'foo.ts'?\", 2-3개 = \"Are you sure you want to delete 'foo.ts', 'bar.ts'?\", N>3 = \"Are you sure you want to delete the following N items?\" + body에 이름 나열. 본 결정은 단순화한 형태(2-3개도 콤마 리스트, 4+는 \"N items\" 단일 라인) — UX 학습 가치는 동일하면서 i18n/플루럴 부담 감소.\n- 휴지통/영구 분기는 단일 paths 모두 동일 workspace 소속(invariant)이므로 워크스페이스 location 한 번 조회로 결정. ssh 워크스페이스의 다중 삭제 → \"This cannot be undone.\"; local → \"You can restore the items from the Trash.\".\n\n메시지 포맷:\n- N=1: 기존 `composeDescription` 그대로 (이름 + 종류 + 후방 토큰).\n- N=2 or 3: title = \"Delete N items\", description = `${names.join(\", \")}\\n${suffix}` (suffix = trash or undone 문구).\n- N≥4: title = \"Delete N items\", description = `${names.slice(0,3).join(\", \")} and ${N-3} more\\n${suffix}`.\n- confirmLabel: local = \"Move to Trash\" / ssh = \"Delete\".\n\n부분 실패 처리:\n- 루프 도중 한 path에서 throw 발생 → 계속 진행 (다른 path는 독립적).\n- 결과 집계: `{ ok: number, failed: Array<{path, message}> }`.\n- 토스트: 0 failed = success 토스트 \"Deleted N items\"; failed > 0 = error 토스트 \"Deleted M of N. First failure: ${firstFailure.path}: ${firstFailure.message}\".\n\n기각:\n- per-path confirm 1번씩(N번): VSCode 패리티 아님, UX 마찰.\n- 모든 이름 나열(N=10일 때 10줄): dialog가 너무 길어짐.\n- 별도 batch IPC(`fs.deleteBatch`): renderer 루프로 충분하며, fs 백엔드는 단일 호출당 빠름. SSH도 NDJSON 라운드트립 N번이 batch 추가보다 단순.\n\n기존 단일 `confirmAndDeletePath(absPath)` 는 보존(테스트 호환). `confirmAndDeleteBatch`가 N=1일 때 단일 함수에 위임하는 형태로 통합.\n\n세부:\n- 시그니처: `confirmAndDeleteBatch(workspaceId: string, root: string, absPaths: readonly string[]): Promise<boolean>` — 반환 = 사용자가 confirm 했는지(작업 결과와 무관).\n- DELETE 글로벌 키바인딩(`Cmd+Backspace`)도 `confirmAndDeleteBatch(getOperablePaths())` 로 연결."
+          },
+          {
+            "id": 8,
+            "title": "DnD payload + drag image — filePaths[] 와 'N items' 라벨",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "approved with conditions — 신규 토큰 1개(`--sidebar-item-focus-border`, dotted 1px inset) 추가, 기존 `--sidebar-item-selected-bg`/`--sidebar-item-selected-fg`/`--state-selected-indicator`/`--state-focus-ring` 재사용. 근거: VSCode·Finder·Explorer 모두 selected(채워진 면적)와 focus(윤곽선) 두 시각 채널 분리 — design.md §10 sidebar family에서 `state.focus.ring`은 L356·L482에서 \"OS-native Tab focus, solid 2px\"로 봉인. 트리 내부 lead는 시각 무게가 약해야(한 행만 항상 lead이므로 노이즈). VSCode `list.focusOutline`/`list.inactiveFocusOutline` 분리 패턴 참고. 4가지 조합 className 매핑 제공(selected only/focus only/focus+selected/cut+selected). 신규 토큰 값: `withAlpha(surface.island.fg, 0.6)` — 다크/라이트 모두 배경 대비 ≥3:1. Findings: CRITICAL 2(focus 미분리 시 lead 위치 소실, 색만 사용 시 WCAG 1.4.1 위반), WARNING 2(focus-visible:ring과 트리 lead 의미 혼동, isCut의 indicator 슬롯 충돌 → focus는 outline으로 분리). design.md 갱신: §10 sidebar 토큰 표(L538-548) + §8 9-state 표(L334-346) + §13 체크리스트(L719-727). 미해결: aria-activedescendant vs roving tabindex는 Architect 결정 대기.</summary>\n</invoke>",
+                "recorded_at": "2026-05-28T04:13:25.486Z",
+                "agent_id": "aa48f290e71285f42"
+              },
+              {
+                "role": "architect",
+                "summary": "approved (option A — 단순 교체) + 조건 2개: (1) 파싱 헬퍼는 `workspace/dnd/payload.ts`에 통합(이미 `parseDragPayload`/`TabDragPayload` 거주), (2) selection 확장 규칙은 드래그 소스(dragstart)에 둘 것. 근거: in-process DnD 채널, 외부 wire 호환 부담 없음, 소비처 2곳뿐(`row.tsx`/`use-file-tree-drop-target.ts`). B(호환 필드)는 동기화 불변식만 추가하고 deprecation 트리거 없음(영구 dead field). C(versioned)는 in-process 관용 아님 — VSCode `ElementsDragAndDropData`도 version 없음. 새 시그니처: `interface FileDragPayload { workspaceId: string; filePaths: readonly string[]; }` + invariants(non-empty, 동일 workspace, abs paths, dedup, primary=user-grabbed row). dragstart에서 selection.has(draggedPath) ? selection : [draggedPath] 결정 — 페이로드 자기완결성(Locality), VSCode getDragLabel과 동일 시점 결정. drag image도 동일 시점 분기(1=basename, N=String(count)). 마이그레이션 단일 PR, 5단계(types → payload helpers → row.tsx → drop-target → tests). 미해결 위험: 부분 실패 toast 집계(별도 batch fs-mutation API 필요), 드롭 타겟 cycle/self-descendant 검증(드롭 핸들러).",
+                "recorded_at": "2026-05-28T04:13:56.022Z",
+                "agent_id": "ae761de1742dc6f89"
+              }
+            ],
+            "decision": "**선택: architect option A — `FileDragPayload`를 `{ workspaceId, filePaths: readonly string[] }` 로 단순 교체. 파싱/빌드 헬퍼는 `src/renderer/components/workspace/dnd/payload.ts` 에 통합(중복 parser 제거). selection 확장 + drag-image 라벨 결정은 dragstart 시점에서 수행. 단일 PR 마이그레이션.**\n\n근거 (architect agent_id=ae761de1742dc6f89):\n- in-process DnD 채널 — wire 호환 부담 없음. 소비처 2곳(`row.tsx` 빌더, `use-file-tree-drop-target.ts` 파서)에 집중되어 grep-and-replace 명확.\n- B(호환 필드)는 동기화 불변식만 추가하고 deprecation 트리거 부재 → 영구 dead field 위험. C(versioned)는 in-process 관용 아님.\n- selection 확장을 dragstart에 두는 이유: 페이로드 자기완결성(드롭 시점 selection이 변할 수 있음 — Locality of Behavior). VSCode `getDragLabel` 도 dragstart에서 결정.\n- payload.ts에 통합: `parseDragPayload`/`TabDragPayload`가 이미 거주 → cohesion 축 일치, ad-hoc `parseFilePayload` (use-file-tree-drop-target.ts L65–77) 제거.\n\n새 시그니처:\n```ts\nexport interface FileDragPayload {\n  workspaceId: string;\n  filePaths: readonly string[];  // non-empty, same workspace, abs paths, dedup, first=primary\n}\n```\n\ndragstart 규칙(row.tsx):\n- `selection.paths.has(draggedRow)` → `filePaths = distinctParents([...selection.paths])`.\n- 아니면 → `filePaths = [draggedRow]` (selection에 영향 없음).\n- drag image: `length === 1 ? basename(filePaths[0]) : String(length)`.\n\n드롭 핸들러(use-file-tree-drop-target.ts):\n- `parseFileDragPayload(dt)` → invariant 위배 시 null.\n- self-drop 가드: copy 아니면 `filePaths.every(p => parentOf(p, rootPath) === dir)` 일 때 no-op.\n- cycle 가드: 드롭 타겟 `dir`이 `filePaths` 중 하나 또는 그 자손이면 거부(드롭 시점에 검사, payload에는 검증 불가).\n- 루프: N 항목에 대해 movePath/copyPathWithAutoRename 순차 호출. 결과 집계 → 단일 토스트.\n\n기각: B/C는 위 근거대로.\n\n연결 결정: 다중 파일 부분 실패 toast 집계는 issue #7 결정과 동일 패턴 사용.\n\n마이그레이션 단위 (단일 PR):\n1. types.ts 시그니처 교체.\n2. payload.ts에 `buildFileDragPayload`/`parseFileDragPayload` 추가.\n3. row.tsx dragstart 갱신(selection 확장 + drag image).\n4. use-file-tree-drop-target.ts 다중 파일 루프 + cycle 가드.\n5. 테스트: parseFileDragPayload invariant, dragstart selection 확장, 다중 드롭."
+          },
+          {
+            "id": 9,
+            "title": "시각 상태 — focus vs selected 구별, cut overlay 유지",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "approved with conditions — 신규 토큰 1개(`--sidebar-item-focus-border`, dotted 1px inset) 추가, 기존 `--sidebar-item-selected-bg`/`--sidebar-item-selected-fg`/`--state-selected-indicator`/`--state-focus-ring` 재사용. 근거: selected(채워진 면적)와 focus(윤곽선) 두 시각 채널 분리, design.md §10에서 `state.focus.ring`은 \"OS-native Tab focus, solid 2px\"로 봉인되어 트리 내부 lead 표현에는 부적합. VSCode `list.focusOutline`/`list.inactiveFocusOutline` 분리 패턴 참고. 4가지 조합 매핑(selected only/focus only/focus+selected/cut+selected) 제공. 신규 토큰 값: `withAlpha(surface.island.fg, 0.6)` — 배경 대비 ≥3:1. Findings: CRITICAL 2(focus 미분리 시 lead 소실 / 색만 사용 시 WCAG 1.4.1 위반), WARNING 2(focus-visible:ring과 트리 lead 의미 혼동 / isCut indicator 슬롯 충돌 → focus는 outline으로 분리). design.md 갱신 위치: §10 sidebar 토큰 표 + §8 9-state 표 + §13 체크리스트. 미해결: aria-activedescendant vs roving tabindex는 architect 결정.",
+                "recorded_at": "2026-05-28T04:13:43.542Z",
+                "agent_id": "aa48f290e71285f42"
+              }
+            ],
+            "decision": "**선택: designer 권고안 채택. 신규 토큰 1개 추가(`--sidebar-item-focus-border`, dotted 1px inset outline), 기존 `--sidebar-item-selected-bg/-fg`, `--state-selected-indicator`, `--state-focus-ring` 재사용. row 컴포넌트는 `isSelected` 외에 `isFocused` prop 추가. 4가지 조합(selected-only / focus-only / focus+selected / cut+selected)을 별도 className으로 분기. design.md §10·§8·§13 동반 갱신.**\n\n근거 (designer agent_id=aa48f290e71285f42):\n- VSCode·Finder·Explorer 공통 시각 문법: selected = 채워진 면적(background), focus = 윤곽선(outline). 색만으로는 lead 위치 소실 위험(WCAG 1.4.1).\n- design.md §10 sidebar family에서 `state.focus.ring`은 \"OS-native Tab focus, solid 2px\"로 봉인 → 트리 내부 lead 표현용으로 의미 재사용 불가(혼동 위험).\n- VSCode `list.focusOutline`/`list.inactiveFocusOutline` 분리 패턴과 일치.\n- isCut의 좌측 indicator 슬롯과 충돌하지 않도록 focus는 outline(box 외곽)으로.\n\n신규 토큰 값:\n- semantic.ts에 `sidebar.item.focus.border` 추가.\n- theme adapter 매핑: `withAlpha(surface.island.fg, 0.6)` — 다크/라이트 모두 배경 대비 ≥3:1 확보. 도입 후 실제 대비비 측정 필요.\n\nclassName 매핑(row.tsx L147–165 갱신):\n```tsx\ncn(\n  \"flex items-center w-full text-left cursor-pointer select-none\",\n  \"border-l-2 border-l-transparent\",\n  \"hover:bg-[var(--state-hover-bg)]\",\n  \"focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--state-focus-ring)] focus-visible:ring-inset\",\n  isSelected && \"bg-[var(--sidebar-item-selected-bg)] border-l-[var(--state-selected-indicator)] text-[var(--sidebar-item-selected-fg)]\",\n  isFocused && \"outline outline-1 outline-dotted outline-[var(--sidebar-item-focus-border)] -outline-offset-1\",\n  isDragging && \"outline-none\",  // drag 중 lead outline 억제\n  isCut && \"opacity-40 border-l-[var(--state-disabled-border)]\",\n  isDragging && \"opacity-40\",\n)\n```\n\ndesign.md 갱신:\n- §10 sidebar 토큰 표(L538–548): `sidebar.item.focus.border` 행 추가 + 분리 근거 주석.\n- §8 9-state 표 또는 인접 redundant encoding 표: selected 행 아래 \"다중선택 컨텍스트에서 focus(lead)는 dotted outline으로 분리\" 주석.\n- §13 상태 구현 체크리스트: \"다중선택 가능한 리스트/트리는 lead 행을 dotted outline으로 표시\" 항목.\n\n미해결(별도 결정 필요):\n- ARIA lead 노출 방식: `aria-activedescendant` vs roving tabindex. 본 결정 범위 밖 — 작업 분해 시 검토.\n\n기각:\n- `state.focus.ring` 재사용 (신규 토큰 0): OS Tab focus와 트리 lead 의미 혼동, vocabulary 봉인 위반.\n- selected의 indicator hue 변형으로 focus 표현: WCAG 1.4.1 색만 사용 위반."
+          },
+          {
+            "id": 10,
+            "title": "단계 분할 — 머지 가능한 phase 경계와 작업 단위",
+            "status": "decided",
+            "decision": "**선택: 6 phase 분할. 각 phase는 단독으로 사용성 회귀 없이 머지 가능. 결정된 의존성: A→B→{C, D, E}(병렬)→F.**\n\nphase A — selection 모델 도입 (foundation, UX 무변경)\n- 신규: types.ts FileSelection 필드, stores/files/selection.ts 헬퍼, store reducer 액션(setSingleSelection/toggle/extendTo/clearTo).\n- 기존 `activeAbsPath` 제거, 컴포넌트 activeIndex 폐지.\n- row.tsx에 isFocused prop 추가(아직 isSelected만 활성).\n- 테스트: 신규 selection store/helper unit, 기존 file-tree-keys/menu/actions의 activeAbsPath 의존 마이그레이션.\n\nphase B — 입력 제스처 + 시각 상태 (multi-select 사용 가능, 작업은 lead만)\n- handleRowClick: Cmd/Ctrl/Shift 분기.\n- createFileTreeKeydownHandler: Arrow/Cmd+A/Escape/Enter.\n- row.tsx: 4-state className + 신규 토큰 적용.\n- design.md §10·§8·§13 갱신.\n- 우클릭 정책 진입 + setContextTarget 갱신(C와 분리: 이 단계는 selection만 갱신, 메뉴는 여전히 focus 단일 사용).\n- 테스트: gesture 분기, keydown 신규 키, row className 매핑.\n\nphase C — 우클릭/메뉴 + 배치 삭제 (다중 작업 사용 가능)\n- useFileTreeActions의 getTarget → getTargets() (selection.paths.has(focus) 분기).\n- confirmAndDeleteBatch 추가, fileDelete 키바인딩 연결.\n- distinctParents 헬퍼 + 테스트.\n- 메뉴 빌더: 다중 선택 시 일부 메뉴 항목 숨김/비활성(rename 등 단일 한정).\n- 테스트: file-tree-actions 다중, confirmAndDeleteBatch.\n\nphase D — Cut/Copy/Paste 다중 (이전 phase와 독립)\n- useFileTreeActions.cut/copy: getTargets() → distinctParents → entries[].\n- handlePaste: 다중 entries 루프(기존 구조 확장) + auto-rename per entry.\n- 글로벌 file commands(file.ts L116–140): selection.paths 기반.\n- 테스트: file-clipboard 다중, fileCopy/fileCut 키바인딩.\n\nphase E — DnD 다중 (이전 phase와 독립)\n- FileDragPayload → filePaths[]; workspace/dnd/payload.ts 헬퍼 통합.\n- row.tsx dragstart selection 확장 + drag image.\n- use-file-tree-drop-target.ts 다중 드롭 루프 + cycle 가드.\n- 토스트 집계 패턴.\n- 테스트: parseFileDragPayload invariant, dragstart selection 확장, 다중 드롭.\n\nphase F — polish (auto-reveal 통합 + ARIA + 디테일)\n- revealEditorActiveFile 헬퍼 + auto-reveal effect 갱신(selection 보존 정책).\n- ARIA roving tabindex 또는 aria-activedescendant 도입(designer 미해결 항목).\n- F2 rename 단일 가드 토스트.\n- 테스트: auto-reveal 시나리오, ARIA 행동.\n\n근거:\n- A는 foundation: types + helpers + reducer만 바뀌고 UX는 변화 없음 → 작은 PR로 독립 머지.\n- B는 입력 + 시각 — UX 변화 최초 발생. 작업 라우팅은 아직 단일 lead.\n- C/D/E는 의존성 없이 병렬 가능: C는 메뉴/Cmd+Backspace, D는 Cmd+C/Cmd+V, E는 DnD — 사용자가 어느 경로로 다중 작업하든 점진 활성화.\n- F는 마지막 마무리: 다른 phase가 안정된 뒤 자동-reveal 같은 미묘한 정책 손댐.\n\n기각:\n- 3 phase 분할(A·BCDE 통합·F): PR 너무 큼, 리뷰 부담 + 회귀 추적 어려움.\n- 단일 PR: 12-18 파일 + 600-900 라인. 머지 충돌 + 회귀 추적 비용 큼.\n\n총 견적: 6턴(각 phase 1턴) — 이전 분석 \"4~6턴\" 상단치."
+          }
+        ],
+        "research_summary": "VSCode 모델(verified via explore on references/vscode/src/vs/base/browser/ui/list/listWidget.ts, abstractTree.ts, workbench/contrib/files/browser/views/explorerView.ts, explorerViewer.ts, fileActions.ts):\n- 3개의 독립 Trait: anchor(범위 시작점) / focus(키보드 커서) / selection(선택 집합). setSelection/setFocus/setAnchor 별도 API.\n- Plain click: 3개 모두 클릭 항목으로 교체. Cmd/Ctrl-click: selection 토글, focus/anchor 갱신. Shift-click: anchor 보존, selection = OR(prev, anchor..target range).\n- Right-click(우클릭): selection 변경 없음(focus만 갱신). getContext(true,true) — selection.length>1이면 selection, 아니면 focus 반환.\n- 키보드: plain Arrow는 focus+anchor 이동 + selection 단일 교체. **Shift+Arrow 없음**(base tree 미구현). Cmd/Ctrl+A select-all, Escape clear.\n- DnD: getDragLabel — elements.length===1이면 name, 아니면 String(elements.length). ElementsDragAndDropData에 다중 항목 패킹.\n- distinctParents(elements, e=>e.resource) (fileActions.ts L97) — 모든 배치 op 전에 호출하여 자손 제거.\n- autoReveal selectActiveFile: 이미 focused+selected이면 no-op, 아니면 focus+selection을 그 파일로 교체(다중선택 clobber).\n\n본 코드베이스(verified via explore): 23 파일 / 63 callsite.\n- A. Selection state: file-tree/index.tsx activeIndex(useState), store activeAbsPath Map.\n- B. 입력 제스처: keys.ts, file-tree/index.tsx handleRowClick(현재 Cmd/Ctrl을 'open to side'로 사용 중 — VSCode 토글과 충돌).\n- C. 액션 레이어: use-file-tree-actions.ts getTarget (단일), menu.ts.\n- D. fs-mutations: confirm-delete/trash/unlink/remove-dir/rename/copy-file 모두 단일. paste loop만 entries[] 지원.\n- E. DnD: FileDragPayload.filePath 단수.\n- F. 테스트: file-tree-keys / file-tree-menu / file-tree-actions / drop-target / fs-mutations.\n- G. SSH/Local: confirm-delete.ts L51 workspace.location.kind === \"local\" — 루프 안전.",
+        "created_at": "2026-05-28T04:10:25.220Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Phase A — Selection 모델 (anchor/focus/paths) store 도입",
+          "status": "completed",
+          "context": "VSCode 3 Trait(anchor/focus/selection)을 통합 struct로 Zustand store에 도입. 현 코드의 `activeAbsPath: Map<wsId, string|null>`과 컴포넌트-로컬 `activeIndex` useState를 폐지하고, 신규 `selection: Map<wsId, {anchor: string|null, focus: string|null, paths: Set<string>}>`이 단일 source of truth. UX 변화 없음(이 phase 끝 시점에 사용자는 차이를 느끼지 않아야 함).",
+          "acceptance": "- 신규 `FileSelection` 타입 + reducer 액션 7개 도입, `activeAbsPath` 필드 완전 제거.\n- 컴포넌트 `activeIndex` useState 0건(grep).\n- 기존 동작 회귀 없음: Arrow 키 1행 이동, click single-select, F2 rename, Cmd+Backspace delete 모두 동작.\n- 새 단위 테스트 통과(selection.test.ts 8+ 케이스, store-selection.test.ts 6+ 케이스).\n- 기존 테스트 마이그레이션 완료: file-tree-actions/keys/menu/file-delete가 새 store shape로 시드하며 통과.\n- `bun test` 전체 통과. biome 경고 0.\n- TypeScript 컴파일 통과 (`activeAbsPath` 잔존 시 컴파일 실패로 catch).",
+          "approach": "1. `src/renderer/state/stores/files/types.ts`에 `FileSelection` interface 추가, FilesState에 `selection: Map<string, FileSelection>` 필드 추가, 기존 `activeAbsPath` 필드 제거.\n2. `src/renderer/state/stores/files/selection.ts` 신규 — 순수 헬퍼: `isSelected(sel, path)`, `getOperablePaths(sel)`, `singleSelection(path)`, `toggleInSelection(sel, path)`, `extendSelection(sel, anchor, target, flatPaths)`, `selectAll(flatPaths, focus, anchor)`.\n3. `store.ts` reducer 액션: `setSingleSelection(wsId, path)`, `toggleSelection(wsId, path)`, `extendSelectionTo(wsId, target, flatPaths)`, `selectAllVisible(wsId, flatPaths)`, `clearToFocus(wsId)`, `setFocus(wsId, path)`. 기존 `setActiveAbsPath` 제거 — 호출부 모두 새 액션 또는 `setSingleSelection`으로 전환.\n4. `closeAllForWorkspace`에서 `selection` Map 정리 추가.\n5. `selectors.ts`(있다면) 또는 인라인: `selectFocus(s, wsId): string|null`, `selectIsSelected(s, wsId, path): boolean`, `selectIsFocused(s, wsId, path): boolean`.\n6. `src/renderer/components/files/file-tree/index.tsx` — `activeIndex` useState 폐지, focus를 store에서 읽어 매 렌더 `flat.findIndex(focusAbsPath)`로 도출. `setActiveIndex`/`setActiveAbsPath` 호출부 모두 `setSingleSelection`/`setFocus`로 마이그레이션. handleRowClick/handleRowDoubleClick은 이 phase에서는 단일 선택 유지(modifier 분기는 Phase B).\n7. `row.tsx`에 `isFocused?: boolean` prop 추가, 시각 차별화는 Phase B에서 합치므로 이 phase에서는 prop만 받고 className 변경 없음.\n8. 호출부 마이그레이션: `commands/domains/file.ts`(L43, L116-140, L167-175)에서 `activeAbsPath.get(wsId)` → `selectFocus(state, wsId)` 또는 동등 헬퍼.\n9. 테스트:\n   - `tests/unit/renderer/state/stores/files/selection.test.ts` 신규 — 모든 헬퍼 단위 테스트.\n   - `tests/unit/renderer/state/stores/files/store-selection.test.ts` 신규 — reducer 액션.\n   - 기존 `file-tree-actions.test.ts` / `file-tree-keys.test.ts` / `file-tree-menu.test.ts` / `file-delete.test.ts`의 `setState({ activeAbsPath: ... })` 시드 코드를 새 selection shape로 교체.",
+          "risk": "- auto-reveal effect(file-tree/index.tsx L221-229)가 setActiveIndexLocal에 의존 — 이 phase에서 setFocus로 마이그레이션해야 함. lastRevealedRef 가드는 보존.\n- `commands/domains/file.ts`가 activeAbsPath를 6+ 곳에서 읽음 — 누락 시 키바인딩 무반응. 마이그레이션 완료 후 직접 키 누름 확인 필요.\n- Zustand selector 식별 안정성: selection.paths Set은 매번 새 객체가 되므로 reference 비교 selector는 무한 리렌더 위험. `selectIsSelected/Focused`는 boolean 반환으로 안전.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ae0f6a2f1e56af44e",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-28T04:18:50.239Z",
+          "result": {
+            "outcome": "success",
+            "summary": "FileSelection {anchor, focus, paths} struct를 store에 도입, activeAbsPath 필드 + activeIndex useState 완전 제거. 7개 reducer 액션(setSingleSelection/toggleSelection/extendSelectionTo/selectAllVisible/clearToFocus/setFocus/clearSelection), 4개 selector(selectFocus/selectIsSelected/selectIsFocused/selectFocusedPaths), 헬퍼 함수 6개 추가. 18개 파일 수정/신규, 41개 신규 단위 테스트. 검증: tests/unit + tests/integration = 2627 pass / 0 fail, tsc --noEmit 0 error. UX 회귀 없음. Engineer는 후속 phase에서 resume 가능(persistent tier).",
+            "recorded_at": "2026-05-28T04:36:09.550Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "Phase B — 입력 제스처 + 시각 상태(focus vs selected) + 신규 토큰",
+          "status": "completed",
+          "context": "Phase A 완료 후. 사용자가 처음으로 다중선택을 체감하는 phase. 클릭(Cmd/Ctrl/Shift) + 키보드(Arrow/Cmd+A/Escape/Enter) 제스처 + row 4-state 시각 분리 + design.md 갱신. 작업 라우팅(메뉴/삭제/복사/DnD)은 여전히 단일 lead만 — 이 phase 끝에서도 다중 작업은 동작하지 않음(Phase C/D/E 영역).",
+          "acceptance": "- Cmd/Ctrl-click이 selection 토글(에디터 안 열림), Shift-click이 anchor→target 범위 추가, plain click이 단일선택 + 기존 동작(dir toggleExpand, file open).\n- Cmd+A로 보이는 모든 행 선택, Escape로 focus만 남기고 축소, F2가 다중일 때 토스트 + no-op.\n- row 4-state(focus only / selected only / focus+selected / cut+selected) 시각적으로 구별 — 수동 확인.\n- 신규 토큰 `--sidebar-item-focus-border` 다크/라이트 모두 배경 대비 ≥3:1.\n- design.md §10·§8·§13 갱신 반영, 토큰 family 표에 신규 행 등장.\n- 기존 단일 클릭/F2/Cmd+\\\\(사이드)/Cmd+Backspace 회귀 없음.\n- 새/기존 테스트 모두 통과.",
+          "approach": "1. `handleRowClick(idx, item, e?)` 분기:\n   - `e.shiftKey` → `extendSelectionTo(wsId, item.absPath, flat.map(r => r.absPath))`.\n   - `e.metaKey || e.ctrlKey` (Mac/PC OS 판별) → `toggleSelection(wsId, item.absPath)` + setFocus + anchor 갱신. 에디터 오픈 없음.\n   - plain → `setSingleSelection(wsId, item.absPath)` + dir이면 toggleExpand, file이면 openOrRevealEditor.\n   - 기존 \"Cmd/Ctrl 사이드 분기\" 제거. 우클릭 메뉴 \"Open to Side\" 가시성 확인.\n2. `createFileTreeKeydownHandler` 확장:\n   - Arrow Up/Down: 기존 ±1 + `setSingleSelection(neighbor)` + scrollToIndex.\n   - Cmd/Ctrl+A: `selectAllVisible(wsId, flat.map(r => r.absPath))`. anchor/focus 보존.\n   - Escape: `clearToFocus(wsId)` (paths = {focus}, anchor = focus).\n   - Enter/Space: 기존 동작 — dir toggleExpand(focus), file open(focus). 다중선택 보존.\n   - F2: 단일선택일 때만 startRename(focus); 다중이면 토스트(\"Rename one item at a time\").\n3. 우클릭 정책: `handleRowContextMenu(flatIdx, item)`에서 selection 갱신:\n   - `selection.paths.has(item.absPath)` → focus만 item으로 갱신.\n   - 아니면 → `setSingleSelection(wsId, item.absPath)`.\n   - setContextTarget은 그대로 두되, Phase C에서 getTargets()와 연결. 이 phase에서는 메뉴가 여전히 단일 target 사용 — buildFileTreeMenuItems 변경 없음.\n4. row.tsx 4-state className 적용:\n   - isFocused/isSelected/isCut/isDragging 4 prop 받아 designer 권고 className 매핑(이슈 #9 결정 참조).\n   - aria-selected는 isSelected를 그대로 노출.\n5. 신규 토큰 도입:\n   - `src/renderer/styles/theme/semantic.ts`에 `sidebar.item.focus.border` 키 추가.\n   - 모든 theme adapter(`themes/*/adapter.ts`)에 `withAlpha(surface.island.fg, 0.6)` 매핑.\n   - `globals.css`에 `--sidebar-item-focus-border` CSS 변수 출력.\n6. design.md 갱신:\n   - §10 sidebar 토큰 표(L538-548)에 `sidebar.item.focus.border` 행 추가 + 분리 근거 주석.\n   - §8 또는 인접 redundant encoding 표에 \"다중선택 시 focus는 dotted outline으로 분리\" 주석.\n   - §13 체크리스트에 \"다중선택 리스트/트리는 lead 행을 dotted outline으로\" 항목.\n7. 테스트:\n   - `file-tree-actions.test.ts` 가/나가/Shift 클릭 케이스(Cmd-click 토글, Shift-click 범위, plain 단일).\n   - `file-tree-keys.test.ts` Cmd+A / Escape / Arrow + selection 갱신 케이스.\n   - `row.test.tsx` (없으면 신규) — 4-state className snapshot/매핑.\n   - design.md diff 검토(writer/reviewer 별도 pair 불필요 — 본 phase에서 함께).",
+          "risk": "- Mac/PC OS 분기: `window.host?.platform === \"darwin\"` 패턴이 기존 코드(`use-file-tree-drop-target.ts:61-63`)에 있음 — 동일 헬퍼 재사용해 일관성.\n- Cmd-click open-to-side 제거가 행동 변화 — 릴리스 노트 + 우클릭 메뉴 \"Open to Side\" 가시성 검증.\n- Cmd+A가 가상화된 행 모두 포함 — 사용자가 모르고 누르면 매우 많은 항목이 선택되어 다음 작업이 위험. 다중 작업 dialog의 N count로 인지.\n- 신규 토큰 alpha 0.6이 일부 테마에서 대비 부족할 수 있음 — 도입 후 측정 필요(designer 미해결 항목).\n- design.md는 큰 파일(44KB) — 잘못된 섹션 갱신 위험. 줄 번호 명시된 위치만 손댐.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ae0f6a2f1e56af44e",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-28T04:19:27.910Z",
+          "result": {
+            "outcome": "success",
+            "summary": "시각: 신규 토큰 sidebar.item.focus.border를 4계층(semantic→adapter→component→generated.css) 전체 경로로 도입, 9개 테마 매핑. row.tsx 4-state className. 제스처: handleRowClick Shift/Cmd-Ctrl/plain 4분기(Cmd-click open-to-side 제거), keys.ts Cmd+A/Escape/F2(단일 rename / 다중 toast), 우클릭 in-set→setFocus / out-set→setSingleSelection. design.md §8/§10/§13 3섹션 갱신. 20 신규 테스트. 검증: 2647 pass / 0 fail, tsc 0 error, biome 신규 경고 0.",
+            "recorded_at": "2026-05-28T04:52:02.371Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "Phase C — 우클릭/메뉴 정책 + 배치 삭제 + distinctParents",
+          "status": "completed",
+          "context": "Phase A 완료 후. 사용자가 다중선택으로 처음 작업(삭제)을 실행할 수 있는 phase. 우클릭 정책 — getTargets() — confirmAndDeleteBatch — distinctParents 헬퍼를 묶음. Phase B와 의존성 없음(병렬 가능).",
+          "acceptance": "- 3개 다중선택 후 우클릭 → 메뉴에 Cut/Copy/Delete만 노출, Rename·New·Open 등 단일-한정 항목 숨김.\n- 단일 선택 우클릭 → 모든 메뉴 항목 노출(현재와 동일).\n- 다중 선택 후 Delete → \"Delete N items\" dialog, 콤마/and-more 포맷 정확, 휴지통/영구 분기 정확.\n- N개 삭제 후 toast가 \"Deleted N items\" 또는 \"Deleted M of N...\" 형태.\n- distinctParents 단위 테스트 6+ 케이스 통과.\n- 부모+자식 동시 선택 후 삭제 → 부모 1회만 호출, 자식 NOT_FOUND 노이즈 없음.\n- Cmd+Backspace 글로벌 키도 다중에 동작.\n- 기존 단일 삭제 회귀 없음.",
+          "approach": "1. `src/renderer/services/fs-mutations/distinct-parents.ts` 신규 — 순수 함수:\n```ts\nexport function distinctParents(paths: readonly string[]): string[] {\n  const unique = [...new Set(paths)].sort((a,b) => a.length - b.length);\n  const out: string[] = [];\n  for (const p of unique) if (!out.some(parent => p === parent || p.startsWith(parent + \"/\"))) out.push(p);\n  return out;\n}\n```\n2. `services/fs-mutations/confirm-delete.ts`에 `confirmAndDeleteBatch(workspaceId, root, absPaths)`:\n   - 진입: `absPaths = distinctParents(absPaths)`.\n   - workspace.location.kind 1회 조회 → useTrash 결정.\n   - N=1: 기존 `confirmAndDeletePath`에 위임.\n   - N≥2: title=\"Delete N items\", description = (N≤3? names.join(\", \") : `${names.slice(0,3).join(\", \")} and ${N-3} more`) + \"\\n\" + (useTrash ? \"You can restore the items from the Trash.\" : \"This cannot be undone.\").\n   - confirmLabel = useTrash ? \"Move to Trash\" : \"Delete\".\n   - confirm 후 루프: try/await trashPath / removeDir / unlinkPath per path; `{ ok, failed[] }` 집계.\n   - 토스트: 0 failed → success \"Deleted N items\"; failed > 0 → error \"Deleted M of N. First failure: ${path}: ${message}\".\n3. `useFileTreeActions`의 `getTarget: () => FileTreeActionTarget | null`를 `getTargets: () => FileTreeActionTarget[]`로 확장.\n   - 정책: `paths.has(focus) ? [...paths].map(toTarget) : [focus toTarget]`. 빈 영역 우클릭은 root 단일 target.\n   - 호출부 갱신: `rename()` — N>1이면 no-op + 토스트; `deleteTarget()` → `confirmAndDeleteBatch`로 라우팅; `copy/cut/paste`는 Phase D에서.\n4. 메뉴 빌더 `buildFileTreeMenuItems`:\n   - targets.length > 1이면 단일-한정 항목 숨김/비활성: Rename, New File, New Folder, Open, Open to Side, Reveal in Finder, Copy Path/Relative Path.\n   - 다중 노출 항목: Cut, Copy, Delete만.\n   - 시그니처 변경: `(target, ...) → (targets, ...)`. 기존 단일 호출부 모두 갱신.\n5. `commands/domains/file.ts`의 `fileDelete` 키바인딩(Cmd+Backspace): `confirmAndDeletePath` 단일 호출 → `confirmAndDeleteBatch(getOperablePaths)`로 변경. getOperablePaths는 selection.paths가 비어있으면 [focus], 아니면 distinctParents(paths).\n6. 테스트:\n   - `distinct-parents.test.ts` 신규 — 부모+자식, dedup, 순서 보존, 빈 입력, 단일, 무관한 형제 (6+ 케이스).\n   - `confirm-delete.test.ts` 또는 신규 batch 테스트 — N=1 (단일 위임), N=3 (콤마 메시지), N=5 (and N more), local/ssh 분기, 부분 실패 토스트.\n   - `file-tree-actions.test.ts`: getTargets() 분기(selection 내 우클릭 → 보존, 외부 우클릭 → 단일 교체), 다중 selection delete → confirmAndDeleteBatch 호출 검증.\n   - `file-tree-menu.test.ts`: targets.length > 1일 때 메뉴 항목 셋 검증.",
+          "risk": "- 메뉴 빌더 시그니처 변경 — 모든 호출부(`file-tree/index.tsx:339`) 동시 갱신. 누락 시 컴파일 실패로 catch.\n- 부분 실패 시 첫 실패 path만 토스트에 노출 — 추가 실패는 콘솔로만 (UX 단순성). 사용자가 N=10에서 5건 실패 시 첫 1건만 보고 나머지는 nothing — 토스트 클릭으로 상세 보기 검토(Phase F polish).\n- ssh 워크스페이스에서 dir + file 혼합 삭제 시 unlink/removeAll 분기를 path별로 — 기존 단일 함수가 처리하므로 추가 분기 불필요.\n- distinctParents의 `startsWith(parent + \"/\")` 가드: rootPath 자체가 selection에 들어오면 안 됨(자식 모두 제거됨). selection에 root는 들어가지 않게 store 레벨에서 가드(또는 distinctParents에서 root 제외 — 단, 본 함수는 순수해야 하므로 호출부 책임).",
+          "plan_issue": 4,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ae0f6a2f1e56af44e",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-28T04:20:07.463Z",
+          "result": {
+            "outcome": "success",
+            "summary": "distinctParents 순수 헬퍼 + confirmAndDeleteBatch(N=1 위임 / N≥2 배치 다이얼로그 + 토스트 집계) + selectOperablePaths 셀렉터. buildFileTreeMenuItems 시그니처 targets[]로 확장 + N≥2 분기(Cut/Copy/Paste/Delete만 노출). useFileTreeActions getTarget→getTargets, deleteTarget→confirmAndDeleteBatch 라우팅. file.ts fileDelete 키바인딩도 selectOperablePaths 경유. distinct-parents 10시 + confirm-delete-batch 10시 + actions/menu/file-delete 8시 마이그레이션. 검증: 2675 pass / 0 fail, tsc 0 error. Phase D 진입 시 copy/cut/paste entries 전체로 확장만 하면 됨.",
+            "recorded_at": "2026-05-28T05:04:33.617Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "Phase D — Cut/Copy/Paste 다중 항목",
+          "status": "completed",
+          "context": "Phase A 완료 후. Cut/Copy 키바인딩과 우클릭 메뉴가 selection.paths 전체를 클립보드에 담고, Paste는 N개를 한 번에 처리. handlePaste loop는 이미 entries[] 구조라 확장 작은 편. Phase B/C와 독립.",
+          "acceptance": "- 3개 다중선택 후 Cmd+C → clipboard에 3 entries.\n- Paste 후 3개 모두 대상 폴더에 복사/이동(auto-rename 적용).\n- 부모+자식 동시 cut → distinctParents로 부모만 entries에 들어감.\n- Paste 시 cycle(folder를 자신의 자손으로) 발생하면 toast + skip.\n- 부분 실패 시 단일 요약 토스트.\n- 단일 cut/copy/paste 회귀 없음(기존 토스트 없음 동작 유지).\n- N>1 시에만 \"Copied/Cut/Pasted N items\" 토스트 노출.",
+          "approach": "1. `useFileTreeActions`의 `copy()`/`cut()`:\n   - `const targets = getTargets()` (Phase C 결과 사용 — distinctParents 통과 후 entries 빌드).\n   - `entries: targets.map(t => ({relPath: relPath(t.absPath, root), absPath: t.absPath}))`.\n   - `handleCopy/handleCut({workspaceId, workspaceRootPath: root, entries})`.\n   - 토스트는 N>1 시 \"Copied/Cut N items\" (현재 단일은 토스트 없음 — 단일은 그대로 두고 N≥2만 표시).\n2. `services/file-clipboard/paste.ts`의 `handlePaste`:\n   - 이미 `for (const entry of cb.entries)` 루프 — 그대로 활용.\n   - 진입 시 `distinctParents(entries.map(e => e.absPath))`로 정규화 후 다시 entries 매핑.\n   - cycle 가드: 붙여넣을 대상(targetDir)이 entries 중 하나 또는 그 자손이면 entry skip + 토스트 \"Cannot paste a folder into itself\".\n   - 부분 실패 집계: `{ok, failed}` → 토스트 \"Pasted N items\" / \"Pasted M of N. First failure: ...\".\n3. `commands/domains/file.ts`의 글로벌 `fileCopy`/`fileCut` (L116-140):\n   - 기존: `[{relPath, absPath}]` 단일 → 변경: `getOperablePaths(wsId).map(...)`.\n   - 동일 helper(Phase C에서 도입)를 재사용.\n4. 메뉴 빌더에서 N>1일 때도 Cut/Copy 활성(Phase C 결정에 따라 이미 노출됨).\n5. 테스트:\n   - `file-clipboard/copy.test.ts` / `cut.test.ts`: entries 배열 길이>1, 부모-자식 동시 → distinctParents 적용 검증.\n   - `file-clipboard/paste.test.ts`: entries 다중 → movePath/copyPathWithAutoRename N번 호출, cycle 가드, 부분 실패 토스트 집계.\n   - `file-tree-actions.test.ts`: 다중 selection 후 copy/cut → handleCopy/handleCut에 N entries 전달 검증.\n   - 글로벌 키바인딩 테스트가 있으면 동일 패턴.",
+          "risk": "- handlePaste의 기존 entries 루프는 movePath/copyPathWithAutoRename per entry — N개 IPC 호출이 직렬. SSH에서 N=10은 약간 느릴 수 있으나 별도 batch IPC 도입 비용 큼. Phase F에서 측정 후 결정.\n- cycle 가드는 paste 시점에 targetDir 확정 후 검사 — entries dragstart 시점에는 target 미지정이므로 paste 진입에 둠.\n- 글로벌 file commands는 selection 빈 상태(트리 포커스 잃음)일 때 호출 — selection.paths가 비면 [focus] fallback이 필요(getOperablePaths에서 처리).",
+          "plan_issue": 6,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ae0f6a2f1e56af44e",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-28T04:20:32.370Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Cut/Copy/Paste 다중 적용. distinctParents 3곳 적용(delete batch / copy-cut / paste 진입). paste에 cycle 가드 + per-entry skip + 부분실패 토스트 집계. N=1 무토스트 / N≥2 info/error 토스트. useFileTreeActions copy/cut 전체 entries로 확장, file.ts fileCopy/fileCut도 selectOperablePaths 경유. 21 신규 테스트. 검증: 2696 pass / 0 fail, tsc 0 error. 주의: paste-multi.test.ts는 Bun mock cache 제한으로 인라인 재구현(유지보수 부담 있음).",
+            "recorded_at": "2026-05-28T05:24:13.482Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "Phase E — DnD 다중 항목 (payload + drag image + drop loop)",
+          "status": "completed",
+          "context": "Phase A 완료 후. FileDragPayload를 filePaths[] 로 단순 교체. dragstart 시점에 selection 확장 + \"N items\" drag image 라벨 결정. 드롭 핸들러는 N개 movePath/copyPathWithAutoRename 루프 + cycle 가드. Phase B/C/D와 독립. architect 권고 단일 PR.",
+          "acceptance": "- 3개 다중선택 → 그 중 하나 드래그 → drag image \"3\" 표시.\n- 단일 행 드래그(다중선택 미포함) → 파일명 표시.\n- 다중 항목을 폴더로 드롭 → 3개 모두 이동/복사(Alt/Ctrl 분기 보존).\n- 폴더를 자신의 자손으로 드롭 → 토스트 + skip.\n- 모든 항목 같은 부모로 단순 이동 → no-op(self-drop).\n- 부분 실패 → 단일 요약 토스트.\n- 단일 DnD 회귀 없음.\n- `parseFileDragPayload` invariant 위배는 null 반환(throw 없음).\n- 기존 `parseFilePayload` ad-hoc parser 제거됨(grep 0 매치).",
+          "approach": "1. `src/renderer/components/workspace/dnd/types.ts`:\n   - `interface FileDragPayload { workspaceId: string; filePaths: readonly string[]; }`.\n   - JSDoc invariants: non-empty, 동일 workspace, abs paths, dedup, first=primary(user-grabbed).\n2. `src/renderer/components/workspace/dnd/payload.ts`:\n   - `buildFileDragPayload(wsId, filePaths)` — invariant 검사.\n   - `parseFileDragPayload(dt: DataTransfer): FileDragPayload | null` — invariant 위배 시 null.\n   - 기존 `parseDragPayload` 내부도 신 시그니처 활용.\n3. `src/renderer/components/files/file-tree/row.tsx` dragstart 핸들러:\n   - selection을 `useFilesStore.getState()`로 한 번 읽어:\n     - `selection.paths.has(absPath)` → `filePaths = distinctParents([...selection.paths])`.\n     - 아니면 → `filePaths = [absPath]` (selection 변경 없음).\n   - drag image:\n     - `length === 1` → `dragImage: { kind: \"label\", text: basename(filePaths[0]) }`.\n     - `length > 1` → `dragImage: { kind: \"label\", text: String(length) }` (또는 \"N items\").\n   - `useDragSource({ mime: MIME_FILE, payload, dragImage, effectAllowed: \"copyMove\" })`.\n4. `src/renderer/components/files/hooks/use-file-tree-drop-target.ts`:\n   - ad-hoc `parseFilePayload`(L65-77) 제거, `parseFileDragPayload` 사용.\n   - `handleDragOver`의 self-drop 가드: `if (!copy && payload && payload.filePaths.every(p => parentOf(p, rootPath) === dir)) → no-op`.\n   - `handleDrop`:\n     - cycle 가드: `if (filePaths.some(p => dir === p || dir.startsWith(p + \"/\"))) → toast \"Cannot drop a folder into itself\" + return`.\n     - 루프: `for (const filePath of payload.filePaths)` per movePath/copyPathWithAutoRename, `{ ok, failed }` 집계.\n     - 토스트: success \"Moved/Copied N items\", error \"Moved M of N...\" 첫 실패 path/message.\n   - `loadChildren(wsId, dir)` 한 번만 (모든 path 작업 후).\n5. 테스트:\n   - `parse-file-drag-payload.test.ts` 신규(또는 기존 payload.test에 추가) — invariant 8+ 케이스(빈 배열, mixed workspace, non-string, ok).\n   - `use-file-tree-drop-target.test.ts`: dragstart selection 포함 시 selection 전체 / 미포함 시 단일, drag image 라벨 분기, drop 다중 이동/복사, cycle 가드, 부분 실패 토스트.\n   - `row.test.tsx`(있다면) dragstart payload 빌드 확인.",
+          "risk": "- 드래그 도중 selection이 변할 수 있음(예: 다른 키 이벤트). dragstart 시점 snapshot 사용으로 visibility 보장.\n- DragSource primitive가 dragImage label을 dragstart 핸들러 안에서 동적으로 결정 가능한지 확인 필요(현재 `useDragSource` 시그니처를 살펴 dragImage가 한 번 호출 시점에 결정되는지 — `useMemo` 등). 필요 시 useDragSource 자체 확장.\n- N개 이동 후 `loadChildren(dir)` 한 번 — fs.changed 이벤트가 N번 발생할 수 있으므로 child 갱신은 자동. 명시적 reload는 안전망.\n- cycle 가드는 dragstart 시점 모르고 drop 시점에 확인 — drag image는 이미 \"N items\"로 표시되지만 drop 직전에 거부될 수 있음. UX상 토스트로 안내.",
+          "plan_issue": 8,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ae0f6a2f1e56af44e",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-28T04:21:05.656Z",
+          "result": {
+            "outcome": "success",
+            "summary": "FileDragPayload.filePath → filePaths[] 교체. payload.ts에 buildFileDragPayload/parseFileDragPayload 통합(ad-hoc parser 제거). row.tsx dragstart에서 selection 읽어 distinctParents 4번째 적용 지점. drag image 1개=name / N개=count. drop handler self-drop every 가드 + cycle warning toast + per-path 루프 + 결과 집계 토스트. useDragSource는 getPayload + 함수형 dragImage 최소 확장(탭/에디터 소비처 회귀 없음). 35 신규 테스트. 검증: 2718 pass / 0 fail, tsc 0 error. Phase F polish 우려: isCut prop은 virtual-body가 cut clipboard 구독하지 않아 항상 false. globals.css cut-state CSS와 연결 필요.",
+            "recorded_at": "2026-05-28T05:32:53.368Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "Phase F — Polish (auto-reveal, ARIA, F2 가드, design.md 미해결)",
+          "status": "completed",
+          "context": "B/C/D/E 모두 머지된 후의 정리. auto-reveal 정책(active editor가 selection.paths에 있으면 selection 보존, 아니면 단일 교체), ARIA roving tabindex 또는 aria-activedescendant 도입, F2 다중 가드 토스트 polish, design.md 미해결 항목(ARIA 노출 방식) 마감.",
+          "acceptance": "- 다중선택 상태에서 selection에 포함된 파일을 editor 탭에서 전환 → selection 유지(focus만 이동).\n- selection 외 파일로 editor 전환 → selection이 단일 교체(VSCode 패리티).\n- 트리에 키보드 focus 진입 시 `aria-activedescendant`가 focus row id를 가리킴 — 화살표 이동 시 갱신.\n- `aria-multiselectable=\"true\"` 트리 컨테이너에 노출.\n- F2 토스트는 토스트 큐에 일관된 패턴.\n- design.md §13 ARIA 항목 추가.\n- 회귀 점검 체크리스트 통과.",
+          "approach": "1. `src/renderer/state/operations/files.ts`에 `revealEditorActiveFile(workspaceId, activeFile)` 신규:\n   - `const sel = state.selection.get(wsId)`.\n   - `sel?.paths.has(activeFile)` → `setFocus(wsId, activeFile)` (selection 보존).\n   - 아니면 → `setSingleSelection(wsId, activeFile)`.\n2. `file-tree/index.tsx` Phase 2 auto-reveal effect(L221-229) 갱신:\n   - `setActiveIndexLocal(idx)` → `revealEditorActiveFile(workspaceId, activeEditorAbsPath)`.\n   - `lastRevealedRef` 가드 보존.\n3. ARIA 검토 — architect 자문 필요(미해결 designer 항목):\n   - 옵션 A: roving tabindex — `<button tabIndex={isFocused ? 0 : -1}>` per row, 트리 컨테이너의 tabIndex=-1. 화살표 키로 focus 이동 시 직접 `.focus()` 호출.\n   - 옵션 B: aria-activedescendant — 컨테이너에 `aria-activedescendant={focusRowId}`, 각 row에 안정 id.\n   - VSCode 채택은 B(`tree.ts`의 `aria-activedescendant`) — 확인 후 동일 채택. row에 `id={`row-${absPath}`}` 추가.\n   - 컨테이너에 `role=\"tree\"`(이미 있음) + `aria-multiselectable={true}`.\n4. F2 토스트 polish (Phase B에서 기본 도입했다면 메시지 다듬기):\n   - \"Rename one item at a time\" → 한국어/영어 정책 확인. design.md에 i18n 항목 있는지 — 없다면 영어 단일 유지.\n5. 부분 실패 토스트 UX:\n   - 클릭 시 상세 보기(failed list) — 필요성 검토. 본 phase에서는 console.error로 충분(이미 적용).\n6. SSH 다중 작업 성능 측정:\n   - N=10 cut→paste / drag→drop / Cmd+Backspace 각각 NDJSON 라운드트립 N번 실측. 1초 이내면 batch IPC 도입 보류, 초과 시 별도 이슈 추가.\n7. 회귀 점검 체크리스트(Phase B-E 머지 후):\n   - 워크스페이스 전환 시 selection 비워짐.\n   - 빈 영역 클릭 → selection 비워짐 + focus root.\n   - Cmd+A로 root 자체 선택 포함 여부 확인(root는 selection에서 제외 정책).\n8. design.md 미해결 마감:\n   - ARIA 노출 방식 결정 후 §13 체크리스트에 \"다중선택 리스트/트리는 aria-multiselectable + aria-activedescendant\" 항목 추가.\n9. 테스트:\n   - `revealEditorActiveFile.test.ts` 신규 또는 `operations-files.test.ts`에 추가 — paths.has 분기 케이스.\n   - `file-tree-aria.test.tsx`(있으면) — aria-activedescendant 동작 확인.\n   - 회귀 sweep(아래 tester 태스크에서 통합).",
+          "risk": "- aria-activedescendant + roving tabindex 혼용은 spec 위반 — 한쪽만 선택. VSCode 코드 한 번 더 확인 후 결정.\n- auto-reveal selection 보존 정책이 VSCode 원문(selection.length===1만 보존)과 미세 차이 — 이슈 #5 결정대로 조정안 채택. 사용자 친화적 보강이며 문서화.\n- SSH 성능 측정은 환경 의존 — 대표 케이스(10 파일 이동) 측정만 수행.",
+          "plan_issue": 5,
+          "deps": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ae0f6a2f1e56af44e",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-28T04:21:36.834Z",
+          "result": {
+            "outcome": "success",
+            "summary": "revealEditorActiveFile helper (paths.has→setFocus / else→setSingleSelection). ARIA: aria-multiselectable + aria-activedescendant + row id=tree-row-{encoded(absPath)} — VSCode listWidget L2068 + listView L1688 패턴 채택(index 대신 absPath 기반: 가상화 환경 안정). isCut 연결: useFileClipboardStore의 kind+entries 구독 → useMemo Set → isPathCut 콜백 → virtual-body → row.tsx. design.md §13 ARIA 항목 추가. 9 신규 테스트. 검증: 2727 pass / 0 fail, tsc 0 error, biome 신규 경고 0 (사전 forEach 경고 7건만 잔존). 누적 통계: 34 files / +1486 / -324 — 견적(12-18 files / 600-900 lines) 상활 초과(테스트 마이그레이션 포함).",
+            "recorded_at": "2026-05-28T05:40:48.386Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "Phase G — 회귀 검증 sweep (수동 + 자동 E2E)",
+          "status": "completed",
+          "context": "Phase A-F 모두 머지된 후. 다중선택 도입이 단일선택/기존 워크플로우를 깨뜨리지 않았는지 확인. 자동 테스트로 catch 못한 회귀(시각, 키보드 미묘한 동작, SSH 라운드트립)는 수동 점검.",
+          "acceptance": "- 위 매트릭스 모든 항목 통과 또는 결함이 별도 이슈로 등록됨.\n- 차단성(블로커) 결함 0건.\n- 자동 테스트 suite(`bun test`) 전체 통과.\n- biome lint 0 warning.\n- TypeScript 컴파일 0 error.\n- 변경된 파일 수 / 라인 수 견적(12-18 파일 / 600-900 라인) 대비 실제 측정.",
+          "approach": "시나리오 매트릭스(각 항목 local + ssh 워크스페이스 2회):\n\n**선택 모델**\n- 빈 워크스페이스 열기 → focus가 root.\n- 첫 행 클릭 → 단일 선택, anchor=focus=clicked.\n- Cmd+클릭 5회 → paths 5개 멤버.\n- Shift+클릭 → anchor부터 범위.\n- Cmd+A → 모든 가시 행 선택.\n- Escape → focus 하나만.\n- 워크스페이스 전환 → 새 워크스페이스 선택 비워짐.\n\n**키보드**\n- 화살표 ±1, ±N에서 selection 단일 변경.\n- Enter on file(다중) → focus만 열림.\n- F2(단일) → rename, F2(다중) → 토스트.\n\n**우클릭/메뉴**\n- 다중 선택 후 외부 행 우클릭 → 단일 교체.\n- 다중 선택 내 행 우클릭 → 보존.\n- N>1 메뉴 → Cut/Copy/Delete만.\n- 빈 영역 우클릭 → root context.\n\n**삭제**\n- 단일 / 2-3개 / 5개 dialog 메시지 정확.\n- local trash / ssh permanent 분기.\n- 부분 실패 토스트.\n- 부모+자식 동시 선택 → 부모만 호출(distinctParents).\n\n**클립보드**\n- N개 Cmd+C → Paste 후 N개 복사.\n- N개 Cmd+X → Paste 후 N개 이동, 원본 사라짐.\n- Cut 상태에서 다른 경로 Paste → cut 풀림.\n- 다른 워크스페이스에 Paste 거부.\n\n**DnD**\n- 단일 행 drag → drag image=파일명.\n- 다중 행(selection 포함) drag → \"N\" 라벨.\n- 폴더로 다중 드롭 → N개 이동.\n- Alt/Ctrl 누르고 드롭 → 복사.\n- 폴더를 자신의 자손으로 → 토스트 거부.\n- 동일 부모로 이동 → no-op.\n\n**Auto-reveal**\n- 단일 선택 상태에서 다른 파일 editor 전환 → 트리 reveal + 단일 교체.\n- 다중 선택 상태에서 selection 내 파일 전환 → selection 유지.\n- 다중 선택 상태에서 selection 외 파일 전환 → 단일 교체(clobber).\n\n**시각**\n- focus only / selected only / focus+selected / cut+selected 4 상태 시각 명확.\n- 새 토큰 `--sidebar-item-focus-border` 다크/라이트 모두 보임.\n- drag 중 outline 억제 확인.\n\n**ARIA**\n- 키보드 사용자: Tab으로 트리 진입 → focus row가 aria-activedescendant.\n- VoiceOver/NVDA(가능 시): 다중 선택 음성 안내.\n\n**성능**\n- SSH 워크스페이스 N=10 cut→paste 시간 측정.\n- 큰 폴더(1000+ 파일)에서 Cmd+A → frame drop 없는지.\n\n결과 정리: 발견된 결함은 별도 이슈로 plan 추가, 차단성 결함 있으면 Phase F의 미해결 항목으로 회귀.",
+          "risk": "- 수동 시나리오는 환경 의존(macOS/Windows, 다크/라이트, SSH 호스트 가용성) — 가능한 한 한 환경에서 일관되게.\n- SSH 환경에서만 재현되는 회귀(NDJSON 라운드트립, 권한 에러) catch가 어려움 — 1 SSH 호스트 + 1 local에서 동일 시나리오 수행.",
+          "plan_issue": 10,
+          "deps": [
+            6
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a6c3592edc75420bf",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-28T04:22:05.351Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Tester verdict PASS. 10 수락 기준 모두 코드 추적 + 테스트 실행으로 검증. CRITICAL 0 / WARNING 2 / INFO 2. WARNING #1(row tabIndex={-1} 누락 — WAI-ARIA 트리 명세 위반)은 본 큐 종료전 Lead가 직접 패치(1라인). WARNING #2(paste-multi.test.ts 인라인 재구현 vs 실 paste.ts 이론적 발산)는 유지보수 우려로 명시, 머지 수준 회귀 아님. INFO #1(Cmd+A가 root 포함 — downstream filter로 안전) / INFO #2(single-focus row의 aria-selected=false — VSCode와 미세 차). 최종 검증: 2727 pass / 0 fail, tsc 0 error, biome 변경 파일 신규 경고 0(사전 forEach 7건만 잔존).",
+            "recorded_at": "2026-05-28T05:49:10.557Z"
+          }
+        }
+      ]
     }
   ]
 }

@@ -6,9 +6,10 @@
  * file moves stay invisible.
  */
 
-export { confirmAndDeletePath } from "./confirm-delete";
+export { confirmAndDeleteBatch, confirmAndDeletePath } from "./confirm-delete";
 export type { CopyFileInput } from "./copy-file";
 export { copyPathWithAutoRename } from "./copy-file";
+export { distinctParents } from "./distinct-parents";
 export { incrementFileName } from "./increment-name";
 export type { NewFileInput } from "./new-file";
 export { createNewFile } from "./new-file";

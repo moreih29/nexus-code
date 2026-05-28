@@ -33,13 +33,29 @@ export interface PendingRenameRequest {
   requestId: number;
 }
 
+/**
+ * VSCode-parity selection model (mirrors listWidget.ts Trait triad):
+ *
+ *   focus  — the keyboard-navigated row (single, always present when tree non-empty).
+ *   anchor — the Shift-click / Shift-Arrow range start; null until a range gesture starts.
+ *   paths  — the full selected set (Set<string>).
+ *
+ * When `paths` is empty the effective "operable" target is `focus` alone;
+ * when `paths` is non-empty the selected rows are the explicit working set.
+ * Selection is never persisted (expanded only).
+ */
+export interface FileSelection {
+  focus: string | null;
+  anchor: string | null;
+  paths: Set<string>;
+}
+
 export interface FilesState {
   trees: Map<string, WorkspaceTree>; // key = workspaceId
-  activeAbsPath: Map<string, string | null>;
+  /** Per-workspace selection state — replaces the old `activeAbsPath` Map. */
+  selection: Map<string, FileSelection>;
   /** null = no pending rename request from the global keybinding. */
   pendingRenameRequest: PendingRenameRequest | null;
-
-  setActiveAbsPath(workspaceId: string, absPath: string | null): void;
 
   /**
    * Publish a rename request from the global F2 keybinding. Each call
@@ -47,6 +63,33 @@ export interface FilesState {
    * `absPath` is the same (e.g. cancel → F2 again on the same row).
    */
   requestRename(absPath: string): void;
+
+  // Selection reducers
+  /** Plain click / keyboard navigation: focus=path, anchor=path, paths={}. */
+  setSingleSelection(workspaceId: string, path: string): void;
+  /** Ctrl/Cmd+click: toggle one path in/out of paths, update focus. */
+  toggleSelection(workspaceId: string, path: string): void;
+  /** Shift+click / Shift+Arrow: extend range from anchor to target. */
+  extendSelectionTo(workspaceId: string, target: string, flatPaths: readonly string[]): void;
+  /** Cmd+A: select all visible rows (single press, flat ceiling). */
+  selectAllVisible(workspaceId: string, flatPaths: readonly string[]): void;
+  /**
+   * Cmd+A (hierarchical, VSCode parity): each press widens the scope by
+   * one level — focused row's siblings → that scope's siblings → ... → all
+   * visible rows. Resets to focused-siblings when sel.paths doesn't already
+   * cover the candidate scope.
+   */
+  selectAllVisibleHierarchical(
+    workspaceId: string,
+    flatPaths: readonly string[],
+    rootAbsPath: string,
+  ): void;
+  /** Escape: keep focus, wipe paths/anchor. */
+  clearToFocus(workspaceId: string): void;
+  /** Move focus without changing the selected set (modifier-free arrow). */
+  setFocus(workspaceId: string, path: string): void;
+  /** Wipe the entire selection for a workspace (paths={}, focus=null, anchor=null). */
+  clearSelection(workspaceId: string): void;
 
   // Pure reducers — no side effects
   initTree(workspaceId: string, rootAbsPath: string, persistedRelPaths: string[]): void;

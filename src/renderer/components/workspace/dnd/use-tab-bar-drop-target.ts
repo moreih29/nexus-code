@@ -157,7 +157,8 @@ export function useTabBarDropTarget(opts: UseTabBarDropTargetOptions): UseTabBar
           });
         } else {
           if (parsed.payload.workspaceId !== workspaceId) return;
-          openFileAtZone(workspaceId, parsed.payload.filePath, {
+          // Multi-select drag onto the tab bar opens only the primary file.
+          openFileAtZone(workspaceId, parsed.payload.filePaths[0], {
             groupId: leafId,
             zone: "center",
             index: next.index,

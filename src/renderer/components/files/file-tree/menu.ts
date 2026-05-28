@@ -16,12 +16,61 @@ type FileTreeActions = ReturnType<typeof useFileTreeActions>;
 // (`revealFileInOS`) renames itself per platform — match here.
 const REVEAL_LABEL = isMac ? "Reveal in Finder" : "Reveal in File Explorer";
 
+/**
+ * Build the context menu item list for the file tree.
+ *
+ * @param targets  The resolved context-menu targets (Phase C: may be N > 1).
+ *   - Empty array → root-synthesised context (empty-area right-click); behaves
+ *     as a single root target for New File / New Folder / Paste / Reveal.
+ *   - Single element → file / dir / symlink single-select menu (unchanged).
+ *   - Two or more   → multi-select batch menu: only Cut, Copy, Paste, Delete.
+ */
 export function buildFileTreeMenuItems(
-  target: FileTreeActionTarget | null,
+  targets: FileTreeActionTarget[],
   actions: FileTreeActions,
 ): MenuItemSpec[] {
-  if (!target) return [];
+  // Legacy: no targets → synthesise root context (empty area right-click).
+  // The component always passes at least one element now, but guard for safety.
+  if (targets.length === 0) return [];
 
+  // ---------------------------------------------------------------------------
+  // Multi-select menu (N ≥ 2): VSCode parity — only batch-safe operations.
+  // Single-path operations (Rename, Open, New, Reveal, Copy Path) are omitted.
+  // ---------------------------------------------------------------------------
+  if (targets.length >= 2) {
+    const items: MenuItemSpec[] = [];
+    items.push({
+      kind: "item",
+      label: "Cut",
+      shortcut: SHORTCUTS.fileCut || undefined,
+      onSelect: actions.cut,
+    });
+    items.push({
+      kind: "item",
+      label: "Copy",
+      shortcut: SHORTCUTS.fileCopy || undefined,
+      onSelect: actions.copy,
+    });
+    items.push({
+      kind: "item",
+      label: "Paste",
+      shortcut: SHORTCUTS.filePaste || undefined,
+      disabled: !actions.canPaste,
+      onSelect: actions.paste,
+    });
+    items.push({ kind: "separator" });
+    items.push({
+      kind: "item",
+      label: "Delete",
+      onSelect: actions.delete,
+    });
+    return items;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Single-target menu (N === 1): existing full menu, unchanged.
+  // ---------------------------------------------------------------------------
+  const target = targets[0];
   const items: MenuItemSpec[] = [];
   const isDir = target.type === "dir";
   const isRoot = !!target.isRoot;

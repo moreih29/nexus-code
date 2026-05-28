@@ -32,7 +32,27 @@ interface FileTreeVirtualBodyProps {
   tree: WorkspaceTree | undefined;
   displayFlat: DisplayItem[];
   flat: FlatItem[];
+  /**
+   * The keyboard-focus path (store `focus` field).  A row with this path
+   * receives `isFocused=true` for the dotted-outline indicator (design.md §10).
+   */
   activeAbsPath: string | undefined;
+  /**
+   * Returns true when the given absPath is in the explicit selection set
+   * (store `paths` Set).  Passed as a stable callback per render so the
+   * virtual-body avoids subscribing to the store directly.
+   */
+  isPathSelected: (absPath: string) => boolean;
+  /**
+   * Returns true when the given absPath is in the cut clipboard.
+   * Drives the `isCut` dim overlay on rows (Phase F).
+   */
+  isPathCut: (absPath: string) => boolean;
+  /**
+   * Encodes an absPath into a stable HTML id for ARIA aria-activedescendant
+   * (Phase F). Same encoder as the parent uses for the container attribute.
+   */
+  encodeRowId: (absPath: string) => string;
   virtualizer: Virtualizer<HTMLDivElement, Element>;
   decorationLookup: FileTreeDecorationLookup;
   onRowClick: (idx: number, item: FlatItem, e?: React.MouseEvent) => void;
@@ -50,6 +70,9 @@ export function FileTreeVirtualBody({
   displayFlat,
   flat,
   activeAbsPath,
+  isPathSelected,
+  isPathCut,
+  encodeRowId,
   virtualizer,
   decorationLookup,
   onRowClick,
@@ -122,12 +145,16 @@ export function FileTreeVirtualBody({
             data-file-tree-row-path={item.absPath}
           >
             <FileTreeRow
+              id={encodeRowId(item.absPath)}
               workspaceId={workspaceId}
               absPath={item.absPath}
               node={item.node}
               depth={item.depth}
               isExpanded={isExpanded}
-              isSelected={item.absPath === activeAbsPath}
+              isSelected={isPathSelected(item.absPath)}
+              isFocused={item.absPath === activeAbsPath}
+              isCut={isPathCut(item.absPath)}
+              isRoot={item.absPath === tree?.rootAbsPath}
               isLoading={tree?.loading.has(item.absPath) ?? false}
               decoration={decoration}
               isIgnored={isIgnored}

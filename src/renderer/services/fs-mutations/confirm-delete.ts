@@ -20,8 +20,11 @@
  */
 
 import { showConfirmDialog } from "@/components/ui/confirm-dialog";
+import { showToast } from "@/components/ui/toast";
+import { useFilesStore } from "@/state/stores/files";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
 import { basename } from "@/utils/path";
+import { distinctParents } from "./distinct-parents";
 import { removeDir } from "./remove-dir";
 import { trashPath } from "./trash";
 import { unlinkPath } from "./unlink";
@@ -91,4 +94,128 @@ function composeDescription({ displayName, kindLabel, isDir, useTrash }: Descrip
     ? `You can restore the ${kindLabel} from the Trash.`
     : "This cannot be undone.";
   return `${subject} ${consequence}`;
+}
+
+// ---------------------------------------------------------------------------
+// confirmAndDeleteBatch — delete multiple paths with a single confirm.
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete multiple paths from a workspace after a single user confirmation.
+ *
+ * Algorithm:
+ *  1. Apply `distinctParents` to drop redundant descendants before confirming.
+ *  2. Delegate to `confirmAndDeletePath` when only one effective path remains.
+ *  3. For N≥2 show a batch-flavoured dialog, then attempt each path in order.
+ *  4. Aggregate results: on full success show a success toast; on partial/full
+ *     failure show an error toast with the first failure message.
+ *
+ * @param workspaceId      Current workspace ID.
+ * @param workspaceRootPath Workspace root absolute path.
+ * @param absPaths          Absolute paths to delete (duplicates + descendants
+ *                          are collapsed via distinctParents before prompting).
+ * @returns true when every path was deleted successfully, false otherwise.
+ */
+export async function confirmAndDeleteBatch(
+  workspaceId: string,
+  workspaceRootPath: string,
+  absPaths: readonly string[],
+): Promise<boolean> {
+  if (absPaths.length === 0) return false;
+
+  // Collapse descendants — operating on /a when /a/b is also selected is
+  // correct (deleting the parent covers the child).
+  const effective = distinctParents(absPaths);
+
+  // Single-path: delegate to the existing helper so the message is identical
+  // to the current single-delete UX.
+  if (effective.length === 1) {
+    const p = effective[0];
+    // Determine node type for the single-path delegate.
+    // Resolve from the workspace tree if available; fall back to "file"
+    // (conservative — trashPath/unlinkPath work for both files and symlinks).
+    const tree = useFilesStore.getState().trees.get(workspaceId);
+    const nodeType = tree?.nodes.get(p)?.type ?? "file";
+    return confirmAndDeletePath(workspaceId, workspaceRootPath, p, nodeType);
+  }
+
+  // Workspace kind — drives trash vs permanent semantics. SSH is permanent
+  // unconditionally because there is no remote trash.
+  const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
+  const useTrash = workspace?.location.kind === "local";
+
+  // Build dialog text.
+  const N = effective.length;
+  const names = effective.map((p) => basename(p));
+  const suffix = useTrash ? "You can restore the items from the Trash." : "This cannot be undone.";
+
+  let description: string;
+  if (N <= 3) {
+    description = `${names.join(", ")}\n${suffix}`;
+  } else {
+    description = `${names.slice(0, 3).join(", ")} and ${N - 3} more\n${suffix}`;
+  }
+
+  const ok = await showConfirmDialog({
+    title: `Delete ${N} items`,
+    description,
+    confirmLabel: useTrash ? "Move to Trash" : "Delete",
+    cancelLabel: "Cancel",
+    variant: "destructive",
+  });
+  if (!ok) return false;
+
+  // Execute deletions sequentially. Collect results.
+  let successCount = 0;
+  let firstFailurePath: string | null = null;
+  let firstFailureMessage: string | null = null;
+
+  // Snapshot the tree once before the loop — loadChildren may mutate it
+  // between iterations but we only need each path's type at start time.
+  const treeSnapshot = useFilesStore.getState().trees.get(workspaceId);
+
+  for (const p of effective) {
+    const nodeType = treeSnapshot?.nodes.get(p)?.type ?? "file";
+
+    let ok2: boolean;
+    try {
+      if (useTrash) {
+        ok2 = await trashPath({ workspaceId, workspaceRootPath, absPath: p, nodeType });
+      } else if (nodeType === "dir") {
+        ok2 = await removeDir({ workspaceId, workspaceRootPath, absPath: p });
+      } else {
+        ok2 = await unlinkPath({ workspaceId, workspaceRootPath, absPath: p });
+      }
+    } catch (e: unknown) {
+      ok2 = false;
+      if (firstFailurePath === null) {
+        firstFailurePath = p;
+        firstFailureMessage = e instanceof Error ? e.message : String(e);
+      } else {
+        console.error(`[delete-batch] failed: ${p}`, e);
+      }
+    }
+
+    if (ok2) {
+      successCount += 1;
+    } else if (firstFailurePath === null) {
+      // Per-path helpers already surface their own error toasts; record for summary.
+      firstFailurePath = p;
+      firstFailureMessage = `deletion failed`;
+    } else {
+      console.error(`[delete-batch] failed: ${p}`);
+    }
+  }
+
+  const failCount = N - successCount;
+  if (failCount === 0) {
+    showToast({ kind: "info", message: `Deleted ${N} items` });
+    return true;
+  }
+
+  showToast({
+    kind: "error",
+    message: `Deleted ${successCount} of ${N}. First failure: ${firstFailurePath}: ${firstFailureMessage}`,
+  });
+  return false;
 }

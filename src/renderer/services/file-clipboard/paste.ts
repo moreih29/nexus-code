@@ -3,21 +3,30 @@
  *
  * Behaviour by clipboard kind:
  *  - "cut":  move each entry via `movePath`.
- *  - "copy": copy each entry via `copyPathWithConflictPrompt` (replace-on-
- *            confirm when the destination already exists).
+ *  - "copy": copy each entry via `copyPathWithAutoRename` (auto-rename on
+ *            conflict when the destination already exists).
  *  - null:   no-op.
  *
- * After a successful paste the target directory is refreshed via
- * `loadChildren`. Cut also clears the clipboard automatically.
+ * Phase D changes:
+ *  - `distinctParents` is applied to cb.entries on entry so redundant
+ *    descendants are dropped before iterating.
+ *  - Cycle guard: a cut/copy of a folder into itself or a descendant
+ *    skips that entry with a per-item error toast rather than aborting
+ *    the whole batch.
+ *  - Partial failure collection: per-entry try/catch produces a
+ *    summary toast at the end (info "Pasted N items" or error "Pasted M of N").
+ *  - Cut clears the clipboard only when at least one entry was moved.
  */
 
 import { showToast } from "@/components/ui/toast";
 import { loadChildren } from "@/state/operations/files";
 import { useActiveStore } from "@/state/stores/active";
-import { useFilesStore } from "@/state/stores/files";
+import { selectFocus, useFilesStore } from "@/state/stores/files";
 import { parentOf } from "@/state/stores/files/helpers";
 import { basename, relPath } from "@/utils/path";
 import { copyPathWithAutoRename, movePath } from "../fs-mutations";
+import { distinctParents } from "../fs-mutations/distinct-parents";
+import type { ClipboardEntry } from "./store";
 import { useFileClipboardStore } from "./store";
 
 /** True when `candidate` is `ancestor` itself or sits under it. */
@@ -26,12 +35,22 @@ function isInsideOrEqual(candidate: string, ancestor: string): boolean {
 }
 
 /**
+ * Re-order a ClipboardEntry list so that it contains only the minimal
+ * ancestor set.  Entries are kept by absPath identity so their stored
+ * relPath values are preserved after filtering.
+ */
+function applyDistinctParents(entries: ClipboardEntry[]): ClipboardEntry[] {
+  const kept = new Set(distinctParents(entries.map((e) => e.absPath)));
+  return entries.filter((e) => kept.has(e.absPath));
+}
+
+/**
  * Paste the clipboard contents into a destination folder.
  *
  * @param targetAbsPath  The node the paste was invoked on. A directory pastes
  *   into itself; a file pastes into its containing folder. When omitted (e.g.
  *   the keyboard shortcut with no explicit target) the file-tree's current
- *   selection (`activeAbsPath`) is used, falling back to the workspace root.
+ *   focus is used, falling back to the workspace root.
  */
 export async function handlePaste(targetAbsPath?: string | null): Promise<void> {
   const cb = useFileClipboardStore.getState();
@@ -46,13 +65,12 @@ export async function handlePaste(targetAbsPath?: string | null): Promise<void> 
   }
 
   // Resolve the target directory. Prefer the explicit paste target (context
-  // menu); otherwise fall back to the file-tree's current selection.
+  // menu); otherwise fall back to the file-tree's current focus.
   const tree = useFilesStore.getState().trees.get(cb.workspaceId);
   if (!tree) return;
   const rootAbsPath = tree.rootAbsPath;
 
-  const candidate =
-    targetAbsPath ?? useFilesStore.getState().activeAbsPath.get(cb.workspaceId) ?? null;
+  const candidate = targetAbsPath ?? selectFocus(useFilesStore.getState(), cb.workspaceId) ?? null;
   let targetDir: string;
   if (candidate === null) {
     targetDir = rootAbsPath;
@@ -67,53 +85,123 @@ export async function handlePaste(targetAbsPath?: string | null): Promise<void> 
 
   const kind = cb.kind;
 
+  // Apply distinctParents: drop redundant descendants from the clipboard
+  // before iterating so we don't operate on both a parent and its child.
+  const effectiveEntries = applyDistinctParents(cb.entries);
+  const total = effectiveEntries.length;
+
+  // Track which directories need a refresh at the end.
+  const dirsToRefresh = new Set<string>();
+
+  // Result accumulators.
+  let successCount = 0;
+  let firstFailurePath: string | null = null;
+  let firstFailureMessage: string | null = null;
+
   if (kind === "cut") {
-    for (const entry of cb.entries) {
-      // Moving an entry into itself or one of its descendants is invalid —
-      // most filesystems reject it (EINVAL) and even if they didn't it would
-      // be a structural error. VSCode rejects this with a user-facing message;
-      // do the same here.
+    for (const entry of effectiveEntries) {
+      // Cycle guard: moving a folder into itself or a descendant is invalid.
       if (isInsideOrEqual(targetDir, entry.absPath)) {
-        showToast({
-          kind: "error",
-          message: `Can't move "${basename(entry.absPath)}" into itself or a subfolder.`,
-        });
-        return;
+        const msg = `Can't move "${basename(entry.absPath)}" into itself or a subfolder.`;
+        showToast({ kind: "error", message: msg });
+        if (firstFailurePath === null) {
+          firstFailurePath = entry.absPath;
+          firstFailureMessage = msg;
+        } else {
+          console.error(`[paste] cycle: ${entry.absPath}`);
+        }
+        continue;
       }
-      const ok = await movePath({
-        workspaceId: cb.workspaceId,
-        workspaceRootPath: cb.sourceRootPath,
-        srcAbsPath: entry.absPath,
-        dstDirAbsPath: targetDir,
-      });
-      if (!ok) return;
+
+      let ok = false;
+      try {
+        ok = await movePath({
+          workspaceId: cb.workspaceId,
+          workspaceRootPath: cb.sourceRootPath,
+          srcAbsPath: entry.absPath,
+          dstDirAbsPath: targetDir,
+        });
+      } catch (e: unknown) {
+        ok = false;
+        if (firstFailurePath === null) {
+          firstFailurePath = entry.absPath;
+          firstFailureMessage = e instanceof Error ? e.message : String(e);
+        } else {
+          console.error(`[paste] move failed: ${entry.absPath}`, e);
+        }
+      }
+
+      if (ok) {
+        successCount += 1;
+        dirsToRefresh.add(targetDir);
+      } else if (firstFailurePath === null) {
+        // movePath already surfaced a per-item error toast; record for summary.
+        firstFailurePath = entry.absPath;
+        firstFailureMessage = "move failed";
+      }
     }
-    await loadChildren(cb.workspaceId, targetDir);
-    useFileClipboardStore.getState().clear();
   } else {
     // kind === "copy"
-    for (const entry of cb.entries) {
+    for (const entry of effectiveEntries) {
       const name = basename(entry.absPath);
       // VSCode parity: if the user copies a folder and then pastes onto that
       // same folder (or anywhere inside it), the destination falls back to the
       // folder's PARENT — so the result is a sibling "B copy" rather than a
-      // recursive "B/B/B/…" tree. Without this guard `copyDir(B, B/B)` would
-      // mkdir B/B and then ReadDir(B) snapshots the newly-created child,
-      // recursing forever.
+      // recursive "B/B/B/…" tree.
       const effectiveDir = isInsideOrEqual(targetDir, entry.absPath)
         ? parentOf(entry.absPath, cb.sourceRootPath)
         : targetDir;
       const dstAbsPath = `${effectiveDir}/${name}`;
       const toRel = relPath(dstAbsPath, cb.sourceRootPath);
-      const ok = await copyPathWithAutoRename({
-        workspaceId: cb.workspaceId,
-        fromRelPath: entry.relPath,
-        toRelPath: toRel,
-      });
-      if (!ok) return;
-      // Refresh the directory where the new copy actually landed (it may
-      // differ from `targetDir` when we fell back to the parent above).
-      await loadChildren(cb.workspaceId, effectiveDir);
+
+      let ok = false;
+      try {
+        ok = await copyPathWithAutoRename({
+          workspaceId: cb.workspaceId,
+          fromRelPath: entry.relPath,
+          toRelPath: toRel,
+        });
+      } catch (e: unknown) {
+        ok = false;
+        if (firstFailurePath === null) {
+          firstFailurePath = entry.absPath;
+          firstFailureMessage = e instanceof Error ? e.message : String(e);
+        } else {
+          console.error(`[paste] copy failed: ${entry.absPath}`, e);
+        }
+      }
+
+      if (ok) {
+        successCount += 1;
+        dirsToRefresh.add(effectiveDir);
+      } else if (firstFailurePath === null) {
+        firstFailurePath = entry.absPath;
+        firstFailureMessage = "copy failed";
+      }
     }
+  }
+
+  // Refresh all touched directories.
+  for (const dir of dirsToRefresh) {
+    await loadChildren(cb.workspaceId, dir);
+  }
+
+  // Cut: clear clipboard when at least one item was moved successfully.
+  if (kind === "cut" && successCount > 0) {
+    useFileClipboardStore.getState().clear();
+  }
+
+  // Aggregate result toast.
+  const failCount = total - successCount;
+  if (failCount === 0) {
+    // N=1 single paste: no toast (matches single-delete no-toast convention).
+    if (total > 1) {
+      showToast({ kind: "info", message: `Pasted ${total} items` });
+    }
+  } else {
+    showToast({
+      kind: "error",
+      message: `Pasted ${successCount} of ${total}. First failure: ${firstFailurePath}: ${firstFailureMessage}`,
+    });
   }
 }

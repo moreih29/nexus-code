@@ -231,6 +231,32 @@ export async function refresh(workspaceId: string, absPath?: string): Promise<vo
   }
 }
 
+/**
+ * Update the file-tree selection when an editor tab becomes active.
+ *
+ * Selection policy (VSCode-parity with multi-select adjustment):
+ *   - If `activeFile` is already in selection.paths → move focus only
+ *     (preserves the multi-selection so the user does not lose their
+ *     working set when cycling through already-selected files).
+ *   - Otherwise → single-select `activeFile` (replaces any prior range
+ *     or single focus, matching VSCode's "selectActiveFile" behaviour).
+ *
+ * This is a fire-and-forget synchronous call: no IPC, no Promise.
+ * Callers should only invoke it from the auto-reveal Phase-2 effect
+ * (after `lastRevealedRef` guard passes).
+ */
+export function revealEditorActiveFile(workspaceId: string, activeFile: string): void {
+  const store = useFilesStore.getState();
+  const sel = store.selection.get(workspaceId);
+  if (sel && sel.paths.size > 0 && sel.paths.has(activeFile)) {
+    // File is already in the selection set — only move focus, preserve paths.
+    store.setFocus(workspaceId, activeFile);
+  } else {
+    // Not selected — replace with single selection (VSCode default behaviour).
+    store.setSingleSelection(workspaceId, activeFile);
+  }
+}
+
 export async function reveal(workspaceId: string, absPath: string): Promise<void> {
   const tree = useFilesStore.getState().trees.get(workspaceId);
   if (!tree) return;

@@ -147,8 +147,16 @@ function alphaOnSurface(fg: string, surface: string, alpha: number): string {
   // Simple Porter-Duff over compositing in sRGB (Monaco doesn't care about
   // perceptual blend, and the difference vs OKLCH blend is imperceptible at
   // these alphas).
-  const fgRgb = { r: (fgP as { r?: number }).r ?? 0, g: (fgP as { g?: number }).g ?? 0, b: (fgP as { b?: number }).b ?? 0 };
-  const sRgb  = { r: (sP  as { r?: number }).r ?? 0, g: (sP  as { g?: number }).g ?? 0, b: (sP  as { b?: number }).b ?? 0 };
+  const fgRgb = {
+    r: (fgP as { r?: number }).r ?? 0,
+    g: (fgP as { g?: number }).g ?? 0,
+    b: (fgP as { b?: number }).b ?? 0,
+  };
+  const sRgb = {
+    r: (sP as { r?: number }).r ?? 0,
+    g: (sP as { g?: number }).g ?? 0,
+    b: (sP as { b?: number }).b ?? 0,
+  };
   const mix = {
     mode: "rgb" as const,
     r: fgRgb.r * alpha + sRgb.r * (1 - alpha),
@@ -168,13 +176,33 @@ function overlay(base: "dark" | "light", alpha: number): string {
   return `rgba(${rgb}, ${alpha})`;
 }
 
+/**
+ * Apply an alpha multiplier to any CSS color string.
+ * Returns an rgba() string parsed from the original color; falls back to
+ * the original value if parsing fails.  Used for sidebar.item.focus.border
+ * and similar semantic tokens that need a semi-transparent version of an
+ * existing surface color without introducing a new primitive.
+ */
+function withAlpha(color: string, alpha: number): string {
+  const parsed = parse(color);
+  if (!parsed) return color;
+  const rgb = toRgb(parsed);
+  if (!rgb) return color;
+  const r = Math.round((rgb.r ?? 0) * 255);
+  const g = Math.round((rgb.g ?? 0) * 255);
+  const b = Math.round((rgb.b ?? 0) * 255);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 // ---------------------------------------------------------------------------
 // Git lane palette — 8 perceptually even hues at constant L/C.
 // Theme-agnostic so lanes stay visually distinct on every theme; minor
 // lightness tweak per base for readability.
 // ---------------------------------------------------------------------------
 
-function gitLanes(base: "dark" | "light"): readonly [string, string, string, string, string, string, string, string] {
+function gitLanes(
+  base: "dark" | "light",
+): readonly [string, string, string, string, string, string, string, string] {
   // Lightness + chroma calibrated for WCAG ~3:1 minimum vs typical editor bg.
   const L = base === "dark" ? 0.66 : 0.52;
   const C = base === "dark" ? 0.13 : 0.14;
@@ -211,7 +239,7 @@ export function buildSemanticTokens(source: ThemeSource): SemanticTokenSet {
     "surface.island.bg": source.bg.primary,
     "surface.island.fg": source.fg.primary,
     "surface.island.border": source.border,
-    "surface.island.inactive.veil": o(source.base === "dark" ? 0.20 : 0.04),
+    "surface.island.inactive.veil": o(source.base === "dark" ? 0.2 : 0.04),
     "surface.floating.bg": source.bg.floating,
     "surface.floating.fg": source.fg.primary,
     "surface.floating.border": source.border,
@@ -219,7 +247,7 @@ export function buildSemanticTokens(source: ThemeSource): SemanticTokenSet {
 
     // --- Global State ---
     "state.hover.bg": o(0.04),
-    "state.active.bg": o(0.10),
+    "state.active.bg": o(0.1),
     // state.selected.bg feeds shadcn `--primary`, slider Range/Thumb, checkbox
     // checked state, segmented-control selected segment, settings-dialog nav
     // selected item, primary buttons. ALL of these need to be assertively
@@ -273,8 +301,15 @@ export function buildSemanticTokens(source: ThemeSource): SemanticTokenSet {
     // vertical accent indicator). lineHighlight is too transparent on light
     // themes — use a low-alpha accent overlay so the row is still visible
     // even without focus.
-    "sidebar.item.selected.bg": tintedAccent(source.accent, source.bg.secondary, 0.20),
+    "sidebar.item.selected.bg": tintedAccent(source.accent, source.bg.secondary, 0.2),
     "sidebar.item.selected.fg": source.fg.primary,
+    // sidebar.item.focus.border — dotted 1px outline for the keyboard-focus row
+    // in multi-select context (VSCode-parity: focus Trait separate from selection).
+    // Uses surface.island.fg at 0.6 alpha so it is readable on both dark/light
+    // themes (≥3:1 contrast target against sidebar.item.selected.bg at a=0.20).
+    // Kept separate from state.focus.ring so the file tree's focus signal does
+    // not collide with global form-control focus styling (design.md §10 separation).
+    "sidebar.item.focus.border": withAlpha(source.fg.primary, 0.6),
     "sidebar.icon.fg": source.fg.muted,
     "sidebar.badge.bg": source.accent,
     "sidebar.badge.fg": pickContrastFg(source.accent, source.bg.primary),
@@ -324,10 +359,10 @@ export function buildSemanticTokens(source: ThemeSource): SemanticTokenSet {
     // --- diff ---
     "diff.added.bg": o(0.06),
     "diff.added.fg": source.success,
-    "diff.added.gutter": o(0.10),
+    "diff.added.gutter": o(0.1),
     "diff.deleted.bg": o(0.06),
     "diff.deleted.fg": source.error,
-    "diff.deleted.gutter": o(0.10),
+    "diff.deleted.gutter": o(0.1),
     "diff.modified.bg": o(0.04),
     "diff.unchanged.fg": source.fg.muted,
 
@@ -366,7 +401,7 @@ export function buildSemanticTokens(source: ThemeSource): SemanticTokenSet {
     // --- status bar (uses backdrop layer) ---
     "status.bar.bg": source.bg.secondary,
     "status.bar.fg": source.fg.primary,
-    "status.bar.item.hover.bg": o(0.10),
+    "status.bar.item.hover.bg": o(0.1),
     "status.bar.error.bg": source.error,
     "status.bar.error.fg": source.base === "light" ? "#ffffff" : source.bg.primary,
     "status.bar.warning.bg": source.warning,
@@ -424,11 +459,11 @@ export function buildEditorPalette(source: ThemeSource): EditorPalette {
     wordHighlightTextBackground: tier(0.04),
     // find/match
     findRangeHighlightBackground: toHex8(source.findHighlight),
-    findMatchHighlightBackground: tier(0.10),
+    findMatchHighlightBackground: tier(0.1),
     findMatchBackground: toHex8(source.findHighlight, 0.45),
     // peek
-    peekViewBorder: toHex8(source.border, 0.80),
-    peekViewEditorMatchHighlightBackground: tier(0.20),
+    peekViewBorder: toHex8(source.border, 0.8),
+    peekViewEditorMatchHighlightBackground: tier(0.2),
     peekViewResultMatchHighlightBackground: tier(0.12),
     peekViewResultBackground: toHex8(source.bg.secondary),
     // link
@@ -436,13 +471,13 @@ export function buildEditorPalette(source: ThemeSource): EditorPalette {
     linkActiveForeground: toHex8(source.fg.primary),
     // selection
     selectionBackground: toHex8(source.selection),
-    inactiveSelectionBackground: tier(0.10),
+    inactiveSelectionBackground: tier(0.1),
     selectionHighlightBackground: tier(0.06),
     // widget surfaces
     hoverWidgetBackground: toHex8(source.bg.floating),
-    hoverWidgetBorder: toHex8(source.border, 0.50),
+    hoverWidgetBorder: toHex8(source.border, 0.5),
     editorWidgetBackground: toHex8(source.bg.floating),
-    editorWidgetBorder: toHex8(source.border, 0.80),
+    editorWidgetBorder: toHex8(source.border, 0.8),
     // diagnostic
     errorForeground: toHex8(source.error),
     warningForeground: toHex8(source.warning, 0.85),

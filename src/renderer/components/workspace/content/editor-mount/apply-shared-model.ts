@@ -27,6 +27,18 @@ export function applySharedModel(
   temporaryModelRef: { current: AttachSharedModelTemporaryModel | null },
 ): void {
   if (!model) return;
+
+  // Defensive guard: callers track liveness via `onDidDispose` (see
+  // useEditorMount), but the React effect that fires `attach` could still
+  // race with a synchronous dispose path that nobody observed in time. A
+  // setModel against the disposed editor surfaces as "InstantiationService
+  // has been disposed" and tears down the workspace pane. Monaco's
+  // IStandaloneCodeEditor type does not expose `isDisposed`, so we feature-
+  // detect at the call site (it exists on the concrete `Editor` class) and
+  // bail before touching the dead instance.
+  const maybeDisposable = editor as ApplySharedModelEditor & { isDisposed?: () => boolean };
+  if (typeof maybeDisposable.isDisposed === "function" && maybeDisposable.isDisposed()) return;
+
   const currentModel = editor.getModel();
   if (currentModel !== model) {
     editor.setModel(model);

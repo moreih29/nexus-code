@@ -51,7 +51,7 @@ function dirEntry(name: string, type: DirEntry["type"] = "file"): DirEntry {
 }
 
 function resetStore() {
-  useFilesStore.setState({ trees: new Map(), activeAbsPath: new Map() });
+  useFilesStore.setState({ trees: new Map(), selection: new Map() });
   mockIpcCallResult.mockClear();
 }
 
