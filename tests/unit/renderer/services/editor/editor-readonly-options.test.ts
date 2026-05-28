@@ -117,6 +117,40 @@ describe("applySharedModel read-only enforcement", () => {
     expect(temporaryModelRef.current).toBeNull();
   });
 
+  // Regression guard for "InstantiationService has been disposed" — the
+  // setModel call against a disposed Monaco editor tears down the workspace
+  // pane. The guard at the top of applySharedModel must bail before touching
+  // the editor when it reports itself disposed.
+  test("no-ops when editor reports itself disposed (isDisposed === true)", () => {
+    const model = { id: "file:///a.ts" };
+    const baseEditor = makeEditor(null);
+    const disposedEditor = {
+      ...baseEditor,
+      isDisposed: () => true,
+    };
+    const temporaryModelRef = { current: null };
+
+    applySharedModel(disposedEditor, model, false, temporaryModelRef);
+
+    expect(disposedEditor.setModel).not.toHaveBeenCalled();
+    expect(disposedEditor.updateOptions).not.toHaveBeenCalled();
+  });
+
+  test("attaches normally when editor reports itself alive (isDisposed === false)", () => {
+    const model = { id: "file:///a.ts" };
+    const baseEditor = makeEditor(null);
+    const aliveEditor = {
+      ...baseEditor,
+      isDisposed: () => false,
+    };
+    const temporaryModelRef = { current: null };
+
+    applySharedModel(aliveEditor, model, true, temporaryModelRef);
+
+    expect(aliveEditor.setModel).toHaveBeenCalledWith(model);
+    expect(aliveEditor.updateOptions).toHaveBeenCalledWith({ readOnly: true });
+  });
+
   test("skips dispose when temporary model is the same as the new model", () => {
     const sharedModel = { id: "file:///a.ts" };
     const editor = makeEditor(null);
