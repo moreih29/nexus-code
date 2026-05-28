@@ -209,15 +209,34 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   // Auto-reveal: 활성 에디터 탭이 가리키는 파일을 트리에서 하이라이트
   // ---------------------------------------------------------------------------
   // 탭 클릭/키보드 이동/외부 reveal 모두 같은 effect로 처리된다.
+  //
+  // VSCode parity (explorerView.ts `selectActiveFile`): auto-reveal은
+  // *active editor가 바뀔 때만* 트리거된다. 트리 mutation(폴더 접기/펼치기)
+  // 에는 반응하지 않는다. 즉 사용자가 활성 파일의 부모를 접으면 접힌 상태가
+  // 유지되고, 다른 탭으로 갔다가 돌아오는 순간(=activeEditor가 다시 바뀜)
+  // 부모가 재펼쳐진다.
+  //
+  // lastRevealedRef는 Phase 2가 reveal에 성공한 activeEditorAbsPath를 기록.
+  // Phase 1·2 둘 다 이 ref로 "이미 다룬 경로"를 가드해서, flat이 바뀌어도
+  // 같은 에디터 경로에 대해 reveal/focus-sync를 다시 실행하지 않는다.
+  // activeEditorAbsPath가 다른 값으로 바뀌면 ref ≠ 새 값이라 가드가 풀린다.
+  const lastRevealedRef = useRef<string | null>(null);
+
   // Phase 1: 부모 디렉터리를 펼친다. reveal()이 ancestors를 expanded에 추가하고
   // 필요한 children을 IPC로 로드한다. 워크스페이스 루트 바깥의 경로는 무시.
-  // flat을 deps에 넣어 트리 init 직후 / 자식 로드 직후에도 effect가 다시 돌아
-  // 경로가 아직 보이지 않으면 reveal을 재시도한다. 이미 flat에 있으면 no-op.
+  //
+  // flat을 deps에 두는 이유: 트리 init / 자식 로드가 비동기여서 처음 effect
+  // 실행 시점에 tree가 아직 없을 수 있다. Phase 2가 ref를 set하기 전까지는
+  // flat 변경마다 재시도된다.
+  //
+  // lastRevealedRef 가드: Phase 2가 한 번 reveal 완료 후에는, 사용자가 부모를
+  // 접어 flat이 다시 leaf를 잃어도 reveal을 재호출하지 않는다 — VSCode parity.
   useEffect(() => {
     if (!activeEditorAbsPath) return;
     if (activeEditorAbsPath !== rootAbsPath && !activeEditorAbsPath.startsWith(`${rootAbsPath}/`)) {
       return;
     }
+    if (lastRevealedRef.current === activeEditorAbsPath) return;
     if (flat.some((f) => f.absPath === activeEditorAbsPath)) return;
     void reveal(workspaceId, activeEditorAbsPath);
   }, [activeEditorAbsPath, workspaceId, rootAbsPath, flat]);
@@ -234,7 +253,6 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   // 복사/붙여넣기 타깃이 선택한 폴더가 아니라 에디터 파일의 부모(루트)로
   // 잡히던 버그의 원인. idx<0(아직 flat에 없음)이면 ref를 갱신하지 않아
   // 자식 로드 후 재시도된다.
-  const lastRevealedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!activeEditorAbsPath) return;
     if (lastRevealedRef.current === activeEditorAbsPath) return;
