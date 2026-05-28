@@ -60,10 +60,11 @@ export function buildNexusWorkspaceHandler(
       return new Response(null, { status: 404 });
     }
 
-    // Step 3 — SSH workspaces are not supported in v1.
+    // SSH workspaces are served through the agent's fs.readBinary method.
+    // Local workspaces stay on the file:// fetch path below because it
+    // streams directly off disk without a base64 round-trip.
     if (meta.location.kind !== "local") {
-      logger.warn(`Remote workspace not supported (v1): ${workspaceId}`);
-      return new Response(null, { status: 404 });
+      return serveViaAgent(workspaceManager, workspaceId, relPath);
     }
 
     const rootPath = meta.location.rootPath;
@@ -127,6 +128,57 @@ export function buildNexusWorkspaceHandler(
       return new Response(null, { status: 404 });
     }
   };
+}
+
+// ---------------------------------------------------------------------------
+// SSH path — relays the workspace-relative file through the agent's
+// fs.readBinary method. The agent already enforces workspace-bound path
+// resolution (rejecting `..` and absolute paths) so we don't repeat the
+// realpath/symlink dance here; the trust boundary lives on the remote end.
+//
+// Bytes arrive base64-encoded over the NDJSON channel; we decode to a Node
+// Buffer and ship it as the Response body. `Cache-Control: no-store` keeps
+// the renderer from caching across SSH reconnects where the same path may
+// resolve to a different blob.
+// ---------------------------------------------------------------------------
+
+async function serveViaAgent(
+  workspaceManager: WorkspaceManager,
+  workspaceId: string,
+  relPath: string,
+): Promise<Response> {
+  // posix-style for the agent (it splits on "/" internally and runs on
+  // unix hosts in SSH mode). path.sep was applied at parse time for the
+  // local branch — undo it here so the wire path stays portable.
+  const posixRelPath = relPath.split(path.sep).join("/");
+  let fsProvider: Awaited<ReturnType<WorkspaceManager["getFs"]>>;
+  try {
+    fsProvider = await workspaceManager.getFs(workspaceId);
+  } catch (err) {
+    logger.warn(`SSH workspace fs unavailable: ${workspaceId} — ${(err as Error).message}`);
+    return new Response(null, { status: 503 });
+  }
+
+  try {
+    const result = await fsProvider.readBinary(posixRelPath);
+    if (result.kind === "missing") {
+      return new Response(null, { status: 404 });
+    }
+    const buf = Buffer.from(result.base64, "base64");
+    const contentType = mimeFromPath(posixRelPath);
+    return new Response(buf, {
+      status: 200,
+      headers: {
+        "Content-Type": contentType,
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (err) {
+    logger.warn(
+      `SSH readBinary failed: ${workspaceId}:${posixRelPath} — ${(err as Error).message}`,
+    );
+    return new Response(null, { status: 404 });
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 import Editor from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { fontFamily, typeScale } from "../../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
 import { useMonacoThemeName } from "../../../hooks/use-monaco-theme-name";
@@ -15,6 +15,7 @@ import { cn } from "../../../utils/cn";
 import { fileErrorMessage } from "../../../utils/file-error";
 import { relPath } from "../../../utils/path";
 import { HtmlPreview } from "../../editor/preview/html-preview";
+import { ImagePreview } from "../../editor/preview/image-preview";
 import { MarkdownPreview } from "../../editor/preview/markdown-preview";
 import { SvgPreview } from "../../editor/preview/svg-preview";
 import { ViewModeToggle } from "../../editor/preview/view-mode-toggle";
@@ -311,6 +312,72 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
         </div>
       )}
     </div>
+  );
+}
+
+interface ImageEditorViewProps {
+  filePath: string;
+  workspaceId: string;
+}
+
+/**
+ * Editor surface for raster image files. Renders the same breadcrumb
+ * toolbar row as the text editor so split tabs feel consistent, and hands
+ * off the file body to ImagePreview (custom-protocol `<img>`).
+ *
+ * The toolbar's right slot — which holds the Raw/Preview toggle for text
+ * tabs — is repurposed here as a resolution chip ("3840 × 2160"). Pixel
+ * dimensions are reported up from ImagePreview's onLoad callback so the
+ * image fetch isn't duplicated. Each split tab carries its own resolution
+ * because ImageEditorView mounts per split.
+ *
+ * No model acquisition, no Monaco mount, no raw/preview toggle — images
+ * are non-editable in v1.
+ */
+export function ImageEditorView({ filePath, workspaceId }: ImageEditorViewProps) {
+  const workspaceRootAbsPath = useWorkspacesStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
+  );
+  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
+
+  // useCallback so ImagePreview's onLoad doesn't re-fire on every parent
+  // render. The image's intrinsic size is stable for a given filePath
+  // (the host keys EditorView on filePath, so a new file = new instance).
+  const handleNaturalSize = useCallback((size: { w: number; h: number }) => {
+    setNaturalSize(size);
+  }, []);
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-[var(--surface-island-border)]">
+        <EditorBreadcrumbs filePath={filePath} workspaceRootAbsPath={workspaceRootAbsPath} />
+        {naturalSize && <ImageResolutionChip size={naturalSize} />}
+      </div>
+      <div className="flex-1 min-h-0 flex">
+        <ImagePreview
+          workspaceId={workspaceId}
+          filePath={filePath}
+          onNaturalSize={handleNaturalSize}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Compact width × height label rendered on the right of the image
+ * editor's toolbar row. Uses U+00D7 (×) for typographic correctness and
+ * tabular-nums so digits don't shift as the value lands.
+ */
+function ImageResolutionChip({ size }: { size: { w: number; h: number } }) {
+  const label = `${size.w} × ${size.h}`;
+  return (
+    <span
+      className="text-app-ui-sm tabular-nums text-muted-foreground px-1 select-none"
+      title={`Image resolution: ${label} pixels`}
+    >
+      {label}
+    </span>
   );
 }
 

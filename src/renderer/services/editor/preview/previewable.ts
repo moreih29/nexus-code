@@ -19,6 +19,33 @@ const HTML_EXTENSIONS = [".html", ".htm"] as const;
 const SVG_EXTENSIONS = [".svg"] as const;
 const MDX_EXTENSIONS = [".mdx"] as const;
 
+// Raster image formats the renderer can display via the `nexus-workspace://`
+// custom protocol. `.svg` is intentionally excluded here — SVG already has
+// its own raw/preview toggle (text source ↔ blob-URL render), so it stays
+// on the text editor track. The remaining formats are pure binary; opening
+// them in Monaco would only show the bytes-rejected message.
+const IMAGE_EXTENSIONS = [
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".bmp",
+  ".ico",
+  ".avif",
+] as const;
+
+/**
+ * Returns true when the file's extension identifies a raster image format
+ * that the dedicated image viewer (not Monaco) should render.
+ *
+ * Match is case-insensitive on the trailing extension.
+ */
+export function isImageFile(filePath: string): boolean {
+  const lower = filePath.toLowerCase();
+  return IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
 /**
  * Returns the preview-mode disposition for a given file path.
  *

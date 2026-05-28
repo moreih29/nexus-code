@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -79,6 +80,51 @@ func (s *Service) ReadAbsolute(ctx context.Context, raw json.RawMessage) (any, e
 		return nil, err
 	}
 	return readFileAt(ctx, abs)
+}
+
+// ReadBinary loads relPath's bytes (up to MaxReadableFileSize) and returns
+// them base64-encoded. Used by the renderer's image preview pipeline for
+// SSH workspaces, where binary bytes cannot be transported as a UTF-8
+// content string the way fs.readFile does. Same missing-file handling so
+// renderer races against fs.changed events do not surface as toasts.
+func (s *Service) ReadBinary(ctx context.Context, raw json.RawMessage) (any, error) {
+	abs, err := s.resolve(raw)
+	if err != nil {
+		return nil, err
+	}
+	return readBinaryAt(ctx, abs)
+}
+
+func readBinaryAt(ctx context.Context, abs string) (any, error) {
+	info, err := os.Lstat(abs)
+	if err != nil {
+		if errors.Is(err, iofs.ErrNotExist) {
+			return ReadBinaryResult{Kind: "missing", Reason: "not-found"}, nil
+		}
+		return nil, mapPathError(err, abs)
+	}
+	if info.IsDir() {
+		return nil, FSError{Code: CodeIsDirectory, Path: abs}
+	}
+	if info.Size() > MaxReadableFileSize {
+		return nil, FSError{Code: CodeTooLarge, Path: fmt.Sprintf("%s (%d bytes)", abs, info.Size())}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	buf, err := os.ReadFile(abs)
+	if err != nil {
+		if errors.Is(err, iofs.ErrNotExist) {
+			return ReadBinaryResult{Kind: "missing", Reason: "not-found"}, nil
+		}
+		return nil, mapPathError(err, abs)
+	}
+	return ReadBinaryResult{
+		Kind:   "ok",
+		Base64: base64.StdEncoding.EncodeToString(buf),
+		Size:   info.Size(),
+		MTime:  formatMTime(info.ModTime()),
+	}, nil
 }
 
 func readFileAt(ctx context.Context, abs string) (any, error) {

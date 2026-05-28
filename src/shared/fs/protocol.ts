@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { ExpectedFileStateSchema, FileReadResultSchema, WriteFileResultSchema } from "./types";
+import {
+  ExpectedFileStateSchema,
+  FileReadBinaryResultSchema,
+  FileReadResultSchema,
+  WriteFileResultSchema,
+} from "./types";
 
 /**
  * NDJSON method signatures for fs.* operations on the agent.
@@ -27,6 +32,21 @@ export type FsReadAbsoluteParams = z.infer<typeof FsReadAbsoluteParamsSchema>;
 
 export const FsReadAbsoluteResultSchema = FileReadResultSchema;
 export type FsReadAbsoluteResult = z.infer<typeof FsReadAbsoluteResultSchema>;
+
+// ---------------------------------------------------------------------------
+// fs.readBinary — read a workspace-relative file as base64-encoded bytes.
+// Companion to fs.readFile for binary content (images, archives, etc.) that
+// cannot be transported as a UTF-8 content string. Used by the
+// nexus-workspace:// custom protocol to serve images from SSH workspaces.
+// ---------------------------------------------------------------------------
+
+export const FS_READ_BINARY_METHOD = "fs.readBinary" as const;
+
+export const FsReadBinaryParamsSchema = z.object({ relPath: RelPathSchema });
+export type FsReadBinaryParams = z.infer<typeof FsReadBinaryParamsSchema>;
+
+export const FsReadBinaryResultSchema = FileReadBinaryResultSchema;
+export type FsReadBinaryResult = z.infer<typeof FsReadBinaryResultSchema>;
 
 // ---------------------------------------------------------------------------
 // fs.writeFile — atomic overwrite with optional optimistic-concurrency check.

@@ -58,6 +58,34 @@ type ReadAbsoluteParams struct {
 	AbsolutePath string `json:"absolutePath"`
 }
 
+// ReadBinaryResult is the wire shape for fs.readBinary. The "ok" variant
+// carries the file body as a base64 string so binary bytes survive the
+// JSON/NDJSON channel. Discriminated union with a "missing" variant on Kind,
+// matching the fs.readFile error-resolution pattern.
+type ReadBinaryResult struct {
+	Kind   string
+	Base64 string
+	Size   int64
+	MTime  string
+	Reason string
+}
+
+// MarshalJSON emits one of two object shapes based on Kind.
+func (r ReadBinaryResult) MarshalJSON() ([]byte, error) {
+	if r.Kind == "missing" {
+		return json.Marshal(struct {
+			Kind   string `json:"kind"`
+			Reason string `json:"reason"`
+		}{Kind: r.Kind, Reason: r.Reason})
+	}
+	return json.Marshal(struct {
+		Kind   string `json:"kind"`
+		Base64 string `json:"base64"`
+		Size   int64  `json:"sizeBytes"`
+		MTime  string `json:"mtime"`
+	}{Kind: r.Kind, Base64: r.Base64, Size: r.Size, MTime: r.MTime})
+}
+
 // MarshalJSON emits one of two object shapes based on Kind.
 func (r ReadFileResult) MarshalJSON() ([]byte, error) {
 	if r.Kind == "missing" {

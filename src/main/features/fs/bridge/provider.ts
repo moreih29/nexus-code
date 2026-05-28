@@ -1,6 +1,7 @@
 import type {
   DirEntry,
   ExpectedFileStateContract,
+  FileReadBinaryResult,
   FileReadResult,
   FsStat,
   WriteFileResult,
@@ -15,6 +16,11 @@ export interface FsProvider {
   readdir(relPath: string): Promise<DirEntry[]>;
   stat(relPath: string): Promise<FsStat>;
   readFile(relPath: string): Promise<FileReadResult>;
+  /**
+   * Read a workspace-relative file as base64-encoded bytes. Used for binary
+   * content (images, etc.) that cannot ride fs.readFile's UTF-8 string body.
+   */
+  readBinary(relPath: string): Promise<FileReadBinaryResult>;
   readAbsolute(absolutePath: string): Promise<FileReadResult>;
   writeFile(
     relPath: string,

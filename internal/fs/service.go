@@ -80,6 +80,7 @@ func Register(d *dispatch.Dispatcher, fsys *Service) {
 	d.Register("fs.readdir", fsys.Readdir)
 	d.Register("fs.stat", fsys.Stat)
 	d.Register("fs.readFile", fsys.ReadFile)
+	d.Register("fs.readBinary", fsys.ReadBinary)
 	d.Register("fs.readAbsolute", fsys.ReadAbsolute)
 	d.Register("fs.writeFile", fsys.WriteFile)
 	d.Register("fs.createFile", fsys.CreateFile)

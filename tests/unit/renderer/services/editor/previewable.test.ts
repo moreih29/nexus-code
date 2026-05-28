@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  isImageFile,
   isPreviewable,
   previewEngineFor,
 } from "../../../../../src/renderer/services/editor/preview/previewable";
@@ -44,5 +45,28 @@ describe("previewEngineFor", () => {
 
   it("throws on non-previewable paths (defensive — callers must filter)", () => {
     expect(() => previewEngineFor("/r/index.ts")).toThrow();
+  });
+});
+
+describe("isImageFile", () => {
+  it("recognizes raster image extensions (case-insensitive)", () => {
+    expect(isImageFile("/r/photo.png")).toBe(true);
+    expect(isImageFile("/r/photo.JPG")).toBe(true);
+    expect(isImageFile("/r/photo.jpeg")).toBe(true);
+    expect(isImageFile("/r/anim.gif")).toBe(true);
+    expect(isImageFile("/r/cover.webp")).toBe(true);
+    expect(isImageFile("/r/pixel.bmp")).toBe(true);
+    expect(isImageFile("/r/favicon.ico")).toBe(true);
+    expect(isImageFile("/r/modern.avif")).toBe(true);
+  });
+
+  it("excludes .svg (handled by the existing SVG preview path)", () => {
+    expect(isImageFile("/r/logo.svg")).toBe(false);
+  });
+
+  it("returns false for non-image files", () => {
+    expect(isImageFile("/r/index.ts")).toBe(false);
+    expect(isImageFile("/r/README.md")).toBe(false);
+    expect(isImageFile("/r/no-extension")).toBe(false);
   });
 });

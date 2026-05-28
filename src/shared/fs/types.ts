@@ -84,3 +84,22 @@ export const FileReadResultSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 export type FileReadResult = z.infer<typeof FileReadResultSchema>;
+
+// Result for fs.readBinary. Companion to FileReadResultSchema for the
+// binary-bytes path: where FileReadResult ships text content as a UTF-8
+// string, this one ships an arbitrary byte sequence as base64 so JSON
+// transport is lossless. Used by the nexus-workspace:// custom protocol
+// to serve images from SSH workspaces.
+export const FileReadBinaryResultSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("ok"),
+    base64: z.string(),
+    sizeBytes: z.number().int().min(0),
+    mtime: z.string(),
+  }),
+  z.object({
+    kind: z.literal("missing"),
+    reason: z.enum(["not-found"]),
+  }),
+]);
+export type FileReadBinaryResult = z.infer<typeof FileReadBinaryResultSchema>;

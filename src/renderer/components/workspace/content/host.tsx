@@ -2,9 +2,10 @@ import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { CommitTab } from "@/components/editor/commit-tab";
 import { DiffTab } from "@/components/editor/diff-tab";
+import { isImageFile } from "@/services/editor/preview/previewable";
 import type { Tab } from "@/state/stores/tabs";
 import { BrowserTabView } from "./browser-view";
-import { EditorView } from "./editor-view";
+import { EditorView, ImageEditorView } from "./editor-view";
 import { useSlotElement } from "./slot-registry";
 import { TerminalView } from "./terminal-view";
 import { useViewPark } from "./view-park";
@@ -133,14 +134,27 @@ export function ContentHost({
         // when setModel ran against the half-torn editor. Remounting on filePath
         // change gives @monaco-editor/react a clean dispose + create cycle.
         //
+        // Raster images route to ImageEditorView, which renders an `<img>`
+        // via the `nexus-workspace://` protocol and bypasses Monaco/model
+        // acquisition. Sharing the same `key={filePath}` keeps split-tab
+        // and preview-slot behaviour identical to the text path.
+        //
         // tabId is forwarded so EditorView can read its own viewMode from the
         // tabs store (Raw/Preview toggle per-tab persistence — plan 60).
-        <EditorView
-          key={tab.props.filePath}
-          tabId={tab.id}
-          filePath={tab.props.filePath}
-          workspaceId={workspaceId}
-        />
+        isImageFile(tab.props.filePath) ? (
+          <ImageEditorView
+            key={tab.props.filePath}
+            filePath={tab.props.filePath}
+            workspaceId={workspaceId}
+          />
+        ) : (
+          <EditorView
+            key={tab.props.filePath}
+            tabId={tab.id}
+            filePath={tab.props.filePath}
+            workspaceId={workspaceId}
+          />
+        )
       ) : tab.type === "untitled" ? (
         <EditorView
           key={`untitled-${tab.props.untitledIndex}`}

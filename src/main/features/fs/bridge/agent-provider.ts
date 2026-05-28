@@ -4,6 +4,7 @@ import {
   FS_CREATE_FILE_METHOD,
   FS_MKDIR_METHOD,
   FS_READ_ABSOLUTE_METHOD,
+  FS_READ_BINARY_METHOD,
   FS_REMOVE_ALL_METHOD,
   FS_RENAME_METHOD,
   FS_RMDIR_METHOD,
@@ -13,6 +14,7 @@ import {
   type FsCreateFileParams,
   type FsMkdirParams,
   type FsReadAbsoluteParams,
+  type FsReadBinaryParams,
   type FsRemoveAllParams,
   type FsRenameParams,
   type FsRmdirParams,
@@ -23,6 +25,8 @@ import {
   type DirEntry,
   DirEntrySchema,
   type ExpectedFileStateContract,
+  type FileReadBinaryResult,
+  FileReadBinaryResultSchema,
   type FileReadResult,
   FileReadResultSchema,
   type FsStat,
@@ -71,6 +75,13 @@ export class AgentFsProvider implements AgentBackedProvider {
   async readFile(relPath: string): Promise<FileReadResult> {
     const result = await this.callAgent("fs.readFile", { relPath });
     return parseAgentResult(FileReadResultSchema, result);
+  }
+
+  async readBinary(relPath: string): Promise<FileReadBinaryResult> {
+    const result = await this.callAgent(FS_READ_BINARY_METHOD, {
+      relPath,
+    } satisfies FsReadBinaryParams);
+    return parseAgentResult(FileReadBinaryResultSchema, result);
   }
 
   async readAbsolute(absolutePath: string): Promise<FileReadResult> {
