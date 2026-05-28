@@ -186,23 +186,5 @@ export function registerFileCommands(): Array<() => void> {
       confirmAndDeleteBatch(wsId, tree.rootAbsPath, deletable).catch(() => {});
     }),
 
-    // Cmd+Backspace — 영구 삭제(휴지통 우회). local·SSH 모두 동일하게 적용.
-    registerCommand(COMMANDS.fileDeletePermanent, () => {
-      const wsId = useActiveStore.getState().activeWorkspaceId;
-      if (!wsId) return;
-      const filesState = useFilesStore.getState();
-      const tree = filesState.trees.get(wsId);
-      if (!tree) return;
-
-      const paths = selectOperablePaths(filesState, wsId);
-      if (paths.length === 0) return;
-
-      const deletable = paths.filter((p) => p !== tree.rootAbsPath && tree.nodes.has(p));
-      if (deletable.length === 0) return;
-
-      confirmAndDeleteBatch(wsId, tree.rootAbsPath, deletable, { forcePermanent: true }).catch(
-        () => {},
-      );
-    }),
   ];
 }

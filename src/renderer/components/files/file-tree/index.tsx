@@ -285,9 +285,9 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
     // does NOT reliably move keyboard focus to it on macOS Chromium — focus can
     // remain on whatever element had it before the click (body, previously-active
     // Monaco, ...). Without an explicit move, subsequent shortcuts that gate on
-    // `fileTreeFocus` (Cmd+Backspace = permanent delete, Cmd+A = hierarchical
-    // select-all) silently no-op because the keydown's `closest('[role="tree"]')`
-    // walk fails from the unrelated focus target.
+    // `fileTreeFocus` (Backspace = delete, Cmd+A = hierarchical select-all)
+    // silently no-op because the keydown's `closest('[role="tree"]')` walk
+    // fails from the unrelated focus target.
     //
     // Refocusing the container on every row interaction is the same trick VSCode's
     // listWidget uses (focus stays on the list element, `aria-activedescendant`

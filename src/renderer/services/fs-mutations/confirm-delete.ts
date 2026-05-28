@@ -43,17 +43,15 @@ export async function confirmAndDeletePath(
   absPath: string,
   nodeType: "file" | "dir" | "symlink",
   name?: string,
-  options: ConfirmAndDeleteBatchOptions = {},
 ): Promise<boolean> {
   const displayName = name ?? basename(absPath);
   const kindLabel = nodeType === "dir" ? "folder" : "file";
 
   // Workspace kind drives the deletion semantics: local goes through the
   // OS trash (recoverable), SSH goes through agent removeAll/unlink
-  // (permanent — there's no host trash on the remote side). `forcePermanent`
-  // (Cmd+Backspace) bypasses the trash even on local.
+  // (permanent — there's no host trash on the remote side).
   const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
-  const useTrash = !options.forcePermanent && workspace?.location.kind === "local";
+  const useTrash = workspace?.location.kind === "local";
 
   const description = composeDescription({
     displayName,
@@ -118,21 +116,10 @@ function composeDescription({ displayName, kindLabel, isDir, useTrash }: Descrip
  *                          are collapsed via distinctParents before prompting).
  * @returns true when every path was deleted successfully, false otherwise.
  */
-export interface ConfirmAndDeleteBatchOptions {
-  /**
-   * When true, the deletion bypasses the OS trash even on local workspaces
-   * (used by the `Cmd+Backspace` keybinding for permanent delete).
-   * SSH workspaces always delete permanently regardless of this flag —
-   * there is no remote trash to fall back to.
-   */
-  forcePermanent?: boolean;
-}
-
 export async function confirmAndDeleteBatch(
   workspaceId: string,
   workspaceRootPath: string,
   absPaths: readonly string[],
-  options: ConfirmAndDeleteBatchOptions = {},
 ): Promise<boolean> {
   if (absPaths.length === 0) return false;
 
@@ -149,14 +136,13 @@ export async function confirmAndDeleteBatch(
     // (conservative — trashPath/unlinkPath work for both files and symlinks).
     const tree = useFilesStore.getState().trees.get(workspaceId);
     const nodeType = tree?.nodes.get(p)?.type ?? "file";
-    return confirmAndDeletePath(workspaceId, workspaceRootPath, p, nodeType, undefined, options);
+    return confirmAndDeletePath(workspaceId, workspaceRootPath, p, nodeType);
   }
 
-  // Workspace kind — drives trash vs permanent semantics. `forcePermanent`
-  // (Cmd+Backspace) overrides the local trash path; SSH is permanent
+  // Workspace kind — drives trash vs permanent semantics. SSH is permanent
   // unconditionally because there is no remote trash.
   const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
-  const useTrash = !options.forcePermanent && workspace?.location.kind === "local";
+  const useTrash = workspace?.location.kind === "local";
 
   // Build dialog text.
   const N = effective.length;

@@ -223,10 +223,9 @@ afterEach(() => {
 // 1. KEYBINDINGS 테이블 검사
 // ---------------------------------------------------------------------------
 
-describe("KEYBINDINGS 테이블 — fileDelete / fileDeletePermanent", () => {
-  // Policy update: paired gesture for trash-aware deletion.
-  //   Backspace     → fileDelete (local = trash, SSH = permanent)
-  //   Cmd+Backspace → fileDeletePermanent (always permanent)
+describe("KEYBINDINGS 테이블 — fileDelete", () => {
+  // Single Backspace gesture: local = trash, SSH = permanent (workspace
+  // kind drives the branch inside confirmAndDeletePath).
   it("Backspace primary 바인딩이 fileDelete 에 등록됨", () => {
     const decl = KEYBINDINGS.find(
       (k) => k.command === COMMANDS.fileDelete && k.primary === "Backspace",
@@ -237,20 +236,6 @@ describe("KEYBINDINGS 테이블 — fileDelete / fileDeletePermanent", () => {
   it("Backspace when 조건이 정확히 'fileTreeFocus && !inputFocus' 이다", () => {
     const decl = KEYBINDINGS.find(
       (k) => k.command === COMMANDS.fileDelete && k.primary === "Backspace",
-    );
-    expect(decl?.when).toBe("fileTreeFocus && !inputFocus");
-  });
-
-  it("Cmd+Backspace primary 바인딩이 fileDeletePermanent 에 등록됨", () => {
-    const decl = KEYBINDINGS.find(
-      (k) => k.command === COMMANDS.fileDeletePermanent && k.primary === "Cmd+Backspace",
-    );
-    expect(decl).not.toBeUndefined();
-  });
-
-  it("Cmd+Backspace when 조건이 정확히 'fileTreeFocus && !inputFocus' 이다", () => {
-    const decl = KEYBINDINGS.find(
-      (k) => k.command === COMMANDS.fileDeletePermanent && k.primary === "Cmd+Backspace",
     );
     expect(decl?.when).toBe("fileTreeFocus && !inputFocus");
   });
@@ -278,7 +263,7 @@ describe("fileDelete 핸들러 — wsId 없으면 no-op", () => {
       const e = makeEvent("Backspace", {
         code: "Backspace",
         target: treeTarget(),
-        metaKey: true,
+
       });
       handleGlobalKeyDown(e);
       // 비동기 핸들러가 있으므로 tick 대기
@@ -314,7 +299,7 @@ describe("fileDelete 핸들러 — activeAbsPath 없으면 no-op", () => {
       const e = makeEvent("Backspace", {
         code: "Backspace",
         target: treeTarget(),
-        metaKey: true,
+
       });
       handleGlobalKeyDown(e);
       await new Promise((r) => setTimeout(r, 10));
@@ -347,7 +332,7 @@ describe("fileDelete 핸들러 — root 경로이면 no-op", () => {
       const e = makeEvent("Backspace", {
         code: "Backspace",
         target: treeTarget(),
-        metaKey: true,
+
       });
       handleGlobalKeyDown(e);
       await new Promise((r) => setTimeout(r, 10));
@@ -458,8 +443,8 @@ describe("confirmAndDeletePath helper — workspace kind branching", () => {
 // 7. dispatcher: when 조건에 의한 scoping
 // ---------------------------------------------------------------------------
 
-describe("dispatcher — Backspace / Cmd+Backspace when 조건 scoping", () => {
-  it("tree 안에서 plain Backspace → file.delete (휴지통) 커맨드가 발화한다", () => {
+describe("dispatcher — Backspace when 조건 scoping", () => {
+  it("tree 안에서 plain Backspace → file.delete 커맨드가 발화한다", () => {
     const deleteFn = mock(() => {});
     registerCommand(COMMANDS.fileDelete, deleteFn as () => void);
 
@@ -467,21 +452,6 @@ describe("dispatcher — Backspace / Cmd+Backspace when 조건 scoping", () => {
     handleGlobalKeyDown(e);
 
     expect(deleteFn).toHaveBeenCalledTimes(1);
-    expect(e.defaultPrevented).toBe(true);
-  });
-
-  it("tree 안에서 Cmd+Backspace → file.deletePermanent 커맨드가 발화한다", () => {
-    const permanentFn = mock(() => {});
-    registerCommand(COMMANDS.fileDeletePermanent, permanentFn as () => void);
-
-    const e = makeEvent("Backspace", {
-      code: "Backspace",
-      target: treeTarget(),
-      metaKey: true,
-    });
-    handleGlobalKeyDown(e);
-
-    expect(permanentFn).toHaveBeenCalledTimes(1);
     expect(e.defaultPrevented).toBe(true);
   });
 
@@ -495,28 +465,26 @@ describe("dispatcher — Backspace / Cmd+Backspace when 조건 scoping", () => {
     expect(deleteFn).not.toHaveBeenCalled();
   });
 
-  it("tree 안의 INPUT에서 Cmd+Backspace → 발화 안 함 (inputFocus=true)", () => {
+  it("tree 안의 INPUT에서 Backspace → 발화 안 함 (inputFocus=true)", () => {
     const deleteFn = mock(() => {});
     registerCommand(COMMANDS.fileDelete, deleteFn as () => void);
 
     const e = makeEvent("Backspace", {
       code: "Backspace",
       target: treeInputTarget(),
-      metaKey: true,
     });
     handleGlobalKeyDown(e);
 
     expect(deleteFn).not.toHaveBeenCalled();
   });
 
-  it("트리 바깥에서 Cmd+Backspace → 발화 안 함 (fileTreeFocus=false)", () => {
+  it("트리 바깥에서 Backspace → 발화 안 함 (fileTreeFocus=false)", () => {
     const deleteFn = mock(() => {});
     registerCommand(COMMANDS.fileDelete, deleteFn as () => void);
 
     const e = makeEvent("Backspace", {
       code: "Backspace",
       target: outsideTarget(),
-      metaKey: true,
     });
     handleGlobalKeyDown(e);
 
