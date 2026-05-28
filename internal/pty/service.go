@@ -440,6 +440,19 @@ func defaultShell() string {
 	return "/bin/sh"
 }
 
+// hasUTF8Locale reports whether the merged env carries any non-empty
+// LANG / LC_ALL / LC_CTYPE — the three variables bash readline consults
+// to enable multibyte input. Empty values count as unset because shells
+// treat them identically to absence.
+func hasUTF8Locale(merged map[string]string) bool {
+	for _, key := range []string{"LANG", "LC_ALL", "LC_CTYPE"} {
+		if v, ok := merged[key]; ok && v != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // mergeEnv overlays spawn-specific variables on the agent process environment.
 func mergeEnv(overrides map[string]string) []string {
 	merged := make(map[string]string)
@@ -455,6 +468,20 @@ func mergeEnv(overrides map[string]string) []string {
 	}
 	if _, ok := merged["TERM"]; !ok {
 		merged["TERM"] = "xterm-256color"
+	}
+	// UTF-8 locale fallback. When the agent host is bootstrapped via
+	// `bash -lc 'exec agent ...'` on a remote that ships no LANG / LC_*
+	// (clean Docker/LXC images, slim Linux installs, minimal CI runners),
+	// the inherited environment leaves bash readline on POSIX/C — which
+	// rejects multibyte input and breaks Korean / Japanese / Chinese
+	// keystrokes in the terminal. We only inject `C.UTF-8` when none of
+	// LANG, LC_ALL, LC_CTYPE carry a non-empty value, so a user-configured
+	// locale (e.g. `LANG=ko_KR.UTF-8`) is never silently overridden.
+	// C.UTF-8 is the safest default: present on Linux glibc/musl and
+	// macOS 12+, and gracefully degrades to POSIX when the system has no
+	// matching definition installed.
+	if !hasUTF8Locale(merged) {
+		merged["LANG"] = "C.UTF-8"
 	}
 	keys := make([]string, 0, len(merged))
 	for key := range merged {

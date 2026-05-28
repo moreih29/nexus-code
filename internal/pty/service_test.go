@@ -346,3 +346,84 @@ func mustJSON(t *testing.T, value any) json.RawMessage {
 	}
 	return data
 }
+
+// envValue extracts a single VAR=VALUE entry's value from mergeEnv's
+// sorted result. Returns "" when the key is absent.
+func envValue(env []string, key string) (string, bool) {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return entry[len(prefix):], true
+		}
+	}
+	return "", false
+}
+
+// TestMergeEnvInjectsUTF8LocaleWhenAbsent verifies the locale fallback
+// added so remote bash readline accepts Korean / multibyte input even on
+// hosts whose login env ships LANG / LC_* as empty (clean Docker images,
+// minimal Linux installs). All three locale variables are emptied first
+// because t.Setenv with "" mirrors what we observed in the wild —
+// LC_CTYPE="POSIX" came from locale's effective resolution, not the env.
+func TestMergeEnvInjectsUTF8LocaleWhenAbsent(t *testing.T) {
+	t.Setenv("LANG", "")
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_CTYPE", "")
+
+	env := mergeEnv(nil)
+
+	got, ok := envValue(env, "LANG")
+	if !ok || got != "C.UTF-8" {
+		t.Fatalf("LANG fallback missing: got %q (present=%v)", got, ok)
+	}
+}
+
+// TestMergeEnvPreservesUserLang ensures a user-configured locale is left
+// alone — the fallback only fires when nothing UTF-8-capable is present.
+func TestMergeEnvPreservesUserLang(t *testing.T) {
+	t.Setenv("LANG", "ko_KR.UTF-8")
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_CTYPE", "")
+
+	env := mergeEnv(nil)
+
+	got, _ := envValue(env, "LANG")
+	if got != "ko_KR.UTF-8" {
+		t.Fatalf("user LANG was overridden: %q", got)
+	}
+}
+
+// TestMergeEnvPreservesLcAllWithoutLang covers the case where the user
+// pinned the locale via LC_ALL only — LC_ALL beats LANG in shell
+// precedence, so we must not inject a competing LANG fallback.
+func TestMergeEnvPreservesLcAllWithoutLang(t *testing.T) {
+	t.Setenv("LANG", "")
+	t.Setenv("LC_ALL", "ja_JP.UTF-8")
+	t.Setenv("LC_CTYPE", "")
+
+	env := mergeEnv(nil)
+
+	if got, _ := envValue(env, "LANG"); got == "C.UTF-8" {
+		t.Fatalf("LANG fallback applied despite LC_ALL=ja_JP.UTF-8 (got LANG=%q)", got)
+	}
+	if got, _ := envValue(env, "LC_ALL"); got != "ja_JP.UTF-8" {
+		t.Fatalf("LC_ALL not preserved: %q", got)
+	}
+}
+
+// TestMergeEnvOverrideLangIsRespected verifies a spawn-time override of
+// LANG (renderer requests a specific locale per terminal) wins over the
+// fallback. The fallback path runs after the override merge, so this is
+// the order we depend on.
+func TestMergeEnvOverrideLangIsRespected(t *testing.T) {
+	t.Setenv("LANG", "")
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_CTYPE", "")
+
+	env := mergeEnv(map[string]string{"LANG": "en_US.UTF-8"})
+
+	got, _ := envValue(env, "LANG")
+	if got != "en_US.UTF-8" {
+		t.Fatalf("override LANG ignored: %q", got)
+	}
+}
