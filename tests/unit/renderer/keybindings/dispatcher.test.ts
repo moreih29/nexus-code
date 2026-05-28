@@ -27,6 +27,8 @@ interface MockEvent {
   key: string;
   code: string;
   target: unknown;
+  isComposing: boolean;
+  keyCode: number;
   defaultPrevented: boolean;
   preventDefault: () => void;
 }
@@ -40,6 +42,8 @@ function makeEvent(
     ctrlKey?: boolean;
     code?: string;
     target?: unknown;
+    isComposing?: boolean;
+    keyCode?: number;
   } = {},
 ): MockEvent {
   let prevented = false;
@@ -51,6 +55,8 @@ function makeEvent(
     altKey: opts.altKey ?? false,
     ctrlKey: opts.ctrlKey ?? false,
     target: opts.target ?? null,
+    isComposing: opts.isComposing ?? false,
+    keyCode: opts.keyCode ?? 0,
     get defaultPrevented() {
       return prevented;
     },
@@ -78,6 +84,48 @@ beforeEach(() => {
 afterEach(() => {
   __resetCommandsForTests();
   __resetChordStateForTests();
+});
+
+// ---------------------------------------------------------------------------
+// handleGlobalKeyDown — IME composition guard
+// ---------------------------------------------------------------------------
+//
+// 한국어/일본어 IME가 helper textarea에서 합성 중일 때 단축키가 발화하면
+// `preventDefault + stopImmediatePropagation`이 textarea의 composition state를
+// 깨뜨려 한글 입력 중복·stuck 버그를 유발한다. 합성 중에는 어떤 키도 claim
+// 하지 않고 그대로 흘려보내야 한다. `matchesEvent`가 `e.code`(물리 키)로
+// 매칭하므로 한글 타자 중에도 `Cmd+R` 같은 단축키가 hit하는 게 핵심.
+
+describe("handleGlobalKeyDown — IME composition guard", () => {
+  it("does NOT claim Cmd+R when isComposing is true (would otherwise fire files.refresh)", () => {
+    const spies = setupCommandSpies();
+    const e = makeEvent("Process", { metaKey: true, code: "KeyR", isComposing: true });
+    const claimed = handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(claimed).toBe(false);
+    expect(e.defaultPrevented).toBe(false);
+    expect(spies[COMMANDS.filesRefresh]).not.toHaveBeenCalled();
+  });
+
+  it("does NOT claim Cmd+R when keyCode is 229 (legacy Chromium IME fallback)", () => {
+    // 옛 Chromium에서 isComposing 플래그가 일부 keydown에 늦게 세팅되는
+    // 케이스 — keyCode === 229만으로도 IME 합성 중임을 식별해야 한다.
+    const spies = setupCommandSpies();
+    const e = makeEvent("Process", { metaKey: true, code: "KeyR", keyCode: 229 });
+    const claimed = handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(claimed).toBe(false);
+    expect(e.defaultPrevented).toBe(false);
+    expect(spies[COMMANDS.filesRefresh]).not.toHaveBeenCalled();
+  });
+
+  it("DOES claim Cmd+R after composition ends (isComposing false, keyCode normal)", () => {
+    // 합성이 끝난 직후 사용자가 같은 키를 다시 눌렀을 때는 평소처럼 동작해야
+    // 한다. 가드가 너무 넓게 잡지 않는지 확인하는 회귀 케이스.
+    const spies = setupCommandSpies();
+    const e = makeEvent("r", { metaKey: true, code: "KeyR" });
+    const claimed = handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(claimed).toBe(true);
+    expect(spies[COMMANDS.filesRefresh]).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

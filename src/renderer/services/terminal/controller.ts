@@ -477,6 +477,20 @@ class XtermTerminalController implements TerminalController {
     term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
       if (event.type !== "keydown") return true;
 
+      // IME composition guard.
+      //   한국어/일본어 IME가 xterm.js의 helper textarea에서 합성 중일 때,
+      //   본 핸들러가 Shift+Enter / Cmd+C / Home / End / Cmd+arrow 등에 대해
+      //   `preventDefault + stopPropagation`을 호출하면 textarea의 composition
+      //   state가 desync되어 한글 입력이 중복되거나 같은 글자가 stuck된다.
+      //   합성 중에는 모든 사용자 정의 매핑을 우회하고 xterm.js의 기본
+      //   composition 처리에 위임한다. dispatcher.ts에 동일한 가드가 capture
+      //   phase에서 먼저 동작하지만, customKeyEventHandler는 xterm.js 내부에서
+      //   별도 경로로 호출되므로 여기서도 가드해야 안전하다.
+      //
+      //   `event.keyCode === 229` fallback은 옛 Chromium에서 `isComposing`이
+      //   일부 keydown에 늦게 세팅되는 케이스 대응.
+      if (event.isComposing || event.keyCode === 229) return true;
+
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "c") {
         const selection = term.getSelection();
         if (selection) {
