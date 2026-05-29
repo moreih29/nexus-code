@@ -3,6 +3,8 @@
  */
 import { AlertDialog as RadixAlertDialog } from "radix-ui";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import i18next from "i18next";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "@/components/ui/dialog";
 import type { Tag } from "../../../../../shared/git/types";
 import { useGitStore } from "../../../../state/stores/git";
@@ -46,17 +48,18 @@ export type DeleteTagRequest =
  * Builds the create-tag FormDialog field model.
  */
 export function buildCreateTagFields(): FormDialogField[] {
+  const t = i18next.t.bind(i18next);
   return [
     {
       name: "name",
-      label: "Name",
-      placeholder: "v1.0.0",
+      label: t("files:git.tagPicker.createDialog.nameLabel"),
+      placeholder: t("files:git.tagPicker.createDialog.namePlaceholder"),
     },
     {
       name: "message",
-      label: "Message",
-      placeholder: "Optional tag message",
-      helperText: "Message creates an annotated tag; leave blank for a lightweight tag.",
+      label: t("files:git.tagPicker.createDialog.messageLabel"),
+      placeholder: t("files:git.tagPicker.createDialog.messagePlaceholder"),
+      helperText: t("files:git.tagPicker.createDialog.messageHelperText"),
       required: false,
       multiline: true,
     },
@@ -72,6 +75,7 @@ export function TagPicker({
   onRequestReopen,
   onRevealTag,
 }: TagPickerProps) {
+  const { t } = useTranslation("files");
   const listTags = useGitStore((state) => state.listTags);
   const listRemoteTags = useGitStore((state) => state.listRemoteTags);
   const createTag = useGitStore((state) => state.createTag);
@@ -133,8 +137,8 @@ export function TagPicker({
       />
       <FormDialog
         open={createRequest !== null}
-        title="Create tag"
-        description="Create a lightweight tag at the selected ref, or add a message for an annotated tag."
+        title={t("git.tagPicker.createDialog.title")}
+        description={t("git.tagPicker.createDialog.description")}
         fields={createTagFields}
         initialValues={createInitialValues}
         errorClassName="git-destructive-text"
@@ -145,7 +149,7 @@ export function TagPicker({
             onPickRef={() => setRefPickerOpen(true)}
           />
         }
-        submitLabel="Create Tag"
+        submitLabel={t("git.tagPicker.createDialog.submitLabel")}
         busy={inFlightKind === "createTag"}
         onCancel={() => setCreateRequest(null)}
         onSubmit={({ values }) => {
@@ -193,15 +197,16 @@ export function CreateTagRefSelector({
   busy?: boolean;
   onPickRef: () => void;
 }) {
+  const { t } = useTranslation("files");
   return (
     <div className="rounded-sm border border-border bg-muted p-3">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-app-label uppercase text-muted-foreground">Target ref</div>
+          <div className="text-app-label uppercase text-muted-foreground">{t("git.tagPicker.createTagRef.targetRef")}</div>
           <div className="truncate font-mono text-app-ui-sm text-foreground">{refName}</div>
         </div>
         <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onPickRef}>
-          at ref…
+          {t("git.tagPicker.createTagRef.atRef")}
         </Button>
       </div>
     </div>
@@ -260,6 +265,7 @@ export function TagDeleteConfirmContent({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const { t } = useTranslation("files");
   const isRemote = request.kind === "remote";
   const targetLabel = isRemote
     ? `${request.remote}/${request.item.tag.name}`
@@ -268,12 +274,14 @@ export function TagDeleteConfirmContent({
   return (
     <>
       <h2 className="text-app-body-emphasis text-foreground">
-        {isRemote ? `Delete remote tag '${targetLabel}'?` : `Delete tag '${targetLabel}'?`}
+        {isRemote
+          ? t("git.tagPicker.deleteConfirm.titleRemote", { name: targetLabel })
+          : t("git.tagPicker.deleteConfirm.titleLocal", { name: targetLabel })}
       </h2>
       <p className="mt-2 text-app-ui-sm text-muted-foreground">
         {isRemote
-          ? `Delete tag '${request.item.tag.name}' from ${request.remote}. This affects the remote and cannot be undone locally.`
-          : `Delete local tag '${request.item.tag.name}' at ${request.item.tag.sha.slice(0, 7)}. This cannot be undone locally.`}
+          ? t("git.tagPicker.deleteConfirm.descriptionRemote", { name: request.item.tag.name, remote: request.remote })
+          : t("git.tagPicker.deleteConfirm.descriptionLocal", { name: request.item.tag.name, sha: request.item.tag.sha.slice(0, 7) })}
       </p>
       <div className="mt-5 flex justify-end gap-2">
         <Button
@@ -284,10 +292,10 @@ export function TagDeleteConfirmContent({
           disabled={busy}
           onClick={onCancel}
         >
-          Cancel
+          {t("git.tagPicker.deleteConfirm.cancel")}
         </Button>
         <Button type="button" variant="destructive" size="sm" disabled={busy} onClick={onConfirm}>
-          Delete
+          {t("git.tagPicker.deleteConfirm.confirm")}
         </Button>
       </div>
     </>

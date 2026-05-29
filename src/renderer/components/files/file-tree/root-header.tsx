@@ -19,6 +19,7 @@
  * to set the root target before the menu opens.
  */
 import { ChevronsDownUp, FilePlus, FolderPlus, RefreshCw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { basename } from "@/utils/path";
 
@@ -97,6 +98,7 @@ export function WorkspaceRootHeader({
   onCollapseAll,
   onContextMenu,
 }: WorkspaceRootHeaderProps) {
+  const { t } = useTranslation("files");
   const name = basename(rootAbsPath) || rootAbsPath;
   return (
     // <header> is the right semantic for "introduces the section below".
@@ -154,16 +156,16 @@ export function WorkspaceRootHeader({
           "group-hover/filetree:opacity-100 focus-within:opacity-100",
         )}
       >
-        <ActionButton label="New File" onClick={onNewFile}>
+        <ActionButton label={t("fileTree.header.newFile")} onClick={onNewFile}>
           <FilePlus aria-hidden className="size-3.5" />
         </ActionButton>
-        <ActionButton label="New Folder" onClick={onNewFolder}>
+        <ActionButton label={t("fileTree.header.newFolder")} onClick={onNewFolder}>
           <FolderPlus aria-hidden className="size-3.5" />
         </ActionButton>
-        <ActionButton label="Refresh Explorer" onClick={onRefresh}>
+        <ActionButton label={t("fileTree.header.refresh")} onClick={onRefresh}>
           <RefreshCw aria-hidden className="size-3.5" />
         </ActionButton>
-        <ActionButton label="Collapse Folders" onClick={onCollapseAll}>
+        <ActionButton label={t("fileTree.header.collapse")} onClick={onCollapseAll}>
           <ChevronsDownUp aria-hidden className="size-3.5" />
         </ActionButton>
       </div>

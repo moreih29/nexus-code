@@ -1,6 +1,14 @@
 // src/renderer/components/settings/panels/appearance-panel.tsx
 //
-// Controls: Theme (grid of visual theme cards) + Window Opacity (slider 0–100%).
+// Controls: Language (SegmentedControl) + Theme (grid of visual theme cards) +
+// Window Opacity (slider 0–100%).
+//
+// Language picker: endonym labels (English / 한국어), live via
+// useLanguageStore.setPreference. Options threshold: ≤4 → SegmentedControl,
+// >4 → token-sealed Select (future-proof branch). Reset omitted — language
+// has no meaningful "default" (it follows OS locale on first boot, but the
+// user's explicit pick is the new baseline). Matching the reset pattern with
+// an arbitrary fallback to "en" would be a false affordance.
 //
 // Theme picker: each ThemeSource produces one card showing the theme's
 // dominant colors (bg + fg + accent + four syntax roles) so users select by
@@ -17,16 +25,21 @@
 
 import { RadioGroup, Slider } from "radix-ui";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   DEFAULT_THEME,
   THEME_SOURCES,
   type ThemeId,
   type ThemeSource,
 } from "../../../../shared/design-tokens";
+import type { SupportedLanguage } from "../../../../shared/i18n";
 import { cn } from "@/utils/cn";
+import { useLanguageStore } from "../../../state/stores/language";
 import { useThemeStore } from "../../../state/stores/theme";
 import { useWindowOpacityStore } from "../../../state/stores/window-opacity";
 import { SettingsSection } from "../section";
+import type { SegmentedOption } from "../segmented-control";
+import { SegmentedControl } from "../segmented-control";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -36,11 +49,26 @@ const OPACITY_MIN = 0;
 const OPACITY_MAX = 1.0;
 const OPACITY_STEP = 0.05;
 
+// Language options — endonym labels, fixed regardless of the active UI locale.
+// Rule: label is the language's own native name; never translated.
+// Threshold: ≤4 options → SegmentedControl, >4 → token-sealed Select.
+const LANGUAGE_SEGMENT_THRESHOLD = 4;
+
+const LANGUAGE_OPTIONS: SegmentedOption<SupportedLanguage>[] = [
+  { value: "en", label: "English" },
+  { value: "ko", label: "한국어" },
+];
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export function AppearancePanel() {
+  const { t } = useTranslation("settings");
+
+  const languagePreference = useLanguageStore((s) => s.preference);
+  const setLanguagePreference = useLanguageStore((s) => s.setPreference);
+
   const themePreference = useThemeStore((s) => s.preference);
   const setThemePreference = useThemeStore((s) => s.setPreference);
 
@@ -61,16 +89,44 @@ export function AppearancePanel() {
   const themeDirty = themePreference !== DEFAULT_THEME;
   const opacityDirty = opacity !== 1;
 
+  const languageLabel = t("appearance.language");
+
   return (
     <div className="flex flex-col gap-6">
+      {/* Section: Language — SegmentedControl (endonym labels, never translated).
+          Reset omitted: language has no well-defined "default" — the boot value
+          follows navigator.language, which is an OS approximation, not a stable
+          product default. Providing a reset button that silently falls back to
+          "en" would be a false affordance and potentially worse UX than doing
+          nothing. Design constraint documented in plan#65 issue8. */}
+      <SettingsSection label={languageLabel}>
+        {LANGUAGE_OPTIONS.length <= LANGUAGE_SEGMENT_THRESHOLD ? (
+          <SegmentedControl
+            options={LANGUAGE_OPTIONS}
+            value={languagePreference}
+            onChange={(lang) => setLanguagePreference(lang)}
+            label={languageLabel}
+          />
+        ) : (
+          // Threshold guard: >4 languages → token-sealed Select would go here.
+          // Not yet reached — placeholder for future expansion.
+          <SegmentedControl
+            options={LANGUAGE_OPTIONS}
+            value={languagePreference}
+            onChange={(lang) => setLanguagePreference(lang)}
+            label={languageLabel}
+          />
+        )}
+      </SettingsSection>
+
       {/* Section: Theme — grid of visual cards */}
       <SettingsSection
-        label="Theme"
+        label={t("appearance.theme")}
         dirty={themeDirty}
         onReset={() => setThemePreference(DEFAULT_THEME)}
       >
         <RadioGroup.Root
-          aria-label="Theme"
+          aria-label={t("appearance.theme")}
           value={themePreference}
           onValueChange={(value: string) => setThemePreference(value as ThemeId)}
           className="grid grid-cols-1 gap-2 sm:grid-cols-2"
@@ -87,7 +143,7 @@ export function AppearancePanel() {
 
       {/* Section: Window Opacity */}
       <SettingsSection
-        label="Window opacity"
+        label={t("appearance.windowOpacity")}
         dirty={opacityDirty}
         onReset={() => setOpacity(1)}
       >
@@ -103,7 +159,7 @@ export function AppearancePanel() {
                 setOpacity(vals[0]);
               }
             }}
-            aria-label="Window opacity"
+            aria-label={t("appearance.windowOpacity")}
             className="relative flex flex-1 touch-none select-none items-center"
           >
             <Slider.Track className="relative h-1 w-full grow rounded-(--radius-control) bg-muted border border-border">

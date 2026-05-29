@@ -33,7 +33,7 @@ describe("createCommitPickerSource", () => {
     const items = await search(source, "");
 
     expect(source.id).toBe("git.commit-picker");
-    expect(source.title).toBe("Pick from main");
+    expect(source.title).toBe("Cherry-pick a commit");
     expect(listRecentCommits).toHaveBeenCalledWith("ws-1", expect.any(AbortSignal), undefined);
     expect(items.map((item) => item.label)).toEqual([
       "fix conflict marker cleanup",
@@ -55,7 +55,7 @@ describe("createCommitPickerSource", () => {
 
     await search(source, "");
 
-    expect(source.title).toBe("Pick from release");
+    expect(source.title).toBe("Cherry-pick a commit");
     expect(listRecentCommits).toHaveBeenCalledWith("ws-1", expect.any(AbortSignal), "release");
   });
 

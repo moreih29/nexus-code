@@ -10,6 +10,7 @@
 //   - Centralises the "MDX preview is disabled for security" copy so the
 //     reason stays consistent if it ever changes.
 
+import { useTranslation } from "react-i18next";
 import { SegmentedControl } from "../../settings/segmented-control";
 
 export type EditorViewMode = "raw" | "preview";
@@ -26,16 +27,16 @@ interface ViewModeToggleProps {
   disabledReason?: string;
 }
 
-const OPTIONS = [
-  { value: "raw" as const, label: "Raw" },
-  { value: "preview" as const, label: "Preview" },
-];
-
 export function ViewModeToggle({ mode, onChange, disabled, disabledReason }: ViewModeToggleProps) {
+  const { t } = useTranslation();
+  const options = [
+    { value: "raw" as const, label: t("editor.view_raw") },
+    { value: "preview" as const, label: t("editor.view_preview") },
+  ];
   return (
     <SegmentedControl<EditorViewMode>
-      label="View mode"
-      options={OPTIONS}
+      label={t("editor.view_mode_label")}
+      options={options}
       value={mode}
       onChange={onChange}
       disabled={disabled}

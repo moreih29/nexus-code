@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { openTerminal } from "@/services/terminal";
 import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
@@ -42,6 +43,7 @@ const EMPTY_TABS: Record<string, Tab> = {};
 // ---------------------------------------------------------------------------
 
 export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
+  const { t } = useTranslation();
   const layout = useLayoutStore((s) => s.byWorkspace[workspace.id]);
   const tabs = useTabsStore((s) => s.byWorkspace[workspace.id] ?? EMPTY_TABS);
   const aggregate = useTerminalDeathStore((s) => s.aggregateByWorkspaceId[workspace.id] ?? null);
@@ -105,15 +107,15 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
       >
         <div className="flex flex-1 items-center justify-center island-surface rounded-(--radius-island) overflow-hidden">
           <EmptyState
-            title={isError ? "Connection failed" : workspace.name}
+            title={isError ? t("panel.connection_failed") : workspace.name}
             description={
               isError
-                ? `Could not connect to ${sshLabel}. Check your SSH settings and try again.`
+                ? t("panel.could_not_connect", { label: sshLabel })
                 : sshLabel
-                  ? `SSH workspace — ${sshLabel}`
+                  ? t("panel.ssh_workspace", { label: sshLabel })
                   : undefined
             }
-            actionLabel={isError ? "Retry" : "Connect"}
+            actionLabel={isError ? t("action.retry") : t("action.connect")}
             onAction={handleConnect}
             tone="status"
           />

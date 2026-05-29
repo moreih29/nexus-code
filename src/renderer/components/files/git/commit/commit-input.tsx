@@ -1,6 +1,7 @@
 /**
  * GitCommitInput owns the commit-message editing surface above status groups.
  */
+import { useTranslation } from "react-i18next";
 import type { GitCommitOptions } from "../../../../../shared/git/types";
 import type { GitActionButtonState } from "../../../../state/stores/git/action-button";
 import { GitCommitButton, type GitCommitMenuEnablement } from "./commit-button";
@@ -52,6 +53,7 @@ export function GitCommitInput({
   onPushOnly,
   onPullOnly,
 }: GitCommitInputProps) {
+  const { t } = useTranslation("files");
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>): void {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -64,14 +66,14 @@ export function GitCommitInput({
       <textarea
         value={value}
         rows={3}
-        placeholder="Message"
+        placeholder={t("git.commit.messagePlaceholder")}
         disabled={disabled}
         spellCheck={true}
         onChange={(event) => onChange(event.target.value)}
         onBlur={onBlur}
         onKeyDown={handleKeyDown}
         className="min-h-[64px] resize-none rounded border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus:border-ring disabled:opacity-50"
-        aria-label="Commit message"
+        aria-label={t("git.commit.messageAriaLabel")}
       />
       <GitCommitButton
         action={action}

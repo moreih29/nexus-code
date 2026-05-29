@@ -3,6 +3,7 @@
  */
 
 import { AlertDialog as RadixAlertDialog } from "radix-ui";
+import { useTranslation } from "react-i18next";
 import type { GitExpandedGroupKey } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../../../ui/dialog";
@@ -28,6 +29,7 @@ export function ConfirmDiscardDialog({
   onCancel,
   onConfirm,
 }: ConfirmDiscardDialogProps) {
+  const { t } = useTranslation("files");
   return (
     <RadixAlertDialog.Root
       open={request !== null}
@@ -39,15 +41,15 @@ export function ConfirmDiscardDialog({
         <RadixAlertDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
         <RadixAlertDialog.Content className={dialogContentClass("sm", true, "flex flex-col")}>
           <RadixAlertDialog.Title className="text-app-body-emphasis text-foreground">
-            {request?.title ?? "Discard changes?"}
+            {request?.title ?? t("git.discard.dialogTitle")}
           </RadixAlertDialog.Title>
           <RadixAlertDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-            {request?.description ?? "This cannot be undone."}
+            {request?.description ?? t("git.discard.dialogDescription")}
           </RadixAlertDialog.Description>
           <div className="mt-5 flex justify-end gap-2">
             <RadixAlertDialog.Cancel asChild>
               <Button type="button" variant="ghost" size="sm" autoFocus disabled={busy}>
-                Cancel
+                {t("git.discard.cancel")}
               </Button>
             </RadixAlertDialog.Cancel>
             <RadixAlertDialog.Action asChild>
@@ -60,7 +62,7 @@ export function ConfirmDiscardDialog({
                   if (request) onConfirm(request);
                 }}
               >
-                {request?.confirmLabel ?? "Discard"}
+                {request?.confirmLabel ?? t("git.discard.dialogConfirm")}
               </Button>
             </RadixAlertDialog.Action>
           </div>

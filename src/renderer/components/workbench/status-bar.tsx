@@ -38,6 +38,7 @@
 
 import { AlertTriangle, GitBranch, Loader2, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { BranchInfo, GitStatus } from "../../../shared/git/types";
 import { selectWorkspaceDiagnostics, useDiagnosticsStore } from "../../state/stores/diagnostics";
@@ -60,6 +61,7 @@ interface StatusBarProps {
 // ---------------------------------------------------------------------------
 
 export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
+  const { t } = useTranslation();
   const loadInitial = useGitStore((s) => s.loadInitial);
 
   // Git session for this workspace — undefined until loadInitial completes.
@@ -99,7 +101,7 @@ export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
         color: "var(--status-bar-fg)",
       }}
       role="status"
-      aria-label="Status bar"
+      aria-label={t("statusBar.aria")}
     >
       {/* LEFT segments */}
       <div className="flex items-center flex-1 min-w-0">
@@ -142,27 +144,28 @@ function BranchSegment({
   workspaceId: string;
   branchInfo: BranchInfo | null;
 }): React.JSX.Element {
+  const { t } = useTranslation();
   const [pickerOpen, setPickerOpen] = useState(false);
 
   if (!branchInfo) {
     return (
-      <StatusBarItem title="No git repository" className="opacity-50">
+      <StatusBarItem title={t("statusBar.no_git_title")} className="opacity-50">
         <GitBranch className="size-3 shrink-0" aria-hidden="true" />
-        <span className="truncate max-w-40">no git</span>
+        <span className="truncate max-w-40">{t("statusBar.no_git")}</span>
       </StatusBarItem>
     );
   }
 
   const { current: branch, ahead, behind, isUnborn } = branchInfo;
   const aheadBehind = !isUnborn && (ahead > 0 || behind > 0) ? ` ↑${ahead} ↓${behind}` : "";
-  const label = isUnborn ? `${branch} (no commits)` : `${branch}${aheadBehind}`;
+  const label = isUnborn ? `${branch} (${t("statusBar.no_commits")})` : `${branch}${aheadBehind}`;
 
   return (
     <>
       <button
         type="button"
-        title={`Git branch: ${label} — click to switch`}
-        aria-label={`Switch branch (currently ${label})`}
+        title={t("statusBar.branch_title", { label })}
+        aria-label={t("statusBar.branch_aria", { label })}
         onClick={() => setPickerOpen(true)}
         className={cn(
           "inline-flex items-center gap-1 h-full px-2",
@@ -216,6 +219,7 @@ function ChangesSegment({
   workspaceId: string;
   status: GitStatus | null;
 }): React.JSX.Element | null {
+  const { t } = useTranslation();
   const setFilesPanelMode = useUIStore((s) => s.setFilesPanelMode);
 
   if (!status) return null;
@@ -237,7 +241,7 @@ function ChangesSegment({
       glyph: "!",
       count: conflictCount,
       color: "var(--status-bar-conflict-fg)",
-      label: `${conflictCount} unresolved conflict${conflictCount === 1 ? "" : "s"}`,
+      label: t("statusBar.conflict_one", { count: conflictCount }),
     });
   }
   if (stagedCount > 0) {
@@ -245,7 +249,7 @@ function ChangesSegment({
       glyph: "+",
       count: stagedCount,
       color: "var(--status-bar-added-fg)",
-      label: `${stagedCount} staged`,
+      label: t("statusBar.staged", { count: stagedCount }),
     });
   }
   if (workingCount > 0) {
@@ -253,7 +257,7 @@ function ChangesSegment({
       glyph: "~",
       count: workingCount,
       color: "var(--status-bar-modified-fg)",
-      label: `${workingCount} modified`,
+      label: t("statusBar.modified", { count: workingCount }),
     });
   }
   if (untrackedCount > 0) {
@@ -261,11 +265,11 @@ function ChangesSegment({
       glyph: "?",
       count: untrackedCount,
       color: "var(--status-bar-untracked-fg)",
-      label: `${untrackedCount} untracked`,
+      label: t("statusBar.untracked", { count: untrackedCount }),
     });
   }
 
-  const title = `${tokens.map((t) => t.label).join(", ")} — click to open Source Control`;
+  const title = t("statusBar.changes_title", { summary: tokens.map((tok) => tok.label).join(", ") });
 
   return (
     <button
@@ -312,9 +316,11 @@ function DiagnosticSegment({
   count: number;
   workspaceId: string;
 }): React.JSX.Element {
+  const { t } = useTranslation();
   const isError = kind === "error";
-  const noun = isError ? "error" : "warning";
-  const title = `${count} ${noun}${count !== 1 ? "s" : ""}`;
+  const title = isError
+    ? t("statusBar.error_one", { count })
+    : t("statusBar.warning_one", { count });
   const Icon = isError ? XCircle : AlertTriangle;
   const glyphColor = isError ? "var(--status-bar-error-bg)" : "var(--status-bar-warning-bg)";
 
@@ -378,37 +384,37 @@ function DiagnosticSegment({
 // In-flight git operation segment (right side)
 // ---------------------------------------------------------------------------
 
-const OP_LABELS: Partial<Record<string, string>> = {
-  stage: "Staging…",
-  unstage: "Unstaging…",
-  discard: "Discarding…",
-  commit: "Committing…",
-  fetch: "Fetching…",
-  pull: "Pulling…",
-  push: "Pushing…",
-  pushTags: "Pushing tags…",
-  sync: "Syncing…",
-  stash: "Stashing…",
-  stashPop: "Applying stash…",
-  stashApply: "Applying stash…",
-  stashDrop: "Dropping stash…",
-  stashGroup: "Stashing…",
-  checkout: "Checking out…",
-  checkoutDetached: "Checking out…",
-  checkoutTracking: "Checking out…",
-  createBranch: "Creating branch…",
-  deleteBranch: "Deleting branch…",
-  merge: "Merging…",
-  rebase: "Rebasing…",
-  cherryPick: "Cherry-picking…",
-  abortOp: "Aborting…",
-  continueOp: "Continuing…",
-  refresh: "Refreshing…",
-  init: "Initializing…",
-};
-
 function InFlightOpSegment({ op }: { op: GitInFlightOp }): React.JSX.Element {
-  const label = OP_LABELS[op.kind] ?? "Working…";
+  const { t } = useTranslation();
+  const OP_LABELS: Partial<Record<string, string>> = {
+    stage: t("statusBar.op_staging"),
+    unstage: t("statusBar.op_unstaging"),
+    discard: t("statusBar.op_discarding"),
+    commit: t("statusBar.op_committing"),
+    fetch: t("statusBar.op_fetching"),
+    pull: t("statusBar.op_pulling"),
+    push: t("statusBar.op_pushing"),
+    pushTags: t("statusBar.op_pushing_tags"),
+    sync: t("statusBar.op_syncing"),
+    stash: t("statusBar.op_stashing"),
+    stashPop: t("statusBar.op_applying_stash"),
+    stashApply: t("statusBar.op_applying_stash"),
+    stashDrop: t("statusBar.op_dropping_stash"),
+    stashGroup: t("statusBar.op_stashing"),
+    checkout: t("statusBar.op_checking_out"),
+    checkoutDetached: t("statusBar.op_checking_out"),
+    checkoutTracking: t("statusBar.op_checking_out"),
+    createBranch: t("statusBar.op_creating_branch"),
+    deleteBranch: t("statusBar.op_deleting_branch"),
+    merge: t("statusBar.op_merging"),
+    rebase: t("statusBar.op_rebasing"),
+    cherryPick: t("statusBar.op_cherry_picking"),
+    abortOp: t("statusBar.op_aborting"),
+    continueOp: t("statusBar.op_continuing"),
+    refresh: t("statusBar.op_refreshing"),
+    init: t("statusBar.op_initializing"),
+  };
+  const label = OP_LABELS[op.kind] ?? t("statusBar.op_working");
   return (
     <StatusBarItem title={label}>
       <Loader2 className="size-3 shrink-0 animate-spin" aria-hidden="true" />

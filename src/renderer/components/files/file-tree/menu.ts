@@ -6,6 +6,7 @@
  * Radix, no DOM. The component side just wires it into
  * <ContextMenuItems items={...} />.
  */
+import i18next from "i18next";
 import type { MenuItemSpec } from "@/components/ui/context-menu";
 import { isMac, SHORTCUTS } from "@/keybindings/shortcut-labels";
 import type { FileTreeActionTarget, useFileTreeActions } from "../hooks/use-file-tree-actions";
@@ -14,7 +15,11 @@ type FileTreeActions = ReturnType<typeof useFileTreeActions>;
 
 // `Reveal in Finder` is the macOS title; the underlying VSCode command
 // (`revealFileInOS`) renames itself per platform — match here.
-const REVEAL_LABEL = isMac ? "Reveal in Finder" : "Reveal in File Explorer";
+function getRevealLabel(): string {
+  return isMac
+    ? i18next.t("files:fileTree.menu.revealInFinder")
+    : i18next.t("files:fileTree.menu.revealInExplorer");
+}
 
 /**
  * Build the context menu item list for the file tree.
@@ -41,19 +46,19 @@ export function buildFileTreeMenuItems(
     const items: MenuItemSpec[] = [];
     items.push({
       kind: "item",
-      label: "Cut",
+      label: i18next.t("files:fileTree.menu.cut"),
       shortcut: SHORTCUTS.fileCut || undefined,
       onSelect: actions.cut,
     });
     items.push({
       kind: "item",
-      label: "Copy",
+      label: i18next.t("files:fileTree.menu.copy"),
       shortcut: SHORTCUTS.fileCopy || undefined,
       onSelect: actions.copy,
     });
     items.push({
       kind: "item",
-      label: "Paste",
+      label: i18next.t("files:fileTree.menu.paste"),
       shortcut: SHORTCUTS.filePaste || undefined,
       disabled: !actions.canPaste,
       onSelect: actions.paste,
@@ -61,7 +66,7 @@ export function buildFileTreeMenuItems(
     items.push({ kind: "separator" });
     items.push({
       kind: "item",
-      label: "Delete",
+      label: i18next.t("files:fileTree.menu.delete"),
       onSelect: actions.delete,
     });
     return items;
@@ -81,18 +86,18 @@ export function buildFileTreeMenuItems(
   // the parent folder instead. The synthetic root target also counts as a
   // dir, so empty-area right-click still gets these.
   if (isDir) {
-    items.push({ kind: "item", label: "New File", onSelect: actions.newFile });
-    items.push({ kind: "item", label: "New Folder", onSelect: actions.newFolder });
+    items.push({ kind: "item", label: i18next.t("files:fileTree.menu.newFile"), onSelect: actions.newFile });
+    items.push({ kind: "item", label: i18next.t("files:fileTree.menu.newFolder"), onSelect: actions.newFolder });
     items.push({ kind: "separator" });
   }
 
   // Inverse rule (VSCode `ExplorerFolderContext.toNegated()`): Open /
   // Open to the Side are file-only.
   if (!isDir) {
-    items.push({ kind: "item", label: "Open", onSelect: actions.open });
+    items.push({ kind: "item", label: i18next.t("files:fileTree.menu.open"), onSelect: actions.open });
     items.push({
       kind: "item",
-      label: "Open to the Side",
+      label: i18next.t("files:fileTree.menu.openToSide"),
       shortcut: SHORTCUTS.openToSide,
       onSelect: actions.openToSide,
     });
@@ -105,20 +110,20 @@ export function buildFileTreeMenuItems(
   if (!isRoot) {
     items.push({
       kind: "item",
-      label: "Cut",
+      label: i18next.t("files:fileTree.menu.cut"),
       shortcut: SHORTCUTS.fileCut || undefined,
       onSelect: actions.cut,
     });
     items.push({
       kind: "item",
-      label: "Copy",
+      label: i18next.t("files:fileTree.menu.copy"),
       shortcut: SHORTCUTS.fileCopy || undefined,
       onSelect: actions.copy,
     });
   }
   items.push({
     kind: "item",
-    label: "Paste",
+    label: i18next.t("files:fileTree.menu.paste"),
     shortcut: SHORTCUTS.filePaste || undefined,
     disabled: !actions.canPaste,
     onSelect: actions.paste,
@@ -128,13 +133,13 @@ export function buildFileTreeMenuItems(
   if (!isRoot) {
     items.push({
       kind: "item",
-      label: "Rename",
+      label: i18next.t("files:fileTree.menu.rename"),
       shortcut: SHORTCUTS.fileRename || undefined,
       onSelect: actions.rename,
     });
     items.push({
       kind: "item",
-      label: "Delete",
+      label: i18next.t("files:fileTree.menu.delete"),
       onSelect: actions.delete,
     });
     items.push({ kind: "separator" });
@@ -144,14 +149,14 @@ export function buildFileTreeMenuItems(
   // any orphaned separators automatically.
   items.push({
     kind: "item",
-    label: REVEAL_LABEL,
+    label: getRevealLabel(),
     shortcut: SHORTCUTS.revealInOS,
     onSelect: actions.reveal,
   });
   items.push({ kind: "separator" });
   items.push({
     kind: "item",
-    label: "Copy Path",
+    label: i18next.t("files:fileTree.menu.copyPath"),
     shortcut: SHORTCUTS.copyPath,
     onSelect: actions.copyPath,
   });
@@ -161,7 +166,7 @@ export function buildFileTreeMenuItems(
   if (!isRoot) {
     items.push({
       kind: "item",
-      label: "Copy Relative Path",
+      label: i18next.t("files:fileTree.menu.copyRelativePath"),
       shortcut: SHORTCUTS.copyRelativePath,
       onSelect: actions.copyRelativePath,
     });

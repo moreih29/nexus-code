@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Banner } from "../../ui/banner";
 
 interface ReadOnlyBannerProps {
@@ -6,13 +7,14 @@ interface ReadOnlyBannerProps {
 }
 
 export function ReadOnlyBanner({ onRevealInFinder }: ReadOnlyBannerProps) {
+  const { t } = useTranslation();
   return (
     <Banner
       display="bar"
       variant="info"
-      message="Read-only — definition from external source"
+      message={t("editor.read_only_message")}
       actions={
-        onRevealInFinder ? [{ label: "Reveal in Finder", onAction: onRevealInFinder }] : []
+        onRevealInFinder ? [{ label: t("action.reveal_in_finder"), onAction: onRevealInFinder }] : []
       }
       role="status"
     />

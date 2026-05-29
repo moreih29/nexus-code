@@ -6,6 +6,7 @@
  */
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { AskpassPrompt } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import { Dialog } from "../../../ui/dialog";
@@ -45,16 +46,19 @@ export function CredentialPromptDialogContent({
   onCancel,
   onSubmit,
 }: CredentialPromptDialogContentProps): React.JSX.Element {
+  const { t } = useTranslation("files");
   const inputId = `git-credential-${prompt.promptId}`;
-  const title = prompt.field === "passphrase" ? "SSH passphrase required" : "Git credentials";
+  const title = prompt.field === "passphrase"
+    ? t("git.credentials.sshPassphraseTitle")
+    : t("git.credentials.title");
   const label =
     prompt.field === "username"
-      ? "Username"
+      ? t("git.credentials.usernameLabel")
       : prompt.field === "passphrase"
-        ? "Passphrase"
+        ? t("git.credentials.passphraseLabel")
         : prompt.field === "password"
-          ? "Password"
-          : "Response";
+          ? t("git.credentials.passwordLabel")
+          : t("git.credentials.responseLabel");
 
   return (
     <>
@@ -75,10 +79,10 @@ export function CredentialPromptDialogContent({
         <p className="text-app-ui-sm text-muted-foreground">{prompt.prompt}</p>
         <div className="mt-3 flex justify-end gap-2">
           <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
-            Cancel
+            {t("git.credentials.cancel")}
           </Button>
           <Button type="submit" size="sm" disabled={busy || value.length === 0}>
-            Continue
+            {t("git.credentials.continue")}
           </Button>
         </div>
       </form>
@@ -96,6 +100,7 @@ export function CredentialPromptDialog({
   onCancel,
   onSubmit,
 }: CredentialPromptDialogProps): React.JSX.Element {
+  const { t } = useTranslation("files");
   const [value, setValue] = useState("");
 
   useEffect(() => {
@@ -117,7 +122,7 @@ export function CredentialPromptDialog({
       size="sm"
       aria-describedby={undefined}
     >
-      <RadixDialog.Title className="sr-only">Git credentials</RadixDialog.Title>
+      <RadixDialog.Title className="sr-only">{t("git.credentials.srTitle")}</RadixDialog.Title>
       {prompt ? (
         <CredentialPromptDialogContent
           prompt={prompt}

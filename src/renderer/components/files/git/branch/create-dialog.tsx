@@ -5,6 +5,7 @@
 import { Dialog as RadixDialog } from "radix-ui";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
+import i18next from "i18next";
 import type { BranchList } from "../../../../../shared/git/types";
 import type { CreateBranchOptions } from "../../../../state/stores/git";
 import { Dialog } from "../../../ui/dialog";
@@ -52,12 +53,13 @@ interface SubmitBranchCreateInput {
 export function buildBranchCreateFields(
   context: BranchCreateFieldContext,
 ): readonly FormDialogField[] {
+  const t = i18next.t.bind(i18next);
   return [
     {
       name: "name",
-      label: "Branch name",
-      placeholder: "feature/name",
-      helperText: "Creates and checks out the new branch.",
+      label: t("files:git.branch.createDialog.nameLabel"),
+      placeholder: t("files:git.branch.createDialog.namePlaceholder"),
+      helperText: t("files:git.branch.createDialog.nameHelperText"),
       autoFocus: true,
       validate: (value) => validateBranchCreateName(value, context),
     },
@@ -68,17 +70,21 @@ export function buildBranchCreateFields(
  * Returns the branch-create dialog title for the active create flow.
  */
 function branchCreateDialogTitle(request: BranchCreateRequest | null): string {
-  return request?.fromRef ? "Create branch from ref" : "Create branch";
+  const t = i18next.t.bind(i18next);
+  return request?.fromRef
+    ? t("files:git.branch.createDialog.titleFromRef")
+    : t("files:git.branch.createDialog.title");
 }
 
 /**
  * Returns create-flow copy that makes the checkout side effect explicit.
  */
 export function branchCreateDialogDescription(request: BranchCreateRequest | null): string {
+  const t = i18next.t.bind(i18next);
   if (request?.fromRef) {
-    return `Create and check out a new branch from '${request.fromRef}'.`;
+    return t("files:git.branch.createDialog.descriptionFromRef", { ref: request.fromRef });
   }
-  return "Create and check out a new branch from the current HEAD.";
+  return t("files:git.branch.createDialog.description");
 }
 
 /**
@@ -88,15 +94,16 @@ function validateBranchCreateName(
   value: string,
   context: BranchCreateFieldContext,
 ): string | null {
+  const t = i18next.t.bind(i18next);
   const name = value.trim();
-  if (name.length === 0) return "Required";
-  if (context.loadingExistingBranches) return "Checking existing branches…";
+  if (name.length === 0) return t("files:git.branch.createDialog.validation.required");
+  if (context.loadingExistingBranches) return t("files:git.branch.createDialog.validation.checkingBranches");
   if (!context.branchList) return null;
   if (context.branchList.current?.current === name) {
-    return `Branch '${name}' is already current.`;
+    return t("files:git.branch.createDialog.validation.alreadyCurrent", { name });
   }
   if (context.branchList.local.includes(name)) {
-    return `A branch named '${name}' already exists.`;
+    return t("files:git.branch.createDialog.validation.alreadyExists", { name });
   }
   return null;
 }
@@ -167,8 +174,8 @@ export function BranchCreateDialog({
         fields={fields}
         values={values}
         busy={busy}
-        submitLabel="Create"
-        cancelLabel="Cancel"
+        submitLabel={i18next.t("files:git.branch.createDialog.submitLabel")}
+        cancelLabel={i18next.t("files:git.branch.createDialog.cancel")}
         errorClassName="git-destructive-text"
         onValueChange={handleValueChange}
         onCancel={onCancel}

@@ -7,6 +7,7 @@
  * delete-local confirm-dialog pattern.
  */
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useGitStore } from "../../../../state/stores/git";
 import { CommandPalette } from "../../../ui/palette/command-palette";
 import {
@@ -27,6 +28,7 @@ interface StashPickerProps {
 }
 
 export function StashPicker({ workspaceId, open, onClose, mode = "apply" }: StashPickerProps) {
+  const { t } = useTranslation("files");
   const listStashes = useGitStore((state) => state.listStashes);
   const applyStash = useGitStore((state) => state.stashApply);
   const dropStash = useGitStore((state) => state.stashDrop);
@@ -45,16 +47,16 @@ export function StashPicker({ workspaceId, open, onClose, mode = "apply" }: Stas
           const ref = `stash@{${item.stash.index}}`;
           setDropRequest({
             relPaths: [],
-            title: `Drop ${ref}?`,
-            description: `Drop ${ref}? This cannot be undone.`,
-            confirmLabel: "Drop",
+            title: t("git.stashPicker.dropConfirmTitle", { ref }),
+            description: t("git.stashPicker.dropConfirmDescription", { ref }),
+            confirmLabel: t("git.stashPicker.dropConfirmLabel"),
           });
         },
       }),
     [workspaceId, mode, listStashes, applyStash],
   );
 
-  const footer = mode === "drop" ? "Enter drop stash" : "Enter apply";
+  const footer = mode === "drop" ? t("git.stashPicker.footerDrop") : t("git.stashPicker.footerApply");
 
   return (
     <>

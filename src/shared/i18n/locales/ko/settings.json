@@ -1,0 +1,216 @@
+{
+  "title": "설정",
+  "nav": {
+    "appearance": "화면",
+    "editor": "편집기",
+    "terminal": "터미널",
+    "workspaces": "워크스페이스",
+    "notifications": "알림",
+    "browserPermissions": "브라우저 권한",
+    "about": "정보",
+    "group": {
+      "settings": "설정"
+    }
+  },
+  "dialog": {
+    "close": "설정 닫기",
+    "search": {
+      "placeholder": "검색",
+      "clear": "검색 지우기",
+      "empty": "일치하는 항목 없음."
+    },
+    "nav": "설정 탐색",
+    "modifiedAria": "수정됨",
+    "modifiedTitle": "이 세션에서 수정됨"
+  },
+  "browserPermissions": {
+    "globalHeading": "전역 권한",
+    "globalDescription": "켜져 있으면 모든 워크스페이스에서 해당 권한이 자동으로 허용됩니다. 기본적으로 모두 꺼져 있습니다.",
+    "advanced": "고급",
+    "siteMemoryHeading": "기억된 사이트 권한",
+    "siteMemoryDescription": "사이트가 권한을 요청할 때 기억하도록 선택한 결정 목록입니다.",
+    "scopeLabel": "기억 범위",
+    "scopeCurrent": "현재 워크스페이스",
+    "scopeAll": "모든 워크스페이스",
+    "loadingPermissions": "기억된 권한 불러오는 중",
+    "noPermissionsTitle": "기억된 권한 없음",
+    "noPermissionsDescription": "사이트 권한을 허용하거나 차단할 때 \"기억\"을 선택하면 여기에 표시됩니다.",
+    "allowedGlobally": "전역적으로 허용됨",
+    "deleteAriaLabel": "{{origin}}의 기억된 권한 삭제",
+    "deleteTitle": "기억된 권한 삭제",
+    "deleteDescription": "이 사이트의 기억을 삭제하면 다음 요청 시 다시 묻습니다.",
+    "deleteConfirm": "삭제",
+    "loadFailed": "목록을 불러오지 못했습니다.",
+    "noActiveWorkspace": "활성 워크스페이스 없음.",
+    "permission": {
+      "media": {
+        "label": "카메라 및 마이크",
+        "description": "이 사이트는 카메라와 마이크에 액세스할 수 있습니다."
+      },
+      "geolocation": {
+        "label": "위치",
+        "description": "이 사이트는 현재 위치를 요청할 수 있습니다."
+      },
+      "notifications": {
+        "label": "알림",
+        "description": "이 사이트는 알림을 보낼 수 있습니다."
+      },
+      "displayCapture": {
+        "label": "화면 공유",
+        "description": "이 사이트는 화면 또는 창을 캡처할 수 있습니다."
+      },
+      "clipboardRead": {
+        "label": "클립보드 읽기",
+        "description": "이 사이트는 클립보드에 복사된 내용을 읽을 수 있습니다."
+      },
+      "openExternal": {
+        "label": "외부 앱 열기",
+        "description": "이 사이트는 외부 애플리케이션을 실행할 수 있습니다."
+      },
+      "fileSystem": {
+        "label": "파일 접근",
+        "description": "이 사이트는 로컬 파일 시스템에 액세스할 수 있습니다."
+      },
+      "midi": {
+        "label": "MIDI 장치",
+        "description": "이 사이트는 MIDI 장치에 연결할 수 있습니다."
+      },
+      "fullscreen": {
+        "label": "전체 화면",
+        "description": "이 사이트는 전체 화면 모드로 전환할 수 있습니다."
+      },
+      "inputLock": {
+        "label": "입력 잠금",
+        "description": "이 사이트는 마우스 포인터와 키보드 입력을 캡처할 수 있습니다."
+      },
+      "idleDetection": {
+        "label": "유휴 감지",
+        "description": "이 사이트는 사용자가 활성 상태인지 유휴 상태인지 감지할 수 있습니다."
+      },
+      "windowManagement": {
+        "label": "창 배치",
+        "description": "이 사이트는 창 위치와 크기를 제어할 수 있습니다."
+      },
+      "speakerSelection": {
+        "label": "스피커 선택",
+        "description": "이 사이트는 오디오 출력 장치를 선택할 수 있습니다."
+      },
+      "drm": {
+        "label": "보호된 콘텐츠(DRM)",
+        "description": "이 사이트는 DRM으로 보호된 미디어를 재생할 수 있습니다."
+      }
+    },
+    "permissionLabel": {
+      "clipboardRead": "클립보드 읽기",
+      "clipboardSanitizedWrite": "클립보드 쓰기",
+      "displayCapture": "화면 공유",
+      "fullscreen": "전체 화면",
+      "geolocation": "위치",
+      "idleDetection": "유휴 감지",
+      "media": "카메라 및 마이크",
+      "mediaKeySystem": "보호된 콘텐츠(DRM)",
+      "midi": "MIDI",
+      "midiSysex": "MIDI SysEx",
+      "notifications": "알림",
+      "pointerLock": "포인터 잠금",
+      "keyboardLock": "키보드 잠금",
+      "openExternal": "외부 앱 열기",
+      "speakerSelection": "스피커 선택",
+      "storageAccess": "저장소 접근",
+      "topLevelStorageAccess": "최상위 저장소 접근",
+      "windowManagement": "창 배치",
+      "unknown": "알 수 없는 권한",
+      "fileSystem": "파일 접근"
+    }
+  },
+  "permissionPrompt": {
+    "srTitle": "브라우저 권한 요청",
+    "requesting": "에서 다음 권한을 요청합니다",
+    "allowOrBlockMany": "위 권한에 대한 접근을 허용하거나 차단하세요.",
+    "allowOrBlockOne": "이 권한에 대한 접근을 허용하거나 차단하세요.",
+    "remember": "이 워크스페이스에서 이 사이트를 기억",
+    "block": "차단",
+    "allow": "허용",
+    "escHint": "ESC 또는 바깥 클릭 → 한 번 차단"
+  },
+  "appearance": {
+    "language": "언어",
+    "theme": "테마",
+    "windowOpacity": "창 불투명도",
+    "reset": {
+      "language": "언어 초기화",
+      "theme": "테마 초기화",
+      "windowOpacity": "창 불투명도 초기화"
+    }
+  },
+  "editor": {
+    "fontSize": "글꼴 크기",
+    "lineHeight": "줄 간격",
+    "fontFamily": "글꼴 종류",
+    "fontLigatures": "글꼴 합자",
+    "preview": "미리 보기",
+    "ligatures": {
+      "enable": "합자 사용",
+      "description": "글꼴이 지원하는 경우 =>, !=, >= 같은 다중 문자 시퀀스를 하나의 글리프로 렌더링합니다. 토글하면 위 미리 보기에서 효과를 확인할 수 있습니다."
+    },
+    "fontFamilyPlaceholder": "글꼴 종류 선택",
+    "customFamilyPlaceholder": "예: Fira Code",
+    "fontFamilySystem": "시스템",
+    "fontFamilyOther": "기타...",
+    "fontDetected": "이 시스템에서 감지되었습니다.",
+    "fontNotFound": "이 시스템에서 찾을 수 없습니다 — 미리 보기는 대체 글꼴을 사용합니다.",
+    "ariaFontSize": "편집기 글꼴 크기",
+    "ariaFontFamily": "글꼴 종류",
+    "reset": {
+      "fontSize": "글꼴 크기 초기화",
+      "lineHeight": "줄 간격 초기화",
+      "fontFamily": "글꼴 종류 초기화",
+      "fontLigatures": "글꼴 합자 초기화"
+    }
+  },
+  "terminal": {
+    "fontSize": "글꼴 크기",
+    "cursorStyle": "커서 스타일",
+    "fontFamily": "글꼴 종류",
+    "fontLigatures": "글꼴 합자",
+    "preview": "미리 보기",
+    "ligatures": {
+      "enable": "합자 사용",
+      "description": "글꼴이 지원하는 경우 =>, !=, >= 같은 다중 문자 시퀀스를 하나의 글리프로 렌더링합니다. 셸, TUI 등 터미널 프로그램에도 적용됩니다."
+    },
+    "fontFamilyPlaceholder": "글꼴 종류 선택",
+    "customFamilyPlaceholder": "예: Fira Code",
+    "fontFamilySystem": "시스템",
+    "fontFamilyOther": "기타...",
+    "fontDetected": "이 시스템에서 감지되었습니다.",
+    "fontNotFound": "이 시스템에서 찾을 수 없습니다 — 미리 보기는 대체 글꼴을 사용합니다.",
+    "ariaFontSize": "터미널 글꼴 크기",
+    "ariaFontFamily": "터미널 글꼴 종류",
+    "cursor": {
+      "block": "블록",
+      "underline": "밑줄",
+      "bar": "막대"
+    },
+    "reset": {
+      "fontSize": "글꼴 크기 초기화",
+      "cursorStyle": "커서 스타일 초기화",
+      "fontFamily": "글꼴 종류 초기화",
+      "fontLigatures": "글꼴 합자 초기화"
+    }
+  },
+  "notifications": {
+    "osEnabled": {
+      "label": "데스크톱 알림 표시",
+      "description": "Claude가 주의를 요청할 때(응답 완료, 권한 요청, 알림 훅) 해당 탭을 보고 있지 않은 경우에만 OS 수준 데스크톱 알림을 표시합니다. 앱 내 표시기(사이드바 주의 점, 응답 미리 보기)는 항상 표시됩니다."
+    }
+  },
+  "about": {
+    "version": "버전 {{version}}",
+    "autoCheck": {
+      "label": "자동으로 업데이트 확인",
+      "description": "앱 시작 시 GitHub 릴리스를 자동으로 확인합니다. 아래의 수동 확인은 이 설정과 관계없이 항상 실행됩니다."
+    },
+    "checkNow": "업데이트 확인",
+    "checking": "확인 중…"
+  }
+}

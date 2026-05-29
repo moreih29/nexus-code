@@ -21,6 +21,7 @@
 
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "../../../../utils/cn";
 import type { PushGuardActionKind } from "../utils/push-guard-banner";
 import type { BannerSlotItem, GitBannerModel } from "./banner-model";
@@ -74,13 +75,10 @@ function renderBannerItem(item: BannerSlotItem): React.ReactNode {
 
     case "autofetch-paused":
       return (
-        <GitInlineBanner
+        <GitInlineBannerAutofetchPaused
           key="autofetch-paused"
-          variant="warning"
-          message="Autofetch paused after repeated failures."
           details={item.details}
-          actionLabel="Resume"
-          onAction={item.onResume}
+          onResume={item.onResume}
         />
       );
 
@@ -90,6 +88,26 @@ function renderBannerItem(item: BannerSlotItem): React.ReactNode {
     case "context":
       return <GitInlineBanner key="context" variant={item.variant} message={item.message} />;
   }
+}
+
+/** Renders the autofetch-paused banner with translated text. */
+function GitInlineBannerAutofetchPaused({
+  details,
+  onResume,
+}: {
+  details?: string;
+  onResume: () => void;
+}) {
+  const { t } = useTranslation("files");
+  return (
+    <GitInlineBanner
+      variant="warning"
+      message={t("git.panel.banners.autofetchPaused")}
+      details={details}
+      actionLabel={t("git.panel.banners.resume")}
+      onAction={onResume}
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +121,7 @@ interface CounterRowProps {
 }
 
 function CounterRow({ count, expanded, onToggle }: CounterRowProps) {
+  const { t } = useTranslation("files");
   return (
     <button
       type="button"
@@ -113,12 +132,16 @@ function CounterRow({ count, expanded, onToggle }: CounterRowProps) {
       )}
       aria-expanded={expanded}
       aria-label={
-        expanded ? "Collapse notifications" : `${count} more notification${count === 1 ? "" : "s"}`
+        expanded
+          ? t("git.panel.banners.collapseNotifications")
+          : t("git.panel.banners.moreNotifications", { count })
       }
       onClick={onToggle}
     >
       <span className="flex-1 text-left">
-        {expanded ? "Collapse" : `+${count} notification${count === 1 ? "" : "s"}`}
+        {expanded
+          ? t("git.panel.banners.collapse")
+          : t("git.panel.banners.notifications", { count })}
       </span>
       <ChevronDown
         className={cn("size-3 shrink-0 transition-transform", expanded && "rotate-180")}

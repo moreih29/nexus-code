@@ -13,6 +13,7 @@
 
 import { Pin } from "lucide-react";
 import { Tooltip as RadixTooltip } from "radix-ui";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { UI_TOOLTIP_DELAY_MS } from "../../../shared/util/timing-constants";
 
@@ -45,10 +46,11 @@ export interface PinToggleProps {
  * the sidebar's RadixTooltip.Provider wrapper.
  */
 export function PinToggle({ pinned, workspaceName, onToggle, draggable }: PinToggleProps) {
-  const tooltipLabel = pinned ? "Unpin" : "Pin to top";
+  const { t } = useTranslation();
+  const tooltipLabel = pinned ? t("sidebar.unpin") : t("sidebar.pin_to_top");
   const ariaLabel = pinned
-    ? `Unpin workspace ${workspaceName}`
-    : `Pin workspace ${workspaceName} to top`;
+    ? t("sidebar.unpin_workspace_aria", { name: workspaceName })
+    : t("sidebar.pin_workspace_aria", { name: workspaceName });
 
   function handleClick(e: React.MouseEvent) {
     // Prevent the parent workspace-select button from receiving the click.

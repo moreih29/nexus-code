@@ -9,6 +9,7 @@
 
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "./button";
 
@@ -141,6 +142,7 @@ export function FormDialogContent({
   renderFieldAccessory,
   children,
 }: FormDialogContentProps): React.JSX.Element {
+  const { t } = useTranslation();
   const fieldStates = getFormDialogFieldStates(fields, values);
   const submitDisabled = isFormDialogSubmitDisabled(fields, values, busy);
 
@@ -201,7 +203,7 @@ export function FormDialogContent({
               </div>
               {error ? (
                 <p id={helpId} className={`text-app-ui-sm ${errorClassName}`}>
-                  {error}
+                  {error === "Required" ? t("action.required") : error}
                 </p>
               ) : field.helperText ? (
                 <p id={helpId} className="text-app-ui-sm text-muted-foreground">
@@ -235,7 +237,7 @@ export function FormDialog({
   description,
   fields,
   submitLabel,
-  cancelLabel = "Cancel",
+  cancelLabel,
   errorClassName,
   busy = false,
   initialValues,
@@ -243,6 +245,8 @@ export function FormDialog({
   onCancel,
   onSubmit,
 }: FormDialogProps): React.JSX.Element {
+  const { t } = useTranslation();
+  const resolvedCancelLabel = cancelLabel ?? t("action.cancel");
   const [values, setValues] = useState<FormDialogValues>(() =>
     initialFormDialogValues(fields, initialValues),
   );
@@ -281,7 +285,7 @@ export function FormDialog({
         values={values}
         busy={busy}
         submitLabel={submitLabel}
-        cancelLabel={cancelLabel}
+        cancelLabel={resolvedCancelLabel}
         errorClassName={errorClassName}
         extraContent={extraContent}
         onValueChange={handleValueChange}

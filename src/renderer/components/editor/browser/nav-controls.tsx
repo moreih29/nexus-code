@@ -10,6 +10,7 @@
  * this layer (the WebContents error event will update the runtime store).
  */
 import { ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { ipcCallResult } from "@/ipc/client";
 import { cn } from "@/utils/cn";
 
@@ -54,6 +55,7 @@ function NavButton({
 }
 
 export function NavControls({ tabId, canGoBack, canGoForward, disabled = false }: NavControlsProps) {
+  const { t } = useTranslation();
   function handleBack() {
     void ipcCallResult("browser", "goBack", { tabId });
   }
@@ -70,15 +72,15 @@ export function NavControls({ tabId, canGoBack, canGoForward, disabled = false }
     <div
       className={cn("flex items-center gap-0.5", disabled && "pointer-events-none opacity-40")}
       role="toolbar"
-      aria-label="Navigation controls"
+      aria-label={t("browser.nav_controls")}
     >
-      <NavButton label="Go back" disabled={!canGoBack} onClick={handleBack}>
+      <NavButton label={t("browser.go_back")} disabled={!canGoBack} onClick={handleBack}>
         <ChevronLeft aria-hidden="true" />
       </NavButton>
-      <NavButton label="Go forward" disabled={!canGoForward} onClick={handleForward}>
+      <NavButton label={t("browser.go_forward")} disabled={!canGoForward} onClick={handleForward}>
         <ChevronRight aria-hidden="true" />
       </NavButton>
-      <NavButton label="Reload page" disabled={false} onClick={handleReload}>
+      <NavButton label={t("browser.reload_page")} disabled={false} onClick={handleReload}>
         <RotateCcw aria-hidden="true" />
       </NavButton>
     </div>

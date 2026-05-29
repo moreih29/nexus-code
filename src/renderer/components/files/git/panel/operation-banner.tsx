@@ -9,6 +9,8 @@
  * color consistency. (T7 consistency review, 2026-05.)
  */
 import { CircleAlert, GitMerge, Loader2 } from "lucide-react";
+import i18next from "i18next";
+import { useTranslation } from "react-i18next";
 import type { GitOperationState } from "../../../../../shared/git/types";
 import type { GitStoreError } from "../../../../state/stores/git";
 import { cn } from "../../../../utils/cn";
@@ -44,10 +46,11 @@ export function buildOperationBannerView(
   state: ActiveGitOperationState,
   error?: GitStoreError | null,
 ): OperationBannerView {
+  const t = i18next.t.bind(i18next);
   const conflictCount = state.conflictCount;
   const continueTooltip =
     conflictCount > 0
-      ? `Resolve ${conflictCount} conflict${conflictCount === 1 ? "" : "s"} first.`
+      ? t("files:git.operations.resolveFirstTooltip", { count: conflictCount })
       : undefined;
 
   if (error && isWorkflowError(error.operation)) {
@@ -56,8 +59,8 @@ export function buildOperationBannerView(
       role: "alert",
       message: error.message,
       details: error.details,
-      continueLabel: "Retry",
-      abortLabel: "Abort",
+      continueLabel: t("files:git.operations.retry"),
+      abortLabel: t("files:git.operations.abort"),
       continueTooltip,
       continueAriaDisabled: conflictCount > 0,
     };
@@ -66,8 +69,8 @@ export function buildOperationBannerView(
   const base = {
     variant: "info" as const,
     role: "status" as const,
-    continueLabel: "Continue",
-    abortLabel: "Abort",
+    continueLabel: t("files:git.operations.continue"),
+    abortLabel: t("files:git.operations.abort"),
     continueTooltip,
     continueAriaDisabled: conflictCount > 0,
   };
@@ -77,38 +80,41 @@ export function buildOperationBannerView(
       if (conflictCount > 0) {
         return {
           ...base,
-          message: `Merging ${formatRef(state.mergeLabel ?? state.mergeRef, "selected branch")} into ${formatRef(
-            state.headRef,
-            "current branch",
-          )} — ${formatConflictsRemain(conflictCount)}`,
-          details: "Resolve files below, then Continue.",
+          message: t("files:git.operations.merge.conflicts", {
+            source: formatRef(state.mergeLabel ?? state.mergeRef, t("files:git.operations.merge.conflicts")),
+            target: formatRef(state.headRef, t("files:git.operations.merge.conflicts")),
+            conflictText: formatConflictsRemain(conflictCount, t),
+          }),
+          details: t("files:git.operations.merge.conflictsDetail"),
         };
       }
-      return readyView("Merge", base);
+      return readyView(t("files:git.operations.merge.ready"), t("files:git.operations.merge.readyDetail"), base);
     case "rebase":
-      return rebaseBannerView(state, base);
+      return rebaseBannerView(state, base, t);
     case "cherry-pick":
       if (conflictCount > 0) {
         return {
           ...base,
-          message: `Cherry-picking ${shortSha(state.sourceSha)} — ${formatConflictsRemain(
-            conflictCount,
-          )}`,
-          details: state.sourceSubject ?? "Resolve files below, then Continue.",
+          message: t("files:git.operations.cherryPick.conflicts", {
+            sha: shortSha(state.sourceSha),
+            conflictText: formatConflictsRemain(conflictCount, t),
+          }),
+          details: state.sourceSubject ?? t("files:git.operations.merge.conflictsDetail"),
         };
       }
-      return readyView("Cherry-pick", base);
+      return readyView(t("files:git.operations.cherryPick.ready"), t("files:git.operations.merge.readyDetail"), base);
     case "revert":
       if (conflictCount > 0) {
         return {
           ...base,
-          message: `Reverting ${shortSha(state.sourceSha)} — ${formatConflictsRemain(
-            conflictCount,
-          )}`,
-          details: state.sourceSubject ?? "Resolve files below, then Continue.",
+          message: t("files:git.operations.revert.conflicts", {
+            sha: shortSha(state.sourceSha),
+            conflictText: formatConflictsRemain(conflictCount, t),
+          }),
+          details: state.sourceSubject ?? t("files:git.operations.merge.conflictsDetail"),
         };
       }
-      return readyView("Revert", base);
+      return readyView(t("files:git.operations.revert.ready"), t("files:git.operations.merge.readyDetail"), base);
   }
 }
 
@@ -164,7 +170,7 @@ export function OperationBanner({
           onClick={runContinue}
         >
           {continuing ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
-          {continuing ? "Continuing…" : view.continueLabel}
+          {continuing ? i18next.t("files:git.operations.continuing") : view.continueLabel}
         </Button>
         <Button
           type="button"
@@ -175,7 +181,7 @@ export function OperationBanner({
           onClick={runAbort}
         >
           {aborting ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
-          {aborting ? "Aborting…" : view.abortLabel}
+          {aborting ? i18next.t("files:git.operations.aborting") : view.abortLabel}
         </Button>
       </div>
     </div>
@@ -189,36 +195,44 @@ export function OperationBanner({
 function rebaseBannerView(
   state: Extract<ActiveGitOperationState, { kind: "rebase" }>,
   base: OperationBannerBaseView,
+  t: (key: string, opts?: Record<string, unknown>) => string,
 ): OperationBannerView {
-  const step = formatRebaseStep(state);
-  const onto = formatRef(state.ontoLabel ?? state.ontoRef, "target");
+  const step = formatRebaseStep(state, t);
+  const onto = formatRef(state.ontoLabel ?? state.ontoRef, t("files:git.operations.rebase.rebasing"));
   if (state.conflictCount > 0) {
     const progress = step ? ` — ${step}` : "";
     return {
       ...base,
-      message: `Rebasing onto ${onto}${progress} · ${formatConflictsRemain(state.conflictCount)}`,
-      details: state.currentCommitSubject ?? "Resolve files below, then Continue.",
+      message: t("files:git.operations.rebase.conflicts", {
+        onto,
+        progress,
+        conflictText: formatConflictsRemain(state.conflictCount, t),
+      }),
+      details: state.currentCommitSubject ?? t("files:git.operations.merge.conflictsDetail"),
     };
   }
 
   return {
     ...base,
-    message: step ? `Rebase paused at ${step}` : `Rebasing onto ${onto}`,
-    details: "Resolve, then Continue.",
+    message: step
+      ? t("files:git.operations.rebase.paused", { step })
+      : t("files:git.operations.rebase.rebasing", { onto }),
+    details: t("files:git.operations.rebase.readyDetail"),
   };
 }
 
 /** Builds the shared clean workflow ready copy. */
-function readyView(verb: string, base: OperationBannerBaseView): OperationBannerView {
-  return { ...base, message: `${verb} ready to continue`, details: "All conflicts resolved." };
+function readyView(message: string, readyDetail: string, base: OperationBannerBaseView): OperationBannerView {
+  return { ...base, message, details: readyDetail };
 }
 
 /** Formats rebase progress only when both counters are known. */
 function formatRebaseStep(
   state: Extract<ActiveGitOperationState, { kind: "rebase" }>,
+  t: (key: string, opts?: Record<string, unknown>) => string,
 ): string | null {
   if (state.doneCount <= 0 || state.totalCount <= 0) return null;
-  return `step ${state.doneCount} of ${state.totalCount}`;
+  return t("files:git.operations.rebase.step", { done: state.doneCount, total: state.totalCount });
 }
 
 /** Formats an optional ref with a human fallback. */
@@ -226,14 +240,9 @@ function formatRef(ref: string | null, fallback: string): string {
   return ref && ref.trim().length > 0 ? ref : fallback;
 }
 
-/** Formats conflict count text while preserving the task copy. */
-function formatConflictCount(count: number): string {
-  return `${count} conflict${count === 1 ? "" : "s"}`;
-}
-
 /** Formats the full "N conflicts remain" phrase. */
-function formatConflictsRemain(count: number): string {
-  return `${formatConflictCount(count)} ${count === 1 ? "remains" : "remain"}`;
+function formatConflictsRemain(count: number, t: (key: string, opts?: Record<string, unknown>) => string): string {
+  return t("files:git.operations.conflictsRemain", { count });
 }
 
 /** Returns a short SHA-like display value with a fallback. */

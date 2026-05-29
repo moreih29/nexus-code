@@ -1,0 +1,11 @@
+{
+  "openFile": {
+    "title": "파일 열기"
+  },
+  "openDirectory": {
+    "title": "워크스페이스 폴더 선택"
+  },
+  "saveFile": {
+    "title": "파일 저장"
+  }
+}

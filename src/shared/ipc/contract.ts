@@ -723,7 +723,18 @@ export const ipcContract = {
       get: call(z.void(), AppStateSchema),
       set: call(AppStateSchema.partial(), z.void()),
     },
-    listen: {},
+    listen: {
+      /**
+       * Broadcast emitted by main when the active UI language changes via
+       * `appState.set({ language })`.  Sent to all renderer windows so
+       * each can update its i18next instance and the html[lang] attribute
+       * without an app restart.
+       *
+       * Correlation: `language` itself is the domain identifier — there is
+       * no per-workspace or per-tab scope for a global UI language setting.
+       */
+      languageChanged: listen(z.object({ language: z.enum(["en", "ko"]) })),
+    },
   },
 
   // Application menu → renderer command bridge.

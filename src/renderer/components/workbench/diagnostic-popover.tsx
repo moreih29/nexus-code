@@ -15,6 +15,7 @@
 
 import { AlertTriangle, XCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { WorkspaceLocation } from "../../../shared/types/workspace";
 import { rootPathFromLocation } from "../../../shared/types/workspace";
@@ -159,6 +160,7 @@ export function DiagnosticPopover({
   wrapperRef,
   onClose,
 }: DiagnosticPopoverProps): React.JSX.Element {
+  const { t } = useTranslation();
   const markers = useWorkspaceMarkers(workspaceId, kind);
   const location: WorkspaceLocation | null = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.location ?? null,
@@ -181,7 +183,7 @@ export function DiagnosticPopover({
   return (
     <div
       role="dialog"
-      aria-label={kind === "error" ? "Errors" : "Warnings"}
+      aria-label={kind === "error" ? t("diagnostics.errors_dialog") : t("diagnostics.warnings_dialog")}
       className={cn(
         // Anchored above the status bar segment. Wide enough for messages,
         // capped so long workspaces still leave breathing room on the right.
@@ -200,7 +202,7 @@ export function DiagnosticPopover({
     >
       {groups.length === 0 ? (
         <p className="px-2 py-1 text-app-ui-sm text-muted-foreground">
-          {kind === "error" ? "No errors" : "No warnings"}
+          {kind === "error" ? t("diagnostics.no_errors") : t("diagnostics.no_warnings")}
         </p>
       ) : (
         groups.map((group) => (

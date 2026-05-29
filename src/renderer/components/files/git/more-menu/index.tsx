@@ -27,6 +27,7 @@
  */
 import { MoreHorizontal } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { GitAutofetchIntervalMin, RepoCapabilities } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import { useDismissOnOutsideClickWithMarker } from "../../../ui/use-dismiss-on-outside-click";
@@ -102,6 +103,7 @@ export function GitMoreMenu({
   lastFetchedAt,
   onSetAutofetchInterval,
 }: GitMoreMenuProps) {
+  const { t } = useTranslation("files");
   const [open, setOpen] = useState(false);
   // Only one top-level submenu can be open at a time so clicking a sibling
   // trigger swaps the open flyout instead of stacking two side-by-side.
@@ -140,9 +142,9 @@ export function GitMoreMenu({
 
   // Disable reasons documented as tooltips so screen readers and hover
   // surfaces explain the gating; an enabled action falls back to its label.
-  const fetchReason = hasRemote ? null : "Add a remote first.";
-  const pullReason = hasRemote ? null : "Add a remote first.";
-  const pushReason = hasRemote ? null : "Add a remote first.";
+  const fetchReason = hasRemote ? null : t("git.moreMenu.addRemoteFirst");
+  const pullReason = hasRemote ? null : t("git.moreMenu.addRemoteFirst");
+  const pushReason = hasRemote ? null : t("git.moreMenu.addRemoteFirst");
 
   return (
     <div className="relative" ref={wrapperRef}>
@@ -151,7 +153,7 @@ export function GitMoreMenu({
         variant="ghost"
         size="icon-sm"
         className="size-7"
-        aria-label="More source control actions"
+        aria-label={t("git.panel.header.moreActions")}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => {
@@ -172,36 +174,36 @@ export function GitMoreMenu({
             if (event.key === "Escape") close();
           }}
         >
-          <MenuButton label="Refresh" onClick={() => run(onRefresh)} disabled={disabled} />
+          <MenuButton label={t("git.moreMenu.refresh")} onClick={() => run(onRefresh)} disabled={disabled} />
           {canInit ? (
             <MenuButton
-              label="Initialize Repository"
+              label={t("git.moreMenu.initRepo")}
               onClick={() => run(onInit)}
               disabled={disabled}
             />
           ) : null}
           <MenuSeparator />
           <MenuButton
-            label="Fetch"
+            label={t("git.moreMenu.fetch")}
             onClick={() => run(onFetch)}
             disabled={repoBusy || !hasRemote}
             title={fetchReason ?? undefined}
           />
           <MenuButton
-            label="Pull"
+            label={t("git.moreMenu.pull")}
             onClick={() => run(onPull)}
             disabled={repoBusy || !hasRemote}
             title={pullReason ?? undefined}
           />
           <MenuButton
-            label="Push"
+            label={t("git.moreMenu.push")}
             onClick={() => run(onPush)}
             disabled={repoBusy || !hasRemote}
             title={pushReason ?? undefined}
           />
           <MenuSeparator />
           <MenuButton
-            label="Checkout to…"
+            label={t("git.moreMenu.checkoutTo")}
             onClick={() => run(onSwitchBranch)}
             disabled={repoBusy}
           />
@@ -259,7 +261,7 @@ export function GitMoreMenu({
           />
           <MenuSeparator />
           <MenuButton
-            label="Discard All Changes"
+            label={t("git.moreMenu.discardAllChanges")}
             onClick={() => run(onDiscardAll)}
             disabled={repoBusy || !hasChanges}
             destructive

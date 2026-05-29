@@ -6,13 +6,14 @@
  * builder out of the React component lets it be unit-tested without
  * mounting Radix or the tab tree.
  */
+import i18next from "i18next";
 import type { MenuItemSpec } from "@/components/ui/context-menu";
 import { isMac, SHORTCUTS } from "@/keybindings/shortcut-labels";
 import type { useGroupActions } from "./use-group-actions";
 
 type GroupActions = ReturnType<typeof useGroupActions>;
 
-const REVEAL_LABEL = isMac ? "Reveal in Finder" : "Reveal in File Explorer";
+const REVEAL_LABEL = isMac ? i18next.t("action.reveal_in_finder") : i18next.t("action.reveal_in_explorer");
 
 export interface TabContextInfo {
   isPinned: boolean;
@@ -50,9 +51,11 @@ export function buildGroupTabBarMenuItems({
 
   const items: MenuItemSpec[] = [];
 
+  const t = i18next.t.bind(i18next);
+
   items.push({
     kind: "item",
-    label: context.isPinned ? "Unpin Tab" : "Pin Tab",
+    label: context.isPinned ? t("tabBar.unpin_tab") : t("tabBar.pin_tab"),
     shortcut: SHORTCUTS.pinTab,
     onSelect: togglePin,
   });
@@ -62,7 +65,7 @@ export function buildGroupTabBarMenuItems({
   if (context.isTerminal) {
     items.push({
       kind: "item",
-      label: "Rename Tab…",
+      label: t("tabBar.rename_tab_menu"),
       onSelect: renameTab,
     });
   }
@@ -71,30 +74,30 @@ export function buildGroupTabBarMenuItems({
 
   items.push({
     kind: "item",
-    label: "Close",
+    label: t("tabBar.close"),
     shortcut: SHORTCUTS.closeTab,
     onSelect: actions.close,
   });
   items.push({
     kind: "item",
-    label: "Close Others",
+    label: t("tabBar.close_others"),
     shortcut: SHORTCUTS.closeOthers || undefined,
     onSelect: actions.closeOthers,
   });
   items.push({
     kind: "item",
-    label: "Close All to the Right",
+    label: t("tabBar.close_all_right"),
     onSelect: actions.closeAllToRight,
   });
   items.push({
     kind: "item",
-    label: "Close Saved",
+    label: t("tabBar.close_saved"),
     shortcut: SHORTCUTS.closeSaved,
     onSelect: actions.closeSaved,
   });
   items.push({
     kind: "item",
-    label: "Close All",
+    label: t("tabBar.close_all"),
     shortcut: SHORTCUTS.closeAll,
     onSelect: actions.closeAll,
   });
@@ -102,13 +105,13 @@ export function buildGroupTabBarMenuItems({
 
   items.push({
     kind: "item",
-    label: "Split Right",
+    label: t("tabBar.split_right"),
     shortcut: SHORTCUTS.splitRight,
     onSelect: actions.splitRight,
   });
   items.push({
     kind: "item",
-    label: "Split Down",
+    label: t("tabBar.split_down"),
     shortcut: SHORTCUTS.splitDown,
     onSelect: actions.splitDown,
   });
@@ -124,13 +127,13 @@ export function buildGroupTabBarMenuItems({
     items.push({ kind: "separator" });
     items.push({
       kind: "item",
-      label: "Copy Path",
+      label: t("tabBar.copy_path"),
       shortcut: SHORTCUTS.copyPath,
       onSelect: copyPath,
     });
     items.push({
       kind: "item",
-      label: "Copy Relative Path",
+      label: t("tabBar.copy_relative_path"),
       shortcut: SHORTCUTS.copyRelativePath,
       onSelect: copyRelativePath,
     });

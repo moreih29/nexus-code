@@ -5,6 +5,8 @@
  */
 import { ChevronRight, Loader2 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
+import i18next from "i18next";
+import { useTranslation } from "react-i18next";
 import type {
   BranchInfo,
   GitAutofetchIntervalMin,
@@ -71,24 +73,25 @@ export function getGitBranchPrimaryAction(input: {
   capabilities?: RepoCapabilities;
   failed?: boolean;
 }): GitBranchPrimaryAction {
+  const t = i18next.t.bind(i18next);
   const branch = input.branch;
   const hasRemote = (input.capabilities?.remotes.length ?? 0) > 0;
   const hasHead = input.capabilities?.hasHEAD ?? false;
 
-  if (input.failed) return { id: "fetch", label: "Fetch now" };
-  if (!branch) return { id: "fetch", label: "Fetch now", disabled: true, reason: "No branch." };
+  if (input.failed) return { id: "fetch", label: t("files:git.branchPopover.fetchNow") };
+  if (!branch) return { id: "fetch", label: t("files:git.branchPopover.fetchNow"), disabled: true, reason: t("files:git.branchPopover.noBranch") };
   if (!branch.upstream) {
     return {
       id: "publish",
-      label: "Publish Branch",
+      label: t("files:git.branchPopover.publishBranch"),
       disabled: !hasRemote || !hasHead,
-      reason: !hasHead ? "Make an initial commit first." : "Add a remote first.",
+      reason: !hasHead ? t("files:git.branchPopover.requiresCommit") : t("files:git.branchPopover.addRemoteFirst"),
     };
   }
-  if (branch.ahead > 0 && branch.behind > 0) return { id: "sync", label: "Sync" };
-  if (branch.behind > 0) return { id: "pull", label: "Pull" };
-  if (branch.ahead > 0) return { id: "push", label: "Push" };
-  return { id: "fetch", label: "Fetch now" };
+  if (branch.ahead > 0 && branch.behind > 0) return { id: "sync", label: t("files:git.branchPopover.sync") };
+  if (branch.behind > 0) return { id: "pull", label: t("files:git.branchPopover.pull") };
+  if (branch.ahead > 0) return { id: "push", label: t("files:git.branchPopover.push") };
+  return { id: "fetch", label: t("files:git.branchPopover.fetchNow") };
 }
 
 /** Builds the right-click BranchChip context menu item list. */
@@ -96,41 +99,42 @@ export function buildGitBranchContextMenuModel(input: {
   branch: BranchInfo | null;
   capabilities?: RepoCapabilities;
 }): GitBranchContextMenuItem[] {
+  const t = i18next.t.bind(i18next);
   const branch = input.branch;
   const hasRemote = (input.capabilities?.remotes.length ?? 0) > 0;
   const hasHead = input.capabilities?.hasHEAD ?? false;
   const hasUpstream = branch?.upstream != null;
   return [
-    { id: "fetch", label: "Fetch now", disabled: !hasRemote, reason: "Add a remote first." },
+    { id: "fetch", label: t("files:git.branchPopover.fetchNow"), disabled: !hasRemote, reason: t("files:git.branchPopover.addRemoteFirst") },
     {
       id: "pull",
-      label: "Pull",
+      label: t("files:git.branchPopover.pull"),
       disabled: !hasUpstream,
-      reason: "Set an upstream first.",
+      reason: t("files:git.branchPopover.setUpstreamFirst"),
     },
     {
       id: "push",
-      label: "Push",
+      label: t("files:git.branchPopover.push"),
       disabled: !hasRemote || !hasHead,
-      reason: !hasHead ? "Make an initial commit first." : "Add a remote first.",
+      reason: !hasHead ? t("files:git.branchPopover.requiresCommit") : t("files:git.branchPopover.addRemoteFirst"),
     },
     {
       id: "publish",
-      label: "Publish Branch",
+      label: t("files:git.branchPopover.publishBranch"),
       disabled: hasUpstream || !hasRemote || !hasHead,
       reason: hasUpstream
-        ? "Branch already has an upstream."
+        ? t("files:git.branchPopover.alreadyHasUpstream")
         : !hasHead
-          ? "Make an initial commit first."
-          : "Add a remote first.",
+          ? t("files:git.branchPopover.requiresCommit")
+          : t("files:git.branchPopover.addRemoteFirst"),
     },
     {
       id: "copy-upstream",
-      label: "Copy upstream",
+      label: t("files:git.branchPopover.copyUpstream"),
       disabled: !hasUpstream,
-      reason: "No upstream configured.",
+      reason: t("files:git.branchPopover.noUpstreamConfigured"),
     },
-    { id: "autofetch", label: "Autofetch" },
+    { id: "autofetch", label: t("files:git.branchPopover.autofetch") },
   ];
 }
 
@@ -208,7 +212,7 @@ export function GitBranchPopover({
       {open ? (
         <div
           role="dialog"
-          aria-label="Branch details"
+          aria-label={i18next.t("files:git.branchPopover.ariaLabel")}
           className="absolute bottom-full left-0 z-40 mb-1 w-[240px] floating-panel p-2"
           onKeyDown={(event) => {
             if (event.key === "Escape") setOpen(false);
@@ -268,7 +272,8 @@ export function GitBranchPopoverContent({
   onPrimary,
   onRetryFetch,
 }: GitBranchPopoverContentProps) {
-  const branchName = branch?.current ?? "No branch";
+  const { t } = useTranslation("files");
+  const branchName = branch?.current ?? t("git.branchPopover.noBranchName");
 
   return (
     <>
@@ -277,10 +282,10 @@ export function GitBranchPopoverContent({
       </p>
       {branch?.upstream ? (
         <p className="mt-0.5 truncate text-app-ui-sm text-muted-foreground" title={branch.upstream}>
-          Tracking {branch.upstream}
+          {t("git.branchPopover.tracking", { upstream: branch.upstream })}
         </p>
       ) : (
-        <p className="mt-0.5 text-app-ui-sm text-muted-foreground">No upstream configured</p>
+        <p className="mt-0.5 text-app-ui-sm text-muted-foreground">{t("git.branchPopover.noUpstreamStatus")}</p>
       )}
       {repoPath ? (
         <p className="mt-1 truncate text-app-ui-sm text-muted-foreground" title={repoPath}>
@@ -317,6 +322,7 @@ function GitBranchFetchStatus({
   failed: boolean;
   onRetry: () => void;
 }) {
+  const { t } = useTranslation("files");
   if (fetching) {
     return (
       <div
@@ -324,7 +330,7 @@ function GitBranchFetchStatus({
         className="mt-2 flex items-center gap-2 rounded-(--radius-control) bg-muted px-2 py-1 text-app-ui-sm text-muted-foreground"
       >
         <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-        <span>Fetching…</span>
+        <span>{t("git.branchPopover.fetching")}</span>
       </div>
     );
   }
@@ -336,13 +342,13 @@ function GitBranchFetchStatus({
       role="alert"
       className="mt-2 flex items-center justify-between gap-2 rounded-(--radius-control) bg-muted px-2 py-1 text-app-ui-sm text-muted-foreground"
     >
-      <span>Fetch failed</span>
+      <span>{t("git.branchPopover.fetchFailed")}</span>
       <button
         type="button"
         className="rounded-(--radius-control) px-1 text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none"
         onClick={onRetry}
       >
-        Retry
+        {t("git.branchPopover.retry")}
       </button>
     </div>
   );
@@ -429,7 +435,7 @@ function BranchAutofetchSubmenu({
         className="flex w-full items-center justify-between gap-3 rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none"
         onClick={() => onOpenChange(!open)}
       >
-        <span>Autofetch</span>
+        <span>{i18next.t("files:git.branchPopover.autofetch")}</span>
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
       {open ? (

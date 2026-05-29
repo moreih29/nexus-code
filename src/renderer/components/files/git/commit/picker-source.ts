@@ -6,6 +6,7 @@
  * "Pick from another branch…" row that lets the panel retarget the commit
  * list without enabling multi-pick or checkout side effects.
  */
+import i18next from "i18next";
 import type { LogEntry } from "../../../../../shared/git/types";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
 import { relativeTime } from "../utils/relative-time";
@@ -33,14 +34,14 @@ export interface CreateCommitPickerSourceInput {
 export function createCommitPickerSource(
   input: CreateCommitPickerSourceInput,
 ): PaletteSource<CommitPickItem> {
+  const t = i18next.t.bind(i18next);
   const ref = input.ref?.trim() || undefined;
-  const branchLabel = ref ?? input.currentBranch?.trim() ?? "current branch";
   return {
     id: "git.commit-picker",
-    title: `Pick from ${branchLabel}`,
-    placeholder: "Search commits to cherry-pick…",
-    emptyQueryMessage: "Loading commits…",
-    noResultsMessage: "No matching commits.",
+    title: t("files:git.commitPicker.title"),
+    placeholder: t("files:git.commitPicker.placeholder"),
+    emptyQueryMessage: t("files:git.commitPicker.loading"),
+    noResultsMessage: t("files:git.commitPicker.noResults"),
     searchOnEmptyQuery: true,
 
     async search(query, signal): Promise<readonly CommitPickItem[]> {
@@ -49,8 +50,8 @@ export function createCommitPickerSource(
       const lowerQuery = query.trim().toLowerCase();
       const branchFlowItem: CommitPickItem = {
         id: "commit-picker:pick-from-branch",
-        label: "Pick from another branch…",
-        description: "Choose a branch, then pick one commit",
+        label: t("files:git.commitPicker.pickFromBranch"),
+        description: t("files:git.commitPicker.pickFromBranchPlaceholder"),
         kindLabel: "branch",
         action: { kind: "pick-from-branch" },
       };

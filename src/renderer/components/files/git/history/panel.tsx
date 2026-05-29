@@ -3,6 +3,7 @@
  * one workspace while commit details open in editor-area tabs.
  */
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { LogEntry } from "../../../../../shared/git/types";
 import { openOrRevealCommitTab } from "../../../../state/operations";
 import { useGitStore } from "../../../../state/stores/git";
@@ -29,6 +30,7 @@ export function HistoryPanel({
   busy = false,
   onRefChange,
 }: HistoryPanelProps) {
+  const { t } = useTranslation("files");
   const cherryPick = useGitStore((state) => state.cherryPick);
   const checkoutDetached = useGitStore((state) => state.checkoutDetached);
   const resetSoft = useGitStore((state) => state.resetSoft);
@@ -147,7 +149,7 @@ export function HistoryPanel({
         actions={{
           cherryPick: (sha) => {
             void cherryPick(workspaceId, sha).then((ok) => {
-              if (ok) setBanner({ variant: "info", message: "Cherry-pick started." });
+              if (ok) setBanner({ variant: "info", message: t("git.history.cherryPickStarted") });
             });
           },
           checkoutDetached: (sha) => {

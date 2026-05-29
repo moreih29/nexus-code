@@ -15,6 +15,7 @@
 
 import { ChevronRight } from "lucide-react";
 import { Fragment } from "react";
+import { useTranslation } from "react-i18next";
 import { relPath } from "../../../utils/path";
 
 interface EditorBreadcrumbsProps {
@@ -26,6 +27,7 @@ export function EditorBreadcrumbs({
   filePath,
   workspaceRootAbsPath,
 }: EditorBreadcrumbsProps): React.JSX.Element | null {
+  const { t } = useTranslation();
   if (!workspaceRootAbsPath) return null;
 
   const rel = relPath(filePath, workspaceRootAbsPath);
@@ -37,7 +39,7 @@ export function EditorBreadcrumbs({
 
   return (
     <nav
-      aria-label="File path"
+      aria-label={t("editor.file_path")}
       title={rel}
       className="flex items-center gap-1 min-w-0 text-app-ui-sm text-muted-foreground select-none"
     >

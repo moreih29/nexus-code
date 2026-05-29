@@ -1,4 +1,6 @@
+import i18next from "i18next";
 import { type ReactNode, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { CommitDetail, CommitFileChange } from "../../../shared/git/types";
 import { ipcCallResult, unwrapGitResult } from "../../ipc/client";
 import { closeTab, openDiffTab } from "../../state/operations/tabs";
@@ -22,6 +24,7 @@ interface CommitTabError {
  * Fetches and renders a Git commit as an editor-area tab.
  */
 export function CommitTab({ workspaceId, sha, tabId }: CommitTabProps) {
+  const { t } = useTranslation();
   const [detail, setDetail] = useState<CommitDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<CommitTabError | null>(null);
@@ -73,7 +76,7 @@ export function CommitTab({ workspaceId, sha, tabId }: CommitTabProps) {
       </div>
       <div className="min-h-0 flex-1 overflow-auto app-scrollbar p-4">
         {loading ? (
-          <CenteredMessage>Loading commit detail…</CenteredMessage>
+          <CenteredMessage>{t("editor.loading_commit")}</CenteredMessage>
         ) : error ? (
           <CommitErrorContent error={error} onClose={() => closeTab(workspaceId, tabId)} />
         ) : detail ? (
@@ -94,16 +97,17 @@ function CommitDetailContent({
   detail: CommitDetail;
   onFileClick: (file: CommitFileChange) => void;
 }) {
+  const { t } = useTranslation();
   const isMerge = detail.parents.length > 1;
 
   return (
     <div className="flex flex-col gap-4 text-app-ui-sm">
       <dl className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-1">
-        <dt className="text-muted-foreground">Author</dt>
+        <dt className="text-muted-foreground">{t("editor.author")}</dt>
         <dd className="min-w-0 truncate text-foreground">{detail.author}</dd>
-        <dt className="text-muted-foreground">Email</dt>
+        <dt className="text-muted-foreground">{t("editor.email")}</dt>
         <dd className="min-w-0 truncate text-foreground">{detail.authorEmail}</dd>
-        <dt className="text-muted-foreground">Time</dt>
+        <dt className="text-muted-foreground">{t("editor.time")}</dt>
         <dd className="min-w-0 truncate text-foreground">{formatIso(detail.committerTs)}</dd>
       </dl>
       {detail.body.length > 0 ? (
@@ -113,15 +117,15 @@ function CommitDetailContent({
       ) : null}
       {isMerge ? (
         <div className="rounded border border-border bg-muted p-2 text-muted-foreground">
-          Merge commit ({detail.parents.length} parents)
+          {t("editor.merge_commit", { count: detail.parents.length })}
         </div>
       ) : null}
       <div>
         <h4 className="mb-2 text-app-ui-sm text-muted-foreground">
-          Files changed ({detail.files.length})
+          {t("editor.files_changed", { count: detail.files.length })}
         </h4>
         {detail.files.length === 0 ? (
-          <p className="text-app-ui-sm text-muted-foreground">No file changes.</p>
+          <p className="text-app-ui-sm text-muted-foreground">{t("editor.no_file_changes")}</p>
         ) : (
           <ul className="flex flex-col gap-1">
             {detail.files.map((file) => (
@@ -149,6 +153,7 @@ function CommitDetailContent({
  * Renders the not-found close action or a generic commit-load error.
  */
 function CommitErrorContent({ error, onClose }: { error: CommitTabError; onClose: () => void }) {
+  const { t } = useTranslation();
   if (!error.notFound) {
     return <CenteredMessage>{error.message}</CenteredMessage>;
   }
@@ -157,7 +162,7 @@ function CommitErrorContent({ error, onClose }: { error: CommitTabError; onClose
     <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 text-center text-app-ui-sm text-muted-foreground">
       <p>{error.message}</p>
       <Button type="button" variant="outline" size="sm" onClick={onClose}>
-        Close tab
+        {t("editor.close_tab")}
       </Button>
     </div>
   );
@@ -190,10 +195,10 @@ function commitTabErrorFrom(error: unknown, sha: string): CommitTabError {
   return {
     notFound,
     message: notFound
-      ? `Commit ${sha.slice(0, 7)} not found in repository`
+      ? i18next.t("editor.commit_not_found", { sha: sha.slice(0, 7) })
       : error instanceof Error
         ? error.message
-        : "Commit detail operation failed.",
+        : i18next.t("editor.commit_load_failed"),
   };
 }
 

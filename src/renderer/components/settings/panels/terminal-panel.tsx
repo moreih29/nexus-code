@@ -14,7 +14,8 @@
 // Design seal: semantic tokens only, no hex/oklch/rgba literals,
 // no magic pixel values, no shadows.
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { checkFontAvailable } from "../../../services/editor/runtime/font-availability";
 import type { TerminalCursorStyle, TerminalFontSize } from "../../../state/stores/terminal";
@@ -40,42 +41,10 @@ const DEFAULT_FONT_SIZE_TOKEN = 14; // typeScale.codeUi fallback
 // boundary. Mirrors the editor panel's family control.
 const FAMILY_SYSTEM_VALUE = "__system__";
 
-const DEFAULT_FONT_FAMILIES = [
+const PRESET_FONT_FAMILIES = [
   { value: "JetBrains Mono Nerd Font", label: "JetBrains Mono" },
   { value: "D2CodingLigature Nerd Font", label: "D2Coding" },
   { value: "Sarasa Term K", label: "Sarasa Term K" },
-  { value: FAMILY_SYSTEM_VALUE, label: "System" },
-  { value: "__custom__", label: "Other..." },
-];
-
-// Inline cursor-shape previews — rendered with currentColor so they follow
-// the segmented control's text color (selected vs. unselected). Sized to sit
-// on the typescale baseline without breaking row height.
-const CURSOR_OPTIONS: SegmentedOption<TerminalCursorStyle>[] = [
-  {
-    value: "block",
-    label: "Block",
-    icon: (
-      <span className="inline-block bg-current align-middle" style={{ width: 7, height: 12 }} />
-    ),
-  },
-  {
-    value: "underline",
-    label: "Underline",
-    icon: (
-      <span
-        className="inline-block bg-current align-middle"
-        style={{ width: 8, height: 2, marginBottom: 1 }}
-      />
-    ),
-  },
-  {
-    value: "bar",
-    label: "Bar",
-    icon: (
-      <span className="inline-block bg-current align-middle" style={{ width: 2, height: 12 }} />
-    ),
-  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -83,6 +52,8 @@ const CURSOR_OPTIONS: SegmentedOption<TerminalCursorStyle>[] = [
 // ---------------------------------------------------------------------------
 
 export function TerminalPanel() {
+  const { t } = useTranslation("settings");
+
   const fontSize = useTerminalStore((s) => s.fontSize);
   const cursorStyle = useTerminalStore((s) => s.cursorStyle);
   const family = useTerminalStore((s) => s.fontFamily);
@@ -91,6 +62,49 @@ export function TerminalPanel() {
   const setCursorStyle = useTerminalStore((s) => s.setCursorStyle);
   const setFontFamily = useTerminalStore((s) => s.setFontFamily);
   const setFontLigatures = useTerminalStore((s) => s.setFontLigatures);
+
+  // Build translated font family options inside the component so i18n is active.
+  const fontFamilyOptions = useMemo(
+    () => [
+      ...PRESET_FONT_FAMILIES,
+      { value: FAMILY_SYSTEM_VALUE, label: t("terminal.fontFamilySystem") },
+      { value: "__custom__", label: t("terminal.fontFamilyOther") },
+    ],
+    [t],
+  );
+
+  // Inline cursor-shape previews — rendered with currentColor so they follow
+  // the segmented control's text color (selected vs. unselected). Sized to sit
+  // on the typescale baseline without breaking row height. Labels come from i18n.
+  const cursorOptions = useMemo<SegmentedOption<TerminalCursorStyle>[]>(
+    () => [
+      {
+        value: "block",
+        label: t("terminal.cursor.block"),
+        icon: (
+          <span className="inline-block bg-current align-middle" style={{ width: 7, height: 12 }} />
+        ),
+      },
+      {
+        value: "underline",
+        label: t("terminal.cursor.underline"),
+        icon: (
+          <span
+            className="inline-block bg-current align-middle"
+            style={{ width: 8, height: 2, marginBottom: 1 }}
+          />
+        ),
+      },
+      {
+        value: "bar",
+        label: t("terminal.cursor.bar"),
+        icon: (
+          <span className="inline-block bg-current align-middle" style={{ width: 2, height: 12 }} />
+        ),
+      },
+    ],
+    [t],
+  );
 
   const effectiveSize = fontSize ?? DEFAULT_FONT_SIZE_TOKEN;
   const effectiveCursor: TerminalCursorStyle = cursorStyle ?? "block";
@@ -104,7 +118,7 @@ export function TerminalPanel() {
   const isCustomFamily =
     family !== undefined &&
     family !== "" &&
-    !DEFAULT_FONT_FAMILIES.some((f) => f.value === family && f.value !== "__custom__");
+    !fontFamilyOptions.some((f) => f.value === family && f.value !== "__custom__");
   const [familySelect, setFamilySelect] = useState<string>(
     isCustomFamily ? "__custom__" : family && family !== "" ? family : FAMILY_SYSTEM_VALUE,
   );
@@ -163,6 +177,7 @@ export function TerminalPanel() {
     <div className="flex flex-col gap-5">
       {/* Live preview — mirrors family, size, ligatures + cursor style */}
       <TerminalPreview
+        label={t("terminal.preview")}
         fontFamily={previewFamilyStack}
         fontSize={effectiveSize}
         ligatures={effectiveLigatures}
@@ -171,7 +186,7 @@ export function TerminalPanel() {
 
       {/* Font size — compact stepper */}
       <SettingsRow
-        label="Font size"
+        label={t("terminal.fontSize")}
         dirty={fontSize !== undefined}
         onReset={() => setFontSize(undefined)}
       >
@@ -182,32 +197,36 @@ export function TerminalPanel() {
           max={FONT_SIZE_MAX}
           step={1}
           suffix="px"
-          ariaLabel="Terminal font size"
+          ariaLabel={t("terminal.ariaFontSize")}
         />
       </SettingsRow>
 
       {/* Cursor style — segmented with shape previews */}
       <SettingsRow
-        label="Cursor style"
+        label={t("terminal.cursorStyle")}
         dirty={cursorStyle !== undefined}
         onReset={() => setCursorStyle(undefined)}
       >
         <SegmentedControl
-          options={CURSOR_OPTIONS}
+          options={cursorOptions}
           value={effectiveCursor}
           onChange={setCursorStyle}
-          label="Cursor style"
+          label={t("terminal.cursorStyle")}
         />
       </SettingsRow>
 
       {/* Font family — full-width Select (independent of the editor font) */}
-      <SettingsSection label="Font family" dirty={family !== undefined} onReset={resetFamily}>
+      <SettingsSection
+        label={t("terminal.fontFamily")}
+        dirty={family !== undefined}
+        onReset={resetFamily}
+      >
         <Select value={familySelect} onValueChange={handleFamilySelectChange}>
-          <SelectTrigger ariaLabel="Terminal font family">
-            <SelectValue placeholder="Select font family" />
+          <SelectTrigger ariaLabel={t("terminal.ariaFontFamily")}>
+            <SelectValue placeholder={t("terminal.fontFamilyPlaceholder")} />
           </SelectTrigger>
           <SelectContent>
-            {DEFAULT_FONT_FAMILIES.map((f) => (
+            {fontFamilyOptions.map((f) => (
               <SelectItem key={f.value} value={f.value}>
                 {f.label}
               </SelectItem>
@@ -221,7 +240,7 @@ export function TerminalPanel() {
               type="text"
               value={customFamilyInput}
               onChange={handleCustomFamilyChange}
-              placeholder="e.g. Fira Code"
+              placeholder={t("terminal.customFamilyPlaceholder")}
               className={cn(
                 "w-full rounded-(--radius-control) border border-border bg-background px-2 py-1",
                 "text-app-body text-foreground outline-none placeholder:text-muted-foreground",
@@ -229,11 +248,13 @@ export function TerminalPanel() {
               )}
             />
             {fontAvailable === true && (
-              <span className="text-app-ui-sm text-muted-foreground">Detected on this system.</span>
+              <span className="text-app-ui-sm text-muted-foreground">
+                {t("terminal.fontDetected")}
+              </span>
             )}
             {fontAvailable === false && (
               <span className="text-app-ui-sm text-[var(--state-warning-fg)]">
-                Not found on this system — the preview will use the fallback font.
+                {t("terminal.fontNotFound")}
               </span>
             )}
           </div>
@@ -242,7 +263,7 @@ export function TerminalPanel() {
 
       {/* Ligatures — Checkbox + explanation */}
       <SettingsSection
-        label="Font ligatures"
+        label={t("terminal.fontLigatures")}
         dirty={ligatures !== undefined}
         onReset={() => setFontLigatures(undefined)}
       >
@@ -252,12 +273,10 @@ export function TerminalPanel() {
             checked={effectiveLigatures}
             onCheckedChange={(v) => setFontLigatures(v === true)}
           />
-          <span className="text-app-body text-foreground">Enable ligatures</span>
+          <span className="text-app-body text-foreground">{t("terminal.ligatures.enable")}</span>
         </label>
         <p className="text-app-ui-sm text-muted-foreground">
-          Renders multi-character sequences like <code>=&gt;</code>, <code>!=</code>,{" "}
-          <code>&gt;=</code> as single glyphs when the font supports it. Applies to terminal
-          programs (shells, TUIs) too.
+          {t("terminal.ligatures.description")}
         </p>
       </SettingsSection>
     </div>
@@ -279,11 +298,13 @@ export function TerminalPanel() {
  * tracks what xterm renders in the live terminal panel.
  */
 function TerminalPreview({
+  label,
   fontFamily,
   fontSize,
   ligatures,
   cursorStyle,
 }: {
+  label: string;
   fontFamily: string;
   fontSize: number;
   ligatures: boolean;
@@ -303,7 +324,7 @@ function TerminalPreview({
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-app-ui-sm text-muted-foreground">Preview</span>
+      <span className="text-app-ui-sm text-muted-foreground">{label}</span>
       <div
         className={cn(
           "rounded-(--radius-control) border border-border bg-background px-3 py-2 text-foreground",

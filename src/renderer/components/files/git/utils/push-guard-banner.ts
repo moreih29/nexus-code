@@ -1,6 +1,7 @@
 /**
  * Pure view model for push guardrail banners.
  */
+import i18next from "i18next";
 
 export interface PushGuardPushOptions {
   readonly force?: boolean;
@@ -49,15 +50,16 @@ export function buildPushGuardBannerView({
   pendingNonFFRetry,
   inFlightKind,
 }: PushGuardBannerInput): PushGuardBannerView | null {
+  const t = i18next.t.bind(i18next);
   if (error?.kind === "non-fast-forward") {
     return {
       variant: "warning",
-      message: "Remote has commits you don't have. Pull first?",
+      message: t("files:git.pushGuard.nonFastForward"),
       details: error.details,
       actions: [
-        { kind: "pull", label: "Pull" },
-        { kind: "force", label: "Force", destructive: true },
-        { kind: "cancel", label: "Cancel" },
+        { kind: "pull", label: t("files:git.pushGuard.pull") },
+        { kind: "force", label: t("files:git.pushGuard.force"), destructive: true },
+        { kind: "cancel", label: t("files:git.pushGuard.cancel") },
       ],
     };
   }
@@ -65,9 +67,9 @@ export function buildPushGuardBannerView({
   if (error?.kind === "force-push-rejected") {
     return {
       variant: "warning",
-      message: "Force push rejected (lease check failed) — Fetch first?",
+      message: t("files:git.pushGuard.forcePushRejected"),
       details: error.details,
-      actions: [{ kind: "fetch", label: "Fetch" }],
+      actions: [{ kind: "fetch", label: t("files:git.pushGuard.fetch") }],
     };
   }
 
@@ -82,8 +84,8 @@ export function buildPushGuardBannerView({
   if (pendingNonFFRetry && !error && !inFlightKind) {
     return {
       variant: "success",
-      message: "Pulled. Retry push?",
-      actions: [{ kind: "retry", label: "Retry" }],
+      message: t("files:git.pushGuard.pulledRetry"),
+      actions: [{ kind: "retry", label: t("files:git.pushGuard.retry") }],
     };
   }
 

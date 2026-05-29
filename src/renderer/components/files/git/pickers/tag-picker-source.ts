@@ -10,6 +10,7 @@
  *   - `delete-local`  → local tag rows open a local delete confirmation.
  *   - `delete-remote` → selected-remote tag rows open a remote delete confirmation.
  */
+import i18next from "i18next";
 import type { RemoteTag, Tag } from "../../../../../shared/git/types";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
 import { relativeTime } from "../utils/relative-time";
@@ -161,34 +162,35 @@ function tagPickerCopy(
   PaletteSource<TagPickItem>,
   "title" | "placeholder" | "emptyQueryMessage" | "noResultsMessage"
 > {
+  const t = i18next.t.bind(i18next);
   switch (mode) {
     case "create":
       return {
-        title: "Create a new tag",
-        placeholder: "Type a tag name to create…",
-        emptyQueryMessage: "Loading tags…",
-        noResultsMessage: "Type to create your first tag",
+        title: t("files:git.tagPicker.createTitle"),
+        placeholder: t("files:git.tagPicker.createPlaceholder"),
+        emptyQueryMessage: t("files:git.tagPicker.loadingTags"),
+        noResultsMessage: t("files:git.tagPicker.typeForFirst"),
       };
     case "delete-local":
       return {
-        title: "Select a tag to delete",
-        placeholder: "Search local tags…",
-        emptyQueryMessage: "Loading local tags…",
-        noResultsMessage: "No tags to delete",
+        title: t("files:git.tagPicker.deleteLocalTitle"),
+        placeholder: t("files:git.tagPicker.deleteLocalPlaceholder"),
+        emptyQueryMessage: t("files:git.tagPicker.loadingLocalTags"),
+        noResultsMessage: t("files:git.tagPicker.noTagsToDelete"),
       };
     case "delete-remote":
       return {
-        title: "Select a remote tag to delete",
-        placeholder: "Search remote tags…",
-        emptyQueryMessage: "Loading remote tags…",
-        noResultsMessage: "No remote tags to delete",
+        title: t("files:git.tagPicker.deleteRemoteTitle"),
+        placeholder: t("files:git.tagPicker.deleteRemotePlaceholder"),
+        emptyQueryMessage: t("files:git.tagPicker.loadingRemoteTags"),
+        noResultsMessage: t("files:git.tagPicker.noRemoteTagsToDelete"),
       };
     case "browse":
       return {
-        title: "Tags",
-        placeholder: "Search tags or type a name to create…",
-        emptyQueryMessage: "Loading tags…",
-        noResultsMessage: "No matching tags.",
+        title: t("files:git.tagPicker.browseTitle"),
+        placeholder: t("files:git.tagPicker.browsePlaceholder"),
+        emptyQueryMessage: t("files:git.tagPicker.loadingTags"),
+        noResultsMessage: t("files:git.tagPicker.noMatchingTags"),
       };
   }
 }
@@ -229,6 +231,7 @@ function localTagToItem(
  * Converts a selected-remote tag row into a destructive palette item.
  */
 function remoteTagToItem(tag: RemoteTag): RemoteTagPickItem {
+  const t = i18next.t.bind(i18next);
   const formatted = formatRemoteTag(tag);
   return {
     id: `tag:remote:${tag.remote}:${tag.name}:${tag.sha}`,
@@ -236,8 +239,8 @@ function remoteTagToItem(tag: RemoteTag): RemoteTagPickItem {
     description: formatted,
     detail: `Remote ${tag.remote} · ${formatted}`,
     kindLabel: "delete",
-    ariaLabel: `Delete remote tag ${tag.remote}/${tag.name}`,
-    tooltip: `Delete remote tag on ${tag.remote}`,
+    ariaLabel: t("files:git.tagPicker.deleteRemoteTagAria", { remote: tag.remote, name: tag.name }),
+    tooltip: t("files:git.tagPicker.deleteRemoteTagTooltip", { remote: tag.remote }),
     tone: "destructive",
     kind: "tag",
     scope: "remote",
@@ -251,11 +254,12 @@ function remoteTagToItem(tag: RemoteTag): RemoteTagPickItem {
  * name so "type name → Enter" opens the FormDialog prefilled.
  */
 function createTagItem(query: string): Extract<TagPickItem, { kind: "create" }> {
+  const t = i18next.t.bind(i18next);
   return {
     id: query ? `create:${query}` : "create",
-    label: query ? `Create tag: '${query}'` : "Create tag…",
+    label: query ? t("files:git.tagPicker.createRow", { name: query }) : t("files:git.tagPicker.createRowEmpty"),
     kindLabel: "+",
-    ariaLabel: query ? `Create tag ${query}` : "Create tag",
+    ariaLabel: query ? t("files:git.tagPicker.createRow", { name: query }) : t("files:git.tagPicker.createRowEmpty"),
     kind: "create",
     ...(query ? { defaultName: query } : {}),
   };
@@ -269,11 +273,12 @@ function detailForLocalMode(
   formatted: string,
   exactCreateConflict: boolean,
 ): string | undefined {
+  const t = i18next.t.bind(i18next);
   switch (mode) {
     case "create":
-      return `${exactCreateConflict ? "Already exists" : "Existing tag"} · ${formatted}`;
+      return `${exactCreateConflict ? t("files:git.tagPicker.alreadyExists") : t("files:git.tagPicker.existingTag")} · ${formatted}`;
     case "delete-local":
-      return `Local tag · ${formatted}`;
+      return `${t("files:git.tagPicker.localTag")} · ${formatted}`;
     case "browse":
       return undefined;
   }
@@ -299,13 +304,14 @@ function ariaLabelForLocalMode(
   mode: Exclude<TagPickerMode, "delete-remote">,
   name: string,
 ): string {
+  const t = i18next.t.bind(i18next);
   switch (mode) {
     case "delete-local":
-      return `Delete local tag ${name}`;
+      return t("files:git.tagPicker.deleteLocalTag", { name });
     case "create":
-      return `Existing tag ${name}`;
+      return t("files:git.tagPicker.existingTagAria", { name });
     case "browse":
-      return `${name} tag`;
+      return t("files:git.tagPicker.tagAria", { name });
   }
 }
 
@@ -313,11 +319,12 @@ function ariaLabelForLocalMode(
  * Describes local row intent through the palette's current tooltip channel.
  */
 function tooltipForLocalMode(mode: Exclude<TagPickerMode, "delete-remote">): string | undefined {
+  const t = i18next.t.bind(i18next);
   switch (mode) {
     case "create":
-      return "Existing tag shown for conflict context";
+      return t("files:git.tagPicker.existingTagTooltip");
     case "delete-local":
-      return "Delete local tag";
+      return t("files:git.tagPicker.deleteLocalTagTooltip");
     case "browse":
       return undefined;
   }
@@ -354,7 +361,8 @@ function formatRemoteTag(tag: RemoteTag): string {
  * Formats tag timestamps with a stable fallback for lightweight tags.
  */
 function formatTagDate(tag: Tag): string {
-  if (tag.taggerDate === null) return `${tag.sha.slice(0, 7)} · no tagger date`;
+  const t = i18next.t.bind(i18next);
+  if (tag.taggerDate === null) return `${tag.sha.slice(0, 7)} · ${t("files:git.tagPicker.noTaggerDate")}`;
   return `${relativeTime(tag.taggerDate)} · ${tag.sha.slice(0, 7)}`;
 }
 

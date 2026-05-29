@@ -5,12 +5,20 @@
  * `MenuItemConstructorOptions` shape and binds command items to a
  * `webContents.send` that the renderer's command bridge receives.
  *
- * Called once at app boot. Re-running it replaces the previous menu —
- * but we intentionally don't expose a re-install path: command IDs are
- * static, and re-applying the menu would briefly drop pending menu
- * accelerators on macOS.
+ * Called at app boot and re-called on language change.  Re-running it
+ * replaces the previous menu atomically via Menu.setApplicationMenu().
+ *
+ * The original "intentional re-install block" has been removed because
+ * every command item in this codebase sets `registerAccelerator: false`
+ * (the renderer owns all keystrokes; Cocoa only receives role items such
+ * as Cut/Copy/Paste/Quit).  There are therefore no pending OS-level
+ * accelerators that could be dropped by a menu replacement — the only
+ * concern that motivated the block no longer applies.  Role items
+ * (Cut/Copy/Paste/Quit/Hide/…) keep their default accelerator
+ * registration and are unaffected by menu replacement.
  */
 
+import type { TFunction } from "i18next";
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from "electron";
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import type { CommandId } from "../../../shared/keybindings/commands";
@@ -20,12 +28,19 @@ import { buildMenuTemplate, type MenuItemSpec } from "./template";
 export interface InstallAppMenuOptions {
   /** Called when the user clicks "Check for Updates..." in the App menu. */
   onCheckForUpdates?: () => void;
+  /**
+   * i18next TFunction for the active main-process locale.
+   * Pass `getMainT()` from src/main/i18n.ts.  When omitted the English
+   * fallback strings embedded in buildMenuTemplate are used.
+   */
+  t?: TFunction;
 }
 
 export function installAppMenu(options: InstallAppMenuOptions = {}): void {
   const template = buildMenuTemplate({
     isMac: isMac(),
     appName: app.getName(),
+    t: options.t,
   });
 
   const electronTemplate = template.map((spec) => toElectron(spec, options));

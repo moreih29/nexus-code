@@ -2,6 +2,7 @@
  * GitHeader renders the Source Control title and top-level action buttons.
  */
 import { FoldVertical, RefreshCw, UnfoldVertical } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { GitAutofetchIntervalMin, RepoCapabilities } from "../../../../../shared/git/types";
 import type { ViewMode } from "../../../../../shared/types/panel";
 import { Button } from "../../../ui/button";
@@ -95,10 +96,11 @@ export function GitHeader({
   lastFetchedAt,
   onSetAutofetchInterval,
 }: GitHeaderProps) {
+  const { t } = useTranslation("files");
   return (
     <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-border px-2">
       <span className="min-w-0 truncate text-app-label uppercase text-muted-foreground">
-        Source Control
+        {t("git.panel.header.title")}
       </span>
       <div className="flex shrink-0 items-center gap-0.5">
         <Button
@@ -106,8 +108,8 @@ export function GitHeader({
           variant="ghost"
           size="icon-sm"
           className="size-7"
-          aria-label="Refresh source control"
-          title="Refresh source control"
+          aria-label={t("git.panel.header.refresh")}
+          title={t("git.panel.header.refresh")}
           disabled={disabled || refreshing}
           onClick={onRefresh}
         >
@@ -130,8 +132,8 @@ export function GitHeader({
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label={hasAnyExpanded ? "Collapse all folders" : "Expand all folders"}
-            title={hasAnyExpanded ? "Collapse all folders" : "Expand all folders"}
+            aria-label={hasAnyExpanded ? t("git.panel.header.collapseAll") : t("git.panel.header.expandAll")}
+            title={hasAnyExpanded ? t("git.panel.header.collapseAll") : t("git.panel.header.expandAll")}
             disabled={disabled || !hasChanges}
             onClick={onToggleAllTrees}
           >

@@ -1,6 +1,8 @@
 import { useMonaco } from "@monaco-editor/react";
+import i18next from "i18next";
 import type * as Monaco from "monaco-editor";
 import { lazy, type ReactNode, Suspense, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import type { DiffTabPayload } from "../../../shared/types/tab";
 import { useMonacoThemeName } from "../../hooks/use-monaco-theme-name";
@@ -69,6 +71,7 @@ function useDelayedRefreshing(status: DiffContentStatus): boolean {
  * Monaco-backed tab body for Source Control file diffs.
  */
 export function DiffTab(payload: DiffTabPayload) {
+  const { t } = useTranslation();
   const { left, right, status, reload } = useDiffContent(payload);
   const showRefreshing = useDelayedRefreshing(status);
   const monacoTheme = useMonacoThemeName();
@@ -104,7 +107,7 @@ export function DiffTab(payload: DiffTabPayload) {
   if (!leftContent || !rightContent) {
     return (
       <DiffShell left={left} right={right} showRefreshing={showRefreshing} onReload={reload}>
-        <EmptyState title="Loading diff…" tone="status" className="min-h-0" />
+        <EmptyState title={t("editor.loading_diff")} tone="status" className="min-h-0" />
       </DiffShell>
     );
   }
@@ -124,7 +127,7 @@ export function DiffTab(payload: DiffTabPayload) {
       <MissingContentNotice side="left" content={leftContent} />
       <MissingContentNotice side="right" content={rightContent} />
       <div className="min-h-0 flex-1">
-        <Suspense fallback={<EmptyState title="Loading Monaco diff editor…" tone="status" className="min-h-0" />}>
+        <Suspense fallback={<EmptyState title={t("editor.loading_monaco")} tone="status" className="min-h-0" />}>
           <LazyDiffEditor
             height="100%"
             original={leftContent.content}
@@ -158,18 +161,19 @@ interface DiffShellProps {
  * Provides the common header and body frame for the diff editor states.
  */
 function DiffShell({ left, right, showRefreshing, onReload, children }: DiffShellProps) {
+  const { t } = useTranslation();
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
       <div className="flex h-9 shrink-0 items-center justify-between gap-3 border-b border-border bg-muted px-3 text-app-ui-sm">
         <div className="flex min-w-0 flex-1 items-center gap-3">
-          <SideLabel label="Left" state={left} />
+          <SideLabel label={t("editor.left")} state={left} />
           <span className="text-muted-foreground">→</span>
-          <SideLabel label="Right" state={right} />
+          <SideLabel label={t("editor.right")} state={right} />
         </div>
         <div className="flex shrink-0 items-center gap-2 text-muted-foreground">
-          {showRefreshing && <span>Refreshing…</span>}
+          {showRefreshing && <span>{t("editor.refreshing")}</span>}
           <Button type="button" variant="ghost" size="sm" onClick={onReload}>
-            Reload
+            {t("editor.reload")}
           </Button>
         </div>
       </div>
@@ -204,8 +208,9 @@ function MissingContentNotice({
   side: "left" | "right";
   content: DiffSideReadyState;
 }) {
+  const { t } = useTranslation();
   if (content.placeholder !== "missing") return null;
-  const label = side === "left" ? "Left side is missing" : "Right side is missing";
+  const label = side === "left" ? t("editor.left_missing") : t("editor.right_missing");
   return (
     <div className="shrink-0 border-b border-border bg-muted px-3 py-1 text-app-ui-sm text-muted-foreground">
       {label}; showing it as an empty file.
@@ -239,11 +244,11 @@ function blockingPlaceholder(
   const description = binarySides
     .map(
       (side) =>
-        `${side.request.side === "left" ? "Left" : "Right"}: ${side.request.relPath} (${formatBytes(side.sizeBytes)})`,
+        `${side.request.side === "left" ? i18next.t("editor.left") : i18next.t("editor.right")}: ${side.request.relPath} (${formatBytes(side.sizeBytes)})`,
     )
     .join("\n");
 
-  return { title: "Cannot display binary file in diff.", description };
+  return { title: i18next.t("editor.no_display_binary"), description };
 }
 
 /**

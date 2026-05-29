@@ -1,6 +1,6 @@
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
-import { initMainLogger } from "../shared/log/main";
+import { createLogger, initMainLogger } from "../shared/log/main";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { installErrorSafetyNet } from "./error-safety-net";
 import { registerAppStateChannel } from "./features/app-state";
@@ -29,6 +29,7 @@ import { registerAutofetchChannel } from "./features/git/ipc/autofetch-handlers"
 import { type LspHostHandle, startConfiguredLspHost } from "./features/lsp/host";
 import { registerClipboardChannel } from "./features/clipboard/ipc";
 import { registerLspChannel } from "./features/lsp/ipc";
+import { getMainI18n, getMainT, initMainI18n } from "./i18n";
 import { installAppMenu } from "./features/menu";
 import { registerPanelChannel } from "./features/panel";
 import { startAgentPtyHost } from "./features/pty/agent-host";
@@ -56,6 +57,8 @@ import { WorkspaceStorage } from "./infra/storage/workspace-storage";
 
 // Configure logging transports and renderer IPC relay before any window opens.
 initMainLogger();
+
+const logger = createLogger("main");
 
 // Install global error safety net immediately after the logger is ready so
 // every subsequent initialisation step is covered. See error-safety-net.ts
@@ -169,7 +172,49 @@ registerWorkspaceChannel(workspaceManager, {
   browseRegistry: sshBrowseRegistry,
 });
 registerDialogChannel();
-registerAppStateChannel(stateService);
+registerAppStateChannel(stateService, {
+  /**
+   * Called synchronously inside the appState.set IPC handler whenever the
+   * renderer persists a new language preference.  By the time any renderer
+   * can send this call, app.whenReady() has resolved and initMainI18n() has
+   * completed, so getMainI18n() / getMainT() are guaranteed to be ready.
+   *
+   * Steps:
+   *   (a) Switch the main-process i18next instance to the new locale so all
+   *       subsequent t() calls (dialogs, menu re-build) resolve correctly.
+   *   (b) Rebuild and reinstall the native application menu with the updated
+   *       labels.  All command items use registerAccelerator:false — the
+   *       renderer owns every keystroke — so there are no pending OS
+   *       accelerators that could be dropped by the replacement.
+   *   (c) Broadcast `appState.languageChanged` to all open renderer windows
+   *       so each window's i18next instance and html[lang] attribute can be
+   *       updated even when it was not the window that triggered the change.
+   *       The `language` value itself is the domain correlation identifier.
+   */
+  onLanguageChanged(language) {
+    // changeLanguage() is async even though all locale resources are
+    // pre-bundled.  If it rejects (e.g. an i18next plugin error) we still
+    // want the menu and broadcast to proceed with whatever state i18next
+    // ended up in — a stale but functional menu is better than no rebuild
+    // at all.  The rejection is logged and does not propagate.
+    void getMainI18n()
+      .changeLanguage(language)
+      .catch((err: unknown) => {
+        logger.error(`i18n changeLanguage failed (${String(err)})`, {
+          correlationId: language,
+        });
+      })
+      .finally(() => {
+        installAppMenu({
+          onCheckForUpdates: () => {
+            updatesHandle?.checkManual();
+          },
+          t: getMainT(),
+        });
+        broadcast("appState", "languageChanged", { language });
+      });
+  },
+});
 registerFsChannel(workspaceManager, agentFsWatcher, workspaceStorage);
 registerPanelChannel(workspaceStorage);
 registerSshChannel();
@@ -198,15 +243,27 @@ app.whenReady().then(async () => {
     });
   }
 
+  // Determine the active language.  app.getLocale() is only reliable after
+  // app.whenReady() resolves (Electron guarantee), so this must stay here.
+  // When the user has never explicitly chosen a language we follow the OS
+  // locale (ko / everything-else → en) without persisting the derived value —
+  // this preserves the "absent = follow OS" semantic so a future locale change
+  // is picked up automatically on next launch.
+  const persistedLang = stateService.getState().language;
+  const lang = persistedLang ?? (app.getLocale().startsWith("ko") ? "ko" : "en");
+  await initMainI18n(lang);
+
   // Replace Electron's default menu (which still binds Cmd+W to "Close
   // Window" and Cmd+R to "Reload") with our command-driven template
   // before any window opens. Menu accelerators belong to the menu, not
   // the renderer, so installing late lets the defaults steal keystrokes
-  // during boot.
+  // during boot.  Pass the now-ready TFunction so the initial menu
+  // renders in the user's active language rather than the English fallback.
   installAppMenu({
     onCheckForUpdates: () => {
       updatesHandle?.checkManual();
     },
+    t: getMainT(),
   });
 
   // Fire the one-time silent auto update check now that the app is ready.

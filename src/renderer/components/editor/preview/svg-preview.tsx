@@ -17,7 +17,7 @@
 // edits, and revoke the previous URL on cleanup to avoid leaking memory.
 
 import { useEffect, useState } from "react";
-import { capPreviewSource, PREVIEW_TRUNCATED_MESSAGE } from "./constants";
+import { capPreviewSource, getPreviewTruncatedMessage } from "./constants";
 
 interface SvgPreviewProps {
   source: string;
@@ -34,7 +34,7 @@ export function SvgPreview({ source }: SvgPreviewProps) {
           role="status"
           className="px-3 py-1 text-app-ui-sm text-[var(--state-warning-fg)] bg-[var(--state-warning-bg)] border-b border-[var(--state-warning-border)]"
         >
-          {PREVIEW_TRUNCATED_MESSAGE}
+          {getPreviewTruncatedMessage()}
         </div>
       )}
       <div className="app-scrollbar flex-1 min-h-0 flex items-center justify-center p-4 overflow-auto">

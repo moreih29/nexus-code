@@ -38,6 +38,7 @@
  * surface-error.test.ts verify that one surfaceError call produces exactly one surface.
  */
 
+import i18next from "i18next";
 import type { AppError } from "../../../shared/error/app-error";
 import { createLogger } from "../../../shared/log/renderer";
 import { showToast } from "../../components/ui/toast";
@@ -137,7 +138,7 @@ function buildUserMessage(error: AppError): string {
     case "cancelled":
       // Cancelled errors never reach the user surface. This branch is a
       // defensive fallback only.
-      return "The operation was cancelled.";
+      return i18next.t("errors:generic.cancelled");
 
     case "invalid-input":
       return buildInvalidInputMessage(error);
@@ -147,72 +148,77 @@ function buildUserMessage(error: AppError): string {
 
     case "bug":
       // Bug category always shows a generic message — never internal detail.
-      return "Something went wrong. Check the log for details.";
+      return i18next.t("errors:generic.bug");
   }
 }
 
 /** Friendly message for invalid-input errors, with optional fs-code mapping. */
 function buildInvalidInputMessage(error: AppError): string {
   if (error.domain === "fs" && error.code) {
-    return fsCodeToUserMessage(error.code) ?? "The input is invalid.";
+    return fsCodeToUserMessage(error.code) ?? i18next.t("errors:generic.invalid-input");
   }
-  return "The input is invalid.";
+  return i18next.t("errors:generic.invalid-input");
 }
 
 /** Friendly message for failed errors with fs / git code awareness. */
 function buildFailedMessage(error: AppError): string {
   if (error.domain === "fs" && error.code) {
-    return fsCodeToUserMessage(error.code) ?? "The operation failed.";
+    return fsCodeToUserMessage(error.code) ?? i18next.t("errors:generic.failed");
   }
   if (error.domain === "git" && error.code) {
-    return gitCodeToUserMessage(error.code) ?? "The operation failed.";
+    return gitCodeToUserMessage(error.code) ?? i18next.t("errors:generic.failed");
   }
-  return "The operation failed.";
+  return i18next.t("errors:generic.failed");
 }
 
 /**
- * Maps FsErrorCode strings to user-friendly phrases.
- * These are the same messages previously scattered in toFsToast and
- * fileErrorMessage — centralised here so surfaceError is the single owner.
+ * Maps FsErrorCode strings to localised user-facing phrases via the errors
+ * namespace (errors:fs.<CODE>).  i18next.t is evaluated at call time so that
+ * language switches are reflected immediately without a page reload.
  *
- * Returns undefined for unknown codes so callers fall back to the generic phrase.
+ * Returns the generic fallback key's value for unknown codes so callers can
+ * fall back to the generic phrase.
  */
 function fsCodeToUserMessage(code: string): string | undefined {
   switch (code) {
     case "NOT_FOUND":
-      return "File or folder not found.";
+      return i18next.t("errors:fs.NOT_FOUND");
     case "PERMISSION_DENIED":
-      return "Permission denied.";
+      return i18next.t("errors:fs.PERMISSION_DENIED");
     case "ALREADY_EXISTS":
-      return "A file or folder with that name already exists.";
+      return i18next.t("errors:fs.ALREADY_EXISTS");
     case "IS_DIRECTORY":
-      return "Cannot open a directory as a file.";
+      return i18next.t("errors:fs.IS_DIRECTORY");
     case "NOT_DIRECTORY":
-      return "Path is not a folder.";
+      return i18next.t("errors:fs.NOT_DIRECTORY");
     case "TOO_LARGE":
-      return "File too large to open.";
+      return i18next.t("errors:fs.TOO_LARGE");
     case "OUT_OF_WORKSPACE":
-      return "This path is outside the workspace.";
+      return i18next.t("errors:fs.OUT_OF_WORKSPACE");
     case "NOT_EMPTY":
-      return "Folder is not empty.";
+      return i18next.t("errors:fs.NOT_EMPTY");
     case "CROSS_DEVICE":
-      return "Can't move across filesystems.";
+      return i18next.t("errors:fs.CROSS_DEVICE");
     default:
       return undefined;
   }
 }
 
-/** Maps git domain codes to user-friendly phrases. Extensible as new codes emerge. */
+/**
+ * Maps git domain codes to localised user-facing phrases via the errors
+ * namespace (errors:git.<code>).  Evaluated at call time for live language
+ * switching.
+ */
 function gitCodeToUserMessage(code: string): string | undefined {
   switch (code) {
     case "not-repo":
-      return "Not a git repository.";
+      return i18next.t("errors:git.not-repo");
     case "auth":
-      return "Authentication failed.";
+      return i18next.t("errors:git.auth");
     case "no-upstream":
-      return "No upstream branch is configured.";
+      return i18next.t("errors:git.no-upstream");
     case "conflict":
-      return "There is a conflict that must be resolved.";
+      return i18next.t("errors:git.conflict");
     default:
       return undefined;
   }

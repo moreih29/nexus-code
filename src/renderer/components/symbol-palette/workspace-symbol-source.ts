@@ -1,3 +1,4 @@
+import i18next from "i18next";
 import { fileUriToAbsolutePath } from "../../../shared/fs/file-uri";
 import type { OpenEditorOptions } from "../../services/editor";
 import { revealEditorAt } from "../../services/editor/tabs";
@@ -62,12 +63,13 @@ export function createWorkspaceSymbolPaletteSource({
   search = searchWorkspaceSymbols,
   openEditor = revealEditorAt,
 }: CreateWorkspaceSymbolPaletteSourceInput): PaletteSource<WorkspaceSymbolPaletteItem> {
+  const t = i18next.t.bind(i18next);
   return {
     id: "workspace-symbols",
-    title: "Go to Symbol in Workspace",
-    placeholder: "Search workspace symbols",
-    emptyQueryMessage: "Type to search",
-    noResultsMessage: "No workspace symbols found.",
+    title: t("common:palette.go_to_symbol"),
+    placeholder: t("common:palette.search_symbols"),
+    emptyQueryMessage: t("common:palette.type_to_search"),
+    noResultsMessage: t("common:palette.no_results"),
     async search(query, signal) {
       const symbols = await search({ workspaceId, query, signal });
       return symbols.map((symbol) => workspaceSymbolToPaletteItem(symbol, workspaceRoot));
@@ -91,7 +93,7 @@ function workspaceSymbolToPaletteItem(
   const pathLabel = filePath ? relPath(filePath, workspaceRoot) : uri;
   const locationLabel = `${pathLabel}:${symbol.location.range.startLineNumber}:${symbol.location.range.startColumn}`;
   const container = symbol.containerName ? `${symbol.containerName} · ` : "";
-  const kindLabel = SYMBOL_KIND_LABELS[symbol.kind] ?? "Symbol";
+  const kindLabel = SYMBOL_KIND_LABELS[symbol.kind] ?? i18next.t("common:palette.symbol_fallback");
 
   return {
     id: workspaceSymbolDedupeKey(symbol),

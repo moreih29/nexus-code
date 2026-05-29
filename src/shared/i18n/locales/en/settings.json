@@ -1,0 +1,216 @@
+{
+  "title": "Settings",
+  "nav": {
+    "appearance": "Appearance",
+    "editor": "Editor",
+    "terminal": "Terminal",
+    "workspaces": "Workspaces",
+    "notifications": "Notifications",
+    "browserPermissions": "Browser Permissions",
+    "about": "About",
+    "group": {
+      "settings": "Settings"
+    }
+  },
+  "dialog": {
+    "close": "Close settings",
+    "search": {
+      "placeholder": "Search",
+      "clear": "Clear search",
+      "empty": "No matches."
+    },
+    "nav": "Settings navigation",
+    "modifiedAria": "modified",
+    "modifiedTitle": "Modified in this session"
+  },
+  "browserPermissions": {
+    "globalHeading": "Global permissions",
+    "globalDescription": "When on, a permission is auto-allowed in every workspace. All off by default.",
+    "advanced": "Advanced",
+    "siteMemoryHeading": "Remembered site permissions",
+    "siteMemoryDescription": "Decisions you chose to remember when sites requested permissions.",
+    "scopeLabel": "Remembered scope",
+    "scopeCurrent": "Current workspace",
+    "scopeAll": "All workspaces",
+    "loadingPermissions": "Loading remembered permissions",
+    "noPermissionsTitle": "No remembered permissions",
+    "noPermissionsDescription": "When you choose \"Remember\" while allowing or blocking a site permission, it appears here.",
+    "allowedGlobally": "Allowed globally",
+    "deleteAriaLabel": "Delete remembered permission for {{origin}}",
+    "deleteTitle": "Delete remembered permission",
+    "deleteDescription": "Removing this site's memory will prompt you again on its next request.",
+    "deleteConfirm": "Delete",
+    "loadFailed": "Failed to load the list.",
+    "noActiveWorkspace": "No active workspace.",
+    "permission": {
+      "media": {
+        "label": "Camera & microphone",
+        "description": "This site can access your camera and microphone."
+      },
+      "geolocation": {
+        "label": "Location",
+        "description": "This site can request your current location."
+      },
+      "notifications": {
+        "label": "Notifications",
+        "description": "This site can send you notifications."
+      },
+      "displayCapture": {
+        "label": "Screen sharing",
+        "description": "This site can capture your screen or a window."
+      },
+      "clipboardRead": {
+        "label": "Clipboard read",
+        "description": "This site can read content copied to your clipboard."
+      },
+      "openExternal": {
+        "label": "Open external apps",
+        "description": "This site can launch external applications."
+      },
+      "fileSystem": {
+        "label": "File access",
+        "description": "This site can access your local file system."
+      },
+      "midi": {
+        "label": "MIDI devices",
+        "description": "This site can connect to your MIDI devices."
+      },
+      "fullscreen": {
+        "label": "Fullscreen",
+        "description": "This site can enter fullscreen mode."
+      },
+      "inputLock": {
+        "label": "Input lock",
+        "description": "This site can capture your mouse pointer and keyboard input."
+      },
+      "idleDetection": {
+        "label": "Idle detection",
+        "description": "This site can detect when you are active or idle."
+      },
+      "windowManagement": {
+        "label": "Window placement",
+        "description": "This site can control window position and size."
+      },
+      "speakerSelection": {
+        "label": "Speaker selection",
+        "description": "This site can choose your audio output device."
+      },
+      "drm": {
+        "label": "Protected content (DRM)",
+        "description": "This site can play DRM-protected media."
+      }
+    },
+    "permissionLabel": {
+      "clipboardRead": "Clipboard read",
+      "clipboardSanitizedWrite": "Clipboard write",
+      "displayCapture": "Screen sharing",
+      "fullscreen": "Fullscreen",
+      "geolocation": "Location",
+      "idleDetection": "Idle detection",
+      "media": "Camera & microphone",
+      "mediaKeySystem": "Protected content (DRM)",
+      "midi": "MIDI",
+      "midiSysex": "MIDI SysEx",
+      "notifications": "Notifications",
+      "pointerLock": "Pointer lock",
+      "keyboardLock": "Keyboard lock",
+      "openExternal": "Open external apps",
+      "speakerSelection": "Speaker selection",
+      "storageAccess": "Storage access",
+      "topLevelStorageAccess": "Top-level storage access",
+      "windowManagement": "Window placement",
+      "unknown": "Unknown permission",
+      "fileSystem": "File access"
+    }
+  },
+  "permissionPrompt": {
+    "srTitle": "Browser permission request",
+    "requesting": "is requesting access to",
+    "allowOrBlockMany": "Allow or block access to the permissions above.",
+    "allowOrBlockOne": "Allow or block access to this permission.",
+    "remember": "Remember this site in this workspace",
+    "block": "Block",
+    "allow": "Allow",
+    "escHint": "ESC or click outside → block once"
+  },
+  "appearance": {
+    "language": "Language",
+    "theme": "Theme",
+    "windowOpacity": "Window opacity",
+    "reset": {
+      "language": "Reset Language",
+      "theme": "Reset Theme",
+      "windowOpacity": "Reset Window opacity"
+    }
+  },
+  "editor": {
+    "fontSize": "Font size",
+    "lineHeight": "Line height",
+    "fontFamily": "Font family",
+    "fontLigatures": "Font ligatures",
+    "preview": "Preview",
+    "ligatures": {
+      "enable": "Enable ligatures",
+      "description": "Renders multi-character sequences like =>, !=, >= as single glyphs when the font supports it. Toggle to see the effect in the preview above."
+    },
+    "fontFamilyPlaceholder": "Select font family",
+    "customFamilyPlaceholder": "e.g. Fira Code",
+    "fontFamilySystem": "System",
+    "fontFamilyOther": "Other...",
+    "fontDetected": "Detected on this system.",
+    "fontNotFound": "Not found on this system — the preview will use the fallback font.",
+    "ariaFontSize": "Editor font size",
+    "ariaFontFamily": "Font family",
+    "reset": {
+      "fontSize": "Reset Font size",
+      "lineHeight": "Reset Line height",
+      "fontFamily": "Reset Font family",
+      "fontLigatures": "Reset Font ligatures"
+    }
+  },
+  "terminal": {
+    "fontSize": "Font size",
+    "cursorStyle": "Cursor style",
+    "fontFamily": "Font family",
+    "fontLigatures": "Font ligatures",
+    "preview": "Preview",
+    "ligatures": {
+      "enable": "Enable ligatures",
+      "description": "Renders multi-character sequences like =>, !=, >= as single glyphs when the font supports it. Applies to terminal programs (shells, TUIs) too."
+    },
+    "fontFamilyPlaceholder": "Select font family",
+    "customFamilyPlaceholder": "e.g. Fira Code",
+    "fontFamilySystem": "System",
+    "fontFamilyOther": "Other...",
+    "fontDetected": "Detected on this system.",
+    "fontNotFound": "Not found on this system — the preview will use the fallback font.",
+    "ariaFontSize": "Terminal font size",
+    "ariaFontFamily": "Terminal font family",
+    "cursor": {
+      "block": "Block",
+      "underline": "Underline",
+      "bar": "Bar"
+    },
+    "reset": {
+      "fontSize": "Reset Font size",
+      "cursorStyle": "Reset Cursor style",
+      "fontFamily": "Reset Font family",
+      "fontLigatures": "Reset Font ligatures"
+    }
+  },
+  "notifications": {
+    "osEnabled": {
+      "label": "Show desktop notifications",
+      "description": "When Claude needs your attention (response complete, permission request, or a notification hook), the app surfaces an OS-level desktop notification — but only while you are not viewing that tab. In-app indicators (sidebar attention dot, response preview) remain regardless."
+    }
+  },
+  "about": {
+    "version": "Version {{version}}",
+    "autoCheck": {
+      "label": "Automatically check for updates",
+      "description": "Fire one silent GitHub Releases check at app startup. Manual checks below always run regardless of this setting."
+    },
+    "checkNow": "Check for Updates",
+    "checking": "Checking…"
+  }
+}

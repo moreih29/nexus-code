@@ -16,6 +16,7 @@
 // OSC 채널 비활성화 시에도 이 파서를 제거하지 않는 이유는 위와 같다.
 
 import { broadcast } from "../../infra/ipc-router";
+import { tryGetMainT } from "../../i18n";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -122,7 +123,8 @@ export class OscNotificationDispatcher {
     const { workspaceManager, getFocusedWindow } = this.deps;
 
     // Resolve workspace name once per chunk since all notifications share it.
-    const workspaceName = workspaceManager.getName(workspaceId) ?? "Terminal";
+    const _t = tryGetMainT();
+    const workspaceName = workspaceManager.getName(workspaceId) ?? (_t ? _t("common:claudeNotification.terminalFallback") : "Terminal");
 
     const focusedWindow = getFocusedWindow();
     const isAppFocused = focusedWindow !== null && !focusedWindow.isMinimized();

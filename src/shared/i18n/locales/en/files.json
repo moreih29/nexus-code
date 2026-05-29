@@ -1,0 +1,682 @@
+{
+  "panel": {
+    "reconnectError": "Failed to reconnect. Check your SSH settings.",
+    "tab": {
+      "tree": "File tree",
+      "search": "Find in workspace",
+      "git": "Source control"
+    },
+    "offline": {
+      "title": "Not connected",
+      "description": "Connect to the workspace to browse files.",
+      "reconnect": "Reconnect",
+      "reconnecting": "Reconnecting…"
+    },
+    "noWorkspace": "Select a workspace\nto browse files.",
+    "resize": "Resize files panel"
+  },
+  "fileTree": {
+    "dropTarget": {
+      "cycleError": "Cannot drop a folder into itself or one of its subfolders.",
+      "copied": "Copied {{count}} items",
+      "moved": "Moved {{count}} items",
+      "copiedPartial": "Copied {{success}} of {{total}}. First failure: {{path}}: {{error}}",
+      "movedPartial": "Moved {{success}} of {{total}}. First failure: {{path}}: {{error}}"
+    },
+    "header": {
+      "newFile": "New File",
+      "newFolder": "New Folder",
+      "refresh": "Refresh Explorer",
+      "collapse": "Collapse Folders"
+    },
+    "status": {
+      "loading": "Loading…",
+      "emptyFolder": "This folder is empty.",
+      "cantRead": "Couldn't read this folder.",
+      "retry": "Retry",
+      "error": {
+        "notFound": "Folder not found.",
+        "permissionDenied": "Permission denied.",
+        "unexpected": "Unexpected error."
+      }
+    },
+    "menu": {
+      "newFile": "New File",
+      "newFolder": "New Folder",
+      "open": "Open",
+      "openToSide": "Open to the Side",
+      "cut": "Cut",
+      "copy": "Copy",
+      "paste": "Paste",
+      "rename": "Rename",
+      "delete": "Delete",
+      "revealInFinder": "Reveal in Finder",
+      "revealInExplorer": "Reveal in File Explorer",
+      "copyPath": "Copy Path",
+      "copyRelativePath": "Copy Relative Path"
+    },
+    "editRow": {
+      "renameFile": "Rename file",
+      "renameFolder": "Rename folder",
+      "newFileName": "New file name",
+      "newFolderName": "New folder name"
+    },
+    "validation": {
+      "cannotBeEmpty": "Name cannot be empty.",
+      "cannotStartWithSlash": "Name cannot start with a slash.",
+      "cannotContainNul": "Name cannot contain NUL.",
+      "segmentsCannotBeEmpty": "Path segments cannot be empty.",
+      "reservedName": "Reserved name."
+    },
+    "renameOneAtATime": "Rename one item at a time"
+  },
+  "search": {
+    "placeholder": "Search",
+    "ariaLabel": "Search workspace",
+    "clearSearch": "Clear search",
+    "options": {
+      "matchCase": "Match case",
+      "matchCaseTooltip": "Match case (Alt+C)",
+      "matchWholeWord": "Match whole word",
+      "matchWholeWordTooltip": "Match whole word (Alt+W)",
+      "useRegex": "Use regular expression",
+      "useRegexTooltip": "Use regular expression (Alt+R)"
+    },
+    "viewMode": {
+      "viewAsList": "View as List",
+      "viewAsTree": "View as Tree"
+    },
+    "status": {
+      "results_one": "{{count}} result in {{fileCount}} file",
+      "results_other": "{{count}} results in {{fileCount}} files",
+      "cancel": "Cancel search",
+      "limitHit": "Showing first {{count}} matches — refine your query."
+    },
+    "liveRegion": {
+      "results_one": "{{count}} result in {{fileCount}} file",
+      "results_other": "{{count}} results in {{fileCount}} files"
+    },
+    "state": {
+      "idle": "Search across workspace",
+      "error": "Search failed",
+      "retry": "Retry",
+      "noResults": "No results found",
+      "noResultsHint": "Try a different search term."
+    },
+    "invalidRegex": "Invalid regular expression: {{error}}",
+    "results": {
+      "ariaLabel": "Search results"
+    }
+  },
+  "git": {
+    "panel": {
+      "ariaLabel": "Source Control",
+      "header": {
+        "title": "Source Control",
+        "refresh": "Refresh source control",
+        "collapseAll": "Collapse all folders",
+        "expandAll": "Expand all folders",
+        "moreActions": "More source control actions"
+      },
+      "segments": {
+        "changes": "Changes",
+        "history": "History",
+        "ariaLabel": "Source Control section"
+      },
+      "skeleton": {
+        "loading": "Loading source control"
+      },
+      "nonRepo": {
+        "title": "Not a Git Repository",
+        "description": "Initialize this workspace to start tracking changes."
+      },
+      "noChanges": {
+        "title": "No Changes",
+        "description": "Your working tree has no pending source control changes."
+      },
+      "banners": {
+        "autofetchPaused": "Autofetch paused after repeated failures.",
+        "resume": "Resume",
+        "notifications_one": "+{{count}} notification",
+        "notifications_other": "+{{count}} notifications",
+        "collapse": "Collapse",
+        "collapseNotifications": "Collapse notifications",
+        "moreNotifications_one": "{{count}} more notification",
+        "moreNotifications_other": "{{count}} more notifications"
+      }
+    },
+    "commit": {
+      "messagePlaceholder": "Message",
+      "messageAriaLabel": "Commit message",
+      "messageDialog": {
+        "title": "Commit message",
+        "srTitle": "Commit message",
+        "description": "Edit the message Git will use for this commit. Lines starting with # are preserved for Git to strip.",
+        "messageLabel": "Message",
+        "cancel": "Cancel",
+        "save": "Save"
+      },
+      "button": {
+        "ariaLabel": "Show source control action menu",
+        "menu": {
+          "commitStaged": "Commit Staged",
+          "commitAll": "Commit All",
+          "amendLast": "Amend Last Commit",
+          "commitAndPush": "Commit & Push",
+          "commitEmpty": "Commit Empty",
+          "undoLastCommit": "Undo Last Commit",
+          "commitOptions": "Commit Options",
+          "sign": "Sign",
+          "signoff": "Signoff",
+          "skipHooks": "Skip hooks",
+          "pushOnly": "Push only",
+          "pullOnly": "Pull only"
+        }
+      },
+      "emptyCommit": {
+        "title": "Commit empty changes?",
+        "description": "Create an empty commit without changing the working tree.",
+        "label": "Message",
+        "placeholder": "Empty commit message",
+        "confirmLabel": "Commit Empty"
+      }
+    },
+    "gitOperationFailed": "Git operation failed",
+    "entryActions": {
+      "workingTreeUnavailable": "Working tree path is unavailable.",
+      "diffViewUnavailable": "Diff view is unavailable.",
+      "addedToGitignore_one": "Added {{count}} path to .gitignore.",
+      "addedToGitignore_other": "Added {{count}} paths to .gitignore.",
+      "alreadyInGitignore": "Already in .gitignore.",
+      "couldNotUpdateGitignore": "Could not update .gitignore.",
+      "systemPathActionFailed": "System path action failed."
+    },
+    "statusGroups": {
+      "merge": "Merge Changes",
+      "staged": "Staged Changes",
+      "working": "Changes",
+      "untracked": "Untracked"
+    },
+    "decorations": {
+      "modified": "Modified",
+      "added": "Added",
+      "deleted": "Deleted",
+      "renamed": "Renamed",
+      "untracked": "Untracked",
+      "conflict": "Conflict",
+      "ignored": "Ignored"
+    },
+    "groups": {
+      "stageAll": "Stage all {{label}}",
+      "unstageAll": "Unstage all staged changes",
+      "discardAll": "Discard all {{label}}",
+      "groupActions": "{{label}} group actions"
+    },
+    "fileRow": {
+      "openDiff": "Open diff for {{path}}",
+      "markResolved": "Mark {{path}} resolved",
+      "stageChanges": "Stage changes",
+      "unstageChanges": "Unstage changes",
+      "discardChanges": "Discard changes"
+    },
+    "contextMenu": {
+      "openFile": "Open File",
+      "openChanges": "Open Changes",
+      "openDiff": "Open Diff",
+      "markResolved": "Mark Resolved",
+      "stage": "Stage",
+      "unstage": "Unstage",
+      "discard": "Discard",
+      "revealInFinder": "Reveal in Finder",
+      "revealInExplorer": "Reveal in Explorer",
+      "openContainingFolder": "Open Containing Folder",
+      "copyPath": "Copy Path",
+      "copyRelativePath": "Copy Relative Path",
+      "addToGitignore": "Add to .gitignore",
+      "stageAllResolved": "Stage All Resolved",
+      "stashChangesInGroup": "Stash Changes in Group",
+      "unstageAll": "Unstage All",
+      "stageAll": "Stage All",
+      "discardAll": "Discard All"
+    },
+    "operations": {
+      "continue": "Continue",
+      "continuing": "Continuing…",
+      "abort": "Abort",
+      "aborting": "Aborting…",
+      "retry": "Retry",
+      "resolveFirstTooltip": "Resolve {{count}} conflict first.",
+      "resolveFirstTooltip_one": "Resolve {{count}} conflict first.",
+      "resolveFirstTooltip_other": "Resolve {{count}} conflicts first.",
+      "merge": {
+        "conflicts": "Merging {{source}} into {{target}} — {{conflictText}}",
+        "conflictsDetail": "Resolve files below, then Continue.",
+        "ready": "Merge ready to continue",
+        "readyDetail": "All conflicts resolved."
+      },
+      "rebase": {
+        "paused": "Rebase paused at {{step}}",
+        "rebasing": "Rebasing onto {{onto}}",
+        "conflicts": "Rebasing onto {{onto}}{{progress}} · {{conflictText}}",
+        "step": "step {{done}} of {{total}}",
+        "ready": "Rebase ready to continue",
+        "readyDetail": "Resolve, then Continue."
+      },
+      "cherryPick": {
+        "conflicts": "Cherry-picking {{sha}} — {{conflictText}}",
+        "ready": "Cherry-pick ready to continue"
+      },
+      "revert": {
+        "conflicts": "Reverting {{sha}} — {{conflictText}}",
+        "ready": "Revert ready to continue"
+      },
+      "conflictsRemain_one": "{{count}} conflict remains",
+      "conflictsRemain_other": "{{count}} conflicts remain"
+    },
+    "moreMenu": {
+      "refresh": "Refresh",
+      "initRepo": "Initialize Repository",
+      "fetch": "Fetch",
+      "pull": "Pull",
+      "push": "Push",
+      "checkoutTo": "Checkout to…",
+      "discardAllChanges": "Discard All Changes",
+      "addRemoteFirst": "Add a remote first.",
+      "branch": {
+        "label": "Branch",
+        "merge": "Merge Branch…",
+        "rebase": "Rebase Current Branch…",
+        "create": "Create New Branch…",
+        "createFrom": "Create New Branch From…",
+        "rename": "Rename Branch…",
+        "delete": "Delete Branch…",
+        "deleteRemote": "Delete Remote Branch…",
+        "requiresCommit": "Make an initial commit first."
+      },
+      "remote": {
+        "label": "Remote",
+        "addRemote": "Add remote…",
+        "removeRemote": "Remove remote…",
+        "noRemotes": "No remotes configured",
+        "noRemotesTitle": "No remotes configured."
+      },
+      "stash": {
+        "label": "Stash",
+        "stash": "Stash",
+        "stashPop": "Stash Pop",
+        "stashes": "Stashes…",
+        "dropStash": "Drop Stash…",
+        "requiresCommit": "Make an initial commit first.",
+        "stashEmpty": "Stash is empty."
+      },
+      "tag": {
+        "label": "Tag",
+        "create": "Create Tag…",
+        "delete": "Delete Tag…",
+        "deleteRemote": "Delete Remote Tag…",
+        "pushTags": "Push Tags",
+        "requiresCommit": "Make an initial commit first.",
+        "noRemotes": "No remotes configured",
+        "repoBusy": "Repository is busy."
+      },
+      "autofetch": {
+        "label": "Autofetch",
+        "off": "Off",
+        "every1min": "Every 1 min",
+        "every3min": "Every 3 min",
+        "lastFetchedNever": "Last fetched never",
+        "lastFetchedJustNow": "Last fetched just now",
+        "lastFetchedMinutes": "Last fetched {{count}}m ago",
+        "lastFetchedHours": "Last fetched {{count}}h ago",
+        "lastFetchedDays": "Last fetched {{count}}d ago"
+      }
+    },
+    "pushGuard": {
+      "nonFastForward": "Remote has commits you don't have. Pull first?",
+      "forcePushRejected": "Force push rejected (lease check failed) — Fetch first?",
+      "pulledRetry": "Pulled. Retry push?",
+      "pull": "Pull",
+      "force": "Force",
+      "cancel": "Cancel",
+      "retry": "Retry",
+      "fetch": "Fetch"
+    },
+    "history": {
+      "search": {
+        "label": "Search commit history",
+        "placeholder": "Search SHA or commit message…",
+        "clear": "Clear"
+      },
+      "refSwitcher": {
+        "viewingHistory": "Viewing history of {{ref}}",
+        "filteredBy": " · filtered by '{{query}}'",
+        "refresh": "Refresh history",
+        "pickerTitle": "View history of",
+        "pickerPlaceholder": "Select a branch to view history…",
+        "pickerFooter": "Enter view history · does not checkout"
+      },
+      "list": {
+        "loading": "Loading history…",
+        "noCommitsYet": "No commits yet.",
+        "noCommitsMatch": "No commits match '{{query}}'.",
+        "clearSearch": "Clear search",
+        "loadMore": "Load 50 more",
+        "loadFailed": "Git history operation failed.",
+        "loading2": "Loading…",
+        "ariaLabel": "Commit history"
+      },
+      "menu": {
+        "copySha": "Copy SHA",
+        "copyMessage": "Copy message",
+        "cherryPick": "Cherry-pick this commit…",
+        "checkoutDetached": "Checkout (detached)…",
+        "resetSoft": "Reset branch to here (soft)…",
+        "confirmCheckout": {
+          "title": "Checkout {{sha}} detached?",
+          "description": "This leaves your branch and views the commit in detached HEAD mode.",
+          "confirmLabel": "Checkout Detached",
+          "cancel": "Cancel"
+        },
+        "confirmResetSoft": {
+          "title": "Reset branch to {{sha}}?",
+          "description": "Soft reset keeps changes staged so you can recommit them.",
+          "confirmLabel": "Reset Soft",
+          "cancel": "Cancel"
+        }
+      },
+      "cherryPickStarted": "Cherry-pick started."
+    },
+    "branch": {
+      "createDialog": {
+        "title": "Create branch",
+        "titleFromRef": "Create branch from ref",
+        "description": "Create and check out a new branch from the current HEAD.",
+        "descriptionFromRef": "Create and check out a new branch from '{{ref}}'.",
+        "nameLabel": "Branch name",
+        "namePlaceholder": "feature/name",
+        "nameHelperText": "Creates and checks out the new branch.",
+        "submitLabel": "Create",
+        "cancel": "Cancel",
+        "validation": {
+          "required": "Required",
+          "checkingBranches": "Checking existing branches…",
+          "alreadyCurrent": "Branch '{{name}}' is already current.",
+          "alreadyExists": "A branch named '{{name}}' already exists."
+        }
+      },
+      "picker": {
+        "checkoutTitle": "Checkout to",
+        "selectRefTitle": "Select branch",
+        "renameTitle": "Rename branch",
+        "deleteTitle": "Delete branch",
+        "deleteRemoteTitle": "Delete remote branch",
+        "checkoutPlaceholder": "Select a branch or type a name to create…",
+        "selectRefPlaceholder": "Select a branch…",
+        "renamePlaceholder": "Select a branch to rename…",
+        "deletePlaceholder": "Select a branch to delete…",
+        "deleteRemotePlaceholder": "Select a remote branch to delete…",
+        "loadingBranches": "Loading branches…",
+        "noMatchingBranches": "No matching branches.",
+        "footerCheckout": "Enter checkout/create",
+        "footerSelectRef": "Enter view history · Working tree is not changed",
+        "footerRename": "Enter rename selected branch",
+        "footerDeleteLocal": "Enter delete selected branch",
+        "footerDeleteRemote": "Enter delete selected remote branch",
+        "createNew": "Create new branch: '{{name}}'",
+        "renameUnborn": "Rename unborn '{{current}}' → '{{name}}'",
+        "descriptionLocal": "Local",
+        "descriptionRemote": "Remote {{ref}}",
+        "renameDialog": {
+          "title": "Rename branch",
+          "description": "Rename '{{branch}}'.",
+          "label": "New name",
+          "confirmLabel": "Rename"
+        },
+        "upstreamDialog": {
+          "title": "Set upstream",
+          "description": "Set upstream for '{{branch}}'. Leave empty to unset.",
+          "label": "Upstream",
+          "placeholder": "origin/main",
+          "confirmLabel": "Set Upstream"
+        },
+        "deleteConfirm": {
+          "title": "Delete branch '{{name}}'?",
+          "titleForce": "Branch is not fully merged",
+          "titleRemote": "Delete remote branch '{{remote}}/{{name}}'?",
+          "description": "This deletes the local branch. The commits remain reachable if another ref contains them.",
+          "descriptionForce1": "Branch '{{name}}' is not fully merged.",
+          "descriptionForce2": "Delete anyway? Unmerged commits may be lost.",
+          "descriptionRemote": "This affects the remote and cannot be undone locally.",
+          "confirmLabel": "Delete",
+          "cancel": "Cancel"
+        }
+      }
+    },
+    "discard": {
+      "title_one": "Discard changes?",
+      "title_other": "Discard {{count}} changes?",
+      "description_one": "Discard changes in {{description}}? This cannot be undone.",
+      "description_other": "Discard all changes in {{description}}? This cannot be undone.",
+      "dialogTitle": "Discard changes?",
+      "dialogDescription": "This cannot be undone.",
+      "dialogConfirm": "Discard",
+      "cancel": "Cancel"
+    },
+    "removeRemote": {
+      "title": "Remove remote '{{remote}}'?",
+      "baseDescription": "Remote '{{remote}}' will be removed from this repository.",
+      "confirmLabel": "Remove",
+      "upstreamWarning": "{{branch}} tracks {{remote}}/... Removing detaches upstream tracking."
+    },
+    "stashGroup": {
+      "title": "Stash changes in group",
+      "description": "Stash only {{label}} and leave other working tree changes in place.",
+      "messageLabel": "Message",
+      "messagePlaceholder": "Optional stash message",
+      "confirmLabel": "Stash"
+    },
+    "credentials": {
+      "title": "Git credentials",
+      "sshPassphraseTitle": "SSH passphrase required",
+      "usernameLabel": "Username",
+      "passphraseLabel": "Passphrase",
+      "passwordLabel": "Password",
+      "responseLabel": "Response",
+      "srTitle": "Git credentials",
+      "continue": "Continue",
+      "cancel": "Cancel"
+    },
+    "publish": {
+      "title": "Publish branch?",
+      "description": "'{{branch}}' has no upstream branch. Publish to '{{remote}}'?",
+      "descriptionMultiRemote": " This uses the first configured remote; {{others}} will not be used.",
+      "confirmLabel": "Publish"
+    },
+    "merge": {
+      "title": "Merge {{ref}}",
+      "srTitle": "Merge options",
+      "chooseMerge": "Choose how to merge {{ref}} into the current branch.",
+      "chooseStrategy": "Choose a merge strategy.",
+      "strategyLegend": "Merge strategy",
+      "options": {
+        "mergeCommit": "Create a merge commit (default)",
+        "mergeCommitDescription": "Always preserve the branch join as a merge commit.",
+        "fastForward": "Fast-forward when possible",
+        "fastForwardDescription": "Move the current branch pointer when Git can do so without a merge commit.",
+        "squash": "Squash and commit manually",
+        "squashDescription": "Stage the combined changes without creating MERGE_HEAD."
+      },
+      "squashNote": "Squash stages the merged changes and fills a commit message draft. Review the staged result, then commit manually.",
+      "submitMerge": "Merge",
+      "submitSquash": "Squash",
+      "cancel": "Cancel"
+    },
+    "stashPicker": {
+      "applyTitle": "Stashes",
+      "dropTitle": "Drop Stash",
+      "applyPlaceholder": "Search stashes…",
+      "dropPlaceholder": "Select a stash to drop…",
+      "loading": "Loading stashes…",
+      "noResults": "No matching stashes.",
+      "footerApply": "Enter apply",
+      "footerDrop": "Enter drop stash",
+      "noMessage": "(no message)",
+      "dropConfirmTitle": "Drop {{ref}}?",
+      "dropConfirmDescription": "Drop {{ref}}? This cannot be undone.",
+      "dropConfirmLabel": "Drop",
+      "justNow": "just now",
+      "minutesAgo": "{{count}}m ago",
+      "hoursAgo": "{{count}}h ago",
+      "daysAgo": "{{count}}d ago"
+    },
+    "tagPicker": {
+      "browseTitle": "Tags",
+      "createTitle": "Create a new tag",
+      "deleteLocalTitle": "Select a tag to delete",
+      "deleteRemoteTitle": "Select a remote tag to delete",
+      "browsePlaceholder": "Search tags or type a name to create…",
+      "createPlaceholder": "Type a tag name to create…",
+      "deleteLocalPlaceholder": "Search local tags…",
+      "deleteRemotePlaceholder": "Search remote tags…",
+      "loadingTags": "Loading tags…",
+      "loadingLocalTags": "Loading local tags…",
+      "loadingRemoteTags": "Loading remote tags…",
+      "noMatchingTags": "No matching tags.",
+      "noTagsToDelete": "No tags to delete",
+      "noRemoteTagsToDelete": "No remote tags to delete",
+      "typeForFirst": "Type to create your first tag",
+      "footerBrowse": "Enter reveal in History",
+      "createRow": "Create tag: '{{name}}'",
+      "createRowEmpty": "Create tag…",
+      "alreadyExists": "Already exists",
+      "existingTag": "Existing tag",
+      "localTag": "Local tag",
+      "noTaggerDate": "no tagger date",
+      "deleteLocalTag": "Delete local tag {{name}}",
+      "existingTagAria": "Existing tag {{name}}",
+      "tagAria": "{{name}} tag",
+      "deleteRemoteTagAria": "Delete remote tag {{remote}}/{{name}}",
+      "deleteRemoteTagTooltip": "Delete remote tag on {{remote}}",
+      "existingTagTooltip": "Existing tag shown for conflict context",
+      "deleteLocalTagTooltip": "Delete local tag",
+      "createTagRef": {
+        "targetRef": "Target ref",
+        "atRef": "at ref…"
+      },
+      "createDialog": {
+        "title": "Create tag",
+        "description": "Create a lightweight tag at the selected ref, or add a message for an annotated tag.",
+        "nameLabel": "Name",
+        "namePlaceholder": "v1.0.0",
+        "messageLabel": "Message",
+        "messagePlaceholder": "Optional tag message",
+        "messageHelperText": "Message creates an annotated tag; leave blank for a lightweight tag.",
+        "submitLabel": "Create Tag"
+      },
+      "deleteConfirm": {
+        "titleLocal": "Delete tag '{{name}}'?",
+        "titleRemote": "Delete remote tag '{{name}}'?",
+        "descriptionLocal": "Delete local tag '{{name}}' at {{sha}}. This cannot be undone locally.",
+        "descriptionRemote": "Delete tag '{{name}}' from {{remote}}. This affects the remote and cannot be undone locally.",
+        "cancel": "Cancel",
+        "confirm": "Delete"
+      }
+    },
+    "refPicker": {
+      "loadingBranches": "Loading branches…",
+      "noMatchingBranches": "No matching branches.",
+      "tagDescription": "Tag",
+      "descriptionCurrentBranch": "Current branch",
+      "descriptionLocalBranch": "Local branch",
+      "descriptionRemoteBranch": "Remote branch"
+    },
+    "mergePicker": {
+      "titleWithBranch": "Merge branch into {{current}}",
+      "title": "Merge branch",
+      "placeholder": "Select a branch to merge…",
+      "loadingBranches": "Loading branches…",
+      "noMatchingBranches": "No matching branches.",
+      "descriptionLocal": "Local branch",
+      "descriptionRemote": "Remote branch"
+    },
+    "rebasePicker": {
+      "title": "Rebase onto",
+      "titleWithBranch": "Rebase {{current}} onto",
+      "placeholder": "Select a branch to rebase onto…",
+      "loadingBranches": "Loading branches…",
+      "noMatchingBranches": "No matching branches.",
+      "descriptionLocal": "Local branch",
+      "descriptionRemote": "Remote branch"
+    },
+    "commitPicker": {
+      "title": "Cherry-pick a commit",
+      "placeholder": "Search commits…",
+      "loading": "Loading commits…",
+      "noResults": "No matching commits.",
+      "pickFromBranch": "Pick from another branch…",
+      "pickFromBranchPlaceholder": "Select a branch to list commits…"
+    },
+    "panelActions": {
+      "publish": {
+        "title": "Publish branch?",
+        "confirmLabel": "Publish"
+      },
+      "tagReveal": "Showing History for tag '{{name}}' at {{sha}}.",
+      "syncCancelled": "Sync cancelled (pull aborted before push).",
+      "openTerminal": "Open Terminal"
+    },
+    "refChip": {
+      "headRef": "HEAD ref",
+      "currentBranch": "Current branch {{name}}",
+      "branch": "Branch {{name}}",
+      "remoteBranch": "Remote branch {{name}}",
+      "tag": "Tag {{name}}",
+      "showMoreRefs": "Show {{count}} more refs",
+      "moreRefs": "More refs"
+    },
+    "dialogHost": {
+      "forcePush": {
+        "title": "Force push will overwrite remote. Are you sure?",
+        "description": "Uses --force-with-lease and stops if the remote changed again.",
+        "confirmLabel": "Force Push"
+      },
+      "footerMergeTarget": "Enter choose merge target · Current branch hidden",
+      "footerRebaseTarget": "Enter choose rebase target · Current branch hidden",
+      "footerCommitPicker": "Enter cherry-pick one commit · Multi-pick is not enabled",
+      "footerCommitBranch": "Enter choose branch · Current branch hidden",
+      "footerCreateBranchFrom": "Enter choose start point · Working tree is not changed",
+      "createBranchFrom": "Create branch from",
+      "createBranchFromPlaceholder": "Select a branch to create from…",
+      "addRemote": {
+        "title": "Add remote",
+        "description": "Configure a local Git remote. The URL pattern is checked locally without a network probe.",
+        "submitLabel": "Add Remote"
+      }
+    },
+    "branchPopover": {
+      "fetchNow": "Fetch now",
+      "noBranch": "No branch.",
+      "publishBranch": "Publish Branch",
+      "sync": "Sync",
+      "pull": "Pull",
+      "push": "Push",
+      "copyUpstream": "Copy upstream",
+      "autofetch": "Autofetch",
+      "requiresCommit": "Make an initial commit first.",
+      "addRemoteFirst": "Add a remote first.",
+      "setUpstreamFirst": "Set an upstream first.",
+      "alreadyHasUpstream": "Branch already has an upstream.",
+      "noUpstreamConfigured": "No upstream configured.",
+      "ariaLabel": "Branch details",
+      "noBranchName": "No branch",
+      "tracking": "Tracking {{upstream}}",
+      "noUpstreamStatus": "No upstream configured",
+      "fetching": "Fetching…",
+      "fetchFailed": "Fetch failed",
+      "retry": "Retry",
+      "chipAriaLabel": "Current branch {{name}}",
+      "chipTitle": "Repository at {{path}}",
+      "localBadge": "local"
+    }
+  }
+}

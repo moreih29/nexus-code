@@ -1,5 +1,7 @@
+import i18next from "i18next";
 import type { ReactNode, Ref } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import "@xterm/xterm/css/xterm.css";
 import { createTerminalController } from "@/services/terminal";
 import { subscribeTerminalReopenRequest } from "@/services/terminal/reopen-requests";
@@ -61,8 +63,8 @@ interface TerminalViewLayoutProps {
  * process state beyond the fact that this terminal view ended.
  */
 export function terminalEndedMessage(reopenState: ReopenState): string {
-  if (reopenState === "failed") return "Reopen failed.";
-  return "Terminal ended.";
+  if (reopenState === "failed") return i18next.t("terminal.reopen_failed");
+  return i18next.t("terminal.ended");
 }
 
 /**
@@ -137,6 +139,7 @@ export function TerminalView({
   parentEl,
   isVisible,
 }: TerminalViewProps) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<TerminalController | null>(null);
   const [reopenState, setReopenState] = useState<ReopenState>("idle");
@@ -224,10 +227,10 @@ export function TerminalView({
             message={terminalEndedMessage(reopenState)}
             actionLabel={
               reopenState === "failed"
-                ? "Retry"
+                ? t("action.retry")
                 : reopenState === "reopening"
-                  ? "Reopening…"
-                  : "Reopen"
+                  ? t("terminal.reopening")
+                  : t("terminal.reopen")
             }
             actionDisabled={reopenState === "reopening"}
             onReopen={() => {

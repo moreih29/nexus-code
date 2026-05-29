@@ -13,6 +13,7 @@
  * can be imported in tests that do not stub those subsystems. All external
  * state is passed in by the caller (EditorView) as props.
  */
+import { useTranslation } from "react-i18next";
 import { Banner } from "../../ui/banner";
 
 // ---------------------------------------------------------------------------
@@ -61,14 +62,15 @@ export function ConflictResolvedBanner({
   hasMarkers,
   onMarkResolved,
 }: ConflictResolvedBannerProps) {
+  const { t } = useTranslation();
   if (!shouldShowConflictResolvedBanner(isConflicted, hasMarkers)) return null;
 
   return (
     <Banner
       display="bar"
       variant="success"
-      message="✓ All conflicts resolved"
-      actions={[{ label: "Mark as resolved", onAction: onMarkResolved }]}
+      message={t("editor.conflicts_resolved")}
+      actions={[{ label: t("action.mark_resolved"), onAction: onMarkResolved }]}
       role="status"
       aria-live="polite"
     />

@@ -1,6 +1,7 @@
 import Editor from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { fontFamily, typeScale } from "../../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
 import { useMonacoThemeName } from "../../../hooks/use-monaco-theme-name";
@@ -174,6 +175,7 @@ function useModelHasMarkers(model: Monaco.editor.ITextModel | null): boolean {
 }
 
 export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewProps) {
+  const { t } = useTranslation();
   const { model, phase, errorCode, readOnly } = useSharedModel({ workspaceId, filePath, origin });
   const monacoTheme = useMonacoThemeName();
 
@@ -246,11 +248,11 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
   );
 
   if (phase === "loading" || (phase === "ready" && !model)) {
-    return <EmptyState title="Loading…" tone="status" className="min-h-0" />;
+    return <EmptyState title={t("editor.loading")} tone="status" className="min-h-0" />;
   }
 
   if (phase === "binary") {
-    return <EmptyState title="Cannot display binary file." tone="status" className="min-h-0" />;
+    return <EmptyState title={t("editor.binary_file")} tone="status" className="min-h-0" />;
   }
 
   if (phase === "error") {
@@ -310,7 +312,7 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
             onChange={(mode) => setViewMode(workspaceId, tabId, mode)}
             disabled={previewSupport === "mdx-disabled"}
             disabledReason={
-              previewSupport === "mdx-disabled" ? "MDX preview is disabled for security" : undefined
+              previewSupport === "mdx-disabled" ? t("editor.mdx_disabled") : undefined
             }
           />
         )}

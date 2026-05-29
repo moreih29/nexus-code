@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { CommandPaletteFrame as Frame } from "./command-palette-frame";
 import {
   initialPaletteSearchSnapshot,
@@ -44,6 +45,7 @@ export function CommandPalette<TItem extends PaletteItem>({
   const titleId = useId();
   const inputId = useId();
   const listboxId = useId();
+  const { t } = useTranslation();
   queryRef.current = query;
 
   useEffect(() => {
@@ -160,14 +162,14 @@ export function CommandPalette<TItem extends PaletteItem>({
       inputId={inputId}
       listboxId={listboxId}
       status={status}
-      title={source?.title ?? "Go to Symbol in Workspace"}
-      placeholder={source?.placeholder ?? "Search workspace symbols"}
+      title={source?.title ?? t("palette.go_to_symbol")}
+      placeholder={source?.placeholder ?? t("palette.search_symbols")}
       query={query}
       items={snapshot.items}
       activeIndex={snapshot.activeIndex}
       dimmed={snapshot.dimmed ?? false}
-      emptyQueryMessage={source?.emptyQueryMessage ?? "Open a workspace to search symbols."}
-      noResultsMessage={source?.noResultsMessage ?? "No workspace symbols found."}
+      emptyQueryMessage={source?.emptyQueryMessage ?? t("palette.no_workspace")}
+      noResultsMessage={source?.noResultsMessage ?? t("palette.no_results")}
       onQueryChange={setQuery}
       onKeyDown={handleKeyDown}
       onOverlayClick={onClose}

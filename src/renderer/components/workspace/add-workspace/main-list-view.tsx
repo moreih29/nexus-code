@@ -9,6 +9,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { ConnectionProfile, FolderBookmark } from "../../../../shared/types/entry-points";
 import {
   createLocalWorkspace,
@@ -44,6 +45,7 @@ export function MainListView({
   onSshServerList,
   onNewConnectionPrefill,
 }: MainListViewProps): React.JSX.Element {
+  const { t } = useTranslation();
   const [bookmarks, setBookmarks] = useState<FolderBookmark[]>([]);
   const [profiles, setProfiles] = useState<ConnectionProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -223,7 +225,7 @@ export function MainListView({
         ? humanizeSshError(error)
         : error instanceof Error
           ? error.message
-          : "Could not open workspace.",
+          : t("workspace.could_not_open"),
     );
     setErrorProfileId(profileId);
   }
@@ -255,7 +257,7 @@ export function MainListView({
 
   if (loading) {
     return (
-      <Skeleton label="Loading workspaces" className="gap-1 px-0 py-0">
+      <Skeleton label={t("workspace.add_title")} className="gap-1 px-0 py-0">
         {(["sk-0", "sk-1", "sk-2", "sk-3"] as const).map((k) => (
           <SkeletonLine key={k} className="h-10 w-full" />
         ))}
@@ -285,8 +287,8 @@ export function MainListView({
         <EmptyState
           tone="status"
           icon={<FolderPlus className="size-6" aria-hidden="true" />}
-          title="No workspaces yet"
-          description="Open a folder or connect via SSH to get started."
+          title={t("workspace.no_workspaces_yet")}
+          description={t("workspace.no_workspaces_desc")}
         />
       </div>
     );
@@ -307,9 +309,9 @@ export function MainListView({
 
       <div className="flex flex-col gap-1">
         {favorites.length > 0 ? (
-          <section aria-label="Favorites">
+          <section aria-label={t("workspace.favorites")}>
             <div className="px-2 pb-1 pt-0">
-              <span className="text-app-label uppercase text-muted-foreground">Favorites</span>
+              <span className="text-app-label uppercase text-muted-foreground">{t("workspace.favorites")}</span>
             </div>
             <ul className="flex flex-col gap-0.5">
               {favorites.map((bookmark) => (
@@ -336,9 +338,9 @@ export function MainListView({
         ) : null}
 
         {recents.length > 0 ? (
-          <section aria-label="Recent" className={favorites.length > 0 ? "mt-3" : undefined}>
+          <section aria-label={t("workspace.recent")} className={favorites.length > 0 ? "mt-3" : undefined}>
             <div className="px-2 pb-1 pt-0">
-              <span className="text-app-label uppercase text-muted-foreground">Recent</span>
+              <span className="text-app-label uppercase text-muted-foreground">{t("workspace.recent")}</span>
             </div>
             <ul className="flex flex-col gap-0.5">
               {visibleRecents.map((bookmark) => (
@@ -367,7 +369,7 @@ export function MainListView({
                 onClick={() => setShowAllRecent((prev) => !prev)}
                 className="mt-1 w-full rounded-(--radius-control) px-2 py-2 text-left text-app-ui-sm text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
               >
-                {showAllRecent ? "Show less" : `Show ${recents.length - RECENT_MAX_DEFAULT} more`}
+                {showAllRecent ? t("workspace.show_less") : t("workspace.show_more", { count: recents.length - RECENT_MAX_DEFAULT })}
               </button>
             ) : null}
           </section>
@@ -394,6 +396,7 @@ function ActionButtons({
   onOpenFolder,
   onSshServerList,
 }: ActionButtonsProps): React.JSX.Element {
+  const { t } = useTranslation();
   return (
     <div className="flex gap-2">
       <Button
@@ -409,7 +412,7 @@ function ActionButtons({
         ) : (
           <FolderOpen className="size-4" aria-hidden="true" />
         )}
-        {openingFolder ? "Opening…" : "Open Folder…"}
+        {openingFolder ? t("workspace.opening_folder") : t("workspace.open_folder")}
       </Button>
       <Button
         type="button"
@@ -420,7 +423,7 @@ function ActionButtons({
         className="flex-1"
       >
         <Server className="size-4" aria-hidden="true" />
-        Connect via SSH…
+        {t("workspace.connect_ssh")}
       </Button>
     </div>
   );
@@ -437,6 +440,7 @@ interface ErrorBannerProps {
 }
 
 function ErrorBanner({ message, profileId, onSettings }: ErrorBannerProps): React.JSX.Element {
+  const { t } = useTranslation();
   return (
     <div
       className="flex flex-col gap-2 rounded-(--radius-control) border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-3 py-2"
@@ -455,7 +459,7 @@ function ErrorBanner({ message, profileId, onSettings }: ErrorBannerProps): Reac
           onClick={() => onSettings(profileId)}
           className="self-start rounded-(--radius-control) text-app-ui-sm text-[var(--state-error-fg)] underline underline-offset-2 outline-none hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         >
-          Open connection settings
+          {t("action.open_connection_settings")}
         </button>
       ) : null}
     </div>
@@ -492,6 +496,7 @@ function BookmarkRow({
   onRemove,
   onOpenSettings,
 }: BookmarkRowProps): React.JSX.Element {
+  const { t } = useTranslation();
   const isFavorite = bookmark.favorite;
   const isLocal = bookmark.kind === "local";
 
@@ -570,7 +575,7 @@ function BookmarkRow({
           <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
             <button
               type="button"
-              aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
+              aria-label={isFavorite ? t("workspace.remove_from_favorites") : t("workspace.add_to_favorites")}
               onClick={onToggleFavorite}
               tabIndex={-1}
               className="inline-flex size-8 items-center justify-center rounded-(--radius-control) text-muted-foreground outline-none pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
@@ -583,7 +588,7 @@ function BookmarkRow({
             </button>
             <button
               type="button"
-              aria-label="Remove from list"
+              aria-label={t("workspace.remove_from_list")}
               onClick={onRemove}
               tabIndex={-1}
               className="inline-flex size-8 items-center justify-center rounded-(--radius-control) text-muted-foreground outline-none pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto hover:bg-[var(--state-hover-bg)] hover:text-[var(--state-error-fg)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"

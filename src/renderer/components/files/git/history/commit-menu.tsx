@@ -5,6 +5,8 @@
 import { AlertDialog as RadixAlertDialog } from "radix-ui";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import i18next from "i18next";
+import { useTranslation } from "react-i18next";
 import type { CommitDetail, LogEntry } from "../../../../../shared/git/types";
 import { copyText } from "../../../../utils/clipboard";
 import { Button } from "../../../ui/button";
@@ -125,24 +127,25 @@ export function buildHistoryCommitMenuItems(
   const shortSha = entry.shortSha ?? entry.sha.slice(0, 7);
   const message = detail?.message ?? [entry.subject, entry.body].filter(Boolean).join("\n\n");
 
+  const t = i18next.t.bind(i18next);
   return [
-    { kind: "item", label: "Copy SHA", onSelect: () => copyText(entry.sha) },
-    { kind: "item", label: "Copy message", onSelect: () => copyText(message) },
+    { kind: "item", label: t("files:git.history.menu.copySha"), onSelect: () => copyText(entry.sha) },
+    { kind: "item", label: t("files:git.history.menu.copyMessage"), onSelect: () => copyText(message) },
     { kind: "separator" },
     {
       kind: "item",
-      label: "Cherry-pick this commit…",
+      label: t("files:git.history.menu.cherryPick"),
       onSelect: () => actions.cherryPick(entry.sha),
     },
     {
       kind: "item",
-      label: "Checkout (detached)…",
+      label: t("files:git.history.menu.checkoutDetached"),
       onSelect: () => confirmers.requestCheckout({ kind: "checkout", sha: entry.sha, shortSha }),
     },
     { kind: "separator" },
     {
       kind: "item",
-      label: "Reset branch to here (soft)…",
+      label: t("files:git.history.menu.resetSoft"),
       destructive: true,
       onSelect: () => confirmers.requestResetSoft({ kind: "reset-soft", sha: entry.sha, shortSha }),
     },
@@ -219,15 +222,19 @@ function HistoryCommitConfirmDialog({
   onCancel: () => void;
   onConfirm: (request: HistoryCommitConfirmRequest) => void;
 }) {
+  const { t } = useTranslation("files");
   const title =
     request?.kind === "checkout"
-      ? `Checkout ${request.shortSha} detached?`
-      : `Reset branch to ${request?.shortSha ?? ""}?`;
+      ? t("git.history.menu.confirmCheckout.title", { sha: request.shortSha })
+      : t("git.history.menu.confirmResetSoft.title", { sha: request?.shortSha ?? "" });
   const description =
     request?.kind === "checkout"
-      ? "This leaves your branch and views the commit in detached HEAD mode."
-      : "Soft reset keeps changes staged so you can recommit them.";
-  const confirmLabel = request?.kind === "checkout" ? "Checkout Detached" : "Reset Soft";
+      ? t("git.history.menu.confirmCheckout.description")
+      : t("git.history.menu.confirmResetSoft.description");
+  const confirmLabel =
+    request?.kind === "checkout"
+      ? t("git.history.menu.confirmCheckout.confirmLabel")
+      : t("git.history.menu.confirmResetSoft.confirmLabel");
 
   return (
     <RadixAlertDialog.Root
@@ -248,7 +255,9 @@ function HistoryCommitConfirmDialog({
           <div className="mt-5 flex justify-end gap-2">
             <RadixAlertDialog.Cancel asChild>
               <Button type="button" variant="ghost" size="sm" autoFocus>
-                Cancel
+                {request?.kind === "checkout"
+                  ? t("git.history.menu.confirmCheckout.cancel")
+                  : t("git.history.menu.confirmResetSoft.cancel")}
               </Button>
             </RadixAlertDialog.Cancel>
             <RadixAlertDialog.Action asChild>

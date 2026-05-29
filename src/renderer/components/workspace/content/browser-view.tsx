@@ -48,6 +48,7 @@
  *   ⌘]        → go forward
  *   ⌘⌥I       → toggle DevTools (inline docked)
  */
+import i18next from "i18next";
 import { Wrench } from "lucide-react";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -405,9 +406,9 @@ export function BrowserTabView({
             below.  Same IPC as the ⌘⌥I shortcut. */}
         <button
           type="button"
-          aria-label="Toggle DevTools"
+          aria-label={i18next.t("browser.toggle_devtools")}
           aria-pressed={devtoolsOpen}
-          title="Toggle DevTools (⌘⌥I)"
+          title={i18next.t("browser.toggle_devtools_title")}
           onClick={() => {
             void ipcCallResult("browser", "openDevTools", { tabId });
           }}
@@ -474,7 +475,7 @@ export function BrowserTabView({
             <div
               role="separator"
               aria-orientation="horizontal"
-              aria-label="Resize DevTools"
+              aria-label={i18next.t("browser.resize_devtools")}
               aria-valuenow={devtoolsHeight}
               aria-valuemin={MIN_DEVTOOLS_HEIGHT}
               onPointerDown={onSplitterPointerDown}

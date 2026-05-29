@@ -18,6 +18,7 @@
 
 import { CircleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
 import type { ViewMode } from "../../../../shared/types/panel";
 import { usePanelViewOptionsStore, useViewOptions } from "../../../state/stores/panel-view-options";
@@ -55,6 +56,7 @@ interface SearchPanelProps {
 const EMPTY_EXPANDED_DIRS: ReadonlySet<string> = new Set<string>();
 
 export function SearchPanel({ workspaceId }: SearchPanelProps) {
+  const { t } = useTranslation("files");
   const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
   const rootPath = workspace?.rootPath ?? "";
 
@@ -101,12 +103,10 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
     if (status === "done" && prevStatusRef.current === "running") {
       const matchCount = session?.matchesFound ?? 0;
       const fileCount = session?.results.length ?? 0;
-      const matchLabel = matchCount === 1 ? "result" : "results";
-      const fileLabel = fileCount === 1 ? "file" : "files";
-      setLiveText(`${matchCount} ${matchLabel} in ${fileCount} ${fileLabel}`);
+      setLiveText(t("search.liveRegion.results", { count: matchCount, fileCount }));
     }
     prevStatusRef.current = status;
-  }, [session?.status, session?.matchesFound, session?.results.length]);
+  }, [session?.status, session?.matchesFound, session?.results.length, t]);
 
   function runSearch(query: string, opts: SearchOptions) {
     if (!query) return;
@@ -241,7 +241,7 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
       <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
         {isEmpty && (
           <p className="px-4 py-4 text-app-ui-sm text-muted-foreground text-center">
-            Search across workspace
+            {t("search.state.idle")}
           </p>
         )}
 
@@ -249,22 +249,22 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
           <div className="px-4 py-4 flex flex-col items-center gap-2">
             <CircleAlert className="size-4 text-destructive" aria-hidden="true" />
             <p className="text-app-ui-sm text-muted-foreground text-center">
-              {session.errorMessage ?? "Search failed"}
+              {session.errorMessage ?? t("search.state.error")}
             </p>
             <button
               type="button"
               className="text-app-ui-sm text-primary underline underline-offset-2"
               onClick={() => runSearch(inputValue, options)}
             >
-              Retry
+              {t("search.state.retry")}
             </button>
           </div>
         )}
 
         {isNoResults && (
           <div className="px-4 py-4 text-center flex flex-col gap-1">
-            <p className="text-app-ui-sm text-foreground">No results found</p>
-            <p className="text-app-ui-sm text-muted-foreground">Try a different search term.</p>
+            <p className="text-app-ui-sm text-foreground">{t("search.state.noResults")}</p>
+            <p className="text-app-ui-sm text-muted-foreground">{t("search.state.noResultsHint")}</p>
           </div>
         )}
 

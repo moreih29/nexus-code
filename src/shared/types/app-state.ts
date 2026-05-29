@@ -124,6 +124,11 @@ export const AppStateSchema = z.object({
   // z.record key is z.string() for runtime compatibility; callers narrow the
   // key type to BrowserPermissionKind at usage sites.
   browserPermissionGrants: z.record(z.string(), z.boolean()).optional(),
+
+  // UI language override. Absent = follow OS locale (auto-detect).
+  // Mirrors themePreference's optional pattern — absent means "use default"
+  // rather than a stored value, so no .default() is applied.
+  language: z.enum(["ko", "en"]).optional(),
 });
 
 export type WindowBounds = z.infer<typeof WindowBoundsSchema>;

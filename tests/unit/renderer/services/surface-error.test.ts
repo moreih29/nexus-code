@@ -16,6 +16,7 @@
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import i18next from "i18next";
 import type { ToastAction, ToastInput } from "../../../../src/renderer/components/ui/toast";
 import {
   appErrorBug,
@@ -23,6 +24,18 @@ import {
   appErrorFailed,
   appErrorInvalidInput,
 } from "../../../../src/shared/error/app-error";
+import { createI18n } from "../../../../src/shared/i18n/index";
+
+// ---------------------------------------------------------------------------
+// i18next initialisation — surface-error.ts calls i18next.t() at invocation
+// time. The global singleton must be initialised before the SUT is loaded so
+// that t() returns real translation strings rather than undefined.
+// ---------------------------------------------------------------------------
+
+const { options: i18nOptions } = createI18n({ lng: "en" });
+// i18next.init is async but resolves instantly because resources are bundled.
+// The top-level await keeps the test file in sync with the module evaluation.
+await i18next.init(i18nOptions);
 
 // ---------------------------------------------------------------------------
 // Toast mock — captures showToast calls

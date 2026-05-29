@@ -3,6 +3,7 @@
  */
 import { Check, Minus, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import { ROW_HEIGHT_PX } from "../../file-tree/metrics";
@@ -48,12 +49,13 @@ export function GitFileRow({
   onCopyRelativePath,
   onAddToGitignore,
 }: GitFileRowProps) {
+  const { t } = useTranslation("files");
   const [contextMenuPoint, setContextMenuPoint] = useState<GitContextMenuPoint | null>(null);
   const pathLabel = formatGitEntryPath(entry);
   const code = getGitStatusCode(groupKey, entry);
   const isConflictRow = groupKey === "merge";
   const toggleStage = groupKey === "staged" ? onUnstage : onStage;
-  const toggleLabel = groupKey === "staged" ? "Unstage changes" : "Stage changes";
+  const toggleLabel = groupKey === "staged" ? t("git.fileRow.unstageChanges") : t("git.fileRow.stageChanges");
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>): void {
     if (event.key === " " && toggleStage) {
@@ -75,7 +77,7 @@ export function GitFileRow({
         className="flex min-w-0 flex-1 items-center gap-2 px-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
         style={{ height: ROW_HEIGHT_PX }}
         title={pathLabel}
-        aria-label={`Open diff for ${pathLabel}`}
+        aria-label={t("git.fileRow.openDiff", { path: pathLabel })}
         // single click — preview(임시 슬롯) 흐름으로 위임. 더블클릭은 onClick이
         // 먼저 fire되어 preview를 띄운 직후 promote되므로 별도 처리 불필요.
         onClick={() => onOpenDiff()}
@@ -104,8 +106,8 @@ export function GitFileRow({
               variant="ghost"
               size="icon-sm"
               className="size-6"
-              aria-label={`Mark ${entry.relPath} resolved`}
-              title={`Mark ${entry.relPath} resolved`}
+              aria-label={t("git.fileRow.markResolved", { path: entry.relPath })}
+              title={t("git.fileRow.markResolved", { path: entry.relPath })}
               onClick={onMarkResolved}
             >
               <Check className="size-3.5" aria-hidden="true" />
@@ -133,8 +135,8 @@ export function GitFileRow({
           variant="ghost"
           size="icon-sm"
           className="size-6 opacity-50 transition-opacity hover:opacity-100 git-destructive-text"
-          aria-label="Discard changes"
-          title="Discard changes"
+          aria-label={t("git.fileRow.discardChanges")}
+          title={t("git.fileRow.discardChanges")}
           onClick={onDiscard}
         >
           <Trash2 className="size-3.5" aria-hidden="true" />

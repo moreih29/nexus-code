@@ -12,6 +12,7 @@
 
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { createListenerBus } from "../../../shared/util/listener-bus";
@@ -58,6 +59,7 @@ export function showSaveConfirm(filename: string): Promise<SaveConfirmChoice> {
  * head of the prompt queue and shows the dialog.
  */
 export function SaveConfirmDialogRoot(): React.JSX.Element {
+  const { t } = useTranslation();
   const [active, setActive] = useState<PendingPrompt | null>(getActive());
 
   useEffect(() => {
@@ -79,11 +81,10 @@ export function SaveConfirmDialogRoot(): React.JSX.Element {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange} size="sm" aria-describedby={undefined}>
       <RadixDialog.Title className="text-app-body-emphasis text-foreground">
-        Do you want to save the changes you made to{" "}
-        <span className="font-mono">{active?.filename}</span>?
+        {t("saveConfirm.title", { filename: active?.filename ?? "" })}
       </RadixDialog.Title>
       <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-        Your changes will be lost if you don't save them.
+        {t("saveConfirm.description")}
       </RadixDialog.Description>
       <div className="mt-5 flex justify-end gap-2">
         <Button
@@ -92,13 +93,13 @@ export function SaveConfirmDialogRoot(): React.JSX.Element {
           onClick={() => resolveActive("dont-save")}
           autoFocus={false}
         >
-          Don't Save
+          {t("saveConfirm.dont_save")}
         </Button>
         <Button variant="ghost" size="sm" onClick={() => resolveActive("cancel")}>
-          Cancel
+          {t("action.cancel")}
         </Button>
         <Button variant="default" size="sm" onClick={() => resolveActive("save")} autoFocus>
-          Save
+          {t("action.save")}
         </Button>
       </div>
     </Dialog>

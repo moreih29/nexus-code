@@ -9,6 +9,7 @@
  *   GitDialogHost   — all modal dialogs
  */
 import { useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/shallow";
 import { validateGitRemoteUrl } from "../../../../../shared/git/remote-validation";
 import {
@@ -70,6 +71,7 @@ interface GitPanelProps {
 }
 
 export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPanelProps) {
+  const { t } = useTranslation("files");
   const session = useGitSession(workspaceId);
   const helperPromptOccupancyMessage = useGitHelperOccupancy(workspaceId);
 
@@ -358,8 +360,8 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
       createMergeTargetPickerSource({
         workspaceId,
         currentBranch: currentBranchName,
-        title: "Pick from another branch",
-        placeholder: "Select a branch to list commits…",
+        title: t("git.commitPicker.pickFromBranch"),
+        placeholder: t("git.commitPicker.pickFromBranchPlaceholder"),
         listBranches: directOps.listBranches,
         acceptTarget: (targetRef) => {
           setCommitPickerRef(targetRef);
@@ -376,7 +378,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   );
   const addRemoteFields = useMemo<FormDialogField[]>(
     () => [
-      { name: "name", label: "Name", placeholder: "origin" },
+      { name: "name", label: t("git.moreMenu.remote.label"), placeholder: "origin" },
       {
         name: "url",
         label: "URL",
@@ -384,7 +386,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
         validate: validateGitRemoteUrl,
       },
     ],
-    [],
+    [t],
   );
 
   // ---------------------------------------------------------------------------
@@ -435,7 +437,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   return (
     <section
       className="flex h-full min-h-0 min-w-0 flex-col"
-      aria-label="Source Control"
+      aria-label={t("git.panel.ariaLabel")}
       onKeyDown={handlePanelKeyDown}
     >
       <GitHeader
@@ -535,7 +537,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
       {isLoading ? (
         <div className="min-h-0 flex-1">
           {showSkeleton ? (
-            <Skeleton label="Loading source control">
+            <Skeleton label={t("git.panel.skeleton.loading")}>
               <SkeletonLine className="h-[82px] rounded-(--radius-raised) border border-border" />
               <div className="flex flex-col gap-1">
                 <SkeletonLine className="h-7" />
@@ -553,8 +555,8 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
         </div>
       ) : session?.repoInfo.kind === "non-repo" ? (
         <EmptyState
-          title="Not a Git Repository"
-          description="Initialize this workspace to start tracking changes."
+          title={t("git.panel.nonRepo.title")}
+          description={t("git.panel.nonRepo.description")}
           actionLabel={actionState.label}
           disabled={isBusy}
           onAction={() => {
@@ -591,12 +593,12 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           onCommitAndPush={() => void handleCommitAndPush()}
           onCommitEmpty={() => {
             setEmptyCommitRequest({
-              title: "Commit empty changes?",
-              description: "Create an empty commit without changing the working tree.",
-              label: "Message",
-              placeholder: "Empty commit message",
+              title: t("git.commit.emptyCommit.title"),
+              description: t("git.commit.emptyCommit.description"),
+              label: t("git.commit.emptyCommit.label"),
+              placeholder: t("git.commit.emptyCommit.placeholder"),
               defaultValue: trimmedDraft,
-              confirmLabel: "Commit Empty",
+              confirmLabel: t("git.commit.emptyCommit.confirmLabel"),
             });
           }}
           onUndoLastCommit={() => {

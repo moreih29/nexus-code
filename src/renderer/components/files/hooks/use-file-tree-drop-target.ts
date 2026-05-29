@@ -20,6 +20,7 @@
  */
 
 import { type RefObject, useEffect } from "react";
+import i18next from "i18next";
 import { showToast } from "@/components/ui/toast";
 import { copyPathWithAutoRename, movePath } from "@/services/fs-mutations";
 import { loadChildren, toggleExpand } from "@/state/operations/files";
@@ -252,7 +253,7 @@ export function useFileTreeDropTarget({
       if (hasCycle) {
         showToast({
           kind: "warning",
-          message: "Cannot drop a folder into itself or one of its subfolders.",
+          message: i18next.t("files:fileTree.dropTarget.cycleError"),
         });
         return;
       }
@@ -314,13 +315,19 @@ export function useFileTreeDropTarget({
       const total = filePaths.length;
       const failCount = total - successCount;
       if (total >= 2) {
-        const verb = copy ? "Copied" : "Moved";
         if (failCount === 0) {
-          showToast({ kind: "info", message: `${verb} ${total} items` });
+          showToast({
+            kind: "info",
+            message: copy
+              ? i18next.t("files:fileTree.dropTarget.copied", { count: total })
+              : i18next.t("files:fileTree.dropTarget.moved", { count: total }),
+          });
         } else {
           showToast({
             kind: "error",
-            message: `${verb} ${successCount} of ${total}. First failure: ${firstFailurePath}: ${firstFailureMessage}`,
+            message: copy
+              ? i18next.t("files:fileTree.dropTarget.copiedPartial", { success: successCount, total, path: firstFailurePath, error: firstFailureMessage })
+              : i18next.t("files:fileTree.dropTarget.movedPartial", { success: successCount, total, path: firstFailurePath, error: firstFailureMessage }),
           });
         }
       }

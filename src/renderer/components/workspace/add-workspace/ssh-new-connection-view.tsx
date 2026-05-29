@@ -1,6 +1,8 @@
 import { AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
+import i18next from "i18next";
 import type { FormEvent, KeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { appErrorCancelled, appErrorFailed } from "../../../../shared/error/app-error";
 import { useIpcAction } from "../../../hooks/use-ipc-action";
 import { showToast } from "../../ui/toast";
@@ -47,8 +49,8 @@ const NEW_CONN_ADVANCED_ID = "add-workspace-new-conn-advanced";
 function showSaveFailedToast(onRetrySave: () => void): void {
   showToast({
     kind: "error",
-    message: "Connected. This connection couldn't be saved for next time.",
-    actions: [{ label: "Retry save", onAction: onRetrySave }],
+    message: i18next.t("ssh.save_failed_toast"),
+    actions: [{ label: i18next.t("action.retry_save"), onAction: onRetrySave }],
   });
 }
 
@@ -76,6 +78,7 @@ export function SshNewConnectionView({
   onConnectPhaseChange,
   prefillProfile,
 }: SshNewConnectionViewProps): React.JSX.Element {
+  const { t } = useTranslation();
   // Local form state — seeded from prefillProfile when present
   const [hostInput, setHostInput] = useState(() => {
     if (!prefillProfile) return "";
@@ -130,7 +133,7 @@ export function SshNewConnectionView({
   );
 
   const portError =
-    port.trim().length > 0 && parseSshPort(port) === null ? "Port must be 1–65535." : null;
+    port.trim().length > 0 && parseSshPort(port) === null ? t("ssh.port_error") : null;
 
   const parsedDest = useMemo(() => {
     if (selectedHost) return { host: selectedHost.alias, user: selectedHost.user };
@@ -245,7 +248,7 @@ export function SshNewConnectionView({
       // We throw an AppError so the hook normalises it into state:'error' and
       // the inline banner below renders the user message.
       runConnect(async () => {
-        throw appErrorFailed("Enter a valid host or user@host.", {
+        throw appErrorFailed(t("ssh.invalid_host"), {
           domain: "ssh",
           code: "invalid-host",
         });
@@ -403,7 +406,7 @@ export function SshNewConnectionView({
       {/* Host combobox — ref is used to detect outside clicks and close the dropdown */}
       <div className="flex flex-col gap-2">
         <label htmlFor={NEW_CONN_HOST_INPUT_ID} className="text-app-ui-sm text-foreground">
-          Host
+          {t("ssh.label_host")}
         </label>
         <div className="relative" ref={hostComboboxRef}>
           <div className="flex items-center gap-2">
@@ -421,14 +424,14 @@ export function SshNewConnectionView({
               }}
               onKeyDown={handleHostKeyDown}
               disabled={connecting}
-              placeholder="user@host or ~/.ssh/config alias"
+              placeholder={t("ssh.host_placeholder")}
               className="min-w-0 flex-1 rounded-(--radius-control) border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
             />
             <Button
               type="button"
               variant="outline"
               size="icon-sm"
-              aria-label={hostListOpen ? "Close SSH config hosts" : "Show SSH config hosts"}
+              aria-label={hostListOpen ? t("ssh.host_close_aria") : t("ssh.host_show_aria")}
               aria-expanded={hostListOpen}
               disabled={connecting || configHosts.length === 0}
               onClick={() => setHostListOpen((prev) => !prev)}
@@ -464,7 +467,7 @@ export function SshNewConnectionView({
               ))}
               {configHostsLoading ? (
                 <div className="px-2 py-2 text-app-ui-sm text-muted-foreground">
-                  Loading SSH config…
+                  {t("ssh.loading_config")}
                 </div>
               ) : null}
             </div>
@@ -481,15 +484,15 @@ export function SshNewConnectionView({
       {/* Name (optional) */}
       <div className="flex flex-col gap-2">
         <label htmlFor={NEW_CONN_NAME_ID} className="text-app-ui-sm text-foreground">
-          Name
-          <span className="ml-1 text-app-ui-sm text-muted-foreground">(optional)</span>
+          {t("ssh.label_name")}
+          <span className="ml-1 text-app-ui-sm text-muted-foreground">{t("ssh.label_name_optional")}</span>
         </label>
         <input
           id={NEW_CONN_NAME_ID}
           value={name}
           onChange={(e) => setName(e.currentTarget.value)}
           disabled={connecting}
-          placeholder="e.g. Production server"
+          placeholder={t("ssh.name_placeholder")}
           className="w-full rounded-(--radius-control) border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
         />
       </div>
@@ -504,7 +507,7 @@ export function SshNewConnectionView({
           disabled={connecting}
           onClick={() => setAdvancedOpen((prev) => !prev)}
         >
-          <span>Advanced</span>
+          <span>{t("ssh.label_advanced")}</span>
           {advancedOpen ? (
             <ChevronDown className="size-4" aria-hidden="true" />
           ) : (
@@ -518,7 +521,7 @@ export function SshNewConnectionView({
           >
             <div className="flex min-w-0 flex-col gap-2">
               <label htmlFor={NEW_CONN_PORT_ID} className="text-app-ui-sm text-foreground">
-                Port
+                {t("ssh.label_port")}
               </label>
               <input
                 id={NEW_CONN_PORT_ID}
@@ -543,7 +546,7 @@ export function SshNewConnectionView({
             </div>
             <div className="flex min-w-0 flex-col gap-2">
               <label htmlFor={NEW_CONN_IDENTITY_FILE_ID} className="text-app-ui-sm text-foreground">
-                Identity file
+                {t("ssh.label_identity_file")}
               </label>
               <input
                 id={NEW_CONN_IDENTITY_FILE_ID}

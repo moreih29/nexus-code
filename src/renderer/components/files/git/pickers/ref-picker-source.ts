@@ -3,6 +3,7 @@
  * flows. It intentionally combines moving labels (branches/tags) with recent
  * immutable commits while returning only the selected ref string to callers.
  */
+import i18next from "i18next";
 import type { BranchList, LogEntry, Tag } from "../../../../../shared/git/types";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
 import { relativeTime } from "../utils/relative-time";
@@ -30,12 +31,13 @@ export interface CreateRefPickerSourceInput {
 export function createRefPickerSource(
   input: CreateRefPickerSourceInput,
 ): PaletteSource<RefPickItem> {
+  const t = i18next.t.bind(i18next);
   return {
     id: "git.ref-picker",
-    title: "Select ref",
-    placeholder: "Search branches, tags, and recent commits…",
-    emptyQueryMessage: "Loading refs…",
-    noResultsMessage: "No matching refs.",
+    title: t("files:git.branch.picker.selectRefTitle"),
+    placeholder: t("files:git.branch.picker.selectRefPlaceholder"),
+    emptyQueryMessage: t("files:git.refPicker.loadingBranches"),
+    noResultsMessage: t("files:git.refPicker.noMatchingBranches"),
     searchOnEmptyQuery: true,
 
     async search(query, signal): Promise<readonly RefPickItem[]> {
@@ -75,7 +77,10 @@ function branchItems(branches: BranchList | undefined): RefPickItem[] {
     ...locals.map((name) => ({
       id: `branch:${name}`,
       label: name,
-      description: name === current ? "Current branch" : "Local branch",
+      description:
+        name === current
+          ? i18next.t("files:git.refPicker.descriptionCurrentBranch")
+          : i18next.t("files:git.refPicker.descriptionLocalBranch"),
       kindLabel: name === current ? "current" : "branch",
       kind: "branch" as const,
       ref: name,
@@ -83,7 +88,7 @@ function branchItems(branches: BranchList | undefined): RefPickItem[] {
     ...remotes.map((name) => ({
       id: `remote:${name}`,
       label: name,
-      description: "Remote branch",
+      description: i18next.t("files:git.refPicker.descriptionRemoteBranch"),
       kindLabel: "remote",
       kind: "remote" as const,
       ref: name,
@@ -100,7 +105,7 @@ function tagItems(tags: readonly Tag[]): RefPickItem[] {
     .map((tag) => ({
       id: `tag:${tag.name}`,
       label: tag.name,
-      description: tag.message ?? "Tag",
+      description: tag.message ?? i18next.t("files:git.refPicker.tagDescription"),
       kindLabel: "tag",
       kind: "tag" as const,
       ref: tag.name,

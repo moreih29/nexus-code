@@ -13,11 +13,13 @@
 // object later) so the migration stays additive.
 
 import { useCallback, useId } from "react";
+import { useTranslation } from "react-i18next";
 import { ipcCallResult } from "../../../ipc/client";
 import { useNotificationsStore } from "../../../state/stores/notifications";
 import { Switch } from "../../ui/switch";
 
 export function NotificationsPanel() {
+  const { t } = useTranslation("settings");
   const osEnabled = useNotificationsStore((s) => s.osEnabled);
   const setOsEnabled = useNotificationsStore((s) => s.setOsEnabled);
 
@@ -47,14 +49,10 @@ export function NotificationsPanel() {
             htmlFor={osToggleId}
             className="text-app-body text-foreground cursor-pointer"
           >
-            Show desktop notifications
+            {t("notifications.osEnabled.label")}
           </label>
           <p className="text-app-ui-sm text-muted-foreground">
-            When Claude needs your attention (response complete, permission
-            request, or a notification hook), the app surfaces an OS-level
-            desktop notification — but only while you are not viewing that
-            tab. In-app indicators (sidebar attention dot, response preview)
-            remain regardless.
+            {t("notifications.osEnabled.description")}
           </p>
         </div>
         <Switch

@@ -4,6 +4,7 @@
  */
 
 import { CaseSensitive, Regex, WholeWord } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { ViewMode } from "../../../../shared/types/panel";
 import type { SearchOptions } from "../../../state/stores/search";
@@ -37,15 +38,16 @@ export function SearchOptionsToggles({
   onViewModeChange,
   viewModeDisabled = false,
 }: SearchOptionsTogglesProps) {
+  const { t } = useTranslation("files");
   return (
     <>
       <Button
         type="button"
         variant="ghost"
         size="icon-sm"
-        aria-label="Match case"
+        aria-label={t("search.options.matchCase")}
         aria-pressed={options.isCaseSensitive}
-        title="Match case (Alt+C)"
+        title={t("search.options.matchCaseTooltip")}
         className={cn("shrink-0", options.isCaseSensitive && TOGGLE_ON_CLASS)}
         onClick={() => onToggle("isCaseSensitive")}
       >
@@ -55,9 +57,9 @@ export function SearchOptionsToggles({
         type="button"
         variant="ghost"
         size="icon-sm"
-        aria-label="Match whole word"
+        aria-label={t("search.options.matchWholeWord")}
         aria-pressed={options.isWordMatch}
-        title="Match whole word (Alt+W)"
+        title={t("search.options.matchWholeWordTooltip")}
         className={cn("shrink-0", options.isWordMatch && TOGGLE_ON_CLASS)}
         onClick={() => onToggle("isWordMatch")}
       >
@@ -67,9 +69,9 @@ export function SearchOptionsToggles({
         type="button"
         variant="ghost"
         size="icon-sm"
-        aria-label="Use regular expression"
+        aria-label={t("search.options.useRegex")}
         aria-pressed={options.isRegExp}
-        title="Use regular expression (Alt+R)"
+        title={t("search.options.useRegexTooltip")}
         className={cn("shrink-0", options.isRegExp && TOGGLE_ON_CLASS)}
         onClick={() => onToggle("isRegExp")}
       >

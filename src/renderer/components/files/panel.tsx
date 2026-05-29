@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Folder, GitBranch, Search } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import i18next from "i18next";
 import { cn } from "@/utils/cn";
 import { ipcCallResult } from "../../ipc/client";
 import { openDiffTab } from "../../state/operations";
@@ -26,14 +28,14 @@ import { SearchPanel } from "./search/panel";
 
 interface ModeButton {
   mode: FilesPanelMode;
-  label: string;
+  labelKey: string;
   Icon: typeof Folder;
 }
 
 const MODE_BUTTONS: ModeButton[] = [
-  { mode: "tree", label: "File tree", Icon: Folder },
-  { mode: "search", label: "Find in workspace", Icon: Search },
-  { mode: "git", label: "Source control", Icon: GitBranch },
+  { mode: "tree", labelKey: "files:panel.tab.tree", Icon: Folder },
+  { mode: "search", labelKey: "files:panel.tab.search", Icon: Search },
+  { mode: "git", labelKey: "files:panel.tab.git", Icon: GitBranch },
 ];
 
 // ---------------------------------------------------------------------------
@@ -59,11 +61,12 @@ export async function reconnectWorkspace(
 ): Promise<void> {
   const result = await deps.callActivate(workspaceId);
   if (!result.ok) {
-    deps.onError("Failed to reconnect. Check your SSH settings.");
+    deps.onError(i18next.t("files:panel.reconnectError"));
   }
 }
 
 export function FilesPanel() {
+  const { t } = useTranslation("files");
   const filesPanelWidth = useUIStore((s) => s.filesPanelWidth);
   const setFilesPanelMode = useUIStore((s) => s.setFilesPanelMode);
   const activeWorkspaceId = useActiveStore((s) => s.activeWorkspaceId);
@@ -107,8 +110,9 @@ export function FilesPanel() {
         {activeWorkspace ? (
           <>
             <div className="flex items-center gap-1 px-2 pt-2 pb-2 border-b border-border/50">
-              {MODE_BUTTONS.map(({ mode, label, Icon }) => {
+              {MODE_BUTTONS.map(({ mode, labelKey, Icon }) => {
                 const isActive = filesPanelMode === mode;
+                const label = t(labelKey);
                 return (
                   <Button
                     key={mode}
@@ -134,10 +138,10 @@ export function FilesPanel() {
             <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
               {showOffline ? (
                 <EmptyState
-                  title="Not connected"
-                  description="Connect to the workspace to browse files."
+                  title={t("panel.offline.title")}
+                  description={t("panel.offline.description")}
                   tone="status"
-                  actionLabel={isReconnecting ? "Reconnecting…" : "Reconnect"}
+                  actionLabel={isReconnecting ? t("panel.offline.reconnecting") : t("panel.offline.reconnect")}
                   onAction={handleReconnect}
                   disabled={isReconnecting}
                 />
@@ -180,9 +184,9 @@ export function FilesPanel() {
         ) : (
           <div className="flex flex-1 items-center justify-center">
             <div className="px-4 text-center text-app-ui-sm text-muted-foreground">
-              Select a workspace
-              <br />
-              to browse files.
+              {t("panel.noWorkspace").split("\n").map((line, i) => (
+                i === 0 ? line : <><br key={i} />{line}</>
+              ))}
             </div>
           </div>
         )}
@@ -191,7 +195,7 @@ export function FilesPanel() {
         value={filesPanelWidth}
         min={FILES_PANEL_WIDTH_MIN}
         max={FILES_PANEL_WIDTH_MAX}
-        ariaLabel="Resize files panel"
+        ariaLabel={t("panel.resize")}
         onResize={(width, persist) => useUIStore.getState().setFilesPanelWidth(width, persist)}
         onReset={() => useUIStore.getState().setFilesPanelWidth(FILES_PANEL_WIDTH_DEFAULT, true)}
       />

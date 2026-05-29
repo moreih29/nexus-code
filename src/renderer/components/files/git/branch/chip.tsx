@@ -4,6 +4,7 @@
  * live in GitBranchPopover so the same glyph model can be unit-tested.
  */
 import { GitBranch } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { BranchInfo } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 
@@ -39,7 +40,8 @@ export function BranchChip({
   onClick,
   onContextMenu,
 }: BranchChipProps) {
-  const branchName = branch?.current ?? "No branch";
+  const { t } = useTranslation("files");
+  const branchName = branch?.current ?? t("git.branchPopover.noBranchName");
   const glyph = branchChipGlyph({ branch });
   const isLocalBranch = branch != null && !branch.upstream;
 
@@ -49,18 +51,18 @@ export function BranchChip({
       variant="ghost"
       size="sm"
       className="h-9 max-w-full justify-start gap-1 px-2 text-app-ui-sm"
-      aria-label={`Current branch ${branchName}`}
+      aria-label={t("git.branchPopover.chipAriaLabel", { name: branchName })}
       aria-haspopup="dialog"
       aria-expanded={open}
       disabled={disabled || !branch}
-      title={repoPath ? `Repository at ${repoPath}` : branchName}
+      title={repoPath ? t("git.branchPopover.chipTitle", { path: repoPath }) : branchName}
       onClick={onClick}
       onContextMenu={onContextMenu}
     >
       <GitBranch className="size-3.5 shrink-0" aria-hidden="true" />
       <span className="truncate">{branchName}</span>
       {isLocalBranch ? (
-        <span className="shrink-0 text-app-ui-sm text-muted-foreground">local</span>
+        <span className="shrink-0 text-app-ui-sm text-muted-foreground">{t("git.branchPopover.localBadge")}</span>
       ) : null}
       {glyph ? (
         <span className="ml-1 shrink-0 font-mono text-app-ui-sm text-muted-foreground">

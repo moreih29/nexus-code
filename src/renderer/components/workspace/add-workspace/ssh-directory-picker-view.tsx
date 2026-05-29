@@ -1,6 +1,7 @@
 import { AlertCircle, ChevronRight, CornerLeftUp, Folder } from "lucide-react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { DirEntry } from "../../../../shared/fs/types";
 import {
   browseSshSession,
@@ -94,6 +95,7 @@ export function SshDirectoryPickerView({
   onBack,
   onAddPhaseChange,
 }: SshDirectoryPickerViewProps): React.JSX.Element {
+  const { t } = useTranslation();
   const { sessionId, initialPath, host } = session;
 
   // Path state
@@ -458,7 +460,7 @@ export function SshDirectoryPickerView({
           {!isAtRoot ? (
             <button
               type="button"
-              aria-label="Go to parent directory"
+              aria-label={t("sshPicker.go_to_parent")}
               onClick={() => drillDown("..")}
               disabled={listLoading || addPhase === "creating"}
               className="inline-flex size-7 shrink-0 items-center justify-center rounded-(--radius-control) border border-border bg-background text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50"
@@ -471,7 +473,7 @@ export function SshDirectoryPickerView({
           )}
           <input
             id="picker-path-input"
-            aria-label="Remote path"
+            aria-label={t("sshPicker.remote_path")}
             role="combobox"
             aria-autocomplete="list"
             aria-expanded={suggestionsOpen}
@@ -494,14 +496,14 @@ export function SshDirectoryPickerView({
             <div
               id={PATH_SUGGEST_LISTBOX_ID}
               role="listbox"
-              aria-label="Path suggestions"
+              aria-label={t("sshPicker.path_suggestions")}
               className="absolute left-9 right-0 top-[calc(100%+4px)] z-20 max-h-56 overflow-y-auto floating-panel p-1"
             >
               {suggestionsDirLoading ? (
-                <div className="px-2 py-2 text-app-ui-sm text-muted-foreground">Loading…</div>
+                <div className="px-2 py-2 text-app-ui-sm text-muted-foreground">{t("sshPicker.loading")}</div>
               ) : filteredSuggestions.length === 0 ? (
                 <div className="px-2 py-2 text-app-ui-sm text-muted-foreground">
-                  No matching folders
+                  {t("sshPicker.no_matching_folders")}
                 </div>
               ) : (
                 filteredSuggestions.map((entry, index) => (
@@ -530,7 +532,7 @@ export function SshDirectoryPickerView({
         {listLoading ? (
           // Loading: skeleton rows — no generic spinner
           <Skeleton
-            label="Loading directory listing"
+            label={t("sshPicker.loading_listing")}
             className="h-full gap-0 overflow-hidden px-0 py-0"
           >
             {(["psk-0", "psk-1", "psk-2", "psk-3", "psk-4", "psk-5"] as const).map((k) => (
@@ -555,15 +557,14 @@ export function SshDirectoryPickerView({
             </div>
             {browseErrorKind === "session-expired" ? (
               <p className="text-center text-app-ui-sm text-muted-foreground">
-                Use{" "}
                 <button
                   type="button"
                   onClick={onBack}
                   className="underline underline-offset-2 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                 >
-                  ‹ Back
+                  ‹ {t("action.back")}
                 </button>{" "}
-                to reconnect.
+                {t("sshPicker.to_reconnect")}
               </p>
             ) : (
               <button
@@ -579,7 +580,7 @@ export function SshDirectoryPickerView({
                 }}
                 className="text-app-ui-sm text-muted-foreground underline underline-offset-2 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
               >
-                Retry
+                {t("action.retry")}
               </button>
             )}
           </div>
@@ -589,13 +590,13 @@ export function SshDirectoryPickerView({
             <EmptyState
               tone="status"
               icon={<Folder className="size-5" aria-hidden="true" />}
-              title="This folder is empty."
+              title={t("sshPicker.this_folder_empty")}
               className="py-4"
             />
           </div>
         ) : (
           // Directory list
-          <ul className="app-scrollbar h-full overflow-y-auto py-1" aria-label="Directory listing">
+          <ul className="app-scrollbar h-full overflow-y-auto py-1" aria-label={t("sshPicker.directory_listing")}>
             {dirEntries.map((entry) => (
               <li key={entry.name}>
                 <button
@@ -618,7 +619,7 @@ export function SshDirectoryPickerView({
             {truncated ? (
               <li>
                 <p className="px-3 py-1.5 text-app-ui-sm text-muted-foreground">
-                  Some entries are hidden (listing truncated).
+                  {t("sshPicker.truncated")}
                 </p>
               </li>
             ) : null}

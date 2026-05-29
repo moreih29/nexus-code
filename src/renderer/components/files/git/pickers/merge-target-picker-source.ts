@@ -6,6 +6,7 @@
  * "Create new branch" row are both omitted before acceptance dispatches the
  * selected ref to the merge-options dialog.
  */
+import i18next from "i18next";
 import type { BranchList } from "../../../../../shared/git/types";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
 
@@ -29,13 +30,14 @@ export interface CreateMergeTargetPickerSourceInput {
 export function createMergeTargetPickerSource(
   input: CreateMergeTargetPickerSourceInput,
 ): PaletteSource<MergeTargetPickItem> {
+  const t = i18next.t.bind(i18next);
   const current = input.currentBranch?.trim() || null;
   return {
     id: "git.merge-target-picker",
-    title: input.title ?? (current ? `Merge branch into ${current}` : "Merge branch"),
-    placeholder: input.placeholder ?? "Select a branch to merge…",
-    emptyQueryMessage: "Loading branches…",
-    noResultsMessage: "No matching branches.",
+    title: input.title ?? (current ? t("files:git.mergePicker.titleWithBranch", { current }) : t("files:git.mergePicker.title")),
+    placeholder: input.placeholder ?? t("files:git.mergePicker.placeholder"),
+    emptyQueryMessage: t("files:git.mergePicker.loadingBranches"),
+    noResultsMessage: t("files:git.mergePicker.noMatchingBranches"),
     searchOnEmptyQuery: true,
 
     async search(query, signal): Promise<readonly MergeTargetPickItem[]> {
@@ -58,6 +60,7 @@ export function buildMergeTargetItems(
   branches: BranchList,
   currentBranch: string | null = branches.current?.current ?? null,
 ): MergeTargetPickItem[] {
+  const t = i18next.t.bind(i18next);
   const current = currentBranch ?? branches.current?.current ?? null;
   const locals = [...branches.local]
     .filter((name) => name !== current)
@@ -65,7 +68,7 @@ export function buildMergeTargetItems(
     .map((name) => ({
       id: `merge-local:${name}`,
       label: name,
-      description: "Local branch",
+      description: t("files:git.mergePicker.descriptionLocal"),
       kindLabel: "branch",
       kind: "local" as const,
       ref: name,
@@ -78,7 +81,7 @@ export function buildMergeTargetItems(
     .map((name) => ({
       id: `merge-remote:${name}`,
       label: name,
-      description: "Remote branch",
+      description: t("files:git.mergePicker.descriptionRemote"),
       kindLabel: "remote",
       kind: "remote" as const,
       ref: name,

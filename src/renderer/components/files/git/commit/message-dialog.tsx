@@ -6,6 +6,7 @@
  */
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { GitEditorPrompt } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import { Dialog } from "../../../ui/dialog";
@@ -47,19 +48,19 @@ export function CommitMessageDialogContent({
   onCancel,
   onSubmit,
 }: CommitMessageDialogContentProps): React.JSX.Element {
+  const { t } = useTranslation("files");
   const textareaId = `git-editor-${prompt.promptId}`;
   const canSave = !busy && hasCommitMessageBody(content);
 
   return (
     <>
-      <h2 className="text-app-body-emphasis text-foreground">Commit message</h2>
+      <h2 className="text-app-body-emphasis text-foreground">{t("git.commit.messageDialog.title")}</h2>
       <p className="mt-2 text-app-ui-sm text-muted-foreground">
-        Edit the message Git will use for this commit. Lines starting with # are preserved for Git
-        to strip.
+        {t("git.commit.messageDialog.description")}
       </p>
       <form className="mt-4 flex flex-col gap-2" onSubmit={onSubmit}>
         <label htmlFor={textareaId} className="text-app-ui-sm text-foreground">
-          Message
+          {t("git.commit.messageDialog.messageLabel")}
         </label>
         <textarea
           id={textareaId}
@@ -71,10 +72,10 @@ export function CommitMessageDialogContent({
         <p className="text-app-ui-sm text-muted-foreground">{prompt.filePath}</p>
         <div className="mt-3 flex justify-end gap-2">
           <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
-            Cancel
+            {t("git.commit.messageDialog.cancel")}
           </Button>
           <Button type="submit" size="sm" disabled={!canSave}>
-            Save
+            {t("git.commit.messageDialog.save")}
           </Button>
         </div>
       </form>
@@ -113,7 +114,7 @@ export function CommitMessageDialog({
       size="lg"
       aria-describedby={undefined}
     >
-      <RadixDialog.Title className="sr-only">Commit message</RadixDialog.Title>
+      <RadixDialog.Title className="sr-only">{/* sr-only title loaded in content */}Commit message</RadixDialog.Title>
       {prompt ? (
         <CommitMessageDialogContent
           prompt={prompt}

@@ -19,6 +19,7 @@
  * Cmd+Alt+I) keep their Electron-built `role`s so Chromium and macOS
  * handle them uniformly.
  */
+import type { TFunction } from "i18next";
 import { COMMANDS, type CommandId } from "../../../shared/keybindings/commands";
 import { chordToLabel } from "../../../shared/keybindings/keybinding-parse";
 import { findChordBinding, findPrimaryBinding } from "../../../shared/keybindings/index";
@@ -60,22 +61,30 @@ export type ElectronSubmenuRole = "appMenu" | "editMenu" | "windowMenu";
 interface BuildMenuOptions {
   isMac: boolean;
   appName: string;
+  /**
+   * i18next TFunction for the main-process locale instance.
+   * Injected by the caller so this module stays a pure function with no
+   * global i18next import.  When omitted the English fallback strings
+   * embedded in each builder are used (e.g. in tests that build without i18n).
+   */
+  t?: TFunction;
 }
 
 export function buildMenuTemplate(opts: BuildMenuOptions): MenuItemSpec[] {
   const menu: MenuItemSpec[] = [];
+  const { t } = opts;
 
   if (opts.isMac) {
-    menu.push(appMenu(opts.appName));
+    menu.push(appMenu(opts.appName, t));
   }
 
-  menu.push(fileMenu(opts.isMac));
-  menu.push(editMenu());
-  menu.push(viewMenu());
-  menu.push(workspaceMenu());
+  menu.push(fileMenu(opts.isMac, t));
+  menu.push(editMenu(t));
+  menu.push(viewMenu(t));
+  menu.push(workspaceMenu(t));
 
   if (opts.isMac) {
-    menu.push(windowMenu());
+    menu.push(windowMenu(t));
   }
 
   return enrichWithKeybindings(menu, opts.isMac);
@@ -91,17 +100,21 @@ function cmd(label: string, command: CommandId): MenuItemSpec {
   return { type: "command", label, command };
 }
 
-function appMenu(appName: string): MenuItemSpec {
+function appMenu(appName: string, t?: TFunction): MenuItemSpec {
   return {
     type: "submenu",
     label: appName,
     role: "appMenu",
     submenu: [
-      { type: "role", role: "about", label: `About ${appName}` },
-      cmd("Check for Updates...", COMMANDS.updatesCheck),
+      {
+        type: "role",
+        role: "about",
+        label: t != null ? t("menu:appMenu.about", { appName }) : `About ${appName}`,
+      },
+      cmd(t != null ? t("menu:appMenu.checkForUpdates") : "Check for Updates...", COMMANDS.updatesCheck),
       { type: "separator" },
       // macOS convention: Settings… right under About, ⌘, accelerator.
-      cmd("Settings…", COMMANDS.settingsOpen),
+      cmd(t != null ? t("menu:appMenu.settings") : "Settings…", COMMANDS.settingsOpen),
       { type: "separator" },
       { type: "role", role: "hide" },
       { type: "role", role: "hideOthers" },
@@ -112,40 +125,40 @@ function appMenu(appName: string): MenuItemSpec {
   };
 }
 
-function fileMenu(isMac: boolean): MenuItemSpec {
+function fileMenu(isMac: boolean, t?: TFunction): MenuItemSpec {
   const items: MenuItemSpec[] = [
-    cmd("New File", COMMANDS.fileNew),
-    cmd("New Workspace…", COMMANDS.workspaceAdd),
+    cmd(t != null ? t("menu:file.newFile") : "New File", COMMANDS.fileNew),
+    cmd(t != null ? t("menu:file.newWorkspace") : "New Workspace…", COMMANDS.workspaceAdd),
     { type: "separator" },
-    cmd("Open File…", COMMANDS.fileOpen),
-    cmd("Save", COMMANDS.fileSave),
+    cmd(t != null ? t("menu:file.openFile") : "Open File…", COMMANDS.fileOpen),
+    cmd(t != null ? t("menu:file.save") : "Save", COMMANDS.fileSave),
     { type: "separator" },
-    cmd("Close Editor", COMMANDS.tabClose),
-    cmd("Close Others", COMMANDS.tabCloseOthers),
+    cmd(t != null ? t("menu:file.closeEditor") : "Close Editor", COMMANDS.tabClose),
+    cmd(t != null ? t("menu:file.closeOthers") : "Close Others", COMMANDS.tabCloseOthers),
     { type: "separator" },
-    cmd("Refresh Files", COMMANDS.filesRefresh),
+    cmd(t != null ? t("menu:file.refreshFiles") : "Refresh Files", COMMANDS.filesRefresh),
   ];
 
   // Win/Linux don't get the App menu, so Quit (and Settings, which on
   // macOS lives in the App menu) live in File instead.
   if (!isMac) {
     items.push({ type: "separator" });
-    items.push(cmd("Settings…", COMMANDS.settingsOpen));
+    items.push(cmd(t != null ? t("menu:appMenu.settings") : "Settings…", COMMANDS.settingsOpen));
     items.push({ type: "separator" });
-    items.push({ type: "role", role: "quit", label: "Exit" });
+    items.push({ type: "role", role: "quit", label: t != null ? t("menu:file.exit") : "Exit" });
   }
 
-  return { type: "submenu", label: "File", submenu: items };
+  return { type: "submenu", label: t != null ? t("menu:file.label") : "File", submenu: items };
 }
 
-function editMenu(): MenuItemSpec {
+function editMenu(t?: TFunction): MenuItemSpec {
   // The role-based Edit menu lets Chromium handle copy/paste/select-all
   // inside any focused input or contenteditable. Defining our own
   // command-based Edit items here would break Monaco's built-in
   // shortcuts (it expects the standard roles to flow through Cocoa).
   return {
     type: "submenu",
-    label: "Edit",
+    label: t != null ? t("menu:edit.label") : "Edit",
     role: "editMenu",
     submenu: [
       { type: "role", role: "undo" },
@@ -160,17 +173,17 @@ function editMenu(): MenuItemSpec {
   };
 }
 
-function viewMenu(): MenuItemSpec {
+function viewMenu(t?: TFunction): MenuItemSpec {
   return {
     type: "submenu",
-    label: "View",
+    label: t != null ? t("menu:view.label") : "View",
     submenu: [
-      cmd("Toggle Files Panel", COMMANDS.workbenchToggleFilesPanel),
-      cmd("Toggle Sidebar", COMMANDS.workbenchToggleSidebar),
+      cmd(t != null ? t("menu:view.toggleFilesPanel") : "Toggle Files Panel", COMMANDS.workbenchToggleFilesPanel),
+      cmd(t != null ? t("menu:view.toggleSidebar") : "Toggle Sidebar", COMMANDS.workbenchToggleSidebar),
       { type: "separator" },
-      cmd("Reveal in Finder", COMMANDS.pathReveal),
-      cmd("Copy Path", COMMANDS.pathCopy),
-      cmd("Copy Relative Path", COMMANDS.pathCopyRelative),
+      cmd(t != null ? t("menu:view.revealInFinder") : "Reveal in Finder", COMMANDS.pathReveal),
+      cmd(t != null ? t("menu:view.copyPath") : "Copy Path", COMMANDS.pathCopy),
+      cmd(t != null ? t("menu:view.copyRelativePath") : "Copy Relative Path", COMMANDS.pathCopyRelative),
       { type: "separator" },
       { type: "role", role: "toggleDevTools" },
       { type: "separator" },
@@ -183,30 +196,30 @@ function viewMenu(): MenuItemSpec {
   };
 }
 
-function workspaceMenu(): MenuItemSpec {
+function workspaceMenu(t?: TFunction): MenuItemSpec {
   return {
     type: "submenu",
-    label: "Workspace",
+    label: t != null ? t("menu:workspace.label") : "Workspace",
     submenu: [
-      cmd("Previous Workspace", COMMANDS.workspaceFocusPrev),
-      cmd("Next Workspace", COMMANDS.workspaceFocusNext),
+      cmd(t != null ? t("menu:workspace.previousWorkspace") : "Previous Workspace", COMMANDS.workspaceFocusPrev),
+      cmd(t != null ? t("menu:workspace.nextWorkspace") : "Next Workspace", COMMANDS.workspaceFocusNext),
       { type: "separator" },
-      cmd("Split Right", COMMANDS.groupSplitRight),
-      cmd("Split Down", COMMANDS.groupSplitDown),
-      cmd("Close Group", COMMANDS.groupClose),
+      cmd(t != null ? t("menu:workspace.splitRight") : "Split Right", COMMANDS.groupSplitRight),
+      cmd(t != null ? t("menu:workspace.splitDown") : "Split Down", COMMANDS.groupSplitDown),
+      cmd(t != null ? t("menu:workspace.closeGroup") : "Close Group", COMMANDS.groupClose),
       { type: "separator" },
-      cmd("Focus Group Left", COMMANDS.groupFocusLeft),
-      cmd("Focus Group Right", COMMANDS.groupFocusRight),
-      cmd("Focus Group Up", COMMANDS.groupFocusUp),
-      cmd("Focus Group Down", COMMANDS.groupFocusDown),
+      cmd(t != null ? t("menu:workspace.focusGroupLeft") : "Focus Group Left", COMMANDS.groupFocusLeft),
+      cmd(t != null ? t("menu:workspace.focusGroupRight") : "Focus Group Right", COMMANDS.groupFocusRight),
+      cmd(t != null ? t("menu:workspace.focusGroupUp") : "Focus Group Up", COMMANDS.groupFocusUp),
+      cmd(t != null ? t("menu:workspace.focusGroupDown") : "Focus Group Down", COMMANDS.groupFocusDown),
     ],
   };
 }
 
-function windowMenu(): MenuItemSpec {
+function windowMenu(t?: TFunction): MenuItemSpec {
   return {
     type: "submenu",
-    label: "Window",
+    label: t != null ? t("menu:window.label") : "Window",
     role: "windowMenu",
     submenu: [
       { type: "role", role: "minimize" },

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import i18next from "i18next";
 import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/errors";
 import type { FileContent } from "../../../shared/fs/types";
 import type { DiffTabPayload } from "../../../shared/types/tab";
@@ -123,7 +124,7 @@ export function useDiffContent(payload: DiffTabPayload): UseDiffContentResult {
           setSide({
             phase: "error",
             request,
-            message: tooLarge ? "File too large to diff." : errorMessage(error),
+            message: tooLarge ? i18next.t("editor.diff_too_large") : errorMessage(error),
             tooLarge,
           });
         },
@@ -357,5 +358,5 @@ function isTooLargeError(error: unknown): boolean {
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
-  return "Failed to load diff content.";
+  return i18next.t("editor.diff_load_failed");
 }

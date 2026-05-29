@@ -13,8 +13,10 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+import i18next from "i18next";
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { useDragSource } from "@/components/ui/use-drag-source";
 import { DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
@@ -134,17 +136,17 @@ function useTabDirty(tab: Tab): boolean {
 function claudeAriaLabel(status: ClaudeStatus): string {
   switch (status) {
     case "running":
-      return "Claude: running";
+      return i18next.t("claudeStatus.running");
     case "completed":
-      return "Claude: response complete";
+      return i18next.t("claudeStatus.completed");
     case "needsInput":
-      return "Claude: waiting for input";
+      return i18next.t("claudeStatus.needsInput");
     case "permissionPending":
-      return "Claude: waiting for permission";
+      return i18next.t("claudeStatus.permissionPending");
     case "error":
-      return "Claude: error";
+      return i18next.t("claudeStatus.error");
     case "idle":
-      return "Claude: idle";
+      return i18next.t("claudeStatus.idle");
   }
 }
 
@@ -251,6 +253,7 @@ export function TabItem({
   onCloseTab,
   onTabContextMenu,
 }: TabItemProps) {
+  const { t } = useTranslation();
   const payload = useMemo<TabDragPayload>(
     () => ({ workspaceId, tabId: tab.id, sourceGroupId: leafId }),
     [workspaceId, tab.id, leafId],
@@ -357,7 +360,7 @@ export function TabItem({
     >
       <RadixTabs.Trigger
         value={tab.id}
-        aria-label={terminalEnded ? `${displayTitle}, terminal ended` : undefined}
+        aria-label={terminalEnded ? `${displayTitle}${t("tabBar.terminal_ended_aria")}` : undefined}
         className={cn(
           // chip layout — h-7 inset within the h-9 bar; rounded so the active /
           // hover surface reads as a raised chip (JetBrains Islands tab).
@@ -428,7 +431,7 @@ export function TabItem({
           );
         })()}
         {tab.type === "editor" && (tab.props.readOnly || tab.props.origin === "external") && (
-          <span data-tab-icon role="img" aria-label="Read-only">
+          <span data-tab-icon role="img" aria-label={t("tabBar.read_only_aria")}>
             <Lock
               aria-hidden
               width={12}
@@ -473,7 +476,7 @@ export function TabItem({
             // 입력 모드에서는 부모 트리거가 active state로 잡혀 있어도 input이
             // 시각적으로 자연스럽게 노출되도록 transparent 배경 + 인라인 폭.
             className="bg-transparent outline-none border-0 px-0 m-0 w-32 text-app-ui-sm text-foreground"
-            aria-label="Rename tab"
+            aria-label={t("tabBar.rename_tab")}
             spellCheck={false}
           />
         ) : (
@@ -522,7 +525,7 @@ export function TabItem({
               e.stopPropagation();
               onCloseTab(tab.id);
             }}
-            aria-label="Close tab"
+            aria-label={t("tabBar.close_tab")}
           >
             <X aria-hidden width={12} height={12} strokeWidth={2} />
           </Button>
@@ -532,7 +535,7 @@ export function TabItem({
             className="px-2 py-1 text-app-micro bg-muted text-foreground border border-border rounded-(--radius-control) shadow-none"
             sideOffset={4}
           >
-            Close tab
+            {t("tabBar.close_tab")}
           </RadixTooltip.Content>
         </RadixTooltip.Portal>
       </RadixTooltip.Root>

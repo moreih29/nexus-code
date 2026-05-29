@@ -1,3 +1,4 @@
+import i18next from "i18next";
 import { requestTerminalReopen } from "../../services/terminal/reopen-requests";
 import type { Tab, TerminalTab } from "../../state/stores/tabs";
 import type { TerminalDeathAggregate } from "../../state/stores/terminal-deaths";
@@ -49,8 +50,7 @@ export function shouldShowWorkspaceTerminalStatusBanner({
  * Builds the aggregate banner copy without inferring remote process state.
  */
 export function workspaceTerminalStatusMessage(deadTerminalCount: number): string {
-  const terminalLabel = deadTerminalCount === 1 ? "terminal" : "terminals";
-  return `${deadTerminalCount} ${terminalLabel} ended.`;
+  return i18next.t("terminal.aggregate", { count: deadTerminalCount });
 }
 
 /**
@@ -79,7 +79,7 @@ export function WorkspaceTerminalStatusBanner({
       display="bar"
       variant="info"
       message={workspaceTerminalStatusMessage(deadTerminalCount)}
-      actions={[{ label: "Reopen all", onAction: onReopenAll }]}
+      actions={[{ label: i18next.t("action.reopenAll"), onAction: onReopenAll }]}
       role="status"
     />
   );

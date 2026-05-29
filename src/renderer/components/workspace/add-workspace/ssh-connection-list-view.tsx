@@ -1,5 +1,6 @@
 import { AlertCircle, ChevronRight, LoaderCircle, Plus, Server, Star, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { ConnectionProfile } from "../../../../shared/types/entry-points";
 import {
   listConnectionProfiles,
@@ -23,6 +24,7 @@ export function SshConnectionListView({
   onNewConnection,
   onConnected,
 }: SshConnectionListViewProps): React.JSX.Element {
+  const { t } = useTranslation();
   const [profiles, setProfiles] = useState<ConnectionProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [connectingId, setConnectingId] = useState<string | null>(null);
@@ -138,7 +140,7 @@ export function SshConnectionListView({
 
   if (loading) {
     return (
-      <Skeleton label="Loading connections…" className="gap-1 px-0 py-0">
+      <Skeleton label={t("ssh.loading_connections")} className="gap-1 px-0 py-0">
         {(["sk-0", "sk-1", "sk-2", "sk-3"] as const).map((k) => (
           <SkeletonLine key={k} className="h-10 w-full" />
         ))}
@@ -153,17 +155,17 @@ export function SshConnectionListView({
         <EmptyState
           tone="status"
           icon={<Server className="size-6" aria-hidden="true" />}
-          title="No saved connections"
-          description="Add a connection to browse its folders."
+          title={t("ssh.no_saved")}
+          description={t("ssh.no_saved_desc")}
           className="py-6"
         />
       ) : null}
 
       {/* Favorites section */}
       {favorites.length > 0 ? (
-        <section aria-label="Favorites">
+        <section aria-label={t("workspace.favorites")}>
           <div className="px-2 pb-1 pt-0">
-            <span className="text-app-label uppercase text-muted-foreground">Favorites</span>
+            <span className="text-app-label uppercase text-muted-foreground">{t("workspace.favorites")}</span>
           </div>
           <ul className="flex flex-col gap-0.5">
             {favorites.map((profile) => (
@@ -184,9 +186,9 @@ export function SshConnectionListView({
 
       {/* Recent section */}
       {recents.length > 0 ? (
-        <section aria-label="Recent" className={favorites.length > 0 ? "mt-3" : undefined}>
+        <section aria-label={t("workspace.recent")} className={favorites.length > 0 ? "mt-3" : undefined}>
           <div className="px-2 pb-1 pt-0">
-            <span className="text-app-label uppercase text-muted-foreground">Recent</span>
+            <span className="text-app-label uppercase text-muted-foreground">{t("workspace.recent")}</span>
           </div>
           <ul className="flex flex-col gap-0.5">
             {recents.map((profile) => (
@@ -216,7 +218,7 @@ export function SshConnectionListView({
           <span className="flex size-8 shrink-0 items-center justify-center rounded-(--radius-control) border border-dashed border-border">
             <Plus className="size-4 text-muted-foreground" aria-hidden="true" />
           </span>
-          <span className="min-w-0 truncate">New Connection…</span>
+          <span className="min-w-0 truncate">{t("ssh.new_connection")}</span>
         </button>
       </div>
     </div>
@@ -246,6 +248,7 @@ function ConnectionProfileRow({
   onToggleFavorite,
   onRemove,
 }: ConnectionProfileRowProps): React.JSX.Element {
+  const { t } = useTranslation();
   const displayName = profile.label ?? profile.host;
   const isFavorite = profile.favorite;
   const subtitle = formatProfileSubtitle(profile);
@@ -294,7 +297,7 @@ function ConnectionProfileRow({
           <span className="min-w-0 flex-1">
             <span className="block truncate text-app-ui-sm text-foreground">{displayName}</span>
             <span className="block truncate text-app-ui-sm text-muted-foreground">
-              {connecting ? "Connecting…" : subtitle}
+              {connecting ? t("ssh.connecting") : subtitle}
             </span>
           </span>
         </button>
@@ -304,7 +307,7 @@ function ConnectionProfileRow({
           <span className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
             <button
               type="button"
-              aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
+              aria-label={isFavorite ? t("workspace.remove_from_favorites") : t("workspace.add_to_favorites")}
               onClick={onToggleFavorite}
               className="inline-flex size-11 items-center justify-center rounded-(--radius-control) text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             >
@@ -316,7 +319,7 @@ function ConnectionProfileRow({
             </button>
             <button
               type="button"
-              aria-label="Remove connection"
+              aria-label={t("ssh.remove_connection")}
               onClick={onRemove}
               className="inline-flex size-11 items-center justify-center rounded-(--radius-control) text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-[var(--state-error-fg)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             >

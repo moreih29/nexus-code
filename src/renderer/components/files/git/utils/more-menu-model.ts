@@ -8,6 +8,7 @@
  * one inspectable, test-only file. Every function here is side-effect free.
  */
 
+import i18next from "i18next";
 import type { BranchInfo, GitAutofetchIntervalMin } from "../../../../../shared/git/types";
 
 export type GitRemotesMenuSpec =
@@ -85,17 +86,18 @@ export type GitMoreMenuLayoutEntry =
  * Builds the Remote submenu model used by the menu renderer and tests.
  */
 export function buildGitRemotesMenuModel(remotes: readonly string[]): GitRemotesMenuSpec[] {
+  const t = i18next.t.bind(i18next);
   const currentRemotes: GitRemotesMenuSpec[] =
     remotes.length > 0
       ? remotes.map((remote) => ({ kind: "remote", remote, label: remote }))
-      : [{ kind: "empty", label: "No remotes configured" }];
+      : [{ kind: "empty", label: t("files:git.moreMenu.remote.noRemotes") }];
   return [
     ...currentRemotes,
-    { kind: "action", id: "add-remote", label: "Add remote…" },
+    { kind: "action", id: "add-remote", label: t("files:git.moreMenu.remote.addRemote") },
     {
       kind: "action",
       id: "remove-remote",
-      label: "Remove remote…",
+      label: t("files:git.moreMenu.remote.removeRemote"),
       disabled: remotes.length === 0,
     },
   ];
@@ -110,17 +112,19 @@ export function buildRemoteUpstreamWarning(
   remote: string,
 ): string | null {
   if (!branch?.upstream?.startsWith(`${remote}/`)) return null;
-  return `${branch.current} tracks ${remote}/... Removing detaches upstream tracking.`;
+  const t = i18next.t.bind(i18next);
+  return t("files:git.removeRemote.upstreamWarning", { branch: branch.current, remote });
 }
 
 /** Builds the fixed Autofetch submenu options, marking the selected interval. */
 export function buildAutofetchMenuModel(
   selected: GitAutofetchIntervalMin,
 ): GitAutofetchMenuOption[] {
+  const t = i18next.t.bind(i18next);
   return [
-    { intervalMin: 0, label: "Off", selected: selected === 0 },
-    { intervalMin: 1, label: "Every 1 min", selected: selected === 1 },
-    { intervalMin: 3, label: "Every 3 min", selected: selected === 3 },
+    { intervalMin: 0, label: t("files:git.moreMenu.autofetch.off"), selected: selected === 0 },
+    { intervalMin: 1, label: t("files:git.moreMenu.autofetch.every1min"), selected: selected === 1 },
+    { intervalMin: 3, label: t("files:git.moreMenu.autofetch.every3min"), selected: selected === 3 },
   ];
 }
 
@@ -178,23 +182,24 @@ export function runGitTagMenuAction(
  * from the click handlers so new git actions land in the decided groups.
  */
 export function buildGitMoreMenuLayoutModel(canInit = false): GitMoreMenuLayoutEntry[] {
+  const t = i18next.t.bind(i18next);
   return [
-    { kind: "item", label: "Refresh" },
-    ...(canInit ? [{ kind: "item" as const, label: "Initialize Repository" }] : []),
+    { kind: "item", label: t("files:git.moreMenu.refresh") },
+    ...(canInit ? [{ kind: "item" as const, label: t("files:git.moreMenu.initRepo") }] : []),
     { kind: "separator", id: "after-refresh" },
-    { kind: "item", label: "Fetch" },
-    { kind: "item", label: "Pull" },
-    { kind: "item", label: "Push" },
+    { kind: "item", label: t("files:git.moreMenu.fetch") },
+    { kind: "item", label: t("files:git.moreMenu.pull") },
+    { kind: "item", label: t("files:git.moreMenu.push") },
     { kind: "separator", id: "after-sync" },
-    { kind: "item", label: "Checkout to…" },
-    { kind: "submenu", label: "Branch" },
-    { kind: "submenu", label: "Remote" },
-    { kind: "submenu", label: "Stash" },
-    { kind: "submenu", label: "Tag" },
+    { kind: "item", label: t("files:git.moreMenu.checkoutTo") },
+    { kind: "submenu", label: t("files:git.moreMenu.branch.label") },
+    { kind: "submenu", label: t("files:git.moreMenu.remote.label") },
+    { kind: "submenu", label: t("files:git.moreMenu.stash.label") },
+    { kind: "submenu", label: t("files:git.moreMenu.tag.label") },
     { kind: "separator", id: "after-refs" },
-    { kind: "submenu", label: "Autofetch" },
+    { kind: "submenu", label: t("files:git.moreMenu.autofetch.label") },
     { kind: "separator", id: "after-autofetch" },
-    { kind: "item", label: "Discard All Changes", destructive: true },
+    { kind: "item", label: t("files:git.moreMenu.discardAllChanges"), destructive: true },
   ];
 }
 
@@ -209,20 +214,21 @@ export function buildGitBranchMenuModel({
   disabled?: boolean;
   hasHead?: boolean;
 }): GitSubmenuModelItem<GitBranchMenuItemId>[] {
+  const t = i18next.t.bind(i18next);
   const workflowDisabled = disabled || !hasHead;
-  const workflowReason = hasHead ? undefined : "Make an initial commit first.";
+  const workflowReason = hasHead ? undefined : t("files:git.moreMenu.branch.requiresCommit");
   return [
     {
       kind: "item",
       id: "merge",
-      label: "Merge Branch…",
+      label: t("files:git.moreMenu.branch.merge"),
       disabled: workflowDisabled,
       title: workflowReason,
     },
     {
       kind: "item",
       id: "rebase",
-      label: "Rebase Current Branch…",
+      label: t("files:git.moreMenu.branch.rebase"),
       disabled: workflowDisabled,
       title: workflowReason,
     },
@@ -230,34 +236,34 @@ export function buildGitBranchMenuModel({
     {
       kind: "item",
       id: "create",
-      label: "Create New Branch…",
+      label: t("files:git.moreMenu.branch.create"),
       disabled,
     },
     {
       kind: "item",
       id: "create-from",
-      label: "Create New Branch From…",
+      label: t("files:git.moreMenu.branch.createFrom"),
       disabled,
     },
     { kind: "separator", id: "after-create" },
     {
       kind: "item",
       id: "rename",
-      label: "Rename Branch…",
+      label: t("files:git.moreMenu.branch.rename"),
       disabled: workflowDisabled,
       title: workflowReason,
     },
     {
       kind: "item",
       id: "delete",
-      label: "Delete Branch…",
+      label: t("files:git.moreMenu.branch.delete"),
       disabled: workflowDisabled,
       title: workflowReason,
     },
     {
       kind: "item",
       id: "delete-remote",
-      label: "Delete Remote Branch…",
+      label: t("files:git.moreMenu.branch.deleteRemote"),
       disabled: workflowDisabled,
       title: workflowReason,
     },
@@ -274,30 +280,39 @@ export function buildGitStashMenuModel({
   hasHead?: boolean;
   stashCount?: number;
 }): GitSubmenuModelItem<GitStashMenuItemId>[] {
-  const stashReason = hasHead ? undefined : "Make an initial commit first.";
+  const t = i18next.t.bind(i18next);
+  const stashReason = hasHead ? undefined : t("files:git.moreMenu.stash.requiresCommit");
   const stashPopReason =
-    stashCount === 0 ? "Stash is empty." : !hasHead ? "Make an initial commit first." : undefined;
+    stashCount === 0
+      ? t("files:git.moreMenu.stash.stashEmpty")
+      : !hasHead
+        ? t("files:git.moreMenu.stash.requiresCommit")
+        : undefined;
   const dropStashReason =
-    stashCount === 0 ? "Stash is empty." : !hasHead ? "Make an initial commit first." : undefined;
+    stashCount === 0
+      ? t("files:git.moreMenu.stash.stashEmpty")
+      : !hasHead
+        ? t("files:git.moreMenu.stash.requiresCommit")
+        : undefined;
   return [
     {
       kind: "item",
       id: "stash",
-      label: "Stash",
+      label: t("files:git.moreMenu.stash.stash"),
       disabled: disabled || !hasHead,
       title: stashReason,
     },
     {
       kind: "item",
       id: "stash-pop",
-      label: "Stash Pop",
+      label: t("files:git.moreMenu.stash.stashPop"),
       disabled: disabled || stashCount === 0 || !hasHead,
       title: stashPopReason,
     },
     {
       kind: "item",
       id: "open-stashes",
-      label: "Stashes…",
+      label: t("files:git.moreMenu.stash.stashes"),
       disabled: disabled || !hasHead,
       title: stashReason,
     },
@@ -305,7 +320,7 @@ export function buildGitStashMenuModel({
     {
       kind: "item",
       id: "drop-stash",
-      label: "Drop Stash…",
+      label: t("files:git.moreMenu.stash.dropStash"),
       disabled: disabled || stashCount === 0 || !hasHead,
       title: dropStashReason,
     },
@@ -322,9 +337,10 @@ export function resolveGitPushTagsAction({
   hasHead?: boolean;
   remotes: readonly string[];
 }): GitPushTagsMenuAction {
-  if (remotes.length === 0) return { kind: "disabled", reason: "No remotes configured" };
-  if (disabled) return { kind: "disabled", reason: "Repository is busy." };
-  if (!hasHead) return { kind: "disabled", reason: "Make an initial commit first." };
+  const t = i18next.t.bind(i18next);
+  if (remotes.length === 0) return { kind: "disabled", reason: t("files:git.moreMenu.tag.noRemotes") };
+  if (disabled) return { kind: "disabled", reason: t("files:git.moreMenu.tag.repoBusy") };
+  if (!hasHead) return { kind: "disabled", reason: t("files:git.moreMenu.tag.requiresCommit") };
   const [firstRemote] = remotes;
   if (remotes.length === 1 && firstRemote) return { kind: "push", remote: firstRemote };
   return { kind: "choose-remote", remotes };
@@ -340,9 +356,10 @@ export function resolveGitDeleteRemoteTagAction({
   hasHead?: boolean;
   remotes: readonly string[];
 }): GitDeleteRemoteTagMenuAction {
-  if (remotes.length === 0) return { kind: "disabled", reason: "No remotes configured" };
-  if (disabled) return { kind: "disabled", reason: "Repository is busy." };
-  if (!hasHead) return { kind: "disabled", reason: "Make an initial commit first." };
+  const t = i18next.t.bind(i18next);
+  if (remotes.length === 0) return { kind: "disabled", reason: t("files:git.moreMenu.tag.noRemotes") };
+  if (disabled) return { kind: "disabled", reason: t("files:git.moreMenu.tag.repoBusy") };
+  if (!hasHead) return { kind: "disabled", reason: t("files:git.moreMenu.tag.requiresCommit") };
   const [firstRemote] = remotes;
   if (remotes.length === 1 && firstRemote) return { kind: "open-picker", remote: firstRemote };
   return { kind: "choose-remote", remotes };
@@ -361,29 +378,30 @@ export function buildGitTagMenuModel({
   hasHead?: boolean;
   remotes?: readonly string[];
 }): GitSubmenuModelItem<GitTagMenuItemId>[] {
+  const t = i18next.t.bind(i18next);
   const tagDisabled = disabled || !hasHead;
-  const tagReason = hasHead ? undefined : "Make an initial commit first.";
+  const tagReason = hasHead ? undefined : t("files:git.moreMenu.tag.requiresCommit");
   const deleteRemoteAction = resolveGitDeleteRemoteTagAction({ disabled, hasHead, remotes });
   const pushTagsAction = resolveGitPushTagsAction({ disabled, hasHead, remotes });
   return [
     {
       kind: "item",
       id: "create",
-      label: "Create Tag…",
+      label: t("files:git.moreMenu.tag.create"),
       disabled: tagDisabled,
       title: tagReason,
     },
     {
       kind: "item",
       id: "delete",
-      label: "Delete Tag…",
+      label: t("files:git.moreMenu.tag.delete"),
       disabled: tagDisabled,
       title: tagReason,
     },
     {
       kind: "item",
       id: "delete-remote",
-      label: "Delete Remote Tag…",
+      label: t("files:git.moreMenu.tag.deleteRemote"),
       disabled: deleteRemoteAction.kind === "disabled",
       title: deleteRemoteAction.kind === "disabled" ? deleteRemoteAction.reason : undefined,
     },
@@ -391,7 +409,7 @@ export function buildGitTagMenuModel({
     {
       kind: "item",
       id: "push-tags",
-      label: "Push Tags",
+      label: t("files:git.moreMenu.tag.pushTags"),
       disabled: pushTagsAction.kind === "disabled",
       title: pushTagsAction.kind === "disabled" ? pushTagsAction.reason : undefined,
     },
@@ -400,12 +418,13 @@ export function buildGitTagMenuModel({
 
 /** Formats the menu caption from FETCH_HEAD mtime. */
 export function formatLastFetchedCaption(lastFetchedAt: number | null, now = Date.now()): string {
-  if (lastFetchedAt === null) return "Last fetched never";
+  const t = i18next.t.bind(i18next);
+  if (lastFetchedAt === null) return t("files:git.moreMenu.autofetch.lastFetchedNever");
   const ageMs = Math.max(0, now - lastFetchedAt);
   const ageMin = Math.floor(ageMs / 60_000);
-  if (ageMin < 1) return "Last fetched just now";
-  if (ageMin < 60) return `Last fetched ${ageMin}m ago`;
+  if (ageMin < 1) return t("files:git.moreMenu.autofetch.lastFetchedJustNow");
+  if (ageMin < 60) return t("files:git.moreMenu.autofetch.lastFetchedMinutes", { count: ageMin });
   const ageHours = Math.floor(ageMin / 60);
-  if (ageHours < 24) return `Last fetched ${ageHours}h ago`;
-  return `Last fetched ${Math.floor(ageHours / 24)}d ago`;
+  if (ageHours < 24) return t("files:git.moreMenu.autofetch.lastFetchedHours", { count: ageHours });
+  return t("files:git.moreMenu.autofetch.lastFetchedDays", { count: Math.floor(ageHours / 24) });
 }

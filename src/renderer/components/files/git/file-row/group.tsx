@@ -6,6 +6,7 @@
  *   recursively with WAI-ARIA tree role and roving tabindex.
  */
 import { useCallback, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
 import type { ViewMode } from "../../../../../shared/types/panel";
 import { type GitDecorationKind, kindFromEntry, maxKind } from "../../file-tree/git-decoration";
@@ -138,6 +139,7 @@ export function GitGroup({
   onAddPathsToGitignore,
   onStashGroup,
 }: GitGroupProps) {
+  const { t } = useTranslation("files");
   if (entries.length === 0) return null;
 
   const paths = collectGitEntryPaths(entries);
@@ -145,7 +147,7 @@ export function GitGroup({
   const canStageHeader = groupKey === "working" || groupKey === "untracked";
   const canUnstage = groupKey === "staged";
   const canDiscardHeader = groupKey === "working";
-  const discardLabel = `Discard all ${label.toLowerCase()}`;
+  const discardLabel = t("git.groups.discardAll", { label: label.toLowerCase() });
 
   const header = (
     <GitGroupHeader
@@ -154,8 +156,8 @@ export function GitGroup({
       count={entries.length}
       expanded={expanded}
       onToggle={onToggle}
-      stageActionLabel={canStageHeader ? `Stage all ${label.toLowerCase()}` : undefined}
-      unstageActionLabel={canUnstage ? "Unstage all staged changes" : undefined}
+      stageActionLabel={canStageHeader ? t("git.groups.stageAll", { label: label.toLowerCase() }) : undefined}
+      unstageActionLabel={canUnstage ? t("git.groups.unstageAll") : undefined}
       discardActionLabel={canDiscardHeader ? discardLabel : undefined}
       onStageAll={canStageHeader ? () => onStagePaths(paths) : undefined}
       onUnstageAll={canUnstage ? () => onUnstagePaths(paths) : undefined}

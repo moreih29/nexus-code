@@ -15,6 +15,7 @@
  * it only reads from the runtime store and fires `onNavigate` upward.
  */
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { classifyUrl } from "@/services/browser/url-classifier";
 
@@ -40,6 +41,7 @@ export function UrlBar({
   focusToken = 0,
   className,
 }: UrlBarProps) {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const [localValue, setLocalValue] = useState(currentUrl);
   const [isFocused, setIsFocused] = useState(false);
@@ -85,7 +87,7 @@ export function UrlBar({
       e.preventDefault();
       const result = classifyUrl(localValue);
       if (result.kind === "blocked") {
-        setBlockedError(result.error ?? "This URL scheme is not allowed.");
+        setBlockedError(result.error ?? t("browser.url_blocked_default"));
         return;
       }
       setBlockedError(null);
@@ -123,8 +125,8 @@ export function UrlBar({
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
-          aria-label="URL or search"
-          placeholder="Enter URL or search…"
+          aria-label={t("browser.url_aria")}
+          placeholder={t("browser.url_placeholder")}
           value={localValue}
           // biome-ignore lint/a11y/noAutofocus: new browser tabs auto-focus the URL bar so the user can type immediately
           autoFocus={autoFocus}

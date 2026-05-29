@@ -2,6 +2,7 @@
 // Pure SSH utility functions — exported for unit tests.
 // ---------------------------------------------------------------------------
 
+import i18next from "i18next";
 import type { SshConfigHost } from "./types";
 
 export function parseSshDestination(input: string): { host: string; user?: string } | null {
@@ -99,33 +100,34 @@ export function formatProfileSubtitle(profile: {
  * raw error.message is never surfaced directly in UI.
  */
 export function humanizeSshError(error: unknown): string {
+  const t = i18next.t.bind(i18next);
   if (!(error instanceof Error)) {
-    return "Something went wrong. Please try again.";
+    return t("common:ssh.error.unknown_error");
   }
   const msg = error.message;
   if (msg.includes("ssh.connect-failed")) {
-    return "Couldn't connect to the host. Check the address and your network, then retry.";
+    return t("common:ssh.error.connect_failed");
   }
   if (msg.includes("ssh.auth-failed")) {
-    return "Authentication failed. Verify your credentials or identity file and try again.";
+    return t("common:ssh.error.auth_failed");
   }
   if (msg.includes("ssh.session-expired")) {
-    return "The SSH session has expired. Go back and reconnect.";
+    return t("common:ssh.error.session_expired");
   }
   if (msg.includes("server.spawn-failed")) {
-    return "The remote agent couldn't start. Ensure the host is reachable and you have shell access.";
+    return t("common:ssh.error.spawn_failed");
   }
   if (msg.includes("server.protocol-version-mismatch")) {
-    return "Remote agent version is incompatible. Update Nexus on the remote host.";
+    return t("common:ssh.error.protocol_version_mismatch");
   }
   if (msg.includes("server.protocol-error")) {
-    return "A protocol error occurred with the remote agent. Try reconnecting.";
+    return t("common:ssh.error.protocol_error");
   }
   if (msg.includes("transport.unknown") || msg.includes("ssh.unknown")) {
-    return "An unknown SSH error occurred. Check connectivity and retry.";
+    return t("common:ssh.error.ssh_unknown");
   }
   // Fallback — intentionally generic, no raw message leak
-  return "Connection failed. Check your settings and try again.";
+  return t("common:ssh.error.connection_failed");
 }
 
 // ---------------------------------------------------------------------------
