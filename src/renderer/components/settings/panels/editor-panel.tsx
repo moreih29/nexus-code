@@ -48,6 +48,7 @@ const FAMILY_SYSTEM_VALUE = "__system__";
 
 const DEFAULT_FONT_FAMILIES = [
   { value: "JetBrains Mono Nerd Font", label: "JetBrains Mono" },
+  { value: "D2CodingLigature Nerd Font", label: "D2Coding" },
   { value: "Sarasa Term K", label: "Sarasa Term K" },
   { value: FAMILY_SYSTEM_VALUE, label: "System" },
   { value: "__custom__", label: "Other..." },

@@ -123,6 +123,7 @@ async function waitForTerminalFonts(fontSize: number): Promise<void> {
     await Promise.all([
       document.fonts.load(`${fontSize}px "JetBrains Mono Nerd Font"`),
       document.fonts.load(`${fontSize}px "Sarasa Term K"`),
+      document.fonts.load(`${fontSize}px "D2CodingLigature Nerd Font"`),
     ]);
   } catch {
     // Degrade to available metrics rather than blocking the terminal.

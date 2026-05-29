@@ -37,6 +37,14 @@
   src: url("../assets/fonts/SarasaTermK/sarasa-term-k-regular.ttf") format("truetype");
 }
 
+@font-face {
+  font-family: "D2CodingLigature Nerd Font";
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url("../assets/fonts/D2Coding/D2CodingLigatureNerdFont-Regular.ttf") format("truetype");
+}
+
 /* ---------------------------------------------------------------------------
    Global resets + baseline (must live inside @layer base so Tailwind
    utilities, which are in @layer utilities, can still override them.
