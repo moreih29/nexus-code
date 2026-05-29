@@ -43,7 +43,6 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it, mock } from "bun:test";
-import * as React from "react";
 import { resolveInitialBrowserUrl } from "../../../../../../src/renderer/state/operations/browser";
 import type { BrowserTabProps } from "../../../../../../src/renderer/state/stores/tabs";
 
@@ -153,14 +152,34 @@ describe("BrowserTabView — computeMountUrl (resolveInitialBrowserUrl ?? BLANK_
 // WHY A HOOK HARNESS (no DOM mount)
 // ---------------------------------
 // This project does not use jsdom/happy-dom (forbidden — caused test hangs).
-// Following the ref-chip.test.tsx precedent, we install a minimal React hook
-// dispatcher, invoke BrowserTabView once to collect its effects, then run the
-// reparent effect with a fake measurable placeholder and a synchronous rAF —
-// asserting it emits the `browser.setBounds` IPC. This DISCRIMINATES the fix:
-// on the pre-fix code there is no effect keyed on `parentEl`, so the lookup
-// below returns undefined and the test fails.
+// Following the ref-chip.test.tsx precedent, we drive BrowserTabView through a
+// minimal React hook dispatcher (no renderer): invoke it once to collect its
+// effects, then run the reparent effect with a fake measurable placeholder and
+// a synchronous rAF — asserting it emits the `browser.setBounds` IPC. This
+// DISCRIMINATES the fix: on the pre-fix code there is no effect keyed on
+// `parentEl`, so the lookup below returns undefined and the test fails.
+//
+// CROSS-FILE ISOLATION: other test files (e.g. use-drag-source.test.ts) call
+// `mock.module("react", …)` with hooks that run effects immediately and return
+// non-stable refs. bun's module mocks are process-global and not reset between
+// files, so that mock leaks here and would crash BrowserTabView mid-render. We
+// neutralize it by re-mocking react with hooks that DELEGATE to React's current
+// internal dispatcher: our harness sets that dispatcher during a render, and
+// any other file remains unaffected (its own renders set their own dispatcher).
 //
 // Out of scope (manual / isolated-instance smoke): real native view geometry.
+
+interface RefSlot {
+  current: unknown;
+}
+
+interface HookDispatcher {
+  useRef(initial: unknown): RefSlot;
+  useState(initial: unknown): [unknown, (v: unknown) => void];
+  useCallback(cb: unknown, deps?: readonly unknown[]): unknown;
+  useMemo(factory: () => unknown, deps?: readonly unknown[]): unknown;
+  useEffect(fn: () => void, deps?: readonly unknown[]): void;
+}
 
 interface CapturedEffect {
   // `() => void` structurally accepts effect callbacks that return a cleanup
@@ -169,9 +188,24 @@ interface CapturedEffect {
   deps: readonly unknown[] | undefined;
 }
 
-interface RefSlot {
-  current: unknown;
-}
+// React's current-dispatcher slot. Reading it off the (possibly already-mocked)
+// react module namespace keeps us pointed at the same object the runtime uses.
+const currentReact = await import("react");
+const reactInternals = (
+  currentReact as unknown as {
+    __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: { H: HookDispatcher | null };
+  }
+).__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+
+// Transparent delegating mock — overrides any leaked global react hook mock.
+mock.module("react", () => ({
+  ...currentReact,
+  useRef: (init: unknown) => reactInternals.H?.useRef(init),
+  useState: (init: unknown) => reactInternals.H?.useState(init),
+  useCallback: (cb: unknown, deps?: readonly unknown[]) => reactInternals.H?.useCallback(cb, deps),
+  useMemo: (f: () => unknown, deps?: readonly unknown[]) => reactInternals.H?.useMemo(f, deps),
+  useEffect: (fn: () => void, deps?: readonly unknown[]) => reactInternals.H?.useEffect(fn, deps),
+}));
 
 // Minimal hook dispatcher: slot-indexed refs/state, callbacks passed through,
 // effects captured with their dependency arrays.
@@ -182,7 +216,7 @@ function createHookHarness() {
   let refCursor = 0;
   let stateCursor = 0;
 
-  const dispatcher = {
+  const dispatcher: HookDispatcher = {
     useRef(initial: unknown): RefSlot {
       const i = refCursor++;
       if (!(i in refs)) refs[i] = { current: initial };
@@ -204,17 +238,12 @@ function createHookHarness() {
     refCursor = 0;
     stateCursor = 0;
     effects.length = 0;
-    const internals = (
-      React as unknown as {
-        __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: { H: unknown };
-      }
-    ).__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
-    const previous = internals.H;
-    internals.H = dispatcher;
+    const previous = reactInternals.H;
+    reactInternals.H = dispatcher;
     try {
       run();
     } finally {
-      internals.H = previous;
+      reactInternals.H = previous;
     }
   }
 
