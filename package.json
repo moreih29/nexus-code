@@ -1,7 +1,7 @@
 {
   "name": "nexus-code",
   "productName": "NexusCode",
-  "version": "0.2.2",
+  "version": "0.2.0",
   "description": "Multi-workspace VSCode-style editor for macOS. Monaco editor + terminal in one window.",
   "private": true,
   "main": "out/main/index.js",
