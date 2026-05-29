@@ -32,28 +32,11 @@
 import i18next from "i18next";
 import { initReactI18next } from "react-i18next";
 import { createI18n } from "../shared/i18n";
-import { LANGUAGE_STORAGE_KEY } from "./state/stores/language";
-import type { SupportedLanguage } from "../shared/i18n";
+import { resolveBootLanguage } from "./state/stores/language";
 
-// ---------------------------------------------------------------------------
-// Boot language resolution — synchronous
-// ---------------------------------------------------------------------------
-
-function resolveBootLanguage(): SupportedLanguage {
-  // 1. Persisted preference from a previous session.
-  if (typeof localStorage !== "undefined") {
-    const stored = localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    if (stored === "ko" || stored === "en") return stored;
-  }
-
-  // 2. Browser / OS locale approximation.
-  if (typeof navigator !== "undefined") {
-    const nav = navigator.language ?? "";
-    if (nav.startsWith("ko")) return "ko";
-  }
-
-  return "en";
-}
+// resolveBootLanguage lives in the language store module (the single source of
+// truth shared with the store's initial `preference`) so the live UI language
+// and the settings control selection never diverge on first launch.
 
 // ---------------------------------------------------------------------------
 // i18next instance — the default export from "i18next" IS the global

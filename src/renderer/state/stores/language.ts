@@ -35,6 +35,31 @@ function normalize(value: string | null | undefined): SupportedLanguage {
   return "en";
 }
 
+/**
+ * Resolve the boot language synchronously (no async I/O). This is the SINGLE
+ * source of truth shared by both the i18next boot init (src/renderer/i18n.ts)
+ * and this store's initial `preference`, so the live UI language and the
+ * settings control selection never diverge on first launch.
+ *
+ * Order:
+ *   1. localStorage["language"] — present only after an explicit user choice
+ *      (setPreference) or an appState hydrate.
+ *   2. navigator.language — OS/browser locale approximation ("ko" prefix → ko).
+ *
+ * Read-only: never writes localStorage (preserves OS-locale following when the
+ * user has made no explicit choice and appState carries no value).
+ */
+export function resolveBootLanguage(): SupportedLanguage {
+  if (typeof localStorage !== "undefined") {
+    const stored = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+    if (isSupportedLanguage(stored)) return stored;
+  }
+  if (typeof navigator !== "undefined" && (navigator.language ?? "").startsWith("ko")) {
+    return "ko";
+  }
+  return "en";
+}
+
 // ---------------------------------------------------------------------------
 // State shape
 // ---------------------------------------------------------------------------
@@ -58,11 +83,11 @@ interface LanguageState {
 // ---------------------------------------------------------------------------
 
 export const useLanguageStore = create<LanguageState>((set) => {
-  // Read boot cache from localStorage synchronously — set by a previous
-  // setPreference call or by the boot approximation in src/renderer/i18n.ts.
-  const storedRaw =
-    typeof localStorage !== "undefined" ? localStorage.getItem(LANGUAGE_STORAGE_KEY) : null;
-  const initial = normalize(storedRaw);
+  // Initial preference uses the SAME resolution as the i18next boot init
+  // (localStorage → navigator.language), so on first launch the settings
+  // control reflects the OS-derived language (e.g. Korean system → 한국어
+  // selected), matching the actually-rendered UI language.
+  const initial = resolveBootLanguage();
 
   return {
     preference: initial,
