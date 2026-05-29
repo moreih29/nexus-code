@@ -267,10 +267,13 @@ describe("installNavigationGuards — will-frame-navigate", () => {
   });
 
   function fireFrameNavigate(url: string, isMainFrame: boolean): FakeEvent {
-    const ev = makeFakeEvent();
+    // will-frame-navigate emits a SINGLE consolidated event object that
+    // carries url, isMainFrame, and preventDefault() together — NOT the
+    // 2-arg (event, details) form that will-navigate uses. Mirror that shape.
+    const details = Object.assign(makeFakeEvent(), { url, isMainFrame });
     const frameHandlers = wc._handlers.get("will-frame-navigate") ?? [];
-    for (const h of frameHandlers) h(ev, { url, isMainFrame });
-    return ev;
+    for (const h of frameHandlers) h(details);
+    return details;
   }
 
   test("allows about:blank for sub-frame initialisation", () => {
