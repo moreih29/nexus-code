@@ -14,6 +14,15 @@ extraResources:
   - from: dist/agent
     to: agent
 
+# 패킹 대상 화이트리스트. 미지정 시 electron-builder 가 작업 디렉터리 전체를
+# 순회(bun 환경에서는 의존성 트리 프루닝이 제한적)하여 src/tests/docs/.nexus/
+# references 등 런타임에 불필요한 소스·문서까지 asar 에 포함된다. 런타임은
+# 빌드 산출물(out/)과 package.json, 그리고 prod node_modules 만 필요하다.
+# (node_modules 의 prod 의존성은 files 와 무관하게 electron-builder 가 자동 포함한다.)
+files:
+  - out/**
+  - package.json
+
 asar: true
 asarUnpack:
   - "**/*.node"
