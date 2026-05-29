@@ -6,9 +6,14 @@
 // Persistence model:
 //   - appState (main process, via IPC) — authoritative store.
 //
-// Fields (both optional, undefined = token fallback):
-//   - fontSize:     token fallback = typeScale.codeUi.fontSize
-//   - cursorStyle:  token fallback = 'block'
+// Fields (all optional, undefined = token fallback):
+//   - fontSize:      token fallback = typeScale.codeUi.fontSize
+//   - cursorStyle:   token fallback = 'block'
+//   - fontFamily:    token fallback = fontFamily.monoDisplay
+//   - fontLigatures: token fallback = false
+//
+// fontFamily/fontLigatures are INDEPENDENT of the editor font store — the
+// terminal owns its own typeface preferences.
 //
 // Mutation side-effects (per setter):
 //   1. Zustand state update.
@@ -17,7 +22,7 @@
 //      open TerminalController instances re-apply the new settings.
 
 import { create } from "zustand";
-import { typeScale } from "../../../shared/design-tokens";
+import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import { ipcCallResult } from "../../ipc/client";
 
 // ---------------------------------------------------------------------------
@@ -35,11 +40,15 @@ export type TerminalCursorStyle = "block" | "underline" | "bar";
 interface TerminalSettingsState {
   fontSize: TerminalFontSize | undefined;
   cursorStyle: TerminalCursorStyle | undefined;
+  fontFamily: string | undefined;
+  fontLigatures: boolean | undefined;
 
   /** Hydrate from persisted appState — called once during bootstrap. */
   hydrate(values: {
     fontSize?: TerminalFontSize | undefined;
     cursorStyle?: TerminalCursorStyle | undefined;
+    fontFamily?: string | undefined;
+    fontLigatures?: boolean | undefined;
   }): void;
 
   /**
@@ -55,6 +64,18 @@ interface TerminalSettingsState {
    * 'nexus:terminal-settings-changed' so open terminals re-apply.
    */
   setCursorStyle(value: TerminalCursorStyle | undefined): void;
+
+  /**
+   * Set the terminal font family (independent of the editor font).
+   * Persists to appState + dispatches 'nexus:terminal-settings-changed'.
+   */
+  setFontFamily(value: string | undefined): void;
+
+  /**
+   * Toggle terminal font ligatures (independent of the editor font).
+   * Persists to appState + dispatches 'nexus:terminal-settings-changed'.
+   */
+  setFontLigatures(value: boolean | undefined): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,9 +96,11 @@ export const useTerminalStore = create<TerminalSettingsState>((set) => {
   return {
     fontSize: undefined,
     cursorStyle: undefined,
+    fontFamily: undefined,
+    fontLigatures: undefined,
 
-    hydrate({ fontSize, cursorStyle }) {
-      set({ fontSize, cursorStyle });
+    hydrate({ fontSize, cursorStyle, fontFamily: family, fontLigatures }) {
+      set({ fontSize, cursorStyle, fontFamily: family, fontLigatures });
     },
 
     setFontSize(value) {
@@ -104,6 +127,31 @@ export const useTerminalStore = create<TerminalSettingsState>((set) => {
 
       dispatchSettingsChanged();
     },
+
+    setFontFamily(value) {
+      set({ fontFamily: value });
+
+      void ipcCallResult("appState", "set", {
+        terminalFontFamily: value,
+      }).then((result) => {
+        if (!result.ok) console.warn("[terminal] appState set (fontFamily) failed", result.message);
+      });
+
+      dispatchSettingsChanged();
+    },
+
+    setFontLigatures(value) {
+      set({ fontLigatures: value });
+
+      void ipcCallResult("appState", "set", {
+        terminalFontLigatures: value,
+      }).then((result) => {
+        if (!result.ok)
+          console.warn("[terminal] appState set (fontLigatures) failed", result.message);
+      });
+
+      dispatchSettingsChanged();
+    },
   };
 });
 
@@ -121,4 +169,23 @@ export function resolvedTerminalFontSize(): number {
 export function resolvedTerminalCursorStyle(): TerminalCursorStyle {
   const { cursorStyle } = useTerminalStore.getState();
   return cursorStyle ?? "block";
+}
+
+/**
+ * Resolve the effective font family. User override (if set) is prepended to
+ * the mono fallback chain so an unavailable custom face degrades gracefully;
+ * undefined falls back to the design token's mono stack.
+ */
+export function resolvedTerminalFontFamily(): string {
+  const { fontFamily: family } = useTerminalStore.getState();
+  if (family && family.trim() !== "") {
+    return `"${family}", ${fontFamily.monoDisplay}`;
+  }
+  return fontFamily.monoDisplay;
+}
+
+/** Resolve the effective ligatures toggle: store value or fallback false. */
+export function resolvedTerminalFontLigatures(): boolean {
+  const { fontLigatures } = useTerminalStore.getState();
+  return fontLigatures ?? false;
 }

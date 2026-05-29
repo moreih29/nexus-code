@@ -72,6 +72,8 @@ export function App() {
   const editorFontLineHeight = useEditorFontStore((s) => s.lineHeight);
   const terminalFontSize = useTerminalStore((s) => s.fontSize);
   const terminalCursorStyle = useTerminalStore((s) => s.cursorStyle);
+  const terminalFontFamily = useTerminalStore((s) => s.fontFamily);
+  const terminalFontLigatures = useTerminalStore((s) => s.fontLigatures);
 
   interface SettingsSnapshot {
     themePreference: typeof themePreference;
@@ -82,6 +84,8 @@ export function App() {
     editorFontLineHeight: typeof editorFontLineHeight;
     terminalFontSize: typeof terminalFontSize;
     terminalCursorStyle: typeof terminalCursorStyle;
+    terminalFontFamily: typeof terminalFontFamily;
+    terminalFontLigatures: typeof terminalFontLigatures;
   }
   const [settingsSnapshot, setSettingsSnapshot] = useState<SettingsSnapshot | null>(null);
 
@@ -100,6 +104,8 @@ export function App() {
         editorFontLineHeight,
         terminalFontSize,
         terminalCursorStyle,
+        terminalFontFamily,
+        terminalFontLigatures,
       });
     } else {
       setSettingsSnapshot(null);
@@ -119,7 +125,9 @@ export function App() {
     const terminalDirty =
       snap !== null &&
       (terminalFontSize !== snap.terminalFontSize ||
-        terminalCursorStyle !== snap.terminalCursorStyle);
+        terminalCursorStyle !== snap.terminalCursorStyle ||
+        terminalFontFamily !== snap.terminalFontFamily ||
+        terminalFontLigatures !== snap.terminalFontLigatures);
     return [
       {
         id: "appearance",
@@ -139,7 +147,7 @@ export function App() {
         id: "terminal",
         label: "Terminal",
         group: "Settings",
-        keywords: ["font", "size", "cursor"],
+        keywords: ["font", "size", "cursor", "family", "ligatures"],
         dirty: terminalDirty,
       },
       {
@@ -165,6 +173,8 @@ export function App() {
     editorFontLineHeight,
     terminalFontSize,
     terminalCursorStyle,
+    terminalFontFamily,
+    terminalFontLigatures,
   ]);
 
   // Workspaces that have been activated at least once in this session.

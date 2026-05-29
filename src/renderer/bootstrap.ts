@@ -8,27 +8,27 @@
 import type { LspLanguageId } from "../shared/types/app-state";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
-import { registerStatePersistence } from "./state/persistence";
-import { useClaudeStatusStore } from "./state/stores/claude-status";
-import { useEditorFontStore } from "./state/stores/editor-font";
-import { useLayoutStore } from "./state/stores/layout";
-import { useLspEnabledStore } from "./state/stores/lsp-enabled";
-import { useTabsStore } from "./state/stores/tabs";
-import { useTerminalStore } from "./state/stores/terminal";
-import { useThemeStore } from "./state/stores/theme";
-import { useUIStore } from "./state/stores/ui";
-import { useNotificationsStore } from "./state/stores/notifications";
-import { useUpdatesStore } from "./state/stores/updates";
-import { useWindowOpacityStore } from "./state/stores/window-opacity";
-import { startNotificationClickListener } from "./state/notification-click";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
-import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
+import { startNotificationClickListener } from "./state/notification-click";
 import {
   initBrowserLastUrlPersistence,
   initBrowserRuntimeSubscriptions,
 } from "./state/operations/browser";
 import { initBrowserOverlayAutoSuspend } from "./state/operations/browser-suspend-auto";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
+import { registerStatePersistence } from "./state/persistence";
+import { useClaudeStatusStore } from "./state/stores/claude-status";
+import { useEditorFontStore } from "./state/stores/editor-font";
+import { useLayoutStore } from "./state/stores/layout";
+import { useLspEnabledStore } from "./state/stores/lsp-enabled";
+import { useNotificationsStore } from "./state/stores/notifications";
+import { useTabsStore } from "./state/stores/tabs";
+import { useTerminalStore } from "./state/stores/terminal";
+import { useThemeStore } from "./state/stores/theme";
+import { useUIStore } from "./state/stores/ui";
+import { useUpdatesStore } from "./state/stores/updates";
+import { useWindowOpacityStore } from "./state/stores/window-opacity";
+import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
 
 /**
  * Hydrate persisted UI widths, layout snapshots, and tab records from
@@ -95,6 +95,8 @@ export async function bootstrapAppState(): Promise<void> {
   useTerminalStore.getState().hydrate({
     fontSize: state.terminalFontSize,
     cursorStyle: state.terminalCursorStyle,
+    fontFamily: state.terminalFontFamily,
+    fontLigatures: state.terminalFontLigatures,
   });
 
   // Hydrate window opacity from appState (authoritative store).

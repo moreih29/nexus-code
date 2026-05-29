@@ -72,21 +72,11 @@ mock.module("@xterm/xterm", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// @xterm/addon-webgl — needs a live WebGL context; stub it out entirely.
+// @xterm/addon-ligatures — the real module is heavy (~200KB) and probes
+// `navigator.fonts`; stub it so terminal tests stay light and deterministic.
 // ---------------------------------------------------------------------------
-mock.module("@xterm/addon-webgl", () => ({
-  WebglAddon: class WebglAddon {
-    activate(): void {}
-    dispose(): void {}
-    onContextLoss(_callback: () => void): void {}
-  },
-}));
-
-// ---------------------------------------------------------------------------
-// @xterm/addon-canvas — same category as webgl; no canvas API under happy-dom.
-// ---------------------------------------------------------------------------
-mock.module("@xterm/addon-canvas", () => ({
-  CanvasAddon: class CanvasAddon {
+mock.module("@xterm/addon-ligatures", () => ({
+  LigaturesAddon: class LigaturesAddon {
     activate(): void {}
     dispose(): void {}
   },

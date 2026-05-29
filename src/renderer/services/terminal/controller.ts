@@ -1,14 +1,18 @@
-import { CanvasAddon } from "@xterm/addon-canvas";
 import { FitAddon } from "@xterm/addon-fit";
-import { WebglAddon } from "@xterm/addon-webgl";
+import { LigaturesAddon } from "@xterm/addon-ligatures";
 import type { ITheme } from "@xterm/xterm";
 import { Terminal } from "@xterm/xterm";
-import { fontFamily, DEFAULT_THEME, THEMES } from "../../../shared/design-tokens";
+import { DEFAULT_THEME, THEMES } from "../../../shared/design-tokens";
 import type { ThemeId } from "../../../shared/design-tokens/themes";
 import { TERMINAL_PALETTES } from "../../../shared/editor/terminal-palette";
 import { ipcCallResult } from "../../ipc/client";
-import { resolvedTerminalCursorStyle, resolvedTerminalFontSize } from "../../state/stores/terminal";
 import { useTabsStore } from "../../state/stores/tabs";
+import {
+  resolvedTerminalCursorStyle,
+  resolvedTerminalFontFamily,
+  resolvedTerminalFontLigatures,
+  resolvedTerminalFontSize,
+} from "../../state/stores/terminal";
 import { copyTextViaIpc } from "../../utils/clipboard";
 import { createPtyClient } from "./pty-client";
 import type {
@@ -40,7 +44,6 @@ interface ParserLike {
   ) => Disposable;
 }
 
-type RendererAddon = CanvasAddon | WebglAddon;
 interface TerminalLike {
   readonly element?: HTMLElement;
   readonly rows: number;
@@ -52,7 +55,12 @@ interface TerminalLike {
    * onTitleChange 콜백 시점에 이 값을 확인해 alternate 상태일 때만 title을 수용한다.
    */
   readonly buffer: { active: { type: "normal" | "alternate" } };
-  options: { theme: ITheme | undefined; fontSize: number; cursorStyle: string };
+  options: {
+    theme: ITheme | undefined;
+    fontSize: number;
+    cursorStyle: string;
+    fontFamily: string;
+  };
   dispose: () => void;
   loadAddon: (addon: Disposable) => void;
   onData: (callback: (data: string) => void) => Disposable;
@@ -69,6 +77,7 @@ interface TerminalLike {
   attachCustomKeyEventHandler: (handler: (event: KeyboardEvent) => boolean) => void;
 }
 type FitAddonLike = Pick<FitAddon, "dispose" | "fit" | "proposeDimensions">;
+type LigaturesAddonLike = Pick<LigaturesAddon, "dispose">;
 type ResizeObserverLike = Pick<ResizeObserver, "disconnect" | "observe">;
 
 export const TERMINAL_REOPENED_SEPARATOR = "─────────────  reopened  ─────────────";
@@ -102,8 +111,7 @@ export interface TerminalControllerDeps {
   waitForTerminalFonts: (fontSize: number) => Promise<void>;
   createTerminal: (options: ConstructorParameters<typeof Terminal>[0]) => TerminalLike;
   createFitAddon: () => FitAddonLike;
-  createWebglAddon: () => WebglAddon;
-  createCanvasAddon: () => CanvasAddon;
+  createLigaturesAddon: () => LigaturesAddonLike;
   createPtyClient: (options: PtyClientOptions) => PtyClient;
   createResizeObserver: (callback: ResizeObserverCallback) => ResizeObserverLike;
   requestAnimationFrame: (callback: FrameRequestCallback) => number;
@@ -125,8 +133,7 @@ const defaultTerminalControllerDeps: TerminalControllerDeps = {
   waitForTerminalFonts,
   createTerminal: (options) => new Terminal(options) as unknown as TerminalLike,
   createFitAddon: () => new FitAddon(),
-  createWebglAddon: () => new WebglAddon(),
-  createCanvasAddon: () => new CanvasAddon(),
+  createLigaturesAddon: () => new LigaturesAddon(),
   createPtyClient,
   createResizeObserver: (callback) => new ResizeObserver(callback),
   requestAnimationFrame: (callback) => requestAnimationFrame(callback),
@@ -137,7 +144,7 @@ class XtermTerminalController implements TerminalController {
   private disposed = false;
   private term: TerminalLike | null = null;
   private fitAddon: FitAddonLike | null = null;
-  private rendererAddon: RendererAddon | null = null;
+  private ligaturesAddon: LigaturesAddonLike | null = null;
   private dataDisposable: Disposable | null = null;
   private selectionDisposable: Disposable | null = null;
   private titleDisposable: Disposable | null = null;
@@ -220,8 +227,7 @@ class XtermTerminalController implements TerminalController {
     this.ptyClient = null;
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
-    this.rendererAddon?.dispose();
-    this.rendererAddon = null;
+    this.disposeLigatures();
     this.fitAddon?.dispose();
     this.fitAddon = null;
     this.term?.dispose();
@@ -267,7 +273,13 @@ class XtermTerminalController implements TerminalController {
     if (!term) return;
     term.options.fontSize = resolvedTerminalFontSize();
     term.options.cursorStyle = resolvedTerminalCursorStyle();
-    // Re-fit after font size change so column/row counts stay accurate.
+    term.options.fontFamily = resolvedTerminalFontFamily();
+    // Re-evaluate ligatures last. Disposing + re-applying also forces the
+    // ligatures addon to recompute font features against the (possibly
+    // changed) font family.
+    this.disposeLigatures();
+    this.applyLigatures(term);
+    // Re-fit after font size / family change so column/row counts stay accurate.
     this.runFit();
   }
 
@@ -283,7 +295,11 @@ class XtermTerminalController implements TerminalController {
       // allowTransparency lets the translucent theme `background` composite
       // over the macOS window vibrancy (whole-window translucency).
       allowTransparency: true,
-      fontFamily: fontFamily.monoDisplay,
+      // registerCharacterJoiner (used by the ligatures addon) is a *proposed*
+      // xterm API — without this flag it throws inside activate() and ligatures
+      // silently never render.
+      allowProposedApi: true,
+      fontFamily: resolvedTerminalFontFamily(),
       fontSize,
       cursorStyle: resolvedTerminalCursorStyle(),
       theme: TERMINAL_PALETTES[initialThemeId],
@@ -306,8 +322,10 @@ class XtermTerminalController implements TerminalController {
     const fitAddon = this.deps.createFitAddon();
     this.fitAddon = fitAddon;
     term.loadAddon(fitAddon);
-    this.loadRendererAddon(term);
     term.open(this.options.container);
+    // Ligatures must be applied AFTER open() — the addon hooks the active
+    // (DOM) renderer, which only exists once the terminal is attached.
+    this.applyLigatures(term);
 
     const initialDimensions = this.fitToContainer() ?? { cols: 80, rows: 24 };
     this.lastDims = initialDimensions;
@@ -349,9 +367,7 @@ class XtermTerminalController implements TerminalController {
       if (this.disposed) return;
       if (term.buffer.active.type !== "alternate") return;
       if (isShellPromptLikeTitle(title)) return;
-      useTabsStore
-        .getState()
-        .setProcessTitle(this.options.workspaceId, this.options.tabId, title);
+      useTabsStore.getState().setProcessTitle(this.options.workspaceId, this.options.tabId, title);
     });
 
     // alt → ENTER 전이 시 PTY의 foreground process 이름을 IPC로 가져와 processTitle로
@@ -695,19 +711,40 @@ class XtermTerminalController implements TerminalController {
     );
   }
 
-  private loadRendererAddon(term: TerminalLike): void {
-    // Canvas renderer — NOT WebGL. The WebGL addon clears its canvas to an
-    // opaque background and ignores `allowTransparency`, so the terminal can
-    // never be translucent under it. The Canvas addon honors transparency,
-    // which the whole-window vibrancy requires. Trade-off: Canvas is slightly
-    // less performant than WebGL, accepted for the translucency feature.
+  // Renderer note: we run on xterm's default DOM renderer — NOT Canvas/WebGL.
+  // Two reasons:
+  //   1. @xterm/addon-ligatures only patches the DOM renderer; under
+  //      Canvas/WebGL the addon is a no-op, so ligatures could never render.
+  //   2. The DOM renderer composes over the macOS window vibrancy honoring
+  //      `allowTransparency` (the same translucency the Canvas renderer was
+  //      originally chosen for; WebGL was rejected because it paints an opaque
+  //      backdrop).
+  // Trade-off: the DOM renderer is less performant than Canvas/WebGL on
+  // very high-throughput output, accepted for ligatures + translucency.
+
+  /**
+   * Load the ligatures addon when the user has ligatures enabled. No-op when
+   * disabled or already loaded. Must be called after term.open().
+   */
+  private applyLigatures(term: TerminalLike): void {
+    if (this.ligaturesAddon) return;
+    if (!resolvedTerminalFontLigatures()) return;
     try {
-      const canvas = this.deps.createCanvasAddon();
-      term.loadAddon(canvas);
-      this.rendererAddon = canvas;
-    } catch {
-      this.rendererAddon = null;
+      const addon = this.deps.createLigaturesAddon();
+      term.loadAddon(addon as unknown as Disposable);
+      this.ligaturesAddon = addon;
+    } catch (e) {
+      // Don't swallow silently — a failed activate (e.g. missing proposed-API
+      // flag) is otherwise invisible and looks like "ligatures just don't work".
+      console.warn("[terminal] ligatures addon failed to load", e);
+      this.ligaturesAddon = null;
     }
+  }
+
+  /** Dispose the ligatures addon if loaded (used on toggle-off and teardown). */
+  private disposeLigatures(): void {
+    this.ligaturesAddon?.dispose();
+    this.ligaturesAddon = null;
   }
 
   private fitToContainer(): TerminalDimensions | null {

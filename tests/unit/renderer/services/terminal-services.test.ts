@@ -196,10 +196,7 @@ function makeTerminalControllerDeps(
       fit: () => {},
       proposeDimensions: () => ({ cols: 100, rows: 40 }),
     }),
-    createWebglAddon: () => {
-      throw new Error("webgl disabled in unit test");
-    },
-    createCanvasAddon: () => ({ dispose: () => {} }) as never,
+    createLigaturesAddon: () => ({ dispose: () => {} }) as never,
     createPtyClient: (options) => {
       ptyOptions = options;
       return {

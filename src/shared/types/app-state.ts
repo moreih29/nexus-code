@@ -83,6 +83,18 @@ export const AppStateSchema = z.object({
   // Terminal cursor style — 닫힌 집합; 부재=토큰 fallback ('block').
   terminalCursorStyle: z.enum(["block", "underline", "bar"]).optional(),
 
+  // Terminal font family — editor와 독립. sanitize: CSS injection 차단
+  // (/^[A-Za-z0-9\s,'"]+$/); 부재=토큰 fallback (monoDisplay).
+  terminalFontFamily: z
+    .string()
+    .min(1)
+    .max(120)
+    .regex(/^[A-Za-z0-9\s,'"]+$/)
+    .optional(),
+
+  // Terminal font ligatures toggle — editor와 독립; 부재=토큰 fallback (false).
+  terminalFontLigatures: z.boolean().optional(),
+
   // Update channel — "stable" follows non-prerelease tags only; "beta" also
   // includes prerelease tags (e.g. v1.2.0-beta.1).  Defaults to "stable".
   updateChannel: z.enum(["stable", "beta"]).default("stable"),
