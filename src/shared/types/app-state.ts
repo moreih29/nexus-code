@@ -118,6 +118,12 @@ export const AppStateSchema = z.object({
   // `fireOsNotification` gate. The in-app status broker (sidebar indicator
   // glyphs, attention badges) is unaffected — only OS-level notifications.
   osNotificationsEnabled: z.boolean().default(true),
+
+  // Global browser permission toggles keyed by BrowserPermissionKind string.
+  // Absent key (or absent field) means the permission is OFF (denied).
+  // z.record key is z.string() for runtime compatibility; callers narrow the
+  // key type to BrowserPermissionKind at usage sites.
+  browserPermissionGrants: z.record(z.string(), z.boolean()).optional(),
 });
 
 export type WindowBounds = z.infer<typeof WindowBoundsSchema>;

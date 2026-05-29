@@ -19,23 +19,46 @@
  */
 
 import type { BrowserWindow } from "electron";
+import type { GlobalStorage } from "../../infra/storage/global-storage";
+import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
+import type { BrowserPermissionPromptManager } from "./permission-prompt-manager";
 import { BrowserTabRegistry } from "./registry";
-import { registerBrowserChannel } from "./ipc";
+import type { PermissionHandlerDeps } from "./security";
+import { type BrowserChannelDeps, registerBrowserChannel } from "./ipc";
 
 let registry: BrowserTabRegistry | null = null;
+
+export interface BrowserFeatureDeps {
+  readonly permissionDeps?: PermissionHandlerDeps;
+  readonly promptManager?: BrowserPermissionPromptManager;
+  readonly workspaceStorage?: WorkspaceStorage;
+  readonly globalStorage?: GlobalStorage;
+}
 
 /**
  * Initialises the browser feature for the given `BrowserWindow`.
  *
  * Creates the singleton `BrowserTabRegistry` bound to `win` and registers
- * the `browser` IPC channel.
+ * the `browser` IPC channel.  When `deps` carries a `promptManager`,
+ * `workspaceStorage`, and `globalStorage`, the `browserPermission` IPC channel
+ * is also registered.
  *
  * Calling this more than once replaces the previous registry — the caller is
  * responsible for disposing any open tabs before reinitialising.
  */
-export function initBrowserFeature(win: BrowserWindow): void {
-  registry = new BrowserTabRegistry(win);
-  registerBrowserChannel(registry);
+export function initBrowserFeature(win: BrowserWindow, deps?: BrowserFeatureDeps): void {
+  registry = new BrowserTabRegistry(win, deps?.permissionDeps);
+
+  let channelDeps: BrowserChannelDeps | undefined;
+  if (deps?.promptManager && deps.workspaceStorage && deps.globalStorage) {
+    channelDeps = {
+      promptManager: deps.promptManager,
+      workspaceStorage: deps.workspaceStorage,
+      globalStorage: deps.globalStorage,
+    };
+  }
+
+  registerBrowserChannel(registry, channelDeps);
 }
 
 /**

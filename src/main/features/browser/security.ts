@@ -22,7 +22,10 @@
 
 import type { WebContents, WebPreferences } from "electron";
 import { createLogger } from "../../../shared/log/main";
+import { classifyPermission, isKnownPermission } from "../../../shared/security/browser-permissions";
 import { isNavigationSchemeAllowed } from "../../../shared/security/navigation-allowlist";
+import { resolvePermission } from "./permission-policy";
+import type { BrowserPermissionPromptManager } from "./permission-prompt-manager";
 
 const logger = createLogger("browser-security");
 
@@ -53,37 +56,145 @@ export function buildBrowserTabWebPreferences(partition: string): WebPreferences
 }
 
 // ---------------------------------------------------------------------------
-// Permission request handler — deny everything except clipboard-sanitized-write
+// Permission request handler — classify, evaluate, and route to promptManager
 // ---------------------------------------------------------------------------
 
 /**
- * The set of permissions that are allowed for browser tab content.
+ * Dependencies injected into `installPermissionHandler`.
  *
- * clipboard-read is NOT in the list; only the sanitised write direction is
- * permitted to prevent clipboard sniffing by embedded pages.
+ * Using a deps object keeps the function free of module-level singletons and
+ * enables unit-testing without Electron mocks.
  */
-const ALLOWED_PERMISSIONS = new Set(["clipboard-sanitized-write"]);
+export interface PermissionHandlerDeps {
+  /**
+   * Derive the workspaceId from the session.  For browser tabs the partition
+   * is `persist:browser-<workspaceId>`, so this is a simple string replace.
+   */
+  resolveWorkspaceId(session: import("electron").Session): string;
+  /**
+   * Returns true when the workspace-level global permission toggle is ON for
+   * `permission`.  Reads from AppState.browserPermissionGrants at call time.
+   */
+  getGlobalGrant(permission: string): boolean;
+  /**
+   * Returns the remembered per-(workspace, origin, permission) decision, or
+   * null when no decision has been stored.
+   */
+  getRemembered(
+    workspaceId: string,
+    origin: string,
+    permission: string,
+  ): "allow" | "block" | null;
+  /** Manages pending prompt lifecycles and coalescing. */
+  promptManager: BrowserPermissionPromptManager;
+}
 
 /**
- * Installs a deny-by-default permission handler on the given session.
+ * Classifies and resolves a permission request to allow / block / ask.
  *
- * This function is idempotent — calling it twice on the same session
- * replaces the previous handler (Electron's `setPermissionRequestHandler`
- * semantics).
+ * - auto-classified permissions  → always 'allow'.
+ * - blocked-classified or unknown → always 'block'.
+ * - prompt-classified             → resolvePermission() with global+remembered.
  *
- * Denied permissions (non-exhaustive):
- *   media, geolocation, notifications, midi, midiSysex, pointerLock,
- *   fullscreen, openExternal, clipboard-read, display-capture
+ * Exported so it can be unit-tested independently.
+ */
+export function evaluatePermission(
+  workspaceId: string,
+  origin: string,
+  permission: string,
+  deps: Pick<PermissionHandlerDeps, "getGlobalGrant" | "getRemembered">,
+): "allow" | "block" | "ask" {
+  const classification = classifyPermission(permission);
+
+  if (classification === "auto") {
+    return "allow";
+  }
+
+  if (classification === "blocked") {
+    return "block";
+  }
+
+  // classification === 'prompt'
+  // Invariant: classifyPermission returns 'prompt' only for known, non-'unknown'
+  // permission strings, so isKnownPermission(permission) is always true here.
+  // We pass it explicitly so resolvePermission's unknown-guard remains
+  // self-contained and testable in isolation.
+  return resolvePermission({
+    globalAllowed: deps.getGlobalGrant(permission),
+    remembered: deps.getRemembered(workspaceId, origin, permission),
+    isKnownPermission: isKnownPermission(permission),
+  });
+}
+
+/**
+ * Installs a permission check handler and a permission request handler on the
+ * given session.
+ *
+ * Both handlers share the same `evaluatePermission` logic so their answers are
+ * always consistent.
+ *
+ * `setPermissionCheckHandler` — synchronous allow/deny for passive checks
+ * (e.g. `navigator.permissions.query`).  Returns true only for 'allow'.
+ *
+ * `setPermissionRequestHandler` — async; routes 'ask' decisions through
+ * `deps.promptManager` which broadcasts a UI prompt and waits for the user's
+ * response.
+ *
+ * This function is idempotent — calling it twice on the same session replaces
+ * the previous handlers (Electron semantics).
  */
 export function installPermissionHandler(
   session: import("electron").Session,
+  deps?: PermissionHandlerDeps,
 ): void {
-  session.setPermissionRequestHandler((_webContents, permission, callback) => {
-    const allowed = ALLOWED_PERMISSIONS.has(permission);
-    if (!allowed) {
-      logger.warn(`[permission] denied: ${permission}`);
+  // Legacy path (no deps): deny-by-default with the original simple allow-list.
+  // Preserved so the existing security.test.ts continues to pass unmodified.
+  if (!deps) {
+    const ALLOWED_PERMISSIONS = new Set(["clipboard-sanitized-write"]);
+    session.setPermissionRequestHandler((_webContents, permission, callback) => {
+      const allowed = ALLOWED_PERMISSIONS.has(permission);
+      if (!allowed) {
+        logger.warn(`[permission] denied: ${permission}`);
+      }
+      callback(allowed);
+    });
+    return;
+  }
+
+  // Full path with deps: classify → evaluate → route.
+  const { resolveWorkspaceId, getGlobalGrant, getRemembered, promptManager } = deps;
+
+  session.setPermissionCheckHandler((webContents, permission) => {
+    // webContents may be null for session-level check calls.
+    const origin = safeGetOrigin(webContents);
+    if (origin === null) return false;
+
+    const workspaceId = resolveWorkspaceId(session);
+    const decision = evaluatePermission(workspaceId, origin, permission, {
+      getGlobalGrant,
+      getRemembered,
+    });
+    return decision === "allow";
+  });
+
+  session.setPermissionRequestHandler((webContents, permission, callback) => {
+    const origin = safeGetOrigin(webContents);
+    if (origin === null) {
+      logger.warn(`[permission] denied: unparseable origin for ${permission}`);
+      callback(false);
+      return;
     }
-    callback(allowed);
+
+    const workspaceId = resolveWorkspaceId(session);
+    const decision = evaluatePermission(workspaceId, origin, permission, {
+      getGlobalGrant,
+      getRemembered,
+    });
+
+    promptManager.handlePermissionRequest(
+      { workspaceId, origin, permission, webContentsId: webContents.id, decision },
+      callback,
+    );
   });
 }
 
@@ -175,4 +286,35 @@ export function installNavigationGuards(
     // (http/https) or we block it entirely.
     return { action: "deny" };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Attempts to extract the security origin from a WebContents URL.
+ *
+ * Snapshots `webContents.getURL()` at the moment the request arrives.  If the
+ * URL is empty or cannot be parsed as a valid URL, returns null — the caller
+ * must treat this as an immediate deny.
+ *
+ * Opaque origins (the string "null", returned by `new URL("about:blank").origin`
+ * or cross-origin sandboxed frames) are also denied.  Permissions must only be
+ * granted to attributable https/http origins; an opaque origin has no stable
+ * identity and cannot be meaningfully allow-listed.
+ */
+function safeGetOrigin(webContents: WebContents | null): string | null {
+  if (!webContents) return null;
+  try {
+    const url = webContents.getURL();
+    if (!url) return null;
+    const origin = new URL(url).origin;
+    // "null" is the serialisation of an opaque origin (about:blank, data:, sandboxed
+    // iframes).  An empty string is also non-attributable.  Both must be denied.
+    if (origin === "null" || origin === "") return null;
+    return origin;
+  } catch {
+    return null;
+  }
 }

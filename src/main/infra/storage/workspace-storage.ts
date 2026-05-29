@@ -417,4 +417,94 @@ export class WorkspaceStorage {
       )
       .run(panelKind, merged.viewMode);
   }
+
+  // ---------------------------------------------------------------------------
+  // origin_permissions accessors
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Returns the stored decision for a (origin, permission) pair, or null if
+   * no decision has been saved for this workspace.
+   */
+  getOriginPermission(
+    workspaceId: string,
+    origin: string,
+    permission: string,
+  ): "allow" | "block" | null {
+    const entry = this.entries.get(workspaceId);
+    if (!entry) {
+      throw new Error(`workspace storage not open: ${workspaceId}`);
+    }
+    const row = entry.db
+      .prepare(
+        "SELECT decision FROM origin_permissions WHERE origin = ? AND permission = ?",
+      )
+      .get(origin, permission) as { decision: string } | undefined;
+    if (!row) return null;
+    return row.decision as "allow" | "block";
+  }
+
+  /**
+   * Upserts the decision for a (origin, permission) pair.
+   * Sets updated_at to Date.now().
+   */
+  setOriginPermission(
+    workspaceId: string,
+    origin: string,
+    permission: string,
+    decision: "allow" | "block",
+  ): void {
+    const entry = this.entries.get(workspaceId);
+    if (!entry) {
+      throw new Error(`workspace storage not open: ${workspaceId}`);
+    }
+    entry.db
+      .prepare(
+        `INSERT OR REPLACE INTO origin_permissions (origin, permission, decision, updated_at)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(origin, permission, decision, Date.now());
+  }
+
+  /**
+   * Returns all stored origin permission rows for a workspace.
+   */
+  listOriginPermissions(
+    workspaceId: string,
+  ): { origin: string; permission: string; decision: "allow" | "block" }[] {
+    const entry = this.entries.get(workspaceId);
+    if (!entry) {
+      throw new Error(`workspace storage not open: ${workspaceId}`);
+    }
+    const rows = entry.db
+      .prepare("SELECT origin, permission, decision FROM origin_permissions")
+      .all() as { origin: string; permission: string; decision: string }[];
+    return rows as { origin: string; permission: string; decision: "allow" | "block" }[];
+  }
+
+  /**
+   * Removes a single (origin, permission) decision row.
+   */
+  deleteOriginPermission(workspaceId: string, origin: string, permission: string): void {
+    const entry = this.entries.get(workspaceId);
+    if (!entry) {
+      throw new Error(`workspace storage not open: ${workspaceId}`);
+    }
+    entry.db
+      .prepare("DELETE FROM origin_permissions WHERE origin = ? AND permission = ?")
+      .run(origin, permission);
+  }
+
+  /**
+   * Removes all permission decisions for the given origin.
+   */
+  clearOrigin(workspaceId: string, origin: string): void {
+    const entry = this.entries.get(workspaceId);
+    if (!entry) {
+      throw new Error(`workspace storage not open: ${workspaceId}`);
+    }
+    entry.db
+      .prepare("DELETE FROM origin_permissions WHERE origin = ?")
+      .run(origin);
+  }
 }

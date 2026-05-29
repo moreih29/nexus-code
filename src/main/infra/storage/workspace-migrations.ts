@@ -150,6 +150,26 @@ export const WORKSPACE_DB_MIGRATIONS: WorkspaceMigration[] = [
       }
     },
   },
+  // v7 → origin_permissions table for per-origin browser permission decisions.
+  //      Stores allow/block decisions keyed by (origin, permission) so the
+  //      browser permission model can persist user choices across sessions.
+  //      CREATE TABLE IF NOT EXISTS makes the migration idempotent.
+  {
+    version: 7,
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS origin_permissions (
+          origin      TEXT    NOT NULL,
+          permission  TEXT    NOT NULL,
+          decision    TEXT    NOT NULL CHECK(decision IN ('allow','block')),
+          updated_at  INTEGER NOT NULL,
+          PRIMARY KEY (origin, permission)
+        );
+        CREATE INDEX IF NOT EXISTS idx_origin_permissions_origin
+          ON origin_permissions(origin);
+      `);
+    },
+  },
 ];
 
 /**

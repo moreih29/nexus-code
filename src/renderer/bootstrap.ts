@@ -14,6 +14,7 @@ import {
   initBrowserLastUrlPersistence,
   initBrowserRuntimeSubscriptions,
 } from "./state/operations/browser";
+import { initBrowserPermissionSubscriptions } from "./state/operations/browser-permission";
 import { initBrowserOverlayAutoSuspend } from "./state/operations/browser-suspend-auto";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
@@ -21,6 +22,7 @@ import { useClaudeStatusStore } from "./state/stores/claude-status";
 import { useEditorFontStore } from "./state/stores/editor-font";
 import { useLayoutStore } from "./state/stores/layout";
 import { useLspEnabledStore } from "./state/stores/lsp-enabled";
+import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
 import { useNotificationsStore } from "./state/stores/notifications";
 import { useTabsStore } from "./state/stores/tabs";
 import { useTerminalStore } from "./state/stores/terminal";
@@ -89,6 +91,10 @@ export async function bootstrapAppState(): Promise<void> {
   // Must be called after initBrowserRuntimeSubscriptions.
   initBrowserLastUrlPersistence();
 
+  // Wire the browser permission prompt subscription so browserPermission:prompt
+  // broadcasts from main are forwarded to the PermissionPromptRoot queue.
+  initBrowserPermissionSubscriptions();
+
   // Drag-time browser-overlay suspend is claimed/released from
   // `use-drag-source.ts` directly (React bubble-phase `onDragStart` →
   // one-shot document `dragend` + unmount cleanup).  Doing it from React's
@@ -145,6 +151,10 @@ export async function bootstrapAppState(): Promise<void> {
   // Hydrate OS notification toggle so the Notifications panel reflects
   // persisted state on first render.
   useNotificationsStore.getState().hydrate(state.osNotificationsEnabled);
+
+  // Hydrate browser permission global toggles so the BrowserPermissionsPanel
+  // reflects persisted state on first render.
+  useBrowserPermissionsStore.getState().hydrate(state.browserPermissionGrants);
 
   if (state.layoutByWorkspace) {
     for (const [wsId, snap] of Object.entries(state.layoutByWorkspace)) {

@@ -26,9 +26,19 @@
 import { ipcContract } from "../../../shared/ipc/contract";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import { ipcOk } from "../../../shared/ipc/result";
+import type { GlobalStorage } from "../../infra/storage/global-storage";
+import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
+import type { BrowserPermissionPromptManager } from "./permission-prompt-manager";
 import type { BrowserTabRegistry } from "./registry";
 
 const c = ipcContract.browser.call;
+const bp = ipcContract.browserPermission.call;
+
+export interface BrowserChannelDeps {
+  readonly promptManager: BrowserPermissionPromptManager;
+  readonly workspaceStorage: WorkspaceStorage;
+  readonly globalStorage: GlobalStorage;
+}
 
 /**
  * Registers the `browser` IPC channel and wires WebContents lifecycle events
@@ -37,7 +47,10 @@ const c = ipcContract.browser.call;
  * Must be called after the registry is initialised (i.e. after the main
  * window exists).
  */
-export function registerBrowserChannel(registry: BrowserTabRegistry): void {
+export function registerBrowserChannel(
+  registry: BrowserTabRegistry,
+  channelDeps?: BrowserChannelDeps,
+): void {
   register("browser", {
     call: {
       create: (args: unknown) => {
@@ -202,6 +215,74 @@ export function registerBrowserChannel(registry: BrowserTabRegistry): void {
       titleUpdated: {},
       snapshot: {},
       devtoolsToggled: {},
+      faviconUpdated: {},
+    },
+  });
+
+  // Register the browserPermission channel only when deps are provided.
+  // In tests / legacy paths without deps the channel is not registered.
+  if (!channelDeps) return;
+
+  const { promptManager, workspaceStorage, globalStorage } = channelDeps;
+
+  register("browserPermission", {
+    call: {
+      respond: (args: unknown) => {
+        const { promptId, decision, remember } = validateArgs(bp.respond.args, args);
+        promptManager.respond(promptId, decision, remember);
+        return ipcOk(undefined);
+      },
+
+      cancel: (args: unknown) => {
+        const { promptId } = validateArgs(bp.cancel.args, args);
+        promptManager.cancel(promptId);
+        return ipcOk(undefined);
+      },
+
+      listRemembered: (args: unknown) => {
+        const { workspaceId } = validateArgs(bp.listRemembered.args, args);
+        if (workspaceId) {
+          // Single-workspace query: only list rows if the workspace DB is open.
+          if (!workspaceStorage.isOpen(workspaceId)) {
+            return ipcOk([]);
+          }
+          const rows = workspaceStorage.listOriginPermissions(workspaceId);
+          return ipcOk(
+            rows.map((r) => ({ workspaceId, origin: r.origin, permission: r.permission as import("../../../shared/security/browser-permissions").BrowserPermissionKind, decision: r.decision })),
+          );
+        }
+
+        // Global query: enumerate all known workspaces and collect their rows.
+        // Only open workspaces contribute — closed workspace DBs are skipped
+        // (opening a DB just for a listing call could cause race conditions).
+        const workspaces = globalStorage.listWorkspaces();
+        const result: {
+          workspaceId: string;
+          origin: string;
+          permission: import("../../../shared/security/browser-permissions").BrowserPermissionKind;
+          decision: "allow" | "block";
+        }[] = [];
+        for (const ws of workspaces) {
+          if (!workspaceStorage.isOpen(ws.id)) continue;
+          const rows = workspaceStorage.listOriginPermissions(ws.id);
+          for (const r of rows) {
+            result.push({ workspaceId: ws.id, origin: r.origin, permission: r.permission as import("../../../shared/security/browser-permissions").BrowserPermissionKind, decision: r.decision });
+          }
+        }
+        return ipcOk(result);
+      },
+
+      revoke: (args: unknown) => {
+        const { workspaceId, origin, permission } = validateArgs(bp.revoke.args, args);
+        if (workspaceStorage.isOpen(workspaceId)) {
+          workspaceStorage.deleteOriginPermission(workspaceId, origin, permission);
+        }
+        return ipcOk(undefined);
+      },
+    },
+
+    listen: {
+      prompt: {},
     },
   });
 }

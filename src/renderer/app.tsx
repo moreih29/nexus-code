@@ -12,6 +12,7 @@ import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
 import { AboutPanel } from "./components/settings/panels/about-panel";
 import { AppearancePanel } from "./components/settings/panels/appearance-panel";
+import { BrowserPermissionsPanel } from "./components/settings/panels/browser-permissions-panel";
 import { EditorPanel } from "./components/settings/panels/editor-panel";
 import { NotificationsPanel } from "./components/settings/panels/notifications-panel";
 import { TerminalPanel } from "./components/settings/panels/terminal-panel";
@@ -155,6 +156,12 @@ export function App() {
         label: "Notifications",
         group: "Settings",
         keywords: ["alert", "desktop", "os", "notification", "claude"],
+      },
+      {
+        id: "browser-permissions",
+        label: "브라우저 권한",
+        group: "Settings",
+        keywords: ["browser", "permission", "camera", "microphone", "location", "clipboard"],
       },
       {
         id: "about",
@@ -370,6 +377,7 @@ export function App() {
             if (activeId === "editor") return <EditorPanel />;
             if (activeId === "terminal") return <TerminalPanel />;
             if (activeId === "notifications") return <NotificationsPanel />;
+            if (activeId === "browser-permissions") return <BrowserPermissionsPanel />;
             if (activeId === "about") return <AboutPanel />;
             return null;
           }}

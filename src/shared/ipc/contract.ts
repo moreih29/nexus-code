@@ -80,6 +80,7 @@ import {
 } from "../ssh/auth-prompt";
 import { SshErrorCodeSchema } from "../ssh/errors";
 import { AppStateSchema, LspLanguageIdSchema } from "../types/app-state";
+import { BrowserPermissionKindSchema } from "../security/browser-permissions";
 import { ColorToneSchema } from "../types/color-tone";
 import {
   ConnectionProfileFavoriteArgsSchema,
@@ -1439,6 +1440,95 @@ export const ipcContract = {
             message: z.string(),
           }),
         ]),
+      ),
+    },
+  },
+  // ---------------------------------------------------------------------------
+  // Browser permission channel.
+  //
+  // Main → renderer: prompt — broadcasts a permission request to the renderer
+  //   so the user can allow or block it via a modal.  All permissions that a
+  //   single origin requests at the same time arrive as one event (the
+  //   `permissions` array).
+  //
+  // Renderer → main: respond — carries the user's allow/block decision and
+  //   the `remember` flag (persist the decision for future visits).
+  //              cancel  — dismisses a prompt without a persistent decision
+  //                        (one-off implicit block).
+  //         listRemembered — returns all remembered grants/blocks; filtered by
+  //                        workspaceId when provided, global otherwise.
+  //              revoke  — deletes a single remembered entry.
+  //
+  // Global toggle (browserPermissionGrants record field in AppState) is stored
+  // via the existing `appState` get/set channel and is NOT duplicated here.
+  // ---------------------------------------------------------------------------
+  browserPermission: {
+    call: {
+      /**
+       * Carry the user's allow/block decision back to main.
+       * `remember: true` causes main to persist the decision so future requests
+       * from the same origin are resolved without a prompt.
+       */
+      respond: call(
+        z.object({
+          promptId: z.string(),
+          decision: z.enum(["allow", "block"]),
+          remember: z.boolean(),
+        }),
+        z.void(),
+      ),
+      /**
+       * Cancel a pending prompt without creating a remembered rule.
+       * Main treats this as a one-time block for the current request only.
+       */
+      cancel: call(z.object({ promptId: z.string() }), z.void()),
+      /**
+       * Returns all remembered permission decisions.
+       * Pass `workspaceId` to filter to a single workspace; omit for global.
+       * Used by the settings UI to list and manage saved rules.
+       */
+      listRemembered: call(
+        z.object({ workspaceId: z.string().optional() }),
+        z.array(
+          z.object({
+            workspaceId: z.string(),
+            origin: z.string(),
+            permission: BrowserPermissionKindSchema,
+            decision: z.enum(["allow", "block"]),
+          }),
+        ),
+      ),
+      /**
+       * Delete a single remembered permission rule.
+       * After this call, the next request from `origin` for `permission` will
+       * trigger a fresh prompt.
+       */
+      revoke: call(
+        z.object({
+          workspaceId: z.string(),
+          origin: z.string(),
+          permission: BrowserPermissionKindSchema,
+        }),
+        z.void(),
+      ),
+    },
+    listen: {
+      /**
+       * Broadcast by main when a page requests one or more permissions from
+       * the same origin simultaneously.  The renderer should display a modal
+       * for `promptId` listing each entry in `permissions`.
+       *
+       * `permissions` is always non-empty.  For `media`, the modal should
+       * decompose the request into camera / microphone labels; the permission
+       * string itself remains `"media"` in this array.
+       */
+      prompt: listen(
+        z.object({
+          promptId: z.string(),
+          workspaceId: z.string(),
+          origin: z.string(),
+          permissions: z.array(BrowserPermissionKindSchema),
+        }),
       ),
     },
   },

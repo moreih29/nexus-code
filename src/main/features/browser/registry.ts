@@ -58,6 +58,7 @@ import {
   buildBrowserTabWebPreferences,
   installNavigationGuards,
   installPermissionHandler,
+  type PermissionHandlerDeps,
 } from "./security";
 
 const logger = createLogger("browser-registry");
@@ -135,6 +136,7 @@ export interface SuspendSnapshot {
 export class BrowserTabRegistry {
   private readonly win: BrowserWindow;
   private readonly tabs = new Map<string, TabEntry>();
+  private readonly permissionDeps: PermissionHandlerDeps | undefined;
   /**
    * Global "everything is hidden right now" toggle.
    *
@@ -156,8 +158,9 @@ export class BrowserTabRegistry {
    */
   private suspendGeneration = 0;
 
-  constructor(win: BrowserWindow) {
+  constructor(win: BrowserWindow, permissionDeps?: PermissionHandlerDeps) {
     this.win = win;
+    this.permissionDeps = permissionDeps;
   }
 
   // -------------------------------------------------------------------------
@@ -185,7 +188,7 @@ export class BrowserTabRegistry {
 
     // Install permission handler on the dedicated session so each workspace
     // partition gets its own deny-by-default permission policy.
-    installPermissionHandler(view.webContents.session);
+    installPermissionHandler(view.webContents.session, this.permissionDeps);
 
     // Wire navigation guards.  The onNavigate callback is intentionally
     // stubbed here; callers (ipc.ts) attach broadcast callbacks by listening
@@ -240,6 +243,15 @@ export class BrowserTabRegistry {
     if (!entry) {
       logger.warn(`[destroy] unknown tabId: ${tabId}`);
       return;
+    }
+
+    // Notify the prompt manager so any pending permission callbacks for this
+    // WebContents are denied immediately rather than leaked as stale closures.
+    if (this.permissionDeps) {
+      const promptManager = this.permissionDeps.promptManager;
+      if (!entry.view.webContents.isDestroyed()) {
+        promptManager.disposeByWebContents(entry.view.webContents.id);
+      }
     }
 
     // Tear down the DevTools sibling view first if one was ever allocated.

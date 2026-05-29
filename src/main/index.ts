@@ -38,6 +38,7 @@ import { registerSystemChannel } from "./features/shell/ipc";
 import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
 import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ipc";
 import { getBrowserRegistry, initBrowserFeature, registerBrowserCloser } from "./features/browser";
+import { BrowserPermissionPromptManager } from "./features/browser/permission-prompt-manager";
 import { installUpdatesDomain, type UpdatesDomainHandle } from "./features/updates";
 import { createMainWindow } from "./features/window";
 import { registerWorkspaceChannel } from "./features/workspace/ipc";
@@ -288,9 +289,37 @@ app.whenReady().then(async () => {
   const mainWin = createMainWindow(stateService.getState());
   wireAutofetchWindowFocus(mainWin);
 
+  // Create the browser permission prompt manager.  The broadcast function and
+  // workspace storage setter are injected so the manager has no Electron import.
+  const browserPermissionManager = new BrowserPermissionPromptManager({
+    broadcast: forwardBroadcast,
+    setRemembered: (ws, origin, permission, decision) => {
+      // Only persist when the workspace DB is open — the manager is called at
+      // respond() time, so the workspace should already be open.
+      if (workspaceStorage.isOpen(ws)) {
+        workspaceStorage.setOriginPermission(ws, origin, permission, decision);
+      }
+    },
+  });
+
   // Initialise the embedded browser tab subsystem.  Must be called after the
   // main window is created so the registry can hold a strong reference to it.
-  initBrowserFeature(mainWin);
+  initBrowserFeature(mainWin, {
+    permissionDeps: {
+      resolveWorkspaceId: (session) =>
+        (session as unknown as { partition: string }).partition.replace(/^persist:browser-/, ""),
+      getGlobalGrant: (permission) =>
+        stateService.getState().browserPermissionGrants?.[permission] === true,
+      getRemembered: (ws, origin, permission) => {
+        if (!workspaceStorage.isOpen(ws)) return null;
+        return workspaceStorage.getOriginPermission(ws, origin, permission);
+      },
+      promptManager: browserPermissionManager,
+    },
+    promptManager: browserPermissionManager,
+    workspaceStorage,
+    globalStorage,
+  });
   // Wire the browser closer into WorkspaceManager so remove() destroys all
   // browser views and clears the workspace's storage partition before the
   // workspace context is deleted. Must be called after initBrowserFeature so
@@ -304,7 +333,23 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       const newWin = createMainWindow(stateService.getState());
       wireAutofetchWindowFocus(newWin);
-      initBrowserFeature(newWin);
+      // On activate, reuse the existing permission manager with the new window.
+      initBrowserFeature(newWin, {
+        permissionDeps: {
+          resolveWorkspaceId: (session) =>
+            (session as unknown as { partition: string }).partition.replace(/^persist:browser-/, ""),
+          getGlobalGrant: (permission) =>
+            stateService.getState().browserPermissionGrants?.[permission] === true,
+          getRemembered: (ws, origin, permission) => {
+            if (!workspaceStorage.isOpen(ws)) return null;
+            return workspaceStorage.getOriginPermission(ws, origin, permission);
+          },
+          promptManager: browserPermissionManager,
+        },
+        promptManager: browserPermissionManager,
+        workspaceStorage,
+        globalStorage,
+      });
       newWin.on("closed", () => {
         getBrowserRegistry()?.disposeAll();
       });

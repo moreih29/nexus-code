@@ -17,6 +17,7 @@ import {
 } from "./files/git/hooks/use-helper-prompts";
 import { WorkspaceSymbolPaletteRoot } from "./symbol-palette/workspace-symbol-palette";
 import { ConfirmDialogRoot } from "./ui/confirm-dialog";
+import { PermissionPromptRoot } from "./ui/permission-prompt-dialog";
 import { ToastRoot } from "./ui/toast";
 import { ViewParkRoot } from "./workspace/content/view-park";
 import { RemoveWorkspaceDialogRoot } from "./workspace/remove-workspace-dialog";
@@ -29,6 +30,7 @@ export function GlobalRoots(): React.JSX.Element {
       <ViewParkRoot />
       <SaveConfirmDialogRoot />
       <ConfirmDialogRoot />
+      <PermissionPromptRoot />
       <ConflictResolutionDialogRoot />
       <RemoveWorkspaceDialogRoot />
       <WorkspaceSymbolPaletteRoot />
