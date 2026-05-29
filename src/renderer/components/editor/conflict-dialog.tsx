@@ -11,6 +11,7 @@
 
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { createListenerBus } from "../../../shared/util/listener-bus";
@@ -57,6 +58,7 @@ export function showConflictResolution(filename: string): Promise<ConflictResolu
  * head of the prompt queue and shows the dialog.
  */
 export function ConflictResolutionDialogRoot(): React.JSX.Element {
+  const { t } = useTranslation();
   const [active, setActive] = useState<PendingPrompt | null>(getActive());
 
   useEffect(() => {
@@ -78,10 +80,10 @@ export function ConflictResolutionDialogRoot(): React.JSX.Element {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange} size="md" aria-describedby={undefined}>
       <RadixDialog.Title className="text-app-body-emphasis text-foreground">
-        Save conflict — <span className="font-mono">{active?.filename}</span> changed on disk
+        {t("conflictDialog.title", { filename: active?.filename ?? "" })}
       </RadixDialog.Title>
       <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-        The file was modified on disk after you started editing. Choose how to resolve the conflict.
+        {t("conflictDialog.description")}
       </RadixDialog.Description>
       <div className="mt-5 flex justify-end gap-2">
         <Button
@@ -90,13 +92,13 @@ export function ConflictResolutionDialogRoot(): React.JSX.Element {
           onClick={() => resolveActive("reload")}
           autoFocus={false}
         >
-          Reload from Disk
+          {t("conflictDialog.reload_from_disk")}
         </Button>
         <Button variant="ghost" size="sm" onClick={() => resolveActive("cancel")}>
-          Cancel
+          {t("action.cancel")}
         </Button>
         <Button variant="default" size="sm" onClick={() => resolveActive("overwrite")} autoFocus>
-          Overwrite
+          {t("conflictDialog.overwrite")}
         </Button>
       </div>
     </Dialog>

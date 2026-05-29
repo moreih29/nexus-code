@@ -8,6 +8,7 @@
  */
 
 import { Tooltip as RadixTooltip } from "radix-ui";
+import { useTranslation } from "react-i18next";
 import type { LspLanguageId } from "../../../shared/types/app-state";
 import { UI_TOOLTIP_DELAY_MS } from "../../../shared/util/timing-constants";
 import { ipcCallResult } from "../../ipc/client";
@@ -53,10 +54,11 @@ export interface LspLanguageChipProps {
 }
 
 export function LspLanguageChip({ workspaceId, languageId, enabled }: LspLanguageChipProps) {
+  const { t } = useTranslation();
   const label = languageId === "typescript" ? "TypeScript" : "Python";
   const tooltipText = enabled
-    ? `${label} LSP: On — click to disable`
-    : `${label} LSP: Off — click to enable`;
+    ? t("lsp.on", { label })
+    : t("lsp.off", { label });
 
   function handleClick(e: React.MouseEvent) {
     // Stop propagation so the parent workspace-select button doesn't fire.

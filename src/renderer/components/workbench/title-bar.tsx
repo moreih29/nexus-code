@@ -1,4 +1,5 @@
 import { Settings } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { WorkspaceLocation } from "../../../shared/types/workspace";
 import { useActiveStore } from "../../state/stores/active";
@@ -23,6 +24,7 @@ const MAC_TRAFFIC_LIGHTS_INSET = 78; // px — clears the three traffic-light bu
 const WIN_OVERLAY_INSET = 140; // px — clears the Electron-rendered control overlay
 
 export function TitleBar() {
+  const { t } = useTranslation();
   const isMac = window.host.platform === "darwin";
 
   const activeWorkspaceId = useActiveStore((s) => s.activeWorkspaceId);
@@ -69,7 +71,7 @@ export function TitleBar() {
       <button
         type="button"
         onClick={toggleSettings}
-        aria-label="Open settings"
+        aria-label={t("titleBar.open_settings")}
         aria-haspopup="dialog"
         aria-expanded={settingsOpen}
         className={cn(

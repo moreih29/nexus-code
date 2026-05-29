@@ -6,6 +6,7 @@
  *   - "apply" mode (default): Enter → apply selected stash.
  *   - "drop" mode:            Enter → request drop confirmation for selected stash.
  */
+import i18next from "i18next";
 import type { StashEntry } from "../../../../../shared/git/types";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
 
@@ -30,14 +31,15 @@ export interface CreateStashPickerSourceInput {
 export function createStashPickerSource(
   input: CreateStashPickerSourceInput,
 ): PaletteSource<StashPickItem> {
+  const t = i18next.t.bind(i18next);
   const mode: StashPickerMode = input.mode ?? "apply";
 
   return {
     id: "git.stash-picker",
-    title: mode === "drop" ? "Drop Stash" : "Stashes",
-    placeholder: mode === "drop" ? "Select a stash to drop…" : "Search stashes…",
-    emptyQueryMessage: "Loading stashes…",
-    noResultsMessage: "No matching stashes.",
+    title: mode === "drop" ? t("files:git.stashPicker.dropTitle") : t("files:git.stashPicker.applyTitle"),
+    placeholder: mode === "drop" ? t("files:git.stashPicker.dropPlaceholder") : t("files:git.stashPicker.applyPlaceholder"),
+    emptyQueryMessage: t("files:git.stashPicker.loading"),
+    noResultsMessage: t("files:git.stashPicker.noResults"),
     searchOnEmptyQuery: true,
 
     async search(query, signal): Promise<readonly StashPickItem[]> {
@@ -62,7 +64,8 @@ export function createStashPickerSource(
  * Converts a stash entry into the palette row shape.
  */
 function stashToItem(stash: StashEntry): StashPickItem {
-  const subject = stash.message.trim() || "(no message)";
+  const t = i18next.t.bind(i18next);
+  const subject = stash.message.trim() || t("files:git.stashPicker.noMessage");
   const refLabel = `stash@{${stash.index}}`;
   return {
     id: `stash:${stash.index}:${stash.sha}`,
@@ -88,13 +91,14 @@ function matchesStashQuery(item: StashPickItem, lowerQuery: string): boolean {
  * Formats a compact client-side relative timestamp for stash descriptions.
  */
 function formatRelativeTime(createdAt: number, now: number = Date.now()): string {
+  const t = i18next.t.bind(i18next);
   const diffMs = Math.max(0, now - createdAt);
   const minute = 60_000;
   const hour = 60 * minute;
   const day = 24 * hour;
 
-  if (diffMs < minute) return "just now";
-  if (diffMs < hour) return `${Math.floor(diffMs / minute)}m ago`;
-  if (diffMs < day) return `${Math.floor(diffMs / hour)}h ago`;
-  return `${Math.floor(diffMs / day)}d ago`;
+  if (diffMs < minute) return t("files:git.stashPicker.justNow");
+  if (diffMs < hour) return t("files:git.stashPicker.minutesAgo", { count: Math.floor(diffMs / minute) });
+  if (diffMs < day) return t("files:git.stashPicker.hoursAgo", { count: Math.floor(diffMs / hour) });
+  return t("files:git.stashPicker.daysAgo", { count: Math.floor(diffMs / day) });
 }

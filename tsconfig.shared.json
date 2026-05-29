@@ -10,7 +10,8 @@
     "rootDir": "src/shared",
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "resolveJsonModule": true
   },
-  "include": ["src/shared/**/*.ts"]
+  "include": ["src/shared/**/*.ts", "src/shared/**/*.json"]
 }

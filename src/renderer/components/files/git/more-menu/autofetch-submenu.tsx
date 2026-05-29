@@ -6,6 +6,7 @@
 import { ChevronRight } from "lucide-react";
 import { useRef } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import type { GitAutofetchIntervalMin } from "../../../../../shared/git/types";
 import { useSubmenuPlacement } from "../../../ui/use-submenu-placement";
 import { buildAutofetchMenuModel, formatLastFetchedCaption } from "../utils/more-menu-model";
@@ -26,6 +27,7 @@ export function AutofetchSubmenu({
   onOpenChange: (open: boolean) => void;
   onSelect: (intervalMin: GitAutofetchIntervalMin) => void;
 }) {
+  const { t } = useTranslation("files");
   const model = buildAutofetchMenuModel(selected);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const { panelRef, style } = useSubmenuPlacement(open, triggerRef);
@@ -42,7 +44,7 @@ export function AutofetchSubmenu({
         className="flex w-full items-center justify-between gap-3 rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
         onClick={() => onOpenChange(!open)}
       >
-        <span>Autofetch</span>
+        <span>{t("git.moreMenu.autofetch.label")}</span>
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
       {open

@@ -29,13 +29,14 @@ import {
   Video,
   Volume2,
 } from "lucide-react";
+import i18next from "i18next";
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ipcCallResult } from "../../../ipc/client";
 import type { BrowserPermissionKind } from "../../../../shared/security/browser-permissions";
 import {
   PERMISSION_TOGGLES,
-  permissionLabel,
 } from "../../../../shared/security/browser-permissions";
 import { useBrowserPermissionsStore } from "../../../state/stores/browser-permissions";
 import { useActiveStore } from "../../../state/stores/active";
@@ -46,6 +47,48 @@ import { Skeleton, SkeletonLine } from "../../ui/skeleton";
 import { Switch } from "../../ui/switch";
 import { SegmentedControl } from "../segmented-control";
 import { cn } from "@/utils/cn";
+
+// Map from PERMISSION_TOGGLES key → settings i18n key (without "browserPermissions.permission." prefix)
+const TOGGLE_I18N_KEY: Record<string, string> = {
+  media: "media",
+  geolocation: "geolocation",
+  notifications: "notifications",
+  "display-capture": "displayCapture",
+  "clipboard-read": "clipboardRead",
+  openExternal: "openExternal",
+  fileSystem: "fileSystem",
+  "midi+midiSysex": "midi",
+  fullscreen: "fullscreen",
+  "pointerLock+keyboardLock": "inputLock",
+  "idle-detection": "idleDetection",
+  "window-management": "windowManagement",
+  "speaker-selection": "speakerSelection",
+  mediaKeySystem: "drm",
+};
+
+// Map from BrowserPermissionKind → settings i18n permissionLabel key
+const PERMISSION_LABEL_I18N_KEY: Record<string, string> = {
+  "clipboard-read": "clipboardRead",
+  "clipboard-sanitized-write": "clipboardSanitizedWrite",
+  "display-capture": "displayCapture",
+  fullscreen: "fullscreen",
+  geolocation: "geolocation",
+  "idle-detection": "idleDetection",
+  media: "media",
+  mediaKeySystem: "mediaKeySystem",
+  midi: "midi",
+  midiSysex: "midiSysex",
+  notifications: "notifications",
+  pointerLock: "pointerLock",
+  keyboardLock: "keyboardLock",
+  openExternal: "openExternal",
+  "speaker-selection": "speakerSelection",
+  "storage-access": "storageAccess",
+  "top-level-storage-access": "topLevelStorageAccess",
+  "window-management": "windowManagement",
+  unknown: "unknown",
+  fileSystem: "fileSystem",
+};
 
 // ---------------------------------------------------------------------------
 // Icon map — keyed by the Lucide name string from PERMISSION_TOGGLES
@@ -86,6 +129,7 @@ type ScopeTab = "current" | "all";
 // ---------------------------------------------------------------------------
 
 export function BrowserPermissionsPanel() {
+  const { t } = useTranslation("settings");
   const grants = useBrowserPermissionsStore((s) => s.grants);
   const setGrant = useBrowserPermissionsStore((s) => s.setGrant);
 
@@ -120,7 +164,7 @@ export function BrowserPermissionsPanel() {
     if (token !== fetchRef.current) return; // stale
 
     if (!result.ok) {
-      setLoadError(result.message ?? "Failed to load the list.");
+      setLoadError(result.message ?? t("browserPermissions.loadFailed"));
       setEntries([]);
       return;
     }
@@ -134,11 +178,10 @@ export function BrowserPermissionsPanel() {
   const handleRevoke = useCallback(
     async (entry: RememberedEntry) => {
       const confirmed = await showConfirmDialog({
-        title: "Delete remembered permission",
-        description:
-          "Removing this site's memory will prompt you again on its next request.",
-        confirmLabel: "Delete",
-        cancelLabel: "Cancel",
+        title: t("browserPermissions.deleteTitle"),
+        description: t("browserPermissions.deleteDescription"),
+        confirmLabel: t("browserPermissions.deleteConfirm"),
+        cancelLabel: i18next.t("common:action.cancel"),
         variant: "destructive",
       });
       if (!confirmed) return;
@@ -192,10 +235,10 @@ export function BrowserPermissionsPanel() {
             id="global-toggles-heading"
             className="text-app-body-emphasis text-foreground"
           >
-            Global permissions
+            {t("browserPermissions.globalHeading")}
           </h2>
           <p className="text-app-ui-sm text-muted-foreground">
-            When on, a permission is auto-allowed in every workspace. All off by default.
+            {t("browserPermissions.globalDescription")}
           </p>
         </div>
 
@@ -225,7 +268,7 @@ export function BrowserPermissionsPanel() {
               >
                 ›
               </span>
-              Advanced
+              {t("browserPermissions.advanced")}
             </summary>
             <div className="flex flex-col gap-1 mt-1">
               {tierBToggles.map((toggle) => (
@@ -254,29 +297,29 @@ export function BrowserPermissionsPanel() {
               id="site-memory-heading"
               className="text-app-body-emphasis text-foreground"
             >
-              Remembered site permissions
+              {t("browserPermissions.siteMemoryHeading")}
             </h2>
             <p className="text-app-ui-sm text-muted-foreground">
-              Decisions you chose to remember when sites requested permissions.
+              {t("browserPermissions.siteMemoryDescription")}
             </p>
           </div>
 
           <SegmentedControl
             options={[
-              { value: "current" as const, label: "Current workspace" },
-              { value: "all" as const, label: "All workspaces" },
+              { value: "current" as const, label: t("browserPermissions.scopeCurrent") },
+              { value: "all" as const, label: t("browserPermissions.scopeAll") },
             ]}
             value={scopeTab}
             onChange={setScopeTab}
-            label="Remembered scope"
+            label={t("browserPermissions.scopeLabel")}
             disabled={!activeWorkspaceId && scopeTab === "current"}
-            disabledReason="No active workspace."
+            disabledReason={t("browserPermissions.noActiveWorkspace")}
           />
         </div>
 
         {/* Loading skeleton */}
         {entries === null && !loadError && (
-          <Skeleton label="Loading remembered permissions">
+          <Skeleton label={t("browserPermissions.loadingPermissions")}>
             <SkeletonLine className="h-9" />
             <SkeletonLine className="h-9" style={{ width: "80%" }} />
             <SkeletonLine className="h-9" style={{ width: "65%" }} />
@@ -292,8 +335,8 @@ export function BrowserPermissionsPanel() {
         {entries !== null && !loadError && entries.length === 0 && (
           <EmptyState
             icon={<ShieldCheck className="size-8" aria-hidden="true" />}
-            title="No remembered permissions"
-            description="When you choose “Remember” while allowing or blocking a site permission, it appears here."
+            title={t("browserPermissions.noPermissionsTitle")}
+            description={t("browserPermissions.noPermissionsDescription")}
             tone="status"
           />
         )}
@@ -349,8 +392,16 @@ interface PermissionToggleRowProps {
 }
 
 function PermissionToggleRow({ toggle, enabled, onToggle }: PermissionToggleRowProps) {
+  const { t } = useTranslation("settings");
   const switchId = useId();
   const IconComponent = ICON_MAP[toggle.icon];
+  const i18nKey = TOGGLE_I18N_KEY[toggle.key];
+  const label = i18nKey
+    ? t(`browserPermissions.permission.${i18nKey}.label`)
+    : toggle.label;
+  const description = i18nKey
+    ? t(`browserPermissions.permission.${i18nKey}.description`)
+    : toggle.description;
 
   return (
     <div
@@ -371,10 +422,10 @@ function PermissionToggleRow({ toggle, enabled, onToggle }: PermissionToggleRowP
             htmlFor={switchId}
             className="text-app-body text-foreground cursor-pointer"
           >
-            {toggle.label}
+            {label}
           </label>
           <p className="text-app-ui-sm text-muted-foreground">
-            {toggle.description}
+            {description}
           </p>
         </div>
       </div>
@@ -382,7 +433,7 @@ function PermissionToggleRow({ toggle, enabled, onToggle }: PermissionToggleRowP
         id={switchId}
         checked={enabled}
         onCheckedChange={onToggle}
-        aria-label={toggle.label}
+        aria-label={label}
         className="shrink-0 mt-0.5"
       />
     </div>
@@ -400,6 +451,7 @@ interface SiteEntryRowProps {
 }
 
 function SiteEntryRow({ entry, grants, onRevoke }: SiteEntryRowProps) {
+  const { t } = useTranslation("settings");
   const isGloballyEnabled = grants[entry.permission] === true;
 
   return (
@@ -432,11 +484,11 @@ function SiteEntryRow({ entry, grants, onRevoke }: SiteEntryRowProps) {
                 : "text-muted-foreground",
             )}
           >
-            {permissionLabel(entry.permission)}
+            {t(`browserPermissions.permissionLabel.${PERMISSION_LABEL_I18N_KEY[entry.permission] ?? "unknown"}`)}
           </span>
           {isGloballyEnabled && (
             <span className="text-app-ui-sm text-muted-foreground">
-              Allowed globally
+              {t("browserPermissions.allowedGlobally")}
             </span>
           )}
         </div>
@@ -446,7 +498,7 @@ function SiteEntryRow({ entry, grants, onRevoke }: SiteEntryRowProps) {
       {/* Revoke button — layout slot always reserved; shown on group hover or focus-within */}
       <button
         type="button"
-        aria-label={`Delete remembered permission for ${entry.origin}`}
+        aria-label={t("browserPermissions.deleteAriaLabel", { origin: entry.origin })}
         onClick={() => onRevoke(entry)}
         className={cn(
           "inline-flex shrink-0 items-center justify-center",

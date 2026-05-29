@@ -19,6 +19,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, Folder } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { revealEditorAt } from "@/services/editor/tabs";
 import type { FileGroup } from "../../../state/stores/search";
 import { ROW_HEIGHT_PX } from "../file-tree/metrics";
@@ -202,6 +203,7 @@ export function SearchResultsList({
   onToggleDir,
   firstRowFocusRef,
 }: SearchResultsListProps) {
+  const { t } = useTranslation("files");
   const containerRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<Map<number, HTMLElement>>(new Map());
   const [focusedIndex, setFocusedIndex] = useState(0);
@@ -332,7 +334,7 @@ export function SearchResultsList({
       {...(isTree
         ? {
             role: "tree",
-            "aria-label": "Search results",
+            "aria-label": t("search.results.ariaLabel"),
             onKeyDown: (e) => treeOnKeyDown(e.nativeEvent),
           }
         : {})}

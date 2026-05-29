@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { Grid } from "@/engine";
 import type { LayoutSplit } from "@/state/stores/layout";
 import { useLayoutStore } from "@/state/stores/layout";
@@ -26,6 +27,7 @@ interface UseSplitSashResult {
 }
 
 export function useSplitSash({ workspaceId, split }: UseSplitSashOptions): UseSplitSashResult {
+  const { t } = useTranslation();
   const layoutStore = useLayoutStore();
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -58,7 +60,7 @@ export function useSplitSash({ workspaceId, split }: UseSplitSashOptions): UseSp
     getContainerSize,
     onResize,
     onReset,
-    ariaLabel: isHorizontal ? "Resize panels horizontally" : "Resize panels vertically",
+    ariaLabel: isHorizontal ? t("resize.horizontal") : t("resize.vertical"),
     placement: isHorizontal ? "rightCentered" : undefined,
   };
 

@@ -6,6 +6,7 @@
  */
 import { ArrowBigUp } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { SshAuthPrompt } from "../../../shared/ssh/auth-prompt";
 import { copyText } from "../../utils/clipboard";
 import { Button } from "../ui/button";
@@ -54,6 +55,7 @@ export function SshAuthPromptDialogContent({
   onCopyFingerprint,
   onSubmit,
 }: SshAuthPromptDialogContentProps): React.JSX.Element {
+  const { t } = useTranslation();
   const titleId = `ssh-auth-title-${prompt.promptId}`;
   const descriptionId = `ssh-auth-description-${prompt.promptId}`;
   const inputId = `ssh-auth-input-${prompt.promptId}`;
@@ -61,9 +63,9 @@ export function SshAuthPromptDialogContent({
   const isPasswordPrompt = prompt.kind === "password";
   const title = isPasswordPrompt
     ? prompt.field === "passphrase"
-      ? "SSH passphrase required"
-      : "SSH password required"
-    : "Trust SSH host key";
+      ? t("ssh.title_passphrase")
+      : t("ssh.title_password")
+    : t("ssh.title_host_key");
 
   // Track Caps Lock state for the password input. onKeyUp is sufficient since
   // getModifierState reflects the post-key state after each event.
@@ -94,11 +96,11 @@ export function SshAuthPromptDialogContent({
                 role="alert"
                 className="rounded-(--radius-control) border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-2 py-1 text-app-ui-sm text-[var(--state-error-fg)]"
               >
-                Authentication failed. Try again.
+                {t("ssh.auth_failed")}
               </p>
             ) : null}
             <label htmlFor={inputId} className="text-app-ui-sm text-foreground">
-              {prompt.field === "passphrase" ? "Passphrase" : "Password"}
+              {prompt.field === "passphrase" ? t("ssh.label_passphrase") : t("ssh.label_password")}
             </label>
             <input
               id={inputId}
@@ -118,7 +120,7 @@ export function SshAuthPromptDialogContent({
                 className="flex items-center gap-1.5 text-app-ui-sm text-[var(--state-warning-fg)]"
               >
                 <ArrowBigUp className="size-4 shrink-0" aria-hidden="true" />
-                Caps Lock is on
+                {t("ssh.caps_lock")}
               </p>
             ) : null}
             <p className="text-app-ui-sm text-muted-foreground">{prompt.prompt}</p>
@@ -128,14 +130,14 @@ export function SshAuthPromptDialogContent({
         )}
         <div className="mt-1 flex justify-end gap-2">
           <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
-            Cancel
+            {t("action.cancel")}
           </Button>
           <Button
             type="submit"
             size="sm"
             disabled={busy || (isPasswordPrompt && passwordValue.length === 0)}
           >
-            {isPasswordPrompt ? "Continue" : "Trust"}
+            {isPasswordPrompt ? t("ssh.continue") : t("ssh.trust")}
           </Button>
         </div>
       </form>
@@ -205,22 +207,23 @@ function HostKeyPromptBody({
   readonly busy: boolean;
   readonly onCopyFingerprint: (fingerprint: string) => void;
 }): React.JSX.Element {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-3">
       <p className="text-app-ui-sm text-foreground">
-        {prompt.message ?? "The server's host key is not yet trusted for this workspace."}
+        {prompt.message ?? t("ssh.host_key_default")}
       </p>
       {prompt.keyType ? (
-        <p className="text-app-ui-sm text-muted-foreground">Key type: {prompt.keyType}</p>
+        <p className="text-app-ui-sm text-muted-foreground">{t("ssh.key_type", { type: prompt.keyType })}</p>
       ) : null}
       <div className="rounded-(--radius-control) border border-border bg-muted/30 p-3">
-        <p className="text-app-ui-sm text-muted-foreground">Fingerprint</p>
+        <p className="text-app-ui-sm text-muted-foreground">{t("ssh.fingerprint")}</p>
         <p className="mt-1 break-all font-mono text-[14px] text-foreground">{prompt.fingerprint}</p>
       </div>
       <p className="text-app-ui-sm text-muted-foreground">
-        If you don't recognize this fingerprint, do not trust the host.
+        {t("ssh.fingerprint_warning")}
       </p>
-      <p className="text-app-ui-sm text-muted-foreground">Trust applies for this session only.</p>
+      <p className="text-app-ui-sm text-muted-foreground">{t("ssh.trust_session_only")}</p>
       <div>
         <Button
           type="button"
@@ -229,7 +232,7 @@ function HostKeyPromptBody({
           disabled={busy}
           onClick={() => onCopyFingerprint(prompt.fingerprint)}
         >
-          Copy
+          {t("action.copy")}
         </Button>
       </div>
     </div>

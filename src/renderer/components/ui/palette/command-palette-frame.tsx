@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { cn } from "../../../utils/cn";
 import type { PaletteViewStatus } from "./controller";
 import type { PaletteItem } from "./types";
@@ -51,6 +52,7 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
   listboxId = "command-palette-listbox",
   footer,
 }: CommandPaletteFrameProps<TItem>): React.JSX.Element | null {
+  const { t } = useTranslation();
   if (status === "closed") return null;
 
   const activeItem = activeIndex >= 0 ? items[activeIndex] : undefined;
@@ -60,7 +62,7 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
     <div className="fixed inset-0 z-[70] bg-[var(--floating-scrim)]">
       <button
         type="button"
-        aria-label="Close command palette"
+        aria-label={t("palette.close_aria")}
         tabIndex={-1}
         className="absolute inset-0 h-full w-full cursor-default bg-transparent"
         // Outside-click dismissal: the overlay button fills the viewport
@@ -194,20 +196,21 @@ function PaletteStatusMessage({
   emptyQueryMessage: string;
   noResultsMessage: string;
 }): React.JSX.Element {
+  const { t } = useTranslation();
   const message = (() => {
     switch (status) {
       case "no-workspace":
-        return "Open a workspace to search symbols.";
+        return t("palette.no_workspace");
       case "idle":
         return emptyQueryMessage;
       case "debouncing":
-        return "Waiting for input…";
+        return t("palette.waiting_input");
       case "loading":
-        return query.trim().length === 0 ? emptyQueryMessage : "Searching…";
+        return query.trim().length === 0 ? emptyQueryMessage : t("palette.searching");
       case "empty":
         return noResultsMessage;
       case "error":
-        return "Workspace symbol search failed.";
+        return t("palette.search_failed");
     }
   })();
 

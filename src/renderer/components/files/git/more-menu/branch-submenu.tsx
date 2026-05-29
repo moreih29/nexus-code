@@ -6,6 +6,7 @@
 import { ChevronRight } from "lucide-react";
 import { useRef } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { useSubmenuPlacement } from "../../../ui/use-submenu-placement";
 import {
   buildGitBranchMenuModel,
@@ -39,6 +40,7 @@ export function BranchSubmenu({
   onDeleteBranch: () => void;
   onDeleteRemoteBranch: () => void;
 }) {
+  const { t } = useTranslation("files");
   const model = buildGitBranchMenuModel({ disabled, hasHead });
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const { panelRef, style } = useSubmenuPlacement(open, triggerRef);
@@ -64,7 +66,7 @@ export function BranchSubmenu({
         className="flex w-full items-center justify-between gap-3 rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
         onClick={() => onOpenChange(!open)}
       >
-        <span>Branch</span>
+        <span>{t("git.moreMenu.branch.label")}</span>
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
       {open

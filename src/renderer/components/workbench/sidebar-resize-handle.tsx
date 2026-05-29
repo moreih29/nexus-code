@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import {
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
@@ -12,6 +13,7 @@ import { ResizeHandle } from "../ui/resize-handle";
 // ---------------------------------------------------------------------------
 
 export function SidebarResizeHandle() {
+  const { t } = useTranslation();
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
 
   return (
@@ -19,7 +21,7 @@ export function SidebarResizeHandle() {
       value={sidebarWidth}
       min={SIDEBAR_WIDTH_MIN}
       max={SIDEBAR_WIDTH_MAX}
-      ariaLabel="Resize sidebar"
+      ariaLabel={t("resize.sidebar")}
       onResize={(width, persist) => useUIStore.getState().setSidebarWidth(width, persist)}
       onReset={() => useUIStore.getState().setSidebarWidth(SIDEBAR_WIDTH_DEFAULT, true)}
     />

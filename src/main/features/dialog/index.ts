@@ -1,6 +1,7 @@
 import { dialog } from "electron";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { register, validateArgs } from "../../infra/ipc-router";
+import { getMainT } from "../../i18n";
 
 const c = ipcContract.dialog.call;
 
@@ -9,8 +10,9 @@ export function registerDialogChannel(): void {
     call: {
       showOpenFile: async (args: unknown) => {
         const { title, defaultPath, filters } = validateArgs(c.showOpenFile.args, args);
+        const t = getMainT();
         const result = await dialog.showOpenDialog({
-          title,
+          title: title ?? t("dialog:openFile.title"),
           defaultPath,
           filters,
           properties: ["openFile"],
@@ -19,8 +21,9 @@ export function registerDialogChannel(): void {
       },
       showOpenDirectory: async (args: unknown) => {
         const { title, defaultPath } = validateArgs(c.showOpenDirectory.args, args);
+        const t = getMainT();
         const result = await dialog.showOpenDialog({
-          title,
+          title: title ?? t("dialog:openDirectory.title"),
           defaultPath,
           properties: ["openDirectory", "createDirectory"],
         });
@@ -28,8 +31,9 @@ export function registerDialogChannel(): void {
       },
       showSaveDialog: async (args: unknown) => {
         const opts = validateArgs(c.showSaveDialog.args, args) ?? {};
+        const t = getMainT();
         const result = await dialog.showSaveDialog({
-          title: opts.title,
+          title: opts.title ?? t("dialog:saveFile.title"),
           defaultPath: opts.defaultPath,
           filters: opts.filters,
         });

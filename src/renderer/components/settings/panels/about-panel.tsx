@@ -26,6 +26,7 @@
 // does not wire toasts itself, mirroring the previous updates panel.
 
 import { useCallback, useId, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ipcCallResult } from "../../../ipc/client";
 import { useUpdatesStore } from "../../../state/stores/updates";
 import { Button } from "../../ui/button";
@@ -43,6 +44,7 @@ const COPYRIGHT = "Copyright © 2026 moreih29";
 // ---------------------------------------------------------------------------
 
 export function AboutPanel() {
+  const { t } = useTranslation("settings");
   const autoCheckEnabled = useUpdatesStore((s) => s.autoCheckEnabled);
   const setAutoCheckEnabled = useUpdatesStore((s) => s.setAutoCheckEnabled);
 
@@ -77,7 +79,7 @@ export function AboutPanel() {
       <div className="flex flex-col gap-1">
         <div className="text-app-body-emphasis text-foreground">{APP_NAME}</div>
         <div className="text-app-ui-sm text-muted-foreground">
-          Version {__APP_VERSION__}
+          {t("about.version", { version: __APP_VERSION__ })}
         </div>
         <div className="text-app-ui-sm text-muted-foreground">{COPYRIGHT}</div>
       </div>
@@ -90,11 +92,10 @@ export function AboutPanel() {
             htmlFor={autoCheckId}
             className="text-app-body text-foreground cursor-pointer"
           >
-            Automatically check for updates
+            {t("about.autoCheck.label")}
           </label>
           <p className="text-app-ui-sm text-muted-foreground">
-            Fire one silent GitHub Releases check at app startup. Manual
-            checks below always run regardless of this setting.
+            {t("about.autoCheck.description")}
           </p>
         </div>
         <Switch
@@ -113,7 +114,7 @@ export function AboutPanel() {
           onClick={handleCheckNow}
           disabled={checking}
         >
-          {checking ? "Checking…" : "Check for Updates"}
+          {checking ? t("about.checking") : t("about.checkNow")}
         </Button>
       </div>
     </div>

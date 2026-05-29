@@ -28,6 +28,7 @@
  * appears without typing.
  */
 
+import i18next from "i18next";
 import type { BranchList } from "../../../../../shared/git/types";
 import type { PaletteAcceptContext, PaletteItem, PaletteSource } from "../../../ui/palette/types";
 
@@ -75,8 +76,8 @@ export function createBranchPickerSource(
     id: "git.branch-picker",
     title: input.title ?? defaultTitleForMode(mode),
     placeholder: input.placeholder ?? defaultPlaceholderForMode(mode),
-    emptyQueryMessage: "Loading branches…",
-    noResultsMessage: "No matching branches.",
+    emptyQueryMessage: i18next.t("files:git.branch.picker.loadingBranches"),
+    noResultsMessage: i18next.t("files:git.branch.picker.noMatchingBranches"),
     searchOnEmptyQuery: true,
 
     async search(query, signal): Promise<readonly BranchPickItem[]> {
@@ -115,7 +116,7 @@ export function createBranchPickerSource(
           id: `local:${currentName}`,
           label: currentName,
           kindLabel: "current",
-          description: "Local",
+          description: i18next.t("files:git.branch.picker.descriptionLocal"),
           action: { kind: "checkout", ref: currentName },
         });
       }
@@ -124,7 +125,7 @@ export function createBranchPickerSource(
           localItems.push({
             id: `local:${name}`,
             label: name,
-            description: "Local",
+            description: i18next.t("files:git.branch.picker.descriptionLocal"),
             action: { kind: "checkout", ref: name },
           });
         }
@@ -151,7 +152,7 @@ export function createBranchPickerSource(
           remoteItems.push({
             id: `remote:${fullName}`,
             label: shortName,
-            description: `Remote ${fullName}`,
+            description: i18next.t("files:git.branch.picker.descriptionRemote", { ref: fullName }),
             action: { kind: "checkout-tracking", remoteRef: fullName },
           });
         }
@@ -174,11 +175,9 @@ export function createBranchPickerSource(
         // user knows what's about to happen before they click.
         const unbornCurrent = list.current?.isUnborn && currentName ? currentName : null;
         const label = unbornCurrent
-          ? `Rename unborn '${unbornCurrent}' → '${trimmed}'`
-          : `Create new branch: '${trimmed}'`;
-        const ariaLabel = unbornCurrent
-          ? `Rename unborn ${unbornCurrent} to ${trimmed}`
-          : `Create new branch ${trimmed}`;
+          ? i18next.t("files:git.branch.picker.renameUnborn", { current: unbornCurrent, name: trimmed })
+          : i18next.t("files:git.branch.picker.createNew", { name: trimmed });
+        const ariaLabel = label;
         items.push({
           id: `create:${trimmed}`,
           label,
@@ -235,17 +234,18 @@ function normalizeBranchPickerSourceMode(
  * Provides the quick-pick input's accessible heading for each branch mode.
  */
 function defaultTitleForMode(mode: NormalizedBranchPickerSourceMode): string {
+  const t = i18next.t.bind(i18next);
   switch (mode) {
     case "switch":
-      return "Checkout to";
+      return t("files:git.branch.picker.checkoutTitle");
     case "select-ref":
-      return "Select branch";
+      return t("files:git.branch.picker.selectRefTitle");
     case "rename":
-      return "Rename branch";
+      return t("files:git.branch.picker.renameTitle");
     case "delete-local":
-      return "Delete branch";
+      return t("files:git.branch.picker.deleteTitle");
     case "delete-remote":
-      return "Delete remote branch";
+      return t("files:git.branch.picker.deleteRemoteTitle");
   }
 }
 
@@ -253,17 +253,18 @@ function defaultTitleForMode(mode: NormalizedBranchPickerSourceMode): string {
  * Provides the quick-pick search placeholder for each branch mode.
  */
 function defaultPlaceholderForMode(mode: NormalizedBranchPickerSourceMode): string {
+  const t = i18next.t.bind(i18next);
   switch (mode) {
     case "switch":
-      return "Select a branch or type a name to create…";
+      return t("files:git.branch.picker.checkoutPlaceholder");
     case "select-ref":
-      return "Select a branch…";
+      return t("files:git.branch.picker.selectRefPlaceholder");
     case "rename":
-      return "Select a branch to rename…";
+      return t("files:git.branch.picker.renamePlaceholder");
     case "delete-local":
-      return "Select a branch to delete…";
+      return t("files:git.branch.picker.deletePlaceholder");
     case "delete-remote":
-      return "Select a remote branch to delete…";
+      return t("files:git.branch.picker.deleteRemotePlaceholder");
   }
 }
 

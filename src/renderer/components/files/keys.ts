@@ -1,3 +1,4 @@
+import i18next from "i18next";
 import { showToast } from "@/components/ui/toast";
 import { evaluateContextKey } from "@/keybindings/context-keys";
 import { openOrRevealEditor as defaultOpenOrRevealEditor } from "@/services/editor";
@@ -173,7 +174,7 @@ export function createFileTreeKeydownHandler(
       // F2 rename: single-focus only. Multi-select shows a toast and no-ops.
       const sel = useFilesStore.getState().selection.get(workspaceId);
       if (sel && sel.paths.size > 1) {
-        showToast({ kind: "info", message: "Rename one item at a time" });
+        showToast({ kind: "info", message: i18next.t("files:fileTree.renameOneAtATime") });
         return;
       }
       // Root cannot be renamed — mirror the guard in the global fileRename command.

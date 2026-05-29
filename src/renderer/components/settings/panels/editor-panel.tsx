@@ -9,7 +9,8 @@
 // Design seal: semantic tokens only, no hex/oklch/rgba literals,
 // no magic pixel values, no shadows.
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { checkFontAvailable } from "../../../services/editor/runtime/font-availability";
 import type { EditorFontLineHeight, EditorFontSize } from "../../../state/stores/editor-font";
@@ -46,12 +47,10 @@ const LINE_HEIGHT_OPTIONS: SegmentedOption<string>[] = [
 // boundary.
 const FAMILY_SYSTEM_VALUE = "__system__";
 
-const DEFAULT_FONT_FAMILIES = [
+const PRESET_FONT_FAMILIES = [
   { value: "JetBrains Mono Nerd Font", label: "JetBrains Mono" },
   { value: "D2CodingLigature Nerd Font", label: "D2Coding" },
   { value: "Sarasa Term K", label: "Sarasa Term K" },
-  { value: FAMILY_SYSTEM_VALUE, label: "System" },
-  { value: "__custom__", label: "Other..." },
 ];
 
 const DEFAULT_FONT_SIZE_TOKEN = 16; // codeBody fallback
@@ -77,6 +76,8 @@ function valueToLineHeight(v: string): EditorFontLineHeight {
 // ---------------------------------------------------------------------------
 
 export function EditorPanel() {
+  const { t } = useTranslation("settings");
+
   const size = useEditorFontStore((s) => s.size);
   const family = useEditorFontStore((s) => s.family);
   const ligatures = useEditorFontStore((s) => s.ligatures);
@@ -85,6 +86,16 @@ export function EditorPanel() {
   const setFamily = useEditorFontStore((s) => s.setFamily);
   const setLigatures = useEditorFontStore((s) => s.setLigatures);
   const setLineHeight = useEditorFontStore((s) => s.setLineHeight);
+
+  // Build translated font family options inside the component so i18n is active.
+  const fontFamilyOptions = useMemo(
+    () => [
+      ...PRESET_FONT_FAMILIES,
+      { value: FAMILY_SYSTEM_VALUE, label: t("editor.fontFamilySystem") },
+      { value: "__custom__", label: t("editor.fontFamilyOther") },
+    ],
+    [t],
+  );
 
   const effectiveSize = size ?? DEFAULT_FONT_SIZE_TOKEN;
   // For preview we want the *literal* user choice to render. If family is
@@ -99,7 +110,7 @@ export function EditorPanel() {
   const isCustomFamily =
     family !== undefined &&
     family !== "" &&
-    !DEFAULT_FONT_FAMILIES.some((f) => f.value === family && f.value !== "__custom__");
+    !fontFamilyOptions.some((f) => f.value === family && f.value !== "__custom__");
   const [familySelect, setFamilySelect] = useState<string>(
     isCustomFamily
       ? "__custom__"
@@ -166,6 +177,7 @@ export function EditorPanel() {
       {/* Persistent preview — reflects every editor setting in real time so
           the user can judge their choices before closing the dialog. */}
       <EditorPreview
+        label={t("editor.preview")}
         fontFamily={previewFamilyStack}
         fontSize={effectiveSize}
         lineHeight={effectiveLineHeight}
@@ -174,7 +186,7 @@ export function EditorPanel() {
 
       {/* Font size — compact stepper on the right of its label */}
       <SettingsRow
-        label="Font size"
+        label={t("editor.fontSize")}
         dirty={size !== undefined}
         onReset={() => setSize(undefined)}
       >
@@ -185,13 +197,13 @@ export function EditorPanel() {
           max={FONT_SIZE_MAX}
           step={1}
           suffix="px"
-          ariaLabel="Editor font size"
+          ariaLabel={t("editor.ariaFontSize")}
         />
       </SettingsRow>
 
       {/* Line height — also compact on the right */}
       <SettingsRow
-        label="Line height"
+        label={t("editor.lineHeight")}
         dirty={lineHeight !== undefined}
         onReset={() => setLineHeight(undefined)}
       >
@@ -199,22 +211,22 @@ export function EditorPanel() {
           options={LINE_HEIGHT_OPTIONS}
           value={lineHeightToValue(lineHeight)}
           onChange={(v) => setLineHeight(valueToLineHeight(v))}
-          label="Line height"
+          label={t("editor.lineHeight")}
         />
       </SettingsRow>
 
       {/* Font family — full-width Select */}
       <SettingsSection
-        label="Font family"
+        label={t("editor.fontFamily")}
         dirty={family !== undefined}
         onReset={resetFamily}
       >
         <Select value={familySelect} onValueChange={handleFamilySelectChange}>
-          <SelectTrigger ariaLabel="Font family">
-            <SelectValue placeholder="Select font family" />
+          <SelectTrigger ariaLabel={t("editor.ariaFontFamily")}>
+            <SelectValue placeholder={t("editor.fontFamilyPlaceholder")} />
           </SelectTrigger>
           <SelectContent>
-            {DEFAULT_FONT_FAMILIES.map((f) => (
+            {fontFamilyOptions.map((f) => (
               <SelectItem key={f.value} value={f.value}>
                 {f.label}
               </SelectItem>
@@ -228,7 +240,7 @@ export function EditorPanel() {
               type="text"
               value={customFamilyInput}
               onChange={handleCustomFamilyChange}
-              placeholder="e.g. Fira Code"
+              placeholder={t("editor.customFamilyPlaceholder")}
               className={cn(
                 "w-full rounded-(--radius-control) border border-border bg-background px-2 py-1",
                 "text-app-body text-foreground outline-none placeholder:text-muted-foreground",
@@ -237,12 +249,12 @@ export function EditorPanel() {
             />
             {fontAvailable === true && (
               <span className="text-app-ui-sm text-muted-foreground">
-                Detected on this system.
+                {t("editor.fontDetected")}
               </span>
             )}
             {fontAvailable === false && (
               <span className="text-app-ui-sm text-[var(--state-warning-fg)]">
-                Not found on this system — the preview will use the fallback font.
+                {t("editor.fontNotFound")}
               </span>
             )}
           </div>
@@ -251,7 +263,7 @@ export function EditorPanel() {
 
       {/* Ligatures — Checkbox + explanation + live preview */}
       <SettingsSection
-        label="Font ligatures"
+        label={t("editor.fontLigatures")}
         dirty={ligatures !== undefined}
         onReset={() => setLigatures(undefined)}
       >
@@ -261,12 +273,10 @@ export function EditorPanel() {
             checked={effectiveLigatures}
             onCheckedChange={(v) => setLigatures(v === true)}
           />
-          <span className="text-app-body text-foreground">Enable ligatures</span>
+          <span className="text-app-body text-foreground">{t("editor.ligatures.enable")}</span>
         </label>
         <p className="text-app-ui-sm text-muted-foreground">
-          Renders multi-character sequences like <code>=&gt;</code>, <code>!=</code>,{" "}
-          <code>&gt;=</code> as single glyphs when the font supports it. Toggle to see the
-          effect in the preview above.
+          {t("editor.ligatures.description")}
         </p>
       </SettingsSection>
     </div>
@@ -292,11 +302,13 @@ const PREVIEW_CODE = `const fn = (x) => x !== 0;
 return \`Hi, \${name}!\`;`;
 
 function EditorPreview({
+  label,
   fontFamily,
   fontSize,
   lineHeight,
   ligatures,
 }: {
+  label: string;
   fontFamily: string;
   fontSize: number;
   lineHeight: number;
@@ -304,7 +316,7 @@ function EditorPreview({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-app-ui-sm text-muted-foreground">Preview</span>
+      <span className="text-app-ui-sm text-muted-foreground">{label}</span>
       <div
         className={cn(
           "rounded-(--radius-control) border border-border bg-background px-3 py-2 text-foreground",

@@ -4,6 +4,7 @@
  */
 
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { ViewMode } from "../../../../shared/types/panel";
 import type { SearchOptions } from "../../../state/stores/search";
@@ -46,6 +47,7 @@ export function SearchInput({
   onViewModeChange,
   viewModeDisabled,
 }: SearchInputProps) {
+  const { t } = useTranslation("files");
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -72,12 +74,12 @@ export function SearchInput({
         <input
           ref={inputRef}
           type="search"
-          placeholder="Search"
+          placeholder={t("search.placeholder")}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
           className="flex-1 min-w-0 bg-transparent px-2 py-1 text-app-body outline-none placeholder:text-muted-foreground"
-          aria-label="Search workspace"
+          aria-label={t("search.ariaLabel")}
           spellCheck={false}
         />
         {value.length > 0 && (
@@ -85,7 +87,7 @@ export function SearchInput({
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label="Clear search"
+            aria-label={t("search.clearSearch")}
             className="shrink-0"
             onClick={() => onChange("")}
           >
@@ -104,7 +106,7 @@ export function SearchInput({
       </div>
       {regexError && (
         <p className="text-destructive text-app-ui-sm px-1" role="alert">
-          Invalid regular expression: {regexError}
+          {t("search.invalidRegex", { error: regexError })}
         </p>
       )}
     </div>

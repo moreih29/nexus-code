@@ -9,6 +9,7 @@
  * emptyCommit, branchCreate, stashGroup, addRemote.
  */
 
+import i18next from "i18next";
 import type { GitExpandedGroupKey, GitMergeMode, Tag } from "../../../../../shared/git/types";
 import type { GitPushOptions } from "../../../../state/stores/git";
 import type { FormDialogField } from "../../../ui/form-dialog";
@@ -184,10 +185,10 @@ export function GitDialogHost({ dialogs, pickers, callbacks }: GitDialogHostProp
         request={
           forcePushRequest
             ? {
-                title: "Force push will overwrite remote. Are you sure?",
-                description: "Uses --force-with-lease and stops if the remote changed again.",
+                title: i18next.t("files:git.dialogHost.forcePush.title"),
+                description: i18next.t("files:git.dialogHost.forcePush.description"),
                 relPaths: [],
-                confirmLabel: "Force Push",
+                confirmLabel: i18next.t("files:git.dialogHost.forcePush.confirmLabel"),
               }
             : null
         }
@@ -212,42 +213,42 @@ export function GitDialogHost({ dialogs, pickers, callbacks }: GitDialogHostProp
         open={mergeTargetPickerOpen}
         source={mergeTargetSource}
         onClose={() => setMergeTargetPickerOpen(false)}
-        footer="Enter choose merge target · Current branch hidden"
+        footer={i18next.t("files:git.dialogHost.footerMergeTarget")}
       />
 
       <CommandPalette<RebaseTargetPickItem>
         open={rebaseTargetPickerOpen}
         source={rebaseTargetSource}
         onClose={() => setRebaseTargetPickerOpen(false)}
-        footer="Enter choose rebase target · Current branch hidden"
+        footer={i18next.t("files:git.dialogHost.footerRebaseTarget")}
       />
 
       <CommandPalette<CommitPickItem>
         open={commitPickerOpen}
         source={commitPickerSource}
         onClose={() => setCommitPickerOpen(false)}
-        footer="Enter cherry-pick one commit · Multi-pick is not enabled"
+        footer={i18next.t("files:git.dialogHost.footerCommitPicker")}
       />
 
       <CommandPalette<MergeTargetPickItem>
         open={commitBranchPickerOpen}
         source={commitBranchSource}
         onClose={() => setCommitBranchPickerOpen(false)}
-        footer="Enter choose branch · Current branch hidden"
+        footer={i18next.t("files:git.dialogHost.footerCommitBranch")}
       />
 
       <BranchPicker
         workspaceId={workspaceId}
         open={branchCreateFromPickerOpen}
         mode="select-ref"
-        title="Create branch from"
-        placeholder="Select a branch to create from…"
+        title={i18next.t("files:git.dialogHost.createBranchFrom")}
+        placeholder={i18next.t("files:git.dialogHost.createBranchFromPlaceholder")}
         onClose={() => setBranchCreateFromPickerOpen(false)}
         onSelectRef={(ref) => {
           setBranchCreateFromPickerOpen(false);
           onOpenBranchCreateDialog(ref);
         }}
-        footer="Enter choose start point · Working tree is not changed"
+        footer={i18next.t("files:git.dialogHost.footerCreateBranchFrom")}
       />
 
       <StashPicker
@@ -320,10 +321,10 @@ export function GitDialogHost({ dialogs, pickers, callbacks }: GitDialogHostProp
       />
       <FormDialog
         open={addRemoteOpen}
-        title="Add remote"
-        description="Configure a local Git remote. The URL pattern is checked locally without a network probe."
+        title={i18next.t("files:git.dialogHost.addRemote.title")}
+        description={i18next.t("files:git.dialogHost.addRemote.description")}
         fields={addRemoteFields}
-        submitLabel="Add Remote"
+        submitLabel={i18next.t("files:git.dialogHost.addRemote.submitLabel")}
         errorClassName="git-destructive-text"
         busy={addRemoteBusy}
         onCancel={() => setAddRemoteOpen(false)}

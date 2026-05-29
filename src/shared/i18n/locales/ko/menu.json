@@ -1,0 +1,44 @@
+{
+  "appMenu": {
+    "about": "{{appName}} 정보",
+    "checkForUpdates": "업데이트 확인...",
+    "settings": "설정…"
+  },
+  "file": {
+    "label": "파일",
+    "newFile": "새 파일",
+    "newWorkspace": "새 워크스페이스…",
+    "openFile": "파일 열기…",
+    "save": "저장",
+    "closeEditor": "편집기 닫기",
+    "closeOthers": "다른 편집기 닫기",
+    "refreshFiles": "파일 새로 고침",
+    "exit": "종료"
+  },
+  "edit": {
+    "label": "편집"
+  },
+  "view": {
+    "label": "보기",
+    "toggleFilesPanel": "파일 패널 전환",
+    "toggleSidebar": "사이드바 전환",
+    "revealInFinder": "Finder에서 열기",
+    "copyPath": "경로 복사",
+    "copyRelativePath": "상대 경로 복사"
+  },
+  "workspace": {
+    "label": "워크스페이스",
+    "previousWorkspace": "이전 워크스페이스",
+    "nextWorkspace": "다음 워크스페이스",
+    "splitRight": "오른쪽으로 분할",
+    "splitDown": "아래로 분할",
+    "closeGroup": "그룹 닫기",
+    "focusGroupLeft": "왼쪽 그룹으로 포커스",
+    "focusGroupRight": "오른쪽 그룹으로 포커스",
+    "focusGroupUp": "위쪽 그룹으로 포커스",
+    "focusGroupDown": "아래쪽 그룹으로 포커스"
+  },
+  "window": {
+    "label": "윈도우"
+  }
+}

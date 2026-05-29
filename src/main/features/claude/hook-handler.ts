@@ -23,6 +23,7 @@
 //   session-end        → broker.clear + respondHook
 
 import { broadcast } from "../../infra/ipc-router";
+import { tryGetMainT } from "../../i18n";
 import { HookRequestSchema } from "../../../shared/claude/status";
 import type { ClaudeStatusBroker } from "./status";
 import type { ActiveContextStore } from "./active-context";
@@ -197,7 +198,8 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
   const isAppFocused = focused !== null && !focused.isMinimized();
   const isViewingThisTab =
     isAppFocused && deps.activeContext.isActive(workspaceId, tabId);
-  const workspaceName = deps.workspaceManager.getName(workspaceId) ?? "Terminal";
+  const t = tryGetMainT();
+  const workspaceName = deps.workspaceManager.getName(workspaceId) ?? (t ? t("common:claudeNotification.terminalFallback") : "Terminal");
 
   switch (subcommand) {
     case "session-start": {
@@ -234,7 +236,7 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
 
       if (!isViewingThisTab) {
         const title = `[${workspaceName}] Claude`;
-        const body = message ?? "Needs your attention";
+        const body = message ?? (t ? t("common:claudeNotification.needsAttention") : "Needs your attention");
         fireOsNotification(workspaceId, tabId, title, body, deps);
       }
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
@@ -246,12 +248,12 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
       // 즉시 exit 0으로 native PTY prompt fallback 유도.
       const toolName = extractToolName(hookPayload);
       const message = toolName
-        ? `Claude needs permission: ${toolName}`
-        : "Claude needs permission";
+        ? (t ? t("common:claudeNotification.needsPermissionTool", { tool: toolName }) : `Claude needs permission: ${toolName}`)
+        : (t ? t("common:claudeNotification.needsPermission") : "Claude needs permission");
       broker.set(workspaceId, tabId, "permissionPending", message);
 
       if (!isViewingThisTab) {
-        const title = `[${workspaceName}] Permission Required`;
+        const title = `[${workspaceName}] ${t ? t("common:claudeNotification.permissionRequired") : "Permission Required"}`;
         fireOsNotification(workspaceId, tabId, title, message, deps);
       }
 
@@ -284,7 +286,7 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
         const body =
           assistantText !== undefined && assistantText !== ""
             ? assistantText
-            : "Response complete";
+            : (t ? t("common:claudeNotification.responseComplete") : "Response complete");
         fireOsNotification(workspaceId, tabId, title, body, deps);
       }
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });

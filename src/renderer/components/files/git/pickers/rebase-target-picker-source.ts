@@ -6,6 +6,7 @@
  * workflow picker and guarantees the current branch is not offered as the
  * branch to rebase onto.
  */
+import i18next from "i18next";
 import type { BranchList } from "../../../../../shared/git/types";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
 
@@ -27,13 +28,14 @@ export interface CreateRebaseTargetPickerSourceInput {
 export function createRebaseTargetPickerSource(
   input: CreateRebaseTargetPickerSourceInput,
 ): PaletteSource<RebaseTargetPickItem> {
+  const t = i18next.t.bind(i18next);
   const current = input.currentBranch?.trim() || null;
   return {
     id: "git.rebase-target-picker",
-    title: current ? `Rebase ${current} onto` : "Rebase onto",
-    placeholder: "Select a branch to rebase onto…",
-    emptyQueryMessage: "Loading branches…",
-    noResultsMessage: "No matching branches.",
+    title: current ? t("files:git.rebasePicker.titleWithBranch", { current }) : t("files:git.rebasePicker.title"),
+    placeholder: t("files:git.rebasePicker.placeholder"),
+    emptyQueryMessage: t("files:git.rebasePicker.loadingBranches"),
+    noResultsMessage: t("files:git.rebasePicker.noMatchingBranches"),
     searchOnEmptyQuery: true,
 
     async search(query, signal): Promise<readonly RebaseTargetPickItem[]> {
@@ -56,6 +58,7 @@ export function buildRebaseTargetItems(
   branches: BranchList,
   currentBranch: string | null = branches.current?.current ?? null,
 ): RebaseTargetPickItem[] {
+  const t = i18next.t.bind(i18next);
   const current = currentBranch ?? branches.current?.current ?? null;
   const locals = [...branches.local]
     .filter((name) => name !== current)
@@ -63,7 +66,7 @@ export function buildRebaseTargetItems(
     .map((name) => ({
       id: `rebase-local:${name}`,
       label: name,
-      description: "Local branch",
+      description: t("files:git.rebasePicker.descriptionLocal"),
       kindLabel: "branch",
       kind: "local" as const,
       ref: name,
@@ -76,7 +79,7 @@ export function buildRebaseTargetItems(
     .map((name) => ({
       id: `rebase-remote:${name}`,
       label: name,
-      description: "Remote branch",
+      description: t("files:git.rebasePicker.descriptionRemote"),
       kindLabel: "remote",
       kind: "remote" as const,
       ref: name,

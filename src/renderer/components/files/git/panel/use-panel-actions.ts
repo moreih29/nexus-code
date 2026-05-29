@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useRef } from "react";
+import i18next from "i18next";
 import type { BranchInfo, GitExpandedGroupKey, GitMergeMode, Tag } from "../../../../../shared/git/types";
 import type { GitPushOptions } from "../../../../state/stores/git";
 import { useGitStore } from "../../../../state/stores/git";
@@ -331,7 +332,7 @@ export function useGitPanelActions({
   const handleSync = useCallback(async (): Promise<void> => {
     const result = await pushPullOps.sync(workspaceId);
     if (result?.pulled === "cancelled") {
-      setContextBanner({ variant: "info", message: "Sync cancelled (pull aborted before push)." });
+      setContextBanner({ variant: "info", message: i18next.t("files:git.panelActions.syncCancelled") });
     }
   }, [pushPullOps.sync, setContextBanner, workspaceId]);
 
@@ -342,15 +343,13 @@ export function useGitPanelActions({
   const requestDiscard = useCallback(
     (paths: string[], description: string, source?: string): void => {
       if (paths.length === 0) return;
+      const t = i18next.t.bind(i18next);
       const count = paths.length;
       setDiscardRequest({
         relPaths: paths,
         ...(source ? { source: source as GitExpandedGroupKey } : {}),
-        title: count === 1 ? "Discard changes?" : `Discard ${count} changes?`,
-        description:
-          count === 1
-            ? `Discard changes in ${description}? This cannot be undone.`
-            : `Discard all changes in ${description}? This cannot be undone.`,
+        title: t("files:git.discard.title", { count }),
+        description: t("files:git.discard.description", { count, description }),
       });
     },
     [setDiscardRequest],
@@ -358,17 +357,18 @@ export function useGitPanelActions({
 
   const requestRemoveRemote = useCallback(
     (remote: string): void => {
+      const t = i18next.t.bind(i18next);
       const upstreamWarning = buildRemoteUpstreamWarning(derived.branchInfo, remote);
-      const baseDescription = `Remote '${remote}' will be removed from this repository.`;
+      const baseDescription = t("files:git.removeRemote.baseDescription", { remote });
       setRemoveRemoteRequest({
         remote,
         confirm: {
           relPaths: [remote],
-          title: `Remove remote '${remote}'?`,
+          title: t("files:git.removeRemote.title", { remote }),
           description: upstreamWarning
             ? `${upstreamWarning} ${baseDescription}`
             : baseDescription,
-          confirmLabel: "Remove",
+          confirmLabel: t("files:git.removeRemote.confirmLabel"),
         },
       });
     },
@@ -378,14 +378,15 @@ export function useGitPanelActions({
   const requestStashGroup = useCallback(
     (paths: string[], label: string): void => {
       if (paths.length === 0) return;
+      const t = i18next.t.bind(i18next);
       setStashGroupRequest({
         paths,
         prompt: {
-          title: "Stash changes in group",
-          description: `Stash only ${label.toLowerCase()} and leave other working tree changes in place.`,
-          label: "Message",
-          placeholder: "Optional stash message",
-          confirmLabel: "Stash",
+          title: t("files:git.stashGroup.title"),
+          description: t("files:git.stashGroup.description", { label: label.toLowerCase() }),
+          label: t("files:git.stashGroup.messageLabel"),
+          placeholder: t("files:git.stashGroup.messagePlaceholder"),
+          confirmLabel: t("files:git.stashGroup.confirmLabel"),
           allowEmpty: true,
         },
       });

@@ -6,6 +6,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { LogEntry } from "../../../../../shared/git/types";
 import { GraphCanvas } from "./graph/canvas";
 import type { LaneState } from "./graph/lane-assign";
@@ -68,6 +69,7 @@ export function HistoryList({
   onOpenMenu,
   onClearSearch,
 }: HistoryListProps) {
+  const { t } = useTranslation("files");
   const trimmedQuery = searchQuery.trim();
   const scrollRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef(new Map<number, HTMLDivElement>());
@@ -178,7 +180,7 @@ export function HistoryList({
   }, []);
 
   if (loading && entries.length === 0) {
-    return <HistoryListMessage>Loading history…</HistoryListMessage>;
+    return <HistoryListMessage>{t("git.history.list.loading")}</HistoryListMessage>;
   }
 
   if (errorMessage) {
@@ -188,17 +190,17 @@ export function HistoryList({
   if (entries.length === 0) {
     return trimmedQuery.length > 0 ? (
       <div className="p-4 text-app-ui-sm text-muted-foreground">
-        No commits match &apos;{trimmedQuery}&apos;.{" "}
+        {t("git.history.list.noCommitsMatch", { query: trimmedQuery })}{" "}
         <button
           type="button"
           className="underline underline-offset-2 hover:text-foreground"
           onClick={onClearSearch}
         >
-          Clear search
+          {t("git.history.list.clearSearch")}
         </button>
       </div>
     ) : (
-      <HistoryListMessage>No commits yet.</HistoryListMessage>
+      <HistoryListMessage>{t("git.history.list.noCommitsYet")}</HistoryListMessage>
     );
   }
 
@@ -222,7 +224,7 @@ export function HistoryList({
       ) : null}
       <div
         role="listbox"
-        aria-label="Commit history"
+        aria-label={t("git.history.list.ariaLabel")}
         tabIndex={0}
         className="relative z-10 focus:outline-none"
         onFocus={(event) => {
@@ -275,7 +277,7 @@ export function HistoryList({
             className="w-full rounded border border-border px-3 py-2 text-app-ui-sm text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
             onClick={onLoadMore}
           >
-            {loadingMore ? "Loading…" : "Load 50 more"}
+            {loadingMore ? t("git.history.list.loading2") : t("git.history.list.loadMore")}
           </button>
         </div>
       ) : null}

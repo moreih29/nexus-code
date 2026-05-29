@@ -1,5 +1,6 @@
 import { Folder, GitBranch, Server, X } from "lucide-react";
 import React, { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { LSP_FEATURE_ENABLED } from "../../../shared/lsp/feature-flag";
 import { Tooltip as RadixTooltip } from "radix-ui";
 import { cn } from "@/utils/cn";
@@ -100,6 +101,7 @@ function WorkspaceRow({
   onTogglePin,
   onRemoveWorkspace,
 }: WorkspaceRowProps) {
+  const { t } = useTranslation();
   const isSsh = ws.location.kind === "ssh";
   const Icon = isSsh ? Server : Folder;
 
@@ -366,7 +368,7 @@ function WorkspaceRow({
               e.stopPropagation();
               onRemoveWorkspace(ws.id);
             }}
-            aria-label={`Remove workspace ${ws.name}`}
+            aria-label={t("sidebar.remove_workspace", { name: ws.name })}
             className={cn(
               "absolute top-1/2 -translate-y-1/2 right-2 inline-flex items-center justify-center",
               "size-5 rounded-(--radius-control)",
@@ -383,13 +385,13 @@ function WorkspaceRow({
           items={[
             {
               kind: "item",
-              label: ws.pinned ? "Unpin" : "Pin to top",
+              label: ws.pinned ? t("sidebar.unpin") : t("sidebar.pin_to_top"),
               onSelect: () => onTogglePin(ws),
             },
             { kind: "separator" },
             {
               kind: "item",
-              label: "Dismiss notification",
+              label: t("sidebar.dismiss_notification"),
               disabled: !hasStatusToReset,
               onSelect: resetStatus,
             },
@@ -411,6 +413,7 @@ export function Sidebar({
   onAddWorkspace,
   onRemoveWorkspace,
 }: SidebarProps) {
+  const { t } = useTranslation();
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
   const connectionStatusByWorkspaceId = useWorkspacesStore((s) => s.connectionStatusByWorkspaceId);
   // Subscribe to enabled languages — re-renders chips on toggle.
@@ -524,10 +527,8 @@ export function Sidebar({
             clickable underneath the inset-0 overlay. */}
         {workspaces.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-app-ui-sm text-muted-foreground pointer-events-none">
-            <div>
-              No workspaces yet.
-              <br />
-              Add one to get started.
+            <div style={{ whiteSpace: "pre-line" }}>
+              {t("sidebar.no_workspaces")}
             </div>
           </div>
         )}
@@ -538,7 +539,7 @@ export function Sidebar({
                 [slot 0, row 0, slot 1, row 1, ..., row N-1, slot N]. */}
             {showLabels && pinnedGroup.length > 0 && (
               <div className="text-app-micro text-muted-foreground tracking-wide uppercase px-4 py-1">
-                Pinned
+                {t("sidebar.pinned")}
               </div>
             )}
             {pinnedGroup.length > 0 && renderSlot(pinnedSlots[0])}
@@ -566,7 +567,7 @@ export function Sidebar({
             {/* Gap + optional "Recent" label between groups — only when both are non-empty. */}
             {hasBothGroups && (
               <div className={cn("mt-2", showLabels && "text-app-micro text-muted-foreground tracking-wide uppercase px-4 py-1")}>
-                {showLabels ? "Recent" : null}
+                {showLabels ? t("sidebar.recent") : null}
               </div>
             )}
 
@@ -604,11 +605,11 @@ export function Sidebar({
               "text-app-body text-muted-foreground bg-transparent",
               "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
             )}
-            aria-label="Add workspace"
+            aria-label={t("sidebar.add_workspace")}
           >
             <span className="inline-flex items-center gap-2">
               <span aria-hidden="true">+</span>
-              <span>Add workspace</span>
+              <span>{t("sidebar.add_workspace")}</span>
             </span>
           </button>
         </div>
@@ -626,7 +627,8 @@ export function Sidebar({
  * Renders the compact SSH connection indicator with text for assistive tech.
  */
 function ConnectionStatusDot({ status }: { status: WorkspaceConnectionStatus }) {
-  const label = `SSH workspace, ${status}`;
+  const { t } = useTranslation();
+  const label = t("sidebar.ssh_status", { status });
   return (
     <span
       role="status"

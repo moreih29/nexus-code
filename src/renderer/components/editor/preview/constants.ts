@@ -33,4 +33,9 @@ export function capPreviewSource(source: string): {
   return { text: source.slice(0, MAX_PREVIEW_BYTES), truncated: true };
 }
 
+import i18next from "i18next";
+export function getPreviewTruncatedMessage(): string {
+  return i18next.t("preview.truncated", { kb: MAX_PREVIEW_BYTES / 1024 });
+}
+/** @deprecated Use getPreviewTruncatedMessage() for i18n-aware string */
 export const PREVIEW_TRUNCATED_MESSAGE = `Preview truncated at ${MAX_PREVIEW_BYTES / 1024} KB. Switch to Raw to see the full file.`;

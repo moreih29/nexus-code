@@ -14,6 +14,7 @@
  */
 
 import { List, ListTree } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { Button } from "../ui/button";
 
@@ -36,8 +37,9 @@ export function computeNextViewMode(current: "list" | "tree"): "list" | "tree" {
 const TOGGLE_ON_CLASS = "bg-[var(--state-active-bg)] text-foreground ring-1 ring-inset ring-ring";
 
 export function ViewModeToggle({ viewMode, onViewModeChange, disabled = false }: ViewModeToggleProps) {
+  const { t } = useTranslation("files");
   const isTree = viewMode === "tree";
-  const toggleLabel = isTree ? "View as List" : "View as Tree";
+  const toggleLabel = isTree ? t("search.viewMode.viewAsList") : t("search.viewMode.viewAsTree");
 
   return (
     <Button

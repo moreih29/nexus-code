@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useDragSource } from "@/components/ui/use-drag-source";
 import { buildFileDragPayload } from "@/components/workspace/dnd/payload";
 import { MIME_FILE } from "@/components/workspace/dnd/types";
@@ -11,7 +12,6 @@ import {
   type GitDecorationKind,
   kindToColorVar,
   kindToLetter,
-  kindToTooltip,
 } from "./git-decoration";
 import { FOLDER_ICON, FOLDER_OPEN_ICON, getFileIcon } from "./icons";
 import { indentPaddingLeft, ROW_HEIGHT_PX } from "./metrics";
@@ -315,8 +315,9 @@ function effectiveNameColor(
 }
 
 function GitDecorationChip({ kind }: { kind: GitDecorationKind }) {
+  const { t } = useTranslation("files");
   const letter = kindToLetter(kind);
-  const tooltip = kindToTooltip(kind);
+  const tooltip = t(`git.decorations.${kind}`);
   return (
     <span
       className="ml-auto pl-1 pr-2 inline-flex shrink-0 items-center justify-center font-mono text-app-ui-sm leading-none"

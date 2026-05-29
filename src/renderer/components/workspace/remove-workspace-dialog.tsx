@@ -8,6 +8,7 @@
 
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { createListenerBus } from "../../../shared/util/listener-bus";
@@ -52,6 +53,7 @@ export function showRemoveWorkspaceConfirm(name: string): Promise<boolean> {
  * queue and shows the confirmation dialog.
  */
 export function RemoveWorkspaceDialogRoot(): React.JSX.Element {
+  const { t } = useTranslation();
   const [active, setActive] = useState<PendingPrompt | null>(getActive());
 
   useEffect(() => {
@@ -70,17 +72,17 @@ export function RemoveWorkspaceDialogRoot(): React.JSX.Element {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange} size="sm" aria-describedby={undefined}>
       <RadixDialog.Title className="text-app-body-emphasis text-foreground">
-        Remove <span className="font-medium">&ldquo;{active?.name}&rdquo;</span> from Nexus?
+        {t("workspace.remove_title", { name: active?.name ?? "" })}
       </RadixDialog.Title>
       <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-        The folder on disk is not touched. Only the workspace registration is removed.
+        {t("workspace.remove_description")}
       </RadixDialog.Description>
       <div className="mt-5 flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={() => resolveActive(false)}>
-          Cancel
+          {t("action.cancel")}
         </Button>
         <Button variant="default" size="sm" onClick={() => resolveActive(true)} autoFocus>
-          Remove
+          {t("action.remove")}
         </Button>
       </div>
     </Dialog>

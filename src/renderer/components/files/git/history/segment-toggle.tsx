@@ -1,6 +1,7 @@
 /**
  * Segment toggle for the Source Control panel's Changes and History siblings.
  */
+import { useTranslation } from "react-i18next";
 import type { GitPanelSegment } from "../../../../../shared/git/types";
 
 interface HistorySegmentToggleProps {
@@ -15,21 +16,22 @@ export function HistorySegmentToggle({
   disabled = false,
   onChange,
 }: HistorySegmentToggleProps) {
+  const { t } = useTranslation("files");
   return (
     <div className="flex shrink-0 border-b border-border px-2 py-1">
       <div
         role="tablist"
-        aria-label="Source Control section"
+        aria-label={t("git.panel.segments.ariaLabel")}
         className="inline-flex rounded border border-border bg-muted p-0.5"
       >
         <SegmentButton
-          label="Changes"
+          label={t("git.panel.segments.changes")}
           selected={segment === "changes"}
           disabled={disabled}
           onClick={() => onChange("changes")}
         />
         <SegmentButton
-          label="History"
+          label={t("git.panel.segments.history")}
           selected={segment === "history"}
           disabled={disabled}
           onClick={() => onChange("history")}

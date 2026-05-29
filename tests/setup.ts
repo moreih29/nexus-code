@@ -3,6 +3,23 @@
 // Purpose:
 // 1. Enable React's act() environment so RTL render calls do not flood stdout
 //    with "current testing environment is not configured to support act(...)".
+
+// ---------------------------------------------------------------------------
+// i18next — initialise the singleton with English translations so any module
+// that calls i18next.t() or useTranslation() at invocation time receives real
+// strings instead of the key itself (or undefined on an uninitialised instance).
+// The files.json namespace is loaded here as it is used by the files components
+// under test. init() resolves instantly because all resources are bundled.
+// ---------------------------------------------------------------------------
+import i18next from "i18next";
+import { initReactI18next } from "react-i18next";
+import { createI18n } from "../src/shared/i18n/index";
+{
+  const { options } = createI18n({ lng: "en" });
+  if (!i18next.isInitialized) {
+    await i18next.use(initReactI18next).init(options);
+  }
+}
 // 2. Filter out the React useSyncExternalStore "result of getSnapshot should be
 //    cached" warning. Our slot-registry returns reference-stable values (HTMLElement
 //    or null) per (workspaceId, leafId) key, so the warning is a false positive

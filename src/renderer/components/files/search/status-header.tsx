@@ -4,6 +4,7 @@
  */
 
 import { Loader2, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { SearchSession } from "../../../state/stores/search";
 import { Button } from "../../ui/button";
@@ -17,6 +18,7 @@ interface SearchStatusHeaderProps {
 }
 
 export function SearchStatusHeader({ session, showLoader, onCancel }: SearchStatusHeaderProps) {
+  const { t } = useTranslation("files");
   const { status, matchesFound, results, limitHit } = session;
 
   const fileCount = results.length;
@@ -26,7 +28,7 @@ export function SearchStatusHeader({ session, showLoader, onCancel }: SearchStat
       <div className="flex items-center justify-between gap-1 min-h-[22px]">
         <span className="text-app-ui-sm text-muted-foreground truncate">
           {status === "done" || status === "running"
-            ? `${matchesFound} result${matchesFound === 1 ? "" : "s"} in ${fileCount} file${fileCount === 1 ? "" : "s"}`
+            ? t("search.status.results", { count: matchesFound, fileCount })
             : null}
         </span>
         {status === "running" && showLoader && (
@@ -36,7 +38,7 @@ export function SearchStatusHeader({ session, showLoader, onCancel }: SearchStat
               type="button"
               variant="ghost"
               size="icon-sm"
-              aria-label="Cancel search"
+              aria-label={t("search.status.cancel")}
               className="size-5"
               onClick={onCancel}
             >
@@ -52,7 +54,7 @@ export function SearchStatusHeader({ session, showLoader, onCancel }: SearchStat
           )}
           role="status"
         >
-          Showing first {matchesFound} matches — refine your query.
+          {t("search.status.limitHit", { count: matchesFound })}
         </div>
       )}
     </div>

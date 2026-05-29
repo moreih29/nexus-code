@@ -14,6 +14,7 @@
  * Owns no state — all values and callbacks come from props.
  */
 
+import { useTranslation } from "react-i18next";
 import type {
   GitCommitOptions,
   GitExpandedGroupKey,
@@ -145,6 +146,7 @@ export function GitPanelBody({
   onAddPathsToGitignore,
   onStashGroup,
 }: GitPanelBodyProps) {
+  const { t } = useTranslation("files");
   return (
     <>
       <HistorySegmentToggle segment={panelSegment} disabled={isBusy} onChange={onSegmentChange} />
@@ -191,8 +193,8 @@ export function GitPanelBody({
           <div className="min-h-0 flex-1 overflow-auto app-scrollbar py-1">
             {groups.length === 0 ? (
               <EmptyState
-                title="No Changes"
-                description="Your working tree has no pending source control changes."
+                title={t("git.panel.noChanges.title")}
+                description={t("git.panel.noChanges.description")}
               />
             ) : (
               groups.map((group) => (

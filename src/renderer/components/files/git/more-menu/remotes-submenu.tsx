@@ -7,6 +7,7 @@
 import { ChevronRight } from "lucide-react";
 import { useRef } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { useSubmenuPlacement } from "../../../ui/use-submenu-placement";
 import { buildGitRemotesMenuModel } from "../utils/more-menu-model";
 import { MenuButton, MenuSeparator, PORTAL_MARKER } from "./menu-primitives";
@@ -30,6 +31,7 @@ export function RemotesSubmenu({
   onAddRemote: () => void;
   onRemoveRemote: (remote: string) => void;
 }) {
+  const { t } = useTranslation("files");
   const model = buildGitRemotesMenuModel(remotes);
   const currentRemotes = model.filter((item) => item.kind === "remote" || item.kind === "empty");
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -47,7 +49,7 @@ export function RemotesSubmenu({
         className="flex w-full items-center justify-between gap-3 rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
         onClick={() => onOpenChange(!open)}
       >
-        <span>Remote</span>
+        <span>{t("git.moreMenu.remote.label")}</span>
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
       {open
@@ -69,7 +71,7 @@ export function RemotesSubmenu({
                 )}
               </div>
               <MenuSeparator />
-              <MenuButton label="Add remote…" onClick={onAddRemote} disabled={disabled} />
+              <MenuButton label={t("git.moreMenu.remote.addRemote")} onClick={onAddRemote} disabled={disabled} />
               <RemoveRemoteSubmenu
                 open={removeOpen}
                 remotes={remotes}
@@ -119,6 +121,7 @@ function RemoveRemoteSubmenu({
   onOpenChange: (open: boolean) => void;
   onRemoveRemote: (remote: string) => void;
 }) {
+  const { t } = useTranslation("files");
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const { panelRef, style } = useSubmenuPlacement(open, triggerRef);
 
@@ -131,11 +134,11 @@ function RemoveRemoteSubmenu({
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={disabled}
-        title={remotes.length === 0 ? "No remotes configured." : undefined}
+        title={remotes.length === 0 ? t("git.moreMenu.remote.noRemotesTitle") : undefined}
         className="flex w-full items-center justify-between gap-3 rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
         onClick={() => onOpenChange(!open)}
       >
-        <span>Remove remote…</span>
+        <span>{t("git.moreMenu.remote.removeRemote")}</span>
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
       {open

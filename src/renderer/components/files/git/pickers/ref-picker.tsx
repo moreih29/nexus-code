@@ -2,6 +2,7 @@
  * RefPicker — command-palette shell for git.ref-picker.
  */
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useGitStore } from "../../../../state/stores/git";
 import { CommandPalette } from "../../../ui/palette/command-palette";
 import { createRefPickerSource, type RefPickItem } from "./ref-picker-source";
@@ -14,6 +15,7 @@ interface RefPickerProps {
 }
 
 export function RefPicker({ workspaceId, open, onClose, onSelectRef }: RefPickerProps) {
+  const { t } = useTranslation("files");
   const listBranches = useGitStore((state) => state.listBranches);
   const listTags = useGitStore((state) => state.listTags);
   const listRecentCommits = useGitStore((state) => state.listRecentCommits);
@@ -35,7 +37,7 @@ export function RefPicker({ workspaceId, open, onClose, onSelectRef }: RefPicker
       open={open}
       source={source}
       onClose={onClose}
-      footer="Enter select ref · Branches, tags, and recent commits"
+      footer={t("git.branch.picker.footerSelectRef")}
     />
   );
 }

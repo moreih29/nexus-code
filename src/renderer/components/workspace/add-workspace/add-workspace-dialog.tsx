@@ -1,6 +1,7 @@
 import { ArrowLeft, FolderOpen, LoaderCircle, Server } from "lucide-react";
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { ConnectionProfile } from "../../../../shared/types/entry-points";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { fetchConnectionProfiles, listSshConfigHosts } from "../../../services/workspace";
@@ -31,6 +32,7 @@ export function AddWorkspaceDialog({
   onClose,
   onWorkspaceCreated,
 }: AddWorkspaceDialogProps): React.JSX.Element {
+  const { t } = useTranslation();
   // 4-view state machine
   const [view, setView] = useState<ModalView>("main-list");
 
@@ -165,7 +167,7 @@ export function AddWorkspaceDialog({
         ) : (
           <Server className="size-4" aria-hidden="true" />
         )}
-        {isConnecting ? "Connecting…" : isError ? "Retry" : "Connect →"}
+        {isConnecting ? t("ssh.connecting") : isError ? t("action.retry") : t("action.connect")}
       </Button>
     );
   } else if (view === "ssh-directory-picker") {
@@ -184,7 +186,7 @@ export function AddWorkspaceDialog({
         ) : (
           <FolderOpen className="size-4" aria-hidden="true" />
         )}
-        {addPhase === "creating" ? "Adding…" : "Add Workspace"}
+        {addPhase === "creating" ? t("sshPicker.adding") : t("sshPicker.add_workspace")}
       </Button>
     );
   }
@@ -203,9 +205,9 @@ export function AddWorkspaceDialog({
       // internally. A fixed height also removes the resize jump between views.
       contentStyle={{ height: "min(640px, 90vh)" }}
     >
-      <RadixDialog.Title className="sr-only">Add Workspace</RadixDialog.Title>
+      <RadixDialog.Title className="sr-only">{t("workspace.add_title")}</RadixDialog.Title>
       <RadixDialog.Description className="sr-only">
-        Add a local or SSH workspace.
+        {t("workspace.add_subtitle_local")}
       </RadixDialog.Description>
 
       <div className="flex min-h-0 flex-1 flex-col">
@@ -257,6 +259,7 @@ interface DialogHeaderProps {
 }
 
 function DialogHeader({ view, showBack, onBack }: DialogHeaderProps): React.JSX.Element {
+  const { t } = useTranslation();
   return (
     <div className="shrink-0 px-4 pb-3 pt-4">
       {/* Title row — ← Back on the left (intra-dialog navigation between the
@@ -268,7 +271,7 @@ function DialogHeader({ view, showBack, onBack }: DialogHeaderProps): React.JSX.
           <button
             type="button"
             onClick={onBack}
-            aria-label="Back"
+            aria-label={t("action.back")}
             className="inline-flex size-8 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50"
           >
             <ArrowLeft className="size-4" aria-hidden="true" />
@@ -278,8 +281,8 @@ function DialogHeader({ view, showBack, onBack }: DialogHeaderProps): React.JSX.
         )}
 
         <div className="min-w-0 flex-1">
-          <div className="text-app-body-emphasis text-foreground">Add Workspace</div>
-          <div className="text-app-ui-sm text-muted-foreground">{viewSubtitle(view)}</div>
+          <div className="text-app-body-emphasis text-foreground">{t("workspace.add_title")}</div>
+          <div className="text-app-ui-sm text-muted-foreground">{viewSubtitle(view, t)}</div>
         </div>
       </div>
     </div>
@@ -470,9 +473,9 @@ function DialogFooter({ primarySlot }: DialogFooterProps): React.JSX.Element {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function viewSubtitle(view: ModalView): string {
-  if (view === "main-list") return "Create a workspace from a local folder.";
-  if (view === "ssh-server-list") return "Choose a saved connection or add a new one.";
-  if (view === "ssh-new-connection") return "Enter SSH connection details.";
-  return "Select a remote directory.";
+function viewSubtitle(view: ModalView, t: (key: string) => string): string {
+  if (view === "main-list") return t("workspace.add_subtitle_local");
+  if (view === "ssh-server-list") return t("workspace.add_subtitle_ssh_list");
+  if (view === "ssh-new-connection") return t("workspace.add_subtitle_ssh_new");
+  return t("workspace.add_subtitle_ssh_picker");
 }

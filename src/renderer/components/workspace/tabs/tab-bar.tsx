@@ -1,6 +1,7 @@
 import { FilePlus, Globe, Plus, SquareTerminal } from "lucide-react";
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenuContent,
@@ -42,6 +43,7 @@ export function TabBar({
   onNewBrowserTab,
   onTabContextMenu,
 }: TabBarProps) {
+  const { t } = useTranslation();
   const { barRef, tabsListRef, insertion } = useTabBarDropTarget({ workspaceId, leafId });
 
   // Stable sort: pinned group first, then unpinned — original order preserved within each group.
@@ -118,7 +120,7 @@ export function TabBar({
           <RadixTabs.List
             ref={tabsListRef}
             className="relative flex items-center h-full"
-            aria-label="Open tabs"
+            aria-label={t("tabBar.open_tabs")}
           >
             {sortedTabs.map((tab) => (
               // Wrapper makes the close button a sibling of the trigger so
@@ -155,7 +157,7 @@ export function TabBar({
                 variant="ghost"
                 size="icon"
                 className="size-8 shrink-0 text-muted-foreground hover:text-foreground ml-0"
-                aria-label="New tab"
+                aria-label={t("tabBar.new_tab")}
               >
                 <Plus aria-hidden width={16} height={16} strokeWidth={1.5} />
               </Button>
@@ -163,17 +165,17 @@ export function TabBar({
             <DropdownMenuContent align="start" side="bottom" sideOffset={4}>
               <DropdownMenuItem onSelect={() => onNewUntitledTab()}>
                 <FilePlus aria-hidden className="size-3.5 mr-1.5 shrink-0" />
-                <span className="flex-1">New File</span>
+                <span className="flex-1">{t("tabBar.new_file")}</span>
                 <DropdownMenuShortcut>⌘N</DropdownMenuShortcut>
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onNewTerminalTab()}>
                 <SquareTerminal aria-hidden className="size-3.5 mr-1.5 shrink-0" />
-                <span className="flex-1">New Terminal</span>
+                <span className="flex-1">{t("tabBar.new_terminal")}</span>
                 <DropdownMenuShortcut>⌘T</DropdownMenuShortcut>
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onNewBrowserTab()}>
                 <Globe aria-hidden className="size-3.5 mr-1.5 shrink-0" />
-                <span className="flex-1">New Browser</span>
+                <span className="flex-1">{t("tabBar.new_browser")}</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenuRoot>

@@ -7,6 +7,7 @@
 import { ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { useSubmenuPlacement } from "../../../ui/use-submenu-placement";
 import {
   buildGitTagMenuModel,
@@ -36,6 +37,7 @@ export function TagSubmenu({
   onOpenTags: (mode: GitTagPickerMenuMode, remote?: string) => void;
   onPushTags: (remote: string) => void;
 }) {
+  const { t } = useTranslation("files");
   const model = buildGitTagMenuModel({ disabled, hasHead, remotes });
   const deleteRemoteTagAction = resolveGitDeleteRemoteTagAction({ disabled, hasHead, remotes });
   const pushTagsAction = resolveGitPushTagsAction({ disabled, hasHead, remotes });
@@ -79,7 +81,7 @@ export function TagSubmenu({
         className="flex w-full items-center justify-between gap-3 rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
         onClick={() => onOpenChange(!open)}
       >
-        <span>Tag</span>
+        <span>{t("git.moreMenu.tag.label")}</span>
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
       {open
@@ -143,6 +145,7 @@ function DeleteRemoteTagRemoteSubmenu({
   onOpenChange: (open: boolean) => void;
   onOpenTags: (mode: GitTagPickerMenuMode, remote?: string) => void;
 }) {
+  const { t } = useTranslation("files");
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const { panelRef, style } = useSubmenuPlacement(open, triggerRef);
 
@@ -157,7 +160,7 @@ function DeleteRemoteTagRemoteSubmenu({
         className="flex w-full items-center justify-between gap-3 rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
         onClick={() => onOpenChange(!open)}
       >
-        <span>Delete Remote Tag…</span>
+        <span>{t("git.moreMenu.tag.deleteRemote")}</span>
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
       {open
@@ -198,6 +201,7 @@ function PushTagsRemoteSubmenu({
   onOpenChange: (open: boolean) => void;
   onPushTags: (remote: string) => void;
 }) {
+  const { t } = useTranslation("files");
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const { panelRef, style } = useSubmenuPlacement(open, triggerRef);
 
@@ -212,7 +216,7 @@ function PushTagsRemoteSubmenu({
         className="flex w-full items-center justify-between gap-3 rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
         onClick={() => onOpenChange(!open)}
       >
-        <span>Push Tags</span>
+        <span>{t("git.moreMenu.tag.pushTags")}</span>
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
       {open

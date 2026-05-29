@@ -26,6 +26,7 @@ import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
 import { useNotificationsStore } from "./state/stores/notifications";
 import { useTabsStore } from "./state/stores/tabs";
 import { useTerminalStore } from "./state/stores/terminal";
+import { useLanguageStore } from "./state/stores/language";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
 import { useUpdatesStore } from "./state/stores/updates";
@@ -120,6 +121,20 @@ export async function bootstrapAppState(): Promise<void> {
   // Hydrate theme from appState (authoritative store).
   // This overwrites the localStorage-based initial value so the two stay in sync.
   useThemeStore.getState().hydrate(state.themePreference);
+
+  // Hydrate language from appState (authoritative store).
+  // Overwrites the navigator.language-based boot approximation so the
+  // persisted preference takes effect before the first user interaction.
+  useLanguageStore.getState().hydrate(state.language);
+
+  // Subscribe to language changes broadcast by main when another window (or
+  // the same window via appState.set) triggers a locale switch.  Main emits
+  // `appState.languageChanged` after updating its own i18n instance and
+  // rebuilding the native menu, so the renderer only needs to synchronise its
+  // own i18next instance and html[lang] attribute via `hydrate`.
+  ipcListen("appState", "languageChanged", ({ language }) => {
+    useLanguageStore.getState().hydrate(language);
+  });
 
   // Hydrate editor font settings from appState (authoritative store).
   useEditorFontStore.getState().hydrate({

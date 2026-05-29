@@ -4,6 +4,7 @@
  */
 import { GitBranch, RefreshCw } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "../../../ui/button";
 import { BranchPicker } from "../branch/picker";
 
@@ -25,6 +26,7 @@ export function HistoryRefSwitcher({
   onRefChange,
   onRefresh,
 }: HistoryRefSwitcherProps) {
+  const { t } = useTranslation("files");
   const [open, setOpen] = useState(false);
   const trimmedQuery = searchQuery.trim();
 
@@ -45,8 +47,8 @@ export function HistoryRefSwitcher({
           aria-live="polite"
           aria-atomic="true"
         >
-          Viewing history of {refName}
-          {trimmedQuery.length > 0 ? <> · filtered by '{trimmedQuery}'</> : null}
+          {t("git.history.refSwitcher.viewingHistory", { ref: refName })}
+          {trimmedQuery.length > 0 ? <>{t("git.history.refSwitcher.filteredBy", { query: trimmedQuery })}</> : null}
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-1">
@@ -56,8 +58,8 @@ export function HistoryRefSwitcher({
           size="icon-sm"
           className="size-7"
           disabled={disabled}
-          aria-label="Refresh history"
-          title="Refresh history"
+          aria-label={t("git.history.refSwitcher.refresh")}
+          title={t("git.history.refSwitcher.refresh")}
           onClick={onRefresh}
         >
           <RefreshCw className="size-3.5" aria-hidden="true" />
@@ -67,9 +69,9 @@ export function HistoryRefSwitcher({
         workspaceId={workspaceId}
         open={open}
         mode="select-ref"
-        title="View history of"
-        placeholder="Select a branch to view history…"
-        footer="Enter view history · does not checkout"
+        title={t("git.history.refSwitcher.pickerTitle")}
+        placeholder={t("git.history.refSwitcher.pickerPlaceholder")}
+        footer={t("git.history.refSwitcher.pickerFooter")}
         onClose={() => setOpen(false)}
         onSelectRef={(nextRef) => {
           setOpen(false);

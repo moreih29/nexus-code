@@ -55,7 +55,8 @@
 import { useEffect, useRef } from "react";
 import { isWithinWorkspace, relPath } from "@/utils/path";
 import { buildWorkspaceDirUrl } from "../../../services/editor/preview/workspace-url";
-import { capPreviewSource, PREVIEW_TRUNCATED_MESSAGE } from "./constants";
+import { useTranslation } from "react-i18next";
+import { capPreviewSource, getPreviewTruncatedMessage } from "./constants";
 
 interface HtmlPreviewProps {
   source: string;
@@ -179,6 +180,7 @@ export function HtmlPreview({
   currentFileAbsPath,
   workspaceRootAbsPath,
 }: HtmlPreviewProps) {
+  const { t } = useTranslation();
   const { text, truncated } = capPreviewSource(source);
   const baseTag = buildBaseTag(workspaceId, currentFileAbsPath, workspaceRootAbsPath);
   const doc = injectPreamble(text, baseTag);
@@ -205,7 +207,7 @@ export function HtmlPreview({
         sandbox="allow-scripts allow-popups"
         allow=""
         referrerPolicy="no-referrer"
-        title="HTML preview"
+        title={t("preview.html_title")}
         className="w-full flex-1 border-0 bg-[var(--surface-island-bg)]"
       />
     </div>
@@ -218,7 +220,7 @@ function PreviewTruncatedBanner() {
       role="status"
       className="px-3 py-1 text-app-ui-sm text-[var(--state-warning-fg)] bg-[var(--state-warning-bg)] border-b border-[var(--state-warning-border)]"
     >
-      {PREVIEW_TRUNCATED_MESSAGE}
+      {getPreviewTruncatedMessage()}
     </div>
   );
 }

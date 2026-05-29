@@ -35,14 +35,38 @@ import {
 } from "lucide-react";
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { BrowserPermissionKind } from "../../../shared/security/browser-permissions";
-import { permissionLabel } from "../../../shared/security/browser-permissions";
 import { ipcCallResult } from "../../ipc/client";
 import { useBrowserSuspendStore } from "../../state/stores/browser-suspend";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 import { Button } from "./button";
 import { Checkbox } from "./checkbox";
 import { Dialog } from "./dialog";
+
+// Map from BrowserPermissionKind → settings i18n permissionLabel key
+const PERMISSION_LABEL_I18N_KEY: Record<string, string> = {
+  "clipboard-read": "clipboardRead",
+  "clipboard-sanitized-write": "clipboardSanitizedWrite",
+  "display-capture": "displayCapture",
+  fullscreen: "fullscreen",
+  geolocation: "geolocation",
+  "idle-detection": "idleDetection",
+  media: "media",
+  mediaKeySystem: "mediaKeySystem",
+  midi: "midi",
+  midiSysex: "midiSysex",
+  notifications: "notifications",
+  pointerLock: "pointerLock",
+  keyboardLock: "keyboardLock",
+  openExternal: "openExternal",
+  "speaker-selection": "speakerSelection",
+  "storage-access": "storageAccess",
+  "top-level-storage-access": "topLevelStorageAccess",
+  "window-management": "windowManagement",
+  unknown: "unknown",
+  fileSystem: "fileSystem",
+};
 
 // ---------------------------------------------------------------------------
 // Grace-window (same rationale as ConfirmDialogRoot — see that module)
@@ -153,6 +177,7 @@ interface PermissionPromptModalProps {
 }
 
 function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): React.JSX.Element {
+  const { t } = useTranslation("settings");
   const [remember, setRemember] = useState(true);
   const mountAtRef = useRef<number>(0);
 
@@ -209,12 +234,14 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
   };
 
   const Icon = resolvePermissionIcon(prompt.permissions);
-  const labels = prompt.permissions.map((p) => permissionLabel(p));
+  const labels = prompt.permissions.map(
+    (p) => t(`browserPermissions.permissionLabel.${PERMISSION_LABEL_I18N_KEY[p] ?? "unknown"}`),
+  );
   const labelsText = labels.join(", ");
 
   return (
     <Dialog open onOpenChange={handleOpenChange} size="sm" aria-describedby={undefined}>
-      <RadixDialog.Title className="sr-only">Browser permission request</RadixDialog.Title>
+      <RadixDialog.Title className="sr-only">{t("permissionPrompt.srTitle")}</RadixDialog.Title>
 
       {/* Header: icon + origin */}
       <div className="flex items-start gap-3">
@@ -226,7 +253,7 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
             {prompt.origin}
           </p>
           <p className="mt-0.5 text-app-ui-sm text-muted-foreground">
-            is requesting access to
+            {t("permissionPrompt.requesting")}
           </p>
         </div>
       </div>
@@ -236,8 +263,8 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
         <p className="text-app-body text-foreground font-medium">{labelsText}</p>
         <p className="mt-1 text-app-ui-sm text-muted-foreground">
           {prompt.permissions.length > 1
-            ? "Allow or block access to the permissions above."
-            : "Allow or block access to this permission."}
+            ? t("permissionPrompt.allowOrBlockMany")
+            : t("permissionPrompt.allowOrBlockOne")}
         </p>
       </div>
 
@@ -252,23 +279,23 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
           htmlFor="permission-remember"
           className="text-app-ui-sm text-muted-foreground cursor-pointer select-none"
         >
-          Remember this site in this workspace
+          {t("permissionPrompt.remember")}
         </label>
       </div>
 
       {/* Action buttons */}
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={handleBlock}>
-          Block
+          {t("permissionPrompt.block")}
         </Button>
         <Button variant="default" size="sm" onClick={handleAllow} autoFocus>
-          Allow
+          {t("permissionPrompt.allow")}
         </Button>
       </div>
 
       {/* Micro hint */}
       <p className="mt-3 text-app-micro text-muted-foreground">
-        ESC or click outside → block once
+        {t("permissionPrompt.escHint")}
       </p>
     </Dialog>
   );

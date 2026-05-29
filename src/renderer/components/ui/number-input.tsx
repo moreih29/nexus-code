@@ -10,6 +10,7 @@
 
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 
 interface NumberInputProps {
@@ -39,6 +40,7 @@ export function NumberInput({
   id,
   className,
 }: NumberInputProps) {
+  const { t } = useTranslation();
   // Local text state lets the user type intermediate strings ("" while
   // clearing, "1" mid-typing of "16") without the parent receiving invalid
   // numbers. Committed on blur / Enter / stepper click.
@@ -115,7 +117,7 @@ export function NumberInput({
       <div className="flex flex-col border-l border-border">
         <button
           type="button"
-          aria-label="Increase"
+          aria-label={t("action.increase")}
           tabIndex={-1}
           onClick={() => stepBy(step)}
           disabled={value >= max}
@@ -129,7 +131,7 @@ export function NumberInput({
         </button>
         <button
           type="button"
-          aria-label="Decrease"
+          aria-label={t("action.decrease")}
           tabIndex={-1}
           onClick={() => stepBy(-step)}
           disabled={value <= min}

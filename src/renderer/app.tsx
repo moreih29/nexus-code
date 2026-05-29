@@ -1,5 +1,6 @@
 import { useMonaco } from "@monaco-editor/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import {
   bootstrapAppState,
@@ -42,6 +43,7 @@ import { useWindowOpacityStore } from "./state/stores/window-opacity";
 import { useWorkspacesStore } from "./state/stores/workspaces";
 
 export function App() {
+  const { t } = useTranslation("settings");
   const monaco = useMonaco();
   const { workspaces, setAll } = useWorkspacesStore();
   const { activeWorkspaceId, setActiveWorkspaceId } = useActiveStore();
@@ -132,45 +134,46 @@ export function App() {
     return [
       {
         id: "appearance",
-        label: "Appearance",
-        group: "Settings",
-        keywords: ["theme", "opacity"],
+        label: t("nav.appearance"),
+        group: t("nav.group.settings"),
+        keywords: ["theme", "opacity", "language", "언어"],
         dirty: appearanceDirty,
       },
       {
         id: "editor",
-        label: "Editor",
-        group: "Settings",
+        label: t("nav.editor"),
+        group: t("nav.group.settings"),
         keywords: ["font", "size", "family", "ligatures", "line height"],
         dirty: editorDirty,
       },
       {
         id: "terminal",
-        label: "Terminal",
-        group: "Settings",
+        label: t("nav.terminal"),
+        group: t("nav.group.settings"),
         keywords: ["font", "size", "cursor", "family", "ligatures"],
         dirty: terminalDirty,
       },
       {
         id: "notifications",
-        label: "Notifications",
-        group: "Settings",
+        label: t("nav.notifications"),
+        group: t("nav.group.settings"),
         keywords: ["alert", "desktop", "os", "notification", "claude"],
       },
       {
         id: "browser-permissions",
-        label: "Browser Permissions",
-        group: "Settings",
+        label: t("nav.browserPermissions"),
+        group: t("nav.group.settings"),
         keywords: ["browser", "permission", "camera", "microphone", "location", "clipboard"],
       },
       {
         id: "about",
-        label: "About",
-        group: "Settings",
+        label: t("nav.about"),
+        group: t("nav.group.settings"),
         keywords: ["version", "update", "info"],
       },
     ];
   }, [
+    t,
     settingsSnapshot,
     themePreference,
     opacity,

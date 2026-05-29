@@ -20714,6 +20714,533 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-29T15:55:15.834Z",
+      "branch": "feat/i18n-korean",
+      "plan": {
+        "id": 65,
+        "topic": "한국어 다국어(i18n) 지원 추가 — i18next 도입, 라이브 전환, 설정 UI, ~420개 문자열 한국어화",
+        "issues": [
+          {
+            "id": 1,
+            "title": "i18n 라이브러리 선택 및 shared 코어 구조",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "i18next + react-i18next 권고. 코어(i18next)와 React 바인딩 분리 구조라 main은 i18next.createInstance() 코어만, 렌더러는 react-i18next useTranslation. 두 프로세스는 별도 V8이라 인스턴스 공유 불가 — 각자 같은 shared locales 리소스로 init. lingui(바벨/빌드 파이프 침습, electron-vite 설정 추가) 기각, 자체 경량구현(복수형·보간·fallback 직접 구현 = 420개·2언어 손익분기 초과) 기각. 데스크톱앱이라 번들크기 이점 무의미.",
+                "recorded_at": "2026-05-29T12:43:07.588Z",
+                "agent_id": "afa7d984bca87f4f4"
+              }
+            ],
+            "decision": "i18next + react-i18next 채택. src/shared/i18n/에 코어 셋업 모듈을 두고, main은 i18next.createInstance()로 코어만, 렌더러는 react-i18next의 I18nextProvider + useTranslation 사용. 두 프로세스가 같은 shared locales 리소스를 각자 초기화(인스턴스 공유는 V8 분리로 불가). 키 타입 안전은 i18next.d.ts 타입 증강으로 컴파일타임 검증(팀의 zod 단일소스 성향과 부합). 기각: lingui(컴파일타임 추출 이점이 데스크톱앱 번들에선 무의미한데 바벨/electron-vite 빌드 통합 비용 발생), 자체 경량구현(fallback 체인·보간·복수형을 직접 짜다 결국 i18next 재발명, 420문자열 규모에서 유지비 초과)."
+          },
+          {
+            "id": 2,
+            "title": "AppState language 필드 + main↔renderer 동기화 + IPC",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "AppStateSchema에 language: z.enum([\"ko\",\"en\"]).optional() 추가(themePreference 선례, optional=OS추종). 기존 appState.set 채널(AppStateSchema.partial() 수신) 그대로 {language} 전송 — 신규 set 채널 불필요. 단 메뉴 재빌드 트리거용 단방향 broadcast는 신규 필요(현재 appState.listen 비어있음). main의 appState.set 핸들러가 language 변경 감지→메뉴 재빌드+멀티윈도우 broadcast. registerAppStateChannel에 onLanguageChanged 콜백 주입 필요. main은 stateService 모듈싱글턴에서 부트시 언어 읽어 메뉴 빌드.",
+                "recorded_at": "2026-05-29T12:43:22.145Z",
+                "agent_id": "afa7d984bca87f4f4"
+              }
+            ],
+            "decision": "AppStateSchema(src/shared/types/app-state.ts)에 language: z.enum([\"ko\",\"en\"]).optional() 필드 추가 — themePreference와 동일 패턴, optional이므로 부재=OS 로케일 추종. 정본은 AppState. 영속화는 기존 appState.set 채널(AppStateSchema.partial() 수신) 재사용해 {language} 전송, StateService가 그대로 검증·원자적 기록(storage 코드 변경 0). 단방향 동기화: main의 appState.set 핸들러(registerAppStateChannel)에서 language 변경을 감지하면 (a)네이티브 메뉴 재빌드, (b)멀티윈도우 대비 다른 윈도우에 broadcast. registerAppStateChannel에 onLanguageChanged 콜백 또는 메뉴 재설치 핸들 주입. appState를 단일 정본으로 두고 main i18next 인스턴스는 set 수신 시에만 changeLanguage(단방향 봉인)해 main/renderer 인스턴스 불일치 방지. 기각: 신규 전용 language IPC 채널(기존 appState 채널이 partial 수신으로 이미 충분, 채널 증식 불필요)."
+          },
+          {
+            "id": 3,
+            "title": "번역 리소스 구조(네임스페이스·포맷·위치·키 컨벤션)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "src/shared/i18n/locales/{ko,en}/*.json (JSON — 비개발자 번역기여·도구친화, 타입안전은 i18next.d.ts 증강으로 별도확보). 위치는 shared(app-state.ts 선례, 양 프로세스 import). 네임스페이스는 프로세스가 아닌 도메인축 분할: menu(main), dialog(main), errors(fs/git code→문구, surface-error 소비), settings/files/common(렌더러). 프로세스축 기각 이유: errors는 코드상 렌더러가 쓰지만 SSH/Agent 의미적 출처는 main — 프로세스로 자르면 같은 에러개념이 두 ns로 흩어지는 shotgun surgery. 키는 domain.subarea.key 점표기.",
+                "recorded_at": "2026-05-29T12:43:33.839Z",
+                "agent_id": "afa7d984bca87f4f4"
+              }
+            ],
+            "decision": "번역 리소스는 src/shared/i18n/locales/{ko,en}/<namespace>.json (JSON 포맷 — i18next 표준, 비개발자 번역 검수 친화, TS 리터럴 대비 도구 친화. 키 타입 안전은 i18next.d.ts 타입 증강으로 보강). 위치는 src/shared(app-state.ts가 shared에서 양 프로세스 공유하는 선례 따름). 네임스페이스는 프로세스 경계가 아닌 도메인축 분할: menu·dialog(main 소비), errors(fs/git/ssh code→문구, surface-error 소비), settings·files·common(렌더러 소비). 키 네이밍은 namespace 내 subarea.key 점표기(예 errors:fs.NOT_FOUND, settings:appearance.language). 기각: 프로세스축(main/renderer) 분할 — errors 네임스페이스는 surface-error(렌더러)가 쓰지만 SSH/Agent 에러의 의미적 출처는 main이라 프로세스로 자르면 동일 에러 개념이 두 ns에 분산되는 shotgun surgery 발생."
+          },
+          {
+            "id": 4,
+            "title": "OS 로케일 기본값 결정 로직",
+            "status": "decided",
+            "decision": "main 부트(app.whenReady 이후, 메뉴 빌드 직전)에서 app.getLocale()을 읽어 AppState.language 부재일 때만 기본값 결정: const lang = stored ?? (app.getLocale().startsWith(\"ko\") ? \"ko\" : \"en\"). 명시적 사용자 선택이 있으면 그것이 우선. 부재 시 storage에 즉시 기록하지 않음 — \"부재=OS 추종\"을 유지해 OS 로케일 변경을 따라가게(themePreference 부재=DEFAULT 패턴과 일관). app.getLocale()은 whenReady 이전엔 부정확하므로 반드시 whenReady 콜백 내에서 호출. 렌더러는 app.getLocale() 직접 접근 불가하므로 부트 캐시(localStorage) 부재 시 navigator.language로 근사하거나 main이 결정한 값을 hydrate로 수신. 기각: 최초 실행 시 결정값을 즉시 영속화(OS 로케일 추종성 상실)."
+          },
+          {
+            "id": 5,
+            "title": "FOUC/부트 캐시 전략",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "theme와 차이 명확화: theme는 data-theme를 첫페인트 전 박아야 해서 <head> 인라인스크립트 필수(CSS변수 즉시), 언어는 React 트리 렌더 시점 결정으로 충분 — 첫페인트 직전 인라인JS 불필요. 단 React 첫렌더가 appState.get(비동기) 기다리면 영어→한국어 깜빡임. 따라서 theme와 동형 이중기록(localStorage 부트캐시+appState 정본): i18next 렌더러 인스턴스 init 시 lng를 localStorage에서 동기 읽어 React가 처음부터 올바른 언어로 렌더, 이후 bootstrap에서 appState.get의 language로 changeLanguage 동기화. index.html lang 속성 설정은 a11y INFO 수준(필수 아님).",
+                "recorded_at": "2026-05-29T12:43:54.740Z",
+                "agent_id": "afa7d984bca87f4f4"
+              }
+            ],
+            "decision": "언어도 theme와 동형의 이중기록(localStorage 부트캐시 + appState 정본)을 적용하되, theme와 달리 index.html <head> 인라인 스크립트는 불필요. 이유: theme는 data-theme/CSS변수를 첫 페인트 전에 박아야 해 인라인 스크립트가 필수지만, 언어는 React 트리 렌더 시점에 결정되면 충분. 구현: i18next 렌더러 인스턴스를 React 마운트 전(bootstrap 동기 구간) localStorage.getItem(\"language\")로 lng 초기화 → React가 처음부터 올바른 언어로 렌더(깜빡임 없음). 이후 bootstrap에서 appState.get의 language로 i18next.changeLanguage 호출해 정본과 동기화(theme.ts hydrate와 동형). 선택 개선(INFO, 필수 아님): 부트 시 document.documentElement.lang을 캐시 언어로 설정(스크린리더 정확도). 기각: <head> 인라인 부트 스크립트로 언어까지 처리(CSS와 달리 첫 페인트 전 처리가 불필요한 과잉)."
+          },
+          {
+            "id": 6,
+            "title": "에러 메시지 i18n(surface-error 단일 지점)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "에러 i18n은 surface-error.ts 단일 지점만. main 무변경. 근거: surface-error.ts의 fsCodeToUserMessage/gitCodeToUserMessage/buildUserMessage가 이미 code→영어문구 switch이고 userMessage는 IPC 미전송(main은 category/domain/code만 전송, contract.ts:1463 주석 확인). switch를 t('errors:fs.NOT_FOUND') 식 i18next lookup으로 치환. category fallback도 t('errors:generic.failed'). main SSH/Agent 에러(pipe.ts ~40)는 internalMessage(로그전용, i18n 비대상, conventions.md:38). userMessage 승격 필요한 SSH 에러는 domain/code 추가해 렌더러 매핑에 합류(main 번역 안함). 기각: main에서 번역 후 userMessage를 IPC 전송 — 정보분리 규약 위반 + main i18next 언어동기화 부담 에러경로마다 발생.",
+                "recorded_at": "2026-05-29T12:44:06.593Z",
+                "agent_id": "afa7d984bca87f4f4"
+              }
+            ],
+            "decision": "에러 메시지 i18n은 렌더러 surface-error.ts 단일 지점에서만 수행, main은 무변경. 근거: 현재 fsCodeToUserMessage/gitCodeToUserMessage/buildUserMessage가 이미 code→영어문구 switch이며 userMessage는 IPC를 건너오지 않음(main은 {category,domain,code}만 전송, 렌더러가 code→문구 매핑 — contract.ts 주석 확인). 작업: 이 switch들을 t('errors:fs.<CODE>') / t('errors:git.<CODE>') i18next lookup으로 치환, category fallback(\"The operation failed.\" 등)도 t('errors:generic.<category>')로. main의 SSH/Agent 에러(pipe.ts)는 internalMessage(로그 전용, i18n 비대상 — conventions.md). 화면 노출이 필요한 SSH 에러는 domain/code를 추가해 렌더러 errors 매핑에 합류시킨다(main에서 번역하지 않음). 기각: main에서 번역해 userMessage를 IPC로 전송 — internal/user 분리 규약 위반이며 main i18next 언어 동기화 부담을 모든 에러 경로에 전가."
+          },
+          {
+            "id": 7,
+            "title": "언어 전환 방식(라이브) + 네이티브 메뉴 재빌드",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "라이브 전환, 재시작 불필요. React 트리는 react-i18next changeLanguage 자동 리렌더. 네이티브 메뉴는 installAppMenu 재호출 — menu/index.ts:5-12가 \"재설치 경로 의도적 차단(macOS pending accelerator 드롭 우려)\"인데, 이 코드베이스는 command 항목 전부 registerAccelerator:false(렌더러가 키 소유)라 OS 가속기 등록 안함 → 드롭될 pending accelerator 실질 없음 → 라이브 재빌드 안전. 단 그 결정주석을 명시적으로 뒤집고 근거 남기고 macOS 수동검증 필요, 실패시 재시작 폴백. template.ts buildMenuTemplate은 순수함수 유지 위해 t를 인자 주입(전역 import 금지). 이미 열린 OS 다이얼로그는 전환 불가 — 다음 호출부터 새 언어(Electron 한계, 단발성이라 수용).",
+                "recorded_at": "2026-05-29T12:44:22.571Z",
+                "agent_id": "afa7d984bca87f4f4"
+              }
+            ],
+            "decision": "라이브 전환 채택(재시작 불필요), 세 표면 각각 처리. (1)React 트리: i18next.changeLanguage→react-i18next가 useTranslation 구독 컴포넌트 자동 리렌더. (2)네이티브 메뉴: installAppMenu 재호출로 라이브 재빌드. menu/index.ts:5-12의 \"재설치 경로 의도적 차단\" 결정을 명시적으로 뒤집되, 근거(이 코드베이스는 command 전부 registerAccelerator:false라 OS 가속기 미등록 → 재설치 시 드롭될 pending accelerator 실질 부재)를 주석으로 남긴다. buildMenuTemplate은 Electron 비의존 순수함수 속성 유지를 위해 t를 인자로 주입(전역 i18next import 금지). (3)이미 열린 OS 다이얼로그: 전환 불가, 다음 호출부터 새 언어 적용(Electron 한계, 단발성이라 수용). 트리거 흐름은 themePreference setPreference 복제: 설정에서 선택→changeLanguage+localStorage 기록+appState.set→main이 메뉴 재빌드+broadcast. 조건부 리스크: macOS에서 메뉴 라이브 재빌드 시 깜빡임/가속기 드롭이 실제로 없는지 테스터 수동 검증, 실패 시 해당 표면만 app.relaunch 재시작 폴백. 기각: 언어 변경 시 전체 앱 재시작 요구(themePreference가 라이브인데 언어만 재시작은 비대칭 UX 후퇴)."
+          },
+          {
+            "id": 8,
+            "title": "설정 페이지 언어 선택 UI",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "언어 선택은 appearance-panel.tsx에 SettingsSection label=\"Language\"를 Theme 위에 추가(언어가 더 근본 선호 — 순서 위). 신규 nav 패널 불필요(단일 컨트롤에 과구조화). 컨트롤은 SegmentedControl(line-height 선례, 2언어 고정선택에 정확히 부합)+옵션>4시 token-sealed Select 폴백(font-family 선례). theme의 RadioGroup 카드 복제는 기각 — 카드는 테마 프리뷰 목적인데 언어는 프리뷰할 게 없어 빈 장식 카드(anti-pattern). 라벨은 endonym(\"English\",\"한국어\", 번역 안함 — UI언어 무관하게 자국민이 인식). 라이브 전환이므로 재시작 배너 금지(false signifier). aria: SegmentedControl label→fieldset aria-label에 현지화 \"Language\"/\"언어\" 전달, document.documentElement.lang 설정. CRITICAL: settings-dialog.tsx의 nav·section label·Reset/Close aria-label이 하드코딩 영어 — 함께 i18n 안하면 반쪽 번역.",
+                "recorded_at": "2026-05-29T12:44:37.933Z",
+                "agent_id": "aae1ee15143a6f681"
+              }
+            ],
+            "decision": "설정 언어 선택 UI: appearance-panel.tsx에 SettingsSection(label 현지화 \"Language\"/\"언어\")을 Theme 섹션 위에 추가(언어가 더 근본적 선호라 우선 배치). 신규 General/Language nav 패널은 만들지 않음(단일 컨트롤에 과구조화·발견비용 증가). 컨트롤은 SegmentedControl 사용(line-height 선례와 정확히 일치, 2언어 고정선택에 적합)하되 옵션이 4개 초과로 늘면 token-sealed Select(font-family 선례)로 자동 스왑하는 임계 처리를 첫 구현에 포함(언어 #5에서 강제 재설계 방지). 옵션 라벨은 endonym: {value:\"en\",label:\"English\"},{value:\"ko\",label:\"한국어\"} — 번역하지 않고 UI 언어와 무관하게 고정(자국어 사용자가 인식 가능). 라이브 전환이므로 재시작 배너 미도입(false signifier). 접근성: SegmentedControl label을 현지화해 fieldset aria-label로 전달, 전환 시 document.documentElement.lang 갱신, 플래그 아이콘 금지(플래그≠언어, 색 단독 의존 — endonym 텍스트 사용). 함께 처리(CRITICAL): settings-dialog.tsx DEFAULT_NAV의 nav 라벨·section 라벨·\"Reset {label}\"/\"Close settings\" aria-label이 하드코딩 영어이므로 같은 사이클에 i18n 라우팅(반쪽 번역 다이얼로그 방지). appearance nav 행 keywords에 \"language\"/\"언어\" 추가해 검색 노출. 기각: RadioGroup 카드 복제(테마 카드는 프리뷰 목적인데 언어는 프리뷰 대상이 없어 빈 장식 카드 anti-pattern), 별도 nav 패널(현 시점 과구조화)."
+          },
+          {
+            "id": 9,
+            "title": "~420개 하드코딩 문자열 추출·번역 전략",
+            "status": "decided",
+            "decision": "~420개 문자열 추출은 네임스페이스(도메인) 단위로 점진 추출하며, 인프라 구축(라이브러리·스토어·부트) 완료 후 도메인별로 병렬 진행 가능. 순서: (1)파이프 검증용으로 menu+settings(다이얼로그 chrome 포함) 먼저 — main/renderer 이중 프로세스와 라이브 전환 동작을 작은 범위에서 확인. (2)errors(fs/git code→문구) — surface-error 단일 지점. (3)files/Git UI(~150). (4)common/일반 UI(~150). (5)dialog(main 파일 다이얼로그). 각 문자열은 영어 원문을 en/<ns>.json 키로 추출하고 동일 키로 ko/<ns>.json에 한국어 번역 작성. 보간 문자열(\"About {appName}\", \"Workspace: {name}\")은 단순 결합을 i18next 보간({{appName}})으로 치환 — 어순 차이 대응. 복수형은 한국어가 복수형 없음(\"파일 N개\")이라 en만 plural 규칙, i18next 처리. 추출 시 키 네이밍 규약(subarea.key) 일관 유지, 누락 검출은 i18next.d.ts 타입 증강 + 빌드. ~420은 추정치이므로 추출 착수 시 도메인별 실측해 보고. 기각: 자동 추출 스크립트로 일괄 치환(JSX/aria-label/placeholder 컨텍스트가 제각각이고 키 의미부여가 수동 판단 필요 — 도메인별 수동 추출이 품질·키 응집성 우위), 영어 원문을 키로 직접 사용(natural-key 방식 — 원문 수정 시 키 깨짐, 점표기 구조 키 채택).",
+            "analysis": [
+              {
+                "role": "retrospective",
+                "summary": "한국어 i18n 사이클 완료(13태스크). i18next+react-i18next, main(격리 createInstance)/renderer(전역 싱글턴)가 src/shared/i18n/locales/{en,ko}/*.json 6 네임스페이스(common/menu/dialog/errors/settings/files) 공유. 라이브 전환(설정 SegmentedControl→setPreference→i18next.changeLanguage; appState.set→main onLanguageChanged→메뉴 재빌드+languageChanged broadcast→hydrate). 약 100여 컴포넌트, 134파일 변경. 3 게이트(G1 인프라/G2 라이브전환·메뉴·설정/G3 종합) 통과, architect 교차검토 승인. 누적 회귀 0(pre-existing 3개=permissionLabel 한국어 테스트, 커밋 d40bad4 영어화에서 유래, 우리 무관). 교훈: (1)Electron 이중 프로세스 i18n은 인스턴스 공유 불가—shared 리소스+프로세스별 createInstance가 정답. (2)네이티브 메뉴는 자동 리렌더 안 됨—installAppMenu 재호출 필요, registerAccelerator:false라 안전. (3)병렬 추출 시 같은 json(common) 동시편집은 직렬화 필수—T11a가 T11b 중간상태 봄. (4)grep 스윕은 1회로 불충분—G3가 5건 추가 발견(prompt/form dialog, image-preview, ssh-helpers). 미해결 후속(범위 밖): theme.ts+language.ts 공통 이중기록 부분실패 시 사용자선택 조용한 롤백(set 실패→store 롤백+surfaceError), permissionLabel 레거시 함수/테스트 정리.",
+                "recorded_at": "2026-05-29T15:54:42.274Z"
+              }
+            ]
+          },
+          {
+            "id": 10,
+            "title": "테스트 전략(큰 변경 단위 테스터 투입)",
+            "status": "decided",
+            "decision": "테스터는 매 엔지니어 작업마다 페어링하지 않고 큰 변경 단위(마일스톤)에서만 투입(사용자 지시). 검증 게이트 3곳: (G1)인프라 마일스톤 — i18next 셋업+AppState language 필드+렌더러 부트(localStorage 캐시+hydrate)+main 부트 로케일 결정이 끝난 시점. 검증: 기본 언어 결정, appState 영속화, 부트 깜빡임 없음, 기존 테스트 회귀 없음(bun test + 빌드 통과). (G2)라이브 전환+메뉴+설정 UI 마일스톤 — 언어 선택 UI에서 전환 시 React 트리·네이티브 메뉴 라이브 반영, macOS 메뉴 재빌드 깜빡임/가속기 드롭 수동 검증(이슈7 조건부 리스크 게이트), 에러 메시지 전환. (G3)문자열 추출 완료 마일스톤 — 도메인별 추출 끝난 뒤 ko/en 키 누락·미번역·하드코딩 잔존(grep), 레이아웃 깨짐(한글 길이), 보간/복수형 정확성 일괄 검증. 각 게이트는 tester 1회 투입으로 해당 마일스톤 누적분을 검사. 단위테스트는 엔지니어가 작성(conventions.md 테스트룰 — 라이브러리/타입/스키마 보장 동작 재검증 금지). 기각: 엔지니어-테스터 작업단위 1:1 페어링(사용자가 명시적으로 배제, 오버헤드 과다)."
+          }
+        ],
+        "research_summary": "Explore 조사: nexus-code는 Electron 41 + React 19 + electron-vite, i18n 인프라 전무(locales/·t() 없음), 하드코딩 영어 ~420개(네이티브 Menu 28, 다이얼로그 3, SSH/Agent 에러 40, 설정 50, 파일/Git UI 150, 일반 UI 150). 설정 저장은 AppStateSchema(zod)+StateService(원자적 rename), themePreference가 선례(localStorage 부트캐시+appState 정본 이중기록). IPC 규약: main 핸들러 throw 금지 ipcOk/ipcErr, 렌더러 ipcCallResult. 에러는 internalMessage(로그)/userMessage(렌더러 surface-error.ts에서 code→문구 생성, IPC 미전송) 분리. UI 폰트 이미 Pretendard Korean-first.\n\nArchitect 분석(agent afa7d984bca87f4f4): (1)i18next+react-i18next — 코어/React 분리로 main·renderer 각자 createInstance, 같은 shared locales 공유. lingui(빌드침습)·자체구현(420개 손익분기 초과) 기각. (2)AppState에 language 필드 추가(정본), 기존 appState.set 채널 재사용, 메뉴 재빌드 트리거용 단방향 broadcast 신규 필요. (3)src/shared/i18n/locales/{ko,en}/*.json, 네임스페이스는 프로세스 아닌 도메인축(menu/errors/settings/files/common/dialog). (4)app.getLocale()을 whenReady 후 읽어 language 부재시만 ko/en 결정, 즉시 영속화 금지. (5)언어도 localStorage 부트캐시 필요(React 첫렌더 깜빡임 방지), <head> 인라인 스크립트는 불필요(i18next 렌더러 init이 동기 읽기). (6)에러 i18n은 surface-error.ts 단일지점만, main 무변경. (7)라이브 전환 — React는 react-i18next 자동 리렌더, 네이티브 메뉴는 installAppMenu 재호출(registerAccelerator:false라 가속기 드롭 위험 실질 없음), 열린 OS 다이얼로그는 다음 호출부터. 리스크: menu/index.ts가 의도적으로 재설치 경로 닫아놓음(주석5-12) — 명시적으로 뒤집고 macOS 수동검증 필요, 실패시 재시작 폴백. template.ts 순수성 유지 위해 t 인자 주입.\n\nDesigner 분석(agent aae1ee15143a6f681): 언어 선택은 Appearance 패널 Theme 위에 SettingsSection 추가(신규 nav 패널 불필요). 컨트롤은 SegmentedControl(line-height 선례, 2언어 적합)+옵션>4시 Select 폴백. 라벨은 endonym(\"English\",\"한국어\", 번역 안함). 라이브 전환이면 재시작 배너 false signifier라 금지. aria-label 현지화, document.documentElement.lang 설정. settings-dialog.tsx의 nav·section·Reset aria-label이 하드코딩 영어라 함께 i18n 라우팅 안하면 반쪽 번역 — CRITICAL.",
+        "created_at": "2026-05-29T12:42:57.255Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "i18n 인프라 스캐폴드 (shared 코어 + locales + 타입증강)",
+          "status": "completed",
+          "context": "현재 i18n 인프라 전무(locales/·t() 없음). 스택: Electron 41 + React 19 + electron-vite + TypeScript. 3프로세스: src/main, src/renderer, src/preload, src/shared(양 프로세스 공유, app-state.ts 선례). main/renderer는 별도 V8이라 i18next 인스턴스 공유 불가 — 각자 createInstance로 같은 shared locales 리소스 초기화. 의존성: package.json은 /Users/kih/workspaces/areas/nexus-code/package.json.",
+          "acceptance": "src/shared/i18n/에 locales/{ko,en} 네임스페이스 json 스켈레톤과 createI18n 팩토리, i18next.d.ts 타입증강 존재. 타입체크(tsc)와 빌드 통과. 아직 UI 연결은 없어도 됨 — main/renderer가 import 가능한 형태. bun test 회귀 없음.",
+          "approach": "1) i18next, react-i18next 의존성 추가(패키지 매니저는 레포 lock파일 확인 후 동일 도구 사용). 2) src/shared/i18n/ 생성: locales/{ko,en}/ 아래 네임스페이스별 json 스켈레톤(menu.json, dialog.json, errors.json, settings.json, files.json, common.json) — 빈 골격 + 공통 키 일부. 3) shared/i18n/index.ts에 리소스 번들 export + createI18n 팩토리(코어 옵션: fallbackLng 'en', ns 목록, interpolation, returnNull:false). 4) i18next.d.ts 타입증강으로 ns·키 타입 안전(CustomTypeOptions resources). main/renderer 각자 init은 후속 태스크(T3/T4)에서 이 팩토리 소비. 5) electron-vite가 json import를 번들에 포함하는지 확인(resolveJsonModule/asset).",
+          "risk": "electron-vite의 main/renderer/preload 각 번들이 shared json을 포함하는 방식이 다를 수 있음(특히 main은 node, renderer는 web). json import vs 정적 객체 차이 확인 필요.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a78bf0c5507b382c4"
+          },
+          "created_at": "2026-05-29T12:46:12.656Z",
+          "result": {
+            "outcome": "success",
+            "summary": "i18next 26.x + react-i18next 17.x 설치. src/shared/i18n/에 6개 도메인 ns(common/menu/dialog/errors/settings/files) en·ko JSON, createI18n({lng}) 팩토리, i18next.d.ts 타입증강 구축. Rollup 정적 JSON import로 main/renderer 양 번들 인라인 포함. tsconfig.shared.json에 resolveJsonModule+json include 추가. tsc -b·electron-vite build·bun test(2940 pass, 3 pre-existing fail) 통과. createI18n는 main=코어 i18next.init(options), renderer=use(initReactI18next).init(options)로 소비.",
+            "artifacts": [
+              "src/shared/i18n/index.ts",
+              "src/shared/i18n/i18next.d.ts",
+              "src/shared/i18n/locales/{en,ko}/{common,menu,dialog,errors,settings,files}.json",
+              "tsconfig.shared.json",
+              "package.json"
+            ],
+            "recorded_at": "2026-05-29T12:54:49.982Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "AppState language 필드 추가",
+          "status": "completed",
+          "context": "설정 영속화는 AppStateSchema(src/shared/types/app-state.ts) zod + StateService(src/main/infra/storage/state-service.ts, 원자적 rename). themePreference 필드가 선례. IPC appState.set은 AppStateSchema.partial() 수신(contract.ts ~721). theme.ts store가 ipcCallResult(\"appState\",\"set\",{themePreference})로 기록.",
+          "acceptance": "AppStateSchema에 language 필드 존재, optional. tsc 통과, 기존 appState get/set 회귀 없음. bun test 통과.",
+          "approach": "app-state.ts의 AppStateSchema에 language: z.enum([\"ko\",\"en\"]).optional() 추가(themePreference 패턴 그대로, optional=OS추종). 관련 타입 export 갱신. contract.ts의 appState.set이 partial 수신이라 채널 변경 불필요 — 변경 시에만 확인. StateService는 AppStateSchema.parse로 자동 검증되므로 storage 코드 변경 없음. 신규 IPC 채널 만들지 말 것.",
+          "risk": "AppStateSchema를 소비하는 다른 지점(기본값 머지 등)에서 optional 필드 처리 누락 가능 — 사용처 grep 확인.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a39bdcd66ba19d076"
+          },
+          "created_at": "2026-05-29T12:46:20.328Z",
+          "result": {
+            "outcome": "success",
+            "summary": "AppStateSchema에 language: z.enum([\"ko\",\"en\"]).optional() 추가(themePreference와 동일 패턴, .default 없음=OS추종). contract.ts appState.set은 AppStateSchema.partial()(724행) 수신이라 language 자동 수용, 신규 채널 불필요. StateService 무변경(parse 자동검증). tsc -b 통과, bun test(3 pre-existing fail만). bootstrap 하이드레이션은 T3 책임으로 미연결(정상).",
+            "artifacts": [
+              "src/shared/types/app-state.ts"
+            ],
+            "recorded_at": "2026-05-29T12:54:53.668Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "렌더러 i18n 부트 + 언어 스토어 (localStorage 캐시 + hydrate)",
+          "status": "completed",
+          "context": "theme.ts store(src/renderer/state/stores/theme.ts)가 선례: localStorage 부트캐시 + appState 정본 이중기록, bootstrap.ts(src/renderer/bootstrap.ts)에서 appState.get으로 hydrate. 언어는 theme와 달리 <head> 인라인 스크립트 불필요(React 렌더 시점 결정으로 충분).",
+          "acceptance": "언어 스토어가 theme.ts와 동형으로 동작(이중기록), 렌더러 첫 렌더가 캐시 언어로 그려져 깜빡임 없음, appState.get 후 정본 동기화. useTranslation이 컴포넌트에서 사용 가능. tsc/빌드/bun test 통과.",
+          "approach": "1) src/renderer/state/stores/language.ts 신설(theme.ts 구조 복제): preference: \"en\"|\"ko\", hydrate(), setPreference() — i18next.changeLanguage + localStorage.setItem(\"language\") + ipcCallResult(\"appState\",\"set\",{language}) 삼중 기록. 2) 렌더러 i18next 인스턴스를 React 마운트 전 bootstrap 동기 구간에서 createI18n(T1 팩토리)로 init, lng는 localStorage.getItem(\"language\") ?? navigator.language 근사로 동기 결정(부트 깜빡임 방지). 3) main.tsx/앱 루트를 I18nextProvider로 감쌈. 4) bootstrap에서 appState.get의 language로 changeLanguage 호출해 정본 동기화(theme hydrate와 동형). 5) (선택) document.documentElement.lang 설정.",
+          "risk": "bootstrap 동기 구간에서 i18next init 타이밍이 React 첫 렌더보다 늦으면 깜빡임 — init이 마운트 전 완료되도록 순서 보장 필요.",
+          "plan_issue": 5,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a86c3b317d2d867d1"
+          },
+          "created_at": "2026-05-29T12:46:35.392Z",
+          "result": {
+            "outcome": "success",
+            "summary": "language.ts(zustand, theme.ts 동형 삼중기록+hydrate) + i18n.ts(부트 동기 lng 결정 localStorage→navigator.language, initReactI18next, documentElement.lang) 신설. index.tsx에서 createRoot().render() 전 initRendererI18n() await(깜빡임 방지 — 리소스 사전번들이라 init 동기 완료). bootstrap.ts에 language hydrate 추가(theme 옆). I18nextProvider 불필요(전역 i18next 싱글턴). tsc/build/test(2940 pass, pre-existing 3 fail) 통과.",
+            "artifacts": [
+              "src/renderer/state/stores/language.ts",
+              "src/renderer/i18n.ts",
+              "src/renderer/index.tsx",
+              "src/renderer/bootstrap.ts"
+            ],
+            "recorded_at": "2026-05-29T12:58:39.799Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "main 부트 로케일 결정 + main i18next 인스턴스",
+          "status": "completed",
+          "context": "main 부트는 src/main/index.ts, stateService는 모듈싱글턴(index.ts ~95)으로 메뉴 빌드(installAppMenu, ~206)보다 먼저 생성됨. app.getLocale()은 app.whenReady 이후라야 신뢰 가능.",
+          "acceptance": "main 부트 시 language 부재면 OS 로케일로 ko/en 결정, 명시 선택이 있으면 우선. main i18next 인스턴스가 올바른 언어로 init되고 t 사용 가능. tsc/빌드/bun test 통과.",
+          "approach": "1) whenReady 콜백 내(메뉴 빌드 직전) app.getLocale()로 기본값 결정: const lang = stateService.getState().language ?? (app.getLocale().startsWith(\"ko\") ? \"ko\" : \"en\"). 부재 시 storage에 즉시 기록하지 말 것(OS 추종 유지). 2) main i18next 인스턴스를 createI18n(T1 팩토리)로 lng=lang 초기화(코어만, react 바인딩 없이). 3) 이 인스턴스의 t를 메뉴/다이얼로그 빌드에 주입할 수 있도록 export 또는 핸들 제공. 단방향 봉인: main 인스턴스 언어는 appState.set 수신 시에만 changeLanguage(T5에서 연결).",
+          "risk": "app.getLocale()을 whenReady 이전 호출 시 부정확 — 호출 위치가 whenReady 콜백 내인지 확인.",
+          "plan_issue": 4,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a133ceddd7a303bab"
+          },
+          "created_at": "2026-05-29T12:46:44.546Z",
+          "result": {
+            "outcome": "success",
+            "summary": "src/main/i18n.ts 신설 — createInstance() 격리 인스턴스를 createI18n({lng})로 init. index.ts whenReady 콜백 내 installAppMenu 직전에 lang 결정(stateService.getState().language ?? app.getLocale() ko/en, 미기록). getMainI18n()/getMainT() export. T6 인계: InstallAppMenuOptions에 t? 추가, buildMenuTemplate에 optional t(순수 유지), 호출부서 getMainT() 전달, 언어변경 시 getMainI18n().changeLanguage+installAppMenu 재호출. tsc/build/test(2940 pass, pre-existing 3 fail) 통과.",
+            "artifacts": [
+              "src/main/i18n.ts",
+              "src/main/index.ts"
+            ],
+            "recorded_at": "2026-05-29T12:58:43.608Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "[G1] 인프라 마일스톤 검증",
+          "status": "completed",
+          "context": "테스터는 큰 변경 단위에서만 투입(사용자 지시). G1은 i18n 인프라(T1)+AppState 필드(T2)+렌더러 부트(T3)+main 로케일 결정(T4)이 끝난 시점의 누적 검증.",
+          "acceptance": "전체 빌드·타입체크·기존 테스트 통과(회귀 0). 기본 언어 결정·영속화·부트 무깜빡임 확인됨. 발견 결함은 결과에 구체 기록. 통과 시 G2 단계 진행 가능.",
+          "approach": "1) tsc + 빌드 + bun test 전체 회귀 확인. 2) 기본 언어 결정 로직 검증: language 부재 시 OS 로케일(ko/en) 추종, 명시값 우선. 3) appState에 language 영속화·복원 확인. 4) 렌더러 부트 깜빡임 없음(캐시 언어 첫 렌더) 동작 확인 — 앱 실제 구동. 5) useTranslation/main t가 인스턴스에서 동작하는지 스모크.",
+          "risk": "실제 앱 구동 검증은 환경 의존(electron 헤드리스). 가능 범위 내 자동+수동 병행, 불가 항목은 명시.",
+          "plan_issue": 10,
+          "deps": [
+            3,
+            4
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "bounded",
+            "agent_id": "a3fa31f922ace7e8b"
+          },
+          "created_at": "2026-05-29T12:46:58.230Z",
+          "result": {
+            "outcome": "success",
+            "summary": "G1 PASS. tsc -b 0 errors, electron-vite build 성공(main+preload+renderer, locale json 번들 포함, 한국어 문자열 번들 확인), bun test 2940 pass/3 fail(정확히 pre-existing browser-permissions 한국어라벨 3개, 신규 회귀 0). main lang 결정 whenReady 내·미기록 확인, renderer resolveBootLanguage 동기 localStorage→navigator, setPreference 삼중기록, initRendererI18n이 render 전 await(무깜빡). 12개 locale json en/ko 키 일치. INFO: 헤드리스 스모크 문권으로 코드리뀐 보강. INFO: initRendererI18n 부트마다 localStorage 무조건 기록 → 첫부팅 이후 OS로케일 추종 손실(결정#4 의도와 갑) — 수정 예정.",
+            "artifacts": [],
+            "recorded_at": "2026-05-29T13:04:50.668Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "네이티브 메뉴 i18n + 라이브 재빌드 + appState.set 트리거",
+          "status": "completed",
+          "context": "네이티브 메뉴: src/main/features/menu/template.ts(buildMenuTemplate 순수함수, 영어 라벨 ~28개), menu/index.ts(installAppMenu, 5-12행이 \"재설치 경로 의도적 차단\" 주석). command 항목 전부 registerAccelerator:false(렌더러가 키 소유). appState 채널: src/main/features/app-state/index.ts(registerAppStateChannel).",
+          "acceptance": "언어 변경 시 네이티브 메뉴가 라이브로 새 언어로 재빌드됨. template.ts는 순수함수 유지(t 주입). 메뉴/다이얼로그 문자열이 menu.json/dialog.json 키로 추출됨. tsc/빌드/bun test 통과. (macOS 재빌드 깜빡임/가속기 드롭 수동검증은 G2에서.)",
+          "approach": "1) template.ts buildMenuTemplate에 t를 인자 주입(전역 i18next import 금지, 순수성 유지), ~28개 라벨을 t('menu:...') 키로 치환하고 menu.json(en/ko) 채움. 2) menu/index.ts에 installAppMenu 재호출(재설치) 경로 개방 — 기존 \"차단\" 주석을 근거(registerAccelerator:false라 OS 가속기 미등록→pending accelerator 드롭 없음)와 함께 명시적으로 갱신. 3) registerAppStateChannel의 appState.set 핸들러에서 language 변경 감지 시 (a)main i18next.changeLanguage(T4 인스턴스) (b)메뉴 재빌드(installAppMenu 재호출) (c)멀티윈도우 broadcast. onLanguageChanged 콜백 주입 패턴. 다이얼로그(src/main/features/dialog) 문자열도 t로 치환하고 dialog.json 채움.",
+          "risk": "메뉴 재설치 결정 번복이 macOS에서 실제 부작용 유발 가능 — G2 수동검증 실패 시 해당 표면 app.relaunch 폴백 필요. broadcast 상관관계 키는 도메인 식별자 사용(conventions.md).",
+          "plan_issue": 7,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "aa575155715ff5256"
+          },
+          "created_at": "2026-05-29T12:47:11.640Z",
+          "result": {
+            "outcome": "success",
+            "summary": "메뉴 30키+다이얼로그 3키 추출(en/ko). buildMenuTemplate 순수함수 유지(t 주입, type-only TFunction import). 메뉴 재설치 경로 개방+주석 갱신(registerAccelerator:false라 pending accelerator 드롭 없음). 라이브 파이프라인: appState.set({language})→onLanguageChanged→getMainI18n().changeLanguage→installAppMenu(getMainT())→broadcast('appState','languageChanged')→렌더러 ipcListen→hydrate(). contract.ts에 languageChanged 이벤트 추가, bootstrap 구독(멀티윈도우 동기화). G2 참고: setApplicationMenu는 동기·원자, 메뉴 열린 순간 교체 시 ~1프레임 repaint 가능성만(설정 진입 필요라 실제로 드문). tsc/build/test 통과(회귀 0).",
+            "artifacts": [
+              "src/main/features/menu/template.ts",
+              "src/main/features/menu/index.ts",
+              "src/main/features/dialog/index.ts",
+              "src/main/features/app-state/index.ts",
+              "src/main/index.ts",
+              "src/shared/ipc/contract.ts",
+              "src/renderer/bootstrap.ts",
+              "src/shared/i18n/locales/{en,ko}/{menu,dialog}.json"
+            ],
+            "recorded_at": "2026-05-29T13:13:30.676Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "설정 언어 선택 UI + settings-dialog chrome i18n",
+          "status": "completed",
+          "context": "설정 패널: src/renderer/components/settings/panels/appearance-panel.tsx(테마 선택 선례), segmented-control.tsx(line-height 선례, label→fieldset aria-label), section.tsx(SettingsSection/reset 관용구), settings-dialog.tsx(DEFAULT_NAV nav 라벨·section 라벨·Reset/Close aria-label 하드코딩 영어). design.md: 토큰·appTypeScale·라디우스·lucide size-3/4 강제.",
+          "acceptance": "설정 Appearance 패널에서 언어를 선택하면 즉시(라이브) UI 언어가 바뀜. 라벨 endonym. settings-dialog nav/section/aria가 i18n 라우팅됨(반쪽 번역 없음). design.md 토큰 준수, aria-label 현지화. 재시작 배너 없음. tsc/빌드/bun test 통과.",
+          "approach": "1) appearance-panel.tsx에 SettingsSection(label t('settings:appearance.language'))을 Theme 섹션 위에 추가, SegmentedControl을 언어 스토어(T3)에 연결. 옵션 라벨은 endonym 고정: English/한국어(번역 안함). dirty=preference!==default + onReset. 옵션>4 시 token-sealed Select 자동 스왑 임계 처리 포함. 2) settings-dialog.tsx DEFAULT_NAV의 nav 라벨·section 라벨·\"Reset {label}\"/\"Close settings\" aria-label을 settings.json 키로 i18n 라우팅(반쪽 번역 방지). appearance nav 행 keywords에 language/언어 추가. 3) SegmentedControl label에 현지화된 \"Language\"/\"언어\" 전달→fieldset aria-label. document.documentElement.lang 갱신은 스토어(T3)에서. 플래그 아이콘 금지. design.md 토큰만 사용.",
+          "risk": "settings 패널의 모든 chrome 문자열을 settings.json으로 옮기는 범위가 넓을 수 있음 — 패널 본문 문자열은 T범위 확정 후 누락 없게. 라이브 전환 시 SegmentedControl 자체 라벨도 즉시 반영되는지 확인.",
+          "plan_issue": 8,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a50cdad9f6582412c"
+          },
+          "created_at": "2026-05-29T12:47:27.610Z",
+          "result": {
+            "outcome": "success",
+            "summary": "appearance-panel에 Language SettingsSection(Theme 위, SegmentedControl, endonym English/한국어, setPreference 라이브 연결, >4시 Select 스윗 임계상수). settings-dialog chrome(title/nav aria/search/empty/close)+app.tsx nav 라벨·그룹 i18n 라우팅, settings.json en/ko ~50키. Reset 의도적 생략(언어는 안정적 default 없음—false signifier 회피, 정당). 미해결: editor/terminal/notifications/about 패널 본문 문자열은 settings.json에 키 추출만 되고 TSX 미배선—T11/T12에서 마무리 필요. tsc/build/test 통과(회귀 0).",
+            "artifacts": [
+              "src/renderer/components/settings/panels/appearance-panel.tsx",
+              "src/renderer/components/settings/settings-dialog.tsx",
+              "src/renderer/app.tsx",
+              "src/shared/i18n/locales/{en,ko}/settings.json"
+            ],
+            "recorded_at": "2026-05-29T13:13:45.681Z"
+          }
+        },
+        {
+          "id": 8,
+          "title": "에러 메시지 i18n (surface-error 단일 지점)",
+          "status": "completed",
+          "context": "src/renderer/services/error-surface/surface-error.ts의 fsCodeToUserMessage/gitCodeToUserMessage/buildUserMessage가 code→영어문구 switch. userMessage는 IPC 미전송(main은 category/domain/code만 전송). main SSH/Agent 에러(pipe.ts)는 internalMessage(로그전용, i18n 비대상 — conventions.md).",
+          "acceptance": "에러 userMessage가 현재 언어로 표시되고 언어 전환 시 라이브 반영. errors.json에 fs/git/generic 키 완비, 누락 코드 없음. internal/user 분리 규약 유지(internalMessage 영어 로그 유지). tsc/빌드/bun test 통과.",
+          "approach": "surface-error.ts의 switch들을 t('errors:fs.<CODE>') / t('errors:git.<CODE>') i18next lookup으로 치환, category fallback(\"The operation failed.\" 등)도 t('errors:generic.<category>')로. errors.json(en/ko)에 fs/git/generic 키 채움. 렌더러 i18next 인스턴스(T3) 사용. main 무변경. 화면 노출 필요한 SSH 에러가 있으면 domain/code 추가해 렌더러 매핑에 합류(main 번역 안함) — 현 범위에선 기존 노출 에러만 대상.",
+          "risk": "code→문구 매핑에서 i18next 키 누락 시 fallback 깨짐 — 모든 기존 switch 케이스를 키로 빠짐없이 이전했는지 확인.",
+          "plan_issue": 6,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "ab78668ed1129db8c"
+          },
+          "created_at": "2026-05-29T12:47:36.746Z",
+          "result": {
+            "outcome": "success",
+            "summary": "surface-error.ts 20개 하드코딩 문구를 i18next.t() 호출시점 평가로 치환(fs 9 + git 4 + generic 7). errors.json en/ko 완비(fs/git/generic). 호출시점 평가라 changeLanguage 즉시 반영(라이브). internalMessage 영어 로그 유지, main 무변경. 테스트는 전역 i18next 영어 초기화 추가로 29개 통과. tsc/build/test 통과(회귀 0).",
+            "artifacts": [
+              "src/renderer/services/error-surface/surface-error.ts",
+              "src/shared/i18n/locales/{en,ko}/errors.json",
+              "tests/unit/renderer/services/surface-error.test.ts"
+            ],
+            "recorded_at": "2026-05-29T13:13:55.964Z"
+          }
+        },
+        {
+          "id": 9,
+          "title": "[G2] 라이브 전환 + 메뉴 + 설정 UI 마일스톤 검증",
+          "status": "completed",
+          "context": "G2는 메뉴 라이브 재빌드(T6)+설정 언어 UI(T7)+에러 i18n(T8)이 끝난 시점의 누적 검증. 이슈7 조건부 리스크(macOS 메뉴 재빌드 부작용) 게이트.",
+          "acceptance": "언어 전환이 React·메뉴·에러 표면에서 라이브 동작. macOS 메뉴 재빌드 부작용 유무 판정(있으면 폴백 권고 기록). 반쪽 번역 없음. 회귀 0. 통과 시 G3 진행 가능.",
+          "approach": "1) 앱 구동 후 설정에서 언어 전환 시 React 트리 라이브 반영 확인. 2) 네이티브 메뉴가 새 언어로 즉시 재빌드되는지, macOS에서 깜빡임/가속기 드롭/메뉴 동작 이상 없는지 수동 검증(실패 시 결과에 명시→app.relaunch 폴백 권고). 3) 에러 메시지가 현재 언어로 표시·전환되는지. 4) settings-dialog chrome(nav/section/aria) 반쪽 번역 없는지. 5) tsc/빌드/bun test 회귀.",
+          "risk": "메뉴 재빌드 수동검증이 환경 의존 — Playwright/실구동 가능 범위 명시, 불가 시 코드 리뷰로 보강.",
+          "plan_issue": 10,
+          "deps": [
+            6,
+            7,
+            8
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "bounded",
+            "agent_id": "a329e555d32625d1f"
+          },
+          "created_at": "2026-05-29T12:47:49.604Z",
+          "result": {
+            "outcome": "success",
+            "summary": "G2 PASS. tsc -b 0 errors, 통합 build 성공(병렬 병합 깨짐 없음), bun test 2940 pass/3 fail(pre-existing만, 회귀 0). 라이브 전환 전 경로 정적 검증 통과: 설정→setPreference→i18next.changeLanguage(react-i18next 리렌더), 메뉴 재빌드 파이프라인 끝까지, 멀티윈도우 broadcast(도메인 상관키), surface-error 호출시점 평가. 메뉴 순수성(type-only import) 확인. settings chrome i18n 완비. WARNING: onLanguageChanged void .then()에 .catch() 없음—reject 시 메뉴/broadcast 조용히 스킵(수정 예정). INFO: settings-dialog fallback nav가 app.tsx와 불일치(dead path, T11 정리). 후속(T11/T12): editor/terminal/notifications/about 패널 본문 하드코딩 영어 — 키는 settings.json에 있으나 TSX 미배선(목록 기록됨). 헤드리스 실구동 불가로 시각 동작은 코드 추적 검증.",
+            "artifacts": [],
+            "recorded_at": "2026-05-29T13:20:47.502Z"
+          }
+        },
+        {
+          "id": 10,
+          "title": "파일/Git UI 문자열 추출·번역 (~150)",
+          "status": "completed",
+          "context": "src/renderer/components/files/ 아래 파일트리·검색·Git UI(브랜치/태그/discard/충돌/Not a Git Repository 등 ~150개). 이미지/바이너리 표시 에러 등 포함.",
+          "acceptance": "files/Git UI 하드코딩 영어 문자열이 files.json 키로 추출되고 ko 번역 완비. 누락·미번역 0(grep로 잔존 확인). tsc/빌드/bun test 통과. 한글 길이로 레이아웃 깨지는 곳 없음(또는 발견 시 기록).",
+          "approach": "files 네임스페이스로 도메인 추출: JSX 텍스트·placeholder·aria-label·버튼/라벨·에러 문구를 t('files:...') 키로 치환하고 en/files.json + ko/files.json 동일 키로 작성. 보간 문자열은 i18next {{var}} 보간으로 치환(어순 대응). 복수형(N files)은 i18next plural, 한국어는 단일형(\"파일 N개\"). 키는 subarea.key 점표기. 추출 착수 시 실제 문자열 수 실측 보고. design.md 토큰/레이아웃 영향 없게(텍스트만 교체).",
+          "risk": "파일 수가 많아 누락 위험 — 디렉토리 전수 grep로 잔존 하드코딩 확인. common.json과 키 중복 시 common으로 승격 판단.",
+          "plan_issue": 9,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a55ca7ec95bd559d9"
+          },
+          "created_at": "2026-05-29T12:47:59.929Z",
+          "result": {
+            "outcome": "success",
+            "summary": "src/renderer/components/files/ 64개 파일 i18n화, files.json en/ko 503키(실측 ~220 문자열, 보간변형 포함). 보간 15+종({{name}}{{count}}{{ref}}{{sha}} 등), 복수형 4종(search results, discard, addedToGitignore, notifications). tests/setup.ts에 전역 i18next init 추가(컴포넌트 테스트 영어 반환), 2개 테스트 어설션 갱신. tsc/build/test 통과(회귀 0). 후속 플래그: (1)git-decoration.ts kindToTooltip은 dependency-free 제약(main git store 공유)으로 i18next 미주입, 영어 fallback — 소비처 번역 또는 수용 결정 필요(T12). (2)Git 그룹 헤더 등 일부 한글 폭 넘침 가능성(G3 점검).",
+            "artifacts": [
+              "src/renderer/components/files/** (64 files)",
+              "src/shared/i18n/locales/{en,ko}/files.json",
+              "tests/setup.ts"
+            ],
+            "recorded_at": "2026-05-29T14:22:01.075Z"
+          }
+        },
+        {
+          "id": 11,
+          "title": "공통/일반 UI 문자열 추출·번역 (~150)",
+          "status": "completed",
+          "context": "src/renderer/components/ 전반의 일반 UI(버튼·라벨·힌트·커맨드 팔레트 src/renderer/components/ui/palette/ 등) ~150개. common 네임스페이스 + 컴포넌트 도메인.",
+          "acceptance": "일반 UI 하드코딩 영어가 common 등 ns 키로 추출되고 ko 번역 완비. 누락·미번역 0. common.json 키 충돌 없음. tsc/빌드/bun test 통과.",
+          "approach": "common 네임스페이스로 범용 문자열(확인/취소/저장/닫기/검색 등) 추출하고, 컴포넌트 고유 문자열은 적절 ns로. JSX·placeholder·aria-label·title을 t() 치환, en/ko json 동일 키 작성. 보간/복수형 i18next 처리. T10과 common.json을 공유하므로 T10 완료 후 진행(키 충돌·중복 방지). 추출 착수 시 실측 보고.",
+          "risk": "common.json을 T10과 공유 — 직렬화로 충돌 방지(deps에 T10 포함). 범용 키 명명 일관성.",
+          "plan_issue": 9,
+          "deps": [
+            3,
+            10
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a4b5a9930ec96f2f3"
+          },
+          "created_at": "2026-05-29T12:48:20.869Z",
+          "result": {
+            "outcome": "success",
+            "summary": "T11b: 43개 일반 UI 컴포넌트(팔레트/ui/워크벤치/워크스페이스/에디터 chrome/프리뷰) ~145문자열 ~200키 common.json en/ko 추출. 복수형(terminal/diagnostic count), 보간 적용. 신규 ns 없이 common에 수용. T11a: 설정 4패널(editor/terminal/notifications/about) 본문 settings.json 키 배선(기존 27 재사용+신규 11×2), settings-dialog fallback nav를 app.tsx와 6항목 일치. 병합 트리 확인: 전 locale json 유효, tsc -b 0, bun test 2940 pass/3 fail(pre-existing). T11a가 T11b 동시편집 중간상태를 봤으나 최종 병합은 green 확인함.",
+            "artifacts": [
+              "src/renderer/components/ui/palette/**",
+              "src/renderer/components/workbench/**",
+              "src/renderer/components/workspace/**",
+              "src/renderer/components/editor/**",
+              "src/renderer/components/settings/panels/{editor,terminal,notifications,about}-panel.tsx",
+              "src/renderer/components/settings/settings-dialog.tsx",
+              "src/shared/i18n/locales/{en,ko}/{common,settings}.json"
+            ],
+            "recorded_at": "2026-05-29T14:58:03.906Z"
+          }
+        },
+        {
+          "id": 12,
+          "title": "잔존 하드코딩 종합 스윕 + i18n 정합성 정리",
+          "status": "completed",
+          "context": "모든 도메인 추출(T6 menu/dialog, T8 errors, T10 files, T11 common) 후 누락된 하드코딩 영어 문자열을 전수 점검. main의 파일 다이얼로그(~3)는 T6에서 처리됐는지 확인 포함.",
+          "acceptance": "전수 grep 기준 사용자 노출 하드코딩 영어 문자열 잔존 0(의도적 예외는 목록화). en/ko 키 1:1 대응(누락 0), 미번역 0. tsc/빌드/bun test 통과.",
+          "approach": "1) src/renderer·src/main 전수 grep로 하드코딩 영어 UI 문자열 잔존 탐지(JSX 텍스트·문자열 리터럴·aria-label·placeholder·title·다이얼로그 title). 2) 누락분을 적절 ns로 추출·치환·번역. 3) en/ko 모든 ns json의 키 정합성 점검: en에 있고 ko에 없는 키, 그 반대, 미번역(en==ko 의심) 목록화·보정. 4) i18next.d.ts 타입증강이 전체 키를 커버하는지. 5) 사용 안 하는 고아 키 정리.",
+          "risk": "\"영어 문자열\" grep이 코드 식별자·로그(internalMessage)·테스트까지 잡아 노이즈 큼 — 사용자 노출 경로만 선별. internalMessage는 의도적 영어 유지(번역 금지).",
+          "plan_issue": 9,
+          "deps": [
+            6,
+            8,
+            10,
+            11
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a8911383097cef5f2"
+          },
+          "created_at": "2026-05-29T12:48:31.816Z",
+          "result": {
+            "outcome": "success",
+            "summary": "전수 스윈: ~26개 파일의 잔존 하드코딩 처리(toast/number-input/markdown/browser-permissions 패널/permission-prompt/credential/ref-picker/symbol-palette/file-tree toast/main OS알림/diff/history/confirm·form 다이얼로그). git-decoration.ts kindToTooltip은 순수유지+소비처(row.tsx/tree-row.tsx)에서 t() 번역. main은 tryGetMainT() 안전 fallback 추가. 실버그 수정: files.json git.refPicker 중복정의 통합. en/ko 1:1 보정, 미번역 정당예외 5개, 고아키 없음. 의도적 영어 예외 8개 목록화(LSP 심볼레이블, endonym, git 기술용어 등). tsc/build/test 통과(2940 pass, pre-existing 3 fail만). 참고: browser-permissions.ts(shared)는 미변경, 소비처에서 settings ns로 번역—pre-existing permissionLabel 테스트 3개는 여전히 빨강(별도 판단 필요).",
+            "artifacts": [
+              "src/shared/i18n/locales/{en,ko}/{common,files,settings}.json",
+              "src/main/i18n.ts",
+              "src/main/features/claude/hook-handler.ts",
+              "src/main/features/pty/osc-notification.ts",
+              "src/renderer/components/ui/{toast,number-input,confirm-dialog,form-dialog,permission-prompt-dialog}.tsx",
+              "src/renderer/components/settings/panels/browser-permissions-panel.tsx",
+              "src/renderer/components/files/git/** (decoration consumers, credential, ref-picker, history)",
+              "src/renderer/components/symbol-palette/workspace-symbol-source.ts"
+            ],
+            "recorded_at": "2026-05-29T15:30:57.069Z"
+          }
+        },
+        {
+          "id": 13,
+          "title": "[G3] 문자열 추출 완료 종합 검증",
+          "status": "completed",
+          "context": "G3는 전체 문자열 추출(T10/T11)+종합 스윕(T12) 완료 후 최종 마일스톤 검증. 사용자가 자리를 비운 상태에서 \"완벽 완료\"를 보장하는 최종 게이트.",
+          "acceptance": "하드코딩 잔존 0, 키 정합성·번역 완비, 보간/복수형 정확, 레이아웃 깨짐 없음(또는 보정됨), 양 언어 스모크 통과, 회귀 0. 결함은 구체 기록하여 재작업 라우팅 가능하게.",
+          "approach": "1) 하드코딩 영어 잔존 grep 재확인(사용자 노출 경로). 2) en/ko 전 ns 키 1:1 대응·미번역 검증. 3) 보간({{var}})·복수형 정확성 샘플 검증(어순·한국어 단일형). 4) 한글 적용 시 레이아웃 깨짐(버튼/툴팁/탭 폭, 줄바꿈) 주요 화면 점검. 5) 언어 ko/en 양쪽으로 앱 전체 스모크(설정·파일·Git·에러·메뉴). 6) tsc/빌드/bun test 전체 회귀.",
+          "risk": "레이아웃·전체 스모크는 실구동 의존 — 가능 범위 명시, 불가 항목은 코드/스냅샷 기반 보강.",
+          "plan_issue": 10,
+          "deps": [
+            9,
+            12
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "bounded",
+            "agent_id": "a0295eca8a60b0d61"
+          },
+          "created_at": "2026-05-29T12:48:49.520Z",
+          "result": {
+            "outcome": "success",
+            "summary": "G3 초도 FAIL(잔존 하드코딩 5개 지점) → T12 엔지니어 재위임으로 수정 후 재검증 PASS. prompt-dialog Cancel/OK, form-dialog cancelLabel, image-preview load_failed, ssh-helpers 8개 에러 모두 t() 치환+en/ko 키 추가. 재검증: 5지점 잔존 0, common ssh.error 9+9·imagePreview.load_failed 양쪽 존재, 전 locale json 유효, tsc -b 0, bun test 2940 pass/3 fail(pre-existing만). G3 다른 항목 전부 PASS: en/ko 6ns 키 정합성(불일치 0), 보간 일치, 복수형 구조 정상, 레이아웃(한글이 영어보다 짧고 truncate 처리) 안전, git/integration 회귀 0. INFO(dead code git-decoration/GIT_GROUP_ORDER, ko plural 중복값)는 원칙상 보고만. pre-existing 3개(permissionLabel 한국어)는 별도 항목.",
+            "artifacts": [
+              "src/renderer/components/ui/{prompt-dialog,form-dialog}.tsx",
+              "src/renderer/components/editor/preview/image-preview.tsx",
+              "src/renderer/components/workspace/add-workspace/ssh-helpers.ts",
+              "src/shared/i18n/locales/{en,ko}/common.json"
+            ],
+            "recorded_at": "2026-05-29T15:50:11.145Z"
+          }
+        }
+      ]
     }
   ]
 }

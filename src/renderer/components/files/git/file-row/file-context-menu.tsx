@@ -6,6 +6,7 @@
  * data-driven item builders that tests can assert without a DOM menu library.
  */
 import { useCallback, useEffect, useRef } from "react";
+import i18next from "i18next";
 import type { GitExpandedGroupKey } from "../../../../../shared/git/types";
 import { useDismissOnOutsideClick } from "../../../ui/use-dismiss-on-outside-click";
 
@@ -102,49 +103,50 @@ export function buildGitFileContextMenuItems(
   groupKey: GitExpandedGroupKey,
   actions: GitFileContextMenuActions,
 ): GitMenuSpec[] {
+  const t = i18next.t.bind(i18next);
   if (groupKey === "merge") {
     // Conflict rows open the in-app editor with the conflict-resolution
     // CodeLens UI — there is no external-editor escape hatch for this group.
     return collapseGitMenuSeparators([
-      { kind: "item", label: "Open Diff", onSelect: actions.openChanges },
+      { kind: "item", label: t("files:git.contextMenu.openDiff"), onSelect: actions.openChanges },
       {
         kind: "item",
-        label: "Mark Resolved",
+        label: t("files:git.contextMenu.markResolved"),
         disabled: !actions.markResolved,
         onSelect: actions.markResolved ?? noop,
       },
       { kind: "separator" },
-      { kind: "item", label: "Discard", destructive: true, onSelect: actions.discard ?? noop },
+      { kind: "item", label: t("files:git.contextMenu.discard"), destructive: true, onSelect: actions.discard ?? noop },
     ]);
   }
 
-  const items: GitMenuSpec[] = [{ kind: "item", label: "Open File", onSelect: actions.openFile }];
+  const items: GitMenuSpec[] = [{ kind: "item", label: t("files:git.contextMenu.openFile"), onSelect: actions.openFile }];
 
   if (groupKey !== "untracked") {
-    items.push({ kind: "item", label: "Open Changes", onSelect: actions.openChanges });
+    items.push({ kind: "item", label: t("files:git.contextMenu.openChanges"), onSelect: actions.openChanges });
   }
 
   items.push({ kind: "separator" });
   if (groupKey === "staged") {
-    if (actions.unstage) items.push({ kind: "item", label: "Unstage", onSelect: actions.unstage });
+    if (actions.unstage) items.push({ kind: "item", label: t("files:git.contextMenu.unstage"), onSelect: actions.unstage });
   } else if (actions.stage) {
-    items.push({ kind: "item", label: "Stage", onSelect: actions.stage });
+    items.push({ kind: "item", label: t("files:git.contextMenu.stage"), onSelect: actions.stage });
   }
 
   if (groupKey !== "staged" && actions.discard) {
-    items.push({ kind: "item", label: "Discard", destructive: true, onSelect: actions.discard });
+    items.push({ kind: "item", label: t("files:git.contextMenu.discard"), destructive: true, onSelect: actions.discard });
   }
 
   items.push(
     { kind: "separator" },
     { kind: "item", label: revealInOSLabel(), onSelect: actions.revealInOS },
-    { kind: "item", label: "Copy Path", onSelect: actions.copyPath },
-    { kind: "item", label: "Copy Relative Path", onSelect: actions.copyRelativePath },
+    { kind: "item", label: t("files:git.contextMenu.copyPath"), onSelect: actions.copyPath },
+    { kind: "item", label: t("files:git.contextMenu.copyRelativePath"), onSelect: actions.copyRelativePath },
   );
 
   items.push(
     { kind: "separator" },
-    { kind: "item", label: "Add to .gitignore", onSelect: actions.addToGitignore },
+    { kind: "item", label: t("files:git.contextMenu.addToGitignore"), onSelect: actions.addToGitignore },
   );
 
   return collapseGitMenuSeparators(items);
@@ -155,18 +157,19 @@ export function buildGitGroupContextMenuItems(
   groupKey: GitExpandedGroupKey,
   actions: GitGroupContextMenuActions,
 ): GitMenuSpec[] {
+  const t = i18next.t.bind(i18next);
   if (groupKey === "merge") {
     return collapseGitMenuSeparators([
       {
         kind: "item",
-        label: "Stage All Resolved",
+        label: t("files:git.contextMenu.stageAllResolved"),
         disabled: true,
         onSelect: actions.stageAll ?? noop,
       },
       { kind: "separator" },
       {
         kind: "item",
-        label: "Stash Changes in Group",
+        label: t("files:git.contextMenu.stashChangesInGroup"),
         disabled: true,
         onSelect: actions.stashGroup ?? noop,
       },
@@ -175,15 +178,15 @@ export function buildGitGroupContextMenuItems(
 
   const items: GitMenuSpec[] = [];
   if (groupKey === "staged" && actions.unstageAll) {
-    items.push({ kind: "item", label: "Unstage All", onSelect: actions.unstageAll });
+    items.push({ kind: "item", label: t("files:git.contextMenu.unstageAll"), onSelect: actions.unstageAll });
   }
   if (groupKey !== "staged" && actions.stageAll) {
-    items.push({ kind: "item", label: "Stage All", onSelect: actions.stageAll });
+    items.push({ kind: "item", label: t("files:git.contextMenu.stageAll"), onSelect: actions.stageAll });
   }
   if (groupKey !== "staged" && actions.discardAll) {
     items.push({
       kind: "item",
-      label: "Discard All",
+      label: t("files:git.contextMenu.discardAll"),
       destructive: true,
       onSelect: actions.discardAll,
     });
@@ -193,7 +196,7 @@ export function buildGitGroupContextMenuItems(
     { kind: "separator" },
     {
       kind: "item",
-      label: "Stash Changes in Group",
+      label: t("files:git.contextMenu.stashChangesInGroup"),
       disabled: !actions.stashGroup,
       onSelect: actions.stashGroup ?? noop,
     },
@@ -202,7 +205,7 @@ export function buildGitGroupContextMenuItems(
   if (actions.addToGitignore) {
     items.push(
       { kind: "separator" },
-      { kind: "item", label: "Add to .gitignore", onSelect: actions.addToGitignore },
+      { kind: "item", label: t("files:git.contextMenu.addToGitignore"), onSelect: actions.addToGitignore },
     );
   }
 
@@ -211,9 +214,9 @@ export function buildGitGroupContextMenuItems(
 
 /** Returns the platform-native label used for reveal-in-OS actions. */
 export function revealInOSLabel(platform: string = detectPlatform()): string {
-  if (platform === "darwin") return "Reveal in Finder";
-  if (platform === "win32") return "Reveal in Explorer";
-  return "Open Containing Folder";
+  if (platform === "darwin") return i18next.t("files:git.contextMenu.revealInFinder");
+  if (platform === "win32") return i18next.t("files:git.contextMenu.revealInExplorer");
+  return i18next.t("files:git.contextMenu.openContainingFolder");
 }
 
 /** Converts a mouse event into a fixed-position context-menu anchor point. */

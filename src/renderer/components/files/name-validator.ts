@@ -17,12 +17,16 @@
 
 const FORBIDDEN_NAMES = new Set([".", ".."]);
 
-export function validateNewEntryName(name: string): string | null {
-  if (name.trim().length === 0) return "Name cannot be empty.";
+export function validateNewEntryName(
+  name: string,
+  t?: (key: string) => string,
+): string | null {
+  const msg = (key: string, fallback: string) => (t ? t(`fileTree.validation.${key}`) : fallback);
+  if (name.trim().length === 0) return msg("cannotBeEmpty", "Name cannot be empty.");
   if (name.startsWith("/") || name.startsWith("\\")) {
-    return "Name cannot start with a slash.";
+    return msg("cannotStartWithSlash", "Name cannot start with a slash.");
   }
-  if (name.includes("\0")) return "Name cannot contain NUL.";
+  if (name.includes("\0")) return msg("cannotContainNul", "Name cannot contain NUL.");
 
   // Split on both separators so a pasted Windows-style path is recognised
   // (mirrors VSCode's `name.split(/[\\/]/)`). Drop a single trailing empty
@@ -33,8 +37,8 @@ export function validateNewEntryName(name: string): string | null {
     segments.pop();
   }
   for (const seg of segments) {
-    if (seg.length === 0) return "Path segments cannot be empty.";
-    if (FORBIDDEN_NAMES.has(seg)) return "Reserved name.";
+    if (seg.length === 0) return msg("segmentsCannotBeEmpty", "Path segments cannot be empty.");
+    if (FORBIDDEN_NAMES.has(seg)) return msg("reservedName", "Reserved name.");
   }
   return null;
 }

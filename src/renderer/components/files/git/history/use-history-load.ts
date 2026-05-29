@@ -6,6 +6,7 @@
  */
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import i18next from "i18next";
 import type { CommitDetail, CommitSearchResult, LogEntry } from "../../../../../shared/git/types";
 import { ipcCallResult, ipcStream, unwrapGitResult } from "../../../../ipc/client";
 import { initialLaneState, reduceLanes } from "./graph/lane-assign";
@@ -456,7 +457,7 @@ function useDebouncedValue(value: string, delayMs: number): string {
 
 /** Extracts a user-facing message from unknown IPC failures. */
 function messageFromError(error: unknown): string {
-  return error instanceof Error ? error.message : "Git history operation failed.";
+  return error instanceof Error ? error.message : i18next.t("files:git.history.list.loadFailed");
 }
 
 /** Reads the stable git error kind rehydrated by the renderer IPC layer. */

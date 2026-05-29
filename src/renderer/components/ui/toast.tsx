@@ -24,6 +24,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/cn";
@@ -139,6 +140,7 @@ function dismiss(id: number): void {
  * auto-dismiss timer.
  */
 export function ToastRoot(): React.JSX.Element | null {
+  const { t } = useTranslation();
   const [toasts, setToasts] = useState<ActiveToast[]>(active);
 
   useEffect(() => {
@@ -167,27 +169,27 @@ export function ToastRoot(): React.JSX.Element | null {
 
   return (
     <div className="fixed bottom-4 right-4 z-[60] flex flex-col gap-2 w-[360px] max-w-[90vw]">
-      {toasts.map((t) => {
+      {toasts.map((toast) => {
         // Action toasts use role="alert" (assertive) so assistive technology
         // announces them immediately and the user knows buttons are available.
         // Plain toasts (including warning) use role="status" (polite) to avoid
         // interrupting flow — warning signals a user-decision point, not a
         // system failure requiring immediate attention (Nielsen H5 / WCAG).
-        const hasActions = t.actions.length > 0;
+        const hasActions = toast.actions.length > 0;
         const role: "alert" | "status" = hasActions ? "alert" : "status";
         // aria-live mirrors role: assertive for alert, polite for status.
         const ariaLive: "assertive" | "polite" = hasActions ? "assertive" : "polite";
 
         return (
           <div
-            key={t.id}
+            key={toast.id}
             role={role}
             aria-live={ariaLive}
             className={cn(
               "flex flex-col gap-2 rounded-(--radius-raised) border px-3 py-2 shadow-none text-app-ui-sm",
-              t.kind === "error"
+              toast.kind === "error"
                 ? "bg-destructive text-destructive-foreground border-destructive"
-                : t.kind === "warning"
+                : toast.kind === "warning"
                   ? "bg-[var(--state-warning-bg)] text-[var(--state-warning-fg)] border-[var(--state-warning-border)]"
                   : "bg-popover text-popover-foreground border-border",
             )}
@@ -196,19 +198,19 @@ export function ToastRoot(): React.JSX.Element | null {
                 The icon provides a second encoding channel for warning severity
                 (WCAG 1.4.1 — not colour alone). */}
             <div className="flex items-start gap-2">
-              {t.kind === "warning" ? (
+              {toast.kind === "warning" ? (
                 <TriangleAlert
                   className="size-4 shrink-0 mt-px"
                   aria-hidden="true"
                 />
               ) : null}
-              <span className="flex-1 break-words">{t.message}</span>
+              <span className="flex-1 break-words">{toast.message}</span>
               <Button
                 variant="ghost"
                 size="icon-sm"
                 className="size-5 shrink-0 -mr-1 -mt-0.5 hover:bg-foreground/10"
-                onClick={() => dismiss(t.id)}
-                aria-label="Dismiss"
+                onClick={() => dismiss(toast.id)}
+                aria-label={t("action.dismiss")}
               >
                 ×
               </Button>
@@ -218,7 +220,7 @@ export function ToastRoot(): React.JSX.Element | null {
                 keyboard-reachable (natural tab order, no z-index tricks). */}
             {hasActions ? (
               <div className="flex items-center gap-2 flex-wrap">
-                {t.actions.map((action) => (
+                {toast.actions.map((action) => (
                   <Button
                     key={action.label}
                     variant="ghost"
@@ -226,7 +228,7 @@ export function ToastRoot(): React.JSX.Element | null {
                     className="h-6 px-2 hover:bg-foreground/10"
                     onClick={() => {
                       action.onAction();
-                      dismiss(t.id);
+                      dismiss(toast.id);
                     }}
                   >
                     {action.label}

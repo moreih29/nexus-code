@@ -205,7 +205,7 @@ describe("createBranchPickerSource — Create new branch row", () => {
     const createRow = items.find((it) => it.id === "create:scratch");
     expect(createRow).toBeDefined();
     expect(createRow?.label).toBe("Create new branch: 'scratch'");
-    expect(createRow?.ariaLabel).toBe("Create new branch scratch");
+    expect(createRow?.ariaLabel).toBe("Create new branch: 'scratch'");
   });
 
   it("uses the rename-unborn label when the current branch is unborn", async () => {
@@ -229,7 +229,7 @@ describe("createBranchPickerSource — Create new branch row", () => {
     const createRow = items.find((it) => it.id === "create:scratch");
     expect(createRow).toBeDefined();
     expect(createRow?.label).toBe("Rename unborn 'main' → 'scratch'");
-    expect(createRow?.ariaLabel).toBe("Rename unborn main to scratch");
+    expect(createRow?.ariaLabel).toBe("Rename unborn 'main' → 'scratch'");
   });
 
   it("is suppressed when the typed name exactly matches an existing local branch", async () => {

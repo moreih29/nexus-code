@@ -1,11 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { App } from "./app";
+import { initRendererI18n } from "./i18n";
 import { installWindowErrorHandlers } from "./services/window-error-handler";
-
-const root = document.getElementById("root");
-if (root === null) {
-  throw new Error("Root element not found");
-}
 
 // Install the unified window 'error' + 'unhandledrejection' safety net before
 // mounting React. Cancellation rejections are silenced; all other errors are
@@ -17,4 +13,20 @@ if (root === null) {
 // without race conditions. StrictMode is a no-op in production builds, so
 // disabling it only affects dev-mode warnings.
 installWindowErrorHandlers();
-createRoot(root).render(<App />);
+
+const root = document.getElementById("root");
+if (root === null) {
+  throw new Error("Root element not found");
+}
+
+// Initialise i18next with the boot-cached language before the first React
+// render. Resources are pre-bundled, so this resolves synchronously in
+// practice and prevents any translation flicker on the first paint.
+initRendererI18n().then(() => {
+  createRoot(root).render(<App />);
+}).catch((err: unknown) => {
+  // i18n failure is non-recoverable at this point — surface to the global
+  // error safety net and still attempt to mount so the user sees something.
+  console.error("[i18n] initRendererI18n failed:", err);
+  createRoot(root).render(<App />);
+});

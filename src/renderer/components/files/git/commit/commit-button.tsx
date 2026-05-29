@@ -3,6 +3,7 @@
  */
 import { Check, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
+import i18next from "i18next";
 import type { GitCommitOptions } from "../../../../../shared/git/types";
 import type {
   GitActionButtonState,
@@ -56,11 +57,12 @@ export function buildGitCommitMenuModel(input: {
   readonly commitOptions: GitCommitOptions;
   readonly enablement: GitCommitMenuEnablement;
 }): GitCommitMenuSpec[] {
+  const t = i18next.t.bind(i18next);
   if (input.mode === "none") return [];
   if (input.mode === "sync") {
     return [
-      { kind: "item", id: "push-only", label: "Push only", disabled: !input.enablement.canPush },
-      { kind: "item", id: "pull-only", label: "Pull only", disabled: !input.enablement.canPull },
+      { kind: "item", id: "push-only", label: t("files:git.commit.button.menu.pushOnly"), disabled: !input.enablement.canPush },
+      { kind: "item", id: "pull-only", label: t("files:git.commit.button.menu.pullOnly"), disabled: !input.enablement.canPull },
     ];
   }
 
@@ -68,34 +70,34 @@ export function buildGitCommitMenuModel(input: {
     {
       kind: "item",
       id: "commit-staged",
-      label: "Commit Staged",
+      label: t("files:git.commit.button.menu.commitStaged"),
       disabled: !input.enablement.canCommitStaged,
     },
     {
       kind: "item",
       id: "commit-all",
-      label: "Commit All",
+      label: t("files:git.commit.button.menu.commitAll"),
       disabled: !input.enablement.canCommitAll,
     },
-    { kind: "item", id: "amend", label: "Amend Last Commit" },
+    { kind: "item", id: "amend", label: t("files:git.commit.button.menu.amendLast") },
     {
       kind: "item",
       id: "commit-and-push",
-      label: "Commit & Push",
+      label: t("files:git.commit.button.menu.commitAndPush"),
       disabled: !input.enablement.canCommitAndPush,
     },
-    { kind: "item", id: "commit-empty", label: "Commit Empty" },
+    { kind: "item", id: "commit-empty", label: t("files:git.commit.button.menu.commitEmpty") },
     { kind: "separator" },
-    { kind: "item", id: "undo-last-commit", label: "Undo Last Commit", destructive: true },
+    { kind: "item", id: "undo-last-commit", label: t("files:git.commit.button.menu.undoLastCommit"), destructive: true },
     { kind: "separator" },
     {
       kind: "submenu",
       id: "commit-options",
-      label: "Commit Options",
+      label: t("files:git.commit.button.menu.commitOptions"),
       items: [
-        { id: "sign", label: "Sign", checked: input.commitOptions.sign },
-        { id: "signoff", label: "Signoff", checked: input.commitOptions.signoff },
-        { id: "noVerify", label: "Skip hooks", checked: input.commitOptions.noVerify },
+        { id: "sign", label: t("files:git.commit.button.menu.sign"), checked: input.commitOptions.sign },
+        { id: "signoff", label: t("files:git.commit.button.menu.signoff"), checked: input.commitOptions.signoff },
+        { id: "noVerify", label: t("files:git.commit.button.menu.skipHooks"), checked: input.commitOptions.noVerify },
       ],
     },
   ];
@@ -183,7 +185,7 @@ export function GitCommitButton({
         variant="default"
         size="icon-sm"
         className="h-7 w-8 rounded-l-none border-l border-border/50"
-        aria-label="Show source control action menu"
+        aria-label={i18next.t("files:git.commit.button.ariaLabel")}
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={chevronDisabled}

@@ -23,35 +23,14 @@
 import { Search, X } from "lucide-react";
 import { Dialog as RadixDialog } from "radix-ui";
 import { useCallback, useId, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../ui/dialog";
 import type { SettingsNavItem } from "./types";
 
 // ---------------------------------------------------------------------------
-// Default nav items
+// Default nav items — derived from i18n inside the component (resolvedNav).
 // ---------------------------------------------------------------------------
-
-const DEFAULT_NAV: SettingsNavItem[] = [
-  { id: "appearance", label: "Appearance", group: "Settings", keywords: ["theme", "opacity"] },
-  {
-    id: "editor",
-    label: "Editor",
-    group: "Settings",
-    keywords: ["font", "size", "family", "ligatures", "line height"],
-  },
-  {
-    id: "terminal",
-    label: "Terminal",
-    group: "Settings",
-    keywords: ["font", "size", "cursor"],
-  },
-  {
-    id: "workspaces",
-    label: "Workspaces",
-    group: "Settings",
-    keywords: ["lsp", "language", "server", "typescript", "python"],
-  },
-];
 
 // Left-nav width — single source of truth for the Settings dialog split.
 // Lives here (not as a global token) because no other surface composes the
@@ -78,11 +57,57 @@ interface SettingsDialogProps {
 export function SettingsDialog({
   open,
   onOpenChange,
-  nav = DEFAULT_NAV,
+  nav,
   defaultActiveId,
   children,
 }: SettingsDialogProps) {
-  const firstId = nav[0]?.id ?? "appearance";
+  const { t } = useTranslation("settings");
+
+  // Build the translated default nav inside the component so that i18n is
+  // active when the labels are read. Falls back only when nav prop is not
+  // supplied (emergency backstop; caller normally passes its own fully-
+  // translated list from app.tsx). Items mirror app.tsx settingsNav exactly
+  // so the fallback never renders a panel that has no route handler.
+  const resolvedNav: SettingsNavItem[] = nav ?? [
+    {
+      id: "appearance",
+      label: t("nav.appearance"),
+      group: t("nav.group.settings"),
+      keywords: ["theme", "opacity", "language", "언어"],
+    },
+    {
+      id: "editor",
+      label: t("nav.editor"),
+      group: t("nav.group.settings"),
+      keywords: ["font", "size", "family", "ligatures", "line height"],
+    },
+    {
+      id: "terminal",
+      label: t("nav.terminal"),
+      group: t("nav.group.settings"),
+      keywords: ["font", "size", "cursor", "family", "ligatures"],
+    },
+    {
+      id: "notifications",
+      label: t("nav.notifications"),
+      group: t("nav.group.settings"),
+      keywords: ["alert", "desktop", "os", "notification", "claude"],
+    },
+    {
+      id: "browser-permissions",
+      label: t("nav.browserPermissions"),
+      group: t("nav.group.settings"),
+      keywords: ["browser", "permission", "camera", "microphone", "location", "clipboard"],
+    },
+    {
+      id: "about",
+      label: t("nav.about"),
+      group: t("nav.group.settings"),
+      keywords: ["version", "update", "info"],
+    },
+  ];
+
+  const firstId = resolvedNav[0]?.id ?? "appearance";
   const [activeId, setActiveId] = useState<string>(defaultActiveId ?? firstId);
   const [query, setQuery] = useState("");
 
@@ -97,13 +122,13 @@ export function SettingsDialog({
   // out so the right panel doesn't blank.
   const filteredNav = useMemo<SettingsNavItem[]>(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return nav;
-    return nav.filter((item) => {
+    if (!q) return resolvedNav;
+    return resolvedNav.filter((item) => {
       if (item.id === activeId) return true;
       if (item.label.toLowerCase().includes(q)) return true;
       return (item.keywords ?? []).some((k) => k.toLowerCase().includes(q));
     });
-  }, [nav, query, activeId]);
+  }, [resolvedNav, query, activeId]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -154,7 +179,7 @@ export function SettingsDialog({
               (the manual `aria-labelledby` + `id` we had before was racing
               Radix's own wiring and the runtime warning fired despite the
               Title being present). */}
-          <RadixDialog.Title className="sr-only">Settings</RadixDialog.Title>
+          <RadixDialog.Title className="sr-only">{t("title")}</RadixDialog.Title>
 
           {/* Main layout: left nav + right panel flex-1 */}
           <div className="flex flex-1 min-h-0">
@@ -162,12 +187,12 @@ export function SettingsDialog({
             <nav
               style={{ width: SETTINGS_NAV_WIDTH_PX }}
               className="shrink-0 flex flex-col border-r border-border py-3"
-              aria-label="Settings navigation"
+              aria-label={t("dialog.nav")}
             >
               {/* Search */}
               <div className="px-3 pb-2">
                 <label htmlFor={searchId} className="sr-only">
-                  Search settings
+                  {t("dialog.search.placeholder")}
                 </label>
                 <div
                   className={cn(
@@ -182,7 +207,7 @@ export function SettingsDialog({
                     type="text"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search"
+                    placeholder={t("dialog.search.placeholder")}
                     className={cn(
                       "min-w-0 flex-1 bg-transparent text-app-ui-sm text-foreground outline-none",
                       "placeholder:text-muted-foreground",
@@ -191,7 +216,7 @@ export function SettingsDialog({
                   {query !== "" && (
                     <button
                       type="button"
-                      aria-label="Clear search"
+                      aria-label={t("dialog.search.clear")}
                       onClick={() => setQuery("")}
                       className="inline-flex shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
                     >
@@ -255,8 +280,8 @@ export function SettingsDialog({
                           {item.dirty && (
                             <span
                               role="img"
-                              aria-label="modified"
-                              title="Modified in this session"
+                              aria-label={t("dialog.modifiedAria")}
+                              title={t("dialog.modifiedTitle")}
                               className="size-1.5 shrink-0 rounded-full bg-[var(--state-selected-indicator)]"
                             />
                           )}
@@ -266,7 +291,9 @@ export function SettingsDialog({
                   </div>
                 ))}
                 {filteredNav.length === 0 && (
-                  <div className="px-4 py-3 text-app-ui-sm text-muted-foreground">No matches.</div>
+                  <div className="px-4 py-3 text-app-ui-sm text-muted-foreground">
+                    {t("dialog.search.empty")}
+                  </div>
                 )}
               </div>
             </nav>
@@ -278,7 +305,7 @@ export function SettingsDialog({
                 <RadixDialog.Close asChild>
                   <button
                     type="button"
-                    aria-label="Close settings"
+                    aria-label={t("dialog.close")}
                     className={cn(
                       "inline-flex items-center justify-center",
                       "size-7 rounded-(--radius-control)",

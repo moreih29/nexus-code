@@ -7,6 +7,8 @@
  */
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
+import i18next from "i18next";
+import { useTranslation } from "react-i18next";
 import type { GitMergeMode, LogEntry } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import { Dialog } from "../../../ui/dialog";
@@ -33,27 +35,30 @@ interface MergeOptionsDialogContentProps {
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
 }
 
-const MERGE_OPTIONS: readonly {
+function getMergeOptions(): readonly {
   option: MergeOption;
   label: string;
   description: string;
-}[] = [
-  {
-    option: "merge-commit",
-    label: "Create a merge commit (default)",
-    description: "Always preserve the branch join as a merge commit.",
-  },
-  {
-    option: "fast-forward",
-    label: "Fast-forward when possible",
-    description: "Move the current branch pointer when Git can do so without a merge commit.",
-  },
-  {
-    option: "squash",
-    label: "Squash and commit manually",
-    description: "Stage the combined changes without creating MERGE_HEAD.",
-  },
-];
+}[] {
+  const t = i18next.t.bind(i18next);
+  return [
+    {
+      option: "merge-commit",
+      label: t("files:git.merge.options.mergeCommit"),
+      description: t("files:git.merge.options.mergeCommitDescription"),
+    },
+    {
+      option: "fast-forward",
+      label: t("files:git.merge.options.fastForward"),
+      description: t("files:git.merge.options.fastForwardDescription"),
+    },
+    {
+      option: "squash",
+      label: t("files:git.merge.options.squash"),
+      description: t("files:git.merge.options.squashDescription"),
+    },
+  ];
+}
 
 /** Maps renderer wording to the backend GitMergeMode enum. */
 export function mergeModeFromOption(option: MergeOption): GitMergeMode {
@@ -69,7 +74,8 @@ export function mergeModeFromOption(option: MergeOption): GitMergeMode {
 
 /** Returns the CTA label for the current merge option. */
 export function mergeOptionsSubmitLabel(option: MergeOption): string {
-  return option === "squash" ? "Squash" : "Merge";
+  const t = i18next.t.bind(i18next);
+  return option === "squash" ? t("files:git.merge.submitSquash") : t("files:git.merge.submitMerge");
 }
 
 /**
@@ -96,18 +102,19 @@ export function MergeOptionsDialogContent({
   onCancel,
   onSubmit,
 }: MergeOptionsDialogContentProps): React.JSX.Element {
+  const { t } = useTranslation("files");
+  const MERGE_OPTIONS = getMergeOptions();
   return (
     <>
       <div className="text-app-body-emphasis text-foreground" aria-hidden="true">
-        Merge {targetRef}
+        {t("git.merge.title", { ref: targetRef })}
       </div>
       <div className="mt-2 text-app-ui-sm text-muted-foreground" aria-hidden="true">
-        Choose how to merge <span className="font-mono text-foreground">{targetRef}</span> into the
-        current branch.
+        {t("git.merge.chooseMerge", { ref: targetRef })}
       </div>
       <form className="mt-4 flex flex-col gap-3" onSubmit={onSubmit}>
         <fieldset className="flex flex-col gap-2 border-0 p-0">
-          <legend className="sr-only">Merge strategy</legend>
+          <legend className="sr-only">{t("git.merge.strategyLegend")}</legend>
           {MERGE_OPTIONS.map((item) => {
             const inputId = `merge-option-${item.option}`;
             return (
@@ -136,13 +143,12 @@ export function MergeOptionsDialogContent({
         </fieldset>
         {option === "squash" ? (
           <p className="rounded-(--radius-raised) border border-border bg-muted px-3 py-2 text-app-ui-sm text-muted-foreground">
-            Squash stages the merged changes and fills a commit message draft. Review the staged
-            result, then commit manually.
+            {t("git.merge.squashNote")}
           </p>
         ) : null}
         <div className="mt-2 flex justify-end gap-2">
           <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
-            Cancel
+            {t("git.merge.cancel")}
           </Button>
           <Button type="submit" size="sm" disabled={busy}>
             {mergeOptionsSubmitLabel(option)}
@@ -181,12 +187,12 @@ export function MergeOptionsDialog({
       size="md"
     >
       <RadixDialog.Title className="sr-only">
-        {request ? `Merge ${request.targetRef}` : "Merge options"}
+        {request ? i18next.t("files:git.merge.title", { ref: request.targetRef }) : i18next.t("files:git.merge.srTitle")}
       </RadixDialog.Title>
       <RadixDialog.Description className="sr-only">
         {request
-          ? `Choose how to merge ${request.targetRef} into the current branch.`
-          : "Choose a merge strategy."}
+          ? i18next.t("files:git.merge.chooseMerge", { ref: request.targetRef })
+          : i18next.t("files:git.merge.chooseStrategy")}
       </RadixDialog.Description>
       {request ? (
         <MergeOptionsDialogContent

@@ -8,6 +8,7 @@
 
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useId, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "./button";
 
@@ -35,6 +36,7 @@ interface PromptDialogProps {
 }
 
 export function PromptDialog({ request, busy = false, onCancel, onConfirm }: PromptDialogProps) {
+  const { t } = useTranslation();
   const [value, setValue] = useState("");
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -98,11 +100,11 @@ export function PromptDialog({ request, busy = false, onCancel, onConfirm }: Pro
         <div className="mt-3 flex justify-end gap-2">
           <RadixDialog.Close asChild>
             <Button type="button" variant="ghost" size="sm" disabled={busy}>
-              Cancel
+              {t("action.cancel")}
             </Button>
           </RadixDialog.Close>
           <Button type="submit" size="sm" disabled={confirmDisabled}>
-            {request?.confirmLabel ?? "OK"}
+            {request?.confirmLabel ?? t("action.ok")}
           </Button>
         </div>
       </form>

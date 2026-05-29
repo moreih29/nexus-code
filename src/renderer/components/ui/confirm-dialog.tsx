@@ -13,6 +13,7 @@
 
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { createListenerBus } from "../../../shared/util/listener-bus";
@@ -80,6 +81,7 @@ function resolveActive(confirmed: boolean): void {
  * renders the active confirmation dialog.
  */
 export function ConfirmDialogRoot(): React.JSX.Element {
+  const { t } = useTranslation();
   const [active, setActive] = useState<PendingPrompt | null>(getActive());
   // Timestamp captured every time a new prompt becomes active — read by
   // the click handlers below to absorb residual keyboard-synthesized
@@ -97,8 +99,8 @@ export function ConfirmDialogRoot(): React.JSX.Element {
   }, [active]);
 
   const open = active !== null;
-  const cancelLabel = active?.cancelLabel ?? "Cancel";
-  const confirmLabel = active?.confirmLabel ?? "Confirm";
+  const cancelLabel = active?.cancelLabel ?? t("action.cancel");
+  const confirmLabel = active?.confirmLabel ?? t("action.confirm");
   const variant = active?.variant ?? "default";
 
   // Esc / backdrop click → cancel. RadixDialog's onOpenChange fires

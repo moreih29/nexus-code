@@ -8,6 +8,8 @@ import { AlertDialog as RadixAlertDialog } from "radix-ui";
 import type React from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import i18next from "i18next";
 import type { GitStoreError } from "../../../../state/stores/git";
 import { useGitStore } from "../../../../state/stores/git";
 import { Button } from "../../../ui/button";
@@ -43,6 +45,7 @@ export function BranchPicker({
   footer,
   onSelectRef,
 }: BranchPickerProps) {
+  const { t } = useTranslation("files");
   const listBranches = useGitStore((state) => state.listBranches);
   const checkout = useGitStore((state) => state.checkout);
   const checkoutTracking = useGitStore((state) => state.checkoutTracking);
@@ -86,11 +89,11 @@ export function BranchPicker({
             kind: "rename",
             branch: item.action.ref,
             prompt: {
-              title: "Rename branch",
-              description: `Rename '${item.action.ref}'.`,
-              label: "New name",
+              title: t("git.branch.picker.renameDialog.title"),
+              description: t("git.branch.picker.renameDialog.description", { branch: item.action.ref }),
+              label: t("git.branch.picker.renameDialog.label"),
               defaultValue: item.action.ref,
-              confirmLabel: "Rename",
+              confirmLabel: t("git.branch.picker.renameDialog.confirmLabel"),
             },
           });
         },
@@ -101,11 +104,11 @@ export function BranchPicker({
             kind: "upstream",
             branch: item.action.ref,
             prompt: {
-              title: "Set upstream",
-              description: `Set upstream for '${item.action.ref}'. Leave empty to unset.`,
-              label: "Upstream",
-              placeholder: "origin/main",
-              confirmLabel: "Set Upstream",
+              title: t("git.branch.picker.upstreamDialog.title"),
+              description: t("git.branch.picker.upstreamDialog.description", { branch: item.action.ref }),
+              label: t("git.branch.picker.upstreamDialog.label"),
+              placeholder: t("git.branch.picker.upstreamDialog.placeholder"),
+              confirmLabel: t("git.branch.picker.upstreamDialog.confirmLabel"),
               allowEmpty: true,
             },
           });
@@ -203,17 +206,18 @@ function normalizeBranchPickerMode(
  * Describes the shortcut footer for each branch picker mode.
  */
 function defaultFooterForMode(mode: Exclude<BranchPickerMode, "checkout">): string {
+  const t = i18next.t.bind(i18next);
   switch (mode) {
     case "switch":
-      return "Enter checkout/create";
+      return t("files:git.branch.picker.footerCheckout");
     case "select-ref":
-      return "Enter view history · Working tree is not changed";
+      return t("files:git.branch.picker.footerSelectRef");
     case "rename":
-      return "Enter rename selected branch";
+      return t("files:git.branch.picker.footerRename");
     case "delete-local":
-      return "Enter delete selected branch";
+      return t("files:git.branch.picker.footerDeleteLocal");
     case "delete-remote":
-      return "Enter delete selected remote branch";
+      return t("files:git.branch.picker.footerDeleteRemote");
   }
 }
 
@@ -276,6 +280,7 @@ function BranchDeleteConfirmDialog({
   onCancel: () => void;
   onConfirm: (request: BranchDeleteRequest) => void;
 }) {
+  const { t } = useTranslation("files");
   const view = buildBranchDeleteDialogView(request);
   const confirmDisabled = busy;
 
@@ -302,7 +307,7 @@ function BranchDeleteConfirmDialog({
           <div className="mt-5 flex justify-end gap-2">
             <RadixAlertDialog.Cancel asChild>
               <Button type="button" variant="ghost" size="sm" autoFocus disabled={busy}>
-                Cancel
+                {t("git.branch.picker.deleteConfirm.cancel")}
               </Button>
             </RadixAlertDialog.Cancel>
             <Button
@@ -337,31 +342,30 @@ export interface BranchDeleteDialogView {
 export function buildBranchDeleteDialogView(
   request: BranchDeleteRequest | null,
 ): BranchDeleteDialogView {
+  const t = i18next.t.bind(i18next);
   if (request?.kind === "remote") {
     return {
-      title: `Delete remote branch '${request.remote}/${request.name}'?`,
-      description: ["This affects the remote and cannot be undone locally."],
-      confirmLabel: "Delete",
+      title: t("files:git.branch.picker.deleteConfirm.titleRemote", { remote: request.remote, name: request.name }),
+      description: [t("files:git.branch.picker.deleteConfirm.descriptionRemote")],
+      confirmLabel: t("files:git.branch.picker.deleteConfirm.confirmLabel"),
       forceWarning: false,
     };
   }
   if (request?.kind === "local" && request.force) {
     return {
-      title: "Branch is not fully merged",
+      title: t("files:git.branch.picker.deleteConfirm.titleForce"),
       description: [
-        `Branch '${request.name}' is not fully merged.`,
-        "Delete anyway? Unmerged commits may be lost.",
+        t("files:git.branch.picker.deleteConfirm.descriptionForce1", { name: request.name }),
+        t("files:git.branch.picker.deleteConfirm.descriptionForce2"),
       ],
-      confirmLabel: "Delete",
+      confirmLabel: t("files:git.branch.picker.deleteConfirm.confirmLabel"),
       forceWarning: true,
     };
   }
   return {
-    title: `Delete branch '${request?.name ?? ""}'?`,
-    description: [
-      "This deletes the local branch. The commits remain reachable if another ref contains them.",
-    ],
-    confirmLabel: "Delete",
+    title: t("files:git.branch.picker.deleteConfirm.title", { name: request?.name ?? "" }),
+    description: [t("files:git.branch.picker.deleteConfirm.description")],
+    confirmLabel: t("files:git.branch.picker.deleteConfirm.confirmLabel"),
     forceWarning: false,
   };
 }
@@ -383,7 +387,7 @@ function gitStoreErrorFromUnknown(error: unknown): Pick<GitStoreError, "kind" | 
     const record = error as { kind?: unknown; message?: unknown };
     return {
       kind: typeof record.kind === "string" ? record.kind : "unknown",
-      message: typeof record.message === "string" ? record.message : "Git operation failed",
+      message: typeof record.message === "string" ? record.message : i18next.t("files:git.gitOperationFailed"),
     };
   }
   return { kind: "unknown", message: String(error) };

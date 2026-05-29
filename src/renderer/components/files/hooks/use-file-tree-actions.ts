@@ -9,6 +9,7 @@
  * Finder, New File, Rename, Delete) plug in without touching the tree
  * rendering / virtualization code.
  */
+import i18next from "i18next";
 import { showToast } from "@/components/ui/toast";
 import { openOrRevealEditor } from "@/services/editor";
 import {
@@ -111,7 +112,7 @@ export function useFileTreeActions({
     const ts = getTargets();
     // Multi-selection rename: inform user and no-op (Phase B parity).
     if (ts.length > 1) {
-      showToast({ kind: "info", message: "Rename one item at a time" });
+      showToast({ kind: "info", message: i18next.t("files:fileTree.renameOneAtATime") });
       return;
     }
     const t = ts[0];

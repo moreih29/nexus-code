@@ -10,13 +10,13 @@
  * so this component stays focused on visual rendering only.
  */
 import { ChevronDown, ChevronRight, Folder, FolderOpen, Minus, Plus, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import {
   type GitDecorationKind,
   kindToColorVar,
   kindToLetter,
-  kindToTooltip,
 } from "../../file-tree/git-decoration";
 import { INDENT_STEP_PX } from "../../file-tree/metrics";
 import { GitFileRow } from "./row";
@@ -78,6 +78,7 @@ export type GitTreeRowProps = GitTreeRowDirProps | GitTreeRowLeafProps;
 // ---------------------------------------------------------------------------
 
 export function GitTreeRow(props: GitTreeRowProps) {
+  const { t } = useTranslation("files");
   const { depth, treeItemProps, onFocus } = props;
   const indentLeft = (depth - 1) * INDENT_STEP_PX + 8;
 
@@ -170,8 +171,8 @@ export function GitTreeRow(props: GitTreeRowProps) {
             className="inline-flex shrink-0 items-center justify-center pl-1 pr-1 font-mono text-app-ui-sm leading-none"
             style={{ color: kindToColorVar(decoration) }}
             role="img"
-            aria-label={`Git ${kindToTooltip(decoration)}`}
-            title={kindToTooltip(decoration)}
+            aria-label={`Git ${t(`git.decorations.${decoration}`)}`}
+            title={t(`git.decorations.${decoration}`)}
           >
             {kindToLetter(decoration)}
           </span>

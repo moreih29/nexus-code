@@ -6,6 +6,7 @@ import { GitBranch, Tag } from "lucide-react";
 import type React from "react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import i18next from "i18next";
 import type { LogEntryRef } from "../../../../../shared/git/types";
 import { cn } from "../../../../utils/cn";
 import { useDismissOnOutsideClickMulti } from "../../../ui/use-dismiss-on-outside-click";
@@ -171,7 +172,7 @@ export function RefChipList({
         <button
           type="button"
           className="inline-flex h-5 shrink-0 items-center rounded-full border border-[var(--color-git-chip-border)] px-2 text-app-ui-sm text-muted-foreground hover:bg-[var(--color-git-chip-hover-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-          aria-label={`Show ${overflowRefs.length} more refs`}
+          aria-label={i18next.t("files:git.refChip.showMoreRefs", { count: overflowRefs.length })}
           aria-haspopup="menu"
           aria-expanded={popoverOpen}
           aria-controls={popoverOpen ? popoverId : undefined}
@@ -262,7 +263,7 @@ function RefChipOverflowPopover({
       ref={popoverRef}
       id={id}
       role="menu"
-      aria-label="More refs"
+      aria-label={i18next.t("files:git.refChip.moreRefs")}
       className="fixed z-50 flex max-w-[240px] flex-col gap-1 overflow-y-auto floating-panel p-1"
       style={popoverPositionStyle(point)}
       onClick={(event) => event.stopPropagation()}
@@ -361,11 +362,12 @@ function refChipIconStyle(displayKind: RefChipDisplayKind): React.CSSProperties 
 
 /** Builds the descriptive label screen readers hear for one chip. */
 function refChipAriaLabel(refInfo: LogEntryRef, displayKind: RefChipDisplayKind): string {
-  if (displayKind === "head") return "HEAD ref";
-  if (displayKind === "current") return `Current branch ${refInfo.name}`;
-  if (displayKind === "branch") return `Branch ${refInfo.name}`;
-  if (displayKind === "remote") return `Remote branch ${refInfo.name}`;
-  return `Tag ${refInfo.name}`;
+  const t = i18next.t.bind(i18next);
+  if (displayKind === "head") return t("files:git.refChip.headRef");
+  if (displayKind === "current") return t("files:git.refChip.currentBranch", { name: refInfo.name });
+  if (displayKind === "branch") return t("files:git.refChip.branch", { name: refInfo.name });
+  if (displayKind === "remote") return t("files:git.refChip.remoteBranch", { name: refInfo.name });
+  return t("files:git.refChip.tag", { name: refInfo.name });
 }
 
 /** Gives stable keys to refs that may share a display name across namespaces. */

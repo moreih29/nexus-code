@@ -1,0 +1,44 @@
+{
+  "appMenu": {
+    "about": "About {{appName}}",
+    "checkForUpdates": "Check for Updates...",
+    "settings": "Settings…"
+  },
+  "file": {
+    "label": "File",
+    "newFile": "New File",
+    "newWorkspace": "New Workspace…",
+    "openFile": "Open File…",
+    "save": "Save",
+    "closeEditor": "Close Editor",
+    "closeOthers": "Close Others",
+    "refreshFiles": "Refresh Files",
+    "exit": "Exit"
+  },
+  "edit": {
+    "label": "Edit"
+  },
+  "view": {
+    "label": "View",
+    "toggleFilesPanel": "Toggle Files Panel",
+    "toggleSidebar": "Toggle Sidebar",
+    "revealInFinder": "Reveal in Finder",
+    "copyPath": "Copy Path",
+    "copyRelativePath": "Copy Relative Path"
+  },
+  "workspace": {
+    "label": "Workspace",
+    "previousWorkspace": "Previous Workspace",
+    "nextWorkspace": "Next Workspace",
+    "splitRight": "Split Right",
+    "splitDown": "Split Down",
+    "closeGroup": "Close Group",
+    "focusGroupLeft": "Focus Group Left",
+    "focusGroupRight": "Focus Group Right",
+    "focusGroupUp": "Focus Group Up",
+    "focusGroupDown": "Focus Group Down"
+  },
+  "window": {
+    "label": "Window"
+  }
+}

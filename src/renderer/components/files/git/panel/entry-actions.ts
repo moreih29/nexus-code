@@ -8,6 +8,7 @@
  * orchestration while these utilities live next to the helper modules
  * they delegate into.
  */
+import i18next from "i18next";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
 import { ipcCallResult, unwrapGitResult } from "../../../../ipc/client";
 import { openOrRevealEditor } from "../../../../services/editor";
@@ -65,7 +66,7 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
     if (entry.conflictType !== null) {
       const absPath = absolutePathForEntry(entry);
       if (!absPath) {
-        ctx.setBanner({ variant: "error", message: "Working tree path is unavailable." });
+        ctx.setBanner({ variant: "error", message: i18next.t("files:git.entryActions.workingTreeUnavailable") });
         return;
       }
       openOrRevealEditor({ workspaceId: ctx.workspaceId, filePath: absPath });
@@ -81,13 +82,13 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
       });
       return;
     }
-    ctx.setBanner({ variant: "info", message: "Diff view is unavailable." });
+    ctx.setBanner({ variant: "info", message: i18next.t("files:git.entryActions.diffViewUnavailable") });
   }
 
   function openWorkingTreeFile(entry: GitStatusEntry): void {
     const absPath = absolutePathForEntry(entry);
     if (!absPath) {
-      ctx.setBanner({ variant: "error", message: "Working tree path is unavailable." });
+      ctx.setBanner({ variant: "error", message: i18next.t("files:git.entryActions.workingTreeUnavailable") });
       return;
     }
     void runSystemPathAction("openPathExternal", absPath, ctx.setBanner);
@@ -96,7 +97,7 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
   function revealEntryInOS(entry: GitStatusEntry): void {
     const absPath = absolutePathForEntry(entry);
     if (!absPath) {
-      ctx.setBanner({ variant: "error", message: "Working tree path is unavailable." });
+      ctx.setBanner({ variant: "error", message: i18next.t("files:git.entryActions.workingTreeUnavailable") });
       return;
     }
     void runSystemPathAction("revealInOS", absPath, ctx.setBanner);
@@ -130,13 +131,13 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
         variant: "info",
         message:
           addedCount > 0
-            ? `Added ${addedCount} path${addedCount === 1 ? "" : "s"} to .gitignore.`
-            : "Already in .gitignore.",
+            ? i18next.t("files:git.entryActions.addedToGitignore", { count: addedCount })
+            : i18next.t("files:git.entryActions.alreadyInGitignore"),
       });
     } catch (error) {
       ctx.setBanner({
         variant: "error",
-        message: error instanceof Error ? error.message : "Could not update .gitignore.",
+        message: error instanceof Error ? error.message : i18next.t("files:git.entryActions.couldNotUpdateGitignore"),
       });
     }
   }
@@ -183,7 +184,7 @@ async function runSystemPathAction(
     // system channel handler — check the inner ok for path-not-found etc.
     const inner = result.value as { ok: boolean; error?: { message: string } };
     if (!inner.ok) {
-      setBanner({ variant: "error", message: inner.error?.message ?? "System path action failed." });
+      setBanner({ variant: "error", message: inner.error?.message ?? i18next.t("files:git.entryActions.systemPathActionFailed") });
     }
   } else {
     setBanner({ variant: "error", message: result.message });

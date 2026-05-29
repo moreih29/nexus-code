@@ -44,6 +44,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeSlug from "rehype-slug";
@@ -56,7 +57,7 @@ import {
 } from "../../../services/editor/preview/link-router";
 import { buildWorkspaceUrl } from "../../../services/editor/preview/workspace-url";
 import { copyText } from "../../../utils/clipboard";
-import { capPreviewSource, PREVIEW_TRUNCATED_MESSAGE } from "./constants";
+import { capPreviewSource, getPreviewTruncatedMessage } from "./constants";
 
 const log = createLogger("markdown-preview");
 
@@ -250,7 +251,7 @@ export function MarkdownPreview({
           role="status"
           className="px-3 py-1 text-app-ui-sm text-[var(--state-warning-fg)] bg-[var(--state-warning-bg)] border-b border-[var(--state-warning-border)]"
         >
-          {PREVIEW_TRUNCATED_MESSAGE}
+          {getPreviewTruncatedMessage()}
         </div>
       )}
       <PreviewContext.Provider value={previewCtx}>
@@ -343,6 +344,7 @@ function MdInput({
 
 /** Code block with a hover "Copy" button. View-only — never edits the source. */
 function MdPre({ node, children, ...rest }: { node?: RmNode; children?: React.ReactNode }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const code = useMemo(() => hastToText(node), [node]);
 
@@ -358,13 +360,13 @@ function MdPre({ node, children, ...rest }: { node?: RmNode; children?: React.Re
         type="button"
         className="md-code-copy"
         tabIndex={-1}
-        aria-label="Copy code"
+        aria-label={t("markdown.copy_code")}
         onClick={() => {
           copyText(code);
           setCopied(true);
         }}
       >
-        {copied ? "Copied" : "Copy"}
+        {copied ? t("markdown.copied") : t("markdown.copy")}
       </button>
       <pre {...rest}>{children}</pre>
     </div>
@@ -385,6 +387,7 @@ function MdHeading({
   children?: React.ReactNode;
   id?: string;
 }) {
+  const { t } = useTranslation();
   const ctx = useContext(PreviewContext);
   const Tag = (node?.tagName ?? "h2") as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
   const headingId = typeof id === "string" && id.length > 0 ? id : undefined;
@@ -397,7 +400,7 @@ function MdHeading({
           type="button"
           className="md-heading-fold"
           tabIndex={-1}
-          aria-label={isCollapsed ? "Expand section" : "Collapse section"}
+          aria-label={isCollapsed ? t("markdown.expand_section") : t("markdown.collapse_section")}
           aria-expanded={!isCollapsed}
           onClick={() => ctx?.toggleCollapse(headingId)}
         >
@@ -410,7 +413,7 @@ function MdHeading({
           type="button"
           className="md-heading-anchor"
           tabIndex={-1}
-          aria-label="Copy link to this section"
+          aria-label={t("markdown.copy_link")}
           onClick={() => ctx?.onCopyAnchor(headingId)}
         >
           #

@@ -37,6 +37,7 @@
 //   same image point stays under the cursor (single repaint, no flash).
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { buildWorkspaceUrl } from "../../../services/editor/preview/workspace-url";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { relPath } from "../../../utils/path";
@@ -56,13 +57,14 @@ export interface ImagePreviewProps {
 }
 
 export function ImagePreview({ workspaceId, filePath, onNaturalSize }: ImagePreviewProps) {
+  const { t } = useTranslation();
   const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
 
   // Defensive: workspace should always exist when an editor tab is open,
   // but guard against teardown races where the tab survives past the
   // workspace removal for one render.
   if (!workspace) {
-    return <EmptyState title="Workspace not found." tone="status" className="min-h-0" />;
+    return <EmptyState title={t("imagePreview.workspace_not_found")} tone="status" className="min-h-0" />;
   }
 
   // rootPath is location-shaped: WorkspaceLocation discriminates on `kind`
@@ -79,7 +81,7 @@ export function ImagePreview({ workspaceId, filePath, onNaturalSize }: ImagePrev
   if (rel === filePath) {
     return (
       <EmptyState
-        title="Image is outside the workspace and cannot be previewed."
+        title={t("imagePreview.outside_workspace")}
         tone="status"
         className="min-h-0"
       />
@@ -128,6 +130,7 @@ interface ZoomAnchor {
  *   - Format the OS/Chromium can't decode (rare for the supported set).
  */
 function ImageCanvas({ url, alt, onNaturalSize }: ImageCanvasProps) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
@@ -224,7 +227,7 @@ function ImageCanvas({ url, alt, onNaturalSize }: ImageCanvasProps) {
   }, []);
 
   if (errored) {
-    return <EmptyState title="Could not load image." tone="status" className="min-h-0" />;
+    return <EmptyState title={t("imagePreview.load_failed")} tone="status" className="min-h-0" />;
   }
 
   // Until the image loads we don't know its natural size yet, so render

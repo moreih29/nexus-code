@@ -1,0 +1,25 @@
+{
+  "fs": {
+    "NOT_FOUND": "File or folder not found.",
+    "PERMISSION_DENIED": "Permission denied.",
+    "ALREADY_EXISTS": "A file or folder with that name already exists.",
+    "IS_DIRECTORY": "Cannot open a directory as a file.",
+    "NOT_DIRECTORY": "Path is not a folder.",
+    "TOO_LARGE": "File too large to open.",
+    "OUT_OF_WORKSPACE": "This path is outside the workspace.",
+    "NOT_EMPTY": "Folder is not empty.",
+    "CROSS_DEVICE": "Can't move across filesystems."
+  },
+  "git": {
+    "not-repo": "Not a git repository.",
+    "auth": "Authentication failed.",
+    "no-upstream": "No upstream branch is configured.",
+    "conflict": "There is a conflict that must be resolved."
+  },
+  "generic": {
+    "cancelled": "The operation was cancelled.",
+    "invalid-input": "The input is invalid.",
+    "failed": "The operation failed.",
+    "bug": "Something went wrong. Check the log for details."
+  }
+}

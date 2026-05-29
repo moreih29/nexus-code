@@ -1,0 +1,25 @@
+{
+  "fs": {
+    "NOT_FOUND": "파일 또는 폴더를 찾을 수 없습니다.",
+    "PERMISSION_DENIED": "권한이 거부되었습니다.",
+    "ALREADY_EXISTS": "같은 이름의 파일 또는 폴더가 이미 존재합니다.",
+    "IS_DIRECTORY": "디렉터리를 파일로 열 수 없습니다.",
+    "NOT_DIRECTORY": "경로가 폴더가 아닙니다.",
+    "TOO_LARGE": "파일이 너무 커서 열 수 없습니다.",
+    "OUT_OF_WORKSPACE": "이 경로는 워크스페이스 밖에 있습니다.",
+    "NOT_EMPTY": "폴더가 비어 있지 않습니다.",
+    "CROSS_DEVICE": "파일 시스템을 넘어 이동할 수 없습니다."
+  },
+  "git": {
+    "not-repo": "Git 저장소가 아닙니다.",
+    "auth": "인증에 실패했습니다.",
+    "no-upstream": "업스트림 브랜치가 설정되어 있지 않습니다.",
+    "conflict": "해결해야 할 충돌이 있습니다."
+  },
+  "generic": {
+    "cancelled": "작업이 취소되었습니다.",
+    "invalid-input": "입력이 올바르지 않습니다.",
+    "failed": "작업에 실패했습니다.",
+    "bug": "오류가 발생했습니다. 로그를 확인하세요."
+  }
+}

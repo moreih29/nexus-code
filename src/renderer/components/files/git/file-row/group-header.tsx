@@ -3,6 +3,7 @@
  */
 import { ChevronDown, ChevronRight, Minus, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { GitExpandedGroupKey } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import {
@@ -43,6 +44,7 @@ export function GitGroupHeader({
   onAddToGitignore,
   onStashGroup,
 }: GitGroupHeaderProps) {
+  const { t } = useTranslation("files");
   const [contextMenuPoint, setContextMenuPoint] = useState<GitContextMenuPoint | null>(null);
   const Chevron = expanded ? ChevronDown : ChevronRight;
 
@@ -107,8 +109,8 @@ export function GitGroupHeader({
           variant="ghost"
           size="icon-sm"
           className="size-6"
-          aria-label={`${label} group actions`}
-          title={`${label} group actions`}
+          aria-label={t("git.groups.groupActions", { label })}
+          title={t("git.groups.groupActions", { label })}
           aria-haspopup="menu"
           aria-expanded={contextMenuPoint !== null}
           onClick={(event) => {

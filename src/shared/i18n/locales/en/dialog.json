@@ -1,0 +1,11 @@
+{
+  "openFile": {
+    "title": "Open File"
+  },
+  "openDirectory": {
+    "title": "Select workspace folder"
+  },
+  "saveFile": {
+    "title": "Save File"
+  }
+}

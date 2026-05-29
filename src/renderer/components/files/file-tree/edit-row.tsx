@@ -15,6 +15,7 @@
  */
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { validateNewEntryName } from "../name-validator";
 import type { EntryKind } from "./display";
@@ -41,8 +42,9 @@ export function FileTreeEditRow({
   onCommit,
   onCancel,
 }: FileTreeEditRowProps) {
+  const { t } = useTranslation("files");
   const [value, setValue] = useState(initialValue);
-  const validationError = value.length > 0 ? validateNewEntryName(value) : null;
+  const validationError = value.length > 0 ? validateNewEntryName(value, t) : null;
   const canCommit = value.trim().length > 0 && validationError === null;
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -76,11 +78,11 @@ export function FileTreeEditRow({
           aria-label={
             initialValue
               ? kind === "file"
-                ? "Rename file"
-                : "Rename folder"
+                ? t("fileTree.editRow.renameFile")
+                : t("fileTree.editRow.renameFolder")
               : kind === "file"
-                ? "New file name"
-                : "New folder name"
+                ? t("fileTree.editRow.newFileName")
+                : t("fileTree.editRow.newFolderName")
           }
           type="text"
           value={value}
