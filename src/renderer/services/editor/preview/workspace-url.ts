@@ -25,3 +25,18 @@ export function buildWorkspaceUrl(workspaceId: string, relPath: string): string 
   const encodedSegments = forwardSlashPath.split("/").map(encodeURIComponent).join("/");
   return `nexus-workspace://${encodeURIComponent(workspaceId)}/${encodedSegments}`;
 }
+
+/**
+ * Returns a `nexus-workspace://<workspaceId>/<relDir>/` URL with a GUARANTEED
+ * trailing slash, suitable as an HTML `<base href>`.
+ *
+ * The trailing slash is essential: a base of `…/a/b` resolves a relative
+ * `x.js` to `…/a/x.js` (the last segment is treated as a file), whereas
+ * `…/a/b/` resolves it to `…/a/b/x.js`. `relDir === ""` (file at the
+ * workspace root) yields `nexus-workspace://<id>/`.
+ */
+export function buildWorkspaceDirUrl(workspaceId: string, relDir: string): string {
+  const trimmed = relDir.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  const base = buildWorkspaceUrl(workspaceId, trimmed);
+  return base.endsWith("/") ? base : `${base}/`;
+}

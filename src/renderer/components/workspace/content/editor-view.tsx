@@ -447,7 +447,14 @@ function PreviewPane({
         />
       );
     case "html":
-      return <HtmlPreview source={source} />;
+      return (
+        <HtmlPreview
+          source={source}
+          workspaceId={workspaceId}
+          currentFileAbsPath={filePath}
+          workspaceRootAbsPath={workspaceRootAbsPath}
+        />
+      );
     case "svg":
       return <SvgPreview source={source} />;
   }

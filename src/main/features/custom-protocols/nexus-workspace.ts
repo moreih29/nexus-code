@@ -20,6 +20,7 @@ const logger = createLogger("nexus-workspace");
 // ---------------------------------------------------------------------------
 
 const MIME_MAP: Record<string, string> = {
+  // Images
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
@@ -27,6 +28,29 @@ const MIME_MAP: Record<string, string> = {
   ".svg": "image/svg+xml",
   ".webp": "image/webp",
   ".ico": "image/x-icon",
+  // Web assets — needed so the HTML preview can load relatively-referenced
+  // sibling files (`<script src>`, `<link rel=stylesheet>`, fonts, …). The
+  // preview iframe is at an opaque origin, so these load cross-origin: a
+  // stylesheet served with the wrong MIME is REJECTED by Chromium and a
+  // script may refuse to execute. Serving the correct type is what makes
+  // sibling .js/.css resolve instead of 404-ing.
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".cjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".htm": "text/html; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".xml": "application/xml; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
+  ".wasm": "application/wasm",
+  // Fonts
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
+  ".eot": "application/vnd.ms-fontobject",
 };
 
 function mimeFromPath(filePath: string): string {

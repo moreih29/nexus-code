@@ -53,10 +53,18 @@
 //   runs from scratch.
 
 import { useEffect, useRef } from "react";
+import { isWithinWorkspace, relPath } from "@/utils/path";
+import { buildWorkspaceDirUrl } from "../../../services/editor/preview/workspace-url";
 import { capPreviewSource, PREVIEW_TRUNCATED_MESSAGE } from "./constants";
 
 interface HtmlPreviewProps {
   source: string;
+  /** Workspace owning the previewed file — used to resolve sibling resources. */
+  workspaceId: string;
+  /** Absolute (POSIX) path of the HTML file being previewed. */
+  currentFileAbsPath: string;
+  /** Absolute (POSIX) path of the workspace root. */
+  workspaceRootAbsPath: string;
 }
 
 /**
@@ -120,24 +128,60 @@ const HTML_PREVIEW_PREAMBLE = `<style>
 </script>`;
 
 /**
- * Insert the preamble into the source HTML.  We try to keep DOCTYPE order
- * intact (browsers go quirks-mode if anything precedes <!DOCTYPE>) by
+ * Build the `<base href>` tag that lets the iframe resolve relatively-
+ * referenced sibling resources (`<script src="x.js">`, `<link href="x.css">`,
+ * images, fonts) against the file's on-disk directory via the
+ * `nexus-workspace://` protocol — the same disk/agent-served path image and
+ * markdown previews already use, so it works for local AND SSH workspaces.
+ *
+ * Returns "" when the file is not inside the workspace root: we cannot mint a
+ * workspace URL for it, so relative resources stay unresolved (same as before
+ * this feature) rather than pointing somewhere wrong.
+ *
+ * MUST be emitted before any resource reference in the document — see
+ * injectPreamble, which places it at the very top of <head>.
+ */
+function buildBaseTag(
+  workspaceId: string,
+  currentFileAbsPath: string,
+  workspaceRootAbsPath: string,
+): string {
+  if (!isWithinWorkspace(currentFileAbsPath, workspaceRootAbsPath)) return "";
+  const slash = currentFileAbsPath.lastIndexOf("/");
+  const dirAbs = slash === -1 ? currentFileAbsPath : currentFileAbsPath.slice(0, slash);
+  const baseHref = buildWorkspaceDirUrl(workspaceId, relPath(dirAbs, workspaceRootAbsPath));
+  return `<base href="${baseHref}">`;
+}
+
+/**
+ * Insert the base tag + preamble into the source HTML.  We try to keep DOCTYPE
+ * order intact (browsers go quirks-mode if anything precedes <!DOCTYPE>) by
  * inserting right after the opening <head> tag.  When no <head> exists we
  * fall back to a prepend; modern Chromium is lenient enough to re-parse
  * style/script tags into the synthesised <head>.
+ *
+ * The `<base>` must come FIRST so the user's own <link>/<script src> tags
+ * (which follow inside their <head>) resolve against it.
  */
-function injectPreamble(source: string): string {
+function injectPreamble(source: string, baseTag: string): string {
+  const head = baseTag + HTML_PREVIEW_PREAMBLE;
   const headOpen = /<head\b[^>]*>/i.exec(source);
   if (headOpen) {
     const insertAt = headOpen.index + headOpen[0].length;
-    return source.slice(0, insertAt) + HTML_PREVIEW_PREAMBLE + source.slice(insertAt);
+    return source.slice(0, insertAt) + head + source.slice(insertAt);
   }
-  return HTML_PREVIEW_PREAMBLE + source;
+  return head + source;
 }
 
-export function HtmlPreview({ source }: HtmlPreviewProps) {
+export function HtmlPreview({
+  source,
+  workspaceId,
+  currentFileAbsPath,
+  workspaceRootAbsPath,
+}: HtmlPreviewProps) {
   const { text, truncated } = capPreviewSource(source);
-  const doc = injectPreamble(text);
+  const baseTag = buildBaseTag(workspaceId, currentFileAbsPath, workspaceRootAbsPath);
+  const doc = injectPreamble(text, baseTag);
 
   // Imperatively set `srcdoc` so the iframe element stays mounted across
   // live edits (no remount cascade). The known Chromium srcDoc-prop-not-
