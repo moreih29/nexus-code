@@ -1,7 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { net, protocol } from "electron";
+// Namespace import (not `import { net, protocol }`): under Bun's test runtime
+// the real electron entry is a CJS shim with no named exports, so a static
+// named import fails to link with "Export named 'protocol' not found" — an
+// error bun surfaces as a flake "between tests". A namespace import has no
+// link-time named-export requirement; net/protocol are only dereferenced
+// inside the functions below (never at module load), so this is behavior-
+// equivalent in the real electron runtime.
+import * as electron from "electron";
 import { createLogger } from "../../../shared/log/main";
 import type { WorkspaceManager } from "../workspace/manager";
 
@@ -114,7 +121,7 @@ export function buildNexusWorkspaceHandler(
     const contentType = mimeFromPath(realPath);
     try {
       const fileUrl = pathToFileURL(realPath).href;
-      const fileResp = await net.fetch(fileUrl);
+      const fileResp = await electron.net.fetch(fileUrl);
       if (!fileResp.ok) {
         logger.warn(`net.fetch failed (${fileResp.status}): ${realPath}`);
         return new Response(null, { status: 404 });
@@ -190,7 +197,7 @@ async function serveViaAgent(
  * Must be called **before** `app.whenReady()`.
  */
 export function registerNexusWorkspaceSchemes(): void {
-  protocol.registerSchemesAsPrivileged([
+  electron.protocol.registerSchemesAsPrivileged([
     {
       scheme: "nexus-workspace",
       privileges: {
@@ -209,5 +216,5 @@ export function registerNexusWorkspaceSchemes(): void {
  * Must be called **after** `app.whenReady()`.
  */
 export function installNexusWorkspaceProtocol(workspaceManager: WorkspaceManager): void {
-  protocol.handle("nexus-workspace", buildNexusWorkspaceHandler(workspaceManager));
+  electron.protocol.handle("nexus-workspace", buildNexusWorkspaceHandler(workspaceManager));
 }
