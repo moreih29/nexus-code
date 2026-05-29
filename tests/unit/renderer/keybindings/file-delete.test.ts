@@ -287,7 +287,9 @@ describe("fileDelete 핸들러 — wsId 없으면 no-op", () => {
         ),
       ).toHaveLength(0);
     } finally {
-      unregisters.forEach((u) => u());
+      unregisters.forEach((u) => {
+        u();
+      });
     }
   });
 });
@@ -322,7 +324,9 @@ describe("fileDelete 핸들러 — activeAbsPath 없으면 no-op", () => {
         ),
       ).toHaveLength(0);
     } finally {
-      unregisters.forEach((u) => u());
+      unregisters.forEach((u) => {
+        u();
+      });
     }
   });
 });
@@ -355,7 +359,9 @@ describe("fileDelete 핸들러 — root 경로이면 no-op", () => {
         ),
       ).toHaveLength(0);
     } finally {
-      unregisters.forEach((u) => u());
+      unregisters.forEach((u) => {
+        u();
+      });
     }
   });
 });

@@ -174,7 +174,9 @@ describe("fileRename 핸들러 — wsId 없을 때 no-op", () => {
 
       expect(useFilesStore.getState().pendingRenameRequest).toBeNull();
     } finally {
-      unregisters.forEach((u) => u());
+      unregisters.forEach((u) => {
+        u();
+      });
     }
   });
 });
@@ -193,7 +195,9 @@ describe("fileRename 핸들러 — root 경로이면 no-op", () => {
 
       expect(useFilesStore.getState().pendingRenameRequest).toBeNull();
     } finally {
-      unregisters.forEach((u) => u());
+      unregisters.forEach((u) => {
+        u();
+      });
     }
   });
 });
@@ -213,7 +217,9 @@ describe("fileRename 핸들러 — 정상 흐름", () => {
       expect(req?.absPath).toBe(FILE_PATH);
       expect(typeof req?.requestId).toBe("number");
     } finally {
-      unregisters.forEach((u) => u());
+      unregisters.forEach((u) => {
+        u();
+      });
     }
   });
 
@@ -233,7 +239,9 @@ describe("fileRename 핸들러 — 정상 흐름", () => {
       expect(req2).not.toBeNull();
       expect(req2!.requestId).toBeGreaterThan(req1!.requestId);
     } finally {
-      unregisters.forEach((u) => u());
+      unregisters.forEach((u) => {
+        u();
+      });
     }
   });
 });
