@@ -74,6 +74,14 @@ interface TerminalLike {
   open: (parent: HTMLElement) => void;
   refresh: (start: number, end: number) => void;
   write: (data: string) => void;
+  /**
+   * Inject text as if pasted. Unlike `write`, this respects the terminal app's
+   * bracketed paste mode (DECSET 2004): when enabled it wraps the data in
+   * `\x1b[200~`/`\x1b[201~` and emits it through `onData`. TUIs such as Claude
+   * Code rely on those markers to recognize a dropped file path as a paste unit
+   * (and render it as an "[Image]" attachment) rather than as typed keystrokes.
+   */
+  paste: (data: string) => void;
   attachCustomKeyEventHandler: (handler: (event: KeyboardEvent) => boolean) => void;
 }
 type FitAddonLike = Pick<FitAddon, "dispose" | "fit" | "proposeDimensions">;
@@ -364,10 +372,10 @@ class XtermTerminalController implements TerminalController {
 
     this.dataDisposable = term.onData((data) => ptyClient.write(data));
 
-    // External file drop → inject escaped path(s) into the PTY. Lets CLIs that
+    // External file drop → inject escaped path(s) as a paste. Lets CLIs that
     // accept file paths (Claude Code, image tools, etc.) receive dropped files
     // even though the rest of the app gates DnD to its own internal MIME types.
-    this.installFileDrop(ptyClient);
+    this.installFileDrop(term);
 
     // OSC 0/1/2(window title) — xterm.js 내부 파서가 시퀀스를 수신해 onTitleChange로
     // 노출한다. claude / lazygit / lazydocker 같은 TUI가 자기 이름/상태를 보내면
@@ -638,14 +646,20 @@ class XtermTerminalController implements TerminalController {
   // so OS file drags are ignored everywhere else (and neutralized app-wide by
   // the global guard in bootstrap.ts to prevent file:// navigation). Terminal
   // panes opt back in here: a dropped file's absolute path is escaped and
-  // written to the PTY, exactly as keyboard input would be — which is how CLIs
-  // like Claude Code receive image/file paths.
+  // injected via `term.paste()` — NOT `ptyClient.write()`.
+  //
+  // The paste path matters: it routes through xterm, which honors the app's
+  // bracketed paste mode (DECSET 2004) and wraps the text in `\x1b[200~/201~`.
+  // TUIs like Claude Code rely on those markers to recognize the path as a
+  // dropped file (rendering it as an "[Image]" attachment); a raw pty write
+  // arrives as plain keystrokes and leaves the literal "/Users/…" path instead.
+  // This mirrors cmux's `ghostty_surface_text` drop path.
   //
   // `stopPropagation()` keeps the event from bubbling to the group-level drop
   // target (which would parse the Files MIME as our custom payload and fail)
   // and to the document-level guard.
   // ---------------------------------------------------------------------------
-  private installFileDrop(ptyClient: PtyClient): void {
+  private installFileDrop(term: TerminalLike): void {
     const el = this.options.container;
     // Defensive: the container is always a real HTMLElement in production, but
     // unit tests pass a bare stub. Skip wiring when DOM event APIs are absent.
@@ -676,9 +690,9 @@ class XtermTerminalController implements TerminalController {
         .map((p) => escapeDroppedPath(p));
       if (paths.length === 0) return;
 
-      // Trailing space separates the injected path(s) from whatever the user
-      // types next — matching iTerm2 / Terminal.app drop behavior.
-      ptyClient.write(`${paths.join(" ")} `);
+      // No trailing space — paste just the escaped path(s) so Claude Code's
+      // image-path detection sees a clean paste unit (matches cmux).
+      term.paste(paths.join(" "));
     };
 
     el.addEventListener("dragover", onDragOver);
