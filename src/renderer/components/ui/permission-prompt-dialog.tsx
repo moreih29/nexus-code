@@ -214,7 +214,7 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
 
   return (
     <Dialog open onOpenChange={handleOpenChange} size="sm" aria-describedby={undefined}>
-      <RadixDialog.Title className="sr-only">브라우저 권한 요청</RadixDialog.Title>
+      <RadixDialog.Title className="sr-only">Browser permission request</RadixDialog.Title>
 
       {/* Header: icon + origin */}
       <div className="flex items-start gap-3">
@@ -226,7 +226,7 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
             {prompt.origin}
           </p>
           <p className="mt-0.5 text-app-ui-sm text-muted-foreground">
-            이(가) 다음을 요청합니다
+            is requesting access to
           </p>
         </div>
       </div>
@@ -236,8 +236,8 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
         <p className="text-app-body text-foreground font-medium">{labelsText}</p>
         <p className="mt-1 text-app-ui-sm text-muted-foreground">
           {prompt.permissions.length > 1
-            ? "위 권한들에 대한 접근을 허용하거나 차단합니다."
-            : "이 권한에 대한 접근을 허용하거나 차단합니다."}
+            ? "Allow or block access to the permissions above."
+            : "Allow or block access to this permission."}
         </p>
       </div>
 
@@ -252,23 +252,23 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
           htmlFor="permission-remember"
           className="text-app-ui-sm text-muted-foreground cursor-pointer select-none"
         >
-          이 워크스페이스에서 이 사이트를 기억
+          Remember this site in this workspace
         </label>
       </div>
 
       {/* Action buttons */}
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={handleBlock}>
-          차단
+          Block
         </Button>
         <Button variant="default" size="sm" onClick={handleAllow} autoFocus>
-          허용
+          Allow
         </Button>
       </div>
 
       {/* Micro hint */}
       <p className="mt-3 text-app-micro text-muted-foreground">
-        ESC·바깥 클릭 → 이번만 차단
+        ESC or click outside → block once
       </p>
     </Dialog>
   );

@@ -134,9 +134,9 @@ export interface PermissionToggle {
   permissions: BrowserPermissionKind[];
   /** Display priority tier: A = most commonly needed, B = advanced/rare. */
   tier: "A" | "B";
-  /** Short human-readable label shown next to the toggle (Korean). */
+  /** Short human-readable label shown next to the toggle. */
   label: string;
-  /** One-sentence description with '사이트가 ~합니다' tone (Korean). */
+  /** One-sentence description in "This site …" tone. */
   description: string;
   /** Lucide icon name (string only — renderer maps name to component). */
   icon: string;
@@ -158,56 +158,56 @@ export const PERMISSION_TOGGLES: PermissionToggle[] = [
     key: "media",
     permissions: ["media"],
     tier: "A",
-    label: "카메라 및 마이크",
-    description: "사이트가 카메라와 마이크에 접근합니다.",
+    label: "Camera & microphone",
+    description: "This site can access your camera and microphone.",
     icon: "Video",
   },
   {
     key: "geolocation",
     permissions: ["geolocation"],
     tier: "A",
-    label: "위치",
-    description: "사이트가 현재 위치 정보를 요청합니다.",
+    label: "Location",
+    description: "This site can request your current location.",
     icon: "MapPin",
   },
   {
     key: "notifications",
     permissions: ["notifications"],
     tier: "A",
-    label: "알림",
-    description: "사이트가 알림을 보냅니다.",
+    label: "Notifications",
+    description: "This site can send you notifications.",
     icon: "Bell",
   },
   {
     key: "display-capture",
     permissions: ["display-capture"],
     tier: "A",
-    label: "화면 공유",
-    description: "사이트가 화면 또는 창을 캡처합니다.",
+    label: "Screen sharing",
+    description: "This site can capture your screen or a window.",
     icon: "MonitorUp",
   },
   {
     key: "clipboard-read",
     permissions: ["clipboard-read"],
     tier: "A",
-    label: "클립보드 읽기",
-    description: "사이트가 클립보드에 복사된 내용을 읽습니다.",
+    label: "Clipboard read",
+    description: "This site can read content copied to your clipboard.",
     icon: "Clipboard",
   },
   {
     key: "openExternal",
     permissions: ["openExternal"],
     tier: "A",
-    label: "외부 앱 열기",
-    description: "사이트가 외부 애플리케이션을 실행합니다.",
+    label: "Open external apps",
+    description: "This site can launch external applications.",
     icon: "ExternalLink",
   },
   {
     key: "fileSystem",
     permissions: ["fileSystem"],
     tier: "A",
-    label: "파일 접근",
-    description: "사이트가 로컬 파일 시스템에 접근합니다.",
+    label: "File access",
+    description: "This site can access your local file system.",
     icon: "FolderOpen",
   },
 
@@ -218,56 +218,56 @@ export const PERMISSION_TOGGLES: PermissionToggle[] = [
     key: "midi+midiSysex",
     permissions: ["midi", "midiSysex"],
     tier: "B",
-    label: "MIDI 기기",
-    description: "사이트가 MIDI 기기에 연결합니다.",
+    label: "MIDI devices",
+    description: "This site can connect to your MIDI devices.",
     icon: "Music",
   },
   {
     key: "fullscreen",
     permissions: ["fullscreen"],
     tier: "B",
-    label: "전체 화면",
-    description: "사이트가 전체 화면 모드를 요청합니다.",
+    label: "Fullscreen",
+    description: "This site can enter fullscreen mode.",
     icon: "Maximize",
   },
   {
     key: "pointerLock+keyboardLock",
     permissions: ["pointerLock", "keyboardLock"],
     tier: "B",
-    label: "입력 잠금",
-    description: "사이트가 마우스 포인터와 키보드 입력을 독점합니다.",
+    label: "Input lock",
+    description: "This site can capture your mouse pointer and keyboard input.",
     icon: "Lock",
   },
   {
     key: "idle-detection",
     permissions: ["idle-detection"],
     tier: "B",
-    label: "사용 여부 감지",
-    description: "사이트가 사용자의 활동 여부를 감지합니다.",
+    label: "Idle detection",
+    description: "This site can detect when you are active or idle.",
     icon: "Clock",
   },
   {
     key: "window-management",
     permissions: ["window-management"],
     tier: "B",
-    label: "창 배치",
-    description: "사이트가 창의 위치와 크기를 제어합니다.",
+    label: "Window placement",
+    description: "This site can control window position and size.",
     icon: "LayoutGrid",
   },
   {
     key: "speaker-selection",
     permissions: ["speaker-selection"],
     tier: "B",
-    label: "스피커 선택",
-    description: "사이트가 출력 오디오 장치를 선택합니다.",
+    label: "Speaker selection",
+    description: "This site can choose your audio output device.",
     icon: "Volume2",
   },
   {
     key: "mediaKeySystem",
     permissions: ["mediaKeySystem"],
     tier: "B",
-    label: "보호된 콘텐츠 재생(DRM)",
-    description: "사이트가 DRM으로 보호된 미디어를 재생합니다.",
+    label: "Protected content (DRM)",
+    description: "This site can play DRM-protected media.",
     icon: "ShieldCheck",
   },
 ];
@@ -284,30 +284,30 @@ export const PERMISSION_TOGGLES: PermissionToggle[] = [
  * permission request — this map provides only the coarse-grained label.
  */
 const PERMISSION_LABEL_MAP: Record<BrowserPermissionKind, string> = {
-  "clipboard-read": "클립보드 읽기",
-  "clipboard-sanitized-write": "클립보드 쓰기",
-  "display-capture": "화면 공유",
-  fullscreen: "전체 화면",
-  geolocation: "위치",
-  "idle-detection": "사용 여부 감지",
-  media: "카메라 및 마이크",
-  mediaKeySystem: "보호된 콘텐츠 재생(DRM)",
+  "clipboard-read": "Clipboard read",
+  "clipboard-sanitized-write": "Clipboard write",
+  "display-capture": "Screen sharing",
+  fullscreen: "Fullscreen",
+  geolocation: "Location",
+  "idle-detection": "Idle detection",
+  media: "Camera & microphone",
+  mediaKeySystem: "Protected content (DRM)",
   midi: "MIDI",
   midiSysex: "MIDI SysEx",
-  notifications: "알림",
-  pointerLock: "포인터 잠금",
-  keyboardLock: "키보드 잠금",
-  openExternal: "외부 앱 열기",
-  "speaker-selection": "스피커 선택",
-  "storage-access": "저장소 접근",
-  "top-level-storage-access": "최상위 저장소 접근",
-  "window-management": "창 배치",
-  unknown: "알 수 없는 권한",
-  fileSystem: "파일 접근",
+  notifications: "Notifications",
+  pointerLock: "Pointer lock",
+  keyboardLock: "Keyboard lock",
+  openExternal: "Open external apps",
+  "speaker-selection": "Speaker selection",
+  "storage-access": "Storage access",
+  "top-level-storage-access": "Top-level storage access",
+  "window-management": "Window placement",
+  unknown: "Unknown permission",
+  fileSystem: "File access",
 };
 
 /**
- * Returns the Korean label for a given BrowserPermissionKind.
+ * Returns the human-readable label for a given BrowserPermissionKind.
  *
  * Always returns a string — falls back to the raw permission key if the map
  * is somehow missing an entry (defensive for forward-compatibility).

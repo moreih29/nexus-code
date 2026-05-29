@@ -4,14 +4,13 @@
 //
 // (a) Global toggle section — lets the user pre-approve permission kinds for
 //     all workspaces.  Tier A items are always visible; Tier B items are
-//     collapsed under a "고급" disclosure.
+//     collapsed under an "Advanced" disclosure.
 //
 // (b) Site memory section — lists previously remembered per-origin permission
 //     decisions with a segmented-control filter (current workspace / all).
 //     Each row shows the origin, permission badges, and a revoke button.
 //
 // Design: semantic tokens only (no hex/rgba/oklch literals, no box-shadow).
-// Korean microcopy throughout.
 
 import {
   Bell,
@@ -99,9 +98,16 @@ export function BrowserPermissionsPanel() {
   const fetchRef = useRef(0);
 
   // Load remembered entries whenever the scope tab or active workspace changes.
+  //
+  // We intentionally do NOT reset `entries` to null here. Switching the scope
+  // segmented control (current ↔ all) re-runs this loader; clearing to null
+  // would unmount the list and render the loading skeleton for a frame, which
+  // collapses the panel height and makes the surrounding settings modal visibly
+  // jump/flicker. Keeping the previous list mounted until the (near-instant
+  // local IPC) result arrives keeps the height stable. The skeleton still shows
+  // on the very first load, when `entries` is null before any fetch resolves.
   const loadEntries = useCallback(async () => {
     const token = ++fetchRef.current;
-    setEntries(null);
     setLoadError(null);
 
     const workspaceId =
@@ -114,7 +120,7 @@ export function BrowserPermissionsPanel() {
     if (token !== fetchRef.current) return; // stale
 
     if (!result.ok) {
-      setLoadError(result.message ?? "목록을 불러오지 못했습니다.");
+      setLoadError(result.message ?? "Failed to load the list.");
       setEntries([]);
       return;
     }
@@ -128,11 +134,11 @@ export function BrowserPermissionsPanel() {
   const handleRevoke = useCallback(
     async (entry: RememberedEntry) => {
       const confirmed = await showConfirmDialog({
-        title: "사이트 권한 기억 삭제",
+        title: "Delete remembered permission",
         description:
-          "이 사이트의 기억을 삭제하면 다음 방문 시 다시 묻습니다.",
-        confirmLabel: "삭제",
-        cancelLabel: "취소",
+          "Removing this site's memory will prompt you again on its next request.",
+        confirmLabel: "Delete",
+        cancelLabel: "Cancel",
         variant: "destructive",
       });
       if (!confirmed) return;
@@ -186,10 +192,10 @@ export function BrowserPermissionsPanel() {
             id="global-toggles-heading"
             className="text-app-body-emphasis text-foreground"
           >
-            전역 권한 허용
+            Global permissions
           </h2>
           <p className="text-app-ui-sm text-muted-foreground">
-            켜면 모든 워크스페이스에서 자동 허용됩니다. 모두 기본 꺼짐.
+            When on, a permission is auto-allowed in every workspace. All off by default.
           </p>
         </div>
 
@@ -219,7 +225,7 @@ export function BrowserPermissionsPanel() {
               >
                 ›
               </span>
-              고급
+              Advanced
             </summary>
             <div className="flex flex-col gap-1 mt-1">
               {tierBToggles.map((toggle) => (
@@ -248,29 +254,29 @@ export function BrowserPermissionsPanel() {
               id="site-memory-heading"
               className="text-app-body-emphasis text-foreground"
             >
-              사이트별 기억된 권한
+              Remembered site permissions
             </h2>
             <p className="text-app-ui-sm text-muted-foreground">
-              사이트가 권한을 요청할 때 기억하도록 선택한 결정 목록입니다.
+              Decisions you chose to remember when sites requested permissions.
             </p>
           </div>
 
           <SegmentedControl
             options={[
-              { value: "current" as const, label: "현재 워크스페이스" },
-              { value: "all" as const, label: "모든 워크스페이스" },
+              { value: "current" as const, label: "Current workspace" },
+              { value: "all" as const, label: "All workspaces" },
             ]}
             value={scopeTab}
             onChange={setScopeTab}
-            label="사이트 기억 범위"
+            label="Remembered scope"
             disabled={!activeWorkspaceId && scopeTab === "current"}
-            disabledReason="활성 워크스페이스가 없습니다."
+            disabledReason="No active workspace."
           />
         </div>
 
         {/* Loading skeleton */}
         {entries === null && !loadError && (
-          <Skeleton label="기억된 권한 목록 불러오는 중">
+          <Skeleton label="Loading remembered permissions">
             <SkeletonLine className="h-9" />
             <SkeletonLine className="h-9" style={{ width: "80%" }} />
             <SkeletonLine className="h-9" style={{ width: "65%" }} />
@@ -286,8 +292,8 @@ export function BrowserPermissionsPanel() {
         {entries !== null && !loadError && entries.length === 0 && (
           <EmptyState
             icon={<ShieldCheck className="size-8" aria-hidden="true" />}
-            title="기억된 권한 없음"
-            description="사이트 권한을 허용하거나 거부할 때 '기억하기'를 선택하면 여기에 표시됩니다."
+            title="No remembered permissions"
+            description="When you choose “Remember” while allowing or blocking a site permission, it appears here."
             tone="status"
           />
         )}
@@ -430,7 +436,7 @@ function SiteEntryRow({ entry, grants, onRevoke }: SiteEntryRowProps) {
           </span>
           {isGloballyEnabled && (
             <span className="text-app-ui-sm text-muted-foreground">
-              전역 허용 중
+              Allowed globally
             </span>
           )}
         </div>
@@ -440,7 +446,7 @@ function SiteEntryRow({ entry, grants, onRevoke }: SiteEntryRowProps) {
       {/* Revoke button — layout slot always reserved; shown on group hover or focus-within */}
       <button
         type="button"
-        aria-label={`${entry.origin} 기억 삭제`}
+        aria-label={`Delete remembered permission for ${entry.origin}`}
         onClick={() => onRevoke(entry)}
         className={cn(
           "inline-flex shrink-0 items-center justify-center",

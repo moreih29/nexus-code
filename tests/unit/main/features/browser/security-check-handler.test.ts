@@ -93,7 +93,6 @@ function makeDepsForDecision(decision: "allow" | "ask" | "block") {
 
   if (decision === "allow") {
     return {
-      resolveWorkspaceId: () => "ws-1",
       getGlobalGrant: () => true,
       getRemembered: () => null as "allow" | "block" | null,
       promptManager: fakePromptManager,
@@ -102,7 +101,6 @@ function makeDepsForDecision(decision: "allow" | "ask" | "block") {
 
   if (decision === "ask") {
     return {
-      resolveWorkspaceId: () => "ws-1",
       getGlobalGrant: () => false,
       getRemembered: () => null as "allow" | "block" | null,
       promptManager: fakePromptManager,
@@ -111,7 +109,6 @@ function makeDepsForDecision(decision: "allow" | "ask" | "block") {
 
   // decision === 'block': use remembered='block' so geolocation→block
   return {
-    resolveWorkspaceId: () => "ws-1",
     getGlobalGrant: () => false,
     getRemembered: () => "block" as "allow" | "block" | null,
     promptManager: fakePromptManager,

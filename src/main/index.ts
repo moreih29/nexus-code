@@ -306,8 +306,6 @@ app.whenReady().then(async () => {
   // main window is created so the registry can hold a strong reference to it.
   initBrowserFeature(mainWin, {
     permissionDeps: {
-      resolveWorkspaceId: (session) =>
-        (session as unknown as { partition: string }).partition.replace(/^persist:browser-/, ""),
       getGlobalGrant: (permission) =>
         stateService.getState().browserPermissionGrants?.[permission] === true,
       getRemembered: (ws, origin, permission) => {
@@ -336,8 +334,6 @@ app.whenReady().then(async () => {
       // On activate, reuse the existing permission manager with the new window.
       initBrowserFeature(newWin, {
         permissionDeps: {
-          resolveWorkspaceId: (session) =>
-            (session as unknown as { partition: string }).partition.replace(/^persist:browser-/, ""),
           getGlobalGrant: (permission) =>
             stateService.getState().browserPermissionGrants?.[permission] === true,
           getRemembered: (ws, origin, permission) => {

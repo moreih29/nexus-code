@@ -67,11 +67,6 @@ export function buildBrowserTabWebPreferences(partition: string): WebPreferences
  */
 export interface PermissionHandlerDeps {
   /**
-   * Derive the workspaceId from the session.  For browser tabs the partition
-   * is `persist:browser-<workspaceId>`, so this is a simple string replace.
-   */
-  resolveWorkspaceId(session: import("electron").Session): string;
-  /**
    * Returns true when the workspace-level global permission toggle is ON for
    * `permission`.  Reads from AppState.browserPermissionGrants at call time.
    */
@@ -142,10 +137,17 @@ export function evaluatePermission(
  *
  * This function is idempotent — calling it twice on the same session replaces
  * the previous handlers (Electron semantics).
+ *
+ * `workspaceId` is supplied by the registry at tab-creation time.  Each browser
+ * partition (`persist:browser-<workspaceId>`) belongs to exactly one workspace,
+ * so binding it here is stable for the lifetime of the session.  (We do NOT
+ * derive it from the session object: Electron's `Session` exposes no public
+ * `partition` property — reading one yields `undefined` and crashes.)
  */
 export function installPermissionHandler(
   session: import("electron").Session,
   deps?: PermissionHandlerDeps,
+  workspaceId = "",
 ): void {
   // Legacy path (no deps): deny-by-default with the original simple allow-list.
   // Preserved so the existing security.test.ts continues to pass unmodified.
@@ -162,14 +164,13 @@ export function installPermissionHandler(
   }
 
   // Full path with deps: classify → evaluate → route.
-  const { resolveWorkspaceId, getGlobalGrant, getRemembered, promptManager } = deps;
+  const { getGlobalGrant, getRemembered, promptManager } = deps;
 
   session.setPermissionCheckHandler((webContents, permission) => {
     // webContents may be null for session-level check calls.
     const origin = safeGetOrigin(webContents);
     if (origin === null) return false;
 
-    const workspaceId = resolveWorkspaceId(session);
     const decision = evaluatePermission(workspaceId, origin, permission, {
       getGlobalGrant,
       getRemembered,
@@ -185,7 +186,6 @@ export function installPermissionHandler(
       return;
     }
 
-    const workspaceId = resolveWorkspaceId(session);
     const decision = evaluatePermission(workspaceId, origin, permission, {
       getGlobalGrant,
       getRemembered,

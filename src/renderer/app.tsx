@@ -159,7 +159,7 @@ export function App() {
       },
       {
         id: "browser-permissions",
-        label: "브라우저 권한",
+        label: "Browser Permissions",
         group: "Settings",
         keywords: ["browser", "permission", "camera", "microphone", "location", "clipboard"],
       },

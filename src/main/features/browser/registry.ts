@@ -187,8 +187,10 @@ export class BrowserTabRegistry {
     const view = new WebContentsView({ webPreferences });
 
     // Install permission handler on the dedicated session so each workspace
-    // partition gets its own deny-by-default permission policy.
-    installPermissionHandler(view.webContents.session, this.permissionDeps);
+    // partition gets its own deny-by-default permission policy.  The
+    // workspaceId is bound here (not derived from the session) because Electron
+    // does not expose the partition string on the Session object.
+    installPermissionHandler(view.webContents.session, this.permissionDeps, workspaceId);
 
     // Wire navigation guards.  The onNavigate callback is intentionally
     // stubbed here; callers (ipc.ts) attach broadcast callbacks by listening
