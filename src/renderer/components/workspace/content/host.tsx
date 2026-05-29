@@ -175,6 +175,7 @@ export function ContentHost({
           lastUrl={tab.props.lastUrl}
           partition={tab.props.partition}
           isActive={isActiveTab && isWorkspaceActive}
+          parentEl={currentParent}
         />
       ) : null}
     </div>
