@@ -181,6 +181,32 @@ function WorkspaceRow({
   // needsInput 상태이면 1줄 name을 font-semibold로 강조한다.
   const nameEmphasis = glyphStatus === "needsInput";
 
+  // "알림 초기화" 액션 — Claude wrapper hook이 모든 상황을 완벽히 컨트롤하지 못해
+  // 인디케이터가 stale 상태로 굳었을 때 사용자가 수동 복구하는 경로.
+  // main broker(권위 상태)를 비워야 snapshot·재broadcast로 되살아나지 않으며,
+  // 로컬 store도 즉시 비워 IPC 왕복을 기다리지 않고 글리프가 곧바로 사라지게 한다.
+  const { run: runResetStatus } = useIpcAction<void>({});
+  function resetStatus() {
+    // 즉시 로컬 인디케이터 제거 — main의 cleared broadcast와 멱등(idempotent).
+    useClaudeStatusStore.getState().clearWorkspace(ws.id);
+    runResetStatus(async (signal) => {
+      const result = await ipcCallResult(
+        "claude",
+        "clearWorkspace",
+        { workspaceId: ws.id },
+        { signal },
+      );
+      if (!result.ok) {
+        const err = appErrorFailed(result.message);
+        surfaceError(err, { surface: "auto" });
+        throw err;
+      }
+    });
+  }
+
+  // 글리프나 미리보기 메시지가 있을 때만 "초기화"가 의미가 있다.
+  const hasStatusToReset = glyphStatus !== null || previewMessage !== null;
+
   return (
     <ContextMenuRoot key={ws.id}>
       <ContextMenuTrigger>
@@ -359,6 +385,13 @@ function WorkspaceRow({
               kind: "item",
               label: ws.pinned ? "Unpin" : "Pin to top",
               onSelect: () => onTogglePin(ws),
+            },
+            { kind: "separator" },
+            {
+              kind: "item",
+              label: "Dismiss notification",
+              disabled: !hasStatusToReset,
+              onSelect: resetStatus,
             },
           ]}
         />

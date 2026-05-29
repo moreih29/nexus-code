@@ -76,6 +76,27 @@ export class ClaudeStatusBroker {
   }
 
   /**
+   * 특정 workspaceId에 속한 모든 (workspaceId, tabId) 항목을 맵에서 제거하고
+   * 각 tab에 대해 cleared 이벤트를 broadcast한다.
+   *
+   * 사용자가 사이드바 컨텍스트 메뉴에서 "알림 초기화"를 눌렀을 때 호출된다.
+   * Claude wrapper hook이 모든 상황을 완벽히 컨트롤하지 못해 인디케이터가 stale
+   * 상태(예: 끝났는데 running으로 남음)로 굳는 경우를 사용자가 수동 복구하는 경로다.
+   *
+   * broker(권위 상태)에서 항목을 지워야 다음 snapshot·재broadcast로 stale 상태가
+   * 되살아나지 않는다. 제거할 항목이 없으면 broadcast를 생략한다.
+   */
+  clearWorkspace(workspaceId: string): void {
+    const prefix = `${workspaceId}:`;
+    for (const key of this.map.keys()) {
+      if (!key.startsWith(prefix)) continue;
+      this.map.delete(key);
+      const tabId = key.slice(prefix.length);
+      this.broadcastFn("claude", "cleared", { workspaceId, tabId });
+    }
+  }
+
+  /**
    * 현재 모든 (workspaceId, tabId) 상태를 StatusEntry 배열로 반환한다.
    * renderer 초기화 시 1회 snapshot 동기화에 사용한다.
    */

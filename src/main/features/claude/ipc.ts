@@ -16,6 +16,8 @@ const c = ipcContract.claude.call;
  * - call.setActiveContext: renderer가 활성 탭 변경 시 push. main이 캐싱해 Stop 알림 결정에 사용.
  * - call.markSeen: 사용자가 탭을 활성화했음을 통지. completed/needsInput 상태였다면
  *   idle로 전이한다. permissionPending/error는 사용자의 명시적 조치 전까지 보존한다.
+ * - call.clearWorkspace: 워크스페이스의 모든 탭 상태를 초기화한다. hook이 stale 상태를
+ *   남긴 경우 사용자가 컨텍스트 메뉴에서 수동으로 복구하는 경로.
  * - listen.status: 상태 변경 시 broker가 직접 broadcast하므로 여기서는 빈 객체로 선언.
  */
 export function registerClaudeChannel(
@@ -43,6 +45,11 @@ export function registerClaudeChannel(
         if (entry?.status === "completed" || entry?.status === "needsInput") {
           broker.set(workspaceId, tabId, "idle");
         }
+        return ipcOk(undefined);
+      },
+      clearWorkspace: async (args: unknown) => {
+        const { workspaceId } = validateArgs(c.clearWorkspace.args, args);
+        broker.clearWorkspace(workspaceId);
         return ipcOk(undefined);
       },
     },

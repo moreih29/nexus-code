@@ -1351,6 +1351,12 @@ export const ipcContract = {
        * renderer는 setActiveContext와 함께 호출한다.
        */
       markSeen: call(z.object({ workspaceId: z.string(), tabId: z.string() }), z.void()),
+      /**
+       * 워크스페이스의 모든 (workspaceId, tabId) Claude 세션 상태를 초기화한다.
+       * 사용자가 사이드바 컨텍스트 메뉴에서 "알림 초기화"를 누르면 호출된다.
+       * broker에서 항목을 제거하고 각 tab에 대해 cleared 이벤트를 broadcast한다.
+       */
+      clearWorkspace: call(z.object({ workspaceId: z.string() }), z.void()),
     },
     listen: {
       /**
