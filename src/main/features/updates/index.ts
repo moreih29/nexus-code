@@ -109,14 +109,14 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
   let lastBroadcastKey: string | null = null;
 
   // ------------------------------------------------------------------
-  // Shared ETag cache for GitHub conditional requests.
+  // Shared ETag cache for conditional release-metadata requests.
   //
-  // GitHub does not count 304 Not Modified responses against the
-  // unauthenticated rate limit (60 req/h per IP). Reusing this single
-  // cache across every poll keeps repeated checks effectively free until
-  // the release list actually changes — which is the normal steady state.
-  // Without it, `bun run dev` hot reloads or frequent "Check for Updates"
-  // clicks could quickly exhaust the IP's hourly budget.
+  // The poller reads release artifacts off github.com / its CDN (not the
+  // rate-limited api.github.com REST API), so the hard 60 req/h-per-IP cap no
+  // longer applies. The ETag cache is still worthwhile: a 304 Not Modified
+  // skips re-downloading + re-parsing the metadata on every "Check for
+  // Updates" click within a process session. Reused across polls so repeated
+  // checks stay cheap until the latest release actually changes.
   // ------------------------------------------------------------------
   const conditionalCache = createConditionalCache();
 
