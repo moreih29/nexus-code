@@ -8,10 +8,11 @@
  *                attaches it to the main window's contentView.
  *   destroy()  — closes the WebContents, detaches the view, removes the entry.
  *   setActive() — attach (active=true) or detach (active=false) the view.
- *   setBounds() — resize/reposition.  Coordinates are CSS pixels (DIPs) on
- *                 every platform — `WebContentsView.setBounds()` uses the
- *                 same coordinate system as the window's contentView, which
- *                 Chromium handles in DIPs.  No DPR conversion happens here.
+ *   setBounds() — resize/reposition.  Renderer sends CSS-layout pixels; we
+ *                 multiply by the host webContents' zoom factor to map them
+ *                 into the window's DIP space before applying (see
+ *                 `applyCssBounds`).  DPR/HiDPI is handled by Chromium and
+ *                 needs no conversion.
  *   suspendAll() — capture (optional) + hide every active view so DOM
  *                  overlays (modals/menus/drag indicators) can render above.
  *   resumeAll() — show every previously-active view.
@@ -49,8 +50,8 @@
  * No cross-thread access is expected; the Map is not guarded by locks.
  */
 
-import { WebContentsView } from "electron";
 import type { BrowserWindow } from "electron";
+import { WebContentsView } from "electron";
 import { createLogger } from "../../../shared/log/main";
 import { installAppScrollbarStyle } from "./page-style";
 import {
@@ -108,11 +109,11 @@ interface TabEntry {
 }
 
 /**
- * The CSS-coordinate bounds (DIPs) as sent by the renderer.
- *
- * Electron's `WebContentsView.setBounds()` accepts these coordinates verbatim
- * — the window's contentView is itself laid out in DIPs on every platform —
- * so no devicePixelRatio conversion is performed.
+ * CSS-layout-pixel bounds as measured by the renderer's
+ * `getBoundingClientRect()`. These are pre-zoom: `applyCssBounds` multiplies
+ * by the shell zoom factor to map them into the window's DIP space before
+ * calling `WebContentsView.setBounds()`. (DPR/HiDPI is separate and handled
+ * by Chromium.)
  */
 export interface CssBounds {
   x: number;
@@ -170,12 +171,7 @@ export class BrowserTabRegistry {
    * If a view for `tabId` already exists it is destroyed before the new one
    * is created — see class doc for the rationale.
    */
-  create(args: {
-    tabId: string;
-    workspaceId: string;
-    url: string;
-    partition: string;
-  }): void {
+  create(args: { tabId: string; workspaceId: string; url: string; partition: string }): void {
     const { tabId, workspaceId, url, partition } = args;
 
     // Guard: if an entry already exists, tear it down cleanly first.
@@ -297,14 +293,10 @@ export class BrowserTabRegistry {
   /**
    * Resizes and repositions the view.
    *
-   * Coordinates are CSS pixels (DIPs) as measured by the renderer's
-   * `getBoundingClientRect()`. `WebContentsView.setBounds()` consumes the
-   * same coordinate system that the parent BrowserWindow uses for its
-   * contentView, which Chromium lays out in DIPs on every platform — so no
-   * devicePixelRatio multiplication is required here.
-   *
-   * `Math.round` collapses fractional sub-pixel values to integer DIPs,
-   * matching what `setBounds` accepts.
+   * Coordinates are CSS-layout pixels as measured by the renderer's
+   * `getBoundingClientRect()`. They are mapped into the window's DIP space by
+   * `applyCssBounds` (which multiplies by the shell zoom factor) before being
+   * handed to `WebContentsView.setBounds()`.
    */
   setBounds(args: CssBounds & { tabId: string }): void {
     const { tabId, x, y, width, height } = args;
@@ -320,20 +312,51 @@ export class BrowserTabRegistry {
     // the view to invisible and — worse — caching them would let
     // attachAndRestoreBounds() restore the collapsed geometry on the next
     // activation. Drop the update and keep the last good bounds instead; the
-    // renderer's stabilization loop re-sends valid bounds within a few frames.
+    // renderer re-sends valid bounds on its next ResizeObserver/reparent tick.
     if (width <= 0 || height <= 0) {
       return;
     }
 
     // Cache so resumeAll() can re-apply after a suspend/resume cycle —
     // Electron does not preserve bounds across removeChildView/addChildView.
+    // Cached in CSS px (verbatim from the renderer) so a later re-apply picks
+    // up the *current* zoom factor, not the one in effect when this arrived.
     entry.lastBounds = { x, y, width, height };
 
-    entry.view.setBounds({
-      x: Math.round(x),
-      y: Math.round(y),
-      width: Math.round(width),
-      height: Math.round(height),
+    this.applyCssBounds(entry.view, entry.lastBounds);
+  }
+
+  /**
+   * Maps renderer CSS-pixel bounds to window DIP bounds and applies them to a
+   * WebContentsView.
+   *
+   * The renderer measures placeholder geometry with `getBoundingClientRect()`,
+   * which returns CSS-layout pixels — these do NOT include the host
+   * webContents' zoom factor (the ⌘+ / ⌘- "zoom the whole shell" gesture).
+   * A WebContentsView sibling, however, is positioned in the window's DIP
+   * space, which the page paint IS scaled into by that zoom factor: an element
+   * at CSS coordinate `c` with zoom factor `zf` paints at `c * zf` DIP. So we
+   * must multiply by `zf` for the native view to line up with the painted
+   * placeholder. Without this the view drifts toward the origin (zf > 1,
+   * invading the sidebar) or away from it (zf < 1), and re-measuring never
+   * helps because the renderer keeps reporting the same un-zoomed CSS values.
+   *
+   * NOTE: this is the *page zoom* factor, NOT devicePixelRatio. HiDPI/Retina
+   * scaling is handled by Chromium internally and needs no conversion here —
+   * do not conflate the two.
+   *
+   * Reading the factor fresh on every apply makes the whole thing
+   * self-correcting: a shell-zoom change resizes the CSS viewport, which
+   * resizes the placeholder, which fires the renderer's ResizeObserver and
+   * re-sends bounds — re-applied here with the now-current factor.
+   */
+  private applyCssBounds(view: WebContentsView, b: CssBounds): void {
+    const zf = this.win.webContents.getZoomFactor();
+    view.setBounds({
+      x: Math.round(b.x * zf),
+      y: Math.round(b.y * zf),
+      width: Math.round(b.width * zf),
+      height: Math.round(b.height * zf),
     });
   }
 
@@ -382,10 +405,7 @@ export class BrowserTabRegistry {
       // closes.
       if (this.suspended && !entry.view.webContents.isDestroyed()) {
         entry.view.setVisible(false);
-        if (
-          entry.devtoolsView !== null &&
-          !entry.devtoolsView.webContents.isDestroyed()
-        ) {
+        if (entry.devtoolsView !== null && !entry.devtoolsView.webContents.isDestroyed()) {
           entry.devtoolsView.setVisible(false);
         }
       }
@@ -411,12 +431,7 @@ export class BrowserTabRegistry {
     this.win.contentView.addChildView(entry.view);
     const b = entry.lastBounds;
     if (b) {
-      entry.view.setBounds({
-        x: Math.round(b.x),
-        y: Math.round(b.y),
-        width: Math.round(b.width),
-        height: Math.round(b.height),
-      });
+      this.applyCssBounds(entry.view, b);
     }
   }
 
@@ -443,12 +458,7 @@ export class BrowserTabRegistry {
     this.win.contentView.addChildView(dt);
     const b = entry.devtoolsBounds;
     if (b !== null) {
-      dt.setBounds({
-        x: Math.round(b.x),
-        y: Math.round(b.y),
-        width: Math.round(b.width),
-        height: Math.round(b.height),
-      });
+      this.applyCssBounds(dt, b);
     }
   }
 
@@ -737,16 +747,8 @@ export class BrowserTabRegistry {
 
     entry.devtoolsBounds = { x, y, width, height };
 
-    if (
-      entry.devtoolsView !== null &&
-      !entry.devtoolsView.webContents.isDestroyed()
-    ) {
-      entry.devtoolsView.setBounds({
-        x: Math.round(x),
-        y: Math.round(y),
-        width: Math.round(width),
-        height: Math.round(height),
-      });
+    if (entry.devtoolsView !== null && !entry.devtoolsView.webContents.isDestroyed()) {
+      this.applyCssBounds(entry.devtoolsView, entry.devtoolsBounds);
     }
   }
 
