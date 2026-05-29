@@ -429,6 +429,51 @@
   color: var(--editor-text-muted);
 }
 
+/* Heading affordances — fold toggle (left gutter) + anchor copy (trailing),
+   both revealed on hover so the reading surface stays clean. */
+.md-preview .md-heading {
+  position: relative;
+}
+.md-preview .md-heading-fold,
+.md-preview .md-heading-anchor {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--editor-text-muted);
+  opacity: 0;
+  transition: opacity 0.1s ease;
+  font-size: 0.85em;
+  line-height: 1;
+}
+.md-preview .md-heading-fold {
+  position: absolute;
+  left: -1.1em;
+  top: 0.2em;
+  transition: opacity 0.1s ease, transform 0.12s ease;
+}
+.md-preview .md-heading[data-collapsed] .md-heading-fold {
+  transform: rotate(-90deg);
+}
+.md-preview .md-heading-anchor {
+  margin-left: 0.4em;
+  vertical-align: baseline;
+}
+.md-preview .md-heading:hover .md-heading-fold,
+.md-preview .md-heading:hover .md-heading-anchor,
+.md-preview .md-heading[data-collapsed] .md-heading-fold {
+  opacity: 0.65;
+}
+.md-preview .md-heading-fold:hover,
+.md-preview .md-heading-anchor:hover {
+  opacity: 1 !important;
+}
+
+/* Collapsed sections — siblings hidden imperatively after each render. */
+.md-preview [data-md-hidden] {
+  display: none;
+}
+
 /* Paragraphs and inline content */
 .md-preview p {
   margin: 0 0 1em 0;
@@ -479,6 +524,10 @@
   margin-right: 0.5em;
   vertical-align: middle;
 }
+/* Interactive task checkbox (writable file) — signal it can be toggled. */
+.md-preview input.md-task-checkbox {
+  cursor: pointer;
+}
 
 /* Inline code — subtle surface lift, monospace, small padding. */
 .md-preview code {
@@ -508,6 +557,36 @@
   border: 0;
   border-radius: 0;
   font-size: 1em;
+}
+
+/* Code block copy button — wrapper owns the block margin so the button can
+   sit absolutely in the top-right corner, revealed on hover. */
+.md-preview .md-code-wrap {
+  position: relative;
+  margin: 0 0 1em 0;
+}
+.md-preview .md-code-wrap > pre {
+  margin: 0;
+}
+.md-preview .md-code-copy {
+  position: absolute;
+  top: 0.5em;
+  right: 0.5em;
+  padding: 0.15em 0.55em;
+  font-size: 0.8em;
+  color: var(--editor-text-muted);
+  background: var(--surface-island-bg);
+  border: 1px solid var(--surface-island-border);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+.md-preview .md-code-wrap:hover .md-code-copy {
+  opacity: 0.8;
+}
+.md-preview .md-code-copy:hover {
+  opacity: 1;
 }
 
 /* Tables — full width, hairline rows only, header weight + subtle stripe. */

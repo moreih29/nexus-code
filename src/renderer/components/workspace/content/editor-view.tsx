@@ -8,6 +8,7 @@ import { ipcCallResult } from "../../../ipc/client";
 import { useSharedModel } from "../../../services/editor";
 import { hasConflictMarkers } from "../../../services/editor/conflict/conflict-parser";
 import { isPreviewable, previewEngineFor } from "../../../services/editor/preview/previewable";
+import { toggleTaskMarker } from "../../../services/editor/preview/task-toggle";
 import { useGitSession, useGitStore } from "../../../state/stores/git";
 import { useTabsStore } from "../../../state/stores/tabs";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
@@ -209,6 +210,36 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
   const showPreview = viewMode === "preview" && previewSupport === "supported";
   const previewSource = useModelSource(showPreview ? (model ?? null) : null);
 
+  // Toggle a GFM task checkbox from the markdown preview back into the model.
+  // The edit goes through `pushEditOperations` so it lands on the undo stack
+  // and marks the buffer dirty — identical to the user typing the change in
+  // the editor. Suppressed when the model is read-only.
+  const onToggleTask = useCallback(
+    (modelLine: number) => {
+      if (!model || model.isDisposed() || readOnly) return;
+      if (modelLine < 1 || modelLine > model.getLineCount()) return;
+      const lineContent = model.getLineContent(modelLine);
+      const toggled = toggleTaskMarker(lineContent);
+      if (toggled === null) return;
+      model.pushEditOperations(
+        null,
+        [
+          {
+            range: {
+              startLineNumber: modelLine,
+              startColumn: 1,
+              endLineNumber: modelLine,
+              endColumn: lineContent.length + 1,
+            },
+            text: toggled,
+          },
+        ],
+        () => null,
+      );
+    },
+    [model, readOnly],
+  );
+
   // Workspace root for link/image resolution inside the markdown renderer.
   const workspaceRootAbsPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
@@ -308,6 +339,7 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
             workspaceId={workspaceId}
             workspaceRootAbsPath={workspaceRootAbsPath}
             source={previewSource}
+            onToggleTask={readOnly ? undefined : onToggleTask}
           />
         </div>
       )}
@@ -386,6 +418,8 @@ interface PreviewPaneProps {
   workspaceId: string;
   workspaceRootAbsPath: string;
   source: string;
+  /** Forwarded to MarkdownPreview for interactive task checkboxes. */
+  onToggleTask?: (modelLine: number) => void;
 }
 
 /**
@@ -393,7 +427,13 @@ interface PreviewPaneProps {
  * Pulled out so EditorView's render stays linear and the dispatch table is
  * easy to extend (e.g. adding `.json` schema preview later).
  */
-function PreviewPane({ filePath, workspaceId, workspaceRootAbsPath, source }: PreviewPaneProps) {
+function PreviewPane({
+  filePath,
+  workspaceId,
+  workspaceRootAbsPath,
+  source,
+  onToggleTask,
+}: PreviewPaneProps) {
   const engine = previewEngineFor(filePath);
   switch (engine) {
     case "markdown":
@@ -403,6 +443,7 @@ function PreviewPane({ filePath, workspaceId, workspaceRootAbsPath, source }: Pr
           workspaceId={workspaceId}
           currentFileAbsPath={filePath}
           workspaceRootAbsPath={workspaceRootAbsPath}
+          onToggleTask={onToggleTask}
         />
       );
     case "html":
