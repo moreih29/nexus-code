@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
-import { createHash } from "node:crypto";
-import fs from "node:fs/promises";
-import { createReadStream } from "node:fs";
-import path from "node:path";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import fs from "node:fs/promises";
+import path from "node:path";
 import {
-  AgentManifestSchema,
   type AgentArtifactPlatform,
   type AgentBinaryManifestEntry,
+  AgentManifestSchema,
   type LspBinaryManifestEntry,
   type NodeRuntimeManifestEntry,
 } from "../src/shared/agent/manifest";
@@ -97,7 +97,12 @@ export async function buildAgentDistribution(
 ): Promise<void> {
   const rootDir = options.rootDir ?? path.resolve(import.meta.dir, "..");
   const outDir = options.outDir ?? path.join(rootDir, "dist", "agent");
-  const version = options.version ?? DEFAULT_VERSION;
+  // 에이전트 바이너리 버전은 앱 버전(package.json)에서 파생한다. 이 값이
+  // manifest.version → 원격 설치 경로(agent-<version>-os-arch)와 Ready 핸드셰이크의
+  // serverVersion을 결정한다. 고정값(DEFAULT_VERSION)으로 두면 릴리스마다 동일한
+  // 원격 경로를 in-place 덮어쓰게 되고 KEEP_REMOTE_VERSIONS 프루닝이 무의미해진다.
+  // 호환성 계약 자체는 별개의 protocolVersion이 담당한다.
+  const version = options.version ?? (await readAppVersion(rootDir)) ?? DEFAULT_VERSION;
   const protocolVersion = options.protocolVersion ?? DEFAULT_PROTOCOL_VERSION;
   const run = dependencies.run ?? runCommand;
 
@@ -155,7 +160,11 @@ export async function writeAgentManifest(args: {
   readonly agentArtifacts: readonly ManifestArtifactInput[];
   readonly nodeArtifacts: readonly RuntimeArtifactInput[];
   readonly lspArtifacts: readonly LspArtifactInput[];
-  readonly wrapperArtifact?: { readonly path: string; readonly sha256: string; readonly size: number };
+  readonly wrapperArtifact?: {
+    readonly path: string;
+    readonly sha256: string;
+    readonly size: number;
+  };
 }): Promise<void> {
   const binaries: AgentBinaryManifestEntry[] = [];
   for (const artifact of args.agentArtifacts) {
@@ -351,6 +360,20 @@ function nodeDistPlatform(target: AgentArtifactPlatform): string {
   const os = target.os;
   const arch = target.arch === "amd64" ? "x64" : "arm64";
   return `${os}-${arch}`;
+}
+
+/**
+ * package.json의 version을 읽어 에이전트 버전 기본값으로 쓴다. 읽거나 파싱에
+ * 실패하면 undefined를 돌려 호출부가 DEFAULT_VERSION으로 폴백하게 한다.
+ */
+async function readAppVersion(rootDir: string): Promise<string | undefined> {
+  try {
+    const raw = await fs.readFile(path.join(rootDir, "package.json"), "utf8");
+    const pkg = JSON.parse(raw) as { version?: unknown };
+    return typeof pkg.version === "string" ? pkg.version : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function fileMetadata(filePath: string): Promise<{ sha256: string; size: number }> {

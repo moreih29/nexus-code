@@ -15,9 +15,11 @@
  * event for clean closes that happened after `ready` settled.
  */
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { AGENT_PROTOCOL_VERSION } from "../../../../shared/agent/envelope";
-import type { AgentChannel } from "./index";
 import { createSshError } from "../pipe";
+import type { AgentChannel } from "./index";
 import {
   type AgentReconnectOptions,
   createReconnectingProcessChannel,
@@ -74,7 +76,8 @@ export function createLocalChannel(
     // Local stderr is not classified — the binary writes only human-readable
     // hints (e.g. usage), and terminal failures surface via exit code below.
     classifyStderr: () => null,
-    closeError: (wasReady) => createSshError(wasReady ? "transport.unknown" : "server.spawn-failed"),
+    closeError: (wasReady) =>
+      createSshError(wasReady ? "transport.unknown" : "server.spawn-failed"),
     requestTimeoutMs: options.requestTimeoutMs,
     expectedProtocolMajor: protocolMajor(AGENT_PROTOCOL_VERSION),
     reconnect: options.reconnect,
@@ -87,6 +90,17 @@ function defaultSpawn(
   args: readonly string[],
   options: { cwd?: string; env?: NodeJS.ProcessEnv },
 ): ChildProcessWithoutNullStreams {
+  // 패키징 단계(electron-builder extraResources 복사)에서 번들 바이너리의 실행
+  // 비트가 떨어지는 회귀에 대비한 자가 치유. 절대 경로 바이너리에만 적용한다.
+  // dev 폴백(`go run`)은 binaryPath="go" 처럼 상대값이라 건너뛴다. 권한이 이미
+  // 맞거나 경로가 읽기 전용이면 best-effort 로 무시한다.
+  if (path.isAbsolute(binaryPath)) {
+    try {
+      fs.chmodSync(binaryPath, 0o755);
+    } catch {
+      // best-effort: afterPack 이 이미 +x 를 보장했거나, Resources 가 읽기 전용일 수 있다.
+    }
+  }
   return spawn(binaryPath, args, {
     cwd: options.cwd,
     env: options.env,
