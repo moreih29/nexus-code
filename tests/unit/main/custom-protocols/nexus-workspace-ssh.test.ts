@@ -73,6 +73,9 @@ describe("nexus-workspace:// SSH branch", () => {
     expect(resp.status).toBe(200);
     expect(resp.headers.get("Content-Type")).toBe("image/png");
     expect(resp.headers.get("Cache-Control")).toBe("no-store");
+    // CORS header lets the opaque-origin preview iframe load CORS-mode
+    // resources (fonts) from this scheme.
+    expect(resp.headers.get("Access-Control-Allow-Origin")).toBe("*");
     const body = new Uint8Array(await resp.arrayBuffer());
     expect(Array.from(body)).toEqual(Array.from(bytes));
   });

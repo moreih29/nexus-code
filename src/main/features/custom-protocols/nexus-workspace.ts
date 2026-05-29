@@ -58,6 +58,17 @@ function mimeFromPath(filePath: string): string {
   return MIME_MAP[ext] ?? "application/octet-stream";
 }
 
+// Allow the opaque-origin preview iframe to satisfy CORS for resources fetched
+// in CORS mode (fonts). Requests are uncredentialed, so `*` is sufficient and
+// `*` is the only ACAO value usable from a "null" origin without credentials.
+// Safe scope: the scheme is registered only in this app's session (external
+// pages cannot reference it) and every served path is workspace-bound by the
+// traversal/symlink guards above — ACAO:* does not widen which files are
+// reachable, only lets the already-permitted iframe load fonts.
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+};
+
 // ---------------------------------------------------------------------------
 // Handler — exported for unit testing via dependency injection.
 // ---------------------------------------------------------------------------
@@ -152,7 +163,7 @@ export function buildNexusWorkspaceHandler(
       }
       return new Response(fileResp.body, {
         status: 200,
-        headers: { "Content-Type": contentType },
+        headers: { "Content-Type": contentType, ...CORS_HEADERS },
       });
     } catch (err) {
       logger.warn(`Failed to read file: ${realPath} — ${(err as Error).message}`);
@@ -202,6 +213,7 @@ async function serveViaAgent(
       headers: {
         "Content-Type": contentType,
         "Cache-Control": "no-store",
+        ...CORS_HEADERS,
       },
     });
   } catch (err) {
@@ -228,7 +240,15 @@ export function registerNexusWorkspaceSchemes(): void {
         standard: true,
         secure: true,
         supportFetchAPI: false,
-        corsEnabled: false,
+        // corsEnabled lets the preview iframe (opaque/"null" origin) load
+        // resources that are fetched in CORS mode — notably @font-face fonts,
+        // which the spec always requests as CORS even without `crossorigin`.
+        // Without it Chromium blocks those cross-origin loads regardless of
+        // response headers. Paired with `Access-Control-Allow-Origin: *` on
+        // served responses (see CORS_HEADERS). supportFetchAPI stays false:
+        // this enables CORS for browser-initiated subresource loads, not the
+        // JS fetch() API surface.
+        corsEnabled: true,
         bypassCSP: false,
       },
     },
