@@ -63,18 +63,16 @@
 7. **release.yml 자동 트리거 대기**
    Release가 published 되면 `release.yml` 워크플로가 자동으로 실행된다.
    - `build-agent` job: ubuntu-latest에서 Go 에이전트 크로스컴파일 + Node runtime + LSP 번들 산출.
-   - `package` job (matrix): `macos-14` (arm64), `macos-13` (x64) 에서 각각 native rebuild 후 electron-builder로 DMG / ZIP 패키징 및 Release asset 업로드.
+   - `package` job: `macos-14` (Apple Silicon arm64) 에서 native rebuild 후 electron-builder로 DMG / ZIP 패키징 및 Release asset 업로드. **arm64 단일 빌드만 제공한다** — Intel(x64) 정식 배포는 하지 않으며, Intel 사용자는 [`INSTALL.md`](INSTALL.md#self-build)의 self-build 절차를 따른다.
 
 8. **동작 확인**
    - GitHub Release에 아래 파일이 모두 첨부되었는지 확인한다:
      ```
      NexusCode-X.Y.Z-arm64.dmg
      NexusCode-X.Y.Z-arm64.zip
-     NexusCode-X.Y.Z-x64.dmg
-     NexusCode-X.Y.Z-x64.zip
      latest-mac.yml
      ```
-   - arm64 / x64 DMG를 각각 설치하여 앱 버전 및 업데이트 채널이 올바른지 확인한다.
+   - arm64 DMG를 설치하여 앱 버전 및 업데이트 채널이 올바른지 확인한다.
 
 ---
 
