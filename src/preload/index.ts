@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 type ListenCallback = (args: unknown) => void;
 type StreamEvent = {
@@ -90,4 +90,14 @@ contextBridge.exposeInMainWorld("ipc", ipcApi);
 // chrome (e.g. titlebar padding) without an IPC round-trip.
 contextBridge.exposeInMainWorld("host", {
   platform: process.platform as NodeJS.Platform,
+});
+
+// File-path resolver. Electron 32+ removed the non-standard `File.path`
+// property, so the renderer can no longer read an OS-dropped file's absolute
+// path directly. `webUtils.getPathForFile()` is the supported replacement and
+// must run in the preload (it is not exposed to the isolated renderer world).
+contextBridge.exposeInMainWorld("files", {
+  getPathForFile(file: File): string {
+    return webUtils.getPathForFile(file);
+  },
 });

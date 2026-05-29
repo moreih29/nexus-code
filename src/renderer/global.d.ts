@@ -54,10 +54,20 @@ interface HostBridge {
   platform: NodeJS.Platform;
 }
 
+interface FilesBridge {
+  /**
+   * Resolve the absolute filesystem path of a File obtained from a drag-and-drop
+   * (or file input) DataTransfer. Backed by Electron's `webUtils.getPathForFile`
+   * — the supported replacement for the removed `File.path` property.
+   */
+  getPathForFile(file: File): string;
+}
+
 declare global {
   interface Window {
     ipc: IpcBridge;
     host: HostBridge;
+    files: FilesBridge;
   }
 
   // Vite env variables used in renderer.

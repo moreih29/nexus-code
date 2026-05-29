@@ -107,6 +107,24 @@ export function isShellPromptLikeTitle(title: string): boolean {
   return false;
 }
 
+/**
+ * Backslash-escape a filesystem path for injection into a shell / TUI prompt,
+ * matching the drag-and-drop behavior of iTerm2 and Terminal.app.
+ *
+ * Only POSIX shell metacharacters and whitespace are escaped — Unicode letters
+ * (e.g. Korean filenames) are deliberately left intact, so a denylist (escape
+ * these specific bytes) is used rather than an allowlist. The result stays a
+ * single argument while remaining recognizable as a literal path to TUIs such
+ * as Claude Code that scan typed input for file paths.
+ *
+ * Exported for unit testing.
+ */
+export function escapeDroppedPath(path: string): string {
+  // Order matters only in that the backslash class member escapes itself; the
+  // regex matches one metacharacter at a time and prefixes it with a backslash.
+  return path.replace(/[\s'"\\$`(){}[\]<>|&;*?!#~]/g, "\\$&");
+}
+
 export interface TerminalControllerDeps {
   waitForTerminalFonts: (fontSize: number) => Promise<void>;
   createTerminal: (options: ConstructorParameters<typeof Terminal>[0]) => TerminalLike;
@@ -159,6 +177,7 @@ class XtermTerminalController implements TerminalController {
   private ptyClient: PtyClient | null = null;
   private themeListener: ((e: Event) => void) | null = null;
   private terminalSettingsListener: ((e: Event) => void) | null = null;
+  private dropDisposable: (() => void) | null = null;
 
   constructor(
     private readonly options: TerminalControllerOptions,
@@ -207,6 +226,9 @@ class XtermTerminalController implements TerminalController {
       window.removeEventListener("nexus:terminal-settings-changed", this.terminalSettingsListener);
       this.terminalSettingsListener = null;
     }
+
+    this.dropDisposable?.();
+    this.dropDisposable = null;
 
     this.dataDisposable?.dispose();
     this.dataDisposable = null;
@@ -341,6 +363,11 @@ class XtermTerminalController implements TerminalController {
     this.ptyClient = ptyClient;
 
     this.dataDisposable = term.onData((data) => ptyClient.write(data));
+
+    // External file drop → inject escaped path(s) into the PTY. Lets CLIs that
+    // accept file paths (Claude Code, image tools, etc.) receive dropped files
+    // even though the rest of the app gates DnD to its own internal MIME types.
+    this.installFileDrop(ptyClient);
 
     // OSC 0/1/2(window title) — xterm.js 내부 파서가 시퀀스를 수신해 onTitleChange로
     // 노출한다. claude / lazygit / lazydocker 같은 TUI가 자기 이름/상태를 보내면
@@ -602,6 +629,64 @@ class XtermTerminalController implements TerminalController {
     this.resizeObserver.observe(this.options.container);
 
     if (this.disposed) this.dispose();
+  }
+
+  // ---------------------------------------------------------------------------
+  // External file drag-and-drop → PTY
+  //
+  // The app gates its internal DnD to custom `application/x-nexus-*` MIME types,
+  // so OS file drags are ignored everywhere else (and neutralized app-wide by
+  // the global guard in bootstrap.ts to prevent file:// navigation). Terminal
+  // panes opt back in here: a dropped file's absolute path is escaped and
+  // written to the PTY, exactly as keyboard input would be — which is how CLIs
+  // like Claude Code receive image/file paths.
+  //
+  // `stopPropagation()` keeps the event from bubbling to the group-level drop
+  // target (which would parse the Files MIME as our custom payload and fail)
+  // and to the document-level guard.
+  // ---------------------------------------------------------------------------
+  private installFileDrop(ptyClient: PtyClient): void {
+    const el = this.options.container;
+    // Defensive: the container is always a real HTMLElement in production, but
+    // unit tests pass a bare stub. Skip wiring when DOM event APIs are absent.
+    if (typeof el.addEventListener !== "function") return;
+
+    const isFileDrag = (e: DragEvent): boolean =>
+      e.dataTransfer != null && Array.from(e.dataTransfer.types).includes("Files");
+
+    const onDragOver = (e: DragEvent): void => {
+      if (!isFileDrag(e)) return;
+      // preventDefault is required for the subsequent `drop` event to fire.
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    };
+
+    const onDrop = (e: DragEvent): void => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (this.disposed || !e.dataTransfer) return;
+
+      const paths = Array.from(e.dataTransfer.files)
+        // Electron 32+ removed File.path; webUtils (via the preload bridge) is
+        // the supported way to recover an absolute path from a dropped File.
+        .map((file) => window.files.getPathForFile(file))
+        .filter((p) => p !== "")
+        .map((p) => escapeDroppedPath(p));
+      if (paths.length === 0) return;
+
+      // Trailing space separates the injected path(s) from whatever the user
+      // types next — matching iTerm2 / Terminal.app drop behavior.
+      ptyClient.write(`${paths.join(" ")} `);
+    };
+
+    el.addEventListener("dragover", onDragOver);
+    el.addEventListener("drop", onDrop);
+    this.dropDisposable = () => {
+      el.removeEventListener("dragover", onDragOver);
+      el.removeEventListener("drop", onDrop);
+    };
   }
 
   // ---------------------------------------------------------------------------

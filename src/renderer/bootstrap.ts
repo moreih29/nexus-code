@@ -39,11 +39,43 @@ import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
  * only on subsequent state changes, so the hydrate setStates have already
  * flushed synchronously by the time the subscriber is attached.
  */
+/**
+ * Returns true when a drag carries OS files (as opposed to internal tab/file
+ * reordering or text drags, which advertise our custom `application/x-nexus-*`
+ * MIME types or `text/plain`).
+ */
+function isOsFileDrag(e: DragEvent): boolean {
+  return e.dataTransfer != null && Array.from(e.dataTransfer.types).includes("Files");
+}
+
+/**
+ * Global safety net for OS file drops.
+ *
+ * The main renderer window has no `will-navigate` guard, so a file dropped
+ * anywhere Chromium does not have a more specific handler would make the whole
+ * window navigate to its `file://` URL — blanking the app. We swallow file
+ * drags at the document level so that only opted-in surfaces (e.g. a terminal
+ * pane, which calls `stopPropagation()` and therefore never reaches here) act
+ * on them. Non-file drags (internal tab/file/text DnD) are left untouched.
+ */
+function installGlobalFileDropGuard(): void {
+  document.addEventListener("dragover", (e) => {
+    if (isOsFileDrag(e)) e.preventDefault();
+  });
+  document.addEventListener("drop", (e) => {
+    if (isOsFileDrag(e)) e.preventDefault();
+  });
+}
+
 export async function bootstrapAppState(): Promise<void> {
   // Install the central workspace:removed listener before any async I/O —
   // registered cleanup functions sit in memory regardless, but the listener
   // itself must be live before the first user-initiated workspace removal.
   initializeWorkspaceLifecycle();
+
+  // Neutralize stray OS file drops app-wide before any view mounts — see
+  // installGlobalFileDropGuard for the file:// navigation hazard it prevents.
+  installGlobalFileDropGuard();
 
   // Wire the OS notification click → workspace activate + tab reveal listener.
   startNotificationClickListener();
