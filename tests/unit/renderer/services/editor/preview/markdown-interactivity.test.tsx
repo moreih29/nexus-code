@@ -76,4 +76,22 @@ describe("code blocks", () => {
     expect(html).toContain("md-code-wrap");
     expect(html).toContain("md-code-copy");
   });
+
+  test("fenced block with a language hint is syntax-highlighted", () => {
+    const html = renderToStaticMarkup(
+      <MarkdownPreview {...BASE_PROPS} source={"```python\ndef f(x):\n    return x  # c\n```\n"} />,
+    );
+    // highlight.js tags the block and wraps tokens in hljs-* spans.
+    expect(html).toContain("language-python");
+    expect(html).toContain("hljs-keyword");
+    expect(html).toContain("hljs-comment");
+  });
+
+  test("plain fenced block (no language) is not auto-detected", () => {
+    const html = renderToStaticMarkup(
+      <MarkdownPreview {...BASE_PROPS} source={"```\ndef f(x): return x\n```\n"} />,
+    );
+    // detect:false → no token spans without an explicit language.
+    expect(html).not.toContain("hljs-keyword");
+  });
 });

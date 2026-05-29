@@ -45,6 +45,7 @@ import {
   useState,
 } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeHighlight from "rehype-highlight";
 import rehypeSlug from "rehype-slug";
 import remarkGfm from "remark-gfm";
 import { createLogger } from "../../../../shared/log/renderer";
@@ -256,7 +257,16 @@ export function MarkdownPreview({
         <div className="md-content mx-auto max-w-[72ch] px-6 py-4 text-[var(--surface-island-fg)]">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeSlug]}
+            rehypePlugins={[
+              rehypeSlug,
+              // Syntax highlighting for fenced blocks with a language hint
+              // (```python …). `detect: false` → only highlight when a language
+              // is declared; `ignoreMissing: true` → unknown languages render
+              // plain instead of throwing. Operates on the already-escaped code
+              // text (emits <span class="hljs-*">), so it does NOT reintroduce
+              // the raw-HTML parsing that the security model forbids.
+              [rehypeHighlight, { detect: false, ignoreMissing: true }],
+            ]}
             components={components}
           >
             {text}

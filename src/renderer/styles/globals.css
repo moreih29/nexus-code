@@ -589,6 +589,83 @@
   opacity: 1;
 }
 
+/* Syntax highlighting (rehype-highlight / highlight.js classes) mapped onto
+   the same 15-role palette Monaco uses, so preview code blocks match the
+   editor per theme. Tokens are emitted as --syntax-* by generate-theme-css. */
+.md-preview .hljs-keyword,
+.md-preview .hljs-selector-tag,
+.md-preview .hljs-literal,
+.md-preview .hljs-doctag {
+  color: var(--syntax-keyword);
+}
+.md-preview .hljs-string,
+.md-preview .hljs-meta .hljs-string {
+  color: var(--syntax-string);
+}
+.md-preview .hljs-number {
+  color: var(--syntax-number);
+}
+.md-preview .hljs-comment,
+.md-preview .hljs-quote {
+  color: var(--syntax-comment);
+  font-style: italic;
+}
+.md-preview .hljs-title,
+.md-preview .hljs-title.function_,
+.md-preview .hljs-section {
+  color: var(--syntax-function);
+}
+.md-preview .hljs-type,
+.md-preview .hljs-built_in,
+.md-preview .hljs-title.class_,
+.md-preview .hljs-class .hljs-title {
+  color: var(--syntax-type);
+}
+.md-preview .hljs-variable,
+.md-preview .hljs-template-variable,
+.md-preview .hljs-params {
+  color: var(--syntax-variable);
+}
+.md-preview .hljs-symbol,
+.md-preview .hljs-bullet {
+  color: var(--syntax-constant);
+}
+.md-preview .hljs-attr,
+.md-preview .hljs-property {
+  color: var(--syntax-property);
+}
+.md-preview .hljs-operator,
+.md-preview .hljs-punctuation {
+  color: var(--syntax-operator);
+}
+.md-preview .hljs-tag,
+.md-preview .hljs-name {
+  color: var(--syntax-tag);
+}
+.md-preview .hljs-attribute,
+.md-preview .hljs-selector-attr,
+.md-preview .hljs-selector-pseudo,
+.md-preview .hljs-selector-id,
+.md-preview .hljs-selector-class {
+  color: var(--syntax-attribute);
+}
+.md-preview .hljs-meta,
+.md-preview .hljs-meta-keyword {
+  color: var(--syntax-namespace);
+}
+.md-preview .hljs-regexp {
+  color: var(--syntax-regexp);
+}
+.md-preview .hljs-deletion {
+  color: var(--syntax-invalid);
+}
+.md-preview .hljs-emphasis {
+  font-style: italic;
+}
+.md-preview .hljs-strong {
+  font-weight: 600;
+}
+
 /* Tables — full width, hairline rows only, header weight + subtle stripe. */
 .md-preview table {
   border-collapse: collapse;

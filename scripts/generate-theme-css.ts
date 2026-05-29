@@ -28,6 +28,7 @@ import {
 } from "../src/shared/design-tokens";
 import { DEFAULT_THEME, THEMES } from "../src/shared/design-tokens/themes";
 import type { ThemeId } from "../src/shared/design-tokens";
+import { EDITOR_PALETTES } from "../src/shared/editor/palette";
 
 function camelToKebab(s: string): string {
   return s.replace(/([A-Z])/g, (m) => `-${m.toLowerCase()}`);
@@ -111,6 +112,23 @@ function gitTokensForTheme(themeId: ThemeId): Record<string, string> {
     "--color-workspace-connection-connecting": theme["state.warning.fg"],
     "--color-workspace-connection-error": theme["state.error.fg"],
   };
+}
+
+// ---------------------------------------------------------------------------
+// Syntax highlight tokens — the same 15-role palette Monaco uses for the
+// editor, re-emitted as CSS variables so the markdown preview's code blocks
+// (highlight.js classes) match the editor's colors per theme. Without this
+// the palette lives only in the Monaco theme JSON and is unreachable from CSS.
+// ---------------------------------------------------------------------------
+
+function syntaxTokensForTheme(themeId: ThemeId): Record<string, string> {
+  const palette = EDITOR_PALETTES[themeId];
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(palette)) {
+    // EditorPalette mixes Monaco chrome + 15 syntax roles; emit only syntax.
+    if (key.startsWith("syntax")) out[`--${camelToKebab(key)}`] = value;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -242,6 +260,10 @@ export function generateThemeCss(): string {
   for (const [key, value] of Object.entries(gitTokensForTheme(DEFAULT_THEME))) {
     lines.push(`  ${key}: ${value};`);
   }
+  // Default syntax-highlight tokens (markdown preview code blocks)
+  for (const [key, value] of Object.entries(syntaxTokensForTheme(DEFAULT_THEME))) {
+    lines.push(`  ${key}: ${value};`);
+  }
   lines.push("}");
   lines.push("");
 
@@ -266,6 +288,10 @@ export function generateThemeCss(): string {
     }
     // Git chip + workspace connection tokens (absorbed from globals.css)
     for (const [key, value] of Object.entries(gitTokensForTheme(themeId))) {
+      lines.push(`  ${key}: ${value};`);
+    }
+    // Syntax-highlight tokens (markdown preview code blocks)
+    for (const [key, value] of Object.entries(syntaxTokensForTheme(themeId))) {
       lines.push(`  ${key}: ${value};`);
     }
     lines.push("}");
