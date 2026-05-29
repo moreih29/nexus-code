@@ -95,6 +95,23 @@ const MIN_DEVTOOLS_HEIGHT = 120;
 /** Minimum page region height that the splitter drag will preserve. */
 const MIN_PAGE_HEIGHT = 100;
 
+/**
+ * Bounds stabilization tuning.
+ *
+ * `ResizeObserver` only fires on element SIZE changes — never on position-only
+ * shifts. When the first tab opens in an empty workspace the surrounding chrome
+ * (file-tree sidebar, panels) can still be settling its layout AFTER this
+ * component mounts: the placeholder moves without resizing, which the observer
+ * never reports, leaving the native WebContentsView pinned at a stale position
+ * (it visibly overlaps the sidebar). To close that gap we re-measure across a
+ * few frames until the rect stops moving, then stop.
+ */
+/** Consecutive identical measurements that count the layout as "settled". */
+const STABILIZE_STABLE_FRAMES = 2;
+/** Hard cap on stabilization frames (~0.5s @ 60fps) — guards against a
+ *  perpetually-animating layout pinning the rAF loop open. */
+const STABILIZE_MAX_FRAMES = 30;
+
 export function BrowserTabView({
   tabId,
   workspaceId,
@@ -109,6 +126,10 @@ export function BrowserTabView({
   // updates both regions so a splitter drag still emits a single IPC pair
   // per paint cycle.
   const rafIdRef = useRef<number | null>(null);
+  // rAF id for the stabilization loop (mount + activation). Kept separate from
+  // rafIdRef so an in-flight ResizeObserver coalesce and a stabilization pass
+  // never cancel each other.
+  const stabilizeRafRef = useRef<number | null>(null);
   // URL bar focus imperative trigger — incrementing causes UrlBar to focus+select.
   const [urlFocusToken, setUrlFocusToken] = useState(0);
   // Whether browser.create has been sent for this tabId.
@@ -168,13 +189,6 @@ export function BrowserTabView({
   }, []);
 
   // -------------------------------------------------------------------------
-  // Active state: browser.setActive
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    void ipcCallResult("browser", "setActive", { tabId, active: isActive });
-  }, [tabId, isActive]);
-
-  // -------------------------------------------------------------------------
   // ResizeObserver → rAF-coalesced setBounds + setDevToolsBounds
   // -------------------------------------------------------------------------
   const sendBounds = useCallback(() => {
@@ -209,6 +223,80 @@ export function BrowserTabView({
     }
   }, [tabId]);
 
+  // Re-measure across frames until the placeholder rect stops moving. Covers
+  // position-only shifts (sidebar/panel layout settling) that ResizeObserver
+  // does not report. See STABILIZE_* constants above for the rationale.
+  const stabilizeBounds = useCallback(() => {
+    // Restart any in-flight pass so the latest trigger wins.
+    if (stabilizeRafRef.current !== null) {
+      cancelAnimationFrame(stabilizeRafRef.current);
+      stabilizeRafRef.current = null;
+    }
+
+    let lastKey: string | null = null;
+    let stableFrames = 0;
+    let totalFrames = 0;
+
+    const tick = () => {
+      stabilizeRafRef.current = null;
+      totalFrames += 1;
+
+      let key = "";
+      const pageEl = placeholderRef.current;
+      if (pageEl !== null) {
+        const rect = pageEl.getBoundingClientRect();
+        key = `${rect.left},${rect.top},${rect.width},${rect.height}`;
+        void ipcCallResult("browser", "setBounds", {
+          tabId,
+          x: rect.left,
+          y: rect.top,
+          width: rect.width,
+          height: rect.height,
+        });
+      }
+
+      const dtEl = devtoolsPlaceholderRef.current;
+      if (dtEl !== null) {
+        const rect = dtEl.getBoundingClientRect();
+        key += `|${rect.left},${rect.top},${rect.width},${rect.height}`;
+        void ipcCallResult("browser", "setDevToolsBounds", {
+          tabId,
+          x: rect.left,
+          y: rect.top,
+          width: rect.width,
+          height: rect.height,
+        });
+      }
+
+      if (key === lastKey) {
+        stableFrames += 1;
+      } else {
+        stableFrames = 0;
+        lastKey = key;
+      }
+
+      if (stableFrames < STABILIZE_STABLE_FRAMES && totalFrames < STABILIZE_MAX_FRAMES) {
+        stabilizeRafRef.current = requestAnimationFrame(tick);
+      }
+    };
+
+    stabilizeRafRef.current = requestAnimationFrame(tick);
+  }, [tabId]);
+
+  // -------------------------------------------------------------------------
+  // Active state: browser.setActive
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    void ipcCallResult("browser", "setActive", { tabId, active: isActive });
+    // On (re)activation the main process re-attaches the view and re-applies its
+    // cached bounds. If the surrounding layout shifted while this tab was hidden
+    // (e.g. the sidebar was toggled) those cached bounds are stale and
+    // ResizeObserver never fired for the position change — so re-measure now.
+    if (isActive) {
+      stabilizeBounds();
+    }
+  }, [tabId, isActive, stabilizeBounds]);
+
   useEffect(() => {
     const pageEl = placeholderRef.current;
     if (pageEl === null) return;
@@ -229,11 +317,11 @@ export function BrowserTabView({
       observer.observe(dtEl);
     }
 
-    // Send initial bounds immediately (element may already have size).
-    if (rafIdRef.current !== null) {
-      cancelAnimationFrame(rafIdRef.current);
-    }
-    rafIdRef.current = requestAnimationFrame(sendBounds);
+    // Send initial bounds via the stabilization loop rather than a single rAF —
+    // a lone measurement can land mid-layout-settle (especially the first tab in
+    // an empty workspace) and ResizeObserver would not re-fire on the ensuing
+    // position-only shift.
+    stabilizeBounds();
 
     return () => {
       observer.disconnect();
@@ -241,11 +329,15 @@ export function BrowserTabView({
         cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = null;
       }
+      if (stabilizeRafRef.current !== null) {
+        cancelAnimationFrame(stabilizeRafRef.current);
+        stabilizeRafRef.current = null;
+      }
     };
     // devtoolsOpen is a dependency because the devtools placeholder mounts /
     // unmounts on toggle — the observer must rewire so a freshly-mounted
     // placeholder is observed (and the unmounted one stops being observed).
-  }, [sendBounds, devtoolsOpen]);
+  }, [sendBounds, stabilizeBounds, devtoolsOpen]);
 
   // -------------------------------------------------------------------------
   // Navigation handler (from UrlBar)

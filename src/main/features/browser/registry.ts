@@ -314,6 +314,17 @@ export class BrowserTabRegistry {
       return;
     }
 
+    // Guard against degenerate (zero/negative-size) bounds. The renderer can
+    // briefly measure a 0×0 rect while its layout is still settling (e.g. the
+    // first tab opening in an empty workspace). Applying those would collapse
+    // the view to invisible and — worse — caching them would let
+    // attachAndRestoreBounds() restore the collapsed geometry on the next
+    // activation. Drop the update and keep the last good bounds instead; the
+    // renderer's stabilization loop re-sends valid bounds within a few frames.
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+
     // Cache so resumeAll() can re-apply after a suspend/resume cycle —
     // Electron does not preserve bounds across removeChildView/addChildView.
     entry.lastBounds = { x, y, width, height };
