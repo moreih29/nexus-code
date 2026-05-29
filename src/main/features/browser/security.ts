@@ -129,31 +129,28 @@ export function installNavigationGuards(
   // about:blank is allowed (Electron uses it for initial frame creation);
   // data: and blob: are blocked to prevent HTML injection.
   //
-  // NOTE: `will-frame-navigate` is a real Electron runtime event introduced in
-  // Electron 35 but may not be present in the bundled .d.ts for this version.
-  // The `as unknown as NodeJS.EventEmitter` cast is intentional — the event
-  // fires at runtime and the guard MUST remain for security.  Remove this cast
-  // once the type definitions are updated to include the event signature.
-  (webContents as unknown as NodeJS.EventEmitter).on(
-    "will-frame-navigate",
-    (
-      event: { preventDefault(): void },
-      details: { url: string; isMainFrame: boolean },
-    ) => {
-      const { url, isMainFrame } = details;
+  // SIGNATURE: unlike `will-navigate` (which is `(event, url)`),
+  // `will-frame-navigate` passes a SINGLE consolidated event object — `url`,
+  // `isMainFrame`, and `preventDefault()` all live on that one `details`
+  // argument. Reading them off a (non-existent) second argument yields
+  // `undefined`, which `isNavigationSchemeAllowed` rejects, silently blocking
+  // EVERY frame navigation (incl. main-frame search submits) — the
+  // "blocked: undefined" bug. The Electron 41 .d.ts types this event, so no
+  // cast is needed.
+  webContents.on("will-frame-navigate", (details) => {
+    const { url, isMainFrame } = details;
 
-      // Main-frame navigations are already covered by will-navigate; only
-      // apply the frame-specific logic here to avoid double-blocking.
-      if (isMainFrame) return;
+    // Main-frame navigations are already covered by will-navigate; only
+    // apply the frame-specific logic here to avoid double-blocking.
+    if (isMainFrame) return;
 
-      if (url === ABOUT_BLANK) return; // allowed for frame initialisation
+    if (url === ABOUT_BLANK) return; // allowed for frame initialisation
 
-      if (!isNavigationSchemeAllowed(url)) {
-        event.preventDefault();
-        logger.warn(`[will-frame-navigate] blocked: ${url}`);
-      }
-    },
-  );
+    if (!isNavigationSchemeAllowed(url)) {
+      details.preventDefault();
+      logger.warn(`[will-frame-navigate] blocked: ${url}`);
+    }
+  });
 
   // Layer 3 — window.open / target="_blank" interception.
   // Policy (W2 decision from Plan 61):
