@@ -1,13 +1,13 @@
 /**
  * Branch handlers — list branches and mutate the current checkout.
  */
-import { ipcContract } from "../../../../shared/ipc/contract";
+
 import type { BranchList } from "../../../../shared/git/types";
-import { GitError } from "../domain/error";
-import type { GitRegistry } from "../domain/registry";
+import { ipcContract } from "../../../../shared/ipc/contract";
 import type { CallContext } from "../../../infra/ipc-router";
 import { validateArgs } from "../../../infra/ipc-router";
-import { handleGitHandlerError } from "./git-result";
+import type { GitRegistry } from "../domain/registry";
+import { withRepo } from "./git-result";
 
 const c = ipcContract.git.call;
 
@@ -37,18 +37,10 @@ export function listBranchesHandler(
 export function checkoutHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, ref } = validateArgs(c.checkout.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      await repo.checkout(ref, ctx?.signal);
-      await registry.refreshStatus(workspaceId);
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(registry, c.checkout.args, async (repo, { workspaceId, ref }, ctx) => {
+    await repo.checkout(ref, ctx.signal);
+    registry.bumpGeneration(workspaceId);
+  });
 }
 
 /**
@@ -62,18 +54,14 @@ export function checkoutHandler(
 export function checkoutTrackingHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, remoteRef } = validateArgs(c.checkoutTracking.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      await repo.checkoutTracking(remoteRef, ctx?.signal);
-      await registry.refreshStatus(workspaceId);
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(
+    registry,
+    c.checkoutTracking.args,
+    async (repo, { workspaceId, remoteRef }, ctx) => {
+      await repo.checkoutTracking(remoteRef, ctx.signal);
+      registry.bumpGeneration(workspaceId);
+    },
+  );
 }
 
 /**

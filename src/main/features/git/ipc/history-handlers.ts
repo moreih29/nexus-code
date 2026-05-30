@@ -2,13 +2,12 @@
  * History handlers — commit detail/search plus commit-scoped mutations from
  * the History panel context menu.
  */
-import { ipcContract } from "../../../../shared/ipc/contract";
+
 import type { CommitDetail, CommitSearchResult } from "../../../../shared/git/types";
-import { GitError } from "../domain/error";
-import type { GitRegistry } from "../domain/registry";
+import { ipcContract } from "../../../../shared/ipc/contract";
 import type { CallContext } from "../../../infra/ipc-router";
-import { validateArgs } from "../../../infra/ipc-router";
-import { handleGitHandlerError } from "./git-result";
+import type { GitRegistry } from "../domain/registry";
+import { withRepo } from "./git-result";
 
 const c = ipcContract.git.call;
 
@@ -22,17 +21,12 @@ const c = ipcContract.git.call;
 export function commitDetailHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, sha } = validateArgs(c.commitDetail.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      return (await repo.commitDetail(sha, ctx?.signal)) as CommitDetail;
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(
+    registry,
+    c.commitDetail.args,
+    async (repo, { sha }, ctx) => (await repo.commitDetail(sha, ctx.signal)) as CommitDetail,
+    { refreshStatus: false },
+  );
 }
 
 /**
@@ -45,17 +39,13 @@ export function commitDetailHandler(
 export function searchCommitsHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, query, limit } = validateArgs(c.searchCommits.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      return (await repo.searchCommits(query, limit ?? 50, ctx?.signal)) as CommitSearchResult;
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(
+    registry,
+    c.searchCommits.args,
+    async (repo, { query, limit }, ctx) =>
+      (await repo.searchCommits(query, limit ?? 50, ctx.signal)) as CommitSearchResult,
+    { refreshStatus: false },
+  );
 }
 
 /**
@@ -68,18 +58,10 @@ export function searchCommitsHandler(
 export function checkoutDetachedHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, sha } = validateArgs(c.checkoutDetached.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      await repo.checkoutDetached(sha, ctx?.signal);
-      await refreshAfterHistoryMutation(registry, workspaceId, ctx?.signal);
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(registry, c.checkoutDetached.args, async (repo, { workspaceId, sha }, ctx) => {
+    await repo.checkoutDetached(sha, ctx.signal);
+    registry.bumpGeneration(workspaceId);
+  });
 }
 
 /**
@@ -92,29 +74,8 @@ export function checkoutDetachedHandler(
 export function resetSoftHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, targetSha } = validateArgs(c.resetSoft.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      await repo.resetSoft(targetSha, ctx?.signal);
-      await refreshAfterHistoryMutation(registry, workspaceId, ctx?.signal);
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
-}
-
-/**
- * Bumps generation before broadcasting post-history-mutation status so HEAD
- * and index changes do not depend solely on filesystem watcher timing.
- */
-async function refreshAfterHistoryMutation(
-  registry: GitRegistry,
-  workspaceId: string,
-  signal?: AbortSignal,
-): Promise<void> {
-  registry.bumpGeneration(workspaceId);
-  await registry.refreshStatus(workspaceId, signal);
+  return withRepo(registry, c.resetSoft.args, async (repo, { workspaceId, targetSha }, ctx) => {
+    await repo.resetSoft(targetSha, ctx.signal);
+    registry.bumpGeneration(workspaceId);
+  });
 }

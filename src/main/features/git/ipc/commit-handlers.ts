@@ -1,13 +1,12 @@
 /**
  * Commit handlers — create commits and refresh Source Control status.
  */
-import { ipcContract } from "../../../../shared/ipc/contract";
+
 import type { CommitResult } from "../../../../shared/git/types";
-import { GitError } from "../domain/error";
-import type { GitRegistry } from "../domain/registry";
+import { ipcContract } from "../../../../shared/ipc/contract";
 import type { CallContext } from "../../../infra/ipc-router";
-import { validateArgs } from "../../../infra/ipc-router";
-import { handleGitHandlerError } from "./git-result";
+import type { GitRegistry } from "../domain/registry";
+import { withRepo } from "./git-result";
 
 const c = ipcContract.git.call;
 
@@ -22,26 +21,12 @@ const c = ipcContract.git.call;
 export function commitHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, message, amend, sign, signoff, noVerify } = validateArgs(
-        c.commit.args,
-        args,
-      );
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      const result: CommitResult = await repo.commit(
-        message,
-        { amend, sign, signoff, noVerify },
-        ctx?.signal,
-      );
-      await registry.refreshStatus(workspaceId);
-      return result;
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(
+    registry,
+    c.commit.args,
+    async (repo, { message, amend, sign, signoff, noVerify }, ctx) =>
+      (await repo.commit(message, { amend, sign, signoff, noVerify }, ctx.signal)) as CommitResult,
+  );
 }
 
 /**
@@ -54,26 +39,12 @@ export function commitHandler(
 export function commitAmendHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, message, sign, signoff, noVerify } = validateArgs(
-        c.commitAmend.args,
-        args,
-      );
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      const result: CommitResult = await repo.commitAmend(
-        message,
-        { sign, signoff, noVerify },
-        ctx?.signal,
-      );
-      await registry.refreshStatus(workspaceId);
-      return result;
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(
+    registry,
+    c.commitAmend.args,
+    async (repo, { message, sign, signoff, noVerify }, ctx) =>
+      (await repo.commitAmend(message, { sign, signoff, noVerify }, ctx.signal)) as CommitResult,
+  );
 }
 
 /**
@@ -85,18 +56,9 @@ export function commitAmendHandler(
 export function undoLastCommitHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId } = validateArgs(c.undoLastCommit.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      await repo.undoLastCommit(ctx?.signal);
-      await registry.refreshStatus(workspaceId);
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(registry, c.undoLastCommit.args, async (repo, _args, ctx) => {
+    await repo.undoLastCommit(ctx.signal);
+  });
 }
 
 /**
@@ -108,24 +70,10 @@ export function undoLastCommitHandler(
 export function commitEmptyHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, message, sign, signoff, noVerify } = validateArgs(
-        c.commitEmpty.args,
-        args,
-      );
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      const result: CommitResult = await repo.commitEmpty(
-        message,
-        { sign, signoff, noVerify },
-        ctx?.signal,
-      );
-      await registry.refreshStatus(workspaceId);
-      return result;
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(
+    registry,
+    c.commitEmpty.args,
+    async (repo, { message, sign, signoff, noVerify }, ctx) =>
+      (await repo.commitEmpty(message, { sign, signoff, noVerify }, ctx.signal)) as CommitResult,
+  );
 }
