@@ -66,6 +66,14 @@
 
 ---
 
+## E. 회귀 가드 절차
+
+품질 판정(D 규칙) 이후 테스트를 추가·변환할 때는 `scripts/test-gate.sh`를 통과시켜야 한다. 이 스크립트는 full(0 fail/0 error) · 변경파일 solo==full · shuffle(무작위 순서) · coverage superset를 한 번에 검증한다. 무손실 변환은 expect 호출 카운트 보존 + coverage superset로, 구현결합 재작성은 mutation spot-check로 각각 A 보증성을 확인한다.
+
+→ 게이트 4단계 상세는 `pattern-test-design.md` §4 참조.
+
+---
+
 ## 적용 체크리스트
 
 각 테스트를 볼 때:
