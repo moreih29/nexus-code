@@ -297,6 +297,24 @@ export function clearDiskDiverged(input: EditorInput): void {
 }
 
 /**
+ * Advance the entry's loaded-value baseline to `content` after a successful
+ * save. `lastLoadedValue` records "what the buffer matched the last time it
+ * was in sync with disk"; reconcileExternalChange compares the live buffer
+ * against it to decide whether an fs/git event reflects the user's own write
+ * (no-op) or a genuine external change. Without this update the baseline stays
+ * frozen at the pre-edit content, so every post-save fs/git event makes
+ * reconcile treat the file as externally diverged — a false positive.
+ *
+ * `content` is the exact text just written to disk (captured by the save
+ * service before the write), so the baseline matches the on-disk state.
+ */
+export function syncLoadedValueAfterSave(input: EditorInput, content: string): void {
+  const entry = entries.get(cacheUriForInput(input));
+  if (!entry) return;
+  entry.lastLoadedValue = content;
+}
+
+/**
  * Mark tracked entries as no-longer-opened on the LSP side. The renderer's
  * LSP bridge calls this after receiving `lsp:workspaceReset` from main.
  *
