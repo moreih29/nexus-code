@@ -73,6 +73,7 @@ import {
   WorkspaceSymbolArgsSchema,
 } from "../lsp";
 import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "../search/types";
+import { BrowserPermissionKindSchema } from "../security/browser-permissions";
 import {
   SshAuthCancelArgsSchema,
   SshAuthPromptSchema,
@@ -80,7 +81,6 @@ import {
 } from "../ssh/auth-prompt";
 import { SshErrorCodeSchema } from "../ssh/errors";
 import { AppStateSchema, LspLanguageIdSchema } from "../types/app-state";
-import { BrowserPermissionKindSchema } from "../security/browser-permissions";
 import { ColorToneSchema } from "../types/color-tone";
 import {
   ConnectionProfileFavoriteArgsSchema,
@@ -103,6 +103,7 @@ import {
   WorkspaceLocationSchema,
   WorkspaceMetaSchema,
 } from "../types/workspace";
+import { WorkspaceIdSchema as WorkspaceIdPrimitive, workspaceScoped } from "../types/workspace-id";
 
 // ---------------------------------------------------------------------------
 // Primitive procedure descriptors
@@ -215,9 +216,9 @@ const WorkspaceUpdateArgsSchema = z.object({
   pinned: z.boolean().optional(),
 });
 
-const WorkspaceIdSchema = z.object({ id: z.string().uuid() });
+const WorkspaceIdSchema = z.object({ id: WorkspaceIdPrimitive });
 const PtyWorkspaceTabSchema = z.object({
-  workspaceId: z.string().uuid(),
+  workspaceId: WorkspaceIdPrimitive,
   tabId: z.string().uuid(),
 });
 
@@ -300,7 +301,7 @@ const WorkspaceTestSshResultSchema = z.discriminatedUnion("ok", [
 ]);
 
 const LspDidOpenArgsSchema = TextDocumentItemSchema.extend({
-  workspaceId: z.string().uuid(),
+  workspaceId: WorkspaceIdPrimitive,
   workspaceRoot: z.string(),
 });
 
@@ -358,7 +359,7 @@ const LspApplyEditResultArgsSchema = z.object({
   result: ApplyWorkspaceEditResultSchema,
 });
 
-const GitWorkspaceIdSchema = z.object({ workspaceId: z.string().uuid() });
+const GitWorkspaceIdSchema = workspaceScoped({});
 
 const GitBranchNameSchema = z.string().min(1);
 
@@ -574,7 +575,7 @@ export const ipcContract = {
     call: {
       create: call(
         z.object({
-          workspaceId: z.string().uuid(),
+          workspaceId: WorkspaceIdPrimitive,
           type: z.enum(["terminal", "agent", "editor", "editor.diff"]),
           title: z.string().optional(),
           cwd: z.string().optional(),
@@ -651,13 +652,13 @@ export const ipcContract = {
       // disposes servers for any removed languages synchronously.
       setEnabledLanguages: call(
         z.object({
-          workspaceId: z.string().uuid(),
+          workspaceId: WorkspaceIdPrimitive,
           languages: z.array(LspLanguageIdSchema),
         }),
         z.void(),
       ),
       getEnabledLanguages: call(
-        z.object({ workspaceId: z.string().uuid() }),
+        z.object({ workspaceId: WorkspaceIdPrimitive }),
         z.object({ languages: z.array(LspLanguageIdSchema) }),
       ),
     },
@@ -671,7 +672,7 @@ export const ipcContract = {
       // window can update its UI state. Payload mirrors setEnabledLanguages args.
       enabledLanguagesChanged: listen(
         z.object({
-          workspaceId: z.string().uuid(),
+          workspaceId: WorkspaceIdPrimitive,
           languages: z.array(LspLanguageIdSchema),
         }),
       ),
@@ -963,42 +964,25 @@ export const ipcContract = {
 
   fs: {
     call: {
-      readdir: call(
-        z.object({ workspaceId: z.string().uuid(), relPath: z.string() }),
-        z.array(DirEntrySchema),
-      ),
-      stat: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), FsStatSchema),
-      watch: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), z.void()),
-      unwatch: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), z.void()),
-      getExpanded: call(
-        z.object({ workspaceId: z.string().uuid() }),
-        z.object({ relPaths: z.array(z.string()) }),
-      ),
-      setExpanded: call(
-        z.object({ workspaceId: z.string().uuid(), relPaths: z.array(z.string()) }),
-        z.void(),
-      ),
-      readFile: call(
-        z.object({ workspaceId: z.string().uuid(), relPath: z.string() }),
-        FileReadResultSchema,
-      ),
+      readdir: call(workspaceScoped({ relPath: z.string() }), z.array(DirEntrySchema)),
+      stat: call(workspaceScoped({ relPath: z.string() }), FsStatSchema),
+      watch: call(workspaceScoped({ relPath: z.string() }), z.void()),
+      unwatch: call(workspaceScoped({ relPath: z.string() }), z.void()),
+      getExpanded: call(workspaceScoped({}), z.object({ relPaths: z.array(z.string()) })),
+      setExpanded: call(workspaceScoped({ relPaths: z.array(z.string()) }), z.void()),
+      readFile: call(workspaceScoped({ relPath: z.string() }), FileReadResultSchema),
       writeFile: call(
-        z.object({
-          workspaceId: z.string().uuid(),
+        workspaceScoped({
           relPath: z.string(),
           content: z.string(),
           expected: ExpectedFileStateSchema,
         }),
         WriteFileResultSchema,
       ),
-      showItemInFolder: call(
-        z.object({ workspaceId: z.string().uuid(), relPath: z.string() }),
-        z.void(),
-      ),
-      createFile: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), z.void()),
+      showItemInFolder: call(workspaceScoped({ relPath: z.string() }), z.void()),
+      createFile: call(workspaceScoped({ relPath: z.string() }), z.void()),
       mkdir: call(
-        z.object({
-          workspaceId: z.string().uuid(),
+        workspaceScoped({
           relPath: z.string(),
           // Optional — when true the agent uses os.MkdirAll so intermediate
           // segments are materialised. The renderer's New File / New Folder
@@ -1009,17 +993,10 @@ export const ipcContract = {
         }),
         z.void(),
       ),
-      unlink: call(
-        z.object({ workspaceId: z.string().uuid(), relPath: FsMutationRelPathSchema }),
-        z.void(),
-      ),
-      rmdir: call(
-        z.object({ workspaceId: z.string().uuid(), relPath: FsMutationRelPathSchema }),
-        z.void(),
-      ),
+      unlink: call(workspaceScoped({ relPath: FsMutationRelPathSchema }), z.void()),
+      rmdir: call(workspaceScoped({ relPath: FsMutationRelPathSchema }), z.void()),
       rename: call(
-        z.object({
-          workspaceId: z.string().uuid(),
+        workspaceScoped({
           fromRelPath: FsMutationRelPathSchema,
           toRelPath: FsMutationRelPathSchema,
           overwrite: z.boolean().optional(),
@@ -1027,18 +1004,14 @@ export const ipcContract = {
         z.void(),
       ),
       copyFile: call(
-        z.object({
-          workspaceId: z.string().uuid(),
+        workspaceScoped({
           fromRelPath: FsMutationRelPathSchema,
           toRelPath: FsMutationRelPathSchema,
           overwrite: z.boolean().optional(),
         }),
         z.void(),
       ),
-      removeAll: call(
-        z.object({ workspaceId: z.string().uuid(), relPath: FsMutationRelPathSchema }),
-        z.void(),
-      ),
+      removeAll: call(workspaceScoped({ relPath: FsMutationRelPathSchema }), z.void()),
       // ----------------------------------------------------------------
       // fs.trash — Local workspaces only. Moves the path to the OS
       // recycle bin via Electron's `shell.trashItem`, where the user can
@@ -1049,21 +1022,15 @@ export const ipcContract = {
       // Idempotent on ENOENT (a stale row whose underlying path has
       // disappeared resolves silently — same posture as `fs.removeAll`).
       // ----------------------------------------------------------------
-      trash: call(
-        z.object({ workspaceId: z.string().uuid(), relPath: FsMutationRelPathSchema }),
-        z.void(),
-      ),
-      readExternal: call(
-        z.object({ workspaceId: z.string().uuid(), absolutePath: z.string() }),
-        FileReadResultSchema,
-      ),
+      trash: call(workspaceScoped({ relPath: FsMutationRelPathSchema }), z.void()),
+      readExternal: call(workspaceScoped({ absolutePath: z.string() }), FileReadResultSchema),
     },
     listen: {
       changed: listen(FsChangedEventSchema),
     },
     stream: {
       searchText: stream(
-        z.object({ workspaceId: z.string().uuid(), query: TextSearchQuerySchema }),
+        workspaceScoped({ query: TextSearchQuerySchema }),
         SearchProgressSchema,
         SearchCompleteSchema,
       ),
@@ -1136,7 +1103,7 @@ export const ipcContract = {
       create: call(
         z.object({
           tabId: z.string().uuid(),
-          workspaceId: z.string().uuid(),
+          workspaceId: WorkspaceIdPrimitive,
           url: z.string().url(),
           partition: z.string().min(1),
         }),

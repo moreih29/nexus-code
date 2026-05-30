@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WorkspaceIdSchema } from "../types/workspace-id";
 
 export const FsEntryTypeSchema = z.enum(["file", "dir", "symlink"]);
 export type FsEntryType = z.infer<typeof FsEntryTypeSchema>;
@@ -29,7 +30,7 @@ export const FsChangeSchema = z.object({
 export type FsChange = z.infer<typeof FsChangeSchema>;
 
 export const FsChangedEventSchema = z.object({
-  workspaceId: z.string().uuid(),
+  workspaceId: WorkspaceIdSchema,
   changes: z.array(FsChangeSchema),
 });
 export type FsChangedEvent = z.infer<typeof FsChangedEventSchema>;
