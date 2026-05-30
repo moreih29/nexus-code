@@ -22,7 +22,8 @@
     "test:unit": "bun test tests/unit/",
     "test:integration": "bun test tests/integration/",
     "package:mac": "bun run scripts/build-agent.ts && electron-vite build && electron-builder --mac dmg zip --arm64 --publish never",
-    "package:mac:current": "bun run scripts/build-agent.ts && electron-vite build && electron-builder --mac dmg --publish never"
+    "package:mac:current": "bun run scripts/build-agent.ts && electron-vite build && electron-builder --mac dmg --publish never",
+    "gen:icons": "bun run scripts/generate-material-icons.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -72,7 +73,9 @@
     "electron": "^41.5.0",
     "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
+    "material-icon-theme": "^5.35.0",
     "typescript": "^5.8.3",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vite-plugin-svgr": "^5.2.0"
   }
 }

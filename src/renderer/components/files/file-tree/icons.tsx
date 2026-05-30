@@ -20,8 +20,6 @@ import {
   FileLock,
   FileTerminal,
   FileText,
-  Folder,
-  FolderOpen,
   type LucideIcon,
 } from "lucide-react";
 
@@ -146,5 +144,5 @@ export function getFileIcon(name: string): LucideIcon {
   return FILE_ICON_BY_EXT[ext] ?? File;
 }
 
-export const FOLDER_ICON: LucideIcon = Folder;
-export const FOLDER_OPEN_ICON: LucideIcon = FolderOpen;
+// FOLDER_ICON and FOLDER_OPEN_ICON have been removed.
+// Use <FileIcon kind="folder" /> and <FileIcon kind="folder-open" /> instead.

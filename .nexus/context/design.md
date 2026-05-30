@@ -1,6 +1,6 @@
 ---
 doc: design-system-contract
-version: "3.1"
+version: "3.2"
 status: active
 token_source: src/shared/design-tokens/
 theme_source: src/shared/design-tokens/theme-sources.ts
@@ -695,8 +695,10 @@ FOUC 방지를 위해 `index.html <head>` 인라인 부트 스크립트가 `loca
 | 순수 #000 / #fff 사용 | 톤 불변 원칙 위반 | hue 틴트된 뉴트럴 |
 | 존재하지 않는 파일 경로 참조 | 오참조 혼란 | 실재 확인 후 참조 |
 | 신택스 색을 Monaco 기본 테마에 상속 (`rules: []`) | 코드만 다른 디자인 언어로 칠해짐 | §15 syntax 토큰 작성 |
-| 아이콘 크기 12/16px 외 값 사용 | 아이콘 그리드 위반 | §14 sm(12) / md(16) 2종 |
-| 아이콘 `strokeWidth` 개별 재정의 | 아이콘 굵기 불일치 | lucide 기본 1.5 유지 |
+| Minimal 테마에서 lucide 외 아이콘 라이브러리 혼용 | 단색·절제 베이스라인 파괴 | lucide-react 단일 소스 (§14) — Material 테마는 §14 예외 적용 |
+| Minimal 테마에서 아이콘 크기 sm/md 외 값 사용 | 아이콘 그리드 위반 | §14 sm(12px) / md(14px) 2종 — Material 테마도 동일 그리드 준수 |
+| Minimal 테마에서 아이콘 `strokeWidth` 개별 재정의 | 아이콘 굵기 불일치 | lucide 기본 1.5 유지 — Material 테마는 §14 예외 적용 |
+| Material 테마 에셋을 `<FileIcon>` 래퍼 없이 직접 렌더 | 테마 전환 단일 진입점 우회 | `<FileIcon kind size tone />` 래퍼 경유 (§14) |
 | 스크롤바를 primitive 토큰으로 직접 칠 | semantic 계층 우회 | `scrollbar.*` 토큰 (§10) |
 | `palette.ts` 외 파일에서 에디터 색 hex 사용 | Monaco 변환 경계 위반 | `palette.ts`에만 (§15.3) |
 | 사용자 폰트 override를 UI 텍스트(`app*`)에 전파 | §6 봉인 정신 위반 | code/terminal 영역에만 적용 |
@@ -737,8 +739,10 @@ FOUC 방지를 위해 `index.html <head>` 인라인 부트 스크립트가 `loca
 
 ### 에디터·아이콘 체크리스트
 
-- [ ] 아이콘 크기는 `size-3`(12px) 또는 `size-4`(16px)만 — §14
-- [ ] 아이콘 색은 `currentColor` 상속, 강조 시에만 `*.icon.fg` 토큰
+- [ ] 아이콘은 반드시 `<FileIcon kind size tone />` 래퍼를 경유한다 — §14
+- [ ] Minimal 테마: `size-3`(12px, sm) 또는 `size-3.5`(14px, md)만 — §14 크기 그리드
+- [ ] Minimal 테마: 아이콘 색은 `currentColor` 상속, 강조 시에만 `*.icon.fg` 토큰
+- [ ] Material 테마: 크기 그리드 동일(sm=12/md=14), 색은 에셋 자체 색 상속(currentColor 불필요)
 - [ ] 신택스 토큰은 `syntax.*` 역할로 참조 — Monaco `rules` 채움 (§15.1)
 - [ ] 에디터 chrome 색은 `EditorPalette` 인터페이스로만 — `palette.ts` 정본 (§15.2)
 - [ ] 스크롤바는 `scrollbar.*` semantic 토큰 사용
@@ -751,7 +755,9 @@ FOUC 방지를 위해 `index.html <head>` 인라인 부트 스크립트가 `loca
 - 마케팅 타입스케일 in-app 사용 금지
 - 그리드 외 스페이싱 금지
 - 라디우스 5단계 외 값 금지
-- 아이콘 크기 12/16px 외 값·`strokeWidth` 재정의 금지
+- Minimal 테마에서 lucide 외 아이콘 소스·`strokeWidth` 재정의 금지 (§14)
+- 아이콘 sm/md 외 크기 사용 금지 — 테마 무관 (§14)
+- `<FileIcon>` 래퍼 없이 아이콘 에셋 직접 렌더 금지 (§14)
 - 오버레이에 `rgba(255,255,255,…)` 하드코딩 금지
 - design.md에 색값 추가 금지 — `→ src/shared/design-tokens/themes/*.ts`에만
 
@@ -759,33 +765,72 @@ FOUC 방지를 위해 `index.html <head>` 인라인 부트 스크립트가 `loca
 
 ## §14. Iconography
 
-### 아이콘 라이브러리
+> **v3.2 개정 배경**: Material(material-icon-theme 기반 언어별 컬러 SVG) opt-in 아이콘 테마
+> 도입으로 Minimal 단일 소스 규정이 확장됐다. Minimal을 기본·불변 베이스라인으로 유지하면서
+> Material을 명시적 opt-in 예외로 규정한다.
 
-in-app 아이콘은 `lucide-react` 단일 소스를 쓴다. 다른 아이콘 라이브러리·인라인 SVG·아이콘 폰트를
-혼용하지 않는다. 아이콘 자산을 별도로 리컬러링하지 않는다 (JetBrains의 SVG `ColorPalette` 리매핑과
-달리, lucide는 `currentColor` 상속이므로 색 계층이 단순하다).
+### 아이콘 테마 모델
+
+아이콘 테마는 두 가지다. 기본값은 **Minimal**이며 사용자가 명시적으로 선택해야만 Material이 활성화된다.
+
+| 테마 | 설명 | 소스 | 기본값 |
+|---|---|---|---|
+| Minimal | 단색 outline 아이콘 — 절제 베이스라인 | `lucide-react` | **기본값 (불변 fallback)** |
+| Material | 언어별 컬러 SVG 로고 — opt-in 예외 | `material-icon-theme` | 사용자 명시 선택 시만 |
+
+`AppState.iconTheme`이 `"minimal"` 또는 absent이면 Minimal, `"material"`이면 Material이 활성화된다.
+
+### 렌더 래퍼 — `<FileIcon kind size tone />`
+
+아이콘 에셋은 **반드시 `<FileIcon>` 통합 래퍼를 통해서만** 렌더한다.
+래퍼는 `useIconThemeStore`(`AppState.iconTheme`에서 IPC로 hydrate된 zustand 스토어)를 구독해
+Minimal(lucide) 또는 Material(SVG 에셋) 경로를 선택한다. `AppState.iconTheme`은 권위 있는
+저장소이며 래퍼가 직접 읽지 않는다.
+Material 에셋이 커버하지 않는 파일 타입은 lucide로 **per-icon 폴백**한다.
+호출 측이 직접 lucide 아이콘이나 Material SVG를 렌더하는 것은 단일 진입점 원칙 위반이다.
 
 ### 크기 그리드 — 2단계 닫힌 집합
 
 | 단계 | px | Tailwind | 용도 |
 |---|---|---|---|
 | sm | 12 | `size-3` | 조밀 UI — 파일트리 행, 상태바, 인라인 아이콘 |
-| md | 16 | `size-4` | 기본 — 툴바, 버튼, 탭, 패널 헤더 |
+| md | 14 | `size-3.5` | 기본 — 툴바, 버튼, 탭, 패널 헤더 |
 
-- 이 2종이 in-app 아이콘 크기의 **닫힌 집합**이다. 그 외 `size-N`을 아이콘에 쓰지 않는다.
-- 더 큰 그래픽(빈 상태 일러스트 등)은 아이콘이 아니며 이 그리드에 종속되지 않는다.
+> **선행 드리프트 주석**: 이 계약 도입 이전에 코드베이스 일부에서 `size-4`(16px)가 사용되고 있다.
+> 이는 이번 사이클 이전의 드리프트이며 이번 작업에서 신규로 도입된 것이 아니다.
+> 기존 16px 사용처는 별도 정리 사이클의 대상이다.
 
-### 색
+- 이 2종이 in-app 아이콘 크기의 **닫힌 집합**이다. 테마(Minimal·Material) 무관하게 동일하게 적용한다.
+- 더 큰 그래픽(빈 상태 일러스트, 온보딩 이미지 등)은 아이콘이 아니며 이 그리드에 종속되지 않는다.
 
-- 아이콘은 기본적으로 `currentColor`를 상속한다 — 부모 텍스트 색을 그대로 따른다.
-- 리전별 고정 강조가 필요할 때만 §10의 `*.icon.fg` 토큰(`sidebar.icon.fg` 등)을 쓴다.
-- hover/disabled 등 상태는 텍스트와 동일하게 §8 상태 처리를 따른다 — 아이콘 전용 상태 색을 만들지 않는다.
+### Minimal 테마 규칙 (기본·불변 베이스라인)
 
-### 스트로크
+Minimal이 활성화된 경우(기본값, 또는 사용자가 Minimal을 선택한 경우):
 
-- lucide 기본 `strokeWidth` 1.5를 유지한다. 개별 아이콘에서 재정의하지 않는다 (굵기 일관성).
+- **소스**: `lucide-react` 단일 소스. 다른 아이콘 라이브러리·인라인 SVG·아이콘 폰트 혼용 금지.
+- **색**: `currentColor`를 상속한다 — 부모 텍스트 색을 그대로 따른다.
+  리전별 고정 강조가 필요할 때만 §10의 `*.icon.fg` 토큰(`sidebar.icon.fg` 등)을 쓴다.
+  아이콘 자산을 별도로 리컬러링하지 않는다.
+- **스트로크**: lucide 기본 `strokeWidth` 1.5를 유지한다. 개별 아이콘에서 재정의하지 않는다(굵기 일관성).
+- **상태**: hover/disabled 등 상태는 텍스트와 동일하게 §8 상태 처리를 따른다 — 아이콘 전용 상태 색을 만들지 않는다.
 
-### 의미 인코딩
+### Material 테마 규칙 (opt-in 예외 — `AppState.iconTheme === "material"`인 경우에만 적용)
+
+사용자가 명시적으로 Material 테마를 선택한 경우에 한해 다음 예외가 허용된다:
+
+- **소스**: `material-icon-theme` 패키지의 언어별 컬러 SVG 에셋을 파일 타입 아이콘으로 사용한다.
+- **색**: 에셋 자체의 색을 그대로 렌더한다 (`currentColor` 상속 불필요). 이는 Minimal의 단색·
+  currentColor 원칙에 대한 **통제된 예외**이며, Material 에셋이 언어 정체성을 색으로 표현하기
+  때문이다(Python 파란·노랑, TypeScript 파랑 등). `*.icon.fg` 시맨틱 토큰을 Material 에셋 색
+  위에 강제 적용하지 않는다.
+- **strokeWidth**: Material SVG는 stroke 기반이 아니므로 strokeWidth 규칙을 적용하지 않는다.
+- **폴백**: Material 에셋이 커버하지 않는 파일 타입은 lucide의 파일타입 매핑(`resolveLucide`)으로
+  per-icon 폴백한다 — 확장자·파일명에 따라 FileCode·FileText·FileTerminal 등을 선택하고,
+  어떤 매핑도 없을 때만 bare `File` 글리프를 최종 반환한다.
+  폴백 아이콘은 Minimal 규칙(currentColor, strokeWidth 1.5)을 따른다.
+- **크기 그리드**: Minimal과 동일하게 sm=12px / md=14px 닫힌 집합을 적용한다.
+
+### 의미 인코딩 (테마 공통)
 
 - 아이콘 단독으로 상태·의미를 전달하지 않는다 (§8 redundant encoding) — 텍스트 레이블 또는
   `aria-label`을 동반한다.

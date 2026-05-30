@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 import type { Plugin } from "vite";
+import svgr from "vite-plugin-svgr";
 
 // electron-vite 5.x supports three targets: main, preload, renderer.
 // See: https://electron-vite.org/guide/build
@@ -139,6 +140,6 @@ export default defineConfig({
         "@": resolve(__dirname, "src/renderer"),
       },
     },
-    plugins: [themeTokensPlugin(), tailwindcss(), react()],
+    plugins: [themeTokensPlugin(), tailwindcss(), react(), svgr()],
   },
 });

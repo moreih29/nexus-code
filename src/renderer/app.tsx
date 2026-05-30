@@ -35,6 +35,7 @@ import { rehydrateLspForWorkspace } from "./services/editor/model/cache";
 import { useActiveStore } from "./state/stores/active";
 import { useAddWorkspaceUIStore } from "./state/stores/add-workspace-ui";
 import { useEditorFontStore } from "./state/stores/editor-font";
+import { useIconThemeStore } from "./state/stores/icon-theme";
 import { useSettingsUIStore } from "./state/stores/settings-ui";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
@@ -67,6 +68,7 @@ export function App() {
   // tracked field. While the dialog is open, dirty = current !== snapshot.
   // When the dialog closes, the snapshot is wiped so the next open starts
   // clean.
+  const iconThemePreference = useIconThemeStore((s) => s.preference);
   const themePreference = useThemeStore((s) => s.preference);
   const opacity = useWindowOpacityStore((s) => s.opacity);
   const editorFontSize = useEditorFontStore((s) => s.size);
@@ -79,6 +81,7 @@ export function App() {
   const terminalFontLigatures = useTerminalStore((s) => s.fontLigatures);
 
   interface SettingsSnapshot {
+    iconThemePreference: typeof iconThemePreference;
     themePreference: typeof themePreference;
     opacity: number;
     editorFontSize: typeof editorFontSize;
@@ -99,6 +102,7 @@ export function App() {
   useEffect(() => {
     if (settingsOpen) {
       setSettingsSnapshot({
+        iconThemePreference,
         themePreference,
         opacity,
         editorFontSize,
@@ -118,7 +122,10 @@ export function App() {
   const settingsNav = useMemo<SettingsNavItem[]>(() => {
     const snap = settingsSnapshot;
     const appearanceDirty =
-      snap !== null && (themePreference !== snap.themePreference || opacity !== snap.opacity);
+      snap !== null &&
+      (iconThemePreference !== snap.iconThemePreference ||
+        themePreference !== snap.themePreference ||
+        opacity !== snap.opacity);
     const editorDirty =
       snap !== null &&
       (editorFontSize !== snap.editorFontSize ||
@@ -175,6 +182,7 @@ export function App() {
   }, [
     t,
     settingsSnapshot,
+    iconThemePreference,
     themePreference,
     opacity,
     editorFontSize,
