@@ -197,20 +197,23 @@ describe("PERMISSION_TOGGLES", () => {
 // ---------------------------------------------------------------------------
 
 describe("permissionLabel", () => {
-  test("media → '카메라 및 마이크'", () => {
-    expect(permissionLabel("media")).toBe("카메라 및 마이크");
+  // permissionLabel() is the shared, non-localized English fallback helper.
+  // Localized (e.g. Korean) labels are resolved in the UI layer via i18n
+  // `t("browserPermissions.permissionLabel.*")`, not by this function.
+  test("media → 'Camera & microphone'", () => {
+    expect(permissionLabel("media")).toBe("Camera & microphone");
   });
 
   test("midi → 'MIDI'", () => {
     expect(permissionLabel("midi")).toBe("MIDI");
   });
 
-  test("geolocation → '위치'", () => {
-    expect(permissionLabel("geolocation")).toBe("위치");
+  test("geolocation → 'Location'", () => {
+    expect(permissionLabel("geolocation")).toBe("Location");
   });
 
-  test("unknown → '알 수 없는 권한'", () => {
-    expect(permissionLabel("unknown")).toBe("알 수 없는 권한");
+  test("unknown → 'Unknown permission'", () => {
+    expect(permissionLabel("unknown")).toBe("Unknown permission");
   });
 
   test("every BrowserPermissionKind has a label (no undefined)", () => {
