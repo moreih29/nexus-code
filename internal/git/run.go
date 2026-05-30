@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -93,6 +94,45 @@ func buildRunResult(stdout string, stderr string, code int, args []string) RunRe
 		ExitCode: &code,
 	})
 	return result
+}
+
+// capture runs one git command with the given args and returns stdout, stderr,
+// exit code, and any fatal (non-git) error. It honours ctx cancellation with
+// the same precedence as the rest of the package: ctx.Err() is checked before
+// inspecting the exit code.
+func (s *Service) capture(ctx context.Context, cwd string, args []string, interactive bool) (stdout, stderr string, code int, err error) {
+	cmd, err := s.command(ctx, args, cwd, nil, interactive)
+	if err != nil {
+		return "", "", 0, err
+	}
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	runErr := cmd.Run()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return "", "", 0, ctxErr
+	}
+	code, fatal := gitExitCode(runErr)
+	if fatal != nil {
+		return "", "", 0, fatal
+	}
+	return outBuf.String(), errBuf.String(), code, nil
+}
+
+// gitError converts a non-zero git exit into a typed CodedError using the
+// stderr classifier + MessageForKind ladder. It is the shared error constructor
+// for runBranchCommand, runWorkflowGit callers, and statusGitOutput.
+// Fallback message format: "git <args> exited with code <N>".
+func gitError(args []string, stderr string, code int) error {
+	kind := Classify(stderr)
+	message := MessageForKind(kind, MessageContext{Stderr: stderr, Args: args, ExitCode: &code})
+	if strings.TrimSpace(message) == "" {
+		message = strings.TrimSpace(stderr)
+	}
+	if message == "" {
+		message = fmt.Sprintf("git %s exited with code %d", strings.Join(args, " "), code)
+	}
+	return proto.CodedError{Code: proto.CodeRequestFailed, Msg: message}
 }
 
 func parseRunParams(raw json.RawMessage) (RunParams, error) {

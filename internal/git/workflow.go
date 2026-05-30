@@ -1,7 +1,6 @@
 package git
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"strconv"
@@ -45,11 +44,11 @@ type WorkflowContinueParams struct {
 
 // WorkflowResult is the envelope returned by merge/cherry-pick operations.
 type WorkflowResult struct {
-	Result        string  `json:"result"`
-	ConflictCount int     `json:"conflictCount,omitempty"`
-	Conflicts     []any   `json:"conflicts,omitempty"`
-	DoneCount     *int    `json:"doneCount,omitempty"`
-	TotalCount    *int    `json:"totalCount,omitempty"`
+	Result        string `json:"result"`
+	ConflictCount int    `json:"conflictCount,omitempty"`
+	Conflicts     []any  `json:"conflicts,omitempty"`
+	DoneCount     *int   `json:"doneCount,omitempty"`
+	TotalCount    *int   `json:"totalCount,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -93,22 +92,7 @@ func (s *Service) resolveGitDirFromCwd(ctx context.Context, cwd string) (string,
 
 // runWorkflowGit runs a git command in cwd and returns stdout+stderr+code.
 func (s *Service) runWorkflowGit(ctx context.Context, cwd string, args []string) (string, string, int, error) {
-	cmd, err := s.command(ctx, args, cwd, nil, false)
-	if err != nil {
-		return "", "", 0, err
-	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	runErr := cmd.Run()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return "", "", 0, ctxErr
-	}
-	code, fatal := gitExitCode(runErr)
-	if fatal != nil {
-		return "", "", 0, fatal
-	}
-	return stdout.String(), stderr.String(), code, nil
+	return s.capture(ctx, cwd, args, false)
 }
 
 // ---------------------------------------------------------------------------
@@ -511,16 +495,9 @@ func workflowAlreadyInProgressError(kind string) error {
 }
 
 // workflowGitError builds an error from a non-conflict non-zero git exit.
+// Delegates to the shared gitError helper in run.go.
 func workflowGitError(args []string, stderr string, code int) error {
-	kind := Classify(stderr)
-	msg := MessageForKind(kind, MessageContext{Stderr: stderr, Args: args, ExitCode: &code})
-	if strings.TrimSpace(msg) == "" {
-		msg = strings.TrimSpace(stderr)
-	}
-	if msg == "" {
-		msg = "git " + strings.Join(args, " ") + " exited with code " + strconv.Itoa(code)
-	}
-	return proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+	return gitError(args, stderr, code)
 }
 
 // toInt coerces a json.Number or float64 from an unmarshalled map to int.
