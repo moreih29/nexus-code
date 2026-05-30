@@ -1,4 +1,4 @@
-// Single entry point for closing an editor tab with dirty-aware confirmation.
+// Dirty-aware close handlers for editor and untitled tabs.
 //
 // Why a dedicated module: closing is no longer a one-liner. Three steps
 // have to compose in a fixed order — read dirty state, ask the user,
@@ -12,11 +12,14 @@
 // run concurrently for different tabs without races on either side.
 
 import { showSaveConfirm } from "@/components/editor/save-confirm-dialog";
+import { releaseModel } from "@/services/editor/model";
+import { closeTab } from "@/state/operations/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
 import { basename } from "@/utils/path";
-import { isDirty } from "../model/dirty-tracker";
 import { cacheUriFor } from "../model/cache";
+import { isDirty } from "../model/dirty-tracker";
 import { closeEditor } from "../tabs";
+import { saveUntitledModel } from "./save-untitled-handler";
 import { reportSaveFailure, saveModelInteractive } from "./service";
 
 export type CloseTabOutcome = "closed" | "cancelled" | "save-failed";
@@ -65,4 +68,58 @@ export async function closeEditorWithConfirm(
 
   closeEditor(tabId);
   return "closed";
+}
+
+/**
+ * Close an untitled tab, prompting first if its buffer is dirty.
+ *
+ * Mirrors closeEditorWithConfirm for the untitled tab type.
+ * Key invariant: when saveUntitledModel returns "saved", the tab has already
+ * been converted to an editor tab in-place and the untitled model has been
+ * released — do NOT call closeTab or releaseModel again ("saved → no
+ * double-close" rule). Only "dont-save" and clean-close paths discard
+ * explicitly.
+ */
+export async function closeUntitledWithConfirm(
+  workspaceId: string,
+  tabId: string,
+): Promise<CloseTabOutcome> {
+  const tab = findTab(workspaceId, tabId);
+  if (!tab || tab.type !== "untitled") return "closed";
+
+  const untitledFilePath = `Untitled-${tab.props.untitledIndex}`;
+
+  const discard = () => {
+    releaseModel({ workspaceId, filePath: untitledFilePath, origin: "untitled" });
+    closeTab(workspaceId, tabId);
+  };
+
+  if (!isDirty(cacheUriFor(workspaceId, untitledFilePath))) {
+    discard();
+    return "closed";
+  }
+
+  const choice = await showSaveConfirm(tab.title);
+
+  if (choice === "cancel") return "cancelled";
+
+  if (choice === "dont-save") {
+    discard();
+    return "closed";
+  }
+
+  // choice === "save": delegate to native save-dialog flow.
+  const saveOutcome = await saveUntitledModel(workspaceId, tabId);
+
+  if (saveOutcome === "saved") {
+    // saveUntitledModel already converted the tab and released the untitled
+    // model — do not call discard() or closeTab(); the tab is now an editor
+    // tab pointing at the newly written file.
+    return "closed";
+  }
+
+  if (saveOutcome === "cancelled") return "cancelled";
+
+  // saveOutcome === "failed": toast was already shown inside saveUntitledModel.
+  return "save-failed";
 }
