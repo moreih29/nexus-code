@@ -9,6 +9,7 @@
 
 import { Grid } from "../engine";
 import { closeEditorWithConfirm } from "../services/editor";
+import { releaseModel } from "../services/editor/model";
 import { createPathActions } from "../services/fs-mutations";
 import { closeTerminal } from "../services/terminal";
 import { closeTab } from "../state/operations/tabs";
@@ -78,7 +79,18 @@ export async function closeTabById(
     const outcome = await closeEditorWithConfirm(workspaceId, tabId);
     return outcome === "cancelled" ? "cancelled" : "closed";
   }
-  if (tab.type === "editor.diff" || tab.type === "git.commit") {
+  if (tab.type === "untitled") {
+    // Mirror the tab-bar close (group/view.tsx): release the Monaco model so
+    // its ref-count drops to zero (TextModel disposed) before removing the tab.
+    releaseModel({
+      workspaceId,
+      filePath: `Untitled-${tab.props.untitledIndex}`,
+      origin: "untitled",
+    });
+    closeTab(workspaceId, tabId);
+    return "closed";
+  }
+  if (tab.type === "editor.diff" || tab.type === "git.commit" || tab.type === "browser") {
     closeTab(workspaceId, tabId);
   }
   return "closed";
