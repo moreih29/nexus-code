@@ -1,4 +1,4 @@
-import { AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import i18next from "i18next";
 import type { FormEvent, KeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -8,6 +8,7 @@ import { useIpcAction } from "../../../hooks/use-ipc-action";
 import { showToast } from "../../ui/toast";
 import { openSshBrowseSession, saveConnectionProfileResult } from "../../../services/workspace";
 import { Button } from "../../ui/button";
+import { ErrorNotice } from "./error-notice";
 import {
   clampHostIndex,
   filterSshConfigHosts,
@@ -388,20 +389,7 @@ export function SshNewConnectionView({
     >
       {/* Connection error banner — shown for primary (connect) failures only.
           Cancelled auth and save failures are surfaced elsewhere (silent / toast). */}
-      {inlineError ? (
-        <div
-          className="flex items-start gap-2 rounded-(--radius-control) border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-2 py-2"
-          role="alert"
-        >
-          <AlertCircle
-            className="mt-0.5 size-3.5 shrink-0 text-[var(--state-error-fg)]"
-            aria-hidden="true"
-          />
-          <span className="min-w-0 text-app-ui-sm text-[var(--state-error-fg)]">
-            {inlineError}
-          </span>
-        </div>
-      ) : null}
+      {inlineError ? <ErrorNotice message={inlineError} className="px-2 py-2" /> : null}
 
       {/* Host combobox — ref is used to detect outside clicks and close the dropdown */}
       <div className="flex flex-col gap-2">

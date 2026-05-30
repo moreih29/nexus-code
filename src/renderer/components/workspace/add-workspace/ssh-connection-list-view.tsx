@@ -1,4 +1,4 @@
-import { AlertCircle, ChevronRight, LoaderCircle, Plus, Server, Star, Trash2 } from "lucide-react";
+import { ChevronRight, LoaderCircle, Plus, Server, Star, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ConnectionProfile } from "../../../../shared/types/entry-points";
@@ -11,6 +11,7 @@ import {
 } from "../../../services/workspace";
 import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
+import { ErrorNotice } from "./error-notice";
 import { formatProfileSubtitle } from "./ssh-helpers";
 import type { SshBrowseSession, SshConnectionListViewProps } from "./types";
 
@@ -332,16 +333,11 @@ function ConnectionProfileRow({
 
       {/* Per-row error strip — below the row button, redundant encoding: icon + border + color */}
       {hasError ? (
-        <div
-          className="mx-2 mb-1 flex items-start gap-2 rounded-(--radius-control) border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-2 py-1.5"
-          role="alert"
-        >
-          <AlertCircle
-            className="mt-0.5 size-3.5 shrink-0 text-[var(--state-error-fg)]"
-            aria-hidden="true"
-          />
-          <span className="min-w-0 text-app-micro text-[var(--state-error-fg)]">{errorHuman}</span>
-        </div>
+        <ErrorNotice
+          message={errorHuman}
+          className="mx-2 mb-1 px-2 py-1.5"
+          textClass="text-app-micro"
+        />
       ) : null}
     </li>
   );

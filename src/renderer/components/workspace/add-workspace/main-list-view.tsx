@@ -1,15 +1,7 @@
-import {
-  AlertCircle,
-  Folder,
-  FolderOpen,
-  FolderPlus,
-  LoaderCircle,
-  Server,
-  Star,
-  Trash2,
-} from "lucide-react";
+import { Folder, FolderOpen, FolderPlus, LoaderCircle, Server, Star, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ErrorNotice } from "./error-notice";
 import type { ConnectionProfile, FolderBookmark } from "../../../../shared/types/entry-points";
 import {
   createLocalWorkspace,
@@ -442,17 +434,7 @@ interface ErrorBannerProps {
 function ErrorBanner({ message, profileId, onSettings }: ErrorBannerProps): React.JSX.Element {
   const { t } = useTranslation();
   return (
-    <div
-      className="flex flex-col gap-2 rounded-(--radius-control) border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-3 py-2"
-      role="alert"
-    >
-      <div className="flex items-start gap-2">
-        <AlertCircle
-          className="mt-0.5 size-4 shrink-0 text-[var(--state-error-fg)]"
-          aria-hidden="true"
-        />
-        <span className="min-w-0 text-app-ui-sm text-[var(--state-error-fg)]">{message}</span>
-      </div>
+    <ErrorNotice message={message} className="px-3 py-2" iconSize="md">
       {profileId && onSettings ? (
         <button
           type="button"
@@ -462,7 +444,7 @@ function ErrorBanner({ message, profileId, onSettings }: ErrorBannerProps): Reac
           {t("action.open_connection_settings")}
         </button>
       ) : null}
-    </div>
+    </ErrorNotice>
   );
 }
 
