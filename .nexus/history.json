@@ -21529,6 +21529,437 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-30T13:43:40.745Z",
+      "branch": "develop",
+      "plan": {
+        "id": 67,
+        "topic": "코드감사 후속 리팩토링 + tab-close 통합/untitled dirty-confirm",
+        "issues": [
+          {
+            "id": 1,
+            "title": "탭 close 경로 통합 + untitled dirty-confirm 다이얼로그 (감사 ① 실사례, Cmd+W 버그 근본원인)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "T5: 단일 진실원천 디스패처를 서비스 계층(services/editor/close/close-tab.ts 등 components·command 양쪽이 이미 의존하는 최하층)에 신설 — closeTabWithConfirm(ws,tabId):Promise<CloseTabOutcome>가 유일한 타입 switch. handleCloseTab(view.tsx)·closeTabById(context.ts) 둘 다 switch 제거하고 위임. closeUntitledWithConfirm은 closeEditorWithConfirm 미러: not-dirty→release+closeTab; showSaveConfirm cancel→cancelled, dont-save→release+closeTab, save→saveUntitledModel. CRITICAL: saveUntitledModel이 현재 void라 (a)다이얼로그취소 (b)쓰기실패 (c)성공-탭변환을 구분 불가 → 먼저 \"saved\"|\"cancelled\"|\"failed\" 반환으로 변경(내부에 이미 3개 반환점 존재). 시퀀싱 규칙: \"saved\"는 탭이 같은 tabId로 editor 변환완료+untitled 모델 이미 release → 추가 closeTab/releaseModel 금지(호출 시 갓 저장된 editor 탭을 닫는 역방향 버그). saveUntitledModel 타 호출부(file.ts:97 fileSave) grep해 반환변경 반영. releaseModel 소유는 분기당 1회.",
+                "recorded_at": "2026-05-30T11:28:05.097Z",
+                "agent_id": "a3445ecdc28ea7150"
+              }
+            ],
+            "decision": "채택(architect T5): (a) saveUntitledModel을 void→`\"saved\"|\"cancelled\"|\"failed\"` 반환으로 먼저 변경(내부 3개 반환점에 매핑), 타 호출부(file.ts fileSave 등) grep해 반영. (b) 단일 디스패처 closeTabWithConfirm(ws,tabId):Promise<CloseTabOutcome>를 services/editor에 신설(components·command 양쪽이 의존하는 최하층 → 레이어 위반/순환 없음), 타입 switch는 여기 한 곳만. (c) closeUntitledWithConfirm 추가: not-dirty→release+closeTab; save→saveUntitledModel 결과 분기 — \"saved\"는 탭이 이미 editor로 변환+모델 release 완료라 추가 close/release 금지(역방향 버그 방지), \"cancelled\"→유지, \"failed\"→유지(토스트는 이미 표시). (d) handleCloseTab(view.tsx)·closeTabById(context.ts) 둘 다 switch 제거하고 디스패처 위임. 기각: 분기만 양쪽에 추가(중복 switch 잔존 → 재발산), saveUntitledModel void 유지(취소/실패/성공 구분 불가로 시퀀싱 불가능). 가정: showSaveConfirm 3선택 UX·다이얼로그 외관 불변. 검증: untitled dirty시 Save/Don't Save/Cancel 각 경로 + Cmd+W·X버튼 동등성."
+          },
+          {
+            "id": 2,
+            "title": "git IPC 핸들러 withRepo 추상화 (감사 ① — 50+회 보일러플레이트)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "T1: git-result.ts(이미 handleGitHandlerError 소유 → 신규 import 엣지 0)에 withRepo(registry, schema, run, opts?) HOF 추가. 본문은 기존 스켈레톤 그대로: validateArgs→getOrDetect(wsId,ctx?.signal)→if(!repo)throw GitError(\"not-repo\")→run(repo,args,ctx)→refreshStatus(기본 post-success)→단일 catch→handleGitHandlerError. 봉투/GitError 서브타입 보존은 catch가 여전히 handleGitHandlerError로 일원화되므로 유지. validateArgs throw는 try 안에서 비-GitError로 던져져 라우터가 invalid-args 매핑(헬퍼가 삼키면 안 됨). void 핸들러는 undefined 반환. 제외(수동 유지): listBranches/listTags 리더(!repo→빈결과, refresh 없음), fetchAllHandler(getOrDetect 전 early-return+bumpGeneration), syncHandler(inner-failure refresh — 유일 \"always\" 케이스라 옵션 추가 대신 수동 유지), 스트림 핸들러(diff-stream/log-stream 다른 프로토콜). fetchHandler bumpGeneration은 run() 내부에서 호출케 해 선형 유지. 위험: not-repo 메시지 문자열 매칭 호출부 없는지 확인, 첫 3개 변환 typecheck 후 대량 적용.",
+                "recorded_at": "2026-05-30T11:28:17.062Z",
+                "agent_id": "a3445ecdc28ea7150"
+              }
+            ],
+            "decision": "채택(architect T1): git-result.ts에 withRepo(registry, schema, run, opts?) HOF 추가 — validateArgs→getOrDetect→if(!repo)throw not-repo→run→refreshStatus(기본 post-success)→단일 catch→handleGitHandlerError. 봉투·GitError 서브타입·invalid-args 라우터 매핑 모두 보존(catch가 handleGitHandlerError로 일원화, validateArgs throw는 삼키지 않음). 적합 핸들러만 ~1줄로 축소. 기각: 전 핸들러 일괄 적용 — 형태가 다른 케이스를 억지로 맞추면 회귀. 제외(수동 유지) 명시: listBranches/listTags 등 리더(!repo→빈결과), fetchAllHandler(early-return+bumpGeneration), syncHandler(inner-failure refresh, 유일 케이스라 옵션 추가 대신 수동), 스트림 핸들러. fetch의 bumpGeneration은 run() 내부 호출로 선형 유지. 가정: not-repo 메시지를 문자열 매칭하는 호출부 없음(엔지니어 확인). 검증: 첫 3개 변환 typecheck 후 대량 적용, 기존 git IPC 통합 테스트 통과."
+          },
+          {
+            "id": 3,
+            "title": "Go git run/classify capture() + gitError() dedup (감사 ① — 30회+5개 생성자 복붙)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "T2: run.go(이미 Run/RunResult/command/gitExitCode/buildRunResult 소유)에 두 헬퍼 추가 — capture(ctx,cwd,args,interactive)(stdout,stderr,code,err): runBranchCommand(branch.go:314)/runWorkflowGit(workflow.go:95) 및 status/diff/commit_detail/stash/tag inline run+gitExitCode가 공유; runWorkflowGit은 capture 래핑해 3-value 유지. gitError(args,stderr,code): Classify→MessageForKind→trim(stderr)→fallback ladder를 단일화, branchGitError(337)/workflowGitError(514)/statusGitError(148) 3개(바이트동일)만 대체. gitExitCode는 이미 단일 정의(run.go:255)라 유지. CRITICAL 제외: diffGitError(diff.go:268)·commitDetailGitError(commit_detail.go:109)는 Classify/MessageForKind 건너뛰고 raw stderr+다른 fallback → gitError로 접으면 분류 메시지가 새로 노출되는 동작 변경 → 이번 구조-only dedup에서 제외(별도 테스트동반 변경). status fallback 문구 통일은 사용자 노출 문자열 변경이라 커밋에 명시.",
+                "recorded_at": "2026-05-30T11:28:24.115Z",
+                "agent_id": "a3445ecdc28ea7150"
+              }
+            ],
+            "decision": "채택(architect T2): run.go에 capture(ctx,cwd,args,interactive) 러너 + gitError(args,stderr,code) 생성자 추가. capture는 runBranchCommand/runWorkflowGit 및 status 등 inline run+gitExitCode 시퀀스를 흡수(runWorkflowGit은 capture 래핑으로 3-value 유지). gitError는 branchGitError/workflowGitError/statusGitError 3개(바이트동일 ladder)만 대체. 기각: diffGitError·commitDetailGitError 통합 — 이들은 Classify/MessageForKind 없이 raw stderr+다른 fallback이라 gitError로 접으면 분류 메시지가 새로 노출되는 동작 변경 → 구조-only 범위에서 제외(후속 테스트동반 변경). gitExitCode는 이미 단일 정의라 유지. 가정: status fallback 문구 통일에 따른 사용자 노출 문자열 미세 변경 허용(커밋에 명시). 검증: go build + 기존 go test(internal/git) 통과."
+          },
+          {
+            "id": 4,
+            "title": "renderer commands/domains/file.ts copy/cut/paste 중복 제거 (감사 ①)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "HOW 생략 — 순수 기계적 dedup, 낮은 비가역성(타입/테스트가 보장). 감사가 정확히 특정: commands/domains/file.ts에서 fileCopy(112-130)/fileCut(131-149)는 handleCopy/handleCut만 다른 바이트 동일 복붙, filePaste(150-152)/fileMoveHere(153-155) 동일, 그리고 fileCopy/fileCut/fileDelete/fileRename/fileRenameByEnter가 wsId→tree→selectOperablePaths→filter→entries 전처리를 반복. 후보: (a) withFocusedTreePaths(handler) 헬퍼로 전처리 캡슐화 + copy/cut를 액션 인자로 파라미터화, (b) 개별 인라인 유지. (a)가 명백히 우월(중복 제거+드리프트 방지). 실행 시 각 커맨드의 미세 차이(있으면) 보존 확인.",
+                "recorded_at": "2026-05-30T11:25:01.586Z"
+              }
+            ],
+            "decision": "채택: commands/domains/file.ts에 `withFocusedTreePaths(handler)` 헬퍼를 도입해 wsId→tree→selectOperablePaths→filter→entries 전처리를 한 곳으로 모으고, fileCopy/fileCut은 clipboard 액션(handleCopy/handleCut)을 인자로 받는 단일 구현으로, filePaste/fileMoveHere도 paste 액션 파라미터화로 통합. 기각: 현상 유지(중복 5+회 전처리·바이트동일 복붙이 드리프트 위험, 감사 ①의 전형). 가정: 각 커맨드의 동작은 동일 유지(UI/동작 불변) — 미세 차이가 발견되면 파라미터로 보존. 비가역성 낮고 컴파일러/기존 테스트가 회귀를 잡음."
+          },
+          {
+            "id": 5,
+            "title": "runOperation 제네릭 union 소실 수정 → operations.ts as 캐스트 12개 제거 (감사 ①)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "T3: 제네릭 추론 버그가 아님. contract가 이미 완전 타입(commit→CommitResultSchema 등) → ipcCallResult→unwrapGitResult→run 콜백→runOperation이 T를 정확 추론, 반환은 Promise<T|undefined>. 즉 operations.ts의 as 캐스트(as CommitResult|undefined ×3, as Promise<…|undefined> fetchAll/pull/merge/rebase/continueOp/markResolved/fastForwardBranch, as GitSyncResult|undefined, 직접 as PushResult @245)는 전부 죽은/잉여 코드(이전 비제네릭 시절 잔재). 채택: 캐스트 일괄 삭제 후 tsc -b로 증명. 시그니처 변경 불요. 만약 특정 site가 삭제 후 실패하면 그건 GitOperations 스토어 인터페이스 선언이 unknown/void로 잘못된 것 → 캐스트 재추가 말고 인터페이스 반환타입을 실제값으로 수정. 타입 레벨만, 런타임 변화 0.",
+                "recorded_at": "2026-05-30T11:28:30.732Z",
+                "agent_id": "a3445ecdc28ea7150"
+              }
+            ],
+            "decision": "채택(architect T3): operations.ts의 as 캐스트(as CommitResult|undefined ×3, as Promise<…|undefined> fetchAll/pull/merge/rebase/continueOp/markResolved/fastForwardBranch, as GitSyncResult|undefined, 직접 as PushResult)는 contract가 이미 완전 제네릭 타입이라 runOperation이 T를 정확 추론 → 전부 죽은/잉여 캐스트. 일괄 삭제 후 tsc -b로 증명. 기각: 시그니처 변경/오버로드 도입(애초에 추론은 정상이라 불필요), 캐스트 유지(타입 안전성 위장·드리프트 은폐). 가정: 삭제 후 일부 site가 실패하면 그건 GitOperations 스토어 인터페이스가 반환타입을 unknown/void로 잘못 선언한 것 → 캐스트 재추가 말고 인터페이스 선언을 실제 결과타입으로 수정. 런타임 변화 0, 타입 레벨만. 검증: tsc -b 통과."
+          },
+          {
+            "id": 6,
+            "title": "editor/model 순환 의존 6개 해소 — model/types.ts 분리 (감사 ③)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "T4: madge로 6 순환 확정 — entry.ts↔{attach-dirty-and-uri-tracking, attach-fs-subscription, attach-lsp-bridge, read-and-place-content}(entry가 타입홈+조정자 겸직) + lsp/bridge.ts↔model/cache.ts. 해소: (1) model/types.ts 신설 — 타입만 이동: ModelEntry, SharedModelState, SharedModelPhase, ModelEntryDeps. 단 ModelEntryDeps는 현재 typeof defaultModelEntryDeps인데 명시 interface로 전환(default 객체는 entry.ts에 :ModelEntryDeps로 잔류) — 이게 value↔type 결합을 끊어 attach-*가 entry.ts를 import하지 않게 함. attach-*·read-and-place-content·cache.ts·load-external-entry는 type import를 ./types로 재지정, value import(createEntry/cleanupEntry 등)는 ./entry 유지. (2) lsp/known-uris.ts leaf 신설 — registerKnownModelUri/unregisterKnownModelUri를 bridge/cache 어디에도 속하지 않는 leaf로 추출, bridge·cache·entry(deps 주입) 모두 leaf에서 import → bridge↔cache 엣지 절단. 위험: ModelEntryDeps interface 필드셋이 default 객체 키와 정확히 일치해야 Pick<> 사용처 컴파일 유지. cache.ts의 re-export(SharedModelPhase/State)도 ./types로 재지정. 완료 후 madge 재실행해 0 순환 확인.",
+                "recorded_at": "2026-05-30T11:28:42.775Z",
+                "agent_id": "a3445ecdc28ea7150"
+              }
+            ],
+            "decision": "채택(architect T4): (1) src/renderer/services/editor/model/types.ts 신설 — ModelEntry·SharedModelState·SharedModelPhase·ModelEntryDeps(현 typeof defaultModelEntryDeps를 명시 interface로 전환, default 객체는 entry.ts에 :ModelEntryDeps로 잔류)를 타입만 이동. attach-*·read-and-place-content·cache.ts·load-external-entry는 type import를 ./types로, value import(createEntry/cleanupEntry 등)는 ./entry 유지. (2) src/renderer/services/editor/lsp/known-uris.ts leaf 신설 — registerKnownModelUri/unregisterKnownModelUri 추출(bridge/cache 어디에도 미의존), bridge·cache·entry 모두 leaf에서 import → bridge↔cache 엣지 절단. 기각: 함수까지 통째 이동(불필요한 대이동·리스크), bridge나 cache 한쪽에 registerKnownModelUri 귀속(소유 논쟁·잔존 결합). 가정: ModelEntryDeps interface 필드셋이 default 객체 키와 정확 일치(Pick<> 사용처 유지). 검증: madge 재실행으로 editor/model 순환 0 확인 + tsc -b."
+          },
+          {
+            "id": 7,
+            "title": "shared WorkspaceIdSchema 프리미티브 도입 — uuid 89회 인라인/4중 중복 통일 (감사 ④)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "HOW 생략 — 스키마 레벨 변경, 컴파일러가 전수 검증하는 저위험. shared 에이전트 확정: z.string().uuid() 89회 인라인 + workspaceId 개념 4중 중복(contract.ts:218 WorkspaceIdSchema, :361 GitWorkspaceIdSchema, tab.ts:4, git/types.ts:344 GitHelperWorkspaceIdSchema) + contract.ts fs 섹션 {workspaceId,relPath} 7회 반복. 후보: (a) shared/types에 WorkspaceIdSchema=z.string().uuid() + workspaceScoped(extra) 헬퍼 신설 후 재사용, (b) 현상유지. (a) 채택. 주의: 89개 bare uuid 중 workspaceId 의미가 아닌 다른 id(crypto.randomUUID 북마크 id 등)는 치환 대상 아님 — 의미상 workspaceId인 것만 치환. 4개 명시 중복 + fs arg shape는 확실히 통일.",
+                "recorded_at": "2026-05-30T11:25:07.911Z"
+              }
+            ],
+            "decision": "채택: src/shared/types에 `WorkspaceIdSchema = z.string().uuid()` 단일 프리미티브와 `workspaceScoped(extra)` 헬퍼(=`z.object({ workspaceId: WorkspaceIdSchema, ...extra })`)를 신설. 명시 중복 4개(contract.ts:218 WorkspaceIdSchema, :361 GitWorkspaceIdSchema, tab.ts:4, git/types.ts:344 GitHelperWorkspaceIdSchema)와 contract.ts fs 섹션의 {workspaceId,relPath} 7회 반복을 이 프리미티브/헬퍼로 통일. 기각: 현상 유지(드리프트 위험), 그리고 bare uuid 89개 전량 일괄 치환(일부는 workspaceId가 아닌 다른 식별자라 의미 훼손 위험). 가정: workspaceId 의미인 인라인만 치환하고, 비-workspaceId uuid는 건드리지 않음. 스키마 타입 변화는 z.infer로 컴파일 타임 전수 검증됨."
+          },
+          {
+            "id": 8,
+            "title": "로깅 console.* → createLogger facade 통일 (Minor, 컨벤션 강제사항)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "HOW 생략 — conventions.md가 이미 결정 근거 제공(로그는 createLogger facade만, console.* 금지). 감사: main 38회·renderer 12회 console.* 잔존, pipe.ts:627은 console가 main.log에 안 닿음을 주석으로 인정. 후보: (a) 전부 createLogger(source)로 치환, (b) 일부만. 컨벤션상 (a) 강제. source 식별자는 모듈명 바인딩. 주의: 전역 안전망(error-safety-net 등) 내부의 의도적 console는 facade 부트스트랩 이전 경로일 수 있어 확인 후 보존 판단.",
+                "recorded_at": "2026-05-30T11:25:15.875Z"
+              }
+            ],
+            "decision": "채택: conventions.md가 강제하는 대로 main/renderer의 console.*(main 38·renderer 12)를 createLogger(source) facade로 치환. source는 모듈/서브시스템 식별자 바인딩. 기각: 부분 치환(컨벤션 위반 잔존). 가정: 전역 안전망(error-safety-net.ts·window-error-handler.ts 등) 내부에서 facade 부트스트랩 이전이라 의도적으로 console을 쓰는 경로가 있으면 보존 — 엔지니어가 각 호출의 맥락 확인 후 치환. 이 이슈는 규약 정합이라 추가 HOW 불요."
+          },
+          {
+            "id": 9,
+            "title": "확정 dead code 제거 — engine sash-math/tree, agentlog.FromContext (Minor)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "HOW 생략 — 저위험이나 \"확정 dead\" 검증이 핵심. 감사 확정(동적 Grid.* 접근 포함 grep): engine sash-math.ts pxToRatio, serialize.ts deserialize, tree.ts swapLeaves/replaceNode 무참조; Go agentlog.FromContext 도달불가(WithLogger가 context에 넣지만 아무도 FromContext로 안 읽음 — 요청스코프 로거 반쪽 배선). 후보: (a) 검증 후 확정분만 제거, (b) 보고만(이전 사이클 원칙). 사용자가 이번 run에서 감사항목 수정을 명시 요청 → (a) 채택하되 제거 전 엔지니어가 참조 0 재확인, 의심분은 보존. agentlog는 FromContext+미사용 WithLogger 배선까지 한묶음 검토. 테스트 전용 export(EncodeMessage 등)는 dead 아님 — 제외.",
+                "recorded_at": "2026-05-30T11:25:23.389Z"
+              }
+            ],
+            "decision": "채택: grep으로 참조 0이 재확인된 확정 dead만 제거 — engine sash-math.ts pxToRatio, serialize.ts deserialize, tree.ts swapLeaves/replaceNode, Go agentlog.FromContext(+아무도 안 읽는 WithLogger 요청스코프 로거 배선 일체). 제거 전 엔지니어가 동적 Grid.* 접근·테스트 포함 참조 0을 재검증하고, 조금이라도 의심되면 보존+보고. 기각: 전면 보고-only(이전 사이클 원칙) — 사용자가 이번 run에서 감사항목 수정을 명시 요청. 가정: 테스트 전용 export(EncodeMessage·watchedFileRegistrationsMatch·agentpaths.BinDir 등)는 dead 아님 → 대상 제외. 비가역성은 git revert로 낮음."
+          },
+          {
+            "id": 10,
+            "title": "god-object 전면 분해 처리 방침 결정 (감사 ② — manager/agent-host/git.Service/terminal/tabs)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "T6: 분해는 동작보존 구조변경이나 blast radius 크고 테스트 seam 약해 typecheck가 못 잡는 silent drift 위험. 판정 — tabs.ts(668): 최저위험(zustand 슬라이스, git store 선례 있음)이나 Cmd+W close 경로(Topic5) 바로 아래라 Topic5와 동시 진행 금지. terminal/controller.ts(882): 연기(PTY 수명주기·dispose 순서 회귀 비가시·미테스트). manager.ts(1368): 연기(main 코디네이터·광범위 fan-in). agent-host.ts(1475): 연기(프로세스/프로토콜 호스트, 동급 위험 더 큼). internal/git god-struct(service.go:24): 연기(리시버 분할이 14파일 전 (s *Service) 메서드 건드림) — 대신 Topic2(capture/gitError)가 구조 재편 없이 표면 축소하는 안전 선행. 권고: 무인 run은 T1~T5(타입/구조-국소 + Topic5 디스패처 통합)만, god-object 5종 전부 별도 감독 사이클로. tabs.ts를 그 사이클 첫 후보로.",
+                "recorded_at": "2026-05-30T11:28:51.226Z",
+                "agent_id": "a3445ecdc28ea7150"
+              }
+            ],
+            "decision": "채택(architect T6): god-object 5종(manager.ts 1368, agent-host.ts 1475, git.Service, terminal/controller.ts 882, tabs.ts 668) 전면 분해는 이번 무인 자율 run에서 전부 연기. 근거: 분해는 동작보존 구조변경이나 blast radius 크고 테스트 seam 약해 typecheck가 못 잡는 silent behavioral drift 위험 — 무인 실행에 부적합. terminal/manager/agent-host/git.Service는 상태수명주기·코디네이터·프로세스호스트·14파일 리시버로 고위험. tabs.ts는 최저위험(zustand 슬라이스, git store 분할 선례)이나 Cmd+W close 경로(이슈1 Topic5)와 동일 파일군을 건드려 동시 진행 시 충돌 → 이번엔 제외. 기각: tabs.ts만 지금 분해 — 이슈1과 close 경로가 겹쳐 같은 pass에서 위험. 후속: god-object 분해는 별도 감독(attended) 사이클로, tabs.ts를 첫 후보로. internal/git는 이슈3(capture/gitError)이 구조 재편 없이 표면을 줄이는 안전 선행 역할."
+          },
+          {
+            "id": 11,
+            "title": "잔여 Minor 처리 방침 결정 — import alias 통일/주석 한영/Go naming stutter",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "HOW 생략 — 방침 결정(비용/가치 형량). import alias 통일: alias @/ 존재하나 235파일 깊은 상대경로 공존 → 전면 마이그레이션은 235파일 diff churn·리뷰노이즈 큼, 로직가치 0. 주석 한/영 혼재: 주관적·대량·기능무관. Go stutter(git.GitStatus→Status): 익스포트 API 리네임으로 호출부 전파(컴파일러 안전하나 churn). 셋 다 비가역성 낮고 가치<churn → 이번 자율 run에서 연기. 단 import alias는 후속에 lint 룰(상대경로 깊이 제한) 도입을 권고로 남김. 무인 실행에서 대량 cosmetic diff는 검토 부담만 키워 완료 리스크 증가시킴이 연기 핵심 근거.",
+                "recorded_at": "2026-05-30T11:25:30.933Z"
+              }
+            ],
+            "decision": "채택: import alias 전면 마이그레이션·주석 한/영 통일·Go naming stutter 리네임 셋 모두 이번 자율 run에서 연기(실행 안 함). 근거: 비가역성 낮고 구조 가치 대비 diff churn(특히 alias 235파일)·리뷰 노이즈가 커서, 무인 실행에서 대량 cosmetic diff는 완료/검토 리스크만 키움. 기각: 지금 실행 — 핵심 구조 개선(①③④)과 묶이지 않은 표면 변경이라 우선순위·위험 균형상 부적합. 후속 권고로 남김: import 상대경로 깊이를 제한하는 lint 룰을 별도 도입하면 alias 채택을 자연 강제 가능. Go stutter는 git 패키지 후속 분해(이슈10 연계) 시 함께 처리 권장."
+          }
+        ],
+        "research_summary": "코드감사(5영역 병렬 에이전트 + Lead 교차검증) 결과를 기반으로 함. 강점: 레이어 경계 무위반, 타입 위생 우수(any~8·ts-ignore 0), 모범 모듈(ipc-router·git store·contract.ts). 지식계층 확인: conventions.md가 (a) IPC 핸들러 throw 금지·ipcOk/ipcErr 봉투 반환·git 채널 unwrapGitResult로 git-error 보존, (b) 로깅 createLogger facade 강제·console.* 금지, (c) AppError 4값 닫힌 union을 규정 — 로깅/withRepo 설계가 이 규약을 준수해야 함. 기존 plan/tasks 없음(새 사이클). tab-close 버그는 직접 조사 완료: closeTabById(commands/context.ts)와 handleCloseTab(view.tsx)에 탭타입 switch가 중복돼 한쪽만 untitled/browser 추가→Cmd+W 무반응. closeEditorWithConfirm(close-handler.ts)·saveUntitledModel(save-untitled-handler.ts)·showSaveConfirm(save/dont-save/cancel)·cacheUriFor(ws,\"Untitled-N\") dirty키·closeEditor(editor 전용 release+close) 경로 확인. 설계민감 항목(withRepo·Go dedup·runOperation·model/types·tab-close 통합·god-object 연기판단)은 architect 통합 자문 진행 중. 실행제약: 테스터는 큰 구현단위마다, god-object 신중, 전 변경 typecheck+biome+테스트 통과·UI/동작 불변.",
+        "created_at": "2026-05-30T11:24:11.210Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "editor/model 순환 의존 6개 해소 — model/types.ts + lsp/known-uris.ts 분리",
+          "status": "completed",
+          "context": "감사 ③: editor/model에 madge 확인 순환 6개. entry.ts(518)가 타입 정의처+조정자 겸직 → attach-*(attach-dirty-and-uri-tracking/attach-fs-subscription/attach-lsp-bridge)·read-and-place-content가 entry.ts를 역참조; 별도로 lsp/bridge.ts↔model/cache.ts 순환(registerKnownModelUri vs rehydrate/resetLspStateForWorkspace). 대상: src/renderer/services/editor/model/, src/renderer/services/editor/lsp/.",
+          "acceptance": "madge로 src/renderer/services/editor/model 순환 0 확인(이전 6→0). tsc -b 통과. biome 변경 라인 clean. 기존 테스트 통과. 동작/타입 표면 불변(순수 구조).",
+          "approach": "architect T4: (1) src/renderer/services/editor/model/types.ts 신설 — ModelEntry·SharedModelState·SharedModelPhase·ModelEntryDeps를 타입만 이동. ModelEntryDeps는 현 `typeof defaultModelEntryDeps`를 명시 interface로 전환(default 객체는 entry.ts에 `:ModelEntryDeps`로 잔류) → value↔type 결합 절단. attach-*·read-and-place-content·cache.ts·load-external-entry의 type import만 ./types로 재지정, value import(createEntry/cleanupEntry 등)는 ./entry 유지. cache.ts의 re-export(SharedModelPhase/State)도 ./types로. (2) src/renderer/services/editor/lsp/known-uris.ts leaf 신설 — registerKnownModelUri/unregisterKnownModelUri 추출(cache/bridge 미의존), bridge·cache·entry 모두 leaf에서 import → bridge↔cache 엣지 절단. ModelEntryDeps interface 필드셋은 default 객체 키와 정확히 일치시켜 Pick<> 사용처 유지.",
+          "risk": "ModelEntryDeps interface 키 불일치 시 Pick<> 사용처 컴파일 실패. cache.ts re-export 누락 시 잔존 타입 엣지. 순수 구조 변경이라 런타임 리스크는 낮음.",
+          "plan_issue": 6,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a6216e09af3aa733d"
+          },
+          "created_at": "2026-05-30T11:31:41.078Z",
+          "result": {
+            "outcome": "success",
+            "summary": "model/types.ts(타입 이동, ModelEntryDeps interface화) + lsp leaf 3개(known-uris·notifiers·provider-registry) 신설로 6 순환 해소. architect 계획 외 2개 leaf가 추가로 필요했음(bridge→cache→entry 3노드). madge: editor 전체 0 순환 확인. 전역 tsc -b 통과.",
+            "recorded_at": "2026-05-30T12:05:06.284Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "runOperation 잉여 as 캐스트 제거 (operations.ts)",
+          "status": "completed",
+          "context": "감사 ①/architect T3: state/stores/git/operations.ts의 as 캐스트(as CommitResult|undefined ×3, as Promise<…|undefined> fetchAll/pull/merge/rebase/continueOp/markResolved/fastForwardBranch, as GitSyncResult|undefined, 직접 as PushResult)는 contract가 이미 완전 제네릭 타입이라 runOperation이 T를 정확 추론 → 전부 죽은 캐스트(비제네릭 시절 잔재).",
+          "acceptance": "operations.ts as 캐스트 제거. tsc -b 통과. biome 변경 라인 clean. 런타임 변화 0(타입 레벨만). 기존 테스트 통과.",
+          "approach": "operations.ts에서 해당 as 캐스트 일괄 삭제 후 tsc -b로 증명. 시그니처 변경 금지. 삭제 후 특정 site가 실패하면 GitOperations 스토어 인터페이스 반환타입이 unknown/void로 잘못 선언된 것 → 캐스트 재추가 말고 인터페이스 선언을 실제 결과타입으로 수정.",
+          "risk": "일부 캐스트가 실제 인터페이스 불일치를 가리고 있었을 수 있음 → 일괄 제거 후 생존 site는 개별 점검(blanket 재캐스트 금지).",
+          "plan_issue": 5,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a3158428fa0fe9494"
+          },
+          "created_at": "2026-05-30T11:31:56.601Z",
+          "result": {
+            "outcome": "success",
+            "summary": "operations.ts 잉여 as 캐스트 12개 제거. 인터페이스 수정 불요(OperationsSlice가 이미 정확). tsc -b 통과로 추론 정상 입증. task9와 같은 파일을 편집했으나 클로버 없이 공존 확인(캐스트 0 + logger 도입).",
+            "recorded_at": "2026-05-30T12:05:09.527Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "commands/domains/file.ts copy/cut/paste 중복 제거 (withFocusedTreePaths)",
+          "status": "completed",
+          "context": "감사 ①: file.ts fileCopy/fileCut 바이트동일(handleCopy/handleCut만 차이), filePaste/fileMoveHere 동일, fileCopy/fileCut/fileDelete/fileRename/fileRenameByEnter가 wsId→tree→selectOperablePaths→filter→entries 전처리 반복.",
+          "acceptance": "file.ts 중복 제거. tsc -b 통과. biome 변경 라인 clean. 커맨드 동작 불변. 기존 테스트 통과.",
+          "approach": "withFocusedTreePaths(handler) 헬퍼로 전처리 캡슐화 + copy/cut를 clipboard 액션 인자로 파라미터화한 단일 구현, paste/moveHere도 paste 액션 파라미터화. 각 커맨드 동작 동일 보존(미세차 발견 시 파라미터로). 주의: 이 태스크만 file.ts를 편집(다른 태스크와 파일 충돌 없음).",
+          "risk": "커맨드별 미세 동작 차이를 헬퍼가 뭉개지 않도록 보존 확인.",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a586dce64c5633392"
+          },
+          "created_at": "2026-05-30T11:32:08.623Z",
+          "result": {
+            "outcome": "success",
+            "summary": "file.ts에 withFocusedTreePaths/withFocusedSinglePath/makeClipboardCommand 도입, copy/cut/delete/rename/renameByEnter 전처리 통합·copy/cut 파라미터화. 동작 보존(가드 시퀀스 동일). openToSide는 패턴 달라 제외. biome clean, tsc -b 통과.",
+            "recorded_at": "2026-05-30T12:05:12.436Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "shared WorkspaceIdSchema 프리미티브 도입 + 4중 중복/fs arg shape 통일",
+          "status": "completed",
+          "context": "감사 ④: z.string().uuid() 89회 인라인 + workspaceId 개념 4중 중복(contract.ts:218 WorkspaceIdSchema, :361 GitWorkspaceIdSchema, tab.ts:4, git/types.ts:344 GitHelperWorkspaceIdSchema) + contract.ts fs 섹션 {workspaceId,relPath} 7회 반복.",
+          "acceptance": "WorkspaceIdSchema/workspaceScoped 신설·재사용. 명시 중복 4개 제거. tsc -b 통과. biome clean. 스키마 동작 불변(검증 의미 동일). 기존 테스트 통과.",
+          "approach": "src/shared/types에 WorkspaceIdSchema=z.string().uuid() + workspaceScoped(extra)=z.object({workspaceId:WorkspaceIdSchema,...extra}) 신설. 명시 중복 4개와 fs {workspaceId,relPath} 7회를 프리미티브/헬퍼로 통일. bare uuid 89개 중 workspaceId 의미인 것만 치환, 비-workspaceId uuid(북마크 id 등)는 미변경. z.infer로 컴파일 검증.",
+          "risk": "workspaceId가 아닌 uuid를 잘못 치환하면 의미 훼손 → 의미 확인 후 치환. contract.ts는 광범위 import이나 타입 레벨이라 컴파일러가 전수 검증.",
+          "plan_issue": 7,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "ad95cf833cea53f4b"
+          },
+          "created_at": "2026-05-30T11:32:16.403Z",
+          "result": {
+            "outcome": "success",
+            "summary": "shared/types/workspace-id.ts 신설(WorkspaceIdSchema+workspaceScoped). 명시 중복 4개 + contract.ts fs arg shape 16개 통일. 의미상 workspaceId 인라인만 치환, tabId/sessionId/bookmark id 등은 보존. 8파일 biome clean, tsc -b 통과.",
+            "recorded_at": "2026-05-30T12:05:14.431Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "git IPC withRepo HOF 추상화 (main/features/git/ipc)",
+          "status": "completed",
+          "context": "감사 ①: git IPC 핸들러 ~50회 동일 스켈레톤(validateArgs→getOrDetect→if(!repo)not-repo→op→refreshStatus→catch→handleGitHandlerError). 대상: src/main/features/git/ipc/*.ts + bridge git-result.ts.",
+          "acceptance": "withRepo 도입·적합 핸들러 축소. tsc -b(main) 통과. biome clean. 봉투/에러 매핑 의미 불변. 기존 git IPC 통합 테스트 통과. not-repo 문자열 매칭 호출부 없음 확인.",
+          "approach": "architect T1: git-result.ts(handleGitHandlerError 소유)에 withRepo(registry,schema,run,opts?) HOF 추가 — 기존 스켈레톤 본문 그대로, refreshStatus 기본 post-success, 단일 catch→handleGitHandlerError로 봉투·GitError 서브타입·invalid-args 라우터 매핑 보존(validateArgs throw 삼키지 않음). 적합 핸들러만 ~1줄로 축소. 제외(수동): listBranches/listTags 등 리더(!repo→빈결과), fetchAllHandler(early-return+bumpGeneration), syncHandler(inner-failure refresh), 스트림(diff-stream/log-stream). fetch bumpGeneration은 run() 내부 호출. 첫 3개 변환 typecheck 후 대량 적용.",
+          "risk": "제외 핸들러를 억지 적용 시 회귀(리더 빈결과 정책·sync inner refresh·fetch bumpGeneration). not-repo 메시지 문자열 매칭 의존부 존재 가능.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a28dad13d1cf82c2f"
+          },
+          "created_at": "2026-05-30T11:32:29.886Z",
+          "result": {
+            "outcome": "success",
+            "summary": "git-result.ts에 withRepo HOF 추가, 41개 핸들러를 12파일에서 1줄로 축소. 리더/fetchAll/sync/stash-pop/cherry-pick/stream/autofetch는 수동 유지. 봉투·GitError 서브타입·invalid-args 매핑 보존, not-repo 문자열 매칭 의존 없음. 전역 tsc -b 통과, 13파일 biome clean. 미세: 성공 후 refreshStatus가 signal 없이 호출(테스터 확인 예정).",
+            "recorded_at": "2026-05-30T12:05:34.493Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "Go git capture() + gitError() dedup (internal/git/run.go)",
+          "status": "completed",
+          "context": "감사 ①: internal/git run→exitcode→GitError 시퀀스 ~30회 핸드롤 + 에러생성자 복붙. 대상: internal/git/run.go(공유 헬퍼 추가), branch.go/workflow.go/status.go.",
+          "acceptance": "capture/gitError 도입·3개 생성자 대체. go build 통과. 기존 go test(internal/git) 통과. diff/commitDetail 미변경. status fallback 문구 통일은 커밋 메시지에 명시.",
+          "approach": "architect T2: run.go에 capture(ctx,cwd,args,interactive)(stdout,stderr,code,err) 러너 + gitError(args,stderr,code) 생성자 추가. capture는 runBranchCommand(branch.go:314)/runWorkflowGit(workflow.go:95, capture 래핑해 3-value 유지) 및 status 등 inline 시퀀스 흡수. gitError는 branchGitError(337)/workflowGitError(514)/statusGitError(148) 3개(바이트동일 ladder)만 대체. 제외: diffGitError(diff.go:268)·commitDetailGitError(commit_detail.go:109)는 raw stderr+다른 fallback이라 동작 변경 → 미통합. gitExitCode는 이미 단일 정의라 유지.",
+          "risk": "subtly-different 변형을 잘못 통합하면 사용자 노출 에러 메시지 변경. ctx 취소 처리(gitExitCode와 ctx.Err 순서) 보존 필요.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "afd475336ed0a2ed1"
+          },
+          "created_at": "2026-05-30T11:32:38.320Z",
+          "result": {
+            "outcome": "success",
+            "summary": "run.go에 capture()+gitError() 추가, branch/workflow/status 마이그레이션, diff/commitDetail 미변경. status fallback 문구가 args 포함으로 통일(실제 도달불가 경로). go build/vet/test(전 패키지) 통과.",
+            "recorded_at": "2026-05-30T12:05:38.945Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "확정 dead code 제거 (engine sash-math/serialize/tree, Go agentlog)",
+          "status": "completed",
+          "context": "감사 F(확정): engine sash-math.ts pxToRatio, serialize.ts deserialize, tree.ts swapLeaves/replaceNode 무참조(동적 Grid.* 포함 grep 확인됨); Go agentlog.FromContext 도달불가(WithLogger가 context에 넣지만 아무도 안 읽음 — 요청스코프 로거 반쪽 배선).",
+          "acceptance": "확정 dead만 제거. tsc -b + go build + bun test + go test 통과. biome clean. 의심분은 제거 안 하고 결과에 명시.",
+          "approach": "제거 전 각 심볼 참조 0을 재검증(동적 Grid.* 접근·테스트 포함). 확정분만 제거: engine 4개 export + Go agentlog.FromContext와 아무도 안 읽는 WithLogger 요청스코프 로거 배선 일체. 조금이라도 의심되면 보존+보고. 테스트 전용 export(EncodeMessage·watchedFileRegistrationsMatch·agentpaths.BinDir 등)는 제외(dead 아님).",
+          "risk": "동적 접근/리플렉션으로 쓰이는 코드를 dead로 오판. agentlog WithLogger 배선 제거 범위가 예상보다 넓을 수 있음 → 참조 따라가며 신중.",
+          "plan_issue": 9,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "ae9adb8ff9ea49c93"
+          },
+          "created_at": "2026-05-30T11:32:47.261Z",
+          "result": {
+            "outcome": "partial",
+            "summary": "Go agentlog 패키 전체 + host.go put-but-never-get 로거 배선 제거(go build/vet 통과). TS engine 4개 후보(pxToRatio/deserialize/swapLeaves/replaceNode)는 테스트가 Grid.*로 참조 중·replaceNode는 내부 사용도 → 보존(원 감사의 'confirmed dead'가 테스트 참조 누락). 즉 TS dead는 제거 0 — partial. 후속: 테스트와 함께 제거 가능하나 이번 범위 아님.",
+            "recorded_at": "2026-05-30T12:05:49.994Z"
+          }
+        },
+        {
+          "id": 8,
+          "title": "tab close 경로 통합 + untitled dirty-confirm (saveUntitledModel 반환 변경 포함)",
+          "status": "completed",
+          "context": "감사 ① 실사례 + 사용자 요청. closeTabById(context.ts)와 handleCloseTab(view.tsx)에 탭타입 switch 중복 → 발산(Cmd+W 버그). untitled 닫기 시 editor처럼 dirty 확인 필요. 대상: services/editor/save/save-untitled-handler.ts, save/close-handler.ts, 신규 services/editor close 디스패처, components/workspace/group/view.tsx, commands/context.ts.",
+          "acceptance": "디스패처 단일화·양 호출부 위임·중복 switch 제거. untitled dirty 시 Save/Don't Save/Cancel 다이얼로그 동작(Save=저장 후 닫힘, Cancel=유지, Don't Save=폐기). Cmd+W와 X버튼 동작 동등(전 6탭타입). tsc -b + biome clean + 기존 테스트 통과. 다이얼로그 외관 불변.",
+          "approach": "architect T5(순서 중요): (a) saveUntitledModel을 void→\"saved\"|\"cancelled\"|\"failed\" 반환으로 변경(내부 3반환점 매핑), 타 호출부 grep 확인(fileSave는 .catch로 값 무시 → 무변경 예상). (b) 단일 디스패처 closeTabWithConfirm(ws,tabId):Promise<CloseTabOutcome>를 services/editor에 신설(타입 switch 유일 위치): terminal→closeTerminal, editor→closeEditorWithConfirm, untitled→closeUntitledWithConfirm, editor.diff/git.commit/browser→(필요시 release)+closeTab. (c) closeUntitledWithConfirm 추가: not-dirty→release+closeTab; showSaveConfirm cancel→cancelled, dont-save→release+closeTab, save→saveUntitledModel 결과 분기 — \"saved\"는 탭이 이미 editor 변환+모델 release 완료라 추가 close/release 금지(역방향 버그 방지), cancelled→유지, failed→유지. (d) handleCloseTab·closeTabById 둘 다 switch 제거하고 디스패처 위임(closeTabById는 outcome 반환 유지 — tab.ts closeOthers/All 사용).",
+          "risk": "saveUntitledModel \"saved\" 후 close 호출하면 갓 저장된 editor 탭을 닫는 역방향 버그 → 명시적 suppress 필수. 반환타입 변경이 타 호출부 깨뜨리는지 grep. releaseModel 이중 호출 방지(분기당 1회).",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "ab7d87f2727b25f30"
+          },
+          "created_at": "2026-05-30T11:33:05.835Z",
+          "result": {
+            "outcome": "success",
+            "summary": "saveUntitledModel을 3-way outcome으로 변경, closeUntitledWithConfirm 추가('saved→이중 close 금지' 가드), 단일 디스패처 close-tab.ts 신설, view.tsx·context.ts 위임·switch 제거, closeTabById outcome 계약(save-failed→closed) 보존. 전역 tsc -b 통과, biome clean(5파일). 인터랙티브 UI 검증은 테스터가 코드경로+수동권장으로 보완 예정.",
+            "recorded_at": "2026-05-30T12:05:59.830Z"
+          }
+        },
+        {
+          "id": 9,
+          "title": "로깅 console.* → createLogger facade 통일 (main + renderer)",
+          "status": "completed",
+          "context": "감사 Minor + conventions.md 강제사항: 로그는 createLogger facade만(console.* 금지). main 38회·renderer 12회 console.* 잔존(workspace/manager.ts, lsp/agent-host.ts, workspace-storage.ts, ssh/ipc.ts, pipe.ts:627, browser-permissions-panel.tsx, markdown-preview.tsx 등). 이 파일들은 다른 태스크 파일셋과 disjoint이라 병렬 안전.",
+          "acceptance": "console.* → createLogger 치환(부트스트랩 이전 예외 제외). biome lint(noConsole류 있으면) + 변경 라인 clean. tsc -b 통과. 기존 테스트 통과. 로그 동작 동일(facade 경유).",
+          "approach": "console.* 호출을 createLogger(source)(main: src/shared/log/main.ts, renderer: src/shared/log/renderer.ts)로 치환. source는 모듈/서브시스템 식별자. 전역 안전망(error-safety-net.ts·window-error-handler.ts) 내부 facade 부트스트랩 이전 의도적 console은 맥락 확인 후 보존. correlationId 있는 곳은 meta로 전달.",
+          "risk": "facade 부트스트랩 이전(프로세스 최초기) console을 무조건 치환하면 로그 유실 가능 → 안전망/엔트리포인트는 신중. 다른 태스크와 파일 겹치면 충돌(현재 disjoint 확인됨).",
+          "plan_issue": 8,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a12d738609f94c20f"
+          },
+          "created_at": "2026-05-30T11:33:14.445Z",
+          "result": {
+            "outcome": "success",
+            "summary": "console.* 110개를 43파일(main 12·renderer 31)에서 createLogger facade로 치환(감사 추정 50회보다 많음). 안전망 파일은 console 없어 미변경. 전역 tsc -b 통과, biome 0 errors. 부작용: console spy 테스트 4건 깨짐 → task12에서 logger facade 검증으로 갱신 중.",
+            "recorded_at": "2026-05-30T12:06:06.037Z"
+          }
+        },
+        {
+          "id": 10,
+          "title": "[검증] 렌더러 동작 회귀 — tab-close/untitled-confirm + 파일커맨드 + git store",
+          "status": "completed",
+          "context": "큰 구현 단위 검증(엔지니어별 페어링 아님). 대상 클러스터: task8(tab-close 통합+untitled confirm), task3(file.ts 커맨드 dedup), task2(runOperation 캐스트 제거).",
+          "acceptance": "tsc -b·biome·bun test 전부 통과. tab-close 6타입 단일경로 확인. untitled Save 후 역방향 close 버그 없음 확인. 회귀 발견 시 구체 파일:라인으로 보고. 수동검증 권장 목록 산출.",
+          "approach": "전체 typecheck(tsc -b) + biome check(변경 파일) + bun test(unit+integration) 실행. tab-close 경로를 코드로 추적해 6개 탭타입 전부(editor/untitled/terminal/diff/commit/browser)가 디스패처 단일 경로로 닫히는지, untitled의 Save(\"saved\"→탭 변환 후 추가 close 없음)/Cancel/Don't Save 분기가 명세대로인지, Cmd+W(closeTabById)와 X버튼(handleCloseTab)이 동일 디스패처를 타는지 확인. 파일 커맨드 copy/cut/paste/moveHere 동작 동등성, git store ops 캐스트 제거 후 타입/런타임 무변화 확인. 인터랙티브 UI 클릭 검증은 Electron 환경 제약상 자동화 한계 — 코드경로+자동테스트로 커버하고, 사용자 복귀 시 수동 확인 권장 항목을 명시.",
+          "risk": "자동 테스트가 UI 인터랙션(다이얼로그 클릭)을 완전 커버 못함 → 코드경로 정적 검증으로 보완.",
+          "plan_issue": 1,
+          "deps": [
+            8,
+            3,
+            2
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "bounded",
+            "agent_id": "af5ee6a6a60c05bc0"
+          },
+          "created_at": "2026-05-30T11:33:36.898Z",
+          "result": {
+            "outcome": "success",
+            "summary": "검증 수행 — CRITICAL 2건 발견(typecheck·단위테스트가 못 잡은 런타임/구조 결함): (1) closeUntitledWithConfirm의 untitled dirty 키가 cacheUriFor로 throw, (2) use-group-actions가 통합 안 된 제3의 close switch. 둘 다 Lead가 즉시 수정(commit 17a358f) + not-dirty 회귀 테스트 추가. 재검증: close 타입분기 잔존 0, 3진입점 모두 단일 디스패처 위임. 자동화 불가한 인터랙티브 UI 검증 10항 체크리스트 산출.",
+            "recorded_at": "2026-05-30T13:38:48.037Z"
+          }
+        },
+        {
+          "id": 11,
+          "title": "[검증] git 스택 회귀 — withRepo(main IPC) + Go capture/gitError",
+          "status": "completed",
+          "context": "큰 구현 단위 검증. 대상 클러스터: task5(git IPC withRepo), task6(Go capture/gitError dedup).",
+          "acceptance": "go build·go test·tsc -b·bun test 전부 통과. withRepo 봉투/에러 의미 불변 확인. 제외 핸들러 수동유지 확인. diff/commitDetail Go 에러 미변경 확인. 회귀는 파일:라인으로 보고.",
+          "approach": "go build + go test(internal/git 및 전체) + tsc -b(main) + bun test(git 통합 테스트) 실행. withRepo 적용 핸들러가 ipcOk/ipcErr 봉투·GitError 서브타입·invalid-args 매핑을 보존하는지, 제외 핸들러(listBranches/listTags 리더·fetchAll·sync·스트림)가 의도대로 수동 유지됐는지 코드 확인. Go gitError가 branch/workflow/status만 대체하고 diff/commitDetail은 미변경인지, capture가 ctx 취소·exitcode 처리를 보존하는지 확인. status fallback 문구 변경이 테스트 기대값과 충돌하면 보고.",
+          "risk": "git 통합 테스트가 실제 git 바이너리/픽스처 의존 → 환경 차이. status 에러 문구 통일이 스냅샷 테스트와 충돌 가능.",
+          "plan_issue": 2,
+          "deps": [
+            5,
+            6
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "bounded",
+            "agent_id": "a3188a85fe0330b5d"
+          },
+          "created_at": "2026-05-30T11:33:46.280Z",
+          "result": {
+            "outcome": "success",
+            "summary": "PASS, 결함 0. withRepo catch가 handleGitHandlerError로 봉투·GitError 서브타입·AbortError→cancelled 보존, validateArgs(IpcValidationError) 비-삼킴 확인. 제외 핸들러(listBranches 리더·fetchAll·sync·stashPop·cherryPick·stream) 수동유지 무결성 확인. Go capture ctx취소 선후·gitError 범위(diff/commitDetail 미변경 c839844 zero diff) 확인. go build/vet/test(25s real-git)·typecheck·bun test 전부 green. INFO: checkout 핸들러에 bumpGeneration additive 추가(패턴 일관, 무해).",
+            "recorded_at": "2026-05-30T13:39:00.672Z"
+          }
+        },
+        {
+          "id": 12,
+          "title": "[회귀수정] 로깅 전환으로 깨진 테스트 4건 — console spy → logger facade 검증",
+          "status": "completed",
+          "context": "task9(console.*→createLogger) 부작용. 4개 테스트가 console spy로 로그를 검증하는데 코드가 createLogger facade를 쓰게 되어 실패: (1) tests/unit/renderer/services/lsp/workspace-symbol-registry.test.ts 'allows partial provider failure'(:80 spyOn(console,'warn'), expects 1), (2)(3) tests/unit/main/agent/pipe-ready-heartbeat.test.ts heartbeat watchdog 2건, (4) tests/unit/renderer/services/lsp-server-ux-router.test.ts 'routes window/showMessage through the severity logging stub'. 렌더러 테스트는 window 존재로 facade가 electron-log 경로를 타 console 미경유.",
+          "acceptance": "bun test로 해당 3개 파일 전부 통과(4 fail→0). 전체 bun test(unit+integration) 회귀 0. 단언이 의미 보존(로그 호출 횟수·조건 검증). biome 변경 라인 clean.",
+          "approach": "각 테스트를 로거 facade 검증으로 갱신. .nexus/memory/pattern-bun-mock-conventions.md 준수: mock.module은 leaf-only(src/shared/log/renderer.ts·main.ts는 안정 leaf라 대상 적합), real export를 spread 후 createLogger만 override해 spy 로거(warn/error/info/debug=mock())를 반환하게 하고, 테스트는 그 spy가 의도대로(예: 3-miss window에 warn 1회, heartbeat 복귀 시 flag 리셋, partial failure에 warn 1회) 호출됐는지 단언. 각 테스트의 행위 의도 보존 — 단언을 공허하게 약화시키지 말 것. mock.module process-global 오염 주의(파일별 afterEach 복원/스코프).",
+          "risk": "mock.module이 같은 프로세스 후속 테스트 오염 가능 → 스코프/복원 철저. facade 인자 순서(buildMeta, msg)에 단언이 의존하지 않게.",
+          "plan_issue": 8,
+          "deps": [
+            9
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a9647aaac878562c5"
+          },
+          "created_at": "2026-05-30T12:04:11.837Z",
+          "result": {
+            "outcome": "success",
+            "summary": "로깅 전환 회귀 테스트 4건을 green화. pipe(2)·lsp-server-ux(1)는 테스트 preload(log-test-spies)로 logger facade spy 검증 유지(로그가 유일 관찰가능 계약). workspace-symbol-registry는 surface-error.test의 createLogger 전역 mock 충돌(bun mock.module global)로 spy 카운트가 fragile → 부수적 warn-count 단언 제거하고 핵심 계약(partial 실패 격리, 나머지 결과 반환)만 유지. 전체 스위트 3005 pass·0 fail 3연속 안정. 참고: surface-error의 createLogger 전역 mock은 bun-mock leaf-only 룰 위반(선재 오염원) — 후속 정리 권장.",
+            "recorded_at": "2026-05-30T13:23:51.862Z"
+          }
+        }
+      ]
     }
   ]
 }

@@ -18,7 +18,6 @@ import { attachLspBridge, rehydrateEntryLspOpened } from "./attach-lsp-bridge";
 import {
   attachDirtyTracker,
   detachDirtyTracker,
-  getDirtyEntry,
   markSaved as markDirtyTrackerSaved,
 } from "./dirty-tracker";
 import {
@@ -177,9 +176,10 @@ export function createEntry(
  *   - Does NOT subscribe to fs.changed events — there is no file on disk
  *     to watch.
  *   - Immediately moves the entry to `phase: "ready"`.
- *   - Sets up the dirty tracker with `savedAlternativeVersionId=0` so that
- *     the fresh model (whose altVersionId starts at 1) is dirty from the
- *     start — reflecting that there is no save-point to compare against.
+ *   - Sets up the dirty tracker against the empty model's current alt id, so
+ *     the buffer starts CLEAN. It becomes dirty only once the user actually
+ *     edits content (and clean again if they undo back to empty). This mirrors
+ *     VSCode: an untouched untitled editor closes without a save prompt.
  *
  * The `cacheUri` (= monacoUri) should be `untitled://{workspaceId}/Untitled-{N}`
  * — produced by `untitledCacheUriFor` from workspace-uri.ts.
@@ -220,21 +220,18 @@ export function createUntitledEntry(
   };
 
   // Attach the dirty tracker so downstream consumers (tab indicator,
-  // save service, close-handler) can observe dirty state normally.
-  // Setting savedAlternativeVersionId=0 immediately after attach ensures
-  // isDirty=true from the start: a fresh Monaco model's altVersionId
-  // begins at 1, which will never equal 0.
+  // save service, close-handler) can observe dirty state normally. The
+  // tracker seeds savedAlternativeVersionId to the empty model's current
+  // alt id, so the buffer starts clean (isDirty=false) and only flips to
+  // dirty when the user types. cmd+s on untitled routes to
+  // saveUntitledModel directly (not the dirty-gated saveModel), so an
+  // empty untitled can still be saved-as despite starting clean.
   deps.attachDirtyTracker({
     cacheUri,
     model,
     loadedMtime: "",
     loadedSize: 0,
   });
-  const dirtyEntry = getDirtyEntry(cacheUri);
-  if (dirtyEntry) {
-    dirtyEntry.savedAlternativeVersionId = 0;
-    dirtyEntry.isDirty = true;
-  }
 
   // Register the cacheUri in the LSP known-model map so that any
   // provider dispatching on URI can find this entry (even though we
