@@ -16,6 +16,7 @@ import { releaseModel } from "@/services/editor/model";
 import { closeTab } from "@/state/operations/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
 import { basename } from "@/utils/path";
+import { untitledCacheUriFor } from "../../../../shared/fs/workspace-uri";
 import { cacheUriFor } from "../model/cache";
 import { isDirty } from "../model/dirty-tracker";
 import { closeEditor } from "../tabs";
@@ -94,7 +95,11 @@ export async function closeUntitledWithConfirm(
     closeTab(workspaceId, tabId);
   };
 
-  if (!isDirty(cacheUriFor(workspaceId, untitledFilePath))) {
+  // Untitled buffers are keyed in the model cache under the `untitled://`
+  // scheme (cacheUriForInput), NOT the workspace file scheme — `cacheUriFor`
+  // would throw on the non-absolute "Untitled-N" name. Use the canonical
+  // untitled cacheUri builder so isDirty resolves the right model entry.
+  if (!isDirty(untitledCacheUriFor(workspaceId, tab.props.untitledIndex))) {
     discard();
     return "closed";
   }

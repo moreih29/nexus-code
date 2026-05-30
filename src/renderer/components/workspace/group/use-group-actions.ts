@@ -1,10 +1,10 @@
-import { closeEditorWithConfirm } from "@/services/editor";
-import { isDirty } from "@/services/editor/model/dirty-tracker";
 import { cacheUriFor } from "@/services/editor/model/cache";
+import { isDirty } from "@/services/editor/model/dirty-tracker";
 import type { CloseTabOutcome } from "@/services/editor/save/close-handler";
+import { closeTabWithConfirm } from "@/services/editor/save/close-tab";
 import { closeEditor, openOrRevealEditor } from "@/services/editor/tabs";
-import { closeTerminal, openTerminal } from "@/services/terminal";
-import { closeTab as closeTabRecord, openTabInNewSplit } from "@/state/operations/tabs";
+import { openTerminal } from "@/services/terminal";
+import { openTabInNewSplit } from "@/state/operations/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
 
 interface UseGroupActionsOptions {
@@ -25,25 +25,12 @@ export function useGroupActions({
   onActivateGroup,
 }: UseGroupActionsOptions) {
   /**
-   * Close one tab. For editor tabs the close goes through the dirty-aware
-   * confirm flow (so bulk-close paths can't silently discard buffer edits).
-   * Returns "no-tab" when the id is unknown or already gone.
+   * Close one tab through the single dirty-aware dispatcher so context-menu
+   * close (and the bulk-close paths) handle every tab type identically to the
+   * tab-bar X button and the ⌘W command — no per-call-site type switch.
    */
-  async function closeTabForId(tabId: string): Promise<CloseTabOutcome | "no-tab"> {
-    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
-    if (!tab) return "no-tab";
-    if (tab.type === "terminal") {
-      closeTerminal(tabId);
-      return "closed";
-    }
-    if (tab.type === "editor") {
-      return await closeEditorWithConfirm(workspaceId, tabId);
-    }
-    if (tab.type === "editor.diff") {
-      closeTabRecord(workspaceId, tabId);
-      return "closed";
-    }
-    return "no-tab";
+  async function closeTabForId(tabId: string): Promise<CloseTabOutcome> {
+    return closeTabWithConfirm(workspaceId, tabId);
   }
 
   /**
