@@ -15,8 +15,9 @@
 //   - NEXUS_IN_APP=0 경로(래퍼 passthrough) — Claude Code가 원래 동작으로 OSC 발사
 // OSC 채널 비활성화 시에도 이 파서를 제거하지 않는 이유는 위와 같다.
 
-import { broadcast } from "../../infra/ipc-router";
+import { createLogger } from "../../../shared/log/main";
 import { tryGetMainT } from "../../i18n";
+import { broadcast } from "../../infra/ipc-router";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,6 +28,8 @@ export interface OscNotification {
   title?: string;
   body: string;
 }
+
+const log = createLogger("osc-notification");
 
 // Dependency shape injected into OscNotificationDispatcher — narrow interface
 // so callers (and tests) don't need to pass a full WorkspaceManager.
@@ -124,7 +127,9 @@ export class OscNotificationDispatcher {
 
     // Resolve workspace name once per chunk since all notifications share it.
     const _t = tryGetMainT();
-    const workspaceName = workspaceManager.getName(workspaceId) ?? (_t ? _t("common:claudeNotification.terminalFallback") : "Terminal");
+    const workspaceName =
+      workspaceManager.getName(workspaceId) ??
+      (_t ? _t("common:claudeNotification.terminalFallback") : "Terminal");
 
     const focusedWindow = getFocusedWindow();
     const isAppFocused = focusedWindow !== null && !focusedWindow.isMinimized();
@@ -168,7 +173,7 @@ export class OscNotificationDispatcher {
 
       // 2. Activate the workspace in main (fire-and-forget).
       this.deps.activateWorkspace?.(workspaceId)?.catch((err) => {
-        console.warn("[osc-notification] activateWorkspace failed:", err);
+        log.warn(`activateWorkspace failed: ${(err as Error).message}`);
       });
 
       // 3. Tell the renderer to reveal the workspace + tab.

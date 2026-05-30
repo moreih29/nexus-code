@@ -6,6 +6,11 @@ import {
 } from "../../../../src/renderer/services/lsp-ux/server-ux-router";
 import type { LspServerEvent } from "../../../../src/shared/lsp";
 
+// Spy imported from the preload — the log-test-spies.ts preload wraps
+// src/shared/log/renderer's createLogger so that every call to log.warn()
+// inside server-ux-router.ts increments rendererWarnMock.
+import { rendererWarnMock } from "../../../../tests/log-test-spies";
+
 const originalConsole = {
   error: console.error,
   warn: console.warn,
@@ -28,6 +33,7 @@ describe("LSP server UX router", () => {
     console.warn = mock(() => {}) as unknown as typeof console.warn;
     console.info = mock(() => {}) as unknown as typeof console.info;
     console.log = mock(() => {}) as unknown as typeof console.log;
+    rendererWarnMock.mockClear();
   });
 
   afterEach(() => {
@@ -55,11 +61,15 @@ describe("LSP server UX router", () => {
   });
 
   test("routes window/showMessage through the severity logging stub", () => {
-    // The user-facing channel is still surfaced to console until an
-    // in-app notification panel exists.
+    // The user-facing channel is surfaced via the logger facade. Type 2 is
+    // MessageType.Warning, so the router calls log.warn with the prefixed message.
+    // The preload-installed spy (rendererWarnMock) observes the call directly.
     routeLspServerEvent(serverEvent("window/showMessage", { type: 2, message: "Heads up" }));
 
-    expect(console.warn).toHaveBeenCalledWith("[lsp:typescript:ws-1] Heads up");
+    expect(rendererWarnMock).toHaveBeenCalledTimes(1);
+    // The facade's Logger interface calls warn(msg, meta?) — the first positional
+    // arg is the message string.
+    expect(rendererWarnMock.mock.calls[0][0]).toBe("[lsp:typescript:ws-1] Heads up");
   });
 
   test("registers window/workDoneProgress/create tokens", () => {

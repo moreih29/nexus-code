@@ -14,7 +14,10 @@
 // central handler logs broken handlers rather than letting one failure
 // silently swallow the rest.
 
+import { createLogger } from "../../shared/log/renderer";
 import { ipcListen } from "../ipc/client";
+
+const log = createLogger("workspace-cleanup");
 
 export type WorkspaceCleanupFn = (workspaceId: string) => void;
 
@@ -51,7 +54,7 @@ export function initializeWorkspaceLifecycle(): void {
         fn(id);
       } catch (error) {
         // One handler's failure must not block the others.
-        console.error("[workspace-cleanup] handler threw:", error);
+        log.error(`handler threw: ${(error as Error).message}`);
       }
     }
   });

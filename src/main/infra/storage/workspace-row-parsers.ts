@@ -18,6 +18,9 @@ import {
   type GitPanelState,
   GitPanelStateSchema,
 } from "../../../shared/git/types";
+import { createLogger } from "../../../shared/log/main";
+
+const log = createLogger("workspace-storage");
 
 export const GIT_PANEL_COMMIT_DRAFT_KEY = "commitDraft";
 export const GIT_PANEL_EXPANDED_GROUPS_KEY = "expandedGroups";
@@ -83,9 +86,8 @@ export function parseGitExpandedGroups(
     });
     return state.expandedGroups;
   } catch (err) {
-    console.warn(
-      `[WorkspaceStorage] Invalid git_panel_state expandedGroups for workspace ${workspaceId}; using defaults.`,
-      err,
+    log.warn(
+      `Invalid git_panel_state expandedGroups for workspace ${workspaceId}; using defaults. ${(err as Error).message}`,
     );
     return null;
   }
@@ -107,9 +109,8 @@ export function parseGitExpandedTreeNodes(
     });
     return state.expandedTreeNodes;
   } catch (err) {
-    console.warn(
-      `[WorkspaceStorage] Invalid git_panel_state expandedTreeNodes for workspace ${workspaceId}; using defaults.`,
-      err,
+    log.warn(
+      `Invalid git_panel_state expandedTreeNodes for workspace ${workspaceId}; using defaults. ${(err as Error).message}`,
     );
     return defaultGitExpandedTreeNodes();
   }
@@ -134,9 +135,8 @@ export function parseGitCommitOptions(
     });
     return state.commitOptions;
   } catch (err) {
-    console.warn(
-      `[WorkspaceStorage] Invalid git_panel_state commitOptions for workspace ${workspaceId}; using defaults.`,
-      err,
+    log.warn(
+      `Invalid git_panel_state commitOptions for workspace ${workspaceId}; using defaults. ${(err as Error).message}`,
     );
     return { ...DEFAULT_GIT_PANEL_STATE.commitOptions };
   }
@@ -161,9 +161,8 @@ export function parseGitAutofetchIntervalMin(
     });
     return state.autofetchIntervalMin;
   } catch (err) {
-    console.warn(
-      `[WorkspaceStorage] Invalid git_panel_state autofetchIntervalMin for workspace ${workspaceId}; using defaults.`,
-      err,
+    log.warn(
+      `Invalid git_panel_state autofetchIntervalMin for workspace ${workspaceId}; using defaults. ${(err as Error).message}`,
     );
     return DEFAULT_GIT_PANEL_STATE.autofetchIntervalMin;
   }
@@ -188,9 +187,8 @@ export function parseGitAutofetchManualPaused(
     });
     return state.autofetchManualPaused;
   } catch (err) {
-    console.warn(
-      `[WorkspaceStorage] Invalid git_panel_state autofetchManualPaused for workspace ${workspaceId}; using defaults.`,
-      err,
+    log.warn(
+      `Invalid git_panel_state autofetchManualPaused for workspace ${workspaceId}; using defaults. ${(err as Error).message}`,
     );
     return DEFAULT_GIT_PANEL_STATE.autofetchManualPaused;
   }
@@ -215,9 +213,8 @@ export function parseGitProtectedBranches(
     });
     return state.protectedBranches;
   } catch (err) {
-    console.warn(
-      `[WorkspaceStorage] Invalid git_panel_state protectedBranches for workspace ${workspaceId}; using defaults.`,
-      err,
+    log.warn(
+      `Invalid git_panel_state protectedBranches for workspace ${workspaceId}; using defaults. ${(err as Error).message}`,
     );
     return [...DEFAULT_GIT_PANEL_STATE.protectedBranches];
   }
@@ -239,9 +236,8 @@ export function parseGitPanelSegment(
       panelSegment: raw,
     }).panelSegment;
   } catch (err) {
-    console.warn(
-      `[WorkspaceStorage] Invalid git_panel_state panelSegment for workspace ${workspaceId}; using defaults.`,
-      err,
+    log.warn(
+      `Invalid git_panel_state panelSegment for workspace ${workspaceId}; using defaults. ${(err as Error).message}`,
     );
     return DEFAULT_GIT_PANEL_STATE.panelSegment;
   }
@@ -263,9 +259,8 @@ export function parseGitHistoryRef(
       historyRef: raw,
     }).historyRef;
   } catch (err) {
-    console.warn(
-      `[WorkspaceStorage] Invalid git_panel_state historyRef for workspace ${workspaceId}; using defaults.`,
-      err,
+    log.warn(
+      `Invalid git_panel_state historyRef for workspace ${workspaceId}; using defaults. ${(err as Error).message}`,
     );
     return DEFAULT_GIT_PANEL_STATE.historyRef;
   }
@@ -284,9 +279,8 @@ export function parseGitHistoryScope(
       historyScope: raw,
     }).historyScope;
   } catch (err) {
-    console.warn(
-      `[WorkspaceStorage] Invalid git_panel_state historyScope for workspace ${workspaceId}; using defaults.`,
-      err,
+    log.warn(
+      `Invalid git_panel_state historyScope for workspace ${workspaceId}; using defaults. ${(err as Error).message}`,
     );
     return DEFAULT_GIT_PANEL_STATE.historyScope;
   }

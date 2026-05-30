@@ -5,6 +5,7 @@
 // reshape here keeps the host class free of branching per method.
 
 import { z } from "zod";
+import { createLogger } from "../../../shared/log/main";
 import {
   CompletionItemSchema,
   DiagnosticSchema,
@@ -18,6 +19,8 @@ import {
   TextDocumentIdentifierSchema,
 } from "../../../shared/lsp";
 import { isObjectLike } from "./utils";
+
+const log = createLogger("lsp-normalizers");
 
 export function normalizeHoverResult(raw: unknown): unknown {
   if (!isObjectLike(raw)) return null;
@@ -64,10 +67,9 @@ export function normalizeDocumentSymbolResult(raw: unknown): unknown {
     }));
   }
 
-  console.warn("[lsp-agent] textDocument/documentSymbol returned unrecognized shape", {
-    hierarchicalIssues: hierarchical.error.issues,
-    flatIssues: flat.error.issues,
-  });
+  log.warn(
+    `textDocument/documentSymbol returned unrecognized shape (hierarchicalIssues=${hierarchical.error.issues.length}, flatIssues=${flat.error.issues.length})`,
+  );
   return [];
 }
 

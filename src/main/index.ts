@@ -4,7 +4,10 @@ import { createLogger, initMainLogger } from "../shared/log/main";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { installErrorSafetyNet } from "./error-safety-net";
 import { registerAppStateChannel } from "./features/app-state";
+import { getBrowserRegistry, initBrowserFeature, registerBrowserCloser } from "./features/browser";
+import { BrowserPermissionPromptManager } from "./features/browser/permission-prompt-manager";
 import { setupClaudeFeature } from "./features/claude/index";
+import { registerClipboardChannel } from "./features/clipboard/ipc";
 import {
   installNexusWorkspaceProtocol,
   registerNexusWorkspaceSchemes,
@@ -27,9 +30,7 @@ import {
 import { registerGitChannel } from "./features/git/ipc";
 import { registerAutofetchChannel } from "./features/git/ipc/autofetch-handlers";
 import { type LspHostHandle, startConfiguredLspHost } from "./features/lsp/host";
-import { registerClipboardChannel } from "./features/clipboard/ipc";
 import { registerLspChannel } from "./features/lsp/ipc";
-import { getMainI18n, getMainT, initMainI18n } from "./i18n";
 import { installAppMenu } from "./features/menu";
 import { registerPanelChannel } from "./features/panel";
 import { startAgentPtyHost } from "./features/pty/agent-host";
@@ -38,12 +39,11 @@ import type { PtyHostHandle } from "./features/pty/types";
 import { registerSystemChannel } from "./features/shell/ipc";
 import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
 import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ipc";
-import { getBrowserRegistry, initBrowserFeature, registerBrowserCloser } from "./features/browser";
-import { BrowserPermissionPromptManager } from "./features/browser/permission-prompt-manager";
 import { installUpdatesDomain, type UpdatesDomainHandle } from "./features/updates";
 import { createMainWindow } from "./features/window";
 import { registerWorkspaceChannel } from "./features/workspace/ipc";
 import { WorkspaceManager } from "./features/workspace/manager";
+import { getMainI18n, getMainT, initMainI18n } from "./i18n";
 import { NEXUS_AGENT_MODE_ENV } from "./infra/agent/local-agent-resolver";
 import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./infra/agent/ssh/auth-prompt";
 import { createSshChannel } from "./infra/agent/ssh/channel";
@@ -290,7 +290,7 @@ app.whenReady().then(async () => {
     onRepoInfoChanged(workspaceId, info) {
       if (info.kind === "repo") {
         void gitWatcher?.watch(workspaceId, info.gitDir).catch((error) => {
-          console.warn("[git] agent watcher failed", error);
+          logger.warn(`git agent watcher failed: ${(error as Error).message}`);
         });
       } else {
         gitWatcher?.disposeWorkspace(workspaceId);

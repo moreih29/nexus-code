@@ -1,3 +1,3 @@
 [test]
-preload = ["./tests/setup-globals.ts", "./tests/setup.ts"]
+preload = ["./tests/setup-globals.ts", "./tests/setup.ts", "./tests/log-test-spies.ts"]
 pathIgnorePatterns = ["references/**"]

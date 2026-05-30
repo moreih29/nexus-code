@@ -14,11 +14,14 @@
 // any change here takes effect immediately — no restart required.
 
 import { create } from "zustand";
+import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult } from "../../ipc/client";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
+
+const log = createLogger("window-opacity");
 
 const WINDOW_OPACITY_STORAGE_KEY = "windowOpacity";
 
@@ -73,7 +76,7 @@ export const useWindowOpacityStore = create<WindowOpacityState>((set) => {
       void ipcCallResult("appState", "set", {
         windowOpacity: opacity === 1 ? undefined : opacity,
       }).then((result) => {
-        if (!result.ok) console.warn("[window-opacity] appState set failed", result.message);
+        if (!result.ok) log.warn(`appState set failed: ${result.message}`);
       });
     },
   };

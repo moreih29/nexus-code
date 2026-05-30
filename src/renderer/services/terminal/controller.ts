@@ -5,6 +5,7 @@ import { Terminal } from "@xterm/xterm";
 import { DEFAULT_THEME, THEMES } from "../../../shared/design-tokens";
 import type { ThemeId } from "../../../shared/design-tokens/themes";
 import { TERMINAL_PALETTES } from "../../../shared/editor/terminal-palette";
+import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult } from "../../ipc/client";
 import { useTabsStore } from "../../state/stores/tabs";
 import {
@@ -22,6 +23,8 @@ import type {
   TerminalControllerOptions,
   TerminalDimensions,
 } from "./types";
+
+const log = createLogger("terminal");
 
 type Disposable = { dispose: () => void };
 
@@ -836,7 +839,7 @@ class XtermTerminalController implements TerminalController {
     } catch (e) {
       // Don't swallow silently — a failed activate (e.g. missing proposed-API
       // flag) is otherwise invisible and looks like "ligatures just don't work".
-      console.warn("[terminal] ligatures addon failed to load", e);
+      log.warn(`ligatures addon failed to load: ${(e as Error).message}`);
       this.ligaturesAddon = null;
     }
   }

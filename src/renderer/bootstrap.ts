@@ -5,6 +5,7 @@
  * Functions here are plain async — callers own the `useEffect` wrapper.
  */
 
+import { createLogger } from "../shared/log/renderer";
 import type { LspLanguageId } from "../shared/types/app-state";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
@@ -33,6 +34,8 @@ import { useUIStore } from "./state/stores/ui";
 import { useUpdatesStore } from "./state/stores/updates";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
 import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
+
+const log = createLogger("bootstrap");
 
 /**
  * Hydrate persisted UI widths, layout snapshots, and tab records from
@@ -223,7 +226,7 @@ export async function bootstrapAppState(): Promise<void> {
       v: number,
     ) => {
       useWindowOpacityStore.getState().setOpacity(v);
-      console.info(`[dev] windowOpacity = ${v} — restart the app to apply the window flag.`);
+      log.info(`[dev] windowOpacity = ${v} — restart the app to apply the window flag.`);
     };
   }
 }

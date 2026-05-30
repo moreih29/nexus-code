@@ -6,6 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { AskpassPrompt, GitEditorPrompt } from "../../../../../shared/git/types";
+import { createLogger } from "../../../../../shared/log/renderer";
 import { ipcCallResult, ipcListen } from "../../../../ipc/client";
 
 export interface GitHelperPromptSnapshot {
@@ -19,6 +20,8 @@ export interface GitHelperPromptDeps {
   readonly call?: typeof ipcCallResult;
   readonly listen?: typeof ipcListen;
 }
+
+const log = createLogger("git");
 
 export interface GitHelperPromptState {
   readonly credentialPrompt: AskpassPrompt | null;
@@ -179,7 +182,7 @@ export function useGitHelperPrompts(
       clearCredentialPrompt(prompt.promptId);
       // Fire-and-forget: send credential to main; errors logged only.
       void call("askpass", "respond", { promptId: prompt.promptId, value }).then((result) => {
-        if (!result.ok) console.error("[git] credential response failed", result.message);
+        if (!result.ok) log.error(`credential response failed: ${result.message}`);
       });
     },
     [call, credentialPrompt],
@@ -191,7 +194,7 @@ export function useGitHelperPrompts(
     clearCredentialPrompt(prompt.promptId);
     // Fire-and-forget: cancel credential prompt in main; errors logged only.
     void call("askpass", "cancel", { promptId: prompt.promptId }).then((result) => {
-      if (!result.ok) console.error("[git] credential cancel failed", result.message);
+      if (!result.ok) log.error(`credential cancel failed: ${result.message}`);
     });
   }, [call, credentialPrompt]);
 
@@ -202,7 +205,7 @@ export function useGitHelperPrompts(
       clearEditorPrompt(prompt.promptId);
       // Fire-and-forget: send commit message to main; errors logged only.
       void call("editor", "save", { promptId: prompt.promptId, content }).then((result) => {
-        if (!result.ok) console.error("[git] commit message save failed", result.message);
+        if (!result.ok) log.error(`commit message save failed: ${result.message}`);
       });
     },
     [call, editorPrompt],
@@ -214,7 +217,7 @@ export function useGitHelperPrompts(
     clearEditorPrompt(prompt.promptId);
     // Fire-and-forget: cancel commit editor in main; errors logged only.
     void call("editor", "cancel", { promptId: prompt.promptId }).then((result) => {
-      if (!result.ok) console.error("[git] commit message cancel failed", result.message);
+      if (!result.ok) log.error(`commit message cancel failed: ${result.message}`);
     });
   }, [call, editorPrompt]);
 

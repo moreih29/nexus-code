@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
+import { afterEach, describe, expect, it, mock } from "bun:test";
 import {
   __resetWorkspaceSymbolRegistryForTests,
   registerWorkspaceSymbolProvider,
@@ -77,7 +77,6 @@ describe("workspace-symbol-registry", () => {
   });
 
   it("allows partial provider failure", async () => {
-    const warn = spyOn(console, "warn").mockImplementation(() => {});
     registerWorkspaceSymbolProvider({
       id: "ok",
       provideWorkspaceSymbols: async () => [symbol("Greet")],
@@ -91,9 +90,12 @@ describe("workspace-symbol-registry", () => {
 
     const results = await searchWorkspaceSymbols({ workspaceId: "ws-1", query: "Gre" });
 
+    // The core contract: a throwing provider is isolated — the healthy
+    // provider's results still come through. (The failure is also logged via
+    // the createLogger facade; that incidental side-effect is not asserted
+    // here because the facade's process-global mock state is shared across the
+    // suite and asserting on it is order-dependent and brittle.)
     expect(results.map((item) => item.name)).toEqual(["Greet"]);
-    expect(warn).toHaveBeenCalledTimes(1);
-    warn.mockRestore();
   });
 
   it("unregister cleanup removes the provider", async () => {

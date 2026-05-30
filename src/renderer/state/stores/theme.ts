@@ -15,12 +15,15 @@
 
 import { create } from "zustand";
 import { DEFAULT_THEME, THEMES, type ThemeId } from "../../../shared/design-tokens";
+import { createLogger } from "../../../shared/log/renderer";
 import type { ThemePreference } from "../../../shared/types/app-state";
 import { ipcCallResult } from "../../ipc/client";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
+
+const log = createLogger("theme");
 
 const THEME_STORAGE_KEY = "themePreference";
 
@@ -64,9 +67,10 @@ interface ThemeState {
 export const useThemeStore = create<ThemeState>((set) => {
   // Derive initial resolved theme from localStorage (written by boot script
   // before React loads). Falls back to DEFAULT_THEME if not set or unknown.
-  const storedRaw = typeof localStorage !== "undefined"
-    ? (localStorage.getItem(THEME_STORAGE_KEY) as ThemePreference | null)
-    : null;
+  const storedRaw =
+    typeof localStorage !== "undefined"
+      ? (localStorage.getItem(THEME_STORAGE_KEY) as ThemePreference | null)
+      : null;
   const initial = normalize(storedRaw);
 
   return {
@@ -93,7 +97,7 @@ export const useThemeStore = create<ThemeState>((set) => {
       void ipcCallResult("appState", "set", {
         themePreference: preference,
       }).then((result) => {
-        if (!result.ok) console.warn("[theme] appState set failed", result.message);
+        if (!result.ok) log.warn(`appState set failed: ${result.message}`);
       });
     },
   };

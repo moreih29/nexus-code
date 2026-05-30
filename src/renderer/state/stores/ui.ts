@@ -1,10 +1,13 @@
 import { create } from "zustand";
+import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult } from "../../ipc/client";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
+
+const log = createLogger("ui");
 
 export const SIDEBAR_WIDTH_MIN = 180;
 export const SIDEBAR_WIDTH_MAX = 480;
@@ -111,7 +114,7 @@ export const useUIStore = create<UIState>((set) => {
       if (persist) {
         // Fire-and-forget: local state is source of truth; appState is the durable store.
         void ipcCallResult("appState", "set", { sidebarWidth: next }).then((result) => {
-          if (!result.ok) console.warn("[ui] appState set failed", result.message);
+          if (!result.ok) log.warn(`appState set failed: ${result.message}`);
         });
       }
     },
@@ -122,7 +125,7 @@ export const useUIStore = create<UIState>((set) => {
       if (persist) {
         // Fire-and-forget: local state is source of truth; appState is the durable store.
         void ipcCallResult("appState", "set", { filesPanelWidth: next }).then((result) => {
-          if (!result.ok) console.warn("[ui] appState set failed", result.message);
+          if (!result.ok) log.warn(`appState set failed: ${result.message}`);
         });
       }
     },
@@ -144,7 +147,7 @@ export const useUIStore = create<UIState>((set) => {
         return { filesPanelHidden: next };
       });
       void ipcCallResult("appState", "set", { filesPanelHidden: next }).then((result) => {
-        if (!result.ok) console.warn("[ui] appState set failed", result.message);
+        if (!result.ok) log.warn(`appState set failed: ${result.message}`);
       });
     },
 
@@ -166,7 +169,7 @@ export const useUIStore = create<UIState>((set) => {
         sidebarHidden: nextSidebarHidden,
         filesPanelHidden: nextFilesPanelHidden,
       }).then((result) => {
-        if (!result.ok) console.warn("[ui] appState set failed", result.message);
+        if (!result.ok) log.warn(`appState set failed: ${result.message}`);
       });
     },
   };

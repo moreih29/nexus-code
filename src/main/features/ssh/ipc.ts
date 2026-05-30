@@ -1,28 +1,27 @@
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { DirEntry } from "../../../shared/fs/types";
+import { DirEntrySchema } from "../../../shared/fs/types";
 import { ipcContract } from "../../../shared/ipc/contract";
+import { ipcErr, ipcOk } from "../../../shared/ipc/result";
+import { createLogger } from "../../../shared/log/main";
 import type { SshErrorCode } from "../../../shared/ssh/errors";
 import { SshErrorCodeSchema } from "../../../shared/ssh/errors";
 import { AuthCancelledError } from "../../infra/agent/ssh/auth-prompt";
-import { parseSshConfig, type SshConfigHost } from "./config";
-import {
-  BROWSE_MAX_ENTRIES,
-  type SshBrowseSessionRegistry,
-} from "./browse-session-registry";
+import type { SshAuthPromptHandler } from "../../infra/agent/ssh/auth-pty";
+import { createSshChannel } from "../../infra/agent/ssh/channel";
+import type { SshControlMaster } from "../../infra/agent/ssh/master";
 import {
   type EnsureRemoteAgentOptions,
   ensureRemoteAgent,
 } from "../../infra/agent/ssh/ssh-bootstrap/index";
-import type { SshControlMaster } from "../../infra/agent/ssh/master";
-import { createSshChannel } from "../../infra/agent/ssh/channel";
-import type { SshAuthPromptHandler } from "../../infra/agent/ssh/auth-pty";
 import { register, validateArgs } from "../../infra/ipc-router";
-import type { DirEntry } from "../../../shared/fs/types";
-import { DirEntrySchema } from "../../../shared/fs/types";
-import { ipcErr, ipcOk } from "../../../shared/ipc/result";
+import { BROWSE_MAX_ENTRIES, type SshBrowseSessionRegistry } from "./browse-session-registry";
+import { parseSshConfig, type SshConfigHost } from "./config";
 
 const c = ipcContract.ssh.call;
+const log = createLogger("ssh");
 
 const OPEN_BROWSE_TIMEOUT_MS = 30_000;
 
@@ -43,9 +42,7 @@ function resolveSshUser(user: string | undefined): string {
 /**
  * Registers SSH-related main-process IPC handlers.
  */
-export function registerSshChannel(
-  configPath = path.join(os.homedir(), ".ssh", "config"),
-): void {
+export function registerSshChannel(configPath = path.join(os.homedir(), ".ssh", "config")): void {
   register("ssh", {
     call: {
       listConfigHosts: listConfigHostsHandler(configPath),
@@ -141,9 +138,9 @@ function isMissingOrPermissionError(error: unknown): boolean {
 export function openBrowseSessionHandler(
   registry: SshBrowseSessionRegistry,
   promptHandler: SshAuthPromptHandler,
-  bootstrap: (
-    options: EnsureRemoteAgentOptions,
-  ) => ReturnType<typeof ensureRemoteAgent> = (options) =>
+  bootstrap: (options: EnsureRemoteAgentOptions) => ReturnType<typeof ensureRemoteAgent> = (
+    options,
+  ) =>
     // The promptHandler MUST be forwarded to ensureRemoteAgent — without it
     // createBootstrapContext skips interactive auth and password-only hosts
     // fail before the agent channel is ever opened.
@@ -259,9 +256,7 @@ export function openBrowseSessionHandler(
 export function openBrowseSessionResultHandler(
   registry: SshBrowseSessionRegistry,
   promptHandler: SshAuthPromptHandler,
-  bootstrap?: (
-    options: EnsureRemoteAgentOptions,
-  ) => ReturnType<typeof ensureRemoteAgent>,
+  bootstrap?: (options: EnsureRemoteAgentOptions) => ReturnType<typeof ensureRemoteAgent>,
 ): (args: unknown) => Promise<ReturnType<typeof ipcOk> | ReturnType<typeof ipcErr>> {
   const inner = openBrowseSessionHandler(registry, promptHandler, bootstrap);
   return async (args: unknown) => {
@@ -314,9 +309,7 @@ function buildMasterHandle(
 export function browseSessionHandler(
   registry: SshBrowseSessionRegistry,
 ): (args: unknown) => Promise<{ entries: DirEntry[]; truncated: boolean }> {
-  return async (
-    args: unknown,
-  ): Promise<{ entries: DirEntry[]; truncated: boolean }> => {
+  return async (args: unknown): Promise<{ entries: DirEntry[]; truncated: boolean }> => {
     const { sessionId, path: dirPath } = validateArgs(c.browseSession.args, args);
 
     const session = registry.get(sessionId);
@@ -415,7 +408,7 @@ function mapToBrowseError(error: unknown): Error {
   if (code === "ssh.unknown") {
     // The renderer only ever sees the sanitized code. Log the raw cause to
     // the main-process console so an unmapped failure is still diagnosable.
-    console.error("[ssh] unmapped browse-session error:", error);
+    log.error(`unmapped browse-session error: ${(error as Error).message}`);
   }
   return createSshErrorObject(code);
 }

@@ -3,8 +3,12 @@
  * debounce, while triggers received during an active run collapse into one
  * follow-up run after the active run settles.
  */
+
+import { createLogger } from "../../../../shared/log/main";
 import { createKeyedDebouncer, type KeyedDebouncer } from "../../../../shared/util/keyed-debouncer";
 import type { TimerScheduler } from "../../../../shared/util/timer-scheduler";
+
+const log = createLogger("git");
 
 export type StatusRunFn = () => Promise<void> | void;
 
@@ -154,7 +158,7 @@ export function createStatusCoalescer({
     try {
       await runFn();
     } catch (error) {
-      console.warn("[git] coalesced status refresh failed", error);
+      log.warn(`coalesced status refresh failed: ${(error as Error).message}`);
     } finally {
       entry.running = false;
 

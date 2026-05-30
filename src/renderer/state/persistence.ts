@@ -10,14 +10,17 @@
  *   registerStatePersistence();
  */
 
-import { STATE_PERSIST_DEBOUNCE_MS } from "../../shared/util/timing-constants";
+import { createLogger } from "../../shared/log/renderer";
 import type { AppState } from "../../shared/types/app-state";
+import { STATE_PERSIST_DEBOUNCE_MS } from "../../shared/util/timing-constants";
 import { ipcCallResult } from "../ipc/client";
 import { useLayoutStore } from "./stores/layout";
 import { useTabsStore } from "./stores/tabs";
 
 // Re-exported so existing callers (e.g. tests) can keep importing from this module.
 export { STATE_PERSIST_DEBOUNCE_MS };
+
+const log = createLogger("persistence");
 
 // ---------------------------------------------------------------------------
 // Serialization
@@ -83,7 +86,7 @@ export function registerStatePersistence(): void {
 
     // Fire-and-forget: layout persistence is best-effort; local state is source of truth.
     void ipcCallResult("appState", "set", { layoutByWorkspace }).then((result) => {
-      if (!result.ok) console.warn("[persistence] appState set failed", result.message);
+      if (!result.ok) log.warn(`appState set failed: ${result.message}`);
     });
   }, STATE_PERSIST_DEBOUNCE_MS);
 

@@ -1,6 +1,7 @@
 import { useMonaco } from "@monaco-editor/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { createLogger } from "../shared/log/renderer";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import {
   bootstrapAppState,
@@ -42,6 +43,8 @@ import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
 import { useWorkspacesStore } from "./state/stores/workspaces";
+
+const log = createLogger("app");
 
 export function App() {
   const { t } = useTranslation("settings");
@@ -290,7 +293,7 @@ export function App() {
       if (next) {
         // Fire-and-forget: UI is already updated; notify main of workspace switch.
         void ipcCallResult("workspace", "activate", { id: next }).then((result) => {
-          if (!result.ok) console.warn("[app] workspace activate failed", result.message);
+          if (!result.ok) log.warn(`workspace activate failed: ${result.message}`);
         });
       }
     }
@@ -301,7 +304,7 @@ export function App() {
       setActiveWorkspaceId(id);
       // Fire-and-forget: UI is already updated; notify main of workspace switch.
       void ipcCallResult("workspace", "activate", { id }).then((result) => {
-        if (!result.ok) console.warn("[app] workspace activate failed", result.message);
+        if (!result.ok) log.warn(`workspace activate failed: ${result.message}`);
       });
     },
     [setActiveWorkspaceId],
@@ -316,7 +319,7 @@ export function App() {
       setActiveWorkspaceId(meta.id);
       // Fire-and-forget: UI is already updated; notify main of new workspace activation.
       void ipcCallResult("workspace", "activate", { id: meta.id }).then((result) => {
-        if (!result.ok) console.warn("[app] workspace activate failed", result.message);
+        if (!result.ok) log.warn(`workspace activate failed: ${result.message}`);
       });
       // Tab seeding is handled by <WorkspacePanel> on first mount.
     },
@@ -337,7 +340,7 @@ export function App() {
       // that tab-record cleanup kills PTYs before panel unmount disposes views.
       // Fire-and-forget: tabs store cleanup happens via workspace:removed broadcast from main.
       void ipcCallResult("workspace", "remove", { id }).then((result) => {
-        if (!result.ok) console.warn("[app] workspace remove failed", result.message);
+        if (!result.ok) log.warn(`workspace remove failed: ${result.message}`);
       });
     },
     [workspaces],

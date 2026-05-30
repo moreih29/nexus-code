@@ -6,6 +6,7 @@ import {
   GitPanelStateSchema,
   type GitPanelStateUpdate,
 } from "../../../shared/git/types";
+import { createLogger } from "../../../shared/log/main";
 import {
   DEFAULT_VIEW_OPTIONS_BY_PANEL,
   type PanelKind,
@@ -38,6 +39,8 @@ import {
   parseGitPanelSegment,
   parseGitProtectedBranches,
 } from "./workspace-row-parsers";
+
+const log = createLogger("workspace-storage");
 
 // ---------------------------------------------------------------------------
 // WorkspaceStorage — per-workspace SQLite DB + workspace.json recovery dump.
@@ -277,9 +280,8 @@ export class WorkspaceStorage {
     };
     const parsed = GitPanelStateSchema.safeParse(state);
     if (!parsed.success) {
-      console.warn(
-        `[WorkspaceStorage] Invalid git_panel_state for workspace ${workspaceId}; using defaults.`,
-        parsed.error,
+      log.warn(
+        `Invalid git_panel_state for workspace ${workspaceId}; using defaults. ${parsed.error.message}`,
       );
       return defaultGitPanelState();
     }
@@ -382,9 +384,8 @@ export class WorkspaceStorage {
       viewMode: row.view_mode,
     });
     if (!parsed.success) {
-      console.warn(
-        `[WorkspaceStorage] Invalid panel_view_options for workspace ${workspaceId} panel ${panelKind}; using defaults.`,
-        parsed.error,
+      log.warn(
+        `Invalid panel_view_options for workspace ${workspaceId} panel ${panelKind}; using defaults. ${parsed.error.message}`,
       );
       return { ...DEFAULT_VIEW_OPTIONS_BY_PANEL[panelKind] };
     }
@@ -436,9 +437,7 @@ export class WorkspaceStorage {
       throw new Error(`workspace storage not open: ${workspaceId}`);
     }
     const row = entry.db
-      .prepare(
-        "SELECT decision FROM origin_permissions WHERE origin = ? AND permission = ?",
-      )
+      .prepare("SELECT decision FROM origin_permissions WHERE origin = ? AND permission = ?")
       .get(origin, permission) as { decision: string } | undefined;
     if (!row) return null;
     return row.decision as "allow" | "block";
@@ -503,8 +502,6 @@ export class WorkspaceStorage {
     if (!entry) {
       throw new Error(`workspace storage not open: ${workspaceId}`);
     }
-    entry.db
-      .prepare("DELETE FROM origin_permissions WHERE origin = ?")
-      .run(origin);
+    entry.db.prepare("DELETE FROM origin_permissions WHERE origin = ?").run(origin);
   }
 }

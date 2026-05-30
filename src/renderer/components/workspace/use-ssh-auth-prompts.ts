@@ -5,8 +5,11 @@
  * order, and sends typed responses/cancellations back to main.
  */
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { createLogger } from "../../../shared/log/renderer";
 import type { SshAuthPrompt } from "../../../shared/ssh/auth-prompt";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
+
+const log = createLogger("ssh-auth");
 
 export interface SshAuthPromptSnapshot {
   readonly pendingPrompts: readonly SshAuthPrompt[];
@@ -86,13 +89,13 @@ export function useSshAuthPrompts(deps: SshAuthPromptDeps = DEFAULT_DEPS): SshAu
       .then((result) => {
         // ipcCallResult returns IpcResult — branch on result.ok.
         if (!result.ok) {
-          console.error("[ssh-auth] pending prompt sync failed", result.message);
+          log.error(`pending prompt sync failed: ${result.message}`);
           return;
         }
         for (const prompt of result.value) enqueuePrompt(prompt);
       })
-      .catch((error) => {
-        console.error("[ssh-auth] pending prompt sync failed", error);
+      .catch((error: unknown) => {
+        log.error(`pending prompt sync failed: ${(error as Error).message}`);
       });
     return dispose;
   }, [call, listen]);
@@ -105,7 +108,7 @@ export function useSshAuthPrompts(deps: SshAuthPromptDeps = DEFAULT_DEPS): SshAu
       // Fire-and-forget: send auth response to main; errors logged only.
       void call("sshAuth", "respond", { kind: "password", promptId: prompt.promptId, value }).then(
         (result) => {
-          if (!result.ok) console.error("[ssh-auth] password response failed", result.message);
+          if (!result.ok) log.error(`password response failed: ${result.message}`);
         },
       );
     },
@@ -117,11 +120,13 @@ export function useSshAuthPrompts(deps: SshAuthPromptDeps = DEFAULT_DEPS): SshAu
     if (!prompt || prompt.kind !== "host-key") return;
     clearPrompt(prompt.promptId);
     // Fire-and-forget: send host-key trust decision to main; errors logged only.
-    void call("sshAuth", "respond", { kind: "host-key", promptId: prompt.promptId, trust: "yes" }).then(
-      (result) => {
-        if (!result.ok) console.error("[ssh-auth] host-key response failed", result.message);
-      },
-    );
+    void call("sshAuth", "respond", {
+      kind: "host-key",
+      promptId: prompt.promptId,
+      trust: "yes",
+    }).then((result) => {
+      if (!result.ok) log.error(`host-key response failed: ${result.message}`);
+    });
   }, [call, currentPrompt]);
 
   const cancelCurrent = useCallback(() => {
@@ -130,7 +135,7 @@ export function useSshAuthPrompts(deps: SshAuthPromptDeps = DEFAULT_DEPS): SshAu
     clearPrompt(prompt.promptId);
     // Fire-and-forget: cancel prompt in main; errors logged only.
     void call("sshAuth", "cancel", { promptId: prompt.promptId }).then((result) => {
-      if (!result.ok) console.error("[ssh-auth] prompt cancel failed", result.message);
+      if (!result.ok) log.error(`prompt cancel failed: ${result.message}`);
     });
   }, [call, currentPrompt]);
 
@@ -177,7 +182,9 @@ function clearPrompt(promptId: string): void {
 }
 
 /** Applies a queue mutation and emits a stable snapshot to subscribers. */
-function updateQueue(updater: (current: readonly SshAuthPrompt[]) => readonly SshAuthPrompt[]): void {
+function updateQueue(
+  updater: (current: readonly SshAuthPrompt[]) => readonly SshAuthPrompt[],
+): void {
   promptQueue = updater(promptQueue);
   promptSnapshot = {
     pendingPrompts: promptQueue,

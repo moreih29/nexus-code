@@ -14,6 +14,9 @@
  */
 
 import type { CommandId } from "../../shared/keybindings/commands";
+import { createLogger } from "../../shared/log/renderer";
+
+const log = createLogger("commands");
 
 export type CommandHandler = () => void | Promise<void>;
 
@@ -29,14 +32,15 @@ export function registerCommand(id: CommandId, handler: CommandHandler): () => v
 export function executeCommand(id: CommandId): void {
   const handler = handlers.get(id);
   if (!handler) {
-    if (import.meta.env?.DEV) console.debug(`[commands] no handler for ${id}`);
+    if (import.meta.env?.DEV) log.debug(`no handler for ${id}`);
     return;
   }
   try {
     const result = handler();
-    if (result instanceof Promise) result.catch((e) => console.error(`[commands] ${id} failed`, e));
+    if (result instanceof Promise)
+      result.catch((e: unknown) => log.error(`${id} failed: ${(e as Error).message}`));
   } catch (e) {
-    console.error(`[commands] ${id} threw`, e);
+    log.error(`${id} threw: ${(e as Error).message}`);
   }
 }
 

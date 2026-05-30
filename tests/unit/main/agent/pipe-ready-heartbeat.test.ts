@@ -5,13 +5,19 @@
  * Three cases:
  *   1. Ready frame with methods + heartbeatIntervalMs populates pipe capabilities.
  *   2. Heartbeat event is routed to external on() subscribers unchanged.
- *   3. Heartbeat watchdog emits console.warn once when heartbeats are missed,
+ *   3. Heartbeat watchdog emits a log.warn once when heartbeats are missed,
  *      resets after a heartbeat is received, and stops after dispose().
  */
-import { afterEach, beforeEach, describe, expect, it, jest, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, jest } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
 import { createNdjsonPipe } from "../../../../src/main/infra/agent/pipe";
+
+// Spy imported from the preload — the log-test-spies.ts preload wraps
+// src/shared/log/main's createLogger so that every call to log.warn()
+// inside pipe.ts (via getMalformedStdoutLogger()) increments mainWarnMock,
+// regardless of which earlier test file first called getMalformedStdoutLogger().
+import { mainWarnMock } from "../../../../tests/log-test-spies";
 
 // ---------------------------------------------------------------------------
 // Minimal fake stream helpers (mirrors the pattern from pipe-void-response.test.ts)
@@ -165,18 +171,18 @@ describe("createNdjsonPipe — heartbeat event routing", () => {
 // ---------------------------------------------------------------------------
 
 describe("createNdjsonPipe — heartbeat watchdog", () => {
-  let warnSpy: ReturnType<typeof spyOn>;
-
   beforeEach(() => {
-    warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    // Clear accumulated warn calls from prior tests (e.g. createSshError calls
+    // from pipe-protocol-version.test.ts) so only the watchdog's warn in this
+    // test is counted.
+    mainWarnMock.mockClear();
   });
 
   afterEach(() => {
-    warnSpy.mockRestore();
     jest.useRealTimers();
   });
 
-  it("emits console.warn once when heartbeats are missed (3-miss window)", async () => {
+  it("emits a log.warn once when heartbeats are missed (3-miss window)", async () => {
     jest.useFakeTimers();
     try {
       const { stdout, pipe } = buildPipe();
@@ -188,13 +194,14 @@ describe("createNdjsonPipe — heartbeat watchdog", () => {
       // No heartbeats sent. Advance past the 3-miss window.
       jest.advanceTimersByTime(160);
 
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      const [msg] = warnSpy.mock.calls[0] as [string];
+      expect(mainWarnMock).toHaveBeenCalledTimes(1);
+      // The preload wrapper calls warn(msg, meta?) — first arg is the message.
+      const [msg] = mainWarnMock.mock.calls[0] as [string];
       expect(msg).toContain("heartbeat watchdog");
 
       // Advancing further must NOT produce a second warning (heartbeatWarned guard).
       jest.advanceTimersByTime(160);
-      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(mainWarnMock).toHaveBeenCalledTimes(1);
 
       pipe.dispose();
     } finally {
@@ -212,7 +219,7 @@ describe("createNdjsonPipe — heartbeat watchdog", () => {
 
       // Advance exactly to the watchdog boundary (150ms = 50*3) — first warn fires.
       jest.advanceTimersByTime(150);
-      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(mainWarnMock).toHaveBeenCalledTimes(1);
 
       // Heartbeat arrives now (at t=150), resetting lastHeartbeatAt to t=150 and
       // clearing the heartbeatWarned flag.
@@ -221,7 +228,7 @@ describe("createNdjsonPipe — heartbeat watchdog", () => {
       // Advance another 150ms — the watchdog fires at t=300.
       // diff = 300 - 150 = 150 >= 150 → second warn fires.
       jest.advanceTimersByTime(150);
-      expect(warnSpy).toHaveBeenCalledTimes(2);
+      expect(mainWarnMock).toHaveBeenCalledTimes(2);
 
       pipe.dispose();
     } finally {
@@ -242,7 +249,7 @@ describe("createNdjsonPipe — heartbeat watchdog", () => {
       // Advance well past the watchdog window — nothing should fire.
       jest.advanceTimersByTime(1_000);
 
-      expect(warnSpy).not.toHaveBeenCalled();
+      expect(mainWarnMock).not.toHaveBeenCalled();
     } finally {
       jest.useRealTimers();
     }

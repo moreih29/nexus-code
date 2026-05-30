@@ -1,30 +1,36 @@
-import fs from "node:fs";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import { isAbortError } from "../../../shared/abort";
+import { AgentManifestSchema } from "../../../shared/agent/manifest";
+import { createLogger } from "../../../shared/log/main";
 import {
   rootPathFromLocation,
   type WorkspaceConnectionEventStatus,
   type WorkspaceLocation,
-  workspaceLocationKey,
   WorkspaceLocationSchema,
   type WorkspaceMeta,
+  workspaceLocationKey,
 } from "../../../shared/types/workspace";
 import type { AgentChannel } from "../../infra/agent/channel";
+import {
+  type CreateLocalChannelOptions,
+  createLocalChannel,
+} from "../../infra/agent/channel/local-channel";
+import {
+  getAgentBinaryPath,
+  getAgentBinDir,
+  getAgentDistDir,
+} from "../../infra/agent/getAgentBinDir";
 import {
   type LocalAgentCommand,
   resolveLocalAgentCommand,
 } from "../../infra/agent/local-agent-resolver";
 import {
-  type CreateLocalChannelOptions,
-  createLocalChannel,
-} from "../../infra/agent/channel/local-channel";
-import { createFsProvider } from "../fs/bridge/create-provider";
-import { AgentFsProvider } from "../fs/bridge/agent-provider";
-import type { FsProvider } from "../fs/bridge/provider";
-import type { GlobalStorage } from "../../infra/storage/global-storage";
-import type { StateService } from "../../infra/storage/state-service";
-import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
+  removeShimDir as defaultRemoveShimDir,
+  writeShimFiles as defaultWriteShimFiles,
+  shimDir,
+} from "../../infra/agent/runtimeDirs";
 import {
   type CreateSshChannelOptions,
   createSshChannel,
@@ -32,29 +38,26 @@ import {
   type SshChannelLifecycleEvent,
 } from "../../infra/agent/ssh/channel";
 import type { SshControlMaster } from "../../infra/agent/ssh/master";
+import type { RemoteAgentPlatform } from "../../infra/agent/ssh/ssh-bootstrap/index";
 import {
+  ensureRemoteLspServer as defaultEnsureRemoteLspServer,
   type EnsureRemoteAgentOptions,
   type EnsureRemoteAgentResult,
   type EnsureRemoteLspServerOptions,
   type EnsureRemoteLspServerResult,
-  type LspBootstrapProgressEvent,
   ensureRemoteAgent,
-  ensureRemoteLspServer as defaultEnsureRemoteLspServer,
+  type LspBootstrapProgressEvent,
   type SshBootstrapDependencies,
 } from "../../infra/agent/ssh/ssh-bootstrap/index";
-import {
-  getAgentBinDir,
-  getAgentBinaryPath,
-} from "../../infra/agent/getAgentBinDir";
-import {
-  writeShimFiles as defaultWriteShimFiles,
-  removeShimDir as defaultRemoveShimDir,
-  shimDir,
-} from "../../infra/agent/runtimeDirs";
-import { AgentManifestSchema } from "../../../shared/agent/manifest";
-import type { RemoteAgentPlatform } from "../../infra/agent/ssh/ssh-bootstrap/index";
-import { getAgentDistDir } from "../../infra/agent/getAgentBinDir";
+import type { GlobalStorage } from "../../infra/storage/global-storage";
+import type { StateService } from "../../infra/storage/state-service";
+import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
+import { AgentFsProvider } from "../fs/bridge/agent-provider";
+import { createFsProvider } from "../fs/bridge/create-provider";
+import type { FsProvider } from "../fs/bridge/provider";
 import { WorkspaceContext } from "./context";
+
+const log = createLogger("workspace");
 
 // ---------------------------------------------------------------------------
 // Broadcast callback type — injected so the manager has no hard import on
@@ -290,7 +293,7 @@ export class WorkspaceManager {
     // in the idle/disconnected state and only connect on explicit user action.
     if (shouldAutoConnect(ctx.getMeta())) {
       void this.ensureProviderReady(ctx).catch((error) => {
-        console.error("[workspace] initial provider bootstrap failed", error);
+        log.error(`initial provider bootstrap failed: ${(error as Error).message}`);
       });
     }
   }
@@ -812,9 +815,7 @@ export class WorkspaceManager {
     // deleted below. clearStorageData is fire-and-forget relative to remove().
     if (this.browserCloser) {
       void this.browserCloser(id).catch((err: unknown) => {
-        console.warn(
-          `[workspace] browser closer failed for ${id}: ${(err as Error).message}`,
-        );
+        log.warn(`browser closer failed for ${id}: ${(err as Error).message}`);
       });
     }
 
@@ -986,8 +987,8 @@ export class WorkspaceManager {
       this.hookInfoByWorkspace.set(meta.id, raw);
     } catch (err) {
       if (isHookUnavailable(err)) {
-        console.warn(
-          `[workspace] hookserver unavailable for ${meta.id}; Claude Code hook integration disabled for this session.`,
+        log.warn(
+          `hookserver unavailable for ${meta.id}; Claude Code hook integration disabled for this session.`,
         );
         this.hookInfoByWorkspace.delete(meta.id);
       } else {
@@ -1009,8 +1010,8 @@ export class WorkspaceManager {
     try {
       await this.writeShimFiles(meta.id);
     } catch (shimErr) {
-      console.warn(
-        `[workspace] shim file write failed for ${meta.id}; shell PATH priority may be degraded: ${(shimErr as Error).message}`,
+      log.warn(
+        `shim file write failed for ${meta.id}; shell PATH priority may be degraded: ${(shimErr as Error).message}`,
       );
     }
 
@@ -1155,8 +1156,8 @@ export class WorkspaceManager {
       this.hookInfoByWorkspace.set(meta.id, raw);
     } catch (err) {
       if (isHookUnavailable(err)) {
-        console.warn(
-          `[workspace] hookserver unavailable for ${meta.id}; Claude Code hook integration disabled for this session.`,
+        log.warn(
+          `hookserver unavailable for ${meta.id}; Claude Code hook integration disabled for this session.`,
         );
         this.hookInfoByWorkspace.delete(meta.id);
       } else {
@@ -1181,8 +1182,8 @@ export class WorkspaceManager {
     try {
       await this.writeShimFiles(meta.id);
     } catch (shimErr) {
-      console.warn(
-        `[workspace] shim file write failed for ${meta.id}; shell PATH priority may be degraded: ${(shimErr as Error).message}`,
+      log.warn(
+        `shim file write failed for ${meta.id}; shell PATH priority may be degraded: ${(shimErr as Error).message}`,
       );
     }
 
@@ -1254,9 +1255,7 @@ export class WorkspaceManager {
     ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
     // PTY shim 디렉터리 정리 — fire-and-forget, error swallow는 warn으로.
     this.removeShimDir(workspaceId).catch((err: unknown) => {
-      console.warn(
-        `[workspace] shim dir removal failed for ${workspaceId}: ${(err as Error).message}`,
-      );
+      log.warn(`shim dir removal failed for ${workspaceId}: ${(err as Error).message}`);
     });
   }
 
@@ -1294,9 +1293,7 @@ export class WorkspaceManager {
       ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
       // PTY shim 디렉터리 정리 — fire-and-forget, error swallow는 warn으로.
       this.removeShimDir(workspaceId).catch((err: unknown) => {
-        console.warn(
-          `[workspace] shim dir removal failed for ${workspaceId}: ${(err as Error).message}`,
-        );
+        log.warn(`shim dir removal failed for ${workspaceId}: ${(err as Error).message}`);
       });
     }
   }
@@ -1357,12 +1354,9 @@ function resolveRemoteAgentBinaryName(platform: RemoteAgentPlatform): string | n
   const manifestPath = path.join(distDir, "manifest.json");
   if (!fs.existsSync(manifestPath)) return null;
   try {
-    const manifest = AgentManifestSchema.parse(
-      JSON.parse(fs.readFileSync(manifestPath, "utf8")),
-    );
+    const manifest = AgentManifestSchema.parse(JSON.parse(fs.readFileSync(manifestPath, "utf8")));
     return `agent-${manifest.version}-${platform.os}-${platform.arch}`;
   } catch {
     return null;
   }
 }
-

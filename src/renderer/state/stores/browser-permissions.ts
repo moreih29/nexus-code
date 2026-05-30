@@ -18,7 +18,10 @@
 // Hydrated by `bootstrapAppState` after the first `appState.get` call.
 
 import { create } from "zustand";
+import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult } from "../../ipc/client";
+
+const log = createLogger("browser-permissions");
 
 // ---------------------------------------------------------------------------
 // State shape
@@ -69,7 +72,7 @@ export const useBrowserPermissionsStore = create<BrowserPermissionsState>((set, 
     // Persist to appState — fire-and-forget; boot state is authoritative.
     void ipcCallResult("appState", "set", { browserPermissionGrants: next }).then((result) => {
       if (!result.ok) {
-        console.warn("[browser-permissions] appState set failed", result.message);
+        log.warn(`appState set failed: ${result.message}`);
       }
     });
   },

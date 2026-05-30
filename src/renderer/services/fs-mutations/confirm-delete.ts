@@ -20,6 +20,10 @@
  */
 
 import { showConfirmDialog } from "@/components/ui/confirm-dialog";
+import { createLogger } from "../../../shared/log/renderer";
+
+const log = createLogger("delete-batch");
+
 import { showToast } from "@/components/ui/toast";
 import { useFilesStore } from "@/state/stores/files";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
@@ -192,7 +196,7 @@ export async function confirmAndDeleteBatch(
         firstFailurePath = p;
         firstFailureMessage = e instanceof Error ? e.message : String(e);
       } else {
-        console.error(`[delete-batch] failed: ${p}`, e);
+        log.error(`failed: ${p}: ${(e as Error).message}`);
       }
     }
 
@@ -203,7 +207,7 @@ export async function confirmAndDeleteBatch(
       firstFailurePath = p;
       firstFailureMessage = `deletion failed`;
     } else {
-      console.error(`[delete-batch] failed: ${p}`);
+      log.error(`failed: ${p}`);
     }
   }
 
