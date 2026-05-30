@@ -4,8 +4,10 @@
  * Architecture:
  *   - `resolveLucide` and `resolveMaterialIconName` live in file-icon-resolvers.ts
  *     as pure functions (no Vite-specific imports) so they can be unit-tested in Bun.
- *   - `resolveMaterial(kind, name)` below wraps the iconName resolver with the
- *     Vite-specific SVG static-import map and import.meta.glob lazy loader.
+ *   - `resolveMaterial(kind, name)` below maps the iconName to a static SVG asset
+ *     URL via an eager `import.meta.glob` (`?url`) — resolved synchronously so the
+ *     Material `<img>` paints without a lazy/Suspense fallback swap (flicker-free,
+ *     mirroring VS Code's CSS background-image-by-URL approach).
  *   - `<FileIcon>` is the single public component. It subscribes to iconThemeStore
  *     internally so consumers never need theme prop-drilling.
  *
@@ -19,7 +21,6 @@
  * internally. Consumers MUST NOT pass color or sizing classes.
  */
 
-import { type ComponentType, lazy, Suspense, type SVGProps } from "react";
 import { useIconThemeStore } from "@/state/stores/icon-theme";
 import { cn } from "@/utils/cn";
 import { type FileIconKind, resolveLucide, resolveMaterialIconName } from "./file-icon-resolvers";
@@ -58,100 +59,47 @@ export interface FileIconProps {
 }
 
 // ---------------------------------------------------------------------------
-// Static imports for the 12 highest-frequency material icons.
-// These ship in the initial bundle so they appear on the first paint without
-// a dynamic import round-trip (decode-flash prevention for the common case).
+// Material SVG URL map — VS Code-style synchronous URL mapping, no per-icon
+// code-splitting. Each SVG is emitted as a static asset and referenced by URL
+// from an <img>. Because the URL is known synchronously (eager glob) and there
+// is no lazy()/Suspense boundary, there is no Lucide→colour swap on first
+// paint — that swap was the source of the visible flicker. Only the short URL
+// strings live in the JS bundle; the SVG bytes load from disk on first use and
+// are then browser-cached.
+//
+// NOTE: `?url` MUST be passed via the `query` option. A `*.svg?url` pattern is
+// taken literally by Vite and matches zero files.
 // ---------------------------------------------------------------------------
 
-import CssSvg from "@/assets/icons/material/css.svg?react";
-import FileSvg from "@/assets/icons/material/file.svg?react";
-import FolderSvg from "@/assets/icons/material/folder.svg?react";
-import FolderOpenSvg from "@/assets/icons/material/folder-open.svg?react";
-import HtmlSvg from "@/assets/icons/material/html.svg?react";
-import JavascriptSvg from "@/assets/icons/material/javascript.svg?react";
-import JsonSvg from "@/assets/icons/material/json.svg?react";
-import MarkdownSvg from "@/assets/icons/material/markdown.svg?react";
-import PythonSvg from "@/assets/icons/material/python.svg?react";
-import ReactSvg from "@/assets/icons/material/react.svg?react";
-import ReactTsSvg from "@/assets/icons/material/react_ts.svg?react";
-import TypescriptSvg from "@/assets/icons/material/typescript.svg?react";
+const MATERIAL_URL_GLOB = import.meta.glob("@/assets/icons/material/*.svg", {
+  query: "?url",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
 
-/** Static map: iconName → eagerly-bundled SVG React component. */
-const MATERIAL_STATIC: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
-  typescript: TypescriptSvg,
-  react_ts: ReactTsSvg,
-  javascript: JavascriptSvg,
-  react: ReactSvg,
-  json: JsonSvg,
-  markdown: MarkdownSvg,
-  python: PythonSvg,
-  css: CssSvg,
-  html: HtmlSvg,
-  folder: FolderSvg,
-  "folder-open": FolderOpenSvg,
-  file: FileSvg,
-};
-
-// ---------------------------------------------------------------------------
-// Lazy glob for all remaining material SVGs.
-// Keys are module paths like "@/assets/icons/material/rust.svg?react".
-// ---------------------------------------------------------------------------
-
-// NOTE: the `?react` SVG transform MUST be passed via the `query` option, not
-// embedded in the glob pattern string. Vite treats a `*.svg?react` pattern
-// literally and matches zero files, which would silently fall every non-static
-// icon back to Lucide. With `query: "?react"` the glob matches all SVGs and
-// each module's default export is the svgr React component.
-const MATERIAL_LAZY_GLOB = import.meta.glob<{ default: ComponentType<SVGProps<SVGSVGElement>> }>(
-  "@/assets/icons/material/*.svg",
-  { query: "?react", eager: false },
-);
-
-/** iconName → lazy loader, derived from the glob result at module init time. */
-const MATERIAL_LAZY: Record<
-  string,
-  () => Promise<{ default: ComponentType<SVGProps<SVGSVGElement>> }>
-> = {};
-for (const [path, loader] of Object.entries(MATERIAL_LAZY_GLOB)) {
-  // Keys end with "…/<name>.svg" (query is not part of the glob key).
+/** iconName → asset URL, derived from the eager glob at module init time. */
+const MATERIAL_URL: Record<string, string> = {};
+for (const [path, url] of Object.entries(MATERIAL_URL_GLOB)) {
+  // Keys end with "…/<name>.svg" (the ?url query is not part of the glob key).
   const match = path.match(/\/([^/]+)\.svg(?:\?.*)?$/);
   if (match) {
-    MATERIAL_LAZY[match[1]] = loader;
+    MATERIAL_URL[match[1]] = url;
   }
 }
 
-/** Cache of lazy-wrapped components — avoids recreating lazy() on every render. */
-const LAZY_COMPONENT_CACHE: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {};
-
 /**
- * Resolves the material SVG component for a given node kind and name.
+ * Resolves the material SVG asset URL for a node kind/name.
  *
- * Returns the React component if an SVG asset exists (static or lazy),
- * or null when the iconName from the manifest has no corresponding SVG file
- * (covers the ~34 manifest entries that are absent from the asset pack).
+ * Returns the asset URL when an SVG exists, or null when the iconName from the
+ * manifest has no corresponding SVG file (the handful of manifest entries that
+ * ship without an asset) — the caller then renders the Lucide icon instead.
  *
- * Not a hook — no store access, no React state. The name "resolve" is
- * consistent with the pattern in file-icon-resolvers.ts.
+ * Pure: no store access, no React state.
  */
-function resolveMaterial(
-  kind: FileIconKind,
-  name?: string,
-): ComponentType<SVGProps<SVGSVGElement>> | null {
+function resolveMaterial(kind: FileIconKind, name?: string): string | null {
   const iconName = resolveMaterialIconName(kind, name);
   if (!iconName) return null;
-
-  // 1. Static map: highest-frequency icons — no async round-trip.
-  if (iconName in MATERIAL_STATIC) return MATERIAL_STATIC[iconName];
-
-  // 2. Lazy map: iconName must appear in the glob result (SVG file exists).
-  if (!(iconName in MATERIAL_LAZY)) return null;
-
-  // 3. Memoize the lazy() wrapper per iconName.
-  if (!(iconName in LAZY_COMPONENT_CACHE)) {
-    const loader = MATERIAL_LAZY[iconName];
-    LAZY_COMPONENT_CACHE[iconName] = lazy(loader);
-  }
-  return LAZY_COMPONENT_CACHE[iconName];
+  return MATERIAL_URL[iconName] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -194,31 +142,24 @@ export function FileIcon({
   const theme = useIconThemeStore((s) => s.resolved);
 
   if (theme === "material") {
-    const MaterialComp = resolveMaterial(kind, name);
-    if (MaterialComp) {
+    const src = resolveMaterial(kind, name);
+    if (src) {
       const px = SIZE_PX[size];
-      // Material SVGs carry their own colour — we omit tone classes on purpose.
-      // Suspense fallback shows the lucide icon while the lazy chunk loads.
-      const LucideComp = resolveLucide(kind, name);
-      const lucideFallback = (
-        <LucideComp
+      // Material SVGs carry their own colour, so `tone` is intentionally ignored.
+      // Rendered as a plain <img> with a synchronously-known src — no lazy()/
+      // Suspense boundary, hence no Lucide→colour swap (flicker-free).
+      return (
+        <img
+          src={src}
+          alt=""
           aria-hidden={ariaHidden}
-          className={cn(SIZE_CLASS[size], TONE_CLASS[tone], className)}
-          strokeWidth={1.5}
+          width={px}
+          height={px}
+          className={cn(SIZE_CLASS[size], "object-contain", className)}
         />
       );
-      return (
-        <Suspense fallback={lucideFallback}>
-          <MaterialComp
-            aria-hidden={ariaHidden}
-            width={px}
-            height={px}
-            className={cn(SIZE_CLASS[size], "object-contain", className)}
-          />
-        </Suspense>
-      );
     }
-    // MaterialComp is null → per-icon lucide fallback (SVG absent from asset pack).
+    // src is null → per-icon lucide fallback (SVG absent from asset pack).
   }
 
   // Minimal theme path — also used as fallback when material SVG is absent.

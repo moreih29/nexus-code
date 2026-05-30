@@ -129,6 +129,14 @@ export default defineConfig({
       strictPort: false,
     },
     build: {
+      // Material file-icon SVGs are URL-referenced (`?url`) and rendered via
+      // <img>. Never inline them as base64 — ~1000 icons would bloat the main
+      // bundle and every user (including the default Minimal theme, which never
+      // shows them) would pay for it. Emitting them as separate files preserves
+      // on-demand, browser-cached loading (VS Code-style) and keeps startup lean.
+      // All other assets keep Vite's default inline threshold.
+      assetsInlineLimit: (filePath: string) =>
+        filePath.includes("assets/icons/material/") ? false : undefined,
       rollupOptions: {
         input: {
           index: resolve(__dirname, "src/renderer/index.html"),
