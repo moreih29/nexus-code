@@ -97,9 +97,14 @@ const MATERIAL_STATIC: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = 
 // Keys are module paths like "@/assets/icons/material/rust.svg?react".
 // ---------------------------------------------------------------------------
 
+// NOTE: the `?react` SVG transform MUST be passed via the `query` option, not
+// embedded in the glob pattern string. Vite treats a `*.svg?react` pattern
+// literally and matches zero files, which would silently fall every non-static
+// icon back to Lucide. With `query: "?react"` the glob matches all SVGs and
+// each module's default export is the svgr React component.
 const MATERIAL_LAZY_GLOB = import.meta.glob<{ default: ComponentType<SVGProps<SVGSVGElement>> }>(
-  "@/assets/icons/material/*.svg?react",
-  { eager: false },
+  "@/assets/icons/material/*.svg",
+  { query: "?react", eager: false },
 );
 
 /** iconName → lazy loader, derived from the glob result at module init time. */
@@ -108,7 +113,8 @@ const MATERIAL_LAZY: Record<
   () => Promise<{ default: ComponentType<SVGProps<SVGSVGElement>> }>
 > = {};
 for (const [path, loader] of Object.entries(MATERIAL_LAZY_GLOB)) {
-  const match = path.match(/\/([^/]+)\.svg\?react$/);
+  // Keys end with "…/<name>.svg" (query is not part of the glob key).
+  const match = path.match(/\/([^/]+)\.svg(?:\?.*)?$/);
   if (match) {
     MATERIAL_LAZY[match[1]] = loader;
   }
