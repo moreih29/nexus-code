@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 import type { Plugin } from "vite";
+import svgr from "vite-plugin-svgr";
 
 // electron-vite 5.x supports three targets: main, preload, renderer.
 // See: https://electron-vite.org/guide/build
@@ -128,6 +129,14 @@ export default defineConfig({
       strictPort: false,
     },
     build: {
+      // Material file-icon SVGs are URL-referenced (`?url`) and rendered via
+      // <img>. Never inline them as base64 — ~1000 icons would bloat the main
+      // bundle and every user (including the default Minimal theme, which never
+      // shows them) would pay for it. Emitting them as separate files preserves
+      // on-demand, browser-cached loading (VS Code-style) and keeps startup lean.
+      // All other assets keep Vite's default inline threshold.
+      assetsInlineLimit: (filePath: string) =>
+        filePath.includes("assets/icons/material/") ? false : undefined,
       rollupOptions: {
         input: {
           index: resolve(__dirname, "src/renderer/index.html"),
@@ -139,6 +148,6 @@ export default defineConfig({
         "@": resolve(__dirname, "src/renderer"),
       },
     },
-    plugins: [themeTokensPlugin(), tailwindcss(), react()],
+    plugins: [themeTokensPlugin(), tailwindcss(), react(), svgr()],
   },
 });

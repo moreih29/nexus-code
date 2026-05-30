@@ -129,6 +129,12 @@ export const AppStateSchema = z.object({
   // Mirrors themePreference's optional pattern — absent means "use default"
   // rather than a stored value, so no .default() is applied.
   language: z.enum(["ko", "en"]).optional(),
+
+  // Icon theme selection. Absent = "minimal" (default).
+  // "minimal" — monochrome outline icons; "material" — filled Material-style icons.
+  // Renderer-only display setting; main process has no dedicated callback (generic patch
+  // storage is sufficient).
+  iconTheme: z.enum(["minimal", "material"]).optional(),
 });
 
 export type WindowBounds = z.infer<typeof WindowBoundsSchema>;

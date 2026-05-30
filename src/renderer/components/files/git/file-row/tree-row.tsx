@@ -9,11 +9,12 @@
  * the `treeItemProps` spread (role="treeitem", tabIndex, aria-expanded, etc.)
  * so this component stays focused on visual rendering only.
  */
-import { ChevronRight, Folder, FolderOpen, Minus, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, Minus, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
+import { FileIcon } from "../../file-tree/file-icon";
 import {
   type GitDecorationKind,
   kindToColorVar,
@@ -93,8 +94,6 @@ export function GitTreeRow(props: GitTreeRowProps) {
       onUnstagePaths,
       onDiscardPaths,
     } = props;
-    const FolderIcon = isExpanded ? FolderOpen : Folder;
-
     return (
       <div
         {...treeItemProps}
@@ -119,7 +118,13 @@ export function GitTreeRow(props: GitTreeRowProps) {
           )}
           aria-hidden="true"
         />
-        <FolderIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <FileIcon
+          kind={isExpanded ? "folder-open" : "folder"}
+          size="md"
+          tone="muted"
+          className="shrink-0"
+          aria-hidden="true"
+        />
         <span className="min-w-0 flex-1 truncate">{displayName}</span>
         {/* Inline actions — visible on hover/focus-within, hidden otherwise */}
         <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">

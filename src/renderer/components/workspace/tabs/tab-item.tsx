@@ -1,3 +1,4 @@
+import i18next from "i18next";
 import {
   CircleAlert,
   CircleCheck,
@@ -7,13 +8,12 @@ import {
   Globe,
   Loader,
   Lock,
+  type LucideIcon,
   MessageCircleQuestion,
   SquareTerminal,
   TriangleAlert,
   X,
-  type LucideIcon,
 } from "lucide-react";
-import i18next from "i18next";
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
@@ -30,8 +30,8 @@ import { selectStatusForTab, useClaudeStatusStore } from "../../../state/stores/
 import { useTabGitDecoration } from "../../../state/stores/git/use-tab-decoration";
 import { useTabEditingStore } from "../../../state/stores/tab-editing";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
+import { FileIcon } from "../../files/file-tree/file-icon";
 import { kindToColorVar } from "../../files/file-tree/git-decoration";
-import { getFileIcon } from "../../files/file-tree/icons";
 import { MIME_TAB, type TabDragPayload } from "../dnd/types";
 
 /**
@@ -72,10 +72,10 @@ function BrowserFaviconIcon({ faviconUrl }: { faviconUrl: string | null }) {
 }
 
 /**
- * 탭 type별 아이콘 결정. browser 탭은 별도 favicon 컴포넌트가 처리하므로 null.
+ * 탭 type별 아이콘 결정. browser 탭과 editor 탭은 null을 반환한다.
  *
  *  - terminal: SquareTerminal (일관 아이콘)
- *  - editor: 파일 확장자 기반 — 파일트리와 같은 `getFileIcon`을 재사용해 일관성 유지
+ *  - editor: null — 아래 렌더 경로에서 <FileIcon>으로 처리 (테마 인지형)
  *  - editor.diff: FileDiff (좌우 비교 의미)
  *  - git.commit: GitCommit
  *  - untitled: File (저장 전 빈 파일)
@@ -83,11 +83,10 @@ function BrowserFaviconIcon({ faviconUrl }: { faviconUrl: string | null }) {
  */
 function tabTypeIcon(tab: Tab): LucideIcon | null {
   if (tab.type === "terminal") return SquareTerminal;
-  if (tab.type === "editor") return getFileIcon(basename(tab.props.filePath));
   if (tab.type === "editor.diff") return FileDiff;
   if (tab.type === "git.commit") return GitCommit;
   if (tab.type === "untitled") return File;
-  return null; // browser
+  return null; // editor (handled via FileIcon) and browser (handled via BrowserFaviconIcon)
 }
 
 function PinIcon() {
@@ -118,9 +117,7 @@ function PinIcon() {
  */
 function useTabDirty(tab: Tab): boolean {
   const cacheUri =
-    tab.type === "editor"
-      ? cacheUriFor(tab.props.workspaceId, tab.props.filePath)
-      : null;
+    tab.type === "editor" ? cacheUriFor(tab.props.workspaceId, tab.props.filePath) : null;
   const subscribe = useCallback(
     (cb: () => void) => (cacheUri ? subscribeFileDirty(cacheUri, cb) : () => {}),
     [cacheUri],
@@ -228,7 +225,6 @@ function ClaudeGlyph({ status }: { status: ClaudeStatus }) {
   return null;
 }
 
-
 export interface TabItemProps {
   workspaceId: string;
   leafId: string;
@@ -263,8 +259,8 @@ export function TabItem({
   const terminalEnded = tab.type === "terminal" && Boolean(tab.props.dead);
 
   // Claude 세션 상태 구독 — status string primitive만 추출해 identity 안정.
-  const claudeStatus: ClaudeStatus | undefined = useClaudeStatusStore((state) =>
-    selectStatusForTab(state, workspaceId, tab.id)?.status,
+  const claudeStatus: ClaudeStatus | undefined = useClaudeStatusStore(
+    (state) => selectStatusForTab(state, workspaceId, tab.id)?.status,
   );
 
   // permissionPending 배경 tint — 탭 배경에 6% warning 색 오버레이.
@@ -410,26 +406,38 @@ export function TabItem({
             <PinIcon />
           </span>
         )}
-        {/* Type 아이콘 — browser는 favicon, 그 외는 파일트리와 동일한 확장자 기반 또는
-            전용 lucide 아이콘. 가장 앞쪽(pin 다음)에 두어 탭 타입을 즉각 식별 가능. */}
+        {/* Type 아이콘 — browser는 favicon, editor는 FileIcon(테마 인지형),
+            그 외는 전용 lucide 아이콘. 가장 앞쪽(pin 다음)에 두어 탭 타입을 즉각 식별 가능. */}
         {tab.type === "browser" ? (
           <span data-tab-icon className="inline-flex" aria-hidden>
             <BrowserFaviconIcon faviconUrl={faviconUrl} />
           </span>
-        ) : (() => {
-          const TypeIcon = tabTypeIcon(tab);
-          if (!TypeIcon) return null;
-          return (
-            <span data-tab-icon className="inline-flex" aria-hidden>
-              <TypeIcon
-                width={12}
-                height={12}
-                strokeWidth={1.5}
-                className="shrink-0 text-muted-foreground"
-              />
-            </span>
-          );
-        })()}
+        ) : tab.type === "editor" ? (
+          <span data-tab-icon className="inline-flex" aria-hidden>
+            <FileIcon
+              kind="file"
+              name={basename(tab.props.filePath)}
+              size="sm"
+              tone="muted"
+              className="shrink-0"
+            />
+          </span>
+        ) : (
+          (() => {
+            const TypeIcon = tabTypeIcon(tab);
+            if (!TypeIcon) return null;
+            return (
+              <span data-tab-icon className="inline-flex" aria-hidden>
+                <TypeIcon
+                  width={12}
+                  height={12}
+                  strokeWidth={1.5}
+                  className="shrink-0 text-muted-foreground"
+                />
+              </span>
+            );
+          })()
+        )}
         {tab.type === "editor" && (tab.props.readOnly || tab.props.origin === "external") && (
           <span data-tab-icon role="img" aria-label={t("tabBar.read_only_aria")}>
             <Lock

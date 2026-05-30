@@ -1,7 +1,7 @@
 // src/renderer/components/settings/panels/appearance-panel.tsx
 //
-// Controls: Language (SegmentedControl) + Theme (grid of visual theme cards) +
-// Window Opacity (slider 0–100%).
+// Controls: Language (SegmentedControl) + Icon Theme (SegmentedControl) +
+// Theme (grid of visual theme cards) + Window Opacity (slider 0–100%).
 //
 // Language picker: endonym labels (English / 한국어), live via
 // useLanguageStore.setPreference. Options threshold: ≤4 → SegmentedControl,
@@ -9,6 +9,11 @@
 // has no meaningful "default" (it follows OS locale on first boot, but the
 // user's explicit pick is the new baseline). Matching the reset pattern with
 // an arbitrary fallback to "en" would be a false affordance.
+//
+// Icon theme picker: "minimal" | "material" — exactly 2 options → SegmentedControl.
+// Option display names ("Minimal"/"Material") are proper nouns and are not
+// translated; only the section label and reset tooltip are localised.
+// Default is "minimal"; reset restores that value.
 //
 // Theme picker: each ThemeSource produces one card showing the theme's
 // dominant colors (bg + fg + accent + four syntax roles) so users select by
@@ -34,6 +39,7 @@ import {
 } from "../../../../shared/design-tokens";
 import type { SupportedLanguage } from "../../../../shared/i18n";
 import { cn } from "@/utils/cn";
+import { type IconTheme, useIconThemeStore } from "../../../state/stores/icon-theme";
 import { useLanguageStore } from "../../../state/stores/language";
 import { useThemeStore } from "../../../state/stores/theme";
 import { useWindowOpacityStore } from "../../../state/stores/window-opacity";
@@ -59,6 +65,16 @@ const LANGUAGE_OPTIONS: SegmentedOption<SupportedLanguage>[] = [
   { value: "ko", label: "한국어" },
 ];
 
+// Icon theme options — "Minimal" and "Material" are proper nouns and are NOT
+// translated; only the section label is localised. Exactly 2 options →
+// always SegmentedControl.
+const DEFAULT_ICON_THEME: IconTheme = "minimal";
+
+const ICON_THEME_OPTIONS: SegmentedOption<IconTheme>[] = [
+  { value: "minimal", label: "Minimal" },
+  { value: "material", label: "Material" },
+];
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -68,6 +84,9 @@ export function AppearancePanel() {
 
   const languagePreference = useLanguageStore((s) => s.preference);
   const setLanguagePreference = useLanguageStore((s) => s.setPreference);
+
+  const iconThemePreference = useIconThemeStore((s) => s.preference);
+  const setIconThemePreference = useIconThemeStore((s) => s.setPreference);
 
   const themePreference = useThemeStore((s) => s.preference);
   const setThemePreference = useThemeStore((s) => s.setPreference);
@@ -86,6 +105,7 @@ export function AppearancePanel() {
 
   const opacityPercent = Math.round(localOpacity * 100);
 
+  const iconThemeDirty = iconThemePreference !== DEFAULT_ICON_THEME;
   const themeDirty = themePreference !== DEFAULT_THEME;
   const opacityDirty = opacity !== 1;
 
@@ -117,6 +137,23 @@ export function AppearancePanel() {
             label={languageLabel}
           />
         )}
+      </SettingsSection>
+
+      {/* Section: Icon Theme — SegmentedControl (Minimal / Material).
+          "Minimal" and "Material" are proper nouns and are not translated;
+          only the section label and reset tooltip are localised. Default
+          is "minimal". */}
+      <SettingsSection
+        label={t("appearance.iconTheme")}
+        dirty={iconThemeDirty}
+        onReset={() => setIconThemePreference(DEFAULT_ICON_THEME)}
+      >
+        <SegmentedControl
+          options={ICON_THEME_OPTIONS}
+          value={iconThemePreference}
+          onChange={(theme) => setIconThemePreference(theme)}
+          label={t("appearance.iconTheme")}
+        />
       </SettingsSection>
 
       {/* Section: Theme — grid of visual cards */}

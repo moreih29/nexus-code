@@ -18,15 +18,16 @@ import { initBrowserPermissionSubscriptions } from "./state/operations/browser-p
 import { initBrowserOverlayAutoSuspend } from "./state/operations/browser-suspend-auto";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
+import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
 import { useClaudeStatusStore } from "./state/stores/claude-status";
 import { useEditorFontStore } from "./state/stores/editor-font";
+import { useIconThemeStore } from "./state/stores/icon-theme";
+import { useLanguageStore } from "./state/stores/language";
 import { useLayoutStore } from "./state/stores/layout";
 import { useLspEnabledStore } from "./state/stores/lsp-enabled";
-import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
 import { useNotificationsStore } from "./state/stores/notifications";
 import { useTabsStore } from "./state/stores/tabs";
 import { useTerminalStore } from "./state/stores/terminal";
-import { useLanguageStore } from "./state/stores/language";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
 import { useUpdatesStore } from "./state/stores/updates";
@@ -126,6 +127,10 @@ export async function bootstrapAppState(): Promise<void> {
   // Overwrites the navigator.language-based boot approximation so the
   // persisted preference takes effect before the first user interaction.
   useLanguageStore.getState().hydrate(state.language);
+
+  // Hydrate icon theme from appState (authoritative store).
+  // Overwrites the localStorage-based boot value so the two remain in sync.
+  useIconThemeStore.getState().hydrate(state.iconTheme);
 
   // Subscribe to language changes broadcast by main when another window (or
   // the same window via appState.set) triggers a locale switch.  Main emits

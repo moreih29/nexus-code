@@ -227,6 +227,65 @@ function ensureMatchMedia(win: unknown): void {
     }
   };
 
+// ---------------------------------------------------------------------------
+// file-icon.tsx stub — this module uses Vite-specific APIs (import.meta.glob
+// and *.svg?react imports) that are unavailable under Bun's test runner.
+// We stub the entire module with a minimal implementation so that any test
+// file that transitively imports row.tsx / tab-item.tsx / result-file-row.tsx
+// / tree-row.tsx (all of which now use FileIcon) doesn't crash at module eval.
+//
+// The stub FileIcon renders a real Lucide icon using resolveLucide from the
+// pure resolver module (file-icon-resolvers.ts) — preserving the className /
+// tone / size behaviour tested by existing component tests.
+//
+// Tests that specifically verify FileIcon + Material theme behaviour import
+// file-icon-resolvers.ts directly (pure, no Vite deps) and do not need this stub.
+// ---------------------------------------------------------------------------
+// The module path must match what the consuming files (row.tsx, tab-item.tsx, etc.)
+// resolve to. Bun normalises relative imports to absolute paths so using the
+// absolute path here works regardless of which file triggers the load.
+// import.meta.dir is the directory of this setup.ts file (tests/).
+const FILE_ICON_MODULE_PATH = `${import.meta.dir}/../src/renderer/components/files/file-tree/file-icon.tsx`;
+const FILE_ICON_RESOLVERS_PATH = `${import.meta.dir}/../src/renderer/components/files/file-tree/file-icon-resolvers`;
+
+mock.module(FILE_ICON_MODULE_PATH, () => {
+    const React = require("react");
+    // biome-ignore lint/nursery/noCommonJs: require needed in mock factory (no top-level await)
+    const { resolveLucide } = require(FILE_ICON_RESOLVERS_PATH);
+
+    const SIZE_CLASS: Record<string, string> = { sm: "size-3", md: "size-3.5" };
+    const TONE_CLASS: Record<string, string> = {
+      sidebar: "text-[var(--sidebar-icon-fg)]",
+      muted: "text-muted-foreground",
+    };
+
+    function FileIcon({
+      kind,
+      name,
+      size = "sm",
+      tone,
+      className,
+      "aria-hidden": ariaHidden,
+    }: {
+      kind: string;
+      name?: string;
+      size?: string;
+      tone: string;
+      className?: string;
+      "aria-hidden"?: boolean | "true" | "false";
+    }) {
+      const LucideComp = resolveLucide(kind, name);
+      return React.createElement(LucideComp, {
+        "aria-hidden": ariaHidden,
+        className: [SIZE_CLASS[size], TONE_CLASS[tone], className].filter(Boolean).join(" "),
+        strokeWidth: 1.5,
+      });
+    }
+
+    return { FileIcon, resolveLucide, resolveMaterialIconName: () => null };
+  },
+);
+
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const originalError = console.error;
