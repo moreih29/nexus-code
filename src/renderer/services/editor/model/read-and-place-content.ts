@@ -3,7 +3,7 @@
 import type * as Monaco from "monaco-editor";
 import type { EditorInput } from "../types";
 import { ensureModelWithContent } from "./ensure-model";
-import type { ModelEntryDeps } from "./entry";
+import type { ModelEntryDeps } from "./types";
 
 export interface ReadAndPlaceContentResult {
   model: Monaco.editor.ITextModel;

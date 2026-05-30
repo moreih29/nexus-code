@@ -9,7 +9,8 @@ import { workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { requireMonaco } from "../runtime/monaco-singleton";
 import { ensureModelWithContent } from "./ensure-model";
-import { errorCodeFromUnknown, type ModelEntry } from "./entry";
+import { errorCodeFromUnknown } from "./entry";
+import type { ModelEntry } from "./types";
 
 export async function loadExternalEntry(input: {
   workspaceId: string;
