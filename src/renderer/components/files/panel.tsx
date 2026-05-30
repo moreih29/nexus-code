@@ -183,10 +183,8 @@ export function FilesPanel() {
           </>
         ) : (
           <div className="flex flex-1 items-center justify-center">
-            <div className="px-4 text-center text-app-ui-sm text-muted-foreground">
-              {t("panel.noWorkspace").split("\n").map((line, i) => (
-                i === 0 ? line : <><br key={i} />{line}</>
-              ))}
+            <div className="whitespace-pre-line px-4 text-center text-app-ui-sm text-muted-foreground">
+              {t("panel.noWorkspace")}
             </div>
           </div>
         )}
