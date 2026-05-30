@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useDragSource } from "@/components/ui/use-drag-source";
@@ -15,28 +16,6 @@ import {
 } from "./git-decoration";
 import { FOLDER_ICON, FOLDER_OPEN_ICON, getFileIcon } from "./icons";
 import { indentPaddingLeft, ROW_HEIGHT_PX } from "./metrics";
-
-// ---------------------------------------------------------------------------
-// Inline icon — avoids external icon library dependency
-// ---------------------------------------------------------------------------
-
-function ChevronRightIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-      role="none"
-    >
-      <path d="M6 4l4 4-4 4" />
-    </svg>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -248,7 +227,9 @@ export function FileTreeRow({
       )}
     >
       {isDir ? (
-        <ChevronRightIcon
+        <ChevronRight
+          aria-hidden="true"
+          strokeWidth={1.5}
           className={cn(
             // §14 closed icon grid: size-3 (12px) only. text-[var(--sidebar-icon-fg)]
             // routes through the semantic layer instead of the stoneGray primitive.

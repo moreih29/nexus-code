@@ -9,8 +9,9 @@
  * the `treeItemProps` spread (role="treeitem", tabIndex, aria-expanded, etc.)
  * so this component stays focused on visual rendering only.
  */
-import { ChevronDown, ChevronRight, Folder, FolderOpen, Minus, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, Folder, FolderOpen, Minus, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { cn } from "@/utils/cn";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import {
@@ -92,7 +93,6 @@ export function GitTreeRow(props: GitTreeRowProps) {
       onUnstagePaths,
       onDiscardPaths,
     } = props;
-    const Chevron = isExpanded ? ChevronDown : ChevronRight;
     const FolderIcon = isExpanded ? FolderOpen : Folder;
 
     return (
@@ -112,7 +112,13 @@ export function GitTreeRow(props: GitTreeRowProps) {
         }}
         tabIndex={treeItemProps.tabIndex ?? -1}
       >
-        <Chevron className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <ChevronRight
+          className={cn(
+            "size-3 shrink-0 text-muted-foreground transition-transform duration-150 ease-out",
+            isExpanded && "rotate-90",
+          )}
+          aria-hidden="true"
+        />
         <FolderIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate">{displayName}</span>
         {/* Inline actions — visible on hover/focus-within, hidden otherwise */}

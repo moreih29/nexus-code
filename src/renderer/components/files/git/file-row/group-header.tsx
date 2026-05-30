@@ -1,9 +1,10 @@
 /**
  * GitGroupHeader renders an expandable Source Control section heading.
  */
-import { ChevronDown, ChevronRight, Minus, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, Minus, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "@/utils/cn";
 import type { GitExpandedGroupKey } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import {
@@ -46,7 +47,6 @@ export function GitGroupHeader({
 }: GitGroupHeaderProps) {
   const { t } = useTranslation("files");
   const [contextMenuPoint, setContextMenuPoint] = useState<GitContextMenuPoint | null>(null);
-  const Chevron = expanded ? ChevronDown : ChevronRight;
 
   return (
     <div className="group flex h-7 items-center gap-1 px-2 text-app-ui-sm text-muted-foreground hover:bg-[var(--state-hover-bg)] focus-within:bg-[var(--state-hover-bg)]">
@@ -60,7 +60,13 @@ export function GitGroupHeader({
           setContextMenuPoint(pointFromMouseEvent(event));
         }}
       >
-        <Chevron className="size-3.5 shrink-0" aria-hidden="true" />
+        <ChevronRight
+          className={cn(
+            "size-3.5 shrink-0 transition-transform duration-150 ease-out",
+            expanded && "rotate-90",
+          )}
+          aria-hidden="true"
+        />
         <span className="truncate text-app-label uppercase">{label}</span>
         <span className="shrink-0 rounded bg-muted px-1 text-app-ui-sm">{count}</span>
       </button>

@@ -1,7 +1,7 @@
 /**
  * GitHeader renders the Source Control title and top-level action buttons.
  */
-import { FoldVertical, RefreshCw, UnfoldVertical } from "lucide-react";
+import { ChevronsDownUp, ChevronsUpDown, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { GitAutofetchIntervalMin, RepoCapabilities } from "../../../../../shared/git/types";
 import type { ViewMode } from "../../../../../shared/types/panel";
@@ -138,9 +138,9 @@ export function GitHeader({
             onClick={onToggleAllTrees}
           >
             {hasAnyExpanded ? (
-              <FoldVertical aria-hidden="true" />
+              <ChevronsDownUp aria-hidden="true" />
             ) : (
-              <UnfoldVertical aria-hidden="true" />
+              <ChevronsUpDown aria-hidden="true" />
             )}
           </Button>
         ) : null}
