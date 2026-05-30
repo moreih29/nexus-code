@@ -20,7 +20,7 @@
  *     - absent extension → fileDefault ("file")
  */
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, test } from "bun:test";
 import {
   File,
   FileArchive,
@@ -44,98 +44,52 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("resolveLucide — folder/folder-open", () => {
-  it("kind=folder → Folder", () => {
-    expect(resolveLucide("folder")).toBe(Folder);
-  });
-
-  it("kind=folder-open → FolderOpen", () => {
-    expect(resolveLucide("folder-open")).toBe(FolderOpen);
+  test.each([
+    ["folder",      Folder],
+    ["folder-open", FolderOpen],
+  ] as const)("kind=%s → expected component", (kind, expected) => {
+    expect(resolveLucide(kind)).toBe(expected);
   });
 });
 
 describe("resolveLucide — file extensions", () => {
-  it(".ts → FileCode", () => {
-    expect(resolveLucide("file", "index.ts")).toBe(FileCode);
-  });
-
-  it(".tsx → FileCode", () => {
-    expect(resolveLucide("file", "App.tsx")).toBe(FileCode);
-  });
-
-  it(".js → FileCode", () => {
-    expect(resolveLucide("file", "main.js")).toBe(FileCode);
-  });
-
-  it(".jsx → FileCode", () => {
-    expect(resolveLucide("file", "Component.jsx")).toBe(FileCode);
-  });
-
-  it(".json → FileJson", () => {
-    expect(resolveLucide("file", "package.json")).toBe(FileJson);
-  });
-
-  it(".md → FileText", () => {
-    expect(resolveLucide("file", "README.md")).toBe(FileText);
-  });
-
-  it(".py → FileCode", () => {
-    expect(resolveLucide("file", "main.py")).toBe(FileCode);
-  });
-
-  it(".css → FileCode", () => {
-    expect(resolveLucide("file", "styles.css")).toBe(FileCode);
-  });
-
-  it(".html → FileCode", () => {
-    expect(resolveLucide("file", "index.html")).toBe(FileCode);
-  });
-
-  it(".sh → FileTerminal", () => {
-    expect(resolveLucide("file", "build.sh")).toBe(FileTerminal);
-  });
-
-  it(".yaml → FileCog", () => {
-    expect(resolveLucide("file", "config.yaml")).toBe(FileCog);
-  });
-
-  it(".lock → FileLock", () => {
-    expect(resolveLucide("file", "bun.lock")).toBe(FileLock);
-  });
-
-  it(".png → FileImage", () => {
-    expect(resolveLucide("file", "logo.png")).toBe(FileImage);
-  });
-
-  it(".zip → FileArchive", () => {
-    expect(resolveLucide("file", "dist.zip")).toBe(FileArchive);
+  test.each([
+    ["index.ts",         FileCode],
+    ["App.tsx",          FileCode],
+    ["main.js",          FileCode],
+    ["Component.jsx",    FileCode],
+    ["package.json",     FileJson],
+    ["README.md",        FileText],
+    ["main.py",          FileCode],
+    ["styles.css",       FileCode],
+    ["index.html",       FileCode],
+    ["build.sh",         FileTerminal],
+    ["config.yaml",      FileCog],
+    ["bun.lock",         FileLock],
+    ["logo.png",         FileImage],
+    ["dist.zip",         FileArchive],
+  ] as const)("%s → expected Lucide component", (name, expected) => {
+    expect(resolveLucide("file", name)).toBe(expected);
   });
 });
 
 describe("resolveLucide — exact filename match", () => {
-  it("Dockerfile → FileCog (exact match beats extension)", () => {
-    expect(resolveLucide("file", "Dockerfile")).toBe(FileCog);
-  });
-
-  it("Makefile → FileCog", () => {
-    expect(resolveLucide("file", "Makefile")).toBe(FileCog);
-  });
-
-  it("LICENSE → FileText", () => {
-    expect(resolveLucide("file", "LICENSE")).toBe(FileText);
-  });
-
-  it("README → FileText", () => {
-    expect(resolveLucide("file", "README")).toBe(FileText);
+  test.each([
+    ["Dockerfile", FileCog,  "exact match beats extension"],
+    ["Makefile",   FileCog,  "exact match"],
+    ["LICENSE",    FileText, "exact match"],
+    ["README",     FileText, "exact match"],
+  ] as const)("%s → %s (%s)", (name, expected) => {
+    expect(resolveLucide("file", name)).toBe(expected);
   });
 });
 
 describe("resolveLucide — fallback cases", () => {
-  it("no extension → File", () => {
-    expect(resolveLucide("file", "Procfile")).toBe(File);
-  });
-
-  it("unknown extension → File", () => {
-    expect(resolveLucide("file", "file.unknownxyz")).toBe(File);
+  test.each([
+    ["Procfile",        "no extension → File"],
+    ["file.unknownxyz", "unknown extension → File"],
+  ] as const)("%s (%s)", (name) => {
+    expect(resolveLucide("file", name)).toBe(File);
   });
 
   it("undefined name → File", () => {
@@ -148,13 +102,11 @@ describe("resolveLucide — fallback cases", () => {
 });
 
 describe("resolveLucide — dotfile extension matching", () => {
-  it(".env → FileCog (dotfile: extension IS the whole name)", () => {
-    // ".env" has the extension ".env" (lastIndexOf('.') = 0, slice(0) = ".env")
-    expect(resolveLucide("file", ".env")).toBe(FileCog);
-  });
-
-  it(".gitignore → FileCog", () => {
-    expect(resolveLucide("file", ".gitignore")).toBe(FileCog);
+  test.each([
+    [".env",       "dotfile: extension IS the whole name"],
+    [".gitignore", "dotfile"],
+  ] as const)("%s → FileCog (%s)", (name) => {
+    expect(resolveLucide("file", name)).toBe(FileCog);
   });
 });
 
@@ -163,119 +115,63 @@ describe("resolveLucide — dotfile extension matching", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveMaterialIconName — folder/folder-open defaults", () => {
-  it("kind=folder (unnamed) → folderDefault", () => {
-    const result = resolveMaterialIconName("folder");
-    // material-icon-map.json folderDefault = "folder"
-    expect(result).toBe("folder");
-  });
-
-  it("kind=folder-open (unnamed) → folderOpenDefault", () => {
-    const result = resolveMaterialIconName("folder-open");
-    // material-icon-map.json folderOpenDefault = "folder-open"
-    expect(result).toBe("folder-open");
+  test.each([
+    ["folder",      "folder"],
+    ["folder-open", "folder-open"],
+  ] as const)("kind=%s → %s", (kind, expected) => {
+    expect(resolveMaterialIconName(kind)).toBe(expected);
   });
 });
 
 describe("resolveMaterialIconName — common file extensions", () => {
-  it(".ts → typescript", () => {
-    expect(resolveMaterialIconName("file", "index.ts")).toBe("typescript");
-  });
-
-  it(".tsx → react_ts", () => {
-    expect(resolveMaterialIconName("file", "App.tsx")).toBe("react_ts");
-  });
-
-  it(".js → javascript", () => {
-    expect(resolveMaterialIconName("file", "main.js")).toBe("javascript");
-  });
-
-  it(".jsx → react", () => {
-    expect(resolveMaterialIconName("file", "Component.jsx")).toBe("react");
-  });
-
-  it(".json → json (non-special filename)", () => {
-    // package.json is an exact-filename match → nodejs; use a generic name
-    expect(resolveMaterialIconName("file", "data.json")).toBe("json");
-  });
-
-  it(".md → markdown (non-special filename)", () => {
-    // README.md and CHANGELOG.md have exact matches; use a truly generic name
-    expect(resolveMaterialIconName("file", "notes.md")).toBe("markdown");
-  });
-
-  it(".py → python", () => {
-    expect(resolveMaterialIconName("file", "main.py")).toBe("python");
-  });
-
-  it(".css → css", () => {
-    expect(resolveMaterialIconName("file", "styles.css")).toBe("css");
-  });
-
-  it(".html → html", () => {
-    expect(resolveMaterialIconName("file", "index.html")).toBe("html");
-  });
-
-  it(".rs → rust", () => {
-    expect(resolveMaterialIconName("file", "main.rs")).toBe("rust");
-  });
-
-  it(".go → go", () => {
-    expect(resolveMaterialIconName("file", "main.go")).toBe("go");
+  test.each([
+    ["index.ts",        "typescript"],
+    ["App.tsx",         "react_ts"],
+    ["main.js",         "javascript"],
+    ["Component.jsx",   "react"],
+    ["data.json",       "json"],       // package.json is an exact-filename match → nodejs; use generic
+    ["notes.md",        "markdown"],   // README.md / CHANGELOG.md have exact matches; use generic
+    ["main.py",         "python"],
+    ["styles.css",      "css"],
+    ["index.html",      "html"],
+    ["main.rs",         "rust"],
+    ["main.go",         "go"],
+  ] as const)("%s → %s", (name, expected) => {
+    expect(resolveMaterialIconName("file", name)).toBe(expected);
   });
 });
 
 describe("resolveMaterialIconName — multi-segment suffix priority", () => {
-  it("d.ts suffix wins over ts suffix → typescript-def", () => {
-    // "types.d.ts": first dot is at index 5 → suffix "d.ts" → typescript-def
-    expect(resolveMaterialIconName("file", "types.d.ts")).toBe("typescript-def");
-  });
-
-  it("spec.tsx suffix wins over tsx → test-jsx", () => {
-    expect(resolveMaterialIconName("file", "App.spec.tsx")).toBe("test-jsx");
-  });
-
-  it("test.ts suffix wins over ts → test-ts", () => {
-    expect(resolveMaterialIconName("file", "main.test.ts")).toBe("test-ts");
-  });
-
-  it("stories.tsx suffix wins over tsx → storybook", () => {
-    expect(resolveMaterialIconName("file", "Button.stories.tsx")).toBe("storybook");
+  test.each([
+    ["types.d.ts",        "typescript-def", "d.ts suffix wins over ts suffix"],
+    ["App.spec.tsx",      "test-jsx",       "spec.tsx suffix wins over tsx"],
+    ["main.test.ts",      "test-ts",        "test.ts suffix wins over ts"],
+    ["Button.stories.tsx","storybook",      "stories.tsx suffix wins over tsx"],
+  ] as const)("%s → %s (%s)", (name, expected) => {
+    expect(resolveMaterialIconName("file", name)).toBe(expected);
   });
 });
 
 describe("resolveMaterialIconName — exact filename match", () => {
-  it(".gitignore exact match wins over extension", () => {
-    // The `file` map has ".gitignore" → "git"
-    const result = resolveMaterialIconName("file", ".gitignore");
-    expect(result).toBe("git");
-  });
-
-  it("dockerfile exact match (case-insensitive)", () => {
-    const result = resolveMaterialIconName("file", "Dockerfile");
-    expect(result).toBe("docker");
-  });
-
-  it("docker-compose.yml exact match → docker", () => {
-    const result = resolveMaterialIconName("file", "docker-compose.yml");
-    expect(result).toBe("docker");
+  test.each([
+    [".gitignore",         "git",    "exact match wins over extension"],
+    ["Dockerfile",         "docker", "case-insensitive exact match"],
+    ["docker-compose.yml", "docker", "exact match"],
+  ] as const)("%s → %s (%s)", (name, expected) => {
+    expect(resolveMaterialIconName("file", name)).toBe(expected);
   });
 });
 
 describe("resolveMaterialIconName — fileDefault fallback", () => {
-  it("completely unknown extension → 'file' (fileDefault)", () => {
-    const result = resolveMaterialIconName("file", "archive.unknownxyz123");
-    expect(result).toBe("file");
-  });
-
-  it("no extension → 'file' (fileDefault, no exact match)", () => {
-    // Procfile has an exact match → heroku; use a name with no match
-    const result = resolveMaterialIconName("file", "SomeRandomFile");
-    expect(result).toBe("file");
+  test.each([
+    ["archive.unknownxyz123", "completely unknown extension"],
+    ["SomeRandomFile",        "no extension, no exact match"],
+  ] as const)("%s (%s) → 'file'", (name) => {
+    expect(resolveMaterialIconName("file", name)).toBe("file");
   });
 
   it("undefined name → 'file' (fileDefault)", () => {
-    const result = resolveMaterialIconName("file", undefined);
-    expect(result).toBe("file");
+    expect(resolveMaterialIconName("file", undefined)).toBe("file");
   });
 });
 
