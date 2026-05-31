@@ -12,6 +12,11 @@
  * logic inline, which meant a bug in the production hook would not surface.
  * This rewrite calls the real hook with a tracked closeEditor mock so the
  * production filter is the unit under test.
+ *
+ * Hermetic fix: use-group-actions imports closeTabWithConfirm from
+ * services/editor/save/close-tab which in turn imports closeEditorWithConfirm
+ * from services/editor/save/close-handler.  We mock close-handler directly
+ * so the spy fires regardless of which sibling test file runs first.
  */
 
 import { beforeEach, describe, expect, it, mock } from "bun:test";
@@ -27,33 +32,74 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 mock.module("../../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: mock(() => Promise.resolve({ ok: true as const, value: undefined })),
   ipcListen: () => () => {},
+  canUseIpcBridge: () => false,
+  unwrapIpcResult: <T>(r: { ok: boolean; value?: T; message?: string; kind?: string }): T => {
+    if (r.ok) return r.value as T;
+    throw new Error(r.message ?? "ipc error");
+  },
+  mustSucceed: <T>(r: { ok: boolean; value?: T; message?: string; kind?: string }): T => {
+    if (r.ok) return r.value as T;
+    throw new Error(r.message ?? "ipc error");
+  },
+  unwrapGitResult: <T>(r: { ok: boolean; value?: T; message?: string }): T => {
+    if (r.ok) return r.value as T;
+    throw new Error(r.message ?? "git ipc error");
+  },
+  isIpcResult: (v: unknown): boolean =>
+    v !== null && typeof v === "object" && "ok" in (v as object),
+  isIpcOkResult: (v: unknown): boolean =>
+    v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === true,
+  isIpcErrResult: (v: unknown): boolean =>
+    v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === false,
+  ipcStream: () => ({ promise: Promise.resolve(undefined), onProgress: () => () => {} }),
 }));
 
 // Track which tabs were closed via the editor service. The production hook
 // now routes through `closeEditorWithConfirm` (the dirty-aware wrapper) so
 // bulk-close paths can't silently drop unsaved buffers — the mock wires
-// that wrapper to record the tabId synchronously, matching the unit-under-
-// test (the *filter logic* of which tabs reach the close call).
+// that wrapper to record the tabId, matching the unit-under-test (the
+// *filter logic* of which tabs reach the close call).
+//
+// We mock close-handler directly (the real import path used by close-tab.ts)
+// rather than the barrel services/editor so this spy is active regardless of
+// which other test file ran first in the same bun process.
 const editorCloseCalls: string[] = [];
-mock.module("../../../../../../src/renderer/services/editor", () => ({
-  closeEditor: (tabId: string) => {
-    editorCloseCalls.push(tabId);
-  },
+
+const CLOSE_HANDLER_PATH =
+  `${import.meta.dir}/../../../../../../src/renderer/services/editor/save/close-handler`;
+
+mock.module(CLOSE_HANDLER_PATH, () => ({
   closeEditorWithConfirm: async (_workspaceId: string, tabId: string) => {
     editorCloseCalls.push(tabId);
     return "closed" as const;
+  },
+  closeUntitledWithConfirm: async (_workspaceId: string, tabId: string) => {
+    editorCloseCalls.push(tabId);
+    return "closed" as const;
+  },
+}));
+
+// Keep the editor barrel mock for other modules that import from services/editor.
+mock.module("../../../../../../src/renderer/services/editor", () => ({
+  closeEditor: (tabId: string) => {
+    editorCloseCalls.push(tabId);
   },
   filePathToModelUri: (filePath: string) => `file://${filePath}`,
   isDirty: () => false,
   openOrRevealEditor: () => null,
 }));
+
 mock.module("../../../../../../src/renderer/services/terminal", () => ({
   closeTerminal: () => {},
   openTerminal: () => null,
 }));
 
-import { useGroupActions } from "../../../../../../src/renderer/components/workspace/group/use-group-actions";
-import { useTabsStore } from "../../../../../../src/renderer/state/stores/tabs";
+const { useGroupActions } = await import(
+  "../../../../../../src/renderer/components/workspace/group/use-group-actions"
+);
+const { useTabsStore } = await import(
+  "../../../../../../src/renderer/state/stores/tabs"
+);
 
 const WS = "cccccccc-cccc-4ccc-cccc-cccccccccccc";
 const LEAF = "leaf-1";

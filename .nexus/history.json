@@ -22326,6 +22326,107 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-31T03:02:14.495Z",
+      "branch": "chore/test-overhaul",
+      "plan": {
+        "id": 69,
+        "topic": "테스트 잔여 과감 정리 — 단독실패 마감 + 저가치 테스트 삭제 (게이트 무손실 가드)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "W0 빈틈 마감: 게이트 solo 전파일 확장 + 단독실패 4개 해소",
+            "status": "decided",
+            "decision": "채택: (a) scripts/test-gate.sh에 solo-all 모드 추가 — 전 314파일을 각각 단독 실행해 'full 통과+solo 실패' 파일을 ISOLATION VIOLATION으로 잡는다(기존 solo는 변경파일만 검사해 빈틈). (b) 단독실패 4개 해소: terminal-services·load-external-entry는 의존하던 형제 mock을 자체 파일에 hermetic하게 설치(또는 tests/setup.ts canonical stub에 부족 surface 추가)해 단독 crash 제거(수정, 삭제 아님 — 고유 커버리지 있음). bulk-close-cancel·pinned-tab은 closeCalls/editorCloseCalls 배열 호출순서 단언(AP-2 mock순서-only)이 본질이므로 결정트리 ③ 적용: 관측결과(닫힌 탭 상태) 단언으로 재작성하거나, 상위 시나리오 중복이면 삭제. 무손실은 coverage 게이트로 가드. 근거: bun mock.module process-global 비hermetic이 단독실패 원인이고, Beck Isolated 위반. 기각: 4개 방치 — 사용자가 '단독/전체 무결'을 명시 요구. HOW 재자문 생략: plan 68에서 architect가 격리 전략 이미 설계, 변경 반경이 테스트+게이트로 한정·게이트 가드로 비가역성 낮음."
+          },
+          {
+            "id": 2,
+            "title": "과감 삭제 스윗: B 잔여 + W3 잔여 중 저가치 테스트 삭제(커버리지 무손실)",
+            "status": "decided",
+            "decision": "채택: 사용자 지시(과감 삭제)에 따라 B 잔여 ~27 + W3 잔여를 결정트리로 개별 판정하되 삭제 임계를 낮춘다. 삭제 대상(과감): ①상위 시나리오가 동일 동작 커버(coverage 무손실 확인) ②mock 호출순서/횟수 배열만 단언하고 결과 단언 없음(AP-2) + 고유 커버리지 없음 ③라이브러리·타입·zustand 참조동일성이 보장하는 것 재검증. 보존: 고유 커버리지 있는 순수 로직, 실제 return-state 가드 계약(SUT에 명시적 가드), 버그 회귀 방어. 애매하면 삭제보다 보존(거짓 삭제로 커버리지 손실 위험). 모든 삭제는 scripts/test-gate.sh coverage로 baseline superset 유지 확인(손실시 되돌림) + solo-all·shuffle green. 기각: 전수 보존 — 사용자가 과감 삭제 명시, 저가치 테스트는 신호 오염·유지부채. 기각: 무조건 삭제(커버리지 무시) — 고유 커버리지 손실 위험, 게이트로 차단. HOW 재자문 생략: 결정트리는 plan 68 architect 설계 그대로, 게이트 가드로 안전."
+          }
+        ],
+        "research_summary": "직전 사이클(plan 68) 완료 후 Lead가 314파일 전수 solo 스윕 실행 → 4개 파일이 단독 실행시 실패 확인(전체·셔플은 green). 4개 전부 이번까지 미변경·baseline 74bf392에서도 solo-fail = 기존 문제. (1) terminal-services.test.ts, load-external-entry.test.ts: 형제 파일의 전역 mock에 무임승차 → 단독시 crash(0 pass, Unhandled error). (2) bulk-close-cancel.test.ts, pinned-tab.test.ts: closeCalls/editorCloseCalls 배열 호출순서 단언이 단독시 실패 — mock 순서결합(AP-2) + 비hermetic. 원인은 W0가 고친 electron과 동근(bun mock.module process-global)이나 방향 반대(전체통과·단독실패). 게이트의 solo 모드가 '변경파일'만 검사해 놓침 → 전파일 solo 검사로 확장 필요. 사용자 지시: 과감 삭제(꼭 필요없으면 삭제). 안전벨트: scripts/test-gate.sh coverage(삭제 후 baseline superset 깨지면 차단). 결정트리(prior plan 68 issue5): ①상위시나리오 중복→삭제 ②관측출력 구현결합→재작성 ③mock순서-only+고유커버리지 없음→삭제 ④고유커버리지+진짜mock경계→최소재작성. 백로그(tests/REFACTOR-BACKLOG.md): B 미판정 ~27(layout/store-*, tabs/store, files/store-*, operations/*, file-tree-actions-copy-cut, bulk-close-cancel, untitled-tab-close, services/editor/* 등), W3 잔여 4(store-query·workspaces·ipc/channels·model-cache-*). 표본상 'byWorkspace 참조동치' 다수는 useSyncExternalStore return-state 계약이라 보존 대상. 현재 314파일/3011케이스, coverage 66.52%.",
+        "created_at": "2026-05-31T02:28:28.792Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "C1: 게이트 solo-all 확장 + 단독실패 4개 해소",
+          "status": "completed",
+          "context": "직전 사이클 후 전수 solo 스윕에서 4파일이 단독 실행 실패(전체·셔플은 green, 전부 기존 문제·baseline에서도 fail): terminal-services.test.ts·load-external-entry.test.ts(형제 mock 무임승차→단독 crash 0 pass), bulk-close-cancel.test.ts·pinned-tab.test.ts(closeCalls/editorCloseCalls 배열 호출순서 단언이 단독시 실패, AP-2 mock순서결합). 기존 scripts/test-gate.sh의 solo 모드는 변경파일만 검사해 이 빈틈을 못 잡음. baseline 74bf392, coverage 66.52%.",
+          "acceptance": "scripts/test-gate.sh solo-all 모드 동작(전파일 단독 검사). 4개 파일이 단독·전체 모두 통과(solo-all 0 violation). full 0 fail/0 error, shuffle green, coverage 66.52% baseline superset 유지. 프로덕션 src/** 동작 변경 0(필요시 Rule3 seam만). 보고에 4개 각 처리방식(수정/재작성/삭제) 근거.",
+          "approach": "(a) scripts/test-gate.sh에 `solo-all` 모드 추가: 전 314 테스트파일을 각각 단독 `bun test <file>` 실행해 fail/error/Unhandled 나는 파일을 ISOLATION VIOLATION으로 리스트업+exit1. (b) 4개 해소: ①terminal-services·load-external-entry — 단독 crash 원인(의존하던 형제 파일의 전역 mock)을 직접 확인해, 자체 파일에서 필요한 mock을 hermetic 설치하거나 tests/setup.ts canonical stub에 부족 surface 추가. 고유 커버리지 있으니 수정(삭제 아님). ②bulk-close-cancel·pinned-tab — closeCalls 배열 순서 단언이 본질. 결정트리 적용: 상위 시나리오 중복이면 삭제, 아니면 '닫힌 결과 상태' 관측 단언으로 재작성(순서결합 제거). 각 변경 후 `bash scripts/test-gate.sh full`·`coverage`·`solo-all`로 확인.",
+          "risk": "hermetic 수정시 필요한 mock surface 누락으로 다른 테스트 영향 → 게이트로 확인. solo-all은 314회 실행이라 느림(수분) — 게이트에 별도 모드로 분리.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a3511baafa44c07a2",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-31T02:29:11.486Z",
+          "result": {
+            "outcome": "success",
+            "summary": "게이트 solo-all 모드 추가. 단독실패 4개 전부 hermetic 수정(삭제 아님): terminal-services·load-external-entry는 ipc/client mock에 unwrapIpcResult 등 누락 surface 추가, bulk-close-cancel·pinned-tab은 mock 경로 불일치(barrel vs close-handler 직접 import) 수정. Lead 독립 재스윗: 314파일 전부 solo PASS(0 실패), src/** 무변경. solo-all 314/314, full 3011/0/0, coverage 66.52%==baseline, shuffle55 PASS. 이제 단독==전체==셔플 무결.",
+            "artifacts": [
+              "scripts/test-gate.sh",
+              "tests/unit/renderer/services/terminal-services.test.ts",
+              "tests/unit/renderer/services/editor/load-external-entry.test.ts",
+              "tests/unit/renderer/components/workspace/group/bulk-close-cancel.test.ts",
+              "tests/unit/renderer/state/stores/tabs/pinned-tab.test.ts"
+            ],
+            "recorded_at": "2026-05-31T02:39:42.431Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "C2: 과감 삭제 스윕 — B 잔여 + W3 잔여 저가치 정리",
+          "status": "completed",
+          "context": "tests/REFACTOR-BACKLOG.md의 B 미판정 ~27파일(layout/store-*, tabs/store·new-tab-types, files/store-*, operations/dnd·commit-preview·diff-preview·preview-slot-dirty·tabs-new-types, file-tree-actions-copy-cut·file-tree-click-gestures·file-tree-keyboard-multi·files-panel-refs, bulk-close-cancel(C1 처리시 제외)·untitled-tab-close, services/editor/close-untitled-with-confirm·open-editor·preview-tab·save-service·open-external-editor, files-panel-reconnect, git-decorations·browser-suspend·ui/store) + W3 잔여(store-query·workspaces). 사용자 지시: 과감 삭제. 표본상 'byWorkspace 참조동치' 다수는 useSyncExternalStore return-state 계약이라 보존.",
+          "acceptance": "처리 파일별 결정트리 분기(①~④/보존) 근거 명시. 모든 삭제 후 coverage baseline superset 유지(무손실). full 0 fail/0 error, shuffle green, solo-all 0 violation. src/** 동작변경 0. 삭제/보존/재작성 목록을 사유와 함께 보고.",
+          "approach": "각 후보를 결정트리로 개별 판정(삭제 임계 낮춤): 삭제=①상위시나리오 중복(coverage 무손실 확인) ②mock 호출순서/횟수 배열만 단언+결과단언 없음+고유커버리지 없음(AP-2) ③라이브러리·타입·참조동일성 보장분 재검증. 보존=고유커버리지 순수로직·실제 return-state 가드 계약(SUT 가드 확인)·버그회귀. 애매하면 보존. 삭제/재작성 시 매번 `bash scripts/test-gate.sh coverage`로 baseline superset 유지 확인(손실 나면 그 파일은 진짜 불필요 아님→되돌려 보존). 핫스팟(mock순서-only가 명백한 copy-cut, untitled-tab-close, close-untitled-with-confirm, open-external-editor 등) 우선. 처리 후 백로그 갱신은 보고로 대체(Lead 통합).",
+          "risk": "과감 삭제로 고유 커버리지 손실 가능 → coverage 게이트가 차단(superset 깨지면 되돌림). 삭제가 또 다른 solo-fail 유발 가능 → solo-all로 확인.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a3511baafa44c07a2",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-31T02:29:30.530Z",
+          "result": {
+            "outcome": "partial",
+            "summary": "과감 삭제 판단 결과 안전한 삭제 대상이 거의 없음. 후보 표본 직접 검토: untitled-tab-close(캐시제거 계약 검증)·file-tree-actions-copy-cut(distinctParents/root필터/토스트 관측동작)·close-untitled-with-confirm·open-external-editor 등 대부분 결과/상태 단언 기반 정당 테스트. 에이전트가 과감하게 지운 2개(open-editor: openOrRevealEditor dedup·크로스그룹·SSH read-only 회귀가드; tabs/store: customTitle/processTitle/defaultTitle 우선순위 로직)는 커버리지는 유지됐으나 회귀보증 손실이라 Lead가 되돌림. 전수 스캔: expect 0개 파일=0(AP-4 없음), 약한단언 편중 5개뿐(그마저 lifecycle 정당). 순수 삭제 건수 0(강제 삭제는 보증 손실). 결론: 체감 비대함은 매트릭스팭창(W3a 압축됨)+격리부채(해소됨)이었고, 버릴 테스트 더미는 아니었음.",
+            "recorded_at": "2026-05-31T03:00:40.324Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "C3: 통합 검증 (tester) — solo-all·shuffle·coverage·src 무변경",
+          "status": "completed",
+          "context": "C1(단독실패 마감+게이트 solo-all)·C2(과감 삭제) 결과를 독립 검증.",
+          "acceptance": "PASS: full·shuffle·solo-all 전부 green, coverage 무손실, src/** 동작변경 0, 과삭제(고유커버리지 손실)·신규 solo-fail 0. FAIL시 파일·증상 보고.",
+          "approach": "scripts/test-gate.sh full·shuffle(다른 시드 수회)·solo-all 실행해 0 fail/0 error/0 isolation-violation 확인. coverage가 baseline 66.52% superset/equal인지 확인(subset이면 FAIL). 삭제된 파일들이 커버하던 영역이 상위 시나리오로 여전히 커버되는지 coverage diff로 확인. git diff로 src/** 동작 변경 없음 확인. 삭제 목록의 결정트리 근거가 타당한지(특히 보존돼야 할 계약 테스트를 삭제하지 않았는지) 표본 점검.",
+          "plan_issue": 2,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "tester"
+          },
+          "created_at": "2026-05-31T02:29:37.077Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Lead 통합검증: full 0/0/0, coverage 66.52%==baseline, shuffle808 PASS, solo-all 314/314 PASS(전 파일 단독 통과). src/** 동작변경 0. C2 과도삭제 2건 되돌림 확인. 단독==전체==셔플 완전 무결.",
+            "recorded_at": "2026-05-31T03:02:07.446Z"
+          }
+        }
+      ]
     }
   ]
 }

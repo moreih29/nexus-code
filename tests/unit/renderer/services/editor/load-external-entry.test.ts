@@ -19,6 +19,29 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: ipcCallMock,
   ipcListen: () => () => {},
   canUseIpcBridge: () => false,
+  // load-external-entry.ts imports unwrapIpcResult directly from ipc/client.
+  // Without this export the module link fails when this file runs standalone
+  // (Bun's first-registered mock wins; a sibling that provides it may not run first).
+  unwrapIpcResult: <T>(result: { ok: boolean; value?: T; message?: string; kind?: string }): T => {
+    if (result.ok) return result.value as T;
+    const err = new Error(result.message ?? "ipc error");
+    err.name = `IpcError[${result.kind ?? "unknown"}]`;
+    throw err;
+  },
+  mustSucceed: <T>(result: { ok: boolean; value?: T; message?: string; kind?: string }): T => {
+    if (result.ok) return result.value as T;
+    const err = new Error(result.message ?? "ipc error");
+    err.name = `IpcError[${result.kind ?? "unknown"}]`;
+    throw err;
+  },
+  unwrapGitResult: <T>(result: { ok: boolean; value?: T; message?: string; kind?: string }): T => {
+    if (result.ok) return result.value as T;
+    throw new Error(result.message ?? "git ipc error");
+  },
+  isIpcResult: (v: unknown): boolean => v !== null && typeof v === "object" && "ok" in (v as object),
+  isIpcOkResult: (v: unknown): boolean => v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === true,
+  isIpcErrResult: (v: unknown): boolean => v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === false,
+  ipcStream: () => ({ promise: Promise.resolve(undefined), onProgress: () => () => {} }),
 }));
 
 // ---------------------------------------------------------------------------

@@ -22,6 +22,14 @@
 #                       and run them in that order.  Logs the ordered file list
 #                       to /tmp for reproducibility.  Asserts 0 fail / 0 error.
 #
+#   solo-all            Run every test file individually (bun test <file>) and
+#                       collect any that produce fail/error/"Unhandled error".
+#                       Prints "SOLO-FAIL: <file>" for each violator and exits 1
+#                       if any are found; exits 0 when all files pass standalone.
+#                       NOTE: This mode runs 300+ sequential bun processes and
+#                       takes several minutes — it is intentionally separate from
+#                       the fast everyday modes.
+#
 #   coverage            Run bun test --coverage and compare the % Lines column
 #                       per file against tests/.coverage-baseline.txt.
 #                       If any tracked file's coverage drops below the baseline
@@ -344,6 +352,71 @@ mode_shuffle() {
 }
 
 # ---------------------------------------------------------------------------
+# MODE: solo-all
+# ---------------------------------------------------------------------------
+mode_solo_all() {
+  echo "=== test-gate: solo-all (each file run individually) ==="
+  cd "${REPO_ROOT}"
+
+  # Collect all test files
+  local all_files=()
+  while IFS= read -r line; do
+    all_files+=("$line")
+  done < <(
+    find tests/unit tests/integration \
+      \( -name '*.test.ts' -o -name '*.test.tsx' \) \
+      2>/dev/null | sort
+  )
+
+  if [ "${#all_files[@]}" -eq 0 ]; then
+    die "No test files found under tests/unit and tests/integration"
+  fi
+
+  echo "  Files to check: ${#all_files[@]}"
+
+  local violation_files=()
+  local checked=0
+
+  local f
+  for f in "${all_files[@]}"; do
+    checked=$(( checked + 1 ))
+    # Progress every 50 files so the user sees activity
+    if [ $(( checked % 50 )) -eq 0 ]; then
+      echo "  ... checked ${checked}/${#all_files[@]}"
+    fi
+
+    local out
+    out=$(bun test "$f" 2>&1) || true
+
+    local summary
+    summary=$(parse_bun_summary "$out")
+    local fail error unhandled
+    fail=$(echo "$summary"      | grep -oE 'FAIL=[0-9]+'     | cut -d= -f2)
+    error=$(echo "$summary"     | grep -oE 'ERROR=[0-9]+'    | cut -d= -f2)
+    unhandled=$(echo "$summary" | grep -oE 'UNHANDLED=[0-9]+' | cut -d= -f2)
+
+    if [ "${fail:-0}" -gt 0 ] || [ "${error:-0}" -gt 0 ] || [ "${unhandled:-0}" -gt 0 ]; then
+      violation_files+=("$f")
+      echo "  SOLO-FAIL: ${f}  (fail=${fail:-0} error=${error:-0} unhandled=${unhandled:-0})"
+    fi
+  done
+
+  echo "  Checked ${checked} files total."
+
+  if [ "${#violation_files[@]}" -eq 0 ]; then
+    echo "=== solo-all: PASSED — all ${checked} files pass standalone ==="
+    return 0
+  else
+    echo "=== solo-all: FAILED — ${#violation_files[@]} file(s) fail standalone ==="
+    local v
+    for v in "${violation_files[@]}"; do
+      echo "  SOLO-FAIL: ${v}"
+    done
+    return 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # MODE: coverage
 # ---------------------------------------------------------------------------
 mode_coverage() {
@@ -459,13 +532,14 @@ cd "${REPO_ROOT}"
 case "$MODE" in
   full)            mode_full "$@" ;;
   solo)            mode_solo "$@" ;;
+  solo-all)        mode_solo_all "$@" ;;
   compare)         mode_compare "$@" ;;
   shuffle)         mode_shuffle "$@" ;;
   coverage)        mode_coverage "$@" ;;
   baseline-freeze) mode_baseline_freeze "$@" ;;
   *)
     echo "Unknown mode: '${MODE}'"
-    echo "Usage: bash scripts/test-gate.sh {full|solo|compare|shuffle|coverage|baseline-freeze} [args...]"
+    echo "Usage: bash scripts/test-gate.sh {full|solo|solo-all|compare|shuffle|coverage|baseline-freeze} [args...]"
     exit 2
     ;;
 esac
