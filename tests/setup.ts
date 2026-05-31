@@ -250,7 +250,7 @@ const FILE_ICON_RESOLVERS_PATH = `${import.meta.dir}/../src/renderer/components/
 
 mock.module(FILE_ICON_MODULE_PATH, () => {
     const React = require("react");
-    // biome-ignore lint/nursery/noCommonJs: require needed in mock factory (no top-level await)
+    // biome-ignore lint/style/noCommonJs: require needed in mock factory (no top-level await)
     const { resolveLucide } = require(FILE_ICON_RESOLVERS_PATH);
 
     const SIZE_CLASS: Record<string, string> = { sm: "size-3", md: "size-3.5" };
