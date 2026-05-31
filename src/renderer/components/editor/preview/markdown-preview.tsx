@@ -1,10 +1,23 @@
 // MarkdownPreview — renders user-supplied markdown via react-markdown.
 //
 // SECURITY MODEL (plan 60 issues 1, 6)
-//   - `rehype-raw` is intentionally NOT used. Raw `<script>` and other HTML
-//     in the source is therefore rendered as text, not parsed into DOM.
+//   - Raw HTML is parsed (`rehype-raw`) so the preview matches GitHub, but it
+//     is immediately run through `rehype-sanitize` using its DEFAULT schema —
+//     which is GitHub's own allowlist. `<script>` (content and all),
+//     `<iframe>`, event handlers (`on*`), inline `style`, and disallowed URL
+//     schemes are therefore stripped before they ever reach the DOM, while
+//     `<div align>`, `<img width/height>`, `<details>/<summary>`, `<sub>`,
+//     task-list `className`, and fenced-code `language-*` all survive.
+//   - Plugin ORDER is load-bearing: raw → sanitize → slug → highlight.
+//     Sanitize must run AFTER raw (to clean parsed HTML) but BEFORE slug /
+//     highlight, because the allowlist forbids `className` on `<span>` — and
+//     rehype-highlight emits exactly those `hljs-*` spans. Running it last
+//     would strip all syntax highlighting; running it before keeps those
+//     trusted plugins' output untouched.
 //   - Every link/image href flows through `classifyLinkHref`, which enforces
-//     the workspace root prefix and the external-scheme allowlist.
+//     the workspace root prefix and the external-scheme allowlist. Raw-HTML
+//     `<a>`/`<img>` become hast nodes and pass through the same `components`
+//     renderers below, so this guard covers HTML-authored links/images too.
 //   - External URLs open via `window.open(_, "_blank", "noopener,noreferrer")`
 //     which routes through the hardened `setWindowOpenHandler` in main.
 //   - Workspace-relative images are served by the `nexus-workspace://` custom
@@ -47,6 +60,8 @@ import {
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import rehypeSlug from "rehype-slug";
 import remarkGfm from "remark-gfm";
 import { createLogger } from "../../../../shared/log/renderer";
@@ -259,13 +274,19 @@ export function MarkdownPreview({
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[
+              // Parse raw HTML in the source (centered <div>, sized <img>,
+              // <details>, …) so the preview matches GitHub …
+              rehypeRaw,
+              // … then immediately sanitize with GitHub's default allowlist.
+              // Strips <script>/<iframe>/on*/style/bad-scheme URLs. MUST sit
+              // between raw and slug/highlight (see header comment).
+              rehypeSanitize,
               rehypeSlug,
               // Syntax highlighting for fenced blocks with a language hint
               // (```python …). `detect: false` → only highlight when a language
               // is declared; `ignoreMissing: true` → unknown languages render
-              // plain instead of throwing. Operates on the already-escaped code
-              // text (emits <span class="hljs-*">), so it does NOT reintroduce
-              // the raw-HTML parsing that the security model forbids.
+              // plain instead of throwing. Runs AFTER sanitize so its emitted
+              // <span class="hljs-*"> survive the allowlist.
               [rehypeHighlight, { detect: false, ignoreMissing: true }],
             ]}
             components={components}
@@ -282,7 +303,12 @@ export function MarkdownPreview({
 // Custom element renderers
 // ---------------------------------------------------------------------------
 
-type RmNode = { tagName?: string; position?: { start?: { line?: number } }; properties?: Record<string, unknown>; children?: unknown[] };
+type RmNode = {
+  tagName?: string;
+  position?: { start?: { line?: number } };
+  properties?: Record<string, unknown>;
+  children?: unknown[];
+};
 
 /**
  * List item. For GFM task items (`<li class="task-list-item">`) on a writable
@@ -394,7 +420,12 @@ function MdHeading({
   const isCollapsed = headingId ? ctx?.collapsed.has(headingId) : false;
 
   return (
-    <Tag id={headingId} className="md-heading" data-collapsed={isCollapsed ? "" : undefined} {...rest}>
+    <Tag
+      id={headingId}
+      className="md-heading"
+      data-collapsed={isCollapsed ? "" : undefined}
+      {...rest}
+    >
       {headingId && (
         <button
           type="button"
@@ -486,9 +517,7 @@ export function stripFrontmatter(source: string): string {
   // `---` rarely do. On failure we leave the source intact, so the opening
   // `---` renders as a normal `<hr>` — same outcome as VS Code / remark-
   // frontmatter when the closing fence is missing.
-  const inner = match[0]
-    .replace(/^\uFEFF?---\r?\n/u, "")
-    .replace(/\r?\n---(?:\r?\n|$)/u, "");
+  const inner = match[0].replace(/^\uFEFF?---\r?\n/u, "").replace(/\r?\n---(?:\r?\n|$)/u, "");
   // YAML 1.2 allows any non-control Unicode character in plain keys.
   // `\p{L}` covers letters in every script (Hangul, Hiragana, Cyrillic, …),
   // `\p{N}` covers digits, `_` and `-` are the standard symbol additions.
