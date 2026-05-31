@@ -1,19 +1,20 @@
 /**
  * Sync handlers — fetch, pull, and push through the queued GitRepository.
  */
-import { ipcContract } from "../../../../shared/ipc/contract";
+
 import type {
   GitFetchAllResult,
   GitSyncResult,
   PullResult,
   PushResult,
 } from "../../../../shared/git/types";
+import { ipcContract } from "../../../../shared/ipc/contract";
+import type { CallContext } from "../../../infra/ipc-router";
+import { validateArgs } from "../../../infra/ipc-router";
 import type { GitAutofetchScheduler } from "../domain/autofetch";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";
-import type { CallContext } from "../../../infra/ipc-router";
-import { validateArgs } from "../../../infra/ipc-router";
-import { handleGitHandlerError } from "./git-result";
+import { handleGitHandlerError, withRepo } from "./git-result";
 
 const c = ipcContract.git.call;
 
@@ -28,19 +29,10 @@ const c = ipcContract.git.call;
 export function fetchHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, remote } = validateArgs(c.fetch.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      await repo.fetch(remote, ctx?.signal);
-      registry.bumpGeneration(workspaceId);
-      await registry.refreshStatus(workspaceId);
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(registry, c.fetch.args, async (repo, { workspaceId, remote }, ctx) => {
+    await repo.fetch(remote, ctx.signal);
+    registry.bumpGeneration(workspaceId);
+  });
 }
 
 /**
@@ -50,6 +42,9 @@ export function fetchHandler(
  *
  * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
  * object — see fetchHandler for rationale.
+ *
+ * Left manual: early-return branch before getOrDetect when autofetch is
+ * present, plus non-standard refreshStatus return value.
  */
 export function fetchAllHandler(
   registry: GitRegistry,
@@ -58,7 +53,8 @@ export function fetchAllHandler(
   return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
     try {
       const { workspaceId } = validateArgs(c.fetchAll.args, args);
-      if (autofetch) return (await autofetch.fetchNow(workspaceId, ctx?.signal)) as GitFetchAllResult;
+      if (autofetch)
+        return (await autofetch.fetchNow(workspaceId, ctx?.signal)) as GitFetchAllResult;
 
       const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
       if (!repo) throw new GitError("not-repo", "Not a Git repository");
@@ -82,19 +78,11 @@ export function fetchAllHandler(
 export function pullHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId } = validateArgs(c.pull.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      const result: PullResult = await repo.pull(ctx?.signal);
-      await registry.refreshStatus(workspaceId);
-      return result;
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(
+    registry,
+    c.pull.args,
+    async (repo, _args, ctx) => (await repo.pull(ctx.signal)) as PullResult,
+  );
 }
 
 /**
@@ -109,23 +97,12 @@ export function pullHandler(
 export function pushHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, force, publish } = validateArgs(c.push.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      const result: PushResult = await repo.push(
-        force ?? false,
-        publish ?? false,
-        ctx?.signal,
-      );
-      await registry.refreshStatus(workspaceId);
-      return result;
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(
+    registry,
+    c.push.args,
+    async (repo, { force, publish }, ctx) =>
+      (await repo.push(force ?? false, publish ?? false, ctx.signal)) as PushResult,
+  );
 }
 
 /**
@@ -135,6 +112,9 @@ export function pushHandler(
  *
  * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
  * object — see fetchHandler for rationale.
+ *
+ * Left manual: inner try/catch refreshes status on failure path — unique shape
+ * not covered by withRepo.
  */
 export function syncHandler(
   registry: GitRegistry,

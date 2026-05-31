@@ -7,6 +7,7 @@
  */
 
 import { FS_ERROR } from "../../../shared/fs/errors";
+import { createLogger } from "../../../shared/log/renderer";
 import { createKeyedDebouncer } from "../../../shared/util/keyed-debouncer";
 import { FS_EXPANDED_SAVE_DEBOUNCE_MS } from "../../../shared/util/timing-constants";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
@@ -24,6 +25,8 @@ function isNotFoundMessage(message: string): boolean {
   return message.startsWith(`${FS_ERROR.NOT_FOUND}:`);
 }
 
+const log = createLogger("files");
+
 // Module-level singletons — shared across all subscribers within this module.
 const _saveDebouncer = createKeyedDebouncer<string>({ delayMs: FS_EXPANDED_SAVE_DEBOUNCE_MS });
 const _ensureRootPromises = new Map<string, Promise<void>>();
@@ -39,7 +42,7 @@ function scheduleSave(workspaceId: string): void {
     }
     // Fire-and-forget: setExpanded persists the expanded-dirs list; local state is source of truth.
     void ipcCallResult("fs", "setExpanded", { workspaceId, relPaths }).then((result) => {
-      if (!result.ok) console.error("[files] setExpanded failed", result.message);
+      if (!result.ok) log.error(`setExpanded failed: ${result.message}`);
     });
   });
 }
@@ -64,7 +67,7 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
 
     // Fire-and-forget: watch registration; tree updates arrive via fs.changed events.
     void ipcCallResult("fs", "watch", { workspaceId, relPath: "" }).then((result) => {
-      if (!result.ok) console.error("[files] watch root failed", result.message);
+      if (!result.ok) log.error(`watch root failed: ${result.message}`);
     });
 
     await loadChildren(workspaceId, rootAbsPath);
@@ -107,7 +110,7 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
             if (isNotFoundMessage(result.message)) {
               staleRels.add(rel);
             } else {
-              console.error("[files] watch hydrated dir failed", result.message);
+              log.error(`watch hydrated dir failed: ${result.message}`);
             }
           }
         }),
@@ -133,7 +136,7 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
           workspaceId,
           relPaths: remainingRels,
         }).then((res) => {
-          if (!res.ok) console.error("[files] prune setExpanded failed", res.message);
+          if (!res.ok) log.error(`prune setExpanded failed: ${res.message}`);
         });
       }
     }
@@ -181,14 +184,14 @@ export async function toggleExpand(workspaceId: string, absPath: string): Promis
     useFilesStore.getState().collapseDir(workspaceId, absPath);
     // Fire-and-forget: unwatch is best-effort cleanup.
     void ipcCallResult("fs", "unwatch", { workspaceId, relPath: rel }).then((result) => {
-      if (!result.ok) console.error("[files] unwatch failed", result.message);
+      if (!result.ok) log.error(`unwatch failed: ${result.message}`);
     });
     scheduleSave(workspaceId);
   } else {
     useFilesStore.getState().expandDir(workspaceId, absPath);
     // Fire-and-forget: watch registration; tree updates arrive via fs.changed events.
     void ipcCallResult("fs", "watch", { workspaceId, relPath: rel }).then((result) => {
-      if (!result.ok) console.error("[files] watch failed", result.message);
+      if (!result.ok) log.error(`watch failed: ${result.message}`);
     });
     scheduleSave(workspaceId);
 
@@ -286,7 +289,7 @@ export async function collapseAll(workspaceId: string): Promise<void> {
     store.collapseDir(workspaceId, absPath);
     const rel = relPath(absPath, rootAbsPath);
     void ipcCallResult("fs", "unwatch", { workspaceId, relPath: rel }).then((result) => {
-      if (!result.ok) console.error("[files] unwatch failed", result.message);
+      if (!result.ok) log.error(`unwatch failed: ${result.message}`);
     });
   }
   scheduleSave(workspaceId);

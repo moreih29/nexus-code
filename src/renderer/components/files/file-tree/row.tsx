@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useDragSource } from "@/components/ui/use-drag-source";
@@ -8,35 +9,9 @@ import { useFilesStore } from "@/state/stores/files";
 import { cn } from "@/utils/cn";
 import { basename } from "@/utils/path";
 import type { TreeNode } from "../../../state/stores/files";
-import {
-  type GitDecorationKind,
-  kindToColorVar,
-  kindToLetter,
-} from "./git-decoration";
-import { FOLDER_ICON, FOLDER_OPEN_ICON, getFileIcon } from "./icons";
+import { FileIcon } from "./file-icon";
+import { type GitDecorationKind, kindToColorVar, kindToLetter } from "./git-decoration";
 import { indentPaddingLeft, ROW_HEIGHT_PX } from "./metrics";
-
-// ---------------------------------------------------------------------------
-// Inline icon — avoids external icon library dependency
-// ---------------------------------------------------------------------------
-
-function ChevronRightIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-      role="none"
-    >
-      <path d="M6 4l4 4-4 4" />
-    </svg>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -122,12 +97,6 @@ export function FileTreeRow({
   onContextMenu,
 }: FileTreeRowProps) {
   const isDir = node.type === "dir";
-
-  // Type icon: folder open/closed for directories, file-family glyph
-  // (FileCode, FileJson, ...) for files. The chevron stays as the
-  // expand affordance; this slot answers "what kind of node is this?"
-  // and aligns vertically across the tree regardless of nesting depth.
-  const TypeIcon = isDir ? (isExpanded ? FOLDER_OPEN_ICON : FOLDER_ICON) : getFileIcon(node.name);
 
   // Drag source — everything except the workspace root. Directories are
   // draggable (move/copy a folder into another folder); the root is the
@@ -248,7 +217,9 @@ export function FileTreeRow({
       )}
     >
       {isDir ? (
-        <ChevronRightIcon
+        <ChevronRight
+          aria-hidden="true"
+          strokeWidth={1.5}
           className={cn(
             // §14 closed icon grid: size-3 (12px) only. text-[var(--sidebar-icon-fg)]
             // routes through the semantic layer instead of the stoneGray primitive.
@@ -260,12 +231,12 @@ export function FileTreeRow({
       ) : (
         <span className="size-3 shrink-0" aria-hidden />
       )}
-      <TypeIcon
-        className={cn(
-          "size-3 shrink-0 ml-1 text-[var(--sidebar-icon-fg)]",
-          isLoading && "opacity-50 animate-pulse",
-        )}
-        strokeWidth={1.5}
+      <FileIcon
+        kind={isDir ? (isExpanded ? "folder-open" : "folder") : "file"}
+        name={node.name}
+        size="sm"
+        tone="sidebar"
+        className={cn("ml-1 shrink-0", isLoading && "opacity-50 animate-pulse")}
         aria-hidden="true"
       />
       <span

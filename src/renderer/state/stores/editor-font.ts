@@ -11,12 +11,15 @@
 // Monaco instances can hot-apply the new values without a re-mount.
 
 import { create } from "zustand";
+import { createLogger } from "../../../shared/log/renderer";
 import type { AppState } from "../../../shared/types/app-state";
 import { ipcCallResult } from "../../ipc/client";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
+
+const log = createLogger("editor-font");
 
 const STORAGE_KEY_SIZE = "editorFontSize";
 const STORAGE_KEY_FAMILY = "editorFontFamily";
@@ -147,7 +150,7 @@ export const useEditorFontStore = create<EditorFontState>((set) => {
         else localStorage.removeItem(STORAGE_KEY_SIZE);
       }
       void ipcCallResult("appState", "set", { editorFontSize: size }).then((r) => {
-        if (!r.ok) console.warn("[editor-font] appState set failed (size)", r.message);
+        if (!r.ok) log.warn(`appState set failed (size): ${r.message}`);
       });
       dispatchFontChanged();
     },
@@ -159,7 +162,7 @@ export const useEditorFontStore = create<EditorFontState>((set) => {
         else localStorage.removeItem(STORAGE_KEY_FAMILY);
       }
       void ipcCallResult("appState", "set", { editorFontFamily: family }).then((r) => {
-        if (!r.ok) console.warn("[editor-font] appState set failed (family)", r.message);
+        if (!r.ok) log.warn(`appState set failed (family): ${r.message}`);
       });
       dispatchFontChanged();
     },
@@ -171,7 +174,7 @@ export const useEditorFontStore = create<EditorFontState>((set) => {
         else localStorage.removeItem(STORAGE_KEY_LIGATURES);
       }
       void ipcCallResult("appState", "set", { editorFontLigatures: ligatures }).then((r) => {
-        if (!r.ok) console.warn("[editor-font] appState set failed (ligatures)", r.message);
+        if (!r.ok) log.warn(`appState set failed (ligatures): ${r.message}`);
       });
       dispatchFontChanged();
     },
@@ -184,7 +187,7 @@ export const useEditorFontStore = create<EditorFontState>((set) => {
         else localStorage.removeItem(STORAGE_KEY_LINE_HEIGHT);
       }
       void ipcCallResult("appState", "set", { editorFontLineHeight: lineHeight }).then((r) => {
-        if (!r.ok) console.warn("[editor-font] appState set failed (lineHeight)", r.message);
+        if (!r.ok) log.warn(`appState set failed (lineHeight): ${r.message}`);
       });
       dispatchFontChanged();
     },

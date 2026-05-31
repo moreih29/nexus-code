@@ -2,11 +2,9 @@
  * Staging handlers — stage, unstage, and discard selected status paths.
  */
 import { ipcContract } from "../../../../shared/ipc/contract";
-import { GitError } from "../domain/error";
-import type { GitRegistry } from "../domain/registry";
 import type { CallContext } from "../../../infra/ipc-router";
-import { validateArgs } from "../../../infra/ipc-router";
-import { handleGitHandlerError } from "./git-result";
+import type { GitRegistry } from "../domain/registry";
+import { withRepo } from "./git-result";
 
 const c = ipcContract.git.call;
 
@@ -21,18 +19,9 @@ type UnknownGitCallHandler = (args: unknown, ctx?: CallContext) => Promise<unkno
  * receives this as an IpcErrResult and unwrapGitResult converts it to a thrown Error.
  */
 export function stageHandler(registry: GitRegistry): UnknownGitCallHandler {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, relPaths } = validateArgs(c.stage.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      await repo.stage(relPaths, ctx?.signal);
-      await registry.refreshStatus(workspaceId);
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(registry, c.stage.args, async (repo, { relPaths }, ctx) => {
+    await repo.stage(relPaths, ctx.signal);
+  });
 }
 
 /**
@@ -43,18 +32,9 @@ export function stageHandler(registry: GitRegistry): UnknownGitCallHandler {
  * object — see stageHandler for rationale.
  */
 export function unstageHandler(registry: GitRegistry): UnknownGitCallHandler {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, relPaths } = validateArgs(c.unstage.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      await repo.unstage(relPaths, ctx?.signal);
-      await registry.refreshStatus(workspaceId);
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(registry, c.unstage.args, async (repo, { relPaths }, ctx) => {
+    await repo.unstage(relPaths, ctx.signal);
+  });
 }
 
 /**
@@ -65,16 +45,7 @@ export function unstageHandler(registry: GitRegistry): UnknownGitCallHandler {
  * object — see stageHandler for rationale.
  */
 export function discardChangesHandler(registry: GitRegistry): UnknownGitCallHandler {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, relPaths, source } = validateArgs(c.discardChanges.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      await repo.discard(relPaths, { source }, ctx?.signal);
-      await registry.refreshStatus(workspaceId);
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(registry, c.discardChanges.args, async (repo, { relPaths, source }, ctx) => {
+    await repo.discard(relPaths, { source }, ctx.signal);
+  });
 }

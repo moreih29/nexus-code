@@ -2,7 +2,7 @@
  * Pure tests for the accelerator parser. No DOM; we hand-roll
  * KeyboardEvent-shaped objects to satisfy `matchesEvent`.
  */
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, test } from "bun:test";
 import {
   acceleratorToLabel,
   chordToLabel,
@@ -264,47 +264,39 @@ describe("matchesEvent", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// acceleratorToLabel — maps accelerator string + isMac flag to display label
+// ---------------------------------------------------------------------------
+
 describe("acceleratorToLabel", () => {
-  it("renders Cmd+W as ⌘W on Mac", () => {
-    expect(acceleratorToLabel("CmdOrCtrl+W", { isMac: true })).toBe("⌘W");
+  test.each([
+    ["CmdOrCtrl+W",       true,  "⌘W"],
+    ["CmdOrCtrl+W",       false, "Ctrl+W"],
+    ["CmdOrCtrl+Alt+R",   true,  "⌘⌥R"],
+    ["CmdOrCtrl+Alt+Left",true,  "⌘⌥←"],
+    ["Shift+Enter",       true,  "⇧↵"],
+    ["Cmd+Ctrl+Up",       true,  "⌘⌃↑"],
+  ] as const)("%s isMac=%s → %s", (accelerator, isMac, expected) => {
+    expect(acceleratorToLabel(accelerator, { isMac })).toBe(expected);
   });
 
-  it("renders Cmd+W as Ctrl+W on Win/Linux", () => {
-    expect(acceleratorToLabel("CmdOrCtrl+W", { isMac: false })).toBe("Ctrl+W");
-  });
-
-  it("renders Cmd+Alt+R as ⌘⌥R on Mac", () => {
-    expect(acceleratorToLabel("CmdOrCtrl+Alt+R", { isMac: true })).toBe("⌘⌥R");
-  });
-
-  it("renders arrow keys as arrows on Mac", () => {
-    expect(acceleratorToLabel("CmdOrCtrl+Alt+Left", { isMac: true })).toBe("⌘⌥←");
-  });
-
-  it("renders Shift+Enter as ⇧↵ on Mac", () => {
-    expect(acceleratorToLabel("Shift+Enter", { isMac: true })).toBe("⇧↵");
-  });
-
-  it("renders Cmd+Ctrl+Up as ⌘⌃↑ on Mac", () => {
-    expect(acceleratorToLabel("Cmd+Ctrl+Up", { isMac: true })).toBe("⌘⌃↑");
-  });
-
+  // Cmd+, has two cases (Mac and Win) so both are checked in one test.
   it("renders Cmd+, with a literal comma", () => {
     expect(acceleratorToLabel("Cmd+,", { isMac: true })).toBe("⌘,");
     expect(acceleratorToLabel("Cmd+,", { isMac: false })).toBe("⌘+,");
   });
 });
 
+// ---------------------------------------------------------------------------
+// chordToLabel — joins two accelerator halves with a space
+// ---------------------------------------------------------------------------
+
 describe("chordToLabel", () => {
-  it("joins two halves with a space on Mac", () => {
-    expect(chordToLabel(["CmdOrCtrl+K", "CmdOrCtrl+W"], { isMac: true })).toBe("⌘K ⌘W");
-  });
-
-  it("joins two halves with a space on Win/Linux", () => {
-    expect(chordToLabel(["CmdOrCtrl+K", "CmdOrCtrl+W"], { isMac: false })).toBe("Ctrl+K Ctrl+W");
-  });
-
-  it("renders ⌘K U for plain-letter secondary", () => {
-    expect(chordToLabel(["CmdOrCtrl+K", "U"], { isMac: true })).toBe("⌘K U");
+  test.each([
+    [["CmdOrCtrl+K", "CmdOrCtrl+W"] as const, true,  "⌘K ⌘W"],
+    [["CmdOrCtrl+K", "CmdOrCtrl+W"] as const, false, "Ctrl+K Ctrl+W"],
+    [["CmdOrCtrl+K", "U"]           as const, true,  "⌘K U"],
+  ] as const)("%s isMac=%s → %s", (chord, isMac, expected) => {
+    expect(chordToLabel(chord as [string, string], { isMac })).toBe(expected);
   });
 });

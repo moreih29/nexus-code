@@ -11,6 +11,7 @@
  * Monaco, put it here.
  */
 
+import { createLogger } from "../../../shared/log/renderer";
 import {
   type LspServerEvent,
   type MessageType,
@@ -24,7 +25,7 @@ import {
 import { ipcListen } from "../../ipc/client";
 import { registerWorkspaceCleanup } from "../../state/workspace-cleanup";
 
-type ConsoleWriter = (message?: unknown, ...optionalParams: unknown[]) => void;
+const log = createLogger("lsp-server-ux");
 
 export type WorkDoneProgressPhase = "create" | "begin" | "report" | "end";
 
@@ -48,25 +49,34 @@ function sourcePrefix(event: LspServerEvent): string {
   return `[lsp:${event.languageId}:${event.workspaceId}]`;
 }
 
-function consoleWriterForSeverity(type: MessageType): ConsoleWriter {
-  if (type === 1) return console.error;
-  if (type === 2) return console.warn;
-  if (type === 3) return console.info;
-  return console.log;
+function logBySeverity(type: MessageType, msg: string): void {
+  if (type === 1) {
+    log.error(msg);
+    return;
+  }
+  if (type === 2) {
+    log.warn(msg);
+    return;
+  }
+  if (type === 3) {
+    log.info(msg);
+    return;
+  }
+  log.debug(msg);
 }
 
 function writeMessage(params: unknown, prefix: string): void {
   const parsed = ShowMessageParamsSchema.safeParse(params);
   if (!parsed.success) return;
 
-  consoleWriterForSeverity(parsed.data.type)(`${prefix} ${parsed.data.message}`);
+  logBySeverity(parsed.data.type, `${prefix} ${parsed.data.message}`);
 }
 
 function writeMessageRequestStub(params: unknown, prefix: string): void {
   const parsed = ShowMessageRequestParamsSchema.safeParse(params);
   if (!parsed.success) return;
 
-  consoleWriterForSeverity(parsed.data.type)(`${prefix} ${parsed.data.message}`);
+  logBySeverity(parsed.data.type, `${prefix} ${parsed.data.message}`);
 }
 
 function progressKey(workspaceId: string, languageId: string, token: ProgressToken): string {

@@ -19,6 +19,10 @@
  */
 
 import { showToast } from "@/components/ui/toast";
+import { createLogger } from "../../../shared/log/renderer";
+
+const log = createLogger("paste");
+
 import { loadChildren } from "@/state/operations/files";
 import { useActiveStore } from "@/state/stores/active";
 import { selectFocus, useFilesStore } from "@/state/stores/files";
@@ -108,7 +112,7 @@ export async function handlePaste(targetAbsPath?: string | null): Promise<void> 
           firstFailurePath = entry.absPath;
           firstFailureMessage = msg;
         } else {
-          console.error(`[paste] cycle: ${entry.absPath}`);
+          log.error(`cycle: ${entry.absPath}`);
         }
         continue;
       }
@@ -127,7 +131,7 @@ export async function handlePaste(targetAbsPath?: string | null): Promise<void> 
           firstFailurePath = entry.absPath;
           firstFailureMessage = e instanceof Error ? e.message : String(e);
         } else {
-          console.error(`[paste] move failed: ${entry.absPath}`, e);
+          log.error(`move failed: ${entry.absPath}: ${(e as Error).message}`);
         }
       }
 
@@ -167,7 +171,7 @@ export async function handlePaste(targetAbsPath?: string | null): Promise<void> 
           firstFailurePath = entry.absPath;
           firstFailureMessage = e instanceof Error ? e.message : String(e);
         } else {
-          console.error(`[paste] copy failed: ${entry.absPath}`, e);
+          log.error(`copy failed: ${entry.absPath}: ${(e as Error).message}`);
         }
       }
 

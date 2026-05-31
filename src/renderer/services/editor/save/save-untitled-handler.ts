@@ -14,15 +14,22 @@
 
 import { showToast } from "../../../components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
-import { markSaved as markDirtyTrackerSaved } from "../model/dirty-tracker";
-import { acquireModel, getResolvedModel, releaseModel } from "../model/cache";
-import { basename } from "../../../utils/path";
 import { useTabsStore } from "../../../state/stores/tabs";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { basename } from "../../../utils/path";
+import { acquireModel, getResolvedModel, releaseModel } from "../model/cache";
+import { markSaved as markDirtyTrackerSaved } from "../model/dirty-tracker";
 import type { EditorInput } from "../types";
+
+export type SaveUntitledOutcome = "saved" | "cancelled" | "failed";
 
 /**
  * Save an untitled buffer to a user-chosen path via the native save dialog.
+ *
+ * Returns a 3-way outcome:
+ *   "cancelled" — user dismissed the native dialog (tab preserved).
+ *   "failed"    — write/model error; toast already shown (tab preserved).
+ *   "saved"     — file written; tab converted in-place; untitled model released.
  *
  * Determines `origin` for the new EditorInput by checking whether the
  * chosen absolute path is inside the workspace root ("workspace") or
@@ -31,12 +38,15 @@ import type { EditorInput } from "../types";
  * The tab id is preserved — only the tab type, props, and title change.
  * The untitled model is released only after the replacement succeeds.
  */
-export async function saveUntitledModel(workspaceId: string, tabId: string): Promise<void> {
+export async function saveUntitledModel(
+  workspaceId: string,
+  tabId: string,
+): Promise<SaveUntitledOutcome> {
   const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
-  if (!tab || tab.type !== "untitled") return;
+  if (!tab || tab.type !== "untitled") return "failed";
 
   const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
-  if (!workspace) return;
+  if (!workspace) return "failed";
 
   const tabTitle = tab.title; // e.g. "Untitled-1"
   const defaultPath = `${workspace.rootPath}/${tabTitle}`;
@@ -50,7 +60,7 @@ export async function saveUntitledModel(workspaceId: string, tabId: string): Pro
 
   if (dialogResult.canceled || !dialogResult.filePath) {
     // User cancelled — silent, untitled tab is preserved.
-    return;
+    return "cancelled";
   }
 
   const chosenPath = dialogResult.filePath;
@@ -64,7 +74,7 @@ export async function saveUntitledModel(workspaceId: string, tabId: string): Pro
   const resolved = getResolvedModel(untitledInput);
   if (!resolved) {
     showToast({ kind: "error", message: "Save failed: buffer not available" });
-    return;
+    return "failed";
   }
   const content = resolved.model.getValue();
 
@@ -74,8 +84,7 @@ export async function saveUntitledModel(workspaceId: string, tabId: string): Pro
   const rootWithSep = workspace.rootPath.endsWith("/")
     ? workspace.rootPath
     : `${workspace.rootPath}/`;
-  const isInsideWorkspace =
-    chosenPath === workspace.rootPath || chosenPath.startsWith(rootWithSep);
+  const isInsideWorkspace = chosenPath === workspace.rootPath || chosenPath.startsWith(rootWithSep);
   const writeRelPath = isInsideWorkspace ? chosenPath.slice(rootWithSep.length) : chosenPath;
 
   // biome-ignore lint/suspicious/noImplicitAnyLet: writeFileResult type narrows from unwrapIpcResult inside the try block; an explicit annotation would duplicate the IPC contract.
@@ -92,14 +101,14 @@ export async function saveUntitledModel(workspaceId: string, tabId: string): Pro
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     showToast({ kind: "error", message: `Save failed: ${message}` });
-    return;
+    return "failed";
   }
 
   if (writeFileResult.kind === "conflict") {
     // A file already exists at the chosen path — treat as error for the
     // first-save flow (user can rename in the dialog to avoid it).
     showToast({ kind: "error", message: "Save failed: a file already exists at that path" });
-    return;
+    return "failed";
   }
 
   const { mtime, size } = writeFileResult;
@@ -119,7 +128,7 @@ export async function saveUntitledModel(workspaceId: string, tabId: string): Pro
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     showToast({ kind: "error", message: `Save failed: ${message}` });
-    return;
+    return "failed";
   }
 
   // Set savePoint on the new model's dirty tracker so it starts clean.
@@ -141,4 +150,6 @@ export async function saveUntitledModel(workspaceId: string, tabId: string): Pro
 
   // Release the untitled model — must happen after tab replacement succeeds.
   releaseModel(untitledInput);
+
+  return "saved";
 }

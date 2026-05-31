@@ -20,7 +20,6 @@ import { beforeEach, describe, expect, it } from "bun:test";
 
 import {
   ATTENTION_STATUSES,
-  EMPTY_TABS,
   isAttentionRequired,
   selectIsWorkspaceAttention,
   selectStatusForTab,
@@ -149,12 +148,12 @@ describe("useClaudeStatusStore — set identity stability", () => {
   it("since가 변경되면 entry가 갱신된다", () => {
     const entry = makeEntry(WS_A, TAB_1, "running");
     useClaudeStatusStore.getState().set(entry);
-    const before = useClaudeStatusStore.getState().byWorkspace;
 
-    useClaudeStatusStore.getState().set({ ...entry, since: entry.since + 1 });
-    const after = useClaudeStatusStore.getState().byWorkspace;
+    const newSince = entry.since + 1;
+    useClaudeStatusStore.getState().set({ ...entry, since: newSince });
 
-    expect(after).not.toBe(before);
+    // 관측 결과: since가 실제로 반영됐는지 확인 (참조 교체 여부가 아닌 값 갱신을 검증)
+    expect(useClaudeStatusStore.getState().byWorkspace[WS_A]?.[TAB_1]?.since).toBe(newSince);
   });
 });
 
@@ -392,12 +391,3 @@ describe("ATTENTION_STATUSES", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// EMPTY_TABS 모듈 상수 identity 확인
-// ---------------------------------------------------------------------------
-
-describe("EMPTY_TABS", () => {
-  it("동일 참조를 반복 접근해도 identity가 유지된다", () => {
-    expect(EMPTY_TABS).toBe(EMPTY_TABS);
-  });
-});

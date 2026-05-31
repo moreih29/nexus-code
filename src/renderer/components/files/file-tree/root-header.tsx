@@ -18,7 +18,7 @@
  * the same ContextMenuRoot the tree uses — index.tsx wires `onContextMenu`
  * to set the root target before the menu opens.
  */
-import { ChevronsDownUp, FilePlus, FolderPlus, RefreshCw } from "lucide-react";
+import { ChevronRight, ChevronsDownUp, FilePlus, FolderPlus, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { basename } from "@/utils/path";
@@ -35,26 +35,6 @@ interface WorkspaceRootHeaderProps {
   onCollapseAll: () => void;
   /** Right-click on any part of the header → root context menu. */
   onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void;
-}
-
-// Inline chevron matches the SVG used by FileTreeRow (row.tsx) so the
-// expand affordance is visually identical between header and child rows.
-function ChevronRightIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-      role="none"
-    >
-      <path d="M6 4l4 4-4 4" />
-    </svg>
-  );
 }
 
 interface ActionButtonProps {
@@ -132,7 +112,9 @@ export function WorkspaceRootHeader({
           "outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50 rounded-(--radius-control)",
         )}
       >
-        <ChevronRightIcon
+        <ChevronRight
+          aria-hidden="true"
+          strokeWidth={1.5}
           className={cn(
             "size-3 shrink-0 text-muted-foreground transition-transform",
             isExpanded && "rotate-90",

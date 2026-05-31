@@ -20,10 +20,13 @@
  */
 
 import { create } from "zustand";
-import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../../shared/types/panel";
+import { createLogger } from "../../../../shared/log/renderer";
 import type { PanelKind, ViewMode } from "../../../../shared/types/panel";
+import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../../shared/types/panel";
 import { canUseIpcBridge, ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { cancelViewOptionsSave, scheduleViewOptionsSave } from "./io";
+
+const log = createLogger("panel-view-options");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -93,7 +96,7 @@ export const usePanelViewOptionsStore = create<PanelViewOptionsState>((set, get)
         });
       })
       .catch((error: unknown) => {
-        console.error(`[panel-view-options] getViewOptions failed for ${panelKind}`, error);
+        log.error(`getViewOptions failed for ${panelKind}: ${(error as Error).message}`);
       });
   },
 

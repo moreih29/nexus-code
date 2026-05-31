@@ -1,10 +1,8 @@
 package git
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -123,38 +121,14 @@ func statusArgs(params StatusParams) []string {
 }
 
 func (s *Service) statusGitOutput(ctx context.Context, cwd string, args ...string) ([]byte, error) {
-	cmd, err := s.command(ctx, args, cwd, nil, false)
+	stdout, stderr, code, err := s.capture(ctx, cwd, args, false)
 	if err != nil {
 		return nil, err
 	}
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err = cmd.Run()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, ctxErr
-	}
-	code, fatal := gitExitCode(err)
-	if fatal != nil {
-		return nil, fatal
-	}
 	if code != 0 {
-		return nil, statusGitError(args, stderr.String(), code)
+		return nil, gitError(args, stderr, code)
 	}
-	return stdout.Bytes(), nil
-}
-
-func statusGitError(args []string, stderr string, code int) error {
-	kind := Classify(stderr)
-	message := MessageForKind(kind, MessageContext{Stderr: stderr, Args: args, ExitCode: &code})
-	if strings.TrimSpace(message) == "" {
-		message = strings.TrimSpace(stderr)
-	}
-	if message == "" {
-		message = "git exited with code " + strconv.Itoa(code)
-	}
-	return proto.CodedError{Code: proto.CodeRequestFailed, Msg: message}
+	return []byte(stdout), nil
 }
 
 func (s *Service) statusMetadata(gitDir string, conflictCount int) (MetadataResult, error) {

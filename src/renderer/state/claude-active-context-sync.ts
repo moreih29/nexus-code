@@ -10,11 +10,14 @@
 //
 // 둘 중 하나라도 변경되면 새 (workspaceId, tabId)를 계산해 main에 push한다.
 
+import { createLogger } from "../../shared/log/renderer";
 import { ipcCallResult } from "../ipc/client";
 import { useActiveStore } from "./stores/active";
-import { useLayoutStore } from "./stores/layout/store";
 import { allLeaves } from "./stores/layout/helpers";
+import { useLayoutStore } from "./stores/layout/store";
 import type { LayoutNode } from "./stores/layout/types";
+
+const log = createLogger("claude-active-context");
 
 // ---------------------------------------------------------------------------
 // 헬퍼
@@ -26,10 +29,7 @@ import type { LayoutNode } from "./stores/layout/types";
  * activeGroupId로 leaf를 찾고 그 leaf의 activeTabId를 반환한다.
  * leaf를 못 찾거나 activeTabId가 null이면 null.
  */
-function resolveActiveTabId(
-  root: LayoutNode,
-  activeGroupId: string | null,
-): string | null {
+function resolveActiveTabId(root: LayoutNode, activeGroupId: string | null): string | null {
   if (!activeGroupId) return null;
   for (const leaf of allLeaves(root)) {
     if (leaf.id === activeGroupId) {
@@ -79,20 +79,16 @@ export function startClaudeActiveContextSync(): () => void {
     lastTabId = tabId;
     initialPushed = true;
     // fire-and-forget — main 측 실패는 알림 발사 결정에만 영향 (치명적 아님).
-    ipcCallResult("claude", "setActiveContext", { workspaceId, tabId }).catch(
-      (err: unknown) => {
-        console.warn("[claude-active-context] setActiveContext IPC failed:", err);
-      },
-    );
+    ipcCallResult("claude", "setActiveContext", { workspaceId, tabId }).catch((err: unknown) => {
+      log.warn(`setActiveContext IPC failed: ${(err as Error).message}`);
+    });
 
     // 실제 탭이 활성화된 경우, 그 탭의 completed 상태를 자동 해제하기 위해 markSeen.
     // main의 markSeen 핸들러는 completed 상태일 때만 idle로 전이한다 (idempotent).
     if (workspaceId !== null && tabId !== null) {
-      ipcCallResult("claude", "markSeen", { workspaceId, tabId }).catch(
-        (err: unknown) => {
-          console.warn("[claude-active-context] markSeen IPC failed:", err);
-        },
-      );
+      ipcCallResult("claude", "markSeen", { workspaceId, tabId }).catch((err: unknown) => {
+        log.warn(`markSeen IPC failed: ${(err as Error).message}`);
+      });
     }
   };
 

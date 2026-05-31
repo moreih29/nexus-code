@@ -10,6 +10,7 @@
  * isolates the timer/Map bookkeeping from the rest of the store body.
  */
 
+import { createLogger } from "../../../../shared/log/renderer";
 import {
   GIT_COMMIT_DRAFT_SAVE_DEBOUNCE_MS,
   GIT_STATUS_HINT_DEBOUNCE_MS,
@@ -17,6 +18,8 @@ import {
 import { ipcCallResult, unwrapGitResult } from "../../../ipc/client";
 import { useGitStore } from "./index";
 import { persistPanelState } from "./panel-state-io";
+
+const log = createLogger("git");
 
 const draftSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const pendingDraftSaves = new Map<string, string>();
@@ -129,7 +132,7 @@ async function refreshStatusFromHint(workspaceId: string): Promise<void> {
       return { sessions: next };
     });
   } catch (error) {
-    console.warn("[git] passive status refresh failed", error);
+    log.warn(`passive status refresh failed: ${(error as Error).message}`);
   }
 }
 

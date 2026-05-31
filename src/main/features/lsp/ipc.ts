@@ -2,9 +2,9 @@
 // Renderer calls are forwarded to the LSP host, and diagnostics events are
 // broadcast to all renderers.
 
-import { LSP_FEATURE_ENABLED } from "../../../shared/lsp/feature-flag";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
+import { createLogger } from "../../../shared/log/main";
 import type {
   ApplyWorkspaceEditParams,
   ApplyWorkspaceEditResult,
@@ -16,6 +16,7 @@ import type {
   SemanticTokensResult,
   SymbolInformation,
 } from "../../../shared/lsp";
+import { LSP_FEATURE_ENABLED } from "../../../shared/lsp/feature-flag";
 import type { LspLanguageId } from "../../../shared/types/app-state";
 import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../infra/agent/ssh/ssh-bootstrap/index";
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
@@ -24,6 +25,7 @@ import { LspRequestTimeoutError } from "./agent-host";
 import type { LspHostHandle } from "./host";
 
 const c = ipcContract.lsp.call;
+const log = createLogger("lsp");
 const APPLY_EDIT_RESPONSE_TIMEOUT_MS = 10_000;
 
 let nextApplyEditRequestId = 1;
@@ -62,7 +64,7 @@ export async function withCancelDefault<T>(
     // completion widget close cleanly. The original cause is logged so
     // operators can correlate with tsserver pressure / memory state.
     if (error instanceof LspRequestTimeoutError) {
-      console.warn(`[lsp] ${error.message} — returning empty result`);
+      log.warn(`${error.message} — returning empty result`);
       return emptyValue;
     }
     throw error;
@@ -173,7 +175,7 @@ export function registerLspChannel(lspHost: LspHostHandle, stateService: StateSe
 
   lspHost.on("serverRequest", (args) => {
     handleServerRequest(lspHost, args).catch((error: unknown) => {
-      console.warn("[lsp] server request handler failed", error);
+      log.warn(`server request handler failed: ${(error as Error).message}`);
     });
   });
 

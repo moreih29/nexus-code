@@ -1,10 +1,8 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
-mock.module("electron", () => ({
-  webContents: {
-    getAllWebContents: () => [],
-  },
-}));
+// electron stub is provided by tests/setup.ts (preloaded via bunfig.toml).
+// withCancelDefault does not call broadcast() so webContents is never
+// exercised here; the preload stub's no-op getAllWebContents is sufficient.
 
 const { withCancelDefault } = await import("../../../../src/main/features/lsp/ipc");
 

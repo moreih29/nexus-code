@@ -4,6 +4,7 @@ import { installEditorOpener } from "../../../../services/editor/runtime/monaco-
 import { installEditorSaveAction } from "../../../../services/editor/save/service";
 import { createCrossFileOpenCodeEditorOpener } from "../../../../services/editor/tabs/cross-file-opener";
 import { installConflictCodelensForEditor } from "./install-conflict-codelens";
+import { installDirtyDiffForEditor } from "./install-dirty-diff";
 
 /**
  * Installs the Monaco-side integrations that turn a bare editor instance
@@ -58,10 +59,21 @@ export function installEditorIntegrations({
   // managed by the returned compositeDisposable so it tears down on unmount.
   const conflictCodelensDisposable = installConflictCodelensForEditor(editor, monaco);
 
+  // Install the VSCode-style dirty-diff gutter markers + inline peek. Shows
+  // line-level changes vs the HEAD baseline; inert for untracked / non-repo
+  // files (baseline resolves to null).
+  const dirtyDiffDisposable = installDirtyDiffForEditor({
+    editor,
+    monaco,
+    input,
+    getWorkspaceId,
+  });
+
   return {
     dispose() {
       openerDisposable.dispose();
       conflictCodelensDisposable.dispose();
+      dirtyDiffDisposable.dispose();
     },
   };
 }

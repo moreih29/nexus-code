@@ -7,8 +7,12 @@
  *  - idle-TTL reaper disposes expired sessions
  *  - close() on unknown id is a no-op (idempotent)
  *  - disposeSession catches errors thrown by channel.dispose() and master.dispose()
+ *
+ * Real-timer removal: all Date.now() calls in the registry go through an
+ * injected nowFn; tests advance a mutable fakeNow variable instead of
+ * sleeping for real milliseconds.
  */
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
 import {
   BROWSE_IDLE_TTL_MS,
   SshBrowseSessionRegistry,
@@ -39,6 +43,15 @@ function makeMaster(disposeFn = mock(() => {})): SshControlMaster {
   };
 }
 
+/** Creates a registry with a controllable clock. */
+function makeRegistry(idleTtlMs = BROWSE_IDLE_TTL_MS, initialNow = 1_000_000) {
+  let fakeNow = initialNow;
+  const nowFn = () => fakeNow;
+  const advance = (ms: number) => { fakeNow += ms; };
+  const registry = new SshBrowseSessionRegistry(idleTtlMs, nowFn);
+  return { registry, advance };
+}
+
 // ---------------------------------------------------------------------------
 // Registry lifecycle
 // ---------------------------------------------------------------------------
@@ -46,7 +59,7 @@ function makeMaster(disposeFn = mock(() => {})): SshControlMaster {
 describe("SshBrowseSessionRegistry", () => {
   describe("register / get / size", () => {
     it("registers a session and returns a uuid sessionId", () => {
-      const registry = new SshBrowseSessionRegistry();
+      const { registry } = makeRegistry();
       const channel = makeChannel();
       const master = makeMaster();
 
@@ -59,30 +72,31 @@ describe("SshBrowseSessionRegistry", () => {
       registry.dispose();
     });
 
-    it("get returns the session and updates lastUsed", async () => {
-      const registry = new SshBrowseSessionRegistry();
+    it("get returns the session and updates lastUsed", () => {
+      // Advance the clock so get() records a different timestamp than register().
+      const { registry, advance } = makeRegistry();
       const channel = makeChannel();
       const sessionId = registry.register(channel, null);
+      const registeredAt = 1_000_000; // initial fakeNow
 
-      const before = Date.now();
-      await new Promise((r) => setTimeout(r, 5));
+      advance(5); // simulates 5 ms passing — no real sleep needed
       const session = registry.get(sessionId);
 
       expect(session).not.toBeNull();
       expect(session!.sessionId).toBe(sessionId);
-      expect(session!.lastUsed).toBeGreaterThanOrEqual(before);
+      expect(session!.lastUsed).toBeGreaterThanOrEqual(registeredAt);
       registry.dispose();
     });
 
     it("get returns null for an unknown sessionId", () => {
-      const registry = new SshBrowseSessionRegistry();
+      const { registry } = makeRegistry();
       const result = registry.get("00000000-0000-4000-8000-000000000000");
       expect(result).toBeNull();
       registry.dispose();
     });
 
     it("multiple register calls produce distinct session IDs", () => {
-      const registry = new SshBrowseSessionRegistry();
+      const { registry } = makeRegistry();
       const ids = new Set<string>();
       for (let i = 0; i < 10; i++) {
         ids.add(registry.register(makeChannel(), null));
@@ -99,7 +113,7 @@ describe("SshBrowseSessionRegistry", () => {
 
   describe("close()", () => {
     it("disposes channel and master and removes session from registry", () => {
-      const registry = new SshBrowseSessionRegistry();
+      const { registry } = makeRegistry();
       const channelDispose = mock(() => {});
       const masterDispose = mock(() => {});
       const channel = makeChannel(channelDispose);
@@ -116,7 +130,7 @@ describe("SshBrowseSessionRegistry", () => {
     });
 
     it("close() is idempotent — second call on same id is a no-op", () => {
-      const registry = new SshBrowseSessionRegistry();
+      const { registry } = makeRegistry();
       const channelDispose = mock(() => {});
       const channel = makeChannel(channelDispose);
 
@@ -129,7 +143,7 @@ describe("SshBrowseSessionRegistry", () => {
     });
 
     it("close() on unknown id is a no-op and does not throw", () => {
-      const registry = new SshBrowseSessionRegistry();
+      const { registry } = makeRegistry();
       expect(() =>
         registry.close("00000000-0000-4000-8000-000000000000"),
       ).not.toThrow();
@@ -137,7 +151,7 @@ describe("SshBrowseSessionRegistry", () => {
     });
 
     it("close() without master calls only channel.dispose()", () => {
-      const registry = new SshBrowseSessionRegistry();
+      const { registry } = makeRegistry();
       const channelDispose = mock(() => {});
       const channel = makeChannel(channelDispose);
 
@@ -154,7 +168,7 @@ describe("SshBrowseSessionRegistry", () => {
 
   describe("dispose()", () => {
     it("disposes all open sessions and clears the map", () => {
-      const registry = new SshBrowseSessionRegistry();
+      const { registry } = makeRegistry();
       const disposes = [mock(() => {}), mock(() => {}), mock(() => {})];
       for (const d of disposes) registry.register(makeChannel(d), null);
 
@@ -165,7 +179,7 @@ describe("SshBrowseSessionRegistry", () => {
     });
 
     it("dispose() is idempotent — safe to call twice", () => {
-      const registry = new SshBrowseSessionRegistry();
+      const { registry } = makeRegistry();
       const channelDispose = mock(() => {});
       registry.register(makeChannel(channelDispose), null);
 
@@ -176,7 +190,7 @@ describe("SshBrowseSessionRegistry", () => {
     });
 
     it("dispose() swallows errors thrown by channel.dispose()", () => {
-      const registry = new SshBrowseSessionRegistry();
+      const { registry } = makeRegistry();
       const throwingDispose = mock(() => {
         throw new Error("channel dispose boom");
       });
@@ -186,7 +200,7 @@ describe("SshBrowseSessionRegistry", () => {
     });
 
     it("dispose() swallows errors thrown by master.dispose()", () => {
-      const registry = new SshBrowseSessionRegistry();
+      const { registry } = makeRegistry();
       const throwingMasterDispose = mock(() => {
         throw new Error("master dispose boom");
       });
@@ -201,19 +215,17 @@ describe("SshBrowseSessionRegistry", () => {
   // ---------------------------------------------------------------------------
 
   describe("idle-TTL reaper", () => {
-    it("reaps sessions whose lastUsed exceeds the idle TTL", async () => {
-      const SHORT_TTL = 50; // ms
-      const registry = new SshBrowseSessionRegistry(SHORT_TTL);
+    it("reaps sessions whose lastUsed exceeds the idle TTL", () => {
+      const SHORT_TTL = 50; // ms (logical, no real sleep)
+      const { registry, advance } = makeRegistry(SHORT_TTL);
       const channelDispose = mock(() => {});
       const channel = makeChannel(channelDispose);
 
       const sessionId = registry.register(channel, null);
       expect(registry.size()).toBe(1);
 
-      // Wait for TTL to expire then manually invoke a reaper tick through
-      // the private method via casting — we use a short custom TTL so we
-      // don't need to wait 30 seconds.
-      await new Promise((r) => setTimeout(r, SHORT_TTL + 10));
+      // Advance clock past TTL — no real sleep needed.
+      advance(SHORT_TTL + 10);
 
       // Trigger reaper manually through the private method.
       (registry as unknown as { reapExpired: (ttl: number) => void }).reapExpired(SHORT_TTL);
@@ -227,15 +239,18 @@ describe("SshBrowseSessionRegistry", () => {
       registry.dispose();
     });
 
-    it("reaper does not evict a recently-touched session", async () => {
-      const SHORT_TTL = 200; // ms
-      const registry = new SshBrowseSessionRegistry(SHORT_TTL);
+    it("reaper does not evict a recently-touched session", () => {
+      const SHORT_TTL = 200; // ms (logical)
+      const { registry, advance } = makeRegistry(SHORT_TTL);
       const channel = makeChannel();
 
       const sessionId = registry.register(channel, null);
 
-      // Touch the session (updates lastUsed).
+      // Touch the session (updates lastUsed to current fakeNow).
       registry.get(sessionId);
+
+      // Advance only a little — still inside TTL.
+      advance(SHORT_TTL - 1);
 
       // Trigger reaper immediately — lastUsed was just refreshed, so TTL not expired.
       (registry as unknown as { reapExpired: (ttl: number) => void }).reapExpired(SHORT_TTL);
@@ -243,6 +258,5 @@ describe("SshBrowseSessionRegistry", () => {
       expect(registry.size()).toBe(1);
       registry.dispose();
     });
-
   });
 });

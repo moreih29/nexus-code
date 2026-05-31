@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ColorToneSchema } from "./color-tone";
 import { TabMetaSchema } from "./tab";
+import { WorkspaceIdSchema } from "./workspace-id";
 
 export const WorkspaceLocalLocationSchema = z.object({
   kind: z.literal("local"),
@@ -48,7 +49,7 @@ export const WorkspaceConnectionEventStatusSchema = z.enum([
 ]);
 
 export const WorkspaceConnectionChangedEventSchema = z.object({
-  workspaceId: z.string().uuid(),
+  workspaceId: WorkspaceIdSchema,
   status: WorkspaceConnectionEventStatusSchema,
 });
 

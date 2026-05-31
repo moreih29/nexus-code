@@ -275,7 +275,7 @@ describe("fileDelete 핸들러 — wsId 없으면 no-op", () => {
       });
       handleGlobalKeyDown(e);
       // 비동기 핸들러가 있으므로 tick 대기
-      await new Promise((r) => setTimeout(r, 10));
+      await new Promise((r) => setTimeout(r, 0));
 
       expect(
         ipcCalls.filter(
@@ -312,7 +312,7 @@ describe("fileDelete 핸들러 — activeAbsPath 없으면 no-op", () => {
         metaKey: true,
       });
       handleGlobalKeyDown(e);
-      await new Promise((r) => setTimeout(r, 10));
+      await new Promise((r) => setTimeout(r, 0));
 
       expect(
         ipcCalls.filter(
@@ -347,7 +347,7 @@ describe("fileDelete 핸들러 — root 경로이면 no-op", () => {
         metaKey: true,
       });
       handleGlobalKeyDown(e);
-      await new Promise((r) => setTimeout(r, 10));
+      await new Promise((r) => setTimeout(r, 0));
 
       expect(
         ipcCalls.filter(

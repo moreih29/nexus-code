@@ -22,12 +22,15 @@
 //   stop               → 그 탭 보면 idle 직행 / 아니면 completed + OS 알림 + respondHook
 //   session-end        → broker.clear + respondHook
 
-import { broadcast } from "../../infra/ipc-router";
-import { tryGetMainT } from "../../i18n";
 import { HookRequestSchema } from "../../../shared/claude/status";
-import type { ClaudeStatusBroker } from "./status";
+import { createLogger } from "../../../shared/log/main";
+import { tryGetMainT } from "../../i18n";
+import { broadcast } from "../../infra/ipc-router";
 import type { ActiveContextStore } from "./active-context";
 import { handlePermissionRequest } from "./permission";
+import type { ClaudeStatusBroker } from "./status";
+
+const log = createLogger("claude-hook");
 
 // ---------------------------------------------------------------------------
 // 의존성 주입 인터페이스
@@ -48,7 +51,9 @@ export interface HookAgentHost {
  * WorkspaceManager.tryGetAgentChannel 을 wrapping한다.
  */
 export interface HookChannelProvider {
-  tryGetAgentChannel(workspaceId: string): Promise<import("../../infra/agent/channel").AgentChannel | null>;
+  tryGetAgentChannel(
+    workspaceId: string,
+  ): Promise<import("../../infra/agent/channel").AgentChannel | null>;
 }
 
 export interface HookHandlerDeps {
@@ -167,7 +172,7 @@ function fireOsNotification(
   n.on("click", () => {
     deps.focusMainWindow?.();
     deps.activateWorkspace?.(workspaceId)?.catch((err: unknown) => {
-      console.warn("[claude-hook] activateWorkspace failed:", err);
+      log.warn(`activateWorkspace failed: ${(err as Error).message}`);
     });
     broadcastFn("pty", "notificationClick", { workspaceId, tabId });
   });
@@ -196,10 +201,11 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
   // 멀티 워크스페이스 + 멀티 탭 환경이므로 앱 포커스만으로는 부족하다.
   const focused = deps.getFocusedWindow();
   const isAppFocused = focused !== null && !focused.isMinimized();
-  const isViewingThisTab =
-    isAppFocused && deps.activeContext.isActive(workspaceId, tabId);
+  const isViewingThisTab = isAppFocused && deps.activeContext.isActive(workspaceId, tabId);
   const t = tryGetMainT();
-  const workspaceName = deps.workspaceManager.getName(workspaceId) ?? (t ? t("common:claudeNotification.terminalFallback") : "Terminal");
+  const workspaceName =
+    deps.workspaceManager.getName(workspaceId) ??
+    (t ? t("common:claudeNotification.terminalFallback") : "Terminal");
 
   switch (subcommand) {
     case "session-start": {
@@ -236,7 +242,8 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
 
       if (!isViewingThisTab) {
         const title = `[${workspaceName}] Claude`;
-        const body = message ?? (t ? t("common:claudeNotification.needsAttention") : "Needs your attention");
+        const body =
+          message ?? (t ? t("common:claudeNotification.needsAttention") : "Needs your attention");
         fireOsNotification(workspaceId, tabId, title, body, deps);
       }
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
@@ -248,8 +255,12 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
       // 즉시 exit 0으로 native PTY prompt fallback 유도.
       const toolName = extractToolName(hookPayload);
       const message = toolName
-        ? (t ? t("common:claudeNotification.needsPermissionTool", { tool: toolName }) : `Claude needs permission: ${toolName}`)
-        : (t ? t("common:claudeNotification.needsPermission") : "Claude needs permission");
+        ? t
+          ? t("common:claudeNotification.needsPermissionTool", { tool: toolName })
+          : `Claude needs permission: ${toolName}`
+        : t
+          ? t("common:claudeNotification.needsPermission")
+          : "Claude needs permission";
       broker.set(workspaceId, tabId, "permissionPending", message);
 
       if (!isViewingThisTab) {
@@ -286,7 +297,9 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
         const body =
           assistantText !== undefined && assistantText !== ""
             ? assistantText
-            : (t ? t("common:claudeNotification.responseComplete") : "Response complete");
+            : t
+              ? t("common:claudeNotification.responseComplete")
+              : "Response complete";
         fireOsNotification(workspaceId, tabId, title, body, deps);
       }
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
@@ -319,12 +332,12 @@ async function respondHook(
   try {
     const channel = await channelProvider.tryGetAgentChannel(workspaceId);
     if (!channel) {
-      console.warn(`[claude-hook] respondHook: channel not found for workspace=${workspaceId}`);
+      log.warn(`respondHook: channel not found for workspace=${workspaceId}`);
       return;
     }
     await channel.call("claude.respondHook", { hookId, response });
   } catch (err) {
-    console.warn(`[claude-hook] respondHook failed for hookId=${hookId}:`, err);
+    log.warn(`respondHook failed for hookId=${hookId}: ${(err as Error).message}`);
   }
 }
 
@@ -341,7 +354,7 @@ async function respondHook(
 export function registerHookHandler(deps: HookHandlerDeps): () => void {
   return deps.agentHost.on("claude.hook", (payload) => {
     handleHookEvent(payload, deps).catch((err: unknown) => {
-      console.warn("[claude-hook] handleHookEvent error:", err);
+      log.warn(`handleHookEvent error: ${(err as Error).message}`);
     });
   });
 }

@@ -2,7 +2,7 @@
 
 import type * as Monaco from "monaco-editor";
 import { lspLanguageIdForUri, resolveLspPresetLanguageId } from "../../../../shared/lsp/config";
-import type { ModelEntry, ModelEntryDeps } from "./entry";
+import type { ModelEntry, ModelEntryDeps } from "./types";
 
 export interface AttachLspBridgeResult {
   contentDisposable: Monaco.IDisposable;

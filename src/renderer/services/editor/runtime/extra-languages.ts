@@ -29,6 +29,7 @@ import { loadWASM, OnigScanner, OnigString } from "vscode-oniguruma";
 import onigWasmUrl from "vscode-oniguruma/release/onig.wasm?url";
 import type { IRawGrammar, StateStack } from "vscode-textmate";
 import { INITIAL, Registry } from "vscode-textmate";
+import { createLogger } from "../../../../shared/log/renderer";
 
 // ---------------------------------------------------------------------------
 // TextMate language registry
@@ -44,6 +45,8 @@ interface TmLangSpec {
   extensions?: string[];
   filenames?: string[];
 }
+
+const log = createLogger("extra-languages");
 
 const TM_LANGUAGES: readonly TmLangSpec[] = [
   {
@@ -266,13 +269,13 @@ export function registerExtraLanguages(monaco: typeof Monaco): void {
       for (const spec of TM_LANGUAGES) {
         const grammar = await registry.loadGrammar(spec.scopeName);
         if (!grammar) {
-          console.warn(`[extra-languages] grammar not loaded: ${spec.scopeName}`);
+          log.warn(`grammar not loaded: ${spec.scopeName}`);
           continue;
         }
         monaco.languages.setTokensProvider(spec.id, buildTokensProvider(grammar));
       }
     } catch (err) {
-      console.error("[extra-languages] TextMate bridge init failed", err);
+      log.error(`TextMate bridge init failed: ${(err as Error).message}`);
     }
   })();
 }

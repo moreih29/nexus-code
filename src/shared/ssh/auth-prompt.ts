@@ -1,10 +1,11 @@
 import { z } from "zod";
+import { WorkspaceIdSchema } from "../types/workspace-id";
 
 export const SshAuthPromptIdSchema = z.string().min(1);
 
 const SshAuthPromptBaseSchema = z.object({
   promptId: SshAuthPromptIdSchema,
-  workspaceId: z.string().uuid().optional(),
+  workspaceId: WorkspaceIdSchema.optional(),
   host: z.string().min(1),
   port: z.number().int().positive().max(65_535).optional(),
   username: z.string().min(1).optional(),

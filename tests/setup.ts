@@ -227,6 +227,175 @@ function ensureMatchMedia(win: unknown): void {
     }
   };
 
+// ---------------------------------------------------------------------------
+// file-icon.tsx stub — this module uses Vite-specific APIs (import.meta.glob
+// and *.svg?react imports) that are unavailable under Bun's test runner.
+// We stub the entire module with a minimal implementation so that any test
+// file that transitively imports row.tsx / tab-item.tsx / result-file-row.tsx
+// / tree-row.tsx (all of which now use FileIcon) doesn't crash at module eval.
+//
+// The stub FileIcon renders a real Lucide icon using resolveLucide from the
+// pure resolver module (file-icon-resolvers.ts) — preserving the className /
+// tone / size behaviour tested by existing component tests.
+//
+// Tests that specifically verify FileIcon + Material theme behaviour import
+// file-icon-resolvers.ts directly (pure, no Vite deps) and do not need this stub.
+// ---------------------------------------------------------------------------
+// The module path must match what the consuming files (row.tsx, tab-item.tsx, etc.)
+// resolve to. Bun normalises relative imports to absolute paths so using the
+// absolute path here works regardless of which file triggers the load.
+// import.meta.dir is the directory of this setup.ts file (tests/).
+const FILE_ICON_MODULE_PATH = `${import.meta.dir}/../src/renderer/components/files/file-tree/file-icon.tsx`;
+const FILE_ICON_RESOLVERS_PATH = `${import.meta.dir}/../src/renderer/components/files/file-tree/file-icon-resolvers`;
+
+mock.module(FILE_ICON_MODULE_PATH, () => {
+    const React = require("react");
+    // biome-ignore lint/style/noCommonJs: require needed in mock factory (no top-level await)
+    const { resolveLucide } = require(FILE_ICON_RESOLVERS_PATH);
+
+    const SIZE_CLASS: Record<string, string> = { sm: "size-3", md: "size-3.5" };
+    const TONE_CLASS: Record<string, string> = {
+      sidebar: "text-[var(--sidebar-icon-fg)]",
+      muted: "text-muted-foreground",
+    };
+
+    function FileIcon({
+      kind,
+      name,
+      size = "sm",
+      tone,
+      className,
+      "aria-hidden": ariaHidden,
+    }: {
+      kind: string;
+      name?: string;
+      size?: string;
+      tone: string;
+      className?: string;
+      "aria-hidden"?: boolean | "true" | "false";
+    }) {
+      const LucideComp = resolveLucide(kind, name);
+      return React.createElement(LucideComp, {
+        "aria-hidden": ariaHidden,
+        className: [SIZE_CLASS[size], TONE_CLASS[tone], className].filter(Boolean).join(" "),
+        strokeWidth: 1.5,
+      });
+    }
+
+    return { FileIcon, resolveLucide, resolveMaterialIconName: () => null };
+  },
+);
+
+// ---------------------------------------------------------------------------
+// electron — canonical hermetic stub
+//
+// Electron is a native host module that is never available under bun:test.
+// Tests that import main-process modules (ipc-router, pty/ipc, lsp/ipc, …)
+// indirectly require electron through lazy `require("electron")` calls inside
+// function bodies (setupRouter, broadcast, initMainLogger, etc.).
+//
+// Without this stub the first test file to trigger such a require receives
+// bun's native electron shim, which may be incomplete (e.g. missing ipcMain
+// or webContents).  Subsequent files that register their own mock.module call
+// may or may not win the race depending on bun's internal evaluation order.
+//
+// Registering a complete, no-op stub here in the preload ensures that:
+//   1. Every test file starts from a consistent baseline.
+//   2. Files that need spy mocks (pty-channel, ipc-shim-integration, …) can
+//      override individual exports via their own mock.module — bun honours the
+//      last registration that arrives before the first require() of the module.
+//   3. Files that only need webContents.getAllWebContents (lsp-channel, …)
+//      do not need their own mock.module at all.
+//
+// Surface decisions — derived by grepping every tests/unit/main/**/*.test.ts
+// for `mock.module("electron")` and collecting all top-level keys and nested
+// method names used across those files.
+// ---------------------------------------------------------------------------
+mock.module("electron", () => ({
+  // app — used by: get-agent-bin-dir, workspace/*, error-safety-net,
+  //               pty-channel, ipc-shim-integration, ipc-wrapper-env,
+  //               claude/hook-handler, show-save-dialog
+  app: {
+    isPackaged: false,
+    getPath: (_name: string): string => "/tmp/nexus-test",
+    getVersion: (): string => "0.0.0-test",
+    getName: (): string => "nexus-test",
+    getLocale: (): string => "en",
+    quit: (): void => {},
+  },
+
+  // ipcMain — used by: setupRouter() in pty-channel, ipc-shim-integration,
+  //                    ipc-wrapper-env, show-save-dialog
+  ipcMain: {
+    on: (_channel: string, _listener: unknown): void => {},
+    handle: (_channel: string, _listener: unknown): void => {},
+    removeHandler: (_channel: string): void => {},
+    removeAllListeners: (_channel?: string): void => {},
+    emit: (_channel: string, ..._args: unknown[]): boolean => false,
+  },
+
+  // ipcRenderer — used by renderer-side code that is loaded in some main tests
+  ipcRenderer: {
+    invoke: async (_channel: string, ..._args: unknown[]): Promise<unknown> => null,
+    on: (_channel: string, _listener: unknown): void => {},
+    send: (_channel: string, ..._args: unknown[]): void => {},
+    removeListener: (_channel: string, _listener: unknown): void => {},
+  },
+
+  // webContents — used by broadcast() in ipc-router, lsp-channel, pty-channel
+  webContents: {
+    getAllWebContents: (): Array<{ isDestroyed(): boolean; send(..._args: unknown[]): void }> => [],
+  },
+
+  // BrowserWindow — used by claude/hook-handler
+  BrowserWindow: {
+    getFocusedWindow: (): null => null,
+    getAllWindows: (): unknown[] => [],
+  },
+
+  // Notification — used by claude/hook-handler
+  Notification: class Notification {
+    title = "";
+    body = "";
+    constructor(_opts?: { title?: string; body?: string }) {
+      this.title = _opts?.title ?? "";
+      this.body = _opts?.body ?? "";
+    }
+    on(_event: string, _cb: () => void): this { return this; }
+    show(): void {}
+  },
+
+  // protocol — used by custom-protocols/nexus-workspace-ssh
+  protocol: {
+    registerSchemesAsPrivileged: (_schemes: unknown[]): void => {},
+    handle: (_scheme: string, _handler: unknown): void => {},
+  },
+
+  // net — used by custom-protocols/nexus-workspace-ssh
+  net: {
+    fetch: async (_url: string, _options?: unknown): Promise<Response> =>
+      new Response(null, { status: 500 }),
+  },
+
+  // dialog — used by features/dialog/show-save-dialog
+  dialog: {
+    showSaveDialog: async (
+      _window: unknown,
+      _options?: unknown,
+    ): Promise<{ canceled: boolean; filePath?: string }> => ({ canceled: true }),
+    showOpenDialog: async (
+      _window: unknown,
+      _options?: unknown,
+    ): Promise<{ canceled: boolean; filePaths: string[] }> => ({
+      canceled: true,
+      filePaths: [],
+    }),
+  },
+
+  // WebContentsView — used by features/browser/evaluate-permission, security
+  WebContentsView: class WebContentsView {},
+}));
+
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const originalError = console.error;

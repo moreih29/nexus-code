@@ -7,10 +7,12 @@
  * fires after the session is gone.
  */
 
-import type { PanelKind } from "../../../../shared/types/panel";
-import type { ViewMode } from "../../../../shared/types/panel";
+import { createLogger } from "../../../../shared/log/renderer";
+import type { PanelKind, ViewMode } from "../../../../shared/types/panel";
 import { STATE_PERSIST_DEBOUNCE_MS } from "../../../../shared/util/timing-constants";
 import { canUseIpcBridge, ipcCallResult } from "../../../ipc/client";
+
+const log = createLogger("panel-view-options");
 
 /** Module-private debounce timers keyed by `panelKind:workspaceId`. */
 const viewOptionsSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -43,8 +45,7 @@ export function scheduleViewOptionsSave(
       panelKind,
       viewMode,
     }).then((result) => {
-      if (!result.ok)
-        console.error(`[panel-view-options] setViewOptions failed for ${panelKind}`, result.message);
+      if (!result.ok) log.error(`setViewOptions failed for ${panelKind}: ${result.message}`);
     });
   }, STATE_PERSIST_DEBOUNCE_MS);
 

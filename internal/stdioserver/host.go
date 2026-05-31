@@ -24,7 +24,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nexus-code/nexus-code/internal/agentlog"
 	"github.com/nexus-code/nexus-code/internal/dispatch"
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
@@ -42,10 +41,9 @@ type Host struct {
 	dispatcher *dispatch.Dispatcher
 	in         io.Reader
 	out        io.Writer
-	// logger is the base structured logger for this host. handleLine derives
-	// a per-request child logger from it by attaching correlationId whenever
-	// the request frame carries one. The base logger must already have the
-	// "src":"agent-log" marker attribute attached (configured in main.go).
+	// logger is the base structured logger for this host. The logger must
+	// already have the "src":"agent-log" marker attribute attached (configured
+	// in main.go).
 	logger *slog.Logger
 
 	outMu sync.Mutex     // serializes response frames on `out`
@@ -224,11 +222,6 @@ func (h *Host) InstallSigtermHandler() {
 // handleLine parses one NDJSON line, dispatches the request, and writes
 // the resulting response. Parse failures are reported with the best id
 // recoverable from the raw bytes so the client can still correlate.
-//
-// When the request frame carries a correlationId the per-request context
-// is enriched with a child slog.Logger that includes the token, so every
-// log entry written by the handler chain during this request can be linked
-// back to the originating IPC call on the TS side.
 func (h *Host) handleLine(line []byte) {
 	req, err := proto.ParseRequest(line)
 	if err != nil {
@@ -243,15 +236,7 @@ func (h *Host) handleLine(line []byte) {
 		return
 	}
 
-	// Build a request-scoped logger: attach correlationId when the frame
-	// carries one so all log output from this request is linkable.
-	reqLogger := h.logger
-	if req.CorrelationID != "" {
-		reqLogger = h.logger.With("correlationId", req.CorrelationID)
-	}
-	reqCtx := agentlog.WithLogger(h.ctx, reqLogger)
-
-	_ = h.WriteFrame(h.dispatcher.Dispatch(reqCtx, req))
+	_ = h.WriteFrame(h.dispatcher.Dispatch(h.ctx, req))
 }
 
 // isAccepting reports whether the loop should still spawn handlers.

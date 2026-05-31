@@ -6,9 +6,15 @@
  * Close All), the operation aborts — remaining tabs in the queue stay open.
  *
  * The mock stands in for `closeEditorWithConfirm`; it returns a per-tabId
- * outcome programmed by the test, plus records the call order. We then
- * assert that close calls stop after the first tab whose programmed
+ * outcome programmed by the test, plus records which tabs were attempted.
+ * We then assert that close calls stop after the first tab whose programmed
  * outcome is "cancelled".
+ *
+ * Hermetic fix: use-group-actions imports closeTabWithConfirm from
+ * services/editor/save/close-tab (not from services/editor index), which
+ * in turn imports closeEditorWithConfirm from services/editor/save/close-handler.
+ * We mock close-handler directly so the chain is intercepted regardless of
+ * which sibling test file runs first.
  */
 
 import { beforeEach, describe, expect, it, mock } from "bun:test";
@@ -24,33 +30,70 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 mock.module("../../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: mock(() => Promise.resolve({ ok: true as const, value: undefined })),
   ipcListen: () => () => {},
+  canUseIpcBridge: () => false,
+  unwrapIpcResult: <T>(r: { ok: boolean; value?: T; message?: string; kind?: string }): T => {
+    if (r.ok) return r.value as T;
+    throw new Error(r.message ?? "ipc error");
+  },
+  mustSucceed: <T>(r: { ok: boolean; value?: T; message?: string; kind?: string }): T => {
+    if (r.ok) return r.value as T;
+    throw new Error(r.message ?? "ipc error");
+  },
+  unwrapGitResult: <T>(r: { ok: boolean; value?: T; message?: string }): T => {
+    if (r.ok) return r.value as T;
+    throw new Error(r.message ?? "git ipc error");
+  },
+  isIpcResult: (v: unknown): boolean =>
+    v !== null && typeof v === "object" && "ok" in (v as object),
+  isIpcOkResult: (v: unknown): boolean =>
+    v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === true,
+  isIpcErrResult: (v: unknown): boolean =>
+    v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === false,
+  ipcStream: () => ({ promise: Promise.resolve(undefined), onProgress: () => () => {} }),
 }));
 
 const closeCalls: string[] = [];
 const closeOutcomeByTabId = new Map<string, "closed" | "cancelled" | "save-failed">();
 
-mock.module("../../../../../../src/renderer/services/editor", () => ({
-  // useSharedModel is included so editor-view-banner.test.tsx (which also mocks
-  // this module) still finds it in the namespace when Bun evaluates editor-view
-  // after this mock has been established — prevents "Export not found" errors
-  // caused by execution-order-dependent namespace caching.
-  useSharedModel: () => ({ model: null, phase: "loading", readOnly: false, errorCode: undefined }),
-  closeEditor: () => {},
+// Mock the real import path that use-group-actions → close-tab.ts resolves to.
+// close-tab.ts imports closeEditorWithConfirm and closeUntitledWithConfirm from
+// this module; intercepting it here means the spy fires regardless of which
+// other test file has already registered a mock for services/editor (index).
+const CLOSE_HANDLER_PATH =
+  `${import.meta.dir}/../../../../../../src/renderer/services/editor/save/close-handler`;
+
+mock.module(CLOSE_HANDLER_PATH, () => ({
   closeEditorWithConfirm: async (_workspaceId: string, tabId: string) => {
     closeCalls.push(tabId);
     return closeOutcomeByTabId.get(tabId) ?? "closed";
   },
+  closeUntitledWithConfirm: async (_workspaceId: string, tabId: string) => {
+    closeCalls.push(tabId);
+    return closeOutcomeByTabId.get(tabId) ?? "closed";
+  },
+}));
+
+// Keep the editor index mock so other modules that import from services/editor
+// (the barrel) still find what they need.
+mock.module("../../../../../../src/renderer/services/editor", () => ({
+  useSharedModel: () => ({ model: null, phase: "loading", readOnly: false, errorCode: undefined }),
+  closeEditor: () => {},
   filePathToModelUri: (filePath: string) => `file://${filePath}`,
   isDirty: () => false,
   openOrRevealEditor: () => null,
 }));
+
 mock.module("../../../../../../src/renderer/services/terminal", () => ({
   closeTerminal: () => {},
   openTerminal: () => null,
 }));
 
-import { useGroupActions } from "../../../../../../src/renderer/components/workspace/group/use-group-actions";
-import { useTabsStore } from "../../../../../../src/renderer/state/stores/tabs";
+const { useGroupActions } = await import(
+  "../../../../../../src/renderer/components/workspace/group/use-group-actions"
+);
+const { useTabsStore } = await import(
+  "../../../../../../src/renderer/state/stores/tabs"
+);
 
 const WS = "dddddddd-dddd-4ddd-dddd-dddddddddddd";
 const LEAF = "leaf-1";

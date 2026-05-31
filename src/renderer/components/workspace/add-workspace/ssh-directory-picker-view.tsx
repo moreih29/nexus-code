@@ -1,6 +1,6 @@
-import { AlertCircle, ChevronRight, CornerLeftUp, Folder } from "lucide-react";
-import type { FormEvent, KeyboardEvent } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronRight, CornerLeftUp, Folder } from "lucide-react";
+import type { FormEvent } from "react";
+import { useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { DirEntry } from "../../../../shared/fs/types";
 import {
@@ -12,8 +12,10 @@ import {
 } from "../../../services/workspace";
 import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
+import { ErrorNotice } from "./error-notice";
 import { humanizeSshError } from "./ssh-helpers";
 import type { SshDirectoryPickerViewProps } from "./types";
+import { type BrowseCacheEntry, usePathAutocomplete } from "./use-path-autocomplete";
 
 // ---------------------------------------------------------------------------
 // Private types
@@ -21,12 +23,6 @@ import type { SshDirectoryPickerViewProps } from "./types";
 
 /** Browse session error classification. */
 type BrowseErrorKind = "session-expired" | "retryable" | null;
-
-/** Cache entry — stores hover prefetch results. */
-interface BrowseCacheEntry {
-  readonly entries: readonly DirEntry[];
-  readonly truncated: boolean;
-}
 
 // Session expiry / disconnect error codes
 const SESSION_FATAL_CODES = new Set([
@@ -53,22 +49,6 @@ function parentPath(path: string): string {
   return clean.slice(0, idx);
 }
 
-/**
- * Split a path input into its parent directory and the trailing partial
- * segment being typed. `/home/kih/wo` → { dir: "/home/kih", partial: "wo" };
- * `/home/kih/` → { dir: "/home/kih", partial: "" }.
- */
-function splitPathInput(input: string): { dir: string; partial: string } {
-  const idx = input.lastIndexOf("/");
-  if (idx < 0) return { dir: "", partial: input };
-  return { dir: idx === 0 ? "/" : input.slice(0, idx), partial: input.slice(idx + 1) };
-}
-
-/** Join a parent directory and a child segment into a POSIX path. */
-function joinSegment(dir: string, name: string): string {
-  return dir === "/" ? `/${name}` : `${dir}/${name}`;
-}
-
 /** Extract SSH error kind from an IPC error. */
 function extractSshErrorKind(error: unknown): BrowseErrorKind {
   if (!(error instanceof Error)) return "retryable";
@@ -88,13 +68,22 @@ const PATH_SUGGEST_LISTBOX_ID = "picker-path-suggestions";
 // SshDirectoryPickerView — T4 implementation
 // ---------------------------------------------------------------------------
 
+/** Imperative handle — lets the dialog footer button drive the picker's primary action. */
+export interface SshDirectoryPickerHandle {
+  /** Invoke the "Add workspace" action (equivalent to clicking the footer primary button). */
+  submit(): void;
+}
+
 export function SshDirectoryPickerView({
   session,
   onWorkspaceCreated,
   onClose,
   onBack,
   onAddPhaseChange,
-}: SshDirectoryPickerViewProps): React.JSX.Element {
+  ref,
+}: SshDirectoryPickerViewProps & {
+  readonly ref?: React.Ref<SshDirectoryPickerHandle>;
+}): React.JSX.Element {
   const { t } = useTranslation();
   const { sessionId, initialPath, host } = session;
 
@@ -119,16 +108,6 @@ export function SshDirectoryPickerView({
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverAbortRef = useRef<AbortController | null>(null);
   const inFlightAbortRef = useRef<AbortController | null>(null);
-
-  // Path autocomplete dropdown
-  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
-  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
-  const [suggestionDir, setSuggestionDir] = useState("");
-  const [suggestionEntries, setSuggestionEntries] = useState<readonly DirEntry[]>([]);
-  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-  const suggestAbortRef = useRef<AbortController | null>(null);
-  const comboboxRef = useRef<HTMLDivElement>(null);
-  const activeOptionRef = useRef<HTMLButtonElement>(null);
 
   // List load
   const loadPath = useCallback(
@@ -171,38 +150,6 @@ export function SshDirectoryPickerView({
     [sessionId],
   );
 
-  // Suggestion listing — fetches the directory whose children populate the
-  // autocomplete dropdown. Kept separate from loadPath so it never disturbs
-  // the main list or currentPath.
-  const loadSuggestions = useCallback(
-    async (dir: string, abortSignal: AbortSignal): Promise<void> => {
-      const cached = browseCache.current.get(dir);
-      if (cached) {
-        setSuggestionDir(dir);
-        setSuggestionEntries(cached.entries);
-        setSuggestionsLoading(false);
-        return;
-      }
-
-      setSuggestionsLoading(true);
-      try {
-        const result = await browseSshSession(sessionId, dir);
-        if (abortSignal.aborted) return;
-        browseCache.current.set(dir, { entries: result.entries, truncated: result.truncated });
-        setSuggestionDir(dir);
-        setSuggestionEntries(result.entries);
-      } catch {
-        if (abortSignal.aborted) return;
-        // Directory missing or not listable — surface no completions.
-        setSuggestionDir(dir);
-        setSuggestionEntries([]);
-      } finally {
-        if (!abortSignal.aborted) setSuggestionsLoading(false);
-      }
-    },
-    [sessionId],
-  );
-
   // Initial load — mount-only; initialPath and loadPath are stable for view lifetime.
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional mount-only effect
   useEffect(() => {
@@ -217,62 +164,6 @@ export function SshDirectoryPickerView({
       controller.abort();
     };
   }, []);
-
-  // --- Path autocomplete ----------------------------------------------------
-
-  const { dir: inputDir, partial: inputPartial } = useMemo(
-    () => splitPathInput(pathInput),
-    [pathInput],
-  );
-
-  // Dropdown entries: children of the typed parent directory, filtered by the
-  // partial segment. Empty while a fetch for a newly-entered directory is in
-  // flight (suggestionDir lags inputDir).
-  const filteredSuggestions = useMemo<readonly DirEntry[]>(() => {
-    if (suggestionDir !== inputDir) return [];
-    const needle = inputPartial.toLowerCase();
-    return suggestionEntries.filter((entry) => entry.name.toLowerCase().startsWith(needle));
-  }, [suggestionEntries, suggestionDir, inputDir, inputPartial]);
-
-  const suggestionsDirLoading = suggestionsLoading || suggestionDir !== inputDir;
-
-  // Fetch the listing that backs the dropdown whenever the typed parent
-  // directory changes. Cache hits make same-directory keystrokes instant, so
-  // only crossing a "/" boundary triggers a network request.
-  useEffect(() => {
-    if (!suggestionsOpen || suggestionDir === inputDir) return;
-    suggestAbortRef.current?.abort();
-    const controller = new AbortController();
-    suggestAbortRef.current = controller;
-    void loadSuggestions(inputDir, controller.signal);
-    return () => controller.abort();
-  }, [suggestionsOpen, inputDir, suggestionDir, loadSuggestions]);
-
-  // Keep the highlighted option in range as the filtered list changes.
-  useEffect(() => {
-    setActiveSuggestionIndex((cur) => {
-      if (cur < 0 || filteredSuggestions.length === 0) return -1;
-      return Math.min(cur, filteredSuggestions.length - 1);
-    });
-  }, [filteredSuggestions.length]);
-
-  // Scroll the highlighted option into view during keyboard navigation.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-runs on highlight change
-  useEffect(() => {
-    activeOptionRef.current?.scrollIntoView({ block: "nearest" });
-  }, [activeSuggestionIndex]);
-
-  // Close the dropdown on a click outside the combobox.
-  useEffect(() => {
-    if (!suggestionsOpen) return;
-    function handlePointerDown(event: PointerEvent): void {
-      if (comboboxRef.current && !comboboxRef.current.contains(event.target as Node)) {
-        setSuggestionsOpen(false);
-      }
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [suggestionsOpen]);
 
   // Begin a directory navigation in the main list: cancel any in-flight load,
   // show the skeleton, then load the target path. Shared by folder clicks, the
@@ -294,7 +185,7 @@ export function SshDirectoryPickerView({
   function drillDown(segment: string): void {
     const targetPath = joinPath(currentPath, segment);
     setPathInput(targetPath);
-    setSuggestionsOpen(false);
+    autocomplete.closeSuggestions();
     navigateTo(targetPath);
   }
 
@@ -302,55 +193,29 @@ export function SshDirectoryPickerView({
   function handlePathSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     const trimmed = pathInput.trim();
-    setSuggestionsOpen(false);
+    autocomplete.closeSuggestions();
     if (!trimmed || trimmed === currentPath) return;
     setPathInput(trimmed);
     navigateTo(trimmed);
   }
 
-  // Select an autocomplete entry: move the main list into that folder and
-  // append a trailing slash so the dropdown keeps drilling into its children.
-  function selectSuggestion(entry: DirEntry): void {
-    const targetPath = joinSegment(inputDir, entry.name);
-    setPathInput(`${targetPath}/`);
-    setActiveSuggestionIndex(-1);
-    navigateTo(targetPath);
-    pathInputRef.current?.focus();
-  }
+  // Path autocomplete combobox — owns the dropdown listing, keyboard nav, and
+  // click-outside dismissal. Committing a suggestion moves the main list into
+  // that folder and appends a trailing slash so the dropdown keeps drilling.
+  const autocomplete = usePathAutocomplete({
+    sessionId,
+    pathInput,
+    browseCache,
+    onSelectPath: (targetPath) => {
+      setPathInput(`${targetPath}/`);
+      navigateTo(targetPath);
+      pathInputRef.current?.focus();
+    },
+  });
 
   function handlePathInputChange(value: string): void {
     setPathInput(value);
-    setSuggestionsOpen(true);
-    setActiveSuggestionIndex(-1);
-  }
-
-  function handlePathKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      if (filteredSuggestions.length === 0) return;
-      setSuggestionsOpen(true);
-      setActiveSuggestionIndex((cur) => (cur + 1) % filteredSuggestions.length);
-      return;
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      if (filteredSuggestions.length === 0) return;
-      setSuggestionsOpen(true);
-      setActiveSuggestionIndex((cur) => (cur <= 0 ? filteredSuggestions.length - 1 : cur - 1));
-      return;
-    }
-    if (event.key === "Enter" && suggestionsOpen && activeSuggestionIndex >= 0) {
-      const entry = filteredSuggestions[activeSuggestionIndex];
-      if (entry) {
-        event.preventDefault();
-        selectSuggestion(entry);
-      }
-      return;
-    }
-    if (event.key === "Escape" && suggestionsOpen) {
-      event.preventDefault();
-      setSuggestionsOpen(false);
-    }
+    autocomplete.handleInputChange();
   }
 
   // Hover prefetch
@@ -447,6 +312,14 @@ export function SshDirectoryPickerView({
     onAddPhaseChange(addPhase, addDisabled);
   }, [addPhase, addDisabled, onAddPhaseChange]);
 
+  // The footer primary button lives in the dialog shell; expose the action so it
+  // can invoke handleAddWorkspace directly (no hidden-button / DOM-id handshake).
+  useImperativeHandle(ref, () => ({
+    submit: () => {
+      void handleAddWorkspace();
+    },
+  }));
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       {/* Path bar — pinned (shrink-0) so it stays visible while only the
@@ -456,7 +329,7 @@ export function SshDirectoryPickerView({
         <div className="truncate text-app-body-emphasis text-foreground">
           {session.user ? `${session.user}@${host}` : host}
         </div>
-        <div className="relative flex items-center gap-2" ref={comboboxRef}>
+        <div className="relative flex items-center gap-2" ref={autocomplete.comboboxRef}>
           {!isAtRoot ? (
             <button
               type="button"
@@ -476,45 +349,51 @@ export function SshDirectoryPickerView({
             aria-label={t("sshPicker.remote_path")}
             role="combobox"
             aria-autocomplete="list"
-            aria-expanded={suggestionsOpen}
+            aria-expanded={autocomplete.suggestionsOpen}
             aria-controls={PATH_SUGGEST_LISTBOX_ID}
             aria-activedescendant={
-              suggestionsOpen && activeSuggestionIndex >= 0
-                ? `picker-path-option-${activeSuggestionIndex}`
+              autocomplete.suggestionsOpen && autocomplete.activeSuggestionIndex >= 0
+                ? `picker-path-option-${autocomplete.activeSuggestionIndex}`
                 : undefined
             }
             ref={pathInputRef}
             value={pathInput}
             onChange={(e) => handlePathInputChange(e.currentTarget.value)}
-            onKeyDown={handlePathKeyDown}
+            onKeyDown={autocomplete.handleKeyDown}
             disabled={addPhase === "creating"}
             autoComplete="off"
             placeholder="/home/user/project"
             className="min-w-0 flex-1 rounded-(--radius-control) border border-border bg-background px-2 py-1 font-mono text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
           />
-          {suggestionsOpen && addPhase !== "creating" ? (
+          {autocomplete.suggestionsOpen && addPhase !== "creating" ? (
             <div
               id={PATH_SUGGEST_LISTBOX_ID}
               role="listbox"
               aria-label={t("sshPicker.path_suggestions")}
               className="absolute left-9 right-0 top-[calc(100%+4px)] z-20 max-h-56 overflow-y-auto floating-panel p-1"
             >
-              {suggestionsDirLoading ? (
-                <div className="px-2 py-2 text-app-ui-sm text-muted-foreground">{t("sshPicker.loading")}</div>
-              ) : filteredSuggestions.length === 0 ? (
+              {autocomplete.suggestionsDirLoading ? (
+                <div className="px-2 py-2 text-app-ui-sm text-muted-foreground">
+                  {t("sshPicker.loading")}
+                </div>
+              ) : autocomplete.filteredSuggestions.length === 0 ? (
                 <div className="px-2 py-2 text-app-ui-sm text-muted-foreground">
                   {t("sshPicker.no_matching_folders")}
                 </div>
               ) : (
-                filteredSuggestions.map((entry, index) => (
+                autocomplete.filteredSuggestions.map((entry, index) => (
                   <button
                     key={entry.name}
                     id={`picker-path-option-${index}`}
-                    ref={index === activeSuggestionIndex ? activeOptionRef : null}
+                    ref={
+                      index === autocomplete.activeSuggestionIndex
+                        ? autocomplete.activeOptionRef
+                        : null
+                    }
                     type="button"
                     role="option"
-                    aria-selected={index === activeSuggestionIndex}
-                    onClick={() => selectSuggestion(entry)}
+                    aria-selected={index === autocomplete.activeSuggestionIndex}
+                    onClick={() => autocomplete.selectSuggestion(entry)}
                     className="flex w-full min-w-0 items-center gap-2 rounded-(--radius-control) px-2 py-1.5 text-left font-mono text-app-ui-sm text-foreground outline-none hover:bg-[var(--state-hover-bg)] aria-selected:bg-[var(--state-active-bg)]"
                   >
                     <Folder className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -543,18 +422,7 @@ export function SshDirectoryPickerView({
           // Error: inline card within 240px (height invariant)
           // Redundant encoding: icon + border + bg + fg color
           <div className="flex h-full flex-col items-center justify-center gap-3 px-4">
-            <div
-              className="flex w-full items-start gap-2 rounded-(--radius-control) border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-3 py-2"
-              role="alert"
-            >
-              <AlertCircle
-                className="mt-0.5 size-3.5 shrink-0 text-[var(--state-error-fg)]"
-                aria-hidden="true"
-              />
-              <span className="min-w-0 text-app-ui-sm text-[var(--state-error-fg)]">
-                {browseErrorHuman}
-              </span>
-            </div>
+            <ErrorNotice message={browseErrorHuman} className="w-full px-3 py-2" />
             {browseErrorKind === "session-expired" ? (
               <p className="text-center text-app-ui-sm text-muted-foreground">
                 <button
@@ -629,29 +497,8 @@ export function SshDirectoryPickerView({
 
       {/* Add error — humanised, redundant encoding */}
       {addErrorHuman ? (
-        <div
-          className="flex shrink-0 items-start gap-2 rounded-(--radius-control) border border-[var(--state-error-border)] bg-[var(--state-error-bg)] px-2 py-2"
-          role="alert"
-        >
-          <AlertCircle
-            className="mt-0.5 size-3.5 shrink-0 text-[var(--state-error-fg)]"
-            aria-hidden="true"
-          />
-          <span className="min-w-0 text-app-ui-sm text-[var(--state-error-fg)]">
-            {addErrorHuman}
-          </span>
-        </div>
+        <ErrorNotice message={addErrorHuman} className="shrink-0 px-2 py-2" />
       ) : null}
-
-      {/* Hidden trigger button for footer primary button */}
-      <button
-        id="picker-add-workspace-trigger"
-        type="button"
-        aria-hidden="true"
-        tabIndex={-1}
-        className="sr-only"
-        onClick={() => void handleAddWorkspace()}
-      />
     </div>
   );
 }

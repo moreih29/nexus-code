@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { AgentManifestSchema, findLspBinary } from "../../../shared/agent/manifest";
+import { createLogger } from "../../../shared/log/main";
 import {
   ApplyWorkspaceEditParamsSchema,
   CANONICAL_TOKEN_TYPES,
@@ -44,11 +45,11 @@ import {
   LSP_WORKSPACE_SYMBOL_TIMEOUT_MS,
 } from "../../../shared/util/timing-constants";
 import type { AgentChannel } from "../../infra/agent/channel";
+import { getAgentDistDir } from "../../infra/agent/getAgentBinDir";
 import {
   LSP_BOOTSTRAP_PROGRESS_EVENT,
   type LspBootstrapProgressEvent,
 } from "../../infra/agent/ssh/ssh-bootstrap/index";
-import { getAgentDistDir } from "../../infra/agent/getAgentBinDir";
 import { AgentLspServer } from "./agent-lsp-server";
 import { flattenInitializationOptions, lookupFlattenedConfig } from "./config-store";
 import { DiagnosticsDebouncer } from "./diagnostics-debouncer";
@@ -74,6 +75,8 @@ import {
   parsePublishDiagnostics,
 } from "./result-normalizers";
 import { asRecord } from "./utils";
+
+const log = createLogger("lsp-agent");
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -689,7 +692,9 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       if (item.status === "fulfilled" && Array.isArray(item.value)) {
         merged.push(...item.value);
       } else if (item.status === "rejected") {
-        console.warn("[lsp-agent] workspace/symbol request failed", item.reason);
+        log.warn(
+          `workspace/symbol request failed: ${(item.reason as Error)?.message ?? String(item.reason)}`,
+        );
       }
     }
     return z.array(SymbolInformationSchema).parse(merged);
@@ -1170,7 +1175,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         ...response,
       });
     } catch (error) {
-      console.warn("[lsp-agent] failed to respond to server request", error);
+      log.warn(`failed to respond to server request: ${(error as Error).message}`);
     }
   }
 
@@ -1285,8 +1290,8 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     const count = (this.serverTimeoutCount.get(serverKey) ?? 0) + 1;
     if (count >= LSP_CONSECUTIVE_TIMEOUT_LIMIT) {
       this.serverTimeoutCount.delete(serverKey);
-      console.warn(
-        `[lsp-agent] ${workspaceId}/${languageId} wedged (${LSP_CONSECUTIVE_TIMEOUT_LIMIT} consecutive timeouts) — restarting`,
+      log.warn(
+        `${workspaceId}/${languageId} wedged (${LSP_CONSECUTIVE_TIMEOUT_LIMIT} consecutive timeouts) — restarting`,
       );
       this.disposeWorkspaceServers(workspaceId, "LSP server wedged (3 consecutive timeouts)", {
         languageId,

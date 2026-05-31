@@ -6,10 +6,40 @@ import { LSP_FEATURE_ENABLED } from "../../../../src/shared/lsp/feature-flag";
 const mockSend = mock((..._args: unknown[]) => {});
 const mockGetAllWebContents = mock(() => [{ isDestroyed: () => false, send: mockSend }]);
 
+// Override only webContents so that broadcast() spy-assertions work.
+// All other surface members (ipcMain, app, …) inherit from the canonical
+// electron stub registered in tests/setup.ts (bunfig.toml preload).
+// ipcMain must be present here too so that any transitive require("electron")
+// from ipc-router paths receives a complete stub in the same worker.
 mock.module("electron", () => ({
+  app: { isPackaged: false, getPath: (_n: string) => "/tmp/nexus-test" },
+  ipcMain: {
+    on: (_channel: string, _listener: unknown): void => {},
+    handle: (_channel: string, _listener: unknown): void => {},
+    removeHandler: (_channel: string): void => {},
+    removeAllListeners: (_channel?: string): void => {},
+  },
+  ipcRenderer: {
+    invoke: async (_channel: string, ..._args: unknown[]): Promise<unknown> => null,
+    on: (_channel: string, _listener: unknown): void => {},
+    send: (_channel: string, ..._args: unknown[]): void => {},
+    removeListener: (_channel: string, _listener: unknown): void => {},
+  },
   webContents: {
     getAllWebContents: mockGetAllWebContents,
   },
+  BrowserWindow: { getFocusedWindow: () => null, getAllWindows: () => [] },
+  Notification: class Notification {
+    on(_e: string, _cb: () => void): this { return this; }
+    show(): void {}
+  },
+  protocol: { registerSchemesAsPrivileged: () => {}, handle: () => {} },
+  net: { fetch: async () => new Response(null, { status: 500 }) },
+  dialog: {
+    showSaveDialog: async () => ({ canceled: true }),
+    showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+  },
+  WebContentsView: class WebContentsView {},
 }));
 
 const { registerLspChannel } = await import("../../../../src/main/features/lsp/ipc");

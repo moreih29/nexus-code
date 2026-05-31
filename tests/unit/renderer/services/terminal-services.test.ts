@@ -69,13 +69,36 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
       if (index >= 0) listeners.splice(index, 1);
     };
   }),
-  // ipcStream is unused by terminal-services tests but must be present in the mock
-  // so that modules with a static `import { ipcStream }` binding (e.g. history/panel)
-  // can link successfully when they are evaluated later in the same Bun process.
-  // Bun's module cache freezes the export-list of the first mock registered for a
-  // given path; any subsequent mock.module call on the same path cannot add new
-  // named exports that were absent from the original registration.
+  // The exports below are unused by terminal-services tests but must be present
+  // in the mock so that any module with a static `import { … }` binding for
+  // ipc/client can link successfully when evaluated in the same Bun process.
+  // Bun's module cache freezes the export-list of the first mock registered for
+  // a given path; any subsequent mock.module call cannot add new named exports
+  // that were absent from the original registration.
   ipcStream: mock(() => ({ promise: new Promise(() => {}), onProgress: () => () => {} })),
+  canUseIpcBridge: mock(() => false),
+  // unwrapIpcResult / mustSucceed — used by fs-mutations which is transitively
+  // loaded through operations/files.ts → open-terminal.ts.
+  unwrapIpcResult: <T>(result: { ok: boolean; value?: T; message?: string; kind?: string }): T => {
+    if (result.ok) return result.value as T;
+    const err = new Error(result.message ?? "ipc error");
+    err.name = `IpcError[${result.kind ?? "unknown"}]`;
+    throw err;
+  },
+  mustSucceed: <T>(result: { ok: boolean; value?: T; message?: string; kind?: string }): T => {
+    if (result.ok) return result.value as T;
+    const err = new Error(result.message ?? "ipc error");
+    err.name = `IpcError[${result.kind ?? "unknown"}]`;
+    throw err;
+  },
+  unwrapGitResult: <T>(result: { ok: boolean; value?: T; message?: string; kind?: string }): T => {
+    if (result.ok) return result.value as T;
+    const err = new Error(result.message ?? "git ipc error");
+    throw err;
+  },
+  isIpcResult: (v: unknown): boolean => v !== null && typeof v === "object" && "ok" in (v as object),
+  isIpcOkResult: (v: unknown): boolean => v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === true,
+  isIpcErrResult: (v: unknown): boolean => v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === false,
 }));
 
 const { closeTerminal, createTerminalController, openTerminal } = await import(

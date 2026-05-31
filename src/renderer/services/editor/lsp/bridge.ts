@@ -4,17 +4,13 @@
 import type * as Monaco from "monaco-editor";
 import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
 import { workspaceUriFor } from "../../../../shared/fs/workspace-uri";
-import type {
-  DocumentSymbol,
-  SymbolInformation,
-  TextDocumentContentChangeEvent,
-} from "../../../../shared/lsp";
+import type { SymbolInformation } from "../../../../shared/lsp";
 import type { LspLanguageId } from "../../../../shared/types/app-state";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../../ipc/client";
 import { useActiveStore } from "../../../state/stores/active";
 import { isLspEnabledForWorkspace, useLspEnabledStore } from "../../../state/stores/lsp-enabled";
 import { rehydrateLspForWorkspace, resetLspStateForWorkspace } from "../model/cache";
-import { isLspLanguage } from "./language";
+import { isKnownModelUri, registerKnownModelUri, unregisterKnownModelUri } from "./known-uris";
 import {
   lspDiagnosticToMonacoMarker,
   lspDocumentHighlightToMonacoHighlight,
@@ -26,7 +22,14 @@ import {
   tokenToAbortSignal,
   type WorkspaceSymbolResult,
 } from "./monaco-converters";
-import { type PreAcquireFn, registerLanguageProviders } from "./providers";
+import { notifyDidChange, notifyDidClose, notifyDidOpen, notifyDidSave } from "./notifiers";
+import {
+  ensureProvidersFor,
+  fetchDocumentSymbols,
+  getMonacoRef,
+  initProviderRegistry,
+  setPreAcquireFn as setPreAcquireFnInRegistry,
+} from "./provider-registry";
 import { applyWorkspaceEdit } from "./workspace-edit";
 
 export type { WorkspaceSymbolResult };
@@ -44,21 +47,15 @@ export {
 
 const MARKER_OWNER = "lsp";
 
-const registeredProviderLanguages = new Set<string>();
-const knownModelUris = new Set<string>();
-
-let monacoRef: typeof Monaco | null = null;
 let diagnosticsUnlisten: (() => void) | null = null;
 let applyEditUnlisten: (() => void) | null = null;
 let workspaceResetUnlisten: (() => void) | null = null;
 let enabledLanguagesChangedUnlisten: (() => void) | null = null;
-let preAcquireFn: PreAcquireFn = async () => {};
 
 function setMonaco(monaco: typeof Monaco): void {
-  if (monacoRef === monaco) return;
+  if (getMonacoRef() === monaco) return;
 
-  monacoRef = monaco;
-  registeredProviderLanguages.clear();
+  initProviderRegistry(monaco);
   diagnosticsUnlisten?.();
   diagnosticsUnlisten = null;
   applyEditUnlisten?.();
@@ -85,7 +82,7 @@ function registerDiagnosticsListener(monaco: typeof Monaco): void {
     const model = monaco.editor.getModel(monaco.Uri.parse(cacheUri));
     if (!model) return;
 
-    if (!knownModelUris.has(cacheUri) && !knownModelUris.has(model.uri.toString())) return;
+    if (!isKnownModelUri(cacheUri) && !isKnownModelUri(model.uri.toString())) return;
 
     monaco.editor.setModelMarkers(
       model,
@@ -166,8 +163,8 @@ function registerApplyEditListener(monaco: typeof Monaco): void {
  * (monaco-compensations.ts / index.ts). Must be called before any
  * `ensureProvidersFor` invocation that should trigger pre-acquisition.
  */
-export function setPreAcquireFn(fn: PreAcquireFn): void {
-  preAcquireFn = fn;
+export function setPreAcquireFn(fn: Parameters<typeof setPreAcquireFnInRegistry>[0]): void {
+  setPreAcquireFnInRegistry(fn);
 }
 
 export function initializeLspBridge(monaco: typeof Monaco): void {
@@ -178,74 +175,18 @@ export function initializeLspBridge(monaco: typeof Monaco): void {
   registerEnabledLanguagesChangedListener();
 }
 
-export function ensureProvidersFor(languageId: string): void {
-  if (!isLspLanguage(languageId)) return;
-  if (!monacoRef) {
-    throw new Error("LSP bridge is not initialized. Call initializeEditorServices(monaco) first.");
-  }
-  registerLanguageProviders(
-    monacoRef,
-    languageId,
-    registeredProviderLanguages,
-    fetchDocumentSymbols,
-    preAcquireFn,
-  );
-}
-
-export function registerKnownModelUri(uri: string): void {
-  knownModelUris.add(uri);
-}
-
-export function unregisterKnownModelUri(uri: string): void {
-  knownModelUris.delete(uri);
-}
-
-export function notifyDidOpen(
-  uri: string,
-  workspaceId: string,
-  workspaceRoot: string,
-  languageId: string,
-  version: number,
-  text: string,
-): Promise<void> {
-  return ipcCallResult("lsp", "didOpen", {
-    workspaceId,
-    workspaceRoot,
-    uri,
-    languageId,
-    version,
-    text,
-  }).then(unwrapIpcResult);
-}
-
-export function notifyDidChange(
-  workspaceId: string,
-  uri: string,
-  version: number,
-  contentChanges: TextDocumentContentChangeEvent[],
-): Promise<void> {
-  return ipcCallResult("lsp", "didChange", { workspaceId, uri, version, contentChanges }).then(
-    unwrapIpcResult,
-  );
-}
-
-export function notifyDidSave(workspaceId: string, uri: string, text?: string): Promise<void> {
-  return ipcCallResult("lsp", "didSave", { workspaceId, uri, text }).then(unwrapIpcResult);
-}
-
-export function notifyDidClose(workspaceId: string, uri: string): Promise<void> {
-  return ipcCallResult("lsp", "didClose", { workspaceId, uri }).then(unwrapIpcResult);
-}
-
-export function fetchDocumentSymbols(
-  workspaceId: string,
-  uri: string,
-  signal?: AbortSignal,
-): Promise<DocumentSymbol[]> {
-  return ipcCallResult("lsp", "documentSymbol", { workspaceId, uri }, { signal }).then(
-    unwrapIpcResult,
-  );
-}
+// Re-exported from leaf modules so existing callers that import these from
+// bridge continue to work without changes.
+export {
+  ensureProvidersFor,
+  fetchDocumentSymbols,
+  notifyDidChange,
+  notifyDidClose,
+  notifyDidOpen,
+  notifyDidSave,
+  registerKnownModelUri,
+  unregisterKnownModelUri,
+};
 
 export async function provideWorkspaceSymbols(
   monaco: typeof Monaco,

@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { closeEditorWithConfirm } from "@/services/editor";
-import { releaseModel } from "@/services/editor/model";
-import { closeTerminal, openTerminal } from "@/services/terminal";
-import { closeTab, openNewBrowserTab, openNewUntitledTab } from "@/state/operations/tabs";
+import { closeTabWithConfirm } from "@/services/editor/save/close-tab";
+import { openTerminal } from "@/services/terminal";
+import { openNewBrowserTab, openNewUntitledTab } from "@/state/operations/tabs";
 import type { LayoutLeaf } from "@/state/stores/layout";
 import { useLayoutStore } from "@/state/stores/layout";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
@@ -74,37 +73,10 @@ export function GroupView({
   }
 
   function handleCloseTab(tabId: string) {
-    const tab = tabsMap[tabId];
-    if (tab?.type === "terminal") {
-      closeTerminal(tabId);
-      return;
-    }
-    if (tab?.type === "editor") {
-      // Fire-and-forget: close-handler runs the dirty confirm flow,
-      // which is async because it may await user input. Group-view
-      // doesn't react to the outcome — the close itself updates layout
-      // via the tabs store, which re-renders us.
-      void closeEditorWithConfirm(workspaceId, tabId);
-      return;
-    }
-    if (tab?.type === "untitled") {
-      // Release the Monaco model before removing the tab so the ref-count
-      // drops to zero and the TextModel is disposed (no memory leak).
-      releaseModel({
-        workspaceId,
-        filePath: `Untitled-${tab.props.untitledIndex}`,
-        origin: "untitled",
-      });
-      closeTab(workspaceId, tabId);
-      return;
-    }
-    if (
-      tab?.type === "editor.diff" ||
-      tab?.type === "git.commit" ||
-      tab?.type === "browser"
-    ) {
-      closeTab(workspaceId, tabId);
-    }
+    // Fire-and-forget: the dispatcher runs the dirty confirm flow (async for
+    // editor and untitled tabs). Group-view doesn't react to the outcome —
+    // the close itself updates layout via the tabs store, which re-renders us.
+    void closeTabWithConfirm(workspaceId, tabId);
   }
 
   function handleNewTerminalTab() {

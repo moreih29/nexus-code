@@ -15,7 +15,12 @@ import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { notifyDidSave } from "../lsp/bridge";
 import { getDirtyEntry, markSaved as markDirtyTrackerSaved, updateLoadedMetadata } from "../model/dirty-tracker";
 import { relPathForInput } from "../model/file-loader";
-import { clearDiskDiverged, getResolvedModel, reloadModelFromDisk } from "../model/cache";
+import {
+  clearDiskDiverged,
+  getResolvedModel,
+  reloadModelFromDisk,
+  syncLoadedValueAfterSave,
+} from "../model/cache";
 import { basename } from "../../../utils/path";
 import { promoteAllPreviewTabsForFile } from "../tabs/promote-policy";
 import type { EditorInput } from "../types";
@@ -215,8 +220,12 @@ export async function saveModel(input: EditorInput): Promise<SaveResult> {
         loadedSize: ipcResult.size,
       });
 
-      // A successful save re-syncs the buffer with disk — any prior
-      // disk-diverged marker is now stale.
+      // A successful save re-syncs the buffer with disk — advance the
+      // loaded-value baseline to what we just wrote, and drop any prior
+      // disk-diverged marker. Without the baseline sync, the next fs/git
+      // event would make reconcileExternalChange flag this own-write as an
+      // external divergence.
+      syncLoadedValueAfterSave(input, content);
       clearDiskDiverged(input);
 
       notifyDidSave(resolved.workspaceId, resolved.lspUri, content).catch(() => {});

@@ -1,5 +1,9 @@
 import type { FsChangedEvent } from "../../../../shared/fs/types";
+import { createLogger } from "../../../../shared/log/renderer";
 import { ipcListen } from "../../../ipc/client";
+
+const log = createLogger("files");
+
 import { loadChildren } from "../../operations/files";
 import { joinPath, parentOf } from "./helpers";
 import { useFilesStore } from "./store";
@@ -36,7 +40,7 @@ export function handleFsChanged(event: FsChangedEvent): void {
 
     if (currentTree.expanded.has(parentAbsPath) && parentNode.childrenLoaded) {
       loadChildren(workspaceId, parentAbsPath).catch((err) => {
-        console.error("[files] changed reload failed", err);
+        log.error(`changed reload failed: ${(err as Error).message}`);
       });
     } else {
       useFilesStore.getState().markChildrenStale(workspaceId, parentAbsPath);

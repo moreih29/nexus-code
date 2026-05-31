@@ -57,12 +57,14 @@ mock.module("../../../../../src/renderer/services/editor/model/dirty-tracker", (
 const getResolvedModelMock = mock((_input: unknown) => null as unknown);
 const reloadModelFromDiskMock = mock((_input: unknown) => Promise.resolve(true));
 const clearDiskDivergedMock = mock((_input: unknown) => {});
+const syncLoadedValueAfterSaveMock = mock((_input: unknown, _content: string) => {});
 
 mock.module("../../../../../src/renderer/services/editor/model/cache", () => ({
   ...realModelCache,
   getResolvedModel: getResolvedModelMock,
   reloadModelFromDisk: reloadModelFromDiskMock,
   clearDiskDiverged: clearDiskDivergedMock,
+  syncLoadedValueAfterSave: syncLoadedValueAfterSaveMock,
 }));
 
 mock.module("../../../../../src/renderer/services/editor/model/file-loader", () => ({
@@ -116,6 +118,7 @@ afterEach(() => {
   markSavedMock.mockClear();
   reloadModelFromDiskMock.mockClear();
   clearDiskDivergedMock.mockClear();
+  syncLoadedValueAfterSaveMock.mockClear();
   showConflictResolutionMock.mockClear();
   // Reset all mocks to safe default implementations so tests that don't
   // configure a specific mock see predictable defaults.
@@ -194,6 +197,40 @@ describe("saveModel conflict", () => {
     // markSaved must NOT be called — dirty baseline must stay unchanged so
     // the caller can decide to reload or force-save.
     expect(markSavedMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("saveModel baseline sync", () => {
+  test("advances lastLoadedValue to the written content on a successful save", async () => {
+    getResolvedModelMock.mockImplementation(() => makeResolvedModel());
+    getDirtyEntryMock.mockImplementation(() => ({
+      isDirty: true,
+      loadedMtime: "T0",
+      loadedSize: 10,
+    }));
+
+    const result = await saveModel(INPUT);
+
+    expect(result.kind).toBe("saved");
+    // The just-written buffer becomes the new loaded-value baseline, so a
+    // post-save fs/git event re-reading the file won't be mistaken for an
+    // external divergence (the false-positive this guards against).
+    expect(syncLoadedValueAfterSaveMock).toHaveBeenCalledWith(INPUT, "content");
+  });
+
+  test("does not advance the baseline when the save conflicts", async () => {
+    getResolvedModelMock.mockImplementation(() => makeResolvedModel());
+    ipcCallMock.mockImplementation(() =>
+      Promise.resolve({
+        ok: true as const,
+        value: { kind: "conflict", actual: { exists: true, mtime: "T2", size: 99 } },
+      }),
+    );
+
+    const result = await saveModel(INPUT);
+
+    expect(result.kind).toBe("conflict");
+    expect(syncLoadedValueAfterSaveMock).not.toHaveBeenCalled();
   });
 });
 

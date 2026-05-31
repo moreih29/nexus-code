@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WorkspaceIdSchema } from "../types/workspace-id";
 
 export const GIT_ERROR_KINDS = [
   "auth",
@@ -341,7 +342,7 @@ export type GitIgnoreAppendResult = z.infer<typeof GitIgnoreAppendResultSchema>;
 export const GitHelperPromptIdSchema = z.string().min(1);
 export type GitHelperPromptId = z.infer<typeof GitHelperPromptIdSchema>;
 
-export const GitHelperWorkspaceIdSchema = z.string().uuid().optional();
+export const GitHelperWorkspaceIdSchema = WorkspaceIdSchema.optional();
 
 /**
  * Main-to-renderer askpass prompt payload. `promptId` is the domain
@@ -691,7 +692,7 @@ export const GitAutofetchErrorSchema = z.object({
 export type GitAutofetchError = z.infer<typeof GitAutofetchErrorSchema>;
 
 export const GitAutofetchStateChangedSchema = z.object({
-  workspaceId: z.string().uuid(),
+  workspaceId: WorkspaceIdSchema,
   fetching: z.boolean(),
   paused: z.boolean(),
   consecutiveFailures: z.number().int().nonnegative(),

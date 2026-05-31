@@ -4,11 +4,11 @@
 
 import type { InferArgs, InferComplete, InferProgress } from "../../../../shared/ipc/contract";
 import { ipcContract } from "../../../../shared/ipc/contract";
-import { GitError } from "../domain/error";
-import type { GitRegistry } from "../domain/registry";
 import type { CallContext, StreamContext } from "../../../infra/ipc-router";
 import { validateArgs } from "../../../infra/ipc-router";
-import { handleGitHandlerError } from "./git-result";
+import { GitError } from "../domain/error";
+import type { GitRegistry } from "../domain/registry";
+import { handleGitHandlerError, withRepo } from "./git-result";
 
 const c = ipcContract.git.call;
 
@@ -23,18 +23,9 @@ const c = ipcContract.git.call;
 export function stashHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, message } = validateArgs(c.stash.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      await repo.stash(message, ctx?.signal);
-      await registry.refreshStatus(workspaceId);
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(registry, c.stash.args, async (repo, { message }, ctx) => {
+    await repo.stash(message, ctx.signal);
+  });
 }
 
 /**
@@ -43,6 +34,8 @@ export function stashHandler(
  *
  * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
  * object — see stashHandler for rationale.
+ *
+ * Left manual: inner try/catch refreshes status on stash-conflict failure.
  */
 export function stashPopHandler(
   registry: GitRegistry,
@@ -73,17 +66,9 @@ export function stashPopHandler(
  * object — see stashHandler for rationale.
  */
 export function stashListHandler(registry: GitRegistry) {
-  return async (args: unknown, ctx?: CallContext) => {
-    try {
-      const { workspaceId } = validateArgs(c.stashList.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      return repo.listStashes(ctx?.signal);
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(registry, c.stashList.args, (repo, _args, ctx) => repo.listStashes(ctx.signal), {
+    refreshStatus: false,
+  });
 }
 
 /**
@@ -91,6 +76,8 @@ export function stashListHandler(registry: GitRegistry) {
  *
  * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
  * object — see stashHandler for rationale.
+ *
+ * Left manual: inner try/catch refreshes status on stash-conflict failure.
  */
 export function stashApplyHandler(
   registry: GitRegistry,
@@ -123,18 +110,9 @@ export function stashApplyHandler(
 export function stashDropHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, index } = validateArgs(c.stashDrop.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      await repo.dropStash(index, ctx?.signal);
-      await registry.refreshStatus(workspaceId);
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(registry, c.stashDrop.args, async (repo, { index }, ctx) => {
+    await repo.dropStash(index, ctx.signal);
+  });
 }
 
 /**
@@ -146,18 +124,9 @@ export function stashDropHandler(
 export function stashGroupHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, paths, message } = validateArgs(c.stashGroup.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      await repo.stashGroup(paths, message, ctx?.signal);
-      await registry.refreshStatus(workspaceId);
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(registry, c.stashGroup.args, async (repo, { paths, message }, ctx) => {
+    await repo.stashGroup(paths, message, ctx.signal);
+  });
 }
 
 type StashShowProcedure = (typeof ipcContract)["git"]["stream"]["stashShow"];

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { openTerminal } from "@/services/terminal";
 import { cn } from "@/utils/cn";
+import { createLogger } from "../../../shared/log/renderer";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { ipcCallResult } from "../../ipc/client";
 import { useLayoutStore } from "../../state/stores/layout";
@@ -23,6 +24,8 @@ import {
   shouldShowWorkspaceTerminalStatusBanner,
   WorkspaceTerminalStatusBanner,
 } from "./terminal-status-banner";
+
+const log = createLogger("workspace-panel");
 
 // ---------------------------------------------------------------------------
 // Props
@@ -86,7 +89,7 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
 
   function handleConnect() {
     void ipcCallResult("workspace", "activate", { id: workspace.id }).then((result) => {
-      if (!result.ok) console.warn("[workspace-panel] activate failed", result.message);
+      if (!result.ok) log.warn(`activate failed: ${result.message}`);
     });
   }
 

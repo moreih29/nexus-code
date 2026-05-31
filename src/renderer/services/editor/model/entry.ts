@@ -1,20 +1,14 @@
 // ModelEntry lifecycle — creation, disk load, external-change reconcile, cleanup.
 // Owns: model creation, dirty-tracker attachment, LSP open/change/close, fs subscription.
 
-import type * as Monaco from "monaco-editor";
 import { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
 import { isLspEnabledForWorkspace } from "../../../state/stores/lsp-enabled";
 import { type FileErrorCode, parseFileErrorCode } from "../../../utils/file-error";
-import {
-  ensureProvidersFor,
-  monacoContentChangesToLsp,
-  notifyDidChange,
-  notifyDidClose,
-  notifyDidOpen,
-  registerKnownModelUri,
-  unregisterKnownModelUri,
-} from "../lsp/bridge";
+import { registerKnownModelUri, unregisterKnownModelUri } from "../lsp/known-uris";
 import { isLspLanguage } from "../lsp/language";
+import { monacoContentChangesToLsp } from "../lsp/monaco-converters";
+import { notifyDidChange, notifyDidClose, notifyDidOpen } from "../lsp/notifiers";
+import { ensureProvidersFor } from "../lsp/provider-registry";
 import { requireMonaco } from "../runtime/monaco-singleton";
 import type { EditorInput } from "../types";
 import { attachDirtyAndUriTracking } from "./attach-dirty-and-uri-tracking";
@@ -24,7 +18,6 @@ import { attachLspBridge, rehydrateEntryLspOpened } from "./attach-lsp-bridge";
 import {
   attachDirtyTracker,
   detachDirtyTracker,
-  getDirtyEntry,
   markSaved as markDirtyTrackerSaved,
 } from "./dirty-tracker";
 import {
@@ -34,8 +27,14 @@ import {
   workspaceRootForInput,
 } from "./file-loader";
 import { readAndPlaceContent } from "./read-and-place-content";
+import type { ModelEntry, ModelEntryDeps, SharedModelState } from "./types";
 
-const defaultModelEntryDeps = {
+// Types (ModelEntry, ModelEntryDeps, SharedModelPhase, SharedModelState) live in
+// ./types to break circular-import cycles with attach-* helpers and cache.ts.
+// Re-export them so callers that imported from entry continue to compile.
+export type { ModelEntry, ModelEntryDeps, SharedModelPhase, SharedModelState } from "./types";
+
+const defaultModelEntryDeps: ModelEntryDeps = {
   attachDirtyTracker,
   detachDirtyTracker,
   markDirtyTrackerSaved,
@@ -56,61 +55,6 @@ const defaultModelEntryDeps = {
   requireMonaco: () => requireMonaco(),
   absolutePathToFileUri,
 };
-
-export type ModelEntryDeps = typeof defaultModelEntryDeps;
-
-export type SharedModelPhase = "loading" | "ready" | "binary" | "error";
-
-export interface SharedModelState {
-  phase: SharedModelPhase;
-  model: Monaco.editor.ITextModel | null;
-  errorCode?: FileErrorCode;
-  readOnly: boolean;
-  /** Present when the on-disk file has changed while the buffer has unsaved edits. */
-  diskDiverged?: { mtime: string; size: number };
-}
-
-export interface ModelEntry {
-  input: EditorInput;
-  cacheUri: string;
-  lspUri: string;
-  monacoUri: Monaco.Uri;
-  languageId: string;
-  refCount: number;
-  version: number;
-  phase: SharedModelPhase;
-  model: Monaco.editor.ITextModel | null;
-  errorCode?: FileErrorCode;
-  lastLoadedValue: string;
-  loadPromise: Promise<void>;
-  contentDisposable?: Monaco.IDisposable;
-  fsUnsubscribe?: () => void;
-  gitUnsubscribe?: () => void;
-  lspOpened: boolean;
-  didOpenPromise?: Promise<void>;
-  lspDegraded?: boolean;
-  /**
-   * Sticky flag set by the cache when the main-side LSP host evicts this
-   * workspace (LSP_MAX_ACTIVE_WORKSPACES). The content-change handler
-   * uses it to distinguish "initial didOpen still pending" (false) from
-   * "server-side state lost, re-issue didOpen before forwarding more
-   * changes" (true). Cleared on a successful rehydrate.
-   */
-  lspNeedsRehydrate?: boolean;
-  disposed: boolean;
-  subscribers: Set<() => void>;
-  origin: "workspace" | "external" | "untitled";
-  readOnly: boolean;
-  deps?: ModelEntryDeps;
-  /** Set only when origin === "external"; identifies the workspace the opener came from. */
-  originatingWorkspaceId?: string;
-  /**
-   * Set when the on-disk file has changed while the buffer has unsaved edits.
-   * Holds the mtime/size that the disk currently has. Cleared when the entry
-   * is re-synced with disk (non-dirty reload, explicit reload, or successful save).
-   */
-  diskDiverged?: { mtime: string; size: number };
-}
 
 /**
  * Map an arbitrary thrown value into the channel-error vocabulary the
@@ -183,7 +127,9 @@ export function createEntry(
 ): ModelEntry {
   const monaco = deps.requireMonaco();
   const monacoUri = monaco.Uri.parse(cacheUri);
-  const origin: "workspace" | "external" = (input.origin ?? "workspace") as "workspace" | "external";
+  const origin: "workspace" | "external" = (input.origin ?? "workspace") as
+    | "workspace"
+    | "external";
   const readOnly = input.readOnly === true;
   const entryInput = input;
   // cacheUri carries the workspace-scoped `nexus-ws://` scheme that
@@ -230,9 +176,10 @@ export function createEntry(
  *   - Does NOT subscribe to fs.changed events — there is no file on disk
  *     to watch.
  *   - Immediately moves the entry to `phase: "ready"`.
- *   - Sets up the dirty tracker with `savedAlternativeVersionId=0` so that
- *     the fresh model (whose altVersionId starts at 1) is dirty from the
- *     start — reflecting that there is no save-point to compare against.
+ *   - Sets up the dirty tracker against the empty model's current alt id, so
+ *     the buffer starts CLEAN. It becomes dirty only once the user actually
+ *     edits content (and clean again if they undo back to empty). This mirrors
+ *     VSCode: an untouched untitled editor closes without a save prompt.
  *
  * The `cacheUri` (= monacoUri) should be `untitled://{workspaceId}/Untitled-{N}`
  * — produced by `untitledCacheUriFor` from workspace-uri.ts.
@@ -245,7 +192,8 @@ export function createUntitledEntry(
   const monaco = deps.requireMonaco();
   const monacoUri = monaco.Uri.parse(cacheUri);
 
-  const model = monaco.editor.getModel(monacoUri) ?? monaco.editor.createModel("", undefined, monacoUri);
+  const model =
+    monaco.editor.getModel(monacoUri) ?? monaco.editor.createModel("", undefined, monacoUri);
 
   const entry: ModelEntry = {
     input,
@@ -272,21 +220,18 @@ export function createUntitledEntry(
   };
 
   // Attach the dirty tracker so downstream consumers (tab indicator,
-  // save service, close-handler) can observe dirty state normally.
-  // Setting savedAlternativeVersionId=0 immediately after attach ensures
-  // isDirty=true from the start: a fresh Monaco model's altVersionId
-  // begins at 1, which will never equal 0.
+  // save service, close-handler) can observe dirty state normally. The
+  // tracker seeds savedAlternativeVersionId to the empty model's current
+  // alt id, so the buffer starts clean (isDirty=false) and only flips to
+  // dirty when the user types. cmd+s on untitled routes to
+  // saveUntitledModel directly (not the dirty-gated saveModel), so an
+  // empty untitled can still be saved-as despite starting clean.
   deps.attachDirtyTracker({
     cacheUri,
     model,
     loadedMtime: "",
     loadedSize: 0,
   });
-  const dirtyEntry = getDirtyEntry(cacheUri);
-  if (dirtyEntry) {
-    dirtyEntry.savedAlternativeVersionId = 0;
-    dirtyEntry.isDirty = true;
-  }
 
   // Register the cacheUri in the LSP known-model map so that any
   // provider dispatching on URI can find this entry (even though we

@@ -19,14 +19,15 @@
  *   - dragleave / dragend / drop: clear target highlight.
  */
 
-import { type RefObject, useEffect } from "react";
 import i18next from "i18next";
+import { type RefObject, useEffect } from "react";
 import { showToast } from "@/components/ui/toast";
 import { copyPathWithAutoRename, movePath } from "@/services/fs-mutations";
 import { loadChildren, toggleExpand } from "@/state/operations/files";
 import { parentOf } from "@/state/stores/files/helpers";
 import { useFilesStore } from "@/state/stores/files/store";
 import { basename, relPath } from "@/utils/path";
+import { createLogger } from "../../../../shared/log/renderer";
 import { parseFileDragPayload } from "../../workspace/dnd/payload";
 import { MIME_FILE } from "../../workspace/dnd/types";
 
@@ -36,6 +37,8 @@ import { MIME_FILE } from "../../workspace/dnd/types";
  * enough that a casual fly-over doesn't expand every folder, short
  * enough that an intentional pause feels responsive.
  */
+const log = createLogger("dnd-drop");
+
 const DRAG_EXPAND_DELAY_MS = 500;
 
 // ---------------------------------------------------------------------------
@@ -292,7 +295,7 @@ export function useFileTreeDropTarget({
             firstFailurePath = srcAbsPath;
             firstFailureMessage = err instanceof Error ? err.message : String(err);
           } else {
-            console.error(`[dnd-drop] failed: ${srcAbsPath}`, err);
+            log.error(`failed: ${srcAbsPath}: ${(err as Error).message}`);
           }
         }
 
@@ -326,8 +329,18 @@ export function useFileTreeDropTarget({
           showToast({
             kind: "error",
             message: copy
-              ? i18next.t("files:fileTree.dropTarget.copiedPartial", { success: successCount, total, path: firstFailurePath, error: firstFailureMessage })
-              : i18next.t("files:fileTree.dropTarget.movedPartial", { success: successCount, total, path: firstFailurePath, error: firstFailureMessage }),
+              ? i18next.t("files:fileTree.dropTarget.copiedPartial", {
+                  success: successCount,
+                  total,
+                  path: firstFailurePath,
+                  error: firstFailureMessage,
+                })
+              : i18next.t("files:fileTree.dropTarget.movedPartial", {
+                  success: successCount,
+                  total,
+                  path: firstFailurePath,
+                  error: firstFailureMessage,
+                }),
           });
         }
       }

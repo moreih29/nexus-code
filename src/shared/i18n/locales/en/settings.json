@@ -136,10 +136,12 @@
   "appearance": {
     "language": "Language",
     "theme": "Theme",
+    "iconTheme": "Icon Theme",
     "windowOpacity": "Window opacity",
     "reset": {
       "language": "Reset Language",
       "theme": "Reset Theme",
+      "iconTheme": "Reset Icon Theme",
       "windowOpacity": "Reset Window opacity"
     }
   },

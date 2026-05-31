@@ -3,12 +3,16 @@
  *
  * The premise: workspace markdown is UNTRUSTED. The component must:
  *
- *   1. Never render raw `<script>` from the source as an executable script tag.
+ *   1. Never render raw `<script>`/`<iframe>` from the source. Raw HTML is
+ *      parsed (rehype-raw) then sanitized with GitHub's default allowlist, so
+ *      these tags — and their contents, for `<script>` — are removed entirely.
  *   2. Never honour scheme-prefixed links outside the allowlist (javascript:,
  *      file:, vscode:, data:) — these become disabled `<a>` elements that
  *      block on click and log a warning.
  *   3. Rewrite workspace-relative image src to `nexus-workspace://` URLs.
  *   4. Truncate sources larger than `MAX_PREVIEW_BYTES` and surface a banner.
+ *   5. Render the GitHub-allowlisted HTML subset (centered <div>, sized <img>,
+ *      <details>) so the in-app preview matches github.com.
  *
  * These tests stub the renderer modules that pull in IPC / openOrRevealEditor
  * so they can run under `bun test` without an Electron host.
@@ -44,42 +48,68 @@ const BASE_PROPS = {
 };
 
 describe("MarkdownPreview — XSS / script suppression", () => {
-  test("raw <script> in the source is rendered as text, not as a script element", () => {
+  test("raw <script> is stripped entirely — tag and inline code both gone", () => {
     const source = "Normal text.\n\n<script>alert(1)</script>\n\nMore text.";
-    const html = renderToStaticMarkup(
-      <MarkdownPreview {...BASE_PROPS} source={source} />,
-    );
-    // No actual <script> tag — react-markdown without rehype-raw escapes raw HTML.
+    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
+    // rehype-sanitize's default schema lists `script` under `strip`, so the
+    // element AND its text content are removed — neither an executable tag
+    // nor the escaped source survives.
     expect(html).not.toContain("<script>");
-    // …but the HTML-escaped form IS present, proving the input was treated
-    // as text. Escaped text in a paragraph is inert.
-    expect(html).toContain("&lt;script&gt;");
+    expect(html).not.toContain("&lt;script&gt;");
+    expect(html).not.toContain("alert(1)");
+    // Surrounding prose is untouched.
+    expect(html).toContain("Normal text.");
+    expect(html).toContain("More text.");
   });
 
-  test("inline <iframe> in the source is similarly escaped", () => {
+  test("inline <iframe> is removed by the sanitiser", () => {
     const source = "<iframe src='https://evil.example'></iframe>";
-    const html = renderToStaticMarkup(
-      <MarkdownPreview {...BASE_PROPS} source={source} />,
-    );
+    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
     expect(html).not.toContain("<iframe");
+    expect(html).not.toContain("evil.example");
+  });
+
+  test("an inline event handler (onerror) is stripped from a raw <img>", () => {
+    const source = '<img src="x" onerror="alert(1)" />';
+    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
+    expect(html).not.toContain("onerror");
+    expect(html).not.toContain("alert(1)");
+  });
+});
+
+describe("MarkdownPreview — GitHub-allowlisted HTML renders", () => {
+  test("a centered <div> with an <img width> renders as real DOM (not escaped text)", () => {
+    const source = '<div align="center"><img src="./logo.png" width="120" alt="logo" /></div>';
+    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
+    // The div + align survive sanitize; not shown as literal "&lt;div".
+    expect(html).not.toContain("&lt;div");
+    expect(html).toContain('align="center"');
+    expect(html).toContain('width="120"');
+    // The raw <img> still flows through the workspace-image guard. `./logo.png`
+    // resolves against the README's dir (docs/) → docs/logo.png.
+    expect(html).toContain("nexus-workspace://ws-1/docs/logo.png");
+  });
+
+  test("<details>/<summary> render as collapsible markup", () => {
+    const source = "<details><summary>More</summary>\n\nHidden body.\n\n</details>";
+    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
+    expect(html).toContain("<details");
+    expect(html).toContain("<summary");
+    expect(html).toContain("Hidden body.");
   });
 });
 
 describe("MarkdownPreview — disallowed link schemes", () => {
   test("`javascript:` href on a link is NOT placed into href attribute (sanitiser strips it)", () => {
     const source = "[click](javascript:alert(1))";
-    const html = renderToStaticMarkup(
-      <MarkdownPreview {...BASE_PROPS} source={source} />,
-    );
+    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
     // react-markdown's default `urlTransform` strips `javascript:` URLs to "".
     expect(html).not.toContain("javascript:alert");
   });
 
   test("`data:` images do not propagate into img src", () => {
     const source = "![evil](data:text/html,<script>alert(1)</script>)";
-    const html = renderToStaticMarkup(
-      <MarkdownPreview {...BASE_PROPS} source={source} />,
-    );
+    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
     expect(html).not.toContain("data:text/html");
     expect(html).not.toContain("alert(1)");
   });
@@ -88,9 +118,7 @@ describe("MarkdownPreview — disallowed link schemes", () => {
 describe("MarkdownPreview — workspace image rewriting", () => {
   test("relative image src is rewritten to nexus-workspace:// URL", () => {
     const source = "![logo](./img/logo.png)";
-    const html = renderToStaticMarkup(
-      <MarkdownPreview {...BASE_PROPS} source={source} />,
-    );
+    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
     // workspace-root prefix + relative path → nexus-workspace://<id>/docs/img/logo.png
     expect(html).toContain("nexus-workspace://ws-1/docs/img/logo.png");
     expect(html).toContain('alt="logo"');
@@ -98,9 +126,7 @@ describe("MarkdownPreview — workspace image rewriting", () => {
 
   test("escape attempt outside workspace renders inline [image] placeholder", () => {
     const source = "![secret](../../../etc/shadow)";
-    const html = renderToStaticMarkup(
-      <MarkdownPreview {...BASE_PROPS} source={source} />,
-    );
+    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
     expect(html).not.toContain("nexus-workspace://");
     expect(html).toContain("[image]");
   });
@@ -212,17 +238,13 @@ describe("MarkdownPreview — YAML frontmatter", () => {
 describe("MarkdownPreview — byte cap", () => {
   test("source exceeding MAX_PREVIEW_BYTES surfaces the truncate banner", () => {
     const oversized = "x".repeat(MAX_PREVIEW_BYTES + 1);
-    const html = renderToStaticMarkup(
-      <MarkdownPreview {...BASE_PROPS} source={oversized} />,
-    );
+    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={oversized} />);
     expect(html).toContain(PREVIEW_TRUNCATED_MESSAGE);
   });
 
   test("source under MAX_PREVIEW_BYTES does not render the banner", () => {
     const source = "# small";
-    const html = renderToStaticMarkup(
-      <MarkdownPreview {...BASE_PROPS} source={source} />,
-    );
+    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
     expect(html).not.toContain(PREVIEW_TRUNCATED_MESSAGE);
   });
 });

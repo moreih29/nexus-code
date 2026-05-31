@@ -3,11 +3,9 @@
  * repository capabilities so renderer action state transitions immediately.
  */
 import { ipcContract } from "../../../../shared/ipc/contract";
-import { GitError } from "../domain/error";
-import type { GitRegistry } from "../domain/registry";
 import type { CallContext } from "../../../infra/ipc-router";
-import { validateArgs } from "../../../infra/ipc-router";
-import { handleGitHandlerError } from "./git-result";
+import type { GitRegistry } from "../domain/registry";
+import { withRepo } from "./git-result";
 
 const c = ipcContract.git.call;
 
@@ -22,18 +20,10 @@ const c = ipcContract.git.call;
 export function addRemoteHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, name, url } = validateArgs(c.addRemote.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      await repo.addRemote(name, url, ctx?.signal);
-      await refreshAfterMutation(registry, workspaceId, ctx?.signal);
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(registry, c.addRemote.args, async (repo, { workspaceId, name, url }, ctx) => {
+    await repo.addRemote(name, url, ctx.signal);
+    registry.bumpGeneration(workspaceId);
+  });
 }
 
 /**
@@ -46,29 +36,8 @@ export function addRemoteHandler(
 export function removeRemoteHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, name } = validateArgs(c.removeRemote.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      await repo.removeRemote(name, ctx?.signal);
-      await refreshAfterMutation(registry, workspaceId, ctx?.signal);
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
-}
-
-/**
- * Bumps generation before broadcasting the post-mutation status so
- * RepoCapabilities.remotes and BranchInfo.upstream cannot remain stale.
- */
-async function refreshAfterMutation(
-  registry: GitRegistry,
-  workspaceId: string,
-  signal?: AbortSignal,
-): Promise<void> {
-  registry.bumpGeneration(workspaceId);
-  await registry.refreshStatus(workspaceId, signal);
+  return withRepo(registry, c.removeRemote.args, async (repo, { workspaceId, name }, ctx) => {
+    await repo.removeRemote(name, ctx.signal);
+    registry.bumpGeneration(workspaceId);
+  });
 }

@@ -9,7 +9,7 @@ import { Button } from "../../ui/button";
 import { Dialog } from "../../ui/dialog";
 import { MainListView } from "./main-list-view";
 import { SshConnectionListView } from "./ssh-connection-list-view";
-import { SshDirectoryPickerView } from "./ssh-directory-picker-view";
+import { type SshDirectoryPickerHandle, SshDirectoryPickerView } from "./ssh-directory-picker-view";
 import { SshNewConnectionView } from "./ssh-new-connection-view";
 import type { ModalView, SshBrowseSession, SshConfigHost } from "./types";
 
@@ -52,6 +52,9 @@ export function AddWorkspaceDialog({
   const [connectDisabled, setConnectDisabled] = useState(true);
   const [addPhase, setAddPhase] = useState<"idle" | "creating">("idle");
   const [addDisabled, setAddDisabled] = useState(false);
+  // Imperative handle to the directory picker — the footer "Add workspace"
+  // button lives here in the shell and drives the picker's action through it.
+  const pickerRef = useRef<SshDirectoryPickerHandle>(null);
 
   // Open effect — reset + load SSH config hosts
   useEffect(() => {
@@ -178,7 +181,7 @@ export function AddWorkspaceDialog({
         disabled={addDisabled}
         className="min-w-[9rem]"
         onClick={() => {
-          document.getElementById("picker-add-workspace-trigger")?.click();
+          pickerRef.current?.submit();
         }}
       >
         {addPhase === "creating" ? (
@@ -219,6 +222,7 @@ export function AddWorkspaceDialog({
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-4">
           <ViewBody
             view={view}
+            pickerRef={pickerRef}
             browseSession={browseSession}
             prefillProfile={prefillProfile}
             onViewChange={setView}
@@ -295,6 +299,7 @@ function DialogHeader({ view, showBack, onBack }: DialogHeaderProps): React.JSX.
 
 interface ViewBodyProps {
   readonly view: ModalView;
+  readonly pickerRef: React.RefObject<SshDirectoryPickerHandle | null>;
   readonly browseSession: SshBrowseSession | null;
   readonly prefillProfile: ConnectionProfile | null;
   readonly onViewChange: (view: ModalView) => void;
@@ -316,6 +321,7 @@ interface ViewBodyProps {
 function ViewBody(props: ViewBodyProps): React.JSX.Element {
   const {
     view,
+    pickerRef,
     browseSession,
     prefillProfile,
     onViewChange,
@@ -390,6 +396,7 @@ function ViewBody(props: ViewBodyProps): React.JSX.Element {
   return (
     <FadeView viewKey="ssh-directory-picker" fill>
       <SshDirectoryPickerView
+        ref={pickerRef}
         session={browseSession}
         onWorkspaceCreated={onWorkspaceCreated}
         onClose={onClose}

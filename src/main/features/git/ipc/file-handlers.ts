@@ -8,11 +8,10 @@ import {
   type InferProgress,
   ipcContract,
 } from "../../../../shared/ipc/contract";
+import type { StreamContext } from "../../../infra/ipc-router";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";
-import type { CallContext, StreamContext } from "../../../infra/ipc-router";
-import { validateArgs } from "../../../infra/ipc-router";
-import { handleGitHandlerError } from "./git-result";
+import { withRepo } from "./git-result";
 
 const c = ipcContract.git.call;
 
@@ -33,17 +32,12 @@ type BlobStreamHandler = (
  * receives this as an IpcErrResult and unwrapGitResult converts it to a thrown Error.
  */
 export function openFileAtHeadHandler(registry: GitRegistry) {
-  return async (args: unknown, ctx?: CallContext) => {
-    try {
-      const { workspaceId, relPath } = validateArgs(c.openFileAtHead.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      return repo.openFileAtHead(relPath, ctx?.signal);
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(
+    registry,
+    c.openFileAtHead.args,
+    (repo, { relPath }, ctx) => repo.openFileAtHead(relPath, ctx.signal),
+    { refreshStatus: false },
+  );
 }
 
 /**

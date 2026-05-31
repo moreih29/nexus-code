@@ -8,25 +8,24 @@ import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
 import { parseWorkspaceUri, workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import type { FileErrorCode } from "../../../utils/file-error";
+import { registerKnownModelUri } from "../lsp/known-uris";
 import { initializeMonacoSingleton, requireMonaco } from "../runtime/monaco-singleton";
+import { attachDirtyTracker } from "./dirty-tracker";
 import {
   cleanupEntry,
   createEntry,
   createUntitledEntry,
   errorCodeFromUnknown,
-  type ModelEntry,
   notifySubscribers,
   rehydrateEntry,
   reloadEntryFromDisk,
-  type SharedModelState,
   snapshot,
 } from "./entry";
-import { attachDirtyTracker } from "./dirty-tracker";
 import { loadExternalEntry } from "./load-external-entry";
-import { registerKnownModelUri } from "../lsp/bridge";
+import type { ModelEntry, SharedModelState } from "./types";
 
 export { isMonacoReady, onMonacoReady } from "../runtime/monaco-singleton";
-export type { SharedModelPhase, SharedModelState } from "./entry";
+export type { SharedModelPhase, SharedModelState } from "./types";
 
 import type { EditorInput } from "../types";
 
@@ -294,6 +293,24 @@ export function clearDiskDiverged(input: EditorInput): void {
   if (entry.diskDiverged === undefined) return;
   entry.diskDiverged = undefined;
   notifySubscribers(entry);
+}
+
+/**
+ * Advance the entry's loaded-value baseline to `content` after a successful
+ * save. `lastLoadedValue` records "what the buffer matched the last time it
+ * was in sync with disk"; reconcileExternalChange compares the live buffer
+ * against it to decide whether an fs/git event reflects the user's own write
+ * (no-op) or a genuine external change. Without this update the baseline stays
+ * frozen at the pre-edit content, so every post-save fs/git event makes
+ * reconcile treat the file as externally diverged — a false positive.
+ *
+ * `content` is the exact text just written to disk (captured by the save
+ * service before the write), so the baseline matches the on-disk state.
+ */
+export function syncLoadedValueAfterSave(input: EditorInput, content: string): void {
+  const entry = entries.get(cacheUriForInput(input));
+  if (!entry) return;
+  entry.lastLoadedValue = content;
 }
 
 /**

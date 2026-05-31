@@ -13,9 +13,9 @@
 import type { Readable, Writable } from "node:stream";
 import { z } from "zod";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
-import type { SshErrorCode } from "../../../shared/ssh/errors";
 import { createLogger } from "../../../shared/log/main";
 import type { LogLevel } from "../../../shared/log/types";
+import type { SshErrorCode } from "../../../shared/ssh/errors";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
@@ -306,8 +306,8 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
           if (Date.now() - lastHeartbeatAt >= watchdogIntervalMs) {
             if (!heartbeatWarned) {
               heartbeatWarned = true;
-              console.warn(
-                `[agent-pipe] heartbeat watchdog: no heartbeat received for >${watchdogIntervalMs}ms (interval=${intervalMs}ms, 3-miss policy)`,
+              getMalformedStdoutLogger().warn(
+                `heartbeat watchdog: no heartbeat received for >${watchdogIntervalMs}ms (interval=${intervalMs}ms, 3-miss policy)`,
               );
             }
           }
@@ -551,7 +551,8 @@ export function createSshError(code: SshErrorCode, cause?: unknown): SshError {
   // 추적하려면 이 한 줄이 결정적 단서가 된다. cause는 message + stack을 잘라
   // 남기고, 호출 stack은 별도 field에.
   try {
-    const causeMsg = cause instanceof Error ? cause.message : (cause === undefined ? "" : String(cause));
+    const causeMsg =
+      cause instanceof Error ? cause.message : cause === undefined ? "" : String(cause);
     const causeSnippet = causeMsg.slice(0, 300);
     const stack = (error.stack ?? "").split("\n").slice(1, 6).join(" | ");
     getMalformedStdoutLogger().warn(
@@ -739,8 +740,7 @@ function errorFromServerFrame(value: unknown): Error {
     return new Error("Remote agent request failed");
   }
 
-  const message =
-    typeof value.message === "string" ? value.message : "Remote agent request failed";
+  const message = typeof value.message === "string" ? value.message : "Remote agent request failed";
   const error = new Error(message);
   if (typeof value.code === "string") {
     (error as Error & { code: string }).code = value.code;
@@ -834,7 +834,7 @@ function createLineSplitter(
       return;
     }
     tally += line.length;
-    let listenerError: unknown = undefined;
+    let listenerError: unknown;
     try {
       onLine(line);
     } catch (err) {

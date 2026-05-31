@@ -3,8 +3,12 @@
  * debounce, while triggers received during an active run collapse into one
  * follow-up run after the active run settles.
  */
+
+import { createLogger } from "../../../../shared/log/main";
 import { createKeyedDebouncer, type KeyedDebouncer } from "../../../../shared/util/keyed-debouncer";
 import type { TimerScheduler } from "../../../../shared/util/timer-scheduler";
+
+const log = createLogger("git");
 
 export type StatusRunFn = () => Promise<void> | void;
 
@@ -43,6 +47,9 @@ interface StatusCoalescerOptions {
    */
   readonly suppressionMs?: number;
   readonly scheduler?: TimerScheduler;
+  /** Injectable clock — defaults to Date.now. Overrideable in tests for
+   *  deterministic suppression-window assertions without real time passage. */
+  readonly nowFn?: () => number;
 }
 
 /**
@@ -52,6 +59,7 @@ export function createStatusCoalescer({
   delayMs,
   suppressionMs,
   scheduler,
+  nowFn = Date.now,
 }: StatusCoalescerOptions): StatusCoalescer {
   const entries = new Map<string, StatusCoalescerEntry>();
   const timers: KeyedDebouncer<string> = createKeyedDebouncer<string>({ delayMs, scheduler });
@@ -63,7 +71,7 @@ export function createStatusCoalescer({
 
   return {
     schedule(workspaceId, runFn) {
-      const now = Date.now();
+      const now = nowFn();
       const lastAt = lastRefreshedAt.get(workspaceId);
       if (lastAt !== undefined && now - lastAt < effectiveSuppressionMs) {
         return;
@@ -113,7 +121,7 @@ export function createStatusCoalescer({
     },
 
     markRecentlyRefreshed(workspaceId) {
-      lastRefreshedAt.set(workspaceId, Date.now());
+      lastRefreshedAt.set(workspaceId, nowFn());
     },
 
     get size() {
@@ -154,7 +162,7 @@ export function createStatusCoalescer({
     try {
       await runFn();
     } catch (error) {
-      console.warn("[git] coalesced status refresh failed", error);
+      log.warn(`coalesced status refresh failed: ${(error as Error).message}`);
     } finally {
       entry.running = false;
 

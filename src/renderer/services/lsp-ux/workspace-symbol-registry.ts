@@ -1,4 +1,7 @@
 import type { MonacoRange } from "../../../shared/editor/monaco-range";
+import { createLogger } from "../../../shared/log/renderer";
+
+const log = createLogger("workspace-symbol-registry");
 
 export interface WorkspaceSymbolEntry {
   name: string;
@@ -49,10 +52,9 @@ export async function searchWorkspaceSymbols(
       continue;
     }
     const provider = snapshot[i];
-    console.warn("[workspace-symbol-registry] provider failed", {
-      providerId: provider?.id ?? "unknown",
-      error: result.reason,
-    });
+    log.warn(
+      `provider failed: providerId=${provider?.id ?? "unknown"} error=${(result.reason as Error)?.message ?? String(result.reason)}`,
+    );
   }
 
   return dedupeWorkspaceSymbols(combined);

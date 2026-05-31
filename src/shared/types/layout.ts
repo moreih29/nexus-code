@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BrowserTabPayloadSchema, DiffTabPayloadSchema, GitCommitTabPayloadSchema } from "./tab";
+import { WorkspaceIdSchema } from "./workspace-id";
 
 // ---------------------------------------------------------------------------
 // Tab props schemas (serialization form — mirrors renderer/state/stores/tabs.ts
@@ -13,7 +14,7 @@ export type TerminalTabProps = z.infer<typeof TerminalTabPropsSchema>;
 
 export const EditorTabPropsSchema = z.object({
   filePath: z.string(),
-  workspaceId: z.string().uuid(),
+  workspaceId: WorkspaceIdSchema,
 });
 export type EditorTabProps = z.infer<typeof EditorTabPropsSchema>;
 

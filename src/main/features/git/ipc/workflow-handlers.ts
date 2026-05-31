@@ -1,7 +1,7 @@
 /**
  * Workflow handlers — merge/rebase/cherry-pick and conflict resolution calls.
  */
-import { ipcContract } from "../../../../shared/ipc/contract";
+
 import type {
   GitCherryPickResult,
   GitContinueOpResult,
@@ -9,11 +9,12 @@ import type {
   GitMergeResult,
   GitRebaseResult,
 } from "../../../../shared/git/types";
-import { GitError } from "../domain/error";
-import type { GitRegistry } from "../domain/registry";
+import { ipcContract } from "../../../../shared/ipc/contract";
 import type { CallContext } from "../../../infra/ipc-router";
 import { validateArgs } from "../../../infra/ipc-router";
-import { handleGitHandlerError } from "./git-result";
+import { GitError } from "../domain/error";
+import type { GitRegistry } from "../domain/registry";
+import { handleGitHandlerError, withRepo } from "./git-result";
 
 const c = ipcContract.git.call;
 
@@ -27,19 +28,11 @@ const c = ipcContract.git.call;
 export function mergeHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, branch, mode } = validateArgs(c.merge.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      const result: GitMergeResult = await repo.merge(branch, mode, ctx?.signal);
-      await refreshAfterWorkflowMutation(registry, workspaceId, ctx?.signal);
-      return result;
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(registry, c.merge.args, async (repo, { workspaceId, branch, mode }, ctx) => {
+    const result: GitMergeResult = await repo.merge(branch, mode, ctx.signal);
+    registry.bumpGeneration(workspaceId);
+    return result;
+  });
 }
 
 /**
@@ -51,19 +44,11 @@ export function mergeHandler(
 export function rebaseHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, onto } = validateArgs(c.rebase.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      const result: GitRebaseResult = await repo.rebase(onto, ctx?.signal);
-      await refreshAfterWorkflowMutation(registry, workspaceId, ctx?.signal);
-      return result;
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(registry, c.rebase.args, async (repo, { workspaceId, onto }, ctx) => {
+    const result: GitRebaseResult = await repo.rebase(onto, ctx.signal);
+    registry.bumpGeneration(workspaceId);
+    return result;
+  });
 }
 
 /**
@@ -71,6 +56,8 @@ export function rebaseHandler(
  *
  * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
  * object — see mergeHandler for rationale.
+ *
+ * Left manual: inner try/catch refreshes status on empty-commit failure.
  */
 export function cherryPickHandler(
   registry: GitRegistry,
@@ -104,18 +91,10 @@ export function cherryPickHandler(
 export function abortOpHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId } = validateArgs(c.abortOp.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      await repo.abortOp(ctx?.signal);
-      await refreshAfterWorkflowMutation(registry, workspaceId, ctx?.signal);
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(registry, c.abortOp.args, async (repo, { workspaceId }, ctx) => {
+    await repo.abortOp(ctx.signal);
+    registry.bumpGeneration(workspaceId);
+  });
 }
 
 /**
@@ -127,19 +106,11 @@ export function abortOpHandler(
 export function continueOpHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId } = validateArgs(c.continueOp.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      const result: GitContinueOpResult = await repo.continueOp(ctx?.signal);
-      await refreshAfterWorkflowMutation(registry, workspaceId, ctx?.signal);
-      return result;
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(registry, c.continueOp.args, async (repo, { workspaceId }, ctx) => {
+    const result: GitContinueOpResult = await repo.continueOp(ctx.signal);
+    registry.bumpGeneration(workspaceId);
+    return result;
+  });
 }
 
 /**
@@ -152,19 +123,11 @@ export function continueOpHandler(
 export function markResolvedHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
-    try {
-      const { workspaceId, paths } = validateArgs(c.markResolved.args, args);
-      const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-      if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-      const result: GitMarkResolvedResult = await repo.markResolved(paths, ctx?.signal);
-      await refreshAfterWorkflowMutation(registry, workspaceId, ctx?.signal);
-      return result;
-    } catch (error) {
-      return handleGitHandlerError(error);
-    }
-  };
+  return withRepo(registry, c.markResolved.args, async (repo, { workspaceId, paths }, ctx) => {
+    const result: GitMarkResolvedResult = await repo.markResolved(paths, ctx.signal);
+    registry.bumpGeneration(workspaceId);
+    return result;
+  });
 }
 
 /**

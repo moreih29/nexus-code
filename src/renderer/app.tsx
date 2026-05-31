@@ -1,6 +1,7 @@
 import { useMonaco } from "@monaco-editor/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { createLogger } from "../shared/log/renderer";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import {
   bootstrapAppState,
@@ -35,12 +36,15 @@ import { rehydrateLspForWorkspace } from "./services/editor/model/cache";
 import { useActiveStore } from "./state/stores/active";
 import { useAddWorkspaceUIStore } from "./state/stores/add-workspace-ui";
 import { useEditorFontStore } from "./state/stores/editor-font";
+import { useIconThemeStore } from "./state/stores/icon-theme";
 import { useSettingsUIStore } from "./state/stores/settings-ui";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
 import { useWorkspacesStore } from "./state/stores/workspaces";
+
+const log = createLogger("app");
 
 export function App() {
   const { t } = useTranslation("settings");
@@ -67,6 +71,7 @@ export function App() {
   // tracked field. While the dialog is open, dirty = current !== snapshot.
   // When the dialog closes, the snapshot is wiped so the next open starts
   // clean.
+  const iconThemePreference = useIconThemeStore((s) => s.preference);
   const themePreference = useThemeStore((s) => s.preference);
   const opacity = useWindowOpacityStore((s) => s.opacity);
   const editorFontSize = useEditorFontStore((s) => s.size);
@@ -79,6 +84,7 @@ export function App() {
   const terminalFontLigatures = useTerminalStore((s) => s.fontLigatures);
 
   interface SettingsSnapshot {
+    iconThemePreference: typeof iconThemePreference;
     themePreference: typeof themePreference;
     opacity: number;
     editorFontSize: typeof editorFontSize;
@@ -99,6 +105,7 @@ export function App() {
   useEffect(() => {
     if (settingsOpen) {
       setSettingsSnapshot({
+        iconThemePreference,
         themePreference,
         opacity,
         editorFontSize,
@@ -118,7 +125,10 @@ export function App() {
   const settingsNav = useMemo<SettingsNavItem[]>(() => {
     const snap = settingsSnapshot;
     const appearanceDirty =
-      snap !== null && (themePreference !== snap.themePreference || opacity !== snap.opacity);
+      snap !== null &&
+      (iconThemePreference !== snap.iconThemePreference ||
+        themePreference !== snap.themePreference ||
+        opacity !== snap.opacity);
     const editorDirty =
       snap !== null &&
       (editorFontSize !== snap.editorFontSize ||
@@ -175,6 +185,7 @@ export function App() {
   }, [
     t,
     settingsSnapshot,
+    iconThemePreference,
     themePreference,
     opacity,
     editorFontSize,
@@ -282,7 +293,7 @@ export function App() {
       if (next) {
         // Fire-and-forget: UI is already updated; notify main of workspace switch.
         void ipcCallResult("workspace", "activate", { id: next }).then((result) => {
-          if (!result.ok) console.warn("[app] workspace activate failed", result.message);
+          if (!result.ok) log.warn(`workspace activate failed: ${result.message}`);
         });
       }
     }
@@ -293,7 +304,7 @@ export function App() {
       setActiveWorkspaceId(id);
       // Fire-and-forget: UI is already updated; notify main of workspace switch.
       void ipcCallResult("workspace", "activate", { id }).then((result) => {
-        if (!result.ok) console.warn("[app] workspace activate failed", result.message);
+        if (!result.ok) log.warn(`workspace activate failed: ${result.message}`);
       });
     },
     [setActiveWorkspaceId],
@@ -308,7 +319,7 @@ export function App() {
       setActiveWorkspaceId(meta.id);
       // Fire-and-forget: UI is already updated; notify main of new workspace activation.
       void ipcCallResult("workspace", "activate", { id: meta.id }).then((result) => {
-        if (!result.ok) console.warn("[app] workspace activate failed", result.message);
+        if (!result.ok) log.warn(`workspace activate failed: ${result.message}`);
       });
       // Tab seeding is handled by <WorkspacePanel> on first mount.
     },
@@ -329,7 +340,7 @@ export function App() {
       // that tab-record cleanup kills PTYs before panel unmount disposes views.
       // Fire-and-forget: tabs store cleanup happens via workspace:removed broadcast from main.
       void ipcCallResult("workspace", "remove", { id }).then((result) => {
-        if (!result.ok) console.warn("[app] workspace remove failed", result.message);
+        if (!result.ok) log.warn(`workspace remove failed: ${result.message}`);
       });
     },
     [workspaces],

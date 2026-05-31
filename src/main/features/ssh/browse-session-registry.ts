@@ -41,8 +41,16 @@ export interface BrowseSession {
 export class SshBrowseSessionRegistry {
   private readonly sessions = new Map<string, BrowseSession>();
   private readonly reaperTimer: ReturnType<typeof setInterval>;
+  private readonly nowFn: () => number;
 
-  constructor(idleTtlMs = BROWSE_IDLE_TTL_MS) {
+  /**
+   * @param idleTtlMs - idle TTL for the reaper (overridable in tests)
+   * @param nowFn - injectable clock; defaults to Date.now (overridable in
+   *   tests for deterministic lastUsed / reapExpired assertions without
+   *   real time passage)
+   */
+  constructor(idleTtlMs = BROWSE_IDLE_TTL_MS, nowFn: () => number = Date.now) {
+    this.nowFn = nowFn;
     this.reaperTimer = setInterval(() => {
       this.reapExpired(idleTtlMs);
     }, REAPER_INTERVAL_MS);
@@ -57,7 +65,7 @@ export class SshBrowseSessionRegistry {
    */
   register(channel: AgentChannel, master: SshControlMaster | null): string {
     const sessionId = crypto.randomUUID();
-    this.sessions.set(sessionId, { sessionId, channel, master, lastUsed: Date.now() });
+    this.sessions.set(sessionId, { sessionId, channel, master, lastUsed: this.nowFn() });
     return sessionId;
   }
 
@@ -68,7 +76,7 @@ export class SshBrowseSessionRegistry {
   get(sessionId: string): BrowseSession | null {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
-    session.lastUsed = Date.now();
+    session.lastUsed = this.nowFn();
     return session;
   }
 
@@ -122,7 +130,7 @@ export class SshBrowseSessionRegistry {
   }
 
   private reapExpired(idleTtlMs: number): void {
-    const now = Date.now();
+    const now = this.nowFn();
     for (const [sessionId, session] of this.sessions) {
       if (now - session.lastUsed >= idleTtlMs) {
         this.sessions.delete(sessionId);

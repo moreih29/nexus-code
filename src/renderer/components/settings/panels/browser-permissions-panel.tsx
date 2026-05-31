@@ -12,6 +12,8 @@
 //
 // Design: semantic tokens only (no hex/rgba/oklch literals, no box-shadow).
 
+import i18next from "i18next";
+import type { LucideIcon } from "lucide-react";
 import {
   Bell,
   Clipboard,
@@ -29,24 +31,23 @@ import {
   Video,
   Volume2,
 } from "lucide-react";
-import i18next from "i18next";
-import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ipcCallResult } from "../../../ipc/client";
+import { cn } from "@/utils/cn";
+import { createLogger } from "../../../../shared/log/renderer";
 import type { BrowserPermissionKind } from "../../../../shared/security/browser-permissions";
-import {
-  PERMISSION_TOGGLES,
-} from "../../../../shared/security/browser-permissions";
-import { useBrowserPermissionsStore } from "../../../state/stores/browser-permissions";
+import { PERMISSION_TOGGLES } from "../../../../shared/security/browser-permissions";
+import { ipcCallResult } from "../../../ipc/client";
 import { useActiveStore } from "../../../state/stores/active";
+import { useBrowserPermissionsStore } from "../../../state/stores/browser-permissions";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
 import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
 import { Switch } from "../../ui/switch";
 import { SegmentedControl } from "../segmented-control";
-import { cn } from "@/utils/cn";
+
+const log = createLogger("browser-permissions");
 
 // Map from PERMISSION_TOGGLES key → settings i18n key (without "browserPermissions.permission." prefix)
 const TOGGLE_I18N_KEY: Record<string, string> = {
@@ -154,8 +155,7 @@ export function BrowserPermissionsPanel() {
     const token = ++fetchRef.current;
     setLoadError(null);
 
-    const workspaceId =
-      scopeTab === "current" && activeWorkspaceId ? activeWorkspaceId : undefined;
+    const workspaceId = scopeTab === "current" && activeWorkspaceId ? activeWorkspaceId : undefined;
 
     const result = await ipcCallResult("browserPermission", "listRemembered", {
       workspaceId,
@@ -192,7 +192,7 @@ export function BrowserPermissionsPanel() {
         permission: entry.permission,
       });
       if (!revokeResult.ok) {
-        console.warn("[browser-permissions] revoke failed", revokeResult.message);
+        log.warn(`revoke failed: ${revokeResult.message}`);
         return;
       }
       void loadEntries();
@@ -231,10 +231,7 @@ export function BrowserPermissionsPanel() {
       {/* ------------------------------------------------------------------ */}
       <section aria-labelledby="global-toggles-heading">
         <div className="flex flex-col gap-1 mb-3">
-          <h2
-            id="global-toggles-heading"
-            className="text-app-body-emphasis text-foreground"
-          >
+          <h2 id="global-toggles-heading" className="text-app-body-emphasis text-foreground">
             {t("browserPermissions.globalHeading")}
           </h2>
           <p className="text-app-ui-sm text-muted-foreground">
@@ -293,10 +290,7 @@ export function BrowserPermissionsPanel() {
       <section aria-labelledby="site-memory-heading">
         <div className="flex flex-col gap-3 mb-3">
           <div className="flex flex-col gap-1">
-            <h2
-              id="site-memory-heading"
-              className="text-app-body-emphasis text-foreground"
-            >
+            <h2 id="site-memory-heading" className="text-app-body-emphasis text-foreground">
               {t("browserPermissions.siteMemoryHeading")}
             </h2>
             <p className="text-app-ui-sm text-muted-foreground">
@@ -327,9 +321,7 @@ export function BrowserPermissionsPanel() {
         )}
 
         {/* Error state */}
-        {loadError && (
-          <p className="text-app-ui-sm text-muted-foreground px-1">{loadError}</p>
-        )}
+        {loadError && <p className="text-app-ui-sm text-muted-foreground px-1">{loadError}</p>}
 
         {/* Empty state */}
         {entries !== null && !loadError && entries.length === 0 && (
@@ -347,8 +339,7 @@ export function BrowserPermissionsPanel() {
             {groupedEntries.map((group) => {
               const wsName =
                 group.workspaceId !== null
-                  ? (workspaces.find((w) => w.id === group.workspaceId)?.name ??
-                    group.workspaceId)
+                  ? (workspaces.find((w) => w.id === group.workspaceId)?.name ?? group.workspaceId)
                   : null;
 
               return (
@@ -396,9 +387,7 @@ function PermissionToggleRow({ toggle, enabled, onToggle }: PermissionToggleRowP
   const switchId = useId();
   const IconComponent = ICON_MAP[toggle.icon];
   const i18nKey = TOGGLE_I18N_KEY[toggle.key];
-  const label = i18nKey
-    ? t(`browserPermissions.permission.${i18nKey}.label`)
-    : toggle.label;
+  const label = i18nKey ? t(`browserPermissions.permission.${i18nKey}.label`) : toggle.label;
   const description = i18nKey
     ? t(`browserPermissions.permission.${i18nKey}.description`)
     : toggle.description;
@@ -418,15 +407,10 @@ function PermissionToggleRow({ toggle, enabled, onToggle }: PermissionToggleRowP
           />
         )}
         <div className="flex flex-col gap-0.5 min-w-0">
-          <label
-            htmlFor={switchId}
-            className="text-app-body text-foreground cursor-pointer"
-          >
+          <label htmlFor={switchId} className="text-app-body text-foreground cursor-pointer">
             {label}
           </label>
-          <p className="text-app-ui-sm text-muted-foreground">
-            {description}
-          </p>
+          <p className="text-app-ui-sm text-muted-foreground">{description}</p>
         </div>
       </div>
       <Switch
@@ -479,12 +463,12 @@ function SiteEntryRow({ entry, grants, onRevoke }: SiteEntryRowProps) {
             className={cn(
               "inline-flex items-center rounded-(--radius-control) px-1.5 py-0.5",
               "text-app-ui-sm border border-border",
-              entry.decision === "allow"
-                ? "text-foreground"
-                : "text-muted-foreground",
+              entry.decision === "allow" ? "text-foreground" : "text-muted-foreground",
             )}
           >
-            {t(`browserPermissions.permissionLabel.${PERMISSION_LABEL_I18N_KEY[entry.permission] ?? "unknown"}`)}
+            {t(
+              `browserPermissions.permissionLabel.${PERMISSION_LABEL_I18N_KEY[entry.permission] ?? "unknown"}`,
+            )}
           </span>
           {isGloballyEnabled && (
             <span className="text-app-ui-sm text-muted-foreground">

@@ -4,7 +4,7 @@
  */
 
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { getFileIcon } from "../file-tree/icons";
+import { FileIcon } from "../file-tree/file-icon";
 import { ROW_HEIGHT_PX } from "../file-tree/metrics";
 
 interface SearchResultFileRowProps {
@@ -22,7 +22,6 @@ export function SearchResultFileRow({
 }: SearchResultFileRowProps) {
   const fileName = relPath.includes("/") ? relPath.slice(relPath.lastIndexOf("/") + 1) : relPath;
   const dir = relPath.includes("/") ? relPath.slice(0, relPath.lastIndexOf("/")) : "";
-  const FileIcon = getFileIcon(fileName);
   const Chevron = expanded ? ChevronDown : ChevronRight;
 
   return (
@@ -35,8 +34,11 @@ export function SearchResultFileRow({
     >
       <Chevron className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
       <FileIcon
-        className="size-3.5 shrink-0 text-muted-foreground"
-        strokeWidth={1.5}
+        kind="file"
+        name={fileName}
+        size="md"
+        tone="muted"
+        className="shrink-0"
         aria-hidden="true"
       />
       <span className="truncate min-w-0 text-app-body flex-1">

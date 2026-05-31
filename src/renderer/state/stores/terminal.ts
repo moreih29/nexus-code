@@ -23,7 +23,10 @@
 
 import { create } from "zustand";
 import { fontFamily, typeScale } from "../../../shared/design-tokens";
+import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult } from "../../ipc/client";
+
+const log = createLogger("terminal");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -109,7 +112,7 @@ export const useTerminalStore = create<TerminalSettingsState>((set) => {
       void ipcCallResult("appState", "set", {
         terminalFontSize: value,
       }).then((result) => {
-        if (!result.ok) console.warn("[terminal] appState set (fontSize) failed", result.message);
+        if (!result.ok) log.warn(`appState set (fontSize) failed: ${result.message}`);
       });
 
       dispatchSettingsChanged();
@@ -121,8 +124,7 @@ export const useTerminalStore = create<TerminalSettingsState>((set) => {
       void ipcCallResult("appState", "set", {
         terminalCursorStyle: value,
       }).then((result) => {
-        if (!result.ok)
-          console.warn("[terminal] appState set (cursorStyle) failed", result.message);
+        if (!result.ok) log.warn(`appState set (cursorStyle) failed: ${result.message}`);
       });
 
       dispatchSettingsChanged();
@@ -134,7 +136,7 @@ export const useTerminalStore = create<TerminalSettingsState>((set) => {
       void ipcCallResult("appState", "set", {
         terminalFontFamily: value,
       }).then((result) => {
-        if (!result.ok) console.warn("[terminal] appState set (fontFamily) failed", result.message);
+        if (!result.ok) log.warn(`appState set (fontFamily) failed: ${result.message}`);
       });
 
       dispatchSettingsChanged();
@@ -146,8 +148,7 @@ export const useTerminalStore = create<TerminalSettingsState>((set) => {
       void ipcCallResult("appState", "set", {
         terminalFontLigatures: value,
       }).then((result) => {
-        if (!result.ok)
-          console.warn("[terminal] appState set (fontLigatures) failed", result.message);
+        if (!result.ok) log.warn(`appState set (fontLigatures) failed: ${result.message}`);
       });
 
       dispatchSettingsChanged();

@@ -136,10 +136,12 @@
   "appearance": {
     "language": "언어",
     "theme": "테마",
+    "iconTheme": "아이콘 테마",
     "windowOpacity": "창 불투명도",
     "reset": {
       "language": "언어 초기화",
       "theme": "테마 초기화",
+      "iconTheme": "아이콘 테마 초기화",
       "windowOpacity": "창 불투명도 초기화"
     }
   },

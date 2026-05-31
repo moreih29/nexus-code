@@ -5,6 +5,7 @@
  * Functions here are plain async — callers own the `useEffect` wrapper.
  */
 
+import { createLogger } from "../shared/log/renderer";
 import type { LspLanguageId } from "../shared/types/app-state";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
@@ -18,20 +19,23 @@ import { initBrowserPermissionSubscriptions } from "./state/operations/browser-p
 import { initBrowserOverlayAutoSuspend } from "./state/operations/browser-suspend-auto";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
+import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
 import { useClaudeStatusStore } from "./state/stores/claude-status";
 import { useEditorFontStore } from "./state/stores/editor-font";
+import { useIconThemeStore } from "./state/stores/icon-theme";
+import { useLanguageStore } from "./state/stores/language";
 import { useLayoutStore } from "./state/stores/layout";
 import { useLspEnabledStore } from "./state/stores/lsp-enabled";
-import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
 import { useNotificationsStore } from "./state/stores/notifications";
 import { useTabsStore } from "./state/stores/tabs";
 import { useTerminalStore } from "./state/stores/terminal";
-import { useLanguageStore } from "./state/stores/language";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
 import { useUpdatesStore } from "./state/stores/updates";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
 import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
+
+const log = createLogger("bootstrap");
 
 /**
  * Hydrate persisted UI widths, layout snapshots, and tab records from
@@ -127,6 +131,10 @@ export async function bootstrapAppState(): Promise<void> {
   // persisted preference takes effect before the first user interaction.
   useLanguageStore.getState().hydrate(state.language);
 
+  // Hydrate icon theme from appState (authoritative store).
+  // Overwrites the localStorage-based boot value so the two remain in sync.
+  useIconThemeStore.getState().hydrate(state.iconTheme);
+
   // Subscribe to language changes broadcast by main when another window (or
   // the same window via appState.set) triggers a locale switch.  Main emits
   // `appState.languageChanged` after updating its own i18n instance and
@@ -218,7 +226,7 @@ export async function bootstrapAppState(): Promise<void> {
       v: number,
     ) => {
       useWindowOpacityStore.getState().setOpacity(v);
-      console.info(`[dev] windowOpacity = ${v} — restart the app to apply the window flag.`);
+      log.info(`[dev] windowOpacity = ${v} — restart the app to apply the window flag.`);
     };
   }
 }

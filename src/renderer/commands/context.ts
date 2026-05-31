@@ -8,10 +8,8 @@
  */
 
 import { Grid } from "../engine";
-import { closeEditorWithConfirm } from "../services/editor";
+import { closeTabWithConfirm } from "../services/editor/save/close-tab";
 import { createPathActions } from "../services/fs-mutations";
-import { closeTerminal } from "../services/terminal";
-import { closeTab } from "../state/operations/tabs";
 import { useActiveStore } from "../state/stores/active";
 import { useLayoutStore } from "../state/stores/layout";
 import { useTabsStore } from "../state/stores/tabs";
@@ -63,23 +61,16 @@ export function getActiveEditorPathActions() {
 /**
  * Close one tab through the type-appropriate dirty-aware path.
  * Returned outcome lets bulk-close callers honour cancel.
+ *
+ * Maps CloseTabOutcome to the two-way contract tab.ts expects:
+ * "save-failed" is treated the same as "closed" (the tab stays open but the
+ * bulk-close loop continues), matching the prior behaviour where only an
+ * explicit user cancel ("cancelled") would stop iteration.
  */
 export async function closeTabById(
   workspaceId: string,
   tabId: string,
 ): Promise<"closed" | "cancelled"> {
-  const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
-  if (!tab) return "closed";
-  if (tab.type === "terminal") {
-    closeTerminal(tabId);
-    return "closed";
-  }
-  if (tab.type === "editor") {
-    const outcome = await closeEditorWithConfirm(workspaceId, tabId);
-    return outcome === "cancelled" ? "cancelled" : "closed";
-  }
-  if (tab.type === "editor.diff" || tab.type === "git.commit") {
-    closeTab(workspaceId, tabId);
-  }
-  return "closed";
+  const outcome = await closeTabWithConfirm(workspaceId, tabId);
+  return outcome === "cancelled" ? "cancelled" : "closed";
 }

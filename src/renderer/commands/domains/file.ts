@@ -16,9 +16,93 @@ import { confirmAndDeleteBatch } from "../../services/fs-mutations";
 import { refresh } from "../../state/operations/files";
 import { openNewUntitledTab } from "../../state/operations/tabs";
 import { useActiveStore } from "../../state/stores/active";
-import { selectFocus, selectOperablePaths, useFilesStore } from "../../state/stores/files";
+import {
+  selectFocus,
+  selectOperablePaths,
+  useFilesStore,
+  type WorkspaceTree,
+} from "../../state/stores/files";
 import { useTabsStore } from "../../state/stores/tabs";
 import { getActiveTabContext } from "../context";
+
+// ---------------------------------------------------------------------------
+// Shared preamble helpers
+// ---------------------------------------------------------------------------
+
+/** A resolved { relPath, absPath } pair used by clipboard commands. */
+type ClipboardEntry = { relPath: string; absPath: string };
+
+/**
+ * Resolves the active workspace id, its file tree, the operable
+ * (non-root, known-node) paths, and the corresponding clipboard entries,
+ * then calls `handler` with the resolved data.
+ *
+ * Returns without calling `handler` when any precondition fails (no active
+ * workspace, no tree, or the filtered path list is empty).
+ */
+function withFocusedTreePaths(
+  handler: (ctx: {
+    wsId: string;
+    tree: WorkspaceTree;
+    absPaths: readonly string[];
+    entries: ClipboardEntry[];
+  }) => void,
+): void {
+  const wsId = useActiveStore.getState().activeWorkspaceId;
+  if (!wsId) return;
+  const filesState = useFilesStore.getState();
+  const tree = filesState.trees.get(wsId);
+  if (!tree) return;
+  const absPaths = selectOperablePaths(filesState, wsId).filter(
+    (p) => p !== tree.rootAbsPath && tree.nodes.has(p),
+  );
+  if (absPaths.length === 0) return;
+  const entries = absPaths.map((p) => ({
+    relPath: p.slice(tree.rootAbsPath.length + 1),
+    absPath: p,
+  }));
+  handler({ wsId, tree, absPaths, entries });
+}
+
+/**
+ * Resolves the active workspace id, its file tree, and the focused single
+ * path (via `selectFocus`), then calls `handler` with the resolved data.
+ *
+ * Returns without calling `handler` when any precondition fails (no active
+ * workspace, no focused path, no tree, or the focused path is the workspace
+ * root).
+ */
+function withFocusedSinglePath(
+  handler: (ctx: { wsId: string; tree: WorkspaceTree; path: string }) => void,
+): void {
+  const wsId = useActiveStore.getState().activeWorkspaceId;
+  if (!wsId) return;
+  const filesState = useFilesStore.getState();
+  const path = selectFocus(filesState, wsId);
+  if (!path) return;
+  const tree = filesState.trees.get(wsId);
+  if (!tree || path === tree.rootAbsPath) return;
+  handler({ wsId, tree, path });
+}
+
+// ---------------------------------------------------------------------------
+// Parameterized clipboard action — copy and cut share identical logic except
+// for the clipboard service call and the toast verb.
+// ---------------------------------------------------------------------------
+
+function makeClipboardCommand(
+  action: typeof handleCopy | typeof handleCut,
+  verb: string,
+): () => void {
+  return () => {
+    withFocusedTreePaths(({ wsId, tree, entries }) => {
+      action({ workspaceId: wsId, workspaceRootPath: tree.rootAbsPath, entries });
+      if (entries.length >= 2) {
+        showToast({ kind: "info", message: `${verb} ${entries.length} items` });
+      }
+    });
+  };
+}
 
 export function registerFileCommands(): Array<() => void> {
   return [
@@ -61,16 +145,10 @@ export function registerFileCommands(): Array<() => void> {
     // activeAbsPath가 루트이거나 없으면 no-op. rename 입력창이 열린 상태에서는
     // when:"!inputFocus" 조건이 막아 이 핸들러까지 도달하지 않는다.
     registerCommand(COMMANDS.fileRename, () => {
-      const wsId = useActiveStore.getState().activeWorkspaceId;
-      if (!wsId) return;
-      const filesState = useFilesStore.getState();
-      const path = selectFocus(filesState, wsId);
-      if (!path) return;
       // 워크스페이스 루트는 rename 불가 (startRename 내부와 동일한 guard)
-      const tree = filesState.trees.get(wsId);
-      const rootAbsPath = tree?.rootAbsPath;
-      if (path === rootAbsPath) return;
-      filesState.requestRename(path);
+      withFocusedSinglePath(({ path }) => {
+        useFilesStore.getState().requestRename(path);
+      });
     }),
 
     registerCommand(COMMANDS.fileOpen, async () => {
@@ -109,44 +187,8 @@ export function registerFileCommands(): Array<() => void> {
     // Phase D: selectOperablePaths returns the full multi-selection after
     // distinctParents, so keybinding gestures work on N items just like the
     // context-menu copy/cut actions. Root path is filtered; no-op if empty.
-    registerCommand(COMMANDS.fileCopy, () => {
-      const wsId = useActiveStore.getState().activeWorkspaceId;
-      if (!wsId) return;
-      const filesState = useFilesStore.getState();
-      const tree = filesState.trees.get(wsId);
-      if (!tree) return;
-      const absPaths = selectOperablePaths(filesState, wsId).filter(
-        (p) => p !== tree.rootAbsPath && tree.nodes.has(p),
-      );
-      if (absPaths.length === 0) return;
-      const entries = absPaths.map((p) => ({
-        relPath: p.slice(tree.rootAbsPath.length + 1),
-        absPath: p,
-      }));
-      handleCopy({ workspaceId: wsId, workspaceRootPath: tree.rootAbsPath, entries });
-      if (entries.length >= 2) {
-        showToast({ kind: "info", message: `Copied ${entries.length} items` });
-      }
-    }),
-    registerCommand(COMMANDS.fileCut, () => {
-      const wsId = useActiveStore.getState().activeWorkspaceId;
-      if (!wsId) return;
-      const filesState = useFilesStore.getState();
-      const tree = filesState.trees.get(wsId);
-      if (!tree) return;
-      const absPaths = selectOperablePaths(filesState, wsId).filter(
-        (p) => p !== tree.rootAbsPath && tree.nodes.has(p),
-      );
-      if (absPaths.length === 0) return;
-      const entries = absPaths.map((p) => ({
-        relPath: p.slice(tree.rootAbsPath.length + 1),
-        absPath: p,
-      }));
-      handleCut({ workspaceId: wsId, workspaceRootPath: tree.rootAbsPath, entries });
-      if (entries.length >= 2) {
-        showToast({ kind: "info", message: `Cut ${entries.length} items` });
-      }
-    }),
+    registerCommand(COMMANDS.fileCopy, makeClipboardCommand(handleCopy, "Copied")),
+    registerCommand(COMMANDS.fileCut, makeClipboardCommand(handleCut, "Cut")),
     registerCommand(COMMANDS.filePaste, () => {
       handlePaste().catch(() => {});
     }),
@@ -155,14 +197,9 @@ export function registerFileCommands(): Array<() => void> {
     }),
     // Enter-triggered rename — Mac only (scoped by when: "isMac").
     registerCommand(COMMANDS.fileRenameByEnter, () => {
-      const wsId = useActiveStore.getState().activeWorkspaceId;
-      if (!wsId) return;
-      const filesState = useFilesStore.getState();
-      const path = selectFocus(filesState, wsId);
-      if (!path) return;
-      const tree = filesState.trees.get(wsId);
-      if (!tree || path === tree.rootAbsPath) return;
-      filesState.requestRename(path);
+      withFocusedSinglePath(({ path }) => {
+        useFilesStore.getState().requestRename(path);
+      });
     }),
 
     // Cmd+Backspace — 파일트리 포커스 상태에서 현재 행(들) 삭제 (macOS Finder parity).
@@ -171,20 +208,9 @@ export function registerFileCommands(): Array<() => void> {
     // when:"fileTreeFocus && !inputFocus" 조건이 dispatcher 레벨에서 edit-row
     // 입력 중 발화를 막는다. 핸들러에서도 root / missing-node guard를 유지한다.
     registerCommand(COMMANDS.fileDelete, () => {
-      const wsId = useActiveStore.getState().activeWorkspaceId;
-      if (!wsId) return;
-      const filesState = useFilesStore.getState();
-      const tree = filesState.trees.get(wsId);
-      if (!tree) return;
-
-      const paths = selectOperablePaths(filesState, wsId);
-      if (paths.length === 0) return;
-
-      const deletable = paths.filter((p) => p !== tree.rootAbsPath && tree.nodes.has(p));
-      if (deletable.length === 0) return;
-
-      confirmAndDeleteBatch(wsId, tree.rootAbsPath, deletable).catch(() => {});
+      withFocusedTreePaths(({ wsId, tree, absPaths }) => {
+        confirmAndDeleteBatch(wsId, tree.rootAbsPath, absPaths).catch(() => {});
+      });
     }),
-
   ];
 }

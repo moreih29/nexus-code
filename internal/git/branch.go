@@ -312,86 +312,41 @@ func (s *Service) BranchFastForward(ctx context.Context, raw json.RawMessage) (a
 // runBranchCommand executes one git branch command and converts non-zero exits to
 // typed errors via the stderr classifier.
 func (s *Service) runBranchCommand(ctx context.Context, args []string, cwd string, interactive bool) error {
-	cmd, err := s.command(ctx, args, cwd, nil, interactive)
+	_, stderr, code, err := s.capture(ctx, cwd, args, interactive)
 	if err != nil {
 		return err
 	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	err = cmd.Run()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return ctxErr
-	}
-	code, fatal := gitExitCode(err)
-	if fatal != nil {
-		return fatal
-	}
 	if code != 0 {
-		return branchGitError(args, stderr.String(), code)
+		return gitError(args, stderr, code)
 	}
 	return nil
 }
 
-// branchGitError converts a non-zero git exit into a typed CodedError.
-func branchGitError(args []string, stderr string, code int) error {
-	kind := Classify(stderr)
-	message := MessageForKind(kind, MessageContext{Stderr: stderr, Args: args, ExitCode: &code})
-	if strings.TrimSpace(message) == "" {
-		message = strings.TrimSpace(stderr)
-	}
-	if message == "" {
-		message = fmt.Sprintf("git %s exited with code %d", strings.Join(args, " "), code)
-	}
-	return proto.CodedError{Code: proto.CodeRequestFailed, Msg: message}
-}
-
 // branchRevParse reads the SHA for a branch via --verify.
 func (s *Service) branchRevParse(ctx context.Context, cwd, ref string) (string, error) {
-	cmd, err := s.command(ctx, []string{"rev-parse", "--verify", ref}, cwd, nil, false)
+	args := []string{"rev-parse", "--verify", ref}
+	stdout, stderr, code, err := s.capture(ctx, cwd, args, false)
 	if err != nil {
 		return "", err
 	}
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	runErr := cmd.Run()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return "", ctxErr
-	}
-	code, fatal := gitExitCode(runErr)
-	if fatal != nil {
-		return "", fatal
-	}
 	if code != 0 {
-		return "", branchGitError([]string{"rev-parse", "--verify", ref}, stderr.String(), code)
+		return "", gitError(args, stderr, code)
 	}
-	return strings.TrimSpace(stdout.String()), nil
+	return strings.TrimSpace(stdout), nil
 }
 
 // readCurrentBranch returns the currently checked-out branch name, or "" for
 // detached HEAD or unborn repos.
 func (s *Service) readCurrentBranch(ctx context.Context, cwd string) (string, error) {
-	cmd, err := s.command(ctx, []string{"symbolic-ref", "--quiet", "--short", "HEAD"}, cwd, nil, false)
+	stdout, _, code, err := s.capture(ctx, cwd, []string{"symbolic-ref", "--quiet", "--short", "HEAD"}, false)
 	if err != nil {
 		return "", err
-	}
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	runErr := cmd.Run()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return "", ctxErr
-	}
-	code, fatal := gitExitCode(runErr)
-	if fatal != nil {
-		return "", fatal
 	}
 	if code != 0 {
 		// Detached HEAD or unborn repo: not an error for our purposes.
 		return "", nil
 	}
-	return strings.TrimSpace(stdout.String()), nil
+	return strings.TrimSpace(stdout), nil
 }
 
 // resolveCreateBranchStartRef resolves a start-point ref for branch creation.
