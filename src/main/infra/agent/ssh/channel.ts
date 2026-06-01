@@ -8,6 +8,7 @@ import { ChannelEventRegistry } from "../channel/event-registry";
 import { createDisposedError, createSshError } from "../pipe";
 import {
   type AgentReconnectOptions,
+  type ChannelCloseContext,
   createReconnectingProcessChannel,
 } from "../channel/reconnecting-process-channel";
 import { classifyAuthLine } from "./auth";
@@ -41,6 +42,29 @@ export interface SshChannelDependencies {
 }
 
 /**
+ * Renders the close context into a single-line cause string for the terminal
+ * `ssh.unknown` error. `createSshError` logs this to the file transport, so an
+ * otherwise-opaque transport close ("disconnected by user", empty cause) now
+ * records the exit code, signal, and the tail of the agent's stderr. Returns
+ * undefined when nothing useful was captured, preserving the prior behavior.
+ */
+function formatCloseDiagnostic(context?: ChannelCloseContext): string | undefined {
+  if (!context) return undefined;
+  const parts: string[] = [];
+  if (context.code !== undefined && context.code !== null) {
+    parts.push(`exit code=${context.code}`);
+  }
+  if (context.signal) {
+    parts.push(`signal=${context.signal}`);
+  }
+  const stderrTail = context.stderrTail?.trim();
+  if (stderrTail) {
+    parts.push(`stderr=${stderrTail}`);
+  }
+  return parts.length > 0 ? `agent process closed (${parts.join(" ")})` : undefined;
+}
+
+/**
  * Opens an SSH-backed NDJSON request channel to the remote agent. The
  * orchestrator spawns the SSH client (via ssh-master) and composes an NDJSON
  * pipe (pipe) over its stdio, classifying stderr through ssh-auth.
@@ -60,7 +84,8 @@ export function createSshChannel(
         spawn: dependencies.spawn,
       }),
     classifyStderr: classifyAuthLine,
-    closeError: () => createSshError("ssh.unknown"),
+    closeError: (_wasReady, context) =>
+      createSshError("ssh.unknown", formatCloseDiagnostic(context)),
     requestTimeoutMs: dependencies.requestTimeoutMs,
     expectedProtocolMajor: REMOTE_AGENT_PROTOCOL_MAJOR,
     reconnect: dependencies.reconnect,

@@ -214,10 +214,25 @@ async function buildAgentBinaries(args: {
     const name = `agent-${args.version}-${target.os}-${target.arch}`;
     await args.run(
       "go",
-      ["build", "-ldflags=-s -w", "-o", path.join(args.outDir, name), "./cmd/agent"],
+      [
+        "build",
+        "-tags=netgo,osusergo",
+        "-ldflags=-s -w",
+        "-o",
+        path.join(args.outDir, name),
+        "./cmd/agent",
+      ],
       {
         cwd: args.rootDir,
-        env: { ...process.env, GOOS: target.os, GOARCH: target.arch },
+        // CGO_ENABLED=0 forces a fully static binary. Without it the linux/amd64
+        // target is a *native* build on the CI runner, where Go defaults
+        // CGO_ENABLED to 1; because the agent imports "net" (and os/user), the
+        // binary then dynamically links the runner's glibc and requires that
+        // exact version at runtime — failing on older distros such as Ubuntu
+        // 20.04 (glibc 2.31) with "version `GLIBC_x.xx' not found". The
+        // netgo/osusergo tags keep the net and os/user resolvers in pure Go so
+        // disabling cgo does not silently change name resolution behavior.
+        env: { ...process.env, GOOS: target.os, GOARCH: target.arch, CGO_ENABLED: "0" },
       },
     );
     artifacts.push({ ...target, path: name });

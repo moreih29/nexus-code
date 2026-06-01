@@ -27,9 +27,13 @@ permissions:
 
 jobs:
   # ── Job 1: Agent 크로스컴파일 ────────────────────────────────────────────
-  # ubuntu-latest를 쓰는 이유: CGO 미사용 Go 바이너리 + Node runtime download +
-  # LSP bundle은 OS 독립적이라 어느 runner에서도 OK. macOS runner 분당 과금이
-  # ubuntu 대비 10x이므로 ubuntu에서 먼저 처리 후 artifact로 공유한다.
+  # ubuntu-latest를 쓰는 이유: 에이전트는 CGO_ENABLED=0(정적 링크)로 빌드돼
+  # 빌드 호스트의 glibc/OS 와 무관 + Node runtime download + LSP bundle 도 OS
+  # 독립적이라 어느 runner 에서도 OK. (과거 linux/amd64 는 네이티브 빌드라 CGO 가
+  # 켜져 빌드 호스트 glibc 에 동적 링크됐고, 구버전 배포판에서 'GLIBC_x.xx not
+  # found' 로 실패했다 — build-agent.ts 에서 CGO_ENABLED=0 을 강제해 해결.)
+  # macOS runner 분당 과금이 ubuntu 대비 10x 이므로 ubuntu 에서 먼저 처리 후
+  # artifact 로 공유한다.
   build-agent:
     name: Build agent (cross-compile)
     runs-on: ubuntu-latest
