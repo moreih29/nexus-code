@@ -184,8 +184,13 @@ export interface NdjsonPipe {
   dispose(): void;
   /** Marks the pipe terminally failed from the orchestrator's side. */
   fail(error: Error): void;
-  /** Flushes buffered lines and reports whether ready had settled before close. */
-  notifyClose(): { wasReady: boolean };
+  /**
+   * Flushes buffered lines and reports whether ready had settled before close.
+   * `stderrTail` carries the last few raw stderr lines (loader errors, panics,
+   * unclassified warnings) so the orchestrator can attach them to the terminal
+   * error's cause — the file log is then self-sufficient for diagnosis.
+   */
+  notifyClose(): { wasReady: boolean; stderrTail: string };
 }
 
 /**
@@ -206,6 +211,13 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     resume: () => deps.stdout.resume(),
   });
   const stderrLines = createLineSplitter(handleStderrLine);
+
+  // Ring buffer of the most recent raw stderr lines. Retained regardless of
+  // classification so an unrecognized fatal line (e.g. a glibc loader error)
+  // is still available as diagnostic context when the process closes.
+  const STDERR_TAIL_MAX_LINES = 20;
+  const STDERR_TAIL_MAX_LINE_CHARS = 200;
+  const recentStderr: string[] = [];
 
   let nextRequestId = 1;
   let disposed = false;
@@ -388,9 +400,23 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       }
     }
 
+    // Retain the raw line before classification so it survives even when no
+    // pattern matches — the close handler reads this tail for the cause.
+    recordStderr(line);
+
     const code = deps.classifyStderr(line);
     if (code) {
-      selfFail(createSshError(code));
+      // Attach the offending line as cause so the file log shows *why* the
+      // agent failed to start, not just the classified code.
+      selfFail(createSshError(code, line));
+    }
+  }
+
+  /** Appends one stderr line to the bounded diagnostic tail buffer. */
+  function recordStderr(line: string): void {
+    recentStderr.push(line.slice(0, STDERR_TAIL_MAX_LINE_CHARS));
+    if (recentStderr.length > STDERR_TAIL_MAX_LINES) {
+      recentStderr.shift();
     }
   }
 
@@ -529,10 +555,10 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       rejectReady(error);
       rejectPendingRequests(error);
     },
-    notifyClose(): { wasReady: boolean } {
+    notifyClose(): { wasReady: boolean; stderrTail: string } {
       stdoutLines.flush();
       stderrLines.flush();
-      return { wasReady: readySettled };
+      return { wasReady: readySettled, stderrTail: recentStderr.join(" | ") };
     },
   };
 }
@@ -553,7 +579,9 @@ export function createSshError(code: SshErrorCode, cause?: unknown): SshError {
   try {
     const causeMsg =
       cause instanceof Error ? cause.message : cause === undefined ? "" : String(cause);
-    const causeSnippet = causeMsg.slice(0, 300);
+    // 600 chars (up from 300) so a close diagnostic carrying an exit code plus
+    // a multi-line stderr tail is not truncated before the actual error text.
+    const causeSnippet = causeMsg.slice(0, 600);
     const stack = (error.stack ?? "").split("\n").slice(1, 6).join(" | ");
     getMalformedStdoutLogger().warn(
       `SshError throw: code=${code} cause=${causeSnippet} stack=${stack}`,

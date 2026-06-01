@@ -22,10 +22,22 @@ export interface AgentReconnectOptions {
   readonly maxDelayMs?: number;
 }
 
+/**
+ * Diagnostic context captured at the moment a child process closes. Passed to
+ * `closeError` so the resulting terminal error can record the exit code,
+ * signal, and the tail of the process's stderr (e.g. a loader error) — making
+ * the file log self-sufficient instead of an empty-cause `ssh.unknown`.
+ */
+export interface ChannelCloseContext {
+  readonly code?: number | null;
+  readonly signal?: NodeJS.Signals | null;
+  readonly stderrTail?: string;
+}
+
 export interface ReconnectingProcessChannelOptions {
   readonly spawn: () => ChildProcessWithoutNullStreams;
   readonly classifyStderr: StderrClassifier;
-  readonly closeError: (wasReady: boolean) => Error;
+  readonly closeError: (wasReady: boolean, context?: ChannelCloseContext) => Error;
   readonly requestTimeoutMs?: number;
   readonly expectedProtocolMajor?: string;
   readonly reconnect?: AgentReconnectOptions;
@@ -218,12 +230,13 @@ export function createReconnectingProcessChannel(
     if (active !== attempt) return;
     attempt.closed = true;
     clearForceKillTimer(attempt);
-    const { wasReady } = attempt.pipe.notifyClose();
+    const { wasReady, stderrTail } = attempt.pipe.notifyClose();
+    const closeContext: ChannelCloseContext = { code, signal, stderrTail };
 
     if (state === "disposed" || terminalError) return;
     if (code === 0 && wasReady) {
       state = "terminal";
-      terminalError = options.closeError(true);
+      terminalError = options.closeError(true, closeContext);
       emitLifecycle({ type: "exit", code, signal });
       return;
     }
@@ -244,7 +257,7 @@ export function createReconnectingProcessChannel(
       return;
     }
 
-    const error = options.closeError(wasReady);
+    const error = options.closeError(wasReady, closeContext);
     attempt.pipe.fail(error);
     state = "terminal";
     terminalError = error;

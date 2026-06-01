@@ -31,6 +31,13 @@ const SERVER_SPAWN_FAILED_PATTERNS = [
   /\bexec: .*: not found\b/i,
   /\bexec: .*: no such file or directory\b/i,
   /cannot execute: required file not found/i,
+  // Dynamic-loader failures when the agent binary cannot run on the remote:
+  // a glibc too old for the binary's required symbol version (the exact case
+  // that surfaced as an empty-cause ssh.unknown before this classifier
+  // existed), a missing shared library, or an architecture mismatch.
+  /version `?GLIBC_[\d.]+'? not found/i,
+  /error while loading shared libraries/i,
+  /cannot execute binary file/i,
 ];
 
 /**
