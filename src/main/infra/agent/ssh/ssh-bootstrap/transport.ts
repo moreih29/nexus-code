@@ -113,16 +113,23 @@ export async function uploadAndVerifyFile(args: {
     args.runner,
     `mkdir -p ${quoteShellArg(remoteDir)} && chmod 755 ${args.remoteAgentRoot} ${quoteShellArg(remoteDir)}`,
   );
-  // Best-effort sweep of `.tmp.<rand>` files left by earlier interrupted
+  // Best-effort sweep of *stale* `.tmp.<rand>` files left by earlier interrupted
   // installs (a connection dropped after upload-to-temp but before the rename,
-  // or before our per-attempt rm could run over the now-dead connection). Use
-  // `find -delete` rather than a shell glob so an empty match is a clean no-op
-  // under any login shell (zsh aborts on an unmatched glob; find does not). The
+  // or before our per-attempt rm could run over the now-dead connection).
+  //
+  // `-mmin +5` is critical for multi-workspace / multi-user hosts: several
+  // bootstraps can run against the same shared binary path concurrently (each
+  // writes its own `.tmp.<rand>`), so we must NEVER delete a temp file that a
+  // concurrent upload is still writing. A genuine orphan is minutes old; an
+  // in-flight upload is seconds old, so the age filter leaves it untouched.
+  //
+  // `find -delete` (not a shell glob) makes an empty match a clean no-op under
+  // any login shell — zsh aborts on an unmatched glob, find does not. The
   // pattern is single-quoted so the login shell passes it to find verbatim.
   await runSsh(
     args.options,
     args.runner,
-    `find ${quoteShellArg(remoteDir)} -maxdepth 1 -name ${singleQuoteShellArg(`${path.posix.basename(args.remotePath)}.tmp.*`)} -delete`,
+    `find ${quoteShellArg(remoteDir)} -maxdepth 1 -name ${singleQuoteShellArg(`${path.posix.basename(args.remotePath)}.tmp.*`)} -mmin +5 -delete`,
   ).catch(() => undefined);
   const payload = await fs.readFile(args.localPath);
   if (sha256(payload) !== args.sha256) {
