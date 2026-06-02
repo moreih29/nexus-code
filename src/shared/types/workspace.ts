@@ -73,6 +73,25 @@ export type WorkspaceConnectionProgressEvent = z.infer<
 >;
 
 /**
+ * SSH 브라우즈 세션(워크스페이스 추가 플로우) 부트스트랩 진행 이벤트.
+ *
+ * 등록된 워크스페이스는 workspaceId로 진행률을 키잉하지만, "워크스페이스 추가"
+ * 플로우에서는 openBrowseSession이 끝나기 전까지 workspaceId도 sessionId도
+ * 존재하지 않는다. 그래서 렌더러가 호출 직전에 만든 progressId(클라이언트 생성
+ * correlation id)로 키잉한다 — 그 외 필드는 WorkspaceConnectionProgressEvent와
+ * 동일한 phase enum/바이트 진행을 재사용한다.
+ */
+export const SshBrowseProgressEventSchema = z.object({
+  progressId: z.string(),
+  name: z.string(),
+  phase: LspBootstrapProgressPhaseSchema,
+  bytesDone: z.number().int().nonnegative().optional(),
+  bytesTotal: z.number().int().nonnegative().optional(),
+});
+
+export type SshBrowseProgressEvent = z.infer<typeof SshBrowseProgressEventSchema>;
+
+/**
  * Returns the path-like root used by legacy local-only callers.
  */
 export function rootPathFromLocation(location: WorkspaceLocation): string {

@@ -11,9 +11,11 @@ import {
 } from "../../../services/workspace";
 import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
+import { BootstrapProgressBar } from "../bootstrap-progress-bar";
 import { ErrorNotice } from "./error-notice";
 import { formatProfileSubtitle } from "./ssh-helpers";
 import type { SshBrowseSession, SshConnectionListViewProps } from "./types";
+import { useBrowseProgress } from "./use-browse-progress";
 
 // ---------------------------------------------------------------------------
 // SshConnectionListView — T4 implementation
@@ -31,6 +33,13 @@ export function SshConnectionListView({
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [errorId, setErrorId] = useState<string | null>(null);
   const [errorHuman, setErrorHuman] = useState<string | null>(null);
+  // Agent-bootstrap progress for the in-flight connect (keyed by a client-minted
+  // progressId, since no sessionId/workspaceId exists yet).
+  const {
+    progress: browseProgress,
+    begin: beginProgress,
+    clear: clearProgress,
+  } = useBrowseProgress();
 
   const loadProfiles = useCallback((): (() => void) => {
     let cancelled = false;
@@ -76,6 +85,7 @@ export function SshConnectionListView({
         port: profile.port,
         identityFile: profile.identityFile ?? undefined,
         authMode: profile.authMode as "interactive" | "key-only",
+        progressId: beginProgress(),
       });
       if (!result.ok) {
         // User cancelled the SSH auth prompt — silent stop, no error banner.
@@ -107,6 +117,7 @@ export function SshConnectionListView({
       onConnected(session);
     } finally {
       setConnectingId(null);
+      clearProgress();
     }
   }
 
@@ -151,6 +162,18 @@ export function SshConnectionListView({
 
   return (
     <div className="flex flex-col gap-1">
+      {/* Bootstrap progress — shown once the agent upload/verify begins for the
+          profile being connected, instead of only the per-row spinner. */}
+      {busy && browseProgress ? (
+        <BootstrapProgressBar
+          phase={browseProgress.phase}
+          name={browseProgress.name}
+          bytesDone={browseProgress.bytesDone}
+          bytesTotal={browseProgress.bytesTotal}
+          className="px-2 pb-1"
+        />
+      ) : null}
+
       {/* Empty state — shown above New Connection row when no profiles */}
       {!hasContent ? (
         <EmptyState
@@ -166,7 +189,9 @@ export function SshConnectionListView({
       {favorites.length > 0 ? (
         <section aria-label={t("workspace.favorites")}>
           <div className="px-2 pb-1 pt-0">
-            <span className="text-app-label uppercase text-muted-foreground">{t("workspace.favorites")}</span>
+            <span className="text-app-label uppercase text-muted-foreground">
+              {t("workspace.favorites")}
+            </span>
           </div>
           <ul className="flex flex-col gap-0.5">
             {favorites.map((profile) => (
@@ -187,9 +212,14 @@ export function SshConnectionListView({
 
       {/* Recent section */}
       {recents.length > 0 ? (
-        <section aria-label={t("workspace.recent")} className={favorites.length > 0 ? "mt-3" : undefined}>
+        <section
+          aria-label={t("workspace.recent")}
+          className={favorites.length > 0 ? "mt-3" : undefined}
+        >
           <div className="px-2 pb-1 pt-0">
-            <span className="text-app-label uppercase text-muted-foreground">{t("workspace.recent")}</span>
+            <span className="text-app-label uppercase text-muted-foreground">
+              {t("workspace.recent")}
+            </span>
           </div>
           <ul className="flex flex-col gap-0.5">
             {recents.map((profile) => (
@@ -308,7 +338,9 @@ function ConnectionProfileRow({
           <span className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
             <button
               type="button"
-              aria-label={isFavorite ? t("workspace.remove_from_favorites") : t("workspace.add_to_favorites")}
+              aria-label={
+                isFavorite ? t("workspace.remove_from_favorites") : t("workspace.add_to_favorites")
+              }
               onClick={onToggleFavorite}
               className="inline-flex size-11 items-center justify-center rounded-(--radius-control) text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             >

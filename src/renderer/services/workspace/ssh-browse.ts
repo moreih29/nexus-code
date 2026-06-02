@@ -6,8 +6,9 @@
  */
 
 import type { DirEntry } from "../../../shared/fs/types";
-import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
+import type { SshBrowseProgressEvent } from "../../../shared/types/workspace";
 import type { IpcResult } from "../../ipc/client";
+import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
 
 // ---------------------------------------------------------------------------
 // Open browse session
@@ -19,6 +20,12 @@ export interface OpenBrowseSessionArgs {
   readonly port?: number;
   readonly identityFile?: string;
   readonly authMode: "interactive" | "key-only";
+  /**
+   * Client-generated correlation id (uuid). When set, the main process streams
+   * agent-bootstrap progress for this attempt via `ssh.browseProgress`; pair it
+   * with subscribeSshBrowseProgress() to render a progress bar while connecting.
+   */
+  readonly progressId?: string;
 }
 
 export interface BrowseSessionInfo {
@@ -45,7 +52,20 @@ export async function openSshBrowseSession(
     port: args.port,
     identityFile: args.identityFile,
     authMode: args.authMode,
+    progressId: args.progressId,
   });
+}
+
+/**
+ * Subscribe to SSH browse-session bootstrap progress events. Events are keyed
+ * by the `progressId` the caller passed to openSshBrowseSession — the callback
+ * receives every event so the caller filters by its own id. Returns a dispose
+ * function; call it when the connect attempt ends.
+ */
+export function subscribeSshBrowseProgress(
+  callback: (event: SshBrowseProgressEvent) => void,
+): () => void {
+  return ipcListen("ssh", "browseProgress", callback);
 }
 
 // ---------------------------------------------------------------------------

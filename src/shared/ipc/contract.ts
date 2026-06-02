@@ -99,6 +99,7 @@ import {
 } from "../types/panel";
 import { TabMetaSchema } from "../types/tab";
 import {
+  SshBrowseProgressEventSchema,
   WorkspaceConnectionChangedEventSchema,
   WorkspaceConnectionProgressEventSchema,
   WorkspaceLocationSchema,
@@ -283,6 +284,10 @@ const SshBrowseConnParamsSchema = z.object({
   port: z.number().int().positive().max(65_535).optional(),
   identityFile: z.string().min(1).optional(),
   authMode: z.enum(["interactive", "key-only"]).default("interactive"),
+  // Client-generated correlation id so the renderer can subscribe to
+  // `ssh.browseProgress` events for THIS connect attempt before any
+  // sessionId/workspaceId exists. Optional: omitting it just disables progress.
+  progressId: z.string().uuid().optional(),
 });
 
 const SshBrowseSessionIdSchema = z.object({ sessionId: z.string().uuid() });
@@ -559,7 +564,11 @@ export const ipcContract = {
       ),
       closeBrowseSession: call(SshBrowseSessionIdSchema, z.void()),
     },
-    listen: {},
+    listen: {
+      // Bootstrap progress for an in-flight openBrowseSession, keyed by the
+      // caller's progressId (see SshBrowseConnParamsSchema.progressId).
+      browseProgress: listen(SshBrowseProgressEventSchema),
+    },
   },
 
   sshAuth: {

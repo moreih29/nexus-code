@@ -3,10 +3,7 @@ import { useTranslation } from "react-i18next";
 import { openTerminal } from "@/services/terminal";
 import { cn } from "@/utils/cn";
 import { createLogger } from "../../../shared/log/renderer";
-import type {
-  WorkspaceConnectionProgressEvent,
-  WorkspaceMeta,
-} from "../../../shared/types/workspace";
+import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { ipcCallResult } from "../../ipc/client";
 import { useLayoutStore } from "../../state/stores/layout";
 import { type Tab, useTabsStore } from "../../state/stores/tabs";
@@ -20,6 +17,7 @@ import {
 import { EmptyState } from "../ui/empty-state";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { StatusBar } from "../workbench/status-bar";
+import { BootstrapProgressBar } from "./bootstrap-progress-bar";
 import { ContentPool } from "./content/pool";
 import { LayoutTree } from "./layout/tree";
 import {
@@ -131,7 +129,13 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
             tone="status"
           />
           {isConnecting && connectionProgress && (
-            <BootstrapProgressBar progress={connectionProgress} />
+            <BootstrapProgressBar
+              phase={connectionProgress.phase}
+              name={connectionProgress.name}
+              bytesDone={connectionProgress.bytesDone}
+              bytesTotal={connectionProgress.bytesTotal}
+              className="absolute bottom-0 left-0 right-0 px-5 pb-4"
+            />
           )}
         </div>
       </div>
@@ -180,71 +184,3 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
 // ---------------------------------------------------------------------------
 // 부트스트랩 진행 표시줄
 // ---------------------------------------------------------------------------
-
-/**
- * diff-tab.tsx의 formatBytes와 동일한 구현. 별도 공유 유틸이 없으므로 인라인 복사.
- */
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const kib = bytes / 1024;
-  if (kib < 1024) return `${kib.toFixed(kib >= 10 ? 0 : 1)} KB`;
-  const mib = kib / 1024;
-  return `${mib.toFixed(mib >= 10 ? 0 : 1)} MB`;
-}
-
-/**
- * SSH 에이전트 부트스트랩 진행 표시줄.
- *
- * 정직한 진행률 표시 규칙:
- * - bytesTotal>0 이고 0<bytesDone<bytesTotal 인 경우에만 determinate 바 렌더.
- * - 나머지 모든 경우는 indeterminate(animated) 바 렌더.
- *
- * 플레이스홀더 컨테이너 하단에 절대 위치로 붙인다.
- */
-function BootstrapProgressBar({ progress }: { progress: WorkspaceConnectionProgressEvent }) {
-  const { t } = useTranslation();
-
-  const { phase, name, bytesDone, bytesTotal } = progress;
-
-  // phase 레이블: 이름이 필요한 phase("uploading", "extracting")에는 name을 보간한다.
-  const phaseLabel = t(`panel.bootstrap_phase.${phase}`, { name });
-
-  // 사이즈 문자열: bytesTotal이 있을 때만 표시한다.
-  const sizeLabel = bytesTotal && bytesTotal > 0 ? formatBytes(bytesTotal) : undefined;
-
-  // Determinate 여부: bytesDone이 존재하고 0<bytesDone<bytesTotal인 경우에만.
-  const isDeterminate =
-    bytesTotal !== undefined &&
-    bytesTotal > 0 &&
-    bytesDone !== undefined &&
-    bytesDone > 0 &&
-    bytesDone < bytesTotal;
-  const percent = isDeterminate ? Math.round((bytesDone / bytesTotal) * 100) : undefined;
-
-  return (
-    <div className="absolute bottom-0 left-0 right-0 flex flex-col gap-1 px-5 pb-4">
-      <div className="flex items-baseline justify-between gap-2 text-app-micro text-muted-foreground">
-        <span className="truncate">{phaseLabel}</span>
-        {sizeLabel && <span className="shrink-0 tabular-nums">{sizeLabel}</span>}
-      </div>
-      <div
-        role="progressbar"
-        aria-label={phaseLabel}
-        aria-valuenow={percent}
-        aria-valuemin={isDeterminate ? 0 : undefined}
-        aria-valuemax={isDeterminate ? 100 : undefined}
-        className="h-1 w-full overflow-hidden rounded-full bg-muted"
-      >
-        {isDeterminate ? (
-          <div
-            className="h-full rounded-full bg-muted-foreground/50 transition-[width]"
-            style={{ width: `${percent}%` }}
-          />
-        ) : (
-          // indeterminate: pulse 애니메이션으로 진행 중임을 표시
-          <div className="h-full w-full rounded-full bg-muted-foreground/50 motion-safe:animate-pulse" />
-        )}
-      </div>
-    </div>
-  );
-}

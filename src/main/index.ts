@@ -219,7 +219,11 @@ registerAppStateChannel(stateService, {
 registerFsChannel(workspaceManager, agentFsWatcher, workspaceStorage);
 registerPanelChannel(workspaceStorage);
 registerSshChannel();
-registerSshBrowseHandlers(sshBrowseRegistry, (prompt) => sshAuthPromptHub.request(prompt));
+registerSshBrowseHandlers(
+  sshBrowseRegistry,
+  (prompt) => sshAuthPromptHub.request(prompt),
+  forwardBroadcast,
+);
 registerSshAuthPromptIpcChannels(sshAuthPromptHub);
 registerSystemChannel({ openNewWindow: () => createMainWindow(stateService.getState()) });
 registerClipboardChannel();
