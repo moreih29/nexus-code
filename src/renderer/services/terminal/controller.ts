@@ -119,6 +119,65 @@ export function isShellPromptLikeTitle(title: string): boolean {
 }
 
 /**
+ * Login-shell program names. When one of these is the PTY's foreground process,
+ * an OSC title arriving in the normal screen buffer is shell-prompt or preexec
+ * command-echo noise rather than a real inline TUI's title.
+ *
+ * `ps -o comm=` may prefix a login shell with "-" (e.g. "-zsh"); we strip it.
+ */
+const LOGIN_SHELL_NAMES: ReadonlySet<string> = new Set([
+  "sh",
+  "bash",
+  "zsh",
+  "fish",
+  "dash",
+  "ksh",
+  "tcsh",
+  "csh",
+]);
+
+/** True when `comm` (a `ps -o comm=` basename) names a login shell. */
+export function isLoginShell(comm: string): boolean {
+  return LOGIN_SHELL_NAMES.has(comm.trim().replace(/^-/, ""));
+}
+
+export type OscTitleAction = "ignore" | "apply" | "clear" | "confirm";
+
+/**
+ * First-pass classification of an OSC window-title change, by title shape and
+ * screen buffer. See the onTitleChange wiring for how each action is handled.
+ *
+ *  - alternate screen (lazygit/yazi/vim/less): a non-shell-like title applies
+ *    directly; a shell-like variant is ignored (the alt-enter foregroundProcess
+ *    path labels those tabs instead).
+ *  - normal screen: a shell-like title (prompt/path) clears back to the default,
+ *    which also resets the tab when an inline TUI like Claude Code exits. A
+ *    non-shell-like normal-screen title is deferred to a foregroundProcess
+ *    check ("confirm") because preexec hooks can echo commands here.
+ */
+export function classifyOscTitle(
+  title: string,
+  bufferType: "normal" | "alternate",
+): OscTitleAction {
+  if (bufferType === "alternate") {
+    return isShellPromptLikeTitle(title) ? "ignore" : "apply";
+  }
+  if (isShellPromptLikeTitle(title)) return "clear";
+  return "confirm";
+}
+
+/**
+ * Whether a deferred ("confirm") normal-screen title should apply, given the
+ * PTY's current foreground process name. Applies only when a real, non-shell
+ * program holds the foreground — so command-echo noise (fired while the shell
+ * is still foreground) is rejected.
+ */
+export function foregroundConfirmsTitle(foregroundName: string): boolean {
+  const name = foregroundName.trim();
+  return name !== "" && !isLoginShell(name);
+}
+
+/**
  * Backslash-escape a filesystem path for injection into a shell / TUI prompt,
  * matching the drag-and-drop behavior of iTerm2 and Terminal.app.
  *
@@ -381,32 +440,49 @@ class XtermTerminalController implements TerminalController {
     this.installFileDrop(term);
 
     // OSC 0/1/2(window title) — xterm.js 내부 파서가 시퀀스를 수신해 onTitleChange로
-    // 노출한다. claude / lazygit / lazydocker 같은 TUI가 자기 이름/상태를 보내면
-    // 탭의 processTitle을 그것으로 갱신해 표시 title이 바뀐다.
-    // 사용자가 직접 rename으로 customTitle을 설정해두면 표시는 그대로 유지된다.
+    // 노출한다. lazygit/yazi/vim 같은 alternate-screen TUI, 그리고 Claude Code처럼
+    // alternate에 들어가지 않고 일반 화면에서 OSC로 제목을 쏘는 프로그램의 이름/상태를
+    // 탭의 processTitle로 반영한다. customTitle이 설정돼 있으면 표시 title은 유지된다.
     //
-    // 빈 문자열은 store가 processTitle clear로 해석 → 자동 복귀.
-    //
-    // 두 단계 필터:
-    //   1) Alternate screen buffer 가드 — 가장 강한 신호.
-    //      TUI(claude/lazygit/lazydocker/vim/less/htop)는 시작 시 alternate
-    //      screen으로 진입(\\x1b[?1049h)한 뒤 자기 이름을 OSC 2로 발사한다.
-    //      반면 ls/grep/cat 같은 단발 명령은 normal screen에서 출력되며, 일부
-    //      zsh 플러그인(starship 등)이 preexec hook에서 OSC 2로 "ls -G" 같은
-    //      현재 명령을 발사해 탭 이름을 흔드는 케이스가 있다. buffer.active.type
-    //      이 "alternate"일 때만 받아 두 신호를 깔끔히 분리한다.
-    //   2) Shell prompt 패턴 필터 — 백업.
-    //      alternate screen인데도 `user@host:cwd` 형태를 보내는 변종 prompt
-    //      대응. `/`, `~`, `@`+`:` 동시 포함이면 거부.
-    //
-    // 거부된 OSC는 silently drop — store 갱신 안 함.
-    // 빈 문자열도 alternate 가드에 막혀 그대로 통과시 store가 clear로 해석하지만,
-    // alternate 종료 시점에 빈 OSC는 normal screen에서 발사되므로 자연스럽게 무시된다.
+    // 노이즈(셸 프롬프트의 `user@host:cwd`, starship 등 preexec hook의 명령 에코)와
+    // 실제 프로그램 제목을 구분해야 한다. classifyOscTitle이 (title, buffer type)으로
+    // 1차 분류한다:
+    //   - "ignore"  : 버림
+    //   - "apply"   : processTitle = title
+    //   - "clear"   : processTitle = null → defaultTitle/customTitle 복귀.
+    //                 normal screen의 셸 프롬프트가 여기 해당하며, inline TUI(claude)가
+    //                 종료돼 프롬프트가 돌아올 때 탭 이름을 자연스럽게 되돌리는 역할도 한다.
+    //   - "confirm" : normal screen의 비셸틱 제목(claude 등). foreground process가 실제
+    //                 프로그램인지 RPC로 확인한 뒤에만 적용 → preexec 명령 에코가 탭을
+    //                 가로채지 못한다.
     this.titleDisposable = term.onTitleChange((title) => {
       if (this.disposed) return;
-      if (term.buffer.active.type !== "alternate") return;
-      if (isShellPromptLikeTitle(title)) return;
-      useTabsStore.getState().setProcessTitle(this.options.workspaceId, this.options.tabId, title);
+      const action = classifyOscTitle(title, term.buffer.active.type);
+      if (action === "ignore") return;
+      if (action === "clear") {
+        useTabsStore.getState().setProcessTitle(this.options.workspaceId, this.options.tabId, null);
+        return;
+      }
+      if (action === "apply") {
+        useTabsStore
+          .getState()
+          .setProcessTitle(this.options.workspaceId, this.options.tabId, title);
+        return;
+      }
+      // action === "confirm": normal-screen 비셸틱 제목. foreground 확인 후 적용.
+      void (async () => {
+        const result = await ipcCallResult("pty", "foregroundProcess", {
+          workspaceId: this.options.workspaceId,
+          tabId: this.options.tabId,
+        });
+        if (this.disposed || !result.ok) return;
+        if (!foregroundConfirmsTitle(result.value.name)) return;
+        useTabsStore
+          .getState()
+          .setProcessTitle(this.options.workspaceId, this.options.tabId, title);
+      })().catch(() => {
+        // RPC 실패는 silent — 제목 미적용(기존 title 유지).
+      });
     });
 
     // alt → ENTER 전이 시 PTY의 foreground process 이름을 IPC로 가져와 processTitle로

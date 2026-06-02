@@ -104,9 +104,13 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
 const { closeTerminal, createTerminalController, openTerminal } = await import(
   "../../../../src/renderer/services/terminal"
 );
-const { TERMINAL_REOPENED_SEPARATOR, isShellPromptLikeTitle } = await import(
-  "../../../../src/renderer/services/terminal/controller"
-);
+const {
+  TERMINAL_REOPENED_SEPARATOR,
+  isShellPromptLikeTitle,
+  isLoginShell,
+  classifyOscTitle,
+  foregroundConfirmsTitle,
+} = await import("../../../../src/renderer/services/terminal/controller");
 const { createPtyClient } = await import("../../../../src/renderer/services/terminal/pty-client");
 const { closeGroup } = await import("../../../../src/renderer/state/operations");
 const { useLayoutStore } = await import("../../../../src/renderer/state/stores/layout");
@@ -875,6 +879,71 @@ describe("isShellPromptLikeTitle", () => {
 });
 
 // ---------------------------------------------------------------------------
+// isLoginShell — foreground comm이 로그인 셸인지 판정 (명령 에코 노이즈 거름)
+// ---------------------------------------------------------------------------
+describe("isLoginShell", () => {
+  it("알려진 셸 이름 → true", () => {
+    for (const sh of ["sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh"]) {
+      expect(isLoginShell(sh)).toBe(true);
+    }
+  });
+
+  it("로그인 셸 prefix '-' 제거 후 판정 (ps -o comm=)", () => {
+    expect(isLoginShell("-zsh")).toBe(true);
+    expect(isLoginShell("-bash")).toBe(true);
+  });
+
+  it("실제 프로그램 → false", () => {
+    expect(isLoginShell("node")).toBe(false);
+    expect(isLoginShell("claude")).toBe(false);
+    expect(isLoginShell("lazygit")).toBe(false);
+    expect(isLoginShell("")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// classifyOscTitle — (title, buffer type) 1차 분류
+// ---------------------------------------------------------------------------
+describe("classifyOscTitle", () => {
+  it("alternate + 비셸틱 → apply (lazygit/yazi/vim)", () => {
+    expect(classifyOscTitle("lazygit", "alternate")).toBe("apply");
+    expect(classifyOscTitle("", "alternate")).toBe("apply");
+  });
+
+  it("alternate + 셸틱 → ignore (변종 prompt; alt-enter RPC가 라벨링)", () => {
+    expect(classifyOscTitle("Yazi: ~/workspaces/img_intern", "alternate")).toBe("ignore");
+    expect(classifyOscTitle("kih@host:~/x", "alternate")).toBe("ignore");
+  });
+
+  it("normal + 셸틱 → clear (프롬프트 복귀 / inline TUI 종료 정리)", () => {
+    expect(classifyOscTitle("kih@monolith:~/workspaces/img_intern", "normal")).toBe("clear");
+    expect(classifyOscTitle("/abs/path", "normal")).toBe("clear");
+  });
+
+  it("normal + 비셸틱 → confirm (claude 등 — foreground 확인 필요)", () => {
+    expect(classifyOscTitle("✳ Claude Code", "normal")).toBe("confirm");
+    expect(classifyOscTitle("ls -G", "normal")).toBe("confirm");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// foregroundConfirmsTitle — confirm 경로에서 foreground 이름으로 적용 여부 결정
+// ---------------------------------------------------------------------------
+describe("foregroundConfirmsTitle", () => {
+  it("실제 프로그램이 foreground → 적용", () => {
+    expect(foregroundConfirmsTitle("node")).toBe(true);
+    expect(foregroundConfirmsTitle("claude")).toBe(true);
+  });
+
+  it("셸이 foreground 또는 빈 값 → 거부 (명령 에코 노이즈)", () => {
+    expect(foregroundConfirmsTitle("zsh")).toBe(false);
+    expect(foregroundConfirmsTitle("-bash")).toBe(false);
+    expect(foregroundConfirmsTitle("")).toBe(false);
+    expect(foregroundConfirmsTitle("   ")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // OSC 0/1/2 title sync — claude / lazygit / lazydocker가 자신의 이름/상태를
 // 보내면 탭의 processTitle이 갱신되어야 한다.
 // ---------------------------------------------------------------------------
@@ -941,8 +1010,10 @@ describe("services/terminal controller — OSC title sync", () => {
     controller.dispose();
   });
 
-  it("normal screen에서 발사된 title은 무시 — ls/grep 같은 단발 명령 가드", async () => {
-    // 새 harness — buffer 기본 alternate를 normal로 전환해 단발 명령 시나리오 재현.
+  it("normal screen 명령 에코는 foreground가 셸이면 무시 — starship preexec 가드", async () => {
+    // zsh preexec hook이 "ls -G" 같은 현재 명령을 OSC 2로 발사하는 케이스. 이때
+    // foreground는 아직 셸(명령 exec 전)이라 foregroundProcess 확인에서 거부된다.
+    mockForegroundProcessName = "zsh";
     const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
     const harness = makeTerminalControllerDeps();
     harness.setBufferType("normal");
@@ -960,8 +1031,72 @@ describe("services/terminal controller — OSC title sync", () => {
     const titleHandler = harness.getTitleHandler();
     if (!titleHandler) throw new Error("title handler missing");
 
-    // zsh preexec hook이 현재 명령을 OSC 2로 발사하는 케이스 — buffer는 여전히 normal.
     titleHandler("ls -G");
+    // confirm 경로의 async foregroundProcess 응답 대기
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const updated = useTabsStore.getState().byWorkspace[WS][tab.id];
+    expect(updated.processTitle).toBeUndefined();
+    expect(updated.title).toBe("Terminal");
+
+    controller.dispose();
+    mockForegroundProcessName = "lazygit"; // restore default
+  });
+
+  it("normal screen inline TUI(claude)는 foreground가 실제 프로그램이면 적용", async () => {
+    // Claude Code는 alternate screen에 들어가지 않고 normal screen에서 OSC 2로
+    // 제목을 발사한다. foreground가 셸이 아닌 실제 프로그램이면 적용되어야 한다.
+    mockForegroundProcessName = "node";
+    const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
+    const harness = makeTerminalControllerDeps();
+    harness.setBufferType("normal");
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: tab.id,
+        cwd: "/workspace",
+        container: {} as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const titleHandler = harness.getTitleHandler();
+    if (!titleHandler) throw new Error("title handler missing");
+
+    titleHandler("✳ Claude Code");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(useTabsStore.getState().byWorkspace[WS][tab.id].title).toBe("✳ Claude Code");
+
+    controller.dispose();
+    mockForegroundProcessName = "lazygit"; // restore default
+  });
+
+  it("normal screen 셸 프롬프트는 processTitle을 clear — inline TUI 종료 시 복귀", async () => {
+    const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
+    // 직전에 claude가 적용해둔 processTitle을 시뮬레이션
+    useTabsStore.getState().setProcessTitle(WS, tab.id, "✳ Claude Code");
+    const harness = makeTerminalControllerDeps();
+    harness.setBufferType("normal");
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: tab.id,
+        cwd: "/workspace",
+        container: {} as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const titleHandler = harness.getTitleHandler();
+    if (!titleHandler) throw new Error("title handler missing");
+
+    // claude 종료 → 셸 프롬프트가 OSC 2로 user@host:cwd 발사 (shellLike) → clear
+    titleHandler("kih@monolith:~/workspaces/img_intern");
 
     const updated = useTabsStore.getState().byWorkspace[WS][tab.id];
     expect(updated.processTitle).toBeUndefined();
@@ -990,11 +1125,15 @@ describe("services/terminal controller — OSC title sync", () => {
     if (!titleHandler) throw new Error("title handler missing");
     if (!altExitHandler) throw new Error("alt-exit handler missing");
 
-    // shell preexec — 무시되어야 함
+    // shell preexec — foreground가 셸이라 무시되어야 함
+    mockForegroundProcessName = "zsh";
     titleHandler("ls -G");
+    await Promise.resolve();
+    await Promise.resolve();
     expect(useTabsStore.getState().byWorkspace[WS][tab.id].processTitle).toBeUndefined();
 
-    // 사용자가 lazygit 실행 → alternate 진입 → "lazygit" 발사
+    // 사용자가 lazygit 실행 → alternate 진입 → "lazygit" 발사 (alternate는 RPC 불필요)
+    mockForegroundProcessName = "lazygit"; // restore default
     harness.setBufferType("alternate");
     titleHandler("lazygit");
     expect(useTabsStore.getState().byWorkspace[WS][tab.id].title).toBe("lazygit");
