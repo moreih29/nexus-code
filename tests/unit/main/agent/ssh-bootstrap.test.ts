@@ -186,6 +186,7 @@ describe("ssh-bootstrap", () => {
           }),
         };
       }
+      if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
@@ -241,6 +242,7 @@ describe("ssh-bootstrap", () => {
         return { stdout: "" };
       }
       if (command === "ssh" && remoteCommand.startsWith("index=0")) return { stdout: "" };
+      if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
@@ -292,6 +294,7 @@ describe("ssh-bootstrap", () => {
       }
       if (command === "ssh" && remoteCommand.startsWith("rm -rf")) return { stdout: "" };
       if (command === "ssh" && remoteCommand.startsWith("index=0")) return { stdout: "" };
+      if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
@@ -364,6 +367,7 @@ describe("ssh-bootstrap", () => {
       }
       if (command === "ssh" && remoteCommand.startsWith("rm -rf")) return { stdout: "" };
       if (command === "ssh" && remoteCommand.startsWith("index=0")) return { stdout: "" };
+      if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
@@ -416,6 +420,7 @@ describe("ssh-bootstrap", () => {
           }),
         };
       }
+      if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
@@ -499,6 +504,7 @@ describe("ssh-bootstrap", () => {
         return { stdout: "" };
       }
       if (command === "ssh" && remoteCommand.startsWith("index=0")) return { stdout: "" };
+      if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
@@ -540,6 +546,7 @@ describe("ssh-bootstrap", () => {
         return { stdout: "" };
       }
       if (command === "ssh" && remoteCommand.startsWith("index=0")) return { stdout: "" };
+      if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
@@ -579,6 +586,7 @@ describe("ssh-bootstrap", () => {
         return { stdout: "" };
       }
       if (command === "ssh" && remoteCommand.startsWith("index=0")) return { stdout: "" };
+      if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
@@ -612,6 +620,7 @@ describe("ssh-bootstrap", () => {
           }),
         };
       }
+      if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
@@ -650,6 +659,7 @@ describe("ssh-bootstrap", () => {
           }),
         };
       }
+      if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
@@ -699,6 +709,7 @@ describe("ssh-bootstrap", () => {
         }
         return { stdout: "" };
       }
+      if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
@@ -770,6 +781,7 @@ describe("ssh-bootstrap", () => {
         shimCatCalls += 1;
         return { stdout: "" };
       }
+      if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
@@ -808,6 +820,7 @@ describe("ssh-bootstrap", () => {
           }),
         };
       }
+      if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 

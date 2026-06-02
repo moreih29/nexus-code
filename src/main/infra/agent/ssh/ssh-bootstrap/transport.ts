@@ -4,7 +4,7 @@
  * uploading and verifying files, and quoting arbitrary strings into safe
  * shell or sftp tokens.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { type SpawnOptionsWithoutStdio, spawn as defaultSpawn } from "node:child_process";
@@ -73,7 +73,16 @@ export function buildSftpArgs(options: EnsureRemoteAgentOptions): string[] {
 
 /** Builds the ssh transport args shared by every remote command we run. */
 export function buildSshTransportArgs(options: EnsureRemoteAgentOptions): string[] {
-  const args = ["-o", "BatchMode=yes"];
+  // Keepalive so a bootstrap command over a dead connection fails fast (~45s)
+  // rather than hanging on the kernel's default TCP timeout.
+  const args = [
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ServerAliveInterval=15",
+    "-o",
+    "ServerAliveCountMax=3",
+  ];
   if (options.controlPath) args.push("-S", options.controlPath, "-o", "ControlMaster=no");
   if (options.port !== undefined) args.push("-p", String(options.port));
   if (options.identityFile) args.push("-i", options.identityFile);
@@ -110,15 +119,27 @@ export async function uploadAndVerifyFile(args: {
 
   const progressName = args.progressName ?? path.basename(args.remotePath);
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    // Upload to a unique temp path in the same directory, then atomically
+    // rename it into place. `mv -f` over a file that a lingering OLD agent is
+    // still executing succeeds — the running process keeps the old inode while
+    // the name is repointed to the new one — so a stale remote agent never
+    // blocks reinstall with ETXTBSY ("Text file busy"). Same-dir rename keeps
+    // it on one filesystem, so the swap is atomic with no missing-file window.
+    const tmpRemotePath = `${args.remotePath}.tmp.${randomBytes(6).toString("hex")}`;
     args.onProgress?.({
       name: progressName,
       phase: "uploading",
       bytesDone: 0,
       bytesTotal: payload.byteLength,
     });
-    await uploadFile(args.options, args.runner, args.localPath, args.remotePath, payload, {
+    await uploadFile(args.options, args.runner, args.localPath, tmpRemotePath, payload, {
       executable: args.executable,
     });
+    await runSsh(
+      args.options,
+      args.runner,
+      `mv -f ${quoteShellArg(tmpRemotePath)} ${quoteShellArg(args.remotePath)}`,
+    );
     args.onProgress?.({
       name: progressName,
       phase: "uploading",

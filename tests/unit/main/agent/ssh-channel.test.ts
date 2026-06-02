@@ -132,6 +132,10 @@ describe("createSshChannel", () => {
         args: [
           "-o",
           "BatchMode=yes",
+          "-o",
+          "ServerAliveInterval=15",
+          "-o",
+          "ServerAliveCountMax=3",
           "-p",
           "2222",
           "-i",
@@ -404,7 +408,17 @@ describe("createSshChannel", () => {
     expect(spawnCalls).toEqual([
       {
         command: "ssh",
-        args: ["-o", "BatchMode=yes", "--", "deploy@dev.example.com", "printf ready"],
+        args: [
+          "-o",
+          "BatchMode=yes",
+          "-o",
+          "ServerAliveInterval=15",
+          "-o",
+          "ServerAliveCountMax=3",
+          "--",
+          "deploy@dev.example.com",
+          "printf ready",
+        ],
       },
     ]);
   });
