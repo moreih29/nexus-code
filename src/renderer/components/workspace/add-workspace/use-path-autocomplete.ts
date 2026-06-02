@@ -139,11 +139,13 @@ export function usePathAutocomplete({
     return () => controller.abort();
   }, [suggestionsOpen, inputDir, suggestionDir, loadSuggestions]);
 
-  // Keep the highlighted option in range as the filtered list changes.
+  // Keep a valid option highlighted as the filtered list changes. The first
+  // entry is auto-selected (index 0) so pressing Enter commits the top match
+  // without first arrowing down; only an empty list clears the highlight.
   useEffect(() => {
     setActiveSuggestionIndex((cur) => {
-      if (cur < 0 || filteredSuggestions.length === 0) return -1;
-      return Math.min(cur, filteredSuggestions.length - 1);
+      if (filteredSuggestions.length === 0) return -1;
+      return Math.min(Math.max(cur, 0), filteredSuggestions.length - 1);
     });
   }, [filteredSuggestions.length]);
 
@@ -183,7 +185,9 @@ export function usePathAutocomplete({
 
   const handleInputChange = useCallback((): void => {
     setSuggestionsOpen(true);
-    setActiveSuggestionIndex(-1);
+    // Reset the highlight to the top match on every keystroke; the range
+    // effect demotes this to -1 when the new partial filters out every entry.
+    setActiveSuggestionIndex(0);
   }, []);
 
   const handleKeyDown = useCallback(

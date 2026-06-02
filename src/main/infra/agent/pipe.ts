@@ -662,6 +662,8 @@ function messageForSshErrorCode(code: SshErrorCode): string {
       return "SSH authentication cancelled";
     case "ssh.session-expired":
       return "SSH browse session expired";
+    case "ssh.path-not-found":
+      return "Remote path not found";
     case "server.spawn-failed":
       return "Remote agent failed to start";
     case "server.protocol-error":

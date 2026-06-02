@@ -5,6 +5,7 @@ export const SshErrorCodeSchema = z.enum([
   "ssh.auth-failed",
   "ssh.auth-cancelled",
   "ssh.session-expired",
+  "ssh.path-not-found",
   "server.spawn-failed",
   "server.protocol-error",
   "server.protocol-version-mismatch",
