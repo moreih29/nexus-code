@@ -34,6 +34,13 @@ import (
 // process alive past the parent's expected shutdown window.
 const forceExitAfter = 75 * time.Millisecond
 
+// idleWatchdogExitCode is the process exit code used when the idle watchdog
+// reaps the agent. It is deliberately non-zero so the client reconnects rather
+// than treating the close as a clean shutdown (see StartIdleWatchdog). 75 is
+// EX_TEMPFAIL from sysexits.h — "temporary failure, the user is invited to
+// retry" — which matches the intent exactly.
+const idleWatchdogExitCode = 75
+
 // Host owns the stdio NDJSON server lifecycle. One Host per process —
 // stdin / stdout are not multiplexable, and the SIGTERM handler is a
 // process-global side effect.
@@ -64,10 +71,18 @@ type Host struct {
 	hooksMu       sync.Mutex
 	shutdownHooks []func()
 
-	// lastInbound is the UnixNano timestamp of the most recently received
-	// request line, read by the idle watchdog (StartIdleWatchdog) to detect a
-	// vanished client. Written from Run's single reader goroutine, read from
-	// the watchdog goroutine — atomic keeps that race-free.
+	// startMono anchors the monotonic clock for idle accounting. lastInbound is
+	// stored as a duration relative to this anchor (not a wall-clock UnixNano),
+	// so the idle watchdog is immune to wall-clock jumps — NTP steps on the
+	// remote, or a laptop waking from sleep with a local agent. time.Since on a
+	// Time that carries a monotonic reading (which startMono does) uses the
+	// monotonic clock; a bare time.Unix value would silently fall back to wall.
+	startMono time.Time
+
+	// lastInbound is time.Since(startMono) in nanoseconds at the most recently
+	// received request line, read by the idle watchdog (StartIdleWatchdog) to
+	// detect a vanished client. Written from Run's single reader goroutine, read
+	// from the watchdog goroutine — atomic keeps that race-free.
 	lastInbound atomic.Int64
 
 	// exit terminates the process. Defaults to os.Exit; tests inject a fake so
@@ -92,7 +107,21 @@ func New(d *dispatch.Dispatcher, in io.Reader, out io.Writer, logger *slog.Logge
 		cancel:     cancel,
 		accepting:  true,
 		exit:       os.Exit,
+		startMono:  time.Now(),
 	}
+}
+
+// stampInbound records "now" (monotonic, relative to startMono) as the last
+// time an inbound line arrived. Single encoding point for lastInbound so the
+// watchdog's idleElapsed reads the same units.
+func (h *Host) stampInbound() {
+	h.lastInbound.Store(int64(time.Since(h.startMono)))
+}
+
+// idleElapsed reports how long it has been since the last inbound line, using
+// the monotonic clock so it cannot be skewed by wall-clock adjustments.
+func (h *Host) idleElapsed() time.Duration {
+	return time.Since(h.startMono) - time.Duration(h.lastInbound.Load())
 }
 
 // WriteFrame serializes one frame as NDJSON onto `out`. Used by the
@@ -146,7 +175,7 @@ func (h *Host) Run() {
 			continue
 		}
 		// Any inbound line proves the client is alive — reset the idle watchdog.
-		h.lastInbound.Store(time.Now().UnixNano())
+		h.stampInbound()
 		if !h.isAccepting() {
 			continue
 		}
@@ -205,24 +234,38 @@ func (h *Host) StartHeartbeat(interval time.Duration) {
 // `ping` so a healthy but idle session keeps resetting lastInbound; only a
 // genuinely absent client trips the limit.
 //
-// `limit` must be comfortably larger than the client's keepalive ping interval
-// (KEEPALIVE_PING_INTERVAL_MS in pipe.ts) so normal jitter never false-fires.
-// A non-positive limit disables the watchdog. Call before Run(); the goroutine
-// stops when h.ctx is cancelled (drain).
+// The client pings every limit/6 (it derives that from the idleWatchdogMs the
+// agent advertises in its Ready frame), so a healthy session lands ~6 pings per
+// window and tolerates several missed ticks before the limit trips — chosen
+// because a false fire kills live PTY children, while a slow reap merely lets an
+// orphan linger. A non-positive limit disables the watchdog. Call before Run();
+// the goroutine stops when h.ctx is cancelled (drain).
 func (h *Host) StartIdleWatchdog(limit time.Duration) {
 	if limit <= 0 {
 		return
 	}
-	h.lastInbound.Store(time.Now().UnixNano())
+	h.stampInbound()
+	// Check at limit/6 (independent of the old limit/3) so raising the limit
+	// keeps the kill window tight: silence trips between limit and limit+limit/6.
+	check := limit / 6
+	if check <= 0 {
+		check = limit
+	}
 	go func() {
-		ticker := time.NewTicker(limit / 3)
+		ticker := time.NewTicker(check)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				last := time.Unix(0, h.lastInbound.Load())
-				if time.Since(last) >= limit {
-					h.drainAndExit(0)
+				if h.idleElapsed() >= limit {
+					// Exit non-zero so the client distinguishes a watchdog reap
+					// from a clean shutdown: its handleClose treats code 0 as a
+					// terminal exit (no reconnect) but reconnects on any other
+					// code. This only reaches a client in the false-positive case
+					// (client alive but stalled past the limit) — exactly when an
+					// automatic reconnect is the desired recovery. When the client
+					// is genuinely gone, no one observes the code.
+					h.drainAndExit(idleWatchdogExitCode)
 					return
 				}
 			case <-h.ctx.Done():

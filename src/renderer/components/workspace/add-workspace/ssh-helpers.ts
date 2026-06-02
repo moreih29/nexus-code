@@ -114,6 +114,9 @@ export function humanizeSshError(error: unknown): string {
   if (msg.includes("ssh.session-expired")) {
     return t("common:ssh.error.session_expired");
   }
+  if (msg.includes("ssh.path-not-found")) {
+    return t("common:ssh.error.path_not_found");
+  }
   if (msg.includes("server.spawn-failed")) {
     return t("common:ssh.error.spawn_failed");
   }

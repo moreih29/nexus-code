@@ -36,8 +36,10 @@ func TestIdleWatchdogExitsWhenClientVanishes(t *testing.T) {
 
 	select {
 	case code := <-exited:
-		if code != 0 {
-			t.Fatalf("exit code = %d, want 0", code)
+		// Non-zero (EX_TEMPFAIL) so the client reconnects instead of treating
+		// the close as a clean shutdown.
+		if code != idleWatchdogExitCode {
+			t.Fatalf("exit code = %d, want %d", code, idleWatchdogExitCode)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("idle watchdog did not terminate within 2s of client silence")
@@ -63,7 +65,7 @@ func TestIdleWatchdogStaysAliveWithTraffic(t *testing.T) {
 	for {
 		select {
 		case <-tick.C:
-			host.lastInbound.Store(time.Now().UnixNano())
+			host.stampInbound()
 		case code := <-exited:
 			t.Fatalf("watchdog fired during active traffic (code=%d)", code)
 		case <-stop:

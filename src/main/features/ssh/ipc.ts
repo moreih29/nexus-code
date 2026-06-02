@@ -448,7 +448,13 @@ function mapToBrowseError(error: unknown): Error {
 }
 
 function createSshErrorObject(code: SshErrorCode): Error & { code: SshErrorCode } {
-  const err = new Error(messageForSshErrorCode(code)) as Error & { code: SshErrorCode };
+  // The `.code` property does not survive Electron's IPC error serialization
+  // (only name/message/stack cross the boundary), so we also embed the code in
+  // the message text. The renderer classifies the failure by matching the code
+  // substring in error.message (see humanizeSshError / extractSshErrorKind).
+  const err = new Error(`${messageForSshErrorCode(code)} [${code}]`) as Error & {
+    code: SshErrorCode;
+  };
   err.code = code;
   return err;
 }
@@ -457,7 +463,12 @@ function sshErrorCodeFromError(error: unknown): SshErrorCode | undefined {
   if (typeof error !== "object" || error === null || !("code" in error)) {
     return undefined;
   }
-  const parsed = SshErrorCodeSchema.safeParse((error as { code?: unknown }).code);
+  const rawCode = (error as { code?: unknown }).code;
+  // Agent filesystem failures surface domain codes (NOT_FOUND, …) that are not
+  // SSH codes. Map the ones with dedicated UX so a missing path is reported as
+  // "path not found" instead of the generic ssh.unknown.
+  if (rawCode === "NOT_FOUND") return "ssh.path-not-found";
+  const parsed = SshErrorCodeSchema.safeParse(rawCode);
   return parsed.success ? parsed.data : undefined;
 }
 
@@ -471,6 +482,8 @@ function messageForSshErrorCode(code: SshErrorCode): string {
       return "SSH authentication cancelled";
     case "ssh.session-expired":
       return "SSH browse session expired";
+    case "ssh.path-not-found":
+      return "Remote path not found";
     case "server.spawn-failed":
       return "Remote agent failed to start";
     case "server.protocol-error":

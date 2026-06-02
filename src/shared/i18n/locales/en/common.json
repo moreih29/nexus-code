@@ -174,6 +174,7 @@
       "connect_failed": "Couldn't connect to the host. Check the address and your network, then retry.",
       "auth_failed": "Authentication failed. Verify your credentials or identity file and try again.",
       "session_expired": "The SSH session has expired. Go back and reconnect.",
+      "path_not_found": "That path doesn't exist on the remote host. Check the path and try again.",
       "spawn_failed": "The remote agent couldn't start. Ensure the host is reachable and you have shell access.",
       "protocol_version_mismatch": "Remote agent version is incompatible. Update Nexus on the remote host.",
       "protocol_error": "A protocol error occurred with the remote agent. Try reconnecting.",

@@ -21,8 +21,16 @@ import { type BrowseCacheEntry, usePathAutocomplete } from "./use-path-autocompl
 // Private types
 // ---------------------------------------------------------------------------
 
-/** Browse session error classification. */
-type BrowseErrorKind = "session-expired" | "retryable" | null;
+/**
+ * Browse session error classification.
+ * - "path-not-found": the typed path does not exist. Non-destructive — the
+ *   previous valid listing stays on screen and the error is shown inline by
+ *   the path bar rather than replacing the tree.
+ * - "session-expired": connection/auth is gone — the tree is meaningless, so
+ *   the error replaces it and offers a reconnect path.
+ * - "retryable": transient failure — replace the tree with a Retry affordance.
+ */
+type BrowseErrorKind = "session-expired" | "path-not-found" | "retryable" | null;
 
 // Session expiry / disconnect error codes
 const SESSION_FATAL_CODES = new Set([
@@ -53,6 +61,7 @@ function parentPath(path: string): string {
 function extractSshErrorKind(error: unknown): BrowseErrorKind {
   if (!(error instanceof Error)) return "retryable";
   const msg = error.message;
+  if (msg.includes("ssh.path-not-found")) return "path-not-found";
   for (const code of SESSION_FATAL_CODES) {
     if (msg.includes(code)) return "session-expired";
   }
@@ -98,6 +107,9 @@ export function SshDirectoryPickerView({
   const [truncated, setTruncated] = useState(false);
   const [browseErrorHuman, setBrowseErrorHuman] = useState<string | null>(null);
   const [browseErrorKind, setBrowseErrorKind] = useState<BrowseErrorKind>(null);
+  // Non-destructive "path not found" notice: shown inline by the path bar
+  // while the previous valid listing stays visible (does not wipe the tree).
+  const [pathErrorHuman, setPathErrorHuman] = useState<string | null>(null);
 
   // Add Workspace state
   const [addPhase, setAddPhase] = useState<"idle" | "creating">("idle");
@@ -120,6 +132,7 @@ export function SshDirectoryPickerView({
         setTruncated(cached.truncated);
         setBrowseErrorHuman(null);
         setBrowseErrorKind(null);
+        setPathErrorHuman(null);
         setListLoading(false);
         return;
       }
@@ -138,11 +151,19 @@ export function SshDirectoryPickerView({
         setTruncated(result.truncated);
         setBrowseErrorHuman(null);
         setBrowseErrorKind(null);
+        setPathErrorHuman(null);
       } catch (error) {
         if (abortSignal?.aborted) return;
         const kind = extractSshErrorKind(error);
-        setBrowseErrorHuman(humanizeSshError(error));
-        setBrowseErrorKind(kind);
+        if (kind === "path-not-found") {
+          // Non-destructive: the typed path is missing, but the previous listing
+          // (currentPath/entries) is untouched. Surface the error inline by the
+          // path bar and leave the tree on screen.
+          setPathErrorHuman(humanizeSshError(error));
+        } else {
+          setBrowseErrorHuman(humanizeSshError(error));
+          setBrowseErrorKind(kind);
+        }
       } finally {
         if (!abortSignal?.aborted) setListLoading(false);
       }
@@ -215,6 +236,7 @@ export function SshDirectoryPickerView({
 
   function handlePathInputChange(value: string): void {
     setPathInput(value);
+    setPathErrorHuman(null);
     autocomplete.handleInputChange();
   }
 
@@ -405,6 +427,12 @@ export function SshDirectoryPickerView({
           ) : null}
         </div>
       </form>
+
+      {/* Path-not-found notice — inline + non-destructive: the directory list
+          below keeps showing the last valid listing. */}
+      {pathErrorHuman ? (
+        <ErrorNotice message={pathErrorHuman} className="shrink-0 px-2 py-2" />
+      ) : null}
 
       {/* Directory list — grows to fill the dialog's available height */}
       <div className="min-h-0 flex-1 overflow-hidden rounded-(--radius-control) border border-border">

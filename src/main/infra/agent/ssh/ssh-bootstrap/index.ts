@@ -336,7 +336,11 @@ export function buildRemoteAgentCommand(binaryPath: string, remotePath: string):
   // `shopt -s execfail` is REQUIRED: without it a failed `exec` in a
   // non-interactive bash terminates the shell immediately (so the loop would
   // never retry). With it, a failed exec returns control and the loop runs.
-  const exec = `exec ${quoteShellArg(binaryPath)} ${quoteShellArg(remotePath)}`;
+  // --idle-watchdog is SSH-only: it tells the remote agent to self-terminate
+  // after an idle window with no inbound traffic, reaping an orphan left behind
+  // when the client vanishes but the connection lingers without stdin EOF. The
+  // local launch omits it (parent death there already arrives as EOF).
+  const exec = `exec ${quoteShellArg(binaryPath)} --idle-watchdog ${quoteShellArg(remotePath)}`;
   const script =
     `shopt -s execfail; n=0; while :; do ${exec}; n=$((n+1)); ` +
     `if [ "$n" -ge 25 ]; then exit 126; fi; sleep 0.2; done`;

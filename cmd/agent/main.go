@@ -45,9 +45,9 @@ func main() {
 	// classifier text that also arrive on the same stderr stream.
 	agentLogger := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("src", "agent-log")
 
-	root := rootPathFromArgv(os.Args)
+	root, idleWatchdog := parseRunArgs(os.Args)
 	if root == "" {
-		agentLogger.Error("Usage: agent <rootPath>")
+		agentLogger.Error("Usage: agent [--idle-watchdog] <rootPath>")
 		os.Exit(2)
 	}
 
@@ -127,7 +127,13 @@ func main() {
 	defer fsys.Close()
 	defer git.Close()
 	defer lsp.Close()
-	defer pty.Close()
+	// PTY cleanup runs as a shutdown hook, not a defer: every termination path
+	// (EOF, SIGTERM, idle watchdog) ends in drainAndExit → os.Exit, which skips
+	// defers. Pdeathsig (Linux only) and the master-fd-close SIGHUP are not
+	// enough on their own — a non-Linux remote has no Pdeathsig, and a child
+	// that ignores SIGHUP would orphan. The hook calls SIGKILL on each PTY
+	// process group, so children are reaped deterministically on every OS.
+	host.RegisterShutdownHook(pty.Close)
 	if hooksrv != nil {
 		// SIGTERM 경로는 os.Exit가 defer를 우회하므로 shutdown hook으로 등록한다.
 		// hookserver는 /tmp/nexus-h-*.sock 파일을 생성하므로 정리하지 않으면
@@ -137,12 +143,21 @@ func main() {
 	}
 	host.InstallSigtermHandler()
 
+	// Idle watchdog limit. Advertised to the client in the Ready frame so it
+	// pings every limit/6; only enabled for SSH (idleWatchdog flag), where a
+	// vanished client may leave the connection lingering without stdin EOF. 0
+	// when disabled — the client reads that as "do not ping".
+	idleWatchdogMs := 0
+	if idleWatchdog {
+		idleWatchdogMs = int((90 * time.Second) / time.Millisecond)
+	}
+
 	// Ready frame must reach the client before any other output so the
 	// channel handshake on the TS side can settle. A write failure here
 	// is unrecoverable — without a Ready, the client will time out.
-	// methods 목록과 heartbeat 간격(10s)을 함께 전달해 클라이언트가 pull 기반으로
-	// hook.getInfo를 호출할 수 있음을 알린다.
-	if err := host.WriteFrame(proto.Ready(d.Methods(), 10_000)); err != nil {
+	// methods 목록과 heartbeat 간격(10s), idle watchdog 한도를 함께 전달해
+	// 클라이언트가 pull 기반 hook.getInfo 호출과 keepalive ping을 결정하도록 한다.
+	if err := host.WriteFrame(proto.Ready(d.Methods(), 10_000, idleWatchdogMs)); err != nil {
 		agentLogger.Error("failed to write ready frame", "err", err)
 		os.Exit(1)
 	}
@@ -151,12 +166,15 @@ func main() {
 	// 일치해야 한다. ctx 취소(드레인) 시 자동 정지한다.
 	host.StartHeartbeat(10 * time.Second)
 
-	// Idle watchdog: self-terminate if the client sends nothing for 60s. The
-	// client pings every ~20s (KEEPALIVE_PING_INTERVAL_MS in pipe.ts), so a
-	// healthy idle session resets the timer ~3× per window; only a vanished
-	// client (half-open TCP, hung process, sleep) with no stdin EOF trips it,
-	// preventing an orphaned remote agent from holding its binary.
-	host.StartIdleWatchdog(60 * time.Second)
+	// Idle watchdog (SSH only): self-terminate if the client sends nothing for
+	// the limit. The client pings every limit/6 (derived from the advertised
+	// idleWatchdogMs in pipe.ts), so a healthy idle session resets the timer ~6×
+	// per window; only a vanished client (half-open TCP, hung process, sleep)
+	// with no stdin EOF trips it, preventing an orphaned remote agent from
+	// holding its binary. Disabled locally, where parent death arrives as EOF.
+	if idleWatchdog {
+		host.StartIdleWatchdog(90 * time.Second)
+	}
 
 	host.Run()
 }
@@ -190,14 +208,27 @@ func newHookGetInfoHandler(hs hookInfoProvider) dispatch.Handler {
 	}
 }
 
-// rootPathFromArgv extracts the workspace root from argv. We accept
-// exactly one positional argument and return "" when it is missing so
-// the caller can print usage and exit non-zero.
-func rootPathFromArgv(argv []string) string {
-	if len(argv) > 1 {
-		return argv[1]
+// parseRunArgs extracts the workspace root and option flags from argv for the
+// long-lived stdio agent (after the hook/askpass subcommands have been ruled
+// out). The first non-flag positional is the root; "" when absent so the caller
+// can print usage and exit non-zero.
+//
+// --idle-watchdog is set only by the SSH remote launch command
+// (buildRemoteAgentCommand in ssh-bootstrap), never by the local launch. It is
+// what gates the idle watchdog so a local agent — whose parent death already
+// arrives as stdin EOF (plus Pdeathsig on Linux) — never self-terminates on a
+// transient main-thread stall or a laptop wake.
+func parseRunArgs(argv []string) (root string, idleWatchdog bool) {
+	for _, arg := range argv[1:] {
+		if arg == "--idle-watchdog" {
+			idleWatchdog = true
+			continue
+		}
+		if root == "" {
+			root = arg
+		}
 	}
-	return ""
+	return root, idleWatchdog
 }
 
 // askpassExitFromArgv detects both the explicit `agent --askpass <socket>`

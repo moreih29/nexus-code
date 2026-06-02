@@ -110,10 +110,12 @@ const STDOUT_BACKPRESSURE_LWM = 64 * 1024; // 64 KiB
 /** Event name emitted by the Go agent at a regular heartbeat interval. */
 const AGENT_HEARTBEAT_EVENT = "agent.heartbeat";
 
-// How often the client pings the agent so the agent's idle watchdog
-// (StartIdleWatchdog in host.go, 60s limit) can tell a live-but-idle session
-// from a vanished client. Must stay well under that limit — ~3 pings/window.
-const KEEPALIVE_PING_INTERVAL_MS = 20_000;
+// The client pings the agent at the advertised idle-watchdog limit divided by
+// this many slots, so a live-but-idle session lands ~this many pings per window
+// and tolerates several missed ticks before the agent's watchdog (host.go) trips.
+// Deriving the interval from the agent's advertised idleWatchdogMs (rather than a
+// hardcoded constant) keeps the two ends in lockstep if the limit ever changes.
+const KEEPALIVE_PING_SLOTS = 6;
 
 const ReadyFrameSchema = z
   .object({
@@ -121,6 +123,7 @@ const ReadyFrameSchema = z
     protocolVersion: z.string().optional(),
     methods: z.array(z.string()).optional(),
     heartbeatIntervalMs: z.number().optional(),
+    idleWatchdogMs: z.number().optional(),
   })
   .passthrough();
 const ResponseResultFrameSchema = z.object({ id: z.string(), result: z.unknown() }).passthrough();
@@ -130,7 +133,13 @@ const EventFrameSchema = z
   .passthrough();
 
 type ParsedFrame =
-  | { kind: "ready"; protocolVersion?: string; methods?: string[]; heartbeatIntervalMs?: number }
+  | {
+      kind: "ready";
+      protocolVersion?: string;
+      methods?: string[];
+      heartbeatIntervalMs?: number;
+      idleWatchdogMs?: number;
+    }
   | { kind: "response"; id: string; result: unknown }
   | { kind: "error-response"; id: string; error: unknown }
   | { kind: "event"; event: string; payload: unknown };
@@ -347,15 +356,20 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
           (timer as NodeJS.Timeout).unref();
         }
         heartbeatWatchdogTimer = timer;
+      }
 
-        // Start the keepalive sender on the same condition: the agent only
-        // runs its idle watchdog when heartbeat is enabled, so pinging is only
-        // needed then. Best-effort (fire) — a failed ping just means the
-        // channel is already tearing down.
+      // Keepalive ping — gated on the agent's advertised idle watchdog, not on
+      // heartbeat. The agent self-terminates after idleWatchdogMs of silence
+      // (SSH only; 0 for local agents), so we ping only when it is positive,
+      // and at idleWatchdogMs / SLOTS so a live-but-idle session keeps resetting
+      // the limit. Best-effort (fire) — a failed ping just means the channel is
+      // already tearing down.
+      if (frame.idleWatchdogMs !== undefined && frame.idleWatchdogMs > 0) {
+        const pingIntervalMs = Math.max(1, Math.floor(frame.idleWatchdogMs / KEEPALIVE_PING_SLOTS));
         const ping = setInterval(() => {
           if (disposed || terminalError) return;
           pipe.fire("ping");
-        }, KEEPALIVE_PING_INTERVAL_MS);
+        }, pingIntervalMs);
         if (typeof (ping as NodeJS.Timeout).unref === "function") {
           (ping as NodeJS.Timeout).unref();
         }
@@ -648,6 +662,8 @@ function messageForSshErrorCode(code: SshErrorCode): string {
       return "SSH authentication cancelled";
     case "ssh.session-expired":
       return "SSH browse session expired";
+    case "ssh.path-not-found":
+      return "Remote path not found";
     case "server.spawn-failed":
       return "Remote agent failed to start";
     case "server.protocol-error":
@@ -732,6 +748,7 @@ function parseFrame(line: string): ParsedFrame {
       protocolVersion: ready.data.protocolVersion,
       methods: ready.data.methods,
       heartbeatIntervalMs: ready.data.heartbeatIntervalMs,
+      idleWatchdogMs: ready.data.idleWatchdogMs,
     };
   }
 

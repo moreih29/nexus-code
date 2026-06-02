@@ -104,3 +104,29 @@ func TestServerNDJSONAndSIGTERM(t *testing.T) {
 		t.Fatal("server did not exit after SIGTERM")
 	}
 }
+
+func TestParseRunArgs(t *testing.T) {
+	cases := []struct {
+		name         string
+		argv         []string
+		wantRoot     string
+		wantWatchdog bool
+	}{
+		{"root only", []string{"agent", "/repo"}, "/repo", false},
+		{"watchdog before root", []string{"agent", "--idle-watchdog", "/repo"}, "/repo", true},
+		{"watchdog after root", []string{"agent", "/repo", "--idle-watchdog"}, "/repo", true},
+		{"missing root", []string{"agent"}, "", false},
+		{"watchdog only", []string{"agent", "--idle-watchdog"}, "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root, watchdog := parseRunArgs(tc.argv)
+			if root != tc.wantRoot {
+				t.Errorf("root = %q, want %q", root, tc.wantRoot)
+			}
+			if watchdog != tc.wantWatchdog {
+				t.Errorf("idleWatchdog = %v, want %v", watchdog, tc.wantWatchdog)
+			}
+		})
+	}
+}
