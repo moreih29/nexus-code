@@ -1,20 +1,21 @@
-// Shared cap for the live-preview pipelines.
+// Cap for the main-thread-parsed preview pipelines (markdown / svg).
 //
-// All preview panes (markdown / html / svg) truncate input beyond this
-// threshold and surface a banner explaining the cap. The number is a
-// tunable heuristic, not a research-backed limit:
+// These panes parse on the renderer's main thread (react-markdown for md,
+// blob decode for svg), so oversized input stalls keystrokes. We truncate
+// beyond this threshold and surface a banner explaining the cap. The number
+// is a tunable heuristic, not a research-backed limit:
 //
-//   - 50 KB md  ≈ 30 ms parse  → invisible
-//   - 200 KB md ≈ 120 ms parse → slight stutter on keystrokes
-//   - 512 KB md ≈ 300 ms parse → noticeable but still "live"
-//   - 1 MB md   ≈ 600–1000 ms  → broken-feeling
+//   - 50 KB md  ≈ 30 ms parse   → invisible
+//   - 200 KB md ≈ 120 ms parse  → slight stutter on keystrokes
+//   - 1 MB md   ≈ 600–1000 ms   → noticeable but tolerable for a one-off render
 //
-// 512 KB sits at the "noticeable but tolerable" knee for react-markdown on
-// modern hardware, with the safety margin of a power-of-two round number
-// that's an order of magnitude above typical README sizes (1–20 KB).
+// HTML preview is intentionally NOT capped: it renders via `<iframe srcdoc>`,
+// where the browser parses off the renderer's main thread, so large documents
+// don't block the UI. See html-preview.tsx.
+//
 // Raise or lower in one place if user feedback indicates the wrong knee.
 
-export const MAX_PREVIEW_BYTES = 512 * 1024;
+export const MAX_PREVIEW_BYTES = 1024 * 1024;
 
 /**
  * Truncate `source` to `MAX_PREVIEW_BYTES` and report whether truncation

@@ -56,7 +56,6 @@ import { useEffect, useRef } from "react";
 import { isWithinWorkspace, relPath } from "@/utils/path";
 import { buildWorkspaceDirUrl } from "../../../services/editor/preview/workspace-url";
 import { useTranslation } from "react-i18next";
-import { capPreviewSource, getPreviewTruncatedMessage } from "./constants";
 
 interface HtmlPreviewProps {
   source: string;
@@ -181,9 +180,10 @@ export function HtmlPreview({
   workspaceRootAbsPath,
 }: HtmlPreviewProps) {
   const { t } = useTranslation();
-  const { text, truncated } = capPreviewSource(source);
+  // No size cap here: the iframe parses off the renderer's main thread, so
+  // large HTML documents render without blocking the UI (unlike markdown/svg).
   const baseTag = buildBaseTag(workspaceId, currentFileAbsPath, workspaceRootAbsPath);
-  const doc = injectPreamble(text, baseTag);
+  const doc = injectPreamble(source, baseTag);
 
   // Imperatively set `srcdoc` so the iframe element stays mounted across
   // live edits (no remount cascade). The known Chromium srcDoc-prop-not-
@@ -201,7 +201,6 @@ export function HtmlPreview({
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {truncated && <PreviewTruncatedBanner />}
       <iframe
         ref={iframeRef}
         sandbox="allow-scripts allow-popups"
@@ -210,17 +209,6 @@ export function HtmlPreview({
         title={t("preview.html_title")}
         className="w-full flex-1 border-0 bg-[var(--surface-island-bg)]"
       />
-    </div>
-  );
-}
-
-function PreviewTruncatedBanner() {
-  return (
-    <div
-      role="status"
-      className="px-3 py-1 text-app-ui-sm text-[var(--state-warning-fg)] bg-[var(--state-warning-bg)] border-b border-[var(--state-warning-border)]"
-    >
-      {getPreviewTruncatedMessage()}
     </div>
   );
 }

@@ -155,11 +155,26 @@ export function GroupView({
       useLayoutStore.getState().setActiveGroup(workspaceId, leaf.id);
       onActivateGroup(leaf.id);
     };
+    // HtmlPreview renders inside a sandboxed <iframe>. A click inside the
+    // iframe does NOT bubble out of the iframe boundary, so neither focusin
+    // nor mousedown above fires for it. But focus moving into the iframe blurs
+    // the top window, and the parent document's activeElement becomes the
+    // <iframe> element. We catch that here and activate the group the iframe
+    // lives in. (Guarded so an app-switch blur, where activeElement is not our
+    // iframe, is ignored; activate() is a no-op when already active.)
+    const onWindowBlur = () => {
+      const active = document.activeElement;
+      if (active && active.tagName === "IFRAME" && outerEl.contains(active)) {
+        activate();
+      }
+    };
     outerEl.addEventListener("focusin", activate);
     outerEl.addEventListener("mousedown", activate);
+    window.addEventListener("blur", onWindowBlur);
     return () => {
       outerEl.removeEventListener("focusin", activate);
       outerEl.removeEventListener("mousedown", activate);
+      window.removeEventListener("blur", onWindowBlur);
     };
   }, [outerEl, workspaceId, leaf.id, onActivateGroup]);
 
