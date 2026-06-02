@@ -1,9 +1,9 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { EventEmitter } from "node:events";
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import {
   buildRemoteAgentCommand,
   ensureRemoteAgent,
@@ -257,6 +257,63 @@ describe("ssh-bootstrap", () => {
     expect(sftpInputs[0]).toContain(".nexus-code/bin/agent-0.1.0-linux-amd64");
     expect(sftpInputs[0]).not.toContain("~/.nexus-code");
     expect(calls.some((call) => call.includes("index=0; for item in $(ls -1dt"))).toBe(true);
+  });
+
+  it("retries the full upload when the atomic rename fails on the first attempt", async () => {
+    // Regression: `sftp` exits 0 even when a `put` silently fails, so the temp
+    // file can be missing when `mv -f tmp final` runs — the rename then throws
+    // "no such file" and aborts the bootstrap. The fix wraps each attempt so a
+    // failed rename retries the full upload instead of propagating. Here the
+    // first `mv` throws and the second succeeds; the bootstrap must recover.
+    const { distDir, sha256 } = writeDist();
+    let mvCount = 0;
+    let rmCount = 0;
+    const calls: string[] = [];
+    const runner = mock(async (command: string, args: string[], input?: Buffer | string) => {
+      const remoteCommand = args.at(-1) ?? "";
+      calls.push(`${command} ${remoteCommand}`);
+      if (command === "ssh" && remoteCommand === "uname -ms") return { stdout: "Linux x86_64\n" };
+      if (command === "ssh" && remoteCommand.startsWith("printf")) {
+        return { stdout: "/home/user\n" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("cat ~/.nexus-code/manifest.json")) {
+        return { stdout: "" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("mkdir -p")) return { stdout: "" };
+      if (command === "sftp") return { stdout: "" };
+      if (command === "ssh" && remoteCommand.startsWith("mv -f")) {
+        mvCount += 1;
+        // First attempt simulates a temp file that never landed (silent sftp
+        // failure): the remote rename reports "no such file" and rejects.
+        if (mvCount === 1) {
+          throw new Error("zsh:1: no such file or directory: agent.tmp.deadbeef");
+        }
+        return { stdout: "" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("rm -f")) {
+        rmCount += 1;
+        return { stdout: "" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("if command -v sha256sum")) {
+        return { stdout: `${sha256}\n` };
+      }
+      if (command === "ssh" && remoteCommand.includes("cat > ~/.nexus-code/manifest.json")) {
+        expect(typeof input).toBe("string");
+        return { stdout: "" };
+      }
+      if (command === "ssh" && remoteCommand.startsWith("index=0")) return { stdout: "" };
+      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
+    }) as SshBootstrapRunner;
+
+    const result = await ensureRemoteAgent(
+      { host: "dev.example.com", remotePath: "/repo" },
+      { distDir, runner, now: () => new Date("2026-05-12T00:00:00.000Z") },
+    );
+
+    expect(result.uploaded).toBe(true);
+    expect(mvCount).toBe(2); // first rename failed, retry succeeded
+    expect(rmCount).toBe(1); // orphaned temp from the failed attempt was cleaned
+    expect(calls.filter((call) => call.startsWith("sftp"))).toHaveLength(2);
   });
 
   it("uploads remote node and LSP artifacts lazily and writes a remote launcher", async () => {

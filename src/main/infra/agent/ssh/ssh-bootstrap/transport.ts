@@ -4,10 +4,11 @@
  * uploading and verifying files, and quoting arbitrary strings into safe
  * shell or sftp tokens.
  */
+
+import { spawn as defaultSpawn, type SpawnOptionsWithoutStdio } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { type SpawnOptionsWithoutStdio, spawn as defaultSpawn } from "node:child_process";
 import { createSshError } from "../../pipe";
 import type {
   EnsureRemoteAgentOptions,
@@ -118,6 +119,7 @@ export async function uploadAndVerifyFile(args: {
   }
 
   const progressName = args.progressName ?? path.basename(args.remotePath);
+  let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     // Upload to a unique temp path in the same directory, then atomically
     // rename it into place. `mv -f` over a file that a lingering OLD agent is
@@ -126,31 +128,57 @@ export async function uploadAndVerifyFile(args: {
     // blocks reinstall with ETXTBSY ("Text file busy"). Same-dir rename keeps
     // it on one filesystem, so the swap is atomic with no missing-file window.
     const tmpRemotePath = `${args.remotePath}.tmp.${randomBytes(6).toString("hex")}`;
-    args.onProgress?.({
-      name: progressName,
-      phase: "uploading",
-      bytesDone: 0,
-      bytesTotal: payload.byteLength,
-    });
-    await uploadFile(args.options, args.runner, args.localPath, tmpRemotePath, payload, {
-      executable: args.executable,
-    });
-    await runSsh(
-      args.options,
-      args.runner,
-      `mv -f ${quoteShellArg(tmpRemotePath)} ${quoteShellArg(args.remotePath)}`,
+    try {
+      args.onProgress?.({
+        name: progressName,
+        phase: "uploading",
+        bytesDone: 0,
+        bytesTotal: payload.byteLength,
+      });
+      await uploadFile(args.options, args.runner, args.localPath, tmpRemotePath, payload, {
+        executable: args.executable,
+      });
+      // `sftp` exits 0 even when an individual `put` fails (a failed transfer
+      // is reported on stderr but never sets a nonzero exit code), so a
+      // transient upload error is invisible to uploadFile() — the temp file
+      // may be missing or truncated. The `mv` below would then throw
+      // ("no such file"), aborting the whole bootstrap. We therefore treat the
+      // entire upload→rename→verify sequence as one fallible attempt: any
+      // failure (missing temp, rename error, or sha mismatch) retries the full
+      // upload instead of propagating, restoring the pre-atomic-install
+      // resilience where the sha check alone gated correctness.
+      await runSsh(
+        args.options,
+        args.runner,
+        `mv -f ${quoteShellArg(tmpRemotePath)} ${quoteShellArg(args.remotePath)}`,
+      );
+      args.onProgress?.({
+        name: progressName,
+        phase: "uploading",
+        bytesDone: payload.byteLength,
+        bytesTotal: payload.byteLength,
+      });
+      args.onProgress?.({ name: progressName, phase: "verifying" });
+      const remoteSha = await remoteSha256(args.options, args.runner, args.remotePath);
+      if (remoteSha === args.sha256) return;
+      lastError = createSshError(
+        "server.protocol-error",
+        new Error("remote artifact sha256 mismatch"),
+      );
+    } catch (error) {
+      lastError = error;
+    }
+    // Best-effort: drop a temp file orphaned by a failed attempt so retries
+    // (and future bootstraps) never accumulate `.tmp.<rand>` litter alongside
+    // the installed binary.
+    await runSsh(args.options, args.runner, `rm -f ${quoteShellArg(tmpRemotePath)}`).catch(
+      () => undefined,
     );
-    args.onProgress?.({
-      name: progressName,
-      phase: "uploading",
-      bytesDone: payload.byteLength,
-      bytesTotal: payload.byteLength,
-    });
-    args.onProgress?.({ name: progressName, phase: "verifying" });
-    const remoteSha = await remoteSha256(args.options, args.runner, args.remotePath);
-    if (remoteSha === args.sha256) return;
   }
-  throw createSshError("server.protocol-error", new Error("remote artifact sha256 mismatch"));
+  throw (
+    lastError ??
+    createSshError("server.protocol-error", new Error("remote artifact sha256 mismatch"))
+  );
 }
 
 /** sftp put with cat-pipe fallback when sftp is unavailable on the remote. */
