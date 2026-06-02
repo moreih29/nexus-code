@@ -103,12 +103,20 @@ type Response struct {
 //
 // HeartbeatIntervalMs is the interval at which the server will emit
 // "agent.heartbeat" events. A value of 0 means heartbeat is disabled.
+//
+// IdleWatchdogMs is the agent's idle-watchdog limit in milliseconds: if no
+// inbound line arrives within it, the agent self-terminates. A value of 0 means
+// the watchdog is disabled (local agents), which is the client's signal NOT to
+// send keepalive pings. When positive, the client pings every IdleWatchdogMs/6
+// so a live-but-idle session keeps resetting the limit. Tying the client's ping
+// behavior to this single advertised value keeps the two ends from drifting.
 type ReadyFrame struct {
 	Type                string   `json:"type"`
 	ProtocolVersion     string   `json:"protocolVersion"`
 	ServerVersion       string   `json:"serverVersion"`
 	Methods             []string `json:"methods"`
 	HeartbeatIntervalMs int      `json:"heartbeatIntervalMs"`
+	IdleWatchdogMs      int      `json:"idleWatchdogMs"`
 }
 
 // EventFrame is a server → client broadcast frame. It deliberately has no id:
@@ -123,7 +131,9 @@ type EventFrame struct {
 // methods is the list of RPC method names the server has registered;
 // an empty (non-nil) slice is valid. heartbeatIntervalMs is the
 // advertised heartbeat interval in milliseconds; 0 means disabled.
-func Ready(methods []string, heartbeatIntervalMs int) ReadyFrame {
+// idleWatchdogMs is the advertised idle-watchdog limit in milliseconds;
+// 0 means the agent runs no watchdog (and the client should not ping).
+func Ready(methods []string, heartbeatIntervalMs int, idleWatchdogMs int) ReadyFrame {
 	if methods == nil {
 		methods = []string{}
 	}
@@ -133,6 +143,7 @@ func Ready(methods []string, heartbeatIntervalMs int) ReadyFrame {
 		ServerVersion:       ServerVersion,
 		Methods:             methods,
 		HeartbeatIntervalMs: heartbeatIntervalMs,
+		IdleWatchdogMs:      idleWatchdogMs,
 	}
 }
 
