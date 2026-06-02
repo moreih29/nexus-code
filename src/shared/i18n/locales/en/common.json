@@ -311,7 +311,8 @@
   "imagePreview": {
     "workspace_not_found": "Workspace not found.",
     "outside_workspace": "Image is outside the workspace and cannot be previewed.",
-    "load_failed": "Could not load image."
+    "load_failed": "Could not load image.",
+    "too_large": "Image is too large to preview (max {{maxMb}} MB)."
   },
   "markdown": {
     "copy_code": "Copy code",

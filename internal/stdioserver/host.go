@@ -120,9 +120,12 @@ func (h *Host) EmitEvent(event string, payload any) error {
 // the parent's shutdown signal is honored.
 func (h *Host) Run() {
 	scanner := bufio.NewScanner(h.in)
-	// 4 MiB cap matches the largest request shape we expect (writeFile
-	// content up to MaxReadableFileSize plus envelope overhead).
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	// Cap matches the largest request shape we expect: a writeFile whose
+	// content is up to MaxReadableFileSize (50 MiB), JSON-escaped, plus
+	// envelope overhead. 64 MiB leaves headroom for escaping without
+	// allocating eagerly — Scanner grows its buffer lazily from 64 KiB up to
+	// this ceiling.
+	scanner.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
 
 	for scanner.Scan() {
 		// Copy the slice — scanner reuses its internal buffer between

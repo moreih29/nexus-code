@@ -20,8 +20,10 @@ import (
 
 // MaxReadableFileSize caps how many bytes one fs.readFile / fs.writeFile call
 // may move. The threshold matches the renderer's editor capacity so we never
-// produce a file that we couldn't reload.
-const MaxReadableFileSize = 5 * 1024 * 1024
+// produce a file that we couldn't reload. Raising this requires raising the
+// inbound scanner cap in stdioserver.Host.Run accordingly — writeFile content
+// travels inbound as one NDJSON line and is rejected by that cap first.
+const MaxReadableFileSize = 50 * 1024 * 1024
 
 // EventSink is the callback fs uses to push agent events back to Electron.
 type EventSink func(event string, payload any) error
