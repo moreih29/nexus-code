@@ -113,6 +113,17 @@ export async function uploadAndVerifyFile(args: {
     args.runner,
     `mkdir -p ${quoteShellArg(remoteDir)} && chmod 755 ${args.remoteAgentRoot} ${quoteShellArg(remoteDir)}`,
   );
+  // Best-effort sweep of `.tmp.<rand>` files left by earlier interrupted
+  // installs (a connection dropped after upload-to-temp but before the rename,
+  // or before our per-attempt rm could run over the now-dead connection). Use
+  // `find -delete` rather than a shell glob so an empty match is a clean no-op
+  // under any login shell (zsh aborts on an unmatched glob; find does not). The
+  // pattern is single-quoted so the login shell passes it to find verbatim.
+  await runSsh(
+    args.options,
+    args.runner,
+    `find ${quoteShellArg(remoteDir)} -maxdepth 1 -name ${singleQuoteShellArg(`${path.posix.basename(args.remotePath)}.tmp.*`)} -delete`,
+  ).catch(() => undefined);
   const payload = await fs.readFile(args.localPath);
   if (sha256(payload) !== args.sha256) {
     throw createSshError("server.protocol-error", new Error("local artifact sha256 mismatch"));
