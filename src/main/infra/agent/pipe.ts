@@ -110,6 +110,11 @@ const STDOUT_BACKPRESSURE_LWM = 64 * 1024; // 64 KiB
 /** Event name emitted by the Go agent at a regular heartbeat interval. */
 const AGENT_HEARTBEAT_EVENT = "agent.heartbeat";
 
+// How often the client pings the agent so the agent's idle watchdog
+// (StartIdleWatchdog in host.go, 60s limit) can tell a live-but-idle session
+// from a vanished client. Must stay well under that limit — ~3 pings/window.
+const KEEPALIVE_PING_INTERVAL_MS = 20_000;
+
 const ReadyFrameSchema = z
   .object({
     type: z.literal("ready"),
@@ -235,6 +240,11 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   let heartbeatWarned = false;
   let heartbeatWatchdogTimer: ReturnType<typeof setInterval> | null = null;
 
+  // Client keepalive sender — pings the agent so its idle watchdog keeps a
+  // live-but-idle session alive. Started on ready (alongside the heartbeat
+  // watchdog), cleared on dispose/fail.
+  let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+
   const ready = new Promise<void>((resolve, reject) => {
     resolveReady = () => {
       if (readySettled) return;
@@ -257,6 +267,14 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     }
     lastHeartbeatAt = 0;
     heartbeatWarned = false;
+  }
+
+  /** Clears the keepalive ping timer. */
+  function clearKeepalive(): void {
+    if (keepaliveTimer !== null) {
+      clearInterval(keepaliveTimer);
+      keepaliveTimer = null;
+    }
   }
 
   /** Rejects all in-flight requests with the same terminal transport error. */
@@ -329,6 +347,19 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
           (timer as NodeJS.Timeout).unref();
         }
         heartbeatWatchdogTimer = timer;
+
+        // Start the keepalive sender on the same condition: the agent only
+        // runs its idle watchdog when heartbeat is enabled, so pinging is only
+        // needed then. Best-effort (fire) — a failed ping just means the
+        // channel is already tearing down.
+        const ping = setInterval(() => {
+          if (disposed || terminalError) return;
+          pipe.fire("ping");
+        }, KEEPALIVE_PING_INTERVAL_MS);
+        if (typeof (ping as NodeJS.Timeout).unref === "function") {
+          (ping as NodeJS.Timeout).unref();
+        }
+        keepaliveTimer = ping;
       }
       resolveReady();
       return;
@@ -448,7 +479,7 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     stderrLines.push(chunk);
   });
 
-  return {
+  const pipe: NdjsonPipe = {
     ready,
     get methods(): readonly string[] | undefined {
       return capabilityMethods;
@@ -543,6 +574,7 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       if (disposed) return;
       disposed = true;
       clearHeartbeatWatchdog();
+      clearKeepalive();
       const error = createDisposedError();
       rejectReady(error);
       rejectPendingRequests(error);
@@ -552,6 +584,7 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       if (terminalError) return;
       terminalError = error;
       clearHeartbeatWatchdog();
+      clearKeepalive();
       rejectReady(error);
       rejectPendingRequests(error);
     },
@@ -561,6 +594,7 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       return { wasReady: readySettled, stderrTail: recentStderr.join(" | ") };
     },
   };
+  return pipe;
 }
 
 // === error helpers (exported for orchestrator use) ===
