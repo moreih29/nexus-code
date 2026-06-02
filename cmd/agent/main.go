@@ -95,6 +95,14 @@ func main() {
 	}
 	d.Register("hook.getInfo", newHookGetInfoHandler(hookProvider))
 
+	// ping — client keepalive. The TS client calls this periodically so the
+	// idle watchdog (StartIdleWatchdog below) can tell a live-but-idle session
+	// from a vanished client. The handler is a no-op; merely receiving the line
+	// resets the agent's lastInbound timestamp.
+	d.Register("ping", func(_ context.Context, _ json.RawMessage) (any, error) {
+		return struct{}{}, nil
+	})
+
 	host := stdioserver.New(d, os.Stdin, os.Stdout, agentLogger)
 	fsys.SetEventSink(func(event string, payload any) error {
 		err := host.EmitEvent(event, payload)
@@ -142,6 +150,13 @@ func main() {
 	// 10초 간격 heartbeat를 시작한다. Ready frame에 광고한 heartbeatIntervalMs와
 	// 일치해야 한다. ctx 취소(드레인) 시 자동 정지한다.
 	host.StartHeartbeat(10 * time.Second)
+
+	// Idle watchdog: self-terminate if the client sends nothing for 60s. The
+	// client pings every ~20s (KEEPALIVE_PING_INTERVAL_MS in pipe.ts), so a
+	// healthy idle session resets the timer ~3× per window; only a vanished
+	// client (half-open TCP, hung process, sleep) with no stdin EOF trips it,
+	// preventing an orphaned remote agent from holding its binary.
+	host.StartIdleWatchdog(60 * time.Second)
 
 	host.Run()
 }

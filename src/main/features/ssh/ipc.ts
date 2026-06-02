@@ -15,6 +15,7 @@ import type { SshControlMaster } from "../../infra/agent/ssh/master";
 import {
   type EnsureRemoteAgentOptions,
   ensureRemoteAgent,
+  type LspBootstrapProgressEvent,
 } from "../../infra/agent/ssh/ssh-bootstrap/index";
 import { register, validateArgs } from "../../infra/ipc-router";
 import { BROWSE_MAX_ENTRIES, type SshBrowseSessionRegistry } from "./browse-session-registry";
@@ -64,6 +65,10 @@ export function registerSshChannel(configPath = path.join(os.homedir(), ".ssh", 
 export function registerSshBrowseHandlers(
   registry: SshBrowseSessionRegistry,
   promptHandler: SshAuthPromptHandler,
+  // Optional so existing callers/tests that don't care about progress keep
+  // working; when supplied, openBrowseSession streams bootstrap progress to
+  // the renderer via the `ssh.browseProgress` event keyed by progressId.
+  broadcast?: BrowseProgressBroadcast,
 ): () => void {
   register("ssh", {
     call: {
@@ -72,7 +77,7 @@ export function registerSshBrowseHandlers(
       // cancellation arrives at the renderer as ipcErr("cancelled") — the
       // router passes the envelope silently without logging, and the
       // renderer uses ipcCallResult to branch on result.kind.
-      openBrowseSession: openBrowseSessionResultHandler(registry, promptHandler),
+      openBrowseSession: openBrowseSessionResultHandler(registry, promptHandler, broadcast),
       browseSession: browseSessionHandler(registry),
       closeBrowseSession: closeBrowseSessionHandler(registry),
     },
@@ -80,6 +85,12 @@ export function registerSshBrowseHandlers(
   });
   return () => registry.dispose();
 }
+
+/**
+ * Broadcast fn shape used to push browse-session bootstrap progress to the
+ * renderer — matches the main-process forwardBroadcast signature.
+ */
+export type BrowseProgressBroadcast = (channelName: string, event: string, args: unknown) => void;
 
 // ---------------------------------------------------------------------------
 // listConfigHosts
@@ -138,13 +149,15 @@ function isMissingOrPermissionError(error: unknown): boolean {
 export function openBrowseSessionHandler(
   registry: SshBrowseSessionRegistry,
   promptHandler: SshAuthPromptHandler,
-  bootstrap: (options: EnsureRemoteAgentOptions) => ReturnType<typeof ensureRemoteAgent> = (
-    options,
-  ) =>
+  broadcast?: BrowseProgressBroadcast,
+  bootstrap: (
+    options: EnsureRemoteAgentOptions,
+    onProgress?: (event: LspBootstrapProgressEvent) => void,
+  ) => ReturnType<typeof ensureRemoteAgent> = (options, onProgress) =>
     // The promptHandler MUST be forwarded to ensureRemoteAgent — without it
     // createBootstrapContext skips interactive auth and password-only hosts
     // fail before the agent channel is ever opened.
-    ensureRemoteAgent(options, { promptHandler }),
+    ensureRemoteAgent(options, { promptHandler, onProgress }),
 ): (args: unknown) => Promise<{ sessionId: string; initialPath: string; user: string }> {
   return async (
     args: unknown,
@@ -154,6 +167,23 @@ export function openBrowseSessionHandler(
     // Host-only input leaves `user` unset — fall back to the local account
     // name so the connection (and the saved profile) has a concrete user.
     const user = resolveSshUser(params.user);
+
+    // Stream agent-bootstrap progress to the renderer for this connect attempt.
+    // Keyed by the caller's progressId so the "add workspace" dialog can show
+    // the same upload/verify progress that registered workspaces already get,
+    // even though no workspaceId exists yet. No progressId or broadcast → no-op.
+    const onProgress =
+      params.progressId && broadcast
+        ? (event: LspBootstrapProgressEvent): void => {
+            broadcast("ssh", "browseProgress", {
+              progressId: params.progressId,
+              name: event.name,
+              phase: event.phase,
+              bytesDone: event.bytesDone,
+              bytesTotal: event.bytesTotal,
+            });
+          }
+        : undefined;
 
     const bootstrapOptions: EnsureRemoteAgentOptions = {
       host: params.host,
@@ -181,7 +211,7 @@ export function openBrowseSessionHandler(
     let bootstrapResult: Awaited<ReturnType<typeof ensureRemoteAgent>> | null = null;
     let channel: ReturnType<typeof createSshChannel> | null = null;
     try {
-      bootstrapResult = await bootstrap(bootstrapOptions);
+      bootstrapResult = await bootstrap(bootstrapOptions, onProgress);
 
       if (timedOut) {
         bootstrapResult.dispose?.();
@@ -256,9 +286,13 @@ export function openBrowseSessionHandler(
 export function openBrowseSessionResultHandler(
   registry: SshBrowseSessionRegistry,
   promptHandler: SshAuthPromptHandler,
-  bootstrap?: (options: EnsureRemoteAgentOptions) => ReturnType<typeof ensureRemoteAgent>,
+  broadcast?: BrowseProgressBroadcast,
+  bootstrap?: (
+    options: EnsureRemoteAgentOptions,
+    onProgress?: (event: LspBootstrapProgressEvent) => void,
+  ) => ReturnType<typeof ensureRemoteAgent>,
 ): (args: unknown) => Promise<ReturnType<typeof ipcOk> | ReturnType<typeof ipcErr>> {
-  const inner = openBrowseSessionHandler(registry, promptHandler, bootstrap);
+  const inner = openBrowseSessionHandler(registry, promptHandler, broadcast, bootstrap);
   return async (args: unknown) => {
     try {
       const result = await inner(args);

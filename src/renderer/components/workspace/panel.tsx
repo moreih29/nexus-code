@@ -10,12 +10,14 @@ import { type Tab, useTabsStore } from "../../state/stores/tabs";
 import { useTerminalDeathStore } from "../../state/stores/terminal-deaths";
 import {
   selectIsWorkspaceOnline,
+  selectWorkspaceConnectionProgress,
   selectWorkspaceConnectionStatus,
   useWorkspacesStore,
 } from "../../state/stores/workspaces";
 import { EmptyState } from "../ui/empty-state";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { StatusBar } from "../workbench/status-bar";
+import { BootstrapProgressBar } from "./bootstrap-progress-bar";
 import { ContentPool } from "./content/pool";
 import { LayoutTree } from "./layout/tree";
 import {
@@ -53,6 +55,9 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
   const workspaceOnline = useWorkspacesStore((s) => selectIsWorkspaceOnline(s, workspace.id));
   const connectionStatus = useWorkspacesStore((s) =>
     selectWorkspaceConnectionStatus(s, workspace.id),
+  );
+  const connectionProgress = useWorkspacesStore((s) =>
+    selectWorkspaceConnectionProgress(s, workspace.id),
   );
   const deadTerminalCount = deadTerminalTabs(tabs).length;
   const showTerminalStatusBanner = shouldShowWorkspaceTerminalStatusBanner({
@@ -95,6 +100,7 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
 
   if (showOfflinePlaceholder) {
     const isError = connectionStatus === "error";
+    const isConnecting = connectionStatus === "connecting" || connectionStatus === "reconnecting";
     const sshLabel =
       workspace.location.kind === "ssh"
         ? `${workspace.location.user ? `${workspace.location.user}@` : ""}${workspace.location.host}`
@@ -108,7 +114,7 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
         aria-hidden={!isActive || undefined}
         inert={!isActive || undefined}
       >
-        <div className="flex flex-1 items-center justify-center island-surface rounded-(--radius-island) overflow-hidden">
+        <div className="relative flex flex-1 items-center justify-center island-surface rounded-(--radius-island) overflow-hidden">
           <EmptyState
             title={isError ? t("panel.connection_failed") : workspace.name}
             description={
@@ -122,6 +128,15 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
             onAction={handleConnect}
             tone="status"
           />
+          {isConnecting && connectionProgress && (
+            <BootstrapProgressBar
+              phase={connectionProgress.phase}
+              name={connectionProgress.name}
+              bytesDone={connectionProgress.bytesDone}
+              bytesTotal={connectionProgress.bytesTotal}
+              className="absolute bottom-0 left-0 right-0 px-5 pb-4"
+            />
+          )}
         </div>
       </div>
     );
@@ -165,3 +180,7 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// 부트스트랩 진행 표시줄
+// ---------------------------------------------------------------------------

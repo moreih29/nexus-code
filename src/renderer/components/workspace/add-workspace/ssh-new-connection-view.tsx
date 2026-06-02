@@ -1,13 +1,14 @@
-import { ChevronDown, ChevronRight } from "lucide-react";
 import i18next from "i18next";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { appErrorCancelled, appErrorFailed } from "../../../../shared/error/app-error";
 import { useIpcAction } from "../../../hooks/use-ipc-action";
-import { showToast } from "../../ui/toast";
 import { openSshBrowseSession, saveConnectionProfileResult } from "../../../services/workspace";
 import { Button } from "../../ui/button";
+import { showToast } from "../../ui/toast";
+import { BootstrapProgressBar } from "../bootstrap-progress-bar";
 import { ErrorNotice } from "./error-notice";
 import {
   clampHostIndex,
@@ -19,6 +20,7 @@ import {
   sshHostOptionId,
 } from "./ssh-helpers";
 import type { SshNewConnectionViewProps } from "./types";
+import { useBrowseProgress } from "./use-browse-progress";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -115,6 +117,15 @@ export function SshNewConnectionView({
   // ---------------------------------------------------------------------------
   const { state: connectState, run: runConnect, isPending } = useIpcAction<void>();
 
+  // Bootstrap progress for the in-flight connect (agent upload/verify happens
+  // inside openSshBrowseSession, before any sessionId exists — keyed by a
+  // client-minted progressId).
+  const {
+    progress: browseProgress,
+    begin: beginProgress,
+    clear: clearProgress,
+  } = useBrowseProgress();
+
   // Map useIpcAction discriminated-union state to the parent's connectPhase API.
   // The parent footer uses these to drive button label and disabled state.
   const connectPhase =
@@ -150,6 +161,12 @@ export function SshNewConnectionView({
   useEffect(() => {
     onConnectPhaseChange(connectPhase, connectDisabled);
   }, [connectPhase, connectDisabled, onConnectPhaseChange]);
+
+  // Clear the progress bar whenever a connect attempt ends (success → the view
+  // changes; error/cancel → the form returns and we drop the stale bar).
+  useEffect(() => {
+    if (connectPhase !== "connecting") clearProgress();
+  }, [connectPhase, clearProgress]);
 
   useEffect(() => {
     if (!hostListOpen) return;
@@ -285,6 +302,7 @@ export function SshNewConnectionView({
         port: capturedPort,
         identityFile: capturedIdentityFile,
         authMode: "interactive",
+        progressId: beginProgress(),
       });
 
       if (!result.ok) {
@@ -378,8 +396,7 @@ export function SshNewConnectionView({
 
   // Inline error message for connection failures.
   // Cancelled (state:'idle') and save failures (surfaced as toast) do not reach here.
-  const inlineError =
-    connectState.status === "error" ? connectState.error.message : null;
+  const inlineError = connectState.status === "error" ? connectState.error.message : null;
 
   return (
     <form
@@ -390,6 +407,18 @@ export function SshNewConnectionView({
       {/* Connection error banner — shown for primary (connect) failures only.
           Cancelled auth and save failures are surfaced elsewhere (silent / toast). */}
       {inlineError ? <ErrorNotice message={inlineError} className="px-2 py-2" /> : null}
+
+      {/* Bootstrap progress — shown once the agent upload/verify begins so the
+          user sees concrete activity instead of an opaque "연결 중" spinner. */}
+      {connecting && browseProgress ? (
+        <BootstrapProgressBar
+          phase={browseProgress.phase}
+          name={browseProgress.name}
+          bytesDone={browseProgress.bytesDone}
+          bytesTotal={browseProgress.bytesTotal}
+          className="px-2"
+        />
+      ) : null}
 
       {/* Host combobox — ref is used to detect outside clicks and close the dropdown */}
       <div className="flex flex-col gap-2">
@@ -473,7 +502,9 @@ export function SshNewConnectionView({
       <div className="flex flex-col gap-2">
         <label htmlFor={NEW_CONN_NAME_ID} className="text-app-ui-sm text-foreground">
           {t("ssh.label_name")}
-          <span className="ml-1 text-app-ui-sm text-muted-foreground">{t("ssh.label_name_optional")}</span>
+          <span className="ml-1 text-app-ui-sm text-muted-foreground">
+            {t("ssh.label_name_optional")}
+          </span>
         </label>
         <input
           id={NEW_CONN_NAME_ID}

@@ -63,6 +63,7 @@ function resetStore(): void {
   useWorkspacesStore.setState({
     workspaces: [],
     connectionStatusByWorkspaceId: {},
+    connectionProgressByWorkspaceId: {},
   });
 }
 
@@ -106,7 +107,11 @@ const storeWithFetch = createWorkspacesStore({
 });
 
 function resetFetchStore(): void {
-  storeWithFetch.setState({ workspaces: [], connectionStatusByWorkspaceId: {} });
+  storeWithFetch.setState({
+    workspaces: [],
+    connectionStatusByWorkspaceId: {},
+    connectionProgressByWorkspaceId: {},
+  });
   fetchListResults.length = 0;
   fetchListCallCount = 0;
 }
@@ -330,5 +335,89 @@ describe("workspaces store — fetchList fallback on inconsistency", () => {
     const ids = storeWithFetch.getState().workspaces.map((w) => w.id);
     expect(ids).toContain(ID_A);
     expect(ids).toContain(ID_B);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// workspace.connectionProgress 이벤트 구독 및 상태 관리
+// ---------------------------------------------------------------------------
+
+describe("workspaces store — connection progress", () => {
+  beforeEach(resetStore);
+
+  test("stores progress event by workspaceId on connectionProgress", () => {
+    emitWorkspaceEvent("connectionProgress", {
+      workspaceId: WORKSPACE_ID,
+      name: "nexus-agent",
+      phase: "uploading",
+      bytesTotal: 8_388_608,
+    });
+
+    const progress = useWorkspacesStore.getState().connectionProgressByWorkspaceId[WORKSPACE_ID];
+    expect(progress?.phase).toBe("uploading");
+    expect(progress?.name).toBe("nexus-agent");
+    expect(progress?.bytesTotal).toBe(8_388_608);
+  });
+
+  test("overwrites previous progress event with latest", () => {
+    emitWorkspaceEvent("connectionProgress", {
+      workspaceId: WORKSPACE_ID,
+      name: "nexus-agent",
+      phase: "uploading",
+    });
+    emitWorkspaceEvent("connectionProgress", {
+      workspaceId: WORKSPACE_ID,
+      name: "nexus-agent",
+      phase: "verifying",
+    });
+
+    const progress = useWorkspacesStore.getState().connectionProgressByWorkspaceId[WORKSPACE_ID];
+    expect(progress?.phase).toBe("verifying");
+  });
+
+  test("clears progress entry when connectionChanged arrives with a terminal status", () => {
+    emitWorkspaceEvent("connectionProgress", {
+      workspaceId: WORKSPACE_ID,
+      name: "nexus-agent",
+      phase: "uploading",
+    });
+    // 연결 완료 → terminal 상태 → progress가 undefined로 클리어되어야 한다.
+    emitWorkspaceEvent("connectionChanged", {
+      workspaceId: WORKSPACE_ID,
+      status: "connected",
+    });
+
+    const progress = useWorkspacesStore.getState().connectionProgressByWorkspaceId[WORKSPACE_ID];
+    expect(progress).toBeUndefined();
+  });
+
+  test("does not clear progress when connectionChanged arrives with connecting status", () => {
+    emitWorkspaceEvent("connectionProgress", {
+      workspaceId: WORKSPACE_ID,
+      name: "nexus-agent",
+      phase: "checking",
+    });
+    emitWorkspaceEvent("connectionChanged", {
+      workspaceId: WORKSPACE_ID,
+      status: "connecting",
+    });
+
+    const progress = useWorkspacesStore.getState().connectionProgressByWorkspaceId[WORKSPACE_ID];
+    expect(progress?.phase).toBe("checking");
+  });
+
+  test("clears progress on error terminal status", () => {
+    emitWorkspaceEvent("connectionProgress", {
+      workspaceId: WORKSPACE_ID,
+      name: "nexus-agent",
+      phase: "uploading",
+    });
+    emitWorkspaceEvent("connectionChanged", {
+      workspaceId: WORKSPACE_ID,
+      status: "error",
+    });
+
+    const progress = useWorkspacesStore.getState().connectionProgressByWorkspaceId[WORKSPACE_ID];
+    expect(progress).toBeUndefined();
   });
 });

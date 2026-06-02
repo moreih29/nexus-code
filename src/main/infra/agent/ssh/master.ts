@@ -39,6 +39,22 @@ export interface SshControlMaster {
 const CONTROL_EXIT_UNLINK_FALLBACK_MS = 5_000;
 
 /**
+ * Keepalive options applied to every long-lived ssh invocation (the agent
+ * channel and the persistent ControlMaster). Without these, a client that dies
+ * abnormally (force-kill, sleep, network drop) leaves the remote agent — and
+ * the binary it holds — alive until the kernel's default TCP timeout (hours),
+ * which then blocks the next launch's re-upload. ServerAliveInterval probes the
+ * peer at the SSH layer; after ServerAliveCountMax unanswered probes ssh exits,
+ * the remote session tears down, and the agent gets stdin EOF. ~15s × 3 ≈ 45s.
+ */
+const SSH_KEEPALIVE_ARGS: readonly string[] = [
+  "-o",
+  "ServerAliveInterval=15",
+  "-o",
+  "ServerAliveCountMax=3",
+];
+
+/**
  * Spawns the SSH client for direct stdin/stdout NDJSON exchange. Interactive
  * ControlMaster authentication and socket reuse live in `ssh-master`'s
  * controlMaster helpers and in `ssh-auth-pty`; this function builds the
@@ -59,7 +75,7 @@ export function spawnSshMaster(
  * Creates the OpenSSH argument list without invoking a shell locally.
  */
 export function buildSshArgs(options: SshMasterOptions): string[] {
-  const args = ["-o", "BatchMode=yes"];
+  const args = ["-o", "BatchMode=yes", ...SSH_KEEPALIVE_ARGS];
   if (options.controlPath) {
     args.push("-S", options.controlPath, "-o", "ControlMaster=no");
   }
@@ -150,6 +166,7 @@ export function buildSshControlMasterArgs(
     "ControlMaster=yes",
     "-o",
     "ControlPersist=60",
+    ...SSH_KEEPALIVE_ARGS,
     "-f",
     "-N",
   ];

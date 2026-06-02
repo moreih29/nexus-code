@@ -6,41 +6,39 @@
  * `ipc/client` directly.
  */
 
+// Connection profiles
+export type { SaveConnectionProfileArgs } from "./connection-profiles";
+export {
+  fetchConnectionProfiles,
+  listConnectionProfiles,
+  removeConnectionProfile,
+  saveConnectionProfile,
+  saveConnectionProfileResult,
+  setConnectionProfileFavorite,
+} from "./connection-profiles";
 // Folder bookmarks
 export type { RecordLocalBookmarkArgs, RecordSshBookmarkArgs } from "./folder-bookmarks";
 export {
   listFolderBookmarks,
   recordLocalBookmark,
   recordSshBookmark,
-  setFolderBookmarkFavorite,
   removeFolderBookmark,
+  setFolderBookmarkFavorite,
 } from "./folder-bookmarks";
-
-// Connection profiles
-export type { SaveConnectionProfileArgs } from "./connection-profiles";
+// SSH browse session
+export type { BrowseSessionInfo, BrowseSessionResult, OpenBrowseSessionArgs } from "./ssh-browse";
 export {
-  listConnectionProfiles,
-  fetchConnectionProfiles,
-  saveConnectionProfile,
-  saveConnectionProfileResult,
-  setConnectionProfileFavorite,
-  removeConnectionProfile,
-} from "./connection-profiles";
-
+  browseSshSession,
+  closeSshBrowseSession,
+  openSshBrowseSession,
+  prefetchSshDirectory,
+  subscribeSshBrowseProgress,
+} from "./ssh-browse";
 // Workspace creation + directory picker
 export type { CreateSshWorkspaceArgs } from "./workspace-create";
 export {
   createLocalWorkspace,
-  pickLocalDirectory,
   createSshWorkspace,
   listSshConfigHosts,
+  pickLocalDirectory,
 } from "./workspace-create";
-
-// SSH browse session
-export type { OpenBrowseSessionArgs, BrowseSessionInfo, BrowseSessionResult } from "./ssh-browse";
-export {
-  openSshBrowseSession,
-  browseSshSession,
-  prefetchSshDirectory,
-  closeSshBrowseSession,
-} from "./ssh-browse";

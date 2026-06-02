@@ -63,6 +63,16 @@ type Host struct {
 	// 종료된다 — 멈춘 hook이 셧다운을 막을 수 없다.
 	hooksMu       sync.Mutex
 	shutdownHooks []func()
+
+	// lastInbound is the UnixNano timestamp of the most recently received
+	// request line, read by the idle watchdog (StartIdleWatchdog) to detect a
+	// vanished client. Written from Run's single reader goroutine, read from
+	// the watchdog goroutine — atomic keeps that race-free.
+	lastInbound atomic.Int64
+
+	// exit terminates the process. Defaults to os.Exit; tests inject a fake so
+	// drain/watchdog termination can be observed without killing the runner.
+	exit func(int)
 }
 
 // New constructs a Host bound to the given dispatcher and stdio streams.
@@ -81,6 +91,7 @@ func New(d *dispatch.Dispatcher, in io.Reader, out io.Writer, logger *slog.Logge
 		ctx:        ctx,
 		cancel:     cancel,
 		accepting:  true,
+		exit:       os.Exit,
 	}
 }
 
@@ -120,15 +131,23 @@ func (h *Host) EmitEvent(event string, payload any) error {
 // the parent's shutdown signal is honored.
 func (h *Host) Run() {
 	scanner := bufio.NewScanner(h.in)
-	// 4 MiB cap matches the largest request shape we expect (writeFile
-	// content up to MaxReadableFileSize plus envelope overhead).
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	// Cap matches the largest request shape we expect: a writeFile whose
+	// content is up to MaxReadableFileSize (50 MiB), JSON-escaped, plus
+	// envelope overhead. 64 MiB leaves headroom for escaping without
+	// allocating eagerly — Scanner grows its buffer lazily from 64 KiB up to
+	// this ceiling.
+	scanner.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
 
 	for scanner.Scan() {
 		// Copy the slice — scanner reuses its internal buffer between
 		// calls and the line escapes into a goroutine below.
 		line := append([]byte(nil), scanner.Bytes()...)
-		if len(line) == 0 || !h.isAccepting() {
+		if len(line) == 0 {
+			continue
+		}
+		// Any inbound line proves the client is alive — reset the idle watchdog.
+		h.lastInbound.Store(time.Now().UnixNano())
+		if !h.isAccepting() {
 			continue
 		}
 		h.wg.Add(1)
@@ -171,6 +190,41 @@ func (h *Host) StartHeartbeat(interval time.Duration) {
 					"seq":      n,
 					"uptimeMs": uptime.Milliseconds(),
 				})
+			case <-h.ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+// StartIdleWatchdog self-terminates the agent (via drainAndExit) when no
+// inbound request line arrives within `limit`. This reaps the agent — and,
+// through it, every PTY child — when the client has vanished but the SSH
+// connection lingers without delivering stdin EOF: a half-open TCP link, a
+// hung client process, or a suspended laptop. The client sends a periodic
+// `ping` so a healthy but idle session keeps resetting lastInbound; only a
+// genuinely absent client trips the limit.
+//
+// `limit` must be comfortably larger than the client's keepalive ping interval
+// (KEEPALIVE_PING_INTERVAL_MS in pipe.ts) so normal jitter never false-fires.
+// A non-positive limit disables the watchdog. Call before Run(); the goroutine
+// stops when h.ctx is cancelled (drain).
+func (h *Host) StartIdleWatchdog(limit time.Duration) {
+	if limit <= 0 {
+		return
+	}
+	h.lastInbound.Store(time.Now().UnixNano())
+	go func() {
+		ticker := time.NewTicker(limit / 3)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				last := time.Unix(0, h.lastInbound.Load())
+				if time.Since(last) >= limit {
+					h.drainAndExit(0)
+					return
+				}
 			case <-h.ctx.Done():
 				return
 			}
@@ -266,7 +320,7 @@ func (h *Host) drainAndExit(code int) {
 		// even if Wait() itself blocks", which Wait can do when a
 		// handler is stuck in a syscall. The same forceExit covers
 		// the shutdown-hook execution window below.
-		forceExit := time.AfterFunc(forceExitAfter, func() { os.Exit(code) })
+		forceExit := time.AfterFunc(forceExitAfter, func() { h.exit(code) })
 		done := make(chan struct{})
 		go func() {
 			h.wg.Wait()
@@ -276,14 +330,15 @@ func (h *Host) drainAndExit(code int) {
 		case <-done:
 			// Continue past the select to run shutdown hooks before exit.
 		case <-time.After(forceExitAfter):
-			os.Exit(code)
+			h.exit(code)
+			return
 		}
 		// Hooks run synchronously under the same forceExit timer.
-		// If a hook hangs the AfterFunc above still trips os.Exit on time.
+		// If a hook hangs the AfterFunc above still trips h.exit on time.
 		h.runShutdownHooks()
 		forceExit.Stop()
 		h.cancel()
-		os.Exit(code)
+		h.exit(code)
 	})
 }
 

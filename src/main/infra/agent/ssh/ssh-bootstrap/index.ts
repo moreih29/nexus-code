@@ -22,18 +22,14 @@ import {
   type NodeRuntimeManifestEntry,
   type WrapperManifestEntry,
 } from "../../../../../shared/agent/manifest";
+import { getAgentDistDir } from "../../getAgentBinDir";
+import { createSshError } from "../../pipe";
+import { BASHRC_CONTENT, ZSHENV_CONTENT, ZSHRC_CONTENT } from "../../runtimeDirs";
 import {
-  BASHRC_CONTENT,
-  ZSHENV_CONTENT,
-  ZSHRC_CONTENT,
-} from "../../runtimeDirs";
-import {
-  authenticateSshControlMaster,
   type AuthenticateSshControlMasterDependencies,
+  authenticateSshControlMaster,
   type SshAuthPromptHandler,
 } from "../auth-pty";
-import { createSshError } from "../../pipe";
-import { getAgentDistDir } from "../../getAgentBinDir";
 import {
   absoluteRemotePath,
   agentArtifactKey,
@@ -58,36 +54,24 @@ import {
   uploadAndVerifyFile,
 } from "./transport";
 import {
-  LOCAL_AGENT_DIST_DIR,
-  LSP_BOOTSTRAP_PROGRESS_EVENT,
-  REMOTE_AGENT_MANIFEST,
-  REMOTE_AGENT_PROTOCOL_MAJOR,
-  REMOTE_AGENT_ROOT,
-  REMOTE_AGENT_VERSION,
   type EnsureRemoteAgentOptions,
   type EnsureRemoteAgentResult,
   type EnsureRemoteLspServerOptions,
   type EnsureRemoteLspServerResult,
+  LOCAL_AGENT_DIST_DIR,
+  LSP_BOOTSTRAP_PROGRESS_EVENT,
   type LspBootstrapProgressEvent,
   type LspBootstrapProgressPhase,
+  REMOTE_AGENT_MANIFEST,
+  REMOTE_AGENT_PROTOCOL_MAJOR,
+  REMOTE_AGENT_ROOT,
+  REMOTE_AGENT_VERSION,
   type RemoteAgentPlatform,
   type SshBootstrapDependencies,
   type SshBootstrapRunner,
   type SshBootstrapRunnerResult,
 } from "./types";
 
-// Re-export the stable public surface so existing callers keep their import
-// paths (`"./ssh-bootstrap"`) unchanged.
-export {
-  LOCAL_AGENT_DIST_DIR,
-  LSP_BOOTSTRAP_PROGRESS_EVENT,
-  REMOTE_AGENT_MANIFEST,
-  REMOTE_AGENT_PROTOCOL_MAJOR,
-  REMOTE_AGENT_ROOT,
-  REMOTE_AGENT_VERSION,
-  parseUname,
-  remoteAgentBinaryPath,
-};
 export type {
   EnsureRemoteAgentOptions,
   EnsureRemoteAgentResult,
@@ -99,6 +83,18 @@ export type {
   SshBootstrapDependencies,
   SshBootstrapRunner,
   SshBootstrapRunnerResult,
+};
+// Re-export the stable public surface so existing callers keep their import
+// paths (`"./ssh-bootstrap"`) unchanged.
+export {
+  LOCAL_AGENT_DIST_DIR,
+  LSP_BOOTSTRAP_PROGRESS_EVENT,
+  parseUname,
+  REMOTE_AGENT_MANIFEST,
+  REMOTE_AGENT_PROTOCOL_MAJOR,
+  REMOTE_AGENT_ROOT,
+  REMOTE_AGENT_VERSION,
+  remoteAgentBinaryPath,
 };
 
 interface ArtifactInstallRequest {
@@ -327,12 +323,23 @@ export function buildRemoteAgentCommand(binaryPath: string, remotePath: string):
   if (!remotePath.startsWith("/")) {
     throw createSshError(
       "server.protocol-error",
-      new Error(
-        `remotePath must be an absolute path, got: ${JSON.stringify(remotePath)}`,
-      ),
+      new Error(`remotePath must be an absolute path, got: ${JSON.stringify(remotePath)}`),
     );
   }
-  const script = `exec ${quoteShellArg(binaryPath)} ${quoteShellArg(remotePath)}`;
+  // Retry the exec on ETXTBSY ("Text file busy"): immediately after a fresh
+  // install (sftp/cat write + `mv` into place) the kernel can briefly refuse to
+  // execute the binary while a writer fd from the upload — or a lingering writer
+  // from a previous, half-dead bootstrap connection — is still open. `exec`
+  // replaces the shell on success (so the loop body never runs twice in the
+  // healthy case); it only returns on failure, where we retry a handful of
+  // times over ~5s before giving up with the conventional 126 "cannot execute".
+  // `shopt -s execfail` is REQUIRED: without it a failed `exec` in a
+  // non-interactive bash terminates the shell immediately (so the loop would
+  // never retry). With it, a failed exec returns control and the loop runs.
+  const exec = `exec ${quoteShellArg(binaryPath)} ${quoteShellArg(remotePath)}`;
+  const script =
+    `shopt -s execfail; n=0; while :; do ${exec}; n=$((n+1)); ` +
+    `if [ "$n" -ge 25 ]; then exit 126; fi; sleep 0.2; done`;
   return `bash -lc ${singleQuoteShellArg(script)}`;
 }
 
@@ -431,17 +438,13 @@ async function ensureRemoteArtifact(
   const existing = artifactLocks.get(lockKey);
   if (existing) return existing;
 
-  const pending = ensureRemoteArtifactUnlocked(
-    options,
-    runner,
-    now,
-    request,
-    onProgress,
-  ).finally(() => {
-    if (artifactLocks.get(lockKey) === pending) {
-      artifactLocks.delete(lockKey);
-    }
-  });
+  const pending = ensureRemoteArtifactUnlocked(options, runner, now, request, onProgress).finally(
+    () => {
+      if (artifactLocks.get(lockKey) === pending) {
+        artifactLocks.delete(lockKey);
+      }
+    },
+  );
   artifactLocks.set(lockKey, pending);
   return pending;
 }
@@ -614,10 +617,7 @@ async function ensureRemoteShimFiles(
   remoteHome: string,
   workspaceId: string,
 ): Promise<string> {
-  const remoteShimDir = absoluteRemotePath(
-    remoteHome,
-    `${REMOTE_AGENT_ROOT}/shim/${workspaceId}`,
-  );
+  const remoteShimDir = absoluteRemotePath(remoteHome, `${REMOTE_AGENT_ROOT}/shim/${workspaceId}`);
   // mkdir -p first; subsequent `cat > <file>` will inherit the 0o700-ish
   // umask of the remote user. We do not chmod the files explicitly —
   // they are plain rc files, not executables, and the default user-owned
@@ -632,12 +632,7 @@ async function ensureRemoteShimFiles(
 
   for (const file of files) {
     const remotePath = `${remoteShimDir}/${file.name}`;
-    await runSsh(
-      options,
-      runner,
-      `cat > ${quoteShellArg(remotePath)}`,
-      file.content,
-    );
+    await runSsh(options, runner, `cat > ${quoteShellArg(remotePath)}`, file.content);
   }
 
   return remoteShimDir;

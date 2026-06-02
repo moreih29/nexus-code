@@ -38,6 +38,8 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
+import { ipcCallResult } from "../../../ipc/client";
 import { buildWorkspaceUrl } from "../../../services/editor/preview/workspace-url";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { relPath } from "../../../utils/path";
@@ -89,12 +91,24 @@ export function ImagePreview({ workspaceId, filePath, onNaturalSize }: ImagePrev
   }
 
   const url = buildWorkspaceUrl(workspaceId, rel);
-  return <ImageCanvas url={url} alt={rel} onNaturalSize={onNaturalSize} />;
+  return (
+    <ImageCanvas
+      url={url}
+      alt={rel}
+      workspaceId={workspaceId}
+      relPath={rel}
+      onNaturalSize={onNaturalSize}
+    />
+  );
 }
 
 interface ImageCanvasProps {
   url: string;
   alt: string;
+  /** Workspace owning the file — used to stat the file on a load error. */
+  workspaceId: string;
+  /** Workspace-relative path — used to stat the file on a load error. */
+  relPath: string;
   onNaturalSize?: (size: { w: number; h: number }) => void;
 }
 
@@ -129,14 +143,16 @@ interface ZoomAnchor {
  *   - File deleted/moved on disk after the tab opened (404 from protocol).
  *   - Format the OS/Chromium can't decode (rare for the supported set).
  */
-function ImageCanvas({ url, alt, onNaturalSize }: ImageCanvasProps) {
+function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCanvasProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const [fitScale, setFitScale] = useState(1);
   const [userScale, setUserScale] = useState(1);
-  const [errored, setErrored] = useState(false);
+  // null = loaded OK. "generic" = decode/missing failure. "too_large" = the
+  // file exceeds the read cap (resolved via a stat round-trip in onError).
+  const [errorKind, setErrorKind] = useState<"generic" | "too_large" | null>(null);
 
   // Anchor for the in-flight zoom: applied in useLayoutEffect after the new
   // dimensions commit, then cleared. Held in a ref so the wheel callback
@@ -226,8 +242,18 @@ function ImageCanvas({ url, alt, onNaturalSize }: ImageCanvasProps) {
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
-  if (errored) {
-    return <EmptyState title={t("imagePreview.load_failed")} tone="status" className="min-h-0" />;
+  if (errorKind) {
+    return (
+      <EmptyState
+        title={
+          errorKind === "too_large"
+            ? t("imagePreview.too_large", { maxMb: MAX_READABLE_FILE_SIZE / (1024 * 1024) })
+            : t("imagePreview.load_failed")
+        }
+        tone="status"
+        className="min-h-0"
+      />
+    );
   }
 
   // Until the image loads we don't know its natural size yet, so render
@@ -244,7 +270,7 @@ function ImageCanvas({ url, alt, onNaturalSize }: ImageCanvasProps) {
       ref={containerRef}
       className="app-scrollbar flex-1 min-h-0 overflow-auto bg-[var(--surface-backdrop-bg)]"
     >
-      <div className="min-w-full min-h-full flex items-center justify-center p-4">
+      <div className="min-w-full min-h-full flex items-center-safe justify-center-safe p-4">
         <img
           ref={imgRef}
           src={url}
@@ -255,7 +281,18 @@ function ImageCanvas({ url, alt, onNaturalSize }: ImageCanvasProps) {
             setNaturalSize(size);
             onNaturalSize?.(size);
           }}
-          onError={() => setErrored(true)}
+          onError={() => {
+            // A load failure on an over-cap file is a size rejection — the
+            // workspace protocol 404s reads above MAX_READABLE_FILE_SIZE — not
+            // a missing or undecodable image. stat to disambiguate so the user
+            // sees the real reason instead of a generic "could not load".
+            setErrorKind("generic");
+            void ipcCallResult("fs", "stat", { workspaceId, relPath }).then((result) => {
+              if (result.ok && result.value.size > MAX_READABLE_FILE_SIZE) {
+                setErrorKind("too_large");
+              }
+            });
+          }}
           // maxWidth/maxHeight: 'none' override Tailwind Preflight's global
           // `img { max-width: 100%; height: auto; }`. Without this, our
           // explicit width is silently capped at the inner wrapper's width

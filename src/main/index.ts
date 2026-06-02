@@ -150,9 +150,10 @@ const workspaceManager = new WorkspaceManager(
     createSshChannel(options, {
       promptHandler: (prompt) => sshAuthPromptHub.request(prompt),
     }),
-  (options) =>
+  (options, deps) =>
     ensureRemoteAgent(options, {
       promptHandler: (prompt) => sshAuthPromptHub.request(prompt),
+      onProgress: deps?.onProgress,
     }),
 );
 
@@ -218,7 +219,11 @@ registerAppStateChannel(stateService, {
 registerFsChannel(workspaceManager, agentFsWatcher, workspaceStorage);
 registerPanelChannel(workspaceStorage);
 registerSshChannel();
-registerSshBrowseHandlers(sshBrowseRegistry, (prompt) => sshAuthPromptHub.request(prompt));
+registerSshBrowseHandlers(
+  sshBrowseRegistry,
+  (prompt) => sshAuthPromptHub.request(prompt),
+  forwardBroadcast,
+);
 registerSshAuthPromptIpcChannels(sshAuthPromptHub);
 registerSystemChannel({ openNewWindow: () => createMainWindow(stateService.getState()) });
 registerClipboardChannel();

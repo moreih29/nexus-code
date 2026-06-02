@@ -629,6 +629,7 @@ export function Sidebar({
 function ConnectionStatusDot({ status }: { status: WorkspaceConnectionStatus }) {
   const { t } = useTranslation();
   const label = t("sidebar.ssh_status", { status });
+  const isTransient = status === "connecting" || status === "reconnecting";
   return (
     <span
       role="status"
@@ -639,6 +640,8 @@ function ConnectionStatusDot({ status }: { status: WorkspaceConnectionStatus }) 
         // 배경색과의 대비를 유지한다.
         "size-2 rounded-full ring-1 ring-background",
         connectionStatusClassName(status),
+        // connecting/reconnecting 중에는 subtle pulse로 진행 중임을 표시한다.
+        isTransient && "motion-safe:animate-pulse",
       )}
     />
   );

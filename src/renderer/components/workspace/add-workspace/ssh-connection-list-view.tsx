@@ -2,6 +2,7 @@ import { ChevronRight, LoaderCircle, Plus, Server, Star, Trash2 } from "lucide-r
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ConnectionProfile } from "../../../../shared/types/entry-points";
+import type { SshBrowseProgressEvent } from "../../../../shared/types/workspace";
 import {
   listConnectionProfiles,
   openSshBrowseSession,
@@ -11,9 +12,11 @@ import {
 } from "../../../services/workspace";
 import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
+import { BootstrapProgressBar } from "../bootstrap-progress-bar";
 import { ErrorNotice } from "./error-notice";
 import { formatProfileSubtitle } from "./ssh-helpers";
 import type { SshBrowseSession, SshConnectionListViewProps } from "./types";
+import { useBrowseProgress } from "./use-browse-progress";
 
 // ---------------------------------------------------------------------------
 // SshConnectionListView — T4 implementation
@@ -31,6 +34,13 @@ export function SshConnectionListView({
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [errorId, setErrorId] = useState<string | null>(null);
   const [errorHuman, setErrorHuman] = useState<string | null>(null);
+  // Agent-bootstrap progress for the in-flight connect (keyed by a client-minted
+  // progressId, since no sessionId/workspaceId exists yet).
+  const {
+    progress: browseProgress,
+    begin: beginProgress,
+    clear: clearProgress,
+  } = useBrowseProgress();
 
   const loadProfiles = useCallback((): (() => void) => {
     let cancelled = false;
@@ -76,6 +86,7 @@ export function SshConnectionListView({
         port: profile.port,
         identityFile: profile.identityFile ?? undefined,
         authMode: profile.authMode as "interactive" | "key-only",
+        progressId: beginProgress(),
       });
       if (!result.ok) {
         // User cancelled the SSH auth prompt — silent stop, no error banner.
@@ -107,6 +118,7 @@ export function SshConnectionListView({
       onConnected(session);
     } finally {
       setConnectingId(null);
+      clearProgress();
     }
   }
 
@@ -166,7 +178,9 @@ export function SshConnectionListView({
       {favorites.length > 0 ? (
         <section aria-label={t("workspace.favorites")}>
           <div className="px-2 pb-1 pt-0">
-            <span className="text-app-label uppercase text-muted-foreground">{t("workspace.favorites")}</span>
+            <span className="text-app-label uppercase text-muted-foreground">
+              {t("workspace.favorites")}
+            </span>
           </div>
           <ul className="flex flex-col gap-0.5">
             {favorites.map((profile) => (
@@ -174,6 +188,7 @@ export function SshConnectionListView({
                 key={profile.id}
                 profile={profile}
                 connecting={connectingId === profile.id}
+                progress={connectingId === profile.id ? browseProgress : null}
                 disabled={busy}
                 errorHuman={errorId === profile.id ? (errorHuman ?? undefined) : undefined}
                 onConnect={() => void connectProfile(profile)}
@@ -187,9 +202,14 @@ export function SshConnectionListView({
 
       {/* Recent section */}
       {recents.length > 0 ? (
-        <section aria-label={t("workspace.recent")} className={favorites.length > 0 ? "mt-3" : undefined}>
+        <section
+          aria-label={t("workspace.recent")}
+          className={favorites.length > 0 ? "mt-3" : undefined}
+        >
           <div className="px-2 pb-1 pt-0">
-            <span className="text-app-label uppercase text-muted-foreground">{t("workspace.recent")}</span>
+            <span className="text-app-label uppercase text-muted-foreground">
+              {t("workspace.recent")}
+            </span>
           </div>
           <ul className="flex flex-col gap-0.5">
             {recents.map((profile) => (
@@ -197,6 +217,7 @@ export function SshConnectionListView({
                 key={profile.id}
                 profile={profile}
                 connecting={connectingId === profile.id}
+                progress={connectingId === profile.id ? browseProgress : null}
                 disabled={busy}
                 errorHuman={errorId === profile.id ? (errorHuman ?? undefined) : undefined}
                 onConnect={() => void connectProfile(profile)}
@@ -233,6 +254,8 @@ export function SshConnectionListView({
 interface ConnectionProfileRowProps {
   readonly profile: ConnectionProfile;
   readonly connecting: boolean;
+  /** Live bootstrap progress for this row while connecting (null until events arrive). */
+  readonly progress: SshBrowseProgressEvent | null;
   readonly disabled: boolean;
   readonly errorHuman: string | undefined;
   readonly onConnect: () => void;
@@ -243,6 +266,7 @@ interface ConnectionProfileRowProps {
 function ConnectionProfileRow({
   profile,
   connecting,
+  progress,
   disabled,
   errorHuman,
   onConnect,
@@ -294,12 +318,30 @@ function ConnectionProfileRow({
             <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           )}
 
-          {/* Name + connection info */}
+          {/* Name + connection info. While connecting, the subtitle row is
+              replaced by the live bootstrap progress bar (phase label + bar)
+              once events arrive; until then it falls back to "연결 중…". */}
           <span className="min-w-0 flex-1">
             <span className="block truncate text-app-ui-sm text-foreground">{displayName}</span>
-            <span className="block truncate text-app-ui-sm text-muted-foreground">
-              {connecting ? t("ssh.connecting") : subtitle}
-            </span>
+            {connecting ? (
+              progress ? (
+                <BootstrapProgressBar
+                  phase={progress.phase}
+                  name={progress.name}
+                  bytesDone={progress.bytesDone}
+                  bytesTotal={progress.bytesTotal}
+                  className="mt-1"
+                />
+              ) : (
+                <span className="block truncate text-app-ui-sm text-muted-foreground">
+                  {t("ssh.connecting")}
+                </span>
+              )
+            ) : (
+              <span className="block truncate text-app-ui-sm text-muted-foreground">
+                {subtitle}
+              </span>
+            )}
           </span>
         </button>
 
@@ -308,7 +350,9 @@ function ConnectionProfileRow({
           <span className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
             <button
               type="button"
-              aria-label={isFavorite ? t("workspace.remove_from_favorites") : t("workspace.add_to_favorites")}
+              aria-label={
+                isFavorite ? t("workspace.remove_from_favorites") : t("workspace.add_to_favorites")
+              }
               onClick={onToggleFavorite}
               className="inline-flex size-11 items-center justify-center rounded-(--radius-control) text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             >
