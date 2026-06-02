@@ -2,6 +2,7 @@ import { ChevronRight, LoaderCircle, Plus, Server, Star, Trash2 } from "lucide-r
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ConnectionProfile } from "../../../../shared/types/entry-points";
+import type { SshBrowseProgressEvent } from "../../../../shared/types/workspace";
 import {
   listConnectionProfiles,
   openSshBrowseSession,
@@ -162,18 +163,6 @@ export function SshConnectionListView({
 
   return (
     <div className="flex flex-col gap-1">
-      {/* Bootstrap progress — shown once the agent upload/verify begins for the
-          profile being connected, instead of only the per-row spinner. */}
-      {busy && browseProgress ? (
-        <BootstrapProgressBar
-          phase={browseProgress.phase}
-          name={browseProgress.name}
-          bytesDone={browseProgress.bytesDone}
-          bytesTotal={browseProgress.bytesTotal}
-          className="px-2 pb-1"
-        />
-      ) : null}
-
       {/* Empty state — shown above New Connection row when no profiles */}
       {!hasContent ? (
         <EmptyState
@@ -199,6 +188,7 @@ export function SshConnectionListView({
                 key={profile.id}
                 profile={profile}
                 connecting={connectingId === profile.id}
+                progress={connectingId === profile.id ? browseProgress : null}
                 disabled={busy}
                 errorHuman={errorId === profile.id ? (errorHuman ?? undefined) : undefined}
                 onConnect={() => void connectProfile(profile)}
@@ -227,6 +217,7 @@ export function SshConnectionListView({
                 key={profile.id}
                 profile={profile}
                 connecting={connectingId === profile.id}
+                progress={connectingId === profile.id ? browseProgress : null}
                 disabled={busy}
                 errorHuman={errorId === profile.id ? (errorHuman ?? undefined) : undefined}
                 onConnect={() => void connectProfile(profile)}
@@ -263,6 +254,8 @@ export function SshConnectionListView({
 interface ConnectionProfileRowProps {
   readonly profile: ConnectionProfile;
   readonly connecting: boolean;
+  /** Live bootstrap progress for this row while connecting (null until events arrive). */
+  readonly progress: SshBrowseProgressEvent | null;
   readonly disabled: boolean;
   readonly errorHuman: string | undefined;
   readonly onConnect: () => void;
@@ -273,6 +266,7 @@ interface ConnectionProfileRowProps {
 function ConnectionProfileRow({
   profile,
   connecting,
+  progress,
   disabled,
   errorHuman,
   onConnect,
@@ -324,12 +318,30 @@ function ConnectionProfileRow({
             <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           )}
 
-          {/* Name + connection info */}
+          {/* Name + connection info. While connecting, the subtitle row is
+              replaced by the live bootstrap progress bar (phase label + bar)
+              once events arrive; until then it falls back to "연결 중…". */}
           <span className="min-w-0 flex-1">
             <span className="block truncate text-app-ui-sm text-foreground">{displayName}</span>
-            <span className="block truncate text-app-ui-sm text-muted-foreground">
-              {connecting ? t("ssh.connecting") : subtitle}
-            </span>
+            {connecting ? (
+              progress ? (
+                <BootstrapProgressBar
+                  phase={progress.phase}
+                  name={progress.name}
+                  bytesDone={progress.bytesDone}
+                  bytesTotal={progress.bytesTotal}
+                  className="mt-1"
+                />
+              ) : (
+                <span className="block truncate text-app-ui-sm text-muted-foreground">
+                  {t("ssh.connecting")}
+                </span>
+              )
+            ) : (
+              <span className="block truncate text-app-ui-sm text-muted-foreground">
+                {subtitle}
+              </span>
+            )}
           </span>
         </button>
 
