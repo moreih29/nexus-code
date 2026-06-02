@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type {
   WorkspaceConnectionEventStatus,
+  WorkspaceConnectionProgressEvent,
   WorkspaceMeta,
 } from "../../../shared/types/workspace";
 import { canUseIpcBridge, ipcCallResult, ipcListen, mustSucceed } from "../../ipc/client";
@@ -20,6 +21,8 @@ export type WorkspaceConnectionStatus =
 export interface WorkspacesState {
   workspaces: WorkspaceMeta[];
   connectionStatusByWorkspaceId: Record<string, WorkspaceConnectionStatus>;
+  /** 워크스페이스 ID별 마지막 부트스트랩 진행 이벤트. 연결 완료/오류 시 undefined로 클리어된다. */
+  connectionProgressByWorkspaceId: Record<string, WorkspaceConnectionProgressEvent | undefined>;
   setAll: (workspaces: WorkspaceMeta[]) => void;
   upsert: (meta: WorkspaceMeta) => void;
   remove: (id: string) => void;
@@ -150,6 +153,17 @@ function workspaceIsOnline(
 }
 
 /**
+ * 워크스페이스의 마지막 부트스트랩 진행 이벤트를 반환한다.
+ * 연결이 terminal 상태에 도달하면 undefined를 반환한다.
+ */
+export function selectWorkspaceConnectionProgress(
+  state: WorkspacesState,
+  workspaceId: string,
+): WorkspaceConnectionProgressEvent | undefined {
+  return state.connectionProgressByWorkspaceId[workspaceId];
+}
+
+/**
  * Selects whether a workspace should expose online-only per-tab status UI.
  */
 export function selectIsWorkspaceOnline(state: WorkspacesState, workspaceId: string): boolean {
@@ -242,10 +256,29 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
       });
 
       deps.listen("workspace", "connectionChanged", ({ workspaceId, status }) => {
+        set((state) => {
+          const displayStatus = statusFromConnectionEvent(status);
+          // 연결이 terminal 상태(connected/error/idle/disconnected)에 도달하면
+          // 진행 표시줄이 남아있지 않도록 progress 항목을 클리어한다.
+          const isTerminal = displayStatus !== "connecting" && displayStatus !== "reconnecting";
+          const nextProgress = isTerminal
+            ? { ...state.connectionProgressByWorkspaceId, [workspaceId]: undefined }
+            : state.connectionProgressByWorkspaceId;
+          return {
+            connectionStatusByWorkspaceId: {
+              ...state.connectionStatusByWorkspaceId,
+              [workspaceId]: displayStatus,
+            },
+            connectionProgressByWorkspaceId: nextProgress,
+          };
+        });
+      });
+
+      deps.listen("workspace", "connectionProgress", (event) => {
         set((state) => ({
-          connectionStatusByWorkspaceId: {
-            ...state.connectionStatusByWorkspaceId,
-            [workspaceId]: statusFromConnectionEvent(status),
+          connectionProgressByWorkspaceId: {
+            ...state.connectionProgressByWorkspaceId,
+            [event.workspaceId]: event,
           },
         }));
       });
@@ -264,12 +297,18 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
             ([workspaceId]) => workspaceId !== id,
           ),
         ),
+        connectionProgressByWorkspaceId: Object.fromEntries(
+          Object.entries(state.connectionProgressByWorkspaceId).filter(
+            ([workspaceId]) => workspaceId !== id,
+          ),
+        ),
       }));
     });
 
     return {
       workspaces: [],
       connectionStatusByWorkspaceId: {},
+      connectionProgressByWorkspaceId: {},
 
       setAll(workspaces) {
         set((state) => ({

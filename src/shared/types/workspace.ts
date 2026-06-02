@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LspBootstrapProgressPhaseSchema } from "../lsp/diagnostics";
 import { ColorToneSchema } from "./color-tone";
 import { TabMetaSchema } from "./tab";
 import { WorkspaceIdSchema } from "./workspace-id";
@@ -54,6 +55,22 @@ export const WorkspaceConnectionChangedEventSchema = z.object({
 });
 
 export type WorkspaceConnectionEventStatus = z.infer<typeof WorkspaceConnectionEventStatusSchema>;
+
+/**
+ * 워크스페이스 SSH 에이전트 부트스트랩 진행 이벤트.
+ * LSP 부트스트랩의 LspBootstrapProgressPhaseSchema와 동일한 phase enum을 재사용한다.
+ */
+export const WorkspaceConnectionProgressEventSchema = z.object({
+  workspaceId: z.string(),
+  name: z.string(),
+  phase: LspBootstrapProgressPhaseSchema,
+  bytesDone: z.number().int().nonnegative().optional(),
+  bytesTotal: z.number().int().nonnegative().optional(),
+});
+
+export type WorkspaceConnectionProgressEvent = z.infer<
+  typeof WorkspaceConnectionProgressEventSchema
+>;
 
 /**
  * Returns the path-like root used by legacy local-only callers.

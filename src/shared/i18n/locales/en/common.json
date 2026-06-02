@@ -330,7 +330,17 @@
   "panel": {
     "connection_failed": "Connection failed",
     "ssh_workspace": "SSH workspace — {{label}}",
-    "could_not_connect": "Could not connect to {{label}}. Check your SSH settings and try again."
+    "could_not_connect": "Could not connect to {{label}}. Check your SSH settings and try again.",
+    "bootstrap_phase": {
+      "checking": "Checking remote…",
+      "uploading": "Uploading {{name}}…",
+      "verifying": "Verifying…",
+      "extracting": "Extracting {{name}}…",
+      "linking": "Linking…",
+      "pruning": "Cleaning up…",
+      "skipped": "Ready",
+      "ready": "Ready"
+    }
   },
   "conflictDialog": {
     "title": "Save conflict — {{filename}} changed on disk",

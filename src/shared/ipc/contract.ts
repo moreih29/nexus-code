@@ -100,6 +100,7 @@ import {
 import { TabMetaSchema } from "../types/tab";
 import {
   WorkspaceConnectionChangedEventSchema,
+  WorkspaceConnectionProgressEventSchema,
   WorkspaceLocationSchema,
   WorkspaceMetaSchema,
 } from "../types/workspace";
@@ -533,6 +534,7 @@ export const ipcContract = {
       removed: listen(WorkspaceIdSchema),
       attention: listen(WorkspaceIdSchema),
       connectionChanged: listen(WorkspaceConnectionChangedEventSchema),
+      connectionProgress: listen(WorkspaceConnectionProgressEventSchema),
       reordered: listen(WorkspaceReorderedEventSchema),
     },
   },

@@ -150,9 +150,10 @@ const workspaceManager = new WorkspaceManager(
     createSshChannel(options, {
       promptHandler: (prompt) => sshAuthPromptHub.request(prompt),
     }),
-  (options) =>
+  (options, deps) =>
     ensureRemoteAgent(options, {
       promptHandler: (prompt) => sshAuthPromptHub.request(prompt),
+      onProgress: deps?.onProgress,
     }),
 );
 

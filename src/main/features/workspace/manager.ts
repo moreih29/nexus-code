@@ -72,6 +72,7 @@ type SshWorkspaceLocation = Extract<WorkspaceLocation, { kind: "ssh" }>;
 export type WorkspaceSshChannelFactory = (options: CreateSshChannelOptions) => SshChannel;
 export type WorkspaceSshBootstrap = (
   options: EnsureRemoteAgentOptions,
+  dependencies?: Pick<SshBootstrapDependencies, "onProgress">,
 ) => Promise<EnsureRemoteAgentResult>;
 export type WorkspaceSshLspBootstrap = (
   options: EnsureRemoteLspServerOptions,
@@ -1069,21 +1070,24 @@ export class WorkspaceManager {
     this.adoptedSshMasters.delete(meta.id);
     let bootstrap: EnsureRemoteAgentResult;
     try {
-      bootstrap = await this.sshBootstrap({
-        host: meta.location.host,
-        user: meta.location.user,
-        port: meta.location.port,
-        identityFile: meta.location.identityFile,
-        authMode: meta.location.authMode,
-        remotePath: meta.location.remotePath,
-        cachedRemoteArch: meta.location.remoteArch,
-        controlPath: adoptedMaster?.controlPath,
-        // Pass workspaceId so the bootstrap also uploads the per-workspace
-        // shim rc files (`.zshrc`/`.zshenv`/`bashrc`) into the remote's
-        // `~/.nexus-code/shim/<workspaceId>/`, making them available to the
-        // remote PTY's zsh `ZDOTDIR` / bash `--rcfile` activation.
-        workspaceId: meta.id,
-      });
+      bootstrap = await this.sshBootstrap(
+        {
+          host: meta.location.host,
+          user: meta.location.user,
+          port: meta.location.port,
+          identityFile: meta.location.identityFile,
+          authMode: meta.location.authMode,
+          remotePath: meta.location.remotePath,
+          cachedRemoteArch: meta.location.remoteArch,
+          controlPath: adoptedMaster?.controlPath,
+          // Pass workspaceId so the bootstrap also uploads the per-workspace
+          // shim rc files (`.zshrc`/`.zshenv`/`bashrc`) into the remote's
+          // `~/.nexus-code/shim/<workspaceId>/`, making them available to the
+          // remote PTY's zsh `ZDOTDIR` / bash `--rcfile` activation.
+          workspaceId: meta.id,
+        },
+        { onProgress: (event) => this.broadcastConnectionProgress(meta.id, event) },
+      );
     } catch (error) {
       // Bootstrap failed before any channel existed. Release the adopted
       // master (we own it now) and surface the error state instead of
@@ -1215,6 +1219,23 @@ export class WorkspaceManager {
     }
     this.connectionStatuses.set(workspaceId, status);
     this.broadcastFn("workspace", "connectionChanged", { workspaceId, status });
+  }
+
+  /**
+   * 에이전트 부트스트랩 진행 이벤트를 렌더러로 전달한다.
+   * workspaceId 범위로 scoped되므로 "새 워크스페이스 추가"와 "앱 시작 시 재연결" 양쪽 흐름 모두 커버한다.
+   */
+  private broadcastConnectionProgress(
+    workspaceId: string,
+    event: LspBootstrapProgressEvent,
+  ): void {
+    this.broadcastFn("workspace", "connectionProgress", {
+      workspaceId,
+      name: event.name,
+      phase: event.phase,
+      bytesDone: event.bytesDone,
+      bytesTotal: event.bytesTotal,
+    });
   }
 
   /**

@@ -330,7 +330,17 @@
   "panel": {
     "connection_failed": "연결 실패",
     "ssh_workspace": "SSH 워크스페이스 — {{label}}",
-    "could_not_connect": "{{label}}에 연결할 수 없습니다. SSH 설정을 확인하고 다시 시도하세요."
+    "could_not_connect": "{{label}}에 연결할 수 없습니다. SSH 설정을 확인하고 다시 시도하세요.",
+    "bootstrap_phase": {
+      "checking": "원격 확인 중…",
+      "uploading": "{{name}} 업로드 중…",
+      "verifying": "검증 중…",
+      "extracting": "{{name}} 압축 해제 중…",
+      "linking": "링크 중…",
+      "pruning": "정리 중…",
+      "skipped": "준비 완료",
+      "ready": "준비 완료"
+    }
   },
   "conflictDialog": {
     "title": "저장 충돌 — {{filename}}이(가) 디스크에서 변경되었습니다",
