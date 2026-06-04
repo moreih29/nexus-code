@@ -809,7 +809,14 @@ class XtermTerminalController implements TerminalController {
       try {
         // IPC 경로 사용: OSC 52 는 PTY 데이터 콜백에서 도달하므로 user
         // activation 이 없어 `navigator.clipboard.writeText` 가 거부된다.
-        copyTextViaIpc(atob(b64));
+        //
+        // `atob` 는 바이트당 1문자(Latin-1) binary string 을 반환하므로 그대로
+        // 클립보드에 쓰면 멀티바이트 텍스트(한글 등)가 mojibake 가 된다
+        // ("저" EC A0 80 → "ì \x80"). OSC 52 payload 는 UTF-8 바이트의
+        // base64 인코딩이므로 바이트 배열로 복원 후 UTF-8 디코드한다.
+        const bin = atob(b64);
+        const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
+        copyTextViaIpc(new TextDecoder().decode(bytes));
       } catch {
         // base64 디코드 실패는 silently drop. 셸이 잘못된 시퀀스를 보낸 경우라
         // 사용자에게 피드백 줄 가치 없음.
