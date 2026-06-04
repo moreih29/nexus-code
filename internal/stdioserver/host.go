@@ -41,6 +41,18 @@ const forceExitAfter = 75 * time.Millisecond
 // retry" — which matches the intent exactly.
 const idleWatchdogExitCode = 75
 
+// transportErrorExitCode is the process exit code used when the inbound stdin
+// scanner fails with a non-EOF error — i.e. the transport (the SSH channel
+// carrying our stdin) was reset or broke mid-stream rather than closing
+// cleanly. It is deliberately non-zero so the client's handleClose reconnects
+// instead of treating the close as an intentional shutdown: a clean EOF means
+// the client deliberately closed the channel (exit 0, no reconnect), whereas a
+// read error means the link died under us and an automatic reconnect is the
+// desired recovery. 74 is EX_IOERR from sysexits.h — "an error occurred while
+// doing I/O on some file" — which names the cause precisely and stays distinct
+// from the watchdog's EX_TEMPFAIL (75) in diagnostics.
+const transportErrorExitCode = 74
+
 // Host owns the stdio NDJSON server lifecycle. One Host per process —
 // stdin / stdout are not multiplexable, and the SIGTERM handler is a
 // process-global side effect.
@@ -187,10 +199,16 @@ func (h *Host) Run() {
 	}
 
 	if err := scanner.Err(); err != nil {
-		// We have no request id to correlate scanner errors with, so
-		// emit a sentinel id and let the client treat it as a
-		// transport-level protocol failure.
+		// A non-EOF scanner error means the transport broke mid-stream (the
+		// SSH channel carrying stdin was reset, not closed cleanly). We have
+		// no request id to correlate it with, so emit a sentinel id as a
+		// best-effort transport-level protocol failure — it may not reach a
+		// client whose link is already gone — then exit non-zero so a still-
+		// present client reconnects rather than treating this as a clean
+		// shutdown. A clean EOF (Err() == nil) falls through to exit 0.
 		_ = h.WriteFrame(proto.ProtocolFailure(proto.ProtocolErrorID, err.Error()))
+		h.drainAndExit(transportErrorExitCode)
+		return
 	}
 	h.drainAndExit(0)
 }
