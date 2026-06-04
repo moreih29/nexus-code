@@ -63,7 +63,11 @@ RUN set -eux; \
 # 노출하지 않으므로 위의 "zero host runtime" 전제는 그대로 유지된다.
 # 로그인 토큰은 이미지에 굽지 않는다 — compose 의 claude-config 볼륨
 # (~/.claude) 에 1회 로그인으로 저장되어 컨테이너 재생성에도 유지된다.
-RUN su - nexus-dev -c 'curl -fsSL https://claude.ai/install.sh | bash'
+RUN su - nexus-dev -c 'curl -fsSL https://claude.ai/install.sh | bash' \
+ && ln -s /home/nexus-dev/.local/bin/claude /usr/local/bin/claude
+# /usr/local/bin 심볼릭 링크: 설치 경로(~/.local/bin)는 ~/.profile 로만 PATH 에
+# 잡혀 login shell 에서만 보인다. 앱 PTY 는 --rcfile 셔임의 non-login bash 라
+# ~/.profile 을 읽지 않으므로, 셸 종류와 무관하게 항상 잡히는 시스템 경로에 건다.
 
 EXPOSE 22
 
