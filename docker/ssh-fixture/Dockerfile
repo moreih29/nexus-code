@@ -17,6 +17,7 @@ RUN apt-get update \
       git \
       ripgrep \
       ca-certificates \
+      curl \
       less \
  && rm -rf /var/lib/apt/lists/*
 
@@ -56,6 +57,13 @@ RUN set -eux; \
     esac; \
     chmod 700 /home/nexus-dev/.ssh; \
     chown -R nexus-dev:nexus-dev /home/nexus-dev
+
+# Claude Code — TUI 동작 E2E 재현용 (SSH 끊김 시 원격 TUI 생존 관찰 등).
+# native 자체완결 바이너리(~/.local/share/claude)라 node/bun 을 PATH 에
+# 노출하지 않으므로 위의 "zero host runtime" 전제는 그대로 유지된다.
+# 로그인 토큰은 이미지에 굽지 않는다 — compose 의 claude-config 볼륨
+# (~/.claude) 에 1회 로그인으로 저장되어 컨테이너 재생성에도 유지된다.
+RUN su - nexus-dev -c 'curl -fsSL https://claude.ai/install.sh | bash'
 
 EXPOSE 22
 

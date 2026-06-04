@@ -3,13 +3,15 @@
 Docker-based SSH server for verifying the SSH remote workspace path
 (`feat/ssh-remote-workspace`). Two Ubuntu 22.04 arm64 containers — one
 key-auth (`127.0.0.1:2222`), one password-auth (`127.0.0.1:2223`) —
-no node/bun/python on the remote, by design.
+no node/bun/python on the remote, by design. Claude Code (native
+self-contained binary) is pre-installed for TUI scenarios — see
+[Claude Code in the fixture](#claude-code-in-the-fixture).
 
 ## Layout
 
 ```
 docker/ssh-fixture/
-├── Dockerfile           # ubuntu:22.04 + openssh-server + git + ripgrep
+├── Dockerfile           # ubuntu:22.04 + openssh-server + git + ripgrep + claude
 ├── compose.yml          # linux (2222, key), linux-password (2223, password)
 ├── .env.example         # SSH_PUBKEY template
 └── workspace-seed/      # bind-mounted to /home/nexus-dev/workspace
@@ -84,6 +86,77 @@ docker compose exec linux bash               # shell as root for debugging
 ssh nexus-test-linux                         # shell as nexus-dev (intended path)
 ```
 
+## Claude Code in the fixture
+
+The image installs Claude Code via the official native installer
+(`https://claude.ai/install.sh`) as `nexus-dev`. It is a self-contained
+binary under `~/.local/share/claude` — it does **not** put node/bun on
+`PATH`, so the "zero host runtime" premise below still holds.
+
+Login is per-environment and never baked into the image. Log in once:
+
+```sh
+ssh -p 2223 nexus-dev@127.0.0.1   # password: nexus-dev
+claude                            # → /login → open URL on host browser → paste code
+```
+
+Credentials land in `~/.claude/.credentials.json`, which is a named
+volume (`claude-config-key` / `claude-config-password`), so the login
+survives image rebuilds and container re-creation. The two services use
+separate volumes on purpose — sharing one token file between two live
+containers risks refresh races. `docker compose down -v` wipes the
+volumes (= logs you out everywhere).
+
+`~/.claude.json` (onboarding/theme state) lives in the home root, *not*
+in the volume — after a rebuild Claude re-asks onboarding questions but
+stays logged in.
+
+## Simulating SSH disconnects
+
+`docker pause` freezes every process in the container: TCP stays
+ESTABLISHED but sshd stops answering SSH-layer keepalive probes —
+indistinguishable, at the SSH protocol level, from a yanked cable or
+dropped Wi-Fi. `unpause` restores it. Measured behavior (ssh with
+`ServerAliveInterval=5/CountMax=3`, i.e. a 15s window):
+
+- pause < window → session **survives untouched**; output resumes on
+  unpause as if nothing happened.
+- pause > window → local ssh exits with
+  `Timeout, server not responding` (observed at 16s with the 15s window).
+
+```sh
+# Reproduce a transient drop against a live app session:
+docker pause nexus-ssh-linux-password
+sleep 60                                  # > 45s: past the app's keepalive window
+docker unpause nexus-ssh-linux-password
+
+# Short blip variant (app should never notice):
+docker pause nexus-ssh-linux-password && sleep 20 \
+  && docker unpause nexus-ssh-linux-password
+```
+
+Timeline against the app's production settings (keepalive 15s×3,
+agent idle watchdog 90s — `cmd/agent/main.go`):
+
+| pause duration | what happens |
+|---|---|
+| < ~45s | nothing — connection survives the blip |
+| ~45–90s | local ssh dies → channel `reconnecting` → **UI declares all PTYs dead immediately** (`agent-host.ts`); remote agent + shells may still be alive |
+| > ~90s after unpause | agent idle watchdog reaps the remote agent (exit 75), SIGKILLing its PTY children |
+
+Note: while paused the agent is frozen too, so its 90s watchdog clock
+does not advance during the pause — it resumes counting after unpause.
+
+Today there is no reattach path: a reconnect always spawns a fresh
+agent, so terminal sessions never survive a >45s drop (see the
+grace-window design discussion before changing this).
+
+Alternative injection methods, when pause is not faithful enough:
+`docker network disconnect/connect` (removes the interface; caveat —
+Docker Desktop's port proxy sits between host and container) or
+`iptables -j DROP` inside the container (true packet blackhole; needs
+`cap_add: [NET_ADMIN]` in compose).
+
 ## Tear down
 
 ```sh
@@ -106,3 +179,5 @@ docker compose down --rmi local     # also remove the built image
 - **No node/bun by design.** This proves the Phase 0 limitation (current TS
   server requires `bun` + repo checkout on the remote) is real. After the Go
   server ships, the same fixture confirms it runs with zero runtime deps.
+  The pre-installed Claude Code binary is self-contained and does not
+  weaken this guarantee (see "Claude Code in the fixture").

@@ -19,6 +19,9 @@ services:
       - "127.0.0.1:2222:22"
     volumes:
       - ./workspace-seed:/home/nexus-dev/workspace:rw
+      # Claude Code 로그인(.credentials.json) 영속화 — 이미지 재빌드/컨테이너
+      # 재생성 후에도 1회 로그인이 유지된다. 토큰은 이미지에 굽지 않는다.
+      - claude-config-key:/home/nexus-dev/.claude
     restart: unless-stopped
 
   # Password auth only — for verifying the PTY + prompt + ControlMaster path.
@@ -36,4 +39,11 @@ services:
       - "127.0.0.1:2223:22"
     volumes:
       - ./workspace-seed:/home/nexus-dev/workspace:rw
+      - claude-config-password:/home/nexus-dev/.claude
     restart: unless-stopped
+
+# Claude Code 인증 영속화용. 서비스별로 분리 — 두 컨테이너가 같은 토큰
+# 파일을 동시에 갱신하며 경합하는 것을 피한다 (각자 1회 로그인).
+volumes:
+  claude-config-key:
+  claude-config-password:
