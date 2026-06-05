@@ -22427,6 +22427,123 @@
           }
         }
       ]
+    },
+    {
+      "completed_at": "2026-06-05T01:18:19.955Z",
+      "branch": "develop",
+      "plan": {
+        "id": 65,
+        "topic": "임베디드 브라우저 권한 모델 (2단계: 전역 토글 + 워크스페이스별 사이트 기억)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "권한 결정 엔진: 순수 resolver(전역ON>워크스페이스기억>ask, unknown 항상 차단) + request/check 핸들러 상호작용 + DI 배선",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "순수 resolver 분리 권장(electron import 0): resolvePermission({permission, globalAllowed, remembered, isKnownPermission}) → 'allow'|'block'|'ask'. 조회는 호출자가 동기 주입(DI seam) — StateService/WorkspaceStorage/electron 의존을 resolver 밖으로 100% 밀어냄. 우선순위: unknown→block, globalAllowed→allow, remembered allow/block 그대로, else ask. 반려: 핸들러 내 직접 조회(electron transitive import→풀스위트 mock 링크 붕괴 전례). check/request 상호작용(CRITICAL): check는 resolve==='allow'일 때만 true, 그 외 false. request는 allow→true, block→즉시 deny(프롬프트 없음, 나그 방지 핵심), ask→프롬프트. 두 핸들러가 동일 resolver 공유 필수. Chromium이 모든 권한에 check를 부르지 않으므로 request 단독 완결적이어야 함(check는 최적화일 뿐). installPermissionHandler 시그니처를 (session, deps)로 확장해 resolveWorkspaceId/getGlobalGrant/getRemembered/promptManager/classify 주입.",
+                "recorded_at": "2026-05-29T08:16:27.549Z",
+                "agent_id": "a4ed04b937cbe4047"
+              }
+            ],
+            "decision": "채택(architect Option A). 신규 순수 모듈 src/main/features/browser/permission-policy.ts에 resolvePermission({permission, globalAllowed, remembered:'allow'|'block'|null, isKnownPermission}) → 'allow'|'block'|'ask'. 우선순위: !isKnownPermission→block, globalAllowed→allow, remembered allow/block 그대로, else ask. resolver는 조회를 하지 않고 호출자가 동기 주입(electron/StateService/WorkspaceStorage 의존 0). 핸들러 상호작용(CRITICAL): setPermissionCheckHandler는 resolve==='allow'일 때만 true(그 외 false), setPermissionRequestHandler는 allow→callback(true)/block→즉시 callback(false) 프롬프트 없음/ask→프롬프트. 두 핸들러가 동일 resolver 공유 필수, request는 단독 완결적(Chromium이 모든 권한에 check를 부르지 않음). installPermissionHandler 시그니처를 (session, deps)로 확장: resolveWorkspaceId(session)/getGlobalGrant(permission)/getRemembered(ws,origin,permission)/promptManager/classify(permission) 주입. 반려: (B) 핸들러 내 직접 조회 — electron transitive import로 풀스위트 mock 링크 붕괴 전례(앞 세션 실증)라 제약 위반. (대안) check를 1차 게이트로 쓰는 설계 — check 안 타는 권한에서 모델 붕괴 + block 나그 버그."
+          },
+          {
+            "id": 2,
+            "title": "프롬프트 IPC 플로우(inverted request, askpass 패턴): 동시성/타임아웃/중복요청/suspend 통합",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "git askpass 패턴(GitHelpersIpcManager: pending Map + broadcast 'prompt' + respond/cancel call) 차용. BrowserPermissionPromptManager(main): pending Map 키=`${workspaceId}::${origin}::${permission}`, promptId(uuid) 별도. coalesce: 같은 복합키 프롬프트 pending 중 새 요청은 waiters 배열에 callback 추가(git의 중복 throw 대신 coalesce — 동시다발이 정상). 타임아웃: 미응답 deny+기억 안 함이나, 모달이라 시간제한보다 뷰 파괴 신호로 청소 권장. CRITICAL(R2): registry.destroy/워크스페이스 종료 시 해당 pending 전부 deny-resolve 후 제거(미청소 시 callback 누수+stale 프롬프트). suspend claim은 renderer가 모달 마운트 시(useBrowserSuspendStore.claim) — main은 native뷰 직접 못숨김, git/ssh 프롬프트가 이미 동일 구조(credential-prompt-dialog.tsx). R3: origin은 request 진입 시점 스냅샷 고정, 응답 시 재조회 금지. promptManager는 handlePermissionRequest(input,callback) 공개로 electron 없이 단위테스트.",
+                "recorded_at": "2026-05-29T08:16:36.503Z",
+                "agent_id": "a4ed04b937cbe4047"
+              }
+            ],
+            "decision": "채택(architect, git askpass 패턴). 신규 BrowserPermissionPromptManager(main): pending Map 키=`${workspaceId}::${origin}::${permission}`, promptId(uuid) 별도. 동시 다발 정상 시나리오 → 같은 복합키 프롬프트 pending 중 새 요청은 waiters 배열에 callback 추가(coalesce), 단일 응답으로 전체 resolve(git의 중복 throw 대신 coalesce). 타임아웃: 두지 않음 — 모달은 사용자 응답까지 대기가 자연스럽고 유한 타임아웃은 결정 도중 자동 deny로 UX 악화. 대신 청소를 뷰/워크스페이스 파괴 신호로 구동(CRITICAL): registry.destroy({tabId}) 및 워크스페이스 종료 시 해당 scope pending 전부 deny-resolve 후 제거(미청소 시 callback 누수+stale 프롬프트). suspend는 renderer가 모달 마운트 시 useBrowserSuspendStore.claim, 응답/취소 후 release(main은 native뷰 직접 못 숨김; git/ssh credential-prompt-dialog와 동일 구조). origin은 request 진입 시점 스냅샷 고정(프롬프트 중 네비게이트해도 재조회 금지). promptManager.handlePermissionRequest(input, callback) 공개로 electron 없이 단위테스트. 반려: main 주도 suspend(refcount 단일소유자가 renderer store라 불가). 가정: no-timeout은 파괴 구동 청소로 충분 — 고아 프롬프트 관측되면 재검토."
+          },
+          {
+            "id": 3,
+            "title": "영속화 설계: 전역 토글(AppState) + 워크스페이스별 (origin,permission) 결정(SQLite 마이그레이션+accessor)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "전역=AppStateSchema에 browserPermissionGrants: z.record(PermissionKind, z.boolean()).optional() 단일 record 필드(lspEnabledLanguagesByWorkspace record 패턴 차용) — 개별 boolean 필드는 권한 20개 폭증/shotgun surgery로 반려. unknown은 키 미부여로 자연 차단. 워크스페이스=migration v7 append: origin_permissions(origin TEXT, permission TEXT, decision TEXT('allow'|'block') CHECK, updated_at INTEGER, PK(origin,permission)). decision에 'block' 저장 필수(나그 방지), 'ask'는 행 부재로 표현. accessor: getOriginPermission/setOriginPermission(INSERT OR REPLACE)/listOriginPermissions(설정UI용)/deleteOriginPermission/clearOrigin. 워크스페이스 단위는 컬럼이 아니라 WorkspaceStorage의 workspaceId별 DB 파일 경계로 표현(쿠키 격리와 동일, SSH/local 워크스페이스 db가 이미 그렇게 분리).",
+                "recorded_at": "2026-05-29T08:16:42.781Z",
+                "agent_id": "a4ed04b937cbe4047"
+              }
+            ],
+            "decision": "채택(architect). 전역: AppStateSchema(src/shared/types/app-state.ts)에 browserPermissionGrants: z.record(권한키, z.boolean()).optional() 단일 record(lspEnabledLanguagesByWorkspace record 패턴 차용). ipcCallResult appState get/set로 읽기/쓰기, 부재 키=OFF. unknown은 키 미부여로 자연 차단. 워크스페이스: src/main/infra/storage/workspace-migrations.ts에 v7 append — CREATE TABLE origin_permissions(origin TEXT NOT NULL, permission TEXT NOT NULL, decision TEXT NOT NULL CHECK(decision IN('allow','block')), updated_at INTEGER NOT NULL, PRIMARY KEY(origin,permission)). 'block' 저장 필수(나그 방지), 'ask'는 행 부재로 표현. WorkspaceStorage accessor: getOriginPermission/setOriginPermission(INSERT OR REPLACE+updated_at)/listOriginPermissions(설정UI)/deleteOriginPermission/clearOrigin. 워크스페이스 단위는 컬럼이 아니라 workspaceId별 DB 파일 경계로 표현(쿠키 격리와 동일, 기존 SSH/local 분리와 일관). 반려: 권한별 개별 boolean 필드(20개 폭증·신규권한마다 schema 변경=shotgun surgery)."
+          },
+          {
+            "id": 4,
+            "title": "권한 taxonomy & 기본 정책: 전역 토글 집합·그룹·라벨, unknown 제외·항상차단, 고위험 권한(openExternal/fileSystem/display-capture) 취급",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "권한 3등급 메타데이터 테이블이 resolver의 isKnownPermission+토글노출의 단일소스. architect 권장(보수): 하드차단(openExternal,fileSystem,display-capture,clipboard-read,unknown)/자동허용(clipboard-sanitized-write)/프롬프트(media,geolocation,notifications,fullscreen,pointerLock,midi 등). 고위험을 프롬프트에서 빼라는 근거는 code-exec/로컬파일/화면유출 비가역 위협이며 사용자 명세가 P집합 확장을 명시하지 않았다는 것(Cost&Risk Symmetry). 단 메타데이터 등급만 바꾸면 향후 확장 무비용. navigation 가드(about:blank 허용/data:·blob:·javascript: 차단)는 권한과 독립 축이라 불변 유지, 같은 PR에서 리팩터 금지(Tidy First). R4: 전역 ON이 워크스페이스 block 기억을 이김(명세 우선순위) → 설정UI에서 명시 필요.",
+                "recorded_at": "2026-05-29T08:16:49.725Z",
+                "agent_id": "a4ed04b937cbe4047"
+              },
+              {
+                "role": "designer",
+                "summary": "3-tier taxonomy(raw 20종을 사용자 언어로): Tier A(1급 토글, 기본OFF) = 카메라·마이크(media), 위치, 알림, 화면공유(display-capture), 클립보드 읽기, 외부앱 열기(openExternal), 파일 접근(fileSystem) — 각 lucide 아이콘+한국어 설명. Tier B(고급 접이식, 기본OFF) = MIDI(midi+midiSysex 병합), 전체화면, 입력잠금(pointerLock+keyboardLock 병합), 사용감지, 창배치, 스피커선택, DRM. Tier C(토글없음 자동허용) = clipboard-sanitized-write, storage-access/top-level-storage-access(설명불가+끄면 사이트 깨짐 → 자동허용 권장). unknown 토글없음 항상차단. 병합 토글이어도 모달은 실제 요청 권한만 정확 표기. 20종 평면노출은 Hick's Law·위험변별 불가로 반려.",
+                "recorded_at": "2026-05-29T08:17:01.145Z",
+                "agent_id": "a6ec7409c3a126378"
+              }
+            ],
+            "decision": "채택: designer 3-tier taxonomy + 권한 등급 메타데이터 테이블(resolver의 isKnownPermission과 토글 노출의 단일 소스). 단 고위험 권한 취급은 Lead가 architect 권고(C3 하드차단)를 오버라이드 → 프롬프트 대상으로 노출. 분류 확정: [Tier A 전역토글+프롬프트, 기본OFF] media(카메라·마이크), geolocation(위치), notifications(알림), display-capture(화면공유), clipboard-read(클립보드 읽기), openExternal(외부앱 열기), fileSystem(파일 접근). [Tier B 고급 접이식 토글+프롬프트, 기본OFF] midi+midiSysex(병합:MIDI), fullscreen, pointerLock+keyboardLock(병합:입력잠금), idle-detection, window-management, speaker-selection, mediaKeySystem(DRM). [Tier C 토글없음·자동허용·프롬프트없음] clipboard-sanitized-write, storage-access, top-level-storage-access(설명 불가+거부 시 사이트 광범위 파손). [항상차단] unknown(토글없음). 오버라이드 근거: 사용자가 '미분류 빼고 다 열되 사용자가 직접 허용'을 명시 결정했고, 위험을 사전 고지받은 상태에서 선택함. per-site 프롬프트+전역 기본OFF+워크스페이스 기억이 architect가 우려한 '무음 노출' 벡터를 정확히 차단하는 informed-consent 장치이므로, 하드차단 대신 프롬프트-게이트로 화해됨. 하드차단은 사용자가 거부한 '또 다른 크롬 켜기' 문제를 재생성. 완화 조건: 고위험(특히 openExternal) 프롬프트 카피에 위험을 명확히 표기, 전역 토글은 절대 기본 ON 금지. architect 소수의견 기록: openExternal/fileSystem/display-capture는 별도 위협모델 검토 전 하드차단 선호 — Lead가 프롬프트-게이트+사용자 명령을 근거로 잔여위험 수용. navigation 가드(about:blank 허용/data·blob·javascript 차단)는 독립 축, 불변 유지, 같은 작업에서 리팩터 금지(Tidy First). 반려: 20종 평면 토글(Hick's Law·위험 변별 불가), 고위험 하드차단(사용자 의도·완화책과 배치)."
+          },
+          {
+            "id": 5,
+            "title": "프롬프트 모달 UX(Chrome식): 레이아웃, '이 워크스페이스에서 기억' 의미, dismiss 동작",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "중앙 모달+scrim(기존 Dialog size sm 420px, --radius-island, box-shadow 금지). 신규 showPermissionPrompt를 ConfirmDialogRoot 큐/grace-window 패턴 차용(연속요청 순차표시, 합성클릭버그 회피). 레이아웃: 권한아이콘+origin(appBodyEmphasis) \"~이(가) 다음을 요청합니다\"+권한라벨, 설명(appUiSm muted), 기억 체크박스, [차단(ghost)][허용(default)]. media는 카메라·마이크 항목 나열. ESC/바깥클릭=이번만 차단(기억 안 함), 하단 마이크로 힌트. 버튼은 행동명명(허용/차단). 기억 체크박스 기본값: designer는 보안상 OFF 강력권장(deny-by-default 표면에 무심코 영구허용 누적 방지, useful friction) — CRITICAL. Radix Dialog 포커스트랩 자동.",
+                "recorded_at": "2026-05-29T08:17:08.466Z",
+                "agent_id": "a6ec7409c3a126378"
+              }
+            ],
+            "decision": "채택: designer 모달 설계 — 중앙 모달+scrim(기존 Dialog size sm 420px, --radius-island, box-shadow 금지), 신규 showPermissionPrompt를 ConfirmDialogRoot 큐/grace-window 패턴 차용(연속 요청 순차표시·합성클릭버그 회피). 레이아웃: 권한 lucide 아이콘 + origin(appBodyEmphasis) '~이(가) 다음을 요청합니다' + 권한 라벨, 설명(appUiSm muted), '이 워크스페이스에서 이 사이트를 기억' 체크박스, [차단(ghost)] [허용(default)] 버튼(행동명명). media는 카메라·마이크 항목 나열. ESC/바깥클릭 = 이번만 차단(기억 안 함) + 하단 마이크로 힌트. Radix Dialog 포커스트랩. 기억 체크박스 기본값은 Lead가 ON으로 결정(designer의 OFF 권고 오버라이드): 사용자가 '물어봄→기억해두고 그 워크스페이스 그 주소에서 허용'을 명시 기대했고 Chrome 컨벤션이며 '또 다른 크롬 회피' 편의 목표에 부합. 잔여위험은 (전역 기본 OFF 앵커 + 워크스페이스 한정 범위 + 설정에서 취소 가능 + dismiss=일회성) 4중 장치로 한정. designer 소수의견 기록: deny-by-default 표면엔 OFF가 useful friction으로 안전 — Lead가 편의·사용자 의도를 우선, 가역성·범위 한정으로 위험 수용. 반려: 기억 기본 OFF(사용자가 회피하려던 매번 체크 마찰 발생), 상단바 앵커(native overlay 위 픽셀 앵커 난이도·고위험 권한 주의도 저하)."
+          },
+          {
+            "id": 6,
+            "title": "설정 패널 UX: 전역 토글 + 사이트별 권한 관리(검토/취소), 워크스페이스 범위 노출",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "신규 \"브라우저 권한\" 설정 패널 = (a) 전역토글 섹션(Tier A 펼침+Tier B 고급 접이식, SettingsRow+Switch, 헤더에 \"모든 워크스페이스 자동허용\" 명시) (b) 사이트별 기억 목록. CRITICAL: 설정은 앱 전역화면인데 기억은 워크스페이스별 → 컨텍스트 불일치 함정. 해결=세그먼트 컨트롤 [현재 워크스페이스 / 모든 워크스페이스](기존 segmented-control.tsx), 기본 현재. 전체 선택 시 워크스페이스명 그룹헤더. 행: origin + 권한칩(인라인 배지, nested card 금지) + revoke 휴지통(aria-label 필수, hover 노출). revoke=showConfirmDialog destructive \"삭제 시 다음 방문에 다시 묻습니다\"(revoke≠block 분리). 빈 상태 필수(EmptyState, ShieldCheck). loading은 skeleton. 전역 ON인 권한은 사이트행 dim/배지.",
+                "recorded_at": "2026-05-29T08:17:15.528Z",
+                "agent_id": "a6ec7409c3a126378"
+              }
+            ],
+            "decision": "채택(designer). 신규 '브라우저 권한' 설정 패널(src/renderer/components/settings/panels/) + app.tsx nav/render-prop 등록. 구성: (a) 전역 토글 섹션 — Tier A 펼침 + Tier B '고급' 접이식, SettingsRow+Switch, 섹션 헤더에 '켜면 모든 워크스페이스에서 자동 허용' 명시. (b) 사이트별 기억 목록 — 세그먼트 컨트롤 [현재 워크스페이스 / 모든 워크스페이스](기존 segmented-control.tsx), 기본 현재. 전체 선택 시 워크스페이스명 그룹 헤더(appLabel). 행: origin(appBody) + 권한 인라인 배지(--radius-control, nested card 금지) + revoke 휴지통 버튼(aria-label 필수, hover 노출). revoke = showConfirmDialog destructive '삭제 시 다음 방문에 다시 묻습니다'(revoke≠영구차단 분리 문구). 빈 상태 필수(EmptyState, ShieldCheck '기억된 권한 없음'). 목록 IPC 로딩은 skeleton. R4 완화: 전역 ON인 권한은 해당 사이트 행을 dim + '전역 허용 중' 배지로 우선순위 시각화. 마이크로카피: 사이트 주체 문장('사이트가 ~합니다'), 시스템 용어 회피(geolocation→위치 등), 설명문 끝 마침표/라벨 무. 반려: 현재 워크스페이스만 노출(타 워크스페이스 기억 관리 불가=결함), 드롭다운 선택기(소수 워크스페이스에선 '현재 vs 전체' 즉시성 떨어짐 — 워크스페이스 10+ 시 재고)."
+          },
+          {
+            "id": 7,
+            "title": "테스트 & 검증 전략: DI seam(mock.module 누수 방지), tester는 큰 단위만, 브랜치 전용(배포 금지)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "분기로직을 electron 경계 밖(순수 모듈)으로 100% 분리하는 것이 bun mock 제약의 유일 안전해법. (1) permission-policy.test.ts: resolver 입력 조합표(unknown/globalON·OFF×remembered allow/block/null) 전수, electron import 0 → 풀스위트 안전. (2) promptManager 단위테스트: coalesce/타임아웃/dispose청소를 fake broadcast+fake clock, handlePermissionRequest 직접구동(git handleHelperRequest를 소켓없이 테스트하는 패턴). (3) IPC 라운드트립: permission.respond/cancel call + prompt listen을 contract에 신설, validateArgs 경유(askpass respond/cancel 테스트 템플릿). (4) installPermissionHandler는 얇은 어댑터(분기없이 위임만)라 통합테스트 1개로 충분. electron 값 import를 풀스위트 mock 링크하면 깨진 전례 → 순수함수 분리 필수. tester는 큰 단위(전체 흐름) 검증에만.",
+                "recorded_at": "2026-05-29T08:17:22.698Z",
+                "agent_id": "a4ed04b937cbe4047"
+              }
+            ],
+            "decision": "채택(architect). 분기 로직을 electron 경계 밖 순수 모듈로 100% 분리하는 것이 bun mock 제약의 유일 안전해법(앞 세션에서 electron 값 import를 풀스위트 mock 링크 시 깨진 실증 있음). 테스트 4층: (1) permission-policy.test.ts — resolver 입력 조합표(unknown / global ON·OFF × remembered allow/block/null) 전수, electron import 0. (2) permission-prompt-manager 단위테스트 — coalesce/파괴청소/no-timeout을 fake broadcast로 handlePermissionRequest 직접 구동(electron 없이). (3) IPC 라운드트립 — contract에 신설할 permission.respond/cancel(call) + prompt(listen)을 validateArgs 경유 검증(askpass respond/cancel 테스트 템플릿), 가능하면 워크스페이스 SQLite accessor 라운드트립 포함. (4) installPermissionHandler 어댑터는 위임만 하는 얇은 층이라 통합테스트 최소. 모킹 규율(pattern-bun-mock-conventions): DI-first, mock.module은 leaf(ipc/electron)만 + spread-real-exports, 테스트 파일명 <module>-<aspect>.test.ts. 커밋 전 반드시 전체 스위트(bun test tests/unit) + typecheck + bun run lint 통과 확인(파일 단독 금지 — CI red 전례). tester 서브에이전트는 큰 단위(권한 전체 흐름 end-to-end 검증)에만 투입, 엔지니어 작업마다 페어링 금지(사용자 지시). 작업은 feat/browser-permissions 브랜치 전용, 푸시·릴리스는 사용자 허락 전까지 금지. 반려: 핸들러 통합테스트 위주(전례상 깨짐), tester 상시 페어링(사용자 지시 위배)."
+          }
+        ],
+        "research_summary": "코드베이스 explore 4축 + 메모리 확인 완료. (1) 저장소: 전역=StateService(JSON, userData/state.json, AppStateSchema in src/shared/types/app-state.ts, ipcCallResult appState get/set); 워크스페이스=WorkspaceStorage(SQLite userData/workspaces/<id>/state.db, 마이그레이션 src/main/infra/storage/workspace-migrations.ts에 append, accessor 추가 패턴 확인). (2) 권한핸들러: src/main/features/browser/security.ts installPermissionHandler가 registry.create(registry.ts:188)에서 view.webContents.session에 설치(파티션당=워크스페이스당 공유, idempotent). workspaceId는 session.partition='persist:browser-<id>'에서 도출, origin은 webContents.getURL(). setPermissionCheckHandler는 미설정 — 추가 필요(동기 체크는 확정 허용만 true, ask/미정은 false 반환→request 핸들러가 프롬프트). (3) IPC: 직접 inverted-request 프리미티브는 없으나 git askpass 패턴(src/main/features/git/domain/helpers/ipc.ts: pending=Map<promptId,resolver>, broadcast listen 'prompt', renderer가 respond/cancel call로 회신, main이 resolve)이 확립된 템플릿. 계약 파일 src/shared/ipc/contract.ts(call/listen/stream 프리미티브). native WebContentsView가 DOM 위에 그려지므로 useBrowserSuspendStore.claim()(refcount, suspendAll/resumeAll+스냅샷)으로 뷰를 숨겨야 모달이 보임. (4) 설정 UI: SettingsDialog + panels(src/renderer/components/settings/panels/), 새 패널+app.tsx nav+zustand store+AppStateSchema 필드. UI 프리미티브 Switch/Checkbox/Button/Select/SettingsSection/SettingsRow. (5) 테스트: pattern-bun-mock-conventions — DI-first, mock.module은 leaf(ipc/electron)만, spread-real-exports. 순수 resolver는 electron 없이 단위테스트 용이. 앞선 세션에서 electron WebContentsView 값 import를 mock으로 링크하는 게 풀스위트에서 깨졌던 교훈 있음 → 순수 함수 분리가 결정적.",
+        "created_at": "2026-05-29T08:10:11.536Z"
+      },
+      "tasks": []
     }
   ]
 }

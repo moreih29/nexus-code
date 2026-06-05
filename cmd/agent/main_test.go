@@ -107,25 +107,38 @@ func TestServerNDJSONAndSIGTERM(t *testing.T) {
 
 func TestParseRunArgs(t *testing.T) {
 	cases := []struct {
-		name         string
-		argv         []string
-		wantRoot     string
-		wantWatchdog bool
+		name           string
+		argv           []string
+		wantRoot       string
+		wantWatchdog   bool
+		wantDaemonRoot string
+		wantDialSock   string
 	}{
-		{"root only", []string{"agent", "/repo"}, "/repo", false},
-		{"watchdog before root", []string{"agent", "--idle-watchdog", "/repo"}, "/repo", true},
-		{"watchdog after root", []string{"agent", "/repo", "--idle-watchdog"}, "/repo", true},
-		{"missing root", []string{"agent"}, "", false},
-		{"watchdog only", []string{"agent", "--idle-watchdog"}, "", true},
+		// Local stdio mode — unchanged from pre-task behaviour.
+		{"root only", []string{"agent", "/repo"}, "/repo", false, "", ""},
+		{"watchdog before root", []string{"agent", "--idle-watchdog", "/repo"}, "/repo", true, "", ""},
+		{"watchdog after root", []string{"agent", "/repo", "--idle-watchdog"}, "/repo", true, "", ""},
+		{"missing root", []string{"agent"}, "", false, "", ""},
+		{"watchdog only", []string{"agent", "--idle-watchdog"}, "", true, "", ""},
+		// Daemon mode.
+		{"daemon", []string{"agent", "--daemon", "/work"}, "", false, "/work", ""},
+		// Dialer mode.
+		{"dial", []string{"agent", "--dial", "/tmp/foo.sock"}, "", false, "", "/tmp/foo.sock"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			root, watchdog := parseRunArgs(tc.argv)
-			if root != tc.wantRoot {
-				t.Errorf("root = %q, want %q", root, tc.wantRoot)
+			got := parseRunArgs(tc.argv)
+			if got.root != tc.wantRoot {
+				t.Errorf("root = %q, want %q", got.root, tc.wantRoot)
 			}
-			if watchdog != tc.wantWatchdog {
-				t.Errorf("idleWatchdog = %v, want %v", watchdog, tc.wantWatchdog)
+			if got.idleWatchdog != tc.wantWatchdog {
+				t.Errorf("idleWatchdog = %v, want %v", got.idleWatchdog, tc.wantWatchdog)
+			}
+			if got.daemonRoot != tc.wantDaemonRoot {
+				t.Errorf("daemonRoot = %q, want %q", got.daemonRoot, tc.wantDaemonRoot)
+			}
+			if got.dialSock != tc.wantDialSock {
+				t.Errorf("dialSock = %q, want %q", got.dialSock, tc.wantDialSock)
 			}
 		})
 	}

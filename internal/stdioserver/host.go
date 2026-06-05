@@ -323,6 +323,18 @@ func (h *Host) runShutdownHooks() {
 	}
 }
 
+// SetExitFunc replaces the exit function called by drainAndExit. The default
+// is os.Exit. The daemon overrides this to intercept code 0 (clean dialer
+// EOF) so the daemon process itself keeps running for the next dialer to
+// reattach. Non-zero exits (idle watchdog = 75, transport error = 74) still
+// terminate the process via the replaced function calling os.Exit directly.
+// Must be called before Run.
+func (h *Host) SetExitFunc(fn func(int)) {
+	if fn != nil {
+		h.exit = fn
+	}
+}
+
 // InstallSigtermHandler arranges for a single SIGTERM to trigger a
 // graceful drain + exit. Safe to call exactly once before Run.
 func (h *Host) InstallSigtermHandler() {
