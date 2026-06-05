@@ -89,6 +89,14 @@ export function createSshChannel(
     requestTimeoutMs: dependencies.requestTimeoutMs,
     expectedProtocolMajor: REMOTE_AGENT_PROTOCOL_MAJOR,
     reconnect: dependencies.reconnect,
+    // Batch-mode reconnect respawns cannot satisfy an interactive prompt, so
+    // ssh.auth-failed during reconnect is deterministic — it recurs forever
+    // when the ControlMaster died with the connection (observed: 1/s
+    // Permission-denied ssh spawns after a >45s outage on a password
+    // workspace), or when a key/host key was revoked/changed. Escalating to a
+    // terminal failure puts the workspace in the error state, whose explicit
+    // reconnect re-runs the full interactive auth flow.
+    isFatalReconnectError: (error) => error.code === "ssh.auth-failed",
   });
 }
 

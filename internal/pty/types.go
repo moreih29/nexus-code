@@ -18,6 +18,13 @@ const (
 	maxWriteChunkSize = 1024
 	// exitDrainGrace lets the reader flush trailing PTY bytes before exit is reported.
 	exitDrainGrace = 150 * time.Millisecond
+
+	// RingCapBytes is the per-session ring buffer capacity.
+	// Sized near the existing flow-control high-watermark (1 MiB) so a single
+	// replay fits within one credit gate window.  When the ring is full the
+	// oldest bytes are dropped — preserving the most-recent screen state is the
+	// goal, not full scrollback.
+	RingCapBytes = 1 * 1024 * 1024
 )
 
 // EventSink is the callback pty uses to push agent events back to Electron.
@@ -99,4 +106,34 @@ type ExitPayload struct {
 	TabID       string  `json:"tabId"`
 	Code        *int    `json:"code"`
 	Signal      *string `json:"signal,omitempty"`
+}
+
+// SessionListParams is the wire shape for session.list.
+// WorkspaceID filters to a single workspace; omit for all live sessions.
+type SessionListParams struct {
+	WorkspaceID string `json:"workspaceId,omitempty"`
+}
+
+// SessionInfo describes one live PTY session returned by session.list.
+// The client uses tabId to match against its pending tab state and to
+// call pty.replay after a reattach.
+type SessionInfo struct {
+	WorkspaceID string `json:"workspaceId"`
+	TabID       string `json:"tabId"`
+	// CreatedAt is the Unix millisecond timestamp when the PTY was spawned.
+	// Clients can use it to detect whether a tab predates or postdates the
+	// dialer disconnect — without inventing new state beyond what the service
+	// already tracks.
+	CreatedAt int64 `json:"createdAt"`
+}
+
+// SessionListResult is the wire shape returned by session.list.
+type SessionListResult struct {
+	Sessions []SessionInfo `json:"sessions"`
+}
+
+// ReplayParams is the wire shape for pty.replay.
+type ReplayParams struct {
+	WorkspaceID string `json:"workspaceId"`
+	TabID       string `json:"tabId"`
 }

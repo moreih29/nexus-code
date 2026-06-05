@@ -11,6 +11,7 @@
 //	~/.nexus-code/          ← Root()
 //	~/.nexus-code/bin/      ← BinDir()
 //	~/.nexus-code/sockets/  ← SocketsDir()
+//	~/.nexus-code/run/      ← RunDir()
 //
 // Windows is not supported — the project only targets macOS and Linux.
 package agentpaths
@@ -51,6 +52,18 @@ func SocketsDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(root, "sockets"), nil
+}
+
+// RunDir returns the absolute path of ~/.nexus-code/run, the directory where
+// per-workspace daemon runtime files (Unix socket, lock file, log) are placed.
+// Each workspace daemon uses files named <wsId>.{sock,lock,log} inside this
+// directory.
+func RunDir() (string, error) {
+	root, err := Root()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "run"), nil
 }
 
 // EnsureDir creates path and any necessary parents with permission 0700.

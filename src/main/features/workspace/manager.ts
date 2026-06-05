@@ -201,6 +201,22 @@ export class WorkspaceManager {
   private ptySessionCloser: ((workspaceId: string) => void) | null = null;
 
   /**
+   * Callback to restore held PTY sessions after a successful re-authentication.
+   * Injected from main/index.ts after construction to break the circular dep.
+   * Manager calls this immediately after ensureSshProviderReady resolves on a
+   * reauth path.
+   */
+  private ptyRestoreAfterReauth: ((workspaceId: string) => Promise<void>) | null = null;
+
+  /**
+   * Callback to release held PTY sessions when re-authentication will not be
+   * attempted (auth-cancelled, backoff exhausted, non-interactive, ctx gone).
+   * Injected from main/index.ts after construction to break the circular dep.
+   * Manager calls this on every terminal failure path that does NOT reauth.
+   */
+  private ptyReleaseHeld: ((workspaceId: string) => void) | null = null;
+
+  /**
    * Optional async callback invoked by `remove()` after the PTY sessions are
    * closed and before the workspace:removed broadcast. Injected after
    * construction (see `setBrowserCloser`) so the browser registry and
@@ -222,6 +238,24 @@ export class WorkspaceManager {
   private readonly connectionStatuses = new Map<string, WorkspaceConnectionEventStatus>();
   // pull 기반 hookserver 접속 정보 캐시 — channel.ready 직후 hook.getInfo RPC로 채워진다.
   private readonly hookInfoByWorkspace = new Map<string, HookInfo>();
+  /**
+   * Tracks workspaces with an in-flight automatic re-authentication attempt so
+   * the manager never opens a second prompt for the same workspace concurrently.
+   * Also prevents racing with a manual "Connect" action.
+   */
+  private readonly reauthInFlight = new Set<string>();
+  /**
+   * Counts consecutive manager-level re-authentication attempts per workspace.
+   * Reset to 0 on a successful connection. Used for exponential backoff:
+   * 0 → 0 ms, 1 → 5 000 ms, 2 → 30 000 ms, then give up.
+   */
+  private readonly reauthAttempts = new Map<string, number>();
+  /**
+   * Pending timers for `degraded-recovered` debounce.
+   * Clears the "unstable" badge ~1 s after the last heartbeat recovery signal
+   * to prevent rapid unstable↔connected flapping.
+   */
+  private readonly degradedRecoveryTimers = new Map<string, NodeJS.Timeout>();
   private activeId: string | null = null;
 
   constructor(
@@ -527,6 +561,20 @@ export class WorkspaceManager {
    */
   setPtySessionCloser(closer: (workspaceId: string) => void): void {
     this.ptySessionCloser = closer;
+  }
+
+  /**
+   * Registers the PTY reauth-restore and release-held callbacks. Wired from
+   * `main/index.ts` after both the WorkspaceManager and the PTY host have been
+   * constructed — breaks the circular dependency without restructuring
+   * constructors.
+   */
+  setPtyHeldCallbacks(
+    restoreAfterReauth: (workspaceId: string) => Promise<void>,
+    releaseHeld: (workspaceId: string) => void,
+  ): void {
+    this.ptyRestoreAfterReauth = restoreAfterReauth;
+    this.ptyReleaseHeld = releaseHeld;
   }
 
   /**
@@ -1240,6 +1288,18 @@ export class WorkspaceManager {
 
   /**
    * Handles terminal SSH channel lifecycle events and restores the inert SSH provider.
+   *
+   * Reattach-aware transitions:
+   *   - `degraded`: 1 missed heartbeat → broadcast "unstable" (workspaceIsOnline stays true).
+   *   - `degraded-recovered`: heartbeat restored → debounce ~1 s then broadcast "connected"
+   *     to prevent rapid unstable↔connected flapping.
+   *   - `reconnecting`: transient — channel may yet recover; keep references, broadcast
+   *     "reconnecting" so the renderer shows the hold overlay.
+   *   - `ready` (epoch-match): session restored — broadcast "connected" and clear unstable.
+   *   - `held-then-expired`: daemon replaced — broadcast "held-then-expired" so the renderer
+   *     shows "session expired" rather than a generic error. Then tear down the provider.
+   *   - `failure` / `exit`: terminal — if auth-failed on an interactive workspace, attempt
+   *     automatic re-authentication with exponential backoff (plan issue 6).
    */
   private handleSshChannelLifecycle(
     workspaceId: string,
@@ -1257,27 +1317,193 @@ export class WorkspaceManager {
       return;
     }
 
-    // `reconnecting` is transient — the channel may yet recover, so do not
-    // drop our reference. Only terminal events trigger tear-down here.
-    if (event.type === "reconnecting") {
+    // ── Transient quality events ──────────────────────────────────────────
+    if (event.type === "degraded") {
+      this.broadcastConnectionStatus(workspaceId, "unstable");
       return;
     }
 
-    if (event.type === "failure") {
+    if (event.type === "degraded-recovered") {
+      // Cancel any pending debounce timer so rapid transitions don't stack.
+      const pending = this.degradedRecoveryTimers.get(workspaceId);
+      if (pending) clearTimeout(pending);
+      // ~1 s debounce recommended by designer (plan issue 5) to prevent flapping.
+      const timer = setTimeout(() => {
+        this.degradedRecoveryTimers.delete(workspaceId);
+        if (this.sshChannels.get(workspaceId) === channel) {
+          this.broadcastConnectionStatus(workspaceId, "connected");
+        }
+      }, 1000);
+      timer.unref?.();
+      this.degradedRecoveryTimers.set(workspaceId, timer);
+      return;
+    }
+
+    // ── Reconnecting: keep references, update UI ──────────────────────────
+    if (event.type === "reconnecting") {
+      // Cancel any pending degraded-recovery timer: we're reconnecting now.
+      const pendingTimer = this.degradedRecoveryTimers.get(workspaceId);
+      if (pendingTimer) {
+        clearTimeout(pendingTimer);
+        this.degradedRecoveryTimers.delete(workspaceId);
+      }
+      this.broadcastConnectionStatus(workspaceId, "reconnecting");
+      return;
+    }
+
+    // ── Epoch-match reattach ──────────────────────────────────────────────
+    if (event.type === "ready") {
+      // Channel recovered with the same daemon — sessions are being restored
+      // by agent-host. Broadcast "connected" to clear the reconnecting overlay.
+      this.broadcastConnectionStatus(workspaceId, "connected");
+      return;
+    }
+
+    // ── Held-then-expired: daemon replaced ───────────────────────────────
+    if (event.type === "held-then-expired") {
+      this.broadcastConnectionStatus(workspaceId, "held-then-expired");
+      this.tearDownSshProvider(workspaceId, ctx);
+      return;
+    }
+
+    // ── Terminal events: failure / exit ───────────────────────────────────
+    const isAuthFailure =
+      event.type === "failure" &&
+      (event.error as { code?: string }).code === "ssh.auth-failed";
+    const meta = ctx.getMeta();
+    const isInteractive = meta.location.kind === "ssh" && meta.location.authMode === "interactive";
+
+    if (event.type === "failure" && !isAuthFailure) {
       this.broadcastConnectionStatus(workspaceId, "error");
     }
 
+    this.tearDownSshProvider(workspaceId, ctx);
+
+    // ── Auto re-authentication (plan issue 6) ─────────────────────────────
+    // Conditions: auth-failed terminal failure + interactive auth + context
+    // and meta still present (CRITICAL: re-confirm after tearDown) + no
+    // concurrent reauth in flight.
+    if (isAuthFailure && isInteractive && !this.reauthInFlight.has(workspaceId)) {
+      void this.scheduleReauth(workspaceId);
+      // PTY hold state is preserved — scheduleReauth owns the resolution
+      // (restoreAfterReauth on success, releaseHeld on all non-reauth exits).
+      return;
+    }
+
+    // No reauth attempted: release any held PTY sessions so they don't leak.
+    this.ptyReleaseHeld?.(workspaceId);
+  }
+
+  /**
+   * Tears down SSH provider state after a terminal channel event.
+   * Shared by `failure`, `exit`, and `held-then-expired` paths.
+   */
+  private tearDownSshProvider(workspaceId: string, ctx: WorkspaceContext): void {
     this.sshChannels.delete(workspaceId);
     this.sshBootstraps.delete(workspaceId);
     this.sshProviderReady.delete(workspaceId);
+    // Cancel any pending degraded-recovery timer.
+    const pendingTimer = this.degradedRecoveryTimers.get(workspaceId);
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      this.degradedRecoveryTimers.delete(workspaceId);
+    }
     // Stale hookInfo는 채널이 죽은 시점에 무효 — 다음 boot가 다시 채운다.
-    // 보존해두면 reconnect 직후 spawn이 죽은 소켓 경로를 env에 박을 수 있다.
     this.hookInfoByWorkspace.delete(workspaceId);
     ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
     // PTY shim 디렉터리 정리 — fire-and-forget, error swallow는 warn으로.
     this.removeShimDir(workspaceId).catch((err: unknown) => {
       log.warn(`shim dir removal failed for ${workspaceId}: ${(err as Error).message}`);
     });
+  }
+
+  /**
+   * Schedules (or immediately starts) an automatic SSH re-authentication
+   * attempt after an auth-failed terminal failure on an interactive workspace.
+   *
+   * Backoff schedule (plan issue 6):
+   *   attempt 0 → immediate (0 ms)
+   *   attempt 1 → 5 000 ms
+   *   attempt 2 → 30 000 ms
+   *   attempt 3 → give up, surface error
+   *
+   * Guards:
+   *   - `reauthInFlight` prevents concurrent prompts (including manual Connect).
+   *   - ctx/meta re-confirmed inside the scheduled callback (CRITICAL: prevents
+   *     re-booting a workspace that was removed while the timer was pending).
+   *   - ssh.auth-cancelled → disconnected (no retry loop).
+   */
+  private async scheduleReauth(workspaceId: string): Promise<void> {
+    const attempts = this.reauthAttempts.get(workspaceId) ?? 0;
+    const BACKOFF_MS = [0, 5_000, 30_000];
+
+    if (attempts >= BACKOFF_MS.length) {
+      // Exhausted retries — surface permanent error, release held sessions.
+      log.warn(`reauth exhausted for ${workspaceId} after ${attempts} attempts`);
+      this.broadcastConnectionStatus(workspaceId, "error");
+      this.reauthAttempts.delete(workspaceId);
+      this.ptyReleaseHeld?.(workspaceId);
+      return;
+    }
+
+    const delayMs = BACKOFF_MS[attempts];
+    this.reauthInFlight.add(workspaceId);
+
+    const attemptReauth = async (): Promise<void> => {
+      // CRITICAL: re-confirm ctx/meta existence before attempting re-boot.
+      const ctx = this.contexts.get(workspaceId);
+      if (!ctx) {
+        this.reauthInFlight.delete(workspaceId);
+        this.reauthAttempts.delete(workspaceId);
+        // Workspace gone — release any still-held sessions.
+        this.ptyReleaseHeld?.(workspaceId);
+        return;
+      }
+      const meta = ctx.getMeta();
+      if (meta.location.kind !== "ssh" || meta.location.authMode !== "interactive") {
+        this.reauthInFlight.delete(workspaceId);
+        this.reauthAttempts.delete(workspaceId);
+        this.ptyReleaseHeld?.(workspaceId);
+        return;
+      }
+
+      this.reauthAttempts.set(workspaceId, attempts + 1);
+      try {
+        await this.ensureSshProviderReady(ctx);
+        // Success — reset attempt counter and trigger PTY session restore.
+        this.reauthAttempts.delete(workspaceId);
+        // restoreAfterReauth acquires the new channel, subscribes lifecycle,
+        // and runs session.list reconcile → replay/exit. Fire-and-forget:
+        // internal failures are logged inside restoreAfterReauth itself.
+        this.ptyRestoreAfterReauth?.(workspaceId).catch((err: unknown) => {
+          log.warn(`restoreAfterReauth failed for ${workspaceId}: ${(err as Error).message}`);
+        });
+      } catch (err) {
+        // ssh.auth-cancelled: user explicitly cancelled — stop the retry loop
+        // and release held sessions.
+        const code = (err as { code?: string }).code;
+        if (code === "ssh.auth-cancelled") {
+          log.info(`reauth cancelled by user for ${workspaceId}`);
+          this.broadcastConnectionStatus(workspaceId, "disconnected");
+          this.reauthAttempts.delete(workspaceId);
+          this.ptyReleaseHeld?.(workspaceId);
+        } else {
+          // Other failures (connect error, etc.) handled by the new lifecycle
+          // event from the fresh channel — don't double-broadcast here. Hold
+          // state is preserved so the next channel's lifecycle can restore it.
+          log.warn(`reauth attempt ${attempts + 1} failed for ${workspaceId}: ${(err as Error).message}`);
+        }
+      } finally {
+        this.reauthInFlight.delete(workspaceId);
+      }
+    };
+
+    if (delayMs === 0) {
+      void attemptReauth();
+    } else {
+      const timer = setTimeout(() => void attemptReauth(), delayMs);
+      timer.unref?.();
+    }
   }
 
   /**

@@ -70,6 +70,9 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
   // Only SSH workspaces that have not yet connected show the placeholder.
   const isSshWorkspace = workspace.location.kind === "ssh";
   const showOfflinePlaceholder = isSshWorkspace && !workspaceOnline;
+  // Distinguish "session expired during reconnect" from a plain connection failure
+  // so the copy is not misleading (user never triggered a disconnect).
+  const isSessionExpired = connectionStatus === "held-then-expired";
 
   // Auto-seed: ensure layout exists and seed a terminal the first time this
   // panel mounts with an empty tab slice. Only runs when the workspace is
@@ -115,19 +118,32 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
         inert={!isActive || undefined}
       >
         <div className="relative flex flex-1 items-center justify-center island-surface rounded-(--radius-island) overflow-hidden">
-          <EmptyState
-            title={isError ? t("panel.connection_failed") : workspace.name}
-            description={
-              isError
-                ? t("panel.could_not_connect", { label: sshLabel })
-                : sshLabel
-                  ? t("panel.ssh_workspace", { label: sshLabel })
-                  : undefined
-            }
-            actionLabel={isError ? t("action.retry") : t("action.connect")}
-            onAction={handleConnect}
-            tone="status"
-          />
+          {isSessionExpired ? (
+            // "held-then-expired": daemon was replaced while PTY sessions were
+            // on hold. Use distinct copy so the user understands this is a
+            // timeout, not a connection failure they triggered.
+            <EmptyState
+              title={t("panel.session_expired")}
+              description={t("panel.session_expired_desc")}
+              actionLabel={t("action.connect")}
+              onAction={handleConnect}
+              tone="status"
+            />
+          ) : (
+            <EmptyState
+              title={isError ? t("panel.connection_failed") : workspace.name}
+              description={
+                isError
+                  ? t("panel.could_not_connect", { label: sshLabel })
+                  : sshLabel
+                    ? t("panel.ssh_workspace", { label: sshLabel })
+                    : undefined
+              }
+              actionLabel={isError ? t("action.retry") : t("action.connect")}
+              onAction={handleConnect}
+              tone="status"
+            />
+          )}
           {isConnecting && connectionProgress && (
             <BootstrapProgressBar
               phase={connectionProgress.phase}

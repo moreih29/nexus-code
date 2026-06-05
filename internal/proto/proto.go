@@ -27,7 +27,7 @@ import (
 // that breaks older clients; bump ServerVersion for behavior changes
 // inside the existing wire shape.
 const (
-	ProtocolVersion = "1"
+	ProtocolVersion = "2"
 	ServerVersion   = "0.1.0"
 
 	// CodeProtocolError signals envelope-level failures: malformed
@@ -110,6 +110,16 @@ type Response struct {
 // send keepalive pings. When positive, the client pings every IdleWatchdogMs/6
 // so a live-but-idle session keeps resetting the limit. Tying the client's ping
 // behavior to this single advertised value keeps the two ends from drifting.
+//
+// AgentEpoch is a monotonically increasing token (boot time + random component)
+// that identifies this specific daemon instance. The dialer client uses it to
+// detect whether a reattach lands on the same daemon it last spoke to — a mismatch
+// means the daemon was replaced and any pending reconnect queue must be discarded.
+// Zero means epoch tracking is not in use (local stdio mode).
+//
+// Capabilities is the set of optional feature tokens this daemon supports
+// (e.g. "reattach"). The TS client (task 12) gates reattach logic on this field.
+// omitempty drops it when empty so local-mode Ready frames stay compact.
 type ReadyFrame struct {
 	Type                string   `json:"type"`
 	ProtocolVersion     string   `json:"protocolVersion"`
@@ -117,6 +127,8 @@ type ReadyFrame struct {
 	Methods             []string `json:"methods"`
 	HeartbeatIntervalMs int      `json:"heartbeatIntervalMs"`
 	IdleWatchdogMs      int      `json:"idleWatchdogMs"`
+	AgentEpoch          uint64   `json:"agentEpoch,omitempty"`
+	Capabilities        []string `json:"capabilities,omitempty"`
 }
 
 // EventFrame is a server → client broadcast frame. It deliberately has no id:
@@ -133,7 +145,10 @@ type EventFrame struct {
 // advertised heartbeat interval in milliseconds; 0 means disabled.
 // idleWatchdogMs is the advertised idle-watchdog limit in milliseconds;
 // 0 means the agent runs no watchdog (and the client should not ping).
-func Ready(methods []string, heartbeatIntervalMs int, idleWatchdogMs int) ReadyFrame {
+// agentEpoch identifies the daemon instance — 0 in local stdio mode.
+// capabilities is the set of optional feature tokens (e.g. "reattach");
+// nil is treated as an empty slice and omitted from the wire frame.
+func Ready(methods []string, heartbeatIntervalMs int, idleWatchdogMs int, agentEpoch uint64, capabilities []string) ReadyFrame {
 	if methods == nil {
 		methods = []string{}
 	}
@@ -144,6 +159,8 @@ func Ready(methods []string, heartbeatIntervalMs int, idleWatchdogMs int) ReadyF
 		Methods:             methods,
 		HeartbeatIntervalMs: heartbeatIntervalMs,
 		IdleWatchdogMs:      idleWatchdogMs,
+		AgentEpoch:          agentEpoch,
+		Capabilities:        capabilities,
 	}
 }
 

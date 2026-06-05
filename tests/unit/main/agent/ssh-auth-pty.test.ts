@@ -108,7 +108,7 @@ describe("authenticateSshControlMaster", () => {
         "-o",
         "ControlPersist=60",
         "-o",
-        "ServerAliveInterval=15",
+        "ServerAliveInterval=5",
         "-o",
         "ServerAliveCountMax=3",
         "-f",

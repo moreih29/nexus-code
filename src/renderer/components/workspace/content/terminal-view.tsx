@@ -9,6 +9,7 @@ import type { TerminalController } from "@/services/terminal/types";
 import { useTabsStore } from "@/state/stores/tabs";
 import { selectIsWorkspaceOnline, useWorkspacesStore } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
+import { ipcListen } from "@/ipc/client";
 import { Banner } from "../../ui/banner";
 
 interface TerminalViewProps {
@@ -45,6 +46,12 @@ interface TerminalViewProps {
 
 type ReopenState = "idle" | "reopening" | "failed";
 
+/**
+ * Grace window for daemon reattach after disconnect (300 s, matches daemon constant).
+ * Only used for countdown display — the exact sync with daemon is not required.
+ */
+const REATTACH_GRACE_SECONDS = 300;
+
 export interface DeadTerminalBannerProps {
   message: string;
   actionLabel: string;
@@ -54,6 +61,8 @@ export interface DeadTerminalBannerProps {
 
 interface TerminalViewLayoutProps {
   terminalEnded: boolean;
+  /** When true, the terminal is dim because PTY sessions are on hold. */
+  held?: boolean;
   banner?: ReactNode;
   containerRef?: Ref<HTMLDivElement>;
 }
@@ -114,6 +123,7 @@ export function shouldShowTerminalEndedBanner(
  */
 export function TerminalViewLayout({
   terminalEnded,
+  held = false,
   banner,
   containerRef,
 }: TerminalViewLayoutProps) {
@@ -124,11 +134,24 @@ export function TerminalViewLayout({
         ref={containerRef}
         className={cn(
           "w-full min-h-0 flex-1 pointer-events-auto",
-          terminalEnded && "opacity-60",
+          // `terminalEnded` and `held` both dim the scrollback: a dead terminal
+          // is dimmed to signal it ended; a held terminal is dimmed to indicate
+          // input is paused. Both reuse the same opacity-60 token from design.md.
+          (terminalEnded || held) && "opacity-60",
         )}
       />
     </div>
   );
+}
+
+/**
+ * Computes remaining grace minutes for the held-terminal countdown banner.
+ * Approximation — exact sync with the daemon clock is not required.
+ */
+export function heldGraceMinutesRemaining(heldAt: number, nowMs: number): number {
+  const elapsedSeconds = Math.max(0, Math.floor((nowMs - heldAt) / 1000));
+  const remaining = Math.max(0, REATTACH_GRACE_SECONDS - elapsedSeconds);
+  return Math.ceil(remaining / 60);
 }
 
 export function TerminalView({
@@ -143,6 +166,78 @@ export function TerminalView({
   const containerRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<TerminalController | null>(null);
   const [reopenState, setReopenState] = useState<ReopenState>("idle");
+
+  // ---------------------------------------------------------------------------
+  // PTY hold/restore/expire state — driven by pty.held / pty.restored / pty.expired
+  // ---------------------------------------------------------------------------
+
+  /** Epoch-ms when the `pty.held` event arrived for this tab. */
+  const [heldAt, setHeldAt] = useState<number | null>(null);
+  /** After `pty.restored`, flash a success banner for ~2 s then auto-clear. */
+  const [showRestoredFlash, setShowRestoredFlash] = useState(false);
+  /** Shown dim-inline on first keypress while held. */
+  const [showInputHint, setShowInputHint] = useState(false);
+  /** Minutes remaining in the grace window — updated per-minute, not per-second. */
+  const [graceMinutes, setGraceMinutes] = useState<number>(
+    Math.ceil(REATTACH_GRACE_SECONDS / 60),
+  );
+  const isHeld = heldAt !== null;
+
+  // Subscribe to `pty.held` / `pty.restored` / `pty.expired` for this tab.
+  useEffect(() => {
+    const unlistenHeld = ipcListen("pty", "held", (args) => {
+      if (args.workspaceId !== workspaceId || args.tabId !== tabId) return;
+      setHeldAt(Date.now());
+      setShowInputHint(false);
+      setShowRestoredFlash(false);
+    });
+
+    const unlistenRestored = ipcListen("pty", "restored", (args) => {
+      if (args.workspaceId !== workspaceId || args.tabId !== tabId) return;
+      // \x1bc reset is injected inline in the data stream by agent-host
+      // (restoreHeldSessions) before pty.replay is requested, so ordering is
+      // structurally guaranteed: reset → replay data → wiggle repaint.
+      // A renderer-side writeReset() call here races the data stream and would
+      // wipe the repaint when replay arrives first — do NOT call writeReset here.
+      setHeldAt(null);
+      setShowInputHint(false);
+      setShowRestoredFlash(true);
+    });
+
+    const unlistenExpired = ipcListen("pty", "expired", (args) => {
+      if (args.workspaceId !== workspaceId || args.tabId !== tabId) return;
+      // Terminal is dead; clear hold state. The tab will receive pty.exit
+      // shortly after, which drives the DeadTerminalBanner path.
+      setHeldAt(null);
+      setShowInputHint(false);
+    });
+
+    return () => {
+      unlistenHeld();
+      unlistenRestored();
+      unlistenExpired();
+    };
+  }, [workspaceId, tabId]);
+
+  // Auto-dismiss the "Restored" success flash after ~2 s.
+  useEffect(() => {
+    if (!showRestoredFlash) return;
+    const timer = setTimeout(() => setShowRestoredFlash(false), 2000);
+    return () => clearTimeout(timer);
+  }, [showRestoredFlash]);
+
+  // Per-minute countdown tick while held. No per-second re-render.
+  useEffect(() => {
+    if (heldAt === null) return;
+    // Initial value
+    setGraceMinutes(heldGraceMinutesRemaining(heldAt, Date.now()));
+
+    const interval = setInterval(() => {
+      setGraceMinutes(heldGraceMinutesRemaining(heldAt, Date.now()));
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [heldAt]);
+
   const terminalEnded = useTabsStore((s) => {
     const tab = s.byWorkspace[workspaceId]?.[tabId];
     return tab?.type === "terminal" ? Boolean(tab.props.dead) : false;
@@ -173,6 +268,25 @@ export function TerminalView({
       controller.dispose();
     };
   }, [workspaceId, tabId, cwd]);
+
+  // Show the one-line "input held" hint on the first keypress while the PTY
+  // is on hold. Attach a DOM keydown listener on the terminal container so we
+  // intercept before xterm (which will drop the input in main). The hint
+  // auto-dismisses when the session is restored (setHeldAt(null) path above).
+  useEffect(() => {
+    if (!isHeld) return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    function onKeyDown(): void {
+      setShowInputHint(true);
+    }
+    container.addEventListener("keydown", onKeyDown, { capture: true });
+    return () => container.removeEventListener("keydown", onKeyDown, { capture: true });
+    // containerRef is a ref — its .current changes don't trigger re-runs.
+    // isHeld drives mount/unmount of this effect which is sufficient.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isHeld]);
 
   const handleReopen = useCallback(async (): Promise<void> => {
     if (reopenState === "reopening") return;
@@ -217,28 +331,68 @@ export function TerminalView({
     controllerRef.current?.refresh();
   }, [ownerLeafId, parentEl, isVisible]);
 
+  // ---------------------------------------------------------------------------
+  // Banner selection — at most one banner is shown at a time, with priority:
+  //   1. DeadTerminalBanner (terminal ended + workspace online)
+  //   2. Restored flash ("복원됨") — auto-dismissed after ~2 s
+  //   3. Held warning banner (reconnecting, countdown)
+  //   4. Held input hint (first keypress while held)
+  // ---------------------------------------------------------------------------
+  let activeBanner: ReactNode = undefined;
+  if (showEndedBanner) {
+    activeBanner = (
+      <DeadTerminalBanner
+        message={terminalEndedMessage(reopenState)}
+        actionLabel={
+          reopenState === "failed"
+            ? t("action.retry")
+            : reopenState === "reopening"
+              ? t("terminal.reopening")
+              : t("terminal.reopen")
+        }
+        actionDisabled={reopenState === "reopening"}
+        onReopen={() => {
+          void handleReopen();
+        }}
+      />
+    );
+  } else if (showRestoredFlash) {
+    activeBanner = (
+      <Banner
+        display="bar"
+        variant="success"
+        message={t("terminal.restored_banner")}
+        role="status"
+        aria-live="polite"
+      />
+    );
+  } else if (isHeld) {
+    activeBanner = (
+      <Banner
+        display="bar"
+        variant="warning"
+        message={t("terminal.held_banner", { minutes: graceMinutes })}
+        role="status"
+        aria-live="polite"
+      />
+    );
+  } else if (showInputHint) {
+    activeBanner = (
+      <Banner
+        display="bar"
+        variant="info"
+        message={t("terminal.held_input_hint")}
+        role="status"
+      />
+    );
+  }
+
   return (
     <TerminalViewLayout
       terminalEnded={terminalEnded}
+      held={isHeld}
       containerRef={containerRef}
-      banner={
-        showEndedBanner ? (
-          <DeadTerminalBanner
-            message={terminalEndedMessage(reopenState)}
-            actionLabel={
-              reopenState === "failed"
-                ? t("action.retry")
-                : reopenState === "reopening"
-                  ? t("terminal.reopening")
-                  : t("terminal.reopen")
-            }
-            actionDisabled={reopenState === "reopening"}
-            onReopen={() => {
-              void handleReopen();
-            }}
-          />
-        ) : undefined
-      }
+      banner={activeBanner}
     />
   );
 }

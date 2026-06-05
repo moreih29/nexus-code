@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { WorkspaceMeta } from "../../../../../src/shared/types/workspace";
 
-const { Sidebar } = await import("../../../../../src/renderer/components/workbench/sidebar");
+const { Sidebar, connectionStatusClassName } = await import("../../../../../src/renderer/components/workbench/sidebar");
 const { useUIStore } = await import("../../../../../src/renderer/state/stores/ui");
 const { useWorkspacesStore } = await import("../../../../../src/renderer/state/stores/workspaces");
 
@@ -91,5 +91,27 @@ describe("Sidebar workspace rows", () => {
     // Primary line is the remote folder leaf, secondary is user@host (configAlias suppressed)
     expect(html).toContain("project");
     expect(html).toContain("deploy@dev.example.com");
+  });
+
+});
+
+// T14: connectionStatusClassName — pure function; verifies that "unstable" uses the
+// semantic state.warning.fg token and is NOT mapped to a raw workspace-connection color.
+describe("connectionStatusClassName", () => {
+  test("unstable maps to semantic state.warning.fg token", () => {
+    expect(connectionStatusClassName("unstable")).toBe("bg-[var(--state-warning-fg)]");
+  });
+
+  test("unstable does not map to any raw workspace-connection-* token", () => {
+    expect(connectionStatusClassName("unstable")).not.toContain("--color-workspace-connection-");
+  });
+
+  test("connected maps to workspace-connection-connected token", () => {
+    expect(connectionStatusClassName("connected")).toContain("--color-workspace-connection-connected");
+  });
+
+  test("error and held-then-expired both map to error token", () => {
+    expect(connectionStatusClassName("error")).toContain("--color-workspace-connection-error");
+    expect(connectionStatusClassName("held-then-expired")).toContain("--color-workspace-connection-error");
   });
 });

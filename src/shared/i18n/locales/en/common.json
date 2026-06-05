@@ -103,6 +103,7 @@
     "add_workspace": "Add workspace",
     "remove_workspace": "Remove workspace {{name}}",
     "ssh_status": "SSH workspace, {{status}}",
+    "ssh_status_unstable": "Checking connection…",
     "pinned": "Pinned",
     "recent": "Recent",
     "pin_to_top": "Pin to top",
@@ -136,6 +137,7 @@
   },
   "ssh": {
     "title_password": "SSH password required",
+    "title_password_reattach": "Reconnecting to 「{{host}}」 — enter your password",
     "title_passphrase": "SSH passphrase required",
     "title_host_key": "Trust SSH host key",
     "auth_failed": "Authentication failed. Try again.",
@@ -278,7 +280,10 @@
     "reopen": "Reopen",
     "reopening": "Reopening…",
     "aggregate_one": "{{count}} terminal ended.",
-    "aggregate_other": "{{count}} terminals ended."
+    "aggregate_other": "{{count}} terminals ended.",
+    "held_banner": "Connection lost, reconnecting — session is preserved, ~{{minutes}}m left",
+    "held_input_hint": "Input is held while reconnecting",
+    "restored_banner": "Restored"
   },
   "lsp": {
     "on": "{{label}} LSP: On — click to disable",
@@ -330,6 +335,8 @@
   },
   "panel": {
     "connection_failed": "Connection failed",
+    "session_expired": "Session expired",
+    "session_expired_desc": "The session timed out during reconnection. Click to reconnect.",
     "ssh_workspace": "SSH workspace — {{label}}",
     "could_not_connect": "Could not connect to {{label}}. Check your SSH settings and try again.",
     "bootstrap_phase": {

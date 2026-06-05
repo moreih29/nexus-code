@@ -47,6 +47,12 @@ export const WorkspaceConnectionEventStatusSchema = z.enum([
   "reconnecting",
   "error",
   "disconnected",
+  // Transient: 1 missed heartbeat — channel still alive; workspaceIsOnline=true.
+  "unstable",
+  // Terminal: reconnected but daemon was replaced — held PTY sessions are gone.
+  // Distinct from "error" (connect failure) so the renderer can show the
+  // "session expired" empty state instead of the generic connection error.
+  "held-then-expired",
 ]);
 
 export const WorkspaceConnectionChangedEventSchema = z.object({

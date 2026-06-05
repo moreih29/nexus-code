@@ -14,6 +14,12 @@ const DEFAULT_MAX_PENDING_RECONNECT_CALLS = 32;
 const DEFAULT_RECONNECT_DELAY_MS = 100;
 const DEFAULT_MAX_RECONNECT_DELAY_MS = 1_000;
 const DEFAULT_RECONNECT_CALL_TIMEOUT_MS = 30_000;
+// Consecutive reconnect attempts failing with a caller-declared *fatal* error
+// (see `isFatalReconnectError`) before the channel gives up and transitions to
+// a terminal failure. 3 absorbs a one-off flake (e.g. a PAM hiccup) while
+// stopping a deterministic failure — batch-mode auth against a dead
+// ControlMaster — from respawning ssh every maxDelayMs forever.
+const MAX_CONSECUTIVE_FATAL_RECONNECT_FAILURES = 3;
 
 export interface AgentReconnectOptions {
   readonly maxPendingCalls?: number;
@@ -41,6 +47,16 @@ export interface ReconnectingProcessChannelOptions {
   readonly requestTimeoutMs?: number;
   readonly expectedProtocolMajor?: string;
   readonly reconnect?: AgentReconnectOptions;
+  /**
+   * Marks a reconnect-attempt error as deterministic — one that will fail
+   * identically on every retry (e.g. `ssh.auth-failed` from a batch-mode
+   * respawn that can never satisfy an interactive prompt). After
+   * MAX_CONSECUTIVE_FATAL_RECONNECT_FAILURES such failures in a row the
+   * channel stops retrying and emits a terminal `failure` lifecycle event.
+   * Absent (or returning false) preserves the retry-forever behavior, which
+   * is correct for transient transport loss.
+   */
+  readonly isFatalReconnectError?: (error: SshError) => boolean;
 }
 
 interface ActiveProcess {
@@ -79,6 +95,11 @@ export function createReconnectingProcessChannel(
   let terminalError: Error | null = null;
   let reconnectTimer: NodeJS.Timeout | null = null;
   let nextReconnectDelayMs = reconnect.initialDelayMs;
+  let consecutiveFatalFailures = 0;
+  // agentEpoch from the last successful ready handshake. 0 = no epoch seen yet
+  // (legacy agent or first connect). Compared on each reconnect to detect daemon
+  // replacement ("held-then-expired").
+  let lastAgentEpoch = 0;
 
   const first = spawnAttempt("connecting");
   const ready = first.pipe.ready;
@@ -147,6 +168,14 @@ export function createReconnectingProcessChannel(
       onTerminalError: (error) => handlePipeFailure(attempt, error, phase),
       requestTimeoutMs: options.requestTimeoutMs,
       expectedProtocolMajor: options.expectedProtocolMajor,
+      onDegraded: () => {
+        if (state === "disposed" || active !== attempt) return;
+        emitLifecycle({ type: "degraded" });
+      },
+      onDegradedRecovered: () => {
+        if (state === "disposed" || active !== attempt) return;
+        emitLifecycle({ type: "degraded-recovered" });
+      },
     });
     attempt = {
       child,
@@ -164,6 +193,31 @@ export function createReconnectingProcessChannel(
         attempt.ready = true;
         state = "ready";
         nextReconnectDelayMs = reconnect.initialDelayMs;
+        consecutiveFatalFailures = 0;
+
+        const newEpoch = attempt.pipe.agentEpoch ?? 0;
+        if (phase === "reconnecting" && lastAgentEpoch !== 0 && newEpoch !== 0) {
+          if (newEpoch !== lastAgentEpoch) {
+            // Epoch mismatch: the daemon was replaced during the outage.
+            // Reject the reconnect queue (stale calls must not reach a new
+            // agent) and emit "held-then-expired" so the manager can expire
+            // held PTY sessions. The channel itself stays alive — callers can
+            // continue making fresh calls to the new agent.
+            const previousEpoch = lastAgentEpoch;
+            lastAgentEpoch = newEpoch;
+            rejectQueuedCalls(createAgentReconnectError("agent.reconnect-unavailable"));
+            emitLifecycle({ type: "held-then-expired", previousEpoch, newEpoch });
+            return;
+          }
+          // Epoch match: the daemon survived the outage.
+          // Flush the reconnect queue and emit "ready" so PTY-aware consumers
+          // (agent-host) can restore held sessions via session.list + pty.replay.
+          lastAgentEpoch = newEpoch;
+          flushQueuedCalls();
+          emitLifecycle({ type: "ready" });
+          return;
+        }
+        lastAgentEpoch = newEpoch;
         flushQueuedCalls();
       })
       .catch((error) => {
@@ -190,6 +244,17 @@ export function createReconnectingProcessChannel(
     if (state === "disposed" || active !== attempt) return;
     if (phase === "reconnecting") {
       terminateChild(attempt);
+      if (options.isFatalReconnectError?.(error)) {
+        consecutiveFatalFailures += 1;
+        if (consecutiveFatalFailures >= MAX_CONSECUTIVE_FATAL_RECONNECT_FAILURES) {
+          escalateReconnectFailure(error);
+          return;
+        }
+      } else {
+        // A non-fatal failure between fatal ones means the environment is
+        // still changing — restart the consecutive count.
+        consecutiveFatalFailures = 0;
+      }
       scheduleReconnect();
       return;
     }
@@ -197,6 +262,19 @@ export function createReconnectingProcessChannel(
     terminalError = error;
     emitLifecycle({ type: "failure", error });
     terminateChild(attempt);
+  }
+
+  /**
+   * Gives up on the reconnect loop after repeated deterministic failures.
+   * Queued calls are rejected with the same error so callers see the real
+   * cause (e.g. ssh.auth-failed) instead of a queue timeout.
+   */
+  function escalateReconnectFailure(error: SshError): void {
+    clearReconnectTimer();
+    state = "terminal";
+    terminalError = error;
+    rejectQueuedCalls(error);
+    emitLifecycle({ type: "failure", error });
   }
 
   /** Handles process spawn errors; reconnect attempts are retried silently. */
@@ -252,6 +330,7 @@ export function createReconnectingProcessChannel(
         emitLifecycle({
           type: "reconnecting",
           cause: code === null ? null : new Error(`agent process exited with code ${code}`),
+          hadEpoch: lastAgentEpoch !== 0,
         });
       }
       return;
@@ -312,7 +391,7 @@ export function createReconnectingProcessChannel(
 
   /** Schedules the next reconnect attempt with capped exponential backoff. */
   function scheduleReconnect(): void {
-    if (state === "disposed" || reconnectTimer) return;
+    if (state === "disposed" || terminalError || reconnectTimer) return;
     state = "reconnecting";
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;

@@ -11,7 +11,13 @@ import type {
 import type { SshMasterOptions } from "../master";
 import type { AgentArtifactPlatform } from "../../../../../shared/agent/manifest";
 
-export const REMOTE_AGENT_PROTOCOL_MAJOR = "1";
+// Bumped from "1" to "2": the Ready frame now carries agentEpoch +
+// capabilities for daemon/dialer reattach support. The Go agent
+// (internal/proto/proto.go ProtocolVersion) is bumped to "2" in the same
+// commit. Legacy agents that still advertise "1" produce a clear
+// server.protocol-version-mismatch; the bootstrap sha-based redeploy closes
+// that window immediately.
+export const REMOTE_AGENT_PROTOCOL_MAJOR = "2";
 export const REMOTE_AGENT_VERSION = "0.1.0";
 
 /**

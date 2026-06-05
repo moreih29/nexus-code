@@ -124,6 +124,9 @@ const ReadyFrameSchema = z
     methods: z.array(z.string()).optional(),
     heartbeatIntervalMs: z.number().optional(),
     idleWatchdogMs: z.number().optional(),
+    // Reattach fields: present in protocol v2+ agents; absent in legacy agents.
+    agentEpoch: z.number().optional(),
+    capabilities: z.array(z.string()).optional(),
   })
   .passthrough();
 const ResponseResultFrameSchema = z.object({ id: z.string(), result: z.unknown() }).passthrough();
@@ -139,6 +142,8 @@ type ParsedFrame =
       methods?: string[];
       heartbeatIntervalMs?: number;
       idleWatchdogMs?: number;
+      agentEpoch?: number;
+      capabilities?: string[];
     }
   | { kind: "response"; id: string; result: unknown }
   | { kind: "error-response"; id: string; error: unknown }
@@ -159,6 +164,17 @@ export interface NdjsonPipeDependencies {
   readonly onTerminalError: (error: SshError) => void;
   readonly requestTimeoutMs?: number;
   readonly expectedProtocolMajor?: string;
+  /**
+   * Called when the first heartbeat miss is detected (advertisedInterval × 1).
+   * Fired once per degraded episode — not on every subsequent missed tick.
+   * Omit to suppress the degraded signal (e.g. local agents without heartbeat).
+   */
+  readonly onDegraded?: () => void;
+  /**
+   * Called when a heartbeat arrives after a degraded episode. Provides the
+   * hysteresis clear signal so the manager can remove the unstable indicator.
+   */
+  readonly onDegradedRecovered?: () => void;
 }
 
 export interface NdjsonPipe {
@@ -167,6 +183,13 @@ export interface NdjsonPipe {
   readonly methods?: readonly string[];
   /** Heartbeat interval in milliseconds advertised in the ready frame. */
   readonly heartbeatIntervalMs?: number;
+  /**
+   * Agent epoch token from the ready frame. Non-zero only for protocol v2+
+   * agents running in daemon mode; 0 / undefined for legacy agents and local
+   * stdio mode. The channel layer compares this on each reconnect to detect
+   * daemon replacement ("held-then-expired").
+   */
+  readonly agentEpoch?: number;
   /**
    * Send a JSON-RPC-style request to the agent and return the resolved result.
    *
@@ -243,11 +266,23 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   // Capabilities from the ready frame — populated once ready arrives.
   let capabilityMethods: readonly string[] | undefined;
   let capabilityHeartbeatIntervalMs: number | undefined;
+  let capabilityAgentEpoch: number | undefined;
 
   // Heartbeat watchdog state.
   let lastHeartbeatAt = 0;
   let heartbeatWarned = false;
   let heartbeatWatchdogTimer: ReturnType<typeof setInterval> | null = null;
+  // Degraded state: true after the first miss has been reported; cleared when
+  // a heartbeat arrives. Guards against re-firing onDegraded every tick.
+  let isDegraded = false;
+
+  // Heartbeat arrival histogram: bucket[i] counts arrivals with inter-arrival
+  // time in [i*intervalMs, (i+1)*intervalMs). Buckets 0..4 = on-time; 5..9
+  // = 1–5× late; 10+ = overflow. Logged once per minute.
+  const HISTOGRAM_BUCKETS = 11;
+  const heartbeatHistogram = new Array<number>(HISTOGRAM_BUCKETS).fill(0);
+  let histogramIntervalMs = 0;
+  let histogramLogTimer: ReturnType<typeof setInterval> | null = null;
 
   // Client keepalive sender — pings the agent so its idle watchdog keeps a
   // live-but-idle session alive. Started on ready (alongside the heartbeat
@@ -268,14 +303,19 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   });
   ready.catch(() => {});
 
-  /** Clears the heartbeat watchdog timer and resets its state. */
+  /** Clears the heartbeat watchdog timer, histogram timer, and resets state. */
   function clearHeartbeatWatchdog(): void {
     if (heartbeatWatchdogTimer !== null) {
       clearInterval(heartbeatWatchdogTimer);
       heartbeatWatchdogTimer = null;
     }
+    if (histogramLogTimer !== null) {
+      clearInterval(histogramLogTimer);
+      histogramLogTimer = null;
+    }
     lastHeartbeatAt = 0;
     heartbeatWarned = false;
+    isDegraded = false;
   }
 
   /** Clears the keepalive ping timer. */
@@ -332,17 +372,29 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       if (frame.heartbeatIntervalMs !== undefined) {
         capabilityHeartbeatIntervalMs = frame.heartbeatIntervalMs;
       }
+      if (frame.agentEpoch !== undefined) {
+        capabilityAgentEpoch = frame.agentEpoch;
+      }
       // Start the watchdog only when the server advertises a positive interval.
       // proto.go contract: heartbeatIntervalMs === 0 means heartbeat disabled.
       // Without the `> 0` guard, setInterval(fn, 0) busy-loops every microtask.
       if (frame.heartbeatIntervalMs !== undefined && frame.heartbeatIntervalMs > 0) {
         // Start the watchdog: fire if 3 consecutive heartbeats are missed.
+        // Also fire `onDegraded` after 1 miss (advertisedInterval × 1) as an
+        // early "unstable" signal — before the 3-miss terminal declaration.
         const intervalMs = frame.heartbeatIntervalMs;
+        const degradedThresholdMs = intervalMs * 1;
         const watchdogIntervalMs = intervalMs * 3;
         lastHeartbeatAt = Date.now();
         const timer = setInterval(() => {
           if (disposed || terminalError) return;
-          if (Date.now() - lastHeartbeatAt >= watchdogIntervalMs) {
+          const elapsed = Date.now() - lastHeartbeatAt;
+          // Degraded: 1-miss threshold exceeded but channel is still alive.
+          if (elapsed >= degradedThresholdMs && !isDegraded) {
+            isDegraded = true;
+            deps.onDegraded?.();
+          }
+          if (elapsed >= watchdogIntervalMs) {
             if (!heartbeatWarned) {
               heartbeatWarned = true;
               getMalformedStdoutLogger().warn(
@@ -350,12 +402,32 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
               );
             }
           }
-        }, watchdogIntervalMs);
+        }, degradedThresholdMs);
         // Unref so the timer does not keep the event loop alive in Node/Bun.
         if (typeof (timer as NodeJS.Timeout).unref === "function") {
           (timer as NodeJS.Timeout).unref();
         }
         heartbeatWatchdogTimer = timer;
+
+        // Heartbeat inter-arrival histogram: log one summary line per minute.
+        // Buckets: [0..1×) = on-time, [1×..2×) = 1 slot late, …, 10× = overflow.
+        histogramIntervalMs = intervalMs;
+        const logTimer = setInterval(() => {
+          if (disposed || terminalError) return;
+          const total = heartbeatHistogram.reduce((a, b) => a + b, 0);
+          if (total === 0) return;
+          const bucketStr = heartbeatHistogram
+            .map((n, i) => `[${i === HISTOGRAM_BUCKETS - 1 ? `${i}+` : `${i}-${i + 1}`}x]:${n}`)
+            .join(" ");
+          getMalformedStdoutLogger().info(
+            `heartbeat histogram (interval=${intervalMs}ms, total=${total}): ${bucketStr}`,
+          );
+          heartbeatHistogram.fill(0);
+        }, 60_000);
+        if (typeof (logTimer as NodeJS.Timeout).unref === "function") {
+          (logTimer as NodeJS.Timeout).unref();
+        }
+        histogramLogTimer = logTimer;
       }
 
       // Keepalive ping — gated on the agent's advertised idle watchdog, not on
@@ -401,8 +473,23 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     // Heartbeat: update the watchdog timestamp and reset the warned flag so a
     // recovered agent suppresses further warnings.
     if (frame.event === AGENT_HEARTBEAT_EVENT) {
-      lastHeartbeatAt = Date.now();
+      const now = Date.now();
+      const elapsed = lastHeartbeatAt > 0 ? now - lastHeartbeatAt : 0;
+      lastHeartbeatAt = now;
       heartbeatWarned = false;
+      // Record inter-arrival bucket for histogram.
+      if (histogramIntervalMs > 0 && elapsed > 0) {
+        const bucketIndex = Math.min(
+          Math.floor(elapsed / histogramIntervalMs),
+          HISTOGRAM_BUCKETS - 1,
+        );
+        heartbeatHistogram[bucketIndex] = (heartbeatHistogram[bucketIndex] ?? 0) + 1;
+      }
+      // Hysteresis: clear degraded state and notify recovery.
+      if (isDegraded) {
+        isDegraded = false;
+        deps.onDegradedRecovered?.();
+      }
     }
     emitEvent(frame.event, frame.payload);
   }
@@ -500,6 +587,9 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     },
     get heartbeatIntervalMs(): number | undefined {
       return capabilityHeartbeatIntervalMs;
+    },
+    get agentEpoch(): number | undefined {
+      return capabilityAgentEpoch;
     },
     call<TResult = unknown>(
       method: string,
@@ -749,6 +839,8 @@ function parseFrame(line: string): ParsedFrame {
       methods: ready.data.methods,
       heartbeatIntervalMs: ready.data.heartbeatIntervalMs,
       idleWatchdogMs: ready.data.idleWatchdogMs,
+      agentEpoch: ready.data.agentEpoch,
+      capabilities: ready.data.capabilities,
     };
   }
 

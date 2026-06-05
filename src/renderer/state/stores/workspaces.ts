@@ -16,7 +16,18 @@ export type WorkspaceConnectionStatus =
   | "connecting"
   | "connected"
   | "reconnecting"
-  | "error";
+  | "error"
+  /**
+   * Transient: 1 missed heartbeat. workspaceIsOnline stays true.
+   * Renderer shows the "unstable" dot badge on the sidebar workspace entry.
+   */
+  | "unstable"
+  /**
+   * Terminal: daemon replaced during reconnect window. Held PTY sessions are
+   * gone. Renderer shows "session expired" empty state instead of the generic
+   * connection error. workspaceIsOnline=false so the user must reconnect.
+   */
+  | "held-then-expired";
 
 export interface WorkspacesState {
   workspaces: WorkspaceMeta[];
@@ -126,7 +137,10 @@ export function applySortedInsert(
 function statusFromConnectionEvent(
   status: WorkspaceConnectionEventStatus,
 ): WorkspaceConnectionStatus {
-  return status === "disconnected" ? "idle" : status;
+  if (status === "disconnected") return "idle";
+  // Pass new statuses through directly; the renderer store type was extended
+  // to include them. Legacy / unknown statuses fall back to "idle".
+  return status as WorkspaceConnectionStatus;
 }
 
 /**
@@ -142,6 +156,13 @@ export function selectWorkspaceConnectionStatus(
 /**
  * Treats the workspace connection store as the single source of truth for
  * renderer affordances that need to know whether a workspace is online.
+ *
+ * "unstable" (1 missed heartbeat) is treated as online — the channel is still
+ * alive and the workspace is usable; only the indicator dot changes.
+ * "reconnecting" is also treated as online because PTY sessions are on hold
+ * (not dead) and the workspace may recover.
+ * "held-then-expired" is offline — the daemon was replaced and the user must
+ * explicitly reconnect.
  */
 function workspaceIsOnline(
   workspace: WorkspaceMeta | undefined,
@@ -149,7 +170,7 @@ function workspaceIsOnline(
 ): boolean {
   if (!workspace) return true;
   if (workspace.location.kind === "local") return true;
-  return status === "connected";
+  return status === "connected" || status === "unstable" || status === "reconnecting";
 }
 
 /**

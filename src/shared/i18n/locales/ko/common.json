@@ -103,6 +103,7 @@
     "add_workspace": "워크스페이스 추가",
     "remove_workspace": "워크스페이스 {{name}} 제거",
     "ssh_status": "SSH 워크스페이스, {{status}}",
+    "ssh_status_unstable": "연결 확인 중…",
     "pinned": "고정됨",
     "recent": "최근",
     "pin_to_top": "상단에 고정",
@@ -136,6 +137,7 @@
   },
   "ssh": {
     "title_password": "SSH 비밀번호 필요",
+    "title_password_reattach": "「{{host}}」 재연결을 위해 비밀번호를 다시 입력하세요",
     "title_passphrase": "SSH 암호화 키 비밀번호 필요",
     "title_host_key": "SSH 호스트 키 신뢰",
     "auth_failed": "인증에 실패했습니다. 다시 시도하세요.",
@@ -278,7 +280,10 @@
     "reopen": "다시 열기",
     "reopening": "다시 여는 중…",
     "aggregate_one": "터미널 {{count}}개가 종료되었습니다.",
-    "aggregate_other": "터미널 {{count}}개가 종료되었습니다."
+    "aggregate_other": "터미널 {{count}}개가 종료되었습니다.",
+    "held_banner": "연결이 끊겨 재연결 중입니다 — 세션은 보존됩니다, 약 {{minutes}}분 남음",
+    "held_input_hint": "재연결 중에는 입력이 보류됩니다",
+    "restored_banner": "복원됨"
   },
   "lsp": {
     "on": "{{label}} LSP: 켜짐 — 클릭하여 비활성화",
@@ -330,6 +335,8 @@
   },
   "panel": {
     "connection_failed": "연결 실패",
+    "session_expired": "세션이 만료되었습니다",
+    "session_expired_desc": "재연결 중 세션이 만료되었습니다. 클릭하여 다시 연결하세요.",
     "ssh_workspace": "SSH 워크스페이스 — {{label}}",
     "could_not_connect": "{{label}}에 연결할 수 없습니다. SSH 설정을 확인하고 다시 시도하세요.",
     "bootstrap_phase": {

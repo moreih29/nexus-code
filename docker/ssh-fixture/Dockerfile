@@ -17,6 +17,7 @@ RUN apt-get update \
       git \
       ripgrep \
       ca-certificates \
+      curl \
       less \
  && rm -rf /var/lib/apt/lists/*
 
@@ -53,9 +54,25 @@ RUN set -eux; \
     case "$AUTH_MODE" in \
       password|both) \
         echo "nexus-dev:${USER_PASSWORD}" | chpasswd ;; \
+      key) \
+        # 비밀번호 미설정 계정은 shadow에 '!'(잠김)로 남아 sshd(UsePAM no)가
+        # 공개키 인증조차 "account is locked"로 거부한다. '*'는 비밀번호
+        # 로그인은 불가하되 계정은 잠기지 않는 해시 — 키 전용 모드의 정답.
+        usermod -p '*' nexus-dev ;; \
     esac; \
     chmod 700 /home/nexus-dev/.ssh; \
     chown -R nexus-dev:nexus-dev /home/nexus-dev
+
+# Claude Code — TUI 동작 E2E 재현용 (SSH 끊김 시 원격 TUI 생존 관찰 등).
+# native 자체완결 바이너리(~/.local/share/claude)라 node/bun 을 PATH 에
+# 노출하지 않으므로 위의 "zero host runtime" 전제는 그대로 유지된다.
+# 로그인 토큰은 이미지에 굽지 않는다 — compose 의 claude-config 볼륨
+# (~/.claude) 에 1회 로그인으로 저장되어 컨테이너 재생성에도 유지된다.
+RUN su - nexus-dev -c 'curl -fsSL https://claude.ai/install.sh | bash' \
+ && ln -s /home/nexus-dev/.local/bin/claude /usr/local/bin/claude
+# /usr/local/bin 심볼릭 링크: 설치 경로(~/.local/bin)는 ~/.profile 로만 PATH 에
+# 잡혀 login shell 에서만 보인다. 앱 PTY 는 --rcfile 셔임의 non-login bash 라
+# ~/.profile 을 읽지 않으므로, 셸 종류와 무관하게 항상 잡히는 시스템 경로에 건다.
 
 EXPOSE 22
 

@@ -16,6 +16,8 @@ interface SshAuthPromptDialogProps {
   readonly prompt: SshAuthPrompt | null;
   readonly pendingMessage?: string | null;
   readonly busy?: boolean;
+  /** When true, shows reattach-context copy ("재연결을 위해 비밀번호를 다시 입력하세요"). */
+  readonly isReattach?: boolean;
   readonly onCancel: () => void;
   readonly onSubmitPassword: (value: string) => void;
   readonly onTrustHostKey: () => void;
@@ -26,6 +28,8 @@ interface SshAuthPromptDialogContentProps {
   readonly passwordValue: string;
   readonly pendingMessage?: string | null;
   readonly busy?: boolean;
+  /** When true, shows reattach-context title. */
+  readonly isReattach?: boolean;
   readonly onPasswordChange: (value: string) => void;
   readonly onCancel: () => void;
   readonly onCopyFingerprint: (fingerprint: string) => void;
@@ -50,6 +54,7 @@ export function SshAuthPromptDialogContent({
   passwordValue,
   pendingMessage = null,
   busy = false,
+  isReattach = false,
   onPasswordChange,
   onCancel,
   onCopyFingerprint,
@@ -64,7 +69,9 @@ export function SshAuthPromptDialogContent({
   const title = isPasswordPrompt
     ? prompt.field === "passphrase"
       ? t("ssh.title_passphrase")
-      : t("ssh.title_password")
+      : isReattach
+        ? t("ssh.title_password_reattach", { host: prompt.host })
+        : t("ssh.title_password")
     : t("ssh.title_host_key");
 
   // Track Caps Lock state for the password input. onKeyUp is sufficient since
@@ -150,6 +157,7 @@ export function SshAuthPromptDialog({
   prompt,
   pendingMessage = null,
   busy = false,
+  isReattach = false,
   onCancel,
   onSubmitPassword,
   onTrustHostKey,
@@ -187,6 +195,7 @@ export function SshAuthPromptDialog({
           passwordValue={passwordValue}
           pendingMessage={pendingMessage}
           busy={busy}
+          isReattach={isReattach}
           onPasswordChange={setPasswordValue}
           onCancel={onCancel}
           onCopyFingerprint={copySshHostKeyFingerprint}

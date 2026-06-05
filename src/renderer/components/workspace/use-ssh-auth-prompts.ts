@@ -3,11 +3,17 @@
  *
  * It owns the singleton `sshAuth.prompt` listener, serializes prompts in FIFO
  * order, and sends typed responses/cancellations back to main.
+ *
+ * Workspace-active queuing: prompts for a specific workspace are deferred until
+ * that workspace is active. Prompts without a workspaceId are shown immediately
+ * (legacy/unknown source). This prevents focus-stealing from inactive workspaces
+ * during the auto-reauth flow (plan issue 6).
  */
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { createLogger } from "../../../shared/log/renderer";
 import type { SshAuthPrompt } from "../../../shared/ssh/auth-prompt";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
+import { useActiveStore } from "../../state/stores/active";
 
 const log = createLogger("ssh-auth");
 
@@ -25,6 +31,8 @@ export interface SshAuthPromptState {
   readonly currentPrompt: SshAuthPrompt | null;
   readonly pendingPrompts: readonly SshAuthPrompt[];
   readonly pendingMessage: string | null;
+  /** True when the currentPrompt is for a reattach scenario. */
+  readonly isReattach: boolean;
   readonly respondPassword: (value: string) => void;
   readonly trustHostKey: () => void;
   readonly cancelCurrent: () => void;
@@ -43,6 +51,12 @@ let promptQueue: readonly SshAuthPrompt[] = [];
 let promptSnapshot: SshAuthPromptSnapshot = EMPTY_SNAPSHOT;
 const subscribers = new Set<() => void>();
 
+/**
+ * Workspaces that currently have PTY sessions on hold (pty.held received).
+ * Used to detect when a password prompt is a reattach-context prompt.
+ */
+const heldWorkspaceIds = new Set<string>();
+
 /** Returns the current global SSH auth prompt snapshot. */
 export function getSshAuthPromptSnapshot(): SshAuthPromptSnapshot {
   return promptSnapshot;
@@ -58,9 +72,29 @@ export function subscribeSshAuthPromptSnapshot(listener: () => void): () => void
 
 /** Installs the singleton prompt listener used by GlobalRoots. */
 export function installSshAuthPromptListeners(listen: typeof ipcListen = ipcListen): () => void {
-  return listen("sshAuth", "prompt", (prompt) => {
+  const unlistenPrompt = listen("sshAuth", "prompt", (prompt) => {
     enqueuePrompt(prompt);
   });
+
+  // Track held/restored/expired so we know which prompts are reattach-context.
+  const unlistenHeld = listen("pty", "held", (args) => {
+    heldWorkspaceIds.add(args.workspaceId);
+  });
+
+  const unlistenRestored = listen("pty", "restored", (args) => {
+    heldWorkspaceIds.delete(args.workspaceId);
+  });
+
+  const unlistenExpired = listen("pty", "expired", (args) => {
+    heldWorkspaceIds.delete(args.workspaceId);
+  });
+
+  return () => {
+    unlistenPrompt();
+    unlistenHeld();
+    unlistenRestored();
+    unlistenExpired();
+  };
 }
 
 /** Computes the visible FIFO counter copy for the active dialog. */
@@ -74,9 +108,34 @@ export function sshAuthPendingMessage(pendingPrompts: readonly SshAuthPrompt[]):
  * for SSH auth prompts initiated by remote workspace connections.
  */
 export function useSshAuthPrompts(deps: SshAuthPromptDeps = DEFAULT_DEPS): SshAuthPromptState {
-  const { currentPrompt, pendingPrompts } = useSshAuthPromptSnapshot();
+  const { currentPrompt: rawCurrentPrompt, pendingPrompts } = useSshAuthPromptSnapshot();
   const call = deps.call ?? DEFAULT_DEPS.call;
   const listen = deps.listen ?? DEFAULT_DEPS.listen;
+
+  // Active workspace for workspace-gated prompt display. Prompts for an
+  // inactive workspace are silently deferred until the user activates it.
+  const activeWorkspaceId = useActiveStore((s) => s.activeWorkspaceId);
+
+  // Workspace-active filtering: only show a prompt when either it has no
+  // workspaceId (global/legacy), no workspace is currently active (settings
+  // view etc.), or its workspaceId matches the active one. All other prompts
+  // stay queued until the user switches to that workspace (no focus stealing).
+  const currentPrompt = useMemo<SshAuthPrompt | null>(() => {
+    if (rawCurrentPrompt === null) return null;
+    // No workspaceId: show immediately (legacy / non-workspace prompt).
+    if (!rawCurrentPrompt.workspaceId) return rawCurrentPrompt;
+    // No workspace active (e.g. settings panel): show any prompt to avoid
+    // indefinitely hiding prompts when no workspace is in focus.
+    if (activeWorkspaceId === null) return rawCurrentPrompt;
+    // Has workspaceId: only show when that workspace is active.
+    if (rawCurrentPrompt.workspaceId === activeWorkspaceId) return rawCurrentPrompt;
+    // rawCurrentPrompt is for an inactive workspace — look for an alternative
+    // prompt in the queue that matches the active workspace (or has no id).
+    const activePrompt = pendingPrompts.find(
+      (p) => !p.workspaceId || p.workspaceId === activeWorkspaceId,
+    );
+    return activePrompt ?? null;
+  }, [rawCurrentPrompt, activeWorkspaceId, pendingPrompts]);
 
   useEffect(() => {
     const dispose = installSshAuthPromptListeners(listen);
@@ -139,12 +198,20 @@ export function useSshAuthPrompts(deps: SshAuthPromptDeps = DEFAULT_DEPS): SshAu
     });
   }, [call, currentPrompt]);
 
+  // Reattach indicator: a prompt is "for reattach" when its workspace was
+  // in held state when the prompt arrived (tracked via pty.held events).
+  const isReattach = useMemo<boolean>(() => {
+    if (!currentPrompt?.workspaceId) return false;
+    return heldWorkspaceIds.has(currentPrompt.workspaceId);
+  }, [currentPrompt]);
+
   const pendingMessage = useMemo(() => sshAuthPendingMessage(pendingPrompts), [pendingPrompts]);
 
   return {
     currentPrompt,
     pendingPrompts,
     pendingMessage,
+    isReattach,
     respondPassword,
     trustHostKey,
     cancelCurrent,
@@ -155,7 +222,18 @@ export function useSshAuthPrompts(deps: SshAuthPromptDeps = DEFAULT_DEPS): SshAu
 export function __resetSshAuthPromptsForTests(): void {
   promptQueue = [];
   promptSnapshot = EMPTY_SNAPSHOT;
+  heldWorkspaceIds.clear();
   notifySubscribers();
+}
+
+/** Test-only: mark a workspace as having held PTY sessions. */
+export function __markWorkspaceHeldForTests(workspaceId: string): void {
+  heldWorkspaceIds.add(workspaceId);
+}
+
+/** Test-only: clear held workspace tracking. */
+export function __clearHeldWorkspacesForTests(): void {
+  heldWorkspaceIds.clear();
 }
 
 /** Reads the global SSH auth prompt snapshot from React safely. */

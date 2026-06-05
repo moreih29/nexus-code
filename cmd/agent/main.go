@@ -45,11 +45,34 @@ func main() {
 	// classifier text that also arrive on the same stderr stream.
 	agentLogger := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("src", "agent-log")
 
-	root, idleWatchdog := parseRunArgs(os.Args)
-	if root == "" {
+	args := parseRunArgs(os.Args)
+
+	// --daemon <root>: start as a background daemon (setsid, flock, unix socket).
+	// This path never returns — the daemon serves dialers until the reattach
+	// grace period expires or SIGTERM arrives.
+	if args.daemonRoot != "" {
+		runDaemon(args.daemonRoot)
+		return // unreachable; runDaemon calls os.Exit
+	}
+
+	// --dial <sock>: relay stdin/stdout to an existing daemon's Unix socket.
+	// This is the SSH exec command that replaces the direct agent invocation
+	// once a daemon is running on the remote host.
+	if args.dialSock != "" {
+		runDialer(args.dialSock)
+		return // unreachable; runDialer calls os.Exit
+	}
+
+	// Local stdio mode (no --daemon / --dial flags): the classical agent
+	// path where the Electron main process forks the agent directly with
+	// stdin/stdout connected. This path is completely unchanged — byte-for-byte
+	// compatible with all existing local workspace behaviour.
+	if args.root == "" {
 		agentLogger.Error("Usage: agent [--idle-watchdog] <rootPath>")
 		os.Exit(2)
 	}
+	root := args.root
+	idleWatchdog := args.idleWatchdog
 
 	fsys, err := agentfs.New(root)
 	if err != nil {
@@ -147,24 +170,30 @@ func main() {
 	// pings every limit/6; only enabled for SSH (idleWatchdog flag), where a
 	// vanished client may leave the connection lingering without stdin EOF. 0
 	// when disabled — the client reads that as "do not ping".
+	//
+	// The limit is 300 s, matching the daemon reattach grace period (issue 1
+	// decision): in direct SSH mode (no daemon) this still reaps a stuck session,
+	// just with the same fuse as the daemon so behaviour is consistent.
 	idleWatchdogMs := 0
 	if idleWatchdog {
-		idleWatchdogMs = int((90 * time.Second) / time.Millisecond)
+		idleWatchdogMs = int((300 * time.Second) / time.Millisecond)
 	}
 
 	// Ready frame must reach the client before any other output so the
 	// channel handshake on the TS side can settle. A write failure here
 	// is unrecoverable — without a Ready, the client will time out.
-	// methods 목록과 heartbeat 간격(10s), idle watchdog 한도를 함께 전달해
+	// methods 목록과 heartbeat 간격(5s), idle watchdog 한도를 함께 전달해
 	// 클라이언트가 pull 기반 hook.getInfo 호출과 keepalive ping을 결정하도록 한다.
-	if err := host.WriteFrame(proto.Ready(d.Methods(), 10_000, idleWatchdogMs)); err != nil {
+	// agentEpoch and capabilities are 0/nil in local stdio mode — the TS client
+	// (task 12) uses their presence to detect daemon-mode reattach capability.
+	if err := host.WriteFrame(proto.Ready(d.Methods(), 5_000, idleWatchdogMs, 0, nil)); err != nil {
 		agentLogger.Error("failed to write ready frame", "err", err)
 		os.Exit(1)
 	}
 
-	// 10초 간격 heartbeat를 시작한다. Ready frame에 광고한 heartbeatIntervalMs와
-	// 일치해야 한다. ctx 취소(드레인) 시 자동 정지한다.
-	host.StartHeartbeat(10 * time.Second)
+	// 5초 간격 heartbeat를 시작한다. Ready frame에 광고한 heartbeatIntervalMs와
+	// 일치해야 한다(issue 5 decision: 10s→5s). ctx 취소(드레인) 시 자동 정지한다.
+	host.StartHeartbeat(5 * time.Second)
 
 	// Idle watchdog (SSH only): self-terminate if the client sends nothing for
 	// the limit. The client pings every limit/6 (derived from the advertised
@@ -173,7 +202,7 @@ func main() {
 	// with no stdin EOF trips it, preventing an orphaned remote agent from
 	// holding its binary. Disabled locally, where parent death arrives as EOF.
 	if idleWatchdog {
-		host.StartIdleWatchdog(90 * time.Second)
+		host.StartIdleWatchdog(300 * time.Second)
 	}
 
 	host.Run()
@@ -208,27 +237,65 @@ func newHookGetInfoHandler(hs hookInfoProvider) dispatch.Handler {
 	}
 }
 
+// runArgs holds the parsed result of parseRunArgs.
+type runArgs struct {
+	// root is the workspace root path for local stdio mode.
+	// Non-empty only when neither --daemon nor --dial is present.
+	root string
+	// idleWatchdog enables the idle watchdog in local stdio mode.
+	// Ignored in --daemon and --dial modes.
+	idleWatchdog bool
+	// daemonRoot is the workspace root for `--daemon <root>` mode.
+	// Non-empty triggers the daemon execution path.
+	daemonRoot string
+	// dialSock is the Unix socket path for `--dial <sock>` mode.
+	// Non-empty triggers the dialer execution path.
+	dialSock string
+}
+
 // parseRunArgs extracts the workspace root and option flags from argv for the
-// long-lived stdio agent (after the hook/askpass subcommands have been ruled
-// out). The first non-flag positional is the root; "" when absent so the caller
-// can print usage and exit non-zero.
+// long-lived agent (after the hook/askpass subcommands have been ruled out).
+// The recognised modes are:
+//
+//   - Local stdio (default): first non-flag positional is the root.
+//     --idle-watchdog enables self-termination when the client vanishes.
+//
+//   - Daemon: --daemon <rootPath> starts a background daemon (setsid + flock +
+//     Unix socket). Only the SSH remote launch path uses this.
+//
+//   - Dialer: --dial <sockPath> connects to an existing daemon's Unix socket
+//     and relays stdin/stdout. The SSH exec command uses this instead of
+//     launching the agent directly once a daemon is running.
 //
 // --idle-watchdog is set only by the SSH remote launch command
 // (buildRemoteAgentCommand in ssh-bootstrap), never by the local launch. It is
 // what gates the idle watchdog so a local agent — whose parent death already
 // arrives as stdin EOF (plus Pdeathsig on Linux) — never self-terminates on a
 // transient main-thread stall or a laptop wake.
-func parseRunArgs(argv []string) (root string, idleWatchdog bool) {
-	for _, arg := range argv[1:] {
-		if arg == "--idle-watchdog" {
-			idleWatchdog = true
-			continue
-		}
-		if root == "" {
-			root = arg
+func parseRunArgs(argv []string) runArgs {
+	var args runArgs
+	for i := 1; i < len(argv); i++ {
+		arg := argv[i]
+		switch arg {
+		case "--idle-watchdog":
+			args.idleWatchdog = true
+		case "--daemon":
+			if i+1 < len(argv) {
+				i++
+				args.daemonRoot = argv[i]
+			}
+		case "--dial":
+			if i+1 < len(argv) {
+				i++
+				args.dialSock = argv[i]
+			}
+		default:
+			if args.root == "" && args.daemonRoot == "" && args.dialSock == "" {
+				args.root = arg
+			}
 		}
 	}
-	return root, idleWatchdog
+	return args
 }
 
 // askpassExitFromArgv detects both the explicit `agent --askpass <socket>`

@@ -97,6 +97,25 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
     recorder.stop(workspaceId, tabId);
   });
 
+  agentHost.on("held", (args) => {
+    const { workspaceId, tabId } = args as { workspaceId: string; tabId: string };
+    broadcast("pty", "held", { workspaceId, tabId });
+  });
+
+  agentHost.on("restored", (args) => {
+    const { workspaceId, tabId, withReplay } = args as {
+      workspaceId: string;
+      tabId: string;
+      withReplay: boolean;
+    };
+    broadcast("pty", "restored", { workspaceId, tabId, withReplay });
+  });
+
+  agentHost.on("expired", (args) => {
+    const { workspaceId, tabId } = args as { workspaceId: string; tabId: string };
+    broadcast("pty", "expired", { workspaceId, tabId });
+  });
+
   register("pty", {
     call: {
       spawn: async (args: unknown) => {
@@ -236,6 +255,9 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
       data: {},
       exit: {},
       notificationClick: {},
+      held: {},
+      restored: {},
+      expired: {},
     },
   });
 }
