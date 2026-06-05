@@ -212,4 +212,77 @@ describe("agent channel reconnect queue", () => {
       jest.useRealTimers();
     }
   });
+
+  it("escalates to terminal failure after 3 consecutive auth-failed reconnect attempts", async () => {
+    jest.useFakeTimers();
+    try {
+      const { channel, children, spawnCalls } = makeSshHarness({ delayMs: 1 });
+      const lifecycle: string[] = [];
+      channel.onLifecycle((event) => lifecycle.push(event.type));
+      children[0]?.stdout.emitData(`${JSON.stringify({ type: "ready" })}\n`);
+      await expect(channel.ready).resolves.toBeUndefined();
+
+      // Post-ready crash → reconnect window opens.
+      children[0]?.emit("close", 137, "SIGKILL");
+      expect(lifecycle).toContain("reconnecting");
+
+      // Each batch-mode respawn dies on auth (dead ControlMaster scenario).
+      for (const attempt of [1, 2, 3]) {
+        jest.advanceTimersByTime(1);
+        await flushMicrotasks();
+        const child = children[attempt] as FakeAgentChild;
+        expect(child).toBeDefined();
+        child.stderr.emitData("nexus-dev@127.0.0.1: Permission denied (publickey,password).\n");
+        await flushMicrotasks();
+      }
+
+      expect(lifecycle).toContain("failure");
+      await expect(channel.call("fs.readdir", { relPath: "." })).rejects.toMatchObject({
+        name: "SshError",
+        code: "ssh.auth-failed",
+      });
+
+      // The loop is dead: no further ssh respawns after the terminal transition.
+      const spawnsAtFailure = spawnCalls.length;
+      jest.advanceTimersByTime(60_000);
+      await flushMicrotasks();
+      expect(spawnCalls).toHaveLength(spawnsAtFailure);
+      channel.dispose();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("keeps retrying reconnect forever on transient (non-fatal) failures", async () => {
+    jest.useFakeTimers();
+    try {
+      const { channel, children, spawnCalls } = makeSshHarness({ delayMs: 1 });
+      const lifecycle: string[] = [];
+      channel.onLifecycle((event) => lifecycle.push(event.type));
+      children[0]?.stdout.emitData(`${JSON.stringify({ type: "ready" })}\n`);
+      await expect(channel.ready).resolves.toBeUndefined();
+
+      children[0]?.emit("close", 137, "SIGKILL");
+
+      // 5 transient failures (process exits without classified auth stderr) —
+      // more than the fatal threshold — must not terminate the channel.
+      for (let attempt = 1; attempt <= 5; attempt += 1) {
+        jest.advanceTimersByTime(1);
+        await flushMicrotasks();
+        const child = children[attempt] as FakeAgentChild;
+        expect(child).toBeDefined();
+        child.emit("close", 255, null);
+        await flushMicrotasks();
+      }
+
+      expect(lifecycle).not.toContain("failure");
+      const spawnsSoFar = spawnCalls.length;
+      jest.advanceTimersByTime(1);
+      await flushMicrotasks();
+      expect(spawnCalls.length).toBeGreaterThan(spawnsSoFar);
+      channel.dispose();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
