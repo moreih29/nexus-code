@@ -47,6 +47,7 @@ import { getMainI18n, getMainT, initMainI18n } from "./i18n";
 import { NEXUS_AGENT_MODE_ENV } from "./infra/agent/local-agent-resolver";
 import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./infra/agent/ssh/auth-prompt";
 import { createSshChannel } from "./infra/agent/ssh/channel";
+import { sweepStaleControlDirs } from "./infra/agent/ssh/master";
 import { ensureRemoteAgent } from "./infra/agent/ssh/ssh-bootstrap/index";
 import { broadcast, setupRouter } from "./infra/ipc-router";
 import { isMac } from "./infra/platform";
@@ -273,6 +274,12 @@ app.whenReady().then(async () => {
 
   // Fire the one-time silent auto update check now that the app is ready.
   updatesHandle?.runInitialAutoPoll();
+
+  // Remove nexus-ssh-* control-socket directories orphaned by previous app
+  // instances that died without dispose() (crash, SIGKILL). Live masters —
+  // including ones owned by another running app instance — are detected via
+  // a unix-socket probe and left alone. Fire-and-forget by design.
+  void sweepStaleControlDirs();
 
   await workspaceManager.init();
 

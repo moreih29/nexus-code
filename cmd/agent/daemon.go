@@ -78,6 +78,11 @@ const ExitCodeDialFailed = 4
 // long-lived sessions and disable takeover after 300 s of connected use.
 const reattachGrace = 300 * time.Second
 
+// maxRunLogBytes caps the append-only run/<wsId>.log at daemon boot.
+// 1 MiB of NDJSON boot/lifecycle lines is months of normal use; beyond that
+// the log is truncated rather than rotated — see agentrun.CapLogSize.
+const maxRunLogBytes = 1 << 20
+
 // runDaemon is the `agent --daemon <root>` entry point. It never returns —
 // the process exits via cleanupAndExit, the idle watchdog, or a fatal error.
 func runDaemon(root string) {
@@ -112,6 +117,9 @@ func runDaemon(root string) {
 
 	// Step 3: redirect stderr to the run log file. After setsid the SSH
 	// terminal is gone; the log file is the only place boot errors land.
+	// The log is append-only and survives every restart, so cap it first —
+	// without this a long-lived workspace grows it without bound.
+	_ = agentrun.CapLogSize(paths.Log, maxRunLogBytes)
 	logFile, err := os.OpenFile(paths.Log, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		os.Exit(1)
@@ -136,6 +144,15 @@ func runDaemon(root string) {
 		}
 		agentLogger.Error("failed to acquire workspace lock", "err", err)
 		os.Exit(1)
+	}
+
+	// Step 4b: sweep litter left by dead daemons of OTHER workspaces — stale
+	// sockets and over-retention logs. Liveness is decided by flock probing
+	// (acquired = provably dead), so a live daemon's files are never touched;
+	// see agentrun.SweepStale. Runs after our own lock is held so only one
+	// legitimate daemon per workspace ever sweeps.
+	if removed := agentrun.SweepStale(runDir, agentrun.WsID(root)); len(removed) > 0 {
+		agentLogger.Info("swept stale run files of dead daemons", "removed", removed)
 	}
 
 	// Step 5: stale socket check.
