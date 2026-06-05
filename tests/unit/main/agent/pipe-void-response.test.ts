@@ -14,6 +14,7 @@
  *
  * These tests pin the TS half of that contract.
  */
+import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 import { describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
@@ -44,7 +45,7 @@ class FakeWritable {
 }
 
 function makeReadyFrame(): Buffer {
-  return Buffer.from(JSON.stringify({ type: "ready", protocolVersion: "1.0" }) + "\n", "utf8");
+  return Buffer.from(JSON.stringify({ type: "ready", protocolVersion: `${AGENT_PROTOCOL_VERSION}.0` }) + "\n", "utf8");
 }
 
 function frame(line: string): Buffer {

@@ -9,15 +9,15 @@ import type {
   SshAuthPromptHandler,
 } from "../auth-pty";
 import type { SshMasterOptions } from "../master";
+import { AGENT_PROTOCOL_VERSION } from "../../../../../shared/agent/envelope";
 import type { AgentArtifactPlatform } from "../../../../../shared/agent/manifest";
 
-// Bumped from "1" to "2": the Ready frame now carries agentEpoch +
-// capabilities for daemon/dialer reattach support. The Go agent
-// (internal/proto/proto.go ProtocolVersion) is bumped to "2" in the same
-// commit. Legacy agents that still advertise "1" produce a clear
-// server.protocol-version-mismatch; the bootstrap sha-based redeploy closes
-// that window immediately.
-export const REMOTE_AGENT_PROTOCOL_MAJOR = "2";
+// Alias of the single source of truth in shared/agent/envelope.ts — the SSH
+// and local channels speak the same protocol to the same Go agent, so they
+// must never carry independent copies of the expected major. (v0.6.0 shipped
+// with this constant at "2" while the local channel's stayed at "1",
+// bricking every local workspace — see the envelope.ts comment.)
+export const REMOTE_AGENT_PROTOCOL_MAJOR = AGENT_PROTOCOL_VERSION;
 export const REMOTE_AGENT_VERSION = "0.1.0";
 
 /**

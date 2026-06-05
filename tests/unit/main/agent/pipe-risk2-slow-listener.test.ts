@@ -25,6 +25,7 @@
  * state during the synchronous callback and then verifies no re-entrant
  * gate transitions occurred.
  */
+import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 import { describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
 import { createNdjsonPipe } from "../../../../src/main/infra/agent/pipe";
@@ -74,7 +75,7 @@ function makeFrame(index: number, paddingSize = 0): Buffer {
 }
 
 function makeReadyFrame(): Buffer {
-  return Buffer.from(JSON.stringify({ type: "ready", protocolVersion: "1.0" }) + "\n", "utf8");
+  return Buffer.from(JSON.stringify({ type: "ready", protocolVersion: `${AGENT_PROTOCOL_VERSION}.0` }) + "\n", "utf8");
 }
 
 describe("pipe backpressure gate — architect risk 2: slow synchronous listener", () => {

@@ -49,6 +49,7 @@
  * The deadlock is tested and documented in:
  *   it("DOCUMENTS: gate self-deadlock when stream honors pause with async writes")
  */
+import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 import { describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
@@ -95,7 +96,7 @@ function makeFrame(event: string, index: number, paddingSize = 0): Buffer {
 }
 
 function makeReadyFrame(): Buffer {
-  return Buffer.from(JSON.stringify({ type: "ready", protocolVersion: "1.0" }) + "\n", "utf8");
+  return Buffer.from(JSON.stringify({ type: "ready", protocolVersion: `${AGENT_PROTOCOL_VERSION}.0` }) + "\n", "utf8");
 }
 
 describe("pipe backpressure gate — architect risk 3: non-PTY stream stall", () => {

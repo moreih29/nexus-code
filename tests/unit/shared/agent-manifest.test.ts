@@ -1,10 +1,11 @@
+import { AGENT_PROTOCOL_VERSION } from "../../../src/shared/agent/envelope";
 import { describe, expect, test } from "bun:test";
 import { AgentManifestSchema } from "../../../src/shared/agent/manifest";
 
 // Minimal valid manifest fixture — reused across tests.
 const BASE_MANIFEST = {
   version: "0.1.0",
-  protocolVersion: "1",
+  protocolVersion: AGENT_PROTOCOL_VERSION,
   binaries: [
     {
       os: "linux",
