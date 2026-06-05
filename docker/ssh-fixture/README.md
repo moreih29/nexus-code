@@ -127,7 +127,7 @@ dropped Wi-Fi. `unpause` restores it. Measured behavior (ssh with
 ```sh
 # Reproduce a transient drop against a live app session:
 docker pause nexus-ssh-linux-password
-sleep 60                                  # > 45s: past the app's keepalive window
+sleep 60                                  # > 15s: past the app's 3-miss heartbeat window
 docker unpause nexus-ssh-linux-password
 
 # Short blip variant (app should never notice):
@@ -135,21 +135,33 @@ docker pause nexus-ssh-linux-password && sleep 20 \
   && docker unpause nexus-ssh-linux-password
 ```
 
-Timeline against the app's production settings (keepalive 15s×3,
-agent idle watchdog 90s — `cmd/agent/main.go`):
+Timeline against the app's production settings (heartbeat 5s advertised
+by the agent, client 3-miss policy = 15s detection; daemon reattach
+grace 300s — `cmd/agent/main.go` / `cmd/agent/daemon.go`). Since the
+daemon/dialer split, the agent runs detached from the SSH session
+(`--daemon`, setsid) and each SSH session is a disposable `--dial`
+relay, so terminal sessions survive any drop shorter than the grace:
 
-| pause duration | what happens |
+| pause duration | what happens (verified 2026-06-05) |
 |---|---|
-| < ~45s | nothing — connection survives the blip |
-| ~45–90s | local ssh dies → channel `reconnecting` → **UI declares all PTYs dead immediately** (`agent-host.ts`); remote agent + shells may still be alive |
-| > ~90s after unpause | agent idle watchdog reaps the remote agent (exit 75), SIGKILLing its PTY children |
+| < ~15s | sidebar dot pulses "unstable" at 1 missed heartbeat (~5s); nothing else — PTYs untouched |
+| ~15s–300s | client declares the channel dead at 3 misses (~15s) → terminals **held** (dim + "session preserved" banner with grace countdown), input dropped with a hint → on recovery the new dialer reattaches to the surviving daemon (measured 127ms after unpause), `session.list`+`pty.replay` restore the screens, same shell/claude PIDs |
+| > 300s | daemon idle watchdog reaps it (exit 75), SIGKILLing PTY children → reconnect finds a new daemon (epoch mismatch) → workspace settles in "session expired" (distinct from connect-failure), terminals offer restart |
 
-Note: while paused the agent is frozen too, so its 90s watchdog clock
-does not advance during the pause — it resumes counting after unpause.
+Password workspaces: if the outage also killed the ControlMaster, batch
+reconnects fail `ssh.auth-failed` exactly 3× and escalate — the app
+auto-reopens the password prompt with reconnect context; entering the
+password reattaches to the same daemon (measured: 12s end-to-end,
+claude TUI intact). Cancelling settles in disconnected without a retry
+loop.
 
-Today there is no reattach path: a reconnect always spawns a fresh
-agent, so terminal sessions never survive a >45s drop (see the
-grace-window design discussion before changing this).
+Caveats specific to `docker pause`:
+- the daemon is frozen too, so its grace clock is effectively suspended
+  while paused (CLOCK_MONOTONIC still advances; on unpause the watchdog
+  races the reattach — for >300s outages prefer `docker network
+  disconnect`, which keeps the container running, for faithful timing);
+- frozen processes produce no output during the pause, so ring-buffer
+  replay content under pause is thinner than a real outage would be.
 
 Alternative injection methods, when pause is not faithful enough:
 `docker network disconnect/connect` (removes the interface; caveat —

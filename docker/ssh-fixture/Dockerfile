@@ -54,6 +54,11 @@ RUN set -eux; \
     case "$AUTH_MODE" in \
       password|both) \
         echo "nexus-dev:${USER_PASSWORD}" | chpasswd ;; \
+      key) \
+        # 비밀번호 미설정 계정은 shadow에 '!'(잠김)로 남아 sshd(UsePAM no)가
+        # 공개키 인증조차 "account is locked"로 거부한다. '*'는 비밀번호
+        # 로그인은 불가하되 계정은 잠기지 않는 해시 — 키 전용 모드의 정답.
+        usermod -p '*' nexus-dev ;; \
     esac; \
     chmod 700 /home/nexus-dev/.ssh; \
     chown -R nexus-dev:nexus-dev /home/nexus-dev
