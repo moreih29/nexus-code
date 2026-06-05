@@ -45,11 +45,17 @@ const CONTROL_EXIT_UNLINK_FALLBACK_MS = 5_000;
  * the binary it holds — alive until the kernel's default TCP timeout (hours),
  * which then blocks the next launch's re-upload. ServerAliveInterval probes the
  * peer at the SSH layer; after ServerAliveCountMax unanswered probes ssh exits,
- * the remote session tears down, and the agent gets stdin EOF. ~15s × 3 ≈ 45s.
+ * the remote session tears down, and the agent gets stdin EOF.
+ *
+ * Interval lowered from 15 s to 5 s (CountMax kept at 3) so that a silent
+ * network drop is detected in ~15 s instead of ~45 s. This is coordinated with
+ * the agent's heartbeat interval (5 s, advertised in the Ready frame) and the
+ * manager's "degraded" trigger (1 missed heartbeat ≈ 5 s) so that the UI
+ * shows "unstable" before SSH itself declares the connection dead.
  */
 const SSH_KEEPALIVE_ARGS: readonly string[] = [
   "-o",
-  "ServerAliveInterval=15",
+  "ServerAliveInterval=5",
   "-o",
   "ServerAliveCountMax=3",
 ];

@@ -53,7 +53,7 @@ func TestReadyFrameIncludesVersions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal ready: %v", err)
 	}
-	want := `{"type":"ready","protocolVersion":"1","serverVersion":"0.1.0","methods":["fs.readFile","git.log"],"heartbeatIntervalMs":10000,"idleWatchdogMs":90000}`
+	want := `{"type":"ready","protocolVersion":"2","serverVersion":"0.1.0","methods":["fs.readFile","git.log"],"heartbeatIntervalMs":10000,"idleWatchdogMs":90000}`
 	if string(data) != want {
 		t.Fatalf("ready frame = %s, want %s", data, want)
 	}
@@ -69,7 +69,7 @@ func TestReadyFrameNilMethodsCoercedToEmptySlice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
-	want := `{"type":"ready","protocolVersion":"1","serverVersion":"0.1.0","methods":[],"heartbeatIntervalMs":0,"idleWatchdogMs":0}`
+	want := `{"type":"ready","protocolVersion":"2","serverVersion":"0.1.0","methods":[],"heartbeatIntervalMs":0,"idleWatchdogMs":0}`
 	if string(data) != want {
 		t.Fatalf("ready frame = %s, want %s", data, want)
 	}
@@ -81,7 +81,7 @@ func TestReadyFrameEpochAndCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal ready: %v", err)
 	}
-	want := `{"type":"ready","protocolVersion":"1","serverVersion":"0.1.0","methods":[],"heartbeatIntervalMs":5000,"idleWatchdogMs":300000,"agentEpoch":3735928559,"capabilities":["reattach"]}`
+	want := `{"type":"ready","protocolVersion":"2","serverVersion":"0.1.0","methods":[],"heartbeatIntervalMs":5000,"idleWatchdogMs":300000,"agentEpoch":3735928559,"capabilities":["reattach"]}`
 	if string(data) != want {
 		t.Fatalf("ready frame = %s, want %s", data, want)
 	}

@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   buildRemoteAgentCommand,
+  computeWsId,
   ensureRemoteAgent,
   ensureRemoteLspServer,
   parseUname,
@@ -889,5 +890,54 @@ describe("ssh-bootstrap", () => {
     expect(result.remoteShell).toBeUndefined();
     // Bootstrap itself must still have succeeded — remoteBinDir present.
     expect(result.remoteBinDir).toBe("/home/deploy/.nexus-code/bin");
+  });
+});
+
+describe("buildRemoteAgentCommand (daemon+dial architecture)", () => {
+  it("rejects relative remote paths", () => {
+    expect(() => buildRemoteAgentCommand("/usr/local/bin/agent", "relative/path")).toThrow();
+    expect(() => buildRemoteAgentCommand("/usr/local/bin/agent", "~/repo")).toThrow();
+  });
+
+  it("contains daemon background start and dial retry loop", () => {
+    const cmd = buildRemoteAgentCommand("/home/user/.nexus-code/bin/agent", "/home/user/repo");
+    // Must wrap in bash -lc
+    expect(cmd).toMatch(/^bash -lc/);
+    // Must include --daemon flag (started as grandchild via subshell)
+    expect(cmd).toContain("--daemon");
+    // Must include --dial flag (dialer as plain shell child, no exec)
+    expect(cmd).toContain("--dial");
+    // Daemon must be started in a subshell for fd isolation and detachment
+    expect(cmd).toContain("( ");
+    expect(cmd).toContain("& )");
+    // Daemon fds must be isolated from ssh session to prevent NDJSON pollution
+    expect(cmd).toContain("</dev/null");
+    expect(cmd).toContain(">/dev/null");
+    // Socket-not-ready exit code (4) triggers retry
+    expect(cmd).toContain("$rc -ne 4");
+    // No exec (dialer is a plain child, not foreground handoff via exec)
+    expect(cmd).not.toContain("exec ");
+    // No shopt execfail (not needed without exec)
+    expect(cmd).not.toContain("shopt");
+    // No wait (daemon is long-lived, blocking wait would hang forever)
+    expect(cmd).not.toContain("wait ");
+  });
+
+  it("embeds the wsId-derived socket path matching computeWsId output", () => {
+    const remotePath = "/home/user/my-project";
+    const wsId = computeWsId(remotePath);
+    expect(wsId).toHaveLength(16);
+    expect(wsId).toMatch(/^[0-9a-f]{16}$/);
+
+    const cmd = buildRemoteAgentCommand("/usr/bin/agent", remotePath);
+    expect(cmd).toContain(wsId);
+    expect(cmd).toContain(".sock");
+  });
+
+  it("computeWsId matches Go agentrun.WsID algorithm (sha256[:16])", () => {
+    // Verified against Go: echo -n "/repo" | sha256sum → first 16 hex chars
+    const createHashFn = createHash;
+    const expected = createHashFn("sha256").update("/repo", "utf8").digest("hex").slice(0, 16);
+    expect(computeWsId("/repo")).toBe(expected);
   });
 });

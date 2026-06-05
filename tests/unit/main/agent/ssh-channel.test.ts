@@ -133,7 +133,7 @@ describe("createSshChannel", () => {
           "-o",
           "BatchMode=yes",
           "-o",
-          "ServerAliveInterval=15",
+          "ServerAliveInterval=5",
           "-o",
           "ServerAliveCountMax=3",
           "-p",
@@ -282,8 +282,9 @@ describe("createSshChannel", () => {
   it("rejects ready frames with mismatched protocol major versions", async () => {
     const { channel, child } = makeChannel();
 
+    // Protocol major "3" does not match the expected major "2" → mismatch.
     child.stdout.emitData(
-      `${JSON.stringify({ type: "ready", protocolVersion: "2", serverVersion: "0.1.0" })}\n`,
+      `${JSON.stringify({ type: "ready", protocolVersion: "3", serverVersion: "0.1.0" })}\n`,
     );
 
     await expectErrorCode(channel.ready, "server.protocol-version-mismatch");
@@ -412,7 +413,7 @@ describe("createSshChannel", () => {
           "-o",
           "BatchMode=yes",
           "-o",
-          "ServerAliveInterval=15",
+          "ServerAliveInterval=5",
           "-o",
           "ServerAliveCountMax=3",
           "--",

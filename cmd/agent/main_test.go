@@ -51,7 +51,7 @@ func TestServerNDJSONAndSIGTERM(t *testing.T) {
 	if err := json.Unmarshal(scanner.Bytes(), &ready); err != nil {
 		t.Fatal(err)
 	}
-	if ready["type"] != "ready" || ready["protocolVersion"] != "1" || ready["serverVersion"] != "0.1.0" {
+	if ready["type"] != "ready" || ready["protocolVersion"] != "2" || ready["serverVersion"] != "0.1.0" {
 		t.Fatalf("ready mismatch: %#v", ready)
 	}
 

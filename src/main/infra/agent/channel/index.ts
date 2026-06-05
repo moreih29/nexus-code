@@ -21,12 +21,37 @@ export type ChannelLifecycleCallback = (event: ChannelLifecycleEvent) => void;
  * ready again. Subscribers that own session-style state (e.g. PTY shells,
  * which cannot be transparently respawned) should treat `reconnecting` as a
  * session-death signal even though the channel itself may recover.
+ *
+ * Transient heartbeat quality events:
+ *   - `degraded`: fired after 1 missed heartbeat (advertisedInterval × 1).
+ *     The channel is still alive; the manager should surface an "unstable"
+ *     indicator rather than killing sessions. Cleared by `degraded-recovered`.
+ *   - `degraded-recovered`: fired when a heartbeat arrives after a `degraded`
+ *     event. The manager should clear the unstable indicator.
+ *
+ * Reattach epoch events:
+ *   - `held-then-expired`: fired on reconnect when the new agent's epoch does
+ *     not match the epoch seen at the previous ready. Signals that the daemon
+ *     was replaced during the outage — sessions cannot be reattached and must
+ *     be treated as expired. Distinct from `failure` (which indicates the
+ *     channel itself is dead) and `reconnecting` (which is recoverable).
+ *     The manager (task 13) should consume this to expire held PTYs and show
+ *     the "session expired" empty state.
  */
 export type ChannelLifecycleEvent =
   | { readonly type: "exit"; readonly code: number | null; readonly signal: NodeJS.Signals | null }
   | { readonly type: "failure"; readonly error: Error }
   | { readonly type: "reconnecting"; readonly cause: Error | null }
-  | { readonly type: "disposed" };
+  | { readonly type: "disposed" }
+  | { readonly type: "degraded" }
+  | { readonly type: "degraded-recovered" }
+  | {
+      readonly type: "held-then-expired";
+      /** Epoch seen at the previous ready (0 = no previous epoch). */
+      readonly previousEpoch: number;
+      /** New epoch from the reconnected agent. */
+      readonly newEpoch: number;
+    };
 
 /**
  * NDJSON request channel to an agent child. `ready` settles when the

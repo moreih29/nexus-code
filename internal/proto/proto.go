@@ -27,7 +27,7 @@ import (
 // that breaks older clients; bump ServerVersion for behavior changes
 // inside the existing wire shape.
 const (
-	ProtocolVersion = "1"
+	ProtocolVersion = "2"
 	ServerVersion   = "0.1.0"
 
 	// CodeProtocolError signals envelope-level failures: malformed

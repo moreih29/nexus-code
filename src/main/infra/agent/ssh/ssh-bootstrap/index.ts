@@ -11,6 +11,7 @@
  * orchestration and the public surface — type and constant re-exports stay
  * here so existing callers keep their import paths.
  */
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -313,7 +314,53 @@ export async function ensureRemoteLspServer(
 }
 
 /**
- * Composes the `bash -lc 'exec ...'` line used to spawn the agent.
+ * Computes the workspace identifier (wsId) for a given remote root path.
+ *
+ * This mirrors the Go `agentrun.WsID(rootPath)` function:
+ *   sha256(rootPath) → hex string → first 16 chars
+ *
+ * The result is used to derive the socket/lock/log file names under
+ * `~/.nexus-code/run/` on the remote host.
+ */
+export function computeWsId(remotePath: string): string {
+  return createHash("sha256").update(remotePath, "utf8").digest("hex").slice(0, 16);
+}
+
+/**
+ * Composes the `bash -lc '...'` line used to spawn the agent in daemon/dialer
+ * mode.
+ *
+ * Design — single retry loop:
+ *
+ *   p=0; while :; do
+ *     ( agent --daemon <root> </dev/null >/dev/null 2>&1 & )
+ *     agent --dial <sock>; rc=$?
+ *     if [ $rc -ne 4 ]; then exit $rc; fi
+ *     p=$((p+1)); if [ $p -ge 25 ]; then exit 4; fi; sleep 0.2
+ *   done
+ *
+ * Each iteration fires `--daemon` as a detached grandchild (subshell + &) and
+ * immediately tries `--dial`. The daemon's flock invariant makes this idempotent:
+ *   - No daemon yet  → daemon wins lock, binds socket; dial gets exit 4 on this
+ *                      iteration (socket not ready yet) → retry; next iteration
+ *                      dial succeeds.
+ *   - Daemon already running → --daemon exits 3 (lock held); dial succeeds
+ *                              immediately.
+ *   - ETXTBSY (freshly uploaded binary) → --daemon fails; dial gets exit 4;
+ *                                          next iteration retries naturally.
+ *
+ * Why no `wait` / `exec`:
+ *   - `wait` on a daemon would block forever — daemons are long-lived processes.
+ *   - `exec agent --dial` replaces the shell; if dial exits 4 (socket not ready)
+ *     the SSH session ends instead of retrying. Using the dialer as a plain child
+ *     keeps stdio transparent (parent shell's stdio passes through to the dialer)
+ *     and lets the loop retry.
+ *
+ * Daemon fd isolation (</dev/null >/dev/null 2>&1):
+ *   - Prevents daemon stdout from polluting the SSH channel's NDJSON stream.
+ *   - Prevents the daemon from holding the ssh session channel open after the
+ *     dialer exits (which would delay the Mac-side ssh process from detecting
+ *     session close).
  *
  * `remotePath` must be an absolute POSIX path — the agent uses it as its fs
  * root, so a relative path or `~` literal would silently mis-root the agent
@@ -326,24 +373,27 @@ export function buildRemoteAgentCommand(binaryPath: string, remotePath: string):
       new Error(`remotePath must be an absolute path, got: ${JSON.stringify(remotePath)}`),
     );
   }
-  // Retry the exec on ETXTBSY ("Text file busy"): immediately after a fresh
-  // install (sftp/cat write + `mv` into place) the kernel can briefly refuse to
-  // execute the binary while a writer fd from the upload — or a lingering writer
-  // from a previous, half-dead bootstrap connection — is still open. `exec`
-  // replaces the shell on success (so the loop body never runs twice in the
-  // healthy case); it only returns on failure, where we retry a handful of
-  // times over ~5s before giving up with the conventional 126 "cannot execute".
-  // `shopt -s execfail` is REQUIRED: without it a failed `exec` in a
-  // non-interactive bash terminates the shell immediately (so the loop would
-  // never retry). With it, a failed exec returns control and the loop runs.
-  // --idle-watchdog is SSH-only: it tells the remote agent to self-terminate
-  // after an idle window with no inbound traffic, reaping an orphan left behind
-  // when the client vanishes but the connection lingers without stdin EOF. The
-  // local launch omits it (parent death there already arrives as EOF).
-  const exec = `exec ${quoteShellArg(binaryPath)} --idle-watchdog ${quoteShellArg(remotePath)}`;
+  const bin = quoteShellArg(binaryPath);
+  const root = quoteShellArg(remotePath);
+
+  // Derive the socket path using the same wsId formula as the Go agent
+  // (sha256(remotePath)[:16]). $HOME is resolved by the remote shell at
+  // runtime so we never need to know the remote user's home on the TS side.
+  const wsId = computeWsId(remotePath);
+  const sockPath = `$HOME/.nexus-code/run/${wsId}.sock`;
+
+  // Each iteration: fire daemon as detached grandchild, then try dial.
+  // Exit code 4 = socket not ready yet → retry.
+  // Any other exit code (0 = dialer EOF clean, other = error) → propagate.
+  // Cap at 25 retries (~5 s at 0.2 s intervals) to avoid infinite spin when
+  // the daemon never starts (binary missing, permission error, etc.).
   const script =
-    `shopt -s execfail; n=0; while :; do ${exec}; n=$((n+1)); ` +
-    `if [ "$n" -ge 25 ]; then exit 126; fi; sleep 0.2; done`;
+    `p=0; while :; do ` +
+    `( ${bin} --daemon ${root} </dev/null >/dev/null 2>&1 & ); ` +
+    `${bin} --dial ${sockPath}; rc=$?; ` +
+    `if [ $rc -ne 4 ]; then exit $rc; fi; ` +
+    `p=$((p+1)); if [ $p -ge 25 ]; then exit 4; fi; sleep 0.2; ` +
+    `done`;
   return `bash -lc ${singleQuoteShellArg(script)}`;
 }
 

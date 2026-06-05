@@ -96,6 +96,10 @@ export function createReconnectingProcessChannel(
   let reconnectTimer: NodeJS.Timeout | null = null;
   let nextReconnectDelayMs = reconnect.initialDelayMs;
   let consecutiveFatalFailures = 0;
+  // agentEpoch from the last successful ready handshake. 0 = no epoch seen yet
+  // (legacy agent or first connect). Compared on each reconnect to detect daemon
+  // replacement ("held-then-expired").
+  let lastAgentEpoch = 0;
 
   const first = spawnAttempt("connecting");
   const ready = first.pipe.ready;
@@ -164,6 +168,14 @@ export function createReconnectingProcessChannel(
       onTerminalError: (error) => handlePipeFailure(attempt, error, phase),
       requestTimeoutMs: options.requestTimeoutMs,
       expectedProtocolMajor: options.expectedProtocolMajor,
+      onDegraded: () => {
+        if (state === "disposed" || active !== attempt) return;
+        emitLifecycle({ type: "degraded" });
+      },
+      onDegradedRecovered: () => {
+        if (state === "disposed" || active !== attempt) return;
+        emitLifecycle({ type: "degraded-recovered" });
+      },
     });
     attempt = {
       child,
@@ -182,6 +194,23 @@ export function createReconnectingProcessChannel(
         state = "ready";
         nextReconnectDelayMs = reconnect.initialDelayMs;
         consecutiveFatalFailures = 0;
+
+        const newEpoch = attempt.pipe.agentEpoch ?? 0;
+        if (phase === "reconnecting" && lastAgentEpoch !== 0 && newEpoch !== 0) {
+          if (newEpoch !== lastAgentEpoch) {
+            // Epoch mismatch: the daemon was replaced during the outage.
+            // Reject the reconnect queue (stale calls must not reach a new
+            // agent) and emit "held-then-expired" so the manager can expire
+            // held PTY sessions. The channel itself stays alive — callers can
+            // continue making fresh calls to the new agent.
+            const previousEpoch = lastAgentEpoch;
+            lastAgentEpoch = newEpoch;
+            rejectQueuedCalls(createAgentReconnectError("agent.reconnect-unavailable"));
+            emitLifecycle({ type: "held-then-expired", previousEpoch, newEpoch });
+            return;
+          }
+        }
+        lastAgentEpoch = newEpoch;
         flushQueuedCalls();
       })
       .catch((error) => {
