@@ -120,7 +120,9 @@ func runDaemon(root string) {
 	// output written directly to fd 2 (not via slog) also land in the log.
 	// Without this, launch scripts that run `agent --daemon ... 2>/dev/null`
 	// silently drop panic stacktraces, making crash diagnosis impossible.
-	_ = syscall.Dup2(int(logFile.Fd()), 2)
+	// dupStderrToLog is platform-split: linux/arm64 has no dup2 syscall
+	// (dup3 only), while darwin has no dup3 — see dup_linux.go / dup_darwin.go.
+	_ = dupStderrToLog(int(logFile.Fd()))
 
 	agentLogger := slog.New(slog.NewJSONHandler(logFile, nil)).With("src", "agent-log")
 
