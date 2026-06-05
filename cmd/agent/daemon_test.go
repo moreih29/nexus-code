@@ -25,6 +25,23 @@ func mustBuild(t *testing.T) string {
 	return bin
 }
 
+// shortHome returns a temp dir with a SHORT absolute path for use as the
+// daemon's fake HOME. t.TempDir() must not be used here: its path on macOS
+// (/var/folders/<...>/T/<TestName><runID>/NNN) plus ".nexus-code/run/<wsId>.sock"
+// exceeds the 104-byte sun_path limit depending on the test name and the
+// random run ID, making bind(2) fail with EINVAL — a borderline flake.
+// /tmp keeps the total far under the cap (see the sun_path note in
+// internal/agentrun/paths.go).
+func shortHome(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "nxdh-")
+	if err != nil {
+		t.Fatalf("mkdtemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 // startDaemon starts `bin --daemon root` with HOME redirected to fakeHome so
 // the daemon writes its socket/lock/log under fakeHome/.nexus-code/run/.
 // Returns the started *exec.Cmd and the run directory to poll for the socket.
@@ -54,6 +71,16 @@ func waitForSocket(t *testing.T, runDir string) string {
 			}
 		}
 		time.Sleep(30 * time.Millisecond)
+	}
+	// Boot failed — dump the run directory and any boot log so the failure
+	// is diagnosable from CI output alone.
+	entries, _ := os.ReadDir(runDir)
+	for _, e := range entries {
+		t.Logf("runDir entry: %s", e.Name())
+		if strings.HasSuffix(e.Name(), ".log") {
+			data, _ := os.ReadFile(filepath.Join(runDir, e.Name()))
+			t.Logf("boot log %s:\n%s", e.Name(), data)
+		}
 	}
 	t.Fatal("daemon socket did not appear within 5 s")
 	return ""
@@ -89,7 +116,7 @@ func readReady(t *testing.T, sockPath string) (net.Conn, string) {
 func TestDaemonTakeover(t *testing.T) {
 	bin := mustBuild(t)
 	root := t.TempDir()
-	fakeHome := t.TempDir()
+	fakeHome := shortHome(t)
 
 	cmd, runDir := startDaemon(t, bin, root, fakeHome)
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
@@ -147,7 +174,7 @@ func TestDaemonTakeover(t *testing.T) {
 func TestDaemonLongSessionThenReattach(t *testing.T) {
 	bin := mustBuild(t)
 	root := t.TempDir()
-	fakeHome := t.TempDir()
+	fakeHome := shortHome(t)
 
 	cmd, runDir := startDaemon(t, bin, root, fakeHome)
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()

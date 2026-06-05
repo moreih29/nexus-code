@@ -110,10 +110,26 @@ func TestTryLockReturnsErrLockHeld(t *testing.T) {
 	}
 }
 
+// shortSockDir returns a temp dir with a SHORT absolute path for binding
+// unix sockets. t.TempDir() must not be used for socket paths: on macOS its
+// path (/var/folders/<...>/T/<TestName><runID>/NNN) plus the socket name can
+// exceed the 104-byte sun_path limit, making bind(2) fail with EINVAL
+// depending on the test name and the random run ID — a borderline flake.
+// (See the sun_path note in paths.go.)
+func shortSockDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "nxs-")
+	if err != nil {
+		t.Fatalf("mkdtemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 // TestStaleSocketCleanedOnNewListen verifies the stale-socket cleanup path:
 // a socket file that refuses connections is removed and a new listener binds.
 func TestStaleSocketCleanedOnNewListen(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortSockDir(t)
 	sockPath := filepath.Join(dir, "ws.sock")
 
 	// Create a leftover socket file without a listener.
@@ -150,7 +166,7 @@ func TestStaleSocketCleanedOnNewListen(t *testing.T) {
 // to one end of a Unix socket pair are readable at the other end with no
 // modification. This is the io.Copy bidirectional relay used by runDialer.
 func TestDialerIOCopyRelay(t *testing.T) {
-	dir := t.TempDir()
+	dir := shortSockDir(t)
 	sockPath := filepath.Join(dir, "relay.sock")
 
 	ln, err := net.Listen("unix", sockPath)
