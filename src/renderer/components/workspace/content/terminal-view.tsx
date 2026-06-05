@@ -194,11 +194,11 @@ export function TerminalView({
 
     const unlistenRestored = ipcListen("pty", "restored", (args) => {
       if (args.workspaceId !== workspaceId || args.tabId !== tabId) return;
-      // Inject xterm reset before replay data arrives so stale ANSI mid-sequence
-      // garbage from the ring buffer boundary is cleared (plan issue 3).
-      if (args.withReplay) {
-        controllerRef.current?.writeReset();
-      }
+      // \x1bc reset is injected inline in the data stream by agent-host
+      // (restoreHeldSessions) before pty.replay is requested, so ordering is
+      // structurally guaranteed: reset → replay data → wiggle repaint.
+      // A renderer-side writeReset() call here races the data stream and would
+      // wipe the repaint when replay arrives first — do NOT call writeReset here.
       setHeldAt(null);
       setShowInputHint(false);
       setShowRestoredFlash(true);

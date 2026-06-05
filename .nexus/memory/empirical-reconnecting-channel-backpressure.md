@@ -34,3 +34,19 @@ The child completed and the channel delivered all 20,000 frames in about 204 ms 
 ## Conclusion
 
 Drain is present. Renderer ack alone is not a sufficient end-to-end bound once PTY output moves onto the reconnecting agent channel: main can continue draining Go agent stdout and enqueueing/broadcasting data while the renderer has not consumed or acknowledged it. Issue 3 needs correction before implementing the Go PTY service: add a main↔agent backpressure/credit window or equivalent stdout pause/resume mechanism so agent stdout production cannot outrun main/renderer consumption indefinitely.
+
+## Resolution (2026-06-05, plan 70 architect verification)
+
+The unbounded-drain warning above has since been FIXED in the codebase and this
+file should no longer be cited as an open issue:
+
+- `src/main/infra/agent/pipe.ts:890-975` — line splitter HWM/LWM gate
+  (1MiB / 64KiB) pauses the child stdout stream against renderer pace.
+- `internal/pty/service.go` (`noteEmitted` / `waitForOutputWindow` / `ack`) —
+  per-session renderer-debt credit window on the Go side.
+
+Plan 70 (SSH reattach) built on these gates: the per-session 1MiB ring buffer
+and `pty.replay` both route through the same credit window, and
+`ResetFlowControl` voids stale debt on dialer takeover (debt accrued against a
+zombie dialer's OS buffers is fictional — that data was already accepted as
+in-flight loss). See commits 53f6a168 / 8f9201ee.

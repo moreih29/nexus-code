@@ -341,15 +341,6 @@ class XtermTerminalController implements TerminalController {
     term.write(`\r\n${TERMINAL_REOPENED_SEPARATOR}\r\n`);
   }
 
-  writeReset(): void {
-    if (this.disposed) return;
-    const term = this.term;
-    if (!term) return;
-    // \x1bc is the ANSI/VT100 full reset escape — clears the screen and
-    // removes accumulated mid-sequence garbage before ring-buffer replay.
-    term.write("\x1bc");
-  }
-
   private resolveCurrentThemeId(): ThemeId {
     const attr = document.documentElement.getAttribute("data-theme");
     // Validate via the theme registry — a string only passes if it's a

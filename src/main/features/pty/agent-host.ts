@@ -463,7 +463,13 @@ class AgentPtyHostHandle implements PtyHostHandle {
 
     for (const tabId of heldTabIds) {
       if (aliveTabs.has(tabId)) {
-        // Session is alive on the daemon: emit restored and trigger replay.
+        // Session is alive on the daemon: inject \x1bc into the data stream
+        // BEFORE emitting restored and requesting replay. Because reset and
+        // replay travel on the same stream, this guarantees the ordering:
+        //   reset → restored (IPC control) → replay data → wiggle repaint
+        // A control-channel reset (writeReset in the renderer) races with the
+        // data stream and can arrive AFTER replay data, wiping the repaint.
+        this.emit("data", { workspaceId, tabId, chunk: "\x1bc" });
         this.emit("restored", { workspaceId, tabId, withReplay: true });
         // Reset the session's decoder so replay bytes decode cleanly.
         const key = sessionKey(workspaceId, tabId);
@@ -478,7 +484,11 @@ class AgentPtyHostHandle implements PtyHostHandle {
           );
         });
       } else {
-        // Session no longer alive on the daemon.
+        // Session no longer alive on the daemon — treat as a fresh shell.
+        // Inject \x1bc into the data stream so any stale ANSI mid-sequence
+        // garbage accumulated before the hold is cleared before the renderer
+        // shows the new prompt, consistent with the alive-tab path.
+        this.emit("data", { workspaceId, tabId, chunk: "\x1bc" });
         this.emit("restored", { workspaceId, tabId, withReplay: false });
         this.emitExit(workspaceId, tabId, null);
       }

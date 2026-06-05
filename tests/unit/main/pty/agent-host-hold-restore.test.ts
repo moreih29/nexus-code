@@ -162,6 +162,39 @@ describe("PTY restore on ready (epoch-match)", () => {
     expect(exits.some((e) => (e as { tabId: string }).tabId === TAB_A)).toBe(false);
   });
 
+  test("injects \\x1bc into the data stream before restored and before pty.replay", async () => {
+    const channel = new FakeAgentChannel();
+    channel.sessionListResult = {
+      sessions: [{ workspaceId: WORKSPACE_ID, tabId: TAB_A }],
+    };
+
+    const host = startAgentPtyHost(makeWorkspaceManager(channel));
+
+    // Capture the interleaved order of data chunks, restored events, and
+    // pty.replay RPC calls. The reset MUST travel on the data stream ahead of
+    // the replay request — a control-channel reset races the data stream and
+    // can wipe the wiggle repaint (observed live: black TUI until a keypress).
+    const order: string[] = [];
+    host.on("data", (a) => {
+      const d = a as { tabId: string; chunk: string };
+      if (d.chunk === "\x1bc") order.push(`reset:${d.tabId}`);
+    });
+    host.on("restored", (a) => order.push(`restored:${(a as { tabId: string }).tabId}`));
+    const originalCall = channel.call.bind(channel);
+    channel.call = ((method: string, params?: unknown) => {
+      if (method === "pty.replay") order.push(`replay:${(params as { tabId: string }).tabId}`);
+      return originalCall(method, params);
+    }) as typeof channel.call;
+
+    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 });
+
+    channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
+    channel.emitLifecycle({ type: "ready" });
+    await new Promise<void>((r) => setTimeout(r, 0));
+
+    expect(order).toEqual([`reset:${TAB_A}`, `restored:${TAB_A}`, `replay:${TAB_A}`]);
+  });
+
   test("pty.replay is called for each alive tab after reattach", async () => {
     const channel = new FakeAgentChannel();
     channel.sessionListResult = {
