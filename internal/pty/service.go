@@ -89,7 +89,27 @@ type session struct {
 	// Tests may replace it with a recording stub to verify call sequences
 	// without a real PTY fd.
 	setSizeFn func(f *os.File, ws *creackpty.Winsize) error
+
+	// wiggleActive guards against overlapping wiggleSIGWINCH goroutines when
+	// replays arrive in quick succession (e.g. repeated reconnects).  A wiggle
+	// already in flight will repaint the TUI anyway, so a second one is skipped.
+	wiggleActive atomic.Int32
 }
+
+// wiggleRestoreDelay is how long wiggleSIGWINCH holds the shrunken (rows-1)
+// geometry before restoring the original size.
+//
+// The gap is load-bearing, not cosmetic.  SIGWINCH is a non-queued Unix
+// signal: two deliveries while the target has not yet run its handler merge
+// into one pending signal.  Worse, handlers read the *current* size via
+// TIOCGWINSZ — if shrink and restore land back-to-back, the handler runs
+// after the restore, reads a size identical to its cached one, and skips the
+// repaint entirely (Node's tty layer only emits "resize" when the polled size
+// actually differs).  That is exactly the blank-screen-after-reattach symptom
+// this wiggle exists to fix.  Holding rows-1 for a beat lets the shrink
+// SIGWINCH be observed at the shrunken size, guaranteeing a real size delta
+// in both directions.
+const wiggleRestoreDelay = 200 * time.Millisecond
 
 // New constructs an empty PTY service registry.
 func New() *Service {
@@ -484,25 +504,38 @@ func (s *session) resetFlow() {
 	}
 }
 
-// wiggleSIGWINCH forces a full TUI repaint after replay by momentarily
-// shrinking the PTY by one row and immediately restoring the original size.
+// wiggleSIGWINCH forces a full TUI repaint after replay by shrinking the PTY
+// by one row, holding that geometry for wiggleRestoreDelay, then restoring
+// the original size.  The hold is what makes the shrink SIGWINCH observable
+// at the shrunken size — see the wiggleRestoreDelay comment for why two
+// back-to-back Setsize calls coalesce into a no-op for the foreground TUI.
 //
-// The kernel sends SIGWINCH only when the geometry actually changes, so
-// setting the same size twice is a no-op.  The rows-1 → original sequence is
-// the canonical workaround used by tmux's "attach-session" to trigger a
-// redraw on reconnect.
+// The restore re-reads lastCols/lastRows instead of reusing the values
+// captured before the sleep: if a real pty.resize lands during the hold, the
+// restore must not clobber the fresh geometry with stale numbers.  Restoring
+// to an already-applied size produces no geometry change and therefore no
+// spurious SIGWINCH.
 //
 // The wiggle is skipped when:
 //   - lastRows/lastCols are zero (size never recorded — session exited before
 //     first resize or Spawn geometry was not stored yet).
 //   - rows-1 would underflow to zero (1-row terminal, pathological).
+//   - Another wiggle is already in flight (it will repaint the TUI anyway).
 //   - The PTY master file is already closed (stopped session).
 //
 // Best-effort: errors from Setsize are silently ignored.  A failed wiggle
 // leaves the TUI stale until the user presses a key or the TUI self-refreshes,
 // which matches the pre-fix behavior and is preferable to surfacing an error
 // from a cosmetic step.
+//
+// Blocking for wiggleRestoreDelay; callers on a latency-sensitive path should
+// run it in a goroutine.
 func (s *session) wiggleSIGWINCH() {
+	if !s.wiggleActive.CompareAndSwap(0, 1) {
+		return
+	}
+	defer s.wiggleActive.Store(0)
+
 	s.sizeMu.Lock()
 	cols := s.lastCols
 	rows := s.lastRows
@@ -517,7 +550,20 @@ func (s *session) wiggleSIGWINCH() {
 	}
 	// Shrink by one row to make the geometry change.
 	_ = setSize(s.master, &creackpty.Winsize{Rows: uint16(rows - 1), Cols: uint16(cols)})
-	// Restore to the real size — this is the SIGWINCH that triggers repaint.
+
+	// Hold the shrunken size long enough for the foreground process to run
+	// its SIGWINCH handler and observe rows-1.
+	time.Sleep(wiggleRestoreDelay)
+
+	// Restore — re-read the recorded size in case a real resize arrived
+	// during the hold.
+	s.sizeMu.Lock()
+	cols = s.lastCols
+	rows = s.lastRows
+	s.sizeMu.Unlock()
+	if cols == 0 || rows == 0 {
+		return
+	}
 	_ = setSize(s.master, &creackpty.Winsize{Rows: uint16(rows), Cols: uint16(cols)})
 }
 
@@ -881,14 +927,16 @@ func (s *Service) Replay(_ context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	// After all buffered and queued live bytes have been flushed, send a
-	// SIGWINCH wiggle (rows-1 → original) to force a full TUI repaint.
+	// SIGWINCH wiggle (rows-1 → hold → original) to force a full TUI repaint.
 	// This repairs the blank-screen symptom seen when in-flight zombie-window
 	// bytes were lost: the ring contains only post-loss output, so the TUI's
 	// internal state may be ahead of what was replayed.  SIGWINCH causes
 	// full-screen TUIs (claude, vim, tmux, etc.) to redraw themselves entirely,
 	// making the terminal immediately usable without requiring user input.
-	// Executed after the live flush so repaint output lands after replay data.
-	sess.wiggleSIGWINCH()
+	// Started after the live flush so repaint output lands after replay data;
+	// run as a goroutine because the wiggle now holds the shrunken size for
+	// wiggleRestoreDelay and must not stall the replay RPC response.
+	go sess.wiggleSIGWINCH()
 
 	return struct{}{}, nil
 }

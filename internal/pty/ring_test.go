@@ -530,17 +530,20 @@ sessionFound:
 }
 
 // TestReplayWigglesSIGWINCHAfterFlush verifies that pty.replay issues a
-// rows-1 → original-rows Setsize sequence after completing the live-queue
-// flush (AC patch).
+// rows-1 → hold → original-rows Setsize sequence after completing the
+// live-queue flush (AC patch).
 //
 // The sequence is verified via a setSizeFn stub injected into the session:
 //   - Call 1 must set rows = lastRows-1 (shrink).
-//   - Call 2 must set rows = lastRows    (restore).
+//   - Call 2 must set rows = lastRows    (restore, after wiggleRestoreDelay).
 //
 // Using a stub avoids the Unix signal-coalescing race that makes counting
 // SIGWINCH receipts from a shell trap unreliable: the kernel may merge two
 // rapid SIGWINCH deliveries into one pending signal while the first handler
-// is executing.
+// is executing.  That same coalescing is why production code holds the
+// shrunken size for wiggleRestoreDelay before restoring — and why this test
+// polls for the second call instead of asserting synchronously: the wiggle
+// runs in a goroutine so the replay RPC is not delayed by the hold.
 func TestReplayWigglesSIGWINCHAfterFlush(t *testing.T) {
 	rec := &sinkRecorder{}
 	svc := New()
@@ -596,9 +599,19 @@ sleep 10
 		t.Fatalf("replay: %v", err)
 	}
 
-	callMu.Lock()
-	got := append([]sizeCall(nil), calls...)
-	callMu.Unlock()
+	// The wiggle runs in a goroutine and holds the shrunken size for
+	// wiggleRestoreDelay before restoring — poll until both calls land.
+	deadline := time.Now().Add(2 * time.Second)
+	var got []sizeCall
+	for {
+		callMu.Lock()
+		got = append([]sizeCall(nil), calls...)
+		callMu.Unlock()
+		if len(got) >= 2 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	if len(got) != 2 {
 		t.Fatalf("wiggle: expected 2 Setsize calls, got %d: %v", len(got), got)
