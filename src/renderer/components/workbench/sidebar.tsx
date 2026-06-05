@@ -658,9 +658,13 @@ function connectionStatusClassName(status: WorkspaceConnectionStatus): string {
     case "reconnecting":
       return "bg-[var(--color-workspace-connection-connecting)]";
     case "error":
+    case "held-then-expired":
       return "bg-[var(--color-workspace-connection-error)]";
     case "idle":
       return "bg-[var(--color-workspace-connection-idle)]";
+    case "unstable":
+      // Transient warning indicator — task 14 will supply a dedicated token.
+      return "bg-[var(--color-workspace-connection-connecting)]";
   }
 }
 

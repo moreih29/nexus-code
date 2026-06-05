@@ -1,6 +1,9 @@
 import { TextDecoder } from "node:util";
+import { createLogger } from "../../../shared/log/main";
 import type { AgentChannel, ChannelLifecycleEvent } from "../../infra/agent/channel";
 import type { PtyHostHandle } from "./types";
+
+const log = createLogger("agent-host");
 
 type EventCallback = (args: unknown) => void;
 
@@ -47,6 +50,13 @@ class AgentPtyHostHandle implements PtyHostHandle {
   private readonly sessions = new Map<string, AgentPtySession>();
   private readonly sessionsByWorkspace = new Map<string, Set<string>>();
   private readonly subscriptions = new Map<string, WorkspaceSubscription>();
+  /**
+   * Tracks workspaces whose PTY sessions are currently on hold during a
+   * reconnect window. Sessions in this set receive `pty.held` instead of
+   * `pty.exit` so the renderer shows a "reconnecting" indicator rather than
+   * a dead-terminal banner.
+   */
+  private readonly heldWorkspaces = new Set<string>();
   private disposed = false;
 
   constructor(private readonly workspaceManager: AgentPtyWorkspaceManager) {}
@@ -76,6 +86,14 @@ class AgentPtyHostHandle implements PtyHostHandle {
     if (method !== "spawn") {
       const channel = await this.tryChannelForWorkspace(workspaceId);
       if (!channel) return undefined;
+
+      // write is silently dropped when the session is held — the renderer
+      // should show an inline "input not sent during reconnect" hint, so no
+      // queuing is needed here.
+      if (method === "write" && this.heldWorkspaces.has(workspaceId)) {
+        return undefined;
+      }
+
       switch (method) {
         case "write":
           return channel.call("pty.write", args);
@@ -125,6 +143,7 @@ class AgentPtyHostHandle implements PtyHostHandle {
     this.subscriptions.clear();
     this.sessions.clear();
     this.sessionsByWorkspace.clear();
+    this.heldWorkspaces.clear();
     this.listeners.clear();
   }
 
@@ -159,12 +178,52 @@ class AgentPtyHostHandle implements PtyHostHandle {
     for (const tabId of tabIds) {
       this.emitExit(workspaceId, tabId, null);
     }
+    this.heldWorkspaces.delete(workspaceId);
     // Clean up the channel subscription so no further agent events arrive
     // for this workspace after the context is gone.
     const subscription = this.subscriptions.get(workspaceId);
     if (subscription) {
       for (const dispose of subscription.disposers) dispose();
       this.subscriptions.delete(workspaceId);
+    }
+  }
+
+  /**
+   * Called by manager after successful re-authentication. Acquires the new
+   * channel via `tryGetAgentChannel`, subscribes its lifecycle, then runs
+   * the session.list reconcile path to replay alive tabs and exit dead tabs.
+   */
+  async restoreAfterReauth(workspaceId: string): Promise<void> {
+    const channel = await this.workspaceManager.tryGetAgentChannel(workspaceId);
+    if (!channel) {
+      // Workspace was removed while reauth was in progress — release held
+      // sessions so they don't leak.
+      this.releaseHeld(workspaceId);
+      return;
+    }
+    await channel.ready;
+    // Subscribe to the new channel so lifecycle events are wired up.
+    this.subscribeWorkspace(workspaceId, channel);
+    // Only proceed if sessions are still held — a concurrent releaseHeld or
+    // closeWorkspaceSessions call could have cleared the hold.
+    if (!this.heldWorkspaces.has(workspaceId)) return;
+    this.heldWorkspaces.delete(workspaceId);
+    await this.restoreHeldSessions(workspaceId, channel);
+  }
+
+  /**
+   * Releases held sessions on every non-reauth terminal exit path (auth
+   * cancelled, backoff exhausted, non-interactive failure, ctx gone).
+   * Emits `pty.expired` then `pty.exit` for each held tab. No-op when no
+   * hold is active for the workspace.
+   */
+  releaseHeld(workspaceId: string): void {
+    if (!this.heldWorkspaces.has(workspaceId)) return;
+    this.heldWorkspaces.delete(workspaceId);
+    const tabIds = Array.from(this.sessionsByWorkspace.get(workspaceId) ?? []);
+    for (const tabId of tabIds) {
+      this.emit("expired", { workspaceId, tabId });
+      this.emitExit(workspaceId, tabId, null);
     }
   }
 
@@ -250,27 +309,179 @@ class AgentPtyHostHandle implements PtyHostHandle {
   }
 
   /**
-   * Converts terminal channel failure/exit/reconnecting into PTY exits for all
-   * sessions known to belong to the workspace. Shell processes cannot survive
-   * a channel reconnect, so even though the transport may recover the local
-   * PTY sessions are gone — surface that to the renderer immediately so the
-   * dead-terminal banner can fire without waiting for an indefinite retry
-   * window. `disposed` (host-driven teardown) only clears local bookkeeping.
+   * Converts terminal channel lifecycle events into PTY session signals.
+   *
+   * Reattach model (epoch-aware):
+   *   - `reconnecting`: sessions are placed on hold instead of being killed.
+   *     The renderer is notified via `pty.held` so it can show a "reconnecting"
+   *     indicator without displaying the dead-terminal banner.
+   *   - `ready` (epoch-match restore): the daemon survived the outage.
+   *     session.list is called to discover which sessions are still alive, then
+   *     pty.replay is requested for each alive tab. Dead tabs receive pty.exit.
+   *   - `held-then-expired`: the daemon was replaced. Held sessions are
+   *     expired via `pty.expired` (renderer shows "session expired" empty
+   *     state) and then released via `pty.exit`.
+   *   - `failure` / `exit`: if sessions were held, emit pty.exit for them
+   *     (the reconnect window ended without recovery). Otherwise normal exit.
+   *   - `degraded` / `degraded-recovered`: forwarded to consumers via the
+   *     "degraded" / "degraded-recovered" host events (manager reacts).
+   *   - `disposed`: local host teardown only — no session-death signals here
+   *     because `dispose()` handles that path.
+   *
+   * Legacy / local channel behaviour is preserved: when no epoch was ever
+   * seen (legacy agent) the `reconnecting` event still kills PTY sessions
+   * immediately (current behaviour), because there is no daemon to reattach
+   * to.
    */
   private handleLifecycle(workspaceId: string, event: ChannelLifecycleEvent): void {
-    if (event.type === "failure" || event.type === "exit" || event.type === "reconnecting") {
+    if (event.type === "degraded") {
+      this.emit("degraded", { workspaceId });
+      return;
+    }
+
+    if (event.type === "degraded-recovered") {
+      this.emit("degraded-recovered", { workspaceId });
+      return;
+    }
+
+    if (event.type === "reconnecting") {
+      if (event.hadEpoch) {
+        // Epoch-aware daemon: hold sessions so they can be restored after
+        // a successful reattach. The renderer is notified via pty.held so
+        // it shows a "reconnecting" indicator without a dead-terminal banner.
+        const tabIds = Array.from(this.sessionsByWorkspace.get(workspaceId) ?? []);
+        if (tabIds.length > 0) {
+          this.heldWorkspaces.add(workspaceId);
+          for (const tabId of tabIds) {
+            this.emit("held", { workspaceId, tabId });
+          }
+        }
+      } else {
+        // Legacy / local path: no daemon to survive the outage, kill sessions
+        // immediately so the renderer shows the dead-terminal banner.
+        const tabIds = Array.from(this.sessionsByWorkspace.get(workspaceId) ?? []);
+        for (const tabId of tabIds) {
+          this.emitExit(workspaceId, tabId, null);
+        }
+        const sub = this.subscriptions.get(workspaceId);
+        if (sub) {
+          for (const dispose of sub.disposers) dispose();
+          this.subscriptions.delete(workspaceId);
+        }
+      }
+      return;
+    }
+
+    if (event.type === "ready") {
+      // Epoch-match reattach: restore held sessions.
+      if (this.heldWorkspaces.has(workspaceId)) {
+        this.heldWorkspaces.delete(workspaceId);
+        const subscription = this.subscriptions.get(workspaceId);
+        if (subscription) {
+          void this.restoreHeldSessions(workspaceId, subscription.channel);
+        }
+      }
+      return;
+    }
+
+    if (event.type === "held-then-expired") {
+      // Daemon was replaced: expire all held sessions.
+      if (this.heldWorkspaces.has(workspaceId)) {
+        this.heldWorkspaces.delete(workspaceId);
+        const tabIds = Array.from(this.sessionsByWorkspace.get(workspaceId) ?? []);
+        for (const tabId of tabIds) {
+          this.emit("expired", { workspaceId, tabId });
+          this.emitExit(workspaceId, tabId, null);
+        }
+      }
+      // Emit degraded broadcast so manager can broadcast held-then-expired status.
+      this.emit("held-then-expired", { workspaceId });
+      const sub = this.subscriptions.get(workspaceId);
+      if (sub) {
+        for (const dispose of sub.disposers) dispose();
+        this.subscriptions.delete(workspaceId);
+      }
+      return;
+    }
+
+    if (event.type === "failure" || event.type === "exit") {
+      // Unsubscribe from the dead channel unconditionally — it will never
+      // send useful events again.
+      const subscription = this.subscriptions.get(workspaceId);
+      if (subscription) {
+        for (const dispose of subscription.disposers) dispose();
+        this.subscriptions.delete(workspaceId);
+      }
+
+      if (this.heldWorkspaces.has(workspaceId)) {
+        // Sessions are held — manager owns the decision about what happens
+        // next (re-authenticate or release). Do NOT emit exits here; the
+        // renderer already shows a "reconnecting" indicator via pty.held.
+        // manager will call restoreAfterReauth() on success or
+        // releaseHeld() on every non-reauth exit path.
+        return;
+      }
+
+      // No hold: emit exits for all sessions on the normal path.
       const tabIds = Array.from(this.sessionsByWorkspace.get(workspaceId) ?? []);
       for (const tabId of tabIds) {
         this.emitExit(workspaceId, tabId, null);
       }
-    } else {
-      this.clearWorkspaceSessions(workspaceId);
+    }
+  }
+
+  /**
+   * After an epoch-match reattach, queries the agent for alive sessions and
+   * triggers ring-buffer replay for each held tab that is still alive.
+   * Tabs no longer present in session.list receive pty.exit.
+   */
+  private async restoreHeldSessions(workspaceId: string, channel: AgentChannel): Promise<void> {
+    const heldTabIds = new Set(this.sessionsByWorkspace.get(workspaceId) ?? []);
+    if (heldTabIds.size === 0) return;
+
+    let aliveTabs: Set<string>;
+    try {
+      const result = await channel.call<{ sessions: Array<{ workspaceId: string; tabId: string }> }>(
+        "session.list",
+        { workspaceId },
+      );
+      aliveTabs = new Set(
+        (result.sessions ?? [])
+          .filter((s) => s.workspaceId === workspaceId)
+          .map((s) => s.tabId),
+      );
+    } catch (err) {
+      log.warn(
+        `session.list failed for workspace ${workspaceId} after reattach; killing held sessions: ${(err as Error).message}`,
+      );
+      // Fall back to killing all held sessions.
+      for (const tabId of heldTabIds) {
+        this.emitExit(workspaceId, tabId, null);
+      }
+      return;
     }
 
-    const subscription = this.subscriptions.get(workspaceId);
-    if (subscription) {
-      for (const dispose of subscription.disposers) dispose();
-      this.subscriptions.delete(workspaceId);
+    for (const tabId of heldTabIds) {
+      if (aliveTabs.has(tabId)) {
+        // Session is alive on the daemon: emit restored and trigger replay.
+        this.emit("restored", { workspaceId, tabId, withReplay: true });
+        // Reset the session's decoder so replay bytes decode cleanly.
+        const key = sessionKey(workspaceId, tabId);
+        const session = this.sessions.get(key);
+        if (session) {
+          session.decoder = new TextDecoder("utf-8");
+        }
+        // pty.replay triggers pty.data events via the existing ring buffer path.
+        channel.call("pty.replay", { workspaceId, tabId }).catch((err) => {
+          log.warn(
+            `pty.replay failed for ${workspaceId}:${tabId}: ${(err as Error).message}`,
+          );
+        });
+      } else {
+        // Session no longer alive on the daemon.
+        this.emit("restored", { workspaceId, tabId, withReplay: false });
+        this.emitExit(workspaceId, tabId, null);
+      }
     }
   }
 
@@ -320,16 +531,6 @@ class AgentPtyHostHandle implements PtyHostHandle {
     tabIds.delete(tabId);
     if (tabIds.size === 0) {
       this.sessionsByWorkspace.delete(workspaceId);
-    }
-  }
-
-  /**
-   * Clears all session records for a disposed workspace channel.
-   */
-  private clearWorkspaceSessions(workspaceId: string): void {
-    const tabIds = Array.from(this.sessionsByWorkspace.get(workspaceId) ?? []);
-    for (const tabId of tabIds) {
-      this.deleteSession(workspaceId, tabId);
     }
   }
 

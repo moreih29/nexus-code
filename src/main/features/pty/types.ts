@@ -20,4 +20,23 @@ export interface PtyHostHandle {
    * "workspace not found" errors.
    */
   closeWorkspaceSessions: (workspaceId: string) => void;
+  /**
+   * Called by manager after a successful re-authentication to restore held
+   * sessions through the new channel. Acquires the new channel via
+   * `tryGetAgentChannel`, subscribes to its lifecycle, and then runs the
+   * session.list reconcile → replay / exit path.
+   *
+   * Must only be called when manager has confirmed the new SSH provider is
+   * ready and the workspace context still exists.
+   */
+  restoreAfterReauth: (workspaceId: string) => Promise<void>;
+  /**
+   * Called by manager on every terminal failure path where re-authentication
+   * will NOT be attempted (non-interactive auth, auth-cancelled, backoff
+   * exhausted, ctx absent, explicit disconnect). Emits `pty.expired` + `pty.exit`
+   * for every held session so no hold state leaks.
+   *
+   * No-op when the workspace has no held sessions.
+   */
+  releaseHeld: (workspaceId: string) => void;
 }

@@ -640,6 +640,28 @@ export const ipcContract = {
       data: listen(PtyWorkspaceTabSchema.extend({ chunk: z.string() })),
       exit: listen(PtyWorkspaceTabSchema.extend({ code: z.number().int().nullable() })),
       notificationClick: listen(z.object({ workspaceId: z.string(), tabId: z.string() })),
+      /**
+       * Fired when the channel enters `reconnecting` state and the PTY session
+       * is placed on hold rather than killed. The renderer should show a
+       * "reconnecting" overlay without emitting a dead-terminal banner.
+       * Input to the user during hold is dropped (not queued).
+       */
+      held: listen(PtyWorkspaceTabSchema),
+      /**
+       * Fired after a successful reattach (epoch match). The `withReplay` flag
+       * indicates whether the ring buffer was replayed. When true the renderer
+       * should inject `\x1bc` (terminal reset) before the replay data arrives
+       * to clear any ANSI mid-sequence garbage from the buffer boundary.
+       */
+      restored: listen(PtyWorkspaceTabSchema.extend({ withReplay: z.boolean() })),
+      /**
+       * Fired when the reconnected agent has a different epoch than the one
+       * seen at the previous ready — the daemon was replaced during the
+       * outage and the PTY session cannot be restored. Distinct from `exit`
+       * so the renderer can show "session expired" rather than the generic
+       * dead-terminal banner.
+       */
+      expired: listen(PtyWorkspaceTabSchema),
     },
   },
 

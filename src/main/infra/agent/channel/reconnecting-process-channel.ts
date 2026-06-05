@@ -209,6 +209,13 @@ export function createReconnectingProcessChannel(
             emitLifecycle({ type: "held-then-expired", previousEpoch, newEpoch });
             return;
           }
+          // Epoch match: the daemon survived the outage.
+          // Flush the reconnect queue and emit "ready" so PTY-aware consumers
+          // (agent-host) can restore held sessions via session.list + pty.replay.
+          lastAgentEpoch = newEpoch;
+          flushQueuedCalls();
+          emitLifecycle({ type: "ready" });
+          return;
         }
         lastAgentEpoch = newEpoch;
         flushQueuedCalls();
@@ -323,6 +330,7 @@ export function createReconnectingProcessChannel(
         emitLifecycle({
           type: "reconnecting",
           cause: code === null ? null : new Error(`agent process exited with code ${code}`),
+          hadEpoch: lastAgentEpoch !== 0,
         });
       }
       return;

@@ -321,6 +321,12 @@ app.whenReady().then(async () => {
   workspaceManager.setPtySessionCloser((workspaceId) => {
     agentPtyHost?.closeWorkspaceSessions(workspaceId);
   });
+  // Wire held-session restore / release callbacks so manager can drive PTY
+  // session lifecycle across reauth boundaries (plan issue 4 + 6).
+  workspaceManager.setPtyHeldCallbacks(
+    (workspaceId) => agentPtyHost?.restoreAfterReauth(workspaceId) ?? Promise.resolve(),
+    (workspaceId) => agentPtyHost?.releaseHeld(workspaceId),
+  );
 
   // Claude feature 초기화 — broker / hook-handler wiring.
   // notificationsEnabled getter는 Settings의 OS 알림 토글을 실시간 반영한다.

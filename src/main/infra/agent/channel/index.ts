@@ -41,7 +41,18 @@ export type ChannelLifecycleCallback = (event: ChannelLifecycleEvent) => void;
 export type ChannelLifecycleEvent =
   | { readonly type: "exit"; readonly code: number | null; readonly signal: NodeJS.Signals | null }
   | { readonly type: "failure"; readonly error: Error }
-  | { readonly type: "reconnecting"; readonly cause: Error | null }
+  | {
+      readonly type: "reconnecting";
+      readonly cause: Error | null;
+      /**
+       * True when the channel has previously completed a ready handshake that
+       * included an agentEpoch > 0 (protocol v2 daemon). When false the agent
+       * is a legacy (v1) or local process and PTY sessions should be killed
+       * immediately rather than placed on hold, because there is no daemon
+       * that can survive a dialer reconnect.
+       */
+      readonly hadEpoch: boolean;
+    }
   | { readonly type: "disposed" }
   | { readonly type: "degraded" }
   | { readonly type: "degraded-recovered" }
@@ -51,6 +62,14 @@ export type ChannelLifecycleEvent =
       readonly previousEpoch: number;
       /** New epoch from the reconnected agent. */
       readonly newEpoch: number;
+    }
+  | {
+      /**
+       * Fired after a successful reconnect where the new agent's epoch matches
+       * the previous epoch — the daemon survived the outage and PTY sessions
+       * can be restored via session.list + pty.replay.
+       */
+      readonly type: "ready";
     };
 
 /**
