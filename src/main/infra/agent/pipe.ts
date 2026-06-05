@@ -12,6 +12,7 @@
  */
 import type { Readable, Writable } from "node:stream";
 import { z } from "zod";
+import { AGENT_PROTOCOL_VERSION } from "../../../shared/agent/envelope";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import { createLogger } from "../../../shared/log/main";
 import type { LogLevel } from "../../../shared/log/types";
@@ -237,7 +238,10 @@ export interface NdjsonPipe {
  */
 export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   const requestTimeoutMs = deps.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
-  const expectedProtocolMajor = deps.expectedProtocolMajor ?? "1";
+  // Fallback derives from the single source of truth — a hardcoded "1" here
+  // silently masked the v0.6.0 protocol-constant drift for any caller that
+  // omitted expectedProtocolMajor.
+  const expectedProtocolMajor = deps.expectedProtocolMajor ?? AGENT_PROTOCOL_VERSION;
   const pendingRequests = new PendingRequestMap<string, unknown>();
   const activeRequestIds = new Set<string>();
   const listeners = new Map<string, Set<NdjsonEventCallback>>();

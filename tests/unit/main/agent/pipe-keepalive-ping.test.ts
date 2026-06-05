@@ -12,6 +12,7 @@
  *   2. idleWatchdogMs absent (heartbeat-only) → no pings ever.
  *   3. pings stop after dispose().
  */
+import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 import { afterEach, describe, expect, it, jest } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
@@ -43,7 +44,7 @@ class FakeWritable {
 
 function readyFrame(extra: Record<string, unknown> = {}): Buffer {
   return Buffer.from(
-    `${JSON.stringify({ type: "ready", protocolVersion: "1", ...extra })}\n`,
+    `${JSON.stringify({ type: "ready", protocolVersion: AGENT_PROTOCOL_VERSION, ...extra })}\n`,
     "utf8",
   );
 }

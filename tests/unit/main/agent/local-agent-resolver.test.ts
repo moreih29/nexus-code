@@ -1,3 +1,4 @@
+import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
@@ -30,7 +31,7 @@ function writeManifest(dir: string): void {
     path.join(dir, "manifest.json"),
     JSON.stringify({
       version: "0.1.0",
-      protocolVersion: "1",
+      protocolVersion: AGENT_PROTOCOL_VERSION,
       binaries: [
         {
           os: manifestOs,

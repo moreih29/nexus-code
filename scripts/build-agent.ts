@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { AGENT_PROTOCOL_VERSION } from "../src/shared/agent/envelope";
 import {
   type AgentArtifactPlatform,
   type AgentBinaryManifestEntry,
@@ -13,7 +14,9 @@ import {
 } from "../src/shared/agent/manifest";
 
 const DEFAULT_VERSION = "0.1.0";
-const DEFAULT_PROTOCOL_VERSION = "1";
+// Manifest metadata follows the single source of truth in envelope.ts —
+// an independent literal here drifted to "1" while the wire went to "2".
+const DEFAULT_PROTOCOL_VERSION = AGENT_PROTOCOL_VERSION;
 const NODE_MAJOR = 20;
 const NODE_DIST_BASE_URL = "https://nodejs.org/dist";
 

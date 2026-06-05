@@ -15,7 +15,20 @@ import { z } from "zod";
  * also stay aligned.
  */
 
-export const AGENT_PROTOCOL_VERSION = "1";
+/**
+ * THE single source of truth for the agent protocol major on the TS side.
+ * Must equal `ProtocolVersion` in `internal/proto/proto.go` — every channel
+ * (local spawn and SSH) validates the agent's Ready frame against this value,
+ * and `tests/unit/shared/agent-protocol-version-sync.test.ts` fails the build
+ * when the two sides drift.
+ *
+ * v0.6.0 incident: this constant stayed at "1" while proto.go and the SSH
+ * channel's own copy went to "2" — every LOCAL workspace then failed the
+ * handshake with `server.protocol-version-mismatch` in the released build.
+ * The SSH-only E2E never exercised the local channel, so it shipped. Do not
+ * reintroduce per-channel copies of this value.
+ */
+export const AGENT_PROTOCOL_VERSION = "2";
 
 /** Request frame. `params` is method-specific and validated separately. */
 export const AgentRequestSchema = z.object({

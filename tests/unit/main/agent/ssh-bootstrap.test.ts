@@ -1,3 +1,4 @@
+import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
@@ -88,7 +89,7 @@ function writeDist(): {
     path.join(distDir, "manifest.json"),
     JSON.stringify({
       version: "0.1.0",
-      protocolVersion: "1",
+      protocolVersion: AGENT_PROTOCOL_VERSION,
       binaries: [
         {
           os: "linux",

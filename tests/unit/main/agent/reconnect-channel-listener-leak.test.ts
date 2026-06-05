@@ -17,6 +17,7 @@
  * cycles and one fresh subscription, a single emitted event must invoke the
  * callback exactly once (not N+1 times).
  */
+import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 import { describe, expect, it } from "bun:test";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
@@ -85,7 +86,7 @@ function makeHarness() {
 }
 
 async function readyHandshake(child: FakeAgentChild): Promise<void> {
-  child.stdout.emitData(`${JSON.stringify({ type: "ready", protocolVersion: "1.0" })}\n`);
+  child.stdout.emitData(`${JSON.stringify({ type: "ready", protocolVersion: `${AGENT_PROTOCOL_VERSION}.0` })}\n`);
   await flushMicrotasks();
 }
 
