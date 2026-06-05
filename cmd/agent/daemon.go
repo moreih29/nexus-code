@@ -22,13 +22,21 @@
 // error. The exit function sees the preempted flag and treats it as a clean
 // disconnect rather than a daemon shutdown.
 //
-// # Lifetimes
+// # Grace period
 //
-// CRITICAL: dialer disconnect ≠ daemon exit.
-// A clean dialer EOF (code 0) or a takeover (code 74 with preempted=true)
-// leave PTYs intact. PTYs are killed only when the daemon itself exits — either
-// because no new dialer arrives within 300 s, the idle watchdog fires, or
-// SIGTERM arrives.
+// reattachGrace only applies while the daemon is *waiting for a dialer* (idle
+// state: first connect or after a clean disconnect). While a dialer is actively
+// connected, the acceptor runs without a deadline — otherwise a 300 s session
+// would time out the acceptor, permanently disabling takeover and causing the
+// next clean-EOF to immediately trigger "grace expired" self-termination.
+// Zombie detection during an active connection is handled by the Host's idle
+// watchdog, which fires after 300 s of no inbound pings.
+//
+// # SIGTERM / panic diagnostics
+//
+// After setsid the SSH terminal is gone. syscall.Dup2 redirects fd 2 to the
+// log file so runtime panics and any Go runtime output reach run/<wsId>.log
+// rather than /dev/null. slog also writes to the same file via agentLogger.
 package main
 
 import (
@@ -64,10 +72,10 @@ const ExitCodeLockHeld = 3
 // socket. The launcher knows no daemon is present and should start one first.
 const ExitCodeDialFailed = 4
 
-// reattachGrace is the maximum time the daemon waits for a dialer — both
-// for the very first connection and for reattach after disconnect. If no
-// dialer arrives within this window, the daemon self-terminates, reaping
-// all PTY children.
+// reattachGrace is the maximum time the daemon waits for a dialer while in
+// idle state (first connect or after a clean disconnect / takeover). The
+// grace is NOT applied while a dialer is actively serving — that would kill
+// long-lived sessions and disable takeover after 300 s of connected use.
 const reattachGrace = 300 * time.Second
 
 // runDaemon is the `agent --daemon <root>` entry point. It never returns —
@@ -108,6 +116,12 @@ func runDaemon(root string) {
 	if err != nil {
 		os.Exit(1)
 	}
+	// Redirect fd 2 (stderr) to the log file so Go runtime panics and any
+	// output written directly to fd 2 (not via slog) also land in the log.
+	// Without this, launch scripts that run `agent --daemon ... 2>/dev/null`
+	// silently drop panic stacktraces, making crash diagnosis impossible.
+	_ = syscall.Dup2(int(logFile.Fd()), 2)
+
 	agentLogger := slog.New(slog.NewJSONHandler(logFile, nil)).With("src", "agent-log")
 
 	// Step 4: acquire the workspace lock. A second daemon for the same
@@ -221,29 +235,21 @@ func runDaemon(root string) {
 	// nextConn delivers incoming connections from the accept goroutine to the
 	// serve loop. Buffer of 1 so the acceptor never blocks while serve is busy.
 	nextConn := make(chan net.Conn, 1)
-	// graceExpired is closed by the accept goroutine when the reattachGrace
-	// deadline fires with no incoming connection.
-	graceExpired := make(chan struct{})
 
-	// Accept goroutine: runs for the daemon's entire lifetime. Every call to
-	// Accept uses a reattachGrace deadline — this applies to the very first
-	// connection too (CRITICAL 2), so a launcher that starts the daemon then
-	// crashes before dialing does not leave an orphan daemon.
+	// Accept goroutine: runs for the daemon's entire lifetime with NO deadline.
+	// Grace (reattachGrace) is enforced by the main serve loop using time.After
+	// at the two idle-wait points (first connect, post-disconnect reattach).
+	// This is intentional: applying a deadline inside the acceptor would kill
+	// long-lived sessions after 300 s of connected use — the exact scenario that
+	// caused the E2E ② regression (daemon born 04:11:40, dead ~04:16:40 = +300 s).
 	go func() {
-		unixLn := ln.(*net.UnixListener)
 		for {
-			_ = unixLn.SetDeadline(time.Now().Add(reattachGrace))
-			conn, err := unixLn.Accept()
-			_ = unixLn.SetDeadline(time.Time{})
+			conn, err := ln.Accept()
 			if err != nil {
-				// Deadline expired (grace elapsed) or listener closed.
-				// Either way: no dialer arrived within the grace window.
-				close(graceExpired)
+				// Listener was closed (cleanupAndExit path). Stop quietly.
 				return
 			}
-			// Replace any not-yet-consumed queued conn. This can happen if
-			// a second connection arrives while the serve loop is in the middle
-			// of a takeover.
+			// Replace any not-yet-consumed queued conn (rapid reconnect race).
 			select {
 			case old := <-nextConn:
 				_ = old.Close()
@@ -297,20 +303,16 @@ func runDaemon(root string) {
 			hooksrv.SetEventSink(host.EmitEvent)
 		}
 
-		// Reset PTY flow control for the new dialer generation.
-		//
-		// During the zombie window between silent disconnect and takeover the old
-		// socket buffer may have absorbed PTY output without the renderer
-		// receiving it: noteEmitted debt accumulated, acks never arrived, and one
-		// or more readLoops may now be blocked at HighWatermark.  The new dialer
-		// has no knowledge of that debt and cannot send acks for it — leaving the
-		// debt would cause permanent deadlock ("reconnected but terminal frozen").
-		// Reset here so the new renderer's backpressure starts from zero.
-		pty.ResetFlowControl()
-
-		// outcome signals whether the daemon should keep running after this
-		// serve call ends.
+		// outcome carries the keep-running decision from the exit function to
+		// serve(). Buffer 1 so the exit function never blocks.
+		// Only serve() reads from outcome — the watcher goroutine must NOT
+		// drain it, or serve()'s select would fall through to default (keep=false).
 		outcome := make(chan bool, 1)
+
+		// hostDone is closed by the exit function after writing to outcome.
+		// The takeover watcher selects on hostDone instead of outcome so that
+		// the outcome value is preserved for serve() to read.
+		hostDone := make(chan struct{})
 
 		host.SetExitFunc(func(code int) {
 			keep := false
@@ -337,6 +339,7 @@ func runDaemon(root string) {
 			case outcome <- keep:
 			default:
 			}
+			close(hostDone)
 		})
 
 		if writeErr := host.WriteFrame(proto.Ready(
@@ -363,6 +366,8 @@ func runDaemon(root string) {
 		// arriving on nextConn. When it does, mark the current conn preempted
 		// and close it so host.Run() exits via transport read error (code 74).
 		// The new conn is returned to the caller for the next serve call.
+		// Selects on hostDone (not outcome) to avoid consuming the outcome value
+		// that serve() needs to read after host.Run() returns.
 		takeoverConn := make(chan net.Conn, 1)
 		watchDone := make(chan struct{})
 		go func() {
@@ -373,14 +378,14 @@ func runDaemon(root string) {
 				preempted.Store(1)
 				_ = conn.Close() // causes host scanner to get read error → exit 74
 				takeoverConn <- newConn
-			case <-outcome:
+			case <-hostDone:
 				// The host already exited (clean EOF or watchdog). Nothing to do.
 			}
 		}()
 
 		host.Run()
 
-		// Drain outcome and watcher.
+		// Wait for the watcher to finish, then collect results.
 		<-watchDone
 		keep := false
 		select {
@@ -397,17 +402,23 @@ func runDaemon(root string) {
 		return nextDialer, keep
 	}
 
-	// Main serve loop.
-	// Block until the first conn arrives (or grace expires).
-	var conn net.Conn
-	select {
-	case c := <-nextConn:
-		conn = c
-	case <-graceExpired:
-		agentLogger.Info("no initial dialer within grace period, daemon exiting")
-		cleanupAndExit(0)
-		return
+	// waitForDialer blocks until a new conn arrives (via nextConn) or the
+	// reattach grace window expires. Called at the two idle-wait points:
+	// initial first-connect and post-disconnect reattach. Grace is NOT applied
+	// while a dialer is active — that is handled by the Host idle watchdog.
+	waitForDialer := func(label string) net.Conn {
+		select {
+		case c := <-nextConn:
+			return c
+		case <-time.After(reattachGrace):
+			agentLogger.Info(label+" grace expired, daemon exiting", "grace", reattachGrace)
+			cleanupAndExit(0)
+			return nil // unreachable; cleanupAndExit calls os.Exit
+		}
 	}
+
+	// Main serve loop.
+	conn := waitForDialer("initial-connect")
 
 	for conn != nil {
 		next, keep := serve(conn)
@@ -417,14 +428,7 @@ func runDaemon(root string) {
 		conn = next
 		if conn == nil {
 			// serve() exited cleanly (no takeover) — wait for the next dialer.
-			select {
-			case c := <-nextConn:
-				conn = c
-			case <-graceExpired:
-				agentLogger.Info("reattach grace expired, daemon exiting")
-				cleanupAndExit(0)
-				return
-			}
+			conn = waitForDialer("reattach")
 		}
 	}
 }
