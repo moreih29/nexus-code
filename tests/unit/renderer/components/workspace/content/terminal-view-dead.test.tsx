@@ -3,6 +3,7 @@ import { Children, isValidElement, type ReactElement, type ReactNode } from "rea
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   DeadTerminalBanner,
+  heldGraceMinutesRemaining,
   shouldShowTerminalEndedBanner,
   TerminalViewLayout,
   terminalEndedMessage,
@@ -127,5 +128,41 @@ describe("TerminalView dead-terminal banner", () => {
 
     expect(html).toContain("app-status-banner-text");
     expect(html).not.toContain("text-muted-foreground");
+  });
+});
+
+describe("heldGraceMinutesRemaining", () => {
+  // T14: pure countdown helper for held-terminal warning banner.
+  // REATTACH_GRACE_SECONDS = 300 (5 min). Tests verify edge cases without
+  // depending on wall-clock time.
+
+  test("returns full grace (5) at the moment hold begins", () => {
+    const heldAt = 1_000_000;
+    expect(heldGraceMinutesRemaining(heldAt, heldAt)).toBe(5);
+  });
+
+  test("rounds up remaining seconds to the next minute", () => {
+    const heldAt = 0;
+    // 61 seconds elapsed → 300 − 61 = 239 remaining → ceil(239/60) = 4
+    expect(heldGraceMinutesRemaining(heldAt, 61_000)).toBe(4);
+  });
+
+  test("returns 1 when only a few seconds remain", () => {
+    const heldAt = 0;
+    // 295 seconds elapsed → 5 remaining → ceil(5/60) = 1
+    expect(heldGraceMinutesRemaining(heldAt, 295_000)).toBe(1);
+  });
+
+  test("returns 0 once grace period expires", () => {
+    const heldAt = 0;
+    // 300+ seconds elapsed → 0 remaining → ceil(0/60) = 0
+    expect(heldGraceMinutesRemaining(heldAt, 300_000)).toBe(0);
+    expect(heldGraceMinutesRemaining(heldAt, 999_000)).toBe(0);
+  });
+
+  test("handles nowMs before heldAt (clock skew) without negative result", () => {
+    const heldAt = 1_000_000;
+    // nowMs is earlier than heldAt: elapsed is clamped to 0
+    expect(heldGraceMinutesRemaining(heldAt, 500_000)).toBe(5);
   });
 });

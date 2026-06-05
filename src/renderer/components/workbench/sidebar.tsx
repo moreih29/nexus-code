@@ -628,8 +628,13 @@ export function Sidebar({
  */
 function ConnectionStatusDot({ status }: { status: WorkspaceConnectionStatus }) {
   const { t } = useTranslation();
-  const label = t("sidebar.ssh_status", { status });
-  const isTransient = status === "connecting" || status === "reconnecting";
+  // "unstable" has its own tooltip copy ("연결 확인 중…"); all others use the
+  // generic "SSH workspace, <status>" string.
+  const label =
+    status === "unstable"
+      ? t("sidebar.ssh_status_unstable")
+      : t("sidebar.ssh_status", { status });
+  const isTransient = status === "connecting" || status === "reconnecting" || status === "unstable";
   return (
     <span
       role="status"
@@ -640,7 +645,7 @@ function ConnectionStatusDot({ status }: { status: WorkspaceConnectionStatus }) 
         // 배경색과의 대비를 유지한다.
         "size-2 rounded-full ring-1 ring-background",
         connectionStatusClassName(status),
-        // connecting/reconnecting 중에는 subtle pulse로 진행 중임을 표시한다.
+        // connecting/reconnecting/unstable 중에는 subtle pulse로 진행 중임을 표시한다.
         isTransient && "motion-safe:animate-pulse",
       )}
     />
@@ -649,8 +654,9 @@ function ConnectionStatusDot({ status }: { status: WorkspaceConnectionStatus }) 
 
 /**
  * Maps sidebar display statuses to measured OKLCH token colors.
+ * Exported for unit-test coverage of the "unstable" semantic-token path.
  */
-function connectionStatusClassName(status: WorkspaceConnectionStatus): string {
+export function connectionStatusClassName(status: WorkspaceConnectionStatus): string {
   switch (status) {
     case "connected":
       return "bg-[var(--color-workspace-connection-connected)]";
@@ -663,8 +669,9 @@ function connectionStatusClassName(status: WorkspaceConnectionStatus): string {
     case "idle":
       return "bg-[var(--color-workspace-connection-idle)]";
     case "unstable":
-      // Transient warning indicator — task 14 will supply a dedicated token.
-      return "bg-[var(--color-workspace-connection-connecting)]";
+      // Transient warning indicator — uses semantic state.warning.fg token
+      // per design spec (raw --color-workspace-connection-* token forbidden).
+      return "bg-[var(--state-warning-fg)]";
   }
 }
 

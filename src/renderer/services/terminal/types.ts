@@ -55,5 +55,11 @@ export interface TerminalController {
    */
   refresh: () => void;
   reopen: () => Promise<void>;
+  /**
+   * Injects `\x1bc` (full terminal reset) into the xterm buffer to clear any
+   * stale ANSI mid-sequence garbage before ring-buffer replay data arrives.
+   * No-op if the controller is disposed or not yet initialized.
+   */
+  writeReset: () => void;
   dispose: () => void;
 }

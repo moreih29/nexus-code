@@ -58,6 +58,7 @@ export function SshAuthPromptsRoot(): React.JSX.Element {
     <SshAuthPromptDialog
       prompt={sshAuthPrompts.currentPrompt}
       pendingMessage={sshAuthPrompts.pendingMessage}
+      isReattach={sshAuthPrompts.isReattach}
       onCancel={sshAuthPrompts.cancelCurrent}
       onSubmitPassword={sshAuthPrompts.respondPassword}
       onTrustHostKey={sshAuthPrompts.trustHostKey}

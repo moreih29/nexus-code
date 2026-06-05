@@ -9,6 +9,8 @@ import {
   sshAuthPromptInputType,
 } from "../../../../src/renderer/components/workspace/ssh-auth-prompt-dialog";
 import {
+  __clearHeldWorkspacesForTests,
+  __markWorkspaceHeldForTests,
   __resetSshAuthPromptsForTests,
   getSshAuthPromptSnapshot,
   installSshAuthPromptListeners,
@@ -137,6 +139,48 @@ describe("SshAuthPromptDialogContent", () => {
 
     expect(copied).toEqual(["SHA256:copied"]);
   });
+
+  // T14: reattach context copy — password dialog shows workspace-specific title
+  it("shows reattach-context title when isReattach=true and prompt.kind=password", () => {
+    const prompt = makePasswordPrompt({ promptId: "reattach-pw", host: "dev.example.com" });
+
+    const html = renderToStaticMarkup(
+      <SshAuthPromptDialogContent
+        prompt={prompt}
+        passwordValue=""
+        pendingMessage={null}
+        isReattach={true}
+        onPasswordChange={() => {}}
+        onCancel={() => {}}
+        onCopyFingerprint={() => {}}
+        onSubmit={() => {}}
+      />,
+    );
+
+    // Title contains the host name from the prompt.
+    expect(html).toContain("dev.example.com");
+    // Uses the reattach-specific title copy, not the generic one.
+    expect(html).not.toContain("SSH password required");
+  });
+
+  it("shows standard password title when isReattach=false", () => {
+    const prompt = makePasswordPrompt({ promptId: "normal-pw" });
+
+    const html = renderToStaticMarkup(
+      <SshAuthPromptDialogContent
+        prompt={prompt}
+        passwordValue=""
+        pendingMessage={null}
+        isReattach={false}
+        onPasswordChange={() => {}}
+        onCancel={() => {}}
+        onCopyFingerprint={() => {}}
+        onSubmit={() => {}}
+      />,
+    );
+
+    expect(html).toContain("SSH password required");
+  });
 });
 
 describe("Ssh auth prompt FIFO controller", () => {
@@ -151,13 +195,18 @@ describe("Ssh auth prompt FIFO controller", () => {
     }) as typeof ipcListen;
 
     const unlisten = installSshAuthPromptListeners(listen);
-    expect(Array.from(callbacks.keys())).toEqual(["sshAuth.prompt"]);
+    expect(Array.from(callbacks.keys())).toEqual([
+      "sshAuth.prompt",
+      "pty.held",
+      "pty.restored",
+      "pty.expired",
+    ]);
 
     callbacks.get("sshAuth.prompt")?.(makePasswordPrompt({ promptId: "global-password" }));
     expect(getSshAuthPromptSnapshot().currentPrompt?.promptId).toBe("global-password");
 
     unlisten();
-    expect(unlistened).toEqual(["sshAuth.prompt"]);
+    expect(unlistened).toEqual(["sshAuth.prompt", "pty.held", "pty.restored", "pty.expired"]);
   });
 
   it("serializes prompts FIFO and responds to password then host-key prompts", () => {
@@ -216,6 +265,52 @@ describe("Ssh auth prompt FIFO controller", () => {
     expect(ExtractPasswordPrompt(getSshAuthPromptSnapshot().currentPrompt)?.prompt).toBe(
       "Password failed. Try again:",
     );
+  });
+});
+
+// T14: isReattach detection — prompt arriving for a workspace that has an active
+// PTY hold is flagged as a reattach context so the dialog shows the specific copy.
+describe("Ssh auth prompt isReattach detection", () => {
+  it("isReattach is false when the workspace is not in held state", () => {
+    __resetSshAuthPromptsForTests();
+    const { callbacks } = installPromptListenerHarness();
+    emitPrompt(callbacks, makePasswordPrompt({ promptId: "fresh", workspaceId: WORKSPACE_ID }));
+
+    const { call } = createIpcCallRecorder();
+    const state = readSshAuthPromptState(call);
+
+    expect(state.isReattach).toBe(false);
+  });
+
+  it("isReattach is true when the workspace was previously marked held", () => {
+    __resetSshAuthPromptsForTests();
+    __markWorkspaceHeldForTests(WORKSPACE_ID);
+    const { callbacks } = installPromptListenerHarness();
+    emitPrompt(callbacks, makePasswordPrompt({ promptId: "held", workspaceId: WORKSPACE_ID }));
+
+    const { call } = createIpcCallRecorder();
+    const state = readSshAuthPromptState(call);
+
+    expect(state.isReattach).toBe(true);
+
+    __clearHeldWorkspacesForTests();
+  });
+
+  it("isReattach is false for a prompt with no workspaceId even when some workspace is held", () => {
+    __resetSshAuthPromptsForTests();
+    __markWorkspaceHeldForTests(WORKSPACE_ID);
+    const { callbacks } = installPromptListenerHarness();
+    emitPrompt(
+      callbacks,
+      makePasswordPrompt({ promptId: "no-ws", workspaceId: undefined as unknown as string }),
+    );
+
+    const { call } = createIpcCallRecorder();
+    const state = readSshAuthPromptState(call);
+
+    expect(state.isReattach).toBe(false);
+
+    __clearHeldWorkspacesForTests();
   });
 });
 
