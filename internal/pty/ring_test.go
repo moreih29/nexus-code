@@ -17,10 +17,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	creackpty "github.com/creack/pty"
 )
 
 // ─── helper: ring-only tests (pure struct, no PTY child) ─────────────────────
@@ -523,5 +526,89 @@ sessionFound:
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("replay blocked — zombie deadlock not fixed (ResetFlowControl had no effect)")
+	}
+}
+
+// TestReplayWigglesSIGWINCHAfterFlush verifies that pty.replay issues a
+// rows-1 → original-rows Setsize sequence after completing the live-queue
+// flush (AC patch).
+//
+// The sequence is verified via a setSizeFn stub injected into the session:
+//   - Call 1 must set rows = lastRows-1 (shrink).
+//   - Call 2 must set rows = lastRows    (restore).
+//
+// Using a stub avoids the Unix signal-coalescing race that makes counting
+// SIGWINCH receipts from a shell trap unreliable: the kernel may merge two
+// rapid SIGWINCH deliveries into one pending signal while the first handler
+// is executing.
+func TestReplayWigglesSIGWINCHAfterFlush(t *testing.T) {
+	rec := &sinkRecorder{}
+	svc := New()
+	svc.SetEventSink(rec.sink)
+	t.Cleanup(svc.Close)
+
+	tabID := "wiggle-sigwinch"
+	spawnTestScript(t, svc, tabID, `
+stty -echo
+echo READY
+sleep 10
+`)
+	rec.requireTranscriptContains(t, "READY", 2*time.Second)
+
+	// Record a size so wiggleSIGWINCH has rows > 1.
+	_, err := svc.Resize(context.Background(), mustJSON(t, ResizeParams{
+		WorkspaceID: testWorkspaceID,
+		TabID:       tabID,
+		Cols:        80,
+		Rows:        24,
+	}))
+	if err != nil {
+		t.Fatalf("resize: %v", err)
+	}
+
+	// Inject a setSizeFn stub into the session to record Setsize call arguments
+	// without relying on asynchronous SIGWINCH delivery to the shell.
+	key := tabKey{workspaceID: testWorkspaceID, tabID: tabID}
+	svc.mu.Lock()
+	sess := svc.sessions[key]
+	svc.mu.Unlock()
+	if sess == nil {
+		t.Fatal("session not found after spawn")
+	}
+
+	type sizeCall struct{ rows, cols uint16 }
+	var callMu sync.Mutex
+	var calls []sizeCall
+	sess.setSizeFn = func(f *os.File, ws *creackpty.Winsize) error {
+		callMu.Lock()
+		calls = append(calls, sizeCall{rows: ws.Rows, cols: ws.Cols})
+		callMu.Unlock()
+		// Also apply the real resize so the PTY fd stays consistent.
+		return creackpty.Setsize(f, ws)
+	}
+
+	// Replay (ring empty is fine — wiggle runs regardless of ring content).
+	_, err = svc.Replay(context.Background(), mustJSON(t, ReplayParams{
+		WorkspaceID: testWorkspaceID,
+		TabID:       tabID,
+	}))
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+
+	callMu.Lock()
+	got := append([]sizeCall(nil), calls...)
+	callMu.Unlock()
+
+	if len(got) != 2 {
+		t.Fatalf("wiggle: expected 2 Setsize calls, got %d: %v", len(got), got)
+	}
+	// First call must shrink by exactly one row.
+	if got[0].rows != 23 || got[0].cols != 80 {
+		t.Fatalf("wiggle call 1: want rows=23 cols=80, got rows=%d cols=%d", got[0].rows, got[0].cols)
+	}
+	// Second call must restore the original size.
+	if got[1].rows != 24 || got[1].cols != 80 {
+		t.Fatalf("wiggle call 2: want rows=24 cols=80, got rows=%d cols=%d", got[1].rows, got[1].cols)
 	}
 }

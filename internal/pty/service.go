@@ -74,6 +74,21 @@ type session struct {
 	// createdAt is the wall-clock time when the PTY was spawned, exported in
 	// session.list so the client can match sessions to its pending tab state.
 	createdAt time.Time
+
+	// lastCols and lastRows record the most recent PTY geometry set by Spawn or
+	// Resize.  They are used by wiggleSIGWINCH after replay to force a full
+	// TUI repaint.  Zero means the size has never been explicitly set (e.g. a
+	// session that exited before the first resize), in which case the wiggle is
+	// skipped.  Protected by sizeMu.
+	sizeMu   sync.Mutex
+	lastCols int
+	lastRows int
+
+	// setSizeFn is the function used by wiggleSIGWINCH to apply a PTY geometry
+	// change.  Production code leaves it nil (creackpty.Setsize is used).
+	// Tests may replace it with a recording stub to verify call sequences
+	// without a real PTY fd.
+	setSizeFn func(f *os.File, ws *creackpty.Winsize) error
 }
 
 // New constructs an empty PTY service registry.
@@ -181,6 +196,11 @@ func (s *Service) Spawn(_ context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	session := newSession(s, key, cmd, master)
+	session.sizeMu.Lock()
+	session.lastCols = p.Cols
+	session.lastRows = p.Rows
+	session.sizeMu.Unlock()
+
 	if stored := s.storeSession(key, session); stored != session {
 		session.stop(syscall.SIGKILL)
 		if stored.cmd.Process == nil {
@@ -234,6 +254,10 @@ func (s *Service) Resize(_ context.Context, raw json.RawMessage) (any, error) {
 	if err := creackpty.Setsize(session.master, &creackpty.Winsize{Rows: uint16(p.Rows), Cols: uint16(p.Cols)}); err != nil {
 		return nil, requestFailed("failed to resize PTY: %s", err)
 	}
+	session.sizeMu.Lock()
+	session.lastCols = p.Cols
+	session.lastRows = p.Rows
+	session.sizeMu.Unlock()
 	return struct{}{}, nil
 }
 
@@ -458,6 +482,43 @@ func (s *session) resetFlow() {
 		s.paused = false
 		s.flowCond.Broadcast()
 	}
+}
+
+// wiggleSIGWINCH forces a full TUI repaint after replay by momentarily
+// shrinking the PTY by one row and immediately restoring the original size.
+//
+// The kernel sends SIGWINCH only when the geometry actually changes, so
+// setting the same size twice is a no-op.  The rows-1 → original sequence is
+// the canonical workaround used by tmux's "attach-session" to trigger a
+// redraw on reconnect.
+//
+// The wiggle is skipped when:
+//   - lastRows/lastCols are zero (size never recorded — session exited before
+//     first resize or Spawn geometry was not stored yet).
+//   - rows-1 would underflow to zero (1-row terminal, pathological).
+//   - The PTY master file is already closed (stopped session).
+//
+// Best-effort: errors from Setsize are silently ignored.  A failed wiggle
+// leaves the TUI stale until the user presses a key or the TUI self-refreshes,
+// which matches the pre-fix behavior and is preferable to surfacing an error
+// from a cosmetic step.
+func (s *session) wiggleSIGWINCH() {
+	s.sizeMu.Lock()
+	cols := s.lastCols
+	rows := s.lastRows
+	s.sizeMu.Unlock()
+
+	if cols == 0 || rows == 0 || rows <= 1 {
+		return
+	}
+	setSize := creackpty.Setsize
+	if s.setSizeFn != nil {
+		setSize = s.setSizeFn
+	}
+	// Shrink by one row to make the geometry change.
+	_ = setSize(s.master, &creackpty.Winsize{Rows: uint16(rows - 1), Cols: uint16(cols)})
+	// Restore to the real size — this is the SIGWINCH that triggers repaint.
+	_ = setSize(s.master, &creackpty.Winsize{Rows: uint16(rows), Cols: uint16(cols)})
 }
 
 // write serializes and chunks input writes to preserve one-session input order.
@@ -818,6 +879,16 @@ func (s *Service) Replay(_ context.Context, raw json.RawMessage) (any, error) {
 		}
 		return nil, err
 	}
+
+	// After all buffered and queued live bytes have been flushed, send a
+	// SIGWINCH wiggle (rows-1 → original) to force a full TUI repaint.
+	// This repairs the blank-screen symptom seen when in-flight zombie-window
+	// bytes were lost: the ring contains only post-loss output, so the TUI's
+	// internal state may be ahead of what was replayed.  SIGWINCH causes
+	// full-screen TUIs (claude, vim, tmux, etc.) to redraw themselves entirely,
+	// making the terminal immediately usable without requiring user input.
+	// Executed after the live flush so repaint output lands after replay data.
+	sess.wiggleSIGWINCH()
 
 	return struct{}{}, nil
 }
