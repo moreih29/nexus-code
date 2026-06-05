@@ -297,6 +297,17 @@ func runDaemon(root string) {
 			hooksrv.SetEventSink(host.EmitEvent)
 		}
 
+		// Reset PTY flow control for the new dialer generation.
+		//
+		// During the zombie window between silent disconnect and takeover the old
+		// socket buffer may have absorbed PTY output without the renderer
+		// receiving it: noteEmitted debt accumulated, acks never arrived, and one
+		// or more readLoops may now be blocked at HighWatermark.  The new dialer
+		// has no knowledge of that debt and cannot send acks for it — leaving the
+		// debt would cause permanent deadlock ("reconnected but terminal frozen").
+		// Reset here so the new renderer's backpressure starts from zero.
+		pty.ResetFlowControl()
+
 		// outcome signals whether the daemon should keep running after this
 		// serve call ends.
 		outcome := make(chan bool, 1)
