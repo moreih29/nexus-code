@@ -127,6 +127,7 @@ function fakeAgentProvider(kind: "local" | "ssh" = "ssh"): AgentBackedProvider {
       throw new Error(`unexpected agent method: ${method}`);
     },
     onAgentEvent: () => () => {},
+    onAgentLifecycle: () => () => {},
     isAgentAvailable: () => true,
   };
 }

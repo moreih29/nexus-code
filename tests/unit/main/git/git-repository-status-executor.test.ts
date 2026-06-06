@@ -394,6 +394,7 @@ function fakeProvider(
     rename: fail,
     callAgentMethod,
     onAgentEvent: () => () => {},
+    onAgentLifecycle: () => () => {},
   } as AgentBackedProvider;
 }
 

@@ -35,7 +35,7 @@ import {
   WriteFileResultSchema,
 } from "../../../../shared/fs/types";
 import type { SshErrorCode } from "../../../../shared/ssh/errors";
-import type { AgentChannel } from "../../../infra/agent/channel";
+import type { AgentChannel, ChannelLifecycleCallback } from "../../../infra/agent/channel";
 import type { AgentBackedProvider } from "./provider";
 
 type ChannelSource = AgentChannel | (() => AgentChannel);
@@ -146,6 +146,10 @@ export class AgentFsProvider implements AgentBackedProvider {
 
   onAgentEvent(event: string, callback: (payload: unknown) => void): () => void {
     return this.getChannel().on(event, callback);
+  }
+
+  onAgentLifecycle(callback: ChannelLifecycleCallback): () => void {
+    return this.getChannel().onLifecycle(callback);
   }
 
   isAgentAvailable(): boolean {

@@ -83,6 +83,7 @@ describe("fs agent-backed SSH workspace delegation", () => {
         callbacks.add(callback);
         return () => callbacks?.delete(callback);
       },
+      onAgentLifecycle: () => () => {},
     };
     const handler = searchTextStream(makeManager([workspace], provider) as never);
     const generator = handler(

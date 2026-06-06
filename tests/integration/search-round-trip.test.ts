@@ -287,6 +287,7 @@ function makeTestSearchProvider(rootPath: string) {
       callbacks.add(callback);
       return () => callbacks?.delete(callback);
     },
+    onAgentLifecycle: () => () => {},
   };
 }
 

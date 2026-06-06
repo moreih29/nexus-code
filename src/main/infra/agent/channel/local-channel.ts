@@ -76,6 +76,7 @@ export function createLocalChannel(
     // Local stderr is not classified — the binary writes only human-readable
     // hints (e.g. usage), and terminal failures surface via exit code below.
     classifyStderr: () => null,
+    logLabel: `local:${options.rootPath}`,
     closeError: (wasReady) =>
       createSshError(wasReady ? "transport.unknown" : "server.spawn-failed"),
     requestTimeoutMs: options.requestTimeoutMs,

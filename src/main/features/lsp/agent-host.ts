@@ -980,11 +980,25 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       this.handleServerExited(payload);
     });
     const offLifecycle = channel.onLifecycle((event) => {
-      // `reconnecting` is transient and the channel may yet recover. Leave
-      // server records intact so queued LSP calls replay onto the new agent
-      // once the channel completes its reconnect handshake.
-      if (event.type === "reconnecting") return;
-      this.disposeChannelServers(channel);
+      // Dispose server records only on genuine channel death:
+      //   - `exit` / `failure`: terminal transport loss.
+      //   - `disposed`: intentional channel teardown.
+      //   - `held-then-expired`: the SSH daemon was replaced during an
+      //     outage — its LSP server processes died with the old daemon.
+      // Everything else keeps records intact: `reconnecting` is transient
+      // (queued LSP calls replay after the handshake), `degraded` /
+      // `degraded-recovered` are heartbeat-quality signals on a live
+      // channel, and `ready` is a successful epoch-match recovery. Before
+      // v0.6.1 those three fell through to disposeChannelServers, so one
+      // late heartbeat silently killed every language server on the channel.
+      if (
+        event.type === "exit" ||
+        event.type === "failure" ||
+        event.type === "disposed" ||
+        event.type === "held-then-expired"
+      ) {
+        this.disposeChannelServers(channel);
+      }
     });
     this.channelDisposers.set(channel, [
       offMessage,

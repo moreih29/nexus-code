@@ -55,6 +55,7 @@ function makeFixture() {
         listeners.get(event)?.delete(callback);
       };
     },
+    onAgentLifecycle: () => () => {},
     isAgentAvailable: () => true,
   };
   const executor = new AgentGitExecutor(provider);

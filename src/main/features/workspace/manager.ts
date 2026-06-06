@@ -1525,24 +1525,35 @@ export class WorkspaceManager {
       return;
     }
 
-    // `reconnecting` is transient — keep the channel reference so the
-    // internal reconnect path can recover transparently.
-    if (event.type === "reconnecting") {
+    // Teardown is reserved for genuine terminal events (`exit`, `failure`).
+    // Everything else must keep the provider wired:
+    //   - `reconnecting` is transient — the internal reconnect path recovers
+    //     transparently.
+    //   - `degraded` / `degraded-recovered` are heartbeat-quality signals
+    //     (one late heartbeat fires `degraded`) and `ready` is a successful
+    //     recovery — the channel is alive in all three cases. Before v0.6.1
+    //     these fell into the teardown branch below, which abandoned a live
+    //     agent WITHOUT disposing it (orphan process keeping every fs/git
+    //     watch) and lazily booted a fresh watch-less agent: push events
+    //     (fs.changed / git.changed) went silent while RPC kept working, and
+    //     existing PTY sessions were stranded on the abandoned channel.
+    //   - `held-then-expired` cannot occur on local channels (no epoch).
+    //   - `disposed` is an intentional teardown whose cleanup already ran via
+    //     the setFsProvider dispose callback.
+    if (event.type !== "exit" && event.type !== "failure") {
       return;
     }
 
-    if (event.type !== "disposed") {
-      this.localChannels.delete(workspaceId);
-      this.localProviderReady.delete(workspaceId);
-      // Stale hookInfo는 채널이 죽은 시점에 무효 — 다음 boot가 다시 채운다.
-      // 보존해두면 reconnect 직후 spawn이 죽은 소켓 경로를 env에 박을 수 있다.
-      this.hookInfoByWorkspace.delete(workspaceId);
-      ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
-      // PTY shim 디렉터리 정리 — fire-and-forget, error swallow는 warn으로.
-      this.removeShimDir(workspaceId).catch((err: unknown) => {
-        log.warn(`shim dir removal failed for ${workspaceId}: ${(err as Error).message}`);
-      });
-    }
+    this.localChannels.delete(workspaceId);
+    this.localProviderReady.delete(workspaceId);
+    // Stale hookInfo는 채널이 죽은 시점에 무효 — 다음 boot가 다시 채운다.
+    // 보존해두면 reconnect 직후 spawn이 죽은 소켓 경로를 env에 박을 수 있다.
+    this.hookInfoByWorkspace.delete(workspaceId);
+    ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
+    // PTY shim 디렉터리 정리 — fire-and-forget, error swallow는 warn으로.
+    this.removeShimDir(workspaceId).catch((err: unknown) => {
+      log.warn(`shim dir removal failed for ${workspaceId}: ${(err as Error).message}`);
+    });
   }
 }
 

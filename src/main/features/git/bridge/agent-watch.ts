@@ -4,8 +4,11 @@ import {
   GIT_UNWATCH_METHOD,
   GIT_WATCH_METHOD,
 } from "../../../../shared/git/protocol";
+import { createLogger } from "../../../../shared/log/main";
 import type { WorkspaceManager } from "../../workspace/manager";
 import { isAgentBackedProvider, type AgentBackedProvider } from "../../fs/bridge/provider";
+
+const log = createLogger("git");
 
 export type GitDirtyCallback = (workspaceId: string) => void;
 
@@ -37,14 +40,35 @@ export class AgentGitWatcher {
       await this.unwatch(workspaceId).catch(() => {});
     }
 
-    const unsubscribe = provider.onAgentEvent(GIT_CHANGED_EVENT, (payload) => {
+    const unsubscribeChanged = provider.onAgentEvent(GIT_CHANGED_EVENT, (payload) => {
       const parsed = AgentGitChangedPayloadSchema.safeParse(payload);
       if (!parsed.success || parsed.data.gitDir !== gitDir) return;
       this.onDirty(workspaceId);
     });
 
+    // The .git watcher lives in the agent process, so a respawned agent
+    // starts without it even though the channel recovered transparently.
+    // Replay the registration on the `ready` lifecycle event (successful
+    // reconnect handshake) — re-registering is a no-op agent-side when the
+    // watch already exists, so the replay is safe either way.
+    const unsubscribeLifecycle = provider.onAgentLifecycle((event) => {
+      if (event.type !== "ready") return;
+      if (this.entries.get(workspaceId)?.gitDir !== gitDir) return;
+      void provider.callAgentMethod(GIT_WATCH_METHOD, { gitDir }).catch((error: unknown) => {
+        log.warn(
+          `git.watch replay failed (workspace=${workspaceId}, gitDir=${gitDir}): ${(error as Error).message}`,
+        );
+      });
+    });
+
     await provider.callAgentMethod(GIT_WATCH_METHOD, { gitDir });
-    this.entries.set(workspaceId, { gitDir, unsubscribe });
+    this.entries.set(workspaceId, {
+      gitDir,
+      unsubscribe: () => {
+        unsubscribeChanged();
+        unsubscribeLifecycle();
+      },
+    });
   }
 
   async unwatch(workspaceId: string): Promise<void> {

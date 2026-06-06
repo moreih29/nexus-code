@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { FsChangeSchema } from "../../../../shared/fs/types";
+import { createLogger } from "../../../../shared/log/main";
 import type { BroadcastFn, WorkspaceManager } from "../../workspace/manager";
 import { isAgentBackedProvider, type AgentBackedProvider } from "./provider";
+
+const log = createLogger("fs");
 
 const AgentFsChangedPayloadSchema = z.object({
   changes: z.array(FsChangeSchema),
@@ -66,7 +69,7 @@ export class AgentFsWatcher {
     const existing = this.subscriptions.get(workspaceId);
     if (existing) return existing;
 
-    const unsubscribe = provider.onAgentEvent("fs.changed", (payload) => {
+    const unsubscribeChanged = provider.onAgentEvent("fs.changed", (payload) => {
       const parsed = AgentFsChangedPayloadSchema.safeParse(payload);
       if (!parsed.success || parsed.data.changes.length === 0) return;
       this.broadcast("fs", "changed", {
@@ -75,7 +78,32 @@ export class AgentFsWatcher {
       });
     });
 
-    const subscription = { unsubscribe, watchedRelPaths: new Set<string>() };
+    // Watch registrations live in the agent process, so a respawned agent
+    // starts with zero watches even though the channel recovered
+    // transparently. Replay the full set on the `ready` lifecycle event
+    // (successful reconnect handshake) — re-registering an existing watch is
+    // a no-op on the agent side, so the replay is safe even when the agent
+    // actually survived.
+    const unsubscribeLifecycle = provider.onAgentLifecycle((event) => {
+      if (event.type !== "ready") return;
+      const subscription = this.subscriptions.get(workspaceId);
+      if (!subscription) return;
+      for (const relPath of subscription.watchedRelPaths) {
+        provider.callAgentMethod("fs.watch", { relPath }).catch((error: unknown) => {
+          log.warn(
+            `fs.watch replay failed (workspace=${workspaceId}, relPath=${relPath}): ${(error as Error).message}`,
+          );
+        });
+      }
+    });
+
+    const subscription = {
+      unsubscribe: () => {
+        unsubscribeChanged();
+        unsubscribeLifecycle();
+      },
+      watchedRelPaths: new Set<string>(),
+    };
     this.subscriptions.set(workspaceId, subscription);
     return subscription;
   }

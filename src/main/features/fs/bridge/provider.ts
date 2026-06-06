@@ -6,7 +6,10 @@ import type {
   FsStat,
   WriteFileResult,
 } from "../../../../shared/fs/types";
-import type { ChannelEventCallback } from "../../../infra/agent/channel";
+import type {
+  ChannelEventCallback,
+  ChannelLifecycleCallback,
+} from "../../../infra/agent/channel";
 
 /**
  * Filesystem provider bound to one workspace-scoped agent.
@@ -46,12 +49,19 @@ export interface FsProvider {
 export interface AgentBackedProvider extends FsProvider {
   callAgentMethod<TResult = unknown>(method: string, params?: unknown): Promise<TResult>;
   onAgentEvent(event: string, callback: ChannelEventCallback): () => void;
+  /**
+   * Subscribes to channel lifecycle transitions. Watch bridges use the
+   * `ready` event (successful reconnect handshake) to replay agent-side
+   * fs.watch / git.watch registrations onto the replacement agent process.
+   */
+  onAgentLifecycle(callback: ChannelLifecycleCallback): () => void;
   isAgentAvailable?(): boolean;
 }
 
 export function isAgentBackedProvider(provider: FsProvider): provider is AgentBackedProvider {
   return (
     typeof (provider as Partial<AgentBackedProvider>).callAgentMethod === "function" &&
-    typeof (provider as Partial<AgentBackedProvider>).onAgentEvent === "function"
+    typeof (provider as Partial<AgentBackedProvider>).onAgentEvent === "function" &&
+    typeof (provider as Partial<AgentBackedProvider>).onAgentLifecycle === "function"
   );
 }

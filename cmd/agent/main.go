@@ -182,18 +182,22 @@ func main() {
 	// Ready frame must reach the client before any other output so the
 	// channel handshake on the TS side can settle. A write failure here
 	// is unrecoverable — without a Ready, the client will time out.
-	// methods 목록과 heartbeat 간격(5s), idle watchdog 한도를 함께 전달해
+	// methods 목록과 heartbeat 판정 기준(5s), idle watchdog 한도를 함께 전달해
 	// 클라이언트가 pull 기반 hook.getInfo 호출과 keepalive ping을 결정하도록 한다.
 	// agentEpoch and capabilities are 0/nil in local stdio mode — the TS client
 	// (task 12) uses their presence to detect daemon-mode reattach capability.
-	if err := host.WriteFrame(proto.Ready(d.Methods(), 5_000, idleWatchdogMs, 0, nil)); err != nil {
+	if err := host.WriteFrame(
+		proto.Ready(d.Methods(), proto.HeartbeatAdvertiseMs, idleWatchdogMs, 0, nil),
+	); err != nil {
 		agentLogger.Error("failed to write ready frame", "err", err)
 		os.Exit(1)
 	}
 
-	// 5초 간격 heartbeat를 시작한다. Ready frame에 광고한 heartbeatIntervalMs와
-	// 일치해야 한다(issue 5 decision: 10s→5s). ctx 취소(드레인) 시 자동 정지한다.
-	host.StartHeartbeat(5 * time.Second)
+	// Heartbeat 송신은 광고한 판정 기준(5s)보다 짧은 4s 간격 — 도착 지터에
+	// ~1s 마진을 줘서 클라이언트의 degraded(1-miss) 체크가 경계에 걸리지
+	// 않게 한다. 근거는 proto.HeartbeatSendMs 주석 참조. ctx 취소(드레인)
+	// 시 자동 정지한다.
+	host.StartHeartbeat(proto.HeartbeatSendMs * time.Millisecond)
 
 	// Idle watchdog (SSH only): self-terminate if the client sends nothing for
 	// the limit. The client pings every limit/6 (derived from the advertised
