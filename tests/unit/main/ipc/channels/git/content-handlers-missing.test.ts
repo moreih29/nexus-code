@@ -48,6 +48,7 @@ function makeAgentProvider(returnValue: unknown = {}) {
         return returnValue;
       },
       onAgentEvent: () => () => {},
+      onAgentLifecycle: () => () => {},
     },
   };
 }

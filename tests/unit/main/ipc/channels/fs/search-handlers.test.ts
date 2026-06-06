@@ -34,6 +34,7 @@ interface FakeAgentProvider {
   kind: "local" | "ssh";
   callAgentMethod: (method: string, params?: unknown) => Promise<unknown>;
   onAgentEvent: (event: string, callback: AgentEventCallback) => () => void;
+  onAgentLifecycle: (callback: (event: { type: string }) => void) => () => void;
 }
 
 function makeManager(provider: FakeAgentProvider, workspaces: WorkspaceMeta[] = [makeWorkspace()]) {
@@ -97,6 +98,7 @@ function makeAgentProvider(options: {
       callbacks.add(callback);
       return () => callbacks?.delete(callback);
     },
+    onAgentLifecycle: () => () => {},
   };
 }
 

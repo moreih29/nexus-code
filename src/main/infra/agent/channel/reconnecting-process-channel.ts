@@ -265,6 +265,15 @@ export function createReconnectingProcessChannel(
         }
         lastAgentEpoch = newEpoch;
         flushQueuedCalls();
+        if (phase === "reconnecting") {
+          // No-epoch reconnect (local agent / legacy remote): the replacement
+          // agent completed its handshake but the epoch branch above did not
+          // run, so without this emit the recovery is silent. Stateful
+          // consumers need the `ready` signal to re-establish agent-side
+          // registrations (fs.watch / git.watch replay) — a fresh agent
+          // process starts with zero watches and nothing else re-issues them.
+          emitLifecycle({ type: "ready" });
+        }
       })
       .catch((error) => {
         if (state === "disposed" || active !== attempt) return;
