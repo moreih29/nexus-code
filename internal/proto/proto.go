@@ -30,6 +30,20 @@ const (
 	ProtocolVersion = "2"
 	ServerVersion   = "0.1.0"
 
+	// HeartbeatAdvertiseMs is the judgment basis the Ready frame advertises:
+	// the client flags "degraded" after 1× this interval without a heartbeat
+	// and warns terminally after 3×.
+	//
+	// HeartbeatSendMs is the cadence at which the agent actually emits
+	// "agent.heartbeat" — deliberately SHORTER than the advertised judgment
+	// basis. When send == judge (both 5 s, pre-v0.6.1), every arrival landed
+	// at interval+ε and the client's degraded check chronically rode the
+	// boundary, firing spurious "degraded" lifecycle events during normal
+	// operation. Sending at 4 s against a 5 s judgment leaves ~1 s of wire
+	// jitter margin while keeping real-outage detection latency at 5 s.
+	HeartbeatAdvertiseMs = 5_000
+	HeartbeatSendMs      = 4_000
+
 	// CodeProtocolError signals envelope-level failures: malformed
 	// JSON, missing required fields, version mismatch. The client
 	// must not retry — the request never reached domain logic.

@@ -363,7 +363,7 @@ func runDaemon(root string) {
 
 		if writeErr := host.WriteFrame(proto.Ready(
 			d.Methods(),
-			5_000,
+			proto.HeartbeatAdvertiseMs,
 			int(reattachGrace/time.Millisecond),
 			epoch,
 			[]string{"reattach"},
@@ -373,7 +373,8 @@ func runDaemon(root string) {
 			return nil, true // keep running; dialer may reconnect
 		}
 
-		host.StartHeartbeat(5 * time.Second)
+		// 송신 4s < 판정 5s — 도착 지터 마진. 근거는 proto.HeartbeatSendMs 주석 참조.
+		host.StartHeartbeat(proto.HeartbeatSendMs * time.Millisecond)
 		// The idle watchdog fires after reattachGrace of no inbound traffic.
 		// While a live dialer is connected, its pings keep resetting the timer.
 		// A silent zombie dialer (dead TCP, no EOF) trips the watchdog after
