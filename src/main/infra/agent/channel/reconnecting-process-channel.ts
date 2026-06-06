@@ -1,4 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { createLogger } from "../../../../shared/log/main";
 import type {
   AgentChannel,
   ChannelEventCallback,
@@ -8,6 +9,31 @@ import type {
 import { ChannelEventRegistry } from "./event-registry";
 import type { StderrClassifier } from "../pipe";
 import { createNdjsonPipe, type NdjsonPipe, type SshError } from "../pipe";
+
+/**
+ * Lazy logger bound to source "agent-channel". Created on first use so the
+ * module can be imported in test environments without triggering
+ * electron-log initialization (same pattern as pipe.ts's agent logger).
+ *
+ * Why this logging exists: an agent child can die and be transparently
+ * respawned without any user-visible signal. The respawn wipes agent-side
+ * state (fs/git watch registrations live in the agent process), so a silent
+ * respawn is the prime suspect whenever push events stop while RPC keeps
+ * working. Every lifecycle transition below leaves a main.log line with the
+ * child pid + exit diagnostics so the "when and why did it respawn" question
+ * is answerable after the fact. Both the local channel and the SSH channel
+ * route through this file, so one logging site covers both transports.
+ */
+let channelLogger: ReturnType<typeof createLogger> | null = null;
+function getChannelLogger(): ReturnType<typeof createLogger> {
+  if (channelLogger === null) {
+    channelLogger = createLogger("agent-channel");
+  }
+  return channelLogger;
+}
+
+/** Max chars of a child's stderr tail to embed in one close-diagnostic line. */
+const CLOSE_LOG_STDERR_TAIL_CHARS = 300;
 
 const DISPOSE_KILL_GRACE_MS = 100;
 const DEFAULT_MAX_PENDING_RECONNECT_CALLS = 32;
@@ -44,6 +70,12 @@ export interface ReconnectingProcessChannelOptions {
   readonly spawn: () => ChildProcessWithoutNullStreams;
   readonly classifyStderr: StderrClassifier;
   readonly closeError: (wasReady: boolean, context?: ChannelCloseContext) => Error;
+  /**
+   * Channel identity prefix for lifecycle log lines (e.g. `local:/path/to/ws`
+   * or `ssh:host`). Multiple workspaces each own a channel, so without this
+   * the main.log lifecycle entries are unattributable. Defaults to "agent".
+   */
+  readonly logLabel?: string;
   readonly requestTimeoutMs?: number;
   readonly expectedProtocolMajor?: string;
   readonly reconnect?: AgentReconnectOptions;
@@ -89,6 +121,7 @@ export function createReconnectingProcessChannel(
   const events = new ChannelEventRegistry();
   const queue: QueuedCall[] = [];
   const reconnect = normalizeReconnectOptions(options.reconnect, options.requestTimeoutMs);
+  const label = options.logLabel ?? "agent";
 
   let active: ActiveProcess | null = null;
   let state: ChannelState = "connecting";
@@ -133,6 +166,9 @@ export function createReconnectingProcessChannel(
     },
     dispose(): void {
       if (state === "disposed") return;
+      getChannelLogger().info(
+        `[${label}] channel disposed (pid=${active?.child.pid}, state=${state})`,
+      );
       state = "disposed";
       clearReconnectTimer();
       rejectQueuedCalls(createDisposedErrorForChannel());
@@ -149,6 +185,9 @@ export function createReconnectingProcessChannel(
     try {
       child = options.spawn();
     } catch (error) {
+      getChannelLogger().warn(
+        `[${label}] spawn threw (phase=${phase}): ${error instanceof Error ? error.message : String(error)}`,
+      );
       const wrapped = createAgentReconnectError("agent.reconnect-unavailable", error);
       if (phase === "connecting") {
         state = "terminal";
@@ -158,6 +197,7 @@ export function createReconnectingProcessChannel(
       }
       throw wrapped;
     }
+    getChannelLogger().info(`[${label}] agent child spawned (phase=${phase}, pid=${child.pid})`);
 
     let attempt!: ActiveProcess;
     const pipe = createNdjsonPipe({
@@ -196,6 +236,9 @@ export function createReconnectingProcessChannel(
         consecutiveFatalFailures = 0;
 
         const newEpoch = attempt.pipe.agentEpoch ?? 0;
+        getChannelLogger().info(
+          `[${label}] agent ready (phase=${phase}, pid=${attempt.child.pid}, epoch=${newEpoch})`,
+        );
         if (phase === "reconnecting" && lastAgentEpoch !== 0 && newEpoch !== 0) {
           if (newEpoch !== lastAgentEpoch) {
             // Epoch mismatch: the daemon was replaced during the outage.
@@ -205,6 +248,9 @@ export function createReconnectingProcessChannel(
             // continue making fresh calls to the new agent.
             const previousEpoch = lastAgentEpoch;
             lastAgentEpoch = newEpoch;
+            getChannelLogger().warn(
+              `[${label}] daemon replaced during outage (epoch ${previousEpoch} -> ${newEpoch}); rejecting reconnect queue`,
+            );
             rejectQueuedCalls(createAgentReconnectError("agent.reconnect-unavailable"));
             emitLifecycle({ type: "held-then-expired", previousEpoch, newEpoch });
             return;
@@ -222,6 +268,9 @@ export function createReconnectingProcessChannel(
       })
       .catch((error) => {
         if (state === "disposed" || active !== attempt) return;
+        getChannelLogger().warn(
+          `[${label}] agent handshake failed (phase=${phase}, pid=${attempt.child.pid}): ${error instanceof Error ? error.message : String(error)}`,
+        );
         if (phase === "reconnecting") {
           scheduleReconnect();
           return;
@@ -242,6 +291,9 @@ export function createReconnectingProcessChannel(
     phase: "connecting" | "reconnecting",
   ): void {
     if (state === "disposed" || active !== attempt) return;
+    getChannelLogger().warn(
+      `[${label}] agent pipe failure (phase=${phase}, pid=${attempt.child.pid}, code=${error.code}): ${error.message}`,
+    );
     if (phase === "reconnecting") {
       terminateChild(attempt);
       if (options.isFatalReconnectError?.(error)) {
@@ -270,6 +322,9 @@ export function createReconnectingProcessChannel(
    * cause (e.g. ssh.auth-failed) instead of a queue timeout.
    */
   function escalateReconnectFailure(error: SshError): void {
+    getChannelLogger().warn(
+      `[${label}] giving up reconnect after ${consecutiveFatalFailures} consecutive fatal failures (code=${error.code})`,
+    );
     clearReconnectTimer();
     state = "terminal";
     terminalError = error;
@@ -284,6 +339,9 @@ export function createReconnectingProcessChannel(
     phase: "connecting" | "reconnecting",
   ): void {
     if (state === "disposed" || active !== attempt) return;
+    getChannelLogger().warn(
+      `[${label}] agent spawn error (phase=${phase}, pid=${attempt.child.pid}): ${error instanceof Error ? error.message : String(error)}`,
+    );
     const wrapped =
       phase === "connecting"
         ? options.closeError(false)
@@ -310,9 +368,14 @@ export function createReconnectingProcessChannel(
     clearForceKillTimer(attempt);
     const { wasReady, stderrTail } = attempt.pipe.notifyClose();
     const closeContext: ChannelCloseContext = { code, signal, stderrTail };
+    const tail = stderrTail.trim().slice(0, CLOSE_LOG_STDERR_TAIL_CHARS);
+    getChannelLogger().warn(
+      `[${label}] agent child closed (phase=${phase}, pid=${attempt.child.pid}, code=${code}, signal=${signal}, wasReady=${wasReady}, state=${state})${tail ? ` stderr=${tail}` : ""}`,
+    );
 
     if (state === "disposed" || terminalError) return;
     if (code === 0 && wasReady) {
+      getChannelLogger().info(`[${label}] clean agent exit; channel is now terminal`);
       state = "terminal";
       terminalError = options.closeError(true, closeContext);
       emitLifecycle({ type: "exit", code, signal });
@@ -336,6 +399,7 @@ export function createReconnectingProcessChannel(
       return;
     }
 
+    getChannelLogger().warn(`[${label}] agent closed before first ready; channel failure`);
     const error = options.closeError(wasReady, closeContext);
     attempt.pipe.fail(error);
     state = "terminal";
@@ -392,6 +456,7 @@ export function createReconnectingProcessChannel(
   /** Schedules the next reconnect attempt with capped exponential backoff. */
   function scheduleReconnect(): void {
     if (state === "disposed" || terminalError || reconnectTimer) return;
+    getChannelLogger().info(`[${label}] scheduling agent respawn in ${nextReconnectDelayMs}ms`);
     state = "reconnecting";
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;

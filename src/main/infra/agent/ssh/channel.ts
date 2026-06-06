@@ -84,6 +84,7 @@ export function createSshChannel(
         spawn: dependencies.spawn,
       }),
     classifyStderr: classifyAuthLine,
+    logLabel: `ssh:${options.host}`,
     closeError: (_wasReady, context) =>
       createSshError("ssh.unknown", formatCloseDiagnostic(context)),
     requestTimeoutMs: dependencies.requestTimeoutMs,
