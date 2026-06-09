@@ -16,14 +16,23 @@
  *   - `javascript:` → executes arbitrary code in the renderer process.
  *   - `data:`/`blob:` → injects arbitrary HTML.
  *   - `file:` → reads the local filesystem.
- *   - New window (`window.open`) → escapes the partition sandbox unless
- *     intercepted and re-navigated inside the same tab.
+ *   - New window (`window.open`) → opened as a hardened popup (http/https/file
+ *     only) that inherits the tab's partition/session and is recursively
+ *     subjected to these same guards; other schemes are denied. It does not
+ *     escape the partition sandbox.
  */
 
 import type { WebContents, WebPreferences } from "electron";
 import { createLogger } from "../../../shared/log/main";
-import { classifyPermission, isKnownPermission } from "../../../shared/security/browser-permissions";
-import { isNavigationSchemeAllowed } from "../../../shared/security/navigation-allowlist";
+import {
+  classifyPermission,
+  isKnownPermission,
+} from "../../../shared/security/browser-permissions";
+import {
+  isBuiltinPdfViewerUrl,
+  isNavigationSchemeAllowed,
+  isSubframeNavigationAllowed,
+} from "../../../shared/security/navigation-allowlist";
 import { resolvePermission } from "./permission-policy";
 import type { BrowserPermissionPromptManager } from "./permission-prompt-manager";
 
@@ -75,11 +84,7 @@ export interface PermissionHandlerDeps {
    * Returns the remembered per-(workspace, origin, permission) decision, or
    * null when no decision has been stored.
    */
-  getRemembered(
-    workspaceId: string,
-    origin: string,
-    permission: string,
-  ): "allow" | "block" | null;
+  getRemembered(workspaceId: string, origin: string, permission: string): "allow" | "block" | null;
   /** Manages pending prompt lifecycles and coalescing. */
   promptManager: BrowserPermissionPromptManager;
 }
@@ -237,8 +242,11 @@ export function installNavigationGuards(
 
   // Layer 2 — sub-frame navigation guard.
   // Covers: <iframe src="..."> changes and navigation inside embedded frames.
-  // about:blank is allowed (Electron uses it for initial frame creation);
-  // data: and blob: are blocked to prevent HTML injection.
+  // about:blank is allowed (Electron uses it for initial frame creation).
+  // data: and blob: are allowed HERE (sub-frames only) — legitimate sites
+  // embed them and an opaque-origin sub-frame cannot read the parent under
+  // webSecurity. They remain blocked at top-level (will-navigate). javascript:
+  // is never allowed in any frame.
   //
   // SIGNATURE: unlike `will-navigate` (which is `(event, url)`),
   // `will-frame-navigate` passes a SINGLE consolidated event object — `url`,
@@ -257,34 +265,62 @@ export function installNavigationGuards(
 
     if (url === ABOUT_BLANK) return; // allowed for frame initialisation
 
-    if (!isNavigationSchemeAllowed(url)) {
+    // Chromium's built-in PDF viewer renders the document in an out-of-process
+    // sub-frame at chrome-extension://<pdf-viewer-id>/...  Since Electron 41
+    // this is the load-bearing frame for inline PDF rendering. Its scheme is
+    // not in the http/https/file allowlist, so without this exemption the
+    // frame is blocked and the viewer shows its toolbar over a blank page.
+    // The viewer id is fixed and internal to Chromium (not user-installable),
+    // so allowing exactly this origin is safe and restores Chrome-parity PDF
+    // rendering without widening the scheme allowlist.
+    if (isBuiltinPdfViewerUrl(url)) return;
+
+    if (!isSubframeNavigationAllowed(url)) {
       details.preventDefault();
       logger.warn(`[will-frame-navigate] blocked: ${url}`);
     }
   });
 
-  // Layer 3 — window.open / target="_blank" interception.
-  // Policy (W2 decision from Plan 61):
-  //   - http/https → navigate the same tab (no new window created).
-  //   - Everything else → deny silently.
+  // Layer 3 — window.open / target="_blank" handling.
+  // Policy: http/https/file open as a REAL popup window; every other scheme is
+  // denied. Opening a real popup (rather than redirecting the same tab) is
+  // required for OAuth/SSO login flows: window.open must return a usable window
+  // handle so the opener can postMessage with it and poll `w.closed`.
+  //
+  // The popup is contained:
+  //   - It inherits the opener's session/partition, so OAuth cookies are shared
+  //     (verified: child.webContents.session === opener session) and it does
+  //     NOT escape the per-workspace partition.
+  //   - The permission handler already lives on that shared session, so the
+  //     popup inherits the deny-by-default permission policy automatically.
+  //   - We re-assert the security-critical webPreferences explicitly (defence
+  //     in depth, rather than trusting implicit inheritance).
+  //   - It is recursively guarded in `did-create-window` below, so it obeys the
+  //     same navigation allowlist and window-open policy as its opener.
   webContents.setWindowOpenHandler(({ url }) => {
     if (isNavigationSchemeAllowed(url)) {
-      // Redirect the navigation into the current WebContents instead of
-      // opening a new window.  loadURL is deferred via setImmediate so that
-      // the handler return value reaches Electron before the load starts.
-      setImmediate(() => {
-        if (!webContents.isDestroyed()) {
-          webContents.loadURL(url).catch((err: Error) => {
-            logger.warn(`[window-open] loadURL failed for ${url}: ${err.message}`);
-          });
-        }
-      });
-    } else {
-      logger.warn(`[window-open] blocked: ${url}`);
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: {
+          webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+            webSecurity: true,
+          },
+        },
+      };
     }
-    // Always deny the popup window creation — either we load it ourselves
-    // (http/https) or we block it entirely.
+    logger.warn(`[window-open] blocked: ${url}`);
     return { action: "deny" };
+  });
+
+  // Recursively guard every popup this WebContents opens — a popup is untrusted
+  // third-party content too and must obey the same navigation / window-open
+  // policy. `onNavigate` is intentionally omitted: a popup is a standalone
+  // window, not a tab whose URL the registry tracks.
+  webContents.on("did-create-window", (childWindow) => {
+    installNavigationGuards(childWindow.webContents);
   });
 }
 

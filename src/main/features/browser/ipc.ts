@@ -24,8 +24,8 @@
  */
 
 import { ipcContract } from "../../../shared/ipc/contract";
-import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import { ipcOk } from "../../../shared/ipc/result";
+import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import type { GlobalStorage } from "../../infra/storage/global-storage";
 import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
 import type { BrowserPermissionPromptManager } from "./permission-prompt-manager";
@@ -90,21 +90,18 @@ export function registerBrowserChannel(
           broadcast("browser", "loadingChanged", { tabId, isLoading: false });
         });
 
-        wc.on(
-          "did-fail-load",
-          (_event, errorCode, errorDescription, validatedURL) => {
-            broadcast("browser", "error", {
-              tabId,
-              code: errorCode,
-              description: errorDescription,
-              url: validatedURL,
-            });
-            // Loading has ended (failed) — ensure isLoading is toggled off
-            // even when did-stop-loading fires before the renderer processes
-            // this event.
-            broadcast("browser", "loadingChanged", { tabId, isLoading: false });
-          },
-        );
+        wc.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+          broadcast("browser", "error", {
+            tabId,
+            code: errorCode,
+            description: errorDescription,
+            url: validatedURL,
+          });
+          // Loading has ended (failed) — ensure isLoading is toggled off
+          // even when did-stop-loading fires before the renderer processes
+          // this event.
+          broadcast("browser", "loadingChanged", { tabId, isLoading: false });
+        });
 
         wc.on("page-title-updated", (_event, title) => {
           broadcast("browser", "titleUpdated", { tabId, title });
@@ -115,6 +112,16 @@ export function registerBrowserChannel(
         // renderer는 첫 번째 후보를 탭 아이콘으로 표시한다 (없으면 기본 Globe).
         wc.on("page-favicon-updated", (_event, favicons: string[]) => {
           broadcast("browser", "faviconUpdated", { tabId, favicons });
+        });
+
+        // focus: the WebContentsView is a native view painted over the renderer
+        // DOM, so a click on the page never bubbles to the renderer's
+        // group-activation listeners. Broadcast a focus event so the renderer
+        // can activate the group that owns this tab (matches the focus
+        // behaviour of every other panel type). Fires only on focus *gain*, so
+        // it does not spam on repeated clicks inside an already-focused view.
+        wc.on("focus", () => {
+          broadcast("browser", "focused", { tabId });
         });
 
         return ipcOk(undefined);
@@ -216,6 +223,7 @@ export function registerBrowserChannel(
       snapshot: {},
       devtoolsToggled: {},
       faviconUpdated: {},
+      focused: {},
     },
   });
 
@@ -248,7 +256,13 @@ export function registerBrowserChannel(
           }
           const rows = workspaceStorage.listOriginPermissions(workspaceId);
           return ipcOk(
-            rows.map((r) => ({ workspaceId, origin: r.origin, permission: r.permission as import("../../../shared/security/browser-permissions").BrowserPermissionKind, decision: r.decision })),
+            rows.map((r) => ({
+              workspaceId,
+              origin: r.origin,
+              permission:
+                r.permission as import("../../../shared/security/browser-permissions").BrowserPermissionKind,
+              decision: r.decision,
+            })),
           );
         }
 
@@ -266,7 +280,13 @@ export function registerBrowserChannel(
           if (!workspaceStorage.isOpen(ws.id)) continue;
           const rows = workspaceStorage.listOriginPermissions(ws.id);
           for (const r of rows) {
-            result.push({ workspaceId: ws.id, origin: r.origin, permission: r.permission as import("../../../shared/security/browser-permissions").BrowserPermissionKind, decision: r.decision });
+            result.push({
+              workspaceId: ws.id,
+              origin: r.origin,
+              permission:
+                r.permission as import("../../../shared/security/browser-permissions").BrowserPermissionKind,
+              decision: r.decision,
+            });
           }
         }
         return ipcOk(result);

@@ -7,7 +7,12 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { isNavigationSchemeAllowed } from "../../../../src/shared/security/navigation-allowlist";
+import {
+  CHROMIUM_PDF_VIEWER_EXTENSION_ID,
+  isBuiltinPdfViewerUrl,
+  isNavigationSchemeAllowed,
+  isSubframeNavigationAllowed,
+} from "../../../../src/shared/security/navigation-allowlist";
 
 describe("isNavigationSchemeAllowed", () => {
   // -------------------------------------------------------------------------
@@ -73,5 +78,79 @@ describe("isNavigationSchemeAllowed", () => {
 
   test("permits Https:// with mixed-case scheme", () => {
     expect(isNavigationSchemeAllowed("Https://example.com")).toBe(true);
+  });
+
+  test("does NOT permit the built-in PDF viewer extension via the scheme allowlist", () => {
+    // chrome-extension: is not in the scheme allowlist; the PDF viewer frame is
+    // permitted by the dedicated isBuiltinPdfViewerUrl() exemption instead.
+    expect(
+      isNavigationSchemeAllowed(`chrome-extension://${CHROMIUM_PDF_VIEWER_EXTENSION_ID}/abc`),
+    ).toBe(false);
+  });
+});
+
+describe("isBuiltinPdfViewerUrl", () => {
+  test("matches Chromium's built-in PDF viewer sub-frame URL", () => {
+    // Electron 41 renders inline PDFs in a sub-frame at this origin; the
+    // navigation guard must let it through or the page area renders blank.
+    expect(
+      isBuiltinPdfViewerUrl(
+        `chrome-extension://${CHROMIUM_PDF_VIEWER_EXTENSION_ID}/b0f3c59b-1673-4ef0-a69d-008a3a328639`,
+      ),
+    ).toBe(true);
+  });
+
+  test("matches the viewer origin with no path", () => {
+    expect(isBuiltinPdfViewerUrl(`chrome-extension://${CHROMIUM_PDF_VIEWER_EXTENSION_ID}`)).toBe(
+      true,
+    );
+  });
+
+  test("rejects a DIFFERENT chrome-extension id (only the fixed PDF viewer is allowed)", () => {
+    expect(isBuiltinPdfViewerUrl("chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/x")).toBe(
+      false,
+    );
+  });
+
+  test("rejects http/https/file URLs", () => {
+    expect(isBuiltinPdfViewerUrl("https://example.com")).toBe(false);
+    expect(isBuiltinPdfViewerUrl("file:///tmp/x.pdf")).toBe(false);
+  });
+
+  test("rejects empty and malformed input", () => {
+    expect(isBuiltinPdfViewerUrl("")).toBe(false);
+    expect(isBuiltinPdfViewerUrl("not a url")).toBe(false);
+  });
+});
+
+describe("isSubframeNavigationAllowed", () => {
+  // Superset of the top-level allowlist.
+  test("permits everything the top-level allowlist permits", () => {
+    expect(isSubframeNavigationAllowed("https://example.com")).toBe(true);
+    expect(isSubframeNavigationAllowed("http://example.com")).toBe(true);
+    expect(isSubframeNavigationAllowed("file:///x.html")).toBe(true);
+  });
+
+  test("ADDITIONALLY permits data: in sub-frames (blocked at top-level)", () => {
+    expect(isSubframeNavigationAllowed("data:text/html,<h1>hi</h1>")).toBe(true);
+    expect(isNavigationSchemeAllowed("data:text/html,<h1>hi</h1>")).toBe(false);
+  });
+
+  test("ADDITIONALLY permits blob: in sub-frames (blocked at top-level)", () => {
+    expect(isSubframeNavigationAllowed("blob:https://example.com/uuid")).toBe(true);
+    expect(isNavigationSchemeAllowed("blob:https://example.com/uuid")).toBe(false);
+  });
+
+  test("still blocks javascript: in sub-frames (code execution)", () => {
+    expect(isSubframeNavigationAllowed("javascript:alert(1)")).toBe(false);
+  });
+
+  test("still blocks mailto: / other schemes in sub-frames", () => {
+    expect(isSubframeNavigationAllowed("mailto:a@b.com")).toBe(false);
+  });
+
+  test("rejects empty / malformed input", () => {
+    expect(isSubframeNavigationAllowed("")).toBe(false);
+    expect(isSubframeNavigationAllowed("::nope")).toBe(false);
   });
 });

@@ -1308,6 +1308,20 @@ export const ipcContract = {
        * region and start / stop reporting `setDevToolsBounds`.
        */
       devtoolsToggled: listen(z.object({ tabId: z.string().uuid(), open: z.boolean() })),
+      /**
+       * Emitted when the tab's WebContentsView gains focus (e.g. the user
+       * clicks anywhere in the page).
+       *
+       * WHY THIS EXISTS
+       * The page is a native WebContentsView painted *over* the renderer DOM,
+       * so it sits outside the DOM event chain. The group-activation listeners
+       * in GroupView (focusin / mousedown bubbling, plus the iframe-blur
+       * fallback) therefore never observe a click on a browser tab — only the
+       * tab-bar (real DOM) activates the group. This event lets the renderer
+       * activate the group that owns `tabId` whenever the page itself is
+       * clicked, matching the behaviour of every other panel type.
+       */
+      focused: listen(z.object({ tabId: z.string().uuid() })),
     },
   },
 

@@ -37,14 +37,16 @@
  * idempotent — a second call tears down the previous subscription.
  */
 
-import { ipcListen } from "../../ipc/client";
-import { useBrowserRuntimeStore } from "../stores/browser-runtime";
-import { useTabsStore } from "../stores/tabs";
+import { Grid } from "@/engine";
 import { isNavigationSchemeAllowed } from "../../../shared/security/navigation-allowlist";
 import { createKeyedDebouncer } from "../../../shared/util/keyed-debouncer";
-import { BROWSER_LAST_URL_SAVE_DEBOUNCE_MS } from "../../../shared/util/timing-constants";
 import type { TimerScheduler } from "../../../shared/util/timer-scheduler";
+import { BROWSER_LAST_URL_SAVE_DEBOUNCE_MS } from "../../../shared/util/timing-constants";
+import { ipcListen } from "../../ipc/client";
+import { useBrowserRuntimeStore } from "../stores/browser-runtime";
+import { useLayoutStore } from "../stores/layout/store";
 import type { BrowserTabProps } from "../stores/tabs";
+import { useTabsStore } from "../stores/tabs";
 
 // ---------------------------------------------------------------------------
 // IPC subscriptions
@@ -119,9 +121,7 @@ export function initBrowserRuntimeSubscriptions(): void {
   activeUnsubs.push(
     ipcListen("browser", "snapshot", (payload) => {
       if (payload.kind === "set") {
-        useBrowserRuntimeStore
-          .getState()
-          .setRuntime(payload.tabId, { snapshot: payload.dataUrl });
+        useBrowserRuntimeStore.getState().setRuntime(payload.tabId, { snapshot: payload.dataUrl });
       } else {
         useBrowserRuntimeStore.getState().setRuntime(payload.tabId, { snapshot: null });
       }
@@ -137,6 +137,38 @@ export function initBrowserRuntimeSubscriptions(): void {
       useBrowserRuntimeStore.getState().setRuntime(tabId, { devtoolsOpen: open });
     }),
   );
+
+  // focus: the WebContentsView is a native view outside the DOM event chain,
+  // so a click on the page never reaches GroupView's focusin/mousedown
+  // listeners. Main broadcasts this when the page gains focus; we activate the
+  // group that owns the tab so clicking a browser panel behaves like clicking
+  // any other panel.
+  activeUnsubs.push(
+    ipcListen("browser", "focused", ({ tabId }) => {
+      activateGroupForTab(tabId);
+    }),
+  );
+}
+
+/**
+ * Activate the layout group that owns `tabId`.
+ *
+ * Resolves the workspace via the tabs store, locates the leaf whose `tabIds`
+ * contains `tabId`, and calls `setActiveGroup`. No-ops when the tab is not
+ * found or its group is already active (the store also early-returns on a
+ * redundant activation, so this is cheap to call on every focus event).
+ *
+ * Exported for unit testing — the production caller is the `browser:focused`
+ * IPC subscription above.
+ */
+export function activateGroupForTab(tabId: string): void {
+  const workspaceId = findWorkspaceForTab(tabId);
+  if (!workspaceId) return;
+  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
+  if (!layout) return;
+  const owner = Grid.allLeaves(layout.root).find((leaf) => leaf.tabIds.includes(tabId));
+  if (!owner || layout.activeGroupId === owner.id) return;
+  useLayoutStore.getState().setActiveGroup(workspaceId, owner.id);
 }
 
 // ---------------------------------------------------------------------------

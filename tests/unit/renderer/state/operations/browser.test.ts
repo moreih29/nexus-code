@@ -45,14 +45,16 @@ if (typeof (globalThis as Record<string, unknown>).crypto === "undefined") {
 // Imports (after shims)
 // ---------------------------------------------------------------------------
 
-import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
-import { useBrowserRuntimeStore } from "../../../../../src/renderer/state/stores/browser-runtime";
 import {
+  activateGroupForTab,
   initBrowserLastUrlPersistence,
   resolveInitialBrowserUrl,
 } from "../../../../../src/renderer/state/operations/browser";
-import type { TimerScheduler } from "../../../../../src/shared/util/timer-scheduler";
+import { useBrowserRuntimeStore } from "../../../../../src/renderer/state/stores/browser-runtime";
+import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout/store";
 import type { BrowserTabProps } from "../../../../../src/renderer/state/stores/tabs";
+import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
+import type { TimerScheduler } from "../../../../../src/shared/util/timer-scheduler";
 
 // ---------------------------------------------------------------------------
 // Fake timer scheduler (same pattern as keyed-debouncer.test.ts)
@@ -359,5 +361,52 @@ describe("resolveInitialBrowserUrl", () => {
       makeProps("javascript:void(0)", "https://fallback.example.com"),
     );
     expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 14. browser:focused → activate owning group
+// ---------------------------------------------------------------------------
+
+describe("activateGroupForTab — browser:focused → activate owning group", () => {
+  beforeEach(() => {
+    resetStores();
+    useLayoutStore.setState({ byWorkspace: {} });
+  });
+
+  function seedLayout(workspaceId: string, groupId: string, tabId: string, activeGroupId: string) {
+    useLayoutStore.setState({
+      byWorkspace: {
+        [workspaceId]: {
+          root: { kind: "leaf", id: groupId, tabIds: [tabId], activeTabId: tabId },
+          activeGroupId,
+        },
+      },
+    });
+  }
+
+  it("activates the group that owns the focused browser tab", () => {
+    seedBrowserTab(WS_A, TAB_A);
+    seedLayout(WS_A, "group-1", TAB_A, "group-other");
+
+    activateGroupForTab(TAB_A);
+
+    expect(useLayoutStore.getState().byWorkspace[WS_A]?.activeGroupId).toBe("group-1");
+  });
+
+  it("is a no-op when the owning group is already active", () => {
+    seedBrowserTab(WS_A, TAB_A);
+    seedLayout(WS_A, "group-1", TAB_A, "group-1");
+
+    activateGroupForTab(TAB_A);
+
+    expect(useLayoutStore.getState().byWorkspace[WS_A]?.activeGroupId).toBe("group-1");
+  });
+
+  it("is a no-op for a tab that belongs to no workspace", () => {
+    seedLayout(WS_A, "group-1", TAB_A, "group-1");
+
+    expect(() => activateGroupForTab("ffffffff-0000-0000-0000-000000000099")).not.toThrow();
+    expect(useLayoutStore.getState().byWorkspace[WS_A]?.activeGroupId).toBe("group-1");
   });
 });
