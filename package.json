@@ -1,7 +1,7 @@
 {
   "name": "nexus-code",
   "productName": "NexusCode",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Multi-workspace VSCode-style editor for macOS. Monaco editor + terminal in one window.",
   "license": "MIT",
   "private": true,

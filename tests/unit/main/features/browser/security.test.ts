@@ -17,7 +17,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // ---------------------------------------------------------------------------
 
 // Track calls for assertion
-const mockSessionPermHandler: ((wc: unknown, perm: string, cb: (ok: boolean) => void) => void) | null = null;
+const mockSessionPermHandler:
+  | ((wc: unknown, perm: string, cb: (ok: boolean) => void) => void)
+  | null = null;
 
 mock.module("electron", () => ({
   WebContentsView: class {},
@@ -37,7 +39,12 @@ interface FakeEvent {
 }
 
 function makeFakeEvent(): FakeEvent {
-  const ev = { prevented: false, preventDefault() { this.prevented = true; } };
+  const ev = {
+    prevented: false,
+    preventDefault() {
+      this.prevented = true;
+    },
+  };
   return ev;
 }
 
@@ -46,8 +53,18 @@ type EventHandler = (...args: unknown[]) => void;
 interface FakeWebContents {
   _handlers: Map<string, EventHandler[]>;
   on(event: string, handler: EventHandler): void;
-  setWindowOpenHandler(handler: (details: { url: string }) => { action: string }): void;
-  _windowOpenHandler: ((details: { url: string }) => { action: string }) | null;
+  setWindowOpenHandler(
+    handler: (details: { url: string }) => {
+      action: string;
+      overrideBrowserWindowOptions?: { webPreferences?: Record<string, unknown> };
+    },
+  ): void;
+  _windowOpenHandler:
+    | ((details: { url: string }) => {
+        action: string;
+        overrideBrowserWindowOptions?: { webPreferences?: Record<string, unknown> };
+      })
+    | null;
   _loadURLCalls: string[];
   isDestroyed(): boolean;
   loadURL(url: string): Promise<void>;
@@ -72,11 +89,18 @@ function makeFakeWebContents(): FakeWebContents {
       handlers.get(event)!.push(handler);
     },
 
-    setWindowOpenHandler(handler: (details: { url: string }) => { action: string }) {
+    setWindowOpenHandler(
+      handler: (details: { url: string }) => {
+        action: string;
+        overrideBrowserWindowOptions?: { webPreferences?: Record<string, unknown> };
+      },
+    ) {
       this._windowOpenHandler = handler;
     },
 
-    isDestroyed() { return false; },
+    isDestroyed() {
+      return false;
+    },
 
     loadURL(url: string): Promise<void> {
       loadURLCalls.push(url);
@@ -84,8 +108,12 @@ function makeFakeWebContents(): FakeWebContents {
     },
 
     navigationHistory: {
-      canGoBack() { return false; },
-      canGoForward() { return false; },
+      canGoBack() {
+        return false;
+      },
+      canGoForward() {
+        return false;
+      },
     },
 
     emit(event: string, ...args: unknown[]) {
@@ -99,7 +127,9 @@ function makeFakeWebContents(): FakeWebContents {
 
 interface FakeSession {
   _permHandler: ((wc: unknown, perm: string, cb: (ok: boolean) => void) => void) | null;
-  setPermissionRequestHandler(handler: (wc: unknown, perm: string, cb: (ok: boolean) => void) => void): void;
+  setPermissionRequestHandler(
+    handler: (wc: unknown, perm: string, cb: (ok: boolean) => void) => void,
+  ): void;
 }
 
 function makeFakeSession(): FakeSession {
@@ -144,7 +174,9 @@ describe("installPermissionHandler", () => {
     expect(session._permHandler).not.toBeNull();
 
     let result: boolean | null = null;
-    session._permHandler!(null, "clipboard-sanitized-write", (ok) => { result = ok; });
+    session._permHandler!(null, "clipboard-sanitized-write", (ok) => {
+      result = ok;
+    });
     expect(result).toBe(true);
   });
 
@@ -167,7 +199,9 @@ describe("installPermissionHandler", () => {
       installPermissionHandler(session as unknown as import("electron").Session);
 
       let result: boolean | null = null;
-      session._permHandler!(null, perm, (ok) => { result = ok; });
+      session._permHandler!(null, perm, (ok) => {
+        result = ok;
+      });
       expect(result).toBe(false);
     });
   }
@@ -229,10 +263,9 @@ describe("installNavigationGuards — will-navigate", () => {
   test("calls onNavigate callback for allowed URLs", () => {
     let navigatedTo: string | null = null;
     const wc2 = makeFakeWebContents();
-    installNavigationGuards(
-      wc2 as unknown as import("electron").WebContents,
-      (url) => { navigatedTo = url; },
-    );
+    installNavigationGuards(wc2 as unknown as import("electron").WebContents, (url) => {
+      navigatedTo = url;
+    });
 
     const ev = makeFakeEvent();
     wc2.emit("will-navigate", ev, "https://example.com");
@@ -243,10 +276,9 @@ describe("installNavigationGuards — will-navigate", () => {
   test("does NOT call onNavigate callback for blocked URLs", () => {
     let called = false;
     const wc2 = makeFakeWebContents();
-    installNavigationGuards(
-      wc2 as unknown as import("electron").WebContents,
-      () => { called = true; },
-    );
+    installNavigationGuards(wc2 as unknown as import("electron").WebContents, () => {
+      called = true;
+    });
 
     const ev = makeFakeEvent();
     wc2.emit("will-navigate", ev, "javascript:alert(1)");
@@ -286,13 +318,36 @@ describe("installNavigationGuards — will-frame-navigate", () => {
     expect(ev.prevented).toBe(false);
   });
 
-  test("blocks data: in sub-frames", () => {
-    const ev = fireFrameNavigate("data:text/html,<script>evil</script>", false);
+  test("allows data: in sub-frames (sub-frame-only scheme; opaque origin)", () => {
+    // Sub-frame data: is used by legitimate sites and is constrained by
+    // webSecurity + sandbox. It stays blocked at top-level (see will-navigate).
+    const ev = fireFrameNavigate("data:text/html,<h1>preview</h1>", false);
+    expect(ev.prevented).toBe(false);
+  });
+
+  test("allows blob: in sub-frames (sub-frame-only scheme)", () => {
+    const ev = fireFrameNavigate("blob:https://example.com/uuid", false);
+    expect(ev.prevented).toBe(false);
+  });
+
+  test("blocks javascript: in sub-frames (code execution, never allowed)", () => {
+    const ev = fireFrameNavigate("javascript:void(0)", false);
     expect(ev.prevented).toBe(true);
   });
 
-  test("blocks javascript: in sub-frames", () => {
-    const ev = fireFrameNavigate("javascript:void(0)", false);
+  test("allows Chromium's built-in PDF viewer sub-frame (Electron 41 inline PDF)", () => {
+    // The PDF viewer renders the document in an out-of-process sub-frame at
+    // chrome-extension://<pdf-viewer-id>/...  Blocking it leaves the viewer
+    // toolbar visible over a blank page; the guard must let this origin load.
+    const ev = fireFrameNavigate(
+      "chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/b0f3c59b-1673-4ef0-a69d-008a3a328639",
+      false,
+    );
+    expect(ev.prevented).toBe(false);
+  });
+
+  test("still blocks a NON-PDF chrome-extension sub-frame", () => {
+    const ev = fireFrameNavigate("chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/x", false);
     expect(ev.prevented).toBe(true);
   });
 
@@ -317,32 +372,65 @@ describe("installNavigationGuards — setWindowOpenHandler", () => {
     installNavigationGuards(wc as unknown as import("electron").WebContents);
   });
 
-  test("always returns action:'deny' to prevent popup creation", () => {
-    // http/https — redirected to same tab, still deny popup
-    const result = wc._windowOpenHandler!({ url: "https://example.com" });
-    expect(result.action).toBe("deny");
+  test("allows http/https popups (action:'allow') so OAuth window handles work", () => {
+    const result = wc._windowOpenHandler!({ url: "https://accounts.example.com/oauth" });
+    expect(result.action).toBe("allow");
   });
 
-  test("returns action:'deny' for non-http/https URLs too", () => {
+  test("allows file: popups", () => {
+    const result = wc._windowOpenHandler!({ url: "file:///tmp/local.html" });
+    expect(result.action).toBe("allow");
+  });
+
+  test("denies non-navigable schemes (javascript:)", () => {
     const result = wc._windowOpenHandler!({ url: "javascript:alert(1)" });
     expect(result.action).toBe("deny");
   });
 
-  test("schedules loadURL for http:// URLs (same-tab navigation)", () => {
-    // We can't easily test setImmediate without timers, but we CAN verify
-    // that the handler does NOT throw and returns deny immediately.
-    expect(() => {
-      wc._windowOpenHandler!({ url: "http://example.com" });
-    }).not.toThrow();
+  test("denies data: popups", () => {
+    // data:/blob: are sub-frame-only; a top-level popup to them is denied.
+    const result = wc._windowOpenHandler!({ url: "data:text/html,<h1>x</h1>" });
+    expect(result.action).toBe("deny");
   });
 
-  test("does NOT schedule loadURL for javascript: URLs", () => {
-    // Calling the handler for a blocked scheme should not call loadURL.
-    const loadsBefore = wc._loadURLCalls.length;
-    wc._windowOpenHandler!({ url: "javascript:alert(1)" });
-    // loadURL is scheduled via setImmediate — but since we don't advance
-    // timers in this test, we verify the initial length is unchanged.
-    // The test for "no throw" is the primary assertion here.
-    expect(wc._loadURLCalls.length).toBe(loadsBefore);
+  test("hardens the allowed popup's webPreferences (sandbox, isolation, no node)", () => {
+    const result = wc._windowOpenHandler!({ url: "https://example.com" });
+    const prefs = result.overrideBrowserWindowOptions?.webPreferences ?? {};
+    expect(prefs.sandbox).toBe(true);
+    expect(prefs.contextIsolation).toBe(true);
+    expect(prefs.nodeIntegration).toBe(false);
+    expect(prefs.webSecurity).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. installNavigationGuards — did-create-window recursively guards popups
+// ---------------------------------------------------------------------------
+
+describe("installNavigationGuards — did-create-window (popup hardening)", () => {
+  let wc: FakeWebContents;
+
+  beforeEach(() => {
+    wc = makeFakeWebContents();
+    installNavigationGuards(wc as unknown as import("electron").WebContents);
+  });
+
+  test("installs the same guards on a popup's WebContents", () => {
+    const child = makeFakeWebContents();
+    // Emit the event the same way Electron would: (childWindow, details).
+    wc.emit("did-create-window", { webContents: child });
+
+    // The child must now carry its own window-open handler and navigation
+    // listeners — i.e. installNavigationGuards ran on it.
+    expect(child._windowOpenHandler).not.toBeNull();
+    expect((child._handlers.get("will-navigate") ?? []).length).toBeGreaterThan(0);
+    expect((child._handlers.get("will-frame-navigate") ?? []).length).toBeGreaterThan(0);
+  });
+
+  test("the popup recursively denies non-navigable window.open schemes", () => {
+    const child = makeFakeWebContents();
+    wc.emit("did-create-window", { webContents: child });
+    const result = child._windowOpenHandler!({ url: "javascript:alert(1)" });
+    expect(result.action).toBe("deny");
   });
 });
