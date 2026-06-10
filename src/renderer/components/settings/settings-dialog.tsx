@@ -100,6 +100,12 @@ export function SettingsDialog({
       keywords: ["browser", "permission", "camera", "microphone", "location", "clipboard"],
     },
     {
+      id: "keybindings",
+      label: t("nav.keybindings"),
+      group: t("nav.group.settings"),
+      keywords: ["keyboard", "shortcut", "keybinding", "hotkey", "단축키", "키보드"],
+    },
+    {
       id: "about",
       label: t("nav.about"),
       group: t("nav.group.settings"),

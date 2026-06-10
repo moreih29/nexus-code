@@ -18,12 +18,19 @@
  * registration and are unaffected by menu replacement.
  */
 
-import type { TFunction } from "i18next";
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from "electron";
-import { COMMANDS } from "../../../shared/keybindings/commands";
+import type { TFunction } from "i18next";
 import type { CommandId } from "../../../shared/keybindings/commands";
+import { ALL_COMMAND_IDS, COMMANDS } from "../../../shared/keybindings/commands";
+import { KEYBINDINGS } from "../../../shared/keybindings/index";
+import {
+  applyKeybindingOverrides,
+  type KeybindingOverride,
+} from "../../../shared/keybindings/overrides";
 import { isMac } from "../../infra/platform";
 import { buildMenuTemplate, type MenuItemSpec } from "./template";
+
+const KNOWN_COMMANDS: ReadonlySet<string> = new Set(ALL_COMMAND_IDS);
 
 export interface InstallAppMenuOptions {
   /** Called when the user clicks "Check for Updates..." in the App menu. */
@@ -34,6 +41,14 @@ export interface InstallAppMenuOptions {
    * fallback strings embedded in buildMenuTemplate are used.
    */
   t?: TFunction;
+  /**
+   * User keybinding overrides from appState. Menu accelerator labels
+   * render the EFFECTIVE binding (defaults + overrides) so the menu
+   * never shows a shortcut the dispatcher would not honor. Pass
+   * `stateService.getState().keybindingOverrides` — both at boot and on
+   * every rebuild (language change, keybinding change).
+   */
+  keybindingOverrides?: readonly KeybindingOverride[];
 }
 
 export function installAppMenu(options: InstallAppMenuOptions = {}): void {
@@ -41,13 +56,17 @@ export function installAppMenu(options: InstallAppMenuOptions = {}): void {
     isMac: isMac(),
     appName: app.getName(),
     t: options.t,
+    bindings: applyKeybindingOverrides(KEYBINDINGS, options.keybindingOverrides, KNOWN_COMMANDS),
   });
 
   const electronTemplate = template.map((spec) => toElectron(spec, options));
   Menu.setApplicationMenu(Menu.buildFromTemplate(electronTemplate));
 }
 
-function toElectron(spec: MenuItemSpec, options: InstallAppMenuOptions): MenuItemConstructorOptions {
+function toElectron(
+  spec: MenuItemSpec,
+  options: InstallAppMenuOptions,
+): MenuItemConstructorOptions {
   switch (spec.type) {
     case "separator":
       return { type: "separator" };
@@ -71,9 +90,7 @@ function toElectron(spec: MenuItemSpec, options: InstallAppMenuOptions): MenuIte
       //   no canvas-vs-DOM mismatch — Cocoa's native dispatch reaches the
       //   correct target in every focus context.
       const base: MenuItemConstructorOptions =
-        spec.label !== undefined
-          ? { role: spec.role, label: spec.label }
-          : { role: spec.role };
+        spec.label !== undefined ? { role: spec.role, label: spec.label } : { role: spec.role };
       if (spec.role === "copy") base.registerAccelerator = false;
       return base;
     }

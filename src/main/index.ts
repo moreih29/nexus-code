@@ -5,6 +5,7 @@ import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants
 import { installErrorSafetyNet } from "./error-safety-net";
 import { registerAppStateChannel } from "./features/app-state";
 import { getBrowserRegistry, initBrowserFeature, registerBrowserCloser } from "./features/browser";
+import { updateBrowserKeybindings } from "./features/browser/keyboard";
 import { BrowserPermissionPromptManager } from "./features/browser/permission-prompt-manager";
 import { setupClaudeFeature } from "./features/claude/index";
 import { registerClipboardChannel } from "./features/clipboard/ipc";
@@ -212,11 +213,46 @@ registerAppStateChannel(stateService, {
             updatesHandle?.checkManual();
           },
           t: getMainT(),
+          keybindingOverrides: stateService.getState().keybindingOverrides,
         });
         broadcast("appState", "languageChanged", { language });
       });
   },
+
+  /**
+   * Mirror of onLanguageChanged for keybinding overrides: the renderer
+   * persisted a new override list via appState.set — rebuild the native
+   * menu so accelerator labels show the effective bindings, then
+   * broadcast to every window (including the originator; hydration is
+   * idempotent) so all dispatchers recompile.
+   */
+  onKeybindingsChanged(overrides) {
+    installAppMenu({
+      onCheckForUpdates: () => {
+        updatesHandle?.checkManual();
+      },
+      t: getMainT(),
+      keybindingOverrides: overrides,
+    });
+    broadcast("appState", "keybindingsChanged", { overrides });
+    // Keep the browser-view key interceptor's match list current.
+    updateBrowserKeybindings(overrides);
+  },
+
+  /**
+   * Editor (Monaco) keybinding overrides changed: pure broadcast so
+   * every window re-reconciles its Monaco keybinding service. No menu
+   * rebuild — editor commands are not application-menu items.
+   */
+  onEditorKeybindingsChanged(overrides) {
+    broadcast("appState", "editorKeybindingsChanged", { overrides });
+  },
 });
+
+// Seed the browser-view key interceptor with persisted overrides so the
+// in-page browser shortcuts (⌘R, ⌘[, …) reflect any customization from the
+// first tab onward. Kept in sync by onKeybindingsChanged above.
+updateBrowserKeybindings(stateService.getState().keybindingOverrides);
 registerFsChannel(workspaceManager, agentFsWatcher, workspaceStorage);
 registerPanelChannel(workspaceStorage);
 registerSshChannel();
@@ -270,6 +306,7 @@ app.whenReady().then(async () => {
       updatesHandle?.checkManual();
     },
     t: getMainT(),
+    keybindingOverrides: stateService.getState().keybindingOverrides,
   });
 
   // Fire the one-time silent auto update check now that the app is ready.

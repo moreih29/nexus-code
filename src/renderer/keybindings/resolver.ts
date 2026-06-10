@@ -1,11 +1,13 @@
 /**
  * Pure resolver: keystroke → resolution.
  *
- * Compiles `KEYBINDINGS` into match predicates once at module load,
- * then maps each keydown event (plus the current chord-pending leader)
- * to a tagged {@link Resolution}. The dispatcher consumes the
- * resolution to decide whether to fire a command, arm a chord, swallow
- * the keystroke, or let it bubble.
+ * Compiles a binding table into match predicates — `KEYBINDINGS` at
+ * module load, then any EFFECTIVE table (defaults + user overrides)
+ * pushed through {@link setActiveBindings} when the keybindings store
+ * hydrates or the user edits a binding. Each keydown event (plus the
+ * current chord-pending leader) maps to a tagged {@link Resolution}.
+ * The dispatcher consumes the resolution to decide whether to fire a
+ * command, arm a chord, swallow the keystroke, or let it bubble.
  *
  * Splitting this away from the dispatcher means:
  *   - Match logic is testable without DOM, React, or event listener
@@ -16,13 +18,13 @@
  */
 
 import type { CommandId } from "../../shared/keybindings/commands";
+import { KEYBINDINGS, type KeybindingDecl } from "../../shared/keybindings/index";
 import {
   matchesEvent,
   type ParsedKeystroke,
   parseAccelerator,
 } from "../../shared/keybindings/keybinding-parse";
 import { evaluateWhen, parseWhen, type WhenExpr } from "../../shared/keybindings/keybinding-when";
-import { KEYBINDINGS, type KeybindingDecl } from "../../shared/keybindings/index";
 import { evaluateContextKey } from "./context-keys";
 
 interface CompiledPrimary {
@@ -53,23 +55,69 @@ interface CompiledChord {
 const IS_MAC =
   typeof navigator !== "undefined" && /Mac|iPhone|iPod|iPad/i.test(navigator.platform || "");
 
-const PRIMARIES: CompiledPrimary[] = [];
-const CHORDS: CompiledChord[] = [];
+let PRIMARIES: CompiledPrimary[] = [];
+let CHORDS: CompiledChord[] = [];
+let ACTIVE_BINDINGS: readonly KeybindingDecl[] = KEYBINDINGS;
 
-for (const decl of KEYBINDINGS) {
-  const when = decl.when !== undefined ? parseWhen(decl.when) : null;
-  if (decl.primary !== undefined) {
-    PRIMARIES.push({ decl, parsed: parseAccelerator(decl.primary), when });
+/**
+ * Compile `bindings` into the active match tables. A declaration that
+ * fails to parse is skipped (with the others kept) rather than taking
+ * the whole table down — user overrides are validated at the schema
+ * boundary, but a defense here means one bad entry can never cost the
+ * user every shortcut at once.
+ */
+function compile(bindings: readonly KeybindingDecl[]): void {
+  const primaries: CompiledPrimary[] = [];
+  const chords: CompiledChord[] = [];
+  for (const decl of bindings) {
+    try {
+      const when = decl.when !== undefined ? parseWhen(decl.when) : null;
+      if (decl.primary !== undefined) {
+        primaries.push({ decl, parsed: parseAccelerator(decl.primary), when });
+      }
+      if (decl.chord !== undefined) {
+        chords.push({
+          decl,
+          leader: parseAccelerator(decl.chord[0]),
+          secondary: parseAccelerator(decl.chord[1]),
+          leaderId: decl.chord[0],
+          when,
+        });
+      }
+    } catch {
+      // skip unparseable declaration; keep the rest
+    }
   }
-  if (decl.chord !== undefined) {
-    CHORDS.push({
-      decl,
-      leader: parseAccelerator(decl.chord[0]),
-      secondary: parseAccelerator(decl.chord[1]),
-      leaderId: decl.chord[0],
-      when,
-    });
-  }
+  PRIMARIES = primaries;
+  CHORDS = chords;
+  ACTIVE_BINDINGS = bindings;
+}
+
+compile(KEYBINDINGS);
+
+/**
+ * Swap the active binding table (defaults + user overrides, already
+ * merged by `applyKeybindingOverrides`). Recompilation is O(table
+ * size) string parsing — trivially cheap, safe to call on every store
+ * update.
+ */
+export function setActiveBindings(bindings: readonly KeybindingDecl[]): void {
+  compile(bindings);
+}
+
+/**
+ * The binding table currently driving dispatch. Label renderers
+ * (context menus, the settings panel) read THIS — not the static
+ * `KEYBINDINGS` — so user overrides show up everywhere a shortcut is
+ * displayed.
+ */
+export function getActiveBindings(): readonly KeybindingDecl[] {
+  return ACTIVE_BINDINGS;
+}
+
+/** Test-only — restore the default table between tests. */
+export function __resetActiveBindingsForTests(): void {
+  compile(KEYBINDINGS);
 }
 
 /**

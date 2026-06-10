@@ -139,31 +139,20 @@ function toHex8(value: string, alphaOverride?: number): string {
   return formatHex8(parsed) ?? value;
 }
 
-/** Mix a foreground color over a solid surface at a given alpha, return #rrggbb. */
-function alphaOnSurface(fg: string, surface: string, alpha: number): string {
-  const fgP = parse(fg);
-  const sP = parse(surface);
-  if (!fgP || !sP) return fg;
-  // Simple Porter-Duff over compositing in sRGB (Monaco doesn't care about
-  // perceptual blend, and the difference vs OKLCH blend is imperceptible at
-  // these alphas).
-  const fgRgb = {
-    r: (fgP as { r?: number }).r ?? 0,
-    g: (fgP as { g?: number }).g ?? 0,
-    b: (fgP as { b?: number }).b ?? 0,
-  };
-  const sRgb = {
-    r: (sP as { r?: number }).r ?? 0,
-    g: (sP as { g?: number }).g ?? 0,
-    b: (sP as { b?: number }).b ?? 0,
-  };
-  const mix = {
-    mode: "rgb" as const,
-    r: fgRgb.r * alpha + sRgb.r * (1 - alpha),
-    g: fgRgb.g * alpha + sRgb.g * (1 - alpha),
-    b: fgRgb.b * alpha + sRgb.b * (1 - alpha),
-  };
-  return formatHex8(mix) ?? fg;
+/**
+ * Scale a color's own alpha by `factor`, return #rrggbbaa.
+ * Used for `inactiveSelectionBackground`: the inactive selection must stay
+ * recognizably the selection hue (just dimmer), because Monaco paints it
+ * whenever the editor lacks the `.focused` class — including transient
+ * focus-tracker races (EditContext, monaco 0.53+) where a selection being
+ * actively extended briefly renders as "inactive". A surface-blend tier
+ * here is nearly identical to the background and made those frames
+ * invisible.
+ */
+function scaleAlpha(value: string, factor: number): string {
+  const parsed = parse(value);
+  if (!parsed) return value;
+  return formatHex8({ ...parsed, alpha: (parsed.alpha ?? 1) * factor }) ?? value;
 }
 
 // ---------------------------------------------------------------------------
@@ -442,15 +431,20 @@ export function buildSemanticTokens(source: ThemeSource): SemanticTokenSet {
 // ---------------------------------------------------------------------------
 
 export function buildEditorPalette(source: ThemeSource): EditorPalette {
-  const fg = source.fg.primary;
-  const surface = source.bg.primary;
-
-  // alpha tiers blended against the editor surface so Monaco's parser
-  // accepts them (8-digit hex). For overlay backgrounds we mix the fg
-  // onto the surface at the given alpha and emit an 8-digit hex with
-  // the same alpha embedded — Monaco renders this on top of the
-  // editor.background slot, producing the intended tier.
-  const tier = (alpha: number): string => alphaOnSurface(fg, surface, alpha);
+  // Decoration tiers — translucent overlays with the alpha EMBEDDED in the
+  // 8-digit hex (white over dark surfaces, black over light), converted via
+  // toHex8 because Monaco's color parser rejects rgba() strings.
+  //
+  // These must NOT be opaque pre-blends. Monaco's view renders
+  // DecorationsOverlay ABOVE SelectionsOverlay (view.ts registers
+  // CurrentLineHighlight → Selections → IndentGuides → Decorations, later =
+  // on top), and WordHighlighter keeps the word-at-cursor decorated — its own
+  // range included — for as long as a selection stays inside one word. An
+  // opaque surface-colored tier therefore paints a cover over the selection,
+  // hiding it until the selection crosses a word boundary (whitespace).
+  // Translucent tiers compose with the selection underneath, like stock
+  // VS Code themes.
+  const tier = (alpha: number): string => toHex8(overlay(source.base, alpha));
 
   return {
     // word highlight
@@ -471,7 +465,9 @@ export function buildEditorPalette(source: ThemeSource): EditorPalette {
     linkActiveForeground: toHex8(source.fg.primary),
     // selection
     selectionBackground: toHex8(source.selection),
-    inactiveSelectionBackground: tier(0.1),
+    // Same hue as the active selection at half its alpha — see scaleAlpha
+    // doc for why this must not be a surface-blend tier.
+    inactiveSelectionBackground: scaleAlpha(source.selection, 0.5),
     selectionHighlightBackground: tier(0.06),
     // widget surfaces
     hoverWidgetBackground: toHex8(source.bg.floating),

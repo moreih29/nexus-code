@@ -23,6 +23,7 @@ import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
 import { useClaudeStatusStore } from "./state/stores/claude-status";
 import { useEditorFontStore } from "./state/stores/editor-font";
 import { useIconThemeStore } from "./state/stores/icon-theme";
+import { useKeybindingsStore } from "./state/stores/keybindings";
 import { useLanguageStore } from "./state/stores/language";
 import { useLayoutStore } from "./state/stores/layout";
 import { useLspEnabledStore } from "./state/stores/lsp-enabled";
@@ -142,6 +143,28 @@ export async function bootstrapAppState(): Promise<void> {
   // own i18next instance and html[lang] attribute via `hydrate`.
   ipcListen("appState", "languageChanged", ({ language }) => {
     useLanguageStore.getState().hydrate(language);
+  });
+
+  // Hydrate user keybinding overrides — recompiles the dispatcher's
+  // match tables so customized shortcuts are live before first input.
+  useKeybindingsStore.getState().hydrate(state.keybindingOverrides);
+
+  // Mirror of languageChanged: another window edited a binding → main
+  // persisted it and broadcast the full override list. Hydration is
+  // idempotent and does not write back, so windows converge.
+  ipcListen("appState", "keybindingsChanged", ({ overrides }) => {
+    useKeybindingsStore.getState().hydrate(overrides);
+  });
+
+  // Hydrate editor (Monaco) keybinding overrides. Reconciliation is a
+  // no-op here when Monaco has not mounted yet — initializeEditorServices
+  // re-applies from the store once the singleton is live.
+  useKeybindingsStore.getState().hydrateEditor(state.editorKeybindingOverrides);
+
+  // Mirror of keybindingsChanged for editor overrides — another window
+  // edited an editor binding; re-reconcile Monaco. Idempotent.
+  ipcListen("appState", "editorKeybindingsChanged", ({ overrides }) => {
+    useKeybindingsStore.getState().hydrateEditor(overrides);
   });
 
   // Hydrate editor font settings from appState (authoritative store).

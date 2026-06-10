@@ -38,9 +38,11 @@ export interface ParsedKeystroke {
   alt: boolean;
   /**
    * Acceptable `KeyboardEvent.code` values. Usually a single entry.
-   * Backslash is special-cased to also accept `Slash`: Korean
-   * keyboards type the slash key for what would be backslash on QWERTY,
-   * and we want our split shortcut (⌘\) to fire on both.
+   * `code` identifies the physical key independent of keyboard layout
+   * (a Korean layout's ₩/\ key still reports "Backslash"), so one code
+   * per token is sufficient — do NOT add sibling codes for layout
+   * parity, or unrelated shortcuts (e.g. ⌘/ comment toggle) get
+   * swallowed by the wrong binding.
    */
   codes: readonly string[];
 }
@@ -115,11 +117,12 @@ function tokenToCodes(tok: string): readonly string[] {
     case "Right":
       return ["ArrowRight"];
     case "\\":
-      // Korean keyboard parity: Shift+Backslash on a US layout sends
-      // KeyboardEvent.code === "Backslash"; the same physical key on
-      // a Korean layout often surfaces as "Slash". Accepting both
-      // keeps `⌘\` working for everyone without per-layout config.
-      return ["Backslash", "Slash"];
+      // KeyboardEvent.code is layout-independent: Korean layouts also
+      // report the ₩/\ physical key as "Backslash" (only e.key differs).
+      // This previously returned ["Backslash", "Slash"] for a mistaken
+      // "Korean keyboard parity" reason, which made ⌘/ trigger the ⌘\
+      // split shortcut and swallow Monaco's comment toggle.
+      return ["Backslash"];
     case "/":
       return ["Slash"];
     case "Backslash":
@@ -181,29 +184,169 @@ function tokenToCodes(tok: string): readonly string[] {
  *     platform — used by bindings that genuinely mean "Control".
  *   - `!cmd && !ctrl`: neither modifier pressed.
  */
-export function matchesEvent(p: ParsedKeystroke, e: KeyboardEvent, isMac: boolean): boolean {
-  if (!p.codes.includes(e.code)) return false;
+/**
+ * Platform-agnostic key state — the subset of modifiers + physical code
+ * that {@link matchesKeyState} needs. A DOM `KeyboardEvent` and an
+ * Electron `before-input-event` Input both reduce to this shape, so the
+ * single matcher serves the renderer dispatcher AND the main-process
+ * browser-view key interceptor (WebContentsView keystrokes never reach
+ * the renderer document — see main/features/browser/keyboard.ts).
+ */
+export interface KeyChordState {
+  code: string;
+  meta: boolean;
+  ctrl: boolean;
+  shift: boolean;
+  alt: boolean;
+}
+
+/** Core matcher — see {@link matchesEvent} for the modifier matrix rationale. */
+export function matchesKeyState(p: ParsedKeystroke, s: KeyChordState, isMac: boolean): boolean {
+  if (!p.codes.includes(s.code)) return false;
 
   if (p.cmd && p.ctrl) {
-    if (!(e.metaKey && e.ctrlKey)) return false;
+    if (!(s.meta && s.ctrl)) return false;
   } else if (p.cmd) {
     // CmdOrCtrl shorthand: pick the platform's "primary" modifier and
     // require the other to be absent. The "absent" side matters most on
     // Mac, where bare ⌃-letter shortcuts belong to the terminal/shell.
     if (isMac) {
-      if (!e.metaKey || e.ctrlKey) return false;
+      if (!s.meta || s.ctrl) return false;
     } else {
-      if (!e.ctrlKey || e.metaKey) return false;
+      if (!s.ctrl || s.meta) return false;
     }
   } else if (p.ctrl) {
-    if (!e.ctrlKey || e.metaKey) return false;
+    if (!s.ctrl || s.meta) return false;
   } else {
-    if (e.metaKey || e.ctrlKey) return false;
+    if (s.meta || s.ctrl) return false;
   }
 
-  if (p.shift !== e.shiftKey) return false;
-  if (p.alt !== e.altKey) return false;
+  if (p.shift !== s.shift) return false;
+  if (p.alt !== s.alt) return false;
   return true;
+}
+
+export function matchesEvent(p: ParsedKeystroke, e: KeyboardEvent, isMac: boolean): boolean {
+  return matchesKeyState(
+    p,
+    { code: e.code, meta: e.metaKey, ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey },
+    isMac,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Event → accelerator (the recorder's reverse function)
+// ---------------------------------------------------------------------------
+
+/** Inverse of `tokenToCodes` for the codes we support. */
+const CODE_TO_TOKEN: Readonly<Record<string, string>> = {
+  Enter: "Enter",
+  Escape: "Escape",
+  Tab: "Tab",
+  Space: "Space",
+  Backspace: "Backspace",
+  Delete: "Delete",
+  ArrowUp: "Up",
+  ArrowDown: "Down",
+  ArrowLeft: "Left",
+  ArrowRight: "Right",
+  Backslash: "\\",
+  Slash: "/",
+  Comma: ",",
+  Period: "Period",
+  Semicolon: "Semicolon",
+  Quote: "Quote",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Minus: "-",
+  Equal: "=",
+  Backquote: "`",
+};
+
+/**
+ * Convert a captured KeyboardEvent into the accelerator string that
+ * would match it — the keybinding recorder's reverse of
+ * `parseAccelerator` + `matchesEvent`. Round-trip invariant:
+ * `matchesEvent(parseAccelerator(eventToAccelerator(e)!), e, isMac)`
+ * is true whenever the result is non-null.
+ *
+ * Returns `null` when the event cannot form a valid binding:
+ *   - modifier-only keydowns (the recorder shows them as "pending");
+ *   - physical keys outside our token table (media keys, NumPad, …);
+ *   - the platform-foreign primary modifier (bare Win/Super key
+ *     combos on non-Mac — `metaKey` there is not part of our
+ *     accelerator vocabulary).
+ *
+ * Modifier mapping mirrors `matchesEvent`'s matrix:
+ *   - Mac:  meta → `CmdOrCtrl`, ctrl alone → `Ctrl` (literal),
+ *           meta+ctrl → `Cmd+Ctrl` (literal two-modifier combo).
+ *   - Win/Linux: ctrl → `CmdOrCtrl`; metaKey set → null.
+ */
+export function eventToAccelerator(e: KeyboardEvent, isMac: boolean): string | null {
+  const token = codeToToken(e.code);
+  if (token === null) return null;
+
+  const mods: string[] = [];
+  if (isMac) {
+    if (e.metaKey && e.ctrlKey) {
+      mods.push("Cmd", "Ctrl");
+    } else if (e.metaKey) {
+      mods.push("CmdOrCtrl");
+    } else if (e.ctrlKey) {
+      mods.push("Ctrl");
+    }
+  } else {
+    if (e.metaKey) return null; // Win/Super combos are not bindable
+    if (e.ctrlKey) mods.push("CmdOrCtrl");
+  }
+  if (e.shiftKey) mods.push("Shift");
+  if (e.altKey) mods.push("Alt");
+
+  return [...mods, token].join("+");
+}
+
+function codeToToken(code: string): string | null {
+  const letter = /^Key([A-Z])$/.exec(code);
+  if (letter !== null) return letter[1] as string;
+  const digit = /^Digit([0-9])$/.exec(code);
+  if (digit !== null) return digit[1] as string;
+  if (/^F[1-9]$|^F1[0-2]$/.test(code)) return code;
+  return CODE_TO_TOKEN[code] ?? null;
+}
+
+/** True when `e.code` is itself a modifier key (⇧⌃⌥⌘ keydowns). */
+export function isModifierCode(code: string): boolean {
+  return /^(Shift|Control|Alt|Meta)(Left|Right)?$/.test(code) || code === "CapsLock";
+}
+
+/**
+ * Reduce an accelerator to a platform-resolved canonical key, e.g.
+ * `"meta+shift+KeyR"` (Mac) / `"ctrl+shift+KeyR"` (Win/Linux) for
+ * `"CmdOrCtrl+Shift+R"`. Two accelerators with the same normalized form
+ * match exactly the same KeyboardEvents under `matchesEvent` — this is
+ * the equality the conflict engine and reserved-key catalog compare on.
+ *
+ * Returns `null` for unparseable input instead of throwing, so callers
+ * probing user-typed strings don't need their own try/catch.
+ */
+export function normalizeKeystroke(accel: AcceleratorString, isMac: boolean): string | null {
+  let p: ParsedKeystroke;
+  try {
+    p = parseAccelerator(accel);
+  } catch {
+    return null;
+  }
+  const mods: string[] = [];
+  if (p.cmd && p.ctrl) {
+    mods.push("meta", "ctrl"); // literal two-modifier combo
+  } else if (p.cmd) {
+    mods.push(isMac ? "meta" : "ctrl"); // CmdOrCtrl shorthand resolution
+  } else if (p.ctrl) {
+    mods.push("ctrl");
+  }
+  if (p.shift) mods.push("shift");
+  if (p.alt) mods.push("alt");
+  return [...mods, p.codes[0]].join("+");
 }
 
 interface LabelOptions {

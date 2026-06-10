@@ -7,6 +7,7 @@
     "workspaces": "Workspaces",
     "notifications": "Notifications",
     "browserPermissions": "Browser Permissions",
+    "keybindings": "Keyboard Shortcuts",
     "about": "About",
     "group": {
       "settings": "Settings"
@@ -214,5 +215,129 @@
     },
     "checkNow": "Check for Updates",
     "checking": "Checking…"
+  },
+  "keybindings": {
+    "searchPlaceholder": "Search commands",
+    "modifiedOnly": "Modified only",
+    "conflictsOnly": "Conflicts only",
+    "conflictsOnlyCount": "Conflicts only ({{count}})",
+    "sectionConflicts": "{{count}} conflicts",
+    "resetAll": "Reset All",
+    "resetAllConfirm": "Reset all?",
+    "reset": "Reset to default",
+    "edit": "Change keybinding",
+    "unbind": "Remove keybinding",
+    "unbound": "—",
+    "empty": "No commands match.",
+    "section": {
+      "app": "Application",
+      "editor": "Editor",
+      "editorDescription": "Monaco editor commands — active only while the editor is focused. Changing one twice in a session may need an app restart to fully settle."
+    },
+    "editorCommand": {
+      "commentLine": "Toggle Line Comment",
+      "blockComment": "Toggle Block Comment",
+      "addSelectionToNextFindMatch": "Add Selection to Next Find Match",
+      "copyLinesDown": "Copy Line Down",
+      "copyLinesUp": "Copy Line Up",
+      "moveLinesDown": "Move Line Down",
+      "moveLinesUp": "Move Line Up",
+      "deleteLines": "Delete Line",
+      "insertCursorBelow": "Add Cursor Below",
+      "insertCursorAbove": "Add Cursor Above",
+      "formatDocument": "Format Document",
+      "rename": "Rename Symbol",
+      "duplicateSelection": "Duplicate Selection"
+    },
+    "record": {
+      "prompt": "Press the desired key combination",
+      "promptSecond": "Press the second key of the chord",
+      "commit": "Save",
+      "cancel": "Cancel",
+      "unsupported": "Unsupported key",
+      "hint": "Enter to save · Esc to cancel"
+    },
+    "source": {
+      "default": "Default",
+      "user": "User"
+    },
+    "conflict": {
+      "blocking": "Conflicts with “{{command}}”",
+      "overlap": "Also bound to “{{command}}” (different focus scope)",
+      "shadow": "Shadows {{owner}}: {{note}}",
+      "system": "Reserved by the OS: {{note}}"
+    },
+    "owner": {
+      "monaco": "the editor",
+      "terminal": "the terminal/shell",
+      "electron": "the app menu",
+      "system": "the OS"
+    },
+    "command": {
+      "file": {
+        "new": "New File",
+        "open": "Open File",
+        "save": "Save File",
+        "rename": "Rename File",
+        "delete": "Delete File",
+        "copy": "Copy File",
+        "cut": "Cut File",
+        "paste": "Paste File",
+        "moveHere": "Move File Here",
+        "renameByEnter": "Rename with Enter (Mac)"
+      },
+      "files": {
+        "refresh": "Refresh Files"
+      },
+      "explorer": {
+        "openToSide": "Open to Side (File Tree)"
+      },
+      "tab": {
+        "close": "Close Tab",
+        "closeOthers": "Close Other Tabs",
+        "closeSaved": "Close Saved Tabs",
+        "closeAll": "Close All Tabs",
+        "pinToggle": "Pin / Unpin Tab",
+        "focusPrev": "Previous Tab",
+        "focusNext": "Next Tab"
+      },
+      "group": {
+        "splitRight": "Split Right",
+        "splitDown": "Split Down",
+        "close": "Close Group",
+        "focusLeft": "Focus Group Left",
+        "focusRight": "Focus Group Right",
+        "focusUp": "Focus Group Up",
+        "focusDown": "Focus Group Down"
+      },
+      "workspace": {
+        "symbolSearch": "Search Workspace Symbols",
+        "focusPrev": "Previous Workspace",
+        "focusNext": "Next Workspace",
+        "add": "Add Workspace"
+      },
+      "settings": {
+        "open": "Open Settings"
+      },
+      "workbench": {
+        "toggleFilesPanel": "Toggle Files Panel",
+        "toggleSidebar": "Toggle Sidebar"
+      },
+      "terminal": {
+        "new": "New Terminal"
+      },
+      "path": {
+        "reveal": "Reveal in File Manager",
+        "copy": "Copy Path",
+        "copyRelative": "Copy Relative Path"
+      },
+      "browser": {
+        "focusUrl": "Focus URL Bar (Browser)",
+        "reload": "Reload Page (Browser)",
+        "hardReload": "Hard Reload (Browser)",
+        "goBack": "Back (Browser)",
+        "goForward": "Forward (Browser)"
+      }
+    }
   }
 }

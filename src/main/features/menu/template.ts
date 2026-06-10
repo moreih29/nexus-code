@@ -21,8 +21,8 @@
  */
 import type { TFunction } from "i18next";
 import { COMMANDS, type CommandId } from "../../../shared/keybindings/commands";
+import { KEYBINDINGS, type KeybindingDecl } from "../../../shared/keybindings/index";
 import { chordToLabel } from "../../../shared/keybindings/keybinding-parse";
-import { findChordBinding, findPrimaryBinding } from "../../../shared/keybindings/index";
 
 export type MenuItemSpec =
   | { type: "separator" }
@@ -68,6 +68,14 @@ interface BuildMenuOptions {
    * embedded in each builder are used (e.g. in tests that build without i18n).
    */
   t?: TFunction;
+  /**
+   * EFFECTIVE binding table (defaults + user overrides, merged by
+   * `applyKeybindingOverrides`).  Injected by the installer so this
+   * module stays pure.  When omitted, falls back to the static
+   * `KEYBINDINGS` defaults — correct for tests and for boots with no
+   * stored overrides.
+   */
+  bindings?: readonly KeybindingDecl[];
 }
 
 export function buildMenuTemplate(opts: BuildMenuOptions): MenuItemSpec[] {
@@ -87,7 +95,7 @@ export function buildMenuTemplate(opts: BuildMenuOptions): MenuItemSpec[] {
     menu.push(windowMenu(t));
   }
 
-  return enrichWithKeybindings(menu, opts.isMac);
+  return enrichWithKeybindings(menu, opts.isMac, opts.bindings ?? KEYBINDINGS);
 }
 
 /**
@@ -111,7 +119,10 @@ function appMenu(appName: string, t?: TFunction): MenuItemSpec {
         role: "about",
         label: t != null ? t("menu:appMenu.about", { appName }) : `About ${appName}`,
       },
-      cmd(t != null ? t("menu:appMenu.checkForUpdates") : "Check for Updates...", COMMANDS.updatesCheck),
+      cmd(
+        t != null ? t("menu:appMenu.checkForUpdates") : "Check for Updates...",
+        COMMANDS.updatesCheck,
+      ),
       { type: "separator" },
       // macOS convention: Settings… right under About, ⌘, accelerator.
       cmd(t != null ? t("menu:appMenu.settings") : "Settings…", COMMANDS.settingsOpen),
@@ -178,12 +189,21 @@ function viewMenu(t?: TFunction): MenuItemSpec {
     type: "submenu",
     label: t != null ? t("menu:view.label") : "View",
     submenu: [
-      cmd(t != null ? t("menu:view.toggleFilesPanel") : "Toggle Files Panel", COMMANDS.workbenchToggleFilesPanel),
-      cmd(t != null ? t("menu:view.toggleSidebar") : "Toggle Sidebar", COMMANDS.workbenchToggleSidebar),
+      cmd(
+        t != null ? t("menu:view.toggleFilesPanel") : "Toggle Files Panel",
+        COMMANDS.workbenchToggleFilesPanel,
+      ),
+      cmd(
+        t != null ? t("menu:view.toggleSidebar") : "Toggle Sidebar",
+        COMMANDS.workbenchToggleSidebar,
+      ),
       { type: "separator" },
       cmd(t != null ? t("menu:view.revealInFinder") : "Reveal in Finder", COMMANDS.pathReveal),
       cmd(t != null ? t("menu:view.copyPath") : "Copy Path", COMMANDS.pathCopy),
-      cmd(t != null ? t("menu:view.copyRelativePath") : "Copy Relative Path", COMMANDS.pathCopyRelative),
+      cmd(
+        t != null ? t("menu:view.copyRelativePath") : "Copy Relative Path",
+        COMMANDS.pathCopyRelative,
+      ),
       { type: "separator" },
       { type: "role", role: "toggleDevTools" },
       { type: "separator" },
@@ -201,17 +221,32 @@ function workspaceMenu(t?: TFunction): MenuItemSpec {
     type: "submenu",
     label: t != null ? t("menu:workspace.label") : "Workspace",
     submenu: [
-      cmd(t != null ? t("menu:workspace.previousWorkspace") : "Previous Workspace", COMMANDS.workspaceFocusPrev),
-      cmd(t != null ? t("menu:workspace.nextWorkspace") : "Next Workspace", COMMANDS.workspaceFocusNext),
+      cmd(
+        t != null ? t("menu:workspace.previousWorkspace") : "Previous Workspace",
+        COMMANDS.workspaceFocusPrev,
+      ),
+      cmd(
+        t != null ? t("menu:workspace.nextWorkspace") : "Next Workspace",
+        COMMANDS.workspaceFocusNext,
+      ),
       { type: "separator" },
       cmd(t != null ? t("menu:workspace.splitRight") : "Split Right", COMMANDS.groupSplitRight),
       cmd(t != null ? t("menu:workspace.splitDown") : "Split Down", COMMANDS.groupSplitDown),
       cmd(t != null ? t("menu:workspace.closeGroup") : "Close Group", COMMANDS.groupClose),
       { type: "separator" },
-      cmd(t != null ? t("menu:workspace.focusGroupLeft") : "Focus Group Left", COMMANDS.groupFocusLeft),
-      cmd(t != null ? t("menu:workspace.focusGroupRight") : "Focus Group Right", COMMANDS.groupFocusRight),
+      cmd(
+        t != null ? t("menu:workspace.focusGroupLeft") : "Focus Group Left",
+        COMMANDS.groupFocusLeft,
+      ),
+      cmd(
+        t != null ? t("menu:workspace.focusGroupRight") : "Focus Group Right",
+        COMMANDS.groupFocusRight,
+      ),
       cmd(t != null ? t("menu:workspace.focusGroupUp") : "Focus Group Up", COMMANDS.groupFocusUp),
-      cmd(t != null ? t("menu:workspace.focusGroupDown") : "Focus Group Down", COMMANDS.groupFocusDown),
+      cmd(
+        t != null ? t("menu:workspace.focusGroupDown") : "Focus Group Down",
+        COMMANDS.groupFocusDown,
+      ),
     ],
   };
 }
@@ -232,26 +267,33 @@ function windowMenu(t?: TFunction): MenuItemSpec {
 
 /**
  * Walk the spec tree and fill in `accelerator` (and the chord label
- * suffix) for each command item from `shared/keybindings.ts`. Pure
- * over the spec — no Electron access here.
+ * suffix) for each command item from the EFFECTIVE binding table
+ * (defaults + user overrides). Pure over the spec — no Electron access
+ * here.
  *
  * Mirrors VSCode's `withKeybinding` strategy:
- *   - Single-key binding → set `accelerator` (Electron registers it).
+ *   - Single-key binding → set `accelerator` (display only — every
+ *     command item sets `registerAccelerator: false`).
  *   - Chord binding → no accelerator, append `[⌘K ⌘W]` to the label
  *     (Electron can't register chords; renderer dispatches them).
+ *   - No binding (user unbound it) → bare label, no shortcut shown.
  */
-function enrichWithKeybindings(specs: MenuItemSpec[], isMac: boolean): MenuItemSpec[] {
+function enrichWithKeybindings(
+  specs: MenuItemSpec[],
+  isMac: boolean,
+  bindings: readonly KeybindingDecl[],
+): MenuItemSpec[] {
   return specs.map((spec): MenuItemSpec => {
     if (spec.type === "submenu") {
-      return { ...spec, submenu: enrichWithKeybindings(spec.submenu, isMac) };
+      return { ...spec, submenu: enrichWithKeybindings(spec.submenu, isMac, bindings) };
     }
     if (spec.type !== "command") return spec;
 
-    const primary = findPrimaryBinding(spec.command);
+    const primary = bindings.find((b) => b.command === spec.command && b.primary !== undefined);
     if (primary?.primary !== undefined) {
       return { ...spec, accelerator: primary.primary };
     }
-    const chord = findChordBinding(spec.command);
+    const chord = bindings.find((b) => b.command === spec.command && b.chord !== undefined);
     if (chord?.chord !== undefined) {
       const label = chordToLabel(chord.chord, { isMac });
       return { ...spec, label: `${spec.label} [${label}]` };

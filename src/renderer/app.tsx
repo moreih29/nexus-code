@@ -16,6 +16,7 @@ import { AboutPanel } from "./components/settings/panels/about-panel";
 import { AppearancePanel } from "./components/settings/panels/appearance-panel";
 import { BrowserPermissionsPanel } from "./components/settings/panels/browser-permissions-panel";
 import { EditorPanel } from "./components/settings/panels/editor-panel";
+import { KeybindingsPanel } from "./components/settings/panels/keybindings-panel";
 import { NotificationsPanel } from "./components/settings/panels/notifications-panel";
 import { TerminalPanel } from "./components/settings/panels/terminal-panel";
 import { SettingsDialog } from "./components/settings/settings-dialog";
@@ -174,6 +175,12 @@ export function App() {
         label: t("nav.browserPermissions"),
         group: t("nav.group.settings"),
         keywords: ["browser", "permission", "camera", "microphone", "location", "clipboard"],
+      },
+      {
+        id: "keybindings",
+        label: t("nav.keybindings"),
+        group: t("nav.group.settings"),
+        keywords: ["keyboard", "shortcut", "keybinding", "hotkey", "단축키", "키보드"],
       },
       {
         id: "about",
@@ -392,6 +399,7 @@ export function App() {
             if (activeId === "terminal") return <TerminalPanel />;
             if (activeId === "notifications") return <NotificationsPanel />;
             if (activeId === "browser-permissions") return <BrowserPermissionsPanel />;
+            if (activeId === "keybindings") return <KeybindingsPanel />;
             if (activeId === "about") return <AboutPanel />;
             return null;
           }}

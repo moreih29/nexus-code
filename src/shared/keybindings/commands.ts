@@ -89,8 +89,28 @@ export const COMMANDS = {
   workbenchToggleFilesPanel: "workbench.toggleFilesPanel",
   workbenchToggleSidebar: "workbench.toggleSidebar",
 
+  // NOTE: DevTools has no app keybinding command. ⌘⌥I is owned by the
+  // Electron menu `toggleDevTools` role (app-window DevTools, standard
+  // behavior). A browser PAGE's DevTools is opened from the panel's
+  // toolbar button only — a reliable keyboard shortcut isn't feasible
+  // because the menu role preempts ⌘⌥I at the OS level for the focused
+  // window's webContents (the app), never the embedded page.
+
   // Terminal
   terminalNew: "terminal.new",
+
+  // Browser tab (embedded WebContentsView). All are scoped via
+  // `when: "browserTabActive"` — they act on the active group's active
+  // tab when (and only when) that tab is a browser tab. Previously these
+  // were hardcoded capture-phase listeners inside browser-view.tsx, which
+  // (a) could not be customized or conflict-checked, and (b) lost the
+  // ⌘R/⌘⇧R race against the global dispatcher (files.refresh fired and
+  // stopImmediatePropagation'd before the component listener ran).
+  browserFocusUrl: "browser.focusUrl",
+  browserReload: "browser.reload",
+  browserHardReload: "browser.hardReload",
+  browserGoBack: "browser.goBack",
+  browserGoForward: "browser.goForward",
 
   // Path actions on the active editor (mirrors VSCode's "when editor not focused")
   pathReveal: "path.reveal",

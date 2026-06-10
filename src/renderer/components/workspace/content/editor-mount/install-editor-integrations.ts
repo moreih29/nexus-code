@@ -14,8 +14,9 @@ import { installDirtyDiffForEditor } from "./install-dirty-diff";
  *     `editor.openCodeEditor` (which is a no-op when there's no
  *     editorService) so Cmd-click on an LSP definition opens the target
  *     file in our tab system.
- *   - Save action — wires Cmd+S to the save service for this editor's
- *     `EditorInput`.
+ *   - Save action — exposes "Save File" in Monaco's F1 palette for this
+ *     editor's `EditorInput`. The ⌘S keystroke itself is owned by the
+ *     global dispatcher (COMMANDS.fileSave), not by Monaco.
  *
  * Returns a single disposer the caller drives on unmount or when the
  * editor instance is replaced. Save action is intentionally NOT disposed
@@ -52,7 +53,7 @@ export function installEditorIntegrations({
       opener.openCodeEditor(source, resource),
   });
 
-  installEditorSaveAction(editor, monaco, input);
+  installEditorSaveAction(editor, input);
 
   // Install the conflict-resolution CodeLens + decoration provider. Activates
   // only when the current model contains Git conflict markers; disposal is
