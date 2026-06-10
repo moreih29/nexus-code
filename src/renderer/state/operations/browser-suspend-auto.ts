@@ -23,6 +23,24 @@
  *   [data-radix-popper-content-wrapper]  — Popover, Tooltip popper containers
  * Watching these four covers every overlay primitive Radix ships.
  *
+ * FALSE POSITIVES — MONACO WIDGETS
+ * --------------------------------
+ * The role-based half of the selector also matches Monaco's own editor
+ * widgets: the Find/Replace widget is `.editor-widget.find-widget[role="dialog"]`,
+ * the context menu is `[role="menu"]`, the suggest widget likewise. Monaco
+ * creates these lazily (first Cmd+F etc.) and then leaves them in the DOM
+ * PERMANENTLY in a hidden state (`aria-hidden="true"`) rather than unmounting.
+ * They live inside `.monaco-editor` and never occlude the browser
+ * WebContentsView — they are part of the editor pane, not a portal over it.
+ *
+ * Without filtering, the first Find in any editor leaves a permanent
+ * `[role="dialog"]` node behind, so `check()` reads `hasOverlay === true`
+ * forever, holds the suspend claim, and the browser tab in that workspace
+ * stays blank until a manual `resumeAll` or restart. `isOccludingOverlay()`
+ * excludes Monaco widgets (whole `.monaco-editor` subtree + the `editor-widget`
+ * class, in case overflow widgets are mounted outside it) and any
+ * `aria-hidden="true"` node, leaving only genuine on-screen portal overlays.
+ *
  * COALESCING
  * ----------
  * MutationObserver can fire many times per render — the check is scheduled
@@ -44,6 +62,31 @@ import { useBrowserSuspendStore } from "../stores/browser-suspend";
 
 const OVERLAY_SELECTOR =
   '[role="dialog"],[role="alertdialog"],[role="menu"],[data-radix-popper-content-wrapper]';
+
+// Monaco editor widgets (find/replace, context menu, suggest) carry overlay
+// roles but live inside the editor pane and persist in the DOM while hidden.
+// Excluding the editor subtree (and the widget class, in case overflow widgets
+// are mounted at the body) keeps them from registering as page overlays.
+const MONACO_WIDGET_SELECTOR = ".monaco-editor,.editor-widget";
+
+/**
+ * True when `el` is a portal overlay that actually occludes the browser view.
+ *
+ * Excludes (a) Monaco editor widgets — same overlay roles, but part of the
+ * editor pane, not a portal over the browser, and left in the DOM permanently
+ * once created; and (b) `aria-hidden="true"` nodes — a closed/inert overlay
+ * does not occlude anything (Radix marks BACKGROUND content aria-hidden, never
+ * the live overlay content, so this never drops a real overlay).
+ */
+export function isOccludingOverlay(el: Element): boolean {
+  if (el.matches(MONACO_WIDGET_SELECTOR) || el.closest(MONACO_WIDGET_SELECTOR) !== null) {
+    return false;
+  }
+  if (el.getAttribute("aria-hidden") === "true") {
+    return false;
+  }
+  return true;
+}
 
 let installed = false;
 
@@ -69,7 +112,9 @@ export function initBrowserOverlayAutoSuspend(): void {
 
   function check(): void {
     pending = false;
-    const hasOverlay = document.querySelector(OVERLAY_SELECTOR) !== null;
+    const hasOverlay = Array.from(document.querySelectorAll(OVERLAY_SELECTOR)).some(
+      isOccludingOverlay,
+    );
     if (hasOverlay && release === null) {
       // Entering overlay state — claim with snapshot capture so the modal
       // renders above a still frame of the page rather than a blank area.
@@ -90,6 +135,15 @@ export function initBrowserOverlayAutoSuspend(): void {
 
   const observer = new MutationObserver(schedule);
   observer.observe(document.body, { childList: true, subtree: true });
+
+  // Re-reconcile on focus / tab-visibility regain. A MutationObserver only
+  // fires on DOM changes, so a suspend state that desynced while the window
+  // was backgrounded (e.g. the OS dropped a `dragend`, or the display slept
+  // mid-overlay) would otherwise stay stuck until the next mutation. Coming
+  // back to the window forces a fresh check, restoring the live view when no
+  // overlay is actually present.
+  window.addEventListener("focus", schedule);
+  document.addEventListener("visibilitychange", schedule);
 
   // Initial sync — covers the (unlikely but harmless) case where an overlay
   // is already present at install time, e.g. an HMR reload while a modal is
