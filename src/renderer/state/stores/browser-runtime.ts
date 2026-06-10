@@ -58,6 +58,13 @@ export interface BrowserRuntimeState {
    * runtime store에만 보관 — 앱 재시작 시 페이지가 다시 로드되며 자연스럽게 갱신.
    */
   faviconUrl: string | null;
+  /**
+   * Imperative URL-bar focus trigger. Incremented by `requestUrlFocus`
+   * (fired by the `browser.focusUrl` command, ⌘L); BrowserTabView passes
+   * it to UrlBar's `focusToken` prop, which focuses + selects-all on
+   * every change. Monotonic counter — the value itself is meaningless.
+   */
+  urlFocusToken: number;
 }
 
 type BrowserRuntimeMap = Map<string, BrowserRuntimeState>;
@@ -71,6 +78,7 @@ const DEFAULT_RUNTIME: BrowserRuntimeState = {
   snapshot: null,
   devtoolsOpen: false,
   faviconUrl: null,
+  urlFocusToken: 0,
 };
 
 interface BrowserRuntimeStore {
@@ -87,6 +95,13 @@ interface BrowserRuntimeStore {
    * No-op if the entry does not exist.
    */
   removeRuntime(tabId: string): void;
+
+  /**
+   * Bump the URL-bar focus token for `tabId` so the mounted
+   * BrowserTabView focuses + selects the URL bar. Creates the runtime
+   * entry if it does not exist yet (harmless — the view merges state).
+   */
+  requestUrlFocus(tabId: string): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +128,11 @@ export const useBrowserRuntimeStore = create<BrowserRuntimeStore>((set, get) => 
       next.delete(tabId);
       return { runtimes: next };
     });
+  },
+
+  requestUrlFocus(tabId) {
+    const current = get().runtimes.get(tabId)?.urlFocusToken ?? 0;
+    get().setRuntime(tabId, { urlFocusToken: current + 1 });
   },
 }));
 

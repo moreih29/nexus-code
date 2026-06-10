@@ -59,17 +59,40 @@ export interface KeybindingDecl {
  * the dispatcher prefers single-keystroke matches before considering
  * chord leaders (handled in the dispatcher, not by table order).
  */
+/**
+ * Shell-key guard for Win/Linux.
+ *
+ * On Mac, `CmdOrCtrl` resolves to ⌘ exclusively, so bare ⌃-letter
+ * readline/job-control shortcuts (Ctrl+R reverse-i-search, Ctrl+W
+ * delete-word, Ctrl+T transpose, Ctrl+E end-of-line, Ctrl+O
+ * operate-and-get-next, Ctrl+N next-history, Ctrl+B backward-char,
+ * Ctrl+S XOFF, Ctrl+\ SIGQUIT, Ctrl+K kill-line) reach the terminal
+ * untouched. On Win/Linux, `CmdOrCtrl` IS Ctrl — without this guard
+ * those app bindings would shadow the shell whenever the terminal has
+ * focus. Applied to every binding whose key collides with a core shell
+ * key; shifted/alt'ed variants are left unguarded (shells don't bind
+ * them).
+ */
+const UNLESS_TERMINAL = "!terminalFocus || isMac";
+
 export const KEYBINDINGS: readonly KeybindingDecl[] = [
   // File / editor
   // ⌘N opens a new untitled file (VSCode parity). The previous
   // ⌘N → Add Workspace binding has moved to ⌘⇧N (see below).
-  { command: COMMANDS.fileNew, primary: "CmdOrCtrl+N" },
-  { command: COMMANDS.fileOpen, primary: "CmdOrCtrl+E" },
-  { command: COMMANDS.fileOpen, primary: "CmdOrCtrl+O" },
-  { command: COMMANDS.fileSave, primary: "CmdOrCtrl+S" },
-  // Refresh blocks the page-level reload regardless of focus.
-  { command: COMMANDS.filesRefresh, primary: "CmdOrCtrl+R" },
-  { command: COMMANDS.filesRefresh, primary: "CmdOrCtrl+Shift+R" },
+  { command: COMMANDS.fileNew, primary: "CmdOrCtrl+N", when: UNLESS_TERMINAL },
+  { command: COMMANDS.fileOpen, primary: "CmdOrCtrl+E", when: UNLESS_TERMINAL },
+  { command: COMMANDS.fileOpen, primary: "CmdOrCtrl+O", when: UNLESS_TERMINAL },
+  { command: COMMANDS.fileSave, primary: "CmdOrCtrl+S", when: UNLESS_TERMINAL },
+  // Refresh blocks the page-level reload regardless of focus — except
+  // when the active tab is a browser tab (⌘R/⌘⇧R then mean Chrome-style
+  // page reload, see the Browser section below) or, on Win/Linux, when
+  // the terminal owns Ctrl+R (reverse-i-search).
+  {
+    command: COMMANDS.filesRefresh,
+    primary: "CmdOrCtrl+R",
+    when: `!browserTabActive && (${UNLESS_TERMINAL})`,
+  },
+  { command: COMMANDS.filesRefresh, primary: "CmdOrCtrl+Shift+R", when: "!browserTabActive" },
 
   // Open the active file-tree row in a side split. Scoped to the
   // tree so ⌘↵ inside a code editor still inserts a new line.
@@ -107,14 +130,20 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
   },
 
   // Tabs
-  { command: COMMANDS.tabClose, primary: "CmdOrCtrl+W" },
+  { command: COMMANDS.tabClose, primary: "CmdOrCtrl+W", when: UNLESS_TERMINAL },
   { command: COMMANDS.tabCloseOthers, primary: "CmdOrCtrl+Alt+T" },
   // Chord-only commands (⌘K …). Cannot be Electron-registered;
-  // renderer handles entirely.
-  { command: COMMANDS.tabCloseSaved, chord: ["CmdOrCtrl+K", "U"] },
-  { command: COMMANDS.tabCloseAll, chord: ["CmdOrCtrl+K", "CmdOrCtrl+W"] },
+  // renderer handles entirely. The `when` guard applies to the *leader*
+  // match too (resolver checks it before arming the chord), so Ctrl+K
+  // keeps meaning kill-line in a Win/Linux terminal.
+  { command: COMMANDS.tabCloseSaved, chord: ["CmdOrCtrl+K", "U"], when: UNLESS_TERMINAL },
+  { command: COMMANDS.tabCloseAll, chord: ["CmdOrCtrl+K", "CmdOrCtrl+W"], when: UNLESS_TERMINAL },
   // VSCode's binding holds Cmd through the chord (⌘K ⌘⇧↵).
-  { command: COMMANDS.tabPinToggle, chord: ["CmdOrCtrl+K", "CmdOrCtrl+Shift+Enter"] },
+  {
+    command: COMMANDS.tabPinToggle,
+    chord: ["CmdOrCtrl+K", "CmdOrCtrl+Shift+Enter"],
+    when: UNLESS_TERMINAL,
+  },
   // Active-group tab cycling. Same Cmd+Ctrl modifier shape as
   // workspaceFocusPrev/Next (literal two-modifier combo, not CmdOrCtrl)
   // so Cmd-alone shortcuts inside Monaco aren't accidentally captured.
@@ -125,7 +154,8 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
   // `\\` matches only the Backslash physical key. KeyboardEvent.code is
   // layout-independent, so Korean layouts (₩/\ key) work without extra
   // codes — see tokenToCodes in keybinding-parse.ts.
-  { command: COMMANDS.groupSplitRight, primary: "CmdOrCtrl+\\" },
+  // Ctrl+\ sends SIGQUIT in a shell — guard on Win/Linux.
+  { command: COMMANDS.groupSplitRight, primary: "CmdOrCtrl+\\", when: UNLESS_TERMINAL },
   { command: COMMANDS.groupSplitDown, primary: "CmdOrCtrl+Shift+\\" },
   { command: COMMANDS.groupClose, primary: "CmdOrCtrl+Shift+W" },
   { command: COMMANDS.groupFocusLeft, primary: "CmdOrCtrl+Alt+Left" },
@@ -149,11 +179,25 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
   { command: COMMANDS.settingsOpen, primary: "CmdOrCtrl+," },
 
   // Workbench layout
-  { command: COMMANDS.workbenchToggleFilesPanel, primary: "CmdOrCtrl+B" },
+  { command: COMMANDS.workbenchToggleFilesPanel, primary: "CmdOrCtrl+B", when: UNLESS_TERMINAL },
   { command: COMMANDS.workbenchToggleSidebar, primary: "CmdOrCtrl+Shift+B" },
 
+  // (No DevTools binding: ⌘⌥I is owned by the Electron menu toggleDevTools
+  // role for app-window DevTools. Browser page DevTools is button-only.)
+
   // Terminal
-  { command: COMMANDS.terminalNew, primary: "CmdOrCtrl+T" },
+  { command: COMMANDS.terminalNew, primary: "CmdOrCtrl+T", when: UNLESS_TERMINAL },
+
+  // Browser tab (Chrome parity). All scoped to `browserTabActive` — a
+  // STATE context key (active group's active tab is a browser tab),
+  // registered by the browser command domain. These never collide with
+  // the terminal guard above: terminal focus implies the active group's
+  // active tab is the terminal, so `browserTabActive` is false.
+  { command: COMMANDS.browserFocusUrl, primary: "CmdOrCtrl+L", when: "browserTabActive" },
+  { command: COMMANDS.browserReload, primary: "CmdOrCtrl+R", when: "browserTabActive" },
+  { command: COMMANDS.browserHardReload, primary: "CmdOrCtrl+Shift+R", when: "browserTabActive" },
+  { command: COMMANDS.browserGoBack, primary: "CmdOrCtrl+[", when: "browserTabActive" },
+  { command: COMMANDS.browserGoForward, primary: "CmdOrCtrl+]", when: "browserTabActive" },
 
   // Path actions on the active editor
   { command: COMMANDS.pathReveal, primary: "CmdOrCtrl+Alt+R" },

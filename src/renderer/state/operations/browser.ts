@@ -148,6 +148,15 @@ export function initBrowserRuntimeSubscriptions(): void {
       activateGroupForTab(tabId);
     }),
   );
+
+  // focusUrl: the browser.focusUrl shortcut (⌘L) fired while the page had
+  // focus, so it was caught by the main key interceptor and bounced here —
+  // focus the address bar for that tab (mirrors the in-renderer command).
+  activeUnsubs.push(
+    ipcListen("browser", "focusUrl", ({ tabId }) => {
+      useBrowserRuntimeStore.getState().requestUrlFocus(tabId);
+    }),
+  );
 }
 
 /**

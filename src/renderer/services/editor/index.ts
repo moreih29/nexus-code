@@ -1,5 +1,6 @@
 import type * as Monaco from "monaco-editor";
 import { initializeDiagnosticsStore } from "../../state/stores/diagnostics";
+import { useKeybindingsStore } from "../../state/stores/keybindings";
 import { initializeLspServerUxRouter } from "../lsp-ux/server-ux-router";
 import { initializeLspBridge } from "./lsp/bridge";
 import { initializeModelCache } from "./model/cache";
@@ -38,4 +39,10 @@ export function initializeEditorServices(monaco: typeof Monaco): void {
   // Monaco basic-languages가 커버하지 못하는 TOML / Makefile / .env / Nix /
   // Justfile / go.mod / go.sum 을 보강 등록 (TextMate + Monarch).
   registerExtraLanguages(monaco);
+
+  // Apply persisted editor keybinding overrides now that the Monaco
+  // singleton is live. Bootstrap hydration usually runs before Monaco
+  // mounts, so the store holds the overrides but the reconcile was a
+  // no-op until this point.
+  useKeybindingsStore.getState().applyEditorBindings();
 }

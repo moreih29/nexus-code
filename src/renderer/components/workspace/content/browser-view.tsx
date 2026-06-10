@@ -39,14 +39,14 @@
  * any pending frame before scheduling a new one. This collapses rapid consecutive
  * resize events into a single IPC call per paint cycle.
  *
- * KEYBOARD SHORTCUTS (active only when this browser tab is the active tab)
- * -------------------------------------------------------------------------
- *   ⌘L        → focus URL bar + select all
- *   ⌘R        → reload
- *   ⌘⇧R       → hard reload (ignoreCache: true)
- *   ⌘[        → go back
- *   ⌘]        → go forward
- *   ⌘⌥I       → toggle DevTools (inline docked)
+ * KEYBOARD SHORTCUTS
+ * ------------------
+ * Browser shortcuts (⌘L / ⌘R / ⌘⇧R / ⌘[ / ⌘] / ⌘⌥I) are NOT handled
+ * here. They live in the declarative KEYBINDINGS table
+ * (shared/keybindings, `when: "browserTabActive"`) and execute through
+ * the browser command domain (commands/domains/browser.ts), which
+ * resolves the active group's active browser tab itself. ⌘L lands back
+ * in this component via the runtime store's `urlFocusToken`.
  */
 import i18next from "i18next";
 import { Wrench } from "lucide-react";
@@ -120,8 +120,6 @@ export function BrowserTabView({
   // updates both regions so a splitter drag still emits a single IPC pair
   // per paint cycle.
   const rafIdRef = useRef<number | null>(null);
-  // URL bar focus imperative trigger — incrementing causes UrlBar to focus+select.
-  const [urlFocusToken, setUrlFocusToken] = useState(0);
   // Whether browser.create has been sent for this tabId.
   const createdRef = useRef(false);
   // User-controlled height of the inline DevTools region.  Per-tab-mount;
@@ -143,6 +141,10 @@ export function BrowserTabView({
   // Whether DevTools is currently docked inside the tab area.  Drives the
   // splitter region and the toolbar toggle button's active style.
   const devtoolsOpen = runtime?.devtoolsOpen ?? false;
+  // URL bar focus imperative trigger — bumped by the `browser.focusUrl`
+  // command (⌘L) via the runtime store; UrlBar focuses + selects-all on
+  // every change.
+  const urlFocusToken = runtime?.urlFocusToken ?? 0;
 
   // Empty state: show when no real URL has been committed for this tab.
   // `about:blank` is used as the synthetic initial load and is treated as
@@ -323,65 +325,6 @@ export function BrowserTabView({
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
   }
-
-  // -------------------------------------------------------------------------
-  // Keyboard shortcuts (active only when this tab is active)
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    if (!isActive) return;
-
-    function onKeyDown(e: KeyboardEvent) {
-      const meta = e.metaKey || e.ctrlKey;
-      if (!meta) return;
-
-      // ⌘L — focus URL bar
-      if (e.key === "l" && !e.shiftKey && !e.altKey) {
-        e.preventDefault();
-        setUrlFocusToken((t) => t + 1);
-        return;
-      }
-
-      // ⌘⇧R — hard reload
-      if (e.key === "r" && e.shiftKey && !e.altKey) {
-        e.preventDefault();
-        void ipcCallResult("browser", "reload", { tabId, ignoreCache: true });
-        return;
-      }
-
-      // ⌘R — reload
-      if (e.key === "r" && !e.shiftKey && !e.altKey) {
-        e.preventDefault();
-        void ipcCallResult("browser", "reload", { tabId });
-        return;
-      }
-
-      // ⌘[ — go back
-      if (e.key === "[" && !e.shiftKey && !e.altKey) {
-        e.preventDefault();
-        void ipcCallResult("browser", "goBack", { tabId });
-        return;
-      }
-
-      // ⌘] — go forward
-      if (e.key === "]" && !e.shiftKey && !e.altKey) {
-        e.preventDefault();
-        void ipcCallResult("browser", "goForward", { tabId });
-        return;
-      }
-
-      // ⌘⌥I — toggle DevTools
-      if (e.key === "i" && e.altKey && !e.shiftKey) {
-        e.preventDefault();
-        void ipcCallResult("browser", "openDevTools", { tabId });
-        return;
-      }
-    }
-
-    window.addEventListener("keydown", onKeyDown, { capture: true });
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, { capture: true });
-    };
-  }, [tabId, isActive]);
 
   // -------------------------------------------------------------------------
   // Render

@@ -78,6 +78,11 @@ export function handleGlobalKeyDown(e: KeyboardEvent): boolean {
 
   if (evaluateContextKey("commandPaletteFocus", e)) return false;
 
+  // The keybinding recorder (Settings → Keyboard Shortcuts) captures raw
+  // keystrokes to record a new binding — never dispatch while it owns
+  // the keydown target, or recording ⌘W would close the tab instead.
+  if (evaluateContextKey("keybindingRecorderFocus", e)) return false;
+
   // ── 2. Escape during pending cancels silently. Outside pending,
   //       Escape isn't ours; let it through.
   const pendingLeader = getPendingLeader();

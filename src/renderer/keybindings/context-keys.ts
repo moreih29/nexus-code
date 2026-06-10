@@ -26,11 +26,50 @@
  *   - `isMac`             — resolved via navigator.platform, not DOM target.
  *                           Always evaluates to the same value for a given
  *                           device; safe to use in `when` expressions.
+ *   - `browserTabActive`  — STATE probe (not DOM): the active group's
+ *                           active tab is a browser tab. Registered via
+ *                           {@link registerContextProbe} by the browser
+ *                           command domain. A DOM probe cannot express
+ *                           this — the embedded WebContentsView is a
+ *                           native view outside the renderer's DOM, so
+ *                           the keydown target is never "inside" it.
  *
  * Unknown names resolve to `false`. Treating an unknown context key
  * as "not active" matches VSCode's behaviour and keeps a typo'd
  * binding fail-safe (it just won't match) rather than fail-loud.
  */
+
+// ---------------------------------------------------------------------------
+// Dynamic (state-backed) context probes
+// ---------------------------------------------------------------------------
+//
+// Some context keys cannot be derived from the keydown target — they
+// describe app *state* (e.g. which tab is active in the focused group).
+// Domains register a probe function once at mount; `evaluateContextKey`
+// falls back to the probe table for any name the DOM switch doesn't
+// handle. Probes must be cheap and synchronous (they run per keydown).
+
+type ContextProbe = () => boolean;
+
+const dynamicProbes = new Map<string, ContextProbe>();
+
+/**
+ * Register a state-backed context probe for `name`. Returns an
+ * unregister function. Re-registering the same name replaces the probe
+ * (last writer wins) — domains are mounted once, so this only matters
+ * for tests.
+ */
+export function registerContextProbe(name: string, probe: ContextProbe): () => void {
+  dynamicProbes.set(name, probe);
+  return () => {
+    if (dynamicProbes.get(name) === probe) dynamicProbes.delete(name);
+  };
+}
+
+/** Test-only — drop all dynamic probes between tests. */
+export function __resetContextProbesForTests(): void {
+  dynamicProbes.clear();
+}
 
 /**
  * Resolves a `when`-clause context key (e.g. `editorFocus`, `fileTreeFocus`)
@@ -51,10 +90,22 @@ export function evaluateContextKey(name: string, event: KeyboardEvent): boolean 
       return isInTerminal(target);
     case "commandPaletteFocus":
       return isInCommandPalette(target);
+    case "keybindingRecorderFocus":
+      return isInKeybindingRecorder(target);
     case "isMac":
       return IS_MAC; // resolved at module load, stable per device
-    default:
+    default: {
+      // State-backed keys (e.g. `browserTabActive`) registered by domains.
+      const probe = dynamicProbes.get(name);
+      if (probe !== undefined) {
+        try {
+          return probe();
+        } catch {
+          return false; // a throwing probe must never break dispatch
+        }
+      }
       return false;
+    }
   }
 }
 
@@ -93,6 +144,14 @@ function isInTerminal(target: HTMLElement | null): boolean {
 
 function isInCommandPalette(target: HTMLElement | null): boolean {
   return closest(target, "[data-command-palette-root]") != null;
+}
+
+// The keybinding recorder must receive EVERY keystroke verbatim —
+// including ones the dispatcher would otherwise claim (⌘W, ⌘K, …).
+// The dispatcher early-returns when the keydown target sits inside a
+// recorder, exactly like the command-palette guard above.
+function isInKeybindingRecorder(target: HTMLElement | null): boolean {
+  return closest(target, "[data-keybinding-recorder]") != null;
 }
 
 function closest(target: HTMLElement | null, selector: string): Element | null {

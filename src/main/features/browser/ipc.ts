@@ -25,9 +25,11 @@
 
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcOk } from "../../../shared/ipc/result";
+import { COMMANDS } from "../../../shared/keybindings/commands";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import type { GlobalStorage } from "../../infra/storage/global-storage";
 import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
+import { installBrowserKeyInterceptor } from "./keyboard";
 import type { BrowserPermissionPromptManager } from "./permission-prompt-manager";
 import type { BrowserTabRegistry } from "./registry";
 
@@ -47,6 +49,32 @@ export interface BrowserChannelDeps {
  * Must be called after the registry is initialised (i.e. after the main
  * window exists).
  */
+/**
+ * Run a browser command resolved by the key interceptor against `tabId`.
+ * Shared by the page-view and docked-DevTools-view interceptors so both
+ * surfaces behave identically. Five act on the registry directly; URL
+ * focus needs the renderer, so it is bounced over IPC.
+ */
+function runBrowserCommand(registry: BrowserTabRegistry, command: string, tabId: string): void {
+  switch (command) {
+    case COMMANDS.browserReload:
+      registry.reload({ tabId });
+      break;
+    case COMMANDS.browserHardReload:
+      registry.reload({ tabId, ignoreCache: true });
+      break;
+    case COMMANDS.browserGoBack:
+      registry.goBack({ tabId });
+      break;
+    case COMMANDS.browserGoForward:
+      registry.goForward({ tabId });
+      break;
+    case COMMANDS.browserFocusUrl:
+      broadcast("browser", "focusUrl", { tabId });
+      break;
+  }
+}
+
 export function registerBrowserChannel(
   registry: BrowserTabRegistry,
   channelDeps?: BrowserChannelDeps,
@@ -123,6 +151,15 @@ export function registerBrowserChannel(
         wc.on("focus", () => {
           broadcast("browser", "focused", { tabId });
         });
+
+        // Intercept keystrokes that land while the PAGE has focus — they
+        // never reach the renderer dispatcher (the WebContentsView is
+        // outside the renderer DOM), so match them here and run the
+        // browser command. (The docked DevTools view is covered by the
+        // registry's DevTools key interceptor wired above.)
+        installBrowserKeyInterceptor(wc, tabId, (command, t) =>
+          runBrowserCommand(registry, command, t),
+        );
 
         return ipcOk(undefined);
       },

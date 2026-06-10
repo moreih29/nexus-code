@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { THEME_SOURCES } from "../design-tokens";
+import { KeybindingOverridesSchema } from "../keybindings/overrides";
 import { WorkspaceLayoutSnapshotSchema } from "./layout";
 
 // ThemePreferenceSchema mirrors the registered ThemeId set. The "system"
@@ -135,6 +136,23 @@ export const AppStateSchema = z.object({
   // Renderer-only display setting; main process has no dedicated callback (generic patch
   // storage is sufficient).
   iconTheme: z.enum(["minimal", "material"]).optional(),
+
+  // User keybinding overrides — a DELTA against the immutable default
+  // KEYBINDINGS table (see shared/keybindings/overrides.ts for the
+  // entry semantics: replace / null=unbind / absent=default). Absent =
+  // all defaults. Accelerator strings are validated with the real
+  // parser at this boundary; unknown command ids pass validation and
+  // are dropped at apply time (version-skew tolerance).
+  keybindingOverrides: KeybindingOverridesSchema.optional(),
+
+  // User editor (Monaco) keybinding overrides — a DELTA against the
+  // curated EDITOR_COMMANDS catalog (see shared/keybindings/
+  // editor-commands.ts). Separate from `keybindingOverrides` because
+  // these target Monaco's own keybinding service (applied via
+  // monaco.editor.addKeybindingRules), not the app dispatcher table.
+  // Same entry semantics (replace / null=unbind / absent=default);
+  // command ids outside the curated catalog are dropped at apply time.
+  editorKeybindingOverrides: KeybindingOverridesSchema.optional(),
 });
 
 export type WindowBounds = z.infer<typeof WindowBoundsSchema>;

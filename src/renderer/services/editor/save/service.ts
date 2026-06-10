@@ -6,7 +6,7 @@
 //   - model-cache       (read-only model view)
 //   - fs.writeFile IPC  (atomic write with mtime/size guard)
 //
-// Public functions: saveModel(input), installEditorSaveAction(editor, monaco, input).
+// Public functions: saveModel(input), installEditorSaveAction(editor, input).
 
 import type * as Monaco from "monaco-editor";
 import { showConflictResolution } from "../../../components/editor/conflict-dialog";
@@ -28,13 +28,18 @@ import { SaveSequentializer, SaveSupersededError } from "./sequentializer";
 
 export function installEditorSaveAction(
   editor: Monaco.editor.IStandaloneCodeEditor,
-  monaco: typeof Monaco,
   input: EditorInput,
 ): Monaco.IDisposable {
   return editor.addAction({
     id: "nexus.file.save",
     label: "Save File",
-    keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+    // Intentionally NO `keybindings` here. ⌘S is owned by the global
+    // dispatcher (shared/keybindings → COMMANDS.fileSave), which wins at
+    // capture phase anyway. Registering a Monaco-side ⌘S as well would
+    // leave a ghost binding that resurfaces the moment the user rebinds
+    // fileSave to another key via the keybinding settings — Monaco would
+    // then fire save on the *old* key. The action stays registered so it
+    // remains discoverable/invocable from Monaco's F1 command palette.
     run: () => {
       runSaveAndReport(input);
     },

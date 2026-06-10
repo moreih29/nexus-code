@@ -35,9 +35,7 @@ mock.module("../../../../../src/main/infra/ipc-router", () => ({
 // Module under test — import after mock
 // ---------------------------------------------------------------------------
 
-const { registerBrowserChannel } = await import(
-  "../../../../../src/main/features/browser/ipc"
-);
+const { registerBrowserChannel } = await import("../../../../../src/main/features/browser/ipc");
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -69,8 +67,12 @@ function makeFakeRegistry() {
   } as unknown as import("../../../../../src/main/features/browser/registry").BrowserTabRegistry;
 }
 
-type RespondArgs = Parameters<import("../../../../../src/main/features/browser/permission-prompt-manager").BrowserPermissionPromptManager["respond"]>;
-type CancelArgs = Parameters<import("../../../../../src/main/features/browser/permission-prompt-manager").BrowserPermissionPromptManager["cancel"]>;
+type RespondArgs = Parameters<
+  import("../../../../../src/main/features/browser/permission-prompt-manager").BrowserPermissionPromptManager["respond"]
+>;
+type CancelArgs = Parameters<
+  import("../../../../../src/main/features/browser/permission-prompt-manager").BrowserPermissionPromptManager["cancel"]
+>;
 
 function makeFakePromptManager() {
   const respondCalls: RespondArgs[] = [];
@@ -218,7 +220,9 @@ describe("browserPermission IPC — listRemembered", () => {
     });
 
     const bpChannel = registeredChannels.get("browserPermission")!;
-    const result = bpChannel.call.listRemembered({ workspaceId: "unknown-ws" }) as { value: unknown[] };
+    const result = bpChannel.call.listRemembered({ workspaceId: "unknown-ws" }) as {
+      value: unknown[];
+    };
     expect(result.value).toHaveLength(0);
   });
 

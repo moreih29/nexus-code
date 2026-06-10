@@ -158,6 +158,26 @@ describe("handleGlobalKeyDown — refresh", () => {
   });
 });
 
+describe("handleGlobalKeyDown — keybinding recorder pause", () => {
+  // The Settings → Keyboard Shortcuts recorder must receive raw
+  // keystrokes. While the keydown target sits inside a
+  // `[data-keybinding-recorder]` container the dispatcher must claim
+  // NOTHING — recording ⌘W would otherwise close the active tab.
+  it("does not claim ⌘W when the target is inside the recorder", () => {
+    const spies = setupCommandSpies();
+    const target = {
+      tagName: "DIV",
+      isContentEditable: false,
+      closest: (sel: string) => (sel === "[data-keybinding-recorder]" ? ({} as HTMLElement) : null),
+    } as unknown as HTMLElement;
+    const e = makeEvent("w", { metaKey: true, code: "KeyW", target });
+    const claimed = handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(claimed).toBe(false);
+    expect(spies[COMMANDS.tabClose]).not.toHaveBeenCalled();
+    expect(e.defaultPrevented).toBe(false);
+  });
+});
+
 describe("handleGlobalKeyDown — fileOpen fires regardless of focus", () => {
   // Phase 3: VSCode-default behaviour — application-level shortcuts
   // fire even from inside an INPUT / editor unless their declaration

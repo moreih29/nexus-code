@@ -51,6 +51,7 @@ import {
   TagSchema,
 } from "../git/types";
 import { CommandIdSchema } from "../keybindings/commands";
+import { KeybindingOverridesSchema } from "../keybindings/overrides";
 import {
   ApplyWorkspaceEditParamsSchema,
   ApplyWorkspaceEditResultSchema,
@@ -768,6 +769,24 @@ export const ipcContract = {
        * no per-workspace or per-tab scope for a global UI language setting.
        */
       languageChanged: listen(z.object({ language: z.enum(["en", "ko"]) })),
+      /**
+       * Broadcast emitted by main when the user keybinding overrides
+       * change via `appState.set({ keybindingOverrides })`.  Sent to all
+       * renderer windows so each can recompile its dispatcher tables and
+       * refresh shortcut labels.  The full override list is the payload —
+       * deltas are small (≤ catalog size) and idempotent hydration keeps
+       * every window convergent regardless of event ordering.
+       */
+      keybindingsChanged: listen(z.object({ overrides: KeybindingOverridesSchema })),
+      /**
+       * Broadcast emitted by main when the user EDITOR (Monaco)
+       * keybinding overrides change via
+       * `appState.set({ editorKeybindingOverrides })`.  Sent to all
+       * renderer windows so each re-reconciles its Monaco keybinding
+       * service.  Unlike `keybindingsChanged` this does NOT rebuild the
+       * native menu — editor commands never appear in it.
+       */
+      editorKeybindingsChanged: listen(z.object({ overrides: KeybindingOverridesSchema })),
     },
   },
 
@@ -1322,6 +1341,16 @@ export const ipcContract = {
        * clicked, matching the behaviour of every other panel type.
        */
       focused: listen(z.object({ tabId: z.string().uuid() })),
+      /**
+       * Emitted when the browser URL-focus shortcut (browser.focusUrl,
+       * ⌘L by default) fires while the page itself has focus. Because the
+       * keystroke lands in the WebContentsView — outside the renderer
+       * document — it is caught by the main-process key interceptor
+       * (browser/keyboard.ts) and bounced back here so the renderer can
+       * focus the address bar. The other browser shortcuts act in main
+       * directly; only URL focus needs a renderer round-trip.
+       */
+      focusUrl: listen(z.object({ tabId: z.string().uuid() })),
     },
   },
 

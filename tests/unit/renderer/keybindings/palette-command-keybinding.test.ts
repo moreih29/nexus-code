@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { registerPaletteCommands } from "../../../../src/renderer/commands/domains/palette";
 import {
   __resetCommandsForTests,
   executeCommand,
@@ -8,7 +9,6 @@ import {
   __resetWorkspaceSymbolPaletteStateForTests,
   isWorkspaceSymbolPaletteOpen,
 } from "../../../../src/renderer/components/symbol-palette/workspace-symbol-palette-state";
-import { registerPaletteCommands } from "../../../../src/renderer/commands/domains/palette";
 import { evaluateContextKey } from "../../../../src/renderer/keybindings/context-keys";
 import {
   __resetChordStateForTests,

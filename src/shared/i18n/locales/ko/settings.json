@@ -7,6 +7,7 @@
     "workspaces": "워크스페이스",
     "notifications": "알림",
     "browserPermissions": "브라우저 권한",
+    "keybindings": "단축키",
     "about": "정보",
     "group": {
       "settings": "설정"
@@ -214,5 +215,129 @@
     },
     "checkNow": "업데이트 확인",
     "checking": "확인 중…"
+  },
+  "keybindings": {
+    "searchPlaceholder": "커맨드 검색",
+    "modifiedOnly": "수정됨만 보기",
+    "conflictsOnly": "충돌만 보기",
+    "conflictsOnlyCount": "충돌만 보기 ({{count}})",
+    "sectionConflicts": "충돌 {{count}}건",
+    "resetAll": "전체 초기화",
+    "resetAllConfirm": "정말 초기화할까요?",
+    "reset": "기본값으로 되돌리기",
+    "edit": "단축키 변경",
+    "unbind": "단축키 해제",
+    "unbound": "—",
+    "empty": "일치하는 커맨드가 없습니다.",
+    "section": {
+      "app": "애플리케이션",
+      "editor": "에디터",
+      "editorDescription": "Monaco 에디터 커맨드 — 에디터에 포커스가 있을 때만 동작합니다. 한 세션에서 같은 항목을 두 번 바꾸면 완전히 반영되는 데 앱 재시작이 필요할 수 있습니다."
+    },
+    "editorCommand": {
+      "commentLine": "한 줄 주석 토글",
+      "blockComment": "블록 주석 토글",
+      "addSelectionToNextFindMatch": "다음 일치 항목 선택 추가",
+      "copyLinesDown": "줄 아래로 복사",
+      "copyLinesUp": "줄 위로 복사",
+      "moveLinesDown": "줄 아래로 이동",
+      "moveLinesUp": "줄 위로 이동",
+      "deleteLines": "줄 삭제",
+      "insertCursorBelow": "아래에 커서 추가",
+      "insertCursorAbove": "위에 커서 추가",
+      "formatDocument": "문서 서식",
+      "rename": "심볼 이름 변경",
+      "duplicateSelection": "선택 영역 복제"
+    },
+    "record": {
+      "prompt": "원하는 키 조합을 누르세요",
+      "promptSecond": "두 번째 키를 누르세요",
+      "commit": "저장",
+      "cancel": "취소",
+      "unsupported": "지원하지 않는 키입니다",
+      "hint": "Enter 저장 · Esc 취소"
+    },
+    "source": {
+      "default": "기본값",
+      "user": "사용자"
+    },
+    "conflict": {
+      "blocking": "“{{command}}”와 충돌합니다",
+      "overlap": "“{{command}}”에도 할당되어 있습니다 (다른 포커스 범위)",
+      "shadow": "{{owner}}의 “{{note}}” 키를 가립니다",
+      "system": "OS 예약 키입니다: {{note}}"
+    },
+    "owner": {
+      "monaco": "에디터",
+      "terminal": "터미널/셸",
+      "electron": "앱 메뉴",
+      "system": "OS"
+    },
+    "command": {
+      "file": {
+        "new": "새 파일",
+        "open": "파일 열기",
+        "save": "파일 저장",
+        "rename": "파일 이름 변경",
+        "delete": "파일 삭제",
+        "copy": "파일 복사",
+        "cut": "파일 잘라내기",
+        "paste": "파일 붙여넣기",
+        "moveHere": "여기로 이동",
+        "renameByEnter": "Enter로 이름 변경 (Mac)"
+      },
+      "files": {
+        "refresh": "파일 새로고침"
+      },
+      "explorer": {
+        "openToSide": "옆으로 열기 (파일 트리)"
+      },
+      "tab": {
+        "close": "탭 닫기",
+        "closeOthers": "다른 탭 닫기",
+        "closeSaved": "저장된 탭 닫기",
+        "closeAll": "모든 탭 닫기",
+        "pinToggle": "탭 고정 전환",
+        "focusPrev": "이전 탭",
+        "focusNext": "다음 탭"
+      },
+      "group": {
+        "splitRight": "우측 분할",
+        "splitDown": "하단 분할",
+        "close": "그룹 닫기",
+        "focusLeft": "왼쪽 그룹 포커스",
+        "focusRight": "오른쪽 그룹 포커스",
+        "focusUp": "위 그룹 포커스",
+        "focusDown": "아래 그룹 포커스"
+      },
+      "workspace": {
+        "symbolSearch": "워크스페이스 심볼 검색",
+        "focusPrev": "이전 워크스페이스",
+        "focusNext": "다음 워크스페이스",
+        "add": "워크스페이스 추가"
+      },
+      "settings": {
+        "open": "설정 열기"
+      },
+      "workbench": {
+        "toggleFilesPanel": "파일 패널 토글",
+        "toggleSidebar": "사이드바 토글"
+      },
+      "terminal": {
+        "new": "새 터미널"
+      },
+      "path": {
+        "reveal": "파일 위치 열기",
+        "copy": "경로 복사",
+        "copyRelative": "상대 경로 복사"
+      },
+      "browser": {
+        "focusUrl": "주소창 포커스 (브라우저)",
+        "reload": "페이지 새로고침 (브라우저)",
+        "hardReload": "강력 새로고침 (브라우저)",
+        "goBack": "뒤로 가기 (브라우저)",
+        "goForward": "앞으로 가기 (브라우저)"
+      }
+    }
   }
 }
