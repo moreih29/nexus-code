@@ -122,9 +122,9 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
   { command: COMMANDS.tabFocusNext, primary: "Cmd+Ctrl+Right" },
 
   // Groups (panels)
-  // `\\` here matches both Backslash and Slash physical keys, so
-  // Korean keyboards (where Shift+Backslash maps to Slash) hit the
-  // same shortcut. Documented in keybinding-parse.ts.
+  // `\\` matches only the Backslash physical key. KeyboardEvent.code is
+  // layout-independent, so Korean layouts (₩/\ key) work without extra
+  // codes — see tokenToCodes in keybinding-parse.ts.
   { command: COMMANDS.groupSplitRight, primary: "CmdOrCtrl+\\" },
   { command: COMMANDS.groupSplitDown, primary: "CmdOrCtrl+Shift+\\" },
   { command: COMMANDS.groupClose, primary: "CmdOrCtrl+Shift+W" },

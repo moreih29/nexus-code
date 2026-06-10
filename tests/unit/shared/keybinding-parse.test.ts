@@ -83,9 +83,11 @@ describe("parseAccelerator", () => {
     expect(parseAccelerator("CmdOrCtrl+Alt+Left").codes).toEqual(["ArrowLeft"]);
   });
 
-  it("treats backslash as accepting both Backslash and Slash (Korean keyboard parity)", () => {
+  it("treats backslash as accepting only the Backslash physical key", () => {
+    // KeyboardEvent.code is layout-independent (Korean ₩/\ key still
+    // reports "Backslash"); including "Slash" here hijacked ⌘/.
     const p = parseAccelerator("CmdOrCtrl+\\");
-    expect(p.codes.slice().sort()).toEqual(["Backslash", "Slash"]);
+    expect(p.codes).toEqual(["Backslash"]);
   });
 
   it("treats CmdOrCtrl/Cmd/Command/Meta as the cmd modifier", () => {
@@ -182,13 +184,15 @@ describe("matchesEvent", () => {
     );
   });
 
-  it("matches CmdOrCtrl+\\ on both Backslash and Slash physical keys (Mac)", () => {
+  it("matches CmdOrCtrl+\\ only on the Backslash physical key (Mac)", () => {
     const p = parseAccelerator("CmdOrCtrl+\\");
     expect(
       matchesEvent(p, ev("Backslash", { metaKey: true }) as unknown as KeyboardEvent, true),
     ).toBe(true);
+    // Regression guard: ⌘/ (Slash) must NOT match ⌘\ — it previously did,
+    // hijacking Monaco's comment-toggle shortcut into split-right.
     expect(matchesEvent(p, ev("Slash", { metaKey: true }) as unknown as KeyboardEvent, true)).toBe(
-      true,
+      false,
     );
   });
 

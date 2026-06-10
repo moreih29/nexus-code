@@ -38,9 +38,11 @@ export interface ParsedKeystroke {
   alt: boolean;
   /**
    * Acceptable `KeyboardEvent.code` values. Usually a single entry.
-   * Backslash is special-cased to also accept `Slash`: Korean
-   * keyboards type the slash key for what would be backslash on QWERTY,
-   * and we want our split shortcut (⌘\) to fire on both.
+   * `code` identifies the physical key independent of keyboard layout
+   * (a Korean layout's ₩/\ key still reports "Backslash"), so one code
+   * per token is sufficient — do NOT add sibling codes for layout
+   * parity, or unrelated shortcuts (e.g. ⌘/ comment toggle) get
+   * swallowed by the wrong binding.
    */
   codes: readonly string[];
 }
@@ -115,11 +117,12 @@ function tokenToCodes(tok: string): readonly string[] {
     case "Right":
       return ["ArrowRight"];
     case "\\":
-      // Korean keyboard parity: Shift+Backslash on a US layout sends
-      // KeyboardEvent.code === "Backslash"; the same physical key on
-      // a Korean layout often surfaces as "Slash". Accepting both
-      // keeps `⌘\` working for everyone without per-layout config.
-      return ["Backslash", "Slash"];
+      // KeyboardEvent.code is layout-independent: Korean layouts also
+      // report the ₩/\ physical key as "Backslash" (only e.key differs).
+      // This previously returned ["Backslash", "Slash"] for a mistaken
+      // "Korean keyboard parity" reason, which made ⌘/ trigger the ⌘\
+      // split shortcut and swallow Monaco's comment toggle.
+      return ["Backslash"];
     case "/":
       return ["Slash"];
     case "Backslash":

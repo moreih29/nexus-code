@@ -198,7 +198,7 @@ describe("handleGlobalKeyDown — fileOpen fires regardless of focus", () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleGlobalKeyDown — split (Backslash / Slash for Korean keyboards)
+// handleGlobalKeyDown — split (Backslash only; ⌘/ belongs to Monaco)
 // ---------------------------------------------------------------------------
 
 describe("handleGlobalKeyDown — split", () => {
@@ -210,11 +210,12 @@ describe("handleGlobalKeyDown — split", () => {
     expect(e.defaultPrevented).toBe(true);
   });
 
-  it("fires group.splitRight on Cmd+/ (code=Slash) — Korean keyboard", () => {
+  it("does NOT fire split on Cmd+/ (code=Slash) — Monaco's comment toggle", () => {
     const spies = setupCommandSpies();
     const e = makeEvent("/", { metaKey: true, code: "Slash" });
     handleGlobalKeyDown(e as unknown as KeyboardEvent);
-    expect(spies[COMMANDS.groupSplitRight]).toHaveBeenCalledTimes(1);
+    expect(spies[COMMANDS.groupSplitRight]).not.toHaveBeenCalled();
+    expect(e.defaultPrevented).toBe(false);
   });
 
   it("fires group.splitDown on Cmd+Shift+\\", () => {

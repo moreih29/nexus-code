@@ -49,13 +49,15 @@ describe("resolveEvent — no chord pending", () => {
     expect(r.command).toBe(COMMANDS.filesRefresh);
   });
 
-  it("matches ⌘\\ on both Backslash and Slash codes (Korean keyboard parity)", () => {
+  it("matches ⌘\\ only on the Backslash code — ⌘/ must pass through to Monaco", () => {
     expect(
       resolveEvent(ev("Backslash", { metaKey: true }) as unknown as KeyboardEvent, null).kind,
     ).toBe("single");
+    // Regression guard: ⌘/ (Slash) is Monaco's comment toggle; resolving it
+    // here would swallow the event at capture phase.
     expect(
       resolveEvent(ev("Slash", { metaKey: true }) as unknown as KeyboardEvent, null).kind,
-    ).toBe("single");
+    ).toBe("none");
   });
 });
 
