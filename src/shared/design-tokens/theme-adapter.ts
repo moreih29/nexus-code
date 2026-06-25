@@ -166,6 +166,22 @@ function overlay(base: "dark" | "light", alpha: number): string {
 }
 
 /**
+ * Overlay whose alpha is scaled at runtime by a CSS custom property.
+ * Emits `rgba(rgb, calc(<alpha> * var(<cssVar>, <fallback>)))` so the baked
+ * per-theme alpha stays the default while a user setting can scale it live.
+ * Used by surface.island.inactive.veil + the --inactive-panel-dim preference.
+ */
+function overlayScaled(
+  base: "dark" | "light",
+  alpha: number,
+  cssVar: string,
+  fallback: number,
+): string {
+  const rgb = base === "dark" ? "255, 255, 255" : "0, 0, 0";
+  return `rgba(${rgb}, calc(${alpha} * var(${cssVar}, ${fallback})))`;
+}
+
+/**
  * Apply an alpha multiplier to any CSS color string.
  * Returns an rgba() string parsed from the original color; falls back to
  * the original value if parsing fails.  Used for sidebar.item.focus.border
@@ -228,7 +244,14 @@ export function buildSemanticTokens(source: ThemeSource): SemanticTokenSet {
     "surface.island.bg": source.bg.primary,
     "surface.island.fg": source.fg.primary,
     "surface.island.border": source.border,
-    "surface.island.inactive.veil": o(source.base === "dark" ? 0.2 : 0.04),
+    // Alpha scaled at runtime by the --inactive-panel-dim preference (default
+    // multiplier 1 → each theme's tuned alpha; see use-inactive-panel-dim-effect).
+    "surface.island.inactive.veil": overlayScaled(
+      source.base,
+      source.base === "dark" ? 0.2 : 0.04,
+      "--inactive-panel-dim",
+      1,
+    ),
     "surface.floating.bg": source.bg.floating,
     "surface.floating.fg": source.fg.primary,
     "surface.floating.border": source.border,

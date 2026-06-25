@@ -29,6 +29,7 @@ import { AddWorkspaceDialog } from "./components/workspace/add-workspace";
 import { WorkspacePanel } from "./components/workspace/panel";
 import { showRemoveWorkspaceConfirm } from "./components/workspace/remove-workspace-dialog";
 import { useThemeEffect } from "./hooks/use-theme-effect";
+import { useInactivePanelDimEffect } from "./hooks/use-inactive-panel-dim-effect";
 import { useWindowOpacityEffect } from "./hooks/use-window-opacity-effect";
 import { ipcCallResult } from "./ipc/client";
 import { useGlobalKeybindings } from "./keybindings/use-global-keybindings";
@@ -42,6 +43,7 @@ import { useSettingsUIStore } from "./state/stores/settings-ui";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
+import { useInactivePanelDimStore } from "./state/stores/inactive-panel-dim";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
 import { useWorkspacesStore } from "./state/stores/workspaces";
 
@@ -75,6 +77,7 @@ export function App() {
   const iconThemePreference = useIconThemeStore((s) => s.preference);
   const themePreference = useThemeStore((s) => s.preference);
   const opacity = useWindowOpacityStore((s) => s.opacity);
+  const inactivePanelDim = useInactivePanelDimStore((s) => s.dim);
   const editorFontSize = useEditorFontStore((s) => s.size);
   const editorFontFamily = useEditorFontStore((s) => s.family);
   const editorFontLigatures = useEditorFontStore((s) => s.ligatures);
@@ -88,6 +91,7 @@ export function App() {
     iconThemePreference: typeof iconThemePreference;
     themePreference: typeof themePreference;
     opacity: number;
+    inactivePanelDim: number;
     editorFontSize: typeof editorFontSize;
     editorFontFamily: typeof editorFontFamily;
     editorFontLigatures: typeof editorFontLigatures;
@@ -109,6 +113,7 @@ export function App() {
         iconThemePreference,
         themePreference,
         opacity,
+        inactivePanelDim,
         editorFontSize,
         editorFontFamily,
         editorFontLigatures,
@@ -129,7 +134,8 @@ export function App() {
       snap !== null &&
       (iconThemePreference !== snap.iconThemePreference ||
         themePreference !== snap.themePreference ||
-        opacity !== snap.opacity);
+        opacity !== snap.opacity ||
+        inactivePanelDim !== snap.inactivePanelDim);
     const editorDirty =
       snap !== null &&
       (editorFontSize !== snap.editorFontSize ||
@@ -147,7 +153,7 @@ export function App() {
         id: "appearance",
         label: t("nav.appearance"),
         group: t("nav.group.settings"),
-        keywords: ["theme", "opacity", "language", "언어"],
+        keywords: ["theme", "opacity", "language", "dim", "inactive", "panel", "언어", "흐림"],
         dirty: appearanceDirty,
       },
       {
@@ -195,6 +201,7 @@ export function App() {
     iconThemePreference,
     themePreference,
     opacity,
+    inactivePanelDim,
     editorFontSize,
     editorFontFamily,
     editorFontLigatures,
@@ -359,6 +366,7 @@ export function App() {
 
   // Apply --window-opacity CSS property to documentElement.
   useWindowOpacityEffect();
+  useInactivePanelDimEffect();
 
   // Wire the keyboard dispatcher and the Application Menu IPC bridge to
   // the same command registry. Both surfaces resolve to one

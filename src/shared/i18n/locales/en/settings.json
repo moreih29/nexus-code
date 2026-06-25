@@ -139,11 +139,13 @@
     "theme": "Theme",
     "iconTheme": "Icon Theme",
     "windowOpacity": "Window opacity",
+    "inactivePanelDim": "Inactive panel dimming",
     "reset": {
       "language": "Reset Language",
       "theme": "Reset Theme",
       "iconTheme": "Reset Icon Theme",
-      "windowOpacity": "Reset Window opacity"
+      "windowOpacity": "Reset Window opacity",
+      "inactivePanelDim": "Reset Inactive panel dimming"
     }
   },
   "editor": {
