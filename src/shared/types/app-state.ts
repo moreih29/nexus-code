@@ -54,6 +54,11 @@ export const AppStateSchema = z.object({
   // Changing this requires an app restart — `transparent` is constructor-only in Electron.
   windowOpacity: z.number().min(0).max(1).optional(),
 
+  // Inactive-panel dim multiplier — scales each theme's tuned inactive-veil
+  // alpha. 1 = theme default (omitted from storage), 0 = no dim, 2 = double.
+  // Applied at runtime via --inactive-panel-dim CSS var; no restart needed.
+  inactivePanelDim: z.number().min(0).max(2).optional(),
+
   // UI density — 닫힌 집합; 부재=토큰 fallback ('default').
   density: z.enum(["default", "compact"]).optional(),
 

@@ -58,8 +58,14 @@ interface FileTreeRowProps {
   isIgnored?: boolean;
   /** True when this row is in the cut clipboard (VSCode parity: dimmed). */
   isCut?: boolean;
-  onToggle: () => void; // dir click
-  onClick: (e: React.MouseEvent) => void; // file click
+  /**
+   * Row click. Always receives the event so the parent's handler can read
+   * shift/cmd modifiers for range/toggle multi-selection. Applies uniformly
+   * to files AND folders — the parent (handleRowClick) decides the primary
+   * action: a plain (unmodified) folder click toggles expand, a plain file
+   * click opens it, while modified clicks extend/toggle the selection set.
+   */
+  onClick: (e: React.MouseEvent) => void;
   /**
    * File-only double-click. Mirrors VSCode explorer's "double-click =
    * open as a permanent (non-preview) tab" gesture.
@@ -91,7 +97,6 @@ export function FileTreeRow({
   decoration,
   isIgnored = false,
   isCut = false,
-  onToggle,
   onClick,
   onDoubleClick,
   onContextMenu,
@@ -174,7 +179,7 @@ export function FileTreeRow({
       aria-level={depth + 1}
       aria-expanded={isDir ? isExpanded : undefined}
       aria-selected={isSelected}
-      onClick={isDir ? onToggle : (e) => onClick(e)}
+      onClick={(e) => onClick(e)}
       onDoubleClick={isDir ? undefined : onDoubleClick}
       onContextMenu={onContextMenu}
       title={node.name}

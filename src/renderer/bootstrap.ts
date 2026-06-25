@@ -33,6 +33,7 @@ import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
 import { useUpdatesStore } from "./state/stores/updates";
+import { useInactivePanelDimStore } from "./state/stores/inactive-panel-dim";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
 import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
 
@@ -185,6 +186,9 @@ export async function bootstrapAppState(): Promise<void> {
 
   // Hydrate window opacity from appState (authoritative store).
   useWindowOpacityStore.getState().hydrate(state.windowOpacity);
+
+  // Hydrate inactive-panel dim multiplier from appState (authoritative store).
+  useInactivePanelDimStore.getState().hydrate(state.inactivePanelDim);
 
   // Hydrate update preferences (channel + auto-check toggle) from appState
   // and install the statusChanged listener.

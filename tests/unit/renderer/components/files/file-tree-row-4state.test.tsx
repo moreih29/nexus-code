@@ -36,7 +36,6 @@ function renderRow(props: Partial<React.ComponentProps<typeof FileTreeRow>> = {}
       isExpanded: false,
       isSelected: false,
       isFocused: false,
-      onToggle: () => {},
       onClick: () => {},
       ...props,
     }),

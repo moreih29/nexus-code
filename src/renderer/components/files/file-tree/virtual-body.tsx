@@ -158,7 +158,6 @@ export function FileTreeVirtualBody({
               isLoading={tree?.loading.has(item.absPath) ?? false}
               decoration={decoration}
               isIgnored={isIgnored}
-              onToggle={() => onRowClick(flatIdx, item)}
               onClick={(e) => onRowClick(flatIdx, item, e)}
               onDoubleClick={() => onRowDoubleClick(flatIdx, item)}
               onContextMenu={() => onRowContextMenu(flatIdx, item)}

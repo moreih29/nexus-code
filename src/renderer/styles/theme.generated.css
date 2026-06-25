@@ -198,7 +198,7 @@
   --surface-island-bg: #0d1117;
   --surface-island-fg: #c9d1d9;
   --surface-island-border: #30363d;
-  --surface-island-inactive-veil: rgba(255, 255, 255, 0.2);
+  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #30363d;
   --state-drag-indicator: #1f6feb;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
@@ -330,7 +330,7 @@
   --surface-island-bg: #0d1117;
   --surface-island-fg: #c9d1d9;
   --surface-island-border: #30363d;
-  --surface-island-inactive-veil: rgba(255, 255, 255, 0.2);
+  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #30363d;
   --state-drag-indicator: #1f6feb;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
@@ -455,7 +455,7 @@
   --surface-island-bg: #ffffff;
   --surface-island-fg: #1f2328;
   --surface-island-border: #d0d7de;
-  --surface-island-inactive-veil: rgba(0, 0, 0, 0.04);
+  --surface-island-inactive-veil: rgba(0, 0, 0, calc(0.04 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #d0d7de;
   --state-drag-indicator: #0969da;
   --state-drop-target-bg: rgba(0, 0, 0, 0.08);
@@ -580,7 +580,7 @@
   --surface-island-bg: #282a36;
   --surface-island-fg: #f8f8f2;
   --surface-island-border: #191a21;
-  --surface-island-inactive-veil: rgba(255, 255, 255, 0.2);
+  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #191a21;
   --state-drag-indicator: #bd93f9;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
@@ -705,7 +705,7 @@
   --surface-island-bg: #282c34;
   --surface-island-fg: #abb2bf;
   --surface-island-border: #181a1f;
-  --surface-island-inactive-veil: rgba(255, 255, 255, 0.2);
+  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #181a1f;
   --state-drag-indicator: #61afef;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
@@ -830,7 +830,7 @@
   --surface-island-bg: #272822;
   --surface-island-fg: #f8f8f2;
   --surface-island-border: #1e1f1c;
-  --surface-island-inactive-veil: rgba(255, 255, 255, 0.2);
+  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #1e1f1c;
   --state-drag-indicator: #a6e22e;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
@@ -955,7 +955,7 @@
   --surface-island-bg: #1a1b26;
   --surface-island-fg: #c0caf5;
   --surface-island-border: #15161e;
-  --surface-island-inactive-veil: rgba(255, 255, 255, 0.2);
+  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #15161e;
   --state-drag-indicator: #7aa2f7;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
@@ -1080,7 +1080,7 @@
   --surface-island-bg: #002b36;
   --surface-island-fg: #839496;
   --surface-island-border: #073642;
-  --surface-island-inactive-veil: rgba(255, 255, 255, 0.2);
+  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #073642;
   --state-drag-indicator: #268bd2;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
@@ -1205,7 +1205,7 @@
   --surface-island-bg: #2e3440;
   --surface-island-fg: #d8dee9;
   --surface-island-border: #3b4252;
-  --surface-island-inactive-veil: rgba(255, 255, 255, 0.2);
+  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #3b4252;
   --state-drag-indicator: #88c0d0;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
@@ -1330,7 +1330,7 @@
   --surface-island-bg: #1e1e2e;
   --surface-island-fg: #cdd6f4;
   --surface-island-border: #181825;
-  --surface-island-inactive-veil: rgba(255, 255, 255, 0.2);
+  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #181825;
   --state-drag-indicator: #89b4fa;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
@@ -1455,7 +1455,7 @@
   --surface-island-bg: #282828;
   --surface-island-fg: #ebdbb2;
   --surface-island-border: #3c3836;
-  --surface-island-inactive-veil: rgba(255, 255, 255, 0.2);
+  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #3c3836;
   --state-drag-indicator: #fabd2f;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
