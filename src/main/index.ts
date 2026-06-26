@@ -48,6 +48,7 @@ import { getMainI18n, getMainT, initMainI18n } from "./i18n";
 import { NEXUS_AGENT_MODE_ENV } from "./infra/agent/local-agent-resolver";
 import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./infra/agent/ssh/auth-prompt";
 import { createSshChannel } from "./infra/agent/ssh/channel";
+import { createCachingAuthPromptHandler } from "./infra/agent/ssh/credential-cache";
 import { sweepStaleControlDirs } from "./infra/agent/ssh/master";
 import { ensureRemoteAgent } from "./infra/agent/ssh/ssh-bootstrap/index";
 import { broadcast, setupRouter } from "./infra/ipc-router";
@@ -119,6 +120,12 @@ function forwardBroadcast(channelName: string, event: string, args: unknown): vo
 }
 
 const sshAuthPromptHub = new SshAuthPromptHub(forwardBroadcast);
+// Session-scoped credential cache: wraps the hub so successful passwords are
+// reused on automatic reconnects without re-prompting the user. The cache
+// invalidates itself on retry=true prompts (SSH "Permission denied, try again").
+const cachedSshAuthPromptHandler = createCachingAuthPromptHandler((prompt) =>
+  sshAuthPromptHub.request(prompt),
+);
 
 function wrappedBroadcast(channelName: string, event: string, args: unknown): void {
   if (channelName === "workspace" && event === "removed") {
@@ -150,11 +157,11 @@ const workspaceManager = new WorkspaceManager(
   wrappedBroadcast,
   (options) =>
     createSshChannel(options, {
-      promptHandler: (prompt) => sshAuthPromptHub.request(prompt),
+      promptHandler: cachedSshAuthPromptHandler,
     }),
   (options, deps) =>
     ensureRemoteAgent(options, {
-      promptHandler: (prompt) => sshAuthPromptHub.request(prompt),
+      promptHandler: cachedSshAuthPromptHandler,
       onProgress: deps?.onProgress,
     }),
 );
@@ -166,11 +173,11 @@ const sshBrowseRegistry = new SshBrowseSessionRegistry();
 registerWorkspaceChannel(workspaceManager, {
   createSshChannel: (options) =>
     createSshChannel(options, {
-      promptHandler: (prompt) => sshAuthPromptHub.request(prompt),
+      promptHandler: cachedSshAuthPromptHandler,
     }),
   sshBootstrap: (options) =>
     ensureRemoteAgent(options, {
-      promptHandler: (prompt) => sshAuthPromptHub.request(prompt),
+      promptHandler: cachedSshAuthPromptHandler,
     }),
   browseRegistry: sshBrowseRegistry,
 });
