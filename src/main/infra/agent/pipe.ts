@@ -835,17 +835,25 @@ function escapeControlChars(value: string): string {
 function parseFrame(line: string): ParsedFrame {
   const parsed: unknown = JSON.parse(line);
 
-  const ready = ReadyFrameSchema.safeParse(parsed);
-  if (ready.success) {
-    return {
-      kind: "ready",
-      protocolVersion: ready.data.protocolVersion,
-      methods: ready.data.methods,
-      heartbeatIntervalMs: ready.data.heartbeatIntervalMs,
-      idleWatchdogMs: ready.data.idleWatchdogMs,
-      agentEpoch: ready.data.agentEpoch,
-      capabilities: ready.data.capabilities,
-    };
+  // The `ready` frame is uniquely tagged `type: "ready"` and is emitted exactly
+  // once, at handshake. Gate the schema parse behind that cheap tag check so the
+  // hot data/response/event path (every PTY output frame) doesn't pay a full
+  // Zod object parse just to have it fail. Behavior-preserving: a frame without
+  // `type === "ready"` can never satisfy ReadyFrameSchema's literal, so skipping
+  // the parse yields the same fall-through as before.
+  if (isRecord(parsed) && parsed.type === "ready") {
+    const ready = ReadyFrameSchema.safeParse(parsed);
+    if (ready.success) {
+      return {
+        kind: "ready",
+        protocolVersion: ready.data.protocolVersion,
+        methods: ready.data.methods,
+        heartbeatIntervalMs: ready.data.heartbeatIntervalMs,
+        idleWatchdogMs: ready.data.idleWatchdogMs,
+        agentEpoch: ready.data.agentEpoch,
+        capabilities: ready.data.capabilities,
+      };
+    }
   }
 
   if (!isRecord(parsed)) {
@@ -892,8 +900,12 @@ function parseFrame(line: string): ParsedFrame {
     };
   }
 
-  const event = EventFrameSchema.safeParse(parsed);
-  if (event.success) {
+  // Only attempt the event schema when the `event` key is present (computed
+  // above). A frame without it can never satisfy EventFrameSchema's required
+  // `event` string, so this avoids a wasted parse on malformed frames while
+  // keeping the hot data-event path (which always has the key) unchanged.
+  const event = hasEvent ? EventFrameSchema.safeParse(parsed) : null;
+  if (event?.success) {
     return {
       kind: "event",
       event: event.data.event,

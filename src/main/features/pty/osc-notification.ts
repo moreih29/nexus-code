@@ -77,6 +77,14 @@ const OSC99_TITLE_PARAM_RE = /(?:^|;)p=title:([^;]*)/;
 export function extractOscNotifications(chunk: string): OscNotification[] {
   const results: OscNotification[] = [];
 
+  // Fast path: every OSC sequence begins with the introducer ESC ']'
+  // (0x1b 0x5d), which all three regexes below anchor on. The vast majority of
+  // PTY output chunks (plain text, CSI cursor moves, SGR colors) contain no OSC
+  // introducer at all, so bail before running three global-regex matchAll scans
+  // over the whole chunk. Behavior-preserving — a chunk without "\x1b]" cannot
+  // match any of the patterns.
+  if (!chunk.includes("\x1b]")) return results;
+
   for (const m of chunk.matchAll(OSC9_RE)) {
     results.push({ kind: "osc9", body: m[1] });
   }
