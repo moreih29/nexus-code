@@ -620,6 +620,19 @@ class XtermTerminalController implements TerminalController {
       //
       //   `event.keyCode === 229` fallback은 옛 Chromium에서 `isComposing`이
       //   일부 keydown에 늦게 세팅되는 케이스 대응.
+      //
+      //   Mac Cmd+←/→ 중복 방지: macOS에 물리 Home/End가 없어 사용자는 Cmd+←/→
+      //   로 줄 시작/끝을 이동한다. 그런데 xterm.js의 CompositionHelper.keydown은
+      //   keyCode 16/17/18/20/229만 예외로 두고 Cmd(Meta=91)를 "조합 종료 키"로
+      //   취급해 조합 중 Cmd를 누르는 순간 조합 글자를 확정(전송)한다. 이후
+      //   compositionend가 다시 finalize를 걸어 `_compositionPosition`이 전진하지
+      //   않은 채 같은 글자를 setTimeout으로 재전송 → 마지막 글자가 두 번 입력된다
+      //   ("안녕하세요" + Cmd+← → "요안녕하세요"). 조합 중 bare Meta keydown을
+      //   여기서 가로채 xterm의 조기 finalize를 막으면, 조합 글자는 compositionend
+      //   경로로 한 번만 전송된다. preventDefault는 호출하지 않는다 — textarea
+      //   기본 동작(커서 이동)을 건드리면 offset이 desync되어 stuck 버그가 재발하기
+      //   때문. (실제 xterm 6.0.0 재생 하네스로 4개 nav 케이스 중복 제거 확인.)
+      if (event.isComposing && event.keyCode === 91) return false;
       if (event.isComposing || event.keyCode === 229) return true;
 
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "c") {
@@ -692,7 +705,21 @@ class XtermTerminalController implements TerminalController {
       if (isHome || isEnd) {
         event.preventDefault();
         event.stopPropagation();
-        ptyClient.write(isHome ? "\x01" : "\x05");
+        // Defer the ^A/^E byte to the next macrotask so it lands *after* any
+        // pending IME composition commit. When a nav key ends an IME
+        // composition, xterm finalizes the composed syllable on a setTimeout(0)
+        // scheduled at the preceding `compositionend`; writing our nav byte
+        // synchronously here would reach the PTY first and drag the not-yet-sent
+        // syllable to the wrong side of the cursor move (e.g. "안녕하세요" +
+        // Home → "요안녕하세"). Scheduling our byte on a later setTimeout(0)
+        // preserves FIFO ordering: the composed syllable is emitted first, then
+        // the cursor moves. This only reorders our own write and never touches
+        // xterm's key/composition handling, so it cannot desync the IME state.
+        // Works together with the bare-Meta guard above: that guard prevents the
+        // Cmd+←/→ double-send, and this defer keeps the single committed syllable
+        // ordered before the cursor move.
+        const byte = isHome ? "\x01" : "\x05";
+        setTimeout(() => ptyClient.write(byte), 0);
         return false;
       }
       return true;

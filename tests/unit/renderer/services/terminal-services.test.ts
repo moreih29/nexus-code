@@ -716,6 +716,8 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     metaKey?: boolean;
     ctrlKey?: boolean;
     altKey?: boolean;
+    isComposing?: boolean;
+    keyCode?: number;
     defaultPrevented: boolean;
     preventDefault(): void;
     stopPropagation(): void;
@@ -727,6 +729,8 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     metaKey?: boolean;
     ctrlKey?: boolean;
     altKey?: boolean;
+    isComposing?: boolean;
+    keyCode?: number;
   }): FakeKeyEvent {
     const event: FakeKeyEvent = {
       type: opts.type ?? "keydown",
@@ -735,6 +739,8 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
       metaKey: opts.metaKey,
       ctrlKey: opts.ctrlKey,
       altKey: opts.altKey,
+      isComposing: opts.isComposing,
+      keyCode: opts.keyCode,
       defaultPrevented: false,
       preventDefault() {
         this.defaultPrevented = true;
@@ -744,6 +750,46 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     return event;
   }
 
+  it("조합 중 bare Cmd(Meta) keydown → return false (xterm 조기 finalize 차단, preventDefault 안 함)", async () => {
+    // Regression guard for the Mac Cmd+←/→ duplicate-syllable bug: while an IME
+    // composition is active, the bare Meta keydown must be swallowed so xterm's
+    // CompositionHelper does not prematurely finalize (and later double-send)
+    // the composing syllable. It must NOT preventDefault (that would move the
+    // textarea caret and desync the composition offsets → "stuck" bug).
+    const { harness, controller, handler } = await setupHandler();
+    const event = fakeKeyEvent({ key: "Meta", metaKey: true, isComposing: true, keyCode: 91 });
+
+    const result = handler(event as unknown as KeyboardEvent);
+
+    expect(result).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(harness.ptyWrites).toEqual([]);
+
+    controller.dispose();
+  });
+
+  it("조합 중 Cmd+ArrowRight(=isComposing 상태) → xterm에 위임(return true), 직접 write 안 함", async () => {
+    // The composition guard must delegate the composing nav keydown to xterm so
+    // the syllable commits exactly once via compositionend; our ^E is issued on
+    // the separate non-composing keydown that follows.
+    const { harness, controller, handler } = await setupHandler();
+    const event = fakeKeyEvent({
+      key: "ArrowRight",
+      metaKey: true,
+      isComposing: true,
+      keyCode: 229,
+    });
+
+    const result = handler(event as unknown as KeyboardEvent);
+
+    expect(result).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(harness.ptyWrites).toEqual([]);
+
+    controller.dispose();
+  });
+
   it("Home 단독 keydown → \\x01 송신 + 기본 동작 차단", async () => {
     const { harness, controller, handler } = await setupHandler();
     const event = fakeKeyEvent({ key: "Home" });
@@ -752,6 +798,9 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
 
     expect(result).toBe(false);
     expect(event.defaultPrevented).toBe(true);
+    // The ^A/^E byte is written on a deferred macrotask (setTimeout 0) so it
+    // lands after any pending IME composition commit — flush before asserting.
+    await new Promise((r) => setTimeout(r, 0));
     expect(harness.ptyWrites).toEqual(["\x01"]);
 
     controller.dispose();
@@ -765,6 +814,8 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
 
     expect(result).toBe(false);
     expect(event.defaultPrevented).toBe(true);
+    // Deferred macrotask write — flush before asserting (see \x01 case).
+    await new Promise((r) => setTimeout(r, 0));
     expect(harness.ptyWrites).toEqual(["\x05"]);
 
     controller.dispose();
@@ -778,6 +829,9 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
 
     expect(result).toBe(false);
     expect(event.defaultPrevented).toBe(true);
+    // The ^A/^E byte is written on a deferred macrotask (setTimeout 0) so it
+    // lands after any pending IME composition commit — flush before asserting.
+    await new Promise((r) => setTimeout(r, 0));
     expect(harness.ptyWrites).toEqual(["\x01"]);
 
     controller.dispose();
@@ -791,6 +845,8 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
 
     expect(result).toBe(false);
     expect(event.defaultPrevented).toBe(true);
+    // Deferred macrotask write — flush before asserting (see \x01 case).
+    await new Promise((r) => setTimeout(r, 0));
     expect(harness.ptyWrites).toEqual(["\x05"]);
 
     controller.dispose();
