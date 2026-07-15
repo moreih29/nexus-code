@@ -294,7 +294,15 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   // explicitly collapsed the root via the header chevron, an empty area is
   // the correct pose — showing "This folder is empty" would misrepresent
   // intentional collapse as a content-absence state.
-  const showStatusView = flat.length === 0 && rootExpanded;
+  //
+  // Gate on `displayFlat` rather than `flat`: when the tree is empty and the
+  // user triggers New File / New Folder, `flat` is still empty but
+  // `getDisplayFlat` injects the inline-edit sentinel row (a root-anchored
+  // pending create yields `displayFlat = [sentinel]`). That row only renders
+  // inside <FileTreeVirtualBody>, so keying off `flat.length` would leave the
+  // StatusView mounted, the edit row never appears, and the create silently
+  // dies — the empty-tree "create buttons do nothing" bug.
+  const showStatusView = displayFlat.length === 0 && rootExpanded;
 
   // Build the flat path list once per render (same shape as what
   // extendSelectionTo/selectAllVisible need). Declared before handleKeyDown
