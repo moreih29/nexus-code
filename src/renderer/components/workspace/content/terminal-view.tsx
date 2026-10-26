@@ -175,7 +175,7 @@ export function TerminalView({
   const [heldAt, setHeldAt] = useState<number | null>(null);
   /** After `pty.restored`, flash a success banner for ~2 s then auto-clear. */
   const [showRestoredFlash, setShowRestoredFlash] = useState(false);
-  /** Shown dim-inline on first keypress while held. */
+  /** Shown in place of the held banner for a few seconds after a keypress while held. */
   const [showInputHint, setShowInputHint] = useState(false);
   /** Minutes remaining in the grace window — updated per-minute, not per-second. */
   const [graceMinutes, setGraceMinutes] = useState<number>(
@@ -218,6 +218,13 @@ export function TerminalView({
       unlistenExpired();
     };
   }, [workspaceId, tabId]);
+
+  // Hand the bar back to the held banner (and its countdown) after ~3 s.
+  useEffect(() => {
+    if (!showInputHint) return;
+    const timer = setTimeout(() => setShowInputHint(false), 3000);
+    return () => clearTimeout(timer);
+  }, [showInputHint]);
 
   // Auto-dismiss the "Restored" success flash after ~2 s.
   useEffect(() => {
@@ -366,6 +373,15 @@ export function TerminalView({
         aria-live="polite"
       />
     );
+  } else if (isHeld && showInputHint) {
+    activeBanner = (
+      <Banner
+        display="bar"
+        variant="info"
+        message={t("terminal.held_input_hint")}
+        role="status"
+      />
+    );
   } else if (isHeld) {
     activeBanner = (
       <Banner
@@ -374,15 +390,6 @@ export function TerminalView({
         message={t("terminal.held_banner", { minutes: graceMinutes })}
         role="status"
         aria-live="polite"
-      />
-    );
-  } else if (showInputHint) {
-    activeBanner = (
-      <Banner
-        display="bar"
-        variant="info"
-        message={t("terminal.held_input_hint")}
-        role="status"
       />
     );
   }
