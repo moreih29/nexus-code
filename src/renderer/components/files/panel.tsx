@@ -161,7 +161,9 @@ export function FilesPanel() {
                 // tree panels remain functional.
                 <ErrorBoundary logSource="search-panel">
                   <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-                    <SearchPanel workspaceId={activeWorkspace.id} />
+                    {/* Keyed so the query input and options belong to one
+                        workspace; they are restored from its search session. */}
+                    <SearchPanel key={activeWorkspace.id} workspaceId={activeWorkspace.id} />
                   </div>
                 </ErrorBoundary>
               ) : filesPanelMode === "git" ? (

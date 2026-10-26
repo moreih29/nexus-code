@@ -6,6 +6,7 @@
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { isImeComposing } from "@/utils/ime";
 import type { ViewMode } from "../../../../shared/types/panel";
 import type { SearchOptions } from "../../../state/stores/search";
 import { Button } from "../../ui/button";
@@ -49,6 +50,7 @@ export function SearchInput({
 }: SearchInputProps) {
   const { t } = useTranslation("files");
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (isImeComposing(e)) return;
     if (e.key === "Enter") {
       e.preventDefault();
       onEnter();

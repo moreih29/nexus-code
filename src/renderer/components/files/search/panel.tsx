@@ -60,8 +60,14 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
   const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
   const rootPath = workspace?.rootPath ?? "";
 
-  const [inputValue, setInputValue] = useState("");
-  const [options, setOptions] = useState<SearchOptions>({ ...EMPTY_SEARCH_OPTIONS });
+  // Seeded from this workspace's session so switching back to it shows the
+  // query its results belong to.
+  const [inputValue, setInputValue] = useState(
+    () => useSearchStore.getState().sessions.get(workspaceId)?.query ?? "",
+  );
+  const [options, setOptions] = useState<SearchOptions>(() => ({
+    ...(useSearchStore.getState().sessions.get(workspaceId)?.options ?? EMPTY_SEARCH_OPTIONS),
+  }));
   const [regexError, setRegexError] = useState<string | null>(null);
 
   const session = useSearchSession(workspaceId);
@@ -143,6 +149,9 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
   }
 
   function handleEnter() {
+    // Drop the pending debounced run: it would restart the search Enter just
+    // started and clear its results and expanded state.
+    cancel();
     runSearch(inputValue, options);
     // flush is not used here because runSearch already calls startSearch
     // directly and handles regex validation; trigger/flush are for the
