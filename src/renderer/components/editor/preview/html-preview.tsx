@@ -9,14 +9,20 @@
 //                          reach main's setWindowOpenHandler. That handler
 //                          is the actual gate — only http/https/mailto are
 //                          allowed through to shell.openExternal.
+//     - `allow-forms`    → form submission. Without it the browser drops a
+//                          submit before the `submit` event fires, so pages
+//                          that handle forms in script stop working. A
+//                          submit only navigates the iframe itself, which
+//                          scripts can already do.
+//     - `allow-modals`   → alert/confirm/prompt, which pages call the way
+//                          they would in Chrome.
 //
 //   Absent tokens we deliberately keep off:
 //     - `allow-same-origin` → iframe at opaque origin; no cross-talk with
 //                             our renderer's globals or storage.
 //     - `allow-top-navigation` → cannot navigate the outer window.
-//     - `allow-forms` / `allow-modals` / `allow-downloads` / `allow-popups-
-//        to-escape-sandbox` → keep workspace HTML on the same restricted
-//                              floor as scripts inside it.
+//     - `allow-downloads` / `allow-popups-to-escape-sandbox` → keep
+//        workspace HTML on the same restricted floor as scripts inside it.
 //
 //   `allow=""` and `referrerpolicy="no-referrer"` keep Feature-Policy
 //   delegations and Referer leakage on inline-loaded resources locked down.
@@ -327,7 +333,7 @@ export function HtmlPreview({
     <div className="flex flex-col h-full min-h-0">
       <iframe
         ref={iframeRef}
-        sandbox="allow-scripts allow-popups"
+        sandbox="allow-scripts allow-popups allow-forms allow-modals"
         allow=""
         referrerPolicy="no-referrer"
         title={t("preview.html_title")}
