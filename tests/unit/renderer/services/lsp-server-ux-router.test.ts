@@ -84,7 +84,7 @@ describe("LSP server UX router", () => {
     });
   });
 
-  test("tracks $/progress begin/report/end state for registered token", () => {
+  test("tracks $/progress begin/report state and drops the token at end", () => {
     routeLspServerEvent(serverEvent("window/workDoneProgress/create", { token: "build" }));
     routeLspServerEvent(
       serverEvent("$/progress", {
@@ -104,6 +104,19 @@ describe("LSP server UX router", () => {
         value: { kind: "report", message: "Halfway", percentage: 50 },
       }),
     );
+
+    expect(getWorkDoneProgressState("ws-1", "typescript", "build")).toEqual({
+      workspaceId: "ws-1",
+      languageId: "typescript",
+      token: "build",
+      phase: "report",
+      done: false,
+      title: "Build",
+      message: "Halfway",
+      percentage: 50,
+      cancellable: true,
+    });
+
     routeLspServerEvent(
       serverEvent("$/progress", {
         token: "build",
@@ -111,16 +124,7 @@ describe("LSP server UX router", () => {
       }),
     );
 
-    expect(getWorkDoneProgressState("ws-1", "typescript", "build")).toEqual({
-      workspaceId: "ws-1",
-      languageId: "typescript",
-      token: "build",
-      phase: "end",
-      done: true,
-      title: "Build",
-      message: "Done",
-      percentage: 50,
-      cancellable: true,
-    });
+    // Servers mint a token per operation; ended ones must not accumulate.
+    expect(getWorkDoneProgressState("ws-1", "typescript", "build")).toBeUndefined();
   });
 });
