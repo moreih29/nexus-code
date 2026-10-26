@@ -130,6 +130,33 @@ func TestWatchParentReportsUnwatchedSubdirectoryDeleted(t *testing.T) {
 	waitForChanges(t, changes, "p/c")
 }
 
+// A symlinked directory is watchable like any other: the workspace root
+// itself may be a symlink, and fs.watch("") failed with IS_DIRECTORY there.
+// A symlinked directory and its target are watched side by side and report
+// changes under both paths.
+func TestWatchSymlinkedDirectory(t *testing.T) {
+	real := t.TempDir()
+	must(t, os.Mkdir(filepath.Join(real, "target"), 0o755))
+	must(t, os.Symlink("target", filepath.Join(real, "link")))
+	root := filepath.Join(t.TempDir(), "ws")
+	must(t, os.Symlink(real, root))
+	fsys, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fsys.Close()
+	changes := collectChanges(fsys)
+
+	for _, rel := range []string{"", "link", "target"} {
+		if _, err := fsys.Watch(context.Background(), watchParams(rel)); err != nil {
+			t.Fatalf("fs.watch %q: %v", rel, err)
+		}
+	}
+	must(t, os.WriteFile(filepath.Join(real, "top.txt"), []byte("x"), 0o644))
+	must(t, os.WriteFile(filepath.Join(real, "target", "new.txt"), []byte("x"), 0o644))
+	waitForChanges(t, changes, "top.txt", "link/new.txt", "target/new.txt")
+}
+
 func watchParams(rel string) json.RawMessage {
 	raw, _ := json.Marshal(WatchParams{RelPath: rel})
 	return raw

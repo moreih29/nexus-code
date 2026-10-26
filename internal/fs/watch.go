@@ -28,9 +28,11 @@ const watchDebounce = 300 * time.Millisecond
 const shareWatcher = runtime.GOOS == "linux"
 
 // watchEntry is one fsnotify.Watcher and the directories added to it: every
-// watched directory when shareWatcher is set, otherwise exactly one.
+// watched directory except symlinked ones when shared is set, otherwise
+// exactly one.
 type watchEntry struct {
 	watcher *fsnotify.Watcher
+	shared  bool
 	dirs    map[string]struct{} // guarded by Service.mu
 	done    chan struct{}
 	once    sync.Once
@@ -56,6 +58,16 @@ func (s *Service) Watch(ctx context.Context, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, mapPathError(err, abs)
 	}
+	// A symlinked directory (the workspace root may be one) is watched
+	// through the link, on a watcher of its own: inotify watches by inode,
+	// and fsnotify keeps one path per inode, so on the shared watcher the
+	// link and a watched target would report under only one of the paths.
+	symlink := info.Mode()&os.ModeSymlink != 0
+	if symlink {
+		if info, err = os.Stat(abs); err != nil {
+			return nil, mapPathError(err, abs)
+		}
+	}
 	if !info.IsDir() {
 		return nil, FSError{Code: CodeIsDirectory, Path: abs}
 	}
@@ -71,13 +83,18 @@ func (s *Service) Watch(ctx context.Context, raw json.RawMessage) (any, error) {
 	s.mu.Unlock()
 
 	entry := s.shared
-	if entry == nil {
+	if entry == nil || symlink {
 		watcher, err := fsnotify.NewWatcher()
 		if err != nil {
 			return nil, err
 		}
-		entry = &watchEntry{watcher: watcher, dirs: make(map[string]struct{}), done: make(chan struct{})}
-		if shareWatcher {
+		entry = &watchEntry{
+			watcher: watcher,
+			shared:  shareWatcher && !symlink,
+			dirs:    make(map[string]struct{}),
+			done:    make(chan struct{}),
+		}
+		if entry.shared {
 			s.shared = entry
 		}
 		go s.runWatch(entry)
@@ -94,7 +111,7 @@ func (s *Service) Watch(ctx context.Context, raw json.RawMessage) (any, error) {
 		s.mu.Lock()
 		s.forgetLocked(entry, abs)
 		s.mu.Unlock()
-		if !shareWatcher {
+		if !entry.shared {
 			entry.close()
 		}
 		return nil, mapPathError(err, abs)
@@ -123,7 +140,7 @@ func (s *Service) Unwatch(ctx context.Context, raw json.RawMessage) (any, error)
 	s.mu.Unlock()
 
 	if entry != nil {
-		if shareWatcher {
+		if entry.shared {
 			_ = entry.watcher.Remove(abs)
 		} else {
 			entry.close()
@@ -195,7 +212,7 @@ func (s *Service) forgetRemovedDir(entry *watchEntry, absDir string) bool {
 		return false
 	}
 	s.forgetLocked(entry, absDir)
-	return !shareWatcher && len(entry.dirs) == 0
+	return !entry.shared && len(entry.dirs) == 0
 }
 
 func (s *Service) removeWatches(entry *watchEntry) {
