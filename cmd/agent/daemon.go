@@ -373,6 +373,15 @@ func runDaemon(root string) {
 			return nil, true // keep running; dialer may reconnect
 		}
 
+		// PTY output debt the previous dialer never acked belongs to it; the
+		// new renderer will never ack it. Left in place, a session that went
+		// past the high watermark during a silent disconnect stays paused for
+		// good, and pty.replay blocks on the same window. Reset after Ready so
+		// the resumed output does not reach the dialer ahead of that frame,
+		// and before Run so the dialer's first replay already sees open
+		// windows.
+		pty.ResetFlowControl()
+
 		// 송신 4s < 판정 5s — 도착 지터 마진. 근거는 proto.HeartbeatSendMs 주석 참조.
 		host.StartHeartbeat(proto.HeartbeatSendMs * time.Millisecond)
 		// The idle watchdog fires after reattachGrace of no inbound traffic.

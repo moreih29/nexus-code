@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"net"
 	"os"
@@ -221,6 +222,76 @@ func TestDaemonLongSessionThenReattach(t *testing.T) {
 		t.Errorf("epoch mismatch: A=%v B=%v — daemon was replaced, not reattached",
 			frameA["agentEpoch"], frameB["agentEpoch"])
 	}
+}
+
+// TestDaemonTakeoverResumesPausedPTY is the regression test for the
+// reconnected-but-frozen terminal: dialer A reads PTY output but never acks it
+// (a renderer that vanished while the socket still absorbed writes), so the
+// session pauses at the high watermark with ~100 KB of debt. After dialer B
+// takes over, that stale debt must be dropped and the rest of the output must
+// reach B; before ResetFlowControl was wired in, the session stayed paused
+// forever.
+func TestDaemonTakeoverResumesPausedPTY(t *testing.T) {
+	bin := mustBuild(t)
+	root := t.TempDir()
+	fakeHome := shortHome(t)
+
+	cmd, runDir := startDaemon(t, bin, root, fakeHome)
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	sockPath := waitForSocket(t, runDir)
+
+	connA, _ := readReady(t, sockPath)
+	defer connA.Close()
+	spawn, _ := json.Marshal(map[string]any{
+		"id": "spawn", "method": "pty.spawn",
+		"params": map[string]any{
+			"workspaceId": "ws", "tabId": "tab", "cwd": root, "cols": 80, "rows": 24,
+			"shell": "/bin/sh",
+			// 150 KB pauses the session at the 100 KB watermark while A never
+			// acks; what is left after the pause still fits in B's window.
+			"args": []string{"-c", "stty -echo; head -c 150000 /dev/zero | tr '\\0' a; echo; echo END-MARKER; sleep 30"},
+		},
+	})
+	if _, err := connA.Write(append(spawn, '\n')); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	// Drain A without acking until the output stops (the session paused).
+	got := 0
+	for {
+		_ = connA.SetReadDeadline(time.Now().Add(time.Second))
+		n, err := connA.Read(make([]byte, 64*1024))
+		got += n
+		if err != nil {
+			break
+		}
+	}
+	if got < 100_000 {
+		t.Fatalf("dialer A received only %d bytes before the pause", got)
+	}
+
+	connB, _ := readReady(t, sockPath)
+	defer connB.Close()
+	_ = connB.SetReadDeadline(time.Now().Add(5 * time.Second))
+	sc := bufio.NewScanner(connB)
+	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	var tail strings.Builder
+	for sc.Scan() {
+		var frame struct {
+			Event   string `json:"event"`
+			Payload struct {
+				Chunk string `json:"chunk"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(sc.Bytes(), &frame) != nil || frame.Event != "pty.data" {
+			continue
+		}
+		chunk, _ := base64.StdEncoding.DecodeString(frame.Payload.Chunk)
+		tail.Write(chunk)
+		if strings.Contains(tail.String(), "END-MARKER") {
+			return
+		}
+	}
+	t.Fatalf("dialer B never received the output left after the pause (got %d bytes): %v", tail.Len(), sc.Err())
 }
 
 // TestDaemonGraceExpiryMechanism verifies that time.After(reattachGrace) — the
