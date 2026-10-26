@@ -214,6 +214,9 @@ func (s *Service) Spawn(_ context.Context, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, requestFailed("failed to spawn PTY: %s", err)
 	}
+	// From here on the master must not go through os.File.Fd(): that would
+	// put it back into blocking mode (see pollableMaster and withFd).
+	master = pollableMaster(master)
 
 	session := newSession(s, key, cmd, master)
 	session.sizeMu.Lock()

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -143,6 +144,42 @@ while :; do sleep 1; done
 	recorder.requireExit(t, tabID, 3*time.Second)
 	close(stop)
 	wg.Wait()
+}
+
+// TestExitReportedWhileBackgroundJobHoldsTerminal covers a job-control
+// background job (its own process group) that keeps the PTY slave open after
+// the shell exits or is killed. On Linux the master read then never ended and
+// closing the master did not interrupt it, so pty.exit was never sent and the
+// tab hung.
+func TestExitReportedWhileBackgroundJobHoldsTerminal(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		script string
+		kill   bool
+	}{
+		{name: "shell-exits", script: "set -m\nsleep 30 &\necho \"BG=$! READY\"\nexit 0\n"},
+		{name: "shell-killed", script: "set -m\nsleep 30 &\necho \"BG=$! READY\"\nsleep 30\n", kill: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service, recorder := newTestService(t)
+			tabID := "bg-job-" + tc.name
+			spawnTestScript(t, service, tabID, tc.script)
+			recorder.requireTranscriptContains(t, "READY", 2*time.Second)
+			// The background job outlives the test; reap it afterwards.
+			if transcript := recorder.transcript(); strings.Contains(transcript, "BG=") {
+				var bgPID int
+				if _, err := fmt.Sscanf(transcript[strings.Index(transcript, "BG="):], "BG=%d", &bgPID); err == nil && bgPID > 0 {
+					t.Cleanup(func() { _ = syscall.Kill(bgPID, syscall.SIGKILL) })
+				}
+			}
+			if tc.kill {
+				if _, err := service.Kill(context.Background(), mustJSON(t, KillParams{WorkspaceID: testWorkspaceID, TabID: tabID})); err != nil {
+					t.Fatalf("kill: %v", err)
+				}
+			}
+			recorder.requireExit(t, tabID, 3*time.Second)
+		})
+	}
 }
 
 // TestControlCWriteDeliversSIGINT verifies raw 0x03 is handled by the PTY line discipline.
