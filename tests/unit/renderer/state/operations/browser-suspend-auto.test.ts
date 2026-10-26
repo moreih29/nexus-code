@@ -30,14 +30,19 @@ interface FakeSpec {
   insideMonaco?: boolean;
   /** el.getAttribute("aria-hidden") === "true". */
   ariaHidden?: boolean;
+  /** el.closest("[inert]") — the node sits in an inactive workspace panel. */
+  insideInert?: boolean;
 }
 
-// The predicate only ever passes the Monaco-widget selector to matches/closest,
-// so the stub can resolve those calls from the spec booleans directly.
+// matches() only ever sees the Monaco-widget selector; closest() sees that
+// one or the inert-subtree selector, so the stub resolves both from the spec.
 function fakeEl(spec: FakeSpec): Element {
   return {
     matches: () => Boolean(spec.isMonacoWidget),
-    closest: () => (spec.insideMonaco || spec.isMonacoWidget ? ({} as Element) : null),
+    closest: (selector: string) => {
+      if (selector === "[inert]") return spec.insideInert ? ({} as Element) : null;
+      return spec.insideMonaco || spec.isMonacoWidget ? ({} as Element) : null;
+    },
     getAttribute: (name: string) =>
       name === "aria-hidden" && spec.ariaHidden ? "true" : null,
   } as unknown as Element;
@@ -60,6 +65,10 @@ describe("isOccludingOverlay", () => {
 
   test("rejects any aria-hidden overlay node", () => {
     expect(isOccludingOverlay(fakeEl({ ariaHidden: true }))).toBe(false);
+  });
+
+  test("rejects an overlay left open in an inactive (inert) workspace panel", () => {
+    expect(isOccludingOverlay(fakeEl({ insideInert: true }))).toBe(false);
   });
 
   test("accepts a genuine, visible Radix overlay (dialog / menu / popper)", () => {

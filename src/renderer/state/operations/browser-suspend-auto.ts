@@ -69,20 +69,28 @@ const OVERLAY_SELECTOR =
 // are mounted at the body) keeps them from registering as page overlays.
 const MONACO_WIDGET_SELECTOR = ".monaco-editor,.editor-widget";
 
+// Inactive workspace panels stay mounted but are marked `inert`.
+const INERT_SUBTREE_SELECTOR = "[inert]";
+
 /**
  * True when `el` is a portal overlay that actually occludes the browser view.
  *
  * Excludes (a) Monaco editor widgets — same overlay roles, but part of the
  * editor pane, not a portal over the browser, and left in the DOM permanently
- * once created; and (b) `aria-hidden="true"` nodes — a closed/inert overlay
+ * once created; (b) `aria-hidden="true"` nodes — a closed/inert overlay
  * does not occlude anything (Radix marks BACKGROUND content aria-hidden, never
- * the live overlay content, so this never drops a real overlay).
+ * the live overlay content, so this never drops a real overlay); and (c)
+ * anything inside an `inert` subtree, such as a status-bar popover left open
+ * in a workspace the user switched away from.
  */
 export function isOccludingOverlay(el: Element): boolean {
   if (el.matches(MONACO_WIDGET_SELECTOR) || el.closest(MONACO_WIDGET_SELECTOR) !== null) {
     return false;
   }
   if (el.getAttribute("aria-hidden") === "true") {
+    return false;
+  }
+  if (el.closest(INERT_SUBTREE_SELECTOR) !== null) {
     return false;
   }
   return true;
@@ -134,7 +142,15 @@ export function initBrowserOverlayAutoSuspend(): void {
   }
 
   const observer = new MutationObserver(schedule);
-  observer.observe(document.body, { childList: true, subtree: true });
+  // `inert` flips when the active workspace changes, which hides or reveals
+  // the overlays inside that workspace's panel without adding or removing
+  // any node.
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["inert"],
+  });
 
   // Re-reconcile on focus / tab-visibility regain. A MutationObserver only
   // fires on DOM changes, so a suspend state that desynced while the window
