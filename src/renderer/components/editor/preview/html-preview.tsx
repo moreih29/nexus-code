@@ -27,7 +27,7 @@
 //
 // INJECTED PREAMBLE
 //   We prepend a tiny CSS + JS preamble into the srcDoc so the previewed
-//   document inherits two host behaviours:
+//   document inherits three host behaviours:
 //
 //   1. `::-webkit-scrollbar` — themed to match the app's thin scrollbar.
 //      Colors are neutral semi-transparent grays (the iframe is opaque-
@@ -44,13 +44,20 @@
 //      iframe embedding (X-Frame-Options / frame-ancestors), so the user
 //      would see a blank pane and lose the preview.
 //
-// SRCDOC RELOAD (plan 60 follow-up — toggle bug)
-//   Some Chromium builds do not reload the iframe when its `srcDoc` prop
-//   changes from "" to a real value; the document parser is not re-invoked
-//   in place. The result: toggling preview→raw→preview can leave a blank
-//   pane. We force a fresh document each time `text` changes by using
-//   `key={…}` so React mounts a brand-new <iframe> element and the parser
-//   runs from scratch.
+//   3. Scroll persistence — every srcdoc assignment is a brand-new document
+//      that starts at (0, 0). The preamble reports window scroll back to the
+//      host (postMessage), the host remembers it per file, and the next
+//      document is seeded with that position via a
+//      `<meta name="nexus-preview-scroll">` the preamble reads and chases
+//      while late content (images, mermaid, charts) grows the page.
+//
+// RELOAD CADENCE
+//   The first document of a mount is assigned immediately; later source
+//   changes (typing, or an external writer such as an agent / formatter /
+//   git rewriting the file) are trailing-debounced. One reload per burst
+//   instead of one per animation frame keeps the full-document rebuild +
+//   IPC + re-parse off the shared renderer thread (where the terminal also
+//   lives) and collapses truncate-then-write saves into a single reload.
 
 import { useEffect, useRef } from "react";
 import { isWithinWorkspace, relPath } from "@/utils/path";
@@ -124,8 +131,88 @@ const HTML_PREVIEW_PREAMBLE = `<style>
     e.preventDefault();
     try { window.open(href, '_blank'); } catch (_) {}
   }, true);
+
+  // Scroll persistence. While a restore is pending we keep re-applying it as
+  // the document grows, and stay quiet so the host's remembered position is
+  // not overwritten by the intermediate (clamped) offsets.
+  var restore = null;
+  var restoreTimer = 0;
+  var restoreObserver = null;
+  var meta = document.querySelector('meta[name="nexus-preview-scroll"]');
+  if (meta) {
+    var parts = (meta.getAttribute('content') || '').split(',');
+    var rx = Number(parts[0]) || 0;
+    var ry = Number(parts[1]) || 0;
+    if (rx > 0 || ry > 0) restore = { x: rx, y: ry };
+    if (meta.parentNode) meta.parentNode.removeChild(meta);
+  }
+  function stopRestore() {
+    if (!restore) return;
+    restore = null;
+    clearTimeout(restoreTimer);
+    if (restoreObserver) restoreObserver.disconnect();
+  }
+  function applyRestore() {
+    if (!restore) return;
+    // 'instant' bypasses a page-level scroll-behavior: smooth.
+    window.scrollTo({ left: restore.x, top: restore.y, behavior: 'instant' });
+    if (Math.abs(window.scrollX - restore.x) < 1 && Math.abs(window.scrollY - restore.y) < 1) {
+      stopRestore();
+    }
+  }
+  if (restore) {
+    restoreTimer = setTimeout(stopRestore, 2000);
+    document.addEventListener('DOMContentLoaded', applyRestore);
+    window.addEventListener('load', applyRestore);
+    if (typeof ResizeObserver === 'function') {
+      restoreObserver = new ResizeObserver(applyRestore);
+      restoreObserver.observe(document.documentElement);
+    }
+    ['wheel', 'touchstart', 'keydown', 'mousedown'].forEach(function (type) {
+      window.addEventListener(type, stopRestore, { capture: true, passive: true });
+    });
+  }
+  var reportQueued = false;
+  window.addEventListener('scroll', function () {
+    if (restore || reportQueued) return;
+    reportQueued = true;
+    requestAnimationFrame(function () {
+      reportQueued = false;
+      try {
+        parent.postMessage({ nexusHtmlPreview: 'scroll', x: window.scrollX, y: window.scrollY }, '*');
+      } catch (_) {}
+    });
+  }, { passive: true });
 })();
 </script>`;
+
+/** Trailing debounce for live-edit reloads (see RELOAD CADENCE). */
+const RELOAD_DEBOUNCE_MS = 300;
+
+interface ScrollPosition {
+  x: number;
+  y: number;
+}
+
+/**
+ * Last scroll position reported by each previewed file's document, keyed by
+ * workspace + absolute path. Module-level so it survives HtmlPreview remounts
+ * (raw↔preview toggle, a transient read error unmounting the pane) — the next
+ * mount's first document restores it.
+ */
+const scrollByFile = new Map<string, ScrollPosition>();
+
+/**
+ * `<meta>` carrying the restore target for the preamble. Values are coerced to
+ * non-negative integers here, so nothing but digits reaches the markup.
+ */
+function buildScrollMeta(scroll: ScrollPosition | undefined): string {
+  if (!scroll) return "";
+  const x = Math.max(0, Math.round(scroll.x) || 0);
+  const y = Math.max(0, Math.round(scroll.y) || 0);
+  if (x === 0 && y === 0) return "";
+  return `<meta name="nexus-preview-scroll" content="${x},${y}">`;
+}
 
 /**
  * Build the `<base href>` tag that lets the iframe resolve relatively-
@@ -161,10 +248,11 @@ function buildBaseTag(
  * style/script tags into the synthesised <head>.
  *
  * The `<base>` must come FIRST so the user's own <link>/<script src> tags
- * (which follow inside their <head>) resolve against it.
+ * (which follow inside their <head>) resolve against it. The scroll meta must
+ * precede the preamble script, which reads it synchronously.
  */
-function injectPreamble(source: string, baseTag: string): string {
-  const head = baseTag + HTML_PREVIEW_PREAMBLE;
+function injectPreamble(source: string, baseTag: string, scrollMeta: string): string {
+  const head = baseTag + scrollMeta + HTML_PREVIEW_PREAMBLE;
   const headOpen = /<head\b[^>]*>/i.exec(source);
   if (headOpen) {
     const insertAt = headOpen.index + headOpen[0].length;
@@ -183,7 +271,27 @@ export function HtmlPreview({
   // No size cap here: the iframe parses off the renderer's main thread, so
   // large HTML documents render without blocking the UI (unlike markdown/svg).
   const baseTag = buildBaseTag(workspaceId, currentFileAbsPath, workspaceRootAbsPath);
-  const doc = injectPreamble(source, baseTag);
+  const scrollKey = `${workspaceId}\0${currentFileAbsPath}`;
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  // Scroll reports from the preamble. Only messages whose source is OUR
+  // iframe's window are accepted; the payload is reduced to two numbers.
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      const el = iframeRef.current;
+      if (!el || e.source !== el.contentWindow) return;
+      const data: unknown = e.data;
+      if (typeof data !== "object" || data === null) return;
+      const msg = data as { nexusHtmlPreview?: unknown; x?: unknown; y?: unknown };
+      if (msg.nexusHtmlPreview !== "scroll") return;
+      const x = Number(msg.x);
+      const y = Number(msg.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      scrollByFile.set(scrollKey, { x, y });
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [scrollKey]);
 
   // Imperatively set `srcdoc` so the iframe element stays mounted across
   // live edits (no remount cascade). The known Chromium srcDoc-prop-not-
@@ -192,12 +300,28 @@ export function HtmlPreview({
   // already unmounts/remounts HtmlPreview around the raw↔preview toggle,
   // so the "empty → first content" path also goes through this effect on
   // fresh mount.
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  //
+  // The document string is built only when it is actually assigned, and the
+  // "did anything change" check compares the inputs (usually the identical
+  // string instance from the model) instead of reading back the potentially
+  // multi-megabyte `srcdoc` attribute on every render.
+  const assignedRef = useRef<{ source: string; baseTag: string } | null>(null);
   useEffect(() => {
     const el = iframeRef.current;
     if (!el) return;
-    if (el.srcdoc !== doc) el.srcdoc = doc;
-  }, [doc]);
+    const assigned = assignedRef.current;
+    if (assigned && assigned.source === source && assigned.baseTag === baseTag) return;
+    const assign = () => {
+      assignedRef.current = { source, baseTag };
+      el.srcdoc = injectPreamble(source, baseTag, buildScrollMeta(scrollByFile.get(scrollKey)));
+    };
+    if (assigned === null) {
+      assign();
+      return;
+    }
+    const timer = setTimeout(assign, RELOAD_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [source, baseTag, scrollKey]);
 
   return (
     <div className="flex flex-col h-full min-h-0">
