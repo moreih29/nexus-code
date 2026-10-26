@@ -24,6 +24,17 @@ import {
   toFileErrorCode,
 } from "./cache";
 
+function sameSnapshot(a: SharedModelState, b: SharedModelState): boolean {
+  return (
+    a.phase === b.phase &&
+    a.model === b.model &&
+    a.errorCode === b.errorCode &&
+    a.readOnly === b.readOnly &&
+    a.diskDiverged?.mtime === b.diskDiverged?.mtime &&
+    a.diskDiverged?.size === b.diskDiverged?.size
+  );
+}
+
 export function useSharedModel(input: EditorInput): SharedModelState {
   const { workspaceId, filePath } = input;
   const [state, setState] = useState<SharedModelState>({
@@ -64,7 +75,10 @@ export function useSharedModel(input: EditorInput): SharedModelState {
         setState(nextState);
         unsubscribe = subscribeModel(sharedInput, () => {
           const snap = getModelSnapshot(sharedInput);
-          if (snap) setState(snap);
+          // Every reconcile notifies (one per fs/git event), usually with an
+          // unchanged snapshot. Keeping the previous object skips re-rendering
+          // the whole EditorView subtree — previews included — for nothing.
+          if (snap) setState((prev) => (sameSnapshot(prev, snap) ? prev : snap));
         });
       })
       .catch((error) => {

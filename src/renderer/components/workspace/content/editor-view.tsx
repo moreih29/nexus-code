@@ -187,9 +187,12 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
     phase,
   });
 
-  // Conflict-resolved banner state — only computed when the file is writable.
+  // Conflict-resolved banner state — only computed when the file is writable
+  // and git reports it conflicted. The banner ignores `hasMarkers` otherwise,
+  // and the scan is a full-buffer getValue() + search on EVERY content change,
+  // which is a real per-keystroke cost on large files.
   const isConflicted = useIsFileConflicted(filePath, workspaceId);
-  const hasMarkers = useModelHasMarkers(!readOnly ? (model ?? null) : null);
+  const hasMarkers = useModelHasMarkers(!readOnly && isConflicted ? (model ?? null) : null);
   const markResolved = useGitStore((s) => s.markResolved);
 
   // ----- Raw/Preview view-mode wiring (plan 60) ----------------------------

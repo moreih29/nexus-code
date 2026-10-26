@@ -14,7 +14,12 @@ import type { registerKnownModelUri, unregisterKnownModelUri } from "../lsp/know
 import type { monacoContentChangesToLsp } from "../lsp/monaco-converters";
 import type { EditorInput } from "../types";
 import type { attachGitSubscription } from "./attach-git-subscription";
-import type { attachDirtyTracker, detachDirtyTracker, markSaved } from "./dirty-tracker";
+import type {
+  attachDirtyTracker,
+  detachDirtyTracker,
+  getDirtyEntry,
+  markSaved,
+} from "./dirty-tracker";
 import type { FileLoadResult, FsChangedForFile, workspaceRootForInput } from "./file-loader";
 
 /** Lifecycle phase of a `ModelEntry`. */
@@ -88,6 +93,8 @@ export interface ModelEntryDeps {
   detachDirtyTracker: typeof detachDirtyTracker;
   markDirtyTrackerSaved: typeof markSaved;
   readFileForModel: (input: EditorInput) => Promise<FileLoadResult>;
+  statFileForModel: (input: EditorInput) => Promise<{ mtime: string; size: number }>;
+  getDirtyEntry: typeof getDirtyEntry;
   subscribeFsChanged: (
     input: EditorInput,
     onChange: (change: FsChangedForFile) => void,

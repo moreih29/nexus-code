@@ -18,10 +18,12 @@ import { attachLspBridge, rehydrateEntryLspOpened } from "./attach-lsp-bridge";
 import {
   attachDirtyTracker,
   detachDirtyTracker,
+  getDirtyEntry,
   markSaved as markDirtyTrackerSaved,
 } from "./dirty-tracker";
 import {
   readFileForModel,
+  statFileForModel,
   subscribeFsChanged,
   subscribeGitStatusChanged,
   workspaceRootForInput,
@@ -39,6 +41,8 @@ const defaultModelEntryDeps: ModelEntryDeps = {
   detachDirtyTracker,
   markDirtyTrackerSaved,
   readFileForModel,
+  statFileForModel,
+  getDirtyEntry,
   subscribeFsChanged,
   subscribeGitStatusChanged,
   attachGitSubscription,
@@ -292,7 +296,7 @@ async function loadEntry(entry: ModelEntry): Promise<void> {
     // event arrives. Only workspace-origin entries track working-tree files.
     if (entry.origin === "workspace") {
       entry.gitUnsubscribe = deps.attachGitSubscription(entry, deps, () => {
-        reconcileExternalChange(entry).catch(() => {});
+        reconcileIfStatChanged(entry).catch(() => {});
       });
     }
 
@@ -364,6 +368,31 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
     entry.errorCode = errorCodeFromUnknown(error);
     notifySubscribers(entry);
   }
+}
+
+/**
+ * git.statusChanged-triggered variant of `reconcileExternalChange`. That event
+ * is workspace-wide (any working-tree change refreshes status), so doing a full
+ * read of every open file on each one is wasted IPC and string work that grows
+ * with file size. Stat first, and only reconcile when this file's mtime/size
+ * moved away from the dirty tracker's loaded baseline (kept current by load,
+ * save and reload). Any stat failure falls through to the full reconcile,
+ * which owns error handling.
+ */
+async function reconcileIfStatChanged(entry: ModelEntry): Promise<void> {
+  if (entry.disposed) return;
+  const deps = depsFor(entry);
+  try {
+    const loaded = deps.getDirtyEntry(entry.cacheUri);
+    if (loaded) {
+      const stat = await deps.statFileForModel(entry.input);
+      if (entry.disposed) return;
+      if (stat.mtime === loaded.loadedMtime && stat.size === loaded.loadedSize) return;
+    }
+  } catch {
+    // Fall through.
+  }
+  await reconcileExternalChange(entry);
 }
 
 /**
