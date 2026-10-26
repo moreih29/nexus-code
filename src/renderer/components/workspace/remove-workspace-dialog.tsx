@@ -7,9 +7,10 @@
 // Replaces window.confirm in app.tsx:handleRemoveWorkspace.
 
 import { Dialog as RadixDialog } from "radix-ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { MOUNT_CLICK_GRACE_MS } from "@/components/ui/confirm-dialog";
 import { Dialog } from "@/components/ui/dialog";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 
@@ -57,10 +58,28 @@ export function showRemoveWorkspaceConfirm(name: string, unsavedCount = 0): Prom
 export function RemoveWorkspaceDialogRoot(): React.JSX.Element {
   const { t } = useTranslation();
   const [active, setActive] = useState<PendingPrompt | null>(getActive());
+  const mountAtRef = useRef<number>(0);
 
   useEffect(() => {
     return bus.subscribe(() => setActive(getActive()));
   }, []);
+
+  useEffect(() => {
+    if (active !== null) mountAtRef.current = performance.now();
+  }, [active]);
+
+  // Same guard as ConfirmDialog: a keyboard-synthesized click (`detail`
+  // 0) right after the dialog opens is the residue of the key that opened
+  // it, not an answer.
+  const answer =
+    (confirmed: boolean) =>
+    (e: React.MouseEvent): void => {
+      if (e.detail === 0 && performance.now() - mountAtRef.current < MOUNT_CLICK_GRACE_MS) {
+        e.preventDefault();
+        return;
+      }
+      resolveActive(confirmed);
+    };
 
   const open = active !== null;
 
@@ -85,10 +104,14 @@ export function RemoveWorkspaceDialogRoot(): React.JSX.Element {
         )}
       </RadixDialog.Description>
       <div className="mt-5 flex justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={() => resolveActive(false)}>
+        {/* Focus starts on Cancel: the dialog often opens from a key press
+            (Enter on the sidebar's remove button), and key repeat or a
+            second Enter must not remove the workspace, kill its terminals
+            and discard its unsaved edits. */}
+        <Button variant="ghost" size="sm" onClick={answer(false)} autoFocus>
           {t("action.cancel")}
         </Button>
-        <Button variant="default" size="sm" onClick={() => resolveActive(true)} autoFocus>
+        <Button variant="default" size="sm" onClick={answer(true)}>
           {t("action.remove")}
         </Button>
       </div>
