@@ -243,20 +243,68 @@ func (s *Service) Rename(ctx context.Context, raw json.RawMessage) (any, error) 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if _, err := os.Lstat(toAbs); err == nil {
+	backup := ""
+	if toInfo, err := os.Lstat(toAbs); err == nil {
 		if !p.Overwrite {
 			return nil, FSError{Code: CodeAlreadyExists, Path: toAbs}
 		}
-		if err := os.RemoveAll(toAbs); err != nil {
-			return nil, mapWriteError(err, toAbs)
+		fromInfo, err := os.Lstat(fromAbs)
+		if err != nil {
+			return nil, mapWriteError(err, fromAbs)
+		}
+		// The same entry under another spelling (a case-only rename on a
+		// case-insensitive volume) is renamed in place, never moved aside.
+		if !os.SameFile(fromInfo, toInfo) {
+			if backup, err = moveAside(toAbs); err != nil {
+				return nil, mapWriteError(err, toAbs)
+			}
 		}
 	} else if !errors.Is(err, iofs.ErrNotExist) {
 		return nil, mapWriteError(err, toAbs)
 	}
 	if err := renamePath(fromAbs, toAbs); err != nil {
+		restoreAside(backup, toAbs)
 		return nil, mapWriteError(err, fromAbs)
 	}
+	if err := discardAside(backup); err != nil {
+		return nil, mapWriteError(err, backup)
+	}
 	return struct{}{}, nil
+}
+
+// moveAside renames the entry at abs to a unique hidden sibling so an
+// overwriting rename or copy can take its place without deleting it first.
+// The caller puts it back with restoreAside if the operation fails, or
+// deletes it with discardAside once the replacement is in place, so a
+// missing source or a cross-device move no longer costs the destination.
+func moveAside(abs string) (string, error) {
+	suffix, err := randomSuffix()
+	if err != nil {
+		return "", err
+	}
+	backup := filepath.Join(filepath.Dir(abs), fmt.Sprintf("%s%s.%s", tmpPrefix, filepath.Base(abs), suffix))
+	if err := os.Rename(abs, backup); err != nil {
+		return "", err
+	}
+	return backup, nil
+}
+
+// restoreAside moves a moveAside backup back to abs, clearing anything a
+// failed operation left there first. A no-op when backup is empty.
+func restoreAside(backup, abs string) {
+	if backup == "" {
+		return
+	}
+	_ = os.RemoveAll(abs)
+	_ = os.Rename(backup, abs)
+}
+
+// discardAside deletes a moveAside backup. A no-op when backup is empty.
+func discardAside(backup string) error {
+	if backup == "" {
+		return nil
+	}
+	return os.RemoveAll(backup)
 }
 
 // RemoveAll implements fs.removeAll. It removes the directory tree at relPath
