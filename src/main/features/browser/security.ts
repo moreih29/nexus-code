@@ -34,6 +34,7 @@ import {
   isSubframeNavigationAllowed,
 } from "../../../shared/security/navigation-allowlist";
 import { excludeFromBroadcast } from "../../infra/ipc-router";
+import { isScriptReadableRequest } from "../../infra/security/script-readable-request";
 import { resolvePermission } from "./permission-policy";
 import type { BrowserPermissionPromptManager } from "./permission-prompt-manager";
 
@@ -204,6 +205,21 @@ export function installPermissionHandler(
       { workspaceId, origin, permission, webContentsId: webContents.id, decision },
       callback,
     );
+  });
+}
+
+/**
+ * Cancels file:// requests through which page script could read a local file
+ * (see isScriptReadableRequest). Electron grants file:// pages privileges
+ * Chrome does not, so a page opened from disk in a tab could otherwise read
+ * anything the user can — `~/.ssh/id_rsa` included — and send it out.
+ * Navigating to, rendering and embedding local files still works.
+ */
+export function installLocalFileReadGuard(session: import("electron").Session): void {
+  session.webRequest.onBeforeRequest({ urls: ["file://*/*"] }, (details, callback) => {
+    const cancel = isScriptReadableRequest(details.resourceType, details.url);
+    if (cancel) logger.warn(`[file-read] blocked ${details.resourceType}: ${details.url}`);
+    callback({ cancel });
   });
 }
 

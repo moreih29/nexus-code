@@ -27,7 +27,7 @@ mock.module("electron", () => ({
 }));
 
 // Dynamic import after the mock so the static import isn't hoisted ahead of it.
-const { buildNexusWorkspaceHandler, isScriptReadableWorkspaceRequest } = await import(
+const { buildNexusWorkspaceHandler } = await import(
   "../../../../src/main/features/custom-protocols/nexus-workspace"
 );
 
@@ -114,25 +114,5 @@ describe("nexus-workspace:// SSH branch", () => {
     );
     const resp = await handler(new Request("nexus-workspace://ws-unknown/x.png"));
     expect(resp.status).toBe(404);
-  });
-});
-
-describe("nexus-workspace:// read guard", () => {
-  const url = (rel: string) => `nexus-workspace://ws-1/${rel}`;
-
-  test("lets subresources a page renders with load", () => {
-    expect(isScriptReadableWorkspaceRequest("image", url("logo.png"))).toBe(false);
-    expect(isScriptReadableWorkspaceRequest("font", url("fonts/Inter.woff2"))).toBe(false);
-    expect(isScriptReadableWorkspaceRequest("stylesheet", url("style.css"))).toBe(false);
-    expect(isScriptReadableWorkspaceRequest("subFrame", url("other.html"))).toBe(false);
-    expect(isScriptReadableWorkspaceRequest("script", url("app/main.mjs?v=2"))).toBe(false);
-  });
-
-  test("cancels loads whose bytes page script could read", () => {
-    expect(isScriptReadableWorkspaceRequest("xhr", url(".env"))).toBe(true);
-    expect(isScriptReadableWorkspaceRequest("xhr", url("app/main.js"))).toBe(true);
-    // JSON modules arrive as script requests.
-    expect(isScriptReadableWorkspaceRequest("script", url("data/config.json"))).toBe(true);
-    expect(isScriptReadableWorkspaceRequest("script", url(".env"))).toBe(true);
   });
 });

@@ -57,6 +57,7 @@ import { excludeFromBroadcast } from "../../infra/ipc-router";
 import { installAppScrollbarStyle } from "./page-style";
 import {
   buildBrowserTabWebPreferences,
+  installLocalFileReadGuard,
   installNavigationGuards,
   installPermissionHandler,
   type PermissionHandlerDeps,
@@ -192,6 +193,7 @@ export class BrowserTabRegistry {
     // workspaceId is bound here (not derived from the session) because Electron
     // does not expose the partition string on the Session object.
     installPermissionHandler(view.webContents.session, this.permissionDeps, workspaceId);
+    installLocalFileReadGuard(view.webContents.session);
 
     // Wire navigation guards.  The onNavigate callback is intentionally
     // stubbed here; callers (ipc.ts) attach broadcast callbacks by listening

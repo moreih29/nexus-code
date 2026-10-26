@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url";
 // equivalent in the real electron runtime.
 import * as electron from "electron";
 import { createLogger } from "../../../shared/log/main";
+import { isScriptReadableRequest } from "../../infra/security/script-readable-request";
 import type { WorkspaceManager } from "../workspace/manager";
 
 const logger = createLogger("nexus-workspace");
@@ -71,35 +72,6 @@ function responseHeaders(filePath: string): Record<string, string> {
     // stylesheet to read it (an `.env` of `KEY="…"` lines is valid JS).
     "X-Content-Type-Options": "nosniff",
   };
-}
-
-// ---------------------------------------------------------------------------
-// Read guard — the HTML preview runs workspace pages (and whatever they
-// navigate or embed) in frames of the app's own session, where this scheme
-// is reachable. Electron does not enforce CORS on it (`corsEnabled` lets
-// CORS-mode loads through regardless of Access-Control-Allow-Origin), so
-// response headers cannot stop a page script from reading `.env` or
-// `.git/config` and sending it elsewhere. Requests are filtered by type
-// instead: subresources a page renders with (images, fonts, styles, frames,
-// JS/CSS module scripts) load; script-readable fetches (XHR, JSON modules)
-// are cancelled — what Chrome allows a page opened from file://.
-// ---------------------------------------------------------------------------
-
-const MODULE_SCRIPT_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".css"]);
-
-/** Whether a request to this scheme would let page script read file bytes. */
-export function isScriptReadableWorkspaceRequest(resourceType: string, url: string): boolean {
-  if (resourceType === "xhr") return true;
-  if (resourceType === "script") {
-    let pathname: string;
-    try {
-      pathname = new URL(url).pathname;
-    } catch {
-      return true;
-    }
-    return !MODULE_SCRIPT_EXTENSIONS.has(path.posix.extname(pathname).toLowerCase());
-  }
-  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -281,10 +253,13 @@ export function registerNexusWorkspaceSchemes(): void {
  */
 export function installNexusWorkspaceProtocol(workspaceManager: WorkspaceManager): void {
   electron.protocol.handle("nexus-workspace", buildNexusWorkspaceHandler(workspaceManager));
+  // The HTML preview runs workspace pages (and whatever they navigate or
+  // embed) in frames of the app's own session, where this scheme is
+  // reachable; see isScriptReadableRequest.
   electron.session.defaultSession.webRequest.onBeforeRequest(
     { urls: ["nexus-workspace://*/*"] },
     (details, callback) => {
-      const cancel = isScriptReadableWorkspaceRequest(details.resourceType, details.url);
+      const cancel = isScriptReadableRequest(details.resourceType, details.url);
       if (cancel) logger.warn(`Blocked script-readable ${details.resourceType}: ${details.url}`);
       callback({ cancel });
     },
