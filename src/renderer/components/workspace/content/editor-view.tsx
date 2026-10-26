@@ -182,6 +182,7 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
   const { onMount } = useEditorMount({
     filePath,
     workspaceId,
+    tabId,
     model: model ?? null,
     readOnly,
     phase,

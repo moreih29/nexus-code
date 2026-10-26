@@ -22,11 +22,13 @@ import { requestEditorReveal } from "./pending-reveal";
  * Behaviour:
  *   1. Open or reveal the tab via `openOrRevealEditor` (preview-slot reuse,
  *      newSplit, etc. are forwarded through `options`).
- *   2. If `selection` is supplied, hand it to `requestEditorReveal`. When
- *      a registered editor exists (the typical case for an already-open
- *      file), this calls `revealRange` synchronously. Otherwise the range
- *      is queued and the next `registerRevealTarget` for this key flushes
- *      it — covers the click-then-mount path for fresh tabs.
+ *   2. If `selection` is supplied, hand it to `requestEditorReveal` for the
+ *      tab step 1 opened or activated, so a file open in two splits reveals
+ *      in the split that was just focused. When that tab's editor is
+ *      registered (the typical case for an already-open file), this calls
+ *      `revealRange` synchronously. Otherwise the range is queued and the
+ *      tab's `registerRevealTarget` flushes it — covers the click-then-mount
+ *      path for fresh tabs.
  */
 export interface RevealEditorAtOptions extends OpenEditorOptions {
   /**
@@ -44,7 +46,7 @@ export function revealEditorAt(
   const { selection, ...openOpts } = options;
   const location = openOrRevealEditor(input, openOpts);
   if (selection) {
-    requestEditorReveal({ ...input, range: selection });
+    requestEditorReveal({ ...input, range: selection, tabId: location.tabId });
   }
   return location;
 }
