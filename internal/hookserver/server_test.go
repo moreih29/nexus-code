@@ -185,6 +185,65 @@ func TestHandleConn_NormalRequest(t *testing.T) {
 	}
 }
 
+// TestHandleConn_LargePayload 는 64 KiB를 넘는 payload(큰 파일을 쓰는 Write의
+// permission-request 등)도 이벤트로 전달되는지 검증한다. 이전에는 bufio.Scanner
+// 기본 한도에 걸려 이벤트 없이 연결이 끊겼다.
+func TestHandleConn_LargePayload(t *testing.T) {
+	calls := make(chan HookEventPayload, 1)
+	srv := newTestServer(t, func(_ string, payload any) error {
+		calls <- payload.(HookEventPayload)
+		return nil
+	})
+
+	content := strings.Repeat("x", 4<<20)
+	payload, _ := json.Marshal(map[string]any{
+		"tool_name":  "Write",
+		"tool_input": map[string]any{"file_path": "/tmp/big.txt", "content": content},
+	})
+	conn := dialAndSendRequest(t, srv.SocketPath(), hookWireRequest{
+		Type:        "hook",
+		Token:       srv.Token(),
+		WorkspaceID: "ws-big",
+		TabID:       "tab-big",
+		Subcommand:  "permission-request",
+		Payload:     payload,
+	})
+	defer conn.Close()
+
+	select {
+	case call := <-calls:
+		if len(call.Payload) != len(payload) {
+			t.Fatalf("payload length: want %d, got %d", len(payload), len(call.Payload))
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("large hook payload produced no event")
+	}
+}
+
+// TestHandleConn_OversizedRequestFallsBack 는 상한을 넘는 요청에 exit 0
+// 응답(native fallback)을 돌려주는지 검증한다 — 그냥 끊으면 hook 실패가 된다.
+func TestHandleConn_OversizedRequestFallsBack(t *testing.T) {
+	srv := newTestServer(t, func(_ string, _ any) error {
+		t.Error("sink must not be called for an oversized request")
+		return nil
+	})
+
+	conn, err := net.Dial("unix", srv.SocketPath())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+	go func() {
+		// 서버가 상한에서 읽기를 멈추고 닫으므로 이 write는 실패로 끝난다.
+		_, _ = conn.Write([]byte(`{"type":"hook","payload":"` + strings.Repeat("x", maxRequestBytes) + `"}` + "\n"))
+	}()
+
+	resp := readResponse(t, conn, 5*time.Second)
+	if !resp.OK || resp.ExitCode != nil || resp.Stdout != "" {
+		t.Fatalf("want bare ok response, got %+v", resp)
+	}
+}
+
 // -----------------------------------------------------------------------
 // (c) 토큰 불일치 시 conn이 즉시 닫히는지 검증
 // -----------------------------------------------------------------------

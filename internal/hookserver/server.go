@@ -48,6 +48,13 @@ const connDeadline = 120 * time.Second
 // maxSocketPathLen 은 macOS에서 허용하는 Unix 소켓 경로 최대 길이다.
 const maxSocketPathLen = 104
 
+// maxRequestBytes 는 hook 요청 프레임 1줄의 최대 크기다.
+// payload에는 tool_input/tool_response가 그대로 실린다 — Write의 파일 전체 내용,
+// Edit의 old/new 문자열, PostToolUse의 원본 파일과 patch까지 — 그래서 bufio.Scanner
+// 기본값 64 KiB로는 큰 파일을 쓰는 permission-request가 이벤트 없이 버려졌다.
+// 실제 payload는 모델 출력 한도에 묶여 수 MiB 이내이므로 16 MiB로 상한을 둔다.
+const maxRequestBytes = 16 * 1024 * 1024
+
 // EventSink 는 hook 이벤트를 main으로 push하는 콜백 타입이다.
 type EventSink func(name string, payload any) error
 
@@ -273,7 +280,14 @@ func (s *Server) handleConn(conn net.Conn) {
 	_ = conn.SetDeadline(time.Now().Add(s.connDeadline()))
 
 	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxRequestBytes)
 	if !scanner.Scan() {
+		if errors.Is(scanner.Err(), bufio.ErrTooLong) {
+			// 상한을 넘는 요청은 처리하지 않고 exit 0 응답(native fallback 동등)을
+			// 돌려준다. 그냥 끊으면 hookclient가 exit 1로 hook 실패를 보고한다.
+			fmt.Fprintf(os.Stderr, "hookserver: request over %d bytes dropped\n", maxRequestBytes)
+			_ = writeNDJSON(conn, hookWireResponse{OK: true})
+		}
 		conn.Close()
 		return
 	}
