@@ -195,6 +195,58 @@ export function escapeDroppedPath(path: string): string {
   return path.replace(/[\s'"\\$`(){}[\]<>|&;*?!#~]/g, "\\$&");
 }
 
+/** CSS cursor keywords an OSC 22 request may select. */
+const OSC_CURSOR_KEYWORDS: ReadonlySet<string> = new Set([
+  "auto",
+  "default",
+  "none",
+  "context-menu",
+  "help",
+  "pointer",
+  "progress",
+  "wait",
+  "cell",
+  "crosshair",
+  "text",
+  "vertical-text",
+  "alias",
+  "copy",
+  "move",
+  "no-drop",
+  "not-allowed",
+  "grab",
+  "grabbing",
+  "all-scroll",
+  "col-resize",
+  "row-resize",
+  "n-resize",
+  "e-resize",
+  "s-resize",
+  "w-resize",
+  "ne-resize",
+  "nw-resize",
+  "se-resize",
+  "sw-resize",
+  "ew-resize",
+  "ns-resize",
+  "nesw-resize",
+  "nwse-resize",
+  "zoom-in",
+  "zoom-out",
+]);
+
+/**
+ * The `cursor` style for an OSC 22 body, or "" (reset) for anything that is
+ * not a plain keyword. Terminal output is untrusted: assigning it verbatim
+ * lets `url(https://…)` make the app's renderer fetch an arbitrary URL.
+ *
+ * Exported for unit testing.
+ */
+export function oscCursorStyle(data: string): string {
+  const keyword = data.trim().toLowerCase();
+  return OSC_CURSOR_KEYWORDS.has(keyword) ? keyword : "";
+}
+
 export interface TerminalControllerDeps {
   waitForTerminalFonts: (fontSize: number) => Promise<void>;
   createTerminal: (options: ConstructorParameters<typeof Terminal>[0]) => TerminalLike;
@@ -888,7 +940,7 @@ class XtermTerminalController implements TerminalController {
     this.oscDisposables.push(
       term.parser.registerOscHandler(22, (data) => {
         const el = term.element;
-        if (el) el.style.cursor = data || "";
+        if (el) el.style.cursor = oscCursorStyle(data);
         return true;
       }),
     );

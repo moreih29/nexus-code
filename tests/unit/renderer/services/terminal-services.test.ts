@@ -110,6 +110,7 @@ const {
   isLoginShell,
   classifyOscTitle,
   foregroundConfirmsTitle,
+  oscCursorStyle,
 } = await import("../../../../src/renderer/services/terminal/controller");
 const { createPtyClient } = await import("../../../../src/renderer/services/terminal/pty-client");
 const { closeGroup } = await import("../../../../src/renderer/state/operations");
@@ -907,6 +908,23 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
 });
 
 // ---------------------------------------------------------------------------
+// oscCursorStyle — OSC 22 cursor shape from untrusted terminal output
+describe("oscCursorStyle", () => {
+  it("passes CSS cursor keywords through", () => {
+    expect(oscCursorStyle("pointer")).toBe("pointer");
+    expect(oscCursorStyle("Text")).toBe("text");
+    expect(oscCursorStyle("")).toBe("");
+  });
+
+  // Regression: the body was assigned to style.cursor verbatim, so
+  // `url(https://…)` made the renderer fetch an attacker-chosen URL.
+  it("resets anything that is not a plain keyword", () => {
+    expect(oscCursorStyle("url(https://evil.example/beacon), auto")).toBe("");
+    expect(oscCursorStyle("image-set(url(x.png) 1x), pointer")).toBe("");
+    expect(oscCursorStyle("left_ptr")).toBe("");
+  });
+});
+
 // isShellPromptLikeTitle — shell prompt OSC 필터 휴리스틱
 // ---------------------------------------------------------------------------
 describe("isShellPromptLikeTitle", () => {
