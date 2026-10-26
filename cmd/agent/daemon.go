@@ -78,6 +78,14 @@ const ExitCodeDialFailed = 4
 // long-lived sessions and disable takeover after 300 s of connected use.
 const reattachGrace = 300 * time.Second
 
+// lockRetryWindow is how long a starting daemon keeps retrying a workspace
+// lock that is held. The daemon of another workspace takes this lock for a
+// moment while SweepStale proves its owner dead; without the retry a daemon
+// starting in that moment would exit as if one were already running. A
+// redundant --daemon launch (the SSH bootstrap fires one on every connect)
+// only exits this much later.
+const lockRetryWindow = 250 * time.Millisecond
+
 // maxRunLogBytes caps the append-only run/<wsId>.log at daemon boot.
 // 1 MiB of NDJSON boot/lifecycle lines is months of normal use; beyond that
 // the log is truncated rather than rotated — see agentrun.CapLogSize.
@@ -135,9 +143,13 @@ func runDaemon(root string) {
 	agentLogger := slog.New(slog.NewJSONHandler(logFile, nil)).With("src", "agent-log")
 
 	// Step 4: acquire the workspace lock. A second daemon for the same
-	// workspace cannot acquire it and exits with ExitCodeLockHeld, prompting
-	// the launcher to switch to dialer mode.
+	// workspace cannot acquire it (within lockRetryWindow) and exits with
+	// ExitCodeLockHeld, prompting the launcher to switch to dialer mode.
 	lock, err := agentrun.TryLock(paths.Lock)
+	for deadline := time.Now().Add(lockRetryWindow); err == agentrun.ErrLockHeld && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+		lock, err = agentrun.TryLock(paths.Lock)
+	}
 	if err != nil {
 		if err == agentrun.ErrLockHeld {
 			os.Exit(ExitCodeLockHeld)

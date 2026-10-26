@@ -9,8 +9,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/agentrun"
 )
 
 // mustBuild compiles the agent binary into t.TempDir() and returns the path.
@@ -292,6 +295,63 @@ func TestDaemonTakeoverResumesPausedPTY(t *testing.T) {
 		}
 	}
 	t.Fatalf("dialer B never received the output left after the pause (got %d bytes): %v", tail.Len(), sc.Err())
+}
+
+// A daemon of another workspace sweeping stale run files takes this
+// workspace's lock for a moment to prove its daemon dead. A daemon starting in
+// that moment must wait it out instead of exiting with ExitCodeLockHeld as if
+// a daemon were already running.
+func TestDaemonStartsWhileLockBrieflyHeld(t *testing.T) {
+	bin := mustBuild(t)
+	root := t.TempDir()
+	fakeHome := shortHome(t)
+	runDir := filepath.Join(fakeHome, ".nexus-code", "run")
+	if err := os.MkdirAll(runDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	lockFile, err := os.OpenFile(filepath.Join(runDir, agentrun.WsID(root)+".lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd, _ := startDaemon(t, bin, root, fakeHome)
+	exited := make(chan struct{})
+	var waitErr error
+	go func() {
+		waitErr = cmd.Wait()
+		close(exited)
+	}()
+	defer func() {
+		_ = cmd.Process.Kill()
+		<-exited
+	}()
+
+	// The daemon opens its log right before it takes the lock.
+	logPath := filepath.Join(runDir, agentrun.WsID(root)+".log")
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if _, err := os.Stat(logPath); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("daemon did not open its log within 5 s")
+		}
+	}
+	time.Sleep(30 * time.Millisecond)
+	_ = lockFile.Close()
+
+	select {
+	case <-exited:
+		t.Fatalf("daemon exited while the lock was briefly held: %v", waitErr)
+	case <-time.After(300 * time.Millisecond):
+	}
+	conn, ready := readReady(t, waitForSocket(t, runDir))
+	defer conn.Close()
+	if !strings.Contains(ready, `"ready"`) {
+		t.Fatalf("want ready frame, got %s", ready)
+	}
 }
 
 // TestDaemonGraceExpiryMechanism verifies that time.After(reattachGrace) — the
