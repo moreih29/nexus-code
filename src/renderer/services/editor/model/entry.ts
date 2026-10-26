@@ -315,17 +315,34 @@ async function loadEntry(entry: ModelEntry): Promise<void> {
  * result back into the entry. If the on-disk content matches the buffer
  * (i.e. the user's edits are identical to the new disk version, or the
  * change originated from the editor's own save) the function is a
- * no-op. If the buffer has unsaved local edits and the disk content
- * has diverged, we leave the buffer alone — conflict resolution is the
- * save layer's job, not the loader's.
+ * no-op. If the buffer has unsaved local edits we leave it alone and
+ * visible whatever happened on disk — diverged, turned binary, deleted or
+ * unreadable — since conflict resolution is the save layer's job, not the
+ * loader's. Hiding it behind an error or binary phase (a `git checkout`
+ * round trip deletes and recreates the file) left the edits unreachable:
+ * the editor showed the error state and save found no model.
  */
 export async function reconcileExternalChange(entry: ModelEntry): Promise<void> {
   if (entry.disposed) return;
   const deps = depsFor(entry);
+  const hasUnsavedEdits = (): boolean => {
+    const model = entry.model;
+    return model !== null && !model.isDisposed() && model.getValue() !== entry.lastLoadedValue;
+  };
 
   try {
     const result = await deps.readFileForModel(entry.input);
     if (entry.disposed) return;
+
+    if (hasUnsavedEdits()) {
+      // Do not overwrite the user's work. Record the current disk state so
+      // the save layer can detect and surface a conflict to the user.
+      entry.phase = "ready";
+      entry.errorCode = undefined;
+      entry.diskDiverged = { mtime: result.mtime, size: result.sizeBytes };
+      notifySubscribers(entry);
+      return;
+    }
 
     if (result.isBinary) {
       entry.phase = "binary";
@@ -335,15 +352,6 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
 
     const model = entry.model;
     if (!model || model.isDisposed()) return;
-
-    if (model.getValue() !== entry.lastLoadedValue) {
-      // Buffer has unsaved edits — do not overwrite the user's work.
-      // Record the current disk state so the save layer can detect and
-      // surface a conflict to the user.
-      entry.diskDiverged = { mtime: result.mtime, size: result.sizeBytes };
-      notifySubscribers(entry);
-      return;
-    }
 
     entry.lastLoadedValue = result.content;
     entry.phase = "ready";
@@ -364,6 +372,9 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
     notifySubscribers(entry);
   } catch (error) {
     if (entry.disposed) return;
+    // The edits exist only in this buffer; keep it editable so the user can
+    // save it (recreating the file) instead of losing it to the error state.
+    if (hasUnsavedEdits()) return;
     entry.phase = "error";
     entry.errorCode = errorCodeFromUnknown(error);
     notifySubscribers(entry);
