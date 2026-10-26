@@ -37,17 +37,12 @@ interface IpcBridge {
 
   onStreamEvent(streamId: IpcRequestId, callback: (event: IpcStreamEvent) => void): () => void;
 
+  /** Subscribes to a broadcast event; returns the unsubscribe. */
   listen<C extends ListenChannels, E extends ListenEvents<C>>(
     channel: C,
     event: E,
     callback: (args: ListenArgs<C, E>) => void,
-  ): void;
-
-  off<C extends ListenChannels, E extends ListenEvents<C>>(
-    channel: C,
-    event: E,
-    callback: (args: ListenArgs<C, E>) => void,
-  ): void;
+  ): () => void;
 }
 
 interface HostBridge {

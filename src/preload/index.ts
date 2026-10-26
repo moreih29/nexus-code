@@ -68,7 +68,11 @@ const ipcApi = {
     };
   },
 
-  listen(channelName: string, eventName: string, callback: ListenCallback): void {
+  // Returns the unsubscribe instead of offering an `off(callback)`:
+  // contextBridge wraps a renderer function in a fresh proxy on every
+  // crossing, so a later `off` never receives the object stored here and
+  // could not remove it. The closure holds the stored proxy itself.
+  listen(channelName: string, eventName: string, callback: ListenCallback): () => void {
     const key = `${channelName}:${eventName}`;
     let set = listeners.get(key);
     if (!set) {
@@ -76,11 +80,12 @@ const ipcApi = {
       listeners.set(key, set);
     }
     set.add(callback);
-  },
-
-  off(channelName: string, eventName: string, callback: ListenCallback): void {
-    const key = `${channelName}:${eventName}`;
-    listeners.get(key)?.delete(callback);
+    return () => {
+      const current = listeners.get(key);
+      if (!current) return;
+      current.delete(callback);
+      if (current.size === 0) listeners.delete(key);
+    };
   },
 };
 
