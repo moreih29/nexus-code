@@ -1,5 +1,5 @@
 import path from "node:path";
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, session } from "electron";
 import { createLogger, initMainLogger } from "../shared/log/main";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { installErrorSafetyNet } from "./error-safety-net";
@@ -42,6 +42,7 @@ import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry
 import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ipc";
 import { installUpdatesDomain, type UpdatesDomainHandle } from "./features/updates";
 import { createMainWindow } from "./features/window";
+import { installAppSessionPermissions } from "./features/window/app-session-permissions";
 import { registerWorkspaceChannel } from "./features/workspace/ipc";
 import { WorkspaceManager } from "./features/workspace/manager";
 import { getMainI18n, getMainT, initMainI18n } from "./i18n";
@@ -281,6 +282,8 @@ updatesHandle = installUpdatesDomain({
 });
 
 app.whenReady().then(async () => {
+  installAppSessionPermissions(session.defaultSession);
+
   // Sync the macOS About panel with current product metadata.
   // applicationVersion comes from package.json via app.getVersion();
   // copyright matches the electron-builder.yml owner slug.

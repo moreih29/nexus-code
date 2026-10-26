@@ -12,6 +12,11 @@ const TITLEBAR_HEIGHT = 36;
 
 const logger = createLogger("window-open-handler");
 
+// Input that grants transient user activation in Chromium, and how long that
+// activation lasts.
+const ACTIVATING_INPUTS = new Set(["mouseDown", "keyDown", "rawKeyDown", "touchEnd", "gestureTap"]);
+const USER_ACTIVATION_MS = 5_000;
+
 // ---------------------------------------------------------------------------
 // titleBarOverlay color helpers
 //
@@ -92,11 +97,24 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
     win.loadFile(join(__dirname, "../renderer/index.html"));
   }
 
+  // Popups need fresh user input, like Chrome's popup blocker: a previewed
+  // page calling window.open from a timer would otherwise open browser tabs
+  // without limit. Preview and markdown link clicks call window.open from the
+  // click handler itself, so they always follow the input. One input lets
+  // one popup through.
+  let lastActivationAt = 0;
+  win.webContents.on("input-event", (_event, input) => {
+    if (ACTIVATING_INPUTS.has(input.type)) lastActivationAt = Date.now();
+  });
+
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (isExternalSchemeAllowed(url)) {
-      shell.openExternal(url);
-    } else {
+    if (!isExternalSchemeAllowed(url)) {
       logger.warn(`Blocked window.open with disallowed scheme: ${url}`);
+    } else if (Date.now() - lastActivationAt > USER_ACTIVATION_MS) {
+      logger.warn(`Blocked window.open without user input: ${url}`);
+    } else {
+      lastActivationAt = 0;
+      shell.openExternal(url);
     }
     return { action: "deny" };
   });
