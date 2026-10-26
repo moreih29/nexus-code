@@ -63,6 +63,15 @@ export interface ModelEntry {
    * changes" (true). Cleared on a successful rehydrate.
    */
   lspNeedsRehydrate?: boolean;
+  /** True while a rehydrate didOpen is in flight. */
+  lspRehydrating?: boolean;
+  /**
+   * Bumped whenever the server's copy of the document is redefined: by a
+   * rehydrate didOpen (whose text already holds every edit so far) or by
+   * an eviction (which drops the server's copy). A content change seen
+   * under an older epoch is not forwarded.
+   */
+  lspOpenEpoch?: number;
   disposed: boolean;
   subscribers: Set<() => void>;
   origin: "workspace" | "external" | "untitled";

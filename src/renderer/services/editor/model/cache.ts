@@ -332,6 +332,10 @@ export function resetLspStateForWorkspace(workspaceId: string, languageId?: stri
     if (entry.disposed) continue;
     entry.lspOpened = false;
     entry.lspNeedsRehydrate = true;
+    // Invalidate a rehydrate still in flight and the changes queued behind
+    // it: the server dropped the document they target.
+    entry.lspRehydrating = false;
+    entry.lspOpenEpoch = (entry.lspOpenEpoch ?? 0) + 1;
     // Reset the open promise to a settled state so callers awaiting it
     // immediately observe the new lspOpened flag and decide whether to
     // re-issue didOpen.
