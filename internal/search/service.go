@@ -424,8 +424,10 @@ func prefix(buf []byte, n int) []byte {
 	return buf[:n]
 }
 
+var lineBreak = regexp.MustCompile(`\r\n|\n|\r`)
+
 func splitLines(text string) []string {
-	return regexp.MustCompile(`\r\n|\n|\r`).Split(text, -1)
+	return lineBreak.Split(text, -1)
 }
 
 func buildExcludePredicates(patterns []string) excludePredicate {
