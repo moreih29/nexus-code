@@ -267,9 +267,18 @@ class AgentPtyHostHandle implements PtyHostHandle {
     const offData = channel.on("pty.data", (payload) => this.handleData(payload));
     const offExit = channel.on("pty.exit", (payload) => this.handleExit(payload));
     // claude.hook 이벤트를 PtyHostHandle.on 구독자에게 relay한다.
-    const offClaudeHook = channel.on("claude.hook", (payload) =>
-      this.emit("claude.hook", payload),
-    );
+    // A hook speaks only for the workspace whose agent it arrived through.
+    // On an SSH host the hook server is reachable by anything running there,
+    // which must not be able to set another workspace's status, raise
+    // notifications in its name, or route a hook response to its channel.
+    const offClaudeHook = channel.on("claude.hook", (payload) => {
+      const claimed = (payload as { workspaceId?: unknown } | null)?.workspaceId;
+      if (claimed !== workspaceId) {
+        log.warn(`Dropped claude.hook for workspace ${String(claimed)} from ${workspaceId}'s agent`);
+        return;
+      }
+      this.emit("claude.hook", payload);
+    });
     const offLifecycle = channel.onLifecycle((event) => {
       this.handleLifecycle(workspaceId, event);
     });
