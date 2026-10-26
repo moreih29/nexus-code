@@ -511,7 +511,7 @@ func (s *Service) emitReadyStashChunks(ctx context.Context, streamID string, pen
 		if chunkLen == 0 {
 			return pending, nil
 		}
-		if err := s.emitStashShowChunk(ctx, streamID, string(pending[:chunkLen])); err != nil {
+		if err := s.emitStashShowChunk(ctx, streamID, chunkText(pending[:chunkLen])); err != nil {
 			return pending, err
 		}
 		pending = pending[chunkLen:]
