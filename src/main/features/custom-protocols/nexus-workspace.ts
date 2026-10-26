@@ -161,9 +161,13 @@ export function buildNexusWorkspaceHandler(
         logger.warn(`net.fetch failed (${fileResp.status}): ${realPath}`);
         return new Response(null, { status: 404 });
       }
+      // `no-store` is required, not just a hint: Blink's memory cache treats
+      // non-http(s) responses without cache headers as fresh FOREVER, so an
+      // image (or an HTML-preview sibling .css/.js) edited on disk would keep
+      // rendering the first-fetched bytes for the life of the renderer.
       return new Response(fileResp.body, {
         status: 200,
-        headers: { "Content-Type": contentType, ...CORS_HEADERS },
+        headers: { "Content-Type": contentType, "Cache-Control": "no-store", ...CORS_HEADERS },
       });
     } catch (err) {
       logger.warn(`Failed to read file: ${realPath} — ${(err as Error).message}`);
