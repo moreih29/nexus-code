@@ -85,7 +85,7 @@ type session struct {
 	lastRows int
 
 	// setSizeFn is the function used by wiggleSIGWINCH to apply a PTY geometry
-	// change.  Production code leaves it nil (creackpty.Setsize is used).
+	// change.  Production code leaves it nil (setWinsize is used).
 	// Tests may replace it with a recording stub to verify call sequences
 	// without a real PTY fd.
 	setSizeFn func(f *os.File, ws *creackpty.Winsize) error
@@ -271,7 +271,7 @@ func (s *Service) Resize(_ context.Context, raw json.RawMessage) (any, error) {
 	if session == nil {
 		return struct{}{}, nil
 	}
-	if err := creackpty.Setsize(session.master, &creackpty.Winsize{Rows: uint16(p.Rows), Cols: uint16(p.Cols)}); err != nil {
+	if err := setWinsize(session.master, &creackpty.Winsize{Rows: uint16(p.Rows), Cols: uint16(p.Cols)}); err != nil {
 		return nil, requestFailed("failed to resize PTY: %s", err)
 	}
 	session.sizeMu.Lock()
@@ -351,7 +351,11 @@ func (s *Service) ForegroundProcess(_ context.Context, raw json.RawMessage) (any
 	if session == nil {
 		return ForegroundProcessResult{Name: ""}, nil
 	}
-	pgid, ioErr := unix.IoctlGetInt(int(session.master.Fd()), unix.TIOCGPGRP)
+	var pgid int
+	ioErr := withFd(session.master, func(fd int) (err error) {
+		pgid, err = unix.IoctlGetInt(fd, unix.TIOCGPGRP)
+		return err
+	})
 	if ioErr != nil || pgid <= 0 {
 		return ForegroundProcessResult{Name: ""}, nil
 	}
@@ -544,7 +548,7 @@ func (s *session) wiggleSIGWINCH() {
 	if cols == 0 || rows == 0 || rows <= 1 {
 		return
 	}
-	setSize := creackpty.Setsize
+	setSize := setWinsize
 	if s.setSizeFn != nil {
 		setSize = s.setSizeFn
 	}
@@ -600,6 +604,32 @@ func (s *session) stopReading() {
 	s.flowCond.Broadcast()
 	s.flowMu.Unlock()
 	_ = s.master.Close()
+}
+
+// setWinsize applies ws to the PTY master. It replaces creackpty.Setsize,
+// which reaches the descriptor through os.File.Fd(): that read is not
+// synchronized with a concurrent Close (a data race, and an ioctl on a
+// possibly reused descriptor number), which resize and the post-replay
+// wiggle hit whenever the session is torn down at the same time.
+func setWinsize(master *os.File, ws *creackpty.Winsize) error {
+	return withFd(master, func(fd int) error {
+		return unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, &unix.Winsize{Row: ws.Rows, Col: ws.Cols, Xpixel: ws.X, Ypixel: ws.Y})
+	})
+}
+
+// withFd runs fn with the master's descriptor held open: SyscallConn's
+// Control keeps the file from being closed underneath fn and fails cleanly
+// once it has been closed, unlike os.File.Fd().
+func withFd(master *os.File, fn func(fd int) error) error {
+	conn, err := master.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var fnErr error
+	if err := conn.Control(func(fd uintptr) { fnErr = fn(int(fd)) }); err != nil {
+		return err
+	}
+	return fnErr
 }
 
 // decodeParams unmarshals a request body into a strongly typed PTY parameter struct.

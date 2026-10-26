@@ -104,6 +104,47 @@ while :; do sleep 1; done
 	recorder.requireTranscriptContains(t, "SIZE 37 123", 2*time.Second)
 }
 
+// TestResizeAndForegroundRacingKill drives the master-fd ioctls (resize,
+// foreground lookup) while the session is killed. They used to reach the
+// descriptor through os.File.Fd(), unsynchronized with the Close that kill
+// performs, which `go test -race` reports as a data race.
+func TestResizeAndForegroundRacingKill(t *testing.T) {
+	service, recorder := newTestService(t)
+	tabID := "resize-vs-kill"
+	spawnTestScript(t, service, tabID, `
+echo READY
+while :; do sleep 1; done
+`)
+	recorder.requireTranscriptContains(t, "READY", 2*time.Second)
+
+	key := mustJSON(t, KillParams{WorkspaceID: testWorkspaceID, TabID: tabID})
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resize := mustJSON(t, ResizeParams{WorkspaceID: testWorkspaceID, TabID: tabID, Cols: 80 + i, Rows: 24})
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				_, _ = service.Resize(context.Background(), resize)
+				_, _ = service.ForegroundProcess(context.Background(), key)
+			}
+		}()
+	}
+	time.Sleep(50 * time.Millisecond)
+	if _, err := service.Kill(context.Background(), key); err != nil {
+		t.Fatalf("kill: %v", err)
+	}
+	recorder.requireExit(t, tabID, 3*time.Second)
+	close(stop)
+	wg.Wait()
+}
+
 // TestControlCWriteDeliversSIGINT verifies raw 0x03 is handled by the PTY line discipline.
 func TestControlCWriteDeliversSIGINT(t *testing.T) {
 	service, recorder := newTestService(t)

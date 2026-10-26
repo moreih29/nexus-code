@@ -587,7 +587,7 @@ sleep 10
 		calls = append(calls, sizeCall{rows: ws.Rows, cols: ws.Cols})
 		callMu.Unlock()
 		// Also apply the real resize so the PTY fd stays consistent.
-		return creackpty.Setsize(f, ws)
+		return setWinsize(f, ws)
 	}
 
 	// Replay (ring empty is fine — wiggle runs regardless of ring content).
