@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -291,5 +292,47 @@ func TestReaddirHidesOnlyVCSAndOSMetadata(t *testing.T) {
 	want = []string{".DS_Store", ".git", ".next", "dist", "node_modules", "out", "src"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("readdir includeHidden = %v, want %v", got, want)
+	}
+}
+
+// The size cap must hold for what a read actually consumes. A symlink's own
+// Lstat size is a few bytes, so a link to a device or to an oversized file
+// used to be read without bound.
+func TestReadFollowsSymlinkWithinSizeCap(t *testing.T) {
+	root := t.TempDir()
+	big := filepath.Join(t.TempDir(), "big.bin")
+	f, err := os.Create(big)
+	must(t, err)
+	must(t, f.Truncate(MaxReadableFileSize+1))
+	must(t, f.Close())
+	must(t, os.Symlink(big, filepath.Join(root, "big.txt")))
+	must(t, os.Symlink("/dev/zero", filepath.Join(root, "zero.txt")))
+	fsys, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	for _, read := range []func(context.Context, json.RawMessage) (any, error){fsys.ReadFile, fsys.ReadBinary} {
+		_, err := read(ctx, json.RawMessage(`{"relPath":"big.txt"}`))
+		var fsErr FSError
+		if !errors.As(err, &fsErr) || fsErr.Code != CodeTooLarge {
+			t.Fatalf("link to oversized file: want TOO_LARGE, got %v", err)
+		}
+	}
+
+	readAny, err := fsys.ReadFile(ctx, json.RawMessage(`{"relPath":"zero.txt"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read := readAny.(ReadFileResult); read.Kind != "ok" || !read.IsBinary || read.Content != "" {
+		t.Fatalf("link to device: want empty binary result, got %#v", read)
+	}
+	binAny, err := fsys.ReadBinary(ctx, json.RawMessage(`{"relPath":"zero.txt"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bin := binAny.(ReadBinaryResult); bin.Kind != "ok" || bin.Base64 != "" {
+		t.Fatalf("link to device: want empty binary result, got %#v", bin)
 	}
 }
