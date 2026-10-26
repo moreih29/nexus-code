@@ -10,6 +10,7 @@
  */
 import type { KeyboardEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isImeComposing } from "@/utils/ime";
 import type { DirEntry } from "../../../../shared/fs/types";
 import { browseSshSession } from "../../../services/workspace";
 
@@ -192,6 +193,7 @@ export function usePathAutocomplete({
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>): void => {
+      if (isImeComposing(event)) return;
       if (event.key === "ArrowDown") {
         event.preventDefault();
         if (filteredSuggestions.length === 0) return;

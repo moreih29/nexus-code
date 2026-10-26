@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { isImeComposing } from "@/utils/ime";
 import { CommandPaletteFrame as Frame } from "./command-palette-frame";
 import {
   initialPaletteSearchSnapshot,
@@ -96,7 +97,8 @@ export function CommandPalette<TItem extends PaletteItem>({
   useEffect(() => {
     if (!open) return;
     function handleDocumentKeyDown(event: KeyboardEvent): void {
-      if (event.key !== "Escape") return;
+      // Escape while composing cancels the composition, not the palette.
+      if (event.key !== "Escape" || isImeComposing(event)) return;
       event.preventDefault();
       event.stopPropagation();
       onClose();
@@ -128,6 +130,10 @@ export function CommandPalette<TItem extends PaletteItem>({
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>): void {
+    // The composing Enter of a Hangul query would accept and close, and the
+    // plain Enter that follows would land in the editor or terminal that
+    // gets focus back.
+    if (isImeComposing(e)) return;
     const action = resolvePaletteKeyAction(
       {
         key: e.key,

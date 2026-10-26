@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { isImeComposing } from "@/utils/ime";
 import { appErrorCancelled, appErrorFailed } from "../../../../shared/error/app-error";
 import { useIpcAction } from "../../../hooks/use-ipc-action";
 import { openSshBrowseSession, saveConnectionProfileResult } from "../../../services/workspace";
@@ -208,6 +209,7 @@ export function SshNewConnectionView({
   }
 
   function handleHostKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
+    if (isImeComposing(event)) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       if (filteredHosts.length === 0) return;

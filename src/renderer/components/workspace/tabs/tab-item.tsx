@@ -23,6 +23,7 @@ import { DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
 import { cacheUriFor } from "@/services/editor/model/cache";
 import { isDirty, subscribeFileDirty } from "@/services/editor/model/dirty-tracker";
 import { cn } from "@/utils/cn";
+import { isImeComposing } from "@/utils/ime";
 import { basename } from "@/utils/path";
 import type { ClaudeStatus } from "../../../../shared/claude/status";
 import { useBrowserRuntimeStore } from "../../../state/stores/browser-runtime";
@@ -465,7 +466,10 @@ export function TabItem({
             value={editValue}
             onChange={(e) => setEditValue(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
+              if (isImeComposing(e)) {
+                // Enter/Escape that ends a composition belongs to the IME.
+                e.stopPropagation();
+              } else if (e.key === "Enter") {
                 e.preventDefault();
                 e.stopPropagation();
                 commitEdit(editValue);
