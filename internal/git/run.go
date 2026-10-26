@@ -101,7 +101,12 @@ func buildRunResult(stdout string, stderr string, code int, args []string) RunRe
 // the same precedence as the rest of the package: ctx.Err() is checked before
 // inspecting the exit code.
 func (s *Service) capture(ctx context.Context, cwd string, args []string, interactive bool) (stdout, stderr string, code int, err error) {
-	cmd, err := s.command(ctx, args, cwd, nil, interactive)
+	return s.captureEnv(ctx, cwd, args, nil, interactive)
+}
+
+// captureEnv is capture with extra environment overrides for the child git.
+func (s *Service) captureEnv(ctx context.Context, cwd string, args []string, env map[string]string, interactive bool) (stdout, stderr string, code int, err error) {
+	cmd, err := s.command(ctx, args, cwd, env, interactive)
 	if err != nil {
 		return "", "", 0, err
 	}

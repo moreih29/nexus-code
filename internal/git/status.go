@@ -120,8 +120,14 @@ func statusArgs(params StatusParams) []string {
 	return args
 }
 
+// statusEnv keeps the read-only status subcalls from taking optional locks.
+// Without it `git status` opportunistically rewrites .git/index to refresh
+// racily-clean stat data; the .git watcher reports that write back as a
+// change, so every status refresh would trigger another one.
+var statusEnv = map[string]string{"GIT_OPTIONAL_LOCKS": "0"}
+
 func (s *Service) statusGitOutput(ctx context.Context, cwd string, args ...string) ([]byte, error) {
-	stdout, stderr, code, err := s.capture(ctx, cwd, args, false)
+	stdout, stderr, code, err := s.captureEnv(ctx, cwd, args, statusEnv, false)
 	if err != nil {
 		return nil, err
 	}
