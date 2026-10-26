@@ -137,4 +137,49 @@ describe("StateService", () => {
     expect(state.sidebarWidth).toBeUndefined();
     expect(state.lastActiveWorkspaceId).toBe("ws-old");
   });
+
+  it("keeps the valid fields when one persisted field no longer validates", () => {
+    const filePath = path.join(tmpDir, "state.json");
+    const original = JSON.stringify({
+      lastActiveWorkspaceId: "ws-kept",
+      sidebarWidth: 280,
+      density: "spacious",
+    });
+    fs.writeFileSync(filePath, original, "utf8");
+
+    const state = new StateService(filePath).getState();
+
+    expect(state.lastActiveWorkspaceId).toBe("ws-kept");
+    expect(state.sidebarWidth).toBe(280);
+    expect(state.density).toBeUndefined();
+    expect(state.updateChannel).toBe("stable");
+    expect(fs.readFileSync(`${filePath}.invalid`, "utf8")).toBe(original);
+  });
+
+  it("drops only the invalid entries of a record field", () => {
+    const filePath = path.join(tmpDir, "state.json");
+    const good = "11111111-1111-4111-8111-111111111111";
+    const bad = "22222222-2222-4222-8222-222222222222";
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({
+        lspEnabledLanguagesByWorkspace: { [good]: ["typescript"], [bad]: ["cobol"] },
+      }),
+      "utf8",
+    );
+
+    const state = new StateService(filePath).getState();
+
+    expect(state.lspEnabledLanguagesByWorkspace).toEqual({ [good]: ["typescript"] });
+  });
+
+  it("backs up a state file that is not valid JSON", () => {
+    const filePath = path.join(tmpDir, "state.json");
+    fs.writeFileSync(filePath, "{ truncated", "utf8");
+
+    const state = new StateService(filePath).getState();
+
+    expect(state.updateChannel).toBe("stable");
+    expect(fs.readFileSync(`${filePath}.invalid`, "utf8")).toBe("{ truncated");
+  });
 });
