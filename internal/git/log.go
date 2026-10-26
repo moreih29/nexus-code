@@ -109,6 +109,10 @@ func (s *Service) Log(ctx context.Context, raw json.RawMessage) (any, error) {
 		killedForLimit = true
 		return cmd.Cancel()
 	})
+	if readErr != nil {
+		// Stop git before waiting; it would block on a full stdout pipe.
+		cancel()
+	}
 	waitErr := cmd.Wait()
 
 	if readErr != nil && !(killedForLimit && isClosedPipeReadError(readErr)) {

@@ -78,9 +78,14 @@ func (s *Service) Stream(ctx context.Context, raw json.RawMessage) (any, error) 
 	}
 
 	readErr := s.emitStreamChunks(streamCtx, params.StreamID, stdout)
+	if readErr != nil {
+		// Nobody reads stdout any more (the event sink failed or the stream
+		// was cancelled): kill git first, or it blocks on a full pipe and
+		// Wait never returns.
+		cancel()
+	}
 	waitErr := cmd.Wait()
 	if readErr != nil && !errors.Is(readErr, context.Canceled) {
-		cancel()
 		return nil, readErr
 	}
 	if ctxErr := streamCtx.Err(); ctxErr != nil {

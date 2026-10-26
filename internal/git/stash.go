@@ -283,6 +283,10 @@ func (s *Service) StashShow(ctx context.Context, raw json.RawMessage) (any, erro
 	}
 
 	result, readErr := s.emitStashChunks(streamCtx, params.StreamID, stdout, params.MaxChunkBytes)
+	if readErr != nil {
+		// Stop git before waiting; it would block on a full stdout pipe.
+		cancel()
+	}
 	waitErr := cmd.Wait()
 
 	if readErr != nil {
