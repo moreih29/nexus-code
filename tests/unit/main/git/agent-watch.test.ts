@@ -3,7 +3,7 @@ import { AgentGitWatcher } from "../../../../src/main/features/git/bridge/agent-
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174020";
 
-function makeFixture() {
+function makeProvider() {
   const listeners = new Map<string, Set<(payload: unknown) => void>>();
   const lifecycleListeners = new Set<(event: { type: string }) => void>();
   const provider = {
@@ -27,12 +27,42 @@ function makeFixture() {
   const emitLifecycle = (event: { type: string }) => {
     for (const callback of Array.from(lifecycleListeners)) callback(event);
   };
+  const emitChanged = (payload: unknown) => {
+    for (const callback of Array.from(listeners.get("git.changed") ?? [])) callback(payload);
+  };
+  return { provider, listeners, emitLifecycle, emitChanged };
+}
+
+function makeFixture() {
+  const first = makeProvider();
+  let current = first.provider;
+  const providerReadyListeners = new Set<(workspaceId: string, provider: unknown) => void>();
   const manager = {
-    requireContext: () => ({ fs: provider }),
+    requireContext: () => ({ fs: current }),
+    onProviderReady: (listener: (workspaceId: string, provider: unknown) => void) => {
+      providerReadyListeners.add(listener);
+      return () => providerReadyListeners.delete(listener);
+    },
+  };
+  /** Simulates the manager booting a replacement agent after the channel died. */
+  const reboot = () => {
+    const next = makeProvider();
+    current = next.provider;
+    for (const listener of Array.from(providerReadyListeners))
+      listener(WORKSPACE_ID, next.provider);
+    return next;
   };
   const dirty = mock((_workspaceId: string) => {});
   const watcher = new AgentGitWatcher(manager as never, dirty);
-  return { watcher, provider, listeners, dirty, emitLifecycle };
+  return {
+    watcher,
+    provider: first.provider,
+    listeners: first.listeners,
+    dirty,
+    emitLifecycle: first.emitLifecycle,
+    emitChanged: first.emitChanged,
+    reboot,
+  };
 }
 
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -97,5 +127,39 @@ describe("AgentGitWatcher", () => {
     emitLifecycle({ type: "ready" });
     await settle();
     expect(provider.callAgentMethod).not.toHaveBeenCalled();
+  });
+
+  // Regression: repo detection does not run again after the agent is
+  // replaced, so the .git watch stayed on the dead provider and status went
+  // stale until the app restarted.
+  it("re-registers the .git watch on a rebooted agent and refreshes status", async () => {
+    const fixture = makeFixture();
+    await fixture.watcher.watch(WORKSPACE_ID, "/repo/.git");
+
+    const next = fixture.reboot();
+    await settle();
+
+    expect(next.provider.callAgentMethod.mock.calls).toEqual([
+      ["git.watch", { gitDir: "/repo/.git" }],
+    ]);
+    expect(fixture.provider.callAgentMethod).not.toHaveBeenCalledWith("git.unwatch", {
+      gitDir: "/repo/.git",
+    });
+    expect(fixture.dirty).toHaveBeenCalledTimes(1);
+
+    fixture.dirty.mockClear();
+    fixture.emitChanged({ gitDir: "/repo/.git" });
+    expect(fixture.dirty).not.toHaveBeenCalled();
+    next.emitChanged({ gitDir: "/repo/.git" });
+    expect(fixture.dirty).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a provider boot for a workspace without a .git watch", async () => {
+    const fixture = makeFixture();
+    const next = fixture.reboot();
+    await settle();
+
+    expect(next.provider.callAgentMethod).not.toHaveBeenCalled();
+    expect(fixture.dirty).not.toHaveBeenCalled();
   });
 });

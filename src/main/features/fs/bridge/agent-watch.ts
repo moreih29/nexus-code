@@ -11,6 +11,7 @@ const AgentFsChangedPayloadSchema = z.object({
 });
 
 interface WatchSubscription {
+  readonly provider: AgentBackedProvider;
   readonly unsubscribe: () => void;
   readonly watchedRelPaths: Set<string>;
 }
@@ -23,11 +24,23 @@ interface WatchSubscription {
  */
 export class AgentFsWatcher {
   private readonly subscriptions = new Map<string, WatchSubscription>();
+  private readonly disposeProviderReady: () => void;
 
   constructor(
     private readonly manager: WorkspaceManager,
     private readonly broadcast: BroadcastFn,
-  ) {}
+  ) {
+    // After the channel dies, the next boot brings up a new agent with no
+    // watches, and the listeners on the old provider never fire again. Move
+    // existing subscriptions over as soon as the replacement is up rather
+    // than waiting for the renderer to watch again, which it does not do for
+    // directories that were already expanded.
+    this.disposeProviderReady = manager.onProviderReady((workspaceId, provider) => {
+      if (this.subscriptions.has(workspaceId) && isAgentBackedProvider(provider)) {
+        this.ensureSubscription(workspaceId, provider);
+      }
+    });
+  }
 
   async watch(workspaceId: string, relPath: string): Promise<void> {
     const provider = await this.requireReadyAgentProvider(workspaceId);
@@ -56,19 +69,37 @@ export class AgentFsWatcher {
   }
 
   dispose(): void {
+    this.disposeProviderReady();
     for (const subscription of this.subscriptions.values()) {
       subscription.unsubscribe();
     }
     this.subscriptions.clear();
   }
 
+  /**
+   * Returns the workspace's subscription on `provider`. One made on an
+   * earlier provider is moved over: its listeners are dropped and its paths
+   * are registered with the new agent.
+   */
   private ensureSubscription(
     workspaceId: string,
     provider: AgentBackedProvider,
   ): WatchSubscription {
     const existing = this.subscriptions.get(workspaceId);
-    if (existing) return existing;
+    if (existing?.provider === provider) return existing;
 
+    existing?.unsubscribe();
+    const subscription = this.subscribe(workspaceId, provider);
+    if (existing) {
+      for (const relPath of existing.watchedRelPaths) {
+        subscription.watchedRelPaths.add(relPath);
+      }
+      this.replayWatches(workspaceId, provider, subscription);
+    }
+    return subscription;
+  }
+
+  private subscribe(workspaceId: string, provider: AgentBackedProvider): WatchSubscription {
     const unsubscribeChanged = provider.onAgentEvent("fs.changed", (payload) => {
       const parsed = AgentFsChangedPayloadSchema.safeParse(payload);
       if (!parsed.success || parsed.data.changes.length === 0) return;
@@ -88,29 +119,11 @@ export class AgentFsWatcher {
       if (event.type !== "ready") return;
       const subscription = this.subscriptions.get(workspaceId);
       if (!subscription) return;
-      for (const relPath of subscription.watchedRelPaths) {
-        provider.callAgentMethod("fs.watch", { relPath }).catch((error: unknown) => {
-          log.warn(
-            `fs.watch replay failed (workspace=${workspaceId}, relPath=${relPath}): ${(error as Error).message}`,
-          );
-        });
-      }
-      // Changes made while the agent was down were never reported. Replay
-      // every watched directory as "added" so the renderer re-reads each one
-      // (the file tree treats an added directory as recreated) and its
-      // fs.changed hint refreshes git status.
-      if (subscription.watchedRelPaths.size > 0) {
-        this.broadcast("fs", "changed", {
-          workspaceId,
-          changes: [...subscription.watchedRelPaths].map((relPath) => ({
-            relPath,
-            kind: "added" as const,
-          })),
-        });
-      }
+      this.replayWatches(workspaceId, provider, subscription);
     });
 
     const subscription = {
+      provider,
       unsubscribe: () => {
         unsubscribeChanged();
         unsubscribeLifecycle();
@@ -119,6 +132,36 @@ export class AgentFsWatcher {
     };
     this.subscriptions.set(workspaceId, subscription);
     return subscription;
+  }
+
+  /**
+   * Registers every watched path with an agent that does not have them.
+   */
+  private replayWatches(
+    workspaceId: string,
+    provider: AgentBackedProvider,
+    subscription: WatchSubscription,
+  ): void {
+    for (const relPath of subscription.watchedRelPaths) {
+      provider.callAgentMethod("fs.watch", { relPath }).catch((error: unknown) => {
+        log.warn(
+          `fs.watch replay failed (workspace=${workspaceId}, relPath=${relPath}): ${(error as Error).message}`,
+        );
+      });
+    }
+    // Changes made while the agent was down were never reported. Replay
+    // every watched directory as "added" so the renderer re-reads each one
+    // (the file tree treats an added directory as recreated) and its
+    // fs.changed hint refreshes git status.
+    if (subscription.watchedRelPaths.size > 0) {
+      this.broadcast("fs", "changed", {
+        workspaceId,
+        changes: [...subscription.watchedRelPaths].map((relPath) => ({
+          relPath,
+          kind: "added" as const,
+        })),
+      });
+    }
   }
 
   /**

@@ -186,3 +186,31 @@ describe("handleLocalChannelLifecycle: health signals must not tear down the pro
     });
   }
 });
+
+describe("onProviderReady", () => {
+  test("fires on first boot and again with the replacement after a terminal exit", async () => {
+    const harness = makeHarness();
+    const ready: Array<{ workspaceId: string; provider: unknown }> = [];
+    harness.manager.onProviderReady((workspaceId, provider) => {
+      ready.push({ workspaceId, provider });
+    });
+
+    const meta = await bootLocalWorkspace(harness);
+    expect(ready).toHaveLength(1);
+    expect(ready[0]?.workspaceId).toBe(meta.id);
+    expect(ready[0]?.provider).toBe(harness.manager.requireContext(meta.id).fs);
+
+    harness.channels[0].emitLifecycle({ type: "degraded" });
+    await settle();
+    expect(ready).toHaveLength(1);
+
+    harness.channels[0].emitLifecycle({ type: "exit" });
+    await settle();
+    await harness.manager.getAgentChannel(meta.id);
+    expect(ready).toHaveLength(2);
+    expect(ready[1]?.provider).toBe(harness.manager.requireContext(meta.id).fs);
+    expect(ready[1]?.provider).not.toBe(ready[0]?.provider);
+
+    harness.globalDb.close();
+  });
+});

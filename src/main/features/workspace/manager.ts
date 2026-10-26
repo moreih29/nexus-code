@@ -226,6 +226,10 @@ export class WorkspaceManager {
    */
   private browserCloser: ((workspaceId: string) => Promise<void>) | null = null;
 
+  private readonly providerReadyListeners = new Set<
+    (workspaceId: string, provider: FsProvider) => void
+  >();
+
   private readonly contexts = new Map<string, WorkspaceContext>();
   private readonly localChannels = new Map<string, AgentChannel>();
   private readonly localProviderReady = new Map<string, Promise<void>>();
@@ -588,6 +592,20 @@ export class WorkspaceManager {
    */
   setBrowserCloser(closer: (workspaceId: string) => Promise<void>): void {
     this.browserCloser = closer;
+  }
+
+  /**
+   * Subscribes to agent boots: fires each time a workspace gets a newly
+   * started agent provider, on first activation and again when the previous
+   * channel died and a later call booted a replacement. The new agent knows
+   * nothing the old one had registered (fs and .git watches), and listeners
+   * attached to the old provider never hear from it.
+   */
+  onProviderReady(listener: (workspaceId: string, provider: FsProvider) => void): () => void {
+    this.providerReadyListeners.add(listener);
+    return () => {
+      this.providerReadyListeners.delete(listener);
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -1073,6 +1091,7 @@ export class WorkspaceManager {
       }
       this.localProviderReady.delete(meta.id);
     });
+    this.notifyProviderReady(meta.id, provider);
   }
 
   /**
@@ -1239,7 +1258,8 @@ export class WorkspaceManager {
       );
     }
 
-    ctx.setFsProvider(createFsProvider(providerMeta, channel), () => {
+    const provider = createFsProvider(providerMeta, channel);
+    ctx.setFsProvider(provider, () => {
       disposeLifecycleListener();
       channel.dispose();
       bootstrap.dispose?.();
@@ -1253,6 +1273,20 @@ export class WorkspaceManager {
       }
     });
     this.broadcastConnectionStatus(meta.id, "connected");
+    this.notifyProviderReady(meta.id, provider);
+  }
+
+  /**
+   * Runs the provider-ready listeners; one that throws does not skip the rest.
+   */
+  private notifyProviderReady(workspaceId: string, provider: FsProvider): void {
+    for (const listener of this.providerReadyListeners) {
+      try {
+        listener(workspaceId, provider);
+      } catch (error) {
+        log.warn(`provider-ready listener failed for ${workspaceId}: ${(error as Error).message}`);
+      }
+    }
   }
 
   /**
