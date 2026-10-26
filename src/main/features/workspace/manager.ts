@@ -1268,7 +1268,10 @@ export class WorkspaceManager {
       }
       this.sshBootstraps.delete(meta.id);
       this.sshProviderReady.delete(meta.id);
-      if (this.connectionStatuses.get(meta.id) !== "error") {
+      // A terminal status set just before teardown says why the provider
+      // went away; "disconnected" would hide the error or session-expired UI.
+      const status = this.connectionStatuses.get(meta.id);
+      if (status !== "error" && status !== "held-then-expired") {
         this.broadcastConnectionStatus(meta.id, "disconnected");
       }
     });
