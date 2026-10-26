@@ -593,12 +593,22 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
    * triggering a pause() from the byte-accounting gate in createLineSplitter.
    * Callbacks that cannot tolerate this synchronous tax should yield via
    * queueMicrotask or a similar mechanism.
+   *
+   * A callback that throws is logged and skipped: letting the error escape
+   * would drop the rest of the chunk's frames, skip the other subscribers,
+   * and surface as an uncaught exception from the stream's data handler.
    */
   function emitEvent(event: string, payload: unknown): void {
     const callbacks = listeners.get(event);
     if (!callbacks) return;
     for (const callback of Array.from(callbacks)) {
-      callback(payload);
+      try {
+        callback(payload);
+      } catch (error) {
+        getAgentLogger().error(
+          `agent event listener for ${event} threw: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+        );
+      }
     }
   }
 
