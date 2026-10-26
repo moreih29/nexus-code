@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import { createLogger } from "../shared/log/renderer";
 import { App } from "./app";
 import { initRendererI18n } from "./i18n";
+import { installUnsavedChangesUnloadGuard } from "./services/editor/save/unsaved-guard";
 import { installWindowErrorHandlers } from "./services/window-error-handler";
 
 // Install the unified window 'error' + 'unhandledrejection' safety net before
@@ -14,6 +15,7 @@ import { installWindowErrorHandlers } from "./services/window-error-handler";
 // without race conditions. StrictMode is a no-op in production builds, so
 // disabling it only affects dev-mode warnings.
 installWindowErrorHandlers();
+installUnsavedChangesUnloadGuard();
 
 const log = createLogger("renderer-bootstrap");
 

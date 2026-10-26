@@ -15,6 +15,7 @@ import { createListenerBus } from "../../../shared/util/listener-bus";
 
 interface PendingPrompt {
   name: string;
+  unsavedCount: number;
   resolve: (confirmed: boolean) => void;
 }
 
@@ -25,9 +26,9 @@ function getActive(): PendingPrompt | null {
   return queue[0] ?? null;
 }
 
-function pushPrompt(name: string): Promise<boolean> {
+function pushPrompt(name: string, unsavedCount: number): Promise<boolean> {
   return new Promise((resolve) => {
-    queue.push({ name, resolve });
+    queue.push({ name, unsavedCount, resolve });
     bus.notify();
   });
 }
@@ -42,10 +43,11 @@ function resolveActive(confirmed: boolean): void {
 
 /**
  * Imperative entry point. Resolves to `true` (confirmed remove) or `false`
- * (cancelled). Esc / backdrop click resolves to `false`.
+ * (cancelled). Esc / backdrop click resolves to `false`. `unsavedCount` is
+ * the number of the workspace's buffers whose edits removal will discard.
  */
-export function showRemoveWorkspaceConfirm(name: string): Promise<boolean> {
-  return pushPrompt(name);
+export function showRemoveWorkspaceConfirm(name: string, unsavedCount = 0): Promise<boolean> {
+  return pushPrompt(name, unsavedCount);
 }
 
 /**
@@ -76,6 +78,11 @@ export function RemoveWorkspaceDialogRoot(): React.JSX.Element {
       </RadixDialog.Title>
       <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
         {t("workspace.remove_description")}
+        {active !== null && active.unsavedCount > 0 && (
+          <span className="mt-2 block text-foreground">
+            {t("workspace.remove_unsaved", { count: active.unsavedCount })}
+          </span>
+        )}
       </RadixDialog.Description>
       <div className="mt-5 flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={() => resolveActive(false)}>

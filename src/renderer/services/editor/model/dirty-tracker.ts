@@ -170,6 +170,15 @@ export function isDirty(cacheUri: string): boolean {
   return entriesByCacheUri.get(cacheUri)?.isDirty ?? false;
 }
 
+/** cacheUris of every tracked buffer that has unsaved edits. */
+export function listDirtyCacheUris(): string[] {
+  const dirty: string[] = [];
+  for (const [cacheUri, entry] of entriesByCacheUri) {
+    if (entry.isDirty) dirty.push(cacheUri);
+  }
+  return dirty;
+}
+
 /**
  * Subscribe to dirty state for a specific cacheUri. Stays valid across
  * attach / detach / re-attach cycles (a tab may outlive its model when

@@ -1,8 +1,9 @@
 import { join } from "node:path";
-import { BrowserWindow, shell } from "electron";
+import { BrowserWindow, dialog, shell } from "electron";
 import { DEFAULT_THEME, THEME_SOURCE_BY_ID, type ThemeId } from "../../../shared/design-tokens";
 import { createLogger } from "../../../shared/log/main";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
+import { getMainT } from "../../i18n";
 import { isMac } from "../../infra/platform";
 import type { AppState } from "../../infra/storage/state-service";
 
@@ -96,6 +97,22 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   } else {
     win.loadFile(join(__dirname, "../renderer/index.html"));
   }
+
+  // The renderer cancels unload (quit, window close, reload) while buffers
+  // are unsaved. Electron cancels silently, so ask here; preventDefault lets
+  // the unload go ahead when the user chooses to discard.
+  win.webContents.on("will-prevent-unload", (event) => {
+    const t = getMainT();
+    const choice = dialog.showMessageBoxSync(win, {
+      type: "warning",
+      message: t("dialog:unsavedChanges.message"),
+      detail: t("dialog:unsavedChanges.detail"),
+      buttons: [t("dialog:unsavedChanges.discard"), t("dialog:unsavedChanges.cancel")],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    if (choice === 0) event.preventDefault();
+  });
 
   // Popups need fresh user input, like Chrome's popup blocker: a previewed
   // page calling window.open from a timer would otherwise open browser tabs

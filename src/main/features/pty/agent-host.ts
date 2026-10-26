@@ -65,7 +65,7 @@ class AgentPtyHostHandle implements PtyHostHandle {
     if (this.disposed) {
       // Shutdown race: the renderer's xterm ResizeObserver (and similar
       // fire-and-forget paths) can still dispatch pty IPC after dispose()
-      // runs during before-quit. The renderer already ignores rejections for
+      // runs at quit. The renderer already ignores rejections for
       // write/resize/kill/ack, so silently no-op those to avoid noisy
       // "Error occurred in handler for 'ipc:call'" logs at shutdown. spawn
       // returns a typed { pid } that callers depend on, so keep its throw.

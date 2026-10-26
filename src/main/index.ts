@@ -487,7 +487,12 @@ app.on("window-all-closed", () => {
 // then process-local watchers/coalescers, then the registry that owns repo
 // queues, then storage close. Each disposer must be idempotent so this stays
 // safe regardless of how far whenReady() progressed.
-app.on("before-quit", () => {
+//
+// `will-quit`, not `before-quit`: a window can still cancel the quit after
+// before-quit (unsaved buffers), which would leave the app running with its
+// agents, terminals and storage already torn down. will-quit fires only
+// once every window has closed.
+app.on("will-quit", () => {
   sshBrowseRegistry.dispose();
   disposeClaudeFeature?.();
   agentPtyHost?.dispose();

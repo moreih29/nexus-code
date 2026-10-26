@@ -322,7 +322,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   async call(method: string, args: unknown, opts: LspHostCallOptions = {}): Promise<unknown> {
     if (this.disposed) {
       // Document notifications can arrive after dispose() during app shutdown:
-      // the LSP host is torn down on `before-quit` while the renderer is still
+      // the LSP host is torn down at quit while a renderer may still be
       // alive and emitting didClose as its editor models close. The host being
       // gone is the correct end state, so these resolve quietly — only
       // request-style methods (whose callers expect a result) still surface

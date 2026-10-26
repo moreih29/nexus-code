@@ -335,7 +335,7 @@ export class WorkspaceManager {
 
   /**
    * Close all open workspace storage handles and the global storage.
-   * Call from app.on('before-quit').
+   * Call from app.on('will-quit').
    */
   close(): void {
     for (const [id, ctx] of this.contexts) {
