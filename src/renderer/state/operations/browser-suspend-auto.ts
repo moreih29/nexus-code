@@ -21,7 +21,9 @@
  *   [role="alertdialog"]                 — AlertDialog.Content
  *   [role="menu"]                        — DropdownMenu.Content, ContextMenu.Content
  *   [data-radix-popper-content-wrapper]  — Popover, Tooltip popper containers
- * Watching these four covers every overlay primitive Radix ships.
+ * Watching these four covers every overlay primitive Radix ships. Tooltips
+ * count only while they overlap a browser view (see
+ * `tooltipOverlapsBrowserView`).
  *
  * FALSE POSITIVES — MONACO WIDGETS
  * --------------------------------
@@ -96,6 +98,45 @@ export function isOccludingOverlay(el: Element): boolean {
   return true;
 }
 
+const POPPER_WRAPPER_ATTR = "data-radix-popper-content-wrapper";
+
+// Where browser tabs (and their DevTools) draw their native views.
+const BROWSER_SLOT_SELECTOR = "[data-browser-placeholder],[data-browser-devtools-placeholder]";
+
+/**
+ * Tooltips appear on hover all over the chrome (tab close buttons, sidebar
+ * pins) and mostly sit nowhere near a page. Suspending for each one froze
+ * the page and captured a snapshot of every browser view per hover, so a
+ * tooltip claims the suspend only when it actually overlaps a browser view.
+ *
+ * Returns "unplaced" while Radix still parks the tooltip off-screen at
+ * `translate(0, -200%)`, waiting for floating-ui to position it.
+ */
+export function tooltipOverlapsBrowserView(
+  wrapper: Element,
+  slots: Iterable<Element>,
+): boolean | "unplaced" {
+  if ((wrapper as HTMLElement).style?.transform.includes("-200%")) return "unplaced";
+  const r = wrapper.getBoundingClientRect();
+  for (const slot of slots) {
+    if (slot.closest(INERT_SUBTREE_SELECTOR) !== null) continue;
+    const s = slot.getBoundingClientRect();
+    if (s.width === 0 || s.height === 0) continue;
+    if (r.left < s.right && r.right > s.left && r.top < s.bottom && r.bottom > s.top) return true;
+  }
+  return false;
+}
+
+/** Radix Tooltip content holds a visually hidden `role="tooltip"` node. */
+function isTooltipWrapper(el: Element): boolean {
+  return el.hasAttribute(POPPER_WRAPPER_ATTR) && el.querySelector('[role="tooltip"]') !== null;
+}
+
+// A tooltip is positioned a frame or two after it mounts, by a style change
+// the observer does not watch, so an unplaced one is re-checked on the next
+// frames, up to this many.
+const TOOLTIP_PLACEMENT_FRAMES = 10;
+
 let installed = false;
 
 /**
@@ -117,12 +158,25 @@ export function initBrowserOverlayAutoSuspend(): void {
   // runs.  Prevents querySelector storms when Radix mounts/unmounts a
   // multi-node portal subtree in one go.
   let pending = false;
+  let placementFramesLeft = TOOLTIP_PLACEMENT_FRAMES;
 
   function check(): void {
     pending = false;
-    const hasOverlay = Array.from(document.querySelectorAll(OVERLAY_SELECTOR)).some(
-      isOccludingOverlay,
-    );
+    let unplacedTooltip = false;
+    const hasOverlay = Array.from(document.querySelectorAll(OVERLAY_SELECTOR)).some((el) => {
+      if (!isOccludingOverlay(el)) return false;
+      if (!isTooltipWrapper(el)) return true;
+      const overlap = tooltipOverlapsBrowserView(
+        el,
+        document.querySelectorAll(BROWSER_SLOT_SELECTOR),
+      );
+      if (overlap === "unplaced") unplacedTooltip = true;
+      return overlap === true;
+    });
+    if (unplacedTooltip && placementFramesLeft > 0) {
+      placementFramesLeft--;
+      requestAnimationFrame(schedule);
+    }
     if (hasOverlay && release === null) {
       // Entering overlay state — claim with snapshot capture so the modal
       // renders above a still frame of the page rather than a blank area.
@@ -141,7 +195,10 @@ export function initBrowserOverlayAutoSuspend(): void {
     queueMicrotask(check);
   }
 
-  const observer = new MutationObserver(schedule);
+  const observer = new MutationObserver(() => {
+    placementFramesLeft = TOOLTIP_PLACEMENT_FRAMES;
+    schedule();
+  });
   // `inert` flips when the active workspace changes, which hides or reveals
   // the overlays inside that workspace's panel without adding or removing
   // any node.

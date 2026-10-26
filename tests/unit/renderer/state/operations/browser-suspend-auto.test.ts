@@ -21,7 +21,10 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { isOccludingOverlay } from "../../../../../src/renderer/state/operations/browser-suspend-auto";
+import {
+  isOccludingOverlay,
+  tooltipOverlapsBrowserView,
+} from "../../../../../src/renderer/state/operations/browser-suspend-auto";
 
 interface FakeSpec {
   /** el.matches(MONACO_WIDGET_SELECTOR) — the node itself is a Monaco widget. */
@@ -73,5 +76,58 @@ describe("isOccludingOverlay", () => {
 
   test("accepts a genuine, visible Radix overlay (dialog / menu / popper)", () => {
     expect(isOccludingOverlay(fakeEl({}))).toBe(true);
+  });
+});
+
+interface Box {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+function rect({ left, top, width, height }: Box): DOMRect {
+  return { left, top, width, height, right: left + width, bottom: top + height } as DOMRect;
+}
+
+function fakeTooltip(box: Box, transform = "translate(10px, 20px)"): Element {
+  return {
+    style: { transform },
+    getBoundingClientRect: () => rect(box),
+  } as unknown as Element;
+}
+
+function fakeSlot(box: Box, inert = false): Element {
+  return {
+    closest: () => (inert ? ({} as Element) : null),
+    getBoundingClientRect: () => rect(box),
+  } as unknown as Element;
+}
+
+describe("tooltipOverlapsBrowserView", () => {
+  const page = { left: 200, top: 100, width: 800, height: 600 };
+
+  test("ignores a tooltip over the tab strip, clear of the page", () => {
+    const tooltip = fakeTooltip({ left: 220, top: 60, width: 80, height: 24 });
+    expect(tooltipOverlapsBrowserView(tooltip, [fakeSlot(page)])).toBe(false);
+  });
+
+  test("counts a tooltip that reaches into the page", () => {
+    const tooltip = fakeTooltip({ left: 220, top: 90, width: 80, height: 24 });
+    expect(tooltipOverlapsBrowserView(tooltip, [fakeSlot(page)])).toBe(true);
+  });
+
+  test("ignores browser views of inactive workspaces and hidden tabs", () => {
+    const tooltip = fakeTooltip({ left: 220, top: 90, width: 80, height: 24 });
+    const slots = [fakeSlot(page, true), fakeSlot({ left: 0, top: 0, width: 0, height: 0 })];
+    expect(tooltipOverlapsBrowserView(tooltip, slots)).toBe(false);
+  });
+
+  test("reports a tooltip Radix has not positioned yet", () => {
+    const tooltip = fakeTooltip(
+      { left: 0, top: -48, width: 80, height: 24 },
+      "translate(0, -200%)",
+    );
+    expect(tooltipOverlapsBrowserView(tooltip, [fakeSlot(page)])).toBe("unplaced");
   });
 });
