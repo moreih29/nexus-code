@@ -21,6 +21,7 @@ import {
 } from "../../../../../shared/git/types";
 import { useGitSession, useGitStore } from "../../../../state/stores/git";
 import { selectGitActionButton } from "../../../../state/stores/git/action-button";
+import { useCommitDraft } from "../../../../state/stores/git/commit-drafts";
 import {
   usePanelViewOptionsStore,
   useViewOptions,
@@ -190,7 +191,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const isRefreshing = session?.inFlightOp?.kind === "refresh" || Boolean(session?.statusFetching);
   const isLoading = !session || session.repoInfo.kind === "detecting" || session.statusFetching;
   const showSkeleton = useLoaderDelay(isLoading ? "running" : "done");
-  const draft = session?.commitDraft ?? "";
+  const draft = useCommitDraft(workspaceId);
   const trimmedDraft = draft.trim();
   const operationState = session?.status?.operationState ?? { kind: "none" as const };
   const activeOperation = operationState.kind === "none" ? null : operationState;

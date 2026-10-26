@@ -7,6 +7,7 @@
 
 import type { RepoInfo } from "../../../../shared/git/types";
 import { ipcCallResult, unwrapGitResult } from "../../../ipc/client";
+import { deleteCommitDraft, setCommitDraftText } from "./commit-drafts";
 import { cancelCommitDraftSave, cancelStatusHintRefresh } from "./draft-persistence";
 import { sanitizeExpandedTreeNodes } from "./panel-ui";
 import { createDefaultSession } from "./session-defaults";
@@ -53,10 +54,6 @@ export function createSessionLifecycleSlice(ctx: GitStoreContext): SessionLifecy
           statusFetching: false,
           branchInfo:
             statusResult.status === "fulfilled" ? statusResult.value.branch : session.branchInfo,
-          commitDraft:
-            panelStateResult.status === "fulfilled"
-              ? panelStateResult.value.commitDraft
-              : session.commitDraft,
           expandedGroups:
             panelStateResult.status === "fulfilled"
               ? { ...panelStateResult.value.expandedGroups }
@@ -102,6 +99,9 @@ export function createSessionLifecycleSlice(ctx: GitStoreContext): SessionLifecy
           lastError: firstError ? gitStoreErrorFromUnknown(firstError) : null,
         };
       });
+      if (panelStateResult.status === "fulfilled" && get().sessions.has(workspaceId)) {
+        setCommitDraftText(workspaceId, panelStateResult.value.commitDraft);
+      }
     },
 
     async refresh(workspaceId) {
@@ -155,6 +155,7 @@ export function createSessionLifecycleSlice(ctx: GitStoreContext): SessionLifecy
         controllers.delete(workspaceId);
       }
       cancelCommitDraftSave(workspaceId);
+      deleteCommitDraft(workspaceId);
       cancelStatusHintRefresh(workspaceId);
       set((state) => {
         if (!state.sessions.has(workspaceId)) return state;

@@ -153,7 +153,6 @@ export interface GitSession {
   status: GitStatus | null;
   statusFetching: boolean;
   branchInfo: BranchInfo | null;
-  commitDraft: string;
   expandedGroups: GitExpandedGroups;
   expandedTreeNodes: GitExpandedTreeNodes;
   commitOptions: GitCommitOptions;

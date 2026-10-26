@@ -78,7 +78,6 @@ function makeSession(): GitSession {
     status: makeStatus(),
     statusFetching: false,
     branchInfo: makeStatus().branch,
-    commitDraft: DEFAULT_GIT_PANEL_STATE.commitDraft,
     expandedGroups: { ...DEFAULT_GIT_PANEL_STATE.expandedGroups },
     expandedTreeNodes: { ...DEFAULT_GIT_PANEL_STATE.expandedTreeNodes },
     commitOptions: { ...DEFAULT_GIT_PANEL_STATE.commitOptions },

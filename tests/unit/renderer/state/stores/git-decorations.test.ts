@@ -40,7 +40,6 @@ function baseSession(overrides: Partial<GitSession> = {}): GitSession {
     status: null,
     statusFetching: false,
     branchInfo: null,
-    commitDraft: DEFAULT_GIT_PANEL_STATE.commitDraft,
     expandedGroups: { ...DEFAULT_GIT_PANEL_STATE.expandedGroups },
     expandedTreeNodes: { merge: [], staged: [], working: [], untracked: [] },
     commitOptions: { ...DEFAULT_GIT_PANEL_STATE.commitOptions },
