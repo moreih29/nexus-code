@@ -14,9 +14,10 @@
  * The row is *not* draggable (it's transient and ownerless).
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { isImeComposing } from "@/utils/ime";
 import { validateNewEntryName } from "../name-validator";
 import type { EntryKind } from "./display";
 import { indentPaddingLeft, ROW_HEIGHT_PX } from "./metrics";
@@ -46,12 +47,25 @@ export function FileTreeEditRow({
   const [value, setValue] = useState(initialValue);
   const validationError = value.length > 0 ? validateNewEntryName(value, t) : null;
   const canCommit = value.trim().length > 0 && validationError === null;
+  // The row stays mounted until the create/rename IPC resolves. A second
+  // Enter, or the blur that follows the first one, must not submit again:
+  // the duplicate fails with "already exists" after the first succeeded.
+  const committingRef = useRef(false);
+
+  function commit() {
+    if (committingRef.current) return;
+    committingRef.current = true;
+    void Promise.resolve(onCommit(value)).finally(() => {
+      committingRef.current = false;
+    });
+  }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (isImeComposing(e)) return;
     if (e.key === "Enter") {
       e.preventDefault();
       if (!canCommit) return;
-      void onCommit(value);
+      commit();
     } else if (e.key === "Escape") {
       e.preventDefault();
       onCancel();
@@ -59,12 +73,13 @@ export function FileTreeEditRow({
   }
 
   function handleBlur() {
+    if (committingRef.current) return;
     // Empty input → cancel; non-empty + invalid → cancel (don't trap user).
     if (!canCommit) {
       onCancel();
       return;
     }
-    void onCommit(value);
+    commit();
   }
 
   return (
