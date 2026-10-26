@@ -33,6 +33,7 @@ function makeRegistry() {
 function makeManager(provider: unknown) {
   return {
     requireContext: () => ({ fs: provider }),
+    getFs: async () => provider,
   };
 }
 
