@@ -4,7 +4,7 @@ import { ipcListen } from "../../../ipc/client";
 
 const log = createLogger("files");
 
-import { loadChildren } from "../../operations/files";
+import { loadChildren, rewatchExpandedDir } from "../../operations/files";
 import { joinPath, parentOf } from "./helpers";
 import { useFilesStore } from "./store";
 
@@ -16,6 +16,11 @@ import { useFilesStore } from "./store";
  * re-fetched eagerly; otherwise the parent is marked stale so the next
  * expansion re-loads. The module-level subscription at the bottom of this
  * file wires it to the IPC bus on the renderer.
+ *
+ * A path reported as "added" that is itself a known directory was (re)created
+ * — e.g. a build output or codegen folder deleted and rewritten. Its old OS
+ * watch died with the old inode and its cached listing is from before, so an
+ * expanded one is re-watched and re-read, a collapsed one marked stale.
  */
 export function handleFsChanged(event: FsChangedEvent): void {
   const { workspaceId, changes } = event;
@@ -25,12 +30,15 @@ export function handleFsChanged(event: FsChangedEvent): void {
   const { rootAbsPath } = tree;
 
   const parentSet = new Set<string>();
+  const addedPaths: string[] = [];
   for (const change of changes) {
     const absPath = change.relPath ? joinPath(rootAbsPath, change.relPath) : rootAbsPath;
     const parent = parentOf(absPath, rootAbsPath);
     parentSet.add(parent);
+    if (change.kind === "added" && change.relPath) addedPaths.push(absPath);
   }
 
+  const parentReloads = new Map<string, Promise<void>>();
   for (const parentAbsPath of parentSet) {
     const currentTree = useFilesStore.getState().trees.get(workspaceId);
     if (!currentTree) break;
@@ -38,13 +46,35 @@ export function handleFsChanged(event: FsChangedEvent): void {
     const parentNode = currentTree.nodes.get(parentAbsPath);
     if (!parentNode) continue;
 
-    if (currentTree.expanded.has(parentAbsPath) && parentNode.childrenLoaded) {
-      loadChildren(workspaceId, parentAbsPath).catch((err) => {
-        log.error(`changed reload failed: ${(err as Error).message}`);
-      });
+    // A folder whose first listing is still in flight counts as loaded here:
+    // marking it stale would be overwritten by that (possibly older) listing
+    // landing, while loadChildren queues a follow-up read behind it.
+    const listed = parentNode.childrenLoaded || currentTree.loading.has(parentAbsPath);
+    if (currentTree.expanded.has(parentAbsPath) && listed) {
+      parentReloads.set(
+        parentAbsPath,
+        loadChildren(workspaceId, parentAbsPath).catch((err) => {
+          log.error(`changed reload failed: ${(err as Error).message}`);
+        }),
+      );
     } else {
       useFilesStore.getState().markChildrenStale(workspaceId, parentAbsPath);
     }
+  }
+
+  // After the parent's listing settles: it may replace the recreated dir's
+  // node with a fresh one, which must not clobber the dir's own new listing.
+  for (const absPath of addedPaths) {
+    const parentReload = parentReloads.get(parentOf(absPath, rootAbsPath)) ?? Promise.resolve();
+    void parentReload.then(() => {
+      const currentTree = useFilesStore.getState().trees.get(workspaceId);
+      if (currentTree?.nodes.get(absPath)?.type !== "dir") return;
+      if (currentTree.expanded.has(absPath)) {
+        rewatchExpandedDir(workspaceId, absPath);
+      } else {
+        useFilesStore.getState().markChildrenStale(workspaceId, absPath);
+      }
+    });
   }
 }
 

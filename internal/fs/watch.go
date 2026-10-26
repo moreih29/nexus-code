@@ -115,6 +115,16 @@ func (s *Service) runWatch(absDir string, entry *watchEntry) {
 				return
 			}
 			s.handleWatchEvent(event)
+			// The watched directory itself was removed or renamed away.
+			// fsnotify has already dropped the OS watch but keeps the
+			// channels open, so without this the stale entry would turn the
+			// next Watch of a directory recreated at the same path into a
+			// silent no-op (Watch returns early when the path is present).
+			if event.Name == absDir && event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+				s.removeWatch(absDir, entry)
+				entry.close()
+				return
+			}
 		case _, ok := <-entry.watcher.Errors:
 			if !ok {
 				s.removeWatch(absDir, entry)

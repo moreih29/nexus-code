@@ -30,6 +30,37 @@ const log = createLogger("files");
 // Module-level singletons — shared across all subscribers within this module.
 const _saveDebouncer = createKeyedDebouncer<string>({ delayMs: FS_EXPANDED_SAVE_DEBOUNCE_MS });
 const _ensureRootPromises = new Map<string, Promise<void>>();
+// Tail of the watch/unwatch chain per `${workspaceId}\0${relPath}`.
+const _watchChains = new Map<string, Promise<unknown>>();
+// Directories whose reload was requested while a readdir was already in flight.
+const _pendingReloads = new Set<string>();
+
+/**
+ * Sends fs.watch / fs.unwatch for one directory strictly in call order. The
+ * agent serves each request on its own goroutine, so a fire-and-forget
+ * unwatch followed quickly by a watch (collapse → re-expand) could execute
+ * reversed: the watch is a no-op on the still-registered entry, then the
+ * unwatch removes it, leaving an expanded folder with no watcher.
+ */
+function queueWatchCall(
+  workspaceId: string,
+  rel: string,
+  method: "watch" | "unwatch",
+): ReturnType<typeof ipcCallResult<"fs", "watch">> {
+  const key = `${workspaceId}\0${rel}`;
+  const previous = _watchChains.get(key);
+  // Nothing in flight for this path → send now (keeps the common case
+  // synchronous); otherwise wait for the previous call's response.
+  const call = previous
+    ? previous.then(() => ipcCallResult("fs", method, { workspaceId, relPath: rel }))
+    : ipcCallResult("fs", method, { workspaceId, relPath: rel });
+  const tail = call.catch(() => {});
+  _watchChains.set(key, tail);
+  void tail.then(() => {
+    if (_watchChains.get(key) === tail) _watchChains.delete(key);
+  });
+  return call;
+}
 
 function scheduleSave(workspaceId: string): void {
   _saveDebouncer.schedule(workspaceId, () => {
@@ -66,7 +97,7 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
     useFilesStore.getState().initTree(workspaceId, rootAbsPath, persistedRelPaths);
 
     // Fire-and-forget: watch registration; tree updates arrive via fs.changed events.
-    void ipcCallResult("fs", "watch", { workspaceId, relPath: "" }).then((result) => {
+    void queueWatchCall(workspaceId, "", "watch").then((result) => {
       if (!result.ok) log.error(`watch root failed: ${result.message}`);
     });
 
@@ -105,7 +136,7 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
           // results and prune them. The tree itself still updates lazily
           // via `fs.changed` events; awaiting here only delays the
           // ensureRoot resolution by one round-trip per persisted dir.
-          const result = await ipcCallResult("fs", "watch", { workspaceId, relPath: rel });
+          const result = await queueWatchCall(workspaceId, rel, "watch");
           if (!result.ok) {
             if (isNotFoundMessage(result.message)) {
               staleRels.add(rel);
@@ -151,7 +182,14 @@ export async function loadChildren(workspaceId: string, absPath: string): Promis
   const tree = useFilesStore.getState().trees.get(workspaceId);
   if (!tree) return;
 
-  if (tree.loading.has(absPath)) return;
+  // A change that lands while a readdir is in flight may postdate that read,
+  // so remember it and read again once the current one settles rather than
+  // dropping it (the older listing would otherwise stick).
+  const pendingKey = `${workspaceId}\0${absPath}`;
+  if (tree.loading.has(absPath)) {
+    _pendingReloads.add(pendingKey);
+    return;
+  }
 
   const { rootAbsPath } = tree;
   const rel = relPath(absPath, rootAbsPath);
@@ -168,6 +206,10 @@ export async function loadChildren(workspaceId: string, absPath: string): Promis
       .getState()
       .setChildrenError(workspaceId, absPath, err instanceof Error ? err.message : String(err));
   }
+
+  if (_pendingReloads.delete(pendingKey)) {
+    await loadChildren(workspaceId, absPath);
+  }
 }
 
 export async function toggleExpand(workspaceId: string, absPath: string): Promise<void> {
@@ -182,15 +224,19 @@ export async function toggleExpand(workspaceId: string, absPath: string): Promis
 
   if (isExpanded) {
     useFilesStore.getState().collapseDir(workspaceId, absPath);
+    // Unwatched from here on, so its listing can silently go out of date:
+    // mark it stale so the next expand re-reads instead of showing the
+    // snapshot from before the collapse.
+    useFilesStore.getState().markChildrenStale(workspaceId, absPath);
     // Fire-and-forget: unwatch is best-effort cleanup.
-    void ipcCallResult("fs", "unwatch", { workspaceId, relPath: rel }).then((result) => {
+    void queueWatchCall(workspaceId, rel, "unwatch").then((result) => {
       if (!result.ok) log.error(`unwatch failed: ${result.message}`);
     });
     scheduleSave(workspaceId);
   } else {
     useFilesStore.getState().expandDir(workspaceId, absPath);
     // Fire-and-forget: watch registration; tree updates arrive via fs.changed events.
-    void ipcCallResult("fs", "watch", { workspaceId, relPath: rel }).then((result) => {
+    void queueWatchCall(workspaceId, rel, "watch").then((result) => {
       if (!result.ok) log.error(`watch failed: ${result.message}`);
     });
     scheduleSave(workspaceId);
@@ -287,8 +333,9 @@ export async function collapseAll(workspaceId: string): Promise<void> {
   const store = useFilesStore.getState();
   for (const absPath of targets) {
     store.collapseDir(workspaceId, absPath);
+    store.markChildrenStale(workspaceId, absPath);
     const rel = relPath(absPath, rootAbsPath);
-    void ipcCallResult("fs", "unwatch", { workspaceId, relPath: rel }).then((result) => {
+    void queueWatchCall(workspaceId, rel, "unwatch").then((result) => {
       if (!result.ok) log.error(`unwatch failed: ${result.message}`);
     });
   }
@@ -310,6 +357,15 @@ export async function reveal(workspaceId: string, absPath: string): Promise<void
 
     if (!currentTree.expanded.has(ancestor)) {
       useFilesStore.getState().expandDir(workspaceId, ancestor);
+      // Same contract as a manual expand: an expanded folder must be
+      // watched (or the tree and git status silently stop tracking changes
+      // inside it) and persisted.
+      void queueWatchCall(workspaceId, relPath(ancestor, currentTree.rootAbsPath), "watch").then(
+        (result) => {
+          if (!result.ok) log.error(`watch revealed dir failed: ${result.message}`);
+        },
+      );
+      scheduleSave(workspaceId);
     }
 
     const afterExpand = useFilesStore.getState().trees.get(workspaceId);
@@ -317,5 +373,39 @@ export async function reveal(workspaceId: string, absPath: string): Promise<void
     if (afterNode && !afterNode.childrenLoaded) {
       await loadChildren(workspaceId, ancestor);
     }
+  }
+}
+
+/**
+ * Re-arms the watcher on an expanded directory and re-reads it. Used when the
+ * directory itself was (re)created — its previous OS watch died with the old
+ * inode — and by the focus-regained resync.
+ */
+export function rewatchExpandedDir(workspaceId: string, absPath: string): void {
+  const tree = useFilesStore.getState().trees.get(workspaceId);
+  if (!tree || !tree.expanded.has(absPath)) return;
+  void queueWatchCall(workspaceId, relPath(absPath, tree.rootAbsPath), "watch").then((result) => {
+    if (!result.ok) log.error(`re-watch failed: ${result.message}`);
+  });
+  loadChildren(workspaceId, absPath).catch((err) => {
+    log.error(`re-watch reload failed: ${(err as Error).message}`);
+  });
+}
+
+/**
+ * Re-reads every expanded, already-loaded directory of a workspace tree.
+ * A safety net for changes the watcher could not report (events lost while
+ * the agent was down, watcher limits on remote hosts). One readdir per
+ * folder; an unchanged folder just re-renders with the same entries.
+ */
+export function reloadExpandedDirs(workspaceId: string): void {
+  const tree = useFilesStore.getState().trees.get(workspaceId);
+  if (!tree) return;
+  for (const absPath of tree.expanded) {
+    const node = tree.nodes.get(absPath);
+    if (node?.type !== "dir" || !node.childrenLoaded) continue;
+    loadChildren(workspaceId, absPath).catch((err) => {
+      log.error(`resync reload failed: ${(err as Error).message}`);
+    });
   }
 }

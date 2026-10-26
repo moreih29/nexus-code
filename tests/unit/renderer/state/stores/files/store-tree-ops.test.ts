@@ -212,13 +212,16 @@ describe("Scenario 10: ensureRoot concurrent calls deduplicate", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Scenario 11: loadChildren concurrent calls deduplicate
+// Scenario 11: loadChildren concurrent calls coalesce
 // ---------------------------------------------------------------------------
 
-describe("Scenario 11: loadChildren concurrent calls deduplicate", () => {
+describe("Scenario 11: loadChildren concurrent calls coalesce", () => {
   beforeEach(resetStore);
 
-  it("fires readdir exactly once when loadChildren is called concurrently for the same path", async () => {
+  // A request that arrives while a readdir is in flight may reflect a change
+  // newer than that read, so it is not dropped: all such requests collapse
+  // into ONE follow-up read after the in-flight one settles.
+  it("collapses concurrent calls into the in-flight readdir plus one follow-up", async () => {
     setupReaddir(new Map([["", [dirEntry("a.txt", "file")]]]));
 
     await ensureRoot(WS_ID, ROOT);
@@ -241,9 +244,13 @@ describe("Scenario 11: loadChildren concurrent calls deduplicate", () => {
 
     mockIpcCallResult.mockClear();
 
-    await Promise.all([loadChildren(WS_ID, ROOT), loadChildren(WS_ID, ROOT)]);
+    await Promise.all([
+      loadChildren(WS_ID, ROOT),
+      loadChildren(WS_ID, ROOT),
+      loadChildren(WS_ID, ROOT),
+    ]);
 
     const readdirCalls = mockIpcCallResult.mock.calls.filter(([, method]) => method === "readdir");
-    expect(readdirCalls).toHaveLength(1);
+    expect(readdirCalls).toHaveLength(2);
   });
 });
