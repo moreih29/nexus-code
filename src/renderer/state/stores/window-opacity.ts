@@ -38,9 +38,10 @@ interface WindowOpacityState {
 
   /**
    * Set the window opacity preference.
-   * Persists to localStorage (boot cache) + appState (authoritative store).
+   * Persists to localStorage (boot cache) + appState (authoritative store)
+   * unless `persist` is false, as for each step of a slider drag.
    */
-  setOpacity(opacity: number): void;
+  setOpacity(opacity: number, options?: { persist?: boolean }): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,8 +67,9 @@ export const useWindowOpacityStore = create<WindowOpacityState>((set) => {
       }
     },
 
-    setOpacity(opacity) {
+    setOpacity(opacity, options) {
       set({ opacity });
+      if (options?.persist === false) return;
       if (typeof localStorage !== "undefined") {
         localStorage.setItem(WINDOW_OPACITY_STORAGE_KEY, String(opacity));
       }
