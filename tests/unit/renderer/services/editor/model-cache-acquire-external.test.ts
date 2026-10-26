@@ -170,6 +170,17 @@ describe("acquireModel — origin branching", () => {
     releaseModel(EXT_INPUT);
   });
 
+  test("concurrent acquires of one external file share a single load and entry", async () => {
+    await Promise.all([acquireModel(EXT_INPUT), acquireModel(EXT_INPUT)]);
+    expect(loadExternalEntryMock).toHaveBeenCalledTimes(1);
+
+    // Both references land on the same entry: one release keeps it alive.
+    releaseModel(EXT_INPUT);
+    expect(getModelSnapshot(EXT_INPUT)).not.toBeNull();
+    releaseModel(EXT_INPUT);
+    expect(getModelSnapshot(EXT_INPUT)).toBeNull();
+  });
+
   test("external acquire/release roundtrip cleans cache for equal reacquire", async () => {
     const first = await acquireModel(EXT_INPUT);
     releaseModel(EXT_INPUT);

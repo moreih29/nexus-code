@@ -97,6 +97,14 @@ export function initializeModelCache(monaco: typeof Monaco): void {
 }
 
 const entries = new Map<string, ModelEntry>();
+
+/**
+ * External loads in flight by cacheUri. Their entry is registered only
+ * after the read, so concurrent acquires of one external file must share
+ * the load instead of each creating an entry (and a second Monaco model
+ * for the same URI).
+ */
+const pendingExternalLoads = new Map<string, Promise<ModelEntry>>();
 const releaseSubscribers = new Set<ModelReleaseSubscriber>();
 
 function cacheUriForInput(input: EditorInput): string {
@@ -165,7 +173,14 @@ export async function acquireModel(input: EditorInput): Promise<SharedModelState
   let entry = entries.get(cacheUri);
   if (!entry) {
     if (input.origin === "external") {
-      entry = await loadExternalEntry(input);
+      let pending = pendingExternalLoads.get(cacheUri);
+      if (!pending) {
+        pending = loadExternalEntry(input).finally(() => pendingExternalLoads.delete(cacheUri));
+        pendingExternalLoads.set(cacheUri, pending);
+      }
+      const loaded = await pending;
+      // The first acquirer to resume registers the entry; the rest reuse it.
+      entry = entries.get(cacheUri) ?? loaded;
     } else if (input.origin === "untitled") {
       // Untitled buffers: no fs IPC, no LSP registration, no fs-watcher.
       // The model starts with empty content and is immediately ready.
