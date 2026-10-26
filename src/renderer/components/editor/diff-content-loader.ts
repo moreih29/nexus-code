@@ -71,7 +71,15 @@ interface SideRefs<T> {
  * Fetches both sides of a source-control diff and refreshes them from IPC hints.
  */
 export function useDiffContent(payload: DiffTabPayload): UseDiffContentResult {
-  const requestPair = useMemo(() => buildRequests(payload), [payload]);
+  // Keyed on the fields, not the object: the tab host spreads `tab.props`
+  // into a fresh payload on every render, and an identity dependency made
+  // every open diff tab abort and refetch both sides on each tab switch,
+  // split focus or terminal title update.
+  const { workspaceId, relPath, leftRef, rightRef, oldRelPath } = payload;
+  const requestPair = useMemo(
+    () => buildRequests({ workspaceId, relPath, leftRef, rightRef, oldRelPath }),
+    [workspaceId, relPath, leftRef, rightRef, oldRelPath],
+  );
   const [left, setLeft] = useState<DiffSideState>(() => loadingState(requestPair.left));
   const [right, setRight] = useState<DiffSideState>(() => loadingState(requestPair.right));
 
@@ -160,24 +168,24 @@ export function useDiffContent(payload: DiffTabPayload): UseDiffContentResult {
 
   useEffect(() => {
     const unsubscribeFs = ipcListen("fs", "changed", (event) => {
-      if (event.workspaceId !== payload.workspaceId) return;
-      if (payload.rightRef !== "WORKING") return;
-      const watches = new Set([payload.relPath, payload.oldRelPath].filter(Boolean));
+      if (event.workspaceId !== workspaceId) return;
+      if (rightRef !== "WORKING") return;
+      const watches = new Set([relPath, oldRelPath].filter(Boolean));
       if (!event.changes.some((change) => watches.has(change.relPath))) return;
       scheduleReload("right");
     });
 
     const unsubscribeGit = ipcListen("git", "statusChanged", (event) => {
-      if (event.workspaceId !== payload.workspaceId) return;
-      if (payload.leftRef !== "WORKING") scheduleReload("left");
-      if (payload.rightRef !== "WORKING") scheduleReload("right");
+      if (event.workspaceId !== workspaceId) return;
+      if (leftRef !== "WORKING") scheduleReload("left");
+      if (rightRef !== "WORKING") scheduleReload("right");
     });
 
     return () => {
       unsubscribeFs();
       unsubscribeGit();
     };
-  }, [payload, scheduleReload]);
+  }, [workspaceId, relPath, leftRef, rightRef, oldRelPath, scheduleReload]);
 
   return {
     left,
