@@ -281,6 +281,51 @@ describe("GlobalStorage.updateWorkspace", () => {
     });
   });
 
+  it("keeps an ssh location with an unknown optional field as ssh", () => {
+    const stored = {
+      kind: "ssh",
+      host: "devbox",
+      user: "deploy",
+      remotePath: "/srv/app",
+      authMode: "key-only",
+      remoteArch: { os: "freebsd", arch: "amd64" },
+    };
+    db.prepare("UPDATE workspaces SET location = ? WHERE id = ?").run(
+      JSON.stringify(stored),
+      "00000000-0000-0000-0000-000000000001",
+    );
+
+    expect(storage.listWorkspaces()[0].location).toEqual({
+      kind: "ssh",
+      host: "devbox",
+      user: "deploy",
+      remotePath: "/srv/app",
+      authMode: "key-only",
+    });
+
+    storage.updateWorkspace("00000000-0000-0000-0000-000000000001", { name: "renamed" });
+
+    const raw = db.prepare("SELECT location FROM workspaces WHERE id = ?").get(
+      "00000000-0000-0000-0000-000000000001",
+    ) as { location: string };
+    expect(JSON.parse(raw.location)).toEqual(stored);
+  });
+
+  it("does not overwrite an unreadable stored location on update", () => {
+    const stored = JSON.stringify({ kind: "ssh", hostname: "renamed-field", remotePath: "/srv" });
+    db.prepare("UPDATE workspaces SET location = ? WHERE id = ?").run(
+      stored,
+      "00000000-0000-0000-0000-000000000001",
+    );
+
+    storage.updateWorkspace("00000000-0000-0000-0000-000000000001", { name: "renamed" });
+
+    const raw = db.prepare("SELECT location FROM workspaces WHERE id = ?").get(
+      "00000000-0000-0000-0000-000000000001",
+    ) as { location: string };
+    expect(raw.location).toBe(stored);
+  });
+
   it("throws when workspace is not found", () => {
     expect(() =>
       storage.updateWorkspace("00000000-0000-0000-0000-000000000099", {

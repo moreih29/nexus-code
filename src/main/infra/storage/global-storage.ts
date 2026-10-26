@@ -6,6 +6,7 @@ import {
   WorkspaceLocationSchema,
   type WorkspaceMeta,
   WorkspaceMetaSchema,
+  WorkspaceSshLocationSchema,
 } from "../../../shared/types/workspace";
 import { applyMigrations, type SqliteDb } from "./migrations";
 
@@ -160,10 +161,46 @@ function rowLocation(row: WorkspaceRow): WorkspaceLocation {
 
   const parsedLocation = WorkspaceLocationSchema.safeParse(parsedJson);
   if (!parsedLocation.success) {
-    return fallbackLocalLocation(row.root_path);
+    return salvageSshLocation(parsedJson) ?? fallbackLocalLocation(row.root_path);
   }
 
   return parsedLocation.data;
+}
+
+/**
+ * True when the row's location reads back exactly: a valid stored location,
+ * or a legacy row with none, whose local fallback is its true location.
+ */
+function storedLocationIsValid(row: WorkspaceRow): boolean {
+  if (!row.location) return true;
+  try {
+    return WorkspaceLocationSchema.safeParse(JSON.parse(row.location)).success;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Recovers an SSH location that fails validation only on optional fields
+ * (e.g. a remoteArch value this build does not know), so the workspace does
+ * not reopen as a local folder at the remote path.
+ */
+function salvageSshLocation(value: unknown): WorkspaceLocation | null {
+  if (typeof value !== "object" || value === null) return null;
+  const stored = value as Record<string, unknown>;
+  if (stored.kind !== "ssh") return null;
+  let salvaged: Record<string, unknown> = {
+    kind: "ssh",
+    host: stored.host,
+    remotePath: stored.remotePath,
+  };
+  if (!WorkspaceSshLocationSchema.safeParse(salvaged).success) return null;
+  for (const [key, field] of Object.entries(stored)) {
+    if (key in salvaged) continue;
+    const candidate = { ...salvaged, [key]: field };
+    if (WorkspaceSshLocationSchema.safeParse(candidate).success) salvaged = candidate;
+  }
+  return WorkspaceSshLocationSchema.parse(salvaged);
 }
 
 function normalizeLocation(location: WorkspaceLocation): WorkspaceLocation {
@@ -265,11 +302,19 @@ export class GlobalStorage {
     if (!row) {
       throw new Error(`workspace not found: ${id}`);
     }
-    const location =
-      partial.location ??
-      (partial.rootPath ? fallbackLocalLocation(partial.rootPath) : rowLocation(row));
-    const normalizedLocation = normalizeLocation(location);
-    const rootPath = rootPathFromLocation(normalizedLocation);
+    const changedLocation =
+      partial.location ?? (partial.rootPath ? fallbackLocalLocation(partial.rootPath) : null);
+    let locationJson = row.location;
+    let rootPath = row.root_path;
+    // A stored location this build cannot fully read (salvaged, or replaced
+    // by the local fallback) is kept verbatim unless the caller changes it;
+    // rewriting it from the parsed form would lose the SSH host on the next
+    // rename or open.
+    if (changedLocation || storedLocationIsValid(row)) {
+      const normalizedLocation = normalizeLocation(changedLocation ?? rowLocation(row));
+      locationJson = JSON.stringify(normalizedLocation);
+      rootPath = rootPathFromLocation(normalizedLocation);
+    }
     this.db
       .prepare(
         `UPDATE workspaces
@@ -279,7 +324,7 @@ export class GlobalStorage {
       .run(
         partial.name ?? row.name,
         rootPath,
-        JSON.stringify(normalizedLocation),
+        locationJson,
         (partial.colorTone ?? row.color_tone) as string,
         partial.pinned !== undefined ? (partial.pinned ? 1 : 0) : row.pinned,
         partial.lastOpenedAt ? new Date(partial.lastOpenedAt).getTime() : row.last_opened_at,
