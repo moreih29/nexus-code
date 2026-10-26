@@ -3,7 +3,6 @@ package fs
 import (
 	"encoding/json"
 	"path/filepath"
-	"strings"
 
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
@@ -29,7 +28,7 @@ func (s *Service) Resolve(relPath string) (string, error) {
 	if rel == "" || rel == "." {
 		return abs, nil
 	}
-	if strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+	if hasDotDotPrefix(rel) || filepath.IsAbs(rel) {
 		return "", FSError{Code: CodeOutOfWorkspace, Path: relPath}
 	}
 	return abs, nil
