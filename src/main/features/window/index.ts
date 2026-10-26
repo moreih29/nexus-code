@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { BrowserWindow, dialog, shell } from "electron";
+import { app, BrowserWindow, dialog, shell } from "electron";
 import { DEFAULT_THEME, THEME_SOURCE_BY_ID, type ThemeId } from "../../../shared/design-tokens";
 import { createLogger } from "../../../shared/log/main";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
@@ -91,12 +91,23 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
     win.show();
   });
 
-  // electron-vite dev server injects ELECTRON_RENDERER_URL during `dev`.
-  if (process.env.ELECTRON_RENDERER_URL !== undefined) {
-    win.loadURL(process.env.ELECTRON_RENDERER_URL);
+  // electron-vite dev server injects ELECTRON_RENDERER_URL during `dev`. A
+  // packaged build ignores it: launched from a shell that still has it set,
+  // it would hand the preload (full IPC, terminal spawn included) to whatever
+  // serves that port, such as a repository's own dev server.
+  const devServerUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL;
+  if (devServerUrl !== undefined) {
+    win.loadURL(devServerUrl);
   } else {
     win.loadFile(join(__dirname, "../renderer/index.html"));
   }
+
+  // The app is a single page and never navigates its window; any page that
+  // got loaded into it would run with the preload.
+  win.webContents.on("will-navigate", (event, url) => {
+    event.preventDefault();
+    logger.warn(`Blocked main window navigation: ${url}`);
+  });
 
   // The renderer cancels unload (quit, window close, reload) while buffers
   // are unsaved. Electron cancels silently, so ask here; preventDefault lets
