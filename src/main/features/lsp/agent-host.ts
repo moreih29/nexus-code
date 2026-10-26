@@ -1121,7 +1121,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
 
     switch (parsed.method) {
       case "workspace/applyEdit":
-        this.emitApplyEditRequest(channel, parsed);
+        this.emitApplyEditRequest(channel, context, parsed);
         return;
       case "workspace/configuration":
         void this.respondAgentServerRequest(channel, parsed.serverId, parsed.agentRequestId, {
@@ -1158,6 +1158,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
 
   private emitApplyEditRequest(
     channel: AgentChannel,
+    context: ServerContext,
     request: { serverId: string; agentRequestId: string; method: string; params: unknown },
   ): void {
     const parsed = ApplyWorkspaceEditParamsSchema.safeParse(request.params);
@@ -1174,7 +1175,14 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       serverId: request.serverId,
       agentRequestId: request.agentRequestId,
     });
-    this.emit("serverRequest", { id, method: request.method, params: parsed.data });
+    // The renderer keys the workspace's models by workspace URI, which it
+    // rebuilds from the server's `file://` URIs and this workspace id.
+    this.emit("serverRequest", {
+      id,
+      workspaceId: context.workspaceId,
+      method: request.method,
+      params: parsed.data,
+    });
   }
 
   private sendServerRequestResponse(

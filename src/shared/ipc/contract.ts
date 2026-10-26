@@ -358,6 +358,8 @@ const LspWorkspaceResetEventSchema = z.object({
 
 const LspApplyEditEventSchema = z.object({
   requestId: z.string(),
+  // Workspace of the requesting server; its models are keyed by workspace URI.
+  workspaceId: z.string(),
   params: ApplyWorkspaceEditParamsSchema,
 });
 

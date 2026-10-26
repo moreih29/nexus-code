@@ -9,7 +9,11 @@ import type { LspLanguageId } from "../../../../shared/types/app-state";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../../ipc/client";
 import { useActiveStore } from "../../../state/stores/active";
 import { useLspEnabledStore } from "../../../state/stores/lsp-enabled";
-import { rehydrateLspForWorkspace, resetLspStateForWorkspace } from "../model/cache";
+import {
+  getEntryLspVersion,
+  rehydrateLspForWorkspace,
+  resetLspStateForWorkspace,
+} from "../model/cache";
 import { isKnownModelUri, registerKnownModelUri, unregisterKnownModelUri } from "./known-uris";
 import {
   lspDiagnosticToMonacoMarker,
@@ -136,7 +140,10 @@ function registerApplyEditListener(monaco: typeof Monaco): void {
   applyEditUnlisten = ipcListen("lsp", "applyEdit", (args) => {
     const result = (() => {
       try {
-        return applyWorkspaceEdit(monaco, args.params);
+        return applyWorkspaceEdit(monaco, args.params, {
+          workspaceId: args.workspaceId,
+          lspVersionOf: (model) => getEntryLspVersion(model.uri.toString()) ?? undefined,
+        });
       } catch (error) {
         return { applied: false, failureReason: String(error) };
       }

@@ -287,6 +287,15 @@ export function getEntryMetadata(cacheUri: string): EntryMetadata | null {
 }
 
 /**
+ * The document version the LSP server last received for the model at
+ * `cacheUri` (didOpen/didChange), or null when the URI is not tracked.
+ * Differs from Monaco's version id after a rehydrate restarts it at 1.
+ */
+export function getEntryLspVersion(cacheUri: string): number | null {
+  return entries.get(cacheUri)?.version ?? null;
+}
+
+/**
  * Reload the model entry for `input` from disk, replacing the buffer with
  * the on-disk content. Used by the conflict-resolution "reload" path.
  * Returns false when no tracked entry exists for the input.

@@ -72,6 +72,7 @@ export async function withCancelDefault<T>(
 }
 
 async function requestRendererApplyEdit(
+  workspaceId: string,
   params: ApplyWorkspaceEditParams,
 ): Promise<ApplyWorkspaceEditResult> {
   const requestId = `apply-edit-${nextApplyEditRequestId++}`;
@@ -79,7 +80,7 @@ async function requestRendererApplyEdit(
     key: requestId,
     timeoutMs: APPLY_EDIT_RESPONSE_TIMEOUT_MS,
   });
-  broadcast("lsp", "applyEdit", { requestId, params });
+  broadcast("lsp", "applyEdit", { requestId, workspaceId, params });
   try {
     return await promise;
   } catch {
@@ -92,7 +93,12 @@ function resolveRendererApplyEdit(requestId: string, result: ApplyWorkspaceEditR
 }
 
 async function handleServerRequest(lspHost: LspHostHandle, args: unknown): Promise<void> {
-  const request = args as { id?: unknown; method?: unknown; params?: unknown };
+  const request = args as {
+    id?: unknown;
+    workspaceId?: unknown;
+    method?: unknown;
+    params?: unknown;
+  };
   const id = request.id;
   if (typeof id !== "string" && typeof id !== "number") return;
 
@@ -101,9 +107,14 @@ async function handleServerRequest(lspHost: LspHostHandle, args: unknown): Promi
     return;
   }
 
+  if (typeof request.workspaceId !== "string") {
+    lspHost.respondServerRequest(id, fallbackApplyEditResult("Missing workspace for applyEdit"));
+    return;
+  }
+
   try {
     const params = request.params as ApplyWorkspaceEditParams;
-    const result = await requestRendererApplyEdit(params);
+    const result = await requestRendererApplyEdit(request.workspaceId, params);
     lspHost.respondServerRequest(id, result);
   } catch (error) {
     lspHost.respondServerRequest(
