@@ -27,9 +27,8 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcListen: mock(() => () => {}),
 }));
 
-const { PEEK_PREACQUIRE_HOLD_MS, preAcquireLocationModels } = await import(
-  "../../../../../src/renderer/services/editor/lsp/result-preacquire"
-);
+const { PEEK_PREACQUIRE_HOLD_MS, PEEK_PREACQUIRE_MAX_FILES, preAcquireLocationModels } =
+  await import("../../../../../src/renderer/services/editor/lsp/result-preacquire");
 
 import type { PreAcquireDeps } from "../../../../../src/renderer/services/editor/lsp/result-preacquire";
 import type { EntryMetadata } from "../../../../../src/renderer/services/editor/model/cache";
@@ -84,6 +83,28 @@ afterEach(() => {
 });
 
 describe("preAcquireLocationModels", () => {
+  test("acquires at most PEEK_PREACQUIRE_MAX_FILES files, in result order", async () => {
+    const locations = Array.from({ length: PEEK_PREACQUIRE_MAX_FILES + 30 }, (_, i) =>
+      makeLocation(`file:///workspace/src/f${i}.ts`),
+    );
+    await preAcquireLocationModels(locations as any, SOURCE_URI, deps);
+    expect(acquireMock).toHaveBeenCalledTimes(PEEK_PREACQUIRE_MAX_FILES);
+    expect(acquireMock.mock.calls[0]?.[0]).toEqual({
+      workspaceId: "ws-1",
+      filePath: "/workspace/src/f0.ts",
+    });
+  });
+
+  test("acquires nothing for a cancelled request", async () => {
+    await preAcquireLocationModels(
+      [makeLocation("file:///workspace/src/lib.ts")] as any,
+      SOURCE_URI,
+      deps,
+      { isCancellationRequested: true },
+    );
+    expect(acquireMock).not.toHaveBeenCalled();
+  });
+
   test("returns early when locations array is empty", async () => {
     await preAcquireLocationModels([] as any, SOURCE_URI, deps);
     expect(acquireMock).not.toHaveBeenCalled();

@@ -37,6 +37,20 @@ import type { EditorInput } from "../types";
  */
 export const PEEK_PREACQUIRE_HOLD_MS = 30_000;
 
+/**
+ * Most result files pre-acquired per request. Each one is a file read, an
+ * LSP didOpen/didClose and fs/git watchers, and the peek waits for all of
+ * them, so references to a common symbol (hundreds of files) took seconds
+ * to appear, longer over SSH. The peek opens on the first results; files
+ * past the cap show without an inline preview and still open on click.
+ */
+export const PEEK_PREACQUIRE_MAX_FILES = 20;
+
+/** Monaco's CancellationToken, reduced to what this module reads. */
+export interface PreAcquireCancellation {
+  readonly isCancellationRequested: boolean;
+}
+
 /** Minimal cache metadata needed to derive a target EditorInput. */
 export interface CacheEntryMeta {
   workspaceId: string;
@@ -74,13 +88,16 @@ function inputForLocation(
  * @param deps Injectable dependency map. Production callers supply
  *        {@link defaultPreAcquireDeps} from the installation seam
  *        (monaco-compensations.ts); tests pass their own mock deps.
+ * @param token The provider's cancellation token; a cancelled request
+ *        (the user moved on) acquires nothing.
  */
 export async function preAcquireLocationModels(
   locations: readonly Monaco.languages.Location[],
   sourceCacheUri: string,
   deps: PreAcquireDeps,
+  token?: PreAcquireCancellation,
 ): Promise<void> {
-  if (locations.length === 0) return;
+  if (locations.length === 0 || token?.isCancellationRequested) return;
 
   const sourceMeta = deps.getEntryMetadata(sourceCacheUri);
   if (!sourceMeta) return;
@@ -104,6 +121,7 @@ export async function preAcquireLocationModels(
     seenPaths.add(filePath);
 
     inputs.push(inputForLocation(filePath, workspaceId, workspaceRoot));
+    if (inputs.length >= PEEK_PREACQUIRE_MAX_FILES) break;
   }
 
   await Promise.all(

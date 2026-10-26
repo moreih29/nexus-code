@@ -58,6 +58,7 @@ const SEMANTIC_TOKENS_LEGEND: Monaco.languages.SemanticTokensLegend = {
 export type PreAcquireFn = (
   locations: readonly Monaco.languages.Location[],
   sourceUri: string,
+  token?: Monaco.CancellationToken,
 ) => Promise<void>;
 
 export function registerLanguageProviders(
@@ -132,7 +133,7 @@ export function registerLanguageProviders(
         );
         // Pre-acquire result models so monaco's peek widget can resolve
         // them via createModelReference without throwing "Model not found".
-        await preAcquire(monacoLocations, model.uri.toString());
+        await preAcquire(monacoLocations, model.uri.toString(), token);
         return monacoLocations;
       } catch {
         return null;
@@ -213,7 +214,7 @@ export function registerLanguageProviders(
         // peek can include many locations; we still pre-acquire all of them
         // since peek expands on user click and any unresolved URI would
         // throw at that moment.
-        await preAcquire(monacoLocations, model.uri.toString());
+        await preAcquire(monacoLocations, model.uri.toString(), token);
         return monacoLocations;
       } catch {
         return [];
