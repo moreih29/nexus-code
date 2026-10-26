@@ -991,12 +991,15 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       // channel, and `ready` is a successful epoch-match recovery. Before
       // v0.6.1 those three fell through to disposeChannelServers, so one
       // late heartbeat silently killed every language server on the channel.
-      if (
-        event.type === "exit" ||
-        event.type === "failure" ||
-        event.type === "disposed" ||
-        event.type === "held-then-expired"
-      ) {
+      //
+      // After `exit` / `failure` / `disposed` the channel object is never used
+      // again (a reconnect builds a new one), so its listeners are dropped
+      // too; `held-then-expired` keeps them because the same channel carries
+      // on against the new daemon.
+      if (event.type === "exit" || event.type === "failure" || event.type === "disposed") {
+        this.disposeChannelServers(channel);
+        this.unsubscribeChannel(channel);
+      } else if (event.type === "held-then-expired") {
         this.disposeChannelServers(channel);
       }
     });
@@ -1007,6 +1010,14 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       offServerExited,
       offLifecycle,
     ]);
+  }
+
+  /** Removes this host's listeners from a channel that is gone for good. */
+  private unsubscribeChannel(channel: AgentChannel): void {
+    const disposers = this.channelDisposers.get(channel);
+    if (!disposers) return;
+    this.channelDisposers.delete(channel);
+    for (const dispose of disposers) dispose();
   }
 
   private handleServerAssigned(payload: unknown): void {
@@ -1068,6 +1079,11 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       this.serversById.delete(server.serverId);
       this.workspaceServers.get(server.workspaceId)?.delete(server.languageId);
       this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
+    }
+    // Server requests (applyEdit) waiting on the renderer can no longer be
+    // answered on this channel.
+    for (const [id, pending] of this.pendingServerRequests) {
+      if (pending.channel === channel) this.pendingServerRequests.delete(id);
     }
   }
 

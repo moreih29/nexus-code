@@ -193,4 +193,25 @@ describe("LSP lifecycle: health signals must not dispose server records", () => 
 
     host.dispose();
   });
+
+  test("exit releases the host's listeners on the dead channel", async () => {
+    const { channel, host } = await bootHostWithServer();
+
+    channel.emitLifecycle({ type: "exit", code: 1, signal: null });
+
+    const remaining = [...channel.eventListeners.values()].reduce((sum, set) => sum + set.size, 0);
+    expect(remaining).toBe(0);
+    expect(channel.lifecycleListeners.size).toBe(0);
+    host.dispose();
+  });
+
+  test("held-then-expired keeps listening on the surviving channel", async () => {
+    const { channel, host } = await bootHostWithServer();
+
+    channel.emitLifecycle({ type: "held-then-expired", previousEpoch: 1, newEpoch: 2 });
+
+    expect(channel.lifecycleListeners.size).toBe(1);
+    expect(channel.eventListeners.get("lsp.message")?.size).toBe(1);
+    host.dispose();
+  });
 });
