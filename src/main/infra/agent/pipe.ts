@@ -266,6 +266,11 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   const STDERR_TAIL_MAX_LINES = 20;
   const STDERR_TAIL_MAX_LINE_CHARS = 200;
   const recentStderr: string[] = [];
+  // Last spawn-failure line seen before ready. Login shells print profile
+  // noise such as "pyenv: command not found" before exec'ing the agent, so
+  // the line only means the agent failed to start if the process then exits
+  // without sending a ready frame.
+  let deferredSpawnFailure: string | null = null;
 
   let nextRequestId = 1;
   let disposed = false;
@@ -551,7 +556,17 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     // pattern matches — the close handler reads this tail for the cause.
     recordStderr(line);
 
+    // After ready, stderr carries the agent's own diagnostics and the SSH
+    // client's teardown chatter. A dropped connection surfaces as a process
+    // close, which takes the reconnect path; failing here would make a
+    // transient "Connection reset by peer" terminal.
+    if (readySettled) return;
+
     const code = deps.classifyStderr(line);
+    if (code === "server.spawn-failed") {
+      deferredSpawnFailure = line;
+      return;
+    }
     if (code) {
       // Attach the offending line as cause so the file log shows *why* the
       // agent failed to start, not just the classified code.
@@ -720,7 +735,11 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     notifyClose(): { wasReady: boolean; stderrTail: string } {
       stdoutLines.flush();
       stderrLines.flush();
-      return { wasReady: readySettled, stderrTail: recentStderr.join(" | ") };
+      const wasReady = readySettled;
+      if (!wasReady && deferredSpawnFailure !== null) {
+        selfFail(createSshError("server.spawn-failed", deferredSpawnFailure));
+      }
+      return { wasReady, stderrTail: recentStderr.join(" | ") };
     },
   };
   return pipe;
