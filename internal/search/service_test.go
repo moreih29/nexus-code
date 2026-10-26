@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestTextSearchFindsMatchesAndSkipsDefaults(t *testing.T) {
@@ -79,6 +81,54 @@ func TestTextSearchInvalidRegexAndLimit(t *testing.T) {
 	result := resultAny.(Complete)
 	if result.MatchesFound != 2 || !result.LimitHit {
 		t.Fatalf("limit mismatch: %+v", result)
+	}
+}
+
+func TestTextSearchBoundsPreviewOnLongLines(t *testing.T) {
+	root := t.TempDir()
+	// One 256 KiB line: before the preview window existed, every one of the
+	// thousand matches carried the whole line, a 256 MiB progress frame.
+	long := strings.Repeat("é ab ", 256<<10/6)
+	must(t, os.WriteFile(filepath.Join(root, "data.json"), []byte(long), 0o644))
+	must(t, os.WriteFile(filepath.Join(root, "short.ts"), []byte("const ab = 1\n"), 0o644))
+
+	service := mustSearch(t, root)
+	frameBytes := 0
+	matches := map[string][]Match{}
+	service.SetEventSink(func(event string, payload any) error {
+		data, err := json.Marshal(payload)
+		must(t, err)
+		frameBytes += len(data)
+		for _, fm := range payload.(ProgressPayload).Batch {
+			matches[fm.RelPath] = append(matches[fm.RelPath], fm.Matches...)
+		}
+		return nil
+	})
+	_, err := service.Text(context.Background(), mustJSON(t, Params{
+		SearchID: "long",
+		Query:    Query{Pattern: "ab", IsCaseSensitive: true, MaxResults: 2000},
+	}))
+	must(t, err)
+
+	if got := matches["short.ts"]; len(got) != 1 || got[0].Preview != "const ab = 1" || got[0].PreviewStart != 0 {
+		t.Fatalf("short line preview changed: %+v", got)
+	}
+	got := matches["data.json"]
+	if len(got) != perFileMatchCap {
+		t.Fatalf("long line matches = %d, want %d", len(got), perFileMatchCap)
+	}
+	for _, m := range got {
+		if len(m.Preview) > previewMaxBytes || !utf8.ValidString(m.Preview) {
+			t.Fatalf("preview not bounded/valid: len=%d %+v", len(m.Preview), m.Range)
+		}
+		// Range stays line-relative; PreviewStart maps it into the preview.
+		start, end := m.Range.StartCol-m.PreviewStart, m.Range.EndCol-m.PreviewStart
+		if start < 0 || end > len(m.Preview) || m.Preview[start:end] != "ab" || long[m.Range.StartCol:m.Range.EndCol] != "ab" {
+			t.Fatalf("range does not map into preview: start=%d %+v", m.PreviewStart, m.Range)
+		}
+	}
+	if frameBytes > 2<<20 {
+		t.Fatalf("progress frames total %d bytes for a %d byte file", frameBytes, len(long))
 	}
 }
 

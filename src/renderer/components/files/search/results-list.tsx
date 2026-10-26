@@ -460,6 +460,7 @@ export function SearchResultsList({
                 <SearchResultMatchRow
                   range={match.range}
                   preview={match.preview}
+                  previewStart={match.previewStart}
                   onClick={() => handleMatchClick(row.group, row.matchIdx)}
                 />
               </div>

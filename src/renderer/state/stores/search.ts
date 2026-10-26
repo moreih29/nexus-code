@@ -17,7 +17,7 @@ export type SearchStatus = "idle" | "running" | "done" | "error";
 
 export interface FileGroup {
   relPath: string;
-  matches: { range: SearchRange; preview: string }[];
+  matches: { range: SearchRange; preview: string; previewStart?: number }[];
   expanded: boolean;
 }
 
