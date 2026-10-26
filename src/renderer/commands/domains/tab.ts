@@ -7,6 +7,7 @@ import { registerCommand } from "../../commands/registry";
 import { cacheUriFor } from "../../services/editor/model/cache";
 import { isDirty } from "../../services/editor/model/dirty-tracker";
 import { closeEditor } from "../../services/editor/tabs";
+import { toggleTabPin } from "../../state/operations";
 import { useLayoutStore } from "../../state/stores/layout";
 import { useTabsStore } from "../../state/stores/tabs";
 import { closeTabById, getActiveTabContext } from "../context";
@@ -92,7 +93,7 @@ export function registerTabCommands(): Array<() => void> {
     registerCommand(COMMANDS.tabPinToggle, () => {
       const ctx = getActiveTabContext();
       if (!ctx) return;
-      useTabsStore.getState().togglePin(ctx.wsId, ctx.tabId);
+      toggleTabPin(ctx.wsId, ctx.tabId);
     }),
 
     registerCommand(COMMANDS.tabFocusPrev, () => cycleActiveTab(-1)),

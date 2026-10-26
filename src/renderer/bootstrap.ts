@@ -18,6 +18,7 @@ import {
 import { initBrowserPermissionSubscriptions } from "./state/operations/browser-permission";
 import { initBrowserOverlayAutoSuspend } from "./state/operations/browser-suspend-auto";
 import { initFocusResync } from "./state/operations/focus-resync";
+import { normalizeWorkspaceTabOrder } from "./state/operations/tab-order";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
 import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
@@ -240,6 +241,9 @@ export async function bootstrapAppState(): Promise<void> {
         useLayoutStore
           .getState()
           .hydrate(wsId, { root: snap.root, activeGroupId: snap.activeGroupId }, knownTabIds);
+        // Layouts saved before pinning reordered tabs can hold pinned tabs
+        // behind unpinned ones.
+        normalizeWorkspaceTabOrder(wsId);
       } catch {
         // Silent repair: skip invalid snapshot for this workspace
       }

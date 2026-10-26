@@ -17,6 +17,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { createPathActions } from "@/services/fs-mutations";
+import { toggleTabPin } from "@/state/operations";
 import { useTabEditingStore } from "@/state/stores/tab-editing";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
 import { TabBar } from "../tabs/tab-bar";
@@ -94,7 +95,7 @@ export function GroupTabBar({
 
   function togglePin() {
     if (!contextTabId) return;
-    useTabsStore.getState().togglePin(workspaceId, contextTabId);
+    toggleTabPin(workspaceId, contextTabId);
   }
 
   function renameTab() {

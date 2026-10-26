@@ -88,6 +88,15 @@ function detachTabFromLeaf(
   return { root: afterDetach, activeGroupId };
 }
 
+/**
+ * Converts an insertion slot in a list that still holds the moved tab (at
+ * `removedIdx`, or -1 when absent) into a splice index for the list
+ * without it.
+ */
+function slotAfterRemoval(slot: number, removedIdx: number): number {
+  return removedIdx !== -1 && removedIdx < slot ? slot - 1 : slot;
+}
+
 function attachTabToLeaf(
   root: LayoutNode,
   leafId: string,
@@ -254,7 +263,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
         if (existingIdx !== -1) tabIds.splice(existingIdx, 1);
 
         if (index !== undefined) {
-          tabIds.splice(index, 0, tabId);
+          tabIds.splice(slotAfterRemoval(index, existingIdx), 0, tabId);
         } else {
           tabIds.push(tabId);
         }
@@ -303,6 +312,12 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
       if (!layout) return state;
 
       const owner = Grid.allLeaves(layout.root).find((l) => l.tabIds.includes(tabId));
+      // A same-group move to the right has one fewer tab before the slot
+      // once the tab is detached.
+      const destIndex =
+        index !== undefined && owner?.id === toGroupId
+          ? slotAfterRemoval(index, owner.tabIds.indexOf(tabId))
+          : index;
 
       let intermediateRoot = layout.root;
       let nextActive = layout.activeGroupId;
@@ -325,12 +340,36 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
         if (!Grid.findLeaf(intermediateRoot, nextActive)) return state;
       }
 
-      const finalRoot = attachTabToLeaf(intermediateRoot, resolvedLeafId, tabId, index);
+      const finalRoot = attachTabToLeaf(intermediateRoot, resolvedLeafId, tabId, destIndex);
 
       return {
         byWorkspace: updateLayout(state.byWorkspace, workspaceId, () => ({
           root: finalRoot,
           activeGroupId: nextActive,
+        })),
+      };
+    });
+  },
+
+  setGroupTabOrder(workspaceId, groupId, tabIds) {
+    set((state) => {
+      const layout = state.byWorkspace[workspaceId];
+      if (!layout) return state;
+      const leaf = Grid.findLeaf(layout.root, groupId);
+      if (!leaf || leaf.tabIds.length !== tabIds.length) return state;
+      if (leaf.tabIds.every((id, i) => id === tabIds[i])) return state;
+      const current = new Set(leaf.tabIds);
+      if (new Set(tabIds).size !== tabIds.length || !tabIds.every((id) => current.has(id))) {
+        return state;
+      }
+      const newRoot = Grid.replaceLeaf(layout.root, groupId, (l) => ({
+        ...l,
+        tabIds: [...tabIds],
+      }));
+      return {
+        byWorkspace: updateLayout(state.byWorkspace, workspaceId, (l) => ({
+          ...l,
+          root: newRoot,
         })),
       };
     });
