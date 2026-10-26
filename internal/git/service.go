@@ -184,6 +184,7 @@ func runGitShow(ctx context.Context, root string, objectSpec string) ([]byte, st
 		"SSH_ASKPASS=echo",
 		"GIT_FLUSH=1",
 	)
+	cmd.Env = withSafeGitConfig(cmd.Env)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	stdout, err := cmd.Output()

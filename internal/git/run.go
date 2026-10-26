@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/nexus-code/nexus-code/internal/proto"
@@ -273,7 +274,33 @@ func gitEnv(overrides map[string]string, interactive bool, askpass commandAskpas
 		env = appendOrReplaceEnv(env, "SSH_ASKPASS_REQUIRE", "force")
 		env = appendOrReplaceEnv(env, "SSH_ASKPASS", "echo")
 	}
-	return env
+	return withSafeGitConfig(env)
+}
+
+// safeGitConfig pins repo-config settings that make git execute a command
+// on its own. The agent runs `git status` as soon as a folder is opened,
+// so a `.git/config` that arrived with the folder (an archive or shared
+// drive, not a clone — clone never copies it) could otherwise run code
+// without any user action. Passed as command-line config, which wins over
+// repo config.
+var safeGitConfig = [][2]string{
+	{"core.fsmonitor", "false"},
+}
+
+// withSafeGitConfig appends safeGitConfig through GIT_CONFIG_COUNT /
+// GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n (git 2.31+; older git ignores
+// them), after any entries the inherited environment already defines.
+func withSafeGitConfig(env []string) []string {
+	count, err := strconv.Atoi(envValue(env, "GIT_CONFIG_COUNT"))
+	if err != nil || count < 0 {
+		count = 0
+	}
+	for _, kv := range safeGitConfig {
+		env = appendOrReplaceEnv(env, fmt.Sprintf("GIT_CONFIG_KEY_%d", count), kv[0])
+		env = appendOrReplaceEnv(env, fmt.Sprintf("GIT_CONFIG_VALUE_%d", count), kv[1])
+		count++
+	}
+	return appendOrReplaceEnv(env, "GIT_CONFIG_COUNT", strconv.Itoa(count))
 }
 
 func envValue(env []string, key string) string {

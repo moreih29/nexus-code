@@ -164,6 +164,7 @@ func runRevParse(ctx context.Context, cwd string) (topLevel, gitDir string, err 
 		"SSH_ASKPASS=echo",
 		"GIT_FLUSH=1",
 	)
+	cmd.Env = withSafeGitConfig(cmd.Env)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
