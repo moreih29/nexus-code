@@ -17,6 +17,7 @@ import {
 } from "./state/operations/browser";
 import { initBrowserPermissionSubscriptions } from "./state/operations/browser-permission";
 import { initBrowserOverlayAutoSuspend } from "./state/operations/browser-suspend-auto";
+import { initFocusResync } from "./state/operations/focus-resync";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
 import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
@@ -113,6 +114,10 @@ export async function bootstrapAppState(): Promise<void> {
   // Radix portal element so callsites bypassing our wrapper (e.g. the
   // Settings dialog using RadixDialog.Root directly) still trigger suspend.
   initBrowserOverlayAutoSuspend();
+
+  // Re-read the active workspace's file tree and git status on app focus /
+  // workspace switch — the safety net for changes the watchers can't see.
+  initFocusResync();
 
   // Bootstrap is an initialization path — no recovery possible if appState is unavailable.
   const state = mustSucceed(await ipcCallResult("appState", "get", undefined));

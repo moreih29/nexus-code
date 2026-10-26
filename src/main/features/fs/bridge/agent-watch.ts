@@ -95,6 +95,19 @@ export class AgentFsWatcher {
           );
         });
       }
+      // Changes made while the agent was down were never reported. Replay
+      // every watched directory as "added" so the renderer re-reads each one
+      // (the file tree treats an added directory as recreated) and its
+      // fs.changed hint refreshes git status.
+      if (subscription.watchedRelPaths.size > 0) {
+        this.broadcast("fs", "changed", {
+          workspaceId,
+          changes: [...subscription.watchedRelPaths].map((relPath) => ({
+            relPath,
+            kind: "added" as const,
+          })),
+        });
+      }
     });
 
     const subscription = {

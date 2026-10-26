@@ -59,6 +59,8 @@ export class AgentGitWatcher {
           `git.watch replay failed (workspace=${workspaceId}, gitDir=${gitDir}): ${(error as Error).message}`,
         );
       });
+      // .git changes made while the agent was down were never reported.
+      this.onDirty(workspaceId);
     });
 
     await provider.callAgentMethod(GIT_WATCH_METHOD, { gitDir });
