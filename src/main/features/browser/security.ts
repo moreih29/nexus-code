@@ -197,10 +197,40 @@ export function installPermissionHandler(
       getRemembered,
     });
 
+    if (decision === "ask") {
+      disposePromptsWithPage(webContents, promptManager);
+    }
     promptManager.handlePermissionRequest(
       { workspaceId, origin, permission, webContentsId: webContents.id, decision },
       callback,
     );
+  });
+}
+
+/** WebContents whose page lifetime already ends their pending prompts. */
+const promptLifetimeTracked = new Set<number>();
+
+/**
+ * Ends `webContents`' pending prompts when it is destroyed or its main frame
+ * navigates to another document, as Chrome drops a permission bubble when
+ * the page that asked goes away. Covers popups, which the tab registry does
+ * not track. Installed once per WebContents.
+ */
+function disposePromptsWithPage(
+  webContents: WebContents,
+  promptManager: BrowserPermissionPromptManager,
+): void {
+  const id = webContents.id;
+  if (promptLifetimeTracked.has(id)) return;
+  promptLifetimeTracked.add(id);
+  webContents.on("did-start-navigation", (details) => {
+    if (details.isMainFrame && !details.isSameDocument) {
+      promptManager.disposeByWebContents(id);
+    }
+  });
+  webContents.once("destroyed", () => {
+    promptLifetimeTracked.delete(id);
+    promptManager.disposeByWebContents(id);
   });
 }
 

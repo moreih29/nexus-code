@@ -183,10 +183,12 @@ export class BrowserPermissionPromptManager {
   /**
    * Removes all waiters belonging to `webContentsId` from every pending entry,
    * denying their callbacks immediately.  Pending entries that become empty
-   * after the purge are also removed.
+   * after the purge are also removed, and the renderer is told to drop their
+   * prompt — otherwise the modal stays up, answering it does nothing, and
+   * it blocks every prompt queued behind it.
    *
-   * Must be called when a WebContents is destroyed to prevent callback
-   * leaks and stale-closure bugs.
+   * Must be called when a WebContents is destroyed or its page navigates
+   * away, to prevent callback leaks and stale-closure bugs.
    */
   disposeByWebContents(webContentsId: number): void {
     for (const [key, entry] of this.pendingByKey) {
@@ -204,9 +206,12 @@ export class BrowserPermissionPromptManager {
         waiter.callback(false);
       }
 
+      if (deny.length === 0) continue;
+
       if (keep.length === 0) {
         this.pendingByKey.delete(key);
         this.keyByPromptId.delete(entry.promptId);
+        this.broadcast("browserPermission", "dismissed", { promptId: entry.promptId });
       } else {
         // Mutate the waiters array in place — entry.waiters is the live array.
         entry.waiters.splice(0, entry.waiters.length, ...keep);

@@ -1592,6 +1592,12 @@ export const ipcContract = {
           permissions: z.array(BrowserPermissionKindSchema),
         }),
       ),
+      /**
+       * Broadcast by main when nothing is waiting on `promptId` any more
+       * (the requesting page closed or navigated away). The renderer drops
+       * the prompt from its queue; an answer to it would be ignored.
+       */
+      dismissed: listen(z.object({ promptId: z.string() })),
     },
   },
 } as const satisfies Record<string, ChannelDefinition>;
