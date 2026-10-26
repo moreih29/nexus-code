@@ -28,7 +28,6 @@ interface UseSplitSashResult {
 
 export function useSplitSash({ workspaceId, split }: UseSplitSashOptions): UseSplitSashResult {
   const { t } = useTranslation();
-  const layoutStore = useLayoutStore();
   const containerRef = useRef<HTMLDivElement>(null);
 
   const isHorizontal = split.orientation === "horizontal";
@@ -43,11 +42,11 @@ export function useSplitSash({ workspaceId, split }: UseSplitSashOptions): UseSp
   }
 
   function onResize(ratio: number, _persist: boolean) {
-    layoutStore.setSplitRatio(workspaceId, split.id, ratio);
+    useLayoutStore.getState().setSplitRatio(workspaceId, split.id, ratio);
   }
 
   function onReset() {
-    layoutStore.setSplitRatio(workspaceId, split.id, 0.5);
+    useLayoutStore.getState().setSplitRatio(workspaceId, split.id, 0.5);
   }
 
   const sashOrientation = isHorizontal ? "vertical" : "horizontal";

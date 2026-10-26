@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { openTerminal } from "@/services/terminal";
 import { cn } from "@/utils/cn";
@@ -95,6 +95,13 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.id, workspace.rootPath, showOfflinePlaceholder]);
 
+  // Stable so GroupView's focus listeners are not torn down and re-added on
+  // every panel render.
+  const handleActivateGroup = useCallback(
+    (groupId: string) => useLayoutStore.getState().setActiveGroup(workspace.id, groupId),
+    [workspace.id],
+  );
+
   function handleConnect() {
     void ipcCallResult("workspace", "activate", { id: workspace.id }).then((result) => {
       if (!result.ok) log.warn(`activate failed: ${result.message}`);
@@ -187,7 +194,7 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
         <LayoutTree
           workspaceId={workspace.id}
           root={layout.root}
-          onActivateGroup={(gid) => useLayoutStore.getState().setActiveGroup(workspace.id, gid)}
+          onActivateGroup={handleActivateGroup}
           workspaceRootPath={workspace.rootPath}
         />
         <ContentPool workspaceId={workspace.id} isWorkspaceActive={isActive} />
