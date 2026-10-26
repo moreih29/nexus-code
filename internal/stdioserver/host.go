@@ -389,11 +389,24 @@ func (h *Host) drainAndExit(code int) {
 		h.accepting = false
 		h.acceptMu.Unlock()
 
+		// The exit func must run exactly once: the daemon's closes a
+		// channel, and in daemon mode the process outlives it, so a
+		// second call from a racing path is a panic, not a no-op.
+		// Cancelling first aborts handlers still stuck on a dead
+		// dialer.
+		var exitOnce sync.Once
+		exit := func() {
+			exitOnce.Do(func() {
+				h.cancel()
+				h.exit(code)
+			})
+		}
+
 		// AfterFunc + a select on the same deadline gives us "exit
 		// even if Wait() itself blocks", which Wait can do when a
 		// handler is stuck in a syscall. The same forceExit covers
 		// the shutdown-hook execution window below.
-		forceExit := time.AfterFunc(forceExitAfter, func() { h.exit(code) })
+		forceExit := time.AfterFunc(forceExitAfter, exit)
 		done := make(chan struct{})
 		go func() {
 			h.wg.Wait()
@@ -403,15 +416,14 @@ func (h *Host) drainAndExit(code int) {
 		case <-done:
 			// Continue past the select to run shutdown hooks before exit.
 		case <-time.After(forceExitAfter):
-			h.exit(code)
+			exit()
 			return
 		}
 		// Hooks run synchronously under the same forceExit timer.
-		// If a hook hangs the AfterFunc above still trips h.exit on time.
+		// If a hook hangs the AfterFunc above still trips exit on time.
 		h.runShutdownHooks()
 		forceExit.Stop()
-		h.cancel()
-		h.exit(code)
+		exit()
 	})
 }
 
