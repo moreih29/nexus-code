@@ -698,3 +698,43 @@ func assertFSError(t *testing.T, err error, code string) {
 		t.Fatalf("expected %s, got %v", code, err)
 	}
 }
+
+// A save replaces the file through a temp file and rename; the replacement
+// must keep the original permission bits instead of the temp file's default.
+func TestWriteFile_PreservesMode(t *testing.T) {
+	root := t.TempDir()
+	for name, mode := range map[string]os.FileMode{"run.sh": 0o755, ".env": 0o600, "shared.txt": 0o664} {
+		path := filepath.Join(root, name)
+		must(t, os.WriteFile(path, []byte("v1"), 0o644))
+		must(t, os.Chmod(path, mode))
+
+		res := callWrite(t, mustFS(t, root), map[string]any{"relPath": name, "content": "v2"})
+		if res.Kind != "ok" {
+			t.Fatalf("%s: expected ok, got %q", name, res.Kind)
+		}
+		info, err := os.Stat(path)
+		must(t, err)
+		if info.Mode().Perm() != mode {
+			t.Fatalf("%s: mode %o after save, want %o", name, info.Mode().Perm(), mode)
+		}
+	}
+}
+
+// A file with other hard links is written in place so every link sees the
+// new content; a rename would leave the other links on the old inode.
+func TestWriteFile_HardLinkWrittenInPlace(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "a.txt")
+	must(t, os.WriteFile(path, []byte("v1"), 0o644))
+	must(t, os.Link(path, filepath.Join(root, "b.txt")))
+
+	res := callWrite(t, mustFS(t, root), map[string]any{"relPath": "a.txt", "content": "v2"})
+	if res.Kind != "ok" {
+		t.Fatalf("expected ok, got %q", res.Kind)
+	}
+	got, err := os.ReadFile(filepath.Join(root, "b.txt"))
+	must(t, err)
+	if string(got) != "v2" {
+		t.Fatalf("hard link content %q, want v2", got)
+	}
+}

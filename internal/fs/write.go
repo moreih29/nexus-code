@@ -74,11 +74,32 @@ func (s *Service) WriteFile(ctx context.Context, raw json.RawMessage) (any, erro
 		return successResult(stat), nil
 	}
 
-	stat, err := atomicReplace(abs, p.Content)
+	if info != nil && info.Mode().IsRegular() && needsInPlaceWrite(info) {
+		stat, err := plainWrite(abs, p.Content)
+		if err != nil {
+			return nil, mapWriteError(err, abs)
+		}
+		return successResult(stat), nil
+	}
+
+	stat, err := atomicReplace(abs, p.Content, info)
 	if err != nil {
 		return nil, mapWriteError(err, abs)
 	}
 	return successResult(stat), nil
+}
+
+// needsInPlaceWrite reports whether replacing the file with a new inode would
+// lose something the user cares about: another user's ownership (the new file
+// would belong to the agent's user, root included) or other hard links (they
+// would keep the old content). Those files are truncated and written in place
+// instead, giving up crash atomicity to keep their identity.
+func needsInPlaceWrite(info os.FileInfo) bool {
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false
+	}
+	return int(st.Uid) != os.Geteuid() || st.Nlink > 1
 }
 
 // CreateFile implements fs.createFile with O_EXCL semantics.
@@ -317,8 +338,10 @@ func successResult(info os.FileInfo) WriteFileResult {
 // atomicReplace writes `content` to a sibling tmp file, fsyncs it, then
 // renames it over `abs`. POSIX rename-within-same-filesystem is atomic,
 // so a crash mid-write leaves either the previous file intact or the
-// new one in place — never a half-written target.
-func atomicReplace(abs, content string) (os.FileInfo, error) {
+// new one in place — never a half-written target. `existing` is the target's
+// Lstat (nil when it does not exist yet); its mode and group carry over to
+// the replacement so a save does not turn 0600 into 0644 or drop an exec bit.
+func atomicReplace(abs, content string, existing os.FileInfo) (os.FileInfo, error) {
 	dir := filepath.Dir(abs)
 	base := filepath.Base(abs)
 	suffix, err := randomSuffix()
@@ -327,9 +350,24 @@ func atomicReplace(abs, content string) (os.FileInfo, error) {
 	}
 	tmp := filepath.Join(dir, fmt.Sprintf("%s%s.%s", tmpPrefix, base, suffix))
 
-	if err := writeAndSync(tmp, content); err != nil {
+	perm := os.FileMode(0o644)
+	if existing != nil {
+		perm = existing.Mode() & (os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
+	}
+	if err := writeAndSync(tmp, content, perm); err != nil {
 		_ = os.Remove(tmp)
 		return nil, err
+	}
+	if existing != nil {
+		// OpenFile's mode is filtered by the umask, so set it exactly.
+		if err := os.Chmod(tmp, perm); err != nil {
+			_ = os.Remove(tmp)
+			return nil, err
+		}
+		// Best effort: only succeeds when the user is in the file's group.
+		if st, ok := existing.Sys().(*syscall.Stat_t); ok {
+			_ = os.Lchown(tmp, -1, int(st.Gid))
+		}
 	}
 	if err := os.Rename(tmp, abs); err != nil {
 		_ = os.Remove(tmp)
@@ -339,16 +377,17 @@ func atomicReplace(abs, content string) (os.FileInfo, error) {
 }
 
 // plainWrite truncates and writes through to `abs` directly. Used for the
-// symlink fallback where atomic rename would swap the link itself.
+// symlink fallback where atomic rename would swap the link itself, and for
+// files whose inode must survive (see needsInPlaceWrite).
 func plainWrite(abs, content string) (os.FileInfo, error) {
-	if err := writeAndSync(abs, content); err != nil {
+	if err := writeAndSync(abs, content, 0o644); err != nil {
 		return nil, err
 	}
 	return os.Lstat(abs)
 }
 
-func writeAndSync(abs, content string) error {
-	file, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+func writeAndSync(abs, content string, perm os.FileMode) error {
+	file, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
 		return err
 	}
