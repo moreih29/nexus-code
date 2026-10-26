@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { isAbortError } from "../../../shared/abort";
+import { createAbortError, isAbortError } from "../../../shared/abort";
 import { AgentManifestSchema } from "../../../shared/agent/manifest";
 import { createLogger } from "../../../shared/log/main";
 import {
@@ -157,6 +157,11 @@ function isHookInfo(value: unknown): value is HookInfo {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
   return typeof v.socketPath === "string" && typeof v.token === "string";
+}
+
+/** Rejects a provider boot whose workspace was removed while it was in flight. */
+function createWorkspaceRemovedError(id: string): Error {
+  return createAbortError(`workspace ${id} was removed while its agent was starting`);
 }
 
 /**
@@ -902,6 +907,7 @@ export class WorkspaceManager {
     this.adoptedSshMasters.delete(id);
     // hookserver 접속 정보는 워크스페이스 제거 시 함께 삭제한다.
     this.hookInfoByWorkspace.delete(id);
+    this.removeShimDirQuietly(id);
     this.globalStorage.removeWorkspace(id);
 
     if (this.activeId === id) {
@@ -1082,6 +1088,14 @@ export class WorkspaceManager {
       );
     }
 
+    if (!this.isLiveContext(meta.id, ctx)) {
+      disposeLifecycleListener();
+      channel.dispose();
+      // remove() already deleted the shim dir; this boot rewrote it.
+      this.removeShimDirQuietly(meta.id);
+      throw createWorkspaceRemovedError(meta.id);
+    }
+
     const provider = new AgentFsProvider("local", channel, { disposeChannel: true });
     ctx.setFsProvider(provider, () => {
       disposeLifecycleListener();
@@ -1168,6 +1182,13 @@ export class WorkspaceManager {
     // dispose in so the existing teardown paths release that socket too.
     if (adoptedMaster && !bootstrap.dispose) {
       bootstrap = { ...bootstrap, dispose: () => adoptedMaster.dispose() };
+    }
+    // The bootstrap can span a password prompt and an agent upload; the
+    // workspace may have been removed meanwhile, and nothing would dispose a
+    // channel or master created for it from here on.
+    if (!this.isLiveContext(meta.id, ctx)) {
+      bootstrap.dispose?.();
+      throw createWorkspaceRemovedError(meta.id);
     }
     this.sshBootstraps.set(meta.id, bootstrap);
     let providerMeta = meta;
@@ -1258,6 +1279,15 @@ export class WorkspaceManager {
       );
     }
 
+    if (!this.isLiveContext(meta.id, ctx)) {
+      disposeLifecycleListener();
+      channel.dispose();
+      bootstrap.dispose?.();
+      // remove() already deleted the shim dir; this boot rewrote it.
+      this.removeShimDirQuietly(meta.id);
+      throw createWorkspaceRemovedError(meta.id);
+    }
+
     const provider = createFsProvider(providerMeta, channel);
     ctx.setFsProvider(provider, () => {
       disposeLifecycleListener();
@@ -1277,6 +1307,21 @@ export class WorkspaceManager {
     });
     this.broadcastConnectionStatus(meta.id, "connected");
     this.notifyProviderReady(meta.id, provider);
+  }
+
+  /**
+   * True while `ctx` is still the open context for `id`, i.e. the workspace
+   * was not removed during an await in a provider boot.
+   */
+  private isLiveContext(id: string, ctx: WorkspaceContext): boolean {
+    return this.contexts.get(id) === ctx;
+  }
+
+  /** Deletes the workspace's PTY shim directory in the background. */
+  private removeShimDirQuietly(id: string): void {
+    this.removeShimDir(id).catch((err: unknown) => {
+      log.warn(`shim dir removal failed for ${id}: ${(err as Error).message}`);
+    });
   }
 
   /**
