@@ -120,7 +120,7 @@ export interface OperationsSlice {
 export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
   const {
     get,
-    controllers,
+    isOperationLive,
     updateExistingSession,
     upsertSession,
     beginOperation,
@@ -295,7 +295,7 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
         }));
         return result;
       } catch (error) {
-        if (controllers.get(workspaceId) === ctrl && !isAbortError(error)) {
+        if (isOperationLive(workspaceId, ctrl) && !isAbortError(error)) {
           const lastError = gitStoreErrorFromUnknown(error, "push");
           updateExistingSession(workspaceId, (session) => ({
             ...session,

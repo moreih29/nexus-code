@@ -149,9 +149,9 @@ export function createSessionLifecycleSlice(ctx: GitStoreContext): SessionLifecy
     },
 
     closeAllForWorkspace(workspaceId) {
-      const ctrl = controllers.get(workspaceId);
-      if (ctrl) {
-        ctrl.abort();
+      const running = controllers.get(workspaceId);
+      if (running) {
+        for (const ctrl of running.keys()) ctrl.abort();
         controllers.delete(workspaceId);
       }
       cancelCommitDraftSave(workspaceId);

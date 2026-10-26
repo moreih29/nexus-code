@@ -1,14 +1,14 @@
 /**
  * Characterization tests for the git store's operation lifecycle.
  *
- * These tests pin the abort-supersede, failOperation-ignores-stale, and
- * push non-FF retry capture behaviours so that the upcoming slice split
- * (step 4) cannot silently change them.
+ * These tests pin the concurrent-operation, failOperation-ignores-abort,
+ * and push non-FF retry capture behaviours.
  *
  * Scenarios:
- *   (1) abort-supersede: beginOperation twice → first finishOperation no-ops
- *   (2) failOperation ignores aborted/superseded errors (AbortError)
- *   (3) failOperation ignores superseded errors (stale controller)
+ *   (1) concurrent operations: a second operation does not abort the first;
+ *       inFlightOp shows the newest operation still running
+ *   (2) failOperation ignores aborted operations (AbortError)
+ *   (3) an operation that fails after another finished records its error
  *   (4) push non-FF retry capture
  */
 
@@ -20,17 +20,29 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 
 type IpcImpl = (channel: string, method: string, args: Record<string, unknown>) => Promise<unknown>;
 
-const ipcCalls: Array<{ channel: string; method: string; args: Record<string, unknown> }> = [];
+const ipcCalls: Array<{
+  channel: string;
+  method: string;
+  args: Record<string, unknown>;
+  signal?: AbortSignal;
+}> = [];
 let ipcImpl: IpcImpl = async () => ({});
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
-  ipcCallResult: mock(async (channel: string, method: string, args: Record<string, unknown>) => {
-    ipcCalls.push({ channel, method, args });
-    // ipcImpl may throw or return a value; if it throws, propagate so the store
-    // catch path (gitStoreErrorFromUnknown) handles it as before.
-    const value = await ipcImpl(channel, method, args);
-    return { ok: true, value };
-  }),
+  ipcCallResult: mock(
+    async (
+      channel: string,
+      method: string,
+      args: Record<string, unknown>,
+      opts?: { signal?: AbortSignal },
+    ) => {
+      ipcCalls.push({ channel, method, args, signal: opts?.signal });
+      // ipcImpl may throw or return a value; if it throws, propagate so the store
+      // catch path (gitStoreErrorFromUnknown) handles it as before.
+      const value = await ipcImpl(channel, method, args);
+      return { ok: true, value };
+    },
+  ),
   ipcListen: mock(() => () => {}),
   ipcStream: mock(() => ({ promise: Promise.resolve(undefined), onProgress: mock(() => {}) })),
   canUseIpcBridge: mock(() => false),
@@ -128,24 +140,20 @@ function gitError(
 }
 
 // ---------------------------------------------------------------------------
-// (1) abort-supersede: beginOperation twice → first finishOperation no-ops
+// (1) concurrent operations
 //
-// When a second operation starts while the first is in flight, the first
-// operation's controller is replaced. The first operation's finishOperation
-// (called in the finally block of runOperation) must detect the stale
-// controller and not clear inFlightOp or statusFetching.
+// Main queues git commands per repository, so a second operation must not
+// abort the first: aborting dropped a queued stage, or killed a commit or
+// push mid-write. inFlightOp shows the newest operation still running.
 // ---------------------------------------------------------------------------
 
-describe("git operation lifecycle — abort-supersede", () => {
+describe("git operation lifecycle — concurrent operations", () => {
   beforeEach(() => {
     resetStore();
     seedSession();
   });
 
-  it("second operation supersedes first: first operation resolve does not clear inFlightOp", async () => {
-    // We simulate: op1 starts, op2 starts while op1 in flight, op1 finishes.
-    // Expected: after op1 completes, op2's inFlightOp is still present.
-
+  it("a second operation leaves the first running and tracked", async () => {
     let resolveOp1!: () => void;
     let resolveOp2!: () => void;
 
@@ -163,63 +171,56 @@ describe("git operation lifecycle — abort-supersede", () => {
       return {};
     };
 
-    // Start op1 (fetch).
     const op1 = useGitStore.getState().fetch(WS, "origin");
-
-    // Verify op1 is in flight.
-    expect(useGitStore.getState().sessions.get(WS)?.inFlightOp?.kind).toBe("fetch");
-
-    // Start op2 (another fetch) — supersedes op1.
     const op2 = useGitStore.getState().fetch(WS, "upstream");
+    expect(ipcCalls.map((c) => c.signal?.aborted)).toEqual([false, false]);
 
-    // Both ops are in flight from IPC perspective; the store should track op2.
-    expect(useGitStore.getState().sessions.get(WS)?.inFlightOp?.kind).toBe("fetch");
-
-    // Resolve op2 first → it finishes and clears inFlightOp.
+    // op2 finishes first; op1 is still running.
     resolveOp2();
     await op2;
-    expect(useGitStore.getState().sessions.get(WS)?.inFlightOp).toBeNull();
+    expect(useGitStore.getState().sessions.get(WS)?.inFlightOp?.kind).toBe("fetch");
 
-    // Now resolve op1 — stale; finish should no-op because op2 already finished.
     resolveOp1();
     await op1;
-
-    // After op1's finally runs, inFlightOp must still be null (op2 cleared it).
     expect(useGitStore.getState().sessions.get(WS)?.inFlightOp).toBeNull();
-    // No error must have been set from the stale op1 (no error thrown from op1).
     expect(useGitStore.getState().sessions.get(WS)?.lastError).toBeNull();
   });
 
-  it("second operation aborts first: inFlightOp reflects the second operation kind", async () => {
+  it("staging two rows quickly runs both stages", async () => {
     let resolveStage!: () => void;
 
     ipcImpl = async (_ch, method) => {
-      if (method === "stage") {
+      if (method === "stage" && !resolveStage) {
         return new Promise<void>((res) => {
           resolveStage = res;
         });
       }
-      if (method === "unstage") return;
       return {};
     };
 
-    const op1 = useGitStore.getState().stage(WS, ["file.ts"]);
-    expect(useGitStore.getState().sessions.get(WS)?.inFlightOp?.kind).toBe("stage");
-
-    // Start unstage which supersedes stage.
-    const op2 = useGitStore.getState().unstage(WS, ["file.ts"]);
-    // op2 resolves immediately.
+    const op1 = useGitStore.getState().stage(WS, ["a.ts"]);
+    const op2 = useGitStore.getState().stage(WS, ["b.ts"]);
     await op2;
 
-    // After op2 resolves, inFlightOp is null.
-    expect(useGitStore.getState().sessions.get(WS)?.inFlightOp).toBeNull();
+    expect(ipcCalls.filter((c) => c.method === "stage").map((c) => c.signal?.aborted)).toEqual([
+      false,
+      false,
+    ]);
+    expect(useGitStore.getState().sessions.get(WS)?.inFlightOp?.kind).toBe("stage");
 
-    // Resolve the stale stage IPC.
     resolveStage();
     await op1;
-
-    // Still null — stale op1 finishOperation did not resurrect inFlightOp.
     expect(useGitStore.getState().sessions.get(WS)?.inFlightOp).toBeNull();
+  });
+
+  it("closing the workspace aborts every running operation", async () => {
+    ipcImpl = async () => new Promise<void>(() => {});
+
+    void useGitStore.getState().fetch(WS, "origin");
+    void useGitStore.getState().stage(WS, ["a.ts"]);
+    useGitStore.getState().closeAllForWorkspace(WS);
+
+    expect(ipcCalls.map((c) => c.signal?.aborted)).toEqual([true, true]);
   });
 });
 
@@ -247,38 +248,25 @@ describe("git operation lifecycle — failOperation ignores AbortError", () => {
     const pending = useGitStore.getState().fetch(WS, "origin");
     expect(useGitStore.getState().sessions.get(WS)?.inFlightOp?.kind).toBe("fetch");
 
-    // Simulate the abort from a superseding operation by rejecting with AbortError.
     const abortErr = Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
     rejectWithAbort(abortErr);
     await pending;
 
-    // failOperation must NOT record this as lastError because it's an AbortError.
-    // However since the controller was still current when we rejected, it depends
-    // on whether we cancelled via a new operation. Here we're NOT superseding —
-    // we're simulating the signal being aborted externally. The key invariant is:
-    // failOperation skips recording when isAbortError(error) is true regardless
-    // of controller ownership.
-    //
-    // Actual behavior: if the controller is still current AND it's an AbortError,
-    // failOperation skips. lastError must remain null.
     expect(useGitStore.getState().sessions.get(WS)?.lastError).toBeNull();
   });
 });
 
 // ---------------------------------------------------------------------------
-// (3) failOperation ignores stale (superseded) errors
-//
-// When op1 is superseded by op2, and op1 then fails, failOperation for op1
-// must not record op1's error because op1's controller is no longer current.
+// (3) an operation that fails after another one finished still reports
 // ---------------------------------------------------------------------------
 
-describe("git operation lifecycle — failOperation ignores superseded errors", () => {
+describe("git operation lifecycle — overlapping failure", () => {
   beforeEach(() => {
     resetStore();
     seedSession();
   });
 
-  it("superseded operation error is not recorded in session", async () => {
+  it("records the error of an operation that fails after a later one finished", async () => {
     let rejectOp1!: (err: unknown) => void;
     let resolveOp2!: () => void;
     let callCount = 0;
@@ -301,18 +289,15 @@ describe("git operation lifecycle — failOperation ignores superseded errors", 
     const op1 = useGitStore.getState().fetch(WS, "origin");
     const op2 = useGitStore.getState().fetch(WS, "upstream");
 
-    // Finish op2 successfully.
     resolveOp2();
     await op2;
-    expect(useGitStore.getState().sessions.get(WS)?.inFlightOp).toBeNull();
     expect(useGitStore.getState().sessions.get(WS)?.lastError).toBeNull();
 
-    // Now fail op1 — stale controller; failOperation should no-op.
     rejectOp1(gitError("network-error", "connection refused"));
     await op1;
 
-    // lastError must remain null — stale op1 error was suppressed.
-    expect(useGitStore.getState().sessions.get(WS)?.lastError).toBeNull();
+    expect(useGitStore.getState().sessions.get(WS)?.lastError?.operation).toBe("fetch");
+    expect(useGitStore.getState().sessions.get(WS)?.inFlightOp).toBeNull();
   });
 });
 
