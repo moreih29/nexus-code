@@ -49,7 +49,7 @@
 //   adjusts scrollLeft/scrollTop after the new dimensions commit so the
 //   same image point stays under the cursor (single repaint, no flash).
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
 import { ipcCallResult, ipcListen } from "../../../ipc/client";
@@ -162,7 +162,15 @@ interface ZoomAnchor {
  */
 function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCanvasProps) {
   const { t } = useTranslation();
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  // The container unmounts while a load error is shown and a new one mounts
+  // on recovery. Effects that attach listeners key on the element itself so
+  // they move to the new node instead of staying on the detached one.
+  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
+  const attachContainer = useCallback((el: HTMLDivElement | null) => {
+    containerRef.current = el;
+    setContainerEl(el);
+  }, []);
   const imgRef = useRef<HTMLImageElement>(null);
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const [fitScale, setFitScale] = useState(1);
@@ -243,7 +251,7 @@ function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCan
   // can't leave a sub-pixel overflow (and a stray scrollbar) at fit.
   useEffect(() => {
     if (!naturalSize) return;
-    const el = containerRef.current;
+    const el = containerEl;
     if (!el) return;
     const recompute = () => {
       const rect = el.getBoundingClientRect();
@@ -256,7 +264,7 @@ function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCan
     const ro = new ResizeObserver(recompute);
     ro.observe(el, { box: "border-box" });
     return () => ro.disconnect();
-  }, [naturalSize]);
+  }, [naturalSize, containerEl]);
 
   // Apply cursor-anchored scroll correction immediately after the new image
   // dimensions land in the DOM. useLayoutEffect runs before paint, so the
@@ -285,7 +293,7 @@ function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCan
   // default cmd-wheel binding zooms the entire WebContents; we need
   // passive: false to suppress that and apply image zoom instead.
   useEffect(() => {
-    const el = containerRef.current;
+    const el = containerEl;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       // Cmd (mac) and Ctrl (other platforms) are the conventional zoom
@@ -312,7 +320,7 @@ function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCan
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [containerEl]);
 
   if (errorKind) {
     return (
@@ -339,7 +347,7 @@ function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCan
 
   return (
     <div
-      ref={containerRef}
+      ref={attachContainer}
       className="app-scrollbar flex-1 min-h-0 overflow-auto bg-[var(--surface-backdrop-bg)]"
     >
       <div className="min-w-full min-h-full flex items-center-safe justify-center-safe p-4">
