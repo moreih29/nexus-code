@@ -142,9 +142,14 @@ export function MarkdownPreview({
   const scrollToAnchor = useCallback((id: string) => {
     const container = containerRef.current;
     if (!container) return;
-    // rehype-slug gives headings stable ids; if the target is missing we fall
-    // back to the top of the container.
-    const target = container.querySelector(`[id="${cssEscape(id)}"]`);
+    // rehype-slug gives headings stable ids. Ids that come from the source
+    // (footnotes, raw-HTML anchors) get rehype-sanitize's `user-content-`
+    // clobber prefix while their links keep the original fragment, so fall
+    // back to the prefixed id the way github.com does. Footnotes are
+    // prefixed twice (remark-rehype, then sanitize) and resolve the same way.
+    const target =
+      container.querySelector(`[id="${cssEscape(id)}"]`) ??
+      container.querySelector(`[id="${cssEscape(`user-content-${id}`)}"]`);
     if (target && target instanceof HTMLElement) {
       target.scrollIntoView({ behavior: "auto", block: "start" });
     }
