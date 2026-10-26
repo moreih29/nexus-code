@@ -66,7 +66,7 @@ func (s *Service) Watch(ctx context.Context, raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	entry := &watchEntry{gitDir: gitDir, watcher: watcher, done: make(chan struct{})}
-	if err := addGitWatchDirs(watcher, gitDir); err != nil {
+	if err := addGitWatchDirs(watcher, gitDir, gitDir); err != nil {
 		entry.close()
 		return nil, err
 	}
@@ -149,7 +149,7 @@ func (s *Service) handleGitWatchEvent(entry *watchEntry, event fsnotify.Event) {
 	}
 	if event.Op&fsnotify.Create != 0 {
 		if info, err := os.Stat(event.Name); err == nil && info.IsDir() && !isIgnoredGitWatchPath(entry.gitDir, event.Name) {
-			_ = addGitWatchDirs(entry.watcher, event.Name)
+			_ = addGitWatchDirs(entry.watcher, entry.gitDir, event.Name)
 		}
 	}
 	s.bufferGitDirty(entry.gitDir)
@@ -188,7 +188,9 @@ func (s *Service) flushGitDirty() {
 	}
 }
 
-func addGitWatchDirs(watcher *fsnotify.Watcher, root string) error {
+// addGitWatchDirs watches root and the directories below it that
+// isIgnoredGitWatchPath, judged relative to gitDir, does not skip.
+func addGitWatchDirs(watcher *fsnotify.Watcher, gitDir string, root string) error {
 	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -196,7 +198,7 @@ func addGitWatchDirs(watcher *fsnotify.Watcher, root string) error {
 		if !d.IsDir() {
 			return nil
 		}
-		if path != root && isIgnoredGitWatchPath(root, path) {
+		if path != root && isIgnoredGitWatchPath(gitDir, path) {
 			return filepath.SkipDir
 		}
 		return watcher.Add(path)
@@ -219,6 +221,23 @@ func isIgnoredGitWatchPath(gitDir string, candidate string) bool {
 	if err != nil || rel == "" || rel == "." || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
 		return false
 	}
-	first := strings.Split(filepath.ToSlash(rel), "/")[0]
-	return first == "objects" || first == "logs"
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	switch parts[0] {
+	case "objects", "logs":
+		return true
+	case "lfs":
+		return len(parts) > 1 && parts[1] == "objects"
+	case "modules":
+		// A submodule's git directory is modules/<path> (nested submodules
+		// add modules/<path> below that); skip its object store and reflogs
+		// as well. It is recognized by its HEAD file, which git writes before
+		// creating objects, so a submodule path or branch name containing
+		// "objects" or "logs" is still watched.
+		last := parts[len(parts)-1]
+		if len(parts) > 2 && (last == "objects" || last == "logs") {
+			_, err := os.Stat(filepath.Join(filepath.Dir(candidate), "HEAD"))
+			return err == nil
+		}
+	}
+	return false
 }
