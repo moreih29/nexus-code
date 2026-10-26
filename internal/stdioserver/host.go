@@ -15,10 +15,13 @@ package stdioserver
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"os/signal"
+	"regexp"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -166,29 +169,42 @@ func (h *Host) EmitEvent(event string, payload any) error {
 }
 
 // Run consumes NDJSON request lines from `in` until EOF or a fatal
-// scanner error, dispatching each on its own goroutine. Run does not
+// read error, dispatching each on its own goroutine. Run does not
 // return — it terminates the process via drainAndExit. Install the
 // SIGTERM handler via InstallSigtermHandler before calling this so
 // the parent's shutdown signal is honored.
 func (h *Host) Run() {
-	scanner := bufio.NewScanner(h.in)
-	// Cap matches the largest request shape we expect: a writeFile whose
-	// content is up to MaxReadableFileSize (50 MiB), JSON-escaped, plus
-	// envelope overhead. 64 MiB leaves headroom for escaping without
-	// allocating eagerly — Scanner grows its buffer lazily from 64 KiB up to
-	// this ceiling.
-	scanner.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
+	lines := lineReader{r: bufio.NewReaderSize(h.in, 64*1024), max: maxLineBytes}
 
-	for scanner.Scan() {
-		// Copy the slice — scanner reuses its internal buffer between
-		// calls and the line escapes into a goroutine below.
-		line := append([]byte(nil), scanner.Bytes()...)
-		if len(line) == 0 {
+	for {
+		// Each line is freshly allocated, so it may escape into the
+		// handler goroutine below without a copy.
+		line, tooLong, err := lines.next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			// A non-EOF read error means the transport broke mid-stream (the
+			// SSH channel carrying stdin was reset, not closed cleanly). We
+			// have no request id to correlate it with, so emit a sentinel id
+			// as a best-effort transport-level protocol failure — it may not
+			// reach a client whose link is already gone — then exit non-zero
+			// so a still-present client reconnects rather than treating this
+			// as a clean shutdown. A clean EOF falls through to exit 0.
+			_ = h.WriteFrame(proto.ProtocolFailure(proto.ProtocolErrorID, err.Error()))
+			h.drainAndExit(transportErrorExitCode)
+			return
+		}
+		if len(line) == 0 && !tooLong {
 			continue
 		}
 		// Any inbound line proves the client is alive — reset the idle watchdog.
 		h.stampInbound()
 		if !h.isAccepting() {
+			continue
+		}
+		if tooLong {
+			h.rejectOversizedLine(line)
 			continue
 		}
 		h.wg.Add(1)
@@ -197,20 +213,90 @@ func (h *Host) Run() {
 			h.handleLine(line)
 		}()
 	}
-
-	if err := scanner.Err(); err != nil {
-		// A non-EOF scanner error means the transport broke mid-stream (the
-		// SSH channel carrying stdin was reset, not closed cleanly). We have
-		// no request id to correlate it with, so emit a sentinel id as a
-		// best-effort transport-level protocol failure — it may not reach a
-		// client whose link is already gone — then exit non-zero so a still-
-		// present client reconnects rather than treating this as a clean
-		// shutdown. A clean EOF (Err() == nil) falls through to exit 0.
-		_ = h.WriteFrame(proto.ProtocolFailure(proto.ProtocolErrorID, err.Error()))
-		h.drainAndExit(transportErrorExitCode)
-		return
-	}
 	h.drainAndExit(0)
+}
+
+// maxLineBytes caps one inbound request line. It matches the largest request
+// shape we expect: a writeFile whose content is up to MaxReadableFileSize
+// (50 MiB), JSON-escaped, plus envelope overhead. 64 MiB leaves headroom for
+// escaping; the line buffer grows lazily up to this ceiling.
+const maxLineBytes = 64 * 1024 * 1024
+
+// lineHeadBytes is how much of an oversized line is kept to recover its id.
+const lineHeadBytes = 4 * 1024
+
+// lineReader splits input into lines the way bufio.Scanner with ScanLines
+// does (a trailing "\r" is dropped, a final unterminated line is returned),
+// except that a line longer than max is skipped instead of ending the stream:
+// a Scanner fails with ErrTooLong there, which used to take the
+// transport-error exit and, in daemon mode, kill every PTY.
+type lineReader struct {
+	r   *bufio.Reader
+	max int
+}
+
+// next returns the next line without its line ending. For a line longer than
+// max it consumes the whole line and returns tooLong with only the first
+// lineHeadBytes. It returns io.EOF once the input is exhausted.
+func (lr *lineReader) next() (line []byte, tooLong bool, err error) {
+	for {
+		chunk, readErr := lr.r.ReadSlice('\n')
+		if readErr == nil {
+			chunk = chunk[:len(chunk)-1] // the '\n' itself
+		}
+		switch {
+		case tooLong:
+			// Already over the limit: discard until the line ends.
+		case len(line)+len(chunk) <= lr.max:
+			line = append(line, chunk...)
+		default:
+			tooLong = true
+			if len(line) < lineHeadBytes {
+				line = append(line, chunk[:min(len(chunk), lineHeadBytes-len(line))]...)
+			}
+			line = append([]byte(nil), line[:min(len(line), lineHeadBytes)]...)
+		}
+		switch {
+		case readErr == bufio.ErrBufferFull:
+			continue
+		case readErr == nil:
+			return dropCR(line), tooLong, nil
+		case readErr == io.EOF && (len(line) > 0 || tooLong):
+			return dropCR(line), tooLong, nil
+		default:
+			return nil, false, readErr
+		}
+	}
+}
+
+// dropCR drops a terminal "\r", as bufio.ScanLines does.
+func dropCR(line []byte) []byte {
+	if len(line) > 0 && line[len(line)-1] == '\r' {
+		return line[:len(line)-1]
+	}
+	return line
+}
+
+// requestIDAtStart matches the id of a request line whose first key is "id",
+// which is how the client serializes every request ({id, method, params}).
+// Anchoring keeps an "id" inside params from being mistaken for it.
+var requestIDAtStart = regexp.MustCompile(`^\s*\{\s*"id"\s*:\s*"((?:[^"\\]|\\.)*)"`)
+
+// rejectOversizedLine answers a request line that exceeded maxLineBytes
+// with a protocol error when its id can be read from the line's head, so the
+// caller fails fast instead of waiting for its timeout; otherwise it is only
+// logged. The connection keeps serving either way.
+func (h *Host) rejectOversizedLine(head []byte) {
+	id := ""
+	if match := requestIDAtStart.FindSubmatch(head); match != nil {
+		if unquoted, err := strconv.Unquote(`"` + string(match[1]) + `"`); err == nil {
+			id = unquoted
+		}
+	}
+	h.logger.Warn("discarded inbound line over size limit", "limitBytes", maxLineBytes, "id", id)
+	if id != "" {
+		_ = h.WriteFrame(proto.ProtocolFailure(id, fmt.Sprintf("request exceeds the %d MiB line limit", maxLineBytes>>20)))
+	}
 }
 
 // StartHeartbeat 는 interval마다 "agent.heartbeat" 이벤트를 emit하는 goroutine을
