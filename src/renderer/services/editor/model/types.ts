@@ -63,6 +63,12 @@ export interface ModelEntry {
    * changes" (true). Cleared on a successful rehydrate.
    */
   lspNeedsRehydrate?: boolean;
+  /**
+   * Bumped by each external-change read and by each save. A reconcile
+   * applies its read only if nothing newer started meanwhile, so a slow
+   * read cannot install older disk content over newer.
+   */
+  diskReadSeq?: number;
   /** True while a rehydrate didOpen is in flight. */
   lspRehydrating?: boolean;
   /**

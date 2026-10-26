@@ -330,9 +330,15 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
     return model !== null && !model.isDisposed() && model.getValue() !== entry.lastLoadedValue;
   };
 
+  const seq = (entry.diskReadSeq ?? 0) + 1;
+  entry.diskReadSeq = seq;
+
   try {
     const result = await deps.readFileForModel(entry.input);
     if (entry.disposed) return;
+    // A formatter or checkout fires several fs.changed events and reads can
+    // resolve out of order; a newer read (or a save) owns the result.
+    if (entry.diskReadSeq !== seq) return;
 
     if (hasUnsavedEdits()) {
       // Do not overwrite the user's work. Record the current disk state so
@@ -371,7 +377,7 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
 
     notifySubscribers(entry);
   } catch (error) {
-    if (entry.disposed) return;
+    if (entry.disposed || entry.diskReadSeq !== seq) return;
     // The edits exist only in this buffer; keep it editable so the user can
     // save it (recreating the file) instead of losing it to the error state.
     if (hasUnsavedEdits()) return;
@@ -418,6 +424,9 @@ async function reconcileIfStatChanged(entry: ModelEntry): Promise<void> {
 export async function reloadEntryFromDisk(entry: ModelEntry): Promise<void> {
   if (entry.disposed) return;
   const deps = depsFor(entry);
+  // The user asked for this read; reconcile reads already in flight predate
+  // it and must not land after it.
+  entry.diskReadSeq = (entry.diskReadSeq ?? 0) + 1;
 
   try {
     const result = await deps.readFileForModel(entry.input);

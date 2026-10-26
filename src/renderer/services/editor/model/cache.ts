@@ -326,6 +326,8 @@ export function syncLoadedValueAfterSave(input: EditorInput, content: string): v
   const entry = entries.get(cacheUriForInput(input));
   if (!entry) return;
   entry.lastLoadedValue = content;
+  // Reads started before the write may return the pre-save content.
+  entry.diskReadSeq = (entry.diskReadSeq ?? 0) + 1;
 }
 
 /**
