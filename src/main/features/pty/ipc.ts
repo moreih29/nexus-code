@@ -11,6 +11,7 @@ import { applyShellPathShim } from "./shell-shim";
 import { OscNotificationDispatcher } from "./osc-notification";
 import type { WorkspaceNameLookup } from "./osc-notification";
 import type { HookInfo } from "../workspace/manager";
+import { getActiveAppWindow, getFocusedAppWindow } from "../window/app-windows";
 
 const c = ipcContract.pty.call;
 
@@ -59,16 +60,12 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
   const { agentHost } = options;
   const recorder = options.recorder ?? new TerminalRecorderRegistry();
   const wm = options.workspaceManager;
-  // BrowserWindow is accessed lazily (require) to avoid a static electron
-  // import that breaks test environments where electron is partially mocked.
-  const getElectron = (): typeof import("electron") =>
-    require("electron") as typeof import("electron");
   const dispatcher = new OscNotificationDispatcher({
     workspaceManager: wm ?? { getName: () => null },
-    getFocusedWindow: () => getElectron().BrowserWindow.getFocusedWindow(),
+    getFocusedWindow: getFocusedAppWindow,
     activateWorkspace: wm ? (id) => wm.activate(id) : undefined,
     focusMainWindow: () => {
-      const win = getElectron().BrowserWindow.getAllWindows()[0];
+      const win = getActiveAppWindow();
       if (!win) return;
       if (win.isMinimized()) win.restore();
       win.show();

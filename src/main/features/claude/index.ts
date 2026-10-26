@@ -9,6 +9,7 @@ import { registerClaudeChannel } from "./ipc";
 import { registerHookHandler } from "./hook-handler";
 import type { PtyHostHandle } from "../pty/types";
 import type { WorkspaceNameLookup } from "./hook-handler";
+import { getActiveAppWindow, getFocusedAppWindow } from "../window/app-windows";
 
 // ---------------------------------------------------------------------------
 // 의존성 타입
@@ -71,12 +72,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
   registerClaudeChannel(broker, activeContext);
 
   // 3. hook-handler 등록.
-  const getFocusedWindow =
-    options.getFocusedWindow ??
-    (() => {
-      const electron = require("electron") as typeof import("electron");
-      return electron.BrowserWindow.getFocusedWindow();
-    });
+  const getFocusedWindow = options.getFocusedWindow ?? getFocusedAppWindow;
 
   const offHook = registerHookHandler({
     broker,
@@ -90,8 +86,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     notificationsEnabled: options.notificationsEnabled,
     activateWorkspace: (id) => workspaceManager.activate(id),
     focusMainWindow: () => {
-      const electron = require("electron") as typeof import("electron");
-      const win = electron.BrowserWindow.getAllWindows()[0];
+      const win = getActiveAppWindow();
       if (!win) return;
       if (win.isMinimized()) win.restore();
       win.show();

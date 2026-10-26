@@ -6,6 +6,7 @@ import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { getMainT } from "../../i18n";
 import { isMac } from "../../infra/platform";
 import type { AppState } from "../../infra/storage/state-service";
+import { trackAppWindow } from "./app-windows";
 
 // Custom titlebar height (px) — must match TitleBar component's h-9 (36px)
 // and titleBarOverlay.height on Win/Linux for visual alignment.
@@ -86,6 +87,8 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
       nodeIntegration: false,
     },
   });
+
+  trackAppWindow(win);
 
   win.once("ready-to-show", () => {
     win.show();

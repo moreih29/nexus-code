@@ -1,5 +1,5 @@
 import path from "node:path";
-import { app, BrowserWindow, session } from "electron";
+import { app, type BrowserWindow, session } from "electron";
 import { createLogger, initMainLogger } from "../shared/log/main";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { installErrorSafetyNet } from "./error-safety-net";
@@ -43,6 +43,7 @@ import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ip
 import { installUpdatesDomain, type UpdatesDomainHandle } from "./features/updates";
 import { createMainWindow } from "./features/window";
 import { installAppSessionPermissions } from "./features/window/app-session-permissions";
+import { hasAppWindow } from "./features/window/app-windows";
 import { registerWorkspaceChannel } from "./features/workspace/ipc";
 import { WorkspaceManager } from "./features/workspace/manager";
 import { getMainI18n, getMainT, initMainI18n } from "./i18n";
@@ -450,7 +451,7 @@ app.whenReady().then(async () => {
   });
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (!hasAppWindow()) {
       const newWin = createMainWindow(stateService.getState());
       wireAutofetchWindowFocus(newWin);
       // On activate, reuse the existing permission manager with the new window.

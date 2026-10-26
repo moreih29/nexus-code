@@ -18,7 +18,7 @@
  * registration and are unaffected by menu replacement.
  */
 
-import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from "electron";
+import { app, Menu, type MenuItemConstructorOptions } from "electron";
 import type { TFunction } from "i18next";
 import type { CommandId } from "../../../shared/keybindings/commands";
 import { ALL_COMMAND_IDS, COMMANDS } from "../../../shared/keybindings/commands";
@@ -28,6 +28,7 @@ import {
   type KeybindingOverride,
 } from "../../../shared/keybindings/overrides";
 import { isMac } from "../../infra/platform";
+import { getActiveAppWindow } from "../window/app-windows";
 import { buildMenuTemplate, type MenuItemSpec } from "./template";
 
 const KNOWN_COMMANDS: ReadonlySet<string> = new Set(ALL_COMMAND_IDS);
@@ -146,7 +147,7 @@ function fireCommand(id: CommandId, options: InstallAppMenuOptions): void {
     return;
   }
 
-  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const win = getActiveAppWindow();
   if (!win || win.isDestroyed()) return;
   win.webContents.send("ipc:event", "command", "invoke", { id });
 }
