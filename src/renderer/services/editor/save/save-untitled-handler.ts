@@ -39,9 +39,8 @@ const SAVED_MODEL_HANDOFF_MS = 5_000;
  *   "failed"    — write/model error; toast already shown (tab preserved).
  *   "saved"     — file written; tab converted in-place; untitled model released.
  *
- * Determines `origin` for the new EditorInput by checking whether the
- * chosen absolute path is inside the workspace root ("workspace") or
- * not ("external").
+ * Only paths inside the workspace root are accepted: the agent writes
+ * relative to the root and has no write path for external files.
  *
  * The tab id is preserved — only the tab type, props, and title change.
  * The untitled model is released only after the replacement succeeds.
@@ -86,14 +85,21 @@ export async function saveUntitledModel(
   }
   const content = resolved.model.getValue();
 
-  // Determine workspace-relative path for writeFile.
-  // relPath() returns the absolute path unchanged when outside the root;
-  // the agent resolves absolute relPaths to the actual filesystem location.
+  // Determine workspace-relative path for writeFile. The agent joins every
+  // relPath under the workspace root, so a path outside it would be written
+  // to <root>/<absolute path> instead of where the user chose.
   const rootWithSep = workspace.rootPath.endsWith("/")
     ? workspace.rootPath
     : `${workspace.rootPath}/`;
-  const isInsideWorkspace = chosenPath === workspace.rootPath || chosenPath.startsWith(rootWithSep);
-  const writeRelPath = isInsideWorkspace ? chosenPath.slice(rootWithSep.length) : chosenPath;
+  const isInsideWorkspace = chosenPath.startsWith(rootWithSep);
+  if (!isInsideWorkspace) {
+    showToast({
+      kind: "error",
+      message: "Save failed: choose a location inside the workspace folder",
+    });
+    return "failed";
+  }
+  const writeRelPath = chosenPath.slice(rootWithSep.length);
 
   // biome-ignore lint/suspicious/noImplicitAnyLet: writeFileResult type narrows from unwrapIpcResult inside the try block; an explicit annotation would duplicate the IPC contract.
   let writeFileResult;
@@ -121,13 +127,10 @@ export async function saveUntitledModel(
 
   const { mtime, size } = writeFileResult;
 
-  // Determine origin for the new EditorInput.
-  const newOrigin: "workspace" | "external" = isInsideWorkspace ? "workspace" : "external";
-
   const newInput: EditorInput = {
     workspaceId,
     filePath: chosenPath,
-    origin: newOrigin,
+    origin: "workspace",
   };
 
   // Acquire the new model. On failure keep the untitled tab open.

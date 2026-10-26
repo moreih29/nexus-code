@@ -11,6 +11,7 @@ import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { openOrRevealEditor, runSaveAndReport } from "../../services/editor";
 import { saveUntitledModel } from "../../services/editor/save/save-untitled-handler";
+import { openExternalEditor } from "../../services/editor/tabs/open-external-editor";
 import { handleCopy, handleCut, handlePaste } from "../../services/file-clipboard";
 import { confirmAndDeleteBatch } from "../../services/fs-mutations";
 import { refresh } from "../../state/operations/files";
@@ -23,6 +24,8 @@ import {
   type WorkspaceTree,
 } from "../../state/stores/files";
 import { useTabsStore } from "../../state/stores/tabs";
+import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { isWithinWorkspace } from "../../utils/path";
 import { getActiveTabContext } from "../context";
 
 // ---------------------------------------------------------------------------
@@ -164,7 +167,18 @@ export function registerFileCommands(): Array<() => void> {
         }),
       );
       if (canceled || filePaths.length === 0) return;
-      openOrRevealEditor({ workspaceId: wsId, filePath: filePaths[0] });
+      const filePath = filePaths[0];
+      // The agent resolves workspace paths under the root, so a file picked
+      // elsewhere opens read-only through the external loader instead of
+      // failing with NOT_FOUND.
+      const rootPath = useWorkspacesStore
+        .getState()
+        .workspaces.find((w) => w.id === wsId)?.rootPath;
+      if (rootPath && !isWithinWorkspace(filePath, rootPath)) {
+        openExternalEditor({ workspaceId: wsId, filePath });
+        return;
+      }
+      openOrRevealEditor({ workspaceId: wsId, filePath });
     }),
 
     registerCommand(COMMANDS.fileSave, () => {

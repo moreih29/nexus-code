@@ -178,6 +178,9 @@ export function ContentHost({
             tabId={tab.id}
             filePath={tab.props.filePath}
             workspaceId={workspaceId}
+            // External tabs must reload through the external loader after a
+            // restart; as workspace files they resolved under the root.
+            origin={tab.props.origin}
           />
         )
       ) : tab.type === "untitled" ? (
