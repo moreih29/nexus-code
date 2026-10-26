@@ -33,6 +33,7 @@ import {
   isNavigationSchemeAllowed,
   isSubframeNavigationAllowed,
 } from "../../../shared/security/navigation-allowlist";
+import { excludeFromBroadcast } from "../../infra/ipc-router";
 import { resolvePermission } from "./permission-policy";
 import type { BrowserPermissionPromptManager } from "./permission-prompt-manager";
 
@@ -228,6 +229,10 @@ export function installNavigationGuards(
   webContents: WebContents,
   onNavigate?: (url: string) => void,
 ): void {
+  // Every tab and popup passes through here, so this is also where their
+  // renderers are taken off the app-wide event broadcast.
+  excludeFromBroadcast(webContents);
+
   // Layer 1 — top-level navigation guard.
   // Covers: location.href assignments, <a target="_self"> clicks, and
   // programmatic webContents.loadURL calls that originate from the page.

@@ -53,6 +53,7 @@
 import type { BrowserWindow } from "electron";
 import { WebContentsView } from "electron";
 import { createLogger } from "../../../shared/log/main";
+import { excludeFromBroadcast } from "../../infra/ipc-router";
 import { installAppScrollbarStyle } from "./page-style";
 import {
   buildBrowserTabWebPreferences,
@@ -723,6 +724,7 @@ export class BrowserTabRegistry {
     // Open path — lazily allocate the host view.
     if (entry.devtoolsView === null) {
       entry.devtoolsView = new WebContentsView({});
+      excludeFromBroadcast(entry.devtoolsView.webContents);
     }
 
     // Attach the host view to the window when the tab is currently active.
