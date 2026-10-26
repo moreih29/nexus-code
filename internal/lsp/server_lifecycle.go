@@ -3,6 +3,7 @@ package lsp
 import (
 	"context"
 	"encoding/json"
+	"os/exec"
 	"strconv"
 	"time"
 )
@@ -69,8 +70,28 @@ func (p *serverProcess) stopIdleTimer() {
 	}
 }
 
-func (p *serverProcess) waitLoop() {
-	err := p.cmd.Wait()
+// waitLoop reports the server's exit once its output has been read.
+//
+// It does not use cmd.Wait, which closes the stdout and stderr pipes as soon
+// as the process exits and so cuts off whatever the readers have not
+// consumed yet: the end of a crash trace that serverExited reports as
+// StderrTail, or the last messages. It reaps the process, waits for the
+// readers to reach EOF (drained), at most outputDrainGrace, and then closes
+// the pipes itself as cmd.Wait would.
+func (p *serverProcess) waitLoop(drained <-chan struct{}) {
+	state, err := p.cmd.Process.Wait()
+	if err == nil && !state.Success() {
+		err = &exec.ExitError{ProcessState: state}
+	}
+	timer := time.NewTimer(outputDrainGrace)
+	select {
+	case <-drained:
+	case <-timer.C:
+	}
+	timer.Stop()
+	_ = p.stdin.Close()
+	_ = p.stdout.Close()
+	_ = p.stderr.Close()
 	p.markExited(err)
 }
 

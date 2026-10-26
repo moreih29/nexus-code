@@ -214,6 +214,51 @@ func TestShutdownEmitsServerExited(t *testing.T) {
 	}
 }
 
+// cmd.Wait closes the stdout and stderr pipes as soon as the server exits.
+// Run alongside the readers, it cut off whatever they had not consumed yet:
+// the end of the crash output that serverExited carries as StderrTail, and
+// the last messages the server wrote.
+func TestServerExitKeepsFinalOutput(t *testing.T) {
+	service, events := newTestService(t)
+	result := spawnFakeServer(t, service, "crash", nil, "")
+
+	sawMessage := false
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case event := <-events:
+			switch event.name {
+			case EventMessage:
+				if strings.Contains(string(event.payload.(MessagePayload).Message), "parting message") {
+					sawMessage = true
+				}
+			case EventServerExited:
+				payload := event.payload.(ServerExitedPayload)
+				if payload.ServerID != result.ServerID {
+					t.Fatalf("serverExited serverId = %q, want %q", payload.ServerID, result.ServerID)
+				}
+				if !strings.HasSuffix(payload.StderrTail, "last stderr line\n") {
+					t.Fatalf("stderr tail lost the end of the crash output: ...%q", tail(payload.StderrTail, 80))
+				}
+				if !sawMessage {
+					t.Fatal("the server's last message was not delivered before serverExited")
+				}
+				return
+			}
+		case <-timer.C:
+			t.Fatal("timed out waiting for serverExited")
+		}
+	}
+}
+
+func tail(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[len(s)-n:]
+}
+
 func TestJSONRPCIDKeyRejectsNullID(t *testing.T) {
 	// null id was previously accepted as a valid key, which let a buggy
 	// or malicious server pollute the pending-internal map under a
