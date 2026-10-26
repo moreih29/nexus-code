@@ -19,6 +19,8 @@ import type { LogLevel } from "../../../shared/log/types";
 import type { SshErrorCode } from "../../../shared/ssh/errors";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+/** How many timed-out request ids to remember for absorbing late answers. */
+const ABANDONED_REQUEST_IDS_MAX = 1024;
 
 /**
  * Marker value written by the Go agent's slog logger on every structured log
@@ -244,6 +246,11 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   const expectedProtocolMajor = deps.expectedProtocolMajor ?? AGENT_PROTOCOL_VERSION;
   const pendingRequests = new PendingRequestMap<string, unknown>();
   const activeRequestIds = new Set<string>();
+  // Requests that timed out locally. The agent still answers them when the
+  // handler eventually finishes, and that answer is expected, not a protocol
+  // violation; failing the channel on it would turn one slow request into a
+  // dead workspace. Insertion-ordered, so the oldest id is evicted first.
+  const abandonedRequestIds = new Set<string>();
   const listeners = new Map<string, Set<NdjsonEventCallback>>();
   const stdoutLines = createLineSplitter(handleStdoutLine, {
     hwm: STDOUT_BACKPRESSURE_HWM,
@@ -458,7 +465,9 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     resolveReady();
     if (frame.kind === "response") {
       if (!activeRequestIds.has(frame.id)) {
-        selfFail(createSshError("server.protocol-error"));
+        if (!abandonedRequestIds.delete(frame.id)) {
+          selfFail(createSshError("server.protocol-error"));
+        }
         return;
       }
       pendingRequests.resolve(frame.id, frame.result);
@@ -467,7 +476,9 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
 
     if (frame.kind === "error-response") {
       if (!activeRequestIds.has(frame.id)) {
-        selfFail(createSshError("server.protocol-error"));
+        if (!abandonedRequestIds.delete(frame.id)) {
+          selfFail(createSshError("server.protocol-error"));
+        }
         return;
       }
       pendingRequests.reject(frame.id, errorFromServerFrame(frame.error));
@@ -627,7 +638,17 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
         .register({
           key: requestId,
           timeoutMs: requestTimeoutMs,
-          onTimeout: () => createSshError("ssh.unknown"),
+          onTimeout: () => {
+            abandonedRequestIds.add(requestId);
+            if (abandonedRequestIds.size > ABANDONED_REQUEST_IDS_MAX) {
+              const oldest = abandonedRequestIds.values().next().value;
+              if (oldest !== undefined) abandonedRequestIds.delete(oldest);
+            }
+            return createSshError(
+              "ssh.unknown",
+              new Error(`${method} timed out after ${requestTimeoutMs}ms`),
+            );
+          },
         })
         .finally(() => {
           activeRequestIds.delete(requestId);
