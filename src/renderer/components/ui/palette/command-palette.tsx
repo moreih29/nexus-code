@@ -43,6 +43,12 @@ export function CommandPalette<TItem extends PaletteItem>({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  // Counts openings (and closings) of the palette. accept() may wait for a
+  // debounced search to flush; a second Enter in that window, or Escape,
+  // must not run the source's action — a merge or rebase — twice or after
+  // the palette closed.
+  const openingRef = useRef(0);
+  const acceptedOpeningRef = useRef(-1);
   const titleId = useId();
   const inputId = useId();
   const listboxId = useId();
@@ -50,6 +56,7 @@ export function CommandPalette<TItem extends PaletteItem>({
   queryRef.current = query;
 
   useEffect(() => {
+    openingRef.current += 1;
     if (!open) return;
     setQuery("");
     setSnapshot(initialPaletteSearchSnapshot());
@@ -115,16 +122,26 @@ export function CommandPalette<TItem extends PaletteItem>({
 
   async function accept(context: PaletteAcceptContext): Promise<void> {
     if (!source) return;
+    const opening = openingRef.current;
+    if (acceptedOpeningRef.current === opening) return;
+    acceptedOpeningRef.current = opening;
     let activeSnapshot = snapshot;
     if (
       (snapshot.status === "debouncing" || snapshot.status === "loading") &&
       controllerRef.current !== null
     ) {
       activeSnapshot = await controllerRef.current.flush();
+      if (openingRef.current !== opening) return;
     }
-    if (activeSnapshot.activeIndex < 0) return;
-    const item = activeSnapshot.items[activeSnapshot.activeIndex];
-    if (!item) return;
+    const item =
+      activeSnapshot.activeIndex >= 0
+        ? activeSnapshot.items[activeSnapshot.activeIndex]
+        : undefined;
+    if (!item) {
+      // Nothing to accept yet; let a later Enter try again.
+      acceptedOpeningRef.current = -1;
+      return;
+    }
     onClose();
     source.accept(item, context);
   }
