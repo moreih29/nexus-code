@@ -23,7 +23,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   isOccludingOverlay,
-  tooltipOverlapsBrowserView,
+  overlapsBrowserView,
 } from "../../../../../src/renderer/state/operations/browser-suspend-auto";
 
 interface FakeSpec {
@@ -104,23 +104,28 @@ function fakeSlot(box: Box, inert = false): Element {
   } as unknown as Element;
 }
 
-describe("tooltipOverlapsBrowserView", () => {
+describe("overlapsBrowserView", () => {
   const page = { left: 200, top: 100, width: 800, height: 600 };
 
   test("ignores a tooltip over the tab strip, clear of the page", () => {
     const tooltip = fakeTooltip({ left: 220, top: 60, width: 80, height: 24 });
-    expect(tooltipOverlapsBrowserView(tooltip, [fakeSlot(page)])).toBe(false);
+    expect(overlapsBrowserView(tooltip, [fakeSlot(page)])).toBe(false);
   });
 
   test("counts a tooltip that reaches into the page", () => {
     const tooltip = fakeTooltip({ left: 220, top: 90, width: 80, height: 24 });
-    expect(tooltipOverlapsBrowserView(tooltip, [fakeSlot(page)])).toBe(true);
+    expect(overlapsBrowserView(tooltip, [fakeSlot(page)])).toBe(true);
   });
 
   test("ignores browser views of inactive workspaces and hidden tabs", () => {
     const tooltip = fakeTooltip({ left: 220, top: 90, width: 80, height: 24 });
     const slots = [fakeSlot(page, true), fakeSlot({ left: 0, top: 0, width: 0, height: 0 })];
-    expect(tooltipOverlapsBrowserView(tooltip, slots)).toBe(false);
+    expect(overlapsBrowserView(tooltip, slots)).toBe(false);
+  });
+
+  test("counts the toast stack where it covers a browser tab", () => {
+    const toasts = fakeTooltip({ left: 640, top: 560, width: 360, height: 80 }, "");
+    expect(overlapsBrowserView(toasts, [fakeSlot(page)])).toBe(true);
   });
 
   test("reports a tooltip Radix has not positioned yet", () => {
@@ -128,6 +133,6 @@ describe("tooltipOverlapsBrowserView", () => {
       { left: 0, top: -48, width: 80, height: 24 },
       "translate(0, -200%)",
     );
-    expect(tooltipOverlapsBrowserView(tooltip, [fakeSlot(page)])).toBe("unplaced");
+    expect(overlapsBrowserView(tooltip, [fakeSlot(page)])).toBe("unplaced");
   });
 });

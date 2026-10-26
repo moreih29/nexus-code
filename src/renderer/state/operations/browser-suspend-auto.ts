@@ -21,9 +21,10 @@
  *   [role="alertdialog"]                 — AlertDialog.Content
  *   [role="menu"]                        — DropdownMenu.Content, ContextMenu.Content
  *   [data-radix-popper-content-wrapper]  — Popover, Tooltip popper containers
- * Watching these four covers every overlay primitive Radix ships. Tooltips
- * count only while they overlap a browser view (see
- * `tooltipOverlapsBrowserView`).
+ * Watching these four covers every overlay primitive Radix ships. The app's
+ * own toast stack (`[data-toast-viewport]`) is watched too. Tooltips and
+ * toasts count only while they overlap a browser view (see
+ * `overlapsBrowserView`).
  *
  * FALSE POSITIVES — MONACO WIDGETS
  * --------------------------------
@@ -62,8 +63,10 @@
 
 import { useBrowserSuspendStore } from "../stores/browser-suspend";
 
-const OVERLAY_SELECTOR =
-  '[role="dialog"],[role="alertdialog"],[role="menu"],[data-radix-popper-content-wrapper]';
+// The toast stack is not a Radix overlay; see `TOAST_VIEWPORT_ATTR`.
+const TOAST_VIEWPORT_ATTR = "data-toast-viewport";
+
+const OVERLAY_SELECTOR = `[role="dialog"],[role="alertdialog"],[role="menu"],[data-radix-popper-content-wrapper],[${TOAST_VIEWPORT_ATTR}]`;
 
 // Monaco editor widgets (find/replace, context menu, suggest) carry overlay
 // roles but live inside the editor pane and persist in the DOM while hidden.
@@ -108,16 +111,16 @@ const BROWSER_SLOT_SELECTOR = "[data-browser-placeholder],[data-browser-devtools
  * pins) and mostly sit nowhere near a page. Suspending for each one froze
  * the page and captured a snapshot of every browser view per hover, so a
  * tooltip claims the suspend only when it actually overlaps a browser view.
+ * Toasts get the same treatment: the stack sits bottom-right, often over a
+ * browser tab, where the native view would otherwise paint over it (and
+ * over the buttons of toasts that wait to be dismissed).
  *
- * Returns "unplaced" while Radix still parks the tooltip off-screen at
+ * Returns "unplaced" while Radix still parks a tooltip off-screen at
  * `translate(0, -200%)`, waiting for floating-ui to position it.
  */
-export function tooltipOverlapsBrowserView(
-  wrapper: Element,
-  slots: Iterable<Element>,
-): boolean | "unplaced" {
-  if ((wrapper as HTMLElement).style?.transform.includes("-200%")) return "unplaced";
-  const r = wrapper.getBoundingClientRect();
+export function overlapsBrowserView(el: Element, slots: Iterable<Element>): boolean | "unplaced" {
+  if ((el as HTMLElement).style?.transform.includes("-200%")) return "unplaced";
+  const r = el.getBoundingClientRect();
   for (const slot of slots) {
     if (slot.closest(INERT_SUBTREE_SELECTOR) !== null) continue;
     const s = slot.getBoundingClientRect();
@@ -127,8 +130,13 @@ export function tooltipOverlapsBrowserView(
   return false;
 }
 
-/** Radix Tooltip content holds a visually hidden `role="tooltip"` node. */
-function isTooltipWrapper(el: Element): boolean {
+/**
+ * Overlays that only claim the suspend over a browser view: tooltips (Radix
+ * Tooltip content holds a visually hidden `role="tooltip"` node) and the
+ * toast stack.
+ */
+function suspendsOnlyOverBrowser(el: Element): boolean {
+  if (el.hasAttribute(TOAST_VIEWPORT_ATTR)) return true;
   return el.hasAttribute(POPPER_WRAPPER_ATTR) && el.querySelector('[role="tooltip"]') !== null;
 }
 
@@ -165,11 +173,8 @@ export function initBrowserOverlayAutoSuspend(): void {
     let unplacedTooltip = false;
     const hasOverlay = Array.from(document.querySelectorAll(OVERLAY_SELECTOR)).some((el) => {
       if (!isOccludingOverlay(el)) return false;
-      if (!isTooltipWrapper(el)) return true;
-      const overlap = tooltipOverlapsBrowserView(
-        el,
-        document.querySelectorAll(BROWSER_SLOT_SELECTOR),
-      );
+      if (!suspendsOnlyOverBrowser(el)) return true;
+      const overlap = overlapsBrowserView(el, document.querySelectorAll(BROWSER_SLOT_SELECTOR));
       if (overlap === "unplaced") unplacedTooltip = true;
       return overlap === true;
     });
