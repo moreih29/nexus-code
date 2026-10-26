@@ -5,7 +5,7 @@
  * - tree mode: builds a path tree from entry relPaths, renders GitTreeRow
  *   recursively with WAI-ARIA tree role and roving tabindex.
  */
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
 import type { ViewMode } from "../../../../../shared/types/panel";
@@ -323,10 +323,25 @@ function GitGroupTree({
     [entryByRelPath, groupKey, onOpenDiff],
   );
 
+  // Keyboard moves must carry DOM focus along: updating only the roving
+  // tabindex left the focus ring (and the Enter target the user sees) on the
+  // old row while Enter opened the diff of the new one.
+  const focusAfterMoveRef = useRef(false);
+  const handleMove = useCallback((next: number) => {
+    focusAfterMoveRef.current = true;
+    setFocusedIndex(next);
+  }, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs once the move has re-rendered the roving tabindex
+  useEffect(() => {
+    if (!focusAfterMoveRef.current) return;
+    focusAfterMoveRef.current = false;
+    containerRef.current?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')?.focus();
+  }, [focusedIndex]);
+
   const { onKeyDown, getRowProps } = useTreeKeyboard({
     rows: keyboardRows,
     focusedIndex,
-    onMove: setFocusedIndex,
+    onMove: handleMove,
     onToggle: handleToggle,
     onActivate: handleActivate,
   });
