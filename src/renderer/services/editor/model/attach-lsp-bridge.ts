@@ -8,17 +8,26 @@ export interface AttachLspBridgeResult {
   contentDisposable: Monaco.IDisposable;
 }
 
-type RehydrateDeps = Pick<ModelEntryDeps, "notifyDidOpen" | "workspaceRootForInput">;
+type RehydrateDeps = Pick<
+  ModelEntryDeps,
+  "isLspEnabledForWorkspace" | "ensureProvidersFor" | "notifyDidOpen" | "workspaceRootForInput"
+>;
+
+/** The language id main's enabled list and server map use for this entry. */
+function presetLanguageIdFor(entry: ModelEntry): string {
+  return resolveLspPresetLanguageId(entry.languageId) ?? entry.languageId;
+}
 
 /**
  * Re-issue `textDocument/didOpen` for an entry whose LSP-side state was
- * dropped (e.g. by the host's LRU eviction). Idempotent — concurrent
- * callers see the same in-flight promise via `entry.didOpenPromise`, so
- * exactly one didOpen is sent per reset.
+ * dropped (e.g. by the host's LRU eviction), or that loaded while its
+ * language was turned off. Idempotent — concurrent callers see the same
+ * in-flight promise via `entry.didOpenPromise`, so exactly one didOpen is
+ * sent per reset.
  *
  * Called from two places:
- *   1. The renderer's `lsp:workspaceReset` listener (eager, when the
- *      workspace becomes active).
+ *   1. `rehydrateLspForWorkspace` (eager, when the workspace becomes
+ *      active or a language is turned on).
  *   2. The content-change handler below (lazy, the next keystroke).
  *
  * On failure we leave `lspDegraded` set so callers can surface a
@@ -32,15 +41,19 @@ export function rehydrateEntryLspOpened(entry: ModelEntry, deps: RehydrateDeps):
   // with itself.
   // A rehydrate already in flight covers every keystroke typed while the
   // server starts; a second didOpen would reset the document again.
+  // While the language is off, main accepts the didOpen without a server;
+  // marking the entry open then would keep it closed once turned on.
   if (
     entry.disposed ||
     !entry.model ||
     entry.lspOpened ||
     !entry.lspNeedsRehydrate ||
-    entry.lspRehydrating
+    entry.lspRehydrating ||
+    !deps.isLspEnabledForWorkspace(entry.input.workspaceId, presetLanguageIdFor(entry))
   ) {
     return entry.didOpenPromise ?? Promise.resolve();
   }
+  deps.ensureProvidersFor(entry.languageId);
   // Reset version — the LSP server is fresh and doesn't know any
   // history for this URI. Starting from 1 keeps the change stream
   // consistent with the initial open's version contract.
@@ -102,8 +115,7 @@ export function attachLspBridge(
   if (deps.isLspLanguage(entry.languageId)) {
     // Resolve the canonical preset language id (e.g. "typescriptreact" → "typescript")
     // so the enabled-check uses the same key that main's isLanguageEnabled gate uses.
-    const presetLanguageId = resolveLspPresetLanguageId(entry.languageId) ?? entry.languageId;
-    if (deps.isLspEnabledForWorkspace(entry.input.workspaceId, presetLanguageId)) {
+    if (deps.isLspEnabledForWorkspace(entry.input.workspaceId, presetLanguageIdFor(entry))) {
       deps.ensureProvidersFor(entry.languageId);
       const openEpoch = entry.lspOpenEpoch ?? 0;
       entry.didOpenPromise = deps
@@ -127,6 +139,9 @@ export function attachLspBridge(
             entry.lspDegraded = true;
           },
         );
+    } else {
+      // Opened by `rehydrateLspForWorkspace` once the language is turned on.
+      entry.lspNeedsRehydrate = true;
     }
   }
 

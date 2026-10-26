@@ -106,10 +106,11 @@ function depsFor(entry: ModelEntry): ModelEntryDeps {
 
 /**
  * Re-issue didOpen against the LSP host for entries whose server-side
- * state was dropped (LRU eviction). Wraps `rehydrateEntryLspOpened`
- * with the entry's resolved deps so callers in the cache layer can
- * trigger respawn without threading deps themselves. No-op when the
- * entry is already opened, disposed, or has no model yet.
+ * state was dropped (LRU eviction) or that loaded while their language was
+ * off. Wraps `rehydrateEntryLspOpened` with the entry's resolved deps so
+ * callers in the cache layer can trigger respawn without threading deps
+ * themselves. No-op when the entry is already opened, disposed, has no
+ * model yet, or its language is off.
  */
 export function rehydrateEntry(entry: ModelEntry): Promise<void> {
   return rehydrateEntryLspOpened(entry, depsFor(entry));

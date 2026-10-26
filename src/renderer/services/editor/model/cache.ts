@@ -6,6 +6,7 @@
 import type * as Monaco from "monaco-editor";
 import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
 import { parseWorkspaceUri, workspaceUriFor } from "../../../../shared/fs/workspace-uri";
+import { resolveLspPresetLanguageId } from "../../../../shared/lsp/config";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import type { FileErrorCode } from "../../../utils/file-error";
 import { registerKnownModelUri } from "../lsp/known-uris";
@@ -331,6 +332,17 @@ export function syncLoadedValueAfterSave(input: EditorInput, content: string): v
 }
 
 /**
+ * Whether `entry` belongs to `languageId`'s server. Main names servers by
+ * preset id ("typescript"), which also covers JavaScript and JSX/TSX
+ * models.
+ */
+function entryUsesLspLanguage(entry: ModelEntry, languageId: string): boolean {
+  return (
+    entry.languageId === languageId || resolveLspPresetLanguageId(entry.languageId) === languageId
+  );
+}
+
+/**
  * Mark tracked entries as no-longer-opened on the LSP side. The renderer's
  * LSP bridge calls this after receiving `lsp:workspaceReset` from main.
  *
@@ -345,7 +357,7 @@ export function syncLoadedValueAfterSave(input: EditorInput, content: string): v
 export function resetLspStateForWorkspace(workspaceId: string, languageId?: string): void {
   for (const entry of entries.values()) {
     if (entry.input.workspaceId !== workspaceId) continue;
-    if (languageId && entry.languageId !== languageId) continue;
+    if (languageId && !entryUsesLspLanguage(entry, languageId)) continue;
     if (entry.disposed) continue;
     entry.lspOpened = false;
     entry.lspNeedsRehydrate = true;
@@ -362,9 +374,10 @@ export function resetLspStateForWorkspace(workspaceId: string, languageId?: stri
 
 /**
  * Eagerly re-issue didOpen for entries whose LSP server-side state was
- * dropped. Called from the renderer when the workspace becomes active again
- * — without this, the user has to type before hover/completion start working
- * in the revisited workspace.
+ * dropped, or that loaded while their language was off. Called from the
+ * renderer when the workspace becomes active again or a language is turned
+ * on — without this, the user has to type before hover/completion start
+ * working.
  *
  * When `languageId` is provided only entries for that language are
  * rehydrated; when omitted every eligible entry for the workspace is
@@ -376,11 +389,12 @@ export function resetLspStateForWorkspace(workspaceId: string, languageId?: stri
 export function rehydrateLspForWorkspace(workspaceId: string, languageId?: string): void {
   for (const entry of entries.values()) {
     if (entry.input.workspaceId !== workspaceId) continue;
-    if (languageId && entry.languageId !== languageId) continue;
+    if (languageId && !entryUsesLspLanguage(entry, languageId)) continue;
     if (entry.disposed || entry.lspOpened) continue;
-    // Skip entries that have never been opened (initial load still in
-    // flight) — only re-issue didOpen for entries the host had once
-    // accepted and then evicted.
+    // Skip entries whose initial didOpen is still in flight — only
+    // re-issue didOpen for entries the host evicted or that loaded while
+    // their language was off. Entries whose language is still off are
+    // skipped by `rehydrateEntry`.
     if (!entry.lspNeedsRehydrate) continue;
     void rehydrateEntry(entry).catch(() => {
       // rehydrateEntry already records lspDegraded on failure; we keep
