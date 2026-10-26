@@ -270,10 +270,13 @@ const ABOUT_BLANK = "about:blank";
  * @param onNavigate   Called when a top-level navigation is allowed through
  *                     (used by the registry to keep the last-known URL in sync
  *                     and to drive `browser.navigated` broadcasts).
+ * @param onPopup      Called with every popup window opened from this
+ *                     WebContents or, recursively, from its popups.
  */
 export function installNavigationGuards(
   webContents: WebContents,
   onNavigate?: (url: string) => void,
+  onPopup?: (popup: import("electron").BrowserWindow) => void,
 ): void {
   // Every tab and popup passes through here, so this is also where their
   // renderers are taken off the app-wide event broadcast.
@@ -371,7 +374,8 @@ export function installNavigationGuards(
   // policy. `onNavigate` is intentionally omitted: a popup is a standalone
   // window, not a tab whose URL the registry tracks.
   webContents.on("did-create-window", (childWindow) => {
-    installNavigationGuards(childWindow.webContents);
+    onPopup?.(childWindow);
+    installNavigationGuards(childWindow.webContents, undefined, onPopup);
   });
 }
 

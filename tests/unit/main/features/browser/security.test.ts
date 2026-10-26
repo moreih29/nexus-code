@@ -442,4 +442,21 @@ describe("installNavigationGuards — did-create-window (popup hardening)", () =
     const result = child._windowOpenHandler!({ url: "javascript:alert(1)" });
     expect(result.action).toBe("deny");
   });
+
+  test("reports popups, and popups of popups, to onPopup", () => {
+    const opener = makeFakeWebContents();
+    const popups: unknown[] = [];
+    installNavigationGuards(
+      opener as unknown as import("electron").WebContents,
+      undefined,
+      (popup) => popups.push(popup),
+    );
+    const child = { webContents: makeFakeWebContents() };
+    const grandchild = { webContents: makeFakeWebContents() };
+
+    opener.emit("did-create-window", child);
+    child.webContents.emit("did-create-window", grandchild);
+
+    expect(popups).toEqual([child, grandchild]);
+  });
 });

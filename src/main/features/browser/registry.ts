@@ -55,6 +55,7 @@ import { WebContentsView } from "electron";
 import { createLogger } from "../../../shared/log/main";
 import { excludeFromBroadcast } from "../../infra/ipc-router";
 import { installAppScrollbarStyle } from "./page-style";
+import { PopupTracker } from "./popup-tracker";
 import {
   buildBrowserTabWebPreferences,
   installLocalFileReadGuard,
@@ -138,6 +139,7 @@ export interface SuspendSnapshot {
 export class BrowserTabRegistry {
   private readonly win: BrowserWindow;
   private readonly tabs = new Map<string, TabEntry>();
+  private readonly popups = new PopupTracker();
   private readonly permissionDeps: PermissionHandlerDeps | undefined;
   /**
    * Global "everything is hidden right now" toggle.
@@ -198,7 +200,9 @@ export class BrowserTabRegistry {
     // Wire navigation guards.  The onNavigate callback is intentionally
     // stubbed here; callers (ipc.ts) attach broadcast callbacks by listening
     // to the WebContents events directly after create() returns.
-    installNavigationGuards(view.webContents);
+    installNavigationGuards(view.webContents, undefined, (popup) =>
+      this.popups.track(workspaceId, popup),
+    );
 
     // Replace the native Chromium scrollbar with our app-wide thin scrollbar
     // style on every page load.  Independent of navigation security — purely
@@ -794,11 +798,21 @@ export class BrowserTabRegistry {
   // -------------------------------------------------------------------------
 
   /**
-   * Destroys all registered tabs.  Called when the main window is closed.
+   * Closes every popup opened from `workspaceId`'s tabs. Called when the
+   * workspace is removed, before its partition storage is cleared.
+   */
+  closePopups(workspaceId: string): void {
+    this.popups.closeWorkspace(workspaceId);
+  }
+
+  /**
+   * Destroys all registered tabs and their popups.  Called when the main
+   * window is closed.
    */
   disposeAll(): void {
     for (const tabId of [...this.tabs.keys()]) {
       this.destroy({ tabId });
     }
+    this.popups.closeAll();
   }
 }

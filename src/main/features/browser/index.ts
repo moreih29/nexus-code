@@ -73,7 +73,8 @@ export function getBrowserRegistry(): BrowserTabRegistry | null {
  * Wires the browser closer into a `WorkspaceManager`-compatible object.
  *
  * The closer:
- *   1. Destroys all `WebContentsView`s for the given workspace.
+ *   1. Destroys all `WebContentsView`s for the given workspace, and the
+ *      popup windows its tabs opened.
  *   2. After all destroys complete, clears the workspace's storage partition
  *      via `session.fromPartition(...).clearStorageData()`.
  *
@@ -90,6 +91,7 @@ export function registerBrowserCloser(manager: {
       for (const tabId of tabIds) {
         reg.destroy({ tabId });
       }
+      reg.closePopups(workspaceId);
     }
     const { session } = require("electron") as typeof import("electron");
     await session
