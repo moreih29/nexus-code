@@ -1002,7 +1002,14 @@ function createLineSplitter(
   push(chunk: Buffer): void;
   flush(): void;
 } {
-  let buffer = "";
+  // Raw bytes of the line in progress, decoded only once the whole line has
+  // arrived. Decoding each chunk on its own turned a multi-byte UTF-8
+  // character split across a chunk boundary into U+FFFD — Hangul in a large
+  // file came back corrupted and was saved that way — and re-scanning one
+  // growing string for "\n" on every chunk made a large frame quadratic.
+  // 0x0A never occurs inside a multi-byte UTF-8 sequence, so splitting the
+  // raw bytes on it is safe.
+  let pending: Buffer[] = [];
   // Running tally of bytes from completed lines dispatched since the last
   // gate transition. Resets to zero after each pause() or resume() call
   // so each measurement window starts fresh.
@@ -1059,23 +1066,32 @@ function createLineSplitter(
 
   return {
     push(chunk) {
-      buffer += chunk.toString("utf8");
-      let newlineIndex = buffer.indexOf("\n");
+      let start = 0;
+      let newlineIndex = chunk.indexOf(0x0a);
       while (newlineIndex !== -1) {
-        const line = buffer.slice(0, newlineIndex).replace(/\r$/, "");
-        buffer = buffer.slice(newlineIndex + 1);
-        dispatchLine(line);
-        newlineIndex = buffer.indexOf("\n");
+        const tail = chunk.subarray(start, newlineIndex);
+        const bytes = pending.length === 0 ? tail : Buffer.concat([...pending, tail]);
+        pending = [];
+        start = newlineIndex + 1;
+        try {
+          dispatchLine(bytes.toString("utf8").replace(/\r$/, ""));
+        } catch (err) {
+          // Keep the chunk's remaining lines for the next push, as before.
+          if (start < chunk.length) pending.push(chunk.subarray(start));
+          throw err;
+        }
+        newlineIndex = chunk.indexOf(0x0a, start);
       }
+      if (start < chunk.length) pending.push(chunk.subarray(start));
       postBurstResumeCheck();
     },
     flush() {
-      if (buffer.length === 0) {
+      if (pending.length === 0) {
         postBurstResumeCheck();
         return;
       }
-      const line = buffer.replace(/\r$/, "");
-      buffer = "";
+      const line = Buffer.concat(pending).toString("utf8").replace(/\r$/, "");
+      pending = [];
       dispatchLine(line);
       postBurstResumeCheck();
     },
