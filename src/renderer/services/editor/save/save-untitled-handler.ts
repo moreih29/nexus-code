@@ -5,7 +5,8 @@
 //   2. User cancels → silent return (untitled tab preserved).
 //   3. User picks a path → write buffer content with fs.writeFile.
 //   4. On write success → acquireModel with the new path, replace the tab,
-//      then releaseModel on the old untitled entry.
+//      then releaseModel on the old untitled entry (and, once the tab's
+//      editor holds the new model, on the new one).
 //   5. On write error → toast(error), untitled tab preserved.
 //
 // Kept separate from service.ts so the latter's module initialisation
@@ -22,6 +23,13 @@ import { markSaved as markDirtyTrackerSaved } from "../model/dirty-tracker";
 import type { EditorInput } from "../types";
 
 export type SaveUntitledOutcome = "saved" | "cancelled" | "failed";
+
+/**
+ * How long the handler keeps its own reference to the saved file's model
+ * after swapping the tab, so the model survives until the tab's editor
+ * acquires it. Releasing at once would dispose it and reload it from disk.
+ */
+const SAVED_MODEL_HANDOFF_MS = 5_000;
 
 /**
  * Save an untitled buffer to a user-chosen path via the native save dialog.
@@ -150,6 +158,18 @@ export async function saveUntitledModel(
 
   // Release the untitled model — must happen after tab replacement succeeds.
   releaseModel(untitledInput);
+
+  // Hand the new model over to the tab's editor, then drop the reference
+  // taken above; holding it forever kept the model alive after the tab
+  // closed, so reopening the file showed edits discarded with "Don't
+  // Save". Skip it if the entry was disposed and recreated meanwhile (a
+  // workspace close), since this reference died with the old entry.
+  const heldModel = newResolved?.model ?? null;
+  setTimeout(() => {
+    if ((getResolvedModel(newInput)?.model ?? null) === heldModel) {
+      releaseModel(newInput);
+    }
+  }, SAVED_MODEL_HANDOFF_MS);
 
   return "saved";
 }
