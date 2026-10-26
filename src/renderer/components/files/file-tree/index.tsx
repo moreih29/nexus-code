@@ -148,12 +148,13 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
       decoration: (absPath, isDir) =>
         isDir ? decorationMaps.folders.get(absPath) : decorationMaps.files.get(absPath),
       isIgnored: (absPath, isDir) => {
-        if (isDir) return false;
         if (!repoTopLevel) return false;
-        // Skip if the file already has a status decoration — it cannot be
+        // Skip if the entry already has a status decoration — a file cannot be
         // ignored at the same time (untracked vs ignored is mutually exclusive
-        // in porcelain v2).
-        if (decorationMaps.files.has(absPath)) return false;
+        // in porcelain v2), and a folder carrying one holds changes git tracks.
+        // Folders go through the same check-ignore batch: git resolves a bare
+        // `dist` against a dir-only `dist/` pattern via the on-disk type.
+        if ((isDir ? decorationMaps.folders : decorationMaps.files).has(absPath)) return false;
         const flag = isIgnoredFn(workspaceId, absPath);
         if (flag === undefined) {
           // Compute relPath for the IPC call. Forward-slash join is safe

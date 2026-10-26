@@ -136,7 +136,7 @@ export function FileTreeVirtualBody({
         const flatIdx = flat.findIndex((f) => f.absPath === item.absPath);
         const isDir = item.node.type === "dir";
         const decoration = decorationLookup.decoration(item.absPath, isDir);
-        const isIgnored = !isDir && decorationLookup.isIgnored(item.absPath, isDir);
+        const isIgnored = decorationLookup.isIgnored(item.absPath, isDir);
         return (
           <div
             key={item.absPath}

@@ -51,9 +51,9 @@ interface FileTreeRowProps {
    */
   decoration?: GitDecorationKind;
   /**
-   * True when the file is matched by `.gitignore`. Dims the row so
-   * ignored entries (e.g. inside `node_modules`) recede visually. Folder
-   * rows never receive this — only files Git confirms as ignored.
+   * True when the entry is matched by `.gitignore`. Dims the row so
+   * ignored entries (e.g. `node_modules`, `dist` and everything inside)
+   * recede visually. Set only for entries Git confirms as ignored.
    */
   isIgnored?: boolean;
   /** True when this row is in the cut clipboard (VSCode parity: dimmed). */
