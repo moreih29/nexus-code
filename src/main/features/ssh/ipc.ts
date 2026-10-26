@@ -24,8 +24,6 @@ import { parseSshConfig, type SshConfigHost } from "./config";
 const c = ipcContract.ssh.call;
 const log = createLogger("ssh");
 
-const OPEN_BROWSE_TIMEOUT_MS = 30_000;
-
 /**
  * Resolves the SSH login user. When the caller leaves `user` unset — i.e. the
  * user typed only a host — default to the local account name, matching plain
@@ -200,25 +198,13 @@ export function openBrowseSessionHandler(
       remotePath: "/",
     };
 
-    let timedOut = false;
-    const timeoutId = setTimeout(() => {
-      timedOut = true;
-    }, OPEN_BROWSE_TIMEOUT_MS);
-    if (typeof timeoutId.unref === "function") {
-      timeoutId.unref();
-    }
-
     let bootstrapResult: Awaited<ReturnType<typeof ensureRemoteAgent>> | null = null;
     let channel: ReturnType<typeof createSshChannel> | null = null;
     try {
+      // No overall deadline here: the bootstrap spans the user typing a
+      // password and a first-time agent upload, and the auth PTY already
+      // times out on its own when SSH stops responding.
       bootstrapResult = await bootstrap(bootstrapOptions, onProgress);
-
-      if (timedOut) {
-        bootstrapResult.dispose?.();
-        throw createSshErrorObject("ssh.auth-failed");
-      }
-
-      clearTimeout(timeoutId);
 
       // Build a ControlMaster handle wrapper so the registry can dispose it.
       const masterHandle: SshControlMaster | null = bootstrapResult.controlPath
@@ -261,13 +247,10 @@ export function openBrowseSessionHandler(
 
       return { sessionId, initialPath, user };
     } catch (error) {
-      clearTimeout(timeoutId);
       // Dispose the channel if channel.ready rejected before registry took ownership.
       channel?.dispose();
       // If bootstrap succeeded but channel setup failed, dispose bootstrap.
-      if (bootstrapResult && !timedOut) {
-        bootstrapResult.dispose?.();
-      }
+      bootstrapResult?.dispose?.();
       throw mapToBrowseError(error);
     }
   };
