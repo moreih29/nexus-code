@@ -62,8 +62,11 @@ export class AgentFsProvider implements AgentBackedProvider {
     private readonly options: AgentFsProviderOptions = {},
   ) {}
 
-  async readdir(relPath: string): Promise<DirEntry[]> {
-    const result = await this.callAgent("fs.readdir", { relPath });
+  async readdir(relPath: string, options?: { includeHidden?: boolean }): Promise<DirEntry[]> {
+    const result = await this.callAgent(
+      "fs.readdir",
+      options?.includeHidden ? { relPath, includeHidden: true } : { relPath },
+    );
     return parseAgentResult(DirEntryArraySchema, result);
   }
 

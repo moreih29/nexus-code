@@ -1016,7 +1016,15 @@ export const ipcContract = {
 
   fs: {
     call: {
-      readdir: call(workspaceScoped({ relPath: z.string() }), z.array(DirEntrySchema)),
+      readdir: call(
+        workspaceScoped({
+          relPath: z.string(),
+          // Also list entries the explorer never shows (.git, .DS_Store) —
+          // for name-collision checks, which must see every entry.
+          includeHidden: z.boolean().optional(),
+        }),
+        z.array(DirEntrySchema),
+      ),
       stat: call(workspaceScoped({ relPath: z.string() }), FsStatSchema),
       watch: call(workspaceScoped({ relPath: z.string() }), z.void()),
       unwatch: call(workspaceScoped({ relPath: z.string() }), z.void()),

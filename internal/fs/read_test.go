@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
+	"sort"
 	"testing"
 
 	"github.com/nexus-code/nexus-code/internal/dispatch"
@@ -252,4 +254,42 @@ func strconvQuote(s string) string {
 		panic(err)
 	}
 	return string(b)
+}
+
+func TestReaddirHidesOnlyVCSAndOSMetadata(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{".git", "node_modules", "dist", "out", ".next", "src"} {
+		must(t, os.Mkdir(filepath.Join(root, dir), 0o755))
+	}
+	must(t, os.WriteFile(filepath.Join(root, ".DS_Store"), nil, 0o644))
+	fsys, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	names := func(params string) []string {
+		t.Helper()
+		res, err := fsys.Readdir(context.Background(), json.RawMessage(params))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, e := range res.([]DirEntry) {
+			out = append(out, e.Name)
+		}
+		sort.Strings(out)
+		return out
+	}
+
+	got := names(`{"relPath":"."}`)
+	want := []string{".next", "dist", "node_modules", "out", "src"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("readdir = %v, want %v", got, want)
+	}
+
+	got = names(`{"relPath":".","includeHidden":true}`)
+	want = []string{".DS_Store", ".git", ".next", "dist", "node_modules", "out", "src"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("readdir includeHidden = %v, want %v", got, want)
+	}
 }

@@ -16,7 +16,8 @@ import type {
  */
 export interface FsProvider {
   readonly kind: "local" | "ssh";
-  readdir(relPath: string): Promise<DirEntry[]>;
+  /** `includeHidden` also lists entries the explorer hides (.git, .DS_Store). */
+  readdir(relPath: string, options?: { includeHidden?: boolean }): Promise<DirEntry[]>;
   stat(relPath: string): Promise<FsStat>;
   readFile(relPath: string): Promise<FileReadResult>;
   /**

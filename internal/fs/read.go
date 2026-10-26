@@ -10,18 +10,23 @@ import (
 	"os"
 )
 
-// hiddenNames are directory entries that fs.readdir omits by default.
+// hiddenNames are directory entries that fs.readdir omits by default and the
+// watcher never reports. Only VCS/OS metadata the explorer should never show
+// (VS Code's files.exclude defaults) — build and dependency folders such as
+// node_modules or dist are real workspace content and stay visible.
 var hiddenNames = map[string]struct{}{
-	".git": {}, "node_modules": {}, "dist": {}, "out": {}, ".DS_Store": {},
-	".next": {}, ".turbo": {}, ".cache": {}, ".vscode-test": {},
+	".git": {}, ".DS_Store": {},
 }
 
-// Readdir lists the entries at relPath, omitting names in hiddenNames.
+// Readdir lists the entries at relPath, omitting names in hiddenNames unless
+// the request sets includeHidden (name-collision checks need every entry).
 func (s *Service) Readdir(ctx context.Context, raw json.RawMessage) (any, error) {
 	abs, err := s.resolve(raw)
 	if err != nil {
 		return nil, err
 	}
+	var opts ReaddirParams
+	_ = json.Unmarshal(raw, &opts)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -31,7 +36,7 @@ func (s *Service) Readdir(ctx context.Context, raw json.RawMessage) (any, error)
 	}
 	out := make([]DirEntry, 0, len(entries))
 	for _, entry := range entries {
-		if _, hidden := hiddenNames[entry.Name()]; hidden {
+		if _, hidden := hiddenNames[entry.Name()]; hidden && !opts.IncludeHidden {
 			continue
 		}
 		out = append(out, DirEntry{Name: entry.Name(), Type: entryType(entry)})
