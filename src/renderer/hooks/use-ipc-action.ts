@@ -203,29 +203,16 @@ export function useIpcAction<T>(options: UseIpcActionOptions<T> = {}): UseIpcAct
 
   const run = useCallback(
     (action: (signal: AbortSignal) => Promise<T>) => {
-      // Double-submit guard — atomically check the current status and transition
-      // to 'loading', or bail out if already in-flight.
-      //
-      // Using the setState updater form (current => next) is the only way to
-      // read committed state synchronously without introducing a separate ref.
-      // A local flag relays the bail-out decision outside the setState call.
-      let alreadyLoading = false;
-      setState((current) => {
-        if (current.status === "loading") {
-          alreadyLoading = true;
-          return current;
-        }
-        return { status: "loading" };
-      });
-
-      if (alreadyLoading) return;
-
-      // Abort any previously-in-flight action.  Its completion path will see
-      // its controller has been replaced and will discard its result.
-      controllerRef.current?.abort();
+      // Double-submit guard. The controller ref is set synchronously below and
+      // cleared once the action settles, is cancelled or the component
+      // unmounts, so a second call in the same tick (a double click) sees it.
+      // A setState updater cannot decide this: React may queue it and run it
+      // at the next render, after run() has already returned.
+      if (controllerRef.current) return;
 
       const controller = new AbortController();
       controllerRef.current = controller;
+      setState({ status: "loading" });
 
       // Execute the action inside a fully-guarded async IIFE.
       // The finally block is the single exit point that clears loading state,

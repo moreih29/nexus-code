@@ -155,15 +155,12 @@ function makeActionMachine<T>(opts: { onSuccess?: (value: T) => void } = {}): {
   };
 
   const run = async (action: (signal: AbortSignal) => Promise<T>): Promise<void> => {
-    // Double-submit guard — mirrors the hook's atomic setState check.
-    if (state.current.status === "loading") return;
+    // Double-submit guard — mirrors the hook's controller-ref check.
+    if (currentController) return;
 
-    setState({ status: "loading" });
-
-    // Supersede any previous in-flight action.
-    currentController?.abort();
     const controller = new AbortController();
     currentController = controller;
+    setState({ status: "loading" });
 
     try {
       const value = await action(controller.signal);
