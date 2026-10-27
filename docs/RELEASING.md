@@ -15,6 +15,19 @@
 - **CI (`ci.yml`)** 는 `main` 으로의 **PR / push 에서만** 돈다 (typecheck · lint · test, electron-builder 미실행). develop 자체에는 게이트가 없으므로, 품질 게이트는 `develop → main` PR에서 통과시킨다.
 - **Release (`release.yml`)** 는 **GitHub Release 가 created** 될 때 트리거된다.
 
+### 서명 인증서
+
+릴리스 빌드는 자체 서명 인증서 **NexusCode Release Signing** 으로 서명한다 (`scripts/sign-mac.cjs`). 설치된 앱의 앱 안 업데이트는 새 버전이 **같은 인증서**로 서명됐을 때만 된다 — 인증서가 바뀌면 그 전 버전 사용자는 모두 한 번 `.dmg` 로 수동 설치해야 한다.
+
+| 위치 | 내용 |
+|---|---|
+| Secret `MAC_SIGNING_CERT_P12` | 인증서 `.p12` 의 base64 |
+| Secret `MAC_SIGNING_CERT_PASSWORD` | `.p12` 비밀번호 |
+| `release.yml` 의 `NEXUS_MAC_SIGN_IDENTITY` | 인증서 SHA-1 (`A1FC28A2…CABD0`). Secret 의 인증서가 이와 다르면 릴리스가 실패한다 |
+
+- Secret 은 다시 읽을 수 없다. 분실·삭제 시 새 인증서를 만들어 두 Secret 과 `NEXUS_MAC_SIGN_IDENTITY` 를 함께 바꾸고, 릴리스 노트에 **수동 설치 필요**를 명시한다.
+- 인증서는 2056-10 에 만료된다.
+
 ### 버전 (SemVer, 1.0 이전)
 
 `major` 는 1.0 전까지 `0` 으로 고정한다. 직전 태그 이후의 커밋을 기준으로:
@@ -81,7 +94,10 @@
 - **build-agent** (`ubuntu-latest`): Go 에이전트 크로스컴파일 + Node runtime + LSP 번들 산출 (OS 독립).
 - **package** (`macos-14`, Apple Silicon arm64): native rebuild 후 electron-builder 로 DMG / ZIP 패키징, `--publish never` 로 산출만 하고 별도 step 의 `gh release upload --clobber` 로 첨부. **arm64 단일 빌드만 제공** — Intel(x64) 정식 배포는 없으며, Intel 사용자는 [`INSTALL.md`](INSTALL.md#self-build) 의 self-build 절차를 따른다.
 
-9. **자산 확인**
+9. **서명 확인**
+   `Verify the signature` step 이 통과했는지 본다 (앱이 릴리스 인증서로 서명됐는지 검사).
+
+10. **자산 확인**
    GitHub Release 에 아래가 모두 첨부됐는지 확인한다:
    ```
    NexusCode-X.Y.Z-arm64.dmg
@@ -89,8 +105,8 @@
    latest-mac.yml
    ```
 
-10. **설치 확인**
-    arm64 DMG 를 설치해 앱 버전과 업데이트 채널이 올바른지 확인한다.
+11. **설치 확인**
+    arm64 DMG 를 설치해 앱 버전과 업데이트 채널이 올바른지 확인한다. 이전 버전이 설치돼 있으면 앱 안 **업데이트** 로 새 버전이 설치되는지도 확인한다.
 
 ---
 

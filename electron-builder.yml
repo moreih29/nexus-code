@@ -38,7 +38,12 @@ mac:
     - target: zip
       arch:
         - arm64
-  identity: null
+  # Release builds are signed with a self-signed certificate by
+  # scripts/sign-mac.cjs. macOS does not trust it, so electron-builder finds no
+  # identity by this name and hands signing to that hook, which leaves a build
+  # without the certificate (a local one) unsigned.
+  identity: "NexusCode Release Signing"
+  sign: scripts/sign-mac.cjs
   notarize: false
 
 publish:
