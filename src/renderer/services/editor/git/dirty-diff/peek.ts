@@ -394,11 +394,13 @@ function anchorFor(change: DirtyChange): number {
 
 /**
  * Extracts the lines covering [start, end] (1-based inclusive) plus a few lines
- * of surrounding context. Empty ranges (end === 0) yield no lines for that side.
+ * of surrounding context. An empty range (end === 0) is the gap before line
+ * `start`; it yields just the context around the gap, so both sides of the
+ * peek share their context lines and only the change itself shows as added
+ * or removed.
  */
-function sliceSnippet(lines: string[], start: number, end: number): string[] {
-  if (end === 0) return [];
+export function sliceSnippet(lines: readonly string[], start: number, end: number): string[] {
   const from = Math.max(0, start - 1 - CONTEXT_LINES);
-  const to = Math.min(lines.length, end + CONTEXT_LINES);
+  const to = Math.min(lines.length, (end === 0 ? start - 1 : end) + CONTEXT_LINES);
   return lines.slice(from, to);
 }
