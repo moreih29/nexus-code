@@ -83,8 +83,15 @@ mock.module("../../../../../src/renderer/components/ui/toast", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
+import { cacheUriFor } from "../../../../../src/renderer/services/editor/model/cache";
+import {
+  attachDirtyTracker,
+  detachDirtyTracker,
+} from "../../../../../src/renderer/services/editor/model/dirty-tracker";
 import { confirmAndDeleteBatch } from "../../../../../src/renderer/services/fs-mutations/confirm-delete";
 import { useFilesStore } from "../../../../../src/renderer/state/stores/files";
+import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout";
+import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 import { useWorkspacesStore } from "../../../../../src/renderer/state/stores/workspaces";
 
 // ---------------------------------------------------------------------------
@@ -261,5 +268,72 @@ describe("confirmAndDeleteBatch — distinctParents collapse", () => {
     const trashCalls = ipcCalls.filter((c) => c.method === "trash");
     expect(trashCalls).toHaveLength(1);
     expect((trashCalls[0].args as { relPath: string }).relPath).toBe("dir");
+  });
+});
+
+describe("confirmAndDeleteBatch — open tabs", () => {
+  function openTab(filePath: string): string {
+    useLayoutStore.getState().ensureLayout(WS);
+    const tab = useTabsStore
+      .getState()
+      .createTab(WS, { type: "editor", props: { workspaceId: WS, filePath } });
+    const layout = useLayoutStore.getState().byWorkspace[WS];
+    if (!layout) throw new Error("layout missing");
+    useLayoutStore.getState().attachTab(WS, layout.activeGroupId, tab.id);
+    return tab.id;
+  }
+
+  /** Gives `filePath` a model with unsaved changes. */
+  function makeDirty(filePath: string): () => void {
+    const cacheUri = cacheUriFor(WS, filePath);
+    let altId = 1;
+    let onChange = () => {};
+    attachDirtyTracker({
+      cacheUri,
+      model: {
+        getAlternativeVersionId: () => altId,
+        onDidChangeContent: (callback: () => void) => {
+          onChange = callback;
+          return { dispose: () => {} };
+        },
+      } as never,
+      loadedMtime: "T",
+      loadedSize: 0,
+    });
+    altId = 2;
+    onChange();
+    return () => detachDirtyTracker(cacheUri);
+  }
+
+  beforeEach(() => {
+    useTabsStore.setState({ byWorkspace: {} });
+    useLayoutStore.setState({ byWorkspace: {} });
+  });
+
+  it("closes the clean tabs of deleted files and keeps unsaved ones", async () => {
+    const clean = openTab(`${ROOT}/a.ts`);
+    const unsaved = openTab(`${ROOT}/b.ts`);
+    const inFolder = openTab(`${ROOT}/dir/x.ts`);
+    const untouched = openTab(`${ROOT}/c.ts`);
+    const cleanup = makeDirty(`${ROOT}/b.ts`);
+    try {
+      await confirmAndDeleteBatch(WS, ROOT, [`${ROOT}/a.ts`, `${ROOT}/b.ts`, `${ROOT}/dir`]);
+    } finally {
+      cleanup();
+    }
+
+    const open = Object.keys(useTabsStore.getState().byWorkspace[WS] ?? {});
+    expect(open).not.toContain(clean);
+    expect(open).not.toContain(inFolder);
+    expect(open).toContain(unsaved);
+    expect(open).toContain(untouched);
+  });
+
+  it("closes the tab of a single deleted file", async () => {
+    const tab = openTab(`${ROOT}/a.ts`);
+
+    await confirmAndDeleteBatch(WS, ROOT, [`${ROOT}/a.ts`]);
+
+    expect(useTabsStore.getState().byWorkspace[WS]?.[tab]).toBeUndefined();
   });
 });

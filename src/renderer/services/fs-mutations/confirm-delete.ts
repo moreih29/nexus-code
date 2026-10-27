@@ -26,6 +26,7 @@ import { createLogger } from "../../../shared/log/renderer";
 const log = createLogger("delete-batch");
 
 import { showToast } from "@/components/ui/toast";
+import { closeEditorTabsOfDeletedPath } from "@/services/editor/tabs";
 import { useFilesStore } from "@/state/stores/files";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
 import { basename } from "@/utils/path";
@@ -76,16 +77,15 @@ export async function confirmAndDeletePath(
   });
   if (!ok) return false;
 
-  if (useTrash) {
-    return trashPath({ workspaceId, workspaceRootPath, absPath, nodeType });
-  }
-
-  // SSH path — permanent. Directory: removeAll (already collapses the
-  // empty/non-empty distinction); file/symlink: unlink.
-  if (nodeType === "dir") {
-    return removeDir({ workspaceId, workspaceRootPath, absPath });
-  }
-  return unlinkPath({ workspaceId, workspaceRootPath, absPath });
+  // Local goes to the Trash. SSH is permanent — directory: removeAll
+  // (already collapses the empty/non-empty distinction); file/symlink: unlink.
+  const deleted = useTrash
+    ? await trashPath({ workspaceId, workspaceRootPath, absPath, nodeType })
+    : nodeType === "dir"
+      ? await removeDir({ workspaceId, workspaceRootPath, absPath })
+      : await unlinkPath({ workspaceId, workspaceRootPath, absPath });
+  if (deleted) closeEditorTabsOfDeletedPath(workspaceId, absPath);
+  return deleted;
 }
 
 interface DescriptionInput {
@@ -214,6 +214,7 @@ export async function confirmAndDeleteBatch(
 
     if (ok2) {
       successCount += 1;
+      closeEditorTabsOfDeletedPath(workspaceId, p);
     } else if (firstFailure === null) {
       // Per-path helpers already surface their own error toasts; record for summary.
       firstFailure = reportedFailure(p);

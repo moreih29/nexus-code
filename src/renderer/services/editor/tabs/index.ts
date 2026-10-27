@@ -2,6 +2,7 @@
 // (__resetXxxForTests, stopXxxForTests) live in `./testing.ts` so the
 // surface here stays free of internals app code shouldn't reach for.
 
+export { closeEditorTabsOfDeletedPath } from "./close-deleted-tabs";
 export { closeEditor } from "./close-editor";
 export type {
   CreateCrossFileOpenCodeEditorOpenerInput,
@@ -13,7 +14,7 @@ export { openOrRevealEditor, PREVIEW_ENABLED } from "./open-editor";
 export { openExternalEditor } from "./open-external-editor";
 export { type PendingEditorReveal, registerRevealTarget } from "./pending-reveal";
 export { promoteAllPreviewTabsForFile, startPromoteOnDirtyPolicy } from "./promote-policy";
-export { movedFilePath, retargetEditorTabs } from "./retarget-tabs";
+export { isPathOrUnder, movedFilePath, retargetEditorTabs } from "./retarget-tabs";
 export { revealRange } from "./reveal";
 export { type RevealEditorAtOptions, revealEditorAt } from "./reveal-editor-at";
 export { findEditorTab, findEditorTabInGroup, findPreviewTabInGroup } from "./tab-lookup";

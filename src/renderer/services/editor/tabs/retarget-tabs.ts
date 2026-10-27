@@ -3,14 +3,18 @@ import { acquireModel, cacheUriFor, getResolvedModel, releaseModel } from "../mo
 import { isDirty } from "../model/dirty-tracker";
 import type { EditorInput } from "../types";
 
+/** Whether `filePath` is `path` itself or lies in the folder at `path`. */
+export function isPathOrUnder(filePath: string, path: string): boolean {
+  return filePath === path || filePath.startsWith(`${path}/`);
+}
+
 /**
  * Where `filePath` ends up when `fromPath` (the file itself or a folder above
  * it) moves to `toPath`, or null when the move does not touch it.
  */
 export function movedFilePath(filePath: string, fromPath: string, toPath: string): string | null {
-  if (filePath === fromPath) return toPath;
-  if (filePath.startsWith(`${fromPath}/`)) return `${toPath}${filePath.slice(fromPath.length)}`;
-  return null;
+  if (!isPathOrUnder(filePath, fromPath)) return null;
+  return `${toPath}${filePath.slice(fromPath.length)}`;
 }
 
 export interface RetargetEditorTabsDeps {
