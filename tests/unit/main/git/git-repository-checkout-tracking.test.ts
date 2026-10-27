@@ -73,6 +73,33 @@ describe("GitRepository.checkoutTracking", () => {
   });
 });
 
+describe("GitRepository.listBranches", () => {
+  realGitTest("lists remote branches without the remote HEAD alias", async () => {
+    const { client, remoteUrl } = makeClonePair();
+    try {
+      const repo = new GitRepository(
+        "workspace-list-branches",
+        client,
+        path.join(client, ".git"),
+        gitOnPath!,
+        localSemanticExecutor(gitOnPath!, path.join(client, ".git")),
+        stubMetadataReader,
+      );
+      // A clone records `refs/remotes/origin/HEAD`, which recent git
+      // shortens to a bare `origin`.
+      expect(runGit(client, ["symbolic-ref", "refs/remotes/origin/HEAD"]).trim()).toBe(
+        "refs/remotes/origin/main",
+      );
+
+      const branches = await repo.listBranches();
+
+      expect([...branches.remote].sort()).toEqual(["origin/feature", "origin/main"]);
+    } finally {
+      cleanup(client, remoteUrl);
+    }
+  });
+});
+
 /**
  * Builds a bare-remote + clone pair so `origin/feature` is a real ref the
  * tests can track without going to the network. Returns absolute paths so

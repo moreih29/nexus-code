@@ -1243,7 +1243,10 @@ export class GitRepository {
   private async readBranchList(signal: AbortSignal): Promise<BranchList> {
     const status = await this.readStatus(signal);
     const local = await this.run(["branch", "--format=%(refname:short)", "--list"], signal);
-    const remote = await this.run(["branch", "--format=%(refname:short)", "--remotes"], signal);
+    // `refname:short` shortens `refs/remotes/origin/HEAD` to a bare `origin`
+    // on recent git, which no `/HEAD` filter catches; `lstrip=2` always keeps
+    // the `<remote>/<branch>` form.
+    const remote = await this.run(["branch", "--format=%(refname:lstrip=2)", "--remotes"], signal);
     return {
       current: status.branch,
       local: parseBranchLines(local.stdout),
