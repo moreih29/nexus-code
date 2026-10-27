@@ -198,19 +198,22 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const hasActiveOperation = activeOperation !== null;
   const actionState = useMemo(
     () =>
-      selectGitActionButton({
-        repoKind: session?.repoInfo.kind ?? "detecting",
-        capabilities,
-        branch: branchInfo,
-        dirty: {
-          staged: session?.status?.staged.length ?? 0,
-          working: session?.status?.working.length ?? 0,
-          untracked: session?.status?.untracked.length ?? 0,
-          merge: session?.status?.merge.length ?? 0,
+      selectGitActionButton(
+        {
+          repoKind: session?.repoInfo.kind ?? "detecting",
+          capabilities,
+          branch: branchInfo,
+          dirty: {
+            staged: session?.status?.staged.length ?? 0,
+            working: session?.status?.working.length ?? 0,
+            untracked: session?.status?.untracked.length ?? 0,
+            merge: session?.status?.merge.length ?? 0,
+          },
+          commitDraft: draft,
         },
-        commitDraft: draft,
-      }),
-    [branchInfo, capabilities, draft, session?.repoInfo.kind, session?.status],
+        (key) => t(key),
+      ),
+    [branchInfo, capabilities, draft, session?.repoInfo.kind, session?.status, t],
   );
   const commitActionEnabled =
     (actionState.kind === "commit" || actionState.kind === "make-initial-commit") &&

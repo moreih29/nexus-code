@@ -46,8 +46,15 @@ export interface GitActionButtonState {
   readonly hint?: string;
 }
 
+/** Looks up a translation key; the panel passes its `t` so labels follow language changes. */
+export type GitActionButtonTranslate = (key: string) => string;
+
 /** Selects the primary Source Control action using the 11-state plan order. */
-export function selectGitActionButton(input: GitActionButtonInput): GitActionButtonState {
+export function selectGitActionButton(
+  input: GitActionButtonInput,
+  translate: GitActionButtonTranslate = (key) => i18next.t(key),
+): GitActionButtonState {
+  const label = (key: string): string => translate(`files:git.actionButton.${key}`);
   const hasDraft = input.commitDraft.trim().length > 0;
   const staged = input.dirty.staged;
   const unstaged = input.dirty.working + input.dirty.untracked + (input.dirty.merge ?? 0);
@@ -69,7 +76,7 @@ export function selectGitActionButton(input: GitActionButtonInput): GitActionBut
   if (branch?.isUnborn && (staged === 0 || !hasDraft)) {
     return action("commit-disabled", label("commit"), {
       disabled: true,
-      hint: commitReadinessHint(hasDraft, staged > 0),
+      hint: commitReadinessHint(label, hasDraft, staged > 0),
     });
   }
 
@@ -80,7 +87,7 @@ export function selectGitActionButton(input: GitActionButtonInput): GitActionBut
   if (staged > 0 && !hasDraft) {
     return action("commit-disabled", label("commit"), {
       disabled: true,
-      hint: commitReadinessHint(hasDraft, true),
+      hint: commitReadinessHint(label, hasDraft, true),
     });
   }
 
@@ -120,15 +127,14 @@ export function selectGitActionButton(input: GitActionButtonInput): GitActionBut
 }
 
 /** Builds a disabled-commit hint without making callers duplicate copy. */
-function commitReadinessHint(hasDraft: boolean, hasStagedChanges: boolean): string {
+function commitReadinessHint(
+  label: (key: string) => string,
+  hasDraft: boolean,
+  hasStagedChanges: boolean,
+): string {
   if (!hasDraft && !hasStagedChanges) return label("hintStageAndMessage");
   if (!hasDraft) return label("hintMessage");
   return label("hintStage");
-}
-
-/** Localized action-button copy. */
-function label(key: string): string {
-  return i18next.t(`files:git.actionButton.${key}`);
 }
 
 /** Normalizes optional state fields for one selected action. */

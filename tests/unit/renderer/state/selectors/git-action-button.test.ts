@@ -161,6 +161,16 @@ describe("selectGitActionButton", () => {
     expect(after.label).toBe("Publish Branch");
     expect(after.disabled).toBe(false);
   });
+
+  it("reads the label and hint through the translate function it is given", () => {
+    const selected = selectGitActionButton(
+      makeInput({ dirty: dirty({ staged: 1 }) }),
+      (key) => `<${key}>`,
+    );
+
+    expect(selected.label).toBe("<files:git.actionButton.commit>");
+    expect(selected.hint).toBe("<files:git.actionButton.hintMessage>");
+  });
 });
 
 /** Creates a complete selector input with scenario-specific overrides. */
