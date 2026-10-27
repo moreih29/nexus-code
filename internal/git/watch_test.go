@@ -98,6 +98,25 @@ func TestGitWatchSkipsObjectStoreOfNewSubmodule(t *testing.T) {
 	assertWatched(t, watcher, gitDir, []string{".", "modules", "modules/vendor", "modules/vendor/lib"})
 }
 
+// kqueue on macOS reports a Chmod for every read of .git/index, as its access
+// time moves; counting it re-ran status after each status. Writes still count.
+func TestGitWatchIgnoresAttributeOnlyEvents(t *testing.T) {
+	gitDir := t.TempDir()
+	entry := &watchEntry{gitDir: gitDir, done: make(chan struct{})}
+	s := New(t.TempDir())
+	defer s.Close()
+	index := filepath.Join(gitDir, "index")
+
+	s.handleGitWatchEvent(entry, fsnotify.Event{Name: index, Op: fsnotify.Chmod})
+	if len(s.gitDirty) != 0 {
+		t.Fatalf("Chmod marked %v dirty", s.gitDirty)
+	}
+	s.handleGitWatchEvent(entry, fsnotify.Event{Name: index, Op: fsnotify.Write | fsnotify.Chmod})
+	if _, ok := s.gitDirty[gitDir]; !ok {
+		t.Fatal("Write did not mark the git dir dirty")
+	}
+}
+
 func assertWatched(t *testing.T, watcher *fsnotify.Watcher, gitDir string, want []string) {
 	t.Helper()
 	var got []string

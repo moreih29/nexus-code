@@ -144,6 +144,13 @@ func (s *Service) removeWatch(entry *watchEntry) {
 }
 
 func (s *Service) handleGitWatchEvent(entry *watchEntry, event fsnotify.Event) {
+	// An attribute change alone is not a change to the repository: git
+	// writes state by creating, writing and renaming files. kqueue on macOS
+	// reports one for every read of .git/index, whose access time moves, so
+	// each status refresh would report a change and set off the next one.
+	if event.Op == fsnotify.Chmod {
+		return
+	}
 	if !gitWatchEventIsDirty(entry.gitDir, event.Name) {
 		return
 	}
