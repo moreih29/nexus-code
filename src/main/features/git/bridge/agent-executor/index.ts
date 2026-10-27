@@ -828,7 +828,8 @@ export class AgentGitExecutor implements GitExecutor {
         async (secret) => {
           const params = AgentGitAskpassRespondParamsSchema.parse({
             requestId: parsed.data.requestId,
-            secret,
+            secret: secret ?? "",
+            ...(secret === null ? { cancelled: true } : {}),
           });
           await provider.callAgentMethod(GIT_ASKPASS_RESPOND_METHOD, params);
         },

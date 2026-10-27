@@ -108,6 +108,8 @@ export type AgentGitAskpassRequestPayload = z.infer<typeof AgentGitAskpassReques
 export const AgentGitAskpassRespondParamsSchema = z.object({
   requestId: z.string().min(1),
   secret: z.string(),
+  /** The user dismissed the prompt: the helper fails instead of answering. */
+  cancelled: z.boolean().optional(),
 });
 export type AgentGitAskpassRespondParams = z.infer<typeof AgentGitAskpassRespondParamsSchema>;
 

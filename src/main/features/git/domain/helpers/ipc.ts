@@ -61,7 +61,8 @@ export interface AgentAskpassPromptPayload {
   readonly workspaceId?: string;
 }
 
-export type AgentAskpassResponder = (secret: string) => Promise<void>;
+/** Receives the secret the user entered, or null when they cancelled. */
+export type AgentAskpassResponder = (secret: string | null) => Promise<void>;
 
 type PendingPrompt =
   | {
@@ -220,7 +221,9 @@ export class GitHelpersIpcManager {
       kind: "askpass",
       promptId: payload.requestId,
       resolve: (response) => {
-        const secret = response.ok ? (response.value ?? "") : "";
+        // A cancel must reach Git as a failed prompt; an empty answer would
+        // be tried as the password.
+        const secret = response.ok ? (response.value ?? "") : null;
         void respond(secret).catch(() => {});
       },
     });

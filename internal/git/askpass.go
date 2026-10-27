@@ -31,6 +31,8 @@ type askpassRequestPayload struct {
 type askpassRespondParams struct {
 	RequestID string `json:"requestId"`
 	Secret    string `json:"secret"`
+	// Cancelled fails the helper so Git stops, instead of trying Secret.
+	Cancelled bool `json:"cancelled,omitempty"`
 }
 
 type askpassHelperRequest struct {
@@ -75,7 +77,11 @@ func (s *Service) RespondAskpass(ctx context.Context, raw json.RawMessage) (any,
 		return nil, proto.ProtocolError("git.askpass.respond requestId is not active")
 	}
 
-	pending <- askpassResolution{ok: true, secret: params.Secret}
+	if params.Cancelled {
+		pending <- askpassResolution{ok: false, err: "credential prompt cancelled"}
+	} else {
+		pending <- askpassResolution{ok: true, secret: params.Secret}
+	}
 	return struct{}{}, nil
 }
 

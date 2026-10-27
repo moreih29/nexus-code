@@ -118,6 +118,28 @@ describe("Git helper endpoint security", () => {
   });
 });
 
+describe("agent askpass prompts", () => {
+  it("passes the answer through and reports a cancel as null, not an empty secret", async () => {
+    const manager = new GitHelpersIpcManager({
+      userDataDir: makeTmpDir("nexus-helper-agent-askpass-"),
+      broadcast: () => {},
+      token: "secret",
+    });
+    const answers: Array<string | null> = [];
+    const respond = async (secret: string | null) => {
+      answers.push(secret);
+    };
+
+    manager.openAgentAskpassPrompt({ requestId: "answered", prompt: "Password:" }, respond);
+    manager.respondAskpass({ promptId: "answered", value: "hunter2" });
+    manager.openAgentAskpassPrompt({ requestId: "dismissed", prompt: "Password:" }, respond);
+    manager.cancelAskpass({ promptId: "dismissed" });
+    await Promise.resolve();
+
+    expect(answers).toEqual(["hunter2", null]);
+  });
+});
+
 describe("Git helper socket flows", () => {
   it("commit editor save writes the file and cancel truncates before helper exit 1", async () => {
     const userDataDir = makeTmpDir("nexus-helper-editor-");
