@@ -1,26 +1,36 @@
-# CI workflow — PR + main push 트리거.
+# CI workflow — runs on PRs into main or develop, pushes to main, and by hand.
 # electron-builder는 실행하지 않는다. PR 피드백 시간 최소화가 목적.
 # build dry-run은 electron-vite build(out/ 산출)까지만 수행.
 #
-# macos-14 단일 runner를 쓰는 이유:
-#   - node-pty/better-sqlite3 postinstall rebuild가 macOS 환경을 요구한다.
-#   - typecheck/lint는 OS 무관하지만 bun test 중 electron 관련 native require가
-#     macOS에서만 안정적으로 통과한다.
-#   - Linux runner로 분리하면 native rebuild 실패 위험이 있고, PR 하나에 두 runner를
-#     띄우면 피드백 시간이 늘어난다.
+# Every check runs on each desktop OS the app targets. The postinstall step
+# rebuilds node-pty and better-sqlite3 against Electron on the runner's own OS,
+# so each runner also proves the native modules build there.
+#
+# Windows is not supported yet (the agent does not build for it), so its job
+# reports failures without failing the workflow: each step runs and shows what
+# is still broken there.
 
 name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, develop]
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   ci:
-    name: CI checks
-    runs-on: macos-14
+    name: CI checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental == true }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-latest, windows-latest]
+        include:
+          - os: windows-latest
+            experimental: true
 
     steps:
       - name: Checkout
@@ -40,20 +50,29 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Typecheck
+        continue-on-error: ${{ matrix.experimental == true }}
         run: bun run typecheck
 
       - name: Lint
+        continue-on-error: ${{ matrix.experimental == true }}
         run: bun run lint
 
       - name: Test
+        continue-on-error: ${{ matrix.experimental == true }}
         run: bun run test
+
+      - name: Test agent
+        continue-on-error: ${{ matrix.experimental == true }}
+        run: go test ./...
 
       - name: Build agent (dry-run)
         # Go cross-compile + Node runtime download + LSP bundle.
-        # CGO 미사용이므로 macOS runner에서도 linux 타겟 포함 전 플랫폼 빌드 가능.
+        # CGO 미사용이므로 어느 runner에서도 전 플랫폼 빌드 가능.
+        continue-on-error: ${{ matrix.experimental == true }}
         run: bun run scripts/build-agent.ts
 
       - name: Build renderer (dry-run)
         # electron-vite build — out/ 디렉터리 산출.
         # electron-builder는 실행하지 않는다 (CI 피드백 시간 절약).
+        continue-on-error: ${{ matrix.experimental == true }}
         run: bun run build
