@@ -112,4 +112,14 @@ describe("createNdjsonPipe late responses", () => {
     fixture.stdout.emitLine({ id, result: null });
     expect((fixture.terminalError as { code?: string } | null)?.code).toBe("server.protocol-error");
   });
+
+  it("lets one call outlast the pipe's request timeout", async () => {
+    const fixture = buildPipe();
+    // The pipe times requests out after 5 ms; this push waits on a prompt.
+    const push = fixture.pipe.call("git.push", {}, { timeoutMs: 1_000 });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    fixture.stdout.emitLine({ id: fixture.stdin.idAt(0), result: { pushed: true } });
+    await expect(push).resolves.toEqual({ pushed: true });
+  });
 });

@@ -152,6 +152,12 @@ type ParsedFrame =
   | { kind: "error-response"; id: string; error: unknown }
   | { kind: "event"; event: string; payload: unknown };
 
+/** Per-call options for `NdjsonPipe.call`. */
+export interface NdjsonCallOptions {
+  readonly correlationId?: string;
+  readonly timeoutMs?: number;
+}
+
 export interface SshError extends Error {
   readonly code: SshErrorCode;
 }
@@ -198,18 +204,20 @@ export interface NdjsonPipe {
    *
    * @param method     The agent method name (e.g. `"lsp.spawn"`).
    * @param params     The request payload — must be JSON-serialisable.
-   * @param correlationId  Optional cross-process correlation token issued by the
-   *                       IPC router.  When supplied it is included in the NDJSON
-   *                       frame as `correlationId` so the Go agent can attach the
-   *                       same token to its own log entries and error responses,
-   *                       linking the full call chain across process boundaries.
-   *                       The field name `correlationId` is fixed by the Go-side
-   *                       T6 contract — do not rename.
+   * @param options    `correlationId` is an optional cross-process correlation
+   *                   token issued by the IPC router.  When supplied it is
+   *                   included in the NDJSON frame as `correlationId` so the Go
+   *                   agent can attach the same token to its own log entries and
+   *                   error responses, linking the full call chain across
+   *                   process boundaries.  The field name `correlationId` is
+   *                   fixed by the Go-side T6 contract — do not rename.
+   *                   `timeoutMs` replaces the pipe's request timeout for this
+   *                   call.
    */
   call<TResult = unknown>(
     method: string,
     params?: unknown,
-    correlationId?: string,
+    options?: NdjsonCallOptions,
   ): Promise<TResult>;
   /**
    * Sends a fire-and-forget notification to the agent. Writes the NDJSON frame
@@ -634,8 +642,10 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     call<TResult = unknown>(
       method: string,
       params?: unknown,
-      correlationId?: string,
+      options: NdjsonCallOptions = {},
     ): Promise<TResult> {
+      const { correlationId } = options;
+      const timeoutMs = options.timeoutMs ?? requestTimeoutMs;
       if (disposed) {
         return Promise.reject(createDisposedError());
       }
@@ -662,7 +672,7 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       const promise = pendingRequests
         .register({
           key: requestId,
-          timeoutMs: requestTimeoutMs,
+          timeoutMs,
           onTimeout: () => {
             abandonedRequestIds.add(requestId);
             if (abandonedRequestIds.size > ABANDONED_REQUEST_IDS_MAX) {
@@ -671,7 +681,7 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
             }
             return createSshError(
               "ssh.unknown",
-              new Error(`${method} timed out after ${requestTimeoutMs}ms`),
+              new Error(`${method} timed out after ${timeoutMs}ms`),
             );
           },
         })

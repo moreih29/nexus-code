@@ -35,7 +35,11 @@ import {
   WriteFileResultSchema,
 } from "../../../../shared/fs/types";
 import type { SshErrorCode } from "../../../../shared/ssh/errors";
-import type { AgentChannel, ChannelLifecycleCallback } from "../../../infra/agent/channel";
+import type {
+  AgentCallOptions,
+  AgentChannel,
+  ChannelLifecycleCallback,
+} from "../../../infra/agent/channel";
 import type { AgentBackedProvider } from "./provider";
 
 type ChannelSource = AgentChannel | (() => AgentChannel);
@@ -143,8 +147,12 @@ export class AgentFsProvider implements AgentBackedProvider {
     await this.callAgent(FS_REMOVE_ALL_METHOD, { relPath } satisfies FsRemoveAllParams);
   }
 
-  async callAgentMethod<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
-    return this.callAgent(method, params) as Promise<TResult>;
+  async callAgentMethod<TResult = unknown>(
+    method: string,
+    params?: unknown,
+    options?: AgentCallOptions,
+  ): Promise<TResult> {
+    return this.callAgent(method, params, options) as Promise<TResult>;
   }
 
   onAgentEvent(event: string, callback: (payload: unknown) => void): () => void {
@@ -166,10 +174,14 @@ export class AgentFsProvider implements AgentBackedProvider {
     this.channel = null;
   }
 
-  private async callAgent(method: string, params: unknown): Promise<unknown> {
+  private async callAgent(
+    method: string,
+    params: unknown,
+    options?: AgentCallOptions,
+  ): Promise<unknown> {
     const channel = this.getChannel();
     await channel.ready;
-    return channel.call(method, params);
+    return options ? channel.call(method, params, options) : channel.call(method, params);
   }
 
   private getChannel(): AgentChannel {

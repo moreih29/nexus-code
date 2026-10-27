@@ -85,9 +85,22 @@ export type ChannelLifecycleEvent =
  * failure / dispose transitions. `dispose` tears the channel down — idempotent
  * and synchronous from the caller's view.
  */
+/** Per-request overrides for `AgentChannel.call`. */
+export interface AgentCallOptions {
+  /**
+   * Replaces the channel's request timeout, for requests that legitimately
+   * outlast it (a git push waiting on a credential prompt).
+   */
+  readonly timeoutMs?: number;
+}
+
 export interface AgentChannel {
   readonly ready: Promise<void>;
-  call<TResult = unknown>(method: string, params?: unknown): Promise<TResult>;
+  call<TResult = unknown>(
+    method: string,
+    params?: unknown,
+    options?: AgentCallOptions,
+  ): Promise<TResult>;
   /**
    * Sends a fire-and-forget notification to the agent. The frame is written
    * to stdin and the pending slot is registered so the agent's ack response is

@@ -1,6 +1,7 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { createLogger } from "../../../../shared/log/main";
 import type {
+  AgentCallOptions,
   AgentChannel,
   ChannelEventCallback,
   ChannelLifecycleCallback,
@@ -102,6 +103,7 @@ interface ActiveProcess {
 interface QueuedCall {
   readonly method: string;
   readonly params: unknown;
+  readonly options?: AgentCallOptions;
   readonly resolve: (value: unknown) => void;
   readonly reject: (reason?: unknown) => void;
   readonly timer: NodeJS.Timeout;
@@ -140,12 +142,16 @@ export function createReconnectingProcessChannel(
 
   return {
     ready,
-    call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
+    call<TResult = unknown>(
+      method: string,
+      params?: unknown,
+      options?: AgentCallOptions,
+    ): Promise<TResult> {
       if (state === "disposed") return Promise.reject(createDisposedErrorForChannel());
       if (terminalError) return Promise.reject(terminalError);
-      if (state === "reconnecting") return enqueueCall<TResult>(method, params);
+      if (state === "reconnecting") return enqueueCall<TResult>(method, params, options);
       if (!active) return Promise.reject(createAgentReconnectError("agent.reconnect-unavailable"));
-      return active.pipe.call<TResult>(method, params);
+      return active.pipe.call<TResult>(method, params, options);
     },
     fire(method: string, params?: unknown): void {
       // Fire-and-forget: delegates to the pipe's fire() which writes the frame
@@ -417,7 +423,11 @@ export function createReconnectingProcessChannel(
   }
 
   /** Adds one reconnect-window call to the bounded queue. */
-  function enqueueCall<TResult>(method: string, params: unknown): Promise<TResult> {
+  function enqueueCall<TResult>(
+    method: string,
+    params: unknown,
+    options: AgentCallOptions | undefined,
+  ): Promise<TResult> {
     if (queue.length >= reconnect.maxPendingCalls) {
       return Promise.reject(createAgentReconnectError("agent.reconnect-queue-overflow"));
     }
@@ -426,6 +436,7 @@ export function createReconnectingProcessChannel(
       const queued: QueuedCall = {
         method,
         params,
+        options,
         resolve: resolve as (value: unknown) => void,
         reject,
         timer: setTimeout(() => {
@@ -444,7 +455,7 @@ export function createReconnectingProcessChannel(
     if (!pipe) return;
     for (const call of queue.splice(0)) {
       clearTimeout(call.timer);
-      pipe.call(call.method, call.params).then(call.resolve, call.reject);
+      pipe.call(call.method, call.params, call.options).then(call.resolve, call.reject);
     }
   }
 
