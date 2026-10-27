@@ -61,10 +61,7 @@ export async function saveUntitledModel(
   const defaultPath = `${workspace.rootPath}/${tabTitle}`;
 
   const dialogResult = unwrapIpcResult(
-    await ipcCallResult("dialog", "showSaveDialog", {
-      title: "Save File",
-      defaultPath,
-    }),
+    await ipcCallResult("dialog", "showSaveDialog", { defaultPath }),
   );
 
   if (dialogResult.canceled || !dialogResult.filePath) {

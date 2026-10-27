@@ -161,7 +161,6 @@ export function registerFileCommands(): Array<() => void> {
       if (!wsId) return;
       const { canceled, filePaths } = unwrapIpcResult(
         await ipcCallResult("dialog", "showOpenFile", {
-          title: "Open File",
           filters: [
             { name: "TypeScript / JavaScript", extensions: ["ts", "tsx", "js", "jsx"] },
             { name: "All Files", extensions: ["*"] },
