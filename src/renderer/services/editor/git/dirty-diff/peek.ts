@@ -282,12 +282,14 @@ export class DirtyDiffPeek {
 
   private applyModels(original: string[], modified: string[], languageId: string): void {
     // Recreate snippet models on every render — cheap, and avoids stale-content
-    // bugs from reusing a model across changes.
-    this.originalModel?.dispose();
-    this.modifiedModel?.dispose();
+    // bugs from reusing a model across changes. The old ones are disposed only
+    // once the diff editor has let go of them: disposing a model it still
+    // shows throws.
+    const previous = [this.originalModel, this.modifiedModel];
     this.originalModel = this.monaco.editor.createModel(original.join("\n"), languageId);
     this.modifiedModel = this.monaco.editor.createModel(modified.join("\n"), languageId);
     this.diffEditor?.setModel({ original: this.originalModel, modified: this.modifiedModel });
+    for (const model of previous) model?.dispose();
   }
 
   private snippets(change: DirtyChange): { original: string[]; modified: string[] } {
