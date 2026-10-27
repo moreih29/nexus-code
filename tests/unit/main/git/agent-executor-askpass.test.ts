@@ -26,7 +26,7 @@ function makeFixture() {
     null;
   const callAgentMethod = mock(async (method: string, params?: unknown, options?: unknown) => {
     calls.push({ method, params: (params ?? {}) as Record<string, unknown>, options });
-    if (method === "git.push") {
+    if (method === "git.push" || method === "git.run") {
       return await new Promise<unknown>((resolve, reject) => {
         settlePush = { resolve, reject };
       });
@@ -68,11 +68,12 @@ function makeFixture() {
     workspaceId: "123e4567-e89b-12d3-a456-426614174001",
   });
 
-  const pushRunId = (): string => {
-    const call = calls.find((entry) => entry.method === "git.push");
-    if (!call) throw new Error("git.push not called yet");
+  const runIdOf = (method: string): string => {
+    const call = calls.find((entry) => entry.method === method);
+    if (!call) throw new Error(`${method} not called yet`);
     return call.params.runId as string;
   };
+  const pushRunId = (): string => runIdOf("git.push");
   const emitPrompt = (requestId: string, runId: string): void => {
     for (const cb of listeners.get("git.askpass.request") ?? []) {
       cb({ requestId, prompt: "Password for 'https://example.test':", runId });
@@ -84,6 +85,7 @@ function makeFixture() {
     calls,
     broadcasts,
     pushRunId,
+    runIdOf,
     emitPrompt,
     resolvePush: (value: unknown) => settlePush?.resolve(value),
     rejectPush: (error: Error) => settlePush?.reject(error),
@@ -138,6 +140,66 @@ describe("AgentGitExecutor credential prompts", () => {
     expect(f.calls.find((c) => c.method === "git.cancel")?.params).toEqual({ streamId: runId });
     expect(f.broadcasts.map((b) => b.key)).toEqual(["askpass.prompt", "askpass.closed"]);
     expect(f.broadcasts[1]?.args).toEqual({ promptId: "req-1" });
+  });
+
+  it("reports a push whose prompt the user dismissed as cancelled", async () => {
+    const f = makeFixture();
+    const push = f.executor.push({ cwd: "/repo" });
+    await flush();
+
+    f.emitPrompt("req-1", f.pushRunId());
+    f.manager.cancelAskpass({ promptId: "req-1" });
+    await flush();
+    expect(f.calls.at(-1)).toMatchObject({
+      method: "git.askpass.respond",
+      params: { requestId: "req-1", cancelled: true },
+    });
+
+    // Git then fails for want of the credential.
+    f.rejectPush(
+      Object.assign(new Error("fatal: could not read Username: terminal prompts disabled"), {
+        code: "server.request-failed",
+        data: { errorKind: "auth-required" },
+      }),
+    );
+    await expect(push).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("reports an interactive run whose prompt the user dismissed as cancelled", async () => {
+    const f = makeFixture();
+    const fetch = f.executor.run({ bin: "git", cwd: "/repo", args: ["fetch"], interactive: true });
+    await flush();
+
+    f.emitPrompt("req-1", f.runIdOf("git.run"));
+    f.manager.cancelAskpass({ promptId: "req-1" });
+    await flush();
+
+    // git.run reports the failed git in its result.
+    f.resolvePush({
+      stdout: "",
+      stderr: "fatal: could not read Username: terminal prompts disabled",
+      code: 128,
+      errorKind: "auth-required",
+    });
+    await expect(fetch).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("still reports a failure after an answered prompt", async () => {
+    const f = makeFixture();
+    const push = f.executor.push({ cwd: "/repo" });
+    await flush();
+
+    f.emitPrompt("req-1", f.pushRunId());
+    f.manager.respondAskpass({ promptId: "req-1", value: "wrong" });
+    await flush();
+
+    f.rejectPush(
+      Object.assign(new Error("fatal: Authentication failed"), {
+        code: "server.request-failed",
+        data: { errorKind: "auth" },
+      }),
+    );
+    await expect(push).rejects.toMatchObject({ name: "GitError", kind: "auth" });
   });
 
   it("gives a push longer than the default request timeout", async () => {

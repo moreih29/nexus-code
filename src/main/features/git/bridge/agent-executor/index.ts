@@ -236,13 +236,16 @@ export class AgentGitExecutor implements GitExecutor {
       interactive: options.interactive ?? false,
       stdoutCapBytes: options.stdoutCapBytes,
     };
-    const result = params.interactive
-      ? await this.withInteractiveRun(options.signal, (provider, runId) =>
-          this.callAgentRun(provider, { ...params, runId }),
-        )
-      : await this.callAgentRun(this.provider(), params);
-    if (isAgentGitFailure(result)) throw gitErrorFromAgent(result, options.args);
-    return result;
+    const runChecked = async (provider: AgentBackedProvider, runId?: string) => {
+      const result = await this.callAgentRun(provider, runId ? { ...params, runId } : params);
+      if (isAgentGitFailure(result)) throw gitErrorFromAgent(result, options.args);
+      return result;
+    };
+    // An interactive run checks its result inside the run, so a failure
+    // after a dismissed credential prompt reads as the cancel it is.
+    return params.interactive
+      ? await this.withInteractiveRun(options.signal, runChecked)
+      : await runChecked(this.provider());
   }
 
   async *stream(options: GitProcessOptions): AsyncGenerator<Buffer, void, unknown> {
@@ -887,7 +890,10 @@ export class AgentGitExecutor implements GitExecutor {
     throwIfAborted(signal);
     const provider = this.provider();
     const runId = randomUUID();
-    const unwireAskpass = this.wireAskpass(provider, runId);
+    let promptDismissed = false;
+    const unwireAskpass = this.wireAskpass(provider, runId, () => {
+      promptDismissed = true;
+    });
     let cancelled = false;
     const cancel = (): void => {
       if (cancelled) return;
@@ -907,6 +913,9 @@ export class AgentGitExecutor implements GitExecutor {
       cancel();
       // The cancelled git surfaces as an agent error; report the abort.
       throwIfAborted(signal);
+      // Git failed for want of the credential the user declined to give:
+      // report that cancel rather than git's stderr about the prompt.
+      if (promptDismissed) throw createAbortError();
       throw error;
     } finally {
       signal?.removeEventListener("abort", cancel);
@@ -916,10 +925,15 @@ export class AgentGitExecutor implements GitExecutor {
 
   /**
    * Shows the credential prompts of one run (or stream) while it is in
-   * flight. The returned function stops listening and closes the prompts
-   * the run left open: its git has ended, so they can no longer be answered.
+   * flight, calling `onDismiss` when the user cancels one. The returned
+   * function stops listening and closes the prompts the run left open: its
+   * git has ended, so they can no longer be answered.
    */
-  private wireAskpass(provider: AgentBackedProvider, runId: string): () => void {
+  private wireAskpass(
+    provider: AgentBackedProvider,
+    runId: string,
+    onDismiss?: () => void,
+  ): () => void {
     const manager = this.options.askpassManager;
     if (!manager) return () => {};
 
@@ -938,6 +952,7 @@ export class AgentGitExecutor implements GitExecutor {
           workspaceId: this.options.workspaceId,
         },
         async (secret) => {
+          if (secret === null) onDismiss?.();
           const params = AgentGitAskpassRespondParamsSchema.parse({
             requestId: parsed.data.requestId,
             secret: secret ?? "",
