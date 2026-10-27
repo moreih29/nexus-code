@@ -9,13 +9,15 @@
  * local, ad-hoc one) fails the check, and the user is pointed at the release
  * page instead. The app downloads the update itself, so the new bundle carries
  * no quarantine attribute and opens without a Gatekeeper prompt. On Linux the
- * new AppImage replaces the running one (electron-update-backend.ts).
+ * new AppImage replaces the running one, and a deb is installed with the
+ * user's admin password (electron-update-backend.ts).
  *
  * STATES
  * ------
  *   idle → starting → downloading(version) → ready(version)
- *   Any failure returns to idle and reports installFailed. restart() installs
- *   a ready update; one the user does not restart for goes in at the next quit.
+ *   Any failure returns to idle and reports installFailed, including a failed
+ *   install on restart. restart() installs a ready update; one the user does
+ *   not restart for goes in at the next quit, unless it asks for a password.
  */
 
 import type { Logger } from "../../../shared/log/types";
@@ -24,6 +26,8 @@ export type UpdateChannel = "stable" | "beta";
 
 /** What the installer needs of electron-updater; tests stand in a fake. */
 export interface UpdateBackend {
+  /** Whether installing asks for the admin password, as a deb does. */
+  readonly installAsksForPassword: boolean;
   /** Resolves the newer version `channel` offers, or null when there is none. */
   check(channel: UpdateChannel): Promise<string | null>;
   /** Downloads the version check() found and stages it for install. */
@@ -40,7 +44,7 @@ export interface UpdateBackend {
 
 export type InstallStatus =
   | { kind: "downloading"; version: string }
-  | { kind: "ready"; version: string }
+  | { kind: "ready"; version: string; asksForPassword?: true }
   | { kind: "installFailed"; releaseUrl: string };
 
 export interface UpdateInstaller {
@@ -77,20 +81,32 @@ export function createUpdateInstaller(options: CreateUpdateInstallerOptions): Up
     onStatus({ kind: "installFailed", releaseUrl: releaseUrl(version) });
   }
 
+  function ready(version: string): InstallStatus {
+    return backend.installAsksForPassword
+      ? { kind: "ready", version, asksForPassword: true }
+      : { kind: "ready", version };
+  }
+
   backend.onStaged(() => {
     if (state.kind !== "downloading") return;
     logger.info(`updates: ${state.version} is staged; it installs on restart`);
     state = { kind: "ready", version: state.version };
-    onStatus({ kind: "ready", version: state.version });
+    onStatus(ready(state.version));
   });
+  // A ready update fails when its install does: a deb whose password prompt
+  // the user cancels.
   backend.onError((error) => {
-    if (state.kind === "downloading") fail(state.version, error);
+    if (state.kind === "downloading" || state.kind === "ready") fail(state.version, error);
   });
 
   return {
     async install(channel) {
-      if (state.kind === "downloading" || state.kind === "ready") {
-        onStatus({ kind: state.kind, version: state.version });
+      if (state.kind === "downloading") {
+        onStatus({ kind: "downloading", version: state.version });
+        return;
+      }
+      if (state.kind === "ready") {
+        onStatus(ready(state.version));
         return;
       }
       if (state.kind === "starting") return;

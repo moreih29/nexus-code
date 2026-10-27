@@ -284,8 +284,8 @@ updatesHandle = installUpdatesDomain({
   broadcast: forwardBroadcast,
   stateService,
   currentVersion: app.getVersion(),
-  // A packaged macOS app or Linux AppImage replaces itself in place; any other
-  // build leaves the user the release page.
+  // A packaged macOS app, Linux AppImage or deb updates itself in place; any
+  // other build leaves the user the release page.
   updateBackend:
     app.isPackaged && canUpdateInPlace()
       ? createElectronUpdateBackend(createLogger("updates"))

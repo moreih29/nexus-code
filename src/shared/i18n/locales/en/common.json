@@ -417,6 +417,7 @@
     "install": "Update",
     "downloading": "Downloading version {{version}}…",
     "ready": "Version {{version}} is ready. It installs when the app restarts.",
+    "readyAsksPassword": "Version {{version}} is ready. Restart now and enter your admin password to install it.",
     "restart": "Restart Now",
     "installFailed": "Couldn't install the update. You can download it from the release page.",
     "openReleasePage": "Open Release Page",

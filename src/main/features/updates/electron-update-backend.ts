@@ -9,14 +9,17 @@
  *   verification, so the backend reports a staged update on Squirrel.Mac's
  *   event instead.
  * - Linux: the new AppImage is staged once downloaded and replaces the running
- *   one on quit. A deb install has no file the app can replace; the package
- *   manager updates it.
+ *   one on quit. A deb install downloads the next deb, which dpkg installs
+ *   through pkexec when the user restarts; it is not installed on a plain
+ *   quit, which would ask for the admin password then.
  *
  * NEXUS_UPDATE_FEED_URL points the updater at a generic feed — a directory
  * holding the feed file and the release file — to try an update without
  * publishing a release. Squirrel.Mac still requires the release signature.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { autoUpdater as nativeUpdater } from "electron";
 import type { AppUpdater } from "electron-updater";
 import type { Logger } from "../../../shared/log/types";
@@ -25,13 +28,28 @@ import type { UpdateBackend } from "./installer";
 const OWNER = "moreih29";
 const REPO = "nexus-code";
 
-/** Whether this install can replace itself: a macOS app or a Linux AppImage. */
+/** Whether this install can replace itself: a macOS app, a Linux AppImage or a deb. */
 export function canUpdateInPlace(): boolean {
   if (process.platform === "darwin") return true;
-  return process.platform === "linux" && process.env.APPIMAGE !== undefined;
+  return process.platform === "linux" && (process.env.APPIMAGE !== undefined || isDebInstall());
+}
+
+/**
+ * Whether this is a deb install. electron-builder marks one with a
+ * resources/package-type file, which electron-updater reads to pick its deb
+ * updater.
+ */
+function isDebInstall(): boolean {
+  if (process.platform !== "linux") return false;
+  try {
+    return readFileSync(join(process.resourcesPath, "package-type"), "utf8").trim() === "deb";
+  } catch {
+    return false;
+  }
 }
 
 export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
+  const deb = isDebInstall();
   const stagedListeners: (() => void)[] = [];
   const errorListeners: ((error: Error) => void)[] = [];
   let loaded: Promise<AppUpdater> | null = null;
@@ -50,8 +68,9 @@ export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
         debug: (message) => logger.debug(String(message)),
       };
       autoUpdater.autoDownload = false;
-      // A staged update the user does not restart for goes in at the next quit.
-      autoUpdater.autoInstallOnAppQuit = true;
+      // A staged update the user does not restart for goes in at the next quit,
+      // except a deb, whose install asks for the admin password.
+      autoUpdater.autoInstallOnAppQuit = !deb;
       const feed = process.env.NEXUS_UPDATE_FEED_URL;
       autoUpdater.setFeedURL(
         feed
@@ -78,6 +97,7 @@ export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
   }
 
   return {
+    installAsksForPassword: deb,
     async check(channel) {
       const updater = await load();
       updater.allowPrerelease = channel === "beta";

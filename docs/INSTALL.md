@@ -91,7 +91,7 @@ Ubuntu 23.10 이상에서는 처음 실행 전에 AppArmor 프로필을 한 번 
 - 0.10.0 이전 버전은 앱 안 업데이트를 지원하지 않는다. 그 버전에서는 한 번 `.dmg` 로 설치하고 보안 해제를 거친다.
 - Self-build 앱(ad-hoc 서명)은 앱 안에서 업데이트할 수 없다. 업데이트가 실패하면 알림의 **Open Release Page** 로 릴리스 페이지에서 내려받는다.
 - Linux 의 AppImage 는 같은 방식으로 앱 안에서 업데이트된다. 내려받은 새 AppImage 가 실행 중인 파일을 바꾼다.
-- deb 설치는 앱 안에서 업데이트하지 않는다. 알림의 **Download** 로 릴리스 페이지에서 새 deb 를 받아 `sudo apt install ./NexusCode-X.Y.Z-amd64.deb` 로 설치한다.
+- deb 설치도 앱 안에서 업데이트된다. 새 deb 를 내려받아 두고, **Restart Now**(지금 다시 시작) 를 누르면 관리자 암호를 물은 뒤 `dpkg` 로 설치하고 다시 실행한다. 암호를 물어야 하므로 그냥 종료할 때는 설치하지 않는다.
 
 ---
 
@@ -193,12 +193,14 @@ xattr -dr com.apple.quarantine "/Applications/NexusCode.app"
 
 ### "업데이트를 설치하지 못했습니다"
 
-알림의 **Open Release Page**(릴리스 페이지 열기) 로 `.dmg`(Linux 는 AppImage) 를 내려받아 설치한다. 흔한 원인:
+알림의 **Open Release Page**(릴리스 페이지 열기) 로 `.dmg`(Linux 는 AppImage 나 deb) 를 내려받아 설치한다. 흔한 원인:
 
 - 앱을 `/Applications` 로 옮기지 않고 `.dmg` 안에서 실행 중이다 (읽기 전용이라 교체할 수 없다).
 - `/Applications/NexusCode.app` 에 쓰기 권한이 없다.
 - Self-build 앱이다 (위 [업데이트](#업데이트) 참고).
 - Linux: AppImage 파일이 있는 폴더에 쓰기 권한이 없다.
+- Linux: deb 를 설치할 때 관리자 암호 창을 취소했거나 암호가 틀렸다. 다시 업데이트하면 이미 받은 파일을 그대로 쓴다.
+- Linux: 관리자 암호 창을 띄울 polkit 인증 에이전트가 없다 (GNOME · KDE 같은 데스크톱 환경에는 기본으로 있다).
 
 자세한 원인은 로그의 `updates` 항목에 남는다 — macOS `~/Library/Logs/NexusCode/main.log`, Linux `~/.config/NexusCode/logs/main.log`.
 
