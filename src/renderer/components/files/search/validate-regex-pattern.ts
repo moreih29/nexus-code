@@ -6,13 +6,12 @@
  *     is always considered valid (returns `{ valid: true }`).
  *   - When `isRegExp` is true the pattern is compiled via `new RegExp(pattern)`.
  *     A successful compile returns `{ valid: true }`; a SyntaxError returns
- *     `{ valid: false, error: <message from the Error object> }`.
+ *     `{ valid: false, error: <reason> }`.
  *
- * The error message is the raw `Error.message` string (or `String(err)` when
- * the thrown value is not an Error instance), matching what browsers produce
- * for invalid patterns — e.g. "Invalid regular expression: /[/: Unterminated
- * character class". Callers are responsible for displaying a human-friendly
- * wrapper (e.g. "Invalid regular expression: <error>").
+ * The reason is the engine's message without its "Invalid regular expression:
+ * /<pattern>/: " lead — e.g. "Unterminated character class" — since callers
+ * display it inside their own "Invalid regular expression: <error>" wrapper
+ * next to the pattern the user is typing.
  *
  * Used by SearchPanel in place of the four inline `try { new RegExp(...) }
  * catch` blocks.
@@ -26,6 +25,21 @@ export function validateRegexPattern(
     new RegExp(pattern);
     return { valid: true };
   } catch (err) {
-    return { valid: false, error: err instanceof Error ? err.message : String(err) };
+    return {
+      valid: false,
+      error: regexErrorReason(err instanceof Error ? err.message : String(err)),
+    };
   }
+}
+
+/**
+ * Lead of an engine's SyntaxError message: V8 writes "Invalid regular
+ * expression: /<source>/<flags>: <reason>", JavaScriptCore "Invalid regular
+ * expression: <reason>".
+ */
+const ENGINE_MESSAGE_LEAD = /^Invalid regular expression: (?:\/[\s\S]*\/[a-z]*: )?/;
+
+/** The reason of a RegExp SyntaxError message, without the engine's lead. */
+export function regexErrorReason(message: string): string {
+  return message.replace(ENGINE_MESSAGE_LEAD, "");
 }

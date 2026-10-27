@@ -104,6 +104,7 @@
       "noResultsHint": "다른 검색어를 시도해 보세요."
     },
     "invalidRegex": "유효하지 않은 정규식: {{error}}",
+    "unsupportedRegex": "검색에서 쓸 수 없는 정규식입니다: {{error}}",
     "results": {
       "ariaLabel": "검색 결과"
     }

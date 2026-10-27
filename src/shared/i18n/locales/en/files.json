@@ -104,6 +104,7 @@
       "noResultsHint": "Try a different search term."
     },
     "invalidRegex": "Invalid regular expression: {{error}}",
+    "unsupportedRegex": "Search can't use this regular expression: {{error}}",
     "results": {
       "ariaLabel": "Search results"
     }

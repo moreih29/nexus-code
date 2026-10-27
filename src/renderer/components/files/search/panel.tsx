@@ -31,6 +31,7 @@ import {
 import { shouldHandleArrowDown } from "./arrow-down-handoff";
 import { SearchInput } from "./input";
 import { SearchResultsList } from "./results-list";
+import { searchErrorText } from "./search-error-text";
 import { SearchStatusHeader } from "./status-header";
 import { useGlobalSearchHotkey } from "./use-global-search-hotkey";
 import { useLoaderDelay } from "./use-loader-delay";
@@ -258,7 +259,7 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
           <div className="px-4 py-4 flex flex-col items-center gap-2">
             <CircleAlert className="size-4 text-destructive" aria-hidden="true" />
             <p className="text-app-ui-sm text-muted-foreground text-center">
-              {session.errorMessage ?? t("search.state.error")}
+              {searchErrorText(session.errorMessage, t)}
             </p>
             <button
               type="button"
