@@ -16,6 +16,8 @@
     "reopen": "Reopen",
     "reopenAll": "Reopen all",
     "copy": "Copy",
+    "copy_details": "Copy details",
+    "open_log": "Open log",
     "connect": "Connect →",
     "connecting": "Connecting…",
     "retry_save": "Retry save",

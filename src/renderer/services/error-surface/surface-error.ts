@@ -349,7 +349,7 @@ function routeFailed(
   }
 
   // 'toast' or 'auto': fall back to toast (no caller-owned surface needed).
-  const actions = onRetry ? [{ label: "Retry", onAction: onRetry }] : [];
+  const actions = onRetry ? [{ label: i18next.t("common:action.retry"), onAction: onRetry }] : [];
   showToast({ kind: "error", message: userMessage, actions });
   return { surface: "toast" };
 }
@@ -383,12 +383,12 @@ function routeBug(error: AppError, surface: ErrorSurface): SurfaceErrorResult {
     message: userMessage,
     actions: [
       {
-        label: "Copy details",
+        label: i18next.t("common:action.copy_details"),
         // Writes internal context to clipboard — not to any visible surface.
         onAction: () => copyText(clipboardDetail),
       },
       {
-        label: "Open log",
+        label: i18next.t("common:action.open_log"),
         // Opens the application log file via the system shell handler.
         // Best-effort: if the shell IPC is unavailable the user can find
         // the log at their platform's electron-log path manually.
