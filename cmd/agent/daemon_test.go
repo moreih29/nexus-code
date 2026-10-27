@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nexus-code/nexus-code/internal/agentrun"
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // mustBuild compiles the agent binary into t.TempDir() and returns the path.
@@ -309,7 +310,7 @@ func TestDaemonStartsWhileLockBrieflyHeld(t *testing.T) {
 	if err := os.MkdirAll(runDir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	lockFile, err := os.OpenFile(filepath.Join(runDir, agentrun.WsID(root)+".lock"), os.O_CREATE|os.O_RDWR, 0600)
+	lockFile, err := os.OpenFile(filepath.Join(runDir, agentrun.WsID(root, proto.ServerVersion)+".lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +331,7 @@ func TestDaemonStartsWhileLockBrieflyHeld(t *testing.T) {
 	}()
 
 	// The daemon opens its log right before it takes the lock.
-	logPath := filepath.Join(runDir, agentrun.WsID(root)+".log")
+	logPath := filepath.Join(runDir, agentrun.WsID(root, proto.ServerVersion)+".log")
 	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
 		if _, err := os.Stat(logPath); err == nil {
 			break

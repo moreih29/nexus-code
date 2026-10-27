@@ -109,7 +109,7 @@ func runDaemon(root string) {
 	signal.Ignore(syscall.SIGHUP)
 
 	// Step 2: resolve per-workspace runtime file paths.
-	paths, err := agentrun.For(root)
+	paths, err := agentrun.For(root, proto.ServerVersion)
 	if err != nil {
 		os.Exit(1)
 	}
@@ -143,8 +143,9 @@ func runDaemon(root string) {
 	agentLogger := slog.New(slog.NewJSONHandler(logFile, nil)).With("src", "agent-log")
 
 	// Step 4: acquire the workspace lock. A second daemon for the same
-	// workspace cannot acquire it (within lockRetryWindow) and exits with
-	// ExitCodeLockHeld, prompting the launcher to switch to dialer mode.
+	// workspace and agent version cannot acquire it (within lockRetryWindow)
+	// and exits with ExitCodeLockHeld, prompting the launcher to switch to
+	// dialer mode.
 	lock, err := agentrun.TryLock(paths.Lock)
 	for deadline := time.Now().Add(lockRetryWindow); err == agentrun.ErrLockHeld && time.Now().Before(deadline); {
 		time.Sleep(10 * time.Millisecond)
@@ -158,12 +159,12 @@ func runDaemon(root string) {
 		os.Exit(1)
 	}
 
-	// Step 4b: sweep litter left by dead daemons of OTHER workspaces — stale
-	// sockets and over-retention logs. Liveness is decided by flock probing
-	// (acquired = provably dead), so a live daemon's files are never touched;
-	// see agentrun.SweepStale. Runs after our own lock is held so only one
-	// legitimate daemon per workspace ever sweeps.
-	if removed := agentrun.SweepStale(runDir, agentrun.WsID(root)); len(removed) > 0 {
+	// Step 4b: sweep litter left by dead daemons of OTHER workspaces or agent
+	// versions — stale sockets and over-retention logs. Liveness is decided
+	// by flock probing (acquired = provably dead), so a live daemon's files
+	// are never touched; see agentrun.SweepStale. Runs after our own lock is
+	// held so only one legitimate daemon per workspace ever sweeps.
+	if removed := agentrun.SweepStale(runDir, agentrun.WsID(root, proto.ServerVersion)); len(removed) > 0 {
 		agentLogger.Info("swept stale run files of dead daemons", "removed", removed)
 	}
 

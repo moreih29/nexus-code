@@ -21,14 +21,17 @@ import (
 	"strconv"
 )
 
+// ServerVersion is the agent's version, advertised on the boot Ready frame.
+// Builds set it to the app version (scripts/build-agent.ts links it in with
+// -X); the default is what a plain `go build` or test reports.
+var ServerVersion = "0.1.0"
+
 // Protocol version constants advertised on the boot Ready frame so the
 // client can refuse to talk to a server with an incompatible envelope
 // shape. Bump ProtocolVersion when the wire format changes in a way
-// that breaks older clients; bump ServerVersion for behavior changes
-// inside the existing wire shape.
+// that breaks older clients.
 const (
 	ProtocolVersion = "2"
-	ServerVersion   = "0.1.0"
 
 	// HeartbeatAdvertiseMs is the judgment basis the Ready frame advertises:
 	// the client flags "degraded" after 1× this interval without a heartbeat

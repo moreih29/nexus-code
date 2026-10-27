@@ -220,7 +220,9 @@ async function buildAgentBinaries(args: {
       [
         "build",
         "-tags=netgo,osusergo",
-        "-ldflags=-s -w",
+        // The agent reports this version on its Ready frame and keys its SSH
+        // daemon's run files by it, as computeWsId does on this side.
+        `-ldflags=-s -w -X github.com/nexus-code/nexus-code/internal/proto.ServerVersion=${args.version}`,
         "-o",
         path.join(args.outDir, name),
         "./cmd/agent",

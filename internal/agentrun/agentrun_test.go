@@ -13,8 +13,8 @@ import (
 // TestWsIDStability verifies that WsID is deterministic: same input, same output.
 func TestWsIDStability(t *testing.T) {
 	root := "/home/user/my-project"
-	id1 := agentrun.WsID(root)
-	id2 := agentrun.WsID(root)
+	id1 := agentrun.WsID(root, "1.2.3")
+	id2 := agentrun.WsID(root, "1.2.3")
 	if id1 != id2 {
 		t.Fatalf("WsID not stable: %q vs %q", id1, id2)
 	}
@@ -25,10 +25,27 @@ func TestWsIDStability(t *testing.T) {
 
 // TestWsIDDistinct verifies that different roots produce different wsIds.
 func TestWsIDDistinct(t *testing.T) {
-	a := agentrun.WsID("/home/user/project-a")
-	b := agentrun.WsID("/home/user/project-b")
+	a := agentrun.WsID("/home/user/project-a", "1.2.3")
+	b := agentrun.WsID("/home/user/project-b", "1.2.3")
 	if a == b {
 		t.Fatal("different roots produced the same wsId — collision")
+	}
+}
+
+// An updated app relaunched while the previous version's daemon still waits
+// out its reattach grace must start its own daemon, not reach the old one.
+func TestWsIDDistinctPerVersion(t *testing.T) {
+	root := "/home/user/project"
+	if agentrun.WsID(root, "0.9.0") == agentrun.WsID(root, "0.9.1") {
+		t.Fatal("two agent versions of one workspace share a wsId")
+	}
+}
+
+// The SSH bootstrap computes the socket path on the client
+// (computeWsId in ssh-bootstrap/index.ts); both sides must agree.
+func TestWsIDMatchesClient(t *testing.T) {
+	if got, want := agentrun.WsID("/home/user/repo", "0.9.0"), "750ec38c28740580"; got != want {
+		t.Fatalf("WsID = %q, want %q", got, want)
 	}
 }
 
@@ -38,7 +55,7 @@ func TestWsIDDistinct(t *testing.T) {
 func TestWsIDSunPathSafe(t *testing.T) {
 	// Verify socket path length is well within 104 bytes even for deep roots.
 	// We check the wsId length + known path components.
-	id := agentrun.WsID("/very/long/workspace/path/that/exceeds/normal/lengths/project")
+	id := agentrun.WsID("/very/long/workspace/path/that/exceeds/normal/lengths/project", "10.20.300-beta.1")
 	// ~/.nexus-code/run/ ≈ 20-30 chars + 16-char id + ".sock" = 5 chars ≈ ~51 chars
 	// Well within 104. The test simply ensures the id stays 16 chars regardless.
 	if len(id) != 16 {

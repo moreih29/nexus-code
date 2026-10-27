@@ -14,8 +14,9 @@ import (
 const staleLogRetention = 7 * 24 * time.Hour
 
 // SweepStale removes runtime litter left in runDir by dead daemons of OTHER
-// workspaces. It is called once at daemon boot, after the caller has acquired
-// its own workspace lock.
+// workspaces, or of other agent versions of the same one (see WsID). It is
+// called once at daemon boot, after the caller has acquired its own workspace
+// lock.
 //
 // Liveness is decided by flock(2), never by file age: a live daemon holds an
 // exclusive flock on its <wsId>.lock for its entire lifetime, released by the

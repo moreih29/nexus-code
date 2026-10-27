@@ -54,7 +54,7 @@ func dialAgent(t *testing.T, path string) string {
 }
 
 func TestAuthSockForSitsNextToDaemonSocket(t *testing.T) {
-	paths, err := For("/work/repo")
+	paths, err := For("/work/repo", "1.2.3")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -200,7 +200,7 @@ describe("ssh-bootstrap", () => {
     expect(result.uploaded).toBe(false);
     expect(result.platform).toEqual({ os: "linux", arch: "amd64" });
     expect(result.remoteCommand).toBe(
-      buildRemoteAgentCommand(remoteAgentBinaryPath("0.1.0", result.platform), "/repo"),
+      buildRemoteAgentCommand(remoteAgentBinaryPath("0.1.0", result.platform), "/repo", "0.1.0"),
     );
     // uname -ms + printf "$HOME" + echo "$SHELL" + cat manifest.json
     // — no upload round trip. The echo "$SHELL" probe throws ("unexpected
@@ -896,12 +896,18 @@ describe("ssh-bootstrap", () => {
 
 describe("buildRemoteAgentCommand (daemon+dial architecture)", () => {
   it("rejects relative remote paths", () => {
-    expect(() => buildRemoteAgentCommand("/usr/local/bin/agent", "relative/path")).toThrow();
-    expect(() => buildRemoteAgentCommand("/usr/local/bin/agent", "~/repo")).toThrow();
+    expect(() =>
+      buildRemoteAgentCommand("/usr/local/bin/agent", "relative/path", "0.9.0"),
+    ).toThrow();
+    expect(() => buildRemoteAgentCommand("/usr/local/bin/agent", "~/repo", "0.9.0")).toThrow();
   });
 
   it("contains daemon background start and dial retry loop", () => {
-    const cmd = buildRemoteAgentCommand("/home/user/.nexus-code/bin/agent", "/home/user/repo");
+    const cmd = buildRemoteAgentCommand(
+      "/home/user/.nexus-code/bin/agent",
+      "/home/user/repo",
+      "0.9.0",
+    );
     // Must wrap in bash -lc
     expect(cmd).toMatch(/^bash -lc/);
     // Must include --daemon flag (started as grandchild via subshell)
@@ -926,19 +932,27 @@ describe("buildRemoteAgentCommand (daemon+dial architecture)", () => {
 
   it("embeds the wsId-derived socket path matching computeWsId output", () => {
     const remotePath = "/home/user/my-project";
-    const wsId = computeWsId(remotePath);
+    const wsId = computeWsId(remotePath, "0.9.0");
     expect(wsId).toHaveLength(16);
     expect(wsId).toMatch(/^[0-9a-f]{16}$/);
 
-    const cmd = buildRemoteAgentCommand("/usr/bin/agent", remotePath);
+    const cmd = buildRemoteAgentCommand("/usr/bin/agent", remotePath, "0.9.0");
     expect(cmd).toContain(wsId);
     expect(cmd).toContain(".sock");
   });
 
-  it("computeWsId matches Go agentrun.WsID algorithm (sha256[:16])", () => {
-    // Verified against Go: echo -n "/repo" | sha256sum → first 16 hex chars
-    const createHashFn = createHash;
-    const expected = createHashFn("sha256").update("/repo", "utf8").digest("hex").slice(0, 16);
-    expect(computeWsId("/repo")).toBe(expected);
+  it("computeWsId matches Go agentrun.WsID (TestWsIDMatchesClient)", () => {
+    expect(computeWsId("/home/user/repo", "0.9.0")).toBe("750ec38c28740580");
+  });
+
+  it("gives each agent version of a workspace its own daemon socket", () => {
+    // A daemon outlives the app; an updated app must not reach the old one.
+    const before = buildRemoteAgentCommand("/usr/bin/agent", "/home/user/repo", "0.8.2");
+    const after = buildRemoteAgentCommand("/usr/bin/agent", "/home/user/repo", "0.9.0");
+    expect(computeWsId("/home/user/repo", "0.9.0")).not.toBe(
+      computeWsId("/home/user/repo", "0.8.2"),
+    );
+    expect(after).toContain(`run/${computeWsId("/home/user/repo", "0.9.0")}.sock`);
+    expect(before).not.toContain(computeWsId("/home/user/repo", "0.9.0"));
   });
 });
