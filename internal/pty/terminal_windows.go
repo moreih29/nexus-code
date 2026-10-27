@@ -10,10 +10,15 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+// consoleDrainGrace bounds how long Close waits for a closed console's output
+// to end.
+const consoleDrainGrace = 5 * time.Second
 
 // terminal is the Windows pseudoconsole (ConPTY) a session's shell runs
 // under. The shell's input goes in through one pipe, and the console renders
@@ -176,8 +181,8 @@ func (t *terminal) foregroundProcess() string {
 	return ""
 }
 
-// Close closes the console, which ends the processes still attached to it,
-// and its pipes. The output pipe reads end once the console has gone.
+// Close closes the console and its pipes. The output pipe reads end once the
+// console has gone.
 func (t *terminal) Close() error {
 	t.mu.Lock()
 	if t.closed {
@@ -196,7 +201,12 @@ func (t *terminal) Close() error {
 		_, _ = io.Copy(io.Discard, t.out)
 	}()
 	windows.ClosePseudoConsole(t.hpc)
-	<-drained
+	// A process still attached to the console can keep its output open; past
+	// the grace the pipe is left to close once that process ends.
+	select {
+	case <-drained:
+	case <-time.After(consoleDrainGrace):
+	}
 	if err := t.out.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
 		return err
 	}

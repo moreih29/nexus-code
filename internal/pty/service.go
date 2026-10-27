@@ -576,10 +576,7 @@ func (s *session) write(data []byte) error {
 
 // stop terminates the child process group and unblocks the reader.
 func (s *session) stop(signal syscall.Signal) {
-	s.stopOnce.Do(func() {
-		s.stopReading()
-		_ = s.child.signalGroup(signal)
-	})
+	s.stopOnce.Do(func() { s.stopChild(signal) })
 }
 
 // stopReading wakes any paused reader and closes the PTY master.

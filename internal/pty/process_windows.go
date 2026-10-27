@@ -8,9 +8,16 @@ import (
 	"syscall"
 )
 
+// stopChild terminates the shell and then closes its console. A console
+// closed under a live shell can keep its output open, and closing the
+// terminal waits for that output to end.
+func (s *session) stopChild(signal syscall.Signal) {
+	_ = s.child.signalGroup(signal)
+	s.stopReading()
+}
+
 // signalGroup terminates the shell. Windows has no signals to send it, so it
-// is terminated whatever signal is asked for. The processes the shell started
-// in its console end with the console: stop closes the terminal first.
+// is terminated whatever signal is asked for.
 func (c *child) signalGroup(syscall.Signal) error {
 	err := c.Kill()
 	if errors.Is(err, os.ErrProcessDone) {

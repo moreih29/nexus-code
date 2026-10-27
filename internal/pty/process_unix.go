@@ -8,6 +8,13 @@ import (
 	"syscall"
 )
 
+// stopChild closes the PTY master, which hangs up the shell's foreground job,
+// and then signals the shell's process group.
+func (s *session) stopChild(signal syscall.Signal) {
+	s.stopReading()
+	_ = s.child.signalGroup(signal)
+}
+
 // signalGroup sends signal to the child process group rooted at the shell.
 func (c *child) signalGroup(signal syscall.Signal) error {
 	err := syscall.Kill(-c.Pid, signal)
