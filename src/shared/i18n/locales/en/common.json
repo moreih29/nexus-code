@@ -361,5 +361,16 @@
     "description": "The file was modified on disk after you started editing. Choose how to resolve the conflict.",
     "reload_from_disk": "Reload from Disk",
     "overwrite": "Overwrite"
+  },
+  "updates": {
+    "checking": "Checking for updates…",
+    "available": "Version {{version}} is available.",
+    "download": "Download",
+    "skipVersion": "Skip this version",
+    "upToDate": "You're on the latest version.",
+    "failed": "Couldn't check for updates.",
+    "failedHttp": "Couldn't check for updates (HTTP {{status}}).",
+    "failedNetwork": "Couldn't check for updates. Check your network connection.",
+    "failedRateLimited": "Couldn't check for updates. GitHub is limiting requests right now; try again in a moment."
   }
 }

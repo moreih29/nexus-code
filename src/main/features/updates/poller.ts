@@ -33,10 +33,20 @@ import { gt, rcompare, valid } from "semver";
 // Public types
 // ---------------------------------------------------------------------------
 
+/** Why an update check failed; the renderer words the user's message from it. */
+export type PollFailureReason = "rate-limited" | "http" | "network" | "unexpected";
+
 export type PollResult =
   | { kind: "newer"; current: string; latest: string; releaseUrl: string }
   | { kind: "current"; current: string; latest?: string }
-  | { kind: "error"; message: string };
+  | {
+      kind: "error";
+      reason: PollFailureReason;
+      /** HTTP status, for "rate-limited" and "http". */
+      status?: number;
+      /** English detail for the log, not shown to the user. */
+      message: string;
+    };
 
 /**
  * Mutable HTTP conditional-request cache.
@@ -106,7 +116,8 @@ const BETA_URL = `${REPO_BASE}/releases.atom`;
  * Fetch the latest version for the channel and return a `PollResult`.
  *
  * Errors (network failures, rate limits, unexpected shapes) are caught and
- * surfaced as `{ kind: "error", message }` so callers never have to try/catch.
+ * surfaced as `{ kind: "error", reason, message }` so callers never have to
+ * try/catch.
  */
 export async function pollGithubReleases(options: PollGithubReleasesOptions): Promise<PollResult> {
   const { channel, currentVersion, fetchImpl = fetch, cache } = options;
@@ -137,7 +148,11 @@ export async function pollGithubReleases(options: PollGithubReleasesOptions): Pr
       // when we have a cached resolution for this exact source, so a 304
       // without one is an invariant violation worth surfacing.
       if (!haveValidCache || !cache || cache.resolved === null) {
-        return { kind: "error", message: "Received HTTP 304 with no cached result" };
+        return {
+          kind: "error",
+          reason: "unexpected",
+          message: "Received HTTP 304 with no cached result",
+        };
       }
       resolved = cache.resolved;
     } else if (response.status === 404 && channel === "stable") {
@@ -145,7 +160,7 @@ export async function pollGithubReleases(options: PollGithubReleasesOptions): Pr
       // there is simply nothing newer on the stable channel.
       return { kind: "current", current: currentVersion };
     } else if (!response.ok) {
-      return { kind: "error", message: describeHttpError(response.status) };
+      return httpError(response.status);
     } else {
       const text = await response.text();
       resolved =
@@ -159,7 +174,7 @@ export async function pollGithubReleases(options: PollGithubReleasesOptions): Pr
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return { kind: "error", message: `Network error: ${message}` };
+    return { kind: "error", reason: "network", message: `Network error: ${message}` };
   }
 
   const { version: latestVersion, releaseUrl } = resolved;
@@ -237,14 +252,20 @@ function parseAtomFeed(text: string): ResolvedCandidate {
 // ---------------------------------------------------------------------------
 
 /**
- * Map an HTTP status to a user-facing message. Rate-limit / forbidden / too-
- * many-requests get a friendly "try again later" rather than a raw status,
- * since those are transient and the previous raw GitHub message ("API rate
- * limit exceeded for <ip>...") confused users into thinking the app misbehaved.
+ * Map an HTTP failure status to a poll error. Rate-limit / forbidden / too-
+ * many-requests are reported as rate-limited so the user is told to try again
+ * later rather than shown a raw status, since those are transient and the
+ * previous raw GitHub message ("API rate limit exceeded for <ip>...") confused
+ * users into thinking the app misbehaved.
  */
-function describeHttpError(status: number): string {
+function httpError(status: number): PollResult {
   if (status === 403 || status === 429) {
-    return "GitHub 요청이 일시적으로 제한되었습니다. 잠시 후 다시 시도해 주세요.";
+    return {
+      kind: "error",
+      reason: "rate-limited",
+      status,
+      message: `GitHub rate-limited the request (HTTP ${status})`,
+    };
   }
-  return `업데이트 정보를 가져오지 못했습니다 (HTTP ${status}).`;
+  return { kind: "error", reason: "http", status, message: `HTTP ${status}` };
 }

@@ -209,17 +209,18 @@ describe("pollGithubReleases — network error", () => {
     });
     expect(result.kind).toBe("error");
     if (result.kind === "error") {
+      expect(result.reason).toBe("network");
       expect(result.message).toMatch(/ECONNREFUSED/);
     }
   });
 });
 
 // ---------------------------------------------------------------------------
-// Case 7 — HTTP 403/429 → kind:"error" with a friendly (non-raw) message
+// Case 7 — HTTP 403/429 → kind:"error" reported as rate-limited, not a raw status
 // ---------------------------------------------------------------------------
 
 describe("pollGithubReleases — rate limited", () => {
-  test("403 yields a friendly retry-later message, not a raw status dump", async () => {
+  test("403 is reported as rate-limited, not a raw status dump", async () => {
     const result = await pollGithubReleases({
       channel: "beta",
       currentVersion: "0.1.0",
@@ -227,7 +228,7 @@ describe("pollGithubReleases — rate limited", () => {
     });
     expect(result.kind).toBe("error");
     if (result.kind === "error") {
-      expect(result.message).toMatch(/잠시 후 다시 시도/);
+      expect(result.reason).toBe("rate-limited");
       expect(result.message).not.toMatch(/rate limit exceeded for/);
     }
   });
@@ -382,6 +383,7 @@ describe("pollGithubReleases — ETag conditional requests", () => {
     });
     expect(result.kind).toBe("error");
     if (result.kind === "error") {
+      expect(result.reason).toBe("unexpected");
       expect(result.message).toMatch(/304/);
     }
   });

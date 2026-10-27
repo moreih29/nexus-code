@@ -1456,7 +1456,7 @@ export const ipcContract = {
   //   { kind: "checking",  trigger: "auto" | "manual" }
   //   { kind: "newer",     trigger, current, latest, releaseUrl }
   //   { kind: "current",   trigger, current, latest? }
-  //   { kind: "error",     trigger, message }
+  //   { kind: "error",     trigger, reason, status? }
   //
   // "checking" is only broadcast for trigger="manual" (with a 3-second delay).
   // "newer" / "current" / "error" are broadcast for both triggers, but "current"
@@ -1503,7 +1503,10 @@ export const ipcContract = {
           z.object({
             kind: z.literal("error"),
             trigger: z.enum(["auto", "manual"]),
-            message: z.string(),
+            // The renderer words the message from the reason; the detail
+            // stays in the main-process log.
+            reason: z.enum(["rate-limited", "http", "network", "unexpected"]),
+            status: z.number().int().optional(),
           }),
         ]),
       ),
