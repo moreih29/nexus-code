@@ -88,6 +88,22 @@ export const AgentGitRunResultSchema = z.object({
 });
 export type AgentGitRunResult = z.infer<typeof AgentGitRunResultSchema>;
 
+/**
+ * Error code of an agent request whose handler failed; mirrors Go
+ * proto.CodeRequestFailed.
+ */
+export const AGENT_REQUEST_FAILED_CODE = "server.request-failed";
+
+/**
+ * Error data of a dedicated git method (push, pull, tag, stash, ...) whose
+ * git exited non-zero: the classified kind and hint git.run reports in its
+ * result.
+ */
+export const AgentGitFailureDataSchema = z.object({
+  errorKind: GitErrorKindSchema,
+  errorHint: GitActionHintSchema.optional(),
+});
+
 export const AgentGitStreamParamsSchema = AgentGitRunParamsSchema.omit({
   stdoutCapBytes: true,
   // The stream id serves as the run id.

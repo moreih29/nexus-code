@@ -93,6 +93,9 @@ type Request struct {
 type ErrorFrame struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	// Data is optional structured detail the client can act on, such as
+	// the classified kind of a failed git command.
+	Data any `json:"data,omitempty"`
 }
 
 // Response carries either Result or Error, never both. `omitempty`
@@ -300,8 +303,14 @@ func ErrorCode(err error) string {
 
 // ErrorResponse builds a failure Response from an arbitrary error,
 // pulling the wire code via ErrorCode and the message from err.Error().
+// Errors that expose `ErrorData() any` also fill the frame's Data.
 func ErrorResponse(id string, err error) Response {
-	return Failure(id, ErrorCode(err), err.Error())
+	resp := Failure(id, ErrorCode(err), err.Error())
+	var withData interface{ ErrorData() any }
+	if errors.As(err, &withData) {
+		resp.Error.Data = withData.ErrorData()
+	}
+	return resp
 }
 
 // IDFromParsedFrame recovers the request id from a line that parsed as

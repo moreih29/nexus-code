@@ -2,6 +2,7 @@ package proto
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 )
 
@@ -28,6 +29,23 @@ func TestParseRequestAndMarshalShapes(t *testing.T) {
 	}
 	if string(line) != `{"id":"2","error":{"code":"unsupported-method","message":"method not supported: fs.writeFile"}}`+"\n" {
 		t.Fatalf("error frame mismatch: %s", line)
+	}
+}
+
+type dataError struct{}
+
+func (dataError) Error() string     { return "push rejected" }
+func (dataError) ErrorCode() string { return CodeRequestFailed }
+func (dataError) ErrorData() any    { return map[string]string{"errorKind": "non-fast-forward"} }
+
+func TestErrorResponseCarriesErrorData(t *testing.T) {
+	line, err := MarshalFrame(ErrorResponse("3", fmt.Errorf("push: %w", dataError{})))
+	if err != nil {
+		t.Fatalf("MarshalFrame() error = %v", err)
+	}
+	want := `{"id":"3","error":{"code":"server.request-failed","message":"push: push rejected","data":{"errorKind":"non-fast-forward"}}}` + "\n"
+	if string(line) != want {
+		t.Fatalf("error frame = %s, want %s", line, want)
 	}
 }
 

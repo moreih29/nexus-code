@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // ---------------------------------------------------------------------------
@@ -189,6 +191,29 @@ func TestPushNonFastForwardError(t *testing.T) {
 	_, err := service.Push(context.Background(), json.RawMessage(`{}`))
 	if err == nil {
 		t.Fatal("expected Push to fail for non-fast-forward")
+	}
+	// The error frame carries the kind and hint the host's retry banner needs.
+	line, err := proto.MarshalFrame(proto.ErrorResponse("1", err))
+	if err != nil {
+		t.Fatalf("MarshalFrame() error = %v", err)
+	}
+	var frame struct {
+		Error struct {
+			Code string `json:"code"`
+			Data struct {
+				ErrorKind string      `json:"errorKind"`
+				ErrorHint *ActionHint `json:"errorHint"`
+			} `json:"data"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(line, &frame); err != nil {
+		t.Fatalf("decode frame: %v", err)
+	}
+	if frame.Error.Code != proto.CodeRequestFailed || frame.Error.Data.ErrorKind != string(KindNonFastForward) {
+		t.Fatalf("error frame = %s, want request-failed with kind non-fast-forward", line)
+	}
+	if frame.Error.Data.ErrorHint == nil || frame.Error.Data.ErrorHint.Kind != "pull-then-retry" {
+		t.Fatalf("error frame = %s, want the pull-then-retry hint", line)
 	}
 }
 

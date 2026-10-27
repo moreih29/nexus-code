@@ -992,6 +992,9 @@ function errorFromServerFrame(value: unknown): Error {
   if (typeof value.code === "string") {
     (error as Error & { code: string }).code = value.code;
   }
+  if (value.data !== undefined) {
+    (error as Error & { data: unknown }).data = value.data;
+  }
   return error;
 }
 

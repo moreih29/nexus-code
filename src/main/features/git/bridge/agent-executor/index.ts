@@ -144,7 +144,7 @@ import type {
   StashEntry,
   Tag,
 } from "../../../../../shared/git/types";
-import { GitError, gitErrorFromAgent } from "../../domain/error";
+import { GitError, gitErrorFromAgent, gitErrorFromAgentError } from "../../domain/error";
 import {
   AsyncQueue,
   createAbortError,
@@ -194,6 +194,7 @@ import type {
 } from "../types";
 import { parseAgentResult } from "../../../fs/bridge/agent-provider";
 import type { AgentBackedProvider } from "../../../fs/bridge/provider";
+import type { AgentCallOptions } from "../../../../infra/agent/channel";
 
 type ProviderSource = AgentBackedProvider | (() => AgentBackedProvider);
 
@@ -321,7 +322,7 @@ export class AgentGitExecutor implements GitExecutor {
 
   async status(options: GitStatusOptions): Promise<GitStatus> {
     throwIfAborted(options.signal);
-    const result = await this.provider().callAgentMethod(GIT_STATUS_METHOD, statusParams(options));
+    const result = await callGit(this.provider(), GIT_STATUS_METHOD, statusParams(options));
     throwIfAborted(options.signal);
     return parseAgentResult<GitStatus>(AgentGitStatusResultSchema, result);
   }
@@ -388,7 +389,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async commitDetail(options: GitCommitDetailOptions): Promise<CommitDetail> {
     throwIfAborted(options.signal);
-    const result = await this.provider().callAgentMethod(
+    const result = await callGit(
+      this.provider(),
       GIT_COMMIT_DETAIL_METHOD,
       AgentGitCommitDetailParamsSchema.parse({ cwd: options.cwd, sha: options.sha }),
     );
@@ -398,7 +400,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async stashList(options: GitStashListOptions): Promise<StashEntry[]> {
     throwIfAborted(options.signal);
-    const result = await this.provider().callAgentMethod(
+    const result = await callGit(
+      this.provider(),
       GIT_STASH_LIST_METHOD,
       AgentGitStashListParamsSchema.parse({ cwd: options.cwd }),
     );
@@ -408,7 +411,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async stashApply(options: GitStashApplyOptions): Promise<void> {
     throwIfAborted(options.signal);
-    const result = await this.provider().callAgentMethod(
+    const result = await callGit(
+      this.provider(),
       GIT_STASH_APPLY_METHOD,
       AgentGitStashApplyParamsSchema.parse({ cwd: options.cwd, index: options.index }),
     );
@@ -425,7 +429,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async stashDrop(options: GitStashDropOptions): Promise<void> {
     throwIfAborted(options.signal);
-    await this.provider().callAgentMethod(
+    await callGit(
+      this.provider(),
       GIT_STASH_DROP_METHOD,
       AgentGitStashDropParamsSchema.parse({ cwd: options.cwd, index: options.index }),
     );
@@ -434,7 +439,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async stashPop(options: GitStashPopOptions): Promise<void> {
     throwIfAborted(options.signal);
-    const result = await this.provider().callAgentMethod(
+    const result = await callGit(
+      this.provider(),
       GIT_STASH_POP_METHOD,
       AgentGitStashPopParamsSchema.parse({ cwd: options.cwd }),
     );
@@ -477,7 +483,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async stashGroup(options: GitStashGroupOptions): Promise<void> {
     throwIfAborted(options.signal);
-    await this.provider().callAgentMethod(
+    await callGit(
+      this.provider(),
       GIT_STASH_GROUP_METHOD,
       AgentGitStashGroupParamsSchema.parse({
         cwd: options.cwd,
@@ -494,7 +501,7 @@ export class AgentGitExecutor implements GitExecutor {
     signal?: AbortSignal,
   ): Promise<GitMetadataResult> {
     throwIfAborted(signal);
-    const result = await this.provider().callAgentMethod(GIT_METADATA_METHOD, {
+    const result = await callGit(this.provider(), GIT_METADATA_METHOD, {
       gitDir,
       conflictCount,
     });
@@ -508,7 +515,7 @@ export class AgentGitExecutor implements GitExecutor {
     signal?: AbortSignal,
   ): Promise<GitIgnoreAppendResult> {
     throwIfAborted(signal);
-    const result = await this.provider().callAgentMethod(GIT_ADD_TO_GITIGNORE_METHOD, {
+    const result = await callGit(this.provider(), GIT_ADD_TO_GITIGNORE_METHOD, {
       repoRoot,
       relPath,
     });
@@ -518,7 +525,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async tagList(options: GitTagListOptions): Promise<Tag[]> {
     throwIfAborted(options.signal);
-    const result = await this.provider().callAgentMethod(
+    const result = await callGit(
+      this.provider(),
       GIT_TAG_LIST_METHOD,
       AgentGitTagListParamsSchema.parse({ cwd: options.cwd }),
     );
@@ -528,7 +536,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async tagListRemote(options: GitTagListRemoteOptions): Promise<RemoteTag[]> {
     const result = await this.withInteractiveRun(options.signal, (provider, runId) =>
-      provider.callAgentMethod(
+      callGit(
+        provider,
         GIT_TAG_LIST_REMOTE_METHOD,
         AgentGitTagListRemoteParamsSchema.parse({
           cwd: options.cwd,
@@ -543,7 +552,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async tagCreate(options: GitTagCreateOptions): Promise<void> {
     throwIfAborted(options.signal);
-    await this.provider().callAgentMethod(
+    await callGit(
+      this.provider(),
       GIT_TAG_CREATE_METHOD,
       AgentGitTagCreateParamsSchema.parse({
         cwd: options.cwd,
@@ -557,7 +567,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async tagDelete(options: GitTagDeleteOptions): Promise<void> {
     throwIfAborted(options.signal);
-    await this.provider().callAgentMethod(
+    await callGit(
+      this.provider(),
       GIT_TAG_DELETE_METHOD,
       AgentGitTagDeleteParamsSchema.parse({ cwd: options.cwd, name: options.name }),
     );
@@ -566,7 +577,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async tagDeleteRemote(options: GitTagDeleteRemoteOptions): Promise<void> {
     await this.withInteractiveRun(options.signal, (provider, runId) =>
-      provider.callAgentMethod(
+      callGit(
+        provider,
         GIT_TAG_DELETE_REMOTE_METHOD,
         AgentGitTagDeleteRemoteParamsSchema.parse({
           cwd: options.cwd,
@@ -581,7 +593,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async tagPush(options: GitTagPushOptions): Promise<void> {
     await this.withInteractiveRun(options.signal, (provider, runId) =>
-      provider.callAgentMethod(
+      callGit(
+        provider,
         GIT_TAG_PUSH_METHOD,
         AgentGitTagPushParamsSchema.parse({ cwd: options.cwd, remote: options.remote, runId }),
         INTERACTIVE_CALL_OPTIONS,
@@ -591,7 +604,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async remoteAdd(options: GitRemoteAddOptions): Promise<void> {
     throwIfAborted(options.signal);
-    await this.provider().callAgentMethod(
+    await callGit(
+      this.provider(),
       GIT_REMOTE_ADD_METHOD,
       AgentGitRemoteAddParamsSchema.parse({
         cwd: options.cwd,
@@ -604,7 +618,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async remoteRemove(options: GitRemoteRemoveOptions): Promise<void> {
     throwIfAborted(options.signal);
-    await this.provider().callAgentMethod(
+    await callGit(
+      this.provider(),
       GIT_REMOTE_REMOVE_METHOD,
       AgentGitRemoteRemoveParamsSchema.parse({ cwd: options.cwd, name: options.name }),
     );
@@ -613,7 +628,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async workflowMerge(options: GitWorkflowMergeOptions): Promise<GitMergeResult> {
     throwIfAborted(options.signal);
-    const result = await this.provider().callAgentMethod(
+    const result = await callGit(
+      this.provider(),
       GIT_WORKFLOW_MERGE_METHOD,
       AgentGitWorkflowMergeParamsSchema.parse({
         cwd: options.cwd,
@@ -627,7 +643,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async workflowRebase(options: GitWorkflowRebaseOptions): Promise<GitRebaseResult> {
     throwIfAborted(options.signal);
-    const result = await this.provider().callAgentMethod(
+    const result = await callGit(
+      this.provider(),
       GIT_WORKFLOW_REBASE_METHOD,
       AgentGitWorkflowRebaseParamsSchema.parse({ cwd: options.cwd, onto: options.onto }),
     );
@@ -637,7 +654,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async workflowCherryPick(options: GitWorkflowCherryPickOptions): Promise<GitCherryPickResult> {
     throwIfAborted(options.signal);
-    const result = await this.provider().callAgentMethod(
+    const result = await callGit(
+      this.provider(),
       GIT_WORKFLOW_CHERRY_PICK_METHOD,
       AgentGitWorkflowCherryPickParamsSchema.parse({ cwd: options.cwd, sha: options.sha }),
     );
@@ -647,7 +665,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async workflowAbort(options: GitWorkflowAbortOptions): Promise<void> {
     throwIfAborted(options.signal);
-    await this.provider().callAgentMethod(
+    await callGit(
+      this.provider(),
       GIT_WORKFLOW_ABORT_METHOD,
       AgentGitWorkflowAbortParamsSchema.parse({ cwd: options.cwd }),
     );
@@ -656,7 +675,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async workflowContinue(options: GitWorkflowContinueOptions): Promise<GitContinueOpResult> {
     throwIfAborted(options.signal);
-    const result = await this.provider().callAgentMethod(
+    const result = await callGit(
+      this.provider(),
       GIT_WORKFLOW_CONTINUE_METHOD,
       AgentGitWorkflowContinueParamsSchema.parse({ cwd: options.cwd }),
     );
@@ -668,7 +688,8 @@ export class AgentGitExecutor implements GitExecutor {
     options: GitConflictMarkResolvedOptions,
   ): Promise<GitMarkResolvedResult> {
     throwIfAborted(options.signal);
-    const result = await this.provider().callAgentMethod(
+    const result = await callGit(
+      this.provider(),
       GIT_CONFLICT_MARK_RESOLVED_METHOD,
       AgentGitConflictMarkResolvedParamsSchema.parse({
         cwd: options.cwd,
@@ -681,7 +702,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async branchCreate(options: GitBranchCreateOptions): Promise<void> {
     throwIfAborted(options.signal);
-    await this.provider().callAgentMethod(
+    await callGit(
+      this.provider(),
       GIT_BRANCH_CREATE_METHOD,
       AgentGitBranchCreateParamsSchema.parse({
         cwd: options.cwd,
@@ -695,7 +717,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async branchDelete(options: GitBranchDeleteOptions): Promise<void> {
     throwIfAborted(options.signal);
-    const result = await this.provider().callAgentMethod(
+    const result = await callGit(
+      this.provider(),
       GIT_BRANCH_DELETE_METHOD,
       AgentGitBranchDeleteParamsSchema.parse({
         cwd: options.cwd,
@@ -716,7 +739,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async branchDeleteRemote(options: GitBranchDeleteRemoteOptions): Promise<void> {
     await this.withInteractiveRun(options.signal, (provider, runId) =>
-      provider.callAgentMethod(
+      callGit(
+        provider,
         GIT_BRANCH_DELETE_REMOTE_METHOD,
         AgentGitBranchDeleteRemoteParamsSchema.parse({
           cwd: options.cwd,
@@ -731,7 +755,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async branchRename(options: GitBranchRenameOptions): Promise<void> {
     throwIfAborted(options.signal);
-    await this.provider().callAgentMethod(
+    await callGit(
+      this.provider(),
       GIT_BRANCH_RENAME_METHOD,
       AgentGitBranchRenameParamsSchema.parse({
         cwd: options.cwd,
@@ -744,7 +769,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async branchSetUpstream(options: GitBranchSetUpstreamOptions): Promise<void> {
     throwIfAborted(options.signal);
-    await this.provider().callAgentMethod(
+    await callGit(
+      this.provider(),
       GIT_BRANCH_SET_UPSTREAM_METHOD,
       AgentGitBranchSetUpstreamParamsSchema.parse({
         cwd: options.cwd,
@@ -757,7 +783,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async branchFastForward(options: GitBranchFastForwardOptions): Promise<GitFastForwardResult> {
     const result = await this.withInteractiveRun(options.signal, (provider, runId) =>
-      provider.callAgentMethod(
+      callGit(
+        provider,
         GIT_BRANCH_FAST_FORWARD_METHOD,
         AgentGitBranchFastForwardParamsSchema.parse({
           cwd: options.cwd,
@@ -779,7 +806,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async pull(options: GitPullOptions): Promise<PullResult> {
     const result = await this.withInteractiveRun(options.signal, (provider, runId) =>
-      provider.callAgentMethod(
+      callGit(
+        provider,
         GIT_PULL_METHOD,
         AgentGitPullParamsSchema.parse({
           cwd: options.cwd,
@@ -794,7 +822,8 @@ export class AgentGitExecutor implements GitExecutor {
 
   async push(options: GitPushOptions): Promise<PushResult> {
     const result = await this.withInteractiveRun(options.signal, (provider, runId) =>
-      provider.callAgentMethod(
+      callGit(
+        provider,
         GIT_PUSH_METHOD,
         AgentGitPushParamsSchema.parse({
           cwd: options.cwd,
@@ -810,12 +839,13 @@ export class AgentGitExecutor implements GitExecutor {
   }
 
   async info(): Promise<{ binaryPath: string; binaryVersion: string } | null> {
-    const result = await this.provider().callAgentMethod(GIT_INFO_METHOD, {});
+    const result = await callGit(this.provider(), GIT_INFO_METHOD, {});
     return parseAgentResult(AgentGitInfoResultSchema, result);
   }
 
   async detect(options: GitDetectOptions): Promise<RepoInfo> {
-    const result = await this.provider().callAgentMethod(
+    const result = await callGit(
+      this.provider(),
       GIT_DETECT_METHOD,
       AgentGitDetectParamsSchema.parse({ cwd: options.cwd }),
     );
@@ -965,8 +995,7 @@ export class AgentGitExecutor implements GitExecutor {
         .callAgentMethod(GIT_CANCEL_METHOD, AgentGitCancelParamsSchema.parse({ streamId }))
         .catch(() => {});
     };
-    const complete = provider
-      .callAgentMethod(methodName, params)
+    const complete = callGit(provider, methodName, params)
       .then(parseComplete)
       .finally(() => {
         queue.close();
@@ -995,6 +1024,25 @@ export class AgentGitExecutor implements GitExecutor {
 
   private provider(): AgentBackedProvider {
     return typeof this.source === "function" ? this.source() : this.source;
+  }
+}
+
+/**
+ * Calls one dedicated agent git method, rethrowing its failure as the typed
+ * GitError the IPC layer and the renderer branch on.
+ */
+async function callGit(
+  provider: AgentBackedProvider,
+  method: string,
+  params?: unknown,
+  options?: AgentCallOptions,
+): Promise<unknown> {
+  try {
+    return options
+      ? await provider.callAgentMethod(method, params, options)
+      : await provider.callAgentMethod(method, params);
+  } catch (error) {
+    throw gitErrorFromAgentError(error) ?? error;
   }
 }
 

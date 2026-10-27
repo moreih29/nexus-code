@@ -147,7 +147,7 @@ func gitError(args []string, stderr string, code int) error {
 	if message == "" {
 		message = fmt.Sprintf("git %s exited with code %d", strings.Join(args, " "), code)
 	}
-	return proto.CodedError{Code: proto.CodeRequestFailed, Msg: message}
+	return classifiedFailure(kind, message)
 }
 
 func parseRunParams(raw json.RawMessage) (RunParams, error) {
@@ -351,7 +351,7 @@ func gitExitCode(err error) (int, error) {
 
 func mapGitStartError(err error, args []string) error {
 	if errors.Is(err, exec.ErrNotFound) {
-		return proto.CodedError{Code: proto.CodeRequestFailed, Msg: "git executable not found"}
+		return classifiedFailure(KindGitMissing, "git executable not found")
 	}
 	return proto.CodedError{Code: proto.CodeRequestFailed, Msg: err.Error()}
 }

@@ -7,8 +7,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // ---------------------------------------------------------------------------
@@ -80,10 +78,7 @@ func (s *Service) Pull(ctx context.Context, raw json.RawMessage) (any, error) {
 
 	if code != 0 {
 		if isConflictExit(code, stdout, stderr) {
-			return nil, proto.CodedError{
-				Code: proto.CodeRequestFailed,
-				Msg:  "conflict: Pull produced conflicts — resolve them before continuing.",
-			}
+			return nil, classifiedFailure(KindConflict, "Pull produced conflicts — resolve them before continuing.")
 		}
 		kind := Classify(stderr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderr, Args: args, ExitCode: &code})
@@ -93,7 +88,7 @@ func (s *Service) Pull(ctx context.Context, raw json.RawMessage) (any, error) {
 		if msg == "" {
 			msg = "git pull exited with code " + strconv.Itoa(code)
 		}
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 
 	return parsePullOutput(stdout, stderr), nil
@@ -171,7 +166,7 @@ func (s *Service) Push(ctx context.Context, raw json.RawMessage) (any, error) {
 		if msg == "" {
 			msg = "git push exited with code " + strconv.Itoa(code)
 		}
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 
 	return parsePushOutput(stdout, stderr), nil

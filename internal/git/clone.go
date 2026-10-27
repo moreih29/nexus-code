@@ -211,7 +211,7 @@ func (s *Service) Clone(ctx context.Context, raw json.RawMessage) (any, error) {
 			msg = fmt.Sprintf("git clone exited with code %d", code)
 		}
 		_ = os.RemoveAll(absPath)
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 
 	return CloneResult{AbsPath: absPath}, nil

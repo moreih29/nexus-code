@@ -110,7 +110,7 @@ func (s *Service) TagList(ctx context.Context, raw json.RawMessage) (any, error)
 		stderrStr := stderr.String()
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 
 	tags := parseTagList(stdout.String())
@@ -160,7 +160,7 @@ func (s *Service) TagListRemote(ctx context.Context, raw json.RawMessage) (any, 
 		stderrStr := stderr.String()
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 
 	tags := parseRemoteTagList(stdout.String(), remote)
@@ -215,7 +215,7 @@ func (s *Service) TagCreate(ctx context.Context, raw json.RawMessage) (any, erro
 		stderrStr := stderr.String()
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 	return nil, nil
 }
@@ -254,7 +254,7 @@ func (s *Service) TagDelete(ctx context.Context, raw json.RawMessage) (any, erro
 		stderrStr := stderr.String()
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 	return nil, nil
 }
@@ -303,7 +303,7 @@ func (s *Service) TagDeleteRemote(ctx context.Context, raw json.RawMessage) (any
 		stderrStr := stderr.String()
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 	return nil, nil
 }
@@ -354,7 +354,7 @@ func (s *Service) TagPush(ctx context.Context, raw json.RawMessage) (any, error)
 		stderrStr := stderr.String()
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 	return nil, nil
 }
