@@ -25,6 +25,7 @@ import type {
   StreamMethods,
   StreamProgress,
 } from "./types";
+import { unwrapRemoteError } from "./remote-error";
 
 export interface IpcCallOptions {
   signal?: AbortSignal;
@@ -90,7 +91,7 @@ export function ipcCallResult<C extends CallChannels, M extends CallMethods<C>>(
     // Cancellation that arrived as a raw rejection (non-IpcResult path):
     // re-throw as AbortError so abort-aware callers branch on the same type.
     if (error instanceof Error && error.name === "AbortError") throw error;
-    throw error;
+    throw unwrapRemoteError(error);
   };
 
   if (!signal) {
