@@ -17,6 +17,7 @@
  * to clear pending state or keep the input open for retry.
  */
 
+import i18next from "i18next";
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { openOrRevealEditor } from "@/services/editor";
 import { runFsMutation } from "./helpers";
@@ -54,8 +55,8 @@ export async function createNewFile(input: NewFileInput): Promise<boolean> {
       }).then(unwrapIpcResult);
     },
     errorMessages: {
-      fallback: "Couldn't create file.",
-      alreadyExists: "A file or folder with that name already exists.",
+      fallback: i18next.t("files:fileTree.create.fileFailed"),
+      alreadyExists: i18next.t("files:fileTree.fsError.nameTaken"),
     },
   });
 

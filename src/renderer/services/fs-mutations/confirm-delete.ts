@@ -56,7 +56,7 @@ export async function confirmAndDeletePath(
   name?: string,
 ): Promise<boolean> {
   const displayName = name ?? basename(absPath);
-  const kindLabel = nodeType === "dir" ? "folder" : "file";
+  const isDir = nodeType === "dir";
 
   // Workspace kind drives the deletion semantics: local goes through the
   // OS trash (recoverable), SSH goes through agent removeAll/unlink
@@ -64,18 +64,14 @@ export async function confirmAndDeletePath(
   const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
   const useTrash = workspace?.location.kind === "local";
 
-  const description = composeDescription({
-    displayName,
-    kindLabel,
-    isDir: nodeType === "dir",
-    useTrash,
-  });
+  const description = composeDescription({ displayName, isDir, useTrash });
 
   const ok = await showConfirmDialog({
-    title: `Delete ${kindLabel}`,
+    title: isDir
+      ? i18next.t("files:fileTree.delete.titleFolder")
+      : i18next.t("files:fileTree.delete.titleFile"),
     description,
-    confirmLabel: useTrash ? "Move to Trash" : "Delete",
-    cancelLabel: "Cancel",
+    confirmLabel: deleteLabel(useTrash),
     variant: "destructive",
   });
   if (!ok) return false;
@@ -94,17 +90,26 @@ export async function confirmAndDeletePath(
 
 interface DescriptionInput {
   displayName: string;
-  kindLabel: string;
   isDir: boolean;
   useTrash: boolean;
 }
 
-function composeDescription({ displayName, kindLabel, isDir, useTrash }: DescriptionInput): string {
-  const subject = isDir ? `Delete "${displayName}" and its contents?` : `Delete "${displayName}"?`;
+function composeDescription({ displayName, isDir, useTrash }: DescriptionInput): string {
+  const subject = isDir
+    ? i18next.t("files:fileTree.delete.askFolder", { name: displayName })
+    : i18next.t("files:fileTree.delete.askFile", { name: displayName });
   const consequence = useTrash
-    ? `You can restore the ${kindLabel} from the Trash.`
-    : "This cannot be undone.";
+    ? isDir
+      ? i18next.t("files:fileTree.delete.restoreFolder")
+      : i18next.t("files:fileTree.delete.restoreFile")
+    : i18next.t("files:fileTree.delete.permanent");
   return `${subject} ${consequence}`;
+}
+
+function deleteLabel(useTrash: boolean): string {
+  return useTrash
+    ? i18next.t("files:fileTree.delete.moveToTrash")
+    : i18next.t("common:action.delete");
 }
 
 // ---------------------------------------------------------------------------
@@ -158,20 +163,22 @@ export async function confirmAndDeleteBatch(
   // Build dialog text.
   const N = effective.length;
   const names = effective.map((p) => basename(p));
-  const suffix = useTrash ? "You can restore the items from the Trash." : "This cannot be undone.";
+  const suffix = useTrash
+    ? i18next.t("files:fileTree.delete.restoreItems")
+    : i18next.t("files:fileTree.delete.permanent");
 
   let description: string;
   if (N <= 3) {
     description = `${names.join(", ")}\n${suffix}`;
   } else {
-    description = `${names.slice(0, 3).join(", ")} and ${N - 3} more\n${suffix}`;
+    const shown = names.slice(0, 3).join(", ");
+    description = `${i18next.t("files:fileTree.delete.moreNames", { names: shown, count: N - 3 })}\n${suffix}`;
   }
 
   const ok = await showConfirmDialog({
-    title: `Delete ${N} items`,
+    title: i18next.t("files:fileTree.delete.titleMany", { count: N }),
     description,
-    confirmLabel: useTrash ? "Move to Trash" : "Delete",
-    cancelLabel: "Cancel",
+    confirmLabel: deleteLabel(useTrash),
     variant: "destructive",
   });
   if (!ok) return false;

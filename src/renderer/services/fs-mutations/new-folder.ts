@@ -13,6 +13,7 @@
  * toast still tells the user what's wrong.
  */
 
+import i18next from "i18next";
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { runFsMutation } from "./helpers";
 
@@ -33,8 +34,8 @@ export async function createNewFolder(input: NewFolderInput): Promise<boolean> {
         recursive: true,
       }).then(unwrapIpcResult),
     errorMessages: {
-      fallback: "Couldn't create folder.",
-      alreadyExists: "A file or folder with that name already exists.",
+      fallback: i18next.t("files:fileTree.create.folderFailed"),
+      alreadyExists: i18next.t("files:fileTree.fsError.nameTaken"),
     },
   });
 }

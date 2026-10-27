@@ -74,13 +74,79 @@
     "delete": {
       "deleted": "항목 {{count}}개 삭제됨",
       "deletedPartial": "{{total}}개 중 {{success}}개 삭제됨. \"{{name}}\" 삭제 실패",
-      "deletedPartialReason": "{{total}}개 중 {{success}}개 삭제됨. \"{{name}}\" 삭제 실패: {{reason}}"
+      "deletedPartialReason": "{{total}}개 중 {{success}}개 삭제됨. \"{{name}}\" 삭제 실패: {{reason}}",
+      "titleFile": "파일 삭제",
+      "titleFolder": "폴더 삭제",
+      "titleMany": "항목 {{count}}개 삭제",
+      "askFile": "\"{{name}}\"을(를) 삭제할까요?",
+      "askFolder": "\"{{name}}\"과(와) 그 안의 내용을 삭제할까요?",
+      "restoreFile": "휴지통에서 파일을 복원할 수 있습니다.",
+      "restoreFolder": "휴지통에서 폴더를 복원할 수 있습니다.",
+      "restoreItems": "휴지통에서 항목을 복원할 수 있습니다.",
+      "permanent": "되돌릴 수 없습니다.",
+      "moreNames": "{{names}} 외 {{count}}개",
+      "moveToTrash": "휴지통으로 이동",
+      "fileFailed": "파일을 삭제하지 못했습니다.",
+      "fileDenied": "파일을 삭제할 권한이 없습니다.",
+      "folderFailed": "폴더를 삭제하지 못했습니다.",
+      "folderDenied": "폴더를 삭제할 권한이 없습니다.",
+      "folderNotEmpty": "폴더가 비어 있지 않습니다. 먼저 안의 내용을 삭제하세요.",
+      "notAFolder": "폴더가 아닌 경로입니다.",
+      "trashFileFailed": "파일을 휴지통으로 옮기지 못했습니다.",
+      "trashFolderFailed": "폴더를 휴지통으로 옮기지 못했습니다.",
+      "trashFileDenied": "파일을 휴지통으로 옮길 권한이 없습니다.",
+      "trashFolderDenied": "폴더를 휴지통으로 옮길 권한이 없습니다."
     },
     "paste": {
       "pasted": "항목 {{count}}개 붙여넣음",
       "pastedPartial": "{{total}}개 중 {{success}}개 붙여넣음. \"{{name}}\" 붙여넣기 실패",
       "pastedPartialReason": "{{total}}개 중 {{success}}개 붙여넣음. \"{{name}}\" 붙여넣기 실패: {{reason}}",
       "cycleError": "\"{{name}}\" 폴더를 자신이나 하위 폴더로 이동할 수 없습니다."
+    },
+    "fsError": {
+      "outsideWorkspace": "이 경로는 워크스페이스 밖에 있습니다.",
+      "alreadyExists": "이미 있습니다.",
+      "notFound": "경로를 찾을 수 없습니다.",
+      "permissionDenied": "접근이 거부되었습니다.",
+      "notEmpty": "폴더가 비어 있지 않습니다.",
+      "notDirectory": "폴더가 아닌 경로입니다.",
+      "crossDevice": "다른 파일 시스템으로는 이동할 수 없습니다.",
+      "unsupportedRemote": "원격 워크스페이스에서는 지원하지 않는 작업입니다.",
+      "fileNotFound": "파일을 찾을 수 없습니다.",
+      "folderNotFound": "폴더를 찾을 수 없습니다.",
+      "itemNotFound": "항목을 찾을 수 없습니다.",
+      "nameTaken": "같은 이름의 파일이나 폴더가 이미 있습니다."
+    },
+    "create": {
+      "fileFailed": "파일을 만들지 못했습니다.",
+      "folderFailed": "폴더를 만들지 못했습니다."
+    },
+    "copy": {
+      "failed": "항목을 복사하지 못했습니다.",
+      "denied": "항목을 복사할 권한이 없습니다."
+    },
+    "rename": {
+      "failed": "이름을 바꾸지 못했습니다.",
+      "crossDevice": "다른 파일 시스템으로는 이름을 바꿀 수 없습니다.",
+      "denied": "이름을 바꿀 권한이 없습니다."
+    },
+    "move": {
+      "failed": "항목을 이동하지 못했습니다.",
+      "nameTaken": "대상 위치에 같은 이름의 파일이나 폴더가 이미 있습니다.",
+      "denied": "항목을 이동할 권한이 없습니다.",
+      "replaceTitle": "기존 항목 바꾸기",
+      "replaceDescription": "대상 위치에 \"{{name}}\" 파일이나 폴더가 이미 있습니다. 바꿀까요?",
+      "replace": "바꾸기"
+    },
+    "reveal": {
+      "outsideWorkspace": "이 항목은 워크스페이스 밖에 있습니다.",
+      "failed": "Finder에서 표시하지 못했습니다.",
+      "notFound": "파일이 디스크에 더 이상 없습니다.",
+      "localOnly": "Finder에서 표시는 로컬 워크스페이스에서만 쓸 수 있습니다."
+    },
+    "clipboard": {
+      "copied": "항목 {{count}}개 복사됨",
+      "cut": "항목 {{count}}개 잘라냄"
     }
   },
   "search": {

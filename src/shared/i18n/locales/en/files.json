@@ -74,13 +74,79 @@
     "delete": {
       "deleted": "Deleted {{count}} items",
       "deletedPartial": "Deleted {{success}} of {{total}} items. Couldn't delete \"{{name}}\".",
-      "deletedPartialReason": "Deleted {{success}} of {{total}} items. Couldn't delete \"{{name}}\": {{reason}}"
+      "deletedPartialReason": "Deleted {{success}} of {{total}} items. Couldn't delete \"{{name}}\": {{reason}}",
+      "titleFile": "Delete file",
+      "titleFolder": "Delete folder",
+      "titleMany": "Delete {{count}} items",
+      "askFile": "Delete \"{{name}}\"?",
+      "askFolder": "Delete \"{{name}}\" and its contents?",
+      "restoreFile": "You can restore the file from the Trash.",
+      "restoreFolder": "You can restore the folder from the Trash.",
+      "restoreItems": "You can restore the items from the Trash.",
+      "permanent": "This cannot be undone.",
+      "moreNames": "{{names}} and {{count}} more",
+      "moveToTrash": "Move to Trash",
+      "fileFailed": "Couldn't delete file.",
+      "fileDenied": "Permission denied while deleting file.",
+      "folderFailed": "Couldn't delete folder.",
+      "folderDenied": "Permission denied while deleting folder.",
+      "folderNotEmpty": "Folder is not empty. Delete its contents first.",
+      "notAFolder": "That path is not a folder.",
+      "trashFileFailed": "Couldn't move file to Trash.",
+      "trashFolderFailed": "Couldn't move folder to Trash.",
+      "trashFileDenied": "Permission denied while moving file to Trash.",
+      "trashFolderDenied": "Permission denied while moving folder to Trash."
     },
     "paste": {
       "pasted": "Pasted {{count}} items",
       "pastedPartial": "Pasted {{success}} of {{total}} items. Couldn't paste \"{{name}}\".",
       "pastedPartialReason": "Pasted {{success}} of {{total}} items. Couldn't paste \"{{name}}\": {{reason}}",
       "cycleError": "Can't move \"{{name}}\" into itself or one of its subfolders."
+    },
+    "fsError": {
+      "outsideWorkspace": "This path is outside the workspace.",
+      "alreadyExists": "Already exists.",
+      "notFound": "Path not found.",
+      "permissionDenied": "Permission denied.",
+      "notEmpty": "Folder is not empty.",
+      "notDirectory": "Path is not a folder.",
+      "crossDevice": "Can't move across filesystems.",
+      "unsupportedRemote": "Operation not supported for remote workspaces.",
+      "fileNotFound": "File not found.",
+      "folderNotFound": "Folder not found.",
+      "itemNotFound": "Item not found.",
+      "nameTaken": "A file or folder with that name already exists."
+    },
+    "create": {
+      "fileFailed": "Couldn't create file.",
+      "folderFailed": "Couldn't create folder."
+    },
+    "copy": {
+      "failed": "Couldn't copy item.",
+      "denied": "Permission denied while copying item."
+    },
+    "rename": {
+      "failed": "Couldn't rename item.",
+      "crossDevice": "Can't rename across filesystems.",
+      "denied": "Permission denied while renaming item."
+    },
+    "move": {
+      "failed": "Couldn't move item.",
+      "nameTaken": "A file or folder with that name already exists at the destination.",
+      "denied": "Permission denied while moving item.",
+      "replaceTitle": "Replace existing item",
+      "replaceDescription": "A file or folder named \"{{name}}\" already exists at the destination. Do you want to replace it?",
+      "replace": "Replace"
+    },
+    "reveal": {
+      "outsideWorkspace": "This item is outside the workspace.",
+      "failed": "Couldn't reveal in Finder.",
+      "notFound": "File no longer exists on disk.",
+      "localOnly": "Reveal in Finder is only available for local workspaces."
+    },
+    "clipboard": {
+      "copied": "Copied {{count}} items",
+      "cut": "Cut {{count}} items"
     }
   },
   "search": {

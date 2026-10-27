@@ -154,7 +154,10 @@ export function useFileTreeActions({
 
     // N≥2: acknowledge multi-copy (single copy is silent, matching Phase C delete).
     if (entries.length >= 2) {
-      showToast({ kind: "info", message: `Copied ${entries.length} items` });
+      showToast({
+        kind: "info",
+        message: i18next.t("files:fileTree.clipboard.copied", { count: entries.length }),
+      });
     }
   }
 
@@ -172,7 +175,10 @@ export function useFileTreeActions({
     handleCut({ workspaceId, workspaceRootPath: rootAbsPath, entries });
 
     if (entries.length >= 2) {
-      showToast({ kind: "info", message: `Cut ${entries.length} items` });
+      showToast({
+        kind: "info",
+        message: i18next.t("files:fileTree.clipboard.cut", { count: entries.length }),
+      });
     }
   }
 

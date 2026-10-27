@@ -92,18 +92,18 @@ function withFocusedSinglePath(
 
 // ---------------------------------------------------------------------------
 // Parameterized clipboard action — copy and cut share identical logic except
-// for the clipboard service call and the toast verb.
+// for the clipboard service call and the toast message.
 // ---------------------------------------------------------------------------
 
 function makeClipboardCommand(
   action: typeof handleCopy | typeof handleCut,
-  verb: string,
+  doneKey: "files:fileTree.clipboard.copied" | "files:fileTree.clipboard.cut",
 ): () => void {
   return () => {
     withFocusedTreePaths(({ wsId, tree, entries }) => {
       action({ workspaceId: wsId, workspaceRootPath: tree.rootAbsPath, entries });
       if (entries.length >= 2) {
-        showToast({ kind: "info", message: `${verb} ${entries.length} items` });
+        showToast({ kind: "info", message: i18next.t(doneKey, { count: entries.length }) });
       }
     });
   };
@@ -205,8 +205,14 @@ export function registerFileCommands(): Array<() => void> {
     // Phase D: selectOperablePaths returns the full multi-selection after
     // distinctParents, so keybinding gestures work on N items just like the
     // context-menu copy/cut actions. Root path is filtered; no-op if empty.
-    registerCommand(COMMANDS.fileCopy, makeClipboardCommand(handleCopy, "Copied")),
-    registerCommand(COMMANDS.fileCut, makeClipboardCommand(handleCut, "Cut")),
+    registerCommand(
+      COMMANDS.fileCopy,
+      makeClipboardCommand(handleCopy, "files:fileTree.clipboard.copied"),
+    ),
+    registerCommand(
+      COMMANDS.fileCut,
+      makeClipboardCommand(handleCut, "files:fileTree.clipboard.cut"),
+    ),
     registerCommand(COMMANDS.filePaste, () => {
       handlePaste().catch(() => {});
     }),

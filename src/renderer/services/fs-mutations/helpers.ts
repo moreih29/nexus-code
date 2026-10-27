@@ -1,5 +1,6 @@
 // Shared orchestration for fs-mutation operations (new-file, new-folder, etc.).
 
+import i18next from "i18next";
 import { loadChildren } from "@/state/operations/files";
 import { relPath } from "@/utils/path";
 import { FS_ERROR } from "../../../shared/fs/errors";
@@ -31,7 +32,7 @@ export async function runFsMutation(spec: FsMutationSpec): Promise<boolean> {
   const rel = relPath(absPath, spec.workspaceRootPath);
   if (rel === absPath) {
     toFsToast(new Error(FS_ERROR.OUT_OF_WORKSPACE), {
-      fallback: "This path is outside the workspace.",
+      fallback: i18next.t("files:fileTree.fsError.outsideWorkspace"),
     });
     return false;
   }
