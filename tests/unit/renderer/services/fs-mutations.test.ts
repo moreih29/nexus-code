@@ -63,11 +63,13 @@ function installWindow(): void {
   };
 }
 
-const { renamePath, rmdirPath, unlinkPath } = await import(
+const { createNewFile, renamePath, rmdirPath, unlinkPath } = await import(
   "../../../../src/renderer/services/fs-mutations"
 );
 const { toFsToast } = await import("../../../../src/renderer/services/fs-mutations/errors");
+const { registerTabFocusTarget } = await import("../../../../src/renderer/services/tab-focus");
 const { useFilesStore } = await import("../../../../src/renderer/state/stores/files");
+const { useTabsStore } = await import("../../../../src/renderer/state/stores/tabs");
 
 function resetTree(): void {
   useFilesStore.setState({ trees: new Map(), selection: new Map() });
@@ -118,6 +120,35 @@ describe("fs-mutations services", () => {
       "Already exists.",
       "Can't move across filesystems.",
     ]);
+  });
+
+  it("focuses the editor of a newly created file", async () => {
+    const frames: FrameRequestCallback[] = [];
+    const originalRaf = globalThis.requestAnimationFrame;
+    globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) =>
+      frames.push(callback)) as typeof requestAnimationFrame;
+    try {
+      const ok = await createNewFile({
+        workspaceId: WS,
+        workspaceRootPath: ROOT,
+        parentAbsPath: ROOT,
+        name: "new.ts",
+      });
+      expect(ok).toBe(true);
+
+      const tab = Object.values(useTabsStore.getState().byWorkspace[WS] ?? {}).find(
+        (candidate) => candidate.type === "editor" && candidate.props.filePath === `${ROOT}/new.ts`,
+      );
+      if (!tab) throw new Error("editor tab not opened");
+      let focused = false;
+      registerTabFocusTarget(tab.id, () => {
+        focused = true;
+      });
+      for (const frame of frames.splice(0)) frame(0);
+      expect(focused).toBe(true);
+    } finally {
+      globalThis.requestAnimationFrame = originalRaf;
+    }
   });
 
   it("keeps rename input open when ALREADY_EXISTS fails", async () => {
