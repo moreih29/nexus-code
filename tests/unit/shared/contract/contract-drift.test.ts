@@ -18,7 +18,6 @@
  * the exact zod issue.
  */
 
-import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
@@ -36,6 +35,7 @@ import { WorkspaceManager } from "../../../../src/main/features/workspace/manage
 import { ipcContract } from "../../../../src/shared/ipc/contract";
 import type { DirEntry, FileReadResult, FsStat } from "../../../../src/shared/fs/types";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
+import { closeTestDatabases, openTestDatabase } from "../../../helpers/test-database";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -132,6 +132,7 @@ describe("ipcContract drift — fs handlers", () => {
   });
 
   afterEach(() => {
+    closeTestDatabases();
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
@@ -288,14 +289,15 @@ describe("ipcContract drift — workspace handlers", () => {
   });
 
   afterEach(() => {
+    closeTestDatabases();
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
   function makeManager(): WorkspaceManager {
     const wsBaseDir = path.join(tmpRoot, "workspaces");
     fs.mkdirSync(wsBaseDir, { recursive: true });
-    const globalStorage = new GlobalStorage(new Database(":memory:"));
-    const workspaceStorage = new WorkspaceStorage(wsBaseDir, (p) => new Database(p));
+    const globalStorage = new GlobalStorage(openTestDatabase(":memory:"));
+    const workspaceStorage = new WorkspaceStorage(wsBaseDir, (p) => openTestDatabase(p));
     const stateService = new StateService(path.join(tmpRoot, "state.json"));
     const broadcastFn = mock((_c: string, _e: string, _a: unknown) => {});
     return new WorkspaceManager(globalStorage, workspaceStorage, stateService, broadcastFn);

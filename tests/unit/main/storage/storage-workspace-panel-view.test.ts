@@ -4,20 +4,21 @@
  * (c) set→get round-trip, missing-row default fallback, different panelKind values.
  */
 
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { WorkspaceStorage } from "../../../../src/main/infra/storage/workspace-storage";
 import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../../src/shared/types/panel";
+import { closeTestDatabases, openTestDatabase } from "../../../helpers/test-database";
 
 function makeTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "nexus-panel-view-test-"));
 }
 
 function bunSqliteFactory(dbPath: string): Database {
-  return new Database(dbPath);
+  return openTestDatabase(dbPath);
 }
 
 // ---------------------------------------------------------------------------
@@ -37,6 +38,7 @@ describe("WorkspaceStorage.getPanelViewOptions / setPanelViewOptions — search 
 
   afterEach(() => {
     storage.closeForWorkspace(id);
+    closeTestDatabases();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -76,6 +78,7 @@ describe("WorkspaceStorage.getPanelViewOptions — git panel defaults and isolat
 
   afterEach(() => {
     storage.closeForWorkspace(id);
+    closeTestDatabases();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -116,6 +119,7 @@ describe("WorkspaceStorage.getPanelViewOptions — error when not open", () => {
   });
 
   afterEach(() => {
+    closeTestDatabases();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 

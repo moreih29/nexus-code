@@ -1,9 +1,10 @@
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { WorkspaceStorage } from "../../../../src/main/infra/storage/workspace-storage";
+import { closeTestDatabases, openTestDatabase } from "../../../helpers/test-database";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -14,7 +15,7 @@ function makeTmpDir(): string {
 }
 
 function bunSqliteFactory(dbPath: string): Database {
-  return new Database(dbPath);
+  return openTestDatabase(dbPath);
 }
 
 // ---------------------------------------------------------------------------
@@ -40,6 +41,7 @@ describe("NEXUS_RESET_STORAGE=1", () => {
     } else {
       process.env.NEXUS_RESET_STORAGE = originalEnv;
     }
+    closeTestDatabases();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
