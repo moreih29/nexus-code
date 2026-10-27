@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/nexus-code/nexus-code/internal/dispatch"
@@ -351,7 +350,7 @@ func TestRenameCrossDeviceMapsEXDEV(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(root, "old.txt"), []byte("payload"), 0o644))
 	orig := renamePath
 	renamePath = func(oldpath, newpath string) error {
-		return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: syscall.EXDEV}
+		return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: errCrossDevice}
 	}
 	t.Cleanup(func() { renamePath = orig })
 
@@ -454,7 +453,7 @@ func TestRenameOverwriteKeepsDestinationOnFailure(t *testing.T) {
 			if tc.exdev {
 				orig := renamePath
 				renamePath = func(oldpath, newpath string) error {
-					return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: syscall.EXDEV}
+					return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: errCrossDevice}
 				}
 				t.Cleanup(func() { renamePath = orig })
 			}
