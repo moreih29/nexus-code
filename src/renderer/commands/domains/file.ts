@@ -159,13 +159,10 @@ export function registerFileCommands(): Array<() => void> {
     registerCommand(COMMANDS.fileOpen, async () => {
       const wsId = useActiveStore.getState().activeWorkspaceId;
       if (!wsId) return;
+      // No filters: the first filter is the dialog's default on Windows and
+      // Linux, and the editor opens any text file.
       const { canceled, filePaths } = unwrapIpcResult(
-        await ipcCallResult("dialog", "showOpenFile", {
-          filters: [
-            { name: "TypeScript / JavaScript", extensions: ["ts", "tsx", "js", "jsx"] },
-            { name: "All Files", extensions: ["*"] },
-          ],
-        }),
+        await ipcCallResult("dialog", "showOpenFile", {}),
       );
       if (canceled || filePaths.length === 0) return;
       const filePath = filePaths[0];
