@@ -50,7 +50,7 @@ describe("helpers-launcher", () => {
     expect(env.GIT_EDITOR).toBe(path.join(wrapperDir, "nexus-git-editor-helper"));
     expect(env.DISPLAY).toBe(":0");
 
-    expect(modeOf(env.GIT_EDITOR ?? "")).toBe(0o700);
+    if (HAS_POSIX_MODES) expect(modeOf(env.GIT_EDITOR ?? "")).toBe(0o700);
     expect(fs.readFileSync(env.GIT_EDITOR ?? "", "utf8")).toContain("editor-helper.cjs");
     expect(env.GIT_EDITOR).not.toMatch(/^'.*' '.*'$/);
   });
@@ -87,7 +87,7 @@ describe("Git helper endpoint security", () => {
 
     expect(endpoint.kind).toBe("unix");
     expect(endpoint.path).toBe(path.join(userDataDir, "nexus-helpers-1234.sock"));
-    expect(modeOf(userDataDir)).toBe(0o700);
+    if (HAS_POSIX_MODES) expect(modeOf(userDataDir)).toBe(0o700);
   });
 
   it("builds a Windows named pipe endpoint", () => {
@@ -193,6 +193,9 @@ function makeTmpDir(prefix: string): string {
   tmpRoots.push(dir);
   return dir;
 }
+
+/** Windows file systems keep no POSIX mode bits to assert on. */
+const HAS_POSIX_MODES = process.platform !== "win32";
 
 /**
  * Returns POSIX mode bits for permission assertions.
