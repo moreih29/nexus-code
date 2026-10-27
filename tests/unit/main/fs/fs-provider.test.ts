@@ -161,7 +161,7 @@ describe("createFsProvider", () => {
       throw new Error("expected provider.stat to reject");
     } catch (error) {
       expect(error).toBeInstanceOf(Error);
-      expect((error as Error).message).toBe("Remote agent protocol error");
+      expect((error as Error).message).toBe("Agent protocol error");
       expect((error as { code?: string }).code).toBe("server.protocol-error");
     }
   });

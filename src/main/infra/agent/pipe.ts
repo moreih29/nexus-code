@@ -690,13 +690,13 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
         }) as Promise<TResult>;
 
       if (!deps.stdin.writable || deps.stdin.destroyed) {
-        pendingRequests.reject(requestId, createSshError("ssh.unknown"));
+        pendingRequests.reject(requestId, createSshError("transport.unknown"));
         return promise;
       }
 
       deps.stdin.write(line, (error) => {
         if (error) {
-          pendingRequests.reject(requestId, createSshError("ssh.unknown", error));
+          pendingRequests.reject(requestId, createSshError("transport.unknown", error));
         }
       });
 
@@ -819,11 +819,11 @@ function messageForSshErrorCode(code: SshErrorCode): string {
     case "ssh.path-not-found":
       return "Remote path not found";
     case "server.spawn-failed":
-      return "Remote agent failed to start";
+      return "Agent failed to start";
     case "server.protocol-error":
-      return "Remote agent protocol error";
+      return "Agent protocol error";
     case "server.protocol-version-mismatch":
-      return "Remote agent protocol version mismatch";
+      return "Agent protocol version mismatch";
     case "ssh.unknown":
       return "SSH transport failed";
     case "transport.unknown":
@@ -982,14 +982,14 @@ function parseFrame(line: string): ParsedFrame {
 }
 
 /**
- * Converts a remote agent error frame to an Error while preserving its code.
+ * Converts an agent error frame to an Error while preserving its code.
  */
 function errorFromServerFrame(value: unknown): Error {
   if (!isRecord(value)) {
-    return new Error("Remote agent request failed");
+    return new Error("Agent request failed");
   }
 
-  const message = typeof value.message === "string" ? value.message : "Remote agent request failed";
+  const message = typeof value.message === "string" ? value.message : "Agent request failed";
   const error = new Error(message);
   if (typeof value.code === "string") {
     (error as Error & { code: string }).code = value.code;

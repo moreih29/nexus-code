@@ -209,7 +209,7 @@ export function parseAgentResult<T>(schema: z.ZodType<T>, result: unknown): T {
 }
 
 function createProtocolError(cause: unknown): Error & { code: SshErrorCode } {
-  const error = new Error("Remote agent protocol error", { cause }) as Error & {
+  const error = new Error("Agent protocol error", { cause }) as Error & {
     code: SshErrorCode;
   };
   error.name = "SshError";
