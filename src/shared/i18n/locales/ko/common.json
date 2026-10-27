@@ -285,7 +285,9 @@
     "aggregate_other": "터미널 {{count}}개가 종료되었습니다.",
     "held_banner": "연결이 끊겨 재연결 중입니다 — 세션은 보존됩니다, 약 {{minutes}}분 남음",
     "held_input_hint": "재연결 중에는 입력이 보류됩니다",
-    "restored_banner": "복원됨"
+    "restored_banner": "복원됨",
+    "spawn_failed": "터미널을 시작하지 못했습니다: {{reason}}",
+    "init_failed": "터미널을 준비하지 못했습니다: {{reason}}"
   },
   "lsp": {
     "on": "{{label}} LSP: 켜짐 — 클릭하여 비활성화",

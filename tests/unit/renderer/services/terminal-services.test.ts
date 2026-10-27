@@ -597,6 +597,33 @@ describe("services/terminal pty-client exit lifecycle", () => {
   });
 });
 
+describe("services/terminal controller spawn failure", () => {
+  beforeEach(resetIpc);
+
+  it("prints the failure's reason once, without the Error name or the agent's lead", async () => {
+    const harness = makeTerminalControllerDeps(() =>
+      Promise.reject(new Error("failed to spawn PTY: chdir /gone: no such file or directory")),
+    );
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-spawn-fails",
+        cwd: "/gone",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    await Promise.resolve();
+
+    expect(harness.writes).toEqual([
+      "\r\n[Couldn't start the terminal: chdir /gone: no such file or directory]\r\n",
+    ]);
+
+    controller.dispose();
+  });
+});
+
 describe("services/terminal controller reopen", () => {
   beforeEach(resetIpc);
 

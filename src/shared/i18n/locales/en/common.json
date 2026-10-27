@@ -285,7 +285,9 @@
     "aggregate_other": "{{count}} terminals ended.",
     "held_banner": "Connection lost, reconnecting — session is preserved, ~{{minutes}}m left",
     "held_input_hint": "Input is held while reconnecting",
-    "restored_banner": "Restored"
+    "restored_banner": "Restored",
+    "spawn_failed": "Couldn't start the terminal: {{reason}}",
+    "init_failed": "Couldn't set up the terminal: {{reason}}"
   },
   "lsp": {
     "on": "{{label}} LSP: On — click to disable",

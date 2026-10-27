@@ -2,6 +2,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { LigaturesAddon } from "@xterm/addon-ligatures";
 import type { ITheme } from "@xterm/xterm";
 import { Terminal } from "@xterm/xterm";
+import i18next from "i18next";
 import { DEFAULT_THEME, THEMES } from "../../../shared/design-tokens";
 import type { ThemeId } from "../../../shared/design-tokens/themes";
 import { TERMINAL_PALETTES } from "../../../shared/editor/terminal-palette";
@@ -307,7 +308,8 @@ class XtermTerminalController implements TerminalController {
   ) {
     this.initialize().catch((error: unknown) => {
       if (!this.disposed) {
-        this.term?.write(`\r\n[terminal initialization failed: ${String(error)}]\r\n`);
+        const reason = errorReason(error);
+        this.term?.write(`\r\n[${i18next.t("common:terminal.init_failed", { reason })}]\r\n`);
       }
     });
   }
@@ -780,7 +782,8 @@ class XtermTerminalController implements TerminalController {
     if (this.options.autoSpawn !== false) {
       ptyClient.spawn(initialDimensions).catch((error: unknown) => {
         if (!this.disposed) {
-          term.write(`\r\n[spawn failed: ${String(error)}]\r\n`);
+          const reason = errorReason(error).replace(AGENT_SPAWN_FAILURE_LEAD, "");
+          term.write(`\r\n[${i18next.t("common:terminal.spawn_failed", { reason })}]\r\n`);
         }
       });
     }
@@ -1044,4 +1047,12 @@ export function createTerminalController(
   deps: TerminalControllerDeps = defaultTerminalControllerDeps,
 ): TerminalController {
   return new XtermTerminalController(options, deps);
+}
+
+/** The agent's lead on a PTY start failure, which the line already says. */
+const AGENT_SPAWN_FAILURE_LEAD = /^failed to spawn PTY: /;
+
+/** The message of a failure, without an Error's "Error: " name prefix. */
+function errorReason(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
