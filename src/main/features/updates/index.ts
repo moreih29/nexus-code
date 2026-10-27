@@ -5,7 +5,9 @@
  * LIFECYCLE
  * ---------
  *   installUpdatesDomain({ broadcast, stateService, currentVersion })
- *     → registers `updates.check` and `updates.setIgnoredVersion` IPC handlers
+ *     → registers `updates.check` and `updates.setIgnoredVersion` IPC handlers,
+ *       and `updates.install` / `updates.restart` for an in-place update
+ *       (installer.ts) when the app can replace itself
  *     → fires one silent auto-poll after app.whenReady() via the returned
  *       `runInitialAutoPoll()` callback (called by the bootstrap in index.ts)
  *     → subscribes to updateChannel changes so a channel switch resets
@@ -37,10 +39,16 @@ import type { StateService } from "../../infra/storage/state-service";
 import type { TimerScheduler } from "../../../shared/util/timer-scheduler";
 import { defaultTimerScheduler } from "../../../shared/util/timer-scheduler";
 import {
+  createUpdateInstaller,
+  type InstallStatus,
+  type UpdateBackend,
+} from "./installer";
+import {
   createConditionalCache,
   type PollFailureReason,
   pollGithubReleases,
   type PollResult,
+  REPO_BASE,
 } from "./poller";
 
 // ---------------------------------------------------------------------------
@@ -51,7 +59,14 @@ type Trigger = "auto" | "manual";
 
 type StatusPayload =
   | { kind: "checking"; trigger: Trigger }
-  | { kind: "newer"; trigger: Trigger; current: string; latest: string; releaseUrl: string }
+  | {
+      kind: "newer";
+      trigger: Trigger;
+      current: string;
+      latest: string;
+      releaseUrl: string;
+      canInstall: boolean;
+    }
   | { kind: "current"; trigger: Trigger; current: string; latest?: string }
   | { kind: "error"; trigger: Trigger; reason: PollFailureReason; status?: number };
 
@@ -67,6 +82,11 @@ export interface InstallUpdatesDomainOptions {
    * Omit in production; inject a mock in tests.
    */
   fetchImpl?: typeof fetch;
+  /**
+   * Installs updates in place. Omitted where the app cannot replace itself (an
+   * unpackaged or non-macOS build): "newer" then offers the release page only.
+   */
+  updateBackend?: UpdateBackend;
 }
 
 export interface UpdatesDomainHandle {
@@ -102,7 +122,19 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
     currentVersion,
     timerScheduler = defaultTimerScheduler,
     fetchImpl,
+    updateBackend,
   } = options;
+
+  const installer =
+    updateBackend &&
+    createUpdateInstaller({
+      backend: updateBackend,
+      // In-place update progress is never deduped: each step is news.
+      onStatus: (status: InstallStatus) => broadcast("updates", "statusChanged", status),
+      releaseUrl: (version) =>
+        version === null ? `${REPO_BASE}/releases` : `${REPO_BASE}/releases/tag/v${version}`,
+      logger,
+    });
 
   // ------------------------------------------------------------------
   // Dedupe state: remember the last broadcasted (kind, latest) pair.
@@ -173,7 +205,7 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
       return;
     }
 
-    const payload = buildPayload(result, trigger);
+    const payload = buildPayload(result, trigger, installer !== undefined);
     broadcastStatus(payload);
   }
 
@@ -298,6 +330,16 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
         return ipcOk(undefined);
       },
 
+      install: () => {
+        void installer?.install(stateService.getState().updateChannel ?? "stable");
+        return ipcOk(undefined);
+      },
+
+      restart: () => {
+        installer?.restart();
+        return ipcOk(undefined);
+      },
+
       openReleasePage: (args: unknown) => {
         const { url } = validateArgs(c.openReleasePage.args, args);
         if (isExternalSchemeAllowed(url)) {
@@ -357,7 +399,7 @@ function shouldBroadcastResult(
 /**
  * Map a PollResult + trigger into the broadcast payload shape.
  */
-function buildPayload(result: PollResult, trigger: Trigger): StatusPayload {
+function buildPayload(result: PollResult, trigger: Trigger, canInstall: boolean): StatusPayload {
   switch (result.kind) {
     case "newer":
       return {
@@ -366,6 +408,7 @@ function buildPayload(result: PollResult, trigger: Trigger): StatusPayload {
         current: result.current,
         latest: result.latest,
         releaseUrl: result.releaseUrl,
+        canInstall,
       };
     case "current":
       return {

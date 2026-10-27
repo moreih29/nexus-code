@@ -13,8 +13,15 @@
 #   호환성 충돌이 있어 사용하지 않는다 (자산을 silent skip 함). `--publish never` 로
 #   dist/ 산출물만 만들고, 별도 step 에서 `gh release upload --clobber` 로 명시 첨부.
 #
-# Apple code-signing: identity=null, notarize=false (electron-builder.yml 그대로).
-# Secret: GITHUB_TOKEN 한 개만 사용. Apple secrets 없음.
+# Code signing: a self-signed certificate (no Apple Developer ID, no notarization).
+# Every release is signed with the same one so that an installed app takes the
+# next version in place — Squirrel.Mac accepts an update only when it meets the
+# running app's designated requirement, which names this certificate. A release
+# signed with another certificate cannot update the ones before it.
+#   secrets.MAC_SIGNING_CERT_P12       base64 of the certificate's .p12
+#   secrets.MAC_SIGNING_CERT_PASSWORD  its password
+#   env.NEXUS_MAC_SIGN_IDENTITY        its SHA-1, pinned so a swapped secret fails
+#                                      the release instead of shipping it
 
 name: Release
 
@@ -79,6 +86,8 @@ jobs:
       # GitHub Actions의 삼항 표현식: `condition && 'true-val' || 'false-val'`
       NEXUS_CHANNEL: ${{ github.event.release.prerelease && 'beta' || 'stable' }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # SHA-1 of the release signing certificate ("NexusCode Release Signing").
+      NEXUS_MAC_SIGN_IDENTITY: A1FC28A2A25510877EBF48CBB0F65E96504CABD0
 
     steps:
       - name: Checkout
@@ -107,6 +116,31 @@ jobs:
       - name: Build renderer (electron-vite)
         run: bun run build
 
+      - name: Import signing certificate
+        # macOS does not trust a self-signed certificate, so electron-builder's
+        # identity lookup skips it; scripts/sign-mac.cjs (mac.sign) signs with
+        # it by NEXUS_MAC_SIGN_IDENTITY out of this keychain instead.
+        env:
+          CERT_P12: ${{ secrets.MAC_SIGNING_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MAC_SIGNING_CERT_PASSWORD }}
+        run: |
+          : "${CERT_P12:?secret MAC_SIGNING_CERT_P12 is not set}"
+          : "${CERT_PASSWORD:?secret MAC_SIGNING_CERT_PASSWORD is not set}"
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+          printf '%s' "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/signing.p12" -k "$keychain" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/signing.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
+          if ! security find-identity -p codesigning "$keychain" | grep -q "$NEXUS_MAC_SIGN_IDENTITY"; then
+            echo "::error::the certificate in MAC_SIGNING_CERT_P12 is not $NEXUS_MAC_SIGN_IDENTITY"
+            exit 1
+          fi
+          echo "NEXUS_MAC_SIGN_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
       - name: Package with electron-builder
         # `--publish never` 로 dist/ 산출물만 만든다.
         # electron-builder 내장 publish 는 기존 published release ↔ draft 모드 충돌로
@@ -116,6 +150,18 @@ jobs:
           --mac dmg zip
           --arm64
           --publish never
+
+      - name: Verify the signature
+        # The designated requirement must name the release certificate, or the
+        # installed apps cannot update to this release.
+        run: |
+          app="dist/mac-arm64/NexusCode.app"
+          codesign --verify --deep --strict "$app"
+          requirement="$(codesign -d -r- "$app" 2>&1)"
+          echo "$requirement"
+          identity="$(echo "$NEXUS_MAC_SIGN_IDENTITY" | tr '[:upper:]' '[:lower:]')"
+          echo "$requirement" | grep -q "certificate leaf = H\"$identity\"" \
+            || { echo "::error::$app is not signed with the release certificate"; exit 1; }
 
       - name: Upload assets to release
         # `tag_name` 이 곧 release 식별자. `--clobber` 는 같은 이름 자산이 있으면 덮어쓴다

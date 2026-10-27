@@ -45,6 +45,18 @@ xattr -dr com.apple.quarantine "/Applications/NexusCode.app"
 
 이후 일반 더블클릭으로 앱이 열린다.
 
+보안 해제는 처음 설치할 때 한 번만 한다. 이후 버전은 앱 안에서 업데이트하며(아래 [업데이트](#업데이트)), 앱이 직접 받은 업데이트에는 quarantine 속성이 붙지 않는다.
+
+---
+
+## 업데이트
+
+새 버전 알림의 **Update** 를 누르면 앱이 새 버전을 내려받고, 준비되면 **Restart Now** 로 설치한다. 누르지 않으면 다음 종료 때 설치된다.
+
+- 릴리스 빌드는 모두 같은 자체 서명 인증서로 서명된다. macOS 업데이터(Squirrel.Mac)는 새 버전의 서명이 실행 중인 앱과 같은 인증서일 때만 설치한다.
+- 0.10.0 이전 버전은 앱 안 업데이트를 지원하지 않는다. 그 버전에서는 한 번 `.dmg` 로 설치하고 보안 해제를 거친다.
+- Self-build 앱(ad-hoc 서명)은 앱 안에서 업데이트할 수 없다. 업데이트가 실패하면 알림의 **Open Release Page** 로 릴리스 페이지에서 내려받는다.
+
 ---
 
 ## Self-build
@@ -120,6 +132,16 @@ quarantine 속성이 남아 있는 경우다. 터미널에서 아래 명령을 �
 ```bash
 xattr -dr com.apple.quarantine "/Applications/NexusCode.app"
 ```
+
+### "업데이트를 설치하지 못했습니다"
+
+알림의 **Open Release Page**(릴리스 페이지 열기) 로 `.dmg` 를 내려받아 설치한다. 흔한 원인:
+
+- 앱을 `/Applications` 로 옮기지 않고 `.dmg` 안에서 실행 중이다 (읽기 전용이라 교체할 수 없다).
+- `/Applications/NexusCode.app` 에 쓰기 권한이 없다.
+- Self-build 앱이다 (위 [업데이트](#업데이트) 참고).
+
+자세한 원인은 `~/Library/Logs/NexusCode/main.log` 의 `updates` 항목에 남는다.
 
 ### Native module 오류 (node-pty, better-sqlite3)
 

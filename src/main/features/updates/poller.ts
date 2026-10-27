@@ -102,7 +102,7 @@ export interface PollGithubReleasesOptions {
 // Source URLs
 // ---------------------------------------------------------------------------
 
-const REPO_BASE = "https://github.com/moreih29/nexus-code";
+export const REPO_BASE = "https://github.com/moreih29/nexus-code";
 /** Stable: electron-updater metadata for the latest non-prerelease release. */
 const STABLE_URL = `${REPO_BASE}/releases/latest/download/latest-mac.yml`;
 /** Beta: Atom feed of all published releases (prereleases included). */

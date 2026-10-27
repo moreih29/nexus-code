@@ -41,6 +41,7 @@ import { registerSystemChannel } from "./features/shell/ipc";
 import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
 import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ipc";
 import { installUpdatesDomain, type UpdatesDomainHandle } from "./features/updates";
+import { createElectronUpdateBackend } from "./features/updates/electron-update-backend";
 import { createMainWindow } from "./features/window";
 import { installAppSessionPermissions } from "./features/window/app-session-permissions";
 import { hasAppWindow } from "./features/window/app-windows";
@@ -280,6 +281,10 @@ updatesHandle = installUpdatesDomain({
   broadcast: forwardBroadcast,
   stateService,
   currentVersion: app.getVersion(),
+  // Squirrel.Mac replaces a packaged macOS app in place; any other build
+  // leaves the user the release page.
+  updateBackend:
+    app.isPackaged && isMac() ? createElectronUpdateBackend(createLogger("updates")) : undefined,
 });
 
 app.whenReady().then(async () => {

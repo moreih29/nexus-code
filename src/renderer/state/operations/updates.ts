@@ -7,11 +7,16 @@
  * TOAST RULES
  * -----------
  *   kind=checking   (manual only)  → plain info toast, short duration
- *   kind=newer                     → action toast: "Download" + "Skip this version"
+ *   kind=newer                     → action toast: "Update" (or "Download", which
+ *                                    opens the release page, when the app cannot
+ *                                    update in place) + "Skip this version"
  *   kind=current  + trigger=manual → plain info toast 3 s
  *   kind=current  + trigger=auto   → silent
  *   kind=error    + trigger=manual → error toast
  *   kind=error    + trigger=auto   → silent
+ *   kind=downloading               → plain info toast
+ *   kind=ready                     → action toast: "Restart Now"
+ *   kind=installFailed             → error toast with "Open Release Page"
  *
  * DEDUPE
  * ------
@@ -73,18 +78,25 @@ export function initUpdatesSubscriptions(): void {
         }
         lastShownNewerVersion = status.latest;
 
-        const { latest, releaseUrl } = status;
+        const { latest, releaseUrl, canInstall } = status;
 
         showToast({
           kind: "info",
           message: i18next.t("common:updates.available", { version: latest }),
           actions: [
-            {
-              label: i18next.t("common:updates.download"),
-              onAction: () => {
-                void ipcCallResult("updates", "openReleasePage", { url: releaseUrl });
-              },
-            },
+            canInstall
+              ? {
+                  label: i18next.t("common:updates.install"),
+                  onAction: () => {
+                    void ipcCallResult("updates", "install", undefined);
+                  },
+                }
+              : {
+                  label: i18next.t("common:updates.download"),
+                  onAction: () => {
+                    void ipcCallResult("updates", "openReleasePage", { url: releaseUrl });
+                  },
+                },
             {
               label: i18next.t("common:updates.skipVersion"),
               onAction: () => {
@@ -116,6 +128,45 @@ export function initUpdatesSubscriptions(): void {
           });
         }
         break;
+
+      case "downloading":
+        showToast({
+          kind: "info",
+          message: i18next.t("common:updates.downloading", { version: status.version }),
+        });
+        break;
+
+      case "ready":
+        showToast({
+          kind: "info",
+          message: i18next.t("common:updates.ready", { version: status.version }),
+          actions: [
+            {
+              label: i18next.t("common:updates.restart"),
+              onAction: () => {
+                void ipcCallResult("updates", "restart", undefined);
+              },
+            },
+          ],
+        });
+        break;
+
+      case "installFailed": {
+        const { releaseUrl } = status;
+        showToast({
+          kind: "error",
+          message: i18next.t("common:updates.installFailed"),
+          actions: [
+            {
+              label: i18next.t("common:updates.openReleasePage"),
+              onAction: () => {
+                void ipcCallResult("updates", "openReleasePage", { url: releaseUrl });
+              },
+            },
+          ],
+        });
+        break;
+      }
     }
   });
 }

@@ -1,7 +1,7 @@
 {
   "name": "nexus-code",
   "productName": "NexusCode",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Multi-workspace VSCode-style editor for macOS. Monaco editor + terminal in one window.",
   "license": "MIT",
   "private": true,
@@ -39,6 +39,7 @@
     "clsx": "^2.1.1",
     "culori": "^4.0.2",
     "electron-log": "^5.4.4",
+    "electron-updater": "6.8.3",
     "i18next": "^26.3.0",
     "lucide-react": "^1.14.0",
     "node-pty": "^1.1.0",
