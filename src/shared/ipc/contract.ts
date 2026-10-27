@@ -639,8 +639,11 @@ export const ipcContract = {
       foregroundProcess: call(PtyWorkspaceTabSchema, z.object({ name: z.string() })),
     },
     listen: {
-      // data: args is string chunk — validation skipped on hot path
-      data: listen(PtyWorkspaceTabSchema.extend({ chunk: z.string() })),
+      // data: args is string chunk — validation skipped on hot path.
+      // `replay` marks output pty.replay sends again to redraw the terminal.
+      data: listen(
+        PtyWorkspaceTabSchema.extend({ chunk: z.string(), replay: z.boolean().optional() }),
+      ),
       exit: listen(PtyWorkspaceTabSchema.extend({ code: z.number().int().nullable() })),
       notificationClick: listen(z.object({ workspaceId: z.string(), tabId: z.string() })),
       /**

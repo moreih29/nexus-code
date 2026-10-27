@@ -96,7 +96,7 @@ export function createPtyClient({
 }: PtyClientOptions): PtyClient {
   const unlistenData = ipcListen("pty", "data", (args) => {
     if (args.workspaceId !== workspaceId || args.tabId !== tabId) return;
-    onData(args.chunk);
+    onData(args.chunk, args.replay === true);
     ackData(workspaceId, tabId, args.chunk);
   });
 

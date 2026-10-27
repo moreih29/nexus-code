@@ -19,12 +19,14 @@ const (
 	// exitDrainGrace lets the reader flush trailing PTY bytes before exit is reported.
 	exitDrainGrace = 150 * time.Millisecond
 
-	// RingCapBytes is the per-session ring buffer capacity.
-	// Sized near the existing flow-control high-watermark (1 MiB) so a single
-	// replay fits within one credit gate window.  When the ring is full the
-	// oldest bytes are dropped — preserving the most-recent screen state is the
-	// goal, not full scrollback.
+	// RingCapBytes is the per-session ring buffer capacity.  When the ring is
+	// full the oldest bytes are dropped — preserving the most-recent screen
+	// state is the goal, not full scrollback.
 	RingCapBytes = 1 * 1024 * 1024
+
+	// terminalReset (RIS) leads every replay so the client draws the replayed
+	// output on a clean terminal.
+	terminalReset = "\x1bc"
 )
 
 // EventSink is the callback pty uses to push agent events back to Electron.
@@ -45,6 +47,9 @@ type SpawnParams struct {
 // SpawnResult is the wire shape returned after a PTY child starts.
 type SpawnResult struct {
 	PID int `json:"pid"`
+	// Attached reports that the tab's session was already running, so no child
+	// was started.  The client calls pty.replay to redraw its screen.
+	Attached bool `json:"attached,omitempty"`
 }
 
 // WriteParams is the wire shape for pty.write.
@@ -98,6 +103,10 @@ type DataPayload struct {
 	WorkspaceID string `json:"workspaceId"`
 	TabID       string `json:"tabId"`
 	Chunk       string `json:"chunk"`
+	// Replay marks output sent again by pty.replay.  The terminal has already
+	// acted on it once (answered its queries, raised its notifications), so the
+	// client must not act on it again.
+	Replay bool `json:"replay,omitempty"`
 }
 
 // ExitPayload is emitted once when a PTY child terminates.

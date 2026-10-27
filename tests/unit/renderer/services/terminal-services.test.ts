@@ -156,8 +156,11 @@ function makeTerminalControllerDeps(
     Promise.resolve({ pid: 4321 }),
 ) {
   const writes: string[] = [];
+  // Callbacks of writes xterm has not "parsed" yet; parseWrites() runs them.
+  const unparsedWriteCallbacks: Array<() => void> = [];
   const spawnCalls: TerminalDimensions[] = [];
   const ptyWrites: string[] = [];
+  let capturedDataHandler: ((data: string) => void) | null = null;
   let ptyOptions: PtyClientOptions | null = null;
   // 가변 buffer state — 테스트에서 setBufferType("alternate" | "normal")로 전환해
   // alternate screen 가드 동작을 검증한다. 기본값은 "alternate"로 두어 기존 OSC
@@ -204,7 +207,10 @@ function makeTerminalControllerDeps(
       buffer: bufferState,
       dispose: () => {},
       loadAddon: () => {},
-      onData: () => ({ dispose: () => {} }),
+      onData: (handler) => {
+        capturedDataHandler = handler;
+        return { dispose: () => {} };
+      },
       onSelectionChange: () => ({ dispose: () => {} }),
       onTitleChange: (handler) => {
         capturedTitleHandler = handler;
@@ -213,8 +219,9 @@ function makeTerminalControllerDeps(
       getSelection: () => "",
       open: () => {},
       refresh: () => {},
-      write: (data) => {
+      write: (data, callback) => {
         writes.push(data);
+        if (callback) unparsedWriteCallbacks.push(callback);
       },
       attachCustomKeyEventHandler: (handler) => {
         capturedKeyHandler = handler;
@@ -250,6 +257,13 @@ function makeTerminalControllerDeps(
     writes,
     ptyWrites,
     getPtyOptions: () => ptyOptions,
+    /** Emits `data` the way xterm does for typed keys and its own answers. */
+    termData(data: string): void {
+      capturedDataHandler?.(data);
+    },
+    parseWrites(): void {
+      for (const callback of unparsedWriteCallbacks.splice(0)) callback();
+    },
     getKeyHandler: () => capturedKeyHandler,
     getTitleHandler: () => capturedTitleHandler,
     getAltExitHandler: () => capturedAltExitHandler,
@@ -406,6 +420,26 @@ describe("services/terminal pty-client flow control", () => {
       args: { workspaceId: WS, tabId: "tab-flow-a", bytesConsumed: 5000 },
     });
 
+    client.dispose();
+  });
+
+  it("tells the terminal which output is replayed", () => {
+    const received: Array<[string, boolean]> = [];
+    const client = createPtyClient({
+      workspaceId: WS,
+      tabId: "tab-replay-flag",
+      cwd: "/workspace",
+      onData: (chunk, replay) => received.push([chunk, replay]),
+      onExit: () => {},
+    });
+
+    emit("pty", "data", { workspaceId: WS, tabId: "tab-replay-flag", chunk: "old", replay: true });
+    emit("pty", "data", { workspaceId: WS, tabId: "tab-replay-flag", chunk: "new" });
+
+    expect(received).toEqual([
+      ["old", true],
+      ["new", false],
+    ]);
     client.dispose();
   });
 
@@ -659,6 +693,40 @@ describe("services/terminal controller spawn failure", () => {
     expect(harness.writes).toEqual([
       "\r\n[Couldn't start the terminal: chdir /gone: no such file or directory]\r\n",
     ]);
+
+    controller.dispose();
+  });
+});
+
+describe("services/terminal controller replay", () => {
+  beforeEach(resetIpc);
+
+  it("keeps xterm's answers to replayed output from reaching the program", async () => {
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-replay-answers",
+        cwd: "/workspace",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const options = harness.getPtyOptions();
+    if (!options) throw new Error("pty client not created");
+
+    // A replayed cursor-position query: xterm answers it while parsing.
+    options.onData("\x1b[6n", true);
+    harness.termData("\x1b[12;1R");
+    expect(harness.ptyWrites).toEqual([]);
+
+    // Once the replay is parsed, answers and keys reach the program again.
+    harness.parseWrites();
+    options.onData("\x1b[6n", false);
+    harness.termData("\x1b[3;1R");
+    expect(harness.ptyWrites).toEqual(["\x1b[3;1R"]);
+    expect(harness.writes).toEqual(["\x1b[6n", "\x1b[6n"]);
 
     controller.dispose();
   });

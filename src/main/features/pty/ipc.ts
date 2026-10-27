@@ -74,14 +74,20 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
   });
 
   agentHost.on("data", (args) => {
-    const { workspaceId, tabId, chunk } = args as {
+    const { workspaceId, tabId, chunk, replay } = args as {
       workspaceId: string;
       tabId: string;
       chunk: string;
+      replay?: boolean;
     };
     recorder.appendData(workspaceId, tabId, chunk);
-    dispatcher.handleChunk(workspaceId, tabId, chunk);
-    broadcast("pty", "data", { workspaceId, tabId, chunk });
+    // Replayed output raised its notifications when it first arrived.
+    if (!replay) dispatcher.handleChunk(workspaceId, tabId, chunk);
+    broadcast(
+      "pty",
+      "data",
+      replay ? { workspaceId, tabId, chunk, replay } : { workspaceId, tabId, chunk },
+    );
   });
 
   agentHost.on("exit", (args) => {

@@ -77,7 +77,8 @@ interface TerminalLike {
   getSelection: () => string;
   open: (parent: HTMLElement) => void;
   refresh: (start: number, end: number) => void;
-  write: (data: string) => void;
+  /** `callback` runs once xterm has parsed `data`. */
+  write: (data: string, callback?: () => void) => void;
   /**
    * Inject text as if pasted. Unlike `write`, this respects the terminal app's
    * bracketed paste mode (DECSET 2004): when enabled it wraps the data in
@@ -301,6 +302,13 @@ class XtermTerminalController implements TerminalController {
   private themeListener: ((e: Event) => void) | null = null;
   private terminalSettingsListener: ((e: Event) => void) | null = null;
   private dropDisposable: (() => void) | null = null;
+  /**
+   * Replayed chunks xterm has not parsed yet. Replayed output carries the
+   * queries (cursor position, device attributes) its program asked when it
+   * first ran; xterm answers them again while parsing it, and those answers
+   * must not reach the program as input.
+   */
+  private replayWritesPending = 0;
 
   constructor(
     private readonly options: TerminalControllerOptions,
@@ -481,12 +489,26 @@ class XtermTerminalController implements TerminalController {
       workspaceId: this.options.workspaceId,
       tabId: this.options.tabId,
       cwd: this.options.cwd,
-      onData: (chunk) => term.write(chunk),
+      onData: (chunk, replay) => {
+        if (!replay) {
+          term.write(chunk);
+          return;
+        }
+        this.replayWritesPending += 1;
+        term.write(chunk, () => {
+          this.replayWritesPending -= 1;
+        });
+      },
       onExit: (args) => this.options.onExit?.(args),
     });
     this.ptyClient = ptyClient;
 
-    this.dataDisposable = term.onData((data) => ptyClient.write(data));
+    // While replayed output is parsed, xterm's answers to its queries are
+    // dropped — along with any keystroke in that brief window.
+    this.dataDisposable = term.onData((data) => {
+      if (this.replayWritesPending > 0) return;
+      ptyClient.write(data);
+    });
 
     // External file drop → inject escaped path(s) as a paste. Lets CLIs that
     // accept file paths (Claude Code, image tools, etc.) receive dropped files

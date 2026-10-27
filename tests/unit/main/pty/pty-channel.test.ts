@@ -50,12 +50,13 @@ type IpcHandler = (
 class FakeAgentChannel implements AgentChannel {
   readonly ready = Promise.resolve();
   readonly calls: Array<{ method: string; params: unknown }> = [];
+  spawnResult: { pid: number; attached?: boolean } = { pid: 202 };
   private readonly eventListeners = new Map<string, Set<ChannelEventCallback>>();
   private readonly lifecycleListeners = new Set<ChannelLifecycleCallback>();
 
   async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
     this.calls.push({ method, params });
-    return (method === "pty.spawn" ? { pid: 202 } : {}) as TResult;
+    return (method === "pty.spawn" ? this.spawnResult : {}) as TResult;
   }
 
   fire(_method: string, _params?: unknown): void {}
@@ -314,6 +315,55 @@ describe("registerPtyChannel agent events", () => {
       });
     });
   }
+});
+
+describe("registerPtyChannel attach to a running session", () => {
+  test("replays a session the agent attached to instead of spawning", async () => {
+    const { handler, agentChannel } = makeFixture();
+    agentChannel.spawnResult = { pid: 202, attached: true };
+
+    const result = await handler({}, "pty", "spawn", spawnArgs(SSH_WORKSPACE_ID));
+
+    expect(result).toEqual({ pid: 202 });
+    expect(agentChannel.calls.filter((call) => call.method === "pty.replay")).toEqual([
+      { method: "pty.replay", params: { workspaceId: SSH_WORKSPACE_ID, tabId: TAB_ID } },
+    ]);
+  });
+
+  test("does not replay a session it just spawned", async () => {
+    const { handler, agentChannel } = makeFixture();
+
+    await handler({}, "pty", "spawn", spawnArgs(SSH_WORKSPACE_ID));
+
+    expect(agentChannel.calls.some((call) => call.method === "pty.replay")).toBe(false);
+  });
+
+  test("relays replayed output marked as replay without raising its notifications", async () => {
+    const { handler, agentChannel, recorder } = makeFixture();
+    await handler({}, "pty", "spawn", spawnArgs(SSH_WORKSPACE_ID));
+    mockSend.mockClear();
+
+    agentChannel.emit("pty.data", {
+      workspaceId: SSH_WORKSPACE_ID,
+      tabId: TAB_ID,
+      chunk: Buffer.from("\x1b]9;Done\x07", "utf8").toString("base64"),
+      replay: true,
+    });
+
+    // The OSC 9 notification is not dispatched again: the data event is the
+    // only thing sent.
+    expect(mockSend.mock.calls).toEqual([
+      [
+        "ipc:event",
+        "pty",
+        "data",
+        { workspaceId: SSH_WORKSPACE_ID, tabId: TAB_ID, chunk: "\x1b]9;Done\x07", replay: true },
+      ],
+    ]);
+    expect(recorder.data).toEqual([
+      { workspaceId: SSH_WORKSPACE_ID, tabId: TAB_ID, chunk: "\x1b]9;Done\x07" },
+    ]);
+  });
 });
 
 describe("registerPtyChannel recorder", () => {
