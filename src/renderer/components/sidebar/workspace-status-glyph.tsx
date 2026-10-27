@@ -1,3 +1,4 @@
+import i18next from "i18next";
 import {
   CircleAlert,
   CircleCheck,
@@ -61,33 +62,33 @@ function getGlyphConfig(status: Exclude<ClaudeStatus, "idle">): GlyphConfig {
   switch (status) {
     case "running":
       return {
-        ariaLabel: "Claude: running",
+        ariaLabel: i18next.t("common:claudeStatus.running"),
         colorClass: "text-emerald-500",
         Icon: Loader,
         spin: true,
       };
     case "completed":
       return {
-        ariaLabel: "Claude: response complete",
+        ariaLabel: i18next.t("common:claudeStatus.completed"),
         colorClass: "text-(--tab-claude-attention-fg)",
         Icon: CircleCheck,
       };
     case "needsInput":
       return {
-        ariaLabel: "Claude: waiting for input",
+        ariaLabel: i18next.t("common:claudeStatus.needsInput"),
         colorClass: "text-(--tab-claude-attention-fg)",
         Icon: MessageCircleQuestion,
         pulse: true,
       };
     case "permissionPending":
       return {
-        ariaLabel: "Claude: waiting for permission",
+        ariaLabel: i18next.t("common:claudeStatus.permissionPending"),
         colorClass: "text-(--state-warning-fg)",
         Icon: CircleAlert,
       };
     case "error":
       return {
-        ariaLabel: "Claude: error",
+        ariaLabel: i18next.t("common:claudeStatus.error"),
         colorClass: "text-(--state-error-fg)",
         Icon: TriangleAlert,
       };
