@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -239,6 +240,17 @@ func TestLogLimitCursorKillsPromptly(t *testing.T) {
 	}
 	if elapsed > 2*time.Second {
 		t.Fatalf("limit log took %s, want prompt stop under 2s", elapsed)
+	}
+}
+
+func TestLogOnUnbornBranchIsNoHead(t *testing.T) {
+	root := t.TempDir()
+	runGitCommand(t, root, "init", "-b", "main")
+
+	_, err := New(root).Log(context.Background(), json.RawMessage(`{"scope":"ref","ref":"HEAD","limit":1}`))
+	var failure Failure
+	if !errors.As(err, &failure) || failure.Kind != KindNoHead {
+		t.Fatalf("Log error = %#v, want a %s failure", err, KindNoHead)
 	}
 }
 
