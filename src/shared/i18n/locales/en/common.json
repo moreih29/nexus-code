@@ -265,7 +265,12 @@
     "merge_commit": "Merge commit ({{count}} parents)",
     "close_tab": "Close tab",
     "commit_not_found": "Commit {{sha}} not found in repository",
-    "commit_load_failed": "Commit detail operation failed."
+    "commit_load_failed": "Commit detail operation failed.",
+    "dirty_diff_position": "Change {{index}} of {{count}}",
+    "dirty_diff_previous": "Previous change",
+    "dirty_diff_next": "Next change",
+    "dirty_diff_revert": "Revert change",
+    "dirty_diff_close": "Close (Esc)"
   },
   "browser": {
     "go_back": "Go back",

@@ -265,7 +265,12 @@
     "merge_commit": "병합 커밋 (부모 {{count}}개)",
     "close_tab": "탭 닫기",
     "commit_not_found": "커밋 {{sha}}을(를) 저장소에서 찾을 수 없습니다",
-    "commit_load_failed": "커밋 세부정보 로드에 실패했습니다."
+    "commit_load_failed": "커밋 세부정보 로드에 실패했습니다.",
+    "dirty_diff_position": "변경 {{index}}/{{count}}",
+    "dirty_diff_previous": "이전 변경",
+    "dirty_diff_next": "다음 변경",
+    "dirty_diff_revert": "변경 되돌리기",
+    "dirty_diff_close": "닫기 (Esc)"
   },
   "browser": {
     "go_back": "뒤로 이동",

@@ -1,6 +1,6 @@
 /**
  * Inline "peek" of a single dirty-diff change — the small before/after panel
- * VSCode opens when you click a gutter marker.
+ * VSCode opens when you click a gutter marker, with its Revert Change action.
  *
  * Architecture mirrors VSCode's `ZoneWidget`: a **view zone** reserves the
  * vertical space at the change line, while the interactive chrome lives in a
@@ -21,6 +21,7 @@
  * not live-update while open; closing and reclicking re-snapshots.
  */
 
+import i18next from "i18next";
 import type * as Monaco from "monaco-editor";
 import type { DirtyChange } from "./types";
 
@@ -32,6 +33,7 @@ const HEADER_HEIGHT = 26;
 const ICONS = {
   chevronUp: '<path d="m18 15-6-6-6 6"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
 } as const;
 
@@ -56,9 +58,14 @@ export class DirtyDiffPeek {
   private state: PeekState | null = null;
   private readonly overlayId = "nexus-dirty-diff-peek";
 
+  /**
+   * @param onRevert  Reverts the shown change in the buffer. The peek shows
+   *   no revert button when the editor is read-only.
+   */
   constructor(
     private readonly editor: Monaco.editor.IStandaloneCodeEditor,
     private readonly monaco: typeof Monaco,
+    private readonly onRevert?: (change: DirtyChange) => void,
   ) {}
 
   /** Whether a peek is currently open. */
@@ -339,9 +346,23 @@ export class DirtyDiffPeek {
       return btn;
     };
 
-    actions.appendChild(mkButton(ICONS.chevronUp, "Previous change", () => this.previous()));
-    actions.appendChild(mkButton(ICONS.chevronDown, "Next change", () => this.next()));
-    actions.appendChild(mkButton(ICONS.x, "Close (Esc)", () => this.close()));
+    if (this.onRevert && !this.editor.getOption(this.monaco.editor.EditorOption.readOnly)) {
+      actions.appendChild(
+        mkButton(ICONS.undo, i18next.t("editor.dirty_diff_revert"), () => {
+          const change = this.state?.changes[this.state.index];
+          if (change) this.onRevert?.(change);
+        }),
+      );
+    }
+    actions.appendChild(
+      mkButton(ICONS.chevronUp, i18next.t("editor.dirty_diff_previous"), () => this.previous()),
+    );
+    actions.appendChild(
+      mkButton(ICONS.chevronDown, i18next.t("editor.dirty_diff_next"), () => this.next()),
+    );
+    actions.appendChild(
+      mkButton(ICONS.x, i18next.t("editor.dirty_diff_close"), () => this.close()),
+    );
     header.appendChild(actions);
 
     return header;
@@ -349,7 +370,10 @@ export class DirtyDiffPeek {
 
   private updateLabel(): void {
     if (!this.state || !this.label) return;
-    this.label.textContent = `Change ${this.state.index + 1} of ${this.state.changes.length}`;
+    this.label.textContent = i18next.t("editor.dirty_diff_position", {
+      index: this.state.index + 1,
+      count: this.state.changes.length,
+    });
   }
 }
 

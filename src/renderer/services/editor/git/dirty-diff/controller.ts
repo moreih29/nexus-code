@@ -5,7 +5,8 @@
  *   - load the HEAD baseline for the current file (via an injected source),
  *   - recompute line changes against the live buffer, debounced, on every edit,
  *   - paint / clear the gutter decorations,
- *   - open the inline peek when a gutter glyph is clicked.
+ *   - open the inline peek when a gutter glyph is clicked,
+ *   - revert a change from the peek.
  *
  * The controller is UI-framework-agnostic and depends only on a Monaco editor
  * instance plus a {@link DirtyDiffSource}. Baseline loading (git/IPC) is wired
@@ -22,6 +23,7 @@ import {
   isDirtyDiffGlyphTarget,
 } from "./decorations";
 import { DirtyDiffPeek } from "./peek";
+import { revertChangeEdit } from "./revert";
 import type { DirtyChange } from "./types";
 
 /** Coalesces bursts of keystrokes into a single recompute (matches VSCode). */
@@ -56,7 +58,7 @@ export class DirtyDiffController {
   ) {
     this.scheduler = scheduler;
     this.decorations = editor.createDecorationsCollection([]);
-    this.peek = new DirtyDiffPeek(editor, monaco);
+    this.peek = new DirtyDiffPeek(editor, monaco, (change) => this.revertChange(change));
   }
 
   /** Loads the baseline and wires listeners. Call once after construction. */
@@ -132,6 +134,57 @@ export class DirtyDiffController {
     this.decorations.set(buildDirtyDiffDecorations(this.monaco, model, this.changes));
   }
 
+  /**
+   * Puts the baseline's lines back in place of `change` as one undoable
+   * edit, then moves the peek to the change now at its position, or closes
+   * it when none is left.
+   */
+  private revertChange(change: DirtyChange): void {
+    const model = this.editor.getModel();
+    if (!model || this.baseline === null) return;
+
+    // The peek is a snapshot; recompute so a change the buffer has since
+    // moved past is not reverted at stale line numbers.
+    this.flushRecompute();
+    const index = this.changes.findIndex((c) => sameChange(c, change));
+    if (index === -1) {
+      this.peek.close();
+      return;
+    }
+
+    const { range, text } = revertChangeEdit(change, this.baseline.split(/\r\n|\r|\n/), model);
+    this.editor.pushUndoStop();
+    this.editor.executeEdits("dirty-diff.revert", [
+      {
+        range: new this.monaco.Range(
+          range.startLineNumber,
+          range.startColumn,
+          range.endLineNumber,
+          range.endColumn,
+        ),
+        text,
+        forceMoveMarkers: true,
+      },
+    ]);
+    this.editor.pushUndoStop();
+
+    this.flushRecompute();
+    if (this.changes.length === 0) {
+      this.peek.close();
+    } else {
+      this.peek.open(this.changes, Math.min(index, this.changes.length - 1), this.baseline);
+    }
+  }
+
+  /** Runs a pending debounced recompute now. */
+  private flushRecompute(): void {
+    if (this.debounceTimer !== null) {
+      this.scheduler.clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    this.recompute();
+  }
+
   private onMouseDown(e: Monaco.editor.IEditorMouseEvent): void {
     if (this.changes.length === 0) return;
     if (e.target.type !== this.monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS) return;
@@ -159,4 +212,13 @@ export class DirtyDiffController {
       return line >= change.modifiedStartLineNumber && line <= end;
     });
   }
+}
+
+function sameChange(a: DirtyChange, b: DirtyChange): boolean {
+  return (
+    a.originalStartLineNumber === b.originalStartLineNumber &&
+    a.originalEndLineNumber === b.originalEndLineNumber &&
+    a.modifiedStartLineNumber === b.modifiedStartLineNumber &&
+    a.modifiedEndLineNumber === b.modifiedEndLineNumber
+  );
 }
