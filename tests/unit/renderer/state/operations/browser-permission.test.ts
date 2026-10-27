@@ -38,7 +38,8 @@ beforeEach(() => {
   (globalThis as Record<string, unknown>).window = {
     ipc: {
       call: () => Promise.resolve(null),
-      listen: () => {},
+      // Returns the unsubscribe, as the preload's listen does.
+      listen: () => () => {},
       off: () => {},
     },
   };
