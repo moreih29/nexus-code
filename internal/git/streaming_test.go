@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -159,6 +160,9 @@ esac
 
 func writeFakeGit(t *testing.T, dir string, script string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake git is a shell script, which Windows cannot run")
+	}
 	path := filepath.Join(dir, "git")
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake git: %v", err)
