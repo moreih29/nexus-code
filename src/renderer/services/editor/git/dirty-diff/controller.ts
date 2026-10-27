@@ -2,11 +2,11 @@
  * Per-editor orchestration for the dirty-diff feature.
  *
  * Responsibilities:
- *   - load the HEAD baseline for the current file (via an injected source),
+ *   - load the baseline for the current file (via an injected source),
  *   - recompute line changes against the live buffer, debounced, on every edit,
  *   - paint / clear the gutter decorations,
  *   - open the inline peek when a gutter glyph is clicked,
- *   - revert a change from the peek.
+ *   - stage or revert a change from the peek.
  *
  * The controller is UI-framework-agnostic and depends only on a Monaco editor
  * instance plus a {@link DirtyDiffSource}. Baseline loading (git/IPC) is wired
@@ -31,11 +31,16 @@ const RECOMPUTE_DEBOUNCE_MS = 300;
 
 export interface DirtyDiffSource {
   /**
-   * Returns the HEAD baseline text for the editor's current file, or `null`
-   * when there is no baseline (untracked file, deleted at HEAD, not a repo).
-   * A `null` result clears all dirty-diff decorations.
+   * Returns the baseline text for the editor's current file, or `null` when
+   * there is no baseline (untracked file, not a repo). A `null` result clears
+   * all dirty-diff decorations.
    */
   loadBaseline(signal: AbortSignal): Promise<string | null>;
+  /**
+   * Stages `change` of the buffer whose text is `working`. Without it the
+   * peek offers no staging.
+   */
+  stageChange?(change: DirtyChange, working: string, eol: string): Promise<void>;
 }
 
 export class DirtyDiffController {
@@ -58,7 +63,12 @@ export class DirtyDiffController {
   ) {
     this.scheduler = scheduler;
     this.decorations = editor.createDecorationsCollection([]);
-    this.peek = new DirtyDiffPeek(editor, monaco, (change) => this.revertChange(change));
+    this.peek = new DirtyDiffPeek(
+      editor,
+      monaco,
+      (change) => this.revertChange(change),
+      source.stageChange ? (change) => void this.stageChange(change) : undefined,
+    );
   }
 
   /** Loads the baseline and wires listeners. Call once after construction. */
@@ -74,7 +84,7 @@ export class DirtyDiffController {
   }
 
   /**
-   * Reloads the baseline (e.g. after a commit/stage/checkout shifts HEAD) and
+   * Reloads the baseline (e.g. after a stage, commit or checkout moves it) and
    * recomputes. Cancels any in-flight load first.
    */
   async refreshBaseline(): Promise<void> {
@@ -170,6 +180,31 @@ export class DirtyDiffController {
 
     this.flushRecompute();
     if (this.changes.length === 0) {
+      this.peek.close();
+    } else {
+      this.peek.open(this.changes, Math.min(index, this.changes.length - 1), this.baseline);
+    }
+  }
+
+  /**
+   * Stages `change`, then moves the peek on as reverting does once the new
+   * baseline has dropped it.
+   */
+  private async stageChange(change: DirtyChange): Promise<void> {
+    const model = this.editor.getModel();
+    if (!model || !this.source.stageChange) return;
+
+    this.flushRecompute();
+    const index = this.changes.findIndex((c) => sameChange(c, change));
+    if (index === -1) {
+      this.peek.close();
+      return;
+    }
+
+    await this.source.stageChange(change, model.getValue(), model.getEOL());
+    await this.refreshBaseline();
+    if (this.disposed || !this.peek.isOpen) return;
+    if (this.changes.length === 0 || this.baseline === null) {
       this.peek.close();
     } else {
       this.peek.open(this.changes, Math.min(index, this.changes.length - 1), this.baseline);

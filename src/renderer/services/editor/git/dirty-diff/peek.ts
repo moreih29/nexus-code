@@ -1,6 +1,7 @@
 /**
  * Inline "peek" of a single dirty-diff change — the small before/after panel
- * VSCode opens when you click a gutter marker, with its Revert Change action.
+ * VSCode opens when you click a gutter marker, with its Stage Change and
+ * Revert Change actions.
  *
  * Architecture mirrors VSCode's `ZoneWidget`: a **view zone** reserves the
  * vertical space at the change line, while the interactive chrome lives in a
@@ -31,6 +32,7 @@ const CONTEXT_LINES = 2;
 const HEADER_HEIGHT = 26;
 /** lucide SVG icon bodies (24x24 viewBox), rendered with currentColor stroke. */
 const ICONS = {
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
   chevronUp: '<path d="m18 15-6-6-6 6"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>',
@@ -61,11 +63,13 @@ export class DirtyDiffPeek {
   /**
    * @param onRevert  Reverts the shown change in the buffer. The peek shows
    *   no revert button when the editor is read-only.
+   * @param onStage  Stages the shown change; no stage button without it.
    */
   constructor(
     private readonly editor: Monaco.editor.IStandaloneCodeEditor,
     private readonly monaco: typeof Monaco,
     private readonly onRevert?: (change: DirtyChange) => void,
+    private readonly onStage?: (change: DirtyChange) => void,
   ) {}
 
   /** Whether a peek is currently open. */
@@ -76,7 +80,7 @@ export class DirtyDiffPeek {
   /**
    * Opens (or re-targets) the peek on `changes[index]`.
    *
-   * @param originalText  Full HEAD baseline text (snippets are sliced from it).
+   * @param originalText  Full baseline text (snippets are sliced from it).
    */
   open(changes: DirtyChange[], index: number, originalText: string): void {
     const model = this.editor.getModel();
@@ -348,6 +352,14 @@ export class DirtyDiffPeek {
       return btn;
     };
 
+    if (this.onStage) {
+      actions.appendChild(
+        mkButton(ICONS.plus, i18next.t("editor.dirty_diff_stage"), () => {
+          const change = this.state?.changes[this.state.index];
+          if (change) this.onStage?.(change);
+        }),
+      );
+    }
     if (this.onRevert && !this.editor.getOption(this.monaco.editor.EditorOption.readOnly)) {
       actions.appendChild(
         mkButton(ICONS.undo, i18next.t("editor.dirty_diff_revert"), () => {

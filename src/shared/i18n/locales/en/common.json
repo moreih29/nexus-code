@@ -270,7 +270,13 @@
     "dirty_diff_previous": "Previous change",
     "dirty_diff_next": "Next change",
     "dirty_diff_revert": "Revert change",
-    "dirty_diff_close": "Close (Esc)"
+    "dirty_diff_close": "Close (Esc)",
+    "dirty_diff_stage": "Stage change",
+    "diff_stage_change": "Stage change",
+    "diff_unstage_change": "Unstage change",
+    "diff_stage_selected_ranges": "Stage Selected Ranges",
+    "diff_unstage_selected_ranges": "Unstage Selected Ranges",
+    "stage_lines_text_only": "Only UTF-8 text files can be staged in part."
   },
   "browser": {
     "go_back": "Go back",

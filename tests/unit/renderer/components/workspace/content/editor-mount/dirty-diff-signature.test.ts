@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-const { headBaselineSignature } = await import(
+const { baselineSignature, hasStagedChanges } = await import(
   "../../../../../../../src/renderer/components/workspace/content/editor-mount/install-dirty-diff"
 );
 const { GitStatusSchema } = await import("../../../../../../../src/shared/git/types");
@@ -17,7 +17,7 @@ function status(overrides: Record<string, unknown> = {}) {
   });
 }
 
-describe("headBaselineSignature", () => {
+describe("baselineSignature", () => {
   test("ignores status churn in other files", () => {
     const before = status({ working: [{ relPath: "other.ts", xy: ".M" }] });
     const after = status({
@@ -26,23 +26,31 @@ describe("headBaselineSignature", () => {
         { relPath: "new.ts", xy: ".M" },
       ],
     });
-    expect(headBaselineSignature(after, "src/a.ts")).toBe(
-      headBaselineSignature(before, "src/a.ts"),
-    );
+    expect(baselineSignature(after, "src/a.ts")).toBe(baselineSignature(before, "src/a.ts"));
   });
 
-  test("changes when the file's own entry changes (commit, reset --soft)", () => {
+  test("changes when the file's own entry changes (stage, commit, reset)", () => {
     const dirty = status({ working: [{ relPath: "src/a.ts", xy: ".M" }] });
     const clean = status();
-    expect(headBaselineSignature(dirty, "src/a.ts")).not.toBe(
-      headBaselineSignature(clean, "src/a.ts"),
-    );
+    expect(baselineSignature(dirty, "src/a.ts")).not.toBe(baselineSignature(clean, "src/a.ts"));
   });
 
   test("changes when the branch changes", () => {
     const other = status({ branch: { current: "feature", isUnborn: false } });
-    expect(headBaselineSignature(other, "src/a.ts")).not.toBe(
-      headBaselineSignature(status(), "src/a.ts"),
-    );
+    expect(baselineSignature(other, "src/a.ts")).not.toBe(baselineSignature(status(), "src/a.ts"));
+  });
+});
+
+describe("hasStagedChanges", () => {
+  test("holds while the file has an index entry that differs from HEAD", () => {
+    const partly = status({
+      staged: [{ relPath: "src/a.ts", xy: "MM" }],
+      working: [{ relPath: "src/a.ts", xy: "MM" }],
+    });
+    expect(hasStagedChanges(partly, "src/a.ts")).toBe(true);
+    expect(hasStagedChanges(partly, "src/b.ts")).toBe(false);
+    expect(
+      hasStagedChanges(status({ working: [{ relPath: "src/a.ts", xy: ".M" }] }), "src/a.ts"),
+    ).toBe(false);
   });
 });

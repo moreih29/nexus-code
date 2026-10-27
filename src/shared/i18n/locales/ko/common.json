@@ -270,7 +270,13 @@
     "dirty_diff_previous": "이전 변경",
     "dirty_diff_next": "다음 변경",
     "dirty_diff_revert": "변경 되돌리기",
-    "dirty_diff_close": "닫기 (Esc)"
+    "dirty_diff_close": "닫기 (Esc)",
+    "dirty_diff_stage": "변경 스테이징",
+    "diff_stage_change": "변경 스테이징",
+    "diff_unstage_change": "변경 스테이징 해제",
+    "diff_stage_selected_ranges": "선택 범위 스테이징",
+    "diff_unstage_selected_ranges": "선택 범위 스테이징 해제",
+    "stage_lines_text_only": "UTF-8 텍스트 파일만 일부를 스테이징할 수 있습니다."
   },
   "browser": {
     "go_back": "뒤로 이동",

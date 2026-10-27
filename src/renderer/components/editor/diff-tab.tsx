@@ -6,6 +6,10 @@ import { useTranslation } from "react-i18next";
 import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import type { DiffTabPayload } from "../../../shared/types/tab";
 import { useMonacoThemeName } from "../../hooks/use-monaco-theme-name";
+import {
+  type DiffStaging,
+  installDiffStaging,
+} from "../../services/editor/git/staging/diff-editor-staging";
 import { acquireModel, releaseModel, useSharedModel } from "../../services/editor/model";
 import { useDiffWorkingFile } from "../../services/editor/tabs";
 import type { EditorInput } from "../../services/editor/types";
@@ -18,6 +22,7 @@ import {
   REFRESHING_INDICATOR_DELAY_MS,
   useDiffContent,
 } from "./diff-content-loader";
+import { EMPTY_TREE } from "./diff-refs";
 import { languageIdForPath } from "./language-id-for-path";
 import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
@@ -79,6 +84,9 @@ type DiffTabProps = DiffTabPayload & { tabId: string };
  * or reverted block by block from the gutter) are the file's own — dirty in
  * its editor tabs and saved with ⌘S. A diff whose right side is a git
  * revision (the index of a staged change) stays read-only.
+ *
+ * Changes stage from the diff of unstaged changes and unstage from the diff
+ * of staged ones, one at a time from the gutter or by selected lines.
  */
 export function DiffTab({ tabId, ...payload }: DiffTabProps) {
   const workingFile = useDiffWorkingFile(payload);
@@ -146,6 +154,18 @@ function DiffView({
   const leftContent = readyContentFor(left);
   const rightContent = readyContentFor(right);
   const blocking = blockingPlaceholder(left, right, leftContent, rightContent);
+  const { workspaceId, relPath, oldRelPath, leftRef, rightRef } = payload;
+  // A side git does not have shows as an empty file; staging lines of it
+  // would write an empty file rather than add or remove one.
+  const placeholderSide = !!leftContent?.placeholder || !!rightContent?.placeholder;
+  const staging = useMemo<DiffStaging | null>(() => {
+    if (placeholderSide) return null;
+    if (leftRef === "INDEX" && rightRef === "WORKING") return { kind: "stage", workspaceId, relPath };
+    if (rightRef === "INDEX" && leftRef !== EMPTY_TREE) {
+      return { kind: "unstage", workspaceId, relPath, headRelPath: oldRelPath ?? relPath };
+    }
+    return null;
+  }, [placeholderSide, leftRef, rightRef, workspaceId, relPath, oldRelPath]);
 
   if (blocking) {
     return (
@@ -179,6 +199,7 @@ function DiffView({
           original={snapshotOf(monaco, leftContent)}
           modified={snapshotOf(monaco, rightContent)}
           working={working}
+          staging={staging}
         />
       </div>
     </DiffShell>
@@ -216,6 +237,7 @@ function DiffEditorHost({
   original,
   modified,
   working,
+  staging,
 }: {
   tabId: string;
   monaco: typeof Monaco;
@@ -223,6 +245,7 @@ function DiffEditorHost({
   original: DiffSideSnapshot;
   modified: DiffSideSnapshot;
   working: WorkingSide | null;
+  staging: DiffStaging | null;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [editor, setEditor] = useState<Monaco.editor.IStandaloneDiffEditor | null>(null);
@@ -237,6 +260,14 @@ function DiffEditorHost({
   const workingInput = working?.input ?? null;
   const { content: originalContent, language: originalLanguage, path: originalPath } = original;
   const { content: modifiedContent, language: modifiedLanguage, path: modifiedPath } = modified;
+
+  // Declared before the editor's creation so that on unmount it comes off
+  // while the editor is still alive: React runs cleanups in this order.
+  useEffect(() => {
+    if (!editor || !staging) return;
+    const installed = installDiffStaging(editor, monaco, staging);
+    return () => installed.dispose();
+  }, [editor, monaco, staging]);
 
   // The theme only seeds creation; the effect below follows it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above

@@ -44,6 +44,17 @@ const log = createLogger("git");
 export interface OperationsSlice {
   stage: (workspaceId: string, relPaths: string[]) => Promise<void>;
   unstage: (workspaceId: string, relPaths: string[]) => Promise<void>;
+  /**
+   * Stages the text `contentOf` builds as `relPath`'s index version, as staging
+   * or unstaging part of a file does; null stages nothing. `contentOf` runs
+   * inside the operation, so its failures are reported like the write's.
+   */
+  stageContent: (
+    workspaceId: string,
+    relPath: string,
+    kind: "stage" | "unstage",
+    contentOf: (signal: AbortSignal) => Promise<string | null>,
+  ) => Promise<void>;
   discard: (
     workspaceId: string,
     relPaths: string[],
@@ -155,6 +166,16 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
           await ipcCallResult("git", "unstage", { workspaceId, relPaths }, { signal }),
         ),
       );
+    },
+
+    async stageContent(workspaceId, relPath, kind, contentOf) {
+      await runOperation(workspaceId, kind, async (signal) => {
+        const content = await contentOf(signal);
+        if (content === null) return;
+        unwrapGitResult(
+          await ipcCallResult("git", "stageContent", { workspaceId, relPath, content }, { signal }),
+        );
+      });
     },
 
     async discard(workspaceId, relPaths, source) {
