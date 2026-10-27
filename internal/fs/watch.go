@@ -69,7 +69,7 @@ func (s *Service) Watch(ctx context.Context, raw json.RawMessage) (any, error) {
 		}
 	}
 	if !info.IsDir() {
-		return nil, FSError{Code: CodeIsDirectory, Path: abs}
+		return nil, FSError{Code: CodeNotDirectory, Path: abs}
 	}
 
 	s.watchMu.Lock()

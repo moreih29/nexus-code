@@ -71,6 +71,22 @@ func TestWatchRecreatedDirectoryIsWatchedAgain(t *testing.T) {
 // fs.watch must keep working past Linux's per-user inotify instance limit
 // (128 by default). With one fsnotify.Watcher per directory, watch #114
 // failed with "too many open files".
+// Watching a file is the wrong kind of path, not a directory opened as a
+// file, so it must not report IS_DIRECTORY.
+func TestWatchFileReportsNotDirectory(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("x"), 0o644))
+
+	fsys, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fsys.Close()
+
+	_, err = fsys.Watch(context.Background(), watchParams("a.txt"))
+	assertFSError(t, err, CodeNotDirectory)
+}
+
 func TestWatchManyDirectories(t *testing.T) {
 	root := t.TempDir()
 	fsys, err := New(root)
