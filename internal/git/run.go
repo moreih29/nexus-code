@@ -220,15 +220,23 @@ func (s *Service) resolveCwd(ctx context.Context, cwd string) (string, error) {
 	return "", proto.ProtocolError("git cwd must stay inside the workspace or its detected repository root")
 }
 
+// gitTopLevel returns the repository root of root in the path space git.detect
+// reports it in (see logicalTopLevel), so a cwd or gitDir taken from it
+// passes the checks against it.
 func gitTopLevel(ctx context.Context, root string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel", "--show-cdup")
 	cmd.Dir = root
 	cmd.Env = gitEnv(nil, false, commandAskpass{})
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Clean(strings.TrimSpace(string(out))), nil
+	lines := parseRevParseLines(string(out))
+	cdup := ""
+	if len(lines) > 1 {
+		cdup = lines[1]
+	}
+	return logicalTopLevel(root, cdup, filepath.Clean(strings.TrimSpace(lines[0]))), nil
 }
 
 func isInside(candidate string, root string) bool {

@@ -131,8 +131,9 @@ type DetectResult struct {
 }
 
 // Detect runs `git rev-parse --show-toplevel --git-dir` in the given cwd and
-// returns a RepoInfo-compatible object. Non-repository directories return
-// { kind: "non-repo" } rather than an error.
+// returns a RepoInfo-compatible object, its paths in cwd's path space (see
+// logicalTopLevel). Non-repository directories return { kind: "non-repo" }
+// rather than an error.
 func (s *Service) Detect(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p DetectParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil || strings.TrimSpace(p.Cwd) == "" {
@@ -152,10 +153,11 @@ func (s *Service) Detect(ctx context.Context, raw json.RawMessage) (any, error) 
 	}, nil
 }
 
-// runRevParse executes `git rev-parse --show-toplevel --git-dir` in cwd.
-// Returns the absolute toplevel and gitdir paths on success.
+// runRevParse executes `git rev-parse --show-toplevel --git-dir --show-cdup`
+// in cwd. Returns the absolute toplevel and gitdir paths on success, reached
+// from cwd by the path cwd was given in (see logicalTopLevel).
 func runRevParse(ctx context.Context, cwd string) (topLevel, gitDir string, err error) {
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel", "--git-dir")
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel", "--git-dir", "--show-cdup")
 	cmd.Dir = cwd
 	cmd.Env = append(cmd.Environ(),
 		"GIT_TERMINAL_PROMPT=0",
@@ -183,9 +185,54 @@ func runRevParse(ctx context.Context, cwd string) (topLevel, gitDir string, err 
 		}
 	}
 
+	// --show-cdup prints an empty line at the top level, which the trailing
+	// newline trim drops.
+	cdup := ""
+	if len(lines) > 2 {
+		cdup = lines[2]
+	}
 	tl := normalizeDetectedPath(cwd, lines[0])
 	gd := normalizeDetectedPath(cwd, lines[1])
-	return tl, gd, nil
+	logical := logicalTopLevel(cwd, cdup, tl)
+	return logical, rebasePath(gd, tl, logical), nil
+}
+
+// logicalTopLevel returns the repository root git reports — with symlinks
+// resolved, so /private/tmp/repo on macOS for a workspace opened at /tmp/repo
+// — as reached from cwd by the path cwd was given in: /tmp/repo. Workspace
+// file paths are built from that path, so a root that spells it differently
+// can neither be stripped from nor joined onto them. cdup is
+// `git rev-parse --show-cdup` run in cwd.
+//
+// Falls back to git's root when walking up from cwd does not land on the same
+// directory, as for a workspace that is a symlink into the middle of a tree.
+func logicalTopLevel(cwd, cdup, topLevel string) string {
+	if !filepath.IsAbs(cwd) {
+		return topLevel
+	}
+	candidate := filepath.Clean(filepath.Join(cwd, cdup))
+	if candidate == topLevel {
+		return topLevel
+	}
+	resolvedCandidate, err := filepath.EvalSymlinks(candidate)
+	if err != nil {
+		return topLevel
+	}
+	resolvedTopLevel, err := filepath.EvalSymlinks(topLevel)
+	if err != nil || resolvedCandidate != resolvedTopLevel {
+		return topLevel
+	}
+	return candidate
+}
+
+// rebasePath moves path from under root `from` to the same place under `to`.
+// Paths outside `from` are returned unchanged.
+func rebasePath(path, from, to string) string {
+	rel, err := filepath.Rel(from, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return path
+	}
+	return filepath.Join(to, rel)
 }
 
 // parseRevParseLines splits the two-line rev-parse output, stripping the
