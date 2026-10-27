@@ -9,7 +9,7 @@
  * operation spinner away from a user-initiated git command.
  */
 
-import type { GitAutofetchStateChanged } from "../../../../shared/git/types";
+import type { GitAutofetchStateChanged, RepoInfo } from "../../../../shared/git/types";
 import { canUseIpcBridge, ipcListen } from "../../../ipc/client";
 import { scheduleStatusHintRefresh } from "./draft-persistence";
 import { shouldInvalidateIgnoredCache, useIgnoredStore } from "./ignored";
@@ -38,6 +38,38 @@ function applyAutofetchEvent(event: GitAutofetchStateChanged): void {
     });
     return { sessions: next };
   });
+}
+
+/**
+ * Applies a repository detection result from main. Leaving the repo state
+ * drops its status; reaching it without one reads the status again.
+ *
+ * The renderer can handle a broadcast after the reply to a call that main
+ * sent later: the detecting → repo pair of the detection `getRepoInfo` waited
+ * on can arrive once `loadInitial` has stored the status it fetched, and
+ * clear it. A repository whose status did not change gets no statusChanged
+ * to fill it back in.
+ */
+export function applyRepoInfoEvent(workspaceId: string, info: RepoInfo): void {
+  useGitStore.setState((state) => {
+    const session = state.sessions.get(workspaceId);
+    if (!session) return state;
+
+    const next = new Map(state.sessions);
+    next.set(workspaceId, {
+      ...session,
+      repoInfo: info,
+      status: info.kind === "repo" ? session.status : null,
+      branchInfo: info.kind === "repo" ? session.branchInfo : null,
+    });
+    return { sessions: next };
+  });
+
+  const session = useGitStore.getState().sessions.get(workspaceId);
+  // A session still fetching (loadInitial, refresh, init) stores its own.
+  if (session?.repoInfo.kind === "repo" && session.status === null && !session.statusFetching) {
+    scheduleStatusHintRefresh(workspaceId);
+  }
 }
 
 /**
@@ -78,19 +110,7 @@ export function installGitEventSubscriptions(): void {
   });
 
   ipcListen("git", "repoInfoChanged", ({ workspaceId, info }) => {
-    useGitStore.setState((state) => {
-      const session = state.sessions.get(workspaceId);
-      if (!session) return state;
-
-      const next = new Map(state.sessions);
-      next.set(workspaceId, {
-        ...session,
-        repoInfo: info,
-        status: info.kind === "repo" ? session.status : null,
-        branchInfo: info.kind === "repo" ? session.branchInfo : null,
-      });
-      return { sessions: next };
-    });
+    applyRepoInfoEvent(workspaceId, info);
   });
 
   ipcListen("autofetch", "stateChanged", (event) => {
