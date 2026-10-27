@@ -56,6 +56,9 @@ describe("GitRepository discard source scoping", () => {
 function makeRepo(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-git-discard-"));
   runGit(root, ["init"]);
+  // Git for Windows defaults core.autocrlf to true, which checks f.txt out
+  // with CRLF line endings.
+  runGit(root, ["config", "core.autocrlf", "false"]);
   runGit(root, ["config", "user.name", "Nexus Test"]);
   runGit(root, ["config", "user.email", "nexus@example.invalid"]);
   fs.writeFileSync(path.join(root, "f.txt"), "base\n", "utf8");

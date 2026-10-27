@@ -6,7 +6,8 @@ import { newLocalGitRepository } from "./helpers/local-semantic-executor";
 
 const QUEUE_TRIALS = 5;
 
-describe("GitRepository operation queue", () => {
+// The fake git these tests run is a /bin/sh script, which Windows cannot run.
+describe.skipIf(process.platform === "win32")("GitRepository operation queue", () => {
   test("serializes a slow status read before a concurrently requested stage", async () => {
     for (let trial = 0; trial < QUEUE_TRIALS; trial += 1) {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-git-queue-"));
