@@ -92,6 +92,9 @@ export function FilesPanel() {
 
   // 재연결 진행 중 여부 — Reconnect 버튼을 disabled 처리하고 라벨을 변경하는 데 사용.
   const [isReconnecting, setIsReconnecting] = useState(false);
+  // Bumped by each click on the Search button so the panel focuses its input,
+  // whether the click mounts it or it is already showing.
+  const [searchFocusRequest, setSearchFocusRequest] = useState(0);
 
   const handleReconnect = (): void => {
     if (!activeWorkspace || isReconnecting) return;
@@ -128,7 +131,10 @@ export function FilesPanel() {
                       isActive &&
                         "bg-[var(--state-selected-bg)] text-[var(--state-selected-fg)]",
                     )}
-                    onClick={() => setFilesPanelMode(activeWorkspace.id, mode)}
+                    onClick={() => {
+                      setFilesPanelMode(activeWorkspace.id, mode);
+                      if (mode === "search") setSearchFocusRequest((n) => n + 1);
+                    }}
                   >
                     <Icon />
                   </Button>
@@ -163,7 +169,11 @@ export function FilesPanel() {
                   <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
                     {/* Keyed so the query input and options belong to one
                         workspace; they are restored from its search session. */}
-                    <SearchPanel key={activeWorkspace.id} workspaceId={activeWorkspace.id} />
+                    <SearchPanel
+                      key={activeWorkspace.id}
+                      workspaceId={activeWorkspace.id}
+                      focusRequest={searchFocusRequest}
+                    />
                   </div>
                 </ErrorBoundary>
               ) : filesPanelMode === "git" ? (

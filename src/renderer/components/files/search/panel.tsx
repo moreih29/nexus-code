@@ -40,6 +40,8 @@ import { validateRegexPattern } from "./validate-regex-pattern";
 
 interface SearchPanelProps {
   workspaceId: string;
+  /** Focuses the query input whenever it changes to a value above zero. */
+  focusRequest?: number;
 }
 
 // Stable empty fallback for the `expandedDirs` selector below.
@@ -56,7 +58,7 @@ interface SearchPanelProps {
 // this constant; it manufactures its own writable Set when needed).
 const EMPTY_EXPANDED_DIRS: ReadonlySet<string> = new Set<string>();
 
-export function SearchPanel({ workspaceId }: SearchPanelProps) {
+export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps) {
   const { t } = useTranslation("files");
   const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
   const rootPath = workspace?.rootPath ?? "";
@@ -91,6 +93,10 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
   const { trigger, flush, cancel } = useSearchDebounce(workspaceId);
   const showLoader = useLoaderDelay(session?.status);
   useGlobalSearchHotkey(inputRef);
+
+  useEffect(() => {
+    if (focusRequest > 0) inputRef.current?.focus();
+  }, [focusRequest]);
 
   // Load persisted view options once per workspace mount.
   useEffect(() => {
