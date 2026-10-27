@@ -192,7 +192,7 @@ func TestDeriveCloneName(t *testing.T) {
 func TestCloneLocalRepo(t *testing.T) {
 	// Create a local bare repository to clone from.
 	remote := t.TempDir()
-	runGitCommand(t, remote, "init", "--bare")
+	runGitCommand(t, remote, "init", "--bare", "-b", "main")
 
 	seed := t.TempDir()
 	runGitCommand(t, seed, "init", "-b", "main")
@@ -316,7 +316,7 @@ func TestClone_ParentDirNotAbsolute(t *testing.T) {
 func TestClone_CancelDuringProgress(t *testing.T) {
 	// Use a local bare repo that we can observe cancellation on.
 	remote := t.TempDir()
-	runGitCommand(t, remote, "init", "--bare")
+	runGitCommand(t, remote, "init", "--bare", "-b", "main")
 
 	seed := t.TempDir()
 	runGitCommand(t, seed, "init", "-b", "main")
