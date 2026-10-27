@@ -5,6 +5,7 @@
  * that mounts the global listener can compose them with the others.
  */
 
+import i18next from "i18next";
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { showToast } from "../../components/ui/toast";
@@ -25,6 +26,7 @@ import {
 } from "../../state/stores/files";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { fsErrorReason } from "../../utils/file-error";
 import { isWithinWorkspace } from "../../utils/path";
 import { getActiveTabContext } from "../context";
 
@@ -188,8 +190,10 @@ export function registerFileCommands(): Array<() => void> {
       if (!tab) return;
       if (tab.type === "untitled") {
         saveUntitledModel(ctx.wsId, ctx.tabId).catch((error: unknown) => {
-          const message = error instanceof Error ? error.message : String(error);
-          showToast({ kind: "error", message: `Save failed: ${message}` });
+          showToast({
+            kind: "error",
+            message: i18next.t("errors:save.failed", { reason: fsErrorReason(error) }),
+          });
         });
         return;
       }

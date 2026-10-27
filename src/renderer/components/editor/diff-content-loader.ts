@@ -4,6 +4,7 @@ import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/errors";
 import type { FileContent } from "../../../shared/fs/types";
 import type { DiffTabPayload } from "../../../shared/types/tab";
 import { ipcCallResult, ipcListen, unwrapGitResult, unwrapIpcResult } from "../../ipc/client";
+import { fsErrorReason } from "../../utils/file-error";
 import { isRecord } from "../../utils/is-record";
 import { EMPTY_TREE } from "./diff-refs";
 
@@ -357,14 +358,15 @@ function isMissingContentError(error: unknown): boolean {
  */
 function isTooLargeError(error: unknown): boolean {
   if (hasFsErrorCode(error, FS_ERROR.TOO_LARGE)) return true;
-  return /output exceeded .+ limit|too large/i.test(errorMessage(error));
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  return /output exceeded .+ limit|too large/i.test(message);
 }
 
 /**
- * Extracts a renderer-visible error message from unknown rejection payloads.
+ * Extracts a renderer-visible error message from unknown rejection payloads;
+ * an fs failure reads as its localized phrase, not its code and path.
  */
 function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
+  if (error instanceof Error || typeof error === "string") return fsErrorReason(error);
   return i18next.t("editor.diff_load_failed");
 }

@@ -144,7 +144,7 @@ describe("saveModel read-only guard", () => {
     expect(showToastMock).toHaveBeenCalledTimes(1);
     expect((showToastMock.mock.calls[0] as [{ kind: string; message: string }])[0]).toEqual({
       kind: "info",
-      message: "File is read-only",
+      message: "File is read-only.",
     });
     // Dirty tracker must NOT be queried — guard fires before dirty check.
     expect(getDirtyEntryMock).not.toHaveBeenCalled();

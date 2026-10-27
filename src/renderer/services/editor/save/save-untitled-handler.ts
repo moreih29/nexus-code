@@ -13,10 +13,12 @@
 // does not pull in tabs/workspaces stores (which need IPC), avoiding
 // test-pollution in save-service.test.ts.
 
+import i18next from "i18next";
 import { showToast } from "../../../components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { useTabsStore } from "../../../state/stores/tabs";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { fsErrorReason } from "../../../utils/file-error";
 import { basename } from "../../../utils/path";
 import { acquireModel, getResolvedModel, releaseModel } from "../model/cache";
 import { markSaved as markDirtyTrackerSaved } from "../model/dirty-tracker";
@@ -80,7 +82,12 @@ export async function saveUntitledModel(
   };
   const resolved = getResolvedModel(untitledInput);
   if (!resolved) {
-    showToast({ kind: "error", message: "Save failed: buffer not available" });
+    showToast({
+      kind: "error",
+      message: i18next.t("errors:save.failed", {
+        reason: i18next.t("errors:save.buffer_unavailable"),
+      }),
+    });
     return "failed";
   }
   const content = resolved.model.getValue();
@@ -95,7 +102,9 @@ export async function saveUntitledModel(
   if (!isInsideWorkspace) {
     showToast({
       kind: "error",
-      message: "Save failed: choose a location inside the workspace folder",
+      message: i18next.t("errors:save.failed", {
+        reason: i18next.t("errors:save.outside_workspace"),
+      }),
     });
     return "failed";
   }
@@ -113,15 +122,22 @@ export async function saveUntitledModel(
       }),
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    showToast({ kind: "error", message: `Save failed: ${message}` });
+    showToast({
+      kind: "error",
+      message: i18next.t("errors:save.failed", { reason: fsErrorReason(error) }),
+    });
     return "failed";
   }
 
   if (writeFileResult.kind === "conflict") {
     // A file already exists at the chosen path — treat as error for the
     // first-save flow (user can rename in the dialog to avoid it).
-    showToast({ kind: "error", message: "Save failed: a file already exists at that path" });
+    showToast({
+      kind: "error",
+      message: i18next.t("errors:save.failed", {
+        reason: i18next.t("errors:save.already_exists"),
+      }),
+    });
     return "failed";
   }
 
@@ -137,8 +153,10 @@ export async function saveUntitledModel(
   try {
     await acquireModel(newInput);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    showToast({ kind: "error", message: `Save failed: ${message}` });
+    showToast({
+      kind: "error",
+      message: i18next.t("errors:save.failed", { reason: fsErrorReason(error) }),
+    });
     return "failed";
   }
 

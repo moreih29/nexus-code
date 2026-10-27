@@ -8,7 +8,9 @@
     "TOO_LARGE": "File too large to open.",
     "OUT_OF_WORKSPACE": "This path is outside the workspace.",
     "NOT_EMPTY": "Folder is not empty.",
-    "CROSS_DEVICE": "Can't move across filesystems."
+    "CROSS_DEVICE": "Can't move across filesystems.",
+    "NO_SPACE": "Not enough disk space.",
+    "UNSUPPORTED_REMOTE": "Not supported for remote workspaces."
   },
   "git": {
     "not-repo": "Not a git repository.",
@@ -21,5 +23,16 @@
     "invalid-input": "The input is invalid.",
     "failed": "The operation failed.",
     "bug": "Something went wrong. Check the log for details."
+  },
+  "open": {
+    "TOO_LARGE": "File too large to open (max {{maxMb}} MB).",
+    "failed": "Failed to open file."
+  },
+  "save": {
+    "failed": "Save failed: {{reason}}",
+    "buffer_unavailable": "the editor buffer is not available",
+    "outside_workspace": "choose a location inside the workspace folder",
+    "already_exists": "a file already exists at that path",
+    "read_only": "File is read-only."
   }
 }

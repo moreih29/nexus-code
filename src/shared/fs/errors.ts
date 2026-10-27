@@ -18,6 +18,8 @@ export const FS_ERROR = {
   OUT_OF_WORKSPACE: "OUT_OF_WORKSPACE",
   NOT_EMPTY: "NOT_EMPTY",
   CROSS_DEVICE: "CROSS_DEVICE",
+  /** The volume is full (ENOSPC); the agent reports it for writes. */
+  NO_SPACE: "NO_SPACE",
   /** Operation is not available for remote workspaces (SSH, WSL, etc.). */
   UNSUPPORTED_REMOTE: "UNSUPPORTED_REMOTE",
 } as const;

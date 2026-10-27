@@ -8,6 +8,7 @@
 //
 // Public functions: saveModel(input), installEditorSaveAction(editor, input).
 
+import i18next from "i18next";
 import type * as Monaco from "monaco-editor";
 import { showConflictResolution } from "../../../components/editor/conflict-dialog";
 import { showToast } from "../../../components/ui/toast";
@@ -21,6 +22,7 @@ import {
   reloadModelFromDisk,
   syncLoadedValueAfterSave,
 } from "../model/cache";
+import { fsErrorReason } from "../../../utils/file-error";
 import { basename } from "../../../utils/path";
 import { promoteAllPreviewTabsForFile } from "../tabs/promote-policy";
 import type { EditorInput } from "../types";
@@ -67,7 +69,7 @@ export type SaveResult =
  */
 export function reportSaveFailure(result: SaveResult): void {
   if (result.kind === "error") {
-    showToast({ kind: "error", message: `Save failed: ${result.message}` });
+    showToast({ kind: "error", message: i18next.t("errors:save.failed", { reason: result.message }) });
   }
 }
 
@@ -137,7 +139,7 @@ export function runSaveAndReport(input: EditorInput): void {
   saveModelInteractive(input).then(reportSaveFailure, (error: unknown) => {
     showToast({
       kind: "error",
-      message: `Save failed: ${error instanceof Error ? error.message : String(error)}`,
+      message: i18next.t("errors:save.failed", { reason: fsErrorReason(error) }),
     });
   });
 }
@@ -157,7 +159,7 @@ export async function saveModel(input: EditorInput): Promise<SaveResult> {
 
   // Read-only guard — must short-circuit before any dirty-tracker access.
   if (resolved.readOnly) {
-    showToast({ kind: "info", message: "File is read-only" });
+    showToast({ kind: "info", message: i18next.t("errors:save.read_only") });
     return { kind: "read-only" };
   }
 
@@ -238,7 +240,6 @@ export async function saveModel(input: EditorInput): Promise<SaveResult> {
     if (e instanceof SaveSupersededError) {
       return { kind: "superseded" };
     }
-    const message = e instanceof Error ? e.message : String(e);
-    return { kind: "error", message };
+    return { kind: "error", message: fsErrorReason(e) };
   }
 }

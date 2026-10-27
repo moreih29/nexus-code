@@ -199,6 +199,10 @@ function fsCodeToUserMessage(code: string): string | undefined {
       return i18next.t("errors:fs.NOT_EMPTY");
     case "CROSS_DEVICE":
       return i18next.t("errors:fs.CROSS_DEVICE");
+    case "NO_SPACE":
+      return i18next.t("errors:fs.NO_SPACE");
+    case "UNSUPPORTED_REMOTE":
+      return i18next.t("errors:fs.UNSUPPORTED_REMOTE");
     default:
       return undefined;
   }
