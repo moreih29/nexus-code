@@ -1055,7 +1055,7 @@ export class WorkspaceManager {
     try {
       const raw = await channel.call("hook.getInfo", {});
       if (!isHookInfo(raw)) {
-        throw new Error("hook.getInfo 응답이 올바르지 않음 (socketPath/token 누락)");
+        throw new Error("hook.getInfo returned no socketPath or token");
       }
       this.hookInfoByWorkspace.set(meta.id, raw);
     } catch (err) {
@@ -1071,9 +1071,8 @@ export class WorkspaceManager {
         }
         channel.dispose();
         ctx.setFsProvider(createInitialFsProvider(meta));
-        throw new Error(
-          `워크스페이스 ${meta.id} agent hook 초기화 실패: ${(err as Error).message}`,
-        );
+        log.warn(`agent hook setup failed for ${meta.id}: ${(err as Error).message}`);
+        throw new Error(`Agent hook setup failed: ${(err as Error).message}`, { cause: err });
       }
     }
 
@@ -1243,7 +1242,7 @@ export class WorkspaceManager {
     try {
       const raw = await channel.call("hook.getInfo", {});
       if (!isHookInfo(raw)) {
-        throw new Error("hook.getInfo 응답이 올바르지 않음 (socketPath/token 누락)");
+        throw new Error("hook.getInfo returned no socketPath or token");
       }
       this.hookInfoByWorkspace.set(meta.id, raw);
     } catch (err) {
@@ -1262,9 +1261,8 @@ export class WorkspaceManager {
         bootstrap.dispose?.();
         channel.dispose();
         ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
-        throw new Error(
-          `워크스페이스 ${meta.id} agent hook 초기화 실패: ${(err as Error).message}`,
-        );
+        log.warn(`agent hook setup failed for ${meta.id}: ${(err as Error).message}`);
+        throw new Error(`Agent hook setup failed: ${(err as Error).message}`, { cause: err });
       }
     }
 
