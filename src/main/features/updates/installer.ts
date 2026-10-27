@@ -2,13 +2,14 @@
  * In-place app update — downloads the newest release on the user's channel and
  * installs it over the running app on restart.
  *
- * Squirrel.Mac (behind electron-updater) takes an update only when its code
- * signature meets the running app's designated requirement. Release builds are
- * all signed with one certificate (scripts/sign-mac.cjs), so each meets the
- * requirement of the one before it; a build signed any other way (a local,
- * ad-hoc one) fails the check, and the user is pointed at the release page
- * instead. The app downloads the update itself, so the new bundle carries no
- * quarantine attribute and opens without a Gatekeeper prompt.
+ * On macOS, Squirrel.Mac (behind electron-updater) takes an update only when
+ * its code signature meets the running app's designated requirement. Release
+ * builds are all signed with one certificate (scripts/sign-mac.cjs), so each
+ * meets the requirement of the one before it; a build signed any other way (a
+ * local, ad-hoc one) fails the check, and the user is pointed at the release
+ * page instead. The app downloads the update itself, so the new bundle carries
+ * no quarantine attribute and opens without a Gatekeeper prompt. On Linux the
+ * new AppImage replaces the running one (electron-update-backend.ts).
  *
  * STATES
  * ------
@@ -25,9 +26,9 @@ export type UpdateChannel = "stable" | "beta";
 export interface UpdateBackend {
   /** Resolves the newer version `channel` offers, or null when there is none. */
   check(channel: UpdateChannel): Promise<string | null>;
-  /** Downloads the version check() found and hands it to Squirrel.Mac. */
+  /** Downloads the version check() found and stages it for install. */
   download(): Promise<void>;
-  /** `listener` runs once Squirrel.Mac has verified and staged the update. */
+  /** `listener` runs once the update is verified and staged. */
   onStaged(listener: () => void): void;
   /**
    * `listener` runs on any updater failure, including those after download()
