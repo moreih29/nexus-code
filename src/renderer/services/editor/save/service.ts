@@ -61,16 +61,13 @@ export type SaveResult =
  * callsite that fires a save must route the result here — otherwise the
  * failure vanishes with no toast and no log. Normal outcomes (saved,
  * not-dirty, superseded, no-model) are intentionally silent; read-only
- * already toasts inside saveModel.
+ * already toasts inside saveModel. A conflict reaches here only from
+ * saveModelInteractive after the user cancelled the conflict dialog, which
+ * already told them the file changed on disk, so it is silent too.
  */
 export function reportSaveFailure(result: SaveResult): void {
   if (result.kind === "error") {
     showToast({ kind: "error", message: `Save failed: ${result.message}` });
-  } else if (result.kind === "conflict") {
-    showToast({
-      kind: "error",
-      message: "Save aborted — the file changed on disk. Reload to get the latest version.",
-    });
   }
 }
 

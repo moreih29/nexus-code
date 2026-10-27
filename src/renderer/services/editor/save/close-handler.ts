@@ -59,8 +59,8 @@ export async function closeEditorWithConfirm(
     if (result.kind !== "saved" && result.kind !== "not-dirty") {
       // conflict (user cancelled resolution) / error / superseded / no-model —
       // keep the tab open so the user can react. reportSaveFailure toasts on
-      // error; conflict after a cancel is intentionally silent here since the
-      // user already saw the dialog.
+      // error; conflict after a cancel is silent since the user already saw
+      // the dialog.
       reportSaveFailure(result);
       return "save-failed";
     }
