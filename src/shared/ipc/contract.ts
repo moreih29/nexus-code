@@ -1459,9 +1459,12 @@ export const ipcContract = {
   //
   // Discriminated-union status payloads:
   //   { kind: "checking",  trigger: "auto" | "manual" }
-  //   { kind: "newer",     trigger, current, latest, releaseUrl }
+  //   { kind: "newer",     trigger, current, latest, releaseUrl, canInstall }
   //   { kind: "current",   trigger, current, latest? }
   //   { kind: "error",     trigger, reason, status? }
+  // and the steps of an in-place update (`install`):
+  //   { kind: "downloading", version } → { kind: "ready", version }
+  //   { kind: "installFailed", releaseUrl }
   //
   // "checking" is only broadcast for trigger="manual" (with a 3-second delay).
   // "newer" / "current" / "error" are broadcast for both triggers, but "current"
@@ -1477,6 +1480,14 @@ export const ipcContract = {
        * Pass `null` to clear a previously ignored version.
        */
       setIgnoredVersion: call(z.object({ version: z.string().nullable() }), z.void()),
+      /**
+       * Download the newest release on the user's channel and stage it to
+       * install on restart. Progress arrives as statusChanged. Only offered
+       * when a "newer" status says `canInstall`.
+       */
+      install: call(z.void(), z.void()),
+      /** Quit and install the staged update; a no-op until one is ready. */
+      restart: call(z.void(), z.void()),
       /**
        * Open the GitHub release page URL in the system default browser.
        * The main process validates the scheme (https only) before calling
@@ -1498,6 +1509,8 @@ export const ipcContract = {
             current: z.string(),
             latest: z.string(),
             releaseUrl: z.string(),
+            /** Whether `install` can update this app in place. */
+            canInstall: z.boolean(),
           }),
           z.object({
             kind: z.literal("current"),
@@ -1513,6 +1526,9 @@ export const ipcContract = {
             reason: z.enum(["rate-limited", "http", "network", "unexpected"]),
             status: z.number().int().optional(),
           }),
+          z.object({ kind: z.literal("downloading"), version: z.string() }),
+          z.object({ kind: z.literal("ready"), version: z.string() }),
+          z.object({ kind: z.literal("installFailed"), releaseUrl: z.string() }),
         ]),
       ),
     },
