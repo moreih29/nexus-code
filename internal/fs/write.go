@@ -73,7 +73,7 @@ func (s *Service) WriteFile(ctx context.Context, raw json.RawMessage) (any, erro
 		return successResult(stat), nil
 	}
 
-	if info != nil && info.Mode().IsRegular() && needsInPlaceWrite(info) {
+	if info != nil && info.Mode().IsRegular() && needsInPlaceWrite(abs, info) {
 		stat, err := plainWrite(abs, p.Content)
 		if err != nil {
 			return nil, mapWriteError(err, abs)

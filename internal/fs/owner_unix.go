@@ -12,7 +12,7 @@ import (
 // would belong to the agent's user, root included) or other hard links (they
 // would keep the old content). Those files are truncated and written in place
 // instead, giving up crash atomicity to keep their identity.
-func needsInPlaceWrite(info os.FileInfo) bool {
+func needsInPlaceWrite(_ string, info os.FileInfo) bool {
 	st, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
 		return false
