@@ -17,15 +17,36 @@
  * For menus that use React portals, use `useDismissOnOutsideClickMulti` so
  * that portal-mounted panels (which live outside the wrapper ref in the DOM)
  * are also treated as "inside" and do not incorrectly trigger a dismiss.
+ *
+ * Every variant also dismisses on Escape at document level. A menu opened by
+ * mouse leaves focus on its trigger (or wherever it was), so a key handler on
+ * the panel alone never sees the key.
  */
 
 import { type RefObject, useEffect } from "react";
+
+function useDismissOnEscape(open: boolean, onDismiss: () => void): void {
+  useEffect(() => {
+    if (!open) return;
+
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      onDismiss();
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open, onDismiss]);
+}
 
 export function useDismissOnOutsideClick(
   containerRef: RefObject<HTMLElement | null>,
   open: boolean,
   onDismiss: () => void,
 ): void {
+  useDismissOnEscape(open, onDismiss);
   useEffect(() => {
     if (!open) return;
 
@@ -58,6 +79,7 @@ export function useDismissOnOutsideClickMulti(
   open: boolean,
   onDismiss: () => void,
 ): void {
+  useDismissOnEscape(open, onDismiss);
   useEffect(() => {
     if (!open) return;
 
@@ -92,6 +114,7 @@ export function useDismissOnOutsideClickWithMarker(
   onDismiss: () => void,
   portalMarker: string,
 ): void {
+  useDismissOnEscape(open, onDismiss);
   useEffect(() => {
     if (!open) return;
 
