@@ -134,11 +134,15 @@ export function installGitHelperPromptListeners(listen: typeof ipcListen = ipcLi
   const unlistenAskpass = listen("askpass", "prompt", (prompt) => {
     enqueuePrompt({ kind: "credential", prompt });
   });
+  const unlistenAskpassClosed = listen("askpass", "closed", ({ promptId }) => {
+    clearCredentialPrompt(promptId);
+  });
   const unlistenEditor = listen("editor", "prompt", (prompt) => {
     enqueuePrompt({ kind: "editor", prompt });
   });
   return () => {
     unlistenAskpass();
+    unlistenAskpassClosed();
     unlistenEditor();
   };
 }

@@ -820,6 +820,8 @@ export const ipcContract = {
     },
     listen: {
       prompt: listen(AskpassPromptSchema),
+      /** The Git command ended before the prompt was answered. */
+      closed: listen(GitHelperPromptIdArgsSchema),
     },
   },
 

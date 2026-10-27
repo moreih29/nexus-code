@@ -197,6 +197,14 @@ import type { AgentBackedProvider } from "../../../fs/bridge/provider";
 
 type ProviderSource = AgentBackedProvider | (() => AgentBackedProvider);
 
+/**
+ * Agent call options for requests that may prompt for credentials. The
+ * default 30 s request timeout would fail a push while the user types a
+ * password, or a push that is simply slow; these requests can be cancelled
+ * instead, so only a generous backstop remains.
+ */
+const INTERACTIVE_CALL_OPTIONS = { timeoutMs: 10 * 60_000 } as const;
+
 export interface AgentGitExecutorOptions {
   readonly askpassManager?: GitHelpersIpcManager;
   readonly workspaceId?: string;
@@ -220,21 +228,20 @@ export class AgentGitExecutor implements GitExecutor {
   ) {}
 
   async run(options: RunGitOptions): Promise<RunGitResult> {
-    const provider = this.provider();
-    const unwireAskpass = this.wireAskpass(provider, options.interactive ?? false);
-    try {
-      const result = await this.callAgentRun(provider, {
-        args: [...options.args],
-        cwd: options.cwd,
-        env: normalizeEnv(options.env),
-        interactive: options.interactive ?? false,
-        stdoutCapBytes: options.stdoutCapBytes,
-      });
-      if (isAgentGitFailure(result)) throw gitErrorFromAgent(result, options.args);
-      return result;
-    } finally {
-      unwireAskpass();
-    }
+    const params = {
+      args: [...options.args],
+      cwd: options.cwd,
+      env: normalizeEnv(options.env),
+      interactive: options.interactive ?? false,
+      stdoutCapBytes: options.stdoutCapBytes,
+    };
+    const result = params.interactive
+      ? await this.withInteractiveRun(options.signal, (provider, runId) =>
+          this.callAgentRun(provider, { ...params, runId }),
+        )
+      : await this.callAgentRun(this.provider(), params);
+    if (isAgentGitFailure(result)) throw gitErrorFromAgent(result, options.args);
+    return result;
   }
 
   async *stream(options: GitProcessOptions): AsyncGenerator<Buffer, void, unknown> {
@@ -243,7 +250,7 @@ export class AgentGitExecutor implements GitExecutor {
     const streamId = randomUUID();
     const queue = new AsyncQueue<Buffer>();
     const provider = this.provider();
-    const unwireAskpass = this.wireAskpass(provider, options.interactive ?? false);
+    const unwireAskpass = options.interactive ? this.wireAskpass(provider, streamId) : () => {};
     const unsubscribe = provider.onAgentEvent(GIT_STREAM_CHUNK_EVENT, (payload) => {
       const parsed = AgentGitStreamChunkPayloadSchema.safeParse(payload);
       if (!parsed.success || parsed.data.streamId !== streamId) return;
@@ -268,14 +275,18 @@ export class AgentGitExecutor implements GitExecutor {
     };
 
     const complete = provider
-      .callAgentMethod(GIT_STREAM_METHOD, {
-        streamId,
-        args: [...options.args],
-        cwd: options.cwd,
-        env: normalizeEnv(options.env),
-        interactive: options.interactive ?? false,
-        streamStderr: options.streamStderr === true ? true : undefined,
-      })
+      .callAgentMethod(
+        GIT_STREAM_METHOD,
+        {
+          streamId,
+          args: [...options.args],
+          cwd: options.cwd,
+          env: normalizeEnv(options.env),
+          interactive: options.interactive ?? false,
+          streamStderr: options.streamStderr === true ? true : undefined,
+        },
+        options.interactive ? INTERACTIVE_CALL_OPTIONS : undefined,
+      )
       .then((result) => parseAgentResult(AgentGitRunResultSchema, result))
       .catch((error) => {
         throw normalizeAgentGitError(error, options.bin, options.args);
@@ -516,12 +527,17 @@ export class AgentGitExecutor implements GitExecutor {
   }
 
   async tagListRemote(options: GitTagListRemoteOptions): Promise<RemoteTag[]> {
-    throwIfAborted(options.signal);
-    const result = await this.provider().callAgentMethod(
-      GIT_TAG_LIST_REMOTE_METHOD,
-      AgentGitTagListRemoteParamsSchema.parse({ cwd: options.cwd, remote: options.remote }),
+    const result = await this.withInteractiveRun(options.signal, (provider, runId) =>
+      provider.callAgentMethod(
+        GIT_TAG_LIST_REMOTE_METHOD,
+        AgentGitTagListRemoteParamsSchema.parse({
+          cwd: options.cwd,
+          remote: options.remote,
+          runId,
+        }),
+        INTERACTIVE_CALL_OPTIONS,
+      ),
     );
-    throwIfAborted(options.signal);
     return parseAgentResult(AgentGitTagListRemoteResultSchema, result);
   }
 
@@ -549,25 +565,28 @@ export class AgentGitExecutor implements GitExecutor {
   }
 
   async tagDeleteRemote(options: GitTagDeleteRemoteOptions): Promise<void> {
-    throwIfAborted(options.signal);
-    await this.provider().callAgentMethod(
-      GIT_TAG_DELETE_REMOTE_METHOD,
-      AgentGitTagDeleteRemoteParamsSchema.parse({
-        cwd: options.cwd,
-        remote: options.remote,
-        name: options.name,
-      }),
+    await this.withInteractiveRun(options.signal, (provider, runId) =>
+      provider.callAgentMethod(
+        GIT_TAG_DELETE_REMOTE_METHOD,
+        AgentGitTagDeleteRemoteParamsSchema.parse({
+          cwd: options.cwd,
+          remote: options.remote,
+          name: options.name,
+          runId,
+        }),
+        INTERACTIVE_CALL_OPTIONS,
+      ),
     );
-    throwIfAborted(options.signal);
   }
 
   async tagPush(options: GitTagPushOptions): Promise<void> {
-    throwIfAborted(options.signal);
-    await this.provider().callAgentMethod(
-      GIT_TAG_PUSH_METHOD,
-      AgentGitTagPushParamsSchema.parse({ cwd: options.cwd, remote: options.remote }),
+    await this.withInteractiveRun(options.signal, (provider, runId) =>
+      provider.callAgentMethod(
+        GIT_TAG_PUSH_METHOD,
+        AgentGitTagPushParamsSchema.parse({ cwd: options.cwd, remote: options.remote, runId }),
+        INTERACTIVE_CALL_OPTIONS,
+      ),
     );
-    throwIfAborted(options.signal);
   }
 
   async remoteAdd(options: GitRemoteAddOptions): Promise<void> {
@@ -696,16 +715,18 @@ export class AgentGitExecutor implements GitExecutor {
   }
 
   async branchDeleteRemote(options: GitBranchDeleteRemoteOptions): Promise<void> {
-    throwIfAborted(options.signal);
-    await this.provider().callAgentMethod(
-      GIT_BRANCH_DELETE_REMOTE_METHOD,
-      AgentGitBranchDeleteRemoteParamsSchema.parse({
-        cwd: options.cwd,
-        remote: options.remote,
-        name: options.name,
-      }),
+    await this.withInteractiveRun(options.signal, (provider, runId) =>
+      provider.callAgentMethod(
+        GIT_BRANCH_DELETE_REMOTE_METHOD,
+        AgentGitBranchDeleteRemoteParamsSchema.parse({
+          cwd: options.cwd,
+          remote: options.remote,
+          name: options.name,
+          runId,
+        }),
+        INTERACTIVE_CALL_OPTIONS,
+      ),
     );
-    throwIfAborted(options.signal);
   }
 
   async branchRename(options: GitBranchRenameOptions): Promise<void> {
@@ -735,17 +756,19 @@ export class AgentGitExecutor implements GitExecutor {
   }
 
   async branchFastForward(options: GitBranchFastForwardOptions): Promise<GitFastForwardResult> {
-    throwIfAborted(options.signal);
-    const result = await this.provider().callAgentMethod(
-      GIT_BRANCH_FAST_FORWARD_METHOD,
-      AgentGitBranchFastForwardParamsSchema.parse({
-        cwd: options.cwd,
-        branch: options.branch,
-        remote: options.remote,
-        remoteRef: options.remoteRef,
-      }),
+    const result = await this.withInteractiveRun(options.signal, (provider, runId) =>
+      provider.callAgentMethod(
+        GIT_BRANCH_FAST_FORWARD_METHOD,
+        AgentGitBranchFastForwardParamsSchema.parse({
+          cwd: options.cwd,
+          branch: options.branch,
+          remote: options.remote,
+          remoteRef: options.remoteRef,
+          runId,
+        }),
+        INTERACTIVE_CALL_OPTIONS,
+      ),
     );
-    throwIfAborted(options.signal);
     const parsed = parseAgentResult(AgentGitBranchFastForwardResultSchema, result);
     return {
       advanced: parsed.advanced,
@@ -755,30 +778,34 @@ export class AgentGitExecutor implements GitExecutor {
   }
 
   async pull(options: GitPullOptions): Promise<PullResult> {
-    throwIfAborted(options.signal);
-    const result = await this.provider().callAgentMethod(
-      GIT_PULL_METHOD,
-      AgentGitPullParamsSchema.parse({
-        cwd: options.cwd,
-        args: options.args ? [...options.args] : undefined,
-      }),
+    const result = await this.withInteractiveRun(options.signal, (provider, runId) =>
+      provider.callAgentMethod(
+        GIT_PULL_METHOD,
+        AgentGitPullParamsSchema.parse({
+          cwd: options.cwd,
+          args: options.args ? [...options.args] : undefined,
+          runId,
+        }),
+        INTERACTIVE_CALL_OPTIONS,
+      ),
     );
-    throwIfAborted(options.signal);
     return parseAgentResult(AgentGitPullResultSchema, result);
   }
 
   async push(options: GitPushOptions): Promise<PushResult> {
-    throwIfAborted(options.signal);
-    const result = await this.provider().callAgentMethod(
-      GIT_PUSH_METHOD,
-      AgentGitPushParamsSchema.parse({
-        cwd: options.cwd,
-        force: options.force,
-        publish: options.publish,
-        args: options.args ? [...options.args] : undefined,
-      }),
+    const result = await this.withInteractiveRun(options.signal, (provider, runId) =>
+      provider.callAgentMethod(
+        GIT_PUSH_METHOD,
+        AgentGitPushParamsSchema.parse({
+          cwd: options.cwd,
+          force: options.force,
+          publish: options.publish,
+          args: options.args ? [...options.args] : undefined,
+          runId,
+        }),
+        INTERACTIVE_CALL_OPTIONS,
+      ),
     );
-    throwIfAborted(options.signal);
     return parseAgentResult(AgentGitPushResultSchema, result);
   }
 
@@ -803,23 +830,78 @@ export class AgentGitExecutor implements GitExecutor {
       readonly env?: Record<string, string>;
       readonly interactive: boolean;
       readonly stdoutCapBytes?: number;
+      readonly runId?: string;
     },
   ): Promise<AgentGitRunResult> {
     try {
-      const result = await provider.callAgentMethod(GIT_RUN_METHOD, params);
+      const result = await provider.callAgentMethod(
+        GIT_RUN_METHOD,
+        params,
+        params.interactive ? INTERACTIVE_CALL_OPTIONS : undefined,
+      );
       return parseAgentResult(AgentGitRunResultSchema, result);
     } catch (error) {
       throw normalizeAgentGitError(error, "git", params.args);
     }
   }
 
-  private wireAskpass(provider: AgentBackedProvider, enabled: boolean): () => void {
-    if (!enabled || !this.options.askpassManager) return () => {};
+  /**
+   * Runs one agent request that may prompt for credentials under a fresh run
+   * id: its prompts reach the renderer, an abort kills its git through
+   * `git.cancel`, and a prompt still open when it ends is closed.
+   */
+  private async withInteractiveRun<T>(
+    signal: AbortSignal | undefined,
+    call: (provider: AgentBackedProvider, runId: string) => Promise<T>,
+  ): Promise<T> {
+    throwIfAborted(signal);
+    const provider = this.provider();
+    const runId = randomUUID();
+    const unwireAskpass = this.wireAskpass(provider, runId);
+    let cancelled = false;
+    const cancel = (): void => {
+      if (cancelled) return;
+      cancelled = true;
+      void provider
+        .callAgentMethod(GIT_CANCEL_METHOD, AgentGitCancelParamsSchema.parse({ streamId: runId }))
+        .catch(() => {});
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      const result = await call(provider, runId);
+      throwIfAborted(signal);
+      return result;
+    } catch (error) {
+      // A timed-out or lost request may leave its git running on the agent;
+      // a run that already ended ignores the cancel.
+      cancel();
+      // The cancelled git surfaces as an agent error; report the abort.
+      throwIfAborted(signal);
+      throw error;
+    } finally {
+      signal?.removeEventListener("abort", cancel);
+      unwireAskpass();
+    }
+  }
 
-    return provider.onAgentEvent(GIT_ASKPASS_REQUEST_EVENT, (payload) => {
+  /**
+   * Shows the credential prompts of one run (or stream) while it is in
+   * flight. The returned function stops listening and closes the prompts
+   * the run left open: its git has ended, so they can no longer be answered.
+   */
+  private wireAskpass(provider: AgentBackedProvider, runId: string): () => void {
+    const manager = this.options.askpassManager;
+    if (!manager) return () => {};
+
+    const opened: string[] = [];
+    const unsubscribe = provider.onAgentEvent(GIT_ASKPASS_REQUEST_EVENT, (payload) => {
       const parsed = AgentGitAskpassRequestPayloadSchema.safeParse(payload);
       if (!parsed.success) return;
-      this.options.askpassManager?.openAgentAskpassPrompt(
+      // Another request's prompt; an untagged one comes from an agent that
+      // predates run ids.
+      if (parsed.data.runId !== undefined && parsed.data.runId !== runId) return;
+      opened.push(parsed.data.requestId);
+      manager.openAgentAskpassPrompt(
         {
           requestId: parsed.data.requestId,
           prompt: parsed.data.prompt,
@@ -835,6 +917,10 @@ export class AgentGitExecutor implements GitExecutor {
         },
       );
     });
+    return () => {
+      unsubscribe();
+      for (const requestId of opened) manager.closeAgentAskpassPrompt(requestId);
+    };
   }
 
   private async *streamAgentEvents<TChunk, TComplete>({

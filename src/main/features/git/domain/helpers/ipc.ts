@@ -231,6 +231,16 @@ export class GitHelpersIpcManager {
   }
 
   /**
+   * Withdraws an agent prompt whose Git command ended before it was
+   * answered, so the renderer closes the dialog. No-op once answered.
+   */
+  closeAgentAskpassPrompt(requestId: string): void {
+    if (this.pending.get(requestId)?.kind !== "askpass") return;
+    this.pending.delete(requestId);
+    this.broadcast("askpass", "closed", { promptId: requestId });
+  }
+
+  /**
    * Writes the edited commit message file and lets Git continue.
    */
   async saveEditor(args: unknown): Promise<void> {

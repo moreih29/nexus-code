@@ -130,16 +130,23 @@ describe("Git helper prompt workspace filtering and banner copy", () => {
 describe("Global Git helper prompt mounting contract", () => {
   it("registers the singleton askpass and editor prompt listeners", () => {
     __resetGitHelperPromptsForTests();
-    const callbacks = new Map<string, (prompt: AskpassPrompt | GitEditorPrompt) => void>();
+    const callbacks = new Map<
+      string,
+      (prompt: AskpassPrompt | GitEditorPrompt | { promptId: string }) => void
+    >();
     const unlistened: string[] = [];
     const listen = ((channel: string, event: string, callback: (prompt: unknown) => void) => {
       const key = `${channel}.${event}`;
-      callbacks.set(key, callback as (prompt: AskpassPrompt | GitEditorPrompt) => void);
+      callbacks.set(key, callback);
       return () => unlistened.push(key);
     }) as typeof ipcListen;
 
     const unlisten = installGitHelperPromptListeners(listen);
-    expect(Array.from(callbacks.keys()).sort()).toEqual(["askpass.prompt", "editor.prompt"]);
+    expect(Array.from(callbacks.keys()).sort()).toEqual([
+      "askpass.closed",
+      "askpass.prompt",
+      "editor.prompt",
+    ]);
 
     const credentialPrompt = makeAskpassPrompt({ promptId: "global-credential" });
     callbacks.get("askpass.prompt")?.(credentialPrompt);
@@ -153,8 +160,14 @@ describe("Global Git helper prompt mounting contract", () => {
       getGitHelperPromptSnapshot().pendingEditorPrompts.map((prompt) => prompt.promptId),
     ).toEqual(["global-editor"]);
 
+    // The Git command ended unanswered: the dialog closes and the next
+    // prompt takes its place.
+    callbacks.get("askpass.closed")?.({ promptId: "global-credential" });
+    expect(getGitHelperPromptSnapshot().credentialPrompt).toBeNull();
+    expect(getGitHelperPromptSnapshot().editorPrompt?.promptId).toBe("global-editor");
+
     unlisten();
-    expect(unlistened.sort()).toEqual(["askpass.prompt", "editor.prompt"]);
+    expect(unlistened.sort()).toEqual(["askpass.closed", "askpass.prompt", "editor.prompt"]);
   });
 
   it("keeps dialogs/listeners globally mounted rather than GitPanel-owned", async () => {
