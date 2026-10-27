@@ -112,11 +112,7 @@ export function MainListView({
     // Find the associated connection profile
     const profile = profiles.find((p) => p.id === bookmark.connectionProfileId);
     if (!profile) {
-      setError(
-        bookmark.id,
-        new Error("Connection profile not found. It may have been deleted."),
-        null,
-      );
+      showError(bookmark.id, t("workspace.profile_not_found"), null);
       setActiveBookmarkId(null);
       return;
     }
@@ -210,16 +206,19 @@ export function MainListView({
   // ── Error helpers ─────────────────────────────────────────────────────────
 
   function setError(bookmarkId: string | null, error: unknown, profileId: string | null): void {
-    setErrorBookmarkId(bookmarkId);
     // SSH reconnect failures (profileId set) are humanised so raw SshErrorCode
-    // strings never reach the UI; local failures keep a generic message.
-    setErrorMessage(
-      profileId !== null
-        ? humanizeSshError(error)
-        : error instanceof Error
-          ? error.message
-          : t("workspace.could_not_open"),
+    // strings never reach the UI. Opening a local folder only fails inside
+    // the IPC layer, whose message is internal, so it gets a generic one.
+    showError(
+      bookmarkId,
+      profileId !== null ? humanizeSshError(error) : t("workspace.could_not_open"),
+      profileId,
     );
+  }
+
+  function showError(bookmarkId: string | null, message: string, profileId: string | null): void {
+    setErrorBookmarkId(bookmarkId);
+    setErrorMessage(message);
     setErrorProfileId(profileId);
   }
 

@@ -164,7 +164,8 @@ export function BrowserPermissionsPanel() {
     if (token !== fetchRef.current) return; // stale
 
     if (!result.ok) {
-      setLoadError(result.message ?? t("browserPermissions.loadFailed"));
+      // The IPC message is internal (e.g. an args validation error).
+      setLoadError(t("browserPermissions.loadFailed"));
       setEntries([]);
       return;
     }
