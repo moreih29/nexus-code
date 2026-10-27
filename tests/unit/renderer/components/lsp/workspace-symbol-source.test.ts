@@ -27,6 +27,7 @@ describe("workspace symbol palette source", () => {
 
     expect(results[0]).toMatchObject({
       label: "Greet",
+      kindLabel: "Function",
       detail: "greetings · src/greet.ts:3:1",
       filePath: "/repo/src/greet.ts",
     });
