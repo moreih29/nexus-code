@@ -46,6 +46,24 @@ mac:
   sign: scripts/sign-mac.cjs
   notarize: false
 
+linux:
+  # The AppImage updates itself in place (src/main/features/updates); a deb
+  # install is updated by installing the next deb.
+  target:
+    - AppImage
+    - deb
+  category: Development
+  executableName: nexus-code
+  maintainer: "moreih29 <moreih29@gmail.com>"
+  synopsis: "Multi-workspace editor with Monaco and a terminal in one window"
+
+toolsets:
+  # The AppImage tools' newer, statically linked runtime. The default one
+  # (appimage 12.0.1) links shared libraries, and its arm64 build links the
+  # unversioned libz.so, which only zlib's -dev package installs: that
+  # AppImage did not start on a stock Ubuntu 24.04.
+  appimage: "1.0.2"
+
 publish:
   provider: github
   owner: moreih29
