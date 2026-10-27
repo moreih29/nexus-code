@@ -12,6 +12,7 @@ import { findLeaf } from "@/engine";
 import { useDelayedLoading } from "../../../hooks/use-delayed-loading";
 import { openOrRevealEditor } from "../../../services/editor";
 import { useFileClipboardStore } from "../../../services/file-clipboard";
+import { requestTabFocus } from "../../../services/tab-focus";
 import {
   collapseAll,
   ensureRoot,
@@ -367,9 +368,14 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
     if (item.node.type !== "file") return;
     setActiveIndex(idx);
     // VSCode parity: double-click in the explorer opens the file as a
-    // permanent tab (no preview slot, no italic title). Goes through
+    // permanent tab (no preview slot, no italic title) and moves focus into
+    // it, while a single click leaves focus in the tree. Goes through
     // openOrRevealEditor so existing-tab reveal still applies.
-    openOrRevealEditor({ workspaceId, filePath: item.absPath }, { preview: false });
+    const { tabId } = openOrRevealEditor(
+      { workspaceId, filePath: item.absPath },
+      { preview: false },
+    );
+    requestTabFocus(tabId);
   }
 
   // The active path for the virtual-body comes directly from the store focus.
