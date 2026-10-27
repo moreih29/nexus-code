@@ -4,6 +4,7 @@
  * The ordering mirrors the task-plan state machine: first match wins, so more
  * specific commit/dirty states are evaluated before clean remote-sync states.
  */
+import i18next from "i18next";
 import type { BranchInfo, RepoCapabilities, RepoInfo } from "../../../../shared/git/types";
 
 export type GitActionButtonKind =
@@ -58,60 +59,60 @@ export function selectGitActionButton(input: GitActionButtonInput): GitActionBut
   const behind = branch?.behind ?? 0;
 
   if (input.repoKind === "non-repo") {
-    return action("initialize-repository", "Initialize Repository", { menuMode: "none" });
+    return action("initialize-repository", label("initializeRepository"), { menuMode: "none" });
   }
 
   if (branch?.isUnborn && staged > 0 && hasDraft) {
-    return action("make-initial-commit", "Make Initial Commit");
+    return action("make-initial-commit", label("makeInitialCommit"));
   }
 
   if (branch?.isUnborn && (staged === 0 || !hasDraft)) {
-    return action("commit-disabled", "Commit", {
+    return action("commit-disabled", label("commit"), {
       disabled: true,
       hint: commitReadinessHint(hasDraft, staged > 0),
     });
   }
 
   if (staged > 0 && hasDraft) {
-    return action("commit", "Commit");
+    return action("commit", label("commit"));
   }
 
   if (staged > 0 && !hasDraft) {
-    return action("commit-disabled", "Commit", {
+    return action("commit-disabled", label("commit"), {
       disabled: true,
       hint: commitReadinessHint(hasDraft, true),
     });
   }
 
   if (staged === 0 && unstaged > 0) {
-    return action("stage-all", "Stage All");
+    return action("stage-all", label("stageAll"));
   }
 
   if (dirty === 0 && ahead > 0 && behind > 0) {
-    return action("sync", "Sync", { menuMode: "sync" });
+    return action("sync", label("sync"), { menuMode: "sync" });
   }
 
   if (dirty === 0 && ahead > 0 && hasUpstream) {
-    return action("push", "Push", { menuMode: "sync" });
+    return action("push", label("push"), { menuMode: "sync" });
   }
 
   if (dirty === 0 && behind > 0 && ahead === 0) {
-    return action("pull", "Pull", { menuMode: "sync" });
+    return action("pull", label("pull"), { menuMode: "sync" });
   }
 
   if (dirty === 0 && !hasUpstream && hasRemote && input.capabilities.hasHEAD) {
-    return action("publish-branch", "Publish Branch", { menuMode: "sync" });
+    return action("publish-branch", label("publishBranch"), { menuMode: "sync" });
   }
 
   if (dirty === 0 && !hasRemote) {
-    return action("no-remote", "No remote configured", {
+    return action("no-remote", label("noRemote"), {
       disabled: true,
       staticLabel: true,
       menuMode: "sync",
     });
   }
 
-  return action("up-to-date", "Up to date", {
+  return action("up-to-date", label("upToDate"), {
     disabled: true,
     staticLabel: true,
     menuMode: "sync",
@@ -120,9 +121,14 @@ export function selectGitActionButton(input: GitActionButtonInput): GitActionBut
 
 /** Builds a disabled-commit hint without making callers duplicate copy. */
 function commitReadinessHint(hasDraft: boolean, hasStagedChanges: boolean): string {
-  if (!hasDraft && !hasStagedChanges) return "Stage changes and enter a commit message.";
-  if (!hasDraft) return "Enter a commit message.";
-  return "Stage changes before committing.";
+  if (!hasDraft && !hasStagedChanges) return label("hintStageAndMessage");
+  if (!hasDraft) return label("hintMessage");
+  return label("hintStage");
+}
+
+/** Localized action-button copy. */
+function label(key: string): string {
+  return i18next.t(`files:git.actionButton.${key}`);
 }
 
 /** Normalizes optional state fields for one selected action. */

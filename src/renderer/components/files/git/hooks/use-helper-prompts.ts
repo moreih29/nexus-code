@@ -4,6 +4,7 @@
  * It listens to askpass/editor broadcasts, keeps a single FIFO of pending
  * prompts, and sends renderer responses back through the typed IPC contract.
  */
+import i18next from "i18next";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { AskpassPrompt, GitEditorPrompt } from "../../../../../shared/git/types";
 import { createLogger } from "../../../../../shared/log/renderer";
@@ -77,8 +78,8 @@ export function gitHelperOccupancyMessage(args: {
   readonly credentialPrompt: AskpassPrompt | null;
   readonly editorPrompt: GitEditorPrompt | null;
 }): string | null {
-  if (args.credentialPrompt) return "Awaiting credentials…";
-  if (args.editorPrompt) return "Editing commit message…";
+  if (args.credentialPrompt) return i18next.t("files:git.helperPrompt.awaitingCredentials");
+  if (args.editorPrompt) return i18next.t("files:git.helperPrompt.editingCommitMessage");
   return null;
 }
 
@@ -99,10 +100,10 @@ export function gitHelperOccupancyMessageForWorkspace(args: {
     args.pendingEditorPrompts ?? (args.editorPrompt ? [args.editorPrompt] : []);
 
   if (pendingCredentialPrompts.some((prompt) => isPromptForWorkspace(prompt, args.workspaceId))) {
-    return "Awaiting credentials…";
+    return i18next.t("files:git.helperPrompt.awaitingCredentials");
   }
   if (pendingEditorPrompts.some((prompt) => isPromptForWorkspace(prompt, args.workspaceId))) {
-    return "Editing commit message…";
+    return i18next.t("files:git.helperPrompt.editingCommitMessage");
   }
   return null;
 }

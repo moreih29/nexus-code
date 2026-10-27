@@ -757,6 +757,25 @@
       "chipAriaLabel": "Current branch {{name}}",
       "chipTitle": "Repository at {{path}}",
       "localBadge": "local"
+    },
+    "actionButton": {
+      "initializeRepository": "Initialize Repository",
+      "makeInitialCommit": "Make Initial Commit",
+      "commit": "Commit",
+      "stageAll": "Stage All",
+      "sync": "Sync",
+      "push": "Push",
+      "pull": "Pull",
+      "publishBranch": "Publish Branch",
+      "noRemote": "No remote configured",
+      "upToDate": "Up to date",
+      "hintStageAndMessage": "Stage changes and enter a commit message.",
+      "hintMessage": "Enter a commit message.",
+      "hintStage": "Stage changes before committing."
+    },
+    "helperPrompt": {
+      "awaitingCredentials": "Awaiting credentials…",
+      "editingCommitMessage": "Editing commit message…"
     }
   }
 }

@@ -757,6 +757,25 @@
       "chipAriaLabel": "현재 브랜치 {{name}}",
       "chipTitle": "{{path}}의 저장소",
       "localBadge": "로컬"
+    },
+    "actionButton": {
+      "initializeRepository": "저장소 초기화",
+      "makeInitialCommit": "첫 커밋 만들기",
+      "commit": "커밋",
+      "stageAll": "모두 스테이징",
+      "sync": "동기화",
+      "push": "푸시",
+      "pull": "풀",
+      "publishBranch": "브랜치 게시",
+      "noRemote": "원격 저장소 없음",
+      "upToDate": "최신 상태",
+      "hintStageAndMessage": "변경 사항을 스테이징하고 커밋 메시지를 입력하세요.",
+      "hintMessage": "커밋 메시지를 입력하세요.",
+      "hintStage": "커밋하기 전에 변경 사항을 스테이징하세요."
+    },
+    "helperPrompt": {
+      "awaitingCredentials": "자격 증명 기다리는 중…",
+      "editingCommitMessage": "커밋 메시지 편집 중…"
     }
   }
 }
