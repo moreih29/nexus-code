@@ -8,18 +8,11 @@
  */
 import i18next from "i18next";
 import type { MenuItemSpec } from "@/components/ui/context-menu";
-import { isMac, SHORTCUTS } from "@/keybindings/shortcut-labels";
+import { SHORTCUTS } from "@/keybindings/shortcut-labels";
+import { revealInOSLabel } from "@/utils/reveal-label";
 import type { FileTreeActionTarget, useFileTreeActions } from "../hooks/use-file-tree-actions";
 
 type FileTreeActions = ReturnType<typeof useFileTreeActions>;
-
-// `Reveal in Finder` is the macOS title; the underlying VSCode command
-// (`revealFileInOS`) renames itself per platform — match here.
-function getRevealLabel(): string {
-  return isMac
-    ? i18next.t("files:fileTree.menu.revealInFinder")
-    : i18next.t("files:fileTree.menu.revealInExplorer");
-}
 
 /**
  * Build the context menu item list for the file tree.
@@ -149,7 +142,7 @@ export function buildFileTreeMenuItems(
   // any orphaned separators automatically.
   items.push({
     kind: "item",
-    label: getRevealLabel(),
+    label: revealInOSLabel(),
     shortcut: SHORTCUTS.revealInOS,
     onSelect: actions.reveal,
   });

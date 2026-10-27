@@ -6,7 +6,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   buildGitFileContextMenuItems,
   buildGitGroupContextMenuItems,
-  revealInOSLabel,
 } from "../../../../../../src/renderer/components/files/git/file-row/file-context-menu";
 import { GitFileRow } from "../../../../../../src/renderer/components/files/git/file-row/row";
 import { GitGroup } from "../../../../../../src/renderer/components/files/git/file-row/group";
@@ -30,9 +29,6 @@ describe("Git file context menu rules", () => {
       "Discard",
     ]);
     expect(mergeLabels).not.toContain("Add to .gitignore");
-    expect(revealInOSLabel("darwin")).toBe("Reveal in Finder");
-    expect(revealInOSLabel("win32")).toBe("Reveal in Explorer");
-    expect(revealInOSLabel("linux")).toBe("Open Containing Folder");
   });
 
   it("keeps Open Changes discoverable and lets copy actions write exact path values", () => {

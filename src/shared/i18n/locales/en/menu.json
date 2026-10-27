@@ -23,6 +23,8 @@
     "toggleFilesPanel": "Toggle Files Panel",
     "toggleSidebar": "Toggle Sidebar",
     "revealInFinder": "Reveal in Finder",
+    "revealInExplorer": "Reveal in File Explorer",
+    "openContainingFolder": "Open Containing Folder",
     "copyPath": "Copy Path",
     "copyRelativePath": "Copy Relative Path"
   },

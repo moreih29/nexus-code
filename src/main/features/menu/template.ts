@@ -60,6 +60,11 @@ export type ElectronSubmenuRole = "appMenu" | "editMenu" | "windowMenu";
 
 interface BuildMenuOptions {
   isMac: boolean;
+  /**
+   * Host platform, for the platform-native "reveal in file manager" label.
+   * Defaults to macOS when `isMac` and to Linux otherwise.
+   */
+  platform?: NodeJS.Platform;
   appName: string;
   /**
    * i18next TFunction for the main-process locale instance.
@@ -88,7 +93,7 @@ export function buildMenuTemplate(opts: BuildMenuOptions): MenuItemSpec[] {
 
   menu.push(fileMenu(opts.isMac, t));
   menu.push(editMenu(t));
-  menu.push(viewMenu(t));
+  menu.push(viewMenu(opts.platform ?? (opts.isMac ? "darwin" : "linux"), t));
   menu.push(workspaceMenu(t));
 
   if (opts.isMac) {
@@ -184,7 +189,16 @@ function editMenu(t?: TFunction): MenuItemSpec {
   };
 }
 
-function viewMenu(t?: TFunction): MenuItemSpec {
+/** The reveal command's platform-native name, as VSCode words it. */
+function revealLabel(platform: NodeJS.Platform, t?: TFunction): string {
+  if (platform === "darwin") return t != null ? t("menu:view.revealInFinder") : "Reveal in Finder";
+  if (platform === "win32") {
+    return t != null ? t("menu:view.revealInExplorer") : "Reveal in File Explorer";
+  }
+  return t != null ? t("menu:view.openContainingFolder") : "Open Containing Folder";
+}
+
+function viewMenu(platform: NodeJS.Platform, t?: TFunction): MenuItemSpec {
   return {
     type: "submenu",
     label: t != null ? t("menu:view.label") : "View",
@@ -198,7 +212,7 @@ function viewMenu(t?: TFunction): MenuItemSpec {
         COMMANDS.workbenchToggleSidebar,
       ),
       { type: "separator" },
-      cmd(t != null ? t("menu:view.revealInFinder") : "Reveal in Finder", COMMANDS.pathReveal),
+      cmd(revealLabel(platform, t), COMMANDS.pathReveal),
       cmd(t != null ? t("menu:view.copyPath") : "Copy Path", COMMANDS.pathCopy),
       cmd(
         t != null ? t("menu:view.copyRelativePath") : "Copy Relative Path",

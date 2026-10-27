@@ -8,12 +8,11 @@
  */
 import i18next from "i18next";
 import type { MenuItemSpec } from "@/components/ui/context-menu";
-import { isMac, SHORTCUTS } from "@/keybindings/shortcut-labels";
+import { SHORTCUTS } from "@/keybindings/shortcut-labels";
+import { revealInOSLabel } from "@/utils/reveal-label";
 import type { useGroupActions } from "./use-group-actions";
 
 type GroupActions = ReturnType<typeof useGroupActions>;
-
-const REVEAL_LABEL = isMac ? i18next.t("action.reveal_in_finder") : i18next.t("action.reveal_in_explorer");
 
 export interface TabContextInfo {
   isPinned: boolean;
@@ -120,7 +119,7 @@ export function buildGroupTabBarMenuItems({
     items.push({ kind: "separator" });
     items.push({
       kind: "item",
-      label: REVEAL_LABEL,
+      label: revealInOSLabel(),
       shortcut: SHORTCUTS.revealInOS,
       onSelect: revealInFinder,
     });

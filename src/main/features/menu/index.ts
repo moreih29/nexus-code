@@ -55,6 +55,7 @@ export interface InstallAppMenuOptions {
 export function installAppMenu(options: InstallAppMenuOptions = {}): void {
   const template = buildMenuTemplate({
     isMac: isMac(),
+    platform: process.platform,
     appName: app.getName(),
     t: options.t,
     bindings: applyKeybindingOverrides(KEYBINDINGS, options.keybindingOverrides, KNOWN_COMMANDS),

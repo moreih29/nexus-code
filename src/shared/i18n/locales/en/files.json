@@ -52,8 +52,6 @@
       "paste": "Paste",
       "rename": "Rename",
       "delete": "Delete",
-      "revealInFinder": "Reveal in Finder",
-      "revealInExplorer": "Reveal in File Explorer",
       "copyPath": "Copy Path",
       "copyRelativePath": "Copy Relative Path"
     },
@@ -140,9 +138,9 @@
     },
     "reveal": {
       "outsideWorkspace": "This item is outside the workspace.",
-      "failed": "Couldn't reveal in Finder.",
+      "failed": "Couldn't show the item in its folder.",
       "notFound": "File no longer exists on disk.",
-      "localOnly": "Reveal in Finder is only available for local workspaces."
+      "localOnly": "Showing items in the system file manager is only available for local workspaces."
     },
     "clipboard": {
       "copied": "Copied {{count}} items",
@@ -307,9 +305,6 @@
       "stage": "Stage",
       "unstage": "Unstage",
       "discard": "Discard",
-      "revealInFinder": "Reveal in Finder",
-      "revealInExplorer": "Reveal in Explorer",
-      "openContainingFolder": "Open Containing Folder",
       "copyPath": "Copy Path",
       "copyRelativePath": "Copy Relative Path",
       "addToGitignore": "Add to .gitignore",
