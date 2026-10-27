@@ -19,6 +19,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# A new push to a PR supersedes the run still going for its last one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   ci:
     name: CI checks (${{ matrix.os }})
