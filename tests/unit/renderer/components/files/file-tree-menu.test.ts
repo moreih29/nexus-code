@@ -121,6 +121,24 @@ describe("buildFileTreeMenuItems — single file target", () => {
     expect(paste?.disabled).toBe(true);
   });
 
+  it("leaves Reveal out when the workspace is remote", () => {
+    const items = buildFileTreeMenuItems([{ absPath: "/repo/a.ts", type: "file" }], {
+      ...noopActions,
+      reveal: undefined,
+    });
+    expect(labelsOf(items)).toEqual([
+      "Open",
+      "Open to the Side",
+      "Cut",
+      "Copy",
+      "Paste",
+      "Rename",
+      "Delete",
+      "Copy Path",
+      "Copy Relative Path",
+    ]);
+  });
+
   it("shows Rename with the F2 shortcut for non-root targets", () => {
     const items = buildFileTreeMenuItems([{ absPath: "/repo/a.ts", type: "file" }], noopActions);
     const rename = items.find(

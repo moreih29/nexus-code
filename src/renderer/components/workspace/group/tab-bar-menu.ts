@@ -32,7 +32,8 @@ interface BuildOptions {
   togglePin: () => void;
   copyPath: () => void;
   copyRelativePath: () => void;
-  revealInFinder: () => void;
+  /** Absent in a remote workspace, where the system file manager cannot help. */
+  revealInFinder?: () => void;
   /** "Rename Tab" 메뉴 항목 클릭 시 — inline 편집 모드 진입. */
   renameTab: () => void;
 }
@@ -117,13 +118,15 @@ export function buildGroupTabBarMenuItems({
 
   if (context.isEditor) {
     items.push({ kind: "separator" });
-    items.push({
-      kind: "item",
-      label: revealInOSLabel(),
-      shortcut: SHORTCUTS.revealInOS,
-      onSelect: revealInFinder,
-    });
-    items.push({ kind: "separator" });
+    if (revealInFinder) {
+      items.push({
+        kind: "item",
+        label: revealInOSLabel(),
+        shortcut: SHORTCUTS.revealInOS,
+        onSelect: revealInFinder,
+      });
+      items.push({ kind: "separator" });
+    }
     items.push({
       kind: "item",
       label: t("tabBar.copy_path"),

@@ -138,15 +138,18 @@ export function buildFileTreeMenuItems(
     items.push({ kind: "separator" });
   }
 
-  // Reveal + Copy Path apply to every target. ContextMenuItems collapses
-  // any orphaned separators automatically.
-  items.push({
-    kind: "item",
-    label: revealInOSLabel(),
-    shortcut: SHORTCUTS.revealInOS,
-    onSelect: actions.reveal,
-  });
-  items.push({ kind: "separator" });
+  // Reveal + Copy Path apply to every target; Reveal is absent in a remote
+  // workspace. ContextMenuItems collapses any orphaned separators
+  // automatically.
+  if (actions.reveal) {
+    items.push({
+      kind: "item",
+      label: revealInOSLabel(),
+      shortcut: SHORTCUTS.revealInOS,
+      onSelect: actions.reveal,
+    });
+    items.push({ kind: "separator" });
+  }
   items.push({
     kind: "item",
     label: i18next.t("files:fileTree.menu.copyPath"),

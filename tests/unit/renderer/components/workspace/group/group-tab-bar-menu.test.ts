@@ -78,6 +78,19 @@ describe("buildGroupTabBarMenuItems", () => {
     ]);
   });
 
+  it("leaves Reveal out of an editor tab menu in a remote workspace", () => {
+    const items = buildGroupTabBarMenuItems({
+      context: editorContext,
+      actions: noopActions,
+      togglePin: noop,
+      copyPath: noop,
+      copyRelativePath: noop,
+      renameTab: noop,
+    });
+    expect(labelsOf(items)).not.toContain("Reveal in Finder");
+    expect(labelsOf(items)).toContain("Copy Path");
+  });
+
   it("editor (pinned) menu — pin label flips to 'Unpin Tab'", () => {
     const items = buildGroupTabBarMenuItems({
       context: editorPinnedContext,
