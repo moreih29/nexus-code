@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -118,18 +119,50 @@ func TestTextSearchBoundsPreviewOnLongLines(t *testing.T) {
 	if len(got) != perFileMatchCap {
 		t.Fatalf("long line matches = %d, want %d", len(got), perFileMatchCap)
 	}
+	longUnits := utf16.Encode([]rune(long))
 	for _, m := range got {
 		if len(m.Preview) > previewMaxBytes || !utf8.ValidString(m.Preview) {
 			t.Fatalf("preview not bounded/valid: len=%d %+v", len(m.Preview), m.Range)
 		}
 		// Range stays line-relative; PreviewStart maps it into the preview.
+		previewUnits := utf16.Encode([]rune(m.Preview))
 		start, end := m.Range.StartCol-m.PreviewStart, m.Range.EndCol-m.PreviewStart
-		if start < 0 || end > len(m.Preview) || m.Preview[start:end] != "ab" || long[m.Range.StartCol:m.Range.EndCol] != "ab" {
+		if start < 0 || end > len(previewUnits) ||
+			string(utf16.Decode(previewUnits[start:end])) != "ab" ||
+			string(utf16.Decode(longUnits[m.Range.StartCol:m.Range.EndCol])) != "ab" {
 			t.Fatalf("range does not map into preview: start=%d %+v", m.PreviewStart, m.Range)
 		}
 	}
 	if frameBytes > 2<<20 {
 		t.Fatalf("progress frames total %d bytes for a %d byte file", frameBytes, len(long))
+	}
+}
+
+// The renderer indexes Monaco columns and the preview string by UTF-16 code
+// units; byte offsets put the highlight past every Korean or emoji character.
+func TestTextSearchColumnsCountUTF16Units(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(root, "a.ts"), []byte("// 한글 😀 ab\n"), 0o644))
+
+	service := mustSearch(t, root)
+	var got []Match
+	service.SetEventSink(func(event string, payload any) error {
+		for _, fm := range payload.(ProgressPayload).Batch {
+			got = append(got, fm.Matches...)
+		}
+		return nil
+	})
+	_, err := service.Text(context.Background(), mustJSON(t, Params{
+		SearchID: "utf16",
+		Query:    Query{Pattern: "ab", IsCaseSensitive: true, MaxResults: 10},
+	}))
+	must(t, err)
+
+	// "// 한글 😀 " is 3 + 2 + 1 + 2 + 1 = 9 UTF-16 units (the emoji is a
+	// surrogate pair) but 15 bytes.
+	want := Range{Line: 0, StartCol: 9, EndCol: 11}
+	if len(got) != 1 || got[0].Range != want || got[0].PreviewStart != 0 {
+		t.Fatalf("matches = %+v, want range %+v", got, want)
 	}
 }
 

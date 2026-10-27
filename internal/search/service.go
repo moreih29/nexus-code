@@ -75,6 +75,8 @@ type Query struct {
 	MaxFileSize     int64    `json:"maxFileSize"`
 }
 
+// Range columns count UTF-16 code units, the unit Monaco columns and JS
+// strings index by, so a match after Korean or emoji text lands on it.
 type Range struct {
 	Line     int `json:"line"`
 	StartCol int `json:"startCol"`
@@ -384,12 +386,14 @@ func findMatches(buf []byte, re *regexp.Regexp, perFileCap int, remainingGlobal 
 	out := make([]Match, 0)
 	for lineIndex, line := range lines {
 		indexes := re.FindAllStringIndex(line, limit-len(out))
+		cols := utf16Cols{line: line}
 		for _, pair := range indexes {
-			preview, previewStart := matchPreview(line, pair[0])
+			preview, previewFrom := matchPreview(line, pair[0])
+			startCol := cols.at(pair[0])
 			out = append(out, Match{
-				Range:        Range{Line: lineIndex, StartCol: pair[0], EndCol: pair[1]},
+				Range:        Range{Line: lineIndex, StartCol: startCol, EndCol: cols.at(pair[1])},
 				Preview:      preview,
-				PreviewStart: previewStart,
+				PreviewStart: startCol - utf16Len(line[previewFrom:pair[0]]),
 			})
 			if len(out) >= limit {
 				return out
@@ -415,6 +419,33 @@ func matchPreview(line string, start int) (string, int) {
 		to--
 	}
 	return line[from:to], from
+}
+
+// utf16Cols converts byte offsets within one line to UTF-16 columns. The
+// offsets must not decrease, so a line with many matches is walked once.
+type utf16Cols struct {
+	line    string
+	byteOff int
+	col     int
+}
+
+func (c *utf16Cols) at(byteOff int) int {
+	c.col += utf16Len(c.line[c.byteOff:byteOff])
+	c.byteOff = byteOff
+	return c.col
+}
+
+func utf16Len(s string) int {
+	n := 0
+	for _, r := range s {
+		// Runes past the BMP take a surrogate pair.
+		if r > 0xFFFF {
+			n += 2
+		} else {
+			n++
+		}
+	}
+	return n
 }
 
 func prefix(buf []byte, n int) []byte {
