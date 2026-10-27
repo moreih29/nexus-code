@@ -537,8 +537,8 @@ func shortTempDir(t *testing.T) string {
 // makeDeadSocket 는 bound-but-not-listening Unix 소켓 파일을 생성한다.
 // macOS는 net.Listen 후 Close()하면 소켓 파일을 자동 삭제하므로,
 // syscall.Bind만 수행해 소켓 파일을 디스크에 남겨두는 방식을 사용한다.
-// 반환된 fd는 테스트 종료 시 닫아야 한다.
-func makeDeadSocket(t *testing.T, path string) int {
+// 소켓은 테스트 종료 시 닫힌다.
+func makeDeadSocket(t *testing.T, path string) {
 	t.Helper()
 	fd, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
 	if err != nil {
@@ -553,7 +553,6 @@ func makeDeadSocket(t *testing.T, path string) int {
 		syscall.Close(fd)
 		os.Remove(path)
 	})
-	return fd
 }
 
 // Test_cleanStaleSockets_AlivePreserved 는 실제 net.Listen으로 띄운 소켓 파일이

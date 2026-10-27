@@ -1,3 +1,5 @@
+//go:build !windows
+
 // daemon.go implements the `agent --daemon <rootPath>` execution path.
 //
 // The daemon detaches from the SSH session (setsid + SIGHUP ignore), acquires
