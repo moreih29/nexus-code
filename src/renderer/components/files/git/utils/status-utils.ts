@@ -11,8 +11,6 @@ export interface GitGroupDescriptor {
   entries: GitStatusEntry[];
 }
 
-type GitGroupOrderItem = Omit<GitGroupDescriptor, "entries">;
-
 const GIT_GROUP_KEYS: readonly GitExpandedGroupKey[] = ["merge", "staged", "working", "untracked"];
 
 function getGitGroupLabel(key: GitExpandedGroupKey): string {
@@ -24,14 +22,6 @@ function getGitGroupLabel(key: GitExpandedGroupKey): string {
     case "untracked": return t("files:git.statusGroups.untracked");
   }
 }
-
-/** @deprecated Use buildGitGroups instead. Kept for backward compat with tests. */
-export const GIT_GROUP_ORDER: readonly GitGroupOrderItem[] = [
-  { key: "merge", label: "Merge Changes" },
-  { key: "staged", label: "Staged Changes" },
-  { key: "working", label: "Changes" },
-  { key: "untracked", label: "Untracked" },
-];
 
 /**
  * Build the visible Source Control groups in fixed VSCode-style order.
