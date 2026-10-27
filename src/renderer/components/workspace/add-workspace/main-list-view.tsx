@@ -137,8 +137,9 @@ export function MainListView({
       if (!result.ok) {
         // User cancelled the auth prompt — silently stop, no error banner.
         if (result.kind === "cancelled") return;
-        // Typed SSH failure (wrong credentials, host unreachable, …).
-        setError(bookmark.id, new Error(result.message), profile.id);
+        // Typed SSH failure (wrong credentials, host unreachable, …); the
+        // result carries the SshErrorCode the humanizer maps.
+        setError(bookmark.id, result, profile.id);
         return;
       }
 

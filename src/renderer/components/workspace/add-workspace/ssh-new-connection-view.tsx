@@ -16,6 +16,7 @@ import {
   filterSshConfigHosts,
   findSshConfigHost,
   formatSshHostSummary,
+  humanizeSshError,
   parseSshDestination,
   parseSshPort,
   sshHostOptionId,
@@ -315,7 +316,7 @@ export function SshNewConnectionView({
         }
         // Connection failure → throw so the hook transitions to state:'error'.
         // The inline banner below renders state.error.message.
-        throw appErrorFailed(result.message, { domain: "ssh", code: result.kind });
+        throw appErrorFailed(humanizeSshError(result), { domain: "ssh", code: result.kind });
       }
 
       // `result.value.user` is the user actually connected as — when the form

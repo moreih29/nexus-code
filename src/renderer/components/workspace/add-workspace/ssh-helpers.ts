@@ -95,16 +95,21 @@ export function formatProfileSubtitle(profile: {
 // ---------------------------------------------------------------------------
 
 /**
- * Maps raw IPC error messages (which embed SshErrorCode strings) to
- * human-readable cause + recovery sentences.
+ * Maps an SSH failure to human-readable cause + recovery sentences: an Error
+ * whose message embeds the SshErrorCode string, or an `ipcErr` result that
+ * carries the code in its `code` field.
  * raw error.message is never surfaced directly in UI.
  */
 export function humanizeSshError(error: unknown): string {
   const t = i18next.t.bind(i18next);
-  if (!(error instanceof Error)) {
+  if (typeof error !== "object" || error === null) {
     return t("common:ssh.error.unknown_error");
   }
-  const msg = error.message;
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  if (typeof code !== "string" && !(error instanceof Error)) {
+    return t("common:ssh.error.unknown_error");
+  }
+  const msg = `${typeof code === "string" ? code : ""} ${typeof message === "string" ? message : ""}`;
   if (msg.includes("ssh.connect-failed")) {
     return t("common:ssh.error.connect_failed");
   }
