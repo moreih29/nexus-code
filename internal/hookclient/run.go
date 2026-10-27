@@ -24,10 +24,10 @@ import (
 
 // 환경 변수 키 상수 — hook 클라이언트가 읽는 연결 정보 집합.
 const (
-	envAgentSocket  = "NEXUS_AGENT_SOCKET"
-	envHookToken    = "NEXUS_HOOK_TOKEN"
-	envWorkspaceID  = "NEXUS_WORKSPACE_ID"
-	envTabID        = "NEXUS_TAB_ID"
+	envAgentSocket = "NEXUS_AGENT_SOCKET"
+	envHookToken   = "NEXUS_HOOK_TOKEN"
+	envWorkspaceID = "NEXUS_WORKSPACE_ID"
+	envTabID       = "NEXUS_TAB_ID"
 
 	// permissionRequestSubcmd 는 긴 blocking timeout이 필요한 서브커맨드 이름.
 	permissionRequestSubcmd = "permission-request"
@@ -46,13 +46,13 @@ const (
 // transcript_path를 직접 읽어 마지막 assistant 메시지를 추출한 결과.
 // 다른 subcommand에서는 빈 문자열이며 omitempty로 wire에서 생략된다.
 type hookRequest struct {
-	Type           string          `json:"type"`
-	Token          string          `json:"token"`
-	WorkspaceID    string          `json:"workspaceId"`
-	TabID          string          `json:"tabId"`
-	Subcommand     string          `json:"subcommand"`
-	Payload        json.RawMessage `json:"payload"`
-	AssistantText  string          `json:"assistantText,omitempty"`
+	Type          string          `json:"type"`
+	Token         string          `json:"token"`
+	WorkspaceID   string          `json:"workspaceId"`
+	TabID         string          `json:"tabId"`
+	Subcommand    string          `json:"subcommand"`
+	Payload       json.RawMessage `json:"payload"`
+	AssistantText string          `json:"assistantText,omitempty"`
 }
 
 // stopSubcmd 는 Claude 응답 종료 hook 이벤트의 subcommand 이름.
