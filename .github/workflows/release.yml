@@ -135,6 +135,9 @@ jobs:
           security import "$RUNNER_TEMP/signing.p12" -k "$keychain" -P "$CERT_PASSWORD" -T /usr/bin/codesign
           rm "$RUNNER_TEMP/signing.p12"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
+          # codesign --keychain still looks the identity up through the search
+          # list ("The specified item could not be found in the keychain").
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           if ! security find-identity -p codesigning "$keychain" | grep -q "$NEXUS_MAC_SIGN_IDENTITY"; then
             echo "::error::the certificate in MAC_SIGNING_CERT_P12 is not $NEXUS_MAC_SIGN_IDENTITY"
             exit 1
@@ -153,14 +156,16 @@ jobs:
 
       - name: Verify the signature
         # The designated requirement must name the release certificate, or the
-        # installed apps cannot update to this release.
+        # installed apps cannot update to this release. codesign names a
+        # self-signed certificate as the leaf or as the root (it is both),
+        # depending on the macOS version.
         run: |
           app="dist/mac-arm64/NexusCode.app"
           codesign --verify --deep --strict "$app"
           requirement="$(codesign -d -r- "$app" 2>&1)"
           echo "$requirement"
           identity="$(echo "$NEXUS_MAC_SIGN_IDENTITY" | tr '[:upper:]' '[:lower:]')"
-          echo "$requirement" | grep -q "certificate leaf = H\"$identity\"" \
+          echo "$requirement" | grep -Eq "certificate (leaf|root) = H\"$identity\"" \
             || { echo "::error::$app is not signed with the release certificate"; exit 1; }
 
       - name: Upload assets to release
