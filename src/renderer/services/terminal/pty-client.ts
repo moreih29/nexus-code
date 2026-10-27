@@ -71,12 +71,20 @@ export function resizeSession(
 }
 
 export function killSession(workspaceId: string, tabId: string): void {
+  forgetSession(workspaceId, tabId);
+  // Fire-and-forget: kill is a best-effort cleanup; PTY exits independently.
+  void ipcCallResult("pty", "kill", { workspaceId, tabId });
+}
+
+/**
+ * Drops the bookkeeping for a session that has ended, so the next spawn for
+ * the tab reaches main instead of being taken for a session still live.
+ */
+export function forgetSession(workspaceId: string, tabId: string): void {
   const key = sessionKey(workspaceId, tabId);
   liveSessions.delete(key);
   spawnPromisesBySessionKey.delete(key);
   pendingAckBytesBySessionKey.delete(key);
-  // Fire-and-forget: kill is a best-effort cleanup; PTY exits independently.
-  void ipcCallResult("pty", "kill", { workspaceId, tabId });
 }
 
 export function createPtyClient({
@@ -94,10 +102,7 @@ export function createPtyClient({
 
   const unlistenExit = ipcListen("pty", "exit", (args) => {
     if (args.workspaceId !== workspaceId || args.tabId !== tabId) return;
-    const key = sessionKey(workspaceId, tabId);
-    liveSessions.delete(key);
-    spawnPromisesBySessionKey.delete(key);
-    pendingAckBytesBySessionKey.delete(key);
+    forgetSession(workspaceId, tabId);
     onExit({ code: args.code });
   });
 

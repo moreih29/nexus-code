@@ -114,6 +114,7 @@ const {
 } = await import("../../../../src/renderer/services/terminal/controller");
 const { createPtyClient } = await import("../../../../src/renderer/services/terminal/pty-client");
 const { closeGroup } = await import("../../../../src/renderer/state/operations");
+const { startTerminalExitListener } = await import("../../../../src/renderer/state/terminal-exit");
 const { useLayoutStore } = await import("../../../../src/renderer/state/stores/layout");
 const { findLeaf } = await import("../../../../src/renderer/state/stores/layout/helpers");
 const { useTabsStore } = await import("../../../../src/renderer/state/stores/tabs");
@@ -594,6 +595,45 @@ describe("services/terminal pty-client exit lifecycle", () => {
     if (tab?.type === "terminal") expect(tab.props.dead).toBe(true);
 
     client.dispose();
+  });
+});
+
+describe("app-wide terminal exit listener", () => {
+  beforeEach(() => {
+    resetIpc();
+    resetStores();
+  });
+
+  it("marks a tab whose view is unmounted dead and lets its next spawn reach main", async () => {
+    const stop = startTerminalExitListener();
+    const terminal = openTerminal({ workspaceId: WS, cwd: "/workspace" });
+    const options = {
+      workspaceId: WS,
+      tabId: terminal.tabId,
+      cwd: "/workspace",
+      onData: () => {},
+      onExit: () => {},
+    };
+    const client = createPtyClient(options);
+    await client.spawn({ cols: 80, rows: 24 });
+    // The view unmounts, as behind the SSH "session expired" placeholder,
+    // before main reports the exit.
+    client.dispose();
+
+    emit("pty", "exit", { workspaceId: WS, tabId: terminal.tabId, code: null });
+
+    const tab = useTabsStore.getState().byWorkspace[WS]?.[terminal.tabId];
+    expect(tab?.type === "terminal" && tab.props.dead).toBe(true);
+
+    const spawnCount = () =>
+      ipcCalls.filter((c) => c.channel === "pty" && c.method === "spawn").length;
+    const before = spawnCount();
+    const remounted = createPtyClient(options);
+    expect(await remounted.spawn({ cols: 80, rows: 24 })).toEqual({ pid: 1234 });
+    expect(spawnCount() - before).toBe(1);
+
+    remounted.dispose();
+    stop();
   });
 });
 

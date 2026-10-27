@@ -11,6 +11,7 @@ import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
 import { startNotificationClickListener } from "./state/notification-click";
+import { startTerminalExitListener } from "./state/terminal-exit";
 import {
   initBrowserLastUrlPersistence,
   initBrowserRuntimeSubscriptions,
@@ -90,6 +91,9 @@ export async function bootstrapAppState(): Promise<void> {
 
   // Wire the OS notification click → workspace activate + tab reveal listener.
   startNotificationClickListener();
+
+  // Mark terminal tabs dead on PTY exit even while their view is unmounted.
+  startTerminalExitListener();
 
   // Wire browser tab runtime event subscriptions (navigated / loadingChanged /
   // error / titleUpdated) so useBrowserRuntimeStore stays up-to-date.
