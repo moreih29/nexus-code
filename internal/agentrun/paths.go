@@ -1,5 +1,6 @@
 // Package agentrun manages per-workspace daemon runtime files:
-// socket, lock, and log files under ~/.nexus-code/run/<wsId>.{sock,lock,log}.
+// socket, lock, and log files under ~/.nexus-code/run/<wsId>.{sock,lock,log},
+// plus the <wsId>.agent link to the current connection's SSH agent socket.
 //
 // wsId is a short SHA-256 hex digest of the workspace root path, truncated
 // to 16 characters. 16 hex chars = 64 bits of collision resistance, which is
@@ -21,7 +22,7 @@ import (
 	"github.com/nexus-code/nexus-code/internal/agentpaths"
 )
 
-// Paths holds the three runtime files for one workspace daemon instance.
+// Paths holds the runtime files for one workspace daemon instance.
 type Paths struct {
 	// Sock is the Unix domain socket the daemon listens on.
 	// A dialer connects here; the client drives it with `agent --dial <Sock>`.
@@ -34,6 +35,9 @@ type Paths struct {
 	// detaches it from the SSH session's controlling terminal. Without it,
 	// boot failures would be silently lost.
 	Log string
+	// AuthSock is the symlink the daemon exports as $SSH_AUTH_SOCK when the
+	// SSH connection forwards an agent; see AuthSockFor.
+	AuthSock string
 }
 
 // WsID computes the short workspace identifier for rootPath.
@@ -56,8 +60,9 @@ func For(rootPath string) (Paths, error) {
 	}
 	id := WsID(rootPath)
 	return Paths{
-		Sock: filepath.Join(runDir, id+".sock"),
-		Lock: filepath.Join(runDir, id+".lock"),
-		Log:  filepath.Join(runDir, id+".log"),
+		Sock:     filepath.Join(runDir, id+".sock"),
+		Lock:     filepath.Join(runDir, id+".lock"),
+		Log:      filepath.Join(runDir, id+".log"),
+		AuthSock: filepath.Join(runDir, id+".agent"),
 	}, nil
 }

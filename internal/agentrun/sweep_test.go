@@ -56,6 +56,23 @@ func TestSweepStaleRemovesDeadDaemonFiles(t *testing.T) {
 	}
 }
 
+// TestSweepStaleRemovesDeadDaemonAgentLink: the SSH agent link of a dead
+// daemon points at a socket nobody re-points any more.
+func TestSweepStaleRemovesDeadDaemonAgentLink(t *testing.T) {
+	dir := t.TempDir()
+	mkRunFiles(t, dir, "aaaaaaaaaaaaaaaa", 0)
+	link := filepath.Join(dir, "aaaaaaaaaaaaaaaa.agent")
+	if err := os.Symlink(filepath.Join(dir, "gone"), link); err != nil {
+		t.Fatal(err)
+	}
+
+	SweepStale(dir, "1111111111111111")
+
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Errorf("dead daemon's agent link should be removed (err=%v)", err)
+	}
+}
+
 // TestSweepStaleKeepsRecentLog: a dead workspace's log inside the retention
 // window survives — it is post-mortem evidence.
 func TestSweepStaleKeepsRecentLog(t *testing.T) {

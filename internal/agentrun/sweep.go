@@ -21,9 +21,9 @@ const staleLogRetention = 7 * 24 * time.Hour
 // exclusive flock on its <wsId>.lock for its entire lifetime, released by the
 // kernel the instant the process dies. For each foreign workspace:
 //
-//   - flock acquired → that workspace's daemon is provably dead. Its .sock is
-//     removed (a socket with no listener is worthless), and its .log is
-//     removed only when older than staleLogRetention.
+//   - flock acquired → that workspace's daemon is provably dead. Its .sock and
+//     .agent link are removed (a socket with no listener is worthless), and
+//     its .log is removed only when older than staleLogRetention.
 //   - flock denied (EWOULDBLOCK) → daemon alive. Nothing is touched.
 //   - flock unsupported (network FS) or .lock missing → liveness cannot be
 //     proven. Nothing is touched. TryLock's PID fallback is deliberately NOT
@@ -98,6 +98,10 @@ func sweepWorkspace(runDir, id string) []string {
 	sockPath := filepath.Join(runDir, id+".sock")
 	if err := os.Remove(sockPath); err == nil {
 		removed = append(removed, sockPath)
+	}
+	authSockPath := filepath.Join(runDir, id+".agent")
+	if err := os.Remove(authSockPath); err == nil {
+		removed = append(removed, authSockPath)
 	}
 	logPath := filepath.Join(runDir, id+".log")
 	if fi, err := os.Stat(logPath); err == nil && time.Since(fi.ModTime()) > staleLogRetention {
