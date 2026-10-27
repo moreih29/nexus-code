@@ -6,7 +6,7 @@
 # rebuilds node-pty and better-sqlite3 against Electron on the runner's own OS,
 # so each runner also proves the native modules build there.
 #
-# Windows is not supported yet (the agent does not build for it), so its job
+# Windows is not supported yet (no installer, no SSH workspaces), so its job
 # reports failures without failing the workflow: each step runs and shows what
 # is still broken there.
 
