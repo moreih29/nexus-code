@@ -212,8 +212,13 @@ export function AppearancePanel() {
             onValueChange={(vals) => {
               if (vals[0] !== undefined) {
                 setLocalOpacity(vals[0]);
-                setOpacity(vals[0]);
+                // Preview live; each persisted write rewrites the whole app
+                // state file on the main process, so save once on commit.
+                setOpacity(vals[0], { persist: false });
               }
+            }}
+            onValueCommit={(vals) => {
+              if (vals[0] !== undefined) setOpacity(vals[0]);
             }}
             aria-label={t("appearance.windowOpacity")}
             className="relative flex flex-1 touch-none select-none items-center"
@@ -252,8 +257,11 @@ export function AppearancePanel() {
             onValueChange={(vals) => {
               if (vals[0] !== undefined) {
                 setLocalDim(vals[0]);
-                setDim(vals[0]);
+                setDim(vals[0], { persist: false });
               }
+            }}
+            onValueCommit={(vals) => {
+              if (vals[0] !== undefined) setDim(vals[0]);
             }}
             aria-label={t("appearance.inactivePanelDim")}
             className="relative flex flex-1 touch-none select-none items-center"
@@ -291,6 +299,7 @@ interface ThemeCardProps {
 }
 
 function ThemeCard({ source, selected }: ThemeCardProps) {
+  const { t } = useTranslation("settings");
   // Two rows of swatches paint the theme's own colours:
   //   row 1 — surface chrome:  bg.primary, bg.secondary, bg.floating, fg.muted, accent
   //   row 2 — syntax accents:  keyword, string, number, function, type
@@ -365,7 +374,7 @@ function ThemeCard({ source, selected }: ThemeCardProps) {
       >
         <div>
           <span style={{ color: source.syntax.comment, fontStyle: "italic" }}>
-            {"// "}{source.description}
+            {"// "}{t(`appearance.themeDescription.${source.id}`)}
           </span>
         </div>
         <div className="truncate">

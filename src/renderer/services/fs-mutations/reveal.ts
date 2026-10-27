@@ -11,6 +11,7 @@
  * existing call sites.
  */
 
+import i18next from "i18next";
 import { showToast } from "@/components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { relPath } from "@/utils/path";
@@ -31,7 +32,7 @@ export async function revealInFinder(input: RevealInput): Promise<void> {
   if (rel === input.absPath) {
     showToast({
       kind: "error",
-      message: "This item is outside the workspace.",
+      message: i18next.t("files:fileTree.reveal.outsideWorkspace"),
     });
     return;
   }
@@ -45,9 +46,9 @@ export async function revealInFinder(input: RevealInput): Promise<void> {
     );
   } catch (e: unknown) {
     toFsToast(e, {
-      fallback: "Couldn't reveal in Finder.",
-      notFound: "File no longer exists on disk.",
-      unsupportedRemote: "Reveal in Finder is only available for local workspaces.",
+      fallback: i18next.t("files:fileTree.reveal.failed"),
+      notFound: i18next.t("files:fileTree.reveal.notFound"),
+      unsupportedRemote: i18next.t("files:fileTree.reveal.localOnly"),
     });
   }
 }

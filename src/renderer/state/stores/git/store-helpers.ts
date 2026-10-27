@@ -7,6 +7,7 @@
  * `git.ts` itself or in a dedicated subscription module — not here.
  */
 
+import i18next from "i18next";
 import type { GitActionHint } from "../../../../shared/git/types";
 import { canUseIpcBridge } from "../../../ipc/client";
 import { isRecord } from "../../../utils/is-record";
@@ -59,7 +60,8 @@ export function gitStoreErrorFromUnknown(
   operation?: GitOperationKind,
 ): GitStoreError {
   if (isRecord(error)) {
-    const message = typeof error.message === "string" ? error.message : "Git operation failed";
+    const message =
+      typeof error.message === "string" ? error.message : i18next.t("files:git.gitOperationFailed");
     const kind =
       typeof error.kind === "string"
         ? error.kind

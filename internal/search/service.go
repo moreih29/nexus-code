@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nexus-code/nexus-code/internal/content"
 	"github.com/nexus-code/nexus-code/internal/dispatch"
@@ -25,6 +26,13 @@ const (
 	batchMatchesTrigger = 200
 	batchTimeTrigger    = 30 * time.Millisecond
 	perFileMatchCap     = 1000
+
+	// previewMaxBytes bounds Match.Preview. Lines up to this length are sent
+	// whole; longer lines (minified bundles, single-line JSON) are cut to a
+	// window that starts previewContextBytes before the match, so a 1 MiB
+	// line with a thousand matches cannot turn into a 1 GB progress frame.
+	previewMaxBytes     = 512
+	previewContextBytes = 64
 )
 
 var hiddenNames = map[string]struct{}{
@@ -67,6 +75,8 @@ type Query struct {
 	MaxFileSize     int64    `json:"maxFileSize"`
 }
 
+// Range columns count UTF-16 code units, the unit Monaco columns and JS
+// strings index by, so a match after Korean or emoji text lands on it.
 type Range struct {
 	Line     int `json:"line"`
 	StartCol int `json:"startCol"`
@@ -76,6 +86,11 @@ type Range struct {
 type Match struct {
 	Range   Range  `json:"range"`
 	Preview string `json:"preview"`
+	// PreviewStart is the column within the line where Preview begins; it
+	// is non-zero only when the line was longer than previewMaxBytes. Range
+	// always stays relative to the whole line so it can be revealed in the
+	// editor; the renderer subtracts PreviewStart to highlight inside Preview.
+	PreviewStart int `json:"previewStart,omitempty"`
 }
 
 type FileMatch struct {
@@ -366,21 +381,71 @@ func findMatches(buf []byte, re *regexp.Regexp, perFileCap int, remainingGlobal 
 	if strings.HasPrefix(text, "\ufeff") {
 		text = strings.TrimPrefix(text, "\ufeff")
 	}
+	limit := min(perFileCap, remainingGlobal)
 	lines := splitLines(text)
 	out := make([]Match, 0)
 	for lineIndex, line := range lines {
-		indexes := re.FindAllStringIndex(line, -1)
+		indexes := re.FindAllStringIndex(line, limit-len(out))
+		cols := utf16Cols{line: line}
 		for _, pair := range indexes {
+			preview, previewFrom := matchPreview(line, pair[0])
+			startCol := cols.at(pair[0])
 			out = append(out, Match{
-				Range:   Range{Line: lineIndex, StartCol: pair[0], EndCol: pair[1]},
-				Preview: line,
+				Range:        Range{Line: lineIndex, StartCol: startCol, EndCol: cols.at(pair[1])},
+				Preview:      preview,
+				PreviewStart: startCol - utf16Len(line[previewFrom:pair[0]]),
 			})
-			if len(out) >= perFileCap || len(out) >= remainingGlobal {
+			if len(out) >= limit {
 				return out
 			}
 		}
 	}
 	return out
+}
+
+// matchPreview returns the slice of line to show for a match starting at
+// byte offset start, and the offset that slice begins at. Both window edges
+// are moved onto rune boundaries so a multi-byte character is never split.
+func matchPreview(line string, start int) (string, int) {
+	if len(line) <= previewMaxBytes {
+		return line, 0
+	}
+	from := max(start-previewContextBytes, 0)
+	for from < start && !utf8.RuneStart(line[from]) {
+		from++
+	}
+	to := min(from+previewMaxBytes, len(line))
+	for to > from && to < len(line) && !utf8.RuneStart(line[to]) {
+		to--
+	}
+	return line[from:to], from
+}
+
+// utf16Cols converts byte offsets within one line to UTF-16 columns. The
+// offsets must not decrease, so a line with many matches is walked once.
+type utf16Cols struct {
+	line    string
+	byteOff int
+	col     int
+}
+
+func (c *utf16Cols) at(byteOff int) int {
+	c.col += utf16Len(c.line[c.byteOff:byteOff])
+	c.byteOff = byteOff
+	return c.col
+}
+
+func utf16Len(s string) int {
+	n := 0
+	for _, r := range s {
+		// Runes past the BMP take a surrogate pair.
+		if r > 0xFFFF {
+			n += 2
+		} else {
+			n++
+		}
+	}
+	return n
 }
 
 func prefix(buf []byte, n int) []byte {
@@ -390,8 +455,10 @@ func prefix(buf []byte, n int) []byte {
 	return buf[:n]
 }
 
+var lineBreak = regexp.MustCompile(`\r\n|\n|\r`)
+
 func splitLines(text string) []string {
-	return regexp.MustCompile(`\r\n|\n|\r`).Split(text, -1)
+	return lineBreak.Split(text, -1)
 }
 
 func buildExcludePredicates(patterns []string) excludePredicate {

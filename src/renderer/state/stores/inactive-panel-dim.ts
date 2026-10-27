@@ -45,9 +45,10 @@ interface InactivePanelDimState {
 
   /**
    * Set the inactive-panel dim multiplier.
-   * Persists to localStorage (boot cache) + appState (authoritative store).
+   * Persists to localStorage (boot cache) + appState (authoritative store)
+   * unless `persist` is false, as for each step of a slider drag.
    */
-  setDim(dim: number): void;
+  setDim(dim: number, options?: { persist?: boolean }): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,8 +79,9 @@ export const useInactivePanelDimStore = create<InactivePanelDimState>((set) => {
       }
     },
 
-    setDim(dim) {
+    setDim(dim, options) {
       set({ dim });
+      if (options?.persist === false) return;
       if (typeof localStorage !== "undefined") {
         localStorage.setItem(INACTIVE_PANEL_DIM_STORAGE_KEY, String(dim));
       }

@@ -49,12 +49,13 @@ func (s *Service) Stream(ctx context.Context, raw json.RawMessage) (any, error) 
 		return nil, err
 	}
 
-	streamCtx, cancel := context.WithCancel(ctx)
-	if err := s.registerStream(params.StreamID, cancel); err != nil {
-		cancel()
+	// The stream id doubles as the run id, so git.cancel and askpass routing
+	// work as for git.run.
+	streamCtx, cancel, err := s.startRun(ctx, params.StreamID)
+	if err != nil {
 		return nil, err
 	}
-	defer s.unregisterStream(params.StreamID)
+	defer cancel()
 
 	cmd, err := s.command(streamCtx, params.Args, params.Cwd, params.Env, params.Interactive)
 	if err != nil {
@@ -78,9 +79,14 @@ func (s *Service) Stream(ctx context.Context, raw json.RawMessage) (any, error) 
 	}
 
 	readErr := s.emitStreamChunks(streamCtx, params.StreamID, stdout)
+	if readErr != nil {
+		// Nobody reads stdout any more (the event sink failed or the stream
+		// was cancelled): kill git first, or it blocks on a full pipe and
+		// Wait never returns.
+		cancel()
+	}
 	waitErr := cmd.Wait()
 	if readErr != nil && !errors.Is(readErr, context.Canceled) {
-		cancel()
 		return nil, readErr
 	}
 	if ctxErr := streamCtx.Err(); ctxErr != nil {

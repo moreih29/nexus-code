@@ -2,6 +2,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { LigaturesAddon } from "@xterm/addon-ligatures";
 import type { ITheme } from "@xterm/xterm";
 import { Terminal } from "@xterm/xterm";
+import i18next from "i18next";
 import { DEFAULT_THEME, THEMES } from "../../../shared/design-tokens";
 import type { ThemeId } from "../../../shared/design-tokens/themes";
 import { TERMINAL_PALETTES } from "../../../shared/editor/terminal-palette";
@@ -76,7 +77,8 @@ interface TerminalLike {
   getSelection: () => string;
   open: (parent: HTMLElement) => void;
   refresh: (start: number, end: number) => void;
-  write: (data: string) => void;
+  /** `callback` runs once xterm has parsed `data`. */
+  write: (data: string, callback?: () => void) => void;
   /**
    * Inject text as if pasted. Unlike `write`, this respects the terminal app's
    * bracketed paste mode (DECSET 2004): when enabled it wraps the data in
@@ -86,6 +88,7 @@ interface TerminalLike {
    */
   paste: (data: string) => void;
   attachCustomKeyEventHandler: (handler: (event: KeyboardEvent) => boolean) => void;
+  focus: () => void;
 }
 type FitAddonLike = Pick<FitAddon, "dispose" | "fit" | "proposeDimensions">;
 type LigaturesAddonLike = Pick<LigaturesAddon, "dispose">;
@@ -195,6 +198,58 @@ export function escapeDroppedPath(path: string): string {
   return path.replace(/[\s'"\\$`(){}[\]<>|&;*?!#~]/g, "\\$&");
 }
 
+/** CSS cursor keywords an OSC 22 request may select. */
+const OSC_CURSOR_KEYWORDS: ReadonlySet<string> = new Set([
+  "auto",
+  "default",
+  "none",
+  "context-menu",
+  "help",
+  "pointer",
+  "progress",
+  "wait",
+  "cell",
+  "crosshair",
+  "text",
+  "vertical-text",
+  "alias",
+  "copy",
+  "move",
+  "no-drop",
+  "not-allowed",
+  "grab",
+  "grabbing",
+  "all-scroll",
+  "col-resize",
+  "row-resize",
+  "n-resize",
+  "e-resize",
+  "s-resize",
+  "w-resize",
+  "ne-resize",
+  "nw-resize",
+  "se-resize",
+  "sw-resize",
+  "ew-resize",
+  "ns-resize",
+  "nesw-resize",
+  "nwse-resize",
+  "zoom-in",
+  "zoom-out",
+]);
+
+/**
+ * The `cursor` style for an OSC 22 body, or "" (reset) for anything that is
+ * not a plain keyword. Terminal output is untrusted: assigning it verbatim
+ * lets `url(https://…)` make the app's renderer fetch an arbitrary URL.
+ *
+ * Exported for unit testing.
+ */
+export function oscCursorStyle(data: string): string {
+  const keyword = data.trim().toLowerCase();
+  return OSC_CURSOR_KEYWORDS.has(keyword) ? keyword : "";
+}
+
 export interface TerminalControllerDeps {
   waitForTerminalFonts: (fontSize: number) => Promise<void>;
   createTerminal: (options: ConstructorParameters<typeof Terminal>[0]) => TerminalLike;
@@ -248,6 +303,15 @@ class XtermTerminalController implements TerminalController {
   private themeListener: ((e: Event) => void) | null = null;
   private terminalSettingsListener: ((e: Event) => void) | null = null;
   private dropDisposable: (() => void) | null = null;
+  /**
+   * Replayed chunks xterm has not parsed yet. Replayed output carries the
+   * queries (cursor position, device attributes) its program asked when it
+   * first ran; xterm answers them again while parsing it, and those answers
+   * must not reach the program as input.
+   */
+  private replayWritesPending = 0;
+  /** Focus asked for before xterm existed; applied once it opens. */
+  private focusOnOpen = false;
 
   constructor(
     private readonly options: TerminalControllerOptions,
@@ -255,7 +319,8 @@ class XtermTerminalController implements TerminalController {
   ) {
     this.initialize().catch((error: unknown) => {
       if (!this.disposed) {
-        this.term?.write(`\r\n[terminal initialization failed: ${String(error)}]\r\n`);
+        const reason = errorReason(error);
+        this.term?.write(`\r\n[${i18next.t("common:terminal.init_failed", { reason })}]\r\n`);
       }
     });
   }
@@ -276,6 +341,12 @@ class XtermTerminalController implements TerminalController {
     }
     this.runFit();
     term.refresh(0, term.rows - 1);
+  }
+
+  focus(): void {
+    if (this.disposed) return;
+    if (this.term) this.term.focus();
+    else this.focusOnOpen = true;
   }
 
   dispose(): void {
@@ -416,6 +487,10 @@ class XtermTerminalController implements TerminalController {
     this.fitAddon = fitAddon;
     term.loadAddon(fitAddon);
     term.open(this.options.container);
+    if (this.focusOnOpen) {
+      this.focusOnOpen = false;
+      term.focus();
+    }
     // Ligatures must be applied AFTER open() — the addon hooks the active
     // (DOM) renderer, which only exists once the terminal is attached.
     this.applyLigatures(term);
@@ -427,12 +502,26 @@ class XtermTerminalController implements TerminalController {
       workspaceId: this.options.workspaceId,
       tabId: this.options.tabId,
       cwd: this.options.cwd,
-      onData: (chunk) => term.write(chunk),
+      onData: (chunk, replay) => {
+        if (!replay) {
+          term.write(chunk);
+          return;
+        }
+        this.replayWritesPending += 1;
+        term.write(chunk, () => {
+          this.replayWritesPending -= 1;
+        });
+      },
       onExit: (args) => this.options.onExit?.(args),
     });
     this.ptyClient = ptyClient;
 
-    this.dataDisposable = term.onData((data) => ptyClient.write(data));
+    // While replayed output is parsed, xterm's answers to its queries are
+    // dropped — along with any keystroke in that brief window.
+    this.dataDisposable = term.onData((data) => {
+      if (this.replayWritesPending > 0) return;
+      ptyClient.write(data);
+    });
 
     // External file drop → inject escaped path(s) as a paste. Lets CLIs that
     // accept file paths (Claude Code, image tools, etc.) receive dropped files
@@ -728,7 +817,8 @@ class XtermTerminalController implements TerminalController {
     if (this.options.autoSpawn !== false) {
       ptyClient.spawn(initialDimensions).catch((error: unknown) => {
         if (!this.disposed) {
-          term.write(`\r\n[spawn failed: ${String(error)}]\r\n`);
+          const reason = errorReason(error).replace(AGENT_SPAWN_FAILURE_LEAD, "");
+          term.write(`\r\n[${i18next.t("common:terminal.spawn_failed", { reason })}]\r\n`);
         }
       });
     }
@@ -888,7 +978,7 @@ class XtermTerminalController implements TerminalController {
     this.oscDisposables.push(
       term.parser.registerOscHandler(22, (data) => {
         const el = term.element;
-        if (el) el.style.cursor = data || "";
+        if (el) el.style.cursor = oscCursorStyle(data);
         return true;
       }),
     );
@@ -992,4 +1082,12 @@ export function createTerminalController(
   deps: TerminalControllerDeps = defaultTerminalControllerDeps,
 ): TerminalController {
   return new XtermTerminalController(options, deps);
+}
+
+/** The agent's lead on a PTY start failure, which the line already says. */
+const AGENT_SPAWN_FAILURE_LEAD = /^failed to spawn PTY: /;
+
+/** The message of a failure, without an Error's "Error: " name prefix. */
+function errorReason(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

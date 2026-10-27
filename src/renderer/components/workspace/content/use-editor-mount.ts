@@ -18,6 +18,8 @@ export {
 export interface UseEditorMountOptions {
   filePath: string;
   workspaceId: string;
+  /** Owning tab; reveals aimed at this tab land in this editor. */
+  tabId: string;
   model: Monaco.editor.ITextModel | null;
   readOnly: boolean;
   phase: string;
@@ -46,6 +48,7 @@ export interface UseEditorMountResult {
 export function useEditorMount({
   filePath,
   workspaceId,
+  tabId,
   model,
   readOnly,
   phase,
@@ -72,6 +75,7 @@ export function useEditorMount({
   useRevealTargetRegistration({
     workspaceId,
     filePath,
+    tabId,
     editor: mountedEditor,
     ready: phase === "ready",
   });

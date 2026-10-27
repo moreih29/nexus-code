@@ -441,6 +441,7 @@ describe("AgentLspHostHandle", () => {
     expect(serverRequests).toHaveLength(1);
     const request = serverRequests[0] as { id: string; method: string; params: unknown };
     expect(request).toMatchObject({
+      workspaceId: WORKSPACE_ID,
       method: "workspace/applyEdit",
       params: { edit: { changes: {} } },
     });

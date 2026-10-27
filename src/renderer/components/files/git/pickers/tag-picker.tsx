@@ -133,7 +133,7 @@ export function TagPicker({
         open={open}
         source={source}
         onClose={onClose}
-        footer={mode === "browse" ? "Enter reveal in History" : undefined}
+        footer={mode === "browse" ? t("git.tagPicker.footerBrowse") : undefined}
       />
       <FormDialog
         open={createRequest !== null}

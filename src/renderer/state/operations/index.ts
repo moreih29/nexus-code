@@ -16,6 +16,7 @@ export {
   toggleExpand,
 } from "./files";
 export { closeGroup } from "./groups";
+export { normalizeWorkspaceTabOrder, toggleTabPin } from "./tab-order";
 export {
   closeTab,
   findCommitTab,

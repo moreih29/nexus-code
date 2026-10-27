@@ -16,6 +16,7 @@ import type {
   GitStatusEntry,
 } from "../../../../shared/git/types";
 import { DEFAULT_GIT_PANEL_STATE } from "../../../../shared/git/types";
+import { setCommitDraftText } from "./commit-drafts";
 import {
   flushAllCommitDraftSaves,
   flushCommitDraftSave,
@@ -204,7 +205,7 @@ export function createPanelUiSlice(ctx: GitStoreContext): PanelUiSlice {
     },
 
     setCommitDraft(workspaceId, text) {
-      upsertSession(workspaceId, (session) => ({ ...session, commitDraft: text }));
+      setCommitDraftText(workspaceId, text);
       scheduleCommitDraftSave(workspaceId, text);
     },
 

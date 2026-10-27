@@ -6,6 +6,7 @@ import {
   monacoContentChangesToLsp,
   tokenToAbortSignal,
 } from "../../../../src/renderer/services/editor/lsp/bridge";
+import { workspaceUriFor } from "../../../../src/shared/fs/workspace-uri";
 import type { Diagnostic } from "../../../../src/shared/lsp";
 
 interface FakeUri {
@@ -280,6 +281,56 @@ describe("applyWorkspaceEdit", () => {
         ],
       },
     });
+
+    expect(result).toEqual({ applied: false });
+    expect(model.appliedEdits).toEqual([]);
+  });
+
+  test("applies a server's file:// edit to the workspace-keyed model", () => {
+    // Open editors key models by workspace URI; servers only know file://.
+    const workspaceId = "00000000-0000-0000-0000-0000000000ab";
+    const fileUri = "file:///workspace/src/main.ts";
+    const cacheUri = workspaceUriFor(workspaceId, "/workspace/src/main.ts");
+    const model = createFakeModel(cacheUri, 41);
+    const models = new Map([[cacheUri, model]]);
+
+    const result = applyWorkspaceEdit(
+      createApplyEditMonaco(models),
+      {
+        edit: {
+          documentChanges: [
+            { textDocument: { uri: fileUri, version: 3 }, edits: [{ range, newText: "x" }] },
+          ],
+        },
+      },
+      // The server knows the didChange version, not Monaco's version id.
+      { workspaceId, lspVersionOf: () => 3 },
+    );
+
+    expect(result).toEqual({ applied: true });
+    expect(model.appliedEdits).toHaveLength(1);
+  });
+
+  test("rejects a file:// edit whose document version the server no longer has", () => {
+    const workspaceId = "00000000-0000-0000-0000-0000000000ab";
+    const cacheUri = workspaceUriFor(workspaceId, "/workspace/src/main.ts");
+    const model = createFakeModel(cacheUri, 3);
+    const models = new Map([[cacheUri, model]]);
+
+    const result = applyWorkspaceEdit(
+      createApplyEditMonaco(models),
+      {
+        edit: {
+          documentChanges: [
+            {
+              textDocument: { uri: "file:///workspace/src/main.ts", version: 3 },
+              edits: [{ range, newText: "x" }],
+            },
+          ],
+        },
+      },
+      { workspaceId, lspVersionOf: () => 4 },
+    );
 
     expect(result).toEqual({ applied: false });
     expect(model.appliedEdits).toEqual([]);

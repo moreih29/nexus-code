@@ -19,7 +19,7 @@ import { basename } from "@/utils/path";
 import { untitledCacheUriFor } from "../../../../shared/fs/workspace-uri";
 import { cacheUriFor } from "../model/cache";
 import { isDirty } from "../model/dirty-tracker";
-import { closeEditor } from "../tabs";
+import { closeEditor, workingFileOfDiff } from "../tabs";
 import { saveUntitledModel } from "./save-untitled-handler";
 import { reportSaveFailure, saveModelInteractive } from "./service";
 
@@ -59,8 +59,8 @@ export async function closeEditorWithConfirm(
     if (result.kind !== "saved" && result.kind !== "not-dirty") {
       // conflict (user cancelled resolution) / error / superseded / no-model —
       // keep the tab open so the user can react. reportSaveFailure toasts on
-      // error; conflict after a cancel is intentionally silent here since the
-      // user already saw the dialog.
+      // error; conflict after a cancel is silent since the user already saw
+      // the dialog.
       reportSaveFailure(result);
       return "save-failed";
     }
@@ -69,6 +69,54 @@ export async function closeEditorWithConfirm(
 
   closeEditor(tabId);
   return "closed";
+}
+
+/**
+ * Close a diff tab, prompting first when it is the last tab showing the
+ * unsaved working-tree file it edits: closing it would drop the edits.
+ */
+export async function closeDiffWithConfirm(
+  workspaceId: string,
+  tabId: string,
+): Promise<CloseTabOutcome> {
+  const tab = findTab(workspaceId, tabId);
+  if (!tab || tab.type !== "editor.diff") return "closed";
+
+  const filePath = workingFileOfDiff(tab.props);
+  if (
+    filePath === null ||
+    !isDirty(cacheUriFor(workspaceId, filePath)) ||
+    otherTabShowsFile(workspaceId, tabId, filePath)
+  ) {
+    closeTab(workspaceId, tabId);
+    return "closed";
+  }
+
+  const choice = await showSaveConfirm(basename(filePath));
+
+  if (choice === "cancel") return "cancelled";
+
+  if (choice === "save") {
+    const result = await saveModelInteractive({ workspaceId, filePath });
+    if (result.kind !== "saved" && result.kind !== "not-dirty") {
+      reportSaveFailure(result);
+      return "save-failed";
+    }
+  }
+
+  closeTab(workspaceId, tabId);
+  return "closed";
+}
+
+/** Whether a tab other than `tabId` keeps `filePath`'s model open. */
+function otherTabShowsFile(workspaceId: string, tabId: string, filePath: string): boolean {
+  const tabs = Object.values(useTabsStore.getState().byWorkspace[workspaceId] ?? {});
+  return tabs.some(
+    (other) =>
+      other.id !== tabId &&
+      ((other.type === "editor" && other.props.filePath === filePath) ||
+        (other.type === "editor.diff" && workingFileOfDiff(other.props) === filePath)),
+  );
 }
 
 /**

@@ -33,6 +33,12 @@ type EventSink func(event string, payload any) error
 type Service struct {
 	root string
 
+	// watchMu serializes fs.watch, fs.unwatch and Close, so fsnotify Add and
+	// Remove run in call order without holding mu, which the event loop
+	// needs before it can take the next event from fsnotify.
+	watchMu sync.Mutex
+	shared  *watchEntry // the one watcher when shareWatcher is set; guarded by watchMu
+
 	mu      sync.Mutex
 	watches map[string]*watchEntry
 	buffers map[string]FsChangeKind
@@ -64,6 +70,8 @@ func (s *Service) SetEventSink(sink EventSink) {
 
 // Close stops watcher goroutines and clears buffered fs events.
 func (s *Service) Close() {
+	s.watchMu.Lock()
+	defer s.watchMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.timer != nil {
@@ -73,6 +81,10 @@ func (s *Service) Close() {
 	for abs, entry := range s.watches {
 		entry.close()
 		delete(s.watches, abs)
+	}
+	if s.shared != nil {
+		s.shared.close()
+		s.shared = nil
 	}
 	clear(s.buffers)
 }

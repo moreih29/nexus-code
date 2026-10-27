@@ -71,6 +71,10 @@ mock.module(CLOSE_HANDLER_PATH, () => ({
     closeCalls.push(tabId);
     return closeOutcomeByTabId.get(tabId) ?? "closed";
   },
+  closeDiffWithConfirm: async (_workspaceId: string, tabId: string) => {
+    closeCalls.push(tabId);
+    return closeOutcomeByTabId.get(tabId) ?? "closed";
+  },
 }));
 
 // Keep the editor index mock so other modules that import from services/editor
@@ -85,6 +89,7 @@ mock.module("../../../../../../src/renderer/services/editor", () => ({
 
 mock.module("../../../../../../src/renderer/services/terminal", () => ({
   closeTerminal: () => {},
+  closeTerminalWithConfirm: () => Promise.resolve("closed"),
   openTerminal: () => null,
 }));
 

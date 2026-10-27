@@ -1,3 +1,4 @@
+import i18next from "i18next";
 import { MAX_READABLE_FILE_SIZE } from "../../shared/fs/defaults";
 import { FS_ERROR, type FsErrorCode, hasFsErrorCode } from "../../shared/fs/errors";
 
@@ -20,6 +21,7 @@ export function parseFileErrorCode(message: string): FileErrorCode {
     FS_ERROR.NOT_EMPTY,
     FS_ERROR.NOT_DIRECTORY,
     FS_ERROR.CROSS_DEVICE,
+    FS_ERROR.NO_SPACE,
     FS_ERROR.UNSUPPORTED_REMOTE,
   ];
   for (const code of candidates) {
@@ -33,27 +35,22 @@ export function fileErrorMessage(
   maxMb: number = MAX_READABLE_FILE_SIZE / (1024 * 1024),
 ): string {
   switch (code) {
-    case FS_ERROR.NOT_FOUND:
-      return "File not found.";
-    case FS_ERROR.PERMISSION_DENIED:
-      return "Permission denied.";
-    case FS_ERROR.IS_DIRECTORY:
-      return "Cannot open a directory.";
     case FS_ERROR.TOO_LARGE:
-      return `File too large to open (max ${maxMb} MB).`;
-    case FS_ERROR.ALREADY_EXISTS:
-      return "Already exists.";
-    case FS_ERROR.OUT_OF_WORKSPACE:
-      return "This path is outside the workspace.";
-    case FS_ERROR.NOT_EMPTY:
-      return "Folder is not empty.";
-    case FS_ERROR.NOT_DIRECTORY:
-      return "Path is not a folder.";
-    case FS_ERROR.CROSS_DEVICE:
-      return "Can't move across filesystems.";
-    case FS_ERROR.UNSUPPORTED_REMOTE:
-      return "Operation not supported for remote workspaces.";
+      return i18next.t("errors:open.TOO_LARGE", { maxMb });
     case "OTHER":
-      return "Failed to open file.";
+      return i18next.t("errors:open.failed");
+    default:
+      return i18next.t(`errors:fs.${code}`);
   }
+}
+
+/**
+ * User-facing reason for a failed fs operation: the localized phrase for the
+ * error's FsErrorCode, leaving out the code and the absolute path its message
+ * carries, or the message itself for an unclassified error.
+ */
+export function fsErrorReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = parseFileErrorCode(message);
+  return code === "OTHER" ? message : i18next.t(`errors:fs.${code}`);
 }

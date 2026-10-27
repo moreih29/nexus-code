@@ -14,6 +14,7 @@ import { findEditorTabInGroup } from "@/services/editor/tabs";
 import { useLayoutStore } from "../stores/layout";
 import type { SplitOrientation } from "../stores/layout/types";
 import { type EditorTabProps, useTabsStore } from "../stores/tabs";
+import { normalizeGroupTabOrder } from "./tab-order";
 import { closeTab, openEditorTab, revealTab } from "./tabs";
 
 function promoteTabIfPreview(workspaceId: string, tabId: string): void {
@@ -104,6 +105,7 @@ export function moveTabToZone(
             useLayoutStore
               .getState()
               .attachTab(workspaceId, existing.groupId, existing.tabId, target.index);
+            normalizeGroupTabOrder(workspaceId, existing.groupId);
           }
           promoteTabIfPreview(workspaceId, existing.tabId);
           closeTab(workspaceId, tabId);
@@ -113,6 +115,9 @@ export function moveTabToZone(
     }
 
     useLayoutStore.getState().moveTab(workspaceId, tabId, destLeaf.id, target.index);
+    // A tab dropped across the pinned/unpinned boundary snaps back to its
+    // own side, where the tab bar draws it.
+    normalizeGroupTabOrder(workspaceId, destLeaf.id);
     // VSCode parity: editorGroupView.moveEditor unconditionally calls
     // model.pin(editor) — i.e. *any* drop-driven move (including a same-group
     // reorder) promotes the tab. Self-drop no-op cases were filtered above so
@@ -165,6 +170,7 @@ export function openFileAtZone(
       revealTab(workspaceId, existing.groupId, existing.tabId);
       if (target.index !== undefined) {
         useLayoutStore.getState().attachTab(workspaceId, destLeaf.id, existing.tabId, target.index);
+        normalizeGroupTabOrder(workspaceId, destLeaf.id);
       }
       return { kind: "moved", groupId: existing.groupId, tabId: existing.tabId };
     }
@@ -173,6 +179,7 @@ export function openFileAtZone(
       // openEditorTab attaches at the end; re-attach at the requested index
       // (attachTab dedupes existing entries before splicing).
       useLayoutStore.getState().attachTab(workspaceId, destLeaf.id, tab.id, target.index);
+      normalizeGroupTabOrder(workspaceId, destLeaf.id);
     }
     return { kind: "moved", groupId: destLeaf.id, tabId: tab.id };
   }

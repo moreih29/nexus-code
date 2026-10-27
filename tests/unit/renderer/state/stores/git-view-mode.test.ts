@@ -48,7 +48,6 @@ function makeDefaultSession(overrides: Partial<GitSession> = {}): GitSession {
     status: null,
     statusFetching: false,
     branchInfo: null,
-    commitDraft: DEFAULT_GIT_PANEL_STATE.commitDraft,
     expandedGroups: { ...DEFAULT_GIT_PANEL_STATE.expandedGroups },
     expandedTreeNodes: {
       merge: [],
@@ -209,5 +208,29 @@ describe("git store — workspace isolation", () => {
     const nodesB = useGitStore.getState().sessions.get(WS_B)?.expandedTreeNodes;
     expect(nodesA?.staged).toContain("common");
     expect(nodesB?.staged).not.toContain("common");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Commit draft — kept off the session
+// ---------------------------------------------------------------------------
+
+describe("commit draft", () => {
+  beforeEach(resetStore);
+
+  it("typing a draft does not replace the session object", async () => {
+    const { getCommitDraft } = await import(
+      "../../../../../src/renderer/state/stores/git/commit-drafts"
+    );
+    seedSession(WS_A);
+    const before = useGitStore.getState().sessions.get(WS_A);
+
+    useGitStore.getState().setCommitDraft(WS_A, "fix: typo");
+
+    expect(useGitStore.getState().sessions.get(WS_A)).toBe(before);
+    expect(getCommitDraft(WS_A)).toBe("fix: typo");
+
+    useGitStore.getState().closeAllForWorkspace(WS_A);
+    expect(getCommitDraft(WS_A)).toBe("");
   });
 });

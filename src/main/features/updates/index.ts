@@ -38,6 +38,7 @@ import type { TimerScheduler } from "../../../shared/util/timer-scheduler";
 import { defaultTimerScheduler } from "../../../shared/util/timer-scheduler";
 import {
   createConditionalCache,
+  type PollFailureReason,
   pollGithubReleases,
   type PollResult,
 } from "./poller";
@@ -52,7 +53,7 @@ type StatusPayload =
   | { kind: "checking"; trigger: Trigger }
   | { kind: "newer"; trigger: Trigger; current: string; latest: string; releaseUrl: string }
   | { kind: "current"; trigger: Trigger; current: string; latest?: string }
-  | { kind: "error"; trigger: Trigger; message: string };
+  | { kind: "error"; trigger: Trigger; reason: PollFailureReason; status?: number };
 
 export interface InstallUpdatesDomainOptions {
   broadcast: (channel: string, event: string, payload: unknown) => void;
@@ -162,6 +163,10 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
       cache: conditionalCache,
     });
 
+    if (result.kind === "error") {
+      logger.warn(`updates: check failed (trigger=${trigger}): ${result.message}`);
+    }
+
     const shouldBroadcast = shouldBroadcastResult(result, trigger, ignoredVersion);
     if (!shouldBroadcast) {
       logger.debug(`updates: suppressing ${result.kind} for trigger=${trigger}`);
@@ -203,7 +208,7 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
         }
         const message = err instanceof Error ? err.message : String(err);
         logger.error(`updates: unexpected error in poll: ${message}`);
-        broadcastStatus({ kind: "error", trigger, message });
+        broadcastStatus({ kind: "error", trigger, reason: "unexpected" });
       });
     } else {
       // Auto: fire and forget — errors are silent (not broadcast).
@@ -370,7 +375,7 @@ function buildPayload(result: PollResult, trigger: Trigger): StatusPayload {
         latest: result.latest,
       };
     case "error":
-      return { kind: "error", trigger, message: result.message };
+      return { kind: "error", trigger, reason: result.reason, status: result.status };
   }
 }
 
@@ -382,6 +387,6 @@ function buildDedupeKey(payload: StatusPayload): string | null {
   if (payload.kind === "checking") return null;
   if (payload.kind === "newer") return `newer:${payload.latest}`;
   if (payload.kind === "current") return `current:${payload.latest ?? ""}`;
-  // error — dedupe on message to avoid spamming identical error toasts.
-  return `error:${payload.message}`;
+  // error — dedupe on the failure to avoid spamming identical error toasts.
+  return `error:${payload.reason}:${payload.status ?? ""}`;
 }

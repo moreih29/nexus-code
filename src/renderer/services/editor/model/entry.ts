@@ -18,10 +18,12 @@ import { attachLspBridge, rehydrateEntryLspOpened } from "./attach-lsp-bridge";
 import {
   attachDirtyTracker,
   detachDirtyTracker,
+  getDirtyEntry,
   markSaved as markDirtyTrackerSaved,
 } from "./dirty-tracker";
 import {
   readFileForModel,
+  statFileForModel,
   subscribeFsChanged,
   subscribeGitStatusChanged,
   workspaceRootForInput,
@@ -39,6 +41,8 @@ const defaultModelEntryDeps: ModelEntryDeps = {
   detachDirtyTracker,
   markDirtyTrackerSaved,
   readFileForModel,
+  statFileForModel,
+  getDirtyEntry,
   subscribeFsChanged,
   subscribeGitStatusChanged,
   attachGitSubscription,
@@ -102,10 +106,11 @@ function depsFor(entry: ModelEntry): ModelEntryDeps {
 
 /**
  * Re-issue didOpen against the LSP host for entries whose server-side
- * state was dropped (LRU eviction). Wraps `rehydrateEntryLspOpened`
- * with the entry's resolved deps so callers in the cache layer can
- * trigger respawn without threading deps themselves. No-op when the
- * entry is already opened, disposed, or has no model yet.
+ * state was dropped (LRU eviction) or that loaded while their language was
+ * off. Wraps `rehydrateEntryLspOpened` with the entry's resolved deps so
+ * callers in the cache layer can trigger respawn without threading deps
+ * themselves. No-op when the entry is already opened, disposed, has no
+ * model yet, or its language is off.
  */
 export function rehydrateEntry(entry: ModelEntry): Promise<void> {
   return rehydrateEntryLspOpened(entry, depsFor(entry));
@@ -292,7 +297,7 @@ async function loadEntry(entry: ModelEntry): Promise<void> {
     // event arrives. Only workspace-origin entries track working-tree files.
     if (entry.origin === "workspace") {
       entry.gitUnsubscribe = deps.attachGitSubscription(entry, deps, () => {
-        reconcileExternalChange(entry).catch(() => {});
+        reconcileIfStatChanged(entry).catch(() => {});
       });
     }
 
@@ -311,17 +316,40 @@ async function loadEntry(entry: ModelEntry): Promise<void> {
  * result back into the entry. If the on-disk content matches the buffer
  * (i.e. the user's edits are identical to the new disk version, or the
  * change originated from the editor's own save) the function is a
- * no-op. If the buffer has unsaved local edits and the disk content
- * has diverged, we leave the buffer alone — conflict resolution is the
- * save layer's job, not the loader's.
+ * no-op. If the buffer has unsaved local edits we leave it alone and
+ * visible whatever happened on disk — diverged, turned binary, deleted or
+ * unreadable — since conflict resolution is the save layer's job, not the
+ * loader's. Hiding it behind an error or binary phase (a `git checkout`
+ * round trip deletes and recreates the file) left the edits unreachable:
+ * the editor showed the error state and save found no model.
  */
 export async function reconcileExternalChange(entry: ModelEntry): Promise<void> {
   if (entry.disposed) return;
   const deps = depsFor(entry);
+  const hasUnsavedEdits = (): boolean => {
+    const model = entry.model;
+    return model !== null && !model.isDisposed() && model.getValue() !== entry.lastLoadedValue;
+  };
+
+  const seq = (entry.diskReadSeq ?? 0) + 1;
+  entry.diskReadSeq = seq;
 
   try {
     const result = await deps.readFileForModel(entry.input);
     if (entry.disposed) return;
+    // A formatter or checkout fires several fs.changed events and reads can
+    // resolve out of order; a newer read (or a save) owns the result.
+    if (entry.diskReadSeq !== seq) return;
+
+    if (hasUnsavedEdits()) {
+      // Do not overwrite the user's work. Record the current disk state so
+      // the save layer can detect and surface a conflict to the user.
+      entry.phase = "ready";
+      entry.errorCode = undefined;
+      entry.diskDiverged = { mtime: result.mtime, size: result.sizeBytes };
+      notifySubscribers(entry);
+      return;
+    }
 
     if (result.isBinary) {
       entry.phase = "binary";
@@ -331,15 +359,6 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
 
     const model = entry.model;
     if (!model || model.isDisposed()) return;
-
-    if (model.getValue() !== entry.lastLoadedValue) {
-      // Buffer has unsaved edits — do not overwrite the user's work.
-      // Record the current disk state so the save layer can detect and
-      // surface a conflict to the user.
-      entry.diskDiverged = { mtime: result.mtime, size: result.sizeBytes };
-      notifySubscribers(entry);
-      return;
-    }
 
     entry.lastLoadedValue = result.content;
     entry.phase = "ready";
@@ -359,11 +378,39 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
 
     notifySubscribers(entry);
   } catch (error) {
-    if (entry.disposed) return;
+    if (entry.disposed || entry.diskReadSeq !== seq) return;
+    // The edits exist only in this buffer; keep it editable so the user can
+    // save it (recreating the file) instead of losing it to the error state.
+    if (hasUnsavedEdits()) return;
     entry.phase = "error";
     entry.errorCode = errorCodeFromUnknown(error);
     notifySubscribers(entry);
   }
+}
+
+/**
+ * git.statusChanged-triggered variant of `reconcileExternalChange`. That event
+ * is workspace-wide (any working-tree change refreshes status), so doing a full
+ * read of every open file on each one is wasted IPC and string work that grows
+ * with file size. Stat first, and only reconcile when this file's mtime/size
+ * moved away from the dirty tracker's loaded baseline (kept current by load,
+ * save and reload). Any stat failure falls through to the full reconcile,
+ * which owns error handling.
+ */
+async function reconcileIfStatChanged(entry: ModelEntry): Promise<void> {
+  if (entry.disposed) return;
+  const deps = depsFor(entry);
+  try {
+    const loaded = deps.getDirtyEntry(entry.cacheUri);
+    if (loaded) {
+      const stat = await deps.statFileForModel(entry.input);
+      if (entry.disposed) return;
+      if (stat.mtime === loaded.loadedMtime && stat.size === loaded.loadedSize) return;
+    }
+  } catch {
+    // Fall through.
+  }
+  await reconcileExternalChange(entry);
 }
 
 /**
@@ -378,6 +425,9 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
 export async function reloadEntryFromDisk(entry: ModelEntry): Promise<void> {
   if (entry.disposed) return;
   const deps = depsFor(entry);
+  // The user asked for this read; reconcile reads already in flight predate
+  // it and must not land after it.
+  entry.diskReadSeq = (entry.diskReadSeq ?? 0) + 1;
 
   try {
     const result = await deps.readFileForModel(entry.input);

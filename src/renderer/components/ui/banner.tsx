@@ -12,6 +12,7 @@
 import { CheckCircle2, CircleAlert, Info } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { Button } from "./button";
+import { DetailsDisclosure } from "./details-disclosure";
 
 export type BannerVariant = "info" | "warning" | "error" | "success";
 export type BannerDisplay = "inline" | "bar";
@@ -76,14 +77,16 @@ function InlineBanner({
     >
       <div className="flex items-start gap-2">
         <BannerIcon variant={variant} className="mt-0.5 size-3.5 shrink-0" />
-        {/* Cap the text region and let it scroll: a long error (e.g. a full
-            git stderr dump) must not push the panel's other controls off
-            screen. Actions live in their own row below so the message keeps
-            the full banner width. */}
-        <div className="min-w-0 flex-1 max-h-48 overflow-y-auto app-scrollbar">
-          <p className="whitespace-pre-wrap break-words text-foreground">{message}</p>
+        {/* A long error (e.g. a full git stderr dump) must not push the
+            panel's other controls off screen: the message is capped and
+            scrolls, and details stay collapsed behind a toggle. Actions live
+            in their own row below so the message keeps the full banner width. */}
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <p className="app-scrollbar max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-foreground">
+            {message}
+          </p>
           {details ? (
-            <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">{details}</p>
+            <DetailsDisclosure details={details} className="text-muted-foreground" />
           ) : null}
         </div>
       </div>

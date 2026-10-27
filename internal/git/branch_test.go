@@ -200,7 +200,7 @@ func TestBranchRenameClean(t *testing.T) {
 func TestBranchFastForwardClean(t *testing.T) {
 	// Create a bare remote and clone it.
 	remote := t.TempDir()
-	runGitCommand(t, remote, "init", "--bare")
+	runGitCommand(t, remote, "init", "--bare", "-b", "main")
 
 	seed := t.TempDir()
 	runGitCommand(t, seed, "init", "-b", "main")
@@ -249,7 +249,7 @@ func TestBranchFastForwardClean(t *testing.T) {
 // TestBranchFastForwardNoOp verifies BranchFastForward reports not-advanced when already up to date.
 func TestBranchFastForwardNoOp(t *testing.T) {
 	remote := t.TempDir()
-	runGitCommand(t, remote, "init", "--bare")
+	runGitCommand(t, remote, "init", "--bare", "-b", "main")
 
 	seed := t.TempDir()
 	runGitCommand(t, seed, "init", "-b", "main")

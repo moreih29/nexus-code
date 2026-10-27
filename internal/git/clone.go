@@ -173,6 +173,14 @@ func (s *Service) Clone(ctx context.Context, raw json.RawMessage) (any, error) {
 	// progress lines and emitting events.
 	var stderrBuf bytes.Buffer
 	parseErr := s.emitCloneProgress(streamCtx, p.StreamID, stderrPipe, &stderrBuf)
+	if parseErr != nil && parseErr != io.EOF && streamCtx.Err() == nil {
+		// Stderr is no longer read: stop git before waiting, or it blocks
+		// on a full pipe and Wait never returns.
+		cancel()
+		_ = cmd.Wait()
+		_ = os.RemoveAll(absPath)
+		return nil, parseErr
+	}
 
 	waitErr := cmd.Wait()
 
@@ -203,7 +211,7 @@ func (s *Service) Clone(ctx context.Context, raw json.RawMessage) (any, error) {
 			msg = fmt.Sprintf("git clone exited with code %d", code)
 		}
 		_ = os.RemoveAll(absPath)
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 
 	return CloneResult{AbsPath: absPath}, nil

@@ -58,8 +58,16 @@ export const GIT_DIFF_CHUNK_EVENT = "git.diff.chunk";
 export const GIT_BLOB_METHOD = "git.blob";
 export const GIT_BLOB_CHUNK_EVENT = "git.blob.chunk";
 export const GIT_COMMIT_DETAIL_METHOD = "git.commitDetail";
+export const GIT_STAGE_CONTENT_METHOD = "git.stageContent";
 
 const GitEnvSchema = z.record(z.string(), z.string());
+
+/**
+ * Id of a request that may prompt for credentials. `git.cancel` with the id
+ * stops the request, and the agent tags the request's askpass prompts with
+ * it so each caller answers only its own.
+ */
+const AgentGitRunIdSchema = z.string().min(1).optional();
 
 export const AgentGitRunParamsSchema = z.object({
   args: z.array(z.string()).min(1),
@@ -67,6 +75,7 @@ export const AgentGitRunParamsSchema = z.object({
   env: GitEnvSchema.optional(),
   interactive: z.boolean().optional(),
   stdoutCapBytes: z.number().int().positive().optional(),
+  runId: AgentGitRunIdSchema,
 });
 export type AgentGitRunParams = z.infer<typeof AgentGitRunParamsSchema>;
 
@@ -80,8 +89,26 @@ export const AgentGitRunResultSchema = z.object({
 });
 export type AgentGitRunResult = z.infer<typeof AgentGitRunResultSchema>;
 
+/**
+ * Error code of an agent request whose handler failed; mirrors Go
+ * proto.CodeRequestFailed.
+ */
+export const AGENT_REQUEST_FAILED_CODE = "server.request-failed";
+
+/**
+ * Error data of a dedicated git method (push, pull, tag, stash, ...) whose
+ * git exited non-zero: the classified kind and hint git.run reports in its
+ * result.
+ */
+export const AgentGitFailureDataSchema = z.object({
+  errorKind: GitErrorKindSchema,
+  errorHint: GitActionHintSchema.optional(),
+});
+
 export const AgentGitStreamParamsSchema = AgentGitRunParamsSchema.omit({
   stdoutCapBytes: true,
+  // The stream id serves as the run id.
+  runId: true,
 }).extend({
   streamId: z.string().min(1),
   streamStderr: z.boolean().optional(),
@@ -102,12 +129,16 @@ export type AgentGitCancelParams = z.infer<typeof AgentGitCancelParamsSchema>;
 export const AgentGitAskpassRequestPayloadSchema = z.object({
   requestId: z.string().min(1),
   prompt: z.string(),
+  /** Run id (or stream id) of the request whose git asked. */
+  runId: z.string().min(1).optional(),
 });
 export type AgentGitAskpassRequestPayload = z.infer<typeof AgentGitAskpassRequestPayloadSchema>;
 
 export const AgentGitAskpassRespondParamsSchema = z.object({
   requestId: z.string().min(1),
   secret: z.string(),
+  /** The user dismissed the prompt: the helper fails instead of answering. */
+  cancelled: z.boolean().optional(),
 });
 export type AgentGitAskpassRespondParams = z.infer<typeof AgentGitAskpassRespondParamsSchema>;
 
@@ -140,6 +171,14 @@ export const AgentGitAddToGitignoreParamsSchema = z.object({
 export type AgentGitAddToGitignoreParams = z.infer<typeof AgentGitAddToGitignoreParamsSchema>;
 
 export const AgentGitAddToGitignoreResultSchema = GitIgnoreAppendResultSchema;
+
+/** Stages `content` as `relPath`'s index version; the working tree is untouched. */
+export const AgentGitStageContentParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  relPath: z.string().min(1),
+  content: z.string(),
+});
+export type AgentGitStageContentParams = z.infer<typeof AgentGitStageContentParamsSchema>;
 
 export const AgentGitGetFileContentParamsSchema = z.object({
   ref: z.string().min(1),
@@ -343,6 +382,7 @@ export type AgentGitTagListResult = Tag[];
 export const AgentGitTagListRemoteParamsSchema = z.object({
   cwd: z.string().min(1).optional(),
   remote: z.string().min(1),
+  runId: AgentGitRunIdSchema,
 });
 export type AgentGitTagListRemoteParams = z.infer<typeof AgentGitTagListRemoteParamsSchema>;
 
@@ -367,12 +407,14 @@ export const AgentGitTagDeleteRemoteParamsSchema = z.object({
   cwd: z.string().min(1).optional(),
   remote: z.string().min(1),
   name: z.string().min(1),
+  runId: AgentGitRunIdSchema,
 });
 export type AgentGitTagDeleteRemoteParams = z.infer<typeof AgentGitTagDeleteRemoteParamsSchema>;
 
 export const AgentGitTagPushParamsSchema = z.object({
   cwd: z.string().min(1).optional(),
   remote: z.string().min(1).optional(),
+  runId: AgentGitRunIdSchema,
 });
 export type AgentGitTagPushParams = z.infer<typeof AgentGitTagPushParamsSchema>;
 
@@ -501,6 +543,7 @@ export const AgentGitBranchDeleteRemoteParamsSchema = z.object({
   cwd: z.string().min(1).optional(),
   remote: z.string().min(1),
   name: z.string().min(1),
+  runId: AgentGitRunIdSchema,
 });
 export type AgentGitBranchDeleteRemoteParams = z.infer<
   typeof AgentGitBranchDeleteRemoteParamsSchema
@@ -528,6 +571,7 @@ export const AgentGitBranchFastForwardParamsSchema = z.object({
   branch: z.string().min(1),
   remote: z.string().min(1),
   remoteRef: z.string().min(1),
+  runId: AgentGitRunIdSchema,
 });
 export type AgentGitBranchFastForwardParams = z.infer<
   typeof AgentGitBranchFastForwardParamsSchema
@@ -552,6 +596,7 @@ export const GIT_PUSH_METHOD = "git.push";
 export const AgentGitPullParamsSchema = z.object({
   cwd: z.string().min(1).optional(),
   args: z.array(z.string()).optional(),
+  runId: AgentGitRunIdSchema,
 });
 export type AgentGitPullParams = z.infer<typeof AgentGitPullParamsSchema>;
 
@@ -570,6 +615,7 @@ export const AgentGitPushParamsSchema = z.object({
   force: z.boolean().optional(),
   publish: z.boolean().optional(),
   args: z.array(z.string()).optional(),
+  runId: AgentGitRunIdSchema,
 });
 export type AgentGitPushParams = z.infer<typeof AgentGitPushParamsSchema>;
 

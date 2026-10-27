@@ -20,8 +20,10 @@
       "cycleError": "폴더를 자신이나 하위 폴더에 놓을 수 없습니다.",
       "copied": "항목 {{count}}개 복사됨",
       "moved": "항목 {{count}}개 이동됨",
-      "copiedPartial": "{{total}}개 중 {{success}}개 복사됨. 첫 번째 실패: {{path}}: {{error}}",
-      "movedPartial": "{{total}}개 중 {{success}}개 이동됨. 첫 번째 실패: {{path}}: {{error}}"
+      "copiedPartial": "{{total}}개 중 {{success}}개 복사됨. \"{{name}}\" 복사 실패",
+      "copiedPartialReason": "{{total}}개 중 {{success}}개 복사됨. \"{{name}}\" 복사 실패: {{reason}}",
+      "movedPartial": "{{total}}개 중 {{success}}개 이동됨. \"{{name}}\" 이동 실패",
+      "movedPartialReason": "{{total}}개 중 {{success}}개 이동됨. \"{{name}}\" 이동 실패: {{reason}}"
     },
     "header": {
       "newFile": "새 파일",
@@ -50,8 +52,6 @@
       "paste": "붙여넣기",
       "rename": "이름 바꾸기",
       "delete": "삭제",
-      "revealInFinder": "Finder에서 표시",
-      "revealInExplorer": "파일 탐색기에서 표시",
       "copyPath": "경로 복사",
       "copyRelativePath": "상대 경로 복사"
     },
@@ -68,7 +68,84 @@
       "segmentsCannotBeEmpty": "경로 세그먼트는 비어 있을 수 없습니다.",
       "reservedName": "예약된 이름입니다."
     },
-    "renameOneAtATime": "항목을 하나씩 이름 바꾸세요"
+    "renameOneAtATime": "항목을 하나씩 이름 바꾸세요",
+    "delete": {
+      "deleted": "항목 {{count}}개 삭제됨",
+      "deletedPartial": "{{total}}개 중 {{success}}개 삭제됨. \"{{name}}\" 삭제 실패",
+      "deletedPartialReason": "{{total}}개 중 {{success}}개 삭제됨. \"{{name}}\" 삭제 실패: {{reason}}",
+      "titleFile": "파일 삭제",
+      "titleFolder": "폴더 삭제",
+      "titleMany": "항목 {{count}}개 삭제",
+      "askFile": "\"{{name}}\"을(를) 삭제할까요?",
+      "askFolder": "\"{{name}}\"과(와) 그 안의 내용을 삭제할까요?",
+      "restoreFile": "휴지통에서 파일을 복원할 수 있습니다.",
+      "restoreFolder": "휴지통에서 폴더를 복원할 수 있습니다.",
+      "restoreItems": "휴지통에서 항목을 복원할 수 있습니다.",
+      "permanent": "되돌릴 수 없습니다.",
+      "moreNames": "{{names}} 외 {{count}}개",
+      "moveToTrash": "휴지통으로 이동",
+      "fileFailed": "파일을 삭제하지 못했습니다.",
+      "fileDenied": "파일을 삭제할 권한이 없습니다.",
+      "folderFailed": "폴더를 삭제하지 못했습니다.",
+      "folderDenied": "폴더를 삭제할 권한이 없습니다.",
+      "folderNotEmpty": "폴더가 비어 있지 않습니다. 먼저 안의 내용을 삭제하세요.",
+      "notAFolder": "폴더가 아닌 경로입니다.",
+      "trashFileFailed": "파일을 휴지통으로 옮기지 못했습니다.",
+      "trashFolderFailed": "폴더를 휴지통으로 옮기지 못했습니다.",
+      "trashFileDenied": "파일을 휴지통으로 옮길 권한이 없습니다.",
+      "trashFolderDenied": "폴더를 휴지통으로 옮길 권한이 없습니다."
+    },
+    "paste": {
+      "pasted": "항목 {{count}}개 붙여넣음",
+      "pastedPartial": "{{total}}개 중 {{success}}개 붙여넣음. \"{{name}}\" 붙여넣기 실패",
+      "pastedPartialReason": "{{total}}개 중 {{success}}개 붙여넣음. \"{{name}}\" 붙여넣기 실패: {{reason}}",
+      "cycleError": "\"{{name}}\" 폴더를 자신이나 하위 폴더로 이동할 수 없습니다."
+    },
+    "fsError": {
+      "outsideWorkspace": "이 경로는 워크스페이스 밖에 있습니다.",
+      "alreadyExists": "이미 있습니다.",
+      "notFound": "경로를 찾을 수 없습니다.",
+      "permissionDenied": "접근이 거부되었습니다.",
+      "notEmpty": "폴더가 비어 있지 않습니다.",
+      "notDirectory": "폴더가 아닌 경로입니다.",
+      "crossDevice": "다른 파일 시스템으로는 이동할 수 없습니다.",
+      "unsupportedRemote": "원격 워크스페이스에서는 지원하지 않는 작업입니다.",
+      "fileNotFound": "파일을 찾을 수 없습니다.",
+      "folderNotFound": "폴더를 찾을 수 없습니다.",
+      "itemNotFound": "항목을 찾을 수 없습니다.",
+      "nameTaken": "같은 이름의 파일이나 폴더가 이미 있습니다."
+    },
+    "create": {
+      "fileFailed": "파일을 만들지 못했습니다.",
+      "folderFailed": "폴더를 만들지 못했습니다."
+    },
+    "copy": {
+      "failed": "항목을 복사하지 못했습니다.",
+      "denied": "항목을 복사할 권한이 없습니다."
+    },
+    "rename": {
+      "failed": "이름을 바꾸지 못했습니다.",
+      "crossDevice": "다른 파일 시스템으로는 이름을 바꿀 수 없습니다.",
+      "denied": "이름을 바꿀 권한이 없습니다."
+    },
+    "move": {
+      "failed": "항목을 이동하지 못했습니다.",
+      "nameTaken": "대상 위치에 같은 이름의 파일이나 폴더가 이미 있습니다.",
+      "denied": "항목을 이동할 권한이 없습니다.",
+      "replaceTitle": "기존 항목 바꾸기",
+      "replaceDescription": "대상 위치에 \"{{name}}\" 파일이나 폴더가 이미 있습니다. 바꿀까요?",
+      "replace": "바꾸기"
+    },
+    "reveal": {
+      "outsideWorkspace": "이 항목은 워크스페이스 밖에 있습니다.",
+      "failed": "항목을 폴더에서 표시하지 못했습니다.",
+      "notFound": "파일이 디스크에 더 이상 없습니다.",
+      "localOnly": "시스템 파일 관리자에서 표시는 로컬 워크스페이스에서만 쓸 수 있습니다."
+    },
+    "clipboard": {
+      "copied": "항목 {{count}}개 복사됨",
+      "cut": "항목 {{count}}개 잘라냄"
+    }
   },
   "search": {
     "placeholder": "검색",
@@ -104,6 +181,7 @@
       "noResultsHint": "다른 검색어를 시도해 보세요."
     },
     "invalidRegex": "유효하지 않은 정규식: {{error}}",
+    "unsupportedRegex": "검색에서 쓸 수 없는 정규식입니다: {{error}}",
     "results": {
       "ariaLabel": "검색 결과"
     }
@@ -227,9 +305,6 @@
       "stage": "스테이징",
       "unstage": "스테이징 해제",
       "discard": "되돌리기",
-      "revealInFinder": "Finder에서 표시",
-      "revealInExplorer": "파일 탐색기에서 표시",
-      "openContainingFolder": "상위 폴더 열기",
       "copyPath": "경로 복사",
       "copyRelativePath": "상대 경로 복사",
       "addToGitignore": ".gitignore에 추가",
@@ -511,6 +586,23 @@
       "submitSquash": "스쿼시",
       "cancel": "취소"
     },
+    "conflict": {
+      "acceptCurrent": "현재 변경 사항 수락",
+      "acceptCurrentTooltip": "현재(ours / HEAD) 쪽을 유지하고 모든 마커를 제거합니다",
+      "acceptIncoming": "수신 변경 사항 수락",
+      "acceptIncomingTooltip": "수신(theirs) 쪽을 유지하고 모든 마커를 제거합니다",
+      "acceptBoth": "두 변경 사항 모두 수락",
+      "acceptBothTooltip": "현재 쪽 뒤에 수신 쪽을 이어 붙이고 모든 마커를 제거합니다"
+    },
+    "relativeTime": {
+      "justNow": "방금",
+      "minutesAgo": "{{count}}분 전",
+      "hoursAgo": "{{count}}시간 전",
+      "daysAgo": "{{count}}일 전",
+      "monthsAgo": "{{count}}개월 전",
+      "yearsAgo": "{{count}}년 전",
+      "unknown": "알 수 없는 시간"
+    },
     "stashPicker": {
       "applyTitle": "임시 저장 목록",
       "dropTitle": "임시 저장 삭제",
@@ -523,11 +615,7 @@
       "noMessage": "(메시지 없음)",
       "dropConfirmTitle": "{{ref}}을(를) 삭제하시겠습니까?",
       "dropConfirmDescription": "{{ref}}을(를) 삭제하시겠습니까? 이 작업은 취소할 수 없습니다.",
-      "dropConfirmLabel": "삭제",
-      "justNow": "방금",
-      "minutesAgo": "{{count}}분 전",
-      "hoursAgo": "{{count}}시간 전",
-      "daysAgo": "{{count}}일 전"
+      "dropConfirmLabel": "삭제"
     },
     "tagPicker": {
       "browseTitle": "태그",
@@ -623,7 +711,8 @@
       },
       "tagReveal": "'{{name}}' 태그 {{sha}}의 기록을 보는 중입니다.",
       "syncCancelled": "동기화가 취소되었습니다 (풀 중단으로 푸시 건너뜀).",
-      "openTerminal": "터미널 열기"
+      "openTerminal": "터미널 열기",
+      "openSourceControl": "소스 제어 열기"
     },
     "refChip": {
       "headRef": "HEAD ref",
@@ -677,6 +766,25 @@
       "chipAriaLabel": "현재 브랜치 {{name}}",
       "chipTitle": "{{path}}의 저장소",
       "localBadge": "로컬"
+    },
+    "actionButton": {
+      "initializeRepository": "저장소 초기화",
+      "makeInitialCommit": "첫 커밋 만들기",
+      "commit": "커밋",
+      "stageAll": "모두 스테이징",
+      "sync": "동기화",
+      "push": "푸시",
+      "pull": "풀",
+      "publishBranch": "브랜치 게시",
+      "noRemote": "원격 저장소 없음",
+      "upToDate": "최신 상태",
+      "hintStageAndMessage": "변경 사항을 스테이징하고 커밋 메시지를 입력하세요.",
+      "hintMessage": "커밋 메시지를 입력하세요.",
+      "hintStage": "커밋하기 전에 변경 사항을 스테이징하세요."
+    },
+    "helperPrompt": {
+      "awaitingCredentials": "자격 증명 기다리는 중…",
+      "editingCommitMessage": "커밋 메시지 편집 중…"
     }
   }
 }

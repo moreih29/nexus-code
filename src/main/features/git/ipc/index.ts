@@ -35,7 +35,12 @@ import { addToGitignoreHandler } from "./ignore-handlers";
 import { logStream } from "./log-stream";
 import { addRemoteHandler, removeRemoteHandler } from "./remote-handlers";
 import { getRepoInfoHandler, initHandler, refreshDetectionHandler } from "./repo-handlers";
-import { discardChangesHandler, stageHandler, unstageHandler } from "./stage-handlers";
+import {
+  discardChangesHandler,
+  stageContentHandler,
+  stageHandler,
+  unstageHandler,
+} from "./stage-handlers";
 import {
   stashApplyHandler,
   stashDropHandler,
@@ -89,6 +94,7 @@ export function registerGitChannel(
       getStatus: getStatusHandler(registry),
       stage: stageHandler(registry),
       unstage: unstageHandler(registry),
+      stageContent: stageContentHandler(registry),
       discardChanges: discardChangesHandler(registry),
       commit: commitHandler(registry),
       commitAmend: commitAmendHandler(registry),

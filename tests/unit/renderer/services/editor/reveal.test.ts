@@ -13,9 +13,9 @@
  *      claim a pending reveal was usually a parked (visibility:hidden)
  *      editor whose `editor.focus()` silently no-oped — leaving the
  *      visible editor unaware that anything had been requested. The
- *      registry keeps at most one editor per (workspaceId, filePath),
- *      with last-mount-wins semantics, and routes reveals to that single
- *      target.
+ *      registry keeps one editor per tab of a (workspaceId, filePath) and
+ *      routes each reveal to the named tab, or to the most recently
+ *      mounted editor when no tab is named.
  */
 
 import { describe, expect, it, mock } from "bun:test";
@@ -228,5 +228,52 @@ describe("registerRevealTarget — last-mount-wins and identity-checked unregist
     registerRevealTarget(input, secondEditor as never);
     expect(secondEditor.setSelection).toHaveBeenLastCalledWith(RANGE_A);
     expect(secondEditor.revealRangeInCenter).toHaveBeenLastCalledWith(RANGE_A);
+  });
+});
+
+describe("registerRevealTarget — the same file in two splits", () => {
+  const input = { workspaceId: "ws-1", filePath: "/abs/lead.toml" };
+
+  it("reveals in the named tab even when another split mounted later", () => {
+    __resetPendingEditorRevealsForTests();
+    const left = makeStubEditor();
+    const right = makeStubEditor();
+    registerRevealTarget(input, left as never, "tab-left");
+    registerRevealTarget(input, right as never, "tab-right");
+
+    requestEditorReveal({ ...input, range: RANGE_A, tabId: "tab-left" });
+
+    expect(left.setSelection).toHaveBeenLastCalledWith(RANGE_A);
+    expect(right.setSelection).not.toHaveBeenCalled();
+  });
+
+  it("keeps the other split registered when one split closes", () => {
+    __resetPendingEditorRevealsForTests();
+    const left = makeStubEditor();
+    const right = makeStubEditor();
+    registerRevealTarget(input, left as never, "tab-left");
+    const unregisterRight = registerRevealTarget(input, right as never, "tab-right");
+    unregisterRight();
+
+    requestEditorReveal({ ...input, range: RANGE_B });
+    expect(left.setSelection).toHaveBeenLastCalledWith(RANGE_B);
+
+    requestEditorReveal({ ...input, range: RANGE_A, tabId: "tab-left" });
+    expect(left.setSelection).toHaveBeenLastCalledWith(RANGE_A);
+  });
+
+  it("keeps a reveal queued for a tab until that tab's editor mounts", () => {
+    __resetPendingEditorRevealsForTests();
+    const left = makeStubEditor();
+    const right = makeStubEditor();
+    registerRevealTarget(input, left as never, "tab-left");
+
+    // A new split of the file opened; its editor is not mounted yet.
+    requestEditorReveal({ ...input, range: RANGE_A, tabId: "tab-right" });
+    expect(left.setSelection).not.toHaveBeenCalled();
+
+    registerRevealTarget(input, right as never, "tab-right");
+    expect(right.setSelection).toHaveBeenLastCalledWith(RANGE_A);
+    expect(left.setSelection).not.toHaveBeenCalled();
   });
 });

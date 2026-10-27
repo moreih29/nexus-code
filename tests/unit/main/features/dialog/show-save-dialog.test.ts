@@ -1,203 +1,163 @@
 /**
- * dialog.showSaveDialog IPC 핸들러 단위 테스트.
+ * dialog IPC 핸들러 단위 테스트.
  *
- * Electron dialog 모듈을 mock.module 로 교체하고, 핸들러 구현과 동일한 로직을
- * validateArgs + mock 함수로 직접 검증한다. registerDialogChannel() 의 side-
- * effect(ipcMain.handle 등록) 없이 핸들러 로직만 순수하게 테스트한다.
+ * registerDialogChannel() 이 등록한 실제 핸들러를 호출하고, electron.dialog 를
+ * mock 으로 교체해 네이티브 다이얼로그에 넘어간 옵션과 반환값을 검증한다.
  *
- * - case 1: canceled = true  (사용자가 다이얼로그를 닫은 경우)
- * - case 2: filePath 반환 성공 케이스 (opts 전달)
- * - case 3: opts 없이 호출 (인수 undefined — 기본 Save 다이얼로그)
- * - case 4: 기존 showOpenFile 핸들러 회귀 — 기존 테스트 깨지지 않음 확인
- * - case 5: 기존 showOpenDirectory 핸들러 회귀
+ * - showSaveDialog: 취소, opts 전달, opts 없음(기본 제목), 잘못된 opts 거부
+ * - showOpenFile / showOpenDirectory: 다이얼로그 properties 와 반환값
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Mocks must precede any dynamic imports that pull in the mocked modules.
+// Mocks must precede the dynamic imports that pull in the mocked modules.
 // ---------------------------------------------------------------------------
 
-const mockShowSaveDialog = mock(async (_opts: unknown) => ({
-  canceled: false,
-  filePath: "/tmp/output.txt",
-}));
+const mockShowSaveDialog = mock(
+  async (_opts: unknown): Promise<{ canceled: boolean; filePath?: string }> => ({
+    canceled: false,
+    filePath: "/tmp/output.txt",
+  }),
+);
 
-const mockShowOpenDialog = mock(async (_opts: unknown) => ({
-  canceled: false,
-  filePaths: ["/tmp/input.txt"],
-}));
+const mockShowOpenDialog = mock(
+  async (_opts: unknown): Promise<{ canceled: boolean; filePaths: string[] }> => ({
+    canceled: false,
+    filePaths: ["/tmp/input.txt"],
+  }),
+);
 
+// Only `dialog` is replaced; the rest is the canonical stub from tests/setup.ts.
+const realElectron = await import("electron");
 mock.module("electron", () => ({
+  ...realElectron,
   dialog: {
     showSaveDialog: mockShowSaveDialog,
     showOpenDialog: mockShowOpenDialog,
   },
-  ipcMain: {
-    handle: (_channel: string, _handler: unknown) => {},
-    on: (_channel: string, _handler: unknown) => {},
-  },
-  webContents: { getAllWebContents: () => [] },
-  app: { getPath: () => "/tmp" },
 }));
 
-mock.module("electron-log/main", () => ({
-  default: {
-    error: () => {},
-    warn: () => {},
-    info: () => {},
-    debug: () => {},
-    initialize: () => {},
-    transports: {
-      file: { resolvePathFn: undefined, level: "debug", format: undefined },
-      console: { level: "info", format: undefined },
-    },
+// Capture the handlers registerDialogChannel() hands to the router. register
+// still forwards, so later files that drive the real router are unaffected.
+type DialogHandlers = Record<string, (args: unknown) => Promise<unknown>>;
+const registered = new Map<string, { call: DialogHandlers }>();
+
+const ipcRouter = await import("../../../../../src/main/infra/ipc-router");
+const forwardRegister = ipcRouter.register;
+mock.module("../../../../../src/main/infra/ipc-router", () => ({
+  ...ipcRouter,
+  register: (channelName: string, def: { call: DialogHandlers }) => {
+    registered.set(channelName, def);
+    forwardRegister(channelName, def as Parameters<typeof forwardRegister>[1]);
   },
 }));
 
-mock.module("/Users/kih/workspaces/areas/nexus-code/src/shared/log/main", () => ({
-  createLogger: (_source: string) => ({
-    error: () => {},
-    warn: () => {},
-    info: () => {},
-    debug: () => {},
-  }),
-  initMainLogger: () => {},
-}));
+const { initMainI18n } = await import("../../../../../src/main/i18n");
+const { registerDialogChannel } = await import("../../../../../src/main/features/dialog");
 
-// Dynamic imports — after all mock.module calls
-const { validateArgs } = await import("../../../../../src/main/infra/ipc-router");
-const { ipcContract } = await import("../../../../../src/shared/ipc/contract");
+// The handlers read their default titles from the main-process i18n instance.
+await initMainI18n("en");
+registerDialogChannel();
 
-const c = ipcContract.dialog.call;
-
-// ---------------------------------------------------------------------------
-// Helper functions that mirror the handler implementation in
-// src/main/features/dialog/index.ts. Testing at this level keeps the test
-// isolated from ipcMain registration and live Electron context while still
-// exercising the real schema + logic path.
-// ---------------------------------------------------------------------------
-
-async function invokeShowSaveDialog(args: unknown) {
-  const opts = validateArgs(c.showSaveDialog.args, args) ?? {};
-  const result = await mockShowSaveDialog({
-    title: (opts as Record<string, unknown>).title,
-    defaultPath: (opts as Record<string, unknown>).defaultPath,
-    filters: (opts as Record<string, unknown>).filters,
-  });
-  return { canceled: result.canceled, filePath: result.filePath };
-}
-
-async function invokeShowOpenFile(args: unknown) {
-  const { title, defaultPath, filters } = validateArgs(c.showOpenFile.args, args);
-  const result = await mockShowOpenDialog({
-    title,
-    defaultPath,
-    filters,
-    properties: ["openFile"],
-  });
-  return { canceled: result.canceled, filePaths: result.filePaths };
-}
-
-async function invokeShowOpenDirectory(args: unknown) {
-  const { title, defaultPath } = validateArgs(c.showOpenDirectory.args, args);
-  const result = await mockShowOpenDialog({
-    title,
-    defaultPath,
-    properties: ["openDirectory", "createDirectory"],
-  });
-  return { canceled: result.canceled, filePaths: result.filePaths };
-}
+const handlers = registered.get("dialog")!.call;
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("showSaveDialog handler", () => {
-  beforeEach(() => {
-    mockShowSaveDialog.mockClear();
-    mockShowOpenDialog.mockClear();
+beforeEach(() => {
+  mockShowSaveDialog.mockClear();
+  mockShowOpenDialog.mockClear();
+});
+
+describe("dialog.showSaveDialog", () => {
+  test("returns canceled with no filePath when the user dismisses the dialog", async () => {
+    mockShowSaveDialog.mockImplementationOnce(async () => ({
+      canceled: true,
+      filePath: undefined,
+    }));
+
+    const result = await handlers.showSaveDialog({});
+
+    expect(result).toEqual({ canceled: true, filePath: undefined });
+    expect(mockShowSaveDialog).toHaveBeenCalledTimes(1);
   });
 
-  describe("case 1 — canceled = true", () => {
-    test("returns { canceled: true, filePath: undefined } when user dismisses", async () => {
-      mockShowSaveDialog.mockImplementationOnce(async () => ({
-        canceled: true,
-        filePath: undefined,
-      }));
+  test("passes opts through, asks before overwriting, and returns the chosen path", async () => {
+    mockShowSaveDialog.mockImplementationOnce(async () => ({
+      canceled: false,
+      filePath: "/home/user/document.md",
+    }));
 
-      const result = await invokeShowSaveDialog({});
-      expect(result.canceled).toBe(true);
-      expect(result.filePath).toBeUndefined();
-      expect(mockShowSaveDialog).toHaveBeenCalledTimes(1);
+    const result = await handlers.showSaveDialog({
+      title: "Save Document",
+      defaultPath: "/home/user/document.md",
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    });
+
+    expect(result).toEqual({ canceled: false, filePath: "/home/user/document.md" });
+    expect(mockShowSaveDialog).toHaveBeenCalledWith({
+      title: "Save Document",
+      defaultPath: "/home/user/document.md",
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+      properties: ["showOverwriteConfirmation"],
     });
   });
 
-  describe("case 2 — filePath success with opts", () => {
-    test("passes opts through and returns filePath", async () => {
-      mockShowSaveDialog.mockImplementationOnce(async () => ({
-        canceled: false,
-        filePath: "/home/user/document.md",
-      }));
+  test("uses the localized default title when called without opts", async () => {
+    const result = await handlers.showSaveDialog(undefined);
 
-      const opts = {
-        title: "Save Document",
-        defaultPath: "/home/user/document.md",
-        filters: [{ name: "Markdown", extensions: ["md"] }],
-      };
-
-      const result = await invokeShowSaveDialog(opts);
-      expect(result.canceled).toBe(false);
-      expect(result.filePath).toBe("/home/user/document.md");
-      expect(mockShowSaveDialog).toHaveBeenCalledTimes(1);
-      const calledWith = mockShowSaveDialog.mock.calls[0]![0] as Record<string, unknown>;
-      expect(calledWith.title).toBe("Save Document");
-      expect(calledWith.defaultPath).toBe("/home/user/document.md");
-      expect(calledWith.filters).toEqual([{ name: "Markdown", extensions: ["md"] }]);
+    expect(result).toEqual({ canceled: false, filePath: "/tmp/output.txt" });
+    expect(mockShowSaveDialog).toHaveBeenCalledWith({
+      title: "Save File",
+      defaultPath: undefined,
+      filters: undefined,
+      properties: ["showOverwriteConfirmation"],
     });
   });
 
-  describe("case 3 — opts undefined (기본 Save 다이얼로그)", () => {
-    test("accepts undefined args and calls dialog with undefined options", async () => {
-      mockShowSaveDialog.mockImplementationOnce(async () => ({
-        canceled: false,
-        filePath: "/tmp/untitled.txt",
-      }));
+  test("rejects malformed opts without opening the dialog", async () => {
+    await expect(handlers.showSaveDialog({ title: 42 })).rejects.toBeInstanceOf(
+      ipcRouter.IpcValidationError,
+    );
+    expect(mockShowSaveDialog).not.toHaveBeenCalled();
+  });
+});
 
-      const result = await invokeShowSaveDialog(undefined);
-      expect(result.canceled).toBe(false);
-      expect(result.filePath).toBe("/tmp/untitled.txt");
-      expect(mockShowSaveDialog).toHaveBeenCalledTimes(1);
-      const calledWith = mockShowSaveDialog.mock.calls[0]![0] as Record<string, unknown>;
-      expect(calledWith.title).toBeUndefined();
-      expect(calledWith.defaultPath).toBeUndefined();
-      expect(calledWith.filters).toBeUndefined();
+describe("dialog.showOpenFile", () => {
+  test("opens a single-file picker and returns the chosen paths", async () => {
+    mockShowOpenDialog.mockImplementationOnce(async () => ({
+      canceled: false,
+      filePaths: ["/tmp/chosen.ts"],
+    }));
+
+    const result = await handlers.showOpenFile({ defaultPath: "/repo" });
+
+    expect(result).toEqual({ canceled: false, filePaths: ["/tmp/chosen.ts"] });
+    expect(mockShowOpenDialog).toHaveBeenCalledWith({
+      title: "Open File",
+      defaultPath: "/repo",
+      filters: undefined,
+      properties: ["openFile"],
     });
   });
+});
 
-  describe("case 4 — showOpenFile 회귀", () => {
-    test("showOpenFile still returns canceled + filePaths array", async () => {
-      mockShowOpenDialog.mockImplementationOnce(async () => ({
-        canceled: false,
-        filePaths: ["/tmp/chosen.ts"],
-      }));
+describe("dialog.showOpenDirectory", () => {
+  test("opens a folder picker that can create folders", async () => {
+    mockShowOpenDialog.mockImplementationOnce(async () => ({
+      canceled: true,
+      filePaths: [],
+    }));
 
-      const result = await invokeShowOpenFile({ title: "Open" });
-      expect(result.canceled).toBe(false);
-      expect(result.filePaths).toEqual(["/tmp/chosen.ts"]);
-    });
-  });
+    const result = await handlers.showOpenDirectory({});
 
-  describe("case 5 — showOpenDirectory 회귀", () => {
-    test("showOpenDirectory still returns canceled + filePaths array", async () => {
-      mockShowOpenDialog.mockImplementationOnce(async () => ({
-        canceled: true,
-        filePaths: [],
-      }));
-
-      const result = await invokeShowOpenDirectory({});
-      expect(result.canceled).toBe(true);
-      expect(result.filePaths).toEqual([]);
+    expect(result).toEqual({ canceled: true, filePaths: [] });
+    expect(mockShowOpenDialog).toHaveBeenCalledWith({
+      title: "Select workspace folder",
+      defaultPath: undefined,
+      properties: ["openDirectory", "createDirectory"],
     });
   });
 });

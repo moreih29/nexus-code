@@ -46,15 +46,18 @@ const copyCalls: CopyInput[] = [];
 const cutCalls: CopyInput[] = [];
 const toastCalls: { kind: string; message: string }[] = [];
 
+// Only handleCopy / handleCut are replaced. Bun writes a barrel mock through
+// to the re-exported bindings, so stubbing handlePaste or the store here would
+// replace the real ones for every later test file.
+const realClipboard = await import("../../../../../src/renderer/services/file-clipboard");
 mock.module("../../../../../src/renderer/services/file-clipboard", () => ({
+  ...realClipboard,
   handleCopy: (input: CopyInput) => {
     copyCalls.push(input);
   },
   handleCut: (input: CopyInput) => {
     cutCalls.push(input);
   },
-  handlePaste: () => Promise.resolve(),
-  useFileClipboardStore: { getState: () => ({ kind: null, entries: [] }) },
 }));
 
 mock.module("../../../../../src/renderer/components/ui/toast", () => ({

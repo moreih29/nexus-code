@@ -14,6 +14,7 @@ export type GitDirtyCallback = (workspaceId: string) => void;
 
 interface GitWatchEntry {
   readonly gitDir: string;
+  readonly provider: AgentBackedProvider;
   readonly unsubscribe: () => void;
 }
 
@@ -24,20 +25,41 @@ interface GitWatchEntry {
  */
 export class AgentGitWatcher {
   private readonly entries = new Map<string, GitWatchEntry>();
+  private readonly disposeProviderReady: () => void;
 
   constructor(
     private readonly manager: WorkspaceManager,
     private readonly onDirty: GitDirtyCallback,
-  ) {}
+  ) {
+    // A replacement agent booted after the channel died has no .git watch,
+    // and repo detection does not run again to ask for one. Re-register on
+    // the new agent and refresh status for what changed while none watched.
+    this.disposeProviderReady = manager.onProviderReady((workspaceId) => {
+      const entry = this.entries.get(workspaceId);
+      if (!entry) return;
+      this.watch(workspaceId, entry.gitDir).then(
+        () => this.onDirty(workspaceId),
+        (error: unknown) => {
+          log.warn(
+            `git.watch rebind failed (workspace=${workspaceId}, gitDir=${entry.gitDir}): ${(error as Error).message}`,
+          );
+        },
+      );
+    });
+  }
 
   async watch(workspaceId: string, gitDir: string): Promise<void> {
     const provider = this.requireAgentProvider(workspaceId);
     const existing = this.entries.get(workspaceId);
-    if (existing?.gitDir === gitDir) {
+    if (existing?.gitDir === gitDir && existing.provider === provider) {
       return;
     }
-    if (existing) {
+    if (existing?.provider === provider) {
       await this.unwatch(workspaceId).catch(() => {});
+    } else if (existing) {
+      // Made on an agent that has since been replaced; nothing to unwatch.
+      this.entries.delete(workspaceId);
+      existing.unsubscribe();
     }
 
     const unsubscribeChanged = provider.onAgentEvent(GIT_CHANGED_EVENT, (payload) => {
@@ -59,11 +81,14 @@ export class AgentGitWatcher {
           `git.watch replay failed (workspace=${workspaceId}, gitDir=${gitDir}): ${(error as Error).message}`,
         );
       });
+      // .git changes made while the agent was down were never reported.
+      this.onDirty(workspaceId);
     });
 
     await provider.callAgentMethod(GIT_WATCH_METHOD, { gitDir });
     this.entries.set(workspaceId, {
       gitDir,
+      provider,
       unsubscribe: () => {
         unsubscribeChanged();
         unsubscribeLifecycle();
@@ -92,6 +117,7 @@ export class AgentGitWatcher {
   }
 
   dispose(): void {
+    this.disposeProviderReady();
     for (const workspaceId of Array.from(this.entries.keys())) {
       this.disposeWorkspace(workspaceId);
     }

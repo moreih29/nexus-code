@@ -322,7 +322,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   async call(method: string, args: unknown, opts: LspHostCallOptions = {}): Promise<unknown> {
     if (this.disposed) {
       // Document notifications can arrive after dispose() during app shutdown:
-      // the LSP host is torn down on `before-quit` while the renderer is still
+      // the LSP host is torn down at quit while a renderer may still be
       // alive and emitting didClose as its editor models close. The host being
       // gone is the correct end state, so these resolve quietly — only
       // request-style methods (whose callers expect a result) still surface
@@ -991,12 +991,15 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       // channel, and `ready` is a successful epoch-match recovery. Before
       // v0.6.1 those three fell through to disposeChannelServers, so one
       // late heartbeat silently killed every language server on the channel.
-      if (
-        event.type === "exit" ||
-        event.type === "failure" ||
-        event.type === "disposed" ||
-        event.type === "held-then-expired"
-      ) {
+      //
+      // After `exit` / `failure` / `disposed` the channel object is never used
+      // again (a reconnect builds a new one), so its listeners are dropped
+      // too; `held-then-expired` keeps them because the same channel carries
+      // on against the new daemon.
+      if (event.type === "exit" || event.type === "failure" || event.type === "disposed") {
+        this.disposeChannelServers(channel);
+        this.unsubscribeChannel(channel);
+      } else if (event.type === "held-then-expired") {
         this.disposeChannelServers(channel);
       }
     });
@@ -1007,6 +1010,14 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       offServerExited,
       offLifecycle,
     ]);
+  }
+
+  /** Removes this host's listeners from a channel that is gone for good. */
+  private unsubscribeChannel(channel: AgentChannel): void {
+    const disposers = this.channelDisposers.get(channel);
+    if (!disposers) return;
+    this.channelDisposers.delete(channel);
+    for (const dispose of disposers) dispose();
   }
 
   private handleServerAssigned(payload: unknown): void {
@@ -1069,6 +1080,11 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       this.workspaceServers.get(server.workspaceId)?.delete(server.languageId);
       this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
     }
+    // Server requests (applyEdit) waiting on the renderer can no longer be
+    // answered on this channel.
+    for (const [id, pending] of this.pendingServerRequests) {
+      if (pending.channel === channel) this.pendingServerRequests.delete(id);
+    }
   }
 
   private handleAgentMessage(channel: AgentChannel, payload: unknown): void {
@@ -1105,7 +1121,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
 
     switch (parsed.method) {
       case "workspace/applyEdit":
-        this.emitApplyEditRequest(channel, parsed);
+        this.emitApplyEditRequest(channel, context, parsed);
         return;
       case "workspace/configuration":
         void this.respondAgentServerRequest(channel, parsed.serverId, parsed.agentRequestId, {
@@ -1142,6 +1158,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
 
   private emitApplyEditRequest(
     channel: AgentChannel,
+    context: ServerContext,
     request: { serverId: string; agentRequestId: string; method: string; params: unknown },
   ): void {
     const parsed = ApplyWorkspaceEditParamsSchema.safeParse(request.params);
@@ -1158,7 +1175,14 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       serverId: request.serverId,
       agentRequestId: request.agentRequestId,
     });
-    this.emit("serverRequest", { id, method: request.method, params: parsed.data });
+    // The renderer keys the workspace's models by workspace URI, which it
+    // rebuilds from the server's `file://` URIs and this workspace id.
+    this.emit("serverRequest", {
+      id,
+      workspaceId: context.workspaceId,
+      method: request.method,
+      params: parsed.data,
+    });
   }
 
   private sendServerRequestResponse(

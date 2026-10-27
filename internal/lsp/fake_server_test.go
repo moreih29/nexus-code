@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strconv"
 	"testing"
 )
@@ -99,6 +100,28 @@ func runFakeLSPServer(mode string, in io.Reader, out io.Writer) error {
 			}); err != nil {
 				return err
 			}
+		case method == "initialized" && mode == "crash":
+			// Crash with a parting message on stdout and a stack-trace-sized
+			// burst on stderr, likely still in the pipes when the process
+			// exits. The last stderr line comes from a child that inherited
+			// stderr and writes shortly after the server is gone, which makes
+			// losing it deterministic.
+			if err := transport.write(map[string]any{
+				"jsonrpc": "2.0",
+				"method":  "window/logMessage",
+				"params":  map[string]any{"type": 1, "message": "parting message"},
+			}); err != nil {
+				return err
+			}
+			for i := 0; i < 2000; i++ {
+				fmt.Fprintf(os.Stderr, "goroutine %04d [running]: fake stack frame padding padding padding\n", i)
+			}
+			child := exec.Command("sh", "-c", "sleep 0.1; echo 'last stderr line' >&2")
+			child.Stderr = os.Stderr
+			if err := child.Start(); err != nil {
+				return err
+			}
+			os.Exit(3)
 		case method == "initialized":
 			if !serverRequestsSent && (mode == "server-request" || mode == "server-request-many") {
 				count := 1

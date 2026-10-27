@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { isImeComposing } from "@/utils/ime";
 import { appErrorCancelled, appErrorFailed } from "../../../../shared/error/app-error";
 import { useIpcAction } from "../../../hooks/use-ipc-action";
 import { openSshBrowseSession, saveConnectionProfileResult } from "../../../services/workspace";
@@ -15,6 +16,7 @@ import {
   filterSshConfigHosts,
   findSshConfigHost,
   formatSshHostSummary,
+  humanizeSshError,
   parseSshDestination,
   parseSshPort,
   sshHostOptionId,
@@ -208,6 +210,7 @@ export function SshNewConnectionView({
   }
 
   function handleHostKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
+    if (isImeComposing(event)) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       if (filteredHosts.length === 0) return;
@@ -313,7 +316,7 @@ export function SshNewConnectionView({
         }
         // Connection failure → throw so the hook transitions to state:'error'.
         // The inline banner below renders state.error.message.
-        throw appErrorFailed(result.message, { domain: "ssh", code: result.kind });
+        throw appErrorFailed(humanizeSshError(result), { domain: "ssh", code: result.kind });
       }
 
       // `result.value.user` is the user actually connected as — when the form

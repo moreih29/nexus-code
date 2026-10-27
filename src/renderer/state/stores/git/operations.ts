@@ -25,6 +25,7 @@ import type {
 } from "../../../../shared/git/types";
 import { createLogger } from "../../../../shared/log/renderer";
 import { ipcCallResult, unwrapGitResult } from "../../../ipc/client";
+import { getCommitDraft, setCommitDraftText } from "./commit-drafts";
 import { cancelCommitDraftSave } from "./draft-persistence";
 import { persistPanelState } from "./panel-state-io";
 import { resolveCommitOptions } from "./session-defaults";
@@ -43,6 +44,17 @@ const log = createLogger("git");
 export interface OperationsSlice {
   stage: (workspaceId: string, relPaths: string[]) => Promise<void>;
   unstage: (workspaceId: string, relPaths: string[]) => Promise<void>;
+  /**
+   * Stages the text `contentOf` builds as `relPath`'s index version, as staging
+   * or unstaging part of a file does; null stages nothing. `contentOf` runs
+   * inside the operation, so its failures are reported like the write's.
+   */
+  stageContent: (
+    workspaceId: string,
+    relPath: string,
+    kind: "stage" | "unstage",
+    contentOf: (signal: AbortSignal) => Promise<string | null>,
+  ) => Promise<void>;
   discard: (
     workspaceId: string,
     relPaths: string[],
@@ -119,7 +131,7 @@ export interface OperationsSlice {
 export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
   const {
     get,
-    controllers,
+    isOperationLive,
     updateExistingSession,
     upsertSession,
     beginOperation,
@@ -135,7 +147,7 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
    */
   function clearCommitDraftAfterCommit(workspaceId: string): void {
     cancelCommitDraftSave(workspaceId);
-    updateExistingSession(workspaceId, (session) => ({ ...session, commitDraft: "" }));
+    setCommitDraftText(workspaceId, "");
     persistPanelState(workspaceId, { commitDraft: "" });
   }
 
@@ -156,6 +168,16 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
       );
     },
 
+    async stageContent(workspaceId, relPath, kind, contentOf) {
+      await runOperation(workspaceId, kind, async (signal) => {
+        const content = await contentOf(signal);
+        if (content === null) return;
+        unwrapGitResult(
+          await ipcCallResult("git", "stageContent", { workspaceId, relPath, content }, { signal }),
+        );
+      });
+    },
+
     async discard(workspaceId, relPaths, source) {
       if (relPaths.length === 0) return;
       await runOperation(workspaceId, "discard", async (signal) =>
@@ -171,7 +193,7 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
     },
 
     async commit(workspaceId, options = {}) {
-      const message = options.message ?? get().sessions.get(workspaceId)?.commitDraft ?? "";
+      const message = options.message ?? getCommitDraft(workspaceId);
       const commitOptions = resolveCommitOptions(workspaceId, options, get().sessions);
       const result = await runOperation(workspaceId, "commit", async (signal) =>
         unwrapGitResult(
@@ -199,7 +221,7 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
     },
 
     async commitAmend(workspaceId, options = {}) {
-      const message = options.message ?? get().sessions.get(workspaceId)?.commitDraft ?? "";
+      const message = options.message ?? getCommitDraft(workspaceId);
       const commitOptions = resolveCommitOptions(workspaceId, options, get().sessions);
       const inlineMessage = message.trim().length > 0 ? message : undefined;
       const result = await runOperation(workspaceId, "commit", async (signal) =>
@@ -294,7 +316,7 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
         }));
         return result;
       } catch (error) {
-        if (controllers.get(workspaceId) === ctrl && !isAbortError(error)) {
+        if (isOperationLive(workspaceId, ctrl) && !isAbortError(error)) {
           const lastError = gitStoreErrorFromUnknown(error, "push");
           updateExistingSession(workspaceId, (session) => ({
             ...session,

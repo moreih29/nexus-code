@@ -292,9 +292,11 @@ export function SshDirectoryPickerView({
       });
 
       if (!result.ok) {
-        // Cancellation or auth failure after the browse session — surface error.
-        setAddErrorHuman(result.message);
         setAddPhase("idle");
+        // User cancelled the auth prompt — silent stop, no error banner.
+        if (result.kind === "cancelled") return;
+        // Auth failure after the browse session — surface error.
+        setAddErrorHuman(humanizeSshError(result));
         return;
       }
 

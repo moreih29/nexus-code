@@ -8,7 +8,9 @@
     "TOO_LARGE": "파일이 너무 커서 열 수 없습니다.",
     "OUT_OF_WORKSPACE": "이 경로는 워크스페이스 밖에 있습니다.",
     "NOT_EMPTY": "폴더가 비어 있지 않습니다.",
-    "CROSS_DEVICE": "파일 시스템을 넘어 이동할 수 없습니다."
+    "CROSS_DEVICE": "파일 시스템을 넘어 이동할 수 없습니다.",
+    "NO_SPACE": "디스크 공간이 부족합니다.",
+    "UNSUPPORTED_REMOTE": "원격 워크스페이스에서는 지원하지 않습니다."
   },
   "git": {
     "not-repo": "Git 저장소가 아닙니다.",
@@ -21,5 +23,16 @@
     "invalid-input": "입력이 올바르지 않습니다.",
     "failed": "작업에 실패했습니다.",
     "bug": "오류가 발생했습니다. 로그를 확인하세요."
+  },
+  "open": {
+    "TOO_LARGE": "파일이 너무 커서 열 수 없습니다 (최대 {{maxMb}} MB).",
+    "failed": "파일을 열지 못했습니다."
+  },
+  "save": {
+    "failed": "저장 실패: {{reason}}",
+    "buffer_unavailable": "에디터 버퍼를 사용할 수 없습니다",
+    "outside_workspace": "워크스페이스 폴더 안의 위치를 선택하세요",
+    "changed_on_disk": "저장하는 동안 디스크의 파일이 바뀌었습니다",
+    "read_only": "읽기 전용 파일입니다."
   }
 }

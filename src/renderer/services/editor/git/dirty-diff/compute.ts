@@ -32,10 +32,10 @@ function toLines(text: string): string[] {
 }
 
 /**
- * Computes the contiguous change regions between the HEAD baseline and the
+ * Computes the contiguous change regions between the baseline and the
  * current buffer.
  *
- * @param originalText  HEAD blob content (the baseline).
+ * @param originalText  The baseline: the index version of the file.
  * @param modifiedText  Current editor buffer content.
  * @param ignoreTrimWhitespace  When true, leading/trailing whitespace-only
  *   differences are ignored (mirrors `diffEditor.ignoreTrimWhitespace`).

@@ -12,6 +12,7 @@ import { findLeaf } from "@/engine";
 import { useDelayedLoading } from "../../../hooks/use-delayed-loading";
 import { openOrRevealEditor } from "../../../services/editor";
 import { useFileClipboardStore } from "../../../services/file-clipboard";
+import { requestTabFocus } from "../../../services/tab-focus";
 import {
   collapseAll,
   ensureRoot,
@@ -148,12 +149,13 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
       decoration: (absPath, isDir) =>
         isDir ? decorationMaps.folders.get(absPath) : decorationMaps.files.get(absPath),
       isIgnored: (absPath, isDir) => {
-        if (isDir) return false;
         if (!repoTopLevel) return false;
-        // Skip if the file already has a status decoration — it cannot be
+        // Skip if the entry already has a status decoration — a file cannot be
         // ignored at the same time (untracked vs ignored is mutually exclusive
-        // in porcelain v2).
-        if (decorationMaps.files.has(absPath)) return false;
+        // in porcelain v2), and a folder carrying one holds changes git tracks.
+        // Folders go through the same check-ignore batch: git resolves a bare
+        // `dist` against a dir-only `dist/` pattern via the on-disk type.
+        if ((isDir ? decorationMaps.folders : decorationMaps.files).has(absPath)) return false;
         const flag = isIgnoredFn(workspaceId, absPath);
         if (flag === undefined) {
           // Compute relPath for the IPC call. Forward-slash join is safe
@@ -366,9 +368,14 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
     if (item.node.type !== "file") return;
     setActiveIndex(idx);
     // VSCode parity: double-click in the explorer opens the file as a
-    // permanent tab (no preview slot, no italic title). Goes through
+    // permanent tab (no preview slot, no italic title) and moves focus into
+    // it, while a single click leaves focus in the tree. Goes through
     // openOrRevealEditor so existing-tab reveal still applies.
-    openOrRevealEditor({ workspaceId, filePath: item.absPath }, { preview: false });
+    const { tabId } = openOrRevealEditor(
+      { workspaceId, filePath: item.absPath },
+      { preview: false },
+    );
+    requestTabFocus(tabId);
   }
 
   // The active path for the virtual-body comes directly from the store focus.

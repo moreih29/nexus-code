@@ -35,7 +35,9 @@ mock.module("../../../../../src/main/infra/ipc-router", () => ({
 // Module under test — import after mock
 // ---------------------------------------------------------------------------
 
-const { registerBrowserChannel } = await import("../../../../../src/main/features/browser/ipc");
+const { isLoadableFaviconUrl, registerBrowserChannel } = await import(
+  "../../../../../src/main/features/browser/ipc"
+);
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -253,5 +255,21 @@ describe("browserPermission IPC — revoke", () => {
     expect(() =>
       revoke({ workspaceId: "ws-1", origin: "https://a.com", permission: "not-a-real-permission" }),
     ).toThrow();
+  });
+});
+
+// Regression: the tab bar loads page-supplied favicons from the app's own
+// session, so a page could point it at file:// or nexus-workspace://.
+describe("isLoadableFaviconUrl", () => {
+  test("accepts web and inline image favicons", () => {
+    expect(isLoadableFaviconUrl("https://example.com/favicon.ico")).toBe(true);
+    expect(isLoadableFaviconUrl("http://localhost:3000/icon.png")).toBe(true);
+    expect(isLoadableFaviconUrl("data:image/png;base64,AAAA")).toBe(true);
+  });
+
+  test("rejects schemes only the app session can reach", () => {
+    expect(isLoadableFaviconUrl("file:///Users/u/.ssh/id_rsa")).toBe(false);
+    expect(isLoadableFaviconUrl("nexus-workspace://ws-1/.env")).toBe(false);
+    expect(isLoadableFaviconUrl("data:text/html,<script>")).toBe(false);
   });
 });

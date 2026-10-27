@@ -217,3 +217,53 @@ describe("installPermissionHandler (full-deps) — opaque origin deny", () => {
     expect(installAndCheck(ATTRIBUTABLE_ORIGIN_URL, PROMPT_PERMISSION)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Request handler — pending prompts end with the page that asked
+// ---------------------------------------------------------------------------
+
+describe("installPermissionHandler (full-deps) — prompt lifetime", () => {
+  function makeTrackedWebContents(id: number) {
+    const handlers = new Map<string, Array<(...args: unknown[]) => void>>();
+    const add = (event: string, handler: (...args: unknown[]) => void) => {
+      handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+    };
+    return {
+      id,
+      getURL: () => ATTRIBUTABLE_ORIGIN_URL,
+      on: add,
+      once: add,
+      emit(event: string, ...args: unknown[]) {
+        for (const handler of handlers.get(event) ?? []) handler(...args);
+      },
+    };
+  }
+
+  // Regression: only registry.destroy() released prompts, so a popup that
+  // closed or a tab that navigated away left its modal up for good.
+  test("disposes the page's prompts when its main frame navigates or it is destroyed", () => {
+    const session = makeFakeSession();
+    const deps = makeDepsForDecision("ask");
+    installPermissionHandler(
+      session as unknown as import("electron").Session,
+      deps as never,
+      "ws-1",
+    );
+    const wc = makeTrackedWebContents(7101);
+
+    session._requestHandler?.(wc, PROMPT_PERMISSION, () => {});
+    session._requestHandler?.(wc, PROMPT_PERMISSION, () => {});
+    expect(deps.promptManager.handlePermissionRequest).toHaveBeenCalledTimes(2);
+
+    wc.emit("did-start-navigation", { isMainFrame: true, isSameDocument: true });
+    wc.emit("did-start-navigation", { isMainFrame: false, isSameDocument: false });
+    expect(deps.promptManager.disposeByWebContents).not.toHaveBeenCalled();
+
+    wc.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false });
+    expect(deps.promptManager.disposeByWebContents).toHaveBeenCalledTimes(1);
+    expect(deps.promptManager.disposeByWebContents).toHaveBeenCalledWith(7101);
+
+    wc.emit("destroyed");
+    expect(deps.promptManager.disposeByWebContents).toHaveBeenCalledTimes(2);
+  });
+});

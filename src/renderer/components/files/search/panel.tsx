@@ -31,6 +31,7 @@ import {
 import { shouldHandleArrowDown } from "./arrow-down-handoff";
 import { SearchInput } from "./input";
 import { SearchResultsList } from "./results-list";
+import { searchErrorText } from "./search-error-text";
 import { SearchStatusHeader } from "./status-header";
 import { useGlobalSearchHotkey } from "./use-global-search-hotkey";
 import { useLoaderDelay } from "./use-loader-delay";
@@ -39,6 +40,8 @@ import { validateRegexPattern } from "./validate-regex-pattern";
 
 interface SearchPanelProps {
   workspaceId: string;
+  /** Focuses the query input whenever it changes to a value above zero. */
+  focusRequest?: number;
 }
 
 // Stable empty fallback for the `expandedDirs` selector below.
@@ -55,13 +58,19 @@ interface SearchPanelProps {
 // this constant; it manufactures its own writable Set when needed).
 const EMPTY_EXPANDED_DIRS: ReadonlySet<string> = new Set<string>();
 
-export function SearchPanel({ workspaceId }: SearchPanelProps) {
+export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps) {
   const { t } = useTranslation("files");
   const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
   const rootPath = workspace?.rootPath ?? "";
 
-  const [inputValue, setInputValue] = useState("");
-  const [options, setOptions] = useState<SearchOptions>({ ...EMPTY_SEARCH_OPTIONS });
+  // Seeded from this workspace's session so switching back to it shows the
+  // query its results belong to.
+  const [inputValue, setInputValue] = useState(
+    () => useSearchStore.getState().sessions.get(workspaceId)?.query ?? "",
+  );
+  const [options, setOptions] = useState<SearchOptions>(() => ({
+    ...(useSearchStore.getState().sessions.get(workspaceId)?.options ?? EMPTY_SEARCH_OPTIONS),
+  }));
   const [regexError, setRegexError] = useState<string | null>(null);
 
   const session = useSearchSession(workspaceId);
@@ -84,6 +93,10 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
   const { trigger, flush, cancel } = useSearchDebounce(workspaceId);
   const showLoader = useLoaderDelay(session?.status);
   useGlobalSearchHotkey(inputRef);
+
+  useEffect(() => {
+    if (focusRequest > 0) inputRef.current?.focus();
+  }, [focusRequest]);
 
   // Load persisted view options once per workspace mount.
   useEffect(() => {
@@ -143,6 +156,9 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
   }
 
   function handleEnter() {
+    // Drop the pending debounced run: it would restart the search Enter just
+    // started and clear its results and expanded state.
+    cancel();
     runSearch(inputValue, options);
     // flush is not used here because runSearch already calls startSearch
     // directly and handles regex validation; trigger/flush are for the
@@ -249,7 +265,7 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
           <div className="px-4 py-4 flex flex-col items-center gap-2">
             <CircleAlert className="size-4 text-destructive" aria-hidden="true" />
             <p className="text-app-ui-sm text-muted-foreground text-center">
-              {session.errorMessage ?? t("search.state.error")}
+              {searchErrorText(session.errorMessage, t)}
             </p>
             <button
               type="button"

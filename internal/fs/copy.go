@@ -44,12 +44,14 @@ func (s *Service) CopyFile(ctx context.Context, raw json.RawMessage) (any, error
 
 	// Destination existence check. By default the destination must NOT exist
 	// (O_EXCL semantics). With Overwrite=true the caller has confirmed a
-	// replace, so an existing destination is removed first.
+	// replace, so an existing destination is moved aside and only deleted
+	// once the copy has succeeded; a failed copy puts it back.
+	backup := ""
 	if _, err := os.Lstat(dstAbs); err == nil {
 		if !p.Overwrite {
 			return nil, FSError{Code: CodeAlreadyExists, Path: dstAbs}
 		}
-		if err := os.RemoveAll(dstAbs); err != nil {
+		if backup, err = moveAside(dstAbs); err != nil {
 			return nil, mapWriteError(err, dstAbs)
 		}
 	} else if !errors.Is(err, iofs.ErrNotExist) {
@@ -57,17 +59,18 @@ func (s *Service) CopyFile(ctx context.Context, raw json.RawMessage) (any, error
 	}
 
 	if srcInfo.IsDir() {
-		if err := copyDir(srcAbs, dstAbs); err != nil {
-			return nil, mapWriteError(err, srcAbs)
-		}
+		err = copyDir(srcAbs, dstAbs)
 	} else if srcInfo.Mode()&os.ModeSymlink != 0 {
-		if err := copySymlink(srcAbs, dstAbs); err != nil {
-			return nil, mapWriteError(err, srcAbs)
-		}
+		err = copySymlink(srcAbs, dstAbs)
 	} else {
-		if err := copyRegularFile(srcAbs, dstAbs, srcInfo); err != nil {
-			return nil, mapWriteError(err, srcAbs)
-		}
+		err = copyRegularFile(srcAbs, dstAbs, srcInfo)
+	}
+	if err != nil {
+		restoreAside(backup, dstAbs)
+		return nil, mapWriteError(err, srcAbs)
+	}
+	if err := discardAside(backup); err != nil {
+		return nil, mapWriteError(err, backup)
 	}
 
 	return struct{}{}, nil

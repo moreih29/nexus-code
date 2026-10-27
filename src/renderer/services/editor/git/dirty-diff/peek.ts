@@ -1,6 +1,7 @@
 /**
  * Inline "peek" of a single dirty-diff change — the small before/after panel
- * VSCode opens when you click a gutter marker.
+ * VSCode opens when you click a gutter marker, with its Stage Change and
+ * Revert Change actions.
  *
  * Architecture mirrors VSCode's `ZoneWidget`: a **view zone** reserves the
  * vertical space at the change line, while the interactive chrome lives in a
@@ -21,6 +22,7 @@
  * not live-update while open; closing and reclicking re-snapshots.
  */
 
+import i18next from "i18next";
 import type * as Monaco from "monaco-editor";
 import type { DirtyChange } from "./types";
 
@@ -30,8 +32,10 @@ const CONTEXT_LINES = 2;
 const HEADER_HEIGHT = 26;
 /** lucide SVG icon bodies (24x24 viewBox), rendered with currentColor stroke. */
 const ICONS = {
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
   chevronUp: '<path d="m18 15-6-6-6 6"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
 } as const;
 
@@ -56,9 +60,16 @@ export class DirtyDiffPeek {
   private state: PeekState | null = null;
   private readonly overlayId = "nexus-dirty-diff-peek";
 
+  /**
+   * @param onRevert  Reverts the shown change in the buffer. The peek shows
+   *   no revert button when the editor is read-only.
+   * @param onStage  Stages the shown change; no stage button without it.
+   */
   constructor(
     private readonly editor: Monaco.editor.IStandaloneCodeEditor,
     private readonly monaco: typeof Monaco,
+    private readonly onRevert?: (change: DirtyChange) => void,
+    private readonly onStage?: (change: DirtyChange) => void,
   ) {}
 
   /** Whether a peek is currently open. */
@@ -69,7 +80,7 @@ export class DirtyDiffPeek {
   /**
    * Opens (or re-targets) the peek on `changes[index]`.
    *
-   * @param originalText  Full HEAD baseline text (snippets are sliced from it).
+   * @param originalText  Full baseline text (snippets are sliced from it).
    */
   open(changes: DirtyChange[], index: number, originalText: string): void {
     const model = this.editor.getModel();
@@ -275,12 +286,14 @@ export class DirtyDiffPeek {
 
   private applyModels(original: string[], modified: string[], languageId: string): void {
     // Recreate snippet models on every render — cheap, and avoids stale-content
-    // bugs from reusing a model across changes.
-    this.originalModel?.dispose();
-    this.modifiedModel?.dispose();
+    // bugs from reusing a model across changes. The old ones are disposed only
+    // once the diff editor has let go of them: disposing a model it still
+    // shows throws.
+    const previous = [this.originalModel, this.modifiedModel];
     this.originalModel = this.monaco.editor.createModel(original.join("\n"), languageId);
     this.modifiedModel = this.monaco.editor.createModel(modified.join("\n"), languageId);
     this.diffEditor?.setModel({ original: this.originalModel, modified: this.modifiedModel });
+    for (const model of previous) model?.dispose();
   }
 
   private snippets(change: DirtyChange): { original: string[]; modified: string[] } {
@@ -339,9 +352,31 @@ export class DirtyDiffPeek {
       return btn;
     };
 
-    actions.appendChild(mkButton(ICONS.chevronUp, "Previous change", () => this.previous()));
-    actions.appendChild(mkButton(ICONS.chevronDown, "Next change", () => this.next()));
-    actions.appendChild(mkButton(ICONS.x, "Close (Esc)", () => this.close()));
+    if (this.onStage) {
+      actions.appendChild(
+        mkButton(ICONS.plus, i18next.t("editor.dirty_diff_stage"), () => {
+          const change = this.state?.changes[this.state.index];
+          if (change) this.onStage?.(change);
+        }),
+      );
+    }
+    if (this.onRevert && !this.editor.getOption(this.monaco.editor.EditorOption.readOnly)) {
+      actions.appendChild(
+        mkButton(ICONS.undo, i18next.t("editor.dirty_diff_revert"), () => {
+          const change = this.state?.changes[this.state.index];
+          if (change) this.onRevert?.(change);
+        }),
+      );
+    }
+    actions.appendChild(
+      mkButton(ICONS.chevronUp, i18next.t("editor.dirty_diff_previous"), () => this.previous()),
+    );
+    actions.appendChild(
+      mkButton(ICONS.chevronDown, i18next.t("editor.dirty_diff_next"), () => this.next()),
+    );
+    actions.appendChild(
+      mkButton(ICONS.x, i18next.t("editor.dirty_diff_close"), () => this.close()),
+    );
     header.appendChild(actions);
 
     return header;
@@ -349,7 +384,10 @@ export class DirtyDiffPeek {
 
   private updateLabel(): void {
     if (!this.state || !this.label) return;
-    this.label.textContent = `Change ${this.state.index + 1} of ${this.state.changes.length}`;
+    this.label.textContent = i18next.t("editor.dirty_diff_position", {
+      index: this.state.index + 1,
+      count: this.state.changes.length,
+    });
   }
 }
 
@@ -370,11 +408,13 @@ function anchorFor(change: DirtyChange): number {
 
 /**
  * Extracts the lines covering [start, end] (1-based inclusive) plus a few lines
- * of surrounding context. Empty ranges (end === 0) yield no lines for that side.
+ * of surrounding context. An empty range (end === 0) is the gap before line
+ * `start`; it yields just the context around the gap, so both sides of the
+ * peek share their context lines and only the change itself shows as added
+ * or removed.
  */
-function sliceSnippet(lines: string[], start: number, end: number): string[] {
-  if (end === 0) return [];
+export function sliceSnippet(lines: readonly string[], start: number, end: number): string[] {
   const from = Math.max(0, start - 1 - CONTEXT_LINES);
-  const to = Math.min(lines.length, end + CONTEXT_LINES);
+  const to = Math.min(lines.length, (end === 0 ? start - 1 : end) + CONTEXT_LINES);
   return lines.slice(from, to);
 }

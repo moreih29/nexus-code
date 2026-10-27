@@ -67,7 +67,9 @@ export function installLocationModelPreAcquire(
 
   if (preAcquireFn) {
     // Test path: full function override. Wire the curried form into lsp-bridge.
-    setPreAcquireFn((locations, sourceUri) => preAcquireFn(locations, sourceUri, deps));
+    setPreAcquireFn((locations, sourceUri, token) =>
+      preAcquireFn(locations, sourceUri, deps, token),
+    );
     return {
       preAcquireLocationModels: (locations, sourceUri, overrideDeps) =>
         preAcquireFn(locations, sourceUri, overrideDeps),
@@ -79,7 +81,8 @@ export function installLocationModelPreAcquire(
   const curried = (
     locations: readonly Monaco.languages.Location[],
     sourceUri: string,
-  ): Promise<void> => preAcquireLocationModels(locations, sourceUri, deps);
+    token?: Monaco.CancellationToken,
+  ): Promise<void> => preAcquireLocationModels(locations, sourceUri, deps, token);
 
   setPreAcquireFn(curried);
 

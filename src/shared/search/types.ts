@@ -22,7 +22,15 @@ export type SearchRange = z.infer<typeof SearchRangeSchema>;
 
 export const FileMatchSchema = z.object({
   relPath: z.string(),
-  matches: z.array(z.object({ range: SearchRangeSchema, preview: z.string() })),
+  matches: z.array(
+    z.object({
+      range: SearchRangeSchema,
+      preview: z.string(),
+      // Column where `preview` begins when the agent cut a long line down to
+      // a window around the match; `range` stays relative to the whole line.
+      previewStart: z.number().int().nonnegative().optional(),
+    }),
+  ),
 });
 export type FileMatch = z.infer<typeof FileMatchSchema>;
 

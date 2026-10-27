@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import i18next from "i18next";
 import type { GitExpandedGroupKey } from "../../../../../shared/git/types";
+import { revealInOSLabel } from "../../../../utils/reveal-label";
 import { useDismissOnOutsideClick } from "../../../ui/use-dismiss-on-outside-click";
 
 export interface GitContextMenuPoint {
@@ -212,13 +213,6 @@ export function buildGitGroupContextMenuItems(
   return collapseGitMenuSeparators(items);
 }
 
-/** Returns the platform-native label used for reveal-in-OS actions. */
-export function revealInOSLabel(platform: string = detectPlatform()): string {
-  if (platform === "darwin") return i18next.t("files:git.contextMenu.revealInFinder");
-  if (platform === "win32") return i18next.t("files:git.contextMenu.revealInExplorer");
-  return i18next.t("files:git.contextMenu.openContainingFolder");
-}
-
 /** Converts a mouse event into a fixed-position context-menu anchor point. */
 export function pointFromMouseEvent(event: React.MouseEvent): GitContextMenuPoint {
   return { x: event.clientX, y: event.clientY };
@@ -343,13 +337,6 @@ function previousMenuLabel(items: GitMenuSpec[], index: number): string | null {
     if (item.kind === "item") return item.label;
   }
   return null;
-}
-
-/** Reads the preload platform bridge when available and falls back to macOS. */
-function detectPlatform(): string {
-  if (typeof window !== "undefined" && window.host?.platform) return window.host.platform;
-  const proc = (globalThis as { process?: { platform?: string } }).process;
-  return proc?.platform ?? "darwin";
 }
 
 /** No-op placeholder for disabled future menu hooks. */

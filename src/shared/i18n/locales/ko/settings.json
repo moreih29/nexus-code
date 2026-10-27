@@ -138,6 +138,18 @@
     "language": "언어",
     "theme": "테마",
     "iconTheme": "아이콘 테마",
+    "themeDescription": {
+      "github-dark": "GitHub의 공식 다크. 차분한 청록/파랑 강조, 비교적 낮은 채도",
+      "github-light": "GitHub의 공식 라이트. 흰 배경, 진한 색 텍스트 — WCAG AA",
+      "dracula": "전설적인 보라/핑크 다크. 강한 채도, 8색 팔레트가 핵심",
+      "one-dark-pro": "Atom One Dark의 VS Code 포팅. 균형 잡힌 채도, 가장 무난한 다크",
+      "monokai": "Sublime Text의 클래식. 강한 채도, 마젠타/시안/노랑 트라이앵글",
+      "tokyo-night": "쿨톤 청보라. 차분하고 모던, 최근 가장 인기",
+      "solarized-dark": "Ethan Schoonover의 클래식. CIE 명도 균일 — 눈 피로 적음",
+      "nord": "북극의 푸른 톤. 16색의 절제된 팔레트로 유명",
+      "catppuccin-mocha": "파스텔 톤의 차분한 다크. 4가지 flavor 중 가장 어두운 mocha",
+      "gruvbox-dark": "레트로 감성. 따뜻한 갈색·올리브·머스타드 톤"
+    },
     "windowOpacity": "창 불투명도",
     "inactivePanelDim": "비활성 패널 흐림 정도",
     "reset": {

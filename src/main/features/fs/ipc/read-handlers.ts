@@ -19,10 +19,10 @@ export function readdirHandler(
   manager: WorkspaceManager,
 ): (args: unknown) => Promise<DirEntry[] | FsIpcErrorResult> {
   return async (args: unknown): Promise<DirEntry[] | FsIpcErrorResult> => {
-    const { workspaceId, relPath } = validateArgs(c.readdir.args, args);
+    const { workspaceId, relPath, includeHidden } = validateArgs(c.readdir.args, args);
     const fs = await manager.getFs(workspaceId);
     try {
-      return await fs.readdir(relPath);
+      return await fs.readdir(relPath, { includeHidden });
     } catch (error) {
       if (isFsError(error)) return fsErrorToIpcResult(error);
       throw error;

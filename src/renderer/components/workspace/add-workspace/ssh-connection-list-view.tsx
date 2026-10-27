@@ -14,7 +14,7 @@ import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
 import { BootstrapProgressBar } from "../bootstrap-progress-bar";
 import { ErrorNotice } from "./error-notice";
-import { formatProfileSubtitle } from "./ssh-helpers";
+import { formatProfileSubtitle, humanizeSshError } from "./ssh-helpers";
 import type { SshBrowseSession, SshConnectionListViewProps } from "./types";
 import { useBrowseProgress } from "./use-browse-progress";
 
@@ -92,7 +92,7 @@ export function SshConnectionListView({
         // User cancelled the SSH auth prompt — silent stop, no error banner.
         if (result.kind === "cancelled") return;
         setErrorId(profile.id);
-        setErrorHuman(result.message);
+        setErrorHuman(humanizeSshError(result));
         return;
       }
       // Update usage record

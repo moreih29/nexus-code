@@ -257,3 +257,35 @@ func (r *constReader) Read(p []byte) (int, error) {
 	r.pos += n
 	return n, nil
 }
+
+// When a handler outlives the drain deadline, both the force timer and the
+// select's own deadline fire. The exit func must still run once — the
+// daemon's closes a channel and panics on a second call — and the host
+// context must be cancelled so the stuck handler can unwind.
+func TestDrainAndExitCallsExitOnceWhenHandlerIsStuck(t *testing.T) {
+	host := New(dispatch.New(), io.NopCloser(strings_reader("")), io.Discard, slog.Default())
+	var exits atomic.Int32
+	exited := make(chan struct{})
+	host.SetExitFunc(func(int) {
+		if exits.Add(1) == 1 {
+			close(exited)
+		}
+	})
+
+	host.wg.Add(1) // a handler that never finishes
+	defer host.wg.Done()
+
+	host.drainAndExit(0)
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("exit func was not called")
+	}
+	time.Sleep(4 * forceExitAfter) // let any second timer fire
+	if n := exits.Load(); n != 1 {
+		t.Fatalf("exit func called %d times, want 1", n)
+	}
+	if host.ctx.Err() == nil {
+		t.Fatal("host context not cancelled on forced exit")
+	}
+}

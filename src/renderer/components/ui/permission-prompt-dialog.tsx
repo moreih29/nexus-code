@@ -110,6 +110,17 @@ function dequeueActive(): void {
   bus.notify();
 }
 
+/**
+ * Drops a prompt main no longer waits on (its page closed or navigated
+ * away), closing the modal if it is the one showing.
+ */
+export function dismissPermissionPrompt(promptId: string): void {
+  const next = queue.filter((prompt) => prompt.promptId !== promptId);
+  if (next.length === queue.length) return;
+  queue = next;
+  bus.notify();
+}
+
 // ---------------------------------------------------------------------------
 // Icon mapping — PERMISSION_TOGGLES.icon → lucide component
 // ---------------------------------------------------------------------------
@@ -288,7 +299,11 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
         <Button variant="ghost" size="sm" onClick={handleBlock}>
           {t("permissionPrompt.block")}
         </Button>
-        <Button variant="default" size="sm" onClick={handleAllow} autoFocus>
+        {/* No autoFocus: the prompt opens on a page's timer while the user
+            may be typing elsewhere, and a stray Enter must not grant (and
+            remember) camera or microphone access. Radix focuses the
+            checkbox, which ignores Enter. */}
+        <Button variant="default" size="sm" onClick={handleAllow}>
           {t("permissionPrompt.allow")}
         </Button>
       </div>

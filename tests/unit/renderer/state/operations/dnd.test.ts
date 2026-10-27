@@ -22,7 +22,12 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcListen: () => () => {},
 }));
 
-import { moveTabToZone, openFileAtZone } from "../../../../../src/renderer/state/operations";
+import {
+  moveTabToZone,
+  normalizeWorkspaceTabOrder,
+  openFileAtZone,
+  toggleTabPin,
+} from "../../../../../src/renderer/state/operations";
 import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout";
 import { allLeaves, findLeaf } from "../../../../../src/renderer/state/stores/layout/helpers";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
@@ -274,5 +279,77 @@ describe("moveTabToZone cross-group center dedup", () => {
 
     // Dest existing should be promoted to permanent.
     expect(useTabsStore.getState().byWorkspace[WS]?.[leftFoo!.tabId]?.isPreview).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tab-bar reorder — drop index is a slot in the drawn order
+// ---------------------------------------------------------------------------
+
+describe("tab-bar reorder", () => {
+  beforeEach(resetStores);
+
+  /** Opens tabs A, B, C, D in one group; returns the group id and the ids by name. */
+  function openFour(): { leafId: string; ids: Record<string, string> } {
+    const leafId = initLayout();
+    const ids: Record<string, string> = {};
+    for (const name of ["A", "B", "C", "D"]) {
+      const result = openFileAtZone(WS, `/repo/${name}.ts`, { groupId: leafId, zone: "center" });
+      ids[name] = result!.tabId;
+    }
+    return { leafId, ids };
+  }
+
+  function order(leafId: string, ids: Record<string, string>): string[] {
+    const byId = new Map(Object.entries(ids).map(([name, id]) => [id, name]));
+    return findLeaf(getLayout().root, leafId)!.tabIds.map((id) => byId.get(id) ?? id);
+  }
+
+  it("drops a tab moved right into the gap the indicator showed", () => {
+    const { leafId, ids } = openFour();
+    // Gap between C and D is slot 3.
+    moveTabToZone(WS, ids.A!, { groupId: leafId, zone: "center", index: 3 });
+    expect(order(leafId, ids)).toEqual(["B", "C", "A", "D"]);
+  });
+
+  it("drops a tab moved left into the gap the indicator showed", () => {
+    const { leafId, ids } = openFour();
+    moveTabToZone(WS, ids.D!, { groupId: leafId, zone: "center", index: 1 });
+    expect(order(leafId, ids)).toEqual(["A", "D", "B", "C"]);
+  });
+
+  it("reorders an already-open file dropped right from the file tree", () => {
+    const { leafId, ids } = openFour();
+    openFileAtZone(WS, "/repo/A.ts", { groupId: leafId, zone: "center", index: 3 });
+    expect(order(leafId, ids)).toEqual(["B", "C", "A", "D"]);
+  });
+
+  it("stores a newly pinned tab after the pinned tabs, where the bar draws it", () => {
+    const { leafId, ids } = openFour();
+    toggleTabPin(WS, ids.C!);
+    expect(order(leafId, ids)).toEqual(["C", "A", "B", "D"]);
+    toggleTabPin(WS, ids.D!);
+    expect(order(leafId, ids)).toEqual(["C", "D", "A", "B"]);
+    toggleTabPin(WS, ids.C!);
+    expect(order(leafId, ids)).toEqual(["D", "C", "A", "B"]);
+  });
+
+  it("uses drawn positions for drops next to pinned tabs", () => {
+    const { leafId, ids } = openFour();
+    toggleTabPin(WS, ids.C!);
+    // Drawn [C, A, B, D]; the gap between A and B is slot 2.
+    moveTabToZone(WS, ids.D!, { groupId: leafId, zone: "center", index: 2 });
+    expect(order(leafId, ids)).toEqual(["C", "A", "D", "B"]);
+    // An unpinned tab dropped in front of a pinned one stays behind it.
+    moveTabToZone(WS, ids.B!, { groupId: leafId, zone: "center", index: 0 });
+    expect(order(leafId, ids)).toEqual(["C", "B", "A", "D"]);
+  });
+
+  it("moves pinned tabs to the front of a restored layout", () => {
+    const { leafId, ids } = openFour();
+    useTabsStore.getState().togglePin(WS, ids.C!);
+    expect(order(leafId, ids)).toEqual(["A", "B", "C", "D"]);
+    normalizeWorkspaceTabOrder(WS);
+    expect(order(leafId, ids)).toEqual(["C", "A", "B", "D"]);
   });
 });

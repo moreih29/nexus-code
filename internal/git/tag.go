@@ -38,6 +38,7 @@ type TagListParams struct {
 type TagListRemoteParams struct {
 	Cwd    string `json:"cwd,omitempty"`
 	Remote string `json:"remote"`
+	RunID  string `json:"runId,omitempty"`
 }
 
 // TagCreateParams carries tag creation options.
@@ -59,12 +60,14 @@ type TagDeleteRemoteParams struct {
 	Cwd    string `json:"cwd,omitempty"`
 	Remote string `json:"remote"`
 	Name   string `json:"name"`
+	RunID  string `json:"runId,omitempty"`
 }
 
 // TagPushParams carries optional cwd and optional remote for tag push.
 type TagPushParams struct {
 	Cwd    string `json:"cwd,omitempty"`
 	Remote string `json:"remote,omitempty"`
+	RunID  string `json:"runId,omitempty"`
 }
 
 const (
@@ -107,7 +110,7 @@ func (s *Service) TagList(ctx context.Context, raw json.RawMessage) (any, error)
 		stderrStr := stderr.String()
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 
 	tags := parseTagList(stdout.String())
@@ -130,6 +133,12 @@ func (s *Service) TagListRemote(ctx context.Context, raw json.RawMessage) (any, 
 	}
 
 	args := []string{"ls-remote", "--tags", "--refs", remote}
+	ctx, done, err := s.startRun(ctx, p.RunID)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
 	cmd, err := s.command(ctx, args, p.Cwd, nil, true)
 	if err != nil {
 		return nil, err
@@ -151,7 +160,7 @@ func (s *Service) TagListRemote(ctx context.Context, raw json.RawMessage) (any, 
 		stderrStr := stderr.String()
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 
 	tags := parseRemoteTagList(stdout.String(), remote)
@@ -206,7 +215,7 @@ func (s *Service) TagCreate(ctx context.Context, raw json.RawMessage) (any, erro
 		stderrStr := stderr.String()
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 	return nil, nil
 }
@@ -245,7 +254,7 @@ func (s *Service) TagDelete(ctx context.Context, raw json.RawMessage) (any, erro
 		stderrStr := stderr.String()
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 	return nil, nil
 }
@@ -269,6 +278,12 @@ func (s *Service) TagDeleteRemote(ctx context.Context, raw json.RawMessage) (any
 	}
 
 	args := []string{"push", remote, fmt.Sprintf(":refs/tags/%s", tagName)}
+	ctx, done, err := s.startRun(ctx, p.RunID)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
 	cmd, err := s.command(ctx, args, p.Cwd, nil, true)
 	if err != nil {
 		return nil, err
@@ -288,7 +303,7 @@ func (s *Service) TagDeleteRemote(ctx context.Context, raw json.RawMessage) (any
 		stderrStr := stderr.String()
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 	return nil, nil
 }
@@ -314,6 +329,12 @@ func (s *Service) TagPush(ctx context.Context, raw json.RawMessage) (any, error)
 		args = []string{"push", "--tags"}
 	}
 
+	ctx, done, err := s.startRun(ctx, p.RunID)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
 	cmd, err := s.command(ctx, args, p.Cwd, nil, true)
 	if err != nil {
 		return nil, err
@@ -333,7 +354,7 @@ func (s *Service) TagPush(ctx context.Context, raw json.RawMessage) (any, error)
 		stderrStr := stderr.String()
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 	return nil, nil
 }

@@ -210,7 +210,7 @@ export function AddWorkspaceDialog({
     >
       <RadixDialog.Title className="sr-only">{t("workspace.add_title")}</RadixDialog.Title>
       <RadixDialog.Description className="sr-only">
-        {t("workspace.add_subtitle_local")}
+        {t("workspace.add_subtitle_main")}
       </RadixDialog.Description>
 
       <div className="flex min-h-0 flex-1 flex-col">
@@ -481,7 +481,7 @@ function DialogFooter({ primarySlot }: DialogFooterProps): React.JSX.Element {
 // ---------------------------------------------------------------------------
 
 function viewSubtitle(view: ModalView, t: (key: string) => string): string {
-  if (view === "main-list") return t("workspace.add_subtitle_local");
+  if (view === "main-list") return t("workspace.add_subtitle_main");
   if (view === "ssh-server-list") return t("workspace.add_subtitle_ssh_list");
   if (view === "ssh-new-connection") return t("workspace.add_subtitle_ssh_new");
   return t("workspace.add_subtitle_ssh_picker");

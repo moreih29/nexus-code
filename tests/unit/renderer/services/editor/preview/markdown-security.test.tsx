@@ -248,3 +248,13 @@ describe("MarkdownPreview — byte cap", () => {
     expect(html).not.toContain(PREVIEW_TRUNCATED_MESSAGE);
   });
 });
+
+describe("MarkdownPreview — non-ASCII image paths", () => {
+  test("encodes a Korean image name once in the workspace URL", () => {
+    const html = renderToStaticMarkup(
+      <MarkdownPreview {...BASE_PROPS} source={"![plot](이미지.png)"} />,
+    );
+    expect(html).toContain('src="nexus-workspace://ws-1/docs/%EC%9D%B4%EB%AF%B8%EC%A7%80.png"');
+    expect(html).not.toContain("%25EC");
+  });
+});

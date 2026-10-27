@@ -1,33 +1,100 @@
 /**
- * Unit tests for the browser workspace closer wired via setBrowserCloser.
+ * Unit tests for the browser workspace closer installed by registerBrowserCloser.
  *
  * Acceptance criteria:
- *   1. closer 호출 시 해당 workspaceId의 view들이 destroy됨
- *   2. clearStorageData가 1회 호출됨
- *   3. destroy 완료 후 clearStorageData 순서 보장 (Promise 체인 검증)
- *   4. WorkspaceManager.setBrowserCloser 메서드가 노출됨
+ *   1. closer 호출 시 해당 workspaceId의 view들과 popup들이 destroy됨
+ *   2. clearStorageData가 해당 partition에 1회 호출됨
+ *   3. destroy 완료 후 clearStorageData 순서 보장
+ *   4. WorkspaceManager.remove()가 등록된 closer를 실행함
  *
- * NOTE: BrowserTabRegistry는 electron.WebContentsView를 상단 임포트로 끌어들여
- * electron 모킹이 필요하다. 이 파일은 같은 bun worker의 다른 workspace 테스트들
- * (manager-wrapper-getters, manager-shim-lifecycle)과 electron 모킹이 충돌하지
- * 않도록 BrowserTabRegistry를 직접 임포트하지 않는다.
- * 대신 동일한 인터페이스를 갖는 인라인 fake로 검증한다.
+ * Drives the real registerBrowserCloser against the real BrowserTabRegistry
+ * created by initBrowserFeature. Only electron's WebContentsView and session
+ * are faked; tabs are opened through the real registry.create() path.
  */
 
-import { describe, expect, mock, test, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import os from "node:os";
 import path from "node:path";
+import type { BrowserWindow } from "electron";
 
 // ---------------------------------------------------------------------------
-// Electron mock — isPackaged=false (dev 모드), app only.
-// BrowserTabRegistry를 임포트하지 않으므로 WebContentsView 불필요.
-// manager-wrapper-getters / manager-shim-lifecycle과 호환됨.
+// Electron mock — must come before importing the browser feature.
 // ---------------------------------------------------------------------------
 
+/** Ordered log of webContents closes and partition clears. */
+let events: string[] = [];
+let nextWebContentsId = 1;
+
+type Listener = (...args: unknown[]) => void;
+
+class FakeWebContents {
+  readonly id = nextWebContentsId++;
+  readonly session = {
+    setPermissionRequestHandler: () => {},
+    webRequest: { onBeforeRequest: () => {} },
+  };
+  private readonly listeners = new Map<string, Listener[]>();
+  closed = false;
+
+  on(event: string, listener: Listener): this {
+    this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener]);
+    return this;
+  }
+  once(event: string, listener: Listener): this {
+    return this.on(event, listener);
+  }
+  emit(event: string, ...args: unknown[]): void {
+    for (const listener of this.listeners.get(event) ?? []) listener(...args);
+  }
+  setWindowOpenHandler(): void {}
+  setBackgroundThrottling(): void {}
+  // Still loading, so the scrollbar CSS waits for did-finish-load.
+  isLoading(): boolean {
+    return true;
+  }
+  isDestroyed(): boolean {
+    return this.closed;
+  }
+  loadURL(): Promise<void> {
+    return Promise.resolve();
+  }
+  close(): void {
+    this.closed = true;
+    events.push(`close:${this.id}`);
+  }
+}
+
+class FakeWebContentsView {
+  readonly webContents = new FakeWebContents();
+}
+
+/** A popup BrowserWindow opened from a tab via window.open. */
+class FakePopup {
+  readonly webContents = new FakeWebContents();
+  destroyed = false;
+
+  once(): this {
+    return this;
+  }
+  isDestroyed(): boolean {
+    return this.destroyed;
+  }
+  destroy(): void {
+    this.destroyed = true;
+  }
+}
+
+const realElectron = await import("electron");
 mock.module("electron", () => ({
-  app: {
-    isPackaged: false,
+  ...realElectron,
+  WebContentsView: FakeWebContentsView,
+  session: {
+    fromPartition: (partition: string) => ({
+      clearStorageData: async () => {
+        events.push(`clear:${partition}`);
+      },
+    }),
   },
 }));
 
@@ -35,22 +102,20 @@ mock.module("electron", () => ({
 // Dynamic imports (after mock.module)
 // ---------------------------------------------------------------------------
 
-const { GlobalStorage } = await import(
-  "../../../../src/main/infra/storage/global-storage"
+const { getBrowserRegistry, initBrowserFeature, registerBrowserCloser } = await import(
+  "../../../../src/main/features/browser"
 );
-const { WorkspaceStorage } = await import(
-  "../../../../src/main/infra/storage/workspace-storage"
-);
-const { StateService } = await import(
-  "../../../../src/main/infra/storage/state-service"
-);
-const { WorkspaceManager } = await import(
-  "../../../../src/main/features/workspace/manager"
-);
+const { GlobalStorage } = await import("../../../../src/main/infra/storage/global-storage");
+const { WorkspaceStorage } = await import("../../../../src/main/infra/storage/workspace-storage");
+const { StateService } = await import("../../../../src/main/infra/storage/state-service");
+const { WorkspaceManager } = await import("../../../../src/main/features/workspace/manager");
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+const WORKSPACE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const OTHER_WORKSPACE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 function makeManager() {
   const globalDb = new Database(":memory:");
@@ -61,235 +126,109 @@ function makeManager() {
     path.join(os.tmpdir(), `nexus-browser-closer-state-${Date.now()}.json`),
   );
   const broadcast = mock((_ch: string, _ev: string, _args: unknown) => {});
-  const manager = new WorkspaceManager(
-    globalStorage,
-    workspaceStorage,
-    stateService,
-    broadcast,
-  );
+  const manager = new WorkspaceManager(globalStorage, workspaceStorage, stateService, broadcast);
   return { manager, globalDb };
 }
 
-// ---------------------------------------------------------------------------
-// Minimal registry interface — mirrors BrowserTabRegistry.listByWorkspace /
-// destroy, but without importing the real class (which requires electron).
-// ---------------------------------------------------------------------------
-
-interface FakeTabEntry {
-  tabId: string;
-  workspaceId: string;
-  destroyed: boolean;
+/** Installs the closer on a bare `setBrowserCloser` sink and returns it. */
+function captureCloser(): (workspaceId: string) => Promise<void> {
+  let closer: ((workspaceId: string) => Promise<void>) | undefined;
+  registerBrowserCloser({
+    setBrowserCloser: (c) => {
+      closer = c;
+    },
+  });
+  return closer!;
 }
 
-class FakeRegistry {
-  private readonly entries: FakeTabEntry[] = [];
-
-  addTab(tabId: string, workspaceId: string) {
-    this.entries.push({ tabId, workspaceId, destroyed: false });
-  }
-
-  listByWorkspace(workspaceId: string): string[] {
-    return this.entries
-      .filter((e) => e.workspaceId === workspaceId && !e.destroyed)
-      .map((e) => e.tabId);
-  }
-
-  destroy(args: { tabId: string }): void {
-    const entry = this.entries.find((e) => e.tabId === args.tabId);
-    if (entry) entry.destroyed = true;
-  }
-
-  isDestroyed(tabId: string): boolean {
-    return this.entries.find((e) => e.tabId === tabId)?.destroyed ?? true;
-  }
-}
-
-/**
- * Builds a browser closer that mirrors the logic in registerBrowserCloser,
- * pointing at the given registry and clearStorage mock.
- */
-function buildCloser(
-  registry: FakeRegistry,
-  clearStorage: (partition: string) => Promise<void>,
-): (workspaceId: string) => Promise<void> {
-  return async (workspaceId: string) => {
-    const tabIds = registry.listByWorkspace(workspaceId);
-    for (const tabId of tabIds) {
-      registry.destroy({ tabId });
-    }
-    await clearStorage(`persist:browser-${workspaceId}`);
-  };
+function openTab(tabId: string, workspaceId: string): FakeWebContentsView {
+  const registry = getBrowserRegistry()!;
+  registry.create({
+    tabId,
+    workspaceId,
+    url: "https://example.com",
+    partition: `persist:browser-${workspaceId}`,
+  });
+  return registry.get(tabId)!.view as unknown as FakeWebContentsView;
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("WorkspaceManager.setBrowserCloser — API surface", () => {
-  test("setBrowserCloser is exposed as a public method", () => {
-    const { manager, globalDb } = makeManager();
-    expect(typeof manager.setBrowserCloser).toBe("function");
-    globalDb.close();
+beforeEach(() => {
+  events = [];
+  const win = {
+    contentView: { addChildView: () => {}, removeChildView: () => {} },
+  } as unknown as BrowserWindow;
+  initBrowserFeature(win);
+});
+
+describe("registerBrowserCloser — view destroy + clearStorageData", () => {
+  test("destroys all views belonging to the target workspaceId", async () => {
+    const tab1 = openTab("tab-1", WORKSPACE_ID);
+    const tab2 = openTab("tab-2", WORKSPACE_ID);
+    const other = openTab("tab-other", OTHER_WORKSPACE_ID);
+
+    await captureCloser()(WORKSPACE_ID);
+
+    const registry = getBrowserRegistry()!;
+    expect(registry.listByWorkspace(WORKSPACE_ID)).toEqual([]);
+    expect(tab1.webContents.closed).toBe(true);
+    expect(tab2.webContents.closed).toBe(true);
+    // Other workspace tab is unaffected.
+    expect(registry.listByWorkspace(OTHER_WORKSPACE_ID)).toEqual(["tab-other"]);
+    expect(other.webContents.closed).toBe(false);
   });
 
-  test("setBrowserCloser accepts an async closer without throwing", () => {
-    const { manager, globalDb } = makeManager();
-    expect(() => {
-      manager.setBrowserCloser(async (_id: string) => {});
-    }).not.toThrow();
-    globalDb.close();
+  test("closes the popups opened from the workspace's tabs", async () => {
+    const popup = new FakePopup();
+    const otherPopup = new FakePopup();
+    openTab("tab-1", WORKSPACE_ID).webContents.emit("did-create-window", popup);
+    openTab("tab-other", OTHER_WORKSPACE_ID).webContents.emit("did-create-window", otherPopup);
+
+    await captureCloser()(WORKSPACE_ID);
+
+    expect(popup.destroyed).toBe(true);
+    expect(otherPopup.destroyed).toBe(false);
   });
 
-  test("setBrowserCloser registers the closer and it is invoked on remove()", async () => {
+  test("clears the workspace partition once, after all views are destroyed", async () => {
+    const tab1 = openTab("tab-order-1", WORKSPACE_ID);
+    const tab2 = openTab("tab-order-2", WORKSPACE_ID);
+
+    await captureCloser()(WORKSPACE_ID);
+
+    expect(events).toEqual([
+      `close:${tab1.webContents.id}`,
+      `close:${tab2.webContents.id}`,
+      `clear:persist:browser-${WORKSPACE_ID}`,
+    ]);
+  });
+
+  test("no-op when workspaceId has no registered tabs — clearStorage still called", async () => {
+    await expect(captureCloser()(WORKSPACE_ID)).resolves.toBeUndefined();
+
+    expect(events).toEqual([`clear:persist:browser-${WORKSPACE_ID}`]);
+  });
+});
+
+describe("registerBrowserCloser — WorkspaceManager wiring", () => {
+  test("remove() runs the closer for the removed workspace", async () => {
     const { manager, globalDb } = makeManager();
+    registerBrowserCloser(manager);
     const meta = manager.create({
       rootPath: path.join(os.tmpdir(), "ws-closer-test"),
       name: "test",
     });
-
-    const closerCalls: string[] = [];
-    manager.setBrowserCloser(async (id: string) => {
-      closerCalls.push(id);
-    });
+    const tab = openTab("tab-ws", meta.id);
 
     manager.remove(meta.id);
-    // Allow the fire-and-forget promise to settle.
+
+    // Views are destroyed before remove() returns; only the clear is async.
+    expect(tab.webContents.closed).toBe(true);
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
-
-    expect(closerCalls).toContain(meta.id);
+    expect(events).toContain(`clear:persist:browser-${meta.id}`);
     globalDb.close();
-  });
-});
-
-describe("browser closer — view destroy + clearStorageData", () => {
-  const WORKSPACE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-  const OTHER_WORKSPACE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
-
-  let clearStorageMock: ReturnType<typeof mock<(p: string) => Promise<void>>>;
-  let clearedPartitions: string[];
-
-  beforeEach(() => {
-    clearedPartitions = [];
-    clearStorageMock = mock(async (partition: string) => {
-      clearedPartitions.push(partition);
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // Acceptance #1: 해당 workspaceId의 view들이 destroy됨
-  // -----------------------------------------------------------------------
-
-  test("destroys all views belonging to the target workspaceId", async () => {
-    const registry = new FakeRegistry();
-    const closer = buildCloser(registry, clearStorageMock);
-
-    registry.addTab("tab-1", WORKSPACE_ID);
-    registry.addTab("tab-2", WORKSPACE_ID);
-    registry.addTab("tab-other", OTHER_WORKSPACE_ID);
-
-    await closer(WORKSPACE_ID);
-
-    expect(registry.isDestroyed("tab-1")).toBe(true);
-    expect(registry.isDestroyed("tab-2")).toBe(true);
-    // Other workspace tab is unaffected.
-    expect(registry.isDestroyed("tab-other")).toBe(false);
-  });
-
-  test("no-op when workspaceId has no registered tabs — clearStorage still called", async () => {
-    const registry = new FakeRegistry();
-    const closer = buildCloser(registry, clearStorageMock);
-
-    await expect(closer(WORKSPACE_ID)).resolves.toBeUndefined();
-    expect(clearStorageMock).toHaveBeenCalledTimes(1);
-  });
-
-  // -----------------------------------------------------------------------
-  // Acceptance #2: clearStorageData가 1회 호출됨
-  // -----------------------------------------------------------------------
-
-  test("clearStorageData is called exactly once per closer invocation", async () => {
-    const registry = new FakeRegistry();
-    const closer = buildCloser(registry, clearStorageMock);
-    registry.addTab("tab-cs", WORKSPACE_ID);
-
-    await closer(WORKSPACE_ID);
-
-    expect(clearStorageMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("clearStorageData is called with the correct partition", async () => {
-    const registry = new FakeRegistry();
-    const closer = buildCloser(registry, clearStorageMock);
-    registry.addTab("tab-part", WORKSPACE_ID);
-
-    await closer(WORKSPACE_ID);
-
-    expect(clearedPartitions).toContain(`persist:browser-${WORKSPACE_ID}`);
-  });
-
-  // -----------------------------------------------------------------------
-  // Acceptance #3: destroy 완료 후 clearStorageData 순서 보장
-  // -----------------------------------------------------------------------
-
-  test("all views are destroyed before clearStorageData is called", async () => {
-    const callOrder: string[] = [];
-
-    const registry = new FakeRegistry();
-    // Track destroy calls.
-    const originalDestroy = registry.destroy.bind(registry);
-    registry.destroy = (args: { tabId: string }) => {
-      callOrder.push(`destroy:${args.tabId}`);
-      originalDestroy(args);
-    };
-
-    const orderedClearStorage = mock(async (_partition: string) => {
-      callOrder.push("clearStorageData");
-    });
-    const closer = buildCloser(registry, orderedClearStorage);
-
-    registry.addTab("tab-order-1", WORKSPACE_ID);
-    registry.addTab("tab-order-2", WORKSPACE_ID);
-
-    await closer(WORKSPACE_ID);
-
-    const clearIdx = callOrder.indexOf("clearStorageData");
-    expect(clearIdx).toBeGreaterThan(-1);
-    const destroy1Idx = callOrder.indexOf("destroy:tab-order-1");
-    const destroy2Idx = callOrder.indexOf("destroy:tab-order-2");
-    expect(destroy1Idx).toBeLessThan(clearIdx);
-    expect(destroy2Idx).toBeLessThan(clearIdx);
-    expect(orderedClearStorage).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("closer listByWorkspace contract — via FakeRegistry", () => {
-  const WS_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-  const WS_B = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
-
-  test("listByWorkspace returns only tabs for the target workspace", () => {
-    const registry = new FakeRegistry();
-    registry.addTab("t1", WS_A);
-    registry.addTab("t2", WS_A);
-    registry.addTab("t3", WS_B);
-
-    const result = registry.listByWorkspace(WS_A);
-
-    expect(result).toHaveLength(2);
-    expect(result).toContain("t1");
-    expect(result).toContain("t2");
-    expect(result).not.toContain("t3");
-  });
-
-  test("listByWorkspace returns empty array when no tabs match", () => {
-    const registry = new FakeRegistry();
-    expect(registry.listByWorkspace(WS_A)).toHaveLength(0);
-  });
-
-  test("destroyed tabs are excluded from listByWorkspace", () => {
-    const registry = new FakeRegistry();
-    registry.addTab("t1", WS_A);
-    registry.destroy({ tabId: "t1" });
-
-    expect(registry.listByWorkspace(WS_A)).toHaveLength(0);
   });
 });

@@ -18,7 +18,7 @@
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, Folder } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { revealEditorAt } from "@/services/editor/tabs";
 import type { FileGroup } from "../../../state/stores/search";
@@ -222,11 +222,46 @@ export function SearchResultsList({
     [flatRows, expandedDirs],
   );
 
-  const handleMove = useCallback((next: number) => {
-    setFocusedIndex(next);
-    // Scroll the virtualizer row into view and shift DOM focus.
-    rowRefs.current.get(next)?.focus();
+  const virtualizer = useVirtualizer({
+    count: flatRows.length,
+    getScrollElement: () => containerRef.current,
+    estimateSize: () => ROW_HEIGHT_PX,
+    overscan: 10,
+  });
+
+  /**
+   * Moves DOM focus to a rendered row. List-mode wrappers are not focusable
+   * themselves, so focus goes to the row's own button instead of falling
+   * through to <body>.
+   */
+  const focusRow = useCallback((index: number): boolean => {
+    const el = rowRefs.current.get(index);
+    if (!el) return false;
+    const focusable =
+      el.hasAttribute("tabindex") || el instanceof HTMLButtonElement
+        ? el
+        : el.querySelector<HTMLElement>("button, [tabindex]");
+    (focusable ?? el).focus();
+    return true;
   }, []);
+
+  // A keyboard move can target a row outside the virtualizer's rendered
+  // window; it has no element until scrollToIndex brings it in, so the focus
+  // is applied after the next render.
+  const pendingFocusRef = useRef<number | null>(null);
+  const handleMove = useCallback(
+    (next: number) => {
+      setFocusedIndex(next);
+      if (focusRow(next)) return;
+      pendingFocusRef.current = next;
+      virtualizer.scrollToIndex(next);
+    },
+    [focusRow, virtualizer],
+  );
+  useEffect(() => {
+    const pending = pendingFocusRef.current;
+    if (pending !== null && focusRow(pending)) pendingFocusRef.current = null;
+  });
 
   const handleToggle = useCallback(
     (relPath: string, expanded: boolean) => {
@@ -285,19 +320,11 @@ export function SearchResultsList({
     onActivate: handleActivate,
   });
 
-  const virtualizer = useVirtualizer({
-    count: flatRows.length,
-    getScrollElement: () => containerRef.current,
-    estimateSize: () => ROW_HEIGHT_PX,
-    overscan: 10,
-  });
-
   // Expose first-row focus to parent (for SearchInput ↓ handoff).
   if (firstRowFocusRef) {
     firstRowFocusRef.current = () => {
       if (flatRows.length === 0) return;
-      setFocusedIndex(0);
-      rowRefs.current.get(0)?.focus();
+      handleMove(0);
     };
   }
 
@@ -433,6 +460,7 @@ export function SearchResultsList({
                 <SearchResultMatchRow
                   range={match.range}
                   preview={match.preview}
+                  previewStart={match.previewStart}
                   onClick={() => handleMatchClick(row.group, row.matchIdx)}
                 />
               </div>

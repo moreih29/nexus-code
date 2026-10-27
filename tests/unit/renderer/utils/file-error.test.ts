@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { fileErrorMessage, parseFileErrorCode } from "../../../../src/renderer/utils/file-error";
+import {
+  fileErrorMessage,
+  fsErrorReason,
+  parseFileErrorCode,
+} from "../../../../src/renderer/utils/file-error";
 
 describe("parseFileErrorCode", () => {
   it('1. "NOT_FOUND: ..." → "NOT_FOUND"', () => {
@@ -48,8 +52,8 @@ describe("parseFileErrorCode", () => {
 });
 
 describe("fileErrorMessage", () => {
-  it('10. NOT_FOUND → "File not found."', () => {
-    expect(fileErrorMessage("NOT_FOUND")).toBe("File not found.");
+  it('10. NOT_FOUND → "File or folder not found."', () => {
+    expect(fileErrorMessage("NOT_FOUND")).toBe("File or folder not found.");
   });
 
   it('11. PERMISSION_DENIED → "Permission denied."', () => {
@@ -62,5 +66,20 @@ describe("fileErrorMessage", () => {
 
   it('13. OTHER → "Failed to open file."', () => {
     expect(fileErrorMessage("OTHER")).toBe("Failed to open file.");
+  });
+});
+
+describe("fsErrorReason", () => {
+  it("gives the localized phrase for a coded fs error, without its code and path", () => {
+    expect(fsErrorReason(new Error("PERMISSION_DENIED: /Users/me/proj/src/a.ts"))).toBe(
+      "Permission denied.",
+    );
+    expect(fsErrorReason(new Error("NO_SPACE: /Users/me/proj/a.ts"))).toBe(
+      "Not enough disk space.",
+    );
+  });
+
+  it("keeps the message of an unclassified error", () => {
+    expect(fsErrorReason(new Error("Agent request timed out"))).toBe("Agent request timed out");
   });
 });

@@ -97,7 +97,7 @@ function CommitDetailContent({
   detail: CommitDetail;
   onFileClick: (file: CommitFileChange) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isMerge = detail.parents.length > 1;
 
   return (
@@ -108,7 +108,9 @@ function CommitDetailContent({
         <dt className="text-muted-foreground">{t("editor.email")}</dt>
         <dd className="min-w-0 truncate text-foreground">{detail.authorEmail}</dd>
         <dt className="text-muted-foreground">{t("editor.time")}</dt>
-        <dd className="min-w-0 truncate text-foreground">{formatIso(detail.committerTs)}</dd>
+        <dd className="min-w-0 truncate text-foreground" title={detail.committerTs}>
+          {formatCommitTime(detail.committerTs, i18n.language)}
+        </dd>
       </dl>
       {detail.body.length > 0 ? (
         <pre className="whitespace-pre-wrap rounded border border-border bg-muted p-2 font-sans text-app-ui-sm text-foreground">
@@ -180,11 +182,13 @@ function CenteredMessage({ children }: { children: ReactNode }) {
 }
 
 /**
- * Formats the ISO timestamp shown in the detail metadata.
+ * Formats the ISO timestamp shown in the detail metadata as a local date and
+ * time in the UI language; unparseable input is shown as is.
  */
-function formatIso(value: string): string {
+export function formatCommitTime(value: string, locale: string): string {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toISOString();
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "medium" }).format(date);
 }
 
 /**

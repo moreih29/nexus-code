@@ -192,11 +192,17 @@ export const useFilesStore = create<FilesState>((set, get) => {
         if (!t) return state;
         const next = cloneTree(t);
 
+        // Keep an existing child node (and its loaded subtree) only when it
+        // is the same entry we listed last time. A path that reappears — or
+        // flips between file and dir — is a new entry; reusing the old node
+        // would resurrect a listing from before the deletion.
+        const previousChildren = new Set(next.nodes.get(absPath)?.children ?? []);
         const childAbsPaths: string[] = [];
         for (const entry of sorted) {
           const childAbsPath = `${absPath}/${entry.name}`;
           childAbsPaths.push(childAbsPath);
-          if (!next.nodes.has(childAbsPath)) {
+          const existing = next.nodes.get(childAbsPath);
+          if (!existing || existing.type !== entry.type || !previousChildren.has(childAbsPath)) {
             next.nodes.set(childAbsPath, {
               absPath: childAbsPath,
               name: entry.name,

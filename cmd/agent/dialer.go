@@ -20,6 +20,8 @@ import (
 	"net"
 	"os"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/agentrun"
 )
 
 // runDialer is the `agent --dial <sockPath>` entry point.
@@ -38,6 +40,10 @@ func runDialer(sockPath string) {
 		os.Exit(ExitCodeDialFailed)
 	}
 	defer conn.Close()
+
+	// Hand this connection's forwarded SSH agent to the daemon's children,
+	// which reach it through the link the daemon exported (runDaemon).
+	_ = agentrun.PointAuthSock(agentrun.AuthSockFor(sockPath), os.Getenv("SSH_AUTH_SOCK"))
 
 	// Copy socket → stdout in a goroutine; copy stdin → socket in the foreground.
 	// Both directions run concurrently; the first to finish (EOF or error) causes

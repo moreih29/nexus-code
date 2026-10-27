@@ -25,7 +25,8 @@ export function resolveLocalWorkspacePath(
   if (rel === "" || rel === ".") {
     return abs;
   }
-  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+  // Only a whole ".." segment escapes; "..cache" is an ordinary name.
+  if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
     throw new Error("path escapes workspace root");
   }
 

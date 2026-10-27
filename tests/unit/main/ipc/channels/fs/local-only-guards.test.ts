@@ -24,14 +24,16 @@ function baseQuery(overrides: Partial<TextSearchQuery> & { pattern: string }): T
 }
 
 function makeManager(workspaces: WorkspaceMeta[], provider: unknown) {
+  const requireContext = (workspaceId: string) => {
+    if (!workspaces.some((workspace) => workspace.id === workspaceId)) {
+      throw new Error(`workspace not found: ${workspaceId}`);
+    }
+    return { fs: provider };
+  };
   return {
     list: (): WorkspaceMeta[] => workspaces,
-    requireContext: (workspaceId: string) => {
-      if (!workspaces.some((workspace) => workspace.id === workspaceId)) {
-        throw new Error(`workspace not found: ${workspaceId}`);
-      }
-      return { fs: provider };
-    },
+    requireContext,
+    getFs: async (workspaceId: string) => requireContext(workspaceId).fs,
   };
 }
 

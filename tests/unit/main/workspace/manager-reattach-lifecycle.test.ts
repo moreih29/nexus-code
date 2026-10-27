@@ -635,3 +635,75 @@ describe("manager hold resolution: releaseHeld called on non-reauth exits", () =
     globalDb.close();
   });
 });
+
+describe("held-then-expired lifecycle", () => {
+  test("keeps the held-then-expired status after tearing down the provider", async () => {
+    const channel = new StubChannel();
+    const { manager, globalDb, broadcasts } = makeManager({
+      sshBootstrap: mock(async () => ({
+        remoteCommand: "exec agent",
+        remoteHome: "/home/user",
+        platform: { os: "linux" as const, arch: "amd64" as const },
+        uploaded: false,
+        remoteBinDir: "/home/user/.nexus-code/bin",
+        controlPath: undefined,
+        dispose: undefined,
+      })),
+      sshChannelFactory: mock(() => channel),
+    });
+
+    const meta = makeSshMeta(manager);
+    const bootPromise = manager.getAgentChannel(meta.id);
+    channel.resolveChannel();
+    await bootPromise;
+
+    channel.emitLifecycle({ type: "held-then-expired" });
+
+    const statuses = broadcasts
+      .filter((b) => b.channelName === "workspace" && b.event === "connectionChanged")
+      .map((b) => (b.args as { status: string }).status);
+    expect(statuses.at(-1)).toBe("held-then-expired");
+
+    globalDb.close();
+  });
+});
+
+describe("workspace removed while its SSH agent is starting", () => {
+  test("disposes the finished bootstrap and opens no channel", async () => {
+    let resolveBootstrap!: (value: unknown) => void;
+    const bootstrapDispose = mock(() => {});
+    const sshChannelFactory = mock(() => new StubChannel());
+    const removeShimDir = mock((_id: string) => Promise.resolve());
+    const { manager, globalDb } = makeManager({
+      sshBootstrap: mock(
+        () =>
+          new Promise((resolve) => {
+            resolveBootstrap = resolve;
+          }),
+      ) as never,
+      sshChannelFactory: sshChannelFactory as never,
+      removeShimDir,
+    });
+
+    const meta = makeSshMeta(manager);
+    const bootPromise = manager.getAgentChannel(meta.id);
+    await Promise.resolve();
+    manager.remove(meta.id);
+    resolveBootstrap({
+      remoteCommand: "exec agent",
+      remoteHome: "/home/user",
+      platform: { os: "linux" as const, arch: "amd64" as const },
+      uploaded: false,
+      remoteBinDir: "/home/user/.nexus-code/bin",
+      controlPath: "/tmp/cm.sock",
+      dispose: bootstrapDispose,
+    });
+
+    await expect(bootPromise).rejects.toMatchObject({ name: "AbortError" });
+    expect(bootstrapDispose).toHaveBeenCalledTimes(1);
+    expect(sshChannelFactory).not.toHaveBeenCalled();
+    expect(removeShimDir).toHaveBeenCalledWith(meta.id);
+
+    globalDb.close();
+  });
+});

@@ -33,6 +33,8 @@ import {
   isNavigationSchemeAllowed,
   isSubframeNavigationAllowed,
 } from "../../../shared/security/navigation-allowlist";
+import { excludeFromBroadcast } from "../../infra/ipc-router";
+import { isScriptReadableRequest } from "../../infra/security/script-readable-request";
 import { resolvePermission } from "./permission-policy";
 import type { BrowserPermissionPromptManager } from "./permission-prompt-manager";
 
@@ -196,10 +198,55 @@ export function installPermissionHandler(
       getRemembered,
     });
 
+    if (decision === "ask") {
+      disposePromptsWithPage(webContents, promptManager);
+    }
     promptManager.handlePermissionRequest(
       { workspaceId, origin, permission, webContentsId: webContents.id, decision },
       callback,
     );
+  });
+}
+
+/**
+ * Cancels file:// requests through which page script could read a local file
+ * (see isScriptReadableRequest). Electron grants file:// pages privileges
+ * Chrome does not, so a page opened from disk in a tab could otherwise read
+ * anything the user can — `~/.ssh/id_rsa` included — and send it out.
+ * Navigating to, rendering and embedding local files still works.
+ */
+export function installLocalFileReadGuard(session: import("electron").Session): void {
+  session.webRequest.onBeforeRequest({ urls: ["file://*/*"] }, (details, callback) => {
+    const cancel = isScriptReadableRequest(details.resourceType, details.url);
+    if (cancel) logger.warn(`[file-read] blocked ${details.resourceType}: ${details.url}`);
+    callback({ cancel });
+  });
+}
+
+/** WebContents whose page lifetime already ends their pending prompts. */
+const promptLifetimeTracked = new Set<number>();
+
+/**
+ * Ends `webContents`' pending prompts when it is destroyed or its main frame
+ * navigates to another document, as Chrome drops a permission bubble when
+ * the page that asked goes away. Covers popups, which the tab registry does
+ * not track. Installed once per WebContents.
+ */
+function disposePromptsWithPage(
+  webContents: WebContents,
+  promptManager: BrowserPermissionPromptManager,
+): void {
+  const id = webContents.id;
+  if (promptLifetimeTracked.has(id)) return;
+  promptLifetimeTracked.add(id);
+  webContents.on("did-start-navigation", (details) => {
+    if (details.isMainFrame && !details.isSameDocument) {
+      promptManager.disposeByWebContents(id);
+    }
+  });
+  webContents.once("destroyed", () => {
+    promptLifetimeTracked.delete(id);
+    promptManager.disposeByWebContents(id);
   });
 }
 
@@ -223,11 +270,18 @@ const ABOUT_BLANK = "about:blank";
  * @param onNavigate   Called when a top-level navigation is allowed through
  *                     (used by the registry to keep the last-known URL in sync
  *                     and to drive `browser.navigated` broadcasts).
+ * @param onPopup      Called with every popup window opened from this
+ *                     WebContents or, recursively, from its popups.
  */
 export function installNavigationGuards(
   webContents: WebContents,
   onNavigate?: (url: string) => void,
+  onPopup?: (popup: import("electron").BrowserWindow) => void,
 ): void {
+  // Every tab and popup passes through here, so this is also where their
+  // renderers are taken off the app-wide event broadcast.
+  excludeFromBroadcast(webContents);
+
   // Layer 1 — top-level navigation guard.
   // Covers: location.href assignments, <a target="_self"> clicks, and
   // programmatic webContents.loadURL calls that originate from the page.
@@ -320,7 +374,8 @@ export function installNavigationGuards(
   // policy. `onNavigate` is intentionally omitted: a popup is a standalone
   // window, not a tab whose URL the registry tracks.
   webContents.on("did-create-window", (childWindow) => {
-    installNavigationGuards(childWindow.webContents);
+    onPopup?.(childWindow);
+    installNavigationGuards(childWindow.webContents, undefined, onPopup);
   });
 }
 

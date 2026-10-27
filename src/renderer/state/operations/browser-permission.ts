@@ -14,7 +14,10 @@
  */
 
 import { ipcListen } from "../../ipc/client";
-import { showPermissionPrompt } from "../../components/ui/permission-prompt-dialog";
+import {
+  dismissPermissionPrompt,
+  showPermissionPrompt,
+} from "../../components/ui/permission-prompt-dialog";
 
 type Unsubscribe = () => void;
 
@@ -34,6 +37,9 @@ export function initBrowserPermissionSubscriptions(): void {
   activeUnsubs.push(
     ipcListen("browserPermission", "prompt", (payload) => {
       showPermissionPrompt(payload);
+    }),
+    ipcListen("browserPermission", "dismissed", ({ promptId }) => {
+      dismissPermissionPrompt(promptId);
     }),
   );
 }

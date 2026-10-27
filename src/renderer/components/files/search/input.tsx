@@ -6,6 +6,7 @@
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { isImeComposing } from "@/utils/ime";
 import type { ViewMode } from "../../../../shared/types/panel";
 import type { SearchOptions } from "../../../state/stores/search";
 import { Button } from "../../ui/button";
@@ -49,6 +50,7 @@ export function SearchInput({
 }: SearchInputProps) {
   const { t } = useTranslation("files");
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (isImeComposing(e)) return;
     if (e.key === "Enter") {
       e.preventDefault();
       onEnter();
@@ -63,38 +65,42 @@ export function SearchInput({
 
   return (
     <div className="px-2 pt-2 pb-1 flex flex-col gap-1">
+      {/* The toggles wrap onto a second line when the panel is too narrow to
+          leave the query a usable width next to them. */}
       <div
         className={cn(
-          "flex items-center gap-0.5 rounded border bg-background transition-colors",
+          "flex flex-wrap items-center gap-0.5 rounded border bg-background transition-colors",
           regexError
             ? "border-destructive focus-within:border-destructive"
             : "border-border focus-within:border-ring",
         )}
       >
-        <input
-          ref={inputRef}
-          type="search"
-          placeholder={t("search.placeholder")}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          className="flex-1 min-w-0 bg-transparent px-2 py-1 text-app-body outline-none placeholder:text-muted-foreground"
-          aria-label={t("search.ariaLabel")}
-          spellCheck={false}
-        />
-        {value.length > 0 && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={t("search.clearSearch")}
-            className="shrink-0"
-            onClick={() => onChange("")}
-          >
-            <X aria-hidden="true" />
-          </Button>
-        )}
-        <div className="flex items-center gap-0.5 pr-0.5">
+        <div className="flex min-w-0 grow basis-40 items-center">
+          <input
+            ref={inputRef}
+            type="search"
+            placeholder={t("search.placeholder")}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            className="flex-1 min-w-0 bg-transparent px-2 py-1 text-app-body outline-none placeholder:text-muted-foreground"
+            aria-label={t("search.ariaLabel")}
+            spellCheck={false}
+          />
+          {value.length > 0 && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={t("search.clearSearch")}
+              className="shrink-0"
+              onClick={() => onChange("")}
+            >
+              <X aria-hidden="true" />
+            </Button>
+          )}
+        </div>
+        <div className="ml-auto flex items-center gap-0.5 pr-0.5">
           <SearchOptionsToggles
             options={options}
             onToggle={onToggleOption}

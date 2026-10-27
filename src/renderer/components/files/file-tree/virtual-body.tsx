@@ -9,6 +9,7 @@
  */
 
 import type { Virtualizer } from "@tanstack/react-virtual";
+import { useMemo } from "react";
 import type { FlatItem, WorkspaceTree } from "../../../state/stores/files";
 import type { DisplayItem } from "./display";
 import { FileTreeEditRow } from "./edit-row";
@@ -83,6 +84,13 @@ export function FileTreeVirtualBody({
   onPendingRenameCommit,
   onPendingRenameCancel,
 }: FileTreeVirtualBodyProps): React.JSX.Element {
+  // Row → index in `flat` (the list the click handlers index into). Built
+  // once per tree change; a per-row search cost O(N) for each visible row
+  // on every render.
+  const flatIndexByPath = useMemo(() => {
+    return new Map(flat.map((f, i) => [f.absPath, i]));
+  }, [flat]);
+
   return (
     <div style={{ height: virtualizer.getTotalSize(), width: "100%", position: "relative" }}>
       {virtualizer.getVirtualItems().map((vi) => {
@@ -133,10 +141,10 @@ export function FileTreeVirtualBody({
         }
 
         const isExpanded = tree?.expanded.has(item.absPath) ?? false;
-        const flatIdx = flat.findIndex((f) => f.absPath === item.absPath);
+        const flatIdx = flatIndexByPath.get(item.absPath) ?? -1;
         const isDir = item.node.type === "dir";
         const decoration = decorationLookup.decoration(item.absPath, isDir);
-        const isIgnored = !isDir && decorationLookup.isIgnored(item.absPath, isDir);
+        const isIgnored = decorationLookup.isIgnored(item.absPath, isDir);
         return (
           <div
             key={item.absPath}

@@ -42,6 +42,17 @@ export async function readFileForModel(input: EditorInput): Promise<FileLoadResu
   return result;
 }
 
+/** mtime/size only — cheap probe for "did this file change since we loaded it". */
+export async function statFileForModel(
+  input: EditorInput,
+): Promise<{ mtime: string; size: number }> {
+  const rp = relPathForInput(input);
+  const stat = unwrapIpcResult(
+    await ipcCallResult("fs", "stat", { workspaceId: input.workspaceId, relPath: rp }),
+  );
+  return { mtime: stat.mtime, size: stat.size };
+}
+
 export function subscribeFsChanged(
   input: EditorInput,
   onChange: (change: FsChangedForFile) => void,

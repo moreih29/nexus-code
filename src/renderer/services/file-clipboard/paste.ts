@@ -18,6 +18,7 @@
  *  - Cut clears the clipboard only when at least one entry was moved.
  */
 
+import i18next from "i18next";
 import { showToast } from "@/components/ui/toast";
 import { createLogger } from "../../../shared/log/renderer";
 
@@ -29,6 +30,12 @@ import { selectFocus, useFilesStore } from "@/state/stores/files";
 import { parentOf } from "@/state/stores/files/helpers";
 import { basename, relPath } from "@/utils/path";
 import { copyPathWithAutoRename, movePath } from "../fs-mutations";
+import {
+  type BatchFailure,
+  partialFailureMessage,
+  reportedFailure,
+  thrownFailure,
+} from "../fs-mutations/batch-failure";
 import { distinctParents } from "../fs-mutations/distinct-parents";
 import type { ClipboardEntry } from "./store";
 import { useFileClipboardStore } from "./store";
@@ -99,18 +106,18 @@ export async function handlePaste(targetAbsPath?: string | null): Promise<void> 
 
   // Result accumulators.
   let successCount = 0;
-  let firstFailurePath: string | null = null;
-  let firstFailureMessage: string | null = null;
+  let firstFailure: BatchFailure | null = null;
 
   if (kind === "cut") {
     for (const entry of effectiveEntries) {
       // Cycle guard: moving a folder into itself or a descendant is invalid.
       if (isInsideOrEqual(targetDir, entry.absPath)) {
-        const msg = `Can't move "${basename(entry.absPath)}" into itself or a subfolder.`;
-        showToast({ kind: "error", message: msg });
-        if (firstFailurePath === null) {
-          firstFailurePath = entry.absPath;
-          firstFailureMessage = msg;
+        showToast({
+          kind: "error",
+          message: i18next.t("files:fileTree.paste.cycleError", { name: basename(entry.absPath) }),
+        });
+        if (firstFailure === null) {
+          firstFailure = reportedFailure(entry.absPath);
         } else {
           log.error(`cycle: ${entry.absPath}`);
         }
@@ -127,9 +134,8 @@ export async function handlePaste(targetAbsPath?: string | null): Promise<void> 
         });
       } catch (e: unknown) {
         ok = false;
-        if (firstFailurePath === null) {
-          firstFailurePath = entry.absPath;
-          firstFailureMessage = e instanceof Error ? e.message : String(e);
+        if (firstFailure === null) {
+          firstFailure = thrownFailure(entry.absPath, e);
         } else {
           log.error(`move failed: ${entry.absPath}: ${(e as Error).message}`);
         }
@@ -138,10 +144,9 @@ export async function handlePaste(targetAbsPath?: string | null): Promise<void> 
       if (ok) {
         successCount += 1;
         dirsToRefresh.add(targetDir);
-      } else if (firstFailurePath === null) {
+      } else if (firstFailure === null) {
         // movePath already surfaced a per-item error toast; record for summary.
-        firstFailurePath = entry.absPath;
-        firstFailureMessage = "move failed";
+        firstFailure = reportedFailure(entry.absPath);
       }
     }
   } else {
@@ -167,9 +172,8 @@ export async function handlePaste(targetAbsPath?: string | null): Promise<void> 
         });
       } catch (e: unknown) {
         ok = false;
-        if (firstFailurePath === null) {
-          firstFailurePath = entry.absPath;
-          firstFailureMessage = e instanceof Error ? e.message : String(e);
+        if (firstFailure === null) {
+          firstFailure = thrownFailure(entry.absPath, e);
         } else {
           log.error(`copy failed: ${entry.absPath}: ${(e as Error).message}`);
         }
@@ -178,9 +182,8 @@ export async function handlePaste(targetAbsPath?: string | null): Promise<void> 
       if (ok) {
         successCount += 1;
         dirsToRefresh.add(effectiveDir);
-      } else if (firstFailurePath === null) {
-        firstFailurePath = entry.absPath;
-        firstFailureMessage = "copy failed";
+      } else if (firstFailure === null) {
+        firstFailure = reportedFailure(entry.absPath);
       }
     }
   }
@@ -196,16 +199,23 @@ export async function handlePaste(targetAbsPath?: string | null): Promise<void> 
   }
 
   // Aggregate result toast.
-  const failCount = total - successCount;
-  if (failCount === 0) {
+  if (firstFailure === null) {
     // N=1 single paste: no toast (matches single-delete no-toast convention).
     if (total > 1) {
-      showToast({ kind: "info", message: `Pasted ${total} items` });
+      showToast({
+        kind: "info",
+        message: i18next.t("files:fileTree.paste.pasted", { count: total }),
+      });
     }
   } else {
     showToast({
       kind: "error",
-      message: `Pasted ${successCount} of ${total}. First failure: ${firstFailurePath}: ${firstFailureMessage}`,
+      message: partialFailureMessage(
+        "files:fileTree.paste.pastedPartial",
+        successCount,
+        total,
+        firstFailure,
+      ),
     });
   }
 }

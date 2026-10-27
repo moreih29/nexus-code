@@ -34,9 +34,10 @@ import {
   ensureRoot,
   loadChildren,
   refresh,
+  reveal,
   toggleExpand,
 } from "../../../../../src/renderer/state/operations/files";
-import { useFilesStore } from "../../../../../src/renderer/state/stores/files";
+import { handleFsChanged, useFilesStore } from "../../../../../src/renderer/state/stores/files";
 import type { DirEntry } from "../../../../../src/shared/fs/types";
 
 // ---------------------------------------------------------------------------
@@ -386,5 +387,152 @@ describe("refresh: reloads subtree via readdir", () => {
       ?.children.map((p) => t.nodes.get(p)?.name)
       .filter(Boolean);
     expect(childNames).toContain("new.ts");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Staleness regressions — an expanded folder must stay watched and current
+// ---------------------------------------------------------------------------
+
+function callsOf(method: string) {
+  return mockIpcCallResult.mock.calls.filter(([, m]) => m === method);
+}
+
+async function flush(): Promise<void> {
+  for (let i = 0; i < 10; i += 1) await Promise.resolve();
+}
+
+describe("reveal: auto-expanded ancestors are watched like a manual expand", () => {
+  beforeEach(resetStore);
+
+  it("issues fs.watch for each ancestor it expands", async () => {
+    setupReaddir({ "": [dirEntry("src", "dir")], src: [dirEntry("deep", "dir")], "src/deep": [] });
+    await ensureRoot(WS_ID, ROOT);
+    mockIpcCallResult.mockClear();
+
+    await reveal(WS_ID, `${ROOT}/src/deep/file.ts`);
+
+    const watched = callsOf("watch").map(([, , args]) => (args as { relPath: string }).relPath);
+    expect(watched).toEqual(["src", "src/deep"]);
+  });
+});
+
+describe("collapse → re-expand re-reads the folder", () => {
+  beforeEach(resetStore);
+
+  it("does not show the listing from before the collapse", async () => {
+    const responses: Record<string, DirEntry[]> = { "": [dirEntry("lib", "dir")], lib: [] };
+    setupReaddir(responses);
+    await ensureRoot(WS_ID, ROOT);
+    const libAbs = `${ROOT}/lib`;
+
+    await toggleExpand(WS_ID, libAbs); // expand: lib is empty
+    await toggleExpand(WS_ID, libAbs); // collapse (unwatched from here on)
+    responses.lib = [dirEntry("created-while-collapsed.ts")];
+    await toggleExpand(WS_ID, libAbs); // re-expand
+
+    const lib = useFilesStore.getState().trees.get(WS_ID)?.nodes.get(libAbs);
+    expect(lib?.children).toEqual([`${libAbs}/created-while-collapsed.ts`]);
+  });
+});
+
+describe("watch/unwatch for one folder reach the agent in call order", () => {
+  beforeEach(resetStore);
+
+  it("holds a re-expand's watch until the collapse's unwatch has answered", async () => {
+    setupReaddir({ "": [dirEntry("lib", "dir")], lib: [] });
+    await ensureRoot(WS_ID, ROOT);
+    const libAbs = `${ROOT}/lib`;
+    await toggleExpand(WS_ID, libAbs);
+    await flush();
+
+    let releaseUnwatch: () => void = () => {};
+    const order: string[] = [];
+    mockIpcCallResult.mockImplementation((_ch: string, method: string) => {
+      order.push(method);
+      if (method === "unwatch") {
+        return new Promise((resolve) => {
+          releaseUnwatch = () => resolve({ ok: true as const, value: undefined });
+        });
+      }
+      if (method === "readdir") return Promise.resolve({ ok: true as const, value: [] });
+      return Promise.resolve({ ok: true as const, value: undefined });
+    });
+
+    await toggleExpand(WS_ID, libAbs); // collapse → unwatch (pending)
+    const reexpand = toggleExpand(WS_ID, libAbs); // re-expand → watch must wait
+    await flush();
+    expect(order.filter((m) => m === "watch" || m === "unwatch")).toEqual(["unwatch"]);
+
+    releaseUnwatch();
+    await reexpand;
+    await flush();
+    expect(order.filter((m) => m === "watch" || m === "unwatch")).toEqual(["unwatch", "watch"]);
+  });
+});
+
+describe("fs.changed: a recreated expanded folder is re-watched and re-read", () => {
+  beforeEach(resetStore);
+
+  it("re-arms the watch and replaces the pre-deletion listing", async () => {
+    const responses: Record<string, DirEntry[]> = {
+      "": [dirEntry("out", "dir")],
+      out: [dirEntry("old.js")],
+    };
+    setupReaddir(responses);
+    await ensureRoot(WS_ID, ROOT);
+    const outAbs = `${ROOT}/out`;
+    await toggleExpand(WS_ID, outAbs);
+    await flush();
+
+    responses.out = [dirEntry("new.js")];
+    mockIpcCallResult.mockClear();
+    handleFsChanged({ workspaceId: WS_ID, changes: [{ relPath: "out", kind: "added" }] });
+    await flush();
+
+    const watched = callsOf("watch").map(([, , args]) => (args as { relPath: string }).relPath);
+    expect(watched).toContain("out");
+    const out = useFilesStore.getState().trees.get(WS_ID)?.nodes.get(outAbs);
+    expect(out?.children).toEqual([`${outAbs}/new.js`]);
+  });
+});
+
+describe("fs.changed during a folder's first listing", () => {
+  beforeEach(resetStore);
+
+  it("re-reads after the in-flight listing instead of keeping it", async () => {
+    const responses: Record<string, DirEntry[]> = { "": [dirEntry("lib", "dir")], lib: [] };
+    let releaseFirstLib: () => void = () => {};
+    let libReads = 0;
+    mockIpcCallResult.mockImplementation(
+      (_ch: string, method: string, args: { workspaceId: string; relPath: string }) => {
+        if (method === "getExpanded")
+          return Promise.resolve({ ok: true as const, value: { relPaths: [] } });
+        if (method === "readdir") {
+          const snapshot = responses[args.relPath] ?? [];
+          if (args.relPath === "lib" && libReads++ === 0) {
+            // First lib listing is taken now but answers late.
+            return new Promise((resolve) => {
+              releaseFirstLib = () => resolve({ ok: true as const, value: snapshot });
+            });
+          }
+          return Promise.resolve({ ok: true as const, value: snapshot });
+        }
+        return Promise.resolve({ ok: true as const, value: undefined });
+      },
+    );
+    await ensureRoot(WS_ID, ROOT);
+    const libAbs = `${ROOT}/lib`;
+
+    const expanding = toggleExpand(WS_ID, libAbs); // first lib readdir in flight
+    await flush();
+    responses.lib = [dirEntry("new.ts")];
+    handleFsChanged({ workspaceId: WS_ID, changes: [{ relPath: "lib/new.ts", kind: "added" }] });
+    releaseFirstLib(); // the stale (empty) listing lands
+    await expanding;
+    await flush();
+
+    const lib = useFilesStore.getState().trees.get(WS_ID)?.nodes.get(libAbs);
+    expect(lib?.children).toEqual([`${libAbs}/new.ts`]);
   });
 });

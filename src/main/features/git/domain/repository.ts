@@ -173,6 +173,24 @@ export class GitRepository {
   }
 
   /**
+   * Makes `content` the staged version of one repository-relative path while
+   * leaving the working tree alone — how part of a file's changes is staged
+   * or unstaged.
+   */
+  stageContent(relPath: string, content: string, signal?: AbortSignal): Promise<void> {
+    return this.queue((queuedSignal) => {
+      const stageContent = this.executor.stageContent;
+      if (!stageContent) throw missingExecutorMethodError("stageContent");
+      return stageContent.call(this.executor, {
+        cwd: this.topLevel,
+        relPath,
+        content,
+        signal: queuedSignal,
+      });
+    }, signal);
+  }
+
+  /**
    * Discards tracked changes and deletes untracked paths selected by status rows.
    */
   discard(
@@ -1243,7 +1261,10 @@ export class GitRepository {
   private async readBranchList(signal: AbortSignal): Promise<BranchList> {
     const status = await this.readStatus(signal);
     const local = await this.run(["branch", "--format=%(refname:short)", "--list"], signal);
-    const remote = await this.run(["branch", "--format=%(refname:short)", "--remotes"], signal);
+    // `refname:short` shortens `refs/remotes/origin/HEAD` to a bare `origin`
+    // on recent git, which no `/HEAD` filter catches; `lstrip=2` always keeps
+    // the `<remote>/<branch>` form.
+    const remote = await this.run(["branch", "--format=%(refname:lstrip=2)", "--remotes"], signal);
     return {
       current: status.branch,
       local: parseBranchLines(local.stdout),

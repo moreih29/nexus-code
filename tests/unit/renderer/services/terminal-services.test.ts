@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { TerminalControllerDeps } from "../../../../src/renderer/services/terminal/controller";
 import type {
   PtyClientOptions,
@@ -101,18 +101,31 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
   isIpcErrResult: (v: unknown): boolean => v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === false,
 }));
 
-const { closeTerminal, createTerminalController, openTerminal } = await import(
-  "../../../../src/renderer/services/terminal"
-);
+// Spread over the real module so later files keep its other exports.
+const confirmRequests: string[] = [];
+let confirmReply = true;
+const realConfirmDialog = await import("../../../../src/renderer/components/ui/confirm-dialog");
+mock.module("../../../../src/renderer/components/ui/confirm-dialog", () => ({
+  ...realConfirmDialog,
+  showConfirmDialog: (request: { description: string }) => {
+    confirmRequests.push(request.description);
+    return Promise.resolve(confirmReply);
+  },
+}));
+
+const { closeTerminal, closeTerminalWithConfirm, createTerminalController, openTerminal } =
+  await import("../../../../src/renderer/services/terminal");
 const {
   TERMINAL_REOPENED_SEPARATOR,
   isShellPromptLikeTitle,
   isLoginShell,
   classifyOscTitle,
   foregroundConfirmsTitle,
+  oscCursorStyle,
 } = await import("../../../../src/renderer/services/terminal/controller");
 const { createPtyClient } = await import("../../../../src/renderer/services/terminal/pty-client");
 const { closeGroup } = await import("../../../../src/renderer/state/operations");
+const { startTerminalExitListener } = await import("../../../../src/renderer/state/terminal-exit");
 const { useLayoutStore } = await import("../../../../src/renderer/state/stores/layout");
 const { findLeaf } = await import("../../../../src/renderer/state/stores/layout/helpers");
 const { useTabsStore } = await import("../../../../src/renderer/state/stores/tabs");
@@ -154,8 +167,12 @@ function makeTerminalControllerDeps(
     Promise.resolve({ pid: 4321 }),
 ) {
   const writes: string[] = [];
+  // Callbacks of writes xterm has not "parsed" yet; parseWrites() runs them.
+  const unparsedWriteCallbacks: Array<() => void> = [];
   const spawnCalls: TerminalDimensions[] = [];
   const ptyWrites: string[] = [];
+  let focusCalls = 0;
+  let capturedDataHandler: ((data: string) => void) | null = null;
   let ptyOptions: PtyClientOptions | null = null;
   // 가변 buffer state — 테스트에서 setBufferType("alternate" | "normal")로 전환해
   // alternate screen 가드 동작을 검증한다. 기본값은 "alternate"로 두어 기존 OSC
@@ -202,7 +219,10 @@ function makeTerminalControllerDeps(
       buffer: bufferState,
       dispose: () => {},
       loadAddon: () => {},
-      onData: () => ({ dispose: () => {} }),
+      onData: (handler) => {
+        capturedDataHandler = handler;
+        return { dispose: () => {} };
+      },
       onSelectionChange: () => ({ dispose: () => {} }),
       onTitleChange: (handler) => {
         capturedTitleHandler = handler;
@@ -211,11 +231,15 @@ function makeTerminalControllerDeps(
       getSelection: () => "",
       open: () => {},
       refresh: () => {},
-      write: (data) => {
+      write: (data, callback) => {
         writes.push(data);
+        if (callback) unparsedWriteCallbacks.push(callback);
       },
       attachCustomKeyEventHandler: (handler) => {
         capturedKeyHandler = handler;
+      },
+      focus: () => {
+        focusCalls += 1;
       },
     }),
     createFitAddon: () => ({
@@ -248,6 +272,14 @@ function makeTerminalControllerDeps(
     writes,
     ptyWrites,
     getPtyOptions: () => ptyOptions,
+    getFocusCalls: () => focusCalls,
+    /** Emits `data` the way xterm does for typed keys and its own answers. */
+    termData(data: string): void {
+      capturedDataHandler?.(data);
+    },
+    parseWrites(): void {
+      for (const callback of unparsedWriteCallbacks.splice(0)) callback();
+    },
     getKeyHandler: () => capturedKeyHandler,
     getTitleHandler: () => capturedTitleHandler,
     getAltExitHandler: () => capturedAltExitHandler,
@@ -319,6 +351,52 @@ describe("services/terminal open and close", () => {
     const layout = useLayoutStore.getState().byWorkspace[WS];
     expect(layout?.root.kind).toBe("leaf");
     if (layout?.root.kind === "leaf") expect(layout.root.tabIds).not.toContain(terminal.tabId);
+  });
+
+  describe("closeTerminalWithConfirm", () => {
+    beforeEach(() => {
+      confirmRequests.length = 0;
+      confirmReply = true;
+    });
+
+    afterEach(() => {
+      mockForegroundProcessName = "lazygit";
+    });
+
+    it("closes without asking while only the shell is running", async () => {
+      mockForegroundProcessName = "-zsh";
+      const terminal = openTerminal({ workspaceId: WS, cwd: "/workspace" });
+
+      expect(await closeTerminalWithConfirm(WS, terminal.tabId)).toBe("closed");
+      expect(confirmRequests).toEqual([]);
+      expect(useTabsStore.getState().byWorkspace[WS]?.[terminal.tabId]).toBeUndefined();
+    });
+
+    it("asks before killing a running program and keeps the tab on cancel", async () => {
+      mockForegroundProcessName = "sleep";
+      const terminal = openTerminal({ workspaceId: WS, cwd: "/workspace" });
+      confirmReply = false;
+
+      expect(await closeTerminalWithConfirm(WS, terminal.tabId)).toBe("cancelled");
+      expect(confirmRequests).toEqual([
+        "“sleep” is still running in this terminal. Closing the terminal will terminate it.",
+      ]);
+      expect(killCalls()).toEqual([]);
+      expect(useTabsStore.getState().byWorkspace[WS]?.[terminal.tabId]).toBeDefined();
+
+      confirmReply = true;
+      expect(await closeTerminalWithConfirm(WS, terminal.tabId)).toBe("closed");
+      expect(killCalls()).toHaveLength(1);
+    });
+
+    it("closes an ended terminal without asking", async () => {
+      mockForegroundProcessName = "sleep";
+      const terminal = openTerminal({ workspaceId: WS, cwd: "/workspace" });
+      useTabsStore.getState().setTerminalDead(WS, terminal.tabId, true);
+
+      expect(await closeTerminalWithConfirm(WS, terminal.tabId)).toBe("closed");
+      expect(confirmRequests).toEqual([]);
+    });
   });
 
   it("workspace tab-record cleanup kills each terminal session before deleting records", () => {
@@ -404,6 +482,26 @@ describe("services/terminal pty-client flow control", () => {
       args: { workspaceId: WS, tabId: "tab-flow-a", bytesConsumed: 5000 },
     });
 
+    client.dispose();
+  });
+
+  it("tells the terminal which output is replayed", () => {
+    const received: Array<[string, boolean]> = [];
+    const client = createPtyClient({
+      workspaceId: WS,
+      tabId: "tab-replay-flag",
+      cwd: "/workspace",
+      onData: (chunk, replay) => received.push([chunk, replay]),
+      onExit: () => {},
+    });
+
+    emit("pty", "data", { workspaceId: WS, tabId: "tab-replay-flag", chunk: "old", replay: true });
+    emit("pty", "data", { workspaceId: WS, tabId: "tab-replay-flag", chunk: "new" });
+
+    expect(received).toEqual([
+      ["old", true],
+      ["new", false],
+    ]);
     client.dispose();
   });
 
@@ -593,6 +691,133 @@ describe("services/terminal pty-client exit lifecycle", () => {
     if (tab?.type === "terminal") expect(tab.props.dead).toBe(true);
 
     client.dispose();
+  });
+});
+
+describe("app-wide terminal exit listener", () => {
+  beforeEach(() => {
+    resetIpc();
+    resetStores();
+  });
+
+  it("marks a tab whose view is unmounted dead and lets its next spawn reach main", async () => {
+    const stop = startTerminalExitListener();
+    const terminal = openTerminal({ workspaceId: WS, cwd: "/workspace" });
+    const options = {
+      workspaceId: WS,
+      tabId: terminal.tabId,
+      cwd: "/workspace",
+      onData: () => {},
+      onExit: () => {},
+    };
+    const client = createPtyClient(options);
+    await client.spawn({ cols: 80, rows: 24 });
+    // The view unmounts, as behind the SSH "session expired" placeholder,
+    // before main reports the exit.
+    client.dispose();
+
+    emit("pty", "exit", { workspaceId: WS, tabId: terminal.tabId, code: null });
+
+    const tab = useTabsStore.getState().byWorkspace[WS]?.[terminal.tabId];
+    expect(tab?.type === "terminal" && tab.props.dead).toBe(true);
+
+    const spawnCount = () =>
+      ipcCalls.filter((c) => c.channel === "pty" && c.method === "spawn").length;
+    const before = spawnCount();
+    const remounted = createPtyClient(options);
+    expect(await remounted.spawn({ cols: 80, rows: 24 })).toEqual({ pid: 1234 });
+    expect(spawnCount() - before).toBe(1);
+
+    remounted.dispose();
+    stop();
+  });
+});
+
+describe("services/terminal controller spawn failure", () => {
+  beforeEach(resetIpc);
+
+  it("prints the failure's reason once, without the Error name or the agent's lead", async () => {
+    const harness = makeTerminalControllerDeps(() =>
+      Promise.reject(new Error("failed to spawn PTY: chdir /gone: no such file or directory")),
+    );
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-spawn-fails",
+        cwd: "/gone",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    await Promise.resolve();
+
+    expect(harness.writes).toEqual([
+      "\r\n[Couldn't start the terminal: chdir /gone: no such file or directory]\r\n",
+    ]);
+
+    controller.dispose();
+  });
+});
+
+describe("services/terminal controller focus", () => {
+  beforeEach(resetIpc);
+
+  it("focuses the terminal once it opens when asked before", async () => {
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-focus-early",
+        cwd: "/workspace",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+      },
+      harness.deps,
+    );
+    controller.focus();
+    expect(harness.getFocusCalls()).toBe(0);
+
+    await flushTerminalInit();
+    expect(harness.getFocusCalls()).toBe(1);
+
+    controller.focus();
+    expect(harness.getFocusCalls()).toBe(2);
+
+    controller.dispose();
+  });
+});
+
+describe("services/terminal controller replay", () => {
+  beforeEach(resetIpc);
+
+  it("keeps xterm's answers to replayed output from reaching the program", async () => {
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-replay-answers",
+        cwd: "/workspace",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const options = harness.getPtyOptions();
+    if (!options) throw new Error("pty client not created");
+
+    // A replayed cursor-position query: xterm answers it while parsing.
+    options.onData("\x1b[6n", true);
+    harness.termData("\x1b[12;1R");
+    expect(harness.ptyWrites).toEqual([]);
+
+    // Once the replay is parsed, answers and keys reach the program again.
+    harness.parseWrites();
+    options.onData("\x1b[6n", false);
+    harness.termData("\x1b[3;1R");
+    expect(harness.ptyWrites).toEqual(["\x1b[3;1R"]);
+    expect(harness.writes).toEqual(["\x1b[6n", "\x1b[6n"]);
+
+    controller.dispose();
   });
 });
 
@@ -907,6 +1132,23 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
 });
 
 // ---------------------------------------------------------------------------
+// oscCursorStyle — OSC 22 cursor shape from untrusted terminal output
+describe("oscCursorStyle", () => {
+  it("passes CSS cursor keywords through", () => {
+    expect(oscCursorStyle("pointer")).toBe("pointer");
+    expect(oscCursorStyle("Text")).toBe("text");
+    expect(oscCursorStyle("")).toBe("");
+  });
+
+  // Regression: the body was assigned to style.cursor verbatim, so
+  // `url(https://…)` made the renderer fetch an attacker-chosen URL.
+  it("resets anything that is not a plain keyword", () => {
+    expect(oscCursorStyle("url(https://evil.example/beacon), auto")).toBe("");
+    expect(oscCursorStyle("image-set(url(x.png) 1x), pointer")).toBe("");
+    expect(oscCursorStyle("left_ptr")).toBe("");
+  });
+});
+
 // isShellPromptLikeTitle — shell prompt OSC 필터 휴리스틱
 // ---------------------------------------------------------------------------
 describe("isShellPromptLikeTitle", () => {

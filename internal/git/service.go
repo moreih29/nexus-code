@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os/exec"
 	"path/filepath"
@@ -34,7 +35,7 @@ type Service struct {
 	askpassListener   net.Listener
 	askpassSocketPath string
 	askpassSocketDir  string
-	askpassPending    map[string]chan askpassResolution
+	askpassPending    map[string]*askpassPending
 }
 
 type FileContentParams struct {
@@ -55,7 +56,7 @@ func New(root string) *Service {
 		streams:        make(map[string]context.CancelFunc),
 		watches:        make(map[string]*watchEntry),
 		gitDirty:       make(map[string]struct{}),
-		askpassPending: make(map[string]chan askpassResolution),
+		askpassPending: make(map[string]*askpassPending),
 	}
 }
 
@@ -74,6 +75,7 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("git.addToGitignore", service.AddToGitignore)
 	d.Register("git.getFileContent", service.GetFileContent)
 	d.Register("git.blob", service.Blob)
+	d.Register("git.stageContent", service.StageContent)
 	d.Register("git.stash.list", service.StashList)
 	d.Register("git.stash.apply", service.StashApply)
 	d.Register("git.stash.drop", service.StashDrop)
@@ -154,7 +156,7 @@ func (s *Service) GetFileContent(ctx context.Context, raw json.RawMessage) (any,
 		objectSpec = ":" + relPath
 	}
 
-	stdout, stderr, err := runGitShow(ctx, s.root, objectSpec)
+	stdout, stderr, tooLarge, err := runGitShow(ctx, s.root, objectSpec, maxGitFileContentBytes)
 	if err != nil {
 		if isMissing(stderr) {
 			return map[string]any{"kind": "missing", "reason": missingReasonForRef(ref)}, nil
@@ -168,13 +170,18 @@ func (s *Service) GetFileContent(ctx context.Context, raw json.RawMessage) (any,
 		}
 		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: strings.TrimSpace(stderr)}
 	}
-	if len(stdout) > maxGitFileContentBytes {
+	if tooLarge {
 		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: fmt.Sprintf("Git blob %s exceeds %d byte read limit", relPath, maxGitFileContentBytes)}
 	}
 	return buildFileReadResult(stdout), nil
 }
 
-func runGitShow(ctx context.Context, root string, objectSpec string) ([]byte, string, error) {
+// runGitShow returns the output of `git show objectSpec`, reading at most
+// limit+1 bytes of it: when the blob is larger than limit, git is killed and
+// tooLarge is reported instead of buffering the whole blob only to reject it.
+func runGitShow(ctx context.Context, root string, objectSpec string, limit int) (stdout []byte, stderr string, tooLarge bool, err error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "show", "--no-ext-diff", objectSpec)
 	cmd.Dir = root
 	cmd.Env = append(cmd.Environ(),
@@ -184,10 +191,29 @@ func runGitShow(ctx context.Context, root string, objectSpec string) ([]byte, st
 		"SSH_ASKPASS=echo",
 		"GIT_FLUSH=1",
 	)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	stdout, err := cmd.Output()
-	return stdout, stderr.String(), err
+	cmd.Env = withSafeGitConfig(cmd.Env)
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+	pipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, "", false, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, "", false, err
+	}
+	stdout, readErr := io.ReadAll(io.LimitReader(pipe, int64(limit)+1))
+	if len(stdout) > limit || readErr != nil {
+		// Stop git before waiting; it would block on a full stdout pipe.
+		cancel()
+	}
+	waitErr := cmd.Wait()
+	if len(stdout) > limit {
+		return nil, stderrBuf.String(), true, nil
+	}
+	if waitErr == nil {
+		waitErr = readErr
+	}
+	return stdout, stderrBuf.String(), false, waitErr
 }
 
 func buildFileReadResult(buf []byte) map[string]any {

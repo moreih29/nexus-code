@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 
@@ -109,6 +110,10 @@ func (s *Service) Log(ctx context.Context, raw json.RawMessage) (any, error) {
 		killedForLimit = true
 		return cmd.Cancel()
 	})
+	if readErr != nil {
+		// Stop git before waiting; it would block on a full stdout pipe.
+		cancel()
+	}
 	waitErr := cmd.Wait()
 
 	if readErr != nil && !(killedForLimit && isClosedPipeReadError(readErr)) {
@@ -122,13 +127,22 @@ func (s *Service) Log(ctx context.Context, raw json.RawMessage) (any, error) {
 		return nil, fatal
 	}
 	if code != 0 && !killedForLimit {
-		message := strings.TrimSpace(stderr.String())
-		if message == "" {
-			message = "git.log failed"
-		}
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: message}
+		return nil, logError(params, args, stderr.String(), code)
 	}
 	return result, nil
+}
+
+// logError classifies a failed git log. Git reports the log of an unborn
+// branch's HEAD as an unknown revision; HEAD always exists, so a HEAD that
+// does not resolve means the branch has no commits yet.
+func logError(params LogParams, args []string, stderr string, code int) error {
+	err := gitError(args, stderr, code)
+	var failure Failure
+	if errors.As(err, &failure) && failure.Kind == KindRefNotFound &&
+		(params.Scope == "" || params.Scope == "ref") && params.AfterSHA == "" && params.Ref == "HEAD" {
+		return classifiedFailure(KindNoHead, failure.Msg)
+	}
+	return err
 }
 
 func parseLogParams(raw json.RawMessage) (LogParams, error) {

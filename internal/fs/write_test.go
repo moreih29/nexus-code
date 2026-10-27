@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -383,8 +384,8 @@ func TestRenameTargetExistsRejects(t *testing.T) {
 }
 
 // TestRenameOverwriteReplacesExisting — with overwrite=true an existing
-// destination is removed first and the rename proceeds. Used by the move
-// flow after the user confirms a replace.
+// destination is replaced by the rename. Used by the move flow after the
+// user confirms a replace.
 func TestRenameOverwriteReplacesExisting(t *testing.T) {
 	root := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(root, "src.txt"), []byte("new"), 0o644))
@@ -429,6 +430,81 @@ func TestRenameOverwriteReplacesNonEmptyDir(t *testing.T) {
 	}
 	if _, err := os.Lstat(srcDir); !os.IsNotExist(err) {
 		t.Fatalf("source dir should be gone after rename, err=%v", err)
+	}
+}
+
+// TestRenameOverwriteKeepsDestinationOnFailure — the destination used to be
+// deleted before the rename was attempted, so a vanished source or a
+// cross-device move lost it. It must survive any failed rename.
+func TestRenameOverwriteKeepsDestinationOnFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		from  string
+		exdev bool
+		code  string
+	}{
+		{name: "missing-source", from: "src/x", code: CodeNotFound},
+		{name: "cross-device", from: "src.txt", exdev: true, code: CodeCrossDevice},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			must(t, os.WriteFile(filepath.Join(root, "src.txt"), []byte("new"), 0o644))
+			must(t, os.MkdirAll(filepath.Join(root, "dst", "x"), 0o755))
+			must(t, os.WriteFile(filepath.Join(root, "dst", "x", "important.txt"), []byte("keep"), 0o644))
+			if tc.exdev {
+				orig := renamePath
+				renamePath = func(oldpath, newpath string) error {
+					return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: syscall.EXDEV}
+				}
+				t.Cleanup(func() { renamePath = orig })
+			}
+
+			_, err := mustFS(t, root).Rename(context.Background(), mustJSON(t, map[string]any{
+				"fromRelPath": tc.from,
+				"toRelPath":   "dst/x",
+				"overwrite":   true,
+			}))
+			assertFSError(t, err, tc.code)
+			if got, readErr := os.ReadFile(filepath.Join(root, "dst", "x", "important.txt")); readErr != nil || string(got) != "keep" {
+				t.Fatalf("destination lost by failed rename: bytes=%q err=%v", got, readErr)
+			}
+			assertNoTmpResidue(t, filepath.Join(root, "dst"))
+		})
+	}
+}
+
+// TestRenameOverwriteCaseOnly — on a case-insensitive volume "Foo" and "foo"
+// are the same entry; overwriting must rename it, not delete it first.
+func TestRenameOverwriteCaseOnly(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(root, "Foo.txt"), []byte("payload"), 0o644))
+	if _, err := os.Lstat(filepath.Join(root, "foo.txt")); err != nil {
+		t.Skip("case-sensitive filesystem")
+	}
+
+	dispatchOK(t, mustFS(t, root), "fs.rename", map[string]any{
+		"fromRelPath": "Foo.txt",
+		"toRelPath":   "foo.txt",
+		"overwrite":   true,
+	})
+	entries, err := os.ReadDir(root)
+	must(t, err)
+	if len(entries) != 1 || entries[0].Name() != "foo.txt" {
+		t.Fatalf("entries after case-only rename = %v", entries)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "foo.txt")); err != nil || string(got) != "payload" {
+		t.Fatalf("renamed file mismatch: bytes=%q err=%v", got, err)
+	}
+}
+
+func assertNoTmpResidue(t *testing.T, dir string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	must(t, err)
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), tmpPrefix) {
+			t.Fatalf("left %s behind in %s", entry.Name(), dir)
+		}
 	}
 }
 
@@ -526,6 +602,38 @@ func TestCopyFileOverwriteReplacesNonEmptyDir(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(dstDir, "stale.txt")); !os.IsNotExist(err) {
 		t.Fatalf("stale file should be removed by overwrite, err=%v", err)
 	}
+	assertNoTmpResidue(t, root)
+}
+
+// TestCopyFileOverwriteKeepsDestinationOnFailure — a copy that fails part
+// way must leave the confirmed-to-be-replaced destination as it was rather
+// than deleted or half-overwritten.
+func TestCopyFileOverwriteKeepsDestinationOnFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the unreadable file this test relies on")
+	}
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "src-dir")
+	must(t, os.Mkdir(srcDir, 0o755))
+	must(t, os.WriteFile(filepath.Join(srcDir, "a.txt"), []byte("a"), 0o644))
+	must(t, os.WriteFile(filepath.Join(srcDir, "unreadable.txt"), []byte("x"), 0o000))
+	dstDir := filepath.Join(root, "dst-dir")
+	must(t, os.Mkdir(dstDir, 0o755))
+	must(t, os.WriteFile(filepath.Join(dstDir, "important.txt"), []byte("keep"), 0o644))
+
+	_, err := mustFS(t, root).CopyFile(context.Background(), mustJSON(t, map[string]any{
+		"fromRelPath": "src-dir",
+		"toRelPath":   "dst-dir",
+		"overwrite":   true,
+	}))
+	assertFSError(t, err, CodePermissionDenied)
+	if got, readErr := os.ReadFile(filepath.Join(dstDir, "important.txt")); readErr != nil || string(got) != "keep" {
+		t.Fatalf("destination lost by failed copy: bytes=%q err=%v", got, readErr)
+	}
+	if _, statErr := os.Lstat(filepath.Join(dstDir, "a.txt")); !os.IsNotExist(statErr) {
+		t.Fatalf("partial copy left in destination, err=%v", statErr)
+	}
+	assertNoTmpResidue(t, root)
 }
 
 func TestCopyFileDirectory(t *testing.T) {
@@ -696,5 +804,45 @@ func assertFSError(t *testing.T, err error, code string) {
 	}
 	if fsErr, ok := err.(FSError); !ok || fsErr.Code != code {
 		t.Fatalf("expected %s, got %v", code, err)
+	}
+}
+
+// A save replaces the file through a temp file and rename; the replacement
+// must keep the original permission bits instead of the temp file's default.
+func TestWriteFile_PreservesMode(t *testing.T) {
+	root := t.TempDir()
+	for name, mode := range map[string]os.FileMode{"run.sh": 0o755, ".env": 0o600, "shared.txt": 0o664} {
+		path := filepath.Join(root, name)
+		must(t, os.WriteFile(path, []byte("v1"), 0o644))
+		must(t, os.Chmod(path, mode))
+
+		res := callWrite(t, mustFS(t, root), map[string]any{"relPath": name, "content": "v2"})
+		if res.Kind != "ok" {
+			t.Fatalf("%s: expected ok, got %q", name, res.Kind)
+		}
+		info, err := os.Stat(path)
+		must(t, err)
+		if info.Mode().Perm() != mode {
+			t.Fatalf("%s: mode %o after save, want %o", name, info.Mode().Perm(), mode)
+		}
+	}
+}
+
+// A file with other hard links is written in place so every link sees the
+// new content; a rename would leave the other links on the old inode.
+func TestWriteFile_HardLinkWrittenInPlace(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "a.txt")
+	must(t, os.WriteFile(path, []byte("v1"), 0o644))
+	must(t, os.Link(path, filepath.Join(root, "b.txt")))
+
+	res := callWrite(t, mustFS(t, root), map[string]any{"relPath": "a.txt", "content": "v2"})
+	if res.Kind != "ok" {
+		t.Fatalf("expected ok, got %q", res.Kind)
+	}
+	got, err := os.ReadFile(filepath.Join(root, "b.txt"))
+	must(t, err)
+	if string(got) != "v2" {
+		t.Fatalf("hard link content %q, want v2", got)
 	}
 }

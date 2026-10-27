@@ -19,15 +19,23 @@
  * 에서 isRoot / 루트 판별 후 호출해야 한다.
  */
 
+import i18next from "i18next";
 import { showConfirmDialog } from "@/components/ui/confirm-dialog";
 import { createLogger } from "../../../shared/log/renderer";
 
 const log = createLogger("delete-batch");
 
 import { showToast } from "@/components/ui/toast";
+import { closeEditorTabsOfDeletedPath } from "@/services/editor/tabs";
 import { useFilesStore } from "@/state/stores/files";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
 import { basename } from "@/utils/path";
+import {
+  type BatchFailure,
+  partialFailureMessage,
+  reportedFailure,
+  thrownFailure,
+} from "./batch-failure";
 import { distinctParents } from "./distinct-parents";
 import { removeDir } from "./remove-dir";
 import { trashPath } from "./trash";
@@ -49,7 +57,7 @@ export async function confirmAndDeletePath(
   name?: string,
 ): Promise<boolean> {
   const displayName = name ?? basename(absPath);
-  const kindLabel = nodeType === "dir" ? "folder" : "file";
+  const isDir = nodeType === "dir";
 
   // Workspace kind drives the deletion semantics: local goes through the
   // OS trash (recoverable), SSH goes through agent removeAll/unlink
@@ -57,47 +65,51 @@ export async function confirmAndDeletePath(
   const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
   const useTrash = workspace?.location.kind === "local";
 
-  const description = composeDescription({
-    displayName,
-    kindLabel,
-    isDir: nodeType === "dir",
-    useTrash,
-  });
+  const description = composeDescription({ displayName, isDir, useTrash });
 
   const ok = await showConfirmDialog({
-    title: `Delete ${kindLabel}`,
+    title: isDir
+      ? i18next.t("files:fileTree.delete.titleFolder")
+      : i18next.t("files:fileTree.delete.titleFile"),
     description,
-    confirmLabel: useTrash ? "Move to Trash" : "Delete",
-    cancelLabel: "Cancel",
+    confirmLabel: deleteLabel(useTrash),
     variant: "destructive",
   });
   if (!ok) return false;
 
-  if (useTrash) {
-    return trashPath({ workspaceId, workspaceRootPath, absPath, nodeType });
-  }
-
-  // SSH path — permanent. Directory: removeAll (already collapses the
-  // empty/non-empty distinction); file/symlink: unlink.
-  if (nodeType === "dir") {
-    return removeDir({ workspaceId, workspaceRootPath, absPath });
-  }
-  return unlinkPath({ workspaceId, workspaceRootPath, absPath });
+  // Local goes to the Trash. SSH is permanent — directory: removeAll
+  // (already collapses the empty/non-empty distinction); file/symlink: unlink.
+  const deleted = useTrash
+    ? await trashPath({ workspaceId, workspaceRootPath, absPath, nodeType })
+    : nodeType === "dir"
+      ? await removeDir({ workspaceId, workspaceRootPath, absPath })
+      : await unlinkPath({ workspaceId, workspaceRootPath, absPath });
+  if (deleted) closeEditorTabsOfDeletedPath(workspaceId, absPath);
+  return deleted;
 }
 
 interface DescriptionInput {
   displayName: string;
-  kindLabel: string;
   isDir: boolean;
   useTrash: boolean;
 }
 
-function composeDescription({ displayName, kindLabel, isDir, useTrash }: DescriptionInput): string {
-  const subject = isDir ? `Delete "${displayName}" and its contents?` : `Delete "${displayName}"?`;
+function composeDescription({ displayName, isDir, useTrash }: DescriptionInput): string {
+  const subject = isDir
+    ? i18next.t("files:fileTree.delete.askFolder", { name: displayName })
+    : i18next.t("files:fileTree.delete.askFile", { name: displayName });
   const consequence = useTrash
-    ? `You can restore the ${kindLabel} from the Trash.`
-    : "This cannot be undone.";
+    ? isDir
+      ? i18next.t("files:fileTree.delete.restoreFolder")
+      : i18next.t("files:fileTree.delete.restoreFile")
+    : i18next.t("files:fileTree.delete.permanent");
   return `${subject} ${consequence}`;
+}
+
+function deleteLabel(useTrash: boolean): string {
+  return useTrash
+    ? i18next.t("files:fileTree.delete.moveToTrash")
+    : i18next.t("common:action.delete");
 }
 
 // ---------------------------------------------------------------------------
@@ -151,28 +163,29 @@ export async function confirmAndDeleteBatch(
   // Build dialog text.
   const N = effective.length;
   const names = effective.map((p) => basename(p));
-  const suffix = useTrash ? "You can restore the items from the Trash." : "This cannot be undone.";
+  const suffix = useTrash
+    ? i18next.t("files:fileTree.delete.restoreItems")
+    : i18next.t("files:fileTree.delete.permanent");
 
   let description: string;
   if (N <= 3) {
     description = `${names.join(", ")}\n${suffix}`;
   } else {
-    description = `${names.slice(0, 3).join(", ")} and ${N - 3} more\n${suffix}`;
+    const shown = names.slice(0, 3).join(", ");
+    description = `${i18next.t("files:fileTree.delete.moreNames", { names: shown, count: N - 3 })}\n${suffix}`;
   }
 
   const ok = await showConfirmDialog({
-    title: `Delete ${N} items`,
+    title: i18next.t("files:fileTree.delete.titleMany", { count: N }),
     description,
-    confirmLabel: useTrash ? "Move to Trash" : "Delete",
-    cancelLabel: "Cancel",
+    confirmLabel: deleteLabel(useTrash),
     variant: "destructive",
   });
   if (!ok) return false;
 
   // Execute deletions sequentially. Collect results.
   let successCount = 0;
-  let firstFailurePath: string | null = null;
-  let firstFailureMessage: string | null = null;
+  let firstFailure: BatchFailure | null = null;
 
   // Snapshot the tree once before the loop — loadChildren may mutate it
   // between iterations but we only need each path's type at start time.
@@ -192,9 +205,8 @@ export async function confirmAndDeleteBatch(
       }
     } catch (e: unknown) {
       ok2 = false;
-      if (firstFailurePath === null) {
-        firstFailurePath = p;
-        firstFailureMessage = e instanceof Error ? e.message : String(e);
+      if (firstFailure === null) {
+        firstFailure = thrownFailure(p, e);
       } else {
         log.error(`failed: ${p}: ${(e as Error).message}`);
       }
@@ -202,24 +214,28 @@ export async function confirmAndDeleteBatch(
 
     if (ok2) {
       successCount += 1;
-    } else if (firstFailurePath === null) {
+      closeEditorTabsOfDeletedPath(workspaceId, p);
+    } else if (firstFailure === null) {
       // Per-path helpers already surface their own error toasts; record for summary.
-      firstFailurePath = p;
-      firstFailureMessage = `deletion failed`;
+      firstFailure = reportedFailure(p);
     } else {
       log.error(`failed: ${p}`);
     }
   }
 
-  const failCount = N - successCount;
-  if (failCount === 0) {
-    showToast({ kind: "info", message: `Deleted ${N} items` });
+  if (firstFailure === null) {
+    showToast({ kind: "info", message: i18next.t("files:fileTree.delete.deleted", { count: N }) });
     return true;
   }
 
   showToast({
     kind: "error",
-    message: `Deleted ${successCount} of ${N}. First failure: ${firstFailurePath}: ${firstFailureMessage}`,
+    message: partialFailureMessage(
+      "files:fileTree.delete.deletedPartial",
+      successCount,
+      N,
+      firstFailure,
+    ),
   });
   return false;
 }

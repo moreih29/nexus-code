@@ -55,6 +55,30 @@ describe("useTabsStore — createTab", () => {
     expect(tab.title).toBe("Terminal");
   });
 
+  it("numbers further terminals and reuses the lowest free number", () => {
+    const store = useTabsStore.getState();
+    const first = store.createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
+    const second = store.createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
+    const third = store.createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
+    expect([first.title, second.title, third.title]).toEqual([
+      "Terminal",
+      "Terminal 2",
+      "Terminal 3",
+    ]);
+
+    useTabsStore.getState().removeTab(WS_A, second.id);
+    const reused = useTabsStore
+      .getState()
+      .createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
+    expect(reused.title).toBe("Terminal 2");
+
+    // Numbering is per workspace.
+    const other = useTabsStore
+      .getState()
+      .createTab(WS_B, { type: "terminal", props: { cwd: "/" } });
+    expect(other.title).toBe("Terminal");
+  });
+
   it("derives title from filePath basename for editor type", () => {
     const tab = useTabsStore.getState().createTab(WS_A, {
       type: "editor",

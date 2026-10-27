@@ -1,4 +1,8 @@
-import type { AgentGitRunResult } from "../../../../shared/git/protocol";
+import {
+  AGENT_REQUEST_FAILED_CODE,
+  AgentGitFailureDataSchema,
+  type AgentGitRunResult,
+} from "../../../../shared/git/protocol";
 import type { GitActionHint, GitErrorKind } from "../../../../shared/git/types";
 
 export type { GitErrorKind };
@@ -59,6 +63,24 @@ export function gitErrorFromAgent(
     signal: null,
     hint: result.errorHint,
     cause,
+  });
+}
+
+/**
+ * Re-wraps the request failure of a dedicated agent git method (push, pull,
+ * tag, stash, ...) as the TS GitError marker, with the kind and hint the
+ * agent classified. An agent that predates the error data, or a failure
+ * that is no git exit, gives kind "unknown". Returns undefined for errors
+ * that are not request failures, such as transport errors and aborts.
+ */
+export function gitErrorFromAgentError(error: unknown): GitError | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const { code, data } = error as Error & { code?: unknown; data?: unknown };
+  if (code !== AGENT_REQUEST_FAILED_CODE) return undefined;
+  const failure = AgentGitFailureDataSchema.safeParse(data);
+  return new GitError(failure.success ? failure.data.errorKind : "unknown", error.message, {
+    hint: failure.success ? failure.data.errorHint : undefined,
+    cause: error,
   });
 }
 

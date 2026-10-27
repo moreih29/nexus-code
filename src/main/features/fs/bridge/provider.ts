@@ -7,6 +7,7 @@ import type {
   WriteFileResult,
 } from "../../../../shared/fs/types";
 import type {
+  AgentCallOptions,
   ChannelEventCallback,
   ChannelLifecycleCallback,
 } from "../../../infra/agent/channel";
@@ -16,7 +17,8 @@ import type {
  */
 export interface FsProvider {
   readonly kind: "local" | "ssh";
-  readdir(relPath: string): Promise<DirEntry[]>;
+  /** `includeHidden` also lists entries the explorer hides (.git, .DS_Store). */
+  readdir(relPath: string, options?: { includeHidden?: boolean }): Promise<DirEntry[]>;
   stat(relPath: string): Promise<FsStat>;
   readFile(relPath: string): Promise<FileReadResult>;
   /**
@@ -47,7 +49,11 @@ export interface FsProvider {
 }
 
 export interface AgentBackedProvider extends FsProvider {
-  callAgentMethod<TResult = unknown>(method: string, params?: unknown): Promise<TResult>;
+  callAgentMethod<TResult = unknown>(
+    method: string,
+    params?: unknown,
+    options?: AgentCallOptions,
+  ): Promise<TResult>;
   onAgentEvent(event: string, callback: ChannelEventCallback): () => void;
   /**
    * Subscribes to channel lifecycle transitions. Watch bridges use the

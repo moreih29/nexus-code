@@ -1,5 +1,6 @@
 /** Remove a file-like entry (regular file or symlink) via fs.unlink. */
 
+import i18next from "i18next";
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { parentOf } from "@/state/stores/files";
 import { basename } from "@/utils/path";
@@ -22,9 +23,9 @@ export async function unlinkPath(input: UnlinkInput): Promise<boolean> {
         unwrapIpcResult,
       ),
     errorMessages: {
-      fallback: "Couldn't delete file.",
-      notFound: "File not found.",
-      permissionDenied: "Permission denied while deleting file.",
+      fallback: i18next.t("files:fileTree.delete.fileFailed"),
+      notFound: i18next.t("files:fileTree.fsError.fileNotFound"),
+      permissionDenied: i18next.t("files:fileTree.delete.fileDenied"),
     },
   });
 }

@@ -38,14 +38,16 @@ interface FakeAgentProvider {
 }
 
 function makeManager(provider: FakeAgentProvider, workspaces: WorkspaceMeta[] = [makeWorkspace()]) {
+  const requireContext = (workspaceId: string) => {
+    if (!workspaces.some((workspace) => workspace.id === workspaceId)) {
+      throw new Error(`workspace not found: ${workspaceId}`);
+    }
+    return { fs: provider };
+  };
   return {
     list: (): WorkspaceMeta[] => workspaces,
-    requireContext: (workspaceId: string) => {
-      if (!workspaces.some((workspace) => workspace.id === workspaceId)) {
-        throw new Error(`workspace not found: ${workspaceId}`);
-      }
-      return { fs: provider };
-    },
+    requireContext,
+    getFs: async (workspaceId: string) => requireContext(workspaceId).fs,
   };
 }
 
@@ -214,5 +216,48 @@ describe("searchTextStream", () => {
     expect(err).toBeInstanceOf(WorkspaceNotFoundError);
     expect((err as WorkspaceNotFoundError).name).toBe("WorkspaceNotFoundError");
     expect((err as WorkspaceNotFoundError).workspaceId).toBe(UNKNOWN_UUID);
+  });
+
+  test("waits for the agent provider while the workspace is still starting", async () => {
+    const provider = makeAgentProvider({
+      complete: { filesScanned: 3, matchesFound: 0, limitHit: false, elapsedMs: 1 },
+    });
+    let resolveProvider!: (value: FakeAgentProvider) => void;
+    const manager = {
+      list: (): WorkspaceMeta[] => [makeWorkspace()],
+      // The context still holds the inert placeholder until the agent boots.
+      requireContext: () => ({ fs: {} }),
+      getFs: () =>
+        new Promise<FakeAgentProvider>((resolve) => {
+          resolveProvider = resolve;
+        }),
+    };
+    const handler = searchTextStream(manager as never);
+    const search = consumeSearch(
+      handler({ workspaceId: VALID_UUID, query: baseQuery({ pattern: "needle" }) }, context()),
+    );
+    await Promise.resolve();
+    resolveProvider(provider);
+
+    const { complete } = await search;
+    expect(complete.filesScanned).toBe(3);
+  });
+
+  test("cancels the agent search when the request times out locally", async () => {
+    const methods: string[] = [];
+    const provider = makeAgentProvider({});
+    provider.callAgentMethod = async (method) => {
+      methods.push(method);
+      if (method === "search.cancel") return {};
+      throw new Error("search.text timed out after 30000ms");
+    };
+    const handler = searchTextStream(makeManager(provider) as never);
+
+    await expect(
+      consumeSearch(
+        handler({ workspaceId: VALID_UUID, query: baseQuery({ pattern: "needle" }) }, context()),
+      ),
+    ).rejects.toThrow("timed out");
+    expect(methods).toEqual(["search.text", "search.cancel"]);
   });
 });

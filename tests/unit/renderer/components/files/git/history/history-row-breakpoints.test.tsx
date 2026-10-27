@@ -49,7 +49,7 @@ describe("HistoryRow breakpoint columns", () => {
     const row = renderHistoryRow("narrow");
 
     expect(String(row.props.className)).toContain(
-      "grid-cols-[var(--graph-w)_minmax(0,1fr)_5ch_24px]",
+      "grid-cols-[var(--graph-w)_minmax(0,1fr)_8ch_24px]",
     );
     expect(row.children).toHaveLength(4);
     expect(row.textContent).toContain("Subject stays visible");
@@ -64,7 +64,7 @@ describe("HistoryRow breakpoint columns", () => {
     const row = renderHistoryRow("medium");
 
     expect(String(row.props.className)).toContain(
-      "grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_5ch_7ch_24px]",
+      "grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_8ch_7ch_24px]",
     );
     expect(row.children).toHaveLength(6);
     expect(row.textContent).toContain("refs");
@@ -76,7 +76,7 @@ describe("HistoryRow breakpoint columns", () => {
     const row = renderHistoryRow("wide");
 
     expect(String(row.props.className)).toContain(
-      "grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_12ch_5ch_7ch_24px]",
+      "grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_12ch_8ch_7ch_24px]",
     );
     expect(row.children).toHaveLength(7);
     expect(row.textContent).toContain("refs");

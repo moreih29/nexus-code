@@ -8,6 +8,7 @@
  * create file.")` without re-implementing the dispatch.
  */
 
+import i18next from "i18next";
 import { showToast } from "@/components/ui/toast";
 import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/errors";
 
@@ -32,33 +33,54 @@ export interface FsToastMessages {
 
 export function toFsToast(error: unknown, msgs: FsToastMessages): void {
   if (hasFsErrorCode(error, FS_ERROR.ALREADY_EXISTS)) {
-    showToast({ kind: "error", message: msgs.alreadyExists ?? "Already exists." });
+    showToast({
+      kind: "error",
+      message: msgs.alreadyExists ?? i18next.t("files:fileTree.fsError.alreadyExists"),
+    });
     return;
   }
   if (hasFsErrorCode(error, FS_ERROR.NOT_FOUND)) {
-    showToast({ kind: "error", message: msgs.notFound ?? "Path not found." });
+    showToast({
+      kind: "error",
+      message: msgs.notFound ?? i18next.t("files:fileTree.fsError.notFound"),
+    });
     return;
   }
   if (hasFsErrorCode(error, FS_ERROR.PERMISSION_DENIED)) {
-    showToast({ kind: "error", message: msgs.permissionDenied ?? "Permission denied." });
+    showToast({
+      kind: "error",
+      message: msgs.permissionDenied ?? i18next.t("files:fileTree.fsError.permissionDenied"),
+    });
     return;
   }
   if (hasFsErrorCode(error, FS_ERROR.NOT_EMPTY)) {
     // NOT_EMPTY is a user-decision point (system is healthy), not a system
     // error — designer decision: warning severity, polite aria-live (Nielsen H5).
-    showToast({ kind: "warning", message: msgs.notEmpty ?? "Folder is not empty." });
+    showToast({
+      kind: "warning",
+      message: msgs.notEmpty ?? i18next.t("files:fileTree.fsError.notEmpty"),
+    });
     return;
   }
   if (hasFsErrorCode(error, FS_ERROR.NOT_DIRECTORY)) {
-    showToast({ kind: "error", message: msgs.notDirectory ?? "Path is not a folder." });
+    showToast({
+      kind: "error",
+      message: msgs.notDirectory ?? i18next.t("files:fileTree.fsError.notDirectory"),
+    });
     return;
   }
   if (hasFsErrorCode(error, FS_ERROR.CROSS_DEVICE)) {
-    showToast({ kind: "error", message: msgs.crossDevice ?? "Can't move across filesystems." });
+    showToast({
+      kind: "error",
+      message: msgs.crossDevice ?? i18next.t("files:fileTree.fsError.crossDevice"),
+    });
     return;
   }
   if (hasFsErrorCode(error, FS_ERROR.UNSUPPORTED_REMOTE)) {
-    showToast({ kind: "error", message: msgs.unsupportedRemote ?? "Operation not supported for remote workspaces." });
+    showToast({
+      kind: "error",
+      message: msgs.unsupportedRemote ?? i18next.t("files:fileTree.fsError.unsupportedRemote"),
+    });
     return;
   }
   showToast({ kind: "error", message: msgs.fallback });

@@ -36,7 +36,7 @@ import { createListenerBus } from "../../../shared/util/listener-bus";
  * retry; well above the residual NSAction window so the spurious click is
  * reliably absorbed.
  */
-const MOUNT_CLICK_GRACE_MS = 120;
+export const MOUNT_CLICK_GRACE_MS = 120;
 
 export interface ConfirmDialogRequest {
   title: string;

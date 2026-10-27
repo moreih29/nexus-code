@@ -142,9 +142,14 @@ export function MarkdownPreview({
   const scrollToAnchor = useCallback((id: string) => {
     const container = containerRef.current;
     if (!container) return;
-    // rehype-slug gives headings stable ids; if the target is missing we fall
-    // back to the top of the container.
-    const target = container.querySelector(`[id="${cssEscape(id)}"]`);
+    // rehype-slug gives headings stable ids. Ids that come from the source
+    // (footnotes, raw-HTML anchors) get rehype-sanitize's `user-content-`
+    // clobber prefix while their links keep the original fragment, so fall
+    // back to the prefixed id the way github.com does. Footnotes are
+    // prefixed twice (remark-rehype, then sanitize) and resolve the same way.
+    const target =
+      container.querySelector(`[id="${cssEscape(id)}"]`) ??
+      container.querySelector(`[id="${cssEscape(`user-content-${id}`)}"]`);
     if (target && target instanceof HTMLElement) {
       target.scrollIntoView({ behavior: "auto", block: "start" });
     }
@@ -259,6 +264,38 @@ export function MarkdownPreview({
     [imageCtx, onLinkClick, workspaceId],
   );
 
+  // Parsing and highlighting happen while <ReactMarkdown> renders. Reusing the
+  // element lets React skip it when only the surrounding tab, layout or git
+  // stores changed, which otherwise re-parsed every preview in the
+  // workspace (parked ones included) on a tab switch or status event.
+  const markdown = useMemo(
+    () => (
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[
+          // Parse raw HTML in the source (centered <div>, sized <img>,
+          // <details>, …) so the preview matches GitHub …
+          rehypeRaw,
+          // … then immediately sanitize with GitHub's default allowlist.
+          // Strips <script>/<iframe>/on*/style/bad-scheme URLs. MUST sit
+          // between raw and slug/highlight (see header comment).
+          rehypeSanitize,
+          rehypeSlug,
+          // Syntax highlighting for fenced blocks with a language hint
+          // (```python …). `detect: false` → only highlight when a language
+          // is declared; `ignoreMissing: true` → unknown languages render
+          // plain instead of throwing. Runs AFTER sanitize so its emitted
+          // <span class="hljs-*"> survive the allowlist.
+          [rehypeHighlight, { detect: false, ignoreMissing: true }],
+        ]}
+        components={components}
+      >
+        {text}
+      </ReactMarkdown>
+    ),
+    [text, components],
+  );
+
   return (
     <div ref={containerRef} className="md-preview h-full min-h-0 overflow-auto">
       {truncated && (
@@ -271,28 +308,7 @@ export function MarkdownPreview({
       )}
       <PreviewContext.Provider value={previewCtx}>
         <div className="md-content mx-auto max-w-[72ch] px-6 py-4 text-[var(--surface-island-fg)]">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[
-              // Parse raw HTML in the source (centered <div>, sized <img>,
-              // <details>, …) so the preview matches GitHub …
-              rehypeRaw,
-              // … then immediately sanitize with GitHub's default allowlist.
-              // Strips <script>/<iframe>/on*/style/bad-scheme URLs. MUST sit
-              // between raw and slug/highlight (see header comment).
-              rehypeSanitize,
-              rehypeSlug,
-              // Syntax highlighting for fenced blocks with a language hint
-              // (```python …). `detect: false` → only highlight when a language
-              // is declared; `ignoreMissing: true` → unknown languages render
-              // plain instead of throwing. Runs AFTER sanitize so its emitted
-              // <span class="hljs-*"> survive the allowlist.
-              [rehypeHighlight, { detect: false, ignoreMissing: true }],
-            ]}
-            components={components}
-          >
-            {text}
-          </ReactMarkdown>
+          {markdown}
         </div>
       </PreviewContext.Provider>
     </div>

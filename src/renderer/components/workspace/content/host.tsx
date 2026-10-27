@@ -10,6 +10,31 @@ import { useSlotElement } from "./slot-registry";
 import { TerminalView } from "./terminal-view";
 import { useViewPark } from "./view-park";
 
+/**
+ * Moves `node` under `parent`, preserving its subtree's live state where the
+ * platform allows. A plain appendChild is a remove + insert: every <iframe>
+ * inside is torn down and reloaded, so an HtmlPreview restarts its document
+ * (scroll back to top, scripts re-run) on every tab or workspace switch.
+ * `moveBefore` (Chromium 133+) is an atomic move that keeps iframes, focus
+ * and animations alive. It requires both ends to be connected to the same
+ * document, so the first attach (node still detached) and anything it
+ * rejects fall back to appendChild.
+ */
+function movePortalTarget(parent: HTMLElement, node: HTMLElement): void {
+  const movable = parent as HTMLElement & {
+    moveBefore?: (node: Node, child: Node | null) => void;
+  };
+  if (node.isConnected && parent.isConnected && typeof movable.moveBefore === "function") {
+    try {
+      movable.moveBefore(node, null);
+      return;
+    } catch {
+      // Fall through to the classic move.
+    }
+  }
+  parent.appendChild(node);
+}
+
 interface ContentHostProps {
   workspaceId: string;
   tab: Tab;
@@ -99,7 +124,7 @@ export function ContentHost({
   useEffect(() => {
     if (!currentParent) return;
     if (portalTarget.parentElement !== currentParent) {
-      currentParent.appendChild(portalTarget);
+      movePortalTarget(currentParent, portalTarget);
     }
   }, [currentParent, portalTarget]);
 
@@ -153,6 +178,9 @@ export function ContentHost({
             tabId={tab.id}
             filePath={tab.props.filePath}
             workspaceId={workspaceId}
+            // External tabs must reload through the external loader after a
+            // restart; as workspace files they resolved under the root.
+            origin={tab.props.origin}
           />
         )
       ) : tab.type === "untitled" ? (
@@ -164,7 +192,7 @@ export function ContentHost({
           origin="untitled"
         />
       ) : tab.type === "editor.diff" ? (
-        <DiffTab {...tab.props} />
+        <DiffTab tabId={tab.id} {...tab.props} />
       ) : tab.type === "git.commit" ? (
         <CommitTab workspaceId={workspaceId} sha={tab.props.sha} tabId={tab.id} />
       ) : tab.type === "browser" ? (

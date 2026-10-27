@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestStreamDefaultEmitsStdoutAndClassifiesStderr(t *testing.T) {
@@ -80,6 +82,78 @@ exit 128
 	}
 	if !strings.Contains(runResult.Stderr, "Authentication failed") {
 		t.Fatalf("stderr was not retained for classification: %q", runResult.Stderr)
+	}
+}
+
+// TestStreamingHandlersStopGitWhenReadingStops covers handlers that stopped
+// reading git's output early (an event emit failed because the dialer was
+// gone, or the progress scanner gave up) and then called cmd.Wait() with git
+// still running: git blocked on the full pipe, so the handler, the git
+// process and the stream id leaked forever.
+func TestStreamingHandlersStopGitWhenReadingStops(t *testing.T) {
+	fakeDir := t.TempDir()
+	// Endless output; the only way for this "git" to exit is to be killed.
+	writeFakeGit(t, fakeDir, `#!/bin/sh
+case "$1" in
+clone) exec tr '\000' x < /dev/zero >&2 ;;
+log) exec yes "$(printf 'abc\037a\037\037n\037e\0372020-01-01T00:00:00Z\037s\037b\037\036')" ;;
+*) exec yes 'diff --git a/x b/x' ;;
+esac
+`)
+	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	parent := t.TempDir()
+
+	cases := []struct {
+		name string
+		call func(*Service) (any, error)
+	}{
+		{"stream", func(s *Service) (any, error) {
+			return s.Stream(context.Background(), json.RawMessage(`{"streamId":"s","args":["cat-file","-p","HEAD:x"]}`))
+		}},
+		{"diff", func(s *Service) (any, error) {
+			return s.Diff(context.Background(), json.RawMessage(`{"streamId":"s"}`))
+		}},
+		{"stashShow", func(s *Service) (any, error) {
+			return s.StashShow(context.Background(), json.RawMessage(`{"streamId":"s","index":0}`))
+		}},
+		{"log", func(s *Service) (any, error) {
+			return s.Log(context.Background(), json.RawMessage(`{"streamId":"s"}`))
+		}},
+		{"clone", func(s *Service) (any, error) {
+			raw, _ := json.Marshal(CloneParams{StreamID: "s", URL: "https://example.invalid/repo.git", ParentDir: parent, Name: "repo"})
+			return s.Clone(context.Background(), raw)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			service := New(t.TempDir())
+			service.SetEventSink(func(string, any) error { return errors.New("dialer gone") })
+			done := make(chan error, 1)
+			go func() {
+				_, err := tc.call(service)
+				done <- err
+			}()
+			select {
+			case err := <-done:
+				if err == nil {
+					t.Fatal("expected the handler to fail")
+				}
+			case <-time.After(5 * time.Second):
+				service.mu.Lock()
+				cancel := service.streams["s"]
+				service.mu.Unlock()
+				if cancel != nil {
+					cancel()
+				}
+				<-done
+				t.Fatal("handler still blocked in cmd.Wait() 5s after it stopped reading git output")
+			}
+			service.mu.Lock()
+			defer service.mu.Unlock()
+			if len(service.streams) != 0 {
+				t.Fatalf("stream ids still registered: %v", service.streams)
+			}
+		})
 	}
 }
 

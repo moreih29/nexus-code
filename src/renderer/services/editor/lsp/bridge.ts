@@ -8,8 +8,12 @@ import type { SymbolInformation } from "../../../../shared/lsp";
 import type { LspLanguageId } from "../../../../shared/types/app-state";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../../ipc/client";
 import { useActiveStore } from "../../../state/stores/active";
-import { isLspEnabledForWorkspace, useLspEnabledStore } from "../../../state/stores/lsp-enabled";
-import { rehydrateLspForWorkspace, resetLspStateForWorkspace } from "../model/cache";
+import { useLspEnabledStore } from "../../../state/stores/lsp-enabled";
+import {
+  getEntryLspVersion,
+  rehydrateLspForWorkspace,
+  resetLspStateForWorkspace,
+} from "../model/cache";
 import { isKnownModelUri, registerKnownModelUri, unregisterKnownModelUri } from "./known-uris";
 import {
   lspDiagnosticToMonacoMarker,
@@ -116,27 +120,16 @@ function registerEnabledLanguagesChangedListener(): void {
       languages: LspLanguageId[];
     };
 
-    // Compute the newly-added languages before updating the store so we
-    // can trigger a rehydrate for them on the active workspace.
-    const prev = useLspEnabledStore.getState().byWorkspace[workspaceId] ?? [];
-    const prevSet = new Set<string>(prev);
-    const added = languages.filter((lang) => !prevSet.has(lang));
-
     // Update the store — this also unblocks future isLspEnabledForWorkspace reads.
     useLspEnabledStore.getState().setForWorkspace(workspaceId, languages);
 
-    // For newly-added languages, eagerly rehydrate if the workspace is
-    // currently active. The workspaceReset broadcast handles removed languages.
-    if (added.length > 0) {
-      const activeWorkspaceId = useActiveStore.getState().activeWorkspaceId;
-      if (activeWorkspaceId === workspaceId) {
-        for (const lang of added) {
-          // isLspEnabledForWorkspace now returns true after the store update above.
-          if (isLspEnabledForWorkspace(workspaceId, lang)) {
-            rehydrateLspForWorkspace(workspaceId, lang);
-          }
-        }
-      }
+    // Open the active workspace's documents for every enabled language.
+    // The toggle chip updates the store before main broadcasts, so a diff
+    // against the store would find nothing new; rehydrate skips documents
+    // that are already open. Other workspaces catch up on activation, and
+    // the workspaceReset broadcast handles removed languages.
+    if (useActiveStore.getState().activeWorkspaceId === workspaceId) {
+      for (const lang of languages) rehydrateLspForWorkspace(workspaceId, lang);
     }
   });
 }
@@ -147,7 +140,10 @@ function registerApplyEditListener(monaco: typeof Monaco): void {
   applyEditUnlisten = ipcListen("lsp", "applyEdit", (args) => {
     const result = (() => {
       try {
-        return applyWorkspaceEdit(monaco, args.params);
+        return applyWorkspaceEdit(monaco, args.params, {
+          workspaceId: args.workspaceId,
+          lspVersionOf: (model) => getEntryLspVersion(model.uri.toString()) ?? undefined,
+        });
       } catch (error) {
         return { applied: false, failureReason: String(error) };
       }

@@ -51,7 +51,7 @@ import type {
 } from "./types";
 import { createGitStoreContext } from "./store-context";
 import { createSessionLifecycleSlice } from "./session-lifecycle";
-import { createOperationsSlice } from "./operations";
+import { createOperationsSlice, type OperationsSlice } from "./operations";
 import { createQueriesSlice } from "./queries";
 import { createPanelUiSlice } from "./panel-ui";
 
@@ -82,6 +82,7 @@ interface GitState {
   init: (workspaceId: string) => Promise<RepoInfo | undefined>;
   stage: (workspaceId: string, relPaths: string[]) => Promise<void>;
   unstage: (workspaceId: string, relPaths: string[]) => Promise<void>;
+  stageContent: OperationsSlice["stageContent"];
   discard: (workspaceId: string, relPaths: string[], source?: GitExpandedGroupKey) => Promise<void>;
   commit: (workspaceId: string, options?: CommitOptions) => Promise<CommitResult | undefined>;
   commitAmend: (

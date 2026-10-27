@@ -6,6 +6,7 @@ import i18next from "i18next";
 import type { Tag } from "../../../../../shared/git/types";
 import { openTerminal } from "../../../../services/terminal";
 import type { GitStoreError } from "../../../../state/stores/git";
+import { isAuthGitError } from "../../../../state/stores/git/error-placement";
 import type { PromptRequest } from "../../../ui/prompt-dialog";
 
 /**
@@ -71,16 +72,5 @@ export function buildErrorAction(
     };
   }
 
-  return { label: t("files:common.action.retry"), onAction: opts.onRetry };
-}
-
-/**
- * Branches on stable GitError.kind when available, with message fallback for
- * Electron IPC error serialization that can strip custom Error properties.
- */
-function isAuthGitError(error: GitStoreError): boolean {
-  if (error.kind === "auth" || error.kind === "auth-required") return true;
-  return /authentication failed|could not read username|could not read password|permission denied|terminal prompts disabled/i.test(
-    `${error.message}\n${error.details ?? ""}`,
-  );
+  return { label: t("common:action.retry"), onAction: opts.onRetry };
 }

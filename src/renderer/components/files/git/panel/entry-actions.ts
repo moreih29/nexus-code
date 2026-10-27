@@ -85,13 +85,18 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
     ctx.setBanner({ variant: "info", message: i18next.t("files:git.entryActions.diffViewUnavailable") });
   }
 
+  /**
+   * Opens the working-tree file in the app's editor. Handing it to the OS
+   * default handler instead would execute `.command`, `.app` and similar
+   * files that a repository can put in the change list.
+   */
   function openWorkingTreeFile(entry: GitStatusEntry): void {
     const absPath = absolutePathForEntry(entry);
     if (!absPath) {
       ctx.setBanner({ variant: "error", message: i18next.t("files:git.entryActions.workingTreeUnavailable") });
       return;
     }
-    void runSystemPathAction("openPathExternal", absPath, ctx.setBanner);
+    openOrRevealEditor({ workspaceId: ctx.workspaceId, filePath: absPath });
   }
 
   function revealEntryInOS(entry: GitStatusEntry): void {
@@ -170,11 +175,11 @@ function joinRootAndGitRelPath(rootPath: string, relPath: string): string {
 }
 
 /**
- * Runs one of the system path IPC calls and maps typed failures into the
+ * Runs a system path IPC call and maps typed failures into the
  * inline Git banner instead of throwing from a fire-and-forget menu action.
  */
 async function runSystemPathAction(
-  method: "openPathExternal" | "revealInOS",
+  method: "revealInOS",
   absPath: string,
   setBanner: (banner: EntryActionBanner) => void,
 ): Promise<void> {

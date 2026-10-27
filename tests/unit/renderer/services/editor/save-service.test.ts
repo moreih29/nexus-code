@@ -84,7 +84,7 @@ mock.module("../../../../../src/renderer/components/editor/conflict-dialog", () 
   __resetConflictDialogForTests: () => {},
 }));
 
-const { saveModel, saveModelInteractive } = await import(
+const { reportSaveFailure, saveModel, saveModelInteractive } = await import(
   "../../../../../src/renderer/services/editor/save/service"
 );
 
@@ -144,7 +144,7 @@ describe("saveModel read-only guard", () => {
     expect(showToastMock).toHaveBeenCalledTimes(1);
     expect((showToastMock.mock.calls[0] as [{ kind: string; message: string }])[0]).toEqual({
       kind: "info",
-      message: "File is read-only",
+      message: "File is read-only.",
     });
     // Dirty tracker must NOT be queried — guard fires before dirty check.
     expect(getDirtyEntryMock).not.toHaveBeenCalled();
@@ -370,6 +370,22 @@ describe("saveModelInteractive — conflict, user cancels", () => {
     expect(reloadModelFromDiskMock).not.toHaveBeenCalled();
     // Only the initial conflicting fs.writeFile — no retry
     expect(ipcCallMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("reportSaveFailure", () => {
+  test("toasts a failed write", () => {
+    reportSaveFailure({ kind: "error", message: "disk full" });
+    expect(showToastMock).toHaveBeenCalledTimes(1);
+    expect(showToastMock.mock.calls[0]?.[0]).toEqual({
+      kind: "error",
+      message: "Save failed: disk full",
+    });
+  });
+
+  test("stays silent for a conflict the user cancelled in the conflict dialog", () => {
+    reportSaveFailure({ kind: "conflict", actual: { exists: true, mtime: "T2", size: 99 } });
+    expect(showToastMock).not.toHaveBeenCalled();
   });
 });
 

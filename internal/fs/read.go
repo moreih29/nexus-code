@@ -6,22 +6,28 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	iofs "io/fs"
 	"os"
 )
 
-// hiddenNames are directory entries that fs.readdir omits by default.
+// hiddenNames are directory entries that fs.readdir omits by default and the
+// watcher never reports. Only VCS/OS metadata the explorer should never show
+// (VS Code's files.exclude defaults) — build and dependency folders such as
+// node_modules or dist are real workspace content and stay visible.
 var hiddenNames = map[string]struct{}{
-	".git": {}, "node_modules": {}, "dist": {}, "out": {}, ".DS_Store": {},
-	".next": {}, ".turbo": {}, ".cache": {}, ".vscode-test": {},
+	".git": {}, ".DS_Store": {},
 }
 
-// Readdir lists the entries at relPath, omitting names in hiddenNames.
+// Readdir lists the entries at relPath, omitting names in hiddenNames unless
+// the request sets includeHidden (name-collision checks need every entry).
 func (s *Service) Readdir(ctx context.Context, raw json.RawMessage) (any, error) {
 	abs, err := s.resolve(raw)
 	if err != nil {
 		return nil, err
 	}
+	var opts ReaddirParams
+	_ = json.Unmarshal(raw, &opts)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -31,7 +37,7 @@ func (s *Service) Readdir(ctx context.Context, raw json.RawMessage) (any, error)
 	}
 	out := make([]DirEntry, 0, len(entries))
 	for _, entry := range entries {
-		if _, hidden := hiddenNames[entry.Name()]; hidden {
+		if _, hidden := hiddenNames[entry.Name()]; hidden && !opts.IncludeHidden {
 			continue
 		}
 		out = append(out, DirEntry{Name: entry.Name(), Type: entryType(entry)})
@@ -112,12 +118,15 @@ func readBinaryAt(ctx context.Context, abs string) (any, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	buf, err := os.ReadFile(abs)
+	buf, regular, err := readTarget(abs)
 	if err != nil {
 		if errors.Is(err, iofs.ErrNotExist) {
 			return ReadBinaryResult{Kind: "missing", Reason: "not-found"}, nil
 		}
 		return nil, mapPathError(err, abs)
+	}
+	if !regular {
+		return ReadBinaryResult{Kind: "ok", Base64: "", Size: info.Size(), MTime: formatMTime(info.ModTime())}, nil
 	}
 	return ReadBinaryResult{
 		Kind:   "ok",
@@ -144,12 +153,50 @@ func readFileAt(ctx context.Context, abs string) (any, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	buf, err := os.ReadFile(abs)
+	buf, regular, err := readTarget(abs)
 	if err != nil {
 		if errors.Is(err, iofs.ErrNotExist) {
 			return ReadFileResult{Kind: "missing", Reason: "not-found"}, nil
 		}
 		return nil, mapPathError(err, abs)
 	}
+	if !regular {
+		return ReadFileResult{Kind: "ok", Content: "", Encoding: "utf8", Size: info.Size(), IsBinary: true, MTime: formatMTime(info.ModTime())}, nil
+	}
 	return buildFileContent(buf, info), nil
+}
+
+// readTarget reads abs up to MaxReadableFileSize, following a symlink.
+// Callers check and report the Lstat metadata, which describes a link itself,
+// so the cap is enforced here on what is actually read: a link to /dev/zero
+// or to a file over the cap would otherwise be read without bound.
+// regular=false means the target is a device, FIFO or socket; it is not
+// opened (opening a FIFO blocks until a writer appears).
+func readTarget(abs string) (buf []byte, regular bool, err error) {
+	target, err := os.Stat(abs)
+	if err != nil {
+		return nil, false, err
+	}
+	if target.IsDir() {
+		return nil, false, FSError{Code: CodeIsDirectory, Path: abs}
+	}
+	if !target.Mode().IsRegular() {
+		return nil, false, nil
+	}
+	if target.Size() > MaxReadableFileSize {
+		return nil, false, FSError{Code: CodeTooLarge, Path: fmt.Sprintf("%s (%d bytes)", abs, target.Size())}
+	}
+	file, err := os.Open(abs)
+	if err != nil {
+		return nil, false, err
+	}
+	defer file.Close()
+	buf, err = io.ReadAll(io.LimitReader(file, MaxReadableFileSize+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if len(buf) > MaxReadableFileSize {
+		return nil, false, FSError{Code: CodeTooLarge, Path: fmt.Sprintf("%s (over %d bytes)", abs, MaxReadableFileSize)}
+	}
+	return buf, true, nil
 }

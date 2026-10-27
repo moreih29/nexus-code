@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -99,6 +100,72 @@ func TestDiffChunksLargeInputOverOneMiB(t *testing.T) {
 	}
 	if chunks != 2 {
 		t.Fatalf("expected 2 chunks, got %d", chunks)
+	}
+}
+
+// collectChunks runs one of the chunk emitters over input and returns the
+// emitted texts, failing on any chunk that is not valid UTF-8.
+func collectChunks(t *testing.T, input []byte, maxChunkBytes int, emit func(*Service, io.Reader) error) []string {
+	t.Helper()
+	s := New(t.TempDir())
+	var chunks []string
+	s.SetEventSink(func(event string, payload any) error {
+		text := payload.(DiffChunkPayload).Text
+		if !utf8.ValidString(text) {
+			t.Fatalf("chunk is not valid UTF-8: %q", text)
+		}
+		chunks = append(chunks, text)
+		return nil
+	})
+	if err := emit(s, bytes.NewReader(input)); err != nil {
+		t.Fatal(err)
+	}
+	return chunks
+}
+
+func TestDiffChunksKeepContentAfterInvalidUTF8(t *testing.T) {
+	// A Latin-1 'é' (0xE9) early in the diff used to make the final chunk
+	// stop there, silently dropping every line after it.
+	latin1 := []byte("diff --git a/x b/x\n+caf\xe9 ok\n" + strings.Repeat("+line\n", 10))
+	mixed := []byte("+\xed\x95\x9c\xea\xb8\x80 \xc7\xd1\xb1\xdb \U0001F642\n")
+	bigInvalid := bytes.Repeat([]byte("a"), 1<<20)
+	bigInvalid[len(bigInvalid)/2] = 0xff
+
+	for _, tc := range []struct {
+		name  string
+		input []byte
+	}{{"latin1", latin1}, {"utf8-and-cp949", mixed}, {"one-mib", bigInvalid}} {
+		want := strings.ToValidUTF8(string(tc.input), "�")
+		for _, maxChunk := range []int{1, 2, 3, 5, 7, 64, defaultDiffChunkBytes} {
+			diff := collectChunks(t, tc.input, maxChunk, func(s *Service, r io.Reader) error {
+				_, err := s.emitDiffChunks(context.Background(), "", r, maxChunk, 0)
+				return err
+			})
+			if got := strings.Join(diff, ""); got != want {
+				t.Fatalf("%s/%d: diff chunks lost content: got %d bytes, want %d", tc.name, maxChunk, len(got), len(want))
+			}
+			stash := collectChunks(t, tc.input, maxChunk, func(s *Service, r io.Reader) error {
+				_, err := s.emitStashChunks(context.Background(), "", r, maxChunk)
+				return err
+			})
+			if got := strings.Join(stash, ""); got != want {
+				t.Fatalf("%s/%d: stash chunks lost content: got %d bytes, want %d", tc.name, maxChunk, len(got), len(want))
+			}
+		}
+	}
+}
+
+func TestDiffChunksTruncationDropsSplitCharacter(t *testing.T) {
+	input := []byte("+caf\xc3\xa9\n")
+	chunks := collectChunks(t, input, 64, func(s *Service, r io.Reader) error {
+		result, err := s.emitDiffChunks(context.Background(), "", r, 64, 5)
+		if err == nil && !result.Truncated {
+			t.Fatalf("expected truncated result: %#v", result)
+		}
+		return err
+	})
+	if got := strings.Join(chunks, ""); got != "+caf" {
+		t.Fatalf("truncated text = %q, want %q", got, "+caf")
 	}
 }
 

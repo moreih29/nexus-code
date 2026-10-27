@@ -55,14 +55,22 @@ export function searchTextStream(manager: WorkspaceManager): SearchTextStreamHan
       throw createAbortError();
     }
 
-    const provider = manager.requireContext(workspaceId).fs;
+    // Await the provider like the fs handlers do: while the agent boots or
+    // an SSH connect is in flight the context holds an inert placeholder.
+    const provider = await manager.getFs(workspaceId);
+    if (ctx.signal.aborted) {
+      throw createAbortError();
+    }
     if (!isAgentBackedProvider(provider)) {
       throw new Error("workspace agent provider is not available");
     }
 
     const searchId = randomUUID();
     const queue = new AsyncBatchQueue<FileMatch[]>();
-    let settled = false;
+    // True once the agent answered the search request. Any other exit (abort,
+    // a local request timeout, the consumer stopping early) leaves the
+    // search running on the agent, so it must be cancelled there.
+    let answered = false;
     const unsubscribe = provider.onAgentEvent(SEARCH_PROGRESS_EVENT, (payload) => {
       const parsed = AgentSearchProgressPayloadSchema.safeParse(payload);
       if (!parsed.success || parsed.data.searchId !== searchId) return;
@@ -71,12 +79,14 @@ export function searchTextStream(manager: WorkspaceManager): SearchTextStreamHan
 
     const complete = provider
       .callAgentMethod(SEARCH_TEXT_METHOD, { searchId, query })
-      .then((result) => AgentSearchCompleteSchema.parse(result))
+      .then((result) => {
+        answered = true;
+        return AgentSearchCompleteSchema.parse(result);
+      })
       .catch((error) => {
         throw normalizeSearchError(error);
       })
       .finally(() => {
-        settled = true;
         queue.close();
       });
     complete.catch(() => {});
@@ -98,7 +108,7 @@ export function searchTextStream(manager: WorkspaceManager): SearchTextStreamHan
     } finally {
       ctx.signal.removeEventListener("abort", abort);
       unsubscribe();
-      if (!settled) {
+      if (!answered) {
         void provider.callAgentMethod(SEARCH_CANCEL_METHOD, { searchId }).catch(() => {});
       }
     }

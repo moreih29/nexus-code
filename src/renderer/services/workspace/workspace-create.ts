@@ -32,9 +32,7 @@ export async function createLocalWorkspace(rootPath: string): Promise<WorkspaceM
  */
 export async function pickLocalDirectory(): Promise<string | null> {
   const { canceled, filePaths } = unwrapIpcResult(
-    await ipcCallResult("dialog", "showOpenDirectory", {
-      title: "Select workspace folder",
-    }),
+    await ipcCallResult("dialog", "showOpenDirectory", {}),
   );
   if (canceled || !filePaths[0]) return null;
   return filePaths[0];

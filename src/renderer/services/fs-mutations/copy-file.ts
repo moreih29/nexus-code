@@ -14,6 +14,7 @@
  * surface a toast.
  */
 
+import i18next from "i18next";
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { listDirNames } from "./dir-listing";
 import { toFsToast } from "./errors";
@@ -48,9 +49,9 @@ export async function copyPathWithAutoRename(input: CopyFileInput): Promise<bool
     return true;
   } catch (e: unknown) {
     toFsToast(e, {
-      fallback: "Couldn't copy item.",
-      notFound: "Item not found.",
-      permissionDenied: "Permission denied while copying item.",
+      fallback: i18next.t("files:fileTree.copy.failed"),
+      notFound: i18next.t("files:fileTree.fsError.itemNotFound"),
+      permissionDenied: i18next.t("files:fileTree.copy.denied"),
     });
     return false;
   }

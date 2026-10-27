@@ -10,6 +10,9 @@ package pty
 //   (c) Replay ordering: buffered output precedes live output with no
 //       interleaving.
 //   (d) Ring released: after session exit removeSession nils the ring slice.
+//   (e) Redraw: replay resends output the dialer already received, after a
+//       terminal reset, so a client attaching to a running session can draw
+//       its screen.
 
 import (
 	"bytes"
@@ -91,20 +94,42 @@ func TestRingFrontDropExact(t *testing.T) {
 	}
 }
 
-// TestRingSnapshotResets verifies that ringSnapshotLocked empties the ring.
-func TestRingSnapshotResets(t *testing.T) {
+// TestRingContentsKeepsOutput verifies that reading the ring leaves its
+// contents in place for the next replay.
+func TestRingContentsKeepsOutput(t *testing.T) {
 	s := newBareSession(16)
 	s.ringAppend([]byte("hello"))
 
-	s.ringMu.Lock()
-	snap := s.ringSnapshotLocked()
-	s.ringMu.Unlock()
-
-	if string(snap) != "hello" {
-		t.Fatalf("snapshot = %q, want hello", snap)
+	for range 2 {
+		s.ringMu.Lock()
+		contents := s.ringContentsLocked()
+		s.ringMu.Unlock()
+		if string(contents) != "hello" {
+			t.Fatalf("contents = %q, want hello", contents)
+		}
 	}
-	if got := ringBytes(s); len(got) != 0 {
-		t.Fatalf("ring not empty after snapshot: %q", got)
+}
+
+// TestRingContentsStartAtLineOnceDropped verifies that once the ring has
+// dropped older output, its contents start after the first line break, so a
+// replay does not begin inside a cut escape sequence or character.
+func TestRingContentsStartAtLineOnceDropped(t *testing.T) {
+	s := newBareSession(12)
+	s.ringAppend([]byte("first line\r\n"))
+	s.ringMu.Lock()
+	contents := s.ringContentsLocked()
+	s.ringMu.Unlock()
+	if string(contents) != "first line\r\n" {
+		t.Fatalf("before any drop: contents = %q, want the whole output", contents)
+	}
+
+	// 8 more bytes drop "first li", leaving "ne\r\nsecond\r\n".
+	s.ringAppend([]byte("second\r\n"))
+	s.ringMu.Lock()
+	contents = s.ringContentsLocked()
+	s.ringMu.Unlock()
+	if string(contents) != "second\r\n" {
+		t.Fatalf("after a drop: contents = %q, want second\\r\\n", contents)
 	}
 }
 
@@ -193,6 +218,104 @@ sleep 5
 	}
 
 	rec.requireTranscriptContains(t, "BUFFERED", 2*time.Second)
+}
+
+// TestReplayRedrawsDeliveredOutput verifies that replay resends output the
+// dialer already received, after a terminal reset and marked as replay, so a
+// client that has none of it (a restarted app) can draw the screen (AC-6e).
+func TestReplayRedrawsDeliveredOutput(t *testing.T) {
+	var mu sync.Mutex
+	var live, replayed []byte
+	svc := New()
+	svc.SetEventSink(func(event string, payload any) error {
+		dp, ok := payload.(DataPayload)
+		if event != EventData || !ok {
+			return nil
+		}
+		chunk, _ := base64.StdEncoding.DecodeString(dp.Chunk)
+		mu.Lock()
+		defer mu.Unlock()
+		if dp.Replay {
+			replayed = append(replayed, chunk...)
+		} else {
+			live = append(live, chunk...)
+		}
+		return nil
+	})
+	t.Cleanup(svc.Close)
+
+	tabID := "replay-redraw"
+	spawnTestScript(t, svc, tabID, `
+stty -echo
+echo DELIVERED
+sleep 10
+`)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		mu.Lock()
+		delivered := bytes.Contains(live, []byte("DELIVERED"))
+		mu.Unlock()
+		if delivered {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for live DELIVERED")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if _, err := svc.Replay(context.Background(), mustJSON(t, ReplayParams{
+		WorkspaceID: testWorkspaceID,
+		TabID:       tabID,
+	})); err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+
+	mu.Lock()
+	got := string(replayed)
+	mu.Unlock()
+	if !strings.HasPrefix(got, terminalReset) {
+		t.Fatalf("replay must start with a terminal reset: %q", got)
+	}
+	if !strings.Contains(got, "DELIVERED") {
+		t.Fatalf("replay must resend delivered output: %q", got)
+	}
+}
+
+// TestSpawnAttachesToRunningSession verifies that spawning a tab whose session
+// is still running reports the attach and fits the session to the new
+// client's size instead of starting another child.
+func TestSpawnAttachesToRunningSession(t *testing.T) {
+	rec := &sinkRecorder{}
+	svc := New()
+	svc.SetEventSink(rec.sink)
+	t.Cleanup(svc.Close)
+
+	tabID := "spawn-attach"
+	first := spawnTestScript(t, svc, tabID, `
+echo READY
+trap 'printf "SIZE "; stty size' WINCH
+while :; do sleep 1; done
+`)
+	if first.Attached {
+		t.Fatal("first spawn must start a child, not attach")
+	}
+	rec.requireTranscriptContains(t, "READY", 2*time.Second)
+
+	result, err := svc.Spawn(context.Background(), mustJSON(t, SpawnParams{
+		WorkspaceID: testWorkspaceID, TabID: tabID, Cwd: t.TempDir(), Cols: 100, Rows: 30,
+	}))
+	if err != nil {
+		t.Fatalf("second spawn: %v", err)
+	}
+	second, ok := result.(SpawnResult)
+	if !ok {
+		t.Fatalf("spawn returned %T, want SpawnResult", result)
+	}
+	if !second.Attached || second.PID != first.PID {
+		t.Fatalf("second spawn = %#v, want an attach to pid %d", second, first.PID)
+	}
+	rec.requireTranscriptContains(t, "SIZE 30 100", 2*time.Second)
 }
 
 // TestReplayOrderingNoReversal verifies that buffered (ring) output is delivered
@@ -587,7 +710,7 @@ sleep 10
 		calls = append(calls, sizeCall{rows: ws.Rows, cols: ws.Cols})
 		callMu.Unlock()
 		// Also apply the real resize so the PTY fd stays consistent.
-		return creackpty.Setsize(f, ws)
+		return setWinsize(f, ws)
 	}
 
 	// Replay (ring empty is fine — wiggle runs regardless of ring content).

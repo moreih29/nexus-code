@@ -3,7 +3,8 @@
  * "New Folder", or "Rename" gesture is in progress.
  *
  * UX:
- *   - Auto-focuses on mount.
+ *   - Auto-focuses on mount. A file rename selects the name without its
+ *     extension, so typing replaces just that (VSCode parity).
  *   - Enter → commit, Escape → cancel.
  *   - Blur → commit if non-empty, cancel if empty (matches VSCode).
  *   - Inline validation message under the input when name is invalid;
@@ -14,9 +15,10 @@
  * The row is *not* draggable (it's transient and ownerless).
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { isImeComposing } from "@/utils/ime";
 import { validateNewEntryName } from "../name-validator";
 import type { EntryKind } from "./display";
 import { indentPaddingLeft, ROW_HEIGHT_PX } from "./metrics";
@@ -27,6 +29,16 @@ interface FileTreeEditRowProps {
   initialValue?: string;
   onCommit: (name: string) => void | Promise<void>;
   onCancel: () => void;
+}
+
+/**
+ * End of the initial selection when renaming `name`: up to its last dot for a
+ * file, the whole name for a folder or a file whose only dot leads it.
+ */
+export function renameSelectionEnd(name: string, kind: EntryKind): number {
+  if (kind !== "file") return name.length;
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? dot : name.length;
 }
 
 // The caller (file-tree) routes New-File / New-Folder through
@@ -46,12 +58,33 @@ export function FileTreeEditRow({
   const [value, setValue] = useState(initialValue);
   const validationError = value.length > 0 ? validateNewEntryName(value, t) : null;
   const canCommit = value.trim().length > 0 && validationError === null;
+  // The row stays mounted until the create/rename IPC resolves. A second
+  // Enter, or the blur that follows the first one, must not submit again:
+  // the duplicate fails with "already exists" after the first succeeded.
+  const committingRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Mount-only: the selection is set once, for the name the row opened with.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs on mount only
+  useEffect(() => {
+    if (!initialValue) return;
+    inputRef.current?.setSelectionRange(0, renameSelectionEnd(initialValue, kind));
+  }, []);
+
+  function commit() {
+    if (committingRef.current) return;
+    committingRef.current = true;
+    void Promise.resolve(onCommit(value)).finally(() => {
+      committingRef.current = false;
+    });
+  }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (isImeComposing(e)) return;
     if (e.key === "Enter") {
       e.preventDefault();
       if (!canCommit) return;
-      void onCommit(value);
+      commit();
     } else if (e.key === "Escape") {
       e.preventDefault();
       onCancel();
@@ -59,12 +92,13 @@ export function FileTreeEditRow({
   }
 
   function handleBlur() {
+    if (committingRef.current) return;
     // Empty input → cancel; non-empty + invalid → cancel (don't trap user).
     if (!canCommit) {
       onCancel();
       return;
     }
-    void onCommit(value);
+    commit();
   }
 
   return (
@@ -75,6 +109,7 @@ export function FileTreeEditRow({
         <input
           // biome-ignore lint/a11y/noAutofocus: inline-create row should grab focus on mount; cancellable via Esc/blur
           autoFocus
+          ref={inputRef}
           aria-label={
             initialValue
               ? kind === "file"

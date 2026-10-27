@@ -65,7 +65,7 @@ func (s *Service) RemoteAdd(ctx context.Context, raw json.RawMessage) (any, erro
 		stderrStr := stderr.String()
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 	return nil, nil
 }
@@ -107,13 +107,10 @@ func (s *Service) RemoteRemove(ctx context.Context, raw json.RawMessage) (any, e
 		// Map both classified remote-not-found and "no such remote" stderr patterns
 		// to a stable error message matching the TS normalizeRemoteRemoveError behavior.
 		if kind == KindRemoteNotFound || isNoSuchRemoteStderr(stderrStr) {
-			return nil, proto.CodedError{
-				Code: proto.CodeRequestFailed,
-				Msg:  MessageForKind(KindRemoteNotFound, MessageContext{Args: args}),
-			}
+			return nil, classifiedFailure(KindRemoteNotFound, MessageForKind(KindRemoteNotFound, MessageContext{Args: args}))
 		}
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 	return nil, nil
 }

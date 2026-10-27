@@ -7,8 +7,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // ---------------------------------------------------------------------------
@@ -17,8 +15,9 @@ import (
 
 // PullParams carries the parameters for git.pull.
 type PullParams struct {
-	Cwd  string   `json:"cwd,omitempty"`
-	Args []string `json:"args,omitempty"`
+	Cwd   string   `json:"cwd,omitempty"`
+	Args  []string `json:"args,omitempty"`
+	RunID string   `json:"runId,omitempty"`
 }
 
 // PullResult mirrors src/shared/types/git.ts PullResultSchema.
@@ -37,6 +36,7 @@ type PushParams struct {
 	Force   bool     `json:"force,omitempty"`
 	Publish bool     `json:"publish,omitempty"`
 	Args    []string `json:"args,omitempty"`
+	RunID   string   `json:"runId,omitempty"`
 }
 
 // PushResult mirrors src/shared/types/git.ts PushResultSchema.
@@ -60,7 +60,25 @@ func (s *Service) Pull(ctx context.Context, raw json.RawMessage) (any, error) {
 		_ = json.Unmarshal(raw, &p)
 	}
 
+	ctx, done, err := s.startRun(ctx, p.RunID)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
 	args := []string{"pull", "--no-edit"}
+	// Since 2.33 git refuses to pull into a branch that has diverged from
+	// its upstream until told how to reconcile them, which is exactly the
+	// pull a rejected push asks for. Without the user's own pull.ff, ask for
+	// git's long-standing default: fast-forward if possible, else merge.
+	// pull.rebase still takes precedence over it.
+	_, _, configCode, err := s.capture(ctx, p.Cwd, []string{"config", "--get", "pull.ff"}, false)
+	if err != nil {
+		return nil, err
+	}
+	if configCode == 1 {
+		args = append(args, "--ff")
+	}
 	if len(p.Args) > 0 {
 		args = append(args, p.Args...)
 	}
@@ -72,10 +90,7 @@ func (s *Service) Pull(ctx context.Context, raw json.RawMessage) (any, error) {
 
 	if code != 0 {
 		if isConflictExit(code, stdout, stderr) {
-			return nil, proto.CodedError{
-				Code: proto.CodeRequestFailed,
-				Msg:  "conflict: Pull produced conflicts — resolve them before continuing.",
-			}
+			return nil, classifiedFailure(KindConflict, "Pull produced conflicts — resolve them before continuing.")
 		}
 		kind := Classify(stderr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderr, Args: args, ExitCode: &code})
@@ -85,7 +100,7 @@ func (s *Service) Pull(ctx context.Context, raw json.RawMessage) (any, error) {
 		if msg == "" {
 			msg = "git pull exited with code " + strconv.Itoa(code)
 		}
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 
 	return parsePullOutput(stdout, stderr), nil
@@ -143,6 +158,12 @@ func (s *Service) Push(ctx context.Context, raw json.RawMessage) (any, error) {
 
 	args := buildPushArgs(p)
 
+	ctx, done, err := s.startRun(ctx, p.RunID)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
 	stdout, stderr, code, err := s.runSyncGit(ctx, p.Cwd, args, true)
 	if err != nil {
 		return nil, err
@@ -157,7 +178,7 @@ func (s *Service) Push(ctx context.Context, raw json.RawMessage) (any, error) {
 		if msg == "" {
 			msg = "git push exited with code " + strconv.Itoa(code)
 		}
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 
 	return parsePushOutput(stdout, stderr), nil

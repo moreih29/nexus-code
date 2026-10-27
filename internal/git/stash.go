@@ -112,7 +112,7 @@ func (s *Service) StashList(ctx context.Context, raw json.RawMessage) (any, erro
 		stderrStr := stderr.String()
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 
 	entries := parseStashList(stdout.String())
@@ -192,7 +192,7 @@ func (s *Service) StashDrop(ctx context.Context, raw json.RawMessage) (any, erro
 		stderrStr := stderr.String()
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 	return nil, nil
 }
@@ -283,6 +283,10 @@ func (s *Service) StashShow(ctx context.Context, raw json.RawMessage) (any, erro
 	}
 
 	result, readErr := s.emitStashChunks(streamCtx, params.StreamID, stdout, params.MaxChunkBytes)
+	if readErr != nil {
+		// Stop git before waiting; it would block on a full stdout pipe.
+		cancel()
+	}
 	waitErr := cmd.Wait()
 
 	if readErr != nil {
@@ -299,7 +303,7 @@ func (s *Service) StashShow(ctx context.Context, raw json.RawMessage) (any, erro
 		stderrStr := stderr.String()
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 	return StashShowResult{Bytes: result.Bytes, Truncated: result.Truncated}, nil
 }
@@ -357,7 +361,7 @@ func (s *Service) StashGroup(ctx context.Context, raw json.RawMessage) (any, err
 		stderrStr := stderr.String()
 		kind := Classify(stderrStr)
 		msg := MessageForKind(kind, MessageContext{Stderr: stderrStr, Args: args, ExitCode: &code})
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: msg}
+		return nil, classifiedFailure(kind, msg)
 	}
 	return nil, nil
 }
@@ -511,7 +515,7 @@ func (s *Service) emitReadyStashChunks(ctx context.Context, streamID string, pen
 		if chunkLen == 0 {
 			return pending, nil
 		}
-		if err := s.emitStashShowChunk(ctx, streamID, string(pending[:chunkLen])); err != nil {
+		if err := s.emitStashShowChunk(ctx, streamID, chunkText(pending[:chunkLen])); err != nil {
 			return pending, err
 		}
 		pending = pending[chunkLen:]

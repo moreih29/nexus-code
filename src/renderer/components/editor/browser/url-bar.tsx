@@ -17,6 +17,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { isImeComposing } from "@/utils/ime";
 import { classifyUrl } from "@/services/browser/url-classifier";
 
 interface UrlBarProps {
@@ -83,6 +84,7 @@ export function UrlBar({
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (isImeComposing(e)) return;
     if (e.key === "Enter") {
       e.preventDefault();
       const result = classifyUrl(localValue);

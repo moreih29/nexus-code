@@ -12,6 +12,7 @@
  * disappeared between refresh and click resolves silently.
  */
 
+import i18next from "i18next";
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { loadChildren } from "@/state/operations/files";
 import { parentOf } from "@/state/stores/files";
@@ -35,7 +36,7 @@ export async function trashPath(input: TrashPathInput): Promise<boolean> {
 
   if (rel === absPath) {
     toFsToast(new Error(FS_ERROR.OUT_OF_WORKSPACE), {
-      fallback: "This path is outside the workspace.",
+      fallback: i18next.t("files:fileTree.fsError.outsideWorkspace"),
     });
     return false;
   }
@@ -45,11 +46,15 @@ export async function trashPath(input: TrashPathInput): Promise<boolean> {
     unwrapIpcResult(await ipcCallResult("fs", "trash", { workspaceId, relPath: rel }));
   } catch (e: unknown) {
     toFsToast(e, {
-      fallback: isDir ? "Couldn't move folder to Trash." : "Couldn't move file to Trash.",
-      notFound: isDir ? "Folder not found." : "File not found.",
+      fallback: isDir
+        ? i18next.t("files:fileTree.delete.trashFolderFailed")
+        : i18next.t("files:fileTree.delete.trashFileFailed"),
+      notFound: isDir
+        ? i18next.t("files:fileTree.fsError.folderNotFound")
+        : i18next.t("files:fileTree.fsError.fileNotFound"),
       permissionDenied: isDir
-        ? "Permission denied while moving folder to Trash."
-        : "Permission denied while moving file to Trash.",
+        ? i18next.t("files:fileTree.delete.trashFolderDenied")
+        : i18next.t("files:fileTree.delete.trashFileDenied"),
     });
     return false;
   }

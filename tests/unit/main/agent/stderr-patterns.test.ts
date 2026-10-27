@@ -32,6 +32,8 @@ describe("classifyStderrLine — agent loader failures", () => {
 
   test("existing auth/connect classification is unchanged", () => {
     expect(classifyStderrLine("Permission denied (publickey).")).toBe("ssh.auth-failed");
+    expect(classifyStderrLine("Permission denied, please try again.")).toBe("ssh.auth-failed");
+    expect(classifyStderrLine("bash: /home/u/.cache/env: Permission denied")).toBeNull();
     expect(classifyStderrLine("ssh: connect to host x port 22: Connection refused")).toBe(
       "ssh.connect-failed",
     );

@@ -102,9 +102,22 @@ func (p *serverProcess) start(ctx context.Context) error {
 	p.stdout = stdout
 	p.stderr = stderr
 
-	go p.readLoop()
-	go p.captureStderr()
-	go p.waitLoop()
+	drained := make(chan struct{})
+	var readers sync.WaitGroup
+	readers.Add(2)
+	go func() {
+		defer readers.Done()
+		p.readLoop()
+	}()
+	go func() {
+		defer readers.Done()
+		p.captureStderr()
+	}()
+	go func() {
+		readers.Wait()
+		close(drained)
+	}()
+	go p.waitLoop(drained)
 	return nil
 }
 

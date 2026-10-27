@@ -14,10 +14,11 @@
 import { useTabsStore } from "@/state/stores/tabs";
 import { subscribeAllDirtyTransitions } from "../model/dirty-tracker";
 import { cacheUriToFilePath } from "../model/cache";
+import { workingFileOfDiff } from "./diff-working-file";
 
 /**
- * Promote every preview editor tab pointing at `filePath` to permanent
- * across every workspace. Idempotent — already-permanent tabs are no-ops
+ * Promote every preview editor tab pointing at `filePath`, and every preview
+ * diff tab editing it, to permanent across every workspace. Idempotent — already-permanent tabs are no-ops
  * via tabsStore.promoteFromPreview.
  *
  * Centralized here because two separate triggers want this exact
@@ -30,9 +31,14 @@ export function promoteAllPreviewTabsForFile(filePath: string): void {
   const tabsStore = useTabsStore.getState();
   for (const [workspaceId, wsRecord] of Object.entries(tabsStore.byWorkspace)) {
     for (const tab of Object.values(wsRecord)) {
-      if (tab.type !== "editor") continue;
       if (!tab.isPreview) continue;
-      if (tab.props.filePath !== filePath) continue;
+      const tabFilePath =
+        tab.type === "editor"
+          ? tab.props.filePath
+          : tab.type === "editor.diff"
+            ? workingFileOfDiff(tab.props)
+            : null;
+      if (tabFilePath !== filePath) continue;
       tabsStore.promoteFromPreview(workspaceId, tab.id);
     }
   }

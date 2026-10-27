@@ -7,5 +7,11 @@
   },
   "saveFile": {
     "title": "Save File"
+  },
+  "unsavedChanges": {
+    "message": "You have unsaved changes.",
+    "detail": "Changes you have not saved will be lost.",
+    "discard": "Discard and Close",
+    "cancel": "Cancel"
   }
 }

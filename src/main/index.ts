@@ -1,5 +1,5 @@
 import path from "node:path";
-import { app, BrowserWindow } from "electron";
+import { app, type BrowserWindow, session } from "electron";
 import { createLogger, initMainLogger } from "../shared/log/main";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { installErrorSafetyNet } from "./error-safety-net";
@@ -42,6 +42,8 @@ import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry
 import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ipc";
 import { installUpdatesDomain, type UpdatesDomainHandle } from "./features/updates";
 import { createMainWindow } from "./features/window";
+import { installAppSessionPermissions } from "./features/window/app-session-permissions";
+import { hasAppWindow } from "./features/window/app-windows";
 import { registerWorkspaceChannel } from "./features/workspace/ipc";
 import { WorkspaceManager } from "./features/workspace/manager";
 import { getMainI18n, getMainT, initMainI18n } from "./i18n";
@@ -281,6 +283,8 @@ updatesHandle = installUpdatesDomain({
 });
 
 app.whenReady().then(async () => {
+  installAppSessionPermissions(session.defaultSession);
+
   // Sync the macOS About panel with current product metadata.
   // applicationVersion comes from package.json via app.getVersion();
   // copyright matches the electron-builder.yml owner slug.
@@ -447,7 +451,7 @@ app.whenReady().then(async () => {
   });
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (!hasAppWindow()) {
       const newWin = createMainWindow(stateService.getState());
       wireAutofetchWindowFocus(newWin);
       // On activate, reuse the existing permission manager with the new window.
@@ -484,7 +488,12 @@ app.on("window-all-closed", () => {
 // then process-local watchers/coalescers, then the registry that owns repo
 // queues, then storage close. Each disposer must be idempotent so this stays
 // safe regardless of how far whenReady() progressed.
-app.on("before-quit", () => {
+//
+// `will-quit`, not `before-quit`: a window can still cancel the quit after
+// before-quit (unsaved buffers), which would leave the app running with its
+// agents, terminals and storage already torn down. will-quit fires only
+// once every window has closed.
+app.on("will-quit", () => {
   sshBrowseRegistry.dispose();
   disposeClaudeFeature?.();
   agentPtyHost?.dispose();

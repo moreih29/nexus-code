@@ -25,7 +25,11 @@ export interface PtyClientOptions {
   workspaceId: string;
   tabId: string;
   cwd: string;
-  onData: (chunk: string) => void;
+  /**
+   * `replay` marks output the agent sends again to redraw the terminal (after
+   * a reattach, or for a session that outlived the app or its window).
+   */
+  onData: (chunk: string, replay: boolean) => void;
   onExit: (args: { code: number | null }) => void;
 }
 
@@ -54,6 +58,8 @@ export interface TerminalController {
    * a black viewport until the next data arrives.
    */
   refresh: () => void;
+  /** Focus the terminal, or do so once it has opened if it has not yet. */
+  focus: () => void;
   reopen: () => Promise<void>;
   dispose: () => void;
 }

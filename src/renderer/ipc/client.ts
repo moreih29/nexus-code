@@ -25,6 +25,7 @@ import type {
   StreamMethods,
   StreamProgress,
 } from "./types";
+import { unwrapRemoteError } from "./remote-error";
 
 export interface IpcCallOptions {
   signal?: AbortSignal;
@@ -90,7 +91,7 @@ export function ipcCallResult<C extends CallChannels, M extends CallMethods<C>>(
     // Cancellation that arrived as a raw rejection (non-IpcResult path):
     // re-throw as AbortError so abort-aware callers branch on the same type.
     if (error instanceof Error && error.name === "AbortError") throw error;
-    throw error;
+    throw unwrapRemoteError(error);
   };
 
   if (!signal) {
@@ -208,20 +209,14 @@ export { isIpcResult, isIpcOkResult, isIpcErrResult };
 /**
  * Subscribe to a broadcast event on the given channel. Returns the
  * unsubscribe function — call it on unmount or when the listener is no
- * longer needed. The callback identity is preserved across the
- * listen / off pair so a `() => unsubscribe` adapter works correctly
- * inside React effects.
+ * longer needed.
  */
 export function ipcListen<C extends ListenChannels, E extends ListenEvents<C>>(
   channel: C,
   event: E,
   callback: (args: ListenArg<C, E>) => void,
 ): () => void {
-  const cb = callback as (args: ListenArg<C, E>) => void;
-  window.ipc.listen(channel, event, cb as Parameters<typeof window.ipc.listen>[2]);
-  return () => {
-    window.ipc.off(channel, event, cb as Parameters<typeof window.ipc.off>[2]);
-  };
+  return window.ipc.listen(channel, event, callback as Parameters<typeof window.ipc.listen>[2]);
 }
 
 /**

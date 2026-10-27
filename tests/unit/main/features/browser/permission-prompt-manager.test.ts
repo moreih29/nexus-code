@@ -344,9 +344,32 @@ describe("disposeByWebContents", () => {
       () => {},
     );
 
-    // Two broadcasts: initial + after dispose the new one
-    expect(broadcastCalls).toHaveLength(2);
-    expect((broadcastCalls[1].args as { promptId: string }).promptId).toBe("prompt-2");
+    // Two prompts: initial + after dispose the new one
+    const prompts = broadcastCalls.filter((call) => call.event === "prompt");
+    expect(prompts).toHaveLength(2);
+    expect((prompts[1].args as { promptId: string }).promptId).toBe("prompt-2");
+  });
+
+  // Regression: the renderer was never told, so the modal for a closed tab
+  // stayed up, did nothing when answered, and blocked later prompts.
+  test("tells the renderer to drop a prompt nothing waits on any more", () => {
+    const manager = makeManager();
+    manager.handlePermissionRequest(
+      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 10, decision: "ask" },
+      () => {},
+    );
+    manager.handlePermissionRequest(
+      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 20, decision: "ask" },
+      () => {},
+    );
+
+    manager.disposeByWebContents(10);
+    expect(broadcastCalls.filter((call) => call.event === "dismissed")).toEqual([]);
+
+    manager.disposeByWebContents(20);
+    expect(broadcastCalls.filter((call) => call.event === "dismissed")).toEqual([
+      { channelName: "browserPermission", event: "dismissed", args: { promptId: "prompt-1" } },
+    ]);
   });
 
   test("no-op when webContentsId has no waiters", () => {

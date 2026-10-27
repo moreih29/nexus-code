@@ -252,8 +252,43 @@ describe("createSshChannel", () => {
     const { channel, child } = makeChannel();
 
     child.stderr.emitData("bash: bun: command not found\n");
+    child.emit("close", 127, null);
 
     await expectErrorCode(channel.ready, "server.spawn-failed");
+  });
+
+  it("ignores login-profile command-not-found noise when the agent still starts", async () => {
+    const { channel, child } = makeChannel();
+
+    child.stderr.emitData("/home/deploy/.bash_profile: line 12: pyenv: command not found\n");
+    child.stdout.emitData(`${JSON.stringify({ type: "ready" })}\n`);
+
+    await expect(channel.ready).resolves.toBeUndefined();
+  });
+
+  it("does not treat a profile's file permission error as an auth failure", async () => {
+    const { channel, child } = makeChannel();
+
+    child.stderr.emitData("bash: /home/deploy/.cache/env: Permission denied\n");
+    child.stdout.emitData(`${JSON.stringify({ type: "ready" })}\n`);
+
+    await expect(channel.ready).resolves.toBeUndefined();
+  });
+
+  it("reconnects instead of failing when the connection resets after ready", async () => {
+    const { channel, child } = makeChannel();
+    const lifecycle: string[] = [];
+    channel.onLifecycle((event) => lifecycle.push(event.type));
+
+    child.stdout.emitData(`${JSON.stringify({ type: "ready" })}\n`);
+    await channel.ready;
+    child.stderr.emitData("Connection reset by 10.0.0.5 port 22\r\n");
+    child.emit("close", 255, null);
+    await flushMicrotasks();
+
+    expect(lifecycle).toContain("reconnecting");
+    expect(lifecycle).not.toContain("failure");
+    channel.dispose();
   });
 
   it("classifies malformed stdout NDJSON as server.protocol-error", async () => {

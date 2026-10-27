@@ -28,8 +28,10 @@
  *   unsubscribes the previous listener and installs a fresh one (safe for HMR).
  */
 
+import i18next from "i18next";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import { showToast } from "../../components/ui/toast";
+import { updateCheckFailedMessage } from "./update-check-failure";
 
 // ---------------------------------------------------------------------------
 // IPC subscriptions
@@ -57,7 +59,11 @@ export function initUpdatesSubscriptions(): void {
     switch (status.kind) {
       case "checking":
         // Only broadcast for manual trigger (main suppresses auto-trigger checking).
-        showToast({ kind: "info", message: "Checking for updates…", durationMs: 3000 });
+        showToast({
+          kind: "info",
+          message: i18next.t("common:updates.checking"),
+          durationMs: 3000,
+        });
         break;
 
       case "newer": {
@@ -71,16 +77,16 @@ export function initUpdatesSubscriptions(): void {
 
         showToast({
           kind: "info",
-          message: `Version ${latest} is available.`,
+          message: i18next.t("common:updates.available", { version: latest }),
           actions: [
             {
-              label: "Download",
+              label: i18next.t("common:updates.download"),
               onAction: () => {
                 void ipcCallResult("updates", "openReleasePage", { url: releaseUrl });
               },
             },
             {
-              label: "Skip this version",
+              label: i18next.t("common:updates.skipVersion"),
               onAction: () => {
                 void ipcCallResult("updates", "setIgnoredVersion", { version: latest });
               },
@@ -95,7 +101,7 @@ export function initUpdatesSubscriptions(): void {
         if (status.trigger === "manual") {
           showToast({
             kind: "info",
-            message: "You're on the latest version.",
+            message: i18next.t("common:updates.upToDate"),
             durationMs: 3000,
           });
         }
@@ -106,7 +112,7 @@ export function initUpdatesSubscriptions(): void {
         if (status.trigger === "manual") {
           showToast({
             kind: "error",
-            message: `Update check failed: ${status.message}`,
+            message: updateCheckFailedMessage(status),
           });
         }
         break;

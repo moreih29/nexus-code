@@ -7,7 +7,7 @@
  *   - N=3 comma-separated description.
  *   - N=5 "and N-3 more" truncation.
  *   - SSH workspace → permanent delete.
- *   - Partial failure: toast shows "M of N" + first failure info.
+ *   - Partial failure: toast shows "M of N" + the first failed item's name.
  *   - distinctParents applied before prompting.
  */
 
@@ -31,10 +31,17 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 
 type IpcCall = { channel: string; method: string; args: unknown };
 const ipcCalls: IpcCall[] = [];
+/** relPath whose trash call fails with PERMISSION_DENIED. */
+let failTrashRelPath: string | null = null;
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: (channel: string, method: string, args: unknown) => {
     ipcCalls.push({ channel, method, args });
+    if (method === "trash" && (args as { relPath: string }).relPath === failTrashRelPath)
+      return Promise.resolve({
+        ok: false as const,
+        error: { message: `PERMISSION_DENIED: /repo/${failTrashRelPath}` },
+      });
     if (channel === "fs" && method === "readdir")
       return Promise.resolve({ ok: true as const, value: [] });
     return Promise.resolve({ ok: true as const, value: undefined });
@@ -76,8 +83,15 @@ mock.module("../../../../../src/renderer/components/ui/toast", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
+import { cacheUriFor } from "../../../../../src/renderer/services/editor/model/cache";
+import {
+  attachDirtyTracker,
+  detachDirtyTracker,
+} from "../../../../../src/renderer/services/editor/model/dirty-tracker";
 import { confirmAndDeleteBatch } from "../../../../../src/renderer/services/fs-mutations/confirm-delete";
 import { useFilesStore } from "../../../../../src/renderer/state/stores/files";
+import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout";
+import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 import { useWorkspacesStore } from "../../../../../src/renderer/state/stores/workspaces";
 
 // ---------------------------------------------------------------------------
@@ -111,6 +125,7 @@ function seedWorkspace(kind: "local" | "ssh"): void {
 
 function resetAll(): void {
   ipcCalls.length = 0;
+  failTrashRelPath = null;
   toastCalls.length = 0;
   lastConfirmArgs = null;
   confirmResult = true;
@@ -230,6 +245,17 @@ describe("confirmAndDeleteBatch — success toast", () => {
     await confirmAndDeleteBatch(WS, ROOT, [`${ROOT}/a.ts`, `${ROOT}/b.ts`]);
     expect(toastCalls.some((t) => t.message === "Deleted 2 items")).toBe(true);
   });
+
+  it("names the failed item, not its path, after a partial failure", async () => {
+    failTrashRelPath = "b.ts";
+    const result = await confirmAndDeleteBatch(WS, ROOT, [`${ROOT}/a.ts`, `${ROOT}/b.ts`]);
+    expect(result).toBe(false);
+    // The item's own toast gives the reason; the summary names the item.
+    expect(toastCalls.map((t) => t.message)).toEqual([
+      "Permission denied while moving file to Trash.",
+      'Deleted 1 of 2 items. Couldn\'t delete "b.ts".',
+    ]);
+  });
 });
 
 describe("confirmAndDeleteBatch — distinctParents collapse", () => {
@@ -242,5 +268,72 @@ describe("confirmAndDeleteBatch — distinctParents collapse", () => {
     const trashCalls = ipcCalls.filter((c) => c.method === "trash");
     expect(trashCalls).toHaveLength(1);
     expect((trashCalls[0].args as { relPath: string }).relPath).toBe("dir");
+  });
+});
+
+describe("confirmAndDeleteBatch — open tabs", () => {
+  function openTab(filePath: string): string {
+    useLayoutStore.getState().ensureLayout(WS);
+    const tab = useTabsStore
+      .getState()
+      .createTab(WS, { type: "editor", props: { workspaceId: WS, filePath } });
+    const layout = useLayoutStore.getState().byWorkspace[WS];
+    if (!layout) throw new Error("layout missing");
+    useLayoutStore.getState().attachTab(WS, layout.activeGroupId, tab.id);
+    return tab.id;
+  }
+
+  /** Gives `filePath` a model with unsaved changes. */
+  function makeDirty(filePath: string): () => void {
+    const cacheUri = cacheUriFor(WS, filePath);
+    let altId = 1;
+    let onChange = () => {};
+    attachDirtyTracker({
+      cacheUri,
+      model: {
+        getAlternativeVersionId: () => altId,
+        onDidChangeContent: (callback: () => void) => {
+          onChange = callback;
+          return { dispose: () => {} };
+        },
+      } as never,
+      loadedMtime: "T",
+      loadedSize: 0,
+    });
+    altId = 2;
+    onChange();
+    return () => detachDirtyTracker(cacheUri);
+  }
+
+  beforeEach(() => {
+    useTabsStore.setState({ byWorkspace: {} });
+    useLayoutStore.setState({ byWorkspace: {} });
+  });
+
+  it("closes the clean tabs of deleted files and keeps unsaved ones", async () => {
+    const clean = openTab(`${ROOT}/a.ts`);
+    const unsaved = openTab(`${ROOT}/b.ts`);
+    const inFolder = openTab(`${ROOT}/dir/x.ts`);
+    const untouched = openTab(`${ROOT}/c.ts`);
+    const cleanup = makeDirty(`${ROOT}/b.ts`);
+    try {
+      await confirmAndDeleteBatch(WS, ROOT, [`${ROOT}/a.ts`, `${ROOT}/b.ts`, `${ROOT}/dir`]);
+    } finally {
+      cleanup();
+    }
+
+    const open = Object.keys(useTabsStore.getState().byWorkspace[WS] ?? {});
+    expect(open).not.toContain(clean);
+    expect(open).not.toContain(inFolder);
+    expect(open).toContain(unsaved);
+    expect(open).toContain(untouched);
+  });
+
+  it("closes the tab of a single deleted file", async () => {
+    const tab = openTab(`${ROOT}/a.ts`);
+
+    await confirmAndDeleteBatch(WS, ROOT, [`${ROOT}/a.ts`]);
+
+    expect(useTabsStore.getState().byWorkspace[WS]?.[tab]).toBeUndefined();
   });
 });

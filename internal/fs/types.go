@@ -144,6 +144,11 @@ type MkdirParams struct {
 	Recursive bool   `json:"recursive,omitempty"`
 }
 
+// ReaddirParams — fs.readdir options beside relPath.
+type ReaddirParams struct {
+	IncludeHidden bool `json:"includeHidden"`
+}
+
 // WatchParams — fs.watch / fs.unwatch request shape.
 type WatchParams struct {
 	RelPath string `json:"relPath"`

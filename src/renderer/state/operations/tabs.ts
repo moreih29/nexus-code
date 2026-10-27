@@ -10,6 +10,8 @@
 
 import { cacheUriFor } from "@/services/editor/model/cache";
 import { isDirty } from "@/services/editor/model/dirty-tracker";
+import { isDiffWorkingFileDirty } from "@/services/editor/tabs/diff-working-file";
+import { requestTabFocus } from "@/services/tab-focus";
 import { useLayoutStore } from "../stores/layout";
 import { allLeaves, findLeaf } from "../stores/layout/helpers";
 import {
@@ -120,25 +122,28 @@ export function findAnyPreviewTabInGroup(
  * Free the slot occupied by `slot.tab` so a *different-type* preview can move
  * in. Callers must have already verified `slot.tab.type !== <new-type>`.
  *
- *   - Editor with unsaved buffer (dirty=true): promote to permanent so the
- *     user never loses unsaved work. The new preview is inserted right after
- *     (index + 1) so it visually takes the "next slot" without displacing the
- *     promoted tab.
+ *   - Editor (or working-tree diff) with unsaved buffer (dirty=true): promote
+ *     to permanent so the user never loses unsaved work. The new preview is
+ *     inserted right after (index + 1) so it visually takes the "next slot"
+ *     without displacing the promoted tab.
  *   - Everything else (clean editor / diff / commit preview): close the slot
  *     (detach from layout + delete record). The new preview takes its index.
  *
  * Returns the index at which the new preview tab should be inserted.
  */
 export function reclaimPreviewSlot(workspaceId: string, slot: PreviewSlotInfo): number {
-  if (slot.tab.type === "editor") {
-    const cacheUri = cacheUriFor(slot.tab.props.workspaceId, slot.tab.props.filePath);
-    if (isDirty(cacheUri)) {
-      useTabsStore.getState().promoteFromPreview(workspaceId, slot.tabId);
-      return slot.index + 1;
-    }
+  if (holdsUnsavedChanges(slot.tab)) {
+    useTabsStore.getState().promoteFromPreview(workspaceId, slot.tabId);
+    return slot.index + 1;
   }
   closeTab(workspaceId, slot.tabId);
   return slot.index;
+}
+
+function holdsUnsavedChanges(tab: Tab): boolean {
+  if (tab.type === "editor") return isDirty(cacheUriFor(tab.props.workspaceId, tab.props.filePath));
+  if (tab.type === "editor.diff") return isDiffWorkingFileDirty(tab.props);
+  return false;
 }
 
 export function openTerminalTab(
@@ -163,7 +168,7 @@ export function openEditorTab(
 }
 
 /**
- * Open a read-only source-control diff tab with VSCode-parity preview semantics.
+ * Open a source-control diff tab with VSCode-parity preview semantics.
  *
  * Default behaviour (`opts.preview !== false`):
  *   1. If a diff tab matching the same (relPath, leftRef, rightRef, oldRelPath)
@@ -218,7 +223,7 @@ export function openDiffTab(
   if (allowPreview) {
     const slot = findAnyPreviewTabInGroup(workspaceId, groupId);
     if (slot) {
-      if (slot.tab.type === "editor.diff") {
+      if (slot.tab.type === "editor.diff" && !holdsUnsavedChanges(slot.tab)) {
         // Same-type slot — swap props in place via the type-specific replace
         // (keeps id, isPreview=true, clears stale custom/process titles).
         const title = defaultTitle({ type: "editor.diff", props });
@@ -227,8 +232,9 @@ export function openDiffTab(
         const replaced = useTabsStore.getState().byWorkspace[workspaceId]?.[slot.tabId];
         if (replaced) return replaced;
       } else {
-        // Cross-type slot — reclaim (promote dirty editor / close otherwise),
-        // then insert the new preview at the freed index for visual continuity.
+        // Cross-type (or unsaved diff) slot — reclaim (promote dirty / close
+        // otherwise), then insert the new preview at the freed index for
+        // visual continuity.
         const insertIndex = reclaimPreviewSlot(workspaceId, slot);
         return openTabRecord(
           workspaceId,
@@ -399,7 +405,9 @@ export function closeTab(workspaceId: string, tabId: string): void {
  */
 export function openNewUntitledTab(workspaceId: string): Tab {
   const index = useUntitledCounterStore.getState().claimNext(workspaceId);
-  return openTabRecord(workspaceId, { type: "untitled", props: { untitledIndex: index } });
+  const tab = openTabRecord(workspaceId, { type: "untitled", props: { untitledIndex: index } });
+  requestTabFocus(tab.id);
+  return tab;
 }
 
 /**

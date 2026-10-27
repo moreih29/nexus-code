@@ -1,7 +1,9 @@
 /** Rename/move an entry within its current parent via fs.rename. */
 
+import i18next from "i18next";
 import { showConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
+import { retargetEditorTabs } from "@/services/editor/tabs";
 import { loadChildren } from "@/state/operations/files";
 import { parentOf } from "@/state/stores/files";
 import { basename, relPath } from "@/utils/path";
@@ -26,7 +28,7 @@ export async function renamePath(input: RenameInput): Promise<boolean> {
   const toRel = relPath(toAbsPath, input.workspaceRootPath);
   if (fromRel === input.absPath || toRel === toAbsPath) {
     toFsToast(new Error(FS_ERROR.OUT_OF_WORKSPACE), {
-      fallback: "This path is outside the workspace.",
+      fallback: i18next.t("files:fileTree.fsError.outsideWorkspace"),
     });
     return false;
   }
@@ -41,15 +43,16 @@ export async function renamePath(input: RenameInput): Promise<boolean> {
     );
   } catch (e: unknown) {
     toFsToast(e, {
-      fallback: "Couldn't rename item.",
-      alreadyExists: "A file or folder with that name already exists.",
-      crossDevice: "Can't rename across filesystems.",
-      notFound: "Item not found.",
-      permissionDenied: "Permission denied while renaming item.",
+      fallback: i18next.t("files:fileTree.rename.failed"),
+      alreadyExists: i18next.t("files:fileTree.fsError.nameTaken"),
+      crossDevice: i18next.t("files:fileTree.rename.crossDevice"),
+      notFound: i18next.t("files:fileTree.fsError.itemNotFound"),
+      permissionDenied: i18next.t("files:fileTree.rename.denied"),
     });
     return false;
   }
 
+  void retargetEditorTabs(input.workspaceId, input.absPath, toAbsPath);
   await loadChildren(input.workspaceId, parentAbsPath);
   return true;
 }
@@ -77,7 +80,7 @@ export async function movePath(input: MoveInput): Promise<boolean> {
   // Workspace boundary check on both source and destination.
   if (fromRel === input.srcAbsPath || toRel === toAbsPath) {
     toFsToast(new Error(FS_ERROR.OUT_OF_WORKSPACE), {
-      fallback: "This path is outside the workspace.",
+      fallback: i18next.t("files:fileTree.fsError.outsideWorkspace"),
     });
     return false;
   }
@@ -93,10 +96,9 @@ export async function movePath(input: MoveInput): Promise<boolean> {
     const existing = await listDirNames(input.workspaceId, dstDirRel);
     if (existing.has(name)) {
       const ok = await showConfirmDialog({
-        title: "Replace existing item",
-        description: `A file or folder named "${name}" already exists at the destination. Do you want to replace it?`,
-        confirmLabel: "Replace",
-        cancelLabel: "Cancel",
+        title: i18next.t("files:fileTree.move.replaceTitle"),
+        description: i18next.t("files:fileTree.move.replaceDescription", { name }),
+        confirmLabel: i18next.t("files:fileTree.move.replace"),
         variant: "destructive",
       });
       if (!ok) return false;
@@ -117,14 +119,16 @@ export async function movePath(input: MoveInput): Promise<boolean> {
     );
   } catch (e: unknown) {
     toFsToast(e, {
-      fallback: "Couldn't move item.",
-      alreadyExists: "A file or folder with that name already exists at the destination.",
-      crossDevice: "Can't move across filesystems.",
-      notFound: "Item not found.",
-      permissionDenied: "Permission denied while moving item.",
+      fallback: i18next.t("files:fileTree.move.failed"),
+      alreadyExists: i18next.t("files:fileTree.move.nameTaken"),
+      crossDevice: i18next.t("files:fileTree.fsError.crossDevice"),
+      notFound: i18next.t("files:fileTree.fsError.itemNotFound"),
+      permissionDenied: i18next.t("files:fileTree.move.denied"),
     });
     return false;
   }
+
+  void retargetEditorTabs(input.workspaceId, input.srcAbsPath, toAbsPath);
 
   // Refresh both the source parent and the destination parent.
   const srcParent = parentOf(input.srcAbsPath, input.workspaceRootPath);

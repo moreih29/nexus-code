@@ -6,6 +6,8 @@ import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { Grid } from "../../engine";
 import { openOrRevealEditor } from "../../services/editor";
+import { closeTabWithConfirm } from "../../services/editor/save/close-tab";
+import { requestTabFocus } from "../../services/tab-focus";
 import { openTerminal } from "../../services/terminal";
 import { closeGroup } from "../../state/operations";
 import { useActiveStore } from "../../state/stores/active";
@@ -56,6 +58,7 @@ function moveFocus(direction: "left" | "right" | "up" | "down"): void {
   const nextLeaf = leaves[nextIdx];
   if (nextLeaf) {
     useLayoutStore.getState().setActiveGroup(wsId, nextLeaf.id);
+    if (nextLeaf.activeTabId) requestTabFocus(nextLeaf.activeTabId);
   }
 }
 
@@ -63,12 +66,25 @@ export function registerGroupCommands(): Array<() => void> {
   return [
     registerCommand(COMMANDS.groupSplitRight, () => splitActiveGroup("horizontal")),
     registerCommand(COMMANDS.groupSplitDown, () => splitActiveGroup("vertical")),
-    registerCommand(COMMANDS.groupClose, () => {
+    registerCommand(COMMANDS.groupClose, async () => {
       const wsId = useActiveStore.getState().activeWorkspaceId;
       if (!wsId) return;
       const layout = useLayoutStore.getState().byWorkspace[wsId];
       if (!layout) return;
-      closeGroup(wsId, layout.activeGroupId);
+      const groupId = layout.activeGroupId;
+      const leaf = Grid.findLeaf(layout.root, groupId);
+      if (!leaf) return;
+      // Buffers go through the dirty-aware close first, like Close All, so
+      // unsaved edits are prompted for instead of dropped; a cancel (or a
+      // failed save) keeps the group and its remaining tabs open.
+      const tabs = useTabsStore.getState().byWorkspace[wsId] ?? {};
+      for (const id of [...leaf.tabIds]) {
+        const type = tabs[id]?.type;
+        if (type !== "editor" && type !== "untitled") continue;
+        const outcome = await closeTabWithConfirm(wsId, id);
+        if (outcome !== "closed") return;
+      }
+      closeGroup(wsId, groupId);
     }),
     registerCommand(COMMANDS.groupFocusLeft, () => moveFocus("left")),
     registerCommand(COMMANDS.groupFocusRight, () => moveFocus("right")),

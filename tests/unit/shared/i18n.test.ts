@@ -6,6 +6,7 @@ import {
   createI18n,
   resources,
 } from "../../../src/shared/i18n/index";
+import { THEME_SOURCES } from "../../../src/shared/design-tokens/theme-sources";
 
 // ---------------------------------------------------------------------------
 // Namespace contract
@@ -63,6 +64,12 @@ describe("resources", () => {
     expect(Object.keys(resources.en.common.action)).toEqual(
       Object.keys(resources.ko.common.action),
     );
+  });
+
+  test("every theme has a description in en and ko", () => {
+    const ids = THEME_SOURCES.map((source) => source.id).sort();
+    expect(Object.keys(resources.en.settings.appearance.themeDescription).sort()).toEqual(ids);
+    expect(Object.keys(resources.ko.settings.appearance.themeDescription).sort()).toEqual(ids);
   });
 });
 

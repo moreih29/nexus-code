@@ -220,4 +220,32 @@ describe("authenticateSshControlMaster", () => {
     expect(pty.killed).toEqual([undefined]);
     expect(unlinkCalls).toEqual(["/tmp/nexus-test.sock"]);
   });
+
+  it("does not count time spent answering a prompt against the auth timeout", async () => {
+    const pty = new FakePty();
+    const promise = authenticateSshControlMaster(
+      { host: "127.0.0.1", user: "alice", port: 2223, controlPath: "/tmp/nexus-test.sock" },
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        return { kind: "password", promptId: "unused", value: "secret" };
+      },
+      {
+        spawnPty: () => pty as never,
+        spawn: () => {
+          const child = new FakeDisposeChild();
+          queueMicrotask(() => child.emitClose());
+          return child as unknown as ChildProcessWithoutNullStreams;
+        },
+        unlink: () => {},
+        authTimeoutMs: 15,
+      },
+    );
+
+    pty.emitData("alice@127.0.0.1's password:");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(pty.writes).toEqual(["secret\r"]);
+    pty.emitExit(0);
+
+    await expect(promise).resolves.toMatchObject({ controlPath: "/tmp/nexus-test.sock" });
+  });
 });

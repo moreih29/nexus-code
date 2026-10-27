@@ -16,6 +16,12 @@ const (
 	shutdownRequestTimeout = 750 * time.Millisecond
 	shutdownExitGrace      = 750 * time.Millisecond
 
+	// outputDrainGrace bounds how long an exited server's stdout and stderr
+	// are still read: normally until EOF, which is immediate, but a child
+	// of the server can hold the pipes open. Kept under shutdownExitGrace
+	// so a graceful shutdown still sees the exit in time.
+	outputDrainGrace = 500 * time.Millisecond
+
 	// stderrTailBytes caps the in-memory stderr ring buffer per server.
 	// 8 KB is enough to capture a typical Node/Python panic trace without
 	// growing unbounded for chatty servers.

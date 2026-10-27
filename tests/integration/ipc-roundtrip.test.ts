@@ -32,7 +32,12 @@ const fakeIpcMainHandle = mock((channel: string, handler: IpcCallHandler) => {
 });
 const fakeIpcMainOn = mock((_channel: string, _handler: unknown) => {});
 
-const fakeListeners: { isDestroyed: () => boolean; send: ReturnType<typeof mock> }[] = [];
+const fakeListeners: {
+  id?: number;
+  isDestroyed: () => boolean;
+  send: ReturnType<typeof mock>;
+  once?: (event: string, listener: () => void) => void;
+}[] = [];
 
 const fakeGetAllWebContents = mock(() => fakeListeners);
 
@@ -58,7 +63,7 @@ mock.module("electron", () => ({
   app: { getPath: () => "/tmp" },
 }));
 
-const { broadcast, register, setupRouter, validateArgs } = await import(
+const { broadcast, excludeFromBroadcast, register, setupRouter, validateArgs } = await import(
   "../../src/main/infra/ipc-router"
 );
 const { isIpcErrResult } = await import("../../src/shared/ipc/result");
@@ -152,6 +157,37 @@ describe("ipc round-trip — broadcast reaches listener", () => {
     expect(channelName).toBe("integration-echo");
     expect(event).toBe("result");
     expect(args).toEqual({ val: "HELLO" });
+
+    fakeListeners.splice(0, fakeListeners.length);
+  });
+
+  // Regression: broadcasts (terminal output, OAuth redirects, SSH prompts)
+  // went to every WebContents, including embedded browser tabs and popups.
+  it("broadcast skips WebContents excluded as third-party pages", () => {
+    const appSend = mock((..._args: unknown[]) => {});
+    const tabSend = mock((..._args: unknown[]) => {});
+    let onDestroyed: (() => void) | null = null;
+    const tab = {
+      id: 902,
+      isDestroyed: () => false,
+      send: tabSend,
+      once: (_event: string, listener: () => void) => {
+        onDestroyed = listener;
+      },
+    };
+    fakeListeners.splice(
+      0,
+      fakeListeners.length,
+      { id: 901, isDestroyed: () => false, send: appSend },
+      tab,
+    );
+
+    excludeFromBroadcast(tab as never);
+    broadcast("integration-echo", "result", { val: "PTY" });
+
+    expect(appSend).toHaveBeenCalledTimes(1);
+    expect(tabSend).not.toHaveBeenCalled();
+    expect(onDestroyed).not.toBeNull();
 
     fakeListeners.splice(0, fakeListeners.length);
   });

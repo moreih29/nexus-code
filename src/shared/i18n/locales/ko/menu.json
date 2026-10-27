@@ -22,7 +22,9 @@
     "label": "보기",
     "toggleFilesPanel": "파일 패널 전환",
     "toggleSidebar": "사이드바 전환",
-    "revealInFinder": "Finder에서 열기",
+    "revealInFinder": "Finder에서 표시",
+    "revealInExplorer": "파일 탐색기에서 표시",
+    "openContainingFolder": "상위 폴더 열기",
     "copyPath": "경로 복사",
     "copyRelativePath": "상대 경로 복사"
   },

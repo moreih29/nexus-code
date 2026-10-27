@@ -358,6 +358,8 @@ const LspWorkspaceResetEventSchema = z.object({
 
 const LspApplyEditEventSchema = z.object({
   requestId: z.string(),
+  // Workspace of the requesting server; its models are keyed by workspace URI.
+  workspaceId: z.string(),
   params: ApplyWorkspaceEditParamsSchema,
 });
 
@@ -637,8 +639,11 @@ export const ipcContract = {
       foregroundProcess: call(PtyWorkspaceTabSchema, z.object({ name: z.string() })),
     },
     listen: {
-      // data: args is string chunk — validation skipped on hot path
-      data: listen(PtyWorkspaceTabSchema.extend({ chunk: z.string() })),
+      // data: args is string chunk — validation skipped on hot path.
+      // `replay` marks output pty.replay sends again to redraw the terminal.
+      data: listen(
+        PtyWorkspaceTabSchema.extend({ chunk: z.string(), replay: z.boolean().optional() }),
+      ),
       exit: listen(PtyWorkspaceTabSchema.extend({ code: z.number().int().nullable() })),
       notificationClick: listen(z.object({ workspaceId: z.string(), tabId: z.string() })),
       /**
@@ -818,6 +823,8 @@ export const ipcContract = {
     },
     listen: {
       prompt: listen(AskpassPromptSchema),
+      /** The Git command ended before the prompt was answered. */
+      closed: listen(GitHelperPromptIdArgsSchema),
     },
   },
 
@@ -839,6 +846,8 @@ export const ipcContract = {
       getStatus: call(GitWorkspaceIdSchema, GitStatusSchema),
       stage: call(GitRelPathsArgsSchema, z.void()),
       unstage: call(GitRelPathsArgsSchema, z.void()),
+      /** Stages `content` as `relPath`'s index version, as staging part of a file does. */
+      stageContent: call(GitRelPathArgsSchema.extend({ content: z.string() }), z.void()),
       discardChanges: call(GitDiscardChangesArgsSchema, z.void()),
       commit: call(
         GitWorkspaceIdSchema.extend({
@@ -1016,7 +1025,15 @@ export const ipcContract = {
 
   fs: {
     call: {
-      readdir: call(workspaceScoped({ relPath: z.string() }), z.array(DirEntrySchema)),
+      readdir: call(
+        workspaceScoped({
+          relPath: z.string(),
+          // Also list entries the explorer never shows (.git, .DS_Store) —
+          // for name-collision checks, which must see every entry.
+          includeHidden: z.boolean().optional(),
+        }),
+        z.array(DirEntrySchema),
+      ),
       stat: call(workspaceScoped({ relPath: z.string() }), FsStatSchema),
       watch: call(workspaceScoped({ relPath: z.string() }), z.void()),
       unwatch: call(workspaceScoped({ relPath: z.string() }), z.void()),
@@ -1444,7 +1461,7 @@ export const ipcContract = {
   //   { kind: "checking",  trigger: "auto" | "manual" }
   //   { kind: "newer",     trigger, current, latest, releaseUrl }
   //   { kind: "current",   trigger, current, latest? }
-  //   { kind: "error",     trigger, message }
+  //   { kind: "error",     trigger, reason, status? }
   //
   // "checking" is only broadcast for trigger="manual" (with a 3-second delay).
   // "newer" / "current" / "error" are broadcast for both triggers, but "current"
@@ -1491,7 +1508,10 @@ export const ipcContract = {
           z.object({
             kind: z.literal("error"),
             trigger: z.enum(["auto", "manual"]),
-            message: z.string(),
+            // The renderer words the message from the reason; the detail
+            // stays in the main-process log.
+            reason: z.enum(["rate-limited", "http", "network", "unexpected"]),
+            status: z.number().int().optional(),
           }),
         ]),
       ),
@@ -1584,6 +1604,12 @@ export const ipcContract = {
           permissions: z.array(BrowserPermissionKindSchema),
         }),
       ),
+      /**
+       * Broadcast by main when nothing is waiting on `promptId` any more
+       * (the requesting page closed or navigated away). The renderer drops
+       * the prompt from its queue; an answer to it would be ignored.
+       */
+      dismissed: listen(z.object({ promptId: z.string() })),
     },
   },
 } as const satisfies Record<string, ChannelDefinition>;

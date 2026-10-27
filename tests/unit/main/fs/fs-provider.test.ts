@@ -119,6 +119,29 @@ describe("createFsProvider", () => {
     ]);
   });
 
+  it("sends includeHidden to the agent only when requested", async () => {
+    const calls: unknown[] = [];
+    const channel: SshChannel = {
+      ready: Promise.resolve(),
+      call: async (_method: string, params?: unknown) => {
+        calls.push(params);
+        return [];
+      },
+      fire: () => {},
+      on: () => () => {},
+      onLifecycle: () => () => {},
+      dispose: () => {},
+    };
+    const provider = createFsProvider(
+      makeMeta({ kind: "ssh", host: "dev.example.com", remotePath: "/srv/repo" }),
+      channel,
+    );
+
+    await provider.readdir("src", { includeHidden: true });
+    await provider.readdir("src", { includeHidden: false });
+    expect(calls).toEqual([{ relPath: "src", includeHidden: true }, { relPath: "src" }]);
+  });
+
   it("classifies malformed ssh provider responses as agent protocol errors", async () => {
     const channel: SshChannel = {
       ready: Promise.resolve(),
@@ -138,7 +161,7 @@ describe("createFsProvider", () => {
       throw new Error("expected provider.stat to reject");
     } catch (error) {
       expect(error).toBeInstanceOf(Error);
-      expect((error as Error).message).toBe("Remote agent protocol error");
+      expect((error as Error).message).toBe("Agent protocol error");
       expect((error as { code?: string }).code).toBe("server.protocol-error");
     }
   });

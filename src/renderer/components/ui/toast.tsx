@@ -11,6 +11,10 @@
  *     closes it. Uses `role="alert"` — assertive announcement. Action buttons are
  *     keyboard-reachable via normal tab order.
  *
+ * A toast may also carry `details`, the raw text behind its message, behind a
+ * collapsed "Details" toggle. Such a toast never auto-dismisses either: the
+ * user reads it at their own pace.
+ *
  * Why custom (not Radix Toast): we already follow the imperative-API
  * + singleton-Root pattern from save-confirm-dialog. Toast doesn't need
  * focus management or aria-live trickery for the cases it serves
@@ -27,6 +31,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DetailsDisclosure } from "@/components/ui/details-disclosure";
 import { cn } from "@/utils/cn";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 import {
@@ -61,6 +66,11 @@ export interface ToastInput {
    *   - action buttons are reachable via keyboard tab order
    */
   actions?: ToastAction[];
+  /**
+   * Raw text behind the message (e.g. a command's output), shown collapsed
+   * under it. A toast with details never auto-dismisses.
+   */
+  details?: string;
 }
 
 /**
@@ -94,6 +104,7 @@ interface ActiveToast {
   expiresAt: number;
   /** Action buttons, empty array for plain toasts. */
   actions: ToastAction[];
+  details?: string;
 }
 
 let nextId = 1;
@@ -111,9 +122,10 @@ export function showToast(input: ToastInput): void {
   const id = nextId++;
   const actions = input.actions ?? [];
 
-  // Action toasts never expire — they require an explicit user interaction to dismiss.
+  // Action and details toasts never expire — they wait for the user to act
+  // or finish reading.
   const expiresAt =
-    actions.length > 0
+    actions.length > 0 || input.details
       ? NEVER_EXPIRES
       : Date.now() + (input.durationMs ?? defaultDuration(input.kind));
 
@@ -125,6 +137,7 @@ export function showToast(input: ToastInput): void {
       message: input.message,
       expiresAt,
       actions,
+      details: input.details,
     },
   ];
   bus.notify();
@@ -168,7 +181,12 @@ export function ToastRoot(): React.JSX.Element | null {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-[60] flex flex-col gap-2 w-[360px] max-w-[90vw]">
+    <div
+      // Lets the browser-suspend observer lift the stack above a browser
+      // tab's native view when the two overlap.
+      data-toast-viewport=""
+      className="fixed bottom-4 right-4 z-[60] flex flex-col gap-2 w-[360px] max-w-[90vw]"
+    >
       {toasts.map((toast) => {
         // Action toasts use role="alert" (assertive) so assistive technology
         // announces them immediately and the user knows buttons are available.
@@ -215,6 +233,8 @@ export function ToastRoot(): React.JSX.Element | null {
                 ×
               </Button>
             </div>
+
+            {toast.details ? <DetailsDisclosure details={toast.details} /> : null}
 
             {/* Action buttons — rendered in a dedicated row so they remain
                 keyboard-reachable (natural tab order, no z-index tricks). */}

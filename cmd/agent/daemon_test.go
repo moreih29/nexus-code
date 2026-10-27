@@ -2,14 +2,19 @@ package main
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/agentrun"
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // mustBuild compiles the agent binary into t.TempDir() and returns the path.
@@ -220,6 +225,133 @@ func TestDaemonLongSessionThenReattach(t *testing.T) {
 	if frameA["agentEpoch"] != frameB["agentEpoch"] {
 		t.Errorf("epoch mismatch: A=%v B=%v — daemon was replaced, not reattached",
 			frameA["agentEpoch"], frameB["agentEpoch"])
+	}
+}
+
+// TestDaemonTakeoverResumesPausedPTY is the regression test for the
+// reconnected-but-frozen terminal: dialer A reads PTY output but never acks it
+// (a renderer that vanished while the socket still absorbed writes), so the
+// session pauses at the high watermark with ~100 KB of debt. After dialer B
+// takes over, that stale debt must be dropped and the rest of the output must
+// reach B; before ResetFlowControl was wired in, the session stayed paused
+// forever.
+func TestDaemonTakeoverResumesPausedPTY(t *testing.T) {
+	bin := mustBuild(t)
+	root := t.TempDir()
+	fakeHome := shortHome(t)
+
+	cmd, runDir := startDaemon(t, bin, root, fakeHome)
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	sockPath := waitForSocket(t, runDir)
+
+	connA, _ := readReady(t, sockPath)
+	defer connA.Close()
+	spawn, _ := json.Marshal(map[string]any{
+		"id": "spawn", "method": "pty.spawn",
+		"params": map[string]any{
+			"workspaceId": "ws", "tabId": "tab", "cwd": root, "cols": 80, "rows": 24,
+			"shell": "/bin/sh",
+			// 150 KB pauses the session at the 100 KB watermark while A never
+			// acks; what is left after the pause still fits in B's window.
+			"args": []string{"-c", "stty -echo; head -c 150000 /dev/zero | tr '\\0' a; echo; echo END-MARKER; sleep 30"},
+		},
+	})
+	if _, err := connA.Write(append(spawn, '\n')); err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	// Drain A without acking until the output stops (the session paused).
+	got := 0
+	for {
+		_ = connA.SetReadDeadline(time.Now().Add(time.Second))
+		n, err := connA.Read(make([]byte, 64*1024))
+		got += n
+		if err != nil {
+			break
+		}
+	}
+	if got < 100_000 {
+		t.Fatalf("dialer A received only %d bytes before the pause", got)
+	}
+
+	connB, _ := readReady(t, sockPath)
+	defer connB.Close()
+	_ = connB.SetReadDeadline(time.Now().Add(5 * time.Second))
+	sc := bufio.NewScanner(connB)
+	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	var tail strings.Builder
+	for sc.Scan() {
+		var frame struct {
+			Event   string `json:"event"`
+			Payload struct {
+				Chunk string `json:"chunk"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(sc.Bytes(), &frame) != nil || frame.Event != "pty.data" {
+			continue
+		}
+		chunk, _ := base64.StdEncoding.DecodeString(frame.Payload.Chunk)
+		tail.Write(chunk)
+		if strings.Contains(tail.String(), "END-MARKER") {
+			return
+		}
+	}
+	t.Fatalf("dialer B never received the output left after the pause (got %d bytes): %v", tail.Len(), sc.Err())
+}
+
+// A daemon of another workspace sweeping stale run files takes this
+// workspace's lock for a moment to prove its daemon dead. A daemon starting in
+// that moment must wait it out instead of exiting with ExitCodeLockHeld as if
+// a daemon were already running.
+func TestDaemonStartsWhileLockBrieflyHeld(t *testing.T) {
+	bin := mustBuild(t)
+	root := t.TempDir()
+	fakeHome := shortHome(t)
+	runDir := filepath.Join(fakeHome, ".nexus-code", "run")
+	if err := os.MkdirAll(runDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	lockFile, err := os.OpenFile(filepath.Join(runDir, agentrun.WsID(root, proto.ServerVersion)+".lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd, _ := startDaemon(t, bin, root, fakeHome)
+	exited := make(chan struct{})
+	var waitErr error
+	go func() {
+		waitErr = cmd.Wait()
+		close(exited)
+	}()
+	defer func() {
+		_ = cmd.Process.Kill()
+		<-exited
+	}()
+
+	// The daemon opens its log right before it takes the lock.
+	logPath := filepath.Join(runDir, agentrun.WsID(root, proto.ServerVersion)+".log")
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if _, err := os.Stat(logPath); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("daemon did not open its log within 5 s")
+		}
+	}
+	time.Sleep(30 * time.Millisecond)
+	_ = lockFile.Close()
+
+	select {
+	case <-exited:
+		t.Fatalf("daemon exited while the lock was briefly held: %v", waitErr)
+	case <-time.After(300 * time.Millisecond):
+	}
+	conn, ready := readReady(t, waitForSocket(t, runDir))
+	defer conn.Close()
+	if !strings.Contains(ready, `"ready"`) {
+		t.Fatalf("want ready frame, got %s", ready)
 	}
 }
 

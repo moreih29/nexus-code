@@ -351,6 +351,11 @@ function makeManager(workspaces: { id: string; rootPath: string }[], providers?:
       if (!provider) throw new Error(`workspace not found: ${workspaceId}`);
       return { fs: provider };
     },
+    getFs: async (workspaceId: string) => {
+      const provider = providers?.get(workspaceId);
+      if (!provider) throw new Error(`workspace not found: ${workspaceId}`);
+      return provider;
+    },
   };
 }
 

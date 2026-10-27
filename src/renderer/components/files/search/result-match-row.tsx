@@ -12,12 +12,21 @@ const MATCH_INDENT_PX = 20;
 interface SearchResultMatchRowProps {
   range: SearchRange;
   preview: string;
+  /** Column in the line where `preview` begins (long lines arrive cut). */
+  previewStart?: number;
   onClick: () => void;
 }
 
-export function SearchResultMatchRow({ range, preview, onClick }: SearchResultMatchRowProps) {
-  const { line, startCol, endCol } = range;
-  const before = preview.slice(0, startCol);
+export function SearchResultMatchRow({
+  range,
+  preview,
+  previewStart = 0,
+  onClick,
+}: SearchResultMatchRowProps) {
+  const { line } = range;
+  const startCol = range.startCol - previewStart;
+  const endCol = range.endCol - previewStart;
+  const before = (previewStart > 0 ? "…" : "") + preview.slice(0, startCol);
   const match = preview.slice(startCol, endCol);
   const after = preview.slice(endCol);
 

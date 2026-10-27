@@ -28,33 +28,34 @@ interface CreateWorkspaceSymbolPaletteSourceInput {
   openEditor?: typeof revealEditorAt;
 }
 
-const SYMBOL_KIND_LABELS: Record<number, string> = {
-  0: "File",
-  1: "Module",
-  2: "Namespace",
-  3: "Package",
-  4: "Class",
-  5: "Method",
-  6: "Property",
-  7: "Field",
-  8: "Constructor",
-  9: "Enum",
-  10: "Interface",
-  11: "Function",
-  12: "Variable",
-  13: "Constant",
-  14: "String",
-  15: "Number",
-  16: "Boolean",
-  17: "Array",
-  18: "Object",
-  19: "Key",
-  20: "Null",
-  21: "Enum member",
-  22: "Struct",
-  23: "Event",
-  24: "Operator",
-  25: "Type parameter",
+/** LSP SymbolKind (0-based, as Monaco numbers it) → common:palette.symbol_kind key. */
+const SYMBOL_KIND_KEYS: Record<number, string> = {
+  0: "file",
+  1: "module",
+  2: "namespace",
+  3: "package",
+  4: "class",
+  5: "method",
+  6: "property",
+  7: "field",
+  8: "constructor",
+  9: "enum",
+  10: "interface",
+  11: "function",
+  12: "variable",
+  13: "constant",
+  14: "string",
+  15: "number",
+  16: "boolean",
+  17: "array",
+  18: "object",
+  19: "key",
+  20: "null",
+  21: "enum_member",
+  22: "struct",
+  23: "event",
+  24: "operator",
+  25: "type_parameter",
 };
 
 export function createWorkspaceSymbolPaletteSource({
@@ -93,7 +94,10 @@ function workspaceSymbolToPaletteItem(
   const pathLabel = filePath ? relPath(filePath, workspaceRoot) : uri;
   const locationLabel = `${pathLabel}:${symbol.location.range.startLineNumber}:${symbol.location.range.startColumn}`;
   const container = symbol.containerName ? `${symbol.containerName} · ` : "";
-  const kindLabel = SYMBOL_KIND_LABELS[symbol.kind] ?? i18next.t("common:palette.symbol_fallback");
+  const kindKey = SYMBOL_KIND_KEYS[symbol.kind];
+  const kindLabel = i18next.t(
+    kindKey ? `common:palette.symbol_kind.${kindKey}` : "common:palette.symbol_fallback",
+  );
 
   return {
     id: workspaceSymbolDedupeKey(symbol),

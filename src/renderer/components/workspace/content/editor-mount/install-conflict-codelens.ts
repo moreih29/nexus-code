@@ -80,7 +80,10 @@ export function installConflictCodelensForEditor(
   });
 
   // React to the user editing the file (e.g. accepting a conflict block).
-  function onContentChange(): void {
+  // A file without markers can only gain one on a line the edit touched, so
+  // check those lines instead of scanning the whole buffer per keystroke.
+  function onContentChange(event: Monaco.editor.IModelContentChangedEvent): void {
+    if (activeInstallation === null && !editMayAddMarker(editor.getModel(), event)) return;
     syncInstallation();
   }
   let contentChangeDisposable: Monaco.IDisposable | null =
@@ -100,4 +103,25 @@ export function installConflictCodelensForEditor(
       }
     },
   };
+}
+
+/**
+ * True when a content change could have introduced a conflict marker. Exact
+ * for the common single-change edit; multi-change edits (multi-cursor,
+ * format) and reloads fall back to a full scan.
+ */
+export function editMayAddMarker(
+  model: Monaco.editor.ITextModel | null,
+  event: Monaco.editor.IModelContentChangedEvent,
+): boolean {
+  if (!model) return false;
+  if (event.isFlush || event.changes.length !== 1) return true;
+  const [change] = event.changes;
+  const insertedLines = change.text.split("\n").length;
+  const first = change.range.startLineNumber;
+  const last = Math.min(model.getLineCount(), first + insertedLines - 1);
+  for (let line = first; line <= last; line++) {
+    if (hasConflictMarkers(model.getLineContent(line))) return true;
+  }
+  return false;
 }

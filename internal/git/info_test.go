@@ -165,6 +165,78 @@ func TestServiceDetect_Subdir(t *testing.T) {
 	}
 }
 
+// symlinkedRepo creates a repository with a src/components subdirectory and
+// returns its path through a symlink, as git would not report it.
+func symlinkedRepo(t *testing.T) (real string, link string) {
+	t.Helper()
+	base := t.TempDir()
+	real = filepath.Join(base, "real")
+	link = filepath.Join(base, "link")
+	writeDir(t, filepath.Join(real, "src", "components"))
+	runGitCommand(t, real, "init", "-b", "main")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	return real, link
+}
+
+func detect(t *testing.T, service *Service, cwd string) DetectResult {
+	t.Helper()
+	result, err := service.Detect(context.Background(), json.RawMessage(`{"cwd":"`+jsonEscapePath(cwd)+`"}`))
+	if err != nil {
+		t.Fatalf("Detect(%q) returned error: %v", cwd, err)
+	}
+	dr, ok := result.(DetectResult)
+	if !ok || dr.Kind != "repo" {
+		t.Fatalf("Detect(%q) = %#v, want a repo", cwd, result)
+	}
+	return dr
+}
+
+func TestServiceDetect_ReportsPathsAsReachedFromCwd(t *testing.T) {
+	_, link := symlinkedRepo(t)
+
+	for _, cwd := range []string{link, filepath.Join(link, "src", "components")} {
+		dr := detect(t, New(cwd), cwd)
+		if dr.TopLevel != link {
+			t.Errorf("Detect(%q).TopLevel = %q, want %q", cwd, dr.TopLevel, link)
+		}
+		if want := filepath.Join(link, ".git"); dr.GitDir != want {
+			t.Errorf("Detect(%q).GitDir = %q, want %q", cwd, dr.GitDir, want)
+		}
+	}
+}
+
+func TestServiceDetect_KeepsGitRootForSymlinkIntoTree(t *testing.T) {
+	real, _ := symlinkedRepo(t)
+	intoTree := filepath.Join(filepath.Dir(real), "into-tree")
+	if err := os.Symlink(filepath.Join(real, "src"), intoTree); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	// Walking up from the link leaves the repository, so only git's own
+	// spelling of the root names it.
+	dr := detect(t, New(intoTree), intoTree)
+	want, _ := filepath.EvalSymlinks(real)
+	if dr.TopLevel != want {
+		t.Errorf("TopLevel = %q, want %q", dr.TopLevel, want)
+	}
+}
+
+func TestServiceDetect_PathsPassTheServiceChecks(t *testing.T) {
+	_, link := symlinkedRepo(t)
+	workspace := filepath.Join(link, "src")
+	service := New(workspace)
+	dr := detect(t, service, workspace)
+
+	if _, err := service.resolveCwd(context.Background(), dr.TopLevel); err != nil {
+		t.Errorf("resolveCwd(%q): %v", dr.TopLevel, err)
+	}
+	if _, err := service.resolveGitDir(context.Background(), dr.GitDir); err != nil {
+		t.Errorf("resolveGitDir(%q): %v", dr.GitDir, err)
+	}
+}
+
 func TestServiceDetect_MissingCwd(t *testing.T) {
 	root := t.TempDir()
 	service := New(root)

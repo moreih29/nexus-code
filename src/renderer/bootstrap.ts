@@ -11,12 +11,16 @@ import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
 import { startNotificationClickListener } from "./state/notification-click";
+import { startTerminalExitListener } from "./state/terminal-exit";
 import {
   initBrowserLastUrlPersistence,
   initBrowserRuntimeSubscriptions,
 } from "./state/operations/browser";
 import { initBrowserPermissionSubscriptions } from "./state/operations/browser-permission";
 import { initBrowserOverlayAutoSuspend } from "./state/operations/browser-suspend-auto";
+import { initFocusResync } from "./state/operations/focus-resync";
+import { initGitErrorToasts } from "./state/operations/git-error-toasts";
+import { normalizeWorkspaceTabOrder } from "./state/operations/tab-order";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
 import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
@@ -89,6 +93,12 @@ export async function bootstrapAppState(): Promise<void> {
   // Wire the OS notification click → workspace activate + tab reveal listener.
   startNotificationClickListener();
 
+  // Mark terminal tabs dead on PTY exit even while their view is unmounted.
+  startTerminalExitListener();
+
+  // Toast git failures the Source Control panel does not show itself.
+  initGitErrorToasts();
+
   // Wire browser tab runtime event subscriptions (navigated / loadingChanged /
   // error / titleUpdated) so useBrowserRuntimeStore stays up-to-date.
   initBrowserRuntimeSubscriptions();
@@ -113,6 +123,10 @@ export async function bootstrapAppState(): Promise<void> {
   // Radix portal element so callsites bypassing our wrapper (e.g. the
   // Settings dialog using RadixDialog.Root directly) still trigger suspend.
   initBrowserOverlayAutoSuspend();
+
+  // Re-read the active workspace's file tree and git status on app focus /
+  // workspace switch — the safety net for changes the watchers can't see.
+  initFocusResync();
 
   // Bootstrap is an initialization path — no recovery possible if appState is unavailable.
   const state = mustSucceed(await ipcCallResult("appState", "get", undefined));
@@ -235,6 +249,9 @@ export async function bootstrapAppState(): Promise<void> {
         useLayoutStore
           .getState()
           .hydrate(wsId, { root: snap.root, activeGroupId: snap.activeGroupId }, knownTabIds);
+        // Layouts saved before pinning reordered tabs can hold pinned tabs
+        // behind unpinned ones.
+        normalizeWorkspaceTabOrder(wsId);
       } catch {
         // Silent repair: skip invalid snapshot for this workspace
       }

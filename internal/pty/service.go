@@ -1,6 +1,7 @@
 package pty
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -35,7 +36,7 @@ type tabKey struct {
 }
 
 // session owns one child process, its master PTY, per-tab flow control, and the
-// ring buffer that preserves output while no dialer is attached.
+// ring buffer that keeps its most recent output for pty.replay.
 type session struct {
 	service *Service
 	key     tabKey
@@ -54,22 +55,20 @@ type session struct {
 	stopOnce sync.Once
 	exitOnce sync.Once
 
-	// ring is the fixed-capacity circular output buffer used while no dialer is
-	// attached, and as a temporary queue while replay is in progress.  ringMu
-	// serializes all reads/writes to ring*, ringHead, and ringSize.
-	ringMu   sync.Mutex
-	ring     []byte
-	ringHead int // index of the oldest byte in ring
-	ringSize int // number of valid bytes currently stored
+	// ring is the fixed-capacity circular buffer holding the session's most
+	// recent output, whether or not a dialer received it, so pty.replay can
+	// redraw the screen for a client that has none of it.  ringMu serializes
+	// all reads/writes to ring*.
+	ringMu      sync.Mutex
+	ring        []byte
+	ringHead    int  // index of the oldest byte in ring
+	ringSize    int  // number of valid bytes currently stored
+	ringDropped bool // whether older output has been overwritten
 
-	// replayActive is set to 1 while a pty.replay call is draining the ring.
-	// readLoop checks this flag: when set, live PTY bytes are diverted to the
-	// ring instead of being emitted directly, so replay data always precedes
-	// live data on the wire.
-	replayActive atomic.Int32
-
-	// replayMu ensures at most one concurrent replay per session.
-	replayMu sync.Mutex
+	// outputMu orders output on the wire.  readLoop holds it to record and emit
+	// one chunk; pty.replay holds it for the whole replay, so live output waits
+	// behind the replayed output instead of interleaving with it.
+	outputMu sync.Mutex
 
 	// createdAt is the wall-clock time when the PTY was spawned, exported in
 	// session.list so the client can match sessions to its pending tab state.
@@ -85,7 +84,7 @@ type session struct {
 	lastRows int
 
 	// setSizeFn is the function used by wiggleSIGWINCH to apply a PTY geometry
-	// change.  Production code leaves it nil (creackpty.Setsize is used).
+	// change.  Production code leaves it nil (setWinsize is used).
 	// Tests may replace it with a recording stub to verify call sequences
 	// without a real PTY fd.
 	setSizeFn func(f *os.File, ws *creackpty.Winsize) error
@@ -198,7 +197,11 @@ func (s *Service) Spawn(_ context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	if existing := s.lookup(key); existing != nil && existing.cmd.Process != nil {
-		return SpawnResult{PID: existing.cmd.Process.Pid}, nil
+		// The session outlived its previous client (an app restart or a window
+		// reload).  Fit it to the new client, which replays it to redraw the
+		// screen.  Best-effort: a session that is exiting reports exit anyway.
+		_ = existing.resize(p.Cols, p.Rows)
+		return SpawnResult{PID: existing.cmd.Process.Pid, Attached: true}, nil
 	}
 
 	shell := strings.TrimSpace(p.Shell)
@@ -214,6 +217,9 @@ func (s *Service) Spawn(_ context.Context, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, requestFailed("failed to spawn PTY: %s", err)
 	}
+	// From here on the master must not go through os.File.Fd(): that would
+	// put it back into blocking mode (see pollableMaster and withFd).
+	master = pollableMaster(master)
 
 	session := newSession(s, key, cmd, master)
 	session.sizeMu.Lock()
@@ -271,13 +277,9 @@ func (s *Service) Resize(_ context.Context, raw json.RawMessage) (any, error) {
 	if session == nil {
 		return struct{}{}, nil
 	}
-	if err := creackpty.Setsize(session.master, &creackpty.Winsize{Rows: uint16(p.Rows), Cols: uint16(p.Cols)}); err != nil {
+	if err := session.resize(p.Cols, p.Rows); err != nil {
 		return nil, requestFailed("failed to resize PTY: %s", err)
 	}
-	session.sizeMu.Lock()
-	session.lastCols = p.Cols
-	session.lastRows = p.Rows
-	session.sizeMu.Unlock()
 	return struct{}{}, nil
 }
 
@@ -351,7 +353,11 @@ func (s *Service) ForegroundProcess(_ context.Context, raw json.RawMessage) (any
 	if session == nil {
 		return ForegroundProcessResult{Name: ""}, nil
 	}
-	pgid, ioErr := unix.IoctlGetInt(int(session.master.Fd()), unix.TIOCGPGRP)
+	var pgid int
+	ioErr := withFd(session.master, func(fd int) (err error) {
+		pgid, err = unix.IoctlGetInt(fd, unix.TIOCGPGRP)
+		return err
+	})
 	if ioErr != nil || pgid <= 0 {
 		return ForegroundProcessResult{Name: ""}, nil
 	}
@@ -387,58 +393,50 @@ func newSession(service *Service, key tabKey, cmd *exec.Cmd, master *os.File) *s
 
 // readLoop serially emits PTY data, applying renderer-credit backpressure before
 // each read.
-//
-// When the dialer is absent (emit returns an error) or a pty.replay call is in
-// progress (replayActive=1), bytes are written to the session ring buffer instead
-// of being emitted directly.  This keeps the single readLoop goroutine as the
-// sole sequencer: replay data is always flushed before live data because replay
-// holds replayActive for the full duration of its drain.
-//
-// The credit gate (waitForOutputWindow) is bypassed when buffering to ring —
-// there is no renderer present to send acks, so blocking would deadlock.  The
-// gate is re-engaged on every normal emit so backpressure is restored as soon
-// as a dialer reconnects.
 func (s *session) readLoop() {
 	defer close(s.readDone)
 	buf := make([]byte, MaxChunkSize)
 	for {
-		// If a replay is in progress, route PTY bytes to ring so they are queued
-		// behind the replay snapshot already in flight.  Once replayActive is
-		// cleared the normal emit path resumes.
-		if s.replayActive.Load() == 1 {
-			n, err := s.master.Read(buf)
-			if n > 0 {
-				s.ringAppend(buf[:n])
-			}
-			if err != nil {
-				return
-			}
-			continue
-		}
-
-		// Normal path: apply credit-gate backpressure before each read.
 		if !s.waitForOutputWindow() {
 			return
 		}
 		n, err := s.master.Read(buf)
 		if n > 0 {
-			chunk := append([]byte(nil), buf[:n]...)
-			s.noteEmitted(len(chunk))
-			if emitErr := s.service.emit(EventData, DataPayload{WorkspaceID: s.key.workspaceID, TabID: s.key.tabID, Chunk: base64.StdEncoding.EncodeToString(chunk)}); emitErr != nil {
-				// Dialer is gone — preserve output in the ring so a reattaching
-				// dialer can recover it via pty.replay.  The PTY child is NOT
-				// killed; it continues running until the reattach grace expires.
-				// Undo the renderer debt — there is no renderer to send acks, so
-				// leaving the debt would permanently pause readLoop on the next
-				// waitForOutputWindow check once a dialer reconnects.
-				s.ack(len(chunk))
-				s.ringAppend(chunk)
-			}
+			s.deliver(append([]byte(nil), buf[:n]...))
 		}
 		if err != nil {
 			return
 		}
 	}
+}
+
+// deliver records one chunk of PTY output in the ring and emits it.  When the
+// dialer is gone the chunk is kept only in the ring, for a reattaching dialer to
+// recover through pty.replay; the PTY child is NOT killed and keeps running
+// until the reattach grace expires.
+func (s *session) deliver(chunk []byte) {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	s.ringAppend(chunk)
+	s.noteEmitted(len(chunk))
+	if err := s.service.emit(EventData, DataPayload{WorkspaceID: s.key.workspaceID, TabID: s.key.tabID, Chunk: base64.StdEncoding.EncodeToString(chunk)}); err != nil {
+		// Undo the renderer debt — there is no renderer to send acks, so leaving
+		// the debt would permanently pause readLoop on the next
+		// waitForOutputWindow check once a dialer reconnects.
+		s.ack(len(chunk))
+	}
+}
+
+// resize applies a PTY geometry and records it for wiggleSIGWINCH.
+func (s *session) resize(cols int, rows int) error {
+	if err := setWinsize(s.master, &creackpty.Winsize{Rows: uint16(rows), Cols: uint16(cols)}); err != nil {
+		return err
+	}
+	s.sizeMu.Lock()
+	s.lastCols = cols
+	s.lastRows = rows
+	s.sizeMu.Unlock()
+	return nil
 }
 
 // waitLoop reports exactly one exit event after the child has terminated.
@@ -544,7 +542,7 @@ func (s *session) wiggleSIGWINCH() {
 	if cols == 0 || rows == 0 || rows <= 1 {
 		return
 	}
-	setSize := creackpty.Setsize
+	setSize := setWinsize
 	if s.setSizeFn != nil {
 		setSize = s.setSizeFn
 	}
@@ -600,6 +598,32 @@ func (s *session) stopReading() {
 	s.flowCond.Broadcast()
 	s.flowMu.Unlock()
 	_ = s.master.Close()
+}
+
+// setWinsize applies ws to the PTY master. It replaces creackpty.Setsize,
+// which reaches the descriptor through os.File.Fd(): that read is not
+// synchronized with a concurrent Close (a data race, and an ioctl on a
+// possibly reused descriptor number), which resize and the post-replay
+// wiggle hit whenever the session is torn down at the same time.
+func setWinsize(master *os.File, ws *creackpty.Winsize) error {
+	return withFd(master, func(fd int) error {
+		return unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, &unix.Winsize{Row: ws.Rows, Col: ws.Cols, Xpixel: ws.X, Ypixel: ws.Y})
+	})
+}
+
+// withFd runs fn with the master's descriptor held open: SyscallConn's
+// Control keeps the file from being closed underneath fn and fails cleanly
+// once it has been closed, unlike os.File.Fd().
+func withFd(master *os.File, fn func(fd int) error) error {
+	conn, err := master.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var fnErr error
+	if err := conn.Control(func(fd uintptr) { fnErr = fn(int(fd)) }); err != nil {
+		return err
+	}
+	return fnErr
 }
 
 // decodeParams unmarshals a request body into a strongly typed PTY parameter struct.
@@ -776,33 +800,41 @@ func (s *session) ringAppend(data []byte) {
 		return // session already removed
 	}
 	cap := len(s.ring)
-	for _, b := range data {
-		if s.ringSize == cap {
-			// Ring full: overwrite the oldest byte (advance head).
-			s.ring[s.ringHead] = b
-			s.ringHead = (s.ringHead + 1) % cap
-		} else {
-			tail := (s.ringHead + s.ringSize) % cap
-			s.ring[tail] = b
-			s.ringSize++
+	if len(data) > cap {
+		data = data[len(data)-cap:]
+		s.ringDropped = true
+	}
+	for len(data) > 0 {
+		tail := (s.ringHead + s.ringSize) % cap
+		n := copy(s.ring[tail:], data)
+		data = data[n:]
+		s.ringSize += n
+		if s.ringSize > cap {
+			// The write ran over the oldest bytes: advance head past them.
+			s.ringHead = (s.ringHead + s.ringSize - cap) % cap
+			s.ringSize = cap
+			s.ringDropped = true
 		}
 	}
 }
 
-// ringSnapshot copies the current ring contents into a flat byte slice and
-// resets the ring to empty.  Returns nil when the ring is empty.
-// Caller must hold ringMu.
-func (s *session) ringSnapshotLocked() []byte {
+// ringContentsLocked copies the ring contents, oldest first, into a flat byte
+// slice.  Once older output has been dropped, the oldest byte may sit in the
+// middle of an escape sequence or a multi-byte character, so the copy starts
+// after the first line break instead.  Caller must hold ringMu.
+func (s *session) ringContentsLocked() []byte {
 	if s.ringSize == 0 || s.ring == nil {
 		return nil
 	}
 	cap := len(s.ring)
 	out := make([]byte, s.ringSize)
-	for i := 0; i < s.ringSize; i++ {
-		out[i] = s.ring[(s.ringHead+i)%cap]
+	n := copy(out, s.ring[s.ringHead:min(s.ringHead+s.ringSize, cap)])
+	copy(out[n:], s.ring)
+	if s.ringDropped {
+		if i := bytes.IndexByte(out, '\n'); i >= 0 {
+			out = out[i+1:]
+		}
 	}
-	s.ringHead = 0
-	s.ringSize = 0
 	return out
 }
 
@@ -836,14 +868,15 @@ func (s *Service) SessionList(_ context.Context, raw json.RawMessage) (any, erro
 	return SessionListResult{Sessions: infos}, nil
 }
 
-// Replay sends the ring buffer contents for a session to the current dialer,
-// going through the existing ack-credit gate so the dialer is not flooded.
+// Replay redraws a session's screen for the current dialer, which may have
+// none of its output: one reattaching after an outage, or a restarted app
+// attaching to a session that kept running.  It sends a terminal reset and the
+// retained output, marked as replay, through the ack-credit gate so the dialer
+// is not flooded.
 //
-// Ordering guarantee: while replay is draining the snapshot, any live PTY
-// bytes produced by readLoop are written to the ring (via replayActive flag)
-// rather than emitted directly.  After the snapshot drain, those queued live
-// bytes are emitted in a second pass.  The result is strictly
-// buffered-output → live-output with no interleaving.
+// Ordering guarantee: Replay holds outputMu for the whole send, so live PTY
+// output read meanwhile waits in readLoop and follows the replayed output on
+// the wire with no interleaving.
 func (s *Service) Replay(_ context.Context, raw json.RawMessage) (any, error) {
 	var p ReplayParams
 	if err := decodeParams(raw, &p, "pty.replay params must include workspaceId and tabId"); err != nil {
@@ -858,93 +891,35 @@ func (s *Service) Replay(_ context.Context, raw json.RawMessage) (any, error) {
 		return struct{}{}, nil
 	}
 
-	sess.replayMu.Lock()
-	defer sess.replayMu.Unlock()
-
-	// Phase 1: signal readLoop to divert live bytes to ring, then snapshot the
-	// current ring so the drain below does not race with new PTY output.
-	sess.replayActive.Store(1)
+	sess.outputMu.Lock()
 	sess.ringMu.Lock()
-	snapshot := sess.ringSnapshotLocked()
+	replay := append([]byte(terminalReset), sess.ringContentsLocked()...)
 	sess.ringMu.Unlock()
-
-	// Emit the snapshot in MaxChunkSize chunks through the ack-credit gate.
-	// This is the same path as a normal readLoop emit, so the renderer's
-	// backpressure is honoured — no unbounded drain.
-	if err := s.emitBytes(sess, snapshot); err != nil {
-		// Dialer disappeared again mid-replay — push the snapshot back to ring
-		// and let the next replay pick it up.
-		sess.ringMu.Lock()
-		if sess.ring != nil {
-			// Prepend snapshot before any bytes written during Phase 1.
-			live := sess.ringSnapshotLocked()
-			combined := append(snapshot, live...)
-			for _, b := range combined {
-				cap := len(sess.ring)
-				if sess.ringSize == cap {
-					sess.ring[sess.ringHead] = b
-					sess.ringHead = (sess.ringHead + 1) % cap
-				} else {
-					tail := (sess.ringHead + sess.ringSize) % cap
-					sess.ring[tail] = b
-					sess.ringSize++
-				}
-			}
-		}
-		sess.ringMu.Unlock()
-		sess.replayActive.Store(0)
+	err = s.emitReplay(sess, replay)
+	sess.outputMu.Unlock()
+	if err != nil {
+		// Dialer disappeared again mid-replay; the ring still holds everything
+		// for the next replay.
 		return nil, err
 	}
 
-	// Phase 2: clear replayActive, then drain bytes queued by readLoop during
-	// Phase 1.  Holding ringMu across the flag clear and snapshot prevents a
-	// new byte from slipping between the snapshot and the flag clear.
-	sess.ringMu.Lock()
-	sess.replayActive.Store(0)
-	queued := sess.ringSnapshotLocked()
-	sess.ringMu.Unlock()
-
-	if err := s.emitBytes(sess, queued); err != nil {
-		// Dialer gone again; save queued bytes for next replay.
-		if queued != nil {
-			sess.ringMu.Lock()
-			for _, b := range queued {
-				cap := len(sess.ring)
-				if sess.ring != nil {
-					if sess.ringSize == cap {
-						sess.ring[sess.ringHead] = b
-						sess.ringHead = (sess.ringHead + 1) % cap
-					} else {
-						tail := (sess.ringHead + sess.ringSize) % cap
-						sess.ring[tail] = b
-						sess.ringSize++
-					}
-				}
-			}
-			sess.ringMu.Unlock()
-		}
-		return nil, err
-	}
-
-	// After all buffered and queued live bytes have been flushed, send a
-	// SIGWINCH wiggle (rows-1 → hold → original) to force a full TUI repaint.
-	// This repairs the blank-screen symptom seen when in-flight zombie-window
-	// bytes were lost: the ring contains only post-loss output, so the TUI's
-	// internal state may be ahead of what was replayed.  SIGWINCH causes
-	// full-screen TUIs (claude, vim, tmux, etc.) to redraw themselves entirely,
-	// making the terminal immediately usable without requiring user input.
-	// Started after the live flush so repaint output lands after replay data;
-	// run as a goroutine because the wiggle now holds the shrunken size for
-	// wiggleRestoreDelay and must not stall the replay RPC response.
+	// The retained output may not reproduce the program's current screen: the
+	// ring may have dropped the start of it, and a full-screen program's state
+	// can be ahead of what was replayed.  A SIGWINCH wiggle (rows-1 → hold →
+	// original) makes full-screen TUIs (claude, vim, tmux, etc.) redraw
+	// themselves entirely, making the terminal immediately usable without
+	// requiring user input.  Started after the replay so repaint output lands
+	// after it; run as a goroutine because the wiggle holds the shrunken size
+	// for wiggleRestoreDelay and must not stall the replay RPC response.
 	go sess.wiggleSIGWINCH()
 
 	return struct{}{}, nil
 }
 
-// emitBytes sends raw bytes in MaxChunkSize chunks through the ack-credit gate,
-// exactly as readLoop does for live output.  Stops and returns the first emit
-// error — the caller decides what to do with any un-sent tail.
-func (s *Service) emitBytes(sess *session, data []byte) error {
+// emitReplay sends replayed bytes in MaxChunkSize chunks through the
+// ack-credit gate, exactly as readLoop does for live output.  Stops and
+// returns the first emit error.
+func (s *Service) emitReplay(sess *session, data []byte) error {
 	for len(data) > 0 {
 		if !sess.waitForOutputWindow() {
 			return errors.New("session stopped")
@@ -960,6 +935,7 @@ func (s *Service) emitBytes(sess *session, data []byte) error {
 			WorkspaceID: sess.key.workspaceID,
 			TabID:       sess.key.tabID,
 			Chunk:       base64.StdEncoding.EncodeToString(chunk),
+			Replay:      true,
 		}); err != nil {
 			sess.ack(len(chunk)) // undo debt on failure
 			return err

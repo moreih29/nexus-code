@@ -114,7 +114,21 @@ describe("fs read handlers — provider delegation", () => {
 
     expect(result).toBe(entries);
     expect(getFs.mock.calls).toEqual([[WORKSPACE_ID]]);
-    expect(readdir.mock.calls).toEqual([["src"]]);
+    expect(readdir.mock.calls).toEqual([["src", { includeHidden: undefined }]]);
+  });
+
+  it("readdirHandler forwards includeHidden for name-collision listings", async () => {
+    const readdir = mock(async (_relPath: string) => [] as DirEntry[]);
+    const { provider } = makeProvider({ readdir });
+    const { manager } = makeManager(provider);
+
+    await readdirHandler(manager as never)({
+      workspaceId: WORKSPACE_ID,
+      relPath: "src",
+      includeHidden: true,
+    });
+
+    expect(readdir.mock.calls).toEqual([["src", { includeHidden: true }]]);
   });
 
   it("statHandler passes the workspace id to getFs and relPath to the provider", async () => {

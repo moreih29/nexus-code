@@ -20,6 +20,7 @@ import {
 } from "@/services/file-clipboard";
 import { confirmAndDeleteBatch, createPathActions, distinctParents } from "@/services/fs-mutations";
 import { parentOf } from "@/state/stores/files";
+import { useWorkspacesStore } from "@/state/stores/workspaces";
 import { relPath } from "@/utils/path";
 import type { EntryKind } from "../file-tree/display";
 
@@ -154,7 +155,10 @@ export function useFileTreeActions({
 
     // N≥2: acknowledge multi-copy (single copy is silent, matching Phase C delete).
     if (entries.length >= 2) {
-      showToast({ kind: "info", message: `Copied ${entries.length} items` });
+      showToast({
+        kind: "info",
+        message: i18next.t("files:fileTree.clipboard.copied", { count: entries.length }),
+      });
     }
   }
 
@@ -172,7 +176,10 @@ export function useFileTreeActions({
     handleCut({ workspaceId, workspaceRootPath: rootAbsPath, entries });
 
     if (entries.length >= 2) {
-      showToast({ kind: "info", message: `Cut ${entries.length} items` });
+      showToast({
+        kind: "info",
+        message: i18next.t("files:fileTree.clipboard.cut", { count: entries.length }),
+      });
     }
   }
 
@@ -188,13 +195,17 @@ export function useFileTreeActions({
   // triggers a re-render (setContextTargets), so the value is current.
   const clip = useFileClipboardStore.getState();
   const canPaste = clip.kind !== null && clip.entries.length > 0;
+  // The system file manager can only show local files.
+  const isRemote =
+    useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId)?.location.kind ===
+    "ssh";
 
   return {
     open,
     openToSide,
     copyPath: pathActions.copyPath,
     copyRelativePath: pathActions.copyRelativePath,
-    reveal: pathActions.revealInFinder,
+    reveal: isRemote ? undefined : pathActions.revealInFinder,
     newFile,
     newFolder,
     rename,

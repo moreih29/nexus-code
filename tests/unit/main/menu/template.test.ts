@@ -171,4 +171,15 @@ describe("buildMenuTemplate (win/linux)", () => {
     if (item?.type !== "command") throw new Error("unreachable");
     expect(item.accelerator).toBe("CmdOrCtrl+W");
   });
+
+  it("names the reveal command after each platform's file manager", () => {
+    const revealLabel = (platform: NodeJS.Platform) =>
+      findCommand(
+        buildMenuTemplate({ isMac: platform === "darwin", platform, appName: "Nexus" }),
+        COMMANDS.pathReveal,
+      )?.label;
+    expect(revealLabel("darwin")).toBe("Reveal in Finder");
+    expect(revealLabel("win32")).toBe("Reveal in File Explorer");
+    expect(revealLabel("linux")).toBe("Open Containing Folder");
+  });
 });

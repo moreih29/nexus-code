@@ -31,15 +31,28 @@
 //   produces horizontal/vertical scrollbars. When smaller, flex centering
 //   on the inner wrapper keeps the image in the middle.
 //
+//   fitScale is measured from the container's BORDER box minus the inner
+//   wrapper's padding. Measuring clientWidth/Height (which shrink when a
+//   scrollbar appears) created a feedback loop at borderline sizes: the
+//   fitted image overflowed by the padding → scrollbar appeared → client
+//   size shrank → image refit smaller → scrollbar vanished → repeat, every
+//   frame. The border box is scrollbar-independent, so the loop can't form.
+//
+// LIVE RELOAD
+//   The protocol URL is stable for a given file, so an on-disk change would
+//   never re-request it. ImageCanvas watches fs.changed (plus a stat check on
+//   git.statusChanged, for directories the file-tree watcher doesn't cover)
+//   and appends a `?v=<n>` cache-buster; main ignores the query string.
+//
 //   Cursor-anchored zoom: at wheel time we snapshot the cursor's position
 //   relative to the image as ratios in [0,1]; a useLayoutEffect then
 //   adjusts scrollLeft/scrollTop after the new dimensions commit so the
 //   same image point stays under the cursor (single repaint, no flash).
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
-import { ipcCallResult } from "../../../ipc/client";
+import { ipcCallResult, ipcListen } from "../../../ipc/client";
 import { buildWorkspaceUrl } from "../../../services/editor/preview/workspace-url";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { relPath } from "../../../utils/path";
@@ -127,6 +140,10 @@ const MAX_USER_SCALE = 16;
 // mouse-wheel feel (large discrete deltas, capped via exp curve).
 const ZOOM_SENSITIVITY = 0.005;
 
+// Inner wrapper padding on each side — must match its `p-4` class. Subtracted
+// from the fit box so a fitted image plus padding never overflows.
+const CANVAS_PADDING_PX = 16;
+
 interface ZoomAnchor {
   /** Cursor position over the image, normalised to [0,1] in each axis. */
   ratioX: number;
@@ -145,7 +162,15 @@ interface ZoomAnchor {
  */
 function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCanvasProps) {
   const { t } = useTranslation();
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  // The container unmounts while a load error is shown and a new one mounts
+  // on recovery. Effects that attach listeners key on the element itself so
+  // they move to the new node instead of staying on the detached one.
+  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
+  const attachContainer = useCallback((el: HTMLDivElement | null) => {
+    containerRef.current = el;
+    setContainerEl(el);
+  }, []);
   const imgRef = useRef<HTMLImageElement>(null);
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const [fitScale, setFitScale] = useState(1);
@@ -166,25 +191,80 @@ function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCan
     userScaleRef.current = userScale;
   }, [userScale]);
 
+  // Bumped whenever the file changes on disk; appended to the URL so the
+  // <img> re-requests it (see LIVE RELOAD above).
+  const [version, setVersion] = useState(0);
+  const src = version === 0 ? url : `${url}?v=${version}`;
+
+  // A previous load failure (file missing mid-write, deleted then recreated)
+  // must not stick once a new version is requested — the error branch below
+  // doesn't render the <img>, so it would never get a chance to retry.
+  const [trackedSrc, setTrackedSrc] = useState(src);
+  if (trackedSrc !== src) {
+    setTrackedSrc(src);
+    setErrorKind(null);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    // `${mtime}|${size}` last observed; null = missing, undefined = no
+    // baseline yet (the first stat only records, never bumps).
+    let statKey: string | null | undefined;
+    // fs.changed already proves a write happened, so it forces a bump even
+    // when the stat compares equal (mtime is only ms-granular).
+    // git.statusChanged fires for any workspace change, so it bumps only
+    // when this file's stat actually moved.
+    const refresh = (force: boolean) => {
+      void ipcCallResult("fs", "stat", { workspaceId, relPath }).then((result) => {
+        if (cancelled) return;
+        const key = result.ok ? `${result.value.mtime}|${result.value.size}` : null;
+        const hadBaseline = statKey !== undefined;
+        const changed = key !== statKey;
+        statKey = key;
+        if (hadBaseline && (force || changed)) setVersion((v) => v + 1);
+      });
+    };
+    refresh(false);
+    const unsubscribeFs = ipcListen("fs", "changed", (event) => {
+      if (event.workspaceId !== workspaceId) return;
+      if (!event.changes.some((change) => change.relPath === relPath)) return;
+      refresh(true);
+    });
+    const unsubscribeGit = ipcListen("git", "statusChanged", (event) => {
+      if (event.workspaceId !== workspaceId) return;
+      refresh(false);
+    });
+    return () => {
+      cancelled = true;
+      unsubscribeFs();
+      unsubscribeGit();
+    };
+  }, [workspaceId, relPath]);
+
   // Recompute object-contain fit factor on container resize or natural-size
   // change. Independent of userScale so the user's zoom level persists
   // across panel resizes — the image refits its baseline, the user's
   // multiplier on top is preserved.
+  //
+  // Border box, not clientWidth/Height: see the ZOOM note at the top for the
+  // scrollbar feedback loop this avoids. Floored so a fractional layout width
+  // can't leave a sub-pixel overflow (and a stray scrollbar) at fit.
   useEffect(() => {
     if (!naturalSize) return;
-    const el = containerRef.current;
+    const el = containerEl;
     if (!el) return;
     const recompute = () => {
-      const cw = el.clientWidth;
-      const ch = el.clientHeight;
-      if (cw === 0 || ch === 0) return;
-      setFitScale(Math.min(cw / naturalSize.w, ch / naturalSize.h));
+      const rect = el.getBoundingClientRect();
+      const availW = Math.floor(rect.width) - 2 * CANVAS_PADDING_PX;
+      const availH = Math.floor(rect.height) - 2 * CANVAS_PADDING_PX;
+      if (availW <= 0 || availH <= 0) return;
+      setFitScale(Math.min(availW / naturalSize.w, availH / naturalSize.h));
     };
     recompute();
     const ro = new ResizeObserver(recompute);
-    ro.observe(el);
+    ro.observe(el, { box: "border-box" });
     return () => ro.disconnect();
-  }, [naturalSize]);
+  }, [naturalSize, containerEl]);
 
   // Apply cursor-anchored scroll correction immediately after the new image
   // dimensions land in the DOM. useLayoutEffect runs before paint, so the
@@ -213,7 +293,7 @@ function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCan
   // default cmd-wheel binding zooms the entire WebContents; we need
   // passive: false to suppress that and apply image zoom instead.
   useEffect(() => {
-    const el = containerRef.current;
+    const el = containerEl;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       // Cmd (mac) and Ctrl (other platforms) are the conventional zoom
@@ -240,7 +320,7 @@ function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCan
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [containerEl]);
 
   if (errorKind) {
     return (
@@ -267,13 +347,13 @@ function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCan
 
   return (
     <div
-      ref={containerRef}
+      ref={attachContainer}
       className="app-scrollbar flex-1 min-h-0 overflow-auto bg-[var(--surface-backdrop-bg)]"
     >
       <div className="min-w-full min-h-full flex items-center-safe justify-center-safe p-4">
         <img
           ref={imgRef}
-          src={url}
+          src={src}
           alt={alt}
           onLoad={(e) => {
             const t = e.currentTarget;

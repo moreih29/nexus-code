@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/nexus-code/nexus-code/internal/proto"
@@ -25,6 +26,10 @@ type RunParams struct {
 	Env            map[string]string `json:"env,omitempty"`
 	Interactive    bool              `json:"interactive,omitempty"`
 	StdoutCapBytes int64             `json:"stdoutCapBytes,omitempty"`
+	// RunID, when set, lets git.cancel stop the command and tags its askpass
+	// prompts; see startRun. Push, pull and the other prompting methods take
+	// the same field.
+	RunID string `json:"runId,omitempty"`
 }
 
 type RunResult struct {
@@ -43,6 +48,11 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	ctx, done, err := s.startRun(ctx, params.RunID)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
 	cmd, err := s.command(ctx, params.Args, params.Cwd, params.Env, params.Interactive)
 	if err != nil {
 		return nil, err
@@ -101,7 +111,12 @@ func buildRunResult(stdout string, stderr string, code int, args []string) RunRe
 // the same precedence as the rest of the package: ctx.Err() is checked before
 // inspecting the exit code.
 func (s *Service) capture(ctx context.Context, cwd string, args []string, interactive bool) (stdout, stderr string, code int, err error) {
-	cmd, err := s.command(ctx, args, cwd, nil, interactive)
+	return s.captureEnv(ctx, cwd, args, nil, interactive)
+}
+
+// captureEnv is capture with extra environment overrides for the child git.
+func (s *Service) captureEnv(ctx context.Context, cwd string, args []string, env map[string]string, interactive bool) (stdout, stderr string, code int, err error) {
+	cmd, err := s.command(ctx, args, cwd, env, interactive)
 	if err != nil {
 		return "", "", 0, err
 	}
@@ -132,7 +147,7 @@ func gitError(args []string, stderr string, code int) error {
 	if message == "" {
 		message = fmt.Sprintf("git %s exited with code %d", strings.Join(args, " "), code)
 	}
-	return proto.CodedError{Code: proto.CodeRequestFailed, Msg: message}
+	return classifiedFailure(kind, message)
 }
 
 func parseRunParams(raw json.RawMessage) (RunParams, error) {
@@ -172,6 +187,7 @@ func (s *Service) command(ctx context.Context, args []string, cwd string, env ma
 		if err != nil {
 			return nil, err
 		}
+		askpass.runID = runIDFrom(ctx)
 	}
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = resolvedCwd
@@ -204,15 +220,23 @@ func (s *Service) resolveCwd(ctx context.Context, cwd string) (string, error) {
 	return "", proto.ProtocolError("git cwd must stay inside the workspace or its detected repository root")
 }
 
+// gitTopLevel returns the repository root of root in the path space git.detect
+// reports it in (see logicalTopLevel), so a cwd or gitDir taken from it
+// passes the checks against it.
 func gitTopLevel(ctx context.Context, root string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel", "--show-cdup")
 	cmd.Dir = root
 	cmd.Env = gitEnv(nil, false, commandAskpass{})
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Clean(strings.TrimSpace(string(out))), nil
+	lines := parseRevParseLines(string(out))
+	cdup := ""
+	if len(lines) > 1 {
+		cdup = lines[1]
+	}
+	return logicalTopLevel(root, cdup, filepath.Clean(strings.TrimSpace(lines[0]))), nil
 }
 
 func isInside(candidate string, root string) bool {
@@ -230,6 +254,7 @@ func samePath(a string, b string) bool {
 type commandAskpass struct {
 	helperPath string
 	socketPath string
+	runID      string
 }
 
 func (s *Service) commandAskpass() (commandAskpass, error) {
@@ -257,6 +282,9 @@ func gitEnv(overrides map[string]string, interactive bool, askpass commandAskpas
 	if interactive {
 		env = appendOrReplaceEnv(env, askpassSocketEnv, askpass.socketPath)
 		env = appendOrReplaceEnv(env, askpassModeEnv, "1")
+		if askpass.runID != "" {
+			env = appendOrReplaceEnv(env, askpassRunEnv, askpass.runID)
+		}
 		env = appendOrReplaceEnv(env, "GIT_ASKPASS", askpass.helperPath)
 		env = appendOrReplaceEnv(env, "SSH_ASKPASS", askpass.helperPath)
 		env = appendOrReplaceEnv(env, "SSH_ASKPASS_REQUIRE", "force")
@@ -268,7 +296,33 @@ func gitEnv(overrides map[string]string, interactive bool, askpass commandAskpas
 		env = appendOrReplaceEnv(env, "SSH_ASKPASS_REQUIRE", "force")
 		env = appendOrReplaceEnv(env, "SSH_ASKPASS", "echo")
 	}
-	return env
+	return withSafeGitConfig(env)
+}
+
+// safeGitConfig pins repo-config settings that make git execute a command
+// on its own. The agent runs `git status` as soon as a folder is opened,
+// so a `.git/config` that arrived with the folder (an archive or shared
+// drive, not a clone — clone never copies it) could otherwise run code
+// without any user action. Passed as command-line config, which wins over
+// repo config.
+var safeGitConfig = [][2]string{
+	{"core.fsmonitor", "false"},
+}
+
+// withSafeGitConfig appends safeGitConfig through GIT_CONFIG_COUNT /
+// GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n (git 2.31+; older git ignores
+// them), after any entries the inherited environment already defines.
+func withSafeGitConfig(env []string) []string {
+	count, err := strconv.Atoi(envValue(env, "GIT_CONFIG_COUNT"))
+	if err != nil || count < 0 {
+		count = 0
+	}
+	for _, kv := range safeGitConfig {
+		env = appendOrReplaceEnv(env, fmt.Sprintf("GIT_CONFIG_KEY_%d", count), kv[0])
+		env = appendOrReplaceEnv(env, fmt.Sprintf("GIT_CONFIG_VALUE_%d", count), kv[1])
+		count++
+	}
+	return appendOrReplaceEnv(env, "GIT_CONFIG_COUNT", strconv.Itoa(count))
 }
 
 func envValue(env []string, key string) string {
@@ -305,7 +359,7 @@ func gitExitCode(err error) (int, error) {
 
 func mapGitStartError(err error, args []string) error {
 	if errors.Is(err, exec.ErrNotFound) {
-		return proto.CodedError{Code: proto.CodeRequestFailed, Msg: "git executable not found"}
+		return classifiedFailure(KindGitMissing, "git executable not found")
 	}
 	return proto.CodedError{Code: proto.CodeRequestFailed, Msg: err.Error()}
 }

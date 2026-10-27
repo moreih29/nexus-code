@@ -24,7 +24,6 @@ export function createDefaultSession(overrides: Partial<GitSession> = {}): GitSe
     status: null,
     statusFetching: false,
     branchInfo: null,
-    commitDraft: DEFAULT_GIT_PANEL_STATE.commitDraft,
     expandedGroups: { ...DEFAULT_GIT_PANEL_STATE.expandedGroups },
     expandedTreeNodes: { ...DEFAULT_GIT_PANEL_STATE.expandedTreeNodes },
     commitOptions: { ...DEFAULT_GIT_PANEL_STATE.commitOptions },

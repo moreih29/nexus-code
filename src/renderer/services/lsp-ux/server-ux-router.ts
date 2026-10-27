@@ -141,15 +141,9 @@ function updateWorkDoneProgress(event: LspServerEvent): void {
     return;
   }
 
-  setProgressState({
-    ...base,
-    phase: "end",
-    done: true,
-    title: existing?.title,
-    message: value.data.message ?? existing?.message,
-    percentage: existing?.percentage,
-    cancellable: existing?.cancellable,
-  });
+  // The token is finished; servers mint a new one per operation, so keeping
+  // ended entries would grow the map for the whole session.
+  workDoneProgressByKey.delete(key);
 }
 
 export function routeLspServerEvent(event: LspServerEvent): void {

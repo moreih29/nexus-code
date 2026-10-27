@@ -78,6 +78,14 @@ const ExitCodeDialFailed = 4
 // long-lived sessions and disable takeover after 300 s of connected use.
 const reattachGrace = 300 * time.Second
 
+// lockRetryWindow is how long a starting daemon keeps retrying a workspace
+// lock that is held. The daemon of another workspace takes this lock for a
+// moment while SweepStale proves its owner dead; without the retry a daemon
+// starting in that moment would exit as if one were already running. A
+// redundant --daemon launch (the SSH bootstrap fires one on every connect)
+// only exits this much later.
+const lockRetryWindow = 250 * time.Millisecond
+
 // maxRunLogBytes caps the append-only run/<wsId>.log at daemon boot.
 // 1 MiB of NDJSON boot/lifecycle lines is months of normal use; beyond that
 // the log is truncated rather than rotated — see agentrun.CapLogSize.
@@ -101,7 +109,7 @@ func runDaemon(root string) {
 	signal.Ignore(syscall.SIGHUP)
 
 	// Step 2: resolve per-workspace runtime file paths.
-	paths, err := agentrun.For(root)
+	paths, err := agentrun.For(root, proto.ServerVersion)
 	if err != nil {
 		os.Exit(1)
 	}
@@ -135,9 +143,14 @@ func runDaemon(root string) {
 	agentLogger := slog.New(slog.NewJSONHandler(logFile, nil)).With("src", "agent-log")
 
 	// Step 4: acquire the workspace lock. A second daemon for the same
-	// workspace cannot acquire it and exits with ExitCodeLockHeld, prompting
-	// the launcher to switch to dialer mode.
+	// workspace and agent version cannot acquire it (within lockRetryWindow)
+	// and exits with ExitCodeLockHeld, prompting the launcher to switch to
+	// dialer mode.
 	lock, err := agentrun.TryLock(paths.Lock)
+	for deadline := time.Now().Add(lockRetryWindow); err == agentrun.ErrLockHeld && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+		lock, err = agentrun.TryLock(paths.Lock)
+	}
 	if err != nil {
 		if err == agentrun.ErrLockHeld {
 			os.Exit(ExitCodeLockHeld)
@@ -146,12 +159,12 @@ func runDaemon(root string) {
 		os.Exit(1)
 	}
 
-	// Step 4b: sweep litter left by dead daemons of OTHER workspaces — stale
-	// sockets and over-retention logs. Liveness is decided by flock probing
-	// (acquired = provably dead), so a live daemon's files are never touched;
-	// see agentrun.SweepStale. Runs after our own lock is held so only one
-	// legitimate daemon per workspace ever sweeps.
-	if removed := agentrun.SweepStale(runDir, agentrun.WsID(root)); len(removed) > 0 {
+	// Step 4b: sweep litter left by dead daemons of OTHER workspaces or agent
+	// versions — stale sockets and over-retention logs. Liveness is decided
+	// by flock probing (acquired = provably dead), so a live daemon's files
+	// are never touched; see agentrun.SweepStale. Runs after our own lock is
+	// held so only one legitimate daemon per workspace ever sweeps.
+	if removed := agentrun.SweepStale(runDir, agentrun.WsID(root, proto.ServerVersion)); len(removed) > 0 {
 		agentLogger.Info("swept stale run files of dead daemons", "removed", removed)
 	}
 
@@ -181,6 +194,12 @@ func runDaemon(root string) {
 		lock.Unlock()
 		os.Exit(1)
 	}
+
+	// Step 6b: export a stable SSH agent socket. The forwarded socket this
+	// process inherited dies with the connection that started it, while the
+	// daemon and its terminals live on across reconnects; each dialer
+	// re-points the link at its own connection's socket (runDialer).
+	agentrun.AdoptAuthSock(paths.AuthSock)
 
 	// Step 7: boot shared services. These persist for the daemon's entire
 	// lifetime and survive dialer reconnects — a reattaching dialer picks up
@@ -372,6 +391,15 @@ func runDaemon(root string) {
 			_ = conn.Close()
 			return nil, true // keep running; dialer may reconnect
 		}
+
+		// PTY output debt the previous dialer never acked belongs to it; the
+		// new renderer will never ack it. Left in place, a session that went
+		// past the high watermark during a silent disconnect stays paused for
+		// good, and pty.replay blocks on the same window. Reset after Ready so
+		// the resumed output does not reach the dialer ahead of that frame,
+		// and before Run so the dialer's first replay already sees open
+		// windows.
+		pty.ResetFlowControl()
 
 		// 송신 4s < 판정 5s — 도착 지터 마진. 근거는 proto.HeartbeatSendMs 주석 참조.
 		host.StartHeartbeat(proto.HeartbeatSendMs * time.Millisecond)

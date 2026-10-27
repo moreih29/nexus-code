@@ -203,3 +203,21 @@ func writeFile(t *testing.T, path string, content string) {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }
+
+// A repo-local core.fsmonitor is a command git runs on every status. The
+// agent runs status as soon as a folder opens, so a .git/config that came
+// with the folder must not be able to run code through it.
+func TestStatusIgnoresRepoConfiguredFsmonitorCommand(t *testing.T) {
+	root := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "fsmonitor-ran")
+	runGitCommand(t, root, "init", "-b", "main")
+	runGitCommand(t, root, "config", "core.fsmonitor", "touch "+marker+"; false")
+	writeFile(t, filepath.Join(root, "a.txt"), "x\n")
+
+	if _, err := New(root).Status(context.Background(), json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("Status returned error: %v", err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("repo-configured fsmonitor command ran during status")
+	}
+}

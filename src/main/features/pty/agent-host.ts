@@ -7,6 +7,12 @@ const log = createLogger("agent-host");
 
 type EventCallback = (args: unknown) => void;
 
+/** pty.spawn result; `attached` is set when the tab's session was already running. */
+interface AgentSpawnResult {
+  pid: number;
+  attached?: boolean;
+}
+
 interface AgentPtySession {
   workspaceId: string;
   tabId: string;
@@ -65,7 +71,7 @@ class AgentPtyHostHandle implements PtyHostHandle {
     if (this.disposed) {
       // Shutdown race: the renderer's xterm ResizeObserver (and similar
       // fire-and-forget paths) can still dispatch pty IPC after dispose()
-      // runs during before-quit. The renderer already ignores rejections for
+      // runs at quit. The renderer already ignores rejections for
       // write/resize/kill/ack, so silently no-op those to avoid noisy
       // "Error occurred in handler for 'ipc:call'" logs at shutdown. spawn
       // returns a typed { pid } that callers depend on, so keep its throw.
@@ -150,20 +156,32 @@ class AgentPtyHostHandle implements PtyHostHandle {
   /**
    * Registers the session before pty.spawn so early agent data frames can be
    * decoded even if they arrive before the spawn RPC response.
+   *
+   * The agent attaches instead of spawning when the tab's session is still
+   * running — the app restarted, or its window reloaded, while the agent kept
+   * the session alive. The new terminal is blank, so the session is replayed
+   * to redraw it.
    */
   private async spawn(
     channel: AgentChannel,
     args: unknown,
     workspaceId: string,
     tabId: string,
-  ): Promise<unknown> {
+  ): Promise<{ pid: number }> {
     this.rememberSession(workspaceId, tabId);
+    let result: AgentSpawnResult;
     try {
-      return await channel.call("pty.spawn", args);
+      result = await channel.call<AgentSpawnResult>("pty.spawn", args);
     } catch (error) {
       this.deleteSession(workspaceId, tabId);
       throw error;
     }
+    if (result.attached) {
+      channel.call("pty.replay", { workspaceId, tabId }).catch((err) => {
+        log.warn(`pty.replay failed for ${workspaceId}:${tabId}: ${(err as Error).message}`);
+      });
+    }
+    return { pid: result.pid };
   }
 
   /**
@@ -267,9 +285,18 @@ class AgentPtyHostHandle implements PtyHostHandle {
     const offData = channel.on("pty.data", (payload) => this.handleData(payload));
     const offExit = channel.on("pty.exit", (payload) => this.handleExit(payload));
     // claude.hook 이벤트를 PtyHostHandle.on 구독자에게 relay한다.
-    const offClaudeHook = channel.on("claude.hook", (payload) =>
-      this.emit("claude.hook", payload),
-    );
+    // A hook speaks only for the workspace whose agent it arrived through.
+    // On an SSH host the hook server is reachable by anything running there,
+    // which must not be able to set another workspace's status, raise
+    // notifications in its name, or route a hook response to its channel.
+    const offClaudeHook = channel.on("claude.hook", (payload) => {
+      const claimed = (payload as { workspaceId?: unknown } | null)?.workspaceId;
+      if (claimed !== workspaceId) {
+        log.warn(`Dropped claude.hook for workspace ${String(claimed)} from ${workspaceId}'s agent`);
+        return;
+      }
+      this.emit("claude.hook", payload);
+    });
     const offLifecycle = channel.onLifecycle((event) => {
       this.handleLifecycle(workspaceId, event);
     });
@@ -295,6 +322,7 @@ class AgentPtyHostHandle implements PtyHostHandle {
         workspaceId: parsed.workspaceId,
         tabId: parsed.tabId,
         chunk,
+        ...(parsed.replay ? { replay: true } : {}),
       });
     }
   }
@@ -432,8 +460,8 @@ class AgentPtyHostHandle implements PtyHostHandle {
 
   /**
    * After an epoch-match reattach, queries the agent for alive sessions and
-   * triggers ring-buffer replay for each held tab that is still alive.
-   * Tabs no longer present in session.list receive pty.exit.
+   * replays each held tab that is still alive. Tabs no longer present in
+   * session.list receive pty.exit.
    */
   private async restoreHeldSessions(workspaceId: string, channel: AgentChannel): Promise<void> {
     const heldTabIds = new Set(this.sessionsByWorkspace.get(workspaceId) ?? []);
@@ -469,6 +497,8 @@ class AgentPtyHostHandle implements PtyHostHandle {
         //   reset → restored (IPC control) → replay data → wiggle repaint
         // A control-channel reset (writeReset in the renderer) races with the
         // data stream and can arrive AFTER replay data, wiping the repaint.
+        // The replay leads with its own reset; this one covers daemons that
+        // predate it and replay only the output produced during the outage.
         this.emit("data", { workspaceId, tabId, chunk: "\x1bc" });
         this.emit("restored", { workspaceId, tabId, withReplay: true });
         // Reset the session's decoder so replay bytes decode cleanly.
@@ -477,7 +507,7 @@ class AgentPtyHostHandle implements PtyHostHandle {
         if (session) {
           session.decoder = new TextDecoder("utf-8");
         }
-        // pty.replay triggers pty.data events via the existing ring buffer path.
+        // pty.replay resends the session's recent output as pty.data events.
         channel.call("pty.replay", { workspaceId, tabId }).catch((err) => {
           log.warn(
             `pty.replay failed for ${workspaceId}:${tabId}: ${(err as Error).message}`,
@@ -604,7 +634,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
  */
 function parseAgentDataPayload(
   payload: unknown,
-): { workspaceId: string; tabId: string; chunk: string } | null {
+): { workspaceId: string; tabId: string; chunk: string; replay: boolean } | null {
   const record = asRecord(payload);
   if (
     typeof record?.workspaceId !== "string" ||
@@ -617,6 +647,7 @@ function parseAgentDataPayload(
     workspaceId: record.workspaceId,
     tabId: record.tabId,
     chunk: record.chunk,
+    replay: record.replay === true,
   };
 }
 

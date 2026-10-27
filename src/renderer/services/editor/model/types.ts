@@ -14,7 +14,12 @@ import type { registerKnownModelUri, unregisterKnownModelUri } from "../lsp/know
 import type { monacoContentChangesToLsp } from "../lsp/monaco-converters";
 import type { EditorInput } from "../types";
 import type { attachGitSubscription } from "./attach-git-subscription";
-import type { attachDirtyTracker, detachDirtyTracker, markSaved } from "./dirty-tracker";
+import type {
+  attachDirtyTracker,
+  detachDirtyTracker,
+  getDirtyEntry,
+  markSaved,
+} from "./dirty-tracker";
 import type { FileLoadResult, FsChangedForFile, workspaceRootForInput } from "./file-loader";
 
 /** Lifecycle phase of a `ModelEntry`. */
@@ -58,6 +63,21 @@ export interface ModelEntry {
    * changes" (true). Cleared on a successful rehydrate.
    */
   lspNeedsRehydrate?: boolean;
+  /**
+   * Bumped by each external-change read and by each save. A reconcile
+   * applies its read only if nothing newer started meanwhile, so a slow
+   * read cannot install older disk content over newer.
+   */
+  diskReadSeq?: number;
+  /** True while a rehydrate didOpen is in flight. */
+  lspRehydrating?: boolean;
+  /**
+   * Bumped whenever the server's copy of the document is redefined: by a
+   * rehydrate didOpen (whose text already holds every edit so far) or by
+   * an eviction (which drops the server's copy). A content change seen
+   * under an older epoch is not forwarded.
+   */
+  lspOpenEpoch?: number;
   disposed: boolean;
   subscribers: Set<() => void>;
   origin: "workspace" | "external" | "untitled";
@@ -88,6 +108,8 @@ export interface ModelEntryDeps {
   detachDirtyTracker: typeof detachDirtyTracker;
   markDirtyTrackerSaved: typeof markSaved;
   readFileForModel: (input: EditorInput) => Promise<FileLoadResult>;
+  statFileForModel: (input: EditorInput) => Promise<{ mtime: string; size: number }>;
+  getDirtyEntry: typeof getDirtyEntry;
   subscribeFsChanged: (
     input: EditorInput,
     onChange: (change: FsChangedForFile) => void,

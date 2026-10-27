@@ -76,11 +76,17 @@ export function classifyLinkHref(href: string, ctx: LinkClassifyContext): Classi
       : { kind: "blocked", reason: `disallowed scheme in ${href}` };
   }
 
-  // 3. Relative (or accidentally absolute) workspace path. Resolve against
-  //    the current file's directory, then verify the result is rooted
-  //    inside the workspace.
+  // 3. Relative (or accidentally absolute) workspace path. The href is in URL
+  //    form: markdown percent-encodes spaces and non-ASCII (`한글.md` arrives
+  //    as `%ED%95%9C%EA%B8%80.md`) and may carry `?query` / `#fragment`,
+  //    neither of which names the file. Decode before resolving so the
+  //    containment check below sees the real path, including any `..` that
+  //    was percent-encoded. Resolve against the current file's directory,
+  //    then verify the result is rooted inside the workspace.
+  const filePath = decodeHrefPath(href.replace(/[?#].*$/, ""));
+  if (!filePath) return { kind: "blocked", reason: `no file path in ${href}` };
   const baseDir = posixDirname(ctx.currentFileAbsPath);
-  const absPath = posixResolve(baseDir, href);
+  const absPath = posixResolve(baseDir, filePath);
   if (!isWithinWorkspace(absPath, ctx.workspaceRootAbsPath)) {
     return { kind: "blocked", reason: `escape outside workspace: ${href}` };
   }
@@ -107,6 +113,15 @@ export function classifyLinkHref(href: string, ctx: LinkClassifyContext): Classi
  */
 function hasUrlScheme(href: string): boolean {
   return /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(href);
+}
+
+/** Percent-decodes a link path; a malformed escape leaves it as written. */
+function decodeHrefPath(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 /** Parent of a POSIX absolute path. `/a/b/c.md` → `/a/b`. */

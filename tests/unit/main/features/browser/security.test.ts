@@ -52,7 +52,9 @@ type EventHandler = (...args: unknown[]) => void;
 
 interface FakeWebContents {
   _handlers: Map<string, EventHandler[]>;
+  id: number;
   on(event: string, handler: EventHandler): void;
+  once(event: string, handler: EventHandler): void;
   setWindowOpenHandler(
     handler: (details: { url: string }) => {
       action: string;
@@ -75,11 +77,14 @@ interface FakeWebContents {
   emit(event: string, ...args: unknown[]): void;
 }
 
+let nextFakeWebContentsId = 1;
+
 function makeFakeWebContents(): FakeWebContents {
   const handlers: Map<string, EventHandler[]> = new Map();
   const loadURLCalls: string[] = [];
 
   const wc: FakeWebContents = {
+    id: nextFakeWebContentsId++,
     _handlers: handlers,
     _windowOpenHandler: null,
     _loadURLCalls: loadURLCalls,
@@ -87,6 +92,10 @@ function makeFakeWebContents(): FakeWebContents {
     on(event: string, handler: EventHandler) {
       if (!handlers.has(event)) handlers.set(event, []);
       handlers.get(event)!.push(handler);
+    },
+
+    once(event: string, handler: EventHandler) {
+      this.on(event, handler);
     },
 
     setWindowOpenHandler(
@@ -432,5 +441,22 @@ describe("installNavigationGuards — did-create-window (popup hardening)", () =
     wc.emit("did-create-window", { webContents: child });
     const result = child._windowOpenHandler!({ url: "javascript:alert(1)" });
     expect(result.action).toBe("deny");
+  });
+
+  test("reports popups, and popups of popups, to onPopup", () => {
+    const opener = makeFakeWebContents();
+    const popups: unknown[] = [];
+    installNavigationGuards(
+      opener as unknown as import("electron").WebContents,
+      undefined,
+      (popup) => popups.push(popup),
+    );
+    const child = { webContents: makeFakeWebContents() };
+    const grandchild = { webContents: makeFakeWebContents() };
+
+    opener.emit("did-create-window", child);
+    child.webContents.emit("did-create-window", grandchild);
+
+    expect(popups).toEqual([child, grandchild]);
   });
 });

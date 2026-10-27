@@ -3,9 +3,12 @@ package git
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // ---------------------------------------------------------------------------
@@ -75,6 +78,58 @@ func TestPullNoUpstream(t *testing.T) {
 	_, err := service.Pull(context.Background(), json.RawMessage(`{}`))
 	if err == nil {
 		t.Fatal("expected Pull to fail with no upstream configured")
+	}
+}
+
+// TestPullMergesDivergedBranch verifies that pull reconciles a branch that
+// has diverged from its upstream with a merge when no pull.ff or pull.rebase
+// is configured, instead of failing as plain git pull does since 2.33.
+func TestPullMergesDivergedBranch(t *testing.T) {
+	isolateGitConfig(t)
+	client := makeDivergedClient(t)
+
+	service := New(client)
+	if _, err := service.Pull(context.Background(), json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("Pull returned error: %v", err)
+	}
+
+	parents := strings.Fields(runGitCommandOutput(t, client, "rev-list", "--parents", "-n", "1", "HEAD"))
+	if len(parents) != 3 {
+		t.Errorf("expected a merge commit with 2 parents, got %v", parents)
+	}
+}
+
+// TestPullHonorsPullRebase verifies that the merge default does not override
+// a configured pull.rebase.
+func TestPullHonorsPullRebase(t *testing.T) {
+	isolateGitConfig(t)
+	client := makeDivergedClient(t)
+	runGitCommand(t, client, "config", "pull.rebase", "true")
+
+	service := New(client)
+	if _, err := service.Pull(context.Background(), json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("Pull returned error: %v", err)
+	}
+
+	parents := strings.Fields(runGitCommandOutput(t, client, "rev-list", "--parents", "-n", "1", "HEAD"))
+	if len(parents) != 2 {
+		t.Errorf("expected the local commit rebased onto the remote one, got parents %v", parents)
+	}
+	if count := strings.TrimSpace(runGitCommandOutput(t, client, "rev-list", "--count", "HEAD")); count != "3" {
+		t.Errorf("expected 3 commits in a line, got %s", count)
+	}
+}
+
+// TestPullHonorsPullFFOnly verifies that a configured pull.ff=only still
+// refuses to reconcile a diverged branch.
+func TestPullHonorsPullFFOnly(t *testing.T) {
+	isolateGitConfig(t)
+	client := makeDivergedClient(t)
+	runGitCommand(t, client, "config", "pull.ff", "only")
+
+	service := New(client)
+	if _, err := service.Pull(context.Background(), json.RawMessage(`{}`)); err == nil {
+		t.Fatal("expected Pull to fail on a diverged branch with pull.ff=only")
 	}
 }
 
@@ -190,6 +245,29 @@ func TestPushNonFastForwardError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected Push to fail for non-fast-forward")
 	}
+	// The error frame carries the kind and hint the host's retry banner needs.
+	line, err := proto.MarshalFrame(proto.ErrorResponse("1", err))
+	if err != nil {
+		t.Fatalf("MarshalFrame() error = %v", err)
+	}
+	var frame struct {
+		Error struct {
+			Code string `json:"code"`
+			Data struct {
+				ErrorKind string      `json:"errorKind"`
+				ErrorHint *ActionHint `json:"errorHint"`
+			} `json:"data"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(line, &frame); err != nil {
+		t.Fatalf("decode frame: %v", err)
+	}
+	if frame.Error.Code != proto.CodeRequestFailed || frame.Error.Data.ErrorKind != string(KindNonFastForward) {
+		t.Fatalf("error frame = %s, want request-failed with kind non-fast-forward", line)
+	}
+	if frame.Error.Data.ErrorHint == nil || frame.Error.Data.ErrorHint.Kind != "pull-then-retry" {
+		t.Fatalf("error frame = %s, want the pull-then-retry hint", line)
+	}
 }
 
 // TestParsePushOutputAlreadyUpToDate verifies parsePushOutput for the up-to-date case.
@@ -254,4 +332,33 @@ func makeRemoteAndClient(t *testing.T) (remote, client string) {
 	runGitCommand(t, client, "config", "user.name", "Nexus Test")
 
 	return remote, client
+}
+
+// makeDivergedClient returns a client clone that has one local commit while
+// its remote has gained a different one, so the two have diverged.
+func makeDivergedClient(t *testing.T) string {
+	t.Helper()
+	remote, client := makeRemoteAndClient(t)
+
+	pusher := t.TempDir()
+	runGitCommand(t, pusher, "clone", remote, ".")
+	runGitCommand(t, pusher, "config", "user.email", "nexus@example.test")
+	runGitCommand(t, pusher, "config", "user.name", "Nexus Test")
+	writeFile(t, filepath.Join(pusher, "remote.txt"), "remote\n")
+	runGitCommand(t, pusher, "add", "remote.txt")
+	runGitCommand(t, pusher, "commit", "-m", "remote commit")
+	runGitCommand(t, pusher, "push", "origin", "main")
+
+	writeFile(t, filepath.Join(client, "local.txt"), "local\n")
+	runGitCommand(t, client, "add", "local.txt")
+	runGitCommand(t, client, "commit", "-m", "local commit")
+	return client
+}
+
+// isolateGitConfig keeps the developer's global and system git config, such
+// as their own pull.rebase, out of the git commands a test runs.
+func isolateGitConfig(t *testing.T) {
+	t.Helper()
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 }

@@ -29,6 +29,25 @@ interface NumberInputProps {
   className?: string;
 }
 
+/**
+ * Value to commit for the typed text, or null to keep the current value.
+ * Snaps to the `step` grid from `min` and clamps to the range: settings
+ * such as font size are stored as integers, so an accepted "13.5" applied
+ * until the write failed validation and then reverted on restart. Blank
+ * text is not 0.
+ */
+export function parseNumberInputText(
+  raw: string,
+  { min, max, step }: { min: number; max: number; step: number },
+): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) return null;
+  const snapped = min + Math.round((parsed - min) / step) * step;
+  return Math.min(max, Math.max(min, snapped));
+}
+
 export function NumberInput({
   value,
   onChange,
@@ -52,16 +71,15 @@ export function NumberInput({
 
   const commit = useCallback(
     (raw: string) => {
-      const parsed = Number(raw);
-      if (Number.isNaN(parsed)) {
+      const next = parseNumberInputText(raw, { min, max, step });
+      if (next === null) {
         setText(String(value));
         return;
       }
-      const clamped = Math.min(max, Math.max(min, parsed));
-      setText(String(clamped));
-      if (clamped !== value) onChange(clamped);
+      setText(String(next));
+      if (next !== value) onChange(next);
     },
-    [max, min, onChange, value],
+    [max, min, onChange, step, value],
   );
 
   const stepBy = useCallback(

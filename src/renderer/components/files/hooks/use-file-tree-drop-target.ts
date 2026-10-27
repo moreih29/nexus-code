@@ -23,6 +23,12 @@ import i18next from "i18next";
 import { type RefObject, useEffect } from "react";
 import { showToast } from "@/components/ui/toast";
 import { copyPathWithAutoRename, movePath } from "@/services/fs-mutations";
+import {
+  type BatchFailure,
+  partialFailureMessage,
+  reportedFailure,
+  thrownFailure,
+} from "@/services/fs-mutations/batch-failure";
 import { loadChildren, toggleExpand } from "@/state/operations/files";
 import { parentOf } from "@/state/stores/files/helpers";
 import { useFilesStore } from "@/state/stores/files/store";
@@ -186,6 +192,121 @@ function scheduleExpandHover(workspaceId: string, absPath: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Drop
+// ---------------------------------------------------------------------------
+
+export interface DropFilePathsInput {
+  workspaceId: string;
+  workspaceRootPath: string;
+  /** Absolute paths from the drag payload, already reduced to distinct parents. */
+  filePaths: readonly string[];
+  /** Absolute path of the directory the drop resolved into. */
+  dir: string;
+  /** True for a copy (modifier held), false for a move. */
+  copy: boolean;
+}
+
+/** Move or copy dropped paths into `dir`, then summarize a multi-item result. */
+export async function dropFilePaths({
+  workspaceId,
+  workspaceRootPath,
+  filePaths,
+  dir,
+  copy,
+}: DropFilePathsInput): Promise<void> {
+  // Self-drop guard: all paths already in the target dir, move only.
+  if (!copy && filePaths.every((p) => parentOf(p, workspaceRootPath) === dir)) return;
+
+  // Cycle guard: dropping a folder into itself or a descendant is invalid.
+  const hasCycle = filePaths.some((p) => dir === p || dir.startsWith(`${p}/`));
+  if (hasCycle) {
+    showToast({
+      kind: "warning",
+      message: i18next.t("files:fileTree.dropTarget.cycleError"),
+    });
+    return;
+  }
+
+  // Per-path loop: move or copy each entry.
+  let attempted = 0;
+  let successCount = 0;
+  let firstFailure: BatchFailure | null = null;
+
+  for (const srcAbsPath of filePaths) {
+    // Skip self-drops for individual paths within a multi-selection.
+    if (!copy && parentOf(srcAbsPath, workspaceRootPath) === dir) continue;
+    attempted += 1;
+
+    let ok = false;
+    try {
+      if (copy) {
+        const name = basename(srcAbsPath);
+        const fromRel = relPath(srcAbsPath, workspaceRootPath);
+        const toRel = relPath(`${dir}/${name}`, workspaceRootPath);
+        ok = await copyPathWithAutoRename({
+          workspaceId,
+          fromRelPath: fromRel,
+          toRelPath: toRel,
+        });
+      } else {
+        ok = await movePath({
+          workspaceId,
+          workspaceRootPath,
+          srcAbsPath,
+          dstDirAbsPath: dir,
+        });
+      }
+    } catch (err: unknown) {
+      ok = false;
+      if (firstFailure === null) {
+        firstFailure = thrownFailure(srcAbsPath, err);
+      } else {
+        log.error(`failed: ${srcAbsPath}: ${(err as Error).message}`);
+      }
+    }
+
+    if (ok) {
+      successCount += 1;
+    } else if (firstFailure === null) {
+      // per-item helpers already showed their own toast; record for summary.
+      firstFailure = reportedFailure(srcAbsPath);
+    }
+  }
+
+  // Refresh the target directory once after all moves/copies.
+  if (successCount > 0) {
+    await loadChildren(workspaceId, dir);
+  }
+
+  // Result toast: silent for N=1 (per-item helper already surfaced errors);
+  // summarize for N≥2. Items already in the target folder were skipped,
+  // not attempted, so they count toward neither.
+  const total = attempted;
+  if (total >= 2) {
+    if (firstFailure === null) {
+      showToast({
+        kind: "info",
+        message: copy
+          ? i18next.t("files:fileTree.dropTarget.copied", { count: total })
+          : i18next.t("files:fileTree.dropTarget.moved", { count: total }),
+      });
+    } else {
+      showToast({
+        kind: "error",
+        message: partialFailureMessage(
+          copy
+            ? "files:fileTree.dropTarget.copiedPartial"
+            : "files:fileTree.dropTarget.movedPartial",
+          successCount,
+          total,
+          firstFailure,
+        ),
+      });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
@@ -246,104 +367,13 @@ export function useFileTreeDropTarget({
 
       const copy = isCopyModifier(e);
       const { dir } = resolveDropTarget(e.clientX, e.clientY, el, rootPath);
-      const filePaths = payload.filePaths;
-
-      // Self-drop guard: all paths already in the target dir, move only.
-      if (!copy && filePaths.every((p) => parentOf(p, rootPath) === dir)) return;
-
-      // Cycle guard: dropping a folder into itself or a descendant is invalid.
-      const hasCycle = filePaths.some((p) => dir === p || dir.startsWith(`${p}/`));
-      if (hasCycle) {
-        showToast({
-          kind: "warning",
-          message: i18next.t("files:fileTree.dropTarget.cycleError"),
-        });
-        return;
-      }
-
-      // Per-path loop: move or copy each entry.
-      let successCount = 0;
-      let firstFailurePath: string | null = null;
-      let firstFailureMessage: string | null = null;
-
-      for (const srcAbsPath of filePaths) {
-        // Skip self-drops for individual paths within a multi-selection.
-        if (!copy && parentOf(srcAbsPath, rootPath) === dir) continue;
-
-        let ok = false;
-        try {
-          if (copy) {
-            const name = basename(srcAbsPath);
-            const fromRel = relPath(srcAbsPath, rootPath);
-            const toRel = relPath(`${dir}/${name}`, rootPath);
-            ok = await copyPathWithAutoRename({
-              workspaceId: wsId,
-              fromRelPath: fromRel,
-              toRelPath: toRel,
-            });
-          } else {
-            ok = await movePath({
-              workspaceId: wsId,
-              workspaceRootPath: rootPath,
-              srcAbsPath,
-              dstDirAbsPath: dir,
-            });
-          }
-        } catch (err: unknown) {
-          ok = false;
-          if (firstFailurePath === null) {
-            firstFailurePath = srcAbsPath;
-            firstFailureMessage = err instanceof Error ? err.message : String(err);
-          } else {
-            log.error(`failed: ${srcAbsPath}: ${(err as Error).message}`);
-          }
-        }
-
-        if (ok) {
-          successCount += 1;
-        } else if (firstFailurePath === null) {
-          // per-item helpers already showed their own toast; record for summary.
-          firstFailurePath = srcAbsPath;
-          firstFailureMessage = copy ? "copy failed" : "move failed";
-        }
-      }
-
-      // Refresh the target directory once after all moves/copies.
-      if (successCount > 0) {
-        await loadChildren(wsId, dir);
-      }
-
-      // Result toast: silent for N=1 (per-item helper already surfaced errors);
-      // summarize for N≥2.
-      const total = filePaths.length;
-      const failCount = total - successCount;
-      if (total >= 2) {
-        if (failCount === 0) {
-          showToast({
-            kind: "info",
-            message: copy
-              ? i18next.t("files:fileTree.dropTarget.copied", { count: total })
-              : i18next.t("files:fileTree.dropTarget.moved", { count: total }),
-          });
-        } else {
-          showToast({
-            kind: "error",
-            message: copy
-              ? i18next.t("files:fileTree.dropTarget.copiedPartial", {
-                  success: successCount,
-                  total,
-                  path: firstFailurePath,
-                  error: firstFailureMessage,
-                })
-              : i18next.t("files:fileTree.dropTarget.movedPartial", {
-                  success: successCount,
-                  total,
-                  path: firstFailurePath,
-                  error: firstFailureMessage,
-                }),
-          });
-        }
-      }
+      await dropFilePaths({
+        workspaceId: wsId,
+        workspaceRootPath: rootPath,
+        filePaths: payload.filePaths,
+        dir,
+        copy,
+      });
     };
 
     const handleDragEnd = (): void => {

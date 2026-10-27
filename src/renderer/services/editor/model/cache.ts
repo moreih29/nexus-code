@@ -6,6 +6,7 @@
 import type * as Monaco from "monaco-editor";
 import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
 import { parseWorkspaceUri, workspaceUriFor } from "../../../../shared/fs/workspace-uri";
+import { resolveLspPresetLanguageId } from "../../../../shared/lsp/config";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import type { FileErrorCode } from "../../../utils/file-error";
 import { registerKnownModelUri } from "../lsp/known-uris";
@@ -97,6 +98,14 @@ export function initializeModelCache(monaco: typeof Monaco): void {
 }
 
 const entries = new Map<string, ModelEntry>();
+
+/**
+ * External loads in flight by cacheUri. Their entry is registered only
+ * after the read, so concurrent acquires of one external file must share
+ * the load instead of each creating an entry (and a second Monaco model
+ * for the same URI).
+ */
+const pendingExternalLoads = new Map<string, Promise<ModelEntry>>();
 const releaseSubscribers = new Set<ModelReleaseSubscriber>();
 
 function cacheUriForInput(input: EditorInput): string {
@@ -165,7 +174,14 @@ export async function acquireModel(input: EditorInput): Promise<SharedModelState
   let entry = entries.get(cacheUri);
   if (!entry) {
     if (input.origin === "external") {
-      entry = await loadExternalEntry(input);
+      let pending = pendingExternalLoads.get(cacheUri);
+      if (!pending) {
+        pending = loadExternalEntry(input).finally(() => pendingExternalLoads.delete(cacheUri));
+        pendingExternalLoads.set(cacheUri, pending);
+      }
+      const loaded = await pending;
+      // The first acquirer to resume registers the entry; the rest reuse it.
+      entry = entries.get(cacheUri) ?? loaded;
     } else if (input.origin === "untitled") {
       // Untitled buffers: no fs IPC, no LSP registration, no fs-watcher.
       // The model starts with empty content and is immediately ready.
@@ -271,6 +287,15 @@ export function getEntryMetadata(cacheUri: string): EntryMetadata | null {
 }
 
 /**
+ * The document version the LSP server last received for the model at
+ * `cacheUri` (didOpen/didChange), or null when the URI is not tracked.
+ * Differs from Monaco's version id after a rehydrate restarts it at 1.
+ */
+export function getEntryLspVersion(cacheUri: string): number | null {
+  return entries.get(cacheUri)?.version ?? null;
+}
+
+/**
  * Reload the model entry for `input` from disk, replacing the buffer with
  * the on-disk content. Used by the conflict-resolution "reload" path.
  * Returns false when no tracked entry exists for the input.
@@ -311,6 +336,19 @@ export function syncLoadedValueAfterSave(input: EditorInput, content: string): v
   const entry = entries.get(cacheUriForInput(input));
   if (!entry) return;
   entry.lastLoadedValue = content;
+  // Reads started before the write may return the pre-save content.
+  entry.diskReadSeq = (entry.diskReadSeq ?? 0) + 1;
+}
+
+/**
+ * Whether `entry` belongs to `languageId`'s server. Main names servers by
+ * preset id ("typescript"), which also covers JavaScript and JSX/TSX
+ * models.
+ */
+function entryUsesLspLanguage(entry: ModelEntry, languageId: string): boolean {
+  return (
+    entry.languageId === languageId || resolveLspPresetLanguageId(entry.languageId) === languageId
+  );
 }
 
 /**
@@ -328,10 +366,14 @@ export function syncLoadedValueAfterSave(input: EditorInput, content: string): v
 export function resetLspStateForWorkspace(workspaceId: string, languageId?: string): void {
   for (const entry of entries.values()) {
     if (entry.input.workspaceId !== workspaceId) continue;
-    if (languageId && entry.languageId !== languageId) continue;
+    if (languageId && !entryUsesLspLanguage(entry, languageId)) continue;
     if (entry.disposed) continue;
     entry.lspOpened = false;
     entry.lspNeedsRehydrate = true;
+    // Invalidate a rehydrate still in flight and the changes queued behind
+    // it: the server dropped the document they target.
+    entry.lspRehydrating = false;
+    entry.lspOpenEpoch = (entry.lspOpenEpoch ?? 0) + 1;
     // Reset the open promise to a settled state so callers awaiting it
     // immediately observe the new lspOpened flag and decide whether to
     // re-issue didOpen.
@@ -341,9 +383,10 @@ export function resetLspStateForWorkspace(workspaceId: string, languageId?: stri
 
 /**
  * Eagerly re-issue didOpen for entries whose LSP server-side state was
- * dropped. Called from the renderer when the workspace becomes active again
- * — without this, the user has to type before hover/completion start working
- * in the revisited workspace.
+ * dropped, or that loaded while their language was off. Called from the
+ * renderer when the workspace becomes active again or a language is turned
+ * on — without this, the user has to type before hover/completion start
+ * working.
  *
  * When `languageId` is provided only entries for that language are
  * rehydrated; when omitted every eligible entry for the workspace is
@@ -355,11 +398,12 @@ export function resetLspStateForWorkspace(workspaceId: string, languageId?: stri
 export function rehydrateLspForWorkspace(workspaceId: string, languageId?: string): void {
   for (const entry of entries.values()) {
     if (entry.input.workspaceId !== workspaceId) continue;
-    if (languageId && entry.languageId !== languageId) continue;
+    if (languageId && !entryUsesLspLanguage(entry, languageId)) continue;
     if (entry.disposed || entry.lspOpened) continue;
-    // Skip entries that have never been opened (initial load still in
-    // flight) — only re-issue didOpen for entries the host had once
-    // accepted and then evicted.
+    // Skip entries whose initial didOpen is still in flight — only
+    // re-issue didOpen for entries the host evicted or that loaded while
+    // their language was off. Entries whose language is still off are
+    // skipped by `rehydrateEntry`.
     if (!entry.lspNeedsRehydrate) continue;
     void rehydrateEntry(entry).catch(() => {
       // rehydrateEntry already records lspDegraded on failure; we keep

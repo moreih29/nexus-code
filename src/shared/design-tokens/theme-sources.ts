@@ -23,8 +23,6 @@ export interface ThemeSource {
   name: string;
   /** Theme luminance base — controls Monaco vs/vs-dark inheritance. */
   base: "dark" | "light";
-  /** One-line description shown next to the name in Settings. */
-  description: string;
 
   // --- Core surface colors ---
   bg: {
@@ -133,7 +131,6 @@ export const THEME_SOURCES = [
     id: "github-dark",
     name: "GitHub Dark",
     base: "dark",
-    description: "GitHub의 공식 다크. 차분한 청록/파랑 강조, 비교적 낮은 채도",
     bg: { primary: "#0d1117", secondary: "#161b22", floating: "#161b22" },
     fg: { primary: "#c9d1d9", muted: "#8b949e" },
     selection: "rgba(56, 139, 253, 0.40)",
@@ -172,7 +169,6 @@ export const THEME_SOURCES = [
     id: "github-light",
     name: "GitHub Light",
     base: "light",
-    description: "GitHub의 공식 라이트. 흰 배경, 진한 색 텍스트 — WCAG AA",
     bg: { primary: "#ffffff", secondary: "#f6f8fa", floating: "#ffffff" },
     fg: { primary: "#1f2328", muted: "#656d76" },
     selection: "rgba(9, 105, 218, 0.20)",
@@ -211,7 +207,6 @@ export const THEME_SOURCES = [
     id: "dracula",
     name: "Dracula",
     base: "dark",
-    description: "전설적인 보라/핑크 다크. 강한 채도, 8색 팔레트가 핵심",
     bg: { primary: "#282a36", secondary: "#21222c", floating: "#343746" },
     fg: { primary: "#f8f8f2", muted: "#6272a4" },
     selection: "rgba(68, 71, 90, 0.65)",
@@ -250,7 +245,6 @@ export const THEME_SOURCES = [
     id: "one-dark-pro",
     name: "One Dark Pro",
     base: "dark",
-    description: "Atom One Dark의 VSCode 포팅. 균형 잡힌 채도, 가장 무난한 다크",
     bg: { primary: "#282c34", secondary: "#21252b", floating: "#21252b" },
     fg: { primary: "#abb2bf", muted: "#5c6370" },
     selection: "rgba(62, 68, 81, 0.85)",
@@ -289,7 +283,6 @@ export const THEME_SOURCES = [
     id: "monokai",
     name: "Monokai",
     base: "dark",
-    description: "Sublime Text의 클래식. 강한 채도, 마젠타/시안/노랑 트라이앵글",
     bg: { primary: "#272822", secondary: "#1e1f1c", floating: "#3e3d32" },
     fg: { primary: "#f8f8f2", muted: "#75715e" },
     selection: "rgba(73, 72, 62, 0.99)",
@@ -328,7 +321,6 @@ export const THEME_SOURCES = [
     id: "tokyo-night",
     name: "Tokyo Night",
     base: "dark",
-    description: "쿨톤 청보라. 차분하고 모던, 최근 가장 인기",
     bg: { primary: "#1a1b26", secondary: "#16161e", floating: "#1f2335" },
     fg: { primary: "#c0caf5", muted: "#565f89" },
     selection: "rgba(40, 52, 87, 0.85)",
@@ -367,7 +359,6 @@ export const THEME_SOURCES = [
     id: "solarized-dark",
     name: "Solarized Dark",
     base: "dark",
-    description: "Ethan Schoonover의 클래식. CIE 명도 균일 — 눈 피로 적음",
     bg: { primary: "#002b36", secondary: "#073642", floating: "#073642" },
     fg: { primary: "#839496", muted: "#586e75" },
     selection: "rgba(7, 54, 66, 0.99)",
@@ -409,7 +400,6 @@ export const THEME_SOURCES = [
     id: "nord",
     name: "Nord",
     base: "dark",
-    description: "Arctic, north-bluish. 16색의 절제된 팔레트로 유명",
     bg: { primary: "#2e3440", secondary: "#3b4252", floating: "#3b4252" },
     fg: { primary: "#d8dee9", muted: "#616e88" },
     selection: "rgba(67, 76, 94, 0.99)",
@@ -448,7 +438,6 @@ export const THEME_SOURCES = [
     id: "catppuccin-mocha",
     name: "Catppuccin Mocha",
     base: "dark",
-    description: "파스텔 톤의 차분한 다크. 4 flavor 중 가장 어두운 mocha",
     bg: { primary: "#1e1e2e", secondary: "#181825", floating: "#313244" },
     fg: { primary: "#cdd6f4", muted: "#6c7086" },
     selection: "rgba(88, 91, 112, 0.65)",
@@ -487,7 +476,6 @@ export const THEME_SOURCES = [
     id: "gruvbox-dark",
     name: "Gruvbox Dark",
     base: "dark",
-    description: "Retro groovy. 따뜻한 갈색·올리브·머스타드 톤",
     bg: { primary: "#282828", secondary: "#1d2021", floating: "#3c3836" },
     fg: { primary: "#ebdbb2", muted: "#928374" },
     selection: "rgba(80, 73, 69, 0.99)",

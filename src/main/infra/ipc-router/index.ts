@@ -1,4 +1,5 @@
 import * as crypto from "node:crypto";
+import type { WebContents } from "electron";
 import type { z } from "zod";
 import { createAbortError, isAbortError } from "../../../shared/abort";
 import type { AppError } from "../../../shared/error/app-error";
@@ -450,12 +451,32 @@ function errorToAppError(error: unknown): AppError {
   return { category: "bug", message: "Unknown stream error" };
 }
 
+/**
+ * WebContents that show third-party pages: embedded browser tabs, their
+ * popups and DevTools. They have no preload, so no page script can read an
+ * event, but broadcasts carry terminal output, OAuth redirect URLs, page
+ * snapshots and SSH prompts, and none of that belongs in the renderer
+ * process of an arbitrary website. Keyed by id; ids are never reused.
+ */
+const excludedFromBroadcast = new Set<number>();
+
+/**
+ * Keeps app broadcasts out of `wc` for the rest of its life.
+ */
+export function excludeFromBroadcast(wc: WebContents): void {
+  if (excludedFromBroadcast.has(wc.id)) return;
+  excludedFromBroadcast.add(wc.id);
+  wc.once("destroyed", () => {
+    excludedFromBroadcast.delete(wc.id);
+  });
+}
+
 export function broadcast(channelName: string, event: string, args: unknown): void {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { webContents } = require("electron") as typeof import("electron");
   const all = webContents.getAllWebContents();
   for (const wc of all) {
-    if (wc.isDestroyed()) continue;
+    if (wc.isDestroyed() || excludedFromBroadcast.has(wc.id)) continue;
     try {
       wc.send("ipc:event", channelName, event, args);
     } catch {

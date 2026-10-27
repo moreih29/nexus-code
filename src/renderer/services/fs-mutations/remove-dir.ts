@@ -12,6 +12,7 @@
  * a stale-row race.
  */
 
+import i18next from "i18next";
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { loadChildren } from "@/state/operations/files";
 import { parentOf } from "@/state/stores/files";
@@ -32,7 +33,7 @@ export async function removeDir(input: RemoveDirInput): Promise<boolean> {
 
   if (rel === absPath) {
     toFsToast(new Error(FS_ERROR.OUT_OF_WORKSPACE), {
-      fallback: "This path is outside the workspace.",
+      fallback: i18next.t("files:fileTree.fsError.outsideWorkspace"),
     });
     return false;
   }
@@ -41,10 +42,10 @@ export async function removeDir(input: RemoveDirInput): Promise<boolean> {
     unwrapIpcResult(await ipcCallResult("fs", "removeAll", { workspaceId, relPath: rel }));
   } catch (e: unknown) {
     toFsToast(e, {
-      fallback: "Couldn't delete folder.",
-      notFound: "Folder not found.",
-      permissionDenied: "Permission denied while deleting folder.",
-      notDirectory: "That path is not a folder.",
+      fallback: i18next.t("files:fileTree.delete.folderFailed"),
+      notFound: i18next.t("files:fileTree.fsError.folderNotFound"),
+      permissionDenied: i18next.t("files:fileTree.delete.folderDenied"),
+      notDirectory: i18next.t("files:fileTree.delete.notAFolder"),
     });
     return false;
   }

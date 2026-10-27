@@ -21,7 +21,10 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { isOccludingOverlay } from "../../../../../src/renderer/state/operations/browser-suspend-auto";
+import {
+  isOccludingOverlay,
+  overlapsBrowserView,
+} from "../../../../../src/renderer/state/operations/browser-suspend-auto";
 
 interface FakeSpec {
   /** el.matches(MONACO_WIDGET_SELECTOR) — the node itself is a Monaco widget. */
@@ -30,14 +33,19 @@ interface FakeSpec {
   insideMonaco?: boolean;
   /** el.getAttribute("aria-hidden") === "true". */
   ariaHidden?: boolean;
+  /** el.closest("[inert]") — the node sits in an inactive workspace panel. */
+  insideInert?: boolean;
 }
 
-// The predicate only ever passes the Monaco-widget selector to matches/closest,
-// so the stub can resolve those calls from the spec booleans directly.
+// matches() only ever sees the Monaco-widget selector; closest() sees that
+// one or the inert-subtree selector, so the stub resolves both from the spec.
 function fakeEl(spec: FakeSpec): Element {
   return {
     matches: () => Boolean(spec.isMonacoWidget),
-    closest: () => (spec.insideMonaco || spec.isMonacoWidget ? ({} as Element) : null),
+    closest: (selector: string) => {
+      if (selector === "[inert]") return spec.insideInert ? ({} as Element) : null;
+      return spec.insideMonaco || spec.isMonacoWidget ? ({} as Element) : null;
+    },
     getAttribute: (name: string) =>
       name === "aria-hidden" && spec.ariaHidden ? "true" : null,
   } as unknown as Element;
@@ -62,7 +70,69 @@ describe("isOccludingOverlay", () => {
     expect(isOccludingOverlay(fakeEl({ ariaHidden: true }))).toBe(false);
   });
 
+  test("rejects an overlay left open in an inactive (inert) workspace panel", () => {
+    expect(isOccludingOverlay(fakeEl({ insideInert: true }))).toBe(false);
+  });
+
   test("accepts a genuine, visible Radix overlay (dialog / menu / popper)", () => {
     expect(isOccludingOverlay(fakeEl({}))).toBe(true);
+  });
+});
+
+interface Box {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+function rect({ left, top, width, height }: Box): DOMRect {
+  return { left, top, width, height, right: left + width, bottom: top + height } as DOMRect;
+}
+
+function fakeTooltip(box: Box, transform = "translate(10px, 20px)"): Element {
+  return {
+    style: { transform },
+    getBoundingClientRect: () => rect(box),
+  } as unknown as Element;
+}
+
+function fakeSlot(box: Box, inert = false): Element {
+  return {
+    closest: () => (inert ? ({} as Element) : null),
+    getBoundingClientRect: () => rect(box),
+  } as unknown as Element;
+}
+
+describe("overlapsBrowserView", () => {
+  const page = { left: 200, top: 100, width: 800, height: 600 };
+
+  test("ignores a tooltip over the tab strip, clear of the page", () => {
+    const tooltip = fakeTooltip({ left: 220, top: 60, width: 80, height: 24 });
+    expect(overlapsBrowserView(tooltip, [fakeSlot(page)])).toBe(false);
+  });
+
+  test("counts a tooltip that reaches into the page", () => {
+    const tooltip = fakeTooltip({ left: 220, top: 90, width: 80, height: 24 });
+    expect(overlapsBrowserView(tooltip, [fakeSlot(page)])).toBe(true);
+  });
+
+  test("ignores browser views of inactive workspaces and hidden tabs", () => {
+    const tooltip = fakeTooltip({ left: 220, top: 90, width: 80, height: 24 });
+    const slots = [fakeSlot(page, true), fakeSlot({ left: 0, top: 0, width: 0, height: 0 })];
+    expect(overlapsBrowserView(tooltip, slots)).toBe(false);
+  });
+
+  test("counts the toast stack where it covers a browser tab", () => {
+    const toasts = fakeTooltip({ left: 640, top: 560, width: 360, height: 80 }, "");
+    expect(overlapsBrowserView(toasts, [fakeSlot(page)])).toBe(true);
+  });
+
+  test("reports a tooltip Radix has not positioned yet", () => {
+    const tooltip = fakeTooltip(
+      { left: 0, top: -48, width: 80, height: 24 },
+      "translate(0, -200%)",
+    );
+    expect(overlapsBrowserView(tooltip, [fakeSlot(page)])).toBe("unplaced");
   });
 });

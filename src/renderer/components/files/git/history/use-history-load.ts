@@ -354,6 +354,12 @@ async function loadLogPage({
     onComplete(Boolean(complete.hasMore));
   } catch (error) {
     if (signal?.aborted) return;
+    // A branch without commits has no history: show the empty state, not
+    // git's "does not have any commits yet" error.
+    if (gitErrorKind(error) === "no-head") {
+      onComplete(false);
+      return;
+    }
     onError(messageFromError(error));
   }
 }

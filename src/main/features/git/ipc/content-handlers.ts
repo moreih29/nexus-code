@@ -49,7 +49,7 @@ export function getFileContentHandler(
         throw new GitError("unknown", "git.getFileContent requires a workspace manager");
       }
 
-      const provider = manager.requireContext(workspaceId).fs;
+      const provider = await manager.getFs(workspaceId);
       if (!isAgentBackedProvider(provider)) {
         throw new GitError(
           "unknown",

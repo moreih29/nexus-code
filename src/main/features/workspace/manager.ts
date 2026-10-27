@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { isAbortError } from "../../../shared/abort";
+import { createAbortError, isAbortError } from "../../../shared/abort";
 import { AgentManifestSchema } from "../../../shared/agent/manifest";
 import { createLogger } from "../../../shared/log/main";
 import {
@@ -159,6 +159,11 @@ function isHookInfo(value: unknown): value is HookInfo {
   return typeof v.socketPath === "string" && typeof v.token === "string";
 }
 
+/** Rejects a provider boot whose workspace was removed while it was in flight. */
+function createWorkspaceRemovedError(id: string): Error {
+  return createAbortError(`workspace ${id} was removed while its agent was starting`);
+}
+
 /**
  * `hook.getInfo` 응답이 `server.unavailable` 코드인지 판정한다.
  * agent 쪽에서 hookserver 생성에 실패한 graceful degrade 신호이며,
@@ -225,6 +230,10 @@ export class WorkspaceManager {
    * workspace's storage partition before the context is deleted.
    */
   private browserCloser: ((workspaceId: string) => Promise<void>) | null = null;
+
+  private readonly providerReadyListeners = new Set<
+    (workspaceId: string, provider: FsProvider) => void
+  >();
 
   private readonly contexts = new Map<string, WorkspaceContext>();
   private readonly localChannels = new Map<string, AgentChannel>();
@@ -335,7 +344,7 @@ export class WorkspaceManager {
 
   /**
    * Close all open workspace storage handles and the global storage.
-   * Call from app.on('before-quit').
+   * Call from app.on('will-quit').
    */
   close(): void {
     for (const [id, ctx] of this.contexts) {
@@ -588,6 +597,20 @@ export class WorkspaceManager {
    */
   setBrowserCloser(closer: (workspaceId: string) => Promise<void>): void {
     this.browserCloser = closer;
+  }
+
+  /**
+   * Subscribes to agent boots: fires each time a workspace gets a newly
+   * started agent provider, on first activation and again when the previous
+   * channel died and a later call booted a replacement. The new agent knows
+   * nothing the old one had registered (fs and .git watches), and listeners
+   * attached to the old provider never hear from it.
+   */
+  onProviderReady(listener: (workspaceId: string, provider: FsProvider) => void): () => void {
+    this.providerReadyListeners.add(listener);
+    return () => {
+      this.providerReadyListeners.delete(listener);
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -884,6 +907,7 @@ export class WorkspaceManager {
     this.adoptedSshMasters.delete(id);
     // hookserver 접속 정보는 워크스페이스 제거 시 함께 삭제한다.
     this.hookInfoByWorkspace.delete(id);
+    this.removeShimDirQuietly(id);
     this.globalStorage.removeWorkspace(id);
 
     if (this.activeId === id) {
@@ -1031,7 +1055,7 @@ export class WorkspaceManager {
     try {
       const raw = await channel.call("hook.getInfo", {});
       if (!isHookInfo(raw)) {
-        throw new Error("hook.getInfo 응답이 올바르지 않음 (socketPath/token 누락)");
+        throw new Error("hook.getInfo returned no socketPath or token");
       }
       this.hookInfoByWorkspace.set(meta.id, raw);
     } catch (err) {
@@ -1047,9 +1071,8 @@ export class WorkspaceManager {
         }
         channel.dispose();
         ctx.setFsProvider(createInitialFsProvider(meta));
-        throw new Error(
-          `워크스페이스 ${meta.id} agent hook 초기화 실패: ${(err as Error).message}`,
-        );
+        log.warn(`agent hook setup failed for ${meta.id}: ${(err as Error).message}`);
+        throw new Error(`Agent hook setup failed: ${(err as Error).message}`, { cause: err });
       }
     }
 
@@ -1064,6 +1087,14 @@ export class WorkspaceManager {
       );
     }
 
+    if (!this.isLiveContext(meta.id, ctx)) {
+      disposeLifecycleListener();
+      channel.dispose();
+      // remove() already deleted the shim dir; this boot rewrote it.
+      this.removeShimDirQuietly(meta.id);
+      throw createWorkspaceRemovedError(meta.id);
+    }
+
     const provider = new AgentFsProvider("local", channel, { disposeChannel: true });
     ctx.setFsProvider(provider, () => {
       disposeLifecycleListener();
@@ -1073,6 +1104,7 @@ export class WorkspaceManager {
       }
       this.localProviderReady.delete(meta.id);
     });
+    this.notifyProviderReady(meta.id, provider);
   }
 
   /**
@@ -1150,6 +1182,13 @@ export class WorkspaceManager {
     if (adoptedMaster && !bootstrap.dispose) {
       bootstrap = { ...bootstrap, dispose: () => adoptedMaster.dispose() };
     }
+    // The bootstrap can span a password prompt and an agent upload; the
+    // workspace may have been removed meanwhile, and nothing would dispose a
+    // channel or master created for it from here on.
+    if (!this.isLiveContext(meta.id, ctx)) {
+      bootstrap.dispose?.();
+      throw createWorkspaceRemovedError(meta.id);
+    }
     this.sshBootstraps.set(meta.id, bootstrap);
     let providerMeta = meta;
     if (!meta.location.remoteArch) {
@@ -1203,7 +1242,7 @@ export class WorkspaceManager {
     try {
       const raw = await channel.call("hook.getInfo", {});
       if (!isHookInfo(raw)) {
-        throw new Error("hook.getInfo 응답이 올바르지 않음 (socketPath/token 누락)");
+        throw new Error("hook.getInfo returned no socketPath or token");
       }
       this.hookInfoByWorkspace.set(meta.id, raw);
     } catch (err) {
@@ -1222,9 +1261,8 @@ export class WorkspaceManager {
         bootstrap.dispose?.();
         channel.dispose();
         ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
-        throw new Error(
-          `워크스페이스 ${meta.id} agent hook 초기화 실패: ${(err as Error).message}`,
-        );
+        log.warn(`agent hook setup failed for ${meta.id}: ${(err as Error).message}`);
+        throw new Error(`Agent hook setup failed: ${(err as Error).message}`, { cause: err });
       }
     }
 
@@ -1239,7 +1277,17 @@ export class WorkspaceManager {
       );
     }
 
-    ctx.setFsProvider(createFsProvider(providerMeta, channel), () => {
+    if (!this.isLiveContext(meta.id, ctx)) {
+      disposeLifecycleListener();
+      channel.dispose();
+      bootstrap.dispose?.();
+      // remove() already deleted the shim dir; this boot rewrote it.
+      this.removeShimDirQuietly(meta.id);
+      throw createWorkspaceRemovedError(meta.id);
+    }
+
+    const provider = createFsProvider(providerMeta, channel);
+    ctx.setFsProvider(provider, () => {
       disposeLifecycleListener();
       channel.dispose();
       bootstrap.dispose?.();
@@ -1248,11 +1296,43 @@ export class WorkspaceManager {
       }
       this.sshBootstraps.delete(meta.id);
       this.sshProviderReady.delete(meta.id);
-      if (this.connectionStatuses.get(meta.id) !== "error") {
+      // A terminal status set just before teardown says why the provider
+      // went away; "disconnected" would hide the error or session-expired UI.
+      const status = this.connectionStatuses.get(meta.id);
+      if (status !== "error" && status !== "held-then-expired") {
         this.broadcastConnectionStatus(meta.id, "disconnected");
       }
     });
     this.broadcastConnectionStatus(meta.id, "connected");
+    this.notifyProviderReady(meta.id, provider);
+  }
+
+  /**
+   * True while `ctx` is still the open context for `id`, i.e. the workspace
+   * was not removed during an await in a provider boot.
+   */
+  private isLiveContext(id: string, ctx: WorkspaceContext): boolean {
+    return this.contexts.get(id) === ctx;
+  }
+
+  /** Deletes the workspace's PTY shim directory in the background. */
+  private removeShimDirQuietly(id: string): void {
+    this.removeShimDir(id).catch((err: unknown) => {
+      log.warn(`shim dir removal failed for ${id}: ${(err as Error).message}`);
+    });
+  }
+
+  /**
+   * Runs the provider-ready listeners; one that throws does not skip the rest.
+   */
+  private notifyProviderReady(workspaceId: string, provider: FsProvider): void {
+    for (const listener of this.providerReadyListeners) {
+      try {
+        listener(workspaceId, provider);
+      } catch (error) {
+        log.warn(`provider-ready listener failed for ${workspaceId}: ${(error as Error).message}`);
+      }
+    }
   }
 
   /**

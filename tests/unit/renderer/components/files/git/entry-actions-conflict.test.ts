@@ -159,3 +159,24 @@ describe("openChanges — non-conflict entry routes to diff", () => {
     expect(ctx.setBanner).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("openWorkingTreeFile", () => {
+  beforeEach(() => {
+    openOrRevealEditorMock.mockClear();
+  });
+
+  // Regression: "Open File" used shell.openPath, which runs `.command` and
+  // similar files a repository can put in the change list.
+  test("opens the file in the app editor instead of the OS handler", () => {
+    const ctx = makeContext();
+    const actions = createEntryActions(ctx);
+
+    actions.openWorkingTreeFile(makeEntry(null, "tools/run.command"));
+
+    expect(openOrRevealEditorMock).toHaveBeenCalledWith({
+      workspaceId: "ws-1",
+      filePath: "/repo/tools/run.command",
+    });
+    expect(ctx.setBanner).not.toHaveBeenCalled();
+  });
+});

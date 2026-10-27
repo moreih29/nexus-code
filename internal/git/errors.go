@@ -1,5 +1,7 @@
 package git
 
+import "github.com/nexus-code/nexus-code/internal/proto"
+
 // Kind is the Go mirror of src/shared/types/git.ts GitErrorKindSchema.
 type Kind string
 
@@ -74,6 +76,35 @@ type ActionHint struct {
 	SuggestedRemote string   `json:"suggestedRemote,omitempty"`
 	RemoteRef       string   `json:"remoteRef,omitempty"`
 	Candidates      []string `json:"candidates,omitempty"`
+}
+
+// Failure is a git command that exited non-zero, classified from its stderr.
+// Dedicated methods (push, pull, tag, stash, ...) return it so the host can
+// rebuild its typed git error; git.run reports the same fields in its result
+// instead.
+type Failure struct {
+	Kind Kind
+	Msg  string
+	Hint *ActionHint
+}
+
+func (f Failure) Error() string     { return f.Msg }
+func (f Failure) ErrorCode() string { return proto.CodeRequestFailed }
+func (f Failure) ErrorData() any {
+	return failureData{ErrorKind: f.Kind, ErrorHint: f.Hint}
+}
+
+// failureData is the wire shape of Failure in an error frame's data, named
+// after the matching git.run result fields.
+type failureData struct {
+	ErrorKind Kind        `json:"errorKind"`
+	ErrorHint *ActionHint `json:"errorHint,omitempty"`
+}
+
+// classifiedFailure builds the Failure for a git exit already classified as
+// kind, with kind's recovery hint.
+func classifiedFailure(kind Kind, msg string) error {
+	return Failure{Kind: kind, Msg: msg, Hint: HintForKind(kind)}
 }
 
 // ClassifiedError is the external Go surface for git stderr classification.

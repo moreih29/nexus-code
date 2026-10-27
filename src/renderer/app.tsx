@@ -35,6 +35,7 @@ import { ipcCallResult } from "./ipc/client";
 import { useGlobalKeybindings } from "./keybindings/use-global-keybindings";
 import { initializeEditorServices } from "./services/editor";
 import { rehydrateLspForWorkspace } from "./services/editor/model/cache";
+import { countUnsavedBuffers } from "./services/editor/save/unsaved-guard";
 import { useActiveStore } from "./state/stores/active";
 import { useAddWorkspaceUIStore } from "./state/stores/add-workspace-ui";
 import { useEditorFontStore } from "./state/stores/editor-font";
@@ -348,7 +349,7 @@ export function App() {
     async (id: string) => {
       const target = workspaces.find((w) => w.id === id);
       const name = target?.name ?? "this workspace";
-      const confirmed = await showRemoveWorkspaceConfirm(name);
+      const confirmed = await showRemoveWorkspaceConfirm(name, countUnsavedBuffers(id));
       if (!confirmed) return;
       // tabs store subscribes to `workspace:removed` and clears its slice;
       // that tab-record cleanup kills PTYs before panel unmount disposes views.

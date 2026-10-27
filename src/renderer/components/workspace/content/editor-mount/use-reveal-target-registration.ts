@@ -1,10 +1,11 @@
 import type * as Monaco from "monaco-editor";
 import { useEffect } from "react";
 import { registerRevealTarget } from "../../../../services/editor/tabs";
+import { registerTabFocusTarget } from "../../../../services/tab-focus";
 
 /**
- * Registers the live editor instance as the canonical reveal target for
- * `(workspaceId, filePath)` once both conditions hold:
+ * Registers the live editor instance as the reveal target for
+ * `(workspaceId, filePath)` in tab `tabId` once both conditions hold:
  *
  *   - Monaco has fired onMount, so `editor` is the real `IStandaloneCodeEditor`
  *     (not null while the editor is still loading).
@@ -24,6 +25,7 @@ import { registerRevealTarget } from "../../../../services/editor/tabs";
 export interface UseRevealTargetRegistrationOptions {
   workspaceId: string;
   filePath: string;
+  tabId: string;
   editor: Monaco.editor.IStandaloneCodeEditor | null;
   ready: boolean;
 }
@@ -31,11 +33,20 @@ export interface UseRevealTargetRegistrationOptions {
 export function useRevealTargetRegistration({
   workspaceId,
   filePath,
+  tabId,
   editor,
   ready,
 }: UseRevealTargetRegistrationOptions): void {
   useEffect(() => {
     if (!ready || !editor) return;
-    return registerRevealTarget({ workspaceId, filePath }, editor);
-  }, [ready, editor, workspaceId, filePath]);
+    return registerRevealTarget({ workspaceId, filePath }, editor, tabId);
+  }, [ready, editor, workspaceId, filePath, tabId]);
+
+  // The tab-focus target registers on the same condition: focusing an editor
+  // whose model is not attached yet would put the caret in the empty
+  // temporary model.
+  useEffect(() => {
+    if (!ready || !editor) return;
+    return registerTabFocusTarget(tabId, () => editor.focus());
+  }, [ready, editor, tabId]);
 }

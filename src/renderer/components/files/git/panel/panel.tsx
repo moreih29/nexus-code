@@ -21,6 +21,8 @@ import {
 } from "../../../../../shared/git/types";
 import { useGitSession, useGitStore } from "../../../../state/stores/git";
 import { selectGitActionButton } from "../../../../state/stores/git/action-button";
+import { useCommitDraft } from "../../../../state/stores/git/commit-drafts";
+import { gitErrorPlacement } from "../../../../state/stores/git/error-placement";
 import {
   usePanelViewOptionsStore,
   useViewOptions,
@@ -190,26 +192,29 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const isRefreshing = session?.inFlightOp?.kind === "refresh" || Boolean(session?.statusFetching);
   const isLoading = !session || session.repoInfo.kind === "detecting" || session.statusFetching;
   const showSkeleton = useLoaderDelay(isLoading ? "running" : "done");
-  const draft = session?.commitDraft ?? "";
+  const draft = useCommitDraft(workspaceId);
   const trimmedDraft = draft.trim();
   const operationState = session?.status?.operationState ?? { kind: "none" as const };
   const activeOperation = operationState.kind === "none" ? null : operationState;
   const hasActiveOperation = activeOperation !== null;
   const actionState = useMemo(
     () =>
-      selectGitActionButton({
-        repoKind: session?.repoInfo.kind ?? "detecting",
-        capabilities,
-        branch: branchInfo,
-        dirty: {
-          staged: session?.status?.staged.length ?? 0,
-          working: session?.status?.working.length ?? 0,
-          untracked: session?.status?.untracked.length ?? 0,
-          merge: session?.status?.merge.length ?? 0,
+      selectGitActionButton(
+        {
+          repoKind: session?.repoInfo.kind ?? "detecting",
+          capabilities,
+          branch: branchInfo,
+          dirty: {
+            staged: session?.status?.staged.length ?? 0,
+            working: session?.status?.working.length ?? 0,
+            untracked: session?.status?.untracked.length ?? 0,
+            merge: session?.status?.merge.length ?? 0,
+          },
+          commitDraft: draft,
         },
-        commitDraft: draft,
-      }),
-    [branchInfo, capabilities, draft, session?.repoInfo.kind, session?.status],
+        (key) => t(key),
+      ),
+    [branchInfo, capabilities, draft, session?.repoInfo.kind, session?.status, t],
   );
   const commitActionEnabled =
     (actionState.kind === "commit" || actionState.kind === "make-initial-commit") &&
@@ -399,6 +404,12 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
       void directOps.refresh(workspaceId);
     },
   });
+  // A failure with nothing to act on here goes to a toast instead (see
+  // initGitErrorToasts); the banner keeps the ones the panel recovers from.
+  const panelError =
+    session?.lastError && gitErrorPlacement(session.lastError) !== "toast"
+      ? session.lastError
+      : null;
   const pushGuardBanner = buildPushGuardBannerView({
     error: session?.lastError,
     pendingNonFFRetry: session?.pendingNonFFRetry,
@@ -522,7 +533,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
         model={buildGitBannerModel({
           pushGuardBanner,
           onPushGuardAction: runPushGuardAction,
-          lastError: session?.lastError ?? null,
+          lastError: panelError,
           errorAction,
           autofetchPaused: session?.autofetchPausedBannerVisible ?? false,
           autofetchLastErrorMessage: session?.autofetchLastError?.message,

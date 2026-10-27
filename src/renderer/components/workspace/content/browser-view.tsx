@@ -104,6 +104,8 @@ const DEFAULT_DEVTOOLS_HEIGHT = 280;
 const MIN_DEVTOOLS_HEIGHT = 120;
 /** Minimum page region height that the splitter drag will preserve. */
 const MIN_PAGE_HEIGHT = 100;
+/** Height of the splitter handle between the page and DevTools. */
+const SPLITTER_HEIGHT = 3;
 
 export function BrowserTabView({
   tabId,
@@ -125,6 +127,11 @@ export function BrowserTabView({
   // User-controlled height of the inline DevTools region.  Per-tab-mount;
   // does not survive a tab close.
   const [devtoolsHeight, setDevtoolsHeight] = useState(DEFAULT_DEVTOOLS_HEIGHT);
+  // Holds the page + DevTools column; the splitter clamps against its height.
+  const contentAreaRef = useRef<HTMLDivElement>(null);
+  // Ends an in-progress splitter drag; also run on unmount.
+  const endSplitterDragRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => endSplitterDragRef.current?.(), []);
 
   // Runtime state from main-process events.
   const runtime = useBrowserRuntimeStore((s) => s.runtimes.get(tabId));
@@ -307,23 +314,42 @@ export function BrowserTabView({
   // drag survives the cursor briefly leaving the 3-pixel target — standard
   // splitter behaviour.  Bounds are clamped so the page never collapses below
   // `MIN_PAGE_HEIGHT` and DevTools never falls below `MIN_DEVTOOLS_HEIGHT`.
+  // The clamp uses this tab's own column, not the window: in a short split
+  // the window bound let the page collapse to nothing and left a dead zone
+  // the size of the overshoot when dragging back.
   function onSplitterPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     e.preventDefault();
+    endSplitterDragRef.current?.();
     const startY = e.clientY;
     const startHeight = devtoolsHeight;
+    const columnHeight =
+      contentAreaRef.current?.getBoundingClientRect().height ?? window.innerHeight;
+    const maxHeight = Math.max(
+      MIN_DEVTOOLS_HEIGHT,
+      columnHeight - SPLITTER_HEIGHT - MIN_PAGE_HEIGHT,
+    );
 
     function onMove(ev: PointerEvent): void {
+      // The release can land on a native view (the page or DevTools) and
+      // never reach this window; a move with no button down ends the drag.
+      if (ev.buttons === 0) {
+        endDrag();
+        return;
+      }
       const delta = startY - ev.clientY;
-      const maxHeight = Math.max(MIN_DEVTOOLS_HEIGHT, window.innerHeight - MIN_PAGE_HEIGHT);
       const next = Math.max(MIN_DEVTOOLS_HEIGHT, Math.min(maxHeight, startHeight + delta));
       setDevtoolsHeight(next);
     }
-    function onUp(): void {
+    function endDrag(): void {
       window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointerup", endDrag);
+      window.removeEventListener("pointercancel", endDrag);
+      if (endSplitterDragRef.current === endDrag) endSplitterDragRef.current = null;
     }
     window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointerup", endDrag);
+    window.addEventListener("pointercancel", endDrag);
+    endSplitterDragRef.current = endDrag;
   }
 
   // -------------------------------------------------------------------------
@@ -372,7 +398,7 @@ export function BrowserTabView({
       {/* Content area — flex column so the optional DevTools region docks
           below the page.  `min-h-0` is required for the inner flex children
           to shrink correctly inside a parent flex column. */}
-      <div className="flex flex-col flex-1 min-h-0">
+      <div ref={contentAreaRef} className="flex flex-col flex-1 min-h-0">
         {/* Page region — fills remaining height when DevTools is closed,
             shrinks to `flex-1` against the fixed DevTools height when open. */}
         <div className="relative flex-1 min-h-0">

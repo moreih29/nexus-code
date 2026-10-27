@@ -8,12 +8,11 @@
  */
 import i18next from "i18next";
 import type { MenuItemSpec } from "@/components/ui/context-menu";
-import { isMac, SHORTCUTS } from "@/keybindings/shortcut-labels";
+import { SHORTCUTS } from "@/keybindings/shortcut-labels";
+import { revealInOSLabel } from "@/utils/reveal-label";
 import type { useGroupActions } from "./use-group-actions";
 
 type GroupActions = ReturnType<typeof useGroupActions>;
-
-const REVEAL_LABEL = isMac ? i18next.t("action.reveal_in_finder") : i18next.t("action.reveal_in_explorer");
 
 export interface TabContextInfo {
   isPinned: boolean;
@@ -33,7 +32,8 @@ interface BuildOptions {
   togglePin: () => void;
   copyPath: () => void;
   copyRelativePath: () => void;
-  revealInFinder: () => void;
+  /** Absent in a remote workspace, where the system file manager cannot help. */
+  revealInFinder?: () => void;
   /** "Rename Tab" 메뉴 항목 클릭 시 — inline 편집 모드 진입. */
   renameTab: () => void;
 }
@@ -118,13 +118,15 @@ export function buildGroupTabBarMenuItems({
 
   if (context.isEditor) {
     items.push({ kind: "separator" });
-    items.push({
-      kind: "item",
-      label: REVEAL_LABEL,
-      shortcut: SHORTCUTS.revealInOS,
-      onSelect: revealInFinder,
-    });
-    items.push({ kind: "separator" });
+    if (revealInFinder) {
+      items.push({
+        kind: "item",
+        label: revealInOSLabel(),
+        shortcut: SHORTCUTS.revealInOS,
+        onSelect: revealInFinder,
+      });
+      items.push({ kind: "separator" });
+    }
     items.push({
       kind: "item",
       label: t("tabBar.copy_path"),

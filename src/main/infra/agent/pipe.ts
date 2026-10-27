@@ -19,6 +19,8 @@ import type { LogLevel } from "../../../shared/log/types";
 import type { SshErrorCode } from "../../../shared/ssh/errors";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+/** How many timed-out request ids to remember for absorbing late answers. */
+const ABANDONED_REQUEST_IDS_MAX = 1024;
 
 /**
  * Marker value written by the Go agent's slog logger on every structured log
@@ -150,6 +152,12 @@ type ParsedFrame =
   | { kind: "error-response"; id: string; error: unknown }
   | { kind: "event"; event: string; payload: unknown };
 
+/** Per-call options for `NdjsonPipe.call`. */
+export interface NdjsonCallOptions {
+  readonly correlationId?: string;
+  readonly timeoutMs?: number;
+}
+
 export interface SshError extends Error {
   readonly code: SshErrorCode;
 }
@@ -196,18 +204,20 @@ export interface NdjsonPipe {
    *
    * @param method     The agent method name (e.g. `"lsp.spawn"`).
    * @param params     The request payload — must be JSON-serialisable.
-   * @param correlationId  Optional cross-process correlation token issued by the
-   *                       IPC router.  When supplied it is included in the NDJSON
-   *                       frame as `correlationId` so the Go agent can attach the
-   *                       same token to its own log entries and error responses,
-   *                       linking the full call chain across process boundaries.
-   *                       The field name `correlationId` is fixed by the Go-side
-   *                       T6 contract — do not rename.
+   * @param options    `correlationId` is an optional cross-process correlation
+   *                   token issued by the IPC router.  When supplied it is
+   *                   included in the NDJSON frame as `correlationId` so the Go
+   *                   agent can attach the same token to its own log entries and
+   *                   error responses, linking the full call chain across
+   *                   process boundaries.  The field name `correlationId` is
+   *                   fixed by the Go-side T6 contract — do not rename.
+   *                   `timeoutMs` replaces the pipe's request timeout for this
+   *                   call.
    */
   call<TResult = unknown>(
     method: string,
     params?: unknown,
-    correlationId?: string,
+    options?: NdjsonCallOptions,
   ): Promise<TResult>;
   /**
    * Sends a fire-and-forget notification to the agent. Writes the NDJSON frame
@@ -244,6 +254,11 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   const expectedProtocolMajor = deps.expectedProtocolMajor ?? AGENT_PROTOCOL_VERSION;
   const pendingRequests = new PendingRequestMap<string, unknown>();
   const activeRequestIds = new Set<string>();
+  // Requests that timed out locally. The agent still answers them when the
+  // handler eventually finishes, and that answer is expected, not a protocol
+  // violation; failing the channel on it would turn one slow request into a
+  // dead workspace. Insertion-ordered, so the oldest id is evicted first.
+  const abandonedRequestIds = new Set<string>();
   const listeners = new Map<string, Set<NdjsonEventCallback>>();
   const stdoutLines = createLineSplitter(handleStdoutLine, {
     hwm: STDOUT_BACKPRESSURE_HWM,
@@ -259,6 +274,11 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   const STDERR_TAIL_MAX_LINES = 20;
   const STDERR_TAIL_MAX_LINE_CHARS = 200;
   const recentStderr: string[] = [];
+  // Last spawn-failure line seen before ready. Login shells print profile
+  // noise such as "pyenv: command not found" before exec'ing the agent, so
+  // the line only means the agent failed to start if the process then exits
+  // without sending a ready frame.
+  let deferredSpawnFailure: string | null = null;
 
   let nextRequestId = 1;
   let disposed = false;
@@ -458,7 +478,9 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     resolveReady();
     if (frame.kind === "response") {
       if (!activeRequestIds.has(frame.id)) {
-        selfFail(createSshError("server.protocol-error"));
+        if (!abandonedRequestIds.delete(frame.id)) {
+          selfFail(createSshError("server.protocol-error"));
+        }
         return;
       }
       pendingRequests.resolve(frame.id, frame.result);
@@ -467,7 +489,9 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
 
     if (frame.kind === "error-response") {
       if (!activeRequestIds.has(frame.id)) {
-        selfFail(createSshError("server.protocol-error"));
+        if (!abandonedRequestIds.delete(frame.id)) {
+          selfFail(createSshError("server.protocol-error"));
+        }
         return;
       }
       pendingRequests.reject(frame.id, errorFromServerFrame(frame.error));
@@ -540,7 +564,17 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     // pattern matches — the close handler reads this tail for the cause.
     recordStderr(line);
 
+    // After ready, stderr carries the agent's own diagnostics and the SSH
+    // client's teardown chatter. A dropped connection surfaces as a process
+    // close, which takes the reconnect path; failing here would make a
+    // transient "Connection reset by peer" terminal.
+    if (readySettled) return;
+
     const code = deps.classifyStderr(line);
+    if (code === "server.spawn-failed") {
+      deferredSpawnFailure = line;
+      return;
+    }
     if (code) {
       // Attach the offending line as cause so the file log shows *why* the
       // agent failed to start, not just the classified code.
@@ -567,12 +601,22 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
    * triggering a pause() from the byte-accounting gate in createLineSplitter.
    * Callbacks that cannot tolerate this synchronous tax should yield via
    * queueMicrotask or a similar mechanism.
+   *
+   * A callback that throws is logged and skipped: letting the error escape
+   * would drop the rest of the chunk's frames, skip the other subscribers,
+   * and surface as an uncaught exception from the stream's data handler.
    */
   function emitEvent(event: string, payload: unknown): void {
     const callbacks = listeners.get(event);
     if (!callbacks) return;
     for (const callback of Array.from(callbacks)) {
-      callback(payload);
+      try {
+        callback(payload);
+      } catch (error) {
+        getAgentLogger().error(
+          `agent event listener for ${event} threw: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+        );
+      }
     }
   }
 
@@ -598,8 +642,10 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     call<TResult = unknown>(
       method: string,
       params?: unknown,
-      correlationId?: string,
+      options: NdjsonCallOptions = {},
     ): Promise<TResult> {
+      const { correlationId } = options;
+      const timeoutMs = options.timeoutMs ?? requestTimeoutMs;
       if (disposed) {
         return Promise.reject(createDisposedError());
       }
@@ -626,21 +672,31 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       const promise = pendingRequests
         .register({
           key: requestId,
-          timeoutMs: requestTimeoutMs,
-          onTimeout: () => createSshError("ssh.unknown"),
+          timeoutMs,
+          onTimeout: () => {
+            abandonedRequestIds.add(requestId);
+            if (abandonedRequestIds.size > ABANDONED_REQUEST_IDS_MAX) {
+              const oldest = abandonedRequestIds.values().next().value;
+              if (oldest !== undefined) abandonedRequestIds.delete(oldest);
+            }
+            return createSshError(
+              "transport.timeout",
+              new Error(`${method} timed out after ${timeoutMs}ms`),
+            );
+          },
         })
         .finally(() => {
           activeRequestIds.delete(requestId);
         }) as Promise<TResult>;
 
       if (!deps.stdin.writable || deps.stdin.destroyed) {
-        pendingRequests.reject(requestId, createSshError("ssh.unknown"));
+        pendingRequests.reject(requestId, createSshError("transport.unknown"));
         return promise;
       }
 
       deps.stdin.write(line, (error) => {
         if (error) {
-          pendingRequests.reject(requestId, createSshError("ssh.unknown", error));
+          pendingRequests.reject(requestId, createSshError("transport.unknown", error));
         }
       });
 
@@ -699,7 +755,11 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     notifyClose(): { wasReady: boolean; stderrTail: string } {
       stdoutLines.flush();
       stderrLines.flush();
-      return { wasReady: readySettled, stderrTail: recentStderr.join(" | ") };
+      const wasReady = readySettled;
+      if (!wasReady && deferredSpawnFailure !== null) {
+        selfFail(createSshError("server.spawn-failed", deferredSpawnFailure));
+      }
+      return { wasReady, stderrTail: recentStderr.join(" | ") };
     },
   };
   return pipe;
@@ -759,15 +819,17 @@ function messageForSshErrorCode(code: SshErrorCode): string {
     case "ssh.path-not-found":
       return "Remote path not found";
     case "server.spawn-failed":
-      return "Remote agent failed to start";
+      return "Agent failed to start";
     case "server.protocol-error":
-      return "Remote agent protocol error";
+      return "Agent protocol error";
     case "server.protocol-version-mismatch":
-      return "Remote agent protocol version mismatch";
+      return "Agent protocol version mismatch";
     case "ssh.unknown":
       return "SSH transport failed";
     case "transport.unknown":
       return "Agent transport failed";
+    case "transport.timeout":
+      return "Agent request timed out";
   }
 }
 
@@ -920,17 +982,20 @@ function parseFrame(line: string): ParsedFrame {
 }
 
 /**
- * Converts a remote agent error frame to an Error while preserving its code.
+ * Converts an agent error frame to an Error while preserving its code.
  */
 function errorFromServerFrame(value: unknown): Error {
   if (!isRecord(value)) {
-    return new Error("Remote agent request failed");
+    return new Error("Agent request failed");
   }
 
-  const message = typeof value.message === "string" ? value.message : "Remote agent request failed";
+  const message = typeof value.message === "string" ? value.message : "Agent request failed";
   const error = new Error(message);
   if (typeof value.code === "string") {
     (error as Error & { code: string }).code = value.code;
+  }
+  if (value.data !== undefined) {
+    (error as Error & { data: unknown }).data = value.data;
   }
   return error;
 }
@@ -1002,7 +1067,14 @@ function createLineSplitter(
   push(chunk: Buffer): void;
   flush(): void;
 } {
-  let buffer = "";
+  // Raw bytes of the line in progress, decoded only once the whole line has
+  // arrived. Decoding each chunk on its own turned a multi-byte UTF-8
+  // character split across a chunk boundary into U+FFFD — Hangul in a large
+  // file came back corrupted and was saved that way — and re-scanning one
+  // growing string for "\n" on every chunk made a large frame quadratic.
+  // 0x0A never occurs inside a multi-byte UTF-8 sequence, so splitting the
+  // raw bytes on it is safe.
+  let pending: Buffer[] = [];
   // Running tally of bytes from completed lines dispatched since the last
   // gate transition. Resets to zero after each pause() or resume() call
   // so each measurement window starts fresh.
@@ -1059,23 +1131,32 @@ function createLineSplitter(
 
   return {
     push(chunk) {
-      buffer += chunk.toString("utf8");
-      let newlineIndex = buffer.indexOf("\n");
+      let start = 0;
+      let newlineIndex = chunk.indexOf(0x0a);
       while (newlineIndex !== -1) {
-        const line = buffer.slice(0, newlineIndex).replace(/\r$/, "");
-        buffer = buffer.slice(newlineIndex + 1);
-        dispatchLine(line);
-        newlineIndex = buffer.indexOf("\n");
+        const tail = chunk.subarray(start, newlineIndex);
+        const bytes = pending.length === 0 ? tail : Buffer.concat([...pending, tail]);
+        pending = [];
+        start = newlineIndex + 1;
+        try {
+          dispatchLine(bytes.toString("utf8").replace(/\r$/, ""));
+        } catch (err) {
+          // Keep the chunk's remaining lines for the next push, as before.
+          if (start < chunk.length) pending.push(chunk.subarray(start));
+          throw err;
+        }
+        newlineIndex = chunk.indexOf(0x0a, start);
       }
+      if (start < chunk.length) pending.push(chunk.subarray(start));
       postBurstResumeCheck();
     },
     flush() {
-      if (buffer.length === 0) {
+      if (pending.length === 0) {
         postBurstResumeCheck();
         return;
       }
-      const line = buffer.replace(/\r$/, "");
-      buffer = "";
+      const line = Buffer.concat(pending).toString("utf8").replace(/\r$/, "");
+      pending = [];
       dispatchLine(line);
       postBurstResumeCheck();
     },

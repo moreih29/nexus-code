@@ -63,10 +63,11 @@ export function authenticateSshControlMaster(
       buffer = trimAuthBuffer(buffer + chunk);
       void maybeHandlePrompt();
     });
-    const authTimer = setTimeout(() => {
-      failAuth(createSshError(classifyPtyExit(buffer)));
-    }, authTimeoutMs);
-    authTimer.unref?.();
+    // Bounds how long SSH may go without reaching a prompt or exiting. It is
+    // paused while a prompt waits on the user, so typing a password or
+    // reading a host-key fingerprint does not count against it.
+    let authTimer: ReturnType<typeof setTimeout> | null = null;
+    armAuthTimer();
     const exitDisposable = ptyProcess.onExit(({ exitCode }) => {
       cleanupListeners();
       if (settled) return;
@@ -85,9 +86,11 @@ export function authenticateSshControlMaster(
       if (!prompt) return;
 
       promptInFlight = true;
+      disarmAuthTimer();
       try {
         const response = await promptHandler(prompt);
         if (settled) return;
+        armAuthTimer();
         if (response.kind === "password" && prompt.kind === "password") {
           ptyProcess.write(`${response.value}\r`);
           buffer = "";
@@ -106,6 +109,20 @@ export function authenticateSshControlMaster(
       }
     }
 
+    function armAuthTimer(): void {
+      disarmAuthTimer();
+      authTimer = setTimeout(() => {
+        failAuth(createSshError(classifyPtyExit(buffer)));
+      }, authTimeoutMs);
+      authTimer.unref?.();
+    }
+
+    function disarmAuthTimer(): void {
+      if (authTimer === null) return;
+      clearTimeout(authTimer);
+      authTimer = null;
+    }
+
     function failAuth(error: Error): void {
       if (settled) return;
       cleanupListeners();
@@ -116,7 +133,7 @@ export function authenticateSshControlMaster(
     }
 
     function cleanupListeners(): void {
-      clearTimeout(authTimer);
+      disarmAuthTimer();
       dataDisposable.dispose();
       exitDisposable.dispose();
     }

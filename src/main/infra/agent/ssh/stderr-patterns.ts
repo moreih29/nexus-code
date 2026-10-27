@@ -1,7 +1,11 @@
 import type { SshErrorCode } from "../../../../shared/ssh/errors";
 
 const AUTH_FAILED_PATTERNS = [
-  /permission denied/i,
+  // OpenSSH's own forms only: "user@host: Permission denied (publickey)." and
+  // the password retry line. A bare "Permission denied" is usually a login
+  // profile touching an unreadable file, not an authentication failure.
+  /permission denied \(/i,
+  /permission denied, please try again/i,
   /authentication failed/i,
   /too many authentication failures/i,
   /host key verification failed/i,

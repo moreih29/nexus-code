@@ -46,8 +46,6 @@ export function GroupView({
   const activeGroupId = useLayoutStore((s) => s.byWorkspace[workspaceId]?.activeGroupId ?? null);
   const tabsMap = useTabsStore((s) => s.byWorkspace[workspaceId] ?? EMPTY_TABS);
 
-  const layoutStore = useLayoutStore();
-
   const isActive = activeGroupId === leaf.id;
   const tabs = leaf.tabIds
     .map((id) => tabsMap[id])
@@ -59,7 +57,7 @@ export function GroupView({
 
   function handleSelectTab(tabId: string) {
     const currentActiveTabId = leaf.activeTabId;
-    layoutStore.setActiveTabInGroup({
+    useLayoutStore.getState().setActiveTabInGroup({
       workspaceId,
       groupId: leaf.id,
       tabId,
@@ -96,7 +94,7 @@ export function GroupView({
 
   function handleGroupClick() {
     if (!isActive) {
-      layoutStore.setActiveGroup(workspaceId, leaf.id);
+      useLayoutStore.getState().setActiveGroup(workspaceId, leaf.id);
       onActivateGroup(leaf.id);
     }
   }

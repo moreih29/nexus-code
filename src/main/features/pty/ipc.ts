@@ -11,6 +11,7 @@ import { applyShellPathShim } from "./shell-shim";
 import { OscNotificationDispatcher } from "./osc-notification";
 import type { WorkspaceNameLookup } from "./osc-notification";
 import type { HookInfo } from "../workspace/manager";
+import { getActiveAppWindow, getFocusedAppWindow } from "../window/app-windows";
 
 const c = ipcContract.pty.call;
 
@@ -59,16 +60,12 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
   const { agentHost } = options;
   const recorder = options.recorder ?? new TerminalRecorderRegistry();
   const wm = options.workspaceManager;
-  // BrowserWindow is accessed lazily (require) to avoid a static electron
-  // import that breaks test environments where electron is partially mocked.
-  const getElectron = (): typeof import("electron") =>
-    require("electron") as typeof import("electron");
   const dispatcher = new OscNotificationDispatcher({
     workspaceManager: wm ?? { getName: () => null },
-    getFocusedWindow: () => getElectron().BrowserWindow.getFocusedWindow(),
+    getFocusedWindow: getFocusedAppWindow,
     activateWorkspace: wm ? (id) => wm.activate(id) : undefined,
     focusMainWindow: () => {
-      const win = getElectron().BrowserWindow.getAllWindows()[0];
+      const win = getActiveAppWindow();
       if (!win) return;
       if (win.isMinimized()) win.restore();
       win.show();
@@ -77,14 +74,20 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
   });
 
   agentHost.on("data", (args) => {
-    const { workspaceId, tabId, chunk } = args as {
+    const { workspaceId, tabId, chunk, replay } = args as {
       workspaceId: string;
       tabId: string;
       chunk: string;
+      replay?: boolean;
     };
     recorder.appendData(workspaceId, tabId, chunk);
-    dispatcher.handleChunk(workspaceId, tabId, chunk);
-    broadcast("pty", "data", { workspaceId, tabId, chunk });
+    // Replayed output raised its notifications when it first arrived.
+    if (!replay) dispatcher.handleChunk(workspaceId, tabId, chunk);
+    broadcast(
+      "pty",
+      "data",
+      replay ? { workspaceId, tabId, chunk, replay } : { workspaceId, tabId, chunk },
+    );
   });
 
   agentHost.on("exit", (args) => {

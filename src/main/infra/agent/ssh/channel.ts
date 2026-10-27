@@ -1,4 +1,5 @@
 import type {
+  AgentCallOptions,
   AgentChannel,
   ChannelEventCallback,
   ChannelLifecycleCallback,
@@ -118,6 +119,7 @@ function createAuthenticatedSshChannel(
   const pendingCalls: Array<{
     readonly method: string;
     readonly params: unknown;
+    readonly options?: AgentCallOptions;
     readonly resolve: (value: unknown) => void;
     readonly reject: (reason?: unknown) => void;
   }> = [];
@@ -153,7 +155,7 @@ function createAuthenticatedSshChannel(
         liveInner.on(event, (payload) => events.emit(event, payload)),
       );
       for (const call of pendingCalls.splice(0)) {
-        inner.call(call.method, call.params).then(call.resolve, call.reject);
+        inner.call(call.method, call.params, call.options).then(call.resolve, call.reject);
       }
       return inner.ready.finally(() => {
         if (disposed) return;
@@ -171,11 +173,21 @@ function createAuthenticatedSshChannel(
 
   return {
     ready,
-    call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
+    call<TResult = unknown>(
+      method: string,
+      params?: unknown,
+      options?: AgentCallOptions,
+    ): Promise<TResult> {
       if (disposed) return Promise.reject(createDisposedError());
-      if (inner) return inner.call<TResult>(method, params);
+      if (inner) return inner.call<TResult>(method, params, options);
       return new Promise<TResult>((resolve, reject) => {
-        pendingCalls.push({ method, params, resolve: resolve as (value: unknown) => void, reject });
+        pendingCalls.push({
+          method,
+          params,
+          options,
+          resolve: resolve as (value: unknown) => void,
+          reject,
+        });
       });
     },
     fire(method: string, params?: unknown): void {

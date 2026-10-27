@@ -7,5 +7,11 @@
   },
   "saveFile": {
     "title": "파일 저장"
+  },
+  "unsavedChanges": {
+    "message": "저장하지 않은 변경 사항이 있습니다.",
+    "detail": "저장하지 않은 변경 사항은 사라집니다.",
+    "discard": "저장하지 않고 닫기",
+    "cancel": "취소"
   }
 }

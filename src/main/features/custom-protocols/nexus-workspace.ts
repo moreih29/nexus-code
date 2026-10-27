@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url";
 // equivalent in the real electron runtime.
 import * as electron from "electron";
 import { createLogger } from "../../../shared/log/main";
+import { isScriptReadableRequest } from "../../infra/security/script-readable-request";
 import type { WorkspaceManager } from "../workspace/manager";
 
 const logger = createLogger("nexus-workspace");
@@ -58,16 +59,20 @@ function mimeFromPath(filePath: string): string {
   return MIME_MAP[ext] ?? "application/octet-stream";
 }
 
-// Allow the opaque-origin preview iframe to satisfy CORS for resources fetched
-// in CORS mode (fonts). Requests are uncredentialed, so `*` is sufficient and
-// `*` is the only ACAO value usable from a "null" origin without credentials.
-// Safe scope: the scheme is registered only in this app's session (external
-// pages cannot reference it) and every served path is workspace-bound by the
-// traversal/symlink guards above — ACAO:* does not widen which files are
-// reachable, only lets the already-permitted iframe load fonts.
-const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-};
+/** Response headers shared by the local and SSH branches. */
+function responseHeaders(filePath: string): Record<string, string> {
+  return {
+    "Content-Type": mimeFromPath(filePath),
+    // `no-store` is required, not just a hint: Blink's memory cache treats
+    // non-http(s) responses without cache headers as fresh FOREVER, so an
+    // image (or an HTML-preview sibling .css/.js) edited on disk would keep
+    // rendering the first-fetched bytes for the life of the renderer.
+    "Cache-Control": "no-store",
+    // Stops a page from loading a non-JS/non-CSS file as a classic script or
+    // stylesheet to read it (an `.env` of `KEY="…"` lines is valid JS).
+    "X-Content-Type-Options": "nosniff",
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Handler — exported for unit testing via dependency injection.
@@ -153,7 +158,6 @@ export function buildNexusWorkspaceHandler(
     // Step 6 — serve via net.fetch using a file:// URL.
     // net.fetch handles streaming for us and avoids manually wrapping Node
     // streams into a Web ReadableStream across Electron versions.
-    const contentType = mimeFromPath(realPath);
     try {
       const fileUrl = pathToFileURL(realPath).href;
       const fileResp = await electron.net.fetch(fileUrl);
@@ -161,10 +165,7 @@ export function buildNexusWorkspaceHandler(
         logger.warn(`net.fetch failed (${fileResp.status}): ${realPath}`);
         return new Response(null, { status: 404 });
       }
-      return new Response(fileResp.body, {
-        status: 200,
-        headers: { "Content-Type": contentType, ...CORS_HEADERS },
-      });
+      return new Response(fileResp.body, { status: 200, headers: responseHeaders(realPath) });
     } catch (err) {
       logger.warn(`Failed to read file: ${realPath} — ${(err as Error).message}`);
       return new Response(null, { status: 404 });
@@ -207,15 +208,7 @@ async function serveViaAgent(
       return new Response(null, { status: 404 });
     }
     const buf = Buffer.from(result.base64, "base64");
-    const contentType = mimeFromPath(posixRelPath);
-    return new Response(buf, {
-      status: 200,
-      headers: {
-        "Content-Type": contentType,
-        "Cache-Control": "no-store",
-        ...CORS_HEADERS,
-      },
-    });
+    return new Response(buf, { status: 200, headers: responseHeaders(posixRelPath) });
   } catch (err) {
     logger.warn(
       `SSH readBinary failed: ${workspaceId}:${posixRelPath} — ${(err as Error).message}`,
@@ -241,13 +234,12 @@ export function registerNexusWorkspaceSchemes(): void {
         secure: true,
         supportFetchAPI: false,
         // corsEnabled lets the preview iframe (opaque/"null" origin) load
-        // resources that are fetched in CORS mode — notably @font-face fonts,
-        // which the spec always requests as CORS even without `crossorigin`.
-        // Without it Chromium blocks those cross-origin loads regardless of
-        // response headers. Paired with `Access-Control-Allow-Origin: *` on
-        // served responses (see CORS_HEADERS). supportFetchAPI stays false:
-        // this enables CORS for browser-initiated subresource loads, not the
-        // JS fetch() API surface.
+        // resources that are fetched in CORS mode — @font-face fonts, which
+        // the spec always requests as CORS even without `crossorigin`, and
+        // module scripts. Without it Chromium blocks those cross-origin
+        // loads regardless of response headers. It also makes every file
+        // readable by XHR, which the read guard installed with the handler
+        // cancels. supportFetchAPI stays false: no JS fetch() surface.
         corsEnabled: true,
         bypassCSP: false,
       },
@@ -261,4 +253,15 @@ export function registerNexusWorkspaceSchemes(): void {
  */
 export function installNexusWorkspaceProtocol(workspaceManager: WorkspaceManager): void {
   electron.protocol.handle("nexus-workspace", buildNexusWorkspaceHandler(workspaceManager));
+  // The HTML preview runs workspace pages (and whatever they navigate or
+  // embed) in frames of the app's own session, where this scheme is
+  // reachable; see isScriptReadableRequest.
+  electron.session.defaultSession.webRequest.onBeforeRequest(
+    { urls: ["nexus-workspace://*/*"] },
+    (details, callback) => {
+      const cancel = isScriptReadableRequest(details.resourceType, details.url);
+      if (cancel) logger.warn(`Blocked script-readable ${details.resourceType}: ${details.url}`);
+      callback({ cancel });
+    },
+  );
 }

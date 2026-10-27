@@ -6,7 +6,8 @@
  *   • Accepts a `logSource` prop so each boundary tags its log lines with the
  *     subsystem name ("renderer", "git-panel", "search-panel", etc.).
  *   • Accepts a `fallback` prop for custom recovery UI; defaults to a minimal
- *     inline error card that shows the stack in development builds.
+ *     inline error card with a localized notice. Development builds add the
+ *     log source, error message and stack.
  *   • Scope: catches synchronous React render errors and `componentDidCatch`
  *     lifecycle errors ONLY. Window event-handler async errors and promise
  *     rejections are NOT caught here — those are handled by the unified
@@ -19,6 +20,7 @@
  *   </ErrorBoundary>
  */
 
+import i18next from "i18next";
 import { Component } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { createLogger } from "../../../shared/log/renderer";
@@ -83,7 +85,10 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     }
 
     // Default fallback — dev-friendly with stack, minimal in production.
+    // The log source (which can carry a workspace id) and the raw message are
+    // for developers; production users get the notice, and the log has both.
     const { error } = this.state;
+    const dev = import.meta.env?.DEV === true;
     return (
       <div
         role="alert"
@@ -98,9 +103,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           overflow: "auto",
         }}
       >
-        <strong>Unexpected error in {this.props.logSource}</strong>
-        {error && <span>{error.message}</span>}
-        {import.meta.env?.DEV && error?.stack && (
+        <strong>{i18next.t("errors:generic.bug")}</strong>
+        {dev && (
+          <span>
+            {this.props.logSource}: {error?.message}
+          </span>
+        )}
+        {dev && error?.stack && (
           <pre style={{ margin: 0, whiteSpace: "pre-wrap", opacity: 0.75 }}>{error.stack}</pre>
         )}
       </div>

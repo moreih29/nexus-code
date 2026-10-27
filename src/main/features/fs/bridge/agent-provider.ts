@@ -35,7 +35,11 @@ import {
   WriteFileResultSchema,
 } from "../../../../shared/fs/types";
 import type { SshErrorCode } from "../../../../shared/ssh/errors";
-import type { AgentChannel, ChannelLifecycleCallback } from "../../../infra/agent/channel";
+import type {
+  AgentCallOptions,
+  AgentChannel,
+  ChannelLifecycleCallback,
+} from "../../../infra/agent/channel";
 import type { AgentBackedProvider } from "./provider";
 
 type ChannelSource = AgentChannel | (() => AgentChannel);
@@ -62,8 +66,11 @@ export class AgentFsProvider implements AgentBackedProvider {
     private readonly options: AgentFsProviderOptions = {},
   ) {}
 
-  async readdir(relPath: string): Promise<DirEntry[]> {
-    const result = await this.callAgent("fs.readdir", { relPath });
+  async readdir(relPath: string, options?: { includeHidden?: boolean }): Promise<DirEntry[]> {
+    const result = await this.callAgent(
+      "fs.readdir",
+      options?.includeHidden ? { relPath, includeHidden: true } : { relPath },
+    );
     return parseAgentResult(DirEntryArraySchema, result);
   }
 
@@ -140,8 +147,12 @@ export class AgentFsProvider implements AgentBackedProvider {
     await this.callAgent(FS_REMOVE_ALL_METHOD, { relPath } satisfies FsRemoveAllParams);
   }
 
-  async callAgentMethod<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
-    return this.callAgent(method, params) as Promise<TResult>;
+  async callAgentMethod<TResult = unknown>(
+    method: string,
+    params?: unknown,
+    options?: AgentCallOptions,
+  ): Promise<TResult> {
+    return this.callAgent(method, params, options) as Promise<TResult>;
   }
 
   onAgentEvent(event: string, callback: (payload: unknown) => void): () => void {
@@ -163,10 +174,14 @@ export class AgentFsProvider implements AgentBackedProvider {
     this.channel = null;
   }
 
-  private async callAgent(method: string, params: unknown): Promise<unknown> {
+  private async callAgent(
+    method: string,
+    params: unknown,
+    options?: AgentCallOptions,
+  ): Promise<unknown> {
     const channel = this.getChannel();
     await channel.ready;
-    return channel.call(method, params);
+    return options ? channel.call(method, params, options) : channel.call(method, params);
   }
 
   private getChannel(): AgentChannel {
@@ -194,7 +209,7 @@ export function parseAgentResult<T>(schema: z.ZodType<T>, result: unknown): T {
 }
 
 function createProtocolError(cause: unknown): Error & { code: SshErrorCode } {
-  const error = new Error("Remote agent protocol error", { cause }) as Error & {
+  const error = new Error("Agent protocol error", { cause }) as Error & {
     code: SshErrorCode;
   };
   error.name = "SshError";

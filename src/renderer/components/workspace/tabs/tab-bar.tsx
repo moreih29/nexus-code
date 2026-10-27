@@ -162,7 +162,14 @@ export function TabBar({
                 <Plus aria-hidden width={16} height={16} strokeWidth={1.5} />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="bottom" sideOffset={4}>
+            {/* The new tab takes focus; returning it to the + button would
+                race that and leave Enter reopening this menu. */}
+            <DropdownMenuContent
+              align="start"
+              side="bottom"
+              sideOffset={4}
+              onCloseAutoFocus={(e) => e.preventDefault()}
+            >
               <DropdownMenuItem onSelect={() => onNewUntitledTab()}>
                 <FilePlus aria-hidden className="size-3.5 mr-1.5 shrink-0" />
                 <span className="flex-1">{t("tabBar.new_file")}</span>

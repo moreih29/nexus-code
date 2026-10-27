@@ -3,363 +3,382 @@
  *
  * WHAT IS TESTED
  * --------------
- * These tests verify the behavioural guarantees of the partial-failure policy
- * and the freeze-prevention contract, exercised through the same ActionMachine
- * harness used in use-ipc-action.test.ts.
+ * The real component's handleConnect: submitting the returned <form> runs the
+ * real useIpcAction → openSshBrowseSession → saveConnectionProfileResult chain
+ * against a stubbed ipcCallResult. The connect phase is read from
+ * onConnectPhaseChange, the prop the parent footer drives its button from.
  *
- * The harness faithfully reimplements the hook's try/catch/finally structure
- * without mounting a React component — this keeps the tests fast and fully
- * deterministic under bun:test.
+ * HOW IT RENDERS WITHOUT A DOM
+ * ----------------------------
+ * Following browser-view.test.tsx: a transparent `react` mock forwards hooks to
+ * React's current-dispatcher slot, and mountView() points that slot at a
+ * minimal slot-indexed dispatcher while the component body runs. The form is
+ * seeded through prefillProfile so no input events are needed.
  *
  * SCENARIOS
  * ---------
- *   1. Happy path: connect ok + save ok → success, onConnected called.
+ *   1. Happy path: connect ok + save ok → onConnected called, no toast.
  *   2. Partial failure (plan issue-8): connect ok + save fails →
  *        - onConnected is called (primary flow completes)
- *        - save-failure toast is shown (non-blocking warning)
- *        - state exits loading (no freeze)
- *   3. Connect failure → state:'error', onConnected NOT called, toast NOT shown.
- *   4. Auth cancellation → state:'idle', no surface (silent).
- *   5. Save throws unexpectedly (throws, not just returns IpcErrResult) →
- *        loading still exits (freeze structurally impossible).
- *   6. Double-submit during in-flight connect → second trigger is a no-op.
+ *        - save-failed action toast with "Retry save", which replays only the save
+ *        - phase exits connecting (no freeze)
+ *   3. Connect failure → phase 'error' with the humanized inline message,
+ *      onConnected NOT called, nothing saved.
+ *   4. Auth cancellation → phase 'idle', no inline error (silent).
+ *   5. Save rejects (throws instead of returning IpcErrResult) → phase exits connecting.
+ *   6. Double-submit during in-flight connect → a single openBrowseSession call.
  */
 
-import { describe, expect, it, mock } from "bun:test";
-import {
-  appErrorCancelled,
-  appErrorFailed,
-} from "../../../../../src/shared/error/app-error";
-import { isAppError, normaliseError, type IpcActionState } from "../../../../../src/renderer/hooks/use-ipc-action";
-import { ipcOk, ipcErr } from "../../../../../src/shared/ipc/result";
+import { beforeEach, describe, expect, it, mock } from "bun:test";
+import type { ReactElement } from "react";
+import type { ToastInput } from "../../../../../src/renderer/components/ui/toast";
+import type { SshBrowseSession } from "../../../../../src/renderer/components/workspace/add-workspace/types";
+import { ipcErr, ipcOk } from "../../../../../src/shared/ipc/result";
+import type { ConnectionProfile } from "../../../../../src/shared/types/entry-points";
 
 // ---------------------------------------------------------------------------
-// Mock save-failure toast tracking
-//
-// In the real component, showSaveFailedToast calls showToast().
-// Here we capture whether it was called and with what message,
-// so we can assert the partial-failure toast contract without a DOM.
+// React hook dispatcher harness
 // ---------------------------------------------------------------------------
 
-interface SaveFailedToastCall {
-  message: string;
-  hasRetryAction: boolean;
+interface HookDispatcher {
+  useRef(initial: unknown): { current: unknown };
+  useState(initial: unknown): [unknown, (next: unknown) => void];
+  useCallback(cb: unknown, deps?: readonly unknown[]): unknown;
+  useMemo(factory: () => unknown, deps?: readonly unknown[]): unknown;
+  useEffect(fn: () => void, deps?: readonly unknown[]): void;
+  useContext(ctx: unknown): unknown;
+  useSyncExternalStore(subscribe: unknown, getSnapshot: () => unknown): unknown;
 }
 
+const currentReact = await import("react");
+const reactInternals = (
+  currentReact as unknown as {
+    __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: { H: HookDispatcher | null };
+  }
+).__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+
+// Transparent delegating mock — overrides any leaked global react hook mock.
+// useContext / useSyncExternalStore (react-i18next) reach the slot unmocked.
+mock.module("react", () => ({
+  ...currentReact,
+  useRef: (init: unknown) => reactInternals.H?.useRef(init),
+  useState: (init: unknown) => reactInternals.H?.useState(init),
+  useCallback: (cb: unknown, deps?: readonly unknown[]) => reactInternals.H?.useCallback(cb, deps),
+  useMemo: (f: () => unknown, deps?: readonly unknown[]) => reactInternals.H?.useMemo(f, deps),
+  useEffect: (fn: () => void, deps?: readonly unknown[]) => reactInternals.H?.useEffect(fn, deps),
+}));
+
 // ---------------------------------------------------------------------------
-// Inline partial-failure action — mirrors the two-stage logic in handleConnect
-//
-// This inline implementation of the connect action is the exact logic that
-// the component passes to runConnect(). By testing it in isolation via the
-// ActionMachine harness we can verify all branches without mounting React.
+// IPC + toast stubs (real exports spread so later files keep the full surface)
 // ---------------------------------------------------------------------------
 
-function makeConnectAction(opts: {
-  connectResult: Awaited<ReturnType<typeof import("../../../../../src/shared/ipc/result")["ipcOk"]>> | Awaited<ReturnType<typeof import("../../../../../src/shared/ipc/result")["ipcErr"]>>;
-  saveResult: ReturnType<typeof ipcOk> | ReturnType<typeof ipcErr>;
-  onConnected: () => void;
-  onSaveFailedToast: (call: SaveFailedToastCall) => void;
-}): (_signal: AbortSignal) => Promise<void> {
-  return async (_signal: AbortSignal) => {
-    // Stage 1 — primary
-    const result = opts.connectResult;
+type IpcHandler = (args: unknown) => Promise<unknown>;
 
-    if (!result.ok) {
-      if (result.kind === "cancelled") {
-        throw appErrorCancelled("SSH authentication was cancelled.", { domain: "ssh" });
-      }
-      throw appErrorFailed(result.message, { domain: "ssh", code: result.kind });
-    }
+const SESSION = { sessionId: "sess-1", initialPath: "/home/ada", user: "ada" };
 
-    // Stage 2 — secondary
-    const saveResult = opts.saveResult;
+const ipcCalls: Array<{ method: string; args: unknown }> = [];
+let openBrowseSession: IpcHandler;
+let saveProfile: IpcHandler;
 
-    if (!saveResult.ok) {
-      // Signal partial failure via the toast tracker, then proceed.
-      opts.onSaveFailedToast({
-        message: "Connected. This connection couldn't be saved for next time.",
-        hasRetryAction: true,
-      });
-    }
+const realIpcClient = await import("../../../../../src/renderer/ipc/client");
+mock.module("../../../../../src/renderer/ipc/client", () => ({
+  ...realIpcClient,
+  ipcCallResult: (channel: string, method: string, args: unknown) => {
+    ipcCalls.push({ method: `${channel}.${method}`, args });
+    if (channel === "ssh" && method === "openBrowseSession") return openBrowseSession(args);
+    if (channel === "connectionProfile" && method === "save") return saveProfile(args);
+    return Promise.resolve(ipcOk(undefined));
+  },
+  ipcListen: () => () => {},
+}));
 
-    // Complete primary flow regardless of save outcome.
-    opts.onConnected();
+const toastCalls: ToastInput[] = [];
+const realToast = await import("../../../../../src/renderer/components/ui/toast");
+mock.module("../../../../../src/renderer/components/ui/toast", () => ({
+  ...realToast,
+  showToast: (input: ToastInput) => {
+    toastCalls.push(input);
+  },
+}));
+
+const { SshNewConnectionView } = await import(
+  "../../../../../src/renderer/components/workspace/add-workspace/ssh-new-connection-view"
+);
+const { ErrorNotice } = await import(
+  "../../../../../src/renderer/components/workspace/add-workspace/error-notice"
+);
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Seeds the host field with "ada@dev.example.com" so Connect is enabled. */
+const PROFILE: ConnectionProfile = {
+  id: "00000000-0000-4000-8000-000000000001",
+  label: null,
+  host: "dev.example.com",
+  user: "ada",
+  port: 22,
+  identityFile: null,
+  authMode: "interactive",
+  favorite: false,
+  lastUsedAt: 0,
+  createdAt: 0,
+};
+
+type FormElement = ReactElement<{
+  onSubmit: (event: { preventDefault(): void }) => void;
+  children: unknown[];
+}>;
+
+/**
+ * Mounts SshNewConnectionView under a minimal dispatcher. State setters store
+ * the value for the next render(); effects run after every render (deps and
+ * cleanups ignored), which is enough to report the phase via
+ * onConnectPhaseChange.
+ */
+function mountView() {
+  const refs: Array<{ current: unknown }> = [];
+  const states: unknown[] = [];
+  let effects: Array<() => void> = [];
+  let refCursor = 0;
+  let stateCursor = 0;
+  const phases: string[] = [];
+  const onConnected = mock((_session: SshBrowseSession) => {});
+
+  const dispatcher: HookDispatcher = {
+    useRef(initial) {
+      const i = refCursor++;
+      if (!(i in refs)) refs[i] = { current: initial };
+      return refs[i];
+    },
+    useState(initial) {
+      const i = stateCursor++;
+      if (!(i in states)) states[i] = typeof initial === "function" ? initial() : initial;
+      return [
+        states[i],
+        (next) => {
+          states[i] = typeof next === "function" ? next(states[i]) : next;
+        },
+      ];
+    },
+    useCallback: (cb) => cb,
+    useMemo: (factory) => factory(),
+    useEffect(fn) {
+      effects.push(fn);
+    },
+    useContext: () => undefined,
+    useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
   };
-}
 
-// ---------------------------------------------------------------------------
-// ActionMachine harness — mirrors the hook's run() internals
-// ---------------------------------------------------------------------------
-
-function makeActionMachine<T>(opts: { onSuccess?: (value: T) => void } = {}): {
-  state: { current: IpcActionState<T> };
-  trigger: (action: (signal: AbortSignal) => Promise<T>) => Promise<void>;
-  triggerNoWait: (action: (signal: AbortSignal) => Promise<T>) => void;
-  cancel: () => void;
-  unmount: () => void;
-} {
-  let mounted = true;
-  let currentController: AbortController | null = null;
-
-  const state: { current: IpcActionState<T> } = {
-    current: { status: "idle" },
-  };
-
-  const setState = (next: IpcActionState<T>): void => {
-    if (!mounted) return;
-    state.current = next;
-  };
-
-  const run = async (action: (signal: AbortSignal) => Promise<T>): Promise<void> => {
-    if (state.current.status === "loading") return;
-
-    setState({ status: "loading" });
-
-    currentController?.abort();
-    const controller = new AbortController();
-    currentController = controller;
-
+  function render(): FormElement {
+    refCursor = 0;
+    stateCursor = 0;
+    effects = [];
+    const previous = reactInternals.H;
+    reactInternals.H = dispatcher;
+    let element: FormElement;
     try {
-      const value = await action(controller.signal);
-
-      if (!mounted || currentController !== controller) return;
-
-      setState({ status: "success", value });
-      opts.onSuccess?.(value);
-    } catch (err: unknown) {
-      if (!mounted || currentController !== controller) return;
-
-      const isCancellation =
-        (err instanceof Error && err.name === "AbortError") ||
-        (isAppError(err) && err.category === "cancelled");
-
-      if (isCancellation) {
-        setState({ status: "idle" });
-      } else {
-        setState({ status: "error", error: normaliseError(err) });
-      }
+      element = SshNewConnectionView({
+        onConnected,
+        configHosts: [],
+        configHostsLoading: false,
+        onConnectPhaseChange: (phase) => phases.push(phase),
+        prefillProfile: PROFILE,
+      }) as FormElement;
     } finally {
-      if (currentController === controller) {
-        currentController = null;
-      }
+      reactInternals.H = previous;
     }
-  };
+    for (const fn of effects) fn();
+    return element;
+  }
 
   return {
-    state,
-    trigger: run,
-    triggerNoWait: (action) => {
-      void run(action);
-    },
-    cancel: () => {
-      if (!currentController) return;
-      currentController.abort();
-      currentController = null;
-      if (mounted) setState({ status: "idle" });
-    },
-    unmount: () => {
-      mounted = false;
-      currentController?.abort();
-      currentController = null;
+    render,
+    onConnected,
+    /** Submits the form from `form` (default: a fresh render). */
+    submit: (form: FormElement = render()) => form.props.onSubmit({ preventDefault: () => {} }),
+    /** Phase reported to the parent by the latest render. */
+    phase: () => phases.at(-1),
+    /** Message of the inline connection-error banner, or null when absent. */
+    inlineError: (): string | null => {
+      const notice = render().props.children.find(
+        (child) => (child as ReactElement | null)?.type === ErrorNotice,
+      ) as ReactElement<{ message: string }> | undefined;
+      return notice?.props.message ?? null;
     },
   };
 }
+
+/** Drains the connect action's awaits before inspecting the view. */
+async function settle(view: ReturnType<typeof mountView>): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  view.render();
+}
+
+function callsTo(method: string): Array<{ method: string; args: unknown }> {
+  return ipcCalls.filter((c) => c.method === method);
+}
+
+beforeEach(() => {
+  ipcCalls.length = 0;
+  toastCalls.length = 0;
+  openBrowseSession = async () => ipcOk(SESSION);
+  saveProfile = async () => ipcOk(undefined);
+});
 
 // ---------------------------------------------------------------------------
 // Scenario tests
 // ---------------------------------------------------------------------------
 
 describe("SSH connect flow — happy path: connect ok + save ok", () => {
-  it("transitions to success and calls onConnected exactly once", async () => {
-    const connectedCalls: number[] = [];
-    const toastCalls: SaveFailedToastCall[] = [];
+  it("calls onConnected once and saves the profile under the session's profile id", async () => {
+    const view = mountView();
 
-    const machine = makeActionMachine<void>();
-    const action = makeConnectAction({
-      connectResult: ipcOk({ sessionId: "sess-1", initialPath: "/home/user", user: "user" }),
-      saveResult: ipcOk(undefined),
-      onConnected: () => connectedCalls.push(1),
-      onSaveFailedToast: (c) => toastCalls.push(c),
+    view.submit();
+    await settle(view);
+
+    expect(view.onConnected).toHaveBeenCalledTimes(1);
+    const session = view.onConnected.mock.calls[0]?.[0];
+    expect(session).toMatchObject({
+      sessionId: "sess-1",
+      initialPath: "/home/ada",
+      host: "dev.example.com",
+      user: "ada",
     });
-
-    await machine.trigger(action);
-
-    expect(machine.state.current.status).toBe("success");
-    expect(connectedCalls).toHaveLength(1);
+    expect(session?.connectionProfileId).toBe(session?.profileId);
+    expect(callsTo("connectionProfile.save")).toHaveLength(1);
+    expect(callsTo("connectionProfile.save")[0]?.args).toMatchObject({
+      id: session?.profileId,
+      host: "dev.example.com",
+      user: "ada",
+      authMode: "interactive",
+    });
     expect(toastCalls).toHaveLength(0);
+    expect(view.phase()).toBe("idle");
   });
 });
 
 describe("SSH connect flow — partial failure: connect ok, save fails", () => {
-  it("calls onConnected despite save failure (primary flow completes)", async () => {
-    const connectedCalls: number[] = [];
-    const toastCalls: SaveFailedToastCall[] = [];
+  beforeEach(() => {
+    saveProfile = async () => ipcErr("not-found", "Profile store unavailable");
+  });
 
-    const machine = makeActionMachine<void>();
-    const action = makeConnectAction({
-      connectResult: ipcOk({ sessionId: "sess-2", initialPath: "/home/user", user: "user" }),
-      saveResult: ipcErr("not-found", "Profile store unavailable"),
-      onConnected: () => connectedCalls.push(1),
-      onSaveFailedToast: (c) => toastCalls.push(c),
-    });
+  it("calls onConnected despite save failure and exits the connecting phase", async () => {
+    const view = mountView();
 
-    await machine.trigger(action);
+    view.submit();
+    await settle(view);
 
     // Primary flow must complete even though save failed.
-    expect(connectedCalls).toHaveLength(1);
+    expect(view.onConnected).toHaveBeenCalledTimes(1);
+    expect(view.phase()).toBe("idle");
+    expect(view.inlineError()).toBeNull();
   });
 
-  it("shows a save-failed toast with the correct message and retry action", async () => {
-    const toastCalls: SaveFailedToastCall[] = [];
+  it("shows a save-failed action toast with a Retry save action", async () => {
+    const view = mountView();
 
-    const machine = makeActionMachine<void>();
-    const action = makeConnectAction({
-      connectResult: ipcOk({ sessionId: "sess-3", initialPath: "/home/user", user: "user" }),
-      saveResult: ipcErr("not-found", "Profile store unavailable"),
-      onConnected: () => {},
-      onSaveFailedToast: (c) => toastCalls.push(c),
-    });
-
-    await machine.trigger(action);
+    view.submit();
+    await settle(view);
 
     expect(toastCalls).toHaveLength(1);
-    expect(toastCalls[0]?.message).toBe(
-      "Connected. This connection couldn't be saved for next time.",
-    );
-    expect(toastCalls[0]?.hasRetryAction).toBe(true);
+    expect(toastCalls[0]).toMatchObject({
+      kind: "error",
+      message: "Connected. This connection couldn’t be saved for next time.",
+    });
+    expect(toastCalls[0]?.actions?.map((a) => a.label)).toEqual(["Retry save"]);
   });
 
-  it("state exits loading — 'Connecting…' freeze is structurally impossible", async () => {
-    const machine = makeActionMachine<void>();
-    const action = makeConnectAction({
-      connectResult: ipcOk({ sessionId: "sess-4", initialPath: "/home/user", user: "user" }),
-      saveResult: ipcErr("not-found", "Profile store unavailable"),
-      onConnected: () => {},
-      onSaveFailedToast: () => {},
-    });
+  it("Retry save replays only the save and re-offers the toast when it fails again", async () => {
+    const view = mountView();
 
-    await machine.trigger(action);
+    view.submit();
+    await settle(view);
+    toastCalls[0]?.actions?.[0]?.onAction();
+    await settle(view);
 
-    // Must NOT be 'loading' after the action settles, regardless of save outcome.
-    expect(machine.state.current.status).not.toBe("loading");
+    const saves = callsTo("connectionProfile.save");
+    expect(callsTo("ssh.openBrowseSession")).toHaveLength(1);
+    expect(saves).toHaveLength(2);
+    expect(saves[1]?.args).toEqual(saves[0]?.args);
+    expect(toastCalls).toHaveLength(2);
   });
 });
 
 describe("SSH connect flow — connection failure", () => {
-  it("transitions to error and does NOT call onConnected or show save-failed toast", async () => {
-    const connectedCalls: number[] = [];
-    const toastCalls: SaveFailedToastCall[] = [];
+  it("reports the error phase with the humanized message and skips the save", async () => {
+    openBrowseSession = async () =>
+      ipcErr("auth-failed", "SSH authentication failed", { code: "ssh.auth-failed" });
+    const view = mountView();
 
-    const machine = makeActionMachine<void>();
-    const action = makeConnectAction({
-      connectResult: ipcErr("auth-failed", "Authentication rejected"),
-      saveResult: ipcOk(undefined), // irrelevant — stage 2 never reached
-      onConnected: () => connectedCalls.push(1),
-      onSaveFailedToast: (c) => toastCalls.push(c),
-    });
+    view.submit();
+    await settle(view);
 
-    await machine.trigger(action);
-
-    expect(machine.state.current.status).toBe("error");
-    if (machine.state.current.status === "error") {
-      expect(machine.state.current.error.category).toBe("failed");
-    }
-    expect(connectedCalls).toHaveLength(0);
+    expect(view.phase()).toBe("error");
+    expect(view.inlineError()).toBe(
+      "Authentication failed. Verify your credentials or identity file and try again.",
+    );
+    expect(view.onConnected).not.toHaveBeenCalled();
+    expect(callsTo("connectionProfile.save")).toHaveLength(0);
     expect(toastCalls).toHaveLength(0);
-  });
-
-  it("state exits loading after connect failure — no freeze", async () => {
-    const machine = makeActionMachine<void>();
-    const action = makeConnectAction({
-      connectResult: ipcErr("auth-failed", "Authentication rejected"),
-      saveResult: ipcOk(undefined),
-      onConnected: () => {},
-      onSaveFailedToast: () => {},
-    });
-
-    await machine.trigger(action);
-
-    expect(machine.state.current.status).not.toBe("loading");
   });
 });
 
 describe("SSH connect flow — auth cancellation", () => {
-  it("returns to idle silently — no surface, no onConnected, no toast", async () => {
-    const connectedCalls: number[] = [];
-    const toastCalls: SaveFailedToastCall[] = [];
+  it("returns to idle silently — no inline error, no onConnected, no toast", async () => {
+    openBrowseSession = async () => ipcErr("cancelled", "User dismissed the auth prompt");
+    const view = mountView();
 
-    const machine = makeActionMachine<void>();
-    const action = makeConnectAction({
-      connectResult: ipcErr("cancelled", "User dismissed the auth prompt"),
-      saveResult: ipcOk(undefined),
-      onConnected: () => connectedCalls.push(1),
-      onSaveFailedToast: (c) => toastCalls.push(c),
-    });
+    view.submit();
+    await settle(view);
 
-    await machine.trigger(action);
-
-    // Cancelled → the hook maps to idle, no error UI.
-    expect(machine.state.current.status).toBe("idle");
-    expect(connectedCalls).toHaveLength(0);
+    expect(view.phase()).toBe("idle");
+    expect(view.inlineError()).toBeNull();
+    expect(view.onConnected).not.toHaveBeenCalled();
+    expect(callsTo("connectionProfile.save")).toHaveLength(0);
     expect(toastCalls).toHaveLength(0);
   });
 });
 
 describe("SSH connect flow — stage-2 unexpected throw (freeze prevention)", () => {
-  it("state exits loading when save throws unexpectedly, not just IpcErrResult", async () => {
-    // This scenario guards against a hypothetical bug in saveConnectionProfileResult
-    // that throws instead of returning IpcErrResult — the hook must still clear loading.
-    const machine = makeActionMachine<void>();
-
-    await machine.trigger(async (_signal) => {
-      // Simulate: connect succeeds
-      const connectResult = ipcOk({ sessionId: "s", initialPath: "/", user: "u" });
-      if (!connectResult.ok) throw new Error("not reached");
-
-      // Simulate: save throws unexpectedly (not an IpcErrResult)
+  it("exits the connecting phase when the save rejects instead of returning IpcErrResult", async () => {
+    saveProfile = async () => {
       throw new Error("save crashed unexpectedly");
-    });
+    };
+    const view = mountView();
 
-    // State MUST NOT be 'loading' — the finally block guarantees this.
-    expect(machine.state.current.status).not.toBe("loading");
-    // Because the throw was not a cancellation, state is 'error'.
-    expect(machine.state.current.status).toBe("error");
+    view.submit();
+    await settle(view);
+
+    // Not a cancellation, so the hook settles on error rather than staying loading.
+    expect(view.phase()).toBe("error");
   });
 });
 
 describe("SSH connect flow — double-submit during in-flight connect", () => {
-  it("second trigger while connecting is a no-op", async () => {
-    const machine = makeActionMachine<void>();
-
-    let resolveConnect!: () => void;
-    const slowConnect = (): Promise<void> =>
-      new Promise<void>((resolve) => {
-        resolveConnect = resolve;
+  it("opens a single browse session for repeated submits while connecting", async () => {
+    let resolveOpen!: (result: unknown) => void;
+    openBrowseSession = () =>
+      new Promise((resolve) => {
+        resolveOpen = resolve;
       });
+    const view = mountView();
 
-    // Start first action (in-flight, not awaited yet).
-    machine.triggerNoWait(async () => {
-      await slowConnect();
-    });
+    // Double click before React re-renders, then once more from the re-rendered form.
+    const form = view.render();
+    view.submit(form);
+    view.submit(form);
+    view.render();
+    expect(view.phase()).toBe("connecting");
+    view.submit();
 
-    expect(machine.state.current.status).toBe("loading");
+    expect(callsTo("ssh.openBrowseSession")).toHaveLength(1);
 
-    // Second trigger while first is in-flight — must be a no-op.
-    let secondRan = false;
-    machine.triggerNoWait(async () => {
-      secondRan = true;
-    });
+    resolveOpen(ipcOk(SESSION));
+    await settle(view);
 
-    await Promise.resolve();
-
-    expect(secondRan).toBe(false);
-    expect(machine.state.current.status).toBe("loading");
-
-    // Resolve first action.
-    resolveConnect();
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(machine.state.current.status).toBe("success");
+    expect(view.onConnected).toHaveBeenCalledTimes(1);
+    expect(view.phase()).toBe("idle");
   });
 });

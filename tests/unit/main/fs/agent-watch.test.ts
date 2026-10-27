@@ -3,7 +3,7 @@ import { AgentFsWatcher } from "../../../../src/main/features/fs/bridge/agent-wa
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174020";
 
-function makeFixture() {
+function makeProvider() {
   const listeners = new Map<string, Set<(payload: unknown) => void>>();
   const lifecycleListeners = new Set<(event: { type: string }) => void>();
   const provider = {
@@ -26,14 +26,51 @@ function makeFixture() {
   const emitLifecycle = (event: { type: string }) => {
     for (const callback of Array.from(lifecycleListeners)) callback(event);
   };
+  const emitChanged = (payload: unknown) => {
+    for (const callback of Array.from(listeners.get("fs.changed") ?? [])) callback(payload);
+  };
+  return { provider, listeners, emitLifecycle, emitChanged };
+}
+
+function makeFixture() {
+  const first = makeProvider();
+  let current = first.provider;
+  const providerReadyListeners = new Set<(workspaceId: string, provider: unknown) => void>();
   const manager = {
-    getFs: mock(async (_workspaceId: string) => provider),
+    getFs: mock(async (_workspaceId: string) => current),
+    onProviderReady: (listener: (workspaceId: string, provider: unknown) => void) => {
+      providerReadyListeners.add(listener);
+      return () => providerReadyListeners.delete(listener);
+    },
+  };
+  /** Simulates the manager booting a replacement agent after the channel died. */
+  const reboot = () => {
+    const next = makeProvider();
+    current = next.provider;
+    for (const listener of Array.from(providerReadyListeners))
+      listener(WORKSPACE_ID, next.provider);
+    return next;
+  };
+  /** Installs a replacement provider without announcing it. */
+  const swapSilently = () => {
+    const next = makeProvider();
+    current = next.provider;
+    return next;
   };
   const broadcasts: Array<{ channel: string; event: string; args: unknown }> = [];
   const watcher = new AgentFsWatcher(manager as never, (channel, event, args) => {
     broadcasts.push({ channel, event, args });
   });
-  return { watcher, provider, listeners, broadcasts, emitLifecycle };
+  return {
+    watcher,
+    provider: first.provider,
+    listeners: first.listeners,
+    broadcasts,
+    emitLifecycle: first.emitLifecycle,
+    emitChanged: first.emitChanged,
+    reboot,
+    swapSilently,
+  };
 }
 
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -116,5 +153,69 @@ describe("AgentFsWatcher", () => {
     await settle();
 
     expect(provider.callAgentMethod.mock.calls).toEqual([["fs.watch", { relPath: "src" }]]);
+  });
+
+  // Regression: after a terminal channel failure the manager boots a new
+  // agent behind a new provider. The subscription stayed on the dead one, so
+  // no fs.changed reached the renderer and the new agent had no watches.
+  it("moves watches to a rebooted agent when the manager reports a new provider", async () => {
+    const fixture = makeFixture();
+    await fixture.watcher.watch(WORKSPACE_ID, "");
+    await fixture.watcher.watch(WORKSPACE_ID, "src");
+    fixture.broadcasts.length = 0;
+
+    const next = fixture.reboot();
+    await settle();
+
+    expect(next.provider.callAgentMethod.mock.calls).toEqual([
+      ["fs.watch", { relPath: "" }],
+      ["fs.watch", { relPath: "src" }],
+    ]);
+    expect(fixture.broadcasts).toEqual([
+      {
+        channel: "fs",
+        event: "changed",
+        args: {
+          workspaceId: WORKSPACE_ID,
+          changes: [
+            { relPath: "", kind: "added" },
+            { relPath: "src", kind: "added" },
+          ],
+        },
+      },
+    ]);
+
+    fixture.broadcasts.length = 0;
+    fixture.emitChanged({ changes: [{ relPath: "src/old.ts", kind: "modified" }] });
+    next.emitChanged({ changes: [{ relPath: "src/new.ts", kind: "modified" }] });
+    expect(fixture.broadcasts).toEqual([
+      {
+        channel: "fs",
+        event: "changed",
+        args: { workspaceId: WORKSPACE_ID, changes: [{ relPath: "src/new.ts", kind: "modified" }] },
+      },
+    ]);
+  });
+
+  it("moves watches over when a watch call is the first to see the new provider", async () => {
+    const fixture = makeFixture();
+    await fixture.watcher.watch(WORKSPACE_ID, "src");
+
+    const next = fixture.swapSilently();
+    await fixture.watcher.watch(WORKSPACE_ID, "docs");
+
+    expect(next.provider.callAgentMethod.mock.calls).toEqual([
+      ["fs.watch", { relPath: "src" }],
+      ["fs.watch", { relPath: "docs" }],
+    ]);
+  });
+
+  it("ignores a provider boot for a workspace it is not watching", async () => {
+    const fixture = makeFixture();
+    const next = fixture.reboot();
+    await settle();
+
+    expect(next.provider.callAgentMethod).not.toHaveBeenCalled();
+    expect(fixture.broadcasts).toEqual([]);
   });
 });
