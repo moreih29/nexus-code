@@ -1,107 +1,108 @@
 /**
- * Integration test: registry.destroy() → promptManager.disposeByWebContents
+ * BrowserTabRegistry.destroy() → promptManager.disposeByWebContents wiring.
  *
- * CONSTRAINT
- * ----------
- * BrowserTabRegistry imports `WebContentsView` from electron as a value (not
- * just a type), which makes `mock.module("electron", ...)` mandatory.  In the
- * full bun test suite, multiple files mock electron differently
- * (browser-closer.test.ts uses `{ app: { isPackaged: false } }` only), and
- * Bun's process-global mock registry means the first mock to be registered
- * wins — any later `mock.module("electron", ...)` for the same specifier is
- * silently ignored.  Importing BrowserTabRegistry in a file whose mock arrives
- * after another file's partial mock therefore throws:
- *   "Export named 'WebContentsView' not found in module '.../electron/index.js'"
- *
- * APPROACH
- * --------
- * Following the browser-closer.test.ts pattern: do NOT import BrowserTabRegistry
- * directly.  Instead, replicate the destroy() logic in a controlled "fake
- * registry" that embeds exactly the same disposeByWebContents wiring as the
- * real implementation (registry.ts lines 250-255).  The fake is kept
- * intentionally minimal so it cannot diverge silently — anyone reading it can
- * compare directly with the two-guard block in registry.ts:
- *
- *   if (this.permissionDeps) {
- *     const promptManager = this.permissionDeps.promptManager;
- *     if (!entry.view.webContents.isDestroyed()) {
- *       promptManager.disposeByWebContents(entry.view.webContents.id);
- *     }
- *   }
- *
- * This test validates the *connection contract* (call wiring, guard conditions)
- * rather than the full Electron lifecycle.  The electron-safe integration path
- * is exercised by the E2E / smoke suite.
+ * Drives the real BrowserTabRegistry. Only electron's WebContentsView is
+ * replaced, by a fake exposing the slice of WebContents that create() and
+ * destroy() touch, so tabs are opened through the real create() path.
  */
 
-import { describe, expect, mock, test, beforeEach } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+import type { BrowserWindow } from "electron";
+import type { BrowserPermissionPromptManager } from "../../../../../src/main/features/browser/permission-prompt-manager";
 
 // ---------------------------------------------------------------------------
-// Minimal fake that mirrors the destroy() disposeByWebContents wiring
-// from registry.ts, without importing electron.
+// Electron mock — must come before importing registry.ts
 // ---------------------------------------------------------------------------
 
-interface FakeWebContents {
-  id: number;
-  isDestroyed(): boolean;
-}
+let nextWebContentsId = 1;
 
-interface FakeView {
-  webContents: FakeWebContents;
-}
+class FakeWebContents {
+  readonly id = nextWebContentsId++;
+  readonly session = {
+    setPermissionRequestHandler: () => {},
+    setPermissionCheckHandler: () => {},
+    webRequest: { onBeforeRequest: () => {} },
+  };
+  destroyed = false;
+  closed = false;
 
-interface FakeTabEntry {
-  view: FakeView;
-  devtoolsView: null;
-  devtoolsOpen: boolean;
-}
-
-interface FakePromptManager {
-  disposeByWebContents(id: number): void;
-}
-
-interface FakePermissionDeps {
-  promptManager: FakePromptManager;
-}
-
-/**
- * Minimal registry that mirrors only the destroy() disposeByWebContents
- * block from BrowserTabRegistry (registry.ts:250-255).
- *
- * The full Electron lifecycle (contentView.removeChildView, webContents.close)
- * is omitted — this test focuses exclusively on the promptManager connection.
- */
-class FakeRegistry {
-  private readonly tabs = new Map<string, FakeTabEntry>();
-  private readonly permissionDeps: FakePermissionDeps | undefined;
-
-  constructor(deps?: FakePermissionDeps) {
-    this.permissionDeps = deps;
+  on(): this {
+    return this;
   }
-
-  addEntry(tabId: string, entry: FakeTabEntry): void {
-    this.tabs.set(tabId, entry);
+  once(): this {
+    return this;
   }
-
-  /** Mirrors registry.ts lines 250-255 (the disposeByWebContents block). */
-  destroy(args: { tabId: string }): void {
-    const { tabId } = args;
-    const entry = this.tabs.get(tabId);
-    if (!entry) return;
-
-    if (this.permissionDeps) {
-      const promptManager = this.permissionDeps.promptManager;
-      if (!entry.view.webContents.isDestroyed()) {
-        promptManager.disposeByWebContents(entry.view.webContents.id);
-      }
-    }
-
-    this.tabs.delete(tabId);
+  setWindowOpenHandler(): void {}
+  setBackgroundThrottling(): void {}
+  // Still loading, so the scrollbar CSS waits for did-finish-load.
+  isLoading(): boolean {
+    return true;
   }
-
-  has(tabId: string): boolean {
-    return this.tabs.has(tabId);
+  isDestroyed(): boolean {
+    return this.destroyed;
   }
+  loadURL(): Promise<void> {
+    return Promise.resolve();
+  }
+  close(): void {
+    this.closed = true;
+    this.destroyed = true;
+  }
+}
+
+class FakeWebContentsView {
+  readonly webContents = new FakeWebContents();
+}
+
+const realElectron = await import("electron");
+mock.module("electron", () => ({
+  ...realElectron,
+  WebContentsView: FakeWebContentsView,
+}));
+
+const { BrowserTabRegistry } = await import("../../../../../src/main/features/browser/registry");
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const WORKSPACE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+function makeRegistry(opts: { permissionDeps: boolean }) {
+  const disposeByWebContents = mock((_id: number) => {});
+  const removedViews: unknown[] = [];
+  const win = {
+    contentView: {
+      addChildView: () => {},
+      removeChildView: (view: unknown) => {
+        removedViews.push(view);
+      },
+    },
+  } as unknown as BrowserWindow;
+  const registry = new BrowserTabRegistry(
+    win,
+    opts.permissionDeps
+      ? {
+          getGlobalGrant: () => false,
+          getRemembered: () => null,
+          promptManager: { disposeByWebContents } as unknown as BrowserPermissionPromptManager,
+        }
+      : undefined,
+  );
+  return { registry, disposeByWebContents, removedViews };
+}
+
+function openTab(
+  registry: InstanceType<typeof BrowserTabRegistry>,
+  tabId: string,
+): FakeWebContentsView {
+  registry.create({
+    tabId,
+    workspaceId: WORKSPACE_ID,
+    url: "https://example.com",
+    partition: `persist:browser-${WORKSPACE_ID}`,
+  });
+  return registry.get(tabId)!.view as unknown as FakeWebContentsView;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,83 +110,50 @@ class FakeRegistry {
 // ---------------------------------------------------------------------------
 
 describe("registry.destroy() → promptManager.disposeByWebContents wiring", () => {
-  let disposeByWebContents: ReturnType<typeof mock<(id: number) => void>>;
-
-  beforeEach(() => {
-    disposeByWebContents = mock((_id: number) => {});
-  });
-
-  test("calls disposeByWebContents with the webContents id when not destroyed", () => {
-    const WEB_CONTENTS_ID = 42;
-    const deps: FakePermissionDeps = {
-      promptManager: { disposeByWebContents },
-    };
-    const registry = new FakeRegistry(deps);
-    registry.addEntry("tab-1", {
-      view: { webContents: { id: WEB_CONTENTS_ID, isDestroyed: () => false } },
-      devtoolsView: null,
-      devtoolsOpen: false,
-    });
+  test("disposes the tab's pending prompts by webContents id", () => {
+    const { registry, disposeByWebContents } = makeRegistry({ permissionDeps: true });
+    const view = openTab(registry, "tab-1");
 
     registry.destroy({ tabId: "tab-1" });
 
     expect(disposeByWebContents).toHaveBeenCalledTimes(1);
-    expect(disposeByWebContents).toHaveBeenCalledWith(WEB_CONTENTS_ID);
+    expect(disposeByWebContents).toHaveBeenCalledWith(view.webContents.id);
   });
 
-  test("does NOT call disposeByWebContents when webContents.isDestroyed() is true", () => {
-    const deps: FakePermissionDeps = {
-      promptManager: { disposeByWebContents },
-    };
-    const registry = new FakeRegistry(deps);
-    registry.addEntry("tab-dead", {
-      view: { webContents: { id: 99, isDestroyed: () => true } },
-      devtoolsView: null,
-      devtoolsOpen: false,
-    });
+  test("does NOT dispose when the webContents is already destroyed", () => {
+    const { registry, disposeByWebContents } = makeRegistry({ permissionDeps: true });
+    const view = openTab(registry, "tab-dead");
+    view.webContents.destroyed = true;
 
     registry.destroy({ tabId: "tab-dead" });
 
     expect(disposeByWebContents).not.toHaveBeenCalled();
   });
 
-  test("does NOT call disposeByWebContents when no permissionDeps are provided", () => {
-    // Registry created without deps — legacy path.
-    const registry = new FakeRegistry(/* no deps */);
-    registry.addEntry("tab-legacy", {
-      view: { webContents: { id: 7, isDestroyed: () => false } },
-      devtoolsView: null,
-      devtoolsOpen: false,
-    });
+  test("releases the tab when the registry has no permission deps", () => {
+    const { registry } = makeRegistry({ permissionDeps: false });
+    const view = openTab(registry, "tab-legacy");
 
-    registry.destroy({ tabId: "tab-legacy" });
-
-    expect(disposeByWebContents).not.toHaveBeenCalled();
+    expect(() => registry.destroy({ tabId: "tab-legacy" })).not.toThrow();
+    expect(view.webContents.closed).toBe(true);
+    expect(registry.get("tab-legacy")).toBeUndefined();
   });
 
-  test("tab is removed from registry after destroy", () => {
-    const deps: FakePermissionDeps = {
-      promptManager: { disposeByWebContents },
-    };
-    const registry = new FakeRegistry(deps);
-    registry.addEntry("tab-cleanup", {
-      view: { webContents: { id: 10, isDestroyed: () => false } },
-      devtoolsView: null,
-      devtoolsOpen: false,
-    });
+  test("detaches the view, closes its webContents and drops the entry", () => {
+    const { registry, removedViews } = makeRegistry({ permissionDeps: true });
+    const view = openTab(registry, "tab-cleanup");
 
     registry.destroy({ tabId: "tab-cleanup" });
 
-    expect(registry.has("tab-cleanup")).toBe(false);
+    expect(removedViews).toContain(view);
+    expect(view.webContents.closed).toBe(true);
+    expect(registry.get("tab-cleanup")).toBeUndefined();
+    expect(registry.listByWorkspace(WORKSPACE_ID)).toEqual([]);
   });
 
   test("destroy is a no-op for unknown tabId", () => {
-    const deps: FakePermissionDeps = {
-      promptManager: { disposeByWebContents },
-    };
-    const registry = new FakeRegistry(deps);
+    const { registry, disposeByWebContents } = makeRegistry({ permissionDeps: true });
 
-    // Should not throw and should not call disposeByWebContents.
     expect(() => registry.destroy({ tabId: "nonexistent" })).not.toThrow();
     expect(disposeByWebContents).not.toHaveBeenCalled();
   });

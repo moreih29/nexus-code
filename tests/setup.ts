@@ -302,8 +302,8 @@ mock.module(FILE_ICON_MODULE_PATH, () => {
 // Registering a complete, no-op stub here in the preload ensures that:
 //   1. Every test file starts from a consistent baseline.
 //   2. Files that need spy mocks (pty-channel, ipc-shim-integration, …) can
-//      override individual exports via their own mock.module — bun honours the
-//      last registration that arrives before the first require() of the module.
+//      override individual exports via their own mock.module — bun replaces
+//      the values of the exports named here (see the eager import below).
 //   3. Files that only need webContents.getAllWebContents (lsp-channel, …)
 //      do not need their own mock.module at all.
 //
@@ -392,9 +392,24 @@ mock.module("electron", () => ({
     }),
   },
 
-  // WebContentsView — used by features/browser/evaluate-permission, security
+  // WebContentsView — used by features/browser/evaluate-permission, security,
+  //                   registry-destroy-dispose, workspace/browser-closer
   WebContentsView: class WebContentsView {},
+
+  // session — used by workspace/browser-closer
+  session: {
+    fromPartition: (_partition: string) => ({
+      clearStorageData: async (): Promise<void> => {},
+    }),
+  },
 }));
+
+// Load electron now so its export names are fixed by the stub above. Bun fixes
+// a mocked module's export names when it first loads; a later mock.module can
+// replace their values but not add names. Without this, the first test file to
+// load electron (with its own narrower mock) would leave later files without
+// e.g. `dialog` or `WebContentsView`.
+await import("electron");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
