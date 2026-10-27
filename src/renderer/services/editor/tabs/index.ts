@@ -10,6 +10,12 @@ export type {
   ResourceUriLike,
 } from "./cross-file-opener";
 export { createCrossFileOpenCodeEditorOpener } from "./cross-file-opener";
+export {
+  diffWorkingFilePath,
+  isDiffWorkingFileDirty,
+  useDiffWorkingFile,
+  workingFileOfDiff,
+} from "./diff-working-file";
 export { openOrRevealEditor, PREVIEW_ENABLED } from "./open-editor";
 export { openExternalEditor } from "./open-external-editor";
 export { type PendingEditorReveal, registerRevealTarget } from "./pending-reveal";

@@ -22,6 +22,7 @@ import { useDragSource } from "@/components/ui/use-drag-source";
 import { DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
 import { cacheUriFor } from "@/services/editor/model/cache";
 import { isDirty, subscribeFileDirty } from "@/services/editor/model/dirty-tracker";
+import { useDiffWorkingFile } from "@/services/editor/tabs";
 import { requestTabFocus } from "@/services/tab-focus";
 import { cn } from "@/utils/cn";
 import { isImeComposing } from "@/utils/ime";
@@ -113,13 +114,17 @@ function PinIcon() {
 }
 
 /**
- * Subscribe to dirty state for an editor tab. Returns false for
- * non-editor tabs and for tabs whose model has not yet been attached
- * (the tracker creates entries lazily on model load).
+ * Subscribe to dirty state for an editor tab, or for the working-tree file a
+ * diff tab edits. Returns false for other tabs and for tabs whose model has
+ * not yet been attached (the tracker creates entries lazily on model load).
  */
 function useTabDirty(tab: Tab): boolean {
+  const diffWorkingFile = useDiffWorkingFile(tab.type === "editor.diff" ? tab.props : null);
+  const filePath = tab.type === "editor" ? tab.props.filePath : diffWorkingFile;
   const cacheUri =
-    tab.type === "editor" ? cacheUriFor(tab.props.workspaceId, tab.props.filePath) : null;
+    filePath !== null && (tab.type === "editor" || tab.type === "editor.diff")
+      ? cacheUriFor(tab.props.workspaceId, filePath)
+      : null;
   const subscribe = useCallback(
     (cb: () => void) => (cacheUri ? subscribeFileDirty(cacheUri, cb) : () => {}),
     [cacheUri],

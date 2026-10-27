@@ -192,7 +192,7 @@ export function ContentHost({
           origin="untitled"
         />
       ) : tab.type === "editor.diff" ? (
-        <DiffTab {...tab.props} />
+        <DiffTab tabId={tab.id} {...tab.props} />
       ) : tab.type === "git.commit" ? (
         <CommitTab workspaceId={workspaceId} sha={tab.props.sha} tabId={tab.id} />
       ) : tab.type === "browser" ? (

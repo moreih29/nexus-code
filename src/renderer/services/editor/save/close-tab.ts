@@ -9,13 +9,18 @@
 //   terminal    → closeTerminalWithConfirm (asks while a program runs)
 //   editor      → closeEditorWithConfirm (dirty-aware)
 //   untitled    → closeUntitledWithConfirm (dirty-aware, new)
-//   editor.diff / git.commit / browser → closeTab (raw state op, no dirty)
+//   editor.diff → closeDiffWithConfirm (dirty-aware for the working-tree file it edits)
+//   git.commit / browser → closeTab (raw state op, no dirty)
 
 import { closeTerminalWithConfirm } from "@/services/terminal";
 import { closeTab } from "@/state/operations/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
 import type { CloseTabOutcome } from "./close-handler";
-import { closeEditorWithConfirm, closeUntitledWithConfirm } from "./close-handler";
+import {
+  closeDiffWithConfirm,
+  closeEditorWithConfirm,
+  closeUntitledWithConfirm,
+} from "./close-handler";
 
 /**
  * Close any tab by id through the appropriate dirty-aware path.
@@ -42,8 +47,12 @@ export async function closeTabWithConfirm(
     return closeUntitledWithConfirm(workspaceId, tabId);
   }
 
-  // editor.diff, git.commit, browser — no dirty state.
-  if (tab.type === "editor.diff" || tab.type === "git.commit" || tab.type === "browser") {
+  if (tab.type === "editor.diff") {
+    return closeDiffWithConfirm(workspaceId, tabId);
+  }
+
+  // git.commit, browser — no dirty state.
+  if (tab.type === "git.commit" || tab.type === "browser") {
     closeTab(workspaceId, tabId);
   }
 

@@ -12,6 +12,7 @@ import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { openOrRevealEditor, runSaveAndReport } from "../../services/editor";
 import { saveUntitledModel } from "../../services/editor/save/save-untitled-handler";
+import { workingFileOfDiff } from "../../services/editor/tabs";
 import { openExternalEditor } from "../../services/editor/tabs/open-external-editor";
 import { handleCopy, handleCut, handlePaste } from "../../services/file-clipboard";
 import { confirmAndDeleteBatch } from "../../services/fs-mutations";
@@ -193,8 +194,15 @@ export function registerFileCommands(): Array<() => void> {
         });
         return;
       }
-      if (tab.type !== "editor") return;
-      runSaveAndReport({ workspaceId: ctx.wsId, filePath: tab.props.filePath });
+      // A diff against the working tree saves the file it edits.
+      const filePath =
+        tab.type === "editor"
+          ? tab.props.filePath
+          : tab.type === "editor.diff"
+            ? workingFileOfDiff(tab.props)
+            : null;
+      if (filePath === null) return;
+      runSaveAndReport({ workspaceId: ctx.wsId, filePath });
     }),
 
     // File clipboard — copy/cut/paste scoped to file-tree focus.

@@ -13,6 +13,7 @@ const promotePolicyMod = await import(
   "../../../../../src/renderer/services/editor/tabs/promote-policy"
 );
 const tabsStoreMod = await import("../../../../../src/renderer/state/stores/tabs");
+const workspacesStoreMod = await import("../../../../../src/renderer/state/stores/workspaces");
 
 const WS = "11111111-1111-4111-1111-111111111111";
 
@@ -210,5 +211,30 @@ describe("promoteAllPreviewTabsForFile (explicit-save helper)", () => {
     // Calling again is fine — no error, no state change.
     promotePolicyMod.promoteAllPreviewTabsForFile("/repo/a.ts");
     expect(tabsStoreMod.useTabsStore.getState().byWorkspace[WS][t.id].isPreview).toBe(false);
+  });
+
+  it("promotes a preview diff tab that edits the working-tree file", () => {
+    workspacesStoreMod.useWorkspacesStore.setState({
+      workspaces: [{ id: WS, rootPath: "/repo" } as never],
+    });
+    const diff = (rightRef: string) =>
+      tabsStoreMod.useTabsStore.getState().createTab(
+        WS,
+        {
+          type: "editor.diff",
+          props: { workspaceId: WS, relPath: "a.ts", leftRef: "INDEX", rightRef },
+        },
+        true,
+      );
+    const working = diff("WORKING");
+    const staged = diff("INDEX");
+
+    promotePolicyMod.promoteAllPreviewTabsForFile("/repo/a.ts");
+
+    const tabs = tabsStoreMod.useTabsStore.getState().byWorkspace[WS];
+    expect(tabs[working.id].isPreview).toBe(false);
+    // A staged diff shows the index, not the file being edited.
+    expect(tabs[staged.id].isPreview).toBe(true);
+    workspacesStoreMod.useWorkspacesStore.setState({ workspaces: [] });
   });
 });
