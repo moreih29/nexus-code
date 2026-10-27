@@ -310,6 +310,8 @@
     "open_split": "⌘↵ 분할창에서 파일 열기"
   },
   "terminal": {
+    "default_title": "터미널",
+    "numbered_title": "터미널 {{index}}",
     "ended": "터미널이 종료되었습니다.",
     "reopen_failed": "다시 열기에 실패했습니다.",
     "reopen": "다시 열기",

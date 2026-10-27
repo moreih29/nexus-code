@@ -1,3 +1,4 @@
+import i18next from "i18next";
 import { create } from "zustand";
 import type { EditorInput } from "@/services/editor/types";
 import { killSession } from "@/services/terminal/pty-client";
@@ -212,7 +213,7 @@ function deadTerminalIdsForWorkspace(workspaceId: string): Set<string> {
  * provide an explicit rename after creation.
  */
 export function defaultTitle(args: CreateTabArgs): string {
-  if (args.type === "terminal") return "Terminal";
+  if (args.type === "terminal") return terminalTitle(1);
   if (args.type === "editor.diff") {
     if (args.props.oldRelPath) return `${args.props.oldRelPath} → ${args.props.relPath}`;
     return basename(args.props.relPath) || "Diff";
@@ -228,6 +229,28 @@ export function defaultTitle(args: CreateTabArgs): string {
     }
   }
   return basename(args.props.filePath) || "Editor";
+}
+
+/** "Terminal" for the first terminal, "Terminal 2", "Terminal 3", … after. */
+function terminalTitle(index: number): string {
+  return index === 1
+    ? i18next.t("common:terminal.default_title")
+    : i18next.t("common:terminal.numbered_title", { index });
+}
+
+/**
+ * Picks the lowest-numbered terminal title no terminal tab in the workspace
+ * is using, so several terminals can be told apart in the tab bar.
+ */
+function nextTerminalTitle(tabs: Record<string, Tab> | undefined): string {
+  const used = new Set<string>();
+  for (const tab of Object.values(tabs ?? {})) {
+    if (tab.type === "terminal") used.add(tab.defaultTitle);
+  }
+  for (let index = 1; ; index++) {
+    const title = terminalTitle(index);
+    if (!used.has(title)) return title;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -246,7 +269,10 @@ export const useTabsStore = create<TabsState>((set, get) => {
     byWorkspace: {},
 
     createTab(workspaceId, args, isPreview = false) {
-      const dt = defaultTitle(args);
+      const dt =
+        args.type === "terminal"
+          ? nextTerminalTitle(get().byWorkspace[workspaceId])
+          : defaultTitle(args);
       const base = {
         id: crypto.randomUUID(),
         // 초기 customTitle / processTitle 둘 다 없으므로 derived title = defaultTitle.

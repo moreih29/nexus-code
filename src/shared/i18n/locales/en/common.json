@@ -310,6 +310,8 @@
     "open_split": "⌘↵ Open file in split"
   },
   "terminal": {
+    "default_title": "Terminal",
+    "numbered_title": "Terminal {{index}}",
     "ended": "Terminal ended.",
     "reopen_failed": "Reopen failed.",
     "reopen": "Reopen",
