@@ -7,6 +7,7 @@ import { getMainT } from "../../i18n";
 import { isMac } from "../../infra/platform";
 import type { AppState } from "../../infra/storage/state-service";
 import { trackAppWindow } from "./app-windows";
+import { isAllowedMainWindowNavigation } from "./navigation";
 
 // Custom titlebar height (px) — must match TitleBar component's h-9 (36px)
 // and titleBarOverlay.height on Win/Linux for visual alignment.
@@ -106,8 +107,10 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   }
 
   // The app is a single page and never navigates its window; any page that
-  // got loaded into it would run with the preload.
+  // got loaded into it would run with the preload. In dev, the dev server may
+  // reload its own page.
   win.webContents.on("will-navigate", (event, url) => {
+    if (isAllowedMainWindowNavigation(url, devServerUrl)) return;
     event.preventDefault();
     logger.warn(`Blocked main window navigation: ${url}`);
   });
