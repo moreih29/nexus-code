@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -88,7 +89,7 @@ func TestNew_ListenAndPerm(t *testing.T) {
 
 	// 퍼미션이 0600이어야 한다.
 	perm := info.Mode().Perm()
-	if perm != 0600 {
+	if runtime.GOOS != "windows" && perm != 0600 { // Windows keeps no POSIX mode bits.
 		t.Errorf("socket perm: want 0600, got %04o", perm)
 	}
 
@@ -534,6 +535,15 @@ func shortTempDir(t *testing.T) string {
 	return dir
 }
 
+// skipSocketChtimesOnWindows skips a test that backdates a socket file: Windows
+// cannot set the times of a Unix socket file.
+func skipSocketChtimesOnWindows(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows cannot set the times of a Unix socket file")
+	}
+}
+
 // makeDeadSocket 는 bound-but-not-listening Unix 소켓 파일을 생성한다.
 // macOS는 net.Listen 후 Close()하면 소켓 파일을 자동 삭제하므로,
 // syscall.Bind만 수행해 소켓 파일을 디스크에 남겨두는 방식을 사용한다.
@@ -558,6 +568,7 @@ func makeDeadSocket(t *testing.T, path string) {
 // Test_cleanStaleSockets_AlivePreserved 는 실제 net.Listen으로 띄운 소켓 파일이
 // cleanStaleSockets 호출 후에도 제거되지 않는지 검증한다.
 func Test_cleanStaleSockets_AlivePreserved(t *testing.T) {
+	skipSocketChtimesOnWindows(t)
 	dir := shortTempDir(t)
 
 	// 살아있는 소켓을 만든다.
@@ -593,6 +604,7 @@ func Test_cleanStaleSockets_AlivePreserved(t *testing.T) {
 // Test_cleanStaleSockets_DeadOldRemoved 는 연결 불가한 오래된 소켓 파일이
 // cleanStaleSockets 호출 후 제거되는지 검증한다.
 func Test_cleanStaleSockets_DeadOldRemoved(t *testing.T) {
+	skipSocketChtimesOnWindows(t)
 	dir := shortTempDir(t)
 
 	// bound-but-not-listening 소켓을 만든다. macOS에서 net.Listen+Close는 파일을 삭제하므로
@@ -634,6 +646,7 @@ func Test_cleanStaleSockets_DeadFreshPreserved(t *testing.T) {
 // Test_cleanStaleSockets_SelfPreserved 는 selfBasename과 일치하는 파일이
 // dead+old 조건을 충족하더라도 cleanStaleSockets가 제거하지 않는지 검증한다.
 func Test_cleanStaleSockets_SelfPreserved(t *testing.T) {
+	skipSocketChtimesOnWindows(t)
 	dir := shortTempDir(t)
 
 	selfName := "h-selffile0011.sock"

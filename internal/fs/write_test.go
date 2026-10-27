@@ -609,6 +609,9 @@ func TestCopyFileOverwriteReplacesNonEmptyDir(t *testing.T) {
 // way must leave the confirmed-to-be-replaced destination as it was rather
 // than deleted or half-overwritten.
 func TestCopyFileOverwriteKeepsDestinationOnFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows ignores the mode bits that make the source unreadable")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores the unreadable file this test relies on")
 	}
@@ -810,6 +813,9 @@ func assertFSError(t *testing.T, err error, code string) {
 // A save replaces the file through a temp file and rename; the replacement
 // must keep the original permission bits instead of the temp file's default.
 func TestWriteFile_PreservesMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows keeps no POSIX mode bits")
+	}
 	root := t.TempDir()
 	for name, mode := range map[string]os.FileMode{"run.sh": 0o755, ".env": 0o600, "shared.txt": 0o664} {
 		path := filepath.Join(root, name)
