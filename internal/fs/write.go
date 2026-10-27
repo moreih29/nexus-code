@@ -10,7 +10,6 @@ import (
 	iofs "io/fs"
 	"os"
 	"path/filepath"
-	"syscall"
 
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
@@ -442,13 +441,15 @@ func randomSuffix() (string, error) {
 // paths (ENOSPC, cross-device rename). Reuses the read-side mapping for
 // everything else so the error vocabulary stays consistent across methods.
 func mapWriteError(err error, abs string) error {
-	if errors.Is(err, syscall.ENOSPC) {
+	if isNoSpace(err) {
 		return FSError{Code: CodeNoSpace, Path: abs}
 	}
-	if errors.Is(err, syscall.EXDEV) {
+	if isCrossDevice(err) {
 		return FSError{Code: CodeCrossDevice, Path: abs}
 	}
-	if errors.Is(err, syscall.ENOTEMPTY) {
+	// Ahead of mapPathError: Windows reports a non-empty directory as
+	// fs.ErrExist too.
+	if isNotEmpty(err) {
 		return FSError{Code: CodeNotEmpty, Path: abs}
 	}
 	return mapPathError(err, abs)
