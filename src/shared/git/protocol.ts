@@ -58,6 +58,7 @@ export const GIT_DIFF_CHUNK_EVENT = "git.diff.chunk";
 export const GIT_BLOB_METHOD = "git.blob";
 export const GIT_BLOB_CHUNK_EVENT = "git.blob.chunk";
 export const GIT_COMMIT_DETAIL_METHOD = "git.commitDetail";
+export const GIT_STAGE_CONTENT_METHOD = "git.stageContent";
 
 const GitEnvSchema = z.record(z.string(), z.string());
 
@@ -170,6 +171,14 @@ export const AgentGitAddToGitignoreParamsSchema = z.object({
 export type AgentGitAddToGitignoreParams = z.infer<typeof AgentGitAddToGitignoreParamsSchema>;
 
 export const AgentGitAddToGitignoreResultSchema = GitIgnoreAppendResultSchema;
+
+/** Stages `content` as `relPath`'s index version; the working tree is untouched. */
+export const AgentGitStageContentParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  relPath: z.string().min(1),
+  content: z.string(),
+});
+export type AgentGitStageContentParams = z.infer<typeof AgentGitStageContentParamsSchema>;
 
 export const AgentGitGetFileContentParamsSchema = z.object({
   ref: z.string().min(1),

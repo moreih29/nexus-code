@@ -846,6 +846,8 @@ export const ipcContract = {
       getStatus: call(GitWorkspaceIdSchema, GitStatusSchema),
       stage: call(GitRelPathsArgsSchema, z.void()),
       unstage: call(GitRelPathsArgsSchema, z.void()),
+      /** Stages `content` as `relPath`'s index version, as staging part of a file does. */
+      stageContent: call(GitRelPathArgsSchema.extend({ content: z.string() }), z.void()),
       discardChanges: call(GitDiscardChangesArgsSchema, z.void()),
       commit: call(
         GitWorkspaceIdSchema.extend({

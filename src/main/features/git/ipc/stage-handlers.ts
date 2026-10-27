@@ -38,6 +38,17 @@ export function unstageHandler(registry: GitRegistry): UnknownGitCallHandler {
 }
 
 /**
+ * Builds the stageContent handler, which writes the index version of one path
+ * without touching its working file. Status is refreshed before resolution as
+ * for stage.
+ */
+export function stageContentHandler(registry: GitRegistry): UnknownGitCallHandler {
+  return withRepo(registry, c.stageContent.args, async (repo, { relPath, content }, ctx) => {
+    await repo.stageContent(relPath, content, ctx.signal);
+  });
+}
+
+/**
  * Builds the discard handler; GitRepository.discard decides whether each path
  * needs restore, reset+clean, or clean so untracked files are deleted via git.
  *

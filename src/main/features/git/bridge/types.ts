@@ -152,6 +152,13 @@ export interface GitTagCreateOptions {
   readonly signal?: AbortSignal;
 }
 
+export interface GitStageContentOptions {
+  readonly cwd: string;
+  readonly relPath: string;
+  readonly content: string;
+  readonly signal?: AbortSignal;
+}
+
 export interface GitTagDeleteOptions {
   readonly cwd: string;
   readonly name: string;
@@ -300,6 +307,7 @@ export interface GitExecutor {
   tagListRemote?(options: GitTagListRemoteOptions): Promise<RemoteTag[]>;
   tagCreate?(options: GitTagCreateOptions): Promise<void>;
   tagDelete?(options: GitTagDeleteOptions): Promise<void>;
+  stageContent?(options: GitStageContentOptions): Promise<void>;
   tagDeleteRemote?(options: GitTagDeleteRemoteOptions): Promise<void>;
   tagPush?(options: GitTagPushOptions): Promise<void>;
   remoteAdd?(options: GitRemoteAddOptions): Promise<void>;

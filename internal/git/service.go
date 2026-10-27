@@ -75,6 +75,7 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("git.addToGitignore", service.AddToGitignore)
 	d.Register("git.getFileContent", service.GetFileContent)
 	d.Register("git.blob", service.Blob)
+	d.Register("git.stageContent", service.StageContent)
 	d.Register("git.stash.list", service.StashList)
 	d.Register("git.stash.apply", service.StashApply)
 	d.Register("git.stash.drop", service.StashDrop)

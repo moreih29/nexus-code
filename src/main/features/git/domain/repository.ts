@@ -173,6 +173,24 @@ export class GitRepository {
   }
 
   /**
+   * Makes `content` the staged version of one repository-relative path while
+   * leaving the working tree alone — how part of a file's changes is staged
+   * or unstaged.
+   */
+  stageContent(relPath: string, content: string, signal?: AbortSignal): Promise<void> {
+    return this.queue((queuedSignal) => {
+      const stageContent = this.executor.stageContent;
+      if (!stageContent) throw missingExecutorMethodError("stageContent");
+      return stageContent.call(this.executor, {
+        cwd: this.topLevel,
+        relPath,
+        content,
+        signal: queuedSignal,
+      });
+    }, signal);
+  }
+
+  /**
    * Discards tracked changes and deletes untracked paths selected by status rows.
    */
   discard(

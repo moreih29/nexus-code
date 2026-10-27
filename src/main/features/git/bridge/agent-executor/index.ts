@@ -64,6 +64,7 @@ import {
   AgentGitTagListRemoteResultSchema,
   AgentGitTagCreateParamsSchema,
   AgentGitTagDeleteParamsSchema,
+  AgentGitStageContentParamsSchema,
   AgentGitTagDeleteRemoteParamsSchema,
   AgentGitTagPushParamsSchema,
   AgentGitRemoteAddParamsSchema,
@@ -73,6 +74,7 @@ import {
   GIT_TAG_CREATE_METHOD,
   GIT_TAG_DELETE_METHOD,
   GIT_TAG_DELETE_REMOTE_METHOD,
+  GIT_STAGE_CONTENT_METHOD,
   GIT_TAG_PUSH_METHOD,
   GIT_REMOTE_ADD_METHOD,
   GIT_REMOTE_REMOVE_METHOD,
@@ -174,6 +176,7 @@ import type {
   GitStashListOptions,
   GitStashPopOptions,
   GitStashShowOptions,
+  GitStageContentOptions,
   GitStatusOptions,
   GitTagCreateOptions,
   GitTagDeleteOptions,
@@ -574,6 +577,20 @@ export class AgentGitExecutor implements GitExecutor {
       this.provider(),
       GIT_TAG_DELETE_METHOD,
       AgentGitTagDeleteParamsSchema.parse({ cwd: options.cwd, name: options.name }),
+    );
+    throwIfAborted(options.signal);
+  }
+
+  async stageContent(options: GitStageContentOptions): Promise<void> {
+    throwIfAborted(options.signal);
+    await callGit(
+      this.provider(),
+      GIT_STAGE_CONTENT_METHOD,
+      AgentGitStageContentParamsSchema.parse({
+        cwd: options.cwd,
+        relPath: options.relPath,
+        content: options.content,
+      }),
     );
     throwIfAborted(options.signal);
   }
