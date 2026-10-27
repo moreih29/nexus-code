@@ -594,6 +594,15 @@
       "acceptBoth": "Accept Both Changes",
       "acceptBothTooltip": "Concatenate current then incoming; remove all markers"
     },
+    "relativeTime": {
+      "justNow": "just now",
+      "minutesAgo": "{{count}}m ago",
+      "hoursAgo": "{{count}}h ago",
+      "daysAgo": "{{count}}d ago",
+      "monthsAgo": "{{count}}mo ago",
+      "yearsAgo": "{{count}}y ago",
+      "unknown": "unknown time"
+    },
     "stashPicker": {
       "applyTitle": "Stashes",
       "dropTitle": "Drop Stash",
@@ -606,11 +615,7 @@
       "noMessage": "(no message)",
       "dropConfirmTitle": "Drop {{ref}}?",
       "dropConfirmDescription": "Drop {{ref}}? This cannot be undone.",
-      "dropConfirmLabel": "Drop",
-      "justNow": "just now",
-      "minutesAgo": "{{count}}m ago",
-      "hoursAgo": "{{count}}h ago",
-      "daysAgo": "{{count}}d ago"
+      "dropConfirmLabel": "Drop"
     },
     "tagPicker": {
       "browseTitle": "Tags",

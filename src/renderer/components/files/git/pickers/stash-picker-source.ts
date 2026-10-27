@@ -9,6 +9,7 @@
 import i18next from "i18next";
 import type { StashEntry } from "../../../../../shared/git/types";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
+import { relativeTime } from "../utils/relative-time";
 
 export type StashPickerMode = "apply" | "drop";
 
@@ -70,7 +71,7 @@ function stashToItem(stash: StashEntry): StashPickItem {
   return {
     id: `stash:${stash.index}:${stash.sha}`,
     label: `${refLabel} ${subject}`,
-    description: formatRelativeTime(stash.createdAt),
+    description: relativeTime(stash.createdAt),
     kindLabel: stash.branch ?? undefined,
     ariaLabel: `${refLabel} ${subject}`,
     stash,
@@ -87,18 +88,3 @@ function matchesStashQuery(item: StashPickItem, lowerQuery: string): boolean {
   );
 }
 
-/**
- * Formats a compact client-side relative timestamp for stash descriptions.
- */
-function formatRelativeTime(createdAt: number, now: number = Date.now()): string {
-  const t = i18next.t.bind(i18next);
-  const diffMs = Math.max(0, now - createdAt);
-  const minute = 60_000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-
-  if (diffMs < minute) return t("files:git.stashPicker.justNow");
-  if (diffMs < hour) return t("files:git.stashPicker.minutesAgo", { count: Math.floor(diffMs / minute) });
-  if (diffMs < day) return t("files:git.stashPicker.hoursAgo", { count: Math.floor(diffMs / hour) });
-  return t("files:git.stashPicker.daysAgo", { count: Math.floor(diffMs / day) });
-}

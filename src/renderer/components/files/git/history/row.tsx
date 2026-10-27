@@ -9,10 +9,10 @@ import { relativeTime } from "../utils/relative-time";
 import type { HistoryListBreakpoint } from "./list";
 
 const HISTORY_ROW_GRID_CLASS_BY_BREAKPOINT: Record<HistoryListBreakpoint, string> = {
-  narrow: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,1fr)_5ch_24px] items-center gap-2",
+  narrow: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,1fr)_8ch_24px] items-center gap-2",
   medium:
-    "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_5ch_7ch_24px] items-center gap-2",
-  wide: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_12ch_5ch_7ch_24px] items-center gap-2",
+    "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_8ch_7ch_24px] items-center gap-2",
+  wide: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_12ch_8ch_7ch_24px] items-center gap-2",
 };
 const HISTORY_ROW_INTERACTION_CLASS =
   "group border-l-2 pl-1 pr-1 text-app-ui-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60";
