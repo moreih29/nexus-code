@@ -60,16 +60,28 @@ func (s *Service) Pull(ctx context.Context, raw json.RawMessage) (any, error) {
 		_ = json.Unmarshal(raw, &p)
 	}
 
-	args := []string{"pull", "--no-edit"}
-	if len(p.Args) > 0 {
-		args = append(args, p.Args...)
-	}
-
 	ctx, done, err := s.startRun(ctx, p.RunID)
 	if err != nil {
 		return nil, err
 	}
 	defer done()
+
+	args := []string{"pull", "--no-edit"}
+	// Since 2.33 git refuses to pull into a branch that has diverged from
+	// its upstream until told how to reconcile them, which is exactly the
+	// pull a rejected push asks for. Without the user's own pull.ff, ask for
+	// git's long-standing default: fast-forward if possible, else merge.
+	// pull.rebase still takes precedence over it.
+	_, _, configCode, err := s.capture(ctx, p.Cwd, []string{"config", "--get", "pull.ff"}, false)
+	if err != nil {
+		return nil, err
+	}
+	if configCode == 1 {
+		args = append(args, "--ff")
+	}
+	if len(p.Args) > 0 {
+		args = append(args, p.Args...)
+	}
 
 	stdout, stderr, code, err := s.runSyncGit(ctx, p.Cwd, args, true)
 	if err != nil {
