@@ -13,6 +13,7 @@ export { openOrRevealEditor, PREVIEW_ENABLED } from "./open-editor";
 export { openExternalEditor } from "./open-external-editor";
 export { type PendingEditorReveal, registerRevealTarget } from "./pending-reveal";
 export { promoteAllPreviewTabsForFile, startPromoteOnDirtyPolicy } from "./promote-policy";
+export { movedFilePath, retargetEditorTabs } from "./retarget-tabs";
 export { revealRange } from "./reveal";
 export { type RevealEditorAtOptions, revealEditorAt } from "./reveal-editor-at";
 export { findEditorTab, findEditorTabInGroup, findPreviewTabInGroup } from "./tab-lookup";

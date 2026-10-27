@@ -154,6 +154,13 @@ interface TabsState {
   ) => void;
   replaceCommitPreviewTab: (workspaceId: string, tabId: string, sha: string, title: string) => void;
   /**
+   * Point an editor tab at `filePath` after its file was renamed or moved.
+   * Keeps the tab's id, pin, preview and view-mode state and a title the user
+   * gave it; the default title follows the new file name. No-op on other tab
+   * types or unknown ids.
+   */
+  retargetEditorTab: (workspaceId: string, tabId: string, filePath: string) => void;
+  /**
    * Swap a diff preview tab's props (path / refs) in place, keeping its id and
    * `isPreview: true`. Used by `openDiffTab` for VSCode-style "click another
    * file in the SCM panel → reuse the preview slot" behaviour. Title is
@@ -467,6 +474,31 @@ export const useTabsStore = create<TabsState>((set, get) => {
               ...wsRecord,
               [tabId]: next,
             },
+          },
+        };
+      });
+    },
+
+    retargetEditorTab(workspaceId, tabId, filePath) {
+      set((state) => {
+        const wsRecord = state.byWorkspace[workspaceId];
+        const tab = wsRecord?.[tabId];
+        if (!wsRecord || tab?.type !== "editor" || tab.props.filePath === filePath) return state;
+        const nextDefault = defaultTitle({ type: "editor", props: { ...tab.props, filePath } });
+        const next: EditorTab = {
+          ...tab,
+          props: { ...tab.props, filePath },
+          defaultTitle: nextDefault,
+          title: computeDisplayTitle({
+            defaultTitle: nextDefault,
+            customTitle: tab.customTitle,
+            processTitle: tab.processTitle,
+          }),
+        };
+        return {
+          byWorkspace: {
+            ...state.byWorkspace,
+            [workspaceId]: { ...wsRecord, [tabId]: next },
           },
         };
       });

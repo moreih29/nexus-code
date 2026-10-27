@@ -151,6 +151,24 @@ describe("fs-mutations services", () => {
     }
   });
 
+  it("points an open tab at the renamed file", async () => {
+    const tab = useTabsStore.getState().createTab(WS, {
+      type: "editor",
+      props: { workspaceId: WS, filePath: `${ROOT}/a.ts` },
+    });
+
+    await renamePath({
+      workspaceId: WS,
+      workspaceRootPath: ROOT,
+      absPath: `${ROOT}/a.ts`,
+      newName: "b.ts",
+    });
+
+    const renamed = useTabsStore.getState().byWorkspace[WS]?.[tab.id];
+    expect(renamed?.type === "editor" && renamed.props.filePath).toBe(`${ROOT}/b.ts`);
+    expect(renamed?.title).toBe("b.ts");
+  });
+
   it("keeps rename input open when ALREADY_EXISTS fails", async () => {
     rejectNext = new Error("ALREADY_EXISTS: /repo/b.ts");
 

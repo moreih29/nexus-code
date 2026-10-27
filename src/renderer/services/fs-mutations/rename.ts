@@ -3,6 +3,7 @@
 import i18next from "i18next";
 import { showConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
+import { retargetEditorTabs } from "@/services/editor/tabs";
 import { loadChildren } from "@/state/operations/files";
 import { parentOf } from "@/state/stores/files";
 import { basename, relPath } from "@/utils/path";
@@ -51,6 +52,7 @@ export async function renamePath(input: RenameInput): Promise<boolean> {
     return false;
   }
 
+  void retargetEditorTabs(input.workspaceId, input.absPath, toAbsPath);
   await loadChildren(input.workspaceId, parentAbsPath);
   return true;
 }
@@ -125,6 +127,8 @@ export async function movePath(input: MoveInput): Promise<boolean> {
     });
     return false;
   }
+
+  void retargetEditorTabs(input.workspaceId, input.srcAbsPath, toAbsPath);
 
   // Refresh both the source parent and the destination parent.
   const srcParent = parentOf(input.srcAbsPath, input.workspaceRootPath);
