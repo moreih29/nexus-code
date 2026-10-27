@@ -85,6 +85,7 @@ mock.module("../../../../../../src/renderer/services/editor", () => ({
 
 mock.module("../../../../../../src/renderer/services/terminal", () => ({
   closeTerminal: () => {},
+  closeTerminalWithConfirm: () => Promise.resolve("closed"),
   openTerminal: () => null,
 }));
 

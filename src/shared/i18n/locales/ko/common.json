@@ -322,7 +322,10 @@
     "held_input_hint": "재연결 중에는 입력이 보류됩니다",
     "restored_banner": "복원됨",
     "spawn_failed": "터미널을 시작하지 못했습니다: {{reason}}",
-    "init_failed": "터미널을 준비하지 못했습니다: {{reason}}"
+    "init_failed": "터미널을 준비하지 못했습니다: {{reason}}",
+    "close_running_title": "실행 중인 프로세스를 종료할까요?",
+    "close_running_description": "이 터미널에서 “{{name}}”이(가) 아직 실행 중입니다. 터미널을 닫으면 종료됩니다.",
+    "close_running_confirm": "종료"
   },
   "lsp": {
     "on": "{{label}} LSP: 켜짐 — 클릭하여 비활성화",

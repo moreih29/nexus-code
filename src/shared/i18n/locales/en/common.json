@@ -322,7 +322,10 @@
     "held_input_hint": "Input is held while reconnecting",
     "restored_banner": "Restored",
     "spawn_failed": "Couldn't start the terminal: {{reason}}",
-    "init_failed": "Couldn't set up the terminal: {{reason}}"
+    "init_failed": "Couldn't set up the terminal: {{reason}}",
+    "close_running_title": "Terminate the running process?",
+    "close_running_description": "“{{name}}” is still running in this terminal. Closing the terminal will terminate it.",
+    "close_running_confirm": "Terminate"
   },
   "lsp": {
     "on": "{{label}} LSP: On — click to disable",

@@ -1,3 +1,4 @@
+export { closeTerminalWithConfirm } from "./close-confirm";
 export { closeTerminal, findTerminalTab, openTerminal } from "./open-terminal";
 export { requestTerminalReopen, subscribeTerminalReopenRequest } from "./reopen-requests";
 export { createTerminalController } from "./controller";

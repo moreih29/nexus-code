@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { TerminalControllerDeps } from "../../../../src/renderer/services/terminal/controller";
 import type {
   PtyClientOptions,
@@ -101,9 +101,20 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
   isIpcErrResult: (v: unknown): boolean => v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === false,
 }));
 
-const { closeTerminal, createTerminalController, openTerminal } = await import(
-  "../../../../src/renderer/services/terminal"
-);
+// Spread over the real module so later files keep its other exports.
+const confirmRequests: string[] = [];
+let confirmReply = true;
+const realConfirmDialog = await import("../../../../src/renderer/components/ui/confirm-dialog");
+mock.module("../../../../src/renderer/components/ui/confirm-dialog", () => ({
+  ...realConfirmDialog,
+  showConfirmDialog: (request: { description: string }) => {
+    confirmRequests.push(request.description);
+    return Promise.resolve(confirmReply);
+  },
+}));
+
+const { closeTerminal, closeTerminalWithConfirm, createTerminalController, openTerminal } =
+  await import("../../../../src/renderer/services/terminal");
 const {
   TERMINAL_REOPENED_SEPARATOR,
   isShellPromptLikeTitle,
@@ -340,6 +351,52 @@ describe("services/terminal open and close", () => {
     const layout = useLayoutStore.getState().byWorkspace[WS];
     expect(layout?.root.kind).toBe("leaf");
     if (layout?.root.kind === "leaf") expect(layout.root.tabIds).not.toContain(terminal.tabId);
+  });
+
+  describe("closeTerminalWithConfirm", () => {
+    beforeEach(() => {
+      confirmRequests.length = 0;
+      confirmReply = true;
+    });
+
+    afterEach(() => {
+      mockForegroundProcessName = "lazygit";
+    });
+
+    it("closes without asking while only the shell is running", async () => {
+      mockForegroundProcessName = "-zsh";
+      const terminal = openTerminal({ workspaceId: WS, cwd: "/workspace" });
+
+      expect(await closeTerminalWithConfirm(WS, terminal.tabId)).toBe("closed");
+      expect(confirmRequests).toEqual([]);
+      expect(useTabsStore.getState().byWorkspace[WS]?.[terminal.tabId]).toBeUndefined();
+    });
+
+    it("asks before killing a running program and keeps the tab on cancel", async () => {
+      mockForegroundProcessName = "sleep";
+      const terminal = openTerminal({ workspaceId: WS, cwd: "/workspace" });
+      confirmReply = false;
+
+      expect(await closeTerminalWithConfirm(WS, terminal.tabId)).toBe("cancelled");
+      expect(confirmRequests).toEqual([
+        "“sleep” is still running in this terminal. Closing the terminal will terminate it.",
+      ]);
+      expect(killCalls()).toEqual([]);
+      expect(useTabsStore.getState().byWorkspace[WS]?.[terminal.tabId]).toBeDefined();
+
+      confirmReply = true;
+      expect(await closeTerminalWithConfirm(WS, terminal.tabId)).toBe("closed");
+      expect(killCalls()).toHaveLength(1);
+    });
+
+    it("closes an ended terminal without asking", async () => {
+      mockForegroundProcessName = "sleep";
+      const terminal = openTerminal({ workspaceId: WS, cwd: "/workspace" });
+      useTabsStore.getState().setTerminalDead(WS, terminal.tabId, true);
+
+      expect(await closeTerminalWithConfirm(WS, terminal.tabId)).toBe("closed");
+      expect(confirmRequests).toEqual([]);
+    });
   });
 
   it("workspace tab-record cleanup kills each terminal session before deleting records", () => {

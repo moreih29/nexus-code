@@ -6,12 +6,12 @@
 // tab.type for close purposes; all call sites delegate here.
 //
 // Tab type routing:
-//   terminal    → closeTerminal (no dirty state)
+//   terminal    → closeTerminalWithConfirm (asks while a program runs)
 //   editor      → closeEditorWithConfirm (dirty-aware)
 //   untitled    → closeUntitledWithConfirm (dirty-aware, new)
 //   editor.diff / git.commit / browser → closeTab (raw state op, no dirty)
 
-import { closeTerminal } from "@/services/terminal";
+import { closeTerminalWithConfirm } from "@/services/terminal";
 import { closeTab } from "@/state/operations/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
 import type { CloseTabOutcome } from "./close-handler";
@@ -31,8 +31,7 @@ export async function closeTabWithConfirm(
   if (!tab) return "closed";
 
   if (tab.type === "terminal") {
-    closeTerminal(tabId);
-    return "closed";
+    return closeTerminalWithConfirm(workspaceId, tabId);
   }
 
   if (tab.type === "editor") {
