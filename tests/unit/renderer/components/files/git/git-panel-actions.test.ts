@@ -1,9 +1,10 @@
 /**
- * Scenario tests for GitPanel helper copy that guards multi-remote footguns
- * and tag-to-History reveal behavior.
+ * Scenario tests for GitPanel helper copy that guards multi-remote footguns,
+ * the error banner action and tag-to-History reveal behavior.
  */
 import { describe, expect, it } from "bun:test";
 import {
+  buildErrorAction,
   buildPublishBranchPrompt,
   buildTagHistoryRevealMessage,
   tagHistoryRef,
@@ -27,6 +28,18 @@ describe("buildPublishBranchPrompt", () => {
 
   it("does not build a publish prompt without a configured remote", () => {
     expect(buildPublishBranchPrompt("main", [])).toBeNull();
+  });
+});
+
+describe("buildErrorAction", () => {
+  it("offers a localized Retry for a failure that is not about authentication", () => {
+    const onRetry = () => {};
+    const action = buildErrorAction(
+      { kind: "push-rejected", message: "Updates were rejected" },
+      { workspaceId: "ws-1", cwd: "/repo", onRetry },
+    );
+
+    expect(action).toEqual({ label: "Retry", onAction: onRetry });
   });
 });
 

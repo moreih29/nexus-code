@@ -71,7 +71,7 @@ export function buildErrorAction(
     };
   }
 
-  return { label: t("files:common.action.retry"), onAction: opts.onRetry };
+  return { label: t("common:action.retry"), onAction: opts.onRetry };
 }
 
 /**
