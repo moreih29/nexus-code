@@ -19,6 +19,7 @@ import {
 import { initBrowserPermissionSubscriptions } from "./state/operations/browser-permission";
 import { initBrowserOverlayAutoSuspend } from "./state/operations/browser-suspend-auto";
 import { initFocusResync } from "./state/operations/focus-resync";
+import { initGitErrorToasts } from "./state/operations/git-error-toasts";
 import { normalizeWorkspaceTabOrder } from "./state/operations/tab-order";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
@@ -94,6 +95,9 @@ export async function bootstrapAppState(): Promise<void> {
 
   // Mark terminal tabs dead on PTY exit even while their view is unmounted.
   startTerminalExitListener();
+
+  // Toast git failures the Source Control panel does not show itself.
+  initGitErrorToasts();
 
   // Wire browser tab runtime event subscriptions (navigated / loadingChanged /
   // error / titleUpdated) so useBrowserRuntimeStore stays up-to-date.

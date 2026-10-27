@@ -17,6 +17,8 @@
     "reopenAll": "Reopen all",
     "copy": "Copy",
     "copy_details": "Copy details",
+    "show_details": "Details",
+    "hide_details": "Hide details",
     "open_log": "Open log",
     "connect": "Connect →",
     "connecting": "Connecting…",

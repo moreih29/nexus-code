@@ -706,7 +706,8 @@
       },
       "tagReveal": "Showing History for tag '{{name}}' at {{sha}}.",
       "syncCancelled": "Sync cancelled (pull aborted before push).",
-      "openTerminal": "Open Terminal"
+      "openTerminal": "Open Terminal",
+      "openSourceControl": "Open Source Control"
     },
     "refChip": {
       "headRef": "HEAD ref",

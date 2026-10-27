@@ -116,3 +116,16 @@ describe("toast severity token classes", () => {
     expect(html).not.toContain("bg-destructive");
   });
 });
+
+describe("toast details", () => {
+  it("collapses details behind a Details toggle", async () => {
+    const html = await renderToast({
+      kind: "error",
+      message: "Pull failed.",
+      details: "fatal: raw git output",
+    });
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain("Details");
+    expect(html).not.toContain("fatal: raw git output");
+  });
+});

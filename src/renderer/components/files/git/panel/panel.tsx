@@ -22,6 +22,7 @@ import {
 import { useGitSession, useGitStore } from "../../../../state/stores/git";
 import { selectGitActionButton } from "../../../../state/stores/git/action-button";
 import { useCommitDraft } from "../../../../state/stores/git/commit-drafts";
+import { gitErrorPlacement } from "../../../../state/stores/git/error-placement";
 import {
   usePanelViewOptionsStore,
   useViewOptions,
@@ -403,6 +404,12 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
       void directOps.refresh(workspaceId);
     },
   });
+  // A failure with nothing to act on here goes to a toast instead (see
+  // initGitErrorToasts); the banner keeps the ones the panel recovers from.
+  const panelError =
+    session?.lastError && gitErrorPlacement(session.lastError) !== "toast"
+      ? session.lastError
+      : null;
   const pushGuardBanner = buildPushGuardBannerView({
     error: session?.lastError,
     pendingNonFFRetry: session?.pendingNonFFRetry,
@@ -526,7 +533,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
         model={buildGitBannerModel({
           pushGuardBanner,
           onPushGuardAction: runPushGuardAction,
-          lastError: session?.lastError ?? null,
+          lastError: panelError,
           errorAction,
           autofetchPaused: session?.autofetchPausedBannerVisible ?? false,
           autofetchLastErrorMessage: session?.autofetchLastError?.message,

@@ -706,7 +706,8 @@
       },
       "tagReveal": "'{{name}}' 태그 {{sha}}의 기록을 보는 중입니다.",
       "syncCancelled": "동기화가 취소되었습니다 (풀 중단으로 푸시 건너뜀).",
-      "openTerminal": "터미널 열기"
+      "openTerminal": "터미널 열기",
+      "openSourceControl": "소스 제어 열기"
     },
     "refChip": {
       "headRef": "HEAD ref",
