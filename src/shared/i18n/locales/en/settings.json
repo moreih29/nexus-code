@@ -138,6 +138,18 @@
     "language": "Language",
     "theme": "Theme",
     "iconTheme": "Icon Theme",
+    "themeDescription": {
+      "github-dark": "GitHub's official dark. Calm teal and blue accents, fairly low saturation",
+      "github-light": "GitHub's official light. White background, dark text — WCAG AA",
+      "dracula": "The legendary purple and pink dark. Vivid saturation built on an 8-color palette",
+      "one-dark-pro": "The VS Code port of Atom One Dark. Balanced saturation, the safest dark",
+      "monokai": "The Sublime Text classic. Vivid magenta, cyan and yellow",
+      "tokyo-night": "Cool blue-violet. Calm and modern, one of the most popular lately",
+      "solarized-dark": "Ethan Schoonover's classic. Even CIE lightness that is easy on the eyes",
+      "nord": "Arctic and north-bluish. Known for its restrained 16-color palette",
+      "catppuccin-mocha": "A calm pastel dark. Mocha is the darkest of the four flavors",
+      "gruvbox-dark": "Retro groove. Warm brown, olive and mustard tones"
+    },
     "windowOpacity": "Window opacity",
     "inactivePanelDim": "Inactive panel dimming",
     "reset": {

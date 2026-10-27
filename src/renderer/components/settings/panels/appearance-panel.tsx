@@ -299,6 +299,7 @@ interface ThemeCardProps {
 }
 
 function ThemeCard({ source, selected }: ThemeCardProps) {
+  const { t } = useTranslation("settings");
   // Two rows of swatches paint the theme's own colours:
   //   row 1 — surface chrome:  bg.primary, bg.secondary, bg.floating, fg.muted, accent
   //   row 2 — syntax accents:  keyword, string, number, function, type
@@ -373,7 +374,7 @@ function ThemeCard({ source, selected }: ThemeCardProps) {
       >
         <div>
           <span style={{ color: source.syntax.comment, fontStyle: "italic" }}>
-            {"// "}{source.description}
+            {"// "}{t(`appearance.themeDescription.${source.id}`)}
           </span>
         </div>
         <div className="truncate">
