@@ -12,7 +12,10 @@
  * This module has no fs I/O — all file writing is done by runtimeDirs.ts.
  */
 
-import path from "node:path";
+import { posix as path } from "node:path";
+
+// zsh and bash take POSIX paths, on an SSH host as on a local Mac or Linux
+// machine, and this app may itself run on Windows.
 
 export interface ShellShimInput {
   /** Absolute path or bare basename of the shell binary (e.g. "/bin/zsh", "zsh-5.9"). */
