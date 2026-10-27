@@ -9,24 +9,169 @@
  *
  *   2. Async state machine — the guarantee that loading never gets stuck, that
  *      cancellation suppresses UI, that double-submit is blocked, and that
- *      unmount discards results.  These are verified through a lightweight
- *      `ActionMachine` harness that reimplements the exact try/catch/finally
- *      structure and AbortController semantics from the hook, without any React
- *      hooks, so the scenarios can run synchronously under bun:test.
- *
- * The harness mirrors the hook's internal logic faithfully.  Any divergence
- * would be a test smell — the tests would pass but the hook would be broken.
- * The harness is therefore documented side-by-side with the hook's design.
+ *      unmount discards results.  These drive the real hook through a minimal
+ *      React hook dispatcher (no renderer), following browser-view.test.tsx: a
+ *      transparent `react` mock forwards every hook to React's current-dispatcher
+ *      slot, and `mountHook()` points that slot at a slot-indexed dispatcher
+ *      while the hook body runs.
  */
 
-import { describe, expect, it } from "bun:test";
-import { appErrorBug, appErrorCancelled, appErrorFailed } from "../../../../src/shared/error/app-error";
+import { describe, expect, it, mock } from "bun:test";
+import type { EffectCallback } from "react";
+import type {
+  UseIpcActionOptions,
+  UseIpcActionReturn,
+} from "../../../../src/renderer/hooks/use-ipc-action";
 import { createAbortError } from "../../../../src/shared/abort";
 import {
-  isAppError,
-  normaliseError,
-  type IpcActionState,
-} from "../../../../src/renderer/hooks/use-ipc-action";
+  appErrorBug,
+  appErrorCancelled,
+  appErrorFailed,
+} from "../../../../src/shared/error/app-error";
+
+// ---------------------------------------------------------------------------
+// Hook harness
+// ---------------------------------------------------------------------------
+
+interface HookDispatcher {
+  useRef(initial: unknown): { current: unknown };
+  useState(initial: unknown): [unknown, (next: unknown) => void];
+  useCallback(cb: unknown, deps?: readonly unknown[]): unknown;
+  useMemo(factory: () => unknown, deps?: readonly unknown[]): unknown;
+  useEffect(fn: EffectCallback, deps?: readonly unknown[]): void;
+}
+
+// React's current-dispatcher slot, read off the (possibly already-mocked)
+// react module namespace so we point at the object the runtime uses.
+const currentReact = await import("react");
+const reactInternals = (
+  currentReact as unknown as {
+    __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: { H: HookDispatcher | null };
+  }
+).__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+
+// Transparent delegating mock — overrides any leaked global react hook mock
+// (e.g. use-drag-source.test.ts). Outside our render the slot holds React's
+// real dispatcher, so other test files are unaffected.
+mock.module("react", () => ({
+  ...currentReact,
+  useRef: (init: unknown) => reactInternals.H?.useRef(init),
+  useState: (init: unknown) => reactInternals.H?.useState(init),
+  useCallback: (cb: unknown, deps?: readonly unknown[]) => reactInternals.H?.useCallback(cb, deps),
+  useMemo: (f: () => unknown, deps?: readonly unknown[]) => reactInternals.H?.useMemo(f, deps),
+  useEffect: (fn: EffectCallback, deps?: readonly unknown[]) =>
+    reactInternals.H?.useEffect(fn, deps),
+}));
+
+const { isAppError, normaliseError, useIpcAction } = await import(
+  "../../../../src/renderer/hooks/use-ipc-action"
+);
+
+/**
+ * Mounts useIpcAction under a minimal dispatcher. State setters store the value
+ * for the next render(). Dependency-less effects run after every render;
+ * effects with a dependency array (the hook only has `[]`) run once on mount
+ * and their cleanups run on unmount().
+ */
+function mountHook<T>(options?: UseIpcActionOptions<T>): {
+  render: () => UseIpcActionReturn<T>;
+  unmount: () => void;
+} {
+  const refs: Array<{ current: unknown }> = [];
+  const states: unknown[] = [];
+  const cleanups: Array<() => void> = [];
+  let effects: Array<{ fn: EffectCallback; deps?: readonly unknown[] }> = [];
+  let refCursor = 0;
+  let stateCursor = 0;
+  let mounted = false;
+
+  const dispatcher: HookDispatcher = {
+    useRef(initial) {
+      const i = refCursor++;
+      if (!(i in refs)) refs[i] = { current: initial };
+      return refs[i];
+    },
+    useState(initial) {
+      const i = stateCursor++;
+      if (!(i in states)) states[i] = initial;
+      return [
+        states[i],
+        (next) => {
+          states[i] = next;
+        },
+      ];
+    },
+    useCallback: (cb) => cb,
+    useMemo: (factory) => factory(),
+    useEffect(fn, deps) {
+      effects.push({ fn, deps });
+    },
+  };
+
+  function withDispatcher<R>(run: () => R): R {
+    const previous = reactInternals.H;
+    reactInternals.H = dispatcher;
+    try {
+      return run();
+    } finally {
+      reactInternals.H = previous;
+    }
+  }
+
+  function render(): UseIpcActionReturn<T> {
+    refCursor = 0;
+    stateCursor = 0;
+    effects = [];
+    const result = withDispatcher(() => useIpcAction<T>(options));
+    for (const { fn, deps } of effects) {
+      if (deps === undefined) {
+        fn();
+      } else if (!mounted) {
+        const cleanup = fn();
+        if (typeof cleanup === "function") cleanups.push(cleanup);
+      }
+    }
+    mounted = true;
+    return result;
+  }
+
+  render();
+  return {
+    render,
+    unmount: () => {
+      for (const cleanup of cleanups.splice(0)) cleanup();
+    },
+  };
+}
+
+/** Drains the hook's async IIFE (microtasks) before inspecting state. */
+function flush(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** An action that stays in flight until the test settles it. */
+function deferredAction<T>(): {
+  action: (signal: AbortSignal) => Promise<T>;
+  signal: () => AbortSignal | undefined;
+  resolve: (value: T) => void;
+  reject: (error: Error) => void;
+} {
+  let signal: AbortSignal | undefined;
+  let resolve!: (value: T) => void;
+  let reject!: (error: Error) => void;
+  return {
+    action: (s) => {
+      signal = s;
+      return new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+    },
+    signal: () => signal,
+    resolve: (value) => resolve(value),
+    reject: (error) => reject(error),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Pure helper tests
@@ -108,153 +253,51 @@ describe("normaliseError", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Async state machine harness
-//
-// This harness reimplements the hook's core run() logic — the
-// try/catch/finally structure, AbortController semantics, and the four
-// cancellation / error / success branches — as a plain async function.
-//
-// It maintains an observable `state` field that callers inspect after each
-// await-point, letting us write deterministic scenario tests without needing
-// React, act(), or a DOM environment.
-// ---------------------------------------------------------------------------
-
-interface MachineState<T> {
-  current: IpcActionState<T>;
-  successCallbackValues: T[];
-}
-
-/**
- * Minimal re-implementation of the hook's run() state machine.
- *
- * Invoke `trigger(action)` to start an action; `await trigger(action)` to
- * wait until the action completes and the state has settled.
- *
- * `triggerAndForget(action)` starts an action without waiting, useful for
- * testing double-submit and unmount-discard scenarios.
- */
-function makeActionMachine<T>(opts: { onSuccess?: (value: T) => void } = {}): {
-  state: MachineState<T>;
-  isMounted: () => boolean;
-  unmount: () => void;
-  trigger: (action: (signal: AbortSignal) => Promise<T>) => Promise<void>;
-  triggerNoWait: (action: (signal: AbortSignal) => Promise<T>) => void;
-  cancel: () => void;
-} {
-  let mounted = true;
-  let currentController: AbortController | null = null;
-
-  const state: MachineState<T> = {
-    current: { status: "idle" },
-    successCallbackValues: [],
-  };
-
-  const setState = (next: IpcActionState<T>): void => {
-    if (!mounted) return;
-    state.current = next;
-  };
-
-  const run = async (action: (signal: AbortSignal) => Promise<T>): Promise<void> => {
-    // Double-submit guard — mirrors the hook's controller-ref check.
-    if (currentController) return;
-
-    const controller = new AbortController();
-    currentController = controller;
-    setState({ status: "loading" });
-
-    try {
-      const value = await action(controller.signal);
-
-      // Stale resolution guard — mirrors the hook's ref identity check.
-      if (!mounted || currentController !== controller) return;
-
-      setState({ status: "success", value });
-      opts.onSuccess?.(value);
-      state.successCallbackValues.push(value);
-    } catch (err: unknown) {
-      if (!mounted || currentController !== controller) return;
-
-      const isCancellation =
-        (err instanceof Error && err.name === "AbortError") ||
-        (isAppError(err) && err.category === "cancelled");
-
-      if (isCancellation) {
-        setState({ status: "idle" });
-      } else {
-        setState({ status: "error", error: normaliseError(err) });
-      }
-    } finally {
-      if (currentController === controller) {
-        currentController = null;
-      }
-    }
-  };
-
-  const cancel = (): void => {
-    if (!currentController) return;
-    currentController.abort();
-    currentController = null;
-    if (mounted) setState({ status: "idle" });
-  };
-
-  return {
-    state,
-    isMounted: () => mounted,
-    unmount: () => {
-      mounted = false;
-      currentController?.abort();
-      currentController = null;
-    },
-    trigger: run,
-    triggerNoWait: (action) => {
-      void run(action);
-    },
-    cancel,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Scenario tests — async state machine
 // ---------------------------------------------------------------------------
 
 describe("useIpcAction — happy path: success", () => {
   it("transitions idle → loading → success and delivers the value", async () => {
-    const machine = makeActionMachine<string>();
+    const hook = mountHook<string>();
+    expect(hook.render().state).toEqual({ status: "idle" });
 
-    expect(machine.state.current.status).toBe("idle");
+    hook.render().run(async () => "hello");
 
-    await machine.trigger(async (_signal) => "hello");
+    const loading = hook.render();
+    expect(loading.state.status).toBe("loading");
+    expect(loading.isPending).toBe(true);
 
-    const s = machine.state.current;
-    expect(s.status).toBe("success");
-    if (s.status === "success") {
-      expect(s.value).toBe("hello");
-    }
+    await flush();
+
+    const settled = hook.render();
+    expect(settled.state).toEqual({ status: "success", value: "hello" });
+    expect(settled.isPending).toBe(false);
   });
 
   it("calls onSuccess callback exactly once with the resolved value", async () => {
     const received: string[] = [];
-    const machine = makeActionMachine<string>({ onSuccess: (v) => received.push(v) });
+    const hook = mountHook<string>({ onSuccess: (v) => received.push(v) });
 
-    await machine.trigger(async () => "workspace-id");
+    hook.render().run(async () => "workspace-id");
+    await flush();
 
     expect(received).toEqual(["workspace-id"]);
   });
 });
 
-describe("useIpcAction — loading never sticks: error from second await", () => {
+describe("useIpcAction — loading never sticks", () => {
   it("transitions to error when the first await succeeds but the second throws", async () => {
-    const machine = makeActionMachine<string>();
+    const hook = mountHook<string>();
 
-    await machine.trigger(async (_signal) => {
+    hook.render().run(async () => {
       // First await succeeds.
       await Promise.resolve("step-one-ok");
       // Second await throws — this is the class of bug the hook must catch.
       throw new Error("step-two-exploded");
     });
+    await flush();
 
-    const s = machine.state.current;
-    // State must NOT be 'loading' — the finally block always clears it.
+    const s = hook.render().state;
     expect(s.status).toBe("error");
     if (s.status === "error") {
       expect(s.error.category).toBe("bug");
@@ -262,14 +305,15 @@ describe("useIpcAction — loading never sticks: error from second await", () =>
     }
   });
 
-  it("transitions to error when the entire action throws synchronously", async () => {
-    const machine = makeActionMachine<number>();
+  it("transitions to error when the action throws before returning a promise", async () => {
+    const hook = mountHook<number>();
 
-    await machine.trigger(async (_signal) => {
+    hook.render().run(() => {
       throw appErrorFailed("domain failure", { code: "not-found" });
     });
+    await flush();
 
-    const s = machine.state.current;
+    const s = hook.render().state;
     expect(s.status).toBe("error");
     if (s.status === "error") {
       expect(s.error.category).toBe("failed");
@@ -277,16 +321,17 @@ describe("useIpcAction — loading never sticks: error from second await", () =>
     }
   });
 
-  it("preserves an AppError thrown at any stage without re-wrapping it", async () => {
+  it("stores a thrown AppError as-is without re-wrapping it", async () => {
     const original = appErrorFailed("auth rejected", { domain: "ssh", code: "auth-failed" });
-    const machine = makeActionMachine<void>();
+    const hook = mountHook<void>();
 
-    await machine.trigger(async () => {
+    hook.render().run(async () => {
       await Promise.resolve();
       throw original;
     });
+    await flush();
 
-    const s = machine.state.current;
+    const s = hook.render().state;
     expect(s.status).toBe("error");
     if (s.status === "error") {
       // The error object must be the same reference — no re-wrapping.
@@ -296,228 +341,128 @@ describe("useIpcAction — loading never sticks: error from second await", () =>
 });
 
 describe("useIpcAction — double-submit prevention", () => {
-  it("ignores a second run() call while the first is still in-flight", async () => {
-    const machine = makeActionMachine<string>();
+  it("ignores a second run() in the same tick while the first is in flight", async () => {
+    const hook = mountHook<string>();
+    const first = deferredAction<string>();
+    // Both calls come from one render, as a double click does before React re-renders.
+    const { run } = hook.render();
 
-    let resolveFirst!: (v: string) => void;
-    const firstAction = () =>
-      new Promise<string>((resolve) => {
-        resolveFirst = resolve;
-      });
-
-    // Start the first action (does not await — it's in-flight).
-    machine.triggerNoWait(() => firstAction());
-
-    // At this point state is 'loading'.
-    expect(machine.state.current.status).toBe("loading");
-
-    // Attempt a second run while the first is in-flight — must be a no-op.
+    run(first.action);
     let secondRan = false;
-    machine.triggerNoWait(async () => {
+    run(async () => {
       secondRan = true;
       return "second";
     });
-
-    // Allow event loop to drain so the second action body could have run.
-    await Promise.resolve();
+    await flush();
 
     expect(secondRan).toBe(false);
-    expect(machine.state.current.status).toBe("loading");
+    expect(hook.render().state.status).toBe("loading");
 
-    // Finish the first action and verify normal completion.
-    resolveFirst("first");
-    await Promise.resolve();
-    await Promise.resolve();
+    first.resolve("first");
+    await flush();
 
-    expect(machine.state.current.status).toBe("success");
+    expect(hook.render().state).toEqual({ status: "success", value: "first" });
   });
 });
 
-describe("useIpcAction — cancellation via cancel()", () => {
-  it("transitions back to idle and suppresses UI after explicit cancel()", async () => {
-    const machine = makeActionMachine<string>();
+describe("useIpcAction — cancellation", () => {
+  it("cancel() aborts the signal, returns to idle, and ignores the late resolution", async () => {
+    const hook = mountHook<string>();
+    const pending = deferredAction<string>();
 
-    let resolveAction!: (v: string) => void;
-    machine.triggerNoWait(
-      () =>
-        new Promise<string>((resolve) => {
-          resolveAction = resolve;
-        }),
-    );
+    hook.render().run(pending.action);
+    expect(hook.render().state.status).toBe("loading");
 
-    expect(machine.state.current.status).toBe("loading");
+    hook.render().cancel();
 
-    machine.cancel();
-
-    expect(machine.state.current.status).toBe("idle");
+    expect(pending.signal()?.aborted).toBe(true);
+    expect(hook.render().state).toEqual({ status: "idle" });
 
     // Resolve the original promise after cancel — must not change state.
-    resolveAction("late");
-    await Promise.resolve();
-    await Promise.resolve();
+    pending.resolve("late");
+    await flush();
 
-    expect(machine.state.current.status).toBe("idle");
+    expect(hook.render().state).toEqual({ status: "idle" });
   });
 
   it("maps AppError category:cancelled thrown inside the action to idle", async () => {
-    const machine = makeActionMachine<void>();
+    const hook = mountHook<void>();
 
-    await machine.trigger(async () => {
+    hook.render().run(async () => {
       throw appErrorCancelled("user pressed Escape");
     });
+    await flush();
 
-    expect(machine.state.current.status).toBe("idle");
+    expect(hook.render().state).toEqual({ status: "idle" });
   });
 
   it("maps an AbortError thrown inside the action to idle", async () => {
-    const machine = makeActionMachine<void>();
+    const hook = mountHook<void>();
 
-    await machine.trigger(async () => {
+    hook.render().run(async () => {
       throw createAbortError();
     });
+    await flush();
 
-    expect(machine.state.current.status).toBe("idle");
+    expect(hook.render().state).toEqual({ status: "idle" });
   });
 });
 
 describe("useIpcAction — unmount: discards in-flight result", () => {
-  it("does not update state after unmount when action resolves", async () => {
-    const machine = makeActionMachine<string>();
+  it("aborts the signal and drops a resolution that lands after unmount", async () => {
+    const received: string[] = [];
+    const hook = mountHook<string>({ onSuccess: (v) => received.push(v) });
+    const pending = deferredAction<string>();
 
-    let resolveAction!: (v: string) => void;
-    machine.triggerNoWait(
-      () =>
-        new Promise<string>((resolve) => {
-          resolveAction = resolve;
-        }),
-    );
+    hook.render().run(pending.action);
+    hook.unmount();
 
-    expect(machine.state.current.status).toBe("loading");
+    expect(pending.signal()?.aborted).toBe(true);
 
-    // Simulate component unmount before the action settles.
-    machine.unmount();
+    pending.resolve("late-value");
+    await flush();
 
-    // Resolve the action after unmount.
-    resolveAction("late-value");
-    await Promise.resolve();
-    await Promise.resolve();
-
-    // State must NOT have been mutated — the component is gone.
-    // After unmount the machine stops accepting state updates; its state
-    // object is frozen at whatever it was at unmount time.  The test
-    // verifies that the success branch's setState was suppressed.
-    expect(machine.state.current.status).toBe("loading");
+    // No setState and no onSuccess after unmount — the last state is still loading.
+    expect(received).toEqual([]);
+    expect(hook.render().state.status).toBe("loading");
   });
 
-  it("does not update state after unmount when action throws", async () => {
-    const machine = makeActionMachine<string>();
+  it("drops a rejection that lands after unmount", async () => {
+    const hook = mountHook<string>();
+    const pending = deferredAction<string>();
 
-    let rejectAction!: (e: Error) => void;
-    machine.triggerNoWait(
-      () =>
-        new Promise<string>((_resolve, reject) => {
-          rejectAction = reject;
-        }),
-    );
+    hook.render().run(pending.action);
+    hook.unmount();
 
-    machine.unmount();
+    pending.reject(new Error("post-unmount throw"));
+    await flush();
 
-    rejectAction(new Error("post-unmount throw"));
-    await Promise.resolve();
-    await Promise.resolve();
-
-    // Error branch's setState was suppressed — still showing loading at unmount time.
-    expect(machine.state.current.status).toBe("loading");
+    expect(hook.render().state.status).toBe("loading");
   });
 });
 
-describe("useIpcAction — rapid-remount race: superseded controller is discarded", () => {
-  it("discards the resolution of a superseded action when a new run() is triggered", async () => {
-    const machine = makeActionMachine<string>();
+describe("useIpcAction — superseded controller is discarded", () => {
+  it("ignores a cancelled run's late resolution once a new run() is in flight", async () => {
+    const hook = mountHook<string>();
+    const first = deferredAction<string>();
+    const second = deferredAction<string>();
 
-    // Deliberately force state back to idle to allow a second run().
-    // This simulates the race: first run() completes with error, state resets,
-    // second run() is triggered; then the first resolves late — but since we
-    // are not remounting, we simulate by running two actions in sequence.
-    //
-    // The race we care about: each run() mints a fresh AbortController.
-    // The earlier controller's resolution is ignored if a newer one exists.
+    hook.render().run(first.action);
+    // Cancel the first to free the in-flight gate, then start a second.
+    hook.render().cancel();
+    hook.render().run(second.action);
+    expect(hook.render().state.status).toBe("loading");
 
-    let resolveFirst!: (v: string) => void;
-    let resolveSecond!: (v: string) => void;
+    // Resolve the first action late (after it was superseded by cancel + new run).
+    first.resolve("stale-value");
+    await flush();
 
-    machine.triggerNoWait(
-      () =>
-        new Promise<string>((resolve) => {
-          resolveFirst = resolve;
-        }),
-    );
-
-    // Cancel the first to free the loading gate, then start a second.
-    machine.cancel();
-
-    machine.triggerNoWait(
-      () =>
-        new Promise<string>((resolve) => {
-          resolveSecond = resolve;
-        }),
-    );
-
-    expect(machine.state.current.status).toBe("loading");
-
-    // Resolve the first action late (after it was superseded by cancel+new run).
-    resolveFirst("stale-value");
-    await Promise.resolve();
-    await Promise.resolve();
-
-    // The first resolution must be ignored; state is still loading.
-    expect(machine.state.current.status).toBe("loading");
+    expect(hook.render().state.status).toBe("loading");
 
     // Resolve the second — it wins.
-    resolveSecond("fresh-value");
-    await Promise.resolve();
-    await Promise.resolve();
+    second.resolve("fresh-value");
+    await flush();
 
-    const s = machine.state.current;
-    expect(s.status).toBe("success");
-    if (s.status === "success") {
-      expect(s.value).toBe("fresh-value");
-    }
-  });
-});
-
-describe("useIpcAction — multi-stage action error tagging", () => {
-  it("carries stage context via AppError code so the caller can identify which step failed", async () => {
-    const machine = makeActionMachine<{ connected: boolean; authenticated: boolean }>();
-
-    await machine.trigger(async () => {
-      // Stage 1: connection succeeds.
-      await Promise.resolve("connected");
-      // Stage 2: authentication fails — caller tags the error with the stage name.
-      throw appErrorFailed("auth rejected", { domain: "ssh", code: "auth-failed" });
-    });
-
-    const s = machine.state.current;
-    expect(s.status).toBe("error");
-    if (s.status === "error") {
-      expect(s.error.code).toBe("auth-failed");
-      expect(s.error.domain).toBe("ssh");
-    }
-  });
-
-  it("returns a structured success value carrying per-stage metadata", async () => {
-    const machine = makeActionMachine<{ connected: boolean; authenticated: boolean }>();
-
-    await machine.trigger(async () => {
-      await Promise.resolve();
-      return { connected: true, authenticated: true };
-    });
-
-    const s = machine.state.current;
-    expect(s.status).toBe("success");
-    if (s.status === "success") {
-      expect(s.value.connected).toBe(true);
-      expect(s.value.authenticated).toBe(true);
-    }
+    expect(hook.render().state).toEqual({ status: "success", value: "fresh-value" });
   });
 });
