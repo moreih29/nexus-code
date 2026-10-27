@@ -68,7 +68,7 @@ async function expectTimeout(promise: Promise<unknown>): Promise<void> {
     () => null,
     (e: unknown) => e,
   );
-  expect((error as { code?: string } | null)?.code).toBe("ssh.unknown");
+  expect(error).toMatchObject({ code: "transport.timeout", message: "Agent request timed out" });
 }
 
 describe("createNdjsonPipe late responses", () => {

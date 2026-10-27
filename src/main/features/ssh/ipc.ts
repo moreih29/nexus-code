@@ -477,5 +477,7 @@ function messageForSshErrorCode(code: SshErrorCode): string {
       return "SSH workspace validation failed";
     case "transport.unknown":
       return "Agent transport failed";
+    case "transport.timeout":
+      return "Agent request timed out";
   }
 }

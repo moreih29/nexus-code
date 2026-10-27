@@ -11,6 +11,7 @@ export const SshErrorCodeSchema = z.enum([
   "server.protocol-version-mismatch",
   "ssh.unknown",
   "transport.unknown",
+  "transport.timeout",
 ]);
 
 export type SshErrorCode = z.infer<typeof SshErrorCodeSchema>;

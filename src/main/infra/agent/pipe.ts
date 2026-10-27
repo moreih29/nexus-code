@@ -680,7 +680,7 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
               if (oldest !== undefined) abandonedRequestIds.delete(oldest);
             }
             return createSshError(
-              "ssh.unknown",
+              "transport.timeout",
               new Error(`${method} timed out after ${timeoutMs}ms`),
             );
           },
@@ -828,6 +828,8 @@ function messageForSshErrorCode(code: SshErrorCode): string {
       return "SSH transport failed";
     case "transport.unknown":
       return "Agent transport failed";
+    case "transport.timeout":
+      return "Agent request timed out";
   }
 }
 
