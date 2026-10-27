@@ -5,10 +5,6 @@
 # Every check runs on each desktop OS the app targets. The postinstall step
 # rebuilds node-pty and better-sqlite3 against Electron on the runner's own OS,
 # so each runner also proves the native modules build there.
-#
-# Windows is not supported yet (no installer, no SSH workspaces), so its job
-# reports failures without failing the workflow: each step runs and shows what
-# is still broken there.
 
 name: CI
 
@@ -28,14 +24,10 @@ jobs:
   ci:
     name: CI checks (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.experimental == true }}
     strategy:
       fail-fast: false
       matrix:
         os: [macos-14, ubuntu-latest, windows-latest]
-        include:
-          - os: windows-latest
-            experimental: true
 
     steps:
       - name: Checkout
@@ -55,29 +47,23 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Typecheck
-        continue-on-error: ${{ matrix.experimental == true }}
         run: bun run typecheck
 
       - name: Lint
-        continue-on-error: ${{ matrix.experimental == true }}
         run: bun run lint
 
       - name: Test
-        continue-on-error: ${{ matrix.experimental == true }}
         run: bun run test
 
       - name: Test agent
-        continue-on-error: ${{ matrix.experimental == true }}
         run: go test ./...
 
       - name: Build agent (dry-run)
         # Go cross-compile + Node runtime download + LSP bundle.
         # CGO 미사용이므로 어느 runner에서도 전 플랫폼 빌드 가능.
-        continue-on-error: ${{ matrix.experimental == true }}
         run: bun run scripts/build-agent.ts
 
       - name: Build renderer (dry-run)
         # electron-vite build — out/ 디렉터리 산출.
         # electron-builder는 실행하지 않는다 (CI 피드백 시간 절약).
-        continue-on-error: ${{ matrix.experimental == true }}
         run: bun run build

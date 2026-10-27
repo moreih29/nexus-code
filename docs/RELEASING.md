@@ -12,7 +12,7 @@
 | `develop` | 통합 브랜치. 모든 기능/수정이 여기 쌓인다. |
 | `main` | 릴리스 브랜치. 태그와 GitHub Release는 여기서만 만든다. |
 
-- **CI (`ci.yml`)** 는 `main` · `develop` 으로의 **PR** 과 `main` **push** 에서 돈다 (typecheck · lint · test, electron-builder 미실행). macOS · Ubuntu · Windows 러너에서 각각 돌며, Windows 는 아직 지원 전이라 실패해도 CI 를 막지 않는다. develop push 에는 게이트가 없으므로, 품질 게이트는 PR 에서 통과시킨다.
+- **CI (`ci.yml`)** 는 `main` · `develop` 으로의 **PR** 과 `main` **push** 에서 돈다 (typecheck · lint · test, electron-builder 미실행). macOS · Ubuntu · Windows 러너에서 각각 돌며, 세 OS 모두 통과해야 한다. develop push 에는 게이트가 없으므로, 품질 게이트는 PR 에서 통과시킨다.
 - **Release (`release.yml`)** 는 **GitHub Release 가 created** 될 때 트리거된다.
 
 ### 서명 인증서
