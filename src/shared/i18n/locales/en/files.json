@@ -586,6 +586,14 @@
       "submitSquash": "Squash",
       "cancel": "Cancel"
     },
+    "conflict": {
+      "acceptCurrent": "Accept Current Change",
+      "acceptCurrentTooltip": "Keep the current (ours / HEAD) side and remove all markers",
+      "acceptIncoming": "Accept Incoming Change",
+      "acceptIncomingTooltip": "Keep the incoming (theirs) side and remove all markers",
+      "acceptBoth": "Accept Both Changes",
+      "acceptBothTooltip": "Concatenate current then incoming; remove all markers"
+    },
     "stashPicker": {
       "applyTitle": "Stashes",
       "dropTitle": "Drop Stash",

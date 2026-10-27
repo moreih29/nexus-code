@@ -27,6 +27,7 @@
  *   - Marker lines: slightly stronger tint at α 0.12
  */
 
+import i18next from "i18next";
 import type * as Monaco from "monaco-editor";
 import {
   acceptBoth,
@@ -271,27 +272,27 @@ function buildLensesForBlock(
       range,
       command: {
         id: commandIds.current,
-        title: "Accept Current Change",
+        title: i18next.t("files:git.conflict.acceptCurrent"),
         arguments: [block.index],
-        tooltip: "Keep the current (ours / HEAD) side and remove all markers",
+        tooltip: i18next.t("files:git.conflict.acceptCurrentTooltip"),
       },
     },
     {
       range,
       command: {
         id: commandIds.incoming,
-        title: "Accept Incoming Change",
+        title: i18next.t("files:git.conflict.acceptIncoming"),
         arguments: [block.index],
-        tooltip: "Keep the incoming (theirs) side and remove all markers",
+        tooltip: i18next.t("files:git.conflict.acceptIncomingTooltip"),
       },
     },
     {
       range,
       command: {
         id: commandIds.both,
-        title: "Accept Both Changes",
+        title: i18next.t("files:git.conflict.acceptBoth"),
         arguments: [block.index],
-        tooltip: "Concatenate current then incoming; remove all markers",
+        tooltip: i18next.t("files:git.conflict.acceptBothTooltip"),
       },
     },
   ];
