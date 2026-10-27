@@ -1,5 +1,13 @@
-import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import {
+  cpSync,
+  createReadStream,
+  existsSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, extname, resolve, sep } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
@@ -99,6 +107,55 @@ function themeTokensPlugin(): Plugin {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Vite plugin: ship monaco-editor's AMD build with the app.
+//
+// @monaco-editor/react loads Monaco at runtime from `<paths.vs>/loader.js`,
+// by default on the jsDelivr CDN — so without network the editor never
+// loads. This copies the installed package's `min/vs` (the same build the CDN
+// serves) next to the renderer as `monaco/vs`, served by the dev server and
+// written into the build, and src/renderer/services/editor/runtime/
+// monaco-loader.ts points the loader there.
+// ---------------------------------------------------------------------------
+const MONACO_VS_DIR = "monaco/vs";
+
+const MONACO_MIME_TYPES: Record<string, string> = {
+  ".js": "text/javascript",
+  ".css": "text/css",
+  ".json": "application/json",
+  ".ttf": "font/ttf",
+};
+
+function monacoAssetsPlugin(): Plugin {
+  // The config is bundled as ESM, where `require` is a shim without resolve().
+  const packageJson = createRequire(resolve(__dirname, "package.json")).resolve(
+    "monaco-editor/package.json",
+  );
+  const source = resolve(dirname(packageJson), "min/vs");
+  return {
+    name: "vite-plugin-monaco-assets",
+    configureServer(server) {
+      server.middlewares.use(`/${MONACO_VS_DIR}`, (req, res, next) => {
+        const pathname = decodeURIComponent(new URL(req.url ?? "/", "http://localhost").pathname);
+        const file = resolve(source, `.${pathname}`);
+        if (!file.startsWith(`${source}${sep}`) || !existsSync(file) || !statSync(file).isFile()) {
+          next();
+          return;
+        }
+        res.setHeader(
+          "Content-Type",
+          MONACO_MIME_TYPES[extname(file)] ?? "application/octet-stream",
+        );
+        createReadStream(file).pipe(res);
+      });
+    },
+    writeBundle(options) {
+      if (!options.dir) return;
+      cpSync(source, resolve(options.dir, MONACO_VS_DIR), { recursive: true });
+    },
+  };
+}
+
 export default defineConfig({
   main: {
     define: CHANNEL_DEFINES,
@@ -148,6 +205,6 @@ export default defineConfig({
         "@": resolve(__dirname, "src/renderer"),
       },
     },
-    plugins: [themeTokensPlugin(), tailwindcss(), react(), svgr()],
+    plugins: [themeTokensPlugin(), monacoAssetsPlugin(), tailwindcss(), react(), svgr()],
   },
 });
