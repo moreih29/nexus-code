@@ -107,7 +107,7 @@ describe("GitRepository.listBranches", () => {
  */
 function makeClonePair(): { client: string; remoteUrl: string } {
   const remote = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-git-track-remote-"));
-  runGit(remote, ["init", "--bare"]);
+  runGit(remote, ["init", "--bare", "-b", "main"]);
 
   const seed = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-git-track-seed-"));
   runGit(seed, ["init", "-b", "main"]);
