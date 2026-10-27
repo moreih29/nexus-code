@@ -22,6 +22,7 @@ import { useDragSource } from "@/components/ui/use-drag-source";
 import { DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
 import { cacheUriFor } from "@/services/editor/model/cache";
 import { isDirty, subscribeFileDirty } from "@/services/editor/model/dirty-tracker";
+import { requestTabFocus } from "@/services/tab-focus";
 import { cn } from "@/utils/cn";
 import { isImeComposing } from "@/utils/ime";
 import { basename } from "@/utils/path";
@@ -357,6 +358,14 @@ export function TabItem({
     >
       <RadixTabs.Trigger
         value={tab.id}
+        // A click (or Enter / Space) hands focus to the tab's content so the
+        // user can type right away. Not on arrow keys: Radix activates the tab
+        // as the user arrows through the strip, and focus must stay there. Not
+        // on the second click of a double-click either, which starts a rename
+        // that focuses its own input.
+        onClick={(e) => {
+          if (e.detail <= 1 && !e.ctrlKey) requestTabFocus(tab.id);
+        }}
         aria-label={terminalEnded ? `${displayTitle}${t("tabBar.terminal_ended_aria")}` : undefined}
         className={cn(
           // chip layout — h-7 inset within the h-9 bar; rounded so the active /

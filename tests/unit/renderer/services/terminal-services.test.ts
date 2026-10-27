@@ -160,6 +160,7 @@ function makeTerminalControllerDeps(
   const unparsedWriteCallbacks: Array<() => void> = [];
   const spawnCalls: TerminalDimensions[] = [];
   const ptyWrites: string[] = [];
+  let focusCalls = 0;
   let capturedDataHandler: ((data: string) => void) | null = null;
   let ptyOptions: PtyClientOptions | null = null;
   // 가변 buffer state — 테스트에서 setBufferType("alternate" | "normal")로 전환해
@@ -226,6 +227,9 @@ function makeTerminalControllerDeps(
       attachCustomKeyEventHandler: (handler) => {
         capturedKeyHandler = handler;
       },
+      focus: () => {
+        focusCalls += 1;
+      },
     }),
     createFitAddon: () => ({
       dispose: () => {},
@@ -257,6 +261,7 @@ function makeTerminalControllerDeps(
     writes,
     ptyWrites,
     getPtyOptions: () => ptyOptions,
+    getFocusCalls: () => focusCalls,
     /** Emits `data` the way xterm does for typed keys and its own answers. */
     termData(data: string): void {
       capturedDataHandler?.(data);
@@ -693,6 +698,33 @@ describe("services/terminal controller spawn failure", () => {
     expect(harness.writes).toEqual([
       "\r\n[Couldn't start the terminal: chdir /gone: no such file or directory]\r\n",
     ]);
+
+    controller.dispose();
+  });
+});
+
+describe("services/terminal controller focus", () => {
+  beforeEach(resetIpc);
+
+  it("focuses the terminal once it opens when asked before", async () => {
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-focus-early",
+        cwd: "/workspace",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+      },
+      harness.deps,
+    );
+    controller.focus();
+    expect(harness.getFocusCalls()).toBe(0);
+
+    await flushTerminalInit();
+    expect(harness.getFocusCalls()).toBe(1);
+
+    controller.focus();
+    expect(harness.getFocusCalls()).toBe(2);
 
     controller.dispose();
   });

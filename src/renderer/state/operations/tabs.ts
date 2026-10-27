@@ -10,6 +10,7 @@
 
 import { cacheUriFor } from "@/services/editor/model/cache";
 import { isDirty } from "@/services/editor/model/dirty-tracker";
+import { requestTabFocus } from "@/services/tab-focus";
 import { useLayoutStore } from "../stores/layout";
 import { allLeaves, findLeaf } from "../stores/layout/helpers";
 import {
@@ -399,7 +400,9 @@ export function closeTab(workspaceId: string, tabId: string): void {
  */
 export function openNewUntitledTab(workspaceId: string): Tab {
   const index = useUntitledCounterStore.getState().claimNext(workspaceId);
-  return openTabRecord(workspaceId, { type: "untitled", props: { untitledIndex: index } });
+  const tab = openTabRecord(workspaceId, { type: "untitled", props: { untitledIndex: index } });
+  requestTabFocus(tab.id);
+  return tab;
 }
 
 /**

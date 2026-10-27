@@ -2,6 +2,7 @@ import { Grid } from "@/engine";
 import { closeTab, openTerminalTab, openTabInNewSplit } from "@/state/operations";
 import { useLayoutStore } from "@/state/stores/layout";
 import { useTabsStore } from "@/state/stores/tabs";
+import { requestTabFocus } from "../tab-focus";
 import { killSession } from "./pty-client";
 import type { OpenTerminalOptions, TerminalInput, TerminalTabLocation } from "./types";
 
@@ -40,10 +41,12 @@ export function openTerminal(
       orientation,
       side,
     );
+    requestTabFocus(tabId);
     return { groupId: newLeafId, tabId };
   }
 
   const tab = openTerminalTab(input.workspaceId, "terminal", { cwd: input.cwd }, { groupId: opts.groupId });
+  requestTabFocus(tab.id);
   return { groupId: groupIdForTab(input.workspaceId, tab.id), tabId: tab.id };
 }
 

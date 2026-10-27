@@ -58,6 +58,8 @@ export interface TerminalController {
    * a black viewport until the next data arrives.
    */
   refresh: () => void;
+  /** Focus the terminal, or do so once it has opened if it has not yet. */
+  focus: () => void;
   reopen: () => Promise<void>;
   dispose: () => void;
 }

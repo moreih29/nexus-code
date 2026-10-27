@@ -7,6 +7,7 @@ import { registerCommand } from "../../commands/registry";
 import { Grid } from "../../engine";
 import { openOrRevealEditor } from "../../services/editor";
 import { closeTabWithConfirm } from "../../services/editor/save/close-tab";
+import { requestTabFocus } from "../../services/tab-focus";
 import { openTerminal } from "../../services/terminal";
 import { closeGroup } from "../../state/operations";
 import { useActiveStore } from "../../state/stores/active";
@@ -57,6 +58,7 @@ function moveFocus(direction: "left" | "right" | "up" | "down"): void {
   const nextLeaf = leaves[nextIdx];
   if (nextLeaf) {
     useLayoutStore.getState().setActiveGroup(wsId, nextLeaf.id);
+    if (nextLeaf.activeTabId) requestTabFocus(nextLeaf.activeTabId);
   }
 }
 

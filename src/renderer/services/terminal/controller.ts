@@ -88,6 +88,7 @@ interface TerminalLike {
    */
   paste: (data: string) => void;
   attachCustomKeyEventHandler: (handler: (event: KeyboardEvent) => boolean) => void;
+  focus: () => void;
 }
 type FitAddonLike = Pick<FitAddon, "dispose" | "fit" | "proposeDimensions">;
 type LigaturesAddonLike = Pick<LigaturesAddon, "dispose">;
@@ -309,6 +310,8 @@ class XtermTerminalController implements TerminalController {
    * must not reach the program as input.
    */
   private replayWritesPending = 0;
+  /** Focus asked for before xterm existed; applied once it opens. */
+  private focusOnOpen = false;
 
   constructor(
     private readonly options: TerminalControllerOptions,
@@ -338,6 +341,12 @@ class XtermTerminalController implements TerminalController {
     }
     this.runFit();
     term.refresh(0, term.rows - 1);
+  }
+
+  focus(): void {
+    if (this.disposed) return;
+    if (this.term) this.term.focus();
+    else this.focusOnOpen = true;
   }
 
   dispose(): void {
@@ -478,6 +487,10 @@ class XtermTerminalController implements TerminalController {
     this.fitAddon = fitAddon;
     term.loadAddon(fitAddon);
     term.open(this.options.container);
+    if (this.focusOnOpen) {
+      this.focusOnOpen = false;
+      term.focus();
+    }
     // Ligatures must be applied AFTER open() — the addon hooks the active
     // (DOM) renderer, which only exists once the terminal is attached.
     this.applyLigatures(term);

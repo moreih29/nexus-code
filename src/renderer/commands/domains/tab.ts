@@ -7,6 +7,7 @@ import { registerCommand } from "../../commands/registry";
 import { cacheUriFor } from "../../services/editor/model/cache";
 import { isDirty } from "../../services/editor/model/dirty-tracker";
 import { closeEditor } from "../../services/editor/tabs";
+import { requestTabFocus } from "../../services/tab-focus";
 import { toggleTabPin } from "../../state/operations";
 import { useLayoutStore } from "../../state/stores/layout";
 import { useTabsStore } from "../../state/stores/tabs";
@@ -36,12 +37,14 @@ function cycleActiveTab(delta: 1 | -1): void {
         : tabIds.length - 1
       : (currentIndex + delta + tabIds.length) % tabIds.length;
 
+  const tabId = tabIds[nextIndex];
   useLayoutStore.getState().setActiveTabInGroup({
     workspaceId: ctx.wsId,
     groupId: ctx.leaf.id,
-    tabId: tabIds[nextIndex],
+    tabId,
     activateGroup: true,
   });
+  requestTabFocus(tabId);
 }
 
 export function registerTabCommands(): Array<() => void> {

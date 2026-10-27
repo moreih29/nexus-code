@@ -1,6 +1,7 @@
 import type * as Monaco from "monaco-editor";
 import { useEffect } from "react";
 import { registerRevealTarget } from "../../../../services/editor/tabs";
+import { registerTabFocusTarget } from "../../../../services/tab-focus";
 
 /**
  * Registers the live editor instance as the reveal target for
@@ -40,4 +41,12 @@ export function useRevealTargetRegistration({
     if (!ready || !editor) return;
     return registerRevealTarget({ workspaceId, filePath }, editor, tabId);
   }, [ready, editor, workspaceId, filePath, tabId]);
+
+  // The tab-focus target registers on the same condition: focusing an editor
+  // whose model is not attached yet would put the caret in the empty
+  // temporary model.
+  useEffect(() => {
+    if (!ready || !editor) return;
+    return registerTabFocusTarget(tabId, () => editor.focus());
+  }, [ready, editor, tabId]);
 }
