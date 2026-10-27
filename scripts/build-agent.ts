@@ -20,11 +20,19 @@ const DEFAULT_PROTOCOL_VERSION = AGENT_PROTOCOL_VERSION;
 const NODE_MAJOR = 20;
 const NODE_DIST_BASE_URL = "https://nodejs.org/dist";
 
-export const AGENT_BUILD_TARGETS = [
+/** The hosts an SSH workspace runs on; each also gets a Node runtime. */
+const SSH_HOST_TARGETS = [
   { os: "linux", arch: "amd64" },
   { os: "linux", arch: "arm64" },
   { os: "darwin", arch: "amd64" },
   { os: "darwin", arch: "arm64" },
+] as const satisfies readonly AgentArtifactPlatform[];
+
+/** The SSH hosts, plus Windows, where the agent serves only the local app. */
+export const AGENT_BUILD_TARGETS = [
+  ...SSH_HOST_TARGETS,
+  { os: "windows", arch: "amd64" },
+  { os: "windows", arch: "arm64" },
 ] as const satisfies readonly AgentArtifactPlatform[];
 
 const LSP_BUNDLES = [
@@ -214,7 +222,8 @@ async function buildAgentBinaries(args: {
 }): Promise<ManifestArtifactInput[]> {
   const artifacts: ManifestArtifactInput[] = [];
   for (const target of AGENT_BUILD_TARGETS) {
-    const name = `agent-${args.version}-${target.os}-${target.arch}`;
+    const extension = target.os === "windows" ? ".exe" : "";
+    const name = `agent-${args.version}-${target.os}-${target.arch}${extension}`;
     await args.run(
       "go",
       [
@@ -256,7 +265,7 @@ async function downloadNodeRuntimes(
   await fs.mkdir(runtimeDir, { recursive: true });
   const artifacts: RuntimeArtifactInput[] = [];
 
-  for (const target of AGENT_BUILD_TARGETS) {
+  for (const target of SSH_HOST_TARGETS) {
     const platform = nodeDistPlatform(target);
     const archive = `node-${args.nodeVersion}-${platform}.tar.gz`;
     const relativePath = path.join("runtime", archive);
