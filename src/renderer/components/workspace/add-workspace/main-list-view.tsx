@@ -279,8 +279,8 @@ export function MainListView({
         <EmptyState
           tone="status"
           icon={<FolderPlus className="size-6" aria-hidden="true" />}
-          title={t("workspace.no_workspaces_yet")}
-          description={t("workspace.no_workspaces_desc")}
+          title={t("workspace.no_recent_folders")}
+          description={t("workspace.no_recent_folders_desc")}
         />
       </div>
     );
