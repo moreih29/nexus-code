@@ -36,6 +36,9 @@ export function registerDialogChannel(): void {
           title: opts.title ?? t("dialog:saveFile.title"),
           defaultPath: opts.defaultPath,
           filters: opts.filters,
+          // The renderer overwrites the picked file, so every platform must
+          // ask first; macOS and Windows always do, Linux only on request.
+          properties: ["showOverwriteConfirmation"],
         });
         return { canceled: result.canceled, filePath: result.filePath };
       },

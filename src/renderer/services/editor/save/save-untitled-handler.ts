@@ -3,7 +3,9 @@
 // saveUntitledModel orchestrates the full "Untitled → saved file" flow:
 //   1. Show the native save-file dialog.
 //   2. User cancels → silent return (untitled tab preserved).
-//   3. User picks a path → write buffer content with fs.writeFile.
+//   3. User picks a path → write buffer content with fs.writeFile. The
+//      dialog already confirmed replacing an existing file, so one is
+//      overwritten (and its open tab, if any, reloaded).
 //   4. On write success → acquireModel with the new path, replace the tab,
 //      then releaseModel on the old untitled entry (and, once the tab's
 //      editor holds the new model, on the new one).
@@ -20,9 +22,16 @@ import { useTabsStore } from "../../../state/stores/tabs";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { fsErrorReason } from "../../../utils/file-error";
 import { basename } from "../../../utils/path";
-import { acquireModel, getResolvedModel, releaseModel } from "../model/cache";
+import {
+  acquireModel,
+  getModelSnapshot,
+  getResolvedModel,
+  releaseModel,
+  reloadModelFromDisk,
+} from "../model/cache";
 import { markSaved as markDirtyTrackerSaved } from "../model/dirty-tracker";
 import type { EditorInput } from "../types";
+import { writeConfirmedSaveTarget } from "./confirmed-target-write";
 
 export type SaveUntitledOutcome = "saved" | "cancelled" | "failed";
 
@@ -107,16 +116,26 @@ export async function saveUntitledModel(
   }
   const writeRelPath = chosenPath.slice(rootWithSep.length);
 
+  const newInput: EditorInput = {
+    workspaceId,
+    filePath: chosenPath,
+    origin: "workspace",
+  };
+  // A file the dialog let the user replace may already be open in a tab.
+  const replacingOpenFile = getModelSnapshot(newInput) !== null;
+
   // biome-ignore lint/suspicious/noImplicitAnyLet: writeFileResult type narrows from unwrapIpcResult inside the try block; an explicit annotation would duplicate the IPC contract.
   let writeFileResult;
   try {
-    writeFileResult = unwrapIpcResult(
-      await ipcCallResult("fs", "writeFile", {
-        workspaceId,
-        relPath: writeRelPath,
-        content,
-        expected: { exists: false },
-      }),
+    writeFileResult = await writeConfirmedSaveTarget(async (expected) =>
+      unwrapIpcResult(
+        await ipcCallResult("fs", "writeFile", {
+          workspaceId,
+          relPath: writeRelPath,
+          content,
+          expected,
+        }),
+      ),
     );
   } catch (error) {
     showToast({
@@ -127,24 +146,16 @@ export async function saveUntitledModel(
   }
 
   if (writeFileResult.kind === "conflict") {
-    // A file already exists at the chosen path — treat as error for the
-    // first-save flow (user can rename in the dialog to avoid it).
     showToast({
       kind: "error",
       message: i18next.t("errors:save.failed", {
-        reason: i18next.t("errors:save.already_exists"),
+        reason: i18next.t("errors:save.changed_on_disk"),
       }),
     });
     return "failed";
   }
 
   const { mtime, size } = writeFileResult;
-
-  const newInput: EditorInput = {
-    workspaceId,
-    filePath: chosenPath,
-    origin: "workspace",
-  };
 
   // Acquire the new model. On failure keep the untitled tab open.
   try {
@@ -157,9 +168,13 @@ export async function saveUntitledModel(
     return "failed";
   }
 
+  // An open tab of the replaced file still holds its old content; load what
+  // was just written, as replacing the file in the dialog asked for.
+  if (replacingOpenFile) await reloadModelFromDisk(newInput);
+
   // Set savePoint on the new model's dirty tracker so it starts clean.
   const newResolved = getResolvedModel(newInput);
-  if (newResolved) {
+  if (newResolved && !replacingOpenFile) {
     markDirtyTrackerSaved({
       cacheUri: newResolved.cacheUri,
       model: newResolved.model,

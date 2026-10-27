@@ -32,7 +32,7 @@
     "failed": "저장 실패: {{reason}}",
     "buffer_unavailable": "에디터 버퍼를 사용할 수 없습니다",
     "outside_workspace": "워크스페이스 폴더 안의 위치를 선택하세요",
-    "already_exists": "해당 경로에 파일이 이미 있습니다",
+    "changed_on_disk": "저장하는 동안 디스크의 파일이 바뀌었습니다",
     "read_only": "읽기 전용 파일입니다."
   }
 }

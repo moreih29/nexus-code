@@ -32,7 +32,7 @@
     "failed": "Save failed: {{reason}}",
     "buffer_unavailable": "the editor buffer is not available",
     "outside_workspace": "choose a location inside the workspace folder",
-    "already_exists": "a file already exists at that path",
+    "changed_on_disk": "the file changed on disk while saving",
     "read_only": "File is read-only."
   }
 }
