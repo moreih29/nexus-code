@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { localAgentPlatform } from "../../../../src/main/infra/agent/getAgentBinDir";
 import {
   NEXUS_AGENT_MODE_ENV,
   resolveLocalAgentCommand,
@@ -16,13 +17,9 @@ import {
  */
 
 function writeManifest(dir: string): void {
-  const platform = `${process.platform === "darwin" ? "darwin" : "linux"}-${
-    process.arch === "arm64" ? "arm64" : "amd64"
-  }`;
-  const [manifestOs, manifestArch] = platform.split("-") as [
-    "linux" | "darwin",
-    "amd64" | "arm64",
-  ];
+  const platform = localAgentPlatform();
+  if (platform === null) throw new Error(`no agent build for ${process.platform}-${process.arch}`);
+  const { os: manifestOs, arch: manifestArch } = platform;
   // Minimum-viable manifest that AgentManifestSchema will accept. The binary
   // contents do not matter — the resolver only resolves the path.
   const binaryName = `agent-0.1.0-${manifestOs}-${manifestArch}`;
