@@ -35,7 +35,7 @@ type Service struct {
 	askpassListener   net.Listener
 	askpassSocketPath string
 	askpassSocketDir  string
-	askpassPending    map[string]chan askpassResolution
+	askpassPending    map[string]*askpassPending
 }
 
 type FileContentParams struct {
@@ -56,7 +56,7 @@ func New(root string) *Service {
 		streams:        make(map[string]context.CancelFunc),
 		watches:        make(map[string]*watchEntry),
 		gitDirty:       make(map[string]struct{}),
-		askpassPending: make(map[string]chan askpassResolution),
+		askpassPending: make(map[string]*askpassPending),
 	}
 }
 

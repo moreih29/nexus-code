@@ -26,6 +26,10 @@ type RunParams struct {
 	Env            map[string]string `json:"env,omitempty"`
 	Interactive    bool              `json:"interactive,omitempty"`
 	StdoutCapBytes int64             `json:"stdoutCapBytes,omitempty"`
+	// RunID, when set, lets git.cancel stop the command and tags its askpass
+	// prompts; see startRun. Push, pull and the other prompting methods take
+	// the same field.
+	RunID string `json:"runId,omitempty"`
 }
 
 type RunResult struct {
@@ -44,6 +48,11 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	ctx, done, err := s.startRun(ctx, params.RunID)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
 	cmd, err := s.command(ctx, params.Args, params.Cwd, params.Env, params.Interactive)
 	if err != nil {
 		return nil, err
@@ -178,6 +187,7 @@ func (s *Service) command(ctx context.Context, args []string, cwd string, env ma
 		if err != nil {
 			return nil, err
 		}
+		askpass.runID = runIDFrom(ctx)
 	}
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = resolvedCwd
@@ -236,6 +246,7 @@ func samePath(a string, b string) bool {
 type commandAskpass struct {
 	helperPath string
 	socketPath string
+	runID      string
 }
 
 func (s *Service) commandAskpass() (commandAskpass, error) {
@@ -263,6 +274,9 @@ func gitEnv(overrides map[string]string, interactive bool, askpass commandAskpas
 	if interactive {
 		env = appendOrReplaceEnv(env, askpassSocketEnv, askpass.socketPath)
 		env = appendOrReplaceEnv(env, askpassModeEnv, "1")
+		if askpass.runID != "" {
+			env = appendOrReplaceEnv(env, askpassRunEnv, askpass.runID)
+		}
 		env = appendOrReplaceEnv(env, "GIT_ASKPASS", askpass.helperPath)
 		env = appendOrReplaceEnv(env, "SSH_ASKPASS", askpass.helperPath)
 		env = appendOrReplaceEnv(env, "SSH_ASKPASS_REQUIRE", "force")

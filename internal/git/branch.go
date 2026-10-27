@@ -39,6 +39,7 @@ type BranchDeleteRemoteParams struct {
 	Cwd    string `json:"cwd,omitempty"`
 	Remote string `json:"remote"`
 	Name   string `json:"name"`
+	RunID  string `json:"runId,omitempty"`
 }
 
 // BranchRenameParams carries the parameters for git.branch.rename.
@@ -62,6 +63,7 @@ type BranchFastForwardParams struct {
 	Branch    string `json:"branch"`
 	Remote    string `json:"remote"`
 	RemoteRef string `json:"remoteRef"`
+	RunID     string `json:"runId,omitempty"`
 }
 
 // BranchFastForwardResult carries before/after SHAs for git.branch.fastForward.
@@ -190,6 +192,12 @@ func (s *Service) BranchDeleteRemote(ctx context.Context, raw json.RawMessage) (
 		return nil, proto.ProtocolError("git.branch.deleteRemote params must not contain NUL")
 	}
 
+	ctx, done, err := s.startRun(ctx, p.RunID)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
 	if err := s.runBranchCommand(ctx, []string{"push", p.Remote, "--delete", p.Name}, p.Cwd, true); err != nil {
 		return nil, err
 	}
@@ -268,6 +276,12 @@ func (s *Service) BranchFastForward(ctx context.Context, raw json.RawMessage) (a
 		strings.Contains(p.RemoteRef, "\x00") || strings.Contains(p.Cwd, "\x00") {
 		return nil, proto.ProtocolError("git.branch.fastForward params must not contain NUL")
 	}
+
+	ctx, done, err := s.startRun(ctx, p.RunID)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
 
 	fromSha, err := s.branchRevParse(ctx, p.Cwd, p.Branch)
 	if err != nil {

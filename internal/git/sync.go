@@ -17,8 +17,9 @@ import (
 
 // PullParams carries the parameters for git.pull.
 type PullParams struct {
-	Cwd  string   `json:"cwd,omitempty"`
-	Args []string `json:"args,omitempty"`
+	Cwd   string   `json:"cwd,omitempty"`
+	Args  []string `json:"args,omitempty"`
+	RunID string   `json:"runId,omitempty"`
 }
 
 // PullResult mirrors src/shared/types/git.ts PullResultSchema.
@@ -37,6 +38,7 @@ type PushParams struct {
 	Force   bool     `json:"force,omitempty"`
 	Publish bool     `json:"publish,omitempty"`
 	Args    []string `json:"args,omitempty"`
+	RunID   string   `json:"runId,omitempty"`
 }
 
 // PushResult mirrors src/shared/types/git.ts PushResultSchema.
@@ -64,6 +66,12 @@ func (s *Service) Pull(ctx context.Context, raw json.RawMessage) (any, error) {
 	if len(p.Args) > 0 {
 		args = append(args, p.Args...)
 	}
+
+	ctx, done, err := s.startRun(ctx, p.RunID)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
 
 	stdout, stderr, code, err := s.runSyncGit(ctx, p.Cwd, args, true)
 	if err != nil {
@@ -142,6 +150,12 @@ func (s *Service) Push(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	args := buildPushArgs(p)
+
+	ctx, done, err := s.startRun(ctx, p.RunID)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
 
 	stdout, stderr, code, err := s.runSyncGit(ctx, p.Cwd, args, true)
 	if err != nil {

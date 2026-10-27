@@ -49,12 +49,13 @@ func (s *Service) Stream(ctx context.Context, raw json.RawMessage) (any, error) 
 		return nil, err
 	}
 
-	streamCtx, cancel := context.WithCancel(ctx)
-	if err := s.registerStream(params.StreamID, cancel); err != nil {
-		cancel()
+	// The stream id doubles as the run id, so git.cancel and askpass routing
+	// work as for git.run.
+	streamCtx, cancel, err := s.startRun(ctx, params.StreamID)
+	if err != nil {
 		return nil, err
 	}
-	defer s.unregisterStream(params.StreamID)
+	defer cancel()
 
 	cmd, err := s.command(streamCtx, params.Args, params.Cwd, params.Env, params.Interactive)
 	if err != nil {

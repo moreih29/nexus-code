@@ -21,11 +21,15 @@ const (
 	askpassRequestEvent = "git.askpass.request"
 	askpassSocketEnv    = "NEXUS_AGENT_ASKPASS_SOCKET"
 	askpassModeEnv      = "NEXUS_AGENT_ASKPASS_MODE"
+	// askpassRunEnv carries the run id of the request whose git started the
+	// helper, so its prompts can be routed to and failed with that request.
+	askpassRunEnv = "NEXUS_AGENT_ASKPASS_RUN"
 )
 
 type askpassRequestPayload struct {
 	RequestID string `json:"requestId"`
 	Prompt    string `json:"prompt"`
+	RunID     string `json:"runId,omitempty"`
 }
 
 type askpassRespondParams struct {
@@ -37,6 +41,7 @@ type askpassRespondParams struct {
 
 type askpassHelperRequest struct {
 	Prompt string `json:"prompt"`
+	RunID  string `json:"runId,omitempty"`
 }
 
 type askpassHelperResponse struct {
@@ -49,6 +54,12 @@ type askpassResolution struct {
 	secret string
 	ok     bool
 	err    string
+}
+
+// askpassPending is one prompt waiting for the host's answer.
+type askpassPending struct {
+	resolution chan askpassResolution
+	runID      string
 }
 
 // RespondAskpass resolves one credential prompt that was emitted by the agent
@@ -78,9 +89,9 @@ func (s *Service) RespondAskpass(ctx context.Context, raw json.RawMessage) (any,
 	}
 
 	if params.Cancelled {
-		pending <- askpassResolution{ok: false, err: "credential prompt cancelled"}
+		pending.resolution <- askpassResolution{ok: false, err: "credential prompt cancelled"}
 	} else {
-		pending <- askpassResolution{ok: true, secret: params.Secret}
+		pending.resolution <- askpassResolution{ok: true, secret: params.Secret}
 	}
 	return struct{}{}, nil
 }
@@ -149,14 +160,23 @@ func (s *Service) handleAskpassConn(conn net.Conn) {
 
 	s.mu.Lock()
 	sink := s.sink
-	s.askpassPending[requestID] = resolution
+	_, runActive := s.streams[request.RunID]
+	if request.RunID == "" || runActive {
+		s.askpassPending[requestID] = &askpassPending{resolution: resolution, runID: request.RunID}
+	}
 	s.mu.Unlock()
+	if !runActive && request.RunID != "" {
+		// The request already ended (or was cancelled) and its prompts were
+		// failed; nobody is left to answer this one.
+		writeAskpassHelperResponse(conn, askpassHelperResponse{OK: false, Error: "git command ended"})
+		return
+	}
 	if sink == nil {
 		s.deleteAskpassPending(requestID)
 		writeAskpassHelperResponse(conn, askpassHelperResponse{OK: false, Error: "askpass unavailable"})
 		return
 	}
-	if err := sink(askpassRequestEvent, askpassRequestPayload{RequestID: requestID, Prompt: request.Prompt}); err != nil {
+	if err := sink(askpassRequestEvent, askpassRequestPayload{RequestID: requestID, Prompt: request.Prompt, RunID: request.RunID}); err != nil {
 		s.deleteAskpassPending(requestID)
 		writeAskpassHelperResponse(conn, askpassHelperResponse{OK: false, Error: "askpass unavailable"})
 		return
@@ -176,6 +196,24 @@ func (s *Service) deleteAskpassPending(requestID string) {
 	s.mu.Unlock()
 }
 
+// failAskpassRun fails the prompts a request left unanswered when it ended.
+// A cancelled git leaves its helper orphaned and blocked on the answer;
+// failing the prompt lets it exit.
+func (s *Service) failAskpassRun(runID string) {
+	s.mu.Lock()
+	var ended []*askpassPending
+	for requestID, pending := range s.askpassPending {
+		if pending.runID == runID {
+			delete(s.askpassPending, requestID)
+			ended = append(ended, pending)
+		}
+	}
+	s.mu.Unlock()
+	for _, pending := range ended {
+		pending.resolution <- askpassResolution{ok: false, err: "git command ended"}
+	}
+}
+
 func (s *Service) closeAskpassServerLocked() {
 	if s.askpassListener != nil {
 		_ = s.askpassListener.Close()
@@ -188,7 +226,7 @@ func (s *Service) closeAskpassServerLocked() {
 	}
 	for requestID, pending := range s.askpassPending {
 		delete(s.askpassPending, requestID)
-		pending <- askpassResolution{ok: false, err: "askpass stopped"}
+		pending.resolution <- askpassResolution{ok: false, err: "askpass stopped"}
 	}
 }
 
@@ -220,7 +258,8 @@ func RunAskpassHelper(socketPath string, promptArgs []string, stdout io.Writer, 
 	}
 	defer conn.Close()
 
-	if err := json.NewEncoder(conn).Encode(askpassHelperRequest{Prompt: prompt}); err != nil {
+	request := askpassHelperRequest{Prompt: prompt, RunID: os.Getenv(askpassRunEnv)}
+	if err := json.NewEncoder(conn).Encode(request); err != nil {
 		fmt.Fprintln(stderr, "Nexus Git askpass helper failed.")
 		return 1
 	}
