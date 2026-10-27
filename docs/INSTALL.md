@@ -49,6 +49,40 @@ xattr -dr com.apple.quarantine "/Applications/NexusCode.app"
 
 ---
 
+## Linux 설치
+
+### 1. 다운로드
+
+[Releases 페이지](https://github.com/moreih29/nexus-code/releases)에서 배포판과 아키텍처에 맞는 파일을 내려받는다. Ubuntu 24.04 에서 확인했다.
+
+| 형식 | x64 | arm64 |
+|---|---|---|
+| deb (Debian · Ubuntu) | `NexusCode-X.Y.Z-amd64.deb` | `NexusCode-X.Y.Z-arm64.deb` |
+| AppImage (그 밖의 배포판) | `NexusCode-X.Y.Z-x86_64.AppImage` | `NexusCode-X.Y.Z-arm64.AppImage` |
+
+Debian · Ubuntu 계열이면 deb 를 권장한다.
+
+### 2-a. deb 설치
+
+```bash
+sudo apt install ./NexusCode-X.Y.Z-amd64.deb
+```
+
+앱은 `/opt/NexusCode` 에 설치되고 애플리케이션 메뉴에 **NexusCode** 가 생긴다. 터미널에서는 `nexus-code` 로 실행한다. 제거는 `sudo apt remove nexus-code`.
+
+### 2-b. AppImage 실행
+
+```bash
+chmod +x NexusCode-X.Y.Z-x86_64.AppImage
+./NexusCode-X.Y.Z-x86_64.AppImage
+```
+
+설치 과정 없이 파일 하나로 실행된다. 앱 안 업데이트가 이 파일을 새 버전으로 바꾸므로, 쓰기 권한이 있는 곳(예: `~/Applications`)에 둔다.
+
+Ubuntu 23.10 이상에서는 처음 실행 전에 AppArmor 프로필을 한 번 등록해야 한다 — [아래](#ubuntu-2310-이상에서-appimage-가-바로-종료될-때) 참고.
+
+---
+
 ## 업데이트
 
 새 버전 알림의 **Update** 를 누르면 앱이 새 버전을 내려받고, 준비되면 **Restart Now** 로 설치한다. 누르지 않으면 다음 종료 때 설치된다.
@@ -56,6 +90,8 @@ xattr -dr com.apple.quarantine "/Applications/NexusCode.app"
 - 릴리스 빌드는 모두 같은 자체 서명 인증서로 서명된다. macOS 업데이터(Squirrel.Mac)는 새 버전의 서명이 실행 중인 앱과 같은 인증서일 때만 설치한다.
 - 0.10.0 이전 버전은 앱 안 업데이트를 지원하지 않는다. 그 버전에서는 한 번 `.dmg` 로 설치하고 보안 해제를 거친다.
 - Self-build 앱(ad-hoc 서명)은 앱 안에서 업데이트할 수 없다. 업데이트가 실패하면 알림의 **Open Release Page** 로 릴리스 페이지에서 내려받는다.
+- Linux 의 AppImage 는 같은 방식으로 앱 안에서 업데이트된다. 내려받은 새 AppImage 가 실행 중인 파일을 바꾼다.
+- deb 설치는 앱 안에서 업데이트하지 않는다. 알림의 **Download** 로 릴리스 페이지에서 새 deb 를 받아 `sudo apt install ./NexusCode-X.Y.Z-amd64.deb` 로 설치한다.
 
 ---
 
@@ -107,6 +143,28 @@ dist/
 로컬에서 직접 빌드한 `.app`은 ad-hoc 서명이 적용되며 quarantine 속성이 없다.
 별도 우회 절차 없이 더블클릭으로 바로 열린다.
 
+### Linux 에서 빌드
+
+| 도구 | 버전 |
+|---|---|
+| Bun | 1.x 이상 |
+| Node.js · npm | 20.x (에이전트 빌드가 LSP 번들을 npm 으로 설치한다) |
+| Go | 1.22 이상 |
+| C/C++ 빌드 도구 | Debian · Ubuntu 는 `sudo apt install build-essential python3` |
+
+```bash
+bun install
+bun run package:linux
+```
+
+현재 아키텍처용 AppImage 와 deb 를 만든다.
+
+```
+dist/
+  NexusCode-X.Y.Z-x86_64.AppImage   (arm64: NexusCode-X.Y.Z-arm64.AppImage)
+  NexusCode-X.Y.Z-amd64.deb         (arm64: NexusCode-X.Y.Z-arm64.deb)
+```
+
 ---
 
 ## 채널 (Stable / Beta)
@@ -135,13 +193,43 @@ xattr -dr com.apple.quarantine "/Applications/NexusCode.app"
 
 ### "업데이트를 설치하지 못했습니다"
 
-알림의 **Open Release Page**(릴리스 페이지 열기) 로 `.dmg` 를 내려받아 설치한다. 흔한 원인:
+알림의 **Open Release Page**(릴리스 페이지 열기) 로 `.dmg`(Linux 는 AppImage) 를 내려받아 설치한다. 흔한 원인:
 
 - 앱을 `/Applications` 로 옮기지 않고 `.dmg` 안에서 실행 중이다 (읽기 전용이라 교체할 수 없다).
 - `/Applications/NexusCode.app` 에 쓰기 권한이 없다.
 - Self-build 앱이다 (위 [업데이트](#업데이트) 참고).
+- Linux: AppImage 파일이 있는 폴더에 쓰기 권한이 없다.
 
-자세한 원인은 `~/Library/Logs/NexusCode/main.log` 의 `updates` 항목에 남는다.
+자세한 원인은 로그의 `updates` 항목에 남는다 — macOS `~/Library/Logs/NexusCode/main.log`, Linux `~/.config/NexusCode/logs/main.log`.
+
+### Ubuntu 23.10 이상에서 AppImage 가 바로 종료될 때
+
+터미널에서 실행하면 다음 오류를 내고 종료한다.
+
+```
+The SUID sandbox helper binary was found, but is not configured correctly.
+```
+
+Ubuntu 23.10 부터 AppArmor 가 일반 프로그램의 user namespace 생성을 막는데(`kernel.apparmor_restrict_unprivileged_userns`), 앱(Chromium)의 샌드박스가 이것을 쓰기 때문이다. deb 는 설치할 때 앱용 AppArmor 프로필을 함께 넣으므로 이 문제가 없다.
+
+AppImage 는 아래 프로필을 한 번 등록하면 샌드박스를 켠 채 실행된다.
+
+```bash
+sudo tee /etc/apparmor.d/nexuscode-appimage >/dev/null <<'EOF'
+abi <abi/4.0>,
+include <tunables/global>
+
+profile nexuscode-appimage /tmp/.mount_*/nexus-code flags=(unconfined) {
+  userns,
+  include if exists <local/nexuscode-appimage>
+}
+EOF
+sudo apparmor_parser -r /etc/apparmor.d/nexuscode-appimage
+```
+
+이 프로필은 AppImage 가 풀리는 경로(`/tmp/.mount_*/nexus-code`)의 프로그램에 user namespace 를 허용한다. 같은 머신의 다른 사용자도 이 경로로 같은 허용을 받을 수 있으므로, 여러 사람이 쓰는 머신이면 deb 를 쓴다.
+
+`--no-sandbox` 로 실행해도 열리지만, 내장 브라우저 탭을 포함한 웹 콘텐츠의 샌드박스가 꺼지므로 권장하지 않는다.
 
 ### Native module 오류 (node-pty, better-sqlite3)
 
