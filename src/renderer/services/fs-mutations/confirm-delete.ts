@@ -19,6 +19,7 @@
  * 에서 isRoot / 루트 판별 후 호출해야 한다.
  */
 
+import i18next from "i18next";
 import { showConfirmDialog } from "@/components/ui/confirm-dialog";
 import { createLogger } from "../../../shared/log/renderer";
 
@@ -28,6 +29,12 @@ import { showToast } from "@/components/ui/toast";
 import { useFilesStore } from "@/state/stores/files";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
 import { basename } from "@/utils/path";
+import {
+  type BatchFailure,
+  partialFailureMessage,
+  reportedFailure,
+  thrownFailure,
+} from "./batch-failure";
 import { distinctParents } from "./distinct-parents";
 import { removeDir } from "./remove-dir";
 import { trashPath } from "./trash";
@@ -171,8 +178,7 @@ export async function confirmAndDeleteBatch(
 
   // Execute deletions sequentially. Collect results.
   let successCount = 0;
-  let firstFailurePath: string | null = null;
-  let firstFailureMessage: string | null = null;
+  let firstFailure: BatchFailure | null = null;
 
   // Snapshot the tree once before the loop — loadChildren may mutate it
   // between iterations but we only need each path's type at start time.
@@ -192,9 +198,8 @@ export async function confirmAndDeleteBatch(
       }
     } catch (e: unknown) {
       ok2 = false;
-      if (firstFailurePath === null) {
-        firstFailurePath = p;
-        firstFailureMessage = e instanceof Error ? e.message : String(e);
+      if (firstFailure === null) {
+        firstFailure = thrownFailure(p, e);
       } else {
         log.error(`failed: ${p}: ${(e as Error).message}`);
       }
@@ -202,24 +207,27 @@ export async function confirmAndDeleteBatch(
 
     if (ok2) {
       successCount += 1;
-    } else if (firstFailurePath === null) {
+    } else if (firstFailure === null) {
       // Per-path helpers already surface their own error toasts; record for summary.
-      firstFailurePath = p;
-      firstFailureMessage = `deletion failed`;
+      firstFailure = reportedFailure(p);
     } else {
       log.error(`failed: ${p}`);
     }
   }
 
-  const failCount = N - successCount;
-  if (failCount === 0) {
-    showToast({ kind: "info", message: `Deleted ${N} items` });
+  if (firstFailure === null) {
+    showToast({ kind: "info", message: i18next.t("files:fileTree.delete.deleted", { count: N }) });
     return true;
   }
 
   showToast({
     kind: "error",
-    message: `Deleted ${successCount} of ${N}. First failure: ${firstFailurePath}: ${firstFailureMessage}`,
+    message: partialFailureMessage(
+      "files:fileTree.delete.deletedPartial",
+      successCount,
+      N,
+      firstFailure,
+    ),
   });
   return false;
 }

@@ -23,6 +23,12 @@ import i18next from "i18next";
 import { type RefObject, useEffect } from "react";
 import { showToast } from "@/components/ui/toast";
 import { copyPathWithAutoRename, movePath } from "@/services/fs-mutations";
+import {
+  type BatchFailure,
+  partialFailureMessage,
+  reportedFailure,
+  thrownFailure,
+} from "@/services/fs-mutations/batch-failure";
 import { loadChildren, toggleExpand } from "@/state/operations/files";
 import { parentOf } from "@/state/stores/files/helpers";
 import { useFilesStore } from "@/state/stores/files/store";
@@ -262,13 +268,14 @@ export function useFileTreeDropTarget({
       }
 
       // Per-path loop: move or copy each entry.
+      let attempted = 0;
       let successCount = 0;
-      let firstFailurePath: string | null = null;
-      let firstFailureMessage: string | null = null;
+      let firstFailure: BatchFailure | null = null;
 
       for (const srcAbsPath of filePaths) {
         // Skip self-drops for individual paths within a multi-selection.
         if (!copy && parentOf(srcAbsPath, rootPath) === dir) continue;
+        attempted += 1;
 
         let ok = false;
         try {
@@ -291,9 +298,8 @@ export function useFileTreeDropTarget({
           }
         } catch (err: unknown) {
           ok = false;
-          if (firstFailurePath === null) {
-            firstFailurePath = srcAbsPath;
-            firstFailureMessage = err instanceof Error ? err.message : String(err);
+          if (firstFailure === null) {
+            firstFailure = thrownFailure(srcAbsPath, err);
           } else {
             log.error(`failed: ${srcAbsPath}: ${(err as Error).message}`);
           }
@@ -301,10 +307,9 @@ export function useFileTreeDropTarget({
 
         if (ok) {
           successCount += 1;
-        } else if (firstFailurePath === null) {
+        } else if (firstFailure === null) {
           // per-item helpers already showed their own toast; record for summary.
-          firstFailurePath = srcAbsPath;
-          firstFailureMessage = copy ? "copy failed" : "move failed";
+          firstFailure = reportedFailure(srcAbsPath);
         }
       }
 
@@ -314,11 +319,11 @@ export function useFileTreeDropTarget({
       }
 
       // Result toast: silent for N=1 (per-item helper already surfaced errors);
-      // summarize for N≥2.
-      const total = filePaths.length;
-      const failCount = total - successCount;
+      // summarize for N≥2. Items already in the target folder were skipped,
+      // not attempted, so they count toward neither.
+      const total = attempted;
       if (total >= 2) {
-        if (failCount === 0) {
+        if (firstFailure === null) {
           showToast({
             kind: "info",
             message: copy
@@ -328,19 +333,14 @@ export function useFileTreeDropTarget({
         } else {
           showToast({
             kind: "error",
-            message: copy
-              ? i18next.t("files:fileTree.dropTarget.copiedPartial", {
-                  success: successCount,
-                  total,
-                  path: firstFailurePath,
-                  error: firstFailureMessage,
-                })
-              : i18next.t("files:fileTree.dropTarget.movedPartial", {
-                  success: successCount,
-                  total,
-                  path: firstFailurePath,
-                  error: firstFailureMessage,
-                }),
+            message: partialFailureMessage(
+              copy
+                ? "files:fileTree.dropTarget.copiedPartial"
+                : "files:fileTree.dropTarget.movedPartial",
+              successCount,
+              total,
+              firstFailure,
+            ),
           });
         }
       }

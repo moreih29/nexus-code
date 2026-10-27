@@ -7,7 +7,7 @@
  *   - N=3 comma-separated description.
  *   - N=5 "and N-3 more" truncation.
  *   - SSH workspace → permanent delete.
- *   - Partial failure: toast shows "M of N" + first failure info.
+ *   - Partial failure: toast shows "M of N" + the first failed item's name.
  *   - distinctParents applied before prompting.
  */
 
@@ -31,10 +31,17 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 
 type IpcCall = { channel: string; method: string; args: unknown };
 const ipcCalls: IpcCall[] = [];
+/** relPath whose trash call fails with PERMISSION_DENIED. */
+let failTrashRelPath: string | null = null;
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: (channel: string, method: string, args: unknown) => {
     ipcCalls.push({ channel, method, args });
+    if (method === "trash" && (args as { relPath: string }).relPath === failTrashRelPath)
+      return Promise.resolve({
+        ok: false as const,
+        error: { message: `PERMISSION_DENIED: /repo/${failTrashRelPath}` },
+      });
     if (channel === "fs" && method === "readdir")
       return Promise.resolve({ ok: true as const, value: [] });
     return Promise.resolve({ ok: true as const, value: undefined });
@@ -111,6 +118,7 @@ function seedWorkspace(kind: "local" | "ssh"): void {
 
 function resetAll(): void {
   ipcCalls.length = 0;
+  failTrashRelPath = null;
   toastCalls.length = 0;
   lastConfirmArgs = null;
   confirmResult = true;
@@ -229,6 +237,17 @@ describe("confirmAndDeleteBatch — success toast", () => {
   it("shows success toast with count after N=2 delete", async () => {
     await confirmAndDeleteBatch(WS, ROOT, [`${ROOT}/a.ts`, `${ROOT}/b.ts`]);
     expect(toastCalls.some((t) => t.message === "Deleted 2 items")).toBe(true);
+  });
+
+  it("names the failed item, not its path, after a partial failure", async () => {
+    failTrashRelPath = "b.ts";
+    const result = await confirmAndDeleteBatch(WS, ROOT, [`${ROOT}/a.ts`, `${ROOT}/b.ts`]);
+    expect(result).toBe(false);
+    // The item's own toast gives the reason; the summary names the item.
+    expect(toastCalls.map((t) => t.message)).toEqual([
+      "Permission denied while moving file to Trash.",
+      'Deleted 1 of 2 items. Couldn\'t delete "b.ts".',
+    ]);
   });
 });
 

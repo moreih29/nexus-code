@@ -20,8 +20,10 @@
       "cycleError": "폴더를 자신이나 하위 폴더에 놓을 수 없습니다.",
       "copied": "항목 {{count}}개 복사됨",
       "moved": "항목 {{count}}개 이동됨",
-      "copiedPartial": "{{total}}개 중 {{success}}개 복사됨. 첫 번째 실패: {{path}}: {{error}}",
-      "movedPartial": "{{total}}개 중 {{success}}개 이동됨. 첫 번째 실패: {{path}}: {{error}}"
+      "copiedPartial": "{{total}}개 중 {{success}}개 복사됨. \"{{name}}\" 복사 실패",
+      "copiedPartialReason": "{{total}}개 중 {{success}}개 복사됨. \"{{name}}\" 복사 실패: {{reason}}",
+      "movedPartial": "{{total}}개 중 {{success}}개 이동됨. \"{{name}}\" 이동 실패",
+      "movedPartialReason": "{{total}}개 중 {{success}}개 이동됨. \"{{name}}\" 이동 실패: {{reason}}"
     },
     "header": {
       "newFile": "새 파일",
@@ -68,7 +70,18 @@
       "segmentsCannotBeEmpty": "경로 세그먼트는 비어 있을 수 없습니다.",
       "reservedName": "예약된 이름입니다."
     },
-    "renameOneAtATime": "항목을 하나씩 이름 바꾸세요"
+    "renameOneAtATime": "항목을 하나씩 이름 바꾸세요",
+    "delete": {
+      "deleted": "항목 {{count}}개 삭제됨",
+      "deletedPartial": "{{total}}개 중 {{success}}개 삭제됨. \"{{name}}\" 삭제 실패",
+      "deletedPartialReason": "{{total}}개 중 {{success}}개 삭제됨. \"{{name}}\" 삭제 실패: {{reason}}"
+    },
+    "paste": {
+      "pasted": "항목 {{count}}개 붙여넣음",
+      "pastedPartial": "{{total}}개 중 {{success}}개 붙여넣음. \"{{name}}\" 붙여넣기 실패",
+      "pastedPartialReason": "{{total}}개 중 {{success}}개 붙여넣음. \"{{name}}\" 붙여넣기 실패: {{reason}}",
+      "cycleError": "\"{{name}}\" 폴더를 자신이나 하위 폴더로 이동할 수 없습니다."
+    }
   },
   "search": {
     "placeholder": "검색",

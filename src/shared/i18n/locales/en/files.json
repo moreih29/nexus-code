@@ -20,8 +20,10 @@
       "cycleError": "Cannot drop a folder into itself or one of its subfolders.",
       "copied": "Copied {{count}} items",
       "moved": "Moved {{count}} items",
-      "copiedPartial": "Copied {{success}} of {{total}}. First failure: {{path}}: {{error}}",
-      "movedPartial": "Moved {{success}} of {{total}}. First failure: {{path}}: {{error}}"
+      "copiedPartial": "Copied {{success}} of {{total}} items. Couldn't copy \"{{name}}\".",
+      "copiedPartialReason": "Copied {{success}} of {{total}} items. Couldn't copy \"{{name}}\": {{reason}}",
+      "movedPartial": "Moved {{success}} of {{total}} items. Couldn't move \"{{name}}\".",
+      "movedPartialReason": "Moved {{success}} of {{total}} items. Couldn't move \"{{name}}\": {{reason}}"
     },
     "header": {
       "newFile": "New File",
@@ -68,7 +70,18 @@
       "segmentsCannotBeEmpty": "Path segments cannot be empty.",
       "reservedName": "Reserved name."
     },
-    "renameOneAtATime": "Rename one item at a time"
+    "renameOneAtATime": "Rename one item at a time",
+    "delete": {
+      "deleted": "Deleted {{count}} items",
+      "deletedPartial": "Deleted {{success}} of {{total}} items. Couldn't delete \"{{name}}\".",
+      "deletedPartialReason": "Deleted {{success}} of {{total}} items. Couldn't delete \"{{name}}\": {{reason}}"
+    },
+    "paste": {
+      "pasted": "Pasted {{count}} items",
+      "pastedPartial": "Pasted {{success}} of {{total}} items. Couldn't paste \"{{name}}\".",
+      "pastedPartialReason": "Pasted {{success}} of {{total}} items. Couldn't paste \"{{name}}\": {{reason}}",
+      "cycleError": "Can't move \"{{name}}\" into itself or one of its subfolders."
+    }
   },
   "search": {
     "placeholder": "Search",
