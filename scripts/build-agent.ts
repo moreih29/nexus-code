@@ -358,13 +358,18 @@ async function installedPackageVersion(rootDir: string, packageName: string): Pr
 }
 
 async function resolveLatestNode20Version(fetchFn: typeof fetch): Promise<string> {
-  const response = await fetchFn(`${NODE_DIST_BASE_URL}/index.json`);
-  if (!response.ok) {
-    throw new Error(
-      `failed to resolve Node ${NODE_MAJOR} runtime version: HTTP ${response.status}`,
-    );
-  }
-  const releases = (await response.json()) as Array<{ version?: unknown; lts?: unknown }>;
+  const releases = await fetchWithRetry(
+    `${NODE_DIST_BASE_URL}/index.json`,
+    fetchFn,
+    async (response) => {
+      if (!response.ok) {
+        throw new Error(
+          `failed to resolve Node ${NODE_MAJOR} runtime version: HTTP ${response.status}`,
+        );
+      }
+      return (await response.json()) as Array<{ version?: unknown; lts?: unknown }>;
+    },
+  );
   const release = releases.find(
     (candidate) =>
       typeof candidate.version === "string" &&
@@ -388,12 +393,39 @@ async function downloadFile(
   destination: string,
   fetchFn: typeof fetch,
 ): Promise<void> {
-  const response = await fetchFn(url);
-  if (!response.ok) {
-    throw new Error(`download failed: ${url} returned HTTP ${response.status}`);
-  }
-  const payload = Buffer.from(await response.arrayBuffer());
+  const payload = await fetchWithRetry(url, fetchFn, async (response) => {
+    if (!response.ok) {
+      throw new Error(`download failed: ${url} returned HTTP ${response.status}`);
+    }
+    return Buffer.from(await response.arrayBuffer());
+  });
   await fs.writeFile(destination, payload);
+}
+
+// A download from nodejs.org has stalled in CI for half an hour before the
+// socket reset, so each attempt, body included, gets a deadline, and a failed
+// attempt is tried again.
+const FETCH_ATTEMPTS = 3;
+const FETCH_ATTEMPT_TIMEOUT_MS = 5 * 60_000;
+
+async function fetchWithRetry<T>(
+  url: string,
+  fetchFn: typeof fetch,
+  read: (response: Response) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const response = await fetchFn(url, {
+        signal: AbortSignal.timeout(FETCH_ATTEMPT_TIMEOUT_MS),
+      });
+      return await read(response);
+    } catch (error) {
+      if (attempt >= FETCH_ATTEMPTS) throw error;
+      console.warn(
+        `fetch ${url} failed (attempt ${attempt} of ${FETCH_ATTEMPTS}): ${(error as Error).message}`,
+      );
+    }
+  }
 }
 
 function nodeDistPlatform(target: AgentArtifactPlatform): string {
