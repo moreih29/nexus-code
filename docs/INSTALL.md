@@ -165,6 +165,24 @@ dist/
   NexusCode-X.Y.Z-amd64.deb         (arm64: NexusCode-X.Y.Z-arm64.deb)
 ```
 
+### Windows 에서 빌드
+
+필요한 도구는 Linux 와 같다 (Bun, Node.js · npm, Go).
+
+```powershell
+bun install
+bun run package:win
+```
+
+Microsoft Store 에 제출할 x64 AppX 를 만든다. 서명은 Store 가 제출받을 때 하므로 서명 없이 나오고, 이대로는 설치되지 않는다.
+
+```
+dist/
+  NexusCode-X.Y.Z-x64.appx
+```
+
+electron-builder 가 처음 받아 푸는 Windows 도구 묶음(winCodeSign)에는 symlink 가 들어 있어, 개발자 모드가 꺼진 일반 셸에서는 풀다가 실패한다. 개발자 모드를 켜거나 관리자 셸에서 한 번 빌드하면 캐시에 남아 그다음부터는 괜찮다.
+
 ---
 
 ## 채널 (Stable / Beta)
