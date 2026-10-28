@@ -22,6 +22,7 @@ import { ChevronRight, ChevronsDownUp, FilePlus, FolderPlus, RefreshCw } from "l
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { basename } from "@/utils/path";
+import { toNativeDrivePath } from "../../../../shared/fs/drive-path";
 
 interface WorkspaceRootHeaderProps {
   rootAbsPath: string;
@@ -106,7 +107,7 @@ export function WorkspaceRootHeader({
         type="button"
         onClick={onToggle}
         aria-expanded={isExpanded}
-        title={rootAbsPath}
+        title={toNativeDrivePath(rootAbsPath)}
         className={cn(
           "flex min-w-0 flex-1 items-center gap-1 text-left",
           "outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50 rounded-(--radius-control)",
