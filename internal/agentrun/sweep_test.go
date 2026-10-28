@@ -63,7 +63,7 @@ func TestSweepStaleRemovesDeadDaemonAgentLink(t *testing.T) {
 	mkRunFiles(t, dir, "aaaaaaaaaaaaaaaa", 0)
 	link := filepath.Join(dir, "aaaaaaaaaaaaaaaa.agent")
 	if err := os.Symlink(filepath.Join(dir, "gone"), link); err != nil {
-		t.Fatal(err)
+		t.Skipf("symlinks unavailable: %v", err)
 	}
 
 	SweepStale(dir, "1111111111111111")

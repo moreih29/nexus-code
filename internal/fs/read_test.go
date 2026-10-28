@@ -305,7 +305,9 @@ func TestReadFollowsSymlinkWithinSizeCap(t *testing.T) {
 	must(t, err)
 	must(t, f.Truncate(MaxReadableFileSize+1))
 	must(t, f.Close())
-	must(t, os.Symlink(big, filepath.Join(root, "big.txt")))
+	if err := os.Symlink(big, filepath.Join(root, "big.txt")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
 	fsys, err := New(root)
 	if err != nil {
 		t.Fatal(err)
