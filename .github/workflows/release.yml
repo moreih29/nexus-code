@@ -62,7 +62,23 @@ jobs:
       - name: Install JS dependencies
         run: bun install --frozen-lockfile
 
+      - name: Resolve Node runtime version
+        id: node-runtime
+        run: echo "version=$(bun run scripts/build-agent.ts --print-node-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Node runtimes
+        # Downloads from nodejs.org have stalled on runners for minutes on end;
+        # CI on main fills this cache, so a release usually fetches none.
+        uses: actions/cache@v6
+        with:
+          path: .cache/node-runtime
+          key: node-runtime-${{ steps.node-runtime.outputs.version }}
+          enableCrossOsArchive: true
+
       - name: Build agent (all platforms)
+        env:
+          NODE_RUNTIME_VERSION: ${{ steps.node-runtime.outputs.version }}
+          NODE_RUNTIME_CACHE_DIR: .cache/node-runtime
         run: bun run scripts/build-agent.ts
 
       - name: Upload agent artifact

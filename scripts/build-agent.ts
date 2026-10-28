@@ -126,9 +126,7 @@ export async function buildAgentDistribution(
 
   const agentArtifacts = await buildAgentBinaries({ rootDir, outDir, version, run });
   const nodeVersion =
-    options.nodeVersion ??
-    normalizeNodeVersion(process.env.NODE_RUNTIME_VERSION ?? "") ??
-    (await resolveLatestNodeLtsVersion(dependencies.fetch ?? fetch));
+    options.nodeVersion ?? (await nodeRuntimeVersion(dependencies.fetch ?? fetch));
   const nodeArtifacts = await downloadNodeRuntimes({ outDir, nodeVersion }, dependencies.fetch);
   const lspArtifacts = await buildLspBundles({ rootDir, outDir, run });
 
@@ -271,16 +269,30 @@ async function downloadNodeRuntimes(
   // A tarball can be pieced together from several attempts over two paths,
   // so it must match the SHA-256 nodejs.org lists for it.
   const checksums = await nodeChecksums(args.nodeVersion, fetchFn);
+  // CI keeps the tarballs here between runs, so most runs fetch none of them.
+  const cacheDir = process.env.NODE_RUNTIME_CACHE_DIR;
 
   for (const target of SSH_HOST_TARGETS) {
     const platform = nodeDistPlatform(target);
     const archive = `node-${args.nodeVersion}-${platform}.tar.gz`;
     const relativePath = path.join("runtime", archive);
     const destination = path.join(args.outDir, relativePath);
-    await downloadFile(`${args.nodeVersion}/${archive}`, destination, fetchFn);
-    const { sha256 } = await fileMetadata(destination);
-    if (sha256 !== checksums.get(archive)) {
-      throw new Error(`${archive} does not match the SHA-256 nodejs.org lists (got ${sha256})`);
+    const expected = checksums.get(archive);
+    const cached = cacheDir ? path.join(cacheDir, archive) : undefined;
+    const cachedSha256 = cached && (await fileMetadata(cached).catch(() => undefined))?.sha256;
+    if (cached && expected && cachedSha256 === expected) {
+      await fs.copyFile(cached, destination);
+      console.log(`Took ${archive} from ${cacheDir}`);
+    } else {
+      await downloadFile(`${args.nodeVersion}/${archive}`, destination, fetchFn);
+      const { sha256 } = await fileMetadata(destination);
+      if (sha256 !== expected) {
+        throw new Error(`${archive} does not match the SHA-256 nodejs.org lists (got ${sha256})`);
+      }
+      if (cached) {
+        await fs.mkdir(path.dirname(cached), { recursive: true });
+        await fs.copyFile(destination, cached);
+      }
     }
     artifacts.push({
       ...target,
@@ -385,6 +397,14 @@ async function installedPackageVersion(rootDir: string, packageName: string): Pr
     throw new Error(`missing installed package version for ${packageName}`);
   }
   return packageJson.version;
+}
+
+/** NODE_RUNTIME_VERSION when set, else the latest LTS release of NODE_MAJOR. */
+async function nodeRuntimeVersion(fetchFn: typeof fetch): Promise<string> {
+  return (
+    normalizeNodeVersion(process.env.NODE_RUNTIME_VERSION ?? "") ??
+    (await resolveLatestNodeLtsVersion(fetchFn))
+  );
 }
 
 async function resolveLatestNodeLtsVersion(fetchFn: typeof fetch): Promise<string> {
@@ -588,7 +608,13 @@ function requiredValue(argv: readonly string[], index: number, flag: string): st
 }
 
 if (import.meta.main) {
-  buildAgentDistribution(parseCliArgs(process.argv.slice(2))).catch((error) => {
+  const argv = process.argv.slice(2);
+  // CI keys its cache of the Node runtimes by the version this prints.
+  const task =
+    argv[0] === "--print-node-version"
+      ? nodeRuntimeVersion(fetch).then((nodeVersion) => console.log(nodeVersion))
+      : buildAgentDistribution(parseCliArgs(argv));
+  task.catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   });
