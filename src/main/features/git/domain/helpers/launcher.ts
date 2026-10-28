@@ -54,7 +54,7 @@ export function buildHelperEnv(
 ): NodeJS.ProcessEnv {
   const baseEnv = runtime.baseEnv ?? process.env;
   const platform = runtime.platform ?? process.platform;
-  const electronPath = runtime.electronPath ?? process.execPath;
+  const electronPath = runtime.electronPath ?? resolveDefaultElectronPath();
   const helperDir = runtime.helperDir ?? resolveDefaultHelperDir();
   const wrapperDir = runtime.wrapperDir ?? resolveDefaultWrapperDir(platform);
 
@@ -169,6 +169,34 @@ function buildWindowsHelperWrapper(electronPath: string, helperPath: string): st
  */
 function quoteCmdPath(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
+}
+
+/**
+ * The executable the editor wrapper starts: this one, or, when the app runs
+ * from an MSIX package, the package's alias for it. Only a process with the
+ * package's identity may run the package's files, and git and the shell it
+ * starts the wrapper through have none; starting the alias gives the editor
+ * that identity.
+ */
+function resolveDefaultElectronPath(): string {
+  const localAppData = process.env.LOCALAPPDATA;
+  const alias =
+    process.windowsStore && localAppData ? packageAliasPath(process.execPath, localAppData) : null;
+  return alias ?? process.execPath;
+}
+
+/**
+ * The App Execution Alias the MSIX package declares for the app
+ * (build/appx-manifest.cjs), given the path of the app's executable in the
+ * installed package. Null when that path is not in a package's install
+ * directory, which bears the package's full name,
+ * `<name>_<version>_<arch>_<resource id>_<publisher id>`.
+ */
+export function packageAliasPath(execPath: string, localAppData: string): string | null {
+  const fullName = path.win32.basename(path.win32.dirname(path.win32.dirname(execPath))).split("_");
+  if (fullName.length !== 5) return null;
+  const familyName = `${fullName[0]}_${fullName[4]}`;
+  return path.win32.join(localAppData, "Microsoft", "WindowsApps", familyName, "nexuscode.exe");
 }
 
 /**

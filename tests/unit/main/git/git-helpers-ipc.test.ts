@@ -12,7 +12,10 @@ import {
   GitHelpersIpcManager,
   prepareGitHelpersEndpoint,
 } from "../../../../src/main/features/git/domain/helpers/ipc";
-import { buildHelperEnv } from "../../../../src/main/features/git/domain/helpers/launcher";
+import {
+  buildHelperEnv,
+  packageAliasPath,
+} from "../../../../src/main/features/git/domain/helpers/launcher";
 import type { GitEditorPrompt } from "../../../../src/shared/git/types";
 
 const EDITOR_HELPER = path.join(process.cwd(), "src/main/features/git/domain/helpers/editor-helper.cjs");
@@ -72,6 +75,21 @@ describe("helpers-launcher", () => {
     const wrapperPath = path.join(wrapperDir, "nexus-git-editor-helper.cmd");
     expect(env.GIT_EDITOR).toBe(`'${wrapperPath}'`);
     expect(fs.readFileSync(wrapperPath, "utf8")).toContain("editor-helper.cjs");
+  });
+
+  it("finds the MSIX package's alias for the app from its install directory", () => {
+    const localAppData = "C:\\Users\\u\\AppData\\Local";
+    expect(
+      packageAliasPath(
+        "C:\\Program Files\\WindowsApps\\moreih29.NexusCode_0.10.0.0_x64__tqd5rv6sm4r06\\app\\NexusCode.exe",
+        localAppData,
+      ),
+    ).toBe(
+      "C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\moreih29.NexusCode_tqd5rv6sm4r06\\nexuscode.exe",
+    );
+    expect(
+      packageAliasPath("C:\\Program Files\\NexusCode\\NexusCode.exe", localAppData),
+    ).toBeNull();
   });
 
   it("does not create an Electron-host askpass wrapper", () => {
