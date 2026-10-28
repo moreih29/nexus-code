@@ -541,13 +541,9 @@ func shortTempDir(t *testing.T) string {
 	return dir
 }
 
-// skipSocketChtimesOnWindows skips a test that backdates a socket file: Windows
-// cannot set the times of a Unix socket file.
-func skipSocketChtimesOnWindows(t *testing.T) {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows cannot set the times of a Unix socket file")
-	}
+// staleNow is a time from which a socket made just now is old enough to clean.
+func staleNow() time.Time {
+	return time.Now().Add(70 * time.Second)
 }
 
 // makeDeadSocket 는 bound-but-not-listening Unix 소켓 파일을 생성한다.
@@ -574,7 +570,6 @@ func makeDeadSocket(t *testing.T, path string) {
 // Test_cleanStaleSockets_AlivePreserved 는 실제 net.Listen으로 띄운 소켓 파일이
 // cleanStaleSockets 호출 후에도 제거되지 않는지 검증한다.
 func Test_cleanStaleSockets_AlivePreserved(t *testing.T) {
-	skipSocketChtimesOnWindows(t)
 	dir := shortTempDir(t)
 
 	// 살아있는 소켓을 만든다.
@@ -585,13 +580,7 @@ func Test_cleanStaleSockets_AlivePreserved(t *testing.T) {
 	}
 	defer ln.Close()
 
-	// mtime을 70초 과거로 백데이트해 old 조건을 충족시킨다.
-	old := time.Now().Add(-70 * time.Second)
-	if err := os.Chtimes(sockPath, old, old); err != nil {
-		t.Fatalf("Chtimes: %v", err)
-	}
-
-	cleanStaleSockets(dir, "other-self.sock")
+	cleanStaleSockets(dir, "other-self.sock", staleNow())
 
 	// 파일이 여전히 존재해야 한다.
 	if _, err := os.Stat(sockPath); os.IsNotExist(err) {
@@ -610,7 +599,6 @@ func Test_cleanStaleSockets_AlivePreserved(t *testing.T) {
 // Test_cleanStaleSockets_DeadOldRemoved 는 연결 불가한 오래된 소켓 파일이
 // cleanStaleSockets 호출 후 제거되는지 검증한다.
 func Test_cleanStaleSockets_DeadOldRemoved(t *testing.T) {
-	skipSocketChtimesOnWindows(t)
 	dir := shortTempDir(t)
 
 	// bound-but-not-listening 소켓을 만든다. macOS에서 net.Listen+Close는 파일을 삭제하므로
@@ -618,13 +606,7 @@ func Test_cleanStaleSockets_DeadOldRemoved(t *testing.T) {
 	sockPath := filepath.Join(dir, "h-deadbeef0001.sock")
 	makeDeadSocket(t, sockPath)
 
-	// mtime을 70초 과거로 백데이트한다.
-	old := time.Now().Add(-70 * time.Second)
-	if err := os.Chtimes(sockPath, old, old); err != nil {
-		t.Fatalf("Chtimes: %v", err)
-	}
-
-	cleanStaleSockets(dir, "other-self.sock")
+	cleanStaleSockets(dir, "other-self.sock", staleNow())
 
 	// 파일이 제거되어야 한다.
 	if _, err := os.Stat(sockPath); !os.IsNotExist(err) {
@@ -641,7 +623,7 @@ func Test_cleanStaleSockets_DeadFreshPreserved(t *testing.T) {
 	sockPath := filepath.Join(dir, "h-freshbeef0002.sock")
 	makeDeadSocket(t, sockPath)
 
-	cleanStaleSockets(dir, "other-self.sock")
+	cleanStaleSockets(dir, "other-self.sock", time.Now())
 
 	// fresh이므로 파일이 여전히 존재해야 한다.
 	if _, err := os.Stat(sockPath); os.IsNotExist(err) {
@@ -652,7 +634,6 @@ func Test_cleanStaleSockets_DeadFreshPreserved(t *testing.T) {
 // Test_cleanStaleSockets_SelfPreserved 는 selfBasename과 일치하는 파일이
 // dead+old 조건을 충족하더라도 cleanStaleSockets가 제거하지 않는지 검증한다.
 func Test_cleanStaleSockets_SelfPreserved(t *testing.T) {
-	skipSocketChtimesOnWindows(t)
 	dir := shortTempDir(t)
 
 	selfName := "h-selffile0011.sock"
@@ -661,14 +642,8 @@ func Test_cleanStaleSockets_SelfPreserved(t *testing.T) {
 	// bound-but-not-listening 소켓을 만든다.
 	makeDeadSocket(t, sockPath)
 
-	// mtime을 70초 과거로 백데이트해 old+dead 조건을 충족시킨다.
-	old := time.Now().Add(-70 * time.Second)
-	if err := os.Chtimes(sockPath, old, old); err != nil {
-		t.Fatalf("Chtimes: %v", err)
-	}
-
 	// selfBasename으로 자기 자신을 지정한다.
-	cleanStaleSockets(dir, selfName)
+	cleanStaleSockets(dir, selfName, staleNow())
 
 	// self 파일은 보존되어야 한다.
 	if _, err := os.Stat(sockPath); os.IsNotExist(err) {
