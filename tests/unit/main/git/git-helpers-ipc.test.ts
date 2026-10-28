@@ -55,6 +55,25 @@ describe("helpers-launcher", () => {
     expect(env.GIT_EDITOR).not.toMatch(/^'.*' '.*'$/);
   });
 
+  it("quotes the Windows editor wrapper so Git's sh keeps the backslashes", () => {
+    const wrapperDir = makeTmpDir("nexus-helper-wrappers-");
+    const env = buildHelperEnv(
+      { editor: true },
+      {
+        connection: { socketPath: "\\\\.\\pipe\\nexus-helpers-55", token: "token-123" },
+        electronPath: "C:\\Program Files\\NexusCode\\NexusCode.exe",
+        helperDir: "C:\\Program Files\\NexusCode\\resources\\helpers",
+        wrapperDir,
+        baseEnv: {},
+        platform: "win32",
+      },
+    );
+
+    const wrapperPath = path.join(wrapperDir, "nexus-git-editor-helper.cmd");
+    expect(env.GIT_EDITOR).toBe(`'${wrapperPath}'`);
+    expect(fs.readFileSync(wrapperPath, "utf8")).toContain("editor-helper.cjs");
+  });
+
   it("does not create an Electron-host askpass wrapper", () => {
     const wrapperDir = makeTmpDir("nexus-helper-wrappers-");
     const env = buildHelperEnv(

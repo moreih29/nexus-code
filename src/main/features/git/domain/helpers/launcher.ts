@@ -78,13 +78,17 @@ export function buildHelperEnv(
     env.NEXUS_HELPERS_SOCKET = connection.socketPath;
     env.NEXUS_HELPERS_TOKEN = connection.token;
     env.ELECTRON_RUN_AS_NODE = "1";
-    env.GIT_EDITOR = ensureHelperWrapper({
+    const editorWrapper = ensureHelperWrapper({
       kind: "editor",
       electronPath,
       helperPath: path.join(helperDir, "editor-helper.cjs"),
       wrapperDir,
       platform,
     });
+    // Git runs the editor through `sh -c` when the value holds shell
+    // metacharacters, and every Windows path does: sh would eat the
+    // backslashes. Quoting keeps them, and any spaces, intact.
+    env.GIT_EDITOR = platform === "win32" ? quoteShellArg(editorWrapper) : editorWrapper;
   }
 
   return env;
