@@ -75,6 +75,9 @@ appx:
   publisherDisplayName: moreih29
   displayName: NexusCode
   applicationId: NexusCode
+  # The tiles in build/appx are the icon on a transparent ground; the default
+  # grey would show around its rounded corners.
+  backgroundColor: transparent
   languages:
     - en-US
     - ko-KR
