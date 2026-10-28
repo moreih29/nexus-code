@@ -21,7 +21,8 @@ const DEFAULT_PROTOCOL_VERSION = AGENT_PROTOCOL_VERSION;
 // life in April 2026 and got no fix in the October 2026 security release.
 // Node 24 needs glibc 2.28 on Linux, as 20 did, and macOS 13.5.
 const NODE_MAJOR = 24;
-const NODE_DIST_BASE_URL = "https://nodejs.org/dist";
+// nodejs.org serves its releases under two paths, which its CDN caches apart.
+const NODE_DIST_BASE_URLS = ["https://nodejs.org/dist", "https://nodejs.org/download/release"];
 
 /** The hosts an SSH workspace runs on; each also gets a Node runtime. */
 const SSH_HOST_TARGETS = [
@@ -272,8 +273,11 @@ async function downloadNodeRuntimes(
     const platform = nodeDistPlatform(target);
     const archive = `node-${args.nodeVersion}-${platform}.tar.gz`;
     const relativePath = path.join("runtime", archive);
-    const url = `${NODE_DIST_BASE_URL}/${args.nodeVersion}/${archive}`;
-    await downloadFile(url, path.join(args.outDir, relativePath), fetchFn);
+    await downloadFile(
+      `${args.nodeVersion}/${archive}`,
+      path.join(args.outDir, relativePath),
+      fetchFn,
+    );
     artifacts.push({
       ...target,
       version: args.nodeVersion,
@@ -361,18 +365,14 @@ async function installedPackageVersion(rootDir: string, packageName: string): Pr
 }
 
 async function resolveLatestNodeLtsVersion(fetchFn: typeof fetch): Promise<string> {
-  const releases = await fetchWithRetry(
-    `${NODE_DIST_BASE_URL}/index.json`,
-    fetchFn,
-    async (response) => {
-      if (!response.ok) {
-        throw new Error(
-          `failed to resolve Node ${NODE_MAJOR} runtime version: HTTP ${response.status}`,
-        );
-      }
-      return (await response.json()) as Array<{ version?: unknown; lts?: unknown }>;
-    },
-  );
+  const releases = await fetchWithRetry("index.json", fetchFn, async (response) => {
+    if (!response.ok) {
+      throw new Error(
+        `failed to resolve Node ${NODE_MAJOR} runtime version: HTTP ${response.status}`,
+      );
+    }
+    return (await response.json()) as Array<{ version?: unknown; lts?: unknown }>;
+  });
   const release = releases.find(
     (candidate) =>
       typeof candidate.version === "string" &&
@@ -392,41 +392,61 @@ function normalizeNodeVersion(value: string): string | null {
 }
 
 async function downloadFile(
-  url: string,
+  distPath: string,
   destination: string,
   fetchFn: typeof fetch,
 ): Promise<void> {
-  const payload = await fetchWithRetry(url, fetchFn, async (response) => {
-    if (!response.ok) {
-      throw new Error(`download failed: ${url} returned HTTP ${response.status}`);
+  const payload = await fetchWithRetry(distPath, fetchFn, async (response, onData) => {
+    if (!response.ok || !response.body) {
+      throw new Error(`download failed: ${response.url} returned HTTP ${response.status}`);
     }
-    return Buffer.from(await response.arrayBuffer());
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of response.body) {
+      chunks.push(chunk);
+      onData();
+    }
+    return Buffer.concat(chunks);
   });
   await fs.writeFile(destination, payload);
 }
 
-// A download from nodejs.org has stalled in CI for half an hour before the
-// socket reset, so each attempt, body included, gets a deadline, and a failed
-// attempt is tried again.
-const FETCH_ATTEMPTS = 3;
+// A download from nodejs.org has stalled in CI, for half an hour before the
+// socket reset and again on each retry of the same URL. So an attempt that
+// goes without data for a while is dropped, each attempt has a deadline, and
+// the next attempt asks for the file under nodejs.org's other path.
+const FETCH_ATTEMPTS = 4;
+const FETCH_STALL_TIMEOUT_MS = 30_000;
 const FETCH_ATTEMPT_TIMEOUT_MS = 5 * 60_000;
 
 async function fetchWithRetry<T>(
-  url: string,
+  distPath: string,
   fetchFn: typeof fetch,
-  read: (response: Response) => Promise<T>,
+  read: (response: Response, onData: () => void) => Promise<T>,
 ): Promise<T> {
   for (let attempt = 1; ; attempt++) {
+    const url = `${NODE_DIST_BASE_URLS[(attempt - 1) % NODE_DIST_BASE_URLS.length]}/${distPath}`;
+    const stalled = new AbortController();
+    let stallTimer: ReturnType<typeof setTimeout> | undefined;
+    const onData = () => {
+      clearTimeout(stallTimer);
+      stallTimer = setTimeout(
+        () => stalled.abort(new Error(`no data for ${FETCH_STALL_TIMEOUT_MS / 1000}s`)),
+        FETCH_STALL_TIMEOUT_MS,
+      );
+    };
+    onData();
     try {
       const response = await fetchFn(url, {
-        signal: AbortSignal.timeout(FETCH_ATTEMPT_TIMEOUT_MS),
+        signal: AbortSignal.any([stalled.signal, AbortSignal.timeout(FETCH_ATTEMPT_TIMEOUT_MS)]),
       });
-      return await read(response);
+      return await read(response, onData);
     } catch (error) {
       if (attempt >= FETCH_ATTEMPTS) throw error;
       console.warn(
         `fetch ${url} failed (attempt ${attempt} of ${FETCH_ATTEMPTS}): ${(error as Error).message}`,
       );
+    } finally {
+      clearTimeout(stallTimer);
     }
   }
 }
