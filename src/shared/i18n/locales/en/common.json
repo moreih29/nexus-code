@@ -317,8 +317,8 @@
   },
   "groupPlaceholder": {
     "no_tab": "No tab open",
-    "new_terminal": "⌘T New Terminal",
-    "open_split": "⌘↵ Open file in split"
+    "new_terminal": "{{shortcut}} New Terminal",
+    "open_split": "{{shortcut}} Open file in split"
   },
   "terminal": {
     "default_title": "Terminal",

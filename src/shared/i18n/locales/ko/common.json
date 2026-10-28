@@ -317,8 +317,8 @@
   },
   "groupPlaceholder": {
     "no_tab": "열린 탭 없음",
-    "new_terminal": "⌘T 새 터미널",
-    "open_split": "⌘↵ 분할창에서 파일 열기"
+    "new_terminal": "{{shortcut}} 새 터미널",
+    "open_split": "{{shortcut}} 분할창에서 파일 열기"
   },
   "terminal": {
     "default_title": "터미널",
