@@ -8,6 +8,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { toNativeDrivePath } from "../../../shared/fs/drive-path";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { validateArgs } from "../../infra/ipc-router";
 
@@ -59,14 +60,6 @@ function systemPathError(
 }
 
 /**
- * The renderer sends Windows paths as `C:/work/demo`. Electron's shell
- * calls go to Explorer, which wants backslashes.
- */
-function toNativePath(absPath: string): string {
-  return process.platform === "win32" ? path.normalize(absPath) : absPath;
-}
-
-/**
  * Ensures the provided path is absolute and still present before handing it to
  * Electron's shell APIs, which otherwise fail silently on missing files.
  */
@@ -102,7 +95,8 @@ export function openPathExternalHandler(
   shellImpl: SystemShell = getElectronSystemShell(),
 ): (args: unknown) => Promise<SystemPathResult> {
   return async (args: unknown): Promise<SystemPathResult> => {
-    const absPath = toNativePath(validateArgs(openPathExternalArgsSchema, args).absPath);
+    // The renderer sends Windows paths as C:/work/demo; Explorer wants backslashes.
+    const absPath = toNativeDrivePath(validateArgs(openPathExternalArgsSchema, args).absPath);
     const validationError = await validateSystemPath(absPath);
     if (validationError) return validationError;
 
@@ -123,7 +117,7 @@ export function revealInOSHandler(
   shellImpl: Pick<SystemShell, "showItemInFolder"> = getElectronSystemShell(),
 ): (args: unknown) => Promise<SystemPathResult> {
   return async (args: unknown): Promise<SystemPathResult> => {
-    const absPath = toNativePath(validateArgs(revealInOSArgsSchema, args).absPath);
+    const absPath = toNativeDrivePath(validateArgs(revealInOSArgsSchema, args).absPath);
     const validationError = await validateSystemPath(absPath);
     if (validationError) return validationError;
 

@@ -1,5 +1,5 @@
-import path from "node:path";
 import { dialog } from "electron";
+import { toNativeDrivePath } from "../../../shared/fs/drive-path";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { register, validateArgs } from "../../infra/ipc-router";
 import { getMainT } from "../../i18n";
@@ -11,7 +11,7 @@ const c = ipcContract.dialog.call;
  * dialog wants backslashes.
  */
 function toNativeDefaultPath(defaultPath: string | undefined): string | undefined {
-  return defaultPath && process.platform === "win32" ? path.normalize(defaultPath) : defaultPath;
+  return defaultPath && toNativeDrivePath(defaultPath);
 }
 
 export function registerDialogChannel(): void {
