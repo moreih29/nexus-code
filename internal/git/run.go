@@ -262,7 +262,7 @@ func (s *Service) commandAskpass() (commandAskpass, error) {
 	if err != nil {
 		return commandAskpass{}, err
 	}
-	helperPath, err := os.Executable()
+	helperPath, err := askpassHelperPath()
 	if err != nil {
 		return commandAskpass{}, proto.CodedError{Code: proto.CodeRequestFailed, Msg: "git askpass helper unavailable"}
 	}
