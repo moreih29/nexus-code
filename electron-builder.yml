@@ -10,7 +10,7 @@ artifactName: "${productName}-${version}-${arch}.${ext}"
 # extraResources 복사 시 떨어진 에이전트 바이너리 실행 비트(+x)를 패킹 직후 복원.
 afterPack: build/after-pack.cjs
 
-# Gives the app and the agent App Execution Aliases in the MSIX package.
+# Gives the agent an App Execution Alias in the MSIX package.
 appxManifestCreated: build/appx-manifest.cjs
 
 extraResources:

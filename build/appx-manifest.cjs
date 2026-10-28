@@ -1,31 +1,26 @@
-// electron-builder appxManifestCreated hook: gives the app and its agent App
-// Execution Aliases in the MSIX package.
+// electron-builder appxManifestCreated hook: gives the agent an App
+// Execution Alias in the MSIX package.
 //
 // A package's files run only in a process with the package's identity. Git,
 // which the agent starts from outside the package and which so has none, in
 // turn starts the agent as its askpass helper (internal/git) and the app as
 // its editor (src/main/features/git/domain/helpers/launcher.ts). It can start
-// them only through an alias, which hands the program the identity. An
-// application takes one alias, so the agent gets an application of its own,
-// left off the Start menu.
+// them only through an alias, which hands the program the identity. The Store
+// takes a package of one application, which takes one alias; the alias names
+// the agent, which starts the app for git through `package-run`.
 const fs = require("node:fs");
 const path = require("node:path");
 
-const APP_ALIAS = "nexuscode.exe";
 const AGENT_ALIAS = "nexuscode-agent.exe";
 
 /** @param {string} manifestPath */
 exports.default = async function appxManifestCreated(manifestPath) {
   let manifest = fs.readFileSync(manifestPath, "utf8");
-  const attribute = (name) => {
-    const match = new RegExp(`${name}="([^"]*)"`).exec(manifest);
-    if (!match) throw new Error(`appx-manifest: no ${name} in ${manifestPath}`);
-    return match[1];
-  };
-  const arch = attribute("ProcessorArchitecture");
+  const arch = /ProcessorArchitecture="([^"]*)"/.exec(manifest)?.[1];
+  if (!arch) throw new Error(`appx-manifest: no ProcessorArchitecture in ${manifestPath}`);
   const agent = agentExecutable(arch === "x64" ? "amd64" : arch);
   // electron-builder writes Extensions for protocols and file associations,
-  // which the app does not declare; the app's alias would need to join them.
+  // which the app does not declare; the alias would need to join them.
   if (manifest.includes("<Extensions>")) {
     throw new Error(`appx-manifest: ${manifestPath} already has Extensions`);
   }
@@ -36,31 +31,18 @@ exports.default = async function appxManifestCreated(manifestPath) {
   );
   manifest = manifest.replace(
     /\s*<\/Application>/,
-    `\n      ${extensions(APP_ALIAS)}\n    </Application>
-    <Application Id="Agent" Executable="app\\resources\\agent\\${agent}" EntryPoint="Windows.FullTrustApplication">
-      <uap:VisualElements
-       AppListEntry="none"
-       BackgroundColor="${attribute("BackgroundColor")}"
-       DisplayName="${attribute("DisplayName")} agent"
-       Square150x150Logo="${attribute("Square150x150Logo")}"
-       Square44x44Logo="${attribute("Square44x44Logo")}"
-       Description="${attribute("DisplayName")} agent" />
-      ${extensions(AGENT_ALIAS)}
+    `
+      <Extensions>
+        <uap3:Extension Category="windows.appExecutionAlias" Executable="app\\resources\\agent\\${agent}" EntryPoint="Windows.FullTrustApplication">
+          <uap3:AppExecutionAlias>
+            <desktop:ExecutionAlias Alias="${AGENT_ALIAS}" />
+          </uap3:AppExecutionAlias>
+        </uap3:Extension>
+      </Extensions>
     </Application>`,
   );
   fs.writeFileSync(manifestPath, manifest);
 };
-
-/** @param {string} alias */
-function extensions(alias) {
-  return `<Extensions>
-        <uap3:Extension Category="windows.appExecutionAlias">
-          <uap3:AppExecutionAlias>
-            <desktop:ExecutionAlias Alias="${alias}" />
-          </uap3:AppExecutionAlias>
-        </uap3:Extension>
-      </Extensions>`;
-}
 
 /**
  * The file name of the Windows agent for arch, from the agent build's
