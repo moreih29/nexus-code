@@ -41,6 +41,13 @@ func fileURI(path string) string {
 	if err != nil {
 		abs = path
 	}
+	if vol := filepath.VolumeName(abs); len(vol) == 2 && vol[1] == ':' {
+		// A Windows drive path. Without a leading slash the drive would land
+		// in the host slot (file://C:/x). Use the form VS Code and the
+		// renderer send: file:///c%3A/x.
+		rest := (&url.URL{Path: filepath.ToSlash(abs[2:])}).EscapedPath()
+		return "file:///" + strings.ToLower(vol[:1]) + "%3A" + rest
+	}
 	u := url.URL{Scheme: "file", Path: filepath.ToSlash(abs)}
 	return u.String()
 }
