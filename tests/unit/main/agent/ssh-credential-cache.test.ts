@@ -192,6 +192,26 @@ describe("createCachingAuthPromptHandler — key isolation", () => {
     expect(innerCalls).toHaveLength(2);
   });
 
+  it("keeps a key's passphrase apart from the password", async () => {
+    const inner = mock(async (prompt: SshAuthPrompt): Promise<SshAuthResponse> =>
+      passwordResponse(prompt.promptId, prompt.kind === "password" ? prompt.field : ""),
+    );
+    const handler = createCachingAuthPromptHandler(inner);
+    const passphrase: SshAuthPrompt = {
+      ...passwordPrompt({ host: "h1.example" }),
+      prompt: "Enter passphrase for key '/home/alice/.ssh/id_ed25519':",
+      field: "passphrase",
+    };
+
+    await handler(passphrase);
+    const password = await handler(passwordPrompt({ host: "h1.example" }));
+    const again = await handler(passphrase);
+
+    expect(password).toMatchObject({ value: "password" });
+    expect(again).toMatchObject({ value: "passphrase" });
+    expect(inner).toHaveBeenCalledTimes(2);
+  });
+
   it("same user on different hosts are cached separately", async () => {
     const innerCalls: SshAuthPrompt[] = [];
     const inner = mock(async (prompt: SshAuthPrompt): Promise<SshAuthResponse> => {
