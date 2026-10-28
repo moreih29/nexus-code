@@ -268,16 +268,20 @@ async function downloadNodeRuntimes(
   const runtimeDir = path.join(args.outDir, "runtime");
   await fs.mkdir(runtimeDir, { recursive: true });
   const artifacts: RuntimeArtifactInput[] = [];
+  // A tarball can be pieced together from several attempts over two paths,
+  // so it must match the SHA-256 nodejs.org lists for it.
+  const checksums = await nodeChecksums(args.nodeVersion, fetchFn);
 
   for (const target of SSH_HOST_TARGETS) {
     const platform = nodeDistPlatform(target);
     const archive = `node-${args.nodeVersion}-${platform}.tar.gz`;
     const relativePath = path.join("runtime", archive);
-    await downloadFile(
-      `${args.nodeVersion}/${archive}`,
-      path.join(args.outDir, relativePath),
-      fetchFn,
-    );
+    const destination = path.join(args.outDir, relativePath);
+    await downloadFile(`${args.nodeVersion}/${archive}`, destination, fetchFn);
+    const { sha256 } = await fileMetadata(destination);
+    if (sha256 !== checksums.get(archive)) {
+      throw new Error(`${archive} does not match the SHA-256 nodejs.org lists (got ${sha256})`);
+    }
     artifacts.push({
       ...target,
       version: args.nodeVersion,
@@ -287,6 +291,25 @@ async function downloadNodeRuntimes(
   }
 
   return artifacts;
+}
+
+/** The SHA-256 of each file in a Node release, by file name, from its SHASUMS256.txt. */
+async function nodeChecksums(
+  nodeVersion: string,
+  fetchFn: typeof fetch,
+): Promise<Map<string, string>> {
+  const text = await fetchWithRetry(`${nodeVersion}/SHASUMS256.txt`, fetchFn, async (response) => {
+    if (!response.ok) {
+      throw new Error(`failed to fetch Node ${nodeVersion} checksums: HTTP ${response.status}`);
+    }
+    return response.text();
+  });
+  const checksums = new Map<string, string>();
+  for (const line of text.split("\n")) {
+    const match = /^([0-9a-f]{64})\s+(\S+)$/.exec(line.trim());
+    if (match) checksums.set(match[2], match[1]);
+  }
+  return checksums;
 }
 
 // On Windows, use the bsdtar that ships as System32\tar.exe. Git Bash puts
