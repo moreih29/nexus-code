@@ -8,6 +8,7 @@
 
 import type * as Monaco from "monaco-editor";
 import type { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
+import type { FileContent } from "../../../../shared/fs/types";
 import type { TextDocumentContentChangeEvent } from "../../../../shared/lsp";
 import type { FileErrorCode } from "../../../utils/file-error";
 import type { registerKnownModelUri, unregisterKnownModelUri } from "../lsp/known-uris";
@@ -48,6 +49,11 @@ export interface ModelEntry {
   model: Monaco.editor.ITextModel | null;
   errorCode?: FileErrorCode;
   lastLoadedValue: string;
+  /**
+   * How the file was last read. The agent strips a UTF-8 BOM on read, so a
+   * save writes it back for "utf8-bom".
+   */
+  encoding?: FileContent["encoding"];
   loadPromise: Promise<void>;
   contentDisposable?: Monaco.IDisposable;
   fsUnsubscribe?: () => void;

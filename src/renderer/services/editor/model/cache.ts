@@ -5,6 +5,7 @@
 
 import type * as Monaco from "monaco-editor";
 import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
+import type { FileContent } from "../../../../shared/fs/types";
 import { parseWorkspaceUri, workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import { resolveLspPresetLanguageId } from "../../../../shared/lsp/config";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
@@ -243,6 +244,8 @@ export interface ResolvedModelView {
   filePath: string;
   languageId: string;
   readOnly: boolean;
+  /** How the file was read; "utf8-bom" means a save writes the BOM back. */
+  encoding: FileContent["encoding"];
 }
 
 export function getResolvedModel(input: EditorInput): ResolvedModelView | null {
@@ -256,6 +259,7 @@ export function getResolvedModel(input: EditorInput): ResolvedModelView | null {
     filePath: entry.input.filePath,
     languageId: entry.languageId,
     readOnly: entry.readOnly,
+    encoding: entry.encoding ?? "utf8",
   };
 }
 

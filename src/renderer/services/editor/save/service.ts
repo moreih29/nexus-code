@@ -190,6 +190,8 @@ export async function saveModel(input: EditorInput): Promise<SaveResult> {
       // dirty against the current alt id.
       const capturedAltId = resolved.model.getAlternativeVersionId();
       const content = resolved.model.getValue();
+      // The agent strips a UTF-8 BOM on read; keep it for a file that had one.
+      const diskContent = resolved.encoding === "utf8-bom" ? `﻿${content}` : content;
       const expected =
         dirtyEntryNow.loadedMtime === ""
           ? ({ exists: false } as const)
@@ -206,7 +208,7 @@ export async function saveModel(input: EditorInput): Promise<SaveResult> {
             workspaceId: resolved.workspaceId,
             filePath: resolved.filePath,
           }),
-          content,
+          content: diskContent,
           expected,
         }),
       );
