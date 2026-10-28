@@ -18,7 +18,8 @@ import { validateArgs } from "../../infra/ipc-router";
 const writeTextArgsSchema = ipcContract.clipboard.call.writeText.args;
 
 export interface ClipboardImpl {
-  writeText(text: string): void;
+  // Electron's resolves once the clipboard holds the text.
+  writeText(text: string): Promise<void> | void;
 }
 
 /**
@@ -37,7 +38,7 @@ export function writeTextHandler(
 ): (args: unknown) => Promise<{ ok: true }> {
   return async (args: unknown) => {
     const { text } = validateArgs(writeTextArgsSchema, args);
-    clipboardImpl.writeText(text);
+    await clipboardImpl.writeText(text);
     return { ok: true };
   };
 }
