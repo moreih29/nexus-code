@@ -6,7 +6,8 @@
  * injectHarnessTerminalEnv가 context 없이 호출되어 NEXUS_WRAPPER_SELF_DIR,
  * NEXUS_AGENT_BIN이 설정되지 않아야 한다.
  *
- * getWrapperBinDir가 유효 경로를 반환하면 PATH에 해당 경로가 prepend되어야 한다.
+ * getWrapperBinDir가 유효 경로를 반환하면 NEXUS_WRAPPER_SELF_DIR로 전달되고,
+ * agent가 그 경로를 자기 호스트의 PATH 맨 앞에 둔다.
  */
 
 import { describe, expect, mock, test } from "bun:test";
@@ -159,7 +160,7 @@ describe("acceptance #8: spawn env injection — wrapper getter null 시 skip", 
     expect(env!.NEXUS_AGENT_BIN).toBeUndefined();
   });
 
-  test("getWrapperBinDir='/remote/bin' → PATH prepend + NEXUS_WRAPPER_SELF_DIR 설정", async () => {
+  test("getWrapperBinDir='/remote/bin' → NEXUS_WRAPPER_SELF_DIR 설정, PATH는 원격 agent에 맡김", async () => {
     const BIN_DIR = "/remote/.nexus-code/bin";
     const { handler, spawnedEnv } = makeFixtureWithManager({
       wrapperBinDir: BIN_DIR,
@@ -173,7 +174,9 @@ describe("acceptance #8: spawn env injection — wrapper getter null 시 skip", 
     expect(env!.NEXUS_WRAPPER_SELF_DIR).toBe(BIN_DIR);
     expect(env!.NEXUS_IN_APP).toBe("1");
     expect(env!.NEXUS_AGENT_BIN).toBe(`${BIN_DIR}/agent-0.1.0-linux-amd64`);
-    expect(env!.PATH?.startsWith(BIN_DIR)).toBe(true);
+    // The remote agent puts BIN_DIR first on the remote's PATH; this
+    // process's PATH means nothing there.
+    expect(env!.PATH).toBeUndefined();
   });
 
   test("getWrapperBinDir='/local/bin', getWrapperAgentBin=null → NEXUS_AGENT_BIN 미주입", async () => {

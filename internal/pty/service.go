@@ -634,6 +634,34 @@ func hasUTF8Locale(merged map[string]string) bool {
 	return false
 }
 
+// wrapperDirEnv names the directory of the app's command wrappers, which the
+// shell must find before the real commands.
+const wrapperDirEnv = "NEXUS_WRAPPER_SELF_DIR"
+
+// hasEnvKey reports whether env sets the variable key.
+func hasEnvKey(env map[string]string, key string) bool {
+	for existing := range env {
+		if sameEnvKey(existing, key) {
+			return true
+		}
+	}
+	return false
+}
+
+// prependPath puts dir first on env's PATH, under whatever name PATH has.
+func prependPath(env map[string]string, dir string) {
+	for key, value := range env {
+		if sameEnvKey(key, "PATH") {
+			if value != "" {
+				dir += string(os.PathListSeparator) + value
+			}
+			env[key] = dir
+			return
+		}
+	}
+	env["PATH"] = dir
+}
+
 // mergeEnv overlays spawn-specific variables on the agent process environment.
 func mergeEnv(overrides map[string]string) []string {
 	merged := make(map[string]string)
@@ -653,6 +681,11 @@ func mergeEnv(overrides map[string]string) []string {
 			}
 		}
 		merged[key] = value
+	}
+	// The app's wrapper directory goes first on this host's own PATH. The app
+	// cannot build that PATH: for an SSH workspace it is the remote's.
+	if dir := overrides[wrapperDirEnv]; dir != "" && !hasEnvKey(overrides, "PATH") {
+		prependPath(merged, dir)
 	}
 	if _, ok := merged["TERM"]; !ok {
 		merged["TERM"] = "xterm-256color"

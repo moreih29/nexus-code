@@ -56,22 +56,22 @@ describe("injectHarnessTerminalEnv — context 없음 시 PATH/NEXUS_* 미주입
   });
 });
 
-describe("injectHarnessTerminalEnv — PATH prepend (context.binDir 기반)", () => {
-  test("env에 PATH 없을 때 binDir이 PATH 맨 앞에 설정된다", () => {
+describe("injectHarnessTerminalEnv — PATH (left to the agent's host)", () => {
+  test("does not set PATH: the agent puts binDir first on its own host's PATH", () => {
     const result = injectHarnessTerminalEnv(
       {},
       { binDir: FAKE_BIN_DIR, workspaceId: "ws-1", tabId: "tab-1" },
     );
-    expect(result.PATH).toContain(FAKE_BIN_DIR);
-    expect(result.PATH?.startsWith(FAKE_BIN_DIR)).toBe(true);
+    expect(result.PATH).toBeUndefined();
+    expect(result.NEXUS_WRAPPER_SELF_DIR).toBe(FAKE_BIN_DIR);
   });
 
-  test("env에 PATH 없고 process.env.PATH 있으면 binDir:process.env.PATH 형태", () => {
+  test("does not send this process's PATH, which an SSH host does not share", () => {
     const result = injectHarnessTerminalEnv(
       undefined,
       { binDir: FAKE_BIN_DIR, workspaceId: "ws-1", tabId: "tab-1" },
     );
-    expect(result.PATH?.startsWith(FAKE_BIN_DIR)).toBe(true);
+    expect(result.PATH).toBeUndefined();
   });
 
   test("caller PATH를 직접 설정하면 caller 값이 우선(spread 규칙)", () => {
@@ -86,14 +86,13 @@ describe("injectHarnessTerminalEnv — PATH prepend (context.binDir 기반)", ()
 });
 
 describe("injectHarnessTerminalEnv — NEXUS_* 주입 (acceptance #6, #7)", () => {
-  test("acceptance #6: binDir + agentBin 제공 시 PATH prepend, NEXUS_WRAPPER_SELF_DIR, NEXUS_AGENT_BIN 설정", () => {
+  test("acceptance #6: binDir + agentBin 제공 시 NEXUS_WRAPPER_SELF_DIR, NEXUS_AGENT_BIN 설정", () => {
     const result = injectHarnessTerminalEnv(undefined, {
       binDir: "/foo",
       workspaceId: "ws-1",
       tabId: "tab-1",
       agentBin: "/foo/agent",
     });
-    expect(result.PATH?.startsWith("/foo")).toBe(true);
     expect(result.NEXUS_WRAPPER_SELF_DIR).toBe("/foo");
     expect(result.NEXUS_AGENT_BIN).toBe("/foo/agent");
   });
@@ -104,7 +103,6 @@ describe("injectHarnessTerminalEnv — NEXUS_* 주입 (acceptance #6, #7)", () =
       workspaceId: "ws-1",
       tabId: "tab-1",
     });
-    expect(result.PATH?.startsWith("/foo")).toBe(true);
     expect(result.NEXUS_WRAPPER_SELF_DIR).toBe("/foo");
     expect(result.NEXUS_AGENT_BIN).toBeUndefined();
   });
