@@ -48,7 +48,7 @@ mac:
 
 linux:
   # Both update in place (src/main/features/updates): the AppImage replaces
-  # itself, and a deb install has dpkg install the next deb through pkexec.
+  # itself, and a deb install has apt install the next deb through pkexec.
   target:
     - AppImage
     - deb

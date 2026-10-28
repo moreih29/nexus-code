@@ -9,7 +9,7 @@
  *   verification, so the backend reports a staged update on Squirrel.Mac's
  *   event instead.
  * - Linux: the new AppImage is staged once downloaded and replaces the running
- *   one on quit. A deb install downloads the next deb, which dpkg installs
+ *   one on quit. A deb install downloads the next deb, which apt installs
  *   through pkexec when the user restarts; it is not installed on a plain
  *   quit, which would ask for the admin password then.
  *
@@ -27,6 +27,8 @@ import type { UpdateBackend } from "./installer";
 
 const OWNER = "moreih29";
 const REPO = "nexus-code";
+/** Picks the package manager electron-updater installs a deb with. */
+const PACKAGE_MANAGER_ENV = "ELECTRON_BUILDER_LINUX_PACKAGE_MANAGER";
 
 /** Whether this install can replace itself: a macOS app, a Linux AppImage or a deb. */
 export function canUpdateInPlace(): boolean {
@@ -114,7 +116,21 @@ export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
       errorListeners.push(listener);
     },
     quitAndInstall() {
-      void load().then((updater) => updater.quitAndInstall());
+      void load().then((updater) => {
+        if (!deb) {
+          updater.quitAndInstall();
+          return;
+        }
+        // One apt command installs the deb and any dependency it adds. The
+        // default dpkg -i runs a second elevated apt-get when it fails, so a
+        // cancelled password prompt would open another.
+        process.env[PACKAGE_MANAGER_ENV] = "apt";
+        try {
+          updater.quitAndInstall();
+        } finally {
+          delete process.env[PACKAGE_MANAGER_ENV];
+        }
+      });
     },
   };
 }
