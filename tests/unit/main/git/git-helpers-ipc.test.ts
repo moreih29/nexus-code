@@ -13,8 +13,8 @@ import {
   prepareGitHelpersEndpoint,
 } from "../../../../src/main/features/git/domain/helpers/ipc";
 import {
+  agentAliasPath,
   buildHelperEnv,
-  packageAliasPath,
 } from "../../../../src/main/features/git/domain/helpers/launcher";
 import type { GitEditorPrompt } from "../../../../src/shared/git/types";
 
@@ -77,18 +77,18 @@ describe("helpers-launcher", () => {
     expect(fs.readFileSync(wrapperPath, "utf8")).toContain("editor-helper.cjs");
   });
 
-  it("finds the MSIX package's alias for the app from its install directory", () => {
+  it("finds the MSIX package's alias for the agent from the app's install directory", () => {
     const localAppData = "C:\\Users\\u\\AppData\\Local";
     expect(
-      packageAliasPath(
+      agentAliasPath(
         "C:\\Program Files\\WindowsApps\\moreih29.NexusCode_0.10.0.0_x64__tqd5rv6sm4r06\\app\\NexusCode.exe",
         localAppData,
       ),
     ).toBe(
-      "C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\moreih29.NexusCode_tqd5rv6sm4r06\\nexuscode.exe",
+      "C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\moreih29.NexusCode_tqd5rv6sm4r06\\nexuscode-agent.exe",
     );
     expect(
-      packageAliasPath("C:\\Program Files\\NexusCode\\NexusCode.exe", localAppData),
+      agentAliasPath("C:\\Program Files\\NexusCode\\NexusCode.exe", localAppData),
     ).toBeNull();
   });
 
