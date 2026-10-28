@@ -144,6 +144,23 @@ describe("authenticateSshControlMaster", () => {
     await expect(promise).resolves.toMatchObject({ controlPath: "/tmp/nexus-test.sock" });
   });
 
+  it("reads the fingerprint from OpenSSH 10's host-key prompt", async () => {
+    const { pty, prompts, promise } = authHarness();
+
+    pty.emitData(
+      "The authenticity of host '[127.0.0.1]:2223 ([127.0.0.1]:2223)' can't be established.\r\nED25519 key fingerprint is: SHA256:5e6lZRH0SKztXc3AiTaDMssCyZGuEh1nUNLSPNVJFBk\r\nThis key is not known by any other names.\r\nAre you sure you want to continue connecting (yes/no/[fingerprint])? ",
+    );
+    await flushMicrotasks();
+
+    expect(prompts[0]).toMatchObject({
+      kind: "host-key",
+      fingerprint: "SHA256:5e6lZRH0SKztXc3AiTaDMssCyZGuEh1nUNLSPNVJFBk",
+      keyType: "ED25519",
+    });
+    pty.emitExit(0);
+    await expect(promise).resolves.toMatchObject({ controlPath: "/tmp/nexus-test.sock" });
+  });
+
   it("reuses the same password promptId for a wrong-password retry", async () => {
     const { pty, prompts, promise } = authHarness();
 

@@ -14,7 +14,8 @@ import { authenticateSsh2Master, usesSsh2Client } from "./ssh2";
 const PASSWORD_PROMPT_PATTERN = /([^\r\n]*?(?:password|passphrase)\s*(?:for [^:]+)?\s*:)\s*$/i;
 const HOST_KEY_PROMPT_PATTERN =
   /Are you sure you want to continue connecting \(yes\/no(?:\/\[fingerprint\])?\)\?/i;
-const FINGERPRINT_PATTERN = /([A-Z0-9]+) key fingerprint is (SHA256:[^\s.]+)/i;
+// OpenSSH 10 puts a colon after "is": "ED25519 key fingerprint is: SHA256:…".
+const FINGERPRINT_PATTERN = /([A-Z0-9]+) key fingerprint is:? (SHA256:[^\s.]+)/i;
 const DEFAULT_AUTH_TIMEOUT_MS = 30_000;
 
 export type SshAuthPromptHandler = (prompt: SshAuthPrompt) => Promise<SshAuthResponse>;
