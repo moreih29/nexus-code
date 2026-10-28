@@ -9,6 +9,7 @@ import {
   type SshMasterOptions,
 } from "./master";
 import { createSshError } from "../pipe";
+import { authenticateSsh2Master, usesSsh2Client } from "./ssh2";
 
 const PASSWORD_PROMPT_PATTERN = /([^\r\n]*?(?:password|passphrase)\s*(?:for [^:]+)?\s*:)\s*$/i;
 const HOST_KEY_PROMPT_PATTERN =
@@ -34,12 +35,17 @@ export interface AuthenticateSshControlMasterDependencies {
 /**
  * Runs OpenSSH in a PTY long enough to satisfy interactive password and host-key
  * prompts, leaving behind a reusable ControlMaster socket for batch channels.
+ * Where the ssh2 client stands in for OpenSSH, it opens the shared connection
+ * instead (ssh2/index.ts).
  */
 export function authenticateSshControlMaster(
   options: Omit<SshMasterOptions, "remoteCommand">,
   promptHandler: SshAuthPromptHandler,
   dependencies: AuthenticateSshControlMasterDependencies = {},
 ): Promise<SshControlMaster> {
+  if (dependencies.spawnPty === undefined && usesSsh2Client()) {
+    return authenticateSsh2Master(options, promptHandler);
+  }
   const master = createSshControlMaster(options, {
     spawn: dependencies.spawn,
     unlink: dependencies.unlink,
