@@ -3,7 +3,7 @@
  * authentication prompts, and commands sharing one connection as they would
  * a ControlMaster.
  */
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -17,6 +17,10 @@ import {
 } from "../../../../src/main/infra/agent/ssh/ssh2/index";
 import { addHostKey, knownHostName } from "../../../../src/main/infra/agent/ssh/ssh2/known-hosts";
 import type { SshAuthPrompt, SshAuthResponse } from "../../../../src/shared/ssh/auth-prompt";
+
+// ssh2 runs its handshake crypto in JavaScript: on a loaded runner, a test
+// that connects twice takes longer than the 5s default.
+setDefaultTimeout(30_000);
 
 const HOST_KEY = utils.generateKeyPairSync("ed25519");
 const OTHER_HOST_KEY = utils.generateKeyPairSync("ed25519");
@@ -87,11 +91,13 @@ function startServer(auth: { password?: string; code?: string }): Promise<TestSe
         dropAll: () => {
           for (const client of clients) client.end();
         },
-        close: () =>
-          new Promise<void>((done) => {
-            for (const client of clients) client.end();
-            server.close(() => done());
-          }),
+        close: async () => {
+          for (const client of clients) client.end();
+          // Not waited for: under load, Bun can keep an accepted socket the
+          // client has closed neither open nor destroyed, and close() would
+          // wait on it for good.
+          server.close();
+        },
       });
     });
   });
