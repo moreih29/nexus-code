@@ -17,7 +17,10 @@ const DEFAULT_VERSION = "0.1.0";
 // Manifest metadata follows the single source of truth in envelope.ts —
 // an independent literal here drifted to "1" while the wire went to "2".
 const DEFAULT_PROTOCOL_VERSION = AGENT_PROTOCOL_VERSION;
-const NODE_MAJOR = 20;
+// The LTS line the SSH hosts' Node runtime comes from. Node 20 reached end of
+// life in April 2026 and got no fix in the October 2026 security release.
+// Node 24 needs glibc 2.28 on Linux, as 20 did, and macOS 13.5.
+const NODE_MAJOR = 24;
 const NODE_DIST_BASE_URL = "https://nodejs.org/dist";
 
 /** The hosts an SSH workspace runs on; each also gets a Node runtime. */
@@ -124,7 +127,7 @@ export async function buildAgentDistribution(
   const nodeVersion =
     options.nodeVersion ??
     normalizeNodeVersion(process.env.NODE_RUNTIME_VERSION ?? "") ??
-    (await resolveLatestNode20Version(dependencies.fetch ?? fetch));
+    (await resolveLatestNodeLtsVersion(dependencies.fetch ?? fetch));
   const nodeArtifacts = await downloadNodeRuntimes({ outDir, nodeVersion }, dependencies.fetch);
   const lspArtifacts = await buildLspBundles({ rootDir, outDir, run });
 
@@ -357,7 +360,7 @@ async function installedPackageVersion(rootDir: string, packageName: string): Pr
   return packageJson.version;
 }
 
-async function resolveLatestNode20Version(fetchFn: typeof fetch): Promise<string> {
+async function resolveLatestNodeLtsVersion(fetchFn: typeof fetch): Promise<string> {
   const releases = await fetchWithRetry(
     `${NODE_DIST_BASE_URL}/index.json`,
     fetchFn,
