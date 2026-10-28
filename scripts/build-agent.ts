@@ -396,24 +396,53 @@ async function downloadFile(
   destination: string,
   fetchFn: typeof fetch,
 ): Promise<void> {
-  const payload = await fetchWithRetry(distPath, fetchFn, async (response, onData) => {
-    if (!response.ok || !response.body) {
-      throw new Error(`download failed: ${response.url} returned HTTP ${response.status}`);
-    }
-    const chunks: Uint8Array[] = [];
-    for await (const chunk of response.body) {
-      chunks.push(chunk);
-      onData();
-    }
-    return Buffer.concat(chunks);
-  });
+  // What the attempts so far received; a later attempt asks for the rest.
+  let chunks: Uint8Array[] = [];
+  let received = 0;
+  const payload = await fetchWithRetry(
+    distPath,
+    fetchFn,
+    async (response, onData) => {
+      const range = contentRange(response);
+      let size: number | undefined;
+      if (response.status === 200) {
+        chunks = [];
+        received = 0;
+        size = Number(response.headers.get("content-length") ?? Number.NaN);
+      } else if (response.status === 206 && range?.start === received) {
+        size = range.size;
+      } else {
+        chunks = [];
+        received = 0;
+        throw new Error(`download failed: ${response.url} returned HTTP ${response.status}`);
+      }
+      if (!response.body) throw new Error(`download failed: ${response.url} returned no body`);
+      for await (const chunk of response.body) {
+        chunks.push(chunk);
+        received += chunk.length;
+        onData();
+      }
+      if (Number.isFinite(size) && received !== size) {
+        throw new Error(`download ended after ${received} of ${size} bytes`);
+      }
+      return Buffer.concat(chunks);
+    },
+    () => (received > 0 ? { range: `bytes=${received}-` } : {}),
+  );
   await fs.writeFile(destination, payload);
+}
+
+/** The first byte and the file's size from a 206's `bytes <first>-<last>/<size>`. */
+function contentRange(response: Response): { start: number; size: number } | undefined {
+  const match = /^bytes (\d+)-\d+\/(\d+)$/.exec(response.headers.get("content-range") ?? "");
+  return match ? { start: Number(match[1]), size: Number(match[2]) } : undefined;
 }
 
 // A download from nodejs.org has stalled in CI, for half an hour before the
 // socket reset and again on each retry of the same URL. So an attempt that
 // goes without data for a while is dropped, each attempt has a deadline, and
-// the next attempt asks for the file under nodejs.org's other path.
+// the next attempt asks for the file under nodejs.org's other path, for only
+// the bytes the attempts before it did not get.
 const FETCH_ATTEMPTS = 4;
 const FETCH_STALL_TIMEOUT_MS = 30_000;
 const FETCH_ATTEMPT_TIMEOUT_MS = 5 * 60_000;
@@ -422,6 +451,7 @@ async function fetchWithRetry<T>(
   distPath: string,
   fetchFn: typeof fetch,
   read: (response: Response, onData: () => void) => Promise<T>,
+  headers: () => Record<string, string> = () => ({}),
 ): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     const url = `${NODE_DIST_BASE_URLS[(attempt - 1) % NODE_DIST_BASE_URLS.length]}/${distPath}`;
@@ -437,6 +467,7 @@ async function fetchWithRetry<T>(
     onData();
     try {
       const response = await fetchFn(url, {
+        headers: headers(),
         signal: AbortSignal.any([stalled.signal, AbortSignal.timeout(FETCH_ATTEMPT_TIMEOUT_MS)]),
       });
       return await read(response, onData);
