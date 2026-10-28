@@ -152,6 +152,44 @@ describe("workspaces store — connection status", () => {
   });
 });
 
+describe("workspaces store — Windows roots", () => {
+  beforeEach(resetStore);
+
+  function makeWindowsWorkspace(): WorkspaceMeta {
+    return {
+      ...makeWorkspace(),
+      location: { kind: "local", rootPath: "c:\\work\\demo" },
+      rootPath: "c:\\work\\demo",
+    };
+  }
+
+  function storedRoots(): unknown[] {
+    return useWorkspacesStore
+      .getState()
+      .workspaces.map((w) => [w.rootPath, w.location.kind === "local" && w.location.rootPath]);
+  }
+
+  test("keeps local drive roots with forward slashes on every way in", () => {
+    useWorkspacesStore.getState().setAll([makeWindowsWorkspace()]);
+    expect(storedRoots()).toEqual([["C:/work/demo", "C:/work/demo"]]);
+
+    resetStore();
+    useWorkspacesStore.getState().upsert(makeWindowsWorkspace());
+    expect(storedRoots()).toEqual([["C:/work/demo", "C:/work/demo"]]);
+
+    resetStore();
+    emitWorkspaceEvent("changed", makeWindowsWorkspace());
+    expect(storedRoots()).toEqual([["C:/work/demo", "C:/work/demo"]]);
+  });
+
+  test("leaves POSIX roots unchanged", () => {
+    const workspace = makeWorkspace();
+    useWorkspacesStore.getState().setAll([workspace]);
+
+    expect(useWorkspacesStore.getState().workspaces[0]).toBe(workspace);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // upsert — sort-field change detection
 // ---------------------------------------------------------------------------

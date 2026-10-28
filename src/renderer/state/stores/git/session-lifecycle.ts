@@ -12,7 +12,7 @@ import { cancelCommitDraftSave, cancelStatusHintRefresh } from "./draft-persiste
 import { sanitizeExpandedTreeNodes } from "./panel-ui";
 import { createDefaultSession } from "./session-defaults";
 import type { GitStoreContext } from "./store-context";
-import { firstRejectedReason, gitStoreErrorFromUnknown } from "./store-helpers";
+import { firstRejectedReason, gitStoreErrorFromUnknown, withSlashTopLevel } from "./store-helpers";
 
 export interface SessionLifecycleSlice {
   loadInitial: (workspaceId: string) => Promise<void>;
@@ -40,7 +40,9 @@ export function createSessionLifecycleSlice(ctx: GitStoreContext): SessionLifecy
       // as values rather than rejections, preserving allSettled semantics for
       // partial load resilience.
       const [repoInfoResult, statusResult, panelStateResult] = await Promise.allSettled([
-        ipcCallResult("git", "getRepoInfo", { workspaceId }).then(unwrapGitResult),
+        ipcCallResult("git", "getRepoInfo", { workspaceId })
+          .then(unwrapGitResult)
+          .then(withSlashTopLevel),
         ipcCallResult("git", "getStatus", { workspaceId }).then(unwrapGitResult),
         ipcCallResult("git", "getPanelState", { workspaceId }).then(unwrapGitResult),
       ]);
@@ -106,8 +108,10 @@ export function createSessionLifecycleSlice(ctx: GitStoreContext): SessionLifecy
 
     async refresh(workspaceId) {
       await runOperation(workspaceId, "refresh", async (signal) => {
-        const repoInfo = unwrapGitResult(
-          await ipcCallResult("git", "refreshDetection", { workspaceId }, { signal }),
+        const repoInfo = withSlashTopLevel(
+          unwrapGitResult(
+            await ipcCallResult("git", "refreshDetection", { workspaceId }, { signal }),
+          ),
         );
         const status = unwrapGitResult(
           await ipcCallResult("git", "getStatus", { workspaceId }, { signal }),
@@ -130,8 +134,8 @@ export function createSessionLifecycleSlice(ctx: GitStoreContext): SessionLifecy
 
     async init(workspaceId) {
       return runOperation(workspaceId, "init", async (signal) => {
-        const repoInfo = unwrapGitResult(
-          await ipcCallResult("git", "init", { workspaceId }, { signal }),
+        const repoInfo = withSlashTopLevel(
+          unwrapGitResult(await ipcCallResult("git", "init", { workspaceId }, { signal })),
         );
         const status = unwrapGitResult(
           await ipcCallResult("git", "getStatus", { workspaceId }, { signal }),

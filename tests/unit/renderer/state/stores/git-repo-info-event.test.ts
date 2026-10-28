@@ -65,6 +65,22 @@ describe("applyRepoInfoEvent", () => {
     expect(session()?.branchInfo?.current).toBe("main");
   });
 
+  it("keeps a Windows topLevel with forward slashes", () => {
+    seed({ repoInfo: REPO, status: STATUS as never, branchInfo: STATUS.branch });
+
+    applyRepoInfoEvent(WS, {
+      kind: "repo",
+      gitDir: "C:\\work\\demo\\.git",
+      topLevel: "C:\\work\\demo",
+    });
+
+    expect(session()?.repoInfo).toEqual({
+      kind: "repo",
+      gitDir: "C:\\work\\demo\\.git",
+      topLevel: "C:/work/demo",
+    });
+  });
+
   it("leaves the status to a fetch already in flight", async () => {
     seed({ statusFetching: true });
     ipcCallResult.mockClear();
