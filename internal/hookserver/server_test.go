@@ -527,7 +527,13 @@ func Test_maxSocketPathLen_Guard_NewMessage(t *testing.T) {
 // t.TempDir()은 /var/folders/... 경로로 경우에 따라 80자+를 사용해 소켓 파일명이 104자를 초과할 수 있다.
 func shortTempDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "hs-test-")
+	parent := "/tmp"
+	if runtime.GOOS == "windows" {
+		// Windows has no /tmp: it names \tmp on the current drive, which
+		// usually does not exist. Its own temp dir is short enough.
+		parent = ""
+	}
+	dir, err := os.MkdirTemp(parent, "hs-test-")
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}
