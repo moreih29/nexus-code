@@ -12,6 +12,7 @@ import (
 var (
 	kernel32                        = windows.NewLazySystemDLL("kernel32.dll")
 	procGetCurrentPackageFamilyName = kernel32.NewProc("GetCurrentPackageFamilyName")
+	procGetCurrentPackagePath       = kernel32.NewProc("GetCurrentPackagePath")
 )
 
 // AgentAlias returns the path of the package's alias for the agent, when
@@ -26,6 +27,12 @@ func AgentAlias() (string, bool) {
 		return "", false
 	}
 	return filepath.Join(localAppData, "Microsoft", "WindowsApps", family, agentAlias), true
+}
+
+// InstallDir returns the directory the MSIX package this process runs from
+// is installed in.
+func InstallDir() (string, bool) {
+	return current(procGetCurrentPackagePath, windows.MAX_LONG_PATH)
 }
 
 // current calls one of the GetCurrentPackage* functions that write a string
