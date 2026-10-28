@@ -5,19 +5,20 @@
  * deleteOriginPermission, clearOrigin.
  */
 
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { WorkspaceStorage } from "../../../../src/main/infra/storage/workspace-storage";
+import { closeTestDatabases, openTestDatabase } from "../../../helpers/test-database";
 
 function makeTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "nexus-origin-perm-test-"));
 }
 
 function bunSqliteFactory(dbPath: string): Database {
-  return new Database(dbPath);
+  return openTestDatabase(dbPath);
 }
 
 // ---------------------------------------------------------------------------
@@ -37,6 +38,7 @@ describe("WorkspaceStorage.getOriginPermission / setOriginPermission — round-t
 
   afterEach(() => {
     storage.closeForWorkspace(id);
+    closeTestDatabases();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -96,6 +98,7 @@ describe("WorkspaceStorage.listOriginPermissions", () => {
 
   afterEach(() => {
     storage.closeForWorkspace(id);
+    closeTestDatabases();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -146,6 +149,7 @@ describe("WorkspaceStorage.deleteOriginPermission", () => {
 
   afterEach(() => {
     storage.closeForWorkspace(id);
+    closeTestDatabases();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -185,6 +189,7 @@ describe("WorkspaceStorage.clearOrigin", () => {
 
   afterEach(() => {
     storage.closeForWorkspace(id);
+    closeTestDatabases();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -220,6 +225,7 @@ describe("WorkspaceStorage.origin_permissions — error when workspace not open"
   });
 
   afterEach(() => {
+    closeTestDatabases();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 

@@ -54,7 +54,9 @@ mock.module("../../../../../src/main/infra/ipc-router", () => ({
 }));
 
 const { initMainI18n } = await import("../../../../../src/main/i18n");
-const { registerDialogChannel } = await import("../../../../../src/main/features/dialog");
+const { forgetLastDialogFolder, registerDialogChannel } = await import(
+  "../../../../../src/main/features/dialog"
+);
 
 // The handlers read their default titles from the main-process i18n instance.
 await initMainI18n("en");
@@ -69,6 +71,7 @@ const handlers = registered.get("dialog")!.call;
 beforeEach(() => {
   mockShowSaveDialog.mockClear();
   mockShowOpenDialog.mockClear();
+  forgetLastDialogFolder();
 });
 
 describe("dialog.showSaveDialog", () => {
@@ -159,5 +162,39 @@ describe("dialog.showOpenDirectory", () => {
       defaultPath: undefined,
       properties: ["openDirectory", "createDirectory"],
     });
+  });
+});
+
+// Electron opens a dialog given no defaultPath in Downloads, so the handlers
+// start one where the last dialog left off.
+describe("dialog start folder", () => {
+  test("a dialog with no defaultPath starts in the folder of the last pick", async () => {
+    mockShowOpenDialog.mockImplementationOnce(async () => ({
+      canceled: false,
+      filePaths: ["/work/demo/a.ts"],
+    }));
+    await handlers.showOpenFile({});
+
+    await handlers.showOpenDirectory({});
+
+    expect(mockShowOpenDialog.mock.calls[1]?.[0]).toMatchObject({ defaultPath: "/work/demo" });
+  });
+
+  test("a defaultPath the renderer gives wins over the remembered folder", async () => {
+    await handlers.showSaveDialog({ defaultPath: "/home/user/a.md" });
+
+    await handlers.showSaveDialog({ defaultPath: "/repo/b.md" });
+
+    expect(mockShowSaveDialog.mock.calls[1]?.[0]).toMatchObject({ defaultPath: "/repo/b.md" });
+  });
+
+  test("a canceled dialog keeps the remembered folder", async () => {
+    await handlers.showSaveDialog({});
+    mockShowSaveDialog.mockImplementationOnce(async () => ({ canceled: true, filePath: "" }));
+    await handlers.showSaveDialog({});
+
+    await handlers.showOpenFile({});
+
+    expect(mockShowOpenDialog.mock.calls[0]?.[0]).toMatchObject({ defaultPath: "/tmp" });
   });
 });

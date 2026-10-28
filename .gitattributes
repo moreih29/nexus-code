@@ -1,0 +1,6 @@
+# Check text out with LF on every OS. Windows' default (core.autocrlf) would
+# turn it into CRLF, which breaks the shell scripts and the formatter's checks.
+* text=auto eol=lf
+
+# Vendored as shipped, with CRLF line endings.
+src/renderer/assets/fonts/D2Coding/LICENSE -text

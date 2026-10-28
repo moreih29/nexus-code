@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { AgentManifestSchema, findAgentBinary } from "../../../shared/agent/manifest";
-import { getAgentDistDir } from "./getAgentBinDir";
+import { getAgentDistDir, localAgentPlatform } from "./getAgentBinDir";
 
 export interface LocalAgentCommand {
   readonly binaryPath: string;
@@ -58,7 +58,10 @@ export function resolveLocalAgentCommand(
   if (fs.existsSync(manifestPath)) {
     try {
       const manifest = AgentManifestSchema.parse(JSON.parse(fs.readFileSync(manifestPath, "utf8")));
-      const platform = localPlatform();
+      const platform = localAgentPlatform();
+      if (!platform) {
+        throw new Error(`unsupported local agent platform ${process.platform}-${process.arch}`);
+      }
       const binary = findAgentBinary(manifest, platform);
       if (binary) {
         return { binaryPath: path.resolve(distDir, binary.path) };
@@ -80,14 +83,4 @@ export function resolveLocalAgentCommand(
  */
 function sourceCommand(): LocalAgentCommand {
   return { binaryPath: "go", argsPrefix: ["run", "./cmd/agent"], cwd: process.cwd() };
-}
-
-function localPlatform(): { readonly os: "linux" | "darwin"; readonly arch: "amd64" | "arm64" } {
-  const os =
-    process.platform === "darwin" ? "darwin" : process.platform === "linux" ? "linux" : null;
-  const arch = process.arch === "x64" ? "amd64" : process.arch === "arm64" ? "arm64" : null;
-  if (!os || !arch) {
-    throw new Error(`unsupported local agent platform ${process.platform}-${process.arch}`);
-  }
-  return { os, arch };
 }

@@ -21,12 +21,6 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
   },
 };
 
-// navigator.platform shim for isMac detection
-Object.defineProperty(globalThis, "navigator", {
-  value: { platform: "MacIntel" }, // force isMac = true
-  writable: true,
-});
-
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: () => Promise.resolve({ ok: true as const, value: [] }),
   ipcListen: () => () => {},

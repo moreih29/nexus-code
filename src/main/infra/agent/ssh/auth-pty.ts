@@ -9,11 +9,13 @@ import {
   type SshMasterOptions,
 } from "./master";
 import { createSshError } from "../pipe";
+import { authenticateSsh2Master, usesSsh2Client } from "./ssh2";
 
 const PASSWORD_PROMPT_PATTERN = /([^\r\n]*?(?:password|passphrase)\s*(?:for [^:]+)?\s*:)\s*$/i;
 const HOST_KEY_PROMPT_PATTERN =
   /Are you sure you want to continue connecting \(yes\/no(?:\/\[fingerprint\])?\)\?/i;
-const FINGERPRINT_PATTERN = /([A-Z0-9]+) key fingerprint is (SHA256:[^\s.]+)/i;
+// OpenSSH 10 puts a colon after "is": "ED25519 key fingerprint is: SHA256:…".
+const FINGERPRINT_PATTERN = /([A-Z0-9]+) key fingerprint is:? (SHA256:[^\s.]+)/i;
 const DEFAULT_AUTH_TIMEOUT_MS = 30_000;
 
 export type SshAuthPromptHandler = (prompt: SshAuthPrompt) => Promise<SshAuthResponse>;
@@ -34,12 +36,17 @@ export interface AuthenticateSshControlMasterDependencies {
 /**
  * Runs OpenSSH in a PTY long enough to satisfy interactive password and host-key
  * prompts, leaving behind a reusable ControlMaster socket for batch channels.
+ * Where the ssh2 client stands in for OpenSSH, it opens the shared connection
+ * instead (ssh2/index.ts).
  */
 export function authenticateSshControlMaster(
   options: Omit<SshMasterOptions, "remoteCommand">,
   promptHandler: SshAuthPromptHandler,
   dependencies: AuthenticateSshControlMasterDependencies = {},
 ): Promise<SshControlMaster> {
+  if (dependencies.spawnPty === undefined && usesSsh2Client()) {
+    return authenticateSsh2Master(options, promptHandler);
+  }
   const master = createSshControlMaster(options, {
     spawn: dependencies.spawn,
     unlink: dependencies.unlink,

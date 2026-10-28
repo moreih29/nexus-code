@@ -6,6 +6,7 @@
  */
 
 import i18next from "i18next";
+import { toSlashPath } from "../../../shared/fs/drive-path";
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { showToast } from "../../components/ui/toast";
@@ -166,7 +167,7 @@ export function registerFileCommands(): Array<() => void> {
         await ipcCallResult("dialog", "showOpenFile", {}),
       );
       if (canceled || filePaths.length === 0) return;
-      const filePath = filePaths[0];
+      const filePath = toSlashPath(filePaths[0]);
       // The agent resolves workspace paths under the root, so a file picked
       // elsewhere opens read-only through the external loader instead of
       // failing with NOT_FOUND.

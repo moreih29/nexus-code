@@ -34,7 +34,6 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/nexus-code/nexus-code/internal/agentpaths"
@@ -153,7 +152,7 @@ func New(agentKey string, sink EventSink) (*Server, error) {
 	}
 
 	// 4. stale 소켓 청소 (자기 소켓 등록 전)
-	cleanStaleSockets(socketsDir, filepath.Base(socketPath))
+	cleanStaleSockets(socketsDir, filepath.Base(socketPath), time.Now())
 
 	// 5. 이전 소켓 파일이 남아 있으면 제거한다.
 	_ = os.Remove(socketPath)
@@ -386,13 +385,14 @@ func makeSocketPath(agentKey string) (string, string, error) {
 // self(selfBasename)는 항상 보존한다.
 // stale 기준: mtime이 60초 이상 경과 AND Unix 소켓에 연결 불가(ECONNREFUSED 또는 500ms 내 연결 실패).
 // 불확실한 경우(에러가 명확하지 않을 때)는 파일을 보존한다.
-func cleanStaleSockets(socketsDir, selfBasename string) {
+// now is the time ages are measured from; tests pass a later time instead of
+// backdating the file, which Windows cannot do to a socket.
+func cleanStaleSockets(socketsDir, selfBasename string, now time.Time) {
 	entries, err := os.ReadDir(socketsDir)
 	if err != nil {
 		return
 	}
 
-	now := time.Now()
 	for _, entry := range entries {
 		name := entry.Name()
 
@@ -429,8 +429,7 @@ func cleanStaleSockets(socketsDir, selfBasename string) {
 		// 연결 실패 에러를 분류한다.
 		// ECONNREFUSED이면 dead socket이므로 제거한다.
 		// 다른 에러(permission denied, 경로 오류, timeout 등)는 불확실하므로 보존한다.
-		var sysErr syscall.Errno
-		if !errors.As(err, &sysErr) || sysErr != syscall.ECONNREFUSED {
+		if !isConnRefused(err) {
 			// ECONNREFUSED가 아닌 에러 — 불확실, 보존한다.
 			continue
 		}

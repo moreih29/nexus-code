@@ -35,6 +35,12 @@ func main() {
 		os.Exit(hookclient.Run(os.Args[2:]))
 	}
 
+	// In the MSIX package, git starts the app as its commit message editor
+	// through this, since only the agent has an alias that git can run.
+	if len(os.Args) >= 2 && os.Args[1] == "package-run" {
+		os.Exit(runPackageProgram(os.Args[2:]))
+	}
+
 	if code, ok := askpassExitFromArgv(os.Args); ok {
 		os.Exit(code)
 	}

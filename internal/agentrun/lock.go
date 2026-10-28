@@ -4,11 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"syscall"
 )
 
 // Lock holds an exclusive flock(2) on a workspace lock file, ensuring that
-// at most one daemon owns a given workspace at a time.
+// at most one daemon owns a given workspace at a time. Windows takes a
+// LockFileEx lock instead (lock_windows.go).
 //
 // If the file system does not support flock (e.g. some network mounts), the
 // syscall returns ENOTSUP or EOPNOTSUPP. In that case we fall back to a
@@ -35,19 +35,16 @@ func TryLock(path string) (*Lock, error) {
 		return nil, fmt.Errorf("agentrun: open lock file %q: %w", path, err)
 	}
 
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := lockFile(f); err != nil {
 		f.Close()
-		// EWOULDBLOCK / EAGAIN means another process holds the lock.
-		// Both errno values may appear depending on OS.
-		if errors.Is(err, syscall.EWOULDBLOCK) {
+		if errors.Is(err, errLockBusy) {
 			return nil, ErrLockHeld
 		}
-		// ENOTSUP / EOPNOTSUPP: flock not supported on this file system.
-		// Fall back to PID-file liveness check.
-		if errors.Is(err, syscall.ENOTSUP) || errors.Is(err, syscall.EOPNOTSUPP) {
+		// The file system has no locks: fall back to a PID-file liveness check.
+		if errors.Is(err, errLockUnsupported) {
 			return tryLockPIDFallback(path)
 		}
-		return nil, fmt.Errorf("agentrun: flock %q: %w", path, err)
+		return nil, fmt.Errorf("agentrun: lock %q: %w", path, err)
 	}
 
 	return &Lock{file: f}, nil
@@ -72,9 +69,7 @@ func tryLockPIDFallback(path string) (*Lock, error) {
 	if readErr == nil && len(data) > 0 {
 		var pid int
 		if _, err := fmt.Sscanf(string(data), "%d", &pid); err == nil && pid > 0 {
-			// kill(pid, 0) tests whether the process is alive without sending
-			// a signal. ESRCH means no such process — the previous owner is gone.
-			if err := syscall.Kill(pid, 0); err == nil {
+			if processAlive(pid) {
 				// Process still alive — daemon is running.
 				return nil, ErrLockHeld
 			}

@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -89,8 +88,8 @@ func sweepWorkspace(runDir, id string) []string {
 	}
 	// Closing the fd releases the flock.
 	defer f.Close()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		// Held (daemon alive) or flock unsupported (liveness unprovable) —
+	if err := lockFile(f); err != nil {
+		// Held (daemon alive) or locks unsupported (liveness unprovable) —
 		// either way, hands off.
 		return nil
 	}

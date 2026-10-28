@@ -130,12 +130,18 @@ describe("SshAuthPromptDialogContent", () => {
 
   it("copies the host-key fingerprint through the renderer clipboard helper", () => {
     const copied: string[] = [];
+    const navigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
     Object.defineProperty(globalThis, "navigator", {
       configurable: true,
       value: { clipboard: { writeText: (value: string) => copied.push(value) } },
     });
 
-    copySshHostKeyFingerprint("SHA256:copied");
+    try {
+      copySshHostKeyFingerprint("SHA256:copied");
+    } finally {
+      // Later test files read navigator.platform; leave them the real one.
+      if (navigator) Object.defineProperty(globalThis, "navigator", navigator);
+    }
 
     expect(copied).toEqual(["SHA256:copied"]);
   });

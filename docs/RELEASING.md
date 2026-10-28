@@ -12,7 +12,7 @@
 | `develop` | 통합 브랜치. 모든 기능/수정이 여기 쌓인다. |
 | `main` | 릴리스 브랜치. 태그와 GitHub Release는 여기서만 만든다. |
 
-- **CI (`ci.yml`)** 는 `main` 으로의 **PR / push 에서만** 돈다 (typecheck · lint · test, electron-builder 미실행). develop 자체에는 게이트가 없으므로, 품질 게이트는 `develop → main` PR에서 통과시킨다.
+- **CI (`ci.yml`)** 는 `main` · `develop` 으로의 **PR** 과 `main` **push** 에서 돈다 (typecheck · lint · test, electron-builder 미실행). macOS · Ubuntu · Windows 러너에서 각각 돌며, 세 OS 모두 통과해야 한다. develop push 에는 게이트가 없으므로, 품질 게이트는 PR 에서 통과시킨다.
 - **Release (`release.yml`)** 는 **GitHub Release 가 created** 될 때 트리거된다.
 
 ### 서명 인증서
@@ -90,9 +90,10 @@
 
 ## 4. 배포 검증
 
-`release.yml` 의 2-job 파이프라인이 자동 실행된다:
-- **build-agent** (`ubuntu-latest`): Go 에이전트 크로스컴파일 + Node runtime + LSP 번들 산출 (OS 독립).
+`release.yml` 의 3-job 파이프라인이 자동 실행된다:
+- **build-agent** (`ubuntu-latest`): Go 에이전트 크로스컴파일 + Node runtime + LSP 번들 산출 (OS 독립). Node runtime tarball 은 Actions 캐시(`node-runtime-<버전>`, main 의 CI 가 채움)에서 먼저 찾고, 없을 때만 nodejs.org 에서 받는다. 어느 쪽이든 nodejs.org 의 `SHASUMS256.txt` 와 SHA-256 이 맞아야 쓴다.
 - **package** (`macos-14`, Apple Silicon arm64): native rebuild 후 electron-builder 로 DMG / ZIP 패키징, `--publish never` 로 산출만 하고 별도 step 의 `gh release upload --clobber` 로 첨부. **arm64 단일 빌드만 제공** — Intel(x64) 정식 배포는 없으며, Intel 사용자는 [`INSTALL.md`](INSTALL.md#self-build) 의 self-build 절차를 따른다.
+- **package-linux** (`ubuntu-latest` x64, `ubuntu-24.04-arm` arm64): 아키텍처마다 AppImage / deb 를 만들어 같은 방식으로 첨부한다. Linux 는 서명하지 않는다 — 앱 안 업데이트는 피드 파일(`latest-linux*.yml`)의 sha512 로만 검증한다.
 
 9. **서명 확인**
    `Verify the signature` step 이 통과했는지 본다 (앱이 릴리스 인증서로 서명됐는지 검사).
@@ -103,10 +104,16 @@
    NexusCode-X.Y.Z-arm64.dmg
    NexusCode-X.Y.Z-arm64.zip
    latest-mac.yml
+   NexusCode-X.Y.Z-x86_64.AppImage
+   NexusCode-X.Y.Z-amd64.deb
+   latest-linux.yml
+   NexusCode-X.Y.Z-arm64.AppImage
+   NexusCode-X.Y.Z-arm64.deb
+   latest-linux-arm64.yml
    ```
 
 11. **설치 확인**
-    arm64 DMG 를 설치해 앱 버전과 업데이트 채널이 올바른지 확인한다. 이전 버전이 설치돼 있으면 앱 안 **업데이트** 로 새 버전이 설치되는지도 확인한다.
+    arm64 DMG 를 설치해 앱 버전과 업데이트 채널이 올바른지 확인한다. 이전 버전이 설치돼 있으면 앱 안 **업데이트** 로 새 버전이 설치되는지도 확인한다. Linux 머신이 있으면 deb 설치와 AppImage 실행도 확인한다.
 
 ---
 

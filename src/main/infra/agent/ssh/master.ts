@@ -7,6 +7,7 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { spawnSsh2Process, usesSsh2Client } from "./ssh2";
 
 export interface SshMasterOptions {
   readonly host: string;
@@ -313,12 +314,15 @@ function tryUnlink(
 }
 
 /**
- * Production spawn adapter. Tests can inject a fake child through dependencies.
+ * Production spawn adapter: OpenSSH's binaries, or the ssh2 client where it
+ * stands in for them (ssh2/index.ts). Tests can inject a fake child through
+ * dependencies.
  */
-function defaultSpawnSsh(
+export function defaultSpawnSsh(
   command: string,
   args: string[],
   options: SpawnOptionsWithoutStdio,
 ): ChildProcessWithoutNullStreams {
+  if (usesSsh2Client()) return spawnSsh2Process(command, args);
   return defaultSpawn(command, args, options) as ChildProcessWithoutNullStreams;
 }

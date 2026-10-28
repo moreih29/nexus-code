@@ -5,11 +5,11 @@
  * shell or sftp tokens.
  */
 
-import { spawn as defaultSpawn, type SpawnOptionsWithoutStdio } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createSshError } from "../../pipe";
+import { defaultSpawnSsh } from "../master";
 import type {
   EnsureRemoteAgentOptions,
   LspBootstrapProgressEvent,
@@ -28,10 +28,10 @@ export async function defaultRunner(
   input?: Buffer | string,
 ): Promise<SshBootstrapRunnerResult> {
   return new Promise((resolve, reject) => {
-    const child = defaultSpawn(command, args, {
+    const child = defaultSpawnSsh(command, args, {
       detached: false,
       stdio: ["pipe", "pipe", "pipe"],
-    } satisfies SpawnOptionsWithoutStdio);
+    });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));

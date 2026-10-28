@@ -1,6 +1,7 @@
 /** Copy entries into the file clipboard (for later paste) + system clipboard. */
 
 import { copyText } from "@/utils/clipboard";
+import { toNativeDrivePath } from "../../../shared/fs/drive-path";
 import { useFileClipboardStore } from "./store";
 
 export { type ClipboardEntry } from "./store";
@@ -13,7 +14,7 @@ export interface FileClipboardInput {
 
 export function handleCopy(input: FileClipboardInput): void {
   // Write entry paths to system clipboard (one per line).
-  copyText(input.entries.map((e) => e.absPath).join("\n"));
+  copyText(input.entries.map((e) => toNativeDrivePath(e.absPath)).join("\n"));
 
   useFileClipboardStore.getState().set("copy", input.workspaceId, input.entries, input.workspaceRootPath);
 }

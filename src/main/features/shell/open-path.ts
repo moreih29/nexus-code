@@ -8,6 +8,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { toNativeDrivePath } from "../../../shared/fs/drive-path";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { validateArgs } from "../../infra/ipc-router";
 
@@ -94,7 +95,8 @@ export function openPathExternalHandler(
   shellImpl: SystemShell = getElectronSystemShell(),
 ): (args: unknown) => Promise<SystemPathResult> {
   return async (args: unknown): Promise<SystemPathResult> => {
-    const { absPath } = validateArgs(openPathExternalArgsSchema, args);
+    // The renderer sends Windows paths as C:/work/demo; Explorer wants backslashes.
+    const absPath = toNativeDrivePath(validateArgs(openPathExternalArgsSchema, args).absPath);
     const validationError = await validateSystemPath(absPath);
     if (validationError) return validationError;
 
@@ -115,7 +117,7 @@ export function revealInOSHandler(
   shellImpl: Pick<SystemShell, "showItemInFolder"> = getElectronSystemShell(),
 ): (args: unknown) => Promise<SystemPathResult> {
   return async (args: unknown): Promise<SystemPathResult> => {
-    const { absPath } = validateArgs(revealInOSArgsSchema, args);
+    const absPath = toNativeDrivePath(validateArgs(revealInOSArgsSchema, args).absPath);
     const validationError = await validateSystemPath(absPath);
     if (validationError) return validationError;
 

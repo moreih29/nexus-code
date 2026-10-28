@@ -1,26 +1,33 @@
-# CI workflow — PR + main push 트리거.
+# CI workflow — runs on PRs into main or develop, pushes to main, and by hand.
 # electron-builder는 실행하지 않는다. PR 피드백 시간 최소화가 목적.
 # build dry-run은 electron-vite build(out/ 산출)까지만 수행.
 #
-# macos-14 단일 runner를 쓰는 이유:
-#   - node-pty/better-sqlite3 postinstall rebuild가 macOS 환경을 요구한다.
-#   - typecheck/lint는 OS 무관하지만 bun test 중 electron 관련 native require가
-#     macOS에서만 안정적으로 통과한다.
-#   - Linux runner로 분리하면 native rebuild 실패 위험이 있고, PR 하나에 두 runner를
-#     띄우면 피드백 시간이 늘어난다.
+# Every check runs on each desktop OS the app targets. The postinstall step
+# rebuilds node-pty and better-sqlite3 against Electron on the runner's own OS,
+# so each runner also proves the native modules build there.
 
 name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, develop]
   push:
     branches: [main]
+  workflow_dispatch:
+
+# A new push to a PR supersedes the run still going for its last one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ci:
-    name: CI checks
-    runs-on: macos-14
+    name: CI checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-latest, windows-latest]
 
     steps:
       - name: Checkout
@@ -48,9 +55,29 @@ jobs:
       - name: Test
         run: bun run test
 
+      - name: Test agent
+        run: go test ./...
+
+      - name: Resolve Node runtime version
+        id: node-runtime
+        shell: bash
+        run: echo "version=$(bun run scripts/build-agent.ts --print-node-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Node runtimes
+        # Downloads from nodejs.org have stalled on runners for minutes on end;
+        # a run that finds this version's tarballs here fetches none.
+        uses: actions/cache@v6
+        with:
+          path: .cache/node-runtime
+          key: node-runtime-${{ steps.node-runtime.outputs.version }}
+          enableCrossOsArchive: true
+
       - name: Build agent (dry-run)
         # Go cross-compile + Node runtime download + LSP bundle.
-        # CGO 미사용이므로 macOS runner에서도 linux 타겟 포함 전 플랫폼 빌드 가능.
+        # CGO 미사용이므로 어느 runner에서도 전 플랫폼 빌드 가능.
+        env:
+          NODE_RUNTIME_VERSION: ${{ steps.node-runtime.outputs.version }}
+          NODE_RUNTIME_CACHE_DIR: .cache/node-runtime
         run: bun run scripts/build-agent.ts
 
       - name: Build renderer (dry-run)

@@ -317,8 +317,8 @@
   },
   "groupPlaceholder": {
     "no_tab": "열린 탭 없음",
-    "new_terminal": "⌘T 새 터미널",
-    "open_split": "⌘↵ 분할창에서 파일 열기"
+    "new_terminal": "{{shortcut}} 새 터미널",
+    "open_split": "{{shortcut}} 분할창에서 파일 열기"
   },
   "terminal": {
     "default_title": "터미널",
@@ -417,6 +417,7 @@
     "install": "업데이트",
     "downloading": "버전 {{version}}을(를) 내려받는 중…",
     "ready": "버전 {{version}}이(가) 준비되었습니다. 앱을 다시 시작하면 설치됩니다.",
+    "readyAsksPassword": "버전 {{version}}이(가) 준비되었습니다. 지금 다시 시작하고 관리자 암호를 입력하면 설치됩니다.",
     "restart": "지금 다시 시작",
     "installFailed": "업데이트를 설치하지 못했습니다. 릴리스 페이지에서 내려받을 수 있습니다.",
     "openReleasePage": "릴리스 페이지 열기",

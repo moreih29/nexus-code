@@ -8,18 +8,14 @@ import (
 	"errors"
 	"io"
 	"os"
-	"os/exec"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
-	creackpty "github.com/creack/pty"
 	"github.com/nexus-code/nexus-code/internal/dispatch"
-	"golang.org/x/sys/unix"
 )
 
 // Service owns the registry of active PTY-backed terminal sessions.
@@ -27,6 +23,26 @@ type Service struct {
 	mu       sync.Mutex
 	sink     EventSink
 	sessions map[tabKey]*session
+}
+
+// spawnSpec is the shell a session starts and the terminal it starts under.
+type spawnSpec struct {
+	shell string
+	args  []string
+	dir   string
+	env   []string
+	cols  int
+	rows  int
+}
+
+// child is a session's shell process.
+type child struct {
+	*os.Process
+}
+
+// wait waits for the shell to exit.
+func (c *child) wait() (*os.ProcessState, error) {
+	return c.Wait()
 }
 
 // tabKey is the domain identity for a terminal session.
@@ -40,8 +56,8 @@ type tabKey struct {
 type session struct {
 	service *Service
 	key     tabKey
-	cmd     *exec.Cmd
-	master  *os.File
+	child   *child
+	master  *terminal
 
 	writeMu sync.Mutex
 
@@ -84,10 +100,10 @@ type session struct {
 	lastRows int
 
 	// setSizeFn is the function used by wiggleSIGWINCH to apply a PTY geometry
-	// change.  Production code leaves it nil (setWinsize is used).
+	// change.  Production code leaves it nil (master.setSize is used).
 	// Tests may replace it with a recording stub to verify call sequences
 	// without a real PTY fd.
-	setSizeFn func(f *os.File, ws *creackpty.Winsize) error
+	setSizeFn func(cols, rows int) error
 
 	// wiggleActive guards against overlapping wiggleSIGWINCH goroutines when
 	// replays arrive in quick succession (e.g. repeated reconnects).  A wiggle
@@ -196,32 +212,31 @@ func (s *Service) Spawn(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 
-	if existing := s.lookup(key); existing != nil && existing.cmd.Process != nil {
+	if existing := s.lookup(key); existing != nil {
 		// The session outlived its previous client (an app restart or a window
 		// reload).  Fit it to the new client, which replays it to redraw the
 		// screen.  Best-effort: a session that is exiting reports exit anyway.
 		_ = existing.resize(p.Cols, p.Rows)
-		return SpawnResult{PID: existing.cmd.Process.Pid, Attached: true}, nil
+		return SpawnResult{PID: existing.child.Pid, Attached: true}, nil
 	}
 
 	shell := strings.TrimSpace(p.Shell)
 	if shell == "" {
 		shell = defaultShell()
 	}
-	cmd := exec.Command(shell, p.Args...)
-	cmd.Dir = p.Cwd
-	cmd.Env = mergeEnv(p.Env)
-	cmd.SysProcAttr = newSysProcAttr()
-
-	master, err := creackpty.StartWithSize(cmd, &creackpty.Winsize{Rows: uint16(p.Rows), Cols: uint16(p.Cols)})
+	master, child, err := startTerminal(spawnSpec{
+		shell: shell,
+		args:  p.Args,
+		dir:   p.Cwd,
+		env:   mergeEnv(p.Env),
+		cols:  p.Cols,
+		rows:  p.Rows,
+	})
 	if err != nil {
 		return nil, requestFailed("failed to spawn PTY: %s", err)
 	}
-	// From here on the master must not go through os.File.Fd(): that would
-	// put it back into blocking mode (see pollableMaster and withFd).
-	master = pollableMaster(master)
 
-	session := newSession(s, key, cmd, master)
+	session := newSession(s, key, child, master)
 	session.sizeMu.Lock()
 	session.lastCols = p.Cols
 	session.lastRows = p.Rows
@@ -229,15 +244,12 @@ func (s *Service) Spawn(_ context.Context, raw json.RawMessage) (any, error) {
 
 	if stored := s.storeSession(key, session); stored != session {
 		session.stop(syscall.SIGKILL)
-		if stored.cmd.Process == nil {
-			return nil, requestFailed("pty session already exists for tab %s", key.tabID)
-		}
-		return SpawnResult{PID: stored.cmd.Process.Pid}, nil
+		return SpawnResult{PID: stored.child.Pid}, nil
 	}
 
 	go session.readLoop()
 	go session.waitLoop()
-	return SpawnResult{PID: cmd.Process.Pid}, nil
+	return SpawnResult{PID: child.Pid}, nil
 }
 
 // Write sends user input bytes to the child PTY.
@@ -333,9 +345,8 @@ func (s *Service) Kill(_ context.Context, raw json.RawMessage) (any, error) {
 // process for their whole session, and child commands they spawn (e.g. lazygit
 // shelling out to `git`) are short-lived.
 //
-// Lookup path: TIOCGPGRP ioctl on the master fd gives the foreground process
-// group id, then `ps -o comm= -p PGID` resolves the program name. We strip any
-// leading path so callers see "lazygit" rather than "/usr/local/bin/lazygit".
+// Lookup path: see terminal.foregroundProcess. Windows has no foreground
+// process group and reports no name.
 //
 // All error paths return an empty `Name` rather than failing the RPC: the
 // renderer treats empty as "no info" and leaves the existing title alone, so
@@ -353,35 +364,16 @@ func (s *Service) ForegroundProcess(_ context.Context, raw json.RawMessage) (any
 	if session == nil {
 		return ForegroundProcessResult{Name: ""}, nil
 	}
-	var pgid int
-	ioErr := withFd(session.master, func(fd int) (err error) {
-		pgid, err = unix.IoctlGetInt(fd, unix.TIOCGPGRP)
-		return err
-	})
-	if ioErr != nil || pgid <= 0 {
-		return ForegroundProcessResult{Name: ""}, nil
-	}
-	// `ps -o comm= -p PGID`: -o comm= prints only the COMM column (no header),
-	// macOS와 Linux 모두 동일한 형태로 동작. 짧은 실행 시간(~30ms)이라 alt-enter
-	// 같은 sporadic 호출에는 충분.
-	out, execErr := exec.Command("ps", "-o", "comm=", "-p", strconv.Itoa(pgid)).Output()
-	if execErr != nil {
-		return ForegroundProcessResult{Name: ""}, nil
-	}
-	name := strings.TrimSpace(string(out))
-	if idx := strings.LastIndex(name, "/"); idx >= 0 {
-		name = name[idx+1:]
-	}
-	return ForegroundProcessResult{Name: name}, nil
+	return ForegroundProcessResult{Name: session.master.foregroundProcess()}, nil
 }
 
 // newSession links process state with its flow-control condition variable and
 // initialises the ring buffer for output preservation during dialer absence.
-func newSession(service *Service, key tabKey, cmd *exec.Cmd, master *os.File) *session {
+func newSession(service *Service, key tabKey, child *child, master *terminal) *session {
 	s := &session{
 		service:   service,
 		key:       key,
-		cmd:       cmd,
+		child:     child,
 		master:    master,
 		readDone:  make(chan struct{}),
 		ring:      make([]byte, RingCapBytes),
@@ -429,7 +421,7 @@ func (s *session) deliver(chunk []byte) {
 
 // resize applies a PTY geometry and records it for wiggleSIGWINCH.
 func (s *session) resize(cols int, rows int) error {
-	if err := setWinsize(s.master, &creackpty.Winsize{Rows: uint16(rows), Cols: uint16(cols)}); err != nil {
+	if err := s.master.setSize(cols, rows); err != nil {
 		return err
 	}
 	s.sizeMu.Lock()
@@ -441,7 +433,7 @@ func (s *session) resize(cols int, rows int) error {
 
 // waitLoop reports exactly one exit event after the child has terminated.
 func (s *session) waitLoop() {
-	err := s.cmd.Wait()
+	state, err := s.child.wait()
 	s.exitOnce.Do(func() {
 		select {
 		case <-s.readDone:
@@ -450,7 +442,7 @@ func (s *session) waitLoop() {
 			<-s.readDone
 		}
 		s.service.removeSession(s.key, s)
-		_ = s.service.emit(EventExit, exitPayloadFromWait(s.key, err))
+		_ = s.service.emit(EventExit, exitPayload(s.key, state, err))
 	})
 }
 
@@ -542,12 +534,12 @@ func (s *session) wiggleSIGWINCH() {
 	if cols == 0 || rows == 0 || rows <= 1 {
 		return
 	}
-	setSize := setWinsize
+	setSize := s.master.setSize
 	if s.setSizeFn != nil {
 		setSize = s.setSizeFn
 	}
 	// Shrink by one row to make the geometry change.
-	_ = setSize(s.master, &creackpty.Winsize{Rows: uint16(rows - 1), Cols: uint16(cols)})
+	_ = setSize(cols, rows-1)
 
 	// Hold the shrunken size long enough for the foreground process to run
 	// its SIGWINCH handler and observe rows-1.
@@ -562,7 +554,7 @@ func (s *session) wiggleSIGWINCH() {
 	if cols == 0 || rows == 0 {
 		return
 	}
-	_ = setSize(s.master, &creackpty.Winsize{Rows: uint16(rows), Cols: uint16(cols)})
+	_ = setSize(cols, rows)
 }
 
 // write serializes and chunks input writes to preserve one-session input order.
@@ -584,10 +576,7 @@ func (s *session) write(data []byte) error {
 
 // stop terminates the child process group and unblocks the reader.
 func (s *session) stop(signal syscall.Signal) {
-	s.stopOnce.Do(func() {
-		s.stopReading()
-		_ = signalProcessGroup(s.cmd.Process, signal)
-	})
+	s.stopOnce.Do(func() { s.stopChild(signal) })
 }
 
 // stopReading wakes any paused reader and closes the PTY master.
@@ -598,32 +587,6 @@ func (s *session) stopReading() {
 	s.flowCond.Broadcast()
 	s.flowMu.Unlock()
 	_ = s.master.Close()
-}
-
-// setWinsize applies ws to the PTY master. It replaces creackpty.Setsize,
-// which reaches the descriptor through os.File.Fd(): that read is not
-// synchronized with a concurrent Close (a data race, and an ioctl on a
-// possibly reused descriptor number), which resize and the post-replay
-// wiggle hit whenever the session is torn down at the same time.
-func setWinsize(master *os.File, ws *creackpty.Winsize) error {
-	return withFd(master, func(fd int) error {
-		return unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, &unix.Winsize{Row: ws.Rows, Col: ws.Cols, Xpixel: ws.X, Ypixel: ws.Y})
-	})
-}
-
-// withFd runs fn with the master's descriptor held open: SyscallConn's
-// Control keeps the file from being closed underneath fn and fails cleanly
-// once it has been closed, unlike os.File.Fd().
-func withFd(master *os.File, fn func(fd int) error) error {
-	conn, err := master.SyscallConn()
-	if err != nil {
-		return err
-	}
-	var fnErr error
-	if err := conn.Control(func(fd uintptr) { fnErr = fn(int(fd)) }); err != nil {
-		return err
-	}
-	return fnErr
 }
 
 // decodeParams unmarshals a request body into a strongly typed PTY parameter struct.
@@ -658,29 +621,6 @@ func validateSize(cols int, rows int, method string) error {
 	return nil
 }
 
-// shellFallbackCandidates is the ordered probe list used only when $SHELL
-// is absent from the agent environment. bash precedes zsh deliberately: an
-// unconfigured zsh drops the user into the interactive zsh-newuser-install
-// wizard, so it is the worse default. New shells can be appended here.
-var shellFallbackCandidates = []string{"/bin/bash", "/bin/zsh", "/bin/sh"}
-
-// defaultShell resolves the shell for a PTY on the agent's own host. It
-// prefers $SHELL — the user's configured login shell, which the remote
-// sshd populates from /etc/passwd — and only when that is unset probes
-// shellFallbackCandidates so a missing $SHELL never spawns a nonexistent
-// binary.
-func defaultShell() string {
-	if shell := strings.TrimSpace(os.Getenv("SHELL")); shell != "" {
-		return shell
-	}
-	for _, candidate := range shellFallbackCandidates {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate
-		}
-	}
-	return "/bin/sh"
-}
-
 // hasUTF8Locale reports whether the merged env carries any non-empty
 // LANG / LC_ALL / LC_CTYPE — the three variables bash readline consults
 // to enable multibyte input. Empty values count as unset because shells
@@ -694,6 +634,34 @@ func hasUTF8Locale(merged map[string]string) bool {
 	return false
 }
 
+// wrapperDirEnv names the directory of the app's command wrappers, which the
+// shell must find before the real commands.
+const wrapperDirEnv = "NEXUS_WRAPPER_SELF_DIR"
+
+// hasEnvKey reports whether env sets the variable key.
+func hasEnvKey(env map[string]string, key string) bool {
+	for existing := range env {
+		if sameEnvKey(existing, key) {
+			return true
+		}
+	}
+	return false
+}
+
+// prependPath puts dir first on env's PATH, under whatever name PATH has.
+func prependPath(env map[string]string, dir string) {
+	for key, value := range env {
+		if sameEnvKey(key, "PATH") {
+			if value != "" {
+				dir += string(os.PathListSeparator) + value
+			}
+			env[key] = dir
+			return
+		}
+	}
+	env["PATH"] = dir
+}
+
 // mergeEnv overlays spawn-specific variables on the agent process environment.
 func mergeEnv(overrides map[string]string) []string {
 	merged := make(map[string]string)
@@ -705,7 +673,19 @@ func mergeEnv(overrides map[string]string) []string {
 		merged[key] = value
 	}
 	for key, value := range overrides {
+		// Windows names variables without regard to case: an override of PATH
+		// must replace the inherited Path, not sit next to it.
+		for existing := range merged {
+			if sameEnvKey(existing, key) {
+				delete(merged, existing)
+			}
+		}
 		merged[key] = value
+	}
+	// The app's wrapper directory goes first on this host's own PATH. The app
+	// cannot build that PATH: for an SSH workspace it is the remote's.
+	if dir := overrides[wrapperDirEnv]; dir != "" && !hasEnvKey(overrides, "PATH") {
+		prependPath(merged, dir)
 	}
 	if _, ok := merged["TERM"]; !ok {
 		merged["TERM"] = "xterm-256color"

@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { AgentManifestSchema } from "../../../shared/agent/manifest";
+import {
+  type AgentArtifactPlatform,
+  AgentManifestSchema,
+  findAgentBinary,
+} from "../../../shared/agent/manifest";
 import { LOCAL_AGENT_DIST_DIR } from "./ssh/ssh-bootstrap/types";
 
 /**
@@ -42,6 +46,23 @@ export function getAgentBinDir(): string {
 }
 
 /**
+ * The manifest platform of this machine's agent build, or null when no build
+ * targets it.
+ */
+export function localAgentPlatform(): AgentArtifactPlatform | null {
+  const os =
+    process.platform === "darwin"
+      ? "darwin"
+      : process.platform === "linux"
+        ? "linux"
+        : process.platform === "win32"
+          ? "windows"
+          : null;
+  const arch = process.arch === "x64" ? "amd64" : process.arch === "arm64" ? "arm64" : null;
+  return os && arch ? { os, arch } : null;
+}
+
+/**
  * 현재 플랫폼에 맞는 agent 바이너리의 절대 경로를 반환한다.
  *
  * manifest.json에서 현재 os/arch 항목을 찾아 경로를 결정한다.
@@ -60,12 +81,10 @@ export function getAgentBinaryPath(): string | undefined {
     const manifest = AgentManifestSchema.parse(
       JSON.parse(fs.readFileSync(manifestPath, "utf8")),
     );
-    const os =
-      process.platform === "darwin" ? "darwin" : process.platform === "linux" ? "linux" : null;
-    const arch = process.arch === "x64" ? "amd64" : process.arch === "arm64" ? "arm64" : null;
-    if (!os || !arch) return undefined;
+    const platform = localAgentPlatform();
+    if (!platform) return undefined;
 
-    const entry = manifest.binaries.find((b) => b.os === os && b.arch === arch);
+    const entry = findAgentBinary(manifest, platform);
     if (!entry) return undefined;
 
     return path.join(distDir, entry.path);

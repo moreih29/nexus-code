@@ -17,14 +17,26 @@ const DEFAULT_VERSION = "0.1.0";
 // Manifest metadata follows the single source of truth in envelope.ts —
 // an independent literal here drifted to "1" while the wire went to "2".
 const DEFAULT_PROTOCOL_VERSION = AGENT_PROTOCOL_VERSION;
-const NODE_MAJOR = 20;
-const NODE_DIST_BASE_URL = "https://nodejs.org/dist";
+// The LTS line the SSH hosts' Node runtime comes from. Node 20 reached end of
+// life in April 2026 and got no fix in the October 2026 security release.
+// Node 24 needs glibc 2.28 on Linux, as 20 did, and macOS 13.5.
+const NODE_MAJOR = 24;
+// nodejs.org serves its releases under two paths, which its CDN caches apart.
+const NODE_DIST_BASE_URLS = ["https://nodejs.org/dist", "https://nodejs.org/download/release"];
 
-export const AGENT_BUILD_TARGETS = [
+/** The hosts an SSH workspace runs on; each also gets a Node runtime. */
+const SSH_HOST_TARGETS = [
   { os: "linux", arch: "amd64" },
   { os: "linux", arch: "arm64" },
   { os: "darwin", arch: "amd64" },
   { os: "darwin", arch: "arm64" },
+] as const satisfies readonly AgentArtifactPlatform[];
+
+/** The SSH hosts, plus Windows, where the agent serves only the local app. */
+export const AGENT_BUILD_TARGETS = [
+  ...SSH_HOST_TARGETS,
+  { os: "windows", arch: "amd64" },
+  { os: "windows", arch: "arm64" },
 ] as const satisfies readonly AgentArtifactPlatform[];
 
 const LSP_BUNDLES = [
@@ -114,9 +126,7 @@ export async function buildAgentDistribution(
 
   const agentArtifacts = await buildAgentBinaries({ rootDir, outDir, version, run });
   const nodeVersion =
-    options.nodeVersion ??
-    normalizeNodeVersion(process.env.NODE_RUNTIME_VERSION ?? "") ??
-    (await resolveLatestNode20Version(dependencies.fetch ?? fetch));
+    options.nodeVersion ?? (await nodeRuntimeVersion(dependencies.fetch ?? fetch));
   const nodeArtifacts = await downloadNodeRuntimes({ outDir, nodeVersion }, dependencies.fetch);
   const lspArtifacts = await buildLspBundles({ rootDir, outDir, run });
 
@@ -214,7 +224,8 @@ async function buildAgentBinaries(args: {
 }): Promise<ManifestArtifactInput[]> {
   const artifacts: ManifestArtifactInput[] = [];
   for (const target of AGENT_BUILD_TARGETS) {
-    const name = `agent-${args.version}-${target.os}-${target.arch}`;
+    const extension = target.os === "windows" ? ".exe" : "";
+    const name = `agent-${args.version}-${target.os}-${target.arch}${extension}`;
     await args.run(
       "go",
       [
@@ -255,13 +266,34 @@ async function downloadNodeRuntimes(
   const runtimeDir = path.join(args.outDir, "runtime");
   await fs.mkdir(runtimeDir, { recursive: true });
   const artifacts: RuntimeArtifactInput[] = [];
+  // A tarball can be pieced together from several attempts over two paths,
+  // so it must match the SHA-256 nodejs.org lists for it.
+  const checksums = await nodeChecksums(args.nodeVersion, fetchFn);
+  // CI keeps the tarballs here between runs, so most runs fetch none of them.
+  const cacheDir = process.env.NODE_RUNTIME_CACHE_DIR;
 
-  for (const target of AGENT_BUILD_TARGETS) {
+  for (const target of SSH_HOST_TARGETS) {
     const platform = nodeDistPlatform(target);
     const archive = `node-${args.nodeVersion}-${platform}.tar.gz`;
     const relativePath = path.join("runtime", archive);
-    const url = `${NODE_DIST_BASE_URL}/${args.nodeVersion}/${archive}`;
-    await downloadFile(url, path.join(args.outDir, relativePath), fetchFn);
+    const destination = path.join(args.outDir, relativePath);
+    const expected = checksums.get(archive);
+    const cached = cacheDir ? path.join(cacheDir, archive) : undefined;
+    const cachedSha256 = cached && (await fileMetadata(cached).catch(() => undefined))?.sha256;
+    if (cached && expected && cachedSha256 === expected) {
+      await fs.copyFile(cached, destination);
+      console.log(`Took ${archive} from ${cacheDir}`);
+    } else {
+      await downloadFile(`${args.nodeVersion}/${archive}`, destination, fetchFn);
+      const { sha256 } = await fileMetadata(destination);
+      if (sha256 !== expected) {
+        throw new Error(`${archive} does not match the SHA-256 nodejs.org lists (got ${sha256})`);
+      }
+      if (cached) {
+        await fs.mkdir(path.dirname(cached), { recursive: true });
+        await fs.copyFile(destination, cached);
+      }
+    }
     artifacts.push({
       ...target,
       version: args.nodeVersion,
@@ -271,6 +303,32 @@ async function downloadNodeRuntimes(
   }
 
   return artifacts;
+}
+
+/** The SHA-256 of each file in a Node release, by file name, from its SHASUMS256.txt. */
+async function nodeChecksums(
+  nodeVersion: string,
+  fetchFn: typeof fetch,
+): Promise<Map<string, string>> {
+  const text = await fetchWithRetry(`${nodeVersion}/SHASUMS256.txt`, fetchFn, async (response) => {
+    if (!response.ok) {
+      throw new Error(`failed to fetch Node ${nodeVersion} checksums: HTTP ${response.status}`);
+    }
+    return response.text();
+  });
+  const checksums = new Map<string, string>();
+  for (const line of text.split("\n")) {
+    const match = /^([0-9a-f]{64})\s+(\S+)$/.exec(line.trim());
+    if (match) checksums.set(match[2], match[1]);
+  }
+  return checksums;
+}
+
+// On Windows, use the bsdtar that ships as System32\tar.exe. Git Bash puts
+// GNU tar first on PATH, and GNU tar reads "C:\..." as host "C" and fails.
+function tarCommand(): string {
+  if (process.platform !== "win32") return "tar";
+  return path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
 }
 
 async function buildLspBundles(args: {
@@ -309,9 +367,13 @@ async function buildLspBundles(args: {
     );
 
     const archiveName = `${bundle.name}-${version}.tar.gz`;
-    await args.run("tar", ["-czf", path.join(lspOutDir, archiveName), "-C", extractedDir, "."], {
-      cwd: args.rootDir,
-    });
+    await args.run(
+      tarCommand(),
+      ["-czf", path.join(lspOutDir, archiveName), "-C", extractedDir, "."],
+      {
+        cwd: args.rootDir,
+      },
+    );
     artifacts.push({
       name: bundle.name,
       packageName: bundle.packageName,
@@ -337,14 +399,23 @@ async function installedPackageVersion(rootDir: string, packageName: string): Pr
   return packageJson.version;
 }
 
-async function resolveLatestNode20Version(fetchFn: typeof fetch): Promise<string> {
-  const response = await fetchFn(`${NODE_DIST_BASE_URL}/index.json`);
-  if (!response.ok) {
-    throw new Error(
-      `failed to resolve Node ${NODE_MAJOR} runtime version: HTTP ${response.status}`,
-    );
-  }
-  const releases = (await response.json()) as Array<{ version?: unknown; lts?: unknown }>;
+/** NODE_RUNTIME_VERSION when set, else the latest LTS release of NODE_MAJOR. */
+async function nodeRuntimeVersion(fetchFn: typeof fetch): Promise<string> {
+  return (
+    normalizeNodeVersion(process.env.NODE_RUNTIME_VERSION ?? "") ??
+    (await resolveLatestNodeLtsVersion(fetchFn))
+  );
+}
+
+async function resolveLatestNodeLtsVersion(fetchFn: typeof fetch): Promise<string> {
+  const releases = await fetchWithRetry("index.json", fetchFn, async (response) => {
+    if (!response.ok) {
+      throw new Error(
+        `failed to resolve Node ${NODE_MAJOR} runtime version: HTTP ${response.status}`,
+      );
+    }
+    return (await response.json()) as Array<{ version?: unknown; lts?: unknown }>;
+  });
   const release = releases.find(
     (candidate) =>
       typeof candidate.version === "string" &&
@@ -364,16 +435,94 @@ function normalizeNodeVersion(value: string): string | null {
 }
 
 async function downloadFile(
-  url: string,
+  distPath: string,
   destination: string,
   fetchFn: typeof fetch,
 ): Promise<void> {
-  const response = await fetchFn(url);
-  if (!response.ok) {
-    throw new Error(`download failed: ${url} returned HTTP ${response.status}`);
-  }
-  const payload = Buffer.from(await response.arrayBuffer());
+  // What the attempts so far received; a later attempt asks for the rest.
+  let chunks: Uint8Array[] = [];
+  let received = 0;
+  const payload = await fetchWithRetry(
+    distPath,
+    fetchFn,
+    async (response, onData) => {
+      const range = contentRange(response);
+      let size: number | undefined;
+      if (response.status === 200) {
+        chunks = [];
+        received = 0;
+        size = Number(response.headers.get("content-length") ?? Number.NaN);
+      } else if (response.status === 206 && range?.start === received) {
+        size = range.size;
+      } else {
+        chunks = [];
+        received = 0;
+        throw new Error(`download failed: ${response.url} returned HTTP ${response.status}`);
+      }
+      if (!response.body) throw new Error(`download failed: ${response.url} returned no body`);
+      for await (const chunk of response.body) {
+        chunks.push(chunk);
+        received += chunk.length;
+        onData();
+      }
+      if (Number.isFinite(size) && received !== size) {
+        throw new Error(`download ended after ${received} of ${size} bytes`);
+      }
+      return Buffer.concat(chunks);
+    },
+    () => (received > 0 ? { range: `bytes=${received}-` } : {}),
+  );
   await fs.writeFile(destination, payload);
+}
+
+/** The first byte and the file's size from a 206's `bytes <first>-<last>/<size>`. */
+function contentRange(response: Response): { start: number; size: number } | undefined {
+  const match = /^bytes (\d+)-\d+\/(\d+)$/.exec(response.headers.get("content-range") ?? "");
+  return match ? { start: Number(match[1]), size: Number(match[2]) } : undefined;
+}
+
+// A download from nodejs.org has stalled in CI, for half an hour before the
+// socket reset and again on each retry of the same URL. So an attempt that
+// goes without data for a while is dropped, each attempt has a deadline, and
+// the next attempt asks for the file under nodejs.org's other path, for only
+// the bytes the attempts before it did not get.
+const FETCH_ATTEMPTS = 4;
+const FETCH_STALL_TIMEOUT_MS = 30_000;
+const FETCH_ATTEMPT_TIMEOUT_MS = 5 * 60_000;
+
+async function fetchWithRetry<T>(
+  distPath: string,
+  fetchFn: typeof fetch,
+  read: (response: Response, onData: () => void) => Promise<T>,
+  headers: () => Record<string, string> = () => ({}),
+): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    const url = `${NODE_DIST_BASE_URLS[(attempt - 1) % NODE_DIST_BASE_URLS.length]}/${distPath}`;
+    const stalled = new AbortController();
+    let stallTimer: ReturnType<typeof setTimeout> | undefined;
+    const onData = () => {
+      clearTimeout(stallTimer);
+      stallTimer = setTimeout(
+        () => stalled.abort(new Error(`no data for ${FETCH_STALL_TIMEOUT_MS / 1000}s`)),
+        FETCH_STALL_TIMEOUT_MS,
+      );
+    };
+    onData();
+    try {
+      const response = await fetchFn(url, {
+        headers: headers(),
+        signal: AbortSignal.any([stalled.signal, AbortSignal.timeout(FETCH_ATTEMPT_TIMEOUT_MS)]),
+      });
+      return await read(response, onData);
+    } catch (error) {
+      if (attempt >= FETCH_ATTEMPTS) throw error;
+      console.warn(
+        `fetch ${url} failed (attempt ${attempt} of ${FETCH_ATTEMPTS}): ${(error as Error).message}`,
+      );
+    } finally {
+      clearTimeout(stallTimer);
+    }
+  }
 }
 
 function nodeDistPlatform(target: AgentArtifactPlatform): string {
@@ -459,7 +608,13 @@ function requiredValue(argv: readonly string[], index: number, flag: string): st
 }
 
 if (import.meta.main) {
-  buildAgentDistribution(parseCliArgs(process.argv.slice(2))).catch((error) => {
+  const argv = process.argv.slice(2);
+  // CI keys its cache of the Node runtimes by the version this prints.
+  const task =
+    argv[0] === "--print-node-version"
+      ? nodeRuntimeVersion(fetch).then((nodeVersion) => console.log(nodeVersion))
+      : buildAgentDistribution(parseCliArgs(argv));
+  task.catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   });

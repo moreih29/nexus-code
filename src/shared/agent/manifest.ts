@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-export const AgentArtifactOsSchema = z.enum(["linux", "darwin"]);
+/** The hosts an SSH workspace runs on. */
+export const SshHostOsSchema = z.enum(["linux", "darwin"]);
+/** Agent builds: the SSH hosts, plus Windows, where the agent serves only the local app. */
+export const AgentArtifactOsSchema = z.enum([...SshHostOsSchema.options, "windows"]);
 export const AgentArtifactArchSchema = z.enum(["amd64", "arm64"]);
 
 export const AgentArtifactPlatformSchema = z.object({
@@ -55,6 +58,7 @@ export const AgentManifestSchema = z.object({
   wrapper: z.optional(WrapperManifestEntrySchema),
 });
 
+export type SshHostOs = z.infer<typeof SshHostOsSchema>;
 export type AgentArtifactPlatform = z.infer<typeof AgentArtifactPlatformSchema>;
 export type AgentManifest = z.infer<typeof AgentManifestSchema>;
 export type AgentBinaryManifestEntry = z.infer<typeof AgentBinaryManifestEntrySchema>;

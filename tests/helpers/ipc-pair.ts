@@ -32,7 +32,13 @@ export const mockIpcMain = {
 
 export const mockGetAllWebContents = mock(() => Array.from(allWebContents));
 
+// Spread over the preload's electron stub: this mock stays for the rest of the
+// run (it is not made by a test file; see tests/scoped-module-mocks.ts), so
+// leaving out `app` and the rest would take them from every later test file.
+const preloadElectron = await import("electron");
+
 mock.module("electron", () => ({
+  ...preloadElectron,
   ipcMain: mockIpcMain,
   webContents: {
     getAllWebContents: mockGetAllWebContents,

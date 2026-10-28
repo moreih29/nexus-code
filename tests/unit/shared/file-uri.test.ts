@@ -18,6 +18,20 @@ describe("file URI helpers", () => {
     expect(fileUriToAbsolutePath(absolutePathToFileUri(path))).toBe(path);
   });
 
+  test("encodes Windows drive paths like VS Code, with a lower-case drive", () => {
+    expect(absolutePathToFileUri("C:/work/my demo/main.ts")).toBe(
+      "file:///c%3A/work/my%20demo/main.ts",
+    );
+    expect(absolutePathToFileUri("C:\\work\\demo\\main.ts")).toBe("file:///c%3A/work/demo/main.ts");
+  });
+
+  test("decodes drive file URIs to slash paths with an upper-case drive", () => {
+    expect(fileUriToAbsolutePath("file:///c%3A/work/my%20demo/main.ts")).toBe(
+      "C:/work/my demo/main.ts",
+    );
+    expect(fileUriToAbsolutePath("file:///C:/work/demo/main.ts")).toBe("C:/work/demo/main.ts");
+  });
+
   test("returns null for non-file URIs", () => {
     expect(fileUriToAbsolutePath("untitled:///scratch.py")).toBeNull();
   });

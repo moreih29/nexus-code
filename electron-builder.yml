@@ -8,7 +8,11 @@ directories:
 artifactName: "${productName}-${version}-${arch}.${ext}"
 
 # extraResources 복사 시 떨어진 에이전트 바이너리 실행 비트(+x)를 패킹 직후 복원.
+# On Windows it drops the binaries built for the other architecture.
 afterPack: build/after-pack.cjs
+
+# Gives the agent an App Execution Alias in the MSIX package.
+appxManifestCreated: build/appx-manifest.cjs
 
 extraResources:
   - from: dist/agent
@@ -45,6 +49,50 @@ mac:
   identity: "NexusCode Release Signing"
   sign: scripts/sign-mac.cjs
   notarize: false
+
+linux:
+  # Both update in place (src/main/features/updates): the AppImage replaces
+  # itself, and a deb install has apt install the next deb through pkexec.
+  target:
+    - AppImage
+    - deb
+  category: Development
+  executableName: nexus-code
+  maintainer: "moreih29 <moreih29@gmail.com>"
+  synopsis: "Multi-workspace editor with Monaco and a terminal in one window"
+
+win:
+  target:
+    - target: appx
+      arch:
+        - x64
+
+# The Microsoft Store package. The identity is the one Partner Center
+# reserved for the app.
+appx:
+  identityName: moreih29.NexusCode
+  publisher: CN=787B1269-D052-4086-B365-5CF6F74571BE
+  publisherDisplayName: moreih29
+  displayName: NexusCode
+  applicationId: NexusCode
+  # The tiles in build/appx are the icon on a transparent ground; the default
+  # grey would show around its rounded corners.
+  backgroundColor: transparent
+  languages:
+    - en-US
+    - ko-KR
+  # The build Windows 10 2004 through 22H2, the last release, share, and the
+  # Windows 11 release the package was tested on. The default declares a 2016
+  # Insider build for both.
+  minVersion: 10.0.19041.0
+  maxVersionTested: 10.0.26200.0
+
+toolsets:
+  # The AppImage tools' newer, statically linked runtime. The default one
+  # (appimage 12.0.1) links shared libraries, and its arm64 build links the
+  # unversioned libz.so, which only zlib's -dev package installs: that
+  # AppImage did not start on a stock Ubuntu 24.04.
+  appimage: "1.0.2"
 
 publish:
   provider: github

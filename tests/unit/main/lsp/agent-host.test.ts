@@ -308,7 +308,7 @@ describe("AgentLspHostHandle", () => {
     });
     expect(
       (spawn?.params as { binaryPath: string }).binaryPath.endsWith(
-        "node_modules/.bin/pyright-langserver",
+        path.join("node_modules", ".bin", "pyright-langserver"),
       ),
     ).toBe(true);
 

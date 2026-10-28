@@ -6,7 +6,8 @@
  *      → ZDOTDIR/NEXUS_USER_ZDOTDIR injected into env sent to agentHost
  *  14. spawn → wm.getWrapperBinDir null → shim not applied (existing flow preserved)
  *  15. spawn → wm.getWrapperBinDir truthy + wm.getWrapperShell=null
- *      → shim not applied; PATH prepend still occurs (NEXUS_WRAPPER_SELF_DIR set)
+ *      → shim not applied; NEXUS_WRAPPER_SELF_DIR still set, for the agent
+ *        to put first on PATH
  *
  * Tests that applyShellPathShim is correctly wired into the pty/ipc.ts spawn
  * path and that the shell resolution comes from WorkspaceManager, not from
@@ -223,18 +224,16 @@ describe("acceptance 14: spawn with wrapperBinDir=null → shim not applied", ()
   });
 });
 
-describe("acceptance 15: spawn with wrapperBinDir truthy + wrapperShell=null → shim skipped, PATH prepend still applies", () => {
-  test("ZDOTDIR is not injected but NEXUS_WRAPPER_SELF_DIR / PATH prepend still apply", async () => {
+describe("acceptance 15: spawn with wrapperBinDir truthy + wrapperShell=null → shim skipped, wrapper env still applies", () => {
+  test("ZDOTDIR is not injected but NEXUS_WRAPPER_SELF_DIR still applies", async () => {
     const BIN_DIR = "/mock/.nexus-code/bin";
     const { handler, agentChannel } = makeFixture({
       wrapperBinDir: BIN_DIR,
       wrapperShell: null,
     });
 
-    // Note: caller env is intentionally omitted so that harness-env's base
-    // PATH (with wrapper bin prepended) is not overridden by a caller-provided
-    // PATH. The intent here is to verify that wrapperShell=null skips ZDOTDIR
-    // injection while keeping the PATH prepend / NEXUS_* env intact.
+    // The intent here is to verify that wrapperShell=null skips ZDOTDIR
+    // injection while keeping the NEXUS_* env intact.
     const spawnArgsPayload = {
       workspaceId: WORKSPACE_ID,
       tabId: TAB_ID,
@@ -251,9 +250,10 @@ describe("acceptance 15: spawn with wrapperBinDir truthy + wrapperShell=null →
     // Shim should NOT have run (no shell info)
     expect(sentEnv.ZDOTDIR).toBeUndefined();
     expect(sentEnv.NEXUS_USER_ZDOTDIR).toBeUndefined();
-    // ...but PATH prepend + wrapper env should still apply.
+    // ...but the wrapper env should still apply; the agent puts
+    // NEXUS_WRAPPER_SELF_DIR first on PATH.
     expect(sentEnv.NEXUS_WRAPPER_SELF_DIR).toBe(BIN_DIR);
     expect(sentEnv.NEXUS_IN_APP).toBe("1");
-    expect(sentEnv.PATH?.startsWith(BIN_DIR)).toBe(true);
+    expect(sentEnv.PATH).toBeUndefined();
   });
 });

@@ -139,7 +139,10 @@ export function initUpdatesSubscriptions(): void {
       case "ready":
         showToast({
           kind: "info",
-          message: i18next.t("common:updates.ready", { version: status.version }),
+          message: i18next.t(
+            status.asksForPassword ? "common:updates.readyAsksPassword" : "common:updates.ready",
+            { version: status.version },
+          ),
           actions: [
             {
               label: i18next.t("common:updates.restart"),

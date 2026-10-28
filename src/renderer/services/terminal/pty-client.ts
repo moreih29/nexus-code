@@ -5,6 +5,8 @@ import type { PtyClient, PtyClientOptions, TerminalDimensions } from "./types";
 const pendingAckBytesBySessionKey = new Map<string, number>();
 const liveSessions = new Set<string>();
 const spawnPromisesBySessionKey = new Map<string, Promise<{ pid: number }>>();
+/** Input waiting for the session's write in flight; present while one is. */
+const queuedInputBySessionKey = new Map<string, string>();
 const textEncoder = new TextEncoder();
 
 function sessionKey(workspaceId: string, tabId: string): string {
@@ -56,9 +58,37 @@ export function spawnSession(
   return promise;
 }
 
+/**
+ * Sends a session's input one write at a time. The agent handles each request
+ * on a goroutine of its own, so two writes sent back to back can reach the PTY
+ * in either order. An IME that commits a syllable on Enter sends the syllable
+ * and the Enter within a millisecond, and the command sometimes ran without
+ * the syllable. Input that arrives while a write is in flight goes out in the
+ * next one.
+ */
 export function writeSession(workspaceId: string, tabId: string, data: string): void {
-  // Fire-and-forget: write is a terminal data push; failure is visible to the user.
-  void ipcCallResult("pty", "write", { workspaceId, tabId, data });
+  const key = sessionKey(workspaceId, tabId);
+  const queued = queuedInputBySessionKey.get(key);
+  if (queued !== undefined) {
+    queuedInputBySessionKey.set(key, queued + data);
+    return;
+  }
+  queuedInputBySessionKey.set(key, "");
+  void sendInput(key, workspaceId, tabId, data);
+}
+
+async function sendInput(key: string, workspaceId: string, tabId: string, data: string) {
+  let next = data;
+  while (next.length > 0) {
+    try {
+      await ipcCallResult("pty", "write", { workspaceId, tabId, data: next });
+    } catch {
+      // A failed write is visible to the user; the input after it still goes out.
+    }
+    next = queuedInputBySessionKey.get(key) ?? "";
+    queuedInputBySessionKey.set(key, "");
+  }
+  queuedInputBySessionKey.delete(key);
 }
 
 export function resizeSession(

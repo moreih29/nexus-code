@@ -171,8 +171,8 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
         //                        absolute path that the SSH bootstrap
         //                        uploaded the shim files into.
         //
-        // When any of the three is missing, PATH prepend has already run
-        // above so the wrapper bin still appears in PATH (just not
+        // When any of the three is missing, the agent still puts
+        // NEXUS_WRAPPER_SELF_DIR first on PATH at spawn (just not
         // re-prepended on every prompt). This is the safe degraded mode —
         // wrapper still wins on a clean rc, only loses ground when the user
         // rc explicitly reorders PATH.

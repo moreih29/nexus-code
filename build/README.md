@@ -11,6 +11,7 @@
 | `build/icon.icns` | macOS 앱 아이콘 (권장: 1024×1024 기준 다중 크기 포함) |
 | `build/icon.ico` | Windows 앱 아이콘 (향후 대응 시) |
 | `build/icon.png` | Linux 앱 아이콘 (512×512 PNG, 향후 대응 시) |
+| `build/appx/*.png` | MSIX(Microsoft Store) 타일·로고. `build/icon.png` 를 정사각형으로 맞춰 크기별로 줄인 것이다. 없으면 electron-builder 의 샘플 이미지가 들어간다 |
 
 macOS용 `.icns` 파일은 `iconutil` 또는 [Image2icon](https://apps.apple.com/app/image2icon/id992115977) 등을 이용해 생성할 수 있다.
 

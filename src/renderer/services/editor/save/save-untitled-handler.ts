@@ -16,6 +16,7 @@
 // test-pollution in save-service.test.ts.
 
 import i18next from "i18next";
+import { toSlashPath } from "../../../../shared/fs/drive-path";
 import { showToast } from "../../../components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { useTabsStore } from "../../../state/stores/tabs";
@@ -78,7 +79,7 @@ export async function saveUntitledModel(
     return "cancelled";
   }
 
-  const chosenPath = dialogResult.filePath;
+  const chosenPath = toSlashPath(dialogResult.filePath);
 
   // Resolve the untitled model to grab its current content.
   const untitledInput: EditorInput = {

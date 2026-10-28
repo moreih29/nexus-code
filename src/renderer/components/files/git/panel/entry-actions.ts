@@ -9,6 +9,7 @@
  * they delegate into.
  */
 import i18next from "i18next";
+import { toNativeDrivePath } from "../../../../../shared/fs/drive-path";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
 import { ipcCallResult, unwrapGitResult } from "../../../../ipc/client";
 import { openOrRevealEditor } from "../../../../services/editor";
@@ -111,7 +112,7 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
   function copyEntryPath(entry: GitStatusEntry): void {
     const absPath = absolutePathForEntry(entry);
     if (!absPath) return;
-    copyText(absPath);
+    copyText(toNativeDrivePath(absPath));
   }
 
   function copyEntryRelativePath(entry: GitStatusEntry): void {

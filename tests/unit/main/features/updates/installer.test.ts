@@ -9,7 +9,7 @@ import {
   type UpdateBackend,
 } from "../../../../../src/main/features/updates/installer";
 
-function setup(offered: string | null = "1.2.0") {
+function setup(offered: string | null = "1.2.0", { installAsksForPassword = false } = {}) {
   const statuses: InstallStatus[] = [];
   let staged: () => void = () => {};
   let failed: (error: Error) => void = () => {};
@@ -18,6 +18,7 @@ function setup(offered: string | null = "1.2.0") {
   const calls = { check: 0, download: 0, quitAndInstall: 0 };
 
   const backend: UpdateBackend = {
+    installAsksForPassword,
     check: async () => {
       calls.check += 1;
       return offered;
@@ -84,6 +85,36 @@ describe("createUpdateInstaller", () => {
     await install;
     t.fail(new Error("Code signature did not pass validation"));
 
+    expect(t.statuses.at(-1)).toEqual({ kind: "installFailed", releaseUrl: "releases/v1.2.0" });
+    void t.installer.install("stable");
+    await t.settle();
+    expect(t.calls.check).toBe(2);
+  });
+
+  it("says a deb's install asks for the password, also when asked where it stands", async () => {
+    const t = setup("1.2.0", { installAsksForPassword: true });
+    const install = t.installer.install("stable");
+    await t.settle();
+    t.finishDownload();
+    await install;
+    t.stage();
+    void t.installer.install("stable");
+
+    const ready = { kind: "ready", version: "1.2.0", asksForPassword: true };
+    expect(t.statuses.slice(-2)).toEqual([ready, ready]);
+  });
+
+  it("reports an install that fails on restart and can start over", async () => {
+    const t = setup("1.2.0", { installAsksForPassword: true });
+    const install = t.installer.install("stable");
+    await t.settle();
+    t.finishDownload();
+    await install;
+    t.stage();
+    t.installer.restart();
+    t.fail(new Error("Command pkexec exited with code 126"));
+
+    expect(t.calls.quitAndInstall).toBe(1);
     expect(t.statuses.at(-1)).toEqual({ kind: "installFailed", releaseUrl: "releases/v1.2.0" });
     void t.installer.install("stable");
     await t.settle();

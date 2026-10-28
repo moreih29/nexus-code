@@ -8,7 +8,8 @@
  */
 
 import i18next from "i18next";
-import type { GitActionHint } from "../../../../shared/git/types";
+import { toSlashPath } from "../../../../shared/fs/drive-path";
+import type { GitActionHint, RepoInfo } from "../../../../shared/git/types";
 import { canUseIpcBridge } from "../../../ipc/client";
 import { isRecord } from "../../../utils/is-record";
 import type {
@@ -20,6 +21,14 @@ import type {
 } from "./types";
 
 export { isRecord };
+
+/**
+ * Git reports a Windows topLevel as `C:\work\demo`; keep it as
+ * `C:/work/demo`, the form the workspace root and file paths use.
+ */
+export function withSlashTopLevel(info: RepoInfo): RepoInfo {
+  return info.kind === "repo" ? { ...info, topLevel: toSlashPath(info.topLevel) } : info;
+}
 
 /** Find the first rejected `Promise.allSettled` reason in result order. */
 export function firstRejectedReason(

@@ -153,7 +153,9 @@ func TestWatchParentReportsUnwatchedSubdirectoryDeleted(t *testing.T) {
 func TestWatchSymlinkedDirectory(t *testing.T) {
 	real := t.TempDir()
 	must(t, os.Mkdir(filepath.Join(real, "target"), 0o755))
-	must(t, os.Symlink("target", filepath.Join(real, "link")))
+	if err := os.Symlink("target", filepath.Join(real, "link")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
 	root := filepath.Join(t.TempDir(), "ws")
 	must(t, os.Symlink(real, root))
 	fsys, err := New(root)

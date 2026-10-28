@@ -29,7 +29,8 @@ import { execFileSync } from "node:child_process";
 export function syncUserShellPath(): void {
   if (process.platform !== "darwin" && process.platform !== "linux") return;
 
-  const shell = process.env.SHELL ?? "/bin/zsh";
+  // The platform's default login shell when the launcher left $SHELL unset.
+  const shell = process.env.SHELL ?? (process.platform === "darwin" ? "/bin/zsh" : "/bin/bash");
   try {
     // `printf %s "$PATH"` 사용 — trailing newline 제거. echo는 zsh/bash에 따라
     // 다르게 동작할 수 있어서 회피.
