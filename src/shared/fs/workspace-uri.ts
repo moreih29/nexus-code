@@ -28,6 +28,7 @@
 // See agent-host.ts for the conversion seam and cache.ts for the
 // renderer-side construction.
 
+import { isDrivePath } from "./drive-path";
 import { absolutePathToFileUri, fileUriToAbsolutePath } from "./file-uri";
 
 export const WORKSPACE_URI_SCHEME = "nexus-ws";
@@ -37,15 +38,15 @@ const WORKSPACE_URI_PREFIX = `${WORKSPACE_URI_SCHEME}://`;
  * Build a workspace-scoped cacheUri. Both inputs are validated:
  *  - `workspaceId` must be non-empty (we trust it is URL-safe; UUIDs and
  *    nanoids both satisfy this).
- *  - `absolutePath` must be absolute (start with `/`); relative paths are
- *    rejected because the round-trip with file-uri.ts would silently
- *    produce a malformed URI.
+ *  - `absolutePath` must be absolute (start with `/`, or with a Windows
+ *    drive letter); relative paths are rejected because the round-trip
+ *    with file-uri.ts would silently produce a malformed URI.
  */
 export function workspaceUriFor(workspaceId: string, absolutePath: string): string {
   if (workspaceId.length === 0) {
     throw new Error("workspaceUriFor: workspaceId must be non-empty");
   }
-  if (!absolutePath.startsWith("/")) {
+  if (!absolutePath.startsWith("/") && !isDrivePath(absolutePath)) {
     throw new Error(`workspaceUriFor: absolutePath must be absolute, got ${absolutePath}`);
   }
   // Reuse the file-uri encoder so the path segment matches what we would

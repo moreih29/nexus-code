@@ -32,6 +32,17 @@ describe("workspace URI helpers", () => {
     expect(parsed).toEqual({ workspaceId: ID, absolutePath: path });
   });
 
+  test("accepts Windows drive paths and prints them as Monaco does", () => {
+    const uri = workspaceUriFor(ID, "C:/work/demo/crlf.txt");
+
+    expect(uri).toBe(`${WORKSPACE_URI_SCHEME}://${ID}/c%3A/work/demo/crlf.txt`);
+    expect(parseWorkspaceUri(uri)).toEqual({
+      workspaceId: ID,
+      absolutePath: "C:/work/demo/crlf.txt",
+    });
+    expect(workspaceUriToFileUri(uri)).toBe("file:///c%3A/work/demo/crlf.txt");
+  });
+
   test("rejects empty workspaceId", () => {
     expect(() => workspaceUriFor("", "/foo")).toThrow();
   });
