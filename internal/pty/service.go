@@ -645,6 +645,13 @@ func mergeEnv(overrides map[string]string) []string {
 		merged[key] = value
 	}
 	for key, value := range overrides {
+		// Windows names variables without regard to case: an override of PATH
+		// must replace the inherited Path, not sit next to it.
+		for existing := range merged {
+			if sameEnvKey(existing, key) {
+				delete(merged, existing)
+			}
+		}
 		merged[key] = value
 	}
 	if _, ok := merged["TERM"]; !ok {

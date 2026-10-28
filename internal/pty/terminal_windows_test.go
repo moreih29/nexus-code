@@ -143,3 +143,21 @@ func TestConsoleKillEndsShell(t *testing.T) {
 	}
 	rec.waitFor(t, "exit", func(_ string, exit *ExitPayload) bool { return exit != nil })
 }
+
+// An override of PATH replaces the inherited Path instead of adding a second
+// entry that differs only in case.
+func TestMergeEnvOverridesPathWhateverItsCase(t *testing.T) {
+	t.Setenv("Path", `C:\Windows`)
+
+	env := mergeEnv(map[string]string{"PATH": `C:\nexus\bin;C:\Windows`})
+
+	var paths []string
+	for _, entry := range env {
+		if key, _, _ := strings.Cut(entry, "="); strings.EqualFold(key, "PATH") {
+			paths = append(paths, entry)
+		}
+	}
+	if len(paths) != 1 || paths[0] != `PATH=C:\nexus\bin;C:\Windows` {
+		t.Fatalf("PATH entries = %q, want only the override", paths)
+	}
+}

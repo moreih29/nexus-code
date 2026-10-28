@@ -212,3 +212,9 @@ func (t *terminal) Close() error {
 	}
 	return nil
 }
+
+// sameEnvKey reports whether two environment variable names name the same
+// variable: Windows ignores case, so Path and PATH are one.
+func sameEnvKey(a, b string) bool {
+	return strings.EqualFold(a, b)
+}

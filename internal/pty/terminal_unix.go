@@ -110,3 +110,9 @@ func withFd(master *os.File, fn func(fd int) error) error {
 	}
 	return fnErr
 }
+
+// sameEnvKey reports whether two environment variable names name the same
+// variable.
+func sameEnvKey(a, b string) bool {
+	return a == b
+}
