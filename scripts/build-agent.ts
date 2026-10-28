@@ -282,6 +282,13 @@ async function downloadNodeRuntimes(
   return artifacts;
 }
 
+// On Windows, use the bsdtar that ships as System32\tar.exe. Git Bash puts
+// GNU tar first on PATH, and GNU tar reads "C:\..." as host "C" and fails.
+function tarCommand(): string {
+  if (process.platform !== "win32") return "tar";
+  return path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
+}
+
 async function buildLspBundles(args: {
   readonly rootDir: string;
   readonly outDir: string;
@@ -318,9 +325,13 @@ async function buildLspBundles(args: {
     );
 
     const archiveName = `${bundle.name}-${version}.tar.gz`;
-    await args.run("tar", ["-czf", path.join(lspOutDir, archiveName), "-C", extractedDir, "."], {
-      cwd: args.rootDir,
-    });
+    await args.run(
+      tarCommand(),
+      ["-czf", path.join(lspOutDir, archiveName), "-C", extractedDir, "."],
+      {
+        cwd: args.rootDir,
+      },
+    );
     artifacts.push({
       name: bundle.name,
       packageName: bundle.packageName,
