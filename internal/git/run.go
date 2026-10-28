@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nexus-code/nexus-code/internal/msix"
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
@@ -267,6 +268,16 @@ func (s *Service) commandAskpass() (commandAskpass, error) {
 		return commandAskpass{}, proto.CodedError{Code: proto.CodeRequestFailed, Msg: "git askpass helper unavailable"}
 	}
 	return commandAskpass{helperPath: helperPath, socketPath: socketPath}, nil
+}
+
+// askpassHelperPath returns the program git starts as the askpass helper:
+// this executable, or, when it runs from an MSIX package, the package's
+// alias for it, since git has no identity to run the package's files with.
+func askpassHelperPath() (string, error) {
+	if alias, ok := msix.AgentAlias(); ok {
+		return alias, nil
+	}
+	return os.Executable()
 }
 
 func gitEnv(overrides map[string]string, interactive bool, askpass commandAskpass) []string {
