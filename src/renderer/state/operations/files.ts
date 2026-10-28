@@ -409,3 +409,8 @@ export function reloadExpandedDirs(workspaceId: string): void {
     });
   }
 }
+
+/** Drops the expanded-folder saves still waiting out their debounce. */
+export function __cancelPendingSavesForTests(): void {
+  _saveDebouncer.clearAll();
+}

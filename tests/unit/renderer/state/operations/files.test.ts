@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, jest, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Shims
@@ -31,6 +31,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 // ---------------------------------------------------------------------------
 
 import {
+  __cancelPendingSavesForTests,
   ensureRoot,
   loadChildren,
   refresh,
@@ -39,6 +40,9 @@ import {
 } from "../../../../../src/renderer/state/operations/files";
 import { handleFsChanged, useFilesStore } from "../../../../../src/renderer/state/stores/files";
 import type { DirEntry } from "../../../../../src/shared/fs/types";
+
+// A save left pending would fire into the next test file, after its window is gone.
+afterEach(__cancelPendingSavesForTests);
 
 // ---------------------------------------------------------------------------
 // Constants & helpers
