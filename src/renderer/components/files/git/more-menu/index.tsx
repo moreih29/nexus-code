@@ -42,6 +42,8 @@ import type { GitMoreL1Submenu, GitTagPickerMenuMode } from "../utils/more-menu-
 interface GitMoreMenuProps {
   disabled?: boolean;
   canInit?: boolean;
+  /** No Git to run: repository actions are off, and there is nothing to initialize. */
+  gitMissing?: boolean;
   hasChanges?: boolean;
   /** Repository-level capability flags. Falsy when the repo is detecting / non-repo. */
   capabilities?: RepoCapabilities;
@@ -75,6 +77,7 @@ interface GitMoreMenuProps {
 export function GitMoreMenu({
   disabled = false,
   canInit = false,
+  gitMissing = false,
   hasChanges = false,
   capabilities,
   onRefresh,
@@ -134,7 +137,7 @@ export function GitMoreMenu({
     action();
   }
 
-  const repoBusy = disabled || canInit;
+  const repoBusy = disabled || canInit || gitMissing;
   const remotes = capabilities?.remotes ?? [];
   const hasRemote = (capabilities?.remotes.length ?? 0) > 0;
   const hasHead = capabilities?.hasHEAD ?? false;

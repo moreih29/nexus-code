@@ -65,6 +65,8 @@ export type GitErrorKind = z.infer<typeof GitErrorKindSchema>;
 export const RepoInfoSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("detecting") }),
   z.object({ kind: z.literal("non-repo") }),
+  // The workspace's host has no Git to run, so it cannot tell either way.
+  z.object({ kind: z.literal("git-missing") }),
   z.object({
     kind: z.literal("repo"),
     gitDir: z.string(),

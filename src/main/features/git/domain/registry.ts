@@ -51,7 +51,6 @@ export class GitRegistry {
    */
   private readonly detectionAborts = new Map<string, AbortController>();
   private readonly generations = new Map<string, number>();
-  private gitUnavailable = false;
   private readonly onRepoInfoChanged?: (workspaceId: string, info: RepoInfo) => void;
   private readonly coalescer?: StatusCoalescer;
   private readonly askpassManager?: GitHelpersIpcManager;
@@ -71,8 +70,9 @@ export class GitRegistry {
   }
 
   /**
-   * Returns the cached repository or detects it once. Non-repositories cache
-   * their `{ kind: "non-repo" }` result and return null.
+   * Returns the cached repository or detects it once. Non-repositories and
+   * hosts without Git cache their `non-repo` / `git-missing` result and
+   * return null.
    */
   async getOrDetect(workspaceId: string, signal?: AbortSignal): Promise<GitRepository | null> {
     // Wait for the workspace's fs provider to wire up before reaching for
@@ -91,7 +91,7 @@ export class GitRegistry {
     }
 
     const cachedInfo = this.repoInfos.get(workspaceId);
-    if (cachedInfo?.kind === "non-repo") return null;
+    if (cachedInfo?.kind === "non-repo" || cachedInfo?.kind === "git-missing") return null;
 
     const pending = this.detections.get(workspaceId);
     if (pending) return pending;
@@ -119,7 +119,7 @@ export class GitRegistry {
     if (!executor) return { kind: "detecting" };
     this.resolveWorkspaceRoot(workspaceId, "Git repository info", executor);
 
-    if ((!this.bin && !executor) || this.gitUnavailable) return { kind: "non-repo" };
+    if (!this.bin && !executor) return { kind: "non-repo" };
     const cachedInfo = this.repoInfos.get(workspaceId);
     if (cachedInfo) return cachedInfo;
     // Both an in-flight detection and a never-started workspace report as
@@ -297,10 +297,11 @@ export class GitRegistry {
       this.setRepoInfo(workspaceId, info);
       return null;
     } catch (error) {
+      // Kept per workspace: an SSH host without Git says nothing about the
+      // local one or another host.
       if (error instanceof GitError && error.kind === "git-missing") {
-        this.gitUnavailable = true;
         this.disposeRepository(workspaceId);
-        this.setRepoInfo(workspaceId, { kind: "non-repo" });
+        this.setRepoInfo(workspaceId, { kind: "git-missing" });
       }
       throw error;
     }
@@ -383,7 +384,7 @@ export class GitRegistry {
    */
   private requireGitBinary(argv: readonly string[], executor?: AgentGitExecutor): GitBinaryInfo {
     if (executor) return this.bin ?? { path: "git", version: "agent" };
-    if (this.bin && !this.gitUnavailable) return this.bin;
+    if (this.bin) return this.bin;
     throw new GitError("git-missing", "Git executable not found", { argv });
   }
 

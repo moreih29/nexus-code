@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -123,7 +124,8 @@ type DetectParams struct {
 }
 
 // DetectResult mirrors src/shared/types/git.ts RepoInfoSchema for the repo case.
-// Non-repo and error cases return the non-repo variant.
+// Non-repo and error cases return the non-repo variant; a host without git
+// returns the git-missing variant.
 type DetectResult struct {
 	Kind     string `json:"kind"`
 	TopLevel string `json:"topLevel,omitempty"`
@@ -133,7 +135,8 @@ type DetectResult struct {
 // Detect runs `git rev-parse --show-toplevel --git-dir` in the given cwd and
 // returns a RepoInfo-compatible object, its paths in cwd's path space (see
 // logicalTopLevel). Non-repository directories return { kind: "non-repo" }
-// rather than an error.
+// rather than an error, and a host with no git on the PATH returns
+// { kind: "git-missing" }, so the app can say to install it.
 func (s *Service) Detect(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p DetectParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil || strings.TrimSpace(p.Cwd) == "" {
@@ -141,6 +144,9 @@ func (s *Service) Detect(ctx context.Context, raw json.RawMessage) (any, error) 
 	}
 
 	topLevel, gitDir, err := runRevParse(ctx, p.Cwd)
+	if errors.Is(err, exec.ErrNotFound) {
+		return DetectResult{Kind: "git-missing"}, nil
+	}
 	if err != nil {
 		// Any git error (including "not a git repository") maps to non-repo.
 		return DetectResult{Kind: "non-repo"}, nil
