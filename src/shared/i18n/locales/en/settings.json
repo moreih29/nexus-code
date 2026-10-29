@@ -228,7 +228,8 @@
       "description": "Fire one silent GitHub Releases check at app startup. Manual checks below always run regardless of this setting."
     },
     "checkNow": "Check for Updates",
-    "checking": "Checking…"
+    "checking": "Checking…",
+    "storeManaged": "Updates come from the Microsoft Store."
   },
   "keybindings": {
     "searchPlaceholder": "Search commands",

@@ -48,6 +48,8 @@ interface IpcBridge {
 interface HostBridge {
   /** process.platform from the preload — "darwin" | "win32" | "linux" | ... */
   platform: NodeJS.Platform;
+  /** Whether the app runs from an MSIX package: the Microsoft Store build. */
+  windowsStore?: boolean;
 }
 
 interface FilesBridge {
