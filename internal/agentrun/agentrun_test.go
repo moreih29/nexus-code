@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -135,7 +136,13 @@ func TestTryLockReturnsErrLockHeld(t *testing.T) {
 // (See the sun_path note in paths.go.)
 func shortSockDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "nxs-")
+	parent := "/tmp"
+	if runtime.GOOS == "windows" {
+		// Windows has no /tmp: it names \tmp on the current drive, which
+		// usually does not exist. Its own temp dir is short enough.
+		parent = ""
+	}
+	dir, err := os.MkdirTemp(parent, "nxs-")
 	if err != nil {
 		t.Fatalf("mkdtemp: %v", err)
 	}

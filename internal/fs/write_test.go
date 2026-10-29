@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/nexus-code/nexus-code/internal/dispatch"
@@ -351,7 +350,7 @@ func TestRenameCrossDeviceMapsEXDEV(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(root, "old.txt"), []byte("payload"), 0o644))
 	orig := renamePath
 	renamePath = func(oldpath, newpath string) error {
-		return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: syscall.EXDEV}
+		return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: errCrossDevice}
 	}
 	t.Cleanup(func() { renamePath = orig })
 
@@ -454,7 +453,7 @@ func TestRenameOverwriteKeepsDestinationOnFailure(t *testing.T) {
 			if tc.exdev {
 				orig := renamePath
 				renamePath = func(oldpath, newpath string) error {
-					return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: syscall.EXDEV}
+					return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: errCrossDevice}
 				}
 				t.Cleanup(func() { renamePath = orig })
 			}
@@ -609,6 +608,9 @@ func TestCopyFileOverwriteReplacesNonEmptyDir(t *testing.T) {
 // way must leave the confirmed-to-be-replaced destination as it was rather
 // than deleted or half-overwritten.
 func TestCopyFileOverwriteKeepsDestinationOnFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows ignores the mode bits that make the source unreadable")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores the unreadable file this test relies on")
 	}
@@ -810,6 +812,9 @@ func assertFSError(t *testing.T, err error, code string) {
 // A save replaces the file through a temp file and rename; the replacement
 // must keep the original permission bits instead of the temp file's default.
 func TestWriteFile_PreservesMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows keeps no POSIX mode bits")
+	}
 	root := t.TempDir()
 	for name, mode := range map[string]os.FileMode{"run.sh": 0o755, ".env": 0o600, "shared.txt": 0o664} {
 		path := filepath.Join(root, name)

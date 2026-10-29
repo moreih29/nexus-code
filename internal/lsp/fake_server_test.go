@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func TestFakeLSPServerHelper(t *testing.T) {
@@ -21,6 +22,13 @@ func TestFakeLSPServerHelper(t *testing.T) {
 			mode = os.Args[i+1]
 			break
 		}
+	}
+	if mode == "late-stderr" {
+		// The crash mode's child: one stderr line shortly after the server
+		// that started it has exited.
+		time.Sleep(100 * time.Millisecond)
+		fmt.Fprintln(os.Stderr, "last stderr line")
+		os.Exit(0)
 	}
 	if err := runFakeLSPServer(mode, os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -116,7 +124,10 @@ func runFakeLSPServer(mode string, in io.Reader, out io.Writer) error {
 			for i := 0; i < 2000; i++ {
 				fmt.Fprintf(os.Stderr, "goroutine %04d [running]: fake stack frame padding padding padding\n", i)
 			}
-			child := exec.Command("sh", "-c", "sleep 0.1; echo 'last stderr line' >&2")
+			// The child is this test binary again, not "sh -c": Windows may
+			// have no sh on PATH, and Git Bash's sh starts too slowly to
+			// write within the drain grace on a busy machine.
+			child := exec.Command(os.Args[0], "-test.run=TestFakeLSPServerHelper", "--", "late-stderr")
 			child.Stderr = os.Stderr
 			if err := child.Start(); err != nil {
 				return err

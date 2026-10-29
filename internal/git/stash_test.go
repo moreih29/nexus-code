@@ -204,6 +204,8 @@ func TestStashGroupServiceTempRepo(t *testing.T) {
 	runGitCommand(t, root, "init", "-b", "main")
 	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
 	runGitCommand(t, root, "config", "user.name", "Nexus Test")
+	// Git for Windows checks text out with CRLF by default.
+	runGitCommand(t, root, "config", "core.autocrlf", "false")
 	writeFile(t, filepath.Join(root, "a.txt"), "base-a\n")
 	writeFile(t, filepath.Join(root, "b.txt"), "base-b\n")
 	runGitCommand(t, root, "add", ".")

@@ -11,7 +11,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DND_TAB_BAR_ATTR } from "@/components/workspace/dnd/markers";
+import { shortcutFor } from "@/keybindings/shortcut-labels";
 import { basename } from "@/utils/path";
+import { COMMANDS } from "../../../../shared/keybindings/commands";
 import { UI_TOOLTIP_DELAY_MS } from "../../../../shared/util/timing-constants";
 import type { EditorTab, Tab } from "../../../state/stores/tabs";
 import { formatDiffRefPair } from "../../editor/format-diff-refs";
@@ -173,12 +175,12 @@ export function TabBar({
               <DropdownMenuItem onSelect={() => onNewUntitledTab()}>
                 <FilePlus aria-hidden className="size-3.5 mr-1.5 shrink-0" />
                 <span className="flex-1">{t("tabBar.new_file")}</span>
-                <DropdownMenuShortcut>⌘N</DropdownMenuShortcut>
+                <DropdownMenuShortcut>{shortcutFor(COMMANDS.fileNew)}</DropdownMenuShortcut>
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onNewTerminalTab()}>
                 <SquareTerminal aria-hidden className="size-3.5 mr-1.5 shrink-0" />
                 <span className="flex-1">{t("tabBar.new_terminal")}</span>
-                <DropdownMenuShortcut>⌘T</DropdownMenuShortcut>
+                <DropdownMenuShortcut>{shortcutFor(COMMANDS.terminalNew)}</DropdownMenuShortcut>
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onNewBrowserTab()}>
                 <Globe aria-hidden className="size-3.5 mr-1.5 shrink-0" />

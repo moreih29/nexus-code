@@ -54,7 +54,7 @@ export function buildHelperEnv(
 ): NodeJS.ProcessEnv {
   const baseEnv = runtime.baseEnv ?? process.env;
   const platform = runtime.platform ?? process.platform;
-  const electronPath = runtime.electronPath ?? process.execPath;
+  const electronCommand = runtime.electronPath ? [runtime.electronPath] : resolveDefaultElectronCommand();
   const helperDir = runtime.helperDir ?? resolveDefaultHelperDir();
   const wrapperDir = runtime.wrapperDir ?? resolveDefaultWrapperDir(platform);
 
@@ -78,13 +78,17 @@ export function buildHelperEnv(
     env.NEXUS_HELPERS_SOCKET = connection.socketPath;
     env.NEXUS_HELPERS_TOKEN = connection.token;
     env.ELECTRON_RUN_AS_NODE = "1";
-    env.GIT_EDITOR = ensureHelperWrapper({
+    const editorWrapper = ensureHelperWrapper({
       kind: "editor",
-      electronPath,
+      electronCommand,
       helperPath: path.join(helperDir, "editor-helper.cjs"),
       wrapperDir,
       platform,
     });
+    // Git runs the editor through `sh -c` when the value holds shell
+    // metacharacters, and every Windows path does: sh would eat the
+    // backslashes. Quoting keeps them, and any spaces, intact.
+    env.GIT_EDITOR = platform === "win32" ? quoteShellArg(editorWrapper) : editorWrapper;
   }
 
   return env;
@@ -92,12 +96,12 @@ export function buildHelperEnv(
 
 /**
  * Creates or refreshes the executable wrapper Git will launch as the editor.
- * The wrapper carries the Electron executable and helper script paths
+ * The wrapper carries the Electron command and helper script path
  * internally, so Git receives a single executable path.
  */
 export function ensureHelperWrapper(options: {
   readonly kind: GitHelperKind;
-  readonly electronPath: string;
+  readonly electronCommand: readonly string[];
   readonly helperPath: string;
   readonly wrapperDir: string;
   readonly platform: NodeJS.Platform;
@@ -113,8 +117,8 @@ export function ensureHelperWrapper(options: {
   );
   const content =
     options.platform === "win32"
-      ? buildWindowsHelperWrapper(options.electronPath, options.helperPath)
-      : buildPosixHelperWrapper(options.electronPath, options.helperPath);
+      ? buildWindowsHelperWrapper(options.electronCommand, options.helperPath)
+      : buildPosixHelperWrapper(options.electronCommand, options.helperPath);
 
   fs.writeFileSync(wrapperPath, content, { mode: 0o700 });
   if (options.platform !== "win32") {
@@ -135,12 +139,12 @@ export function quoteShellArg(value: string): string {
  * Writes a POSIX wrapper that forwards Git's prompt/file argument safely to
  * Electron running the helper CommonJS script.
  */
-function buildPosixHelperWrapper(electronPath: string, helperPath: string): string {
+function buildPosixHelperWrapper(electronCommand: readonly string[], helperPath: string): string {
   return [
     "#!/bin/sh",
     "ELECTRON_RUN_AS_NODE=1",
     "export ELECTRON_RUN_AS_NODE",
-    `exec ${quoteShellArg(electronPath)} ${quoteShellArg(helperPath)} "$@"`,
+    `exec ${[...electronCommand, helperPath].map(quoteShellArg).join(" ")} "$@"`,
     "",
   ].join("\n");
 }
@@ -149,12 +153,12 @@ function buildPosixHelperWrapper(electronPath: string, helperPath: string): stri
  * Writes a Windows command wrapper for Git for Windows. The helper protocols
  * only uses Git's first appended argument: the editor file.
  */
-function buildWindowsHelperWrapper(electronPath: string, helperPath: string): string {
+function buildWindowsHelperWrapper(electronCommand: readonly string[], helperPath: string): string {
   return [
     "@echo off",
     "setlocal",
     'set "ELECTRON_RUN_AS_NODE=1"',
-    `${quoteCmdPath(electronPath)} ${quoteCmdPath(helperPath)} "%~1"`,
+    `${[...electronCommand, helperPath].map(quoteCmdPath).join(" ")} "%~1"`,
     "exit /b %ERRORLEVEL%",
     "",
   ].join("\r\n");
@@ -165,6 +169,35 @@ function buildWindowsHelperWrapper(electronPath: string, helperPath: string): st
  */
 function quoteCmdPath(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
+}
+
+/**
+ * The command the editor wrapper starts this executable with: the executable
+ * itself, or, when the app runs from an MSIX package, the package's alias for
+ * the agent running it through `package-run`. Only a process with the
+ * package's identity may run the package's files, and git and the shell it
+ * starts the wrapper through have none. The alias, the one the package has,
+ * gives the agent that identity, and the agent passes it on to the editor.
+ */
+function resolveDefaultElectronCommand(): readonly string[] {
+  const localAppData = process.env.LOCALAPPDATA;
+  const alias =
+    process.windowsStore && localAppData ? agentAliasPath(process.execPath, localAppData) : null;
+  return alias ? [alias, "package-run", process.execPath] : [process.execPath];
+}
+
+/**
+ * The App Execution Alias the MSIX package declares for the agent
+ * (build/appx-manifest.cjs), given the path of the app's executable in the
+ * installed package. Null when that path is not in a package's install
+ * directory, which bears the package's full name,
+ * `<name>_<version>_<arch>_<resource id>_<publisher id>`.
+ */
+export function agentAliasPath(execPath: string, localAppData: string): string | null {
+  const fullName = path.win32.basename(path.win32.dirname(path.win32.dirname(execPath))).split("_");
+  if (fullName.length !== 5) return null;
+  const familyName = `${fullName[0]}_${fullName[4]}`;
+  return path.win32.join(localAppData, "Microsoft", "WindowsApps", familyName, "nexuscode-agent.exe");
 }
 
 /**

@@ -107,7 +107,11 @@ export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
       <div className="flex items-center flex-1 min-w-0">
         {/* Git branch — clickable when a repo is present (opens the switch
             branch picker); dimmed "no git" placeholder otherwise. */}
-        <BranchSegment workspaceId={workspaceId} branchInfo={branchInfo} />
+        <BranchSegment
+          workspaceId={workspaceId}
+          branchInfo={branchInfo}
+          gitMissing={gitSession?.repoInfo.kind === "git-missing"}
+        />
 
         {/* Branch changes (+ staged · ~ modified · ? untracked · ! conflict).
             Renders nothing when the tree is clean or status hasn't loaded. */}
@@ -134,24 +138,32 @@ export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
 // When the workspace is a git repo with a known branch the segment is a
 // button that opens the existing BranchPicker (switch mode = checkout).
 // When the workspace has no repo (or repo is still detecting), the segment
-// renders as a dimmed, non-interactive "no git" placeholder.
+// renders as a dimmed, non-interactive "no git" placeholder, or "git not
+// installed" when the workspace's host has no Git.
 // ---------------------------------------------------------------------------
 
-function BranchSegment({
+export function BranchSegment({
   workspaceId,
   branchInfo,
+  gitMissing = false,
 }: {
   workspaceId: string;
   branchInfo: BranchInfo | null;
+  gitMissing?: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const [pickerOpen, setPickerOpen] = useState(false);
 
   if (!branchInfo) {
     return (
-      <StatusBarItem title={t("statusBar.no_git_title")} className="opacity-50">
+      <StatusBarItem
+        title={t(gitMissing ? "statusBar.git_missing_title" : "statusBar.no_git_title")}
+        className="opacity-50"
+      >
         <GitBranch className="size-3 shrink-0" aria-hidden="true" />
-        <span className="truncate max-w-40">{t("statusBar.no_git")}</span>
+        <span className="truncate max-w-40">
+          {t(gitMissing ? "statusBar.git_missing" : "statusBar.no_git")}
+        </span>
       </StatusBarItem>
     );
   }

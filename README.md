@@ -2,12 +2,13 @@
 
 # NexusCode
 
-**한 창에서 여러 워크스페이스를.** macOS 용 VSCode-style 에디터 — Monaco 에디터와 통합 터미널을 하나의 창에 담았습니다.
+**한 창에서 여러 워크스페이스를.** macOS · Linux 용 VSCode-style 에디터 — Monaco 에디터와 통합 터미널을 하나의 창에 담았습니다.
 
 [![Release](https://img.shields.io/github/v/release/moreih29/nexus-code?label=release)](https://github.com/moreih29/nexus-code/releases)
 [![Downloads](https://img.shields.io/github/downloads/moreih29/nexus-code/total?label=downloads)](https://github.com/moreih29/nexus-code/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/macOS-Apple%20Silicon-black?logo=apple)
+![Platform](https://img.shields.io/badge/Linux-x64%20%7C%20arm64-black?logo=linux)
 
 <img src="docs/images/hero.png" width="820" alt="NexusCode — 멀티 워크스페이스 에디터" />
 
@@ -33,12 +34,14 @@ VSCode 가 주는 IDE 경험은 그대로, 멀티 워크스페이스는 VSCode �
 
 ## 요구사항
 
-- macOS 14 (Sonoma) 이상
-- Apple Silicon (M1 / M2 / M3 / M4)
+- **macOS** — macOS 14 (Sonoma) 이상, Apple Silicon (M1 / M2 / M3 / M4)
+- **Linux** — x64 또는 arm64. Ubuntu 24.04 에서 확인했습니다.
 
-> 배포는 Apple Silicon (arm64) 빌드만 제공합니다. Intel (x64) 머신은 소스 빌드로 사용 가능 — [docs/INSTALL.md#self-build](docs/INSTALL.md) 참고.
+> macOS 는 Apple Silicon (arm64) 빌드만 제공합니다. Intel (x64) Mac 은 소스 빌드로 사용 가능 — [docs/INSTALL.md#self-build](docs/INSTALL.md) 참고.
 
 ## 📦 설치
+
+### macOS
 
 [Releases 페이지](https://github.com/moreih29/nexus-code/releases)에서 최신 `.dmg` 를 내려받습니다.
 
@@ -48,7 +51,7 @@ VSCode 가 주는 IDE 경험은 그대로, 멀티 워크스페이스는 VSCode �
 
 `.dmg` 를 마운트하고 **NexusCode** 를 `/Applications` 로 드래그한 뒤, 첫 실행 전에 아래 **보안 해제**를 거칩니다.
 
-### 보안 해제 (Gatekeeper)
+#### 보안 해제 (Gatekeeper)
 
 NexusCode 는 Apple Developer ID / 공증(notarization) 없이, 자체 서명 인증서로 서명해 배포됩니다. 첫 실행 시 macOS 가 앱을 차단하거나 "손상된 앱" 으로 표시하는 것은 정상입니다. 터미널에서 quarantine 속성을 제거하면 이후 더블클릭으로 바로 열립니다:
 
@@ -78,6 +81,30 @@ xattr -dr com.apple.quarantine "/Applications/NexusCode.app"
 
 </details>
 
+### Linux
+
+[Releases 페이지](https://github.com/moreih29/nexus-code/releases)에서 배포판에 맞는 파일을 내려받습니다.
+
+| 형식 | x64 | arm64 |
+|---|---|---|
+| deb (Debian · Ubuntu) | `NexusCode-X.Y.Z-amd64.deb` | `NexusCode-X.Y.Z-arm64.deb` |
+| AppImage (그 밖의 배포판) | `NexusCode-X.Y.Z-x86_64.AppImage` | `NexusCode-X.Y.Z-arm64.AppImage` |
+
+**deb** — Debian · Ubuntu 에서 권장합니다. 내려받은 폴더에서:
+
+```bash
+sudo apt install ./NexusCode-X.Y.Z-*.deb
+```
+
+**AppImage** — 실행 권한을 주고 바로 실행합니다. 설치 과정이 없습니다.
+
+```bash
+chmod +x NexusCode-X.Y.Z-*.AppImage
+./NexusCode-X.Y.Z-*.AppImage
+```
+
+> Ubuntu 23.10 이상에서는 AppImage 가 `The SUID sandbox helper binary was found, but is not configured correctly` 를 내고 바로 종료됩니다. 이 버전의 AppArmor 가 앱의 샌드박스를 막기 때문입니다. deb 는 설치할 때 필요한 AppArmor 프로필을 함께 넣으므로 이 문제가 없습니다. AppImage 를 쓰려면 [docs/INSTALL.md](docs/INSTALL.md#ubuntu-2310-이상에서-appimage-가-바로-종료될-때) 의 프로필을 한 번 등록합니다.
+
 ## ⌨️ 단축키
 
 VSCode 호환 매핑입니다. 자주 쓰는 것만 추렸고, 전체 목록은 **[docs/SHORTCUTS.md](docs/SHORTCUTS.md)** 에 있습니다.
@@ -93,11 +120,15 @@ VSCode 호환 매핑입니다. 자주 쓰는 것만 추렸고, 전체 목록은 
 | Files 패널 토글 | `⌘B` |
 | 설정 | `⌘,` |
 
-> `⌘` 단독 단축키만 앱이 가로채며, `⌃` 단독은 터미널로 그대로 전달됩니다 — `Ctrl+R`(reverse-i-search), `Ctrl+W`(delete-word) 같은 셸 단축키가 정상 동작합니다.
+Linux 에서는 표의 `⌘` 를 `Ctrl` 로 읽으면 됩니다.
+
+> macOS 에서는 `⌘` 단독 단축키만 앱이 가로채며, `⌃` 단독은 터미널로 그대로 전달됩니다 — `Ctrl+R`(reverse-i-search), `Ctrl+W`(delete-word) 같은 셸 단축키가 정상 동작합니다. Linux 에서는 터미널에 포커스가 있으면 셸과 겹치는 `Ctrl` 단축키를 앱이 받지 않고 터미널로 보냅니다.
 
 ## 🔄 업데이트
 
 새 버전이 나오면 알림이 뜹니다. **업데이트** 를 누르면 앱이 새 버전을 내려받고, 준비되면 **지금 다시 시작** 으로 설치합니다 (그냥 두면 다음 종료 때 설치). 앱이 직접 받은 업데이트에는 quarantine 속성이 붙지 않아 보안 해제가 다시 필요 없습니다.
+
+Linux 에서도 AppImage 와 deb 모두 같은 방식으로 앱 안에서 업데이트됩니다. deb 는 **지금 다시 시작** 을 누르면 관리자 암호를 물은 뒤 설치하며, 그냥 종료할 때는 설치하지 않습니다.
 
 > 0.10.0 이전 버전은 앱 안 업데이트를 지원하지 않습니다. 그 버전에서는 마지막으로 한 번 `.dmg` 로 설치하고 보안 해제를 거치면 됩니다.
 

@@ -8,7 +8,7 @@
  * Monaco + xterm renderer integration requires a browser-level manual scenario.
  */
 
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
@@ -17,6 +17,7 @@ import { GlobalStorage } from "../../src/main/infra/storage/global-storage";
 import { StateService } from "../../src/main/infra/storage/state-service";
 import { WorkspaceStorage } from "../../src/main/infra/storage/workspace-storage";
 import type { WorkspaceMeta } from "../../src/shared/types/workspace";
+import { closeTestDatabases, openTestDatabase } from "../helpers/test-database";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -27,11 +28,11 @@ function makeTmpDir(): string {
 }
 
 function bunSqliteFactory(dbPath: string): Database {
-  return new Database(dbPath);
+  return openTestDatabase(dbPath);
 }
 
 function openGlobalStorage(dbPath: string): GlobalStorage {
-  const db = new Database(dbPath);
+  const db = openTestDatabase(dbPath);
   return new GlobalStorage(db);
 }
 
@@ -62,6 +63,7 @@ describe("storage-restart — GlobalStorage round-trip on real SQLite file", () 
   });
 
   afterEach(() => {
+    closeTestDatabases();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -129,6 +131,7 @@ describe("storage-restart — StateService persists across re-construction", () 
   });
 
   afterEach(() => {
+    closeTestDatabases();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -158,6 +161,7 @@ describe("storage-restart — WorkspaceStorage directory survives session bounda
   });
 
   afterEach(() => {
+    closeTestDatabases();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -211,6 +215,7 @@ describe("storage-restart — stateService + globalStorage combined restart scen
   });
 
   afterEach(() => {
+    closeTestDatabases();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 

@@ -305,8 +305,9 @@ func TestReadFollowsSymlinkWithinSizeCap(t *testing.T) {
 	must(t, err)
 	must(t, f.Truncate(MaxReadableFileSize+1))
 	must(t, f.Close())
-	must(t, os.Symlink(big, filepath.Join(root, "big.txt")))
-	must(t, os.Symlink("/dev/zero", filepath.Join(root, "zero.txt")))
+	if err := os.Symlink(big, filepath.Join(root, "big.txt")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
 	fsys, err := New(root)
 	if err != nil {
 		t.Fatal(err)
@@ -320,6 +321,21 @@ func TestReadFollowsSymlinkWithinSizeCap(t *testing.T) {
 			t.Fatalf("link to oversized file: want TOO_LARGE, got %v", err)
 		}
 	}
+}
+
+// TestReadFollowsSymlinkToDevice reads a link to an endless device as an
+// empty binary file instead of reading the device without bound.
+func TestReadFollowsSymlinkToDevice(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no /dev/zero")
+	}
+	root := t.TempDir()
+	must(t, os.Symlink("/dev/zero", filepath.Join(root, "zero.txt")))
+	fsys, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
 
 	readAny, err := fsys.ReadFile(ctx, json.RawMessage(`{"relPath":"zero.txt"}`))
 	if err != nil {

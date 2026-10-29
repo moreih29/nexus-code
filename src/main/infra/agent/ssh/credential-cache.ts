@@ -1,9 +1,12 @@
 import type { SshAuthPrompt, SshAuthResponse } from "../../../../shared/ssh/auth-prompt";
 import type { SshAuthPromptHandler } from "./auth-pty";
 
-/** Builds the cache key from SSH connection identity fields. */
-function credentialKey(host: string, user: string | undefined, port: number | undefined): string {
-  return `${host}|${user ?? ""}|${port ?? 22}`;
+/**
+ * Builds the cache key from SSH connection identity fields and the prompt
+ * itself, so a key's passphrase and the account password are kept apart.
+ */
+function credentialKey(prompt: Extract<SshAuthPrompt, { kind: "password" }>): string {
+  return `${prompt.host}|${prompt.username ?? ""}|${prompt.port ?? 22}|${prompt.field}|${prompt.prompt}`;
 }
 
 /**
@@ -13,7 +16,8 @@ function credentialKey(host: string, user: string | undefined, port: number | un
  * Behaviour:
  *  - Password prompts (retry=false/undefined): on cache hit, returns the
  *    stored credential without calling `inner`. On miss, calls `inner` and
- *    stores the returned password.
+ *    stores the returned password. Each prompt is cached apart: a key's
+ *    passphrase is not offered as the password.
  *  - Password prompts (retry=true): SSH has signalled "Permission denied,
  *    please try again" — the cached credential was wrong. The entry for this
  *    host+user is evicted before calling `inner`, so the user is prompted for
@@ -33,7 +37,7 @@ export function createCachingAuthPromptHandler(inner: SshAuthPromptHandler): Ssh
       return inner(prompt);
     }
 
-    const key = credentialKey(prompt.host, prompt.username, prompt.port);
+    const key = credentialKey(prompt);
 
     // retry=true means the previous password (possibly cached) was rejected.
     // Evict the stale entry so the user is asked again.

@@ -40,7 +40,7 @@
  *        workspace re-init flash). The file tree re-populates.
  */
 
-import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Shim window.ipc so every store module loads without DOM / Electron preload.
@@ -74,11 +74,19 @@ mock.module("../../src/renderer/ipc/client", () => ({
 // ---------------------------------------------------------------------------
 
 import { openOrRevealEditor } from "../../src/renderer/services/editor";
-import { ensureRoot, refresh, toggleExpand } from "../../src/renderer/state/operations/files";
+import {
+  __cancelPendingSavesForTests,
+  ensureRoot,
+  refresh,
+  toggleExpand,
+} from "../../src/renderer/state/operations/files";
 import { useFilesStore } from "../../src/renderer/state/stores/files";
 import { useLayoutStore } from "../../src/renderer/state/stores/layout";
 import { useTabsStore } from "../../src/renderer/state/stores/tabs";
 import type { DirEntry } from "../../src/shared/fs/types";
+
+// A save left pending would fire into the next test file, after its window is gone.
+afterEach(__cancelPendingSavesForTests);
 
 // ---------------------------------------------------------------------------
 // Test fixtures

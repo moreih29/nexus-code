@@ -8,6 +8,7 @@ import {
   AgentArtifactPlatformSchema,
   type LspBinaryManifestEntry,
   type NodeRuntimeManifestEntry,
+  SshHostOsSchema,
 } from "../../../../../shared/agent/manifest";
 import { createSshError } from "../../pipe";
 import { runSsh, quoteShellArg } from "./transport";
@@ -24,7 +25,7 @@ export const RemoteArtifactRecordSchema = z.object({
   kind: z.enum(["agent", "node", "lsp", "wrapper"]),
   name: z.string(),
   version: z.string(),
-  os: AgentArtifactPlatformSchema.shape.os.optional(),
+  os: SshHostOsSchema.optional(),
   arch: AgentArtifactPlatformSchema.shape.arch.optional(),
   path: z.string(),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
@@ -40,7 +41,7 @@ export const RemoteArtifactManifestSchema = z.object({
 
 const LegacyRemoteManifestSchema = z.object({
   version: z.string(),
-  os: AgentArtifactPlatformSchema.shape.os,
+  os: SshHostOsSchema,
   arch: AgentArtifactPlatformSchema.shape.arch,
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
   installedAt: z.string(),

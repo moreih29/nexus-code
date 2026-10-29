@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { isDrivePath, toSlashPath } from "../../../shared/fs/drive-path";
 import type {
   WorkspaceConnectionEventStatus,
   WorkspaceConnectionProgressEvent,
@@ -209,6 +210,19 @@ function pruneConnectionStatuses(
   return next;
 }
 
+/**
+ * A local Windows root arrives as `C:\work\demo`. Renderer path code joins
+ * and splits on `/`, so the store keeps it as `C:/work/demo`.
+ */
+function withSlashRoot(meta: WorkspaceMeta): WorkspaceMeta {
+  if (meta.location.kind !== "local" || !isDrivePath(meta.location.rootPath)) return meta;
+  return {
+    ...meta,
+    rootPath: toSlashPath(meta.rootPath),
+    location: { ...meta.location, rootPath: toSlashPath(meta.location.rootPath) },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -241,7 +255,8 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
     // `removed` is handled by the central workspace-cleanup registry; only
     // `changed` and `reordered` need inline ipcListen here.
     if (deps.canUseIpcBridge()) {
-      deps.listen("workspace", "changed", (meta) => {
+      deps.listen("workspace", "changed", (incoming) => {
+        const meta = withSlashRoot(incoming);
         set((state) => {
           const existing = state.workspaces.find((w) => w.id === meta.id);
 
@@ -331,7 +346,8 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
       connectionStatusByWorkspaceId: {},
       connectionProgressByWorkspaceId: {},
 
-      setAll(workspaces) {
+      setAll(incoming) {
+        const workspaces = incoming.map(withSlashRoot);
         set((state) => ({
           workspaces,
           connectionStatusByWorkspaceId: pruneConnectionStatuses(
@@ -341,7 +357,8 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
         }));
       },
 
-      upsert(meta) {
+      upsert(incoming) {
+        const meta = withSlashRoot(incoming);
         set((state) => {
           const existing = state.workspaces.find((w) => w.id === meta.id);
 

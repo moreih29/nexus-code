@@ -455,7 +455,8 @@ export class WorkspaceManager {
   /**
    * 워크스페이스 종류에 따라 래퍼 바이너리가 위치하는 bin 디렉터리의 절대 경로를 반환한다.
    *
-   * - 로컬 워크스페이스: 로컬 배포 bin 디렉터리 (`getAgentBinDir()`)
+   * - 로컬 워크스페이스: 로컬 배포 bin 디렉터리 (`getAgentBinDir()`).
+   *   Windows 에서는 null — 래퍼는 bash 스크립트라 Windows 셸이 실행하지 못한다.
    * - SSH 워크스페이스:  bootstrap 결과의 `remoteBinDir` (절대 경로)
    * - 워크스페이스 없음 / 채널 없음: null
    */
@@ -464,6 +465,9 @@ export class WorkspaceManager {
     if (!ctx) return null;
     const meta = ctx.getMeta();
     if (meta.location.kind === "local") {
+      // A Windows shell cannot run the bash wrapper, and with its directory
+      // first on PATH, `claude` could resolve to it instead of the real one.
+      if (process.platform === "win32") return null;
       return getAgentBinDir();
     }
     const bootstrap = this.sshBootstraps.get(workspaceId);
@@ -524,6 +528,7 @@ export class WorkspaceManager {
    * 사용된다.
    *
    * - 로컬 워크스페이스: `process.env.SHELL`. 없으면 `/bin/zsh`로 폴백.
+   *   Windows 에서는 null (zsh / bash 셤이 없다).
    *   macOS Catalina(2019)부터 사용자 기본 셸이 zsh고, Finder/Spotlight로 띄운
    *   launchd 자식 프로세스는 `$SHELL`이 비어있을 수 있어서다.
    *   폴백이 zsh 한정인 이유는 zsh 셤 활성화가 `ZDOTDIR` **환경변수 주입**으로
@@ -543,6 +548,8 @@ export class WorkspaceManager {
     if (!ctx) return null;
     const meta = ctx.getMeta();
     if (meta.location.kind === "local") {
+      // Windows shells take no zsh or bash shim.
+      if (process.platform === "win32") return null;
       const shell = process.env.SHELL;
       return shell !== undefined && shell.length > 0 ? shell : "/bin/zsh";
     }

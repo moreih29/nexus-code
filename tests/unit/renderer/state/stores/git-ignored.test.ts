@@ -23,13 +23,21 @@ const previousClient = { ...(await import(CLIENT)) };
 mock.module(CLIENT, () => ({
   ...previousClient,
   canUseIpcBridge: () => true,
-  ipcCallResult: (_channel: string, _method: string, args: { relPaths: string[] }) =>
-    new Promise((resolve) => {
-      calls.push({
-        relPaths: args.relPaths,
-        answer: (ignored) => resolve({ ok: true, value: { ignored } }),
-      });
-    }),
+  ipcCallResult: (
+    _channel: string,
+    _method: string,
+    args: { workspaceId: string; relPaths: string[] },
+  ) =>
+    // A flush another file scheduled can still fire here; answer it and keep
+    // it out of `calls`.
+    args.workspaceId !== WS
+      ? Promise.resolve({ ok: true, value: { ignored: [] } })
+      : new Promise((resolve) => {
+          calls.push({
+            relPaths: args.relPaths,
+            answer: (ignored) => resolve({ ok: true, value: { ignored } }),
+          });
+        }),
   mustSucceed: (result: { ok: true; value: unknown }) => result.value,
 }));
 afterAll(() => {

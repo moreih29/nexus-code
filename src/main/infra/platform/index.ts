@@ -1,18 +1,11 @@
 /*
- * src/main/platform/index.ts
+ * src/main/infra/platform/index.ts
  *
  * Single entry point for all platform-branching functions.
- * Current support: macOS only. All other platforms throw explicitly — no silent fallbacks.
  *
- * Cross-OS support checklist:
- *   getUserDataPath
- *     - Windows: %APPDATA%/nexus-code
- *     - Linux:   $XDG_DATA_HOME/nexus-code or ~/.local/share/nexus-code
- *   getUserConfigPath
- *     - Windows: %APPDATA%/nexus-code
- *     - Linux:   $XDG_CONFIG_HOME/nexus-code or ~/.config/nexus-code
- *   getWorkspaceStoragePath
- *     - Windows / Linux: follow same data dir conventions as above
+ * The paths come from Electron's app.getPath, which follows each OS's
+ * convention: ~/Library/Application Support on macOS, $XDG_CONFIG_HOME (or
+ * ~/.config) on Linux, %APPDATA% on Windows.
  */
 
 export { getUserConfigPath, getUserDataPath, getWorkspaceStoragePath } from "./paths";

@@ -14,6 +14,7 @@
 
 import { copyText } from "@/utils/clipboard";
 import { relPath } from "@/utils/path";
+import { toNativeDrivePath } from "../../../shared/fs/drive-path";
 import { revealInFinder as revealInFinderService } from "./reveal";
 
 export interface PathActionContext {
@@ -38,7 +39,8 @@ export function createPathActions(ctx: PathActionContext): PathActions {
     copyPath() {
       const abs = ctx.getAbsPath();
       if (!abs) return;
-      copyText(abs);
+      // Windows paths are kept as C:/x internally; copy them as C:\x.
+      copyText(toNativeDrivePath(abs));
     },
     copyRelativePath() {
       const abs = ctx.getAbsPath();

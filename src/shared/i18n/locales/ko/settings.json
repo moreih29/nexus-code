@@ -228,7 +228,8 @@
       "description": "앱 시작 시 GitHub 릴리스를 자동으로 확인합니다. 아래의 수동 확인은 이 설정과 관계없이 항상 실행됩니다."
     },
     "checkNow": "업데이트 확인",
-    "checking": "확인 중…"
+    "checking": "확인 중…",
+    "storeManaged": "업데이트는 Microsoft Store에서 받습니다."
   },
   "keybindings": {
     "searchPlaceholder": "커맨드 검색",

@@ -1,3 +1,5 @@
+//go:build !windows
+
 package pty
 
 // ring_test.go — unit tests for the ring buffer, session.list, and pty.replay.
@@ -20,13 +22,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	creackpty "github.com/creack/pty"
 )
 
 // ─── helper: ring-only tests (pure struct, no PTY child) ─────────────────────
@@ -705,12 +704,12 @@ sleep 10
 	type sizeCall struct{ rows, cols uint16 }
 	var callMu sync.Mutex
 	var calls []sizeCall
-	sess.setSizeFn = func(f *os.File, ws *creackpty.Winsize) error {
+	sess.setSizeFn = func(cols, rows int) error {
 		callMu.Lock()
-		calls = append(calls, sizeCall{rows: ws.Rows, cols: ws.Cols})
+		calls = append(calls, sizeCall{rows: uint16(rows), cols: uint16(cols)})
 		callMu.Unlock()
 		// Also apply the real resize so the PTY fd stays consistent.
-		return setWinsize(f, ws)
+		return sess.master.setSize(cols, rows)
 	}
 
 	// Replay (ring empty is fine — wiggle runs regardless of ring content).

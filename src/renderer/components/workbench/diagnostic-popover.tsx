@@ -17,6 +17,7 @@ import { AlertTriangle, XCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { toNativeDrivePath } from "../../../shared/fs/drive-path";
 import type { WorkspaceLocation } from "../../../shared/types/workspace";
 import { rootPathFromLocation } from "../../../shared/types/workspace";
 import { getEntryMetadata } from "../../services/editor/model";
@@ -236,7 +237,10 @@ function DiagnosticFileGroup({
 }): React.JSX.Element {
   return (
     <div className="mb-1 last:mb-0">
-      <header className="flex items-baseline gap-1.5 px-2 py-0.5" title={group.filePath}>
+      <header
+        className="flex items-baseline gap-1.5 px-2 py-0.5"
+        title={toNativeDrivePath(group.filePath)}
+      >
         <span className="truncate text-app-ui-sm text-foreground font-medium">
           {group.basename}
         </span>
@@ -294,7 +298,7 @@ function DiagnosticRow({
           "text-app-ui-sm text-foreground",
           "hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none",
         )}
-        title={`${item.filePath}:${item.startLine}:${item.startColumn} — ${item.message}`}
+        title={`${toNativeDrivePath(item.filePath)}:${item.startLine}:${item.startColumn} — ${item.message}`}
       >
         <Icon
           className="size-3 shrink-0 mt-[3px]"

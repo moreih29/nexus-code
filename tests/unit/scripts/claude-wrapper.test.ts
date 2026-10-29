@@ -17,6 +17,10 @@ import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 const WRAPPER_PATH = path.resolve(import.meta.dir, "../../../scripts/assets/claude-wrapper.sh");
+
+// The wrapper runs under bash where claude does: macOS and Linux, locally or
+// on an SSH host. On Windows the app installs no wrapper.
+const describeOnPosix = describe.skipIf(process.platform === "win32");
 const HOOK_EVENT_NAMES = [
   "session-start",
   "user-prompt-submit",
@@ -118,7 +122,7 @@ afterEach(async () => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe("claude-wrapper.sh — JSON 이스케이프 검증", () => {
+describeOnPosix("claude-wrapper.sh — JSON 이스케이프 검증", () => {
   test("HOOK_BIN 경로에 공백이 포함되어도 유효한 JSON을 생성한다", () => {
     const hookBin = path.join(tmpDir, "agent bin path", "agent-darwin");
 
@@ -189,7 +193,7 @@ describe("claude-wrapper.sh — JSON 이스케이프 검증", () => {
   });
 });
 
-describe("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
+describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
   /**
    * Acceptance 1: NEXUS_AGENT_BIN이 설정되면 settings.json의 command 필드에
    * 리터럴 "${NEXUS_AGENT_BIN}" hook <sub> 형태가 기록된다.
@@ -247,7 +251,7 @@ describe("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
   });
 });
 
-describe("claude-wrapper.sh — 다른 wrapper 회피 (무한 루프 방지)", () => {
+describeOnPosix("claude-wrapper.sh — 다른 wrapper 회피 (무한 루프 방지)", () => {
   /**
    * 시나리오: PATH 에 cmux 와 우리 wrapper 가 함께 있을 때, find_real_claude 가
    * 다른 wrapper 를 진짜 claude 로 오인해 서로 exec 하는 무한 루프에 빠지면 안 된다.
@@ -289,7 +293,7 @@ describe("claude-wrapper.sh — 다른 wrapper 회피 (무한 루프 방지)", (
   });
 });
 
-describe("claude-wrapper.sh — NEXUS_WRAPPER_SELF_DIR SSH 시나리오", () => {
+describeOnPosix("claude-wrapper.sh — NEXUS_WRAPPER_SELF_DIR SSH 시나리오", () => {
   /**
    * Acceptance 3: NEXUS_WRAPPER_SELF_DIR이 /home/u/.nexus-code/bin (SSH 경로)으로 설정되면
    * find_real_claude가 그 디렉터리를 self로 skip하고 다음 후보를 선택한다.
@@ -326,7 +330,7 @@ describe("claude-wrapper.sh — NEXUS_WRAPPER_SELF_DIR SSH 시나리오", () => 
   });
 });
 
-describe("claude-wrapper.sh — bash 3.2 호환성", () => {
+describeOnPosix("claude-wrapper.sh — bash 3.2 호환성", () => {
   /**
    * Acceptance 4: wrapper 셔뱅의 bash(또는 sh)로 syntax check를 수행한다.
    * bash -n은 문법만 검사하고 실행하지 않는다.

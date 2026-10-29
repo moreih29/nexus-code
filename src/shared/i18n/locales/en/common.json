@@ -83,6 +83,8 @@
     "aria": "Status bar",
     "no_git": "no git",
     "no_git_title": "No git repository",
+    "git_missing": "git not installed",
+    "git_missing_title": "Git is not installed",
     "branch_title": "Git branch: {{label}} — click to switch",
     "branch_aria": "Switch branch (currently {{label}})",
     "no_commits": "no commits",
@@ -317,8 +319,8 @@
   },
   "groupPlaceholder": {
     "no_tab": "No tab open",
-    "new_terminal": "⌘T New Terminal",
-    "open_split": "⌘↵ Open file in split"
+    "new_terminal": "{{shortcut}} New Terminal",
+    "open_split": "{{shortcut}} Open file in split"
   },
   "terminal": {
     "default_title": "Terminal",
@@ -417,6 +419,7 @@
     "install": "Update",
     "downloading": "Downloading version {{version}}…",
     "ready": "Version {{version}} is ready. It installs when the app restarts.",
+    "readyAsksPassword": "Version {{version}} is ready. Restart now and enter your admin password to install it.",
     "restart": "Restart Now",
     "installFailed": "Couldn't install the update. You can download it from the release page.",
     "openReleasePage": "Open Release Page",

@@ -5,6 +5,7 @@
  */
 import { GitBranch } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { toNativeDrivePath } from "../../../../../shared/fs/drive-path";
 import type { BranchInfo } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 
@@ -55,7 +56,11 @@ export function BranchChip({
       aria-haspopup="dialog"
       aria-expanded={open}
       disabled={disabled || !branch}
-      title={repoPath ? t("git.branchPopover.chipTitle", { path: repoPath }) : branchName}
+      title={
+        repoPath
+          ? t("git.branchPopover.chipTitle", { path: toNativeDrivePath(repoPath) })
+          : branchName
+      }
       onClick={onClick}
       onContextMenu={onContextMenu}
     >

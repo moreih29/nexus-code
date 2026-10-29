@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
@@ -93,6 +94,11 @@ func (s *Service) Log(ctx context.Context, raw json.RawMessage) (any, error) {
 		}
 		return cmd.Process.Kill()
 	}
+	// The git on a Windows PATH is a launcher that runs the real git as its
+	// child, which the kill leaves running with the output pipes open. Wait
+	// would wait for those to close while that git waits for room in the
+	// stdout pipe no one reads any more; this closes them instead.
+	cmd.WaitDelay = time.Second
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

@@ -106,6 +106,7 @@ function makeResolvedModel(overrides: Partial<ReturnType<typeof makeResolvedMode
     filePath: "/workspace/src/a.ts",
     languageId: "typescript",
     readOnly: false,
+    encoding: "utf8" as "utf8" | "utf8-bom",
     ...overrides,
   };
 }
@@ -216,6 +217,26 @@ describe("saveModel baseline sync", () => {
     // post-save fs/git event re-reading the file won't be mistaken for an
     // external divergence (the false-positive this guards against).
     expect(syncLoadedValueAfterSaveMock).toHaveBeenCalledWith(INPUT, "content");
+  });
+
+  test("writes the BOM back for a file read as utf8-bom, but keeps it out of the baseline", async () => {
+    getResolvedModelMock.mockImplementation(() => makeResolvedModel({ encoding: "utf8-bom" }));
+
+    const result = await saveModel(INPUT);
+
+    expect(result.kind).toBe("saved");
+    const write = ipcCallMock.mock.calls.find(([, method]) => method === "writeFile");
+    expect((write?.[2] as { content: string }).content).toBe("﻿content");
+    expect(syncLoadedValueAfterSaveMock).toHaveBeenCalledWith(INPUT, "content");
+  });
+
+  test("writes no BOM for a plain utf8 file", async () => {
+    getResolvedModelMock.mockImplementation(() => makeResolvedModel({ encoding: "utf8" }));
+
+    await saveModel(INPUT);
+
+    const write = ipcCallMock.mock.calls.find(([, method]) => method === "writeFile");
+    expect((write?.[2] as { content: string }).content).toBe("content");
   });
 
   test("does not advance the baseline when the save conflicts", async () => {

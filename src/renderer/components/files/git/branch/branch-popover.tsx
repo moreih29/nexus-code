@@ -12,6 +12,7 @@ import type {
   GitAutofetchIntervalMin,
   RepoCapabilities,
 } from "../../../../../shared/git/types";
+import { toNativeDrivePath } from "../../../../../shared/fs/drive-path";
 import { copyText } from "../../../../utils/clipboard";
 import { Button } from "../../../ui/button";
 import { useDismissOnOutsideClick } from "../../../ui/use-dismiss-on-outside-click";
@@ -288,8 +289,11 @@ export function GitBranchPopoverContent({
         <p className="mt-0.5 text-app-ui-sm text-muted-foreground">{t("git.branchPopover.noUpstreamStatus")}</p>
       )}
       {repoPath ? (
-        <p className="mt-1 truncate text-app-ui-sm text-muted-foreground" title={repoPath}>
-          {repoPath}
+        <p
+          className="mt-1 truncate text-app-ui-sm text-muted-foreground"
+          title={toNativeDrivePath(repoPath)}
+        >
+          {toNativeDrivePath(repoPath)}
         </p>
       ) : null}
       <GitBranchFetchStatus

@@ -7,7 +7,8 @@ import os from "node:os";
 import path from "node:path";
 import { newLocalGitRepository } from "./helpers/local-semantic-executor";
 
-describe("GitRepository push guardrails", () => {
+// The fake git these tests run is a /bin/sh script, which Windows cannot run.
+describe.skipIf(process.platform === "win32")("GitRepository push guardrails", () => {
   it("uses --force-with-lease for explicit force pushes", async () => {
     const fixture = makeFakeRepo();
     try {

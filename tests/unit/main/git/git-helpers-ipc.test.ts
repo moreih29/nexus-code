@@ -12,7 +12,10 @@ import {
   GitHelpersIpcManager,
   prepareGitHelpersEndpoint,
 } from "../../../../src/main/features/git/domain/helpers/ipc";
-import { buildHelperEnv } from "../../../../src/main/features/git/domain/helpers/launcher";
+import {
+  agentAliasPath,
+  buildHelperEnv,
+} from "../../../../src/main/features/git/domain/helpers/launcher";
 import type { GitEditorPrompt } from "../../../../src/shared/git/types";
 
 const EDITOR_HELPER = path.join(process.cwd(), "src/main/features/git/domain/helpers/editor-helper.cjs");
@@ -50,9 +53,43 @@ describe("helpers-launcher", () => {
     expect(env.GIT_EDITOR).toBe(path.join(wrapperDir, "nexus-git-editor-helper"));
     expect(env.DISPLAY).toBe(":0");
 
-    expect(modeOf(env.GIT_EDITOR ?? "")).toBe(0o700);
+    if (HAS_POSIX_MODES) expect(modeOf(env.GIT_EDITOR ?? "")).toBe(0o700);
     expect(fs.readFileSync(env.GIT_EDITOR ?? "", "utf8")).toContain("editor-helper.cjs");
     expect(env.GIT_EDITOR).not.toMatch(/^'.*' '.*'$/);
+  });
+
+  it("quotes the Windows editor wrapper so Git's sh keeps the backslashes", () => {
+    const wrapperDir = makeTmpDir("nexus-helper-wrappers-");
+    const env = buildHelperEnv(
+      { editor: true },
+      {
+        connection: { socketPath: "\\\\.\\pipe\\nexus-helpers-55", token: "token-123" },
+        electronPath: "C:\\Program Files\\NexusCode\\NexusCode.exe",
+        helperDir: "C:\\Program Files\\NexusCode\\resources\\helpers",
+        wrapperDir,
+        baseEnv: {},
+        platform: "win32",
+      },
+    );
+
+    const wrapperPath = path.join(wrapperDir, "nexus-git-editor-helper.cmd");
+    expect(env.GIT_EDITOR).toBe(`'${wrapperPath}'`);
+    expect(fs.readFileSync(wrapperPath, "utf8")).toContain("editor-helper.cjs");
+  });
+
+  it("finds the MSIX package's alias for the agent from the app's install directory", () => {
+    const localAppData = "C:\\Users\\u\\AppData\\Local";
+    expect(
+      agentAliasPath(
+        "C:\\Program Files\\WindowsApps\\moreih29.NexusCode_0.10.0.0_x64__tqd5rv6sm4r06\\app\\NexusCode.exe",
+        localAppData,
+      ),
+    ).toBe(
+      "C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\moreih29.NexusCode_tqd5rv6sm4r06\\nexuscode-agent.exe",
+    );
+    expect(
+      agentAliasPath("C:\\Program Files\\NexusCode\\NexusCode.exe", localAppData),
+    ).toBeNull();
   });
 
   it("does not create an Electron-host askpass wrapper", () => {
@@ -87,7 +124,7 @@ describe("Git helper endpoint security", () => {
 
     expect(endpoint.kind).toBe("unix");
     expect(endpoint.path).toBe(path.join(userDataDir, "nexus-helpers-1234.sock"));
-    expect(modeOf(userDataDir)).toBe(0o700);
+    if (HAS_POSIX_MODES) expect(modeOf(userDataDir)).toBe(0o700);
   });
 
   it("builds a Windows named pipe endpoint", () => {
@@ -193,6 +230,9 @@ function makeTmpDir(prefix: string): string {
   tmpRoots.push(dir);
   return dir;
 }
+
+/** Windows file systems keep no POSIX mode bits to assert on. */
+const HAS_POSIX_MODES = process.platform !== "win32";
 
 /**
  * Returns POSIX mode bits for permission assertions.

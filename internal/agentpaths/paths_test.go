@@ -3,6 +3,7 @@ package agentpaths_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -98,7 +99,7 @@ func TestEnsureDir_IdempotentAndMode(t *testing.T) {
 	// Verify 0700 permissions (owner rwx, group/other none).
 	// os.MkdirAll on some systems inherits umask, so we check the mask explicitly.
 	mode := info.Mode().Perm()
-	if mode != 0700 {
+	if runtime.GOOS != "windows" && mode != 0700 { // Windows keeps no POSIX mode bits.
 		t.Errorf("EnsureDir permission = %04o; want 0700", mode)
 	}
 

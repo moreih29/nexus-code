@@ -41,7 +41,10 @@ import { registerSystemChannel } from "./features/shell/ipc";
 import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
 import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ipc";
 import { installUpdatesDomain, type UpdatesDomainHandle } from "./features/updates";
-import { createElectronUpdateBackend } from "./features/updates/electron-update-backend";
+import {
+  canUpdateInPlace,
+  createElectronUpdateBackend,
+} from "./features/updates/electron-update-backend";
 import { createMainWindow } from "./features/window";
 import { installAppSessionPermissions } from "./features/window/app-session-permissions";
 import { hasAppWindow } from "./features/window/app-windows";
@@ -281,10 +284,12 @@ updatesHandle = installUpdatesDomain({
   broadcast: forwardBroadcast,
   stateService,
   currentVersion: app.getVersion(),
-  // Squirrel.Mac replaces a packaged macOS app in place; any other build
-  // leaves the user the release page.
+  // A packaged macOS app, Linux AppImage or deb updates itself in place; any
+  // other build leaves the user the release page.
   updateBackend:
-    app.isPackaged && isMac() ? createElectronUpdateBackend(createLogger("updates")) : undefined,
+    app.isPackaged && canUpdateInPlace()
+      ? createElectronUpdateBackend(createLogger("updates"))
+      : undefined,
 });
 
 app.whenReady().then(async () => {
@@ -325,8 +330,10 @@ app.whenReady().then(async () => {
     keybindingOverrides: stateService.getState().keybindingOverrides,
   });
 
-  // Fire the one-time silent auto update check now that the app is ready.
-  updatesHandle?.runInitialAutoPoll();
+  // Fire the one-time silent auto update check now that the app is ready. The
+  // Microsoft Store updates its own install, and a GitHub release has no
+  // build for it.
+  if (!process.windowsStore) updatesHandle?.runInitialAutoPoll();
 
   // Remove nexus-ssh-* control-socket directories orphaned by previous app
   // instances that died without dispose() (crash, SIGKILL). Live masters —

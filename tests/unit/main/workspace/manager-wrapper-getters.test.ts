@@ -122,14 +122,27 @@ function injectSshBootstrap(
 // Tests
 // ---------------------------------------------------------------------------
 
+// Windows 로컬 워크스페이스에는 셸 래퍼가 아직 없어 래퍼 getter가 null을 돌려준다.
+const isWindows = process.platform === "win32";
+const posixTest = test.skipIf(isWindows);
+const windowsTest = test.skipIf(!isWindows);
+
 describe("WorkspaceManager.getWrapperBinDir — acceptance #1, #2, #3", () => {
-  test("#1: 로컬 워크스페이스 → getAgentBinDir() 동일 값", () => {
+  posixTest("#1: 로컬 워크스페이스 → getAgentBinDir() 동일 값", () => {
     const { manager, globalDb } = makeManager();
     const meta = manager.create({ rootPath: path.join(os.tmpdir(), "ws-local-bindir"), name: "local" });
 
     const result = manager.getWrapperBinDir(meta.id);
 
     expect(result).toBe(getAgentBinDir());
+    globalDb.close();
+  });
+
+  windowsTest("#1w: Windows 로컬 워크스페이스 → null", () => {
+    const { manager, globalDb } = makeManager();
+    const meta = manager.create({ rootPath: path.join(os.tmpdir(), "ws-local-bindir"), name: "local" });
+
+    expect(manager.getWrapperBinDir(meta.id)).toBeNull();
     globalDb.close();
   });
 
@@ -279,7 +292,7 @@ describe("WorkspaceManager.getWrapperShell — acceptance #6, #7, #8", () => {
     else process.env.SHELL = savedShell;
   }
 
-  test("#6a: 로컬 워크스페이스 + process.env.SHELL 설정 → 그 값을 그대로 반환", () => {
+  posixTest("#6a: 로컬 워크스페이스 + process.env.SHELL 설정 → 그 값을 그대로 반환", () => {
     process.env.SHELL = "/bin/zsh";
     try {
       const { manager, globalDb } = makeManager();
@@ -297,7 +310,7 @@ describe("WorkspaceManager.getWrapperShell — acceptance #6, #7, #8", () => {
     }
   });
 
-  test("#6b: 로컬 워크스페이스 + process.env.SHELL 미설정 → /bin/zsh 폴백", () => {
+  posixTest("#6b: 로컬 워크스페이스 + process.env.SHELL 미설정 → /bin/zsh 폴백", () => {
     // Finder/Spotlight로 띄운 macOS launchd 자식 프로세스에서는 $SHELL이
     // 비어있을 수 있다. 이 경우 사용자 기본 셸이 zsh인 것으로 가정하고
     // 폴백 — 실제 셸이 bash/fish여도 ZDOTDIR 주입은 무해하다.
@@ -318,7 +331,7 @@ describe("WorkspaceManager.getWrapperShell — acceptance #6, #7, #8", () => {
     }
   });
 
-  test("#6c: 로컬 워크스페이스 + process.env.SHELL=빈문자열 → /bin/zsh 폴백", () => {
+  posixTest("#6c: 로컬 워크스페이스 + process.env.SHELL=빈문자열 → /bin/zsh 폴백", () => {
     // 빈문자열도 "값 없음"으로 취급해야 한다 — 일부 셸/launchd 조합에서는
     // $SHELL이 unset이 아니라 빈문자열로 들어올 수 있다.
     process.env.SHELL = "";
@@ -332,6 +345,22 @@ describe("WorkspaceManager.getWrapperShell — acceptance #6, #7, #8", () => {
       const result = manager.getWrapperShell(meta.id);
 
       expect(result).toBe("/bin/zsh");
+      globalDb.close();
+    } finally {
+      restoreShell();
+    }
+  });
+
+  windowsTest("#6w: Windows 로컬 워크스페이스 → $SHELL과 무관하게 null", () => {
+    process.env.SHELL = "/bin/zsh";
+    try {
+      const { manager, globalDb } = makeManager();
+      const meta = manager.create({
+        rootPath: path.join(os.tmpdir(), "ws-local-shell"),
+        name: "local-shell",
+      });
+
+      expect(manager.getWrapperShell(meta.id)).toBeNull();
       globalDb.close();
     } finally {
       restoreShell();

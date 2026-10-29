@@ -100,11 +100,22 @@ function configureConsoleTransport(log: {
   transports: { console: Record<string, unknown> };
 }): void {
   const consoleTransport = log.transports.console as {
-    level: string;
+    level: string | false;
     format: unknown;
   };
 
   consoleTransport.level = "info";
+
+  // A write to a console that has gone away (the terminal that started the
+  // app closed, or a pipe's reader ended) fails with an error event on the
+  // stream. Unheard, that is an uncaught exception, whose log line goes to
+  // the console and fails again, without end. Past a failure the console
+  // gets no more lines.
+  for (const stream of [process.stdout, process.stderr]) {
+    stream.on("error", () => {
+      consoleTransport.level = false;
+    });
+  }
 
   consoleTransport.format = ({ message }: { message: { date: Date; level: string; data: unknown[]; variables?: Record<string, string> } }) => {
     const [head, ...rest] = message.data;

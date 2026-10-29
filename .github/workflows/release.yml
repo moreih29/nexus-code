@@ -1,7 +1,9 @@
 # Release workflow — triggered when a GitHub Release is created (published or pre-release).
-# Two-job pipeline:
-#   1. build-agent  — ubuntu-latest (cross-compile Go + Node runtime + LSP bundle 모두 산출)
-#   2. package      — macos-14 (Apple Silicon arm64 native)
+# Four-job pipeline:
+#   1. build-agent      — ubuntu-latest (cross-compile Go + Node runtime + LSP bundle 모두 산출)
+#   2. package          — macos-14 (Apple Silicon arm64 native)
+#   3. package-linux    — one runner per architecture (x64, arm64), AppImage + deb
+#   4. package-windows  — windows-latest x64, the Microsoft Store AppX
 #
 # Apple Silicon arm64 만 지원. 이전엔 macos-13 (Intel x64) 매트릭스가 있었으나
 # macos-13 러너 풀이 큐 대기로 자주 묶이고 사용자층 대비 비용 효율이 떨어져 제외.
@@ -61,7 +63,23 @@ jobs:
       - name: Install JS dependencies
         run: bun install --frozen-lockfile
 
+      - name: Resolve Node runtime version
+        id: node-runtime
+        run: echo "version=$(bun run scripts/build-agent.ts --print-node-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Node runtimes
+        # Downloads from nodejs.org have stalled on runners for minutes on end;
+        # CI on main fills this cache, so a release usually fetches none.
+        uses: actions/cache@v6
+        with:
+          path: .cache/node-runtime
+          key: node-runtime-${{ steps.node-runtime.outputs.version }}
+          enableCrossOsArchive: true
+
       - name: Build agent (all platforms)
+        env:
+          NODE_RUNTIME_VERSION: ${{ steps.node-runtime.outputs.version }}
+          NODE_RUNTIME_CACHE_DIR: .cache/node-runtime
         run: bun run scripts/build-agent.ts
 
       - name: Upload agent artifact
@@ -178,3 +196,108 @@ jobs:
             dist/*.zip dist/*.zip.blockmap \
             dist/latest-mac.yml \
             --clobber
+
+  # ── Job 3: Electron 패키징 (Linux) ──────────────────────────────────────
+  # One runner per architecture: the postinstall step rebuilds node-pty and
+  # better-sqlite3 for the runner's own. The jobs upload no file in common —
+  # the update feed is latest-linux.yml for x64 and latest-linux-arm64.yml for
+  # arm64 — so they cannot race on an asset. Linux builds are not signed.
+  package-linux:
+    name: Package (linux-${{ matrix.arch }})
+    needs: build-agent
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+
+    env:
+      NEXUS_CHANNEL: ${{ github.event.release.prerelease && 'beta' || 'stable' }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Download agent artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: agent-dist
+          path: dist/agent
+
+      - name: Build renderer (electron-vite)
+        run: bun run build
+
+      - name: Package with electron-builder
+        run: >
+          bun x electron-builder
+          --linux AppImage deb
+          --${{ matrix.arch }}
+          --publish never
+
+      - name: Upload assets to release
+        # latest-linux*.yml is the update feed the AppImage reads.
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            dist/*.AppImage dist/*.deb \
+            dist/latest-linux*.yml \
+            --clobber
+
+  # ── Job 4: Microsoft Store package (Windows x64) ────────────────────────
+  # The AppX is submitted in Partner Center by hand (docs/RELEASING.md). It is
+  # unsigned, as the Store signs what it publishes, so it stays a workflow
+  # artifact: nobody could install it from the release page. The Store
+  # updates its installs, so there is no update feed to upload either.
+  package-windows:
+    name: Package (windows-x64, Microsoft Store)
+    needs: build-agent
+    runs-on: windows-latest
+
+    env:
+      NEXUS_CHANNEL: ${{ github.event.release.prerelease && 'beta' || 'stable' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Download agent artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: agent-dist
+          path: dist/agent
+
+      - name: Build renderer (electron-vite)
+        run: bun run build
+
+      - name: Package with electron-builder
+        run: >
+          bun x electron-builder
+          --win appx
+          --x64
+          --publish never
+
+      - name: Upload the Store package
+        uses: actions/upload-artifact@v7
+        with:
+          name: msstore-appx-${{ github.event.release.tag_name }}
+          path: dist/*.appx
+          # Long enough for certification and a resubmission.
+          retention-days: 30
+          # An AppX is already a zip.
+          compression-level: 0

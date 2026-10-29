@@ -15,7 +15,7 @@
  * No React, no DOM, no IPC bridge required.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import i18next from "i18next";
 import type { ToastAction, ToastInput } from "../../../../src/renderer/components/ui/toast";
 import {
@@ -62,7 +62,11 @@ mock.module("../../../../src/renderer/utils/clipboard", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Logger mock — captures log calls by level
+// Logger spies — captures log calls by level
+//
+// surface-error.ts creates its logger when it loads, which may be in an earlier
+// test file, so a mock.module of the log facade here would miss that logger.
+// The log facade spies (tests/log-test-spies.ts) see every logger instead.
 // ---------------------------------------------------------------------------
 
 interface LogCall {
@@ -72,14 +76,23 @@ interface LogCall {
 
 const logCalls: LogCall[] = [];
 
-mock.module("../../../../src/shared/log/renderer", () => ({
-  createLogger: (_source: string) => ({
-    error: (msg: string) => logCalls.push({ level: "error", msg }),
-    warn: (msg: string) => logCalls.push({ level: "warn", msg }),
-    info: (msg: string) => logCalls.push({ level: "info", msg }),
-    debug: (msg: string) => logCalls.push({ level: "debug", msg }),
-  }),
-}));
+const { rendererErrorMock, rendererWarnMock, rendererInfoMock, rendererDebugMock } = await import(
+  "../../../log-test-spies"
+);
+const levelSpies = [
+  ["error", rendererErrorMock],
+  ["warn", rendererWarnMock],
+  ["info", rendererInfoMock],
+  ["debug", rendererDebugMock],
+] as const;
+for (const [level, spy] of levelSpies) {
+  spy.mockImplementation((msg: string) => {
+    logCalls.push({ level, msg });
+  });
+}
+afterAll(() => {
+  for (const [, spy] of levelSpies) spy.mockImplementation(() => {});
+});
 
 // ---------------------------------------------------------------------------
 // SUT import (after mocks are installed so the module sees mocked deps)

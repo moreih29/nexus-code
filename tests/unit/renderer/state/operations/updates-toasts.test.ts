@@ -79,6 +79,14 @@ describe("initUpdatesSubscriptions", () => {
     expect(calls).toEqual([{ method: "restart", args: undefined }]);
   });
 
+  it("tells the user a deb's install asks for the admin password", () => {
+    emit({ kind: "ready", version: "1.1.0", asksForPassword: true });
+    emit({ kind: "ready", version: "1.2.0" });
+
+    expect(toasts[0]?.message).toContain("admin password");
+    expect(toasts[1]?.message).not.toContain("admin password");
+  });
+
   it("links the release page from a failed install", () => {
     emit({ kind: "installFailed", releaseUrl: "https://example.invalid/releases" });
     toasts[0]?.actions?.[0]?.onAction();

@@ -15,6 +15,7 @@ import { scheduleStatusHintRefresh } from "./draft-persistence";
 import { shouldInvalidateIgnoredCache, useIgnoredStore } from "./ignored";
 import { useGitStore } from "./index";
 import { sanitizeExpandedTreeNodes } from "./panel-ui";
+import { withSlashTopLevel } from "./store-helpers";
 
 /**
  * Applies background autofetch state from main without overwriting unrelated
@@ -50,7 +51,8 @@ function applyAutofetchEvent(event: GitAutofetchStateChanged): void {
  * clear it. A repository whose status did not change gets no statusChanged
  * to fill it back in.
  */
-export function applyRepoInfoEvent(workspaceId: string, info: RepoInfo): void {
+export function applyRepoInfoEvent(workspaceId: string, incoming: RepoInfo): void {
+  const info = withSlashTopLevel(incoming);
   useGitStore.setState((state) => {
     const session = state.sessions.get(workspaceId);
     if (!session) return state;

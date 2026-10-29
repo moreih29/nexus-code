@@ -95,6 +95,7 @@ contextBridge.exposeInMainWorld("ipc", ipcApi);
 // chrome (e.g. titlebar padding) without an IPC round-trip.
 contextBridge.exposeInMainWorld("host", {
   platform: process.platform as NodeJS.Platform,
+  windowsStore: process.windowsStore === true,
 });
 
 // File-path resolver. Electron 32+ removed the non-standard `File.path`

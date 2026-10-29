@@ -156,9 +156,32 @@ function monacoAssetsPlugin(): Plugin {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Vite plugin: ship the git editor helper with the main process.
+//
+// Git starts the helper as a script of its own (the app run as node), so
+// nothing imports it and the bundle leaves it out. This writes it where the
+// bundled main process looks for it (resolveDefaultHelperDir in
+// src/main/features/git/domain/helpers/launcher.ts): git/ next to index.js.
+// ---------------------------------------------------------------------------
+function gitEditorHelperPlugin(): Plugin {
+  const source = resolve(__dirname, "src/main/features/git/domain/helpers/editor-helper.cjs");
+  return {
+    name: "vite-plugin-git-editor-helper",
+    generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "git/editor-helper.cjs",
+        source: readFileSync(source, "utf8"),
+      });
+    },
+  };
+}
+
 export default defineConfig({
   main: {
     define: CHANNEL_DEFINES,
+    plugins: [gitEditorHelperPlugin()],
     build: {
       rollupOptions: {
         input: {

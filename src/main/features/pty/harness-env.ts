@@ -1,6 +1,6 @@
 // Terminal environment injector — ensures PTY sessions carry the identifiers
 // that enable OSC 9 notification emission in Claude Code and similar tools.
-// T2 확장: PATH prepend + NEXUS_* 환경 변수 주입.
+// T2 확장: NEXUS_* 환경 변수 주입.
 
 const HARNESS_TERM_PROGRAM = "ghostty";
 const HARNESS_TERM_PROGRAM_VERSION = "1.0";
@@ -9,7 +9,7 @@ const HARNESS_TERM_PROGRAM_VERSION = "1.0";
  * injectHarnessTerminalEnv 에 전달하는 컨텍스트 인자.
  *
  * - binDir: 래퍼 바이너리가 위치하는 bin 디렉터리의 절대 경로 (필수).
- *   PATH prepend와 NEXUS_WRAPPER_SELF_DIR에 사용된다.
+ *   NEXUS_WRAPPER_SELF_DIR에 사용된다.
  *   호출자가 WorkspaceManager.getWrapperBinDir()로 결정하여 전달한다.
  * - workspaceId / tabId: PTY 스폰 요청의 식별자. 래퍼가 NEXUS_WORKSPACE_ID /
  *   NEXUS_TAB_ID 로 주입한다.
@@ -31,7 +31,9 @@ export interface HarnessTerminalEnvContext {
  *
  * 주입 규칙:
  * 1. TERM_PROGRAM / TERM_PROGRAM_VERSION — ghostty 기본값, caller 값이 우선.
- * 2. PATH — context.binDir 을 맨 앞에 prepend. 기존 PATH 보존.
+ * 2. PATH — not set here. The agent puts NEXUS_WRAPPER_SELF_DIR first on its
+ *    own host's PATH, which for an SSH workspace is the remote's, not this
+ *    process's.
  * 3. NEXUS_IN_APP=1
  * 4. NEXUS_WRAPPER_SELF_DIR=<context.binDir>
  * 5. NEXUS_AGENT_BIN — context.agentBin 이 제공된 경우에만 설정.
@@ -43,13 +45,13 @@ export interface HarnessTerminalEnvContext {
  *
  * 입력 객체는 변경하지 않는다.
  * context가 제공되지 않으면 TERM_PROGRAM / TERM_PROGRAM_VERSION만 기본값으로 설정하고
- * PATH / NEXUS_* 는 주입하지 않는다.
+ * NEXUS_* 는 주입하지 않는다.
  */
 export function injectHarnessTerminalEnv(
   env: Record<string, string> | undefined,
   context?: HarnessTerminalEnvContext,
 ): Record<string, string> {
-  // context가 없으면 PATH prepend와 NEXUS_* 주입을 건너뛴다.
+  // context가 없으면 NEXUS_* 주입을 건너뛴다.
   if (context === undefined) {
     const base: Record<string, string> = {
       TERM_PROGRAM: HARNESS_TERM_PROGRAM,
@@ -59,15 +61,10 @@ export function injectHarnessTerminalEnv(
     return { ...base, ...env };
   }
 
-  // PATH prepend: 호출자가 전달한 binDir을 검색 경로 맨 앞에 추가.
-  const { binDir } = context;
-  const existingPath = env?.PATH ?? process.env.PATH ?? "";
-  const prependedPath = existingPath.length > 0 ? `${binDir}:${existingPath}` : binDir;
-
   // NEXUS_* 기본값 구성.
   const nexusBase: Record<string, string> = {
     NEXUS_IN_APP: "1",
-    NEXUS_WRAPPER_SELF_DIR: binDir,
+    NEXUS_WRAPPER_SELF_DIR: context.binDir,
     NEXUS_WORKSPACE_ID: context.workspaceId,
     NEXUS_TAB_ID: context.tabId,
   };
@@ -85,7 +82,6 @@ export function injectHarnessTerminalEnv(
   const base: Record<string, string> = {
     TERM_PROGRAM: HARNESS_TERM_PROGRAM,
     TERM_PROGRAM_VERSION: HARNESS_TERM_PROGRAM_VERSION,
-    PATH: prependedPath,
     ...nexusBase,
   };
 

@@ -113,7 +113,10 @@ func normalizeConflictPaths(topLevel string, relPaths []string) ([]string, error
 // normalizeConflictPath normalizes one path relative to the repo root.
 func normalizeConflictPath(topLevel, relPath string) (string, error) {
 	trimmed := strings.TrimSpace(relPath)
-	if trimmed == "" || filepath.IsAbs(trimmed) {
+	// A rooted path ("/etc/passwd", or "C:..." on Windows) is never
+	// repo-relative, though Windows does not count "/etc/passwd" as absolute.
+	if trimmed == "" || filepath.IsAbs(trimmed) || strings.HasPrefix(filepath.ToSlash(trimmed), "/") ||
+		filepath.VolumeName(trimmed) != "" {
 		return "", proto.CodedError{
 			Code: proto.CodeRequestFailed,
 			Msg:  "path-not-in-repo: Path is not inside the repository: " + relPath,

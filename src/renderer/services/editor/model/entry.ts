@@ -274,6 +274,7 @@ async function loadEntry(entry: ModelEntry): Promise<void> {
     entry.phase = "ready";
     entry.errorCode = undefined;
     entry.lastLoadedValue = placed.content;
+    entry.encoding = placed.encoding;
 
     attachDirtyAndUriTracking({
       cacheUri: entry.cacheUri,
@@ -361,6 +362,7 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
     if (!model || model.isDisposed()) return;
 
     entry.lastLoadedValue = result.content;
+    entry.encoding = result.encoding;
     entry.phase = "ready";
     entry.errorCode = undefined;
     entry.diskDiverged = undefined;
@@ -444,6 +446,7 @@ export async function reloadEntryFromDisk(entry: ModelEntry): Promise<void> {
     if (!model || model.isDisposed()) return;
 
     entry.lastLoadedValue = result.content;
+    entry.encoding = result.encoding;
     entry.phase = "ready";
     entry.errorCode = undefined;
     entry.diskDiverged = undefined;

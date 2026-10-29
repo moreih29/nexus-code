@@ -134,6 +134,27 @@ func TestServiceDetect_NonRepo(t *testing.T) {
 	}
 }
 
+func TestServiceDetect_GitMissing(t *testing.T) {
+	root := t.TempDir()
+	// A PATH with no git on it, as on a PC that never installed Git.
+	t.Setenv("PATH", t.TempDir())
+
+	service := New(root)
+	params := `{"cwd":"` + jsonEscapePath(root) + `"}`
+	result, err := service.Detect(context.Background(), json.RawMessage(params))
+	if err != nil {
+		t.Fatalf("Detect returned error: %v", err)
+	}
+
+	dr, ok := result.(DetectResult)
+	if !ok {
+		t.Fatalf("expected DetectResult, got %T", result)
+	}
+	if dr.Kind != "git-missing" {
+		t.Errorf("expected kind=git-missing, got %q", dr.Kind)
+	}
+}
+
 func TestServiceDetect_Subdir(t *testing.T) {
 	root := t.TempDir()
 	runGitCommand(t, root, "init", "-b", "main")

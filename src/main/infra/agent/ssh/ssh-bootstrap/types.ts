@@ -10,7 +10,7 @@ import type {
 } from "../auth-pty";
 import type { SshMasterOptions } from "../master";
 import { AGENT_PROTOCOL_VERSION } from "../../../../../shared/agent/envelope";
-import type { AgentArtifactPlatform } from "../../../../../shared/agent/manifest";
+import type { AgentArtifactPlatform, SshHostOs } from "../../../../../shared/agent/manifest";
 
 // Alias of the single source of truth in shared/agent/envelope.ts — the SSH
 // and local channels speak the same protocol to the same Go agent, so they
@@ -41,7 +41,7 @@ export const LSP_BOOTSTRAP_PROGRESS_EVENT = "lsp.bootstrap.progress";
 
 export const KEEP_REMOTE_VERSIONS = 3;
 
-export type RemoteAgentPlatform = AgentArtifactPlatform;
+export type RemoteAgentPlatform = AgentArtifactPlatform & { readonly os: SshHostOs };
 
 export type LspBootstrapProgressPhase =
   | "checking"

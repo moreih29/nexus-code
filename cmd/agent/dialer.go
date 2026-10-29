@@ -1,3 +1,5 @@
+//go:build !windows
+
 // dialer.go implements the `agent --dial <socketPath>` execution path.
 //
 // The dialer is a thin bidirectional relay: it connects to the daemon's Unix

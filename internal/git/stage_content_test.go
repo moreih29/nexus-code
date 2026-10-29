@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -62,6 +63,9 @@ func TestStageContent_WritesIndexOnly(t *testing.T) {
 }
 
 func TestStageContent_KeepsExecutableMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows files have no executable bit for git to read")
+	}
 	root := stageContentRepo(t)
 	script := filepath.Join(root, "run.sh")
 	writeFile(t, script, "echo hi\n")
@@ -93,6 +97,9 @@ func TestStageContent_AddsNewPathAsRegularFile(t *testing.T) {
 }
 
 func TestStageContent_ReadsPathLiterally(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows file names cannot hold *")
+	}
 	root := stageContentRepo(t)
 	// As a glob, b*.txt also matches the executable b!.txt, which git lists
 	// first; its mode must not leak into b*.txt's entry.

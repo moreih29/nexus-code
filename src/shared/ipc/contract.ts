@@ -1463,7 +1463,7 @@ export const ipcContract = {
   //   { kind: "current",   trigger, current, latest? }
   //   { kind: "error",     trigger, reason, status? }
   // and the steps of an in-place update (`install`):
-  //   { kind: "downloading", version } → { kind: "ready", version }
+  //   { kind: "downloading", version } → { kind: "ready", version, asksForPassword? }
   //   { kind: "installFailed", releaseUrl }
   //
   // "checking" is only broadcast for trigger="manual" (with a 3-second delay).
@@ -1527,7 +1527,12 @@ export const ipcContract = {
             status: z.number().int().optional(),
           }),
           z.object({ kind: z.literal("downloading"), version: z.string() }),
-          z.object({ kind: z.literal("ready"), version: z.string() }),
+          z.object({
+            kind: z.literal("ready"),
+            version: z.string(),
+            // Installing asks for the admin password (a deb).
+            asksForPassword: z.literal(true).optional(),
+          }),
           z.object({ kind: z.literal("installFailed"), releaseUrl: z.string() }),
         ]),
       ),

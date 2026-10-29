@@ -22,6 +22,9 @@ import {
   writeShimFiles,
 } from "../../../../src/main/infra/agent/runtimeDirs";
 
+/** Mode-bit tests: Windows file systems keep no POSIX mode bits. */
+const modeTest = test.skipIf(process.platform === "win32");
+
 describe("root", () => {
   test("returns path ending with .nexus-code under home directory", () => {
     const result = root();
@@ -72,7 +75,7 @@ describe("ensureDir", () => {
     expect(stat.isDirectory()).toBe(true);
   });
 
-  test("creates directory with 0o700 permissions", async () => {
+  modeTest("creates directory with 0o700 permissions", async () => {
     const target = path.join(tmpBase, "secure");
     await ensureDir(target);
 
@@ -212,7 +215,7 @@ describe("writeShimFiles", () => {
     expect(after.bashrc).toBe(before.bashrc);
   });
 
-  test("acceptance 5 — dir mode 0700, file mode 0644", async () => {
+  modeTest("acceptance 5 — dir mode 0700, file mode 0644", async () => {
     const id = "test-ws-mode-" + Date.now();
     const result = await writeShimFiles(id);
     createdShimDir = result.dir;
