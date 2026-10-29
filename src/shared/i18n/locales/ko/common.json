@@ -83,6 +83,8 @@
     "aria": "상태 표시줄",
     "no_git": "git 없음",
     "no_git_title": "Git 저장소 없음",
+    "git_missing": "git 미설치",
+    "git_missing_title": "Git이 설치되어 있지 않습니다",
     "branch_title": "Git 브랜치: {{label}} — 클릭하여 전환",
     "branch_aria": "브랜치 전환 (현재 {{label}})",
     "no_commits": "커밋 없음",

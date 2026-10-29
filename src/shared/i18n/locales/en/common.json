@@ -83,6 +83,8 @@
     "aria": "Status bar",
     "no_git": "no git",
     "no_git_title": "No git repository",
+    "git_missing": "git not installed",
+    "git_missing_title": "Git is not installed",
     "branch_title": "Git branch: {{label}} — click to switch",
     "branch_aria": "Switch branch (currently {{label}})",
     "no_commits": "no commits",
