@@ -81,10 +81,10 @@ appx:
   languages:
     - en-US
     - ko-KR
-  # The build Windows 10 2004 through 22H2, the last release, share, and the
-  # Windows 11 release the package was tested on. The default declares a 2016
-  # Insider build for both.
-  minVersion: 10.0.19041.0
+  # Windows 11 (build 22000) and later: the package was tested on Windows 11
+  # only, the release below. The default declares a 2016 Insider build for
+  # both.
+  minVersion: 10.0.22000.0
   maxVersionTested: 10.0.26200.0
 
 toolsets:
