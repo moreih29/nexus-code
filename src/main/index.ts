@@ -330,8 +330,10 @@ app.whenReady().then(async () => {
     keybindingOverrides: stateService.getState().keybindingOverrides,
   });
 
-  // Fire the one-time silent auto update check now that the app is ready.
-  updatesHandle?.runInitialAutoPoll();
+  // Fire the one-time silent auto update check now that the app is ready. The
+  // Microsoft Store updates its own install, and a GitHub release has no
+  // build for it.
+  if (!process.windowsStore) updatesHandle?.runInitialAutoPoll();
 
   // Remove nexus-ssh-* control-socket directories orphaned by previous app
   // instances that died without dispose() (crash, SIGKILL). Live masters —

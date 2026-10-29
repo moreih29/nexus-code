@@ -21,6 +21,9 @@
 //                    button below always works regardless of this setting —
 //                    it is the user's explicit ask and is never gated.
 //
+// A Microsoft Store install shows neither: the Store updates it, and a GitHub
+// release has no build for it.
+//
 // Toast feedback for the manual check is driven by the global
 // `initUpdatesSubscriptions()` listener (bootstrap-level) — this component
 // does not wire toasts itself, mirroring the previous updates panel.
@@ -47,6 +50,7 @@ export function AboutPanel() {
   const { t } = useTranslation("settings");
   const autoCheckEnabled = useUpdatesStore((s) => s.autoCheckEnabled);
   const setAutoCheckEnabled = useUpdatesStore((s) => s.setAutoCheckEnabled);
+  const storeManaged = window.host?.windowsStore === true;
 
   const autoCheckId = useId();
   const [checking, setChecking] = useState(false);
@@ -84,39 +88,45 @@ export function AboutPanel() {
         <div className="text-app-ui-sm text-muted-foreground">{COPYRIGHT}</div>
       </div>
 
-      {/* Auto-check row — stacked label + helper on the left, Switch
-          pinned right. Same pattern as the Notifications panel. */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex flex-col gap-1 min-w-0">
-          <label
-            htmlFor={autoCheckId}
-            className="text-app-body text-foreground cursor-pointer"
-          >
-            {t("about.autoCheck.label")}
-          </label>
-          <p className="text-app-ui-sm text-muted-foreground">
-            {t("about.autoCheck.description")}
-          </p>
-        </div>
-        <Switch
-          id={autoCheckId}
-          checked={autoCheckEnabled}
-          onCheckedChange={handleAutoCheckChange}
-          className="shrink-0 mt-1"
-        />
-      </div>
+      {storeManaged ? (
+        <p className="text-app-ui-sm text-muted-foreground">{t("about.storeManaged")}</p>
+      ) : (
+        <>
+          {/* Auto-check row — stacked label + helper on the left, Switch
+              pinned right. Same pattern as the Notifications panel. */}
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-1 min-w-0">
+              <label
+                htmlFor={autoCheckId}
+                className="text-app-body text-foreground cursor-pointer"
+              >
+                {t("about.autoCheck.label")}
+              </label>
+              <p className="text-app-ui-sm text-muted-foreground">
+                {t("about.autoCheck.description")}
+              </p>
+            </div>
+            <Switch
+              id={autoCheckId}
+              checked={autoCheckEnabled}
+              onCheckedChange={handleAutoCheckChange}
+              className="shrink-0 mt-1"
+            />
+          </div>
 
-      {/* Manual check action — small button, left-aligned. */}
-      <div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleCheckNow}
-          disabled={checking}
-        >
-          {checking ? t("about.checking") : t("about.checkNow")}
-        </Button>
-      </div>
+          {/* Manual check action — small button, left-aligned. */}
+          <div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCheckNow}
+              disabled={checking}
+            >
+              {checking ? t("about.checking") : t("about.checkNow")}
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
