@@ -208,6 +208,16 @@
         "title": "Not a Git Repository",
         "description": "Initialize this workspace to start tracking changes."
       },
+      "gitMissing": {
+        "title": "Git Is Not Installed",
+        "description": {
+          "win32": "Source control needs Git. Install Git for Windows, then quit and reopen the app.",
+          "darwin": "Source control needs Git. Install it with xcode-select --install in Terminal, then quit and reopen the app.",
+          "linux": "Source control needs Git. Install git with your distribution's package manager, then quit and reopen the app.",
+          "ssh": "Source control needs Git on the remote host. Install git there, then refresh."
+        },
+        "download": "Download Git"
+      },
       "noChanges": {
         "title": "No Changes",
         "description": "Your working tree has no pending source control changes."

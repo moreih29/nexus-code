@@ -14,6 +14,8 @@ interface GitHeaderProps {
   disabled?: boolean;
   refreshing?: boolean;
   canInit?: boolean;
+  /** The workspace's host has no Git; forwarded to GitMoreMenu. */
+  gitMissing?: boolean;
   hasChanges?: boolean;
   /** Repo-level capability flags forwarded to GitMoreMenu for per-action enablement. */
   capabilities?: RepoCapabilities;
@@ -63,6 +65,7 @@ export function GitHeader({
   disabled = false,
   refreshing = false,
   canInit = false,
+  gitMissing = false,
   hasChanges = false,
   capabilities,
   showViewToggle = false,
@@ -147,6 +150,7 @@ export function GitHeader({
         <GitMoreMenu
           disabled={disabled}
           canInit={canInit}
+          gitMissing={gitMissing}
           hasChanges={hasChanges}
           capabilities={capabilities}
           onRefresh={onRefresh}

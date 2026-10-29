@@ -20,6 +20,7 @@ import {
   type RepoCapabilities,
 } from "../../../../../shared/git/types";
 import { useGitSession, useGitStore } from "../../../../state/stores/git";
+import { useWorkspacesStore } from "../../../../state/stores/workspaces";
 import { selectGitActionButton } from "../../../../state/stores/git/action-button";
 import { useCommitDraft } from "../../../../state/stores/git/commit-drafts";
 import { gitErrorPlacement } from "../../../../state/stores/git/error-placement";
@@ -43,6 +44,7 @@ import { buildGitBannerModel } from "./banner-model";
 import { GitBannerStack } from "./banner-stack";
 import { GitDialogHost } from "./dialog-host";
 import { createEntryActions } from "./entry-actions";
+import { GitMissingState } from "./git-missing-state";
 import { GitHeader } from "./header";
 import { buildErrorAction } from "./panel-actions";
 import { GitPanelBody } from "./panel-body";
@@ -76,6 +78,9 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const { t } = useTranslation("files");
   const session = useGitSession(workspaceId);
   const helperPromptOccupancyMessage = useGitHelperOccupancy(workspaceId);
+  const remoteWorkspace = useWorkspacesStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.location.kind === "ssh",
+  );
 
   // ---------------------------------------------------------------------------
   // Store — grouped selectors (session lifecycle / load)
@@ -406,8 +411,11 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   });
   // A failure with nothing to act on here goes to a toast instead (see
   // initGitErrorToasts); the banner keeps the ones the panel recovers from.
+  // A refresh that still finds no Git adds nothing to the git-missing state.
   const panelError =
-    session?.lastError && gitErrorPlacement(session.lastError) !== "toast"
+    session?.lastError &&
+    gitErrorPlacement(session.lastError) !== "toast" &&
+    !(session.repoInfo.kind === "git-missing" && session.lastError.kind === "git-missing")
       ? session.lastError
       : null;
   const pushGuardBanner = buildPushGuardBannerView({
@@ -455,6 +463,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
         disabled={headerDisabled}
         refreshing={isRefreshing}
         canInit={session?.repoInfo.kind === "non-repo"}
+        gitMissing={session?.repoInfo.kind === "git-missing"}
         hasChanges={hasChanges}
         capabilities={capabilities}
         showViewToggle={isRepo}
@@ -564,6 +573,8 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
             </Skeleton>
           ) : null}
         </div>
+      ) : session?.repoInfo.kind === "git-missing" ? (
+        <GitMissingState remote={remoteWorkspace} />
       ) : session?.repoInfo.kind === "non-repo" ? (
         <EmptyState
           title={t("git.panel.nonRepo.title")}
