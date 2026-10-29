@@ -1,7 +1,7 @@
 # NexusCode — Release Guide
 
 릴리스는 항상 `develop`에서 준비해 `main`으로 승격한 뒤, GitHub Release를 발행해
-자동 빌드를 트리거하는 순서로 진행한다. 아래 0 → 4 단계를 그대로 따른다.
+자동 빌드를 트리거하는 순서로 진행한다. 아래 0 → 5 단계를 그대로 따른다.
 
 ## 0. 브랜치 모델 & 버전 정책
 
@@ -90,10 +90,11 @@
 
 ## 4. 배포 검증
 
-`release.yml` 의 3-job 파이프라인이 자동 실행된다:
+`release.yml` 의 4-job 파이프라인이 자동 실행된다:
 - **build-agent** (`ubuntu-latest`): Go 에이전트 크로스컴파일 + Node runtime + LSP 번들 산출 (OS 독립). Node runtime tarball 은 Actions 캐시(`node-runtime-<버전>`, main 의 CI 가 채움)에서 먼저 찾고, 없을 때만 nodejs.org 에서 받는다. 어느 쪽이든 nodejs.org 의 `SHASUMS256.txt` 와 SHA-256 이 맞아야 쓴다.
 - **package** (`macos-14`, Apple Silicon arm64): native rebuild 후 electron-builder 로 DMG / ZIP 패키징, `--publish never` 로 산출만 하고 별도 step 의 `gh release upload --clobber` 로 첨부. **arm64 단일 빌드만 제공** — Intel(x64) 정식 배포는 없으며, Intel 사용자는 [`INSTALL.md`](INSTALL.md#self-build) 의 self-build 절차를 따른다.
 - **package-linux** (`ubuntu-latest` x64, `ubuntu-24.04-arm` arm64): 아키텍처마다 AppImage / deb 를 만들어 같은 방식으로 첨부한다. Linux 는 서명하지 않는다 — 앱 안 업데이트는 피드 파일(`latest-linux*.yml`)의 sha512 로만 검증한다.
+- **package-windows** (`windows-latest` x64): Microsoft Store 에 낼 AppX 를 만든다. 서명은 Store 가 하므로 서명하지 않은 AppX 라, Release 자산이 아니라 워크플로 아티팩트 `msstore-appx-vX.Y.Z` 로 30일 남긴다 (5단계에서 쓴다).
 
 9. **서명 확인**
    `Verify the signature` step 이 통과했는지 본다 (앱이 릴리스 인증서로 서명됐는지 검사).
@@ -114,6 +115,28 @@
 
 11. **설치 확인**
     arm64 DMG 를 설치해 앱 버전과 업데이트 채널이 올바른지 확인한다. 이전 버전이 설치돼 있으면 앱 안 **업데이트** 로 새 버전이 설치되는지도 확인한다. Linux 머신이 있으면 deb 설치와 AppImage 실행도 확인한다.
+
+---
+
+## 5. Microsoft Store 제출
+
+Store 에는 정식 릴리스만 낸다 (pre-release 는 내지 않는다). Store 가 설치본을 직접 업데이트하므로, Store 설치본은 GitHub 의 새 버전을 확인하지 않는다.
+
+12. **AppX 받기**
+    Release 의 `release.yml` 실행 → **Artifacts** 의 `msstore-appx-vX.Y.Z` 를 받는다. 압축을 풀면 `NexusCode-X.Y.Z-x64.appx` 가 나온다.
+    ```bash
+    gh run download <run-id> -n msstore-appx-vX.Y.Z
+    ```
+    패키지 버전은 `X.Y.Z.0` 이다. 네 번째 자리는 Store 가 쓰므로 항상 0 이고, 버전은 Store 에 이미 있는 것보다 높아야 한다.
+
+13. **Partner Center 에서 제출**
+    [Partner Center](https://partner.microsoft.com/dashboard) → 앱 → **제출 시작** (두 번째부터는 **업데이트**). 칸마다 넣을 값은 [`STORE.md`](STORE.md) 에 있다.
+    - **패키지**: 받은 `.appx` 를 올리고, 이전 버전 패키지는 뺀다.
+    - **스토어 등록 정보**: 한국어 · 영어의 **새 기능** 을 이번 릴리스 내용으로 바꾼다. 화면이 크게 바뀌었으면 스크린샷도 바꾼다.
+    - 첫 제출이면 가격 및 사용 가능 여부 · 속성 · 연령 등급 · 제출 옵션까지 `STORE.md` 대로 채운다. 그다음부터는 이전 제출의 값이 복사된다.
+
+14. **인증 확인**
+    제출하면 인증이 돈다 (보통 영업일 3일 안). 떨어지면 Partner Center 의 인증 보고서에 이유가 나온다. 통과하면 Store 에 게시된다.
 
 ---
 
