@@ -269,6 +269,18 @@ describe("detectConflicts", () => {
     });
     expect(conflicts.some((c) => c.command === ("tab.close" as never))).toBe(false);
   });
+
+  it("skips a binding scoped to the other platform", () => {
+    const bindings: readonly KeybindingDecl[] = [
+      ...DEFAULTS,
+      { command: "tab.close" as never, primary: "Ctrl+F4", when: "!isMac" },
+    ];
+    const query = { command: "file.save" as never, primary: "Ctrl+F4", bindings };
+    expect(detectConflicts({ ...query, isMac: true })).toHaveLength(0);
+    expect(detectConflicts({ ...query, isMac: false })).toEqual([
+      { kind: "blocking", command: "tab.close" },
+    ]);
+  });
 });
 
 describe("eventToAccelerator", () => {
