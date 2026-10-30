@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { THEME_SOURCES } from "../design-tokens";
 import { KeybindingOverridesSchema } from "../keybindings/overrides";
-import { ShellChoiceSchema } from "../pty/shell";
+import { CustomShellSchema, ShellChoiceSchema } from "../pty/shell";
 import { WorkspaceLayoutSnapshotSchema } from "./layout";
 
 // ThemePreferenceSchema mirrors the registered ThemeId set. The "system"
@@ -105,6 +105,9 @@ export const AppStateSchema = z.object({
   // The shell new local terminals open with; absent = the system default
   // (Windows PowerShell on Windows, $SHELL elsewhere).
   terminalShell: ShellChoiceSchema.optional(),
+
+  // Shells the user added in Settings › Terminal, besides the detected ones.
+  terminalShells: z.array(CustomShellSchema).max(64).optional(),
 
   // Update channel — "stable" follows non-prerelease tags only; "beta" also
   // includes prerelease tags (e.g. v1.2.0-beta.1).  Defaults to "stable".

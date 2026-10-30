@@ -12,7 +12,7 @@ import type {
 } from "../../../../src/main/infra/agent/channel";
 import type { PtyChannelOptions } from "../../../../src/main/features/pty/ipc";
 import type { ShellHost } from "../../../../src/main/features/pty/shells";
-import type { ShellChoice } from "../../../../src/shared/pty/shell";
+import type { CustomShell, ShellChoice } from "../../../../src/shared/pty/shell";
 
 const mockHandle = mock((_channel: string, _handler: unknown) => {});
 
@@ -93,6 +93,7 @@ const windowsHost: ShellHost = {
 function setup(opts: {
   local?: boolean;
   defaultShell?: ShellChoice;
+  customShells?: CustomShell[];
   host?: ShellHost;
   wrapper?: { binDir: string; shell: string; shimDir: string };
 }): { call: (method: string, args: unknown) => Promise<unknown>; agent: FakeAgentChannel } {
@@ -116,6 +117,7 @@ function setup(opts: {
     agentHost,
     workspaceManager: wm,
     getDefaultShell: () => opts.defaultShell,
+    getCustomShells: () => opts.customShells,
     shellHost: opts.host ?? windowsHost,
   });
   const calls = mockHandle.mock.calls as [string, IpcHandler][];
@@ -165,6 +167,24 @@ describe("pty.spawn — the shell of a local terminal", () => {
 
     expect(agent.spawnCalls[0]?.shell).toBe(POWERSHELL);
     expect(agent.spawnCalls[0]?.args).toBeUndefined();
+  });
+
+  test("an added shell starts with its program and arguments", async () => {
+    const { call, agent } = setup({
+      customShells: [{ id: "ps-nologo", name: "PS", path: "powershell", args: ["-NoLogo"] }],
+    });
+    const result = await call("spawn", spawnArgs({ shell: { kind: "custom", id: "ps-nologo" } }));
+
+    expect(agent.spawnCalls[0]).toMatchObject({ shell: POWERSHELL, args: ["-NoLogo"] });
+    expect(result).toEqual({ pid: 42, shellPath: POWERSHELL });
+  });
+
+  test("a tab whose added shell was removed falls back and is reported without a name", async () => {
+    const { call, agent } = setup({ customShells: [] });
+    const result = await call("spawn", spawnArgs({ shell: { kind: "custom", id: "ps-nologo" } }));
+
+    expect(agent.spawnCalls[0]?.shell).toBeUndefined();
+    expect(result).toEqual({ pid: 42, shellPath: POWERSHELL, missingShell: "" });
   });
 
   test("a shell that's gone falls back to the system default and is reported", async () => {

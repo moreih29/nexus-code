@@ -33,13 +33,20 @@ type Disposable = { dispose: () => void };
 /** Missing shells already reported this session: one notice each, not one per tab. */
 const reportedMissingShells = new Set<string>();
 
-/** Says the chosen shell couldn't be found and the system default opened instead. */
+/**
+ * Says the chosen shell couldn't be found and the system default opened
+ * instead. No name: an added shell that was removed from the settings.
+ */
 function reportMissingShell(name: string): void {
   if (reportedMissingShells.has(name)) return;
   reportedMissingShells.add(name);
+  const message =
+    name === ""
+      ? i18next.t("common:terminal.shell_removed")
+      : i18next.t("common:terminal.shell_missing", { name });
   // Lazy import keeps the controller loadable without the UI layer (tests).
   void import("../../components/ui/toast").then(({ showToast }) =>
-    showToast({ kind: "warning", message: i18next.t("common:terminal.shell_missing", { name }) }),
+    showToast({ kind: "warning", message }),
   );
 }
 
@@ -434,7 +441,7 @@ class XtermTerminalController implements TerminalController {
 
   /** Takes in what main reports about the shell that started. */
   private noteSpawned(result: SpawnedSession): void {
-    if (result.missingShell) reportMissingShell(result.missingShell);
+    if (result.missingShell !== undefined) reportMissingShell(result.missingShell);
     if (result.shellPath !== undefined) {
       this.shellIsCmd = /(^|[\\/])cmd\.exe$/i.test(result.shellPath);
     }

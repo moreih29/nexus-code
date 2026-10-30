@@ -181,15 +181,26 @@ describe("resolveShellChoice", () => {
     });
   });
 
-  test("a custom shell is found by path or by name on PATH, with its arguments", () => {
-    expect(resolveShellChoice(host, { kind: "custom", path: "nu", args: ["-l"] })).toEqual({
-      shell: { id: "custom", name: "nu.exe", path: "C:\\tools\\nu.exe", args: ["-l"] },
+  test("an added shell is found by path or by name on PATH, with its arguments", () => {
+    const added = [
+      { id: "a", name: "Nu login", path: "nu", args: ["-l"] },
+      { id: "b", name: "Nu", path: "C:\\tools\\nu.exe", args: [] },
+      { id: "c", name: "Gone", path: "D:\\gone\\x.exe", args: [] },
+    ];
+    expect(resolveShellChoice(host, { kind: "custom", id: "a" }, added)).toEqual({
+      shell: { id: "a", name: "Nu login", path: "C:\\tools\\nu.exe", args: ["-l"] },
     });
-    expect(resolveShellChoice(host, { kind: "custom", path: "C:\\tools\\nu.exe" })).toMatchObject({
+    expect(resolveShellChoice(host, { kind: "custom", id: "b" }, added)).toMatchObject({
       shell: { path: "C:\\tools\\nu.exe", args: [] },
     });
-    expect(resolveShellChoice(host, { kind: "custom", path: "D:\\gone\\x.exe" })).toEqual({
-      missing: "D:\\gone\\x.exe",
+    expect(resolveShellChoice(host, { kind: "custom", id: "c" }, added)).toEqual({
+      missing: "Gone",
+    });
+  });
+
+  test("an added shell removed from the list reports no name", () => {
+    expect(resolveShellChoice(host, { kind: "custom", id: "removed" }, [])).toEqual({
+      missing: "",
     });
   });
 

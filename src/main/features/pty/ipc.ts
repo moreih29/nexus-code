@@ -16,7 +16,7 @@ import {
   systemDefaultShell,
   type ShellHost,
 } from "./shells";
-import type { ShellChoice } from "../../../shared/pty/shell";
+import type { CustomShell, ShellChoice } from "../../../shared/pty/shell";
 import { OscNotificationDispatcher } from "./osc-notification";
 import type { WorkspaceNameLookup } from "./osc-notification";
 import type { HookInfo } from "../workspace/manager";
@@ -63,6 +63,8 @@ export interface PtyChannelOptions {
   };
   /** The default shell from Settings › Terminal, read at every spawn. */
   getDefaultShell?: () => ShellChoice | undefined;
+  /** The shells the user added in Settings › Terminal, read at every spawn. */
+  getCustomShells?: () => readonly CustomShell[] | undefined;
   /** Where shells are looked up; tests pass a fake machine. */
   shellHost?: ShellHost;
 }
@@ -207,7 +209,9 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
         if (wm?.isLocal?.(workspaceId)) {
           const host = options.shellHost ?? nodeShellHost();
           const choice = tabShell ?? options.getDefaultShell?.();
-          const resolved = choice ? resolveShellChoice(host, choice) : undefined;
+          const resolved = choice
+            ? resolveShellChoice(host, choice, options.getCustomShells?.())
+            : undefined;
           if (resolved && "shell" in resolved) shell = resolved.shell;
           else if (resolved) missingShell = resolved.missing;
           shellPath = shell?.path ?? systemDefaultShell(host).path;

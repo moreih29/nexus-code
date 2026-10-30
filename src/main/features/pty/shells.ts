@@ -13,7 +13,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as nodePath from "node:path";
-import type { ShellChoice, ShellInfo } from "../../../shared/pty/shell";
+import type { CustomShell, ShellChoice, ShellInfo } from "../../../shared/pty/shell";
 
 /** The machine the shells are looked up on; tests pass a fake one. */
 export interface ShellHost {
@@ -259,13 +259,19 @@ export function findShellProgram(host: ShellHost, program: string): string | nul
   return findOnPath(host, trimmed);
 }
 
+/** `missing` is "" for an added shell that has since been removed from the settings. */
 export type ResolvedShell = { shell: ShellInfo } | { missing: string };
 
 /**
  * The shell to start for a choice, or the name of the one that can't be found
- * (uninstalled, moved), so the caller can fall back and say so.
+ * (uninstalled, moved), so the caller can fall back and say so. An added
+ * shell is looked up in `customShells`, the list from Settings › Terminal.
  */
-export function resolveShellChoice(host: ShellHost, choice: ShellChoice): ResolvedShell {
+export function resolveShellChoice(
+  host: ShellHost,
+  choice: ShellChoice,
+  customShells: readonly CustomShell[] = [],
+): ResolvedShell {
   if (choice.kind === "detected") {
     const shell = detectShells(host).find((s) => s.id === choice.id);
     if (shell) return { shell };
@@ -275,9 +281,9 @@ export function resolveShellChoice(host: ShellHost, choice: ShellChoice): Resolv
         : unixShell(choice.id).name;
     return { missing: name };
   }
-  const path = findShellProgram(host, choice.path);
-  if (!path) return { missing: choice.path };
-  return {
-    shell: { id: "custom", name: pathApi(host).basename(path), path, args: choice.args ?? [] },
-  };
+  const custom = customShells.find((s) => s.id === choice.id);
+  if (!custom) return { missing: "" };
+  const path = findShellProgram(host, custom.path);
+  if (!path) return { missing: custom.name };
+  return { shell: { id: custom.id, name: custom.name, path, args: custom.args } };
 }

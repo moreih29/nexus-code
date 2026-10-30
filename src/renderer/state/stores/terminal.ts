@@ -12,6 +12,7 @@
 //   - fontFamily:    token fallback = fontFamily.monoDisplay
 //   - fontLigatures: token fallback = false
 //   - shell:         fallback = the system default shell (resolved in main)
+//   - customShells:  the shells the user added, besides the detected ones
 //
 // fontFamily/fontLigatures are INDEPENDENT of the editor font store — the
 // terminal owns its own typeface preferences.
@@ -25,7 +26,7 @@
 import { create } from "zustand";
 import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import { createLogger } from "../../../shared/log/renderer";
-import type { ShellChoice } from "../../../shared/pty/shell";
+import type { CustomShell, ShellChoice } from "../../../shared/pty/shell";
 import { ipcCallResult } from "../../ipc/client";
 
 const log = createLogger("terminal");
@@ -49,6 +50,8 @@ interface TerminalSettingsState {
   fontLigatures: boolean | undefined;
   /** The shell new local terminals open with; main reads it at each spawn. */
   shell: ShellChoice | undefined;
+  /** Shells the user added in Settings › Terminal; main reads them at each spawn. */
+  customShells: CustomShell[];
 
   /** Hydrate from persisted appState — called once during bootstrap. */
   hydrate(values: {
@@ -57,6 +60,7 @@ interface TerminalSettingsState {
     fontFamily?: string | undefined;
     fontLigatures?: boolean | undefined;
     shell?: ShellChoice | undefined;
+    customShells?: CustomShell[] | undefined;
   }): void;
 
   /**
@@ -64,6 +68,15 @@ interface TerminalSettingsState {
    * their shell, and main reads the setting when the next one spawns.
    */
   setShell(value: ShellChoice | undefined): void;
+
+  /** Add a shell to the list, or replace the one with its id. Persists to appState. */
+  saveCustomShell(shell: CustomShell): void;
+
+  /**
+   * Remove a shell from the list. When it was the default shell, the default
+   * goes back to the system default.
+   */
+  removeCustomShell(id: string): void;
 
   /**
    * Set the terminal font size.
@@ -106,16 +119,34 @@ function dispatchSettingsChanged(): void {
 // Store
 // ---------------------------------------------------------------------------
 
-export const useTerminalStore = create<TerminalSettingsState>((set) => {
+export const useTerminalStore = create<TerminalSettingsState>((set, get) => {
+  const setCustomShells = (list: CustomShell[]) => {
+    set({ customShells: list });
+
+    void ipcCallResult("appState", "set", {
+      terminalShells: list.length > 0 ? list : undefined,
+    }).then((result) => {
+      if (!result.ok) log.warn(`appState set (customShells) failed: ${result.message}`);
+    });
+  };
+
   return {
     fontSize: undefined,
     cursorStyle: undefined,
     fontFamily: undefined,
     fontLigatures: undefined,
     shell: undefined,
+    customShells: [],
 
-    hydrate({ fontSize, cursorStyle, fontFamily: family, fontLigatures, shell }) {
-      set({ fontSize, cursorStyle, fontFamily: family, fontLigatures, shell });
+    hydrate({ fontSize, cursorStyle, fontFamily: family, fontLigatures, shell, customShells }) {
+      set({
+        fontSize,
+        cursorStyle,
+        fontFamily: family,
+        fontLigatures,
+        shell,
+        customShells: customShells ?? [],
+      });
     },
 
     setShell(value) {
@@ -126,6 +157,21 @@ export const useTerminalStore = create<TerminalSettingsState>((set) => {
       }).then((result) => {
         if (!result.ok) log.warn(`appState set (shell) failed: ${result.message}`);
       });
+    },
+
+    saveCustomShell(shell) {
+      const list = get().customShells;
+      setCustomShells(
+        list.some((s) => s.id === shell.id)
+          ? list.map((s) => (s.id === shell.id ? shell : s))
+          : [...list, shell],
+      );
+    },
+
+    removeCustomShell(id) {
+      setCustomShells(get().customShells.filter((s) => s.id !== id));
+      const { shell, setShell } = get();
+      if (shell?.kind === "custom" && shell.id === id) setShell(undefined);
     },
 
     setFontSize(value) {

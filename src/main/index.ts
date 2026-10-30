@@ -410,6 +410,7 @@ app.whenReady().then(async () => {
     agentHost: agentPtyHost,
     workspaceManager,
     getDefaultShell: () => stateService.getState().terminalShell,
+    getCustomShells: () => stateService.getState().terminalShells,
   });
 
   lspHost = startConfiguredLspHost({

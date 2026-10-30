@@ -17,9 +17,9 @@ import { DND_TAB_BAR_ATTR } from "@/components/workspace/dnd/markers";
 import { shortcutFor } from "@/keybindings/shortcut-labels";
 import { basename } from "@/utils/path";
 import { COMMANDS } from "../../../../shared/keybindings/commands";
-import type { ShellChoice } from "../../../../shared/pty/shell";
+import { type ShellChoice, sameShellChoice } from "../../../../shared/pty/shell";
 import { UI_TOOLTIP_DELAY_MS } from "../../../../shared/util/timing-constants";
-import { shellDisplayName, useInstalledShells } from "../../../services/terminal/installed-shells";
+import { shellEntries, useInstalledShells } from "../../../services/terminal/installed-shells";
 import type { EditorTab, Tab } from "../../../state/stores/tabs";
 import { useTerminalStore } from "../../../state/stores/terminal";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
@@ -56,20 +56,19 @@ export function TabBar({
   const { t } = useTranslation();
   const { barRef, tabsListRef, insertion } = useTabBarDropTarget({ workspaceId, leafId });
 
-  // "New Terminal With ›" lists this machine's shells, so it is offered in
-  // local workspaces only (an SSH workspace runs the remote login shell).
+  // "New Terminal With ›" lists this machine's shells and the ones added in
+  // the settings, so it is offered in local workspaces only (an SSH
+  // workspace runs the remote login shell).
   const isLocal = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.location.kind === "local",
   );
   const installed = useInstalledShells();
-  const defaultShell = useTerminalStore((s) => s.shell);
-  const menuShells = isLocal && installed && installed.shells.length > 1 ? installed.shells : [];
-  const defaultShellId =
-    defaultShell === undefined
-      ? installed?.systemDefault.id
-      : defaultShell.kind === "detected"
-        ? defaultShell.id
-        : undefined;
+  const customShells = useTerminalStore((s) => s.customShells);
+  const chosenShell = useTerminalStore((s) => s.shell);
+  const entries = isLocal ? shellEntries(t, installed, customShells) : [];
+  const menuShells = entries.length > 1 ? entries : [];
+  const defaultShell: ShellChoice | undefined =
+    chosenShell ?? (installed ? { kind: "detected", id: installed.systemDefault.id } : undefined);
 
   // Stable sort: pinned group first, then unpinned — original order preserved within each group.
   const sortedTabs = useMemo(() => {
@@ -214,11 +213,11 @@ export function TabBar({
                   <DropdownMenuSubContent>
                     {menuShells.map((shell) => (
                       <DropdownMenuItem
-                        key={shell.id}
-                        onSelect={() => onNewTerminalTab({ kind: "detected", id: shell.id })}
+                        key={`${shell.choice.kind}:${shell.choice.id}`}
+                        onSelect={() => onNewTerminalTab(shell.choice)}
                       >
-                        <span className="flex-1">{shellDisplayName(t, shell)}</span>
-                        {shell.id === defaultShellId && (
+                        <span className="flex-1">{shell.name}</span>
+                        {sameShellChoice(shell.choice, defaultShell) && (
                           <span className="ml-4 text-muted-foreground">
                             {t("tabBar.default_shell")}
                           </span>

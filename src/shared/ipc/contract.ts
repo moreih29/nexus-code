@@ -623,7 +623,10 @@ export const ipcContract = {
           pid: z.number().int(),
           /** The shell started, when main knows it (local workspaces). */
           shellPath: z.string().optional(),
-          /** The chosen shell that couldn't be found; the default ran instead. */
+          /**
+           * The chosen shell that couldn't be found; the default ran instead.
+           * "" for an added shell that was removed from the settings.
+           */
           missingShell: z.string().optional(),
         }),
       ),

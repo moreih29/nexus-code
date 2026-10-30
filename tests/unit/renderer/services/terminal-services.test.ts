@@ -340,7 +340,7 @@ describe("services/terminal open and close", () => {
   });
 
   it("createPtyClient spawns with the tab's shell", async () => {
-    const shell = { kind: "custom" as const, path: "nu", args: ["-l"] };
+    const shell = { kind: "custom" as const, id: "added-nu" };
     const client = createPtyClient({
       workspaceId: WS,
       tabId: "tab-shell-spawn",
@@ -1827,5 +1827,20 @@ describe("services/terminal controller — missing shell", () => {
     expect(toasts[0]?.kind).toBe("warning");
 
     for (const controller of controllers) controller.dispose();
+  });
+
+  it("says so when the tab's added shell was removed from the settings", async () => {
+    const spawnRemoved = () => Promise.resolve({ pid: 1, missingShell: "" });
+    const controller = createTerminalController(
+      { workspaceId: WS, tabId: "tab-removed-shell", cwd: "/workspace", container: {} as HTMLElement },
+      makeTerminalControllerDeps(spawnRemoved).deps,
+    );
+    await flushTerminalInit();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]?.message).toMatch(/removed from the settings/);
+
+    controller.dispose();
   });
 });
