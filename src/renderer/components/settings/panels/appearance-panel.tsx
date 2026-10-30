@@ -21,8 +21,8 @@
 // resolved theme is applied via the [data-theme] attribute by useThemeEffect.
 //
 // Window opacity applies immediately via --window-opacity CSS var; the macOS
-// BrowserWindow is created with `transparent: true` unconditionally so no
-// restart is ever needed.
+// BrowserWindow is created with `transparent: true` unconditionally, and the
+// Windows 11 one with a system backdrop, so no restart is ever needed.
 //
 // Design seal: semantic tokens only on the chrome surrounding the cards.
 // The card swatches intentionally use raw theme colors (the swatches ARE the
