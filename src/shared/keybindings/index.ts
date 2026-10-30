@@ -235,7 +235,9 @@ export function findChordBinding(command: CommandId): KeybindingDecl | undefined
 /**
  * The primary declaration to show for `command` in `bindings`. Usually the
  * first one; on Win/Linux a literal `Cmd+Ctrl` binding (Win/Super+Ctrl,
- * which the OS often takes) gives way to another primary of the command.
+ * which the OS often takes) gives way to another primary of the command,
+ * and so does one the terminal leaves to the shell, so the label names a
+ * key that also works from the terminal (Ctrl+Shift+T, not Ctrl+T).
  */
 export function findDisplayPrimary(
   bindings: readonly KeybindingDecl[],
@@ -244,7 +246,12 @@ export function findDisplayPrimary(
 ): KeybindingDecl | undefined {
   const primaries = bindings.filter((b) => b.command === command && b.primary !== undefined);
   if (isMac) return primaries[0];
-  return primaries.find((b) => !needsSuperKey(b.primary as string)) ?? primaries[0];
+  const usable = primaries.filter((b) => !needsSuperKey(b.primary as string));
+  return usable.find((b) => !leavesTerminalToShell(b)) ?? usable[0] ?? primaries[0];
+}
+
+function leavesTerminalToShell(binding: KeybindingDecl): boolean {
+  return binding.when?.includes("!terminalFocus") === true;
 }
 
 function needsSuperKey(accel: AcceleratorString): boolean {
