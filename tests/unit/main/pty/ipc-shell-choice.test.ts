@@ -187,6 +187,14 @@ describe("pty.spawn — the shell of a local terminal", () => {
     expect(result).toEqual({ pid: 42, shellPath: POWERSHELL, missingShell: "" });
   });
 
+  test("a tab whose shell is gone falls back to the default shell from the settings", async () => {
+    const { call, agent } = setup({ defaultShell: { kind: "detected", id: "git-bash" } });
+    const result = await call("spawn", spawnArgs({ shell: { kind: "detected", id: "pwsh" } }));
+
+    expect(agent.spawnCalls[0]).toMatchObject({ shell: GIT_BASH, args: ["--login", "-i"] });
+    expect(result).toEqual({ pid: 42, shellPath: GIT_BASH, missingShell: "PowerShell" });
+  });
+
   test("a shell that's gone falls back to the system default and is reported", async () => {
     const { call, agent } = setup({ defaultShell: { kind: "detected", id: "pwsh" } });
     const result = await call("spawn", spawnArgs());

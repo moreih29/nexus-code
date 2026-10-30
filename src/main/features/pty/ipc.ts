@@ -201,19 +201,23 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
         // rc explicitly reorders PATH.
         // A local terminal runs the tab's shell, else the default shell from
         // the settings, else the system default (left to the agent). One
-        // that can't be found falls back to the system default, and the
-        // renderer says so.
+        // that can't be found falls back to the next, and the renderer says
+        // so.
         let shell: { path: string; args: string[] } | undefined;
         let shellPath: string | undefined;
         let missingShell: string | undefined;
         if (wm?.isLocal?.(workspaceId)) {
           const host = options.shellHost ?? nodeShellHost();
-          const choice = tabShell ?? options.getDefaultShell?.();
-          const resolved = choice
-            ? resolveShellChoice(host, choice, options.getCustomShells?.())
-            : undefined;
-          if (resolved && "shell" in resolved) shell = resolved.shell;
-          else if (resolved) missingShell = resolved.missing;
+          const customShells = options.getCustomShells?.();
+          for (const choice of [tabShell, options.getDefaultShell?.()]) {
+            if (choice === undefined) continue;
+            const resolved = resolveShellChoice(host, choice, customShells);
+            if ("shell" in resolved) {
+              shell = resolved.shell;
+              break;
+            }
+            missingShell ??= resolved.missing;
+          }
           shellPath = shell?.path ?? systemDefaultShell(host).path;
         }
 
