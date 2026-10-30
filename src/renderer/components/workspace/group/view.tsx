@@ -5,6 +5,7 @@ import { openNewBrowserTab, openNewUntitledTab } from "@/state/operations/tabs";
 import type { LayoutLeaf } from "@/state/stores/layout";
 import { useLayoutStore } from "@/state/stores/layout";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
+import type { ShellChoice } from "../../../../shared/pty/shell";
 import { slotRegistry } from "../content/slot-registry";
 import { DropIndicator } from "../dnd/drop-indicator";
 import { useDropTarget } from "../dnd/use-drop-target";
@@ -77,8 +78,8 @@ export function GroupView({
     void closeTabWithConfirm(workspaceId, tabId);
   }
 
-  function handleNewTerminalTab() {
-    openTerminal({ workspaceId, cwd: workspaceRootPath }, { groupId: leaf.id });
+  function handleNewTerminalTab(shell?: ShellChoice) {
+    openTerminal({ workspaceId, cwd: workspaceRootPath, shell }, { groupId: leaf.id });
     onActivateGroup(leaf.id);
   }
 

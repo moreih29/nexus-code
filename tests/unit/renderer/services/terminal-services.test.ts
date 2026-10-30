@@ -329,6 +329,33 @@ describe("services/terminal open and close", () => {
     expect(tabsFor(WS)).toHaveLength(2);
   });
 
+  it("openTerminal keeps the shell it was opened with in the tab, and only then", () => {
+    const gitBash = { kind: "detected" as const, id: "git-bash" };
+    const withShell = openTerminal({ workspaceId: WS, cwd: "/workspace", shell: gitBash });
+    const plain = openTerminal({ workspaceId: WS, cwd: "/workspace" });
+
+    const tabs = useTabsStore.getState().byWorkspace[WS] ?? {};
+    expect(tabs[withShell.tabId]?.props).toEqual({ cwd: "/workspace", shell: gitBash });
+    expect(tabs[plain.tabId]?.props).toEqual({ cwd: "/workspace" });
+  });
+
+  it("createPtyClient spawns with the tab's shell", async () => {
+    const shell = { kind: "custom" as const, path: "nu", args: ["-l"] };
+    const client = createPtyClient({
+      workspaceId: WS,
+      tabId: "tab-shell-spawn",
+      cwd: "/workspace",
+      shell,
+      onData: () => {},
+      onExit: () => {},
+    });
+    await client.spawn({ cols: 80, rows: 24 });
+
+    const spawn = ipcCalls.find((call) => call.method === "spawn");
+    expect(spawn?.args).toMatchObject({ tabId: "tab-shell-spawn", shell });
+    client.dispose();
+  });
+
   it("openTerminal routes to an explicit groupId", () => {
     openTerminal({ workspaceId: WS, cwd: "/left" });
     const layout = useLayoutStore.getState().byWorkspace[WS];

@@ -519,6 +519,7 @@ class XtermTerminalController implements TerminalController {
       workspaceId: this.options.workspaceId,
       tabId: this.options.tabId,
       cwd: this.options.cwd,
+      shell: this.options.shell,
       onData: (chunk, replay) => {
         if (!replay) {
           term.write(chunk);

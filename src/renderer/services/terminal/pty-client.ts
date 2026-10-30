@@ -1,4 +1,5 @@
 import { TERMINAL_FLOW_CONTROL } from "../../../shared/pty/flow-control";
+import type { ShellChoice } from "../../../shared/pty/shell";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
 import type { PtyClient, PtyClientOptions, SpawnedSession, TerminalDimensions } from "./types";
 
@@ -31,6 +32,7 @@ export function spawnSession(
   tabId: string,
   cwd: string,
   { cols, rows }: TerminalDimensions,
+  shell?: ShellChoice,
 ): Promise<SpawnedSession | null> {
   const key = sessionKey(workspaceId, tabId);
   if (liveSessions.has(key)) return Promise.resolve(null);
@@ -38,7 +40,14 @@ export function spawnSession(
   const existing = spawnPromisesBySessionKey.get(key);
   if (existing) return existing;
 
-  const promise = ipcCallResult("pty", "spawn", { workspaceId, tabId, cwd, cols, rows })
+  const promise = ipcCallResult("pty", "spawn", {
+    workspaceId,
+    tabId,
+    cwd,
+    cols,
+    rows,
+    ...(shell !== undefined ? { shell } : {}),
+  })
     .then((ipcRes) => {
       const result = unwrapIpcResult(ipcRes);
       if (spawnPromisesBySessionKey.get(key) === promise) {
@@ -121,6 +130,7 @@ export function createPtyClient({
   workspaceId,
   tabId,
   cwd,
+  shell,
   onData,
   onExit,
 }: PtyClientOptions): PtyClient {
@@ -137,7 +147,7 @@ export function createPtyClient({
   });
 
   return {
-    spawn: (dimensions) => spawnSession(workspaceId, tabId, cwd, dimensions),
+    spawn: (dimensions) => spawnSession(workspaceId, tabId, cwd, dimensions, shell),
     write: (data) => writeSession(workspaceId, tabId, data),
     resize: (dimensions) => resizeSession(workspaceId, tabId, dimensions),
     dispose() {

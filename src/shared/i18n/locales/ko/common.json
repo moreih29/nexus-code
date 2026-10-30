@@ -301,6 +301,8 @@
     "read_only_aria": "읽기 전용",
     "new_file": "새 파일",
     "new_terminal": "새 터미널",
+    "new_terminal_with": "다른 셸로 새 터미널",
+    "default_shell": "기본",
     "new_browser": "새 브라우저",
     "pin_tab": "탭 고정",
     "unpin_tab": "탭 고정 해제",

@@ -1,6 +1,10 @@
+import type { ShellChoice } from "../../../shared/pty/shell";
+
 export interface TerminalInput {
   workspaceId: string;
   cwd: string;
+  /** The shell to open with; absent = the default shell setting. */
+  shell?: ShellChoice;
 }
 
 export interface TerminalTabLocation {
@@ -25,6 +29,7 @@ export interface PtyClientOptions {
   workspaceId: string;
   tabId: string;
   cwd: string;
+  shell?: ShellChoice;
   /**
    * `replay` marks output the agent sends again to redraw the terminal (after
    * a reattach, or for a session that outlived the app or its window).
@@ -53,6 +58,7 @@ export interface TerminalControllerOptions {
   workspaceId: string;
   tabId: string;
   cwd: string;
+  shell?: ShellChoice;
   container: HTMLElement;
   autoSpawn?: boolean;
   onExit?: (args: { code: number | null }) => void;

@@ -301,6 +301,8 @@
     "read_only_aria": "Read-only",
     "new_file": "New File",
     "new_terminal": "New Terminal",
+    "new_terminal_with": "New Terminal With",
+    "default_shell": "Default",
     "new_browser": "New Browser",
     "pin_tab": "Pin Tab",
     "unpin_tab": "Unpin Tab",
