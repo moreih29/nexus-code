@@ -63,4 +63,15 @@ VSCode 호환 매핑. `CmdOrCtrl` 은 OS 에 맞게 자동 매핑되며 (macOS =
 | 절대 경로 복사 | ⌘⌥C |
 | 상대 경로 복사 | ⌘⇧⌥C |
 
-> ⌘ 단독 단축키만 앱이 가로채며, ⌃ 단독(⌘ 안 누름) 은 터미널로 그대로 전달됩니다 — 즉 xterm 의 `Ctrl+R` (reverse-i-search), `Ctrl+W` (delete-word), `Ctrl+T` (transpose) 같은 셸 단축키가 정상 동작합니다.
+> macOS 에서는 ⌘ 단독 단축키만 앱이 가로채며, ⌃ 단독(⌘ 안 누름) 은 터미널로 그대로 전달됩니다 — 즉 xterm 의 `Ctrl+R` (reverse-i-search), `Ctrl+W` (delete-word), `Ctrl+T` (transpose) 같은 셸 단축키가 정상 동작합니다.
+
+## Windows · Linux
+
+표의 ⌘ 를 Ctrl 로 읽으면 됩니다. 다만 터미널에 포커스가 있으면 셸과 겹치는 단축키(Ctrl+N · E · O · S · R · W · T · B · \ 와 Ctrl+K 코드)는 앱이 받지 않고 셸로 보냅니다. 아래 키는 터미널에서도 동작하므로, 앱의 메뉴와 설정에도 이 키로 표시됩니다.
+
+| 동작 | 단축키 |
+|---|---|
+| 새 터미널 | Ctrl+Shift+T <sub>(터미널 밖에서는 Ctrl+T 도)</sub> |
+| 탭 닫기 | Ctrl+F4 <sub>(터미널 밖에서는 Ctrl+W 도)</sub> |
+| 파일 트리 새로고침 | Ctrl+Shift+R <sub>(터미널 밖에서는 Ctrl+R 도)</sub> |
+| 이전 / 다음 탭 | Ctrl+PageUp · Ctrl+PageDown |
