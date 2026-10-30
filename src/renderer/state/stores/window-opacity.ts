@@ -12,7 +12,9 @@
 // color-mix() in globals.css. The macOS BrowserWindow is created with
 // `transparent: true` unconditionally, and the Windows 11 one with a system
 // backdrop (main/features/window/index.ts), so any change here takes effect
-// immediately — no restart required.
+// immediately — no restart required. A Linux window opens transparent only
+// while the saved opacity is under 100%: lowering it there shows through
+// after a restart.
 
 import { create } from "zustand";
 import { createLogger } from "../../../shared/log/renderer";

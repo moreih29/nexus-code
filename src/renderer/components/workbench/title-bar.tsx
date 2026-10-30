@@ -5,6 +5,7 @@ import type { WorkspaceLocation } from "../../../shared/types/workspace";
 import { useActiveStore } from "../../state/stores/active";
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { WindowControls } from "./window-controls";
 
 // ---------------------------------------------------------------------------
 // TitleBar — custom frameless titlebar
@@ -14,6 +15,8 @@ import { useWorkspacesStore } from "../../state/stores/workspaces";
 //               top-left. We pad the bar's left edge to clear them.
 //   - Win/Linux: `titleBarOverlay` renders themed min/max/close at top-right.
 //               We pad the bar's right edge to clear that overlay.
+//   - Transparent Linux window: no overlay; WindowControls draws the
+//               controls at the bar's right end.
 //
 // Drag region is applied via the `app-drag` utility (see globals.css);
 // interactive children MUST opt out with the `app-no-drag` utility.
@@ -22,10 +25,12 @@ import { useWorkspacesStore } from "../../state/stores/workspaces";
 const TITLEBAR_HEIGHT_CLASS = "h-9"; // 36px — matches main/window.ts TITLEBAR_HEIGHT
 const MAC_TRAFFIC_LIGHTS_INSET = 78; // px — clears the three traffic-light buttons
 const WIN_OVERLAY_INSET = 140; // px — clears the Electron-rendered control overlay
+const OWN_CONTROLS_INSET = 4; // px — right of the renderer-drawn window controls
 
 export function TitleBar() {
   const { t } = useTranslation();
   const isMac = window.host.platform === "darwin";
+  const ownControls = window.host.transparentWindow === true;
 
   const activeWorkspaceId = useActiveStore((s) => s.activeWorkspaceId);
   const activeWorkspace = useWorkspacesStore((s) =>
@@ -46,7 +51,7 @@ export function TitleBar() {
       )}
       style={{
         paddingLeft: isMac ? MAC_TRAFFIC_LIGHTS_INSET : 12,
-        paddingRight: isMac ? 12 : WIN_OVERLAY_INSET,
+        paddingRight: isMac ? 12 : ownControls ? OWN_CONTROLS_INSET : WIN_OVERLAY_INSET,
       }}
     >
       {/* Brand — uppercase small-label per the warm design system */}
@@ -86,6 +91,8 @@ export function TitleBar() {
       >
         <Settings className="size-4" aria-hidden="true" />
       </button>
+
+      {ownControls && <WindowControls />}
     </div>
   );
 }

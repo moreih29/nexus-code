@@ -125,7 +125,11 @@
     "op_working": "Working…"
   },
   "titleBar": {
-    "open_settings": "Open settings"
+    "open_settings": "Open settings",
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "restore": "Restore",
+    "close": "Close"
   },
   "diagnostics": {
     "errors_dialog": "Errors",
