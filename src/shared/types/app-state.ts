@@ -51,7 +51,9 @@ export const AppStateSchema = z.object({
   themePreference: ThemePreferenceSchema.optional(),
   // Window opacity (0–1). 1 = fully opaque (default, omitted from storage).
   // Mirrors Ghostty's background-opacity semantics.
-  // Changing this requires an app restart — `transparent` is constructor-only in Electron.
+  // Applies live on macOS and Windows 11 22H2+. A Linux window opens transparent
+  // only while this is under 1, so crossing 1 there applies at the next launch —
+  // `transparent` is constructor-only in Electron.
   windowOpacity: z.number().min(0).max(1).optional(),
 
   // Inactive-panel dim multiplier — scales each theme's tuned inactive-veil

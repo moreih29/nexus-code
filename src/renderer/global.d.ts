@@ -50,6 +50,11 @@ interface HostBridge {
   platform: NodeJS.Platform;
   /** Whether the app runs from an MSIX package: the Microsoft Store build. */
   windowsStore?: boolean;
+  /**
+   * Whether this window was created transparent on Linux (window opacity under
+   * 100%). Its frame then draws no window controls; the titlebar draws them.
+   */
+  transparentWindow?: boolean;
 }
 
 interface FilesBridge {
