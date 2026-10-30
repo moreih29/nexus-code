@@ -2,7 +2,7 @@
 # electron-builder는 실행하지 않는다. PR 피드백 시간 최소화가 목적.
 # build dry-run은 electron-vite build(out/ 산출)까지만 수행.
 #
-# Every check runs on each desktop OS the app targets. The postinstall step
+# Every check runs on each desktop OS the app targets. The install step
 # rebuilds node-pty and better-sqlite3 against Electron on the runner's own OS,
 # so each runner also proves the native modules build there.
 
@@ -44,7 +44,18 @@ jobs:
 
       - name: Install JS dependencies
         # --frozen-lockfile: lockfile 변경을 CI에서 허용하지 않는다.
-        run: bun install --frozen-lockfile
+        # --ignore-scripts skips every install script, ours too. The checks
+        # need none of the dependencies' ones, and the costly one was
+        # cpu-features (ssh2's optional CPU probe): a node-gyp build of one to
+        # two minutes on Windows. The two lines after it are our postinstall
+        # without cpu-features, which can't be rebuilt once its script is
+        # skipped.
+        # bash, so a failing line fails the step (pwsh would go on).
+        shell: bash
+        run: |
+          bun install --frozen-lockfile --ignore-scripts
+          bun x install-electron
+          bun x electron-rebuild -f -o node-pty,better-sqlite3
 
       - name: Typecheck
         run: bun run typecheck
