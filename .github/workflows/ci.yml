@@ -2,9 +2,9 @@
 # electron-builder는 실행하지 않는다. PR 피드백 시간 최소화가 목적.
 # build dry-run은 electron-vite build(out/ 산출)까지만 수행.
 #
-# Every check runs on each desktop OS the app targets. The install step
-# rebuilds node-pty and better-sqlite3 against Electron on the runner's own OS,
-# so each runner also proves the native modules build there.
+# Every check runs on each desktop OS the app targets. Whenever bun.lock
+# changes, each runner builds node-pty and better-sqlite3 against Electron on
+# its own OS, proving the native modules build there.
 
 name: CI
 
@@ -47,15 +47,32 @@ jobs:
         # --ignore-scripts skips every install script, ours too. The checks
         # need none of the dependencies' ones, and the costly one was
         # cpu-features (ssh2's optional CPU probe): a node-gyp build of one to
-        # two minutes on Windows. The two lines after it are our postinstall
-        # without cpu-features, which can't be rebuilt once its script is
-        # skipped.
+        # two minutes on Windows. Our postinstall is this step's second line
+        # and the native module steps below.
         # bash, so a failing line fails the step (pwsh would go on).
         shell: bash
         run: |
           bun install --frozen-lockfile --ignore-scripts
           bun x install-electron
-          bun x electron-rebuild -f -o node-pty,better-sqlite3
+
+      - name: Cache native modules
+        # The Electron builds of node-pty and better-sqlite3 depend only on
+        # versions bun.lock pins, Electron's among them. A lockfile change
+        # builds them again on each OS; otherwise this saves one to two
+        # minutes of compiling on Windows.
+        id: native-modules
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules/node-pty/build
+            node_modules/better-sqlite3/build
+          key: native-modules-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      - name: Build native modules
+        # Our postinstall's rebuild without cpu-features, which can't be
+        # rebuilt once its install script is skipped.
+        if: steps.native-modules.outputs.cache-hit != 'true'
+        run: bun x electron-rebuild -f -o node-pty,better-sqlite3
 
       - name: Typecheck
         run: bun run typecheck
