@@ -21,12 +21,16 @@
  */
 import type { TFunction } from "i18next";
 import { COMMANDS, type CommandId } from "../../../shared/keybindings/commands";
-import { KEYBINDINGS, type KeybindingDecl } from "../../../shared/keybindings/index";
+import {
+  findDisplayPrimary,
+  KEYBINDINGS,
+  type KeybindingDecl,
+} from "../../../shared/keybindings/index";
 import { chordToLabel } from "../../../shared/keybindings/keybinding-parse";
 
 export type MenuItemSpec =
   | { type: "separator" }
-  | { type: "role"; role: ElectronRole; label?: string }
+  | { type: "role"; role: ElectronRole; label?: string; accelerator?: string; visible?: boolean }
   | { type: "submenu"; label: string; submenu: MenuItemSpec[]; role?: ElectronSubmenuRole }
   | { type: "command"; label: string; command: CommandId; accelerator?: string };
 
@@ -223,11 +227,23 @@ function viewMenu(platform: NodeJS.Platform, t?: TFunction): MenuItemSpec {
       { type: "separator" },
       { type: "role", role: "resetZoom" },
       { type: "role", role: "zoomIn" },
+      ...zoomInEqualKey(platform),
       { type: "role", role: "zoomOut" },
       { type: "separator" },
       { type: "role", role: "togglefullscreen" },
     ],
   };
+}
+
+/**
+ * The zoomIn role's own key is CmdOrCtrl+Plus, which Win/Linux read as
+ * Ctrl+Shift+=. A hidden zoomIn twin adds Ctrl+= there. Not on macOS: Cocoa
+ * runs menu keys before the renderer, so ⌘= would also take the second key
+ * of Monaco's ⌘K ⌘= chord.
+ */
+function zoomInEqualKey(platform: NodeJS.Platform): MenuItemSpec[] {
+  if (platform === "darwin") return [];
+  return [{ type: "role", role: "zoomIn", accelerator: "CmdOrCtrl+=", visible: false }];
 }
 
 function workspaceMenu(t?: TFunction): MenuItemSpec {
@@ -303,7 +319,7 @@ function enrichWithKeybindings(
     }
     if (spec.type !== "command") return spec;
 
-    const primary = bindings.find((b) => b.command === spec.command && b.primary !== undefined);
+    const primary = findDisplayPrimary(bindings, spec.command, isMac);
     if (primary?.primary !== undefined) {
       return { ...spec, accelerator: primary.primary };
     }

@@ -94,6 +94,11 @@ describe("buildMenuTemplate (mac)", () => {
     expect(roles).toContain("togglefullscreen");
   });
 
+  it("adds no ⌘= zoom key (Cocoa would take it from Monaco's ⌘K ⌘= chord)", () => {
+    const zoomIns = flatten(specs).filter((s) => s.type === "role" && s.role === "zoomIn");
+    expect(zoomIns).toEqual([{ type: "role", role: "zoomIn" }]);
+  });
+
   it("path actions live under View with VSCode accelerators", () => {
     const reveal = findCommand(specs, COMMANDS.pathReveal);
     if (reveal?.type !== "command") throw new Error("unreachable");
@@ -164,6 +169,14 @@ describe("buildMenuTemplate (win/linux)", () => {
     if (file.type !== "submenu") throw new Error("unreachable");
     const quit = file.submenu.find((s) => s.type === "role" && s.role === "quit");
     expect(quit).toBeDefined();
+  });
+
+  it("adds a hidden Ctrl+= zoom-in key next to the zoomIn role", () => {
+    const zoomIns = flatten(specs).filter((s) => s.type === "role" && s.role === "zoomIn");
+    expect(zoomIns).toEqual([
+      { type: "role", role: "zoomIn" },
+      { type: "role", role: "zoomIn", accelerator: "CmdOrCtrl+=", visible: false },
+    ]);
   });
 
   it("Cmd+W still hits tab.close on non-mac too", () => {
