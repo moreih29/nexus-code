@@ -2,9 +2,9 @@
 # electron-builder는 실행하지 않는다. PR 피드백 시간 최소화가 목적.
 # build dry-run은 electron-vite build(out/ 산출)까지만 수행.
 #
-# Every check runs on each desktop OS the app targets. Whenever bun.lock
-# changes, each runner builds node-pty and better-sqlite3 against Electron on
-# its own OS, proving the native modules build there.
+# Every check runs on each desktop OS the app targets. Whenever node-pty,
+# better-sqlite3 or Electron changes, each runner builds the native modules
+# against Electron on its own OS, proving they build there.
 
 name: CI
 
@@ -57,16 +57,17 @@ jobs:
 
       - name: Cache native modules
         # The Electron builds of node-pty and better-sqlite3 depend only on
-        # versions bun.lock pins, Electron's among them. A lockfile change
-        # builds them again on each OS; otherwise this saves one to two
-        # minutes of compiling on Windows.
+        # their sources, the node-addon-api headers they compile against and
+        # Electron's version, so the key hashes those packages' manifests: any
+        # other lockfile change keeps the cache, and one of these builds them
+        # again on each OS. A hit saves one to two minutes on Windows.
         id: native-modules
         uses: actions/cache@v6
         with:
           path: |
             node_modules/node-pty/build
             node_modules/better-sqlite3/build
-          key: native-modules-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          key: native-modules-${{ runner.os }}-${{ hashFiles('node_modules/electron/package.json', 'node_modules/node-pty/package.json', 'node_modules/node-pty/node_modules/node-addon-api/package.json', 'node_modules/better-sqlite3/package.json', 'node_modules/node-addon-api/package.json') }}
 
       - name: Build native modules
         # Our postinstall's rebuild without cpu-features, which can't be
