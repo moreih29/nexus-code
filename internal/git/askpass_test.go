@@ -103,7 +103,9 @@ func TestCancelledRunFailsItsCredentialPrompt(t *testing.T) {
 		if prompt.RunID != "run-1" {
 			t.Fatalf("prompt runId = %q, want run-1", prompt.RunID)
 		}
-	case <-time.After(10 * time.Second):
+	case err := <-done:
+		t.Fatalf("git ended without asking for credentials: %v", err)
+	case <-time.After(processTimeout):
 		t.Fatal("git never asked for credentials")
 	}
 	if _, err := service.Cancel(context.Background(), json.RawMessage(`{"streamId":"run-1"}`)); err != nil {
@@ -115,7 +117,7 @@ func TestCancelledRunFailsItsCredentialPrompt(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("Run returned %v, want context.Canceled", err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(processTimeout):
 		t.Fatal("cancelled run did not return")
 	}
 	service.mu.Lock()

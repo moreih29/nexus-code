@@ -139,7 +139,7 @@ esac
 				if err == nil {
 					t.Fatal("expected the handler to fail")
 				}
-			case <-time.After(5 * time.Second):
+			case <-time.After(processTimeout):
 				service.mu.Lock()
 				cancel := service.streams["s"]
 				service.mu.Unlock()
@@ -147,7 +147,7 @@ esac
 					cancel()
 				}
 				<-done
-				t.Fatal("handler still blocked in cmd.Wait() 5s after it stopped reading git output")
+				t.Fatal("handler still blocked in cmd.Wait() after it stopped reading git output")
 			}
 			service.mu.Lock()
 			defer service.mu.Unlock()
