@@ -14,6 +14,11 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
+// processTimeout bounds a test's wait on a git process. It only has to catch
+// a hang, and a loaded Windows CI runner has taken over ten seconds to start
+// git and its askpass helper.
+const processTimeout = time.Minute
+
 // ---------------------------------------------------------------------------
 // isUnmergedIndexEntry unit tests
 // ---------------------------------------------------------------------------
@@ -177,7 +182,7 @@ func TestGetFileContentStopsReadingAtCap(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "exceeds") {
 			t.Fatalf("err = %v, want read-limit error", err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(processTimeout):
 		t.Fatal("GetFileContent kept reading past the size cap")
 	}
 }

@@ -1,7 +1,7 @@
 # Release workflow — triggered when a GitHub Release is created (published or pre-release).
 # Four-job pipeline:
 #   1. build-agent      — ubuntu-latest (cross-compile Go + Node runtime + LSP bundle 모두 산출)
-#   2. package          — macos-14 (Apple Silicon arm64 native)
+#   2. package          — macos-15 (Apple Silicon arm64 native)
 #   3. package-linux    — one runner per architecture (x64, arm64), AppImage + deb
 #   4. package-windows  — windows-latest x64, the Microsoft Store AppX
 #
@@ -91,11 +91,11 @@ jobs:
           retention-days: 1
 
   # ── Job 2: Electron 패키징 (arm64 only) ──────────────────────────────────
-  # macos-14 = Apple Silicon native. node-pty/better-sqlite3가 arm64로 rebuild됨.
+  # macos-15 = Apple Silicon native. node-pty/better-sqlite3가 arm64로 rebuild됨.
   package:
     name: Package (arm64)
     needs: build-agent
-    runs-on: macos-14
+    runs-on: macos-15
 
     env:
       # NEXUS_CHANNEL 분기:

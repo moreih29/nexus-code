@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -198,18 +199,19 @@ func TestLogLimitLookaheadInvokesKillCallback(t *testing.T) {
 func TestLogLimitCursorKillsPromptly(t *testing.T) {
 	root := t.TempDir()
 	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
-	tree := strings.TrimSpace(runGitOutput(t, root, "mktree"))
-	parent := ""
+	// One fast-import writes the 1000 empty commits. A git process per commit
+	// made this the slowest test, on Windows above all.
+	var stream strings.Builder
 	for i := 0; i < 1000; i++ {
-		args := []string{"commit-tree", tree, "-m", fmt.Sprintf("commit %04d", i)}
-		if parent != "" {
-			args = append(args, "-p", parent)
-		}
-		parent = strings.TrimSpace(runGitOutput(t, root, args...))
+		message := fmt.Sprintf("commit %04d", i)
+		fmt.Fprintf(&stream, "commit refs/heads/main\ncommitter Nexus Test <nexus@example.test> %d +0000\ndata %d\n%s\n", 1700000000+i, len(message), message)
 	}
-	runGitCommand(t, root, "update-ref", "refs/heads/main", parent)
+	importer := exec.Command("git", "fast-import", "--quiet")
+	importer.Dir = root
+	importer.Stdin = strings.NewReader(stream.String())
+	if out, err := importer.CombinedOutput(); err != nil {
+		t.Fatalf("git fast-import: %v\n%s", err, out)
+	}
 	head := strings.TrimSpace(runGitOutput(t, root, "rev-parse", "HEAD"))
 
 	service := New(root)
