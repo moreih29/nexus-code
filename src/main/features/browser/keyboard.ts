@@ -15,6 +15,13 @@
  * Five of the six act in main directly through the registry; URL focus is
  * a renderer concern, so it is bounced back over IPC.
  *
+ * App shortcuts (new file / terminal, close and cycle tabs, groups,
+ * workspaces, settings) were dead in a page for the same reason. The ones
+ * Chrome keeps from pages (Ctrl+N/T/W, Ctrl+Shift+N/W, Ctrl+PageUp/Down)
+ * and the app's tab / group / workspace keys are matched here too and run
+ * in the app window. Keys a page uses (copy, paste, find, save, Ctrl+B
+ * bold, Ctrl+K…) stay with the page.
+ *
  * Customization: `updateBrowserKeybindings(overrides)` recomputes the
  * match list from defaults + user overrides; main calls it at boot and on
  * every `keybindingsChanged`. Matching reuses `parseAccelerator` +
@@ -22,8 +29,10 @@
  * never diverge on what a given accelerator means.
  *
  * Scope note: `before-input-event` only fires for the focused webContents,
- * and we only attach to browser views — so the `when: "browserTabActive"`
- * scope is satisfied structurally. We match on the keystroke alone.
+ * and we only attach to browser views. So a binding's `when` is evaluated
+ * once, at compile time, against a focused page: `browserTabActive` holds,
+ * `isMac` is the platform's, and every focus key (editorFocus,
+ * terminalFocus, …) is false.
  */
 
 import type { WebContents } from "electron";
@@ -34,6 +43,7 @@ import {
   type ParsedKeystroke,
   parseAccelerator,
 } from "../../../shared/keybindings/keybinding-parse";
+import { evaluateWhen, parseWhen } from "../../../shared/keybindings/keybinding-when";
 import {
   applyKeybindingOverrides,
   type KeybindingOverride,
@@ -57,23 +67,59 @@ const BROWSER_COMMANDS: readonly CommandId[] = [
   COMMANDS.browserGoBack,
   COMMANDS.browserGoForward,
 ];
-const BROWSER_COMMAND_SET: ReadonlySet<string> = new Set(BROWSER_COMMANDS);
+/**
+ * App commands this interceptor routes when the page has focus; they run in
+ * the app window (see `run`). Content keys stay with the page: file open /
+ * save, the files panel (Ctrl+B is bold in web editors), the ⌘K chords,
+ * symbol search and the path actions.
+ */
+const APP_COMMANDS: readonly CommandId[] = [
+  COMMANDS.fileNew,
+  COMMANDS.terminalNew,
+  COMMANDS.tabClose,
+  COMMANDS.tabCloseOthers,
+  COMMANDS.tabFocusPrev,
+  COMMANDS.tabFocusNext,
+  COMMANDS.groupSplitRight,
+  COMMANDS.groupSplitDown,
+  COMMANDS.groupClose,
+  COMMANDS.groupFocusLeft,
+  COMMANDS.groupFocusRight,
+  COMMANDS.groupFocusUp,
+  COMMANDS.groupFocusDown,
+  COMMANDS.workspaceFocusPrev,
+  COMMANDS.workspaceFocusNext,
+  COMMANDS.workspaceAdd,
+  COMMANDS.settingsOpen,
+  COMMANDS.workbenchToggleSidebar,
+];
+const PAGE_COMMAND_SET: ReadonlySet<string> = new Set([...BROWSER_COMMANDS, ...APP_COMMANDS]);
+
+/** Context keys while a page has focus; any key not listed is false. */
+const PAGE_CONTEXT: Readonly<Record<string, boolean>> = {
+  browserTabActive: true,
+  isMac: IS_MAC,
+};
 
 interface CompiledBinding {
   command: CommandId;
   parsed: ParsedKeystroke;
 }
 
-/** Current effective (defaults + overrides) primary bindings for browser commands. */
+/** Current effective (defaults + overrides) primary bindings for page commands. */
 let compiled: CompiledBinding[] = compile(undefined);
 
 function compile(overrides: readonly KeybindingOverride[] | undefined): CompiledBinding[] {
   const effective = applyKeybindingOverrides(KEYBINDINGS, overrides, KNOWN_COMMANDS);
   const out: CompiledBinding[] = [];
   for (const decl of effective) {
-    if (!BROWSER_COMMAND_SET.has(decl.command)) continue;
+    if (!PAGE_COMMAND_SET.has(decl.command)) continue;
     if (decl.primary === undefined) continue; // unbound or chord-only — nothing to match
     try {
+      if (decl.when !== undefined) {
+        const holds = evaluateWhen(parseWhen(decl.when), (key) => PAGE_CONTEXT[key] ?? false);
+        if (!holds) continue;
+      }
       out.push({ command: decl.command as CommandId, parsed: parseAccelerator(decl.primary) });
     } catch (err) {
       logger.warn(`skipping unparseable browser binding ${decl.command}=${decl.primary}: ${err}`);

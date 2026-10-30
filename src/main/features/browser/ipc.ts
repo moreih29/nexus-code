@@ -29,6 +29,7 @@ import { COMMANDS } from "../../../shared/keybindings/commands";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import type { GlobalStorage } from "../../infra/storage/global-storage";
 import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
+import { getActiveAppWindow } from "../window/app-windows";
 import { installBrowserKeyInterceptor } from "./keyboard";
 import type { BrowserPermissionPromptManager } from "./permission-prompt-manager";
 import type { BrowserTabRegistry } from "./registry";
@@ -59,10 +60,11 @@ export interface BrowserChannelDeps {
  * window exists).
  */
 /**
- * Run a browser command resolved by the key interceptor against `tabId`.
+ * Run a command resolved by the key interceptor against `tabId`.
  * Shared by the page-view and docked-DevTools-view interceptors so both
- * surfaces behave identically. Five act on the registry directly; URL
- * focus needs the renderer, so it is bounced over IPC.
+ * surfaces behave identically. Five browser commands act on the registry
+ * directly; URL focus needs the renderer, so it is bounced over IPC. App
+ * commands (tabs, groups, workspaces…) run in the app window.
  */
 function runBrowserCommand(registry: BrowserTabRegistry, command: string, tabId: string): void {
   switch (command) {
@@ -81,6 +83,14 @@ function runBrowserCommand(registry: BrowserTabRegistry, command: string, tabId:
     case COMMANDS.browserFocusUrl:
       broadcast("browser", "focusUrl", { tabId });
       break;
+    default: {
+      // As if the key had been pressed in the app window: that window takes
+      // the keyboard focus back from the page and runs the command.
+      const win = getActiveAppWindow();
+      if (!win || win.isDestroyed()) return;
+      win.webContents.focus();
+      win.webContents.send("ipc:event", "command", "invoke", { id: command });
+    }
   }
 }
 
