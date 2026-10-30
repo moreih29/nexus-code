@@ -48,6 +48,8 @@ const CODE_TO_KEYCODE_NAME: Readonly<Record<string, string>> = {
   ArrowDown: "DownArrow",
   ArrowLeft: "LeftArrow",
   ArrowRight: "RightArrow",
+  PageUp: "PageUp",
+  PageDown: "PageDown",
   Backslash: "Backslash",
   Slash: "Slash",
   Comma: "Comma",

@@ -151,6 +151,7 @@
       "gruvbox-dark": "레트로 감성. 따뜻한 갈색·올리브·머스타드 톤"
     },
     "windowOpacity": "창 불투명도",
+    "windowOpacityRestart": "리눅스에서는 앱을 다시 시작하면 창이 비쳐 보입니다.",
     "inactivePanelDim": "비활성 패널 흐림 정도",
     "reset": {
       "language": "언어 초기화",

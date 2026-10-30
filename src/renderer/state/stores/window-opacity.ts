@@ -10,8 +10,11 @@
 // Semantics: 0 = fully transparent, 1 = fully opaque (default).
 // Applied at runtime via useWindowOpacityEffect → --window-opacity CSS var →
 // color-mix() in globals.css. The macOS BrowserWindow is created with
-// `transparent: true` unconditionally (main/features/window/index.ts), so
-// any change here takes effect immediately — no restart required.
+// `transparent: true` unconditionally, and the Windows 11 one with a system
+// backdrop (main/features/window/index.ts), so any change here takes effect
+// immediately — no restart required. A Linux window opens transparent only
+// while the saved opacity is under 100%: lowering it there shows through
+// after a restart.
 
 import { create } from "zustand";
 import { createLogger } from "../../../shared/log/renderer";

@@ -21,8 +21,10 @@
 // resolved theme is applied via the [data-theme] attribute by useThemeEffect.
 //
 // Window opacity applies immediately via --window-opacity CSS var; the macOS
-// BrowserWindow is created with `transparent: true` unconditionally so no
-// restart is ever needed.
+// BrowserWindow is created with `transparent: true` unconditionally, and the
+// Windows 11 one with a system backdrop, so no restart is needed there. A Linux
+// window opens transparent only while the saved opacity is under 100%, so
+// lowering it there shows through after a restart; the section says so.
 //
 // Design seal: semantic tokens only on the chrome surrounding the cards.
 // The card swatches intentionally use raw theme colors (the swatches ARE the
@@ -85,6 +87,17 @@ const ICON_THEME_OPTIONS: SegmentedOption<IconTheme>[] = [
   { value: "material", label: "Material" },
 ];
 
+/**
+ * Whether a lowered window opacity shows through only after a restart: in a
+ * Linux window not created transparent (main/features/window).
+ */
+export function opacityAppliesAfterRestart(
+  host: Window["host"] | undefined,
+  opacity: number,
+): boolean {
+  return host?.platform === "linux" && host.transparentWindow !== true && opacity < 1;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -126,6 +139,7 @@ export function AppearancePanel() {
   const iconThemeDirty = iconThemePreference !== DEFAULT_ICON_THEME;
   const themeDirty = themePreference !== DEFAULT_THEME;
   const opacityDirty = opacity !== 1;
+  const opacityNeedsRestart = opacityAppliesAfterRestart(window.host, localOpacity);
   const dimDirty = dim !== INACTIVE_PANEL_DIM_DEFAULT;
 
   const languageLabel = t("appearance.language");
@@ -238,6 +252,11 @@ export function AppearancePanel() {
             {opacityPercent}%
           </span>
         </div>
+        {opacityNeedsRestart && (
+          <p className="text-app-ui-sm text-muted-foreground">
+            {t("appearance.windowOpacityRestart")}
+          </p>
+        )}
       </SettingsSection>
 
       {/* Section: Inactive Panel Dimming — multiplier on the theme's veil alpha.

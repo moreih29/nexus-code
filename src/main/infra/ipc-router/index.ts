@@ -19,6 +19,8 @@ export interface CallContext {
   requestId?: string;
   signal?: AbortSignal;
   correlationId?: string;
+  /** The renderer that called; window handlers act on its window. */
+  sender?: WebContents;
 }
 
 export interface StreamContext {
@@ -268,14 +270,15 @@ function createCallContext(
   requestId: unknown,
   correlationId: string,
 ): { key?: string; ctx?: CallContext } {
+  const sender = event.sender;
   if (typeof requestId !== "string" || requestId.length === 0) {
-    return { ctx: { correlationId } };
+    return { ctx: { correlationId, sender } };
   }
   const key = requestKey(event, requestId);
   const controller = new AbortController();
   pendingCallControllers.set(key, controller);
   if (consumePreCanceledRequest(key)) controller.abort();
-  return { key, ctx: { requestId, signal: controller.signal, correlationId } };
+  return { key, ctx: { requestId, signal: controller.signal, correlationId, sender } };
 }
 
 function getStreamDescriptor(channelName: string, method: string): AnyStreamProcedure | undefined {

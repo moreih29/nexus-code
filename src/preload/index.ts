@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
+import { TRANSPARENT_WINDOW_ARG } from "../shared/window/transparent-window";
 
 type ListenCallback = (args: unknown) => void;
 type StreamEvent = {
@@ -96,6 +97,7 @@ contextBridge.exposeInMainWorld("ipc", ipcApi);
 contextBridge.exposeInMainWorld("host", {
   platform: process.platform as NodeJS.Platform,
   windowsStore: process.windowsStore === true,
+  transparentWindow: process.argv.includes(TRANSPARENT_WINDOW_ARG),
 });
 
 // File-path resolver. Electron 32+ removed the non-standard `File.path`

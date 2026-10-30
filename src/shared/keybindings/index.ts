@@ -22,6 +22,7 @@
  */
 
 import { COMMANDS, type CommandId } from "./commands";
+import { parseAccelerator } from "./keybinding-parse";
 
 /** Same shape Electron's `MenuItemConstructorOptions.accelerator` accepts. */
 export type AcceleratorString = string;
@@ -153,6 +154,11 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
   // so Cmd-alone shortcuts inside Monaco aren't accidentally captured.
   { command: COMMANDS.tabFocusPrev, primary: "Cmd+Ctrl+Left" },
   { command: COMMANDS.tabFocusNext, primary: "Cmd+Ctrl+Right" },
+  // On Win/Linux, Cmd+Ctrl is Win/Super+Ctrl, and the OS takes it with the
+  // arrows (Windows switches virtual desktops). Ctrl+PageUp/PageDown is the
+  // browser and VSCode tab key there.
+  { command: COMMANDS.tabFocusPrev, primary: "Ctrl+PageUp", when: "!isMac" },
+  { command: COMMANDS.tabFocusNext, primary: "Ctrl+PageDown", when: "!isMac" },
 
   // Groups (panels)
   // `\\` matches only the Backslash physical key. KeyboardEvent.code is
@@ -224,4 +230,28 @@ export function findPrimaryBinding(command: CommandId): KeybindingDecl | undefin
 
 export function findChordBinding(command: CommandId): KeybindingDecl | undefined {
   return KEYBINDINGS.find((k) => k.command === command && k.chord !== undefined);
+}
+
+/**
+ * The primary declaration to show for `command` in `bindings`. Usually the
+ * first one; on Win/Linux a literal `Cmd+Ctrl` binding (Win/Super+Ctrl,
+ * which the OS often takes) gives way to another primary of the command.
+ */
+export function findDisplayPrimary(
+  bindings: readonly KeybindingDecl[],
+  command: string,
+  isMac: boolean,
+): KeybindingDecl | undefined {
+  const primaries = bindings.filter((b) => b.command === command && b.primary !== undefined);
+  if (isMac) return primaries[0];
+  return primaries.find((b) => !needsSuperKey(b.primary as string)) ?? primaries[0];
+}
+
+function needsSuperKey(accel: AcceleratorString): boolean {
+  try {
+    const p = parseAccelerator(accel);
+    return p.cmd && p.ctrl;
+  } catch {
+    return false;
+  }
 }

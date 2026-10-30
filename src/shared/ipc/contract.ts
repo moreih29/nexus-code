@@ -1116,6 +1116,26 @@ export const ipcContract = {
   },
 
   // ---------------------------------------------------------------------------
+  // window — controls for the window that calls.
+  //
+  // Only a window whose frame draws no controls uses them: the Linux window
+  // created transparent (main/features/window), where the titlebar draws its
+  // own minimize, maximize and close buttons.
+  // ---------------------------------------------------------------------------
+  window: {
+    call: {
+      minimize: call(z.void(), z.void()),
+      toggleMaximize: call(z.void(), z.void()),
+      close: call(z.void(), z.void()),
+      isMaximized: call(z.void(), z.boolean()),
+    },
+    listen: {
+      /** Sent to one window only, when it is maximized or restored. */
+      maximizedChanged: listen(z.object({ maximized: z.boolean() })),
+    },
+  },
+
+  // ---------------------------------------------------------------------------
   // clipboard — write to the system clipboard from the main process.
   //
   // Why a dedicated channel: renderer's `navigator.clipboard.writeText` requires

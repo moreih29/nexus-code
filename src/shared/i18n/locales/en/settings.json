@@ -151,6 +151,7 @@
       "gruvbox-dark": "Retro groove. Warm brown, olive and mustard tones"
     },
     "windowOpacity": "Window opacity",
+    "windowOpacityRestart": "On Linux, the window shows through after the app restarts.",
     "inactivePanelDim": "Inactive panel dimming",
     "reset": {
       "language": "Reset Language",
