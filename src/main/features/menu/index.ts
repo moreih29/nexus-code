@@ -94,6 +94,8 @@ function toElectron(
       const base: MenuItemConstructorOptions =
         spec.label !== undefined ? { role: spec.role, label: spec.label } : { role: spec.role };
       if (spec.role === "copy") base.registerAccelerator = false;
+      if (spec.accelerator !== undefined) base.accelerator = spec.accelerator;
+      if (spec.visible !== undefined) base.visible = spec.visible;
       return base;
     }
 
