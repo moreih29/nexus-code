@@ -116,6 +116,10 @@ function tokenToCodes(tok: string): readonly string[] {
       return ["ArrowLeft"];
     case "Right":
       return ["ArrowRight"];
+    case "PageUp":
+      return ["PageUp"];
+    case "PageDown":
+      return ["PageDown"];
     case "\\":
       // KeyboardEvent.code is layout-independent: Korean layouts also
       // report the ₩/\ physical key as "Backslash" (only e.key differs).
@@ -250,6 +254,8 @@ const CODE_TO_TOKEN: Readonly<Record<string, string>> = {
   ArrowDown: "Down",
   ArrowLeft: "Left",
   ArrowRight: "Right",
+  PageUp: "PageUp",
+  PageDown: "PageDown",
   Backslash: "\\",
   Slash: "/",
   Comma: ",",

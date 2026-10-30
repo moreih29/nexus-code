@@ -21,7 +21,11 @@
  */
 import type { TFunction } from "i18next";
 import { COMMANDS, type CommandId } from "../../../shared/keybindings/commands";
-import { KEYBINDINGS, type KeybindingDecl } from "../../../shared/keybindings/index";
+import {
+  findDisplayPrimary,
+  KEYBINDINGS,
+  type KeybindingDecl,
+} from "../../../shared/keybindings/index";
 import { chordToLabel } from "../../../shared/keybindings/keybinding-parse";
 
 export type MenuItemSpec =
@@ -303,7 +307,7 @@ function enrichWithKeybindings(
     }
     if (spec.type !== "command") return spec;
 
-    const primary = bindings.find((b) => b.command === spec.command && b.primary !== undefined);
+    const primary = findDisplayPrimary(bindings, spec.command, isMac);
     if (primary?.primary !== undefined) {
       return { ...spec, accelerator: primary.primary };
     }

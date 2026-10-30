@@ -19,6 +19,7 @@
  */
 
 import { COMMANDS, type CommandId } from "../../shared/keybindings/commands";
+import { findDisplayPrimary } from "../../shared/keybindings/index";
 import { acceleratorToLabel, chordToLabel } from "../../shared/keybindings/keybinding-parse";
 import { getActiveBindings } from "./resolver";
 
@@ -48,7 +49,7 @@ export const isMac = detectIsMac();
  */
 export function shortcutFor(command: CommandId): string | undefined {
   const bindings = getActiveBindings();
-  const primary = bindings.find((b) => b.command === command && b.primary !== undefined);
+  const primary = findDisplayPrimary(bindings, command, isMac);
   if (primary?.primary !== undefined) {
     return acceleratorToLabel(primary.primary, { isMac });
   }

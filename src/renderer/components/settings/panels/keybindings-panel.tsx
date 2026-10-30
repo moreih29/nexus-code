@@ -42,7 +42,11 @@ import {
   type KeybindingConflict,
 } from "../../../../shared/keybindings/conflicts";
 import { EDITOR_COMMANDS } from "../../../../shared/keybindings/editor-commands";
-import { KEYBINDINGS, type KeybindingDecl } from "../../../../shared/keybindings/index";
+import {
+  findDisplayPrimary,
+  KEYBINDINGS,
+  type KeybindingDecl,
+} from "../../../../shared/keybindings/index";
 import {
   acceleratorToLabel,
   chordToLabel,
@@ -80,7 +84,7 @@ function defaultDeclFor(command: CommandId): KeybindingDecl | undefined {
 }
 
 function bindingLabelFor(bindings: readonly KeybindingDecl[], command: CommandId): string | null {
-  const primary = bindings.find((b) => b.command === command && b.primary !== undefined);
+  const primary = findDisplayPrimary(bindings, command, isMac);
   if (primary?.primary !== undefined) return acceleratorToLabel(primary.primary, { isMac });
   const chord = bindings.find((b) => b.command === command && b.chord !== undefined);
   if (chord?.chord !== undefined) return chordToLabel(chord.chord, { isMac });
