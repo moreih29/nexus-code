@@ -22,8 +22,20 @@ import type { SshAuthPrompt, SshAuthResponse } from "../../../../src/shared/ssh/
 // that connects twice takes longer than the 5s default.
 setDefaultTimeout(30_000);
 
-const HOST_KEY = utils.generateKeyPairSync("ed25519");
-const OTHER_HOST_KEY = utils.generateKeyPairSync("ed25519");
+/**
+ * An ed25519 key pair ssh2 can read back. About one pair in 256 has a public
+ * key that starts with a zero byte, which ssh2's generator drops: it then
+ * writes a 31-byte key that it rejects as malformed.
+ */
+function generateHostKey(): ReturnType<typeof utils.generateKeyPairSync> {
+  for (;;) {
+    const pair = utils.generateKeyPairSync("ed25519");
+    if (!(utils.parseKey(pair.private) instanceof Error)) return pair;
+  }
+}
+
+const HOST_KEY = generateHostKey();
+const OTHER_HOST_KEY = generateHostKey();
 
 interface TestServer {
   readonly port: number;
