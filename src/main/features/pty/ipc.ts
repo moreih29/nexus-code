@@ -8,6 +8,15 @@ import { TerminalRecorderRegistry, type PtyRecorderSink } from "./recorder";
 import { ipcOk } from "../../../shared/ipc/result";
 import { injectHarnessTerminalEnv } from "./harness-env";
 import { applyShellPathShim } from "./shell-shim";
+import {
+  detectShells,
+  findShellProgram,
+  nodeShellHost,
+  resolveShellChoice,
+  systemDefaultShell,
+  type ShellHost,
+} from "./shells";
+import type { CustomShell, ShellChoice } from "../../../shared/pty/shell";
 import { OscNotificationDispatcher } from "./osc-notification";
 import type { WorkspaceNameLookup } from "./osc-notification";
 import type { HookInfo } from "../workspace/manager";
@@ -49,7 +58,15 @@ export interface PtyChannelOptions {
     getWrapperAgentBin(workspaceId: string): string | null;
     getWrapperShell(workspaceId: string): string | null;
     getWrapperShimDir(workspaceId: string): string | null;
+    /** Whether the workspace runs on this machine; only those take a chosen shell. */
+    isLocal?(workspaceId: string): boolean;
   };
+  /** The default shell from Settings › Terminal, read at every spawn. */
+  getDefaultShell?: () => ShellChoice | undefined;
+  /** The shells the user added in Settings › Terminal, read at every spawn. */
+  getCustomShells?: () => readonly CustomShell[] | undefined;
+  /** Where shells are looked up; tests pass a fake machine. */
+  shellHost?: ShellHost;
 }
 
 /**
@@ -122,10 +139,16 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
   register("pty", {
     call: {
       spawn: async (args: unknown) => {
-        const { workspaceId, tabId, cwd, cols, rows, env, args: spawnArgs } = validateArgs(
-          c.spawn.args,
-          args,
-        );
+        const {
+          workspaceId,
+          tabId,
+          cwd,
+          cols,
+          rows,
+          env,
+          args: spawnArgs,
+          shell: tabShell,
+        } = validateArgs(c.spawn.args, args);
         recorder.start(workspaceId, tabId, cols, rows);
         // hookInfo는 반드시 channel.ready 이후에 읽어야 fresh가 보장된다.
         // channel reconnect 직후 호출 시 stale 캐시(이전 boot의 socket path)가
@@ -176,15 +199,39 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
         // re-prepended on every prompt). This is the safe degraded mode —
         // wrapper still wins on a clean rc, only loses ground when the user
         // rc explicitly reorders PATH.
-        let shimmedArgs: string[] | undefined = spawnArgs;
+        // A local terminal runs the tab's shell, else the default shell from
+        // the settings, else the system default (left to the agent). One
+        // that can't be found falls back to the next, and the renderer says
+        // so.
+        let shell: { path: string; args: string[] } | undefined;
+        let shellPath: string | undefined;
+        let missingShell: string | undefined;
+        if (wm?.isLocal?.(workspaceId)) {
+          const host = options.shellHost ?? nodeShellHost();
+          const customShells = options.getCustomShells?.();
+          for (const choice of [tabShell, options.getDefaultShell?.()]) {
+            if (choice === undefined) continue;
+            const resolved = resolveShellChoice(host, choice, customShells);
+            if ("shell" in resolved) {
+              shell = resolved.shell;
+              break;
+            }
+            missingShell ??= resolved.missing;
+          }
+          shellPath = shell?.path ?? systemDefaultShell(host).path;
+        }
+
+        let shimmedArgs: string[] | undefined = shell?.args ?? spawnArgs;
         if (wrapperBinDir !== null) {
-          const wrapperShell = wm?.getWrapperShell(workspaceId) ?? null;
+          // The shim's activation (ZDOTDIR for zsh, --rcfile for bash) has
+          // to match the shell that actually starts.
+          const wrapperShell = shell?.path ?? wm?.getWrapperShell(workspaceId) ?? null;
           const wrapperShimDir = wm?.getWrapperShimDir(workspaceId) ?? null;
           if (wrapperShell !== null && wrapperShimDir !== null) {
             const shimResult = applyShellPathShim({
               shell: wrapperShell,
               env: enrichedEnv,
-              args: spawnArgs,
+              args: shimmedArgs,
               shimDir: wrapperShimDir,
             });
             enrichedEnv = shimResult.env;
@@ -193,20 +240,25 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
         }
 
         try {
-          // The shell is resolved by the agent on its own host — for a
-          // remote workspace that is the SSH host, not this machine.
+          // Without a chosen shell the agent resolves one on its own host —
+          // for a remote workspace that is the SSH host, not this machine.
           // Sending a shell from here would force the local macOS shell
           // onto a remote that may not have it.
-          const result = await agentHost.call("spawn", {
+          const result = (await agentHost.call("spawn", {
             workspaceId,
             tabId,
             cwd,
             cols,
             rows,
             env: enrichedEnv,
-            ...(shimmedArgs !== undefined ? { args: shimmedArgs } : {}),
-          });
-          return result as { pid: number };
+            ...(shell !== undefined ? { shell: shell.path } : {}),
+            ...(shimmedArgs !== undefined && shimmedArgs.length > 0 ? { args: shimmedArgs } : {}),
+          })) as { pid: number };
+          return {
+            ...result,
+            ...(shellPath !== undefined ? { shellPath } : {}),
+            ...(missingShell !== undefined ? { missingShell } : {}),
+          };
         } catch (error) {
           recorder.stop(workspaceId, tabId);
           throw error;
@@ -252,6 +304,16 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
           | { name: string }
           | undefined;
         return ipcOk({ name: result?.name ?? "" });
+      },
+
+      listShells: async () => {
+        const host = options.shellHost ?? nodeShellHost();
+        return ipcOk({ shells: detectShells(host), systemDefault: systemDefaultShell(host) });
+      },
+
+      findShell: async (args: unknown) => {
+        const { program } = validateArgs(c.findShell.args, args);
+        return ipcOk({ path: findShellProgram(options.shellHost ?? nodeShellHost(), program) });
       },
     },
     listen: {

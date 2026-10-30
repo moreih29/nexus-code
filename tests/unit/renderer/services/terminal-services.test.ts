@@ -113,6 +113,15 @@ mock.module("../../../../src/renderer/components/ui/confirm-dialog", () => ({
   },
 }));
 
+const toasts: { kind: string; message: string }[] = [];
+const realToast = await import("../../../../src/renderer/components/ui/toast");
+mock.module("../../../../src/renderer/components/ui/toast", () => ({
+  ...realToast,
+  showToast: (input: { kind: string; message: string }) => {
+    toasts.push(input);
+  },
+}));
+
 const { closeTerminal, closeTerminalWithConfirm, createTerminalController, openTerminal } =
   await import("../../../../src/renderer/services/terminal");
 const {
@@ -318,6 +327,33 @@ describe("services/terminal open and close", () => {
     expect(first.tabId).not.toBe(second.tabId);
     expect(first.groupId).toBe(second.groupId);
     expect(tabsFor(WS)).toHaveLength(2);
+  });
+
+  it("openTerminal keeps the shell it was opened with in the tab, and only then", () => {
+    const gitBash = { kind: "detected" as const, id: "git-bash" };
+    const withShell = openTerminal({ workspaceId: WS, cwd: "/workspace", shell: gitBash });
+    const plain = openTerminal({ workspaceId: WS, cwd: "/workspace" });
+
+    const tabs = useTabsStore.getState().byWorkspace[WS] ?? {};
+    expect(tabs[withShell.tabId]?.props).toEqual({ cwd: "/workspace", shell: gitBash });
+    expect(tabs[plain.tabId]?.props).toEqual({ cwd: "/workspace" });
+  });
+
+  it("createPtyClient spawns with the tab's shell", async () => {
+    const shell = { kind: "custom" as const, id: "added-nu" };
+    const client = createPtyClient({
+      workspaceId: WS,
+      tabId: "tab-shell-spawn",
+      cwd: "/workspace",
+      shell,
+      onData: () => {},
+      onExit: () => {},
+    });
+    await client.spawn({ cols: 80, rows: 24 });
+
+    const spawn = ipcCalls.find((call) => call.method === "spawn");
+    expect(spawn?.args).toMatchObject({ tabId: "tab-shell-spawn", shell });
+    client.dispose();
   });
 
   it("openTerminal routes to an explicit groupId", () => {
@@ -1207,6 +1243,33 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
       controller.dispose();
     });
 
+    it("pastes in cmd.exe, which has neither bracketed paste nor a ^V paste", async () => {
+      host.host = { platform: "win32" };
+      const keyHandlerFor = async (shellPath: string, tabId: string) => {
+        const harness = makeTerminalControllerDeps(() => Promise.resolve({ pid: 1, shellPath }));
+        const controller = createTerminalController(
+          { workspaceId: WS, tabId, cwd: "C:\\work", container: {} as HTMLElement },
+          harness.deps,
+        );
+        await flushTerminalInit();
+        await new Promise((r) => setTimeout(r, 0));
+        const handler = harness.getKeyHandler();
+        if (!handler) throw new Error("customKey handler was not registered");
+        return { controller, handler };
+      };
+
+      const cmd = await keyHandlerFor("C:\\Windows\\system32\\CMD.EXE", "tab-cmd");
+      expect(cmd.handler(ctrlV() as unknown as KeyboardEvent)).toBe(false);
+      cmd.controller.dispose();
+
+      const powershell = await keyHandlerFor(
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "tab-powershell",
+      );
+      expect(powershell.handler(ctrlV() as unknown as KeyboardEvent)).toBe(true);
+      powershell.controller.dispose();
+    });
+
     it("still sends ^V when the app has no bracketed paste (PSReadLine pastes it)", async () => {
       host.host = { platform: "win32" };
       const { controller, handler } = await setupHandler();
@@ -1734,6 +1797,49 @@ describe("services/terminal controller — OSC title sync", () => {
     expect(updated.customTitle).toBe("내 작업창");
     expect(updated.processTitle).toBeUndefined();
     expect(updated.title).toBe("내 작업창");
+
+    controller.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A chosen shell that can't be found: main falls back to the system default,
+// and the terminal says so once rather than once per tab.
+describe("services/terminal controller — missing shell", () => {
+  beforeEach(() => {
+    resetStores();
+    resetIpc();
+    toasts.length = 0;
+  });
+
+  it("warns once that the shell couldn't be found", async () => {
+    const spawnMissing = () => Promise.resolve({ pid: 1, missingShell: "Git Bash" });
+    const controllers = ["tab-missing-1", "tab-missing-2"].map((tabId) =>
+      createTerminalController(
+        { workspaceId: WS, tabId, cwd: "/workspace", container: {} as HTMLElement },
+        makeTerminalControllerDeps(spawnMissing).deps,
+      ),
+    );
+    await flushTerminalInit();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]?.kind).toBe("warning");
+
+    for (const controller of controllers) controller.dispose();
+  });
+
+  it("says so when the tab's added shell was removed from the settings", async () => {
+    const spawnRemoved = () => Promise.resolve({ pid: 1, missingShell: "" });
+    const controller = createTerminalController(
+      { workspaceId: WS, tabId: "tab-removed-shell", cwd: "/workspace", container: {} as HTMLElement },
+      makeTerminalControllerDeps(spawnRemoved).deps,
+    );
+    await flushTerminalInit();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]?.message).toMatch(/removed from the settings/);
 
     controller.dispose();
   });

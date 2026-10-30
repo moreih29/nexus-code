@@ -28,6 +28,7 @@ export function openTerminal(
   opts: OpenTerminalOptions = {},
 ): TerminalTabLocation {
   useLayoutStore.getState().ensureLayout(input.workspaceId);
+  const props = { cwd: input.cwd, ...(input.shell !== undefined ? { shell: input.shell } : {}) };
 
   if (opts.newSplit) {
     if (opts.groupId && opts.groupId !== "active") {
@@ -37,7 +38,7 @@ export function openTerminal(
     const { orientation, side } = opts.newSplit;
     const { newLeafId, tabId } = openTabInNewSplit(
       input.workspaceId,
-      { type: "terminal", props: { cwd: input.cwd } },
+      { type: "terminal", props },
       orientation,
       side,
     );
@@ -45,7 +46,7 @@ export function openTerminal(
     return { groupId: newLeafId, tabId };
   }
 
-  const tab = openTerminalTab(input.workspaceId, "terminal", { cwd: input.cwd }, { groupId: opts.groupId });
+  const tab = openTerminalTab(input.workspaceId, "terminal", props, { groupId: opts.groupId });
   requestTabFocus(tab.id);
   return { groupId: groupIdForTab(input.workspaceId, tab.id), tabId: tab.id };
 }

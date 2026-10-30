@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { StatusEntrySchema } from "../claude/status";
+import { ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
   DirEntrySchema,
   ExpectedFileStateSchema,
@@ -611,8 +612,23 @@ export const ipcContract = {
           rows: z.number().int().positive(),
           env: z.record(z.string()).optional(),
           args: z.array(z.string()).optional(),
+          /**
+           * The shell this tab opens with. Absent: the default shell from
+           * Settings › Terminal. Local workspaces only; an SSH workspace runs
+           * the remote host's login shell.
+           */
+          shell: ShellChoiceSchema.optional(),
         }),
-        z.object({ pid: z.number().int() }),
+        z.object({
+          pid: z.number().int(),
+          /** The shell started, when main knows it (local workspaces). */
+          shellPath: z.string().optional(),
+          /**
+           * The chosen shell that couldn't be found; the default ran instead.
+           * "" for an added shell that was removed from the settings.
+           */
+          missingShell: z.string().optional(),
+        }),
       ),
       write: call(PtyWorkspaceTabSchema.extend({ data: z.string() }), z.void()),
       resize: call(
@@ -637,6 +653,16 @@ export const ipcContract = {
        * 빈 결과를 "정보 없음"으로 해석해 기존 title을 덮어쓰지 않는다.
        */
       foregroundProcess: call(PtyWorkspaceTabSchema, z.object({ name: z.string() })),
+      /** The shells installed on this machine, and the one a terminal runs by default. */
+      listShells: call(
+        z.void(),
+        z.object({ shells: z.array(ShellInfoSchema), systemDefault: ShellInfoSchema }),
+      ),
+      /** Finds a custom shell's program: a path, or a bare name on PATH. */
+      findShell: call(
+        z.object({ program: z.string().max(1024) }),
+        z.object({ path: z.string().nullable() }),
+      ),
     },
     listen: {
       // data: args is string chunk — validation skipped on hot path.

@@ -11,7 +11,9 @@
  *
  * Public surface: DropdownMenuRoot · DropdownMenuTrigger · DropdownMenuContent
  *                 DropdownMenuItem · DropdownMenuShortcut · DropdownMenuSeparator
+ *                 DropdownMenuSub · DropdownMenuSubTrigger · DropdownMenuSubContent
  */
+import { ChevronRight } from "lucide-react";
 import { DropdownMenu as RadixDropdownMenu } from "radix-ui";
 
 const CONTENT_CLASS =
@@ -134,4 +136,34 @@ export function DropdownMenuItem({ children, disabled, onSelect }: DropdownMenuI
 
 export function DropdownMenuSeparator() {
   return <RadixDropdownMenu.Separator className={SEPARATOR_CLASS} />;
+}
+
+// ---------------------------------------------------------------------------
+// Submenu
+// ---------------------------------------------------------------------------
+
+export function DropdownMenuSub({ children }: { children: React.ReactNode }) {
+  return <RadixDropdownMenu.Sub>{children}</RadixDropdownMenu.Sub>;
+}
+
+/** An item that opens its submenu, with a chevron at the end. */
+export function DropdownMenuSubTrigger({ children }: { children: React.ReactNode }) {
+  return (
+    <RadixDropdownMenu.SubTrigger
+      className={`${ITEM_CLASS} data-[state=open]:bg-[var(--state-hover-bg)]`}
+    >
+      {children}
+      <ChevronRight aria-hidden className="ml-4 size-3.5 shrink-0 text-muted-foreground" />
+    </RadixDropdownMenu.SubTrigger>
+  );
+}
+
+export function DropdownMenuSubContent({ children }: { children: React.ReactNode }) {
+  return (
+    <RadixDropdownMenu.Portal>
+      <RadixDropdownMenu.SubContent className={CONTENT_CLASS} sideOffset={4}>
+        {children}
+      </RadixDropdownMenu.SubContent>
+    </RadixDropdownMenu.Portal>
+  );
 }

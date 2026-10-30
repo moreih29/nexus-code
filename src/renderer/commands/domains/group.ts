@@ -32,7 +32,7 @@ function splitActiveGroup(orientation: "horizontal" | "vertical"): void {
   }
   if (tab.type === "terminal") {
     openTerminal(
-      { workspaceId: wsId, cwd: tab.props.cwd },
+      { workspaceId: wsId, cwd: tab.props.cwd, shell: tab.props.shell },
       { groupId: activeLeaf.id, newSplit: { orientation, side: "after" } },
     );
   }

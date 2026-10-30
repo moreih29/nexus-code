@@ -86,8 +86,12 @@ function SelectContent({
 function SelectItem({
   className,
   children,
+  description,
   ...props
-}: React.ComponentProps<typeof RadixSelect.Item>) {
+}: React.ComponentProps<typeof RadixSelect.Item> & {
+  /** A second, muted line in the list (e.g. a path); the trigger shows only `children`. */
+  description?: React.ReactNode;
+}) {
   return (
     <RadixSelect.Item
       className={cn(
@@ -100,7 +104,14 @@ function SelectItem({
       )}
       {...props}
     >
-      <RadixSelect.ItemText>{children}</RadixSelect.ItemText>
+      {description === undefined ? (
+        <RadixSelect.ItemText>{children}</RadixSelect.ItemText>
+      ) : (
+        <span className="flex min-w-0 flex-col">
+          <RadixSelect.ItemText>{children}</RadixSelect.ItemText>
+          <span className="truncate text-app-ui-sm text-muted-foreground">{description}</span>
+        </span>
+      )}
       <span className="absolute right-2 inline-flex size-4 items-center justify-center">
         <RadixSelect.ItemIndicator>
           <Check className="size-3" aria-hidden="true" />

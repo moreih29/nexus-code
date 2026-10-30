@@ -129,6 +129,15 @@ describe("WorkspaceLayoutSnapshotSchema", () => {
     expect(reparsed).toEqual(parsed);
   });
 
+  it("keeps a terminal tab's shell across a restart", () => {
+    const shell = { kind: "detected" as const, id: "git-bash" };
+    const parsed = WorkspaceLayoutSnapshotSchema.parse({
+      ...snapshot,
+      tabs: [{ ...snapshot.tabs[0], props: { cwd: "/home/user", shell } }],
+    });
+    expect(parsed.tabs[0]?.props).toEqual({ cwd: "/home/user", shell });
+  });
+
   it("parses a snapshot with editor tab", () => {
     const EDITOR_TAB = "88888888-8888-4888-a888-888888888888";
     const result = WorkspaceLayoutSnapshotSchema.safeParse({

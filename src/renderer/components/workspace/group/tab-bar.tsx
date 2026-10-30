@@ -21,6 +21,7 @@ import { toggleTabPin } from "@/state/operations";
 import { useTabEditingStore } from "@/state/stores/tab-editing";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
+import type { ShellChoice } from "../../../../shared/pty/shell";
 import { TabBar } from "../tabs/tab-bar";
 import { buildGroupTabBarMenuItems, type TabContextInfo } from "./tab-bar-menu";
 import { useGroupActions } from "./use-group-actions";
@@ -34,7 +35,7 @@ interface GroupTabBarProps {
   workspaceRootPath: string;
   onSelectTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
-  onNewTerminalTab: () => void;
+  onNewTerminalTab: (shell?: ShellChoice) => void;
   onNewUntitledTab: () => void;
   onNewBrowserTab: () => void;
   onActivateGroup: (groupId: string) => void;
