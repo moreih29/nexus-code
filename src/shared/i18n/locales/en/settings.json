@@ -186,6 +186,26 @@
     }
   },
   "terminal": {
+    "shell": {
+      "label": "Default shell",
+      "system": "System default ({{name}})",
+      "systemPlain": "System default",
+      "cmd": "Command Prompt",
+      "custom": "Custom…",
+      "notFound": "Not found on this computer",
+      "missingFallback": "This shell can't be found, so terminals open with the system default.",
+      "program": "Program",
+      "programPlaceholder": "e.g. /opt/homebrew/bin/fish or fish",
+      "programPlaceholderWindows": "e.g. C:Program Files\nu\bin\nu.exe or nu",
+      "browse": "Browse…",
+      "browseTitle": "Choose a shell program",
+      "programs": "Programs",
+      "programFound": "Found: {{path}}",
+      "programNotFound": "No program with this path or name was found.",
+      "args": "Arguments (optional)",
+      "argsPlaceholder": "e.g. -l",
+      "hint": "Applies to terminals opened from now on. SSH workspaces use the remote server's login shell."
+    },
     "fontSize": "Font size",
     "cursorStyle": "Cursor style",
     "fontFamily": "Font family",

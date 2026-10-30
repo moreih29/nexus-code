@@ -1,6 +1,8 @@
 // src/renderer/components/settings/panels/terminal-panel.tsx
 //
 // Controls:
+//   - Default shell: Select of the installed shells + custom program branch
+//     (terminal-shell-section.tsx)
 //   - Live preview: fake shell line + blinking cursor that mirrors font
 //     family, size, ligatures and cursor style (no xterm instance — too heavy)
 //   - Font size: numeric input + ▲▼ stepper (8–32, step 1)
@@ -26,6 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { SettingsRow, SettingsSection } from "../section";
 import type { SegmentedOption } from "../segmented-control";
 import { SegmentedControl } from "../segmented-control";
+import { TerminalShellSection } from "./terminal-shell-section";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -175,6 +178,8 @@ export function TerminalPanel() {
 
   return (
     <div className="flex flex-col gap-5">
+      <TerminalShellSection />
+
       {/* Live preview — mirrors family, size, ligatures + cursor style */}
       <TerminalPreview
         label={t("terminal.preview")}
