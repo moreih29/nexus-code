@@ -77,6 +77,7 @@ interface TerminalLike {
    */
   onTitleChange: (callback: (title: string) => void) => Disposable;
   getSelection: () => string;
+  clearSelection: () => void;
   open: (parent: HTMLElement) => void;
   refresh: (start: number, end: number) => void;
   /** `callback` runs once xterm has parsed `data`. */
@@ -730,6 +731,10 @@ class XtermTerminalController implements TerminalController {
         const selection = term.getSelection();
         if (selection) {
           copyTextViaIpc(selection);
+          // Ctrl+C is also the interrupt key: drop the selection once it's
+          // copied, as Windows Terminal does, so the next Ctrl+C reaches the
+          // app as ^C instead of copying again. Cmd+C keeps it (iTerm2).
+          if (event.ctrlKey) term.clearSelection();
           event.preventDefault();
           event.stopPropagation();
           return false;

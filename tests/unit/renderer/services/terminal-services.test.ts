@@ -182,6 +182,8 @@ function makeTerminalControllerDeps(
   };
   // DECSET 2004 state the app on the pty asked for; tests flip it.
   const modes = { bracketedPasteMode: false };
+  // The text selected in the terminal; tests set it.
+  let selection = "";
   // controller.ts:317에서 attachCustomKeyEventHandler를 호출해 keydown 가로채기
   // 핸들러를 등록한다. 테스트에서 합성 KeyboardEvent로 호출해 분기를 검증하기
   // 위해 핸들러를 capture한다.
@@ -231,7 +233,10 @@ function makeTerminalControllerDeps(
         capturedTitleHandler = handler;
         return { dispose: () => {} };
       },
-      getSelection: () => "",
+      getSelection: () => selection,
+      clearSelection: () => {
+        selection = "";
+      },
       open: () => {},
       refresh: () => {},
       write: (data, callback) => {
@@ -293,6 +298,10 @@ function makeTerminalControllerDeps(
     setBracketedPaste(on: boolean): void {
       modes.bracketedPasteMode = on;
     },
+    setSelection(text: string): void {
+      selection = text;
+    },
+    getSelection: () => selection,
   };
 }
 
@@ -1134,6 +1143,46 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     expect(harness.ptyWrites).toEqual([]);
 
     controller.dispose();
+  });
+
+  describe("copy with a selection", () => {
+    const copied = () =>
+      ipcCalls
+        .filter((c) => c.channel === "clipboard" && c.method === "writeText")
+        .map((c) => c.args);
+
+    it("Ctrl+C copies, then drops the selection so the next Ctrl+C goes to the app", async () => {
+      const { harness, controller, handler } = await setupHandler();
+      harness.setSelection("hello");
+
+      const first = fakeKeyEvent({ key: "c", ctrlKey: true, keyCode: 67 });
+      expect(handler(first as unknown as KeyboardEvent)).toBe(false);
+      expect(first.defaultPrevented).toBe(true);
+      expect(harness.getSelection()).toBe("");
+      await new Promise((r) => setTimeout(r, 0));
+      expect(copied()).toEqual([{ text: "hello" }]);
+
+      // Nothing selected now: xterm sends ^C.
+      expect(
+        handler(fakeKeyEvent({ key: "c", ctrlKey: true, keyCode: 67 }) as unknown as KeyboardEvent),
+      ).toBe(true);
+
+      controller.dispose();
+    });
+
+    it("Cmd+C copies and keeps the selection", async () => {
+      const { harness, controller, handler } = await setupHandler();
+      harness.setSelection("hello");
+
+      expect(
+        handler(fakeKeyEvent({ key: "c", metaKey: true, keyCode: 67 }) as unknown as KeyboardEvent),
+      ).toBe(false);
+      expect(harness.getSelection()).toBe("hello");
+      await new Promise((r) => setTimeout(r, 0));
+      expect(copied()).toEqual([{ text: "hello" }]);
+
+      controller.dispose();
+    });
   });
 
   describe("Ctrl+V", () => {
