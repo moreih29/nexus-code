@@ -59,6 +59,8 @@ interface TerminalLike {
    * onTitleChange 콜백 시점에 이 값을 확인해 alternate 상태일 때만 title을 수용한다.
    */
   readonly buffer: { active: { type: "normal" | "alternate" } };
+  /** Whether the app on the pty turned on bracketed paste (DECSET 2004). */
+  readonly modes: { readonly bracketedPasteMode: boolean };
   options: {
     theme: ITheme | undefined;
     fontSize: number;
@@ -75,6 +77,7 @@ interface TerminalLike {
    */
   onTitleChange: (callback: (title: string) => void) => Disposable;
   getSelection: () => string;
+  clearSelection: () => void;
   open: (parent: HTMLElement) => void;
   refresh: (start: number, end: number) => void;
   /** `callback` runs once xterm has parsed `data`. */
@@ -728,11 +731,36 @@ class XtermTerminalController implements TerminalController {
         const selection = term.getSelection();
         if (selection) {
           copyTextViaIpc(selection);
+          // Ctrl+C is also the interrupt key: drop the selection once it's
+          // copied, as Windows Terminal does, so the next Ctrl+C reaches the
+          // app as ^C instead of copying again. Cmd+C keeps it (iTerm2).
+          if (event.ctrlKey) term.clearSelection();
           event.preventDefault();
           event.stopPropagation();
           return false;
         }
         // 셀렉션 없으면 SIGINT 경로로 보내기 위해 xterm 기본 처리에 위임.
+      }
+
+      // Ctrl+V pastes on Windows, as in Windows Terminal, when the app asked
+      // for bracketed paste (Claude Code, bash, vim). xterm would send ^V
+      // (0x16) instead, which those apps don't read as a text paste. Returning
+      // false without preventDefault lets Chromium run its native paste, which
+      // xterm sends as a bracketed paste: the path Ctrl+Shift+V already takes.
+      // Apps without bracketed paste keep ^V: PowerShell's PSReadLine reads it
+      // and pastes a multi-line clipboard as one edit, where typed-in text
+      // would run each line. Matched on keyCode, like xterm's own ^V mapping.
+      // Linux keeps ^V and pastes with Ctrl+Shift+V, as its terminals do.
+      if (
+        event.ctrlKey &&
+        !event.shiftKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        event.keyCode === 86 &&
+        term.modes.bracketedPasteMode &&
+        window.host?.platform === "win32"
+      ) {
+        return false;
       }
 
       if (event.key === "Enter" && event.shiftKey) {

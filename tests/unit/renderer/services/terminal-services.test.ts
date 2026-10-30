@@ -180,6 +180,10 @@ function makeTerminalControllerDeps(
   const bufferState: { active: { type: "normal" | "alternate" } } = {
     active: { type: "alternate" },
   };
+  // DECSET 2004 state the app on the pty asked for; tests flip it.
+  const modes = { bracketedPasteMode: false };
+  // The text selected in the terminal; tests set it.
+  let selection = "";
   // controller.ts:317에서 attachCustomKeyEventHandler를 호출해 keydown 가로채기
   // 핸들러를 등록한다. 테스트에서 합성 KeyboardEvent로 호출해 분기를 검증하기
   // 위해 핸들러를 capture한다.
@@ -217,6 +221,7 @@ function makeTerminalControllerDeps(
         },
       },
       buffer: bufferState,
+      modes,
       dispose: () => {},
       loadAddon: () => {},
       onData: (handler) => {
@@ -228,7 +233,10 @@ function makeTerminalControllerDeps(
         capturedTitleHandler = handler;
         return { dispose: () => {} };
       },
-      getSelection: () => "",
+      getSelection: () => selection,
+      clearSelection: () => {
+        selection = "";
+      },
       open: () => {},
       refresh: () => {},
       write: (data, callback) => {
@@ -287,6 +295,13 @@ function makeTerminalControllerDeps(
     setBufferType(type: "normal" | "alternate"): void {
       bufferState.active.type = type;
     },
+    setBracketedPaste(on: boolean): void {
+      modes.bracketedPasteMode = on;
+    },
+    setSelection(text: string): void {
+      selection = text;
+    },
+    getSelection: () => selection,
   };
 }
 
@@ -1128,6 +1143,101 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     expect(harness.ptyWrites).toEqual([]);
 
     controller.dispose();
+  });
+
+  describe("copy with a selection", () => {
+    const copied = () =>
+      ipcCalls
+        .filter((c) => c.channel === "clipboard" && c.method === "writeText")
+        .map((c) => c.args);
+
+    it("Ctrl+C copies, then drops the selection so the next Ctrl+C goes to the app", async () => {
+      const { harness, controller, handler } = await setupHandler();
+      harness.setSelection("hello");
+
+      const first = fakeKeyEvent({ key: "c", ctrlKey: true, keyCode: 67 });
+      expect(handler(first as unknown as KeyboardEvent)).toBe(false);
+      expect(first.defaultPrevented).toBe(true);
+      expect(harness.getSelection()).toBe("");
+      await new Promise((r) => setTimeout(r, 0));
+      expect(copied()).toEqual([{ text: "hello" }]);
+
+      // Nothing selected now: xterm sends ^C.
+      expect(
+        handler(fakeKeyEvent({ key: "c", ctrlKey: true, keyCode: 67 }) as unknown as KeyboardEvent),
+      ).toBe(true);
+
+      controller.dispose();
+    });
+
+    it("Cmd+C copies and keeps the selection", async () => {
+      const { harness, controller, handler } = await setupHandler();
+      harness.setSelection("hello");
+
+      expect(
+        handler(fakeKeyEvent({ key: "c", metaKey: true, keyCode: 67 }) as unknown as KeyboardEvent),
+      ).toBe(false);
+      expect(harness.getSelection()).toBe("hello");
+      await new Promise((r) => setTimeout(r, 0));
+      expect(copied()).toEqual([{ text: "hello" }]);
+
+      controller.dispose();
+    });
+  });
+
+  describe("Ctrl+V", () => {
+    const host = globalThis.window as unknown as { host?: { platform: string } };
+    afterEach(() => {
+      delete host.host;
+    });
+    const ctrlV = (extra: { shiftKey?: boolean; altKey?: boolean } = {}) =>
+      fakeKeyEvent({ key: "v", ctrlKey: true, keyCode: 86, ...extra });
+
+    it("leaves the key to Chromium's paste on Windows when the app wants bracketed paste", async () => {
+      host.host = { platform: "win32" };
+      const { harness, controller, handler } = await setupHandler();
+      harness.setBracketedPaste(true);
+      const event = ctrlV();
+
+      expect(handler(event as unknown as KeyboardEvent)).toBe(false);
+      // No preventDefault: the native paste is what delivers the text.
+      expect(event.defaultPrevented).toBe(false);
+      expect(harness.ptyWrites).toEqual([]);
+
+      controller.dispose();
+    });
+
+    it("still sends ^V when the app has no bracketed paste (PSReadLine pastes it)", async () => {
+      host.host = { platform: "win32" };
+      const { controller, handler } = await setupHandler();
+
+      expect(handler(ctrlV() as unknown as KeyboardEvent)).toBe(true);
+
+      controller.dispose();
+    });
+
+    it("still sends ^V on Linux and macOS", async () => {
+      for (const platform of ["linux", "darwin"]) {
+        host.host = { platform };
+        const { harness, controller, handler } = await setupHandler();
+        harness.setBracketedPaste(true);
+
+        expect(handler(ctrlV() as unknown as KeyboardEvent)).toBe(true);
+
+        controller.dispose();
+      }
+    });
+
+    it("leaves Ctrl+Shift+V and Ctrl+Alt+V to xterm", async () => {
+      host.host = { platform: "win32" };
+      const { harness, controller, handler } = await setupHandler();
+      harness.setBracketedPaste(true);
+
+      expect(handler(ctrlV({ shiftKey: true }) as unknown as KeyboardEvent)).toBe(true);
+      expect(handler(ctrlV({ altKey: true }) as unknown as KeyboardEvent)).toBe(true);
+
+      controller.dispose();
+    });
   });
 });
 
