@@ -287,7 +287,19 @@ describe("acceleratorToLabel", () => {
   // Cmd+, has two cases (Mac and Win) so both are checked in one test.
   it("renders Cmd+, with a literal comma", () => {
     expect(acceleratorToLabel("Cmd+,", { isMac: true })).toBe("⌘,");
-    expect(acceleratorToLabel("Cmd+,", { isMac: false })).toBe("⌘+,");
+    expect(acceleratorToLabel("Cmd+,", { isMac: false })).toBe("Ctrl+,");
+  });
+
+  // Off macOS an explicit Cmd names the key it matches: Ctrl, or the
+  // Windows/Super key in a literal Cmd+Ctrl combo. Never the ⌘ symbol.
+  test.each([
+    ["Cmd+Backspace", "win32", "Ctrl+Backspace"],
+    ["Cmd+Option+V", "win32", "Ctrl+Alt+V"],
+    ["Cmd+Ctrl+Up", "win32", "Win+Ctrl+Up"],
+    ["Cmd+Ctrl+Up", "linux", "Super+Ctrl+Up"],
+    ["Cmd+Ctrl+Up", undefined, "Win+Ctrl+Up"],
+  ] as const)("%s on %s → %s", (accelerator, platform, expected) => {
+    expect(acceleratorToLabel(accelerator, { isMac: false, platform })).toBe(expected);
   });
 });
 

@@ -40,6 +40,12 @@ function detectIsMac(): boolean {
 
 export const isMac = detectIsMac();
 
+/** Label options for this platform (names the Windows/Super key too). */
+export const labelOptions = {
+  isMac,
+  platform: typeof window !== "undefined" ? window.host?.platform : undefined,
+};
+
 /**
  * Render the shortcut label for a command from the ACTIVE binding
  * table. Returns `undefined` if the command currently has neither a
@@ -51,11 +57,11 @@ export function shortcutFor(command: CommandId): string | undefined {
   const bindings = getActiveBindings();
   const primary = findDisplayPrimary(bindings, command, isMac);
   if (primary?.primary !== undefined) {
-    return acceleratorToLabel(primary.primary, { isMac });
+    return acceleratorToLabel(primary.primary, labelOptions);
   }
   const chord = bindings.find((b) => b.command === command && b.chord !== undefined);
   if (chord?.chord !== undefined) {
-    return chordToLabel(chord.chord, { isMac });
+    return chordToLabel(chord.chord, labelOptions);
   }
   return undefined;
 }

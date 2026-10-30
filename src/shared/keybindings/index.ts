@@ -132,6 +132,10 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
 
   // Tabs
   { command: COMMANDS.tabClose, primary: "CmdOrCtrl+W", when: UNLESS_TERMINAL },
+  // Win/Linux: in the terminal Ctrl+W is the shell's (delete word), so
+  // Ctrl+F4, the Windows close-document key, also closes the tab, from
+  // anywhere.
+  { command: COMMANDS.tabClose, primary: "Ctrl+F4", when: "!isMac" },
   { command: COMMANDS.tabCloseOthers, primary: "CmdOrCtrl+Alt+T" },
   // Chord-only commands (⌘K …). Cannot be Electron-registered;
   // renderer handles entirely. The `when` guard applies to the *leader*
@@ -193,6 +197,10 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
 
   // Terminal
   { command: COMMANDS.terminalNew, primary: "CmdOrCtrl+T", when: UNLESS_TERMINAL },
+  // Win/Linux: in the terminal Ctrl+T is the shell's, so Ctrl+Shift+T (the
+  // Windows Terminal and GNOME Terminal key) also opens a terminal, from
+  // anywhere. Shells and TUIs such as Claude Code don't bind it.
+  { command: COMMANDS.terminalNew, primary: "Ctrl+Shift+T", when: "!isMac" },
 
   // Browser tab (Chrome parity). All scoped to `browserTabActive` — a
   // STATE context key (active group's active tab is a browser tab),

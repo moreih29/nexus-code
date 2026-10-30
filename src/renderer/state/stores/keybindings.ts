@@ -6,7 +6,8 @@
 //   - appState (main process, via IPC) — authoritative store; main also
 //     reads it to rebuild native menu accelerator labels.
 //   - This zustand store — live copy driving (a) the dispatcher via
-//     `setActiveBindings` recompilation, (b) the Settings panel UI.
+//     `setActiveBindings` recompilation, and the app chords bound in
+//     Monaco, (b) the Settings panel UI.
 //
 // Every mutation recompiles the resolver SYNCHRONOUSLY before the IPC
 // write — a rebinding must take effect on the very next keydown, not
@@ -25,6 +26,7 @@ import {
 import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult } from "../../ipc/client";
 import { setActiveBindings } from "../../keybindings/resolver";
+import { applyAppChordsToMonaco } from "../../services/editor/keybindings/app-chords";
 import { applyEditorKeybindingOverrides } from "../../services/editor/keybindings/apply";
 
 const log = createLogger("keybindings");
@@ -33,6 +35,12 @@ const KNOWN_COMMANDS: ReadonlySet<string> = new Set(ALL_COMMAND_IDS);
 
 function effective(overrides: readonly KeybindingOverride[]): KeybindingDecl[] {
   return applyKeybindingOverrides(KEYBINDINGS, overrides, KNOWN_COMMANDS);
+}
+
+/** Drive the dispatcher and the app chords bound in Monaco from `bindings`. */
+function activate(bindings: readonly KeybindingDecl[]): void {
+  setActiveBindings(bindings);
+  applyAppChordsToMonaco(bindings);
 }
 
 interface KeybindingsState {
@@ -72,9 +80,10 @@ interface KeybindingsState {
   hydrateEditor(overrides: readonly KeybindingOverride[] | undefined): void;
 
   /**
-   * Re-reconcile Monaco from the current editor overrides. Called from
-   * `initializeEditorServices` after the Monaco singleton is ready,
-   * since bootstrap hydration usually runs before Monaco mounts.
+   * Re-reconcile Monaco from the current editor overrides and the app's
+   * chord bindings. Called from `initializeEditorServices` after the
+   * Monaco singleton is ready, since bootstrap hydration usually runs
+   * before Monaco mounts.
    */
   applyEditorBindings(): void;
 
@@ -123,14 +132,14 @@ export const useKeybindingsStore = create<KeybindingsState>((set, get) => ({
   hydrate(overrides) {
     const next = overrides !== undefined ? [...overrides] : [];
     const merged = effective(next);
-    setActiveBindings(merged);
+    activate(merged);
     set({ overrides: next, effectiveBindings: merged });
   },
 
   setOverride(patch) {
     const next = upsertOverride(get().overrides, patch);
     const merged = effective(next);
-    setActiveBindings(merged);
+    activate(merged);
     set({ overrides: next, effectiveBindings: merged });
     persist(next);
   },
@@ -138,14 +147,14 @@ export const useKeybindingsStore = create<KeybindingsState>((set, get) => ({
   resetCommand(command) {
     const next = removeOverride(get().overrides, command);
     const merged = effective(next);
-    setActiveBindings(merged);
+    activate(merged);
     set({ overrides: next, effectiveBindings: merged });
     persist(next);
   },
 
   resetAll() {
     const merged = effective([]);
-    setActiveBindings(merged);
+    activate(merged);
     set({ overrides: [], effectiveBindings: merged });
     persist([]);
   },
@@ -159,6 +168,7 @@ export const useKeybindingsStore = create<KeybindingsState>((set, get) => ({
 
   applyEditorBindings() {
     applyEditorKeybindingOverrides(get().editorOverrides);
+    applyAppChordsToMonaco(get().effectiveBindings);
   },
 
   setEditorOverride(patch) {
