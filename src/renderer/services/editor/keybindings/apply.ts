@@ -82,7 +82,7 @@ function codeToMonacoKeyCode(monaco: typeof import("monaco-editor"), code: strin
  * key). `CmdOrCtrl` maps to `KeyMod.CtrlCmd`, which Monaco resolves to ⌘
  * on Mac / Ctrl elsewhere — the same platform semantics our parser uses.
  */
-function acceleratorToMonacoKeybinding(
+export function acceleratorToMonacoKeybinding(
   monaco: typeof import("monaco-editor"),
   accel: AcceleratorString,
 ): number | null {
