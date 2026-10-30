@@ -1,14 +1,16 @@
-// Settings › Terminal › Default shell and Shells.
+// Settings › Terminal › Default shell.
 //
-// "Default shell" is a Select like the font family one: "System default (…)"
-// first, then every shell in the list below it, with its path as a second
-// line. "Shells" lists the shells found on this machine and the ones the user
-// added. "Add shell" opens a form (name, program with Browse… and a check that
-// it exists, arguments); added shells can be edited and removed, and they show
-// in the tab bar's "New Terminal With ›" too. Changes apply to terminals
-// opened from now on; main reads them at every spawn.
+// A Select like the font family one: "System default (…)" first, then the
+// shells found on this machine and the ones the user added, each with its
+// path as a second line. "Manage shells…" opens a dialog that lists them and
+// adds, edits and removes the added ones (name, program with Browse… and a
+// check that it exists, arguments), so the panel stays the same height however
+// many there are. Added shells show in the tab bar's "New Terminal With ›"
+// too. Changes apply to terminals opened from now on; main reads them at
+// every spawn.
 
 import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Dialog as RadixDialog } from "radix-ui";
 import { type FormEvent, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -30,6 +32,7 @@ import {
 } from "../../../services/terminal/installed-shells";
 import { useTerminalStore } from "../../../state/stores/terminal";
 import { Button } from "../../ui/button";
+import { Dialog } from "../../ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { SettingsSection } from "../section";
 
@@ -65,11 +68,16 @@ export function TerminalShellSection() {
   const { t } = useTranslation("settings");
   const customShells = useTerminalStore((s) => s.customShells);
   const entries = shellEntries(t, installed, customShells);
+  const [managing, setManaging] = useState(false);
 
   return (
     <>
-      <DefaultShellSection installed={installed} entries={entries} />
-      <ShellListSection entries={entries} />
+      <DefaultShellSection
+        installed={installed}
+        entries={entries}
+        onManage={() => setManaging(true)}
+      />
+      <ManageShellsDialog open={managing} onOpenChange={setManaging} entries={entries} />
     </>
   );
 }
@@ -81,9 +89,11 @@ export function TerminalShellSection() {
 function DefaultShellSection({
   installed,
   entries,
+  onManage,
 }: {
   installed: InstalledShells | null;
   entries: ShellEntry[];
+  onManage: () => void;
 }) {
   const { t } = useTranslation("settings");
   const shell = useTerminalStore((s) => s.shell);
@@ -118,32 +128,41 @@ function DefaultShellSection({
       dirty={shell !== undefined}
       onReset={() => setShell(undefined)}
     >
-      <Select value={shell ? choiceValue(shell) : SYSTEM_VALUE} onValueChange={handleSelect}>
-        <SelectTrigger ariaLabel={t("terminal.shell.label")}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={SYSTEM_VALUE}>
-            {installed
-              ? t("terminal.shell.system", { name: shellDisplayName(t, installed.systemDefault) })
-              : t("terminal.shell.systemPlain")}
-          </SelectItem>
-          {entries.map((e) => (
-            <SelectItem
-              key={choiceValue(e.choice)}
-              value={choiceValue(e.choice)}
-              description={commandLine(e.path, e.args)}
-            >
-              {e.name}
-            </SelectItem>
-          ))}
-          {chosenMissing && shell !== undefined && (
-            <SelectItem value={choiceValue(shell)} description={t("terminal.shell.notFound")}>
-              {shell.kind === "detected" ? shell.id : t("terminal.shell.removed")}
-            </SelectItem>
-          )}
-        </SelectContent>
-      </Select>
+      <div className="flex gap-2">
+        <div className="min-w-0 flex-1">
+          <Select value={shell ? choiceValue(shell) : SYSTEM_VALUE} onValueChange={handleSelect}>
+            <SelectTrigger ariaLabel={t("terminal.shell.label")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={SYSTEM_VALUE}>
+                {installed
+                  ? t("terminal.shell.system", {
+                      name: shellDisplayName(t, installed.systemDefault),
+                    })
+                  : t("terminal.shell.systemPlain")}
+              </SelectItem>
+              {entries.map((e) => (
+                <SelectItem
+                  key={choiceValue(e.choice)}
+                  value={choiceValue(e.choice)}
+                  description={commandLine(e.path, e.args)}
+                >
+                  {e.name}
+                </SelectItem>
+              ))}
+              {chosenMissing && shell !== undefined && (
+                <SelectItem value={choiceValue(shell)} description={t("terminal.shell.notFound")}>
+                  {shell.kind === "detected" ? shell.id : t("terminal.shell.removed")}
+                </SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button variant="outline" size="sm" className="h-auto self-stretch" onClick={onManage}>
+          {t("terminal.shell.manage")}
+        </Button>
+      </div>
 
       {shown && <p className="truncate text-app-ui-sm text-muted-foreground">{shown}</p>}
       {(chosenMissing || customFound === null) && (
@@ -157,16 +176,32 @@ function DefaultShellSection({
 }
 
 // ---------------------------------------------------------------------------
-// Shells: the detected ones, then the added ones
+// Manage shells: the detected ones, then the added ones
 // ---------------------------------------------------------------------------
 
-function ShellListSection({ entries }: { entries: ShellEntry[] }) {
-  const { t } = useTranslation("settings");
+function ManageShellsDialog({
+  open,
+  onOpenChange,
+  entries,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  entries: ShellEntry[];
+}) {
+  const { t } = useTranslation(["settings", "common"]);
   const customShells = useTerminalStore((s) => s.customShells);
   const saveCustomShell = useTerminalStore((s) => s.saveCustomShell);
   const removeCustomShell = useTerminalStore((s) => s.removeCustomShell);
-  // The added shell being edited, "new" while adding one, or null.
+  // The form in place of the list: the added shell being edited, "new"
+  // while adding one, or null for the list.
   const [editing, setEditing] = useState<string | null>(null);
+  const titleId = useId();
+  const editingShell = customShells.find((s) => s.id === editing);
+
+  const handleOpenChange = (next: boolean) => {
+    if (!next) setEditing(null);
+    onOpenChange(next);
+  };
 
   const save = (shell: CustomShell) => {
     saveCustomShell(shell);
@@ -174,46 +209,63 @@ function ShellListSection({ entries }: { entries: ShellEntry[] }) {
   };
 
   return (
-    <SettingsSection label={t("terminal.shell.listLabel")}>
-      <div className="flex flex-col gap-0.5">
-        {entries.map((entry) => {
-          const custom =
-            entry.choice.kind === "custom"
-              ? customShells.find((s) => s.id === entry.choice.id)
-              : undefined;
-          if (custom && editing === custom.id) {
-            return (
-              <CustomShellForm
-                key={custom.id}
-                initial={custom}
-                onSave={save}
-                onCancel={() => setEditing(null)}
-              />
-            );
-          }
-          return (
-            <ShellRow
-              key={choiceValue(entry.choice)}
-              entry={entry}
-              onEdit={custom ? () => setEditing(custom.id) : undefined}
-              onRemove={custom ? () => removeCustomShell(custom.id) : undefined}
-            />
-          );
-        })}
-      </div>
+    <Dialog
+      open={open}
+      onOpenChange={handleOpenChange}
+      size="lg"
+      aria-labelledby={titleId}
+      aria-describedby={undefined}
+    >
+      <RadixDialog.Title id={titleId} className="text-app-body-emphasis text-foreground">
+        {editing === null
+          ? t("terminal.shell.manageTitle")
+          : editingShell
+            ? t("terminal.shell.edit", { name: editingShell.name })
+            : t("terminal.shell.add")}
+      </RadixDialog.Title>
 
-      {editing === "new" ? (
-        <CustomShellForm onSave={save} onCancel={() => setEditing(null)} />
-      ) : (
-        <div>
-          <Button variant="outline" size="sm" onClick={() => setEditing("new")}>
-            <Plus aria-hidden="true" />
-            {t("terminal.shell.add")}
-          </Button>
+      {editing !== null ? (
+        <div className="mt-3">
+          <CustomShellForm
+            key={editing}
+            initial={editingShell}
+            onSave={save}
+            onCancel={() => setEditing(null)}
+          />
         </div>
+      ) : (
+        <>
+          <p className="mt-1 text-app-ui-sm text-muted-foreground">
+            {t("terminal.shell.listHint")}
+          </p>
+          <div className="mt-3 flex max-h-80 flex-col gap-0.5 overflow-y-auto">
+            {entries.map((entry) => {
+              const custom =
+                entry.choice.kind === "custom"
+                  ? customShells.find((s) => s.id === entry.choice.id)
+                  : undefined;
+              return (
+                <ShellRow
+                  key={choiceValue(entry.choice)}
+                  entry={entry}
+                  onEdit={custom ? () => setEditing(custom.id) : undefined}
+                  onRemove={custom ? () => removeCustomShell(custom.id) : undefined}
+                />
+              );
+            })}
+          </div>
+          <div className="mt-4 flex justify-between gap-2">
+            <Button variant="outline" size="sm" onClick={() => setEditing("new")}>
+              <Plus aria-hidden="true" />
+              {t("terminal.shell.add")}
+            </Button>
+            <Button size="sm" onClick={() => handleOpenChange(false)}>
+              {t("common:action.close")}
+            </Button>
+          </div>
+        </>
       )}
-      <p className="text-app-ui-sm text-muted-foreground">{t("terminal.shell.listHint")}</p>
-    </SettingsSection>
+    </Dialog>
   );
 }
 
@@ -338,7 +390,7 @@ function CustomShellForm({
       aria-label={
         initial ? t("terminal.shell.edit", { name: initial.name }) : t("terminal.shell.add")
       }
-      className="flex flex-col gap-2 rounded-(--radius-control) border border-border p-3"
+      className="flex flex-col gap-2"
     >
       <div className="flex flex-col gap-1">
         <label htmlFor={nameId} className="text-app-ui-sm text-muted-foreground">
