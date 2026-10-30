@@ -66,6 +66,23 @@ describe("findDisplayPrimary", () => {
     );
   });
 
+  it("shows the key that also works from the terminal on Win/Linux", () => {
+    expect(findDisplayPrimary(KEYBINDINGS, COMMANDS.terminalNew, false)?.primary).toBe(
+      "Ctrl+Shift+T",
+    );
+    expect(findDisplayPrimary(KEYBINDINGS, COMMANDS.tabClose, false)?.primary).toBe("Ctrl+F4");
+    expect(findDisplayPrimary(KEYBINDINGS, COMMANDS.filesRefresh, false)?.primary).toBe(
+      "CmdOrCtrl+Shift+R",
+    );
+  });
+
+  it("keeps ⌘T and ⌘W on macOS", () => {
+    expect(findDisplayPrimary(KEYBINDINGS, COMMANDS.terminalNew, true)?.primary).toBe(
+      "CmdOrCtrl+T",
+    );
+    expect(findDisplayPrimary(KEYBINDINGS, COMMANDS.tabClose, true)?.primary).toBe("CmdOrCtrl+W");
+  });
+
   it("returns the first primary otherwise", () => {
     expect(findDisplayPrimary(KEYBINDINGS, COMMANDS.fileOpen, false)?.primary).toBe("CmdOrCtrl+E");
     expect(findDisplayPrimary(KEYBINDINGS, COMMANDS.tabCloseAll, false)).toBeUndefined();
