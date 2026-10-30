@@ -4,7 +4,7 @@ import { DEFAULT_THEME, THEME_SOURCE_BY_ID, type ThemeId } from "../../../shared
 import { createLogger } from "../../../shared/log/main";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { getMainT } from "../../i18n";
-import { isMac } from "../../infra/platform";
+import { isMac, supportsWindowsBackdrop } from "../../infra/platform";
 import type { AppState } from "../../infra/storage/state-service";
 import { trackAppWindow } from "./app-windows";
 import { isAllowedMainWindowNavigation } from "./navigation";
@@ -47,6 +47,7 @@ function getTitleBarColors(themePreference: AppState["themePreference"]): {
 
 export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   const mac = isMac();
+  const backdrop = supportsWindowsBackdrop();
   const { bg: titleBg, symbol: titleSymbol } = getTitleBarColors(appState?.themePreference);
 
   // `transparent` is a constructor-only Electron option — it must be set at
@@ -55,6 +56,7 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   // requiring an app restart. At 100% opacity the surfaces paint fully opaque
   // and the desktop is invisible — visually equivalent to a non-transparent
   // window (minus the native shadow, an acceptable trade for restart-free UX).
+  // Windows 11 22H2+ gets the same live opacity over a system backdrop instead.
 
   const win = new BrowserWindow({
     width: 1280,
@@ -76,11 +78,25 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
           titleBarOverlay: {
             // Match the renderer titlebar's chrome background for the active theme.
             // Hex literal required — Electron does not accept OKLCH or CSS vars here.
-            color: titleBg,
+            // Over a backdrop the overlay is clear instead: the controls then sit
+            // on the renderer titlebar, which follows the theme and the opacity.
+            color: backdrop ? "#00000000" : titleBg,
             symbolColor: titleSymbol,
             height: TITLEBAR_HEIGHT,
           },
         }),
+    ...(backdrop
+      ? {
+          // Windows 11 22H2+: the system acrylic shows, blurred, wherever the
+          // renderer paints translucent. `transparent` would show the desktop
+          // as macOS does, but on Windows it drops the native frame: no snap,
+          // shadow or rounded corners, and maximize becomes a resize. DWM
+          // draws the acrylic only while the window is active; an inactive
+          // window gets a solid fill.
+          backgroundMaterial: "acrylic",
+          backgroundColor: "#00000000",
+        }
+      : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,
