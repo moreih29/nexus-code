@@ -34,6 +34,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Setup Go
+        # For the agent build; the agent's tests have their own job.
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -84,9 +85,6 @@ jobs:
       - name: Test
         run: bun run test
 
-      - name: Test agent
-        run: go test ./...
-
       - name: Resolve Node runtime version
         id: node-runtime
         shell: bash
@@ -113,3 +111,26 @@ jobs:
         # electron-vite build — out/ 디렉터리 산출.
         # electron-builder는 실행하지 않는다 (CI 피드백 시간 절약).
         run: bun run build
+
+  # The agent's tests need none of the JS setup, so they run beside the job
+  # above instead of after it. On Windows each takes two to three minutes.
+  go-test:
+    name: Agent tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test agent
+        run: go test ./...
