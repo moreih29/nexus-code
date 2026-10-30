@@ -406,7 +406,11 @@ app.whenReady().then(async () => {
   disposeClaudeFeature = claudeSetup.dispose;
 
   // hookserver 접속 정보는 pull 기반으로 workspaceManager.getHookInfo()에서 조회한다.
-  registerPtyChannel({ agentHost: agentPtyHost, workspaceManager });
+  registerPtyChannel({
+    agentHost: agentPtyHost,
+    workspaceManager,
+    getDefaultShell: () => stateService.getState().terminalShell,
+  });
 
   lspHost = startConfiguredLspHost({
     workspaceManager,

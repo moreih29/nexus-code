@@ -29,6 +29,19 @@ const log = createLogger("terminal");
 
 type Disposable = { dispose: () => void };
 
+/** Missing shells already reported this session: one notice each, not one per tab. */
+const reportedMissingShells = new Set<string>();
+
+/** Says the chosen shell couldn't be found and the system default opened instead. */
+function reportMissingShell(name: string): void {
+  if (reportedMissingShells.has(name)) return;
+  reportedMissingShells.add(name);
+  // Lazy import keeps the controller loadable without the UI layer (tests).
+  void import("../../components/ui/toast").then(({ showToast }) =>
+    showToast({ kind: "warning", message: i18next.t("common:terminal.shell_missing", { name }) }),
+  );
+}
+
 type OscHandlerCallback = (data: string) => boolean | Promise<boolean>;
 /**
  * xterm.js v5의 registerCsiHandler public API는 callback에 IParams 객체가 아닌
@@ -412,6 +425,7 @@ class XtermTerminalController implements TerminalController {
     // null means the session is already live — treat as a no-op so the caller
     // does not surface a spurious "Reopen failed." message to the user.
     if (result === null) return;
+    if (result.missingShell) reportMissingShell(result.missingShell);
     term.write(`\r\n${TERMINAL_REOPENED_SEPARATOR}\r\n`);
   }
 
@@ -843,12 +857,17 @@ class XtermTerminalController implements TerminalController {
     });
 
     if (this.options.autoSpawn !== false) {
-      ptyClient.spawn(initialDimensions).catch((error: unknown) => {
-        if (!this.disposed) {
-          const reason = errorReason(error).replace(AGENT_SPAWN_FAILURE_LEAD, "");
-          term.write(`\r\n[${i18next.t("common:terminal.spawn_failed", { reason })}]\r\n`);
-        }
-      });
+      ptyClient
+        .spawn(initialDimensions)
+        .then((result) => {
+          if (result?.missingShell) reportMissingShell(result.missingShell);
+        })
+        .catch((error: unknown) => {
+          if (!this.disposed) {
+            const reason = errorReason(error).replace(AGENT_SPAWN_FAILURE_LEAD, "");
+            term.write(`\r\n[${i18next.t("common:terminal.spawn_failed", { reason })}]\r\n`);
+          }
+        });
     }
 
     this.resizeObserver = this.deps.createResizeObserver(() => {

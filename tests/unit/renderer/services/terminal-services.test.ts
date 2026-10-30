@@ -113,6 +113,15 @@ mock.module("../../../../src/renderer/components/ui/confirm-dialog", () => ({
   },
 }));
 
+const toasts: { kind: string; message: string }[] = [];
+const realToast = await import("../../../../src/renderer/components/ui/toast");
+mock.module("../../../../src/renderer/components/ui/toast", () => ({
+  ...realToast,
+  showToast: (input: { kind: string; message: string }) => {
+    toasts.push(input);
+  },
+}));
+
 const { closeTerminal, closeTerminalWithConfirm, createTerminalController, openTerminal } =
   await import("../../../../src/renderer/services/terminal");
 const {
@@ -1736,5 +1745,33 @@ describe("services/terminal controller — OSC title sync", () => {
     expect(updated.title).toBe("내 작업창");
 
     controller.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A chosen shell that can't be found: main falls back to the system default,
+// and the terminal says so once rather than once per tab.
+describe("services/terminal controller — missing shell", () => {
+  beforeEach(() => {
+    resetStores();
+    resetIpc();
+    toasts.length = 0;
+  });
+
+  it("warns once that the shell couldn't be found", async () => {
+    const spawnMissing = () => Promise.resolve({ pid: 1, missingShell: "Git Bash" });
+    const controllers = ["tab-missing-1", "tab-missing-2"].map((tabId) =>
+      createTerminalController(
+        { workspaceId: WS, tabId, cwd: "/workspace", container: {} as HTMLElement },
+        makeTerminalControllerDeps(spawnMissing).deps,
+      ),
+    );
+    await flushTerminalInit();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]?.kind).toBe("warning");
+
+    for (const controller of controllers) controller.dispose();
   });
 });

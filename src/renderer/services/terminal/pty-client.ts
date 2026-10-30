@@ -1,10 +1,10 @@
 import { TERMINAL_FLOW_CONTROL } from "../../../shared/pty/flow-control";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
-import type { PtyClient, PtyClientOptions, TerminalDimensions } from "./types";
+import type { PtyClient, PtyClientOptions, SpawnedSession, TerminalDimensions } from "./types";
 
 const pendingAckBytesBySessionKey = new Map<string, number>();
 const liveSessions = new Set<string>();
-const spawnPromisesBySessionKey = new Map<string, Promise<{ pid: number }>>();
+const spawnPromisesBySessionKey = new Map<string, Promise<SpawnedSession>>();
 /** Input waiting for the session's write in flight; present while one is. */
 const queuedInputBySessionKey = new Map<string, string>();
 const textEncoder = new TextEncoder();
@@ -31,7 +31,7 @@ export function spawnSession(
   tabId: string,
   cwd: string,
   { cols, rows }: TerminalDimensions,
-): Promise<{ pid: number } | null> {
+): Promise<SpawnedSession | null> {
   const key = sessionKey(workspaceId, tabId);
   if (liveSessions.has(key)) return Promise.resolve(null);
 

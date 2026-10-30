@@ -11,6 +11,7 @@
 //   - cursorStyle:   token fallback = 'block'
 //   - fontFamily:    token fallback = fontFamily.monoDisplay
 //   - fontLigatures: token fallback = false
+//   - shell:         fallback = the system default shell (resolved in main)
 //
 // fontFamily/fontLigatures are INDEPENDENT of the editor font store — the
 // terminal owns its own typeface preferences.
@@ -24,6 +25,7 @@
 import { create } from "zustand";
 import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import { createLogger } from "../../../shared/log/renderer";
+import type { ShellChoice } from "../../../shared/pty/shell";
 import { ipcCallResult } from "../../ipc/client";
 
 const log = createLogger("terminal");
@@ -45,6 +47,8 @@ interface TerminalSettingsState {
   cursorStyle: TerminalCursorStyle | undefined;
   fontFamily: string | undefined;
   fontLigatures: boolean | undefined;
+  /** The shell new local terminals open with; main reads it at each spawn. */
+  shell: ShellChoice | undefined;
 
   /** Hydrate from persisted appState — called once during bootstrap. */
   hydrate(values: {
@@ -52,7 +56,14 @@ interface TerminalSettingsState {
     cursorStyle?: TerminalCursorStyle | undefined;
     fontFamily?: string | undefined;
     fontLigatures?: boolean | undefined;
+    shell?: ShellChoice | undefined;
   }): void;
+
+  /**
+   * Set the default shell. Persists to appState only: running terminals keep
+   * their shell, and main reads the setting when the next one spawns.
+   */
+  setShell(value: ShellChoice | undefined): void;
 
   /**
    * Set the terminal font size.
@@ -101,9 +112,20 @@ export const useTerminalStore = create<TerminalSettingsState>((set) => {
     cursorStyle: undefined,
     fontFamily: undefined,
     fontLigatures: undefined,
+    shell: undefined,
 
-    hydrate({ fontSize, cursorStyle, fontFamily: family, fontLigatures }) {
-      set({ fontSize, cursorStyle, fontFamily: family, fontLigatures });
+    hydrate({ fontSize, cursorStyle, fontFamily: family, fontLigatures, shell }) {
+      set({ fontSize, cursorStyle, fontFamily: family, fontLigatures, shell });
+    },
+
+    setShell(value) {
+      set({ shell: value });
+
+      void ipcCallResult("appState", "set", {
+        terminalShell: value,
+      }).then((result) => {
+        if (!result.ok) log.warn(`appState set (shell) failed: ${result.message}`);
+      });
     },
 
     setFontSize(value) {
