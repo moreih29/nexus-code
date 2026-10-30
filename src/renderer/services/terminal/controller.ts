@@ -20,6 +20,7 @@ import { createPtyClient } from "./pty-client";
 import type {
   PtyClient,
   PtyClientOptions,
+  SpawnedSession,
   TerminalController,
   TerminalControllerOptions,
   TerminalDimensions,
@@ -302,6 +303,8 @@ const defaultTerminalControllerDeps: TerminalControllerDeps = {
 
 class XtermTerminalController implements TerminalController {
   private disposed = false;
+  /** Whether the shell is cmd.exe, which pastes on Ctrl+V (see the key handler). */
+  private shellIsCmd = false;
   private term: TerminalLike | null = null;
   private fitAddon: FitAddonLike | null = null;
   private ligaturesAddon: LigaturesAddonLike | null = null;
@@ -425,8 +428,16 @@ class XtermTerminalController implements TerminalController {
     // null means the session is already live — treat as a no-op so the caller
     // does not surface a spurious "Reopen failed." message to the user.
     if (result === null) return;
-    if (result.missingShell) reportMissingShell(result.missingShell);
+    this.noteSpawned(result);
     term.write(`\r\n${TERMINAL_REOPENED_SEPARATOR}\r\n`);
+  }
+
+  /** Takes in what main reports about the shell that started. */
+  private noteSpawned(result: SpawnedSession): void {
+    if (result.missingShell) reportMissingShell(result.missingShell);
+    if (result.shellPath !== undefined) {
+      this.shellIsCmd = /(^|[\\/])cmd\.exe$/i.test(result.shellPath);
+    }
   }
 
   private resolveCurrentThemeId(): ThemeId {
@@ -764,15 +775,17 @@ class XtermTerminalController implements TerminalController {
       // xterm sends as a bracketed paste: the path Ctrl+Shift+V already takes.
       // Apps without bracketed paste keep ^V: PowerShell's PSReadLine reads it
       // and pastes a multi-line clipboard as one edit, where typed-in text
-      // would run each line. Matched on keyCode, like xterm's own ^V mapping.
-      // Linux keeps ^V and pastes with Ctrl+Shift+V, as its terminals do.
+      // would run each line. cmd.exe has neither, and ^V does nothing there,
+      // so a cmd terminal always pastes. Matched on keyCode, like xterm's own
+      // ^V mapping. Linux keeps ^V and pastes with Ctrl+Shift+V, as its
+      // terminals do.
       if (
         event.ctrlKey &&
         !event.shiftKey &&
         !event.altKey &&
         !event.metaKey &&
         event.keyCode === 86 &&
-        term.modes.bracketedPasteMode &&
+        (term.modes.bracketedPasteMode || this.shellIsCmd) &&
         window.host?.platform === "win32"
       ) {
         return false;
@@ -861,7 +874,7 @@ class XtermTerminalController implements TerminalController {
       ptyClient
         .spawn(initialDimensions)
         .then((result) => {
-          if (result?.missingShell) reportMissingShell(result.missingShell);
+          if (result) this.noteSpawned(result);
         })
         .catch((error: unknown) => {
           if (!this.disposed) {

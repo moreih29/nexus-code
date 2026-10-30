@@ -1243,6 +1243,33 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
       controller.dispose();
     });
 
+    it("pastes in cmd.exe, which has neither bracketed paste nor a ^V paste", async () => {
+      host.host = { platform: "win32" };
+      const keyHandlerFor = async (shellPath: string, tabId: string) => {
+        const harness = makeTerminalControllerDeps(() => Promise.resolve({ pid: 1, shellPath }));
+        const controller = createTerminalController(
+          { workspaceId: WS, tabId, cwd: "C:\\work", container: {} as HTMLElement },
+          harness.deps,
+        );
+        await flushTerminalInit();
+        await new Promise((r) => setTimeout(r, 0));
+        const handler = harness.getKeyHandler();
+        if (!handler) throw new Error("customKey handler was not registered");
+        return { controller, handler };
+      };
+
+      const cmd = await keyHandlerFor("C:\\Windows\\system32\\CMD.EXE", "tab-cmd");
+      expect(cmd.handler(ctrlV() as unknown as KeyboardEvent)).toBe(false);
+      cmd.controller.dispose();
+
+      const powershell = await keyHandlerFor(
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "tab-powershell",
+      );
+      expect(powershell.handler(ctrlV() as unknown as KeyboardEvent)).toBe(true);
+      powershell.controller.dispose();
+    });
+
     it("still sends ^V when the app has no bracketed paste (PSReadLine pastes it)", async () => {
       host.host = { platform: "win32" };
       const { controller, handler } = await setupHandler();
