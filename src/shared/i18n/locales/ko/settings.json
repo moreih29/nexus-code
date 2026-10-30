@@ -196,7 +196,7 @@
       "missingFallback": "설정한 셸을 찾을 수 없어 터미널이 시스템 기본 셸로 열립니다.",
       "program": "프로그램",
       "programPlaceholder": "예: /opt/homebrew/bin/fish 또는 fish",
-      "programPlaceholderWindows": "예: C:Program Files\nu\bin\nu.exe 또는 nu",
+      "programPlaceholderWindows": "예: C:\\Program Files\\PowerShell\\7\\pwsh.exe 또는 pwsh",
       "browse": "찾아보기…",
       "browseTitle": "셸 프로그램 선택",
       "programs": "프로그램",

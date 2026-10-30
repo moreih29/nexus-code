@@ -196,7 +196,7 @@
       "missingFallback": "This shell can't be found, so terminals open with the system default.",
       "program": "Program",
       "programPlaceholder": "e.g. /opt/homebrew/bin/fish or fish",
-      "programPlaceholderWindows": "e.g. C:Program Files\nu\bin\nu.exe or nu",
+      "programPlaceholderWindows": "e.g. C:\\Program Files\\PowerShell\\7\\pwsh.exe or pwsh",
       "browse": "Browse…",
       "browseTitle": "Choose a shell program",
       "programs": "Programs",
