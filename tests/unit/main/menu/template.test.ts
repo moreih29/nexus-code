@@ -179,10 +179,10 @@ describe("buildMenuTemplate (win/linux)", () => {
     ]);
   });
 
-  it("Cmd+W still hits tab.close on non-mac too", () => {
+  it("shows Ctrl+F4 for tab.close on non-mac, the key that also works from the terminal", () => {
     const item = findCommand(specs, COMMANDS.tabClose);
     if (item?.type !== "command") throw new Error("unreachable");
-    expect(item.accelerator).toBe("CmdOrCtrl+W");
+    expect(item.accelerator).toBe("Ctrl+F4");
   });
 
   it("names the reveal command after each platform's file manager", () => {
