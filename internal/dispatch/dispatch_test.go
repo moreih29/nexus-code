@@ -39,3 +39,21 @@ func TestDispatchMapsHandlerErrors(t *testing.T) {
 		t.Fatalf("error response mismatch: %#v", res)
 	}
 }
+
+func TestRegisterOrderedMarksOnlyThatMethod(t *testing.T) {
+	d := New()
+	handler := func(ctx context.Context, params json.RawMessage) (any, error) { return "ok", nil }
+	d.RegisterOrdered("ordered", handler)
+	d.Register("plain", handler)
+	if !d.Ordered("ordered") || d.Ordered("plain") || d.Ordered("missing") {
+		t.Fatalf("ordered = %v, plain = %v, missing = %v", d.Ordered("ordered"), d.Ordered("plain"), d.Ordered("missing"))
+	}
+	if res := d.Dispatch(context.Background(), proto.Request{ID: "1", Method: "ordered"}); res.Result != "ok" {
+		t.Fatalf("ordered method not dispatched: %#v", res)
+	}
+	// A later plain registration replaces the ordered one entirely.
+	d.Register("ordered", handler)
+	if d.Ordered("ordered") {
+		t.Fatal("re-registering with Register kept the method ordered")
+	}
+}
