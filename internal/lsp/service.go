@@ -108,6 +108,7 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 		Args:          append([]string(nil), p.Args...),
 		WorkspaceRoot: workspaceRoot,
 		Capabilities:  p.Capabilities,
+		Env:           p.Env,
 	}, idleTimeout)
 	s.storeServer(server)
 

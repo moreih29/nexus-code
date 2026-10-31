@@ -53,6 +53,11 @@ type SpawnParams struct {
 	// is method-specific knowledge owned by the Electron side; see
 	// `src/shared/lsp/client-capabilities.ts`.
 	Capabilities json.RawMessage `json:"capabilities,omitempty"`
+
+	// Env adds to the agent's own environment, taking precedence over it.
+	// The app sets ELECTRON_RUN_AS_NODE here to run a server's script on
+	// its own runtime.
+	Env map[string]string `json:"env,omitempty"`
 }
 
 type SpawnResult struct {

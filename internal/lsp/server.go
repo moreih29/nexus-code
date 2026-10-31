@@ -20,6 +20,7 @@ type serverProcess struct {
 	languageID    string
 	binaryPath    string
 	args          []string
+	env           map[string]string
 	workspaceRoot string
 	capabilities  json.RawMessage
 	idleTimeout   time.Duration
@@ -63,6 +64,7 @@ func newServerProcess(service *Service, id string, p SpawnParams, idleTimeout ti
 		languageID:                      p.LanguageID,
 		binaryPath:                      p.BinaryPath,
 		args:                            p.Args,
+		env:                             p.Env,
 		workspaceRoot:                   p.WorkspaceRoot,
 		capabilities:                    p.Capabilities,
 		idleTimeout:                     idleTimeout,
@@ -80,6 +82,10 @@ func (p *serverProcess) start(ctx context.Context) error {
 	cmd := exec.Command(p.binaryPath, p.args...)
 	cmd.Dir = p.workspaceRoot
 	cmd.Env = os.Environ()
+	// exec takes the last of duplicate keys, so these win.
+	for key, value := range p.env {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
