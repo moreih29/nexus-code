@@ -238,7 +238,7 @@ function ManageShellsDialog({
           <p className="mt-1 text-app-ui-sm text-muted-foreground">
             {t("terminal.shell.listHint")}
           </p>
-          <div className="mt-3 flex max-h-80 flex-col gap-0.5 overflow-y-auto">
+          <div className="app-scrollbar mt-3 flex max-h-80 flex-col gap-0.5 overflow-y-auto">
             {entries.map((entry) => {
               const custom =
                 entry.choice.kind === "custom"

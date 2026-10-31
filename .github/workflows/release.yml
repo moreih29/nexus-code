@@ -211,7 +211,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-latest
+          # Pinned, like arm64: the native modules are built against the
+          # runner's glibc, and a newer Ubuntu would raise the oldest one
+          # the packages load on.
+          - runner: ubuntu-24.04
             arch: x64
           - runner: ubuntu-24.04-arm
             arch: arm64

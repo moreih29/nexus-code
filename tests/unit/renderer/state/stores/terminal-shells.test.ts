@@ -63,6 +63,18 @@ describe("terminal store — added shells", () => {
     expect(writes).toEqual([{ terminalShells: [nu] }, { terminalShell: undefined }]);
   });
 
+  it("adds to the shells another window saved, not to this window's stale copy", () => {
+    useTerminalStore.getState().hydrate({ customShells: [] });
+    useTerminalStore.getState().hydrateShells({
+      shell: { kind: "custom", id: "nu" },
+      customShells: [nu],
+    });
+    useTerminalStore.getState().saveCustomShell(psNoLogo);
+
+    expect(writes).toEqual([{ terminalShells: [nu, psNoLogo] }]);
+    expect(useTerminalStore.getState().shell).toEqual({ kind: "custom", id: "nu" });
+  });
+
   it("removing another shell keeps the default, and the last one clears the list", () => {
     const gitBash = { kind: "detected" as const, id: "git-bash" };
     useTerminalStore.getState().hydrate({ customShells: [nu], shell: gitBash });

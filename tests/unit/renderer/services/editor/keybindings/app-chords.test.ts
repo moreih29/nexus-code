@@ -9,7 +9,8 @@ import { KEYBINDINGS } from "../../../../../../src/shared/keybindings/index";
 import { applyKeybindingOverrides } from "../../../../../../src/shared/keybindings/overrides";
 
 // ---------------------------------------------------------------------------
-// Fake Monaco — captures addKeybindingRules and registerCommand calls. As in
+// Fake Monaco — keeps the rules added through addKeybindingRule until their
+// disposable is disposed, and captures registerCommand calls. As in
 // apply.test.ts the monaco-singleton is stubbed via mock.module and the
 // subject is imported after it, so it binds to this fake.
 // ---------------------------------------------------------------------------
@@ -19,7 +20,9 @@ interface Rule {
   command: string;
 }
 
-const calls: Rule[][] = [];
+/** Rules added and not yet disposed. */
+let added: Rule[] = [];
+let addCount = 0;
 const commands = new Map<string, () => void>();
 
 const KeyMod = {
@@ -45,8 +48,14 @@ const fakeMonaco = {
   KeyMod,
   KeyCode,
   editor: {
-    addKeybindingRules: (rules: Rule[]) => {
-      calls.push(rules);
+    addKeybindingRule: (rule: Rule) => {
+      added.push(rule);
+      addCount += 1;
+      return {
+        dispose: () => {
+          added = added.filter((r) => r !== rule);
+        },
+      };
     },
     registerCommand: (id: string, handler: () => void) => {
       commands.set(id, handler);
@@ -73,7 +82,8 @@ const CHORD_COMMANDS = [COMMANDS.tabCloseSaved, COMMANDS.tabCloseAll, COMMANDS.t
 
 describe("applyAppChordsToMonaco", () => {
   beforeEach(() => {
-    calls.length = 0;
+    added = [];
+    addCount = 0;
     commands.clear();
     __resetAppliedAppChordsForTests();
     __resetCommandsForTests();
@@ -81,8 +91,7 @@ describe("applyAppChordsToMonaco", () => {
 
   test("binds every app chord in Monaco to a command that runs the app command", () => {
     applyAppChordsToMonaco(KEYBINDINGS);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.map((r) => r.command).sort()).toEqual(
+    expect(added.map((r) => r.command).sort()).toEqual(
       CHORD_COMMANDS.map(appChordMonacoCommand).sort(),
     );
 
@@ -94,7 +103,7 @@ describe("applyAppChordsToMonaco", () => {
 
   test("encodes Ctrl+K U as a Monaco chord", () => {
     applyAppChordsToMonaco(KEYBINDINGS);
-    const rule = calls[0]?.find((r) => r.command === appChordMonacoCommand(COMMANDS.tabCloseSaved));
+    const rule = added.find((r) => r.command === appChordMonacoCommand(COMMANDS.tabCloseSaved));
     const ctrlK = KeyMod.CtrlCmd | (KeyCode as unknown as Record<string, number>).KeyK;
     const u = (KeyCode as unknown as Record<string, number>).KeyU;
     expect(rule?.keybinding).toBe(KeyMod.chord(ctrlK, u));
@@ -103,27 +112,26 @@ describe("applyAppChordsToMonaco", () => {
   test("is idempotent", () => {
     applyAppChordsToMonaco(KEYBINDINGS);
     applyAppChordsToMonaco(KEYBINDINGS);
-    expect(calls).toHaveLength(1);
+    expect(addCount).toBe(CHORD_COMMANDS.length);
   });
 
-  test("a rebound chord unbinds the old keystroke and binds the new one", () => {
+  test("a rebound chord drops the old keystroke and binds the new one", () => {
+    const id = appChordMonacoCommand(COMMANDS.tabCloseAll);
     applyAppChordsToMonaco(KEYBINDINGS);
-    const old = calls[0]?.find((r) => r.command === appChordMonacoCommand(COMMANDS.tabCloseAll));
+    const old = added.find((r) => r.command === id)?.keybinding;
     applyAppChordsToMonaco(
       effective([{ command: COMMANDS.tabCloseAll, chord: ["CmdOrCtrl+K", "CmdOrCtrl+Q"] }]),
     );
-    const id = appChordMonacoCommand(COMMANDS.tabCloseAll);
-    expect(calls[1]).toHaveLength(2);
-    expect(calls[1]?.[0]).toEqual({ keybinding: old?.keybinding as number, command: `-${id}` });
-    expect(calls[1]?.[1]?.command).toBe(id);
-    expect(calls[1]?.[1]?.keybinding).not.toBe(old?.keybinding);
+    const now = added.filter((r) => r.command === id);
+    expect(now).toHaveLength(1);
+    expect(now[0]?.keybinding).not.toBe(old as number);
   });
 
   test("an unbound chord is removed from Monaco", () => {
     applyAppChordsToMonaco(KEYBINDINGS);
     applyAppChordsToMonaco(effective([{ command: COMMANDS.tabPinToggle, chord: null }]));
     const id = appChordMonacoCommand(COMMANDS.tabPinToggle);
-    expect(calls[1]?.map((r) => r.command)).toEqual([`-${id}`]);
+    expect(added.some((r) => r.command === id)).toBe(false);
   });
 
   test("registers each Monaco command once", () => {

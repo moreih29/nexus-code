@@ -261,6 +261,15 @@ registerAppStateChannel(stateService, {
   onEditorKeybindingsChanged(overrides) {
     broadcast("appState", "editorKeybindingsChanged", { overrides });
   },
+
+  /** The shells changed in one window: every window takes the saved list. */
+  onTerminalShellsChanged() {
+    const { terminalShell, terminalShells } = stateService.getState();
+    broadcast("appState", "terminalShellsChanged", {
+      ...(terminalShell !== undefined ? { shell: terminalShell } : {}),
+      customShells: terminalShells ?? [],
+    });
+  },
 });
 
 // Seed the browser-view key interceptor with persisted overrides so the

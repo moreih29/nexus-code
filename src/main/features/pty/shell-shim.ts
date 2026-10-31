@@ -57,15 +57,28 @@ export function applyShellPathShim(input: ShellShimInput): ShellShimOutput {
   }
 
   if (shellBase.startsWith("bash")) {
-    // bash: prepend --rcfile <shimDir>/bashrc -i to argv.
+    // bash: --rcfile <shimDir>/bashrc -i, after the shell's own long options
+    // (`--login`, `--noprofile`): bash rejects a long option that follows a
+    // single-letter one.
     const rcfilePath = path.join(shimDir, "bashrc");
     const shimArgs = ["--rcfile", rcfilePath, "-i"];
-    const newArgs = args !== undefined ? [...shimArgs, ...args] : shimArgs;
+    if (args === undefined) return { env, args: shimArgs };
+    // A shell the user gave its own rc file keeps it; the agent's PATH entry
+    // then just isn't re-prepended at each prompt.
+    if (args.includes("--rcfile") || args.includes("--init-file")) return { env, args };
+    const longCount = leadingLongOptions(args);
+    const newArgs = [...args.slice(0, longCount), ...shimArgs, ...args.slice(longCount)];
     return { env, args: newArgs };
   }
 
   // Unsupported shell — pass through unchanged.
   return { env, args };
+}
+
+/** How many of `args` are bash long options at the front; `--` ends the options. */
+function leadingLongOptions(args: readonly string[]): number {
+  const end = args.findIndex((arg) => !arg.startsWith("--") || arg === "--");
+  return end === -1 ? args.length : end;
 }
 
 /**

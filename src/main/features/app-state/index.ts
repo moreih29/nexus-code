@@ -40,6 +40,12 @@ export interface AppStateChannelOptions {
   onEditorKeybindingsChanged?: (
     overrides: NonNullable<AppState["editorKeybindingOverrides"]>,
   ) => void;
+  /**
+   * Invoked after a `set` call that includes `terminalShell` or
+   * `terminalShells`, even to clear them. The main/index.ts wiring
+   * broadcasts `appState.terminalShellsChanged` to all renderer windows.
+   */
+  onTerminalShellsChanged?: () => void;
 }
 
 export function registerAppStateChannel(
@@ -75,6 +81,11 @@ export function registerAppStateChannel(
           opts.onEditorKeybindingsChanged !== undefined
         ) {
           opts.onEditorKeybindingsChanged(patch.editorKeybindingOverrides);
+        }
+
+        // Shells: clearing one sends the key with no value, so test for the key.
+        if ("terminalShell" in patch || "terminalShells" in patch) {
+          opts.onTerminalShellsChanged?.();
         }
       },
     },
