@@ -3,6 +3,7 @@ package lsp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,9 @@ import (
 
 const loginShellTimeout = 5 * time.Second
 
+// rustupWhichTimeout bounds asking rustup whether a toolchain has a tool.
+const rustupWhichTimeout = 10 * time.Second
+
 // loginPathMarker sets the PATH apart from whatever the shell's startup
 // files print.
 const loginPathMarker = "__NEXUS_LOGIN_PATH__"
@@ -30,6 +34,9 @@ type FindBinaryParams struct {
 	// Path is where the user said it is, "~" standing for their home. It is
 	// tried first; when nothing is there the search goes on.
 	Path string `json:"path,omitempty"`
+	// Dir is where the server will run, the workspace root. A rustup proxy
+	// picks its toolchain there.
+	Dir string `json:"dir,omitempty"`
 }
 
 type FindBinaryResult struct {
@@ -53,7 +60,7 @@ func (s *Service) FindBinary(_ context.Context, raw json.RawMessage) (any, error
 	home, _ := os.UserHomeDir()
 	shellPath := loginShellPath()
 	dirs := searchDirs(home, shellPath)
-	path := findBinary(p.Name, expandHome(strings.TrimSpace(p.Path), home), dirs)
+	path := findBinary(p.Name, expandHome(strings.TrimSpace(p.Path), home), p.Dir, dirs)
 	if path == "" {
 		return FindBinaryResult{}, nil
 	}
@@ -63,11 +70,11 @@ func (s *Service) FindBinary(_ context.Context, raw json.RawMessage) (any, error
 	return FindBinaryResult{Path: path, EnvPath: joinPathLists(lists...)}, nil
 }
 
-func findBinary(name, userPath string, dirs []string) string {
+func findBinary(name, userPath, workDir string, dirs []string) string {
 	if userPath != "" {
 		// On Windows "gopls" stands for "gopls.exe", as in a shell.
 		for _, candidate := range executableNames(userPath) {
-			if isExecutableFile(candidate) {
+			if canRunServer(candidate, workDir) {
 				return candidate
 			}
 		}
@@ -77,9 +84,55 @@ func findBinary(name, userPath string, dirs []string) string {
 			continue
 		}
 		for _, candidate := range executableNames(filepath.Join(dir, name)) {
-			if isExecutableFile(candidate) {
+			if canRunServer(candidate, workDir) {
 				return candidate
 			}
+		}
+	}
+	return ""
+}
+
+func canRunServer(path, workDir string) bool {
+	return isExecutableFile(path) && !isRustupProxyWithoutTool(path, workDir)
+}
+
+// isRustupProxyWithoutTool reports whether path is a rustup proxy whose
+// toolchain lacks the tool. ~/.cargo/bin/rust-analyzer is rustup itself
+// under the tool's name, there whether the rust-analyzer component is or
+// not; without it the proxy prints an error and exits, and the user would
+// be told the server keeps failing, not that it is missing and how to add
+// it. rustup picks the toolchain by the directory it runs in, as the server
+// will in workDir.
+func isRustupProxyWithoutTool(path, workDir string) bool {
+	rustup := rustupOf(path)
+	if rustup == "" {
+		return false
+	}
+	tool := filepath.Base(path)
+	if runtime.GOOS == "windows" {
+		tool = strings.TrimSuffix(tool, ".exe")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), rustupWhichTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, rustup, "which", tool)
+	cmd.Dir = workDir
+	err := cmd.Run()
+	// Only rustup's own no counts: a rustup that does not start or answer in
+	// time leaves the proxy to the server's start, as before.
+	var exitErr *exec.ExitError
+	return ctx.Err() == nil && errors.As(err, &exitErr)
+}
+
+// rustupOf returns the rustup beside path when path is a link of it, as
+// rustup's proxies are; empty otherwise.
+func rustupOf(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	for _, rustup := range executableNames(filepath.Join(filepath.Dir(path), "rustup")) {
+		if other, err := os.Stat(rustup); err == nil && os.SameFile(info, other) {
+			return rustup
 		}
 	}
 	return ""
