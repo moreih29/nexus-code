@@ -1552,6 +1552,8 @@ export const ipcContract = {
           progress: UpdateProgressSchema.nullable(),
         }),
       ),
+      /** Open the app's Microsoft Store page, where the Store updates it. */
+      openStorePage: call(z.void(), z.void()),
     },
     listen: {
       /** Broadcast by main whenever the update status changes. */

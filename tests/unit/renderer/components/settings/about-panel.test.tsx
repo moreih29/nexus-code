@@ -39,10 +39,11 @@ describe("AboutPanel updates", () => {
     expect(html).not.toContain("Microsoft Store");
   });
 
-  test("leaves updates to the Microsoft Store in its build", () => {
+  test("sends a Microsoft Store install to its Store page", () => {
     const html = renderWithHost({ platform: "win32", windowsStore: true });
 
     expect(html).toContain("Updates come from the Microsoft Store.");
+    expect(html).toContain("Open Microsoft Store");
     expect(html).not.toContain("Automatically check for updates");
     expect(html).not.toContain("Check for Updates");
   });

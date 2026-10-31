@@ -261,6 +261,7 @@
     "checkNow": "업데이트 확인",
     "checking": "확인 중…",
     "storeManaged": "업데이트는 Microsoft Store에서 받습니다.",
+    "openStore": "Microsoft Store 열기",
     "releaseNotes": "릴리스 노트",
     "downloadProgress": "업데이트 다운로드 진행률",
     "progress": "{{percent}}% · {{transferred}} / {{total}} · {{speed}}/s"

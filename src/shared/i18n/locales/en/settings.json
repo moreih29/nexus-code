@@ -261,6 +261,7 @@
     "checkNow": "Check for Updates",
     "checking": "Checking…",
     "storeManaged": "Updates come from the Microsoft Store.",
+    "openStore": "Open Microsoft Store",
     "releaseNotes": "Release Notes",
     "downloadProgress": "Update download progress",
     "progress": "{{percent}}% · {{transferred}} / {{total}} · {{speed}}/s"

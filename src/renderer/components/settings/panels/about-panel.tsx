@@ -26,7 +26,7 @@
 // signature check (macOS), and the restart that installs it.
 //
 // A Microsoft Store install shows none of this: the Store updates it, and a
-// GitHub release has no build for it.
+// GitHub release has no build for it. It gets a button to the Store page.
 //
 // Toasts are driven by the global `initUpdatesSubscriptions()` listener
 // (bootstrap-level), which also feeds the store this panel reads.
@@ -88,7 +88,16 @@ export function AboutPanel() {
       </div>
 
       {storeManaged ? (
-        <p className="text-app-ui-sm text-muted-foreground">{t("about.storeManaged")}</p>
+        <div className="flex flex-col items-start gap-3">
+          <p className="text-app-ui-sm text-muted-foreground">{t("about.storeManaged")}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void ipcCallResult("updates", "openStorePage", undefined)}
+          >
+            {t("about.openStore")}
+          </Button>
+        </div>
       ) : (
         <>
           {/* Auto-check row — stacked label + helper on the left, Switch

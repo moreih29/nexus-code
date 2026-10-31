@@ -51,6 +51,7 @@ import {
   type UpdateStatus,
 } from "../../../shared/updates/status";
 import { createUpdateInstaller, type UpdateBackend } from "./installer";
+import { STORE_PAGE_URL } from "./microsoft-store";
 import {
   createConditionalCache,
   pollGithubReleases,
@@ -367,6 +368,11 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
       },
 
       getStatus: () => ipcOk({ status: currentStatus, progress: currentProgress }),
+
+      openStorePage: () => {
+        if (process.windowsStore) void shell.openExternal(STORE_PAGE_URL);
+        return ipcOk(undefined);
+      },
     },
 
     listen: {
