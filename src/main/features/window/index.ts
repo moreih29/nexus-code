@@ -3,9 +3,12 @@ import { app, BrowserWindow, dialog, shell } from "electron";
 import { DEFAULT_THEME, THEME_SOURCE_BY_ID, type ThemeId } from "../../../shared/design-tokens";
 import { createLogger } from "../../../shared/log/main";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
-import { TRANSPARENT_WINDOW_ARG } from "../../../shared/window/transparent-window";
+import {
+  OPAQUE_WINDOW_ARG,
+  TRANSPARENT_WINDOW_ARG,
+} from "../../../shared/window/transparent-window";
 import { getMainT } from "../../i18n";
-import { isMac, supportsWindowsBackdrop } from "../../infra/platform";
+import { isMac, isWindows, supportsWindowsBackdrop } from "../../infra/platform";
 import type { AppState } from "../../infra/storage/state-service";
 import { getAppWindows, trackAppWindow } from "./app-windows";
 import { opensTransparentOnLinux } from "./linux-transparency";
@@ -87,7 +90,9 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   // window (minus the native shadow, an acceptable trade for restart-free UX).
   // Windows 11 22H2+ gets the same live opacity over a system backdrop instead.
   // Linux has no backdrop, and a transparent window there loses its frame, so
-  // it opens transparent only while the saved opacity is under 100%.
+  // it opens transparent only while the saved opacity is under 100%. Older
+  // Windows has no backdrop either: its window stays opaque.
+  const opaqueOnWindows = isWindows() && !backdrop;
 
   const win = new BrowserWindow({
     width: 1280,
@@ -130,7 +135,10 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
       : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
-      additionalArguments: linuxTransparent ? [TRANSPARENT_WINDOW_ARG] : [],
+      additionalArguments: [
+        ...(linuxTransparent ? [TRANSPARENT_WINDOW_ARG] : []),
+        ...(opaqueOnWindows ? [OPAQUE_WINDOW_ARG] : []),
+      ],
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,

@@ -153,6 +153,7 @@
     },
     "windowOpacity": "Window opacity",
     "windowOpacityRestart": "On Linux, the window shows through after the app restarts.",
+    "windowOpacityUnsupported": "Window opacity needs Windows 11 version 22H2 or later.",
     "inactivePanelDim": "Inactive panel dimming",
     "reset": {
       "language": "Reset Language",
