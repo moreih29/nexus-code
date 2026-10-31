@@ -75,6 +75,17 @@ export const LSP_CLIENT_CAPABILITIES = {
       // of linkSupport so servers send the plain shape.
       linkSupport: false,
     },
+    signatureHelp: {
+      // The renderer says what asked: a "(" or "," typed, or the user typing
+      // on while the signature is shown.
+      contextSupport: true,
+      signatureInformation: {
+        documentationFormat: ["markdown", "plaintext"],
+        // rust-analyzer and others mark a parameter by its offsets in the label.
+        parameterInformation: { labelOffsetSupport: true },
+        activeParameterSupport: true,
+      },
+    },
     references: {},
     documentHighlight: {},
     documentSymbol: {

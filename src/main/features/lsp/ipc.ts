@@ -15,6 +15,7 @@ import type {
   HoverResult,
   Location,
   SemanticTokensResult,
+  SignatureHelp,
   SymbolInformation,
 } from "../../../shared/lsp";
 import { isLspLowMemory, lspSettingsFromState } from "../../../shared/lsp/settings";
@@ -269,6 +270,15 @@ export function registerLspChannel(lspHost: LspHostHandle, stateService: StateSe
           lspHost.call("completionResolve", { workspaceId, uri, item }, { signal: ctx?.signal }),
           ctx?.signal,
           item,
+        );
+      },
+
+      signatureHelp: async (args: unknown, ctx?: CallContext) => {
+        const parsed = validateArgs(c.signatureHelp.args, args);
+        return withCancelDefault<SignatureHelp | null>(
+          lspHost.call("signatureHelp", parsed, { signal: ctx?.signal }),
+          ctx?.signal,
+          null,
         );
       },
 

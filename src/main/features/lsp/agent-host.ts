@@ -29,6 +29,10 @@ import {
   remapSemanticTokenData,
   SemanticTokensArgsSchema,
   SemanticTokensResultSchema,
+  type SignatureHelpArgs,
+  SignatureHelpArgsSchema,
+  SignatureHelpSchema,
+  SignatureHelpTriggerKind,
   SymbolInformationSchema,
   TextDocumentContentChangeEventSchema,
   TextDocumentIdentifierSchema,
@@ -60,6 +64,7 @@ import {
   LSP_REFERENCES_TIMEOUT_MS,
   LSP_SEMANTIC_TOKENS_TIMEOUT_MS,
   LSP_SERVER_WEDGE_GRACE_MS,
+  LSP_SIGNATURE_HELP_TIMEOUT_MS,
   LSP_WORKSPACE_SYMBOL_TIMEOUT_MS,
 } from "../../../shared/util/timing-constants";
 import type { AgentChannel } from "../../infra/agent/channel";
@@ -92,6 +97,7 @@ import {
   normalizeDocumentHighlightResult,
   normalizeDocumentSymbolResult,
   normalizeHoverResult,
+  normalizeSignatureHelpResult,
   normalizeWorkspaceSymbolResult,
   parsePublishDiagnostics,
 } from "./result-normalizers";
@@ -224,6 +230,7 @@ const REQUEST_TIMEOUT_MS: Record<string, number> = {
   definition: LSP_DEFINITION_TIMEOUT_MS,
   completion: LSP_COMPLETION_TIMEOUT_MS,
   completionResolve: LSP_COMPLETION_RESOLVE_TIMEOUT_MS,
+  signatureHelp: LSP_SIGNATURE_HELP_TIMEOUT_MS,
   references: LSP_REFERENCES_TIMEOUT_MS,
   documentHighlight: LSP_DOCUMENT_HIGHLIGHT_TIMEOUT_MS,
   documentSymbol: LSP_DOCUMENT_SYMBOL_TIMEOUT_MS,
@@ -463,6 +470,8 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         return this.completion(args, opts);
       case "completionResolve":
         return this.completionResolve(args, opts);
+      case "signatureHelp":
+        return this.signatureHelp(args, opts);
       case "references":
         return this.requestByUri(
           args,
@@ -845,6 +854,40 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     }
     this.resetTimeoutCount(routed.context.workspaceId, routed.context.languageId);
     return CompletionItemSchema.parse(normalizeCompletionItem(raw) ?? parsed.item);
+  }
+
+  private async signatureHelp(args: unknown, opts: LspHostCallOptions): Promise<unknown> {
+    const parsed = SignatureHelpArgsSchema.parse(args);
+    // As for completion: a "<" in a comparison should not open a signature
+    // for a server that shows one only on "(" and ",". Once one is shown,
+    // typing on asks again whatever the character.
+    if (
+      parsed.triggerKind === SignatureHelpTriggerKind.TriggerCharacter &&
+      parsed.triggerCharacter !== undefined &&
+      !parsed.isRetrigger
+    ) {
+      const routed = this.findServer(parsed.workspaceId, parsed.uri);
+      if (
+        routed &&
+        !signatureHelpTriggerCharacters(routed.server).includes(parsed.triggerCharacter)
+      ) {
+        return null;
+      }
+    }
+    return this.requestByUri(
+      parsed,
+      opts,
+      {
+        argsSchema: SignatureHelpArgsSchema,
+        lspMethod: "textDocument/signatureHelp",
+        capabilityKey: "signatureHelpProvider",
+        emptyResponse: null,
+        outSchema: SignatureHelpSchema.nullable(),
+        params: signatureHelpParams,
+        transform: normalizeSignatureHelpResult,
+      },
+      "signatureHelp",
+    );
   }
 
   private async semanticTokensByUri(args: unknown, opts: LspHostCallOptions): Promise<unknown> {
@@ -1919,6 +1962,24 @@ function completionParams(args: CompletionArgs) {
 
 function completionTriggerCharacters(server: AgentLspServer): string[] {
   const provider = server.getCapabilityValue("completionProvider");
+  if (!isObjectLike(provider) || !Array.isArray(provider.triggerCharacters)) return [];
+  return provider.triggerCharacters.filter((c): c is string => typeof c === "string");
+}
+
+function signatureHelpParams(args: SignatureHelpArgs) {
+  return {
+    ...textDocumentPositionParams(args),
+    context: {
+      triggerKind: args.triggerKind,
+      ...(args.triggerCharacter !== undefined ? { triggerCharacter: args.triggerCharacter } : {}),
+      isRetrigger: args.isRetrigger,
+      ...(args.activeSignatureHelp ? { activeSignatureHelp: args.activeSignatureHelp } : {}),
+    },
+  };
+}
+
+function signatureHelpTriggerCharacters(server: AgentLspServer): string[] {
+  const provider = server.getCapabilityValue("signatureHelpProvider");
   if (!isObjectLike(provider) || !Array.isArray(provider.triggerCharacters)) return [];
   return provider.triggerCharacters.filter((c): c is string => typeof c === "string");
 }
