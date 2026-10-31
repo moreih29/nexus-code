@@ -108,6 +108,7 @@ import {
   WorkspaceMetaSchema,
 } from "../types/workspace";
 import { WorkspaceIdSchema as WorkspaceIdPrimitive, workspaceScoped } from "../types/workspace-id";
+import { UpdateProgressSchema, UpdateStatusSchema } from "../updates/status";
 
 // ---------------------------------------------------------------------------
 // Primitive procedure descriptors
@@ -1513,21 +1514,8 @@ export const ipcContract = {
   // Polls the GitHub Releases API for a newer version and broadcasts the
   // result to all renderer windows.  The renderer can also trigger a manual
   // check via `updates.check` and suppress a specific release via
-  // `updates.setIgnoredVersion`.
-  //
-  // Discriminated-union status payloads:
-  //   { kind: "checking",  trigger: "auto" | "manual" }
-  //   { kind: "newer",     trigger, current, latest, releaseUrl, canInstall }
-  //   { kind: "current",   trigger, current, latest? }
-  //   { kind: "error",     trigger, reason, status? }
-  // and the steps of an in-place update (`install`):
-  //   { kind: "downloading", version } → { kind: "ready", version, asksForPassword? }
-  //   { kind: "installFailed", releaseUrl }
-  //
-  // "checking" is only broadcast for trigger="manual" (with a 3-second delay).
-  // "newer" / "current" / "error" are broadcast for both triggers, but "current"
-  // and "error" from an auto-poll are suppressed — the renderer only reacts to
-  // manual-triggered status changes in those two cases.
+  // `updates.setIgnoredVersion`. The statuses are UpdateStatusSchema
+  // (shared/updates/status.ts).
   // ---------------------------------------------------------------------------
   updates: {
     call: {
@@ -1540,8 +1528,8 @@ export const ipcContract = {
       setIgnoredVersion: call(z.object({ version: z.string().nullable() }), z.void()),
       /**
        * Download the newest release on the user's channel and stage it to
-       * install on restart. Progress arrives as statusChanged. Only offered
-       * when a "newer" status says `canInstall`.
+       * install on restart. The steps arrive as statusChanged and the bytes
+       * as progress. Only offered when a "newer" status says `canInstall`.
        */
       install: call(z.void(), z.void()),
       /** Quit and install the staged update; a no-op until one is ready. */
@@ -1552,48 +1540,26 @@ export const ipcContract = {
        * shell.openExternal, so the renderer never touches the OS handler directly.
        */
       openReleasePage: call(z.object({ url: z.string().url() }), z.void()),
+      /**
+       * The status to show now — the last check or the step of an update
+       * under way — and the download's progress, for a view opened after
+       * the broadcasts went out.
+       */
+      getStatus: call(
+        z.void(),
+        z.object({
+          status: UpdateStatusSchema.nullable(),
+          progress: UpdateProgressSchema.nullable(),
+        }),
+      ),
+      /** Open the app's Microsoft Store page, where the Store updates it. */
+      openStorePage: call(z.void(), z.void()),
     },
     listen: {
-      /**
-       * Broadcast by main whenever the update status changes.
-       * Uses a discriminated union on `kind`.
-       */
-      statusChanged: listen(
-        z.discriminatedUnion("kind", [
-          z.object({ kind: z.literal("checking"), trigger: z.enum(["auto", "manual"]) }),
-          z.object({
-            kind: z.literal("newer"),
-            trigger: z.enum(["auto", "manual"]),
-            current: z.string(),
-            latest: z.string(),
-            releaseUrl: z.string(),
-            /** Whether `install` can update this app in place. */
-            canInstall: z.boolean(),
-          }),
-          z.object({
-            kind: z.literal("current"),
-            trigger: z.enum(["auto", "manual"]),
-            current: z.string(),
-            latest: z.string().optional(),
-          }),
-          z.object({
-            kind: z.literal("error"),
-            trigger: z.enum(["auto", "manual"]),
-            // The renderer words the message from the reason; the detail
-            // stays in the main-process log.
-            reason: z.enum(["rate-limited", "http", "network", "unexpected"]),
-            status: z.number().int().optional(),
-          }),
-          z.object({ kind: z.literal("downloading"), version: z.string() }),
-          z.object({
-            kind: z.literal("ready"),
-            version: z.string(),
-            // Installing asks for the admin password (a deb).
-            asksForPassword: z.literal(true).optional(),
-          }),
-          z.object({ kind: z.literal("installFailed"), releaseUrl: z.string() }),
-        ]),
-      ),
+      /** Broadcast by main whenever the update status changes. */
+      statusChanged: listen(UpdateStatusSchema),
+      /** Broadcast about once a second while an update downloads. */
+      progress: listen(UpdateProgressSchema),
     },
   },
   // ---------------------------------------------------------------------------

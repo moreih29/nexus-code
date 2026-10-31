@@ -1,17 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { formatBytes } from "@/utils/format-bytes";
 import type { LspBootstrapProgressPhase } from "../../../shared/lsp/diagnostics";
-
-/**
- * diff-tab.tsx / panel.tsx의 formatBytes와 동일한 구현.
- */
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const kib = bytes / 1024;
-  if (kib < 1024) return `${kib.toFixed(kib >= 10 ? 0 : 1)} KB`;
-  const mib = kib / 1024;
-  return `${mib.toFixed(mib >= 10 ? 0 : 1)} MB`;
-}
 
 export interface BootstrapProgressBarProps {
   readonly phase: LspBootstrapProgressPhase;

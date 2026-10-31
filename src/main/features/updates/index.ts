@@ -25,8 +25,15 @@
  *
  * IGNORED VERSION
  * ---------------
- *   When the poller returns "newer" and `latest` matches `ignoredUpdateVersion`,
- *   the broadcast is suppressed entirely (both auto and manual triggers).
+ *   When an auto-poll returns "newer" and `latest` matches
+ *   `ignoredUpdateVersion`, the broadcast is suppressed. A manual check still
+ *   reports it: the user asked, and the About panel waits for the answer.
+ *
+ * CURRENT STATUS
+ * --------------
+ *   Every check result and update step is remembered, broadcast or not, with
+ *   the download's progress, so a view opened later (Settings › About) reads
+ *   where the update stands with `updates.getStatus`.
  */
 
 import { shell } from "electron";
@@ -39,13 +46,14 @@ import type { StateService } from "../../infra/storage/state-service";
 import type { TimerScheduler } from "../../../shared/util/timer-scheduler";
 import { defaultTimerScheduler } from "../../../shared/util/timer-scheduler";
 import {
-  createUpdateInstaller,
-  type InstallStatus,
-  type UpdateBackend,
-} from "./installer";
+  nextUpdateStatus,
+  type UpdateProgress,
+  type UpdateStatus,
+} from "../../../shared/updates/status";
+import { createUpdateInstaller, type UpdateBackend } from "./installer";
+import { STORE_PAGE_URL } from "./microsoft-store";
 import {
   createConditionalCache,
-  type PollFailureReason,
   pollGithubReleases,
   type PollResult,
   REPO_BASE,
@@ -57,18 +65,7 @@ import {
 
 type Trigger = "auto" | "manual";
 
-type StatusPayload =
-  | { kind: "checking"; trigger: Trigger }
-  | {
-      kind: "newer";
-      trigger: Trigger;
-      current: string;
-      latest: string;
-      releaseUrl: string;
-      canInstall: boolean;
-    }
-  | { kind: "current"; trigger: Trigger; current: string; latest?: string }
-  | { kind: "error"; trigger: Trigger; reason: PollFailureReason; status?: number };
+type StatusPayload = Extract<UpdateStatus, { trigger: Trigger }>;
 
 export interface InstallUpdatesDomainOptions {
   broadcast: (channel: string, event: string, payload: unknown) => void;
@@ -125,12 +122,28 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
     updateBackend,
   } = options;
 
+  // What `updates.getStatus` answers.
+  let currentStatus: UpdateStatus | null = null;
+  let currentProgress: UpdateProgress | null = null;
+
+  function remember(status: UpdateStatus): void {
+    currentStatus = nextUpdateStatus(currentStatus, status);
+    if (currentStatus?.kind !== "downloading") currentProgress = null;
+  }
+
   const installer =
     updateBackend &&
     createUpdateInstaller({
       backend: updateBackend,
       // In-place update progress is never deduped: each step is news.
-      onStatus: (status: InstallStatus) => broadcast("updates", "statusChanged", status),
+      onStatus: (status) => {
+        remember(status);
+        broadcast("updates", "statusChanged", status);
+      },
+      onProgress: (version, progress) => {
+        currentProgress = { version, ...progress };
+        broadcast("updates", "progress", currentProgress);
+      },
       releaseUrl: (version) =>
         version === null ? `${REPO_BASE}/releases` : `${REPO_BASE}/releases/tag/v${version}`,
       logger,
@@ -199,13 +212,15 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
       logger.warn(`updates: check failed (trigger=${trigger}): ${result.message}`);
     }
 
+    const payload = buildPayload(result, trigger, installer !== undefined);
+    remember(payload);
+
     const shouldBroadcast = shouldBroadcastResult(result, trigger, ignoredVersion);
     if (!shouldBroadcast) {
       logger.debug(`updates: suppressing ${result.kind} for trigger=${trigger}`);
       return;
     }
 
-    const payload = buildPayload(result, trigger, installer !== undefined);
     broadcastStatus(payload);
   }
 
@@ -222,6 +237,7 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
 
       progressHandle = timerScheduler.setTimeout(() => {
         if (!settled) {
+          remember({ kind: "checking", trigger: "manual" });
           broadcastStatus({ kind: "checking", trigger: "manual" });
         }
       }, 3000);
@@ -240,6 +256,7 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
         }
         const message = err instanceof Error ? err.message : String(err);
         logger.error(`updates: unexpected error in poll: ${message}`);
+        remember({ kind: "error", trigger, reason: "unexpected" });
         broadcastStatus({ kind: "error", trigger, reason: "unexpected" });
       });
     } else {
@@ -349,10 +366,18 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
         }
         return ipcOk(undefined);
       },
+
+      getStatus: () => ipcOk({ status: currentStatus, progress: currentProgress }),
+
+      openStorePage: () => {
+        if (process.windowsStore) void shell.openExternal(STORE_PAGE_URL);
+        return ipcOk(undefined);
+      },
     },
 
     listen: {
       statusChanged: {},
+      progress: {},
     },
   });
 
@@ -384,8 +409,9 @@ function shouldBroadcastResult(
     return false;
   }
 
-  // Ignored version: suppress "newer" when latest matches ignored.
+  // Ignored version: suppress an auto "newer" when latest matches ignored.
   if (
+    trigger === "auto" &&
     result.kind === "newer" &&
     ignoredVersion !== null &&
     result.latest === ignoredVersion
