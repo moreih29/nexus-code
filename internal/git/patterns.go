@@ -258,33 +258,6 @@ var pathNotConflictedStderrPatterns = mustCompileStderrPatterns(
 	`(?i)is not an unmerged path`,
 )
 
-var cloneDestinationInvalidStderrPatterns = mustCompileStderrPatterns(
-	`(?i)clone destination .* invalid`,
-	`(?i)destination path .* is not absolute`,
-)
-
-var cloneDestinationNotWritableStderrPatterns = mustCompileStderrPatterns(
-	`(?i)could not create work tree dir .+ permission denied`,
-	`(?i)permission denied.*clone destination`,
-	`(?i)destination .+ is not writable`,
-)
-
-var cloneDestinationExistsStderrPatterns = mustCompileStderrPatterns(
-	`(?i)destination path '.+' already exists and is not an empty directory`,
-	`(?i)destination path .+ already exists`,
-)
-
-var cloneNameInvalidStderrPatterns = mustCompileStderrPatterns(
-	`(?i)clone name .* invalid`,
-	`(?i)repository name .* invalid`,
-)
-
-var cloneURLInvalidStderrPatterns = mustCompileStderrPatterns(
-	`(?i)repository '.+' does not exist`,
-	`(?i)clone url .* invalid`,
-	`(?i)invalid clone url`,
-)
-
 var forcePushRejectedStderrPatterns = mustCompileStderrPatterns(
 	`(?i)stale info`,
 )

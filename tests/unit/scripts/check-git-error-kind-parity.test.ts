@@ -34,23 +34,11 @@ function writeFixtureKind(root: string, kind: string): string {
 }
 
 describe("checkGitErrorKindParity", () => {
-  // Known drift: the clone feature was removed from the TS side (b9bd4b64),
-  // but internal/git/errors.go still defines its kinds. They are listed here
-  // so the check stays green and still catches any new drift. Once Go drops
-  // them, this test fails with "missing" — then delete this list.
-  const GO_ONLY_CLONE_KINDS = [
-    "clone-destination-exists",
-    "clone-destination-invalid",
-    "clone-destination-not-writable",
-    "clone-name-invalid",
-    "clone-url-invalid",
-  ];
-
   test("the real TS schema, Go constants, and stderr fixtures agree", () => {
     // Go file and fixture root fall back to the checker's defaults, which
     // resolve from the cwd (the repo root under `bun test`).
     const result = checkGitErrorKindParity({
-      tsKinds: [...GitErrorKindSchema.options, ...GO_ONLY_CLONE_KINDS],
+      tsKinds: [...GitErrorKindSchema.options],
     });
 
     expect(result.problems).toEqual([]);
