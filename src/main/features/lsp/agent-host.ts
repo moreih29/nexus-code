@@ -1032,6 +1032,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     const message = error instanceof Error ? error.message : String(error);
     // Not installed: trying again finds nothing more.
     const retry = this.status.failed(workspaceId, languageId, `Failed to start: ${message}`, {
+      didNotStart: true,
       ...(error instanceof LspServerNotFoundError ? { missingBinary: error.binary } : {}),
     });
     this.emit("workspaceLspReset", {
