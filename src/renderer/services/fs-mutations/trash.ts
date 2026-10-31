@@ -17,6 +17,7 @@ import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { loadChildren } from "@/state/operations/files";
 import { parentOf } from "@/state/stores/files";
 import { relPath } from "@/utils/path";
+import { trashName } from "@/utils/trash-name";
 import { FS_ERROR } from "../../../shared/fs/errors";
 import { toFsToast } from "./errors";
 
@@ -47,14 +48,14 @@ export async function trashPath(input: TrashPathInput): Promise<boolean> {
   } catch (e: unknown) {
     toFsToast(e, {
       fallback: isDir
-        ? i18next.t("files:fileTree.delete.trashFolderFailed")
-        : i18next.t("files:fileTree.delete.trashFileFailed"),
+        ? i18next.t("files:fileTree.delete.trashFolderFailed", { bin: trashName() })
+        : i18next.t("files:fileTree.delete.trashFileFailed", { bin: trashName() }),
       notFound: isDir
         ? i18next.t("files:fileTree.fsError.folderNotFound")
         : i18next.t("files:fileTree.fsError.fileNotFound"),
       permissionDenied: isDir
-        ? i18next.t("files:fileTree.delete.trashFolderDenied")
-        : i18next.t("files:fileTree.delete.trashFileDenied"),
+        ? i18next.t("files:fileTree.delete.trashFolderDenied", { bin: trashName() })
+        : i18next.t("files:fileTree.delete.trashFileDenied", { bin: trashName() }),
     });
     return false;
   }
