@@ -41,6 +41,16 @@ mock.module("electron", () => ({
   app: electronApp,
 }));
 
+// Where an agent is built, the real windowsCliLauncherDir writes the nexus
+// launchers to the real ~/.nexus-code/cli and returns it; on a runner without
+// one it returns null. The tests name a directory instead.
+const WINDOWS_LAUNCHER_DIR = path.join(os.tmpdir(), "nexus-cli-launchers");
+const realLaunchers = await import("../../../../src/main/features/cli/launchers");
+mock.module("../../../../src/main/features/cli/launchers", () => ({
+  ...realLaunchers,
+  windowsCliLauncherDir: () => WINDOWS_LAUNCHER_DIR,
+}));
+
 // dynamic import — mock.module 이후
 const { GlobalStorage } = await import("../../../../src/main/infra/storage/global-storage");
 const { WorkspaceStorage } = await import(
@@ -154,7 +164,8 @@ function injectSshBootstrap(
 // Tests
 // ---------------------------------------------------------------------------
 
-// Windows 로컬 워크스페이스에는 셸 래퍼가 아직 없어 래퍼 getter가 null을 돌려준다.
+// Windows 로컬 워크스페이스에는 셸 래퍼가 없어 셸 getter는 null을, bin 디렉터리
+// getter는 nexus 런처만 든 디렉터리를 돌려준다.
 const isWindows = process.platform === "win32";
 const posixTest = test.skipIf(isWindows);
 const windowsTest = test.skipIf(!isWindows);
@@ -170,11 +181,11 @@ describe("WorkspaceManager.getWrapperBinDir — acceptance #1, #2, #3", () => {
     globalDb.close();
   });
 
-  windowsTest("#1w: Windows 로컬 워크스페이스 → null", () => {
+  windowsTest("#1w: Windows 로컬 워크스페이스 → nexus 런처 디렉터리", () => {
     const { manager, globalDb } = makeManager();
     const meta = manager.create({ rootPath: path.join(os.tmpdir(), "ws-local-bindir"), name: "local" });
 
-    expect(manager.getWrapperBinDir(meta.id)).toBeNull();
+    expect(manager.getWrapperBinDir(meta.id)).toBe(WINDOWS_LAUNCHER_DIR);
     globalDb.close();
   });
 
