@@ -57,6 +57,7 @@ import { isWindows, loginShell } from "../../infra/platform";
 import type { GlobalStorage } from "../../infra/storage/global-storage";
 import type { StateService } from "../../infra/storage/state-service";
 import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
+import { windowsCliLauncherDir } from "../cli/launchers";
 import { AgentFsProvider } from "../fs/bridge/agent-provider";
 import { createFsProvider } from "../fs/bridge/create-provider";
 import type { FsProvider } from "../fs/bridge/provider";
@@ -466,7 +467,8 @@ export class WorkspaceManager {
    * 워크스페이스 종류에 따라 래퍼 바이너리가 위치하는 bin 디렉터리의 절대 경로를 반환한다.
    *
    * - 로컬 워크스페이스: 로컬 배포 bin 디렉터리 (`getAgentBinDir()`).
-   *   Windows 에서는 null — 래퍼는 bash 스크립트라 Windows 셸이 실행하지 못한다.
+   *   On Windows, the directory of the nexus launchers alone: a Windows
+   *   shell cannot run the bash claude wrapper.
    * - SSH 워크스페이스:  bootstrap 결과의 `remoteBinDir` (절대 경로)
    * - 워크스페이스 없음 / 채널 없음: null
    */
@@ -477,7 +479,7 @@ export class WorkspaceManager {
     if (meta.location.kind === "local") {
       // A Windows shell cannot run the bash wrapper, and with its directory
       // first on PATH, `claude` could resolve to it instead of the real one.
-      if (isWindows()) return null;
+      if (isWindows()) return windowsCliLauncherDir();
       return getAgentBinDir();
     }
     const bootstrap = this.sshBootstraps.get(workspaceId);

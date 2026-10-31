@@ -45,6 +45,10 @@ export interface SetupClaudeFeatureOptions {
 export interface SetupClaudeFeatureResult {
   /** 모든 구독을 해제하는 함수. */
   dispose: () => void;
+  /** Each tab's Claude state, which the nexus CLI reports too. */
+  broker: ClaudeStatusBroker;
+  /** The tab the user is looking at. */
+  activeContext: ActiveContextStore;
 }
 
 /**
@@ -109,6 +113,8 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
       offHook();
       offExit();
     },
+    broker,
+    activeContext,
   };
 }
 

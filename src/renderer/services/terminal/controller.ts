@@ -70,6 +70,14 @@ interface ParserLike {
   ) => Disposable;
 }
 
+/** The part of xterm's active buffer the controller reads. */
+interface BufferLike {
+  readonly type: "normal" | "alternate";
+  /** Lines in the buffer, scrollback included. */
+  readonly length?: number;
+  getLine?(y: number): { readonly isWrapped: boolean; translateToString(trimRight?: boolean): string } | undefined;
+}
+
 interface TerminalLike {
   readonly element?: HTMLElement;
   readonly rows: number;
@@ -80,7 +88,7 @@ interface TerminalLike {
    * 진입한다(\\x1b[?1049h). ls/grep/cat 같은 단발 명령은 normal screen에서 출력.
    * onTitleChange 콜백 시점에 이 값을 확인해 alternate 상태일 때만 title을 수용한다.
    */
-  readonly buffer: { active: { type: "normal" | "alternate" } };
+  readonly buffer: { active: BufferLike };
   /** Whether the app on the pty turned on bracketed paste (DECSET 2004). */
   readonly modes: { readonly bracketedPasteMode: boolean };
   options: {
@@ -387,6 +395,12 @@ class XtermTerminalController implements TerminalController {
     if (this.disposed) return;
     if (this.term) this.term.focus();
     else this.focusOnOpen = true;
+  }
+
+  readText(lines: number): string {
+    const buffer = this.term?.buffer.active;
+    if (!buffer?.getLine || buffer.length === undefined) return "";
+    return bufferText(buffer, lines);
   }
 
   dispose(): void {
@@ -1173,4 +1187,22 @@ const AGENT_SPAWN_FAILURE_LEAD = /^failed to spawn PTY: /;
 /** The message of a failure, without an Error's "Error: " name prefix. */
 function errorReason(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * The last `lines` lines of a buffer as plain text, a line the terminal
+ * wrapped joined back up, and the empty lines below the last output left out.
+ */
+export function bufferText(buffer: BufferLike, lines: number): string {
+  const out: string[] = [];
+  const length = buffer.length ?? 0;
+  for (let y = 0; y < length; y++) {
+    const line = buffer.getLine?.(y);
+    if (!line) continue;
+    const text = line.translateToString(true);
+    if (line.isWrapped && out.length > 0) out[out.length - 1] += text;
+    else out.push(text);
+  }
+  while (out.length > 0 && out[out.length - 1]?.trim() === "") out.pop();
+  return out.slice(-lines).join("\n");
 }

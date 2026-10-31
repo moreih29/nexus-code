@@ -75,6 +75,8 @@ export interface TerminalController {
   refresh: () => void;
   /** Focus the terminal, or do so once it has opened if it has not yet. */
   focus: () => void;
+  /** The last `lines` lines it shows, scrollback included, as plain text. */
+  readText: (lines: number) => string;
   reopen: () => Promise<void>;
   dispose: () => void;
 }

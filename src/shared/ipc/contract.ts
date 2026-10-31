@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { StatusEntrySchema } from "../claude/status";
+import { CliUiRequestSchema, CliUiRespondArgsSchema } from "../cli/ui";
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
   DirEntrySchema,
@@ -1709,6 +1710,22 @@ export const ipcContract = {
        * the prompt from its queue; an answer to it would be ignored.
        */
       dismissed: listen(z.object({ promptId: z.string() })),
+    },
+  },
+
+  // ---------------------------------------------------------------------------
+  // nexus CLI channel.
+  //
+  // The CLI's commands run in main; those that touch tabs, the layout or a
+  // terminal's screen are asked of the renderer, which owns them, through
+  // uiRequest, and answered through uiRespond.
+  // ---------------------------------------------------------------------------
+  cli: {
+    call: {
+      uiRespond: call(CliUiRespondArgsSchema, z.void()),
+    },
+    listen: {
+      uiRequest: listen(CliUiRequestSchema),
     },
   },
 } as const satisfies Record<string, ChannelDefinition>;
