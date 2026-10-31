@@ -43,7 +43,8 @@ class FakeAgentChannel implements AgentChannel {
   readonly calls: Array<{ method: string; params: unknown }> = [];
   readonly eventListeners = new Map<string, Set<ChannelEventCallback>>();
   readonly lifecycleListeners = new Set<ChannelLifecycleCallback>();
-  readonly serverId = "srv-1";
+  // The id the next lsp.spawn assigns.
+  serverId = "srv-1";
   emitConfigurationRequest = false;
 
   constructor(
@@ -616,6 +617,63 @@ describe("AgentLspHostHandle", () => {
 
     const hoverAfterExit = await host.call("hover", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 1 });
     expect(hoverAfterExit).toBeNull();
+  });
+
+  test("has the renderer reopen its documents on the next server when one exits", async () => {
+    const channel = new FakeAgentChannel();
+    const host = startAgentLspHost({ getAgentChannel: async () => channel });
+    const resets: unknown[] = [];
+    host.on("workspaceLspReset", (args) => resets.push(args));
+    const open = () =>
+      host.call("didOpen", {
+        workspaceId: WORKSPACE_ID,
+        workspaceRoot: "/tmp/ws",
+        uri: URI,
+        languageId: "python",
+        version: 1,
+        text: "print(1)\n",
+      });
+
+    await open();
+    channel.emit("lsp.serverExited", { serverId: channel.serverId, reason: "idle timeout" });
+
+    expect(resets).toEqual([
+      { workspaceId: WORKSPACE_ID, languageId: "python", reason: "idle timeout" },
+    ]);
+    channel.serverId = "srv-2";
+    await open();
+    expect(channel.calls.filter((c) => c.method === "lsp.spawn")).toHaveLength(2);
+  });
+
+  test("frees a workspace's place under the LRU cap when its last server exits", async () => {
+    const channel = new FakeAgentChannel();
+    const host = startAgentLspHost({ getAgentChannel: async () => channel });
+    const resets: unknown[] = [];
+    host.on("workspaceLspReset", (args) => resets.push(args));
+    const open = (n: number) => {
+      channel.serverId = `srv-${n}`;
+      return host.call("didOpen", {
+        workspaceId: `11111111-1111-4111-8111-11111111111${n}`,
+        workspaceRoot: `/tmp/ws${n}`,
+        uri: `file:///tmp/ws${n}/main.py`,
+        languageId: "python",
+        version: 1,
+        text: "print(1)\n",
+      });
+    };
+
+    for (const n of [1, 2, 3, 4]) await open(n);
+    channel.emit("lsp.serverExited", { serverId: "srv-4", reason: "idle timeout" });
+    await open(5);
+
+    // Only workspace 4's own reset: nothing was evicted to make room.
+    expect(resets).toEqual([
+      {
+        workspaceId: "11111111-1111-4111-8111-111111111114",
+        languageId: "python",
+        reason: "idle timeout",
+      },
+    ]);
   });
 });
 

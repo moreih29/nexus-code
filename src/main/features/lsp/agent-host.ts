@@ -1046,7 +1046,14 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       // channel itself is still alive and may carry other servers.
       server.disposePending(serverExitError(parsed));
       this.serversById.delete(parsed.serverId);
-      this.workspaceServers.get(server.workspaceId)?.delete(server.languageId);
+      // A workspace whose last server went, on idle above all, holds no
+      // place under the LRU cap.
+      const servers = this.workspaceServers.get(server.workspaceId);
+      if (servers?.get(server.languageId) === server) servers.delete(server.languageId);
+      if (servers?.size === 0) {
+        this.workspaceServers.delete(server.workspaceId);
+        this.workspaceLastActivity.delete(server.workspaceId);
+      }
       this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
 
       // Clean up wedge-detection state for the exited server so a respawn
@@ -1054,6 +1061,14 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       const serverKey = `${server.workspaceId}\0${server.languageId}`;
       this.serverTimeoutCount.delete(serverKey);
       this.serverSpawnedAt.delete(serverKey);
+
+      // The renderer still takes its open documents as opened on this
+      // server; the reset has it send didOpen to the next one.
+      this.emit("workspaceLspReset", {
+        workspaceId: server.workspaceId,
+        languageId: server.languageId,
+        reason: parsed.reason || "server exited",
+      });
     }
 
     // applyEdit-style server requests held in pendingServerRequests are
