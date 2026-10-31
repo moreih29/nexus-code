@@ -21,7 +21,9 @@ const agentContext: CliCommand = {
       "type into another agent's session and wait for it (nexus terminal send --wait), and notify",
       "the user (nexus notify). The app's browser tabs can be opened and driven to check a web",
       "app: nexus browser open URL, then snapshot (the page with element refs), click e12,",
-      "fill e3 TEXT, press Enter, screenshot, console and eval.",
+      "fill e3 TEXT, press Enter, screenshot, console and eval. The workbench can be arranged",
+      "too: nexus layout show/split/resize, tab move/rename/pin, panel show/hide, reveal,",
+      "and nexus problems lists the language servers' errors in open files.",
       "Run `nexus help` for every command.",
     ].join("\n");
     return output(note, { note });

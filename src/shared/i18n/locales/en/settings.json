@@ -272,7 +272,11 @@
         "tabClose": "close the tab \"{{detail}}\"",
         "browserOpen": "open {{detail}} in a browser tab",
         "browserNavigate": "move the browser tab \"{{detail}}\"",
-        "browserControl": "click, type or run scripts in the browser tab \"{{detail}}\""
+        "browserControl": "click, type or run scripts in the browser tab \"{{detail}}\"",
+        "layout": "rearrange its groups ({{detail}})",
+        "groupClose": "close group {{detail}} and its tabs",
+        "tabRename": "rename the tab \"{{detail}}\"",
+        "tabPin": "pin or unpin the tab \"{{detail}}\""
       }
     }
   },

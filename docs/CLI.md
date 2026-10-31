@@ -76,15 +76,40 @@ nexus browser eval "document.title"
 - 브라우저 탭이 여러 개면 `--tab <id>` 로 고릅니다. 하나뿐이거나 보이는 탭이 하나면 생략할 수 있습니다.
 - 페이지 안의 iframe 내용은 snapshot 에 나오지 않습니다.
 
+## 화면 배치
+
+에디터 영역의 그룹(분할된 칸)과 탭, 왼쪽 패널을 다룹니다.
+
+```bash
+nexus layout show                    # 분할 구조와 그룹 번호
+nexus layout split "QA Form" right   # 탭을 오른쪽 새 그룹으로 (left · right · up · down)
+nexus layout resize 2 30%            # 그룹 2 가 30% 차지 (--width · --height 로 방향 지정)
+nexus layout even                    # 줄마다 그룹 크기 균등하게
+nexus layout close 3                 # 그룹과 그 안의 탭 닫기
+nexus tab move index.ts 1 --at 1     # 탭을 그룹 1 의 첫 자리로
+nexus tab rename <탭> "dev server"   # 탭 이름 바꾸기 (--reset 으로 원래대로)
+nexus tab pin <탭>                   # 탭 고정 (tab unpin 으로 해제)
+nexus panel show git                 # 파일 패널을 git 보기로 (sidebar · files · search · git)
+nexus panel hide sidebar
+nexus panel resize files 320         # 패널 너비(px)
+nexus reveal src/app.ts              # 파일 트리에서 그 파일을 펼쳐 선택
+nexus problems                       # 열린 파일의 언어 서버 오류 · 경고
+```
+
+- 그룹은 `layout show` 의 번호, id, `.`(이 터미널의 그룹), 또는 그 안의 탭 이름으로 고릅니다. 번호는 그룹이 생기고 없어지면 바뀌니, 바꾼 뒤에는 `layout show` 로 다시 확인하세요.
+- 분할 · 이동을 해도 사용자가 보던 그룹과 키보드 포커스는 그대로 둡니다.
+- 이 터미널이 든 그룹은 닫지 않습니다. 저장 안 된 편집기가 있는 그룹도 닫지 않고, 프로그램이 도는 터미널은 `--force` 가 있어야 닫습니다.
+- `problems` 는 에디터에 열린 파일만 봅니다(상태 표시줄의 오류 수와 같은 기준). 전체 검사는 프로젝트의 명령으로 하세요.
+
 ## 다른 워크스페이스 바꾸기
 
-다른 워크스페이스에 파일을 열거나, 터미널에 입력하거나, 탭을 닫거나, 브라우저를 조작하는 일은 **설정 → 에이전트 CLI** 의 "다른 워크스페이스 변경" 을 따릅니다.
+다른 워크스페이스에 파일을 열거나, 터미널에 입력하거나, 탭을 닫거나, 브라우저를 조작하거나, 그룹 배치 · 탭 이름 · 고정을 바꾸는 일은 **설정 → 에이전트 CLI** 의 "다른 워크스페이스 변경" 을 따릅니다.
 
 - **매번 묻기**(기본): 앱에 확인 창이 뜹니다. **이번만 허용** · **재시작 전까지 허용**(그 워크스페이스 쌍에 대해) · **허용 안 함** 중에서 고릅니다. 90초 안에 답하지 않으면 거절됩니다.
 - **허용**: 묻지 않고 허용합니다.
 - **허용 안 함**: 항상 거절합니다.
 
-자기 워크스페이스는 묻지 않습니다. 읽기와 보여주기(`tab show`, `workspace switch`)도 묻지 않습니다.
+자기 워크스페이스는 묻지 않습니다. 읽기와 보여주기(`tab show`, `workspace switch`, `reveal`)도 묻지 않고, 앱 전체의 패널(`panel`)도 묻지 않습니다.
 
 ## 에이전트에게 알려주기
 

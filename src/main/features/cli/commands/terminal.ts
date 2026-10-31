@@ -43,7 +43,7 @@ export async function resolveTerminal(
 }
 
 /** A tab a selector names in a workspace, of any type. */
-async function resolveAnyTab(
+export async function resolveAnyTab(
   ctx: CliContext,
   workspace: WorkspaceMeta,
   selector: string,

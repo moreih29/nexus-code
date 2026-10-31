@@ -28,6 +28,7 @@ import { closeTerminal } from "../terminal/open-terminal";
 import { queueStartupInput } from "../terminal/pty-client";
 import { getTerminalController } from "../terminal/terminal-registry";
 import { activateWorkspace } from "../workspace/tasks";
+import type { LayoutOp } from "./layout-actions";
 import { findTabs, groupOf, openTab, showOpenTab } from "./placement";
 
 export type CliUiHandler<K extends CliUiOp> = (
@@ -53,7 +54,7 @@ function terminalController(tabId: string) {
   return controller;
 }
 
-function tabRecord(workspaceId: string, tabId: string): Tab {
+export function tabRecord(workspaceId: string, tabId: string): Tab {
   const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
   if (!tab) throw new UiRequestError("that tab is gone");
   return tab;
@@ -67,7 +68,7 @@ function navigableUrl(input: string): string {
   );
 }
 
-function hasUnsavedChanges(workspaceId: string, tab: Tab): boolean {
+export function hasUnsavedChanges(workspaceId: string, tab: Tab): boolean {
   if (tab.type === "untitled") {
     return isDirty(untitledCacheUriFor(workspaceId, tab.props.untitledIndex));
   }
@@ -82,7 +83,7 @@ async function callOrFail(result: Promise<{ ok: boolean; message?: string }>): P
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const actionHandlers: {
-  [K in Exclude<CliUiOp, "tabs.list" | "terminal.read">]: CliUiHandler<K>;
+  [K in Exclude<CliUiOp, "tabs.list" | "terminal.read" | LayoutOp>]: CliUiHandler<K>;
 } = {
   "editor.open": async ({ workspaceId, filePath, line, column, placement }) => {
     const open = findTabs(
