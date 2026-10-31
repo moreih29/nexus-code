@@ -23,7 +23,9 @@ afterAll(() => {
   mock.module(CLIENT, () => previousClient);
 });
 
-const { useTerminalStore } = await import("../../../../../src/renderer/state/stores/terminal");
+const { resolvedTaskAgentCommand, useTerminalStore } = await import(
+  "../../../../../src/renderer/state/stores/terminal"
+);
 
 const nu = { id: "nu", name: "Nushell", path: "nu", args: [] };
 const psNoLogo = { id: "ps", name: "PS", path: "powershell", args: ["-NoLogo"] };
@@ -82,5 +84,18 @@ describe("terminal store — added shells", () => {
 
     expect(useTerminalStore.getState().shell).toEqual(gitBash);
     expect(writes).toEqual([{ terminalShells: undefined }]);
+  });
+});
+
+describe("terminal store — task agent command", () => {
+  it("runs claude until set, and nothing when set empty", () => {
+    expect(resolvedTaskAgentCommand()).toBe("claude");
+
+    useTerminalStore.getState().setTaskAgentCommand(" codex --full-auto ");
+    expect(resolvedTaskAgentCommand()).toBe("codex --full-auto");
+    expect(writes.at(-1)).toEqual({ taskAgentCommand: " codex --full-auto " });
+
+    useTerminalStore.getState().setTaskAgentCommand("");
+    expect(resolvedTaskAgentCommand()).toBe("");
   });
 });

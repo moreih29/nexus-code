@@ -199,6 +199,7 @@ export async function bootstrapAppState(): Promise<void> {
     fontLigatures: state.terminalFontLigatures,
     shell: state.terminalShell,
     customShells: state.terminalShells,
+    taskAgentCommand: state.taskAgentCommand,
   });
 
   // Another window changed the shells: take the saved list, so an edit made

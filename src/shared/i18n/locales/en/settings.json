@@ -217,6 +217,11 @@
       "argsPlaceholder": "e.g. -l",
       "hint": "Applies to terminals opened from now on. SSH workspaces use the remote server's login shell."
     },
+    "taskAgent": {
+      "label": "Task agent command",
+      "hint": "A new task's terminal runs this, with the task's first prompt as its argument. Leave it empty to run nothing.",
+      "aria": "Task agent command"
+    },
     "fontSize": "Font size",
     "cursorStyle": "Cursor style",
     "fontFamily": "Font family",
