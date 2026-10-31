@@ -337,3 +337,54 @@ func TestDaemonStartsWhileLockBrieflyHeld(t *testing.T) {
 		t.Fatalf("want ready frame, got %s", ready)
 	}
 }
+
+// agent.shutdown is the app removing the workspace: the daemon answers, then
+// exits at once rather than waiting reattachGrace for a dialer, and takes
+// its socket with it.
+func TestDaemonExitsOnShutdown(t *testing.T) {
+	t.Parallel()
+	bin := agentBinary(t)
+	root := t.TempDir()
+	fakeHome := shortHome(t)
+
+	cmd, runDir := startDaemon(t, bin, root, fakeHome)
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	defer func() { _ = cmd.Process.Kill() }()
+	sockPath := waitForSocket(t, runDir)
+
+	conn, _ := readReady(t, sockPath)
+	defer conn.Close()
+	if _, err := conn.Write([]byte(`{"id":"bye","method":"agent.shutdown"}` + "\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	sc := bufio.NewScanner(conn)
+	for {
+		if !sc.Scan() {
+			t.Fatalf("no reply to agent.shutdown: %v", sc.Err())
+		}
+		var frame struct {
+			ID    string          `json:"id"`
+			Error json.RawMessage `json:"error"`
+		}
+		if json.Unmarshal(sc.Bytes(), &frame) == nil && frame.ID == "bye" {
+			if len(frame.Error) > 0 {
+				t.Fatalf("agent.shutdown failed: %s", sc.Text())
+			}
+			break
+		}
+	}
+
+	select {
+	case err := <-exited:
+		if err != nil {
+			t.Fatalf("daemon exited with %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("daemon still running 5 s after agent.shutdown")
+	}
+	if _, err := os.Stat(sockPath); !os.IsNotExist(err) {
+		t.Errorf("socket left behind: %v", err)
+	}
+}
