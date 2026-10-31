@@ -16,7 +16,7 @@ import type {
  * Filesystem provider bound to one workspace-scoped agent.
  */
 export interface FsProvider {
-  readonly kind: "local" | "ssh";
+  readonly kind: "local" | "ssh" | "wsl";
   /** `includeHidden` also lists entries the explorer hides (.git, .DS_Store). */
   readdir(relPath: string, options?: { includeHidden?: boolean }): Promise<DirEntry[]>;
   stat(relPath: string): Promise<FsStat>;

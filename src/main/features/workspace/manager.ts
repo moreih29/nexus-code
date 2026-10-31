@@ -53,6 +53,7 @@ import {
   type SshBootstrapDependencies,
 } from "../../infra/agent/ssh/ssh-bootstrap/index";
 import { absoluteRemotePath } from "../../infra/agent/ssh/ssh-bootstrap/manifest";
+import { createWslChannel, ensureWslAgent, ensureWslLspServer } from "../../infra/agent/wsl";
 import { isWindows, loginShell } from "../../infra/platform";
 import type { GlobalStorage } from "../../infra/storage/global-storage";
 import type { StateService } from "../../infra/storage/state-service";
@@ -84,6 +85,17 @@ export type WorkspaceSshLspBootstrap = (
   dependencies?: Pick<SshBootstrapDependencies, "onProgress">,
 ) => Promise<EnsureRemoteLspServerResult>;
 export type WorkspaceLocalChannelFactory = (options: CreateLocalChannelOptions) => AgentChannel;
+/** How a WSL workspace's agent is installed, reached, and given language servers. */
+export interface WorkspaceWslTransport {
+  readonly bootstrap: typeof ensureWslAgent;
+  readonly createChannel: typeof createWslChannel;
+  readonly lspBootstrap: typeof ensureWslLspServer;
+}
+const defaultWslTransport: WorkspaceWslTransport = {
+  bootstrap: ensureWslAgent,
+  createChannel: createWslChannel,
+  lspBootstrap: ensureWslLspServer,
+};
 export type WorkspaceLocalAgentCommandResolver = () => LocalAgentCommand;
 export type WriteShimFilesFn = (workspaceId: string) => Promise<{
   dir: string;
@@ -124,6 +136,9 @@ function defaultWorkspaceName(location: WorkspaceLocation): string {
     const folder = path.posix.basename(location.remotePath ?? "");
     if (folder && folder !== "~") return folder;
     return location.configAlias || location.host;
+  }
+  if (location.kind === "wsl") {
+    return path.posix.basename(location.remotePath) || location.distro;
   }
   return path.basename(location.rootPath);
 }
@@ -194,6 +209,7 @@ export class WorkspaceManager {
   private readonly sshChannelFactory: WorkspaceSshChannelFactory;
   private readonly sshBootstrap: WorkspaceSshBootstrap;
   private readonly sshLspBootstrap: WorkspaceSshLspBootstrap;
+  private readonly wsl: WorkspaceWslTransport;
   private readonly localChannelFactory: WorkspaceLocalChannelFactory;
   private readonly localAgentCommandResolver: WorkspaceLocalAgentCommandResolver;
   private readonly writeShimFiles: WriteShimFilesFn;
@@ -213,7 +229,7 @@ export class WorkspaceManager {
   /**
    * Callback to restore held PTY sessions after a successful re-authentication.
    * Injected from main/index.ts after construction to break the circular dep.
-   * Manager calls this immediately after ensureSshProviderReady resolves on a
+   * Manager calls this immediately after ensureRemoteProviderReady resolves on a
    * reauth path.
    */
   private ptyRestoreAfterReauth: ((workspaceId: string) => Promise<void>) | null = null;
@@ -247,7 +263,7 @@ export class WorkspaceManager {
   private readonly sshBootstraps = new Map<string, EnsureRemoteAgentResult>();
   private readonly sshProviderReady = new Map<string, Promise<void>>();
   // ControlMasters handed off from an SSH browse session, keyed by workspace
-  // id, awaiting their first provider boot. Consumed by startSshProvider.
+  // id, awaiting their first provider boot. Consumed by startRemoteProvider.
   private readonly adoptedSshMasters = new Map<string, SshControlMaster>();
   private readonly connectionStatuses = new Map<string, WorkspaceConnectionEventStatus>();
   // pull 기반 hookserver 접속 정보 캐시 — channel.ready 직후 hook.getInfo RPC로 채워진다.
@@ -284,6 +300,7 @@ export class WorkspaceManager {
     sshLspBootstrap: WorkspaceSshLspBootstrap = defaultEnsureRemoteLspServer,
     writeShimFiles: WriteShimFilesFn = defaultWriteShimFiles,
     removeShimDir: RemoveShimDirFn = defaultRemoveShimDir,
+    wsl: WorkspaceWslTransport = defaultWslTransport,
   ) {
     this.globalStorage = globalStorage;
     this.workspaceStorage = workspaceStorage;
@@ -296,6 +313,7 @@ export class WorkspaceManager {
     this.localAgentCommandResolver = localAgentCommandResolver;
     this.writeShimFiles = writeShimFiles;
     this.removeShimDir = removeShimDir;
+    this.wsl = wsl;
   }
 
   // ---------------------------------------------------------------------------
@@ -757,7 +775,7 @@ export class WorkspaceManager {
    * Adopts a ControlMaster handed off from an SSH directory-browse session.
    * The next SSH provider boot for this workspace reuses that socket, so the
    * user is not prompted for credentials a second time. Safe to call before
-   * the provider boots; the master is consumed by startSshProvider.
+   * the provider boots; the master is consumed by startRemoteProvider.
    */
   adoptSshControlMaster(workspaceId: string, master: SshControlMaster): void {
     this.adoptedSshMasters.get(workspaceId)?.dispose();
@@ -982,14 +1000,28 @@ export class WorkspaceManager {
   ): Promise<{ readonly binaryPath: string; readonly args: readonly string[] } | null> {
     const ctx = this.requireContext(workspaceId);
     const meta = ctx.getMeta();
-    if (meta.location.kind !== "ssh") {
+    if (meta.location.kind === "local") {
       return null;
     }
 
     await this.ensureProviderReady(ctx);
     const refreshedMeta = ctx.getMeta();
-    if (refreshedMeta.location.kind !== "ssh") {
+    if (refreshedMeta.location.kind === "local") {
       return null;
+    }
+
+    if (refreshedMeta.location.kind === "wsl") {
+      const result = await this.wsl.lspBootstrap(
+        {
+          distro: refreshedMeta.location.distro,
+          remotePath: refreshedMeta.location.remotePath,
+          cachedRemoteArch: refreshedMeta.location.remoteArch,
+          binaryName: request.binaryName,
+          languageId: request.languageId,
+        },
+        { onProgress },
+      );
+      return { binaryPath: result.binaryPath, args: result.args };
     }
 
     const bootstrap = this.sshBootstraps.get(workspaceId);
@@ -1021,7 +1053,7 @@ export class WorkspaceManager {
       await this.ensureLocalProviderReady(ctx);
       return;
     }
-    await this.ensureSshProviderReady(ctx);
+    await this.ensureRemoteProviderReady(ctx);
   }
 
   /**
@@ -1140,11 +1172,12 @@ export class WorkspaceManager {
   }
 
   /**
-   * Lazily connects one SSH channel per workspace and injects it into the context.
+   * Lazily connects one SSH or WSL channel per workspace and injects it into
+   * the context.
    */
-  private async ensureSshProviderReady(ctx: WorkspaceContext): Promise<void> {
+  private async ensureRemoteProviderReady(ctx: WorkspaceContext): Promise<void> {
     const meta = ctx.getMeta();
-    if (meta.location.kind !== "ssh") {
+    if (meta.location.kind === "local") {
       return;
     }
 
@@ -1154,7 +1187,7 @@ export class WorkspaceManager {
       return;
     }
 
-    const ready = this.startSshProvider(ctx, meta);
+    const ready = this.startRemoteProvider(ctx, meta);
     this.sshProviderReady.set(meta.id, ready);
     try {
       await ready;
@@ -1167,10 +1200,13 @@ export class WorkspaceManager {
   }
 
   /**
-   * Owns the explicit SSH boot sequence: bootstrap → spawn → ready → context provider.
+   * Owns the explicit remote boot sequence: bootstrap → spawn → ready →
+   * context provider. A WSL workspace takes it like an SSH one; only the
+   * bootstrap and the channel's transport differ.
    */
-  private async startSshProvider(ctx: WorkspaceContext, meta: WorkspaceMeta): Promise<void> {
-    if (meta.location.kind !== "ssh") {
+  private async startRemoteProvider(ctx: WorkspaceContext, meta: WorkspaceMeta): Promise<void> {
+    const location = meta.location;
+    if (location.kind === "local") {
       return;
     }
 
@@ -1181,25 +1217,38 @@ export class WorkspaceManager {
     const adoptedMaster = this.adoptedSshMasters.get(meta.id);
     this.adoptedSshMasters.delete(meta.id);
     let bootstrap: EnsureRemoteAgentResult;
+    const onProgress = (event: LspBootstrapProgressEvent) =>
+      this.broadcastConnectionProgress(meta.id, event);
     try {
-      bootstrap = await this.sshBootstrap(
-        {
-          host: meta.location.host,
-          user: meta.location.user,
-          port: meta.location.port,
-          identityFile: meta.location.identityFile,
-          authMode: meta.location.authMode,
-          remotePath: meta.location.remotePath,
-          cachedRemoteArch: meta.location.remoteArch,
-          controlPath: adoptedMaster?.controlPath,
-          // Pass workspaceId so the bootstrap also uploads the per-workspace
-          // shim rc files (`.zshrc`/`.zshenv`/`bashrc`) into the remote's
-          // `~/.nexus-code/shim/<workspaceId>/`, making them available to the
-          // remote PTY's zsh `ZDOTDIR` / bash `--rcfile` activation.
-          workspaceId: meta.id,
-        },
-        { onProgress: (event) => this.broadcastConnectionProgress(meta.id, event) },
-      );
+      bootstrap =
+        location.kind === "wsl"
+          ? await this.wsl.bootstrap(
+              {
+                distro: location.distro,
+                remotePath: location.remotePath,
+                cachedRemoteArch: location.remoteArch,
+                workspaceId: meta.id,
+              },
+              { onProgress },
+            )
+          : await this.sshBootstrap(
+              {
+                host: location.host,
+                user: location.user,
+                port: location.port,
+                identityFile: location.identityFile,
+                authMode: location.authMode,
+                remotePath: location.remotePath,
+                cachedRemoteArch: location.remoteArch,
+                controlPath: adoptedMaster?.controlPath,
+                // Pass workspaceId so the bootstrap also uploads the per-workspace
+                // shim rc files (`.zshrc`/`.zshenv`/`bashrc`) into the remote's
+                // `~/.nexus-code/shim/<workspaceId>/`, making them available to the
+                // remote PTY's zsh `ZDOTDIR` / bash `--rcfile` activation.
+                workspaceId: meta.id,
+              },
+              { onProgress },
+            );
     } catch (error) {
       // Bootstrap failed before any channel existed. Release the adopted
       // master (we own it now) and surface the error state instead of
@@ -1223,22 +1272,31 @@ export class WorkspaceManager {
     }
     this.sshBootstraps.set(meta.id, bootstrap);
     let providerMeta = meta;
-    if (!meta.location.remoteArch) {
+    if (!location.remoteArch) {
       providerMeta = {
         ...meta,
-        location: { ...meta.location, remoteArch: bootstrap.platform },
+        location:
+          location.kind === "wsl"
+            ? { ...location, remoteArch: { os: "linux", arch: bootstrap.platform.arch } }
+            : { ...location, remoteArch: bootstrap.platform },
       };
       this.globalStorage.updateWorkspace(meta.id, { location: providerMeta.location });
       ctx.setMeta(providerMeta);
       this.broadcastFn("workspace", "changed", providerMeta);
     }
-    const channel = this.sshChannelFactory(
-      sshChannelOptionsFromLocation(
-        { ...meta.location, remoteArch: bootstrap.platform },
-        bootstrap.remoteCommand,
-        bootstrap.controlPath,
-      ),
-    );
+    const channel =
+      location.kind === "wsl"
+        ? this.wsl.createChannel({
+            distro: location.distro,
+            remoteCommand: bootstrap.remoteCommand,
+          })
+        : this.sshChannelFactory(
+            sshChannelOptionsFromLocation(
+              { ...location, remoteArch: bootstrap.platform },
+              bootstrap.remoteCommand,
+              bootstrap.controlPath,
+            ),
+          );
     this.sshChannels.set(meta.id, channel);
     const disposeLifecycleListener = channel.onLifecycle((event) => {
       this.handleSshChannelLifecycle(meta.id, channel, event);
@@ -1581,7 +1639,7 @@ export class WorkspaceManager {
 
       this.reauthAttempts.set(workspaceId, attempts + 1);
       try {
-        await this.ensureSshProviderReady(ctx);
+        await this.ensureRemoteProviderReady(ctx);
         // Success — reset attempt counter and trigger PTY session restore.
         this.reauthAttempts.delete(workspaceId);
         // restoreAfterReauth acquires the new channel, subscribes lifecycle,
@@ -1671,14 +1729,14 @@ export class WorkspaceManager {
 
 /**
  * Returns true when a workspace should auto-connect at app startup.
- * Local workspaces always connect immediately. SSH workspaces only connect
+ * Local and WSL workspaces always connect immediately. SSH workspaces only connect
  * automatically when the authMode is "key-only"; interactive (password) SSH
  * workspaces restore in the disconnected state and connect on explicit user
  * action (sidebar click / panel Connect button) to avoid an unsolicited
  * password prompt during startup.
  */
 function shouldAutoConnect(meta: WorkspaceMeta): boolean {
-  if (meta.location.kind === "local") return true;
+  if (meta.location.kind !== "ssh") return true;
   return meta.location.authMode === "key-only";
 }
 

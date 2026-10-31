@@ -268,6 +268,9 @@
     "add_workspace": "워크스페이스 추가",
     "adding": "추가 중…"
   },
+  "wsl": {
+    "identity": "WSL · {{distro}}"
+  },
   "editor": {
     "file_path": "파일 경로",
     "loading": "로딩 중…",
@@ -469,7 +472,9 @@
     "session_expired": "세션이 만료되었습니다",
     "session_expired_desc": "재연결 중 세션이 만료되었습니다. 클릭하여 다시 연결하세요.",
     "ssh_workspace": "SSH 워크스페이스 — {{label}}",
+    "wsl_workspace": "WSL 워크스페이스 — {{label}}",
     "could_not_connect": "{{label}}에 연결할 수 없습니다. SSH 설정을 확인하고 다시 시도하세요.",
+    "could_not_start_wsl": "{{label}}에서 에이전트를 시작할 수 없습니다. 배포판이 실행되는지 확인하고 다시 시도하세요.",
     "bootstrap_phase": {
       "checking": "원격 확인 중…",
       "uploading": "{{name}} 업로드 중…",

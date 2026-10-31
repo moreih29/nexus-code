@@ -110,7 +110,7 @@ export function GroupTabBar({
   }
 
   const isRemote = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.location.kind === "ssh",
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.location.kind !== "local",
   );
 
   const menuItems = buildGroupTabBarMenuItems({

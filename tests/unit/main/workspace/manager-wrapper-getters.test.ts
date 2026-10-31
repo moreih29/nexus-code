@@ -137,7 +137,7 @@ function writeAgentManifest(dir: string, version: string): void {
 
 /**
  * WorkspaceManager의 private sshBootstraps 맵에 직접 접근하기 위한 타입 캐스트.
- * 테스트 전용 — 프로덕션 코드에서는 startSshProvider 내부에서만 설정된다.
+ * 테스트 전용 — 프로덕션 코드에서는 startRemoteProvider 내부에서만 설정된다.
  */
 function injectSshBootstrap(
   manager: InstanceType<typeof WorkspaceManager>,

@@ -268,6 +268,9 @@
     "add_workspace": "Add Workspace",
     "adding": "Adding…"
   },
+  "wsl": {
+    "identity": "WSL · {{distro}}"
+  },
   "editor": {
     "file_path": "File path",
     "loading": "Loading…",
@@ -469,7 +472,9 @@
     "session_expired": "Session expired",
     "session_expired_desc": "The session timed out during reconnection. Click to reconnect.",
     "ssh_workspace": "SSH workspace — {{label}}",
+    "wsl_workspace": "WSL workspace — {{label}}",
     "could_not_connect": "Could not connect to {{label}}. Check your SSH settings and try again.",
+    "could_not_start_wsl": "Could not start the agent in {{label}}. Check that the distribution runs, then try again.",
     "bootstrap_phase": {
       "checking": "Checking remote…",
       "uploading": "Uploading {{name}}…",
