@@ -272,7 +272,11 @@
         "tabClose": "탭 \"{{detail}}\" 닫기를",
         "browserOpen": "브라우저 탭에서 {{detail}} 열기를",
         "browserNavigate": "브라우저 탭 \"{{detail}}\" 이동을",
-        "browserControl": "브라우저 탭 \"{{detail}}\"에서 클릭·입력·스크립트 실행을"
+        "browserControl": "브라우저 탭 \"{{detail}}\"에서 클릭·입력·스크립트 실행을",
+        "layout": "그룹 배치 변경({{detail}})을",
+        "groupClose": "그룹 {{detail}} 및 그 안의 탭 닫기를",
+        "tabRename": "탭 \"{{detail}}\" 이름 변경을",
+        "tabPin": "탭 \"{{detail}}\" 고정·해제를"
       }
     }
   },

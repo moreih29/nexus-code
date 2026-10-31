@@ -15,6 +15,9 @@ import type { CliContext, CliServices } from "../../../../src/main/features/cli/
 import type { ClaudeStatus } from "../../../../src/shared/claude/status";
 import type {
   CliConsentAnswer,
+  CliLayoutNode,
+  CliPanels,
+  CliProblem,
   CliTabInfo,
   CliUiOp,
   CliUiOps,
@@ -83,11 +86,35 @@ export const TABS: Record<string, CliTabInfo[]> = {
   [APP]: [
     tab(SHELL_TAB, "terminal", "zsh", { cwd: "/w/app", shown: true }),
     tab(CLAUDE_TAB, "terminal", "✳ Claude Code", { cwd: "/w/app" }),
-    tab(EDITOR_TAB, "editor", "index.ts", { filePath: "/w/app/index.ts" }),
-    tab(BROWSER_TAB, "browser", "Vite App", { url: "http://localhost:5173/" }),
+    tab(EDITOR_TAB, "editor", "index.ts", { filePath: "/w/app/index.ts", groupId: "g2" }),
+    tab(BROWSER_TAB, "browser", "Vite App", { url: "http://localhost:5173/", groupId: "g2" }),
   ],
-  [API]: [tab(CODEX_TAB, "terminal", "codex", { cwd: "/w/api" })],
+  [API]: [tab(CODEX_TAB, "terminal", "codex", { cwd: "/w/api", groupId: "g3" })],
   [FIX]: [],
+};
+
+const group = (id: string, tabIds: string[], shownTabId: string | null = tabIds[0] ?? null) => ({
+  kind: "group" as const,
+  id,
+  tabIds,
+  shownTabId,
+});
+
+/** The editor areas: "app" split in two columns, the others one group. */
+const LAYOUTS: Record<string, { root: CliLayoutNode; activeGroupId: string }> = {
+  [APP]: {
+    root: {
+      kind: "split",
+      id: "s1",
+      direction: "columns",
+      ratio: 0.5,
+      first: group("g1", [SHELL_TAB, CLAUDE_TAB]),
+      second: group("g2", [EDITOR_TAB, BROWSER_TAB]),
+    },
+    activeGroupId: "g1",
+  },
+  [API]: { root: group("g3", [CODEX_TAB]), activeGroupId: "g3" },
+  [FIX]: { root: group("g4", []), activeGroupId: "g4" },
 };
 
 /** What is on disk, by workspace and path from its root. */
@@ -116,6 +143,11 @@ export interface FakeApp {
   time: { now: number; onTick?: (now: number) => void };
   /** What was asked of the browser driver, and what it answers. */
   browser: FakeBrowser;
+  /** Each workspace's editor area; a test may replace one. */
+  layouts: Record<string, { root: CliLayoutNode; activeGroupId: string }>;
+  panels: CliPanels;
+  /** What problems.list gives. */
+  problems: CliProblem[];
 }
 
 export interface FakeBrowser {
@@ -203,6 +235,12 @@ export function fakeApp(now = Date.now()): FakeApp {
   const asked: ChangeRequest[] = [];
   const time: FakeApp["time"] = { now };
   const browser: FakeBrowser = { calls: [], console: [], value: undefined, met: true };
+  const layouts: FakeApp["layouts"] = { ...LAYOUTS };
+  const panels: CliPanels = {
+    sidebar: { visible: true, width: 240 },
+    files: { visible: true, width: 240, mode: "tree" },
+  };
+  const problems: CliProblem[] = [];
   const consent = new CrossWorkspaceConsent({
     policy: () => settings.crossWorkspace,
     ask: async (request) => {
@@ -228,6 +266,29 @@ export function fakeApp(now = Date.now()): FakeApp {
       const { url } = args as CliUiOps["browser.open"]["args"];
       return { tabId: NEW_TAB, url: `http://${url}/` } as CliUiOps[K]["result"];
     }
+    if (op === "layout.get") {
+      const { workspaceId } = args as CliUiOps["layout.get"]["args"];
+      return layouts[workspaceId] as CliUiOps[K]["result"];
+    }
+    if (op === "layout.split") return { groupId: "g9" } as CliUiOps[K]["result"];
+    if (op === "group.close") {
+      const { workspaceId, groupId } = args as CliUiOps["group.close"]["args"];
+      const closed = (tabs[workspaceId] ?? []).filter((t) => t.groupId === groupId).length;
+      return { closed } as CliUiOps[K]["result"];
+    }
+    if (op === "tab.rename") {
+      const { title } = args as CliUiOps["tab.rename"]["args"];
+      return { title: title || "zsh" } as CliUiOps[K]["result"];
+    }
+    if (op === "panels.set") {
+      const { panel, visible, width, mode } = args as CliUiOps["panels.set"]["args"];
+      if (visible !== undefined) panels[panel].visible = visible;
+      if (width !== undefined) panels[panel].width = Math.min(600, Math.max(160, width));
+      if (mode !== undefined) panels.files.mode = mode;
+      return panels as CliUiOps[K]["result"];
+    }
+    if (op === "panels.get") return panels as CliUiOps[K]["result"];
+    if (op === "problems.list") return { problems } as CliUiOps[K]["result"];
     if (op === "browser.navigate") {
       const { url } = args as CliUiOps["browser.navigate"]["args"];
       return (url === undefined ? {} : { url }) as CliUiOps[K]["result"];
@@ -272,6 +333,9 @@ export function fakeApp(now = Date.now()): FakeApp {
     asked,
     time,
     browser,
+    layouts,
+    panels,
+    problems,
   };
 }
 

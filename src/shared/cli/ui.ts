@@ -41,6 +41,56 @@ export type CliInputMode = "paste" | "keys";
 /** What `browser.navigate` does. */
 export type CliBrowserAction = "goto" | "back" | "forward" | "reload";
 
+/**
+ * A workspace's editor area: groups of tabs, split in two again and again.
+ * A split's `ratio` is its first part's share, from 0 to 1.
+ */
+export type CliLayoutNode =
+  | {
+      readonly kind: "group";
+      readonly id: string;
+      readonly tabIds: readonly string[];
+      readonly shownTabId: string | null;
+    }
+  | {
+      readonly kind: "split";
+      readonly id: string;
+      /** Side by side, or one above the other. */
+      readonly direction: "columns" | "rows";
+      readonly ratio: number;
+      readonly first: CliLayoutNode;
+      readonly second: CliLayoutNode;
+    };
+
+/** Which side of a group a split puts the new group on. */
+export type CliSplitSide = "left" | "right" | "up" | "down";
+
+/** The columns left of the editor area: the workspace list, and the files panel. */
+export type CliPanel = "sidebar" | "files";
+
+/** What the files panel shows. */
+export type CliFilesMode = "tree" | "search" | "git";
+
+export interface CliPanels {
+  readonly sidebar: { readonly visible: boolean; readonly width: number };
+  readonly files: {
+    readonly visible: boolean;
+    readonly width: number;
+    readonly mode: CliFilesMode;
+  };
+}
+
+/** A problem a language server reports in a file open in the editor. */
+export interface CliProblem {
+  readonly filePath: string;
+  readonly line: number;
+  readonly column: number;
+  readonly severity: "error" | "warning" | "info" | "hint";
+  readonly message: string;
+  readonly source?: string;
+  readonly code?: string;
+}
+
 /** What nexus asks the user's leave for, in a workspace other than its terminal's own. */
 export type CliChangeKind =
   | "open"
@@ -50,7 +100,11 @@ export type CliChangeKind =
   | "tabClose"
   | "browserOpen"
   | "browserNavigate"
-  | "browserControl";
+  | "browserControl"
+  | "layout"
+  | "groupClose"
+  | "tabRename"
+  | "tabPin";
 
 export interface CliChange {
   readonly kind: CliChangeKind;
@@ -137,6 +191,69 @@ export interface CliUiOps {
     args: { workspaceId: string; tabId: string; action: CliBrowserAction; url?: string };
     /** Where "goto" went. */
     result: { url?: string };
+  };
+  /** A workspace's editor area and its active group. */
+  "layout.get": {
+    args: { workspaceId: string };
+    result: { root: CliLayoutNode; activeGroupId: string };
+  };
+  /** Moves a tab into a new group on a side of `groupId`, its own group or another. */
+  "layout.split": {
+    args: { workspaceId: string; tabId: string; groupId: string; side: CliSplitSide };
+    result: { groupId: string };
+  };
+  /** Sets the share of the first part of splits, by split id. */
+  "layout.ratios": {
+    args: { workspaceId: string; ratios: { splitId: string; ratio: number }[] };
+    result: Record<string, never>;
+  };
+  /** Moves a tab into another group, or within its own, before the tab at `index`. */
+  "tab.move": {
+    args: { workspaceId: string; tabId: string; groupId: string; index?: number };
+    result: Record<string, never>;
+  };
+  /**
+   * Closes a group and its tabs. Refuses one holding unsaved changes, and a
+   * terminal running a program unless `force`.
+   */
+  "group.close": {
+    args: { workspaceId: string; groupId: string; force: boolean };
+    result: { closed: number };
+  };
+  /** Names a tab; "" gives it back the name the app chooses. */
+  "tab.rename": {
+    args: { workspaceId: string; tabId: string; title: string };
+    result: { title: string };
+  };
+  "tab.pin": {
+    args: { workspaceId: string; tabId: string; pinned: boolean };
+    result: Record<string, never>;
+  };
+  /** The panels beside the editor area, and the files panel's mode in a workspace. */
+  "panels.get": {
+    args: { workspaceId: string };
+    result: CliPanels;
+  };
+  /** Shows, hides or resizes a panel, or sets the files panel's mode in a workspace. */
+  "panels.set": {
+    args: {
+      workspaceId: string;
+      panel: CliPanel;
+      visible?: boolean;
+      width?: number;
+      mode?: CliFilesMode;
+    };
+    result: CliPanels;
+  };
+  /** Shows a file or folder in the files panel's tree, unfolding the folders above it. */
+  "files.reveal": {
+    args: { workspaceId: string; filePath: string };
+    result: Record<string, never>;
+  };
+  /** The problems language servers report in a workspace's files open in the editor. */
+  "problems.list": {
+    args: { workspaceId: string };
+    result: { problems: CliProblem[] };
   };
   /** Shows a workspace, as clicking it in the sidebar does. */
   "workspace.show": {
