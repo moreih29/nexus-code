@@ -8,6 +8,8 @@ const liveSessions = new Set<string>();
 const spawnPromisesBySessionKey = new Map<string, Promise<SpawnedSession>>();
 /** Input waiting for the session's write in flight; present while one is. */
 const queuedInputBySessionKey = new Map<string, string>();
+/** Input to type once the session's shell is ready; see `queueStartupInput`. */
+const startupInputBySessionKey = new Map<string, StartupInput>();
 const textEncoder = new TextEncoder();
 
 function sessionKey(workspaceId: string, tabId: string): string {
@@ -52,11 +54,13 @@ export function spawnSession(
       const result = unwrapIpcResult(ipcRes);
       if (spawnPromisesBySessionKey.get(key) === promise) {
         liveSessions.add(key);
+        noteStartupSpawn(key, workspaceId, tabId, result.shellPath);
       }
       return result;
     })
     .catch((error: unknown) => {
       liveSessions.delete(key);
+      dropStartupInput(key);
       throw error;
     })
     .finally(() => {
@@ -100,6 +104,74 @@ async function sendInput(key: string, workspaceId: string, tabId: string, data: 
   queuedInputBySessionKey.delete(key);
 }
 
+interface StartupInput {
+  /** Builds the input for the shell that started; a remote shell has no path. */
+  readonly build: (shellPath: string | undefined) => string;
+  /** The shell printed something and has been quiet since. */
+  quiet: boolean;
+  quietTimer?: ReturnType<typeof setTimeout>;
+  maxWaitTimer?: ReturnType<typeof setTimeout>;
+  /** Types the input; set once the session has started. */
+  write?: () => void;
+}
+
+/** How long a new shell stays quiet after printing before it counts as ready. */
+export const STARTUP_INPUT_QUIET_MS = 300;
+/** The longest startup input waits for a shell that keeps printing, or never does. */
+export const STARTUP_INPUT_MAX_WAIT_MS = 5000;
+
+/**
+ * Types input into a tab's shell once the shell is ready, such as a command a
+ * new terminal runs. The tab's session must not have started yet. Ready is a
+ * guess: the shell printed something, its prompt, and then went quiet. Input
+ * typed earlier would still run, since the shell reads it when it gets there,
+ * but the terminal would show it twice, before the prompt and after it.
+ */
+export function queueStartupInput(
+  workspaceId: string,
+  tabId: string,
+  build: (shellPath: string | undefined) => string,
+): void {
+  const key = sessionKey(workspaceId, tabId);
+  dropStartupInput(key);
+  startupInputBySessionKey.set(key, { build, quiet: false });
+}
+
+function noteStartupSpawn(
+  key: string,
+  workspaceId: string,
+  tabId: string,
+  shellPath: string | undefined,
+): void {
+  const pending = startupInputBySessionKey.get(key);
+  if (!pending) return;
+  pending.write = () => {
+    dropStartupInput(key);
+    writeSession(workspaceId, tabId, pending.build(shellPath));
+  };
+  pending.maxWaitTimer = setTimeout(pending.write, STARTUP_INPUT_MAX_WAIT_MS);
+  if (pending.quiet) pending.write();
+}
+
+function noteStartupOutput(key: string): void {
+  const pending = startupInputBySessionKey.get(key);
+  if (!pending) return;
+  pending.quiet = false;
+  clearTimeout(pending.quietTimer);
+  pending.quietTimer = setTimeout(() => {
+    pending.quiet = true;
+    pending.write?.();
+  }, STARTUP_INPUT_QUIET_MS);
+}
+
+function dropStartupInput(key: string): void {
+  const pending = startupInputBySessionKey.get(key);
+  if (!pending) return;
+  clearTimeout(pending.quietTimer);
+  clearTimeout(pending.maxWaitTimer);
+  startupInputBySessionKey.delete(key);
+}
+
 export function resizeSession(
   workspaceId: string,
   tabId: string,
@@ -124,6 +196,7 @@ export function forgetSession(workspaceId: string, tabId: string): void {
   liveSessions.delete(key);
   spawnPromisesBySessionKey.delete(key);
   pendingAckBytesBySessionKey.delete(key);
+  dropStartupInput(key);
 }
 
 export function createPtyClient({
@@ -138,6 +211,7 @@ export function createPtyClient({
     if (args.workspaceId !== workspaceId || args.tabId !== tabId) return;
     onData(args.chunk, args.replay === true);
     ackData(workspaceId, tabId, args.chunk);
+    if (args.replay !== true) noteStartupOutput(sessionKey(workspaceId, tabId));
   });
 
   const unlistenExit = ipcListen("pty", "exit", (args) => {
