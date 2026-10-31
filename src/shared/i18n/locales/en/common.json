@@ -221,7 +221,7 @@
     "key_type": "Key type: {{type}}",
     "fingerprint": "Fingerprint",
     "fingerprint_warning": "If you don't recognize this fingerprint, do not trust the host.",
-    "trust_session_only": "Trust applies for this session only.",
+    "trust_saved": "Trusting saves this key to known_hosts, so later connections won't ask again.",
     "no_saved": "No saved connections",
     "no_saved_desc": "Add a connection to browse its folders.",
     "new_connection": "New Connection…",
