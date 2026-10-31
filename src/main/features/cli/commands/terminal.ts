@@ -173,7 +173,10 @@ const tabList: CliCommand = {
       t.id === ctx.caller.tabId ? `${t.title} (this terminal)` : t.title,
       t.url ?? t.filePath ?? t.cwd ?? "",
     ]);
-    return output(table(["ID", "TYPE", "TITLE", "WHERE"], rows), tabs);
+    return output(
+      table(["ID", "TYPE", "TITLE", "WHERE"], rows) || `No tabs in ${workspace.name}.`,
+      tabs,
+    );
   },
 };
 
@@ -243,8 +246,10 @@ const terminalList: CliCommand = {
         stateText(r),
       ]),
     );
+    const none =
+      workspaces.length === 1 ? `No terminals in ${workspaces[0]?.name}.` : "No terminals.";
     return output(
-      text,
+      text || none,
       rows.map((r) => rowJson(ctx, r)),
     );
   },

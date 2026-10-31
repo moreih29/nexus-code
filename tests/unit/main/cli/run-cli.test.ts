@@ -114,6 +114,18 @@ describe("terminals and sessions", () => {
     ]);
   });
 
+  test("a workspace with no tabs says so", async () => {
+    expect((await nexus(["tab", "list", "--workspace", "fix-login"])).stdout).toBe(
+      "No tabs in fix-login.\n",
+    );
+    expect((await nexus(["terminal", "list", "--workspace", "fix-login"])).stdout).toBe(
+      "No terminals in fix-login.\n",
+    );
+    expect((await nexus(["tab", "list", "--workspace", "fix-login", "--json"])).stdout).toBe(
+      "[]\n",
+    );
+  });
+
   test("session list finds Claude by its hooks and Codex by its title and notification, everywhere", async () => {
     const result = await nexus(["session", "list", "--json"]);
     const sessions = JSON.parse(result.stdout) as Array<Record<string, unknown>>;
