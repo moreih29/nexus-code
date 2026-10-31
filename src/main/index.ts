@@ -4,6 +4,7 @@ import { createLogger, initMainLogger } from "../shared/log/main";
 import {
   isLspLanguageOnForWorkspace,
   lspInitializationOptions,
+  lspServerPath,
   lspSettingsFromState,
 } from "../shared/lsp/settings";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
@@ -454,6 +455,7 @@ app.whenReady().then(async () => {
       maxActiveWorkspaces: () => lspSettings().maxActiveWorkspaces,
       initializationOptions: (languageId, preset) =>
         lspInitializationOptions(lspSettings(), languageId, preset.initializationOptions),
+      serverPath: (languageId) => lspServerPath(lspSettings(), languageId),
     },
   });
   registerLspChannel(lspHost, stateService);

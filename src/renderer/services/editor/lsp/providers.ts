@@ -26,9 +26,9 @@ import {
   tokenToAbortSignal,
 } from "./monaco-converters";
 
-// Every character a bundled server completes on; main drops the ones the
-// file's own server does not list.
-const COMPLETION_TRIGGER_CHARACTERS = [".", '"', "'", "/", "@", "<", "["];
+// Every character a preset's server completes on; main drops the ones the
+// file's own server does not list. rust-analyzer adds ":" (paths) and "(".
+const COMPLETION_TRIGGER_CHARACTERS = [".", '"', "'", "/", "@", "<", "[", ":", "("];
 
 /**
  * Recover (workspaceId, lspUri) from a Monaco model whose URI is a

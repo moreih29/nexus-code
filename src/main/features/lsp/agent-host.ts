@@ -72,6 +72,7 @@ import {
   firstShowMessageAction,
   parseAgentMessagePayload,
   parseAgentServerRequestPayload,
+  parseFindBinaryResult,
   parseServerAssignedPayload,
   parseServerCapabilities,
   parseServerExitedPayload,
@@ -233,6 +234,21 @@ const REQUEST_TIMEOUT_MS: Record<string, number> = {
  * so the renderer's hover/completion widget closes cleanly rather than
  * staying in "Loading…" forever.
  */
+/** A server the app does not bundle is not on the workspace's host. */
+export class LspServerNotFoundError extends Error {
+  constructor(
+    readonly binary: string,
+    userPath: string | undefined,
+  ) {
+    super(
+      userPath
+        ? `${binary} was found neither at ${userPath} nor on the PATH`
+        : `${binary} was not found on the PATH or where its installer puts it`,
+    );
+    this.name = "LspServerNotFoundError";
+  }
+}
+
 export class LspRequestTimeoutError extends Error {
   readonly kind = "lsp-request-timeout";
   constructor(method: string, timeoutMs: number) {
@@ -256,6 +272,11 @@ export interface AgentLspHostOptions {
    * to the preset's. Read at each spawn, like the cap.
    */
   initializationOptions?: (languageId: string, preset: LspServerSpec) => unknown;
+  /**
+   * Where the user said a server the app does not bundle is; read at each
+   * spawn. Without it the agent searches its host.
+   */
+  serverPath?: (languageId: string) => string | undefined;
   /**
    * Gate called before spawning a new LSP server for (workspaceId, languageId).
    * Return false to suppress spawn (language not enabled for this workspace).
@@ -342,6 +363,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
    */
   private readonly maxActiveWorkspaces: () => number;
   private readonly initializationOptionsFor: (languageId: string, preset: LspServerSpec) => unknown;
+  private readonly serverPathFor: (languageId: string) => string | undefined;
   /**
    * Optional predicate gate injected at construction time. Checked in
    * `getOrCreateServer` before any spawn is attempted. Returning false
@@ -376,6 +398,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       typeof maxActiveWorkspaces === "function" ? maxActiveWorkspaces : () => maxActiveWorkspaces;
     this.initializationOptionsFor =
       options.initializationOptions ?? ((_languageId, preset) => preset.initializationOptions);
+    this.serverPathFor = options.serverPath ?? (() => undefined);
     this.isLanguageEnabled = options.isLanguageEnabled ?? (() => true);
   }
 
@@ -960,7 +983,10 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   private handleSpawnFailure(workspaceId: string, languageId: string, error: unknown): void {
     if (this.disposed) return;
     const message = error instanceof Error ? error.message : String(error);
-    const retry = this.status.failed(workspaceId, languageId, `Failed to start: ${message}`);
+    // Not installed: trying again finds nothing more.
+    const retry = this.status.failed(workspaceId, languageId, `Failed to start: ${message}`, {
+      ...(error instanceof LspServerNotFoundError ? { missingBinary: error.binary } : {}),
+    });
     this.emit("workspaceLspReset", {
       workspaceId,
       languageId,
@@ -1112,7 +1138,9 @@ class AgentLspHostHandleImpl implements LspHostHandle {
 
     let serverId: string | null = null;
     try {
-      const command = await this.resolveServerCommand(workspaceId, presetLanguageId, preset);
+      const command = preset.system
+        ? await this.findSystemServer(channel, presetLanguageId, preset)
+        : await this.resolveServerCommand(workspaceId, presetLanguageId, preset);
       const result = await channel.call<AgentSpawnResult>("lsp.spawn", {
         workspaceId,
         languageId: presetLanguageId,
@@ -1144,6 +1172,27 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         this.pendingSpawnByServerId.delete(this.serverIdKey(channel, serverId));
       }
     }
+  }
+
+  /** A server the user installed, found on the host of the workspace's agent. */
+  private async findSystemServer(
+    channel: AgentChannel,
+    languageId: string,
+    preset: LspServerSpec,
+  ): Promise<LspServerCommand> {
+    const userPath = this.serverPathFor(languageId);
+    const found = parseFindBinaryResult(
+      await channel.call("lsp.findBinary", {
+        name: preset.binary,
+        ...(userPath ? { path: userPath } : {}),
+      }),
+    );
+    if (!found.path) throw new LspServerNotFoundError(preset.binary, userPath);
+    return {
+      binaryPath: found.path,
+      args: preset.args,
+      ...(found.envPath ? { env: { PATH: found.envPath } } : {}),
+    };
   }
 
   private async resolveServerCommand(

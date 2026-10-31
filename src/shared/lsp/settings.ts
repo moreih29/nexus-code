@@ -6,12 +6,17 @@
 
 import { z } from "zod";
 import { LSP_MAX_ACTIVE_WORKSPACES } from "../util/timing-constants";
-import { BUILTIN_LSP_PRESETS } from "./config";
+import { BUILTIN_LSP_PRESETS, type LspServerSpec } from "./config";
 
 export const LspLanguageSettingsSchema = z.object({
   enabled: z.boolean().optional(),
   /** TypeScript: one tsserver per workspace and no typings installer. */
   lowMemory: z.boolean().optional(),
+  /**
+   * A server the app does not bundle: where it is on the workspace's host,
+   * "~" for the user's home. Searched for when empty or wrong.
+   */
+  path: z.string().max(4096).optional(),
 });
 export type LspLanguageSettings = z.infer<typeof LspLanguageSettingsSchema>;
 
@@ -43,13 +48,22 @@ export function lspSettingsFromState(state: LspSettingsState): LspSettings {
   };
 }
 
-/** Whether `languageId`'s server runs at all; a language left unset runs. */
+/**
+ * Whether `languageId`'s server runs at all. A bundled language left unset
+ * runs; one the user installs runs only once turned on.
+ */
 export function isLspLanguageOn(settings: LspSettings, languageId: string): boolean {
-  return (
-    settings.enabled &&
-    BUILTIN_LSP_PRESETS.some((preset) => preset.languageId === languageId) &&
-    settings.languages[languageId]?.enabled !== false
+  const preset: LspServerSpec | undefined = BUILTIN_LSP_PRESETS.find(
+    (p) => p.languageId === languageId,
   );
+  if (!settings.enabled || !preset) return false;
+  const enabled = settings.languages[languageId]?.enabled;
+  return preset.system ? enabled === true : enabled !== false;
+}
+
+/** Where the user said a language's server is, if they did. */
+export function lspServerPath(settings: LspSettings, languageId: string): string | undefined {
+  return settings.languages[languageId]?.path?.trim() || undefined;
 }
 
 export function isLspLanguageOnForWorkspace(
