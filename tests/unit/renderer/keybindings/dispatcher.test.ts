@@ -534,6 +534,20 @@ describe("handleGlobalKeyDown — chords in the editor (Win/Linux)", () => {
     expect(spies[COMMANDS.tabClose]).toHaveBeenCalledTimes(1);
   });
 
+  it("takes app shortcuts back once Monaco has given up on the chord", () => {
+    const spies = setupCommandSpies();
+    let now = 1_000_000;
+    __setChordClockForTests(() => now);
+    handleGlobalKeyDown(
+      makeEvent("k", { metaKey: true, code: "KeyK", target: editor }) as unknown as KeyboardEvent,
+    );
+    now += 6000; // past Monaco's 5 s chord timeout
+
+    const after = makeEvent("w", { metaKey: true, code: "KeyW", target: editor });
+    expect(handleGlobalKeyDown(after as unknown as KeyboardEvent)).toBe(true);
+    expect(spies[COMMANDS.tabClose]).toHaveBeenCalledTimes(1);
+  });
+
   it("dispatches normally when focus left the editor before the second key", () => {
     const spies = setupCommandSpies();
     handleGlobalKeyDown(
