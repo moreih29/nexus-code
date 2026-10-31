@@ -128,7 +128,7 @@ VSCode 호환 매핑입니다. 자주 쓰는 것만 추렸고, 전체 목록은 
 | Files 패널 토글 | `⌘B` |
 | 설정 | `⌘,` |
 
-Windows · Linux 에서는 표의 `⌘` 를 `Ctrl` 로 읽으면 됩니다.
+Windows · Linux 에서는 표의 `⌘` 를 `Ctrl` 로 읽으면 됩니다. 다만 `⌘⌃` 는 `Win+Ctrl`(Linux 는 `Super+Ctrl`)이어서, 이전 / 다음 워크스페이스는 `Win+Ctrl+↑` · `Win+Ctrl+↓` 입니다.
 
 > macOS 에서는 `⌘` 단독 단축키만 앱이 가로채며, `⌃` 단독은 터미널로 그대로 전달됩니다 — `Ctrl+R`(reverse-i-search), `Ctrl+W`(delete-word) 같은 셸 단축키가 정상 동작합니다. Windows · Linux 에서는 터미널에 포커스가 있으면 셸과 겹치는 `Ctrl` 단축키를 앱이 받지 않고 터미널로 보냅니다. 새 터미널(`Ctrl+Shift+T`)과 탭 닫기(`Ctrl+F4`)는 터미널에서도 동작합니다.
 
