@@ -28,6 +28,21 @@
 - Secret 은 다시 읽을 수 없다. 분실·삭제 시 새 인증서를 만들어 두 Secret 과 `NEXUS_MAC_SIGN_IDENTITY` 를 함께 바꾸고, 릴리스 노트에 **수동 설치 필요**를 명시한다.
 - 인증서는 2056-10 에 만료된다.
 
+### Microsoft Store 제출 자격 증명
+
+`release.yml` 의 `submit-store` 는 Store Developer CLI(`msstore`)로 Store 에 제출한다. CLI 는 Partner Center 에 **Manager (Windows)** 역할로 등록한 Microsoft Entra 애플리케이션 `NexusCode Store CLI` 로 로그인한다 (Partner Center → 계정 설정 → 사용자 관리 → Microsoft Entra 애플리케이션). Manager 라 계정의 모든 앱을 제출할 수 있다.
+
+| 위치 | 내용 |
+|---|---|
+| Secret `MSSTORE_TENANT_ID` | Partner Center 에 연결한 Entra 테넌트 ID |
+| Secret `MSSTORE_CLIENT_ID` | 위 애플리케이션의 클라이언트 ID |
+| Secret `MSSTORE_CLIENT_SECRET` | 그 애플리케이션의 키 (Partner Center 에서 **새 키 추가**) |
+| Secret `MSSTORE_SELLER_ID` | 계정 설정 → 조직 프로필 → 법적 정보의 Seller ID |
+| `scripts/store-submit.ts` 의 `PRODUCT_ID` | NexusCode 의 Store 제품 ID `9P04CSF0J5ZD` |
+
+- 키에는 만료일이 있다. 만료 전에 같은 화면에서 새 키를 만들어 `MSSTORE_CLIENT_SECRET` 을 바꾸고, 옛 키를 지운다. 노출됐을 때도 그 키만 지우면 된다.
+- 로컬에서 CLI 를 쓰려면 [릴리스](https://github.com/microsoft/msstore-cli/releases)의 `MSStoreCLI-win-x64.zip` 을 풀고, 위 값으로 `msstore reconfigure --tenantId … --sellerId … --clientId … --clientSecret …` 를 한 번 실행한다. 인자 없이 실행하면 Entra 계정 로그인 창을 띄우는데, 이 창이 뜨지 않을 수 있다.
+
 ### 버전 (SemVer, 1.0 이전)
 
 `major` 는 1.0 전까지 `0` 으로 고정한다. 직전 태그 이후의 커밋을 기준으로:
@@ -56,50 +71,54 @@
    ```
    > 이 커밋이 나중에 태그가 가리킬 대상이다 — 반드시 bump 를 먼저 하고, 그 커밋을 main 으로 올린 뒤 태깅한다.
 
+3. **Store 새 기능 문구**
+   `build/store-release-notes.json` 의 `version` 을 새 버전으로 바꾸고, Store 등록 정보의 **새 기능** 에 들어갈 한국어(`ko-kr`) · 영어(`en-us`) 문구를 쓴다. Windows 사용자에게 해당하는 변경만, 각 1500자 안으로. Store 등록 정보의 언어마다 문구가 있어야 하고, 문구의 `version` 이 `package.json` 과 다르면 단위 테스트와 `submit-store` 가 실패한다.
+
 ---
 
 ## 2. main 승격
 
-3. **PR: `develop → main`**
+4. **PR: `develop → main`**
    PR을 열면 `ci.yml` 이 돈다. develop 이 main 보다 앞서 있고 충돌이 없으면 그대로 머지 가능하다.
 
-4. **CI green 확인 후 머지**
+5. **CI green 확인 후 머지**
    PR의 CI 가 모두 통과하면 머지한다. 머지된 main push 로 CI 가 한 번 더 green 인지 확인한다.
 
 ---
 
 ## 3. Release 발행 (GitHub)
 
-5. **Draft a new release**
+6. **Draft a new release**
    저장소 → **Releases** → **Draft a new release**.
 
-6. **Tag 및 Release body 작성**
+7. **Tag 및 Release body 작성**
    - Tag: `v0.5.0` 형식 (package.json `version` 과 일치). **Target 은 `main`** — bump 커밋을 가리키는지 확인.
    - Title: `v0.5.0` 또는 `v0.5.0 — <한 줄 요약>`.
    - Body: 아래 **릴리스 노트 체크리스트** 순서로 작성.
 
-7. **Pre-release 토글**
+8. **Pre-release 토글**
    - 베타 빌드면 **Set as a pre-release** 체크 (→ `beta` 채널 수신 대상).
    - 정식 릴리스면 체크 해제 (→ `stable` 채널).
    - 이 설정이 `NEXUS_CHANNEL` (`stable` / `beta`) 과 업데이트 수신 대상을 결정한다.
 
-8. **Publish release**
+9. **Publish release**
    **Publish release** 클릭 → `release.yml` 자동 트리거.
 
 ---
 
 ## 4. 배포 검증
 
-`release.yml` 의 4-job 파이프라인이 자동 실행된다:
+`release.yml` 의 5-job 파이프라인이 자동 실행된다:
 - **build-agent** (`ubuntu-latest`): Go 에이전트 크로스컴파일 + Node runtime + LSP 번들 산출 (OS 독립). Node runtime tarball 은 Actions 캐시(`node-runtime-<버전>`, main 의 CI 가 채움)에서 먼저 찾고, 없을 때만 nodejs.org 에서 받는다. 어느 쪽이든 nodejs.org 의 `SHASUMS256.txt` 와 SHA-256 이 맞아야 쓴다.
 - **package** (`macos-14`, Apple Silicon arm64): native rebuild 후 electron-builder 로 DMG / ZIP 패키징, `--publish never` 로 산출만 하고 별도 step 의 `gh release upload --clobber` 로 첨부. **arm64 단일 빌드만 제공** — Intel(x64) 정식 배포는 없으며, Intel 사용자는 [`INSTALL.md`](INSTALL.md#self-build) 의 self-build 절차를 따른다.
 - **package-linux** (`ubuntu-latest` x64, `ubuntu-24.04-arm` arm64): 아키텍처마다 AppImage / deb 를 만들어 같은 방식으로 첨부한다. Linux 는 서명하지 않는다 — 앱 안 업데이트는 피드 파일(`latest-linux*.yml`)의 sha512 로만 검증한다.
-- **package-windows** (`windows-latest` x64): Microsoft Store 에 낼 AppX 를 만든다. 서명은 Store 가 하므로 서명하지 않은 AppX 라, Release 자산이 아니라 워크플로 아티팩트 `msstore-appx-vX.Y.Z` 로 30일 남긴다 (5단계에서 쓴다).
+- **package-windows** (`windows-latest` x64): Microsoft Store 에 낼 AppX 를 만든다. 서명은 Store 가 하므로 서명하지 않은 AppX 라, Release 자산이 아니라 워크플로 아티팩트 `msstore-appx-vX.Y.Z` 로 30일 남긴다.
+- **submit-store** (`windows-latest`, 정식 릴리스만): 그 AppX 를 Store 에 제출한다 (5단계).
 
-9. **서명 확인**
+10. **서명 확인**
    `Verify the signature` step 이 통과했는지 본다 (앱이 릴리스 인증서로 서명됐는지 검사).
 
-10. **자산 확인**
+11. **자산 확인**
    GitHub Release 에 아래가 모두 첨부됐는지 확인한다:
    ```
    NexusCode-X.Y.Z-arm64.dmg
@@ -113,7 +132,7 @@
    latest-linux-arm64.yml
    ```
 
-11. **설치 확인**
+12. **설치 확인**
     arm64 DMG 를 설치해 앱 버전과 업데이트 채널이 올바른지 확인한다. 이전 버전이 설치돼 있으면 앱 안 **업데이트** 로 새 버전이 설치되는지도 확인한다. Linux 머신이 있으면 deb 설치와 AppImage 실행도 확인한다.
 
 ---
@@ -122,21 +141,22 @@
 
 Store 에는 정식 릴리스만 낸다 (pre-release 는 내지 않는다). Store 가 설치본을 직접 업데이트하므로, Store 설치본은 GitHub 의 새 버전을 확인하지 않는다.
 
-12. **AppX 받기**
-    Release 의 `release.yml` 실행 → **Artifacts** 의 `msstore-appx-vX.Y.Z` 를 받는다. 압축을 풀면 `NexusCode-X.Y.Z-x64.appx` 가 나온다.
-    ```bash
-    gh run download <run-id> -n msstore-appx-vX.Y.Z
-    ```
-    패키지 버전은 `X.Y.Z.0` 이다. 네 번째 자리는 Store 가 쓰므로 항상 0 이고, 버전은 Store 에 이미 있는 것보다 높아야 한다.
+`submit-store` 가 제출까지 한다 (`scripts/store-submit.ts`). 마지막으로 게시된 제출을 바탕으로 새 제출을 만들고, 패키지를 이번 AppX 로 바꾸고, 등록 정보 언어마다 **새 기능** 을 `build/store-release-notes.json` 의 문구로 바꾼 뒤 인증에 낸다. 설명 · 스크린샷 · 가격 · 인증 메모 같은 나머지는 이전 제출의 값을 그대로 쓴다. Partner Center 에 만들다 만 제출이 있으면 지우고 새로 만든다.
 
-13. **Partner Center 에서 제출**
-    [Partner Center](https://partner.microsoft.com/dashboard) → 앱 → **제출 시작** (두 번째부터는 **업데이트**). 칸마다 넣을 값은 [`STORE.md`](STORE.md) 에 있다.
-    - **패키지**: 받은 `.appx` 를 올리고, 이전 버전 패키지는 뺀다.
-    - **스토어 등록 정보**: 한국어 · 영어의 **새 기능** 을 이번 릴리스 내용으로 바꾼다. 화면이 크게 바뀌었으면 스크린샷도 바꾼다.
-    - 첫 제출이면 가격 및 사용 가능 여부 · 속성 · 연령 등급 · 제출 옵션까지 `STORE.md` 대로 채운다. 그다음부터는 이전 제출의 값이 복사된다.
+13. **제출 확인**
+    `submit-store` 의 마지막 줄이 `Submitted NexusCode-X.Y.Z-x64.appx for certification.` 인지 본다. Partner Center → 앱 → 제출 상태에서도 볼 수 있다. 패키지 버전은 `X.Y.Z.0` 이다 — 네 번째 자리는 Store 가 쓰므로 항상 0 이고, 버전은 Store 에 이미 있는 것보다 높아야 한다.
 
 14. **인증 확인**
-    제출하면 인증이 돈다 (보통 영업일 3일 안). 떨어지면 Partner Center 의 인증 보고서에 이유가 나온다. 통과하면 Store 에 게시된다.
+    인증은 보통 영업일 3일 안에 끝난다. 떨어지면 Partner Center 의 인증 보고서에 이유가 나온다. 통과하면 Store 에 게시되고, Store 가 설치본을 업데이트한다 (Store 앱 → 라이브러리 → **업데이트 받기** 로 바로 받을 수 있다).
+
+15. **`submit-store` 가 실패했을 때**
+    - 제출하기 전에 실패했으면 (문구 · 자격 증명 · 업로드) 원인을 고친 뒤 그 job 만 다시 실행한다. 다시 실행하면 만들다 만 제출을 지우고 처음부터 한다. 이미 제출된 뒤에는 다시 실행하지 않는다 — 인증 중인 제출을 갈아치운다.
+    - 워크플로를 고쳐야 하면, 아티팩트의 AppX 를 받아 로컬 CLI 로 같은 스크립트를 돌린다. `--dry-run` 은 아무것도 바꾸지 않고 넣을 문구만 보여 주고, `--no-commit` 은 제출 직전에서 멈춘다.
+      ```bash
+      gh run download <run-id> -n msstore-appx-vX.Y.Z -D store-package
+      MSSTORE=<msstore.exe 경로> bun run scripts/store-submit.ts --package-dir store-package
+      ```
+    - 그것도 안 되면 Partner Center → 앱 → **업데이트** 에서 손으로 낸다. 패키지를 받은 `.appx` 로 바꾸고 (이전 버전 패키지는 뺀다), 한국어 · 영어의 **새 기능** 을 바꾼다. 칸마다 넣을 값은 [`STORE.md`](STORE.md) 에 있다.
 
 ---
 
