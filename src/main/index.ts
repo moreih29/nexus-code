@@ -435,17 +435,21 @@ app.whenReady().then(async () => {
   // Claude feature 초기화 — broker / hook-handler wiring.
   // notificationsEnabled getter는 Settings의 OS 알림 토글을 실시간 반영한다.
   // 매 발사 직전 stateService를 조회하므로 토글 변경이 즉시 효력.
+  const notificationsEnabled = () => stateService.getState().osNotificationsEnabled ?? true;
   const claudeSetup = setupClaudeFeature({
     agentHost: agentPtyHost,
     workspaceManager,
-    notificationsEnabled: () => stateService.getState().osNotificationsEnabled ?? true,
+    notificationsEnabled,
   });
   disposeClaudeFeature = claudeSetup.dispose;
 
   // hookserver 접속 정보는 pull 기반으로 workspaceManager.getHookInfo()에서 조회한다.
+  // A program's own OS notifications (OSC 9/777/99) follow Claude's rules.
   registerPtyChannel({
     agentHost: agentPtyHost,
     workspaceManager,
+    isActiveTab: claudeSetup.isActiveTab,
+    notificationsEnabled,
     getDefaultShell: () => stateService.getState().terminalShell,
     getCustomShells: () => stateService.getState().terminalShells,
     ...(isWindows() ? { windowsClaudeFiles: installWindowsClaudeFiles } : {}),

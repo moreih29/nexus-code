@@ -40,6 +40,13 @@ export interface WorkspaceNameLookup {
 export interface OscNotificationDispatcherDeps {
   workspaceManager: WorkspaceNameLookup;
   getFocusedWindow: () => import("electron").BrowserWindow | null;
+  /**
+   * Whether the tab is the one the renderer has in front. Without it, a
+   * focused window counts as showing every tab.
+   */
+  isActiveTab?: (workspaceId: string, tabId: string) => boolean;
+  /** Settings' OS notifications toggle, read at each notification. */
+  notificationsEnabled?: () => boolean;
   /** Called on notification click to activate the workspace in main. */
   activateWorkspace?: (workspaceId: string) => Promise<void>;
   /** Called on notification click to bring the app window to the foreground. */
@@ -112,9 +119,9 @@ export function extractOscNotifications(chunk: string): OscNotification[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Listens to PTY data chunks, extracts OSC notifications, and either fires an
- * OS-level Electron Notification (window unfocused) or broadcasts an in-app
- * event (window focused).
+ * Listens to PTY data chunks, extracts OSC notifications, and fires an
+ * OS-level Electron Notification unless the user has the tab in front of
+ * them, as Claude's hook notifications do (claude/hook-handler.ts).
  */
 export class OscNotificationDispatcher {
   private readonly deps: OscNotificationDispatcherDeps;
@@ -131,7 +138,15 @@ export class OscNotificationDispatcher {
     const notifications = extractOscNotifications(chunk);
     if (notifications.length === 0) return;
 
-    const { workspaceManager, getFocusedWindow } = this.deps;
+    const { workspaceManager, getFocusedWindow, isActiveTab, notificationsEnabled } = this.deps;
+    if (notificationsEnabled?.() === false) return;
+
+    // The tab in front of the user shows what the program says; a tab behind
+    // another, or a window in the background, gets an OS notification.
+    // Nothing switches tabs for the user.
+    const focusedWindow = getFocusedWindow();
+    const isAppFocused = focusedWindow !== null && !focusedWindow.isMinimized();
+    if (isAppFocused && (isActiveTab?.(workspaceId, tabId) ?? true)) return;
 
     // Resolve workspace name once per chunk since all notifications share it.
     const _t = tryGetMainT();
@@ -139,19 +154,9 @@ export class OscNotificationDispatcher {
       workspaceManager.getName(workspaceId) ??
       (_t ? _t("common:claudeNotification.terminalFallback") : "Terminal");
 
-    const focusedWindow = getFocusedWindow();
-    const isAppFocused = focusedWindow !== null && !focusedWindow.isMinimized();
-
     const broadcastFn = this.deps.broadcastFn ?? broadcast;
 
     for (const notification of notifications) {
-      if (isAppFocused) {
-        // App is in the foreground — skip the OS notification but still
-        // broadcast so the renderer can show an in-app indicator if desired.
-        broadcastFn("pty", "notificationClick", { workspaceId, tabId });
-        continue;
-      }
-
       this.fireOsNotification(workspaceId, tabId, workspaceName, notification, broadcastFn);
     }
   }

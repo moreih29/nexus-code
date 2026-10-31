@@ -73,6 +73,10 @@ export interface PtyChannelOptions {
    * whose shells take the Windows shim instead of the zsh or bash one.
    */
   windowsClaudeFiles?: () => Promise<WindowsClaudeFiles | null>;
+  /** Whether the tab is the one in front, for a program's OS notifications. */
+  isActiveTab?: (workspaceId: string, tabId: string) => boolean;
+  /** Settings' OS notifications toggle. */
+  notificationsEnabled?: () => boolean;
 }
 
 /**
@@ -90,6 +94,8 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
   const dispatcher = new OscNotificationDispatcher({
     workspaceManager: wm ?? { getName: () => null },
     getFocusedWindow: getFocusedAppWindow,
+    isActiveTab: options.isActiveTab,
+    notificationsEnabled: options.notificationsEnabled,
     activateWorkspace: wm ? (id) => wm.activate(id) : undefined,
     focusMainWindow: () => {
       const win = getActiveAppWindow();
