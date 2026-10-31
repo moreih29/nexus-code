@@ -107,7 +107,7 @@ describe("system language servers", () => {
 
     expect(channel.calls[0]).toEqual({
       method: "lsp.findBinary",
-      params: { name: "gopls", path: "~/bin/gopls" },
+      params: { name: "gopls", path: "~/bin/gopls", dir: "/tmp/ws" },
     });
     expect(channel.calls.find((c) => c.method === "lsp.spawn")?.params).toMatchObject({
       languageId: "go",
@@ -143,7 +143,7 @@ describe("system language servers", () => {
 
     await open();
 
-    expect(channel.calls[0]?.params).toEqual({ name: "gopls" });
+    expect(channel.calls[0]?.params).toEqual({ name: "gopls", dir: "/tmp/ws" });
   });
 
   test("give up at once when not installed, and say what is missing", async () => {

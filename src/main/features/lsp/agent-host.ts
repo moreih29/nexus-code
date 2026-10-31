@@ -1186,7 +1186,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     let serverId: string | null = null;
     try {
       const command = preset.system
-        ? await this.findSystemServer(channel, presetLanguageId, preset)
+        ? await this.findSystemServer(channel, presetLanguageId, workspaceRoot, preset)
         : await this.resolveServerCommand(workspaceId, presetLanguageId, preset);
       const result = await channel.call<AgentSpawnResult>("lsp.spawn", {
         workspaceId,
@@ -1229,6 +1229,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   private async findSystemServer(
     channel: AgentChannel,
     languageId: string,
+    workspaceRoot: string,
     preset: LspServerSpec,
   ): Promise<LspServerCommand> {
     const userPath = this.serverPathFor(languageId);
@@ -1236,6 +1237,8 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       await channel.call("lsp.findBinary", {
         name: preset.binary,
         ...(userPath ? { path: userPath } : {}),
+        // Where the server will run: a rustup proxy picks its toolchain there.
+        dir: workspaceRoot,
       }),
     );
     if (!found.path) throw new LspServerNotFoundError(preset.binary, userPath);
