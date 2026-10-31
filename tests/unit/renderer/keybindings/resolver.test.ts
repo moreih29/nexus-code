@@ -8,6 +8,7 @@ import {
   resolveEvent,
   setActiveBindings,
 } from "../../../../src/renderer/keybindings/resolver";
+import { setPlatformForTests } from "../../../../src/renderer/utils/platform";
 import { ALL_COMMAND_IDS, COMMANDS } from "../../../../src/shared/keybindings/commands";
 import { KEYBINDINGS } from "../../../../src/shared/keybindings/index";
 import { applyKeybindingOverrides } from "../../../../src/shared/keybindings/overrides";
@@ -211,21 +212,18 @@ describe("resolveEvent — browserTabActive state probe", () => {
   });
 });
 
+function terminalTarget(code: string, mods: Partial<Omit<MockKE, "code" | "key">>) {
+  const target = {
+    tagName: "DIV",
+    isContentEditable: false,
+    closest: (sel: string) => (sel === ".xterm" ? ({} as HTMLElement) : null),
+  };
+  return { ...ev(code, mods), target } as unknown as KeyboardEvent;
+}
+
 describe("resolveEvent — terminal shell-key guard (Mac)", () => {
   // On Mac (`isMac` true) the `!terminalFocus || isMac` guard is always
-  // satisfied — ⌘-letter shortcuts keep firing inside the terminal. The
-  // Win/Linux half (Ctrl+R etc. yielding to the shell) cannot be
-  // exercised here because the resolver's IS_MAC is fixed at module
-  // load; the guard expression itself is covered by keybinding-when
-  // tests.
-  function terminalTarget(code: string, mods: Partial<Omit<MockKE, "code" | "key">>) {
-    const target = {
-      tagName: "DIV",
-      isContentEditable: false,
-      closest: (sel: string) => (sel === ".xterm" ? ({} as HTMLElement) : null),
-    };
-    return { ...ev(code, mods), target } as unknown as KeyboardEvent;
-  }
+  // satisfied — ⌘-letter shortcuts keep firing inside the terminal.
 
   it("⌘R inside the terminal still refreshes files on Mac", () => {
     const r = resolveEvent(terminalTarget("KeyR", { metaKey: true }), null);
@@ -242,6 +240,40 @@ describe("resolveEvent — terminal shell-key guard (Mac)", () => {
   it("⌘K inside the terminal still arms the chord leader on Mac", () => {
     const r = resolveEvent(terminalTarget("KeyK", { metaKey: true }), null);
     expect(r.kind).toBe("chord-leader");
+  });
+});
+
+describe("resolveEvent — terminal shell-key guard (Win/Linux)", () => {
+  // `CmdOrCtrl` is Ctrl here, and the Ctrl keys a shell uses go to the
+  // terminal; the keys that also work there stand in for them.
+  afterEach(() => setPlatformForTests(null));
+
+  for (const platform of ["win32", "linux"] as const) {
+    it(`leaves the shell's Ctrl keys to the terminal on ${platform}`, () => {
+      setPlatformForTests(platform);
+      for (const code of ["KeyR", "KeyW", "KeyT", "KeyK"]) {
+        expect(resolveEvent(terminalTarget(code, { ctrlKey: true }), null).kind).toBe("none");
+      }
+      const refresh = resolveEvent(ev("KeyR", { ctrlKey: true }) as unknown as KeyboardEvent, null);
+      expect(refresh).toEqual({ kind: "single", command: COMMANDS.filesRefresh });
+    });
+
+    it(`keeps Ctrl+Shift+T and Ctrl+F4 working in the terminal on ${platform}`, () => {
+      setPlatformForTests(platform);
+      expect(resolveEvent(terminalTarget("KeyT", { ctrlKey: true, shiftKey: true }), null)).toEqual(
+        { kind: "single", command: COMMANDS.terminalNew },
+      );
+      expect(resolveEvent(terminalTarget("F4", { ctrlKey: true }), null)).toEqual({
+        kind: "single",
+        command: COMMANDS.tabClose,
+      });
+    });
+  }
+
+  it("does not take the Windows key for CmdOrCtrl", () => {
+    setPlatformForTests("win32");
+    const r = resolveEvent(ev("KeyW", { metaKey: true }) as unknown as KeyboardEvent, null);
+    expect(r.kind).toBe("none");
   });
 });
 

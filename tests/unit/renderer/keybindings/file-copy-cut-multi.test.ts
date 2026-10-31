@@ -10,7 +10,7 @@
  *
  * For handleCopy/handleCut, we test using the useFileTreeActions layer
  * (tested in file-tree-actions-copy-cut.test.ts) — keybinding dispatch is
- * verified by a smoke test that the command fires at all.
+ * verified per platform by checking the command fires once.
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
@@ -49,6 +49,7 @@ import {
 } from "../../../../src/renderer/keybindings/dispatcher";
 import { useActiveStore } from "../../../../src/renderer/state/stores/active";
 import { useFilesStore } from "../../../../src/renderer/state/stores/files";
+import { setPlatformForTests } from "../../../../src/renderer/utils/platform";
 import { COMMANDS } from "../../../../src/shared/keybindings/commands";
 
 // ---------------------------------------------------------------------------
@@ -104,35 +105,36 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Smoke: CmdOrCtrl+C dispatches fileCopy when file tree is focused.
+// Dispatch: CmdOrCtrl+C / +X fire fileCopy / fileCut in the focused tree.
 // Verifies keybinding is registered + when condition is correct.
 // ---------------------------------------------------------------------------
 
-describe("fileCopy keybinding — dispatch smoke test", () => {
-  it("CmdOrCtrl+C in file tree fires fileCopy command", () => {
-    const spy = mock(() => {});
-    registerCommand(COMMANDS.fileCopy, spy);
+describe("fileCopy / fileCut keybindings — dispatch", () => {
+  afterEach(() => setPlatformForTests(null));
 
-    // On macOS (IS_MAC=true): metaKey. On Linux/Win (IS_MAC=false): ctrlKey.
-    // Use both to cover CI environments.
-    handleGlobalKeyDown(makeKeyEvent("c", { metaKey: true }));
-    handleGlobalKeyDown(makeKeyEvent("c", { ctrlKey: true }));
+  // CmdOrCtrl is ⌘ on macOS and Ctrl elsewhere; the other modifier is not it.
+  const cases = [
+    { platform: "darwin", mod: "metaKey", other: "ctrlKey" },
+    { platform: "win32", mod: "ctrlKey", other: "metaKey" },
+  ] as const;
 
-    // At least one should have fired (whichever matches the test OS).
-    expect(spy.mock.calls.length).toBeGreaterThanOrEqual(1);
-  });
-});
+  for (const { platform, mod, other } of cases) {
+    it(`CmdOrCtrl+C / CmdOrCtrl+X in the file tree fire on ${platform}`, () => {
+      setPlatformForTests(platform);
+      const copy = mock(() => {});
+      const cut = mock(() => {});
+      registerCommand(COMMANDS.fileCopy, copy);
+      registerCommand(COMMANDS.fileCut, cut);
 
-describe("fileCut keybinding — dispatch smoke test", () => {
-  it("CmdOrCtrl+X in file tree fires fileCut command", () => {
-    const spy = mock(() => {});
-    registerCommand(COMMANDS.fileCut, spy);
+      handleGlobalKeyDown(makeKeyEvent("c", { [mod]: true }));
+      handleGlobalKeyDown(makeKeyEvent("c", { [other]: true }));
+      handleGlobalKeyDown(makeKeyEvent("x", { [mod]: true }));
+      handleGlobalKeyDown(makeKeyEvent("x", { [other]: true }));
 
-    handleGlobalKeyDown(makeKeyEvent("x", { metaKey: true }));
-    handleGlobalKeyDown(makeKeyEvent("x", { ctrlKey: true }));
-
-    expect(spy.mock.calls.length).toBeGreaterThanOrEqual(1);
-  });
+      expect(copy).toHaveBeenCalledTimes(1);
+      expect(cut).toHaveBeenCalledTimes(1);
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------
