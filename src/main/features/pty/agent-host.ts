@@ -167,7 +167,7 @@ class AgentPtyHostHandle implements PtyHostHandle {
     args: unknown,
     workspaceId: string,
     tabId: string,
-  ): Promise<{ pid: number }> {
+  ): Promise<{ pid: number; attached?: boolean }> {
     this.rememberSession(workspaceId, tabId);
     let result: AgentSpawnResult;
     try {
@@ -181,7 +181,7 @@ class AgentPtyHostHandle implements PtyHostHandle {
         log.warn(`pty.replay failed for ${workspaceId}:${tabId}: ${(err as Error).message}`);
       });
     }
-    return { pid: result.pid };
+    return result.attached ? { pid: result.pid, attached: true } : { pid: result.pid };
   }
 
   /**
