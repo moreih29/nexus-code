@@ -61,7 +61,18 @@ describe("writeWindowsCli", () => {
   });
 });
 
-describe("Git Bash's launcher", () => {
+// The launcher is tested under sh where there is one, with a fake cygpath,
+// and in Git Bash itself on Windows.
+const describeOnPosix = describe.skipIf(process.platform === "win32");
+const GIT_BASH = path.join(
+  process.env.ProgramFiles ?? "C:\\Program Files",
+  "Git",
+  "bin",
+  "bash.exe",
+);
+const describeInGitBash = describe.skipIf(process.platform !== "win32" || !fs.existsSync(GIT_BASH));
+
+describeOnPosix("Git Bash's launcher", () => {
   // Prints what nexus.exe would be handed: the variables, then each argument.
   function program(dir: string): string {
     return write(
@@ -118,5 +129,23 @@ describe("Git Bash's launcher", () => {
 
     expect(result.stderr).toBe("");
     expect(result.stdout).toStartWith("root= set=yes\npathconv=1 excl=*\n<status>\n");
+  });
+});
+
+describeInGitBash("Git Bash's launcher in Git Bash", () => {
+  test("keeps Git Bash from rewriting the arguments, and says where / is", () => {
+    // The program is this one, a Windows program, as nexus.exe is.
+    const launcher = write(path.join(tmp, "nexus"), windowsGitBashLauncher(process.execPath));
+    const code =
+      "console.log(JSON.stringify({ argv: process.argv, root: process.env.NEXUS_MSYS_ROOT }))";
+    const result = spawnSync(GIT_BASH, [launcher, "-e", code, "/review", "/c/src", "a b"], {
+      encoding: "utf8",
+      timeout: 20000,
+    });
+
+    expect(result.status).toBe(0);
+    const { argv, root } = JSON.parse(result.stdout) as { argv: string[]; root: string };
+    expect(argv.slice(-3)).toEqual(["/review", "/c/src", "a b"]);
+    expect(root).toMatch(/^[A-Za-z]:\\.*Git\\?$/);
   });
 });
