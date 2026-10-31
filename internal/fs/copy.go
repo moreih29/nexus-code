@@ -66,6 +66,9 @@ func (s *Service) CopyFile(ctx context.Context, raw json.RawMessage) (any, error
 		err = copyRegularFile(srcAbs, dstAbs, srcInfo)
 	}
 	if err != nil {
+		// Take away the part copied, then put back what was there, if
+		// anything was.
+		_ = os.RemoveAll(dstAbs)
 		restoreAside(backup, dstAbs)
 		return nil, mapWriteError(err, srcAbs)
 	}

@@ -3,6 +3,7 @@
 package fs
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -98,5 +99,30 @@ func TestSymlinkFallbackLeavesOtherErrors(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(root, "copy.txt")); err == nil {
 		t.Fatal("symlinkFallback copied the file anyway")
+	}
+}
+
+// A copy that fails after copying a junction takes the junction away, never
+// the directory it leads to.
+func TestFailedCopyKeepsWhatAJunctionLeadsTo(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.MkdirAll(filepath.Join(root, "store", "pkg"), 0o755))
+	must(t, os.WriteFile(filepath.Join(root, "store", "pkg", "index.js"), []byte("payload"), 0o644))
+	must(t, os.MkdirAll(filepath.Join(root, "src"), 0o755))
+	mklinkJunction(t, filepath.Join(root, "src", "a-link"), filepath.Join(root, "store", "pkg"))
+	makeUnreadable(t, filepath.Join(root, "src", "z-unreadable.txt"))
+
+	_, err := mustFS(t, root).CopyFile(context.Background(), mustJSON(t, map[string]any{
+		"fromRelPath": "src",
+		"toRelPath":   "dst",
+	}))
+	if err == nil {
+		t.Fatal("copying an unreadable file succeeded")
+	}
+	if _, statErr := os.Lstat(filepath.Join(root, "dst")); !os.IsNotExist(statErr) {
+		t.Fatalf("partial copy left behind, err=%v", statErr)
+	}
+	if got, readErr := os.ReadFile(filepath.Join(root, "store", "pkg", "index.js")); readErr != nil || string(got) != "payload" {
+		t.Fatalf("junction target lost: bytes=%q err=%v", got, readErr)
 	}
 }

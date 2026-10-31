@@ -660,6 +660,27 @@ func TestCopyFileOverwriteKeepsDestinationOnFailure(t *testing.T) {
 	assertNoTmpResidue(t, root)
 }
 
+// TestCopyFileLeavesNothingOnFailure — a copy that fails part way, to a
+// destination nothing was at, takes away the part it copied.
+func TestCopyFileLeavesNothingOnFailure(t *testing.T) {
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "src-dir")
+	must(t, os.Mkdir(srcDir, 0o755))
+	must(t, os.WriteFile(filepath.Join(srcDir, "a.txt"), []byte("a"), 0o644))
+	makeUnreadable(t, filepath.Join(srcDir, "unreadable.txt"))
+
+	_, err := mustFS(t, root).CopyFile(context.Background(), mustJSON(t, map[string]any{
+		"fromRelPath": "src-dir",
+		"toRelPath":   "dst-dir",
+	}))
+	if err == nil {
+		t.Fatal("copying an unreadable file succeeded")
+	}
+	if _, statErr := os.Lstat(filepath.Join(root, "dst-dir")); !os.IsNotExist(statErr) {
+		t.Fatalf("partial copy left behind, err=%v", statErr)
+	}
+}
+
 func TestCopyFileDirectory(t *testing.T) {
 	root := t.TempDir()
 	srcDir := filepath.Join(root, "src-dir")
