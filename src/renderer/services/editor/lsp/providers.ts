@@ -1,12 +1,19 @@
 // Monaco language provider registrations for LSP features.
 // No module-level state — all state (registeredProviderLanguages) is managed by the caller.
 
+import i18next from "i18next";
 import type * as Monaco from "monaco-editor";
 import { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
 import { parseWorkspaceUri } from "../../../../shared/fs/workspace-uri";
 import type { CompletionItem } from "../../../../shared/lsp";
+import { resolveLspPresetLanguageId } from "../../../../shared/lsp/config";
 import { CANONICAL_TOKEN_TYPES } from "../../../../shared/lsp/semantic-tokens";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
+import {
+  isLspServerBusy,
+  lspStatusKey,
+  useLspStatusStore,
+} from "../../../state/stores/lsp-status";
 import { isLspLanguage } from "./language";
 import {
   hoverContentsToMarkdown,
@@ -59,6 +66,36 @@ const SEMANTIC_TOKENS_LEGEND: Monaco.languages.SemanticTokensLegend = {
   tokenModifiers: [],
 };
 
+/**
+ * In place of no hover while the server starts or loads the project: says
+ * it is not ready, rather than leaving the user to think there is nothing
+ * to show. Only over a word, as a real hover would be.
+ */
+function preparingHover(
+  monaco: typeof Monaco,
+  model: Monaco.editor.ITextModel,
+  position: Monaco.Position,
+  workspaceId: string,
+): Monaco.languages.Hover | null {
+  const languageId = resolveLspPresetLanguageId(model.getLanguageId());
+  if (!languageId || !isLspServerBusy(workspaceId, languageId)) return null;
+  const word = model.getWordAtPosition(position);
+  if (!word) return null;
+  const language = i18next.t(`lsp.language.${languageId}`);
+  const progress = useLspStatusStore.getState().progress[lspStatusKey(workspaceId, languageId)];
+  const detail = [progress?.title, progress?.message].filter(Boolean).join(" — ");
+  const text = i18next.t("lsp.preparing", { language });
+  return {
+    contents: [{ value: detail ? `${text}\n\n${detail}` : text }],
+    range: new monaco.Range(
+      position.lineNumber,
+      word.startColumn,
+      position.lineNumber,
+      word.endColumn,
+    ),
+  };
+}
+
 /** Curried pre-acquire closure: takes locations + source URI, returns Promise. */
 export type PreAcquireFn = (
   locations: readonly Monaco.languages.Location[],
@@ -101,7 +138,8 @@ export function registerLanguageProviders(
             { signal },
           ),
         );
-        if (!result || !isLspLanguage(model.getLanguageId())) return null;
+        if (!isLspLanguage(model.getLanguageId())) return null;
+        if (!result) return preparingHover(monaco, model, position, ctx.workspaceId);
         return {
           contents: [hoverContentsToMarkdown(result.contents)],
           range: result.range ? lspRangeToMonacoRange(result.range) : undefined,

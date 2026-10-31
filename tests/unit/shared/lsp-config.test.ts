@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   BUILTIN_LSP_PRESETS,
   isSupportedLspLanguage,
+  lspPresetLanguageIdForPath,
   resolveLspPreset,
 } from "../../../src/shared/lsp/config";
 
@@ -27,5 +28,13 @@ describe("built-in LSP presets", () => {
     expect(isSupportedLspLanguage("python")).toBe(true);
     expect(isSupportedLspLanguage("typescriptreact")).toBe(true);
     expect(isSupportedLspLanguage("markdown")).toBe(false);
+  });
+
+  test("finds the preset serving a file by its extension", () => {
+    expect(lspPresetLanguageIdForPath("/ws/src/App.TSX")).toBe("typescript");
+    expect(lspPresetLanguageIdForPath("C:\\ws\\tool.mjs")).toBe("typescript");
+    expect(lspPresetLanguageIdForPath("/ws/main.pyi")).toBe("python");
+    expect(lspPresetLanguageIdForPath("/ws.ts/README")).toBeNull();
+    expect(lspPresetLanguageIdForPath("/ws/.py")).toBeNull();
   });
 });

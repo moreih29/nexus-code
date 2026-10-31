@@ -11,6 +11,7 @@
  * Monaco, put it here.
  */
 
+import i18next from "i18next";
 import { createLogger } from "../../../shared/log/renderer";
 import {
   type LspServerEvent,
@@ -22,7 +23,9 @@ import {
   WorkDoneProgressCreateParamsSchema,
   WorkDoneProgressValueSchema,
 } from "../../../shared/lsp";
+import { showToast } from "../../components/ui/toast";
 import { ipcListen } from "../../ipc/client";
+import { useLspStatusStore } from "../../state/stores/lsp-status";
 import { registerWorkspaceCleanup } from "../../state/workspace-cleanup";
 
 const log = createLogger("lsp-server-ux");
@@ -42,6 +45,9 @@ export interface WorkDoneProgressState {
 }
 
 const workDoneProgressByKey = new Map<string, WorkDoneProgressState>();
+/** When each server message was last toasted, so a repeated one is not. */
+const toastedMessages = new Map<string, number>();
+const MESSAGE_TOAST_REPEAT_MS = 60_000;
 let serverEventUnlisten: (() => void) | null = null;
 let workspaceCleanupUnregister: (() => void) | null = null;
 
@@ -65,11 +71,28 @@ function logBySeverity(type: MessageType, msg: string): void {
   log.debug(msg);
 }
 
-function writeMessage(params: unknown, prefix: string): void {
-  const parsed = ShowMessageParamsSchema.safeParse(params);
+function writeMessage(event: LspServerEvent, prefix: string): void {
+  const parsed = ShowMessageParamsSchema.safeParse(event.params);
   if (!parsed.success) return;
 
   logBySeverity(parsed.data.type, `${prefix} ${parsed.data.message}`);
+  // Errors and warnings are meant for the user; info is mostly a server
+  // narrating its own startup, which the status bar shows already.
+  if (parsed.data.type === 1 || parsed.data.type === 2) {
+    toastMessage(event, parsed.data.type === 1 ? "error" : "warning", parsed.data.message);
+  }
+}
+
+function toastMessage(event: LspServerEvent, kind: "error" | "warning", message: string): void {
+  const key = JSON.stringify([event.workspaceId, event.languageId, message]);
+  const now = Date.now();
+  const last = toastedMessages.get(key);
+  if (last !== undefined && now - last < MESSAGE_TOAST_REPEAT_MS) return;
+  toastedMessages.set(key, now);
+  const language = i18next.t(`lsp.language.${event.languageId}`, {
+    defaultValue: event.languageId,
+  });
+  showToast({ kind, message: i18next.t("lsp.serverMessage", { language, message }) });
 }
 
 function writeMessageRequestStub(params: unknown, prefix: string): void {
@@ -85,6 +108,24 @@ function progressKey(workspaceId: string, languageId: string, token: ProgressTok
 
 function setProgressState(state: WorkDoneProgressState): void {
   workDoneProgressByKey.set(progressKey(state.workspaceId, state.languageId, state.token), state);
+}
+
+/** Has the status store show the work the server began last, or none. */
+function publishProgress(workspaceId: string, languageId: string): void {
+  let latest: WorkDoneProgressState | undefined;
+  for (const state of workDoneProgressByKey.values()) {
+    if (state.workspaceId !== workspaceId || state.languageId !== languageId) continue;
+    if (state.phase === "begin" || state.phase === "report") latest = state;
+  }
+  useLspStatusStore
+    .getState()
+    .setProgress(
+      workspaceId,
+      languageId,
+      latest
+        ? { title: latest.title, message: latest.message, percentage: latest.percentage }
+        : null,
+    );
 }
 
 function registerWorkDoneProgressToken(event: LspServerEvent): void {
@@ -125,25 +166,33 @@ function updateWorkDoneProgress(event: LspServerEvent): void {
       percentage: value.data.percentage,
       cancellable: value.data.cancellable,
     });
-    return;
-  }
-
-  if (value.data.kind === "report") {
+  } else if (value.data.kind === "report") {
+    // A report for work that never began, or ended, is stale.
+    if (!existing) return;
     setProgressState({
       ...base,
       phase: "report",
       done: false,
-      title: existing?.title,
-      message: value.data.message ?? existing?.message,
-      percentage: value.data.percentage ?? existing?.percentage,
-      cancellable: value.data.cancellable ?? existing?.cancellable,
+      title: existing.title,
+      message: value.data.message ?? existing.message,
+      percentage: value.data.percentage ?? existing.percentage,
+      cancellable: value.data.cancellable ?? existing.cancellable,
     });
-    return;
+  } else {
+    // The token is finished; servers mint a new one per operation, so
+    // keeping ended entries would grow the map for the whole session.
+    workDoneProgressByKey.delete(key);
   }
+  publishProgress(event.workspaceId, event.languageId);
+}
 
-  // The token is finished; servers mint a new one per operation, so keeping
-  // ended entries would grow the map for the whole session.
-  workDoneProgressByKey.delete(key);
+/** Drops the work a server reported: it stopped. */
+export function clearProgressFor(workspaceId: string, languageId: string): void {
+  for (const [key, state] of workDoneProgressByKey) {
+    if (state.workspaceId === workspaceId && state.languageId === languageId) {
+      workDoneProgressByKey.delete(key);
+    }
+  }
 }
 
 export function routeLspServerEvent(event: LspServerEvent): void {
@@ -162,7 +211,7 @@ export function routeLspServerEvent(event: LspServerEvent): void {
   }
 
   if (event.method === "window/showMessage") {
-    writeMessage(event.params, prefix);
+    writeMessage(event, prefix);
     return;
   }
 

@@ -188,7 +188,7 @@
     "lsp": {
       "label": "Language servers (experimental)",
       "enable": "Use language servers",
-      "description": "Completion, go to definition and diagnostics from language servers. A language's server starts when you open one of its files.",
+      "description": "Completion, go to definition and diagnostics from language servers. A language's server starts when you open one of its files. Click the language's name in the status bar to see its server's state, restart it, or turn it off in that workspace alone.",
       "language": {
         "typescript": "TypeScript · JavaScript",
         "python": "Python"

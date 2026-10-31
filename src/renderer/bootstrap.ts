@@ -21,6 +21,7 @@ import { initBrowserOverlayAutoSuspend } from "./state/operations/browser-suspen
 import { initFocusResync } from "./state/operations/focus-resync";
 import { initGitErrorToasts } from "./state/operations/git-error-toasts";
 import { initLspSettingsSync } from "./state/operations/lsp-settings";
+import { initLspStatusSync } from "./state/operations/lsp-status";
 import { normalizeWorkspaceTabOrder } from "./state/operations/tab-order";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
@@ -136,6 +137,7 @@ export async function bootstrapAppState(): Promise<void> {
   // Before anything opens a document: which language servers run.
   useLspSettingsStore.getState().hydrate(lspSettingsFromState(state));
   initLspSettingsSync();
+  initLspStatusSync();
 
   useUIStore.getState().hydrate({
     sidebarWidth: state.sidebarWidth,

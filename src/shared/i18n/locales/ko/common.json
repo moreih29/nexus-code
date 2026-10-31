@@ -375,6 +375,43 @@
     "close_running_description": "이 터미널에서 “{{name}}”이(가) 아직 실행 중입니다. 터미널을 닫으면 종료됩니다.",
     "close_running_confirm": "종료"
   },
+  "lsp": {
+    "language": {
+      "typescript": "TypeScript",
+      "python": "Python"
+    },
+    "serverMessage": "{{language}}: {{message}}",
+    "gaveUp": "{{workspace}}의 {{language}} 언어 서버가 연달아 실패해 멈췄습니다.",
+    "evicted": "{{workspace}}의 언어 서버를 멈췄습니다. 동시에 실행할 워크스페이스 수({{count}}개)를 넘었습니다. 그 워크스페이스로 돌아가면 다시 시작합니다.",
+    "segmentTitle": "{{language}} 언어 서버: {{state}}",
+    "menuTitle": "{{language}} 언어 서버",
+    "state": {
+      "off": "꺼짐",
+      "notStarted": "시작 전",
+      "starting": "시작하는 중…",
+      "working": "작업 중",
+      "running": "실행 중",
+      "failed": "실패",
+      "stopped": {
+        "idle": "멈춤 — 한동안 쓰지 않음",
+        "evicted": "멈춤 — 동시 실행 워크스페이스 수 제한",
+        "off": "꺼짐",
+        "restart": "다시 시작하는 중…",
+        "agent": "멈춤 — 워크스페이스 연결이 끊김",
+        "crashed": "비정상 종료 — 다시 시작하는 중…"
+      }
+    },
+    "memory": "메모리 {{size}}",
+    "restart": "다시 시작",
+    "turnOffHere": "이 워크스페이스에서 끄기",
+    "turnOnHere": "이 워크스페이스에서 켜기",
+    "showLog": "로그 보기",
+    "openSettings": "언어 서버 설정",
+    "logTitle": "{{language}} 언어 서버 로그 — {{workspace}}",
+    "logEmpty": "아직 기록이 없습니다.",
+    "copyLog": "복사",
+    "preparing": "{{language}} 언어 서버를 준비하는 중입니다…"
+  },
   "claudeStatus": {
     "running": "Claude: 실행 중",
     "completed": "Claude: 응답 완료",
