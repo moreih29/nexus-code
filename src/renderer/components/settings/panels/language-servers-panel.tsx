@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { type BuiltinLspPresetLanguageId, resolveLspPreset } from "../../../../shared/lsp/config";
 import {
+  isLspLowMemory,
   LSP_MAX_ACTIVE_WORKSPACES_LIMIT,
   type LspLanguageSettings,
 } from "../../../../shared/lsp/settings";
@@ -132,7 +133,7 @@ function LanguageRow({
           <label htmlFor={lowMemoryId} className="flex items-center gap-2 cursor-pointer">
             <Checkbox
               id={lowMemoryId}
-              checked={settings.lowMemory === true}
+              checked={isLspLowMemory(settings)}
               onCheckedChange={(v) => change({ lowMemory: v === true })}
             />
             <span className="text-app-body text-foreground">{t("languageServers.lowMemory")}</span>

@@ -72,8 +72,8 @@ export const LSP_MAX_ACTIVE_WORKSPACES = 4;
 // tsserver doesn't keep working on a result nobody is waiting for.
 //
 // The values are tuned per-method:
-// - hover / documentHighlight: low (interactive feedback); a hover that
-//   takes 8s+ is effectively useless.
+// - hover / documentHighlight / signatureHelp: low (interactive feedback);
+//   a hover that takes 8s+ is effectively useless.
 // - completion / references / workspaceSymbol: medium (user explicitly
 //   waits, the result is worth more time).
 // - semanticTokens / documentSymbol: medium (whole-file work, runs once
@@ -113,6 +113,7 @@ export const LSP_HOVER_TIMEOUT_MS = 8_000;
 export const LSP_DEFINITION_TIMEOUT_MS = 10_000;
 export const LSP_COMPLETION_TIMEOUT_MS = 15_000;
 export const LSP_COMPLETION_RESOLVE_TIMEOUT_MS = 5_000;
+export const LSP_SIGNATURE_HELP_TIMEOUT_MS = 5_000;
 export const LSP_REFERENCES_TIMEOUT_MS = 15_000;
 export const LSP_DOCUMENT_HIGHLIGHT_TIMEOUT_MS = 5_000;
 export const LSP_DOCUMENT_SYMBOL_TIMEOUT_MS = 10_000;
