@@ -10,7 +10,8 @@
  *  6. shell undefined + env.SHELL="/bin/zsh" → zsh branch
  *  7. shell undefined + env.SHELL undefined   → no-op
  *  8. zsh branch + existing args → args unchanged
- *  9. bash branch + existing args → --rcfile/-i prepended before existing args
+ *  9. bash branch + existing args → --rcfile/-i prepended before existing args,
+ *     after any long options (bash takes those first)
  */
 
 import { describe, expect, test } from "bun:test";
@@ -139,7 +140,7 @@ describe("applyShellPathShim", () => {
   });
 
   test("9: bash branch + existing args → --rcfile/-i prepended before existing args", () => {
-    const existingArgs = ["--login"];
+    const existingArgs = ["-l"];
     const input = {
       shell: "/bin/bash",
       env: {},
@@ -148,13 +149,36 @@ describe("applyShellPathShim", () => {
     };
     const output = applyShellPathShim(input);
 
-    expect(output.args).toBeDefined();
-    expect(output.args![0]).toBe("--rcfile");
-    expect(output.args![1]).toBe(`${SHIM_DIR}/bashrc`);
-    expect(output.args![2]).toBe("-i");
-    expect(output.args![3]).toBe("--login");
+    expect(output.args).toEqual(["--rcfile", `${SHIM_DIR}/bashrc`, "-i", "-l"]);
     // original args array not mutated
-    expect(existingArgs).toEqual(["--login"]);
+    expect(existingArgs).toEqual(["-l"]);
+  });
+
+  test("bash branch keeps the shell's long options in front, where bash accepts them", () => {
+    const output = applyShellPathShim({
+      shell: "/bin/bash",
+      env: {},
+      args: ["--login", "--noprofile", "-x", "--", "script"],
+      shimDir: SHIM_DIR,
+    });
+
+    expect(output.args).toEqual([
+      "--login",
+      "--noprofile",
+      "--rcfile",
+      `${SHIM_DIR}/bashrc`,
+      "-i",
+      "-x",
+      "--",
+      "script",
+    ]);
+  });
+
+  test("bash branch leaves a shell that names its own rc file alone", () => {
+    const args = ["--rcfile", "/home/user/.myrc"];
+    const output = applyShellPathShim({ shell: "/bin/bash", env: {}, args, shimDir: SHIM_DIR });
+
+    expect(output.args).toEqual(args);
   });
 
   test("bash branch, args=undefined → new array created with shim args only", () => {
