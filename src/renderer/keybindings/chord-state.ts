@@ -69,6 +69,11 @@ export function purgeExpired(): boolean {
   return true;
 }
 
+/** The current time, from the clock tests can replace. */
+export function chordClock(): number {
+  return clock();
+}
+
 /** Test-only: inject a deterministic clock. */
 export function __setClockForTests(fn: () => number): void {
   clock = fn;

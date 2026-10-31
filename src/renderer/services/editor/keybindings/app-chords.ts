@@ -10,10 +10,10 @@
  * a Monaco command that runs the app command, so they keep working in the
  * editor.
  *
- * Like apply.ts this is a reconciler: Monaco rules cannot be cleared, so a
- * rebound chord unbinds the old keystroke and binds the new one. The rules
- * are harmless on macOS, where the dispatcher keeps the ⌘K leader and
- * Monaco never sees it.
+ * Like apply.ts this is a reconciler: a rebound chord disposes the rule for
+ * the old keystroke (an unbind rule would not remove a rule added this way)
+ * and adds one for the new. The rules are harmless on macOS, where the
+ * dispatcher keeps the ⌘K leader and Monaco never sees it.
  */
 
 import type { CommandId } from "../../../../shared/keybindings/commands";
@@ -27,8 +27,8 @@ export function appChordMonacoCommand(id: string): string {
   return `nexus.app.${id}`;
 }
 
-/** The Monaco chord each app command is currently bound to. */
-const appliedByCommand = new Map<string, number>();
+/** The Monaco chord each app command is currently bound to, and the rule binding it. */
+const appliedByCommand = new Map<string, { keybinding: number; rule: { dispose(): void } }>();
 const registeredCommands = new Set<string>();
 
 /**
@@ -49,10 +49,9 @@ export function applyAppChordsToMonaco(bindings: readonly KeybindingDecl[]): voi
     want.set(decl.command, monaco.KeyMod.chord(first, second));
   }
 
-  const rules: { keybinding: number; command: string }[] = [];
   for (const [id, prev] of appliedByCommand) {
-    if (want.get(id) === prev) continue;
-    rules.push({ keybinding: prev, command: `-${appChordMonacoCommand(id)}` });
+    if (want.get(id) === prev.keybinding) continue;
+    prev.rule.dispose();
     appliedByCommand.delete(id);
   }
   for (const [id, keybinding] of want) {
@@ -62,11 +61,9 @@ export function applyAppChordsToMonaco(bindings: readonly KeybindingDecl[]): voi
       monaco.editor.registerCommand(command, () => executeCommand(id as CommandId));
       registeredCommands.add(command);
     }
-    rules.push({ keybinding, command });
-    appliedByCommand.set(id, keybinding);
+    const rule = monaco.editor.addKeybindingRule({ keybinding, command });
+    appliedByCommand.set(id, { keybinding, rule });
   }
-
-  if (rules.length > 0) monaco.editor.addKeybindingRules(rules);
 }
 
 /** Test-only: forget what has been applied so a fresh reconcile starts clean. */

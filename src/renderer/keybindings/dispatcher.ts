@@ -25,6 +25,7 @@ import { executeCommand } from "../commands/registry";
 import {
   __resetForTests as __resetChordStateForTests,
   __setClockForTests,
+  chordClock,
   clearPending,
   enterPending,
   getPendingLeader,
@@ -45,8 +46,15 @@ export { __resetChordStateForTests, __setClockForTests as __setChordClockForTest
 // Chords in the editor (Win/Linux)
 // ---------------------------------------------------------------------------
 
-/** A chord leader went to Monaco; its next keystroke is Monaco's too. */
-let editorChordPending = false;
+/**
+ * When a chord leader last went to Monaco, whose next keystroke is Monaco's
+ * too; null when none is pending. Monaco gives up on a chord after
+ * {@link EDITOR_CHORD_TIMEOUT_MS}, and the keystroke is the app's again.
+ */
+let editorChordSince: number | null = null;
+
+/** How long Monaco waits for a chord's second key. */
+const EDITOR_CHORD_TIMEOUT_MS = 5000;
 
 /** Test override for the platform half of {@link editorTakesChords}. */
 let editorChordsOverride: boolean | null = null;
@@ -63,7 +71,7 @@ function editorTakesChords(e: KeyboardEvent): boolean {
 /** Test-only: force the platform half of `editorTakesChords`; null restores it. */
 export function __setEditorChordsForTests(value: boolean | null): void {
   editorChordsOverride = value;
-  editorChordPending = false;
+  editorChordSince = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,9 +112,10 @@ export function handleGlobalKeyDown(e: KeyboardEvent): boolean {
   // ── 1b. A chord leader pressed in the editor went to Monaco (see
   //        `case "chord-leader"`): this keystroke completes Monaco's
   //        chord, so let it through untouched.
-  if (editorChordPending) {
-    editorChordPending = false;
-    if (evaluateContextKey("editorFocus", e)) return false;
+  if (editorChordSince !== null) {
+    const live = chordClock() - editorChordSince < EDITOR_CHORD_TIMEOUT_MS;
+    editorChordSince = null;
+    if (live && evaluateContextKey("editorFocus", e)) return false;
   }
 
   if (evaluateContextKey("commandPaletteFocus", e)) return false;
@@ -155,7 +164,7 @@ export function handleGlobalKeyDown(e: KeyboardEvent): boolean {
       // (services/editor/keybindings/app-chords.ts), so Monaco resolves
       // both, and the next keystroke is Monaco's (step 1b).
       if (editorTakesChords(e)) {
-        editorChordPending = true;
+        editorChordSince = chordClock();
         return false;
       }
       // Elsewhere, and on macOS everywhere, the chord pipeline is ours:

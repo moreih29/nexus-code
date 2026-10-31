@@ -64,6 +64,12 @@ interface TerminalSettingsState {
   }): void;
 
   /**
+   * Take the shells another window saved (`appState.terminalShellsChanged`).
+   * Does not persist.
+   */
+  hydrateShells(shells: { shell?: ShellChoice | undefined; customShells: CustomShell[] }): void;
+
+  /**
    * Set the default shell. Persists to appState only: running terminals keep
    * their shell, and main reads the setting when the next one spawns.
    */
@@ -147,6 +153,10 @@ export const useTerminalStore = create<TerminalSettingsState>((set, get) => {
         shell,
         customShells: customShells ?? [],
       });
+    },
+
+    hydrateShells({ shell, customShells }) {
+      set({ shell, customShells });
     },
 
     setShell(value) {

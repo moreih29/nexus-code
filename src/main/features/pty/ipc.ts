@@ -77,6 +77,10 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
   const { agentHost } = options;
   const recorder = options.recorder ?? new TerminalRecorderRegistry();
   const wm = options.workspaceManager;
+  // The shell each local session started with, keyed by workspace and tab,
+  // so a tab that reconnects to its running session reports that shell.
+  const sessionShellPaths = new Map<string, string>();
+  const sessionKey = (workspaceId: string, tabId: string) => `${workspaceId}:${tabId}`;
   const dispatcher = new OscNotificationDispatcher({
     workspaceManager: wm ?? { getName: () => null },
     getFocusedWindow: getFocusedAppWindow,
@@ -115,6 +119,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
     };
     broadcast("pty", "exit", { workspaceId, tabId, code });
     recorder.stop(workspaceId, tabId);
+    sessionShellPaths.delete(sessionKey(workspaceId, tabId));
   });
 
   agentHost.on("held", (args) => {
@@ -253,9 +258,17 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
             env: enrichedEnv,
             ...(shell !== undefined ? { shell: shell.path } : {}),
             ...(shimmedArgs !== undefined && shimmedArgs.length > 0 ? { args: shimmedArgs } : {}),
-          })) as { pid: number };
+          })) as { pid: number; attached?: boolean };
+          const key = sessionKey(workspaceId, tabId);
+          if (result.attached) {
+            // The tab reconnected to the shell it already runs, which the
+            // settings may no longer name: report that one, and no fallback.
+            const running = sessionShellPaths.get(key);
+            return { pid: result.pid, ...(running !== undefined ? { shellPath: running } : {}) };
+          }
+          if (shellPath !== undefined) sessionShellPaths.set(key, shellPath);
           return {
-            ...result,
+            pid: result.pid,
             ...(shellPath !== undefined ? { shellPath } : {}),
             ...(missingShell !== undefined ? { missingShell } : {}),
           };

@@ -42,13 +42,14 @@ export type ShellInfo = z.infer<typeof ShellInfoSchema>;
 
 /**
  * Splits an arguments field the way a shell would: on whitespace, except
- * inside double quotes. No escapes; good enough for flags like `-l` or
+ * inside double quotes, which may sit anywhere in an argument
+ * (`--init-file="/a b/rc"`). No escapes; good enough for flags like `-l` or
  * `-NoLogo -ExecutionPolicy Bypass`.
  */
 export function splitShellArgs(text: string): string[] {
   const args: string[] = [];
-  for (const match of text.matchAll(/"([^"]*)"|(\S+)/g)) {
-    args.push(match[1] ?? match[2] ?? "");
+  for (const match of text.matchAll(/(?:"[^"]*(?:"|$)|[^\s"]+)+/g)) {
+    args.push(match[0].replaceAll('"', ""));
   }
   return args;
 }

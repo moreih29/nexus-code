@@ -189,6 +189,25 @@ describe("writeShimFiles", () => {
     expect(bashrcContent).toContain("${PATH//:$NEXUS_WRAPPER_SELF_DIR:/:}");
   });
 
+  test.skipIf(!fsSync.existsSync("/bin/zsh"))(
+    "a login zsh under the shim still reads the user's .zprofile and .zlogin",
+    async () => {
+      const id = `test-ws-login-${Date.now()}`;
+      const result = await writeShimFiles(id);
+      createdShimDir = result.dir;
+      await fsp.writeFile(path.join(tmpBase, ".zprofile"), "export FROM_ZPROFILE=yes\n");
+      await fsp.writeFile(path.join(tmpBase, ".zlogin"), "export FROM_ZLOGIN=yes\n");
+
+      const output = execSync(`/bin/zsh -l -i -c 'echo "$FROM_ZPROFILE $FROM_ZLOGIN"'`, {
+        env: { HOME: tmpBase, ZDOTDIR: result.dir, NEXUS_USER_ZDOTDIR: "" },
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+
+      expect(output.trim()).toBe("yes yes");
+    },
+  );
+
   test("acceptance 3 — idempotent: second call produces identical content", async () => {
     const id = "test-ws-idempotent-" + Date.now();
     const r1 = await writeShimFiles(id);

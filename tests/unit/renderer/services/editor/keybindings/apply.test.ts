@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type * as Monaco from "monaco-editor";
+import { editorCommandDefault } from "../../../../../../src/shared/keybindings/editor-commands";
+import type { AcceleratorString } from "../../../../../../src/shared/keybindings/index";
 
 // ---------------------------------------------------------------------------
-// Fake Monaco — captures addKeybindingRules calls and supplies the KeyMod /
-// KeyCode constants the converter reads. Exact numeric values are arbitrary;
-// the tests assert relationships (same command unbound/bound, idempotency),
-// not absolute encodings.
+// Fake Monaco — resolves keybindings the way Monaco does: its built-in
+// bindings, then the rules added through addKeybindingRule, where an unbind
+// rule (`-id`) removes only a built-in binding and an added rule goes away
+// only when its disposable is disposed. Exact numeric values are arbitrary;
+// the tests compare encodings the converter produced.
 //
 // The monaco-singleton is stubbed via mock.module (bun mocks are global and
 // another test file replaces requireMonaco with a thrower) — so we register
@@ -18,7 +21,10 @@ interface Rule {
   command: string;
 }
 
-const calls: Rule[][] = [];
+/** Monaco's own bindings. */
+let builtins: Rule[] = [];
+/** Rules added through addKeybindingRule and not yet disposed. */
+let added: Rule[] = [];
 
 const KeyMod = { CtrlCmd: 1 << 11, Shift: 1 << 10, Alt: 1 << 9, WinCtrl: 1 << 8 };
 
@@ -38,8 +44,13 @@ const fakeMonaco = {
   KeyMod,
   KeyCode,
   editor: {
-    addKeybindingRules: (rules: Rule[]) => {
-      calls.push(rules);
+    addKeybindingRule: (rule: Rule) => {
+      added.push(rule);
+      return {
+        dispose: () => {
+          added = added.filter((r) => r !== rule);
+        },
+      };
     },
   },
 } as unknown as typeof Monaco;
@@ -51,82 +62,81 @@ mock.module("../../../../../../src/renderer/services/editor/runtime/monaco-singl
   requireMonaco: () => fakeMonaco,
 }));
 
-const { applyEditorKeybindingOverrides, __resetAppliedEditorBindingsForTests } = await import(
-  "../../../../../../src/renderer/services/editor/keybindings/apply"
-);
+const {
+  acceleratorToMonacoKeybinding,
+  applyEditorKeybindingOverrides,
+  __resetAppliedEditorBindingsForTests,
+} = await import("../../../../../../src/renderer/services/editor/keybindings/apply");
 
 const COMMENT = "editor.action.commentLine";
+const DEFAULT_KEY = editorCommandDefault(COMMENT) as AcceleratorString;
 
-function lastCall(): Rule[] {
-  return calls[calls.length - 1] as Rule[];
+const kb = (accel: AcceleratorString) => acceleratorToMonacoKeybinding(fakeMonaco, accel) as number;
+
+/** The keystrokes that run `command` now. */
+function keysFor(command: string): number[] {
+  const unbound = added.filter((r) => r.command === `-${command}`).map((r) => r.keybinding);
+  return [
+    ...builtins.filter((r) => r.command === command && !unbound.includes(r.keybinding)),
+    ...added.filter((r) => r.command === command),
+  ].map((r) => r.keybinding);
 }
 
 describe("applyEditorKeybindingOverrides reconciler", () => {
   beforeEach(() => {
-    calls.length = 0;
+    builtins = [{ keybinding: kb(DEFAULT_KEY), command: COMMENT }];
+    added = [];
     __resetAppliedEditorBindingsForTests();
   });
 
-  test("fresh state with no overrides emits no rules (defaults already active)", () => {
+  test("fresh state with no overrides adds no rules (defaults already active)", () => {
     applyEditorKeybindingOverrides([]);
-    expect(calls.length).toBe(0);
+    expect(added).toEqual([]);
+    expect(keysFor(COMMENT)).toEqual([kb(DEFAULT_KEY)]);
   });
 
-  test("binding a user key unbinds the default and binds the new key — only for that command", () => {
+  test("binding a user key replaces the default — only for that command", () => {
     applyEditorKeybindingOverrides([{ command: COMMENT, primary: "CmdOrCtrl+Shift+C" }]);
 
-    expect(calls.length).toBe(1);
-    const rules = lastCall();
-    // Exactly the changed command: one unbind (-id) + one bind (id).
-    expect(rules.some((r) => r.command === `-${COMMENT}`)).toBe(true);
-    expect(rules.some((r) => r.command === COMMENT)).toBe(true);
-    // No other command touched.
-    for (const r of rules) {
-      expect(r.command.replace(/^-/, "")).toBe(COMMENT);
-    }
+    expect(keysFor(COMMENT)).toEqual([kb("CmdOrCtrl+Shift+C")]);
+    for (const r of added) expect(r.command.replace(/^-/, "")).toBe(COMMENT);
   });
 
   test("re-applying the same override is a no-op (idempotent)", () => {
     applyEditorKeybindingOverrides([{ command: COMMENT, primary: "CmdOrCtrl+Shift+C" }]);
-    calls.length = 0;
+    const before = [...added];
     applyEditorKeybindingOverrides([{ command: COMMENT, primary: "CmdOrCtrl+Shift+C" }]);
-    expect(calls.length).toBe(0);
+    expect(added).toEqual(before);
   });
 
-  test("rebinding twice unbinds the PREVIOUS user key, not the original default", () => {
+  test("rebinding twice leaves only the latest key, not the previous user key", () => {
     applyEditorKeybindingOverrides([{ command: COMMENT, primary: "CmdOrCtrl+Shift+C" }]);
-    const firstBound = lastCall().find((r) => r.command === COMMENT)?.keybinding;
-    expect(firstBound).toBeDefined();
-
-    calls.length = 0;
     applyEditorKeybindingOverrides([{ command: COMMENT, primary: "CmdOrCtrl+Shift+J" }]);
-    const rules = lastCall();
-    const unbind = rules.find((r) => r.command === `-${COMMENT}`);
-    // The unbind targets the keystroke we previously BOUND, so no stale key lingers.
-    expect(unbind?.keybinding).toBe(firstBound as number);
+    expect(keysFor(COMMENT)).toEqual([kb("CmdOrCtrl+Shift+J")]);
   });
 
   test("unbind (primary:null) removes the default and binds nothing", () => {
     applyEditorKeybindingOverrides([{ command: COMMENT, primary: null }]);
-    const rules = lastCall();
-    expect(rules.some((r) => r.command === `-${COMMENT}`)).toBe(true);
-    expect(rules.some((r) => r.command === COMMENT)).toBe(false);
+    expect(keysFor(COMMENT)).toEqual([]);
   });
 
-  test("reset (override removed) restores the default keystroke", () => {
+  test("unbinding a user key leaves the command with no key", () => {
     applyEditorKeybindingOverrides([{ command: COMMENT, primary: "CmdOrCtrl+Shift+C" }]);
-    calls.length = 0;
+    applyEditorKeybindingOverrides([{ command: COMMENT, primary: null }]);
+    expect(keysFor(COMMENT)).toEqual([]);
+  });
+
+  test("reset (override removed) restores the default keystroke alone", () => {
+    applyEditorKeybindingOverrides([{ command: COMMENT, primary: "CmdOrCtrl+Shift+C" }]);
     applyEditorKeybindingOverrides([]); // back to defaults
-    const rules = lastCall();
-    // Unbind the user key, re-bind the default to the command.
-    expect(rules.some((r) => r.command === `-${COMMENT}`)).toBe(true);
-    expect(rules.some((r) => r.command === COMMENT)).toBe(true);
+    expect(keysFor(COMMENT)).toEqual([kb(DEFAULT_KEY)]);
+    expect(added).toEqual([]);
   });
 
   test("overrides for unknown (non-curated) command ids are ignored", () => {
     applyEditorKeybindingOverrides([
       { command: "editor.action.notCurated", primary: "CmdOrCtrl+J" },
     ]);
-    expect(calls.length).toBe(0);
+    expect(added).toEqual([]);
   });
 });

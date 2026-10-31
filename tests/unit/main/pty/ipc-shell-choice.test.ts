@@ -47,11 +47,13 @@ interface SpawnCall {
 class FakeAgentChannel implements AgentChannel {
   readonly ready = Promise.resolve();
   readonly spawnCalls: SpawnCall[] = [];
+  /** Answers the next spawns as the agent does for a session already running. */
+  attach = false;
 
   async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
     if (method === "pty.spawn") {
       this.spawnCalls.push(params as SpawnCall);
-      return { pid: 42 } as TResult;
+      return (this.attach ? { pid: 42, attached: true } : { pid: 42 }) as TResult;
     }
     return {} as TResult;
   }
@@ -201,6 +203,24 @@ describe("pty.spawn — the shell of a local terminal", () => {
 
     expect(agent.spawnCalls[0]?.shell).toBeUndefined();
     expect(result).toEqual({ pid: 42, shellPath: POWERSHELL, missingShell: "PowerShell" });
+  });
+
+  test("a tab that reconnects to its running shell reports that shell, not the setting", async () => {
+    const settings: { defaultShell?: ShellChoice } = {};
+    const { call, agent } = setup({
+      get defaultShell() {
+        return settings.defaultShell;
+      },
+      customShells: [],
+    });
+    await call("spawn", spawnArgs({ shell: { kind: "detected", id: "git-bash" } }));
+
+    // Git Bash is still running; the default meanwhile became one that's gone.
+    settings.defaultShell = { kind: "custom", id: "removed" };
+    agent.attach = true;
+    const result = await call("spawn", spawnArgs({ shell: { kind: "detected", id: "pwsh" } }));
+
+    expect(result).toEqual({ pid: 42, shellPath: GIT_BASH });
   });
 
   test("an SSH workspace never gets a local shell", async () => {
