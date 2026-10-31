@@ -5,6 +5,7 @@
 //   - Font family: token-sealed Select + custom-name input branch
 //   - Font ligatures: Radix Checkbox + live mini-preview that toggles `liga`
 //   - Line height: SegmentedControl (1.0 / 1.2 / 1.4), inline with its label
+//   - Language servers: experimental master switch, applied on next launch
 //
 // Design seal: semantic tokens only, no hex/oklch/rgba literals,
 // no magic pixel values, no shadows.
@@ -12,9 +13,11 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { ipcCallResult } from "../../../ipc/client";
 import { checkFontAvailable } from "../../../services/editor/runtime/font-availability";
 import type { EditorFontLineHeight, EditorFontSize } from "../../../state/stores/editor-font";
 import { useEditorFontStore } from "../../../state/stores/editor-font";
+import { useLspEnabledStore } from "../../../state/stores/lsp-enabled";
 import { Checkbox } from "../../ui/checkbox";
 import { NumberInput } from "../../ui/number-input";
 import {
@@ -279,7 +282,39 @@ export function EditorPanel() {
           {t("editor.ligatures.description")}
         </p>
       </SettingsSection>
+
+      <LanguageServersSection />
     </div>
+  );
+}
+
+/**
+ * The experimental LSP switch. It saves the setting; the session keeps the
+ * value it launched with, so a change waits for a restart.
+ */
+function LanguageServersSection() {
+  const { t } = useTranslation("settings");
+  const id = useId();
+  const running = useLspEnabledStore((s) => s.featureEnabled);
+  const saved = useLspEnabledStore((s) => s.featureSetting);
+  const setSaved = useLspEnabledStore((s) => s.setFeatureSetting);
+
+  function change(next: boolean): void {
+    setSaved(next);
+    void ipcCallResult("appState", "set", { lspEnabled: next });
+  }
+
+  return (
+    <SettingsSection label={t("editor.lsp.label")}>
+      <label htmlFor={id} className="flex items-center gap-2 cursor-pointer">
+        <Checkbox id={id} checked={saved} onCheckedChange={(v) => change(v === true)} />
+        <span className="text-app-body text-foreground">{t("editor.lsp.enable")}</span>
+      </label>
+      <p className="text-app-ui-sm text-muted-foreground">{t("editor.lsp.description")}</p>
+      {saved !== running && (
+        <p className="text-app-ui-sm text-[var(--state-warning-fg)]">{t("editor.lsp.restart")}</p>
+      )}
+    </SettingsSection>
   );
 }
 

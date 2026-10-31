@@ -1,6 +1,7 @@
 import path from "node:path";
 import { app, type BrowserWindow, session } from "electron";
 import { createLogger, initMainLogger } from "../shared/log/main";
+import { setLspFeatureEnabled } from "../shared/lsp/feature-flag";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { installErrorSafetyNet } from "./error-safety-net";
 import { registerAppStateChannel } from "./features/app-state";
@@ -437,6 +438,9 @@ app.whenReady().then(async () => {
     getCustomShells: () => stateService.getState().terminalShells,
   });
 
+  // The experimental setting, as it is at launch: a change waits for the
+  // next one.
+  setLspFeatureEnabled(stateService.getState().lspEnabled === true);
   lspHost = startConfiguredLspHost({
     workspaceManager,
     agentHostOptions: {

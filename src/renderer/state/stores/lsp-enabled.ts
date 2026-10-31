@@ -13,6 +13,7 @@
 //     re-render cycle.
 
 import { create } from "zustand";
+import { setLspFeatureEnabled } from "../../../shared/lsp/feature-flag";
 import type { LspLanguageId } from "../../../shared/types/app-state";
 
 // ---------------------------------------------------------------------------
@@ -31,6 +32,14 @@ interface LspEnabledState {
    * record; workspaces not present default to [] (OFF) on first query.
    */
   hydrateAll(initial: Record<string, LspLanguageId[]>): void;
+
+  /** Whether LSP runs in this session: the setting as it was at launch. */
+  featureEnabled: boolean;
+  /** The setting as saved, which the next launch takes up. */
+  featureSetting: boolean;
+  /** Take the saved setting at launch. */
+  hydrateFeature(enabled: boolean): void;
+  setFeatureSetting(enabled: boolean): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -48,6 +57,18 @@ export const useLspEnabledStore = create<LspEnabledState>((set) => ({
 
   hydrateAll(initial) {
     set({ byWorkspace: initial });
+  },
+
+  featureEnabled: false,
+  featureSetting: false,
+
+  hydrateFeature(enabled) {
+    setLspFeatureEnabled(enabled);
+    set({ featureEnabled: enabled, featureSetting: enabled });
+  },
+
+  setFeatureSetting(featureSetting) {
+    set({ featureSetting });
   },
 }));
 

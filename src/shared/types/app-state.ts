@@ -47,6 +47,9 @@ export const AppStateSchema = z.object({
   lspEnabledLanguagesByWorkspace: z
     .record(z.string().uuid(), z.array(LspLanguageIdSchema))
     .optional(),
+  // Experimental: whether LSP runs at all. Absent = off. Read at launch, so a
+  // change takes effect on the next one.
+  lspEnabled: z.boolean().optional(),
   // Theme preference persisted to appState (authoritative store).
   // localStorage is also written as a boot cache for FOUC prevention.
   themePreference: ThemePreferenceSchema.optional(),

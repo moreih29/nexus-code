@@ -1,4 +1,4 @@
-import { LSP_FEATURE_ENABLED } from "./feature-flag";
+import { isLspFeatureEnabled } from "./feature-flag";
 
 export type LspServerSpec = {
   languageId: string;
@@ -81,7 +81,7 @@ export function resolveLspPreset(languageId: string): LspServerSpec | null {
 }
 
 export function isSupportedLspLanguage(languageId: string): languageId is SupportedLspLanguageId {
-  if (!LSP_FEATURE_ENABLED) return false;
+  if (!isLspFeatureEnabled()) return false;
   return resolveLspPresetLanguageId(languageId) !== null;
 }
 

@@ -184,6 +184,12 @@
       "lineHeight": "Reset Line height",
       "fontFamily": "Reset Font family",
       "fontLigatures": "Reset Font ligatures"
+    },
+    "lsp": {
+      "label": "Language servers (experimental)",
+      "enable": "Use language servers",
+      "description": "Completion, go to definition and diagnostics for TypeScript and Python, from servers that ship with the app. Turn each language on per workspace with its chip in the sidebar.",
+      "restart": "Restart NexusCode to apply."
     }
   },
   "terminal": {

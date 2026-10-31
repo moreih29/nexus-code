@@ -1,10 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   BUILTIN_LSP_PRESETS,
   isSupportedLspLanguage,
   resolveLspPreset,
 } from "../../../src/shared/lsp/config";
-import { LSP_FEATURE_ENABLED } from "../../../src/shared/lsp/feature-flag";
+import { setLspFeatureEnabled } from "../../../src/shared/lsp/feature-flag";
+
+afterEach(() => setLspFeatureEnabled(false));
 
 describe("built-in LSP presets", () => {
   test("includes Pyright for Python", () => {
@@ -22,8 +24,13 @@ describe("built-in LSP presets", () => {
     const opts = preset?.initializationOptions as Record<string, unknown>;
     expect(opts["python.analysis.typeCheckingMode"]).toBe("standard");
     expect(opts["python.analysis.autoImportCompletions"]).toBe(true);
+  });
 
-    // isSupportedLspLanguage returns false when LSP_FEATURE_ENABLED is false.
-    expect(isSupportedLspLanguage("python")).toBe(LSP_FEATURE_ENABLED);
+  test("supports no language while the setting is off", () => {
+    expect(isSupportedLspLanguage("python")).toBe(false);
+
+    setLspFeatureEnabled(true);
+    expect(isSupportedLspLanguage("python")).toBe(true);
+    expect(isSupportedLspLanguage("markdown")).toBe(false);
   });
 });

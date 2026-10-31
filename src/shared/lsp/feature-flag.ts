@@ -1,12 +1,18 @@
 /**
- * Global compile-time gate for the LSP feature.
+ * Whether LSP runs at all: the experimental `lspEnabled` setting, off by
+ * default.
  *
- * Set to `false` during a policy review period while multi-workspace LSP
- * performance issues (hover/definition timeouts under concurrent workspace
- * activation) are being investigated.
- *
- * To re-enable: change the value to `true` and rebuild. All LSP code paths
- * are preserved — no code was removed. The flag simply short-circuits the
- * entry points so no LSP processes are spawned and no LSP UI is rendered.
+ * Each process reads the setting once at startup — main before it wires the
+ * LSP channel, the renderer when it hydrates app state — so a change takes
+ * effect on the next launch. With it off, no LSP process is spawned and no
+ * LSP UI is rendered.
  */
-export const LSP_FEATURE_ENABLED = false;
+let lspFeatureEnabled = false;
+
+export function isLspFeatureEnabled(): boolean {
+  return lspFeatureEnabled;
+}
+
+export function setLspFeatureEnabled(enabled: boolean): void {
+  lspFeatureEnabled = enabled;
+}
