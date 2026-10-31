@@ -49,7 +49,8 @@ export type CliChangeKind =
   | "terminalInput"
   | "tabClose"
   | "browserOpen"
-  | "browserNavigate";
+  | "browserNavigate"
+  | "browserControl";
 
 export interface CliChange {
   readonly kind: CliChangeKind;

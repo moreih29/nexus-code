@@ -271,7 +271,8 @@
         "terminalInput": "type into the terminal \"{{detail}}\"",
         "tabClose": "close the tab \"{{detail}}\"",
         "browserOpen": "open {{detail}} in a browser tab",
-        "browserNavigate": "move the browser tab \"{{detail}}\""
+        "browserNavigate": "move the browser tab \"{{detail}}\"",
+        "browserControl": "click, type or run scripts in the browser tab \"{{detail}}\""
       }
     }
   },

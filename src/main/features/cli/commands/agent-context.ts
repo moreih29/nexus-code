@@ -18,8 +18,10 @@ const agentContext: CliCommand = {
       "The `nexus` command drives the app from here: see other workspaces' terminals and agent",
       "sessions (nexus session list, nexus terminal read), open files and diffs for the user",
       "(nexus open, nexus diff), run commands in new terminals (nexus terminal new --command),",
-      "type into another agent's session and wait for it (nexus terminal send --wait), open and",
-      "drive the app's browser (nexus browser ...), and notify the user (nexus notify).",
+      "type into another agent's session and wait for it (nexus terminal send --wait), and notify",
+      "the user (nexus notify). The app's browser tabs can be opened and driven to check a web",
+      "app: nexus browser open URL, then snapshot (the page with element refs), click e12,",
+      "fill e3 TEXT, press Enter, screenshot, console and eval.",
       "Run `nexus help` for every command.",
     ].join("\n");
     return output(note, { note });

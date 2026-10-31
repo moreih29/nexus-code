@@ -2,6 +2,7 @@
 import type { CliBrowserAction, CliTabInfo } from "../../../../shared/cli/ui";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { exactArgs } from "../args";
+import type { PageInfo } from "../browser/driver";
 import {
   type CliContext,
   CliError,
@@ -16,7 +17,7 @@ import { type CliCommand, output } from "../registry";
 import { BACKGROUND_FLAG, WORKSPACE_FLAG } from "./flags";
 import { workspaceTabs } from "./terminal";
 
-const TAB_FLAG = {
+export const TAB_FLAG = {
   type: "string",
   value: "TAB",
   description: "The browser tab; the workspace's only one, or the one shown, by default",
@@ -83,13 +84,20 @@ const browserOpen: CliCommand = {
       url,
       placement: placementFor(ctx, workspace, flags.background === true),
     });
-    return output(`Opened ${opened.url} (tab ${shortId(opened.tabId)}).`, {
+    const page = await ctx.services.browser.settle(opened.tabId);
+    return output(`${loaded(page, opened.url)} in a new tab, ${shortId(opened.tabId)}.`, {
       tabId: opened.tabId,
       workspaceId: workspace.id,
-      url: opened.url,
+      url: page?.url ?? opened.url,
     });
   },
 };
+
+/** What a navigation came to: the page loaded, or still loading when the wait for it ended. */
+function loaded(page: PageInfo | null, asked: string): string {
+  if (!page) return `Loading ${asked}`;
+  return page.title ? `Loaded ${page.url} "${page.title}"` : `Loaded ${page.url}`;
+}
 
 const browserGoto: CliCommand = {
   path: ["browser", "goto"],
@@ -107,10 +115,11 @@ const browserGoto: CliCommand = {
       action: "goto",
       url,
     });
-    return output(`Loading ${went.url ?? url} in ${shortId(tab.id)}.`, {
+    const page = await ctx.services.browser.settle(tab.id);
+    return output(`${loaded(page, went.url ?? url)} in ${shortId(tab.id)}.`, {
       tabId: tab.id,
       workspaceId: workspace.id,
-      url: went.url,
+      url: page?.url ?? went.url,
     });
   },
 };
@@ -131,7 +140,12 @@ function historyCommand(action: Exclude<CliBrowserAction, "goto">, summary: stri
         action,
       });
       const done = { back: "Went back", forward: "Went forward", reload: "Reloaded" }[action];
-      return output(`${done} in ${shortId(tab.id)}.`, { tabId: tab.id, workspaceId: workspace.id });
+      const page = await ctx.services.browser.settle(tab.id);
+      return output(`${done} in ${shortId(tab.id)}${page ? `; at ${page.url}` : ""}.`, {
+        tabId: tab.id,
+        workspaceId: workspace.id,
+        ...(page ? { url: page.url } : {}),
+      });
     },
   };
 }
