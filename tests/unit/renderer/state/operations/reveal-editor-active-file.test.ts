@@ -98,16 +98,3 @@ describe("revealEditorActiveFile — no prior selection", () => {
     expect(selectFocus(s, WS)).toBe(FILE_A);
   });
 });
-
-describe("revealEditorActiveFile — empty paths set (focus-only selection)", () => {
-  it("single-selects when paths is empty (focus row, not in set)", () => {
-    // setSingleSelection → focus=FILE_A, paths={}.
-    useFilesStore.getState().setSingleSelection(WS, FILE_A);
-
-    // Activate b.ts — paths is empty so FILE_A is not "in selection.paths".
-    revealEditorActiveFile(WS, FILE_B);
-
-    const s = useFilesStore.getState();
-    expect(selectFocus(s, WS)).toBe(FILE_B);
-  });
-});

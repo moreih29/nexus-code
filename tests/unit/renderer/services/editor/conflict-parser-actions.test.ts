@@ -59,13 +59,6 @@ describe("acceptCurrent — 2-way", () => {
     const result = acceptCurrent(text, block);
     expect(result).toBe("ours content");
   });
-
-  test("removes all markers", () => {
-    const result = acceptCurrent(text, block);
-    expect(result).not.toContain("<<<<<<<");
-    expect(result).not.toContain("=======");
-    expect(result).not.toContain(">>>>>>>");
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -80,13 +73,6 @@ describe("acceptIncoming — 2-way", () => {
     const result = acceptIncoming(text, block);
     expect(result).toBe("theirs content");
   });
-
-  test("removes all markers", () => {
-    const result = acceptIncoming(text, block);
-    expect(result).not.toContain("<<<<<<<");
-    expect(result).not.toContain("=======");
-    expect(result).not.toContain(">>>>>>>");
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -100,14 +86,6 @@ describe("acceptBoth — 2-way", () => {
   test("concatenates current then incoming, removing markers", () => {
     const result = acceptBoth(text, block);
     expect(result).toBe("ours content\ntheirs content");
-  });
-
-  test("removes all markers", () => {
-    const result = acceptBoth(text, block);
-    expect(result).not.toContain("<<<<<<<");
-    expect(result).not.toContain("|||||||");
-    expect(result).not.toContain("=======");
-    expect(result).not.toContain(">>>>>>>");
   });
 });
 
@@ -165,31 +143,13 @@ describe("accept actions — multiple blocks", () => {
   test("acceptCurrent on block 0 only resolves the first block", () => {
     const blocks = parseConflictBlocks(fullText);
     const result = acceptCurrent(fullText, blocks[0]);
-    // Block 0 should be replaced; block 1 markers should still be present.
-    expect(result).toContain("ours-0");
-    expect(result).not.toContain("theirs-0");
-    expect(result).toContain("<<<<<<<");
-    expect(result).toContain("ours-1");
-    expect(result).toContain("theirs-1");
+    expect(result).toBe([prefix, "ours-0", middle, block1Text, suffix].join("\n"));
   });
 
   test("acceptIncoming on block 1 only resolves the second block", () => {
     const blocks = parseConflictBlocks(fullText);
     const result = acceptIncoming(fullText, blocks[1]);
-    expect(result).toContain("theirs-1");
-    expect(result).not.toContain("ours-1");
-    // Block 0 markers still present.
-    expect(result).toContain("ours-0");
-    expect(result).toContain("theirs-0");
-    expect(result).toContain("<<<<<<<");
-  });
-
-  test("surrounding non-conflict text is preserved", () => {
-    const blocks = parseConflictBlocks(fullText);
-    const result = acceptCurrent(fullText, blocks[0]);
-    expect(result).toContain(prefix);
-    expect(result).toContain(middle);
-    expect(result).toContain(suffix);
+    expect(result).toBe([prefix, block0Text, middle, "theirs-1", suffix].join("\n"));
   });
 });
 

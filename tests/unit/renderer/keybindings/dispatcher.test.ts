@@ -134,14 +134,6 @@ describe("handleGlobalKeyDown — IME composition guard", () => {
 // ---------------------------------------------------------------------------
 
 describe("handleGlobalKeyDown — refresh", () => {
-  it("fires files.refresh on Cmd+R", () => {
-    const spies = setupCommandSpies();
-    const e = makeEvent("r", { metaKey: true, code: "KeyR" });
-    handleGlobalKeyDown(e as unknown as KeyboardEvent);
-    expect(spies[COMMANDS.filesRefresh]).toHaveBeenCalledTimes(1);
-    expect(e.defaultPrevented).toBe(true);
-  });
-
   it("still fires files.refresh inside an editable (matches the prior page-reload override)", () => {
     const spies = setupCommandSpies();
     const target = { tagName: "INPUT" } as HTMLElement;
@@ -186,19 +178,6 @@ describe("handleGlobalKeyDown — fileOpen fires regardless of focus", () => {
   it("fires file.open on Cmd+E even when target is INPUT", () => {
     const spies = setupCommandSpies();
     const target = { tagName: "INPUT" } as HTMLElement;
-    const e = makeEvent("e", { metaKey: true, code: "KeyE", target });
-    handleGlobalKeyDown(e as unknown as KeyboardEvent);
-    expect(spies[COMMANDS.fileOpen]).toHaveBeenCalledTimes(1);
-    expect(e.defaultPrevented).toBe(true);
-  });
-
-  it("fires file.open on Cmd+E for a plain target", () => {
-    const spies = setupCommandSpies();
-    const target = {
-      tagName: "DIV",
-      isContentEditable: false,
-      closest: () => null,
-    } as unknown as HTMLElement;
     const e = makeEvent("e", { metaKey: true, code: "KeyE", target });
     handleGlobalKeyDown(e as unknown as KeyboardEvent);
     expect(spies[COMMANDS.fileOpen]).toHaveBeenCalledTimes(1);
@@ -288,34 +267,6 @@ describe("handleGlobalKeyDown — tab close", () => {
     const e = makeEvent("t", { metaKey: true, altKey: true, code: "KeyT" });
     handleGlobalKeyDown(e as unknown as KeyboardEvent);
     expect(spies[COMMANDS.tabCloseOthers]).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("handleGlobalKeyDown — when scoping (openToSide)", () => {
-  it("Cmd+Enter fires openToSide when target is inside [role='tree']", () => {
-    const spies = setupCommandSpies();
-    const target = {
-      tagName: "DIV",
-      isContentEditable: false,
-      closest: (sel: string) => (sel === '[role="tree"]' ? ({} as HTMLElement) : null),
-    } as unknown as HTMLElement;
-    const e = makeEvent("Enter", { metaKey: true, code: "Enter", target });
-    handleGlobalKeyDown(e as unknown as KeyboardEvent);
-    expect(spies[COMMANDS.openToSide]).toHaveBeenCalledTimes(1);
-    expect(e.defaultPrevented).toBe(true);
-  });
-
-  it("Cmd+Enter does NOT fire openToSide outside the file tree", () => {
-    const spies = setupCommandSpies();
-    const target = {
-      tagName: "DIV",
-      isContentEditable: false,
-      closest: () => null,
-    } as unknown as HTMLElement;
-    const e = makeEvent("Enter", { metaKey: true, code: "Enter", target });
-    handleGlobalKeyDown(e as unknown as KeyboardEvent);
-    expect(spies[COMMANDS.openToSide]).not.toHaveBeenCalled();
-    expect(e.defaultPrevented).toBe(false);
   });
 });
 

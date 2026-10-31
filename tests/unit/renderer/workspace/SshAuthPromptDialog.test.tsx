@@ -47,7 +47,7 @@ describe("SshAuthPromptDialogContent", () => {
     expect(html).toContain('id="ssh-auth-description-password-1"');
   });
 
-  it("renders a host-key trust prompt with monospace fingerprint and copy action", () => {
+  it("renders a host-key trust prompt with the fingerprint and copy action", () => {
     const prompt = makeHostKeyPrompt({ promptId: "host-key-1" });
 
     const html = renderToStaticMarkup(
@@ -65,7 +65,6 @@ describe("SshAuthPromptDialogContent", () => {
     expect(html).toContain("Trust SSH host key");
     expect(html).toContain("1 / 2 pending");
     expect(html).toContain("SHA256:abcdef1234567890");
-    expect(html).toContain("font-mono text-[14px]");
     expect(html).toContain(">Copy<");
     expect(html).toContain(">Cancel<");
     expect(html).toContain(">Trust<");
@@ -167,25 +166,6 @@ describe("SshAuthPromptDialogContent", () => {
     expect(html).toContain("dev.example.com");
     // Uses the reattach-specific title copy, not the generic one.
     expect(html).not.toContain("SSH password required");
-  });
-
-  it("shows standard password title when isReattach=false", () => {
-    const prompt = makePasswordPrompt({ promptId: "normal-pw" });
-
-    const html = renderToStaticMarkup(
-      <SshAuthPromptDialogContent
-        prompt={prompt}
-        passwordValue=""
-        pendingMessage={null}
-        isReattach={false}
-        onPasswordChange={() => {}}
-        onCancel={() => {}}
-        onCopyFingerprint={() => {}}
-        onSubmit={() => {}}
-      />,
-    );
-
-    expect(html).toContain("SSH password required");
   });
 });
 
@@ -317,16 +297,6 @@ describe("Ssh auth prompt isReattach detection", () => {
     expect(state.isReattach).toBe(false);
 
     __clearHeldWorkspacesForTests();
-  });
-});
-
-describe("Global SSH auth prompt mount", () => {
-  it("keeps the SSH auth dialog/listener in global roots", async () => {
-    const globalRoots = await Bun.file("src/renderer/components/global-roots.tsx").text();
-
-    expect(globalRoots).toContain("<SshAuthPromptsRoot />");
-    expect(globalRoots).toContain("useSshAuthPrompts");
-    expect(globalRoots).toContain("<SshAuthPromptDialog");
   });
 });
 

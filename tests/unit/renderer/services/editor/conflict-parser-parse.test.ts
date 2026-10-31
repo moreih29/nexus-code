@@ -46,156 +46,82 @@ function diff3Block(ours: string, base: string, theirs: string): string {
 // ---------------------------------------------------------------------------
 
 describe("hasConflictMarkers", () => {
-  test("returns true for a file with a conflict block", () => {
-    expect(hasConflictMarkers(twoWayBlock("a", "b"))).toBe(true);
-  });
-
-  test("returns false for a file with no conflict markers", () => {
-    expect(hasConflictMarkers("const x = 1;\nconsole.log(x);\n")).toBe(false);
-  });
-
-  test("returns false for empty string", () => {
-    expect(hasConflictMarkers("")).toBe(false);
-  });
-
-  test("returns true when marker is mid-file (preceded by newline)", () => {
-    const text = "normal line\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> b";
-    expect(hasConflictMarkers(text)).toBe(true);
+  test.each([
+    ["a file with a conflict block", twoWayBlock("a", "b"), true],
+    ["a marker mid-file", "normal line\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> b", true],
+    ["a file with no conflict markers", "const x = 1;\nconsole.log(x);\n", false],
+    ["an empty string", "", false],
+  ])("%s → %p", (_name, text, expected) => {
+    expect(hasConflictMarkers(text)).toBe(expected);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Single 2-way block
+// Block shapes
 // ---------------------------------------------------------------------------
 
-describe("parseConflictBlocks — single 2-way block", () => {
-  const text = twoWayBlock("ours line", "theirs line");
-
-  test("returns exactly one block", () => {
-    expect(parseConflictBlocks(text)).toHaveLength(1);
+describe("parseConflictBlocks — block shape", () => {
+  test("2-way block: every marker and section line", () => {
+    expect(parseConflictBlocks(twoWayBlock("ours line", "theirs line"))).toEqual([
+      {
+        index: 0,
+        blockRange: { startLine: 1, endLine: 5 },
+        currentMarkerLine: 1,
+        current: { startLine: 2, endLine: 2 },
+        base: null,
+        baseMarkerLine: null,
+        separatorLine: 3,
+        incoming: { startLine: 4, endLine: 4 },
+        incomingMarkerLine: 5,
+      },
+    ]);
   });
 
-  test("block index is 0", () => {
+  test("diff3 block: the base section sits between current and incoming", () => {
+    expect(parseConflictBlocks(diff3Block("ours line", "base line", "theirs line"))).toEqual([
+      {
+        index: 0,
+        blockRange: { startLine: 1, endLine: 7 },
+        currentMarkerLine: 1,
+        current: { startLine: 2, endLine: 2 },
+        base: { startLine: 4, endLine: 4 },
+        baseMarkerLine: 3,
+        separatorLine: 5,
+        incoming: { startLine: 6, endLine: 6 },
+        incomingMarkerLine: 7,
+      },
+    ]);
+  });
+
+  test("multi-line sections span every content line", () => {
+    const text = [
+      "<<<<<<< HEAD",
+      "ours line 1",
+      "ours line 2",
+      "ours line 3",
+      "=======",
+      "theirs line 1",
+      "theirs line 2",
+      ">>>>>>> branch",
+    ].join("\n");
     const [block] = parseConflictBlocks(text);
-    expect(block.index).toBe(0);
+    expect(block.current).toEqual({ startLine: 2, endLine: 4 });
+    expect(block.incoming).toEqual({ startLine: 6, endLine: 7 });
   });
 
-  test("blockRange spans from <<<<<<<  to >>>>>>>", () => {
-    const [block] = parseConflictBlocks(text);
-    expect(block.blockRange.startLine).toBe(1);
-    expect(block.blockRange.endLine).toBe(5);
-  });
-
-  test("currentMarkerLine is 1", () => {
-    const [block] = parseConflictBlocks(text);
-    expect(block.currentMarkerLine).toBe(1);
-  });
-
-  test("current section spans line 2", () => {
-    const [block] = parseConflictBlocks(text);
-    expect(block.current.startLine).toBe(2);
-    expect(block.current.endLine).toBe(2);
-  });
-
-  test("base is null for 2-way block", () => {
-    const [block] = parseConflictBlocks(text);
-    expect(block.base).toBeNull();
-    expect(block.baseMarkerLine).toBeNull();
-  });
-
-  test("separatorLine is 3", () => {
-    const [block] = parseConflictBlocks(text);
-    expect(block.separatorLine).toBe(3);
-  });
-
-  test("incoming section spans line 4", () => {
-    const [block] = parseConflictBlocks(text);
-    expect(block.incoming.startLine).toBe(4);
-    expect(block.incoming.endLine).toBe(4);
-  });
-
-  test("incomingMarkerLine is 5", () => {
-    const [block] = parseConflictBlocks(text);
-    expect(block.incomingMarkerLine).toBe(5);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// diff3 block (with ||||||| base)
-// ---------------------------------------------------------------------------
-
-describe("parseConflictBlocks — diff3 base section", () => {
-  const text = diff3Block("ours line", "base line", "theirs line");
-
-  test("returns one block", () => {
-    expect(parseConflictBlocks(text)).toHaveLength(1);
-  });
-
-  test("baseMarkerLine is 3", () => {
-    const [block] = parseConflictBlocks(text);
-    expect(block.baseMarkerLine).toBe(3);
-  });
-
-  test("base section spans line 4", () => {
-    const [block] = parseConflictBlocks(text);
-    expect(block.base).not.toBeNull();
-    expect(block.base!.startLine).toBe(4);
-    expect(block.base!.endLine).toBe(4);
-  });
-
-  test("current section ends before base marker", () => {
-    const [block] = parseConflictBlocks(text);
-    expect(block.current.endLine).toBe(2);
-  });
-
-  test("separator is at line 5", () => {
-    const [block] = parseConflictBlocks(text);
-    expect(block.separatorLine).toBe(5);
-  });
-
-  test("incoming spans line 6", () => {
-    const [block] = parseConflictBlocks(text);
-    expect(block.incoming.startLine).toBe(6);
-    expect(block.incoming.endLine).toBe(6);
-  });
-
-  test("blockRange ends at line 7 (>>>>>>>)", () => {
-    const [block] = parseConflictBlocks(text);
-    expect(block.blockRange.endLine).toBe(7);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Multiple blocks
-// ---------------------------------------------------------------------------
-
-describe("parseConflictBlocks — multiple blocks", () => {
-  const text = [
-    "prefix",
-    twoWayBlock("ours-1", "theirs-1"),
-    "middle",
-    twoWayBlock("ours-2", "theirs-2"),
-    "suffix",
-  ].join("\n");
-
-  test("returns two blocks", () => {
-    expect(parseConflictBlocks(text)).toHaveLength(2);
-  });
-
-  test("blocks are ordered top-to-bottom", () => {
-    const [b0, b1] = parseConflictBlocks(text);
-    expect(b0.blockRange.startLine).toBeLessThan(b1.blockRange.startLine);
-  });
-
-  test("block indices are 0 and 1", () => {
-    const [b0, b1] = parseConflictBlocks(text);
-    expect(b0.index).toBe(0);
-    expect(b1.index).toBe(1);
-  });
-
-  test("blocks do not overlap", () => {
-    const [b0, b1] = parseConflictBlocks(text);
-    expect(b0.blockRange.endLine).toBeLessThan(b1.blockRange.startLine);
+  test("multiple blocks are indexed top to bottom", () => {
+    const text = [
+      "prefix",
+      twoWayBlock("ours-1", "theirs-1"),
+      "middle",
+      twoWayBlock("ours-2", "theirs-2"),
+      "suffix",
+    ].join("\n");
+    const blocks = parseConflictBlocks(text);
+    expect(blocks.map(({ index, blockRange }) => ({ index, blockRange }))).toEqual([
+      { index: 0, blockRange: { startLine: 2, endLine: 6 } },
+      { index: 1, blockRange: { startLine: 8, endLine: 12 } },
+    ]);
   });
 });
 
@@ -237,13 +163,9 @@ describe("parseConflictBlocks — no trailing newline", () => {
 // ---------------------------------------------------------------------------
 
 describe("parseConflictBlocks — no markers", () => {
-  test("returns empty array for clean file", () => {
-    const text = "function hello() {\n  return 42;\n}\n";
-    expect(parseConflictBlocks(text)).toHaveLength(0);
-  });
-
-  test("returns empty array for empty string", () => {
-    expect(parseConflictBlocks("")).toHaveLength(0);
+  test("returns an empty array for a clean file or an empty string", () => {
+    expect(parseConflictBlocks("function hello() {\n  return 42;\n}\n")).toEqual([]);
+    expect(parseConflictBlocks("")).toEqual([]);
   });
 });
 
@@ -272,40 +194,11 @@ describe("parseConflictBlocks — malformed blocks", () => {
       "normal code",
       twoWayBlock("ours-good", "theirs-good"),
     ].join("\n");
-    // The malformed block causes the parser to scan past it; the complete
-    // block should still be found.
+    // The malformed block causes the parser to scan past it; only the
+    // complete block on lines 4-8 is found.
     const blocks = parseConflictBlocks(text);
-    expect(blocks.length).toBeGreaterThanOrEqual(1);
-    const lastBlock = blocks[blocks.length - 1];
-    expect(lastBlock).toBeDefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Multi-line content sections
-// ---------------------------------------------------------------------------
-
-describe("parseConflictBlocks — multi-line content", () => {
-  const text = [
-    "<<<<<<< HEAD",
-    "ours line 1",
-    "ours line 2",
-    "ours line 3",
-    "=======",
-    "theirs line 1",
-    "theirs line 2",
-    ">>>>>>> branch",
-  ].join("\n");
-
-  test("current section spans 3 lines", () => {
-    const [block] = parseConflictBlocks(text);
-    expect(block.current.startLine).toBe(2);
-    expect(block.current.endLine).toBe(4);
-  });
-
-  test("incoming section spans 2 lines", () => {
-    const [block] = parseConflictBlocks(text);
-    expect(block.incoming.startLine).toBe(6);
-    expect(block.incoming.endLine).toBe(7);
+    expect(blocks.map(({ index, blockRange }) => ({ index, blockRange }))).toEqual([
+      { index: 0, blockRange: { startLine: 4, endLine: 8 } },
+    ]);
   });
 });

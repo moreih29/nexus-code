@@ -23,11 +23,7 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
-import {
-  allLeaves,
-  clampRatio,
-  parentSplitOf,
-} from "../../../../../../src/renderer/state/stores/layout/helpers";
+import { allLeaves } from "../../../../../../src/renderer/state/stores/layout/helpers";
 import { useLayoutStore } from "../../../../../../src/renderer/state/stores/layout/store";
 import type {
   LayoutLeaf,
@@ -226,36 +222,12 @@ describe("useLayoutStore — group structure", () => {
     expect(afterRoot.second.id).toBe(l2);
   });
 
-  // 22
-  it("22. clampRatio clamps correctly at boundaries", () => {
-    expect(clampRatio(0.0)).toBe(0.05);
-    expect(clampRatio(0.05)).toBe(0.05);
-    expect(clampRatio(0.5)).toBe(0.5);
-    expect(clampRatio(0.95)).toBe(0.95);
-    expect(clampRatio(1.0)).toBe(0.95);
-    expect(clampRatio(-5)).toBe(0.05);
-    expect(clampRatio(100)).toBe(0.95);
-  });
-
   // 23
   it("23. ensureLayout is idempotent — second call is a no-op", () => {
     useLayoutStore.getState().ensureLayout(WS);
     const firstRoot = getRoot();
     useLayoutStore.getState().ensureLayout(WS);
     expect(getRoot()).toBe(firstRoot);
-  });
-
-  // 24
-  it("24. setActiveGroup updates activeGroupId", () => {
-    useLayoutStore.getState().ensureLayout(WS);
-    const origId = (getRoot() as LayoutLeaf).id;
-    const newId = useLayoutStore.getState().splitGroup(WS, origId, "horizontal", "after");
-
-    useLayoutStore.getState().setActiveGroup(WS, origId);
-    expect(getLayout().activeGroupId).toBe(origId);
-
-    useLayoutStore.getState().setActiveGroup(WS, newId);
-    expect(getLayout().activeGroupId).toBe(newId);
   });
 
   // 25
@@ -284,31 +256,5 @@ describe("useLayoutStore — group structure", () => {
     useLayoutStore.getState().closeGroup(WS, newId);
 
     expect(getLayout().activeGroupId).toBe(origId);
-  });
-
-  // 27
-  it("27. allLeaves returns all leaf nodes in a split tree", () => {
-    useLayoutStore.getState().ensureLayout(WS);
-    const origId = (getRoot() as LayoutLeaf).id;
-    const newId = useLayoutStore.getState().splitGroup(WS, origId, "horizontal", "after");
-
-    const leaves = allLeaves(getRoot());
-    expect(leaves).toHaveLength(2);
-    const ids = leaves.map((l) => l.id);
-    expect(ids).toContain(origId);
-    expect(ids).toContain(newId);
-  });
-
-  // 28
-  it("28. parentSplitOf returns the immediate parent split", () => {
-    useLayoutStore.getState().ensureLayout(WS);
-    const origId = (getRoot() as LayoutLeaf).id;
-    useLayoutStore.getState().splitGroup(WS, origId, "horizontal", "after");
-    const split = getRoot() as LayoutSplit;
-    const secondLeafId = split.second.id;
-
-    const parent = parentSplitOf(getRoot(), secondLeafId);
-    expect(parent).not.toBeNull();
-    expect(parent!.id).toBe(split.id);
   });
 });

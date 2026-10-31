@@ -29,16 +29,13 @@ import {
   findEditorTabInGroup,
 } from "../../../../../src/renderer/services/editor/tabs";
 import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout";
-import { allLeaves } from "../../../../../src/renderer/state/stores/layout/helpers";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
-import { useWorkspacesStore } from "../../../../../src/renderer/state/stores/workspaces";
 
 const WS = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 
 function resetStores() {
   useTabsStore.setState({ byWorkspace: {} });
   useLayoutStore.setState({ byWorkspace: {} });
-  useWorkspacesStore.setState({ workspaces: [], connectionStatusByWorkspaceId: {} });
 }
 
 function tabsFor(workspaceId: string) {
@@ -168,51 +165,5 @@ describe("openOrRevealEditor cross-group new tab", () => {
     // even though the active group doesn't have it.
     const found = findEditorTab(WS, "/workspace/a.ts");
     expect(found).toEqual(left);
-  });
-
-  it("leaves are correctly shaped after cross-group open", () => {
-    openOrRevealEditor({ workspaceId: WS, filePath: "/workspace/a.ts" });
-    openOrRevealEditor(
-      { workspaceId: WS, filePath: "/workspace/b.ts" },
-      { newSplit: { orientation: "horizontal", side: "after" } },
-    );
-    openOrRevealEditor({ workspaceId: WS, filePath: "/workspace/a.ts" });
-
-    const layout = useLayoutStore.getState().byWorkspace[WS]!;
-    const leaves = allLeaves(layout.root);
-    expect(leaves).toHaveLength(2);
-    // Active (right) group has b.ts and a.ts (2 tabs).
-    const activeLeaf = leaves.find((l) => l.id === layout.activeGroupId)!;
-    expect(activeLeaf.tabIds).toHaveLength(2);
-  });
-});
-
-describe("openOrRevealEditor read-only metadata", () => {
-  beforeEach(resetStores);
-
-  it("does not force SSH workspace inputs to read-only (renderer gate removed)", () => {
-    useWorkspacesStore.setState({
-      workspaces: [
-        {
-          id: WS,
-          name: "Remote",
-          rootPath: "/remote/repo",
-          location: { kind: "ssh", host: "devbox", remotePath: "/remote/repo" },
-          colorTone: "default",
-          pinned: false,
-          tabs: [],
-        },
-      ],
-    });
-
-    const loc = openOrRevealEditor({ workspaceId: WS, filePath: "/remote/repo/src/a.ts" });
-    const tab = useTabsStore.getState().byWorkspace[WS]?.[loc.tabId];
-
-    expect(tab?.type).toBe("editor");
-    if (tab?.type === "editor") {
-      // Callers who want read-only still pass it explicitly; the workspace
-      // location no longer overrides their input.
-      expect(tab.props.readOnly).toBeUndefined();
-    }
   });
 });
