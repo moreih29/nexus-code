@@ -3,12 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createLogger } from "../shared/log/renderer";
 import type { WorkspaceMeta } from "../shared/types/workspace";
-import {
-  bootstrapAppState,
-  bootstrapClaudeStatus,
-  bootstrapLspEnabled,
-  bootstrapWorkspaces,
-} from "./bootstrap";
+import { bootstrapAppState, bootstrapClaudeStatus, bootstrapWorkspaces } from "./bootstrap";
 import { useCommandBridge } from "./commands/use-command-bridge";
 import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
@@ -248,18 +243,6 @@ export function App() {
   useEffect(() => {
     bootstrapWorkspaces(setAll, setActiveWorkspaceId);
   }, []);
-
-  // Boot: hydrate per-workspace LSP enabled-languages state.
-  // Runs after workspaces are loaded so the list is non-empty and every
-  // workspace's enabled list is fetched in one parallel batch. The store is
-  // populated before any editor model fires its first didOpen (models are
-  // mounted lazily when their tab becomes visible, after the workspace panel
-  // renders, which is after this effect runs).
-  useEffect(() => {
-    if (workspaces.length > 0) {
-      void bootstrapLspEnabled(workspaces);
-    }
-  }, [workspaces]);
 
   // Mark the active workspace as mounted (one-way; lazy-mount + persist).
   useEffect(() => {

@@ -47,15 +47,13 @@ export const FS_EXPANDED_SAVE_DEBOUNCE_MS = 200;
 export const LSP_DEFAULT_IDLE_MS = 30 * 60 * 1000;
 
 /**
- * Maximum number of workspaces whose LSP servers can be live
- * simultaneously. This is a **safety net**, not the primary resource
- * control — users govern per-workspace per-language LSP allocation
- * explicitly via the sidebar chips and the Workspaces settings panel
- * (new workspaces default to no LSP enabled). The cap only kicks in
- * if the user has opted four workspaces into LSP at once, which on
- * 16GB machines (4× tsserver ≈ 6–10GB) is the practical limit before
- * macOS begins page-compressing aggressively and inter-process
- * latency spikes into seconds.
+ * Default number of workspaces whose LSP servers can be live
+ * simultaneously; Settings › Editor › Language servers changes it.
+ * Servers start for every workspace that opens a file, so the cap is
+ * what bounds their memory: a TypeScript workspace takes 0.5–1GB, and
+ * on 16GB machines four of them are the practical limit before macOS
+ * begins page-compressing aggressively and inter-process latency
+ * spikes into seconds.
  *
  * The evicted workspace's renderer-side model entries are notified via
  * `lsp:workspaceReset` so the next interaction triggers a fresh

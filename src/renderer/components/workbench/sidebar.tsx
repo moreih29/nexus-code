@@ -4,10 +4,8 @@ import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/shallow";
 import { Tooltip as RadixTooltip } from "radix-ui";
 import { cn } from "@/utils/cn";
-import type { LspLanguageId } from "../../../shared/types/app-state";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { UI_TOOLTIP_DELAY_MS } from "../../../shared/util/timing-constants";
-import { useLspEnabledStore } from "../../state/stores/lsp-enabled";
 import { useUIStore } from "../../state/stores/ui";
 import type { WorkspaceConnectionStatus } from "../../state/stores/workspaces";
 import {
@@ -26,7 +24,6 @@ import {
   formatSshSecondaryLine,
   formatSshTooltip,
 } from "../workspace/add-workspace/ssh-helpers";
-import { LspLanguageChip } from "./lsp-language-chip";
 import { PinToggle } from "./pin-toggle";
 import { SidebarResizeHandle } from "./sidebar-resize-handle";
 import { RowDropSlot } from "./dnd/row-drop-slot";
@@ -50,9 +47,6 @@ import { WorkspaceStatusGlyph } from "../sidebar/workspace-status-glyph";
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-/** Languages for which a chip is rendered in the workspace row. */
-const CHIP_LANGUAGES: LspLanguageId[] = ["typescript", "python"];
 
 /** Stable empty task list, so a row without tasks keeps its props. */
 const NO_TASKS: readonly string[] = [];
@@ -80,7 +74,6 @@ interface WorkspaceRowProps {
   taskIds: readonly string[];
   isActive: boolean;
   isDragSource: boolean;
-  enabledLanguages: LspLanguageId[];
   rowDragProps: React.HTMLAttributes<HTMLElement>;
   connectionStatus: WorkspaceConnectionStatus;
   onSelectWorkspace: (id: string) => void;
@@ -94,7 +87,7 @@ interface WorkspaceRowProps {
  * 4~5줄 그리드 카드 구조 (SSH는 사이에 user@host 한 줄이 추가됨):
  * 1줄: [Icon 16] ws.name
  * (SSH 전용) user@host
- * 2줄: path (+ LSP 칩) — 로컬: rootPath의 마지막 2 세그먼트, SSH: remotePath의 마지막 2 세그먼트
+ * 2줄: path — 로컬: rootPath의 마지막 2 세그먼트, SSH: remotePath의 마지막 2 세그먼트
  * 3줄: [GitBranch 아이콘] branch (있을 때만)
  * 4줄: [Glyph] message preview (둘 다 없으면 미렌더, 50자 컷)
  *
@@ -106,7 +99,6 @@ function WorkspaceRow({
   taskIds,
   isActive,
   isDragSource,
-  enabledLanguages,
   rowDragProps,
   connectionStatus,
   onSelectWorkspace,
@@ -114,7 +106,6 @@ function WorkspaceRow({
   onRemoveWorkspace,
 }: WorkspaceRowProps) {
   const { t } = useTranslation();
-  const lspOn = useLspEnabledStore((s) => s.featureEnabled);
   const isSsh = ws.location.kind === "ssh";
   const Icon = isSsh ? Server : Folder;
 
@@ -312,7 +303,7 @@ function WorkspaceRow({
                   </span>
                 )}
 
-                {/* 2줄: path (+ LSP 언어 칩) */}
+                {/* 2줄: path */}
                 <span
                   className={cn(
                     "block text-app-micro mt-0.5 line-clamp-1 truncate",
@@ -321,16 +312,6 @@ function WorkspaceRow({
                   title={secondaryTitle}
                 >
                   {pathLine}
-                  {/* LSP 언어 칩 — path 줄 끝 우측 인라인, 상시 노출 */}
-                  {lspOn &&
-                    CHIP_LANGUAGES.map((lang) => (
-                      <LspLanguageChip
-                        key={lang}
-                        workspaceId={ws.id}
-                        languageId={lang}
-                        enabled={enabledLanguages.includes(lang)}
-                      />
-                    ))}
                 </span>
 
                 {/* 3줄: branch + 작업 수 — 있을 때만. GitBranch 아이콘으로 시각적 affordance. */}
@@ -449,8 +430,6 @@ export function Sidebar({
   const taskIdsByParent = useMemo(() => groupTaskIds(allWorkspaces), [allWorkspaces]);
   // The row the active workspace belongs to.
   const activeRowId = activeWorkspaceId && rootWorkspaceId(allWorkspaces, activeWorkspaceId);
-  // Subscribe to enabled languages — re-renders chips on toggle.
-  const lspByWorkspace = useLspEnabledStore((s) => s.byWorkspace);
 
   // Pin toggle action — shared hook instance; IPC call is fire-and-forget since
   // workspace.changed / workspace.reordered broadcasts update the store.
@@ -583,7 +562,6 @@ export function Sidebar({
                   taskIds={taskIdsByParent.get(ws.id) ?? NO_TASKS}
                   isActive={ws.id === activeRowId}
                   isDragSource={dragSourceId === ws.id}
-                  enabledLanguages={lspByWorkspace[ws.id] ?? []}
                   rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
                   connectionStatus={
                     ws.location.kind === "ssh"
@@ -613,7 +591,6 @@ export function Sidebar({
                   taskIds={taskIdsByParent.get(ws.id) ?? NO_TASKS}
                   isActive={ws.id === activeRowId}
                   isDragSource={dragSourceId === ws.id}
-                  enabledLanguages={lspByWorkspace[ws.id] ?? []}
                   rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
                   connectionStatus={
                     ws.location.kind === "ssh"

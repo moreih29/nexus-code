@@ -1,4 +1,4 @@
-import { isLspFeatureEnabled } from "./feature-flag";
+import { z } from "zod";
 
 export type LspServerSpec = {
   languageId: string;
@@ -38,6 +38,13 @@ export const BUILTIN_LSP_PRESETS = [
 ] as const satisfies readonly LspServerSpec[];
 
 export type BuiltinLspPresetLanguageId = (typeof BUILTIN_LSP_PRESETS)[number]["languageId"];
+
+export const LspPresetLanguageIdSchema = z.enum(
+  BUILTIN_LSP_PRESETS.map((preset) => preset.languageId) as [
+    BuiltinLspPresetLanguageId,
+    ...BuiltinLspPresetLanguageId[],
+  ],
+);
 
 // Monaco assigns distinct languageIds per file extension —
 //   .ts  → "typescript"
@@ -81,7 +88,6 @@ export function resolveLspPreset(languageId: string): LspServerSpec | null {
 }
 
 export function isSupportedLspLanguage(languageId: string): languageId is SupportedLspLanguageId {
-  if (!isLspFeatureEnabled()) return false;
   return resolveLspPresetLanguageId(languageId) !== null;
 }
 

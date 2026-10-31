@@ -29,10 +29,23 @@ export interface LspHostHandle {
   /**
    * Dispose the LSP server for a single language within a workspace and
    * broadcast a workspaceLspReset event for that (workspace, language) pair.
-   * No-op when the server is not live. Called from the IPC layer when the
-   * user toggles a language off.
+   * No-op when the server is not live. With `reopen` the renderer opens the
+   * documents again at once: a restart.
    */
-  disposeLanguage: (workspaceId: string, languageId: string, reason: string) => void;
+  disposeLanguage: (
+    workspaceId: string,
+    languageId: string,
+    reason: string,
+    options?: { reopen?: boolean },
+  ) => void;
+  /** disposeLanguage for every live server `matches` picks. */
+  disposeServers: (
+    matches: (workspaceId: string, languageId: string) => boolean,
+    reason: string,
+    options?: { reopen?: boolean },
+  ) => void;
+  /** Stops the least recently used workspaces' servers until the cap holds. */
+  enforceMaxActiveWorkspaces: () => void;
 }
 
 export interface LspHostSelectionOptions {

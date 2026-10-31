@@ -6,7 +6,7 @@
  */
 
 import { createLogger } from "../shared/log/renderer";
-import type { LspLanguageId } from "../shared/types/app-state";
+import { lspSettingsFromState } from "../shared/lsp/settings";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
@@ -20,6 +20,7 @@ import { initBrowserPermissionSubscriptions } from "./state/operations/browser-p
 import { initBrowserOverlayAutoSuspend } from "./state/operations/browser-suspend-auto";
 import { initFocusResync } from "./state/operations/focus-resync";
 import { initGitErrorToasts } from "./state/operations/git-error-toasts";
+import { initLspSettingsSync } from "./state/operations/lsp-settings";
 import { normalizeWorkspaceTabOrder } from "./state/operations/tab-order";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
@@ -30,7 +31,7 @@ import { useIconThemeStore } from "./state/stores/icon-theme";
 import { useKeybindingsStore } from "./state/stores/keybindings";
 import { useLanguageStore } from "./state/stores/language";
 import { useLayoutStore } from "./state/stores/layout";
-import { useLspEnabledStore } from "./state/stores/lsp-enabled";
+import { useLspSettingsStore } from "./state/stores/lsp-settings";
 import { useNotificationsStore } from "./state/stores/notifications";
 import { useTabsStore } from "./state/stores/tabs";
 import { useTerminalStore } from "./state/stores/terminal";
@@ -132,8 +133,9 @@ export async function bootstrapAppState(): Promise<void> {
   // Bootstrap is an initialization path — no recovery possible if appState is unavailable.
   const state = mustSucceed(await ipcCallResult("appState", "get", undefined));
 
-  // Before anything opens a document: whether LSP runs this session.
-  useLspEnabledStore.getState().hydrateFeature(state.lspEnabled === true);
+  // Before anything opens a document: which language servers run.
+  useLspSettingsStore.getState().hydrate(lspSettingsFromState(state));
+  initLspSettingsSync();
 
   useUIStore.getState().hydrate({
     sidebarWidth: state.sidebarWidth,
@@ -341,32 +343,4 @@ export async function bootstrapClaudeStatus(): Promise<void> {
   // active workspace/tab을 main에 push하는 구독 시작 + 사용자가 탭을 활성화하면
   // markSeen IPC로 completed→idle 자동 전이.
   startClaudeActiveContextSync();
-}
-
-/**
- * Hydrate the per-workspace LSP enabled-languages store for all known
- * workspaces. Must be called after `bootstrapWorkspaces` so the workspace
- * list is available, and before any `attachLspBridge` call that gates on
- * `isLspEnabledForWorkspace`.
- *
- * Queries main for each workspace's enabled list in parallel then bulk-loads
- * into the store in one shot so the sync getter sees a fully populated state
- * before any editor model fires its first didOpen.
- */
-export async function bootstrapLspEnabled(workspaces: WorkspaceMeta[]): Promise<void> {
-  if (workspaces.length === 0) return;
-
-  const entries = await Promise.all(
-    workspaces.map(async (ws) => {
-      const result = await ipcCallResult("lsp", "getEnabledLanguages", { workspaceId: ws.id });
-      if (!result.ok) return [ws.id, []] as const;
-      return [ws.id, result.value.languages] as const;
-    }),
-  );
-
-  const initial: Record<string, LspLanguageId[]> = {};
-  for (const [wsId, langs] of entries) {
-    initial[wsId] = langs as LspLanguageId[];
-  }
-  useLspEnabledStore.getState().hydrateAll(initial);
 }

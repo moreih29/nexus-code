@@ -216,8 +216,16 @@ export class LspRequestTimeoutError extends Error {
 // ---------------------------------------------------------------------------
 
 export interface AgentLspHostOptions {
-  /** Override the LRU cap. Tests bump this to disable eviction. */
-  maxActiveWorkspaces?: number;
+  /**
+   * The LRU cap, or a function main reads it from at each spawn so a
+   * settings change applies. Tests bump this to disable eviction.
+   */
+  maxActiveWorkspaces?: number | (() => number);
+  /**
+   * The initializationOptions to start a language's server with; defaults
+   * to the preset's. Read at each spawn, like the cap.
+   */
+  initializationOptions?: (languageId: string, preset: LspServerSpec) => unknown;
   /**
    * Gate called before spawning a new LSP server for (workspaceId, languageId).
    * Return false to suppress spawn (language not enabled for this workspace).
@@ -302,7 +310,8 @@ class AgentLspHostHandleImpl implements LspHostHandle {
    * LRU workspace is disposed first. See LSP_MAX_ACTIVE_WORKSPACES for
    * the rationale and tuning.
    */
-  private readonly maxActiveWorkspaces: number;
+  private readonly maxActiveWorkspaces: () => number;
+  private readonly initializationOptionsFor: (languageId: string, preset: LspServerSpec) => unknown;
   /**
    * Optional predicate gate injected at construction time. Checked in
    * `getOrCreateServer` before any spawn is attempted. Returning false
@@ -329,7 +338,11 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     private readonly workspaceManager: AgentLspWorkspaceManager,
     options: AgentLspHostOptions = {},
   ) {
-    this.maxActiveWorkspaces = options.maxActiveWorkspaces ?? LSP_MAX_ACTIVE_WORKSPACES;
+    const maxActiveWorkspaces = options.maxActiveWorkspaces ?? LSP_MAX_ACTIVE_WORKSPACES;
+    this.maxActiveWorkspaces =
+      typeof maxActiveWorkspaces === "function" ? maxActiveWorkspaces : () => maxActiveWorkspaces;
+    this.initializationOptionsFor =
+      options.initializationOptions ?? ((_languageId, preset) => preset.initializationOptions);
     this.isLanguageEnabled = options.isLanguageEnabled ?? (() => true);
   }
 
@@ -504,12 +517,43 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   /**
    * Dispose the LSP server for a single (workspaceId, languageId) pair,
    * then broadcast a workspaceLspReset event for that language. No-op when
-   * the server is not currently live. Called from the IPC layer when the user
-   * toggles a language off via `setEnabledLanguages`.
+   * the server is not currently live. With `reopen` the renderer opens its
+   * documents again at once, which starts a new server: a restart.
    */
-  disposeLanguage(workspaceId: string, languageId: string, reason: string): void {
+  disposeLanguage(
+    workspaceId: string,
+    languageId: string,
+    reason: string,
+    options: { reopen?: boolean } = {},
+  ): void {
     if (this.disposed) return;
-    this.disposeWorkspaceServers(workspaceId, reason, { languageId });
+    this.disposeWorkspaceServers(workspaceId, reason, { languageId, reopen: options.reopen });
+  }
+
+  /** disposeLanguage for every live server `matches` picks. */
+  disposeServers(
+    matches: (workspaceId: string, languageId: string) => boolean,
+    reason: string,
+    options: { reopen?: boolean } = {},
+  ): void {
+    if (this.disposed) return;
+    for (const [workspaceId, servers] of Array.from(this.workspaceServers)) {
+      for (const languageId of Array.from(servers.keys())) {
+        if (matches(workspaceId, languageId)) {
+          this.disposeWorkspaceServers(workspaceId, reason, { languageId, reopen: options.reopen });
+        }
+      }
+    }
+  }
+
+  /** Stops the least recently used workspaces until the cap holds again. */
+  enforceMaxActiveWorkspaces(): void {
+    if (this.disposed) return;
+    while (this.workspaceServers.size > this.maxActiveWorkspaces()) {
+      const lru = this.leastRecentlyUsedWorkspace(null);
+      if (!lru) return;
+      this.disposeWorkspaceServers(lru, "evicted by LRU cap");
+    }
   }
 
   private async didOpen(args: unknown): Promise<null> {
@@ -824,21 +868,26 @@ class AgentLspHostHandleImpl implements LspHostHandle {
    */
   private evictLruWorkspaceIfNeeded(activeWorkspaceId: string): void {
     if (this.workspaceServers.has(activeWorkspaceId)) return;
-    if (this.workspaceServers.size < this.maxActiveWorkspaces) return;
+    // A loop, not one eviction: the cap may have been lowered since.
+    while (this.workspaceServers.size >= this.maxActiveWorkspaces()) {
+      const lru = this.leastRecentlyUsedWorkspace(activeWorkspaceId);
+      if (!lru) return;
+      this.disposeWorkspaceServers(lru, "evicted by LRU cap");
+    }
+  }
 
+  private leastRecentlyUsedWorkspace(exceptWorkspaceId: string | null): string | null {
     let lruWorkspaceId: string | null = null;
     let lruTime = Number.POSITIVE_INFINITY;
     for (const wsId of this.workspaceServers.keys()) {
-      if (wsId === activeWorkspaceId) continue;
+      if (wsId === exceptWorkspaceId) continue;
       const t = this.workspaceLastActivity.get(wsId) ?? 0;
       if (t < lruTime) {
         lruTime = t;
         lruWorkspaceId = wsId;
       }
     }
-    if (lruWorkspaceId) {
-      this.disposeWorkspaceServers(lruWorkspaceId, "evicted by LRU cap");
-    }
+    return lruWorkspaceId;
   }
 
   /**
@@ -853,7 +902,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   private disposeWorkspaceServers(
     workspaceId: string,
     reason: string,
-    options?: { languageId?: string },
+    options?: { languageId?: string; reopen?: boolean },
   ): void {
     const servers = this.workspaceServers.get(workspaceId);
     if (!servers) return;
@@ -876,7 +925,12 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         this.workspaceServers.delete(workspaceId);
         this.workspaceLastActivity.delete(workspaceId);
       }
-      this.emit("workspaceLspReset", { workspaceId, languageId: targetLanguageId, reason });
+      this.emit("workspaceLspReset", {
+        workspaceId,
+        languageId: targetLanguageId,
+        reason,
+        ...(options?.reopen ? { reopen: true } : {}),
+      });
     } else {
       // Full workspace dispose.
       for (const server of servers.values()) {
@@ -903,7 +957,8 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     const channel = await this.workspaceManager.getAgentChannel(workspaceId);
     await channel.ready;
     this.subscribeChannel(channel);
-    this.storeInitializationOptions(workspaceId, presetLanguageId, preset.initializationOptions);
+    const initializationOptions = this.initializationOptionsFor(presetLanguageId, preset);
+    this.storeInitializationOptions(workspaceId, presetLanguageId, initializationOptions);
 
     const correlationId = randomUUID();
     const pendingSpawn: PendingSpawn = {
@@ -927,9 +982,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         idleTimeoutMs: LSP_DEFAULT_IDLE_MS,
         correlationId,
         capabilities: LSP_CLIENT_CAPABILITIES,
-        ...(preset.initializationOptions !== undefined
-          ? { initializationOptions: preset.initializationOptions }
-          : {}),
+        ...(initializationOptions !== undefined ? { initializationOptions } : {}),
       });
       serverId = parseSpawnResult(result).serverId;
       const capabilities = parseServerCapabilities(result.capabilities);

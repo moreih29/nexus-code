@@ -375,10 +375,6 @@
     "close_running_description": "“{{name}}” is still running in this terminal. Closing the terminal will terminate it.",
     "close_running_confirm": "Terminate"
   },
-  "lsp": {
-    "on": "{{label}} LSP: On — click to disable",
-    "off": "{{label}} LSP: Off — click to enable"
-  },
   "claudeStatus": {
     "running": "Claude: running",
     "completed": "Claude: response complete",

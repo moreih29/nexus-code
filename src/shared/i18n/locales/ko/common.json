@@ -375,10 +375,6 @@
     "close_running_description": "이 터미널에서 “{{name}}”이(가) 아직 실행 중입니다. 터미널을 닫으면 종료됩니다.",
     "close_running_confirm": "종료"
   },
-  "lsp": {
-    "on": "{{label}} LSP: 켜짐 — 클릭하여 비활성화",
-    "off": "{{label}} LSP: 꺼짐 — 클릭하여 활성화"
-  },
   "claudeStatus": {
     "running": "Claude: 실행 중",
     "completed": "Claude: 응답 완료",
