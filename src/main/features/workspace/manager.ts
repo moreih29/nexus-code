@@ -64,6 +64,9 @@ import { WorkspaceContext } from "./context";
 
 const log = createLogger("workspace");
 
+/** How long a removed SSH workspace's agent has to answer agent.shutdown. */
+const SSH_AGENT_SHUTDOWN_TIMEOUT_MS = 2_000;
+
 // ---------------------------------------------------------------------------
 // Broadcast callback type — injected so the manager has no hard import on
 // Electron and can be tested without a live renderer process.
@@ -164,6 +167,24 @@ function isHookInfo(value: unknown): value is HookInfo {
   return typeof v.socketPath === "string" && typeof v.token === "string";
 }
 
+/**
+ * Asks a removed workspace's remote agent to exit, then closes its channel
+ * and connection. Closing them alone leaves the daemon holding the
+ * workspace's terminals and language servers until its reattach grace ends.
+ */
+async function stopSshAgent(
+  channel: SshChannel,
+  bootstrap: EnsureRemoteAgentResult | undefined,
+): Promise<void> {
+  await channel
+    .call("agent.shutdown", undefined, { timeoutMs: SSH_AGENT_SHUTDOWN_TIMEOUT_MS })
+    .catch((error: unknown) => {
+      log.warn(`agent.shutdown failed: ${(error as Error).message}`);
+    });
+  channel.dispose();
+  bootstrap?.dispose?.();
+}
+
 /** Rejects a provider boot whose workspace was removed while it was in flight. */
 function createWorkspaceRemovedError(id: string): Error {
   return createAbortError(`workspace ${id} was removed while its agent was starting`);
@@ -244,6 +265,8 @@ export class WorkspaceManager {
   private readonly localChannels = new Map<string, AgentChannel>();
   private readonly localProviderReady = new Map<string, Promise<void>>();
   private readonly sshChannels = new Map<string, SshChannel>();
+  /** Channels of removed workspaces, kept open until their agent exits. */
+  private readonly stoppingSshChannels = new Set<SshChannel>();
   private readonly sshBootstraps = new Map<string, EnsureRemoteAgentResult>();
   private readonly sshProviderReady = new Map<string, Promise<void>>();
   // ControlMasters handed off from an SSH browse session, keyed by workspace
@@ -923,6 +946,18 @@ export class WorkspaceManager {
       });
     }
 
+    // Step 1c — a removed workspace's remote agent will not be dialed again,
+    // so it is asked to exit. Its channel stays open for that, past the
+    // provider teardown in ctx.close(). One not connected cannot be asked.
+    const sshChannel = this.sshChannels.get(id);
+    const status = this.connectionStatuses.get(id);
+    if (sshChannel && (status === "connected" || status === "unstable")) {
+      this.stoppingSshChannels.add(sshChannel);
+      void stopSshAgent(sshChannel, this.sshBootstraps.get(id)).finally(() => {
+        this.stoppingSshChannels.delete(sshChannel);
+      });
+    }
+
     // Step 2 — dispose the workspace storage handle and agent channels.
     ctx.close();
     this.contexts.delete(id);
@@ -1321,8 +1356,11 @@ export class WorkspaceManager {
     const provider = createFsProvider(providerMeta, channel);
     ctx.setFsProvider(provider, () => {
       disposeLifecycleListener();
-      channel.dispose();
-      bootstrap.dispose?.();
+      // remove() closes a channel it is stopping once the agent has exited.
+      if (!this.stoppingSshChannels.has(channel)) {
+        channel.dispose();
+        bootstrap.dispose?.();
+      }
       if (this.sshChannels.get(meta.id) === channel) {
         this.sshChannels.delete(meta.id);
       }
