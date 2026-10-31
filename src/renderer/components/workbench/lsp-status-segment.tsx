@@ -268,7 +268,7 @@ function LspStatusPopover({
       <button
         type="button"
         className={MENU_ITEM_CLASS}
-        onClick={() => act(() => useSettingsUIStore.getState().openSettingsAt("editor"))}
+        onClick={() => act(() => useSettingsUIStore.getState().openSettingsAt("language-servers"))}
       >
         {t("lsp.openSettings")}
       </button>

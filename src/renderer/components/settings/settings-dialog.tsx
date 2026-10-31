@@ -82,6 +82,12 @@ export function SettingsDialog({
       keywords: ["font", "size", "family", "ligatures", "line height"],
     },
     {
+      id: "language-servers",
+      label: t("nav.languageServers"),
+      group: t("nav.group.settings"),
+      keywords: ["lsp", "language server", "completion", "diagnostics"],
+    },
+    {
       id: "terminal",
       label: t("nav.terminal"),
       group: t("nav.group.settings"),
