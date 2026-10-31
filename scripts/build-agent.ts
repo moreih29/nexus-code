@@ -73,6 +73,24 @@ const LSP_BUNDLES = [
     argsTemplate: ["--stdio"],
     extraDependencies: [],
   },
+  {
+    name: "bash-language-server",
+    packageName: "bash-language-server",
+    languages: ["shell"],
+    entry: "node_modules/bash-language-server/out/cli.js",
+    launcher: "bin/bash-language-server",
+    argsTemplate: ["start"],
+    extraDependencies: [],
+  },
+  {
+    name: "docker-langserver",
+    packageName: "dockerfile-language-server-nodejs",
+    languages: ["dockerfile"],
+    entry: "node_modules/dockerfile-language-server-nodejs/bin/docker-langserver",
+    launcher: "bin/docker-langserver",
+    argsTemplate: ["--stdio"],
+    extraDependencies: [],
+  },
 ] as const;
 
 interface BuildAgentDistributionOptions {

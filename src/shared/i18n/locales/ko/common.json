@@ -381,7 +381,9 @@
       "python": "Python",
       "go": "Go",
       "rust": "Rust",
-      "yaml": "YAML"
+      "yaml": "YAML",
+      "shell": "Bash",
+      "dockerfile": "Dockerfile"
     },
     "serverMessage": "{{language}}: {{message}}",
     "gaveUp": "{{workspace}}의 {{language}} 언어 서버가 연달아 실패해 멈췄습니다.",
