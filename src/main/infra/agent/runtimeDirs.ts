@@ -116,6 +116,23 @@ elif [ -f "$HOME/.zshenv" ]; then
 fi
 `;
 
+/** A zsh login-file shim (.zprofile, .zlogin, .zlogout): sources the user's
+ * own copy, which ZDOTDIR pointing at the shim directory would otherwise hide
+ * from a login zsh (a shell added in Settings with `-l`). */
+function zshLoginShim(name: string): string {
+  return `# Nexus PTY shim — sourced via ZDOTDIR at PTY spawn time.
+if [ -n "\${NEXUS_USER_ZDOTDIR-}" ] && [ -f "$NEXUS_USER_ZDOTDIR/${name}" ]; then
+  source "$NEXUS_USER_ZDOTDIR/${name}"
+elif [ -f "$HOME/${name}" ]; then
+  source "$HOME/${name}"
+fi
+`;
+}
+
+export const ZPROFILE_CONTENT = zshLoginShim(".zprofile");
+export const ZLOGIN_CONTENT = zshLoginShim(".zlogin");
+export const ZLOGOUT_CONTENT = zshLoginShim(".zlogout");
+
 /** bash bashrc shim: sources the user's original .bashrc and registers a
  * PROMPT_COMMAND entry to keep NEXUS_WRAPPER_SELF_DIR at the front of PATH. */
 export const BASHRC_CONTENT = `# Nexus PTY shim — passed via --rcfile at PTY spawn time.
@@ -135,12 +152,13 @@ _nexus_prepend_wrapper
 `;
 
 /**
- * Writes the three PTY shim rc files (.zshrc, .zshenv, bashrc) into the
- * workspace-specific shim directory. The directory is created with 0o700 and
- * each file is written with 0o644. Idempotent — safe to call multiple times.
+ * Writes the PTY shim rc files (.zshrc, .zshenv, bashrc, and the zsh login
+ * files) into the workspace-specific shim directory. The directory is created
+ * with 0o700 and each file is written with 0o644. Idempotent — safe to call
+ * multiple times.
  *
  * Returns an object with the absolute path of the shim directory and each
- * generated file.
+ * rc file a shell starts with.
  */
 export async function writeShimFiles(workspaceId: string): Promise<{
   dir: string;
@@ -159,6 +177,9 @@ export async function writeShimFiles(workspaceId: string): Promise<{
     fs.writeFile(zshrc, ZSHRC_CONTENT, { mode: 0o644 }),
     fs.writeFile(zshenv, ZSHENV_CONTENT, { mode: 0o644 }),
     fs.writeFile(bashrc, BASHRC_CONTENT, { mode: 0o644 }),
+    fs.writeFile(path.join(dir, ".zprofile"), ZPROFILE_CONTENT, { mode: 0o644 }),
+    fs.writeFile(path.join(dir, ".zlogin"), ZLOGIN_CONTENT, { mode: 0o644 }),
+    fs.writeFile(path.join(dir, ".zlogout"), ZLOGOUT_CONTENT, { mode: 0o644 }),
   ]);
 
   return { dir, zshrc, zshenv, bashrc };
