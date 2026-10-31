@@ -136,9 +136,10 @@ func TestRingContentsStartAtLineOnceDropped(t *testing.T) {
 
 // sinkRecorder captures emitted events, optionally returning a configured error.
 type sinkRecorder struct {
-	mu      sync.Mutex
-	chunks  [][]byte
-	sinkErr error // if non-nil, returned on every call (simulates dialer absence)
+	mu       sync.Mutex
+	chunks   [][]byte
+	rejected []byte // data offered while sinkErr was set
+	sinkErr  error  // if non-nil, returned on every call (simulates dialer absence)
 }
 
 func (r *sinkRecorder) setSinkErr(err error) {
@@ -150,14 +151,16 @@ func (r *sinkRecorder) setSinkErr(err error) {
 func (r *sinkRecorder) sink(event string, payload any) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	var chunk []byte
+	if dp, ok := payload.(DataPayload); ok && event == EventData {
+		chunk, _ = base64.StdEncoding.DecodeString(dp.Chunk)
+	}
 	if r.sinkErr != nil {
+		r.rejected = append(r.rejected, chunk...)
 		return r.sinkErr
 	}
-	if event == EventData {
-		if dp, ok := payload.(DataPayload); ok {
-			chunk, _ := base64.StdEncoding.DecodeString(dp.Chunk)
-			r.chunks = append(r.chunks, chunk)
-		}
+	if chunk != nil {
+		r.chunks = append(r.chunks, chunk)
 	}
 	return nil
 }
@@ -181,9 +184,26 @@ func (r *sinkRecorder) requireTranscriptContains(t *testing.T, marker string, ti
 	t.Fatalf("timeout waiting for %q in transcript:\n%s", marker, r.transcript())
 }
 
+// requireRejectedContains waits until the failing sink has been offered marker.
+func (r *sinkRecorder) requireRejectedContains(t *testing.T, marker string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		r.mu.Lock()
+		found := bytes.Contains(r.rejected, []byte(marker))
+		r.mu.Unlock()
+		if found {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for the failing sink to be offered %q", marker)
+}
+
 // TestAccumulateReplayContentMatch verifies that output emitted while the sink
 // is in error mode ends up in the ring and is replayed verbatim (AC-6b).
 func TestAccumulateReplayContentMatch(t *testing.T) {
+	t.Parallel()
 	rec := &sinkRecorder{}
 	svc := New()
 	svc.SetEventSink(rec.sink)
@@ -193,17 +213,17 @@ func TestAccumulateReplayContentMatch(t *testing.T) {
 	spawnTestScript(t, svc, tabID, `
 stty -echo
 echo READY
-sleep 1
+read line
 echo BUFFERED
-sleep 5
+sleep 10
 `)
 	rec.requireTranscriptContains(t, "READY", 2*time.Second)
 
-	// Simulate dialer absence by making the sink return an error.
+	// Simulate dialer absence by making the sink return an error, then have
+	// the child print while it lasts.
 	rec.setSinkErr(fmt.Errorf("dialer gone"))
-
-	// Wait for BUFFERED to be produced; readLoop will write it to ring.
-	time.Sleep(300 * time.Millisecond)
+	writeSession(t, svc, tabID, "go\n")
+	rec.requireRejectedContains(t, "BUFFERED", 2*time.Second)
 
 	// Reconnect: clear the error and replay.
 	rec.setSinkErr(nil)
@@ -223,6 +243,7 @@ sleep 5
 // dialer already received, after a terminal reset and marked as replay, so a
 // client that has none of it (a restarted app) can draw the screen (AC-6e).
 func TestReplayRedrawsDeliveredOutput(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	var live, replayed []byte
 	svc := New()
@@ -285,6 +306,7 @@ sleep 10
 // is still running reports the attach and fits the session to the new
 // client's size instead of starting another child.
 func TestSpawnAttachesToRunningSession(t *testing.T) {
+	t.Parallel()
 	rec := &sinkRecorder{}
 	svc := New()
 	svc.SetEventSink(rec.sink)
@@ -292,9 +314,10 @@ func TestSpawnAttachesToRunningSession(t *testing.T) {
 
 	tabID := "spawn-attach"
 	first := spawnTestScript(t, svc, tabID, `
-echo READY
 trap 'printf "SIZE "; stty size' WINCH
-while :; do sleep 1; done
+echo READY
+# Waiting in the wait builtin, not in sleep, lets the trap run at once.
+while :; do sleep 1 & wait $!; done
 `)
 	if first.Attached {
 		t.Fatal("first spawn must start a child, not attach")
@@ -323,6 +346,7 @@ while :; do sleep 1; done
 //
 // The test uses a mock session to decouple from real PTY timing.
 func TestReplayOrderingNoReversal(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	var emitted []string
 
@@ -408,6 +432,7 @@ sleep 5
 // TestRingReleasedOnSessionExit verifies that removeSession removes the session
 // from the map and nils the ring slice, allowing GC (AC-6d).
 func TestRingReleasedOnSessionExit(t *testing.T) {
+	t.Parallel()
 	svc := New()
 	var mu sync.Mutex
 	var exits []ExitPayload
@@ -475,6 +500,7 @@ func TestRingReleasedOnSessionExit(t *testing.T) {
 
 // TestSessionListReturnsLiveSessions verifies session.list reports running tabs.
 func TestSessionListReturnsLiveSessions(t *testing.T) {
+	t.Parallel()
 	rec := &sinkRecorder{}
 	svc := New()
 	svc.SetEventSink(rec.sink)
@@ -545,6 +571,7 @@ func TestSessionListEmptyWhenNoSessions(t *testing.T) {
 // Without the fix, step 4 would block forever because emitBytes calls
 // waitForOutputWindow which re-enters the same paused condition.
 func TestResetFlowControlUnblocksZombieDeadlock(t *testing.T) {
+	t.Parallel()
 	// Phase 1: spawn a PTY that produces continuous output, then drive
 	// noteEmitted past HighWatermarkBytes without any acks.
 	svc := New()
@@ -667,6 +694,7 @@ sessionFound:
 // polls for the second call instead of asserting synchronously: the wiggle
 // runs in a goroutine so the replay RPC is not delayed by the hold.
 func TestReplayWigglesSIGWINCHAfterFlush(t *testing.T) {
+	t.Parallel()
 	rec := &sinkRecorder{}
 	svc := New()
 	svc.SetEventSink(rec.sink)

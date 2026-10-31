@@ -1,28 +1,12 @@
 package agentrun_test
 
 import (
-	"net"
-	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
 	"github.com/nexus-code/nexus-code/internal/agentrun"
 )
-
-// TestWsIDStability verifies that WsID is deterministic: same input, same output.
-func TestWsIDStability(t *testing.T) {
-	root := "/home/user/my-project"
-	id1 := agentrun.WsID(root, "1.2.3")
-	id2 := agentrun.WsID(root, "1.2.3")
-	if id1 != id2 {
-		t.Fatalf("WsID not stable: %q vs %q", id1, id2)
-	}
-	if len(id1) != 16 {
-		t.Fatalf("WsID length = %d, want 16 hex chars", len(id1))
-	}
-}
 
 // TestWsIDDistinct verifies that different roots produce different wsIds.
 func TestWsIDDistinct(t *testing.T) {
@@ -47,20 +31,6 @@ func TestWsIDDistinctPerVersion(t *testing.T) {
 func TestWsIDMatchesClient(t *testing.T) {
 	if got, want := agentrun.WsID("/home/user/repo", "0.9.0"), "750ec38c28740580"; got != want {
 		t.Fatalf("WsID = %q, want %q", got, want)
-	}
-}
-
-// TestWsIDSunPathSafe verifies that the resulting socket path from For()
-// stays within macOS's 104-byte UNIX_PATH_MAX. A realistic HOME path
-// is simulated to avoid relying on the CI runner's actual home directory.
-func TestWsIDSunPathSafe(t *testing.T) {
-	// Verify socket path length is well within 104 bytes even for deep roots.
-	// We check the wsId length + known path components.
-	id := agentrun.WsID("/very/long/workspace/path/that/exceeds/normal/lengths/project", "10.20.300-beta.1")
-	// ~/.nexus-code/run/ ≈ 20-30 chars + 16-char id + ".sock" = 5 chars ≈ ~51 chars
-	// Well within 104. The test simply ensures the id stays 16 chars regardless.
-	if len(id) != 16 {
-		t.Fatalf("WsID length = %d, want 16", len(id))
 	}
 }
 
@@ -125,108 +95,5 @@ func TestTryLockReturnsErrLockHeld(t *testing.T) {
 	_, err = agentrun.TryLock(path)
 	if err != agentrun.ErrLockHeld {
 		t.Fatalf("TryLock (second): got %v, want ErrLockHeld", err)
-	}
-}
-
-// shortSockDir returns a temp dir with a SHORT absolute path for binding
-// unix sockets. t.TempDir() must not be used for socket paths: on macOS its
-// path (/var/folders/<...>/T/<TestName><runID>/NNN) plus the socket name can
-// exceed the 104-byte sun_path limit, making bind(2) fail with EINVAL
-// depending on the test name and the random run ID — a borderline flake.
-// (See the sun_path note in paths.go.)
-func shortSockDir(t *testing.T) string {
-	t.Helper()
-	parent := "/tmp"
-	if runtime.GOOS == "windows" {
-		// Windows has no /tmp: it names \tmp on the current drive, which
-		// usually does not exist. Its own temp dir is short enough.
-		parent = ""
-	}
-	dir, err := os.MkdirTemp(parent, "nxs-")
-	if err != nil {
-		t.Fatalf("mkdtemp: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	return dir
-}
-
-// TestStaleSocketCleanedOnNewListen verifies the stale-socket cleanup path:
-// a socket file that refuses connections is removed and a new listener binds.
-func TestStaleSocketCleanedOnNewListen(t *testing.T) {
-	dir := shortSockDir(t)
-	sockPath := filepath.Join(dir, "ws.sock")
-
-	// Create a leftover socket file without a listener.
-	ln, err := net.Listen("unix", sockPath)
-	if err != nil {
-		t.Fatalf("setup listen: %v", err)
-	}
-	_ = ln.Close() // close without removing — simulates stale socket
-
-	// Verify it is unreachable (ECONNREFUSED or similar).
-	conn, dialErr := net.DialTimeout("unix", sockPath, 100*time.Millisecond)
-	if dialErr == nil {
-		conn.Close()
-		t.Skip("OS re-used the closed socket — stale condition not reproducible on this platform")
-	}
-
-	// Simulate what daemon does: unlink stale, then re-listen.
-	_ = os.Remove(sockPath)
-	ln2, err := net.Listen("unix", sockPath)
-	if err != nil {
-		t.Fatalf("re-listen after stale cleanup: %v", err)
-	}
-	defer ln2.Close()
-
-	// New listener should accept connections.
-	conn, err = net.DialTimeout("unix", sockPath, 200*time.Millisecond)
-	if err != nil {
-		t.Fatalf("dial new listener: %v", err)
-	}
-	conn.Close()
-}
-
-// TestDialerIOCopyRelay verifies the core dialer relay property: bytes written
-// to one end of a Unix socket pair are readable at the other end with no
-// modification. This is the io.Copy bidirectional relay used by runDialer.
-func TestDialerIOCopyRelay(t *testing.T) {
-	dir := shortSockDir(t)
-	sockPath := filepath.Join(dir, "relay.sock")
-
-	ln, err := net.Listen("unix", sockPath)
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer ln.Close()
-
-	// Simulate daemon side: accept and echo back.
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		buf := make([]byte, 64)
-		n, _ := conn.Read(buf)
-		_, _ = conn.Write(buf[:n]) // echo
-	}()
-
-	// Simulate dialer: connect, write, read back.
-	conn, err := net.DialTimeout("unix", sockPath, 200*time.Millisecond)
-	if err != nil {
-		t.Fatalf("dial: %v", err)
-	}
-	defer conn.Close()
-
-	want := []byte(`{"type":"ready"}` + "\n")
-	if _, err := conn.Write(want); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	got := make([]byte, len(want))
-	if _, err := conn.Read(got); err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	if string(got) != string(want) {
-		t.Fatalf("relay mismatch: got %q, want %q", got, want)
 	}
 }

@@ -1,25 +1,9 @@
-// Package stdioserver — architect risk 1 stress test.
+// Package stdioserver — shutdown and concurrent-write tests.
 //
-// Verifies that drainAndExit exits within forceExitAfter (75ms) even when
-// 1,000+ goroutines are blocked in WriteFrame because the transport consumer
-// (the reader of the Host's `out` pipe) has stopped reading.
-//
-// This models the backpressure scenario described in the architecture review:
-//
-//	"If the TS side pauses the pipe, goroutines calling WriteFrame block on
-//	 the OS pipe write. SIGTERM triggers a 75ms force-exit so no stuck goroutine
-//	 can prevent orderly shutdown."
-//
-// Test mechanism:
-//  1. Create a blocking writer that blocks after the first 64 bytes.
-//  2. Launch 1,000 goroutines all calling writer.Write (mirroring WriteFrame
-//     behavior on a congested pipe).
-//  3. Replicate drainAndExit's force-timer logic (without calling os.Exit).
-//  4. Assert the force timer fires within 2×forceExitAfter.
-//
-// A separate test (TestWriteFrameWithPendingGoroutines) verifies that 1,000
-// concurrent WriteFrame calls on a non-blocking writer complete without data
-// races or frame corruption.
+// drainAndExit stops taking new requests and exits once in-flight handlers
+// finish, or after forceExitAfter when one is stuck: a congested pipe must
+// not keep the agent from shutting down. WriteFrame must keep each frame
+// whole when 1,000 handlers write at once.
 package stdioserver
 
 import (
@@ -34,139 +18,25 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// blockingWriter is an io.Writer that blocks after writing blockAfterBytes
-// total bytes. Used to simulate a congested OS pipe.
-type blockingWriter struct {
-	mu              sync.Mutex
-	written         int
-	blockAfterBytes int
-	blockCh         chan struct{} // closed when the writer should unblock
-}
-
-func newBlockingWriter(blockAfterBytes int) *blockingWriter {
-	return &blockingWriter{
-		blockAfterBytes: blockAfterBytes,
-		blockCh:         make(chan struct{}),
-	}
-}
-
-func (w *blockingWriter) Write(p []byte) (int, error) {
-	w.mu.Lock()
-	before := w.written
-	w.written += len(p)
-	w.mu.Unlock()
-
-	if before >= w.blockAfterBytes {
-		// Already past threshold — block until unblocked.
-		<-w.blockCh
-	}
-	return len(p), nil
-}
-
-func (w *blockingWriter) unblock() {
-	select {
-	case <-w.blockCh:
-		// already closed
-	default:
-		close(w.blockCh)
-	}
-}
-
-// TestDrainAndExitForceExitTimeBound verifies that the force-exit timer in
-// drainAndExit fires within forceExitAfter even when 1,000+ goroutines are
-// blocked on a congested writer (simulating a stalled OS pipe write).
-//
-// We cannot call os.Exit in a test, so we replicate the timer logic inline.
-func TestDrainAndExitForceExitTimeBound(t *testing.T) {
-	const pendingHandlers = 1_000
-	const deadline = 2 * forceExitAfter // generous bound for OS scheduler jitter
-
-	var wg sync.WaitGroup
-	writer := newBlockingWriter(64) // block after 64 bytes of output
-
-	// Track how many goroutines have started.
-	var startedCount atomic.Int64
-	allStarted := make(chan struct{})
-
-	for i := 0; i < pendingHandlers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			n := startedCount.Add(1)
-			if n == pendingHandlers {
-				close(allStarted)
-			}
-			// Simulate a WriteFrame call — blocks on congested writer.
-			_, _ = writer.Write([]byte(`{"event":"test","payload":{"idx":1}}`))
-		}()
-	}
-
-	// Wait until all goroutines have started and are blocked.
-	select {
-	case <-allStarted:
-	case <-time.After(5 * time.Second):
-		writer.unblock()
-		t.Fatal("goroutines did not start within 5s")
-	}
-
-	// Replicate drainAndExit's force-exit logic without calling os.Exit.
-	forceExitFired := make(chan struct{})
-	drainDone := make(chan struct{})
-
-	forceTimer := time.AfterFunc(forceExitAfter, func() {
-		close(forceExitFired)
-	})
-	defer forceTimer.Stop()
-
-	go func() {
-		wg.Wait()
-		close(drainDone)
-	}()
-
-	start := time.Now()
-
-	select {
-	case <-drainDone:
-		elapsed := time.Since(start)
-		writer.unblock()
-		t.Fatalf("wg.Wait() completed before force timer — goroutines should be blocked (elapsed: %s)", elapsed)
-	case <-forceExitFired:
-		elapsed := time.Since(start)
-		// Force timer fired — this is the expected path.
-		writer.unblock() // unblock goroutines so the test can exit cleanly.
-		<-drainDone
-		t.Logf("force timer fired after %s (limit: %s)", elapsed, forceExitAfter)
-		if elapsed > deadline {
-			t.Errorf("force timer fired but wall-clock elapsed %s > 2×forceExitAfter (%s)", elapsed, deadline)
-		}
-	case <-time.After(deadline):
-		elapsed := time.Since(start)
-		writer.unblock()
-		<-drainDone
-		t.Fatalf("force timer did not fire within %s (elapsed: %s); forceExitAfter=%s", deadline, elapsed, forceExitAfter)
-	}
-}
-
-// TestDrainAndExitAcceptsNoNewWorkAfterTermination verifies that isAccepting()
-// returns false once accepting is flipped, so new requests are not queued
-// behind in-flight blocked goroutines.
+// TestDrainAndExitAcceptsNoNewWorkAfterTermination covers the clean path:
+// with no handler in flight, drainAndExit stops accepting new requests and
+// hands its code to the exit func the daemon installs with SetExitFunc.
 func TestDrainAndExitAcceptsNoNewWorkAfterTermination(t *testing.T) {
-	d := dispatch.New()
-	pr, pw := io.Pipe()
-	defer func() {
-		_ = pw.Close()
-		_ = pr.Close()
-	}()
+	host := New(dispatch.New(), io.NopCloser(strings_reader("")), io.Discard, slog.Default())
+	exited := make(chan int, 1)
+	host.SetExitFunc(func(code int) { exited <- code })
 
-	host := New(d, pr, io.Discard, slog.Default())
-
-	// Flip accepting to false (mirrors what drainAndExit does).
-	host.acceptMu.Lock()
-	host.accepting = false
-	host.acceptMu.Unlock()
-
+	host.drainAndExit(3)
+	select {
+	case code := <-exited:
+		if code != 3 {
+			t.Fatalf("exit code = %d, want 3", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("exit func was not called")
+	}
 	if host.isAccepting() {
-		t.Error("expected isAccepting() == false after accepting flipped to false")
+		t.Error("host still accepts new requests after drainAndExit")
 	}
 }
 

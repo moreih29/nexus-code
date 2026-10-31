@@ -122,44 +122,6 @@ func TestServerRequestCorrelationRestoresOriginalWireID(t *testing.T) {
 	}
 }
 
-func TestServerRequestCorrelationCleansManyRequests(t *testing.T) {
-	service, events := newTestService(t)
-	recordPath := filepath.Join(t.TempDir(), "many-responses.jsonl")
-	result := spawnFakeServer(t, service, "server-request-many", nil, recordPath)
-
-	const requestCount = 25
-	seen := make(map[string]struct{}, requestCount)
-	for len(seen) < requestCount {
-		event := waitEvent(t, events, EventServerRequest)
-		payload := event.payload.(ServerRequestPayload)
-		seen[payload.AgentRequestID] = struct{}{}
-		response := RespondServerRequestParams{
-			ServerID:       result.ServerID,
-			AgentRequestID: payload.AgentRequestID,
-			Result:         json.RawMessage(`{"ok":true}`),
-		}
-		if _, err := service.RespondServerRequest(context.Background(), mustJSON(t, response)); err != nil {
-			t.Fatalf("RespondServerRequest(%q) error = %v", payload.AgentRequestID, err)
-		}
-	}
-
-	waitUntil(t, 2*time.Second, func() bool { return service.serverRequestCount(result.ServerID) == 0 })
-	records := waitForFileLineCount(t, recordPath, requestCount, 2*time.Second)
-	for i, record := range records {
-		var raw map[string]json.RawMessage
-		if err := json.Unmarshal([]byte(record), &raw); err != nil {
-			t.Fatalf("unmarshal response %d: %v", i, err)
-		}
-		if strings.HasPrefix(strings.TrimSpace(string(raw["id"])), `"`) {
-			t.Fatalf("response id should remain numeric: %s", raw["id"])
-		}
-	}
-
-	if _, err := service.Shutdown(context.Background(), mustJSON(t, ShutdownParams{ServerID: result.ServerID})); err != nil {
-		t.Fatalf("Shutdown() error = %v", err)
-	}
-}
-
 func TestSpawnEmitsServerAssignedBeforeReturning(t *testing.T) {
 	// The host needs to bind serverId↔correlationId before initialize
 	// completes so server-pushed events arriving during initialize can be

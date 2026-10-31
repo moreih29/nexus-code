@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // ---------------------------------------------------------------------------
@@ -190,19 +188,8 @@ func TestDeriveCloneName(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCloneLocalRepo(t *testing.T) {
-	// Create a local bare repository to clone from.
-	remote := t.TempDir()
-	runGitCommand(t, remote, "init", "--bare", "-b", "main")
-
-	seed := t.TempDir()
-	runGitCommand(t, seed, "init", "-b", "main")
-	runGitCommand(t, seed, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, seed, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(seed, "README.md"), "hello\n")
-	runGitCommand(t, seed, "add", "README.md")
-	runGitCommand(t, seed, "commit", "-m", "initial")
-	runGitCommand(t, seed, "remote", "add", "origin", remote)
-	runGitCommand(t, seed, "push", "-u", "origin", "main")
+	t.Parallel()
+	remote, _ := newRemoteAndClient(t, false)
 
 	parent := t.TempDir()
 	service := New(parent)
@@ -231,8 +218,8 @@ func TestCloneLocalRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("README.md not found in clone: %v", err)
 	}
-	if strings.TrimSpace(string(content)) != "hello" {
-		t.Errorf("README.md content = %q, want %q", string(content), "hello")
+	if strings.TrimSpace(string(content)) != "base" {
+		t.Errorf("README.md content = %q, want %q", string(content), "base")
 	}
 }
 
@@ -313,21 +300,7 @@ func TestClone_ParentDirNotAbsolute(t *testing.T) {
 	}
 }
 
-func TestClone_CancelDuringProgress(t *testing.T) {
-	// Use a local bare repo that we can observe cancellation on.
-	remote := t.TempDir()
-	runGitCommand(t, remote, "init", "--bare", "-b", "main")
-
-	seed := t.TempDir()
-	runGitCommand(t, seed, "init", "-b", "main")
-	runGitCommand(t, seed, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, seed, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(seed, "README.md"), "hello\n")
-	runGitCommand(t, seed, "add", "README.md")
-	runGitCommand(t, seed, "commit", "-m", "initial")
-	runGitCommand(t, seed, "remote", "add", "origin", remote)
-	runGitCommand(t, seed, "push", "-u", "origin", "main")
-
+func TestClone_CancelledContextRemovesDestination(t *testing.T) {
 	parent := t.TempDir()
 	service := New(parent)
 
@@ -336,7 +309,7 @@ func TestClone_CancelDuringProgress(t *testing.T) {
 
 	params := CloneParams{
 		StreamID:  "test-stream-6",
-		URL:       "file://" + remote,
+		URL:       "https://example.invalid/repo.git",
 		ParentDir: parent,
 		Name:      "cancelled",
 	}
@@ -354,11 +327,7 @@ func TestClone_CancelDuringProgress(t *testing.T) {
 func TestClone_MissingParamsReturnsProtocolError(t *testing.T) {
 	service := New(t.TempDir())
 	_, err := service.Clone(context.Background(), nil)
-	if err == nil {
-		t.Fatal("expected protocol error for nil params, got nil")
-	}
-	var coded proto.CodedError
-	if coded.Code != "" {
-		// just verify it's non-nil
+	if !isProtocolError(err) {
+		t.Fatalf("Clone(nil) error = %v, want a protocol error", err)
 	}
 }

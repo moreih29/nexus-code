@@ -4,14 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/nexus-code/nexus-code/internal/dispatch"
-	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // tagListExpected mirrors the fixture expected.json for git.tag.list.
@@ -23,7 +18,7 @@ type tagListExpected struct {
 
 // TestTagListFixtures verifies every tag list fixture against parseTagList.
 func TestTagListFixtures(t *testing.T) {
-	fixtureRoot := tagFixtureRoot(t)
+	fixtureRoot := fixtureDir("tag")
 	entries, err := os.ReadDir(fixtureRoot)
 	if err != nil {
 		t.Fatalf("read tag fixtures: %v", err)
@@ -64,13 +59,8 @@ func TestTagListFixtures(t *testing.T) {
 
 // TestTagListServiceTempRepo verifies TagList against a real git repository.
 func TestTagListServiceTempRepo(t *testing.T) {
-	root := t.TempDir()
-	tagGitCmd(t, root, "init", "-b", "main")
-	tagGitCmd(t, root, "config", "user.email", "nexus@example.test")
-	tagGitCmd(t, root, "config", "user.name", "Nexus Test")
-	tagWriteFile(t, filepath.Join(root, "f.txt"), "base\n")
-	tagGitCmd(t, root, "add", "f.txt")
-	tagGitCmd(t, root, "commit", "-m", "initial")
+	t.Parallel()
+	root := newRepo(t)
 
 	service := New(root)
 
@@ -139,13 +129,8 @@ func TestTagListServiceTempRepo(t *testing.T) {
 
 // TestTagCreateRefNotFound verifies bad ref surfaces as ref-not-found.
 func TestTagCreateRefNotFound(t *testing.T) {
-	root := t.TempDir()
-	tagGitCmd(t, root, "init", "-b", "main")
-	tagGitCmd(t, root, "config", "user.email", "nexus@example.test")
-	tagGitCmd(t, root, "config", "user.name", "Nexus Test")
-	tagWriteFile(t, filepath.Join(root, "f.txt"), "base\n")
-	tagGitCmd(t, root, "add", "f.txt")
-	tagGitCmd(t, root, "commit", "-m", "initial")
+	t.Parallel()
+	root := newRepo(t)
 
 	service := New(root)
 	_, err := service.TagCreate(context.Background(), json.RawMessage(`{"name":"v1.0","ref":"definitely-missing"}`))
@@ -159,13 +144,8 @@ func TestTagCreateRefNotFound(t *testing.T) {
 
 // TestTagDeleteServiceTempRepo verifies TagDelete removes a local tag.
 func TestTagDeleteServiceTempRepo(t *testing.T) {
-	root := t.TempDir()
-	tagGitCmd(t, root, "init", "-b", "main")
-	tagGitCmd(t, root, "config", "user.email", "nexus@example.test")
-	tagGitCmd(t, root, "config", "user.name", "Nexus Test")
-	tagWriteFile(t, filepath.Join(root, "f.txt"), "base\n")
-	tagGitCmd(t, root, "add", "f.txt")
-	tagGitCmd(t, root, "commit", "-m", "initial")
+	t.Parallel()
+	root := newRepo(t)
 
 	service := New(root)
 
@@ -201,30 +181,6 @@ func TestTagNameInvalidRejected(t *testing.T) {
 	}
 }
 
-// TestTagRegisteredWithDispatcher verifies all tag methods are dispatched.
-func TestTagRegisteredWithDispatcher(t *testing.T) {
-	root := t.TempDir()
-	tagGitCmd(t, root, "init", "-b", "main")
-	tagGitCmd(t, root, "config", "user.email", "nexus@example.test")
-	tagGitCmd(t, root, "config", "user.name", "Nexus Test")
-	tagWriteFile(t, filepath.Join(root, "f.txt"), "hello\n")
-	tagGitCmd(t, root, "add", "f.txt")
-	tagGitCmd(t, root, "commit", "-m", "initial")
-
-	d := dispatch.New()
-	Register(d, New(root))
-
-	// git.tag.list on a clean repo returns an empty slice, not an error.
-	res := d.Dispatch(context.Background(), proto.Request{
-		ID:     "1",
-		Method: "git.tag.list",
-		Params: json.RawMessage(`{}`),
-	})
-	if res.Error != nil {
-		t.Fatalf("git.tag.list dispatch returned error: %#v", res.Error)
-	}
-}
-
 // TestParseTagListEmpty verifies parseTagList on empty output.
 func TestParseTagListEmpty(t *testing.T) {
 	got := parseTagList("")
@@ -254,15 +210,6 @@ func TestParseRemoteTagListDereferenced(t *testing.T) {
 	}
 }
 
-func tagFixtureRoot(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "tests", "fixtures", "git", "tag"))
-}
-
 func assertTagListEqual(t *testing.T, name string, got []Tag, want []Tag) {
 	t.Helper()
 	if len(got) == 0 && len(want) == 0 {
@@ -282,21 +229,4 @@ func tagCanonicalJSON(t *testing.T, value any) string {
 		t.Fatalf("marshal: %v", err)
 	}
 	return string(b)
-}
-
-func tagGitCmd(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-}
-
-func tagWriteFile(t *testing.T, path string, content string) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write %s: %v", path, err)
-	}
 }

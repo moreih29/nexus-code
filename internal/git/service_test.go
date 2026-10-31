@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -73,40 +74,21 @@ func TestIsUnmergedIndexEntry(t *testing.T) {
 // in a temp repo and verifies that GetFileContent with ref=INDEX returns
 // {kind:"missing", reason:"index"} instead of propagating the raw fatal error.
 func TestGetFileContentUnmergedReturnsUnmergedKind(t *testing.T) {
-	root := t.TempDir()
-
-	// Set up repo with initial commit on main.
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(root, "file.txt"), "base\n")
-	runGitCommand(t, root, "add", "file.txt")
-	runGitCommand(t, root, "commit", "-m", "initial")
-
-	// Create a branch with a conflicting change.
-	runGitCommand(t, root, "checkout", "-b", "branch")
-	writeFile(t, filepath.Join(root, "file.txt"), "branch change\n")
-	runGitCommand(t, root, "add", "file.txt")
-	runGitCommand(t, root, "commit", "-m", "branch commit")
-
-	// Return to main and make a conflicting change.
-	runGitCommand(t, root, "checkout", "main")
-	writeFile(t, filepath.Join(root, "file.txt"), "main change\n")
-	runGitCommand(t, root, "add", "file.txt")
-	runGitCommand(t, root, "commit", "-m", "main commit")
+	t.Parallel()
+	root := newConflictRepo(t)
 
 	// Attempt merge — expect conflict; ignore the error.
-	mergeCmd := exec.Command("git", "merge", "branch")
+	mergeCmd := exec.Command("git", "merge", "feature")
 	mergeCmd.Dir = root
 	_ = mergeCmd.Run()
 
 	// Verify we actually have a conflict by checking for conflict markers.
-	content, err := os.ReadFile(filepath.Join(root, "file.txt"))
+	content, err := os.ReadFile(filepath.Join(root, "conflict.txt"))
 	if err != nil {
 		t.Fatalf("read conflicted file: %v", err)
 	}
 	if !strings.Contains(string(content), "<<<<<<<") {
-		t.Fatalf("expected conflict markers in file.txt, got:\n%s", content)
+		t.Fatalf("expected conflict markers in conflict.txt, got:\n%s", content)
 	}
 
 	// Now call GetFileContent with INDEX ref — should return {kind:"unmerged"}.
@@ -114,7 +96,7 @@ func TestGetFileContentUnmergedReturnsUnmergedKind(t *testing.T) {
 	service := New(root)
 	Register(d, service)
 
-	params, _ := json.Marshal(FileContentParams{Ref: "INDEX", RelPath: "file.txt"})
+	params, _ := json.Marshal(FileContentParams{Ref: "INDEX", RelPath: "conflict.txt"})
 	res := d.Dispatch(context.Background(), proto.Request{
 		ID:     "1",
 		Method: "git.getFileContent",
@@ -142,11 +124,12 @@ func TestGetFileContentUnmergedReturnsUnmergedKind(t *testing.T) {
 
 // TestGetFileContentSizeCap checks the 5 MiB cap on both sides of the edge.
 func TestGetFileContentSizeCap(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
+	runGit(t, root, "init", "-b", "main")
 	writeFile(t, filepath.Join(root, "at-cap.txt"), strings.Repeat("a", maxGitFileContentBytes))
 	writeFile(t, filepath.Join(root, "over-cap.txt"), strings.Repeat("a", maxGitFileContentBytes+1))
-	runGitCommand(t, root, "add", "at-cap.txt", "over-cap.txt")
+	runGit(t, root, "add", "at-cap.txt", "over-cap.txt")
 	service := New(root)
 
 	res, err := service.GetFileContent(context.Background(), mustRawJSON(t, FileContentParams{Ref: "INDEX", RelPath: "at-cap.txt"}))
@@ -201,12 +184,11 @@ func mustRawJSON(t *testing.T, v any) json.RawMessage {
 // ---------------------------------------------------------------------------
 
 func TestGetFileContentIndexNormalFile(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
+	runGit(t, root, "init", "-b", "main")
 	writeFile(t, filepath.Join(root, "file.txt"), "hello\n")
-	runGitCommand(t, root, "add", "file.txt")
+	runGit(t, root, "add", "file.txt")
 
 	d := dispatch.New()
 	service := New(root)
@@ -228,5 +210,37 @@ func TestGetFileContentIndexNormalFile(t *testing.T) {
 	}
 	if result["kind"] != "ok" {
 		t.Errorf("result kind = %q, want %q", result["kind"], "ok")
+	}
+}
+
+// TestRegisterExposesMethods checks that Register binds the wire names the
+// host calls. The handlers have tests of their own.
+func TestRegisterExposesMethods(t *testing.T) {
+	d := dispatch.New()
+	Register(d, New(t.TempDir()))
+	registered := d.Methods()
+	for _, method := range []string{
+		"git.status",
+		"git.diff",
+		"git.commitDetail",
+		"git.stash.list",
+		"git.stash.apply",
+		"git.stash.drop",
+		"git.stash.group",
+		"git.tag.list",
+		"git.tag.create",
+		"git.tag.delete",
+		"git.remote.add",
+		"git.remote.remove",
+		"git.workflow.merge",
+		"git.workflow.rebase",
+		"git.workflow.cherryPick",
+		"git.workflow.abort",
+		"git.workflow.continue",
+		"git.conflict.markResolved",
+	} {
+		if !slices.Contains(registered, method) {
+			t.Errorf("%s is not registered", method)
+		}
 	}
 }

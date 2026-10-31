@@ -3,7 +3,6 @@ package git
 import (
 	"context"
 	"encoding/json"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,13 +10,8 @@ import (
 
 // TestBranchCreateSuccess verifies that BranchCreate creates a new branch.
 func TestBranchCreateSuccess(t *testing.T) {
-	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(root, "README.md"), "base\n")
-	runGitCommand(t, root, "add", "README.md")
-	runGitCommand(t, root, "commit", "-m", "initial")
+	t.Parallel()
+	root := newRepo(t)
 
 	service := New(root)
 	params := `{"name":"feature"}`
@@ -27,7 +21,7 @@ func TestBranchCreateSuccess(t *testing.T) {
 	}
 
 	// Verify branch exists.
-	out := runGitCommandOutput(t, root, "branch", "--list", "feature")
+	out := runGit(t, root, "branch", "--list", "feature")
 	if !strings.Contains(out, "feature") {
 		t.Errorf("expected branch 'feature' to exist, got: %q", out)
 	}
@@ -35,14 +29,9 @@ func TestBranchCreateSuccess(t *testing.T) {
 
 // TestBranchCreateExistsError verifies that BranchCreate returns a branch-exists error.
 func TestBranchCreateExistsError(t *testing.T) {
-	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(root, "README.md"), "base\n")
-	runGitCommand(t, root, "add", "README.md")
-	runGitCommand(t, root, "commit", "-m", "initial")
-	runGitCommand(t, root, "branch", "existing")
+	t.Parallel()
+	root := newRepo(t)
+	runGit(t, root, "branch", "existing")
 
 	service := New(root)
 	params := `{"name":"existing"}`
@@ -58,13 +47,8 @@ func TestBranchCreateExistsError(t *testing.T) {
 
 // TestBranchCreateWithCheckout verifies that BranchCreate with checkout=true switches branch.
 func TestBranchCreateWithCheckout(t *testing.T) {
-	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(root, "README.md"), "base\n")
-	runGitCommand(t, root, "add", "README.md")
-	runGitCommand(t, root, "commit", "-m", "initial")
+	t.Parallel()
+	root := newRepo(t)
 
 	service := New(root)
 	params := `{"name":"feature","checkout":true}`
@@ -73,7 +57,7 @@ func TestBranchCreateWithCheckout(t *testing.T) {
 		t.Fatalf("BranchCreate(checkout=true) returned error: %v", err)
 	}
 
-	head := strings.TrimSpace(runGitCommandOutput(t, root, "rev-parse", "--abbrev-ref", "HEAD"))
+	head := strings.TrimSpace(runGit(t, root, "rev-parse", "--abbrev-ref", "HEAD"))
 	if head != "feature" {
 		t.Errorf("expected HEAD=feature after checkout, got: %q", head)
 	}
@@ -81,14 +65,9 @@ func TestBranchCreateWithCheckout(t *testing.T) {
 
 // TestBranchDeleteSuccess verifies that BranchDelete removes a merged branch.
 func TestBranchDeleteSuccess(t *testing.T) {
-	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(root, "README.md"), "base\n")
-	runGitCommand(t, root, "add", "README.md")
-	runGitCommand(t, root, "commit", "-m", "initial")
-	runGitCommand(t, root, "branch", "to-delete")
+	t.Parallel()
+	root := newRepo(t)
+	runGit(t, root, "branch", "to-delete")
 
 	service := New(root)
 	params := `{"name":"to-delete"}`
@@ -104,7 +83,7 @@ func TestBranchDeleteSuccess(t *testing.T) {
 		t.Errorf("expected empty errorKind, got %q: %s", result.ErrorKind, result.ErrorMessage)
 	}
 
-	out := runGitCommandOutput(t, root, "branch", "--list", "to-delete")
+	out := runGit(t, root, "branch", "--list", "to-delete")
 	if strings.TrimSpace(out) != "" {
 		t.Errorf("expected branch 'to-delete' to be gone, got: %q", out)
 	}
@@ -112,13 +91,8 @@ func TestBranchDeleteSuccess(t *testing.T) {
 
 // TestBranchDeleteNotFound verifies that BranchDelete returns a typed error for missing branches.
 func TestBranchDeleteNotFound(t *testing.T) {
-	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(root, "README.md"), "base\n")
-	runGitCommand(t, root, "add", "README.md")
-	runGitCommand(t, root, "commit", "-m", "initial")
+	t.Parallel()
+	root := newRepo(t)
 
 	service := New(root)
 	params := `{"name":"nonexistent"}`
@@ -137,20 +111,15 @@ func TestBranchDeleteNotFound(t *testing.T) {
 
 // TestBranchDeleteUnmerged verifies that BranchDelete returns force-delete hint for unmerged branch.
 func TestBranchDeleteUnmerged(t *testing.T) {
-	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(root, "README.md"), "base\n")
-	runGitCommand(t, root, "add", "README.md")
-	runGitCommand(t, root, "commit", "-m", "initial")
+	t.Parallel()
+	root := newRepo(t)
 
 	// Create unmerged branch with a commit.
-	runGitCommand(t, root, "checkout", "-b", "unmerged")
+	runGit(t, root, "checkout", "-b", "unmerged")
 	writeFile(t, filepath.Join(root, "topic.txt"), "topic\n")
-	runGitCommand(t, root, "add", "topic.txt")
-	runGitCommand(t, root, "commit", "-m", "topic commit")
-	runGitCommand(t, root, "checkout", "main")
+	runGit(t, root, "add", "topic.txt")
+	runGit(t, root, "commit", "-m", "topic commit")
+	runGit(t, root, "checkout", "main")
 
 	service := New(root)
 	params := `{"name":"unmerged","force":false}`
@@ -175,13 +144,8 @@ func TestBranchDeleteUnmerged(t *testing.T) {
 
 // TestBranchRenameClean verifies that BranchRename renames a branch successfully.
 func TestBranchRenameClean(t *testing.T) {
-	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(root, "README.md"), "base\n")
-	runGitCommand(t, root, "add", "README.md")
-	runGitCommand(t, root, "commit", "-m", "initial")
+	t.Parallel()
+	root := newRepo(t)
 
 	service := New(root)
 	params := `{"from":"main","to":"trunk"}`
@@ -190,7 +154,7 @@ func TestBranchRenameClean(t *testing.T) {
 		t.Fatalf("BranchRename returned error: %v", err)
 	}
 
-	head := strings.TrimSpace(runGitCommandOutput(t, root, "rev-parse", "--abbrev-ref", "HEAD"))
+	head := strings.TrimSpace(runGit(t, root, "rev-parse", "--abbrev-ref", "HEAD"))
 	if head != "trunk" {
 		t.Errorf("expected HEAD=trunk after rename, got: %q", head)
 	}
@@ -198,32 +162,10 @@ func TestBranchRenameClean(t *testing.T) {
 
 // TestBranchFastForwardClean verifies BranchFastForward advances the branch.
 func TestBranchFastForwardClean(t *testing.T) {
-	// Create a bare remote and clone it.
-	remote := t.TempDir()
-	runGitCommand(t, remote, "init", "--bare", "-b", "main")
+	t.Parallel()
+	_, client := newRemoteAndClient(t, true)
 
-	seed := t.TempDir()
-	runGitCommand(t, seed, "init", "-b", "main")
-	runGitCommand(t, seed, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, seed, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(seed, "README.md"), "base\n")
-	runGitCommand(t, seed, "add", "README.md")
-	runGitCommand(t, seed, "commit", "-m", "initial")
-	runGitCommand(t, seed, "remote", "add", "origin", remote)
-	runGitCommand(t, seed, "push", "-u", "origin", "main")
-
-	client := t.TempDir()
-	runGitCommand(t, client, "clone", remote, ".")
-	runGitCommand(t, client, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, client, "config", "user.name", "Nexus Test")
-
-	// Push a new commit to the remote from the seed.
-	writeFile(t, filepath.Join(seed, "next.txt"), "next\n")
-	runGitCommand(t, seed, "add", "next.txt")
-	runGitCommand(t, seed, "commit", "-m", "next")
-	runGitCommand(t, seed, "push", "origin", "main")
-
-	fromSha := strings.TrimSpace(runGitCommandOutput(t, client, "rev-parse", "HEAD"))
+	fromSha := strings.TrimSpace(runGit(t, client, "rev-parse", "HEAD"))
 
 	service := New(client)
 	params := `{"branch":"main","remote":"origin","remoteRef":"main"}`
@@ -248,23 +190,8 @@ func TestBranchFastForwardClean(t *testing.T) {
 
 // TestBranchFastForwardNoOp verifies BranchFastForward reports not-advanced when already up to date.
 func TestBranchFastForwardNoOp(t *testing.T) {
-	remote := t.TempDir()
-	runGitCommand(t, remote, "init", "--bare", "-b", "main")
-
-	seed := t.TempDir()
-	runGitCommand(t, seed, "init", "-b", "main")
-	runGitCommand(t, seed, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, seed, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(seed, "README.md"), "base\n")
-	runGitCommand(t, seed, "add", "README.md")
-	runGitCommand(t, seed, "commit", "-m", "initial")
-	runGitCommand(t, seed, "remote", "add", "origin", remote)
-	runGitCommand(t, seed, "push", "-u", "origin", "main")
-
-	client := t.TempDir()
-	runGitCommand(t, client, "clone", remote, ".")
-	runGitCommand(t, client, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, client, "config", "user.name", "Nexus Test")
+	t.Parallel()
+	_, client := newRemoteAndClient(t, false)
 
 	service := New(client)
 	params := `{"branch":"main","remote":"origin","remoteRef":"main"}`
@@ -282,16 +209,4 @@ func TestBranchFastForwardNoOp(t *testing.T) {
 	if result.FromSha != result.ToSha {
 		t.Error("expected FromSha == ToSha for no-op fast-forward")
 	}
-}
-
-// runGitCommandOutput runs a git command and returns stdout as a string.
-func runGitCommandOutput(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("git %v: %v", args, err)
-	}
-	return string(out)
 }

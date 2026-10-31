@@ -19,19 +19,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// mustBuild compiles the agent binary into t.TempDir() and returns the path.
-// Uses an explicit output path outside the source tree to avoid leaving a
-// binary in the repo root.
-func mustBuild(t *testing.T) string {
-	t.Helper()
-	bin := filepath.Join(t.TempDir(), "agent")
-	out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput()
-	if err != nil {
-		t.Fatalf("go build: %v\n%s", err, out)
-	}
-	return bin
-}
-
 // shortHome returns a temp dir with a SHORT absolute path for use as the
 // daemon's fake HOME. t.TempDir() must not be used here: its path on macOS
 // (/var/folders/<...>/T/<TestName><runID>/NNN) plus ".nexus-code/run/<wsId>.sock"
@@ -121,7 +108,8 @@ func readReady(t *testing.T, sockPath string) (net.Conn, string) {
 // PTY survival is structural: pty.Close is only called inside cleanupAndExit,
 // which is not reachable via the preempted code path.
 func TestDaemonTakeover(t *testing.T) {
-	bin := mustBuild(t)
+	t.Parallel()
+	bin := agentBinary(t)
 	root := t.TempDir()
 	fakeHome := shortHome(t)
 
@@ -175,11 +163,11 @@ func TestDaemonTakeover(t *testing.T) {
 // then A's clean EOF would hit a closed graceExpired channel and immediately
 // self-terminate — no reattach possible.
 //
-// Test approach: simulate >grace elapsed time by holding connA open, closing
-// it (clean EOF), then immediately connecting connB. If the daemon is still
-// alive and serves connB, the bug is absent.
+// A test cannot wait out the 300 s, so this one checks the part it can: after
+// A disconnects cleanly, the same daemon serves the next dialer.
 func TestDaemonLongSessionThenReattach(t *testing.T) {
-	bin := mustBuild(t)
+	t.Parallel()
+	bin := agentBinary(t)
 	root := t.TempDir()
 	fakeHome := shortHome(t)
 
@@ -198,21 +186,12 @@ func TestDaemonLongSessionThenReattach(t *testing.T) {
 		t.Fatalf("A: not a ready frame: %s", lineA)
 	}
 
-	// Hold A open for a noticeable duration (200 ms is enough to distinguish
-	// "acceptor died at deadline" from "daemon healthy"). The real bug manifests
-	// at 300 s, but the mechanism — acceptor exits after the first Accept loop
-	// timeout — is detectable immediately after any non-zero hold time followed
-	// by a new connection attempt.
-	time.Sleep(200 * time.Millisecond)
-
 	// Close A cleanly (EOF). In the buggy code this would trigger immediate
 	// daemon self-termination if the graceExpired channel had already been
 	// closed by the acceptor.
 	_ = connA.Close()
 
-	// Dialer B: must succeed and receive Ready. Give a short window to allow
-	// the daemon to process A's EOF and start waiting for B.
-	time.Sleep(50 * time.Millisecond)
+	// Dialer B: must succeed and receive Ready.
 	connB, lineB := readReady(t, sockPath)
 	defer connB.Close()
 
@@ -238,7 +217,8 @@ func TestDaemonLongSessionThenReattach(t *testing.T) {
 // reach B; before ResetFlowControl was wired in, the session stayed paused
 // forever.
 func TestDaemonTakeoverResumesPausedPTY(t *testing.T) {
-	bin := mustBuild(t)
+	t.Parallel()
+	bin := agentBinary(t)
 	root := t.TempDir()
 	fakeHome := shortHome(t)
 
@@ -305,7 +285,8 @@ func TestDaemonTakeoverResumesPausedPTY(t *testing.T) {
 // that moment must wait it out instead of exiting with ExitCodeLockHeld as if
 // a daemon were already running.
 func TestDaemonStartsWhileLockBrieflyHeld(t *testing.T) {
-	bin := mustBuild(t)
+	t.Parallel()
+	bin := agentBinary(t)
 	root := t.TempDir()
 	fakeHome := shortHome(t)
 	runDir := filepath.Join(fakeHome, ".nexus-code", "run")
@@ -354,52 +335,5 @@ func TestDaemonStartsWhileLockBrieflyHeld(t *testing.T) {
 	defer conn.Close()
 	if !strings.Contains(ready, `"ready"`) {
 		t.Fatalf("want ready frame, got %s", ready)
-	}
-}
-
-// TestDaemonGraceExpiryMechanism verifies that time.After(reattachGrace) — the
-// mechanism waitForDialer uses — correctly fires after the deadline and that a
-// connection arriving before the deadline is received without error.
-// This tests the select{nextConn / time.After} pattern directly.
-func TestDaemonGraceExpiryMechanism(t *testing.T) {
-	// Channel pair mimicking the daemon's nextConn + time.After pattern.
-	nextConn := make(chan net.Conn, 1)
-	grace := 60 * time.Millisecond
-
-	// Case 1: nothing arrives → time.After fires.
-	select {
-	case <-nextConn:
-		t.Fatal("unexpected conn on empty channel")
-	case <-time.After(grace):
-		// expected: grace expired with no dialer
-	}
-
-	// Case 2: conn arrives before deadline → received without error.
-	dir := t.TempDir()
-	sockPath := filepath.Join(dir, "mech.sock")
-	ln, err := net.Listen("unix", sockPath)
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer ln.Close()
-
-	go func() {
-		conn, err := ln.Accept()
-		if err == nil {
-			nextConn <- conn
-		}
-	}()
-	clientConn, err := net.DialTimeout("unix", sockPath, time.Second)
-	if err != nil {
-		t.Fatalf("dial: %v", err)
-	}
-	defer clientConn.Close()
-
-	select {
-	case c := <-nextConn:
-		_ = c.Close()
-		// expected: conn arrived before grace
-	case <-time.After(grace):
-		t.Fatal("conn did not arrive within grace window — select mechanism broken")
 	}
 }

@@ -16,6 +16,7 @@ import (
 // would be a no-op and changes inside the recreated directory would never
 // be reported.
 func TestWatchRecreatedDirectoryIsWatchedAgain(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	sub := filepath.Join(root, "sub")
 	must(t, os.Mkdir(sub, 0o755))
@@ -88,6 +89,7 @@ func TestWatchFileReportsNotDirectory(t *testing.T) {
 }
 
 func TestWatchManyDirectories(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	fsys, err := New(root)
 	if err != nil {
@@ -125,6 +127,7 @@ func TestWatchManyDirectories(t *testing.T) {
 // macOS keeps one kqueue watcher per directory: on a shared one, unwatching
 // the subdirectory also drops the parent's watch on it.)
 func TestWatchParentReportsUnwatchedSubdirectoryDeleted(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	must(t, os.MkdirAll(filepath.Join(root, "p", "c"), 0o755))
 	fsys, err := New(root)
@@ -151,6 +154,7 @@ func TestWatchParentReportsUnwatchedSubdirectoryDeleted(t *testing.T) {
 // A symlinked directory and its target are watched side by side and report
 // changes under both paths.
 func TestWatchSymlinkedDirectory(t *testing.T) {
+	t.Parallel()
 	real := t.TempDir()
 	must(t, os.Mkdir(filepath.Join(real, "target"), 0o755))
 	if err := os.Symlink("target", filepath.Join(real, "link")); err != nil {

@@ -4,76 +4,35 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/nexus-code/nexus-code/internal/agentpaths"
 )
 
-// TestRoot_ReturnsAbsolutePathUnderHome verifies that Root() returns a path
-// ending with "/.nexus-code" and rooted under the user's home directory.
-func TestRoot_ReturnsAbsolutePathUnderHome(t *testing.T) {
-	got, err := agentpaths.Root()
-	if err != nil {
-		t.Fatalf("Root() error: %v", err)
-	}
-
+// TestLayout pins the ~/.nexus-code layout. Root, BinDir and SocketsDir must
+// match src/main/infra/agent/runtimeDirs.ts.
+func TestLayout(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatalf("os.UserHomeDir() error: %v", err)
 	}
-
-	want := filepath.Join(home, ".nexus-code")
-	if got != want {
-		t.Errorf("Root() = %q; want %q", got, want)
-	}
-
-	if !filepath.IsAbs(got) {
-		t.Errorf("Root() = %q is not absolute", got)
-	}
-}
-
-// TestBinDir_IsChildOfRoot verifies that BinDir() is exactly Root()/bin.
-func TestBinDir_IsChildOfRoot(t *testing.T) {
-	root, err := agentpaths.Root()
-	if err != nil {
-		t.Fatalf("Root() error: %v", err)
-	}
-
-	got, err := agentpaths.BinDir()
-	if err != nil {
-		t.Fatalf("BinDir() error: %v", err)
-	}
-
-	want := filepath.Join(root, "bin")
-	if got != want {
-		t.Errorf("BinDir() = %q; want %q", got, want)
-	}
-
-	if !strings.HasPrefix(got, root) {
-		t.Errorf("BinDir() %q is not under root %q", got, root)
-	}
-}
-
-// TestSocketsDir_IsChildOfRoot verifies that SocketsDir() is exactly Root()/sockets.
-func TestSocketsDir_IsChildOfRoot(t *testing.T) {
-	root, err := agentpaths.Root()
-	if err != nil {
-		t.Fatalf("Root() error: %v", err)
-	}
-
-	got, err := agentpaths.SocketsDir()
-	if err != nil {
-		t.Fatalf("SocketsDir() error: %v", err)
-	}
-
-	want := filepath.Join(root, "sockets")
-	if got != want {
-		t.Errorf("SocketsDir() = %q; want %q", got, want)
-	}
-
-	if !strings.HasPrefix(got, root) {
-		t.Errorf("SocketsDir() %q is not under root %q", got, root)
+	root := filepath.Join(home, ".nexus-code")
+	for _, tc := range []struct {
+		name string
+		dir  func() (string, error)
+		want string
+	}{
+		{"Root", agentpaths.Root, root},
+		{"BinDir", agentpaths.BinDir, filepath.Join(root, "bin")},
+		{"SocketsDir", agentpaths.SocketsDir, filepath.Join(root, "sockets")},
+		{"RunDir", agentpaths.RunDir, filepath.Join(root, "run")},
+	} {
+		got, err := tc.dir()
+		if err != nil {
+			t.Errorf("%s() error: %v", tc.name, err)
+		} else if got != tc.want {
+			t.Errorf("%s() = %q; want %q", tc.name, got, tc.want)
+		}
 	}
 }
 
@@ -106,13 +65,5 @@ func TestEnsureDir_IdempotentAndMode(t *testing.T) {
 	// Second call — must be idempotent (no error).
 	if err := agentpaths.EnsureDir(target); err != nil {
 		t.Fatalf("EnsureDir (second call / idempotent) error: %v", err)
-	}
-}
-
-// TestEnsureDir_ExistingDir succeeds when the path already exists as a directory.
-func TestEnsureDir_ExistingDir(t *testing.T) {
-	existing := t.TempDir()
-	if err := agentpaths.EnsureDir(existing); err != nil {
-		t.Fatalf("EnsureDir on existing dir error: %v", err)
 	}
 }
