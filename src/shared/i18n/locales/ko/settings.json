@@ -193,7 +193,8 @@
         "typescript": "TypeScript · JavaScript",
         "python": "Python",
         "go": "Go (gopls)",
-        "rust": "Rust (rust-analyzer)"
+        "rust": "Rust (rust-analyzer)",
+        "yaml": "YAML"
       },
       "lowMemory": "메모리 절약 모드",
       "lowMemoryDescription": "TypeScript 서버를 하나만 띄우고 JavaScript 라이브러리 타입 자동 설치를 끕니다. 중간 크기 프로젝트에서 워크스페이스당 약 850MB가 약 520MB로 줄고, 파일을 연 뒤 첫 응답이 0.5초쯤 늦어집니다. 바꾸면 TypeScript 서버를 다시 시작합니다.",

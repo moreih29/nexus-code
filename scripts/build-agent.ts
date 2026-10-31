@@ -64,6 +64,15 @@ const LSP_BUNDLES = [
     argsTemplate: ["--stdio"],
     extraDependencies: [],
   },
+  {
+    name: "yaml-language-server",
+    packageName: "yaml-language-server",
+    languages: ["yaml"],
+    entry: "node_modules/yaml-language-server/bin/yaml-language-server",
+    launcher: "bin/yaml-language-server",
+    argsTemplate: ["--stdio"],
+    extraDependencies: [],
+  },
 ] as const;
 
 interface BuildAgentDistributionOptions {

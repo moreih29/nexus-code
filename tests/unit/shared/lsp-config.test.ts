@@ -34,6 +34,8 @@ describe("built-in LSP presets", () => {
     expect(lspPresetLanguageIdForPath("/ws/src/App.TSX")).toBe("typescript");
     expect(lspPresetLanguageIdForPath("C:\\ws\\tool.mjs")).toBe("typescript");
     expect(lspPresetLanguageIdForPath("/ws/main.pyi")).toBe("python");
+    expect(lspPresetLanguageIdForPath("/ws/.github/workflows/ci.yml")).toBe("yaml");
+    expect(lspPresetLanguageIdForPath("/ws/compose.YAML")).toBe("yaml");
     expect(lspPresetLanguageIdForPath("/ws.ts/README")).toBeNull();
     expect(lspPresetLanguageIdForPath("/ws/.py")).toBeNull();
   });

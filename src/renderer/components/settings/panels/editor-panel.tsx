@@ -297,6 +297,7 @@ export function EditorPanel() {
 const LSP_LANGUAGE_ROWS: readonly BuiltinLspPresetLanguageId[] = [
   "typescript",
   "python",
+  "yaml",
   "go",
   "rust",
 ];

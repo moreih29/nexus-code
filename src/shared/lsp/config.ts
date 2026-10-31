@@ -43,6 +43,14 @@ export const BUILTIN_LSP_PRESETS = [
     },
   },
   {
+    // Schemas come from the files' own `# yaml-language-server: $schema=`
+    // lines and from SchemaStore, which the server fetches by file name
+    // (GitHub workflows, docker-compose, …).
+    languageId: "yaml",
+    binary: "yaml-language-server",
+    args: ["--stdio"],
+  },
+  {
     languageId: "go",
     binary: "gopls",
     args: [],
@@ -124,6 +132,8 @@ const LSP_PRESET_EXTENSIONS: Record<string, BuiltinLspPresetLanguageId> = {
   cjs: "typescript",
   py: "python",
   pyi: "python",
+  yaml: "yaml",
+  yml: "yaml",
   go: "go",
   rs: "rust",
 };

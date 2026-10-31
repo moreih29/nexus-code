@@ -193,7 +193,8 @@
         "typescript": "TypeScript · JavaScript",
         "python": "Python",
         "go": "Go (gopls)",
-        "rust": "Rust (rust-analyzer)"
+        "rust": "Rust (rust-analyzer)",
+        "yaml": "YAML"
       },
       "lowMemory": "Memory saver",
       "lowMemoryDescription": "Runs one TypeScript server instead of two and stops installing library types for JavaScript. On a mid-sized project a workspace takes about 520 MB instead of 850 MB, and the first answer after opening a file comes about 0.5 s later. Changing it restarts the TypeScript servers.",
