@@ -41,7 +41,7 @@ mock.module("../../../../../src/renderer/state/workspace-cleanup", () => ({
   },
 }));
 
-const { initLspStatusSync } = await import(
+const { dismissLspFailureToast, initLspStatusSync } = await import(
   "../../../../../src/renderer/state/operations/lsp-status"
 );
 
@@ -109,5 +109,24 @@ describe("initLspStatusSync toasts", () => {
 
     emit(missing(LOCAL));
     expect(toasts).toHaveLength(2);
+  });
+
+  it("takes down a server's toast once its status popover opens, and only that one", () => {
+    const gaveUp = (workspaceId: string): LspServerStatus => ({
+      workspaceId,
+      languageId: "rust",
+      state: "failed",
+      gaveUp: true,
+      error: "crashed",
+    });
+    emit(gaveUp(REMOTE));
+    emit(gaveUp(LOCAL));
+
+    dismissLspFailureToast(LOCAL, "rust");
+    expect(dismissed).toEqual([1]);
+
+    // Opening it again takes nothing more down.
+    dismissLspFailureToast(LOCAL, "rust");
+    expect(dismissed).toEqual([1]);
   });
 });

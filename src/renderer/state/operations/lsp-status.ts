@@ -74,6 +74,19 @@ function dismissWorkspaceToasts(workspaceId: string): void {
   }
 }
 
+/**
+ * Takes down the toast about a server once its status popover opens: the
+ * popover says the same and offers the same actions, which the toast would
+ * cover.
+ */
+export function dismissLspFailureToast(workspaceId: string, languageId: string): void {
+  const key = lspStatusKey(workspaceId, languageId);
+  const toast = failureToasts.get(key);
+  if (toast === undefined) return;
+  dismissToast(toast.id);
+  failureToasts.delete(key);
+}
+
 function notify(status: LspServerStatus, previous: LspServerStatus | undefined): void {
   const workspace =
     useWorkspacesStore.getState().workspaces.find((w) => w.id === status.workspaceId)?.name ??

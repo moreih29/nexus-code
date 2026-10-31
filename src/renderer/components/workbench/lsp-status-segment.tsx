@@ -20,6 +20,7 @@ import {
 import { isLspLanguageOn, isLspLanguageOnForWorkspace } from "../../../shared/lsp/settings";
 import type { LspServerStatus } from "../../../shared/lsp/status";
 import { ipcCallResult } from "../../ipc/client";
+import { dismissLspFailureToast } from "../../state/operations/lsp-status";
 import { useLayoutStore } from "../../state/stores/layout";
 import { useLspLogViewerStore } from "../../state/stores/lsp-log-viewer";
 import { useLspSettingsStore } from "../../state/stores/lsp-settings";
@@ -171,6 +172,11 @@ function LspStatusPopover({
   const running = status?.state === "running";
 
   useDismissOnOutsideClick(wrapperRef, true, onClose);
+
+  // The server's failure toast says what this popover says, over its actions.
+  useEffect(() => {
+    dismissLspFailureToast(workspaceId, languageId);
+  }, [workspaceId, languageId]);
 
   // Asked once per opening: ps on macOS, a process walk on Windows.
   useEffect(() => {
