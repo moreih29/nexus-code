@@ -231,6 +231,9 @@ export function matchesKeyState(p: ParsedKeystroke, s: KeyChordState, isMac: boo
 }
 
 export function matchesEvent(p: ParsedKeystroke, e: KeyboardEvent, isMac: boolean): boolean {
+  // AltGr types a character in many layouts (AltGr+C is ć in Polish), and
+  // Windows reports it with Ctrl and Alt held: no shortcut takes it.
+  if (!isMac && e.getModifierState?.("AltGraph")) return false;
   return matchesKeyState(
     p,
     { code: e.code, meta: e.metaKey, ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey },
