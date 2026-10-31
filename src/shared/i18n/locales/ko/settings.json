@@ -416,7 +416,6 @@
     },
     "lowMemory": "메모리 절약 모드",
     "lowMemoryDescription": "메모리를 약 40% 덜 쓰고, 첫 응답이 조금 늦어집니다.",
-    "shellDescription": "shellcheck와 shfmt가 있으면 오류 표시와 서식 정리도 합니다.",
     "serverPath": "{{language}} 서버 경로",
     "serverPathPlaceholder": {
       "go": "~/go/bin/gopls",

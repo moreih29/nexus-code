@@ -416,7 +416,6 @@
     },
     "lowMemory": "Memory saver",
     "lowMemoryDescription": "Uses about 40% less memory; the first answer comes a little later.",
-    "shellDescription": "With shellcheck and shfmt installed, also checks errors and formats.",
     "serverPath": "{{language}} server path",
     "serverPathPlaceholder": {
       "go": "~/go/bin/gopls",
