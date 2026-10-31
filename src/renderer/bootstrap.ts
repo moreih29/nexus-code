@@ -39,6 +39,7 @@ import { useUIStore } from "./state/stores/ui";
 import { useUpdatesStore } from "./state/stores/updates";
 import { useInactivePanelDimStore } from "./state/stores/inactive-panel-dim";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
+import { visibleWorkspaces } from "./state/stores/workspaces";
 import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
 
 const log = createLogger("bootstrap");
@@ -198,6 +199,7 @@ export async function bootstrapAppState(): Promise<void> {
     fontLigatures: state.terminalFontLigatures,
     shell: state.terminalShell,
     customShells: state.terminalShells,
+    taskAgentCommand: state.taskAgentCommand,
   });
 
   // Another window changed the shells: take the saved list, so an edit made
@@ -300,10 +302,8 @@ export async function bootstrapWorkspaces(
   // Bootstrap is an initialization path — no recovery possible if workspace list is unavailable.
   const list = mustSucceed(await ipcCallResult("workspace", "list", undefined));
   setAll(list);
-  if (list.length > 0) {
-    const first = list[0];
-    setActiveWorkspaceId(first.id);
-  }
+  const first = visibleWorkspaces(list)[0];
+  if (first) setActiveWorkspaceId(first.id);
 }
 
 /**

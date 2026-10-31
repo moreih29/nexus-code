@@ -34,6 +34,14 @@ export function root(): string {
 }
 
 /**
+ * Returns the absolute path of ~/.nexus-code/worktrees, where tasks' git
+ * worktrees live.
+ */
+export function worktreesDir(): string {
+  return path.join(root(), "worktrees");
+}
+
+/**
  * Returns the absolute path of ~/.nexus-code/bin, the directory where
  * agent-managed executables (e.g. wrapper scripts) are installed at runtime.
  */

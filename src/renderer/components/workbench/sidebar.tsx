@@ -1,6 +1,7 @@
 import { Folder, GitBranch, Server, X } from "lucide-react";
 import React, { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { useShallow } from "zustand/shallow";
 import { LSP_FEATURE_ENABLED } from "../../../shared/lsp/feature-flag";
 import { Tooltip as RadixTooltip } from "radix-ui";
 import { cn } from "@/utils/cn";
@@ -10,7 +11,12 @@ import { UI_TOOLTIP_DELAY_MS } from "../../../shared/util/timing-constants";
 import { useLspEnabledStore } from "../../state/stores/lsp-enabled";
 import { useUIStore } from "../../state/stores/ui";
 import type { WorkspaceConnectionStatus } from "../../state/stores/workspaces";
-import { useWorkspacesStore } from "../../state/stores/workspaces";
+import {
+  rootWorkspaceId,
+  useWorkspacesStore,
+  visibleWorkspaces,
+} from "../../state/stores/workspaces";
+import type { StatusEntry } from "../../../shared/claude/status";
 import {
   ContextMenuContent,
   ContextMenuItems,
@@ -49,11 +55,15 @@ import { WorkspaceStatusGlyph } from "../sidebar/workspace-status-glyph";
 /** Languages for which a chip is rendered in the workspace row. */
 const CHIP_LANGUAGES: LspLanguageId[] = ["typescript", "python"];
 
+/** Stable empty task list, so a row without tasks keeps its props. */
+const NO_TASKS: readonly string[] = [];
+
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 
 interface SidebarProps {
+  /** All workspaces; a task is listed as part of its parent's row. */
   workspaces: WorkspaceMeta[];
   activeWorkspaceId: string | null;
   onSelectWorkspace: (id: string) => void;
@@ -67,6 +77,8 @@ interface SidebarProps {
 
 interface WorkspaceRowProps {
   ws: WorkspaceMeta;
+  /** The workspace's tasks, which the row stands for too. */
+  taskIds: readonly string[];
   isActive: boolean;
   isDragSource: boolean;
   enabledLanguages: LspLanguageId[];
@@ -92,6 +104,7 @@ interface WorkspaceRowProps {
  */
 function WorkspaceRow({
   ws,
+  taskIds,
   isActive,
   isDragSource,
   enabledLanguages,
@@ -126,8 +139,11 @@ function WorkspaceRow({
       })
     : null;
 
-  // Claude 세션 집계 상태 구독 — wsTabs slice만 구독해 thrashing 방지.
-  const wsTabs = useClaudeStatusStore((s) => s.byWorkspace[ws.id]);
+  // Claude 세션 집계 상태 구독 — 워크스페이스와 그 작업들의 slice만 구독해 thrashing 방지.
+  const statusSlices = useClaudeStatusStore(
+    useShallow((s) => [s.byWorkspace[ws.id], ...taskIds.map((id) => s.byWorkspace[id])]),
+  );
+  const wsTabs = useMemo(() => mergeStatusSlices(statusSlices), [statusSlices]);
   const aggregate = useMemo(() => {
     if (wsTabs === undefined) return null;
     return selectWorkspaceAggregateStatus(
@@ -189,17 +205,20 @@ function WorkspaceRow({
   // 로컬 store도 즉시 비워 IPC 왕복을 기다리지 않고 글리프가 곧바로 사라지게 한다.
   const { run: runResetStatus } = useIpcAction<void>({});
   function resetStatus() {
+    const workspaceIds = [ws.id, ...taskIds];
     // 즉시 로컬 인디케이터 제거 — main의 cleared broadcast와 멱등(idempotent).
-    useClaudeStatusStore.getState().clearWorkspace(ws.id);
+    for (const workspaceId of workspaceIds) {
+      useClaudeStatusStore.getState().clearWorkspace(workspaceId);
+    }
     runResetStatus(async (signal) => {
-      const result = await ipcCallResult(
-        "claude",
-        "clearWorkspace",
-        { workspaceId: ws.id },
-        { signal },
+      const results = await Promise.all(
+        workspaceIds.map((workspaceId) =>
+          ipcCallResult("claude", "clearWorkspace", { workspaceId }, { signal }),
+        ),
       );
-      if (!result.ok) {
-        const err = appErrorFailed(result.message);
+      const failed = results.find((result) => !result.ok);
+      if (failed && !failed.ok) {
+        const err = appErrorFailed(failed.message);
         surfaceError(err, { surface: "auto" });
         throw err;
       }
@@ -314,22 +333,32 @@ function WorkspaceRow({
                     ))}
                 </span>
 
-                {/* 3줄: branch — 있을 때만. GitBranch 아이콘으로 시각적 affordance. */}
-                {branchName && (
+                {/* 3줄: branch + 작업 수 — 있을 때만. GitBranch 아이콘으로 시각적 affordance. */}
+                {(branchName || taskIds.length > 0) && (
                   <span
                     className={cn(
                       "flex items-center gap-1 mt-0.5 text-app-micro min-w-0",
                       isActive ? "text-foreground/70" : "text-muted-foreground/70",
                     )}
                   >
-                    <GitBranch
-                      width={10}
-                      height={10}
-                      strokeWidth={1.5}
-                      aria-hidden="true"
-                      className="shrink-0"
-                    />
-                    <span className="truncate">{branchName}</span>
+                    {branchName && (
+                      <>
+                        <GitBranch
+                          width={10}
+                          height={10}
+                          strokeWidth={1.5}
+                          aria-hidden="true"
+                          className="shrink-0"
+                        />
+                        <span className="truncate">{branchName}</span>
+                      </>
+                    )}
+                    {taskIds.length > 0 && (
+                      <span className="shrink-0">
+                        {branchName && "· "}
+                        {t("sidebar.task_count", { count: taskIds.length })}
+                      </span>
+                    )}
                   </span>
                 )}
 
@@ -407,7 +436,7 @@ function WorkspaceRow({
 // ---------------------------------------------------------------------------
 
 export function Sidebar({
-  workspaces,
+  workspaces: allWorkspaces,
   activeWorkspaceId,
   onSelectWorkspace,
   onAddWorkspace,
@@ -416,6 +445,10 @@ export function Sidebar({
   const { t } = useTranslation();
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
   const connectionStatusByWorkspaceId = useWorkspacesStore((s) => s.connectionStatusByWorkspaceId);
+  const workspaces = useMemo(() => visibleWorkspaces(allWorkspaces), [allWorkspaces]);
+  const taskIdsByParent = useMemo(() => groupTaskIds(allWorkspaces), [allWorkspaces]);
+  // The row the active workspace belongs to.
+  const activeRowId = activeWorkspaceId && rootWorkspaceId(allWorkspaces, activeWorkspaceId);
   // Subscribe to enabled languages — re-renders chips on toggle.
   const lspByWorkspace = useLspEnabledStore((s) => s.byWorkspace);
 
@@ -547,7 +580,8 @@ export function Sidebar({
               <React.Fragment key={ws.id}>
                 <WorkspaceRow
                   ws={ws}
-                  isActive={ws.id === activeWorkspaceId}
+                  taskIds={taskIdsByParent.get(ws.id) ?? NO_TASKS}
+                  isActive={ws.id === activeRowId}
                   isDragSource={dragSourceId === ws.id}
                   enabledLanguages={lspByWorkspace[ws.id] ?? []}
                   rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
@@ -576,7 +610,8 @@ export function Sidebar({
               <React.Fragment key={ws.id}>
                 <WorkspaceRow
                   ws={ws}
-                  isActive={ws.id === activeWorkspaceId}
+                  taskIds={taskIdsByParent.get(ws.id) ?? NO_TASKS}
+                  isActive={ws.id === activeRowId}
                   isDragSource={dragSourceId === ws.id}
                   enabledLanguages={lspByWorkspace[ws.id] ?? []}
                   rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
@@ -686,6 +721,35 @@ function secondaryWorkspaceText(workspace: WorkspaceMeta): string {
       ? workspace.location.remotePath
       : workspace.rootPath;
   return path.split("/").filter(Boolean).slice(-2).join("/");
+}
+
+// ---------------------------------------------------------------------------
+// Tasks
+// ---------------------------------------------------------------------------
+
+/** The task ids of each workspace that has tasks. */
+function groupTaskIds(workspaces: readonly WorkspaceMeta[]): Map<string, string[]> {
+  const byParent = new Map<string, string[]>();
+  for (const workspace of workspaces) {
+    const parentId = workspace.task?.parentId;
+    if (parentId === undefined) continue;
+    const ids = byParent.get(parentId);
+    if (ids) ids.push(workspace.id);
+    else byParent.set(parentId, [workspace.id]);
+  }
+  return byParent;
+}
+
+/**
+ * Merges the Claude status records of a workspace and its tasks into one,
+ * keyed by tab id. Undefined when none of them has a record.
+ */
+export function mergeStatusSlices(
+  slices: readonly (Record<string, StatusEntry> | undefined)[],
+): Record<string, StatusEntry> | undefined {
+  const present = slices.filter((slice) => slice !== undefined);
+  if (present.length <= 1) return present[0];
+  return Object.assign({}, ...present);
 }
 
 // ---------------------------------------------------------------------------

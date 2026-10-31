@@ -13,6 +13,7 @@
 //   - fontLigatures: token fallback = false
 //   - shell:         fallback = the system default shell (resolved in main)
 //   - customShells:  the shells the user added, besides the detected ones
+//   - taskAgentCommand: fallback = "claude"; what a new task's terminal runs
 //
 // fontFamily/fontLigatures are INDEPENDENT of the editor font store — the
 // terminal owns its own typeface preferences.
@@ -52,6 +53,8 @@ interface TerminalSettingsState {
   shell: ShellChoice | undefined;
   /** Shells the user added in Settings › Terminal; main reads them at each spawn. */
   customShells: CustomShell[];
+  /** What a new task's terminal runs; see `resolvedTaskAgentCommand`. */
+  taskAgentCommand: string | undefined;
 
   /** Hydrate from persisted appState — called once during bootstrap. */
   hydrate(values: {
@@ -61,6 +64,7 @@ interface TerminalSettingsState {
     fontLigatures?: boolean | undefined;
     shell?: ShellChoice | undefined;
     customShells?: CustomShell[] | undefined;
+    taskAgentCommand?: string | undefined;
   }): void;
 
   /**
@@ -109,6 +113,9 @@ interface TerminalSettingsState {
    * Persists to appState + dispatches 'nexus:terminal-settings-changed'.
    */
   setFontLigatures(value: boolean | undefined): void;
+
+  /** Set what a new task's terminal runs. Persists to appState. */
+  setTaskAgentCommand(value: string | undefined): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -143,8 +150,17 @@ export const useTerminalStore = create<TerminalSettingsState>((set, get) => {
     fontLigatures: undefined,
     shell: undefined,
     customShells: [],
+    taskAgentCommand: undefined,
 
-    hydrate({ fontSize, cursorStyle, fontFamily: family, fontLigatures, shell, customShells }) {
+    hydrate({
+      fontSize,
+      cursorStyle,
+      fontFamily: family,
+      fontLigatures,
+      shell,
+      customShells,
+      taskAgentCommand,
+    }) {
       set({
         fontSize,
         cursorStyle,
@@ -152,6 +168,7 @@ export const useTerminalStore = create<TerminalSettingsState>((set, get) => {
         fontLigatures,
         shell,
         customShells: customShells ?? [],
+        taskAgentCommand,
       });
     },
 
@@ -231,6 +248,16 @@ export const useTerminalStore = create<TerminalSettingsState>((set, get) => {
 
       dispatchSettingsChanged();
     },
+
+    setTaskAgentCommand(value) {
+      set({ taskAgentCommand: value });
+
+      void ipcCallResult("appState", "set", {
+        taskAgentCommand: value,
+      }).then((result) => {
+        if (!result.ok) log.warn(`appState set (taskAgentCommand) failed: ${result.message}`);
+      });
+    },
   };
 });
 
@@ -261,6 +288,15 @@ export function resolvedTerminalFontFamily(): string {
     return `"${family}", ${fontFamily.monoDisplay}`;
   }
   return fontFamily.monoDisplay;
+}
+
+/** What a new task's terminal runs when the setting is unset. */
+export const DEFAULT_TASK_AGENT_COMMAND = "claude";
+
+/** Resolve what a new task's terminal runs; empty means nothing. */
+export function resolvedTaskAgentCommand(): string {
+  const { taskAgentCommand } = useTerminalStore.getState();
+  return (taskAgentCommand ?? DEFAULT_TASK_AGENT_COMMAND).trim();
 }
 
 /** Resolve the effective ligatures toggle: store value or fallback false. */

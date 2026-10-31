@@ -41,6 +41,20 @@ export const WorkspaceLocationSchema = z.union([
 
 export type WorkspaceLocation = z.infer<typeof WorkspaceLocationSchema>;
 
+/**
+ * A task: a workspace on a git worktree of another workspace's repository,
+ * with its own branch. The sidebar shows only its parent; the task is
+ * switched to from inside the parent.
+ */
+export const WorkspaceTaskSchema = z.object({
+  parentId: z.string().uuid(),
+  branch: z.string().min(1),
+  /** The worktree's top folder; the task opens the parent's subfolder of it. */
+  worktreePath: z.string().min(1),
+});
+
+export type WorkspaceTask = z.infer<typeof WorkspaceTaskSchema>;
+
 export const WorkspaceConnectionEventStatusSchema = z.enum([
   "connecting",
   "connected",
@@ -194,6 +208,8 @@ export const WorkspaceMetaSchema = z.preprocess(
     sortOrder: z.number().int(),
     /** Sort position within the pinned group. 0 means "not yet positioned". */
     pinnedSortOrder: z.number().int(),
+    /** Set when this workspace is a task of another workspace. */
+    task: WorkspaceTaskSchema.optional(),
   }),
 );
 

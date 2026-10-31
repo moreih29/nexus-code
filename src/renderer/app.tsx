@@ -1,5 +1,5 @@
 import { useMonaco } from "@monaco-editor/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createLogger } from "../shared/log/renderer";
 import type { WorkspaceMeta } from "../shared/types/workspace";
@@ -46,7 +46,12 @@ import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
 import { useInactivePanelDimStore } from "./state/stores/inactive-panel-dim";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
-import { useWorkspacesStore } from "./state/stores/workspaces";
+import {
+  rootWorkspaceId,
+  tasksOf,
+  useWorkspacesStore,
+  visibleWorkspaces,
+} from "./state/stores/workspaces";
 
 const log = createLogger("app");
 
@@ -300,10 +305,23 @@ export function App() {
     });
   }, [workspaces]);
 
-  // When the active workspace disappears (deleted, etc.), fall back to the next one or null.
+  // The parent of the active workspace while it is a task: where removing
+  // the task leaves the user.
+  const activeParentIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const active = workspaces.find((w) => w.id === activeWorkspaceId);
+    if (active) activeParentIdRef.current = active.task?.parentId ?? null;
+  }, [workspaces, activeWorkspaceId]);
+
+  // When the active workspace disappears (deleted, etc.), fall back to its
+  // parent for a task, else to the first workspace, or null.
   useEffect(() => {
     if (activeWorkspaceId && !workspaces.some((w) => w.id === activeWorkspaceId)) {
-      const next = workspaces[0]?.id ?? null;
+      const parentId = activeParentIdRef.current;
+      const next =
+        (parentId !== null && workspaces.some((w) => w.id === parentId)
+          ? parentId
+          : visibleWorkspaces(workspaces)[0]?.id) ?? null;
       setActiveWorkspaceId(next);
       if (next) {
         // Fire-and-forget: UI is already updated; notify main of workspace switch.
@@ -316,13 +334,22 @@ export function App() {
 
   const handleSelectWorkspace = useCallback(
     (id: string) => {
+      // The sidebar row stands for the workspace and its tasks; clicking the
+      // row the active task belongs to keeps that task.
+      if (
+        activeWorkspaceId !== null &&
+        activeWorkspaceId !== id &&
+        rootWorkspaceId(workspaces, activeWorkspaceId) === id
+      ) {
+        return;
+      }
       setActiveWorkspaceId(id);
       // Fire-and-forget: UI is already updated; notify main of workspace switch.
       void ipcCallResult("workspace", "activate", { id }).then((result) => {
         if (!result.ok) log.warn(`workspace activate failed: ${result.message}`);
       });
     },
-    [setActiveWorkspaceId],
+    [workspaces, activeWorkspaceId, setActiveWorkspaceId],
   );
 
   const handleAddWorkspace = useCallback(() => {
@@ -349,7 +376,13 @@ export function App() {
     async (id: string) => {
       const target = workspaces.find((w) => w.id === id);
       const name = target?.name ?? "this workspace";
-      const confirmed = await showRemoveWorkspaceConfirm(name, countUnsavedBuffers(id));
+      // Its tasks go with it, unsaved edits included.
+      const tasks = tasksOf(workspaces, id);
+      const unsaved = [id, ...tasks.map((task) => task.id)].reduce(
+        (sum, workspaceId) => sum + countUnsavedBuffers(workspaceId),
+        0,
+      );
+      const confirmed = await showRemoveWorkspaceConfirm(name, unsaved, tasks.length);
       if (!confirmed) return;
       // tabs store subscribes to `workspace:removed` and clears its slice;
       // that tab-record cleanup kills PTYs before panel unmount disposes views.

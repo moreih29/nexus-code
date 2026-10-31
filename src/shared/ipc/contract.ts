@@ -587,6 +587,28 @@ export const ipcContract = {
     },
   },
 
+  /**
+   * Tasks: workspaces on git worktrees of another workspace (see
+   * WorkspaceTaskSchema). Their changes arrive as workspace events.
+   *
+   * Expected failures come back as IpcResult errors: a GitError as
+   * "git-error", or one of TaskErrorKind ("not-found", "not-a-repo",
+   * "not-connected", "invalid-name", "worktree-dirty").
+   */
+  task: {
+    call: {
+      create: call(
+        z.object({ parentId: WorkspaceIdPrimitive, name: z.string().trim().min(1).max(100) }),
+        WorkspaceMetaSchema,
+      ),
+      remove: call(
+        z.object({ id: WorkspaceIdPrimitive, force: z.boolean(), deleteBranch: z.boolean() }),
+        z.void(),
+      ),
+    },
+    listen: {},
+  },
+
   tab: {
     call: {
       create: call(

@@ -111,6 +111,10 @@ export const AppStateSchema = z.object({
   // Shells the user added in Settings › Terminal, besides the detected ones.
   terminalShells: z.array(CustomShellSchema).max(64).optional(),
 
+  // The command a new task's terminal runs, with the task's first prompt as
+  // its argument; absent = "claude", empty = run nothing.
+  taskAgentCommand: z.string().max(1024).optional(),
+
   // Update channel — "stable" follows non-prerelease tags only; "beta" also
   // includes prerelease tags (e.g. v1.2.0-beta.1).  Defaults to "stable".
   updateChannel: z.enum(["stable", "beta"]).default("stable"),

@@ -24,6 +24,12 @@ func TestMain(m *testing.M) {
 	}
 	os.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	// No automatic maintenance either: git runs it in the background after
+	// a commit, and its lock files come and go in a template's .git while
+	// fromTemplate copies it.
+	os.Setenv("GIT_CONFIG_COUNT", "1")
+	os.Setenv("GIT_CONFIG_KEY_0", "maintenance.auto")
+	os.Setenv("GIT_CONFIG_VALUE_0", "false")
 	code := m.Run()
 	if templates.root != "" {
 		_ = os.RemoveAll(templates.root)

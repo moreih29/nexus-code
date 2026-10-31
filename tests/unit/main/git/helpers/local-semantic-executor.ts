@@ -23,6 +23,7 @@ import {
 } from "../../../../../src/shared/git/types";
 import type {
   GitBlobOptions,
+  GitBranchDeleteOptions,
   GitCommitDetailOptions,
   GitDiffOptions,
   GitExecutor,
@@ -204,6 +205,11 @@ export function localSemanticExecutor(bin: string, gitDirHint?: string): GitExec
           : ["push"];
       await runLocal({ cwd: options.cwd, args, signal: options.signal });
       return { pushed: true };
+    },
+
+    async branchDelete(options: GitBranchDeleteOptions): Promise<void> {
+      const args = ["branch", options.force ? "-D" : "-d", "--", options.name];
+      await runLocal({ cwd: options.cwd, args, signal: options.signal });
     },
   };
 }

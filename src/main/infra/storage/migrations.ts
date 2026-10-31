@@ -253,6 +253,16 @@ export const MIGRATIONS: Migration[] = [
       txn();
     },
   },
+  // Tasks: a workspace on a git worktree of another workspace keeps its
+  // parent and branch here, as JSON. NULL for ordinary workspaces.
+  {
+    version: 7,
+    up: (db) => {
+      if (!hasColumn(db, "workspaces", "task")) {
+        db.exec("ALTER TABLE workspaces ADD COLUMN task TEXT NULL;");
+      }
+    },
+  },
 ];
 
 export function applyMigrations(db: SqliteDb): void {
