@@ -28,10 +28,12 @@ class LifecycleTestChannel implements AgentChannel {
   readonly ready = Promise.resolve();
   readonly eventListeners = new Map<string, Set<ChannelEventCallback>>();
   readonly lifecycleListeners = new Set<ChannelLifecycleCallback>();
+  readonly calls: string[] = [];
 
-  constructor(public readonly serverId = "srv-lifecycle-degraded") {}
+  constructor(public serverId = "srv-lifecycle-degraded") {}
 
   async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
+    this.calls.push(method);
     if (method === "lsp.spawn") {
       const correlationId = (params as { correlationId?: string } | undefined)?.correlationId;
       this.emit("lsp.serverAssigned", {
@@ -107,6 +109,8 @@ async function bootHostWithServer() {
   const host = startAgentLspHost({ getAgentChannel: async () => channel });
   const emitted: unknown[] = [];
   host.on("diagnostics", (args) => emitted.push(args));
+  const resets: unknown[] = [];
+  host.on("workspaceLspReset", (args) => resets.push(args));
 
   const uri = "file:///tmp/ws/lifecycle-degraded.py";
   await host.call("didOpen", {
@@ -118,7 +122,7 @@ async function bootHostWithServer() {
     text: "x = 1\n",
   });
 
-  return { channel, host, emitted, uri };
+  return { channel, host, emitted, resets, uri };
 }
 
 /** Steps fake time past the diagnostics debounce so each emit is leading-edge. */
@@ -212,6 +216,63 @@ describe("LSP lifecycle: health signals must not dispose server records", () => 
 
     expect(channel.lifecycleListeners.size).toBe(1);
     expect(channel.eventListeners.get("lsp.message")?.size).toBe(1);
+    host.dispose();
+  });
+});
+
+describe("LSP lifecycle: an agent restart takes its servers with it", () => {
+  test("reconnecting without an epoch drops the servers and resets the documents", async () => {
+    const { channel, host, emitted, resets, uri } = await bootHostWithServer();
+
+    channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: false });
+    channel.emitDiagnostics(uri, 1);
+
+    expect(emitted).toHaveLength(0);
+    expect(resets).toEqual([
+      { workspaceId: WORKSPACE_ID, languageId: "python", reason: "agent restarted" },
+    ]);
+    // The new agent never ran the old server.
+    expect(channel.calls).not.toContain("lsp.shutdown");
+    host.dispose();
+  });
+
+  test("the next open spawns a server on the new agent", async () => {
+    const { channel, host, uri } = await bootHostWithServer();
+
+    channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: false });
+    channel.serverId = "srv-after-restart";
+    await host.call("didOpen", {
+      workspaceId: WORKSPACE_ID,
+      workspaceRoot: "/tmp/ws",
+      uri,
+      languageId: "python",
+      version: 1,
+      text: "x = 1\n",
+    });
+
+    expect(channel.calls.filter((method) => method === "lsp.spawn")).toHaveLength(2);
+    host.dispose();
+  });
+
+  test("reconnecting with an epoch keeps the servers: the daemon may have survived", async () => {
+    const { channel, host, emitted, resets, uri } = await bootHostWithServer();
+
+    channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
+    channel.emitDiagnostics(uri, 1);
+
+    expect(emitted).toHaveLength(1);
+    expect(resets).toHaveLength(0);
+    host.dispose();
+  });
+
+  test("held-then-expired resets the documents too", async () => {
+    const { channel, host, resets } = await bootHostWithServer();
+
+    channel.emitLifecycle({ type: "held-then-expired", previousEpoch: 1, newEpoch: 2 });
+
+    expect(resets).toEqual([
+      { workspaceId: WORKSPACE_ID, languageId: "python", reason: "agent replaced" },
+    ]);
     host.dispose();
   });
 });
