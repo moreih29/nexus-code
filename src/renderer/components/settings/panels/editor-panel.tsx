@@ -297,6 +297,9 @@ export function EditorPanel() {
 const LSP_LANGUAGE_ROWS: readonly BuiltinLspPresetLanguageId[] = [
   "typescript",
   "python",
+  "yaml",
+  "shell",
+  "dockerfile",
   "go",
   "rust",
 ];
@@ -393,6 +396,11 @@ function LanguageServerRow({
             {t("editor.lsp.lowMemoryDescription")}
           </p>
         </div>
+      )}
+      {languageId === "shell" && on && (
+        <p className="pl-6 text-app-ui-sm text-muted-foreground">
+          {t("editor.lsp.shellDescription")}
+        </p>
       )}
       {preset?.system && on && (
         <ServerPathField

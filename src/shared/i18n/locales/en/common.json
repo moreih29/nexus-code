@@ -380,7 +380,10 @@
       "typescript": "TypeScript",
       "python": "Python",
       "go": "Go",
-      "rust": "Rust"
+      "rust": "Rust",
+      "yaml": "YAML",
+      "shell": "Bash",
+      "dockerfile": "Dockerfile"
     },
     "serverMessage": "{{language}}: {{message}}",
     "gaveUp": "The {{language}} language server of {{workspace}} failed again and again and was stopped.",

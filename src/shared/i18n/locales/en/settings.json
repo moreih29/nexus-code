@@ -193,7 +193,10 @@
         "typescript": "TypeScript · JavaScript",
         "python": "Python",
         "go": "Go (gopls)",
-        "rust": "Rust (rust-analyzer)"
+        "rust": "Rust (rust-analyzer)",
+        "yaml": "YAML",
+        "shell": "Bash",
+        "dockerfile": "Dockerfile"
       },
       "lowMemory": "Memory saver",
       "lowMemoryDescription": "Runs one TypeScript server instead of two and stops installing library types for JavaScript. On a mid-sized project a workspace takes about 520 MB instead of 850 MB, and the first answer after opening a file comes about 0.5 s later. Changing it restarts the TypeScript servers.",
@@ -205,7 +208,8 @@
         "rust": "Empty: searched for on the PATH and in ~/.cargo/bin"
       },
       "serverPathDescription": "Uses a server you installed. For a remote workspace it is looked for on that host. ~ is your home directory.",
-      "install": "Install:"
+      "install": "Install:",
+      "shellDescription": "Errors need shellcheck, and formatting shfmt, installed on the workspace's host."
     }
   },
   "terminal": {

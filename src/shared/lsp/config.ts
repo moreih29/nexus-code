@@ -43,6 +43,26 @@ export const BUILTIN_LSP_PRESETS = [
     },
   },
   {
+    // Schemas come from the files' own `# yaml-language-server: $schema=`
+    // lines and from SchemaStore, which the server fetches by file name
+    // (GitHub workflows, docker-compose, …).
+    languageId: "yaml",
+    binary: "yaml-language-server",
+    args: ["--stdio"],
+  },
+  {
+    // Errors come from shellcheck and formatting from shfmt, when the
+    // workspace's host has them on its PATH.
+    languageId: "shell",
+    binary: "bash-language-server",
+    args: ["start"],
+  },
+  {
+    languageId: "dockerfile",
+    binary: "docker-langserver",
+    args: ["--stdio"],
+  },
+  {
     languageId: "go",
     binary: "gopls",
     args: [],
@@ -80,6 +100,8 @@ export const LSP_LANGUAGE_PRESET_ALIASES = {
   javascript: "typescript",
   typescriptreact: "typescript",
   javascriptreact: "typescript",
+  // What lspLanguageIdForUri sends for Monaco's "shell".
+  shellscript: "shell",
 } as const satisfies Record<string, BuiltinLspPresetLanguageId>;
 
 export type LspLanguagePresetAlias = keyof typeof LSP_LANGUAGE_PRESET_ALIASES;
@@ -124,13 +146,25 @@ const LSP_PRESET_EXTENSIONS: Record<string, BuiltinLspPresetLanguageId> = {
   cjs: "typescript",
   py: "python",
   pyi: "python",
+  yaml: "yaml",
+  yml: "yaml",
+  sh: "shell",
+  bash: "shell",
+  dockerfile: "dockerfile",
   go: "go",
   rs: "rust",
+};
+
+/** Files a preset serves by their whole name, lowercased, as Monaco assigns them. */
+const LSP_PRESET_FILENAMES: Record<string, BuiltinLspPresetLanguageId> = {
+  dockerfile: "dockerfile",
 };
 
 /** The preset serving a file, by its extension; null when none does. */
 export function lspPresetLanguageIdForPath(filePath: string): BuiltinLspPresetLanguageId | null {
   const name = filePath.slice(filePath.search(/[^/\\]*$/));
+  const byName = LSP_PRESET_FILENAMES[name.toLowerCase()];
+  if (byName) return byName;
   const dot = name.lastIndexOf(".");
   if (dot <= 0) return null;
   return LSP_PRESET_EXTENSIONS[name.slice(dot + 1).toLowerCase()] ?? null;
@@ -170,5 +204,7 @@ export function lspLanguageIdForUri(monacoLanguageId: string, uri: string): stri
   ) {
     return "javascriptreact";
   }
+  // Monaco's "shell" is LSP's "shellscript".
+  if (monacoLanguageId === "shell") return "shellscript";
   return monacoLanguageId;
 }
