@@ -49,8 +49,8 @@ export function installEditorIntegrations({
     sourceEditor: editor,
   });
   const openerDisposable = installEditorOpener(monaco, {
-    openCodeEditor: (source: Monaco.editor.ICodeEditor, resource: Monaco.Uri) =>
-      opener.openCodeEditor(source, resource),
+    openCodeEditor: (source, resource, selectionOrPosition) =>
+      opener.openCodeEditor(source, resource, selectionOrPosition),
   });
 
   installEditorSaveAction(editor, input);

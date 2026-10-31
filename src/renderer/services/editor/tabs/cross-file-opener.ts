@@ -1,21 +1,32 @@
+import type { MonacoRange } from "../../../../shared/editor/monaco-range";
 import { isWithinWorkspace } from "../../../utils/path";
 import { cacheUriToFilePath } from "../model/cache";
-import { openOrRevealEditor } from "./open-editor";
 import { openExternalEditor } from "./open-external-editor";
+import { revealEditorAt } from "./reveal-editor-at";
 
 export interface ResourceUriLike {
   toString(): string;
 }
 
+/** Where Monaco wants the opened file's cursor: a range or a position. */
+export type SelectionOrPosition = MonacoRange | { lineNumber: number; column: number };
+
 export interface CrossFileOpenCodeEditorOpener {
-  openCodeEditor(source: unknown, resource: ResourceUriLike): boolean;
+  openCodeEditor(
+    source: unknown,
+    resource: ResourceUriLike,
+    selectionOrPosition?: SelectionOrPosition,
+  ): boolean;
 }
 
 export interface CreateCrossFileOpenCodeEditorOpenerInput {
   getWorkspaceId: () => string;
   getWorkspaceRoot: () => string | null;
   sourceEditor: unknown;
-  openEditor?: (input: { workspaceId: string; filePath: string }) => unknown;
+  openEditor?: (
+    input: { workspaceId: string; filePath: string },
+    selection?: MonacoRange,
+  ) => unknown;
   openExternal?: (input: { workspaceId: string; filePath: string }) => unknown;
   uriToFilePath?: (cacheUri: string) => string | null;
 }
@@ -56,16 +67,27 @@ function sourceModelUri(source: unknown): string | null {
   }
 }
 
+function toRange(target: SelectionOrPosition | undefined): MonacoRange | undefined {
+  if (!target || !("lineNumber" in target)) return target;
+  const { lineNumber, column } = target;
+  return {
+    startLineNumber: lineNumber,
+    startColumn: column,
+    endLineNumber: lineNumber,
+    endColumn: column,
+  };
+}
+
 export function createCrossFileOpenCodeEditorOpener({
   getWorkspaceId,
   getWorkspaceRoot,
   sourceEditor,
-  openEditor = openOrRevealEditor,
+  openEditor = (input, selection) => revealEditorAt(input, { selection }),
   openExternal = openExternalEditor,
   uriToFilePath = cacheUriToFilePath,
 }: CreateCrossFileOpenCodeEditorOpenerInput): CrossFileOpenCodeEditorOpener {
   return {
-    openCodeEditor(source, resource) {
+    openCodeEditor(source, resource, selectionOrPosition) {
       if (source !== sourceEditor) return false;
 
       const resourceUri = resourceToString(resource);
@@ -80,7 +102,8 @@ export function createCrossFileOpenCodeEditorOpener({
       const workspaceRoot = getWorkspaceRoot();
 
       if (workspaceRoot !== null && isWithinWorkspace(filePath, workspaceRoot)) {
-        openEditor({ workspaceId, filePath });
+        // Go to Definition and the like land on the symbol, not line 1.
+        openEditor({ workspaceId, filePath }, toRange(selectionOrPosition));
       } else {
         // Fire-and-forget: Monaco requires a synchronous boolean return.
         openExternal({ workspaceId, filePath });

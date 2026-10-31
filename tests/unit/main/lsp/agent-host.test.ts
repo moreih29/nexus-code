@@ -623,6 +623,38 @@ describe("AgentLspHostHandle", () => {
     expect(hoverAfterExit).toBeNull();
   });
 
+  test("tells apart servers that two workspaces' agents number alike", async () => {
+    // Each local workspace has its own agent, and each agent numbers its
+    // servers from one: both of these call theirs srv-1.
+    const channels = new Map([
+      ["11111111-1111-4111-8111-11111111111a", new FakeAgentChannel()],
+      ["11111111-1111-4111-8111-11111111111b", new FakeAgentChannel()],
+    ]);
+    const host = startAgentLspHost({
+      getAgentChannel: async (workspaceId) => channels.get(workspaceId) as FakeAgentChannel,
+    });
+    for (const workspaceId of channels.keys()) {
+      await host.call("didOpen", {
+        workspaceId,
+        workspaceRoot: "/tmp/ws",
+        uri: URI,
+        languageId: "python",
+        version: 1,
+        text: "print(1)\n",
+      });
+    }
+
+    const hovers = [...channels.keys()].map((workspaceId) =>
+      host.call("hover", { workspaceId, uri: URI, line: 0, character: 1 }),
+    );
+    const timeout = new Promise((resolve) => setTimeout(() => resolve("timed out"), 1000));
+
+    expect(await Promise.race([Promise.all(hovers), timeout])).toEqual([
+      { contents: "agent hover" },
+      { contents: "agent hover" },
+    ]);
+  });
+
   test("has the renderer reopen its documents on the next server when one exits", async () => {
     const channel = new FakeAgentChannel();
     const host = startAgentLspHost({ getAgentChannel: async () => channel });

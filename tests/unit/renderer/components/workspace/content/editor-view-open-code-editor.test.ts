@@ -52,11 +52,37 @@ describe("createCrossFileOpenCodeEditorOpener", () => {
 
     expect(handled).toBe(true);
     expect(openEditor).toHaveBeenCalledTimes(1);
-    expect(openEditor).toHaveBeenCalledWith({
-      workspaceId: WORKSPACE_A,
-      filePath: "/repo/src/target file.ts",
-    });
+    expect(openEditor).toHaveBeenCalledWith(
+      {
+        workspaceId: WORKSPACE_A,
+        filePath: "/repo/src/target file.ts",
+      },
+      undefined,
+    );
     expect(openExternal).not.toHaveBeenCalled();
+  });
+
+  test("puts the cursor where Monaco asks, as Go to Definition does", () => {
+    const source = sourceEditor(cacheUri(WORKSPACE_A, "/repo/src/source.ts"));
+    const openEditor = mock(
+      (_input: { workspaceId: string; filePath: string }, _selection?: unknown) => {},
+    );
+    const opener = createCrossFileOpenCodeEditorOpener({
+      getWorkspaceId: () => WORKSPACE_A,
+      getWorkspaceRoot: () => "/repo",
+      sourceEditor: source,
+      openEditor,
+    });
+    const target = resource(cacheUri(WORKSPACE_A, "/repo/src/target.ts"));
+    const range = { startLineNumber: 262, startColumn: 7, endLineNumber: 262, endColumn: 18 };
+
+    opener.openCodeEditor(source, target, range);
+    opener.openCodeEditor(source, target, { lineNumber: 40, column: 3 });
+
+    expect(openEditor.mock.calls.map((call) => call[1])).toEqual([
+      range,
+      { startLineNumber: 40, startColumn: 3, endLineNumber: 40, endColumn: 3 },
+    ]);
   });
 
   test("ignores non-workspace URI resources", () => {
