@@ -1,27 +1,23 @@
 /**
  * Paths on the command line, read as the workspace's host spells them:
- * Windows paths for a local workspace on Windows, POSIX paths otherwise.
+ * Windows paths for a workspace whose root is a Windows path, POSIX paths
+ * otherwise.
  */
 import path from "node:path";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { type CliContext, CliError } from "./context";
 
-function hostPath(workspace: WorkspaceMeta, platform: NodeJS.Platform): path.PlatformPath {
-  return workspace.location.kind === "local" && platform === "win32" ? path.win32 : path.posix;
+function hostPath(workspace: WorkspaceMeta): path.PlatformPath {
+  return /^(?:[A-Za-z]:[\\/]|\\\\)/.test(workspace.rootPath) ? path.win32 : path.posix;
 }
 
 /**
  * Where `input` points, made absolute: from the caller's directory in its own
  * workspace, from the root in another.
  */
-export function absolutePath(
-  ctx: CliContext,
-  workspace: WorkspaceMeta,
-  input: string,
-  platform: NodeJS.Platform = process.platform,
-): string {
+export function absolutePath(ctx: CliContext, workspace: WorkspaceMeta, input: string): string {
   const base = workspace.id === ctx.caller.workspaceId ? ctx.invocation.cwd : workspace.rootPath;
-  return hostPath(workspace, platform).resolve(base, input);
+  return hostPath(workspace).resolve(base, input);
 }
 
 /** A file of a workspace: its path from the root, with "/", and as the editor names it. */
@@ -35,10 +31,9 @@ export function workspaceFile(
   ctx: CliContext,
   workspace: WorkspaceMeta,
   input: string,
-  platform: NodeJS.Platform = process.platform,
 ): WorkspaceFile {
-  const p = hostPath(workspace, platform);
-  const rel = p.relative(workspace.rootPath, absolutePath(ctx, workspace, input, platform));
+  const p = hostPath(workspace);
+  const rel = p.relative(workspace.rootPath, absolutePath(ctx, workspace, input));
   if (rel === "" || rel === ".." || rel.startsWith(`..${p.sep}`) || p.isAbsolute(rel)) {
     throw new CliError(`${input} is not a file inside ${workspace.name} (${workspace.rootPath})`);
   }

@@ -21,21 +21,21 @@ function windowsApp(cwd: string): { ctx: CliContext; workspace: WorkspaceMeta } 
 
 test("a Windows path is read from the caller's directory, case aside", () => {
   const { ctx, workspace } = windowsApp("c:\\W\\App\\src");
-  expect(workspaceFile(ctx, workspace, "login.ts", "win32")).toEqual({
+  expect(workspaceFile(ctx, workspace, "login.ts")).toEqual({
     relPath: "src/login.ts",
     filePath: "C:\\w\\app/src/login.ts",
   });
-  expect(workspaceFile(ctx, workspace, "C:\\w\\app\\README.md", "win32").relPath).toBe("README.md");
+  expect(workspaceFile(ctx, workspace, "C:\\w\\app\\README.md").relPath).toBe("README.md");
 });
 
 test("a Windows path outside the workspace is refused", () => {
   const { ctx, workspace } = windowsApp("C:\\w\\app");
-  expect(() => workspaceFile(ctx, workspace, "D:\\other.ts", "win32")).toThrow(
+  expect(() => workspaceFile(ctx, workspace, "D:\\other.ts")).toThrow(
     "D:\\other.ts is not a file inside app (C:\\w\\app)",
   );
 });
 
-test("an SSH workspace's paths are POSIX paths on any platform", () => {
+test("a POSIX root's paths are POSIX paths on any platform", () => {
   const ctx = contextFor(fakeApp(), [], undefined, { cwd: "/srv/app/src" });
   const workspace = {
     id: APP,
@@ -43,7 +43,7 @@ test("an SSH workspace's paths are POSIX paths on any platform", () => {
     rootPath: "/srv/app",
     location: { kind: "ssh", host: "box", remotePath: "/srv/app" },
   } as WorkspaceMeta;
-  expect(workspaceFile(ctx, workspace, "a.ts", "win32").relPath).toBe("src/a.ts");
+  expect(workspaceFile(ctx, workspace, "a.ts").relPath).toBe("src/a.ts");
 });
 
 test.each([
