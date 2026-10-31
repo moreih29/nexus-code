@@ -376,8 +376,41 @@
     "close_running_confirm": "Terminate"
   },
   "lsp": {
-    "on": "{{label}} LSP: On — click to disable",
-    "off": "{{label}} LSP: Off — click to enable"
+    "language": {
+      "typescript": "TypeScript",
+      "python": "Python"
+    },
+    "serverMessage": "{{language}}: {{message}}",
+    "gaveUp": "The {{language}} language server of {{workspace}} failed again and again and was stopped.",
+    "evicted": "Stopped the language servers of {{workspace}}: more than {{count}} workspaces were running them. They start again when you return to it.",
+    "segmentTitle": "{{language}} language server: {{state}}",
+    "menuTitle": "{{language}} language server",
+    "state": {
+      "off": "Off",
+      "notStarted": "Not started",
+      "starting": "Starting…",
+      "working": "Working",
+      "running": "Running",
+      "failed": "Failed",
+      "stopped": {
+        "idle": "Stopped — unused for a while",
+        "evicted": "Stopped — too many workspaces running",
+        "off": "Off",
+        "restart": "Restarting…",
+        "agent": "Stopped — lost the workspace connection",
+        "crashed": "Crashed — restarting…"
+      }
+    },
+    "memory": "{{size}} of memory",
+    "restart": "Restart",
+    "turnOffHere": "Turn off in this workspace",
+    "turnOnHere": "Turn on in this workspace",
+    "showLog": "Show log",
+    "openSettings": "Language server settings",
+    "logTitle": "{{language}} language server log — {{workspace}}",
+    "logEmpty": "Nothing logged yet.",
+    "copyLog": "Copy",
+    "preparing": "The {{language}} language server is getting ready…"
   },
   "claudeStatus": {
     "running": "Claude: running",

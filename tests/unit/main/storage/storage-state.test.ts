@@ -158,19 +158,17 @@ describe("StateService", () => {
 
   it("drops only the invalid entries of a record field", () => {
     const filePath = path.join(tmpDir, "state.json");
-    const good = "11111111-1111-4111-8111-111111111111";
-    const bad = "22222222-2222-4222-8222-222222222222";
     fs.writeFileSync(
       filePath,
       JSON.stringify({
-        lspEnabledLanguagesByWorkspace: { [good]: ["typescript"], [bad]: ["cobol"] },
+        lspLanguages: { typescript: { lowMemory: true }, python: { enabled: "no" } },
       }),
       "utf8",
     );
 
     const state = new StateService(filePath).getState();
 
-    expect(state.lspEnabledLanguagesByWorkspace).toEqual({ [good]: ["typescript"] });
+    expect(state.lspLanguages).toEqual({ typescript: { lowMemory: true } });
   });
 
   it("backs up a state file that is not valid JSON", () => {

@@ -19,6 +19,7 @@ import { WorkspaceSymbolPaletteRoot } from "./symbol-palette/workspace-symbol-pa
 import { ConfirmDialogRoot } from "./ui/confirm-dialog";
 import { PermissionPromptRoot } from "./ui/permission-prompt-dialog";
 import { ToastRoot } from "./ui/toast";
+import { LspLogDialogRoot } from "./workbench/lsp-log-dialog";
 import { ViewParkRoot } from "./workspace/content/view-park";
 import { NewTaskDialogRoot } from "./workspace/new-task-dialog";
 import { RemoveTaskDialogRoot } from "./workspace/remove-task-dialog";
@@ -40,6 +41,7 @@ export function GlobalRoots(): React.JSX.Element {
       <WorkspaceSymbolPaletteRoot />
       <GitHelperPromptsRoot />
       <SshAuthPromptsRoot />
+      <LspLogDialogRoot />
       <ToastRoot />
     </>
   );

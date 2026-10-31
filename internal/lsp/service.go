@@ -58,6 +58,7 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.RegisterOrdered("lsp.cancel", service.Cancel)
 	d.Register("lsp.shutdown", service.Shutdown)
 	d.RegisterOrdered("lsp.respondServerRequest", service.RespondServerRequest)
+	d.Register("lsp.stats", service.Stats)
 }
 
 // SetEventSink wires the service to the stdio host after both are constructed.
@@ -128,6 +129,8 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 		WorkspaceRoot: workspaceRoot,
 		Capabilities:  p.Capabilities,
 		Env:           p.Env,
+
+		InitializationOptions: p.InitializationOptions,
 	}, idleTimeout)
 	s.storeServer(server)
 
@@ -146,7 +149,7 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 	})
 
 	initCtx, cancel := context.WithTimeout(ctx, initializeTimeout)
-	capabilities, err := server.initialize(initCtx)
+	capabilities, serverInfo, err := server.initialize(initCtx)
 	cancel()
 	if err != nil {
 		s.removeServer(serverID, server)
@@ -155,7 +158,37 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	server.resetIdleTimer()
-	return SpawnResult{ServerID: serverID, Capabilities: capabilities}, nil
+	return SpawnResult{ServerID: serverID, Capabilities: capabilities, ServerInfo: serverInfo}, nil
+}
+
+// Stats reports the memory each server takes, with the processes it
+// started.
+func (s *Service) Stats(_ context.Context, _ json.RawMessage) (any, error) {
+	s.mu.Lock()
+	servers := make([]*serverProcess, 0, len(s.servers))
+	for _, server := range s.servers {
+		servers = append(servers, server)
+	}
+	s.mu.Unlock()
+
+	table, err := processTable()
+	if err != nil {
+		return nil, requestFailed("lsp.stats failed: %s", err)
+	}
+	pids := make([]int, 0, len(servers))
+	for _, server := range servers {
+		pids = append(pids, server.processID())
+	}
+	totals := treeRSS(table, pids)
+	result := StatsResult{Servers: make([]ServerStats, 0, len(servers))}
+	for _, server := range servers {
+		pid := server.processID()
+		if pid == 0 {
+			continue
+		}
+		result.Servers = append(result.Servers, ServerStats{ServerID: server.id, RSSBytes: totals[pid]})
+	}
+	return result, nil
 }
 
 func (s *Service) Send(_ context.Context, raw json.RawMessage) (any, error) {

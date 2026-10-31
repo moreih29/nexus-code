@@ -5,10 +5,8 @@ import type * as Monaco from "monaco-editor";
 import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
 import { workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import type { SymbolInformation } from "../../../../shared/lsp";
-import type { LspLanguageId } from "../../../../shared/types/app-state";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../../ipc/client";
 import { useActiveStore } from "../../../state/stores/active";
-import { useLspEnabledStore } from "../../../state/stores/lsp-enabled";
 import {
   getEntryLspVersion,
   rehydrateLspForWorkspace,
@@ -54,7 +52,6 @@ const MARKER_OWNER = "lsp";
 let diagnosticsUnlisten: (() => void) | null = null;
 let applyEditUnlisten: (() => void) | null = null;
 let workspaceResetUnlisten: (() => void) | null = null;
-let enabledLanguagesChangedUnlisten: (() => void) | null = null;
 
 function setMonaco(monaco: typeof Monaco): void {
   if (getMonacoRef() === monaco) return;
@@ -66,8 +63,6 @@ function setMonaco(monaco: typeof Monaco): void {
   applyEditUnlisten = null;
   workspaceResetUnlisten?.();
   workspaceResetUnlisten = null;
-  enabledLanguagesChangedUnlisten?.();
-  enabledLanguagesChangedUnlisten = null;
 }
 
 function registerDiagnosticsListener(monaco: typeof Monaco): void {
@@ -99,37 +94,18 @@ function registerDiagnosticsListener(monaco: typeof Monaco): void {
 function registerWorkspaceResetListener(): void {
   if (workspaceResetUnlisten) return;
 
-  // The main-side LSP host emits `workspaceReset` when its LRU cap
-  // evicts a workspace's servers. We mirror that into the renderer's
-  // model cache so every entry's `lspOpened` is cleared; the user's
-  // next interaction (typing, or workspace activation) triggers a
-  // fresh didOpen and respawns the LSP. Without this, the entries
-  // would think the file is still open server-side and silently land
-  // didChange notifications in the void.
+  // The main-side LSP host emits `workspaceReset` when it stops a
+  // workspace's servers (LRU cap, crash, a setting). We mirror that into
+  // the renderer's model cache so every entry's `lspOpened` is cleared;
+  // the user's next interaction (typing, or workspace activation)
+  // triggers a fresh didOpen and respawns the LSP. Without this, the
+  // entries would think the file is still open server-side and silently
+  // land didChange notifications in the void. A restart (`reopen`)
+  // reopens the active workspace's documents at once.
   workspaceResetUnlisten = ipcListen("lsp", "workspaceReset", (args) => {
     resetLspStateForWorkspace(args.workspaceId, args.languageId);
-  });
-}
-
-function registerEnabledLanguagesChangedListener(): void {
-  if (enabledLanguagesChangedUnlisten) return;
-
-  enabledLanguagesChangedUnlisten = ipcListen("lsp", "enabledLanguagesChanged", (args) => {
-    const { workspaceId, languages } = args as {
-      workspaceId: string;
-      languages: LspLanguageId[];
-    };
-
-    // Update the store — this also unblocks future isLspEnabledForWorkspace reads.
-    useLspEnabledStore.getState().setForWorkspace(workspaceId, languages);
-
-    // Open the active workspace's documents for every enabled language.
-    // The toggle chip updates the store before main broadcasts, so a diff
-    // against the store would find nothing new; rehydrate skips documents
-    // that are already open. Other workspaces catch up on activation, and
-    // the workspaceReset broadcast handles removed languages.
-    if (useActiveStore.getState().activeWorkspaceId === workspaceId) {
-      for (const lang of languages) rehydrateLspForWorkspace(workspaceId, lang);
+    if (args.reopen && useActiveStore.getState().activeWorkspaceId === args.workspaceId) {
+      rehydrateLspForWorkspace(args.workspaceId, args.languageId);
     }
   });
 }
@@ -168,7 +144,6 @@ export function initializeLspBridge(monaco: typeof Monaco): void {
   registerDiagnosticsListener(monaco);
   registerApplyEditListener(monaco);
   registerWorkspaceResetListener();
-  registerEnabledLanguagesChangedListener();
 }
 
 // Re-exported from leaf modules so existing callers that import these from

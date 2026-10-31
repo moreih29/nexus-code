@@ -15,15 +15,30 @@ import { asRecord } from "./utils";
 interface AgentSpawnResultShape {
   serverId: string;
   capabilities?: unknown;
+  serverInfo?: { name: string; version?: string };
 }
 
 const SpawnResultSchema = z.object({
   serverId: z.string().min(1),
   capabilities: z.unknown().optional(),
+  // A server's own words: dropped rather than failing the spawn when odd.
+  serverInfo: z
+    .object({ name: z.string(), version: z.string().optional() })
+    .optional()
+    .catch(undefined),
 });
 
 export function parseSpawnResult(result: unknown): AgentSpawnResultShape {
   return SpawnResultSchema.parse(result);
+}
+
+const StatsResultSchema = z.object({
+  servers: z.array(z.object({ serverId: z.string(), rssBytes: z.number() })),
+});
+
+/** lsp.stats: each server's memory, with the processes it started. */
+export function parseStatsResult(result: unknown): Array<{ serverId: string; rssBytes: number }> {
+  return StatsResultSchema.parse(result).servers;
 }
 
 export function parseServerCapabilities(capabilities: unknown): ServerCapabilities {
@@ -72,12 +87,14 @@ export function parseServerAssignedPayload(
 
 export function parseServerExitedPayload(
   payload: unknown,
-): { serverId: string; reason: string; stderrTail: string } | null {
+): { serverId: string; reason: string; stderrTail: string; shutdown: boolean } | null {
   const parsed = z
     .object({
       serverId: z.string().min(1),
       reason: z.string().optional(),
       stderrTail: z.string().optional(),
+      // The agent stopped the server: idle, or asked to.
+      shutdown: z.boolean().optional(),
     })
     .safeParse(payload);
   if (!parsed.success) return null;
@@ -85,6 +102,7 @@ export function parseServerExitedPayload(
     serverId: parsed.data.serverId,
     reason: parsed.data.reason ?? "",
     stderrTail: parsed.data.stderrTail ?? "",
+    shutdown: parsed.data.shutdown === true,
   };
 }
 

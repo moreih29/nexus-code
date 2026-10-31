@@ -1,4 +1,4 @@
-import { isLspFeatureEnabled } from "./feature-flag";
+import { z } from "zod";
 
 export type LspServerSpec = {
   languageId: string;
@@ -38,6 +38,13 @@ export const BUILTIN_LSP_PRESETS = [
 ] as const satisfies readonly LspServerSpec[];
 
 export type BuiltinLspPresetLanguageId = (typeof BUILTIN_LSP_PRESETS)[number]["languageId"];
+
+export const LspPresetLanguageIdSchema = z.enum(
+  BUILTIN_LSP_PRESETS.map((preset) => preset.languageId) as [
+    BuiltinLspPresetLanguageId,
+    ...BuiltinLspPresetLanguageId[],
+  ],
+);
 
 // Monaco assigns distinct languageIds per file extension —
 //   .ts  → "typescript"
@@ -81,8 +88,29 @@ export function resolveLspPreset(languageId: string): LspServerSpec | null {
 }
 
 export function isSupportedLspLanguage(languageId: string): languageId is SupportedLspLanguageId {
-  if (!isLspFeatureEnabled()) return false;
   return resolveLspPresetLanguageId(languageId) !== null;
+}
+
+/** File extensions whose language a preset serves, as Monaco assigns them. */
+const LSP_PRESET_EXTENSIONS: Record<string, BuiltinLspPresetLanguageId> = {
+  ts: "typescript",
+  tsx: "typescript",
+  mts: "typescript",
+  cts: "typescript",
+  js: "typescript",
+  jsx: "typescript",
+  mjs: "typescript",
+  cjs: "typescript",
+  py: "python",
+  pyi: "python",
+};
+
+/** The preset serving a file, by its extension; null when none does. */
+export function lspPresetLanguageIdForPath(filePath: string): BuiltinLspPresetLanguageId | null {
+  const name = filePath.slice(filePath.search(/[^/\\]*$/));
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0) return null;
+  return LSP_PRESET_EXTENSIONS[name.slice(dot + 1).toLowerCase()] ?? null;
 }
 
 /**

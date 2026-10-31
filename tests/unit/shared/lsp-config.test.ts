@@ -1,12 +1,10 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   BUILTIN_LSP_PRESETS,
   isSupportedLspLanguage,
+  lspPresetLanguageIdForPath,
   resolveLspPreset,
 } from "../../../src/shared/lsp/config";
-import { setLspFeatureEnabled } from "../../../src/shared/lsp/feature-flag";
-
-afterEach(() => setLspFeatureEnabled(false));
 
 describe("built-in LSP presets", () => {
   test("includes Pyright for Python", () => {
@@ -26,11 +24,17 @@ describe("built-in LSP presets", () => {
     expect(opts["python.analysis.autoImportCompletions"]).toBe(true);
   });
 
-  test("supports no language while the setting is off", () => {
-    expect(isSupportedLspLanguage("python")).toBe(false);
-
-    setLspFeatureEnabled(true);
+  test("supports the preset languages and their aliases", () => {
     expect(isSupportedLspLanguage("python")).toBe(true);
+    expect(isSupportedLspLanguage("typescriptreact")).toBe(true);
     expect(isSupportedLspLanguage("markdown")).toBe(false);
+  });
+
+  test("finds the preset serving a file by its extension", () => {
+    expect(lspPresetLanguageIdForPath("/ws/src/App.TSX")).toBe("typescript");
+    expect(lspPresetLanguageIdForPath("C:\\ws\\tool.mjs")).toBe("typescript");
+    expect(lspPresetLanguageIdForPath("/ws/main.pyi")).toBe("python");
+    expect(lspPresetLanguageIdForPath("/ws.ts/README")).toBeNull();
+    expect(lspPresetLanguageIdForPath("/ws/.py")).toBeNull();
   });
 });

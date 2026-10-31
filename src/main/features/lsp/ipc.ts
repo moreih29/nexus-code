@@ -17,8 +17,9 @@ import type {
   SemanticTokensResult,
   SymbolInformation,
 } from "../../../shared/lsp";
-import { isLspFeatureEnabled } from "../../../shared/lsp/feature-flag";
-import type { LspLanguageId } from "../../../shared/types/app-state";
+import { lspSettingsFromState } from "../../../shared/lsp/settings";
+import type { LspServerStatus } from "../../../shared/lsp/status";
+import type { AppState } from "../../../shared/types/app-state";
 import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../infra/agent/ssh/ssh-bootstrap/index";
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
 import type { StateService } from "../../infra/storage/state-service";
@@ -133,42 +134,6 @@ async function handleServerRequest(lspHost: LspHostHandle, args: unknown): Promi
  * during startup and not maintain it per-event.
  */
 export function registerLspChannel(lspHost: LspHostHandle, stateService: StateService): void {
-  if (!isLspFeatureEnabled()) {
-    // Feature gate: LSP is off for this session. Register only the minimal
-    // listen-side stubs so the renderer's ipcListen calls don't error on
-    // missing channels, and return empty/noop responses for every call.
-    register("lsp", {
-      call: {
-        didOpen: async () => {},
-        didChange: async () => {},
-        didSave: async () => {},
-        didClose: async () => {},
-        hover: async () => null,
-        definition: async () => [],
-        completion: async () => ({ isIncomplete: false, items: [] }),
-        completionResolve: async (args: unknown) =>
-          validateArgs(c.completionResolve.args, args).item,
-        references: async () => [],
-        documentHighlight: async () => [],
-        documentSymbol: async () => [],
-        workspaceSymbol: async () => [],
-        semanticTokens: async () => null,
-        applyEditResult: async () => {},
-        getEnabledLanguages: async () => ({ languages: [] }),
-        setEnabledLanguages: async () => {},
-      },
-      listen: {
-        diagnostics: {},
-        applyEdit: {},
-        serverEvent: {},
-        "bootstrap.progress": {},
-        workspaceReset: {},
-        enabledLanguagesChanged: {},
-      },
-    });
-    return;
-  }
-
   // Forward host diagnostics events to renderers. The host's debouncer
   // emits `{ workspaceId, languageId, uri, diagnostics }`; we keep
   // workspaceId so the renderer's listener can reconstruct the
@@ -207,12 +172,26 @@ export function registerLspChannel(lspHost: LspHostHandle, stateService: StateSe
   // workspace, so the next interaction (typing, activation) re-issues
   // didOpen and respawns a fresh server. See LSP_MAX_ACTIVE_WORKSPACES.
   lspHost.on("workspaceLspReset", (args) => {
-    const { workspaceId, languageId } = args as {
+    const { workspaceId, languageId, reopen } = args as {
       workspaceId: string;
       languageId?: string;
+      reopen?: boolean;
     };
-    broadcast("lsp", "workspaceReset", { workspaceId, ...(languageId ? { languageId } : {}) });
+    broadcast("lsp", "workspaceReset", {
+      workspaceId,
+      ...(languageId ? { languageId } : {}),
+      ...(reopen ? { reopen } : {}),
+    });
   });
+
+  lspHost.on("serverStatus", (status) => {
+    broadcast("lsp", "serverStatus", status as LspServerStatus);
+  });
+
+  function saveSettings(patch: Partial<AppState>): void {
+    stateService.setState(patch);
+    broadcast("lsp", "settingsChanged", lspSettingsFromState(stateService.getState()));
+  }
 
   register("lsp", {
     call: {
@@ -354,41 +333,68 @@ export function registerLspChannel(lspHost: LspHostHandle, stateService: StateSe
         resolveRendererApplyEdit(requestId, result);
       },
 
-      getEnabledLanguages: async (args: unknown) => {
-        const { workspaceId } = validateArgs(c.getEnabledLanguages.args, args);
-        const state = stateService.getState();
-        const languages = (state.lspEnabledLanguagesByWorkspace?.[workspaceId] ??
-          []) as LspLanguageId[];
-        return { languages };
+      setEnabled: async (args: unknown) => {
+        const { enabled } = validateArgs(c.setEnabled.args, args);
+        saveSettings({ lspEnabled: enabled });
+        if (!enabled) lspHost.disposeServers(() => true, "off");
       },
 
-      setEnabledLanguages: async (args: unknown) => {
-        const { workspaceId, languages } = validateArgs(c.setEnabledLanguages.args, args);
-        const state = stateService.getState();
-        const existing =
-          state.lspEnabledLanguagesByWorkspace ?? ({} as Record<string, LspLanguageId[]>);
-        const prev = (existing[workspaceId] ?? []) as LspLanguageId[];
-
-        // Persist the new set atomically.
-        stateService.setState({
-          lspEnabledLanguagesByWorkspace: {
-            ...existing,
-            [workspaceId]: languages,
-          },
+      setLanguageSettings: async (args: unknown) => {
+        const { languageId, settings } = validateArgs(c.setLanguageSettings.args, args);
+        const languages = stateService.getState().lspLanguages ?? {};
+        const previous = languages[languageId] ?? {};
+        saveSettings({
+          lspLanguages: { ...languages, [languageId]: { ...previous, ...settings } },
         });
-
-        // Dispose servers for any language that was just removed.
-        // disposeLanguage emits workspaceLspReset for that language, which
-        // the workspaceLspReset listener above forwards to all renderers.
-        const newSet = new Set<string>(languages);
-        for (const lang of prev) {
-          if (!newSet.has(lang)) {
-            lspHost.disposeLanguage(workspaceId, lang, "user-toggle-off");
-          }
+        const sameLanguage = (_workspaceId: string, id: string) => id === languageId;
+        if (settings.enabled === false) {
+          lspHost.disposeServers(sameLanguage, "off");
+        } else if (
+          settings.lowMemory !== undefined &&
+          settings.lowMemory !== (previous.lowMemory ?? false)
+        ) {
+          // The servers read these options only when they start.
+          lspHost.disposeServers(sameLanguage, "restart", { reopen: true });
         }
+      },
 
-        // Broadcast so all open renderer windows can sync their UI.
-        broadcast("lsp", "enabledLanguagesChanged", { workspaceId, languages });
+      setMaxActiveWorkspaces: async (args: unknown) => {
+        const { count } = validateArgs(c.setMaxActiveWorkspaces.args, args);
+        saveSettings({ lspMaxActiveWorkspaces: count });
+        lspHost.enforceMaxActiveWorkspaces();
+      },
+
+      setWorkspaceLanguageEnabled: async (args: unknown) => {
+        const { workspaceId, languageId, enabled } = validateArgs(
+          c.setWorkspaceLanguageEnabled.args,
+          args,
+        );
+        const byWorkspace = stateService.getState().lspDisabledLanguagesByWorkspace ?? {};
+        const others = (byWorkspace[workspaceId] ?? []).filter((id) => id !== languageId);
+        const disabled = enabled ? others : [...others, languageId];
+        const { [workspaceId]: _previous, ...rest } = byWorkspace;
+        saveSettings({
+          lspDisabledLanguagesByWorkspace:
+            disabled.length > 0 ? { ...rest, [workspaceId]: disabled } : rest,
+        });
+        if (!enabled) lspHost.disposeLanguage(workspaceId, languageId, "off");
+      },
+
+      restartServer: async (args: unknown) => {
+        const { workspaceId, languageId } = validateArgs(c.restartServer.args, args);
+        lspHost.restartLanguage(workspaceId, languageId);
+      },
+
+      serverStatuses: async () => lspHost.serverStatuses(),
+
+      serverLog: async (args: unknown) => {
+        const { workspaceId, languageId, afterSeq } = validateArgs(c.serverLog.args, args);
+        return lspHost.serverLog(workspaceId, languageId, afterSeq);
+      },
+
+      serverMemory: async (args: unknown) => {
+        const { workspaceId } = validateArgs(c.serverMemory.args, args);
+        return lspHost.serverMemory(workspaceId);
       },
     },
     listen: {
@@ -397,7 +403,8 @@ export function registerLspChannel(lspHost: LspHostHandle, stateService: StateSe
       serverEvent: {},
       "bootstrap.progress": {},
       workspaceReset: {},
-      enabledLanguagesChanged: {},
+      settingsChanged: {},
+      serverStatus: {},
     },
   });
 }

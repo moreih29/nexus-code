@@ -103,6 +103,7 @@ func runFakeLSPServer(mode string, in io.Reader, out io.Writer) error {
 				"id":      json.RawMessage(id),
 				"result": map[string]any{
 					"capabilities": map[string]any{"hoverProvider": true},
+					"serverInfo":   map[string]any{"name": "fake-lsp", "version": "1.2.3"},
 				},
 			}); err != nil {
 				return err

@@ -4,6 +4,7 @@ import {
   getWorkDoneProgressState,
   routeLspServerEvent,
 } from "../../../../src/renderer/services/lsp-ux/server-ux-router";
+import { useLspStatusStore } from "../../../../src/renderer/state/stores/lsp-status";
 import type { LspServerEvent } from "../../../../src/shared/lsp";
 
 // Spy imported from the preload — the log-test-spies.ts preload wraps
@@ -126,5 +127,22 @@ describe("LSP server UX router", () => {
 
     // Servers mint a token per operation; ended ones must not accumulate.
     expect(getWorkDoneProgressState("ws-1", "typescript", "build")).toBeUndefined();
+  });
+
+  test("shows the server's work in the status store until it ends", () => {
+    const progress = () => useLspStatusStore.getState().progress["ws-1\0typescript"];
+    routeLspServerEvent(
+      serverEvent("$/progress", {
+        token: "load",
+        value: { kind: "begin", title: "Loading project", percentage: 10 },
+      }),
+    );
+    routeLspServerEvent(
+      serverEvent("$/progress", { token: "load", value: { kind: "report", percentage: 60 } }),
+    );
+    expect(progress()).toEqual({ title: "Loading project", percentage: 60 });
+
+    routeLspServerEvent(serverEvent("$/progress", { token: "load", value: { kind: "end" } }));
+    expect(progress()).toBeUndefined();
   });
 });

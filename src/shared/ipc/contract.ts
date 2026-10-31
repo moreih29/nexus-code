@@ -77,6 +77,9 @@ import {
   TextDocumentPositionArgsSchema,
   WorkspaceSymbolArgsSchema,
 } from "../lsp";
+import { LspPresetLanguageIdSchema } from "../lsp/config";
+import { LspLanguageSettingsSchema, LspSettingsSchema } from "../lsp/settings";
+import { LspLogEntrySchema, LspServerMemorySchema, LspServerStatusSchema } from "../lsp/status";
 import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "../search/types";
 import { BrowserPermissionKindSchema } from "../security/browser-permissions";
 import {
@@ -85,7 +88,7 @@ import {
   SshAuthRespondArgsSchema,
 } from "../ssh/auth-prompt";
 import { SshErrorCodeSchema } from "../ssh/errors";
-import { AppStateSchema, LspLanguageIdSchema } from "../types/app-state";
+import { AppStateSchema } from "../types/app-state";
 import { ColorToneSchema } from "../types/color-tone";
 import {
   ConnectionProfileFavoriteArgsSchema,
@@ -350,15 +353,18 @@ const LspDiagnosticsEventSchema = z.object({
   diagnostics: z.array(DiagnosticSchema),
 });
 
-// Main → renderer broadcast emitted when the host's LRU eviction
-// disposes a workspace's LSP server(s) (see LSP_MAX_ACTIVE_WORKSPACES).
-// The renderer's model cache uses it to reset `lspOpened` on affected
-// entries so the next interaction re-issues didOpen against a freshly
-// spawned server. languageId is optional — when present only entries
-// for that language are reset; when absent the entire workspace is reset.
+// Main → renderer broadcast emitted when the host disposes a workspace's
+// LSP server(s): LRU eviction (see LSP_MAX_ACTIVE_WORKSPACES), a crash, a
+// setting turning the language off. The renderer's model cache uses it to
+// reset `lspOpened` on affected entries so the next interaction re-issues
+// didOpen against a freshly spawned server. languageId is optional — when
+// present only entries for that language are reset; when absent the entire
+// workspace is reset. `reopen` asks for didOpen at once rather than on the
+// next interaction: the server is restarting, not going away.
 const LspWorkspaceResetEventSchema = z.object({
   workspaceId: z.string(),
   languageId: z.string().optional(),
+  reopen: z.boolean().optional(),
 });
 
 const LspApplyEditEventSchema = z.object({
@@ -739,19 +745,43 @@ export const ipcContract = {
       workspaceSymbol: call(WorkspaceSymbolArgsSchema, z.array(SymbolInformationSchema)),
       semanticTokens: call(SemanticTokensArgsSchema, SemanticTokensResultSchema.nullable()),
       applyEditResult: call(LspApplyEditResultArgsSchema, z.void()),
-      // Per-workspace LSP language toggle (renderer → main).
-      // `languages` is the new complete set — main computes the diff and
-      // disposes servers for any removed languages synchronously.
-      setEnabledLanguages: call(
+      // Settings › Editor › Language servers and the status bar's language
+      // menu (renderer → main). Main saves the change, stops or restarts the
+      // servers it affects, and broadcasts settingsChanged.
+      setEnabled: call(z.object({ enabled: z.boolean() }), z.void()),
+      setLanguageSettings: call(
+        z.object({ languageId: LspPresetLanguageIdSchema, settings: LspLanguageSettingsSchema }),
+        z.void(),
+      ),
+      setMaxActiveWorkspaces: call(
+        z.object({ count: LspSettingsSchema.shape.maxActiveWorkspaces }),
+        z.void(),
+      ),
+      setWorkspaceLanguageEnabled: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
-          languages: z.array(LspLanguageIdSchema),
+          languageId: LspPresetLanguageIdSchema,
+          enabled: z.boolean(),
         }),
         z.void(),
       ),
-      getEnabledLanguages: call(
+      // The status bar's language menu and the log viewer.
+      restartServer: call(
+        z.object({ workspaceId: WorkspaceIdPrimitive, languageId: LspPresetLanguageIdSchema }),
+        z.void(),
+      ),
+      serverStatuses: call(z.void(), z.array(LspServerStatusSchema)),
+      serverLog: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          languageId: z.string(),
+          afterSeq: z.number().int().optional(),
+        }),
+        z.array(LspLogEntrySchema),
+      ),
+      serverMemory: call(
         z.object({ workspaceId: WorkspaceIdPrimitive }),
-        z.object({ languages: z.array(LspLanguageIdSchema) }),
+        z.array(LspServerMemorySchema),
       ),
     },
     listen: {
@@ -760,14 +790,9 @@ export const ipcContract = {
       serverEvent: listen(LspServerEventSchema),
       "bootstrap.progress": listen(LspBootstrapProgressEventSchema),
       workspaceReset: listen(LspWorkspaceResetEventSchema),
-      // Broadcast after setEnabledLanguages completes so every open renderer
-      // window can update its UI state. Payload mirrors setEnabledLanguages args.
-      enabledLanguagesChanged: listen(
-        z.object({
-          workspaceId: WorkspaceIdPrimitive,
-          languages: z.array(LspLanguageIdSchema),
-        }),
-      ),
+      settingsChanged: listen(LspSettingsSchema),
+      // Main → renderer on every change of a server's status.
+      serverStatus: listen(LspServerStatusSchema),
     },
   },
 

@@ -188,8 +188,15 @@
     "lsp": {
       "label": "Language servers (experimental)",
       "enable": "Use language servers",
-      "description": "Completion, go to definition and diagnostics for TypeScript and Python, from servers that ship with the app. Turn each language on per workspace with its chip in the sidebar.",
-      "restart": "Restart NexusCode to apply."
+      "description": "Completion, go to definition and diagnostics from language servers. A language's server starts when you open one of its files. Click the language's name in the status bar to see its server's state, restart it, or turn it off in that workspace alone.",
+      "language": {
+        "typescript": "TypeScript · JavaScript",
+        "python": "Python"
+      },
+      "lowMemory": "Memory saver",
+      "lowMemoryDescription": "Runs one TypeScript server instead of two and stops installing library types for JavaScript. On a mid-sized project a workspace takes about 520 MB instead of 850 MB, and the first answer after opening a file comes about 0.5 s later. Changing it restarts the TypeScript servers.",
+      "maxWorkspaces": "Workspaces running at once",
+      "maxWorkspacesDescription": "Opening a file in one more workspace stops the servers of the one used least recently. They start again when you return to it."
     }
   },
   "terminal": {

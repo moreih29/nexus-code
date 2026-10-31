@@ -1,7 +1,11 @@
 import path from "node:path";
 import { app, type BrowserWindow, session } from "electron";
 import { createLogger, initMainLogger } from "../shared/log/main";
-import { setLspFeatureEnabled } from "../shared/lsp/feature-flag";
+import {
+  isLspLanguageOnForWorkspace,
+  lspInitializationOptions,
+  lspSettingsFromState,
+} from "../shared/lsp/settings";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { installErrorSafetyNet } from "./error-safety-net";
 import { registerAppStateChannel } from "./features/app-state";
@@ -154,13 +158,14 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
     gitStatusCoalescer?.cancel(removedWorkspaceId);
     gitAutofetch?.disposeWorkspace(removedWorkspaceId);
     gitRegistry?.dispose(removedWorkspaceId);
-    // Clean up per-workspace LSP enabled-languages key so deleted workspaces
-    // don't accumulate in appState indefinitely.
+    lspHost?.forgetWorkspace(removedWorkspaceId);
+    // Clean up the workspace's turned-off LSP languages so deleted
+    // workspaces don't accumulate in appState indefinitely.
     const currentState = stateService.getState();
-    const currentLspMap = currentState.lspEnabledLanguagesByWorkspace ?? {};
+    const currentLspMap = currentState.lspDisabledLanguagesByWorkspace ?? {};
     if (currentLspMap[removedWorkspaceId] !== undefined) {
       const { [removedWorkspaceId]: _removed, ...rest } = currentLspMap;
-      stateService.setState({ lspEnabledLanguagesByWorkspace: rest });
+      stateService.setState({ lspDisabledLanguagesByWorkspace: rest });
     }
   }
   forwardBroadcast(channelName, event, args);
@@ -438,17 +443,17 @@ app.whenReady().then(async () => {
     getCustomShells: () => stateService.getState().terminalShells,
   });
 
-  // The experimental setting, as it is at launch: a change waits for the
-  // next one.
-  setLspFeatureEnabled(stateService.getState().lspEnabled === true);
+  // The host reads the settings at each spawn; the lsp IPC handlers stop
+  // the servers a settings change turns off.
+  const lspSettings = () => lspSettingsFromState(stateService.getState());
   lspHost = startConfiguredLspHost({
     workspaceManager,
     agentHostOptions: {
-      isLanguageEnabled: (workspaceId, languageId) => {
-        const state = stateService.getState();
-        const enabled = state.lspEnabledLanguagesByWorkspace?.[workspaceId] ?? [];
-        return enabled.includes(languageId as "typescript" | "python");
-      },
+      isLanguageEnabled: (workspaceId, languageId) =>
+        isLspLanguageOnForWorkspace(lspSettings(), workspaceId, languageId),
+      maxActiveWorkspaces: () => lspSettings().maxActiveWorkspaces,
+      initializationOptions: (languageId, preset) =>
+        lspInitializationOptions(lspSettings(), languageId, preset.initializationOptions),
     },
   });
   registerLspChannel(lspHost, stateService);

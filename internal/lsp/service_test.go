@@ -197,6 +197,50 @@ func TestShutdownEmitsServerExited(t *testing.T) {
 	if payload.ServerID != result.ServerID {
 		t.Fatalf("serverExited serverId = %q, want %q", payload.ServerID, result.ServerID)
 	}
+	if !payload.Shutdown {
+		t.Fatal("serverExited after lsp.shutdown does not say the agent stopped the server")
+	}
+}
+
+// The client restarts a server that crashed but not one that sat idle, and
+// tells the two apart by Shutdown.
+func TestIdleExitSaysTheAgentStoppedTheServer(t *testing.T) {
+	service, events := newTestService(t)
+	idleMs := 100
+	_ = spawnFakeServer(t, service, "idle", &idleMs, "")
+
+	payload := waitEvent(t, events, EventServerExited).payload.(ServerExitedPayload)
+	if !payload.Shutdown {
+		t.Fatal("serverExited after the idle timeout does not say the agent stopped the server")
+	}
+}
+
+func TestSpawnReturnsServerInfo(t *testing.T) {
+	service, _ := newTestService(t)
+	result := spawnFakeServer(t, service, "roundtrip", nil, "")
+
+	if result.ServerInfo == nil || *result.ServerInfo != (ServerInfo{Name: "fake-lsp", Version: "1.2.3"}) {
+		t.Fatalf("ServerInfo = %+v, want fake-lsp 1.2.3", result.ServerInfo)
+	}
+	shutdownServer(t, service, result.ServerID)
+}
+
+func TestStatsReportsEachServersMemory(t *testing.T) {
+	service, _ := newTestService(t)
+	result := spawnFakeServer(t, service, "roundtrip", nil, "")
+
+	raw, err := service.Stats(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Stats() error = %v", err)
+	}
+	stats := raw.(StatsResult)
+	if len(stats.Servers) != 1 || stats.Servers[0].ServerID != result.ServerID {
+		t.Fatalf("Stats() servers = %+v, want the one spawned", stats.Servers)
+	}
+	if stats.Servers[0].RSSBytes == 0 {
+		t.Fatal("Stats() reported no memory for a running server")
+	}
+	shutdownServer(t, service, result.ServerID)
 }
 
 // cmd.Wait closes the stdout and stderr pipes as soon as the server exits.
@@ -222,6 +266,9 @@ func TestServerExitKeepsFinalOutput(t *testing.T) {
 				payload := event.payload.(ServerExitedPayload)
 				if payload.ServerID != result.ServerID {
 					t.Fatalf("serverExited serverId = %q, want %q", payload.ServerID, result.ServerID)
+				}
+				if payload.Shutdown {
+					t.Fatal("a crash is reported as the agent stopping the server")
 				}
 				if !strings.HasSuffix(payload.StderrTail, "last stderr line\n") {
 					t.Fatalf("stderr tail lost the end of the crash output: ...%q", tail(payload.StderrTail, 80))
@@ -325,6 +372,15 @@ func TestServiceRoutesFSChangedToRegisteredWatchedFiles(t *testing.T) {
 	}
 
 	if _, err := service.Shutdown(context.Background(), mustJSON(t, ShutdownParams{ServerID: result.ServerID})); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+}
+
+// shutdownServer stops a server before the test's temp dir is removed:
+// Windows refuses to remove the directory a running process works in.
+func shutdownServer(t *testing.T, service *Service, serverID string) {
+	t.Helper()
+	if _, err := service.Shutdown(context.Background(), mustJSON(t, ShutdownParams{ServerID: serverID})); err != nil {
 		t.Fatalf("Shutdown() error = %v", err)
 	}
 }
@@ -440,5 +496,20 @@ func TestServerIDsDifferBetweenServices(t *testing.T) {
 	first, second := New(), New()
 	if a, b := first.nextServerID(), second.nextServerID(); a == b {
 		t.Fatalf("both services named their first server %q", a)
+	}
+}
+
+// Some servers read settings only from initialize, such as
+// typescript-language-server's tsserver options.
+func TestInitializeSendsInitializationOptions(t *testing.T) {
+	options := json.RawMessage(`{"tsserver":{"useSyntaxServer":"never"}}`)
+	with := newServerProcess(New(), "lsp-x-1", SpawnParams{WorkspaceRoot: t.TempDir(), InitializationOptions: options}, 0)
+	if got, _ := with.initializeParams()["initializationOptions"].(json.RawMessage); string(got) != string(options) {
+		t.Fatalf("initializationOptions = %s, want %s", got, options)
+	}
+
+	without := newServerProcess(New(), "lsp-x-2", SpawnParams{WorkspaceRoot: t.TempDir()}, 0)
+	if _, ok := without.initializeParams()["initializationOptions"]; ok {
+		t.Fatal("initialize carried initializationOptions nobody set")
 	}
 }
