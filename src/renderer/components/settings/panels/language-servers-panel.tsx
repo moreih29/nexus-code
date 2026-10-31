@@ -9,7 +9,7 @@
 // Main applies each change at once — stopping, starting or restarting the
 // servers it affects — and broadcasts the result, which the store mirrors.
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { type BuiltinLspPresetLanguageId, resolveLspPreset } from "../../../../shared/lsp/config";
@@ -155,8 +155,9 @@ function LanguageRow({
 }
 
 /**
- * Where a server the user installed is. Saved on Enter or leaving the field,
- * not per keystroke: each change restarts the language's servers.
+ * Where a server the user installed is. Saved on Enter, leaving the field or
+ * closing the page, not per keystroke: each change restarts the language's
+ * servers.
  */
 function ServerPathField({
   languageId,
@@ -171,12 +172,28 @@ function ServerPathField({
 }) {
   const { t } = useTranslation("settings");
   const [draft, setDraft] = useState(path);
+  // What the field last saved or was given, so a draft is saved once.
+  const savedRef = useRef(path.trim());
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const onCommitRef = useRef(onCommit);
+  onCommitRef.current = onCommit;
 
-  useEffect(() => setDraft(path), [path]);
+  useEffect(() => {
+    setDraft(path);
+    savedRef.current = path.trim();
+  }, [path]);
 
   function commit(): void {
-    if (draft.trim() !== path.trim()) onCommit(draft.trim());
+    const next = draftRef.current.trim();
+    if (next === savedRef.current) return;
+    savedRef.current = next;
+    onCommitRef.current(next);
   }
+
+  // Escape closes the dialog without leaving the field: save on the way out.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: commit reads refs only
+  useEffect(() => commit, []);
 
   return (
     <div className="flex flex-col gap-1 pl-6">
