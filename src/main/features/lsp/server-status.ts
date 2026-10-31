@@ -63,12 +63,15 @@ export class LspServerStatusTracker {
    * server should start again: not once it failed LSP_CRASH_LIMIT times
    * within LSP_CRASH_WINDOW_MS, nor when its binary is missing. Then it
    * stays down until `resetFailures`.
+   *
+   * A server that did not start drops the name of the one that ran before:
+   * the user may have pointed the setting at another binary.
    */
   failed(
     workspaceId: string,
     languageId: string,
     error: string,
-    options: { missingBinary?: string } = {},
+    options: { missingBinary?: string; didNotStart?: boolean } = {},
   ): boolean {
     const key = keyOf(workspaceId, languageId);
     const now = this.now();
@@ -76,16 +79,27 @@ export class LspServerStatusTracker {
     recent.push(now);
     this.failures.set(key, recent);
     this.log(workspaceId, languageId, "error", error);
+    const keepName = !options.missingBinary && !options.didNotStart;
     if (recent.length < LSP_CRASH_LIMIT && !options.missingBinary) {
-      this.set(workspaceId, languageId, { state: "stopped", stopReason: "crashed", error });
+      this.set(
+        workspaceId,
+        languageId,
+        { state: "stopped", stopReason: "crashed", error },
+        keepName,
+      );
       return true;
     }
-    this.set(workspaceId, languageId, {
-      state: "failed",
-      error,
-      gaveUp: true,
-      ...(options.missingBinary ? { missingBinary: options.missingBinary } : {}),
-    });
+    this.set(
+      workspaceId,
+      languageId,
+      {
+        state: "failed",
+        error,
+        gaveUp: true,
+        ...(options.missingBinary ? { missingBinary: options.missingBinary } : {}),
+      },
+      keepName,
+    );
     this.log(workspaceId, languageId, "lifecycle", "Gave up: failed too often");
     return false;
   }
@@ -141,15 +155,19 @@ export class LspServerStatusTracker {
     return entries.filter((entry) => entry.seq > afterSeq);
   }
 
-  /** Sets the state, keeping the server's name across it. */
+  /**
+   * Sets the state, keeping the server's name across it unless `keepName`
+   * is false: the name stays while the server is stopped, not once it is
+   * missing or another failed to start.
+   */
   private set(
     workspaceId: string,
     languageId: string,
     next: Omit<LspServerStatus, "workspaceId" | "languageId">,
+    keepName = true,
   ): void {
     const key = keyOf(workspaceId, languageId);
-    // The server's name stays while it is stopped, not once it is missing.
-    const previous = next.missingBinary ? undefined : this.statuses.get(key);
+    const previous = keepName ? this.statuses.get(key) : undefined;
     const status: LspServerStatus = {
       workspaceId,
       languageId,
