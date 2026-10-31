@@ -142,11 +142,6 @@ function LanguageRow({
           </p>
         </div>
       )}
-      {on && languageId === "shell" && (
-        <p className="pl-6 text-app-ui-sm text-muted-foreground">
-          {t("languageServers.shellDescription")}
-        </p>
-      )}
       {on && preset?.system && (
         <ServerPathField
           languageId={languageId}
