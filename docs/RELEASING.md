@@ -144,13 +144,14 @@ Store 에는 정식 릴리스만 낸다 (pre-release 는 내지 않는다). Stor
 `submit-store` 가 제출까지 한다 (`scripts/store-submit.ts`). 마지막으로 게시된 제출을 바탕으로 새 제출을 만들고, 패키지를 이번 AppX 로 바꾸고, 등록 정보 언어마다 **새 기능** 을 `build/store-release-notes.json` 의 문구로 바꾼 뒤 인증에 낸다. 설명 · 스크린샷 · 가격 · 인증 메모 같은 나머지는 이전 제출의 값을 그대로 쓴다. Partner Center 에 만들다 만 제출이 있으면 지우고 새로 만든다.
 
 13. **제출 확인**
-    `submit-store` 의 마지막 줄이 `Submitted NexusCode-X.Y.Z-x64.appx for certification.` 인지 본다. Partner Center → 앱 → 제출 상태에서도 볼 수 있다. 패키지 버전은 `X.Y.Z.0` 이다 — 네 번째 자리는 Store 가 쓰므로 항상 0 이고, 버전은 Store 에 이미 있는 것보다 높아야 한다.
+    `submit-store` 의 마지막 줄이 `Submitted NexusCode-X.Y.Z-x64.appx for certification.` 인지 본다. job 은 Store 가 제출을 받아들일 때까지 (`msstore submission poll`) 기다리므로, 이 줄이 나왔으면 제출이 인증으로 넘어간 것이다. Partner Center → 앱 → 제출 상태에서도 볼 수 있다. 패키지 버전은 `X.Y.Z.0` 이다 — 네 번째 자리는 Store 가 쓰므로 항상 0 이고, 버전은 Store 에 이미 있는 것보다 높아야 한다.
 
 14. **인증 확인**
     인증은 보통 영업일 3일 안에 끝난다. 떨어지면 Partner Center 의 인증 보고서에 이유가 나온다. 통과하면 Store 에 게시되고, Store 가 설치본을 업데이트한다 (Store 앱 → 라이브러리 → **업데이트 받기** 로 바로 받을 수 있다).
 
 15. **`submit-store` 가 실패했을 때**
     - 제출하기 전에 실패했으면 (문구 · 자격 증명 · 업로드) 원인을 고친 뒤 그 job 만 다시 실행한다. 다시 실행하면 만들다 만 제출을 지우고 처음부터 한다. 이미 제출된 뒤에는 다시 실행하지 않는다 — 인증 중인 제출을 갈아치운다.
+    - Store 가 제출을 거부했으면 (`poll` 이 `CommitFailed` 로 끝남) 로그의 오류나 Partner Center 의 제출 화면에서 이유를 보고 고친다. 패키지 버전이 Store 에 있는 것보다 높지 않을 때가 흔하다. 거부된 제출은 인증에 들어가지 않았으므로 다시 실행해도 된다 — 다시 실행하면 그 제출을 지우고 새로 만든다.
     - 워크플로를 고쳐야 하면, 아티팩트의 AppX 를 받아 로컬 CLI 로 같은 스크립트를 돌린다. `--dry-run` 은 아무것도 바꾸지 않고 넣을 문구만 보여 주고, `--no-commit` 은 제출 직전에서 멈춘다.
       ```bash
       gh run download <run-id> -n msstore-appx-vX.Y.Z -D store-package

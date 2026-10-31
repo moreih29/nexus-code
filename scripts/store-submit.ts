@@ -211,7 +211,11 @@ export async function submitToStore(options: SubmitOptions): Promise<void> {
       console.log(`Left ${packageName} in a draft submission, not submitted.`);
       return;
     }
+    // `submission publish` returns once the commit has started; the Store
+    // can still turn it down (CommitFailed). `poll` waits for the outcome
+    // and exits non-zero on that failure.
     msstore(["submission", "publish", PRODUCT_ID]);
+    process.stdout.write(msstore(["submission", "poll", PRODUCT_ID]));
     console.log(`Submitted ${packageName} for certification.`);
   } finally {
     rmSync(scratch, { recursive: true, force: true });
