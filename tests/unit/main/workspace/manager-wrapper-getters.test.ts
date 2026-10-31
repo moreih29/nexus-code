@@ -53,6 +53,7 @@ const { WorkspaceManager } = await import(
 const { getAgentBinDir, getAgentBinaryPath } = await import(
   "../../../../src/main/infra/agent/getAgentBinDir"
 );
+const { loginShell } = await import("../../../../src/main/infra/platform");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -248,10 +249,13 @@ describe("WorkspaceManager.getWrapperAgentBin — acceptance #4, #5", () => {
     // Packaged mode reads the manifest from process.resourcesPath/agent, which
     // lets the test supply its own manifest instead of depending on dist/.
     const resourcesPath = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-wrapper-manifest-"));
-    const proc = process as { resourcesPath?: string };
-    const originalResourcesPath = proc.resourcesPath;
+    // Another test file may leave process.resourcesPath read-only, so it is
+    // redefined rather than assigned.
+    const setResourcesPath = (value: string | undefined) =>
+      Object.defineProperty(process, "resourcesPath", { value, configurable: true, writable: true });
+    const originalResourcesPath = process.resourcesPath;
     electronApp.isPackaged = true;
-    proc.resourcesPath = resourcesPath;
+    setResourcesPath(resourcesPath);
 
     const { manager, globalDb } = makeManager();
     try {
@@ -278,7 +282,7 @@ describe("WorkspaceManager.getWrapperAgentBin — acceptance #4, #5", () => {
       expect(manager.getWrapperAgentBin(meta.id)).toBe(`${REMOTE_BIN_DIR}/agent-9.8.7-linux-amd64`);
     } finally {
       electronApp.isPackaged = false;
-      proc.resourcesPath = originalResourcesPath;
+      setResourcesPath(originalResourcesPath);
       fs.rmSync(resourcesPath, { recursive: true, force: true });
       globalDb.close();
     }
@@ -344,10 +348,9 @@ describe("WorkspaceManager.getWrapperShell — acceptance #6, #7, #8", () => {
     }
   });
 
-  posixTest("#6b: 로컬 워크스페이스 + process.env.SHELL 미설정 → /bin/zsh 폴백", () => {
-    // Finder/Spotlight로 띄운 macOS launchd 자식 프로세스에서는 $SHELL이
-    // 비어있을 수 있다. 이 경우 사용자 기본 셸이 zsh인 것으로 가정하고
-    // 폴백 — 실제 셸이 bash/fish여도 ZDOTDIR 주입은 무해하다.
+  // Launched from Finder or a desktop entry, the app can run without $SHELL;
+  // loginShell() then falls back to the account's shell (tested on its own).
+  posixTest("#6b: local workspace without $SHELL → the account's login shell", () => {
     delete process.env.SHELL;
     try {
       const { manager, globalDb } = makeManager();
@@ -358,16 +361,14 @@ describe("WorkspaceManager.getWrapperShell — acceptance #6, #7, #8", () => {
 
       const result = manager.getWrapperShell(meta.id);
 
-      expect(result).toBe("/bin/zsh");
+      expect(result).toBe(loginShell());
       globalDb.close();
     } finally {
       restoreShell();
     }
   });
 
-  posixTest("#6c: 로컬 워크스페이스 + process.env.SHELL=빈문자열 → /bin/zsh 폴백", () => {
-    // 빈문자열도 "값 없음"으로 취급해야 한다 — 일부 셸/launchd 조합에서는
-    // $SHELL이 unset이 아니라 빈문자열로 들어올 수 있다.
+  posixTest("#6c: local workspace with an empty $SHELL → the account's login shell", () => {
     process.env.SHELL = "";
     try {
       const { manager, globalDb } = makeManager();
@@ -378,7 +379,7 @@ describe("WorkspaceManager.getWrapperShell — acceptance #6, #7, #8", () => {
 
       const result = manager.getWrapperShell(meta.id);
 
-      expect(result).toBe("/bin/zsh");
+      expect(result).toBe(loginShell());
       globalDb.close();
     } finally {
       restoreShell();
