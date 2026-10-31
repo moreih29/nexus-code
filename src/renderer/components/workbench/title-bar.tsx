@@ -5,6 +5,7 @@ import type { WorkspaceLocation } from "../../../shared/types/workspace";
 import { useActiveStore } from "../../state/stores/active";
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { isMac } from "../../utils/platform";
 import { WindowControls } from "./window-controls";
 
 // ---------------------------------------------------------------------------
@@ -29,7 +30,6 @@ const OWN_CONTROLS_INSET = 4; // px — right of the renderer-drawn window contr
 
 export function TitleBar() {
   const { t } = useTranslation();
-  const isMac = window.host.platform === "darwin";
   const ownControls = window.host.transparentWindow === true;
 
   const activeWorkspaceId = useActiveStore((s) => s.activeWorkspaceId);
@@ -50,8 +50,8 @@ export function TitleBar() {
         TITLEBAR_HEIGHT_CLASS,
       )}
       style={{
-        paddingLeft: isMac ? MAC_TRAFFIC_LIGHTS_INSET : 12,
-        paddingRight: isMac ? 12 : ownControls ? OWN_CONTROLS_INSET : WIN_OVERLAY_INSET,
+        paddingLeft: isMac() ? MAC_TRAFFIC_LIGHTS_INSET : 12,
+        paddingRight: isMac() ? 12 : ownControls ? OWN_CONTROLS_INSET : WIN_OVERLAY_INSET,
       }}
     >
       {/* Brand — uppercase small-label per the warm design system */}

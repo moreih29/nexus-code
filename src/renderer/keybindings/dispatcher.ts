@@ -23,7 +23,6 @@
 
 import { executeCommand } from "../commands/registry";
 import {
-  __resetForTests as __resetChordStateForTests,
   __setClockForTests,
   chordClock,
   clearPending,
@@ -31,6 +30,7 @@ import {
   getPendingLeader,
   isModifierKeyOnly,
   purgeExpired,
+  __resetForTests as resetChordState,
 } from "./chord-state";
 import { evaluateContextKey } from "./context-keys";
 import { resolveEvent } from "./resolver";
@@ -40,7 +40,7 @@ import { resolveEvent } from "./resolver";
 // file directly).
 // ---------------------------------------------------------------------------
 
-export { __resetChordStateForTests, __setClockForTests as __setChordClockForTests };
+export { __setClockForTests as __setChordClockForTests };
 
 // ---------------------------------------------------------------------------
 // Chords in the editor (Win/Linux)
@@ -56,21 +56,17 @@ let editorChordSince: number | null = null;
 /** How long Monaco waits for a chord's second key. */
 const EDITOR_CHORD_TIMEOUT_MS = 5000;
 
-/** Test override for the platform half of {@link editorTakesChords}. */
-let editorChordsOverride: boolean | null = null;
-
 /**
  * Whether Monaco resolves a chord started at `e`: on Win/Linux, while the
  * editor has focus. macOS keeps the app's own chord handling.
  */
 function editorTakesChords(e: KeyboardEvent): boolean {
-  const platform = editorChordsOverride ?? !evaluateContextKey("isMac", e);
-  return platform && evaluateContextKey("editorFocus", e);
+  return !evaluateContextKey("isMac", e) && evaluateContextKey("editorFocus", e);
 }
 
-/** Test-only: force the platform half of `editorTakesChords`; null restores it. */
-export function __setEditorChordsForTests(value: boolean | null): void {
-  editorChordsOverride = value;
+/** Test-only: clears the pending chord, the app's or Monaco's. */
+export function __resetChordStateForTests(): void {
+  resetChordState();
   editorChordSince = null;
 }
 

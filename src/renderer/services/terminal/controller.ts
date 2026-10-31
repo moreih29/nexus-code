@@ -16,6 +16,7 @@ import {
   resolvedTerminalFontSize,
 } from "../../state/stores/terminal";
 import { copyTextViaIpc } from "../../utils/clipboard";
+import { isWindows } from "../../utils/platform";
 import { createPtyClient } from "./pty-client";
 import type {
   PtyClient,
@@ -793,7 +794,7 @@ class XtermTerminalController implements TerminalController {
         !event.metaKey &&
         event.keyCode === 86 &&
         (term.modes.bracketedPasteMode || this.shellIsCmd) &&
-        window.host?.platform === "win32"
+        isWindows()
       ) {
         return false;
       }
