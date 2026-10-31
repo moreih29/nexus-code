@@ -9,6 +9,8 @@ import {
   CrossWorkspaceConsent,
   type CrossWorkspacePolicy,
 } from "../../../../src/main/features/cli/consent";
+import type { ConsoleEntry } from "../../../../src/main/features/cli/browser/console-log";
+import type { BrowserDriver } from "../../../../src/main/features/cli/browser/driver";
 import type { CliContext, CliServices } from "../../../../src/main/features/cli/context";
 import type { ClaudeStatus } from "../../../../src/shared/claude/status";
 import type {
@@ -112,6 +114,67 @@ export interface FakeApp {
   asked: ChangeRequest[];
   /** Virtual time: sleeping advances it and then runs `onTick`. */
   time: { now: number; onTick?: (now: number) => void };
+  /** What was asked of the browser driver, and what it answers. */
+  browser: FakeBrowser;
+}
+
+export interface FakeBrowser {
+  calls: Array<{ op: string; tabId: string; args: unknown[] }>;
+  console: ConsoleEntry[];
+  /** What evaluate gives. */
+  value: unknown;
+  /** Whether waitFor finds its condition. */
+  met: boolean;
+}
+
+function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
+  const page = { url: "http://localhost:5173/", title: "Vite App" };
+  const record = (op: string, tabId: string, ...args: unknown[]) => {
+    state.calls.push({ op, tabId, args });
+  };
+  const acted = (text: string) => ({ ...page, text, navigated: false });
+  return {
+    snapshot: async (tabId, options) => {
+      record("snapshot", tabId, options);
+      return { ...page, text: '- button "Sign in" [ref=e1]', omitted: 0 };
+    },
+    click: async (tabId, target, options) => {
+      record("click", tabId, target, options);
+      return acted(`Clicked ${target}.`);
+    },
+    fill: async (tabId, target, text) => {
+      record("fill", tabId, target, text);
+      return acted(`Filled ${target}.`);
+    },
+    type: async (tabId, text, target) => {
+      record("type", tabId, text, target);
+      return acted("Typed.");
+    },
+    press: async (tabId, keys) => {
+      record("press", tabId, keys);
+      return acted(`Pressed ${keys.join(" ")}.`);
+    },
+    screenshot: async (tabId, options) => {
+      record("screenshot", tabId, options);
+      return "cG5n";
+    },
+    evaluate: async (tabId, expression) => {
+      record("evaluate", tabId, expression);
+      return state.value;
+    },
+    console: (tabId, clear) => {
+      record("console", tabId, clear);
+      return state.console;
+    },
+    waitFor: async (tabId, condition, timeoutMs) => {
+      record("waitFor", tabId, condition, timeoutMs);
+      return state.met;
+    },
+    settle: async (tabId) => {
+      record("settle", tabId);
+      return page;
+    },
+  };
 }
 
 export function fakeApp(now = Date.now()): FakeApp {
@@ -139,6 +202,7 @@ export function fakeApp(now = Date.now()): FakeApp {
   const answers: CliConsentAnswer[] = [];
   const asked: ChangeRequest[] = [];
   const time: FakeApp["time"] = { now };
+  const browser: FakeBrowser = { calls: [], console: [], value: undefined, met: true };
   const consent = new CrossWorkspaceConsent({
     policy: () => settings.crossWorkspace,
     ask: async (request) => {
@@ -192,6 +256,7 @@ export function fakeApp(now = Date.now()): FakeApp {
         time.onTick?.(time.now);
       },
     },
+    browser: fakeBrowserDriver(browser),
   };
   return {
     services,
@@ -206,6 +271,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     answers,
     asked,
     time,
+    browser,
   };
 }
 

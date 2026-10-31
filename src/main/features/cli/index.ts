@@ -12,9 +12,11 @@ import { createLogger } from "../../../shared/log/main";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { AgentChannel } from "../../infra/agent/channel";
 import { register, validateArgs } from "../../infra/ipc-router";
+import { getBrowserRegistry, onBrowserTabCreated } from "../browser";
 import type { ActiveContextStore } from "../claude/active-context";
 import type { ClaudeStatusBroker } from "../claude/status";
 import { type ActivitySource, ActivityTracker } from "./activity";
+import { CdpBrowserDriver } from "./browser/driver";
 import { CLI_COMMANDS } from "./commands";
 import { CrossWorkspaceConsent, type CrossWorkspacePolicy } from "./consent";
 import type { CliServices } from "./context";
@@ -77,6 +79,13 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     ask: async (request, timeoutMs) =>
       (await bridge.ask("consent.ask", { ...request, timeoutMs }, timeoutMs + 10_000)).answer,
   });
+  const browser = new CdpBrowserDriver((tabId) => {
+    const entry = getBrowserRegistry()?.get(tabId);
+    return entry && { contents: entry.view.webContents, view: entry.view, active: entry.active };
+  });
+  const stopWatchingBrowsers = onBrowserTabCreated((tabId, contents) =>
+    browser.watch(tabId, contents),
+  );
 
   register("cli", {
     call: {
@@ -139,6 +148,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       now: () => Date.now(),
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     },
+    browser,
   };
 
   const run = (caller: { workspaceId: string; tabId: string }, request: CliInvocation) => {
@@ -176,6 +186,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   return {
     dispose: () => {
       off();
+      stopWatchingBrowsers();
       activity.dispose();
       bridge.dispose();
     },

@@ -14,6 +14,7 @@ import type {
 import type { FsEntryType } from "../../../shared/fs/types";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { TabActivity } from "./activity";
+import type { BrowserDriver } from "./browser/driver";
 import type { ChangeRequest } from "./consent";
 
 /** A failure the command reports as is, with its exit code. */
@@ -54,6 +55,8 @@ export interface CliServices {
   foregroundProcess(workspaceId: string, tabId: string): Promise<string | null>;
   /** Time, for commands that wait. */
   readonly clock: { now(): number; sleep(ms: number): Promise<void> };
+  /** Reads and drives the pages of browser tabs. */
+  readonly browser: BrowserDriver;
 }
 
 export interface CliContext {
