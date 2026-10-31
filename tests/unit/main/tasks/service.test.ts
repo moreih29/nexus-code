@@ -14,9 +14,14 @@ import type { WorkspaceCreateOptions } from "../../../../src/main/features/works
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 import { newLocalGitRepository } from "../git/helpers/local-semantic-executor";
 
+// An empty global config keeps the developer's out. Not os.devNull: git for
+// Windows cannot open \\.\nul.
+const emptyConfig = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "nexus-gitconfig-")), "config");
+fs.writeFileSync(emptyConfig, "");
+
 const gitEnv = {
   ...process.env,
-  GIT_CONFIG_GLOBAL: os.devNull,
+  GIT_CONFIG_GLOBAL: emptyConfig,
   GIT_CONFIG_NOSYSTEM: "1",
   GIT_AUTHOR_NAME: "t",
   GIT_AUTHOR_EMAIL: "t@example.com",
@@ -46,6 +51,7 @@ beforeAll(() => {
 
 afterAll(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
+  fs.rmSync(path.dirname(emptyConfig), { recursive: true, force: true });
 });
 
 /** A manager holding metas in memory, and the parent workspace in it. */
