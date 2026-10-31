@@ -46,8 +46,20 @@ func defaultShell() string {
 	return "cmd.exe"
 }
 
+// allowCtrlC lets the shells take Ctrl+C. A process started in a new
+// process group ignores it and passes that on to the processes it starts,
+// so in an app started from one, no program a terminal ran stopped on
+// Ctrl+C.
+var allowCtrlC sync.Once
+
+var procSetConsoleCtrlHandler = windows.NewLazySystemDLL("kernel32.dll").NewProc("SetConsoleCtrlHandler")
+
 // startTerminal starts spec's shell in a new pseudoconsole.
 func startTerminal(spec spawnSpec) (*terminal, *child, error) {
+	allowCtrlC.Do(func() {
+		// SetConsoleCtrlHandler(NULL, FALSE): stop ignoring Ctrl+C.
+		_, _, _ = procSetConsoleCtrlHandler.Call(0, 0)
+	})
 	path, err := exec.LookPath(spec.shell)
 	if err != nil {
 		return nil, nil, err
