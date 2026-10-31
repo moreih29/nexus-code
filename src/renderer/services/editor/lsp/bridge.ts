@@ -3,8 +3,9 @@
 
 import type * as Monaco from "monaco-editor";
 import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
-import { workspaceUriFor } from "../../../../shared/fs/workspace-uri";
+import { WORKSPACE_URI_SCHEME, workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import type { SymbolInformation } from "../../../../shared/lsp";
+import { resolveLspPresetLanguageId } from "../../../../shared/lsp/config";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../../ipc/client";
 import { useActiveStore } from "../../../state/stores/active";
 import {
@@ -89,6 +90,20 @@ function registerDiagnosticsListener(monaco: typeof Monaco): void {
       args.diagnostics.map((diagnostic) => lspDiagnosticToMonacoMarker(monaco, diagnostic)),
     );
   });
+}
+
+/**
+ * Drops the diagnostics a workspace's `languageId` server published: once
+ * it is turned off or failed for good, no server will replace them.
+ */
+export function clearLspDiagnostics(workspaceId: string, languageId: string): void {
+  const monaco = getMonacoRef();
+  if (!monaco) return;
+  for (const model of monaco.editor.getModels()) {
+    if (model.uri.scheme !== WORKSPACE_URI_SCHEME || model.uri.authority !== workspaceId) continue;
+    if (resolveLspPresetLanguageId(model.getLanguageId()) !== languageId) continue;
+    monaco.editor.setModelMarkers(model, MARKER_OWNER, []);
+  }
 }
 
 function registerWorkspaceResetListener(): void {

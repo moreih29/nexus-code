@@ -9,6 +9,7 @@ import { isBuiltinLspPresetLanguageId, resolveLspPreset } from "../../../shared/
 import type { LspServerStatus } from "../../../shared/lsp/status";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
+import { clearLspDiagnostics } from "../../services/editor/lsp/bridge";
 import { clearProgressFor } from "../../services/lsp-ux/server-ux-router";
 import { useLspLogViewerStore } from "../stores/lsp-log-viewer";
 import { useLspSettingsStore } from "../stores/lsp-settings";
@@ -36,6 +37,11 @@ export function initLspStatusSync(): void {
     const store = useLspStatusStore.getState();
     const previous = store.statuses[lspStatusKey(status.workspaceId, status.languageId)];
     if (status.state !== "running") clearProgressFor(status.workspaceId, status.languageId);
+    // A server stopped for idling comes back with the next edit; one turned
+    // off or given up on does not, and its errors would stay on screen.
+    if (status.state === "failed" || (status.state === "stopped" && status.stopReason === "off")) {
+      clearLspDiagnostics(status.workspaceId, status.languageId);
+    }
     store.setStatus(status);
     notify(status, previous);
   });
