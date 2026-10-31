@@ -194,7 +194,9 @@ export function ToastRoot(): React.JSX.Element | null {
       // Lets the browser-suspend observer lift the stack above a browser
       // tab's native view when the two overlap.
       data-toast-viewport=""
-      className="fixed bottom-4 right-4 z-[60] flex flex-col gap-2 w-[360px] max-w-[90vw]"
+      // Above the status bar, so its items stay clickable while a toast is
+      // up: the language server's warning sits at its right end.
+      className="fixed bottom-10 right-4 z-[60] flex flex-col gap-2 w-[360px] max-w-[90vw]"
     >
       {toasts.map((toast) => {
         // Action toasts use role="alert" (assertive) so assistive technology
