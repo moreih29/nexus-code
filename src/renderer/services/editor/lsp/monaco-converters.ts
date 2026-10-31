@@ -4,16 +4,19 @@
 import type * as Monaco from "monaco-editor";
 import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
 import { workspaceUriFor } from "../../../../shared/fs/workspace-uri";
-import type {
-  Diagnostic,
-  DiagnosticRelatedInformation,
-  DocumentHighlight,
-  DocumentSymbol,
-  Location,
-  MarkupContentOrString,
-  Range,
-  SymbolInformation,
-  TextDocumentContentChangeEvent,
+import {
+  type CompletionItem,
+  CompletionItemTagDeprecated,
+  type Diagnostic,
+  type DiagnosticRelatedInformation,
+  type DocumentHighlight,
+  type DocumentSymbol,
+  InsertTextFormatSnippet,
+  type Location,
+  type MarkupContentOrString,
+  type Range,
+  type SymbolInformation,
+  type TextDocumentContentChangeEvent,
 } from "../../../../shared/lsp";
 
 const MARKDOWN_PLAINTEXT_ESCAPE_PATTERN = /([\\`*_{}[\]()#+\-.!|>])/g;
@@ -96,6 +99,99 @@ export function lspCompletionItemKindToMonacoKind(
 ): Monaco.languages.CompletionItemKind {
   const name = kind === undefined ? undefined : LSP_COMPLETION_ITEM_KINDS[kind - 1];
   return monaco.languages.CompletionItemKind[name ?? "Text"];
+}
+
+// Editor commands a server may attach to a completion item; others are the
+// server's own and have no handler here.
+const COMPLETION_ITEM_EDITOR_COMMANDS = new Set([
+  "editor.action.triggerSuggest",
+  "editor.action.triggerParameterHints",
+]);
+
+/**
+ * An LSP completion item as Monaco takes it. The item replaces
+ * `defaultRange`, the word before the cursor, unless it names a range of its
+ * own that Monaco can use: one line, around the cursor.
+ */
+export function lspCompletionItemToMonaco(
+  monaco: typeof Monaco,
+  item: CompletionItem,
+  position: Monaco.IPosition,
+  defaultRange: Monaco.IRange,
+): Monaco.languages.CompletionItem {
+  const deprecated = item.deprecated === true || item.tags?.includes(CompletionItemTagDeprecated);
+  return {
+    label: item.labelDetails
+      ? {
+          label: item.label,
+          detail: item.labelDetails.detail,
+          description: item.labelDetails.description,
+        }
+      : item.label,
+    kind: lspCompletionItemKindToMonacoKind(monaco, item.kind),
+    tags: deprecated ? [monaco.languages.CompletionItemTag.Deprecated] : undefined,
+    ...lspCompletionItemDetails(item),
+    sortText: item.sortText,
+    filterText: item.filterText,
+    preselect: item.preselect,
+    insertText: item.textEdit?.newText ?? item.insertText ?? item.label,
+    insertTextRules:
+      item.insertTextFormat === InsertTextFormatSnippet
+        ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+        : undefined,
+    range: completionItemRange(item, position) ?? defaultRange,
+    commitCharacters: item.commitCharacters,
+    command:
+      item.command && COMPLETION_ITEM_EDITOR_COMMANDS.has(item.command.command)
+        ? { id: item.command.command, title: item.command.title }
+        : undefined,
+  };
+}
+
+/** What `completionItem/resolve` may fill in, as Monaco takes it. */
+export function lspCompletionItemDetails(
+  item: CompletionItem,
+): Pick<Monaco.languages.CompletionItem, "detail" | "documentation" | "additionalTextEdits"> {
+  return {
+    detail: item.detail,
+    documentation:
+      item.documentation === undefined ? undefined : lspDocumentationToMonaco(item.documentation),
+    additionalTextEdits: item.additionalTextEdits?.map((edit) => ({
+      range: lspRangeToMonacoRange(edit.range),
+      text: edit.newText,
+    })),
+  };
+}
+
+function completionItemRange(
+  item: CompletionItem,
+  position: Monaco.IPosition,
+): Monaco.languages.CompletionItem["range"] | undefined {
+  const edit = item.textEdit;
+  if (!edit) return undefined;
+  if ("range" in edit) {
+    const range = lspRangeToMonacoRange(edit.range);
+    return rangeAroundPosition(range, position) ? range : undefined;
+  }
+  const insert = lspRangeToMonacoRange(edit.insert);
+  const replace = lspRangeToMonacoRange(edit.replace);
+  return rangeAroundPosition(insert, position) && rangeAroundPosition(replace, position)
+    ? { insert, replace }
+    : undefined;
+}
+
+function rangeAroundPosition(range: Monaco.IRange, position: Monaco.IPosition): boolean {
+  return (
+    range.startLineNumber === position.lineNumber &&
+    range.endLineNumber === position.lineNumber &&
+    range.startColumn <= position.column &&
+    range.endColumn >= position.column
+  );
+}
+
+function lspDocumentationToMonaco(doc: MarkupContentOrString): string | Monaco.IMarkdownString {
+  if (typeof doc === "string") return doc;
+  return doc.kind === "markdown" ? { value: doc.value } : doc.value;
 }
 
 function lspSymbolKindToMonacoKind(kind: number): Monaco.languages.SymbolKind {

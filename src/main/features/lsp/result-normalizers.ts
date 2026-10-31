@@ -7,7 +7,9 @@
 import { z } from "zod";
 import { createLogger } from "../../../shared/log/main";
 import {
+  type CompletionItem,
   CompletionItemSchema,
+  type CompletionList,
   DiagnosticSchema,
   DocumentSymbolSchema,
   type Location,
@@ -82,15 +84,33 @@ export function normalizeWorkspaceSymbolResult(raw: unknown): unknown {
   });
 }
 
-export function normalizeCompletionResult(raw: unknown): unknown {
-  if (!raw) return [];
-  const rawItems =
-    Array.isArray(raw) || !isObjectLike(raw) ? raw : (raw as { items?: unknown }).items;
+export function normalizeCompletionResult(raw: unknown): CompletionList {
+  const isList = isObjectLike(raw) && !Array.isArray(raw);
+  const rawItems = isList ? raw.items : raw;
   const items = Array.isArray(rawItems) ? rawItems : [];
-  return items.flatMap((item) => {
-    const parsed = CompletionItemSchema.safeParse(item);
-    return parsed.success ? [parsed.data] : [];
-  });
+  return {
+    isIncomplete: isList && raw.isIncomplete === true,
+    items: items.flatMap((item) => {
+      const normalized = normalizeCompletionItem(item);
+      return normalized ? [normalized] : [];
+    }),
+  };
+}
+
+/**
+ * Keeps each field that parses and drops the rest: a server that sends
+ * `null` for a field it leaves out, or a field in a newer shape, still
+ * gets its item shown.
+ */
+export function normalizeCompletionItem(raw: unknown): CompletionItem | null {
+  if (!isObjectLike(raw) || typeof raw.label !== "string") return null;
+  const item: Record<string, unknown> = { label: raw.label };
+  for (const [key, schema] of Object.entries(CompletionItemSchema.shape)) {
+    if (key === "label" || raw[key] === undefined || raw[key] === null) continue;
+    const parsed = schema.safeParse(raw[key]);
+    if (parsed.success) item[key] = parsed.data;
+  }
+  return item as CompletionItem;
 }
 
 export function parsePublishDiagnostics(

@@ -4,12 +4,14 @@
 import type * as Monaco from "monaco-editor";
 import { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
 import { parseWorkspaceUri } from "../../../../shared/fs/workspace-uri";
+import type { CompletionItem } from "../../../../shared/lsp";
 import { CANONICAL_TOKEN_TYPES } from "../../../../shared/lsp/semantic-tokens";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { isLspLanguage } from "./language";
 import {
   hoverContentsToMarkdown,
-  lspCompletionItemKindToMonacoKind,
+  lspCompletionItemDetails,
+  lspCompletionItemToMonaco,
   lspDocumentHighlightToMonacoHighlight,
   lspDocumentSymbolToMonacoSymbol,
   lspLocationToMonacoLocation,
@@ -17,7 +19,9 @@ import {
   tokenToAbortSignal,
 } from "./monaco-converters";
 
-const COMPLETION_TRIGGER_CHARACTERS = [".", '"', "'", "`", "/", "@", "<"];
+// Every character a bundled server completes on; main drops the ones the
+// file's own server does not list.
+const COMPLETION_TRIGGER_CHARACTERS = [".", '"', "'", "/", "@", "<", "["];
 
 /**
  * Recover (workspaceId, lspUri) from a Monaco model whose URI is a
@@ -142,15 +146,21 @@ export function registerLanguageProviders(
     },
   });
 
+  // What an item came from, for resolving it once it is picked.
+  const completionOrigins = new WeakMap<
+    Monaco.languages.CompletionItem,
+    { workspaceId: string; lspUri: string; item: CompletionItem }
+  >();
+
   monaco.languages.registerCompletionItemProvider(languageId, {
     triggerCharacters: COMPLETION_TRIGGER_CHARACTERS,
-    async provideCompletionItems(model, position, _context, token) {
+    async provideCompletionItems(model, position, context, token) {
       if (!isLspLanguage(model.getLanguageId())) return { suggestions: [] };
       const ctx = modelLspContext(model);
       if (!ctx) return { suggestions: [] };
       try {
         const signal = tokenToAbortSignal(token);
-        const results = unwrapIpcResult(
+        const list = unwrapIpcResult(
           await ipcCallResult(
             "lsp",
             "completion",
@@ -159,6 +169,9 @@ export function registerLanguageProviders(
               uri: ctx.lspUri,
               line: position.lineNumber - 1,
               character: position.column - 1,
+              // Monaco numbers trigger kinds from 0, LSP from 1.
+              triggerKind: context.triggerKind + 1,
+              triggerCharacter: context.triggerCharacter,
             },
             { signal },
           ),
@@ -173,15 +186,42 @@ export function registerLanguageProviders(
 
         if (!isLspLanguage(model.getLanguageId())) return { suggestions: [] };
         return {
-          suggestions: results.map((item) => ({
-            label: item.label,
-            kind: lspCompletionItemKindToMonacoKind(monaco, item.kind),
-            insertText: item.label,
-            range,
-          })),
+          incomplete: list.isIncomplete,
+          suggestions: list.items.map((item) => {
+            const suggestion = lspCompletionItemToMonaco(monaco, item, position, range);
+            completionOrigins.set(suggestion, { ...ctx, item });
+            return suggestion;
+          }),
         };
       } catch {
         return { suggestions: [] };
+      }
+    },
+    // Servers leave documentation, detail and the edits an auto-import
+    // makes until an item is picked; Monaco asks for them here.
+    async resolveCompletionItem(suggestion, token) {
+      const origin = completionOrigins.get(suggestion);
+      if (!origin) return suggestion;
+      try {
+        const signal = tokenToAbortSignal(token);
+        const item = unwrapIpcResult(
+          await ipcCallResult(
+            "lsp",
+            "completionResolve",
+            { workspaceId: origin.workspaceId, uri: origin.lspUri, item: origin.item },
+            { signal },
+          ),
+        );
+        // Only these may change on resolve; the range and text stay.
+        const resolved = lspCompletionItemDetails(item);
+        return {
+          ...suggestion,
+          detail: resolved.detail ?? suggestion.detail,
+          documentation: resolved.documentation ?? suggestion.documentation,
+          additionalTextEdits: resolved.additionalTextEdits ?? suggestion.additionalTextEdits,
+        };
+      } catch {
+        return suggestion;
       }
     },
   });
