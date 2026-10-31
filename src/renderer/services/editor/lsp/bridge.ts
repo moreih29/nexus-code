@@ -51,6 +51,7 @@ export {
 const MARKER_OWNER = "lsp";
 
 let diagnosticsUnlisten: (() => void) | null = null;
+let modelDisposeListener: Monaco.IDisposable | null = null;
 let applyEditUnlisten: (() => void) | null = null;
 let workspaceResetUnlisten: (() => void) | null = null;
 
@@ -60,6 +61,8 @@ function setMonaco(monaco: typeof Monaco): void {
   initProviderRegistry(monaco);
   diagnosticsUnlisten?.();
   diagnosticsUnlisten = null;
+  modelDisposeListener?.dispose();
+  modelDisposeListener = null;
   applyEditUnlisten?.();
   applyEditUnlisten = null;
   workspaceResetUnlisten?.();
@@ -104,6 +107,19 @@ export function clearLspDiagnostics(workspaceId: string, languageId: string): vo
     if (resolveLspPresetLanguageId(model.getLanguageId()) !== languageId) continue;
     monaco.editor.setModelMarkers(model, MARKER_OWNER, []);
   }
+}
+
+/**
+ * Drops a closing file's diagnostics. Monaco keeps markers by URI past the
+ * model, and the file reopened would show them until its server published
+ * again, or for good when it does not (a file outside the project).
+ */
+function registerModelDisposeListener(monaco: typeof Monaco): void {
+  if (modelDisposeListener) return;
+
+  modelDisposeListener = monaco.editor.onWillDisposeModel((model) => {
+    monaco.editor.setModelMarkers(model, MARKER_OWNER, []);
+  });
 }
 
 function registerWorkspaceResetListener(): void {
@@ -157,6 +173,7 @@ export function setPreAcquireFn(fn: Parameters<typeof setPreAcquireFnInRegistry>
 export function initializeLspBridge(monaco: typeof Monaco): void {
   setMonaco(monaco);
   registerDiagnosticsListener(monaco);
+  registerModelDisposeListener(monaco);
   registerApplyEditListener(monaco);
   registerWorkspaceResetListener();
 }

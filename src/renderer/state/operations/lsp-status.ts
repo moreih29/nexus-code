@@ -85,7 +85,7 @@ function notify(status: LspServerStatus, previous: LspServerStatus | undefined):
           },
           {
             label: i18next.t("lsp.openSettings"),
-            onAction: () => useSettingsUIStore.getState().openSettingsAt("editor"),
+            onAction: () => useSettingsUIStore.getState().openSettingsAt("language-servers"),
           },
         ],
       });

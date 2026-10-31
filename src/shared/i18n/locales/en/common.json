@@ -387,7 +387,7 @@
     },
     "serverMessage": "{{language}}: {{message}}",
     "gaveUp": "The {{language}} language server of {{workspace}} failed again and again and was stopped.",
-    "evicted": "Stopped the language servers of {{workspace}}: more than {{count}} workspaces were running them. They start again when you return to it.",
+    "evicted": "Stopped the language servers of {{workspace}}: more than {{count}} workspaces were running them. They restart when you return.",
     "segmentTitle": "{{language}} language server: {{state}}",
     "menuTitle": "{{language}} language server",
     "state": {

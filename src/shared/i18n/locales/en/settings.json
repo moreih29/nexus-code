@@ -3,6 +3,7 @@
   "nav": {
     "appearance": "Appearance",
     "editor": "Editor",
+    "languageServers": "Language Servers",
     "terminal": "Terminal",
     "workspaces": "Workspaces",
     "notifications": "Notifications",
@@ -184,32 +185,6 @@
       "lineHeight": "Reset Line height",
       "fontFamily": "Reset Font family",
       "fontLigatures": "Reset Font ligatures"
-    },
-    "lsp": {
-      "label": "Language servers (experimental)",
-      "enable": "Use language servers",
-      "description": "Completion, go to definition and diagnostics from language servers. A language's server starts when you open one of its files. Click the language's name in the status bar to see its server's state, restart it, or turn it off in that workspace alone.",
-      "language": {
-        "typescript": "TypeScript · JavaScript",
-        "python": "Python",
-        "go": "Go (gopls)",
-        "rust": "Rust (rust-analyzer)",
-        "yaml": "YAML",
-        "shell": "Bash",
-        "dockerfile": "Dockerfile"
-      },
-      "lowMemory": "Memory saver",
-      "lowMemoryDescription": "Runs one TypeScript server instead of two and stops installing library types for JavaScript. On a mid-sized project a workspace takes about 520 MB instead of 850 MB, and the first answer after opening a file comes about 0.5 s later. Changing it restarts the TypeScript servers.",
-      "maxWorkspaces": "Workspaces running at once",
-      "maxWorkspacesDescription": "Opening a file in one more workspace stops the servers of the one used least recently. They start again when you return to it.",
-      "serverPath": "Server path",
-      "serverPathPlaceholder": {
-        "go": "Empty: searched for on the PATH and in ~/go/bin",
-        "rust": "Empty: searched for on the PATH and in ~/.cargo/bin"
-      },
-      "serverPathDescription": "Uses a server you installed. For a remote workspace it is looked for on that host. ~ is your home directory.",
-      "install": "Install:",
-      "shellDescription": "Errors need shellcheck, and formatting shfmt, installed on the workspace's host."
     }
   },
   "terminal": {
@@ -423,5 +398,34 @@
         "goForward": "Forward (Browser)"
       }
     }
+  },
+  "languageServers": {
+    "enable": "Use language servers",
+    "description": "Completion, go to definition and error checking. Click a language's name in the status bar to see its server.",
+    "bundled": "Built in",
+    "installed": "Installed by you",
+    "installedDescription": "Left empty, the server is looked for on the PATH and where its installer puts it. Remote workspaces look on their host.",
+    "language": {
+      "typescript": "TypeScript · JavaScript",
+      "python": "Python",
+      "yaml": "YAML",
+      "shell": "Bash",
+      "dockerfile": "Dockerfile",
+      "go": "Go (gopls)",
+      "rust": "Rust (rust-analyzer)"
+    },
+    "lowMemory": "Memory saver",
+    "lowMemoryDescription": "Uses about 40% less memory; the first answer comes a little later.",
+    "shellDescription": "With shellcheck and shfmt installed, also checks errors and formats.",
+    "serverPath": "{{language}} server path",
+    "serverPathPlaceholder": {
+      "go": "~/go/bin/gopls",
+      "goWindows": "~\\go\\bin\\gopls.exe",
+      "rust": "~/.cargo/bin/rust-analyzer",
+      "rustWindows": "~\\.cargo\\bin\\rust-analyzer.exe"
+    },
+    "install": "Install:",
+    "maxWorkspaces": "Workspaces running at once",
+    "maxWorkspacesDescription": "Beyond this, the servers of the workspace used least recently stop first."
   }
 }

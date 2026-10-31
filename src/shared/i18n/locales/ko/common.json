@@ -387,7 +387,7 @@
     },
     "serverMessage": "{{language}}: {{message}}",
     "gaveUp": "{{workspace}}의 {{language}} 언어 서버가 연달아 실패해 멈췄습니다.",
-    "evicted": "{{workspace}}의 언어 서버를 멈췄습니다. 동시에 실행할 워크스페이스 수({{count}}개)를 넘었습니다. 그 워크스페이스로 돌아가면 다시 시작합니다.",
+    "evicted": "동시 실행 한도({{count}}개)를 넘어 {{workspace}}의 언어 서버를 멈췄습니다. 돌아가면 다시 시작합니다.",
     "segmentTitle": "{{language}} 언어 서버: {{state}}",
     "menuTitle": "{{language}} 언어 서버",
     "state": {

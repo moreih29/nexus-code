@@ -12,6 +12,7 @@ import { AppearancePanel } from "./components/settings/panels/appearance-panel";
 import { BrowserPermissionsPanel } from "./components/settings/panels/browser-permissions-panel";
 import { EditorPanel } from "./components/settings/panels/editor-panel";
 import { KeybindingsPanel } from "./components/settings/panels/keybindings-panel";
+import { LanguageServersPanel } from "./components/settings/panels/language-servers-panel";
 import { NotificationsPanel } from "./components/settings/panels/notifications-panel";
 import { TerminalPanel } from "./components/settings/panels/terminal-panel";
 import { SettingsDialog } from "./components/settings/settings-dialog";
@@ -163,6 +164,26 @@ export function App() {
         group: t("nav.group.settings"),
         keywords: ["font", "size", "family", "ligatures", "line height"],
         dirty: editorDirty,
+      },
+      {
+        id: "language-servers",
+        label: t("nav.languageServers"),
+        group: t("nav.group.settings"),
+        keywords: [
+          "lsp",
+          "language server",
+          "completion",
+          "diagnostics",
+          "typescript",
+          "python",
+          "go",
+          "rust",
+          "yaml",
+          "bash",
+          "dockerfile",
+          "자동 완성",
+          "진단",
+        ],
       },
       {
         id: "terminal",
@@ -421,6 +442,7 @@ export function App() {
           {(activeId) => {
             if (activeId === "appearance") return <AppearancePanel />;
             if (activeId === "editor") return <EditorPanel />;
+            if (activeId === "language-servers") return <LanguageServersPanel />;
             if (activeId === "terminal") return <TerminalPanel />;
             if (activeId === "notifications") return <NotificationsPanel />;
             if (activeId === "browser-permissions") return <BrowserPermissionsPanel />;

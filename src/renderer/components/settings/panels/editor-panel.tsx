@@ -5,7 +5,6 @@
 //   - Font family: token-sealed Select + custom-name input branch
 //   - Font ligatures: Radix Checkbox + live mini-preview that toggles `liga`
 //   - Line height: SegmentedControl (1.0 / 1.2 / 1.4), inline with its label
-//   - Language servers: master switch, each language, how many workspaces run
 //
 // Design seal: semantic tokens only, no hex/oklch/rgba literals,
 // no magic pixel values, no shadows.
@@ -13,16 +12,9 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import { type BuiltinLspPresetLanguageId, resolveLspPreset } from "../../../../shared/lsp/config";
-import {
-  LSP_MAX_ACTIVE_WORKSPACES_LIMIT,
-  type LspLanguageSettings,
-} from "../../../../shared/lsp/settings";
-import { ipcCallResult } from "../../../ipc/client";
 import { checkFontAvailable } from "../../../services/editor/runtime/font-availability";
 import type { EditorFontLineHeight, EditorFontSize } from "../../../state/stores/editor-font";
 import { useEditorFontStore } from "../../../state/stores/editor-font";
-import { useLspSettingsStore } from "../../../state/stores/lsp-settings";
 import { Checkbox } from "../../ui/checkbox";
 import { NumberInput } from "../../ui/number-input";
 import {
@@ -287,189 +279,6 @@ export function EditorPanel() {
           {t("editor.ligatures.description")}
         </p>
       </SettingsSection>
-
-      <LanguageServersSection />
-    </div>
-  );
-}
-
-/** The languages listed under Language servers, in order. */
-const LSP_LANGUAGE_ROWS: readonly BuiltinLspPresetLanguageId[] = [
-  "typescript",
-  "python",
-  "yaml",
-  "shell",
-  "dockerfile",
-  "go",
-  "rust",
-];
-
-/**
- * The LSP settings. Main applies each change at once — stopping, starting or
- * restarting the servers it affects — and broadcasts the result, which the
- * store mirrors.
- */
-function LanguageServersSection() {
-  const { t } = useTranslation("settings");
-  const id = useId();
-  const settings = useLspSettingsStore((s) => s.settings);
-
-  return (
-    <SettingsSection label={t("editor.lsp.label")}>
-      <label htmlFor={id} className="flex items-center gap-2 cursor-pointer">
-        <Checkbox
-          id={id}
-          checked={settings.enabled}
-          onCheckedChange={(v) => void ipcCallResult("lsp", "setEnabled", { enabled: v === true })}
-        />
-        <span className="text-app-body text-foreground">{t("editor.lsp.enable")}</span>
-      </label>
-      <p className="text-app-ui-sm text-muted-foreground">{t("editor.lsp.description")}</p>
-      {settings.enabled && (
-        <div className="flex flex-col gap-3 pl-6">
-          {LSP_LANGUAGE_ROWS.map((languageId) => (
-            <LanguageServerRow
-              key={languageId}
-              languageId={languageId}
-              settings={settings.languages[languageId] ?? {}}
-            />
-          ))}
-          <div className="flex flex-col gap-1">
-            <SettingsRow label={t("editor.lsp.maxWorkspaces")}>
-              <NumberInput
-                value={settings.maxActiveWorkspaces}
-                onChange={(count) =>
-                  void ipcCallResult("lsp", "setMaxActiveWorkspaces", { count })
-                }
-                min={1}
-                max={LSP_MAX_ACTIVE_WORKSPACES_LIMIT}
-                ariaLabel={t("editor.lsp.maxWorkspaces")}
-              />
-            </SettingsRow>
-            <p className="text-app-ui-sm text-muted-foreground">
-              {t("editor.lsp.maxWorkspacesDescription")}
-            </p>
-          </div>
-        </div>
-      )}
-    </SettingsSection>
-  );
-}
-
-function LanguageServerRow({
-  languageId,
-  settings,
-}: {
-  languageId: BuiltinLspPresetLanguageId;
-  settings: LspLanguageSettings;
-}) {
-  const { t } = useTranslation("settings");
-  const id = useId();
-  const lowMemoryId = useId();
-  const preset = resolveLspPreset(languageId);
-  // A server the user installs runs only once turned on.
-  const on = preset?.system ? settings.enabled === true : settings.enabled !== false;
-
-  function change(next: LspLanguageSettings): void {
-    void ipcCallResult("lsp", "setLanguageSettings", { languageId, settings: next });
-  }
-
-  return (
-    <div className="flex flex-col gap-2">
-      <label htmlFor={id} className="flex items-center gap-2 cursor-pointer">
-        <Checkbox id={id} checked={on} onCheckedChange={(v) => change({ enabled: v === true })} />
-        <span className="text-app-body text-foreground">
-          {t(`editor.lsp.language.${languageId}`)}
-        </span>
-      </label>
-      {languageId === "typescript" && on && (
-        <div className="flex flex-col gap-1 pl-6">
-          <label htmlFor={lowMemoryId} className="flex items-center gap-2 cursor-pointer">
-            <Checkbox
-              id={lowMemoryId}
-              checked={settings.lowMemory === true}
-              onCheckedChange={(v) => change({ lowMemory: v === true })}
-            />
-            <span className="text-app-body text-foreground">{t("editor.lsp.lowMemory")}</span>
-          </label>
-          <p className="text-app-ui-sm text-muted-foreground">
-            {t("editor.lsp.lowMemoryDescription")}
-          </p>
-        </div>
-      )}
-      {languageId === "shell" && on && (
-        <p className="pl-6 text-app-ui-sm text-muted-foreground">
-          {t("editor.lsp.shellDescription")}
-        </p>
-      )}
-      {preset?.system && on && (
-        <ServerPathField
-          languageId={languageId}
-          install={preset.install}
-          path={settings.path ?? ""}
-          onCommit={(path) => change({ path })}
-        />
-      )}
-    </div>
-  );
-}
-
-/**
- * Where a server the user installed is. Saved on Enter or leaving the field,
- * not per keystroke: each change restarts the language's servers.
- */
-function ServerPathField({
-  languageId,
-  install,
-  path,
-  onCommit,
-}: {
-  languageId: BuiltinLspPresetLanguageId;
-  install: string | undefined;
-  path: string;
-  onCommit: (path: string) => void;
-}) {
-  const { t } = useTranslation("settings");
-  const id = useId();
-  const [draft, setDraft] = useState(path);
-
-  useEffect(() => setDraft(path), [path]);
-
-  function commit(): void {
-    if (draft.trim() !== path.trim()) onCommit(draft.trim());
-  }
-
-  return (
-    <div className="flex flex-col gap-1 pl-6">
-      <label htmlFor={id} className="text-app-ui-sm text-muted-foreground">
-        {t("editor.lsp.serverPath")}
-      </label>
-      <input
-        id={id}
-        type="text"
-        value={draft}
-        maxLength={4096}
-        spellCheck={false}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") commit();
-        }}
-        placeholder={t(`editor.lsp.serverPathPlaceholder.${languageId}`)}
-        className={cn(
-          "w-full rounded-(--radius-control) border border-border bg-background px-2 py-1",
-          "font-mono text-app-body text-foreground outline-none placeholder:text-muted-foreground",
-          "placeholder:font-sans focus-visible:ring-1 focus-visible:ring-ring",
-        )}
-      />
-      <p className="text-app-ui-sm text-muted-foreground">
-        {t("editor.lsp.serverPathDescription")}
-      </p>
-      {install && (
-        <p className="text-app-ui-sm text-muted-foreground">
-          {t("editor.lsp.install")} <code className="font-mono select-text">{install}</code>
-        </p>
-      )}
     </div>
   );
 }

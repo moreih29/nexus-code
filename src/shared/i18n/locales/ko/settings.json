@@ -3,6 +3,7 @@
   "nav": {
     "appearance": "화면",
     "editor": "편집기",
+    "languageServers": "언어 서버",
     "terminal": "터미널",
     "workspaces": "워크스페이스",
     "notifications": "알림",
@@ -184,32 +185,6 @@
       "lineHeight": "줄 간격 초기화",
       "fontFamily": "글꼴 종류 초기화",
       "fontLigatures": "글꼴 합자 초기화"
-    },
-    "lsp": {
-      "label": "언어 서버 (실험적)",
-      "enable": "언어 서버 사용",
-      "description": "자동 완성, 정의로 이동, 진단을 언어 서버로 제공합니다. 파일을 열면 그 언어의 서버가 시작됩니다. 상태 표시줄의 언어 이름을 누르면 서버 상태를 보고, 다시 시작하거나 이 워크스페이스에서만 끌 수 있습니다.",
-      "language": {
-        "typescript": "TypeScript · JavaScript",
-        "python": "Python",
-        "go": "Go (gopls)",
-        "rust": "Rust (rust-analyzer)",
-        "yaml": "YAML",
-        "shell": "Bash",
-        "dockerfile": "Dockerfile"
-      },
-      "lowMemory": "메모리 절약 모드",
-      "lowMemoryDescription": "TypeScript 서버를 하나만 띄우고 JavaScript 라이브러리 타입 자동 설치를 끕니다. 중간 크기 프로젝트에서 워크스페이스당 약 850MB가 약 520MB로 줄고, 파일을 연 뒤 첫 응답이 0.5초쯤 늦어집니다. 바꾸면 TypeScript 서버를 다시 시작합니다.",
-      "maxWorkspaces": "동시에 실행할 워크스페이스 수",
-      "maxWorkspacesDescription": "이보다 많은 워크스페이스에서 파일을 열면 가장 오래 쓰지 않은 워크스페이스의 서버를 멈춥니다. 그 워크스페이스로 돌아오면 다시 시작합니다.",
-      "serverPath": "서버 경로",
-      "serverPathPlaceholder": {
-        "go": "비워 두면 PATH와 ~/go/bin에서 찾습니다",
-        "rust": "비워 두면 PATH와 ~/.cargo/bin에서 찾습니다"
-      },
-      "serverPathDescription": "직접 설치한 서버를 씁니다. 원격 워크스페이스에서는 그 호스트에서 찾습니다. ~는 홈 디렉터리입니다.",
-      "install": "설치:",
-      "shellDescription": "오류 표시는 shellcheck, 서식 정리는 shfmt가 워크스페이스의 호스트에 설치되어 있어야 합니다."
     }
   },
   "terminal": {
@@ -423,5 +398,34 @@
         "goForward": "앞으로 가기 (브라우저)"
       }
     }
+  },
+  "languageServers": {
+    "enable": "언어 서버 사용",
+    "description": "자동 완성, 정의로 이동, 오류 표시를 제공합니다. 상태 표시줄의 언어 이름을 누르면 서버 상태를 볼 수 있습니다.",
+    "bundled": "기본 제공",
+    "installed": "직접 설치",
+    "installedDescription": "경로를 비우면 PATH와 기본 설치 위치에서 찾습니다. 원격 워크스페이스는 그 호스트에서 찾습니다.",
+    "language": {
+      "typescript": "TypeScript · JavaScript",
+      "python": "Python",
+      "yaml": "YAML",
+      "shell": "Bash",
+      "dockerfile": "Dockerfile",
+      "go": "Go (gopls)",
+      "rust": "Rust (rust-analyzer)"
+    },
+    "lowMemory": "메모리 절약 모드",
+    "lowMemoryDescription": "메모리를 약 40% 덜 쓰고, 첫 응답이 조금 늦어집니다.",
+    "shellDescription": "shellcheck와 shfmt가 있으면 오류 표시와 서식 정리도 합니다.",
+    "serverPath": "{{language}} 서버 경로",
+    "serverPathPlaceholder": {
+      "go": "~/go/bin/gopls",
+      "goWindows": "~\\go\\bin\\gopls.exe",
+      "rust": "~/.cargo/bin/rust-analyzer",
+      "rustWindows": "~\\.cargo\\bin\\rust-analyzer.exe"
+    },
+    "install": "설치:",
+    "maxWorkspaces": "동시에 실행할 워크스페이스 수",
+    "maxWorkspacesDescription": "넘으면 가장 오래 쓰지 않은 워크스페이스의 서버부터 멈춥니다."
   }
 }
