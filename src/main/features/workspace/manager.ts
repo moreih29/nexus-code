@@ -28,6 +28,7 @@ import {
   resolveLocalAgentCommand,
 } from "../../infra/agent/local-agent-resolver";
 import {
+  binDir,
   removeShimDir as defaultRemoveShimDir,
   writeShimFiles as defaultWriteShimFiles,
   shimDir,
@@ -58,6 +59,7 @@ import type { GlobalStorage } from "../../infra/storage/global-storage";
 import type { StateService } from "../../infra/storage/state-service";
 import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
 import { AgentFsProvider } from "../fs/bridge/agent-provider";
+import { agentAliasPath } from "../git/domain/helpers/launcher";
 import { createFsProvider } from "../fs/bridge/create-provider";
 import type { FsProvider } from "../fs/bridge/provider";
 import { WorkspaceContext } from "./context";
@@ -466,7 +468,8 @@ export class WorkspaceManager {
    * 워크스페이스 종류에 따라 래퍼 바이너리가 위치하는 bin 디렉터리의 절대 경로를 반환한다.
    *
    * - 로컬 워크스페이스: 로컬 배포 bin 디렉터리 (`getAgentBinDir()`).
-   *   Windows 에서는 null — 래퍼는 bash 스크립트라 Windows 셸이 실행하지 못한다.
+   *   On Windows, ~/.nexus-code/bin, where the wrapper is copied for Git
+   *   Bash (pty/windows-shell-shim.ts).
    * - SSH 워크스페이스:  bootstrap 결과의 `remoteBinDir` (절대 경로)
    * - 워크스페이스 없음 / 채널 없음: null
    */
@@ -475,9 +478,7 @@ export class WorkspaceManager {
     if (!ctx) return null;
     const meta = ctx.getMeta();
     if (meta.location.kind === "local") {
-      // A Windows shell cannot run the bash wrapper, and with its directory
-      // first on PATH, `claude` could resolve to it instead of the real one.
-      if (isWindows()) return null;
+      if (isWindows()) return binDir();
       return getAgentBinDir();
     }
     const bootstrap = this.sshBootstraps.get(workspaceId);
@@ -488,7 +489,9 @@ export class WorkspaceManager {
   /**
    * 워크스페이스 종류에 따라 에이전트 바이너리의 절대 경로를 반환한다.
    *
-   * - 로컬 워크스페이스: 로컬 배포 agent 바이너리 경로 (`getAgentBinaryPath()`)
+   * - 로컬 워크스페이스: 로컬 배포 agent 바이너리 경로 (`getAgentBinaryPath()`).
+   *   From the Microsoft Store, the package's alias for the agent: claude
+   *   runs the hooks outside the package, and only the alias may start it.
    * - SSH 워크스페이스:  `${remoteBinDir}/agent-<version>-<os>-<arch>` (bootstrap 결과에서 조립)
    * - 워크스페이스 없음 / bootstrap 없음: null
    */
@@ -497,7 +500,12 @@ export class WorkspaceManager {
     if (!ctx) return null;
     const meta = ctx.getMeta();
     if (meta.location.kind === "local") {
-      return getAgentBinaryPath() ?? null;
+      const localAppData = process.env.LOCALAPPDATA;
+      const alias =
+        process.windowsStore && localAppData
+          ? agentAliasPath(process.execPath, localAppData)
+          : null;
+      return alias ?? getAgentBinaryPath() ?? null;
     }
     const bootstrap = this.sshBootstraps.get(workspaceId);
     if (!bootstrap) return null;

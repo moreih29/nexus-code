@@ -42,6 +42,7 @@ import { installAppMenu } from "./features/menu";
 import { registerPanelChannel } from "./features/panel";
 import { startAgentPtyHost } from "./features/pty/agent-host";
 import { registerPtyChannel } from "./features/pty/ipc";
+import { installWindowsClaudeFiles } from "./features/pty/windows-shell-shim";
 import type { PtyHostHandle } from "./features/pty/types";
 import { registerSystemChannel } from "./features/shell/ipc";
 import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
@@ -442,6 +443,7 @@ app.whenReady().then(async () => {
     workspaceManager,
     getDefaultShell: () => stateService.getState().terminalShell,
     getCustomShells: () => stateService.getState().terminalShells,
+    ...(isWindows() ? { windowsClaudeFiles: installWindowsClaudeFiles } : {}),
   });
 
   // The host reads the settings at each spawn; the lsp IPC handlers stop

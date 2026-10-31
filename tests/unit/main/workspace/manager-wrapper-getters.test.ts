@@ -154,7 +154,8 @@ function injectSshBootstrap(
 // Tests
 // ---------------------------------------------------------------------------
 
-// Windows 로컬 워크스페이스에는 셸 래퍼가 아직 없어 래퍼 getter가 null을 돌려준다.
+// On Windows a local workspace's wrapper is the copy in ~/.nexus-code/bin
+// (pty/windows-shell-shim.ts), and it takes no zsh or bash shim.
 const isWindows = process.platform === "win32";
 const posixTest = test.skipIf(isWindows);
 const windowsTest = test.skipIf(!isWindows);
@@ -170,11 +171,11 @@ describe("WorkspaceManager.getWrapperBinDir — acceptance #1, #2, #3", () => {
     globalDb.close();
   });
 
-  windowsTest("#1w: Windows 로컬 워크스페이스 → null", () => {
+  windowsTest("#1w: Windows 로컬 워크스페이스 → ~/.nexus-code/bin", () => {
     const { manager, globalDb } = makeManager();
     const meta = manager.create({ rootPath: path.join(os.tmpdir(), "ws-local-bindir"), name: "local" });
 
-    expect(manager.getWrapperBinDir(meta.id)).toBeNull();
+    expect(manager.getWrapperBinDir(meta.id)).toBe(path.join(os.homedir(), ".nexus-code", "bin"));
     globalDb.close();
   });
 

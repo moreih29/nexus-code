@@ -8,6 +8,7 @@ import { TerminalRecorderRegistry, type PtyRecorderSink } from "./recorder";
 import { ipcOk } from "../../../shared/ipc/result";
 import { injectHarnessTerminalEnv } from "./harness-env";
 import { applyShellPathShim } from "./shell-shim";
+import { applyWindowsShellShim, type WindowsClaudeFiles } from "./windows-shell-shim";
 import {
   detectShells,
   findShellProgram,
@@ -67,6 +68,11 @@ export interface PtyChannelOptions {
   getCustomShells?: () => readonly CustomShell[] | undefined;
   /** Where shells are looked up; tests pass a fake machine. */
   shellHost?: ShellHost;
+  /**
+   * On Windows, the claude wrapper and hooks files for local terminals,
+   * whose shells take the Windows shim instead of the zsh or bash one.
+   */
+  windowsClaudeFiles?: () => Promise<WindowsClaudeFiles | null>;
 }
 
 /**
@@ -227,7 +233,22 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
         }
 
         let shimmedArgs: string[] | undefined = shell?.args ?? spawnArgs;
-        if (wrapperBinDir !== null) {
+        if (wrapperBinDir !== null && options.windowsClaudeFiles && shellPath !== undefined) {
+          const files = await options.windowsClaudeFiles();
+          const shimResult = applyWindowsShellShim({
+            shell: shellPath,
+            env: enrichedEnv,
+            args: shimmedArgs,
+            settingsPath: files?.settingsPath,
+            // A local agent, and so the shell, inherits this process's environment.
+            originalPath: process.env.ORIGINAL_PATH,
+          });
+          enrichedEnv = shimResult.env;
+          shimmedArgs = shimResult.args;
+          // The arguments are for this shell: name it rather than leave the
+          // choice to the agent.
+          shell ??= { path: shellPath, args: [] };
+        } else if (wrapperBinDir !== null) {
           // The shim's activation (ZDOTDIR for zsh, --rcfile for bash) has
           // to match the shell that actually starts.
           const wrapperShell = shell?.path ?? wm?.getWrapperShell(workspaceId) ?? null;

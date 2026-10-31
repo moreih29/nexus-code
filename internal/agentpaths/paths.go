@@ -13,7 +13,7 @@
 //	~/.nexus-code/sockets/  ← SocketsDir()
 //	~/.nexus-code/run/      ← RunDir()
 //
-// Windows is not supported — the project only targets macOS and Linux.
+// On Windows, ~ is the user profile folder (USERPROFILE), for both modules.
 package agentpaths
 
 import (
