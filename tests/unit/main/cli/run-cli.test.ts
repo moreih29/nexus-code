@@ -189,11 +189,6 @@ describe("opening files", () => {
       ["open", "../api/main.go"],
       "nexus: ../api/main.go is not a file inside app (/w/app)\n",
     ],
-    [
-      "another workspace",
-      ["open", "main.go", "--workspace", "api"],
-      "nexus: api is another workspace; nexus changes only this terminal's workspace\n",
-    ],
   ])("open refuses %s", async (_label, argv, stderr) => {
     const app = fakeApp();
     const result = await nexus(argv, app);

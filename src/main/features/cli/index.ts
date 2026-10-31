@@ -3,7 +3,7 @@
  * agents relay from their terminals, runs the command, and answers through
  * the same agent.
  */
-import { CliRequestSchema, type CliResult } from "../../../shared/cli/protocol";
+import { type CliInvocation, CliRequestSchema, type CliResult } from "../../../shared/cli/protocol";
 import type { CliUiOp, CliUiOps } from "../../../shared/cli/ui";
 import { FsStatSchema } from "../../../shared/fs/types";
 import { ipcContract } from "../../../shared/ipc/contract";
@@ -16,6 +16,7 @@ import type { ActiveContextStore } from "../claude/active-context";
 import type { ClaudeStatusBroker } from "../claude/status";
 import { type ActivitySource, ActivityTracker } from "./activity";
 import { CLI_COMMANDS } from "./commands";
+import { CrossWorkspaceConsent, type CrossWorkspacePolicy } from "./consent";
 import type { CliServices } from "./context";
 import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
@@ -23,9 +24,19 @@ import { RendererBridge, type UiWindow } from "./renderer-bridge";
 
 const log = createLogger("cli");
 
+const DISABLED: CliResult = {
+  stdout: "",
+  stderr: "nexus: the nexus command is turned off in NexusCode's settings (Agent CLI)\n",
+  exitCode: 1,
+};
+const DISABLED_QUIETLY: CliResult = { stdout: "", stderr: "", exitCode: 0 };
+
 export interface SetupCliFeatureOptions {
-  /** Relays the agents' "cli.request" events and the terminals' output. */
-  agentHost: ActivitySource;
+  /**
+   * Relays the agents' "cli.request" events and the terminals' output, and
+   * asks a terminal's agent which program holds its foreground.
+   */
+  agentHost: ActivitySource & { call(method: string, args: unknown): Promise<unknown> };
   workspaceManager: {
     list(): WorkspaceMeta[];
     getName(id: string): string | null;
@@ -36,6 +47,12 @@ export interface SetupCliFeatureOptions {
   activeContext: ActiveContextStore;
   appVersion: string;
   notificationsEnabled: () => boolean;
+  /** The Agent CLI settings, read on every command. */
+  settings: () => {
+    enabled: boolean;
+    crossWorkspace: CrossWorkspacePolicy;
+    agentContext: boolean;
+  };
   /** The app window the renderer side of the CLI runs in. */
   getWindow: () => UiWindow | null;
   /** Whether the app has focus. */
@@ -54,6 +71,12 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   const { agentHost, workspaceManager } = options;
   const bridge = new RendererBridge(options.getWindow);
   const activity = new ActivityTracker(agentHost);
+  const consent = new CrossWorkspaceConsent({
+    policy: () => options.settings().crossWorkspace,
+    // The renderer takes the prompt down at timeoutMs; the bridge waits a little longer.
+    ask: async (request, timeoutMs) =>
+      (await bridge.ask("consent.ask", { ...request, timeoutMs }, timeoutMs + 10_000)).answer,
+  });
 
   register("cli", {
     call: {
@@ -103,6 +126,28 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
         throw error;
       }
     },
+    allowChange: (request) => consent.check(request),
+    agentContextEnabled: () => options.settings().agentContext,
+    foregroundProcess: async (workspaceId, tabId) => {
+      const result = (await agentHost.call("foregroundProcess", { workspaceId, tabId })) as
+        | { name?: string }
+        | undefined;
+      const name = result?.name?.trim() ?? "";
+      return name === "" ? null : name;
+    },
+    clock: {
+      now: () => Date.now(),
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    },
+  };
+
+  const run = (caller: { workspaceId: string; tabId: string }, request: CliInvocation) => {
+    if (!options.settings().enabled) {
+      // The SessionStart hook asks for the agent note in every session; it gets none.
+      if (request.argv[0] === "agent-context") return Promise.resolve(DISABLED_QUIETLY);
+      return Promise.resolve(DISABLED);
+    }
+    return runCli(CLI_COMMANDS, { caller, invocation: request, services });
   };
 
   const respond = async (workspaceId: string, requestId: string, response: CliResult) => {
@@ -121,7 +166,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       return;
     }
     const { requestId, workspaceId, tabId, request } = parsed.data;
-    runCli(CLI_COMMANDS, { caller: { workspaceId, tabId }, invocation: request, services })
+    run({ workspaceId, tabId }, request)
       .then((result) => respond(workspaceId, requestId, result))
       .catch((error: unknown) => {
         log.warn(`cli request ${requestId} failed: ${(error as Error).message}`);

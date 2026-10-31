@@ -7,6 +7,7 @@
     "terminal": "Terminal",
     "workspaces": "Workspaces",
     "notifications": "Notifications",
+    "agentCli": "Agent CLI",
     "browserPermissions": "Browser Permissions",
     "keybindings": "Keyboard Shortcuts",
     "about": "About",
@@ -238,6 +239,40 @@
     "osEnabled": {
       "label": "Show desktop notifications",
       "description": "When Claude needs your attention (response complete, permission request, or a notification hook), the app surfaces an OS-level desktop notification — but only while you are not viewing that tab. In-app indicators (sidebar attention dot, response preview) remain regardless."
+    }
+  },
+  "agentCli": {
+    "enabled": {
+      "label": "Let agents use the nexus command",
+      "description": "Agents in the app's terminals (Claude Code, Codex, ...) can run nexus to see other workspaces' terminals and sessions, open files, diffs, terminals and browser tabs, and type into other terminals. Off, every nexus command fails."
+    },
+    "crossWorkspace": {
+      "label": "Changes to other workspaces",
+      "ask": "Ask each time",
+      "allow": "Allow",
+      "deny": "Don't allow",
+      "description": "What nexus may change in a workspace other than its terminal's own: open tabs, type into terminals, close tabs. Reading other workspaces is always allowed."
+    },
+    "agentContext": {
+      "label": "Tell Claude Code about nexus",
+      "description": "Claude Code sessions started in the app get a short note on nexus when they start, so they know they can use it. Codex is not told; add a line to its AGENTS.md if you want it to."
+    },
+    "consent": {
+      "title": "Allow an agent to change another workspace?",
+      "description": "The terminal \"{{tab}}\" in {{from}} asks to {{action}} in {{to}}.",
+      "deny": "Don't allow",
+      "session": "Allow until restart",
+      "once": "Allow once",
+      "timeout": "It is turned down if not answered in {{seconds}} seconds.",
+      "action": {
+        "open": "open {{detail}}",
+        "diff": "open the changes of {{detail}}",
+        "terminalNew": "open a terminal",
+        "terminalInput": "type into the terminal \"{{detail}}\"",
+        "tabClose": "close the tab \"{{detail}}\"",
+        "browserOpen": "open {{detail}} in a browser tab",
+        "browserNavigate": "move the browser tab \"{{detail}}\""
+      }
     }
   },
   "about": {

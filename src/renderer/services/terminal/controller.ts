@@ -7,6 +7,7 @@ import { DEFAULT_THEME, THEMES } from "../../../shared/design-tokens";
 import type { ThemeId } from "../../../shared/design-tokens/themes";
 import { TERMINAL_PALETTES } from "../../../shared/editor/terminal-palette";
 import { createLogger } from "../../../shared/log/renderer";
+import { isLoginShell } from "../../../shared/pty/login-shell";
 import { ipcCallResult } from "../../ipc/client";
 import { useTabsStore } from "../../state/stores/tabs";
 import {
@@ -154,28 +155,10 @@ export function isShellPromptLikeTitle(title: string): boolean {
   return false;
 }
 
-/**
- * Login-shell program names. When one of these is the PTY's foreground process,
- * an OSC title arriving in the normal screen buffer is shell-prompt or preexec
- * command-echo noise rather than a real inline TUI's title.
- *
- * `ps -o comm=` may prefix a login shell with "-" (e.g. "-zsh"); we strip it.
- */
-const LOGIN_SHELL_NAMES: ReadonlySet<string> = new Set([
-  "sh",
-  "bash",
-  "zsh",
-  "fish",
-  "dash",
-  "ksh",
-  "tcsh",
-  "csh",
-]);
-
-/** True when `comm` (a `ps -o comm=` basename) names a login shell. */
-export function isLoginShell(comm: string): boolean {
-  return LOGIN_SHELL_NAMES.has(comm.trim().replace(/^-/, ""));
-}
+// When a login shell is the PTY's foreground process, an OSC title arriving in
+// the normal screen buffer is shell-prompt or preexec command-echo noise rather
+// than a real inline TUI's title.
+export { isLoginShell };
 
 export type OscTitleAction = "ignore" | "apply" | "clear" | "confirm";
 

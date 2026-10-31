@@ -4,10 +4,17 @@
  */
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import type { CliInvocation } from "../../../shared/cli/protocol";
-import type { CliPlacement, CliTabInfo, CliUiOp, CliUiOps } from "../../../shared/cli/ui";
+import type {
+  CliChange,
+  CliPlacement,
+  CliTabInfo,
+  CliUiOp,
+  CliUiOps,
+} from "../../../shared/cli/ui";
 import type { FsEntryType } from "../../../shared/fs/types";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { TabActivity } from "./activity";
+import type { ChangeRequest } from "./consent";
 
 /** A failure the command reports as is, with its exit code. */
 export class CliError extends Error {
@@ -36,6 +43,17 @@ export interface CliServices {
   notify(workspaceId: string, tabId: string, title: string, body: string): boolean;
   /** What is at `relPath` in a workspace; null when nothing is. */
   stat(workspaceId: string, relPath: string): Promise<FsEntryType | null>;
+  /**
+   * Resolves when a change to another workspace than the caller's may go
+   * ahead, as the setting or the user says; a CliError saying why when not.
+   */
+  allowChange(request: ChangeRequest): Promise<void>;
+  /** Whether Claude Code sessions are to be told about nexus when they start. */
+  agentContextEnabled(): boolean;
+  /** The program holding a terminal's foreground; null when the agent cannot tell. */
+  foregroundProcess(workspaceId: string, tabId: string): Promise<string | null>;
+  /** Time, for commands that wait. */
+  readonly clock: { now(): number; sleep(ms: number): Promise<void> };
 }
 
 export interface CliContext {
@@ -97,21 +115,21 @@ export function resolveWorkspace(ctx: CliContext, selector: string | undefined):
 }
 
 /**
- * The workspace a command that changes things acts on, named as for
- * resolveWorkspace. Only the caller's own for now: changing another one needs
- * the user's consent, which the app does not ask for yet.
+ * Lets a command make `change` in `workspace`: always in the caller's own,
+ * in another as the setting or the user allows. Throws a CliError if not.
  */
-export async function writableWorkspace(
+export async function mayChange(
   ctx: CliContext,
-  selector: string | undefined,
-): Promise<WorkspaceMeta> {
-  const workspace = resolveWorkspace(ctx, selector);
-  if (workspace.id !== ctx.caller.workspaceId) {
-    throw new CliError(
-      `${workspace.name} is another workspace; nexus changes only this terminal's workspace`,
-    );
-  }
-  return workspace;
+  workspace: WorkspaceMeta,
+  change: CliChange,
+): Promise<void> {
+  if (workspace.id === ctx.caller.workspaceId) return;
+  await ctx.services.allowChange({
+    fromWorkspaceId: ctx.caller.workspaceId,
+    fromTabId: ctx.caller.tabId,
+    toWorkspaceId: workspace.id,
+    change,
+  });
 }
 
 /** Where a tab the command opens in `workspace` goes: beside the caller in its own. */
@@ -146,6 +164,7 @@ export function resolveTab(
 export function describeLocation(workspace: WorkspaceMeta): string {
   const location = workspace.location;
   if (location.kind === "local") return location.rootPath;
+  if (location.kind === "wsl") return `WSL ${location.distro}:${location.remotePath}`;
   const user = location.user ? `${location.user}@` : "";
   return `${user}${location.host}:${location.remotePath}`;
 }

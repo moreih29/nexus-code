@@ -26,6 +26,7 @@ import { initLspStatusSync } from "./state/operations/lsp-status";
 import { normalizeWorkspaceTabOrder } from "./state/operations/tab-order";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
+import { useAgentCliStore } from "./state/stores/agent-cli";
 import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
 import { useClaudeStatusStore } from "./state/stores/claude-status";
 import { useEditorFontStore } from "./state/stores/editor-font";
@@ -236,6 +237,7 @@ export async function bootstrapAppState(): Promise<void> {
   // Hydrate OS notification toggle so the Notifications panel reflects
   // persisted state on first render.
   useNotificationsStore.getState().hydrate(state.osNotificationsEnabled);
+  useAgentCliStore.getState().hydrate(state);
 
   // Hydrate browser permission global toggles so the BrowserPermissionsPanel
   // reflects persisted state on first render.

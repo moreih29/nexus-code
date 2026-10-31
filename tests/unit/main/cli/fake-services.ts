@@ -4,9 +4,19 @@
  */
 
 import type { TabActivity } from "../../../../src/main/features/cli/activity";
+import {
+  type ChangeRequest,
+  CrossWorkspaceConsent,
+  type CrossWorkspacePolicy,
+} from "../../../../src/main/features/cli/consent";
 import type { CliContext, CliServices } from "../../../../src/main/features/cli/context";
 import type { ClaudeStatus } from "../../../../src/shared/claude/status";
-import type { CliTabInfo, CliUiOp, CliUiOps } from "../../../../src/shared/cli/ui";
+import type {
+  CliConsentAnswer,
+  CliTabInfo,
+  CliUiOp,
+  CliUiOps,
+} from "../../../../src/shared/cli/ui";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 export const APP = "11111111-1111-4111-8111-111111111111";
@@ -85,11 +95,23 @@ const FILES: Record<string, Record<string, "file" | "dir">> = {
 
 export interface FakeApp {
   services: CliServices;
+  /** This app's tabs, by workspace; a test may add or change them. */
+  tabs: Record<string, CliTabInfo[]>;
   uiCalls: Array<{ op: string; args: unknown }>;
   notified: Array<{ workspaceId: string; tabId: string; title: string; body: string }>;
   claude: Map<string, { status: ClaudeStatus; message?: string; since: number }>;
   activity: Map<string, TabActivity>;
   screens: Map<string, string>;
+  /** The foreground program of each terminal, by tab id; unknown when absent. */
+  foreground: Map<string, string>;
+  /** The Agent CLI settings. */
+  settings: { crossWorkspace: CrossWorkspacePolicy; agentContext: boolean };
+  /** The answers the user gives to consent prompts, in turn; "deny" when none is left. */
+  answers: CliConsentAnswer[];
+  /** The consent prompts shown. */
+  asked: ChangeRequest[];
+  /** Virtual time: sleeping advances it and then runs `onTick`. */
+  time: { now: number; onTick?: (now: number) => void };
 }
 
 export function fakeApp(now = Date.now()): FakeApp {
@@ -109,11 +131,26 @@ export function fakeApp(now = Date.now()): FakeApp {
     [`${APP}:${SHELL_TAB}`, { lastOutputAt: now - 60_000 }],
   ]);
   const screens = new Map([[CODEX_TAB, "› Summarize the API\n\n• Working (12s)"]]);
+  const tabs: FakeApp["tabs"] = Object.fromEntries(
+    Object.entries(TABS).map(([id, list]) => [id, list.map((t) => ({ ...t }))]),
+  );
+  const foreground: FakeApp["foreground"] = new Map();
+  const settings: FakeApp["settings"] = { crossWorkspace: "ask", agentContext: true };
+  const answers: CliConsentAnswer[] = [];
+  const asked: ChangeRequest[] = [];
+  const time: FakeApp["time"] = { now };
+  const consent = new CrossWorkspaceConsent({
+    policy: () => settings.crossWorkspace,
+    ask: async (request) => {
+      asked.push(request);
+      return answers.shift() ?? "deny";
+    },
+  });
   const ui = async <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"]) => {
     uiCalls.push({ op, args });
     if (op === "tabs.list") {
       const { workspaceId } = args as CliUiOps["tabs.list"]["args"];
-      return { tabs: TABS[workspaceId] ?? [] } as CliUiOps[K]["result"];
+      return { tabs: tabs[workspaceId] ?? [] } as CliUiOps[K]["result"];
     }
     if (op === "terminal.read") {
       const { tabId, lines } = args as CliUiOps["terminal.read"]["args"];
@@ -145,8 +182,31 @@ export function fakeApp(now = Date.now()): FakeApp {
       return true;
     },
     stat: async (workspaceId, relPath) => FILES[workspaceId]?.[relPath] ?? null,
+    allowChange: (request) => consent.check(request),
+    agentContextEnabled: () => settings.agentContext,
+    foregroundProcess: async (_workspaceId, tabId) => foreground.get(tabId) ?? null,
+    clock: {
+      now: () => time.now,
+      sleep: async (ms) => {
+        time.now += ms;
+        time.onTick?.(time.now);
+      },
+    },
   };
-  return { services, uiCalls, notified, claude, activity, screens };
+  return {
+    services,
+    tabs,
+    uiCalls,
+    notified,
+    claude,
+    activity,
+    screens,
+    foreground,
+    settings,
+    answers,
+    asked,
+    time,
+  };
 }
 
 /** A command run from the plain shell in "app". */

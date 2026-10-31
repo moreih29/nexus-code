@@ -8,6 +8,7 @@ import { useCommandBridge } from "./commands/use-command-bridge";
 import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
 import { AboutPanel } from "./components/settings/panels/about-panel";
+import { AgentCliPanel } from "./components/settings/panels/agent-cli-panel";
 import { AppearancePanel } from "./components/settings/panels/appearance-panel";
 import { BrowserPermissionsPanel } from "./components/settings/panels/browser-permissions-panel";
 import { EditorPanel } from "./components/settings/panels/editor-panel";
@@ -197,6 +198,12 @@ export function App() {
         label: t("nav.notifications"),
         group: t("nav.group.settings"),
         keywords: ["alert", "desktop", "os", "notification", "claude"],
+      },
+      {
+        id: "agent-cli",
+        label: t("nav.agentCli"),
+        group: t("nav.group.settings"),
+        keywords: ["nexus", "cli", "agent", "claude", "codex", "에이전트"],
       },
       {
         id: "browser-permissions",
@@ -445,6 +452,7 @@ export function App() {
             if (activeId === "language-servers") return <LanguageServersPanel />;
             if (activeId === "terminal") return <TerminalPanel />;
             if (activeId === "notifications") return <NotificationsPanel />;
+            if (activeId === "agent-cli") return <AgentCliPanel />;
             if (activeId === "browser-permissions") return <BrowserPermissionsPanel />;
             if (activeId === "keybindings") return <KeybindingsPanel />;
             if (activeId === "about") return <AboutPanel />;

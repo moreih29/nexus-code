@@ -100,6 +100,12 @@ export function SettingsDialog({
       keywords: ["alert", "desktop", "os", "notification", "claude"],
     },
     {
+      id: "agent-cli",
+      label: t("nav.agentCli"),
+      group: t("nav.group.settings"),
+      keywords: ["nexus", "cli", "agent", "claude", "codex", "에이전트"],
+    },
+    {
       id: "browser-permissions",
       label: t("nav.browserPermissions"),
       group: t("nav.group.settings"),

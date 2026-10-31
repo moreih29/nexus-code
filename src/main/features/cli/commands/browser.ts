@@ -5,11 +5,11 @@ import { exactArgs } from "../args";
 import {
   type CliContext,
   CliError,
+  mayChange,
   placementFor,
   resolveTab,
   resolveWorkspace,
   shortId,
-  writableWorkspace,
 } from "../context";
 import { table } from "../format";
 import { type CliCommand, output } from "../registry";
@@ -76,7 +76,8 @@ const browserOpen: CliCommand = {
   flags: { workspace: WORKSPACE_FLAG, background: BACKGROUND_FLAG },
   async run(ctx, { positionals, flags }) {
     const [url] = exactArgs(positionals, "url") as [string];
-    const workspace = await writableWorkspace(ctx, flags.workspace as string | undefined);
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    await mayChange(ctx, workspace, { kind: "browserOpen", detail: url });
     const opened = await ctx.services.ui("browser.open", {
       workspaceId: workspace.id,
       url,
@@ -97,8 +98,9 @@ const browserGoto: CliCommand = {
   flags: { tab: TAB_FLAG, workspace: WORKSPACE_FLAG },
   async run(ctx, { positionals, flags }) {
     const [url] = exactArgs(positionals, "url") as [string];
-    const workspace = await writableWorkspace(ctx, flags.workspace as string | undefined);
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveBrowser(ctx, workspace, flags.tab as string | undefined);
+    await mayChange(ctx, workspace, { kind: "browserNavigate", detail: tab.title });
     const went = await ctx.services.ui("browser.navigate", {
       workspaceId: workspace.id,
       tabId: tab.id,
@@ -120,8 +122,9 @@ function historyCommand(action: Exclude<CliBrowserAction, "goto">, summary: stri
     flags: { tab: TAB_FLAG, workspace: WORKSPACE_FLAG },
     async run(ctx, { positionals, flags }) {
       exactArgs(positionals);
-      const workspace = await writableWorkspace(ctx, flags.workspace as string | undefined);
+      const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
       const tab = await resolveBrowser(ctx, workspace, flags.tab as string | undefined);
+      await mayChange(ctx, workspace, { kind: "browserNavigate", detail: tab.title });
       await ctx.services.ui("browser.navigate", {
         workspaceId: workspace.id,
         tabId: tab.id,
