@@ -3,6 +3,8 @@ package lsp
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -22,13 +24,24 @@ type Service struct {
 	sink    EventSink
 	servers map[string]*serverProcess
 
-	nextServerSeq uint64
-	nextAgentSeq  uint64
+	// serverIDPrefix sets this agent's server ids apart from those of the
+	// agent it replaced: when a local agent restarts, calls queued for the
+	// old one's servers reach the new one and must not land on a new server
+	// that happens to take the same number.
+	serverIDPrefix string
+	nextServerSeq  uint64
+	nextAgentSeq   uint64
 }
 
 // New constructs an empty LSP service registry.
 func New() *Service {
-	return &Service{servers: make(map[string]*serverProcess)}
+	return &Service{servers: make(map[string]*serverProcess), serverIDPrefix: newServerIDPrefix()}
+}
+
+func newServerIDPrefix() string {
+	var b [4]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }
 
 // Register binds every lsp.* method onto the dispatcher.
@@ -252,7 +265,7 @@ func (s *Service) nextServerID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.nextServerSeq++
-	return fmt.Sprintf("lsp-%d", s.nextServerSeq)
+	return fmt.Sprintf("lsp-%s-%d", s.serverIDPrefix, s.nextServerSeq)
 }
 
 func (s *Service) nextAgentRequestID(serverID string) string {

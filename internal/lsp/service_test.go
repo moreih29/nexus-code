@@ -433,3 +433,12 @@ func mustJSON(t *testing.T, value any) json.RawMessage {
 	}
 	return data
 }
+
+// A restarted agent receives the calls queued for the one it replaced; its
+// servers must not answer to the old servers' ids.
+func TestServerIDsDifferBetweenServices(t *testing.T) {
+	first, second := New(), New()
+	if a, b := first.nextServerID(), second.nextServerID(); a == b {
+		t.Fatalf("both services named their first server %q", a)
+	}
+}
