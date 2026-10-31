@@ -18,6 +18,10 @@ describe("splitShellArgs", () => {
     ]);
   });
 
+  test("keeps an argument whole when a quote starts partway into it", () => {
+    expect(splitShellArgs('--init-file="/a b/rc" -i')).toEqual(["--init-file=/a b/rc", "-i"]);
+  });
+
   test("an empty field has no arguments", () => {
     expect(splitShellArgs("   ")).toEqual([]);
   });
