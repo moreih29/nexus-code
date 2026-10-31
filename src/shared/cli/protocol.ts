@@ -14,6 +14,11 @@ export const CliInvocationSchema = z.object({
   tempDir: z.string(),
   /** Standard input, read when an argument is "-". */
   stdin: z.string().optional(),
+  /**
+   * For a command from Git Bash, the Windows path of its "/"; empty when its
+   * launcher could not tell. Git Bash leaves its paths as it spells them.
+   */
+  msysRoot: z.string().optional(),
 });
 export type CliInvocation = z.infer<typeof CliInvocationSchema>;
 

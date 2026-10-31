@@ -10,6 +10,7 @@ nexus status --json     # 모든 명령은 --json 으로 JSON 출력
 
 - 앱 안 터미널(로컬 · SSH 워크스페이스)에서만 동작합니다. 앱 밖의 터미널에서는 `NexusCode is not reachable from this terminal` 이 나옵니다.
 - 탭 · 워크스페이스는 id(앞 4자 이상), 이름이나 제목으로 고릅니다. `.` 은 지금 것입니다.
+- Windows 에서는 PowerShell · 명령 프롬프트 · Git Bash 어디서든 같습니다. Git Bash 에서는 `/c/...` · `/tmp` 같은 경로도 그대로 쓸 수 있습니다.
 - 출력은 영어입니다. 에이전트가 읽는 것을 기준으로 했습니다.
 
 ## 둘러보기

@@ -4,6 +4,7 @@
  * otherwise.
  */
 import path from "node:path";
+import type { CliInvocation } from "../../../shared/cli/protocol";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { type CliContext, CliError } from "./context";
 
@@ -16,13 +17,30 @@ function hostPath(workspace: WorkspaceMeta): path.PlatformPath {
   return rulesOf(workspace.rootPath);
 }
 
+/**
+ * A path Git Bash spells, as Windows does: "/c/src" is C:\src, "/tmp" the
+ * temp directory, and the rest is under Git's own folder. Any other caller's
+ * path is as it was typed.
+ */
+export function fromGitBash(input: string, invocation: CliInvocation): string {
+  const msysRoot = invocation.msysRoot;
+  if (msysRoot === undefined || !input.startsWith("/")) return input;
+  if (input.startsWith("//")) return input.replaceAll("/", "\\");
+  const drive = /^\/([A-Za-z])(?:\/(.*))?$/.exec(input);
+  if (drive) return path.win32.join(`${drive[1]?.toUpperCase()}:\\`, drive[2] ?? "");
+  const temp = /^\/tmp(?:\/(.*))?$/.exec(input);
+  if (temp) return path.win32.join(invocation.tempDir, temp[1] ?? "");
+  return msysRoot === "" ? input : path.win32.join(msysRoot, input);
+}
+
 /** Where `input` points on the caller's own host: from its directory, or from `base`. */
 export function callerPath(
   ctx: CliContext,
   input: string,
   base: string = ctx.invocation.cwd,
 ): string {
-  return rulesOf(base).resolve(base, input);
+  const rules = rulesOf(base);
+  return rules.resolve(base, rules === path.win32 ? fromGitBash(input, ctx.invocation) : input);
 }
 
 /**
@@ -31,7 +49,8 @@ export function callerPath(
  */
 export function absolutePath(ctx: CliContext, workspace: WorkspaceMeta, input: string): string {
   const base = workspace.id === ctx.caller.workspaceId ? ctx.invocation.cwd : workspace.rootPath;
-  return hostPath(workspace).resolve(base, input);
+  const rules = hostPath(workspace);
+  return rules.resolve(base, rules === path.win32 ? fromGitBash(input, ctx.invocation) : input);
 }
 
 /** A file of a workspace: its path from the root, with "/", and as the editor names it. */

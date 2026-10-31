@@ -24,6 +24,9 @@ const (
 	envHookToken   = "NEXUS_HOOK_TOKEN"
 	envWorkspaceID = "NEXUS_WORKSPACE_ID"
 	envTabID       = "NEXUS_TAB_ID"
+	// envMsysRoot is set by Git Bash's launcher, which keeps Git Bash from
+	// rewriting arguments that look like paths: the app reads them instead.
+	envMsysRoot = "NEXUS_MSYS_ROOT"
 )
 
 // clientTimeout bounds a request the app never answers, a little past the
@@ -43,6 +46,9 @@ type request struct {
 	Cwd     string   `json:"cwd"`
 	TempDir string   `json:"tempDir"`
 	Stdin   *string  `json:"stdin,omitempty"`
+	// MsysRoot is where Git Bash's "/" is, for a command from Git Bash;
+	// empty when the launcher could not tell.
+	MsysRoot *string `json:"msysRoot,omitempty"`
 }
 
 type wireRequest struct {
@@ -91,6 +97,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	cwd, _ := os.Getwd()
 	req := request{Argv: args, Cwd: cwd, TempDir: os.TempDir()}
+	if root, ok := os.LookupEnv(envMsysRoot); ok {
+		req.MsysRoot = &root
+	}
 	if slices.Contains(args, "-") {
 		data, err := io.ReadAll(io.LimitReader(stdin, maxStdinBytes+1))
 		if err != nil {
