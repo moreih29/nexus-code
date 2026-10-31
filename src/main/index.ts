@@ -59,7 +59,7 @@ import { createCachingAuthPromptHandler } from "./infra/agent/ssh/credential-cac
 import { sweepStaleControlDirs } from "./infra/agent/ssh/master";
 import { ensureRemoteAgent } from "./infra/agent/ssh/ssh-bootstrap/index";
 import { broadcast, setupRouter } from "./infra/ipc-router";
-import { isMac } from "./infra/platform";
+import { isMac, isWindows, loginShell } from "./infra/platform";
 import { syncUserShellPath } from "./infra/shell-path";
 import { GlobalStorage } from "./infra/storage/global-storage";
 import { StateService } from "./infra/storage/state-service";
@@ -90,6 +90,13 @@ registerNexusWorkspaceSchemes();
 // override the user may have set before launch.
 if (!app.isPackaged) {
   process.env[NEXUS_AGENT_MODE_ENV] ??= "source";
+}
+
+// A launch from the Dock or a desktop entry can leave $SHELL unset. Name the
+// login shell for every child, so the agent's terminals, the shell shim and
+// the PATH sync below all pick the same one.
+if (!isWindows()) {
+  process.env.SHELL = loginShell();
 }
 
 // macOS / Linux GUI 앱은 launchd 기본 PATH(`/usr/bin:/bin:/usr/sbin:/sbin`)만

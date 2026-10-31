@@ -49,7 +49,7 @@ import {
   type LspBootstrapProgressEvent,
   type SshBootstrapDependencies,
 } from "../../infra/agent/ssh/ssh-bootstrap/index";
-import { isWindows } from "../../infra/platform";
+import { isWindows, loginShell } from "../../infra/platform";
 import type { GlobalStorage } from "../../infra/storage/global-storage";
 import type { StateService } from "../../infra/storage/state-service";
 import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
@@ -529,35 +529,27 @@ export class WorkspaceManager {
   }
 
   /**
-   * 워크스페이스 종류에 따라 그 워크스페이스의 PTY에서 사용할 로그인 셸의
-   * 절대 경로를 반환한다. PTY 셸-셤(ZDOTDIR / --rcfile) 활성화 여부를 결정할 때
-   * 사용된다.
+   * The login shell of the workspace's terminals, which decides whether the
+   * shell shim (ZDOTDIR or --rcfile) applies.
    *
-   * - 로컬 워크스페이스: `process.env.SHELL`. 없으면 `/bin/zsh`로 폴백.
-   *   Windows 에서는 null (zsh / bash 셤이 없다).
-   *   macOS Catalina(2019)부터 사용자 기본 셸이 zsh고, Finder/Spotlight로 띄운
-   *   launchd 자식 프로세스는 `$SHELL`이 비어있을 수 있어서다.
-   *   폴백이 zsh 한정인 이유는 zsh 셤 활성화가 `ZDOTDIR` **환경변수 주입**으로
-   *   끝나기 때문 — 실제 셸이 bash/fish여도 그 env는 무시되므로 무해.
-   *   (반면 bash 셤은 `--rcfile` 인자 주입이라 다른 셸에 잘못 박으면 깨짐.)
-   * - SSH 워크스페이스:  bootstrap이 부트스트랩 시점에 remote에서 `$SHELL`을
-   *   조회해둔 값. 없으면 null — 원격 셸을 모를 때 bash로 잘못 폴백하면
-   *   원격 사용자의 fish/csh를 깨뜨릴 수 있어서 보수적으로 셤 skip.
-   * - 워크스페이스 없음 / bootstrap 없음: null
+   * - Local: `loginShell()`, the shell the agent starts terminals with too
+   *   (main sets $SHELL to it at startup). Null on Windows, whose shells
+   *   take no zsh or bash shim.
+   * - SSH: the remote `$SHELL` the bootstrap read. Null when it is unknown:
+   *   guessing bash would hand a fish or csh user `--rcfile`.
+   * - No workspace or no bootstrap: null.
    *
-   * null 반환은 "셤 적용 건너뛰기" 신호다. 그 경우에도 spawn-time PATH prepend는
-   * 그대로 살아있어서 wrapper bin은 PATH에 존재하지만, precmd 훅이 미등록되므로
-   * 사용자 rc가 PATH를 재정렬하면 wrapper가 뒤로 밀릴 수 있다.
+   * Null skips the shim. The wrapper bin is still first on PATH at spawn,
+   * but without the precmd hook a user rc that reorders PATH can push it
+   * back.
    */
   getWrapperShell(workspaceId: string): string | null {
     const ctx = this.contexts.get(workspaceId);
     if (!ctx) return null;
     const meta = ctx.getMeta();
     if (meta.location.kind === "local") {
-      // Windows shells take no zsh or bash shim.
       if (isWindows()) return null;
-      const shell = process.env.SHELL;
-      return shell !== undefined && shell.length > 0 ? shell : "/bin/zsh";
+      return loginShell();
     }
     const bootstrap = this.sshBootstraps.get(workspaceId);
     if (!bootstrap) return null;
