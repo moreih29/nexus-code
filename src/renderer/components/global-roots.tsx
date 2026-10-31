@@ -20,6 +20,8 @@ import { ConfirmDialogRoot } from "./ui/confirm-dialog";
 import { PermissionPromptRoot } from "./ui/permission-prompt-dialog";
 import { ToastRoot } from "./ui/toast";
 import { ViewParkRoot } from "./workspace/content/view-park";
+import { NewTaskDialogRoot } from "./workspace/new-task-dialog";
+import { RemoveTaskDialogRoot } from "./workspace/remove-task-dialog";
 import { RemoveWorkspaceDialogRoot } from "./workspace/remove-workspace-dialog";
 import { SshAuthPromptDialog } from "./workspace/ssh-auth-prompt-dialog";
 import { useSshAuthPrompts } from "./workspace/use-ssh-auth-prompts";
@@ -33,6 +35,8 @@ export function GlobalRoots(): React.JSX.Element {
       <PermissionPromptRoot />
       <ConflictResolutionDialogRoot />
       <RemoveWorkspaceDialogRoot />
+      <NewTaskDialogRoot />
+      <RemoveTaskDialogRoot />
       <WorkspaceSymbolPaletteRoot />
       <GitHelperPromptsRoot />
       <SshAuthPromptsRoot />

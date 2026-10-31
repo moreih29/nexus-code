@@ -1,5 +1,5 @@
 import { useMonaco } from "@monaco-editor/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createLogger } from "../shared/log/renderer";
 import type { WorkspaceMeta } from "../shared/types/workspace";
@@ -305,10 +305,23 @@ export function App() {
     });
   }, [workspaces]);
 
-  // When the active workspace disappears (deleted, etc.), fall back to the next one or null.
+  // The parent of the active workspace while it is a task: where removing
+  // the task leaves the user.
+  const activeParentIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const active = workspaces.find((w) => w.id === activeWorkspaceId);
+    if (active) activeParentIdRef.current = active.task?.parentId ?? null;
+  }, [workspaces, activeWorkspaceId]);
+
+  // When the active workspace disappears (deleted, etc.), fall back to its
+  // parent for a task, else to the first workspace, or null.
   useEffect(() => {
     if (activeWorkspaceId && !workspaces.some((w) => w.id === activeWorkspaceId)) {
-      const next = visibleWorkspaces(workspaces)[0]?.id ?? null;
+      const parentId = activeParentIdRef.current;
+      const next =
+        (parentId !== null && workspaces.some((w) => w.id === parentId)
+          ? parentId
+          : visibleWorkspaces(workspaces)[0]?.id) ?? null;
       setActiveWorkspaceId(next);
       if (next) {
         // Fire-and-forget: UI is already updated; notify main of workspace switch.

@@ -371,6 +371,9 @@
         "focusNext": "Next Workspace",
         "add": "Add Workspace"
       },
+      "task": {
+        "new": "New Task"
+      },
       "settings": {
         "open": "Open Settings"
       },

@@ -146,6 +146,7 @@ function fileMenu(isMac: boolean, t?: TFunction): MenuItemSpec {
   const items: MenuItemSpec[] = [
     cmd(t != null ? t("menu:file.newFile") : "New File", COMMANDS.fileNew),
     cmd(t != null ? t("menu:file.newWorkspace") : "New Workspace…", COMMANDS.workspaceAdd),
+    cmd(t != null ? t("menu:file.newTask") : "New Task…", COMMANDS.taskNew),
     { type: "separator" },
     cmd(t != null ? t("menu:file.openFile") : "Open File…", COMMANDS.fileOpen),
     cmd(t != null ? t("menu:file.save") : "Save", COMMANDS.fileSave),

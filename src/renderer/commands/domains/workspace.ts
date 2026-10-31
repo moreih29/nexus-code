@@ -2,6 +2,7 @@ import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { useActiveStore } from "../../state/stores/active";
 import { useAddWorkspaceUIStore } from "../../state/stores/add-workspace-ui";
+import { useTaskUIStore } from "../../state/stores/task-ui";
 import {
   rootWorkspaceId,
   useWorkspacesStore,
@@ -51,6 +52,12 @@ export function registerWorkspaceCommands(): Array<() => void> {
     registerCommand(COMMANDS.workspaceFocusNext, () => cycleActiveWorkspace(1)),
     registerCommand(COMMANDS.workspaceAdd, () => {
       useAddWorkspaceUIStore.getState().openAddWorkspace();
+    }),
+    registerCommand(COMMANDS.taskNew, () => {
+      const activeId = useActiveStore.getState().activeWorkspaceId;
+      if (activeId === null) return;
+      const parentId = rootWorkspaceId(useWorkspacesStore.getState().workspaces, activeId);
+      useTaskUIStore.getState().openNewTask(parentId);
     }),
   ];
 }

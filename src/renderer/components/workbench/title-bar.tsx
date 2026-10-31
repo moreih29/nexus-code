@@ -1,11 +1,12 @@
 import { Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import type { WorkspaceLocation } from "../../../shared/types/workspace";
+import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import { useActiveStore } from "../../state/stores/active";
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { isMac } from "../../utils/platform";
+import { TaskSwitcher } from "./task-switcher";
 import { WindowControls } from "./window-controls";
 
 // ---------------------------------------------------------------------------
@@ -57,20 +58,10 @@ export function TitleBar() {
       {/* Brand — uppercase small-label per the warm design system */}
       <span className="text-app-label text-muted-foreground uppercase">NexusCode</span>
 
-      {/* Active workspace name — centered, editorial caption tone.
-          SSH workspaces append "(ssh: <host>)" so the remote target is
-          visible alongside the user-chosen workspace name. */}
-      {activeWorkspace && (
-        <span
-          className={cn(
-            "absolute left-1/2 -translate-x-1/2",
-            "text-app-body-emphasis text-foreground truncate max-w-[40%]",
-          )}
-          title={workspaceTitleLabel(activeWorkspace.name, activeWorkspace.location)}
-        >
-          {workspaceTitleLabel(activeWorkspace.name, activeWorkspace.location)}
-        </span>
-      )}
+      {/* Active workspace name — centered, editorial caption tone, and the
+          menu of its tasks. SSH workspaces append "(ssh: <host>)" so the
+          remote target is visible alongside the user-chosen workspace name. */}
+      {activeWorkspace && <TaskSwitcher active={activeWorkspace} label={titleLabel} />}
 
       {/* Settings button — right-aligned, app-no-drag so click lands */}
       <button
@@ -95,6 +86,10 @@ export function TitleBar() {
       {ownControls && <WindowControls />}
     </div>
   );
+}
+
+function titleLabel(workspace: WorkspaceMeta): string {
+  return workspaceTitleLabel(workspace.name, workspace.location);
 }
 
 /**
