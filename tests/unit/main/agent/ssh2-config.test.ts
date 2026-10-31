@@ -62,6 +62,7 @@ describe("resolveSshHostConfig", () => {
         "hashknownhosts yes",
         "preferredauthentications publickey,password",
         "identityagent none",
+        "forwardagent no",
       ].join("\n"),
     );
     expect(await config).toEqual({
@@ -72,6 +73,7 @@ describe("resolveSshHostConfig", () => {
       identityFiles: [path.join(HOME, ".ssh/work_key"), path.join(HOME, ".ssh/id_ed25519")],
       identitiesOnly: true,
       identityAgent: null,
+      forwardAgent: null,
       proxyJump: ["jump@bastion:2222", "inner"],
       proxyCommand: null,
       connectTimeoutMs: 7000,
@@ -101,6 +103,26 @@ describe("resolveSshHostConfig", () => {
     expect(resolved.identityAgent).toBe("\\\\.\\pipe\\openssh-ssh-agent");
   });
 
+  it("forwards the agent used to log in for ForwardAgent yes", async () => {
+    const { config } = resolveWith("hostname work.example\nforwardagent yes\n", "win32");
+    expect((await config).forwardAgent).toBe("\\\\.\\pipe\\openssh-ssh-agent");
+  });
+
+  it("forwards the agent ForwardAgent names, as a path or a variable", async () => {
+    const byPath = await resolveWith("forwardagent ~/.ssh/agent.sock\n").config;
+    expect(byPath.forwardAgent).toBe(path.join(HOME, ".ssh/agent.sock"));
+    const byVariable = await resolveSshHostConfig(
+      { host: "work" },
+      {
+        printConfig: async () => "forwardagent $WORK_AGENT\n",
+        homedir: HOME,
+        platform: "linux",
+        env: { WORK_AGENT: "/run/work-agent.sock" },
+      },
+    );
+    expect(byVariable.forwardAgent).toBe("/run/work-agent.sock");
+  });
+
   it("uses the host as given with OpenSSH's defaults when there is no ssh -G", async () => {
     const resolved = await resolveWith(null).config;
     expect(resolved.hostname).toBe("work");
@@ -109,6 +131,7 @@ describe("resolveSshHostConfig", () => {
     expect(resolved.identityFiles[0]).toBe(path.join(HOME, ".ssh/work_key"));
     expect(resolved.identityFiles).toContain(path.join(HOME, ".ssh/id_ed25519"));
     expect(resolved.strictHostKeyChecking).toBe("ask");
+    expect(resolved.forwardAgent).toBeNull();
     expect(resolved.preferredAuthentications).toEqual([
       "publickey",
       "keyboard-interactive",
