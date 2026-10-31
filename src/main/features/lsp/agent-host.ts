@@ -986,27 +986,32 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       this.handleServerExited(channel, payload);
     });
     const offLifecycle = channel.onLifecycle((event) => {
-      // Dispose server records only on genuine channel death:
+      // Dispose server records only when the servers are gone:
       //   - `exit` / `failure`: terminal transport loss.
       //   - `disposed`: intentional channel teardown.
       //   - `held-then-expired`: the SSH daemon was replaced during an
       //     outage — its LSP server processes died with the old daemon.
-      // Everything else keeps records intact: `reconnecting` is transient
-      // (queued LSP calls replay after the handshake), `degraded` /
-      // `degraded-recovered` are heartbeat-quality signals on a live
-      // channel, and `ready` is a successful epoch-match recovery. Before
-      // v0.6.1 those three fell through to disposeChannelServers, so one
+      //   - `reconnecting` without an epoch: a local (or legacy remote)
+      //     agent has no daemon to outlive its process, so its servers died
+      //     with it and the agent that replaces it knows none of them.
+      // Everything else keeps records intact: `reconnecting` with an epoch
+      // may find the daemon alive (queued LSP calls replay after the
+      // handshake), `degraded` / `degraded-recovered` are heartbeat-quality
+      // signals on a live channel, and `ready` is a successful recovery.
+      // Before v0.6.1 those fell through to disposeChannelServers, so one
       // late heartbeat silently killed every language server on the channel.
       //
       // After `exit` / `failure` / `disposed` the channel object is never used
       // again (a reconnect builds a new one), so its listeners are dropped
-      // too; `held-then-expired` keeps them because the same channel carries
-      // on against the new daemon.
+      // too; the other two keep them because the same channel carries on
+      // against the new agent.
       if (event.type === "exit" || event.type === "failure" || event.type === "disposed") {
-        this.disposeChannelServers(channel);
+        this.disposeChannelServers(channel, "agent exited");
         this.unsubscribeChannel(channel);
       } else if (event.type === "held-then-expired") {
-        this.disposeChannelServers(channel);
+        this.disposeChannelServers(channel, "agent replaced");
+      } else if (event.type === "reconnecting" && !event.hadEpoch) {
+        this.disposeChannelServers(channel, "agent restarted");
       }
     });
     this.channelDisposers.set(channel, [
@@ -1100,17 +1105,33 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     this.pendingSpawnByServerId.delete(key);
   }
 
-  private disposeChannelServers(channel: AgentChannel): void {
+  private disposeChannelServers(channel: AgentChannel, reason: string): void {
     for (const server of Array.from(this.serversById.values())) {
       if (server.channel !== channel) continue;
       // Clear diagnostics timers before removing the URI index entries so the
       // predicate in clearDiagnosticsTimersForServer can still resolve the URI
       // → server mapping. Mirrors the ordering used in handleServerExited.
       this.diagnosticsDebouncer.clearForServer(server.workspaceId, server.languageId);
-      server.dispose();
+      // The agent that ran the server is gone; an lsp.shutdown would only
+      // reach the agent that replaced it.
+      server.disposePending(new Error(`LSP server lost: ${reason}`));
       this.serversById.delete(this.serverIdKey(server.channel, server.serverId));
-      this.workspaceServers.get(server.workspaceId)?.delete(server.languageId);
+      const servers = this.workspaceServers.get(server.workspaceId);
+      if (servers?.get(server.languageId) === server) servers.delete(server.languageId);
+      if (servers?.size === 0) {
+        this.workspaceServers.delete(server.workspaceId);
+        this.workspaceLastActivity.delete(server.workspaceId);
+      }
       this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
+      const serverKey = `${server.workspaceId}\0${server.languageId}`;
+      this.serverTimeoutCount.delete(serverKey);
+      this.serverSpawnedAt.delete(serverKey);
+      // The renderer still takes its documents as open on this server.
+      this.emit("workspaceLspReset", {
+        workspaceId: server.workspaceId,
+        languageId: server.languageId,
+        reason,
+      });
     }
     // Server requests (applyEdit) waiting on the renderer can no longer be
     // answered on this channel.
