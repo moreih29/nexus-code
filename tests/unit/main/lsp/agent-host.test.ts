@@ -10,6 +10,7 @@ import type {
 
 import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
 import {
+  bundledServerInfo,
   resolveLspCommandFromManifest,
   startAgentLspHost,
 } from "../../../../src/main/features/lsp/agent-host";
@@ -781,6 +782,16 @@ describe("resolveLspCommandFromManifest", () => {
     const dir = distWith(false);
     try {
       expect(resolveLspCommandFromManifest(PYRIGHT, dir)).toBeNull();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("names the bundled package for a server that does not name itself", () => {
+    const dir = distWith(true);
+    try {
+      expect(bundledServerInfo(PYRIGHT, dir)).toEqual({ name: "pyright", version: "1.1.0" });
+      expect(bundledServerInfo({ ...PYRIGHT, binary: "gopls" }, dir)).toBeUndefined();
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

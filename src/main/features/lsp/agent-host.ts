@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { AgentManifestSchema, findLspBinary } from "../../../shared/agent/manifest";
+import {
+  AgentManifestSchema,
+  findLspBinary,
+  type LspBinaryManifestEntry,
+} from "../../../shared/agent/manifest";
 import { createLogger } from "../../../shared/log/main";
 import {
   ApplyWorkspaceEditParamsSchema,
@@ -1164,7 +1168,11 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         capabilities,
       });
       this.rememberServer(server);
-      this.status.running(workspaceId, presetLanguageId, spawned.serverInfo);
+      this.status.running(
+        workspaceId,
+        presetLanguageId,
+        spawned.serverInfo ?? (preset.system ? undefined : bundledServerInfo(preset)),
+      );
       return server;
     } finally {
       this.pendingSpawnByCorrelation.delete(correlationId);
@@ -1840,20 +1848,37 @@ export function resolveLspCommandFromManifest(
   preset: LspServerSpec,
   distDir = getAgentDistDir(),
 ): LspServerCommand | null {
+  const lsp = findBundledLsp(preset, distDir);
+  if (!lsp) return null;
+  const extractedDir = path.join(distDir, "lsp", `${lsp.name}-${lsp.version}`);
+  const entry = path.join(extractedDir, lsp.entry);
+  if (!fs.existsSync(entry)) return null;
+  return {
+    binaryPath: process.execPath,
+    args: [entry, ...preset.args],
+    env: { ELECTRON_RUN_AS_NODE: "1" },
+  };
+}
+
+/**
+ * The package and version the app bundles for a server, standing in for the
+ * serverInfo some servers (typescript-language-server, bash-language-server,
+ * docker-langserver) leave out of their initialize result.
+ */
+export function bundledServerInfo(
+  preset: LspServerSpec,
+  distDir = getAgentDistDir(),
+): { name: string; version: string } | undefined {
+  const lsp = findBundledLsp(preset, distDir);
+  return lsp ? { name: lsp.packageName, version: lsp.version } : undefined;
+}
+
+function findBundledLsp(preset: LspServerSpec, distDir: string): LspBinaryManifestEntry | null {
   const manifestPath = path.join(distDir, "manifest.json");
   if (!fs.existsSync(manifestPath)) return null;
   try {
     const manifest = AgentManifestSchema.parse(JSON.parse(fs.readFileSync(manifestPath, "utf8")));
-    const lsp = findLspBinary(manifest, { name: preset.binary });
-    if (!lsp) return null;
-    const extractedDir = path.join(distDir, "lsp", `${lsp.name}-${lsp.version}`);
-    const entry = path.join(extractedDir, lsp.entry);
-    if (!fs.existsSync(entry)) return null;
-    return {
-      binaryPath: process.execPath,
-      args: [entry, ...preset.args],
-      env: { ELECTRON_RUN_AS_NODE: "1" },
-    };
+    return findLspBinary(manifest, { name: preset.binary }) ?? null;
   } catch {
     return null;
   }
