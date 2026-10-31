@@ -136,8 +136,35 @@ describe("applyWindowsShellShim", () => {
       env: ENV,
       settingsPath: SETTINGS,
       wrapperDir: BIN,
+      originalPath: "C:\\Windows\\system32",
     });
     expect(wsl.env.NEXUS_WRAPPER_SELF_DIR).toBeUndefined();
+    expect(wsl.env.ORIGINAL_PATH).toBeUndefined();
+  });
+
+  test("a Git Bash started from PowerShell or cmd keeps the launchers first on PATH", () => {
+    // Claude Code's Bash tool, for one: a login Git Bash, whose profile
+    // builds PATH from the ORIGINAL_PATH an app started from Git Bash has.
+    for (const shell of ["powershell.exe", "cmd.exe"]) {
+      for (const settingsPath of [SETTINGS, undefined]) {
+        const { env } = applyWindowsShellShim({
+          shell,
+          env: ENV,
+          settingsPath,
+          wrapperDir: BIN,
+          originalPath: "C:\\Windows\\system32",
+        });
+        expect(env.ORIGINAL_PATH).toBe(`${LAUNCHERS};C:\\Windows\\system32`);
+      }
+    }
+    const own = applyWindowsShellShim({
+      shell: "powershell.exe",
+      env: ENV,
+      args: ["-Command", "claude"],
+      settingsPath: SETTINGS,
+      originalPath: "C:\\Windows\\system32",
+    });
+    expect(own.env.ORIGINAL_PATH).toBe(`${LAUNCHERS};C:\\Windows\\system32`);
   });
 
   test("PowerShell defines codex next to claude, or alone without the hooks", () => {

@@ -178,6 +178,18 @@ export interface WindowsShellShimOutput {
  * command keeps it and gets neither.
  */
 export function applyWindowsShellShim(input: WindowsShellShimInput): WindowsShellShimOutput {
+  const shimmed = shimShell(input);
+  // Git Bash's login profile builds PATH from ORIGINAL_PATH when it is set,
+  // as it is in an app started from Git Bash, and would drop the directory
+  // the agent puts first on PATH. It goes first there too, for the terminal's
+  // Git Bash and for one started from PowerShell or cmd, such as Claude
+  // Code's Bash tool.
+  const first = shimmed.env.NEXUS_WRAPPER_SELF_DIR;
+  if (!input.originalPath || first === undefined) return shimmed;
+  return { ...shimmed, env: { ...shimmed.env, ORIGINAL_PATH: `${first};${input.originalPath}` } };
+}
+
+function shimShell(input: WindowsShellShimInput): WindowsShellShimOutput {
   const { shell, args, settingsPath, wrapperDir, codex } = input;
   const name = path.win32.basename(shell).toLowerCase();
   const isBash = name === "bash.exe" || name === "bash";
@@ -223,12 +235,7 @@ export function applyWindowsShellShim(input: WindowsShellShimInput): WindowsShel
   }
 
   if (isBash && wrapperDir !== undefined) {
-    // Git Bash's login profile builds PATH from ORIGINAL_PATH when it is set,
-    // as it is in an app started from Git Bash, and would drop the wrapper
-    // the agent put first on PATH: the wrapper goes first there too.
-    const bashEnv: Record<string, string> = { ...env, NEXUS_WRAPPER_SELF_DIR: wrapperDir };
-    if (input.originalPath) bashEnv.ORIGINAL_PATH = `${wrapperDir};${input.originalPath}`;
-    return { env: bashEnv, args };
+    return { env: { ...env, NEXUS_WRAPPER_SELF_DIR: wrapperDir }, args };
   }
   return { env, args };
 }
