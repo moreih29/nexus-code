@@ -96,7 +96,7 @@ Codex 는 자동 안내가 없습니다. 쓰게 하려면 프로젝트의 `AGENT
 NexusCode 터미널에서는 `nexus` 명령으로 앱을 다룰 수 있다(`nexus help`).
 ```
 
-> Windows 로컬 터미널에서는 Claude Code 래퍼가 없어 자동 안내가 붙지 않습니다. 필요하면 위처럼 `CLAUDE.md` 에 적어 두세요.
+> Windows 로컬 터미널에서는 PowerShell · 명령 프롬프트 · Git Bash 에서 시작한 세션만 안내받습니다. 다른 셸에서 쓰려면 위처럼 `CLAUDE.md` 에 적어 두세요.
 
 ## 끄기
 
