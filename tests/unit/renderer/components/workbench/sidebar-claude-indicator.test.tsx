@@ -11,6 +11,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { StatusEntry } from "../../../../../src/shared/claude/status";
+import type { WorkspaceMeta } from "../../../../../src/shared/types/workspace";
 import {
   selectWorkspaceAggregateStatus,
 } from "../../../../../src/renderer/state/stores/claude-status";
@@ -35,6 +36,9 @@ const WS = "ws-sidebar-test";
 
 // 현재 테스트의 tab entries — beforeEach에서 교체한다.
 let mockWsTabs: Record<string, StatusEntry> = {};
+// Tab entries of the workspace's task, when a test gives it one.
+const TASK = "ws-sidebar-test-task";
+let mockTaskTabs: Record<string, StatusEntry> | undefined;
 
 // ---------------------------------------------------------------------------
 // useClaudeStatusStore mock — selectWorkspaceAggregateStatus는 실제 구현 사용
@@ -43,7 +47,9 @@ let mockWsTabs: Record<string, StatusEntry> = {};
 mock.module("../../../../../src/renderer/state/stores/claude-status", () => {
   return {
     useClaudeStatusStore: (selector: (s: { byWorkspace: Record<string, Record<string, StatusEntry>> }) => unknown) => {
-      const fakeState = { byWorkspace: { [WS]: mockWsTabs } };
+      const fakeState = {
+        byWorkspace: { [WS]: mockWsTabs, ...(mockTaskTabs ? { [TASK]: mockTaskTabs } : {}) },
+      };
       if (typeof selector === "function") return selector(fakeState);
       return fakeState;
     },
@@ -91,10 +97,11 @@ function resetAll() {
   useUIStore.setState({ sidebarWidth: 240 });
   useWorkspacesStore.setState({ workspaces: [], connectionStatusByWorkspaceId: {} });
   mockWsTabs = {};
+  mockTaskTabs = undefined;
 }
 
-/** Sidebar를 로컬 워크스페이스 1개로 렌더해 HTML을 반환한다. */
-function renderSidebarForWs(): string {
+/** Sidebar를 로컬 워크스페이스 1개(와 `tasks`)로 렌더해 HTML을 반환한다. */
+function renderSidebarForWs(tasks: WorkspaceMeta[] = []): string {
   return renderToStaticMarkup(
     <Sidebar
       workspaces={[
@@ -108,6 +115,7 @@ function renderSidebarForWs(): string {
           tabs: [],
           location: { kind: "local", rootPath: "/tmp/test" },
         },
+        ...tasks,
       ]}
       activeWorkspaceId={WS}
       onSelectWorkspace={() => {}}
@@ -256,5 +264,47 @@ describe("WorkspaceStatusGlyph — StatusEntry 없음", () => {
     expect(html).not.toContain("Claude: running");
     expect(html).not.toContain("Claude: idle");
     expect(html).not.toContain("Claude: error");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tasks — the row stands for the workspace's tasks too
+// ---------------------------------------------------------------------------
+
+describe("WorkspaceStatusGlyph — tasks", () => {
+  beforeEach(resetAll);
+
+  const task: WorkspaceMeta = {
+    id: TASK,
+    name: "fix login",
+    rootPath: "/tmp/worktrees/fix-login",
+    colorTone: "default",
+    pinned: false,
+    tabs: [],
+    sortOrder: 0,
+    pinnedSortOrder: 0,
+    location: { kind: "local", rootPath: "/tmp/worktrees/fix-login" },
+    task: { parentId: WS, branch: "fix-login", worktreePath: "/tmp/worktrees/fix-login" },
+  };
+
+  test("a task's status shows on its workspace's row, by priority", () => {
+    mockWsTabs = { t1: makeEntry("t1", "running") };
+    mockTaskTabs = { t2: { ...makeEntry("t2", "permissionPending"), workspaceId: TASK } };
+
+    const html = renderSidebarForWs([task]);
+
+    expect(html).toContain("Claude: waiting for permission");
+    expect(html).toContain("1 task");
+  });
+
+  test("a task's status shows when the workspace itself has none", () => {
+    mockWsTabs = undefined as unknown as Record<string, StatusEntry>;
+    mockTaskTabs = { t2: { ...makeEntry("t2", "needsInput"), workspaceId: TASK } };
+
+    const html = renderSidebarForWs([task]);
+
+    expect(html).toContain("Claude: waiting for input");
+    // The task has no row of its own.
+    expect(html).not.toContain("fix login");
   });
 });

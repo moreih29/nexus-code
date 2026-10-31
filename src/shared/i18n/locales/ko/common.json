@@ -149,13 +149,17 @@
     "unpin": "고정 해제",
     "pin_workspace_aria": "워크스페이스 {{name}} 상단에 고정",
     "unpin_workspace_aria": "워크스페이스 {{name}} 고정 해제",
-    "dismiss_notification": "알림 닫기"
+    "dismiss_notification": "알림 닫기",
+    "task_count_one": "작업 {{count}}개",
+    "task_count_other": "작업 {{count}}개"
   },
   "workspace": {
     "remove_title": "Nexus에서 “{{name}}”을(를) 제거하시겠습니까?",
     "remove_description": "디스크의 폴더는 변경되지 않습니다. 워크스페이스 등록만 제거됩니다.",
     "remove_unsaved_one": "저장하지 않은 파일 {{count}}개의 변경 사항이 사라집니다.",
     "remove_unsaved_other": "저장하지 않은 파일 {{count}}개의 변경 사항이 사라집니다.",
+    "remove_tasks_one": "작업 {{count}}개도 함께 닫힙니다. 워크트리와 브랜치는 디스크에 남습니다.",
+    "remove_tasks_other": "작업 {{count}}개도 함께 닫힙니다. 워크트리와 브랜치는 디스크에 남습니다.",
     "add_title": "워크스페이스 추가",
     "add_subtitle_main": "로컬 폴더를 열거나 SSH로 서버에 연결하세요.",
     "add_subtitle_ssh_list": "저장된 연결을 선택하거나 새로 추가하세요.",

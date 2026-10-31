@@ -149,13 +149,17 @@
     "unpin": "Unpin",
     "pin_workspace_aria": "Pin workspace {{name}} to top",
     "unpin_workspace_aria": "Unpin workspace {{name}}",
-    "dismiss_notification": "Dismiss notification"
+    "dismiss_notification": "Dismiss notification",
+    "task_count_one": "{{count}} task",
+    "task_count_other": "{{count}} tasks"
   },
   "workspace": {
     "remove_title": "Remove “{{name}}” from Nexus?",
     "remove_description": "The folder on disk is not touched. Only the workspace registration is removed.",
     "remove_unsaved_one": "{{count}} file has unsaved changes that will be lost.",
     "remove_unsaved_other": "{{count}} files have unsaved changes that will be lost.",
+    "remove_tasks_one": "Its {{count}} task closes too. Its worktree and branch stay on disk.",
+    "remove_tasks_other": "Its {{count}} tasks close too. Their worktrees and branches stay on disk.",
     "add_title": "Add Workspace",
     "add_subtitle_main": "Open a local folder or connect to a server over SSH.",
     "add_subtitle_ssh_list": "Choose a saved connection or add a new one.",
