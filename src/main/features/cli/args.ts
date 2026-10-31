@@ -97,3 +97,14 @@ export function parseDuration(text: string, flag: string): number {
   const factor = unit === "ms" ? 1 : unit === "s" ? 1000 : unit === "m" ? 60_000 : 3_600_000;
   return Math.round(value * factor);
 }
+
+/** The positionals of a command that takes exactly `names`, in order. */
+export function exactArgs(positionals: readonly string[], ...names: string[]): string[] {
+  if (positionals.length < names.length) {
+    throw new CliUsageError(`missing <${names[positionals.length]}>`);
+  }
+  if (positionals.length > names.length) {
+    throw new CliUsageError(`unexpected argument "${positionals[names.length]}"`);
+  }
+  return [...positionals];
+}

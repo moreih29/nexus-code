@@ -1,17 +1,23 @@
-/** nexus tab list, nexus terminal list/read and nexus session list. */
+/** nexus tab ..., nexus terminal ... and nexus session list. */
 import type { CliTabInfo } from "../../../../shared/cli/ui";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { isAgentSession, type TerminalState, terminalState } from "../agent-state";
-import { type CliContext, CliError, resolveTab, resolveWorkspace, shortId } from "../context";
+import { CliUsageError, exactArgs } from "../args";
+import {
+  type CliContext,
+  CliError,
+  placementFor,
+  resolveTab,
+  resolveWorkspace,
+  shortId,
+  writableWorkspace,
+} from "../context";
 import { ago, oneLine, table } from "../format";
+import { KEY_NAMES_HELP, keySequence } from "../keys";
+import { absolutePath } from "../paths";
 import { type CliCommand, output } from "../registry";
+import { WORKSPACE_FLAG } from "./flags";
 import { orderedWorkspaces } from "./workspace";
-
-const WORKSPACE_FLAG = {
-  type: "string",
-  value: "WORKSPACE",
-  description: "The workspace (id, id prefix or name); this terminal's by default",
-} as const;
 
 /** The tabs of a workspace, as the renderer has them. */
 export async function workspaceTabs(ctx: CliContext, workspaceId: string): Promise<CliTabInfo[]> {
@@ -26,6 +32,37 @@ export async function resolveTerminal(
 ): Promise<CliTabInfo> {
   const tabs = (await workspaceTabs(ctx, workspace.id)).filter((t) => t.type === "terminal");
   return resolveTab(ctx, tabs, selector, `terminal in ${workspace.name}`);
+}
+
+/** A tab a selector names in a workspace, of any type. */
+async function resolveAnyTab(
+  ctx: CliContext,
+  workspace: WorkspaceMeta,
+  selector: string,
+): Promise<CliTabInfo> {
+  return resolveTab(
+    ctx,
+    await workspaceTabs(ctx, workspace.id),
+    selector,
+    `tab in ${workspace.name}`,
+  );
+}
+
+/**
+ * Refuses to type into a terminal that is not another's to type into: the
+ * caller's own, one that has exited, and a Claude Code waiting for the user
+ * to allow a tool, which is the user's answer to give.
+ */
+function checkTypable(ctx: CliContext, workspace: WorkspaceMeta, tab: CliTabInfo): void {
+  if (tab.id === ctx.caller.tabId) {
+    throw new CliError("that is this terminal; nexus types only into other terminals");
+  }
+  if (tab.dead) throw new CliError(`${tab.title} has exited`);
+  if (ctx.services.claudeStatus(workspace.id, tab.id)?.status === "permissionPending") {
+    throw new CliError(
+      "Claude Code there is waiting for the user to allow a tool; that is for the user to answer",
+    );
+  }
 }
 
 /** The workspaces a listing covers: --all, --workspace, or the caller's. */
@@ -94,6 +131,52 @@ const tabList: CliCommand = {
   },
 };
 
+const tabShow: CliCommand = {
+  path: ["tab", "show"],
+  summary: "Show a tab to the user, switching to its workspace if need be",
+  args: "<tab>",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "tab") as [string];
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveAnyTab(ctx, workspace, selector);
+    await ctx.services.ui("tab.show", { workspaceId: workspace.id, tabId: tab.id });
+    return output(`Showing ${tab.title} (${shortId(tab.id)}) in ${workspace.name}.`, {
+      tabId: tab.id,
+      workspaceId: workspace.id,
+    });
+  },
+};
+
+const tabClose: CliCommand = {
+  path: ["tab", "close"],
+  summary: "Close a tab",
+  args: "<tab>",
+  details:
+    "A tab with unsaved changes is left open. So is a terminal running a program, unless --force.",
+  flags: {
+    workspace: WORKSPACE_FLAG,
+    force: { type: "boolean", description: "Close a terminal even while a program runs in it" },
+  },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "tab") as [string];
+    const workspace = await writableWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveAnyTab(ctx, workspace, selector);
+    if (tab.id === ctx.caller.tabId) {
+      throw new CliError("that is this terminal; close it in the app or exit its shell");
+    }
+    await ctx.services.ui("tab.close", {
+      workspaceId: workspace.id,
+      tabId: tab.id,
+      force: flags.force === true,
+    });
+    return output(`Closed ${tab.title} (${shortId(tab.id)}).`, {
+      tabId: tab.id,
+      workspaceId: workspace.id,
+    });
+  },
+};
+
 const terminalList: CliCommand = {
   path: ["terminal", "list"],
   summary: "List terminals and what runs in them",
@@ -144,6 +227,115 @@ const terminalRead: CliCommand = {
   },
 };
 
+const terminalNew: CliCommand = {
+  path: ["terminal", "new"],
+  summary: "Open a terminal, running a command if given",
+  details: "It opens behind this terminal unless --show. Its id is printed for terminal send/read.",
+  flags: {
+    cwd: { type: "string", value: "DIR", description: "Start in DIR (default: this directory)" },
+    command: {
+      type: "string",
+      value: "CMD",
+      description: "Type CMD and Enter once the shell has started",
+    },
+    title: { type: "string", value: "TITLE", description: "Name the tab TITLE" },
+    show: { type: "boolean", description: "Show it, beside this terminal" },
+    workspace: WORKSPACE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    exactArgs(positionals);
+    const workspace = await writableWorkspace(ctx, flags.workspace as string | undefined);
+    const dir = flags.cwd as string | undefined;
+    const cwd =
+      dir !== undefined
+        ? absolutePath(ctx, workspace, dir)
+        : workspace.id === ctx.caller.workspaceId
+          ? ctx.invocation.cwd
+          : workspace.rootPath;
+    const title = flags.title as string | undefined;
+    const command = flags.command as string | undefined;
+    const { tabId } = await ctx.services.ui("terminal.open", {
+      workspaceId: workspace.id,
+      cwd,
+      ...(title ? { title } : {}),
+      ...(command ? { command } : {}),
+      placement: placementFor(ctx, workspace, flags.show !== true),
+    });
+    return output(`Opened terminal ${shortId(tabId)} in ${cwd}.`, {
+      tabId,
+      workspaceId: workspace.id,
+      cwd,
+    });
+  },
+};
+
+const terminalSend: CliCommand = {
+  path: ["terminal", "send"],
+  summary: "Type text into a terminal, then Enter",
+  args: "<tab> <text...>",
+  details:
+    'The text goes in as one paste, so an agent\'s prompt takes it whole. "-" reads it from\n' +
+    "standard input. Refused for this terminal, and for a Claude Code waiting for the user\n" +
+    "to allow a tool.",
+  flags: {
+    "no-enter": { type: "boolean", description: "Type the text without pressing Enter" },
+    workspace: WORKSPACE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [selector, ...words] = positionals;
+    if (selector === undefined) throw new CliUsageError("missing <tab>");
+    const fromStdin = words.length === 1 && words[0] === "-";
+    const text = fromStdin ? (ctx.invocation.stdin ?? "").replace(/\r?\n$/, "") : words.join(" ");
+    const enter = flags["no-enter"] !== true;
+    if (text === "" && !enter) throw new CliUsageError("nothing to send");
+    const workspace = await writableWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveTerminal(ctx, workspace, selector);
+    checkTypable(ctx, workspace, tab);
+    await ctx.services.ui("terminal.input", {
+      workspaceId: workspace.id,
+      tabId: tab.id,
+      text,
+      mode: "paste",
+      enter,
+    });
+    return output(`Sent to ${tab.title} (${shortId(tab.id)}).`, {
+      tabId: tab.id,
+      workspaceId: workspace.id,
+      text,
+      enter,
+    });
+  },
+};
+
+const terminalKey: CliCommand = {
+  path: ["terminal", "key"],
+  summary: "Press keys in a terminal, such as ctrl-c or down enter",
+  args: "<tab> <key...>",
+  details: KEY_NAMES_HELP,
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    const [selector, ...keys] = positionals;
+    if (selector === undefined) throw new CliUsageError("missing <tab>");
+    if (keys.length === 0) throw new CliUsageError("missing <key>");
+    const text = keys.map(keySequence).join("");
+    const workspace = await writableWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveTerminal(ctx, workspace, selector);
+    checkTypable(ctx, workspace, tab);
+    await ctx.services.ui("terminal.input", {
+      workspaceId: workspace.id,
+      tabId: tab.id,
+      text,
+      mode: "keys",
+      enter: false,
+    });
+    return output(`Pressed ${keys.join(" ")} in ${tab.title} (${shortId(tab.id)}).`, {
+      tabId: tab.id,
+      workspaceId: workspace.id,
+      keys,
+    });
+  },
+};
+
 const sessionList: CliCommand = {
   path: ["session", "list"],
   summary: "List the agent sessions (Claude Code, Codex, ...) in every workspace",
@@ -178,4 +370,14 @@ const sessionList: CliCommand = {
   },
 };
 
-export const terminalCommands: CliCommand[] = [tabList, terminalList, terminalRead, sessionList];
+export const terminalCommands: CliCommand[] = [
+  tabList,
+  tabShow,
+  tabClose,
+  terminalList,
+  terminalRead,
+  terminalNew,
+  terminalSend,
+  terminalKey,
+  sessionList,
+];

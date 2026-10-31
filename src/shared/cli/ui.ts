@@ -24,6 +24,23 @@ export interface CliTabInfo {
   readonly dead?: boolean;
 }
 
+/** Where a tab the CLI opens goes. */
+export interface CliPlacement {
+  /** Open it behind the tab its group shows instead of showing it. */
+  readonly background: boolean;
+  /**
+   * The terminal the command ran in. A tab that is shown goes in another
+   * group than this one's, so the terminal stays in view.
+   */
+  readonly besideTabId?: string;
+}
+
+/** How `terminal.input` types its text: as one paste, or as keystrokes. */
+export type CliInputMode = "paste" | "keys";
+
+/** What `browser.navigate` does. */
+export type CliBrowserAction = "goto" | "back" | "forward" | "reload";
+
 /** The operations, with what each takes and gives. */
 export interface CliUiOps {
   /** The tabs of a workspace, in layout order. */
@@ -35,6 +52,76 @@ export interface CliUiOps {
   "terminal.read": {
     args: { workspaceId: string; tabId: string; lines: number };
     result: { text: string };
+  };
+  /** Opens a file of the workspace, or shows its tab, at a line if given. */
+  "editor.open": {
+    args: {
+      workspaceId: string;
+      filePath: string;
+      line?: number;
+      column?: number;
+      placement: CliPlacement;
+    };
+    result: { tabId: string };
+  };
+  /** Opens a file's changes between two refs (HEAD, INDEX, WORKING or a commit). */
+  "diff.open": {
+    args: {
+      workspaceId: string;
+      relPath: string;
+      leftRef: string;
+      rightRef: string;
+      placement: CliPlacement;
+    };
+    result: { tabId: string };
+  };
+  /** Opens a terminal, renamed to `title` and typing `command` once its shell starts. */
+  "terminal.open": {
+    args: {
+      workspaceId: string;
+      cwd: string;
+      title?: string;
+      command?: string;
+      placement: CliPlacement;
+    };
+    result: { tabId: string };
+  };
+  /**
+   * Types into a terminal: pasted, as the app's paste does, or as keys; then
+   * Enter if asked.
+   */
+  "terminal.input": {
+    args: { workspaceId: string; tabId: string; text: string; mode: CliInputMode; enter: boolean };
+    result: Record<string, never>;
+  };
+  /** Shows a tab, and its workspace if another one is shown. */
+  "tab.show": {
+    args: { workspaceId: string; tabId: string };
+    result: Record<string, never>;
+  };
+  /**
+   * Closes a tab. Refuses one with unsaved changes, and a terminal running a
+   * program unless `force`.
+   */
+  "tab.close": {
+    args: { workspaceId: string; tabId: string; force: boolean };
+    result: Record<string, never>;
+  };
+  /** Opens a browser tab on a URL or an address such as localhost:3000. */
+  "browser.open": {
+    args: { workspaceId: string; url: string; placement: CliPlacement };
+    result: { tabId: string; url: string };
+  };
+  /** Moves a browser tab: to a URL, back, forward, or reloads it. */
+  "browser.navigate": {
+    args: { workspaceId: string; tabId: string; action: CliBrowserAction; url?: string };
+    /** Where "goto" went. */
+    result: { url?: string };
+  };
+  /** Shows a workspace, as clicking it in the sidebar does. */
+  "workspace.show": {
+    args: { workspaceId: string };
+    result: Record<string, never>;
   };
 }
 
