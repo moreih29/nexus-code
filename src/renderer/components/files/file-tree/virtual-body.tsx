@@ -105,12 +105,15 @@ export function FileTreeVirtualBody({
           height: ROW_HEIGHT_PX,
           transform: `translateY(${vi.start}px)`,
         };
+        // An edit row's validation message hangs over the rows after it;
+        // without this they paint on top of it.
+        const editRowStyle: React.CSSProperties = { ...wrapperStyle, zIndex: 1 };
 
         if (item.kind === "pending") {
           return (
             <div
               key={`pending-${item.parentAbsPath}`}
-              style={wrapperStyle}
+              style={editRowStyle}
               data-file-tree-row-type="pending"
             >
               <FileTreeEditRow
@@ -128,7 +131,7 @@ export function FileTreeVirtualBody({
           return (
             <div
               key={`rename-${item.absPath}`}
-              style={wrapperStyle}
+              style={editRowStyle}
               data-file-tree-row-type="rename"
             >
               <FileTreeEditRow

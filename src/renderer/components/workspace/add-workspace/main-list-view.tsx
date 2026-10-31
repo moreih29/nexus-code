@@ -1,4 +1,13 @@
-import { Folder, FolderOpen, FolderPlus, LoaderCircle, Server, Star, Trash2 } from "lucide-react";
+import {
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  LoaderCircle,
+  Server,
+  SquareTerminal,
+  Star,
+  Trash2,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ErrorNotice } from "./error-notice";
@@ -8,6 +17,7 @@ import {
   createSshWorkspace,
   fetchConnectionProfiles,
   listFolderBookmarks,
+  listWslDistros,
   pickLocalDirectory,
   recordLocalBookmark,
   recordSshBookmark,
@@ -17,6 +27,7 @@ import {
 import { Button } from "../../ui/button";
 import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
+import { isWindows } from "../../../utils/platform";
 import {
   folderName,
   formatSshSecondaryLine,
@@ -35,6 +46,7 @@ export function MainListView({
   onWorkspaceCreated,
   onClose,
   onSshServerList,
+  onWslDistroList,
   onNewConnectionPrefill,
 }: MainListViewProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -53,6 +65,21 @@ export function MainListView({
   const [errorProfileId, setErrorProfileId] = useState<string | null>(null);
 
   const anyBusy = openingFolder || activeBookmarkId !== null;
+
+  // The WSL entry shows on Windows once a distribution is found.
+  const [hasWsl, setHasWsl] = useState(false);
+  useEffect(() => {
+    if (!isWindows()) return;
+    let cancelled = false;
+    listWslDistros()
+      .then((distros) => {
+        if (!cancelled) setHasWsl(distros.length > 0);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const load = useCallback((): (() => void) => {
     let cancelled = false;
@@ -274,6 +301,7 @@ export function MainListView({
           openingFolder={openingFolder}
           onOpenFolder={() => void openFolderPicker()}
           onSshServerList={onSshServerList}
+          onWslDistroList={hasWsl ? onWslDistroList : null}
         />
         {globalErrorBanner}
         <EmptyState
@@ -295,6 +323,7 @@ export function MainListView({
         openingFolder={openingFolder}
         onOpenFolder={() => void openFolderPicker()}
         onSshServerList={onSshServerList}
+        onWslDistroList={hasWsl ? onWslDistroList : null}
       />
 
       {globalErrorBanner}
@@ -372,7 +401,7 @@ export function MainListView({
 }
 
 // ---------------------------------------------------------------------------
-// ActionButtons — top row with Open Folder + Connect via SSH
+// ActionButtons — top row with Open Folder + Connect via SSH (+ WSL)
 // ---------------------------------------------------------------------------
 
 interface ActionButtonsProps {
@@ -380,6 +409,8 @@ interface ActionButtonsProps {
   readonly openingFolder: boolean;
   readonly onOpenFolder: () => void;
   readonly onSshServerList: () => void;
+  /** Null hides the WSL button (not Windows, or no distribution). */
+  readonly onWslDistroList: (() => void) | null;
 }
 
 function ActionButtons({
@@ -387,6 +418,7 @@ function ActionButtons({
   openingFolder,
   onOpenFolder,
   onSshServerList,
+  onWslDistroList,
 }: ActionButtonsProps): React.JSX.Element {
   const { t } = useTranslation();
   return (
@@ -417,6 +449,19 @@ function ActionButtons({
         <Server className="size-4" aria-hidden="true" />
         {t("workspace.connect_ssh")}
       </Button>
+      {onWslDistroList ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={onWslDistroList}
+          className="flex-1"
+        >
+          <SquareTerminal className="size-4" aria-hidden="true" />
+          {t("workspace.open_wsl")}
+        </Button>
+      ) : null}
     </div>
   );
 }

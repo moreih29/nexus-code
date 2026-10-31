@@ -85,10 +85,10 @@ export function FilesPanel() {
     activeWorkspace ? selectIsWorkspaceOnline(s, activeWorkspace.id) : true,
   );
 
-  // For disconnected SSH workspaces, suppress all remote-reading panels so
+  // For disconnected SSH and WSL workspaces, suppress all remote-reading panels so
   // no IPC call reaches getFs / getAgentChannel before the user connects.
   const showOffline =
-    activeWorkspace?.location.kind === "ssh" && !workspaceOnline;
+    activeWorkspace !== null && activeWorkspace.location.kind !== "local" && !workspaceOnline;
 
   // 재연결 진행 중 여부 — Reconnect 버튼을 disabled 처리하고 라벨을 변경하는 데 사용.
   const [isReconnecting, setIsReconnecting] = useState(false);

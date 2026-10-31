@@ -3,6 +3,7 @@ export * from "./completion";
 export * from "./diagnostics";
 export * from "./primitives";
 export * from "./semantic-tokens";
+export * from "./signature-help";
 export * from "./symbols";
 export * from "./text-document";
 export * from "./workspace";

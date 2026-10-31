@@ -7,7 +7,7 @@
 import i18next from "i18next";
 import { isBuiltinLspPresetLanguageId, resolveLspPreset } from "../../../shared/lsp/config";
 import type { LspServerStatus } from "../../../shared/lsp/status";
-import { showToast } from "../../components/ui/toast";
+import { dismissToast, showToast } from "../../components/ui/toast";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import { clearLspDiagnostics } from "../../services/editor/lsp/bridge";
 import { clearProgressFor } from "../../services/lsp-ux/server-ux-router";
@@ -28,6 +28,12 @@ let evictionExplained = false;
  * server runs.
  */
 const missingReported = new Set<string>();
+/**
+ * The toast saying a server is missing or gave up, by lspStatusKey: taken
+ * down once the server runs, however it was started again, or once its
+ * workspace is removed.
+ */
+const failureToasts = new Map<string, { id: number; languageId: string; missing: boolean }>();
 
 /** Safe to call more than once — the previous listener is removed first. */
 export function initLspStatusSync(): void {
@@ -45,12 +51,27 @@ export function initLspStatusSync(): void {
     store.setStatus(status);
     notify(status, previous);
   });
-  unregisterCleanup = registerWorkspaceCleanup((workspaceId) =>
-    useLspStatusStore.getState().forgetWorkspace(workspaceId),
-  );
+  unregisterCleanup = registerWorkspaceCleanup((workspaceId) => {
+    useLspStatusStore.getState().forgetWorkspace(workspaceId);
+    dismissWorkspaceToasts(workspaceId);
+  });
   void ipcCallResult("lsp", "serverStatuses", undefined).then((result) => {
     if (result.ok) useLspStatusStore.getState().hydrate(result.value);
   });
+}
+
+/**
+ * A removed workspace's toasts go with it. The missing server one reported
+ * may then be reported by another workspace that lacks it too.
+ */
+function dismissWorkspaceToasts(workspaceId: string): void {
+  const prefix = lspStatusKey(workspaceId, "");
+  for (const [key, toast] of failureToasts) {
+    if (!key.startsWith(prefix)) continue;
+    dismissToast(toast.id);
+    if (toast.missing) missingReported.delete(toast.languageId);
+    failureToasts.delete(key);
+  }
 }
 
 function notify(status: LspServerStatus, previous: LspServerStatus | undefined): void {
@@ -61,7 +82,13 @@ function notify(status: LspServerStatus, previous: LspServerStatus | undefined):
     defaultValue: status.languageId,
   });
 
-  if (status.state === "running") missingReported.delete(status.languageId);
+  if (status.state === "running") {
+    missingReported.delete(status.languageId);
+    const key = lspStatusKey(status.workspaceId, status.languageId);
+    const toast = failureToasts.get(key);
+    if (toast) dismissToast(toast.id);
+    failureToasts.delete(key);
+  }
 
   if (status.gaveUp && !previous?.gaveUp && isBuiltinLspPresetLanguageId(status.languageId)) {
     const { workspaceId, languageId } = status;
@@ -69,7 +96,7 @@ function notify(status: LspServerStatus, previous: LspServerStatus | undefined):
       if (missingReported.has(languageId)) return;
       missingReported.add(languageId);
       const install = resolveLspPreset(languageId)?.install;
-      showToast({
+      const toast = showToast({
         kind: "warning",
         // The install command in plain sight: details stay collapsed.
         message: [
@@ -89,9 +116,14 @@ function notify(status: LspServerStatus, previous: LspServerStatus | undefined):
           },
         ],
       });
+      failureToasts.set(lspStatusKey(workspaceId, languageId), {
+        id: toast,
+        languageId,
+        missing: true,
+      });
       return;
     }
-    showToast({
+    const toast = showToast({
       kind: "error",
       message: i18next.t("lsp.gaveUp", { workspace, language }),
       details: status.error,
@@ -105,6 +137,11 @@ function notify(status: LspServerStatus, previous: LspServerStatus | undefined):
           onAction: () => useLspLogViewerStore.getState().open({ workspaceId, languageId }),
         },
       ],
+    });
+    failureToasts.set(lspStatusKey(workspaceId, languageId), {
+      id: toast,
+      languageId,
+      missing: false,
     });
     return;
   }

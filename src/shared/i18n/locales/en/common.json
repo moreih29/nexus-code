@@ -189,11 +189,14 @@
     "add_subtitle_ssh_list": "Choose a saved connection or add a new one.",
     "add_subtitle_ssh_new": "Enter SSH connection details.",
     "add_subtitle_ssh_picker": "Select a remote directory.",
+    "add_subtitle_wsl_list": "Choose a WSL distribution.",
+    "add_subtitle_wsl_picker": "Select a folder in the distribution.",
     "no_recent_folders": "No recent folders",
     "no_recent_folders_desc": "Folders you open here are listed for quick access.",
     "open_folder": "Open Folder…",
     "opening_folder": "Opening…",
     "connect_ssh": "Connect via SSH…",
+    "open_wsl": "Open in WSL…",
     "show_less": "Show less",
     "show_more": "Show {{count}} more",
     "favorites": "Favorites",
@@ -219,7 +222,7 @@
     "key_type": "Key type: {{type}}",
     "fingerprint": "Fingerprint",
     "fingerprint_warning": "If you don't recognize this fingerprint, do not trust the host.",
-    "trust_session_only": "Trust applies for this session only.",
+    "trust_saved": "Trusting saves this key to known_hosts, so later connections won't ask again.",
     "no_saved": "No saved connections",
     "no_saved_desc": "Add a connection to browse its folders.",
     "new_connection": "New Connection…",
@@ -268,6 +271,14 @@
     "to_reconnect": "to reconnect.",
     "add_workspace": "Add Workspace",
     "adding": "Adding…"
+  },
+  "wsl": {
+    "loading": "Loading distributions…",
+    "distributions": "WSL distributions",
+    "none": "No WSL distributions",
+    "none_desc": "Install one with `wsl --install`, then open this dialog again.",
+    "starting": "Starting…",
+    "identity": "WSL · {{distro}}"
   },
   "editor": {
     "file_path": "File path",
@@ -469,7 +480,9 @@
     "session_expired": "Session expired",
     "session_expired_desc": "The session timed out during reconnection. Click to reconnect.",
     "ssh_workspace": "SSH workspace — {{label}}",
+    "wsl_workspace": "WSL workspace — {{label}}",
     "could_not_connect": "Could not connect to {{label}}. Check your SSH settings and try again.",
+    "could_not_start_wsl": "Could not start the agent in {{label}}. Check that the distribution runs, then try again.",
     "bootstrap_phase": {
       "checking": "Checking remote…",
       "uploading": "Uploading {{name}}…",

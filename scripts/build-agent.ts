@@ -5,6 +5,7 @@ import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { AGENT_PROTOCOL_VERSION } from "../src/shared/agent/envelope";
+import { POSIX_CLI_LAUNCHER } from "../src/shared/cli/launcher";
 import {
   type AgentArtifactPlatform,
   type AgentBinaryManifestEntry,
@@ -93,6 +94,35 @@ const LSP_BUNDLES = [
   },
 ] as const;
 
+/** Text replaced in a file of a bundled server once it is installed. */
+interface LspBundlePatch {
+  /** The file, relative to the bundle's directory. */
+  readonly file: string;
+  readonly from: string;
+  readonly to: string;
+  /** How often `from` occurs; another count fails the build. */
+  readonly count: number;
+}
+
+/**
+ * Fixes to bundled servers, by bundle name. A version whose code differs
+ * fails the build, so the fix is looked at again rather than lost.
+ */
+const LSP_BUNDLE_PATCHES: Readonly<Record<string, readonly LspBundlePatch[]>> = {
+  // The server matches schema globs with picomatch but without `dot: true`,
+  // so `**/compose.yaml` never matches a path through a folder whose name
+  // starts with a dot. A task's worktree is under ~/.nexus-code/worktrees,
+  // so none of its YAML files got a schema.
+  "yaml-language-server": [
+    {
+      file: "node_modules/yaml-language-server/out/server/src/languageservice/services/yamlSchemaService.js",
+      from: "noglobstar: false,",
+      to: "noglobstar: false, dot: true,",
+      count: 2,
+    },
+  ],
+};
+
 interface BuildAgentDistributionOptions {
   readonly rootDir?: string;
   readonly outDir?: string;
@@ -159,6 +189,7 @@ export async function buildAgentDistribution(
 
   // claude 래퍼 스크립트를 bin/claude로 배치.
   const wrapperArtifact = await copyClaudeWrapper({ rootDir, outDir });
+  await writeCliLauncher(outDir);
 
   await writeAgentManifest({
     outDir,
@@ -191,6 +222,17 @@ export async function copyClaudeWrapper(args: {
   const metadata = await fileMetadata(dest);
   console.log(`Copied claude wrapper to ${dest} (sha256=${metadata.sha256})`);
   return { path: path.join("bin", "claude"), ...metadata };
+}
+
+/**
+ * Writes the nexus command to <outDir>/bin/nexus, next to the claude wrapper
+ * on the app's terminals' PATH. Windows terminals get theirs at runtime.
+ */
+export async function writeCliLauncher(outDir: string): Promise<void> {
+  const dest = path.join(outDir, "bin", "nexus");
+  await fs.mkdir(path.dirname(dest), { recursive: true });
+  await fs.writeFile(dest, POSIX_CLI_LAUNCHER, { mode: 0o755 });
+  await fs.chmod(dest, 0o755);
 }
 
 export async function writeAgentManifest(args: {
@@ -392,6 +434,7 @@ async function buildLspBundles(args: {
       ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"],
       { cwd: extractedDir },
     );
+    await applyLspBundlePatches(extractedDir, LSP_BUNDLE_PATCHES[bundle.name] ?? []);
 
     const archiveName = `${bundle.name}-${version}.tar.gz`;
     await args.run(
@@ -414,6 +457,23 @@ async function buildLspBundles(args: {
   }
 
   return artifacts;
+}
+
+async function applyLspBundlePatches(
+  bundleDir: string,
+  patches: readonly LspBundlePatch[],
+): Promise<void> {
+  for (const patch of patches) {
+    const file = path.join(bundleDir, patch.file);
+    const text = await fs.readFile(file, "utf8");
+    const count = text.split(patch.from).length - 1;
+    if (count !== patch.count) {
+      throw new Error(
+        `cannot patch ${patch.file}: expected ${patch.count} of ${JSON.stringify(patch.from)}, found ${count}`,
+      );
+    }
+    await fs.writeFile(file, text.replaceAll(patch.from, patch.to));
+  }
 }
 
 async function installedPackageVersion(rootDir: string, packageName: string): Promise<string> {

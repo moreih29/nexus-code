@@ -107,7 +107,7 @@ describe("SshAuthPromptDialogContent", () => {
     expect(html).not.toContain("Authentication failed. Try again.");
   });
 
-  it("renders host-key safety guidance and session-only scope note", () => {
+  it("renders host-key safety guidance and that trusting saves the key", () => {
     const prompt = makeHostKeyPrompt({ promptId: "host-key-guidance" });
 
     const html = renderToStaticMarkup(
@@ -124,7 +124,7 @@ describe("SshAuthPromptDialogContent", () => {
 
     // apostrophes are HTML-escaped by renderToStaticMarkup, so we match around them.
     expect(html).toContain("recognize this fingerprint, do not trust the host.");
-    expect(html).toContain("Trust applies for this session only.");
+    expect(html).toContain("Trusting saves this key to known_hosts");
   });
 
   it("copies the host-key fingerprint through the renderer clipboard helper", () => {

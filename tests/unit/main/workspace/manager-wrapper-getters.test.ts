@@ -41,6 +41,16 @@ mock.module("electron", () => ({
   app: electronApp,
 }));
 
+// Where an agent is built, the real windowsCliLauncherDir writes the nexus
+// launchers to the real ~/.nexus-code/cli and returns it; on a runner without
+// one it returns null. The tests name a directory instead.
+const WINDOWS_LAUNCHER_DIR = path.join(os.tmpdir(), "nexus-cli-launchers");
+const realLaunchers = await import("../../../../src/main/features/cli/launchers");
+mock.module("../../../../src/main/features/cli/launchers", () => ({
+  ...realLaunchers,
+  windowsCliLauncherDir: () => WINDOWS_LAUNCHER_DIR,
+}));
+
 // dynamic import — mock.module 이후
 const { GlobalStorage } = await import("../../../../src/main/infra/storage/global-storage");
 const { WorkspaceStorage } = await import(
@@ -137,7 +147,7 @@ function writeAgentManifest(dir: string, version: string): void {
 
 /**
  * WorkspaceManager의 private sshBootstraps 맵에 직접 접근하기 위한 타입 캐스트.
- * 테스트 전용 — 프로덕션 코드에서는 startSshProvider 내부에서만 설정된다.
+ * 테스트 전용 — 프로덕션 코드에서는 startRemoteProvider 내부에서만 설정된다.
  */
 function injectSshBootstrap(
   manager: InstanceType<typeof WorkspaceManager>,
@@ -154,8 +164,9 @@ function injectSshBootstrap(
 // Tests
 // ---------------------------------------------------------------------------
 
-// On Windows a local workspace's wrapper is the copy in ~/.nexus-code/bin
-// (pty/windows-shell-shim.ts), and it takes no zsh or bash shim.
+// On Windows a local workspace's bin directory is ~/.nexus-code/bin, holding
+// the claude wrapper's copy for Git Bash (pty/windows-shell-shim.ts) and the
+// nexus launchers, and it takes no zsh or bash shim.
 const isWindows = process.platform === "win32";
 const posixTest = test.skipIf(isWindows);
 const windowsTest = test.skipIf(!isWindows);
@@ -171,11 +182,11 @@ describe("WorkspaceManager.getWrapperBinDir — acceptance #1, #2, #3", () => {
     globalDb.close();
   });
 
-  windowsTest("#1w: Windows 로컬 워크스페이스 → ~/.nexus-code/bin", () => {
+  windowsTest("#1w: Windows 로컬 워크스페이스 → nexus 런처 디렉터리", () => {
     const { manager, globalDb } = makeManager();
     const meta = manager.create({ rootPath: path.join(os.tmpdir(), "ws-local-bindir"), name: "local" });
 
-    expect(manager.getWrapperBinDir(meta.id)).toBe(path.join(os.homedir(), ".nexus-code", "bin"));
+    expect(manager.getWrapperBinDir(meta.id)).toBe(WINDOWS_LAUNCHER_DIR);
     globalDb.close();
   });
 

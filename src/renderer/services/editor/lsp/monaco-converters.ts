@@ -15,6 +15,7 @@ import {
   type Location,
   type MarkupContentOrString,
   type Range,
+  type SignatureHelp,
   type SymbolInformation,
   type TextDocumentContentChangeEvent,
 } from "../../../../shared/lsp";
@@ -283,6 +284,55 @@ export function hoverContentsToMarkdown(contents: MarkupContentOrString): Monaco
     return { value: contents.value };
   }
   return { value: contents.value.replace(MARKDOWN_PLAINTEXT_ESCAPE_PATTERN, "\\$1") };
+}
+
+/** A string documents a signature as plain text, unlike a legacy hover's. */
+function signatureDocumentation(
+  documentation: MarkupContentOrString | undefined,
+): string | Monaco.IMarkdownString | undefined {
+  if (documentation === undefined || typeof documentation === "string") return documentation;
+  return hoverContentsToMarkdown(documentation);
+}
+
+export function lspSignatureHelpToMonaco(help: SignatureHelp): Monaco.languages.SignatureHelp {
+  return {
+    signatures: help.signatures.map((signature) => ({
+      label: signature.label,
+      documentation: signatureDocumentation(signature.documentation),
+      parameters: (signature.parameters ?? []).map((parameter) => ({
+        label: parameter.label,
+        documentation: signatureDocumentation(parameter.documentation),
+      })),
+      // Null: no parameter is being typed, so none is highlighted.
+      ...(signature.activeParameter !== undefined
+        ? { activeParameter: signature.activeParameter ?? -1 }
+        : {}),
+    })),
+    activeSignature: help.activeSignature ?? 0,
+    activeParameter: help.activeParameter === null ? -1 : (help.activeParameter ?? 0),
+  };
+}
+
+/**
+ * What Monaco shows, handed back to the server as it asks again, so the
+ * overload the user picked stays. Documentation is left out: the server
+ * only needs to know which signature and parameter.
+ */
+export function monacoSignatureHelpToLsp(
+  help: Monaco.languages.SignatureHelp,
+): SignatureHelp | undefined {
+  if (help.signatures.length === 0) return undefined;
+  return {
+    signatures: help.signatures.map((signature) => ({
+      label: signature.label,
+      parameters: signature.parameters.map((parameter) => ({ label: parameter.label })),
+      ...(signature.activeParameter !== undefined && signature.activeParameter >= 0
+        ? { activeParameter: signature.activeParameter }
+        : {}),
+    })),
+    activeSignature: help.activeSignature,
+    activeParameter: help.activeParameter >= 0 ? help.activeParameter : null,
+  };
 }
 
 function markerSeverity(

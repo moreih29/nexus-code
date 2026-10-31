@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { AgentManifestSchema, findLspBinary } from "../../../shared/agent/manifest";
+import {
+  AgentManifestSchema,
+  findLspBinary,
+  type LspBinaryManifestEntry,
+} from "../../../shared/agent/manifest";
 import { createLogger } from "../../../shared/log/main";
 import {
   ApplyWorkspaceEditParamsSchema,
@@ -25,6 +29,10 @@ import {
   remapSemanticTokenData,
   SemanticTokensArgsSchema,
   SemanticTokensResultSchema,
+  type SignatureHelpArgs,
+  SignatureHelpArgsSchema,
+  SignatureHelpSchema,
+  SignatureHelpTriggerKind,
   SymbolInformationSchema,
   TextDocumentContentChangeEventSchema,
   TextDocumentIdentifierSchema,
@@ -56,6 +64,7 @@ import {
   LSP_REFERENCES_TIMEOUT_MS,
   LSP_SEMANTIC_TOKENS_TIMEOUT_MS,
   LSP_SERVER_WEDGE_GRACE_MS,
+  LSP_SIGNATURE_HELP_TIMEOUT_MS,
   LSP_WORKSPACE_SYMBOL_TIMEOUT_MS,
 } from "../../../shared/util/timing-constants";
 import type { AgentChannel } from "../../infra/agent/channel";
@@ -88,6 +97,7 @@ import {
   normalizeDocumentHighlightResult,
   normalizeDocumentSymbolResult,
   normalizeHoverResult,
+  normalizeSignatureHelpResult,
   normalizeWorkspaceSymbolResult,
   parsePublishDiagnostics,
 } from "./result-normalizers";
@@ -220,6 +230,7 @@ const REQUEST_TIMEOUT_MS: Record<string, number> = {
   definition: LSP_DEFINITION_TIMEOUT_MS,
   completion: LSP_COMPLETION_TIMEOUT_MS,
   completionResolve: LSP_COMPLETION_RESOLVE_TIMEOUT_MS,
+  signatureHelp: LSP_SIGNATURE_HELP_TIMEOUT_MS,
   references: LSP_REFERENCES_TIMEOUT_MS,
   documentHighlight: LSP_DOCUMENT_HIGHLIGHT_TIMEOUT_MS,
   documentSymbol: LSP_DOCUMENT_SYMBOL_TIMEOUT_MS,
@@ -459,6 +470,8 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         return this.completion(args, opts);
       case "completionResolve":
         return this.completionResolve(args, opts);
+      case "signatureHelp":
+        return this.signatureHelp(args, opts);
       case "references":
         return this.requestByUri(
           args,
@@ -843,6 +856,40 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     return CompletionItemSchema.parse(normalizeCompletionItem(raw) ?? parsed.item);
   }
 
+  private async signatureHelp(args: unknown, opts: LspHostCallOptions): Promise<unknown> {
+    const parsed = SignatureHelpArgsSchema.parse(args);
+    // As for completion: a "<" in a comparison should not open a signature
+    // for a server that shows one only on "(" and ",". Once one is shown,
+    // typing on asks again whatever the character.
+    if (
+      parsed.triggerKind === SignatureHelpTriggerKind.TriggerCharacter &&
+      parsed.triggerCharacter !== undefined &&
+      !parsed.isRetrigger
+    ) {
+      const routed = this.findServer(parsed.workspaceId, parsed.uri);
+      if (
+        routed &&
+        !signatureHelpTriggerCharacters(routed.server).includes(parsed.triggerCharacter)
+      ) {
+        return null;
+      }
+    }
+    return this.requestByUri(
+      parsed,
+      opts,
+      {
+        argsSchema: SignatureHelpArgsSchema,
+        lspMethod: "textDocument/signatureHelp",
+        capabilityKey: "signatureHelpProvider",
+        emptyResponse: null,
+        outSchema: SignatureHelpSchema.nullable(),
+        params: signatureHelpParams,
+        transform: normalizeSignatureHelpResult,
+      },
+      "signatureHelp",
+    );
+  }
+
   private async semanticTokensByUri(args: unknown, opts: LspHostCallOptions): Promise<unknown> {
     const parsed = SemanticTokensArgsSchema.parse(args);
     const routed = this.findServer(parsed.workspaceId, parsed.uri);
@@ -985,6 +1032,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     const message = error instanceof Error ? error.message : String(error);
     // Not installed: trying again finds nothing more.
     const retry = this.status.failed(workspaceId, languageId, `Failed to start: ${message}`, {
+      didNotStart: true,
       ...(error instanceof LspServerNotFoundError ? { missingBinary: error.binary } : {}),
     });
     this.emit("workspaceLspReset", {
@@ -1139,7 +1187,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     let serverId: string | null = null;
     try {
       const command = preset.system
-        ? await this.findSystemServer(channel, presetLanguageId, preset)
+        ? await this.findSystemServer(channel, presetLanguageId, workspaceRoot, preset)
         : await this.resolveServerCommand(workspaceId, presetLanguageId, preset);
       const result = await channel.call<AgentSpawnResult>("lsp.spawn", {
         workspaceId,
@@ -1164,7 +1212,11 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         capabilities,
       });
       this.rememberServer(server);
-      this.status.running(workspaceId, presetLanguageId, spawned.serverInfo);
+      this.status.running(
+        workspaceId,
+        presetLanguageId,
+        spawned.serverInfo ?? (preset.system ? undefined : bundledServerInfo(preset)),
+      );
       return server;
     } finally {
       this.pendingSpawnByCorrelation.delete(correlationId);
@@ -1178,6 +1230,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   private async findSystemServer(
     channel: AgentChannel,
     languageId: string,
+    workspaceRoot: string,
     preset: LspServerSpec,
   ): Promise<LspServerCommand> {
     const userPath = this.serverPathFor(languageId);
@@ -1185,6 +1238,8 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       await channel.call("lsp.findBinary", {
         name: preset.binary,
         ...(userPath ? { path: userPath } : {}),
+        // Where the server will run: a rustup proxy picks its toolchain there.
+        dir: workspaceRoot,
       }),
     );
     if (!found.path) throw new LspServerNotFoundError(preset.binary, userPath);
@@ -1413,6 +1468,13 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         reason: parsed.reason || "server exited",
         ...(reopen ? { reopen: true } : {}),
       });
+    } else {
+      // A server that died starting: lsp.spawn failed with only its exit
+      // status, and what it printed says why.
+      const pending = this.pendingSpawnByServerId.get(key);
+      if (pending && parsed.stderrTail.trim()) {
+        this.status.log(pending.workspaceId, pending.languageId, "stderr", parsed.stderrTail);
+      }
     }
 
     // applyEdit-style server requests held in pendingServerRequests are
@@ -1840,20 +1902,37 @@ export function resolveLspCommandFromManifest(
   preset: LspServerSpec,
   distDir = getAgentDistDir(),
 ): LspServerCommand | null {
+  const lsp = findBundledLsp(preset, distDir);
+  if (!lsp) return null;
+  const extractedDir = path.join(distDir, "lsp", `${lsp.name}-${lsp.version}`);
+  const entry = path.join(extractedDir, lsp.entry);
+  if (!fs.existsSync(entry)) return null;
+  return {
+    binaryPath: process.execPath,
+    args: [entry, ...preset.args],
+    env: { ELECTRON_RUN_AS_NODE: "1" },
+  };
+}
+
+/**
+ * The package and version the app bundles for a server, standing in for the
+ * serverInfo some servers (typescript-language-server, bash-language-server,
+ * docker-langserver) leave out of their initialize result.
+ */
+export function bundledServerInfo(
+  preset: LspServerSpec,
+  distDir = getAgentDistDir(),
+): { name: string; version: string } | undefined {
+  const lsp = findBundledLsp(preset, distDir);
+  return lsp ? { name: lsp.packageName, version: lsp.version } : undefined;
+}
+
+function findBundledLsp(preset: LspServerSpec, distDir: string): LspBinaryManifestEntry | null {
   const manifestPath = path.join(distDir, "manifest.json");
   if (!fs.existsSync(manifestPath)) return null;
   try {
     const manifest = AgentManifestSchema.parse(JSON.parse(fs.readFileSync(manifestPath, "utf8")));
-    const lsp = findLspBinary(manifest, { name: preset.binary });
-    if (!lsp) return null;
-    const extractedDir = path.join(distDir, "lsp", `${lsp.name}-${lsp.version}`);
-    const entry = path.join(extractedDir, lsp.entry);
-    if (!fs.existsSync(entry)) return null;
-    return {
-      binaryPath: process.execPath,
-      args: [entry, ...preset.args],
-      env: { ELECTRON_RUN_AS_NODE: "1" },
-    };
+    return findLspBinary(manifest, { name: preset.binary }) ?? null;
   } catch {
     return null;
   }
@@ -1894,6 +1973,24 @@ function completionParams(args: CompletionArgs) {
 
 function completionTriggerCharacters(server: AgentLspServer): string[] {
   const provider = server.getCapabilityValue("completionProvider");
+  if (!isObjectLike(provider) || !Array.isArray(provider.triggerCharacters)) return [];
+  return provider.triggerCharacters.filter((c): c is string => typeof c === "string");
+}
+
+function signatureHelpParams(args: SignatureHelpArgs) {
+  return {
+    ...textDocumentPositionParams(args),
+    context: {
+      triggerKind: args.triggerKind,
+      ...(args.triggerCharacter !== undefined ? { triggerCharacter: args.triggerCharacter } : {}),
+      isRetrigger: args.isRetrigger,
+      ...(args.activeSignatureHelp ? { activeSignatureHelp: args.activeSignatureHelp } : {}),
+    },
+  };
+}
+
+function signatureHelpTriggerCharacters(server: AgentLspServer): string[] {
+  const provider = server.getCapabilityValue("signatureHelpProvider");
   if (!isObjectLike(provider) || !Array.isArray(provider.triggerCharacters)) return [];
   return provider.triggerCharacters.filter((c): c is string => typeof c === "string");
 }

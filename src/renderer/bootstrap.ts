@@ -5,6 +5,7 @@
  * Functions here are plain async — callers own the `useEffect` wrapper.
  */
 
+import { markCliUiReady, startCliUiListener } from "./services/cli/ui-requests";
 import { createLogger } from "../shared/log/renderer";
 import { lspSettingsFromState } from "../shared/lsp/settings";
 import type { WorkspaceMeta } from "../shared/types/workspace";
@@ -25,6 +26,7 @@ import { initLspStatusSync } from "./state/operations/lsp-status";
 import { normalizeWorkspaceTabOrder } from "./state/operations/tab-order";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
+import { useAgentCliStore } from "./state/stores/agent-cli";
 import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
 import { useClaudeStatusStore } from "./state/stores/claude-status";
 import { useEditorFontStore } from "./state/stores/editor-font";
@@ -95,6 +97,9 @@ export async function bootstrapAppState(): Promise<void> {
 
   // Wire the OS notification click → workspace activate + tab reveal listener.
   startNotificationClickListener();
+
+  // Answer the nexus CLI's requests; they wait until the tabs are restored.
+  startCliUiListener();
 
   // Mark terminal tabs dead on PTY exit even while their view is unmounted.
   startTerminalExitListener();
@@ -232,6 +237,7 @@ export async function bootstrapAppState(): Promise<void> {
   // Hydrate OS notification toggle so the Notifications panel reflects
   // persisted state on first render.
   useNotificationsStore.getState().hydrate(state.osNotificationsEnabled);
+  useAgentCliStore.getState().hydrate(state);
 
   // Hydrate browser permission global toggles so the BrowserPermissionsPanel
   // reflects persisted state on first render.
@@ -276,6 +282,7 @@ export async function bootstrapAppState(): Promise<void> {
   }
 
   registerStatePersistence();
+  markCliUiReady();
 
   // Dev-only console helper for testing window transparency before a settings
   // UI exists. `__setWindowOpacity(0.5)` dual-writes localStorage + appState

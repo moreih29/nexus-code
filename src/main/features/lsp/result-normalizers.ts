@@ -17,6 +17,7 @@ import {
   LocationSchema,
   MarkupContentSchema,
   RangeSchema,
+  SignatureInformationSchema,
   SymbolInformationSchema,
   TextDocumentIdentifierSchema,
 } from "../../../shared/lsp";
@@ -40,6 +41,42 @@ export function normalizeDefinitionResult(raw: unknown): unknown {
     const normalized = normalizeDefinitionItem(item);
     return normalized ? [normalized] : [];
   });
+}
+
+/**
+ * Null when there is no signature to show. Servers send null for fields
+ * they leave empty (gopls' documentation, basedpyright's activeParameter
+ * when no parameter is typed), which the schemas take only where LSP does.
+ */
+export function normalizeSignatureHelpResult(raw: unknown): unknown {
+  if (!isObjectLike(raw) || !Array.isArray(raw.signatures)) return null;
+  const signatures = raw.signatures.flatMap((signature) => {
+    if (!isObjectLike(signature)) return [];
+    const parsed = SignatureInformationSchema.safeParse({
+      ...withoutNulls(signature),
+      ...(signature.activeParameter === null ? { activeParameter: null } : {}),
+      ...(Array.isArray(signature.parameters)
+        ? {
+            parameters: signature.parameters.map((parameter) =>
+              isObjectLike(parameter) ? withoutNulls(parameter) : parameter,
+            ),
+          }
+        : {}),
+    });
+    return parsed.success ? [parsed.data] : [];
+  });
+  if (signatures.length === 0) return null;
+  return {
+    signatures,
+    ...(typeof raw.activeSignature === "number" ? { activeSignature: raw.activeSignature } : {}),
+    ...(typeof raw.activeParameter === "number" || raw.activeParameter === null
+      ? { activeParameter: raw.activeParameter }
+      : {}),
+  };
+}
+
+function withoutNulls(raw: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(raw).filter(([, value]) => value !== null));
 }
 
 export function normalizeDocumentHighlightResult(raw: unknown): unknown {

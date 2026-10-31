@@ -24,12 +24,14 @@ class FindingChannel implements AgentChannel {
     envPath: "/home/u/go/bin:/usr/bin",
   };
   serverInfo: unknown;
+  spawnError: Error | null = null;
   private readonly listeners = new Map<string, Set<ChannelEventCallback>>();
 
   async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
     this.calls.push({ method, params });
     if (method === "lsp.findBinary") return this.found as TResult;
     if (method === "lsp.spawn") {
+      if (this.spawnError) throw this.spawnError;
       const { correlationId } = params as { correlationId: string };
       this.emit("lsp.serverAssigned", { serverId: "srv-1", correlationId });
       return {
@@ -107,7 +109,7 @@ describe("system language servers", () => {
 
     expect(channel.calls[0]).toEqual({
       method: "lsp.findBinary",
-      params: { name: "gopls", path: "~/bin/gopls" },
+      params: { name: "gopls", path: "~/bin/gopls", dir: "/tmp/ws" },
     });
     expect(channel.calls.find((c) => c.method === "lsp.spawn")?.params).toMatchObject({
       languageId: "go",
@@ -143,7 +145,7 @@ describe("system language servers", () => {
 
     await open();
 
-    expect(channel.calls[0]?.params).toEqual({ name: "gopls" });
+    expect(channel.calls[0]?.params).toEqual({ name: "gopls", dir: "/tmp/ws" });
   });
 
   test("give up at once when not installed, and say what is missing", async () => {
@@ -178,6 +180,26 @@ describe("system language servers", () => {
     const status = host.serverStatuses()[0];
     expect(status).toMatchObject({ state: "failed", missingBinary: "gopls" });
     expect(status?.serverName).toBeUndefined();
+  });
+
+  test("forget the name of a server when another fails to start in its place", async () => {
+    const { channel, host, open } = boot();
+    channel.serverInfo = { name: "gopls", version: "v0.21.1" };
+    await open();
+
+    // The user points the setting at another binary, which does not start.
+    channel.found = { path: "/usr/local/go/bin/go" };
+    channel.spawnError = new Error("lsp server exited: exit status 2");
+    host.restartLanguage(WORKSPACE_ID, "go");
+    await open();
+
+    const status = host.serverStatuses()[0];
+    expect(status).toMatchObject({
+      stopReason: "crashed",
+      error: "Failed to start: lsp server exited: exit status 2",
+    });
+    expect(status?.serverName).toBeUndefined();
+    expect(status?.serverVersion).toBeUndefined();
   });
 
   test("a restart looks again, and starts the server once installed", async () => {

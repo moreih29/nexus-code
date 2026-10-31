@@ -34,9 +34,28 @@ export const WorkspaceSshLocationSchema = z.preprocess(
   }),
 );
 
+/**
+ * A folder inside a WSL distribution on a Windows host. The Linux agent runs
+ * in the distribution, reached through `wsl.exe`, as it runs on an SSH host.
+ */
+export const WorkspaceWslLocationSchema = z.object({
+  kind: z.literal("wsl"),
+  /** The distribution's name, as `wsl.exe -l` lists it. */
+  distro: z.string().min(1),
+  /** Absolute path inside the distribution. */
+  remotePath: z.string(),
+  remoteArch: z
+    .object({
+      os: z.literal("linux"),
+      arch: z.enum(["amd64", "arm64"]),
+    })
+    .optional(),
+});
+
 export const WorkspaceLocationSchema = z.union([
   WorkspaceLocalLocationSchema,
   WorkspaceSshLocationSchema,
+  WorkspaceWslLocationSchema,
 ]);
 
 export type WorkspaceLocation = z.infer<typeof WorkspaceLocationSchema>;
@@ -140,6 +159,9 @@ export function workspaceLocationKey(location: WorkspaceLocation): string {
   if (location.kind === "local") {
     return `local:${normalizeWorkspacePath(location.rootPath)}`;
   }
+  if (location.kind === "wsl") {
+    return `wsl:${location.distro}:${normalizeWorkspacePath(location.remotePath)}`;
+  }
   const user = location.user ?? "";
   const port = location.port ?? 22;
   return `ssh:${user}@${location.host}:${port}:${normalizeWorkspacePath(location.remotePath)}`;
@@ -162,7 +184,10 @@ function rootPathFromLocationInput(location: unknown): string | undefined {
   if (location.kind === "local" && typeof location.rootPath === "string") {
     return location.rootPath;
   }
-  if (location.kind === "ssh" && typeof location.remotePath === "string") {
+  if (
+    (location.kind === "ssh" || location.kind === "wsl") &&
+    typeof location.remotePath === "string"
+  ) {
     return location.remotePath;
   }
   return undefined;
@@ -196,7 +221,7 @@ export const WorkspaceMetaSchema = z.preprocess(
     name: z.string(),
     location: WorkspaceLocationSchema,
     /**
-     * Deprecated compatibility field. Prefer `location`; for SSH workspaces
+     * Deprecated compatibility field. Prefer `location`; for SSH and WSL workspaces
      * this mirrors `location.remotePath`.
      */
     rootPath: z.string(),

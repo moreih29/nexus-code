@@ -297,12 +297,21 @@ class AgentPtyHostHandle implements PtyHostHandle {
       }
       this.emit("claude.hook", payload);
     });
+    // The nexus CLI speaks for its terminal's workspace on the same terms.
+    const offCliRequest = channel.on("cli.request", (payload) => {
+      const claimed = (payload as { workspaceId?: unknown } | null)?.workspaceId;
+      if (claimed !== workspaceId) {
+        log.warn(`Dropped cli.request for workspace ${String(claimed)} from ${workspaceId}'s agent`);
+        return;
+      }
+      this.emit("cli.request", payload);
+    });
     const offLifecycle = channel.onLifecycle((event) => {
       this.handleLifecycle(workspaceId, event);
     });
     this.subscriptions.set(workspaceId, {
       channel,
-      disposers: [offData, offExit, offClaudeHook, offLifecycle],
+      disposers: [offData, offExit, offClaudeHook, offCliRequest, offLifecycle],
     });
   }
 

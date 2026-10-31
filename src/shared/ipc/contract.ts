@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { StatusEntrySchema } from "../claude/status";
+import { CliUiRequestSchema, CliUiRespondArgsSchema } from "../cli/ui";
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
   DirEntrySchema,
@@ -70,6 +71,8 @@ import {
   ReferencesArgsSchema,
   SemanticTokensArgsSchema,
   SemanticTokensResultSchema,
+  SignatureHelpArgsSchema,
+  SignatureHelpSchema,
   SymbolInformationSchema,
   TextDocumentContentChangeEventSchema,
   TextDocumentIdentifierSchema,
@@ -585,6 +588,23 @@ export const ipcContract = {
     },
   },
 
+  /**
+   * WSL distributions on a Windows host, for adding a WSL workspace. A
+   * browse session opened here joins the SSH browse sessions, so
+   * `ssh.browseSession`, `ssh.closeBrowseSession` and `ssh.browseProgress`
+   * serve it.
+   */
+  wsl: {
+    call: {
+      listDistros: call(z.void(), z.array(z.string())),
+      openBrowseSession: call(
+        z.object({ distro: z.string().min(1), progressId: z.string().optional() }),
+        z.object({ sessionId: z.string().uuid(), initialPath: z.string() }),
+      ),
+    },
+    listen: {},
+  },
+
   sshAuth: {
     call: {
       respond: call(SshAuthRespondArgsSchema, z.void()),
@@ -739,6 +759,7 @@ export const ipcContract = {
       definition: call(TextDocumentPositionArgsSchema, z.array(LocationSchema)),
       completion: call(CompletionArgsSchema, CompletionListSchema),
       completionResolve: call(CompletionResolveArgsSchema, CompletionItemSchema),
+      signatureHelp: call(SignatureHelpArgsSchema, SignatureHelpSchema.nullable()),
       references: call(ReferencesArgsSchema, z.array(LocationSchema)),
       documentHighlight: call(TextDocumentPositionArgsSchema, z.array(DocumentHighlightSchema)),
       documentSymbol: call(LspWorkspaceScopedUriSchema, z.array(DocumentSymbolSchema)),
@@ -1712,6 +1733,22 @@ export const ipcContract = {
        * the prompt from its queue; an answer to it would be ignored.
        */
       dismissed: listen(z.object({ promptId: z.string() })),
+    },
+  },
+
+  // ---------------------------------------------------------------------------
+  // nexus CLI channel.
+  //
+  // The CLI's commands run in main; those that touch tabs, the layout or a
+  // terminal's screen are asked of the renderer, which owns them, through
+  // uiRequest, and answered through uiRespond.
+  // ---------------------------------------------------------------------------
+  cli: {
+    call: {
+      uiRespond: call(CliUiRespondArgsSchema, z.void()),
+    },
+    listen: {
+      uiRequest: listen(CliUiRequestSchema),
     },
   },
 } as const satisfies Record<string, ChannelDefinition>;

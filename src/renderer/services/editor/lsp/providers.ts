@@ -23,12 +23,20 @@ import {
   lspDocumentSymbolToMonacoSymbol,
   lspLocationToMonacoLocation,
   lspRangeToMonacoRange,
+  lspSignatureHelpToMonaco,
+  monacoSignatureHelpToLsp,
   tokenToAbortSignal,
 } from "./monaco-converters";
 
 // Every character a preset's server completes on; main drops the ones the
 // file's own server does not list. rust-analyzer adds ":" (paths) and "(".
 const COMPLETION_TRIGGER_CHARACTERS = [".", '"', "'", "/", "@", "<", "[", ":", "("];
+
+// The same for signature help: "(" opens a call, "," moves to the next
+// argument, "<" opens type arguments (TypeScript, Rust). ")" asks again
+// once a signature is shown, closing it when the call ends.
+const SIGNATURE_HELP_TRIGGER_CHARACTERS = ["(", ",", "<"];
+const SIGNATURE_HELP_RETRIGGER_CHARACTERS = [")"];
 
 /**
  * Recover (workspaceId, lspUri) from a Monaco model whose URI is a
@@ -260,6 +268,44 @@ export function registerLanguageProviders(
         };
       } catch {
         return suggestion;
+      }
+    },
+  });
+
+  monaco.languages.registerSignatureHelpProvider(languageId, {
+    signatureHelpTriggerCharacters: SIGNATURE_HELP_TRIGGER_CHARACTERS,
+    signatureHelpRetriggerCharacters: SIGNATURE_HELP_RETRIGGER_CHARACTERS,
+    async provideSignatureHelp(model, position, token, context) {
+      if (!isLspLanguage(model.getLanguageId())) return null;
+      const ctx = modelLspContext(model);
+      if (!ctx) return null;
+      try {
+        const signal = tokenToAbortSignal(token);
+        const active = context.activeSignatureHelp
+          ? monacoSignatureHelpToLsp(context.activeSignatureHelp)
+          : undefined;
+        const help = unwrapIpcResult(
+          await ipcCallResult(
+            "lsp",
+            "signatureHelp",
+            {
+              workspaceId: ctx.workspaceId,
+              uri: ctx.lspUri,
+              line: position.lineNumber - 1,
+              character: position.column - 1,
+              // Monaco and LSP number the trigger kinds alike.
+              triggerKind: context.triggerKind,
+              triggerCharacter: context.triggerCharacter,
+              isRetrigger: context.isRetrigger,
+              ...(active ? { activeSignatureHelp: active } : {}),
+            },
+            { signal },
+          ),
+        );
+        if (!help || !isLspLanguage(model.getLanguageId())) return null;
+        return { value: lspSignatureHelpToMonaco(help), dispose() {} };
+      } catch {
+        return null;
       }
     },
   });

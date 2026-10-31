@@ -137,6 +137,18 @@ export const AppStateSchema = z.object({
   // glyphs, attention badges) is unaffected — only OS-level notifications.
   osNotificationsEnabled: z.boolean().default(true),
 
+  // The nexus command in the app's terminals (main/features/cli). Off, every
+  // nexus command fails with a note saying so.
+  cliEnabled: z.boolean().default(true),
+
+  // What nexus may do to a workspace other than its terminal's own: ask the
+  // user each time, allow it, or refuse it. Reading is always allowed.
+  cliCrossWorkspace: z.enum(["ask", "allow", "deny"]).default("ask"),
+
+  // Whether Claude Code sessions started in the app are told about nexus at
+  // their start (a SessionStart hook prints a short note).
+  cliAgentContext: z.boolean().default(true),
+
   // Global browser permission toggles keyed by BrowserPermissionKind string.
   // Absent key (or absent field) means the permission is OFF (denied).
   // z.record key is z.string() for runtime compatibility; callers narrow the

@@ -75,6 +75,14 @@ export interface TerminalController {
   refresh: () => void;
   /** Focus the terminal, or do so once it has opened if it has not yet. */
   focus: () => void;
+  /** The last `lines` lines it shows, scrollback included, as plain text. */
+  readText: (lines: number) => string;
+  /**
+   * Types `text` into the session: as one paste, which an app that turned on
+   * bracketed paste takes as a whole, or as keystrokes. False before the
+   * terminal has opened.
+   */
+  input: (text: string, mode: "paste" | "keys") => boolean;
   reopen: () => Promise<void>;
   dispose: () => void;
 }

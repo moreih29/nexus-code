@@ -1,4 +1,4 @@
-import { Folder, GitBranch, Server, X } from "lucide-react";
+import { Folder, GitBranch, Server, SquareTerminal, X } from "lucide-react";
 import React, { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/shallow";
@@ -107,12 +107,14 @@ function WorkspaceRow({
 }: WorkspaceRowProps) {
   const { t } = useTranslation();
   const isSsh = ws.location.kind === "ssh";
-  const Icon = isSsh ? Server : Folder;
+  const isWsl = ws.location.kind === "wsl";
+  const Icon = isSsh ? Server : isWsl ? SquareTerminal : Folder;
 
   // primary는 로컬/SSH 모두 ws.name으로 통일한다. SSH 카드는 별도의 user@host
   // 라인이 워크스페이스 이름 바로 아래에 추가된다. tooltip은 정보량이 많은
   // 쪽이 풀 컨텍스트(SSH 연결 정보 + 원격 경로, 로컬은 절대 경로).
   const sshLocation = ws.location.kind === "ssh" ? ws.location : null;
+  const wslDistro = ws.location.kind === "wsl" ? ws.location.distro : null;
   const primaryText = ws.name;
   const secondaryTitle = sshLocation
     ? formatSshTooltip({
@@ -121,14 +123,18 @@ function WorkspaceRow({
         port: sshLocation.port,
         remotePath: sshLocation.remotePath,
       })
-    : ws.rootPath;
-  // SSH 카드 이름 아래에 노출되는 한 줄(user@host). 로컬은 null.
-  const sshUserHostLine = sshLocation
+    : wslDistro
+      ? `${t("wsl.identity", { distro: wslDistro })}\n${ws.rootPath}`
+      : ws.rootPath;
+  // 카드 이름 아래에 노출되는 한 줄: SSH는 user@host, WSL은 배포판. 로컬은 null.
+  const hostLine = sshLocation
     ? formatSshSecondaryLine({
         user: sshLocation.user,
         host: sshLocation.host,
       })
-    : null;
+    : wslDistro
+      ? t("wsl.identity", { distro: wslDistro })
+      : null;
 
   // Claude 세션 집계 상태 구독 — 워크스페이스와 그 작업들의 slice만 구독해 thrashing 방지.
   const statusSlices = useClaudeStatusStore(
@@ -269,13 +275,13 @@ function WorkspaceRow({
               한 줄에 묶이므로 4번째 줄 인라인으로 옮긴다.
             */}
             <span className="grid grid-cols-[16px_minmax(0,1fr)] items-start gap-2">
-              {/* col 1: ssh/local 아이콘 + (SSH일 때) 연결 상태 인디케이터 */}
+              {/* col 1: ssh/wsl/local 아이콘 + (SSH·WSL일 때) 연결 상태 인디케이터 */}
               <span className="flex flex-col items-center gap-1 mt-0.5">
                 <Icon
                   className="size-4 shrink-0 text-muted-foreground"
                   aria-hidden="true"
                 />
-                {isSsh && <ConnectionStatusDot status={connectionStatus} />}
+                {(isSsh || isWsl) && <ConnectionStatusDot status={connectionStatus} />}
               </span>
 
               {/* 텍스트 영역 — 1~4줄 가변 높이 */}
@@ -291,15 +297,15 @@ function WorkspaceRow({
                   {primaryText}
                 </span>
 
-                {/* SSH 전용: user@host 한 줄(이름 바로 아래). 로컬에서는 미렌더. */}
-                {sshUserHostLine && (
+                {/* SSH·WSL 전용: user@host 또는 배포판 한 줄(이름 바로 아래). 로컬에서는 미렌더. */}
+                {hostLine && (
                   <span
                     className={cn(
                       "block text-app-micro mt-0.5 line-clamp-1 truncate",
                       isActive ? "text-foreground/70" : "text-muted-foreground/70",
                     )}
                   >
-                    {sshUserHostLine}
+                    {hostLine}
                   </span>
                 )}
 
@@ -564,7 +570,7 @@ export function Sidebar({
                   isDragSource={dragSourceId === ws.id}
                   rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
                   connectionStatus={
-                    ws.location.kind === "ssh"
+                    ws.location.kind !== "local"
                       ? (connectionStatusByWorkspaceId[ws.id] ?? "idle")
                       : "idle"
                   }
@@ -593,7 +599,7 @@ export function Sidebar({
                   isDragSource={dragSourceId === ws.id}
                   rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
                   connectionStatus={
-                    ws.location.kind === "ssh"
+                    ws.location.kind !== "local"
                       ? (connectionStatusByWorkspaceId[ws.id] ?? "idle")
                       : "idle"
                   }
@@ -694,9 +700,7 @@ export function connectionStatusClassName(status: WorkspaceConnectionStatus): st
  */
 function secondaryWorkspaceText(workspace: WorkspaceMeta): string {
   const path =
-    workspace.location.kind === "ssh"
-      ? workspace.location.remotePath
-      : workspace.rootPath;
+    workspace.location.kind !== "local" ? workspace.location.remotePath : workspace.rootPath;
   return path.split("/").filter(Boolean).slice(-2).join("/");
 }
 

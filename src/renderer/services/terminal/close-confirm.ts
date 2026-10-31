@@ -12,7 +12,7 @@ const FOREGROUND_LOOKUP_TIMEOUT_MS = 1000;
  * The program holding the terminal's foreground, or null when its shell does
  * (nothing is running) or the agent cannot tell in time.
  */
-async function runningProgram(workspaceId: string, tabId: string): Promise<string | null> {
+export async function runningProgram(workspaceId: string, tabId: string): Promise<string | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<string>((resolve) => {
     timer = setTimeout(() => resolve(""), FOREGROUND_LOOKUP_TIMEOUT_MS);

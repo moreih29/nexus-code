@@ -6,7 +6,7 @@
  *   (3) connectionStatus "unstable" when degraded received; workspaceIsOnline=true
  *       for "unstable". Cleared back to "connected" after ~1 s.
  *   (4) SSH auth-failed terminal failure on interactive workspace →
- *       startSshProvider re-entry (auto re-prompt), reauthInFlight guard,
+ *       startRemoteProvider re-entry (auto re-prompt), reauthInFlight guard,
  *       ssh.auth-cancelled → disconnected (no retry loop),
  *       reauthAttempts backoff (0→5s→30s), 3 attempts → error.
  *   (5) ctx absent at reauth time → no action.
@@ -232,7 +232,7 @@ describe("acceptance 3: degraded lifecycle → unstable broadcast", () => {
 // ---------------------------------------------------------------------------
 
 describe("acceptance 4a: auth-failed terminal failure → auto re-prompt", () => {
-  test("ssh.auth-failed on interactive workspace triggers startSshProvider re-entry", async () => {
+  test("ssh.auth-failed on interactive workspace triggers startRemoteProvider re-entry", async () => {
     let bootCallCount = 0;
     const channel = new StubChannel();
     const sshBootstrap = mock(async () => {
@@ -705,6 +705,76 @@ describe("workspace removed while its SSH agent is starting", () => {
     expect(sshChannelFactory).not.toHaveBeenCalled();
     expect(removeShimDir).toHaveBeenCalledWith(meta.id);
 
+    globalDb.close();
+  });
+});
+
+describe("removing an SSH workspace", () => {
+  /** Holds agent.shutdown until answered, and notes what happens in order. */
+  class ShutdownChannel extends StubChannel {
+    readonly events: string[] = [];
+    private answer: () => void = () => {};
+
+    override async call(method: string, params?: unknown): Promise<unknown> {
+      if (method !== "agent.shutdown") return super.call(method, params);
+      this.events.push("agent.shutdown");
+      await new Promise<void>((resolve) => {
+        this.answer = resolve;
+      });
+      return {};
+    }
+
+    answerShutdown(): void {
+      this.answer();
+    }
+
+    override dispose(): void {
+      this.events.push("dispose");
+    }
+  }
+
+  async function bootSsh() {
+    const channel = new ShutdownChannel();
+    const { manager, globalDb } = makeManager({
+      sshBootstrap: mock(async () => ({
+        remoteCommand: "exec agent",
+        remoteHome: "/home/user",
+        platform: { os: "linux" as const, arch: "amd64" as const },
+        uploaded: false,
+        remoteBinDir: "/home/user/.nexus-code/bin",
+        controlPath: "/tmp/cm.sock",
+        // The connection the channel runs over.
+        dispose: () => channel.events.push("bootstrap.dispose"),
+      })),
+      sshChannelFactory: mock(() => channel),
+    });
+    const meta = makeSshMeta(manager);
+    const bootPromise = manager.getAgentChannel(meta.id);
+    channel.resolveChannel();
+    await bootPromise;
+    return { channel, manager, globalDb, meta };
+  }
+
+  test("asks the remote agent to exit before closing its channel", async () => {
+    const { channel, manager, globalDb, meta } = await bootSsh();
+
+    manager.remove(meta.id);
+    expect(channel.events).toEqual(["agent.shutdown"]);
+
+    channel.answerShutdown();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(channel.events).toEqual(["agent.shutdown", "dispose", "bootstrap.dispose"]);
+
+    globalDb.close();
+  });
+
+  test("closes a channel that is not connected without asking", async () => {
+    const { channel, manager, globalDb, meta } = await bootSsh();
+    channel.emitLifecycle({ type: "reconnecting" });
+
+    manager.remove(meta.id);
+
+    expect(channel.events).toEqual(["dispose", "bootstrap.dispose"]);
     globalDb.close();
   });
 });

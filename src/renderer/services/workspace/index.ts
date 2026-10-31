@@ -42,3 +42,5 @@ export {
   listSshConfigHosts,
   pickLocalDirectory,
 } from "./workspace-create";
+// WSL distributions and their workspaces
+export { createWslWorkspace, listWslDistros, openWslBrowseSession } from "./wsl";

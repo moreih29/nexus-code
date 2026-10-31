@@ -15,9 +15,10 @@ import type {
   HoverResult,
   Location,
   SemanticTokensResult,
+  SignatureHelp,
   SymbolInformation,
 } from "../../../shared/lsp";
-import { lspSettingsFromState } from "../../../shared/lsp/settings";
+import { isLspLowMemory, lspSettingsFromState } from "../../../shared/lsp/settings";
 import type { LspServerStatus } from "../../../shared/lsp/status";
 import type { AppState } from "../../../shared/types/app-state";
 import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../infra/agent/ssh/ssh-bootstrap/index";
@@ -272,6 +273,15 @@ export function registerLspChannel(lspHost: LspHostHandle, stateService: StateSe
         );
       },
 
+      signatureHelp: async (args: unknown, ctx?: CallContext) => {
+        const parsed = validateArgs(c.signatureHelp.args, args);
+        return withCancelDefault<SignatureHelp | null>(
+          lspHost.call("signatureHelp", parsed, { signal: ctx?.signal }),
+          ctx?.signal,
+          null,
+        );
+      },
+
       references: async (args: unknown, ctx?: CallContext) => {
         const { workspaceId, uri, line, character, includeDeclaration } = validateArgs(
           c.references.args,
@@ -350,8 +360,7 @@ export function registerLspChannel(lspHost: LspHostHandle, stateService: StateSe
         if (settings.enabled === false) {
           lspHost.disposeServers(sameLanguage, "off");
         } else if (
-          (settings.lowMemory !== undefined &&
-            settings.lowMemory !== (previous.lowMemory ?? false)) ||
+          (settings.lowMemory !== undefined && settings.lowMemory !== isLspLowMemory(previous)) ||
           (settings.path !== undefined && settings.path.trim() !== (previous.path ?? "").trim())
         ) {
           // The servers read these only when they start. A server not found

@@ -48,6 +48,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -87,6 +88,10 @@ const reattachGrace = 300 * time.Second
 // redundant --daemon launch (the SSH bootstrap fires one on every connect)
 // only exits this much later.
 const lockRetryWindow = 250 * time.Millisecond
+
+// shutdownReplyDelay is how long the daemon waits after answering
+// agent.shutdown before it exits, so the reply reaches the dialer.
+const shutdownReplyDelay = 100 * time.Millisecond
 
 // maxRunLogBytes caps the append-only run/<wsId>.log at daemon boot.
 // 1 MiB of NDJSON boot/lifecycle lines is months of normal use; beyond that
@@ -260,17 +265,31 @@ func runDaemon(root string) {
 	// cleanupAndExit tears down all shared resources and terminates.
 	// Called only on genuine daemon shutdown — not on dialer disconnect.
 	// The pty.Close call here is the service.go:79-91 path (SIGKILL all PTYs).
+	// Only the first caller tears down; any other blocks until it exits.
+	var shutdown sync.Once
 	cleanupAndExit := func(code int) {
-		pty.Close() // SIGKILL every PTY process group
-		if hooksrv != nil {
-			_ = hooksrv.Close()
-		}
-		_ = ln.Close()
-		_ = os.Remove(paths.Sock)
-		lock.Unlock()
-		_ = logFile.Close()
-		os.Exit(code)
+		shutdown.Do(func() {
+			pty.Close() // SIGKILL every PTY process group
+			lsp.Close()
+			if hooksrv != nil {
+				_ = hooksrv.Close()
+			}
+			_ = ln.Close()
+			_ = os.Remove(paths.Sock)
+			lock.Unlock()
+			_ = logFile.Close()
+			os.Exit(code)
+		})
 	}
+
+	// agent.shutdown comes from the app removing the workspace: no dialer
+	// will come back, so the daemon exits now instead of holding its
+	// terminals and language servers through reattachGrace.
+	d.Register("agent.shutdown", func(_ context.Context, _ json.RawMessage) (any, error) {
+		agentLogger.Info("daemon shutdown requested")
+		time.AfterFunc(shutdownReplyDelay, func() { cleanupAndExit(0) })
+		return struct{}{}, nil
+	})
 
 	// nextConn delivers incoming connections from the accept goroutine to the
 	// serve loop. Buffer of 1 so the acceptor never blocks while serve is busy.
