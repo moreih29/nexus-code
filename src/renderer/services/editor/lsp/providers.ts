@@ -9,6 +9,7 @@ import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { isLspLanguage } from "./language";
 import {
   hoverContentsToMarkdown,
+  lspCompletionItemKindToMonacoKind,
   lspDocumentHighlightToMonacoHighlight,
   lspDocumentSymbolToMonacoSymbol,
   lspLocationToMonacoLocation,
@@ -174,7 +175,7 @@ export function registerLanguageProviders(
         return {
           suggestions: results.map((item) => ({
             label: item.label,
-            kind: item.kind ?? monaco.languages.CompletionItemKind.Text,
+            kind: lspCompletionItemKindToMonacoKind(monaco, item.kind),
             insertText: item.label,
             range,
           })),

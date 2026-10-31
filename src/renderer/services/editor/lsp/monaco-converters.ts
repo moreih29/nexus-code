@@ -60,6 +60,44 @@ export function lspLocationToMonacoLocation(
   };
 }
 
+// LSP numbers completion item kinds from 1 in an order of its own; Monaco's
+// enum lists the same kinds in another order, so they map by name.
+const LSP_COMPLETION_ITEM_KINDS = [
+  "Text",
+  "Method",
+  "Function",
+  "Constructor",
+  "Field",
+  "Variable",
+  "Class",
+  "Interface",
+  "Module",
+  "Property",
+  "Unit",
+  "Value",
+  "Enum",
+  "Keyword",
+  "Snippet",
+  "Color",
+  "File",
+  "Reference",
+  "Folder",
+  "EnumMember",
+  "Constant",
+  "Struct",
+  "Event",
+  "Operator",
+  "TypeParameter",
+] as const satisfies readonly (keyof typeof Monaco.languages.CompletionItemKind)[];
+
+export function lspCompletionItemKindToMonacoKind(
+  monaco: typeof Monaco,
+  kind: number | undefined,
+): Monaco.languages.CompletionItemKind {
+  const name = kind === undefined ? undefined : LSP_COMPLETION_ITEM_KINDS[kind - 1];
+  return monaco.languages.CompletionItemKind[name ?? "Text"];
+}
+
 function lspSymbolKindToMonacoKind(kind: number): Monaco.languages.SymbolKind {
   return (kind - LSP_SYMBOL_KIND_OFFSET) as Monaco.languages.SymbolKind;
 }

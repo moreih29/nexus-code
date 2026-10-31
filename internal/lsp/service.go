@@ -32,13 +32,19 @@ func New() *Service {
 }
 
 // Register binds every lsp.* method onto the dispatcher.
+//
+// The methods that write to a server's stdin are ordered: a server must see
+// its messages in the order the client sent them. Run concurrently, a
+// completion request could overtake the didChange that typed the "." before
+// it, or two didChanges could swap and leave the server's copy of the
+// document wrong until it is reopened.
 func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("lsp.spawn", service.Spawn)
-	d.Register("lsp.send", service.Send)
-	d.Register("lsp.notify", service.Notify)
-	d.Register("lsp.cancel", service.Cancel)
+	d.RegisterOrdered("lsp.send", service.Send)
+	d.RegisterOrdered("lsp.notify", service.Notify)
+	d.RegisterOrdered("lsp.cancel", service.Cancel)
 	d.Register("lsp.shutdown", service.Shutdown)
-	d.Register("lsp.respondServerRequest", service.RespondServerRequest)
+	d.RegisterOrdered("lsp.respondServerRequest", service.RespondServerRequest)
 }
 
 // SetEventSink wires the service to the stdio host after both are constructed.
