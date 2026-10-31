@@ -83,6 +83,14 @@ Ubuntu 23.10 이상에서는 처음 실행 전에 AppArmor 프로필을 한 번 
 
 ---
 
+## Windows 설치
+
+[Microsoft Store](https://apps.microsoft.com/detail/9P04CSF0J5ZD) 에서 설치한다. Windows 11 이상, x64 만 지원하며 ARM PC 는 x64 에뮬레이션으로 실행한다. 업데이트는 Store 가 한다.
+
+소스 제어에는 [Git for Windows](https://git-scm.com/downloads/win) 가 필요하다. 없으면 소스 제어 패널이 설치 안내를 보여 주고, 나머지 기능은 그대로 쓸 수 있다.
+
+---
+
 ## 업데이트
 
 새 버전 알림의 **Update** 를 누르면 앱이 새 버전을 내려받고, 준비되면 **Restart Now** 로 설치한다. 누르지 않으면 다음 종료 때 설치된다.
@@ -199,7 +207,7 @@ electron-builder 가 처음 받아 푸는 Windows 도구 묶음(winCodeSign)에�
 | **Stable** | 기본값. 정식 릴리스만 수신. |
 | **Beta** | 선택 사항. 프리릴리스 빌드를 포함. 불안정할 수 있음. |
 
-채널 전환: **Settings → Updates → Update Channel** SegmentedControl에서 변경한다.
+앱에는 아직 채널을 바꾸는 설정이 없어, 모든 설치가 Stable 을 받는다.
 
 Beta 채널 빌드는 SSH 원격 호스트에 `~/.nexus-code-beta/` 아래에 에이전트·런타임·LSP 번들을 설치하며, Stable 채널(`~/.nexus-code/`)과 디렉터리가 분리된다 — 한 원격을 두 채널이 공유해도 충돌하지 않는다. 빌드 시점에 `NEXUS_CHANNEL=beta` 환경변수로 결정된다.
 디버깅 시 `NEXUS_REMOTE_AGENT_ROOT` 환경변수로 원격 설치 경로를 직접 지정할 수도 있다 (escape hatch).
