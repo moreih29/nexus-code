@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -92,6 +93,59 @@ func TestSearchDirsIncludeWhereInstallersPutServers(t *testing.T) {
 	} {
 		if !strings.Contains(dirs, want) {
 			t.Fatalf("searchDirs() leaves out %q", want)
+		}
+	}
+}
+
+func TestFindBinaryGivesTheServerTheInstallDirectories(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("PATH", "")
+	t.Setenv("GOBIN", "")
+	t.Setenv("GOPATH", "")
+	// No login shell to ask.
+	t.Setenv("SHELL", filepath.Join(home, "no-shell"))
+	gopls := writeExecutable(t, filepath.Join(home, "go", "bin"), "gopls")
+
+	raw, err := New().FindBinary(context.Background(), mustJSON(t, FindBinaryParams{Name: "gopls"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := raw.(FindBinaryResult)
+	if result.Path != gopls {
+		t.Fatalf("FindBinary() = %q, want %q", result.Path, gopls)
+	}
+	envPath := filepath.SplitList(result.EnvPath)
+	if envPath[0] != filepath.Dir(gopls) {
+		t.Fatalf("EnvPath = %q, want the binary's directory first", result.EnvPath)
+	}
+	// Where rustup puts cargo, though no PATH names it.
+	if !slices.Contains(envPath, filepath.Join(home, ".cargo", "bin")) {
+		t.Fatalf("EnvPath = %q leaves out ~/.cargo/bin", result.EnvPath)
+	}
+}
+
+func TestLoginShellPathIsAskedEachTime(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no login shell")
+	}
+	dir := t.TempDir()
+	pathFile := filepath.Join(dir, "path")
+	shell := filepath.Join(dir, "sh")
+	script := "#!/bin/sh\nprintf '" + loginPathMarker + "%s' \"$(cat '" + pathFile + "')\"\n"
+	if err := os.WriteFile(shell, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHELL", shell)
+
+	for _, want := range []string{"/usr/bin:/bin", "/usr/bin:/bin:/usr/local/go/bin"} {
+		// The user sets up the PATH of a tool they just installed.
+		if err := os.WriteFile(pathFile, []byte(want), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := loginShellPath(); got != want {
+			t.Fatalf("loginShellPath() = %q, want %q", got, want)
 		}
 	}
 }

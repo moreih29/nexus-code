@@ -7,7 +7,7 @@
 import i18next from "i18next";
 import { isBuiltinLspPresetLanguageId, resolveLspPreset } from "../../../shared/lsp/config";
 import type { LspServerStatus } from "../../../shared/lsp/status";
-import { showToast } from "../../components/ui/toast";
+import { dismissToast, showToast } from "../../components/ui/toast";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import { clearLspDiagnostics } from "../../services/editor/lsp/bridge";
 import { clearProgressFor } from "../../services/lsp-ux/server-ux-router";
@@ -28,6 +28,11 @@ let evictionExplained = false;
  * server runs.
  */
 const missingReported = new Set<string>();
+/**
+ * The toast saying a server is missing or gave up, by lspStatusKey: taken
+ * down once the server runs, however it was started again.
+ */
+const failureToasts = new Map<string, number>();
 
 /** Safe to call more than once — the previous listener is removed first. */
 export function initLspStatusSync(): void {
@@ -61,7 +66,13 @@ function notify(status: LspServerStatus, previous: LspServerStatus | undefined):
     defaultValue: status.languageId,
   });
 
-  if (status.state === "running") missingReported.delete(status.languageId);
+  if (status.state === "running") {
+    missingReported.delete(status.languageId);
+    const key = lspStatusKey(status.workspaceId, status.languageId);
+    const toast = failureToasts.get(key);
+    if (toast !== undefined) dismissToast(toast);
+    failureToasts.delete(key);
+  }
 
   if (status.gaveUp && !previous?.gaveUp && isBuiltinLspPresetLanguageId(status.languageId)) {
     const { workspaceId, languageId } = status;
@@ -69,7 +80,7 @@ function notify(status: LspServerStatus, previous: LspServerStatus | undefined):
       if (missingReported.has(languageId)) return;
       missingReported.add(languageId);
       const install = resolveLspPreset(languageId)?.install;
-      showToast({
+      const toast = showToast({
         kind: "warning",
         // The install command in plain sight: details stay collapsed.
         message: [
@@ -89,9 +100,10 @@ function notify(status: LspServerStatus, previous: LspServerStatus | undefined):
           },
         ],
       });
+      failureToasts.set(lspStatusKey(workspaceId, languageId), toast);
       return;
     }
-    showToast({
+    const toast = showToast({
       kind: "error",
       message: i18next.t("lsp.gaveUp", { workspace, language }),
       details: status.error,
@@ -106,6 +118,7 @@ function notify(status: LspServerStatus, previous: LspServerStatus | undefined):
         },
       ],
     });
+    failureToasts.set(lspStatusKey(workspaceId, languageId), toast);
     return;
   }
 

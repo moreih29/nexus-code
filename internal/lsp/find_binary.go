@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -36,9 +35,9 @@ type FindBinaryParams struct {
 type FindBinaryResult struct {
 	// Path is the binary found, empty when none was.
 	Path string `json:"path"`
-	// EnvPath is a PATH for the server: the binary's directory, then the
-	// login shell's PATH and the agent's own. gopls runs go, and
-	// rust-analyzer cargo.
+	// EnvPath is a PATH for the server: the binary's directory, the login
+	// shell's PATH and the agent's own, then where installers put tools.
+	// gopls runs go, and rust-analyzer cargo.
 	EnvPath string `json:"envPath,omitempty"`
 }
 
@@ -53,14 +52,15 @@ func (s *Service) FindBinary(_ context.Context, raw json.RawMessage) (any, error
 
 	home, _ := os.UserHomeDir()
 	shellPath := loginShellPath()
-	path := findBinary(p.Name, expandHome(strings.TrimSpace(p.Path), home), searchDirs(home, shellPath))
+	dirs := searchDirs(home, shellPath)
+	path := findBinary(p.Name, expandHome(strings.TrimSpace(p.Path), home), dirs)
 	if path == "" {
 		return FindBinaryResult{}, nil
 	}
-	return FindBinaryResult{
-		Path:    path,
-		EnvPath: joinPathLists(filepath.Dir(path), shellPath, os.Getenv("PATH")),
-	}, nil
+	// The install directories last: go in /usr/local/go/bin is missed by a
+	// PATH no login shell gave, as a GUI app's is when the shell fails.
+	lists := append([]string{filepath.Dir(path), shellPath, os.Getenv("PATH")}, dirs...)
+	return FindBinaryResult{Path: path, EnvPath: joinPathLists(lists...)}, nil
 }
 
 func findBinary(name, userPath string, dirs []string) string {
@@ -156,36 +156,30 @@ func joinPathLists(lists ...string) string {
 	return strings.Join(dirs, string(os.PathListSeparator))
 }
 
-var (
-	loginPathOnce sync.Once
-	loginPath     string
-)
-
-// loginShellPath is the PATH the user's login shell sets up, asked once;
-// empty on Windows, which has none, and when the shell fails or takes too
-// long.
+// loginShellPath is the PATH the user's login shell sets up; empty on
+// Windows, which has none, and when the shell fails or takes too long.
+//
+// It is asked each time a server is looked for, not once per agent: an
+// agent on a remote host outlives the app, and the user told a server is
+// missing installs it, sets up its PATH and starts it again.
 func loginShellPath() string {
 	if runtime.GOOS == "windows" {
 		return ""
 	}
-	loginPathOnce.Do(func() {
-		shell := os.Getenv("SHELL")
-		if shell == "" {
-			shell = "/bin/sh"
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), loginShellTimeout)
-		defer cancel()
-		// -i too: many put their PATH in .zshrc or .bashrc.
-		cmd := exec.CommandContext(ctx, shell, "-ilc", `printf '%s%s' "`+loginPathMarker+`" "$PATH"`)
-		// A process the startup files left running can hold the output open.
-		cmd.WaitDelay = time.Second
-		out, err := cmd.Output()
-		if err != nil {
-			return
-		}
-		if _, path, ok := strings.Cut(string(out), loginPathMarker); ok {
-			loginPath = strings.TrimSpace(path)
-		}
-	})
-	return loginPath
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), loginShellTimeout)
+	defer cancel()
+	// -i too: many put their PATH in .zshrc or .bashrc.
+	cmd := exec.CommandContext(ctx, shell, "-ilc", `printf '%s%s' "`+loginPathMarker+`" "$PATH"`)
+	// A process the startup files left running can hold the output open.
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	_, path, _ := strings.Cut(string(out), loginPathMarker)
+	return strings.TrimSpace(path)
 }
