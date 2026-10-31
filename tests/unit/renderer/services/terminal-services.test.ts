@@ -131,6 +131,7 @@ const {
   classifyOscTitle,
   foregroundConfirmsTitle,
   oscCursorStyle,
+  escapeDroppedPath,
 } = await import("../../../../src/renderer/services/terminal/controller");
 const { createPtyClient } = await import("../../../../src/renderer/services/terminal/pty-client");
 const { closeGroup } = await import("../../../../src/renderer/state/operations");
@@ -1301,6 +1302,33 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
 
       controller.dispose();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// escapeDroppedPath — a dropped file's path, quoted for the terminal's shell
+describe("escapeDroppedPath", () => {
+  it("backslash-escapes for a POSIX or remote shell, leaving Unicode letters", () => {
+    expect(escapeDroppedPath("/Users/me/my file (1).png")).toBe("/Users/me/my\\ file\\ \\(1\\).png");
+    expect(escapeDroppedPath("/tmp/한글 파일.txt", "/bin/zsh")).toBe("/tmp/한글\\ 파일.txt");
+    expect(escapeDroppedPath("/tmp/plain.txt", "/bin/bash")).toBe("/tmp/plain.txt");
+  });
+
+  // Regression: on Windows the POSIX escapes broke the path in PowerShell
+  // and cmd, which do not take a backslash as an escape.
+  it("single-quotes for PowerShell, doubling quotes in the name", () => {
+    const pwsh = "C:\\Program Files\\PowerShell\\7\\pwsh.exe";
+    expect(escapeDroppedPath("C:\\Users\\me\\my file.png", pwsh)).toBe(
+      "'C:\\Users\\me\\my file.png'",
+    );
+    expect(escapeDroppedPath("C:\\x\\it's $5.txt", "powershell.exe")).toBe("'C:\\x\\it''s $5.txt'");
+    expect(escapeDroppedPath("C:\\x\\plain.txt", pwsh)).toBe("C:\\x\\plain.txt");
+  });
+
+  it("double-quotes for cmd.exe", () => {
+    const cmd = "C:\\Windows\\System32\\cmd.exe";
+    expect(escapeDroppedPath("C:\\Users\\me\\a & b.txt", cmd)).toBe('"C:\\Users\\me\\a & b.txt"');
+    expect(escapeDroppedPath("C:\\x\\plain.txt", cmd)).toBe("C:\\x\\plain.txt");
   });
 });
 
