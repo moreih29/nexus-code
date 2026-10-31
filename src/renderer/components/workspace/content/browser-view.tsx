@@ -372,12 +372,13 @@ export function BrowserTabView({
             inline-docked DevTools sibling view and broadcasts
             `devtoolsToggled`; the new state lands in `runtime.devtoolsOpen`
             which drives both the button's active style and the split layout
-            below.  Same IPC as the ⌘⌥I shortcut. */}
+            below.  No key opens it: ⌘⌥I (Ctrl+Shift+I) opens the app
+            window's DevTools. */}
         <button
           type="button"
           aria-label={i18next.t("browser.toggle_devtools")}
           aria-pressed={devtoolsOpen}
-          title={i18next.t("browser.toggle_devtools_title")}
+          title={i18next.t("browser.toggle_devtools")}
           onClick={() => {
             void ipcCallResult("browser", "openDevTools", { tabId });
           }}
