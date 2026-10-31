@@ -346,7 +346,7 @@ func (s *Service) Kill(_ context.Context, raw json.RawMessage) (any, error) {
 // shelling out to `git`) are short-lived.
 //
 // Lookup path: see terminal.foregroundProcess. Windows has no foreground
-// process group and reports no name.
+// process group, and walks the shell's process tree instead.
 //
 // All error paths return an empty `Name` rather than failing the RPC: the
 // renderer treats empty as "no info" and leaves the existing title alone, so

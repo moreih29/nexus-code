@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   getActiveAppWindow,
+  getAppWindows,
   getFocusedAppWindow,
   hasAppWindow,
   trackAppWindow,
@@ -45,7 +46,9 @@ describe("app windows", () => {
     expect(getFocusedAppWindow()).toBeNull();
     expect(getActiveAppWindow()).toBe(first as never);
 
+    expect(getAppWindows()).toEqual([second as never, first as never]);
     first.destroyed = true;
+    expect(getAppWindows()).toEqual([second as never]);
     first.emit("closed");
     expect(getActiveAppWindow()).toBe(second as never);
 

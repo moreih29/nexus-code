@@ -137,8 +137,12 @@ func TestServiceDetect_NonRepo(t *testing.T) {
 
 func TestServiceDetect_GitMissing(t *testing.T) {
 	root := t.TempDir()
-	// A PATH with no git on it, as on a PC that never installed Git.
+	// A PATH with no git on it, as on a PC that never installed Git, nor
+	// in Git's Windows install locations.
 	t.Setenv("PATH", t.TempDir())
+	for _, key := range []string{"ProgramW6432", "ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"} {
+		t.Setenv(key, t.TempDir())
+	}
 
 	service := New(root)
 	params := `{"cwd":"` + jsonEscapePath(root) + `"}`

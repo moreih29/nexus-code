@@ -1182,6 +1182,40 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     controller.dispose();
   });
 
+  // PowerShell selects the whole line on Ctrl+A, and cmd types ^A.
+  it("leaves Home and End to PowerShell and cmd", async () => {
+    for (const shellPath of [
+      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+      "C:\\Windows\\system32\\cmd.exe",
+    ]) {
+      const harness = makeTerminalControllerDeps(() => Promise.resolve({ pid: 1, shellPath }));
+      const controller = createTerminalController(
+        {
+          workspaceId: WS,
+          tabId: `tab-${shellPath.length}`,
+          cwd: "C:\\work",
+          container: {} as HTMLElement,
+        },
+        harness.deps,
+      );
+      await flushTerminalInit();
+      await new Promise((r) => setTimeout(r, 0));
+      const handler = harness.getKeyHandler();
+      if (!handler) throw new Error("customKey handler was not registered");
+
+      for (const key of ["Home", "End"]) {
+        const event = fakeKeyEvent({ key });
+        expect(handler(event as unknown as KeyboardEvent)).toBe(true);
+        expect(event.defaultPrevented).toBe(false);
+      }
+      await new Promise((r) => setTimeout(r, 0));
+      expect(harness.ptyWrites).toEqual([]);
+
+      controller.dispose();
+    }
+  });
+
   describe("copy with a selection", () => {
     const copied = () =>
       ipcCalls
@@ -1368,6 +1402,16 @@ describe("isShellPromptLikeTitle", () => {
     expect(isShellPromptLikeTitle("vim README.md")).toBe(false);
   });
 
+  it("the titles cmd and PowerShell give the console: their own path", () => {
+    expect(isShellPromptLikeTitle("C:\\WINDOWS\\system32\\cmd.exe")).toBe(true);
+    expect(isShellPromptLikeTitle("C:\\WINDOWS\\system32\\cmd.exe - ping -n 100 127.0.0.1")).toBe(
+      true,
+    );
+    expect(
+      isShellPromptLikeTitle("C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"),
+    ).toBe(true);
+  });
+
   it("@만 있고 : 없음 → 통과 (이메일 등 비-prompt 가능)", () => {
     expect(isShellPromptLikeTitle("@anthropic")).toBe(false);
   });
@@ -1383,6 +1427,12 @@ describe("isShellPromptLikeTitle", () => {
 describe("isLoginShell", () => {
   it("알려진 셸 이름 → true", () => {
     for (const sh of ["sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh"]) {
+      expect(isLoginShell(sh)).toBe(true);
+    }
+  });
+
+  it("Windows shells, named as the agent names them there", () => {
+    for (const sh of ["powershell", "pwsh", "cmd", "CMD", "nu"]) {
       expect(isLoginShell(sh)).toBe(true);
     }
   });

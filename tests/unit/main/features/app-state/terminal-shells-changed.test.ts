@@ -27,7 +27,11 @@ type IpcHandler = (
   args: unknown,
 ) => Promise<unknown>;
 
-function setup(): { set: (patch: Partial<AppState>) => Promise<unknown>; changes: () => number } {
+function setup(): {
+  set: (patch: Partial<AppState>) => Promise<unknown>;
+  changes: () => number;
+  themes: string[];
+} {
   let state = {} as AppState;
   const stateService = {
     getState: () => state,
@@ -36,15 +40,19 @@ function setup(): { set: (patch: Partial<AppState>) => Promise<unknown>; changes
     },
   } as unknown as StateService;
   let changes = 0;
+  const themes: string[] = [];
   registerAppStateChannel(stateService, {
     onTerminalShellsChanged: () => {
       changes += 1;
+    },
+    onThemeChanged: (theme) => {
+      themes.push(theme);
     },
   });
   const calls = mockHandle.mock.calls as [string, IpcHandler][];
   const handler = calls.filter(([channel]) => channel === "ipc:call").at(-1)?.[1];
   if (!handler) throw new Error("ipc:call was not registered");
-  return { set: (patch) => handler({}, "appState", "set", patch), changes: () => changes };
+  return { set: (patch) => handler({}, "appState", "set", patch), changes: () => changes, themes };
 }
 
 const nu = { id: "nu", name: "Nushell", path: "nu", args: [] };
@@ -68,5 +76,15 @@ describe("appState.set — shells", () => {
     const { set, changes } = setup();
     await set({ terminalFontSize: 14 });
     expect(changes()).toBe(0);
+  });
+});
+
+// The window controls Electron draws take the theme from main.
+describe("appState.set — theme", () => {
+  test("saving the theme reports it", async () => {
+    const { set, themes } = setup();
+    await set({ terminalFontSize: 14 });
+    await set({ themePreference: "github-light" });
+    expect(themes).toEqual(["github-light"]);
   });
 });

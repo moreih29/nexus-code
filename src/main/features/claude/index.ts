@@ -43,6 +43,8 @@ export interface SetupClaudeFeatureOptions {
 // ---------------------------------------------------------------------------
 
 export interface SetupClaudeFeatureResult {
+  /** renderer가 마지막으로 알린 활성 탭인지 — 다른 프로그램의 알림도 같은 기준을 쓴다. */
+  isActiveTab: (workspaceId: string, tabId: string) => boolean;
   /** 모든 구독을 해제하는 함수. */
   dispose: () => void;
   /** Each tab's Claude state, which the nexus CLI reports too. */
@@ -109,6 +111,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
   });
 
   return {
+    isActiveTab: (workspaceId, tabId) => activeContext.isActive(workspaceId, tabId),
     dispose: () => {
       offHook();
       offExit();

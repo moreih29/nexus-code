@@ -34,6 +34,8 @@ export interface SshHostConfig {
   readonly identitiesOnly: boolean;
   /** The agent socket or pipe, or null for none. */
   readonly identityAgent: string | null;
+  /** The agent to forward to the host (ForwardAgent), or null for none. */
+  readonly forwardAgent: string | null;
   /** Jump hosts in order, as `[user@]host[:port]`. */
   readonly proxyJump: readonly string[];
   readonly proxyCommand: string | null;
@@ -140,6 +142,12 @@ function buildHostConfig(
 
   const connectTimeout = first("connecttimeout");
   const strict = first("stricthostkeychecking")?.toLowerCase();
+  const identityAgent = resolveIdentityAgent(
+    first("identityagent"),
+    context.platform,
+    context.env,
+    expand,
+  );
   return {
     host: target.host,
     hostname,
@@ -147,12 +155,8 @@ function buildHostConfig(
     user,
     identityFiles: identityFiles.map(expand),
     identitiesOnly: first("identitiesonly")?.toLowerCase() === "yes",
-    identityAgent: resolveIdentityAgent(
-      first("identityagent"),
-      context.platform,
-      context.env,
-      expand,
-    ),
+    identityAgent,
+    forwardAgent: resolveForwardAgent(first("forwardagent"), identityAgent, context.env, expand),
     proxyJump: parseList(first("proxyjump"), ","),
     proxyCommand: noneToNull(first("proxycommand")),
     connectTimeoutMs:
@@ -199,6 +203,23 @@ function resolveIdentityAgent(
   }
   if (env.SSH_AUTH_SOCK) return env.SSH_AUTH_SOCK;
   return platform === "win32" ? WINDOWS_AGENT_PIPE : null;
+}
+
+/**
+ * The agent ForwardAgent forwards: none for no, the agent used to log in for
+ * yes, else the socket or pipe it names, as a path or an environment variable.
+ */
+function resolveForwardAgent(
+  configured: string | undefined,
+  identityAgent: string | null,
+  env: NodeJS.ProcessEnv,
+  expand: (value: string) => string,
+): string | null {
+  const value = configured?.toLowerCase();
+  if (configured === undefined || value === "no") return null;
+  if (value === "yes") return identityAgent;
+  if (configured.startsWith("$")) return env[configured.slice(1)] || null;
+  return expand(configured);
 }
 
 /** Expands the `~`, `%` tokens and `__PROGRAMDATA__` OpenSSH allows in paths. */

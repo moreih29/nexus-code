@@ -10,6 +10,7 @@
 
 import type { Virtualizer } from "@tanstack/react-virtual";
 import { useMemo } from "react";
+import { isDrivePath } from "../../../../shared/fs/drive-path";
 import type { FlatItem, WorkspaceTree } from "../../../state/stores/files";
 import type { DisplayItem } from "./display";
 import { FileTreeEditRow } from "./edit-row";
@@ -118,6 +119,7 @@ export function FileTreeVirtualBody({
               <FileTreeEditRow
                 kind={item.entryKind}
                 depth={item.depth}
+                windows={isDrivePath(item.parentAbsPath)}
                 onCommit={onPendingCommit}
                 onCancel={onPendingCancel}
               />
@@ -136,6 +138,7 @@ export function FileTreeVirtualBody({
                 kind={item.entryKind}
                 depth={item.depth}
                 initialValue={item.initialName}
+                windows={isDrivePath(item.absPath)}
                 onCommit={onPendingRenameCommit}
                 onCancel={onPendingRenameCancel}
               />

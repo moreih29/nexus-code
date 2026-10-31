@@ -98,6 +98,7 @@ function setup(opts: {
   customShells?: CustomShell[];
   host?: ShellHost;
   wrapper?: { binDir: string; shell: string; shimDir: string };
+  windowsClaudeFiles?: PtyChannelOptions["windowsClaudeFiles"];
 }): { call: (method: string, args: unknown) => Promise<unknown>; agent: FakeAgentChannel } {
   const agent = new FakeAgentChannel();
   const agentHost = startAgentPtyHost({
@@ -121,6 +122,7 @@ function setup(opts: {
     getDefaultShell: () => opts.defaultShell,
     getCustomShells: () => opts.customShells,
     shellHost: opts.host ?? windowsHost,
+    windowsClaudeFiles: opts.windowsClaudeFiles,
   });
   const calls = mockHandle.mock.calls as [string, IpcHandler][];
   const handler = calls.filter(([channel]) => channel === "ipc:call").at(-1)?.[1];
@@ -255,6 +257,66 @@ describe("pty.spawn — the shell of a local terminal", () => {
     // bash takes the shim through --rcfile; zsh's ZDOTDIR is not set.
     expect(sent?.args).toEqual(["--rcfile", "/w/shim/bashrc", "-i"]);
     expect(sent?.env?.ZDOTDIR).toBeUndefined();
+  });
+});
+
+describe("pty.spawn — claude's hooks in a local Windows terminal", () => {
+  const BIN = "C:\\Users\\me\\.nexus-code\\bin";
+  const LAUNCHERS = "C:\\Users\\me\\.nexus-code\\cli";
+  const SETTINGS = "C:\\Users\\me\\.nexus-code\\claude-settings.json";
+  const wrapper = { binDir: LAUNCHERS, shell: "", shimDir: "C:\\Users\\me\\.nexus-code\\shim\\ws" };
+  const files = async () => ({ binDir: BIN, settingsPath: SETTINGS });
+
+  test("PowerShell, the system default, is named and defines claude", async () => {
+    const { call, agent } = setup({ wrapper, windowsClaudeFiles: files });
+    await call("spawn", spawnArgs());
+
+    const sent = agent.spawnCalls[0];
+    expect(sent?.shell).toBe(POWERSHELL);
+    expect(sent?.args?.slice(0, 2)).toEqual(["-NoExit", "-EncodedCommand"]);
+    expect(sent?.env?.NEXUS_CLAUDE_SETTINGS).toBe(SETTINGS);
+    expect(sent?.env?.NEXUS_IN_APP).toBe("1");
+    expect(sent?.env?.NEXUS_TAB_ID).toBe(TAB_ID);
+    expect(sent?.env?.NEXUS_WRAPPER_SELF_DIR).toBe(LAUNCHERS);
+    // No zsh or bash shim on Windows.
+    expect(sent?.env?.ZDOTDIR).toBeUndefined();
+  });
+
+  test("Git Bash keeps its arguments and gets the wrapper first on PATH", async () => {
+    const { call, agent } = setup({
+      wrapper,
+      windowsClaudeFiles: files,
+      defaultShell: { kind: "detected", id: "git-bash" },
+    });
+    await call("spawn", spawnArgs());
+
+    const sent = agent.spawnCalls[0];
+    expect(sent?.shell).toBe(GIT_BASH);
+    expect(sent?.args).toEqual(["--login", "-i"]);
+    expect(sent?.env?.NEXUS_WRAPPER_SELF_DIR).toBe(BIN);
+  });
+
+  test("cmd gets a doskey macro", async () => {
+    const { call, agent } = setup({
+      wrapper,
+      windowsClaudeFiles: files,
+      defaultShell: { kind: "detected", id: "cmd" },
+    });
+    await call("spawn", spawnArgs());
+
+    const sent = agent.spawnCalls[0];
+    expect(sent?.args).toEqual(["/k", "%NEXUS_CMD_INIT%"]);
+    expect(sent?.env?.NEXUS_CMD_INIT).toBe(`doskey claude=claude --settings "${SETTINGS}" $*`);
+  });
+
+  test("without the hooks file, the shell starts as it is, with the nexus launchers", async () => {
+    const { call, agent } = setup({ wrapper, windowsClaudeFiles: async () => null });
+    await call("spawn", spawnArgs());
+
+    const sent = agent.spawnCalls[0];
+    expect(sent?.args).toBeUndefined();
+    expect(sent?.env?.NEXUS_WRAPPER_SELF_DIR).toBe(LAUNCHERS);
+    expect(sent?.env?.NEXUS_CLAUDE_SETTINGS).toBeUndefined();
   });
 });
 

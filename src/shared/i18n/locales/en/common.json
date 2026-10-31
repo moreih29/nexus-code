@@ -126,6 +126,7 @@
   },
   "titleBar": {
     "open_settings": "Open settings",
+    "open_menu": "Open menu",
     "minimize": "Minimize",
     "maximize": "Maximize",
     "restore": "Restore",
@@ -330,7 +331,6 @@
     "url_aria": "URL or search",
     "url_placeholder": "Enter URL or search…",
     "toggle_devtools": "Toggle DevTools",
-    "toggle_devtools_title": "Toggle DevTools (⌘⌥I)",
     "resize_devtools": "Resize DevTools",
     "enter_url": "Enter a URL or search",
     "url_blocked_default": "This URL scheme is not allowed."

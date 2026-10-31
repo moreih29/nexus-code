@@ -116,6 +116,18 @@ describe("parseAccelerator", () => {
 });
 
 describe("matchesEvent", () => {
+  it("leaves AltGr to type its character on Win/Linux", () => {
+    const p = parseAccelerator("CmdOrCtrl+Alt+C");
+    const altGr = (state: boolean) =>
+      ({
+        ...ev("KeyC", { ctrlKey: true, altKey: true }),
+        getModifierState: (key: string) => key === "AltGraph" && state,
+      }) as unknown as KeyboardEvent;
+    expect(matchesEvent(p, altGr(true), false)).toBe(false);
+    // Left Ctrl and Alt are the shortcut.
+    expect(matchesEvent(p, altGr(false), false)).toBe(true);
+  });
+
   it("matches CmdOrCtrl+W via metaKey on Mac", () => {
     const p = parseAccelerator("CmdOrCtrl+W");
     expect(matchesEvent(p, ev("KeyW", { metaKey: true }) as unknown as KeyboardEvent, true)).toBe(

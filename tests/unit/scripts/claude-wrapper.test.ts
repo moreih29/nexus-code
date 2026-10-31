@@ -17,8 +17,15 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 const WRAPPER_PATH = path.resolve(import.meta.dir, "../../../scripts/assets/claude-wrapper.sh");
 
 // The wrapper runs under bash where claude does: macOS and Linux, locally or
-// on an SSH host. On Windows the app installs no wrapper.
+// on an SSH host, and Git Bash on Windows, which has its own tests below.
 const describeOnPosix = describe.skipIf(process.platform === "win32");
+const GIT_BASH = path.join(
+  process.env.ProgramFiles ?? "C:\\Program Files",
+  "Git",
+  "bin",
+  "bash.exe",
+);
+const describeInGitBash = describe.skipIf(process.platform !== "win32" || !fs.existsSync(GIT_BASH));
 const HOOK_EVENT_NAMES = [
   "session-start",
   "user-prompt-submit",
@@ -266,6 +273,40 @@ describeOnPosix("claude-wrapper.sh — NEXUS_WRAPPER_SELF_DIR SSH 시나리오",
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("REAL_CLAUDE_CALLED");
     expect(result.stdout).not.toContain("SSH_SELF_CALLED");
+  });
+});
+
+describeInGitBash("claude-wrapper.sh — Git Bash on Windows", () => {
+  function runInGitBash(socket: string) {
+    const fakeBinDir = path.join(tmpDir, "bin");
+    createFakeClaude(fakeBinDir);
+    const capturePath = path.join(tmpDir, "captured-settings.json");
+    const result = spawnSync(GIT_BASH, [WRAPPER_PATH], {
+      env: {
+        ...process.env,
+        NEXUS_IN_APP: "1",
+        NEXUS_AGENT_SOCKET: socket,
+        NEXUS_AGENT_BIN: path.join(tmpDir, "nexuscode-agent.exe"),
+        NEXUS_CAPTURE_SETTINGS_TO: capturePath,
+        PATH: `${fakeBinDir};${process.env.PATH ?? ""}`,
+      },
+      timeout: 10000,
+    });
+    return { exitCode: result.status, injected: fs.existsSync(capturePath) };
+  }
+
+  // Git Bash sees the agent's AF_UNIX socket as a plain file.
+  test("takes the agent's socket, a plain file to it, for the app's", () => {
+    const socket = path.join(tmpDir, "h-test.sock");
+    fs.writeFileSync(socket, "");
+    expect(runInGitBash(socket)).toEqual({ exitCode: 0, injected: true });
+  });
+
+  test("passes claude through without the socket", () => {
+    expect(runInGitBash(path.join(tmpDir, "missing.sock"))).toEqual({
+      exitCode: 0,
+      injected: false,
+    });
   });
 });
 

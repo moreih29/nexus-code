@@ -43,6 +43,7 @@ import { installAppMenu } from "./features/menu";
 import { registerPanelChannel } from "./features/panel";
 import { startAgentPtyHost } from "./features/pty/agent-host";
 import { registerPtyChannel } from "./features/pty/ipc";
+import { installWindowsClaudeFiles } from "./features/pty/windows-shell-shim";
 import type { PtyHostHandle } from "./features/pty/types";
 import { registerSystemChannel } from "./features/shell/ipc";
 import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
@@ -53,7 +54,7 @@ import {
   canUpdateInPlace,
   createElectronUpdateBackend,
 } from "./features/updates/electron-update-backend";
-import { createMainWindow } from "./features/window";
+import { createMainWindow, updateTitleBarOverlays } from "./features/window";
 import { installAppSessionPermissions } from "./features/window/app-session-permissions";
 import {
   getActiveAppWindow,
@@ -292,6 +293,11 @@ registerAppStateChannel(stateService, {
       customShells: terminalShells ?? [],
     });
   },
+
+  /** The theme changed: the window controls Electron draws follow it. */
+  onThemeChanged(theme) {
+    updateTitleBarOverlays(theme);
+  },
 });
 
 // Seed the browser-view key interceptor with persisted overrides so the
@@ -437,10 +443,11 @@ app.whenReady().then(async () => {
   // Claude feature 초기화 — broker / hook-handler wiring.
   // notificationsEnabled getter는 Settings의 OS 알림 토글을 실시간 반영한다.
   // 매 발사 직전 stateService를 조회하므로 토글 변경이 즉시 효력.
+  const notificationsEnabled = () => stateService.getState().osNotificationsEnabled ?? true;
   const claudeSetup = setupClaudeFeature({
     agentHost: agentPtyHost,
     workspaceManager,
-    notificationsEnabled: () => stateService.getState().osNotificationsEnabled ?? true,
+    notificationsEnabled,
   });
   disposeClaudeFeature = claudeSetup.dispose;
 
@@ -476,11 +483,15 @@ app.whenReady().then(async () => {
   }).dispose;
 
   // hookserver 접속 정보는 pull 기반으로 workspaceManager.getHookInfo()에서 조회한다.
+  // A program's own OS notifications (OSC 9/777/99) follow Claude's rules.
   registerPtyChannel({
     agentHost: agentPtyHost,
     workspaceManager,
+    isActiveTab: claudeSetup.isActiveTab,
+    notificationsEnabled,
     getDefaultShell: () => stateService.getState().terminalShell,
     getCustomShells: () => stateService.getState().terminalShells,
+    ...(isWindows() ? { windowsClaudeFiles: installWindowsClaudeFiles } : {}),
   });
 
   // The host reads the settings at each spawn; the lsp IPC handlers stop

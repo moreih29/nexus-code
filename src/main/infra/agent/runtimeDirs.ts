@@ -12,7 +12,7 @@
  *   ~/.nexus-code/sockets/               ← socketsDir()
  *   ~/.nexus-code/shim/<workspaceId>/    ← shimDir(workspaceId)
  *
- * Windows is not supported — the project only targets macOS and Linux.
+ * On Windows, ~ is the user profile folder (USERPROFILE), for both modules.
  */
 
 import fs from "node:fs/promises";

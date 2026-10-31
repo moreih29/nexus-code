@@ -27,6 +27,8 @@ interface FileTreeEditRowProps {
   kind: EntryKind;
   depth: number;
   initialValue?: string;
+  /** Whether the entry is on a Windows file system, whose naming rules apply. */
+  windows?: boolean;
   onCommit: (name: string) => void | Promise<void>;
   onCancel: () => void;
 }
@@ -51,12 +53,13 @@ export function FileTreeEditRow({
   kind,
   depth,
   initialValue = "",
+  windows = false,
   onCommit,
   onCancel,
 }: FileTreeEditRowProps) {
   const { t } = useTranslation("files");
   const [value, setValue] = useState(initialValue);
-  const validationError = value.length > 0 ? validateNewEntryName(value, t) : null;
+  const validationError = value.length > 0 ? validateNewEntryName(value, t, { windows }) : null;
   const canCommit = value.trim().length > 0 && validationError === null;
   // The row stays mounted until the create/rename IPC resolves. A second
   // Enter, or the blur that follows the first one, must not submit again:

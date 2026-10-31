@@ -181,7 +181,7 @@ func (s *Service) GetFileContent(ctx context.Context, raw json.RawMessage) (any,
 func runGitShow(ctx context.Context, root string, objectSpec string, limit int) (stdout []byte, stderr string, tooLarge bool, err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "show", "--no-ext-diff", objectSpec)
+	cmd := exec.CommandContext(ctx, gitBinary(), "show", "--no-ext-diff", objectSpec)
 	cmd.Dir = root
 	cmd.Env = append(cmd.Environ(),
 		"GIT_TERMINAL_PROMPT=0",
