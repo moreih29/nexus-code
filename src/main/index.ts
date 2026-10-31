@@ -452,6 +452,14 @@ app.whenReady().then(async () => {
     activeContext: claudeSetup.activeContext,
     appVersion: app.getVersion(),
     notificationsEnabled: () => stateService.getState().osNotificationsEnabled ?? true,
+    settings: () => {
+      const state = stateService.getState();
+      return {
+        enabled: state.cliEnabled ?? true,
+        crossWorkspace: state.cliCrossWorkspace ?? "ask",
+        agentContext: state.cliAgentContext ?? true,
+      };
+    },
     getWindow: getActiveAppWindow,
     isAppFocused: () => {
       const win = getFocusedAppWindow();

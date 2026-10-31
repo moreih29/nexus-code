@@ -41,6 +41,25 @@ export type CliInputMode = "paste" | "keys";
 /** What `browser.navigate` does. */
 export type CliBrowserAction = "goto" | "back" | "forward" | "reload";
 
+/** What nexus asks the user's leave for, in a workspace other than its terminal's own. */
+export type CliChangeKind =
+  | "open"
+  | "diff"
+  | "terminalNew"
+  | "terminalInput"
+  | "tabClose"
+  | "browserOpen"
+  | "browserNavigate";
+
+export interface CliChange {
+  readonly kind: CliChangeKind;
+  /** The file, tab title or URL it is about, if any. */
+  readonly detail?: string;
+}
+
+/** The user's answer: allowed this once, until the app restarts, refused, or no answer in time. */
+export type CliConsentAnswer = "once" | "session" | "deny" | "timeout";
+
 /** The operations, with what each takes and gives. */
 export interface CliUiOps {
   /** The tabs of a workspace, in layout order. */
@@ -122,6 +141,20 @@ export interface CliUiOps {
   "workspace.show": {
     args: { workspaceId: string };
     result: Record<string, never>;
+  };
+  /**
+   * Asks the user whether a terminal of one workspace may make a change in
+   * another. Unanswered after `timeoutMs`, the answer is "timeout".
+   */
+  "consent.ask": {
+    args: {
+      fromWorkspaceId: string;
+      fromTabId: string;
+      toWorkspaceId: string;
+      change: CliChange;
+      timeoutMs: number;
+    };
+    result: { answer: CliConsentAnswer };
   };
 }
 

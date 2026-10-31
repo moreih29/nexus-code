@@ -1,6 +1,6 @@
 /** nexus open and nexus diff. */
 import { exactArgs } from "../args";
-import { CliError, placementFor, shortId, writableWorkspace } from "../context";
+import { CliError, mayChange, placementFor, resolveWorkspace, shortId } from "../context";
 import { splitLocation, workspaceFile } from "../paths";
 import { type CliCommand, output } from "../registry";
 import { BACKGROUND_FLAG, WORKSPACE_FLAG } from "./flags";
@@ -16,12 +16,13 @@ const open: CliCommand = {
   flags: { workspace: WORKSPACE_FLAG, background: BACKGROUND_FLAG },
   async run(ctx, { positionals, flags }) {
     const [input] = exactArgs(positionals, "file") as [string];
-    const workspace = await writableWorkspace(ctx, flags.workspace as string | undefined);
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const { file, line, column } = splitLocation(input);
     const { relPath, filePath } = workspaceFile(ctx, workspace, file);
     const kind = await ctx.services.stat(workspace.id, relPath);
     if (kind === null) throw new CliError(`no such file: ${relPath}`);
     if (kind === "dir") throw new CliError(`${relPath} is a folder`);
+    await mayChange(ctx, workspace, { kind: "open", detail: relPath });
     const { tabId } = await ctx.services.ui("editor.open", {
       workspaceId: workspace.id,
       filePath,
@@ -59,11 +60,12 @@ const diff: CliCommand = {
   },
   async run(ctx, { positionals, flags }) {
     const [input] = exactArgs(positionals, "file") as [string];
-    const workspace = await writableWorkspace(ctx, flags.workspace as string | undefined);
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const { relPath } = workspaceFile(ctx, workspace, input);
     const base = (flags.base as string | undefined) ?? "HEAD";
     if (base.trim() === "") throw new CliError("--base takes a ref", 2);
     const rightRef = flags.staged === true ? "INDEX" : "WORKING";
+    await mayChange(ctx, workspace, { kind: "diff", detail: relPath });
     const { tabId } = await ctx.services.ui("diff.open", {
       workspaceId: workspace.id,
       relPath,

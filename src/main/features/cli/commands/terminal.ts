@@ -2,20 +2,28 @@
 import type { CliTabInfo } from "../../../../shared/cli/ui";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { isAgentSession, type TerminalState, terminalState } from "../agent-state";
-import { CliUsageError, exactArgs } from "../args";
+import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
 import {
   type CliContext,
   CliError,
+  mayChange,
   placementFor,
   resolveTab,
   resolveWorkspace,
   shortId,
-  writableWorkspace,
 } from "../context";
 import { ago, oneLine, table } from "../format";
 import { KEY_NAMES_HELP, keySequence } from "../keys";
 import { absolutePath } from "../paths";
-import { type CliCommand, output } from "../registry";
+import { type CliCommand, type CliOutput, output } from "../registry";
+import {
+  DEFAULT_QUIET_MS,
+  DEFAULT_WAIT_MS,
+  MAX_WAIT_MS,
+  type WaitResult,
+  type WaitTarget,
+  waitOnTerminal,
+} from "../wait";
 import { WORKSPACE_FLAG } from "./flags";
 import { orderedWorkspaces } from "./workspace";
 
@@ -63,6 +71,44 @@ function checkTypable(ctx: CliContext, workspace: WorkspaceMeta, tab: CliTabInfo
       "Claude Code there is waiting for the user to allow a tool; that is for the user to answer",
     );
   }
+}
+
+const WAIT_FLAGS = {
+  timeout: {
+    type: "string",
+    value: "DURATION",
+    description: "Stop waiting after DURATION, such as 90s or 5m (default 10m, at most 30m)",
+  },
+  quiet: {
+    type: "string",
+    value: "DURATION",
+    description: "How long an agent told by its output must stay still to be idle (default 5s)",
+  },
+} as const;
+
+const IDLE_DETAILS =
+  "Idle means: Claude Code ended its turn or waits for the user; Codex and other agents raised\n" +
+  "a notification or stopped printing; a shell is back at its prompt. When the wait runs out,\n" +
+  "nexus exits with 124.";
+
+function waitTimes(flags: ParsedArgs["flags"]): { timeoutMs: number; quietMs: number } {
+  const timeoutMs =
+    flags.timeout === undefined
+      ? DEFAULT_WAIT_MS
+      : parseDuration(flags.timeout as string, "timeout");
+  if (timeoutMs > MAX_WAIT_MS) throw new CliUsageError("--timeout is at most 30m");
+  const quietMs =
+    flags.quiet === undefined ? DEFAULT_QUIET_MS : parseDuration(flags.quiet as string, "quiet");
+  return { timeoutMs, quietMs };
+}
+
+/** A wait's result as the command prints it; exit 124 when the wait ran out. */
+function waitOutput(text: string, json: Record<string, unknown>, result: WaitResult): CliOutput {
+  return output(
+    text,
+    { ...json, state: result.state, ...(result.message ? { message: result.message } : {}) },
+    result.done ? {} : { exitCode: 124 },
+  );
 }
 
 /** The workspaces a listing covers: --all, --workspace, or the caller's. */
@@ -160,11 +206,12 @@ const tabClose: CliCommand = {
   },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "tab") as [string];
-    const workspace = await writableWorkspace(ctx, flags.workspace as string | undefined);
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveAnyTab(ctx, workspace, selector);
     if (tab.id === ctx.caller.tabId) {
       throw new CliError("that is this terminal; close it in the app or exit its shell");
     }
+    await mayChange(ctx, workspace, { kind: "tabClose", detail: tab.title });
     await ctx.services.ui("tab.close", {
       workspaceId: workspace.id,
       tabId: tab.id,
@@ -244,7 +291,7 @@ const terminalNew: CliCommand = {
   },
   async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
-    const workspace = await writableWorkspace(ctx, flags.workspace as string | undefined);
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const dir = flags.cwd as string | undefined;
     const cwd =
       dir !== undefined
@@ -254,6 +301,7 @@ const terminalNew: CliCommand = {
           : workspace.rootPath;
     const title = flags.title as string | undefined;
     const command = flags.command as string | undefined;
+    await mayChange(ctx, workspace, { kind: "terminalNew" });
     const { tabId } = await ctx.services.ui("terminal.open", {
       workspaceId: workspace.id,
       cwd,
@@ -276,9 +324,11 @@ const terminalSend: CliCommand = {
   details:
     'The text goes in as one paste, so an agent\'s prompt takes it whole. "-" reads it from\n' +
     "standard input. Refused for this terminal, and for a Claude Code waiting for the user\n" +
-    "to allow a tool.",
+    "to allow a tool. --wait waits as terminal wait does and prints how it ended.",
   flags: {
     "no-enter": { type: "boolean", description: "Type the text without pressing Enter" },
+    wait: { type: "boolean", description: "Then wait until the terminal is idle again" },
+    ...WAIT_FLAGS,
     workspace: WORKSPACE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
@@ -288,9 +338,12 @@ const terminalSend: CliCommand = {
     const text = fromStdin ? (ctx.invocation.stdin ?? "").replace(/\r?\n$/, "") : words.join(" ");
     const enter = flags["no-enter"] !== true;
     if (text === "" && !enter) throw new CliUsageError("nothing to send");
-    const workspace = await writableWorkspace(ctx, flags.workspace as string | undefined);
+    const times = flags.wait === true ? waitTimes(flags) : null;
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveTerminal(ctx, workspace, selector);
     checkTypable(ctx, workspace, tab);
+    await mayChange(ctx, workspace, { kind: "terminalInput", detail: tab.title });
+    const startedAt = ctx.services.clock.now();
     await ctx.services.ui("terminal.input", {
       workspaceId: workspace.id,
       tabId: tab.id,
@@ -298,12 +351,16 @@ const terminalSend: CliCommand = {
       mode: "paste",
       enter,
     });
-    return output(`Sent to ${tab.title} (${shortId(tab.id)}).`, {
-      tabId: tab.id,
-      workspaceId: workspace.id,
-      text,
-      enter,
+    const sent = `Sent to ${tab.title} (${shortId(tab.id)}).`;
+    const json = { tabId: tab.id, workspaceId: workspace.id, text, enter };
+    if (!times) return output(sent, json);
+    const result = await waitOnTerminal(ctx, workspace, tab, {
+      target: { kind: "idle" },
+      ...times,
+      startedAt,
+      afterInput: true,
     });
+    return waitOutput(`${sent}\n${result.text}`, json, result);
   },
 };
 
@@ -318,9 +375,10 @@ const terminalKey: CliCommand = {
     if (selector === undefined) throw new CliUsageError("missing <tab>");
     if (keys.length === 0) throw new CliUsageError("missing <key>");
     const text = keys.map(keySequence).join("");
-    const workspace = await writableWorkspace(ctx, flags.workspace as string | undefined);
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveTerminal(ctx, workspace, selector);
     checkTypable(ctx, workspace, tab);
+    await mayChange(ctx, workspace, { kind: "terminalInput", detail: tab.title });
     await ctx.services.ui("terminal.input", {
       workspaceId: workspace.id,
       tabId: tab.id,
@@ -333,6 +391,54 @@ const terminalKey: CliCommand = {
       workspaceId: workspace.id,
       keys,
     });
+  },
+};
+
+const terminalWait: CliCommand = {
+  path: ["terminal", "wait"],
+  summary: "Wait until a terminal is idle, has exited, or shows a pattern",
+  args: "<tab>",
+  details:
+    `${IDLE_DETAILS}\n` +
+    "--match looks at the screen as it is, already printed lines and typed commands included;\n" +
+    'anchor the pattern, as in "^ready", when the command line itself would match.',
+  flags: {
+    exit: { type: "boolean", description: "Wait until it exits instead" },
+    match: {
+      type: "string",
+      value: "REGEX",
+      description: "Wait until one of its last 200 lines matches REGEX instead",
+    },
+    ...WAIT_FLAGS,
+    workspace: WORKSPACE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "tab") as [string];
+    let target: WaitTarget = { kind: "idle" };
+    if (flags.exit === true && flags.match !== undefined) {
+      throw new CliUsageError("--exit and --match do not go together");
+    }
+    if (flags.exit === true) target = { kind: "exit" };
+    if (flags.match !== undefined) {
+      try {
+        target = { kind: "match", pattern: new RegExp(flags.match as string) };
+      } catch (error) {
+        throw new CliUsageError(`--match: ${(error as Error).message}`);
+      }
+    }
+    const times = waitTimes(flags);
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveTerminal(ctx, workspace, selector);
+    if (tab.id === ctx.caller.tabId) {
+      throw new CliError("that is this terminal; it cannot wait on itself");
+    }
+    const result = await waitOnTerminal(ctx, workspace, tab, {
+      target,
+      ...times,
+      startedAt: ctx.services.clock.now(),
+      afterInput: false,
+    });
+    return waitOutput(result.text, { tabId: tab.id, workspaceId: workspace.id }, result);
   },
 };
 
@@ -379,5 +485,6 @@ export const terminalCommands: CliCommand[] = [
   terminalNew,
   terminalSend,
   terminalKey,
+  terminalWait,
   sessionList,
 ];

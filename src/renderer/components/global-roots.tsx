@@ -7,6 +7,7 @@
 // React tree. A root may own one process-wide listener when the underlying
 // feature must work independently of the active workspace panel.
 
+import { CliConsentDialogRoot } from "./cli/consent-dialog";
 import { ConflictResolutionDialogRoot } from "./editor/conflict-dialog";
 import { SaveConfirmDialogRoot } from "./editor/save-confirm-dialog";
 import { CommitMessageDialog } from "./files/git/commit/message-dialog";
@@ -33,6 +34,7 @@ export function GlobalRoots(): React.JSX.Element {
       <ViewParkRoot />
       <SaveConfirmDialogRoot />
       <ConfirmDialogRoot />
+      <CliConsentDialogRoot />
       <PermissionPromptRoot />
       <ConflictResolutionDialogRoot />
       <RemoveWorkspaceDialogRoot />

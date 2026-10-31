@@ -27,6 +27,8 @@ export interface CliCommand {
   readonly flags?: Record<string, FlagSpec>;
   /** More help, shown under the usage line. */
   readonly details?: string;
+  /** Left out of the overview: run by the app's own hooks, not by people. */
+  readonly hidden?: boolean;
   run(ctx: CliContext, input: ParsedArgs): Promise<CliOutput>;
 }
 
@@ -66,7 +68,8 @@ export function commandHelp(command: CliCommand): string {
 
 /** The overview `nexus help` prints, optionally for one group of commands. */
 export function overviewHelp(commands: readonly CliCommand[], group?: string): string {
-  const shown = group ? commands.filter((c) => c.path[0] === group) : commands;
+  const listed = commands.filter((c) => !c.hidden);
+  const shown = group ? listed.filter((c) => c.path[0] === group) : listed;
   const names = shown.map((c) => [c.path.join(" "), c.args ?? ""].filter(Boolean).join(" "));
   const width = Math.max(0, ...names.map((n) => n.length));
   const lines = [

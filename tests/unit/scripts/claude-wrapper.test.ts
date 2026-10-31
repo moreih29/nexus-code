@@ -146,6 +146,15 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
       // 리터럴 변수 참조가 command에 있어야 한다 (확장된 실제 경로가 아님).
       expect(cmd).toBe(`"\${NEXUS_AGENT_BIN}" hook ${event}`);
     }
+
+    // The note on nexus: a second SessionStart hook, run in step so its
+    // output reaches the session as context.
+    const sessionStart = (hooks.SessionStart as Array<{ hooks: unknown[] }>)[0].hooks;
+    expect(sessionStart[1]).toEqual({
+      type: "command",
+      command: `"\${NEXUS_AGENT_BIN}" cli agent-context`,
+      timeout: 10,
+    });
   });
 
   /**

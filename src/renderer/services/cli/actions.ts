@@ -7,6 +7,7 @@
  * terminal the command came from. Where it goes is ./placement's call.
  */
 
+import { askCliConsent } from "@/components/cli/consent-dialog";
 import { EMPTY_TREE } from "@/components/editor/diff-refs";
 import { ipcCallResult } from "@/ipc/client";
 import { holdsUnsavedChanges } from "@/state/operations/tabs";
@@ -15,6 +16,7 @@ import { useBrowserRuntimeStore } from "@/state/stores/browser-runtime";
 import { useGitStore } from "@/state/stores/git";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
+import { useWorkspacesStore } from "@/state/stores/workspaces";
 import type { CliUiOp, CliUiOps } from "../../../shared/cli/ui";
 import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
 import { classifyUrl } from "../browser/url-classifier";
@@ -217,5 +219,19 @@ export const actionHandlers: {
   "workspace.show": async ({ workspaceId }) => {
     activateWorkspace(workspaceId);
     return {};
+  },
+
+  "consent.ask": async ({ fromWorkspaceId, fromTabId, toWorkspaceId, change, timeoutMs }) => {
+    const workspaces = useWorkspacesStore.getState().workspaces;
+    const name = (id: string) => workspaces.find((w) => w.id === id)?.name ?? id.slice(0, 8);
+    const fromTab = useTabsStore.getState().byWorkspace[fromWorkspaceId]?.[fromTabId];
+    const answer = await askCliConsent({
+      fromWorkspace: name(fromWorkspaceId),
+      fromTab: fromTab?.title ?? fromTabId.slice(0, 8),
+      toWorkspace: name(toWorkspaceId),
+      change,
+      timeoutMs,
+    });
+    return { answer };
   },
 };
