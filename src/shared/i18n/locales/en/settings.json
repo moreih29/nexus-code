@@ -23,7 +23,8 @@
     },
     "nav": "Settings navigation",
     "modifiedAria": "modified",
-    "modifiedTitle": "Modified in this session"
+    "modifiedTitle": "Modified in this session",
+    "resetSetting": "Reset {{label}}"
   },
   "browserPermissions": {
     "globalHeading": "Global permissions",
@@ -153,14 +154,7 @@
     },
     "windowOpacity": "Window opacity",
     "windowOpacityRestart": "On Linux, the window shows through after the app restarts.",
-    "inactivePanelDim": "Inactive panel dimming",
-    "reset": {
-      "language": "Reset Language",
-      "theme": "Reset Theme",
-      "iconTheme": "Reset Icon Theme",
-      "windowOpacity": "Reset Window opacity",
-      "inactivePanelDim": "Reset Inactive panel dimming"
-    }
+    "inactivePanelDim": "Inactive panel dimming"
   },
   "editor": {
     "fontSize": "Font size",
@@ -179,13 +173,7 @@
     "fontDetected": "Detected on this system.",
     "fontNotFound": "Not found on this system — the preview will use the fallback font.",
     "ariaFontSize": "Editor font size",
-    "ariaFontFamily": "Font family",
-    "reset": {
-      "fontSize": "Reset Font size",
-      "lineHeight": "Reset Line height",
-      "fontFamily": "Reset Font family",
-      "fontLigatures": "Reset Font ligatures"
-    }
+    "ariaFontFamily": "Font family"
   },
   "terminal": {
     "shell": {
@@ -244,12 +232,6 @@
       "block": "Block",
       "underline": "Underline",
       "bar": "Bar"
-    },
-    "reset": {
-      "fontSize": "Reset Font size",
-      "cursorStyle": "Reset Cursor style",
-      "fontFamily": "Reset Font family",
-      "fontLigatures": "Reset Font ligatures"
     }
   },
   "notifications": {

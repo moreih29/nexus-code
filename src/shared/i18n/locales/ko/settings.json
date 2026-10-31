@@ -23,7 +23,8 @@
     },
     "nav": "설정 탐색",
     "modifiedAria": "수정됨",
-    "modifiedTitle": "이 세션에서 수정됨"
+    "modifiedTitle": "이 세션에서 수정됨",
+    "resetSetting": "{{label}} 초기화"
   },
   "browserPermissions": {
     "globalHeading": "전역 권한",
@@ -153,14 +154,7 @@
     },
     "windowOpacity": "창 불투명도",
     "windowOpacityRestart": "리눅스에서는 앱을 다시 시작하면 창이 비쳐 보입니다.",
-    "inactivePanelDim": "비활성 패널 흐림 정도",
-    "reset": {
-      "language": "언어 초기화",
-      "theme": "테마 초기화",
-      "iconTheme": "아이콘 테마 초기화",
-      "windowOpacity": "창 불투명도 초기화",
-      "inactivePanelDim": "비활성 패널 흐림 정도 초기화"
-    }
+    "inactivePanelDim": "비활성 패널 흐림 정도"
   },
   "editor": {
     "fontSize": "글꼴 크기",
@@ -179,13 +173,7 @@
     "fontDetected": "이 시스템에서 감지되었습니다.",
     "fontNotFound": "이 시스템에서 찾을 수 없습니다 — 미리 보기는 대체 글꼴을 사용합니다.",
     "ariaFontSize": "편집기 글꼴 크기",
-    "ariaFontFamily": "글꼴 종류",
-    "reset": {
-      "fontSize": "글꼴 크기 초기화",
-      "lineHeight": "줄 간격 초기화",
-      "fontFamily": "글꼴 종류 초기화",
-      "fontLigatures": "글꼴 합자 초기화"
-    }
+    "ariaFontFamily": "글꼴 종류"
   },
   "terminal": {
     "shell": {
@@ -244,12 +232,6 @@
       "block": "블록",
       "underline": "밑줄",
       "bar": "막대"
-    },
-    "reset": {
-      "fontSize": "글꼴 크기 초기화",
-      "cursorStyle": "커서 스타일 초기화",
-      "fontFamily": "글꼴 종류 초기화",
-      "fontLigatures": "글꼴 합자 초기화"
     }
   },
   "notifications": {
