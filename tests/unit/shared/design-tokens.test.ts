@@ -1,17 +1,13 @@
 /**
- * Design token coverage + WCAG contrast gate — issue #5 new tokens.
+ * WCAG contrast gate for the tab.claude.* tokens — issue #5.
  *
  * Acceptance criteria (task spec):
- *   - 10 themes × 4 new semantic keys = 40 defined values (no missing / undefined).
  *   - tab.claude.attention.fg against surface.island.bg ≥ 4.5:1 for every theme.
  *   - tab.claude.attention.fg vs state.warning.fg (SSH connecting) must be
  *     perceptually different — not the same value — across all themes.
  *
- * New keys covered:
- *   tab.claude.running.fg     — loader glyph (aliases accent)
- *   tab.claude.attention.fg   — needsInput glyph (info hue, distinct from SSH yellow)
- *   tab.attention.indicator   — inactive tab left 2px bar (info hue)
- *   (state.warning.fg / state.warning.bg already existed — not new, verified by TS2741)
+ * That every theme defines every key is enforced at compile time:
+ * SemanticTokenSet is Record<SemanticKey, string>.
  */
 
 import { describe, expect, it } from "bun:test";
@@ -52,12 +48,6 @@ function contrast(c1: string, c2: string): number {
 // Constants
 // ---------------------------------------------------------------------------
 
-const NEW_KEYS = [
-  "tab.claude.running.fg",
-  "tab.claude.attention.fg",
-  "tab.attention.indicator",
-] as const;
-
 const ALL_THEMES = THEME_SOURCES.map((s) => ({ id: s.id, tokens: buildSemanticTokens(s) }));
 
 // ---------------------------------------------------------------------------
@@ -65,36 +55,6 @@ const ALL_THEMES = THEME_SOURCES.map((s) => ({ id: s.id, tokens: buildSemanticTo
 // ---------------------------------------------------------------------------
 
 describe("design-tokens — new tab.claude.* keys", () => {
-  it("all 10 themes define all 3 new keys (token coverage — 30 values)", () => {
-    for (const { id, tokens } of ALL_THEMES) {
-      for (const key of NEW_KEYS) {
-        const value = tokens[key];
-        expect(
-          value,
-          `theme "${id}" is missing token "${key}"`,
-        ).toBeTruthy();
-        expect(
-          typeof value,
-          `theme "${id}" token "${key}" must be a string`,
-        ).toBe("string");
-      }
-    }
-  });
-
-  it("state.warning.fg already defined in all 10 themes (pre-existing key)", () => {
-    for (const { id, tokens } of ALL_THEMES) {
-      const value = tokens["state.warning.fg"];
-      expect(value, `theme "${id}" missing state.warning.fg`).toBeTruthy();
-    }
-  });
-
-  it("state.warning.bg already defined in all 10 themes (pre-existing key)", () => {
-    for (const { id, tokens } of ALL_THEMES) {
-      const value = tokens["state.warning.bg"];
-      expect(value, `theme "${id}" missing state.warning.bg`).toBeTruthy();
-    }
-  });
-
   describe("WCAG contrast gate — tab.claude.attention.fg vs surface.island.bg ≥ 4.5:1", () => {
     for (const { id, tokens } of ALL_THEMES) {
       it(`${id}: attention.fg contrast ≥ 4.5:1 against island.bg`, () => {

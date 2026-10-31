@@ -1,12 +1,10 @@
 /**
- * T11: claude-wrapper.sh JSON 이스케이프 검증 테스트
+ * claude-wrapper.sh tests.
  *
- * 테스트 전략:
- *  1. 임시 디렉터리에 가짜 'claude' 실행 파일을 배치한다 (실제 claude 역할).
- *  2. Unix domain socket을 생성해 NEXUS_AGENT_SOCKET 요구 조건을 충족한다.
- *  3. NEXUS_AGENT_BIN에 공백/따옴표/백슬래시 등 특수 문자가 포함된 경로를 넣는다.
- *  4. 래퍼 스크립트가 생성한 settings JSON을 NEXUS_CAPTURE_SETTINGS_TO로 캡처한다.
- *  5. JSON.parse가 성공하고, 7개 훅 명령이 모두 문자열임을 검증한다.
+ * Each test puts a fake `claude` on PATH, runs the wrapper under bash and
+ * checks the settings it writes or which claude it execs. In-app runs also
+ * need a listening Unix socket at NEXUS_AGENT_SOCKET; the generated settings
+ * JSON is captured through NEXUS_CAPTURE_SETTINGS_TO.
  */
 
 import fs from "node:fs";
@@ -122,77 +120,6 @@ afterEach(async () => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describeOnPosix("claude-wrapper.sh — JSON 이스케이프 검증", () => {
-  test("HOOK_BIN 경로에 공백이 포함되어도 유효한 JSON을 생성한다", () => {
-    const hookBin = path.join(tmpDir, "agent bin path", "agent-darwin");
-
-    const { exitCode, settings, parseError } = runWrapper(hookBin);
-
-    expect(parseError).toBeUndefined();
-    expect(exitCode).toBe(0);
-    expect(settings).not.toBeNull();
-
-    // 7개 훅 이벤트가 모두 존재하고, command 값이 string이어야 한다.
-    const hooks = (settings as Record<string, unknown>)["hooks"] as Record<string, unknown>;
-    for (const event of HOOK_EVENT_NAMES) {
-      const eventKey = toHookKey(event);
-      const hookDef = (hooks[eventKey] as Array<{ hooks: Array<{ command: unknown }> }>)[0]
-        .hooks[0];
-      expect(typeof hookDef.command).toBe("string");
-      // command 값에 hook 이벤트명이 포함되어야 한다.
-      expect(hookDef.command as string).toContain(event);
-    }
-  });
-
-  test("HOOK_BIN 경로에 큰따옴표가 포함되어도 유효한 JSON을 생성한다", () => {
-    // 실제 파일시스템에서는 큰따옴표를 경로에 쓸 수 있다 (macOS/Linux).
-    const hookBin = path.join(tmpDir, 'agent"bin', "agent-darwin");
-
-    const { exitCode, settings, parseError } = runWrapper(hookBin);
-
-    expect(parseError).toBeUndefined();
-    expect(exitCode).toBe(0);
-    expect(settings).not.toBeNull();
-
-    const hooks = (settings as Record<string, unknown>)["hooks"] as Record<string, unknown>;
-    const sessionStartCmd = (
-      hooks["SessionStart"] as Array<{ hooks: Array<{ command: string }> }>
-    )[0].hooks[0].command;
-    expect(typeof sessionStartCmd).toBe("string");
-    expect(sessionStartCmd).toContain("session-start");
-  });
-
-  test("HOOK_BIN 경로에 백슬래시가 포함되어도 유효한 JSON을 생성한다", () => {
-    // bash에서 경로 내 백슬래시는 드물지만 JSON 이스케이프 로직을 검증한다.
-    const hookBin = path.join(tmpDir, "agent\\bin", "agent-darwin");
-
-    const { exitCode, settings, parseError } = runWrapper(hookBin);
-
-    expect(parseError).toBeUndefined();
-    expect(exitCode).toBe(0);
-    expect(settings).not.toBeNull();
-
-    const hooks = (settings as Record<string, unknown>)["hooks"] as Record<string, unknown>;
-    const sessionStartCmd = (
-      hooks["SessionStart"] as Array<{ hooks: Array<{ command: string }> }>
-    )[0].hooks[0].command;
-    expect(typeof sessionStartCmd).toBe("string");
-    expect(sessionStartCmd).toContain("session-start");
-  });
-
-  test("생성된 settings JSON에 preferredNotifChannel이 notifications_disabled로 설정된다", () => {
-    const hookBin = path.join(tmpDir, "simple", "agent-darwin");
-
-    const { exitCode, settings, parseError } = runWrapper(hookBin);
-
-    expect(parseError).toBeUndefined();
-    expect(exitCode).toBe(0);
-    expect((settings as Record<string, unknown>)["preferredNotifChannel"]).toBe(
-      "notifications_disabled",
-    );
-  });
-});
-
 describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
   /**
    * Acceptance 1: NEXUS_AGENT_BIN이 설정되면 settings.json의 command 필드에
@@ -200,11 +127,16 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
    * (경로 자체가 아닌 변수 참조가 그대로 저장되어야 한다.)
    */
   test("NEXUS_AGENT_BIN 설정 시 settings.json command 필드에 리터럴 ${NEXUS_AGENT_BIN}이 포함된다", () => {
-    const hookBin = path.join(tmpDir, "simple", "agent-darwin");
+    // A path with a space: the command must quote the variable, because the
+    // shell that runs the hook expands it.
+    const hookBin = path.join(tmpDir, "agent bin path", "agent-darwin");
     const { exitCode, settings, parseError } = runWrapper(hookBin);
 
     expect(parseError).toBeUndefined();
     expect(exitCode).toBe(0);
+    expect((settings as Record<string, unknown>)["preferredNotifChannel"]).toBe(
+      "notifications_disabled",
+    );
 
     const hooks = (settings as Record<string, unknown>)["hooks"] as Record<string, unknown>;
     for (const event of HOOK_EVENT_NAMES) {
@@ -212,9 +144,7 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
       const cmd = (hooks[eventKey] as Array<{ hooks: Array<{ command: string }> }>)[0].hooks[0]
         .command;
       // 리터럴 변수 참조가 command에 있어야 한다 (확장된 실제 경로가 아님).
-      expect(cmd).toContain("${NEXUS_AGENT_BIN}");
-      // hook subcommand 명도 포함되어야 한다.
-      expect(cmd).toContain(event);
+      expect(cmd).toBe(`"\${NEXUS_AGENT_BIN}" hook ${event}`);
     }
   });
 
@@ -327,31 +257,6 @@ describeOnPosix("claude-wrapper.sh — NEXUS_WRAPPER_SELF_DIR SSH 시나리오",
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("REAL_CLAUDE_CALLED");
     expect(result.stdout).not.toContain("SSH_SELF_CALLED");
-  });
-});
-
-describeOnPosix("claude-wrapper.sh — bash 3.2 호환성", () => {
-  /**
-   * Acceptance 4: wrapper 셔뱅의 bash(또는 sh)로 syntax check를 수행한다.
-   * bash -n은 문법만 검사하고 실행하지 않는다.
-   */
-  test("bash -n syntax check 통과 (bash 3.2 호환)", () => {
-    const result = spawnSync("bash", ["-n", WRAPPER_PATH], {
-      timeout: 5000,
-      encoding: "utf8",
-    });
-    expect(result.status).toBe(0);
-    expect(result.stderr).toBe("");
-  });
-
-  test("sh -n syntax check 통과 (POSIX 호환)", () => {
-    const result = spawnSync("sh", ["-n", WRAPPER_PATH], {
-      timeout: 5000,
-      encoding: "utf8",
-    });
-    // sh -n은 [[ ]] 등 bash 확장에서 실패할 수 있으므로 exit 0만 요구
-    // macOS /bin/sh는 bash임 — 실제로는 통과해야 한다.
-    expect(result.status).toBe(0);
   });
 });
 

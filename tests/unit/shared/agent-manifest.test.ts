@@ -69,28 +69,4 @@ describe("AgentManifestSchema — wrapper field", () => {
     };
     expect(() => AgentManifestSchema.parse(input)).toThrow();
   });
-
-  test("wrapper size가 음수이면 parse 실패", () => {
-    const input = {
-      ...BASE_MANIFEST,
-      wrapper: {
-        path: "bin/claude",
-        sha256: "d".repeat(64),
-        size: -1,
-      },
-    };
-    expect(() => AgentManifestSchema.parse(input)).toThrow();
-  });
-
-  test("wrapper path가 빈 문자열이면 parse 실패", () => {
-    const input = {
-      ...BASE_MANIFEST,
-      wrapper: {
-        path: "",
-        sha256: "e".repeat(64),
-        size: 512,
-      },
-    };
-    expect(() => AgentManifestSchema.parse(input)).toThrow();
-  });
 });

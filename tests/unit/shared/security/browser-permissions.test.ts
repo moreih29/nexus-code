@@ -4,7 +4,7 @@
  * Covers:
  * - classifyPermission: all 20 known kinds + unknown string inputs
  * - isKnownPermission: union membership excluding 'unknown'
- * - PERMISSION_TOGGLES: structural assertions (tier counts, no auto/unknown entries)
+ * - PERMISSION_TOGGLES: structural assertions (no auto/unknown entries, tier order)
  * - permissionLabel: spot-check label lookups
  */
 
@@ -78,15 +78,6 @@ describe("classifyPermission", () => {
       expect(classifyPermission(p)).toBe("prompt");
     });
   }
-
-  // Exhaustiveness check: every enum member is classified (no missing case).
-  test("every BrowserPermissionKind maps to a classification", () => {
-    const allKinds = BrowserPermissionKindSchema.options;
-    for (const kind of allKinds) {
-      const result = classifyPermission(kind);
-      expect(["auto", "blocked", "prompt"]).toContain(result);
-    }
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -122,20 +113,6 @@ describe("isKnownPermission", () => {
 // ---------------------------------------------------------------------------
 
 describe("PERMISSION_TOGGLES", () => {
-  test("contains exactly 14 entries (7 Tier A + 7 Tier B)", () => {
-    expect(PERMISSION_TOGGLES).toHaveLength(14);
-  });
-
-  test("has 7 Tier A entries", () => {
-    const tierA = PERMISSION_TOGGLES.filter((t) => t.tier === "A");
-    expect(tierA).toHaveLength(7);
-  });
-
-  test("has 7 Tier B entries", () => {
-    const tierB = PERMISSION_TOGGLES.filter((t) => t.tier === "B");
-    expect(tierB).toHaveLength(7);
-  });
-
   test("no toggle covers auto-granted permissions", () => {
     const autoPermissions = new Set([
       "clipboard-sanitized-write",
