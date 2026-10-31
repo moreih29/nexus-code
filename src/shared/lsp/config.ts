@@ -5,6 +5,13 @@ export type LspServerSpec = {
   binary: string;
   args: readonly string[];
   initializationOptions?: unknown;
+  /**
+   * Not bundled: the server is the user's own, found on the workspace's
+   * host (the agent's lsp.findBinary). Off until the user turns it on.
+   */
+  system?: boolean;
+  /** A system server: the command that installs it, shown when it is missing. */
+  install?: string;
 };
 
 export const BUILTIN_LSP_PRESETS = [
@@ -34,6 +41,20 @@ export const BUILTIN_LSP_PRESETS = [
       "python.analysis.autoImportCompletions": true,
       "python.analysis.useLibraryCodeForTypes": true,
     },
+  },
+  {
+    languageId: "go",
+    binary: "gopls",
+    args: [],
+    system: true,
+    install: "go install golang.org/x/tools/gopls@latest",
+  },
+  {
+    languageId: "rust",
+    binary: "rust-analyzer",
+    args: [],
+    system: true,
+    install: "rustup component add rust-analyzer",
   },
 ] as const satisfies readonly LspServerSpec[];
 
@@ -103,6 +124,8 @@ const LSP_PRESET_EXTENSIONS: Record<string, BuiltinLspPresetLanguageId> = {
   cjs: "typescript",
   py: "python",
   pyi: "python",
+  go: "go",
+  rs: "rust",
 };
 
 /** The preset serving a file, by its extension; null when none does. */

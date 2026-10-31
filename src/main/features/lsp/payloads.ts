@@ -18,18 +18,43 @@ interface AgentSpawnResultShape {
   serverInfo?: { name: string; version?: string };
 }
 
+/**
+ * The version a server reports, as a person reads it. gopls reports its
+ * whole build info as JSON, with the version inside.
+ */
+function readableServerVersion(version: string | undefined): string | undefined {
+  if (!version?.startsWith("{")) return version;
+  try {
+    const info = JSON.parse(version) as { Version?: unknown; Main?: { Version?: unknown } };
+    const found = info.Version ?? info.Main?.Version;
+    return typeof found === "string" ? found : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 const SpawnResultSchema = z.object({
   serverId: z.string().min(1),
   capabilities: z.unknown().optional(),
   // A server's own words: dropped rather than failing the spawn when odd.
   serverInfo: z
-    .object({ name: z.string(), version: z.string().optional() })
+    .object({ name: z.string(), version: z.string().optional().transform(readableServerVersion) })
     .optional()
     .catch(undefined),
 });
 
 export function parseSpawnResult(result: unknown): AgentSpawnResultShape {
   return SpawnResultSchema.parse(result);
+}
+
+const FindBinaryResultSchema = z.object({
+  path: z.string(),
+  envPath: z.string().optional(),
+});
+
+/** lsp.findBinary: the server found on the agent's host, `path` empty when none was. */
+export function parseFindBinaryResult(result: unknown): { path: string; envPath?: string } {
+  return FindBinaryResultSchema.parse(result);
 }
 
 const StatsResultSchema = z.object({

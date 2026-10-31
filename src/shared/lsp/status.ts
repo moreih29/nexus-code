@@ -38,6 +38,8 @@ export const LspServerStatusSchema = z.object({
    * the user restarts it or changes its settings.
    */
   gaveUp: z.boolean().optional(),
+  /** failed: the server is not installed on the workspace's host. */
+  missingBinary: z.string().optional(),
   /** The name and version the server gave in its initialize result. */
   serverName: z.string().optional(),
   serverVersion: z.string().optional(),

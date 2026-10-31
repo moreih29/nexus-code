@@ -378,7 +378,9 @@
   "lsp": {
     "language": {
       "typescript": "TypeScript",
-      "python": "Python"
+      "python": "Python",
+      "go": "Go",
+      "rust": "Rust"
     },
     "serverMessage": "{{language}}: {{message}}",
     "gaveUp": "The {{language}} language server of {{workspace}} failed again and again and was stopped.",
@@ -399,7 +401,8 @@
         "restart": "Restarting…",
         "agent": "Stopped — lost the workspace connection",
         "crashed": "Crashed — restarting…"
-      }
+      },
+      "notFound": "Not found"
     },
     "memory": "{{size}} of memory",
     "restart": "Restart",
@@ -410,7 +413,9 @@
     "logTitle": "{{language}} language server log — {{workspace}}",
     "logEmpty": "Nothing logged yet.",
     "copyLog": "Copy",
-    "preparing": "The {{language}} language server is getting ready…"
+    "preparing": "The {{language}} language server is getting ready…",
+    "notFound": "The {{language}} language server ({{binary}}) was not found.",
+    "installHint": "Install: {{command}}"
   },
   "claudeStatus": {
     "running": "Claude: running",

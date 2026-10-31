@@ -3,6 +3,7 @@ import {
   isLspLanguageOn,
   isLspLanguageOnForWorkspace,
   lspInitializationOptions,
+  lspServerPath,
   lspSettingsFromState,
 } from "../../../src/shared/lsp/settings";
 
@@ -25,6 +26,27 @@ describe("language server settings", () => {
     expect(isLspLanguageOn(settings, "typescript")).toBe(true);
     expect(isLspLanguageOn(settings, "python")).toBe(false);
     expect(isLspLanguageOn(settings, "markdown")).toBe(false);
+  });
+
+  test("a server the user installs runs only once turned on", () => {
+    const settings = lspSettingsFromState({
+      lspEnabled: true,
+      lspLanguages: { rust: { enabled: true } },
+    });
+
+    expect(isLspLanguageOn(settings, "go")).toBe(false);
+    expect(isLspLanguageOn(settings, "rust")).toBe(true);
+  });
+
+  test("a server's path counts only when it says something", () => {
+    const settings = lspSettingsFromState({
+      lspEnabled: true,
+      lspLanguages: { go: { path: "  ~/go/bin/gopls " }, rust: { path: "  " } },
+    });
+
+    expect(lspServerPath(settings, "go")).toBe("~/go/bin/gopls");
+    expect(lspServerPath(settings, "rust")).toBeUndefined();
+    expect(lspServerPath(settings, "python")).toBeUndefined();
   });
 
   test("a workspace turns off only its own languages", () => {

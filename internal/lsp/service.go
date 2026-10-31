@@ -59,6 +59,7 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("lsp.shutdown", service.Shutdown)
 	d.RegisterOrdered("lsp.respondServerRequest", service.RespondServerRequest)
 	d.Register("lsp.stats", service.Stats)
+	d.Register("lsp.findBinary", service.FindBinary)
 }
 
 // SetEventSink wires the service to the stdio host after both are constructed.

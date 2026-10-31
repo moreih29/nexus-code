@@ -61,20 +61,31 @@ export class LspServerStatusTracker {
   /**
    * Records a crash, a hang or a failed start, and returns whether the
    * server should start again: not once it failed LSP_CRASH_LIMIT times
-   * within LSP_CRASH_WINDOW_MS. Then it stays down until `resetFailures`.
+   * within LSP_CRASH_WINDOW_MS, nor when its binary is missing. Then it
+   * stays down until `resetFailures`.
    */
-  failed(workspaceId: string, languageId: string, error: string): boolean {
+  failed(
+    workspaceId: string,
+    languageId: string,
+    error: string,
+    options: { missingBinary?: string } = {},
+  ): boolean {
     const key = keyOf(workspaceId, languageId);
     const now = this.now();
     const recent = (this.failures.get(key) ?? []).filter((t) => now - t < LSP_CRASH_WINDOW_MS);
     recent.push(now);
     this.failures.set(key, recent);
     this.log(workspaceId, languageId, "error", error);
-    if (recent.length < LSP_CRASH_LIMIT) {
+    if (recent.length < LSP_CRASH_LIMIT && !options.missingBinary) {
       this.set(workspaceId, languageId, { state: "stopped", stopReason: "crashed", error });
       return true;
     }
-    this.set(workspaceId, languageId, { state: "failed", error, gaveUp: true });
+    this.set(workspaceId, languageId, {
+      state: "failed",
+      error,
+      gaveUp: true,
+      ...(options.missingBinary ? { missingBinary: options.missingBinary } : {}),
+    });
     this.log(workspaceId, languageId, "lifecycle", "Gave up: failed too often");
     return false;
   }
@@ -137,7 +148,8 @@ export class LspServerStatusTracker {
     next: Omit<LspServerStatus, "workspaceId" | "languageId">,
   ): void {
     const key = keyOf(workspaceId, languageId);
-    const previous = this.statuses.get(key);
+    // The server's name stays while it is stopped, not once it is missing.
+    const previous = next.missingBinary ? undefined : this.statuses.get(key);
     const status: LspServerStatus = {
       workspaceId,
       languageId,

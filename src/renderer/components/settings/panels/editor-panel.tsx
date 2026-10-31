@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import type { BuiltinLspPresetLanguageId } from "../../../../shared/lsp/config";
+import { type BuiltinLspPresetLanguageId, resolveLspPreset } from "../../../../shared/lsp/config";
 import {
   LSP_MAX_ACTIVE_WORKSPACES_LIMIT,
   type LspLanguageSettings,
@@ -294,7 +294,12 @@ export function EditorPanel() {
 }
 
 /** The languages listed under Language servers, in order. */
-const LSP_LANGUAGE_ROWS: readonly BuiltinLspPresetLanguageId[] = ["typescript", "python"];
+const LSP_LANGUAGE_ROWS: readonly BuiltinLspPresetLanguageId[] = [
+  "typescript",
+  "python",
+  "go",
+  "rust",
+];
 
 /**
  * The LSP settings. Main applies each change at once — stopping, starting or
@@ -358,7 +363,9 @@ function LanguageServerRow({
   const { t } = useTranslation("settings");
   const id = useId();
   const lowMemoryId = useId();
-  const on = settings.enabled !== false;
+  const preset = resolveLspPreset(languageId);
+  // A server the user installs runs only once turned on.
+  const on = preset?.system ? settings.enabled === true : settings.enabled !== false;
 
   function change(next: LspLanguageSettings): void {
     void ipcCallResult("lsp", "setLanguageSettings", { languageId, settings: next });
@@ -386,6 +393,74 @@ function LanguageServerRow({
             {t("editor.lsp.lowMemoryDescription")}
           </p>
         </div>
+      )}
+      {preset?.system && on && (
+        <ServerPathField
+          languageId={languageId}
+          install={preset.install}
+          path={settings.path ?? ""}
+          onCommit={(path) => change({ path })}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Where a server the user installed is. Saved on Enter or leaving the field,
+ * not per keystroke: each change restarts the language's servers.
+ */
+function ServerPathField({
+  languageId,
+  install,
+  path,
+  onCommit,
+}: {
+  languageId: BuiltinLspPresetLanguageId;
+  install: string | undefined;
+  path: string;
+  onCommit: (path: string) => void;
+}) {
+  const { t } = useTranslation("settings");
+  const id = useId();
+  const [draft, setDraft] = useState(path);
+
+  useEffect(() => setDraft(path), [path]);
+
+  function commit(): void {
+    if (draft.trim() !== path.trim()) onCommit(draft.trim());
+  }
+
+  return (
+    <div className="flex flex-col gap-1 pl-6">
+      <label htmlFor={id} className="text-app-ui-sm text-muted-foreground">
+        {t("editor.lsp.serverPath")}
+      </label>
+      <input
+        id={id}
+        type="text"
+        value={draft}
+        maxLength={4096}
+        spellCheck={false}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+        }}
+        placeholder={t(`editor.lsp.serverPathPlaceholder.${languageId}`)}
+        className={cn(
+          "w-full rounded-(--radius-control) border border-border bg-background px-2 py-1",
+          "font-mono text-app-body text-foreground outline-none placeholder:text-muted-foreground",
+          "placeholder:font-sans focus-visible:ring-1 focus-visible:ring-ring",
+        )}
+      />
+      <p className="text-app-ui-sm text-muted-foreground">
+        {t("editor.lsp.serverPathDescription")}
+      </p>
+      {install && (
+        <p className="text-app-ui-sm text-muted-foreground">
+          {t("editor.lsp.install")} <code className="font-mono select-text">{install}</code>
+        </p>
       )}
     </div>
   );

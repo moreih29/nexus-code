@@ -15,6 +15,7 @@ import { cn } from "@/utils/cn";
 import {
   type BuiltinLspPresetLanguageId,
   lspPresetLanguageIdForPath,
+  resolveLspPreset,
 } from "../../../shared/lsp/config";
 import { isLspLanguageOn, isLspLanguageOnForWorkspace } from "../../../shared/lsp/settings";
 import type { LspServerStatus } from "../../../shared/lsp/status";
@@ -127,7 +128,9 @@ function describeState(
 ): string {
   if (!on) return t("lsp.state.off");
   if (!status) return t("lsp.state.notStarted");
-  if (status.state === "failed") return t("lsp.state.failed");
+  if (status.state === "failed") {
+    return status.missingBinary ? t("lsp.state.notFound") : t("lsp.state.failed");
+  }
   if (status.state === "starting") return t("lsp.state.starting");
   if (progress) {
     const text = [progress.title, progress.message].filter(Boolean).join(" — ");
@@ -186,6 +189,7 @@ function LspStatusPopover({
   const offInSettings = !isLspLanguageOn(settings, languageId);
   const offHere = settings.disabledByWorkspace[workspaceId]?.includes(languageId) ?? false;
   const server = [status?.serverName, status?.serverVersion].filter(Boolean).join(" ");
+  const install = status?.missingBinary ? resolveLspPreset(languageId)?.install : undefined;
 
   function act(action: () => void): void {
     action();
@@ -211,11 +215,18 @@ function LspStatusPopover({
           {describeState(t, on, status, progress)}
           {running && memory !== null && ` · ${t("lsp.memory", { size: formatMegabytes(memory) })}`}
         </span>
-        {status?.state === "failed" && status.error && (
-          <span className="text-app-ui-sm text-muted-foreground line-clamp-3 break-words">
-            {status.error}
-          </span>
-        )}
+        {status?.state === "failed" &&
+          (install ? (
+            <span className="text-app-ui-sm text-muted-foreground break-words select-text">
+              {t("lsp.installHint", { command: install })}
+            </span>
+          ) : (
+            status.error && (
+              <span className="text-app-ui-sm text-muted-foreground line-clamp-3 break-words">
+                {status.error}
+              </span>
+            )
+          ))}
       </div>
       <div className="h-px bg-border my-1" />
       {on && (

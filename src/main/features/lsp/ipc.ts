@@ -350,10 +350,12 @@ export function registerLspChannel(lspHost: LspHostHandle, stateService: StateSe
         if (settings.enabled === false) {
           lspHost.disposeServers(sameLanguage, "off");
         } else if (
-          settings.lowMemory !== undefined &&
-          settings.lowMemory !== (previous.lowMemory ?? false)
+          (settings.lowMemory !== undefined &&
+            settings.lowMemory !== (previous.lowMemory ?? false)) ||
+          (settings.path !== undefined && settings.path.trim() !== (previous.path ?? "").trim())
         ) {
-          // The servers read these options only when they start.
+          // The servers read these only when they start. A server not found
+          // at the old path starts again too.
           lspHost.disposeServers(sameLanguage, "restart", { reopen: true });
         }
       },
