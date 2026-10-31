@@ -7,8 +7,22 @@ import path from "node:path";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { type CliContext, CliError } from "./context";
 
+/** The path rules of the host `absolute` is a path on. */
+function rulesOf(absolute: string): path.PlatformPath {
+  return /^(?:[A-Za-z]:[\\/]|\\\\)/.test(absolute) ? path.win32 : path.posix;
+}
+
 function hostPath(workspace: WorkspaceMeta): path.PlatformPath {
-  return /^(?:[A-Za-z]:[\\/]|\\\\)/.test(workspace.rootPath) ? path.win32 : path.posix;
+  return rulesOf(workspace.rootPath);
+}
+
+/** Where `input` points on the caller's own host: from its directory, or from `base`. */
+export function callerPath(
+  ctx: CliContext,
+  input: string,
+  base: string = ctx.invocation.cwd,
+): string {
+  return rulesOf(base).resolve(base, input);
 }
 
 /**

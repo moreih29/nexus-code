@@ -333,19 +333,25 @@ describe("tabs, browsers and workspaces", () => {
       url: "localhost:3000",
       placement: BESIDE_ME,
     });
-    expect(result.stdout).toBe("Opened http://localhost:3000/ (tab cccccccc).\n");
+    expect(result.stdout).toBe(
+      'Loaded http://localhost:5173/ "Vite App" in a new tab, cccccccc.\n',
+    );
   });
 
-  test("browser goto and reload use the workspace's only browser tab", async () => {
+  test("browser goto and reload use the workspace's only browser tab, and wait for the load", async () => {
     const app = fakeApp();
-    await nexus(["browser", "goto", "localhost:5173/login"], app);
+    const went = await nexus(["browser", "goto", "localhost:5173/login"], app);
     expect(lastCall(app, "browser.navigate")).toEqual({
       workspaceId: APP,
       tabId: BROWSER_TAB,
       action: "goto",
       url: "localhost:5173/login",
     });
-    expect((await nexus(["browser", "reload"], app)).stdout).toBe("Reloaded in aaaaaaaa.\n");
+    expect(went.stdout).toBe('Loaded http://localhost:5173/ "Vite App" in aaaaaaaa.\n');
+    expect((await nexus(["browser", "reload"], app)).stdout).toBe(
+      "Reloaded in aaaaaaaa; at http://localhost:5173/.\n",
+    );
+    expect(app.browser.calls.map((c) => c.op)).toEqual(["settle", "settle"]);
   });
 
   test("workspace switch shows any workspace", async () => {
