@@ -62,18 +62,25 @@ describe("language server settings", () => {
 
   test("TypeScript's low-memory mode drops the syntax server and typings installer", () => {
     const base = { hostInfo: "nexus-code", preferences: {} };
-    const off = lspSettingsFromState({ lspEnabled: true });
+    const lowMemory = {
+      ...base,
+      tsserver: { useSyntaxServer: "never" },
+      disableAutomaticTypingAcquisition: true,
+    };
+    const unset = lspSettingsFromState({ lspEnabled: true });
     const on = lspSettingsFromState({
       lspEnabled: true,
       lspLanguages: { typescript: { lowMemory: true } },
     });
-
-    expect(lspInitializationOptions(off, "typescript", base)).toBe(base);
-    expect(lspInitializationOptions(on, "typescript", base)).toEqual({
-      ...base,
-      tsserver: { useSyntaxServer: "never" },
-      disableAutomaticTypingAcquisition: true,
+    const off = lspSettingsFromState({
+      lspEnabled: true,
+      lspLanguages: { typescript: { lowMemory: false } },
     });
+
+    // On unless the user turned it off.
+    expect(lspInitializationOptions(unset, "typescript", base)).toEqual(lowMemory);
+    expect(lspInitializationOptions(on, "typescript", base)).toEqual(lowMemory);
+    expect(lspInitializationOptions(off, "typescript", base)).toBe(base);
     expect(lspInitializationOptions(on, "python", base)).toBe(base);
   });
 });

@@ -10,7 +10,7 @@ import { BUILTIN_LSP_PRESETS, type LspServerSpec } from "./config";
 
 export const LspLanguageSettingsSchema = z.object({
   enabled: z.boolean().optional(),
-  /** TypeScript: one tsserver per workspace and no typings installer. */
+  /** TypeScript: one tsserver per workspace and no typings installer. On unless false. */
   lowMemory: z.boolean().optional(),
   /**
    * A server the app does not bundle: where it is on the workspace's host,
@@ -87,13 +87,18 @@ const TYPESCRIPT_LOW_MEMORY_OPTIONS = {
   disableAutomaticTypingAcquisition: true,
 };
 
+/** Whether a language runs its server in low-memory mode: on unless turned off. */
+export function isLspLowMemory(languageSettings: LspLanguageSettings | undefined): boolean {
+  return languageSettings?.lowMemory !== false;
+}
+
 /** A preset's initializationOptions as the language's settings shape them. */
 export function lspInitializationOptions(
   settings: LspSettings,
   languageId: string,
   base: unknown,
 ): unknown {
-  if (languageId !== "typescript" || settings.languages[languageId]?.lowMemory !== true) {
+  if (languageId !== "typescript" || !isLspLowMemory(settings.languages[languageId])) {
     return base;
   }
   return { ...(base as Record<string, unknown> | undefined), ...TYPESCRIPT_LOW_MEMORY_OPTIONS };
