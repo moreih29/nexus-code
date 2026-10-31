@@ -7,7 +7,13 @@ import { createLogger } from "../../../shared/log/main";
 import {
   ApplyWorkspaceEditParamsSchema,
   CANONICAL_TOKEN_TYPES,
+  type CompletionArgs,
+  CompletionArgsSchema,
   CompletionItemSchema,
+  type CompletionList,
+  CompletionListSchema,
+  CompletionResolveArgsSchema,
+  CompletionTriggerKind,
   ConfigurationParamsSchema,
   DocumentHighlightSchema,
   DocumentSymbolSchema,
@@ -31,6 +37,7 @@ import {
   resolveLspPresetLanguageId,
 } from "../../../shared/lsp/config";
 import {
+  LSP_COMPLETION_RESOLVE_TIMEOUT_MS,
   LSP_COMPLETION_TIMEOUT_MS,
   LSP_CONSECUTIVE_TIMEOUT_LIMIT,
   LSP_DEFAULT_IDLE_MS,
@@ -66,6 +73,7 @@ import {
   serverExitError,
 } from "./payloads";
 import {
+  normalizeCompletionItem,
   normalizeCompletionResult,
   normalizeDefinitionResult,
   normalizeDocumentHighlightResult,
@@ -74,7 +82,7 @@ import {
   normalizeWorkspaceSymbolResult,
   parsePublishDiagnostics,
 } from "./result-normalizers";
-import { asRecord } from "./utils";
+import { asRecord, isObjectLike } from "./utils";
 
 const log = createLogger("lsp-agent");
 
@@ -180,6 +188,7 @@ const REQUEST_TIMEOUT_MS: Record<string, number> = {
   hover: LSP_HOVER_TIMEOUT_MS,
   definition: LSP_DEFINITION_TIMEOUT_MS,
   completion: LSP_COMPLETION_TIMEOUT_MS,
+  completionResolve: LSP_COMPLETION_RESOLVE_TIMEOUT_MS,
   references: LSP_REFERENCES_TIMEOUT_MS,
   documentHighlight: LSP_DOCUMENT_HIGHLIGHT_TIMEOUT_MS,
   documentSymbol: LSP_DOCUMENT_SYMBOL_TIMEOUT_MS,
@@ -378,20 +387,9 @@ class AgentLspHostHandleImpl implements LspHostHandle {
           "definition",
         );
       case "completion":
-        return this.requestByUri(
-          args,
-          opts,
-          {
-            argsSchema: TextDocumentPositionArgsSchema,
-            lspMethod: "textDocument/completion",
-            capabilityKey: "completionProvider",
-            emptyResponse: [],
-            outSchema: z.array(CompletionItemSchema),
-            params: textDocumentPositionParams,
-            transform: normalizeCompletionResult,
-          },
-          "completion",
-        );
+        return this.completion(args, opts);
+      case "completionResolve":
+        return this.completionResolve(args, opts);
       case "references":
         return this.requestByUri(
           args,
@@ -613,6 +611,64 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     this.resetTimeoutCount(routed.context.workspaceId, routed.context.languageId);
     const normalized = spec.transform ? spec.transform(raw) : raw;
     return spec.outSchema.parse(normalized);
+  }
+
+  private async completion(args: unknown, opts: LspHostCallOptions): Promise<unknown> {
+    const parsed = CompletionArgsSchema.parse(args);
+    // Monaco asks on every trigger character any server of the language
+    // uses; one this server does not complete on (a "<" in a comparison,
+    // say) would get the whole scope back as if completion were invoked.
+    if (
+      parsed.triggerKind === CompletionTriggerKind.TriggerCharacter &&
+      parsed.triggerCharacter !== undefined
+    ) {
+      const routed = this.findServer(parsed.workspaceId, parsed.uri);
+      if (routed && !completionTriggerCharacters(routed.server).includes(parsed.triggerCharacter)) {
+        return EMPTY_COMPLETION_LIST;
+      }
+    }
+    return this.requestByUri(
+      parsed,
+      opts,
+      {
+        argsSchema: CompletionArgsSchema,
+        lspMethod: "textDocument/completion",
+        capabilityKey: "completionProvider",
+        emptyResponse: EMPTY_COMPLETION_LIST,
+        outSchema: CompletionListSchema,
+        params: completionParams,
+        transform: normalizeCompletionResult,
+      },
+      "completion",
+    );
+  }
+
+  /**
+   * Fills in what a server leaves out of its completion list until an item
+   * is picked: documentation, detail, the import an auto-import adds. The
+   * item comes back as it was when the server does not resolve.
+   */
+  private async completionResolve(args: unknown, opts: LspHostCallOptions): Promise<unknown> {
+    const parsed = CompletionResolveArgsSchema.parse(args);
+    const routed = this.findServer(parsed.workspaceId, parsed.uri);
+    if (!routed?.server.hasCapability("completionProvider", "resolveProvider")) return parsed.item;
+    this.touchWorkspace(parsed.workspaceId);
+
+    let raw: unknown;
+    try {
+      raw = await withRequestTimeout(
+        (signal) => routed.server.request("completionItem/resolve", parsed.item, { signal }),
+        opts.signal,
+        "completionResolve",
+      );
+    } catch (error) {
+      if (error instanceof LspRequestTimeoutError) {
+        this.trackTimeout(routed.context.workspaceId, routed.context.languageId);
+      }
+      throw error;
+    }
+    this.resetTimeoutCount(routed.context.workspaceId, routed.context.languageId);
+    return CompletionItemSchema.parse(normalizeCompletionItem(raw) ?? parsed.item);
   }
 
   private async semanticTokensByUri(args: unknown, opts: LspHostCallOptions): Promise<unknown> {
@@ -1537,6 +1593,27 @@ function textDocumentPositionParams(args: { uri: string; line: number; character
     textDocument: { uri: args.uri },
     position: { line: args.line, character: args.character },
   };
+}
+
+const EMPTY_COMPLETION_LIST: CompletionList = { isIncomplete: false, items: [] };
+
+function completionParams(args: CompletionArgs) {
+  if (args.triggerKind === undefined) return textDocumentPositionParams(args);
+  return {
+    ...textDocumentPositionParams(args),
+    context: {
+      triggerKind: args.triggerKind,
+      ...(args.triggerKind === CompletionTriggerKind.TriggerCharacter
+        ? { triggerCharacter: args.triggerCharacter }
+        : {}),
+    },
+  };
+}
+
+function completionTriggerCharacters(server: AgentLspServer): string[] {
+  const provider = server.getCapabilityValue("completionProvider");
+  if (!isObjectLike(provider) || !Array.isArray(provider.triggerCharacters)) return [];
+  return provider.triggerCharacters.filter((c): c is string => typeof c === "string");
 }
 
 function referencesParams(args: {

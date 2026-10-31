@@ -1,4 +1,5 @@
 export * from "./client-capabilities";
+export * from "./completion";
 export * from "./diagnostics";
 export * from "./primitives";
 export * from "./semantic-tokens";

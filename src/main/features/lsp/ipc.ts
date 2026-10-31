@@ -9,6 +9,7 @@ import type {
   ApplyWorkspaceEditParams,
   ApplyWorkspaceEditResult,
   CompletionItem,
+  CompletionList,
   DocumentHighlight,
   DocumentSymbol,
   HoverResult,
@@ -144,7 +145,9 @@ export function registerLspChannel(lspHost: LspHostHandle, stateService: StateSe
         didClose: async () => {},
         hover: async () => null,
         definition: async () => [],
-        completion: async () => [],
+        completion: async () => ({ isIncomplete: false, items: [] }),
+        completionResolve: async (args: unknown) =>
+          validateArgs(c.completionResolve.args, args).item,
         references: async () => [],
         documentHighlight: async () => [],
         documentSymbol: async () => [],
@@ -266,15 +269,27 @@ export function registerLspChannel(lspHost: LspHostHandle, stateService: StateSe
       },
 
       completion: async (args: unknown, ctx?: CallContext) => {
-        const { workspaceId, uri, line, character } = validateArgs(c.completion.args, args);
-        return withCancelDefault<CompletionItem[]>(
+        const { workspaceId, uri, line, character, triggerKind, triggerCharacter } = validateArgs(
+          c.completion.args,
+          args,
+        );
+        return withCancelDefault<CompletionList>(
           lspHost.call(
             "completion",
-            { workspaceId, uri, line, character },
+            { workspaceId, uri, line, character, triggerKind, triggerCharacter },
             { signal: ctx?.signal },
           ),
           ctx?.signal,
-          [],
+          { isIncomplete: false, items: [] },
+        );
+      },
+
+      completionResolve: async (args: unknown, ctx?: CallContext) => {
+        const { workspaceId, uri, item } = validateArgs(c.completionResolve.args, args);
+        return withCancelDefault<CompletionItem>(
+          lspHost.call("completionResolve", { workspaceId, uri, item }, { signal: ctx?.signal }),
+          ctx?.signal,
+          item,
         );
       },
 

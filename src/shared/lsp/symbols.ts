@@ -49,9 +49,3 @@ export const DocumentSymbolSchema: z.ZodType<DocumentSymbol> = z.lazy(() =>
     children: z.array(DocumentSymbolSchema).optional(),
   }),
 );
-
-export const CompletionItemSchema = z.object({
-  label: z.string(),
-  kind: z.number().int().optional(),
-});
-export type CompletionItem = z.infer<typeof CompletionItemSchema>;

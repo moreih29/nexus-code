@@ -50,10 +50,24 @@ export const LSP_CLIENT_CAPABILITIES = {
       contentFormat: ["markdown", "plaintext"],
     },
     completion: {
+      // The renderer passes what typed the request, so a server can tell a
+      // "<" that opens a JSX tag from one in a comparison.
+      contextSupport: true,
       completionItem: {
-        snippetSupport: false,
+        snippetSupport: true,
+        commitCharactersSupport: true,
         documentationFormat: ["markdown", "plaintext"],
         deprecatedSupport: true,
+        preselectSupport: true,
+        tagSupport: { valueSet: [1] },
+        insertReplaceSupport: true,
+        labelDetailsSupport: true,
+        // Servers leave these out of the list and fill them in when an item
+        // is picked (`completionItem/resolve`); for an auto-import the
+        // import itself comes as additionalTextEdits.
+        resolveSupport: {
+          properties: ["documentation", "detail", "additionalTextEdits"],
+        },
       },
     },
     definition: {

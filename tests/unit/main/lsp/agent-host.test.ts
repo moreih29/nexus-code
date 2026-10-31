@@ -400,7 +400,7 @@ describe("AgentLspHostHandle", () => {
     ]);
 
     const completion = await host.call("completion", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 1 });
-    expect(completion).toEqual([{ label: "agentCompletion" }]);
+    expect(completion).toEqual({ isIncomplete: false, items: [{ label: "agentCompletion" }] });
     expect(diagnostics).toEqual([
       {
         workspaceId: WORKSPACE_ID,
