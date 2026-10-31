@@ -1,9 +1,10 @@
 # Release workflow — triggered when a GitHub Release is created (published or pre-release).
-# Four-job pipeline:
+# Five-job pipeline:
 #   1. build-agent      — ubuntu-latest (cross-compile Go + Node runtime + LSP bundle 모두 산출)
 #   2. package          — macos-15 (Apple Silicon arm64 native)
 #   3. package-linux    — one runner per architecture (x64, arm64), AppImage + deb
 #   4. package-windows  — windows-latest x64, the Microsoft Store AppX
+#   5. submit-store     — submits that AppX to the Microsoft Store (not for a pre-release)
 #
 # Apple Silicon arm64 만 지원. 이전엔 macos-13 (Intel x64) 매트릭스가 있었으나
 # macos-13 러너 풀이 큐 대기로 자주 묶이고 사용자층 대비 비용 효율이 떨어져 제외.
@@ -254,10 +255,10 @@ jobs:
             --clobber
 
   # ── Job 4: Microsoft Store package (Windows x64) ────────────────────────
-  # The AppX is submitted in Partner Center by hand (docs/RELEASING.md). It is
-  # unsigned, as the Store signs what it publishes, so it stays a workflow
-  # artifact: nobody could install it from the release page. The Store
-  # updates its installs, so there is no update feed to upload either.
+  # Job 5 submits the AppX to the Store. It is unsigned, as the Store signs
+  # what it publishes, so it stays a workflow artifact: nobody could install
+  # it from the release page. The Store updates its installs, so there is no
+  # update feed to upload either.
   package-windows:
     name: Package (windows-x64, Microsoft Store)
     needs: build-agent
@@ -301,3 +302,55 @@ jobs:
           retention-days: 30
           # An AppX is already a zip.
           compression-level: 0
+
+  # ── Job 5: Microsoft Store submission ───────────────────────────────────
+  # Submits the AppX for certification, with the release notes in
+  # build/store-release-notes.json; once it passes, the Store updates its
+  # installs. A pre-release builds the beta channel, which the Store doesn't
+  # carry. The Store CLI signs in as a Microsoft Entra application with the
+  # Manager role in Partner Center (docs/RELEASING.md):
+  #   secrets.MSSTORE_TENANT_ID, MSSTORE_CLIENT_ID, MSSTORE_CLIENT_SECRET
+  #   secrets.MSSTORE_SELLER_ID
+  # Don't re-run this job once it has submitted: it would replace the
+  # submission under certification.
+  submit-store:
+    name: Submit to the Microsoft Store
+    needs: package-windows
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: windows-latest
+    # The CLI waits on a prompt forever if it ever asks for one.
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Download the Store package
+        uses: actions/download-artifact@v8
+        with:
+          name: msstore-appx-${{ github.event.release.tag_name }}
+          path: store-package
+
+      - name: Setup the Microsoft Store CLI
+        uses: microsoft/microsoft-store-apppublisher@v1.4
+        with:
+          version: v0.4.3
+
+      - name: Sign in to Partner Center
+        env:
+          MSSTORE_TENANT_ID: ${{ secrets.MSSTORE_TENANT_ID }}
+          MSSTORE_SELLER_ID: ${{ secrets.MSSTORE_SELLER_ID }}
+          MSSTORE_CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
+          MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
+        run: >
+          msstore reconfigure
+          --tenantId "$env:MSSTORE_TENANT_ID"
+          --sellerId "$env:MSSTORE_SELLER_ID"
+          --clientId "$env:MSSTORE_CLIENT_ID"
+          --clientSecret "$env:MSSTORE_CLIENT_SECRET"
+
+      - name: Submit
+        run: bun run scripts/store-submit.ts --package-dir store-package
