@@ -5,6 +5,7 @@
  */
 import { CliRequestSchema, type CliResult } from "../../../shared/cli/protocol";
 import type { CliUiOp, CliUiOps } from "../../../shared/cli/ui";
+import { FsStatSchema } from "../../../shared/fs/types";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcOk } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
@@ -92,6 +93,16 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
         title,
         body,
       ),
+    stat: async (workspaceId, relPath) => {
+      const channel = await workspaceManager.tryGetAgentChannel(workspaceId);
+      if (!channel) throw new Error("that workspace is not connected");
+      try {
+        return FsStatSchema.parse(await channel.call("fs.stat", { relPath })).type;
+      } catch (error) {
+        if ((error as { code?: unknown }).code === "NOT_FOUND") return null;
+        throw error;
+      }
+    },
   };
 
   const respond = async (workspaceId: string, requestId: string, response: CliResult) => {

@@ -4,7 +4,8 @@
  */
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import type { CliInvocation } from "../../../shared/cli/protocol";
-import type { CliTabInfo, CliUiOp, CliUiOps } from "../../../shared/cli/ui";
+import type { CliPlacement, CliTabInfo, CliUiOp, CliUiOps } from "../../../shared/cli/ui";
+import type { FsEntryType } from "../../../shared/fs/types";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { TabActivity } from "./activity";
 
@@ -33,6 +34,8 @@ export interface CliServices {
   ui<K extends CliUiOp>(op: K, args: CliUiOps[K]["args"]): Promise<CliUiOps[K]["result"]>;
   /** Tells the user, as Claude's notifications do, unless they are looking at the tab. */
   notify(workspaceId: string, tabId: string, title: string, body: string): boolean;
+  /** What is at `relPath` in a workspace; null when nothing is. */
+  stat(workspaceId: string, relPath: string): Promise<FsEntryType | null>;
 }
 
 export interface CliContext {
@@ -54,7 +57,7 @@ export function shortId(id: string): string {
  * Finds the one item a selector names: by id, by an id prefix, then by
  * name, case aside. None or several is a CliError.
  */
-function pick<T>(
+export function pick<T>(
   items: readonly T[],
   selector: string,
   id: (item: T) => string,
@@ -91,6 +94,35 @@ export function resolveWorkspace(ctx: CliContext, selector: string | undefined):
     (w) => w.name,
     "workspace",
   );
+}
+
+/**
+ * The workspace a command that changes things acts on, named as for
+ * resolveWorkspace. Only the caller's own for now: changing another one needs
+ * the user's consent, which the app does not ask for yet.
+ */
+export async function writableWorkspace(
+  ctx: CliContext,
+  selector: string | undefined,
+): Promise<WorkspaceMeta> {
+  const workspace = resolveWorkspace(ctx, selector);
+  if (workspace.id !== ctx.caller.workspaceId) {
+    throw new CliError(
+      `${workspace.name} is another workspace; nexus changes only this terminal's workspace`,
+    );
+  }
+  return workspace;
+}
+
+/** Where a tab the command opens in `workspace` goes: beside the caller in its own. */
+export function placementFor(
+  ctx: CliContext,
+  workspace: WorkspaceMeta,
+  background: boolean,
+): CliPlacement {
+  return workspace.id === ctx.caller.workspaceId
+    ? { background, besideTabId: ctx.caller.tabId }
+    : { background };
 }
 
 /** The tab a selector names among `tabs`; "." is the caller's own terminal. */

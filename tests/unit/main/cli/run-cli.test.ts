@@ -9,17 +9,26 @@ import { runCli } from "../../../../src/main/features/cli/registry";
 import {
   API,
   APP,
+  BROWSER_TAB,
   CLAUDE_TAB,
   CODEX_TAB,
   contextFor,
+  EDITOR_TAB,
   FIX,
   fakeApp,
   SHELL_TAB,
 } from "./fake-services";
 
-async function nexus(argv: string[], app = fakeApp()) {
-  return runCli(CLI_COMMANDS, contextFor(app, argv));
+async function nexus(argv: string[], app = fakeApp(), invocation = {}) {
+  return runCli(CLI_COMMANDS, contextFor(app, argv, undefined, invocation));
 }
+
+/** The arguments of the last request of `op` the command made of the renderer. */
+function lastCall(app: ReturnType<typeof fakeApp>, op: string): unknown {
+  return app.uiCalls.filter((c) => c.op === op).at(-1)?.args;
+}
+
+const BESIDE_ME = { background: false, besideTabId: SHELL_TAB };
 
 describe("help and mistakes", () => {
   test("bare nexus lists the commands", async () => {
@@ -155,5 +164,211 @@ describe("notify", () => {
     expect(app.notified).toEqual([
       { workspaceId: APP, tabId: SHELL_TAB, title: "Build", body: "Tests pass" },
     ]);
+  });
+});
+
+describe("opening files", () => {
+  test("open takes a line and column, and opens beside this terminal", async () => {
+    const app = fakeApp();
+    const result = await nexus(["open", "login.ts:12:5"], app, { cwd: "/w/app/src" });
+    expect(result.stdout).toBe("Opened src/login.ts:12:5 (tab cccccccc).\n");
+    expect(lastCall(app, "editor.open")).toEqual({
+      workspaceId: APP,
+      filePath: "/w/app/src/login.ts",
+      line: 12,
+      column: 5,
+      placement: BESIDE_ME,
+    });
+  });
+
+  test.each([
+    ["a missing file", ["open", "nope.ts"], "nexus: no such file: nope.ts\n"],
+    ["a folder", ["open", "src"], "nexus: src is a folder\n"],
+    [
+      "a file outside the workspace",
+      ["open", "../api/main.go"],
+      "nexus: ../api/main.go is not a file inside app (/w/app)\n",
+    ],
+    [
+      "another workspace",
+      ["open", "main.go", "--workspace", "api"],
+      "nexus: api is another workspace; nexus changes only this terminal's workspace\n",
+    ],
+  ])("open refuses %s", async (_label, argv, stderr) => {
+    const app = fakeApp();
+    const result = await nexus(argv, app);
+    expect(result.stderr).toBe(stderr);
+    expect(result.exitCode).toBe(1);
+    expect(lastCall(app, "editor.open")).toBeUndefined();
+  });
+
+  test("diff compares the working tree with HEAD, or what --staged and --base say", async () => {
+    const app = fakeApp();
+    await nexus(["diff", "src/login.ts"], app);
+    expect(lastCall(app, "diff.open")).toMatchObject({ leftRef: "HEAD", rightRef: "WORKING" });
+    const result = await nexus(["diff", "src/login.ts", "--staged", "--base", "main"], app);
+    expect(lastCall(app, "diff.open")).toEqual({
+      workspaceId: APP,
+      relPath: "src/login.ts",
+      leftRef: "main",
+      rightRef: "INDEX",
+      placement: BESIDE_ME,
+    });
+    expect(result.stdout).toBe(
+      "Opened the diff of src/login.ts, main against the index (tab cccccccc).\n",
+    );
+  });
+});
+
+describe("terminals", () => {
+  test("terminal new opens behind this terminal, in its directory, running a command", async () => {
+    const app = fakeApp();
+    const result = await nexus(
+      ["terminal", "new", "--command", "npm run dev", "--title", "dev"],
+      app,
+    );
+    expect(lastCall(app, "terminal.open")).toEqual({
+      workspaceId: APP,
+      cwd: "/w/app",
+      title: "dev",
+      command: "npm run dev",
+      placement: { background: true, besideTabId: SHELL_TAB },
+    });
+    expect(result.stdout).toBe("Opened terminal cccccccc in /w/app.\n");
+  });
+
+  test("terminal new --cwd is read from this directory; --show shows it", async () => {
+    const app = fakeApp();
+    await nexus(["terminal", "new", "--cwd", "web", "--show"], app, { cwd: "/w/app/src" });
+    expect(lastCall(app, "terminal.open")).toMatchObject({
+      cwd: "/w/app/src/web",
+      placement: BESIDE_ME,
+    });
+  });
+
+  test("terminal send pastes the words and presses Enter", async () => {
+    const app = fakeApp();
+    const result = await nexus(
+      ["terminal", "send", "aaaaaaaa-0000-4000-8000-000000000002", "fix", "it"],
+      app,
+    );
+    expect(lastCall(app, "terminal.input")).toEqual({
+      workspaceId: APP,
+      tabId: CLAUDE_TAB,
+      text: "fix it",
+      mode: "paste",
+      enter: true,
+    });
+    expect(result.stdout).toBe("Sent to ✳ Claude Code (aaaaaaaa).\n");
+  });
+
+  test("terminal send - takes standard input, its last newline dropped", async () => {
+    const app = fakeApp();
+    await nexus(["terminal", "send", "✳ claude code", "-", "--no-enter"], app, {
+      stdin: "first\nsecond\n",
+    });
+    expect(lastCall(app, "terminal.input")).toMatchObject({ text: "first\nsecond", enter: false });
+  });
+
+  test("terminal key sends the keys' bytes", async () => {
+    const app = fakeApp();
+    await nexus(["terminal", "key", "✳ claude code", "ctrl-c", "down", "enter", "y"], app);
+    expect(lastCall(app, "terminal.input")).toMatchObject({
+      text: "\x03\x1b[B\ry",
+      mode: "keys",
+      enter: false,
+    });
+  });
+
+  test("terminal key refuses a key it does not know", async () => {
+    const result = await nexus(["terminal", "key", "zsh", "hyper-x"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toStartWith('nexus: unknown key "hyper-x".');
+  });
+
+  test("nothing is typed into this terminal", async () => {
+    const app = fakeApp();
+    const result = await nexus(["terminal", "send", ".", "hello"], app);
+    expect(result.stderr).toBe(
+      "nexus: that is this terminal; nexus types only into other terminals\n",
+    );
+    expect(lastCall(app, "terminal.input")).toBeUndefined();
+  });
+
+  test("nothing is typed while Claude Code waits for the user to allow a tool", async () => {
+    const app = fakeApp();
+    app.claude.set(`${APP}:${CLAUDE_TAB}`, { status: "permissionPending", since: Date.now() });
+    const result = await nexus(["terminal", "key", "✳ claude code", "enter"], app);
+    expect(result.stderr).toBe(
+      "nexus: Claude Code there is waiting for the user to allow a tool; that is for the user to answer\n",
+    );
+    expect(lastCall(app, "terminal.input")).toBeUndefined();
+  });
+});
+
+describe("tabs, browsers and workspaces", () => {
+  test("tab close closes another tab, never this terminal", async () => {
+    const app = fakeApp();
+    expect((await nexus(["tab", "close", "index.ts"], app)).stdout).toBe(
+      "Closed index.ts (aaaaaaaa).\n",
+    );
+    expect(lastCall(app, "tab.close")).toEqual({
+      workspaceId: APP,
+      tabId: EDITOR_TAB,
+      force: false,
+    });
+    const self = await nexus(["tab", "close", "."], app);
+    expect(self.stderr).toBe(
+      "nexus: that is this terminal; close it in the app or exit its shell\n",
+    );
+  });
+
+  test("tab show may show another workspace's tab", async () => {
+    const app = fakeApp();
+    const result = await nexus(["tab", "show", "codex", "--workspace", "api"], app);
+    expect(result.exitCode).toBe(0);
+    expect(lastCall(app, "tab.show")).toEqual({ workspaceId: API, tabId: CODEX_TAB });
+  });
+
+  test("browser open opens beside this terminal", async () => {
+    const app = fakeApp();
+    const result = await nexus(["browser", "open", "localhost:3000"], app);
+    expect(lastCall(app, "browser.open")).toEqual({
+      workspaceId: APP,
+      url: "localhost:3000",
+      placement: BESIDE_ME,
+    });
+    expect(result.stdout).toBe("Opened http://localhost:3000/ (tab cccccccc).\n");
+  });
+
+  test("browser goto and reload use the workspace's only browser tab", async () => {
+    const app = fakeApp();
+    await nexus(["browser", "goto", "localhost:5173/login"], app);
+    expect(lastCall(app, "browser.navigate")).toEqual({
+      workspaceId: APP,
+      tabId: BROWSER_TAB,
+      action: "goto",
+      url: "localhost:5173/login",
+    });
+    expect((await nexus(["browser", "reload"], app)).stdout).toBe("Reloaded in aaaaaaaa.\n");
+  });
+
+  test("workspace switch shows any workspace", async () => {
+    const app = fakeApp();
+    expect((await nexus(["workspace", "switch", "api"], app)).stdout).toBe(
+      "Showing api (22222222).\n",
+    );
+    expect(lastCall(app, "workspace.show")).toEqual({ workspaceId: API });
+  });
+
+  test("worktree list and switch cover this workspace and its worktrees", async () => {
+    const app = fakeApp();
+    const list = await nexus(["worktree", "list"], app);
+    expect(list.stdout.split("\n")[1]).toStartWith(
+      "11111111  app        (workspace)  current,shown",
+    );
+    expect(list.stdout).toContain("33333333  fix-login  fix-login");
+    await nexus(["worktree", "switch", "fix-login"], app);
+    expect(lastCall(app, "workspace.show")).toEqual({ workspaceId: FIX });
   });
 });

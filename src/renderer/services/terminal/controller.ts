@@ -403,6 +403,15 @@ class XtermTerminalController implements TerminalController {
     return bufferText(buffer, lines);
   }
 
+  input(text: string, mode: "paste" | "keys"): boolean {
+    const term = this.term;
+    const ptyClient = this.ptyClient;
+    if (this.disposed || !term || !ptyClient) return false;
+    if (mode === "paste") term.paste(text);
+    else ptyClient.write(text);
+    return true;
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;

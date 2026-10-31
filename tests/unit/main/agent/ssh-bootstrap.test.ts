@@ -190,7 +190,8 @@ describe("ssh-bootstrap", () => {
         };
       }
       if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
-      if (command === "ssh" && remoteCommand.includes("/.nexus-code/bin/nexus")) return { stdout: "" };
+      if (command === "ssh" && remoteCommand.includes("/.nexus-code/bin/nexus"))
+        return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
@@ -490,7 +491,8 @@ describe("ssh-bootstrap", () => {
         };
       }
       if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
-      if (command === "ssh" && remoteCommand.includes("/.nexus-code/bin/nexus")) return { stdout: "" };
+      if (command === "ssh" && remoteCommand.includes("/.nexus-code/bin/nexus"))
+        return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
@@ -691,7 +693,8 @@ describe("ssh-bootstrap", () => {
         };
       }
       if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
-      if (command === "ssh" && remoteCommand.includes("/.nexus-code/bin/nexus")) return { stdout: "" };
+      if (command === "ssh" && remoteCommand.includes("/.nexus-code/bin/nexus"))
+        return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
@@ -731,7 +734,8 @@ describe("ssh-bootstrap", () => {
         };
       }
       if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
-      if (command === "ssh" && remoteCommand.includes("/.nexus-code/bin/nexus")) return { stdout: "" };
+      if (command === "ssh" && remoteCommand.includes("/.nexus-code/bin/nexus"))
+        return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
@@ -893,7 +897,8 @@ describe("ssh-bootstrap", () => {
         };
       }
       if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
-      if (command === "ssh" && remoteCommand.includes("/.nexus-code/bin/nexus")) return { stdout: "" };
+      if (command === "ssh" && remoteCommand.includes("/.nexus-code/bin/nexus"))
+        return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 

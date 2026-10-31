@@ -17,6 +17,9 @@ export const SHELL_TAB = "aaaaaaaa-0000-4000-8000-000000000001";
 export const CLAUDE_TAB = "aaaaaaaa-0000-4000-8000-000000000002";
 export const CODEX_TAB = "bbbbbbbb-0000-4000-8000-000000000003";
 export const EDITOR_TAB = "aaaaaaaa-0000-4000-8000-000000000004";
+export const BROWSER_TAB = "aaaaaaaa-0000-4000-8000-000000000005";
+/** The id of any tab a command opens. */
+export const NEW_TAB = "cccccccc-0000-4000-8000-000000000006";
 
 function workspace(
   id: string,
@@ -69,9 +72,15 @@ export const TABS: Record<string, CliTabInfo[]> = {
     tab(SHELL_TAB, "terminal", "zsh", { cwd: "/w/app", shown: true }),
     tab(CLAUDE_TAB, "terminal", "✳ Claude Code", { cwd: "/w/app" }),
     tab(EDITOR_TAB, "editor", "index.ts", { filePath: "/w/app/index.ts" }),
+    tab(BROWSER_TAB, "browser", "Vite App", { url: "http://localhost:5173/" }),
   ],
   [API]: [tab(CODEX_TAB, "terminal", "codex", { cwd: "/w/api" })],
   [FIX]: [],
+};
+
+/** What is on disk, by workspace and path from its root. */
+const FILES: Record<string, Record<string, "file" | "dir">> = {
+  [APP]: { "index.ts": "file", src: "dir", "src/login.ts": "file" },
 };
 
 export interface FakeApp {
@@ -111,7 +120,18 @@ export function fakeApp(now = Date.now()): FakeApp {
       const text = (screens.get(tabId) ?? "").split("\n").slice(-lines).join("\n");
       return { text } as CliUiOps[K]["result"];
     }
-    throw new Error(`unexpected ${op}`);
+    if (op === "editor.open" || op === "diff.open" || op === "terminal.open") {
+      return { tabId: NEW_TAB } as CliUiOps[K]["result"];
+    }
+    if (op === "browser.open") {
+      const { url } = args as CliUiOps["browser.open"]["args"];
+      return { tabId: NEW_TAB, url: `http://${url}/` } as CliUiOps[K]["result"];
+    }
+    if (op === "browser.navigate") {
+      const { url } = args as CliUiOps["browser.navigate"]["args"];
+      return (url === undefined ? {} : { url }) as CliUiOps[K]["result"];
+    }
+    return {} as CliUiOps[K]["result"];
   };
   const services: CliServices = {
     appVersion: "1.2.3",
@@ -124,6 +144,7 @@ export function fakeApp(now = Date.now()): FakeApp {
       notified.push({ workspaceId, tabId, title, body });
       return true;
     },
+    stat: async (workspaceId, relPath) => FILES[workspaceId]?.[relPath] ?? null,
   };
   return { services, uiCalls, notified, claude, activity, screens };
 }
@@ -133,6 +154,11 @@ export function contextFor(
   app: FakeApp,
   argv: string[],
   caller = { workspaceId: APP, tabId: SHELL_TAB },
+  invocation: { cwd?: string; stdin?: string } = {},
 ): CliContext {
-  return { caller, invocation: { argv, cwd: "/w/app", tempDir: "/tmp" }, services: app.services };
+  return {
+    caller,
+    invocation: { argv, cwd: "/w/app", tempDir: "/tmp", ...invocation },
+    services: app.services,
+  };
 }

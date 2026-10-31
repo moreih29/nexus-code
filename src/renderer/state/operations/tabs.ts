@@ -140,7 +140,7 @@ export function reclaimPreviewSlot(workspaceId: string, slot: PreviewSlotInfo): 
   return slot.index;
 }
 
-function holdsUnsavedChanges(tab: Tab): boolean {
+export function holdsUnsavedChanges(tab: Tab): boolean {
   if (tab.type === "editor") return isDirty(cacheUriFor(tab.props.workspaceId, tab.props.filePath));
   if (tab.type === "editor.diff") return isDiffWorkingFileDirty(tab.props);
   return false;

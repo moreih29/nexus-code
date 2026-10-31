@@ -1,8 +1,10 @@
-/** nexus status, nexus workspace list and nexus workspace current. */
+/** nexus status, nexus workspace ... and nexus worktree ... . */
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
-import { type CliContext, describeLocation, resolveWorkspace, shortId } from "../context";
+import { exactArgs } from "../args";
+import { type CliContext, describeLocation, pick, resolveWorkspace, shortId } from "../context";
 import { table } from "../format";
 import { type CliCommand, output } from "../registry";
+import { WORKSPACE_FLAG } from "./flags";
 
 /** A workspace as --json shows it. */
 export function workspaceJson(ctx: CliContext, workspace: WorkspaceMeta) {
@@ -102,4 +104,85 @@ const workspaceCurrent: CliCommand = {
   },
 };
 
-export const workspaceCommands: CliCommand[] = [status, workspaceList, workspaceCurrent];
+/** Shows a workspace to the user. */
+async function show(ctx: CliContext, workspace: WorkspaceMeta) {
+  await ctx.services.ui("workspace.show", { workspaceId: workspace.id });
+  return output(
+    `Showing ${workspace.name} (${shortId(workspace.id)}).`,
+    workspaceJson(ctx, workspace),
+  );
+}
+
+const workspaceSwitch: CliCommand = {
+  path: ["workspace", "switch"],
+  summary: "Show a workspace or worktree to the user, as clicking it in the sidebar does",
+  args: "<workspace>",
+  async run(ctx, { positionals }) {
+    const [selector] = exactArgs(positionals, "workspace") as [string];
+    return show(ctx, resolveWorkspace(ctx, selector));
+  },
+};
+
+/** A workspace and its worktrees: the one a worktree belongs to, or the workspace itself. */
+function worktreeFamily(ctx: CliContext, workspace: WorkspaceMeta): WorkspaceMeta[] {
+  const all = ctx.services.listWorkspaces();
+  const root = workspace.task
+    ? (all.find((w) => w.id === workspace.task?.parentId) ?? workspace)
+    : workspace;
+  return [root, ...all.filter((w) => w.task?.parentId === root.id)];
+}
+
+const worktreeList: CliCommand = {
+  path: ["worktree", "list"],
+  summary: "List a workspace's worktrees, the workspace itself first",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { flags }) {
+    const family = worktreeFamily(
+      ctx,
+      resolveWorkspace(ctx, flags.workspace as string | undefined),
+    );
+    const rows = family.map((w) => [
+      shortId(w.id),
+      w.name,
+      w.task ? w.task.branch : "(workspace)",
+      marks(ctx, w),
+      w.task ? w.task.worktreePath : describeLocation(w),
+    ]);
+    return output(
+      table(["ID", "NAME", "BRANCH", "", "PATH"], rows),
+      family.map((w) => workspaceJson(ctx, w)),
+    );
+  },
+};
+
+const worktreeSwitch: CliCommand = {
+  path: ["worktree", "switch"],
+  summary: "Show one of this workspace's worktrees to the user",
+  args: "<worktree>",
+  details:
+    "A worktree is named by id, id prefix, name or branch; the workspace they belong to, by\n" +
+    "its id or name.",
+  async run(ctx, { positionals }) {
+    const [selector] = exactArgs(positionals, "worktree") as [string];
+    const family = worktreeFamily(ctx, resolveWorkspace(ctx, undefined));
+    const target =
+      family.find((w) => w.task?.branch === selector) ??
+      pick(
+        family,
+        selector,
+        (w) => w.id,
+        (w) => w.name,
+        "worktree",
+      );
+    return show(ctx, target);
+  },
+};
+
+export const workspaceCommands: CliCommand[] = [
+  status,
+  workspaceList,
+  workspaceCurrent,
+  workspaceSwitch,
+  worktreeList,
+  worktreeSwitch,
+];
