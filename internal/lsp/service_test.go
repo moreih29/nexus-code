@@ -222,6 +222,7 @@ func TestSpawnReturnsServerInfo(t *testing.T) {
 	if result.ServerInfo == nil || *result.ServerInfo != (ServerInfo{Name: "fake-lsp", Version: "1.2.3"}) {
 		t.Fatalf("ServerInfo = %+v, want fake-lsp 1.2.3", result.ServerInfo)
 	}
+	shutdownServer(t, service, result.ServerID)
 }
 
 func TestStatsReportsEachServersMemory(t *testing.T) {
@@ -239,6 +240,7 @@ func TestStatsReportsEachServersMemory(t *testing.T) {
 	if stats.Servers[0].RSSBytes == 0 {
 		t.Fatal("Stats() reported no memory for a running server")
 	}
+	shutdownServer(t, service, result.ServerID)
 }
 
 // cmd.Wait closes the stdout and stderr pipes as soon as the server exits.
@@ -370,6 +372,15 @@ func TestServiceRoutesFSChangedToRegisteredWatchedFiles(t *testing.T) {
 	}
 
 	if _, err := service.Shutdown(context.Background(), mustJSON(t, ShutdownParams{ServerID: result.ServerID})); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+}
+
+// shutdownServer stops a server before the test's temp dir is removed:
+// Windows refuses to remove the directory a running process works in.
+func shutdownServer(t *testing.T, service *Service, serverID string) {
+	t.Helper()
+	if _, err := service.Shutdown(context.Background(), mustJSON(t, ShutdownParams{ServerID: serverID})); err != nil {
 		t.Fatalf("Shutdown() error = %v", err)
 	}
 }
