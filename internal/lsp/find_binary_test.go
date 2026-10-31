@@ -39,6 +39,19 @@ func TestFindBinaryTriesTheUsersPathFirst(t *testing.T) {
 	}
 }
 
+func TestFindBinaryAddsExeToTheUsersPathOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows leaves the extension out")
+	}
+	root := t.TempDir()
+	theirs := writeExecutable(t, filepath.Join(root, "custom"), "gopls")
+
+	withoutExe := strings.TrimSuffix(theirs, ".exe")
+	if got := findBinary("gopls", withoutExe, nil); got != theirs {
+		t.Fatalf("findBinary() = %q, want %q", got, theirs)
+	}
+}
+
 func TestFindBinarySearchesTheDirectoriesInOrder(t *testing.T) {
 	root := t.TempDir()
 	first := writeExecutable(t, filepath.Join(root, "a"), "rust-analyzer")

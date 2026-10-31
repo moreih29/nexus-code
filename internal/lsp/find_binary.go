@@ -64,8 +64,13 @@ func (s *Service) FindBinary(_ context.Context, raw json.RawMessage) (any, error
 }
 
 func findBinary(name, userPath string, dirs []string) string {
-	if userPath != "" && isExecutableFile(userPath) {
-		return userPath
+	if userPath != "" {
+		// On Windows "gopls" stands for "gopls.exe", as in a shell.
+		for _, candidate := range executableNames(userPath) {
+			if isExecutableFile(candidate) {
+				return candidate
+			}
+		}
 	}
 	for _, dir := range dirs {
 		if dir == "" {
