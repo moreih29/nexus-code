@@ -121,13 +121,17 @@ func copyDir(src, dst string) error {
 }
 
 // copySymlink preserves the symlink by reading the link target and creating
-// a new symlink at the destination with the same target.
+// a new symlink at the destination with the same target, or what stands in
+// for one where it cannot be created (see symlinkFallback).
 func copySymlink(src, dst string) error {
 	target, err := os.Readlink(src)
 	if err != nil {
 		return err
 	}
-	return os.Symlink(target, dst)
+	if err := os.Symlink(target, dst); err != nil {
+		return symlinkFallback(src, dst, target, err)
+	}
+	return nil
 }
 
 // copyFileContents is the single io.Copy path used by copyRegularFile.
