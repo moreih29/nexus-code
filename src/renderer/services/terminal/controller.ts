@@ -326,6 +326,8 @@ class XtermTerminalController implements TerminalController {
   private shellPath: string | undefined;
   /** Whether the shell is cmd.exe, which pastes on Ctrl+V (see the key handler). */
   private shellIsCmd = false;
+  /** Whether the shell is PowerShell or cmd, which read Home and End as they are. */
+  private shellTakesHomeEnd = false;
   private term: TerminalLike | null = null;
   private fitAddon: FitAddonLike | null = null;
   private ligaturesAddon: LigaturesAddonLike | null = null;
@@ -459,6 +461,7 @@ class XtermTerminalController implements TerminalController {
     if (result.shellPath !== undefined) {
       this.shellPath = result.shellPath;
       this.shellIsCmd = /(^|[\\/])cmd\.exe$/i.test(result.shellPath);
+      this.shellTakesHomeEnd = /(^|[\\/])(cmd|powershell|pwsh)\.exe$/i.test(result.shellPath);
     }
   }
 
@@ -847,6 +850,11 @@ class XtermTerminalController implements TerminalController {
       // Trade-off: vim normal mode에서 Ctrl+A는 increment number 의미라
       //   부작용 가능. vim 사용자는 0/$/g/G를 쓰는 것이 일반적이라 드문 케이스로
       //   간주한다. 향후 호환성 이슈 보고 시 setting 토글 도입.
+      //
+      // PowerShell and cmd keep the keys: PowerShell selects the whole line on
+      // Ctrl+A and cmd types ^A, while both, and Claude Code under them, move
+      // the cursor on Home and End, which ConPTY hands on as key presses.
+      if (this.shellTakesHomeEnd) return true;
       const isHome =
         (event.key === "Home" &&
           !event.shiftKey &&

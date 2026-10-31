@@ -1182,6 +1182,40 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     controller.dispose();
   });
 
+  // PowerShell selects the whole line on Ctrl+A, and cmd types ^A.
+  it("leaves Home and End to PowerShell and cmd", async () => {
+    for (const shellPath of [
+      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+      "C:\\Windows\\system32\\cmd.exe",
+    ]) {
+      const harness = makeTerminalControllerDeps(() => Promise.resolve({ pid: 1, shellPath }));
+      const controller = createTerminalController(
+        {
+          workspaceId: WS,
+          tabId: `tab-${shellPath.length}`,
+          cwd: "C:\\work",
+          container: {} as HTMLElement,
+        },
+        harness.deps,
+      );
+      await flushTerminalInit();
+      await new Promise((r) => setTimeout(r, 0));
+      const handler = harness.getKeyHandler();
+      if (!handler) throw new Error("customKey handler was not registered");
+
+      for (const key of ["Home", "End"]) {
+        const event = fakeKeyEvent({ key });
+        expect(handler(event as unknown as KeyboardEvent)).toBe(true);
+        expect(event.defaultPrevented).toBe(false);
+      }
+      await new Promise((r) => setTimeout(r, 0));
+      expect(harness.ptyWrites).toEqual([]);
+
+      controller.dispose();
+    }
+  });
+
   describe("copy with a selection", () => {
     const copied = () =>
       ipcCalls
