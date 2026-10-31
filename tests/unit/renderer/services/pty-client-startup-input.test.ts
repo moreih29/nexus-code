@@ -124,10 +124,27 @@ describe("quoteShellArgument", () => {
     expect(quoteShellArgument(text)).toBe(`'it'\\''s "done" $HOME'`);
   });
 
-  it("doubles single quotes for PowerShell", () => {
+  it("doubles single quotes for PowerShell 7", () => {
     expect(quoteShellArgument(text, "C:\\Program Files\\PowerShell\\7\\pwsh.exe")).toBe(
       `'it''s "done" $HOME'`,
     );
+  });
+
+  describe("Windows PowerShell", () => {
+    const powershell = "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+
+    it("also escapes double quotes for the program's command line", () => {
+      expect(quoteShellArgument(text, powershell)).toBe(`'it''s \\"done\\" $HOME'`);
+    });
+
+    it("doubles the backslashes before a double quote", () => {
+      expect(quoteShellArgument('say \\"hi\\"', powershell)).toBe(`'say \\\\\\"hi\\\\\\"'`);
+    });
+
+    it("doubles the trailing backslashes only when the argument has whitespace", () => {
+      expect(quoteShellArgument("open C:\\dir\\", powershell)).toBe("'open C:\\dir\\\\'");
+      expect(quoteShellArgument("C:\\dir\\", powershell)).toBe("'C:\\dir\\'");
+    });
   });
 
   it("doubles double quotes for cmd", () => {
