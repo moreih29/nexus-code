@@ -77,7 +77,7 @@ export async function createTask(
   const root = deps.manager.getWorktreesRoot(parentId);
   if (!root) throw new TaskError("not-connected", `${parent.name} is not connected`);
 
-  const remote = parent.location.kind === "ssh";
+  const remote = parent.location.kind !== "local";
   const join = remote ? path.posix.join : path.join;
   const repoDir = join(root, repoFolderName(parent));
   const branches = new Set((await repo.listBranches()).local);

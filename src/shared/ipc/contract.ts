@@ -588,6 +588,23 @@ export const ipcContract = {
     },
   },
 
+  /**
+   * WSL distributions on a Windows host, for adding a WSL workspace. A
+   * browse session opened here joins the SSH browse sessions, so
+   * `ssh.browseSession`, `ssh.closeBrowseSession` and `ssh.browseProgress`
+   * serve it.
+   */
+  wsl: {
+    call: {
+      listDistros: call(z.void(), z.array(z.string())),
+      openBrowseSession: call(
+        z.object({ distro: z.string().min(1), progressId: z.string().optional() }),
+        z.object({ sessionId: z.string().uuid(), initialPath: z.string() }),
+      ),
+    },
+    listen: {},
+  },
+
   sshAuth: {
     call: {
       respond: call(SshAuthRespondArgsSchema, z.void()),

@@ -63,6 +63,7 @@ import {
 import { registerWindowChannel } from "./features/window/ipc";
 import { registerWorkspaceChannel } from "./features/workspace/ipc";
 import { WorkspaceManager } from "./features/workspace/manager";
+import { registerWslChannel } from "./features/wsl/ipc";
 import { getMainI18n, getMainT, initMainI18n } from "./i18n";
 import { NEXUS_AGENT_MODE_ENV } from "./infra/agent/local-agent-resolver";
 import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./infra/agent/ssh/auth-prompt";
@@ -306,6 +307,7 @@ registerSshBrowseHandlers(
   forwardBroadcast,
 );
 registerSshAuthPromptIpcChannels(sshAuthPromptHub);
+registerWslChannel(sshBrowseRegistry, forwardBroadcast);
 registerSystemChannel({ openNewWindow: () => createMainWindow(stateService.getState()) });
 registerWindowChannel();
 registerClipboardChannel();

@@ -3,7 +3,7 @@
  *
  * Acceptance criteria 10-12:
  *  10. startLocalProvider 호출 시 writeShimFiles(workspaceId) 1회
- *  11. startSshProvider 호출 시 writeShimFiles(workspaceId) 1회
+ *  11. startRemoteProvider 호출 시 writeShimFiles(workspaceId) 1회
  *  12. lifecycle terminal handler에서 removeShimDir(workspaceId) 호출
  *
  * writeShimFiles / removeShimDir 을 WorkspaceManager 생성자 DI로 주입하여
@@ -174,10 +174,10 @@ describe("acceptance 10: startLocalProvider → writeShimFiles(workspaceId) 1회
 });
 
 // ---------------------------------------------------------------------------
-// Acceptance 11: startSshProvider calls writeShimFiles once
+// Acceptance 11: startRemoteProvider calls writeShimFiles once
 // ---------------------------------------------------------------------------
 
-describe("acceptance 11: startSshProvider → writeShimFiles(workspaceId) 1회", () => {
+describe("acceptance 11: startRemoteProvider → writeShimFiles(workspaceId) 1회", () => {
   test("ssh workspace provider boot writes shim files for the workspace", async () => {
     const { writeShimFilesMock, removeShimDirMock } = makeShimFakes();
 

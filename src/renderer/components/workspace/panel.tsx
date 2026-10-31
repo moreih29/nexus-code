@@ -68,8 +68,8 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
 
   // Whether this workspace needs an offline placeholder instead of the normal panel.
   // Only SSH workspaces that have not yet connected show the placeholder.
-  const isSshWorkspace = workspace.location.kind === "ssh";
-  const showOfflinePlaceholder = isSshWorkspace && !workspaceOnline;
+  const isRemoteWorkspace = workspace.location.kind !== "local";
+  const showOfflinePlaceholder = isRemoteWorkspace && !workspaceOnline;
   // Distinguish "session expired during reconnect" from a plain connection failure
   // so the copy is not misleading (user never triggered a disconnect).
   const isSessionExpired = connectionStatus === "held-then-expired";
@@ -111,10 +111,13 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
   if (showOfflinePlaceholder) {
     const isError = connectionStatus === "error";
     const isConnecting = connectionStatus === "connecting" || connectionStatus === "reconnecting";
+    const isWsl = workspace.location.kind === "wsl";
     const sshLabel =
       workspace.location.kind === "ssh"
         ? `${workspace.location.user ? `${workspace.location.user}@` : ""}${workspace.location.host}`
-        : "";
+        : workspace.location.kind === "wsl"
+          ? workspace.location.distro
+          : "";
     return (
       <div
         className={cn(
@@ -141,9 +144,11 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
               title={isError ? t("panel.connection_failed") : workspace.name}
               description={
                 isError
-                  ? t("panel.could_not_connect", { label: sshLabel })
+                  ? t(isWsl ? "panel.could_not_start_wsl" : "panel.could_not_connect", {
+                      label: sshLabel,
+                    })
                   : sshLabel
-                    ? t("panel.ssh_workspace", { label: sshLabel })
+                    ? t(isWsl ? "panel.wsl_workspace" : "panel.ssh_workspace", { label: sshLabel })
                     : undefined
               }
               actionLabel={isError ? t("action.retry") : t("action.connect")}

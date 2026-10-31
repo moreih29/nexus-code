@@ -9,17 +9,21 @@ import type { CallReturn } from "../../../ipc/types";
 export type SshConfigHost = CallReturn<"ssh", "listConfigHosts">[number];
 
 /**
- * 4-view state machine for the Add Workspace modal.
+ * View state machine for the Add Workspace modal.
  *  main-list        → Local folder list + SSH server list (default entry point)
  *  ssh-server-list  → SSH saved connection list (when SSH entry chosen)
  *  ssh-new-connection   → New SSH connection form
  *  ssh-directory-picker → Remote directory picker (after successful connect)
+ *  wsl-distro-list      → WSL distributions (Windows, when WSL entry chosen)
+ *  wsl-directory-picker → The directory picker on a WSL distribution
  */
 export type ModalView =
   | "main-list"
   | "ssh-server-list"
   | "ssh-new-connection"
-  | "ssh-directory-picker";
+  | "ssh-directory-picker"
+  | "wsl-distro-list"
+  | "wsl-directory-picker";
 
 /**
  * SSH browse session — openBrowseSession success result.
@@ -45,6 +49,16 @@ export interface SshBrowseSession {
   readonly connectionProfileId: string;
 }
 
+/**
+ * WSL browse session — `wsl.openBrowseSession`'s result for one distribution.
+ * The directory picker browses it like an SSH session.
+ */
+export interface WslBrowseSession {
+  readonly sessionId: string;
+  readonly initialPath: string;
+  readonly distro: string;
+}
+
 // ---------------------------------------------------------------------------
 // View boundary interfaces
 // ---------------------------------------------------------------------------
@@ -58,6 +72,8 @@ export interface MainListViewProps {
   readonly onClose: () => void;
   /** Navigate to ssh-server-list view ("Connect via SSH…" button). */
   readonly onSshServerList: () => void;
+  /** Navigate to wsl-distro-list view ("Open WSL folder" button, Windows only). */
+  readonly onWslDistroList: () => void;
   /**
    * Navigate to ssh-new-connection view, optionally pre-filling a profile.
    * Used when SSH reconnect fails and user clicks "Open connection settings".
@@ -98,10 +114,10 @@ export interface SshNewConnectionViewProps {
 }
 
 /**
- * SSH directory picker view props.
+ * Directory picker view props, for an SSH host or a WSL distribution.
  */
 export interface SshDirectoryPickerViewProps {
-  readonly session: SshBrowseSession;
+  readonly session: SshBrowseSession | WslBrowseSession;
   readonly onWorkspaceCreated: (meta: WorkspaceMeta) => void | Promise<void>;
   /** Close modal — unmount cleanup handles closeBrowseSession. */
   readonly onClose: () => void;
@@ -109,4 +125,12 @@ export interface SshDirectoryPickerViewProps {
   readonly onBack: () => void;
   /** Lifts footer primary button state to root — addPhase and addDisabled. */
   readonly onAddPhaseChange: (phase: "idle" | "creating", disabled: boolean) => void;
+}
+
+/**
+ * WSL distribution list view props.
+ */
+export interface WslDistroListViewProps {
+  /** A distribution's agent is up — transitions to the directory picker. */
+  readonly onConnected: (session: WslBrowseSession) => void;
 }

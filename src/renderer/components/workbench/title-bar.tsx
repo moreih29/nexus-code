@@ -96,8 +96,10 @@ function titleLabel(workspace: WorkspaceMeta): string {
  * Produces the centered title-bar label. Local workspaces show just the
  * workspace name; SSH workspaces append "(ssh: <host>)" where <host> is
  * the SSH config alias when present, else "user@host", else the host alone.
+ * WSL workspaces append "(wsl: <distribution>)".
  */
 function workspaceTitleLabel(name: string, location: WorkspaceLocation): string {
+  if (location.kind === "wsl") return `${name} (wsl: ${location.distro})`;
   if (location.kind !== "ssh") return name;
   const host =
     location.configAlias ?? (location.user ? `${location.user}@${location.host}` : location.host);

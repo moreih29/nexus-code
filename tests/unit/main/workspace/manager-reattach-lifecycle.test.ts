@@ -6,7 +6,7 @@
  *   (3) connectionStatus "unstable" when degraded received; workspaceIsOnline=true
  *       for "unstable". Cleared back to "connected" after ~1 s.
  *   (4) SSH auth-failed terminal failure on interactive workspace →
- *       startSshProvider re-entry (auto re-prompt), reauthInFlight guard,
+ *       startRemoteProvider re-entry (auto re-prompt), reauthInFlight guard,
  *       ssh.auth-cancelled → disconnected (no retry loop),
  *       reauthAttempts backoff (0→5s→30s), 3 attempts → error.
  *   (5) ctx absent at reauth time → no action.
@@ -232,7 +232,7 @@ describe("acceptance 3: degraded lifecycle → unstable broadcast", () => {
 // ---------------------------------------------------------------------------
 
 describe("acceptance 4a: auth-failed terminal failure → auto re-prompt", () => {
-  test("ssh.auth-failed on interactive workspace triggers startSshProvider re-entry", async () => {
+  test("ssh.auth-failed on interactive workspace triggers startRemoteProvider re-entry", async () => {
     let bootCallCount = 0;
     const channel = new StubChannel();
     const sshBootstrap = mock(async () => {
