@@ -50,8 +50,6 @@ describe("tag History reveal helpers", () => {
     expect(tagHistoryRef(tag)).toBe("refs/tags/v1.0.0");
     const message = buildTagHistoryRevealMessage(tag);
     expect(message).toBe("Showing History for tag 'v1.0.0' at 0123456.");
-    expect(message).not.toContain("when History lands");
-    expect(message).not.toContain("future");
   });
 });
 

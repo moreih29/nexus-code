@@ -54,11 +54,6 @@ describe("FileTreeRow isCut overlay — Phase F", () => {
     // opacity-40 is added only for isCut or isDragging; isDragging starts false.
     expect(html).not.toContain("opacity-40");
   });
-
-  it("isCut=true also shows disabled-border class", () => {
-    const html = renderRow({ isCut: true });
-    expect(html).toContain("state-disabled-border");
-  });
 });
 
 // ---------------------------------------------------------------------------

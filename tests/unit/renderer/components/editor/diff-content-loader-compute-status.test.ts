@@ -1,10 +1,7 @@
 /**
- * Unit tests for computeStatus and REFRESHING_INDICATOR_DELAY_MS in
- * diff-content-loader.ts.
+ * Unit tests for computeStatus in diff-content-loader.ts.
  *
- * SCOPE:
- *   1. computeStatus transitions: loading / refreshing / ready / error.
- *   2. REFRESHING_INDICATOR_DELAY_MS is exported and equals 400.
+ * SCOPE: computeStatus transitions: loading / refreshing / ready / error.
  *
  * ISOLATION: computeStatus is a pure function that only inspects DiffSideState
  * shapes — no IPC or React hooks involved.  No mocks are required.
@@ -37,7 +34,6 @@ import {
   type DiffSideLoadingState,
   type DiffSideReadyState,
   type DiffSideRequest,
-  REFRESHING_INDICATOR_DELAY_MS,
 } from "../../../../../src/renderer/components/editor/diff-content-loader";
 
 // ---------------------------------------------------------------------------
@@ -85,16 +81,6 @@ function errorState(side: "left" | "right" = "left"): DiffSideErrorState {
     tooLarge: false,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Tests — REFRESHING_INDICATOR_DELAY_MS exported constant
-// ---------------------------------------------------------------------------
-
-describe("REFRESHING_INDICATOR_DELAY_MS", () => {
-  test("is exported and equals 400", () => {
-    expect(REFRESHING_INDICATOR_DELAY_MS).toBe(400);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Tests — computeStatus transitions

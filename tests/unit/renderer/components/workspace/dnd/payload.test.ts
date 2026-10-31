@@ -26,14 +26,9 @@ function fakeDt(record: Record<string, string>): DataTransfer {
 
 describe("buildFileDragPayload", () => {
   it("returns a FileDragPayload with the given wsId and paths", () => {
-    const p = buildFileDragPayload("ws1", ["/a/b.ts"]);
-    expect(p.workspaceId).toBe("ws1");
-    expect(p.filePaths).toEqual(["/a/b.ts"]);
-  });
-
-  it("preserves multiple paths", () => {
     const p = buildFileDragPayload("ws1", ["/a/b.ts", "/a/c.ts"]);
-    expect(p.filePaths).toHaveLength(2);
+    expect(p.workspaceId).toBe("ws1");
+    expect(p.filePaths).toEqual(["/a/b.ts", "/a/c.ts"]);
   });
 
   it("throws when filePaths is empty", () => {
@@ -47,19 +42,12 @@ describe("buildFileDragPayload", () => {
 
 describe("parseFileDragPayload", () => {
   it("returns payload for valid filePaths shape", () => {
-    const raw = JSON.stringify({ workspaceId: "ws1", filePaths: ["/a/b.ts"] });
+    const raw = JSON.stringify({ workspaceId: "ws1", filePaths: ["/a/b.ts", "/a/c.ts"] });
     const dt = fakeDt({ [MIME_FILE]: raw });
     const result = parseFileDragPayload(dt);
     expect(result).not.toBeNull();
     expect(result?.workspaceId).toBe("ws1");
-    expect(result?.filePaths).toEqual(["/a/b.ts"]);
-  });
-
-  it("returns payload for multi-path array", () => {
-    const raw = JSON.stringify({ workspaceId: "ws1", filePaths: ["/a/b.ts", "/a/c.ts"] });
-    const dt = fakeDt({ [MIME_FILE]: raw });
-    const result = parseFileDragPayload(dt);
-    expect(result?.filePaths).toHaveLength(2);
+    expect(result?.filePaths).toEqual(["/a/b.ts", "/a/c.ts"]);
   });
 
   it("returns null when MIME_FILE is absent", () => {

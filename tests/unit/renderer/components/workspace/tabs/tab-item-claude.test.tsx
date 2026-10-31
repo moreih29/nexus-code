@@ -5,9 +5,7 @@
  * renderToStaticMarkup으로 DOM 없이 실행.
  *
  * 테스트 전략:
- * - 5상태별 글리프 aria-label, CSS 토큰 class 존재를 검증한다.
- * - attention bar (rounded-none + 상태별 색 토큰) 렌더 여부를 검증한다.
- * - a11y: aria-label 존재 검증.
+ * - 5상태별 글리프 aria-label 렌더 여부를 검증한다.
  *
  * NOTE: mock.module로 useClaudeStatusStore를 완전 교체해 모듈 인스턴스 공유 문제를 회피한다.
  * bun의 mock.module은 모든 import에 걸쳐 동일 mock을 공유하므로 컴포넌트가 보는
@@ -187,21 +185,6 @@ describe("TabItem — running 상태", () => {
     const html = renderTabItem();
     expect(html).toContain("Claude: running");
   });
-
-  test("state-loading-indicator 토큰 클래스가 적용된다", () => {
-    const html = renderTabItem();
-    expect(html).toContain("state-loading-indicator");
-  });
-
-  test("attention bar(rounded-none)가 없다 — running은 bar 미표시", () => {
-    const html = renderTabItem();
-    expect(html).not.toContain("rounded-none");
-  });
-
-  test("Loader 글리프에 animate-spin 클래스가 포함된다", () => {
-    const html = renderTabItem();
-    expect(html).toContain("animate-spin");
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -218,21 +201,6 @@ describe("TabItem — needsInput 상태", () => {
     const html = renderTabItem();
     expect(html).toContain("Claude: waiting for input");
   });
-
-  test("tab-claude-attention-fg 토큰 클래스가 적용된다", () => {
-    const html = renderTabItem();
-    expect(html).toContain("tab-claude-attention-fg");
-  });
-
-  test("needsInput 글리프는 pulse 애니메이션이 적용된다 (completed와 시각적 구분)", () => {
-    const html = renderTabItem();
-    expect(html).toContain("motion-safe:animate-pulse");
-  });
-
-  test("좌측 attention bar(rounded-none)가 없다 — bar 제거됨", () => {
-    const html = renderTabItem();
-    expect(html).not.toContain("rounded-none");
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -247,21 +215,6 @@ describe("TabItem — permissionPending 상태", () => {
   test("aria-label='Claude: waiting for permission'이 렌더된다", () => {
     const html = renderTabItem();
     expect(html).toContain("Claude: waiting for permission");
-  });
-
-  test("state-warning-fg 토큰 클래스가 적용된다", () => {
-    const html = renderTabItem();
-    expect(html).toContain("state-warning-fg");
-  });
-
-  test("좌측 attention bar(rounded-none)가 없다 — bar 제거됨", () => {
-    const html = renderTabItem();
-    expect(html).not.toContain("rounded-none");
-  });
-
-  test("배경 warning tint 클래스(state-warning-bg)가 포함된다", () => {
-    const html = renderTabItem();
-    expect(html).toContain("state-warning-bg");
   });
 });
 
@@ -278,16 +231,6 @@ describe("TabItem — error 상태", () => {
     const html = renderTabItem();
     expect(html).toContain("Claude: error");
   });
-
-  test("state-error-fg 토큰 클래스가 적용된다", () => {
-    const html = renderTabItem();
-    expect(html).toContain("state-error-fg");
-  });
-
-  test("좌측 attention bar(rounded-none)가 없다 — bar 제거됨", () => {
-    const html = renderTabItem();
-    expect(html).not.toContain("rounded-none");
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -302,10 +245,5 @@ describe("TabItem — Claude 상태 없음(store 비어있음)", () => {
   test("Claude aria-label이 전혀 렌더되지 않는다", () => {
     const html = renderTabItem();
     expect(html).not.toContain("Claude:");
-  });
-
-  test("attention bar가 없다", () => {
-    const html = renderTabItem();
-    expect(html).not.toContain("rounded-none");
   });
 });

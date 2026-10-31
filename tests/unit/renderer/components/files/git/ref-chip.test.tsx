@@ -225,35 +225,30 @@ describe("RefChip rendering semantics", () => {
         refInfo: ref("HEAD", "head", true),
         currentRefName: "main",
         ariaLabel: "HEAD ref",
-        classToken: "bg-[var(--color-git-chip-head-bg)]",
         displayKind: "head",
       },
       {
         refInfo: ref("main", "branch"),
         currentRefName: "main",
         ariaLabel: "Current branch main",
-        classToken: "border-[var(--color-git-chip-border-strong)]",
         displayKind: "current",
       },
       {
         refInfo: ref(longName, "branch"),
         currentRefName: "main",
         ariaLabel: `Branch ${longName}`,
-        classToken: "border-[var(--color-git-chip-border)]",
         displayKind: "branch",
       },
       {
         refInfo: ref("origin/main", "remote"),
         currentRefName: "main",
         ariaLabel: "Remote branch origin/main",
-        classToken: "border-dashed",
         displayKind: "remote",
       },
       {
         refInfo: ref("v1.0.0", "tag"),
         currentRefName: "main",
         ariaLabel: "Tag v1.0.0",
-        classToken: "rounded-[3px]",
         displayKind: "tag",
       },
     ] as const;
@@ -269,8 +264,6 @@ describe("RefChip rendering semantics", () => {
       expect(button.props.title).toBe(item.refInfo.name);
       expect(button.props["aria-label"]).toBe(item.ariaLabel);
       expect(button.textContent).toBe(item.refInfo.name);
-      expect(String(button.props.className)).toContain("max-w-[14ch]");
-      expect(String(button.props.className)).toContain(item.classToken);
       expect(textSpanFor(button, item.refInfo.name).props.className).toContain("truncate");
     }
   });

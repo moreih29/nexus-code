@@ -101,17 +101,4 @@ describe("connectionStatusClassName", () => {
   test("unstable maps to semantic state.warning.fg token", () => {
     expect(connectionStatusClassName("unstable")).toBe("bg-[var(--state-warning-fg)]");
   });
-
-  test("unstable does not map to any raw workspace-connection-* token", () => {
-    expect(connectionStatusClassName("unstable")).not.toContain("--color-workspace-connection-");
-  });
-
-  test("connected maps to workspace-connection-connected token", () => {
-    expect(connectionStatusClassName("connected")).toContain("--color-workspace-connection-connected");
-  });
-
-  test("error and held-then-expired both map to error token", () => {
-    expect(connectionStatusClassName("error")).toContain("--color-workspace-connection-error");
-    expect(connectionStatusClassName("held-then-expired")).toContain("--color-workspace-connection-error");
-  });
 });

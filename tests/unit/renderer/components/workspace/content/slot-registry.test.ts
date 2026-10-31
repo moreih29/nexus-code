@@ -1,12 +1,11 @@
 /**
  * slot-registry — external contract unit tests
  *
- * Verifies the public API of slotRegistry and useSlotElement:
+ * Verifies the public API of slotRegistry:
  *
  *   slotRegistry.set(workspaceId, leafId, el | null): void
  *   slotRegistry.get(workspaceId, leafId): HTMLElement | null
  *   slotRegistry.subscribe(listener: () => void): () => void  // disposer
- *   useSlotElement(workspaceId, leafId | null): HTMLElement | null
  *
  * Test cases:
  *   1. set + get: same (workspaceId, leafId) returns the stored element
@@ -15,15 +14,13 @@
  *   4. subscribe: listener called on set and on null-clear
  *   5. idempotent set: same element re-set → listener called only once
  *   6. unsubscribe: disposer stops notifications
- *   7. useSlotElement hook contract: snapshot updates after set; null leafId always null
+ *   7. reference stability: repeated get() returns the same value in every state
  *   8. StrictMode double-mount simulation: (el → null → el) sequence preserves final element
  *
  * DOM note:
  *   bun:test has no jsdom environment by default. The registry only stores element
  *   references by identity — it never calls DOM methods — so lightweight
- *   HTMLElement stand-ins suffice for tests 1-6 and 8. Tests 7 verifies the
- *   useSyncExternalStore contract via direct subscription simulation (mirrors what
- *   React would do without needing a real React fiber or DOM renderer).
+ *   HTMLElement stand-ins suffice.
  *
  * Isolation strategy:
  *   The registry is a module-level singleton Map. Each test uses a unique
@@ -33,10 +30,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import {
-  slotRegistry,
-  useSlotElement,
-} from "../../../../../../src/renderer/components/workspace/content/slot-registry";
+import { slotRegistry } from "../../../../../../src/renderer/components/workspace/content/slot-registry";
 
 // ---------------------------------------------------------------------------
 // Minimal HTMLElement stand-in
@@ -167,55 +161,6 @@ describe("slotRegistry", () => {
   });
 
   // 7 -----------------------------------------------------------------------
-  describe("useSlotElement hook 계약", () => {
-    it("registry.set 후 hook 스냅샷이 element를 반환", () => {
-      const WS = "ws7";
-      const LEAF = "leaf7";
-      const el = makeEl();
-
-      // Simulate useSyncExternalStore's behavior:
-      // React calls: subscribe(onStoreChange), then getSnapshot() each render.
-      // When onStoreChange fires, React re-reads getSnapshot().
-      const getSnapshot = () => (useSlotElement === null ? null : slotRegistry.get(WS, LEAF));
-
-      // Initial state: no element registered
-      expect(slotRegistry.get(WS, LEAF)).toBeNull();
-
-      // Subscribe as React would
-      let latestSnapshot = slotRegistry.get(WS, LEAF);
-      const onStoreChange = mock(() => {
-        latestSnapshot = slotRegistry.get(WS, LEAF);
-      });
-      trackedSubscribe(onStoreChange);
-
-      // After set — subscription fires, snapshot updates
-      trackedSet(WS, LEAF, el);
-
-      expect(onStoreChange).toHaveBeenCalledTimes(1);
-      expect(latestSnapshot).toBe(el);
-
-      // getSnapshot agrees
-      expect(getSnapshot()).toBe(el);
-    });
-
-    it("leafId === null 일 때 hook은 항상 null 반환", () => {
-      const WS = "ws7b";
-      // The hook's getSnapshot: leafId === null ? null : slotRegistry.get(ws, leafId)
-      const getHookSnapshot = (leafId: string | null) =>
-        leafId === null ? null : slotRegistry.get(WS, leafId);
-
-      expect(getHookSnapshot(null)).toBeNull();
-
-      // Even if we set something for a real leaf, null leafId still returns null
-      const el = makeEl();
-      trackedSet(WS, "real-leaf", el);
-
-      expect(getHookSnapshot(null)).toBeNull();
-      expect(getHookSnapshot("real-leaf")).toBe(el); // sanity check
-    });
-  });
-
-  // 8 -----------------------------------------------------------------------
   // useSyncExternalStore 계약: getSnapshot은 store 상태가 변하지 않으면 동일
   // 참조를 반환해야 한다. 아래 한 케이스로 모든 상태(element / 미등록 / set(null)
   // 후)에서의 참조 안정성을 통합 검증한다.
@@ -250,7 +195,7 @@ describe("slotRegistry", () => {
     expect(Object.is(n1, n2)).toBe(true);
   });
 
-  // 9 -----------------------------------------------------------------------
+  // 8 -----------------------------------------------------------------------
   it("StrictMode 이중 마운트 시뮬레이션: (el → null → el) 시퀀스 후 최종 상태 element 보유", () => {
     const WS = "ws8";
     const LEAF = "leaf8";
