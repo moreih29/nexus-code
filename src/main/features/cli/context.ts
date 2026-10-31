@@ -146,6 +146,7 @@ export function resolveTab(
 export function describeLocation(workspace: WorkspaceMeta): string {
   const location = workspace.location;
   if (location.kind === "local") return location.rootPath;
+  if (location.kind === "wsl") return `wsl:${location.distro}:${location.remotePath}`;
   const user = location.user ? `${location.user}@` : "";
   return `${user}${location.host}:${location.remotePath}`;
 }

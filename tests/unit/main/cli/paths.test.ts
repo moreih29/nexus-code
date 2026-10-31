@@ -3,7 +3,7 @@
  * inside the workspace, and spelled as the workspace's host spells them.
  */
 import { expect, test } from "bun:test";
-import type { CliContext } from "../../../../src/main/features/cli/context";
+import { type CliContext, describeLocation } from "../../../../src/main/features/cli/context";
 import { splitLocation, workspaceFile } from "../../../../src/main/features/cli/paths";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 import { APP, contextFor, fakeApp, SHELL_TAB } from "./fake-services";
@@ -58,4 +58,16 @@ test.each([
 
 test("line 0 is refused", () => {
   expect(() => splitLocation("a.ts:0")).toThrow("lines and columns count from 1: a.ts:0");
+});
+
+test("a workspace's place is spelled as its host spells it", () => {
+  const at = (location: WorkspaceMeta["location"]) =>
+    describeLocation({ location } as WorkspaceMeta);
+  expect(at({ kind: "local", rootPath: "/w/app" })).toBe("/w/app");
+  expect(at({ kind: "ssh", host: "box", user: "u", remotePath: "/srv/app" })).toBe(
+    "u@box:/srv/app",
+  );
+  expect(at({ kind: "wsl", distro: "Ubuntu", remotePath: "/home/u/app" })).toBe(
+    "wsl:Ubuntu:/home/u/app",
+  );
 });
