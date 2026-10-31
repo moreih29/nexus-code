@@ -17,6 +17,7 @@ func (p *serverProcess) Shutdown(ctx context.Context) error {
 
 func (p *serverProcess) doShutdown(ctx context.Context) error {
 	p.stopIdleTimer()
+	p.markShuttingDown()
 	if p.isExited() {
 		return nil
 	}
@@ -39,8 +40,16 @@ func (p *serverProcess) doShutdown(ctx context.Context) error {
 
 func (p *serverProcess) forceClose() {
 	p.stopIdleTimer()
+	p.markShuttingDown()
 	p.kill()
 	p.waitForExit(shutdownExitGrace)
+}
+
+// markShuttingDown has serverExited say the agent stopped the server.
+func (p *serverProcess) markShuttingDown() {
+	p.mu.Lock()
+	p.shuttingDown = true
+	p.mu.Unlock()
 }
 
 func (p *serverProcess) resetIdleTimer() {
@@ -100,6 +109,7 @@ func (p *serverProcess) markExited(err error) {
 		p.mu.Lock()
 		p.exited = true
 		p.exitErr = err
+		shutdown := p.shuttingDown
 		if p.idleTimer != nil {
 			p.idleTimer.Stop()
 			p.idleTimer = nil
@@ -132,6 +142,7 @@ func (p *serverProcess) markExited(err error) {
 			ServerID:   p.id,
 			Reason:     reason,
 			StderrTail: p.snapshotStderr(),
+			Shutdown:   shutdown,
 		})
 	})
 }

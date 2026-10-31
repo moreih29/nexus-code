@@ -69,6 +69,26 @@ type SpawnParams struct {
 type SpawnResult struct {
 	ServerID     string          `json:"serverId"`
 	Capabilities json.RawMessage `json:"capabilities"`
+	ServerInfo   *ServerInfo     `json:"serverInfo,omitempty"`
+}
+
+// ServerInfo is the name and version a server gives in its initialize
+// result, when it gives them.
+type ServerInfo struct {
+	Name    string `json:"name"`
+	Version string `json:"version,omitempty"`
+}
+
+// StatsResult answers lsp.stats.
+type StatsResult struct {
+	Servers []ServerStats `json:"servers"`
+}
+
+type ServerStats struct {
+	ServerID string `json:"serverId"`
+	// RSSBytes is the resident memory of the server and of the processes
+	// it started.
+	RSSBytes uint64 `json:"rssBytes"`
 }
 
 type SendParams struct {
@@ -126,6 +146,10 @@ type ServerExitedPayload struct {
 	ServerID   string `json:"serverId"`
 	Reason     string `json:"reason,omitempty"`
 	StderrTail string `json:"stderrTail,omitempty"`
+	// Shutdown is set when the agent stopped the server: it sat idle past
+	// its timeout, or the client asked. Any other exit is the server's own,
+	// a crash above all.
+	Shutdown bool `json:"shutdown,omitempty"`
 }
 
 type jsonRPCError struct {
