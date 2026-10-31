@@ -63,12 +63,8 @@ export type ElectronRole =
 export type ElectronSubmenuRole = "appMenu" | "editMenu" | "windowMenu";
 
 interface BuildMenuOptions {
-  isMac: boolean;
-  /**
-   * Host platform, for the platform-native "reveal in file manager" label.
-   * Defaults to macOS when `isMac` and to Linux otherwise.
-   */
-  platform?: NodeJS.Platform;
+  /** Host platform: macOS has the app and Window menus and ⌘ shortcuts. */
+  platform: NodeJS.Platform;
   appName: string;
   /**
    * i18next TFunction for the main-process locale instance.
@@ -89,22 +85,23 @@ interface BuildMenuOptions {
 
 export function buildMenuTemplate(opts: BuildMenuOptions): MenuItemSpec[] {
   const menu: MenuItemSpec[] = [];
-  const { t } = opts;
+  const { t, platform } = opts;
+  const isMac = platform === "darwin";
 
-  if (opts.isMac) {
+  if (isMac) {
     menu.push(appMenu(opts.appName, t));
   }
 
-  menu.push(fileMenu(opts.isMac, t));
+  menu.push(fileMenu(isMac, t));
   menu.push(editMenu(t));
-  menu.push(viewMenu(opts.platform ?? (opts.isMac ? "darwin" : "linux"), t));
+  menu.push(viewMenu(platform, t));
   menu.push(workspaceMenu(t));
 
-  if (opts.isMac) {
+  if (isMac) {
     menu.push(windowMenu(t));
   }
 
-  return enrichWithKeybindings(menu, opts.isMac, opts.bindings ?? KEYBINDINGS);
+  return enrichWithKeybindings(menu, isMac, opts.bindings ?? KEYBINDINGS);
 }
 
 /**

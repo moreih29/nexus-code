@@ -31,7 +31,7 @@ function topLabels(specs: MenuItemSpec[]): string[] {
 }
 
 describe("buildMenuTemplate (mac)", () => {
-  const specs = buildMenuTemplate({ isMac: true, appName: "Nexus" });
+  const specs = buildMenuTemplate({ platform: "darwin", appName: "Nexus" });
 
   it("starts with the App menu (role: appMenu) labeled with the app name", () => {
     const first = specs[0];
@@ -158,7 +158,7 @@ describe("buildMenuTemplate (mac)", () => {
 });
 
 describe("buildMenuTemplate (win/linux)", () => {
-  const specs = buildMenuTemplate({ isMac: false, appName: "Nexus" });
+  const specs = buildMenuTemplate({ platform: "linux", appName: "Nexus" });
 
   it("omits the App menu and the Window menu (no mac-specific roles)", () => {
     expect(topLabels(specs)).toEqual(["File", "Edit", "View", "Workspace"]);
@@ -187,10 +187,7 @@ describe("buildMenuTemplate (win/linux)", () => {
 
   it("names the reveal command after each platform's file manager", () => {
     const revealLabel = (platform: NodeJS.Platform) =>
-      findCommand(
-        buildMenuTemplate({ isMac: platform === "darwin", platform, appName: "Nexus" }),
-        COMMANDS.pathReveal,
-      )?.label;
+      findCommand(buildMenuTemplate({ platform, appName: "Nexus" }), COMMANDS.pathReveal)?.label;
     expect(revealLabel("darwin")).toBe("Reveal in Finder");
     expect(revealLabel("win32")).toBe("Reveal in File Explorer");
     expect(revealLabel("linux")).toBe("Open Containing Folder");

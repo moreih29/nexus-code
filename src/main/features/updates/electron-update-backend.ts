@@ -23,6 +23,7 @@ import { join } from "node:path";
 import { autoUpdater as nativeUpdater } from "electron";
 import type { AppUpdater } from "electron-updater";
 import type { Logger } from "../../../shared/log/types";
+import { isLinux, isMac } from "../../infra/platform";
 import type { DownloadProgress, UpdateBackend } from "./installer";
 
 const OWNER = "moreih29";
@@ -32,8 +33,8 @@ const PACKAGE_MANAGER_ENV = "ELECTRON_BUILDER_LINUX_PACKAGE_MANAGER";
 
 /** Whether this install can replace itself: a macOS app, a Linux AppImage or a deb. */
 export function canUpdateInPlace(): boolean {
-  if (process.platform === "darwin") return true;
-  return process.platform === "linux" && (process.env.APPIMAGE !== undefined || isDebInstall());
+  if (isMac()) return true;
+  return isLinux() && (process.env.APPIMAGE !== undefined || isDebInstall());
 }
 
 /**
@@ -42,7 +43,7 @@ export function canUpdateInPlace(): boolean {
  * updater.
  */
 function isDebInstall(): boolean {
-  if (process.platform !== "linux") return false;
+  if (!isLinux()) return false;
   try {
     return readFileSync(join(process.resourcesPath, "package-type"), "utf8").trim() === "deb";
   } catch {
@@ -80,7 +81,7 @@ export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
           ? { provider: "generic", url: feed }
           : { provider: "github", owner: OWNER, repo: REPO },
       );
-      if (process.platform !== "darwin") {
+      if (!isMac()) {
         autoUpdater.on("update-downloaded", () => {
           for (const listener of stagedListeners) listener();
         });
@@ -98,7 +99,7 @@ export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
     return loaded;
   }
 
-  if (process.platform === "darwin") {
+  if (isMac()) {
     nativeUpdater.on("update-downloaded", () => {
       for (const listener of stagedListeners) listener();
     });

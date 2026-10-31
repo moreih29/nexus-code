@@ -49,6 +49,7 @@ import {
   type LspBootstrapProgressEvent,
   type SshBootstrapDependencies,
 } from "../../infra/agent/ssh/ssh-bootstrap/index";
+import { isWindows } from "../../infra/platform";
 import type { GlobalStorage } from "../../infra/storage/global-storage";
 import type { StateService } from "../../infra/storage/state-service";
 import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
@@ -472,7 +473,7 @@ export class WorkspaceManager {
     if (meta.location.kind === "local") {
       // A Windows shell cannot run the bash wrapper, and with its directory
       // first on PATH, `claude` could resolve to it instead of the real one.
-      if (process.platform === "win32") return null;
+      if (isWindows()) return null;
       return getAgentBinDir();
     }
     const bootstrap = this.sshBootstraps.get(workspaceId);
@@ -554,7 +555,7 @@ export class WorkspaceManager {
     const meta = ctx.getMeta();
     if (meta.location.kind === "local") {
       // Windows shells take no zsh or bash shim.
-      if (process.platform === "win32") return null;
+      if (isWindows()) return null;
       const shell = process.env.SHELL;
       return shell !== undefined && shell.length > 0 ? shell : "/bin/zsh";
     }

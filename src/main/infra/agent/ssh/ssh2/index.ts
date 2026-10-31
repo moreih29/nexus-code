@@ -15,6 +15,7 @@
 
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Client } from "ssh2";
+import { isWindows } from "../../../platform";
 import type { SshAuthPromptHandler } from "../auth-pty";
 import type { SshControlMaster, SshMasterOptions } from "../master";
 import type { SshTarget } from "./config";
@@ -31,7 +32,7 @@ export function usesSsh2Client(env: NodeJS.ProcessEnv = process.env): boolean {
   const chosen = env.NEXUS_SSH_CLIENT;
   if (chosen === "ssh2") return true;
   if (chosen === "openssh") return false;
-  return process.platform === "win32";
+  return isWindows();
 }
 
 /** One authenticated connection that commands share, opened again when it drops. */
