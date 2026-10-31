@@ -66,7 +66,10 @@
       "cannotStartWithSlash": "이름은 슬래시로 시작할 수 없습니다.",
       "cannotContainNul": "이름에 NUL 문자를 포함할 수 없습니다.",
       "segmentsCannotBeEmpty": "경로 세그먼트는 비어 있을 수 없습니다.",
-      "reservedName": "예약된 이름입니다."
+      "reservedName": "예약된 이름입니다.",
+      "invalidCharacters": "이름에 : * ? \" < > | 문자를 넣을 수 없습니다.",
+      "reservedOnWindows": "Windows에서 예약된 이름입니다.",
+      "cannotEndWithDotOrSpace": "이름은 점이나 공백으로 끝날 수 없습니다."
     },
     "renameOneAtATime": "항목을 하나씩 이름 바꾸세요",
     "delete": {
