@@ -121,7 +121,7 @@ export function useGroupActions({
 
     if (tab.type === "terminal") {
       openTerminal(
-        { workspaceId, cwd: tab.props.cwd },
+        { workspaceId, cwd: tab.props.cwd, shell: tab.props.shell },
         { groupId: leafId, newSplit: { orientation, side: "after" } },
       );
     }

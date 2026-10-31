@@ -9,6 +9,7 @@
  */
 
 export { getUserConfigPath, getUserDataPath, getWorkspaceStoragePath } from "./paths";
+export { supportsWindowsBackdrop } from "./windows-backdrop";
 
 /**
  * True when the current process is running on macOS. Centralized here so

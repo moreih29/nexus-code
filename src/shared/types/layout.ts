@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ShellChoiceSchema } from "../pty/shell";
 import { BrowserTabPayloadSchema, DiffTabPayloadSchema, GitCommitTabPayloadSchema } from "./tab";
 import { WorkspaceIdSchema } from "./workspace-id";
 
@@ -9,6 +10,8 @@ import { WorkspaceIdSchema } from "./workspace-id";
 
 export const TerminalTabPropsSchema = z.object({
   cwd: z.string(),
+  /** The shell the tab was opened with ("New terminal with"); absent = the default. */
+  shell: ShellChoiceSchema.optional(),
 });
 export type TerminalTabProps = z.infer<typeof TerminalTabPropsSchema>;
 

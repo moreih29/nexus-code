@@ -48,6 +48,7 @@ import {
 import { createMainWindow } from "./features/window";
 import { installAppSessionPermissions } from "./features/window/app-session-permissions";
 import { hasAppWindow } from "./features/window/app-windows";
+import { registerWindowChannel } from "./features/window/ipc";
 import { registerWorkspaceChannel } from "./features/workspace/ipc";
 import { WorkspaceManager } from "./features/workspace/manager";
 import { getMainI18n, getMainT, initMainI18n } from "./i18n";
@@ -276,6 +277,7 @@ registerSshBrowseHandlers(
 );
 registerSshAuthPromptIpcChannels(sshAuthPromptHub);
 registerSystemChannel({ openNewWindow: () => createMainWindow(stateService.getState()) });
+registerWindowChannel();
 registerClipboardChannel();
 
 // Install the updates domain. IPC handlers are registered synchronously here;
@@ -406,7 +408,12 @@ app.whenReady().then(async () => {
   disposeClaudeFeature = claudeSetup.dispose;
 
   // hookserver 접속 정보는 pull 기반으로 workspaceManager.getHookInfo()에서 조회한다.
-  registerPtyChannel({ agentHost: agentPtyHost, workspaceManager });
+  registerPtyChannel({
+    agentHost: agentPtyHost,
+    workspaceManager,
+    getDefaultShell: () => stateService.getState().terminalShell,
+    getCustomShells: () => stateService.getState().terminalShells,
+  });
 
   lspHost = startConfiguredLspHost({
     workspaceManager,

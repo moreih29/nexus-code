@@ -94,6 +94,11 @@ describe("buildMenuTemplate (mac)", () => {
     expect(roles).toContain("togglefullscreen");
   });
 
+  it("adds no ⌘= zoom key (Cocoa would take it from Monaco's ⌘K ⌘= chord)", () => {
+    const zoomIns = flatten(specs).filter((s) => s.type === "role" && s.role === "zoomIn");
+    expect(zoomIns).toEqual([{ type: "role", role: "zoomIn" }]);
+  });
+
   it("path actions live under View with VSCode accelerators", () => {
     const reveal = findCommand(specs, COMMANDS.pathReveal);
     if (reveal?.type !== "command") throw new Error("unreachable");
@@ -166,10 +171,18 @@ describe("buildMenuTemplate (win/linux)", () => {
     expect(quit).toBeDefined();
   });
 
-  it("Cmd+W still hits tab.close on non-mac too", () => {
+  it("adds a hidden Ctrl+= zoom-in key next to the zoomIn role", () => {
+    const zoomIns = flatten(specs).filter((s) => s.type === "role" && s.role === "zoomIn");
+    expect(zoomIns).toEqual([
+      { type: "role", role: "zoomIn" },
+      { type: "role", role: "zoomIn", accelerator: "CmdOrCtrl+=", visible: false },
+    ]);
+  });
+
+  it("shows Ctrl+F4 for tab.close on non-mac, the key that also works from the terminal", () => {
     const item = findCommand(specs, COMMANDS.tabClose);
     if (item?.type !== "command") throw new Error("unreachable");
-    expect(item.accelerator).toBe("CmdOrCtrl+W");
+    expect(item.accelerator).toBe("Ctrl+F4");
   });
 
   it("names the reveal command after each platform's file manager", () => {

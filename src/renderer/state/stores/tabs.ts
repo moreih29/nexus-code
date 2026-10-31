@@ -3,6 +3,7 @@ import { create } from "zustand";
 import type { EditorInput } from "@/services/editor/types";
 import { killSession } from "@/services/terminal/pty-client";
 import { basename } from "@/utils/path";
+import type { ShellChoice } from "../../../shared/pty/shell";
 import type { BrowserTabPayload, DiffTabPayload, GitCommitTabPayload } from "../../../shared/types/tab";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
 import {
@@ -19,6 +20,8 @@ import {
 
 export interface TerminalTabProps {
   cwd: string;
+  /** The shell the tab was opened with; absent = the default shell setting. */
+  shell?: ShellChoice;
   dead?: boolean;
 }
 

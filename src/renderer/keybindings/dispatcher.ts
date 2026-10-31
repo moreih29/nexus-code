@@ -42,6 +42,31 @@ import { resolveEvent } from "./resolver";
 export { __resetChordStateForTests, __setClockForTests as __setChordClockForTests };
 
 // ---------------------------------------------------------------------------
+// Chords in the editor (Win/Linux)
+// ---------------------------------------------------------------------------
+
+/** A chord leader went to Monaco; its next keystroke is Monaco's too. */
+let editorChordPending = false;
+
+/** Test override for the platform half of {@link editorTakesChords}. */
+let editorChordsOverride: boolean | null = null;
+
+/**
+ * Whether Monaco resolves a chord started at `e`: on Win/Linux, while the
+ * editor has focus. macOS keeps the app's own chord handling.
+ */
+function editorTakesChords(e: KeyboardEvent): boolean {
+  const platform = editorChordsOverride ?? !evaluateContextKey("isMac", e);
+  return platform && evaluateContextKey("editorFocus", e);
+}
+
+/** Test-only: force the platform half of `editorTakesChords`; null restores it. */
+export function __setEditorChordsForTests(value: boolean | null): void {
+  editorChordsOverride = value;
+  editorChordPending = false;
+}
+
+// ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
 
@@ -75,6 +100,14 @@ export function handleGlobalKeyDown(e: KeyboardEvent): boolean {
   //       disturb the pending state (releasing / re-pressing ⌘ between
   //       leader and second key is normal user behaviour).
   if (isModifierKeyOnly(e)) return false;
+
+  // ── 1b. A chord leader pressed in the editor went to Monaco (see
+  //        `case "chord-leader"`): this keystroke completes Monaco's
+  //        chord, so let it through untouched.
+  if (editorChordPending) {
+    editorChordPending = false;
+    if (evaluateContextKey("editorFocus", e)) return false;
+  }
 
   if (evaluateContextKey("commandPaletteFocus", e)) return false;
 
@@ -116,9 +149,17 @@ export function handleGlobalKeyDown(e: KeyboardEvent): boolean {
       return true;
 
     case "chord-leader":
-      // The chord pipeline is intentional — ⌘K is never accidentally
-      // typed — so we don't gate it on focus context here. Even when
-      // the user is in Monaco, ⌘K means "begin a chord".
+      // Win/Linux: in the editor the leader goes to Monaco, whose own
+      // chords share it (Ctrl+K Ctrl+C add comment, Ctrl+K Ctrl+0 fold
+      // all, …). The app's chords are bound in Monaco too
+      // (services/editor/keybindings/app-chords.ts), so Monaco resolves
+      // both, and the next keystroke is Monaco's (step 1b).
+      if (editorTakesChords(e)) {
+        editorChordPending = true;
+        return false;
+      }
+      // Elsewhere, and on macOS everywhere, the chord pipeline is ours:
+      // ⌘K is never accidentally typed, so it means "begin a chord".
       e.preventDefault();
       enterPending(result.leaderId);
       return true;

@@ -196,6 +196,8 @@ export async function bootstrapAppState(): Promise<void> {
     cursorStyle: state.terminalCursorStyle,
     fontFamily: state.terminalFontFamily,
     fontLigatures: state.terminalFontLigatures,
+    shell: state.terminalShell,
+    customShells: state.terminalShells,
   });
 
   // Hydrate window opacity from appState (authoritative store).

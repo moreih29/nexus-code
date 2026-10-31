@@ -8,14 +8,21 @@ import {
   DropdownMenuItem,
   DropdownMenuRoot,
   DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DND_TAB_BAR_ATTR } from "@/components/workspace/dnd/markers";
 import { shortcutFor } from "@/keybindings/shortcut-labels";
 import { basename } from "@/utils/path";
 import { COMMANDS } from "../../../../shared/keybindings/commands";
+import { type ShellChoice, sameShellChoice } from "../../../../shared/pty/shell";
 import { UI_TOOLTIP_DELAY_MS } from "../../../../shared/util/timing-constants";
+import { shellEntries, useInstalledShells } from "../../../services/terminal/installed-shells";
 import type { EditorTab, Tab } from "../../../state/stores/tabs";
+import { useTerminalStore } from "../../../state/stores/terminal";
+import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { formatDiffRefPair } from "../../editor/format-diff-refs";
 import { useTabBarDropTarget } from "../dnd/use-tab-bar-drop-target";
 import { TabItem } from "./tab-item";
@@ -27,7 +34,8 @@ interface TabBarProps {
   activeTabId: string | null;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
-  onNewTerminalTab: () => void;
+  /** Opens a terminal; with `shell`, one that runs that shell instead of the default. */
+  onNewTerminalTab: (shell?: ShellChoice) => void;
   onNewUntitledTab: () => void;
   onNewBrowserTab: () => void;
   onTabContextMenu?: (tabId: string, event: React.MouseEvent) => void;
@@ -47,6 +55,20 @@ export function TabBar({
 }: TabBarProps) {
   const { t } = useTranslation();
   const { barRef, tabsListRef, insertion } = useTabBarDropTarget({ workspaceId, leafId });
+
+  // "New Terminal With ›" lists this machine's shells and the ones added in
+  // the settings, so it is offered in local workspaces only (an SSH
+  // workspace runs the remote login shell).
+  const isLocal = useWorkspacesStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.location.kind === "local",
+  );
+  const installed = useInstalledShells();
+  const customShells = useTerminalStore((s) => s.customShells);
+  const chosenShell = useTerminalStore((s) => s.shell);
+  const entries = isLocal ? shellEntries(t, installed, customShells) : [];
+  const menuShells = entries.length > 1 ? entries : [];
+  const defaultShell: ShellChoice | undefined =
+    chosenShell ?? (installed ? { kind: "detected", id: installed.systemDefault.id } : undefined);
 
   // Stable sort: pinned group first, then unpinned — original order preserved within each group.
   const sortedTabs = useMemo(() => {
@@ -182,6 +204,29 @@ export function TabBar({
                 <span className="flex-1">{t("tabBar.new_terminal")}</span>
                 <DropdownMenuShortcut>{shortcutFor(COMMANDS.terminalNew)}</DropdownMenuShortcut>
               </DropdownMenuItem>
+              {menuShells.length > 0 && (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <SquareTerminal aria-hidden className="size-3.5 mr-1.5 shrink-0" />
+                    <span className="flex-1">{t("tabBar.new_terminal_with")}</span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    {menuShells.map((shell) => (
+                      <DropdownMenuItem
+                        key={`${shell.choice.kind}:${shell.choice.id}`}
+                        onSelect={() => onNewTerminalTab(shell.choice)}
+                      >
+                        <span className="flex-1">{shell.name}</span>
+                        {sameShellChoice(shell.choice, defaultShell) && (
+                          <span className="ml-4 text-muted-foreground">
+                            {t("tabBar.default_shell")}
+                          </span>
+                        )}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              )}
               <DropdownMenuItem onSelect={() => onNewBrowserTab()}>
                 <Globe aria-hidden className="size-3.5 mr-1.5 shrink-0" />
                 <span className="flex-1">{t("tabBar.new_browser")}</span>

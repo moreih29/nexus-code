@@ -116,6 +116,10 @@ function tokenToCodes(tok: string): readonly string[] {
       return ["ArrowLeft"];
     case "Right":
       return ["ArrowRight"];
+    case "PageUp":
+      return ["PageUp"];
+    case "PageDown":
+      return ["PageDown"];
     case "\\":
       // KeyboardEvent.code is layout-independent: Korean layouts also
       // report the ₩/\ physical key as "Backslash" (only e.key differs).
@@ -250,6 +254,8 @@ const CODE_TO_TOKEN: Readonly<Record<string, string>> = {
   ArrowDown: "Down",
   ArrowLeft: "Left",
   ArrowRight: "Right",
+  PageUp: "PageUp",
+  PageDown: "PageDown",
   Backslash: "\\",
   Slash: "/",
   Comma: ",",
@@ -351,21 +357,32 @@ export function normalizeKeystroke(accel: AcceleratorString, isMac: boolean): st
 
 interface LabelOptions {
   isMac: boolean;
+  /**
+   * Host platform, to name the Windows/Super key off macOS: "Super" on
+   * Linux, "Win" otherwise.
+   */
+  platform?: string;
 }
 
 /**
  * Render an accelerator string as a user-facing label. Mac uses the
  * symbol forms (⌘ ⌥ ⇧ ⌃ ↵ ↑↓←→); Win/Linux fall back to spelled
  * modifiers joined with `+`.
+ *
+ * An explicit `Cmd` names the key it matches (see {@link matchesKeyState}):
+ * on Win/Linux that is Ctrl, or the Windows/Super key in a literal
+ * `Cmd+Ctrl` combo.
  */
 export function acceleratorToLabel(accel: AcceleratorString, opts: LabelOptions): string {
   const tokens = accel.split("+").map((t) => t.trim());
+  const hasCtrl = tokens.some((t) => MOD_TOKENS_CTRL.has(t));
+  const superKey = opts.platform === "linux" ? "Super" : "Win";
   const out: string[] = [];
   for (const tok of tokens) {
     if (MOD_TOKENS_CMD_OR_CTRL.has(tok)) {
       out.push(opts.isMac ? "⌘" : "Ctrl");
     } else if (MOD_TOKENS_CMD.has(tok)) {
-      out.push("⌘");
+      out.push(opts.isMac ? "⌘" : hasCtrl ? superKey : "Ctrl");
     } else if (MOD_TOKENS_CTRL.has(tok)) {
       out.push(opts.isMac ? "⌃" : "Ctrl");
     } else if (MOD_TOKENS_SHIFT.has(tok)) {

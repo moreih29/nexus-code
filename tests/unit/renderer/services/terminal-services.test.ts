@@ -113,6 +113,15 @@ mock.module("../../../../src/renderer/components/ui/confirm-dialog", () => ({
   },
 }));
 
+const toasts: { kind: string; message: string }[] = [];
+const realToast = await import("../../../../src/renderer/components/ui/toast");
+mock.module("../../../../src/renderer/components/ui/toast", () => ({
+  ...realToast,
+  showToast: (input: { kind: string; message: string }) => {
+    toasts.push(input);
+  },
+}));
+
 const { closeTerminal, closeTerminalWithConfirm, createTerminalController, openTerminal } =
   await import("../../../../src/renderer/services/terminal");
 const {
@@ -180,6 +189,10 @@ function makeTerminalControllerDeps(
   const bufferState: { active: { type: "normal" | "alternate" } } = {
     active: { type: "alternate" },
   };
+  // DECSET 2004 state the app on the pty asked for; tests flip it.
+  const modes = { bracketedPasteMode: false };
+  // The text selected in the terminal; tests set it.
+  let selection = "";
   // controller.ts:317에서 attachCustomKeyEventHandler를 호출해 keydown 가로채기
   // 핸들러를 등록한다. 테스트에서 합성 KeyboardEvent로 호출해 분기를 검증하기
   // 위해 핸들러를 capture한다.
@@ -217,6 +230,7 @@ function makeTerminalControllerDeps(
         },
       },
       buffer: bufferState,
+      modes,
       dispose: () => {},
       loadAddon: () => {},
       onData: (handler) => {
@@ -228,7 +242,10 @@ function makeTerminalControllerDeps(
         capturedTitleHandler = handler;
         return { dispose: () => {} };
       },
-      getSelection: () => "",
+      getSelection: () => selection,
+      clearSelection: () => {
+        selection = "";
+      },
       open: () => {},
       refresh: () => {},
       write: (data, callback) => {
@@ -287,6 +304,13 @@ function makeTerminalControllerDeps(
     setBufferType(type: "normal" | "alternate"): void {
       bufferState.active.type = type;
     },
+    setBracketedPaste(on: boolean): void {
+      modes.bracketedPasteMode = on;
+    },
+    setSelection(text: string): void {
+      selection = text;
+    },
+    getSelection: () => selection,
   };
 }
 
@@ -303,6 +327,33 @@ describe("services/terminal open and close", () => {
     expect(first.tabId).not.toBe(second.tabId);
     expect(first.groupId).toBe(second.groupId);
     expect(tabsFor(WS)).toHaveLength(2);
+  });
+
+  it("openTerminal keeps the shell it was opened with in the tab, and only then", () => {
+    const gitBash = { kind: "detected" as const, id: "git-bash" };
+    const withShell = openTerminal({ workspaceId: WS, cwd: "/workspace", shell: gitBash });
+    const plain = openTerminal({ workspaceId: WS, cwd: "/workspace" });
+
+    const tabs = useTabsStore.getState().byWorkspace[WS] ?? {};
+    expect(tabs[withShell.tabId]?.props).toEqual({ cwd: "/workspace", shell: gitBash });
+    expect(tabs[plain.tabId]?.props).toEqual({ cwd: "/workspace" });
+  });
+
+  it("createPtyClient spawns with the tab's shell", async () => {
+    const shell = { kind: "custom" as const, id: "added-nu" };
+    const client = createPtyClient({
+      workspaceId: WS,
+      tabId: "tab-shell-spawn",
+      cwd: "/workspace",
+      shell,
+      onData: () => {},
+      onExit: () => {},
+    });
+    await client.spawn({ cols: 80, rows: 24 });
+
+    const spawn = ipcCalls.find((call) => call.method === "spawn");
+    expect(spawn?.args).toMatchObject({ tabId: "tab-shell-spawn", shell });
+    client.dispose();
   });
 
   it("openTerminal routes to an explicit groupId", () => {
@@ -1129,6 +1180,128 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
 
     controller.dispose();
   });
+
+  describe("copy with a selection", () => {
+    const copied = () =>
+      ipcCalls
+        .filter((c) => c.channel === "clipboard" && c.method === "writeText")
+        .map((c) => c.args);
+
+    it("Ctrl+C copies, then drops the selection so the next Ctrl+C goes to the app", async () => {
+      const { harness, controller, handler } = await setupHandler();
+      harness.setSelection("hello");
+
+      const first = fakeKeyEvent({ key: "c", ctrlKey: true, keyCode: 67 });
+      expect(handler(first as unknown as KeyboardEvent)).toBe(false);
+      expect(first.defaultPrevented).toBe(true);
+      expect(harness.getSelection()).toBe("");
+      await new Promise((r) => setTimeout(r, 0));
+      expect(copied()).toEqual([{ text: "hello" }]);
+
+      // Nothing selected now: xterm sends ^C.
+      expect(
+        handler(fakeKeyEvent({ key: "c", ctrlKey: true, keyCode: 67 }) as unknown as KeyboardEvent),
+      ).toBe(true);
+
+      controller.dispose();
+    });
+
+    it("Cmd+C copies and keeps the selection", async () => {
+      const { harness, controller, handler } = await setupHandler();
+      harness.setSelection("hello");
+
+      expect(
+        handler(fakeKeyEvent({ key: "c", metaKey: true, keyCode: 67 }) as unknown as KeyboardEvent),
+      ).toBe(false);
+      expect(harness.getSelection()).toBe("hello");
+      await new Promise((r) => setTimeout(r, 0));
+      expect(copied()).toEqual([{ text: "hello" }]);
+
+      controller.dispose();
+    });
+  });
+
+  describe("Ctrl+V", () => {
+    const host = globalThis.window as unknown as { host?: { platform: string } };
+    afterEach(() => {
+      delete host.host;
+    });
+    const ctrlV = (extra: { shiftKey?: boolean; altKey?: boolean } = {}) =>
+      fakeKeyEvent({ key: "v", ctrlKey: true, keyCode: 86, ...extra });
+
+    it("leaves the key to Chromium's paste on Windows when the app wants bracketed paste", async () => {
+      host.host = { platform: "win32" };
+      const { harness, controller, handler } = await setupHandler();
+      harness.setBracketedPaste(true);
+      const event = ctrlV();
+
+      expect(handler(event as unknown as KeyboardEvent)).toBe(false);
+      // No preventDefault: the native paste is what delivers the text.
+      expect(event.defaultPrevented).toBe(false);
+      expect(harness.ptyWrites).toEqual([]);
+
+      controller.dispose();
+    });
+
+    it("pastes in cmd.exe, which has neither bracketed paste nor a ^V paste", async () => {
+      host.host = { platform: "win32" };
+      const keyHandlerFor = async (shellPath: string, tabId: string) => {
+        const harness = makeTerminalControllerDeps(() => Promise.resolve({ pid: 1, shellPath }));
+        const controller = createTerminalController(
+          { workspaceId: WS, tabId, cwd: "C:\\work", container: {} as HTMLElement },
+          harness.deps,
+        );
+        await flushTerminalInit();
+        await new Promise((r) => setTimeout(r, 0));
+        const handler = harness.getKeyHandler();
+        if (!handler) throw new Error("customKey handler was not registered");
+        return { controller, handler };
+      };
+
+      const cmd = await keyHandlerFor("C:\\Windows\\system32\\CMD.EXE", "tab-cmd");
+      expect(cmd.handler(ctrlV() as unknown as KeyboardEvent)).toBe(false);
+      cmd.controller.dispose();
+
+      const powershell = await keyHandlerFor(
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "tab-powershell",
+      );
+      expect(powershell.handler(ctrlV() as unknown as KeyboardEvent)).toBe(true);
+      powershell.controller.dispose();
+    });
+
+    it("still sends ^V when the app has no bracketed paste (PSReadLine pastes it)", async () => {
+      host.host = { platform: "win32" };
+      const { controller, handler } = await setupHandler();
+
+      expect(handler(ctrlV() as unknown as KeyboardEvent)).toBe(true);
+
+      controller.dispose();
+    });
+
+    it("still sends ^V on Linux and macOS", async () => {
+      for (const platform of ["linux", "darwin"]) {
+        host.host = { platform };
+        const { harness, controller, handler } = await setupHandler();
+        harness.setBracketedPaste(true);
+
+        expect(handler(ctrlV() as unknown as KeyboardEvent)).toBe(true);
+
+        controller.dispose();
+      }
+    });
+
+    it("leaves Ctrl+Shift+V and Ctrl+Alt+V to xterm", async () => {
+      host.host = { platform: "win32" };
+      const { harness, controller, handler } = await setupHandler();
+      harness.setBracketedPaste(true);
+
+      expect(handler(ctrlV({ shiftKey: true }) as unknown as KeyboardEvent)).toBe(true);
+      expect(handler(ctrlV({ altKey: true }) as unknown as KeyboardEvent)).toBe(true);
+
+      controller.dispose();
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1624,6 +1797,49 @@ describe("services/terminal controller — OSC title sync", () => {
     expect(updated.customTitle).toBe("내 작업창");
     expect(updated.processTitle).toBeUndefined();
     expect(updated.title).toBe("내 작업창");
+
+    controller.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A chosen shell that can't be found: main falls back to the system default,
+// and the terminal says so once rather than once per tab.
+describe("services/terminal controller — missing shell", () => {
+  beforeEach(() => {
+    resetStores();
+    resetIpc();
+    toasts.length = 0;
+  });
+
+  it("warns once that the shell couldn't be found", async () => {
+    const spawnMissing = () => Promise.resolve({ pid: 1, missingShell: "Git Bash" });
+    const controllers = ["tab-missing-1", "tab-missing-2"].map((tabId) =>
+      createTerminalController(
+        { workspaceId: WS, tabId, cwd: "/workspace", container: {} as HTMLElement },
+        makeTerminalControllerDeps(spawnMissing).deps,
+      ),
+    );
+    await flushTerminalInit();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]?.kind).toBe("warning");
+
+    for (const controller of controllers) controller.dispose();
+  });
+
+  it("says so when the tab's added shell was removed from the settings", async () => {
+    const spawnRemoved = () => Promise.resolve({ pid: 1, missingShell: "" });
+    const controller = createTerminalController(
+      { workspaceId: WS, tabId: "tab-removed-shell", cwd: "/workspace", container: {} as HTMLElement },
+      makeTerminalControllerDeps(spawnRemoved).deps,
+    );
+    await flushTerminalInit();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]?.message).toMatch(/removed from the settings/);
 
     controller.dispose();
   });

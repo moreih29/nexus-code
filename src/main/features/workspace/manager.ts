@@ -433,6 +433,11 @@ export class WorkspaceManager {
     return this.contexts.get(id)?.getMeta().name ?? null;
   }
 
+  /** Whether the workspace runs on this machine rather than over SSH. */
+  isLocal(id: string): boolean {
+    return this.contexts.get(id)?.getMeta().location.kind === "local";
+  }
+
   /**
    * Returns an open workspace context or throws with the standard not-found message.
    */

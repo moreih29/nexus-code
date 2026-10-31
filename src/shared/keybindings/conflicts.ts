@@ -78,6 +78,10 @@ export function detectConflicts(q: ConflictQuery): KeybindingConflict[] {
   for (const b of q.bindings) {
     if (b.command === q.command) continue;
 
+    // A binding for the other platform (Ctrl+F4 under `!isMac`) never fires
+    // on this one, so nothing collides with it here.
+    if (!firesOnPlatform(b.when, isMac)) continue;
+
     // Two bindings whose `when` scopes are provably mutually exclusive
     // (e.g. `browserTabActive` vs `!browserTabActive`) never fire on the
     // same event, so they are NOT a conflict at all — skip every check
@@ -182,6 +186,13 @@ function topLevelLiterals(when: string): { pos: Set<string>; neg: Set<string> } 
     if (pos1 !== null) pos.add(pos1[1] as string);
   }
   return { pos, neg };
+}
+
+/** False when a top-level `isMac` / `!isMac` conjunct of `when` rules the platform out. */
+function firesOnPlatform(when: string | undefined, isMac: boolean): boolean {
+  if (when === undefined) return true;
+  const { pos, neg } = topLevelLiterals(when);
+  return isMac ? !neg.has("isMac") : !pos.has("isMac");
 }
 
 /**

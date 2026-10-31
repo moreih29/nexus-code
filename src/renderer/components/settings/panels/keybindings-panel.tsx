@@ -42,7 +42,11 @@ import {
   type KeybindingConflict,
 } from "../../../../shared/keybindings/conflicts";
 import { EDITOR_COMMANDS } from "../../../../shared/keybindings/editor-commands";
-import { KEYBINDINGS, type KeybindingDecl } from "../../../../shared/keybindings/index";
+import {
+  findDisplayPrimary,
+  KEYBINDINGS,
+  type KeybindingDecl,
+} from "../../../../shared/keybindings/index";
 import {
   acceleratorToLabel,
   chordToLabel,
@@ -50,7 +54,7 @@ import {
   isModifierCode,
 } from "../../../../shared/keybindings/keybinding-parse";
 import type { KeybindingOverride } from "../../../../shared/keybindings/overrides";
-import { isMac } from "../../../keybindings/shortcut-labels";
+import { isMac, labelOptions } from "../../../keybindings/shortcut-labels";
 import { useKeybindingsStore } from "../../../state/stores/keybindings";
 
 // `updates.check` is dispatched inside the main process from the menu —
@@ -80,10 +84,10 @@ function defaultDeclFor(command: CommandId): KeybindingDecl | undefined {
 }
 
 function bindingLabelFor(bindings: readonly KeybindingDecl[], command: CommandId): string | null {
-  const primary = bindings.find((b) => b.command === command && b.primary !== undefined);
-  if (primary?.primary !== undefined) return acceleratorToLabel(primary.primary, { isMac });
+  const primary = findDisplayPrimary(bindings, command, isMac);
+  if (primary?.primary !== undefined) return acceleratorToLabel(primary.primary, labelOptions);
   const chord = bindings.find((b) => b.command === command && b.chord !== undefined);
-  if (chord?.chord !== undefined) return chordToLabel(chord.chord, { isMac });
+  if (chord?.chord !== undefined) return chordToLabel(chord.chord, labelOptions);
   return null;
 }
 
@@ -199,7 +203,7 @@ export function KeybindingsPanel() {
       return {
         command: c.id,
         label: t(`keybindings.editorCommand.${c.slug}`),
-        bindingLabel: primary !== null ? acceleratorToLabel(primary, { isMac }) : null,
+        bindingLabel: primary !== null ? acceleratorToLabel(primary, labelOptions) : null,
         kind: "primary",
         when: undefined,
         overridden: editorOverrides.some((o) => o.command === c.id),
@@ -585,7 +589,7 @@ function KeybindingRecorder({
 
   const capturedLabel =
     captured.length > 0
-      ? captured.map((a) => acceleratorToLabel(a, { isMac })).join(" ")
+      ? captured.map((a) => acceleratorToLabel(a, labelOptions)).join(" ")
       : t("keybindings.record.prompt");
   const promptSecond = kind === "chord" && captured.length === 1;
 

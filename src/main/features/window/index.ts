@@ -3,10 +3,12 @@ import { app, BrowserWindow, dialog, shell } from "electron";
 import { DEFAULT_THEME, THEME_SOURCE_BY_ID, type ThemeId } from "../../../shared/design-tokens";
 import { createLogger } from "../../../shared/log/main";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
+import { TRANSPARENT_WINDOW_ARG } from "../../../shared/window/transparent-window";
 import { getMainT } from "../../i18n";
-import { isMac } from "../../infra/platform";
+import { isMac, supportsWindowsBackdrop } from "../../infra/platform";
 import type { AppState } from "../../infra/storage/state-service";
 import { trackAppWindow } from "./app-windows";
+import { opensTransparentOnLinux } from "./linux-transparency";
 import { isAllowedMainWindowNavigation } from "./navigation";
 
 // Custom titlebar height (px) — must match TitleBar component's h-9 (36px)
@@ -47,6 +49,8 @@ function getTitleBarColors(themePreference: AppState["themePreference"]): {
 
 export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   const mac = isMac();
+  const backdrop = supportsWindowsBackdrop();
+  const linuxTransparent = opensTransparentOnLinux(appState?.windowOpacity);
   const { bg: titleBg, symbol: titleSymbol } = getTitleBarColors(appState?.themePreference);
 
   // `transparent` is a constructor-only Electron option — it must be set at
@@ -55,6 +59,9 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   // requiring an app restart. At 100% opacity the surfaces paint fully opaque
   // and the desktop is invisible — visually equivalent to a non-transparent
   // window (minus the native shadow, an acceptable trade for restart-free UX).
+  // Windows 11 22H2+ gets the same live opacity over a system backdrop instead.
+  // Linux has no backdrop, and a transparent window there loses its frame, so
+  // it opens transparent only while the saved opacity is under 100%.
 
   const win = new BrowserWindow({
     width: 1280,
@@ -64,11 +71,14 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
     // controls are preserved per-OS:
     //   - macOS: hiddenInset keeps the traffic lights interactive at top-left.
     //   - Win/Linux: titleBarOverlay renders themed min/max/close at top-right.
+    //   - Transparent Linux: Electron draws no overlay; the renderer titlebar
+    //     draws the controls itself.
     titleBarStyle: mac ? "hiddenInset" : "hidden",
-    ...(mac
+    ...(mac || linuxTransparent
       ? {
-          // Always-transparent macOS window. Wherever the renderer paints
-          // transparent, the desktop shows through CRISPLY with no blur/frost.
+          // Transparent window. Wherever the renderer paints transparent, the
+          // desktop shows through CRISPLY with no blur/frost. On X11 without a
+          // compositor it shows black instead.
           transparent: true,
           backgroundColor: "#00000000",
         }
@@ -76,13 +86,28 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
           titleBarOverlay: {
             // Match the renderer titlebar's chrome background for the active theme.
             // Hex literal required — Electron does not accept OKLCH or CSS vars here.
-            color: titleBg,
+            // Over a backdrop the overlay is clear instead: the controls then sit
+            // on the renderer titlebar, which follows the theme and the opacity.
+            color: backdrop ? "#00000000" : titleBg,
             symbolColor: titleSymbol,
             height: TITLEBAR_HEIGHT,
           },
         }),
+    ...(backdrop
+      ? {
+          // Windows 11 22H2+: the system acrylic shows, blurred, wherever the
+          // renderer paints translucent. `transparent` would show the desktop
+          // as macOS does, but on Windows it drops the native frame: no snap,
+          // shadow or rounded corners, and maximize becomes a resize. DWM
+          // draws the acrylic only while the window is active; an inactive
+          // window gets a solid fill.
+          backgroundMaterial: "acrylic",
+          backgroundColor: "#00000000",
+        }
+      : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
+      additionalArguments: linuxTransparent ? [TRANSPARENT_WINDOW_ARG] : [],
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
@@ -94,6 +119,18 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   win.once("ready-to-show", () => {
     win.show();
   });
+
+  if (linuxTransparent) {
+    // The renderer titlebar draws this window's controls; keep its maximize
+    // button in step with the window.
+    const sendMaximized = () => {
+      win.webContents.send("ipc:event", "window", "maximizedChanged", {
+        maximized: win.isMaximized(),
+      });
+    };
+    win.on("maximize", sendMaximized);
+    win.on("unmaximize", sendMaximized);
+  }
 
   // electron-vite dev server injects ELECTRON_RENDERER_URL during `dev`. A
   // packaged build ignores it: launched from a shell that still has it set,
