@@ -53,7 +53,7 @@ import {
   canUpdateInPlace,
   createElectronUpdateBackend,
 } from "./features/updates/electron-update-backend";
-import { createMainWindow } from "./features/window";
+import { createMainWindow, updateTitleBarOverlays } from "./features/window";
 import { installAppSessionPermissions } from "./features/window/app-session-permissions";
 import { hasAppWindow } from "./features/window/app-windows";
 import { registerWindowChannel } from "./features/window/ipc";
@@ -285,6 +285,11 @@ registerAppStateChannel(stateService, {
       ...(terminalShell !== undefined ? { shell: terminalShell } : {}),
       customShells: terminalShells ?? [],
     });
+  },
+
+  /** The theme changed: the window controls Electron draws follow it. */
+  onThemeChanged(theme) {
+    updateTitleBarOverlays(theme);
   },
 });
 
