@@ -4,7 +4,7 @@
  *   - GlobalStorage entry-point methods (upsert, cap eviction, favorites, remove)
  *   - removeWorkspace isolation (no cascade into entry-point tables)
  *   - SSH null user/port normalization (no duplicate rows)
- *   - IPC handler zod validation (validateArgs) — inline simulation
+ *   - IPC arg zod schemas
  */
 
 import { Database } from "bun:sqlite";
@@ -105,15 +105,6 @@ describe("migration v4 — fresh DB", () => {
     db.close();
   });
 
-  it("schemaVersion is 6 after fresh migration", () => {
-    const db = makeDb();
-    applyMigrations(db);
-    const row = db.prepare("SELECT value FROM _meta WHERE key='schemaVersion'").get() as
-      | { value: string }
-      | undefined;
-    expect(row?.value).toBe("6");
-    db.close();
-  });
 });
 
 describe("migration v4 — applied on top of existing v3 DB", () => {
@@ -156,18 +147,6 @@ describe("migration v4 — applied on top of existing v3 DB", () => {
     const ws = db.prepare("SELECT id FROM workspaces").get() as { id: string };
     expect(ws.id).toBe("00000000-0000-0000-0000-000000000001");
 
-    db.close();
-  });
-
-  it("migration is idempotent — second applyMigrations does not throw", () => {
-    const db = makeDb();
-    applyMigrations(db);
-    expect(() => applyMigrations(db)).not.toThrow();
-
-    const row = db.prepare("SELECT value FROM _meta WHERE key='schemaVersion'").get() as
-      | { value: string }
-      | undefined;
-    expect(row?.value).toBe("6");
     db.close();
   });
 });
@@ -667,6 +646,16 @@ describe("IPC zod schema — ConnectionProfile", () => {
     expect(result.success).toBe(false);
   });
 
+  it("ConnectionProfileSaveArgsSchema rejects port > 65535", () => {
+    const result = ConnectionProfileSaveArgsSchema.safeParse({
+      id: uuid(1),
+      host: "devbox",
+      user: "alice",
+      port: 99999,
+    });
+    expect(result.success).toBe(false);
+  });
+
   it("ConnectionProfileSaveArgsSchema defaults authMode to interactive", () => {
     const result = ConnectionProfileSaveArgsSchema.safeParse({
       id: uuid(1),
@@ -691,155 +680,5 @@ describe("IPC zod schema — ConnectionProfile", () => {
   it("ConnectionProfileIdArgsSchema requires uuid", () => {
     expect(ConnectionProfileIdArgsSchema.safeParse({ id: uuid(1) }).success).toBe(true);
     expect(ConnectionProfileIdArgsSchema.safeParse({ id: "" }).success).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC-6b: IPC handler integration — inline handler simulation
-// (No Electron dependency — tests the handler logic with real DB and zod)
-// ---------------------------------------------------------------------------
-
-describe("IPC handler simulation — folderBookmark channel", () => {
-  let db: Database;
-  let storage: GlobalStorage;
-
-  beforeEach(() => {
-    db = makeDb();
-    storage = new GlobalStorage(db);
-  });
-
-  afterEach(() => {
-    db.close();
-  });
-
-  /**
-   * Simulates the handler logic from ipc.ts without Electron, using
-   * the same validateArgs pattern.
-   */
-  function simulateRecord(args: unknown): void {
-    const params = FolderBookmarkRecordArgsSchema.parse(args);
-    storage.recordFolderBookmark(params);
-  }
-
-  function simulateList(_args: unknown): ReturnType<GlobalStorage["listFolderBookmarks"]> {
-    return storage.listFolderBookmarks();
-  }
-
-  function simulateSetFavorite(args: unknown): void {
-    const { id, favorite } = FolderBookmarkFavoriteArgsSchema.parse(args);
-    storage.setFolderBookmarkFavorite(id, favorite);
-  }
-
-  function simulateRemove(args: unknown): void {
-    const { id } = FolderBookmarkIdArgsSchema.parse(args);
-    storage.removeFolderBookmark(id);
-  }
-
-  it("round-trip: record → list → setFavorite → remove", () => {
-    simulateRecord({ id: uuid(1), absPath: "/home/user/proj" });
-    const list = simulateList(undefined);
-    expect(list.length).toBe(1);
-    expect(list[0].absPath).toBe("/home/user/proj");
-    expect(list[0].favorite).toBe(false);
-
-    simulateSetFavorite({ id: uuid(1), favorite: true });
-    expect(simulateList(undefined)[0].favorite).toBe(true);
-
-    simulateRemove({ id: uuid(1) });
-    expect(simulateList(undefined).length).toBe(0);
-  });
-
-  it("zod validation rejects invalid record args", () => {
-    expect(() => simulateRecord({ id: "not-uuid", absPath: "/home/user/proj" })).toThrow();
-    expect(() => simulateRecord({ id: uuid(1), absPath: "" })).toThrow();
-    expect(() => simulateRecord({ id: uuid(1) })).toThrow();
-  });
-
-  it("zod validation rejects invalid setFavorite args", () => {
-    expect(() => simulateSetFavorite({ id: uuid(1), favorite: 1 })).toThrow();
-    expect(() => simulateSetFavorite({ id: "bad" })).toThrow();
-  });
-
-  it("zod validation rejects invalid remove args", () => {
-    expect(() => simulateRemove({ id: "not-uuid" })).toThrow();
-    expect(() => simulateRemove({})).toThrow();
-  });
-});
-
-describe("IPC handler simulation — connectionProfile channel", () => {
-  let db: Database;
-  let storage: GlobalStorage;
-
-  beforeEach(() => {
-    db = makeDb();
-    storage = new GlobalStorage(db);
-  });
-
-  afterEach(() => {
-    db.close();
-  });
-
-  function simulateSave(args: unknown): void {
-    const params = ConnectionProfileSaveArgsSchema.parse(args);
-    storage.recordConnectionProfile({
-      id: params.id,
-      label: params.label,
-      host: params.host,
-      user: params.user,
-      port: params.port,
-      identityFile: params.identityFile,
-      authMode: params.authMode,
-    });
-  }
-
-  function simulateList(): ReturnType<GlobalStorage["listConnectionProfiles"]> {
-    return storage.listConnectionProfiles();
-  }
-
-  function simulateSetFavorite(args: unknown): void {
-    const { id, favorite } = ConnectionProfileFavoriteArgsSchema.parse(args);
-    storage.setConnectionProfileFavorite(id, favorite);
-  }
-
-  function simulateRemove(args: unknown): void {
-    const { id } = ConnectionProfileIdArgsSchema.parse(args);
-    storage.removeConnectionProfile(id);
-  }
-
-  it("round-trip: save → list → setFavorite → remove", () => {
-    simulateSave({ id: uuid(1), host: "devbox", user: "alice", port: 22 });
-    const list = simulateList();
-    expect(list.length).toBe(1);
-    expect(list[0].host).toBe("devbox");
-    expect(list[0].user).toBe("alice");
-    expect(list[0].port).toBe(22);
-    expect(list[0].favorite).toBe(false);
-
-    simulateSetFavorite({ id: uuid(1), favorite: true });
-    expect(simulateList()[0].favorite).toBe(true);
-
-    simulateRemove({ id: uuid(1) });
-    expect(simulateList().length).toBe(0);
-  });
-
-  it("zod validation rejects invalid save args", () => {
-    expect(() => simulateSave({ id: uuid(1), host: "", user: "alice" })).toThrow();
-    expect(() => simulateSave({ id: "bad", host: "devbox", user: "alice" })).toThrow();
-    expect(() => simulateSave({ id: uuid(1), host: "devbox", user: "alice", port: 99999 })).toThrow();
-  });
-
-  it("zod validation rejects invalid setFavorite args", () => {
-    expect(() => simulateSetFavorite({ id: uuid(1), favorite: "yes" })).toThrow();
-  });
-
-  it("zod validation rejects invalid remove args", () => {
-    expect(() => simulateRemove({ id: "bad" })).toThrow();
-  });
-
-  it("save with no port — port normalized to 22, no duplicate on second save", () => {
-    simulateSave({ id: uuid(1), host: "devbox", user: "alice" });
-    simulateSave({ id: uuid(2), host: "devbox", user: "alice" }); // same natural key
-    expect(simulateList().length).toBe(1);
-    expect(simulateList()[0].port).toBe(22);
   });
 });

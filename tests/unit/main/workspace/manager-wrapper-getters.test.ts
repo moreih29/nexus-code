@@ -29,16 +29,16 @@ import { Database } from "bun:sqlite";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
-import { LOCAL_AGENT_DIST_DIR } from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/types";
+import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 
 // ---------------------------------------------------------------------------
-// electron mock — isPackaged=false (dev 모드) 고정
+// electron mock — isPackaged=false (dev 모드). #5 switches it to packaged for
+// one test so the manifest is read from a temp process.resourcesPath.
 // ---------------------------------------------------------------------------
 
+const electronApp = { isPackaged: false };
 mock.module("electron", () => ({
-  app: {
-    isPackaged: false,
-  },
+  app: electronApp,
 }));
 
 // dynamic import — mock.module 이후
@@ -101,6 +101,37 @@ function makeManager() {
   );
 
   return { manager, globalDb };
+}
+
+/** Writes the smallest manifest AgentManifestSchema accepts into `dir`. */
+function writeAgentManifest(dir: string, version: string): void {
+  // SHA-256 of "x"; nothing reads the files, only the manifest's version.
+  const sha256 = "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881";
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "manifest.json"),
+    JSON.stringify({
+      version,
+      protocolVersion: AGENT_PROTOCOL_VERSION,
+      binaries: [
+        { os: "linux", arch: "amd64", path: `agent-${version}-linux-amd64`, sha256, size: 1 },
+      ],
+      runtime: {
+        node: [
+          {
+            os: "linux",
+            arch: "amd64",
+            version: "v20.19.0",
+            path: "runtime/node.tar.gz",
+            sha256,
+            size: 1,
+            entry: "bin/node",
+          },
+        ],
+      },
+      lspBinaries: [],
+    }),
+  );
 }
 
 /**
@@ -214,40 +245,43 @@ describe("WorkspaceManager.getWrapperAgentBin — acceptance #4, #5", () => {
   });
 
   test("#5: SSH 워크스페이스 → remoteBinDir/agent-<version>-<os>-<arch> 형식", () => {
-    // manifest.json이 없는 경우 null을 반환하므로, 먼저 manifest 유무를 확인한다.
-    const manifestExists = fs.existsSync(
-      path.join(LOCAL_AGENT_DIST_DIR, "manifest.json"),
-    );
+    // Packaged mode reads the manifest from process.resourcesPath/agent, which
+    // lets the test supply its own manifest instead of depending on dist/.
+    const resourcesPath = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-wrapper-manifest-"));
+    const proc = process as { resourcesPath?: string };
+    const originalResourcesPath = proc.resourcesPath;
+    electronApp.isPackaged = true;
+    proc.resourcesPath = resourcesPath;
 
     const { manager, globalDb } = makeManager();
-    const meta = manager.create({
-      location: {
-        kind: "ssh",
-        host: "test.example.com",
-        user: "testuser",
-        remotePath: "/home/testuser/projects/bar",
-        authMode: "key-only",
-      },
-      name: "ssh-ws-agent",
-    });
-    const bootstrap = makeSshBootstrap({
-      remoteBinDir: REMOTE_BIN_DIR,
-      platform: { os: "linux", arch: "amd64" },
-    });
-    injectSshBootstrap(manager, meta.id, bootstrap);
+    try {
+      const meta = manager.create({
+        location: {
+          kind: "ssh",
+          host: "test.example.com",
+          user: "testuser",
+          remotePath: "/home/testuser/projects/bar",
+          authMode: "key-only",
+        },
+        name: "ssh-ws-agent",
+      });
+      const bootstrap = makeSshBootstrap({
+        remoteBinDir: REMOTE_BIN_DIR,
+        platform: { os: "linux", arch: "amd64" },
+      });
+      injectSshBootstrap(manager, meta.id, bootstrap);
 
-    const result = manager.getWrapperAgentBin(meta.id);
+      // No manifest yet → the binary name is unknown.
+      expect(manager.getWrapperAgentBin(meta.id)).toBeNull();
 
-    if (manifestExists) {
-      // manifest가 있으면 agent-<version>-linux-amd64 형식이어야 한다.
-      expect(result).not.toBeNull();
-      expect(result).toMatch(/^\/home\/testuser\/\.nexus-code\/bin\/agent-\S+-linux-amd64$/);
-    } else {
-      // manifest가 없으면 null.
-      expect(result).toBeNull();
+      writeAgentManifest(path.join(resourcesPath, "agent"), "9.8.7");
+      expect(manager.getWrapperAgentBin(meta.id)).toBe(`${REMOTE_BIN_DIR}/agent-9.8.7-linux-amd64`);
+    } finally {
+      electronApp.isPackaged = false;
+      proc.resourcesPath = originalResourcesPath;
+      fs.rmSync(resourcesPath, { recursive: true, force: true });
+      globalDb.close();
     }
-
-    globalDb.close();
   });
 
   test("존재하지 않는 워크스페이스 → null", () => {

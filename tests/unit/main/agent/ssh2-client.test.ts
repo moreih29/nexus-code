@@ -41,7 +41,8 @@ interface TestServer {
   readonly port: number;
   /** Connections that authenticated. */
   readonly sessions: () => number;
-  dropAll(): void;
+  /** Ends every connection; resolves once the client side has had time to see it. */
+  dropAll(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -100,8 +101,16 @@ function startServer(auth: { password?: string; code?: string }): Promise<TestSe
       resolve({
         port,
         sessions: () => sessions,
-        dropAll: () => {
+        dropAll: async () => {
+          const closed = [...clients].map(
+            (client) => new Promise((resolve) => client.once("close", resolve)),
+          );
           for (const client of clients) client.end();
+          await Promise.all(closed);
+          // The server closes its side first; the master learns of the drop
+          // only after it reads the FIN. A zero or 1 ms wait still failed a few
+          // runs in a hundred under parallel load; 10 ms did not.
+          await new Promise((resolve) => setTimeout(resolve, 10));
         },
         close: async () => {
           for (const client of clients) client.end();
@@ -288,8 +297,7 @@ describe("ssh2 control master", () => {
     cleanups.push(() => master.dispose());
     expect((await run(master.controlPath, "echo:one")).stdout).toBe("one");
 
-    t.server.dropAll();
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await t.server.dropAll();
 
     expect((await run(master.controlPath, "echo:two")).stdout).toBe("two");
     expect(t.server.sessions()).toBe(2);
@@ -300,8 +308,7 @@ describe("ssh2 control master", () => {
     t.answers.push("pw", "wrong", "wrong", "wrong");
     const master = await authenticateSsh2Master(t.target, t.handler, t.dependencies);
     cleanups.push(() => master.dispose());
-    t.server.dropAll();
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await t.server.dropAll();
 
     const result = await run(master.controlPath, "echo:never");
     expect(result.code).toBe(255);

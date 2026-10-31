@@ -16,26 +16,11 @@ import {
 } from "../../../../src/main/features/shell/open-path";
 import { ipcContract } from "../../../../src/shared/ipc/contract";
 
+const openPathResult = ipcContract.system.call.openPathExternal.result;
+
 function makeTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "nexus-system-ipc-"));
 }
-
-describe("system path IPC contract", () => {
-  it("accepts absPath args and typed result shapes", () => {
-    expect(
-      ipcContract.system.call.openPathExternal.args.safeParse({ absPath: "/tmp/file.txt" }).success,
-    ).toBe(true);
-    expect(ipcContract.system.call.openPathExternal.result.safeParse({ ok: true }).success).toBe(
-      true,
-    );
-    expect(
-      ipcContract.system.call.openPathExternal.result.safeParse({
-        ok: false,
-        error: { code: "not-found", message: "Path does not exist.", absPath: "/tmp/missing" },
-      }).success,
-    ).toBe(true);
-  });
-});
 
 describe("system path handlers", () => {
   let tmpDir: string;
@@ -59,6 +44,7 @@ describe("system path handlers", () => {
     const result = await openPathExternalHandler(shell)({ absPath: filePath });
 
     expect(result).toEqual({ ok: true });
+    expect(openPathResult.safeParse(result).success).toBe(true);
     expect(shell.openPath).toHaveBeenCalledWith(filePath);
   });
 
@@ -75,6 +61,7 @@ describe("system path handlers", () => {
       ok: false,
       error: { code: "not-found", message: "Path does not exist.", absPath: missingPath },
     });
+    expect(openPathResult.safeParse(result).success).toBe(true);
     expect(shell.openPath).not.toHaveBeenCalled();
   });
 

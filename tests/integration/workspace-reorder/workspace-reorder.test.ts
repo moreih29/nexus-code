@@ -349,7 +349,7 @@ describe("cross-section reorder — automatic pin toggle + sort column zeroing",
     const result = fixtures.manager.reorder(id1, { targetGroup: "pinned" });
 
     expect(result.pinned).toBe(true);
-    expect(result.pinnedSortOrder).toBeGreaterThan(0);
+    expect(result.pinnedSortOrder).toBe(1024); // tail of the empty pinned group
     expect(result.sortOrder).toBe(0);
 
     // DB state must match the returned meta.

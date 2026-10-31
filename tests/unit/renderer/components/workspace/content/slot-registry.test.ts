@@ -164,8 +164,6 @@ describe("slotRegistry", () => {
   // useSyncExternalStore 계약: getSnapshot은 store 상태가 변하지 않으면 동일
   // 참조를 반환해야 한다. 아래 한 케이스로 모든 상태(element / 미등록 / set(null)
   // 후)에서의 참조 안정성을 통합 검증한다.
-  // (이전에는 통합 테스트 portal-fiber-identity Scenario 4의 4 케이스로 분산되어
-  //  있었으나, layoutStore와 무관한 순수 registry 계약이므로 unit으로 통합.)
   it("getSnapshot 참조 안정성: 모든 상태에서 연속 get()이 Object.is 동일", () => {
     const WS = "ws-ref-stability";
     const LEAF_PRESENT = "leaf-present";
@@ -218,5 +216,38 @@ describe("slotRegistry", () => {
     // Total: 3 notifications (idempotent guard only skips same-reference re-set,
     // not a re-set after a null-clear)
     expect(listener).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("slotRegistry — notification order and workspace scoping", () => {
+  it("listener reads the new value on every change: A → null → B", () => {
+    const WS = "ws-snapshot-order";
+    const LEAF = "leaf-snapshot-order";
+    const elA = makeEl();
+    const elB = makeEl();
+    // ContentHost's useSyncExternalStore reads get() inside the notification,
+    // so the map must already hold the new value when listeners run.
+    const snapshots: Array<HTMLElement | null> = [];
+    trackedSubscribe(() => {
+      snapshots.push(slotRegistry.get(WS, LEAF));
+    });
+
+    trackedSet(WS, LEAF, elA);
+    slotRegistry.set(WS, LEAF, null);
+    trackedSet(WS, LEAF, elB);
+
+    expect(snapshots).toEqual([elA, null, elB]);
+  });
+
+  it("clearing one workspace's slot leaves another workspace's same leafId intact", () => {
+    const el1 = makeEl();
+    const el2 = makeEl();
+    trackedSet("ws-clear-1", "leaf-shared", el1);
+    trackedSet("ws-clear-2", "leaf-shared", el2);
+
+    slotRegistry.set("ws-clear-2", "leaf-shared", null);
+
+    expect(slotRegistry.get("ws-clear-1", "leaf-shared")).toBe(el1);
+    expect(slotRegistry.get("ws-clear-2", "leaf-shared")).toBeNull();
   });
 });

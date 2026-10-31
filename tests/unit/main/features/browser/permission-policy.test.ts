@@ -39,28 +39,15 @@ function resolve(input: PermissionResolverInput): PermissionDecision {
 // ---------------------------------------------------------------------------
 
 describe("resolvePermission — unknown permission", () => {
-  test("blocks when isKnownPermission=false, globalAllowed=false, remembered=null", () => {
-    expect(resolve({ isKnownPermission: false, globalAllowed: false, remembered: null })).toBe("block");
-  });
-
-  test("blocks when isKnownPermission=false, globalAllowed=true, remembered=null", () => {
-    expect(resolve({ isKnownPermission: false, globalAllowed: true, remembered: null })).toBe("block");
-  });
-
-  test("blocks when isKnownPermission=false, globalAllowed=false, remembered='allow'", () => {
-    expect(resolve({ isKnownPermission: false, globalAllowed: false, remembered: "allow" })).toBe("block");
-  });
-
-  test("blocks when isKnownPermission=false, globalAllowed=true, remembered='allow'", () => {
-    expect(resolve({ isKnownPermission: false, globalAllowed: true, remembered: "allow" })).toBe("block");
-  });
-
-  test("blocks when isKnownPermission=false, globalAllowed=false, remembered='block'", () => {
-    expect(resolve({ isKnownPermission: false, globalAllowed: false, remembered: "block" })).toBe("block");
-  });
-
-  test("blocks when isKnownPermission=false, globalAllowed=true, remembered='block'", () => {
-    expect(resolve({ isKnownPermission: false, globalAllowed: true, remembered: "block" })).toBe("block");
+  test.each([
+    [false, null],
+    [true, null],
+    [false, "allow"],
+    [true, "allow"],
+    [false, "block"],
+    [true, "block"],
+  ] as const)("blocks when isKnownPermission=false, globalAllowed=%p, remembered=%p", (globalAllowed, remembered) => {
+    expect(resolve({ isKnownPermission: false, globalAllowed, remembered })).toBe("block");
   });
 });
 
@@ -97,17 +84,5 @@ describe("resolvePermission — globalAllowed=false", () => {
 
   test("asks when remembered=null (no prior decision)", () => {
     expect(resolve({ isKnownPermission: true, globalAllowed: false, remembered: null })).toBe("ask");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Key conflict — explicit assertion that global ON beats remembered block
-// ---------------------------------------------------------------------------
-
-describe("resolvePermission — key conflict: globalAllowed=true vs remembered='block'", () => {
-  test("returns 'allow', not 'block'", () => {
-    const result = resolve({ isKnownPermission: true, globalAllowed: true, remembered: "block" });
-    expect(result).toBe("allow");
-    expect(result).not.toBe("block");
   });
 });

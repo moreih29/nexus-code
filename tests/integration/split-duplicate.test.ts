@@ -3,10 +3,10 @@
  *
  * SCOPE
  * -----
- * Scenario B — openTabInNewSplit on empty layout (ensureLayout auto-call)
- *   B1. Works when no prior openTab was called (ensureLayout triggered internally)
- *   B2. Layout slice exists and root becomes kind:split after the call
+ * Scenario B — openOrRevealEditor newSplit on empty layout (ensureLayout auto-call)
  *   B3. tabsStore gains exactly one new tab record
+ *   (B1/B2, openTabInNewSplit on an empty layout, are covered by
+ *    operations.test.ts Scenario 10.)
  *
  * Scenario C — FileTree plain-Enter / Space branching (dir vs file)
  *   C3. File node + Enter routes to openOrRevealEditor
@@ -24,9 +24,9 @@
  * ---------------------
  * What IS automated:
  *   - Store-level state changes for split + duplicate operations
- *   - openTabInNewSplit on an empty workspace (ensureLayout path)
+ *   - openOrRevealEditor newSplit on an empty workspace (ensureLayout path)
  *   - handleKeyDown logic extracted as inline handler mirrors (no DOM/React)
- *   - useGroupActions service-dispatch contract mirrored without React lifecycle
+ *   - useGroupActions split dispatch (a plain factory, called directly)
  *
  * What is NOT automated (DOM/Electron boundary):
  *   - React rendering of the FileTree virtualizer
@@ -64,19 +64,15 @@ mock.module("../../src/renderer/ipc/client", () => ({
 // ---------------------------------------------------------------------------
 
 import { openOrRevealEditor } from "../../src/renderer/services/editor";
-import { openTerminal } from "../../src/renderer/services/terminal";
 import {
   createFileTreeKeydownHandler,
   type FileTreeKeydownDeps,
 } from "../../src/renderer/components/files/keys";
-import { openTerminalTab, openTabInNewSplit } from "../../src/renderer/state/operations";
+import { useGroupActions } from "../../src/renderer/components/workspace/group/use-group-actions";
+import { openTerminalTab } from "../../src/renderer/state/operations";
 import { useLayoutStore } from "../../src/renderer/state/stores/layout";
 import { allLeaves, findLeaf } from "../../src/renderer/state/stores/layout/helpers";
-import {
-  type EditorTabProps,
-  type TerminalTabProps,
-  useTabsStore,
-} from "../../src/renderer/state/stores/tabs";
+import { useTabsStore } from "../../src/renderer/state/stores/tabs";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -101,36 +97,10 @@ function must<T>(value: T | null | undefined, label: string): T {
 }
 
 // ---------------------------------------------------------------------------
-// Scenario B — openTabInNewSplit on empty layout (ensureLayout auto-call)
+// Scenario B — openOrRevealEditor newSplit on empty layout
+// (openTabInNewSplit on an empty layout is covered by operations.test.ts
+//  Scenario 10.)
 // ---------------------------------------------------------------------------
-
-describe("Scenario B1: openTabInNewSplit works on a fresh workspace with no prior layout", () => {
-  beforeEach(resetStores);
-
-  it("ensureLayout is triggered — byWorkspace entry is created", () => {
-    expect(useLayoutStore.getState().byWorkspace[WS]).toBeUndefined();
-
-    const result = openTabInNewSplit(
-      WS,
-      { type: "terminal", props: { cwd: "/new" } },
-      "horizontal",
-      "after",
-    );
-
-    expect(useLayoutStore.getState().byWorkspace[WS]).toBeDefined();
-    expect(result.newLeafId).toBeTruthy();
-    expect(result.tabId).toBeTruthy();
-  });
-});
-
-describe("Scenario B2: openTabInNewSplit on empty layout produces kind:split root", () => {
-  beforeEach(resetStores);
-
-  it("root kind is split after openTabInNewSplit on empty workspace", () => {
-    openTabInNewSplit(WS, { type: "terminal", props: { cwd: "/initial" } }, "horizontal", "after");
-    expect(getLayout().root.kind).toBe("split");
-  });
-});
 
 describe("Scenario B3: openOrRevealEditor newSplit on empty layout creates one editor tab", () => {
   beforeEach(resetStores);
@@ -251,57 +221,29 @@ describe("Scenario C4: FileTree plain Enter on a dir calls toggleExpand, not ope
 });
 
 // ---------------------------------------------------------------------------
-// Scenario D — splitRight/splitDown contract: simulate useGroupActions behavior
-//
-// Rather than importing the hook into a non-React test, we mirror its service
-// dispatch: editor tabs route to openOrRevealEditor({ newSplit }) and terminal
-// tabs route to openTerminal({ newSplit, groupId: leafId }).
+// Scenario D — useGroupActions.splitRight/splitDown → service newSplit state
 // ---------------------------------------------------------------------------
 
-/** Mirror of useGroupActions.splitRight/splitDown for test purposes */
-function makeSplitActions(workspaceId: string, leafId: string, getContextTabId: () => string) {
-  function split(orientation: "horizontal" | "vertical") {
-    const tabId = getContextTabId();
-    if (!tabId) return;
-    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
-    if (!tab) return;
-
-    if (tab.type === "editor") {
-      useLayoutStore.getState().setActiveGroup(workspaceId, leafId);
-      openOrRevealEditor(tab.props as EditorTabProps, {
-        newSplit: { orientation, side: "after" },
-      });
-      return;
-    }
-
-    if (tab.type === "terminal") {
-      const props = tab.props as TerminalTabProps;
-      openTerminal(
-        { workspaceId, cwd: props.cwd },
-        { groupId: leafId, newSplit: { orientation, side: "after" } },
-      );
-    }
-  }
-
-  return {
-    splitRight() {
-      split("horizontal");
-    },
-    splitDown() {
-      split("vertical");
-    },
-  };
+function makeSplitActions(leafId: string, contextTabId: string) {
+  // biome-ignore lint/correctness/useHookAtTopLevel: useGroupActions is a plain factory despite the "use" prefix; no React hooks inside
+  return useGroupActions({
+    workspaceId: WS,
+    leafId,
+    workspaceRootPath: "/workspace",
+    getContextTabId: () => contextTabId,
+    getTabIds: () => [],
+    onActivateGroup: (groupId) => useLayoutStore.getState().setActiveGroup(WS, groupId),
+  });
 }
 
-describe("Scenario D1: splitRight (useGroupActions mirror) produces a second leaf, source tab unchanged", () => {
+describe("Scenario D1: useGroupActions.splitRight produces a second leaf, source tab unchanged", () => {
   beforeEach(resetStores);
 
   it("splitRight creates a new leaf and source leaf still holds original tab", () => {
     const tab = openTerminalTab(WS, "terminal", { cwd: "/workspace" });
     const leafId = getLayout().activeGroupId;
 
-    const actions = makeSplitActions(WS, leafId, () => tab.id);
-    actions.splitRight();
+    makeSplitActions(leafId, tab.id).splitRight();
 
     const layout = getLayout();
     expect(layout.root.kind).toBe("split");
@@ -312,15 +254,14 @@ describe("Scenario D1: splitRight (useGroupActions mirror) produces a second lea
   });
 });
 
-describe("Scenario D2: splitDown (useGroupActions mirror) produces a vertical split", () => {
+describe("Scenario D2: useGroupActions.splitDown produces a vertical split", () => {
   beforeEach(resetStores);
 
   it("splitDown creates a vertical split node", () => {
     const tab = openTerminalTab(WS, "terminal", { cwd: "/ws" });
     const leafId = getLayout().activeGroupId;
 
-    const actions = makeSplitActions(WS, leafId, () => tab.id);
-    actions.splitDown();
+    makeSplitActions(leafId, tab.id).splitDown();
 
     const root = getLayout().root;
     expect(root.kind).toBe("split");
@@ -330,15 +271,14 @@ describe("Scenario D2: splitDown (useGroupActions mirror) produces a vertical sp
   });
 });
 
-describe("Scenario D3: splitRight (useGroupActions mirror) — two tab records in tabsStore", () => {
+describe("Scenario D3: useGroupActions.splitRight — two tab records in tabsStore", () => {
   beforeEach(resetStores);
 
   it("tabsStore contains exactly 2 records with different ids after splitRight", () => {
     const tab = openOrRevealEditor({ workspaceId: WS, filePath: "/file.ts" });
     const leafId = getLayout().activeGroupId;
 
-    const actions = makeSplitActions(WS, leafId, () => tab.tabId);
-    actions.splitRight();
+    makeSplitActions(leafId, tab.tabId).splitRight();
 
     const wsRecord = must(useTabsStore.getState().byWorkspace[WS], "workspace tabs");
     const ids = Object.keys(wsRecord);
@@ -352,15 +292,13 @@ describe("Scenario D3: splitRight (useGroupActions mirror) — two tab records i
   });
 });
 
-describe("Scenario D4: splitRight (useGroupActions mirror) with empty contextTabId is a no-op", () => {
+describe("Scenario D4: useGroupActions.splitRight with empty contextTabId is a no-op", () => {
   beforeEach(resetStores);
 
   it("no split occurs when contextTabId is empty string — guard branch in useGroupActions", () => {
     openTerminalTab(WS, "terminal", { cwd: "/ws" });
 
-    // Guard: useGroupActions.splitRight does `if (!tabId) return`
-    const actions = makeSplitActions(WS, getLayout().activeGroupId, () => "");
-    actions.splitRight();
+    makeSplitActions(getLayout().activeGroupId, "").splitRight();
 
     // Root should remain a sole leaf (no split)
     expect(getLayout().root.kind).toBe("leaf");

@@ -197,6 +197,17 @@ describe("fs read handlers — provider delegation", () => {
     expect(getFs.mock.calls).toEqual([[WORKSPACE_ID]]);
     expect(readAbsolute.mock.calls).toEqual([["/external/lib.ts"]]);
   });
+
+  it("readExternalHandler rejects calls without a workspace id", async () => {
+    const { provider, readAbsolute } = makeProvider();
+    const { manager, getFs } = makeManager(provider);
+
+    await expect(
+      readExternalHandler(manager as never)({ absolutePath: "/external/lib.ts" }),
+    ).rejects.toThrow();
+    expect(getFs).not.toHaveBeenCalled();
+    expect(readAbsolute).not.toHaveBeenCalled();
+  });
 });
 
 describe("fs write handlers — provider delegation", () => {
