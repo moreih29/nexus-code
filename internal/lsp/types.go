@@ -54,6 +54,12 @@ type SpawnParams struct {
 	// `src/shared/lsp/client-capabilities.ts`.
 	Capabilities json.RawMessage `json:"capabilities,omitempty"`
 
+	// InitializationOptions is the server's own configuration, which the
+	// agent sends as the `initializationOptions` of `initialize` without
+	// reading it. Some settings take effect only there, such as
+	// typescript-language-server's tsserver options.
+	InitializationOptions json.RawMessage `json:"initializationOptions,omitempty"`
+
 	// Env adds to the agent's own environment, taking precedence over it.
 	// The app sets ELECTRON_RUN_AS_NODE here to run a server's script on
 	// its own runtime.

@@ -23,6 +23,7 @@ type serverProcess struct {
 	env           map[string]string
 	workspaceRoot string
 	capabilities  json.RawMessage
+	initOptions   json.RawMessage
 	idleTimeout   time.Duration
 
 	cmd    *exec.Cmd
@@ -67,6 +68,7 @@ func newServerProcess(service *Service, id string, p SpawnParams, idleTimeout ti
 		env:                             p.Env,
 		workspaceRoot:                   p.WorkspaceRoot,
 		capabilities:                    p.Capabilities,
+		initOptions:                     p.InitializationOptions,
 		idleTimeout:                     idleTimeout,
 		pendingInternal:                 make(map[string]chan rpcResponse),
 		pendingServerRequests:           make(map[string]json.RawMessage),
@@ -197,7 +199,7 @@ func (p *serverProcess) initializeParams() map[string]any {
 	if len(capabilities) == 0 {
 		capabilities = json.RawMessage(`{}`)
 	}
-	return map[string]any{
+	params := map[string]any{
 		"processId": os.Getpid(),
 		"rootPath":  p.workspaceRoot,
 		"rootUri":   rootURI,
@@ -212,6 +214,10 @@ func (p *serverProcess) initializeParams() map[string]any {
 			"name": "nexus-code-agent",
 		},
 	}
+	if len(p.initOptions) > 0 {
+		params["initializationOptions"] = p.initOptions
+	}
+	return params
 }
 
 func (p *serverProcess) request(ctx context.Context, method string, params any) (json.RawMessage, error) {

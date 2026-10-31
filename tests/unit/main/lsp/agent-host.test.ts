@@ -310,6 +310,7 @@ describe("AgentLspHostHandle", () => {
       languageId: "python",
       args: ["--stdio"],
       workspaceRoot: "/tmp/ws",
+      initializationOptions: { "python.analysis.typeCheckingMode": "standard" },
     });
     expect(
       (spawn?.params as { binaryPath: string }).binaryPath.endsWith(

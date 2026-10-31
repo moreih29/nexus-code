@@ -128,6 +128,8 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 		WorkspaceRoot: workspaceRoot,
 		Capabilities:  p.Capabilities,
 		Env:           p.Env,
+
+		InitializationOptions: p.InitializationOptions,
 	}, idleTimeout)
 	s.storeServer(server)
 

@@ -442,3 +442,18 @@ func TestServerIDsDifferBetweenServices(t *testing.T) {
 		t.Fatalf("both services named their first server %q", a)
 	}
 }
+
+// Some servers read settings only from initialize, such as
+// typescript-language-server's tsserver options.
+func TestInitializeSendsInitializationOptions(t *testing.T) {
+	options := json.RawMessage(`{"tsserver":{"useSyntaxServer":"never"}}`)
+	with := newServerProcess(New(), "lsp-x-1", SpawnParams{WorkspaceRoot: t.TempDir(), InitializationOptions: options}, 0)
+	if got, _ := with.initializeParams()["initializationOptions"].(json.RawMessage); string(got) != string(options) {
+		t.Fatalf("initializationOptions = %s, want %s", got, options)
+	}
+
+	without := newServerProcess(New(), "lsp-x-2", SpawnParams{WorkspaceRoot: t.TempDir()}, 0)
+	if _, ok := without.initializeParams()["initializationOptions"]; ok {
+		t.Fatal("initialize carried initializationOptions nobody set")
+	}
+}

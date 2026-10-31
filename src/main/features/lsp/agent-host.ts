@@ -927,6 +927,9 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         idleTimeoutMs: LSP_DEFAULT_IDLE_MS,
         correlationId,
         capabilities: LSP_CLIENT_CAPABILITIES,
+        ...(preset.initializationOptions !== undefined
+          ? { initializationOptions: preset.initializationOptions }
+          : {}),
       });
       serverId = parseSpawnResult(result).serverId;
       const capabilities = parseServerCapabilities(result.capabilities);
