@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import "@xterm/xterm/css/xterm.css";
 import { registerTabFocusTarget } from "@/services/tab-focus";
+import { registerTerminalController } from "@/services/terminal/terminal-registry";
 import { createTerminalController } from "@/services/terminal";
 import { subscribeTerminalReopenRequest } from "@/services/terminal/reopen-requests";
 import type { TerminalController } from "@/services/terminal/types";
@@ -274,8 +275,10 @@ export function TerminalView({
     });
     controllerRef.current = controller;
     const unregisterFocus = registerTabFocusTarget(tabId, () => controller.focus());
+    const unregisterController = registerTerminalController(tabId, controller);
     return () => {
       unregisterFocus();
+      unregisterController();
       controllerRef.current = null;
       controller.dispose();
     };

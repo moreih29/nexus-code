@@ -14,6 +14,7 @@ import { getBrowserRegistry, initBrowserFeature, registerBrowserCloser } from ".
 import { updateBrowserKeybindings } from "./features/browser/keyboard";
 import { BrowserPermissionPromptManager } from "./features/browser/permission-prompt-manager";
 import { setupClaudeFeature } from "./features/claude/index";
+import { setupCliFeature } from "./features/cli";
 import { registerClipboardChannel } from "./features/clipboard/ipc";
 import {
   installNexusWorkspaceProtocol,
@@ -54,7 +55,11 @@ import {
 } from "./features/updates/electron-update-backend";
 import { createMainWindow } from "./features/window";
 import { installAppSessionPermissions } from "./features/window/app-session-permissions";
-import { hasAppWindow } from "./features/window/app-windows";
+import {
+  getActiveAppWindow,
+  getFocusedAppWindow,
+  hasAppWindow,
+} from "./features/window/app-windows";
 import { registerWindowChannel } from "./features/window/ipc";
 import { registerWorkspaceChannel } from "./features/workspace/ipc";
 import { WorkspaceManager } from "./features/workspace/manager";
@@ -128,6 +133,7 @@ const stateService = new StateService(path.join(userData, "state.json"));
 let lspHost: LspHostHandle | null = null;
 let agentPtyHost: PtyHostHandle | null = null;
 let disposeClaudeFeature: (() => void) | null = null;
+let disposeCliFeature: (() => void) | null = null;
 let gitRegistry: GitRegistry | null = null;
 let gitWatcher: AgentGitWatcher | null = null;
 let gitStatusCoalescer: StatusCoalescer | null = null;
@@ -436,6 +442,29 @@ app.whenReady().then(async () => {
   });
   disposeClaudeFeature = claudeSetup.dispose;
 
+  // The nexus command in the app's terminals.
+  disposeCliFeature = setupCliFeature({
+    agentHost: agentPtyHost,
+    workspaceManager,
+    claudeBroker: claudeSetup.broker,
+    activeContext: claudeSetup.activeContext,
+    appVersion: app.getVersion(),
+    notificationsEnabled: () => stateService.getState().osNotificationsEnabled ?? true,
+    getWindow: getActiveAppWindow,
+    isAppFocused: () => {
+      const win = getFocusedAppWindow();
+      return win !== null && !win.isMinimized();
+    },
+    focusWindow: () => {
+      const win = getActiveAppWindow();
+      if (!win) return;
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    },
+    broadcast: forwardBroadcast,
+  }).dispose;
+
   // hookserver 접속 정보는 pull 기반으로 workspaceManager.getHookInfo()에서 조회한다.
   registerPtyChannel({
     agentHost: agentPtyHost,
@@ -547,6 +576,7 @@ app.on("window-all-closed", () => {
 // once every window has closed.
 app.on("will-quit", () => {
   sshBrowseRegistry.dispose();
+  disposeCliFeature?.();
   disposeClaudeFeature?.();
   agentPtyHost?.dispose();
   lspHost?.dispose();

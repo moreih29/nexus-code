@@ -5,6 +5,7 @@ import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { AGENT_PROTOCOL_VERSION } from "../src/shared/agent/envelope";
+import { POSIX_CLI_LAUNCHER } from "../src/shared/cli/launcher";
 import {
   type AgentArtifactPlatform,
   type AgentBinaryManifestEntry,
@@ -159,6 +160,7 @@ export async function buildAgentDistribution(
 
   // claude 래퍼 스크립트를 bin/claude로 배치.
   const wrapperArtifact = await copyClaudeWrapper({ rootDir, outDir });
+  await writeCliLauncher(outDir);
 
   await writeAgentManifest({
     outDir,
@@ -191,6 +193,17 @@ export async function copyClaudeWrapper(args: {
   const metadata = await fileMetadata(dest);
   console.log(`Copied claude wrapper to ${dest} (sha256=${metadata.sha256})`);
   return { path: path.join("bin", "claude"), ...metadata };
+}
+
+/**
+ * Writes the nexus command to <outDir>/bin/nexus, next to the claude wrapper
+ * on the app's terminals' PATH. Windows terminals get theirs at runtime.
+ */
+export async function writeCliLauncher(outDir: string): Promise<void> {
+  const dest = path.join(outDir, "bin", "nexus");
+  await fs.mkdir(path.dirname(dest), { recursive: true });
+  await fs.writeFile(dest, POSIX_CLI_LAUNCHER, { mode: 0o755 });
+  await fs.chmod(dest, 0o755);
 }
 
 export async function writeAgentManifest(args: {
