@@ -1402,6 +1402,16 @@ describe("isShellPromptLikeTitle", () => {
     expect(isShellPromptLikeTitle("vim README.md")).toBe(false);
   });
 
+  it("the titles cmd and PowerShell give the console: their own path", () => {
+    expect(isShellPromptLikeTitle("C:\\WINDOWS\\system32\\cmd.exe")).toBe(true);
+    expect(isShellPromptLikeTitle("C:\\WINDOWS\\system32\\cmd.exe - ping -n 100 127.0.0.1")).toBe(
+      true,
+    );
+    expect(
+      isShellPromptLikeTitle("C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"),
+    ).toBe(true);
+  });
+
   it("@만 있고 : 없음 → 통과 (이메일 등 비-prompt 가능)", () => {
     expect(isShellPromptLikeTitle("@anthropic")).toBe(false);
   });

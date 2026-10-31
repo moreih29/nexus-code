@@ -131,6 +131,8 @@ export const TERMINAL_REOPENED_SEPARATOR = "────────────
  *  - 문자열에 `/`가 포함 → cwd 또는 path-like (lazygit/claude 같은 TUI는 슬래시 없음)
  *  - 문자열이 `~`로 시작 → 홈 경로 prompt
  *  - `@`와 `:`가 동시에 포함 → `user@host:` 패턴
+ *  - A backslash: a Windows path. cmd and PowerShell title the console with
+ *    their own path, cmd adding the command it runs.
  *
  * lazygit / lazydocker / claude / less 같은 TUI는 단일 단어이거나 `:` / `@`를 함께
  * 갖지 않으므로 통과한다. vim의 경우 일부 setting에서 "filename (path) - VIM" 같은
@@ -140,7 +142,7 @@ export const TERMINAL_REOPENED_SEPARATOR = "────────────
  * exported는 단위 테스트용. production 호출 경로는 controller 내부.
  */
 export function isShellPromptLikeTitle(title: string): boolean {
-  if (title.includes("/")) return true;
+  if (title.includes("/") || title.includes("\\")) return true;
   if (title.startsWith("~")) return true;
   if (title.includes("@") && title.includes(":")) return true;
   return false;
