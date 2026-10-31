@@ -1421,6 +1421,12 @@ describe("isLoginShell", () => {
     }
   });
 
+  it("Windows shells, named as the agent names them there", () => {
+    for (const sh of ["powershell", "pwsh", "cmd", "CMD", "nu"]) {
+      expect(isLoginShell(sh)).toBe(true);
+    }
+  });
+
   it("로그인 셸 prefix '-' 제거 후 판정 (ps -o comm=)", () => {
     expect(isLoginShell("-zsh")).toBe(true);
     expect(isLoginShell("-bash")).toBe(true);

@@ -30,6 +30,8 @@ type terminal struct {
 	mu     sync.Mutex // keeps setSize off a closed console
 	closed bool
 	hpc    windows.Handle
+
+	shellPID uint32 // the shell's process id, once it has started
 }
 
 // defaultShell resolves the shell for a PTY when the client names none:
@@ -81,6 +83,7 @@ func startTerminal(spec spawnSpec) (*terminal, *child, error) {
 		_ = t.Close()
 		return nil, nil, err
 	}
+	t.shellPID = uint32(process.Pid)
 	return t, &child{process}, nil
 }
 
@@ -175,10 +178,18 @@ func (t *terminal) setSize(cols, rows int) error {
 	return windows.ResizePseudoConsole(t.hpc, windows.Coord{X: int16(cols), Y: int16(rows)})
 }
 
-// foregroundProcess reports no name: a console has no foreground process
-// group to read it from.
+// foregroundProcess returns the name of the program the shell runs, or the
+// shell's own when it runs none (see foregroundOf), or "" when it cannot be
+// told.
 func (t *terminal) foregroundProcess() string {
-	return ""
+	if t.shellPID == 0 {
+		return ""
+	}
+	entries, err := listProcesses()
+	if err != nil {
+		return ""
+	}
+	return foregroundOf(entries, t.shellPID, readProcessDetail)
 }
 
 // Close closes the console and its pipes. The output pipe reads end once the
