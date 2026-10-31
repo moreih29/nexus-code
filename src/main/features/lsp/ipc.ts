@@ -16,7 +16,7 @@ import type {
   SemanticTokensResult,
   SymbolInformation,
 } from "../../../shared/lsp";
-import { LSP_FEATURE_ENABLED } from "../../../shared/lsp/feature-flag";
+import { isLspFeatureEnabled } from "../../../shared/lsp/feature-flag";
 import type { LspLanguageId } from "../../../shared/types/app-state";
 import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../infra/agent/ssh/ssh-bootstrap/index";
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
@@ -132,8 +132,8 @@ async function handleServerRequest(lspHost: LspHostHandle, args: unknown): Promi
  * during startup and not maintain it per-event.
  */
 export function registerLspChannel(lspHost: LspHostHandle, stateService: StateService): void {
-  if (!LSP_FEATURE_ENABLED) {
-    // Feature gate: LSP is globally disabled. Register only the minimal
+  if (!isLspFeatureEnabled()) {
+    // Feature gate: LSP is off for this session. Register only the minimal
     // listen-side stubs so the renderer's ipcListen calls don't error on
     // missing channels, and return empty/noop responses for every call.
     register("lsp", {

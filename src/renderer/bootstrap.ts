@@ -132,6 +132,9 @@ export async function bootstrapAppState(): Promise<void> {
   // Bootstrap is an initialization path — no recovery possible if appState is unavailable.
   const state = mustSucceed(await ipcCallResult("appState", "get", undefined));
 
+  // Before anything opens a document: whether LSP runs this session.
+  useLspEnabledStore.getState().hydrateFeature(state.lspEnabled === true);
+
   useUIStore.getState().hydrate({
     sidebarWidth: state.sidebarWidth,
     filesPanelWidth: state.filesPanelWidth,

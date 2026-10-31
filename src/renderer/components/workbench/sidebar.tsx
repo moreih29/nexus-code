@@ -2,7 +2,6 @@ import { Folder, GitBranch, Server, X } from "lucide-react";
 import React, { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/shallow";
-import { LSP_FEATURE_ENABLED } from "../../../shared/lsp/feature-flag";
 import { Tooltip as RadixTooltip } from "radix-ui";
 import { cn } from "@/utils/cn";
 import type { LspLanguageId } from "../../../shared/types/app-state";
@@ -115,6 +114,7 @@ function WorkspaceRow({
   onRemoveWorkspace,
 }: WorkspaceRowProps) {
   const { t } = useTranslation();
+  const lspOn = useLspEnabledStore((s) => s.featureEnabled);
   const isSsh = ws.location.kind === "ssh";
   const Icon = isSsh ? Server : Folder;
 
@@ -322,7 +322,7 @@ function WorkspaceRow({
                 >
                   {pathLine}
                   {/* LSP 언어 칩 — path 줄 끝 우측 인라인, 상시 노출 */}
-                  {LSP_FEATURE_ENABLED &&
+                  {lspOn &&
                     CHIP_LANGUAGES.map((lang) => (
                       <LspLanguageChip
                         key={lang}

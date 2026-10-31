@@ -75,6 +75,29 @@ func TestServiceSpawnSendRoundTripShutdown(t *testing.T) {
 	}
 }
 
+func TestSpawnAddsEnvOverTheAgents(t *testing.T) {
+	service, _ := newTestService(t)
+	// Without the spawn's own value the helper would not act as a server.
+	t.Setenv("NEXUS_LSP_FAKE_SERVER", "0")
+
+	params := SpawnParams{
+		WorkspaceID:   "workspace",
+		LanguageID:    "fake",
+		BinaryPath:    os.Args[0],
+		Args:          []string{"-test.run=TestFakeLSPServerHelper", "--", "roundtrip"},
+		WorkspaceRoot: t.TempDir(),
+		Env:           map[string]string{"NEXUS_LSP_FAKE_SERVER": "1"},
+	}
+	result, err := service.Spawn(context.Background(), mustJSON(t, params))
+	if err != nil {
+		t.Fatalf("Spawn() error = %v", err)
+	}
+	serverID := result.(SpawnResult).ServerID
+	if _, err := service.Shutdown(context.Background(), mustJSON(t, ShutdownParams{ServerID: serverID})); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+}
+
 func TestIdleTimerTriggersGracefulShutdown(t *testing.T) {
 	service, _ := newTestService(t)
 	markerPath := filepath.Join(t.TempDir(), "idle-marker.txt")

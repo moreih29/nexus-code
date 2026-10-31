@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, mock, test, beforeAll, afterAll } from "bun:test";
 import type {
@@ -8,7 +9,10 @@ import type {
 } from "../../../../src/main/infra/agent/channel";
 
 import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
-import { startAgentLspHost } from "../../../../src/main/features/lsp/agent-host";
+import {
+  resolveLspCommandFromManifest,
+  startAgentLspHost,
+} from "../../../../src/main/features/lsp/agent-host";
 import { startConfiguredLspHost, type LspHostHandle } from "../../../../src/main/features/lsp/host";
 
 // ---------------------------------------------------------------------------
@@ -43,7 +47,8 @@ class FakeAgentChannel implements AgentChannel {
   readonly calls: Array<{ method: string; params: unknown }> = [];
   readonly eventListeners = new Map<string, Set<ChannelEventCallback>>();
   readonly lifecycleListeners = new Set<ChannelLifecycleCallback>();
-  readonly serverId = "srv-1";
+  // The id the next lsp.spawn assigns.
+  serverId = "srv-1";
   emitConfigurationRequest = false;
 
   constructor(
@@ -616,6 +621,132 @@ describe("AgentLspHostHandle", () => {
 
     const hoverAfterExit = await host.call("hover", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 1 });
     expect(hoverAfterExit).toBeNull();
+  });
+
+  test("has the renderer reopen its documents on the next server when one exits", async () => {
+    const channel = new FakeAgentChannel();
+    const host = startAgentLspHost({ getAgentChannel: async () => channel });
+    const resets: unknown[] = [];
+    host.on("workspaceLspReset", (args) => resets.push(args));
+    const open = () =>
+      host.call("didOpen", {
+        workspaceId: WORKSPACE_ID,
+        workspaceRoot: "/tmp/ws",
+        uri: URI,
+        languageId: "python",
+        version: 1,
+        text: "print(1)\n",
+      });
+
+    await open();
+    channel.emit("lsp.serverExited", { serverId: channel.serverId, reason: "idle timeout" });
+
+    expect(resets).toEqual([
+      { workspaceId: WORKSPACE_ID, languageId: "python", reason: "idle timeout" },
+    ]);
+    channel.serverId = "srv-2";
+    await open();
+    expect(channel.calls.filter((c) => c.method === "lsp.spawn")).toHaveLength(2);
+  });
+
+  test("frees a workspace's place under the LRU cap when its last server exits", async () => {
+    const channel = new FakeAgentChannel();
+    const host = startAgentLspHost({ getAgentChannel: async () => channel });
+    const resets: unknown[] = [];
+    host.on("workspaceLspReset", (args) => resets.push(args));
+    const open = (n: number) => {
+      channel.serverId = `srv-${n}`;
+      return host.call("didOpen", {
+        workspaceId: `11111111-1111-4111-8111-11111111111${n}`,
+        workspaceRoot: `/tmp/ws${n}`,
+        uri: `file:///tmp/ws${n}/main.py`,
+        languageId: "python",
+        version: 1,
+        text: "print(1)\n",
+      });
+    };
+
+    for (const n of [1, 2, 3, 4]) await open(n);
+    channel.emit("lsp.serverExited", { serverId: "srv-4", reason: "idle timeout" });
+    await open(5);
+
+    // Only workspace 4's own reset: nothing was evicted to make room.
+    expect(resets).toEqual([
+      {
+        workspaceId: "11111111-1111-4111-8111-111111111114",
+        languageId: "python",
+        reason: "idle timeout",
+      },
+    ]);
+  });
+});
+
+describe("resolveLspCommandFromManifest", () => {
+  const SHA = "0".repeat(64);
+  const PYRIGHT = {
+    languageId: "python",
+    binary: "pyright-langserver",
+    args: ["--stdio"],
+  };
+
+  function distWith(entryExists: boolean): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-agent-dist-"));
+    const manifest = {
+      version: "1.0.0",
+      protocolVersion: "1",
+      binaries: [{ os: "darwin", arch: "arm64", path: "bin/agent", sha256: SHA, size: 1 }],
+      runtime: {
+        node: [
+          { os: "linux", arch: "amd64", version: "22", path: "n.tgz", sha256: SHA, size: 1, entry: "bin/node" },
+        ],
+      },
+      lspBinaries: [
+        {
+          name: "pyright-langserver",
+          packageName: "pyright",
+          version: "1.1.0",
+          languages: ["python"],
+          path: "lsp/pyright-langserver-1.1.0.tar.gz",
+          sha256: SHA,
+          size: 1,
+          entry: "node_modules/pyright/langserver.index.js",
+          launcher: "node",
+          argsTemplate: [],
+        },
+      ],
+    };
+    fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest));
+    if (entryExists) {
+      const entry = path.join(dir, "lsp", "pyright-langserver-1.1.0", manifest.lspBinaries[0].entry);
+      fs.mkdirSync(path.dirname(entry), { recursive: true });
+      fs.writeFileSync(entry, "");
+    }
+    return dir;
+  }
+
+  test("runs the bundled script on the app's own runtime", () => {
+    const dir = distWith(true);
+    try {
+      expect(resolveLspCommandFromManifest(PYRIGHT, dir)).toEqual({
+        binaryPath: process.execPath,
+        args: [
+          path.join(dir, "lsp", "pyright-langserver-1.1.0", "node_modules/pyright/langserver.index.js"),
+          "--stdio",
+        ],
+        env: { ELECTRON_RUN_AS_NODE: "1" },
+      });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("finds nothing when the bundle is missing", () => {
+    const dir = distWith(false);
+    try {
+      expect(resolveLspCommandFromManifest(PYRIGHT, dir)).toBeNull();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

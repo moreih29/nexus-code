@@ -861,6 +861,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         languageId: presetLanguageId,
         binaryPath: command.binaryPath,
         args: [...command.args],
+        ...(command.env ? { env: command.env } : {}),
         workspaceRoot,
         idleTimeoutMs: LSP_DEFAULT_IDLE_MS,
         correlationId,
@@ -889,7 +890,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     workspaceId: string,
     languageId: string,
     preset: LspServerSpec,
-  ): Promise<{ readonly binaryPath: string; readonly args: readonly string[] }> {
+  ): Promise<LspServerCommand> {
     const remote = await this.workspaceManager.ensureRemoteLspServer?.(
       workspaceId,
       {
@@ -1046,7 +1047,14 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       // channel itself is still alive and may carry other servers.
       server.disposePending(serverExitError(parsed));
       this.serversById.delete(parsed.serverId);
-      this.workspaceServers.get(server.workspaceId)?.delete(server.languageId);
+      // A workspace whose last server went, on idle above all, holds no
+      // place under the LRU cap.
+      const servers = this.workspaceServers.get(server.workspaceId);
+      if (servers?.get(server.languageId) === server) servers.delete(server.languageId);
+      if (servers?.size === 0) {
+        this.workspaceServers.delete(server.workspaceId);
+        this.workspaceLastActivity.delete(server.workspaceId);
+      }
       this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
 
       // Clean up wedge-detection state for the exited server so a respawn
@@ -1054,6 +1062,14 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       const serverKey = `${server.workspaceId}\0${server.languageId}`;
       this.serverTimeoutCount.delete(serverKey);
       this.serverSpawnedAt.delete(serverKey);
+
+      // The renderer still takes its open documents as opened on this
+      // server; the reset has it send didOpen to the next one.
+      this.emit("workspaceLspReset", {
+        workspaceId: server.workspaceId,
+        languageId: server.languageId,
+        reason: parsed.reason || "server exited",
+      });
     }
 
     // applyEdit-style server requests held in pendingServerRequests are
@@ -1427,20 +1443,27 @@ async function withRequestTimeout<T>(
 // entry directly via the user's `node` (matching the SSH launcher script
 // format, but without bundling Node for local). Dev runs without a built
 // dist fall back to node_modules/.bin so `bun run dev` keeps working.
-function resolveLocalLspCommand(preset: LspServerSpec): {
+interface LspServerCommand {
   readonly binaryPath: string;
   readonly args: readonly string[];
-} {
+  /** Added to the agent's environment for the server. */
+  readonly env?: Readonly<Record<string, string>>;
+}
+
+function resolveLocalLspCommand(preset: LspServerSpec): LspServerCommand {
   const fromManifest = resolveLspCommandFromManifest(preset);
   if (fromManifest) return fromManifest;
   return { binaryPath: resolveDevBundledBinary(preset.binary), args: preset.args };
 }
 
-function resolveLspCommandFromManifest(preset: LspServerSpec): {
-  readonly binaryPath: string;
-  readonly args: readonly string[];
-} | null {
-  const distDir = getAgentDistDir();
+/**
+ * The bundled server's script, run on the app's own runtime: whatever Node
+ * the user has, or lacks, plays no part.
+ */
+export function resolveLspCommandFromManifest(
+  preset: LspServerSpec,
+  distDir = getAgentDistDir(),
+): LspServerCommand | null {
   const manifestPath = path.join(distDir, "manifest.json");
   if (!fs.existsSync(manifestPath)) return null;
   try {
@@ -1450,7 +1473,11 @@ function resolveLspCommandFromManifest(preset: LspServerSpec): {
     const extractedDir = path.join(distDir, "lsp", `${lsp.name}-${lsp.version}`);
     const entry = path.join(extractedDir, lsp.entry);
     if (!fs.existsSync(entry)) return null;
-    return { binaryPath: "node", args: [entry, ...preset.args] };
+    return {
+      binaryPath: process.execPath,
+      args: [entry, ...preset.args],
+      env: { ELECTRON_RUN_AS_NODE: "1" },
+    };
   } catch {
     return null;
   }

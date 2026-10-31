@@ -184,6 +184,12 @@
       "lineHeight": "줄 간격 초기화",
       "fontFamily": "글꼴 종류 초기화",
       "fontLigatures": "글꼴 합자 초기화"
+    },
+    "lsp": {
+      "label": "언어 서버 (실험적)",
+      "enable": "언어 서버 사용",
+      "description": "TypeScript · Python 자동 완성, 정의로 이동, 진단을 앱에 포함된 서버로 제공합니다. 언어는 워크스페이스마다 사이드바의 칩으로 켭니다.",
+      "restart": "NexusCode 를 다시 시작하면 적용됩니다."
     }
   },
   "terminal": {
