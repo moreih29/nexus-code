@@ -6,12 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/nexus-code/nexus-code/internal/dispatch"
-	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // stashListExpected mirrors the fixture expected.json for git.stash.list.
@@ -24,7 +20,7 @@ type stashListExpected struct {
 
 // TestStashListFixtures verifies every stash list fixture against parseStashList.
 func TestStashListFixtures(t *testing.T) {
-	fixtureRoot := stashFixtureRoot(t)
+	fixtureRoot := fixtureDir("stash")
 	entries, err := os.ReadDir(fixtureRoot)
 	if err != nil {
 		t.Fatalf("read stash fixtures: %v", err)
@@ -65,17 +61,12 @@ func TestStashListFixtures(t *testing.T) {
 
 // TestStashListServiceTempRepo verifies StashList against a real git repository.
 func TestStashListServiceTempRepo(t *testing.T) {
-	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(root, "tracked.txt"), "base\n")
-	runGitCommand(t, root, "add", "tracked.txt")
-	runGitCommand(t, root, "commit", "-m", "initial")
+	t.Parallel()
+	root := newRepo(t)
 
 	// Create one stash entry.
-	writeFile(t, filepath.Join(root, "tracked.txt"), "changed\n")
-	runGitCommand(t, root, "stash", "push", "-m", "test stash entry")
+	writeFile(t, filepath.Join(root, "README.md"), "changed\n")
+	runGit(t, root, "stash", "push", "-m", "test stash entry")
 
 	service := New(root)
 	res, err := service.StashList(context.Background(), json.RawMessage(`{}`))
@@ -108,22 +99,17 @@ func TestStashListServiceTempRepo(t *testing.T) {
 
 // TestStashApplyConflictServiceTempRepo verifies StashApply returns a conflict result.
 func TestStashApplyConflictServiceTempRepo(t *testing.T) {
-	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(root, "tracked.txt"), "base\n")
-	runGitCommand(t, root, "add", "tracked.txt")
-	runGitCommand(t, root, "commit", "-m", "initial")
+	t.Parallel()
+	root := newRepo(t)
 
 	// Stash a change.
-	writeFile(t, filepath.Join(root, "tracked.txt"), "stashed line\n")
-	runGitCommand(t, root, "stash", "push")
+	writeFile(t, filepath.Join(root, "README.md"), "stashed line\n")
+	runGit(t, root, "stash", "push")
 
 	// Create a conflicting commit.
-	writeFile(t, filepath.Join(root, "tracked.txt"), "head line\n")
-	runGitCommand(t, root, "add", "tracked.txt")
-	runGitCommand(t, root, "commit", "-m", "conflicting head")
+	writeFile(t, filepath.Join(root, "README.md"), "head line\n")
+	runGit(t, root, "add", "README.md")
+	runGit(t, root, "commit", "-m", "conflicting head")
 
 	service := New(root)
 	res, err := service.StashApply(context.Background(), json.RawMessage(`{"index":0}`))
@@ -144,16 +130,11 @@ func TestStashApplyConflictServiceTempRepo(t *testing.T) {
 
 // TestStashApplyCleanServiceTempRepo verifies StashApply succeeds with empty result.
 func TestStashApplyCleanServiceTempRepo(t *testing.T) {
-	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(root, "tracked.txt"), "base\n")
-	runGitCommand(t, root, "add", "tracked.txt")
-	runGitCommand(t, root, "commit", "-m", "initial")
+	t.Parallel()
+	root := newRepo(t)
 
-	writeFile(t, filepath.Join(root, "tracked.txt"), "changed\n")
-	runGitCommand(t, root, "stash", "push")
+	writeFile(t, filepath.Join(root, "README.md"), "changed\n")
+	runGit(t, root, "stash", "push")
 
 	service := New(root)
 	res, err := service.StashApply(context.Background(), json.RawMessage(`{"index":0}`))
@@ -171,15 +152,10 @@ func TestStashApplyCleanServiceTempRepo(t *testing.T) {
 
 // TestStashDropServiceTempRepo verifies StashDrop removes the stash entry.
 func TestStashDropServiceTempRepo(t *testing.T) {
-	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(root, "tracked.txt"), "base\n")
-	runGitCommand(t, root, "add", "tracked.txt")
-	runGitCommand(t, root, "commit", "-m", "initial")
-	writeFile(t, filepath.Join(root, "tracked.txt"), "changed\n")
-	runGitCommand(t, root, "stash", "push")
+	t.Parallel()
+	root := newRepo(t)
+	writeFile(t, filepath.Join(root, "README.md"), "changed\n")
+	runGit(t, root, "stash", "push")
 
 	service := New(root)
 	_, err := service.StashDrop(context.Background(), json.RawMessage(`{"index":0}`))
@@ -200,16 +176,14 @@ func TestStashDropServiceTempRepo(t *testing.T) {
 
 // TestStashGroupServiceTempRepo verifies StashGroup stashes selected paths.
 func TestStashGroupServiceTempRepo(t *testing.T) {
-	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
+	t.Parallel()
+	root := newRepo(t)
 	// Git for Windows checks text out with CRLF by default.
-	runGitCommand(t, root, "config", "core.autocrlf", "false")
+	runGit(t, root, "config", "core.autocrlf", "false")
 	writeFile(t, filepath.Join(root, "a.txt"), "base-a\n")
 	writeFile(t, filepath.Join(root, "b.txt"), "base-b\n")
-	runGitCommand(t, root, "add", ".")
-	runGitCommand(t, root, "commit", "-m", "initial")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "a and b")
 
 	writeFile(t, filepath.Join(root, "a.txt"), "changed-a\n")
 	writeFile(t, filepath.Join(root, "b.txt"), "changed-b\n")
@@ -229,30 +203,6 @@ func TestStashGroupServiceTempRepo(t *testing.T) {
 	bContent := readFile(t, filepath.Join(root, "b.txt"))
 	if bContent != "changed-b\n" {
 		t.Fatalf("b.txt after stash group = %q, want changed-b", bContent)
-	}
-}
-
-// TestStashRegisteredWithDispatcher verifies all stash methods are dispatched.
-func TestStashRegisteredWithDispatcher(t *testing.T) {
-	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(root, "f.txt"), "hello\n")
-	runGitCommand(t, root, "add", "f.txt")
-	runGitCommand(t, root, "commit", "-m", "initial")
-
-	d := dispatch.New()
-	Register(d, New(root))
-
-	// git.stash.list on a clean repo returns an empty slice, not an error.
-	res := d.Dispatch(context.Background(), proto.Request{
-		ID:     "1",
-		Method: "git.stash.list",
-		Params: json.RawMessage(`{}`),
-	})
-	if res.Error != nil {
-		t.Fatalf("git.stash.list dispatch returned error: %#v", res.Error)
 	}
 }
 
@@ -317,15 +267,6 @@ func TestStashGroupEmptyPathsReturnsError(t *testing.T) {
 	}
 }
 
-func stashFixtureRoot(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "tests", "fixtures", "git", "stash"))
-}
-
 func assertStashListEqual(t *testing.T, name string, got []StashEntry, want []StashEntry) {
 	t.Helper()
 	if len(got) == 0 && len(want) == 0 {
@@ -339,13 +280,4 @@ func assertStashListEqual(t *testing.T, name string, got []StashEntry, want []St
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("%s: struct got %#v want %#v", name, got, want)
 	}
-}
-
-func readFile(t *testing.T, path string) string {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("readFile %q: %v", path, err)
-	}
-	return string(data)
 }

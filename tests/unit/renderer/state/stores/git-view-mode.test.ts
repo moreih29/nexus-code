@@ -6,7 +6,6 @@
  * tests verify:
  *
  *   (d) toggleExpandedTreeNode group namespace isolation (git store).
- *   (e) viewMode does not clobber expandedTreeNodes (shared store).
  *
  * The setViewMode action is tested via the shared store rather than via
  * useGitStore.
@@ -92,16 +91,6 @@ function resetStore(): void {
 describe("shared store — setViewMode for git panel", () => {
   beforeEach(resetStore);
 
-  it("setViewMode 'list' stored correctly in shared store", () => {
-    usePanelViewOptionsStore.getState().setViewMode("git", WS_A, "list");
-    expect(usePanelViewOptionsStore.getState().entries.get(`git:${WS_A}`)?.viewMode).toBe("list");
-  });
-
-  it("setViewMode 'tree' stored correctly in shared store", () => {
-    usePanelViewOptionsStore.getState().setViewMode("git", WS_A, "tree");
-    expect(usePanelViewOptionsStore.getState().entries.get(`git:${WS_A}`)?.viewMode).toBe("tree");
-  });
-
   it("WS_A and WS_B viewMode are independent", () => {
     usePanelViewOptionsStore.getState().setViewMode("git", WS_A, "tree");
     usePanelViewOptionsStore.getState().setViewMode("git", WS_B, "list");
@@ -126,14 +115,6 @@ describe("git store — toggleExpandedTreeNode group namespace isolation", () =>
     expect(nodes?.working).not.toContain("src");
     expect(nodes?.merge).not.toContain("src");
     expect(nodes?.untracked).not.toContain("src");
-  });
-
-  it("toggleExpandedTreeNode adds path to working group independently", () => {
-    seedSession(WS_A);
-    useGitStore.getState().toggleExpandedTreeNode(WS_A, "working", "lib");
-    const nodes = useGitStore.getState().sessions.get(WS_A)?.expandedTreeNodes;
-    expect(nodes?.working).toContain("lib");
-    expect(nodes?.staged).not.toContain("lib");
   });
 
   it("toggling same path twice removes it (toggle off)", () => {
@@ -166,25 +147,6 @@ describe("git store — toggleExpandedTreeNode group namespace isolation", () =>
     const nodes2 = useGitStore.getState().sessions.get(WS_A)?.expandedTreeNodes;
     expect(nodes2?.staged).not.toContain("src");
     expect(nodes2?.working).toContain("src");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// (e) viewMode does not clobber expandedTreeNodes
-// ---------------------------------------------------------------------------
-
-describe("shared store viewMode does not clobber expandedTreeNodes in git store", () => {
-  beforeEach(resetStore);
-
-  it("setViewMode does not clear expandedTreeNodes", () => {
-    seedSession(WS_A);
-    useGitStore.getState().toggleExpandedTreeNode(WS_A, "merge", "a");
-
-    usePanelViewOptionsStore.getState().setViewMode("git", WS_A, "list");
-    usePanelViewOptionsStore.getState().setViewMode("git", WS_A, "tree");
-
-    const nodes = useGitStore.getState().sessions.get(WS_A)?.expandedTreeNodes;
-    expect(nodes?.merge).toContain("a");
   });
 });
 

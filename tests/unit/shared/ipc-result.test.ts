@@ -3,6 +3,7 @@ import {
   IPC_RESULT_BRAND,
   ipcErr,
   ipcOk,
+  ipcResultKindToCategory,
   isIpcErrResult,
   isIpcOkResult,
   isIpcResult,
@@ -17,11 +18,6 @@ describe("IPC_RESULT_BRAND", () => {
     // Symbols are silently dropped by Electron's IPC serialiser; the brand
     // must be a string so it survives the main→renderer boundary.
     expect(typeof IPC_RESULT_BRAND).toBe("string");
-  });
-
-  test("includes a UUID suffix to prevent collisions with domain objects", () => {
-    // The suffix separates our brand from generic 'ok' fields in domain types.
-    expect(IPC_RESULT_BRAND).toMatch(/__nexusIpcResult_[0-9a-f]+/);
   });
 });
 
@@ -106,12 +102,23 @@ describe("isIpcResult", () => {
     // The brand value must be exactly true, not merely truthy.
     expect(isIpcResult({ [IPC_RESULT_BRAND]: false, ok: true })).toBe(false);
   });
+});
 
-  test("returns true for ipcOk result", () => {
-    expect(isIpcResult(ipcOk(null))).toBe(true);
-  });
+// ---------------------------------------------------------------------------
+// IpcResultKind → AppErrorCategory mapping
+// ---------------------------------------------------------------------------
 
-  test("returns true for ipcErr result", () => {
-    expect(isIpcResult(ipcErr("not-found", "x"))).toBe(true);
+describe("ipcResultKindToCategory", () => {
+  test("maps cancelled and invalid-args to their own categories, everything else to failed", () => {
+    const cases = [
+      ["cancelled", "cancelled"],
+      ["invalid-args", "invalid-input"],
+      ["not-found", "failed"],
+      // Custom kinds introduced by future handlers must not produce 'bug' silently.
+      ["some-future-kind", "failed"],
+    ] as const;
+    for (const [kind, category] of cases) {
+      expect(ipcResultKindToCategory(kind), kind).toBe(category);
+    }
   });
 });

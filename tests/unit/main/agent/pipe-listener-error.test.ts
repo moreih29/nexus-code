@@ -1,7 +1,7 @@
 /**
  * Event listeners run synchronously inside the stdout data handler. One that
  * throws must not take the rest of the chunk, or the other subscribers, down
- * with it.
+ * with it, and one that unsubscribes must stop receiving events.
  */
 import { describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
@@ -10,7 +10,10 @@ import { createNdjsonPipe } from "../../../../src/main/infra/agent/pipe";
 import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 
 class FakeReadable extends EventEmitter {
+  pauseCount = 0;
+
   pause(): this {
+    this.pauseCount++;
     return this;
   }
   resume(): this {
@@ -57,6 +60,48 @@ describe("NDJSON pipe event listeners", () => {
 
     expect(received).toEqual([1, 2]);
     expect(terminalError).toBeNull();
+    pipe.dispose();
+  });
+
+  it("unsubscribed listener does not receive frames delivered after a pause cycle", () => {
+    const stdout = new FakeReadable();
+    const pipe = createNdjsonPipe({
+      stdout: stdout as unknown as Readable,
+      stderr: new FakeReadable() as unknown as Readable,
+      stdin: new FakeWritable() as unknown as Writable,
+      classifyStderr: () => null,
+      onTerminalError: () => {},
+    });
+    let callCountBefore = 0;
+    let callCountAfter = 0;
+    const unsubscribe = pipe.on("fs.changed", () => {
+      callCountBefore++;
+    });
+
+    const frame = (line: object) => Buffer.from(`${JSON.stringify(line)}\n`);
+    stdout.emit("data", frame({ type: "ready", protocolVersion: `${AGENT_PROTOCOL_VERSION}.0` }));
+
+    // 1,100 frames of ~1 KB cross the 1 MB high-water mark and pause stdout.
+    for (let i = 0; i < 1_100; i++) {
+      stdout.emit(
+        "data",
+        frame({ event: "pty.data", payload: { index: i }, padding: "x".repeat(1_000) }),
+      );
+    }
+    expect(stdout.pauseCount).toBeGreaterThanOrEqual(1);
+
+    // Unsubscribe before the post-resume frames arrive, then subscribe anew.
+    unsubscribe();
+    pipe.on("fs.changed", () => {
+      callCountAfter++;
+    });
+
+    for (let i = 0; i < 10; i++) {
+      stdout.emit("data", frame({ event: "fs.changed", payload: { index: i } }));
+    }
+
+    expect(callCountBefore).toBe(0);
+    expect(callCountAfter).toBe(10);
     pipe.dispose();
   });
 });

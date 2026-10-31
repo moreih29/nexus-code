@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -35,7 +34,7 @@ type logExpectedEvent struct {
 // TestLogFixtures verifies every manually authored log fixture against the Go
 // record parser, cursor/limit logic, and git.log.batch payload shape.
 func TestLogFixtures(t *testing.T) {
-	fixtureRoot := logFixtureRoot(t)
+	fixtureRoot := fixtureDir("log")
 	entries, err := os.ReadDir(fixtureRoot)
 	if err != nil {
 		t.Fatalf("read log fixtures: %v", err)
@@ -198,7 +197,7 @@ func TestLogLimitLookaheadInvokesKillCallback(t *testing.T) {
 
 func TestLogLimitCursorKillsPromptly(t *testing.T) {
 	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
+	runGit(t, root, "init", "-b", "main")
 	// One fast-import writes the 1000 empty commits. A git process per commit
 	// made this the slowest test, on Windows above all.
 	var stream strings.Builder
@@ -212,7 +211,7 @@ func TestLogLimitCursorKillsPromptly(t *testing.T) {
 	if out, err := importer.CombinedOutput(); err != nil {
 		t.Fatalf("git fast-import: %v\n%s", err, out)
 	}
-	head := strings.TrimSpace(runGitOutput(t, root, "rev-parse", "HEAD"))
+	head := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
 
 	service := New(root)
 	batchCount := 0
@@ -246,8 +245,9 @@ func TestLogLimitCursorKillsPromptly(t *testing.T) {
 }
 
 func TestLogOnUnbornBranchIsNoHead(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
+	runGit(t, root, "init", "-b", "main")
 
 	_, err := New(root).Log(context.Background(), json.RawMessage(`{"scope":"ref","ref":"HEAD","limit":1}`))
 	var failure Failure
@@ -257,13 +257,8 @@ func TestLogOnUnbornBranchIsNoHead(t *testing.T) {
 }
 
 func TestLogRegisteredWithDispatcher(t *testing.T) {
-	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(root, "README.md"), "hello\n")
-	runGitCommand(t, root, "add", "README.md")
-	runGitCommand(t, root, "commit", "-m", "initial")
+	t.Parallel()
+	root := newRepo(t)
 
 	d := dispatch.New()
 	service := New(root)
@@ -286,15 +281,6 @@ func TestLogRegisteredWithDispatcher(t *testing.T) {
 	if result.Count != 1 || result.HasMore || batchCount != 1 {
 		t.Fatalf("result=%#v batchCount=%d", result, batchCount)
 	}
-}
-
-func logFixtureRoot(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "tests", "fixtures", "git", "log"))
 }
 
 func assertLogResultEqual(t *testing.T, name string, got LogResult, expected LogResult) {

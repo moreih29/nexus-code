@@ -38,18 +38,6 @@ function tabsFor(workspaceId: string) {
 describe("openOrRevealEditor", () => {
   beforeEach(resetStores);
 
-  it("dedupes the same normalized path and reveals the existing tab", () => {
-    const first = openOrRevealEditor({
-      workspaceId: WS_A,
-      filePath: "/workspace/src/../src/App.tsx",
-    });
-    const second = openOrRevealEditor({ workspaceId: WS_A, filePath: "/workspace/src/App.tsx" });
-
-    expect(second).toEqual(first);
-    expect(tabsFor(WS_A)).toHaveLength(1);
-    expect(useLayoutStore.getState().byWorkspace[WS_A]?.activeGroupId).toBe(first.groupId);
-  });
-
   it("is workspace-scoped", () => {
     const first = openOrRevealEditor({ workspaceId: WS_A, filePath: "/shared/file.ts" });
     const second = openOrRevealEditor({ workspaceId: WS_B, filePath: "/shared/file.ts" });
@@ -105,28 +93,6 @@ describe("openOrRevealEditor", () => {
     );
 
     expect(findEditorTab(WS_A, "/workspace/a.ts")).toEqual(left);
-  });
-
-  it("cross-group open creates a new tab in the active group (VSCode revealIfOpen=false default)", () => {
-    const left = openOrRevealEditor({ workspaceId: WS_A, filePath: "/workspace/a.ts" });
-    const right = openOrRevealEditor(
-      { workspaceId: WS_A, filePath: "/workspace/b.ts" },
-      { newSplit: { orientation: "horizontal", side: "after" } },
-    );
-
-    expect(useLayoutStore.getState().byWorkspace[WS_A]?.activeGroupId).toBe(right.groupId);
-
-    // a.ts is in the left group but NOT in the right (active) group. The
-    // VSCode-default policy (revealIfOpen=false) means: ignore the other
-    // group's copy and open a new tab in the active group.
-    const inActiveGroup = openOrRevealEditor({ workspaceId: WS_A, filePath: "/workspace/a.ts" });
-    const layout = useLayoutStore.getState().byWorkspace[WS_A];
-    if (!layout) throw new Error(`layout slice not found for ${WS_A}`);
-
-    expect(inActiveGroup.groupId).toBe(right.groupId);
-    expect(inActiveGroup.tabId).not.toBe(left.tabId);
-    expect(tabsFor(WS_A)).toHaveLength(3);
-    expect(layout.activeGroupId).toBe(right.groupId);
   });
 
   it("creates the initial layout automatically", () => {

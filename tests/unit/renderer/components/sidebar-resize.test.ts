@@ -11,8 +11,9 @@
  *
  *   1. persist=false updates the width (clamped) and never calls ipcCallResult.
  *   2. persist=true calls ipcCallResult exactly once with the clamped width.
- *   3. The double-click reset writes SIDEBAR_WIDTH_DEFAULT, even when the width
- *      is already the default.
+ *
+ * The double-click reset is a plain setSidebarWidth(SIDEBAR_WIDTH_DEFAULT, true)
+ * call, so case 2 covers it.
  *
  * MANUAL-QA GAP: the delta math and document mousemove/mouseup wiring inside
  * ResizeHandle / useDragHandle, and body cursor / userSelect restore, need a
@@ -116,29 +117,6 @@ describe("SidebarResizeHandle — commit (persist=true)", () => {
     expect(mockIpcCallResult).toHaveBeenCalledTimes(1);
     expect(mockIpcCallResult).toHaveBeenCalledWith("appState", "set", {
       sidebarWidth: SIDEBAR_WIDTH_MAX,
-    });
-  });
-});
-
-describe("SidebarResizeHandle — double-click reset", () => {
-  it("resets a custom width to SIDEBAR_WIDTH_DEFAULT and writes it once", () => {
-    useUIStore.setState({ sidebarWidth: 350 });
-
-    useUIStore.getState().setSidebarWidth(SIDEBAR_WIDTH_DEFAULT, true);
-
-    expect(useUIStore.getState().sidebarWidth).toBe(SIDEBAR_WIDTH_DEFAULT);
-    expect(mockIpcCallResult).toHaveBeenCalledTimes(1);
-    expect(mockIpcCallResult).toHaveBeenCalledWith("appState", "set", {
-      sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
-    });
-  });
-
-  it("still writes exactly once when the width is already the default", () => {
-    useUIStore.getState().setSidebarWidth(SIDEBAR_WIDTH_DEFAULT, true);
-
-    expect(mockIpcCallResult).toHaveBeenCalledTimes(1);
-    expect(mockIpcCallResult).toHaveBeenCalledWith("appState", "set", {
-      sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
     });
   });
 });

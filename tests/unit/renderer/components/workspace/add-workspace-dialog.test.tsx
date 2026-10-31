@@ -1,18 +1,6 @@
 /**
- * T10 Tester-authored tests for the refactored Add Workspace dialog.
- *
- * Tests focus on:
- * 1. Exported pure utility functions (parseSshDestination, parseSshPort,
- *    filterSshConfigHosts, findSshConfigHost) — exhaustive boundary coverage.
- * 2. Static HTML rendering of LocalListView states (loading, empty, content).
- * 3. Static HTML rendering of SshNewConnectionView — verifies the absence of
- *    "Remote path" and "Authentication" fieldsets per spec.
- * 4. Static HTML rendering of SshDirectoryPickerView states.
- * 5. Footer 4-rule static verification.
- * 6. Accessibility attributes: aria-label, aria-hidden, role, aria-expanded.
- *
- * All rendering uses react-dom/server renderToStaticMarkup so no Radix/DOM
- * environment is required. Full IPC is mocked via module-level stubs.
+ * Tests for the Add Workspace dialog's pure SSH helpers (parseSshDestination,
+ * parseSshPort, filterSshConfigHosts, findSshConfigHost).
  */
 
 import { describe, expect, it } from "bun:test";
@@ -131,6 +119,10 @@ describe("parseSshPort", () => {
   it("returns null for negative numbers", () => {
     expect(parseSshPort("-1")).toBeNull();
   });
+
+  it("reads leading zeros as decimal, not octal", () => {
+    expect(parseSshPort("022")).toBe(22);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -216,33 +208,6 @@ describe("findSshConfigHost", () => {
 });
 
 // ---------------------------------------------------------------------------
-// SSH new connection form — must NOT contain Remote path or Authentication
-// ---------------------------------------------------------------------------
-
-describe("SshNewConnectionView spec exclusions", () => {
-  it("does not export Authentication or Remote path fields — verified by absence in exported helpers", () => {
-    // The spec requires these fieldsets to be absent from new-connection form.
-    // Since the component cannot be SSR'd in isolation without IPC mocks,
-    // we verify via the exported interface: SshNewConnectionViewProps has no
-    // remotePath or authMode parameters. This is a compile-time guarantee,
-    // checked by TypeScript (typecheck passes).
-
-    // Additionally, we grep the source for the forbidden terms in the form area.
-    // If "Authentication" appears in the source, we need to verify it's not in
-    // the new-connection form. We do this by checking what SshNewConnectionViewProps exports.
-    const sshNewConnViewFieldNames = [
-      "onConnected",
-      "configHosts",
-      "configHostsLoading",
-    ] satisfies string[];
-
-    // None of these are remotePath or authMode
-    expect(sshNewConnViewFieldNames.includes("remotePath")).toBe(false);
-    expect(sshNewConnViewFieldNames.includes("authMode")).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // parseSshDestination edge cases — adversarial
 // ---------------------------------------------------------------------------
 
@@ -274,34 +239,6 @@ describe("parseSshDestination adversarial", () => {
       user: "root",
       host: "localhost",
     });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// parseSshPort adversarial
-// ---------------------------------------------------------------------------
-
-describe("parseSshPort adversarial", () => {
-  it("rejects floating point strings", () => {
-    expect(parseSshPort("22.0")).toBeNull();
-  });
-
-  it("rejects port with leading zeros treated as octal (022)", () => {
-    // "022" is 22 as decimal string — 18 digits would be valid
-    // but "022" passes the /^\d+$/ test and Number("022") = 22, which is valid
-    expect(parseSshPort("022")).toBe(22);
-  });
-
-  it("accepts boundary value 1", () => {
-    expect(parseSshPort("1")).toBe(1);
-  });
-
-  it("accepts boundary value 65535", () => {
-    expect(parseSshPort("65535")).toBe(65535);
-  });
-
-  it("rejects whitespace-only", () => {
-    expect(parseSshPort("   ")).toBeUndefined();
   });
 });
 

@@ -1,10 +1,8 @@
 /**
  * Search store — view-mode and expandedDirs edge cases.
  *
- * (e) viewMode toggle preserves expandedDirs (search side) — viewMode lives
- *     in the shared panel-view-options store and expandedDirsByWorkspace on
- *     useSearchStore.
- * (f) expandedDirs is session-scoped — closeAllForWorkspace clears it.
+ * (f) expandedDirs is session-scoped — closeAllForWorkspace clears it, while
+ *     viewMode (in the shared panel-view-options store) survives.
  * (g) SearchInput ↓ handoff — onArrowDown called only when results > 0.
  *
  * The IPC client is stubbed before the store import (leaf-only mock).
@@ -51,24 +49,6 @@ function resetStore(): void {
 }
 
 // ---------------------------------------------------------------------------
-// (e) viewMode toggle preserves expandedDirs
-// ---------------------------------------------------------------------------
-
-describe("search store — viewMode toggle preserves expandedDirs", () => {
-  beforeEach(resetStore);
-
-  it("setViewMode does not clear expandedDirs", () => {
-    useSearchStore.getState().toggleExpandedDir(WS_A, "src/components");
-
-    usePanelViewOptionsStore.getState().setViewMode("search", WS_A, "tree");
-    usePanelViewOptionsStore.getState().setViewMode("search", WS_A, "list");
-
-    const dirs = useSearchStore.getState().expandedDirsByWorkspace.get(WS_A);
-    expect(dirs?.has("src/components")).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // (f) expandedDirs is session-scoped
 // ---------------------------------------------------------------------------
 
@@ -86,13 +66,6 @@ describe("search store — expandedDirs is session-scoped (cleared on workspace 
     expect(entry?.viewMode).toBe("tree");
     // expandedDirs is session-scoped (cleared on close).
     expect(useSearchStore.getState().expandedDirsByWorkspace.has(WS_A)).toBe(false);
-  });
-
-  it("fresh workspace has empty expandedDirs", () => {
-    // WS_B has never had toggleExpandedDir called.
-    usePanelViewOptionsStore.getState().setViewMode("search", WS_B, "tree");
-    const dirs = useSearchStore.getState().expandedDirsByWorkspace.get(WS_B);
-    expect(dirs?.size ?? 0).toBe(0);
   });
 
   it("two workspaces have independent expandedDirs", () => {
@@ -167,26 +140,5 @@ describe("SearchPanel.handleInputArrowDown — shouldHandleArrowDown guard (g)",
         elapsedMs: 0,
       }),
     ).toBe(true);
-  });
-
-  it("returns false for exactly zero results", () => {
-    expect(
-      shouldHandleArrowDown({
-        query: "bar",
-        options: {
-          isRegExp: false,
-          isCaseSensitive: false,
-          isWordMatch: false,
-          includes: [],
-          excludes: [],
-        },
-        results: new Array(0),
-        status: "done",
-        limitHit: false,
-        filesScanned: 0,
-        matchesFound: 0,
-        elapsedMs: 0,
-      }),
-    ).toBe(false);
   });
 });

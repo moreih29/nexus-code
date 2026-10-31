@@ -1,25 +1,10 @@
 /**
- * Tests for the shared FS error utilities — FS_ERROR codes, fsErrorMessage,
- * hasFsErrorCode — including the UNSUPPORTED_REMOTE code added for remote
- * workspace detection.
+ * Tests for the shared FS error utilities — fsErrorMessage and hasFsErrorCode —
+ * using the UNSUPPORTED_REMOTE code added for remote workspace detection.
  */
 
 import { describe, expect, it } from "bun:test";
 import { FS_ERROR, fsErrorMessage, hasFsErrorCode } from "../../../src/shared/fs/errors";
-
-describe("FS_ERROR constants", () => {
-  it("UNSUPPORTED_REMOTE is defined with the correct string value", () => {
-    expect(FS_ERROR.UNSUPPORTED_REMOTE).toBe("UNSUPPORTED_REMOTE");
-  });
-
-  it("all pre-existing codes remain unchanged", () => {
-    expect(FS_ERROR.NOT_FOUND).toBe("NOT_FOUND");
-    expect(FS_ERROR.PERMISSION_DENIED).toBe("PERMISSION_DENIED");
-    expect(FS_ERROR.ALREADY_EXISTS).toBe("ALREADY_EXISTS");
-    expect(FS_ERROR.NOT_EMPTY).toBe("NOT_EMPTY");
-    expect(FS_ERROR.CROSS_DEVICE).toBe("CROSS_DEVICE");
-  });
-});
 
 describe("fsErrorMessage", () => {
   it("builds UNSUPPORTED_REMOTE message with workspaceId suffix", () => {

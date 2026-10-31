@@ -13,7 +13,7 @@
  * HOW THIS TEST RENDERS WITHOUT A DOM
  * -----------------------------------
  * DOM mounting is intentionally avoided in this project (happy-dom caused
- * hangs — see portal-fiber-identity.test.ts). Mirroring browser-view.test.tsx,
+ * hangs). Mirroring browser-view.test.tsx,
  * we mock `react` so its hooks forward to React's live dispatcher slot
  * (`__CLIENT_INTERNALS…H`). Outside our render that slot is React's real
  * dispatcher, so the mock is transparent and never leaks into other test

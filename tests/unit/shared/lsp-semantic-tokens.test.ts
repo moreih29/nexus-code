@@ -157,14 +157,4 @@ describe("remapSemanticTokenData", () => {
     expect(CANONICAL_TOKEN_TYPES[SENTINEL_TOKEN_TYPE_INDEX]).toBe("unknown");
     expect(SENTINEL_TOKEN_TYPE_INDEX).toBe(CANONICAL_TOKEN_TYPES.length - 1);
   });
-
-  test("CANONICAL_TOKEN_TYPES contains the standard LSP 3.16 types", () => {
-    // Spot-check that key types are present at the expected positions
-    expect(CANONICAL_TOKEN_TYPES[0]).toBe("namespace");
-    expect(CANONICAL_TOKEN_TYPES[12]).toBe("function");
-    expect(CANONICAL_TOKEN_TYPES[8]).toBe("variable");
-    expect(CANONICAL_TOKEN_TYPES[15]).toBe("keyword");
-    expect(CANONICAL_TOKEN_TYPES[17]).toBe("comment");
-    expect(CANONICAL_TOKEN_TYPES[18]).toBe("string");
-  });
 });

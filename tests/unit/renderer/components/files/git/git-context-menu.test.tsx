@@ -14,7 +14,7 @@ import type { GitStatusEntry } from "../../../../../../src/shared/git/types";
 const entry: GitStatusEntry = { relPath: "src/app.ts", xy: ".M", conflictType: null };
 
 describe("Git file context menu rules", () => {
-  it("applies group-specific hide rules and platform reveal labels", () => {
+  it("applies group-specific hide rules", () => {
     const stagedLabels = labelsFor("staged");
     const untrackedLabels = labelsFor("untracked");
     const mergeLabels = labelsFor("merge");
@@ -31,29 +31,21 @@ describe("Git file context menu rules", () => {
     expect(mergeLabels).not.toContain("Add to .gitignore");
   });
 
-  it("keeps Open Changes discoverable and lets copy actions write exact path values", () => {
-    let banner = "";
-    let clipboard = "";
-    const actions = makeActions({
-      openChanges: () => {
-        banner = "Diff view 곧 추가 예정";
-      },
-      copyPath: () => {
-        clipboard = "/repo/src/app.ts";
-      },
-      copyRelativePath: () => {
-        clipboard = "src/app.ts";
-      },
-    });
-
+  it("routes Open Changes and the copy items to their own actions", () => {
+    const actions = makeActions();
     const items = buildGitFileContextMenuItems("working", actions);
-    select(items, "Open Changes");
-    expect(banner).toBe("Diff view 곧 추가 예정");
 
+    // A different count per item catches an item wired to another item's action.
+    select(items, "Open Changes");
     select(items, "Copy Path");
-    expect(clipboard).toBe("/repo/src/app.ts");
+    select(items, "Copy Path");
     select(items, "Copy Relative Path");
-    expect(clipboard).toBe("src/app.ts");
+    select(items, "Copy Relative Path");
+    select(items, "Copy Relative Path");
+
+    expect(actions.openChanges).toHaveBeenCalledTimes(1);
+    expect(actions.copyPath).toHaveBeenCalledTimes(2);
+    expect(actions.copyRelativePath).toHaveBeenCalledTimes(3);
   });
 
   it("renders conflict hover actions with path-specific mark-resolved aria label", () => {

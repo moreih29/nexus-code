@@ -19,7 +19,6 @@ import { beforeEach, describe, expect, it } from "bun:test";
 // ---------------------------------------------------------------------------
 
 import {
-  ATTENTION_STATUSES,
   isAttentionRequired,
   selectIsWorkspaceAttention,
   selectStatusForTab,
@@ -352,42 +351,15 @@ describe("selectIsWorkspaceAttention", () => {
 // ---------------------------------------------------------------------------
 
 describe("isAttentionRequired", () => {
-  it("undefined이면 false를 반환한다", () => {
-    expect(isAttentionRequired(undefined)).toBe(false);
-  });
-
-  it("idle이면 false를 반환한다", () => {
-    expect(isAttentionRequired("idle")).toBe(false);
-  });
-
-  it("running이면 false를 반환한다", () => {
-    expect(isAttentionRequired("running")).toBe(false);
-  });
-
-  it("needsInput이면 true를 반환한다", () => {
-    expect(isAttentionRequired("needsInput")).toBe(true);
-  });
-
-  it("permissionPending이면 true를 반환한다", () => {
-    expect(isAttentionRequired("permissionPending")).toBe(true);
-  });
-
-  it("error이면 true를 반환한다", () => {
-    expect(isAttentionRequired("error")).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// ATTENTION_STATUSES export
-// ---------------------------------------------------------------------------
-
-describe("ATTENTION_STATUSES", () => {
-  it("needsInput, permissionPending, error를 포함한다", () => {
-    expect(ATTENTION_STATUSES).toContain("needsInput");
-    expect(ATTENTION_STATUSES).toContain("permissionPending");
-    expect(ATTENTION_STATUSES).toContain("error");
-    expect(ATTENTION_STATUSES).not.toContain("idle");
-    expect(ATTENTION_STATUSES).not.toContain("running");
+  it.each([
+    [undefined, false],
+    ["idle", false],
+    ["running", false],
+    ["needsInput", true],
+    ["permissionPending", true],
+    ["error", true],
+  ] as const)("%p → %p", (status, expected) => {
+    expect(isAttentionRequired(status)).toBe(expected);
   });
 });
 

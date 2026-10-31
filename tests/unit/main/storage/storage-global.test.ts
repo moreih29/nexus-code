@@ -10,6 +10,8 @@ import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 // Helpers
 // ---------------------------------------------------------------------------
 
+const LATEST_SCHEMA_VERSION = String(MIGRATIONS[MIGRATIONS.length - 1]?.version);
+
 function makeDb(): Database {
   return new Database(":memory:");
 }
@@ -53,7 +55,7 @@ describe("applyMigrations", () => {
     const row = db.prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'").get() as
       | { value: string }
       | undefined;
-    expect(row?.value).toBe("6");
+    expect(row?.value).toBe(LATEST_SCHEMA_VERSION);
     db.close();
   });
 
@@ -65,7 +67,7 @@ describe("applyMigrations", () => {
     const row = db.prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'").get() as
       | { value: string }
       | undefined;
-    expect(row?.value).toBe("6");
+    expect(row?.value).toBe(LATEST_SCHEMA_VERSION);
 
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")

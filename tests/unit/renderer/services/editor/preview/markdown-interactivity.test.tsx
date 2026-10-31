@@ -6,13 +6,14 @@
  *   1. Task checkboxes are interactive (enabled, tagged) when `onToggleTask`
  *      is supplied, and disabled otherwise.
  *   2. Headings get rehype-slug ids plus the anchor-copy and fold buttons.
- *   3. Code blocks are wrapped with a copy button.
+ *   3. Code blocks get a copy button.
  *
  * Mirrors markdown-security.test.tsx: stub the IPC-pulling modules so the
  * component renders under `bun test` without an Electron host.
  */
 
 import { describe, expect, mock, test } from "bun:test";
+import i18next from "i18next";
 import { renderToStaticMarkup } from "react-dom/server";
 
 mock.module("../../../../../../src/renderer/services/editor", () => ({
@@ -63,18 +64,17 @@ describe("headings", () => {
       <MarkdownPreview {...BASE_PROPS} source={"# Hello World\n\nbody\n"} />,
     );
     expect(html).toContain('id="hello-world"');
-    expect(html).toContain("md-heading-anchor");
-    expect(html).toContain("md-heading-fold");
+    expect(html).toContain(`aria-label="${i18next.t("markdown.copy_link")}"`);
+    expect(html).toContain(`aria-label="${i18next.t("markdown.collapse_section")}"`);
   });
 });
 
 describe("code blocks", () => {
-  test("are wrapped with a copy button", () => {
+  test("get a copy button", () => {
     const html = renderToStaticMarkup(
       <MarkdownPreview {...BASE_PROPS} source={"```\nconst x = 1;\n```\n"} />,
     );
-    expect(html).toContain("md-code-wrap");
-    expect(html).toContain("md-code-copy");
+    expect(html).toContain(`aria-label="${i18next.t("markdown.copy_code")}"`);
   });
 
   test("fenced block with a language hint is syntax-highlighted", () => {

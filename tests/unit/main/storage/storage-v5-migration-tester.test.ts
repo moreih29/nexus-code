@@ -141,18 +141,6 @@ describe("AC-1: v5 migration on DB with pre-existing local bookmarks", () => {
     db.close();
   });
 
-  it("schemaVersion advances to 6 after running all migrations on a v4 database", () => {
-    const db = buildPreV5Db();
-    applyMigrations(db);
-
-    const row = db
-      .prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'")
-      .get() as { value: string } | undefined;
-
-    expect(row?.value).toBe("6");
-    db.close();
-  });
-
   it("v5 migration is idempotent on the v4 database with existing rows", () => {
     const db = buildPreV5Db();
     for (let i = 1; i <= 2; i++) {

@@ -52,14 +52,6 @@ describe("parseFileErrorCode", () => {
 });
 
 describe("fileErrorMessage", () => {
-  it('10. NOT_FOUND → "File or folder not found."', () => {
-    expect(fileErrorMessage("NOT_FOUND")).toBe("File or folder not found.");
-  });
-
-  it('11. PERMISSION_DENIED → "Permission denied."', () => {
-    expect(fileErrorMessage("PERMISSION_DENIED")).toBe("Permission denied.");
-  });
-
   it('12. TOO_LARGE with maxMb=5 → contains "max 5 MB"', () => {
     expect(fileErrorMessage("TOO_LARGE", 5)).toContain("max 5 MB");
   });

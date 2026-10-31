@@ -15,7 +15,7 @@
  * so no mock.module is needed.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, jest, mock, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import os from "node:os";
 import path from "node:path";
@@ -201,28 +201,29 @@ describe("acceptance 3: degraded lifecycle → unstable broadcast", () => {
     channel.resolveChannel();
     await bootPromise;
 
-    channel.emitLifecycle({ type: "degraded" });
-    channel.emitLifecycle({ type: "degraded-recovered" });
+    const statuses = () =>
+      broadcasts
+        .filter((b) => b.channelName === "workspace" && b.event === "connectionChanged")
+        .map((b) => (b.args as { status: string }).status);
+    const connectedAfterUnstable = () =>
+      statuses().lastIndexOf("connected") > statuses().lastIndexOf("unstable");
 
-    // Before debounce fires: should NOT yet have "connected" after "unstable"
-    const preStatuses = broadcasts
-      .filter((b) => b.channelName === "workspace" && b.event === "connectionChanged")
-      .map((b) => (b.args as { status: string }).status);
-    // "connected" from initial boot already there; "unstable" should be there
-    expect(preStatuses).toContain("unstable");
+    jest.useFakeTimers();
+    try {
+      channel.emitLifecycle({ type: "degraded" });
+      channel.emitLifecycle({ type: "degraded-recovered" });
+      expect(statuses()).toContain("unstable");
 
-    // Wait for debounce (~1 s) + micro tick.
-    await new Promise<void>((r) => setTimeout(r, 1100));
+      // Still inside the ~1 s debounce window: no "connected" yet.
+      jest.advanceTimersByTime(999);
+      expect(connectedAfterUnstable()).toBe(false);
 
-    const postStatuses = broadcasts
-      .filter((b) => b.channelName === "workspace" && b.event === "connectionChanged")
-      .map((b) => (b.args as { status: string }).status);
-    // After debounce "connected" should be broadcast again.
-    const connectedAfterUnstable = postStatuses.lastIndexOf("connected") >
-      postStatuses.lastIndexOf("unstable");
-    expect(connectedAfterUnstable).toBe(true);
-
-    globalDb.close();
+      jest.advanceTimersByTime(1);
+      expect(connectedAfterUnstable()).toBe(true);
+    } finally {
+      jest.useRealTimers();
+      globalDb.close();
+    }
   });
 });
 

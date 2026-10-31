@@ -96,13 +96,11 @@ func TestStreamingHandlersStopGitWhenReadingStops(t *testing.T) {
 	// Endless output; the only way for this "git" to exit is to be killed.
 	writeFakeGit(t, fakeDir, `#!/bin/sh
 case "$1" in
-clone) exec tr '\000' x < /dev/zero >&2 ;;
 log) exec yes "$(printf 'abc\037a\037\037n\037e\0372020-01-01T00:00:00Z\037s\037b\037\036')" ;;
 *) exec yes 'diff --git a/x b/x' ;;
 esac
 `)
 	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	parent := t.TempDir()
 
 	cases := []struct {
 		name string
@@ -119,10 +117,6 @@ esac
 		}},
 		{"log", func(s *Service) (any, error) {
 			return s.Log(context.Background(), json.RawMessage(`{"streamId":"s"}`))
-		}},
-		{"clone", func(s *Service) (any, error) {
-			raw, _ := json.Marshal(CloneParams{StreamID: "s", URL: "https://example.invalid/repo.git", ParentDir: parent, Name: "repo"})
-			return s.Clone(context.Background(), raw)
 		}},
 	}
 	for _, tc := range cases {

@@ -15,6 +15,9 @@ describe("detectTableConflicts — persistent, table-wide view", () => {
   });
 
   test("two unscoped commands on the same key → BOTH rows flagged (blocking)", () => {
+    // Also the indirect-conflict case: X was moved off ⌘K, Y was set to ⌘K,
+    // then X was reset back to its ⌘K default. The old record-time check only
+    // ran while editing, so it showed nothing here.
     const bindings: ConflictBinding[] = [
       { command: "a", primary: "CmdOrCtrl+K" },
       { command: "b", primary: "CmdOrCtrl+K" },
@@ -32,21 +35,9 @@ describe("detectTableConflicts — persistent, table-wide view", () => {
       { command: "b", primary: "CmdOrCtrl+R", when: "inputFocus" },
     ];
     const map = detectTableConflicts(bindings, true);
+    // fileTreeFocus and inputFocus are not provably exclusive, so the check
+    // stays conservative and warns.
     expect(map.get("a")?.[0]?.kind).toBe("overlap");
-  });
-
-  test("reproduces the indirect-conflict case: resetting onto a now-taken key surfaces on both rows", () => {
-    // Scenario: command X was moved off ⌘K; command Y was set to ⌘K; then X
-    // is reset back to its ⌘K default. The effective table now has two ⌘K
-    // bindings — the table-wide pass flags BOTH, where the old record-time
-    // check (which only ran while editing) would have shown nothing.
-    const effectiveAfterReset: ConflictBinding[] = [
-      { command: "x", primary: "CmdOrCtrl+K" }, // reset back to default
-      { command: "y", primary: "CmdOrCtrl+K" }, // user-assigned earlier
-    ];
-    const map = detectTableConflicts(effectiveAfterReset, true);
-    expect(map.has("x")).toBe(true);
-    expect(map.has("y")).toBe(true);
   });
 
   test("reserved/shadow collisions are excluded from the table view (record-time only)", () => {
@@ -75,15 +66,6 @@ describe("detectTableConflicts — persistent, table-wide view", () => {
       { command: "browser.hardReload", primary: "CmdOrCtrl+Shift+R", when: "browserTabActive" },
     ];
     expect(detectTableConflicts(shiftR, true).size).toBe(0);
-  });
-
-  test("different-but-NOT-disjoint scopes still warn (overlap is conservative)", () => {
-    const bindings: ConflictBinding[] = [
-      { command: "a", primary: "CmdOrCtrl+K", when: "fileTreeFocus" },
-      { command: "b", primary: "CmdOrCtrl+K", when: "inputFocus" },
-    ];
-    // fileTreeFocus and inputFocus are not provably exclusive → overlap.
-    expect(detectTableConflicts(bindings, true).get("a")?.[0]?.kind).toBe("overlap");
   });
 
   test("the shipped default KEYBINDINGS table has ZERO conflicts on both platforms", () => {

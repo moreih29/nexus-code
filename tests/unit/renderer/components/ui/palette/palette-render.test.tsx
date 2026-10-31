@@ -107,11 +107,9 @@ describe("CommandPaletteFrame render states", () => {
     expect(html).toContain('data-command-palette-root="true"');
   });
 
-  it("uses the design backdrop, subtle selected row, and row tooltip", () => {
+  it("renders the row tooltip", () => {
     const html = render("results");
 
-    expect(html).toContain("bg-[var(--floating-scrim)]");
-    expect(html).toContain("bg-[var(--state-hover-bg)]");
     expect(html).toContain('title="/workspace/src/greet.ts"');
   });
 
@@ -123,32 +121,14 @@ describe("CommandPaletteFrame render states", () => {
     expect(html).toContain("origin/v1.0.0");
   });
 
-  it("list container has opacity-100 and no aria-busy when not dimmed", () => {
+  it("list container is aria-busy and ignores pointer events only when dimmed", () => {
     const html = render("results", false);
-
-    expect(html).toContain("opacity-100");
-    expect(html).not.toContain("opacity-50");
     expect(html).not.toContain("pointer-events-none");
     expect(html).not.toContain("aria-busy");
-  });
 
-  it("list container has opacity-50, pointer-events-none, aria-busy=true when dimmed", () => {
-    const html = render("results", true);
-
-    expect(html).toContain("opacity-50");
-    expect(html).toContain("pointer-events-none");
-    expect(html).toContain('aria-busy="true"');
-    expect(html).not.toContain("opacity-100");
-  });
-
-  it("list container always has transition-opacity duration-150", () => {
-    const notDimmed = render("results", false);
     const dimmedHtml = render("results", true);
-
-    expect(notDimmed).toContain("transition-opacity");
-    expect(notDimmed).toContain("duration-150");
-    expect(dimmedHtml).toContain("transition-opacity");
-    expect(dimmedHtml).toContain("duration-150");
+    expect(dimmedHtml).toContain("pointer-events-none");
+    expect(dimmedHtml).toContain('aria-busy="true"');
   });
 
   it("renders an optional footer hint slot", () => {

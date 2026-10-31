@@ -49,11 +49,11 @@ import {
   type KeybindingOverride,
 } from "../../../shared/keybindings/overrides";
 import { createLogger } from "../../../shared/log/main";
+import { isMac } from "../../infra/platform";
 
 const logger = createLogger("browser-keyboard");
 
 const KNOWN_COMMANDS: ReadonlySet<string> = new Set(ALL_COMMAND_IDS);
-const IS_MAC = process.platform === "darwin";
 
 /**
  * Commands this interceptor routes when the browser page view has focus.
@@ -98,7 +98,7 @@ const PAGE_COMMAND_SET: ReadonlySet<string> = new Set([...BROWSER_COMMANDS, ...A
 /** Context keys while a page has focus; any key not listed is false. */
 const PAGE_CONTEXT: Readonly<Record<string, boolean>> = {
   browserTabActive: true,
-  isMac: IS_MAC,
+  isMac: isMac(),
 };
 
 interface CompiledBinding {
@@ -158,7 +158,7 @@ export function installBrowserKeyInterceptor(
     };
 
     for (const b of compiled) {
-      if (matchesKeyState(b.parsed, state, IS_MAC)) {
+      if (matchesKeyState(b.parsed, state, isMac())) {
         event.preventDefault();
         run(b.command, tabId);
         return;

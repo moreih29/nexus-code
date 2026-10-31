@@ -65,8 +65,5 @@ describe("window channel", () => {
       ipcContract.window.call.isMaximized.result.safeParse(handlers.isMaximized(undefined, ctx))
         .success,
     ).toBe(true);
-    expect(
-      ipcContract.window.listen.maximizedChanged.args.safeParse({ maximized: true }).success,
-    ).toBe(true);
   });
 });

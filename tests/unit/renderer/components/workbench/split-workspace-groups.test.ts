@@ -29,30 +29,14 @@ function makeWs(id: string, pinned: boolean, sortOrder = 1024): WorkspaceMeta {
 }
 
 describe("splitWorkspaceGroups", () => {
-  it("returns two empty groups for an empty list", () => {
-    const { pinnedGroup, unpinnedGroup } = splitWorkspaceGroups([]);
-    expect(pinnedGroup).toHaveLength(0);
-    expect(unpinnedGroup).toHaveLength(0);
-  });
-
-  it("puts all unpinned workspaces in unpinnedGroup", () => {
-    const wsList = [
-      makeWs("a", false, 1024),
-      makeWs("b", false, 2048),
-    ];
+  it.each<[string, WorkspaceMeta[], string[], string[]]>([
+    ["an empty list", [], [], []],
+    ["all unpinned", [makeWs("a", false, 1024), makeWs("b", false, 2048)], [], ["a", "b"]],
+    ["all pinned", [makeWs("x", true, 1024), makeWs("y", true, 2048)], ["x", "y"], []],
+  ])("groups %s", (_label, wsList, pinned, unpinned) => {
     const { pinnedGroup, unpinnedGroup } = splitWorkspaceGroups(wsList);
-    expect(pinnedGroup).toHaveLength(0);
-    expect(unpinnedGroup.map((w) => w.id)).toEqual(["a", "b"]);
-  });
-
-  it("puts all pinned workspaces in pinnedGroup", () => {
-    const wsList = [
-      makeWs("x", true, 1024),
-      makeWs("y", true, 2048),
-    ];
-    const { pinnedGroup, unpinnedGroup } = splitWorkspaceGroups(wsList);
-    expect(unpinnedGroup).toHaveLength(0);
-    expect(pinnedGroup.map((w) => w.id)).toEqual(["x", "y"]);
+    expect(pinnedGroup.map((w) => w.id)).toEqual(pinned);
+    expect(unpinnedGroup.map((w) => w.id)).toEqual(unpinned);
   });
 
   it("splits a mixed list into correct groups, preserving order", () => {

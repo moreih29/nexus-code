@@ -9,7 +9,6 @@ import { describe, expect, test } from "bun:test";
 import { injectHarnessTerminalEnv } from "../../../../src/main/features/pty/harness-env";
 
 const FAKE_BIN_DIR = "/fake/agent/bin";
-const FAKE_AGENT_BIN = "/fake/agent/bin/agent-1.0.0-darwin-arm64";
 
 describe("injectHarnessTerminalEnv — 기존 TERM_PROGRAM 동작 유지", () => {
   test("context 없음 + undefined input → ghostty 기본값 포함", () => {
@@ -116,15 +115,6 @@ describe("injectHarnessTerminalEnv — NEXUS_* 주입 (acceptance #6, #7)", () =
     expect(result.NEXUS_IN_APP).toBe("1");
   });
 
-  test("NEXUS_WRAPPER_SELF_DIR = context.binDir", () => {
-    const result = injectHarnessTerminalEnv(undefined, {
-      binDir: FAKE_BIN_DIR,
-      workspaceId: "ws-1",
-      tabId: "tab-1",
-    });
-    expect(result.NEXUS_WRAPPER_SELF_DIR).toBe(FAKE_BIN_DIR);
-  });
-
   test("context.workspaceId / tabId 주입", () => {
     const result = injectHarnessTerminalEnv(undefined, {
       binDir: FAKE_BIN_DIR,
@@ -133,25 +123,6 @@ describe("injectHarnessTerminalEnv — NEXUS_* 주입 (acceptance #6, #7)", () =
     });
     expect(result.NEXUS_WORKSPACE_ID).toBe("ws-1");
     expect(result.NEXUS_TAB_ID).toBe("tab-2");
-  });
-
-  test("context.agentBin 제공 시 NEXUS_AGENT_BIN 설정", () => {
-    const result = injectHarnessTerminalEnv(undefined, {
-      binDir: FAKE_BIN_DIR,
-      workspaceId: "ws-1",
-      tabId: "tab-1",
-      agentBin: FAKE_AGENT_BIN,
-    });
-    expect(result.NEXUS_AGENT_BIN).toBe(FAKE_AGENT_BIN);
-  });
-
-  test("context.agentBin 미제공 시 NEXUS_AGENT_BIN 미설정", () => {
-    const result = injectHarnessTerminalEnv(undefined, {
-      binDir: FAKE_BIN_DIR,
-      workspaceId: "ws-1",
-      tabId: "tab-1",
-    });
-    expect(result.NEXUS_AGENT_BIN).toBeUndefined();
   });
 
   test("context.agentSocket / hookToken 제공 시 설정", () => {

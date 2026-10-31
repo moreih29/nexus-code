@@ -16,6 +16,7 @@ import {
   resolvedTerminalFontSize,
 } from "../../state/stores/terminal";
 import { copyTextViaIpc } from "../../utils/clipboard";
+import { isWindows } from "../../utils/platform";
 import { createPtyClient } from "./pty-client";
 import type {
   PtyClient,
@@ -205,20 +206,31 @@ export function foregroundConfirmsTitle(foregroundName: string): boolean {
 }
 
 /**
- * Backslash-escape a filesystem path for injection into a shell / TUI prompt,
- * matching the drag-and-drop behavior of iTerm2 and Terminal.app.
+ * Quotes a dropped file's path for the terminal's shell, so a path with
+ * spaces or shell characters stays one literal argument. `shellPath` is the
+ * local shell main reported; a remote terminal has none.
  *
- * Only POSIX shell metacharacters and whitespace are escaped — Unicode letters
- * (e.g. Korean filenames) are deliberately left intact, so a denylist (escape
- * these specific bytes) is used rather than an allowlist. The result stays a
- * single argument while remaining recognizable as a literal path to TUIs such
- * as Claude Code that scan typed input for file paths.
+ * - PowerShell: single quotes, with any single quote doubled. Its escape
+ *   character is the backtick, so a backslash would not do.
+ * - cmd.exe: double quotes, which no Windows file name contains.
+ * - Any other shell: backslash escapes, as iTerm2 and Terminal.app drop
+ *   paths. Only shell metacharacters and whitespace are escaped, so Unicode
+ *   letters (Korean file names) stay as they are and TUIs such as Claude Code
+ *   that scan typed input for file paths still recognize the path.
  *
- * Exported for unit testing.
+ * A path with nothing to protect is pasted as it is.
  */
-export function escapeDroppedPath(path: string): string {
-  // Order matters only in that the backslash class member escapes itself; the
-  // regex matches one metacharacter at a time and prefixes it with a backslash.
+export function escapeDroppedPath(path: string, shellPath?: string): string {
+  const shell = shellPath?.split(/[\\/]/).pop()?.toLowerCase() ?? "";
+  if (shell === "powershell.exe" || shell === "pwsh.exe" || shell === "pwsh") {
+    // PowerShell also takes the typographic single quotes as quotes.
+    return /[\s'"`$&(){}[\];,@#|<>‘’‚‛]/.test(path)
+      ? `'${path.replace(/['‘’‚‛]/g, "$&$&")}'`
+      : path;
+  }
+  if (shell === "cmd.exe") {
+    return /[\s&()[\]{}^=;!'+,`~]/.test(path) ? `"${path}"` : path;
+  }
   return path.replace(/[\s'"\\$`(){}[\]<>|&;*?!#~]/g, "\\$&");
 }
 
@@ -310,6 +322,8 @@ const defaultTerminalControllerDeps: TerminalControllerDeps = {
 
 class XtermTerminalController implements TerminalController {
   private disposed = false;
+  /** The local shell main started, if it said; a remote terminal has none. */
+  private shellPath: string | undefined;
   /** Whether the shell is cmd.exe, which pastes on Ctrl+V (see the key handler). */
   private shellIsCmd = false;
   private term: TerminalLike | null = null;
@@ -443,6 +457,7 @@ class XtermTerminalController implements TerminalController {
   private noteSpawned(result: SpawnedSession): void {
     if (result.missingShell !== undefined) reportMissingShell(result.missingShell);
     if (result.shellPath !== undefined) {
+      this.shellPath = result.shellPath;
       this.shellIsCmd = /(^|[\\/])cmd\.exe$/i.test(result.shellPath);
     }
   }
@@ -793,7 +808,7 @@ class XtermTerminalController implements TerminalController {
         !event.metaKey &&
         event.keyCode === 86 &&
         (term.modes.bracketedPasteMode || this.shellIsCmd) &&
-        window.host?.platform === "win32"
+        isWindows()
       ) {
         return false;
       }
@@ -951,7 +966,7 @@ class XtermTerminalController implements TerminalController {
         // the supported way to recover an absolute path from a dropped File.
         .map((file) => window.files.getPathForFile(file))
         .filter((p) => p !== "")
-        .map((p) => escapeDroppedPath(p));
+        .map((p) => escapeDroppedPath(p, this.shellPath));
       if (paths.length === 0) return;
 
       // No trailing space — paste just the escaped path(s) so Claude Code's

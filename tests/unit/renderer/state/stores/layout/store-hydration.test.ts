@@ -206,3 +206,59 @@ describe("useLayoutStore — hydration", () => {
     expect(getLayout().activeGroupId).toBe(leafB.id);
   });
 });
+
+describe("useLayoutStore — hydration of nested and dangling trees", () => {
+  beforeEach(resetStore);
+
+  function leafWith(tabId: string): LayoutLeaf {
+    return { kind: "leaf", id: crypto.randomUUID(), tabIds: [tabId], activeTabId: tabId };
+  }
+
+  it("29b. hydrate keeps a valid nested split intact", () => {
+    const [tab1, tab2, tab3] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    const leaf1 = leafWith(tab1);
+    const leaf2 = leafWith(tab2);
+    const leaf3 = leafWith(tab3);
+    const inner: LayoutSplit = {
+      kind: "split",
+      id: crypto.randomUUID(),
+      orientation: "vertical",
+      ratio: 0.5,
+      first: leaf2,
+      second: leaf3,
+    };
+    const root: LayoutSplit = {
+      kind: "split",
+      id: crypto.randomUUID(),
+      orientation: "horizontal",
+      ratio: 0.5,
+      first: leaf1,
+      second: inner,
+    };
+
+    useLayoutStore
+      .getState()
+      .hydrate(WS, { root, activeGroupId: leaf1.id }, new Set([tab1, tab2, tab3]));
+
+    expect(getRoot()).toEqual(root);
+  });
+
+  it("19d. hydrate of a sole leaf whose tabs are all dangling keeps it as an empty leaf", () => {
+    const danglingTabId = crypto.randomUUID();
+    const leaf: LayoutLeaf = {
+      kind: "leaf",
+      id: crypto.randomUUID(),
+      tabIds: [danglingTabId],
+      activeTabId: danglingTabId,
+    };
+
+    useLayoutStore.getState().hydrate(WS, { root: leaf, activeGroupId: leaf.id }, new Set());
+
+    const root = getRoot() as LayoutLeaf;
+    expect(root.kind).toBe("leaf");
+    expect(root.id).toBe(leaf.id);
+    expect(root.tabIds).toEqual([]);
+    expect(root.activeTabId).toBeNull();
+    expect(getLayout().activeGroupId).toBe(leaf.id);
+  });
+});

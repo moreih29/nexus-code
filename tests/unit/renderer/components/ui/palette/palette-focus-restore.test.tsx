@@ -65,20 +65,3 @@ describe("focus-restore cleanup guard", () => {
     expect(() => restoreFocusOnUnmount(null)).not.toThrow();
   });
 });
-
-describe("previouslyFocusedRef lifecycle", () => {
-  it("nulls out the ref before attempting restore (second cleanup call is a no-op)", () => {
-    const caller = makeFakeElement({ isConnected: true, disabled: false });
-
-    // Simulate what the useEffect cleanup does: read, null ref, then restore.
-    let ref: FakeElement | null = caller;
-    const target = ref;
-    ref = null;
-    restoreFocusOnUnmount(target as unknown as HTMLElement);
-
-    // ref is now null — a second cleanup call with null is silent
-    restoreFocusOnUnmount(ref as unknown as HTMLElement | null);
-
-    expect(caller.focusCalls).toBe(1);
-  });
-});

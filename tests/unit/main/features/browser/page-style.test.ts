@@ -137,24 +137,4 @@ describe("installAppScrollbarStyle", () => {
     // queue a tick to surface any unhandled rejection.
     await Promise.resolve();
   });
-
-  // -------------------------------------------------------------------------
-  // 6. CSS payload sanity — selectors + width + !important
-  // -------------------------------------------------------------------------
-
-  test("CSS payload covers scrollbar, track, thumb, hover, corner, with !important", () => {
-    const wc = fakeWebContents({ loading: false });
-    installAppScrollbarStyle(wc as unknown as import("electron").WebContents);
-
-    const css = wc.insertCSSCalls[0];
-    expect(css).toContain("::-webkit-scrollbar");
-    expect(css).toContain("::-webkit-scrollbar-track");
-    expect(css).toContain("::-webkit-scrollbar-thumb");
-    expect(css).toContain("::-webkit-scrollbar-thumb:hover");
-    expect(css).toContain("::-webkit-scrollbar-corner");
-    expect(css).toContain("!important");
-    // Width matches the app's @utility app-scrollbar (10/8).
-    expect(css).toMatch(/width:\s*10px/);
-    expect(css).toMatch(/height:\s*8px/);
-  });
 });

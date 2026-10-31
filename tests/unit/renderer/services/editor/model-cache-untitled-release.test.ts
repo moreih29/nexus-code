@@ -1,10 +1,9 @@
 /**
- * untitled tab close — Monaco model released from cache
+ * model cache — untitled entries are removed on the last release
  *
- * Verifies that when handleCloseTab is invoked for an "untitled" tab, the
- * releaseModel call drops the ref-count to zero and removes the entry from
- * the model cache (getModelSnapshot returns null). This is the acceptance
- * criterion from TASK [CRITICAL]: "cache.entries에서 해당 모델 제거됨".
+ * Closing an "untitled" tab calls releaseModel. Verifies that the release
+ * drops the ref-count to zero and removes the entry from the model cache
+ * (getModelSnapshot returns null).
  *
  * The test exercises the real cache module but stubs out Monaco, the LSP
  * bridge, and the entry helpers — the same pattern used by
@@ -19,7 +18,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const cleanupEntry = mock((_entry: unknown) => {});
 
-mock.module("../../../../../../src/renderer/services/editor/lsp/bridge", () => ({
+mock.module("../../../../../src/renderer/services/editor/lsp/bridge", () => ({
   ensureProvidersFor: () => {},
   notifyDidChange: () => Promise.resolve(),
   notifyDidClose: () => Promise.resolve(),
@@ -33,7 +32,7 @@ mock.module("../../../../../../src/renderer/services/editor/lsp/bridge", () => (
  * Mock entry module — provides both createEntry (for workspace tabs) and
  * createUntitledEntry (for the untitled path under test).
  */
-mock.module("../../../../../../src/renderer/services/editor/model/entry", () => ({
+mock.module("../../../../../src/renderer/services/editor/model/entry", () => ({
   cleanupEntry,
   createEntry: (input: { workspaceId: string; filePath: string }, cacheUri: string) => ({
     input,
@@ -77,7 +76,7 @@ mock.module("../../../../../../src/renderer/services/editor/model/entry", () => 
   }),
 }));
 
-mock.module("../../../../../../src/renderer/services/editor/runtime/monaco-singleton", () => ({
+mock.module("../../../../../src/renderer/services/editor/runtime/monaco-singleton", () => ({
   initializeMonacoSingleton: () => {},
   isMonacoReady: () => true,
   onMonacoReady: () => () => {},
@@ -86,7 +85,7 @@ mock.module("../../../../../../src/renderer/services/editor/runtime/monaco-singl
   },
 }));
 
-mock.module("../../../../../../src/renderer/services/editor/model/dirty-tracker", () => ({
+mock.module("../../../../../src/renderer/services/editor/model/dirty-tracker", () => ({
   attachDirtyTracker: () => {},
   detachDirtyTracker: () => {},
   markSaved: () => {},
@@ -98,7 +97,7 @@ mock.module("../../../../../../src/renderer/services/editor/model/dirty-tracker"
 // ---------------------------------------------------------------------------
 
 const { acquireModel, releaseModel, getModelSnapshot } = await import(
-  "../../../../../../src/renderer/services/editor/model/cache"
+  "../../../../../src/renderer/services/editor/model/cache"
 );
 
 // ---------------------------------------------------------------------------
@@ -119,7 +118,7 @@ function untitledInput(index: number) {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("handleCloseTab untitled — releaseModel removes cache entry", () => {
+describe("untitled model — releaseModel removes cache entry", () => {
   beforeEach(() => {
     cleanupEntry.mockClear();
   });
@@ -131,7 +130,7 @@ describe("handleCloseTab untitled — releaseModel removes cache entry", () => {
     // Entry must be present before close.
     expect(getModelSnapshot(input)).not.toBeNull();
 
-    // This is what handleCloseTab now calls for tab.type === "untitled".
+    // Closing an untitled tab calls releaseModel.
     releaseModel(input);
 
     // Cache entry must be gone after the last reference is released.

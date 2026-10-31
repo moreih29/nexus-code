@@ -1,102 +1,74 @@
 /**
- * Unit tests for the browser permission subscription module.
- *
- * Covers:
- *  1. initBrowserPermissionSubscriptions — does not throw on install.
- *  2. initBrowserPermissionSubscriptions — is idempotent (safe to call twice).
- *  3. showPermissionPrompt — enqueues a prompt without throwing.
- *  4. showPermissionPrompt — multiple sequential enqueues do not throw.
- *
- * Isolation strategy: the test provides no-op stubs for window.ipc so the
- * module can initialise.  Bun runs test files concurrently (--max-concurrency),
- * which means the shared `globalThis.window` setter from setup.ts may be
- * updated by a concurrent file while this test runs.  We therefore avoid
- * asserting on per-fakeIpc listener counts (which are not concurrency-safe)
- * and instead test only the observable, non-racy behaviour: "does not throw"
- * and "queue size after enqueue".
+ * Unit tests for the browser permission subscription module: main's
+ * `browserPermission` broadcasts reach the prompt queue, and a second install
+ * replaces the first instead of doubling it.
  */
 
-import { beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it, mock } from "bun:test";
+import type { PermissionPromptPayload } from "../../../../../src/renderer/components/ui/permission-prompt-dialog";
 
-// ---------------------------------------------------------------------------
-// Window shim — no-op IPC that prevents "window.ipc is not defined" errors.
-// Re-installed in every beforeEach to reduce (but not eliminate) contamination
-// from concurrent file executions.
-// ---------------------------------------------------------------------------
+const shown: PermissionPromptPayload[] = [];
+const dismissed: string[] = [];
 
-if (typeof (globalThis as Record<string, unknown>).crypto === "undefined") {
-  let counter = 0;
-  (globalThis as Record<string, unknown>).crypto = {
-    randomUUID: () => {
-      counter++;
-      return `00000000-0000-0000-0000-${String(counter).padStart(12, "0")}`;
-    },
-  };
+mock.module("../../../../../src/renderer/components/ui/permission-prompt-dialog", () => ({
+  showPermissionPrompt: (payload: PermissionPromptPayload) => shown.push(payload),
+  dismissPermissionPrompt: (promptId: string) => dismissed.push(promptId),
+}));
+
+const { initBrowserPermissionSubscriptions } = await import(
+  "../../../../../src/renderer/state/operations/browser-permission"
+);
+
+/** Live listeners by "channel.event"; an unsubscribe removes its entry. */
+let listeners: Map<string, Set<(payload: unknown) => void>>;
+
+function emit(key: string, payload: unknown): void {
+  for (const listener of listeners.get(key) ?? []) listener(payload);
 }
 
+const PROMPT: PermissionPromptPayload = {
+  promptId: "prompt-1",
+  workspaceId: "ws-1",
+  origin: "https://example.com",
+  permissions: ["geolocation"],
+};
+
 beforeEach(() => {
+  shown.length = 0;
+  dismissed.length = 0;
+  listeners = new Map();
   (globalThis as Record<string, unknown>).window = {
     ipc: {
       call: () => Promise.resolve(null),
-      // Returns the unsubscribe, as the preload's listen does.
-      listen: () => () => {},
+      listen: (channel: string, event: string, listener: (payload: unknown) => void) => {
+        const key = `${channel}.${event}`;
+        const set = listeners.get(key) ?? new Set();
+        set.add(listener);
+        listeners.set(key, set);
+        return () => set.delete(listener);
+      },
       off: () => {},
     },
   };
 });
 
-// ---------------------------------------------------------------------------
-// Module under test
-// ---------------------------------------------------------------------------
-
-import { initBrowserPermissionSubscriptions } from "../../../../../src/renderer/state/operations/browser-permission";
-import { showPermissionPrompt } from "../../../../../src/renderer/components/ui/permission-prompt-dialog";
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe("initBrowserPermissionSubscriptions", () => {
-  it("does not throw on install", () => {
-    expect(() => {
-      initBrowserPermissionSubscriptions();
-    }).not.toThrow();
+  it("queues a prompt on browserPermission.prompt and drops it on .dismissed", () => {
+    initBrowserPermissionSubscriptions();
+
+    emit("browserPermission.prompt", PROMPT);
+    emit("browserPermission.dismissed", { promptId: "prompt-1" });
+
+    expect(shown).toEqual([PROMPT]);
+    expect(dismissed).toEqual(["prompt-1"]);
   });
 
-  it("is idempotent: calling twice does not throw", () => {
-    expect(() => {
-      initBrowserPermissionSubscriptions();
-      initBrowserPermissionSubscriptions();
-    }).not.toThrow();
-  });
-});
+  it("a second install removes the first one's listeners", () => {
+    initBrowserPermissionSubscriptions();
+    initBrowserPermissionSubscriptions();
 
-describe("showPermissionPrompt", () => {
-  it("enqueues a prompt without throwing", () => {
-    expect(() => {
-      showPermissionPrompt({
-        promptId: "test-prompt-1",
-        workspaceId: "ws-1",
-        origin: "https://example.com",
-        permissions: ["geolocation"],
-      });
-    }).not.toThrow();
-  });
+    emit("browserPermission.prompt", PROMPT);
 
-  it("handles multiple sequential prompts without throwing", () => {
-    expect(() => {
-      showPermissionPrompt({
-        promptId: "test-prompt-2",
-        workspaceId: "ws-1",
-        origin: "https://example.com",
-        permissions: ["media"],
-      });
-      showPermissionPrompt({
-        promptId: "test-prompt-3",
-        workspaceId: "ws-1",
-        origin: "https://other.com",
-        permissions: ["notifications", "geolocation"],
-      });
-    }).not.toThrow();
+    expect(shown).toEqual([PROMPT]);
   });
 });
