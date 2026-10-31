@@ -344,7 +344,7 @@ export function contextFor(
   app: FakeApp,
   argv: string[],
   caller = { workspaceId: APP, tabId: SHELL_TAB },
-  invocation: { cwd?: string; stdin?: string } = {},
+  invocation: { cwd?: string; tempDir?: string; stdin?: string; msysRoot?: string } = {},
 ): CliContext {
   return {
     caller,

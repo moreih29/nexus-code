@@ -104,6 +104,50 @@ func TestRunSendsStdinForADash(t *testing.T) {
 	}
 }
 
+// A command from Git Bash says where Git Bash's "/" is, even when its
+// launcher could not tell; others say nothing.
+func TestRunSendsGitBashsRoot(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		root *string
+	}{
+		{"git bash", ptr(`C:\Program Files\Git\`)},
+		{"git bash without cygpath", ptr("")},
+		{"another shell", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			answer, _ := json.Marshal(wireResponse{OK: true, Result: &result{}})
+			socket, asked := fakeApp(t, string(answer))
+			setTerminalEnv(t, socket)
+			if tc.root != nil {
+				t.Setenv(envMsysRoot, *tc.root)
+			} else {
+				unsetEnv(t, envMsysRoot)
+			}
+
+			var stdout, stderr bytes.Buffer
+			if code := run([]string{"status"}, strings.NewReader(""), &stdout, &stderr); code != 0 {
+				t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+			}
+			got := (<-asked).Payload.MsysRoot
+			if (got == nil) != (tc.root == nil) || (got != nil && *got != *tc.root) {
+				t.Fatalf("msysRoot = %v, want %v", got, tc.root)
+			}
+		})
+	}
+}
+
+func ptr(s string) *string { return &s }
+
+// unsetEnv removes key for the test, as t.Setenv would set it.
+func unsetEnv(t *testing.T, key string) {
+	t.Helper()
+	t.Setenv(key, "")
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // The app's refusal is printed as the error.
 func TestRunReportsTheAppsError(t *testing.T) {
 	socket, _ := fakeApp(t, `{"ok":false,"error":"NexusCode is not connected"}`)

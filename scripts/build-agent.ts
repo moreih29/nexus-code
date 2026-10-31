@@ -5,7 +5,7 @@ import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { AGENT_PROTOCOL_VERSION } from "../src/shared/agent/envelope";
-import { POSIX_CLI_LAUNCHER } from "../src/shared/cli/launcher";
+import { cliExecutableName, POSIX_CLI_LAUNCHER } from "../src/shared/cli/launcher";
 import {
   type AgentArtifactPlatform,
   type AgentBinaryManifestEntry,
@@ -321,6 +321,25 @@ async function buildAgentBinaries(args: {
       },
     );
     artifacts.push({ ...target, path: name });
+    if (target.os === "windows") {
+      // The nexus command of local Windows terminals, beside the agent it is
+      // named after (main/features/cli/launchers.ts).
+      await args.run(
+        "go",
+        [
+          "build",
+          "-tags=netgo,osusergo",
+          "-ldflags=-s -w",
+          "-o",
+          path.join(args.outDir, cliExecutableName(name)),
+          "./cmd/nexus",
+        ],
+        {
+          cwd: args.rootDir,
+          env: { ...process.env, GOOS: target.os, GOARCH: target.arch, CGO_ENABLED: "0" },
+        },
+      );
+    }
   }
   return artifacts;
 }
