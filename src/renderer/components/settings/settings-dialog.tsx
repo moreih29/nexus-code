@@ -117,6 +117,15 @@ export function SettingsDialog({
   const [activeId, setActiveId] = useState<string>(defaultActiveId ?? firstId);
   const [query, setQuery] = useState("");
 
+  // The dialog stays mounted while closed, so opening it at a tab
+  // (openSettingsAt) has to move there itself; plain opening keeps the last.
+  const openedAt = open ? defaultActiveId : undefined;
+  const [shownAt, setShownAt] = useState(openedAt);
+  if (openedAt !== shownAt) {
+    setShownAt(openedAt);
+    if (openedAt) setActiveId(openedAt);
+  }
+
   const panelId = useId();
   const searchId = useId();
 
