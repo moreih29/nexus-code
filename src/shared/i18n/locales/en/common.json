@@ -188,11 +188,14 @@
     "add_subtitle_ssh_list": "Choose a saved connection or add a new one.",
     "add_subtitle_ssh_new": "Enter SSH connection details.",
     "add_subtitle_ssh_picker": "Select a remote directory.",
+    "add_subtitle_wsl_list": "Choose a WSL distribution.",
+    "add_subtitle_wsl_picker": "Select a folder in the distribution.",
     "no_recent_folders": "No recent folders",
     "no_recent_folders_desc": "Folders you open here are listed for quick access.",
     "open_folder": "Open Folder…",
     "opening_folder": "Opening…",
     "connect_ssh": "Connect via SSH…",
+    "open_wsl": "Open in WSL…",
     "show_less": "Show less",
     "show_more": "Show {{count}} more",
     "favorites": "Favorites",
@@ -269,6 +272,11 @@
     "adding": "Adding…"
   },
   "wsl": {
+    "loading": "Loading distributions…",
+    "distributions": "WSL distributions",
+    "none": "No WSL distributions",
+    "none_desc": "Install one with `wsl --install`, then open this dialog again.",
+    "starting": "Starting…",
     "identity": "WSL · {{distro}}"
   },
   "editor": {
