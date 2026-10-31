@@ -5,6 +5,7 @@
  */
 import path from "node:path";
 import type { CliInvocation } from "../../../shared/cli/protocol";
+import { toSlashPath } from "../../../shared/fs/drive-path";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { type CliContext, CliError } from "./context";
 
@@ -71,9 +72,16 @@ export function workspaceFile(
     throw new CliError(`${input} is not a file inside ${workspace.name} (${workspace.rootPath})`);
   }
   const relPath = rel.split(p.sep).join("/");
-  // The renderer joins a workspace's files to its root with "/" (files/helpers joinPath).
-  const root = workspace.rootPath.replace(/[\\/]+$/, "");
-  return { relPath, filePath: `${root}/${relPath}` };
+  return { relPath, filePath: `${rendererRoot(workspace)}/${relPath}` };
+}
+
+/**
+ * A workspace's root as the renderer has it, which joins the workspace's
+ * files to it with "/" (files/helpers joinPath): a Windows root is spelled
+ * C:/w/app there (shared/fs/drive-path).
+ */
+export function rendererRoot(workspace: WorkspaceMeta): string {
+  return toSlashPath(workspace.rootPath.replace(/[\\/]+$/, ""));
 }
 
 /** Splits "file:12" or "file:12:5" into the file and the place in it. */

@@ -19,10 +19,29 @@ import {
   type FakeApp,
   fakeApp,
   SHELL_TAB,
+  WORKSPACES,
 } from "./fake-services";
 
 async function nexus(app: FakeApp, argv: string[]) {
   return runCli(CLI_COMMANDS, contextFor(app, argv));
+}
+
+/** nexus in a terminal of "app" with its root at C:\w\app, as Windows spells it. */
+async function nexusOnWindows(app: FakeApp, argv: string[]) {
+  const ctx = contextFor(app, argv, undefined, { cwd: "C:\\w\\app" });
+  const workspaces = WORKSPACES.map((w) =>
+    w.id === APP
+      ? {
+          ...w,
+          rootPath: "C:\\w\\app",
+          location: { kind: "local" as const, rootPath: "C:\\w\\app" },
+        }
+      : w,
+  );
+  return runCli(CLI_COMMANDS, {
+    ...ctx,
+    services: { ...ctx.services, listWorkspaces: () => workspaces },
+  });
 }
 
 function lastCall(app: FakeApp, op: string): unknown {
@@ -228,6 +247,15 @@ describe("panels, reveal and problems", () => {
     );
   });
 
+  test("reveal names a Windows workspace's file as the renderer does", async () => {
+    const app = fakeApp();
+    await nexusOnWindows(app, ["reveal", "src\\login.ts"]);
+    expect(lastCall(app, "files.reveal")).toEqual({
+      workspaceId: APP,
+      filePath: "C:/w/app/src/login.ts",
+    });
+  });
+
   test("problems lists errors and warnings by file, relative to the root", async () => {
     const app = fakeApp();
     expect((await nexus(app, ["problems"])).stdout).toBe(
@@ -259,5 +287,21 @@ describe("panels, reveal and problems", () => {
     );
     expect((await nexus(app, ["problems", "--errors"])).stdout).not.toContain("Unused");
     expect((await nexus(app, ["problems", "--all"])).stdout).toContain("Could be const.");
+  });
+
+  test("problems lists a Windows workspace's files relative to its root too", async () => {
+    const app = fakeApp();
+    // The renderer names the file from the root spelled C:/w/app.
+    app.problems.push({
+      filePath: "C:/w/app/src/a.ts",
+      line: 3,
+      column: 7,
+      severity: "error",
+      message: "Cannot find name 'x'.",
+    });
+    expect((await nexusOnWindows(app, ["problems"])).stdout).toBe(
+      "src/a.ts:3:7  error    Cannot find name 'x'.\n" +
+        "1 error, 0 warnings in the files open in the editor.\n",
+    );
   });
 });
