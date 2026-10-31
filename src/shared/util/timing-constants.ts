@@ -100,6 +100,15 @@ export const LSP_CONSECUTIVE_TIMEOUT_LIMIT = 3;
  */
 export const LSP_SERVER_WEDGE_GRACE_MS = 60_000;
 
+/**
+ * A server that crashes (or wedges, or fails to start) is started again,
+ * unless it failed this many times within LSP_CRASH_WINDOW_MS: then it
+ * stays down until the user restarts it, so a server that dies on startup
+ * does not spin.
+ */
+export const LSP_CRASH_LIMIT = 3;
+export const LSP_CRASH_WINDOW_MS = 3 * 60 * 1000;
+
 export const LSP_HOVER_TIMEOUT_MS = 8_000;
 export const LSP_DEFINITION_TIMEOUT_MS = 10_000;
 export const LSP_COMPLETION_TIMEOUT_MS = 15_000;

@@ -128,25 +128,21 @@ describe("LSP host settings", () => {
     await open(host, WORKSPACE_A, "python", "a.py");
     await open(host, WORKSPACE_B, "typescript", "b.ts");
 
-    host.disposeServers(
-      (_workspaceId, languageId) => languageId === "typescript",
-      "settings changed",
-      {
-        reopen: true,
-      },
-    );
+    host.disposeServers((_workspaceId, languageId) => languageId === "typescript", "restart", {
+      reopen: true,
+    });
 
     expect(resets).toEqual([
       {
         workspaceId: WORKSPACE_A,
         languageId: "typescript",
-        reason: "settings changed",
+        reason: "restarted",
         reopen: true,
       },
       {
         workspaceId: WORKSPACE_B,
         languageId: "typescript",
-        reason: "settings changed",
+        reason: "restarted",
         reopen: true,
       },
     ]);

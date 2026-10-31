@@ -36,6 +36,13 @@ import {
   resolveLspPreset,
   resolveLspPresetLanguageId,
 } from "../../../shared/lsp/config";
+import type {
+  LspLogEntry,
+  LspLogLevel,
+  LspServerMemory,
+  LspServerStatus,
+  LspStopReason,
+} from "../../../shared/lsp/status";
 import {
   LSP_COMPLETION_RESOLVE_TIMEOUT_MS,
   LSP_COMPLETION_TIMEOUT_MS,
@@ -69,6 +76,7 @@ import {
   parseServerCapabilities,
   parseServerExitedPayload,
   parseSpawnResult,
+  parseStatsResult,
   parseWorkDoneProgressCreateParams,
   serverExitError,
 } from "./payloads";
@@ -82,6 +90,7 @@ import {
   normalizeWorkspaceSymbolResult,
   parsePublishDiagnostics,
 } from "./result-normalizers";
+import { LspServerStatusTracker } from "./server-status";
 import { asRecord, isObjectLike } from "./utils";
 
 const log = createLogger("lsp-agent");
@@ -167,6 +176,27 @@ const WorkspaceSymbolArgsSchema = z.object({
   workspaceId: z.string(),
   query: z.string(),
 });
+
+/** How a stop reads in workspaceLspReset and in the server's log. */
+const STOP_REASON_TEXT: Record<LspStopReason, string> = {
+  idle: "idle timeout",
+  evicted: "evicted by LRU cap",
+  off: "turned off",
+  restart: "restarted",
+  agent: "agent exited",
+  crashed: "server exited",
+};
+
+/** window/logMessage and window/showMessage types, 5 being 3.18's Debug. */
+const MESSAGE_LOG_LEVELS: Record<number, LspLogLevel> = {
+  1: "error",
+  2: "warning",
+  3: "info",
+  4: "log",
+  5: "log",
+};
+
+const LogMessageParamsSchema = z.object({ type: z.number(), message: z.string() });
 
 const SERVER_EVENT_METHODS = new Set<string>([
   "window/logMessage",
@@ -320,6 +350,9 @@ class AgentLspHostHandleImpl implements LspHostHandle {
    * (tests, plain `startAgentLspHost()`) are unaffected.
    */
   private readonly isLanguageEnabled: (workspaceId: string, languageId: string) => boolean;
+  private readonly status = new LspServerStatusTracker((status) =>
+    this.emit("serverStatus", status),
+  );
   private nextServerRequestId = 1;
   private disposed = false;
 
@@ -523,17 +556,20 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   disposeLanguage(
     workspaceId: string,
     languageId: string,
-    reason: string,
+    reason: LspStopReason,
     options: { reopen?: boolean } = {},
   ): void {
-    if (this.disposed) return;
-    this.disposeWorkspaceServers(workspaceId, reason, { languageId, reopen: options.reopen });
+    this.disposeServers((w, l) => w === workspaceId && l === languageId, reason, options);
   }
 
-  /** disposeLanguage for every live server `matches` picks. */
+  /**
+   * disposeLanguage for every server `matches` picks. A server that gave
+   * up after crashing has none live, but a setting or a restart lets it
+   * start again.
+   */
   disposeServers(
     matches: (workspaceId: string, languageId: string) => boolean,
-    reason: string,
+    reason: LspStopReason,
     options: { reopen?: boolean } = {},
   ): void {
     if (this.disposed) return;
@@ -544,6 +580,38 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         }
       }
     }
+    for (const { workspaceId, languageId } of this.status.givenUp()) {
+      if (!matches(workspaceId, languageId)) continue;
+      this.status.resetFailures(workspaceId, languageId, reason);
+      if (options.reopen) {
+        this.emit("workspaceLspReset", {
+          workspaceId,
+          languageId,
+          reason: STOP_REASON_TEXT[reason],
+          reopen: true,
+        });
+      }
+    }
+  }
+
+  /**
+   * Starts a language's server again: the live one is stopped and the
+   * renderer reopens the documents, which starts the next. A server that
+   * gave up after crashing starts again too.
+   */
+  restartLanguage(workspaceId: string, languageId: string): void {
+    if (this.disposed) return;
+    if (this.workspaceServers.get(workspaceId)?.has(languageId)) {
+      this.disposeLanguage(workspaceId, languageId, "restart", { reopen: true });
+      return;
+    }
+    this.status.resetFailures(workspaceId, languageId, "restart");
+    this.emit("workspaceLspReset", {
+      workspaceId,
+      languageId,
+      reason: STOP_REASON_TEXT.restart,
+      reopen: true,
+    });
   }
 
   /** Stops the least recently used workspaces until the cap holds again. */
@@ -552,8 +620,45 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     while (this.workspaceServers.size > this.maxActiveWorkspaces()) {
       const lru = this.leastRecentlyUsedWorkspace(null);
       if (!lru) return;
-      this.disposeWorkspaceServers(lru, "evicted by LRU cap");
+      this.disposeWorkspaceServers(lru, "evicted");
     }
+  }
+
+  serverStatuses(): LspServerStatus[] {
+    return this.status.list();
+  }
+
+  serverLog(workspaceId: string, languageId: string, afterSeq?: number): LspLogEntry[] {
+    return this.status.logEntries(workspaceId, languageId, afterSeq);
+  }
+
+  /** The memory each of the workspace's live servers takes. */
+  async serverMemory(workspaceId: string): Promise<LspServerMemory[]> {
+    const byChannel = new Map<AgentChannel, AgentLspServer[]>();
+    for (const server of this.workspaceServers.get(workspaceId)?.values() ?? []) {
+      byChannel.set(server.channel, [...(byChannel.get(server.channel) ?? []), server]);
+    }
+    const results = await Promise.all(
+      Array.from(byChannel, async ([channel, servers]) => {
+        try {
+          const stats = parseStatsResult(await channel.call("lsp.stats", {}));
+          return servers.flatMap((server) => {
+            const entry = stats.find((s) => s.serverId === server.serverId);
+            return entry ? [{ languageId: server.languageId, rssBytes: entry.rssBytes }] : [];
+          });
+        } catch (error) {
+          // An agent from before lsp.stats, or one that cannot read memory.
+          log.warn(`lsp.stats failed: ${(error as Error).message}`);
+          return [];
+        }
+      }),
+    );
+    return results.flat();
+  }
+
+  /** Drops what is kept on a removed workspace's servers. */
+  forgetWorkspace(workspaceId: string): void {
+    this.status.forgetWorkspace(workspaceId);
   }
 
   private async didOpen(args: unknown): Promise<null> {
@@ -818,6 +923,8 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     // a toggle-off that already disposed the server doesn't accidentally
     // recreate it on the next didOpen from a still-open editor tab.
     if (!this.isLanguageEnabled(workspaceId, presetLanguageId)) return null;
+    // Failed too often: it starts again on a restart or a settings change.
+    if (this.status.hasGivenUp(workspaceId, presetLanguageId)) return null;
 
     const existing = this.workspaceServers.get(workspaceId)?.get(presetLanguageId);
     if (existing) return existing;
@@ -833,13 +940,33 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     // interaction. See LSP_MAX_ACTIVE_WORKSPACES for the rationale.
     this.evictLruWorkspaceIfNeeded(workspaceId);
 
-    const promise = this.spawnServer(workspaceId, presetLanguageId, workspaceRoot, preset).finally(
-      () => {
+    const promise = this.spawnServer(workspaceId, presetLanguageId, workspaceRoot, preset)
+      .catch((error: unknown) => {
+        this.handleSpawnFailure(workspaceId, presetLanguageId, error);
+        throw error;
+      })
+      .finally(() => {
         this.serverPromises.delete(key);
-      },
-    );
+      });
     this.serverPromises.set(key, promise);
     return promise;
+  }
+
+  /**
+   * A server that failed to start is tried again at once, up to the crash
+   * limit: the reset has the renderer reopen its documents, which it would
+   * otherwise leave closed after the failed didOpen.
+   */
+  private handleSpawnFailure(workspaceId: string, languageId: string, error: unknown): void {
+    if (this.disposed) return;
+    const message = error instanceof Error ? error.message : String(error);
+    const retry = this.status.failed(workspaceId, languageId, `Failed to start: ${message}`);
+    this.emit("workspaceLspReset", {
+      workspaceId,
+      languageId,
+      reason: "failed to start",
+      ...(retry ? { reopen: true } : {}),
+    });
   }
 
   /**
@@ -872,7 +999,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     while (this.workspaceServers.size >= this.maxActiveWorkspaces()) {
       const lru = this.leastRecentlyUsedWorkspace(activeWorkspaceId);
       if (!lru) return;
-      this.disposeWorkspaceServers(lru, "evicted by LRU cap");
+      this.disposeWorkspaceServers(lru, "evicted");
     }
   }
 
@@ -901,13 +1028,26 @@ class AgentLspHostHandleImpl implements LspHostHandle {
    */
   private disposeWorkspaceServers(
     workspaceId: string,
-    reason: string,
-    options?: { languageId?: string; reopen?: boolean },
+    stop: LspStopReason,
+    options?: {
+      languageId?: string;
+      reopen?: boolean;
+      /** False when the caller has set the status already. */
+      updateStatus?: boolean;
+    },
   ): void {
     const servers = this.workspaceServers.get(workspaceId);
     if (!servers) return;
 
+    const reason = STOP_REASON_TEXT[stop];
     const targetLanguageId = options?.languageId;
+    if (options?.updateStatus !== false) {
+      for (const languageId of servers.keys()) {
+        if (!targetLanguageId || languageId === targetLanguageId) {
+          this.status.stopped(workspaceId, languageId, stop, reason);
+        }
+      }
+    }
 
     if (targetLanguageId) {
       // Single-language dispose: only remove the specified server.
@@ -954,6 +1094,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     workspaceRoot: string,
     preset: LspServerSpec,
   ): Promise<AgentLspServer> {
+    this.status.starting(workspaceId, presetLanguageId);
     const channel = await this.workspaceManager.getAgentChannel(workspaceId);
     await channel.ready;
     this.subscribeChannel(channel);
@@ -984,7 +1125,8 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         capabilities: LSP_CLIENT_CAPABILITIES,
         ...(initializationOptions !== undefined ? { initializationOptions } : {}),
       });
-      serverId = parseSpawnResult(result).serverId;
+      const spawned = parseSpawnResult(result);
+      serverId = spawned.serverId;
       const capabilities = parseServerCapabilities(result.capabilities);
       const server = new AgentLspServer({
         channel,
@@ -994,6 +1136,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         capabilities,
       });
       this.rememberServer(server);
+      this.status.running(workspaceId, presetLanguageId, spawned.serverInfo);
       return server;
     } finally {
       this.pendingSpawnByCorrelation.delete(correlationId);
@@ -1196,12 +1339,30 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       this.serverTimeoutCount.delete(serverKey);
       this.serverSpawnedAt.delete(serverKey);
 
+      if (parsed.stderrTail.trim()) {
+        this.status.log(server.workspaceId, server.languageId, "stderr", parsed.stderrTail);
+      }
+      // An exit the agent did not ask for is a crash: the server starts
+      // again at once, up to the crash limit.
+      let reopen = false;
+      if (parsed.shutdown) {
+        this.status.stopped(server.workspaceId, server.languageId, "idle", STOP_REASON_TEXT.idle);
+      } else {
+        const how = parsed.reason ? `: ${parsed.reason}` : "";
+        reopen = this.status.failed(
+          server.workspaceId,
+          server.languageId,
+          `Exited unexpectedly${how}`,
+        );
+      }
+
       // The renderer still takes its open documents as opened on this
       // server; the reset has it send didOpen to the next one.
       this.emit("workspaceLspReset", {
         workspaceId: server.workspaceId,
         languageId: server.languageId,
         reason: parsed.reason || "server exited",
+        ...(reopen ? { reopen: true } : {}),
       });
     }
 
@@ -1238,6 +1399,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       const serverKey = `${server.workspaceId}\0${server.languageId}`;
       this.serverTimeoutCount.delete(serverKey);
       this.serverSpawnedAt.delete(serverKey);
+      this.status.stopped(server.workspaceId, server.languageId, "agent", reason);
       // The renderer still takes its documents as open on this server.
       this.emit("workspaceLspReset", {
         workspaceId: server.workspaceId,
@@ -1404,6 +1566,14 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       return;
     }
 
+    if (msg.method === "window/logMessage" || msg.method === "window/showMessage") {
+      const parsed = LogMessageParamsSchema.safeParse(msg.params);
+      if (parsed.success) {
+        const level = MESSAGE_LOG_LEVELS[parsed.data.type] ?? "log";
+        this.status.log(context.workspaceId, context.languageId, level, parsed.data.message);
+      }
+    }
+
     if (SERVER_EVENT_METHODS.has(msg.method)) {
       this.emitServerEvent(context, msg.method as LspServerEventMethod, msg.params);
     }
@@ -1497,8 +1667,15 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       log.warn(
         `${workspaceId}/${languageId} wedged (${LSP_CONSECUTIVE_TIMEOUT_LIMIT} consecutive timeouts) — restarting`,
       );
-      this.disposeWorkspaceServers(workspaceId, "LSP server wedged (3 consecutive timeouts)", {
+      const retry = this.status.failed(
+        workspaceId,
         languageId,
+        `Stopped answering: ${LSP_CONSECUTIVE_TIMEOUT_LIMIT} requests in a row timed out`,
+      );
+      this.disposeWorkspaceServers(workspaceId, "crashed", {
+        languageId,
+        reopen: retry,
+        updateStatus: false,
       });
     } else {
       this.serverTimeoutCount.set(serverKey, count);

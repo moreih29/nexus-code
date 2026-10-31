@@ -158,6 +158,7 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
     gitStatusCoalescer?.cancel(removedWorkspaceId);
     gitAutofetch?.disposeWorkspace(removedWorkspaceId);
     gitRegistry?.dispose(removedWorkspaceId);
+    lspHost?.forgetWorkspace(removedWorkspaceId);
     // Clean up the workspace's turned-off LSP languages so deleted
     // workspaces don't accumulate in appState indefinitely.
     const currentState = stateService.getState();

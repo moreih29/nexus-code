@@ -18,6 +18,7 @@ import type {
   SymbolInformation,
 } from "../../../shared/lsp";
 import { lspSettingsFromState } from "../../../shared/lsp/settings";
+import type { LspServerStatus } from "../../../shared/lsp/status";
 import type { AppState } from "../../../shared/types/app-state";
 import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../infra/agent/ssh/ssh-bootstrap/index";
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
@@ -183,6 +184,10 @@ export function registerLspChannel(lspHost: LspHostHandle, stateService: StateSe
     });
   });
 
+  lspHost.on("serverStatus", (status) => {
+    broadcast("lsp", "serverStatus", status as LspServerStatus);
+  });
+
   function saveSettings(patch: Partial<AppState>): void {
     stateService.setState(patch);
     broadcast("lsp", "settingsChanged", lspSettingsFromState(stateService.getState()));
@@ -331,7 +336,7 @@ export function registerLspChannel(lspHost: LspHostHandle, stateService: StateSe
       setEnabled: async (args: unknown) => {
         const { enabled } = validateArgs(c.setEnabled.args, args);
         saveSettings({ lspEnabled: enabled });
-        if (!enabled) lspHost.disposeServers(() => true, "language servers turned off");
+        if (!enabled) lspHost.disposeServers(() => true, "off");
       },
 
       setLanguageSettings: async (args: unknown) => {
@@ -343,13 +348,13 @@ export function registerLspChannel(lspHost: LspHostHandle, stateService: StateSe
         });
         const sameLanguage = (_workspaceId: string, id: string) => id === languageId;
         if (settings.enabled === false) {
-          lspHost.disposeServers(sameLanguage, "language turned off");
+          lspHost.disposeServers(sameLanguage, "off");
         } else if (
           settings.lowMemory !== undefined &&
           settings.lowMemory !== (previous.lowMemory ?? false)
         ) {
           // The servers read these options only when they start.
-          lspHost.disposeServers(sameLanguage, "settings changed", { reopen: true });
+          lspHost.disposeServers(sameLanguage, "restart", { reopen: true });
         }
       },
 
@@ -372,7 +377,24 @@ export function registerLspChannel(lspHost: LspHostHandle, stateService: StateSe
           lspDisabledLanguagesByWorkspace:
             disabled.length > 0 ? { ...rest, [workspaceId]: disabled } : rest,
         });
-        if (!enabled) lspHost.disposeLanguage(workspaceId, languageId, "turned off in workspace");
+        if (!enabled) lspHost.disposeLanguage(workspaceId, languageId, "off");
+      },
+
+      restartServer: async (args: unknown) => {
+        const { workspaceId, languageId } = validateArgs(c.restartServer.args, args);
+        lspHost.restartLanguage(workspaceId, languageId);
+      },
+
+      serverStatuses: async () => lspHost.serverStatuses(),
+
+      serverLog: async (args: unknown) => {
+        const { workspaceId, languageId, afterSeq } = validateArgs(c.serverLog.args, args);
+        return lspHost.serverLog(workspaceId, languageId, afterSeq);
+      },
+
+      serverMemory: async (args: unknown) => {
+        const { workspaceId } = validateArgs(c.serverMemory.args, args);
+        return lspHost.serverMemory(workspaceId);
       },
     },
     listen: {
@@ -382,6 +404,7 @@ export function registerLspChannel(lspHost: LspHostHandle, stateService: StateSe
       "bootstrap.progress": {},
       workspaceReset: {},
       settingsChanged: {},
+      serverStatus: {},
     },
   });
 }

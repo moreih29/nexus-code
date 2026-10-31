@@ -672,7 +672,11 @@ describe("AgentLspHostHandle", () => {
       });
 
     await open();
-    channel.emit("lsp.serverExited", { serverId: channel.serverId, reason: "idle timeout" });
+    channel.emit("lsp.serverExited", {
+      serverId: channel.serverId,
+      reason: "idle timeout",
+      shutdown: true,
+    });
 
     expect(resets).toEqual([
       { workspaceId: WORKSPACE_ID, languageId: "python", reason: "idle timeout" },
@@ -700,7 +704,7 @@ describe("AgentLspHostHandle", () => {
     };
 
     for (const n of [1, 2, 3, 4]) await open(n);
-    channel.emit("lsp.serverExited", { serverId: "srv-4", reason: "idle timeout" });
+    channel.emit("lsp.serverExited", { serverId: "srv-4", reason: "idle timeout", shutdown: true });
     await open(5);
 
     // Only workspace 4's own reset: nothing was evicted to make room.

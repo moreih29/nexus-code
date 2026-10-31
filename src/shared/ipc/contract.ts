@@ -79,6 +79,7 @@ import {
 } from "../lsp";
 import { LspPresetLanguageIdSchema } from "../lsp/config";
 import { LspLanguageSettingsSchema, LspSettingsSchema } from "../lsp/settings";
+import { LspLogEntrySchema, LspServerMemorySchema, LspServerStatusSchema } from "../lsp/status";
 import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "../search/types";
 import { BrowserPermissionKindSchema } from "../security/browser-permissions";
 import {
@@ -764,6 +765,24 @@ export const ipcContract = {
         }),
         z.void(),
       ),
+      // The status bar's language menu and the log viewer.
+      restartServer: call(
+        z.object({ workspaceId: WorkspaceIdPrimitive, languageId: LspPresetLanguageIdSchema }),
+        z.void(),
+      ),
+      serverStatuses: call(z.void(), z.array(LspServerStatusSchema)),
+      serverLog: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          languageId: z.string(),
+          afterSeq: z.number().int().optional(),
+        }),
+        z.array(LspLogEntrySchema),
+      ),
+      serverMemory: call(
+        z.object({ workspaceId: WorkspaceIdPrimitive }),
+        z.array(LspServerMemorySchema),
+      ),
     },
     listen: {
       diagnostics: listen(LspDiagnosticsEventSchema),
@@ -772,6 +791,8 @@ export const ipcContract = {
       "bootstrap.progress": listen(LspBootstrapProgressEventSchema),
       workspaceReset: listen(LspWorkspaceResetEventSchema),
       settingsChanged: listen(LspSettingsSchema),
+      // Main → renderer on every change of a server's status.
+      serverStatus: listen(LspServerStatusSchema),
     },
   },
 
