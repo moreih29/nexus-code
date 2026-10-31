@@ -1,20 +1,20 @@
 /**
  * Apply user editor-keybinding overrides to Monaco's keybinding service.
  *
- * Monaco offers `monaco.editor.addKeybindingRules(rules)` to layer
+ * Monaco offers `monaco.editor.addKeybindingRule(rule)` to layer
  * keybindings over the built-in defaults: a rule binds a keystroke to a
- * command id, or UNBINDS it when the command is prefixed with `-`.
- * There is no public API to clear previously-added rules — they
- * accumulate for the lifetime of the renderer. So a naïve "re-apply the
- * whole override set" would leave stale keystrokes firing after a second
- * rebind.
+ * command id, or UNBINDS it when the command is prefixed with `-`. An
+ * unbind rule only removes a BUILT-IN binding, never one added this way;
+ * an added rule goes away only when the disposable it returned is
+ * disposed.
  *
  * This module is therefore a small RECONCILER: it tracks, per command,
  * the keystroke currently bound (a user accelerator or the declared
- * default), and on each apply emits only the delta — unbind the old
- * keystroke, bind the new — so live changes settle cleanly without an
- * app restart. The tracking map is module-scoped (one Monaco instance
- * per renderer window).
+ * default) and the rules it added for it, and on each apply changes only
+ * what differs — dispose the old key's rule, add the new one, and unbind
+ * the built-in default while the user's key replaces it — so live changes
+ * settle cleanly without an app restart. The tracking map is
+ * module-scoped (one Monaco instance per renderer window).
  *
  * Accelerators are converted to Monaco's numeric keybinding encoding
  * (KeyMod | KeyCode); chords are out of scope for editor commands (all
@@ -63,8 +63,17 @@ const CODE_TO_KEYCODE_NAME: Readonly<Record<string, string>> = {
   Backquote: "Backquote",
 };
 
-/** What keystroke each editor command is currently bound to in Monaco. */
-const appliedByCommand = new Map<string, AcceleratorString | null>();
+interface AppliedBinding {
+  /** The keystroke the command is bound to; null when unbound. */
+  readonly key: AcceleratorString | null;
+  /** The rule unbinding the built-in default, while the default is replaced. */
+  readonly unbindDefault?: { dispose(): void };
+  /** The rule binding the user's keystroke. */
+  readonly bindUser?: { dispose(): void };
+}
+
+/** How each editor command is bound in Monaco, for commands moved off their default. */
+const appliedByCommand = new Map<string, AppliedBinding>();
 
 function codeToMonacoKeyCode(monaco: typeof import("monaco-editor"), code: string): number | null {
   let name: string | undefined;
@@ -123,8 +132,6 @@ export function applyEditorKeybindingOverrides(overrides: readonly KeybindingOve
     if (ALL_EDITOR_COMMAND_IDS.has(o.command)) byCommand.set(o.command, o);
   }
 
-  const rules: { keybinding: number; command: string }[] = [];
-
   for (const id of ALL_EDITOR_COMMAND_IDS) {
     const ov = byCommand.get(id);
     const def = editorCommandDefault(id);
@@ -135,22 +142,36 @@ export function applyEditorKeybindingOverrides(overrides: readonly KeybindingOve
     if (ov === undefined || ov.primary === undefined) want = def;
     else want = ov.primary; // string = replace, null = unbind
 
-    const prev = appliedByCommand.has(id) ? (appliedByCommand.get(id) ?? null) : def;
-    if (prev === want) continue;
+    const prev = appliedByCommand.get(id);
+    if ((prev?.key ?? def) === want) continue;
 
-    if (prev !== null) {
-      const kb = acceleratorToMonacoKeybinding(monaco, prev);
-      if (kb !== null) rules.push({ keybinding: kb, command: `-${id}` });
+    prev?.bindUser?.dispose();
+    if (want === def) {
+      // Back to the default: dropping the unbind brings the built-in back.
+      prev?.unbindDefault?.dispose();
+      appliedByCommand.delete(id);
+      continue;
     }
+
+    let unbindDefault = prev?.unbindDefault;
+    if (unbindDefault === undefined && def !== null) {
+      const kb = acceleratorToMonacoKeybinding(monaco, def);
+      if (kb !== null) {
+        unbindDefault = monaco.editor.addKeybindingRule({ keybinding: kb, command: `-${id}` });
+      }
+    }
+    let bindUser: { dispose(): void } | undefined;
     if (want !== null) {
       const kb = acceleratorToMonacoKeybinding(monaco, want);
-      if (kb !== null) rules.push({ keybinding: kb, command: id });
+      if (kb !== null) bindUser = monaco.editor.addKeybindingRule({ keybinding: kb, command: id });
       else log.warn(`editor keybinding for ${id} is not Monaco-encodable: ${want}`);
     }
-    appliedByCommand.set(id, want);
+    appliedByCommand.set(id, {
+      key: want,
+      ...(unbindDefault !== undefined ? { unbindDefault } : {}),
+      ...(bindUser !== undefined ? { bindUser } : {}),
+    });
   }
-
-  if (rules.length > 0) monaco.editor.addKeybindingRules(rules);
 }
 
 /** Test-only: forget what has been applied so a fresh reconcile starts clean. */
