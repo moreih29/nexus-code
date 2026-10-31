@@ -145,32 +145,52 @@ export function attachLspBridge(
     }
   }
 
-  const contentDisposable = model.onDidChangeContent(async (event) => {
+  // Changes still waiting below for a didOpen; later ones queue behind them.
+  let waitingChanges = 0;
+
+  const contentDisposable = model.onDidChangeContent((event) => {
     entry.version += 1;
     const version = entry.version;
     const epoch = entry.lspOpenEpoch ?? 0;
     const contentChanges = deps.monacoContentChangesToLsp(event.changes);
     if (contentChanges.length === 0) return;
-    // Lazy rehydrate: if the host evicted this workspace's LSP since
-    // the last interaction, re-open before forwarding the change. The
-    // server doesn't know this URI yet, so a bare didChange would land
-    // in the void and the next hover would still see no symbols.
-    // Gated on `lspNeedsRehydrate` so the initial didOpen window (where
-    // lspOpened is still false because the first open hasn't resolved
-    // yet) doesn't accidentally trigger a second didOpen.
-    if (entry.lspNeedsRehydrate && !entry.disposed && deps.isLspLanguage(entry.languageId)) {
-      await rehydrateEntryLspOpened(entry, deps);
+    const send = () => {
+      deps
+        .notifyDidChange(entry.input.workspaceId, entry.lspUri, version, contentChanges)
+        .catch(() => {
+          entry.lspDegraded = true;
+        });
+    };
+    // Send within this handler when the document is open: Monaco asks for
+    // completions as soon as a trigger character such as "." is typed, and
+    // that request must reach the server after the change that typed it.
+    if (entry.lspOpened && !entry.disposed && !entry.lspNeedsRehydrate && waitingChanges === 0) {
+      send();
+      return;
     }
-    await entry.didOpenPromise;
-    if (!entry.lspOpened || entry.disposed) return;
-    // Already part of a later didOpen's text, or dropped with the server's
-    // copy (the next rehydrate sends the whole buffer).
-    if ((entry.lspOpenEpoch ?? 0) !== epoch) return;
-    deps
-      .notifyDidChange(entry.input.workspaceId, entry.lspUri, version, contentChanges)
-      .catch(() => {
-        entry.lspDegraded = true;
-      });
+    waitingChanges += 1;
+    void (async () => {
+      try {
+        // Lazy rehydrate: if the host evicted this workspace's LSP since
+        // the last interaction, re-open before forwarding the change. The
+        // server doesn't know this URI yet, so a bare didChange would land
+        // in the void and the next hover would still see no symbols.
+        // Gated on `lspNeedsRehydrate` so the initial didOpen window (where
+        // lspOpened is still false because the first open hasn't resolved
+        // yet) doesn't accidentally trigger a second didOpen.
+        if (entry.lspNeedsRehydrate && !entry.disposed && deps.isLspLanguage(entry.languageId)) {
+          await rehydrateEntryLspOpened(entry, deps);
+        }
+        await entry.didOpenPromise;
+        if (!entry.lspOpened || entry.disposed) return;
+        // Already part of a later didOpen's text, or dropped with the server's
+        // copy (the next rehydrate sends the whole buffer).
+        if ((entry.lspOpenEpoch ?? 0) !== epoch) return;
+        send();
+      } finally {
+        waitingChanges -= 1;
+      }
+    })();
   });
 
   return { contentDisposable };
