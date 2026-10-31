@@ -23,7 +23,7 @@ import { join } from "node:path";
 import { autoUpdater as nativeUpdater } from "electron";
 import type { AppUpdater } from "electron-updater";
 import type { Logger } from "../../../shared/log/types";
-import type { UpdateBackend } from "./installer";
+import type { DownloadProgress, UpdateBackend } from "./installer";
 
 const OWNER = "moreih29";
 const REPO = "nexus-code";
@@ -54,6 +54,7 @@ export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
   const deb = isDebInstall();
   const stagedListeners: (() => void)[] = [];
   const errorListeners: ((error: Error) => void)[] = [];
+  const progressListeners: ((progress: DownloadProgress) => void)[] = [];
   let loaded: Promise<AppUpdater> | null = null;
 
   // Loaded on first use: most sessions never install an update. A plain
@@ -87,6 +88,11 @@ export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
       autoUpdater.on("error", (error: Error) => {
         for (const listener of errorListeners) listener(error);
       });
+      // About once a second. A differential download counts only the blocks
+      // it fetches.
+      autoUpdater.on("download-progress", ({ transferred, total, bytesPerSecond }) => {
+        for (const listener of progressListeners) listener({ transferred, total, bytesPerSecond });
+      });
       return autoUpdater;
     });
     return loaded;
@@ -111,6 +117,9 @@ export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
     },
     onStaged(listener) {
       stagedListeners.push(listener);
+    },
+    onProgress(listener) {
+      progressListeners.push(listener);
     },
     onError(listener) {
       errorListeners.push(listener);

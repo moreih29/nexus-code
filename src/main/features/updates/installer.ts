@@ -14,7 +14,10 @@
  *
  * STATES
  * ------
- *   idle → starting → downloading(version) → ready(version)
+ *   idle → starting → downloading(version) → [verifying(version)] → ready(version)
+ *   verifying is the wait between the end of the download and the staged
+ *   update: Squirrel.Mac checks the signature then; on Linux the update is
+ *   staged before the download call returns, so it never shows.
  *   Any failure returns to idle and reports installFailed, including a failed
  *   install on restart. restart() installs a ready update; one the user does
  *   not restart for goes in at the next quit, unless it asks for a password.
@@ -24,6 +27,13 @@ import type { Logger } from "../../../shared/log/types";
 
 export type UpdateChannel = "stable" | "beta";
 
+/** How far a download has got, in bytes of what it fetches. */
+export interface DownloadProgress {
+  readonly transferred: number;
+  readonly total: number;
+  readonly bytesPerSecond: number;
+}
+
 /** What the installer needs of electron-updater; tests stand in a fake. */
 export interface UpdateBackend {
   /** Whether installing asks for the admin password, as a deb does. */
@@ -32,6 +42,8 @@ export interface UpdateBackend {
   check(channel: UpdateChannel): Promise<string | null>;
   /** Downloads the version check() found and stages it for install. */
   download(): Promise<void>;
+  /** `listener` runs as the download advances. */
+  onProgress(listener: (progress: DownloadProgress) => void): void;
   /** `listener` runs once the update is verified and staged. */
   onStaged(listener: () => void): void;
   /**
@@ -44,6 +56,7 @@ export interface UpdateBackend {
 
 export type InstallStatus =
   | { kind: "downloading"; version: string }
+  | { kind: "verifying"; version: string }
   | { kind: "ready"; version: string; asksForPassword?: true }
   | { kind: "installFailed"; releaseUrl: string };
 
@@ -57,6 +70,8 @@ export interface UpdateInstaller {
 export interface CreateUpdateInstallerOptions {
   backend: UpdateBackend;
   onStatus: (status: InstallStatus) => void;
+  /** Reports how far the download of `version` has got. */
+  onProgress: (version: string, progress: DownloadProgress) => void;
   /** Release page of `version`, or of every release when it is not known. */
   releaseUrl: (version: string | null) => string;
   logger: Pick<Logger, "info" | "warn">;
@@ -66,10 +81,11 @@ type State =
   | { kind: "idle" }
   | { kind: "starting" }
   | { kind: "downloading"; version: string }
+  | { kind: "verifying"; version: string }
   | { kind: "ready"; version: string };
 
 export function createUpdateInstaller(options: CreateUpdateInstallerOptions): UpdateInstaller {
-  const { backend, onStatus, releaseUrl, logger } = options;
+  const { backend, onStatus, onProgress, releaseUrl, logger } = options;
   let state: State = { kind: "idle" };
 
   function fail(version: string | null, error: unknown): void {
@@ -88,7 +104,7 @@ export function createUpdateInstaller(options: CreateUpdateInstallerOptions): Up
   }
 
   backend.onStaged(() => {
-    if (state.kind !== "downloading") return;
+    if (state.kind !== "downloading" && state.kind !== "verifying") return;
     logger.info(`updates: ${state.version} is staged; it installs on restart`);
     state = { kind: "ready", version: state.version };
     onStatus(ready(state.version));
@@ -96,13 +112,18 @@ export function createUpdateInstaller(options: CreateUpdateInstallerOptions): Up
   // A ready update fails when its install does: a deb whose password prompt
   // the user cancels.
   backend.onError((error) => {
-    if (state.kind === "downloading" || state.kind === "ready") fail(state.version, error);
+    if (state.kind === "downloading" || state.kind === "verifying" || state.kind === "ready") {
+      fail(state.version, error);
+    }
+  });
+  backend.onProgress((progress) => {
+    if (state.kind === "downloading") onProgress(state.version, progress);
   });
 
   return {
     async install(channel) {
-      if (state.kind === "downloading") {
-        onStatus({ kind: "downloading", version: state.version });
+      if (state.kind === "downloading" || state.kind === "verifying") {
+        onStatus({ kind: state.kind, version: state.version });
         return;
       }
       if (state.kind === "ready") {
@@ -119,6 +140,10 @@ export function createUpdateInstaller(options: CreateUpdateInstallerOptions): Up
         state = { kind: "downloading", version };
         onStatus({ kind: "downloading", version });
         await backend.download();
+        if (state.kind === "downloading") {
+          state = { kind: "verifying", version };
+          onStatus({ kind: "verifying", version });
+        }
       } catch (error) {
         // The updater also emits a failed download as an error, which
         // onError has reported already.

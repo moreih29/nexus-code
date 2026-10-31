@@ -21,17 +21,23 @@
 //                    button below always works regardless of this setting —
 //                    it is the user's explicit ask and is never gated.
 //
-// A Microsoft Store install shows neither: the Store updates it, and a GitHub
-// release has no build for it.
+// Below the button the panel shows where an update stands, from the updates
+// store: the last check's answer, then the download with its progress, the
+// signature check (macOS), and the restart that installs it.
 //
-// Toast feedback for the manual check is driven by the global
-// `initUpdatesSubscriptions()` listener (bootstrap-level) — this component
-// does not wire toasts itself, mirroring the previous updates panel.
+// A Microsoft Store install shows none of this: the Store updates it, and a
+// GitHub release has no build for it.
+//
+// Toasts are driven by the global `initUpdatesSubscriptions()` listener
+// (bootstrap-level), which also feeds the store this panel reads.
 
-import { useCallback, useId, useState } from "react";
+import { useCallback, useId } from "react";
 import { useTranslation } from "react-i18next";
+import type { UpdateProgress, UpdateStatus } from "../../../../shared/updates/status";
 import { ipcCallResult } from "../../../ipc/client";
+import { updateCheckFailedMessage } from "../../../state/operations/update-check-failure";
 import { useUpdatesStore } from "../../../state/stores/updates";
+import { formatBytes } from "../../../utils/format-bytes";
 import { Button } from "../../ui/button";
 import { Switch } from "../../ui/switch";
 
@@ -50,10 +56,11 @@ export function AboutPanel() {
   const { t } = useTranslation("settings");
   const autoCheckEnabled = useUpdatesStore((s) => s.autoCheckEnabled);
   const setAutoCheckEnabled = useUpdatesStore((s) => s.setAutoCheckEnabled);
+  const status = useUpdatesStore((s) => s.status);
+  const progress = useUpdatesStore((s) => s.progress);
   const storeManaged = window.host?.windowsStore === true;
 
   const autoCheckId = useId();
-  const [checking, setChecking] = useState(false);
 
   const handleAutoCheckChange = useCallback(
     (next: boolean) => {
@@ -67,14 +74,6 @@ export function AboutPanel() {
     },
     [setAutoCheckEnabled],
   );
-
-  const handleCheckNow = useCallback(() => {
-    if (checking) return;
-    setChecking(true);
-    void ipcCallResult("updates", "check", { trigger: "manual" }).finally(() => {
-      setChecking(false);
-    });
-  }, [checking]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -114,18 +113,181 @@ export function AboutPanel() {
             />
           </div>
 
-          {/* Manual check action — small button, left-aligned. */}
-          <div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleCheckNow}
-              disabled={checking}
-            >
-              {checking ? t("about.checking") : t("about.checkNow")}
-            </Button>
-          </div>
+          <UpdateSection status={status} progress={progress} />
         </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Where the update stands
+// ---------------------------------------------------------------------------
+
+function checkNow(): void {
+  useUpdatesStore.getState().applyStatus({ kind: "checking", trigger: "manual" });
+  void ipcCallResult("updates", "check", { trigger: "manual" });
+}
+
+function openReleasePage(url: string): void {
+  void ipcCallResult("updates", "openReleasePage", { url });
+}
+
+/** The current status as a line of text and the actions it offers. */
+export function UpdateSection({
+  status,
+  progress,
+}: {
+  status: UpdateStatus | null;
+  progress: UpdateProgress | null;
+}) {
+  const { t } = useTranslation(["settings", "common"]);
+
+  const checkButton = (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={checkNow}
+      disabled={status?.kind === "checking"}
+    >
+      {status?.kind === "checking" ? t("about.checking") : t("about.checkNow")}
+    </Button>
+  );
+
+  return (
+    <div className="flex flex-col items-start gap-3">
+      <UpdateStatusLine status={status} />
+      {(status?.kind === "downloading" || status?.kind === "verifying") && (
+        <DownloadProgressBar status={status} progress={progress} />
+      )}
+      <div className="flex flex-wrap gap-2">
+        {status?.kind === "newer" && status.canInstall && (
+          <>
+            <Button
+              size="sm"
+              onClick={() => void ipcCallResult("updates", "install", undefined)}
+            >
+              {t("common:updates.install")}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => openReleasePage(status.releaseUrl)}>
+              {t("about.releaseNotes")}
+            </Button>
+          </>
+        )}
+        {status?.kind === "newer" && !status.canInstall && (
+          <Button size="sm" onClick={() => openReleasePage(status.releaseUrl)}>
+            {t("common:updates.download")}
+          </Button>
+        )}
+        {status?.kind === "ready" && (
+          <Button size="sm" onClick={() => void ipcCallResult("updates", "restart", undefined)}>
+            {t("common:updates.restart")}
+          </Button>
+        )}
+        {status?.kind === "installFailed" && (
+          <Button variant="outline" size="sm" onClick={() => openReleasePage(status.releaseUrl)}>
+            {t("common:updates.openReleasePage")}
+          </Button>
+        )}
+        {(status === null ||
+          status.kind === "checking" ||
+          status.kind === "current" ||
+          status.kind === "error" ||
+          status.kind === "installFailed") &&
+          checkButton}
+      </div>
+    </div>
+  );
+}
+
+function UpdateStatusLine({ status }: { status: UpdateStatus | null }) {
+  const { t } = useTranslation("common");
+  let text: string | null;
+  switch (status?.kind) {
+    case undefined:
+    case "checking":
+      text = null;
+      break;
+    case "current":
+      text = t("updates.upToDate");
+      break;
+    case "error":
+      text = updateCheckFailedMessage(status);
+      break;
+    case "newer":
+      text = t("updates.available", { version: status.latest });
+      break;
+    case "downloading":
+      text = t("updates.downloading", { version: status.version });
+      break;
+    case "verifying":
+      text = t("updates.verifying", { version: status.version });
+      break;
+    case "ready":
+      text = t(status.asksForPassword ? "updates.readyAsksPassword" : "updates.ready", {
+        version: status.version,
+      });
+      break;
+    case "installFailed":
+      text = t("updates.installFailed");
+      break;
+  }
+  if (text === null) return null;
+  return (
+    <p
+      className={
+        status?.kind === "error" || status?.kind === "installFailed"
+          ? "text-app-ui-sm text-destructive"
+          : "text-app-ui-sm text-foreground"
+      }
+    >
+      {text}
+    </p>
+  );
+}
+
+/**
+ * The download's bar: how much of it is in, at what speed. Indeterminate
+ * before the first progress report and while the update is verified.
+ */
+function DownloadProgressBar({
+  status,
+  progress,
+}: {
+  status: Extract<UpdateStatus, { kind: "downloading" | "verifying" }>;
+  progress: UpdateProgress | null;
+}) {
+  const { t } = useTranslation("settings");
+  const known = status.kind === "downloading" && progress !== null && progress.total > 0;
+  const percent = known ? Math.min(100, Math.round((progress.transferred / progress.total) * 100)) : 0;
+  return (
+    <div className="flex w-full max-w-sm flex-col gap-1">
+      <div
+        role="progressbar"
+        aria-label={t("about.downloadProgress")}
+        aria-valuenow={known ? percent : undefined}
+        aria-valuemin={known ? 0 : undefined}
+        aria-valuemax={known ? 100 : undefined}
+        className="h-1 w-full overflow-hidden rounded-full bg-muted"
+      >
+        {known ? (
+          <div
+            className="h-full rounded-full bg-primary transition-[width]"
+            style={{ width: `${percent}%` }}
+          />
+        ) : (
+          <div className="h-full w-full rounded-full bg-muted-foreground/50 motion-safe:animate-pulse" />
+        )}
+      </div>
+      {known && (
+        <div className="text-app-ui-sm tabular-nums text-muted-foreground">
+          {t("about.progress", {
+            percent,
+            transferred: formatBytes(progress.transferred),
+            total: formatBytes(progress.total),
+            speed: formatBytes(progress.bytesPerSecond),
+          })}
+        </div>
       )}
     </div>
   );

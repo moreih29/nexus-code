@@ -117,8 +117,11 @@ function defaultDuration(kind: ToastKind): number {
   return TOAST_INFO_MS;
 }
 
-/** Imperative entry point; safe to call from any module. */
-export function showToast(input: ToastInput): void {
+/**
+ * Imperative entry point; safe to call from any module. Returns the toast's
+ * id, for `dismissToast`.
+ */
+export function showToast(input: ToastInput): number {
   const id = nextId++;
   const actions = input.actions ?? [];
 
@@ -141,6 +144,12 @@ export function showToast(input: ToastInput): void {
     },
   ];
   bus.notify();
+  return id;
+}
+
+/** Removes a toast that no longer applies, e.g. an action toast. */
+export function dismissToast(id: number): void {
+  dismiss(id);
 }
 
 function dismiss(id: number): void {
