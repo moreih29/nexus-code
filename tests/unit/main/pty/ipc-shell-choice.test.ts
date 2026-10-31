@@ -262,8 +262,9 @@ describe("pty.spawn — the shell of a local terminal", () => {
 
 describe("pty.spawn — claude's hooks in a local Windows terminal", () => {
   const BIN = "C:\\Users\\me\\.nexus-code\\bin";
+  const LAUNCHERS = "C:\\Users\\me\\.nexus-code\\cli";
   const SETTINGS = "C:\\Users\\me\\.nexus-code\\claude-settings.json";
-  const wrapper = { binDir: BIN, shell: "", shimDir: "C:\\Users\\me\\.nexus-code\\shim\\ws" };
+  const wrapper = { binDir: LAUNCHERS, shell: "", shimDir: "C:\\Users\\me\\.nexus-code\\shim\\ws" };
   const files = async () => ({ binDir: BIN, settingsPath: SETTINGS });
 
   test("PowerShell, the system default, is named and defines claude", async () => {
@@ -276,7 +277,7 @@ describe("pty.spawn — claude's hooks in a local Windows terminal", () => {
     expect(sent?.env?.NEXUS_CLAUDE_SETTINGS).toBe(SETTINGS);
     expect(sent?.env?.NEXUS_IN_APP).toBe("1");
     expect(sent?.env?.NEXUS_TAB_ID).toBe(TAB_ID);
-    expect(sent?.env?.NEXUS_WRAPPER_SELF_DIR).toBeUndefined();
+    expect(sent?.env?.NEXUS_WRAPPER_SELF_DIR).toBe(LAUNCHERS);
     // No zsh or bash shim on Windows.
     expect(sent?.env?.ZDOTDIR).toBeUndefined();
   });
@@ -308,13 +309,13 @@ describe("pty.spawn — claude's hooks in a local Windows terminal", () => {
     expect(sent?.env?.NEXUS_CMD_INIT).toBe(`doskey claude=claude --settings "${SETTINGS}" $*`);
   });
 
-  test("without the hooks file, the shell starts as it is", async () => {
+  test("without the hooks file, the shell starts as it is, with the nexus launchers", async () => {
     const { call, agent } = setup({ wrapper, windowsClaudeFiles: async () => null });
     await call("spawn", spawnArgs());
 
     const sent = agent.spawnCalls[0];
     expect(sent?.args).toBeUndefined();
-    expect(sent?.env?.NEXUS_WRAPPER_SELF_DIR).toBeUndefined();
+    expect(sent?.env?.NEXUS_WRAPPER_SELF_DIR).toBe(LAUNCHERS);
     expect(sent?.env?.NEXUS_CLAUDE_SETTINGS).toBeUndefined();
   });
 });

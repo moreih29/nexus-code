@@ -7,13 +7,15 @@
  * each shell gets its `claude` its own way:
  *
  * - Git Bash: the wrapper itself, copied to ~/.nexus-code/bin, which the
- *   agent puts first on PATH.
+ *   agent puts first on PATH in place of the nexus launchers' directory.
  * - PowerShell: a `claude` function, defined as the shell starts.
  * - cmd: a doskey macro.
  *
  * The last two hand claude the wrapper's hooks, kept in
  * ~/.nexus-code/claude-settings.json. Claude Code runs hook commands in Git
- * Bash on Windows too, so the wrapper's commands work as they are.
+ * Bash on Windows too, so the wrapper's commands work as they are. Those
+ * shells must not have ~/.nexus-code/bin on PATH: PowerShell takes the
+ * wrapper there, a file without an extension, for the program `claude`.
  */
 
 import fs from "node:fs/promises";
@@ -93,12 +95,17 @@ const POWERSHELL_CLAUDE = `function global:claude {
 export interface WindowsShellShimInput {
   /** The shell program the terminal starts. */
   shell: string;
-  /** The terminal's environment, with the app's NEXUS_* variables. */
+  /**
+   * The terminal's environment, with the app's NEXUS_* variables:
+   * NEXUS_WRAPPER_SELF_DIR is the nexus launchers' directory.
+   */
   env: Record<string, string>;
   /** The shell's arguments. */
   args?: string[];
   /** The hooks settings file; without one, no shell gets hooks. */
   settingsPath?: string;
+  /** The directory of the wrapper's copy, which Git Bash runs as `claude`. */
+  wrapperDir?: string;
   /** The ORIGINAL_PATH the shell inherits from the app, if any. */
   originalPath?: string;
 }
@@ -110,15 +117,22 @@ export interface WindowsShellShimOutput {
 
 /**
  * The environment and arguments that give the terminal's shell its claude
- * with hooks. Only bash keeps NEXUS_WRAPPER_SELF_DIR, which puts the bash
- * wrapper first on PATH; another shell could pick that script up as
- * `claude`. A shell started with its own command keeps it and gets no hooks.
+ * with hooks. Every shell keeps the nexus launchers first on PATH, but Git
+ * Bash has the wrapper's directory there instead, which has a launcher of
+ * its own. A shell started with its own command keeps it and gets no hooks.
  */
 export function applyWindowsShellShim(input: WindowsShellShimInput): WindowsShellShimOutput {
-  const { shell, args, settingsPath } = input;
-  const { NEXUS_WRAPPER_SELF_DIR: wrapperDir, ...env } = input.env;
-  if (settingsPath === undefined) return { env, args };
+  const { shell, args, settingsPath, wrapperDir } = input;
   const name = path.win32.basename(shell).toLowerCase();
+  const isBash = name === "bash.exe" || name === "bash";
+  // WSL's bash in System32 starts a Linux shell, where a Windows directory
+  // on PATH is of no use.
+  if (isBash && /[\\/]system32[\\/]/i.test(shell)) {
+    const { NEXUS_WRAPPER_SELF_DIR: _launcherDir, ...env } = input.env;
+    return { env, args };
+  }
+  const env = input.env;
+  if (settingsPath === undefined) return { env, args };
 
   if (name === "powershell.exe" || name === "pwsh.exe" || name === "pwsh") {
     if (args?.some(isPowerShellCommand)) return { env, args };
@@ -140,9 +154,7 @@ export function applyWindowsShellShim(input: WindowsShellShimInput): WindowsShel
     };
   }
 
-  // Not WSL's bash in System32, which starts a Linux shell.
-  const isBash = name === "bash.exe" || name === "bash";
-  if (isBash && wrapperDir !== undefined && !/[\\/]system32[\\/]/i.test(shell)) {
+  if (isBash && wrapperDir !== undefined) {
     // Git Bash's login profile builds PATH from ORIGINAL_PATH when it is set,
     // as it is in an app started from Git Bash, and would drop the wrapper
     // the agent put first on PATH: the wrapper goes first there too.

@@ -2,16 +2,18 @@
  * The nexus command for local Windows terminals. The bash claude wrapper in
  * dist/agent/bin is of no use to a Windows shell and must not shadow the
  * real claude, so Windows terminals get a directory of their own holding
- * only the nexus launchers. They are written at runtime because they name
- * the agent by its full path — through the package's alias when the app
- * runs from an MSIX package, whose files a shell may not run itself.
+ * only the nexus launchers. Git Bash takes the wrapper's copy in
+ * ~/.nexus-code/bin instead (pty/windows-shell-shim.ts), so its launcher is
+ * written there too. They are written at runtime because they name the agent
+ * by its full path — through the package's alias when the app runs from an
+ * MSIX package, whose files a shell may not run itself.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { windowsCliLaunchers } from "../../../shared/cli/launcher";
 import { createLogger } from "../../../shared/log/main";
 import { getAgentBinaryPath } from "../../infra/agent/getAgentBinDir";
-import { root } from "../../infra/agent/runtimeDirs";
+import { binDir, root } from "../../infra/agent/runtimeDirs";
 import { agentAliasPath } from "../git/domain/helpers/launcher";
 
 const log = createLogger("cli-launchers");
@@ -45,6 +47,8 @@ export function windowsCliLauncherDir(): string | null {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "nexus.cmd"), launchers.cmd);
     fs.writeFileSync(path.join(dir, "nexus"), launchers.sh);
+    fs.mkdirSync(binDir(), { recursive: true });
+    fs.writeFileSync(path.join(binDir(), "nexus"), launchers.sh);
     written = dir;
   } catch (error) {
     log.warn(`writing the nexus launchers failed: ${(error as Error).message}`);

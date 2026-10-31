@@ -164,9 +164,8 @@ function injectSshBootstrap(
 // Tests
 // ---------------------------------------------------------------------------
 
-// On Windows a local workspace's bin directory is ~/.nexus-code/bin, holding
-// the claude wrapper's copy for Git Bash (pty/windows-shell-shim.ts) and the
-// nexus launchers, and it takes no zsh or bash shim.
+// Windows 로컬 워크스페이스에는 셸 래퍼가 없어 셸 getter는 null을, bin 디렉터리
+// getter는 nexus 런처만 든 디렉터리를 돌려준다.
 const isWindows = process.platform === "win32";
 const posixTest = test.skipIf(isWindows);
 const windowsTest = test.skipIf(!isWindows);

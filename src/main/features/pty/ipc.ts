@@ -246,6 +246,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
             env: enrichedEnv,
             args: shimmedArgs,
             settingsPath: files?.settingsPath,
+            wrapperDir: files?.binDir,
             // A local agent, and so the shell, inherits this process's environment.
             originalPath: process.env.ORIGINAL_PATH,
           });

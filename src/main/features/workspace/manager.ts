@@ -28,7 +28,6 @@ import {
   resolveLocalAgentCommand,
 } from "../../infra/agent/local-agent-resolver";
 import {
-  binDir,
   removeShimDir as defaultRemoveShimDir,
   writeShimFiles as defaultWriteShimFiles,
   shimDir,
@@ -510,9 +509,9 @@ export class WorkspaceManager {
    * 워크스페이스 종류에 따라 래퍼 바이너리가 위치하는 bin 디렉터리의 절대 경로를 반환한다.
    *
    * - 로컬 워크스페이스: 로컬 배포 bin 디렉터리 (`getAgentBinDir()`).
-   *   On Windows, ~/.nexus-code/bin: the claude wrapper's copy for Git
-   *   Bash (pty/windows-shell-shim.ts) and the nexus launchers
-   *   (cli/launchers.ts).
+   *   On Windows, the directory of the nexus launchers alone: PowerShell
+   *   and cmd cannot run the bash claude wrapper. Git Bash, which can, gets
+   *   the wrapper's copy instead (pty/windows-shell-shim.ts).
    * - SSH 워크스페이스:  bootstrap 결과의 `remoteBinDir` (절대 경로)
    * - 워크스페이스 없음 / 채널 없음: null
    */
@@ -521,11 +520,9 @@ export class WorkspaceManager {
     if (!ctx) return null;
     const meta = ctx.getMeta();
     if (meta.location.kind === "local") {
-      // PowerShell and cmd take claude from a function or a macro rather
-      // than from this directory (pty/windows-shell-shim.ts). Without an
-      // agent to name there are no nexus launchers, but Git Bash still has
-      // the wrapper.
-      if (isWindows()) return windowsCliLauncherDir() ?? binDir();
+      // A Windows shell cannot run the bash wrapper, and with its directory
+      // first on PATH, `claude` could resolve to it instead of the real one.
+      if (isWindows()) return windowsCliLauncherDir();
       return getAgentBinDir();
     }
     const bootstrap = this.sshBootstraps.get(workspaceId);
