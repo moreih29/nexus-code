@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { StatusEntrySchema } from "../claude/status";
-import { ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
+import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
   DirEntrySchema,
   ExpectedFileStateSchema,
@@ -818,6 +818,18 @@ export const ipcContract = {
        * native menu — editor commands never appear in it.
        */
       editorKeybindingsChanged: listen(z.object({ overrides: KeybindingOverridesSchema })),
+      /**
+       * Broadcast emitted by main when the default shell or the added
+       * shells change via `appState.set`. Sent to all renderer windows so
+       * a window that edits the list next starts from the current one,
+       * not its own stale copy.
+       */
+      terminalShellsChanged: listen(
+        z.object({
+          shell: ShellChoiceSchema.optional(),
+          customShells: z.array(CustomShellSchema),
+        }),
+      ),
     },
   },
 

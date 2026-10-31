@@ -200,6 +200,12 @@ export async function bootstrapAppState(): Promise<void> {
     customShells: state.terminalShells,
   });
 
+  // Another window changed the shells: take the saved list, so an edit made
+  // here next doesn't write back this window's stale copy over it.
+  ipcListen("appState", "terminalShellsChanged", (shells) => {
+    useTerminalStore.getState().hydrateShells(shells);
+  });
+
   // Hydrate window opacity from appState (authoritative store).
   useWindowOpacityStore.getState().hydrate(state.windowOpacity);
 
