@@ -19,15 +19,22 @@ class StatusChannel implements AgentChannel {
   readonly ready = Promise.resolve();
   spawns = 0;
   spawnError: Error | null = null;
+  /** The failing spawn started a server first, as one that dies starting did. */
+  assignBeforeError = false;
   serverId = "srv-0";
   private readonly listeners = new Map<string, Set<ChannelEventCallback>>();
 
   async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
     if (method === "lsp.spawn") {
       this.spawns += 1;
-      if (this.spawnError) throw this.spawnError;
-      this.serverId = `srv-${this.spawns}`;
       const { correlationId } = params as { correlationId: string };
+      if (this.spawnError) {
+        if (this.assignBeforeError) {
+          this.emit("lsp.serverAssigned", { serverId: `srv-${this.spawns}`, correlationId });
+        }
+        throw this.spawnError;
+      }
+      this.serverId = `srv-${this.spawns}`;
       this.emit("lsp.serverAssigned", { serverId: this.serverId, correlationId });
       return {
         serverId: this.serverId,
@@ -164,6 +171,24 @@ describe("LSP server status", () => {
     });
     await open();
     expect(channel.spawns).toBe(3);
+  });
+
+  test("keeps what a server that died starting printed", async () => {
+    const { channel, host, open } = boot();
+    channel.spawnError = new Error("lsp server exited: exit status 1");
+    channel.assignBeforeError = true;
+
+    await open();
+    // Its exit comes after lsp.spawn failed, with the stderr that says why.
+    channel.emit("lsp.serverExited", {
+      serverId: "srv-1",
+      reason: "exit status 1",
+      stderrTail: "error: Unknown binary 'rust-analyzer.exe'\n",
+    });
+
+    const log = host.serverLog(WORKSPACE_ID, "python").map((e) => `${e.level}: ${e.message}`);
+    expect(log).toContain("error: Failed to start: lsp server exited: exit status 1");
+    expect(log).toContain("stderr: error: Unknown binary 'rust-analyzer.exe'\n");
   });
 
   test("turning a language off lets one that gave up start again", async () => {

@@ -1467,6 +1467,13 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         reason: parsed.reason || "server exited",
         ...(reopen ? { reopen: true } : {}),
       });
+    } else {
+      // A server that died starting: lsp.spawn failed with only its exit
+      // status, and what it printed says why.
+      const pending = this.pendingSpawnByServerId.get(key);
+      if (pending && parsed.stderrTail.trim()) {
+        this.status.log(pending.workspaceId, pending.languageId, "stderr", parsed.stderrTail);
+      }
     }
 
     // applyEdit-style server requests held in pendingServerRequests are
