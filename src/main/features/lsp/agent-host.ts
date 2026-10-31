@@ -228,7 +228,12 @@ export function startAgentLspHost(
 class AgentLspHostHandleImpl implements LspHostHandle {
   private readonly listeners = new Map<string, Set<EventCallback>>();
   private readonly workspaceServers = new Map<string, Map<string, AgentLspServer>>();
+  // Keyed by serverIdKey: each agent numbers its servers on its own
+  // ("lsp-1", "lsp-2", …) and every local workspace runs its own agent, so
+  // a server id names a server only together with the channel it came on.
   private readonly serversById = new Map<string, AgentLspServer>();
+  private readonly channelKeys = new WeakMap<AgentChannel, number>();
+  private nextChannelKey = 0;
   private readonly serverPromises = new Map<string, Promise<AgentLspServer | null>>();
   // uriIndex: workspace → uri → presetLanguageId.
   //
@@ -249,7 +254,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   // Both maps are populated up front and dropped once the spawn round-trip
   // completes (or fails).
   private readonly pendingSpawnByCorrelation = new Map<string, PendingSpawn>();
-  private readonly pendingSpawnByServerId = new Map<string, PendingSpawn>();
+  private readonly pendingSpawnByServerId = new Map<string, PendingSpawn>(); // by serverIdKey
   // Per-(workspace, URI) state for textDocument/publishDiagnostics debouncing.
   private readonly diagnosticsDebouncer = new DiagnosticsDebouncer({
     debounceMs: DIAGNOSTICS_DEBOUNCE_MS,
@@ -805,7 +810,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       if (!server) return;
       this.diagnosticsDebouncer.clearForServer(server.workspaceId, server.languageId);
       this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
-      this.serversById.delete(server.serverId);
+      this.serversById.delete(this.serverIdKey(server.channel, server.serverId));
       server.dispose();
       servers.delete(targetLanguageId);
       const serverKey = `${workspaceId}\0${targetLanguageId}`;
@@ -821,7 +826,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       for (const server of servers.values()) {
         this.diagnosticsDebouncer.clearForServer(server.workspaceId, server.languageId);
         this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
-        this.serversById.delete(server.serverId);
+        this.serversById.delete(this.serverIdKey(server.channel, server.serverId));
         server.dispose();
         const serverKey = `${workspaceId}\0${server.languageId}`;
         this.serverTimeoutCount.delete(serverKey);
@@ -881,7 +886,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     } finally {
       this.pendingSpawnByCorrelation.delete(correlationId);
       if (serverId) {
-        this.pendingSpawnByServerId.delete(serverId);
+        this.pendingSpawnByServerId.delete(this.serverIdKey(channel, serverId));
       }
     }
   }
@@ -917,7 +922,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       this.workspaceServers.set(server.workspaceId, workspaceServers);
     }
     workspaceServers.set(server.languageId, server);
-    this.serversById.set(server.serverId, server);
+    this.serversById.set(this.serverIdKey(server.channel, server.serverId), server);
     // Record spawn time so trackTimeout can enforce the grace window during
     // which slow-to-initialize servers are not wedge-restarted.
     const serverKey = `${server.workspaceId}\0${server.languageId}`;
@@ -975,10 +980,10 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       this.handleAgentServerRequest(channel, payload);
     });
     const offServerAssigned = channel.on("lsp.serverAssigned", (payload) => {
-      this.handleServerAssigned(payload);
+      this.handleServerAssigned(channel, payload);
     });
     const offServerExited = channel.on("lsp.serverExited", (payload) => {
-      this.handleServerExited(payload);
+      this.handleServerExited(channel, payload);
     });
     const offLifecycle = channel.onLifecycle((event) => {
       // Dispose server records only on genuine channel death:
@@ -1021,20 +1026,31 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     for (const dispose of disposers) dispose();
   }
 
-  private handleServerAssigned(payload: unknown): void {
+  /** The key serversById and pendingSpawnByServerId take for a server. */
+  private serverIdKey(channel: AgentChannel, serverId: string): string {
+    let channelKey = this.channelKeys.get(channel);
+    if (channelKey === undefined) {
+      channelKey = this.nextChannelKey++;
+      this.channelKeys.set(channel, channelKey);
+    }
+    return `${channelKey}\0${serverId}`;
+  }
+
+  private handleServerAssigned(channel: AgentChannel, payload: unknown): void {
     const parsed = parseServerAssignedPayload(payload);
     if (!parsed?.correlationId) return;
 
     const pending = this.pendingSpawnByCorrelation.get(parsed.correlationId);
     if (!pending) return;
-    this.pendingSpawnByServerId.set(parsed.serverId, pending);
+    this.pendingSpawnByServerId.set(this.serverIdKey(channel, parsed.serverId), pending);
   }
 
-  private handleServerExited(payload: unknown): void {
+  private handleServerExited(channel: AgentChannel, payload: unknown): void {
     const parsed = parseServerExitedPayload(payload);
     if (!parsed) return;
 
-    const server = this.serversById.get(parsed.serverId);
+    const key = this.serverIdKey(channel, parsed.serverId);
+    const server = this.serversById.get(key);
     if (server) {
       // Clear diagnostics timers for all URIs owned by the dead server before
       // any further cleanup. Firing stale trailing-edge timers after the server
@@ -1046,7 +1062,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       // process. Channel listeners are intentionally left in place — the
       // channel itself is still alive and may carry other servers.
       server.disposePending(serverExitError(parsed));
-      this.serversById.delete(parsed.serverId);
+      this.serversById.delete(key);
       // A workspace whose last server went, on idle above all, holds no
       // place under the LRU cap.
       const servers = this.workspaceServers.get(server.workspaceId);
@@ -1077,11 +1093,11 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     // would otherwise sit until APPLY_EDIT_RESPONSE_TIMEOUT_MS. Drop them
     // explicitly here so the timeout path is reserved for actual hangs.
     for (const [id, pending] of this.pendingServerRequests) {
-      if (pending.serverId === parsed.serverId) {
+      if (pending.channel === channel && pending.serverId === parsed.serverId) {
         this.pendingServerRequests.delete(id);
       }
     }
-    this.pendingSpawnByServerId.delete(parsed.serverId);
+    this.pendingSpawnByServerId.delete(key);
   }
 
   private disposeChannelServers(channel: AgentChannel): void {
@@ -1092,7 +1108,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       // → server mapping. Mirrors the ordering used in handleServerExited.
       this.diagnosticsDebouncer.clearForServer(server.workspaceId, server.languageId);
       server.dispose();
-      this.serversById.delete(server.serverId);
+      this.serversById.delete(this.serverIdKey(server.channel, server.serverId));
       this.workspaceServers.get(server.workspaceId)?.delete(server.languageId);
       this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
     }
@@ -1107,7 +1123,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     const parsed = parseAgentMessagePayload(payload);
     if (!parsed) return;
 
-    const server = this.serversById.get(parsed.serverId);
+    const server = this.serversById.get(this.serverIdKey(channel, parsed.serverId));
     if (server) {
       if (!server.handleMessage(parsed.message)) {
         this.handleServerNotification(
@@ -1295,17 +1311,18 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     workspaceConfig.set(languageId, flattenInitializationOptions(initializationOptions));
   }
 
-  private serverContextFor(_channel: AgentChannel, serverId: string): ServerContext | null {
+  private serverContextFor(channel: AgentChannel, serverId: string): ServerContext | null {
     // Resolution path is now deterministic: serversById carries the server
     // once spawn returns, and pendingSpawnByServerId is populated by the
     // lsp.serverAssigned event before initialize finishes. No fallback to
     // "first pending spawn on channel" — that heuristic mis-attributed
     // pre-spawn-resolution events when two languages spawned concurrently.
-    const server = this.serversById.get(serverId);
+    const key = this.serverIdKey(channel, serverId);
+    const server = this.serversById.get(key);
     if (server) {
       return { workspaceId: server.workspaceId, languageId: server.languageId };
     }
-    const pending = this.pendingSpawnByServerId.get(serverId);
+    const pending = this.pendingSpawnByServerId.get(key);
     return pending ? { workspaceId: pending.workspaceId, languageId: pending.languageId } : null;
   }
 
