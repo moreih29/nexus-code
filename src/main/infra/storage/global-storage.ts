@@ -7,6 +7,8 @@ import {
   type WorkspaceMeta,
   WorkspaceMetaSchema,
   WorkspaceSshLocationSchema,
+  type WorkspaceTask,
+  WorkspaceTaskSchema,
 } from "../../../shared/types/workspace";
 import { applyMigrations, type SqliteDb } from "./migrations";
 
@@ -135,6 +137,7 @@ interface WorkspaceRow {
   last_opened_at: number;
   sort_order: number;
   pinned_sort_order: number;
+  task: string | null;
 }
 
 /**
@@ -203,6 +206,17 @@ function salvageSshLocation(value: unknown): WorkspaceLocation | null {
   return WorkspaceSshLocationSchema.parse(salvaged);
 }
 
+/** The stored task, or undefined for an ordinary workspace or an unreadable one. */
+function rowTask(row: WorkspaceRow): WorkspaceTask | undefined {
+  if (!row.task) return undefined;
+  try {
+    const parsed = WorkspaceTaskSchema.safeParse(JSON.parse(row.task));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function normalizeLocation(location: WorkspaceLocation): WorkspaceLocation {
   return WorkspaceLocationSchema.parse(location);
 }
@@ -223,6 +237,7 @@ function rowToMeta(row: WorkspaceRow): WorkspaceMeta {
     tabs: [],
     sortOrder: row.sort_order,
     pinnedSortOrder: row.pinned_sort_order,
+    task: rowTask(row),
   });
 }
 
@@ -279,8 +294,8 @@ export class GlobalStorage {
       .prepare(
         `INSERT INTO workspaces
            (id, name, root_path, location, color_tone, pinned, last_opened_at,
-            sort_order, pinned_sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            sort_order, pinned_sort_order, task)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         normalized.id,
@@ -292,6 +307,7 @@ export class GlobalStorage {
         normalized.lastOpenedAt ? new Date(normalized.lastOpenedAt).getTime() : Date.now(),
         normalized.sortOrder,
         normalized.pinnedSortOrder,
+        normalized.task ? JSON.stringify(normalized.task) : null,
       );
   }
 
@@ -443,6 +459,8 @@ export class GlobalStorage {
   // -------------------------------------------------------------------------
   // Workspace sort-order helpers
   // -------------------------------------------------------------------------
+  // Tasks (rows with a task) are not sidebar rows, so they take no part in
+  // a group's order: they keep position 0 and the queries skip them.
 
   /**
    * Returns the tail position for a new workspace appended to the given group.
@@ -456,7 +474,7 @@ export class GlobalStorage {
       .prepare(
         `SELECT MAX(${col}) AS max_val
          FROM workspaces
-         WHERE pinned = ?`,
+         WHERE pinned = ? AND task IS NULL`,
       )
       .get(pinnedFilter) as { max_val: number | null };
     const maxVal = row.max_val ?? 0;
@@ -523,7 +541,7 @@ export class GlobalStorage {
         .prepare(
           `SELECT ${col} AS pos
            FROM workspaces
-           WHERE pinned = ? AND ${col} < ?
+           WHERE pinned = ? AND task IS NULL AND ${col} < ?
            ORDER BY ${col} DESC
            LIMIT 1`,
         )
@@ -566,7 +584,7 @@ export class GlobalStorage {
       .prepare(
         `SELECT ${col} AS pos
          FROM workspaces
-         WHERE pinned = ? AND ${col} > ?
+         WHERE pinned = ? AND task IS NULL AND ${col} > ?
          ORDER BY ${col} ASC
          LIMIT 1`,
       )
@@ -603,7 +621,7 @@ export class GlobalStorage {
       .prepare(
         `SELECT id, sort_order, pinned_sort_order
          FROM workspaces
-         WHERE pinned = ?
+         WHERE pinned = ? AND task IS NULL
          ORDER BY ${col} ASC, id ASC`,
       )
       .all(pinnedFilter) as { id: string; sort_order: number; pinned_sort_order: number }[];

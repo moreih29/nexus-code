@@ -570,6 +570,52 @@ export class GitRepository {
   }
 
   /**
+   * Adds a worktree at `worktreePath` on a new branch `branch`, started from
+   * `base`. Git creates the folder and any missing parents.
+   */
+  addWorktree(
+    worktreePath: string,
+    branch: string,
+    base = "HEAD",
+    signal?: AbortSignal,
+  ): Promise<void> {
+    return this.queue(async (queuedSignal) => {
+      await this.run(["worktree", "add", "-b", branch, "--", worktreePath, base], queuedSignal);
+    }, signal);
+  }
+
+  /** Whether the worktree at `worktreePath` has changes or untracked files. */
+  worktreeHasChanges(worktreePath: string, signal?: AbortSignal): Promise<boolean> {
+    return this.queue(async (queuedSignal) => {
+      const { stdout } = await this.run(
+        ["-C", worktreePath, "status", "--porcelain", "--untracked-files=normal"],
+        queuedSignal,
+      );
+      return stdout.trim() !== "";
+    }, signal);
+  }
+
+  /** Drops git's records of worktrees whose folders are gone. */
+  pruneWorktrees(signal?: AbortSignal): Promise<void> {
+    return this.queue(async (queuedSignal) => {
+      await this.run(["worktree", "prune"], queuedSignal);
+    }, signal);
+  }
+
+  /**
+   * Removes the worktree at `worktreePath`. Without `force`, git refuses
+   * when it has changes or untracked files.
+   */
+  removeWorktree(worktreePath: string, force = false, signal?: AbortSignal): Promise<void> {
+    return this.queue(async (queuedSignal) => {
+      await this.run(
+        ["worktree", "remove", ...(force ? ["--force"] : []), "--", worktreePath],
+        queuedSignal,
+      );
+    }, signal);
+  }
+
+  /**
    * Lists local and remote branch names with current branch metadata.
    */
   listBranches(signal?: AbortSignal): Promise<BranchList> {

@@ -40,6 +40,7 @@ import type { PtyHostHandle } from "./features/pty/types";
 import { registerSystemChannel } from "./features/shell/ipc";
 import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
 import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ipc";
+import { registerTaskChannel } from "./features/tasks/ipc";
 import { installUpdatesDomain, type UpdatesDomainHandle } from "./features/updates";
 import {
   canUpdateInPlace,
@@ -397,6 +398,11 @@ app.whenReady().then(async () => {
   gitAutofetch.start();
   registerAutofetchChannel(gitAutofetch);
   registerGitChannel(gitRegistry, workspaceStorage, gitAutofetch, workspaceManager);
+  const registry = gitRegistry;
+  registerTaskChannel({
+    manager: workspaceManager,
+    getRepository: (workspaceId) => registry.getOrDetect(workspaceId),
+  });
 
   agentPtyHost = startAgentPtyHost(workspaceManager);
   // Wire the PTY session closer into WorkspaceManager so remove() can

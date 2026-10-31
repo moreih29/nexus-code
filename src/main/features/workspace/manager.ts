@@ -10,6 +10,7 @@ import {
   type WorkspaceLocation,
   WorkspaceLocationSchema,
   type WorkspaceMeta,
+  type WorkspaceTask,
   workspaceLocationKey,
 } from "../../../shared/types/workspace";
 import type { AgentChannel } from "../../infra/agent/channel";
@@ -30,6 +31,7 @@ import {
   removeShimDir as defaultRemoveShimDir,
   writeShimFiles as defaultWriteShimFiles,
   shimDir,
+  worktreesDir,
 } from "../../infra/agent/runtimeDirs";
 import {
   type CreateSshChannelOptions,
@@ -47,8 +49,10 @@ import {
   type EnsureRemoteLspServerResult,
   ensureRemoteAgent,
   type LspBootstrapProgressEvent,
+  REMOTE_AGENT_ROOT,
   type SshBootstrapDependencies,
 } from "../../infra/agent/ssh/ssh-bootstrap/index";
+import { absoluteRemotePath } from "../../infra/agent/ssh/ssh-bootstrap/manifest";
 import { isWindows, loginShell } from "../../infra/platform";
 import type { GlobalStorage } from "../../infra/storage/global-storage";
 import type { StateService } from "../../infra/storage/state-service";
@@ -67,8 +71,8 @@ const log = createLogger("workspace");
 
 export type BroadcastFn = (channelName: string, event: string, args: unknown) => void;
 export type WorkspaceCreateOptions =
-  | { location: WorkspaceLocation; name?: string }
-  | { rootPath: string; name?: string };
+  | { location: WorkspaceLocation; name?: string; task?: WorkspaceTask }
+  | { rootPath: string; name?: string; task?: WorkspaceTask };
 type SshWorkspaceLocation = Extract<WorkspaceLocation, { kind: "ssh" }>;
 export type WorkspaceSshChannelFactory = (options: CreateSshChannelOptions) => SshChannel;
 export type WorkspaceSshBootstrap = (
@@ -562,6 +566,21 @@ export class WorkspaceManager {
    * throws for a missing workspace — callers where "workspace removed before
    * IPC arrived" is an expected racing condition should use this form.
    */
+  /**
+   * The folder that holds the worktrees of this workspace's tasks, on the
+   * host the workspace lives on: ~/.nexus-code/worktrees locally, the same
+   * under the remote home for SSH. Null for an SSH workspace that has not
+   * connected yet.
+   */
+  getWorktreesRoot(workspaceId: string): string | null {
+    const meta = this.contexts.get(workspaceId)?.getMeta();
+    if (!meta) return null;
+    if (meta.location.kind === "local") return worktreesDir();
+    const bootstrap = this.sshBootstraps.get(workspaceId);
+    if (!bootstrap) return null;
+    return absoluteRemotePath(bootstrap.remoteHome, `${REMOTE_AGENT_ROOT}/worktrees`);
+  }
+
   async tryGetAgentChannel(id: string): Promise<AgentChannel | null> {
     if (!this.contexts.has(id)) return null;
     return this.getAgentChannel(id);
@@ -708,7 +727,8 @@ export class WorkspaceManager {
     const name = opts.name ?? defaultWorkspaceName(location);
     // New workspaces are always placed at the tail of the unpinned group so
     // they appear below existing items without perturbing existing positions.
-    const sortOrder = this.globalStorage.nextTailSortOrder("unpinned");
+    // A task is not a sidebar row and keeps position 0.
+    const sortOrder = opts.task ? 0 : this.globalStorage.nextTailSortOrder("unpinned");
     const meta: WorkspaceMeta = {
       id,
       name,
@@ -720,6 +740,7 @@ export class WorkspaceManager {
       tabs: [],
       sortOrder,
       pinnedSortOrder: 0,
+      ...(opts.task ? { task: opts.task } : {}),
     };
 
     this.globalStorage.addWorkspace(meta);
@@ -878,6 +899,12 @@ export class WorkspaceManager {
       return;
     }
 
+    // A workspace's tasks go with it. Their worktrees stay on disk; git
+    // forgets one once its folder is deleted (`git worktree prune`).
+    for (const task of this.list()) {
+      if (task.task?.parentId === id) this.remove(task.id);
+    }
+
     // Step 1 — terminate all PTY sessions for this workspace *before* the
     // context is deleted. This prevents the renderer's post-removal pty.kill
     // IPC calls from reaching `requireContext` on a missing workspace and
@@ -916,7 +943,7 @@ export class WorkspaceManager {
     this.globalStorage.removeWorkspace(id);
 
     if (this.activeId === id) {
-      const remaining = this.list();
+      const remaining = this.list().filter((workspace) => !workspace.task);
       this.activeId = remaining.length > 0 ? remaining[0].id : null;
       this.stateService.setState({ lastActiveWorkspaceId: this.activeId ?? undefined });
     }
