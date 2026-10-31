@@ -1,6 +1,8 @@
-import { Settings } from "lucide-react";
+import { Menu, Settings } from "lucide-react";
+import type { MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { ipcCallResult } from "../../ipc/client";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import { useActiveStore } from "../../state/stores/active";
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
@@ -19,6 +21,8 @@ import { WindowControls } from "./window-controls";
 //               We pad the bar's right edge to clear that overlay.
 //   - Transparent Linux window: no overlay; WindowControls draws the
 //               controls at the bar's right end.
+//   - Win/Linux show no menu bar under the hidden title bar: a menu button
+//               at the bar's left end opens the app menu.
 //
 // Drag region is applied via the `app-drag` utility (see globals.css);
 // interactive children MUST opt out with the `app-no-drag` utility.
@@ -55,6 +59,28 @@ export function TitleBar() {
         paddingRight: isMac() ? 12 : ownControls ? OWN_CONTROLS_INSET : WIN_OVERLAY_INSET,
       }}
     >
+      {!isMac() && (
+        <button
+          type="button"
+          onClick={openAppMenu}
+          // Focus stays where it was, so Edit's items act on the editor or
+          // input the user was in.
+          onMouseDown={(e) => e.preventDefault()}
+          aria-label={t("titleBar.open_menu")}
+          aria-haspopup="menu"
+          className={cn(
+            "app-no-drag -ml-1.5 mr-1.5",
+            "flex items-center justify-center",
+            "size-7 rounded-(--radius-control)",
+            "text-muted-foreground",
+            "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
+            "transition-colors duration-150",
+          )}
+        >
+          <Menu className="size-4" aria-hidden="true" />
+        </button>
+      )}
+
       {/* Brand — uppercase small-label per the warm design system */}
       <span className="text-app-label text-muted-foreground uppercase">NexusCode</span>
 
@@ -86,6 +112,12 @@ export function TitleBar() {
       {ownControls && <WindowControls />}
     </div>
   );
+}
+
+/** Opens the app menu under the menu button, as a menu bar's menu opens. */
+function openAppMenu(event: MouseEvent<HTMLButtonElement>): void {
+  const rect = event.currentTarget.getBoundingClientRect();
+  void ipcCallResult("window", "showAppMenu", { x: rect.left, y: rect.bottom });
 }
 
 function titleLabel(workspace: WorkspaceMeta): string {

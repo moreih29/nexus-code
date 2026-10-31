@@ -126,6 +126,7 @@
   },
   "titleBar": {
     "open_settings": "설정 열기",
+    "open_menu": "메뉴 열기",
     "minimize": "최소화",
     "maximize": "최대화",
     "restore": "이전 크기로",

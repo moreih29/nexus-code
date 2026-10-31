@@ -126,6 +126,7 @@
   },
   "titleBar": {
     "open_settings": "Open settings",
+    "open_menu": "Open menu",
     "minimize": "Minimize",
     "maximize": "Maximize",
     "restore": "Restore",

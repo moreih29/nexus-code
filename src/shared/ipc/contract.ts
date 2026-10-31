@@ -1208,9 +1208,9 @@ export const ipcContract = {
   // ---------------------------------------------------------------------------
   // window — controls for the window that calls.
   //
-  // Only a window whose frame draws no controls uses them: the Linux window
-  // created transparent (main/features/window), where the titlebar draws its
-  // own minimize, maximize and close buttons.
+  // Only a window whose frame draws no controls uses minimize, maximize and
+  // close: the Linux window created transparent (main/features/window), where
+  // the titlebar draws its own buttons.
   // ---------------------------------------------------------------------------
   window: {
     call: {
@@ -1218,6 +1218,12 @@ export const ipcContract = {
       toggleMaximize: call(z.void(), z.void()),
       close: call(z.void(), z.void()),
       isMaximized: call(z.void(), z.boolean()),
+      /**
+       * Opens the app menu at a point of the page, in its CSS pixels. Windows
+       * and Linux show no menu bar under the hidden title bar; the titlebar's
+       * menu button opens it instead.
+       */
+      showAppMenu: call(z.object({ x: z.number(), y: z.number() }), z.void()),
     },
     listen: {
       /** Sent to one window only, when it is maximized or restored. */
