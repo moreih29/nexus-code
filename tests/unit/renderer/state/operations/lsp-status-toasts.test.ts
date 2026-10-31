@@ -11,6 +11,7 @@ import type { LspServerStatus } from "../../../../../src/shared/lsp/status";
 const toasts: ToastInput[] = [];
 const dismissed: number[] = [];
 let emit: (status: LspServerStatus) => void = () => {};
+let removeWorkspace: (workspaceId: string) => void = () => {};
 
 const realToast = await import("../../../../../src/renderer/components/ui/toast");
 mock.module("../../../../../src/renderer/components/ui/toast", () => ({
@@ -31,12 +32,22 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: () => Promise.resolve({ ok: true, value: [] }),
 }));
 
+const realCleanup = await import("../../../../../src/renderer/state/workspace-cleanup");
+mock.module("../../../../../src/renderer/state/workspace-cleanup", () => ({
+  ...realCleanup,
+  registerWorkspaceCleanup: (fn: (workspaceId: string) => void) => {
+    removeWorkspace = fn;
+    return () => {};
+  },
+}));
+
 const { initLspStatusSync } = await import(
   "../../../../../src/renderer/state/operations/lsp-status"
 );
 
 const REMOTE = "77777777-7777-4777-8777-777777777777";
 const LOCAL = "88888888-8888-4888-8888-888888888888";
+const GONE = "99999999-9999-4999-8999-999999999999";
 
 const missing = (workspaceId: string): LspServerStatus => ({
   workspaceId,
@@ -87,5 +98,16 @@ describe("initLspStatusSync toasts", () => {
 
     expect(toasts).toHaveLength(1);
     expect(dismissed).toEqual([0]);
+  });
+
+  it("takes down a removed workspace's toast, and lets another report the missing server", () => {
+    emit(missing(GONE));
+    expect(toasts).toHaveLength(1);
+
+    removeWorkspace(GONE);
+    expect(dismissed).toEqual([0]);
+
+    emit(missing(LOCAL));
+    expect(toasts).toHaveLength(2);
   });
 });

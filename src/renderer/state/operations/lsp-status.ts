@@ -30,9 +30,10 @@ let evictionExplained = false;
 const missingReported = new Set<string>();
 /**
  * The toast saying a server is missing or gave up, by lspStatusKey: taken
- * down once the server runs, however it was started again.
+ * down once the server runs, however it was started again, or once its
+ * workspace is removed.
  */
-const failureToasts = new Map<string, number>();
+const failureToasts = new Map<string, { id: number; languageId: string; missing: boolean }>();
 
 /** Safe to call more than once — the previous listener is removed first. */
 export function initLspStatusSync(): void {
@@ -50,12 +51,27 @@ export function initLspStatusSync(): void {
     store.setStatus(status);
     notify(status, previous);
   });
-  unregisterCleanup = registerWorkspaceCleanup((workspaceId) =>
-    useLspStatusStore.getState().forgetWorkspace(workspaceId),
-  );
+  unregisterCleanup = registerWorkspaceCleanup((workspaceId) => {
+    useLspStatusStore.getState().forgetWorkspace(workspaceId);
+    dismissWorkspaceToasts(workspaceId);
+  });
   void ipcCallResult("lsp", "serverStatuses", undefined).then((result) => {
     if (result.ok) useLspStatusStore.getState().hydrate(result.value);
   });
+}
+
+/**
+ * A removed workspace's toasts go with it. The missing server one reported
+ * may then be reported by another workspace that lacks it too.
+ */
+function dismissWorkspaceToasts(workspaceId: string): void {
+  const prefix = lspStatusKey(workspaceId, "");
+  for (const [key, toast] of failureToasts) {
+    if (!key.startsWith(prefix)) continue;
+    dismissToast(toast.id);
+    if (toast.missing) missingReported.delete(toast.languageId);
+    failureToasts.delete(key);
+  }
 }
 
 function notify(status: LspServerStatus, previous: LspServerStatus | undefined): void {
@@ -70,7 +86,7 @@ function notify(status: LspServerStatus, previous: LspServerStatus | undefined):
     missingReported.delete(status.languageId);
     const key = lspStatusKey(status.workspaceId, status.languageId);
     const toast = failureToasts.get(key);
-    if (toast !== undefined) dismissToast(toast);
+    if (toast) dismissToast(toast.id);
     failureToasts.delete(key);
   }
 
@@ -100,7 +116,11 @@ function notify(status: LspServerStatus, previous: LspServerStatus | undefined):
           },
         ],
       });
-      failureToasts.set(lspStatusKey(workspaceId, languageId), toast);
+      failureToasts.set(lspStatusKey(workspaceId, languageId), {
+        id: toast,
+        languageId,
+        missing: true,
+      });
       return;
     }
     const toast = showToast({
@@ -118,7 +138,11 @@ function notify(status: LspServerStatus, previous: LspServerStatus | undefined):
         },
       ],
     });
-    failureToasts.set(lspStatusKey(workspaceId, languageId), toast);
+    failureToasts.set(lspStatusKey(workspaceId, languageId), {
+      id: toast,
+      languageId,
+      missing: false,
+    });
     return;
   }
 
