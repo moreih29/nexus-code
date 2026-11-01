@@ -484,7 +484,7 @@
       "show_changes": "변경 보기",
       "interrupt": "중지 (Ctrl-C)",
       "remove_task": "작업 삭제…",
-      "permission_hint": "도구 실행 허용 여부는 터미널에서 답해 주세요.",
+      "permission_hint": "권한 요청은 터미널에서 응답합니다.",
       "send_placeholder": "이 세션에 보낼 입력",
       "send": "보내기",
       "prompt": "마지막 프롬프트",
