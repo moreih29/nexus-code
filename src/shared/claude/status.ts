@@ -41,6 +41,11 @@ export const StatusEntrySchema = z.object({
   workspaceId: z.string().min(1),
   tabId: z.string().min(1),
   status: ClaudeStatusSchema,
+  /**
+   * While the session waits on the user, what it asks (a question, a
+   * permission); otherwise Claude's answer to the last prompt, kept once the
+   * turn is seen, until the user's next prompt.
+   */
   message: z.string().optional(),
   since: z.number().int().positive(),
   /** The last prompt the user submitted in this session (cut to PROMPT_MAX_CHARS). */

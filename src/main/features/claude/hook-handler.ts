@@ -359,11 +359,14 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
       // (transcript 없음/파싱 실패 등 silent fallback) — 그 경우 사이드바는
       // 글리프만 표시된다.
       const assistantText = parsed.data.assistantText;
+      // The answer replaces the last turn's, even when this turn gave none,
+      // and stays once the user has seen it.
+      const answer = assistantText ?? "";
 
       if (isViewingThisTab) {
-        broker.set(workspaceId, tabId, "idle");
+        broker.set(workspaceId, tabId, "idle", answer);
       } else {
-        broker.set(workspaceId, tabId, "completed", assistantText);
+        broker.set(workspaceId, tabId, "completed", answer);
         const title = `[${workspaceName}] Claude`;
         // OS 알림은 짧은 본문이 적합 — 응답 미리보기가 있으면 그것을, 없으면
         // 정적 텍스트를 보낸다. 사이드바 카드는 카드 자체 컷(50자)으로 다시 자른다.
