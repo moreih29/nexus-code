@@ -37,11 +37,10 @@ interface SessionDetailProps {
   family: SessionFamily;
   selection: SessionsSelection;
   changes: ReadonlyMap<string, WorktreeChanges>;
-  now: number;
   visible: boolean;
 }
 
-export function SessionDetail({ family, selection, changes, now, visible }: SessionDetailProps) {
+export function SessionDetail({ family, selection, changes, visible }: SessionDetailProps) {
   const { t } = useTranslation();
   const session =
     selection.kind === "session"
@@ -58,7 +57,7 @@ export function SessionDetail({ family, selection, changes, now, visible }: Sess
         {session && (
           <span className="flex min-w-0 items-center gap-2">
             <AgentBadge agent={session.agent} />
-            <SessionState session={session} now={now} />
+            <SessionState session={session} />
           </span>
         )}
       </DetailHeader>

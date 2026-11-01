@@ -175,6 +175,34 @@ export function buildFamily(input: FamilyInput): SessionFamily | null {
   return { root, worktrees };
 }
 
+const SESSION_FIELDS = [
+  "key",
+  "title",
+  "agent",
+  "state",
+  "phase",
+  "estimated",
+  "since",
+  "message",
+  "prompt",
+] as const satisfies readonly (keyof AgentSession)[];
+
+/** Whether two builds of a family show the same. */
+export function sameFamily(a: SessionFamily | null, b: SessionFamily | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.root !== b.root || a.worktrees.length !== b.worktrees.length) return false;
+  return a.worktrees.every((x, i) => {
+    const y = b.worktrees[i];
+    return (
+      x.workspace === y.workspace &&
+      x.isRoot === y.isRoot &&
+      x.branch === y.branch &&
+      x.sessions.length === y.sessions.length &&
+      x.sessions.every((s, j) => SESSION_FIELDS.every((field) => s[field] === y.sessions[j][field]))
+    );
+  });
+}
+
 export function allSessions(family: SessionFamily): AgentSession[] {
   return family.worktrees.flatMap((w) => w.sessions);
 }

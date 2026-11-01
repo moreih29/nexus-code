@@ -19,7 +19,7 @@ import {
 import type { SessionFamily } from "../../services/sessions/model";
 import type { WorktreeChanges } from "../../services/sessions/use-family";
 import type { SessionsSelection } from "./selection";
-import { AgentBadge, durationLabel, SessionState } from "./session-status";
+import { AgentBadge, SessionState, useDurationLabel } from "./session-status";
 
 interface LineageViewProps {
   family: SessionFamily;
@@ -27,7 +27,6 @@ interface LineageViewProps {
   waits: readonly TerminalWait[];
   selection: SessionsSelection | null;
   onSelect: (selection: SessionsSelection) => void;
-  now: number;
 }
 
 /** How far below a card's middle a waiting line runs, clear of a "made" line. */
@@ -39,7 +38,6 @@ export function LineageView({
   waits,
   selection,
   onSelect,
-  now,
 }: LineageViewProps) {
   const { t } = useTranslation();
   // Marker ids must be unique in the document: hidden sessions tabs stay mounted.
@@ -131,7 +129,6 @@ export function LineageView({
                   : { kind: "worktree", workspaceId: card.worktree.workspace.id },
               )
             }
-            now={now}
           />
         ))}
       </div>
@@ -178,17 +175,16 @@ function CardButton({
   changedFiles,
   selected,
   onSelect,
-  now,
 }: {
   card: LineageCard;
   changedFiles: number;
   selected: boolean;
   onSelect: () => void;
-  now: number;
 }) {
   const { t } = useTranslation();
   const { worktree, session } = card;
   const line = session?.prompt ?? session?.message;
+  const waiting = useDurationLabel(card.waitingSince);
   return (
     <button
       type="button"
@@ -215,7 +211,7 @@ function CardButton({
         )}
       </span>
       {session ? (
-        <SessionState session={session} now={now} />
+        <SessionState session={session} />
       ) : (
         <span className="text-app-ui-sm text-muted-foreground">{t("sessions.no_sessions")}</span>
       )}
@@ -227,7 +223,7 @@ function CardButton({
         )}
         {card.waitingSince !== undefined && (
           <span className="truncate text-(--state-warning-fg)">
-            {t("sessions.lineage.waiting", { duration: durationLabel(card.waitingSince, now) })}
+            {t("sessions.lineage.waiting", { duration: waiting })}
           </span>
         )}
       </span>
