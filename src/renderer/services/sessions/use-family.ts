@@ -1,8 +1,9 @@
 /**
  * The live data of a sessions tab: its workspace's family of sessions, the
- * output activity that tells Codex and other agents' state, each
- * worktree's uncommitted changes, and what the sessions did over time.
- * Polls only while the tab is shown.
+ * output activity that tells Codex and other agents' state, what Claude
+ * sessions are doing (their tools and agents), each worktree's uncommitted
+ * changes, and what the sessions did over time. Polls only while the tab
+ * is shown.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -22,11 +23,13 @@ import {
   sameActivity,
   sameFamily,
 } from "./model";
+import { type ActivityByKey, activityMap, sameActivityMap } from "./agents";
 import { rangeStart, type TimelineRange } from "./timeline";
 
 const log = createLogger("sessions");
 
 const ACTIVITY_POLL_MS = 1_000;
+const CLAUDE_ACTIVITY_POLL_MS = 1_000;
 const WAITS_POLL_MS = 1_000;
 const HISTORY_POLL_MS = 2_000;
 const CHANGES_POLL_MS = 5_000;
@@ -94,6 +97,29 @@ export function useTerminalWaits(enabled: boolean): readonly TerminalWait[] {
     }, WAITS_POLL_MS);
   }, [enabled]);
   return waits;
+}
+
+/**
+ * What the Claude sessions of `workspaceIds` are doing — their tools, todos
+ * and agents — by session key, polled while `enabled`.
+ */
+export function useSessionActivity(
+  workspaceIds: readonly string[],
+  enabled: boolean,
+): ActivityByKey {
+  const ids = workspaceIds.join(",");
+  const [activity, setActivity] = useState<ActivityByKey>(() => new Map());
+  useEffect(() => {
+    if (!enabled || ids === "") return;
+    return startPolling(async (isLatest) => {
+      const result = await ipcCallResult("claude", "activity", { workspaceIds: ids.split(",") });
+      if (isLatest() && result.ok) {
+        const next = activityMap(result.value);
+        setActivity((prev) => (sameActivityMap(prev, next) ? prev : next));
+      }
+    }, CLAUDE_ACTIVITY_POLL_MS);
+  }, [ids, enabled]);
+  return activity;
 }
 
 /**

@@ -535,6 +535,57 @@
       "more_changes": "{{count}} more",
       "no_session": "No agent session runs in this worktree.",
       "close": "Close details"
+    },
+    "agents": {
+      "running_count": "Agents running {{count}}",
+      "ended_toggle": "Finished agents {{count}}",
+      "label_fallback": "Agent",
+      "print": "claude -p",
+      "background": "background",
+      "state": {
+        "running": "Running",
+        "permissionPending": "Needs permission",
+        "completed": "Done",
+        "stopped": "Stopped",
+        "failed": "Failed"
+      },
+      "tools_one": "{{count}} tool",
+      "tools_other": "{{count}} tools",
+      "tools_failed_one": "{{count}} tool · {{failed}} failed",
+      "tools_failed_other": "{{count}} tools · {{failed}} failed",
+      "asking_tool": "Needs permission · {{tool}}",
+      "asking_agent": "Agent “{{name}}” is asking for permission",
+      "summary_one": "{{count}} agent",
+      "summary_other": "{{count}} agents",
+      "count_running": "{{count}} running",
+      "count_asking": "{{count}} asking",
+      "count_ended": "{{count}} finished",
+      "more": "{{count}} more",
+      "session_crumb": "{{agent}} session",
+      "agent_crumb": "Agent",
+      "exit_code": "Exit code {{code}}",
+      "toggle_expand": "Show agents",
+      "toggle_collapse": "Hide agents",
+      "failed_tool": "Failed: {{tool}}",
+      "detail": {
+        "prompt": "Request",
+        "activity": "Activity",
+        "answer": "Answer",
+        "answer_pending": "The agent's last answer shows here once it finishes.",
+        "answer_none": "It finished without an answer.",
+        "tools_none": "No tools used yet.",
+        "tools_untold": "This run's tools are not recorded (only with stream-json output).",
+        "more_tools": "Show {{count}} earlier",
+        "fewer_tools": "Show recent only",
+        "running_for": "{{duration}} so far",
+        "permission_hint": "This agent is waiting on a permission request. Answer it in the terminal."
+      }
+    },
+    "elapsed": {
+      "seconds": "{{count}}s",
+      "minutes_seconds": "{{minutes}}m {{seconds}}s",
+      "minutes": "{{count}}m",
+      "hours_minutes": "{{hours}}h {{minutes}}m"
     }
   },
   "claudeStatus": {

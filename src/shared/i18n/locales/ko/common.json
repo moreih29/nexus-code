@@ -535,6 +535,57 @@
       "more_changes": "외 {{count}}개",
       "no_session": "이 워크트리에는 에이전트 세션이 없습니다.",
       "close": "상세 닫기"
+    },
+    "agents": {
+      "running_count": "에이전트 실행 중 {{count}}",
+      "ended_toggle": "완료된 에이전트 {{count}}",
+      "label_fallback": "에이전트",
+      "print": "claude -p",
+      "background": "백그라운드",
+      "state": {
+        "running": "실행 중",
+        "permissionPending": "권한 요청",
+        "completed": "완료",
+        "stopped": "중단됨",
+        "failed": "실패"
+      },
+      "tools_one": "도구 {{count}}",
+      "tools_other": "도구 {{count}}",
+      "tools_failed_one": "도구 {{count}} · 실패 {{failed}}",
+      "tools_failed_other": "도구 {{count}} · 실패 {{failed}}",
+      "asking_tool": "권한 요청 · {{tool}}",
+      "asking_agent": "에이전트 “{{name}}” 권한 요청 중",
+      "summary_one": "에이전트 {{count}}",
+      "summary_other": "에이전트 {{count}}",
+      "count_running": "실행 {{count}}",
+      "count_asking": "권한 요청 {{count}}",
+      "count_ended": "완료 {{count}}",
+      "more": "외 {{count}}개",
+      "session_crumb": "{{agent}} 세션",
+      "agent_crumb": "에이전트",
+      "exit_code": "종료 코드 {{code}}",
+      "toggle_expand": "에이전트 펼치기",
+      "toggle_collapse": "에이전트 접기",
+      "failed_tool": "실패: {{tool}}",
+      "detail": {
+        "prompt": "요청",
+        "activity": "활동",
+        "answer": "응답",
+        "answer_pending": "에이전트가 끝나면 마지막 응답이 여기에 나옵니다.",
+        "answer_none": "응답 없이 끝났습니다.",
+        "tools_none": "아직 쓴 도구가 없습니다.",
+        "tools_untold": "이 실행의 도구는 기록되지 않습니다 (stream-json 출력일 때만 기록).",
+        "more_tools": "이전 활동 {{count}}개 더 보기",
+        "fewer_tools": "최근 활동만 보기",
+        "running_for": "{{duration}}째",
+        "permission_hint": "이 에이전트는 권한 요청에 응답을 기다리는 중입니다. 터미널에서 응답합니다."
+      }
+    },
+    "elapsed": {
+      "seconds": "{{count}}초",
+      "minutes_seconds": "{{minutes}}분 {{seconds}}초",
+      "minutes": "{{count}}분",
+      "hours_minutes": "{{hours}}시간 {{minutes}}분"
     }
   },
   "claudeStatus": {
