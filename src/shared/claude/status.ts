@@ -95,12 +95,16 @@ export type HookRequest = z.infer<typeof HookRequestSchema>;
 
 /**
  * A hook whose client went away before main answered it: Claude Code ends a
- * PermissionRequest hook as the user interrupts at its dialog.
+ * PermissionRequest hook as the user interrupts at its dialog, and a
+ * `claude -p` run's watch ("print-watch") closes as the run ends.
  */
 export const HookGoneSchema = z.object({
   hookId: z.string().min(1),
   workspaceId: z.string().min(1),
   tabId: z.string().min(1),
+  subcommand: z.string().optional(),
+  /** A print watch's payload, which names its run. */
+  payload: z.unknown().optional(),
 });
 
 // ---------------------------------------------------------------------------

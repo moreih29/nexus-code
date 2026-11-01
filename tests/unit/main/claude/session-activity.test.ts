@@ -478,6 +478,19 @@ describe("`claude -p` runs", () => {
     expect(changes.at(-1)).toMatchObject({ id: "p1", state: "stopped" });
   });
 
+  test("a run gone before it told its end stops; one that told it stays as it ended", () => {
+    print("print-start", { tools_told: true });
+    print("print-tool-use", { tool_use_id: "u1", tool_name: "Read", tool_input: {} });
+    clock = 5_000;
+    print("print-gone");
+    expect(activity().agents[0]).toMatchObject({ state: "stopped", end: 5_000 });
+    expect(activity().agents[0]?.tools[0]?.end).toBe(5_000);
+    log.notePrint(WS, TAB, "print-start", { run_id: "p2" });
+    log.notePrint(WS, TAB, "print-end", { run_id: "p2", exit_code: 0 });
+    log.notePrint(WS, TAB, "print-gone", { run_id: "p2" });
+    expect(activity().agents.find((agent) => agent.id === "p2")?.state).toBe("completed");
+  });
+
   test("frames of a run that never told its start change nothing", () => {
     hook("user-prompt-submit", { prompt: "go" });
     print("print-tool-use", { tool_use_id: "u1", tool_name: "Read", tool_input: {} });

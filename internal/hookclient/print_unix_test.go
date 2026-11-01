@@ -6,6 +6,8 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,10 +18,12 @@ import (
 )
 
 // frameServer answers every hook frame sent to it, as the agent's
-// hookserver would, and keeps them.
+// hookserver would, and keeps them. It holds a run's watch unanswered, as
+// the hookserver does, and logs it and its closing among the frames.
 type frameServer struct {
 	mu     sync.Mutex
 	frames []hookRequest
+	log    []string
 }
 
 func newFrameServer(t *testing.T) (*frameServer, string) {
@@ -38,6 +42,12 @@ func newFrameServer(t *testing.T) (*frameServer, string) {
 				var req hookRequest
 				if json.Unmarshal(scanner.Bytes(), &req) == nil {
 					fs.mu.Lock()
+					fs.log = append(fs.log, req.Subcommand)
+					if req.Subcommand == "print-watch" {
+						fs.mu.Unlock()
+						go fs.hold(conn)
+						continue
+					}
 					fs.frames = append(fs.frames, req)
 					fs.mu.Unlock()
 				}
@@ -47,6 +57,22 @@ func newFrameServer(t *testing.T) (*frameServer, string) {
 		}
 	}()
 	return fs, srv.socketPath
+}
+
+// hold keeps a watch open until its client closes it.
+func (fs *frameServer) hold(conn net.Conn) {
+	defer conn.Close()
+	_, _ = io.Copy(io.Discard, conn)
+	fs.mu.Lock()
+	fs.log = append(fs.log, "print-watch closed")
+	fs.mu.Unlock()
+}
+
+// logged is what the server heard, in order.
+func (fs *frameServer) logged() string {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	return strings.Join(fs.log, ",")
 }
 
 func (fs *frameServer) told(t *testing.T) []toldFrame {
@@ -213,6 +239,40 @@ func TestRunPrint_TellsTheSignalTheRunGot(t *testing.T) {
 	if end["exit_code"] != float64(143) || end["signal"] != "terminated" {
 		t.Fatalf("end = %v", end)
 	}
+}
+
+func TestRunPrint_HoldsAWatchUntilItsEnd(t *testing.T) {
+	fs, socket := newFrameServer(t)
+	dir := t.TempDir()
+	claude := fakeClaude(t, `while [ ! -e "`+dir+`/go" ]; do sleep 0.02; done`)
+	ran := make(chan int, 1)
+	go func() {
+		code, _ := runPrint(claude, []string{"-p", "hi"}, strings.NewReader(""), &bytes.Buffer{},
+			&bytes.Buffer{}, newPrintTeller(socket, "tok", "ws", "t1"))
+		ran <- code
+	}()
+	// The app knows of the run before it is watched.
+	waitFor(t, func() bool { return fs.logged() == "print-start,print-watch" })
+	if err := os.WriteFile(filepath.Join(dir, "go"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := <-ran; code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	// Its end is told before the watch closes.
+	waitFor(t, func() bool { return fs.logged() == "print-start,print-watch,print-end,print-watch closed" })
+}
+
+// waitFor waits up to 2s for ok.
+func waitFor(t *testing.T, ok func() bool) {
+	t.Helper()
+	for i := 0; i < 100; i++ {
+		if ok() {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("timed out")
 }
 
 func TestRunPrint_RunsWithNoAppToTell(t *testing.T) {

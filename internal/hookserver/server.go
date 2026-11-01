@@ -16,6 +16,10 @@
 //     or in Claude Code's own dialog beside it, for up to permissionDeadline;
 //     when its client goes away unanswered (Claude Code ends the hook as the
 //     user interrupts at the dialog), main is told ("claude.hookGone").
+//  5. A `claude -p` run's watch (hookclient's print-run) is held with no
+//     deadline for as long as the run goes on: main never answers it, and
+//     its connection closing tells main the run is over, as when the run is
+//     killed before it can tell its end.
 //
 // macOS socket path 104자 제한 대응:
 // socketPath = filepath.Join(agentpaths.SocketsDir(), "h-" + shortHash(agentKey) + ".sock")
@@ -57,6 +61,9 @@ const permissionDeadline = time.Hour
 // permissionRequestSubcmd is the hook that waits on the user's answer.
 const permissionRequestSubcmd = "permission-request"
 
+// printWatchSubcmd is the hook a `claude -p` run holds open while it goes on.
+const printWatchSubcmd = "print-watch"
+
 // maxSocketPathLen 은 macOS에서 허용하는 Unix 소켓 경로 최대 길이다.
 const maxSocketPathLen = 104
 
@@ -93,6 +100,10 @@ type HookGonePayload struct {
 	HookID      string `json:"hookId"`
 	WorkspaceID string `json:"workspaceId"`
 	TabID       string `json:"tabId"`
+	Subcommand  string `json:"subcommand"`
+	// Payload is a print watch's, which names its run; a PermissionRequest's
+	// can be large and is known to main by its hookId.
+	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
 // HookResponse 는 main이 Respond()를 통해 hook 클라이언트에게 전달하는 응답이다.
@@ -372,6 +383,11 @@ func (s *Server) handleConn(conn net.Conn) {
 		return
 	}
 
+	// A print watch waits on no answer: it is held until its client goes.
+	if req.Subcommand == printWatchSubcmd {
+		go s.watchGone(hookID, conn, req)
+		return
+	}
 	if req.Subcommand == permissionRequestSubcmd {
 		go s.watchGone(hookID, conn, req)
 	}
@@ -393,9 +409,10 @@ func (s *Server) handleConn(conn net.Conn) {
 
 // watchGone tells main when the client of a waiting hook goes away before
 // it is answered: Claude Code ends a PermissionRequest hook as the user
-// interrupts at its dialog, and the app must stop offering an answer. The
-// client writes nothing after its request, so a read returns only once the
-// connection closes, from either side.
+// interrupts at its dialog, and the app must stop offering an answer; a
+// print watch's client ends with its run. The client writes nothing after
+// its request, so a read returns only once the connection closes, from
+// either side.
 func (s *Server) watchGone(hookID string, conn net.Conn, req hookWireRequest) {
 	var b [1]byte
 	for {
@@ -413,7 +430,15 @@ func (s *Server) watchGone(hookID string, conn net.Conn, req hookWireRequest) {
 	if sink == nil {
 		return
 	}
-	gone := HookGonePayload{HookID: hookID, WorkspaceID: req.WorkspaceID, TabID: req.TabID}
+	gone := HookGonePayload{
+		HookID:      hookID,
+		WorkspaceID: req.WorkspaceID,
+		TabID:       req.TabID,
+		Subcommand:  req.Subcommand,
+	}
+	if req.Subcommand == printWatchSubcmd {
+		gone.Payload = req.Payload
+	}
 	if err := sink("claude.hookGone", gone); err != nil {
 		fmt.Fprintf(os.Stderr, "hookserver: sink error for gone hookId %s: %v\n", hookID, err)
 	}
