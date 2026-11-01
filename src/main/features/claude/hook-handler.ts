@@ -14,7 +14,7 @@
 //     때 워크스페이스 B의 알림은 받아야 한다.
 //
 // subcommand 매핑:
-//   session-start      → broker.set(idle) + respondHook — 입력 대기, 글리프 없음
+//   session-start      → broker.set(idle) + respondHook — 입력 대기, 글리프 없음 (not after compaction)
 //   user-prompt-submit → broker.set(running) + respondHook
 //   pre-tool-use       → broker.set(running) + respondHook
 //   notification       → broker.set(needsInput) + (그 탭 안 보면) OS 알림 + respondHook
@@ -123,6 +123,16 @@ function extractPrompt(payload: unknown): string | undefined {
   const trimmed = prompt.trim();
   if (trimmed === "") return undefined;
   return trimmed.length > PROMPT_MAX_CHARS ? `${trimmed.slice(0, PROMPT_MAX_CHARS)}…` : trimmed;
+}
+
+/**
+ * How a SessionStart hook's session began: "startup", "resume", "clear",
+ * "compact" or "fork".
+ */
+function sessionStartSource(payload: unknown): string | undefined {
+  if (typeof payload !== "object" || payload === null) return undefined;
+  const source = (payload as Record<string, unknown>).source;
+  return typeof source === "string" ? source : undefined;
 }
 
 /**
@@ -240,7 +250,11 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
       // 아니다. broker에 entry는 만들어 두되 idle로 두면 글리프는 안 보이고
       // (idle 글리프는 null), 첫 프롬프트 제출 시 running으로 자연 전이된다.
       // 새 세션이라 이전 세션의 프롬프트는 지운다.
-      broker.set(workspaceId, tabId, "idle", undefined, null);
+      // Compaction starts no session: it can run in the middle of a turn,
+      // which goes on after it with the same prompt.
+      if (sessionStartSource(hookPayload) !== "compact") {
+        broker.set(workspaceId, tabId, "idle", undefined, null);
+      }
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
       break;
     }
