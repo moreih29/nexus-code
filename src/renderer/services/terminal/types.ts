@@ -83,6 +83,12 @@ export interface TerminalController {
    * terminal has opened.
    */
   input: (text: string, mode: "paste" | "keys") => boolean;
+  /**
+   * True once the program next writes output, other than replayed
+   * scrollback; false after `timeoutMs` without any, or once the terminal
+   * is gone.
+   */
+  nextOutput: (timeoutMs: number) => Promise<boolean>;
   reopen: () => Promise<void>;
   dispose: () => void;
 }

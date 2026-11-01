@@ -8,10 +8,11 @@ import { useActiveStore } from "@/state/stores/active";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import { useTaskUIStore } from "@/state/stores/task-ui";
 import { useUIStore } from "@/state/stores/ui";
-import { actionHandlers } from "../cli/actions";
+import { actionHandlers, UiRequestError } from "../cli/actions";
 import { groupOf } from "../cli/placement";
+import { getTerminalController } from "../terminal/terminal-registry";
 import { activateWorkspace } from "../workspace/tasks";
-import { typedChunks } from "./typed-input";
+import { typeText } from "./typed-input";
 
 interface SessionRef {
   readonly workspaceId: string;
@@ -26,9 +27,6 @@ export function showTerminal({ workspaceId, tabId }: SessionRef): void {
   useLayoutStore.getState().setActiveTabInGroup({ workspaceId, groupId, tabId });
 }
 
-/** A pause between typed pieces, so the terminal reads them one at a time. */
-const CHUNK_GAP_MS = 10;
-
 /**
  * The wait before Enter. Codex takes an Enter within 120 ms of fast input as
  * a new line, not a send (60 ms longer on Windows).
@@ -39,13 +37,23 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Types `text` into the session's terminal as keys and presses Enter. */
 export async function sendLine(session: SessionRef, text: string): Promise<void> {
-  const input = actionHandlers["terminal.input"];
-  for (const chunk of typedChunks(text)) {
-    await input({ ...session, text: chunk, mode: "keys", enter: false });
-    await sleep(CHUNK_GAP_MS);
+  const terminal = getTerminalController(session.tabId);
+  if (!terminal) {
+    throw new UiRequestError(
+      "that terminal has not started: its workspace has not been opened since NexusCode started",
+    );
   }
+  await typeText(
+    {
+      write: (chunk) => {
+        if (!terminal.input(chunk, "keys")) throw new UiRequestError("that terminal has closed");
+      },
+      nextOutput: (timeoutMs) => terminal.nextOutput(timeoutMs),
+    },
+    text,
+  );
   await sleep(SUBMIT_DELAY_MS);
-  await input({ ...session, text: "", mode: "keys", enter: true });
+  await actionHandlers["terminal.input"]({ ...session, text: "", mode: "keys", enter: true });
 }
 
 /** Presses Ctrl-C in the session's terminal. */

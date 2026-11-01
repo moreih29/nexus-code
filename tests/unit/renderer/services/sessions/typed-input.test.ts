@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import {
   NEWLINE_KEY,
+  type TypingTarget,
   typedChunks,
+  typeText,
 } from "../../../../../src/renderer/services/sessions/typed-input";
 
 describe("typedChunks", () => {
@@ -44,5 +46,71 @@ describe("typedChunks", () => {
 
   it("turns tabs into spaces and drops other control characters", () => {
     expect(typedChunks("a\tb\u001b[201~c\u0003d\u007f")).toEqual(["a    b[201~cd"]);
+  });
+});
+
+/** A terminal whose agent shows each piece when the test says so. */
+function slowTerminal() {
+  const log: string[] = [];
+  let show: ((shown: boolean) => void) | null = null;
+  const target: TypingTarget = {
+    write: (text) => log.push(`write ${text.length}`),
+    nextOutput: () => {
+      log.push("wait");
+      return new Promise((resolve) => {
+        show = resolve;
+      });
+    },
+  };
+  const redraw = async (shown = true) => {
+    show?.(shown);
+    show = null;
+    await Bun.sleep(30);
+  };
+  return { log, target, redraw };
+}
+
+describe("typeText", () => {
+  it("types each piece after the agent has shown the one before", async () => {
+    const { log, target, redraw } = slowTerminal();
+    const typing = typeText(target, "x".repeat(150));
+    await Bun.sleep(30);
+    // A busy agent: the second piece waits, so the two never come as one read.
+    expect(log).toEqual(["wait", "write 64"]);
+    await redraw();
+    expect(log).toEqual(["wait", "write 64", "wait", "write 64"]);
+    await redraw();
+    await redraw();
+    await typing;
+    expect(log).toEqual(["wait", "write 64", "wait", "write 64", "wait", "write 22"]);
+  });
+
+  it("listens before writing, so a redraw at once is not missed", async () => {
+    const log: string[] = [];
+    let pending: ((shown: boolean) => void) | null = null;
+    const target: TypingTarget = {
+      write: (text) => {
+        log.push(`write ${text}`);
+        pending?.(true);
+      },
+      nextOutput: () => {
+        log.push("wait");
+        return new Promise((resolve) => {
+          pending = resolve;
+        });
+      },
+    };
+    await typeText(target, "a\nb");
+    expect(log).toEqual(["wait", "write a", "wait", `write ${NEWLINE_KEY}`, "wait", "write b"]);
+  });
+
+  it("goes on when the agent does not redraw in time", async () => {
+    const { log, target, redraw } = slowTerminal();
+    const typing = typeText(target, "one\ntwo");
+    await redraw(false);
+    await redraw(false);
+    await redraw(false);
+    await typing;
+    expect(log.filter((entry) => entry.startsWith("write"))).toHaveLength(3);
   });
 });
