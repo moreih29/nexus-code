@@ -368,6 +368,125 @@ describe("answers from the app", () => {
   });
 });
 
+describe("`claude -p` runs", () => {
+  function print(frame: string, payload: Record<string, unknown> = {}): void {
+    log.notePrint(WS, TAB, frame, { run_id: "p1", ...payload });
+  }
+
+  test("a run is one of the session's agents, told by the command that started it", () => {
+    hook("user-prompt-submit", { prompt: "go" });
+    hook("pre-tool-use", {
+      tool_name: "Bash",
+      tool_use_id: "t1",
+      tool_input: { command: "offload -e claude review", description: "Offload the review" },
+    });
+    clock = 1_500;
+    print("print-start", { prompt: "review it", model: "glm", cwd: "/repo", tools_told: true });
+    print("print-init", { model: "glm-4.6", cwd: "/repo/sub" });
+    clock = 2_000;
+    print("print-tool-use", {
+      tool_use_id: "u1",
+      tool_name: "Read",
+      tool_input: { file_path: "/repo/sub/a.ts" },
+    });
+    print("print-tool-use", { tool_use_id: "u2", tool_name: "Bash", tool_input: { command: "x" } });
+    clock = 3_000;
+    print("print-tool-result", { tool_use_id: "u1", is_error: false });
+    print("print-tool-result", { tool_use_id: "u2", is_error: true, error: "not found\nmore" });
+    expect(activity().agents).toEqual([
+      {
+        id: "p1",
+        kind: "print",
+        model: "glm-4.6",
+        description: "Offload the review",
+        prompt: "review it",
+        start: 1_500,
+        state: "running",
+        tools: [
+          { id: "u1", name: "Read", target: "a.ts", start: 2_000, end: 3_000 },
+          {
+            id: "u2",
+            name: "Bash",
+            target: "x",
+            start: 2_000,
+            end: 3_000,
+            failed: true,
+            error: "not found",
+          },
+        ],
+        toolCount: 2,
+        failedCount: 1,
+        toolsTold: true,
+      },
+    ]);
+    // The run's tools are its own, not the session's.
+    expect(activity().tools.map((tool) => tool.id)).toEqual(["t1"]);
+  });
+
+  test("a run ends as claude exited, with its answer", () => {
+    print("print-start", { tools_told: true });
+    print("print-tool-use", { tool_use_id: "u1", tool_name: "Read", tool_input: {} });
+    clock = 4_000;
+    print("print-end", { exit_code: 0, answer: "Done." });
+    expect(activity().agents[0]).toMatchObject({
+      state: "completed",
+      end: 4_000,
+      exitCode: 0,
+      answer: "Done.",
+    });
+    expect(activity().agents[0]?.tools[0]?.end).toBe(4_000);
+    // Told once: a late frame changes nothing.
+    print("print-tool-use", { tool_use_id: "u2", tool_name: "Read", tool_input: {} });
+    expect(activity().agents[0]?.toolCount).toBe(1);
+    expect(changes.map((change) => change.state)).toEqual(["running", "completed"]);
+  });
+
+  test.each([
+    [{ exit_code: 1 }, "failed"],
+    [{ signal: "interrupt" }, "stopped"],
+    [{ exit_code: 143, signal: "terminated" }, "stopped"],
+  ])("a run that ended with %o is %s", (end, state) => {
+    print("print-start");
+    print("print-end", end);
+    expect(activity().agents[0]?.state).toBe(state);
+  });
+
+  test("a run whose output tells nothing has no tools, and no description without a command", () => {
+    print("print-start", { tools_told: false });
+    expect(activity().agents[0]).toMatchObject({ kind: "print", toolsTold: false });
+    expect(activity().agents[0]?.description).toBeUndefined();
+  });
+
+  test("a command left in the background tells the run it started", () => {
+    hook("pre-tool-use", {
+      tool_name: "Bash",
+      tool_use_id: "t1",
+      tool_input: { command: "offload &", description: "Offload", run_in_background: true },
+    });
+    hook("post-tool-use", { tool_name: "Bash", tool_use_id: "t1", tool_input: {} });
+    hook("pre-tool-use", { tool_name: "Read", tool_use_id: "t2", tool_input: {} });
+    print("print-start");
+    expect(activity().agents[0]?.description).toBe("Offload");
+  });
+
+  test("a run outlives the turn that started it, not its session", () => {
+    hook("user-prompt-submit", { prompt: "go" });
+    print("print-start");
+    hook("user-prompt-submit", { prompt: "next" });
+    expect(activity().agents[0]?.state).toBe("running");
+    hook("session-end");
+    expect(changes.at(-1)).toMatchObject({ id: "p1", state: "stopped" });
+  });
+
+  test("frames of a run that never told its start change nothing", () => {
+    hook("user-prompt-submit", { prompt: "go" });
+    print("print-tool-use", { tool_use_id: "u1", tool_name: "Read", tool_input: {} });
+    print("print-end", { exit_code: 0 });
+    log.notePrint(WS, TAB, "print-start", {});
+    expect(activity().agents).toEqual([]);
+  });
+});
+
 describe("sessions", () => {
   test("a new session starts a new record; compaction does not", () => {
     hook("pre-tool-use", { tool_name: "Glob", tool_use_id: "t1", tool_input: { pattern: "*" } });

@@ -1,0 +1,251 @@
+//go:build !windows
+
+package hookclient
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"syscall"
+	"testing"
+	"time"
+)
+
+// frameServer answers every hook frame sent to it, as the agent's
+// hookserver would, and keeps them.
+type frameServer struct {
+	mu     sync.Mutex
+	frames []hookRequest
+}
+
+func newFrameServer(t *testing.T) (*frameServer, string) {
+	t.Helper()
+	srv := newMockServer(t)
+	fs := &frameServer{}
+	go func() {
+		for {
+			conn, err := srv.listener.Accept()
+			if err != nil {
+				return
+			}
+			scanner := bufio.NewScanner(conn)
+			scanner.Buffer(make([]byte, 0, 64<<10), 16<<20)
+			if scanner.Scan() {
+				var req hookRequest
+				if json.Unmarshal(scanner.Bytes(), &req) == nil {
+					fs.mu.Lock()
+					fs.frames = append(fs.frames, req)
+					fs.mu.Unlock()
+				}
+				_, _ = conn.Write([]byte(`{"ok":true}` + "\n"))
+			}
+			conn.Close()
+		}
+	}()
+	return fs, srv.socketPath
+}
+
+func (fs *frameServer) told(t *testing.T) []toldFrame {
+	t.Helper()
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	told := make([]toldFrame, 0, len(fs.frames))
+	for _, req := range fs.frames {
+		if req.Token != "tok" || req.WorkspaceID != "ws" || req.TabID != "t1" || req.Type != "hook" {
+			t.Fatalf("frame sent as %+v", req)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(req.Payload, &payload); err != nil {
+			t.Fatalf("payload %s: %v", req.Payload, err)
+		}
+		told = append(told, toldFrame{req.Subcommand, payload})
+	}
+	return told
+}
+
+// fakeClaude writes a script that stands for claude.
+func fakeClaude(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestRunPrint_PassesTheRunOnAndTellsIt(t *testing.T) {
+	fs, socket := newFrameServer(t)
+	stream := strings.Join(streamLines, "\n") + "\n"
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "out.jsonl"), []byte(stream), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	claude := fakeClaude(t, `cat "`+dir+`/out.jsonl"; cat >&2; echo "args: $*" >&2; exit 3`)
+	teller := newPrintTeller(socket, "tok", "ws", "t1")
+	var stdout, stderr bytes.Buffer
+	code, sig := runPrint(
+		claude,
+		[]string{"-p", "review it", "--output-format", "stream-json", "--verbose"},
+		strings.NewReader("from stdin\n"),
+		&stdout,
+		&stderr,
+		teller,
+	)
+	if code != 3 || sig != 0 {
+		t.Fatalf("exit = %d, signal %d", code, sig)
+	}
+	if stdout.String() != stream {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	if want := "from stdin\nargs: -p review it --output-format stream-json --verbose\n"; stderr.String() != want {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+
+	told := fs.told(t)
+	subcommands := make([]string, len(told))
+	for i, frame := range told {
+		subcommands[i] = frame.Subcommand
+		if frame.Payload["run_id"] != teller.runID {
+			t.Fatalf("frame %d of run %v", i, frame.Payload["run_id"])
+		}
+	}
+	want := []string{
+		"print-start", "print-init",
+		"print-tool-use", "print-tool-result",
+		"print-tool-use", "print-tool-result",
+		"print-end",
+	}
+	if strings.Join(subcommands, ",") != strings.Join(want, ",") {
+		t.Fatalf("told %v", subcommands)
+	}
+	start := told[0].Payload
+	if start["prompt"] != "review it" || start["tools_told"] != true || start["cwd"] == "" {
+		t.Fatalf("start = %v", start)
+	}
+	end := told[len(told)-1].Payload
+	if end["exit_code"] != float64(3) || end["answer"] != "Done." || end["signal"] != nil {
+		t.Fatalf("end = %v", end)
+	}
+}
+
+func TestRunPrint_TextRunTellsItsOutputAsItsAnswer(t *testing.T) {
+	fs, socket := newFrameServer(t)
+	// Output that reads as stream-json is a text run's answer all the same.
+	out := "{\"type\":\"result\",\"result\":\"no\"}\nLooks fine.\n"
+	claude := fakeClaude(t, `printf '%s' '`+out+`'`)
+	var stdout bytes.Buffer
+	code, _ := runPrint(claude, []string{"-p", "hi"}, strings.NewReader(""), &stdout, &bytes.Buffer{},
+		newPrintTeller(socket, "tok", "ws", "t1"))
+	if code != 0 || stdout.String() != out {
+		t.Fatalf("exit %d, stdout %q", code, stdout.String())
+	}
+	told := fs.told(t)
+	if len(told) != 2 || told[0].Subcommand != "print-start" || told[1].Subcommand != "print-end" {
+		t.Fatalf("told %v", told)
+	}
+	if told[0].Payload["tools_told"] != false || told[1].Payload["answer"] != strings.TrimSpace(out) {
+		t.Fatalf("told %v", told)
+	}
+}
+
+func TestRunPrint_LeavesATerminalToClaude(t *testing.T) {
+	tty, err := os.OpenFile("/dev/null", os.O_WRONLY, 0)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer tty.Close()
+	if !isTerminal(tty) {
+		t.Skip("/dev/null is no character device here")
+	}
+	fs, socket := newFrameServer(t)
+	// Claude finds the terminal it was given: its stdout is the device itself.
+	claude := fakeClaude(t, `[ -c /dev/stdout ] || exit 9; echo answer`)
+	code, _ := runPrint(claude, []string{"-p", "hi"}, strings.NewReader(""), tty, &bytes.Buffer{},
+		newPrintTeller(socket, "tok", "ws", "t1"))
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if told := fs.told(t); told[len(told)-1].Payload["answer"] != nil {
+		t.Fatalf("told %v", told)
+	}
+}
+
+func TestRunPrint_TellsTheSignalClaudeDiedOf(t *testing.T) {
+	fs, socket := newFrameServer(t)
+	claude := fakeClaude(t, `kill -TERM $$`)
+	code, sig := runPrint(claude, []string{"-p", "hi", "--output-format", "stream-json"},
+		strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}, newPrintTeller(socket, "tok", "ws", "t1"))
+	if sig != int(syscall.SIGTERM) || code != -1 {
+		t.Fatalf("exit %d, signal %d", code, sig)
+	}
+	told := fs.told(t)
+	end := told[len(told)-1]
+	if end.Subcommand != "print-end" || end.Payload["signal"] != "terminated" || end.Payload["exit_code"] != nil {
+		t.Fatalf("end = %v", end)
+	}
+}
+
+func TestRunPrint_TellsTheSignalTheRunGot(t *testing.T) {
+	fs, socket := newFrameServer(t)
+	started := filepath.Join(t.TempDir(), "started")
+	// Claude ends by the signal with an exit code of its own.
+	claude := fakeClaude(t, `trap 'exit 143' TERM; touch "`+started+`"; sleep 5 >/dev/null 2>&1 & wait`)
+	go func() {
+		for i := 0; i < 100; i++ {
+			if _, err := os.Stat(started); err == nil {
+				_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}()
+	code, sig := runPrint(claude, []string{"-p", "hi"}, strings.NewReader(""), &bytes.Buffer{},
+		&bytes.Buffer{}, newPrintTeller(socket, "tok", "ws", "t1"))
+	if code != 143 || sig != 0 {
+		t.Fatalf("exit %d, signal %d", code, sig)
+	}
+	told := fs.told(t)
+	end := told[len(told)-1].Payload
+	if end["exit_code"] != float64(143) || end["signal"] != "terminated" {
+		t.Fatalf("end = %v", end)
+	}
+}
+
+func TestRunPrint_RunsWithNoAppToTell(t *testing.T) {
+	claude := fakeClaude(t, `echo out; exit 4`)
+	var stdout bytes.Buffer
+	code, _ := runPrint(claude, []string{"-p", "hi", "--output-format", "stream-json"},
+		strings.NewReader(""), &stdout, &bytes.Buffer{}, newPrintTeller("", "", "", ""))
+	if code != 4 || stdout.String() != "out\n" {
+		t.Fatalf("exit %d, stdout %q", code, stdout.String())
+	}
+}
+
+func TestRunPrint_AnAppGoneDoesNotHoldTheRun(t *testing.T) {
+	claude := fakeClaude(t, `echo '{"type":"system","subtype":"init","model":"m"}'`)
+	teller := newPrintTeller(filepath.Join(t.TempDir(), "gone.sock"), "tok", "ws", "t1")
+	began := time.Now()
+	code, _ := runPrint(claude, []string{"-p", "hi", "--output-format", "stream-json"},
+		strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}, teller)
+	if code != 0 || time.Since(began) > 2*time.Second {
+		t.Fatalf("exit %d after %v", code, time.Since(began))
+	}
+}
+
+func TestRunPrint_ClaudeNotFound(t *testing.T) {
+	var stderr bytes.Buffer
+	code, _ := runPrint(filepath.Join(t.TempDir(), "none"), []string{"-p"}, strings.NewReader(""),
+		&bytes.Buffer{}, &stderr, nil)
+	if code != 127 || !strings.HasPrefix(stderr.String(), "nexus: ") {
+		t.Fatalf("exit %d, stderr %q", code, stderr.String())
+	}
+}
+
+func (f toldFrame) String() string {
+	b, _ := json.Marshal(f.Payload)
+	return f.Subcommand + string(b)
+}

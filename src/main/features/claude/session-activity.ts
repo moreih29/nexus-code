@@ -7,6 +7,10 @@
 // 2.1 gives the id in the Agent tool's answer of a background agent, which
 // comes before the agent starts; a foreground agent starts before the tool
 // answers, and is matched to the oldest call for its type.
+//
+// A `claude -p` run started inside the session, as by a script its Bash tool
+// runs, has no hooks: the agent runs it and tells of it (hookclient's
+// print-run), and it is one of the session's agents.
 
 import {
   ACTIVITY_TEXT_MAX_CHARS,
@@ -24,6 +28,8 @@ import {
 const AGENT_TOOLS = new Set(["Agent", "Task"]);
 /** How many Agent tool calls wait for their agent at most; a call whose agent never starts is dropped. */
 const AGENT_CALLS_KEPT = 16;
+/** The tools that run a command, which may start a `claude -p` run. */
+const COMMAND_TOOLS = new Set(["Bash", "PowerShell"]);
 /** The tools that write files, and the field naming the file. */
 const WRITING_TOOLS: Readonly<Record<string, string>> = {
   Edit: "file_path",
@@ -45,6 +51,8 @@ interface AgentEntry extends Omit<AgentRun, "tools"> {
   tools: ToolRun[];
   /** The call its open permission dialog is for, as callKey gives it. */
   asking?: string;
+  /** A `claude -p` run's directory, which its tools' paths are told from. */
+  cwd?: string;
 }
 
 interface SessionEntry {
@@ -134,6 +142,77 @@ export class SessionActivityLog {
           this.pruneAgents(session);
         }
         break;
+    }
+  }
+
+  /**
+   * Records what a `claude -p` run started inside the session in `tabId`
+   * tells of itself (hookclient's print-run): its start, claude's start, the
+   * tools it runs and how they end, and its own end.
+   */
+  notePrint(workspaceId: string, tabId: string, frame: string, payload: unknown): void {
+    const p = record(payload);
+    const id = text(p.run_id);
+    if (id === undefined) return;
+    const session = this.sessionOf(workspaceId, tabId);
+    if (frame === "print-start") {
+      if (!session.agents.has(id)) this.printStarted(session, id, p);
+      return;
+    }
+    const run = session.agents.get(id);
+    if (run?.kind !== "print" || run.end !== undefined) return;
+    switch (frame) {
+      case "print-init": {
+        const model = text(p.model);
+        if (model !== undefined) run.model = model;
+        run.cwd = text(p.cwd) ?? run.cwd;
+        break;
+      }
+      case "print-tool-use": {
+        const name = text(p.tool_name);
+        if (name === undefined) break;
+        const input = record(p.tool_input);
+        push(
+          run.tools,
+          {
+            id: text(p.tool_use_id) ?? `${name}:${this.now()}`,
+            name,
+            ...describeTool(name, input, run.cwd ?? session.cwd),
+            start: this.now(),
+            ...(input.run_in_background === true ? { background: true } : {}),
+          },
+          AGENT_TOOLS_KEPT,
+        );
+        run.toolCount++;
+        break;
+      }
+      case "print-tool-result": {
+        const toolId = text(p.tool_use_id);
+        const tool = run.tools.find((tool) => tool.id === toolId);
+        if (!tool || tool.end !== undefined) break;
+        tool.end = this.now();
+        if (p.is_error === true) {
+          tool.failed = true;
+          const error = firstLine(text(p.error));
+          if (error !== undefined) tool.error = error;
+          run.failedCount++;
+        }
+        break;
+      }
+      case "print-end": {
+        const answer = text(p.answer);
+        if (answer !== undefined) run.answer = answer;
+        const code = p.exit_code;
+        if (typeof code === "number" && Number.isInteger(code)) run.exitCode = code;
+        run.end = this.now();
+        this.endOpenTools(run.tools);
+        // Stopped by a signal, as with the turn that ran it.
+        const state =
+          text(p.signal) !== undefined ? "stopped" : run.exitCode === 0 ? "completed" : "failed";
+        this.setAgentState(session, run, state, true);
+        this.pruneAgents(session);
+        break;
+      }
     }
   }
 
@@ -260,6 +339,37 @@ export class SessionActivityLog {
     session.agents.set(agentId, agent);
     this.emit(session, agent);
     return agent;
+  }
+
+  /**
+   * A `claude -p` run started, by the command the session (or one of its
+   * subagents) runs now: what that command was said to do tells the run.
+   */
+  private printStarted(session: SessionEntry, id: string, p: Payload): void {
+    const command = latest(
+      [session.tools, ...[...session.agents.values()].map((agent) => agent.tools)]
+        .flat()
+        // A command left in the background answers as it starts, before the run tells of it.
+        .filter(
+          (tool) => COMMAND_TOOLS.has(tool.name) && (tool.end === undefined || tool.background),
+        ),
+    );
+    const run: AgentEntry = {
+      id,
+      kind: "print",
+      ...optional("model", text(p.model)),
+      ...optional("description", command?.note),
+      ...optional("prompt", text(p.prompt)),
+      start: this.now(),
+      state: "running",
+      tools: [],
+      toolCount: 0,
+      failedCount: 0,
+      toolsTold: p.tools_told === true,
+      ...optional("cwd", text(p.cwd)),
+    };
+    session.agents.set(id, run);
+    this.emit(session, run);
   }
 
   private toolStarted(session: SessionEntry, agentId: string | undefined, p: Payload): void {
@@ -408,11 +518,14 @@ export class SessionActivityLog {
 
   /**
    * A new turn: a foreground agent of the last one that told no end was
-   * stopped with it, as by an interrupt.
+   * stopped with it, as by an interrupt. A `claude -p` run tells its own
+   * end, and may outlive the command that started it.
    */
   private endForegroundAgents(session: SessionEntry): void {
     for (const agent of session.agents.values()) {
-      if (agent.end === undefined && !agent.background) this.stopAgent(session, agent);
+      if (agent.end === undefined && !agent.background && agent.kind !== "print") {
+        this.stopAgent(session, agent);
+      }
     }
     this.pruneAgents(session);
   }
@@ -463,7 +576,7 @@ function snapshotOf(session: SessionEntry): SessionActivity {
 }
 
 function agentRunOf(agent: AgentEntry): AgentRun {
-  const { asking: _asking, tools, ...run } = agent;
+  const { asking: _asking, cwd: _cwd, tools, ...run } = agent;
   return { ...run, tools: tools.map((tool) => ({ ...tool })) };
 }
 
@@ -601,6 +714,14 @@ function relative(path: string, cwd: string | undefined): string {
     if (path.startsWith(base)) return path.slice(base.length);
   }
   return path;
+}
+
+/** The tool run started last. */
+function latest(tools: readonly ToolRun[]): ToolRun | undefined {
+  return tools.reduce<ToolRun | undefined>(
+    (last, tool) => (last === undefined || tool.start >= last.start ? tool : last),
+    undefined,
+  );
 }
 
 function push(tools: ToolRun[], run: ToolRun, kept: number): void {

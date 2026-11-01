@@ -51,25 +51,49 @@ fi
 # report its session as the tab's, and its SessionEnd would clear the state
 # of the session still running. It runs without them. The mark is the tab's
 # id, so a terminal of an app started from inside one still gets them.
+NESTED=0
 if [[ "$IN_APP" == "1" && -n "${NEXUS_TAB_ID:-}" && "${NEXUS_CLAUDE_TAB_ID:-}" == "$NEXUS_TAB_ID" ]]; then
+  NESTED=1
   IN_APP=0
 fi
 
+# Whether the arguments run `claude -p`, which prints its answer and exits.
+is_print() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --) return 1 ;;
+      -p|--print) return 0 ;;
+    esac
+  done
+  return 1
+}
+
 REAL_CLAUDE="$(find_real_claude)" || { echo "claude not found in PATH" >&2; exit 127; }
 
-# 3) 앱 외부, or inside the tab's Claude session: 변경 없이 passthrough.
+# 3) A `claude -p` run inside the tab's Claude session runs under the agent,
+#    which tells the app of it as one of the session's agents: its start and
+#    end, and the tools it runs when its output is stream-json. Its output,
+#    input and exit stay claude's. The app marks a terminal whose agent runs
+#    it: this file's path is the same for every version, and an older agent
+#    would take `print-run` for the directory to serve.
+if [[ "$NESTED" == "1" && "${NEXUS_AGENT_PRINT_RUN:-}" == "1" && -n "${NEXUS_AGENT_BIN:-}" && -x "${NEXUS_AGENT_BIN}" ]] && is_print "$@"; then
+  exec "$NEXUS_AGENT_BIN" print-run "$REAL_CLAUDE" "$@"
+fi
+
+# 4) 앱 외부, or inside the tab's Claude session: 변경 없이 passthrough.
 if [[ "$IN_APP" == "0" ]]; then
   exec "$REAL_CLAUDE" "$@"
 fi
 
-# 4) NEXUS_AGENT_BIN 의무 확인.
+# 5) NEXUS_AGENT_BIN 의무 확인.
 #    미설정 시: stderr 경고 + settings 주입 없이 진짜 claude passthrough (hook 비활성화 fallback).
 if [[ -z "${NEXUS_AGENT_BIN:-}" ]]; then
   echo "nexus-code: NEXUS_AGENT_BIN is not set; hook injection skipped" >&2
   exec "$REAL_CLAUDE" "$@"
 fi
 
-# 5) The hooks settings JSON.
+# 6) The hooks settings JSON.
 #    command 필드에 리터럴 ${NEXUS_AGENT_BIN}을 기록한다 — exec 시점(claude hook 실행)에 셸이 확장한다.
 #    wrapper 실행 시점에 경로를 확장하지 않으므로 JSON-escape 처리가 불필요하다.
 SETTINGS_JSON="$(cat <<'SETTINGS_EOF'
@@ -95,7 +119,7 @@ SETTINGS_JSON="$(cat <<'SETTINGS_EOF'
 SETTINGS_EOF
 )"
 
-# 6) The settings file claude reads. exec leaves nothing behind to delete a
+# 7) The settings file claude reads. exec leaves nothing behind to delete a
 #    file per launch, so every launch shares one, named after its content: a
 #    launch of another version of this wrapper gets its own. A launch writes
 #    it only when it is missing or differs, through a rename, so a concurrent
@@ -120,26 +144,23 @@ if ! SETTINGS_FILE="$(write_settings)"; then
   exec "$REAL_CLAUDE" "$@"
 fi
 
-# 7) (테스트 전용) NEXUS_CAPTURE_SETTINGS_TO가 지정된 경우 settings 파일을 해당 경로로 복사.
+# 8) (테스트 전용) NEXUS_CAPTURE_SETTINGS_TO가 지정된 경우 settings 파일을 해당 경로로 복사.
 if [[ -n "${NEXUS_CAPTURE_SETTINGS_TO:-}" ]]; then
   cp "$SETTINGS_FILE" "$NEXUS_CAPTURE_SETTINGS_TO"
 fi
 
-# 8) A `claude -p` run shows no permission dialog: Claude Code waits on its
+# 9) A `claude -p` run shows no permission dialog: Claude Code waits on its
 #    PermissionRequest hook, which the app then answers at once rather than
 #    hold it for the user (the hooks read the mark). An interactive claude
 #    shows its dialog beside the hook, which the app holds for up to an hour
 #    (the timeout above is a little longer) so the user can answer there.
 NEXUS_CLAUDE_PRINT=0
-for arg in "$@"; do
-  case "$arg" in
-    --) break ;;
-    -p|--print) NEXUS_CLAUDE_PRINT=1; break ;;
-  esac
-done
+if is_print "$@"; then
+  NEXUS_CLAUDE_PRINT=1
+fi
 export NEXUS_CLAUDE_PRINT
 
-# 9) Runs claude with the hooks. No --session-id: claude refuses one with
+# 10) Runs claude with the hooks. No --session-id: claude refuses one with
 #    --continue or --resume, and nothing reads it. Its processes carry the
 #    mark above.
 export NEXUS_CLAUDE_TAB_ID="${NEXUS_TAB_ID:-}"

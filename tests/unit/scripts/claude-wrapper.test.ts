@@ -379,10 +379,14 @@ describeOnPosix("claude-wrapper.sh — a `claude -p` run", () => {
 
 describeOnPosix("claude-wrapper.sh — a claude inside the tab's Claude session", () => {
   /**
-   * Runs the wrapper for tab t1 with `env`, and a claude that prints whether
-   * it got hooks and the mark its own processes carry.
+   * Runs the wrapper for tab t1 with `env` and `args`, and a claude that
+   * prints whether it got hooks and the mark its own processes carry; an
+   * agent that prints how it was run.
    */
-  function launch(env: Record<string, string>): { hooks: boolean; mark: string } {
+  function launch(
+    env: Record<string, string>,
+    args: string[] = ["-p", "hi"],
+  ): { hooks: boolean; mark: string; stdout: string; claude: string } {
     const binDir = path.join(tmpDir, "bin");
     fs.mkdirSync(binDir, { recursive: true });
     const fake = path.join(binDir, "claude");
@@ -392,13 +396,14 @@ describeOnPosix("claude-wrapper.sh — a claude inside the tab's Claude session"
     );
     fs.chmodSync(fake, 0o755);
     const hookBin = path.join(tmpDir, "agent");
-    fs.writeFileSync(hookBin, "#!/usr/bin/env bash\nexit 0\n");
+    fs.writeFileSync(hookBin, '#!/usr/bin/env bash\nprintf "agent %s" "$*"\n');
     fs.chmodSync(hookBin, 0o755);
-    const result = spawnSync("bash", [WRAPPER_PATH, "-p", "hi"], {
+    const result = spawnSync("bash", [WRAPPER_PATH, ...args], {
       env: {
         NEXUS_IN_APP: "1",
         NEXUS_AGENT_SOCKET: socketPath,
         NEXUS_AGENT_BIN: hookBin,
+        NEXUS_AGENT_PRINT_RUN: "1",
         NEXUS_TAB_ID: "t1",
         HOME: path.join(tmpDir, "home"),
         PATH: `${binDir}:/bin:/usr/bin`,
@@ -409,21 +414,49 @@ describeOnPosix("claude-wrapper.sh — a claude inside the tab's Claude session"
     });
     expect(result.status).toBe(0);
     const [hooks, mark = ""] = result.stdout.split(" ");
-    return { hooks: hooks === "yes", mark };
+    return { hooks: hooks === "yes", mark, stdout: result.stdout, claude: fake };
   }
 
   test("the tab's claude gets the hooks, and its processes the tab's mark", () => {
-    expect(launch({})).toEqual({ hooks: true, mark: "t1" });
+    expect(launch({})).toMatchObject({ hooks: true, mark: "t1" });
   });
 
-  // As `claude -p` run by Claude's Bash tool: its hooks would report it as the tab's session.
+  // As claude run by Claude's Bash tool: its hooks would report it as the tab's session.
   test("a claude run by it gets none", () => {
-    expect(launch({ NEXUS_CLAUDE_TAB_ID: "t1" })).toEqual({ hooks: false, mark: "t1" });
+    expect(launch({ NEXUS_CLAUDE_TAB_ID: "t1" }, ["hi"])).toMatchObject({
+      hooks: false,
+      mark: "t1",
+    });
+  });
+
+  // As `claude -p` run by an offload script: the app tells it as one of the session's agents.
+  test("a `claude -p` run by it runs under the agent, which tells the app of it", () => {
+    const run = launch({ NEXUS_CLAUDE_TAB_ID: "t1" }, [
+      "-p",
+      "hi",
+      "--output-format",
+      "stream-json",
+    ]);
+    expect(run.stdout).toBe(`agent print-run ${run.claude} -p hi --output-format stream-json`);
+  });
+
+  test("a `claude -p` run by it runs alone when there is no agent to run it", () => {
+    expect(
+      launch({ NEXUS_CLAUDE_TAB_ID: "t1", NEXUS_AGENT_BIN: path.join(tmpDir, "none") }),
+    ).toMatchObject({ hooks: false, mark: "t1" });
+  });
+
+  // A terminal an older app started names its older agent, which has no print-run.
+  test("a `claude -p` run by it runs alone when its agent cannot run it", () => {
+    expect(launch({ NEXUS_CLAUDE_TAB_ID: "t1", NEXUS_AGENT_PRINT_RUN: "" })).toMatchObject({
+      hooks: false,
+      mark: "t1",
+    });
   });
 
   // A terminal of an app started from inside a Claude session in another tab.
   test("a mark of another tab is not the tab's session", () => {
-    expect(launch({ NEXUS_CLAUDE_TAB_ID: "t0" })).toEqual({ hooks: true, mark: "t1" });
+    expect(launch({ NEXUS_CLAUDE_TAB_ID: "t0" })).toMatchObject({ hooks: true, mark: "t1" });
   });
 });
 
