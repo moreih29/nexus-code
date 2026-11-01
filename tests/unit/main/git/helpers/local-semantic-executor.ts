@@ -631,7 +631,7 @@ function buildLocalLogArgs(args: GitLogOptions): string[] {
   const afterSha = args.afterSha?.trim();
   const usesStreamCursorSeek = scope !== "ref" && afterSha !== undefined && afterSha.length > 0;
   const format = scope === "ref" ? LOG_FORMAT : LOG_SOURCE_FORMAT;
-  const gitArgs = ["log", `--pretty=format:${format}`, "--date=iso-strict"];
+  const gitArgs = ["log", `--pretty=format:${format}`, "--date=iso-strict", "--date-order"];
 
   if (args.grep && args.grep.trim().length > 0) gitArgs.push(`--grep=${args.grep.trim()}`);
   if (scope === "ref" && args.skip && args.skip > 0) gitArgs.push(`--skip=${args.skip}`);
