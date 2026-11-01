@@ -25,6 +25,7 @@ export {
   openNewBrowserTab,
   openNewUntitledTab,
   openOrRevealCommitTab,
+  openSessionsTab,
   openTerminalTab,
   openTabInNewSplit,
   revealTab,

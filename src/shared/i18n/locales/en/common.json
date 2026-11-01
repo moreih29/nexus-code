@@ -158,6 +158,7 @@
     "switcher_aria": "Switch task",
     "new": "New task…",
     "remove_current": "Delete this task…",
+    "show_sessions": "Sessions",
     "new_title": "New task",
     "new_description": "Makes a branch and a worktree from {{branch}} of {{name}}, and opens the task in them.",
     "name_label": "Name",
@@ -346,6 +347,7 @@
     "new_terminal_with": "New Terminal With",
     "default_shell": "Default",
     "new_browser": "New Browser",
+    "sessions": "Sessions",
     "pin_tab": "Pin Tab",
     "unpin_tab": "Unpin Tab",
     "rename_tab_menu": "Rename Tab…",
@@ -430,6 +432,62 @@
     "preparing": "The {{language}} language server is getting ready…",
     "notFound": "The {{language}} language server ({{binary}}) was not found.",
     "installHint": "Install: {{command}}"
+  },
+  "sessions": {
+    "tab_title": "Sessions",
+    "none": "No agent sessions",
+    "count": "{{label}} {{count}}",
+    "view_label": "View",
+    "view": {
+      "tree": "Tree",
+      "board": "Board"
+    },
+    "phase": {
+      "attention": "Awaiting input",
+      "running": "Running",
+      "done": "Done",
+      "idle": "Idle"
+    },
+    "state": {
+      "running": "Running",
+      "completed": "Done",
+      "needsInput": "Needs input",
+      "permissionPending": "Needs permission",
+      "error": "Error",
+      "idle": "Idle",
+      "busy": "Running",
+      "quiet": "Idle",
+      "exited": "Exited"
+    },
+    "estimated": "{{label}} (estimated)",
+    "duration": {
+      "now": "just now",
+      "minutes": "{{count}}m",
+      "hours": "{{count}}h",
+      "days": "{{count}}d"
+    },
+    "agent_unknown": "agent",
+    "no_sessions": "No sessions",
+    "changed_files": "{{count}} changed",
+    "column_empty": "None",
+    "detail": {
+      "show_terminal": "Go to terminal",
+      "show_changes": "Show changes",
+      "interrupt": "Interrupt (Ctrl-C)",
+      "remove_task": "Delete task…",
+      "permission_hint": "Answer the permission request in the terminal.",
+      "send_placeholder": "Input to send to this session",
+      "send": "Send",
+      "prompt": "Last prompt",
+      "message": "Last message",
+      "screen": "Screen",
+      "screen_not_started": "This terminal has not started yet. It starts when its task is opened.",
+      "changes": "Uncommitted changes ({{count}})",
+      "no_changes": "No uncommitted changes.",
+      "more_changes": "{{count}} more",
+      "no_session": "No agent session runs in this worktree.",
+      "close": "Close details"
+    }
   },
   "claudeStatus": {
     "running": "Claude: running",

@@ -113,6 +113,14 @@ export const AppStateSchema = z.object({
   // its argument; absent = "claude", empty = run nothing.
   taskAgentCommand: z.string().max(1024).optional(),
 
+  // The view a sessions tab opens in (a SessionsView); absent = "tree". Kept
+  // as a plain string so a view this version lacks does not fail the state.
+  sessionsViewDefault: z.string().max(32).optional(),
+
+  // The view each workspace's sessions tab was last switched to, by the
+  // workspace its tasks belong to; it outlasts a change of the default.
+  sessionsViewByWorkspace: z.record(z.string().uuid(), z.string().max(32)).optional(),
+
   // Update channel — "stable" follows non-prerelease tags only; "beta" also
   // includes prerelease tags (e.g. v1.2.0-beta.1).  Defaults to "stable".
   updateChannel: z.enum(["stable", "beta"]).default("stable"),

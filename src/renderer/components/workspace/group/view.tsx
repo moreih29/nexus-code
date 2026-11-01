@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { closeTabWithConfirm } from "@/services/editor/save/close-tab";
 import { openTerminal } from "@/services/terminal";
-import { openNewBrowserTab, openNewUntitledTab } from "@/state/operations/tabs";
+import { openNewBrowserTab, openNewUntitledTab, openSessionsTab } from "@/state/operations/tabs";
 import type { LayoutLeaf } from "@/state/stores/layout";
 import { useLayoutStore } from "@/state/stores/layout";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
@@ -91,6 +91,11 @@ export function GroupView({
   function handleNewBrowserTab() {
     openNewBrowserTab(workspaceId);
     onActivateGroup(leaf.id);
+  }
+
+  function handleShowSessions() {
+    const { groupId } = openSessionsTab(workspaceId);
+    onActivateGroup(groupId);
   }
 
   function handleGroupClick() {
@@ -206,6 +211,7 @@ export function GroupView({
         onNewTerminalTab={handleNewTerminalTab}
         onNewUntitledTab={handleNewUntitledTab}
         onNewBrowserTab={handleNewBrowserTab}
+        onShowSessions={handleShowSessions}
         onActivateGroup={onActivateGroup}
       />
 
