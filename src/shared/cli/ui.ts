@@ -283,10 +283,11 @@ export interface CliUiOps {
   };
   /**
    * Removes a task, as Delete Task does. Refuses one with unsaved files, and
-   * a worktree with changes unless `force`.
+   * a worktree with changes unless `force`. A `deleteBranch` of "merged"
+   * deletes the branch only if git finds it merged.
    */
   "task.remove": {
-    args: { taskId: string; force: boolean; deleteBranch: boolean };
+    args: { taskId: string; force: boolean; deleteBranch: boolean | "merged" };
     result: Record<string, never>;
   };
   /**

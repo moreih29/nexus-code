@@ -156,6 +156,31 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
       expect(cmd).toBe(`"\${NEXUS_AGENT_BIN}" hook ${event}`);
     }
 
+    // Claude Code's worktrees are made and removed as the app's tasks; each
+    // waits for the task, so the hooks get the task's time.
+    expect(hooks.WorktreeCreate).toEqual([
+      {
+        hooks: [
+          {
+            type: "command",
+            command: `"\${NEXUS_AGENT_BIN}" cli worktree claude-create -`,
+            timeout: 300,
+          },
+        ],
+      },
+    ]);
+    expect(hooks.WorktreeRemove).toEqual([
+      {
+        hooks: [
+          {
+            type: "command",
+            command: `"\${NEXUS_AGENT_BIN}" cli worktree claude-remove -`,
+            timeout: 300,
+          },
+        ],
+      },
+    ]);
+
     // The note on nexus: a second SessionStart hook, run in step so its
     // output reaches the session as context.
     const sessionStart = (hooks.SessionStart as Array<{ hooks: unknown[] }>)[0].hooks;

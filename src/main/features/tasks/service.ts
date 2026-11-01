@@ -61,8 +61,11 @@ export interface RemoveTaskArgs {
   readonly id: string;
   /** Remove the worktree even when it has changes. */
   readonly force: boolean;
-  /** Delete the task's branch too. */
-  readonly deleteBranch: boolean;
+  /**
+   * Delete the task's branch too; "merged" only if git finds it merged, so
+   * a branch with commits of its own is kept.
+   */
+  readonly deleteBranch: boolean | "merged";
 }
 
 /** Creates the worktree and branch for a new task, and its workspace. */
@@ -140,7 +143,8 @@ export async function removeTask(
 
   await removeWorktree(repo, task.worktreePath);
   if (workspace.location.kind === "local") await removeEmptyFolder(task.worktreePath);
-  if (deleteBranch) await repo.deleteBranch(task.branch, true);
+  if (deleteBranch === true) await repo.deleteBranch(task.branch, true);
+  if (deleteBranch === "merged") await repo.deleteBranch(task.branch, false).catch(() => {});
 }
 
 /** False when the folder is already gone, since there is nothing to lose. */

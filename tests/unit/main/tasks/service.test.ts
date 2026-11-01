@@ -174,6 +174,22 @@ describe("removeTask", () => {
     expect(localBranches()).not.toContain("drop-branch");
   });
 
+  it('deletes a merged branch for "merged", and keeps one with commits of its own', async () => {
+    const { deps, parent } = setup();
+    const merged = await createTask(deps, { parentId: parent.id, name: "nothing new" });
+    const ahead = await createTask(deps, { parentId: parent.id, name: "one commit" });
+    fs.writeFileSync(path.join(ahead.rootPath, "b.txt"), "b\n");
+    git(ahead.rootPath, "add", ".");
+    git(ahead.rootPath, "commit", "-q", "-m", "b");
+
+    await removeTask(deps, { id: merged.id, force: false, deleteBranch: "merged" });
+    await removeTask(deps, { id: ahead.id, force: false, deleteBranch: "merged" });
+
+    expect(fs.existsSync(ahead.task?.worktreePath ?? "")).toBe(false);
+    expect(localBranches()).not.toContain("nothing-new");
+    expect(localBranches()).toContain("one-commit");
+  });
+
   it("refuses a worktree with changes unless forced, removing nothing", async () => {
     const { deps, parent, removed } = setup();
     const task = await createTask(deps, { parentId: parent.id, name: "dirty" });

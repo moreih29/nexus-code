@@ -639,7 +639,11 @@ export const ipcContract = {
         WorkspaceMetaSchema,
       ),
       remove: call(
-        z.object({ id: WorkspaceIdPrimitive, force: z.boolean(), deleteBranch: z.boolean() }),
+        z.object({
+          id: WorkspaceIdPrimitive,
+          force: z.boolean(),
+          deleteBranch: z.union([z.boolean(), z.literal("merged")]),
+        }),
         z.void(),
       ),
     },
