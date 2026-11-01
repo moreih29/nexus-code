@@ -53,7 +53,7 @@ import {
   eventToAccelerator,
   isModifierCode,
 } from "../../../../shared/keybindings/keybinding-parse";
-import type { KeybindingOverride } from "../../../../shared/keybindings/overrides";
+import { inheritedWhen, type KeybindingOverride } from "../../../../shared/keybindings/overrides";
 import { labelOptions } from "../../../keybindings/shortcut-labels";
 import { useKeybindingsStore } from "../../../state/stores/keybindings";
 import { isLinux, isMac } from "../../../utils/platform";
@@ -191,7 +191,7 @@ export function KeybindingsPanel() {
         label: t(`keybindings.command.${command}`),
         bindingLabel: bindingLabelFor(effectiveBindings, command),
         kind: def?.chord !== undefined ? "chord" : "primary",
-        when: def?.when,
+        when: inheritedWhen(def?.when),
         overridden: overrides.some((o) => o.command === command),
         conflicts: appConflicts.get(command) ?? [],
       };

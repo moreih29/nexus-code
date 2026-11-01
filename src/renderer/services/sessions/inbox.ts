@@ -13,7 +13,11 @@ export interface InboxInput extends SessionsInput {
   readonly workspaces: readonly WorkspaceMeta[];
   /** workspaceId → tabId → when the user last looked at the terminal. */
   readonly seenByWorkspace: Readonly<Record<string, Readonly<Record<string, number>>>>;
-  /** The terminal in front of the user, by session key, if any. */
+  /**
+   * The terminal in front of the user, by session key: the active one while
+   * the app window has focus, as main counts it for notifications; none
+   * while the user is in another app.
+   */
   readonly viewing: string | null;
 }
 
@@ -71,6 +75,29 @@ export function buildInbox(input: InboxInput): Inbox {
     attention: attention.length,
     unread: done.length,
   };
+}
+
+/**
+ * Whether two inboxes list the same sessions, in the same states and order:
+ * a rebuild that changed nothing keeps the one already shown.
+ */
+export function sameInbox(a: Inbox, b: Inbox): boolean {
+  return (
+    a.items.length === b.items.length &&
+    a.items.every((item, i) => {
+      const other = b.items[i];
+      return (
+        other !== undefined &&
+        item.workspace === other.workspace &&
+        sameFields(item.session, other.session)
+      );
+    })
+  );
+}
+
+function sameFields<T extends object>(a: T, b: T): boolean {
+  const keys = Object.keys(a) as (keyof T)[];
+  return keys.length === Object.keys(b).length && keys.every((key) => Object.is(a[key], b[key]));
 }
 
 function longestWaitingFirst(a: InboxItem, b: InboxItem): number {

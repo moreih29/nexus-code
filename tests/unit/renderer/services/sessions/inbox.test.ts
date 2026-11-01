@@ -9,8 +9,13 @@ import {
   type InboxInput,
   isUnread,
   nextInboxItem,
+  sameInbox,
 } from "../../../../../src/renderer/services/sessions/inbox";
-import { sessionKey } from "../../../../../src/renderer/services/sessions/model";
+import {
+  activityByKey,
+  sameActivity,
+  sessionKey,
+} from "../../../../../src/renderer/services/sessions/model";
 import type { Tab } from "../../../../../src/renderer/state/stores/tabs";
 import type { StatusEntry } from "../../../../../src/shared/claude/status";
 import type { TabActivity } from "../../../../../src/shared/sessions/agent-state";
@@ -172,6 +177,64 @@ describe("isUnread", () => {
   it("is read when looked at when or after it finished", () => {
     expect(isUnread(done.session, 2_000)).toBe(false);
     expect(isUnread(done.session, 3_000)).toBe(false);
+  });
+});
+
+describe("sameInbox", () => {
+  it("holds for a rebuild from the same records, at a later time", () => {
+    expect(sameInbox(buildInbox(input()), buildInbox(input({ now: NOW + 60_000 })))).toBe(true);
+  });
+
+  it("fails once a session moved on or another came in", () => {
+    const before = buildInbox(input());
+    const answered = input().claudeByWorkspace[APP];
+    expect(
+      sameInbox(
+        before,
+        buildInbox(
+          input({
+            claudeByWorkspace: {
+              ...input().claudeByWorkspace,
+              [APP]: { ...answered, a2: claude("running", 6_000) },
+            },
+          }),
+        ),
+      ),
+    ).toBe(false);
+    expect(sameInbox(before, buildInbox(input({ viewing: sessionKey(APP, "a3") })))).toBe(false);
+    expect(
+      sameInbox(
+        before,
+        buildInbox(
+          input({
+            claudeByWorkspace: { [APP]: { ...answered, a1: claude("permissionPending", 3_100) } },
+          }),
+        ),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("sameActivity", () => {
+  const entry = (lastOutputAt: number, at = 5_000) => ({
+    workspaceId: TASK,
+    tabId: "t2",
+    lastOutputAt,
+    lastNotice: { body: "Done", at },
+    program: "codex",
+  });
+
+  it("holds for two reads that tell the same", () => {
+    expect(sameActivity(activityByKey([entry(5_500)]), activityByKey([entry(5_500)]))).toBe(true);
+    expect(sameActivity(new Map(), activityByKey([]))).toBe(true);
+  });
+
+  it("fails on new output, a new notice, or a terminal come or gone", () => {
+    const before = activityByKey([entry(5_500)]);
+    expect(sameActivity(before, activityByKey([entry(6_000)]))).toBe(false);
+    expect(sameActivity(before, activityByKey([entry(5_500, 5_400)]))).toBe(false);
+    expect(sameActivity(before, new Map())).toBe(false);
+    expect(sameActivity(new Map(), before)).toBe(false);
   });
 });
 

@@ -5,12 +5,17 @@
  */
 import { describe, expect, it } from "bun:test";
 import { COMMANDS } from "../../../src/shared/keybindings/commands";
-import { findDisplayPrimary, KEYBINDINGS } from "../../../src/shared/keybindings/index";
+import {
+  findDisplayPrimary,
+  KEYBINDINGS,
+  type KeybindingDecl,
+} from "../../../src/shared/keybindings/index";
 import {
   matchesKeyState,
   parseAccelerator,
 } from "../../../src/shared/keybindings/keybinding-parse";
 import { evaluateWhen, parseWhen } from "../../../src/shared/keybindings/keybinding-when";
+import { applyKeybindingOverrides } from "../../../src/shared/keybindings/overrides";
 
 type Platform = "mac" | "windows" | "linux";
 
@@ -18,6 +23,7 @@ type Platform = "mac" | "windows" | "linux";
 function commandsFor(
   state: { code: string; meta?: boolean; ctrl?: boolean; shift?: boolean },
   platform: Platform,
+  bindings: readonly KeybindingDecl[] = KEYBINDINGS,
 ): string[] {
   const s = { meta: false, ctrl: false, shift: false, alt: false, ...state };
   const isMac = platform === "mac";
@@ -26,13 +32,15 @@ function commandsFor(
     isLinux: platform === "linux",
     terminalFocus: true,
   };
-  return KEYBINDINGS.filter((b) => {
-    if (b.primary === undefined) return false;
-    if (b.when !== undefined && !evaluateWhen(parseWhen(b.when), (k) => keys[k] ?? false)) {
-      return false;
-    }
-    return matchesKeyState(parseAccelerator(b.primary), s, isMac);
-  }).map((b) => b.command);
+  return bindings
+    .filter((b) => {
+      if (b.primary === undefined) return false;
+      if (b.when !== undefined && !evaluateWhen(parseWhen(b.when), (k) => keys[k] ?? false)) {
+        return false;
+      }
+      return matchesKeyState(parseAccelerator(b.primary), s, isMac);
+    })
+    .map((b) => b.command);
 }
 
 describe("next waiting session key", () => {
@@ -62,6 +70,51 @@ describe("next waiting session key", () => {
     expect(label(true, false)).toBe("CmdOrCtrl+Shift+U");
     expect(label(false, false)).toBe("CmdOrCtrl+Shift+U");
     expect(label(false, true)).toBe("Ctrl+Shift+J");
+  });
+});
+
+describe("a user's key for the next waiting session", () => {
+  const known = new Set(Object.values(COMMANDS));
+  const rebound = applyKeybindingOverrides(
+    KEYBINDINGS,
+    [{ command: COMMANDS.sessionNextWaiting, primary: "CmdOrCtrl+Shift+K" }],
+    known,
+  );
+
+  it("works on every platform, in place of both defaults", () => {
+    expect(commandsFor({ code: "KeyK", meta: true, shift: true }, "mac", rebound)).toEqual([
+      COMMANDS.sessionNextWaiting,
+    ]);
+    for (const platform of ["windows", "linux"] as const) {
+      expect(commandsFor({ code: "KeyK", ctrl: true, shift: true }, platform, rebound)).toEqual([
+        COMMANDS.sessionNextWaiting,
+      ]);
+    }
+    expect(commandsFor({ code: "KeyU", ctrl: true, shift: true }, "windows", rebound)).toEqual([]);
+    expect(commandsFor({ code: "KeyJ", ctrl: true, shift: true }, "linux", rebound)).toEqual([]);
+  });
+
+  it("is labeled the same on every platform", () => {
+    for (const [isMac, isLinux] of [
+      [true, false],
+      [false, false],
+      [false, true],
+    ] as const) {
+      expect(
+        findDisplayPrimary(rebound, COMMANDS.sessionNextWaiting, isMac, isLinux)?.primary,
+      ).toBe("CmdOrCtrl+Shift+K");
+    }
+  });
+
+  it("leaves a command whose first default is unscoped as it was", () => {
+    const out = applyKeybindingOverrides(
+      KEYBINDINGS,
+      [{ command: COMMANDS.tabFocusPrev, primary: "CmdOrCtrl+Alt+Left" }],
+      known,
+    );
+    expect(out.filter((b) => b.command === COMMANDS.tabFocusPrev)).toEqual([
+      { command: COMMANDS.tabFocusPrev, primary: "CmdOrCtrl+Alt+Left" },
+    ]);
   });
 });
 

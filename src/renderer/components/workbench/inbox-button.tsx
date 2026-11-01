@@ -7,7 +7,7 @@
 // keyboard in it. The glyphs and words are the sessions tab's.
 
 import { Inbox } from "lucide-react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { COMMANDS } from "../../../shared/keybindings/commands";
@@ -15,6 +15,7 @@ import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { shortcutFor } from "../../keybindings/shortcut-labels";
 import type { InboxItem } from "../../services/sessions/inbox";
 import type { AgentSession } from "../../services/sessions/model";
+import { useNow } from "../../services/sessions/use-family";
 import {
   goToNextWaiting,
   goToSession,
@@ -35,7 +36,10 @@ import {
 
 export function InboxButton() {
   const { t } = useTranslation();
-  const { inbox, now } = useInbox();
+  const inbox = useInbox();
+  // How long each has waited, ticking only while the list is shown.
+  const [open, setOpen] = useState(false);
+  const now = useNow(open);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const waiting = inbox.items.filter((item) => item.session.phase === "attention");
   const done = inbox.items.filter((item) => item.session.phase === "done");
@@ -49,7 +53,7 @@ export function InboxButton() {
   };
 
   return (
-    <DropdownMenuRoot>
+    <DropdownMenuRoot onOpenChange={setOpen}>
       <DropdownMenuTrigger>
         <button
           type="button"

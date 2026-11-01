@@ -62,6 +62,30 @@ export function evaluateWhen(expr: WhenExpr, getter: (name: string) => boolean):
   }
 }
 
+/** The context-key names `expr` reads, in order, repeats included. */
+export function whenKeys(expr: WhenExpr): string[] {
+  switch (expr.kind) {
+    case "key":
+      return [expr.name];
+    case "not":
+      return whenKeys(expr.expr);
+    default:
+      return [...whenKeys(expr.left), ...whenKeys(expr.right)];
+  }
+}
+
+/** The context keys that name the platform the app runs on. */
+export const PLATFORM_KEYS: ReadonlySet<string> = new Set(["isMac", "isLinux", "isWindows"]);
+
+/**
+ * Whether `when` reads nothing but the platform (`isLinux`, `!isMac`,
+ * `isMac || isWindows`): a declaration that exists for some platforms only,
+ * not one scoped to a surface or a focus.
+ */
+export function isPlatformOnlyWhen(when: string): boolean {
+  return whenKeys(parseWhen(when)).every((key) => PLATFORM_KEYS.has(key));
+}
+
 // ---------------------------------------------------------------------------
 // Tokenizer + recursive-descent parser
 // ---------------------------------------------------------------------------

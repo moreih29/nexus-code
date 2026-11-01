@@ -9,6 +9,7 @@ import {
   describeTerminal,
   isAgentSession,
   type TabActivity,
+  type TabActivityEntry,
 } from "../../../shared/sessions/agent-state";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { Tab } from "../../state/stores/tabs";
@@ -94,6 +95,33 @@ export function phaseOf(state: string): SessionPhase {
 
 export function sessionKey(workspaceId: string, tabId: string): string {
   return `${workspaceId}:${tabId}`;
+}
+
+/** The terminals' activity as main reports it, by session key. */
+export function activityByKey(entries: readonly TabActivityEntry[]): Map<string, TabActivity> {
+  return new Map(entries.map((entry) => [sessionKey(entry.workspaceId, entry.tabId), entry]));
+}
+
+/** Whether two reads of the terminals' activity tell the same. */
+export function sameActivity(
+  a: ReadonlyMap<string, TabActivity>,
+  b: ReadonlyMap<string, TabActivity>,
+): boolean {
+  if (a.size !== b.size) return false;
+  for (const [key, x] of a) {
+    const y = b.get(key);
+    if (
+      y === undefined ||
+      x.lastOutputAt !== y.lastOutputAt ||
+      x.program !== y.program ||
+      x.lastNotice?.at !== y.lastNotice?.at ||
+      x.lastNotice?.body !== y.lastNotice?.body ||
+      x.lastNotice?.title !== y.lastNotice?.title
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /** The agent sessions in the terminals of `workspace`. */

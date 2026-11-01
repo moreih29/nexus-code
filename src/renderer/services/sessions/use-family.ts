@@ -13,7 +13,7 @@ import { ipcCallResult } from "../../ipc/client";
 import { useClaudeStatusStore } from "../../state/stores/claude-status";
 import { useTabsStore } from "../../state/stores/tabs";
 import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../state/stores/workspaces";
-import { buildFamily, type SessionFamily, sessionKey } from "./model";
+import { activityByKey, buildFamily, type SessionFamily, sameActivity } from "./model";
 import { rangeStart, type TimelineRange } from "./timeline";
 
 const ACTIVITY_POLL_MS = 1_000;
@@ -35,7 +35,8 @@ export function useNow(enabled: boolean, everyMs = 1_000): number {
 
 /**
  * Every live terminal's output activity, keyed by `${workspaceId}:${tabId}`,
- * polled every `everyMs` while `enabled`.
+ * polled every `everyMs` while `enabled`. A poll that reads what the last
+ * one did keeps its map, so nothing built from it is rebuilt.
  */
 export function useTabActivity(
   enabled: boolean,
@@ -48,9 +49,8 @@ export function useTabActivity(
     const poll = async () => {
       const result = await ipcCallResult("cli", "activity", {});
       if (cancelled || !result.ok) return;
-      setActivity(
-        new Map(result.value.map((entry) => [sessionKey(entry.workspaceId, entry.tabId), entry])),
-      );
+      const next = activityByKey(result.value);
+      setActivity((prev) => (sameActivity(prev, next) ? prev : next));
     };
     void poll();
     const timer = setInterval(() => void poll(), everyMs);

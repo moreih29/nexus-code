@@ -23,7 +23,7 @@
 
 import { COMMANDS, type CommandId } from "./commands";
 import { parseAccelerator } from "./keybinding-parse";
-import { evaluateWhen, parseWhen, type WhenExpr } from "./keybinding-when";
+import { evaluateWhen, isPlatformOnlyWhen, parseWhen } from "./keybinding-when";
 
 /** Same shape Electron's `MenuItemConstructorOptions.accelerator` accepts. */
 export type AcceleratorString = string;
@@ -261,25 +261,11 @@ export function findDisplayPrimary(
   return usable.find((b) => !leavesTerminalToShell(b)) ?? usable[0] ?? primaries[0];
 }
 
-const PLATFORM_KEYS: ReadonlySet<string> = new Set(["isMac", "isLinux"]);
-
 /** Whether a binding's `when` names only the platform, and another one. */
 function forOtherPlatform(binding: KeybindingDecl, isMac: boolean, isLinux: boolean): boolean {
-  if (binding.when === undefined) return false;
-  const expr = parseWhen(binding.when);
-  if (!whenKeys(expr).every((key) => PLATFORM_KEYS.has(key))) return false;
-  return !evaluateWhen(expr, (key) => (key === "isMac" ? isMac : isLinux));
-}
-
-function whenKeys(expr: WhenExpr): string[] {
-  switch (expr.kind) {
-    case "key":
-      return [expr.name];
-    case "not":
-      return whenKeys(expr.expr);
-    default:
-      return [...whenKeys(expr.left), ...whenKeys(expr.right)];
-  }
+  if (binding.when === undefined || !isPlatformOnlyWhen(binding.when)) return false;
+  const platform: Record<string, boolean> = { isMac, isLinux, isWindows: !isMac && !isLinux };
+  return !evaluateWhen(parseWhen(binding.when), (key) => platform[key] === true);
 }
 
 function leavesTerminalToShell(binding: KeybindingDecl): boolean {

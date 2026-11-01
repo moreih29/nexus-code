@@ -3,22 +3,22 @@
  * a session or the next one waiting on them, and mark the done ones read.
  */
 
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 import { createLogger } from "../../../shared/log/renderer";
+import type { TabActivity } from "../../../shared/sessions/agent-state";
 import { ipcCallResult } from "../../ipc/client";
 import { computeActiveContext } from "../../state/claude-active-context-sync";
 import { useActiveStore } from "../../state/stores/active";
+import { useAppFocusStore } from "../../state/stores/app-focus";
 import { useClaudeStatusStore } from "../../state/stores/claude-status";
-import { allLeaves } from "../../state/stores/layout/helpers";
 import { useLayoutStore } from "../../state/stores/layout/store";
 import { useSessionSeenStore } from "../../state/stores/session-seen";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { requestTabFocus } from "../tab-focus";
 import { showTerminal } from "./actions";
-import { buildInbox, type Inbox, type InboxItem, nextInboxItem } from "./inbox";
-import { type AgentSession, sessionKey } from "./model";
-import { useNow, useTabActivity } from "./use-family";
+import { buildInbox, type Inbox, type InboxItem, nextInboxItem, sameInbox } from "./inbox";
+import { type AgentSession, activityByKey, sessionKey } from "./model";
 
 const log = createLogger("inbox");
 
@@ -28,58 +28,18 @@ const log = createLogger("inbox");
  */
 const INBOX_POLL_MS = 2_000;
 
-/** The terminal in front of the user, by session key. */
-function viewingKey(): string | null {
+/**
+ * The terminal in front of the user, by session key: the active one, while
+ * the app window has focus.
+ */
+export function viewingKey(): string | null {
+  if (!useAppFocusStore.getState().focused) return null;
   const { workspaceId, tabId } = computeActiveContext();
   return workspaceId !== null && tabId !== null ? sessionKey(workspaceId, tabId) : null;
 }
 
-function useViewingKey(): string | null {
-  const workspaceId = useActiveStore((s) => s.activeWorkspaceId);
-  const tabId = useLayoutStore((s) => {
-    const layout = workspaceId ? s.byWorkspace[workspaceId] : undefined;
-    if (!layout) return null;
-    const leaf = allLeaves(layout.root).find((l) => l.id === layout.activeGroupId);
-    return leaf?.activeTabId ?? null;
-  });
-  return workspaceId !== null && tabId !== null ? sessionKey(workspaceId, tabId) : null;
-}
-
-/** The inbox of every workspace, kept current. */
-export function useInbox(): { inbox: Inbox; now: number } {
-  const workspaces = useWorkspacesStore((s) => s.workspaces);
-  const tabsByWorkspace = useTabsStore((s) => s.byWorkspace);
-  const claudeByWorkspace = useClaudeStatusStore((s) => s.byWorkspace);
-  const seenByWorkspace = useSessionSeenStore((s) => s.byWorkspace);
-  const viewing = useViewingKey();
-  const activity = useTabActivity(true, INBOX_POLL_MS);
-  const now = useNow(true, INBOX_POLL_MS);
-  const inbox = useMemo(
-    () =>
-      buildInbox({
-        workspaces,
-        tabsByWorkspace,
-        claudeByWorkspace,
-        activity,
-        now,
-        seenByWorkspace,
-        viewing,
-      }),
-    [workspaces, tabsByWorkspace, claudeByWorkspace, activity, now, seenByWorkspace, viewing],
-  );
-  return { inbox, now };
-}
-
-/** The inbox as it is now, read once. */
-async function readInbox(): Promise<Inbox> {
-  const result = await ipcCallResult("cli", "activity", {});
-  if (!result.ok) log.warn(`activity read failed: ${result.message}`);
-  const activity = new Map(
-    (result.ok ? result.value : []).map((entry) => [
-      sessionKey(entry.workspaceId, entry.tabId),
-      entry,
-    ]),
-  );
+/** The inbox of every workspace as the stores and `activity` tell it now. */
+function inboxNow(activity: ReadonlyMap<string, TabActivity>): Inbox {
   return buildInbox({
     workspaces: useWorkspacesStore.getState().workspaces,
     tabsByWorkspace: useTabsStore.getState().byWorkspace,
@@ -89,6 +49,54 @@ async function readInbox(): Promise<Inbox> {
     seenByWorkspace: useSessionSeenStore.getState().byWorkspace,
     viewing: viewingKey(),
   });
+}
+
+/**
+ * The inbox of every workspace, kept current: rebuilt as the stores change
+ * and as the clock and the activity poll move on. The button showing it is
+ * always there, so a rebuild that lists the same keeps the inbox it had and
+ * renders nothing.
+ */
+export function useInbox(): Inbox {
+  const [inbox, setInbox] = useState(() => inboxNow(new Map()));
+  useEffect(() => {
+    let activity: ReadonlyMap<string, TabActivity> = new Map();
+    let cancelled = false;
+    const update = (): void => {
+      const next = inboxNow(activity);
+      setInbox((prev) => (sameInbox(prev, next) ? prev : next));
+    };
+    const poll = async (): Promise<void> => {
+      const result = await ipcCallResult("cli", "activity", {});
+      if (cancelled) return;
+      if (result.ok) activity = activityByKey(result.value);
+      update();
+    };
+    const stops = [
+      useWorkspacesStore.subscribe(update),
+      useTabsStore.subscribe(update),
+      useClaudeStatusStore.subscribe(update),
+      useSessionSeenStore.subscribe(update),
+      useActiveStore.subscribe(update),
+      useLayoutStore.subscribe(update),
+      useAppFocusStore.subscribe(update),
+    ];
+    void poll();
+    const timer = setInterval(() => void poll(), INBOX_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      for (const stop of stops) stop();
+    };
+  }, []);
+  return inbox;
+}
+
+/** The inbox as it is now, read once. */
+async function readInbox(): Promise<Inbox> {
+  const result = await ipcCallResult("cli", "activity", {});
+  if (!result.ok) log.warn(`activity read failed: ${result.message}`);
+  return inboxNow(activityByKey(result.ok ? result.value : []));
 }
 
 /** Shows the session's terminal with the keyboard in it, to answer it. */

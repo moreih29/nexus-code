@@ -14,6 +14,7 @@ import {
 } from "../../../src/shared/keybindings/keybinding-parse";
 import {
   applyKeybindingOverrides,
+  inheritedWhen,
   KeybindingOverridesSchema,
   removeOverride,
   upsertOverride,
@@ -128,6 +129,63 @@ describe("applyKeybindingOverrides", () => {
     // default chord retained + appended primary decl
     expect(decls.some((d) => d.chord !== undefined)).toBe(true);
     expect(decls.some((d) => d.primary === "CmdOrCtrl+9")).toBe(true);
+  });
+
+  it("gives a command declared per platform one replacement for every platform", () => {
+    // The scope of the first declaration (`!isLinux`) only says which
+    // platforms that default is for; inheriting it would leave the user's
+    // key dead on Linux, where the Linux default is dropped with the rest.
+    const defaults: readonly KeybindingDecl[] = [
+      { command: "session.next" as never, primary: "CmdOrCtrl+Shift+U", when: "!isLinux" },
+      { command: "session.next" as never, primary: "Ctrl+Shift+J", when: "isLinux" },
+      { command: "tab.prev" as never, primary: "Cmd+Ctrl+Left" },
+      { command: "tab.prev" as never, primary: "Ctrl+PageUp", when: "!isMac" },
+    ];
+    const out = applyKeybindingOverrides(
+      defaults,
+      [
+        { command: "session.next", primary: "CmdOrCtrl+Shift+K" },
+        { command: "tab.prev", primary: "CmdOrCtrl+Alt+Left" },
+      ],
+      new Set(["session.next", "tab.prev"]),
+    );
+    expect(out).toEqual([
+      { command: "session.next" as never, primary: "CmdOrCtrl+Shift+K" },
+      { command: "tab.prev" as never, primary: "CmdOrCtrl+Alt+Left" },
+    ]);
+  });
+
+  it("keeps a platform scope on what the override leaves untouched", () => {
+    const defaults: readonly KeybindingDecl[] = [
+      {
+        command: "pane.move" as never,
+        primary: "Alt+M",
+        chord: ["CmdOrCtrl+K", "M"],
+        when: "isMac || isWindows",
+      },
+    ];
+    const known = new Set(["pane.move"]);
+    expect(
+      applyKeybindingOverrides(defaults, [{ command: "pane.move", primary: "Alt+N" }], known),
+    ).toEqual([
+      { command: "pane.move" as never, chord: ["CmdOrCtrl+K", "M"], when: "isMac || isWindows" },
+      { command: "pane.move" as never, primary: "Alt+N" },
+    ]);
+    // A binding added beside the defaults doesn't take their platform either.
+    const chordOnly: readonly KeybindingDecl[] = [
+      { command: "pane.move" as never, chord: ["CmdOrCtrl+K", "M"], when: "!isMac" },
+    ];
+    expect(
+      applyKeybindingOverrides(chordOnly, [{ command: "pane.move", primary: "Alt+N" }], known),
+    ).toEqual([...chordOnly, { command: "pane.move" as never, primary: "Alt+N" }]);
+  });
+
+  it("inherits only scopes that read more than the platform", () => {
+    expect(inheritedWhen(undefined)).toBeUndefined();
+    expect(inheritedWhen("isLinux")).toBeUndefined();
+    expect(inheritedWhen("!isMac && !isWindows")).toBeUndefined();
+    expect(inheritedWhen("!terminalFocus || isMac")).toBe("!terminalFocus || isMac");
+    expect(inheritedWhen("fileTreeFocus && isMac")).toBe("fileTreeFocus && isMac");
   });
 
   it("last override entry per command wins", () => {

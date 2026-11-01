@@ -1,7 +1,9 @@
 /**
  * Switching tabs records when the user had each terminal in front of them:
  * the one they leave until now, the one they go to from now. The inbox reads
- * a done session as looked at from these times.
+ * a done session as looked at from these times. Going to another app and
+ * back counts the same: the active terminal is in front of the user only
+ * while the window has focus.
  */
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
@@ -18,6 +20,8 @@ const { startClaudeActiveContextSync } = await import(
   "../../../../src/renderer/state/claude-active-context-sync"
 );
 const { useActiveStore } = await import("../../../../src/renderer/state/stores/active");
+const { useAppFocusStore } = await import("../../../../src/renderer/state/stores/app-focus");
+const { viewingKey } = await import("../../../../src/renderer/services/sessions/use-inbox");
 const { useLayoutStore } = await import("../../../../src/renderer/state/stores/layout/store");
 const { useSessionSeenStore } = await import("../../../../src/renderer/state/stores/session-seen");
 
@@ -44,6 +48,7 @@ describe("claude active context sync", () => {
     clock = 1_000;
     Date.now = () => clock;
     useSessionSeenStore.setState({ byWorkspace: {} });
+    useAppFocusStore.setState({ focused: true });
     useActiveStore.getState().setActiveWorkspaceId(WS);
     showTab("t1");
     stop = startClaudeActiveContextSync();
@@ -71,5 +76,40 @@ describe("claude active context sync", () => {
       method: "markSeen",
       args: { workspaceId: WS, tabId: "t2" },
     });
+  });
+
+  it("marks the active tab when the user leaves the app and when they come back", () => {
+    clock = 5_000;
+    useAppFocusStore.setState({ focused: false });
+    expect(useSessionSeenStore.getState().byWorkspace[WS]).toEqual({ t1: 5_000 });
+    ipcCalls.length = 0;
+    clock = 9_000;
+    useAppFocusStore.setState({ focused: true });
+    expect(useSessionSeenStore.getState().byWorkspace[WS]).toEqual({ t1: 9_000 });
+    // Claude's completed state, set while the user was away, clears too.
+    expect(ipcCalls).toContainEqual({
+      channel: "claude",
+      method: "markSeen",
+      args: { workspaceId: WS, tabId: "t1" },
+    });
+  });
+
+  it("doesn't count a tab shown while the user is in another app as looked at", () => {
+    clock = 5_000;
+    useAppFocusStore.setState({ focused: false });
+    ipcCalls.length = 0;
+    clock = 6_000;
+    showTab("t2");
+    expect(useSessionSeenStore.getState().byWorkspace[WS]).toEqual({ t1: 5_000 });
+    expect(ipcCalls.some((call) => call.method === "markSeen")).toBe(false);
+    clock = 9_000;
+    useAppFocusStore.setState({ focused: true });
+    expect(useSessionSeenStore.getState().byWorkspace[WS]).toEqual({ t1: 5_000, t2: 9_000 });
+  });
+
+  it("has the inbox see the active terminal only while the window has focus", () => {
+    expect(viewingKey()).toBe(`${WS}:t1`);
+    useAppFocusStore.setState({ focused: false });
+    expect(viewingKey()).toBeNull();
   });
 });
