@@ -78,6 +78,8 @@ export interface PtyChannelOptions {
   isActiveTab?: (workspaceId: string, tabId: string) => boolean;
   /** Settings' OS notifications toggle. */
   notificationsEnabled?: () => boolean;
+  /** Input written to a terminal, before it reaches the program. */
+  onInput?: (workspaceId: string, tabId: string, data: string) => void;
 }
 
 /**
@@ -310,6 +312,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
 
       write: async (args: unknown) => {
         const { workspaceId, tabId, data } = validateArgs(c.write.args, args);
+        options.onInput?.(workspaceId, tabId, data);
         // write/resize/ack/kill are fire-and-forget from the renderer and no-op
         // when the workspace is already gone — agentHost.call returns undefined
         // in that case. Return ipcOk so the router stays silent on either path.

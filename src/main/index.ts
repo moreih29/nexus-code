@@ -496,6 +496,7 @@ app.whenReady().then(async () => {
     workspaceManager,
     isActiveTab: claudeSetup.isActiveTab,
     notificationsEnabled,
+    onInput: claudeSetup.noteInput,
     getDefaultShell: () => stateService.getState().terminalShell,
     getCustomShells: () => stateService.getState().terminalShells,
     ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),
