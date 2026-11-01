@@ -356,7 +356,8 @@
     "pick_send_to": "요소를 보낼 터미널",
     "pick_no_agent": "이 워크스페이스에 에이전트 터미널이 없습니다. 요소를 클립보드에 복사했습니다.",
     "pick_terminal_closed": "그 터미널이 아직 열리지 않았습니다. 요소를 클립보드에 복사했습니다.",
-    "pick_failed": "요소를 선택하지 못했습니다: {{message}}"
+    "pick_failed": "요소를 선택하지 못했습니다: {{message}}",
+    "downloaded": "{{file}} 다운로드 완료"
   },
   "tabBar": {
     "open_tabs": "열린 탭",

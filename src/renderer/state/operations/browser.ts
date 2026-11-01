@@ -37,11 +37,13 @@
  * idempotent — a second call tears down the previous subscription.
  */
 
+import i18next from "i18next";
 import { Grid } from "@/engine";
 import { isNavigationSchemeAllowed } from "../../../shared/security/navigation-allowlist";
 import { createKeyedDebouncer } from "../../../shared/util/keyed-debouncer";
 import type { TimerScheduler } from "../../../shared/util/timer-scheduler";
 import { BROWSER_LAST_URL_SAVE_DEBOUNCE_MS } from "../../../shared/util/timing-constants";
+import { showToast } from "../../components/ui/toast";
 import { ipcListen } from "../../ipc/client";
 import { useBrowserRuntimeStore } from "../stores/browser-runtime";
 import { useLayoutStore } from "../stores/layout/store";
@@ -155,6 +157,14 @@ export function initBrowserRuntimeSubscriptions(): void {
   activeUnsubs.push(
     ipcListen("browser", "focusUrl", ({ tabId }) => {
       useBrowserRuntimeStore.getState().requestUrlFocus(tabId);
+    }),
+  );
+
+  // downloaded: a download the user started in a tab is done. It is saved
+  // without asking, so the user is told it came.
+  activeUnsubs.push(
+    ipcListen("browser", "downloaded", ({ file }) => {
+      showToast({ kind: "info", message: i18next.t("common:browser.downloaded", { file }) });
     }),
   );
 }

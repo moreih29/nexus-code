@@ -142,7 +142,7 @@ function loaded(page: PageInfo | null, asked: string): string {
   // Or a file downloaded instead of a page.
   const download = page.download;
   if (download) {
-    return `Downloading ${download.url} (${download.type}) as ${download.file} rather than showing it`;
+    return `Downloading ${download.url} (${download.type}) to ${download.file} rather than showing it`;
   }
   // A tab whose first navigation did not commit has no URL.
   if (!page.url) return `Nothing loaded from ${asked}`;

@@ -17,6 +17,7 @@
 import { BaseWindow, type Input, screen, type View, type WebContents } from "electron";
 import { CliError } from "../context";
 import { type ConsoleEntry, type ConsoleLog, watchConsole } from "./console-log";
+import { DrivenTabs, saveCommandDownload } from "./downloads";
 import { type KeyPress, parseBrowserKey } from "./keys";
 import {
   cleanPicked,
@@ -41,6 +42,7 @@ export interface PageInfo {
 
 export interface PageDownload {
   readonly url: string;
+  /** Where it is saved, a command's download being kept out of the user's Downloads. */
   readonly file: string;
   readonly type: string;
 }
@@ -54,6 +56,12 @@ export interface PageSnapshot extends PageInfo {
 export interface ActionResult extends PageInfo {
   readonly text: string;
   readonly navigated: boolean;
+}
+
+/** Where a page was before an action: its URL and how many navigations it had started. */
+interface PageMark {
+  readonly url: string;
+  readonly navigations: number;
 }
 
 export type BrowserWaitCondition =
@@ -262,6 +270,10 @@ export class CdpBrowserDriver implements BrowserDriver {
   private readonly downloads = new WeakMap<WebContents, PageDownload>();
   /** Tabs whose last navigation has not shown a page, or did not. */
   private readonly uncommitted = new WeakSet<WebContents>();
+  /** Tabs a command drives, whose downloads are the command's. */
+  private readonly driven = new DrivenTabs<WebContents>();
+  /** How many navigations each tab has started, to tell an action's own. */
+  private readonly navigations = new WeakMap<WebContents, number>();
 
   constructor(
     private readonly pageOf: (tabId: string) => BrowserPage | undefined,
@@ -278,17 +290,17 @@ export class CdpBrowserDriver implements BrowserDriver {
       if (!details.isMainFrame || details.isSameDocument) return;
       this.downloads.delete(contents);
       this.uncommitted.add(contents);
+      this.navigations.set(contents, (this.navigations.get(contents) ?? 0) + 1);
     });
     contents.on("did-navigate", () => this.uncommitted.delete(contents));
     // Tabs share a session, which tells every tab's downloads.
     const session = contents.session;
     const onDownload = (_event: Electron.Event, item: Electron.DownloadItem, from: WebContents) => {
       if (from !== contents) return;
-      this.downloads.set(contents, {
-        url: item.getURL(),
-        file: item.getFilename(),
-        type: item.getMimeType(),
-      });
+      const file = this.driven.drives(contents)
+        ? saveCommandDownload(item)
+        : item.getFilename();
+      this.downloads.set(contents, { url: item.getURL(), file, type: item.getMimeType() });
     };
     session.on("will-download", onDownload);
     contents.once("destroyed", () => {
@@ -365,9 +377,11 @@ export class CdpBrowserDriver implements BrowserDriver {
     body: (contents: WebContents, state: TabState) => Promise<T>,
   ): Promise<T> {
     const contents = this.contents(tabId);
+    const done = this.driven.begin(contents);
     try {
       return await body(contents, this.state(contents));
     } finally {
+      done();
       if (contents.debugger.isAttached()) {
         await this.send(contents, "Runtime.releaseObjectGroup", {
           objectGroup: OBJECT_GROUP,
@@ -570,16 +584,51 @@ export class CdpBrowserDriver implements BrowserDriver {
   }
 
   /** After an action: waits for a page it started, and says where the tab is. */
-  private async after(contents: WebContents, text: string, before: string): Promise<ActionResult> {
+  /** Where the page is before an action, for `after` to tell what the action did. */
+  private mark(contents: WebContents): PageMark {
+    return { url: contents.getURL(), navigations: this.navigations.get(contents) ?? 0 };
+  }
+
+  private async after(
+    contents: WebContents,
+    text: string,
+    before: PageMark,
+  ): Promise<ActionResult> {
     await this.settleOn(contents);
+    // A navigation the action started may download a file instead of loading a page.
+    const started = (this.navigations.get(contents) ?? 0) !== before.navigations;
+    if (started) await this.awaitDownload(contents);
     const url = contents.getURL();
-    const navigated = url !== before;
+    const navigated = url !== before.url;
+    const download = started ? this.downloads.get(contents) : undefined;
+    const lines = [text];
+    if (navigated) lines.push(`Now at ${url}`);
+    if (download) {
+      lines.push(`Downloading ${download.url} (${download.type}) to ${download.file}.`);
+    }
     return {
-      text: navigated ? `${text}\nNow at ${url}` : text,
+      text: lines.join("\n"),
       url,
       title: contents.getTitle(),
       navigated,
+      ...(download ? { download } : {}),
     };
+  }
+
+  /**
+   * Waits a moment for the download a navigation that showed no page may
+   * start, which Chromium does only after the load has stopped.
+   */
+  private async awaitDownload(contents: WebContents): Promise<void> {
+    const until = Date.now() + DOWNLOAD_START_MS;
+    while (
+      this.uncommitted.has(contents) &&
+      !this.downloads.has(contents) &&
+      !contents.isDestroyed() &&
+      Date.now() < until
+    ) {
+      await delay(DOWNLOAD_POLL_MS);
+    }
   }
 
   private async settleOn(contents: WebContents): Promise<void> {
@@ -596,17 +645,12 @@ export class CdpBrowserDriver implements BrowserDriver {
     }
     if (!page || page.contents.isDestroyed()) return null;
     const contents = page.contents;
-    await this.settleOn(contents);
-    // A navigation that ends without a page may be a download, which
-    // Chromium starts only after the load has stopped.
-    const until = Date.now() + DOWNLOAD_START_MS;
-    while (
-      this.uncommitted.has(contents) &&
-      !this.downloads.has(contents) &&
-      !contents.isDestroyed() &&
-      Date.now() < until
-    ) {
-      await delay(DOWNLOAD_POLL_MS);
+    const done = this.driven.begin(contents);
+    try {
+      await this.settleOn(contents);
+      await this.awaitDownload(contents);
+    } finally {
+      done();
     }
     if (contents.isDestroyed()) return null;
     const download = this.downloads.get(contents);
@@ -668,7 +712,7 @@ export class CdpBrowserDriver implements BrowserDriver {
       const at = await this.point(contents, el);
       await this.paint(tabId, contents);
       if (!options.force) await this.checkHit(contents, el, at);
-      const before = contents.getURL();
+      const before = this.mark(contents);
       const mouse = (type: string, clickCount: number) =>
         this.send(contents, "Input.dispatchMouseEvent", {
           type,
@@ -698,7 +742,7 @@ export class CdpBrowserDriver implements BrowserDriver {
       await this.send(contents, "DOM.scrollIntoViewIfNeeded", {
         backendNodeId: el.backendNodeId,
       }).catch(() => {});
-      const before = contents.getURL();
+      const before = this.mark(contents);
       const ready = await this.call<{ kind?: "set" | "text"; value?: string; error?: string }>(
         contents,
         el.objectId,
@@ -726,7 +770,7 @@ export class CdpBrowserDriver implements BrowserDriver {
         });
         into = ` into ${el.label}`;
       }
-      const before = contents.getURL();
+      const before = this.mark(contents);
       await this.send(contents, "Input.insertText", { text });
       return this.after(contents, `Typed ${JSON.stringify(text)}${into}.`, before);
     });
@@ -737,7 +781,7 @@ export class CdpBrowserDriver implements BrowserDriver {
     const presses = keys.map((k) => parseBrowserKey(k, this.mac));
     this.notPicking(tabId);
     return this.with(tabId, async (contents) => {
-      const before = contents.getURL();
+      const before = this.mark(contents);
       for (const press of presses) await this.pressKey(contents, press);
       return this.after(contents, `Pressed ${keys.join(" ")}.`, before);
     });
