@@ -6,6 +6,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { AGENT_PROTOCOL_VERSION } from "../src/shared/agent/envelope";
 import { cliExecutableName, POSIX_CLI_LAUNCHER } from "../src/shared/cli/launcher";
+import { CODEX_WRAPPER } from "../src/shared/codex/wrapper";
 import {
   type AgentArtifactPlatform,
   type AgentBinaryManifestEntry,
@@ -190,6 +191,7 @@ export async function buildAgentDistribution(
   // claude 래퍼 스크립트를 bin/claude로 배치.
   const wrapperArtifact = await copyClaudeWrapper({ rootDir, outDir });
   await writeCliLauncher(outDir);
+  await writeCodexWrapper(outDir);
 
   await writeAgentManifest({
     outDir,
@@ -232,6 +234,17 @@ export async function writeCliLauncher(outDir: string): Promise<void> {
   const dest = path.join(outDir, "bin", "nexus");
   await fs.mkdir(path.dirname(dest), { recursive: true });
   await fs.writeFile(dest, POSIX_CLI_LAUNCHER, { mode: 0o755 });
+  await fs.chmod(dest, 0o755);
+}
+
+/**
+ * Writes the codex wrapper to <outDir>/bin/codex, beside the claude wrapper.
+ * Git Bash on Windows gets a copy at runtime (pty/windows-shell-shim.ts).
+ */
+export async function writeCodexWrapper(outDir: string): Promise<void> {
+  const dest = path.join(outDir, "bin", "codex");
+  await fs.mkdir(path.dirname(dest), { recursive: true });
+  await fs.writeFile(dest, CODEX_WRAPPER, { mode: 0o755 });
   await fs.chmod(dest, 0o755);
 }
 

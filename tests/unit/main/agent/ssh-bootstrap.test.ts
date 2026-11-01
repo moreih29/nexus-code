@@ -1,4 +1,5 @@
 import { POSIX_CLI_LAUNCHER } from "../../../../src/shared/cli/launcher";
+import { CODEX_WRAPPER } from "../../../../src/shared/codex/wrapper";
 import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { createHash } from "node:crypto";
@@ -190,7 +191,7 @@ describe("ssh-bootstrap", () => {
         };
       }
       if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
-      if (command === "ssh" && remoteCommand.includes("/.nexus-code/bin/nexus"))
+      if (command === "ssh" && /\/\.nexus-code\/bin\/(nexus|codex)/.test(remoteCommand))
         return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
@@ -206,18 +207,25 @@ describe("ssh-bootstrap", () => {
       buildRemoteAgentCommand(remoteAgentBinaryPath("0.1.0", result.platform), "/repo", "0.1.0"),
     );
     // uname -ms + printf "$HOME" + echo "$SHELL" + cat manifest.json + the
-    // nexus launcher — no upload round trip. The echo "$SHELL" probe throws
-    // ("unexpected command") because this mock doesn't handle it;
-    // detectRemoteShell swallows that error and returns undefined, so
-    // result.remoteShell stays undefined. The call still counts toward the
+    // nexus launcher + the codex wrapper — no upload round trip. The echo
+    // "$SHELL" probe throws ("unexpected command") because this mock doesn't
+    // handle it; detectRemoteShell swallows that error and returns undefined,
+    // so result.remoteShell stays undefined. The call still counts toward the
     // runner's invocation total.
-    expect(runner).toHaveBeenCalledTimes(5);
+    expect(runner).toHaveBeenCalledTimes(6);
     expect(runner).toHaveBeenCalledWith(
       "ssh",
       expect.arrayContaining([
         "mkdir -p /home/deploy/.nexus-code/bin && cat > /home/deploy/.nexus-code/bin/nexus && chmod 755 /home/deploy/.nexus-code/bin/nexus",
       ]),
       POSIX_CLI_LAUNCHER,
+    );
+    expect(runner).toHaveBeenCalledWith(
+      "ssh",
+      expect.arrayContaining([
+        "mkdir -p /home/deploy/.nexus-code/bin && cat > /home/deploy/.nexus-code/bin/codex && chmod 755 /home/deploy/.nexus-code/bin/codex",
+      ]),
+      CODEX_WRAPPER,
     );
     expect(result.remoteShell).toBeUndefined();
   });
@@ -491,7 +499,7 @@ describe("ssh-bootstrap", () => {
         };
       }
       if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
-      if (command === "ssh" && remoteCommand.includes("/.nexus-code/bin/nexus"))
+      if (command === "ssh" && /\/\.nexus-code\/bin\/(nexus|codex)/.test(remoteCommand))
         return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
@@ -693,7 +701,7 @@ describe("ssh-bootstrap", () => {
         };
       }
       if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
-      if (command === "ssh" && remoteCommand.includes("/.nexus-code/bin/nexus"))
+      if (command === "ssh" && /\/\.nexus-code\/bin\/(nexus|codex)/.test(remoteCommand))
         return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
@@ -734,7 +742,7 @@ describe("ssh-bootstrap", () => {
         };
       }
       if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
-      if (command === "ssh" && remoteCommand.includes("/.nexus-code/bin/nexus"))
+      if (command === "ssh" && /\/\.nexus-code\/bin\/(nexus|codex)/.test(remoteCommand))
         return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
@@ -897,7 +905,7 @@ describe("ssh-bootstrap", () => {
         };
       }
       if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
-      if (command === "ssh" && remoteCommand.includes("/.nexus-code/bin/nexus"))
+      if (command === "ssh" && /\/\.nexus-code\/bin\/(nexus|codex)/.test(remoteCommand))
         return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
