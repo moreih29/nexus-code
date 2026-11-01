@@ -122,7 +122,12 @@
     "op_continuing": "Continuing…",
     "op_refreshing": "Refreshing…",
     "op_initializing": "Initializing…",
-    "op_working": "Working…"
+    "op_working": "Working…",
+    "ports_title": "Listening ports {{ports}} — click to open",
+    "ports_menu_title": "Listening ports",
+    "ports_ssh_note": "These ports are on the SSH host, which the app does not forward ports from.",
+    "ports_open": "Open in browser tab",
+    "ports_copy": "Copy URL"
   },
   "titleBar": {
     "open_settings": "Open settings",
@@ -169,6 +174,7 @@
     "new": "New task…",
     "remove_current": "Delete this task…",
     "show_sessions": "Sessions",
+    "ports_title": "Listening ports {{ports}}",
     "new_title": "New task",
     "new_description": "Makes a branch and a worktree from {{branch}} of {{name}}, and opens the task in them.",
     "name_label": "Name",

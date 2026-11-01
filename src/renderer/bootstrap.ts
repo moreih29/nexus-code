@@ -23,6 +23,7 @@ import { initFocusResync } from "./state/operations/focus-resync";
 import { initGitErrorToasts } from "./state/operations/git-error-toasts";
 import { initLspSettingsSync } from "./state/operations/lsp-settings";
 import { initLspStatusSync } from "./state/operations/lsp-status";
+import { initPortsSync } from "./state/operations/ports";
 import { normalizeWorkspaceTabOrder } from "./state/operations/tab-order";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
@@ -145,6 +146,7 @@ export async function bootstrapAppState(): Promise<void> {
   useLspSettingsStore.getState().hydrate(lspSettingsFromState(state));
   initLspSettingsSync();
   initLspStatusSync();
+  initPortsSync();
 
   useUIStore.getState().hydrate({
     sidebarWidth: state.sidebarWidth,

@@ -3,6 +3,7 @@ import { StatusEntrySchema } from "../claude/status";
 import { CliUiRequestSchema, CliUiRespondArgsSchema } from "../cli/ui";
 import { TabActivityEntrySchema, TerminalWaitSchema } from "../sessions/agent-state";
 import { SessionSpanSchema } from "../sessions/history";
+import { WorkspacePortsSchema } from "../pty/ports";
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
   DirEntrySchema,
@@ -722,8 +723,15 @@ export const ipcContract = {
         z.object({ program: z.string().max(1024) }),
         z.object({ path: z.string().nullable() }),
       ),
+      /**
+       * The TCP ports the programs in each workspace's terminals listen on,
+       * for every workspace that has any; `ports` then tells of changes.
+       */
+      ports: call(z.object({}), z.array(WorkspacePortsSchema)),
     },
     listen: {
+      /** A workspace's ports changed; an empty list once its servers have stopped. */
+      ports: listen(WorkspacePortsSchema),
       // data: args is string chunk — validation skipped on hot path.
       // `replay` marks output pty.replay sends again to redraw the terminal.
       data: listen(

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/nexus-code/nexus-code/internal/dispatch"
+	"github.com/nexus-code/nexus-code/internal/ports"
 )
 
 // Service owns the registry of active PTY-backed terminal sessions.
@@ -139,6 +140,7 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("pty.ack", service.Ack)
 	d.Register("pty.kill", service.Kill)
 	d.Register("pty.foregroundProcess", service.ForegroundProcess)
+	d.Register("pty.listeningPorts", service.ListeningPorts)
 	d.Register("pty.replay", service.Replay)
 	d.Register("session.list", service.SessionList)
 }
@@ -365,6 +367,51 @@ func (s *Service) ForegroundProcess(_ context.Context, raw json.RawMessage) (any
 		return ForegroundProcessResult{Name: ""}, nil
 	}
 	return ForegroundProcessResult{Name: session.master.foregroundProcess()}, nil
+}
+
+// ListeningPorts lists the TCP ports the programs started in a workspace's
+// terminals listen on: those held by a process under one of its shells, as a
+// dev server is. A program that leaves the shell's tree, as a daemon or a
+// Docker container does, is not seen.
+func (s *Service) ListeningPorts(_ context.Context, raw json.RawMessage) (any, error) {
+	var p ListeningPortsParams
+	if err := decodeParams(raw, &p, "pty.listeningPorts params must include workspaceId"); err != nil {
+		return nil, err
+	}
+	workspaceID := strings.TrimSpace(p.WorkspaceID)
+	if workspaceID == "" {
+		return nil, protocolError("pty.listeningPorts workspaceId is required")
+	}
+	tabByShell := map[int]string{}
+	s.mu.Lock()
+	for key, session := range s.sessions {
+		if key.workspaceID == workspaceID && session.child != nil && session.child.Process != nil {
+			tabByShell[session.child.Pid] = key.tabID
+		}
+	}
+	s.mu.Unlock()
+
+	result := ListeningPortsResult{Ports: []ListeningPort{}}
+	if len(tabByShell) == 0 {
+		return result, nil
+	}
+	shells := make([]int, 0, len(tabByShell))
+	for pid := range tabByShell {
+		shells = append(shells, pid)
+	}
+	found, err := ports.Find(shells)
+	if err != nil {
+		return nil, err
+	}
+	for _, port := range found {
+		result.Ports = append(result.Ports, ListeningPort{
+			Port:    port.Port,
+			PID:     port.PID,
+			Process: port.Name,
+			TabID:   tabByShell[port.Root],
+		})
+	}
+	return result, nil
 }
 
 // newSession links process state with its flow-control condition variable and

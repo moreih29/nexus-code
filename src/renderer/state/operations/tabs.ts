@@ -419,11 +419,16 @@ export function openNewUntitledTab(workspaceId: string): Tab {
  * workspaces.
  */
 export function openNewBrowserTab(workspaceId: string): Tab {
+  return openBrowserTabAt(workspaceId, "");
+}
+
+/** Open a browser tab at `url` in the active group. */
+export function openBrowserTabAt(workspaceId: string, url: string): Tab {
   return openTabRecord(workspaceId, {
     type: "browser",
     props: {
-      initialUrl: "",
-      lastUrl: "",
+      initialUrl: url,
+      lastUrl: url,
       partition: `persist:browser-${workspaceId}`,
     },
   });

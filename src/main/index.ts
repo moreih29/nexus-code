@@ -7,6 +7,7 @@ import {
   lspServerPath,
   lspSettingsFromState,
 } from "../shared/lsp/settings";
+import { ListeningPortsResultSchema } from "../shared/pty/ports";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { installErrorSafetyNet } from "./error-safety-net";
 import { registerAppStateChannel } from "./features/app-state";
@@ -43,6 +44,7 @@ import { installAppMenu } from "./features/menu";
 import { registerPanelChannel } from "./features/panel";
 import { startAgentPtyHost } from "./features/pty/agent-host";
 import { registerPtyChannel } from "./features/pty/ipc";
+import { PortWatcher } from "./features/pty/ports";
 import { installWindowsAgentFiles } from "./features/pty/windows-shell-shim";
 import type { PtyHostHandle } from "./features/pty/types";
 import { registerSystemChannel } from "./features/shell/ipc";
@@ -136,6 +138,7 @@ let lspHost: LspHostHandle | null = null;
 let agentPtyHost: PtyHostHandle | null = null;
 let disposeClaudeFeature: (() => void) | null = null;
 let disposeCliFeature: (() => void) | null = null;
+let portWatcher: PortWatcher | null = null;
 let gitRegistry: GitRegistry | null = null;
 let gitWatcher: AgentGitWatcher | null = null;
 let gitStatusCoalescer: StatusCoalescer | null = null;
@@ -457,6 +460,21 @@ app.whenReady().then(async () => {
   });
   disposeClaudeFeature = claudeSetup.dispose;
 
+  // The ports the programs in each workspace's terminals listen on. Looking
+  // never connects a workspace: one that is not connected fails the look.
+  portWatcher = new PortWatcher(
+    agentPtyHost,
+    async (workspaceId) => {
+      const channel = await workspaceManager.peekAgentChannel(workspaceId);
+      if (!channel) {
+        throw new Error(`${workspaceManager.getName(workspaceId) ?? workspaceId} is not connected`);
+      }
+      const result = await channel.call("pty.listeningPorts", { workspaceId });
+      return ListeningPortsResultSchema.parse(result).ports;
+    },
+    (entry) => forwardBroadcast("pty", "ports", entry),
+  );
+
   // The nexus command in the app's terminals.
   disposeCliFeature = setupCliFeature({
     agentHost: agentPtyHost,
@@ -497,6 +515,7 @@ app.whenReady().then(async () => {
     isActiveTab: claudeSetup.isActiveTab,
     notificationsEnabled,
     onInput: claudeSetup.noteInput,
+    ports: portWatcher,
     getDefaultShell: () => stateService.getState().terminalShell,
     getCustomShells: () => stateService.getState().terminalShells,
     ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),
@@ -607,6 +626,7 @@ app.on("will-quit", () => {
   sshBrowseRegistry.dispose();
   disposeCliFeature?.();
   disposeClaudeFeature?.();
+  portWatcher?.dispose();
   agentPtyHost?.dispose();
   lspHost?.dispose();
   agentFsWatcher?.dispose();
