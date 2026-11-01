@@ -3,13 +3,14 @@
 //
 // The sidebar has one row per workspace; a workspace's tasks are switched
 // here. The menu lists the workspace itself and its tasks, each with its
-// branch and Claude glyph, then their sessions tab, New Task and, on a task,
-// Delete This Task.
+// branch, Claude glyph and the ports its terminals' programs listen on, then
+// their sessions tab, New Task and, on a task, Delete This Task.
 
 import { Check, ChevronDown, GitBranch } from "lucide-react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { portsLabel } from "../../../shared/pty/ports";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { activateWorkspace } from "../../services/workspace/tasks";
 import { openSessionsTab } from "../../state/operations/tabs";
@@ -19,6 +20,7 @@ import {
   WORKSPACE_VISIBLE_STATUSES,
 } from "../../state/stores/claude-status";
 import { useGitStore } from "../../state/stores/git/index";
+import { NO_PORTS, usePortsStore } from "../../state/stores/ports";
 import { useTaskUIStore } from "../../state/stores/task-ui";
 import { tasksOf, useWorkspacesStore } from "../../state/stores/workspaces";
 import { WorkspaceStatusGlyph } from "../sidebar/workspace-status-glyph";
@@ -29,6 +31,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+
+/** How many of a task's ports its menu item lists before "+N". */
+const SHOWN_PORTS = 2;
 
 interface TaskSwitcherProps {
   /** The active workspace: a workspace or one of its tasks. */
@@ -94,6 +99,7 @@ export function TaskSwitcher({ active, label }: TaskSwitcherProps) {
 
 /** One workspace in the menu: a check when active, its name, glyph and branch. */
 function TaskItem({ workspace, active }: { workspace: WorkspaceMeta; active: boolean }) {
+  const { t } = useTranslation();
   const gitBranch = useGitStore((s) => {
     const session = s.sessions.get(workspace.id);
     return session?.branchInfo?.current ?? session?.status?.branch?.current ?? null;
@@ -112,6 +118,7 @@ function TaskItem({ workspace, active }: { workspace: WorkspaceMeta; active: boo
       : null;
   }, [tabs, workspace.id]);
   const branch = gitBranch ?? workspace.task?.branch ?? null;
+  const ports = usePortsStore((s) => s.byWorkspace[workspace.id] ?? NO_PORTS);
 
   return (
     <DropdownMenuItem onSelect={() => activateWorkspace(workspace.id)}>
@@ -124,6 +131,14 @@ function TaskItem({ workspace, active }: { workspace: WorkspaceMeta; active: boo
       </span>
       {branch && (
         <span className="ml-4 truncate max-w-[180px] text-muted-foreground">{branch}</span>
+      )}
+      {ports.length > 0 && (
+        <span
+          className="ml-3 shrink-0 tabular-nums text-muted-foreground"
+          title={t("task.ports_title", { ports: portsLabel(ports, ports.length) })}
+        >
+          {portsLabel(ports, SHOWN_PORTS)}
+        </span>
       )}
     </DropdownMenuItem>
   );

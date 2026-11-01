@@ -17,6 +17,7 @@ import {
   systemDefaultShell,
   type ShellHost,
 } from "./shells";
+import type { WorkspacePorts } from "../../../shared/pty/ports";
 import type { CustomShell, ShellChoice } from "../../../shared/pty/shell";
 import { OscNotificationDispatcher } from "./osc-notification";
 import type { WorkspaceNameLookup } from "./osc-notification";
@@ -80,6 +81,8 @@ export interface PtyChannelOptions {
   notificationsEnabled?: () => boolean;
   /** Input written to a terminal, before it reaches the program. */
   onInput?: (workspaceId: string, tabId: string, data: string) => void;
+  /** The ports the programs in the workspaces' terminals listen on. */
+  ports?: { snapshot(): WorkspacePorts[] };
 }
 
 /**
@@ -361,8 +364,11 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
         const { program } = validateArgs(c.findShell.args, args);
         return ipcOk({ path: findShellProgram(options.shellHost ?? nodeShellHost(), program) });
       },
+
+      ports: async () => ipcOk(options.ports?.snapshot() ?? []),
     },
     listen: {
+      ports: {},
       data: {},
       exit: {},
       notificationClick: {},

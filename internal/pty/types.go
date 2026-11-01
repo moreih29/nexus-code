@@ -98,6 +98,28 @@ type ForegroundProcessResult struct {
 	Name string `json:"name"`
 }
 
+// ListeningPortsParams is the wire shape for pty.listeningPorts.
+type ListeningPortsParams struct {
+	WorkspaceID string `json:"workspaceId"`
+}
+
+// ListeningPort is a TCP port a program started in one of the workspace's
+// terminals listens on.
+type ListeningPort struct {
+	Port int `json:"port"`
+	PID  int `json:"pid"`
+	// Process is the program's file name.
+	Process string `json:"process"`
+	// TabID is the terminal the program was started in.
+	TabID string `json:"tabId"`
+}
+
+// ListeningPortsResult is the wire shape returned by pty.listeningPorts, in
+// port order.
+type ListeningPortsResult struct {
+	Ports []ListeningPort `json:"ports"`
+}
+
 // DataPayload is emitted on pty.data with Chunk carrying base64 raw PTY bytes.
 type DataPayload struct {
 	WorkspaceID string `json:"workspaceId"`

@@ -122,7 +122,12 @@
     "op_continuing": "계속 중…",
     "op_refreshing": "새로 고침 중…",
     "op_initializing": "초기화 중…",
-    "op_working": "작업 중…"
+    "op_working": "작업 중…",
+    "ports_title": "열린 포트 {{ports}} — 클릭하여 열기",
+    "ports_menu_title": "열린 포트",
+    "ports_ssh_note": "SSH 호스트의 포트입니다. 앱이 포트를 포워딩하지 않아 여기서 열 수 없습니다.",
+    "ports_open": "브라우저 탭에서 열기",
+    "ports_copy": "URL 복사"
   },
   "titleBar": {
     "open_settings": "설정 열기",
@@ -159,6 +164,7 @@
     "new": "새 작업…",
     "remove_current": "이 작업 삭제…",
     "show_sessions": "세션 보기",
+    "ports_title": "열린 포트 {{ports}}",
     "new_title": "새 작업",
     "new_description": "{{name}}의 {{branch}}에서 브랜치와 워크트리를 만들고 그 안에서 작업을 엽니다.",
     "name_label": "이름",
