@@ -55,11 +55,11 @@ export function LineageView({
   return (
     <div className="flex flex-col gap-3 p-3">
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-app-micro text-muted-foreground">
-        <span className="flex items-center gap-1.5">
+        <span className="flex items-center gap-1.5" title={t("sessions.lineage.legend_created_hint")}>
           <span aria-hidden className="h-px w-6 bg-muted-foreground" />
           {t("sessions.lineage.legend_created")}
         </span>
-        <span className="flex items-center gap-1.5">
+        <span className="flex items-center gap-1.5" title={t("sessions.lineage.legend_waits_hint")}>
           <span aria-hidden className="w-6 border-t border-dashed border-(--state-warning-fg)" />
           {t("sessions.lineage.legend_waits")}
         </span>
