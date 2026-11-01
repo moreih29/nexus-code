@@ -183,7 +183,9 @@ function SessionBody({ session, visible }: { session: AgentSession; visible: boo
       <DetailSection title={t("sessions.detail.screen")}>
         {screen === null ? (
           <p className="text-app-ui-sm text-muted-foreground">
-            {t("sessions.detail.screen_not_started")}
+            {session.state === "exited"
+              ? t("sessions.detail.screen_exited")
+              : t("sessions.detail.screen_not_started")}
           </p>
         ) : (
           // Keyed by the session, so each one opens scrolled to its latest lines.
