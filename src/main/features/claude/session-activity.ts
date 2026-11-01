@@ -137,6 +137,47 @@ export class SessionActivityLog {
     }
   }
 
+  /**
+   * The user answered a permission request of the session's turn, or of
+   * `agentId`, from the app, for the call to `tool` on `target`: the agent
+   * goes on, with the call or past it, and a denied call never runs. No hook
+   * tells either.
+   */
+  noteAnswered(
+    workspaceId: string,
+    tabId: string,
+    agentId: string | undefined,
+    tool: string,
+    target: string | undefined,
+    denied: boolean,
+  ): void {
+    const session = this.sessions.get(`${workspaceId}:${tabId}`);
+    if (!session) return;
+    const agent = agentId === undefined ? undefined : session.agents.get(agentId);
+    if (denied) {
+      const tools = agent ? agent.tools : session.tools;
+      const run = [...tools]
+        .reverse()
+        .find((run) => run.end === undefined && run.name === tool && run.target === target);
+      if (run) {
+        run.end = this.now();
+        run.denied = true;
+      }
+    }
+    if (agent?.state !== "permissionPending") return;
+    agent.asking = undefined;
+    this.setAgentState(session, agent, "running");
+  }
+
+  /**
+   * The session's turn is over though no hook said so, as when the user
+   * interrupts it: a tool it left running was stopped with it.
+   */
+  noteTurnOver(workspaceId: string, tabId: string): void {
+    const session = this.sessions.get(`${workspaceId}:${tabId}`);
+    if (session) this.endOpenTools(session.tools);
+  }
+
   /** What the session in `tabId` is doing, or null when no hook told anything. */
   get(workspaceId: string, tabId: string): SessionActivity | null {
     const session = this.sessions.get(`${workspaceId}:${tabId}`);

@@ -30,6 +30,8 @@ export const ToolRunSchema = z.object({
   error: z.string().optional(),
   /** Left running in the background. */
   background: z.boolean().optional(),
+  /** Denied from the app before it ran (a denial in the terminal tells nothing). */
+  denied: z.boolean().optional(),
 });
 export type ToolRun = z.infer<typeof ToolRunSchema>;
 
@@ -84,6 +86,48 @@ export const AgentRunSchema = z.object({
 });
 export type AgentRun = z.infer<typeof AgentRunSchema>;
 
+/**
+ * What "don't ask again" lets through, as Claude Code's suggestion for the
+ * call words it: rules for a tool, a permission mode for the session, or a
+ * directory to work in.
+ */
+export const PermissionAlwaysSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("rule"),
+    /** As Claude Code writes it: "Bash(npm test *)", or a tool's name alone. */
+    rule: z.string(),
+    /** Where Claude Code keeps it: "localSettings", "session", … */
+    destination: z.string().optional(),
+  }),
+  z.object({ kind: z.literal("mode"), mode: z.string() }),
+  z.object({ kind: z.literal("directory"), path: z.string() }),
+]);
+export type PermissionAlways = z.infer<typeof PermissionAlwaysSchema>;
+
+/**
+ * A permission request the app holds for the user's answer, beside Claude
+ * Code's own dialog in the terminal (features/claude/permission-asks.ts).
+ */
+export const PermissionAskSchema = z.object({
+  /** The hook's id, which the answer names. */
+  id: z.string(),
+  /** The subagent that asks; absent for the session's own turn. */
+  agentId: z.string().optional(),
+  tool: z.string(),
+  /** What the call works on, as a tool run's target. */
+  target: z.string().optional(),
+  /** What the model said it does. */
+  note: z.string().optional(),
+  /** What allowing it always would let through; empty when Claude Code offers nothing. */
+  always: z.array(PermissionAlwaysSchema),
+  since: z.number(),
+});
+export type PermissionAsk = z.infer<typeof PermissionAskSchema>;
+
+/** How the user answers a permission request from the app. */
+export const PermissionAnswerSchema = z.enum(["allow", "allowAlways", "deny", "denyStop"]);
+export type PermissionAnswer = z.infer<typeof PermissionAnswerSchema>;
+
 export const SessionActivitySchema = z.object({
   workspaceId: z.string(),
   tabId: z.string(),
@@ -99,5 +143,7 @@ export const SessionActivitySchema = z.object({
   todos: z.array(TodoSchema),
   /** Running agents, then ended ones, latest first. */
   agents: z.array(AgentRunSchema),
+  /** The permission requests held for the user's answer, oldest first. */
+  asks: z.array(PermissionAskSchema).optional(),
 });
 export type SessionActivity = z.infer<typeof SessionActivitySchema>;

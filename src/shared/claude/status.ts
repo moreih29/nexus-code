@@ -84,9 +84,24 @@ export const HookRequestSchema = z.object({
   subcommand: z.string().min(1),
   payload: z.unknown(),
   assistantText: z.string().optional(),
+  /**
+   * A hook of a `claude -p` run, which shows no permission dialog: its
+   * PermissionRequest is answered at once rather than held for the user.
+   */
+  print: z.boolean().optional(),
 });
 
 export type HookRequest = z.infer<typeof HookRequestSchema>;
+
+/**
+ * A hook whose client went away before main answered it: Claude Code ends a
+ * PermissionRequest hook as the user interrupts at its dialog.
+ */
+export const HookGoneSchema = z.object({
+  hookId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  tabId: z.string().min(1),
+});
 
 // ---------------------------------------------------------------------------
 // HookResponse — main→agent 응답 (hook 프로세스 stdout 으로 write)

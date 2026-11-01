@@ -209,7 +209,10 @@ func TestHandleConn_NormalRequest(t *testing.T) {
 func TestHandleConn_LargePayload(t *testing.T) {
 	calls := make(chan HookEventPayload, 1)
 	srv := newTestServer(t, func(_ string, payload any) error {
-		calls <- payload.(HookEventPayload)
+		// A hook whose client leaves unanswered is told gone too.
+		if p, ok := payload.(HookEventPayload); ok {
+			calls <- p
+		}
 		return nil
 	})
 
@@ -302,8 +305,10 @@ func TestRespond_WritesAndDeletesInflight(t *testing.T) {
 	hookIDCh := make(chan string, 1)
 
 	srv := newTestServer(t, func(_ string, payload any) error {
-		p := payload.(HookEventPayload)
-		hookIDCh <- p.HookID
+		// A hook whose client leaves unanswered is told gone too.
+		if p, ok := payload.(HookEventPayload); ok {
+			hookIDCh <- p.HookID
+		}
 		return nil
 	})
 
@@ -363,8 +368,10 @@ func TestDeadline_DefaultResponse(t *testing.T) {
 	hookIDCh := make(chan string, 1)
 
 	srv := newTestServer(t, func(_ string, payload any) error {
-		p := payload.(HookEventPayload)
-		hookIDCh <- p.HookID
+		// A hook whose client leaves unanswered is told gone too.
+		if p, ok := payload.(HookEventPayload); ok {
+			hookIDCh <- p.HookID
+		}
 		return nil
 	})
 	// 테스트용 짧은 deadline을 atomic으로 주입한다.
@@ -470,6 +477,119 @@ func TestReleaseHooks_AnswersWaitingHooks(t *testing.T) {
 	}
 }
 
+// TestDeadlineFor checks that a PermissionRequest waits on the user far
+// longer than any other hook waits on main.
+func TestDeadlineFor(t *testing.T) {
+	srv := newTestServer(t, func(string, any) error { return nil })
+	if got := srv.deadlineFor("permission-request"); got != permissionDeadline {
+		t.Errorf("permission-request: want %v, got %v", permissionDeadline, got)
+	}
+	if got := srv.deadlineFor("pre-tool-use"); got != connDeadline {
+		t.Errorf("pre-tool-use: want %v, got %v", connDeadline, got)
+	}
+}
+
+// TestHookGone_ToldWhenClientLeaves checks that main is told when the client
+// of a waiting PermissionRequest goes away unanswered, as Claude Code ends
+// the hook when the user interrupts at its dialog, and that the hook is no
+// longer waiting.
+func TestHookGone_ToldWhenClientLeaves(t *testing.T) {
+	heard := make(chan HookEventPayload, 1)
+	gone := make(chan HookGonePayload, 1)
+	srv := newTestServer(t, func(event string, payload any) error {
+		switch p := payload.(type) {
+		case HookEventPayload:
+			heard <- p
+		case HookGonePayload:
+			if event != "claude.hookGone" {
+				t.Errorf("event: want claude.hookGone, got %q", event)
+			}
+			gone <- p
+		}
+		return nil
+	})
+	srv.testDeadlineNs.Store(int64(time.Minute))
+
+	conn := dialAndSendRequest(t, srv.SocketPath(), hookWireRequest{
+		Type:        "hook",
+		Token:       srv.Token(),
+		WorkspaceID: "ws-1",
+		TabID:       "tab-1",
+		Subcommand:  "permission-request",
+		Payload:     json.RawMessage(`{}`),
+		Print:       true,
+	})
+	var hook HookEventPayload
+	select {
+	case hook = <-heard:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the hook")
+	}
+	if !hook.Print {
+		t.Error("print: want true, got false")
+	}
+	conn.Close()
+
+	select {
+	case p := <-gone:
+		if p.HookID != hook.HookID || p.WorkspaceID != "ws-1" || p.TabID != "tab-1" {
+			t.Errorf("gone: want %s ws-1 tab-1, got %+v", hook.HookID, p)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for claude.hookGone")
+	}
+	if _, waiting := srv.inflight.Load(hook.HookID); waiting {
+		t.Error("a hook whose client left is still in flight")
+	}
+	if err := srv.Respond(hook.HookID, HookResponse{}); err == nil {
+		t.Error("Respond to a gone hook: want an error, got none")
+	}
+}
+
+// TestHookGone_NotToldOnceAnswered checks that a hook main answered is not
+// told gone when its client then leaves.
+func TestHookGone_NotToldOnceAnswered(t *testing.T) {
+	heard := make(chan string, 1)
+	gone := make(chan struct{}, 1)
+	srv := newTestServer(t, func(_ string, payload any) error {
+		switch p := payload.(type) {
+		case HookEventPayload:
+			heard <- p.HookID
+		case HookGonePayload:
+			gone <- struct{}{}
+		}
+		return nil
+	})
+	srv.testDeadlineNs.Store(int64(time.Minute))
+
+	conn := dialAndSendRequest(t, srv.SocketPath(), hookWireRequest{
+		Type:        "hook",
+		Token:       srv.Token(),
+		WorkspaceID: "ws-1",
+		TabID:       "tab-1",
+		Subcommand:  "permission-request",
+		Payload:     json.RawMessage(`{}`),
+	})
+	var hookID string
+	select {
+	case hookID = <-heard:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the hook")
+	}
+	if err := srv.Respond(hookID, HookResponse{Stdout: "{}"}); err != nil {
+		t.Fatalf("Respond: %v", err)
+	}
+	if resp := readResponse(t, conn, 2*time.Second); resp.Stdout != "{}" {
+		t.Errorf("stdout: want {}, got %q", resp.Stdout)
+	}
+	conn.Close()
+	select {
+	case <-gone:
+		t.Error("an answered hook was told gone")
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
 // -----------------------------------------------------------------------
 // (f) Close가 listener + 모든 inflight conn 닫음 + 소켓 unlink
 // -----------------------------------------------------------------------
@@ -482,8 +602,10 @@ func TestClose_CleanupAll(t *testing.T) {
 	// newTestServer는 t.Cleanup에서 Close()를 부르므로 여기서는 직접 생성한다.
 	key := fmt.Sprintf("close-test-%d", os.Getpid())
 	srv, err := New(key, func(_ string, payload any) error {
-		p := payload.(HookEventPayload)
-		hookIDCh <- p.HookID
+		// A hook whose client leaves unanswered is told gone too.
+		if p, ok := payload.(HookEventPayload); ok {
+			hookIDCh <- p.HookID
+		}
 		return nil
 	})
 	if err != nil {

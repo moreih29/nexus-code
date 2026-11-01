@@ -297,6 +297,17 @@ class AgentPtyHostHandle implements PtyHostHandle {
       }
       this.emit("claude.hook", payload);
     });
+    // A held hook whose client went away, on the same terms.
+    const offClaudeHookGone = channel.on("claude.hookGone", (payload) => {
+      const claimed = (payload as { workspaceId?: unknown } | null)?.workspaceId;
+      if (claimed !== workspaceId) {
+        log.warn(
+          `Dropped claude.hookGone for workspace ${String(claimed)} from ${workspaceId}'s agent`,
+        );
+        return;
+      }
+      this.emit("claude.hookGone", payload);
+    });
     // The nexus CLI speaks for its terminal's workspace on the same terms.
     const offCliRequest = channel.on("cli.request", (payload) => {
       const claimed = (payload as { workspaceId?: unknown } | null)?.workspaceId;
@@ -319,7 +330,15 @@ class AgentPtyHostHandle implements PtyHostHandle {
     });
     this.subscriptions.set(workspaceId, {
       channel,
-      disposers: [offData, offExit, offClaudeHook, offCliRequest, offCliCancel, offLifecycle],
+      disposers: [
+        offData,
+        offExit,
+        offClaudeHook,
+        offClaudeHookGone,
+        offCliRequest,
+        offCliCancel,
+        offLifecycle,
+      ],
     });
   }
 

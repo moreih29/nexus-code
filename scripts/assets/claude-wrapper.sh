@@ -87,7 +87,7 @@ SETTINGS_JSON="$(cat <<'SETTINGS_EOF'
     "Stop": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook stop","timeout":10,"async":true}]}],
     "StopFailure": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook stop-failure","timeout":10,"async":true}]}],
     "SessionEnd": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook session-end","timeout":5,"async":true}]}],
-    "PermissionRequest": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook permission-request","timeout":120}]}],
+    "PermissionRequest": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook permission-request","timeout":3620}]}],
     "WorktreeCreate": [{"hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" cli worktree claude-create -","timeout":300}]}],
     "WorktreeRemove": [{"hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" cli worktree claude-remove -","timeout":300}]}]
   }
@@ -125,7 +125,21 @@ if [[ -n "${NEXUS_CAPTURE_SETTINGS_TO:-}" ]]; then
   cp "$SETTINGS_FILE" "$NEXUS_CAPTURE_SETTINGS_TO"
 fi
 
-# 8) Runs claude with the hooks. No --session-id: claude refuses one with
+# 8) A `claude -p` run shows no permission dialog: Claude Code waits on its
+#    PermissionRequest hook, which the app then answers at once rather than
+#    hold it for the user (the hooks read the mark). An interactive claude
+#    shows its dialog beside the hook, which the app holds for up to an hour
+#    (the timeout above is a little longer) so the user can answer there.
+NEXUS_CLAUDE_PRINT=0
+for arg in "$@"; do
+  case "$arg" in
+    --) break ;;
+    -p|--print) NEXUS_CLAUDE_PRINT=1; break ;;
+  esac
+done
+export NEXUS_CLAUDE_PRINT
+
+# 9) Runs claude with the hooks. No --session-id: claude refuses one with
 #    --continue or --resume, and nothing reads it. Its processes carry the
 #    mark above.
 export NEXUS_CLAUDE_TAB_ID="${NEXUS_TAB_ID:-}"

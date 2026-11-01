@@ -4,7 +4,7 @@
 
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { AgentRun } from "../../../shared/claude/activity";
+import type { AgentRun, PermissionAsk } from "../../../shared/claude/activity";
 import { showTerminal } from "../../services/sessions/actions";
 import type { AgentSession, WorktreeEntry } from "../../services/sessions/model";
 import { useNow } from "../../services/sessions/use-family";
@@ -17,6 +17,7 @@ import {
   agentStateColor,
   agentStateLabel,
 } from "./agent-status";
+import { PermissionAsks } from "./permission-asks";
 import type { SessionsSelection } from "./selection";
 import { ToolList } from "./tool-list";
 
@@ -27,12 +28,15 @@ export function AgentDetail({
   worktree,
   session,
   agent,
+  asks,
   visible,
   onSelect,
 }: {
   worktree: WorktreeEntry;
   session: AgentSession;
   agent: AgentRun;
+  /** The permission requests the agent waits on. */
+  asks: readonly PermissionAsk[];
   visible: boolean;
   onSelect: (selection: SessionsSelection) => void;
 }) {
@@ -84,10 +88,14 @@ export function AgentDetail({
           {t("sessions.detail.show_terminal")}
         </Button>
       </div>
-      {agent.state === "permissionPending" && (
-        <p className="text-app-ui-sm text-(--state-warning-fg)">
-          {t("sessions.agents.detail.permission_hint")}
-        </p>
+      {asks.length > 0 ? (
+        <PermissionAsks session={session} asks={asks} agents={[agent]} />
+      ) : (
+        agent.state === "permissionPending" && (
+          <p className="text-app-ui-sm text-(--state-warning-fg)">
+            {t("sessions.agents.detail.permission_hint")}
+          </p>
+        )
       )}
       {agent.prompt && (
         <Section title={t("sessions.agents.detail.prompt")}>

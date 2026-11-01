@@ -53,6 +53,11 @@ export class PermissionDialogs {
     return (this.tabs.get(key)?.open.length ?? 0) > 0;
   }
 
+  /** Whether the dialog for `agent`'s `call` is open. */
+  isOpenFor(key: string, agent: string, call: string | undefined): boolean {
+    return this.tabs.get(key)?.open.some((d) => d.agent === agent && d.call === call) ?? false;
+  }
+
   /** The session's state moved on under the dialogs, to show once they close. */
   setUnder(key: string, under: StateUnder): void {
     const tab = this.tabs.get(key);

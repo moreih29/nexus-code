@@ -52,9 +52,11 @@ function ToolRow({ tool, now }: { tool: ToolRun; now: number }) {
             "shrink-0 font-mono text-app-micro",
             tool.failed
               ? "text-(--state-error-fg)"
-              : running
-                ? "text-emerald-500"
-                : "text-muted-foreground",
+              : tool.denied
+                ? "text-(--state-warning-fg)"
+                : running
+                  ? "text-emerald-500"
+                  : "text-muted-foreground",
           )}
         >
           {tool.name}
@@ -70,6 +72,11 @@ function ToolRow({ tool, now }: { tool: ToolRun; now: number }) {
       {tool.note && (
         <span className="truncate text-app-micro text-muted-foreground" title={tool.note}>
           {tool.note}
+        </span>
+      )}
+      {tool.denied && (
+        <span className="text-app-micro text-(--state-warning-fg)">
+          {t("sessions.agents.detail.denied")}
         </span>
       )}
       {tool.error && (
