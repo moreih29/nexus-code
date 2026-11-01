@@ -22,6 +22,7 @@ nexus status --json     # 모든 명령은 --json 으로 JSON 출력
 | `nexus session list` | 모든 워크스페이스의 에이전트 세션(Claude Code, Codex, ...)과 상태 |
 | `nexus tab list` · `terminal list` | 탭, 터미널과 그 안에서 도는 프로그램 |
 | `nexus terminal read <탭>` | 터미널 화면(스크롤백 포함) 읽기 |
+| `nexus port list` | 이 워크스페이스 터미널에서 실행한 프로그램(개발 서버 등)이 연 포트 |
 
 읽기는 어느 워크스페이스든 허락 없이 됩니다.
 
@@ -32,7 +33,7 @@ nexus status --json     # 모든 명령은 --json 으로 JSON 출력
 | `nexus open src/app.ts:42` | 파일을 그 줄에서 열기 |
 | `nexus diff src/app.ts` | 변경 사항 diff 열기 (`--staged`, `--base REF`) |
 | `nexus terminal new --command "bun dev"` | 새 터미널에서 명령 실행 (기본은 뒤에 열기, `--show` 로 보이기) |
-| `nexus browser open localhost:3000` | 브라우저 탭 열기 |
+| `nexus browser open localhost:3000` | 브라우저 탭 열기 (`/login` 처럼 경로만 주면 이 워크스페이스의 개발 서버 포트로) |
 | `nexus tab show <탭>` · `workspace switch <이름>` | 그 탭 · 워크스페이스를 사용자에게 보여주기 |
 | `nexus notify "테스트 통과"` | 데스크톱 알림 |
 
@@ -95,6 +96,12 @@ nexus browser eval "document.title"
 nexus browser pick                # 사용자가 클릭한 요소의 ref · 선택자 · 스크린샷
 ```
 
+- `browser open /login` · `browser goto /login` 처럼 경로만 주면, 이 워크스페이스(작업이면 그 워크트리) 터미널의 프로그램이 연 포트로 엽니다. 포트를 미리 정해 둘 필요 없이 작업마다 따로 띄운 개발 서버를 찾아갑니다.
+  - 열린 포트가 없거나 여러 개면 열지 않고 그 목록을 알려줍니다. 그때는 `localhost:5173/login` 처럼 포트를 적어 주세요.
+  - 포트는 `nexus port list` 로 봅니다. 상태 표시줄 오른쪽과 제목 표시줄의 작업 메뉴에도 나옵니다.
+  - 49152 이상의 포트, Docker 가 연 포트, 셸을 떠나 데몬으로 도는 서버는 찾지 못합니다.
+  - SSH 워크스페이스의 포트는 원격 호스트에 있고 앱이 포워딩하지 않아서, 경로만으로는 열 수 없습니다.
+  - 로컬 파일은 `file:///경로` 로 엽니다.
 - 요소는 마지막 `snapshot` 의 ref(`e12`)나, 요소 하나만 맞는 CSS 선택자로 고릅니다. 페이지가 다시 로드되면 snapshot 을 새로 찍어야 합니다.
 - 클릭은 실제 마우스 이벤트입니다. 다른 요소가 덮고 있으면 거절합니다(`--force` 로 그 자리를 그냥 클릭).
 - `console` 은 탭이 열린 뒤 페이지가 남긴 메시지를 최근 500개까지 보여줍니다.

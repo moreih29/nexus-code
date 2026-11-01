@@ -12,6 +12,7 @@ import type {
   CliUiOps,
 } from "../../../shared/cli/ui";
 import type { FsEntryType } from "../../../shared/fs/types";
+import type { ListeningPort } from "../../../shared/pty/ports";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { TabActivity } from "./activity";
 import type { BrowserDriver } from "./browser/driver";
@@ -68,6 +69,11 @@ export interface CliServices {
   agentContextEnabled(): boolean;
   /** The program holding a terminal's foreground; null when the agent cannot tell. */
   foregroundProcess(workspaceId: string, tabId: string): Promise<string | null>;
+  /**
+   * The TCP ports the programs in a workspace's terminals listen on, looked
+   * at now, in port order.
+   */
+  listeningPorts(workspaceId: string): Promise<readonly ListeningPort[]>;
   /**
    * Terminals whose agent nexus worktree new just started with a prompt, so
    * that a wait on one holds until the agent has begun its first turn.

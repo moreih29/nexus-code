@@ -14,6 +14,7 @@ import { FsStatSchema } from "../../../shared/fs/types";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcOk } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
+import type { ListeningPort } from "../../../shared/pty/ports";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { AgentChannel } from "../../infra/agent/channel";
 import { register, validateArgs } from "../../infra/ipc-router";
@@ -74,6 +75,8 @@ export interface SetupCliFeatureOptions {
   focusWindow: () => void;
   /** Sends an event to the renderer. */
   broadcast: (channel: string, event: string, args: unknown) => void;
+  /** Looks at the ports the programs in a workspace's terminals listen on. */
+  ports: { refresh(workspaceId: string): Promise<readonly ListeningPort[]> };
 }
 
 export interface CliFeature {
@@ -183,6 +186,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     allowChange: (request) => consent.check(request),
     agentContextEnabled: () => options.settings().agentContext,
     foregroundProcess,
+    listeningPorts: (workspaceId) => options.ports.refresh(workspaceId),
     startedAgents,
     clock: {
       now: () => Date.now(),

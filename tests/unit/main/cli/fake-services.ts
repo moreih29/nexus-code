@@ -25,6 +25,7 @@ import type {
   CliUiOp,
   CliUiOps,
 } from "../../../../src/shared/cli/ui";
+import type { ListeningPort } from "../../../../src/shared/pty/ports";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 export const APP = "11111111-1111-4111-8111-111111111111";
@@ -156,6 +157,8 @@ export interface FakeApp {
   panels: CliPanels;
   /** What problems.list gives. */
   problems: CliProblem[];
+  /** The ports each workspace's terminals listen on; an Error fails the look. */
+  ports: Record<string, ListeningPort[] | Error>;
 }
 
 export interface FakeBrowser {
@@ -280,6 +283,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     files: { visible: true, width: 240, mode: "tree" },
   };
   const problems: CliProblem[] = [];
+  const ports: FakeApp["ports"] = {};
   const consent = new CrossWorkspaceConsent({
     policy: () => settings.crossWorkspace,
     ask: async (request) => {
@@ -360,6 +364,11 @@ export function fakeApp(now = Date.now()): FakeApp {
     allowChange: (request) => consent.check(request),
     agentContextEnabled: () => settings.agentContext,
     foregroundProcess: async (_workspaceId, tabId) => foreground.get(tabId) ?? null,
+    listeningPorts: async (workspaceId) => {
+      const found = ports[workspaceId] ?? [];
+      if (found instanceof Error) throw found;
+      return found;
+    },
     startedAgents: new StartedAgents(),
     clock: {
       now: () => time.now,
@@ -388,6 +397,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     layouts,
     panels,
     problems,
+    ports,
   };
 }
 

@@ -6,6 +6,8 @@
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../src/main/features/cli/registry";
+import type { ListeningPort } from "../../../../src/shared/pty/ports";
+import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 import {
   API,
   APP,
@@ -17,6 +19,7 @@ import {
   FIX,
   fakeApp,
   SHELL_TAB,
+  WORKSPACES,
 } from "./fake-services";
 
 async function nexus(argv: string[], app = fakeApp(), invocation = {}) {
@@ -29,6 +32,10 @@ function lastCall(app: ReturnType<typeof fakeApp>, op: string): unknown {
 }
 
 const BESIDE_ME = { background: false, besideTabId: SHELL_TAB };
+
+function listening(port: number, process = "node", tabId = SHELL_TAB): ListeningPort {
+  return { port, pid: port * 10, process, tabId };
+}
 
 describe("help and mistakes", () => {
   test("bare nexus lists the commands", async () => {
@@ -348,6 +355,90 @@ describe("tabs, browsers and workspaces", () => {
     expect(result.stdout).toBe(
       'Loaded http://localhost:5173/ "Vite App" in a new tab, cccccccc.\n',
     );
+  });
+
+  test("browser open takes a bare path to the one port the workspace's terminals listen on", async () => {
+    const app = fakeApp();
+    app.ports[APP] = [listening(5173)];
+    const result = await nexus(["browser", "open", "/login?next=%2F"], app);
+    expect(result.exitCode).toBe(0);
+    expect(lastCall(app, "browser.open")).toEqual({
+      workspaceId: APP,
+      url: "http://localhost:5173/login?next=%2F",
+      placement: BESIDE_ME,
+    });
+  });
+
+  test("browser goto takes a bare path the same way, spaces around it or not", async () => {
+    const app = fakeApp();
+    app.ports[APP] = [listening(5173)];
+    await nexus(["browser", "goto", " /login "], app);
+    expect(lastCall(app, "browser.navigate")).toEqual({
+      workspaceId: APP,
+      tabId: BROWSER_TAB,
+      action: "goto",
+      url: "http://localhost:5173/login",
+    });
+    // A URL without its scheme is no path.
+    await nexus(["browser", "goto", "//example.com/a"], app);
+    expect(lastCall(app, "browser.navigate")).toMatchObject({ url: "//example.com/a" });
+  });
+
+  test("browser open with a bare path says so when the workspace is not connected", async () => {
+    const app = fakeApp();
+    app.ports[APP] = new Error("app is not connected");
+    expect((await nexus(["browser", "open", "/"], app)).stderr).toBe(
+      "nexus: could not look at app's ports: app is not connected\n",
+    );
+  });
+
+  test("browser open with a bare path says which ports there are when it is not one", async () => {
+    const app = fakeApp();
+    const none = await nexus(["browser", "open", "/"], app);
+    expect(none.stderr).toBe(
+      "nexus: no program in app's terminals listens on a port; start its dev server, or give a URL such as localhost:3000/\n",
+    );
+    app.ports[APP] = [listening(5173), listening(8787, "workerd")];
+    const several = await nexus(["browser", "open", "/"], app);
+    expect(several.stderr).toBe(
+      "nexus: app's terminals listen on several ports, :5173 (node), :8787 (workerd); give one, as localhost:5173/\n",
+    );
+    app.ports[APP] = new Error("unsupported method");
+    expect((await nexus(["browser", "open", "/"], app)).stderr).toBe(
+      "nexus: could not look at app's ports: unsupported method\n",
+    );
+    expect(lastCall(app, "browser.open")).toBeUndefined();
+  });
+
+  test("browser open with a bare path is refused in an SSH workspace", async () => {
+    const app = fakeApp();
+    const ssh = {
+      ...WORKSPACES[1],
+      location: { kind: "ssh", host: "devbox", remotePath: "/srv/api" },
+    } as WorkspaceMeta;
+    app.services = { ...app.services, listWorkspaces: () => [WORKSPACES[0], ssh] };
+    app.ports[API] = [listening(3000)];
+    const result = await nexus(["browser", "open", "/", "--workspace", "api"], app);
+    expect(result.stderr).toBe(
+      "nexus: api's servers are on devbox, which the app forwards nothing from; give a URL\n",
+    );
+  });
+
+  test("port list shows each port's program and terminal", async () => {
+    const app = fakeApp();
+    expect((await nexus(["port", "list"], app)).stdout).toBe(
+      "No program in app's terminals listens on a port.\n",
+    );
+    app.ports[APP] = [listening(5173, "node", SHELL_TAB)];
+    const result = await nexus(["port", "list"], app);
+    expect(result.stdout).toBe(
+      "PORT  PID    PROCESS  TERMINAL  TITLE  URL\n" +
+        "5173  51730  node     aaaaaaaa  zsh    http://localhost:5173\n",
+    );
+    const json = await nexus(["port", "list", "--json"], app);
+    expect(JSON.parse(json.stdout)).toEqual([
+      { port: 5173, pid: 51730, process: "node", tabId: SHELL_TAB, url: "http://localhost:5173" },
+    ]);
   });
 
   test("browser goto and reload use the workspace's only browser tab, and wait for the load", async () => {

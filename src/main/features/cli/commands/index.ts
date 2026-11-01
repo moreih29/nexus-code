@@ -7,6 +7,7 @@ import { editorCommands } from "./editor";
 import { layoutCommands, tabArrangeCommands } from "./layout";
 import { notifyCommands } from "./notify";
 import { panelCommands } from "./panel";
+import { portCommands } from "./port";
 import { terminalCommands } from "./terminal";
 import { workspaceCommands } from "./workspace";
 
@@ -19,6 +20,7 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
   ...editorCommands,
   ...browserCommands,
   ...browserControlCommands,
+  ...portCommands,
   ...notifyCommands,
   ...agentContextCommands,
 ];

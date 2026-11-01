@@ -2,8 +2,8 @@
  * PortWatcher — when a workspace's listening ports are looked at: as its
  * terminals start printing after a quiet spell, once more as that settles,
  * then while they keep printing or it has ports, once when a terminal is
- * attached again, and not at all when it is quiet with none; and which
- * answers it shows.
+ * attached again, and not at all when it is quiet with none, unless a
+ * command asks; and which answers it shows.
  */
 import { expect, test } from "bun:test";
 import { PortWatcher } from "../../../../src/main/features/pty/ports";
@@ -204,5 +204,66 @@ test("a look under way when the connection is held does not bring the ports back
     { workspaceId: "w", ports: [port(3000)] },
     { workspaceId: "w", ports: [] },
   ]);
+  watcher.dispose();
+});
+
+test("a refresh looks now, shows what it finds and keeps looking while there are ports", async () => {
+  const { watcher, looked, changes } = setup([[port(5173)], []]);
+
+  expect(await watcher.refresh("w")).toEqual([port(5173)]);
+  expect(changes).toEqual([{ workspaceId: "w", ports: [port(5173)] }]);
+
+  // The server stops: the next look drops it, and looking ends.
+  await wait(200);
+  expect(looked).toEqual(["w", "w"]);
+  expect(watcher.get("w")).toEqual([]);
+  await wait(200);
+  expect(looked).toHaveLength(2);
+  watcher.dispose();
+});
+
+test("a refresh that finds nothing leaves a quiet workspace alone", async () => {
+  const { watcher, looked, changes } = setup([[]]);
+
+  expect(await watcher.refresh("w")).toEqual([]);
+  await wait(200);
+  expect(looked).toEqual(["w"]);
+  expect(changes).toEqual([]);
+  watcher.dispose();
+});
+
+test("a failed refresh throws and leaves the ports shown", async () => {
+  const { source, watcher } = setup([[port(3000)], new Error("devbox is not connected")]);
+
+  source.emit("data", { workspaceId: "w", tabId: "t", chunk: "ready" });
+  await wait(20);
+  await expect(watcher.refresh("w")).rejects.toThrow("devbox is not connected");
+  expect(watcher.get("w")).toEqual([port(3000)]);
+  watcher.dispose();
+});
+
+test("a refresh during a look shows the newer answer, whichever ends first", async () => {
+  const source = host();
+  const answers: Array<(ports: ListeningPort[]) => void> = [];
+  const changes: WorkspacePorts[] = [];
+  const watcher = new PortWatcher(
+    source,
+    () => new Promise((resolve) => answers.push(resolve)),
+    (entry) => changes.push(entry),
+    () => 1_000,
+    TIMING,
+  );
+
+  source.emit("data", { workspaceId: "w", tabId: "t", chunk: "a" });
+  await wait(5);
+  const refreshed = watcher.refresh("w");
+  expect(answers).toHaveLength(2);
+  answers[1]?.([port(3000), port(4000)]);
+  expect(await refreshed).toEqual([port(3000), port(4000)]);
+  // The look started first ends last.
+  answers[0]?.([port(3000)]);
+  await wait(5);
+  expect(watcher.get("w")).toEqual([port(3000), port(4000)]);
+  expect(changes).toEqual([{ workspaceId: "w", ports: [port(3000), port(4000)] }]);
   watcher.dispose();
 });
