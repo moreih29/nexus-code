@@ -323,6 +323,24 @@ describe("drawGraphCanvas — visible graph scenarios", () => {
     expect(calls(canvas.context, "stroke")).toHaveLength(2);
   });
 
+  it("keeps the mainline's color off branches when the colors come round again", () => {
+    const canvas = createCanvasSpy();
+    // Eight merges, so the branches take colors 1 to 8.
+    const entries = Array.from({ length: 8 }, (_, index) => [
+      entry(`M${index}`, [`M${index + 1}`, `B${index}`]),
+      entry(`B${index}`, [`M${index + 1}`]),
+    ]).flat();
+    entries.push(entry("M8"));
+
+    drawGraphCanvas(canvas.element, drawInputs(entries));
+
+    const rowY = (row: number) => row * ROW_HEIGHT_PX + ROW_HEIGHT_PX / 2;
+    const branchX = LANE_WIDTH_PX + LANE_WIDTH_PX / 2;
+    expect(paintOfArc(canvas.context, 9, rowY(16), 4)).toBe("fill:theme-lane-5");
+    // The first branch's color, not the mainline's.
+    expect(paintOfArc(canvas.context, branchX, rowY(15), 4)).toBe("fill:theme-lane-0");
+  });
+
   it("curves a merged branch into its own lane and back into its parent's lane", () => {
     const canvas = createCanvasSpy();
     const entries = [entry("M", ["A", "B"]), entry("A", ["R"]), entry("B", ["R"]), entry("R")];

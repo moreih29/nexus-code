@@ -5,7 +5,7 @@ import type { VirtualItem } from "@tanstack/react-virtual";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { LogEntry } from "../../../../../../shared/git/types";
-import type { LaneState } from "./lane-assign";
+import { type LaneState, MAINLINE_COLOR } from "./lane-assign";
 
 const DEFAULT_ROW_HEIGHT_PX = 24;
 const DEFAULT_LANE_WIDTH_PX = 16;
@@ -584,8 +584,12 @@ function getLaneX(lane: number, laneWidth: number): number {
   return lane * laneWidth + laneWidth / 2;
 }
 
-/** Picks a line's theme token, reusing the eight cyclically when there are more lines. */
+/**
+ * Picks a line's theme token. The mainline has the first to itself; the
+ * other lines reuse the remaining seven cyclically when there are more.
+ */
 function getLaneColor(laneColors: readonly string[], color: number): string {
-  const token = LANE_COLOR_ORDER[Math.abs(color) % LANE_COLOR_COUNT];
+  const order = color === MAINLINE_COLOR ? 0 : 1 + ((Math.abs(color) - 1) % (LANE_COLOR_COUNT - 1));
+  const token = LANE_COLOR_ORDER[order] ?? LANE_COLOR_ORDER[0];
   return laneColors[token] ?? DEFAULT_LANE_COLORS[0];
 }
