@@ -245,6 +245,13 @@ describe("hook-handler — subcommand 상태 전이", () => {
   test.each([
     "<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n</task-notification>",
     '<cross-session-message from="worker">done</cross-session-message>',
+    // As Claude Code 2.1.316 delivers a background agent's SendMessage.
+    'Another Claude session sent a message:\n<agent-message from="a58">Question for you</agent-message>',
+    "A peer session sent a message while you were working:\nbuild is green",
+    '<teammate-message teammate_id="tester">tests pass</teammate-message>',
+    '<channel source="ci">deploy finished</channel>',
+    "<tick>1793550051</tick>",
+    "The linter plugin sent a message:\nfix the import order",
   ])("a turn Claude Code starts itself runs but keeps the user's prompt: %j", async (prompt) => {
     const { broker, emit } = makeHarness();
     emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
@@ -254,6 +261,17 @@ describe("hook-handler — subcommand 상태 전이", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
     expect(broker.get("ws-test", "tab-test")?.prompt).toBe("build it");
+  });
+
+  test.each([
+    "<b>bold</b> is not shown in the preview",
+    "The build plugin sent a message: is that why it fails?",
+    "Another Claude session sent a message earlier, did you read it?",
+  ])("the user's own words that only look like an envelope are kept: %j", async (prompt) => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.prompt).toBe(prompt);
   });
 
   test("session-start — 이전 세션의 prompt를 비움", async () => {
