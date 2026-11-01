@@ -262,6 +262,10 @@ export function fakeApp(now = Date.now()): FakeApp {
     if (op === "editor.open" || op === "diff.open" || op === "terminal.open") {
       return { tabId: NEW_TAB } as CliUiOps[K]["result"];
     }
+    // Any worktree made is "fix-login".
+    if (op === "task.create") {
+      return { workspaceId: FIX, tabId: NEW_TAB, command: "claude" } as CliUiOps[K]["result"];
+    }
     if (op === "browser.open") {
       const { url } = args as CliUiOps["browser.open"]["args"];
       return { tabId: NEW_TAB, url: `http://${url}/` } as CliUiOps[K]["result"];

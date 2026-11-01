@@ -1,7 +1,7 @@
 /**
  * What the nexus CLI changes in the renderer: it opens editors, diffs,
  * terminals and browser tabs, types into terminals, shows and closes tabs,
- * and switches workspaces.
+ * switches workspaces, and makes and removes tasks.
  *
  * A tab the CLI opens is not focused: the user may be typing in the
  * terminal the command came from. Where it goes is ./placement's call.
@@ -15,6 +15,7 @@ import { useActiveStore } from "@/state/stores/active";
 import { useBrowserRuntimeStore } from "@/state/stores/browser-runtime";
 import { useGitStore } from "@/state/stores/git";
 import { useLayoutStore } from "@/state/stores/layout/store";
+import { useMountedWorkspacesStore } from "@/state/stores/mounted-workspaces";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
 import type { CliUiOp, CliUiOps } from "../../../shared/cli/ui";
@@ -22,12 +23,13 @@ import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
 import { classifyUrl } from "../browser/url-classifier";
 import { isDirty } from "../editor/model/dirty-tracker";
 import { closeTabWithConfirm } from "../editor/save/close-tab";
+import { countUnsavedBuffers } from "../editor/save/unsaved-guard";
 import { requestEditorReveal } from "../editor/tabs/pending-reveal";
 import { runningProgram } from "../terminal/close-confirm";
 import { closeTerminal } from "../terminal/open-terminal";
 import { queueStartupInput } from "../terminal/pty-client";
 import { getTerminalController } from "../terminal/terminal-registry";
-import { activateWorkspace } from "../workspace/tasks";
+import { activateWorkspace, removeTask, startTask } from "../workspace/tasks";
 import type { LayoutOp } from "./layout-actions";
 import { findTabs, groupOf, openTab, showOpenTab } from "./placement";
 
@@ -219,6 +221,32 @@ export const actionHandlers: {
 
   "workspace.show": async ({ workspaceId }) => {
     activateWorkspace(workspaceId);
+    return {};
+  },
+
+  "task.create": async ({ parentId, name, prompt, show }) => {
+    const started = await startTask(parentId, name, prompt);
+    if (!("task" in started)) throw new UiRequestError(started.message);
+    // Its terminal starts once its panel is mounted, shown or not.
+    if (show) activateWorkspace(started.task.id);
+    else useMountedWorkspacesStore.getState().mount(started.task.id);
+    return { workspaceId: started.task.id, tabId: started.tabId, command: started.command };
+  },
+
+  "task.remove": async ({ taskId, force, deleteBranch }) => {
+    const unsaved = countUnsavedBuffers(taskId);
+    if (unsaved > 0) {
+      throw new UiRequestError(
+        `it has ${unsaved} unsaved file${unsaved === 1 ? "" : "s"}; save or close them in the app`,
+      );
+    }
+    const failure = await removeTask(taskId, { force, deleteBranch });
+    if (failure?.kind === "worktree-dirty") {
+      throw new UiRequestError(
+        "its worktree has uncommitted changes; add --force to throw them away",
+      );
+    }
+    if (failure) throw new UiRequestError(failure.message);
     return {};
   },
 

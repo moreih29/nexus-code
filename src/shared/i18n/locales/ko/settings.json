@@ -277,7 +277,10 @@
         "layout": "그룹 배치 변경({{detail}})을",
         "groupClose": "그룹 {{detail}} 및 그 안의 탭 닫기를",
         "tabRename": "탭 \"{{detail}}\" 이름 변경을",
-        "tabPin": "탭 \"{{detail}}\" 고정·해제를"
+        "tabPin": "탭 \"{{detail}}\" 고정·해제를",
+        "worktreeNew": "작업 \"{{detail}}\" 만들기를",
+        "worktreeRemove": "작업과 그 워크트리 폴더 삭제를",
+        "worktreeRemoveBranch": "작업과 그 워크트리 폴더, 브랜치 삭제를"
       }
     }
   },
