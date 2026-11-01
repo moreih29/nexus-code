@@ -32,11 +32,15 @@ const SEPARATOR_CLASS = "h-px bg-border my-1";
 interface DropdownMenuRootProps {
   children: React.ReactNode;
   onOpenChange?: (open: boolean) => void;
+  /** Set to open and close the menu from code; left out, the trigger does. */
+  open?: boolean;
 }
 
-export function DropdownMenuRoot({ children, onOpenChange }: DropdownMenuRootProps) {
+export function DropdownMenuRoot({ children, onOpenChange, open }: DropdownMenuRootProps) {
   return (
-    <RadixDropdownMenu.Root onOpenChange={onOpenChange}>{children}</RadixDropdownMenu.Root>
+    <RadixDropdownMenu.Root open={open} onOpenChange={onOpenChange}>
+      {children}
+    </RadixDropdownMenu.Root>
   );
 }
 

@@ -176,11 +176,14 @@ export function pickedLabel(el: Pick<PickedElement, "role" | "name" | "tag">): s
   return el.name === "" ? what : `${what} ${JSON.stringify(el.name)}`;
 }
 
-/** The block nexus browser pick prints; `screenshot` is where its picture was saved. */
-export function formatPick(picked: PickedElement, screenshot?: string): string {
+/**
+ * The block nexus browser pick prints; `screenshot` is where its picture was
+ * saved. `tab` names the browser tab, for a reader who did not pick it.
+ */
+export function formatPick(picked: PickedElement, screenshot?: string, tab?: string): string {
   const el = cleanPicked(picked);
   const lines = [
-    `[element] ${el.url}`,
+    tab === undefined ? `[element] ${el.url}` : `[element in browser tab ${tab}] ${el.url}`,
     `  ${pickedLabel(el)} (ref ${el.ref})`,
     `  selector: ${selectorText(el)}`,
     `  box: ${el.box.width}x${el.box.height} at (${el.box.x}, ${el.box.y})`,

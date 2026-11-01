@@ -3,6 +3,7 @@
  * agents relay from their terminals, runs the command, and answers through
  * the same agent.
  */
+import { tmpdir } from "node:os";
 import {
   CliCancelSchema,
   type CliInvocation,
@@ -23,10 +24,12 @@ import type { ActiveContextStore } from "../claude/active-context";
 import type { ClaudeStatusBroker } from "../claude/status";
 import { type ActivitySource, ActivityTracker } from "./activity";
 import { CdpBrowserDriver } from "./browser/driver";
+import { formatPick, type PickedElement } from "./browser/pick";
+import { savePickPicture } from "./browser/pick-pictures";
 import { ClaudeExitWatch } from "./claude-exit";
 import { CLI_COMMANDS } from "./commands";
 import { CrossWorkspaceConsent, type CrossWorkspacePolicy } from "./consent";
-import type { CliServices } from "./context";
+import { type CliServices, shortId } from "./context";
 import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
 import { SessionHistory, type SessionSpanStore } from "./history";
@@ -35,6 +38,9 @@ import { StartedAgents } from "./started-agents";
 import { WaitRegistry } from "./waits";
 
 const log = createLogger("cli");
+
+/** How long a pick started from a browser tab's button waits for the click. */
+const BUTTON_PICK_MS = 10 * 60_000;
 
 const DISABLED: CliResult = {
   stdout: "",
@@ -130,9 +136,42 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
         const { workspaceIds, since } = validateArgs(ipcContract.cli.call.history.args, args);
         return ipcOk(history.list(workspaceIds, since));
       },
+      pickElement: async (args: unknown) => {
+        const { tabId } = validateArgs(ipcContract.cli.call.pickElement.args, args);
+        const result = await browser.pick(tabId, { timeoutMs: BUTTON_PICK_MS });
+        if ("cancelled" in result) return ipcOk({ cancelled: result.cancelled });
+        // The click left the keyboard in the page; the agent's terminal is next.
+        options.getWindow()?.webContents.focus();
+        const screenshot = await pickPicture(tabId, result.picked);
+        return ipcOk({ text: formatPick(result.picked, screenshot, shortId(tabId)) });
+      },
+      cancelPick: async (args: unknown) => {
+        browser.cancelPick(validateArgs(ipcContract.cli.call.cancelPick.args, args).tabId);
+        return ipcOk(undefined);
+      },
     },
     listen: { uiRequest: {} },
   });
+
+  /**
+   * Saves the picture of an element picked with a tab's button where the
+   * agent can read it: this machine's temp directory, so only for a local
+   * workspace. An agent on an SSH host or in WSL gets none.
+   */
+  const pickPicture = async (
+    tabId: string,
+    picked: PickedElement,
+  ): Promise<string | undefined> => {
+    const workspaceId = getBrowserRegistry()?.get(tabId)?.workspaceId;
+    const workspace = workspaceManager.list().find((w) => w.id === workspaceId);
+    if (picked.png === undefined || workspace?.location.kind !== "local") return undefined;
+    try {
+      return await savePickPicture(tmpdir(), shortId(tabId), picked.png, Date.now());
+    } catch (error) {
+      log.warn(`saving a picked element's picture failed: ${(error as Error).message}`);
+      return undefined;
+    }
+  };
 
   const reveal = (workspaceId: string, tabId: string) => {
     options.focusWindow();
