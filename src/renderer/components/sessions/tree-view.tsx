@@ -15,10 +15,9 @@ interface TreeViewProps {
   changes: ReadonlyMap<string, WorktreeChanges>;
   selection: SessionsSelection | null;
   onSelect: (selection: SessionsSelection) => void;
-  now: number;
 }
 
-export function TreeView({ family, changes, selection, onSelect, now }: TreeViewProps) {
+export function TreeView({ family, changes, selection, onSelect }: TreeViewProps) {
   return (
     <ul className="flex flex-col gap-1 p-2" aria-label={family.root.name}>
       {family.worktrees.map((worktree) => (
@@ -37,7 +36,6 @@ export function TreeView({ family, changes, selection, onSelect, now }: TreeView
               session={session}
               selected={selection?.kind === "session" && selection.key === session.key}
               onSelect={() => onSelect({ kind: "session", key: session.key })}
-              now={now}
             />
           ))}
         </li>
@@ -100,12 +98,10 @@ function SessionRow({
   session,
   selected,
   onSelect,
-  now,
 }: {
   session: AgentSession;
   selected: boolean;
   onSelect: () => void;
-  now: number;
 }) {
   const line = session.prompt ?? session.message ?? session.title;
   return (
@@ -117,7 +113,7 @@ function SessionRow({
     >
       <span className="flex w-full min-w-0 items-center gap-2">
         <AgentBadge agent={session.agent} />
-        <SessionState session={session} now={now} />
+        <SessionState session={session} />
       </span>
       <span className="w-full truncate text-app-ui-sm text-muted-foreground">{line}</span>
     </button>

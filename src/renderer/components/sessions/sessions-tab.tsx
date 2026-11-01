@@ -33,7 +33,7 @@ interface SessionsTabViewProps {
 }
 
 export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps) {
-  const { family, now } = useSessionFamily(workspaceId, isVisible);
+  const family = useSessionFamily(workspaceId, isVisible);
   const ids = useMemo(() => family?.worktrees.map((w) => w.workspace.id) ?? [], [family]);
   const changes = useWorktreeChanges(ids, isVisible);
   const rootId = family?.root.id ?? workspaceId;
@@ -75,7 +75,6 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
               changes={changes}
               selection={selection}
               onSelect={select}
-              now={now}
             />
           ) : view === "board" ? (
             <BoardView
@@ -83,7 +82,6 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
               changes={changes}
               selection={detailOpen ? selection : null}
               onSelect={select}
-              now={now}
             />
           ) : view === "lineage" ? (
             <LineageView
@@ -92,14 +90,12 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
               waits={waits}
               selection={detailOpen ? selection : null}
               onSelect={select}
-              now={now}
             />
           ) : (
             <TimelineView
               family={family}
               selection={detailOpen ? selection : null}
               onSelect={select}
-              now={now}
               visible={isVisible}
             />
           )}
@@ -117,7 +113,6 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
               family={family}
               selection={selection}
               changes={changes}
-              now={now}
               visible={isVisible}
             />
           </div>

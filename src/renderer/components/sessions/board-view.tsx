@@ -21,10 +21,9 @@ interface BoardViewProps {
   changes: ReadonlyMap<string, WorktreeChanges>;
   selection: SessionsSelection | null;
   onSelect: (selection: SessionsSelection) => void;
-  now: number;
 }
 
-export function BoardView({ family, changes, selection, onSelect, now }: BoardViewProps) {
+export function BoardView({ family, changes, selection, onSelect }: BoardViewProps) {
   const { t } = useTranslation();
   const sessions = allSessions(family);
   const worktreeOf = (session: AgentSession) =>
@@ -58,7 +57,6 @@ export function BoardView({ family, changes, selection, onSelect, now }: BoardVi
                   changedFiles={changes.get(session.workspaceId)?.files.length}
                   selected={selection?.kind === "session" && selection.key === session.key}
                   onSelect={() => onSelect({ kind: "session", key: session.key })}
-                  now={now}
                 />
               ))
             )}
@@ -77,7 +75,6 @@ function SessionCard({
   changedFiles,
   selected,
   onSelect,
-  now,
 }: {
   session: AgentSession;
   phase: SessionPhase;
@@ -86,7 +83,6 @@ function SessionCard({
   changedFiles: number | undefined;
   selected: boolean;
   onSelect: () => void;
-  now: number;
 }) {
   const { t } = useTranslation();
   return (
@@ -115,7 +111,7 @@ function SessionCard({
           <span className="truncate">{branch}</span>
         </span>
       )}
-      <SessionState session={session} now={now} />
+      <SessionState session={session} />
       {session.prompt && (
         <span className="line-clamp-2 text-app-ui-sm text-foreground">{session.prompt}</span>
       )}

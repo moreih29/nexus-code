@@ -18,7 +18,7 @@ import {
   type TimelineRange,
   type TimelineWait,
 } from "../../services/sessions/timeline";
-import { useSessionHistory } from "../../services/sessions/use-family";
+import { useNow, useSessionHistory } from "../../services/sessions/use-family";
 import { SegmentedControl } from "../settings/segmented-control";
 import type { SessionsSelection } from "./selection";
 import { AgentBadge, SessionState, stateLabel } from "./session-status";
@@ -28,7 +28,6 @@ interface TimelineViewProps {
   family: SessionFamily;
   selection: SessionsSelection | null;
   onSelect: (selection: SessionsSelection) => void;
-  now: number;
   visible: boolean;
 }
 
@@ -48,8 +47,10 @@ const LANE_COLUMNS =
   "grid w-full grid-cols-[8rem_minmax(0,1fr)] items-center gap-3 @xl:grid-cols-[10rem_minmax(0,1fr)_9rem]";
 const STATE_COLUMN = "hidden min-w-0 @xl:block";
 
-export function TimelineView({ family, selection, onSelect, now, visible }: TimelineViewProps) {
+export function TimelineView({ family, selection, onSelect, visible }: TimelineViewProps) {
   const { t } = useTranslation();
+  // The bars run up to now, so they move on with the clock while shown.
+  const now = useNow(visible);
   const [range, setRange] = useState<TimelineRange>("30m");
   const ids = useMemo(() => family.worktrees.map((w) => w.workspace.id), [family]);
   const spans = useSessionHistory(ids, range, visible);
@@ -97,7 +98,6 @@ export function TimelineView({ family, selection, onSelect, now, visible }: Time
                   : { kind: "worktree", workspaceId: lane.worktree.workspace.id },
               )
             }
-            now={now}
           />
         ))}
         <div className={cn(LANE_COLUMNS, "border-l-2 border-l-transparent px-2")}>
@@ -166,7 +166,6 @@ function Lane({
   at,
   selected,
   onSelect,
-  now,
 }: {
   lane: TimelineLane;
   family: SessionFamily;
@@ -174,7 +173,6 @@ function Lane({
   at: (time: number) => string;
   selected: boolean;
   onSelect: () => void;
-  now: number;
 }) {
   const { t } = useTranslation();
   const { worktree, session } = lane;
@@ -223,7 +221,7 @@ function Lane({
       </span>
       <span className={STATE_COLUMN}>
         {session ? (
-          <SessionState session={session} now={now} />
+          <SessionState session={session} />
         ) : (
           <span className="text-app-ui-sm text-muted-foreground">
             {t(lane.key ? "sessions.state.exited" : "sessions.no_sessions")}
