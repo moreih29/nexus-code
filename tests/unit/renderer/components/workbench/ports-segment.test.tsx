@@ -47,7 +47,7 @@ describe("portsLabel", () => {
 
 describe("usePortsStore", () => {
   test("a workspace whose servers stopped is dropped", () => {
-    usePortsStore.setState({ byWorkspace: {} });
+    usePortsStore.setState({ byWorkspace: {}, changed: {} });
     const store = usePortsStore.getState();
     store.set({ workspaceId: "ws", ports: listening(3000) });
     store.set({ workspaceId: "ws", ports: [] });
@@ -55,8 +55,16 @@ describe("usePortsStore", () => {
     expect(usePortsStore.getState().byWorkspace).toEqual({});
   });
 
+  test("hydrating does not bring back servers that stopped since", () => {
+    usePortsStore.setState({ byWorkspace: {}, changed: {} });
+    usePortsStore.getState().set({ workspaceId: "ws", ports: [] });
+    usePortsStore.getState().hydrate([{ workspaceId: "ws", ports: listening(5173) }]);
+
+    expect(usePortsStore.getState().byWorkspace).toEqual({});
+  });
+
   test("hydrating keeps what a broadcast said since", () => {
-    usePortsStore.setState({ byWorkspace: {} });
+    usePortsStore.setState({ byWorkspace: {}, changed: {} });
     usePortsStore.getState().set({ workspaceId: "ws", ports: listening(5174) });
     usePortsStore.getState().hydrate([
       { workspaceId: "ws", ports: listening(5173) },

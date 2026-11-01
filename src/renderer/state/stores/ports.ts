@@ -10,18 +10,28 @@ export const NO_PORTS: readonly ListeningPort[] = [];
 
 interface PortsState {
   byWorkspace: Record<string, readonly ListeningPort[]>;
-  /** Main's ports at launch; a change broadcast since stays. */
+  /**
+   * The workspaces a change has come for: main's ports at launch, asked
+   * before it came, are older for them.
+   */
+  changed: Record<string, true>;
+  /** Main's ports at launch, for the workspaces no change has come for since. */
   hydrate(entries: WorkspacePorts[]): void;
   set(entry: WorkspacePorts): void;
 }
 
 export const usePortsStore = create<PortsState>((set) => ({
   byWorkspace: {},
+  changed: {},
 
   hydrate(entries) {
     set((s) => ({
       byWorkspace: {
-        ...Object.fromEntries(entries.map((entry) => [entry.workspaceId, entry.ports])),
+        ...Object.fromEntries(
+          entries
+            .filter((entry) => !s.changed[entry.workspaceId])
+            .map((entry) => [entry.workspaceId, entry.ports]),
+        ),
         ...s.byWorkspace,
       },
     }));
@@ -29,10 +39,14 @@ export const usePortsStore = create<PortsState>((set) => ({
 
   set({ workspaceId, ports }) {
     set((s) => {
-      if (ports.length > 0) return { byWorkspace: { ...s.byWorkspace, [workspaceId]: ports } };
-      if (!(workspaceId in s.byWorkspace)) return s;
+      const changed: Record<string, true> = s.changed[workspaceId]
+        ? s.changed
+        : { ...s.changed, [workspaceId]: true };
+      if (ports.length > 0) {
+        return { byWorkspace: { ...s.byWorkspace, [workspaceId]: ports }, changed };
+      }
       const { [workspaceId]: _stopped, ...rest } = s.byWorkspace;
-      return { byWorkspace: rest };
+      return { byWorkspace: workspaceId in s.byWorkspace ? rest : s.byWorkspace, changed };
     });
   },
 }));
