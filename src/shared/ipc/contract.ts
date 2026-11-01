@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { SessionActivitySchema } from "../claude/activity";
+import {
+  ACTIVITY_TEXT_MAX_CHARS,
+  PermissionAnswerSchema,
+  SessionActivitySchema,
+} from "../claude/activity";
 import { StatusEntrySchema } from "../claude/status";
 import { CliUiRequestSchema, CliUiRespondArgsSchema } from "../cli/ui";
 import { TabActivityEntrySchema, TerminalWaitSchema } from "../sessions/agent-state";
@@ -1599,6 +1603,22 @@ export const ipcContract = {
       activity: call(
         z.object({ workspaceIds: z.array(z.string()) }),
         z.array(SessionActivitySchema),
+      ),
+      /**
+       * Answers a permission request held for the user (an activity's
+       * `asks`): allow it, allow it always as Claude Code suggests, deny it
+       * with words for Claude, or deny it and stop the turn. False when it
+       * no longer waits, answered in the terminal or gone.
+       */
+      answerPermission: call(
+        z.object({
+          workspaceId: z.string(),
+          tabId: z.string(),
+          askId: z.string(),
+          answer: PermissionAnswerSchema,
+          message: z.string().max(ACTIVITY_TEXT_MAX_CHARS).optional(),
+        }),
+        z.boolean(),
       ),
     },
     listen: {

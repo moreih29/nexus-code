@@ -21,7 +21,9 @@
 //   notification       → broker.set(needsInput) + (그 탭 안 보면) OS 알림 + respondHook
 //                        (a permission dialog's notification keeps or sets permissionPending;
 //                        one that only tells something, as a login or a push, only notifies)
-//   permission-request → broker.set(permissionPending) + (그 탭 안 보면) OS 알림 + respondHook (sync, native fallback)
+//   permission-request → broker.set(permissionPending) + (그 탭 안 보면) OS 알림; held for an
+//                        answer from the sessions tab (permission-asks.ts) beside Claude Code's
+//                        own dialog, or, for a `claude -p` run, respondHook at once (native fallback)
 //   post-tool-use      → the tool waiting on the permission ran: permissionPending → running + respondHook
 //   post-tool-use-failure → as post-tool-use, for a tool that failed as it ran
 //   subagent-start     → respondHook (the sessions tab's record only)
@@ -33,9 +35,12 @@
 // Turn hooks of a turn already over (by prompt_id, see turn-order.ts) are only answered.
 // Every other hook is told to deps.activity, the record the sessions tab shows.
 
+import type { PermissionAnswer } from "../../../shared/claude/activity";
 import {
   type ClaudeStatus,
+  HookGoneSchema,
   HookRequestSchema,
+  type HookResponse,
   PROMPT_MAX_CHARS,
 } from "../../../shared/claude/status";
 import { createLogger } from "../../../shared/log/main";
@@ -43,6 +48,7 @@ import { tryGetMainT } from "../../i18n";
 import { broadcast } from "../../infra/ipc-router";
 import type { ActiveContextStore } from "./active-context";
 import { handlePermissionRequest } from "./permission";
+import type { AnsweredAsk, PermissionAsks } from "./permission-asks";
 import { MAIN_AGENT, PermissionDialogs } from "./permission-dialogs";
 import type { SessionActivityLog } from "./session-activity";
 import type { ClaudeStatusBroker } from "./status";
@@ -78,6 +84,8 @@ export interface HookHandlerDeps {
   broker: ClaudeStatusBroker;
   /** Records the tools, todos and agents the hooks tell of. */
   activity?: SessionActivityLog;
+  /** Holds permission requests for an answer from the sessions tab. */
+  asks?: PermissionAsks;
   /** 사용자가 현재 보고 있는 (workspaceId, tabId) 컨텍스트 — Stop 알림 발사 결정에 사용. */
   activeContext: ActiveContextStore;
   agentHost: HookAgentHost;
@@ -524,7 +532,6 @@ async function handleHookEvent(
 
     case "permission-request": {
       // 권한 요청 — permissionPending + 사용자가 그 탭을 보고 있지 않으면 OS 알림.
-      // 즉시 exit 0으로 native PTY prompt fallback 유도.
       const toolName = extractToolName(hookPayload);
       const message = toolName
         ? t
@@ -544,10 +551,14 @@ async function handleHookEvent(
         fireOsNotification(workspaceId, tabId, title, message, deps);
       }
 
-      // 1차: 즉시 exit 0 응답으로 native PTY prompt fallback 유도.
-      // TODO(후속 PR): modal UI 결정 후 allow/deny 응답.
-      const response = handlePermissionRequest();
-      await respondHook(deps.channelProvider, workspaceId, hookId, response);
+      // Held for an answer from the sessions tab while Claude Code shows its
+      // own dialog. A `claude -p` run shows none and waits on the hook, so it
+      // gets the native fallback at once.
+      if (deps.asks && !parsed.data.print) {
+        deps.asks.hold(workspaceId, tabId, hookId, agent, toolCall(hookPayload), hookPayload);
+      } else {
+        await respondHook(deps.channelProvider, workspaceId, hookId, handlePermissionRequest());
+      }
       break;
     }
 
@@ -641,6 +652,64 @@ async function handleHookEvent(
       // 알 수 없는 subcommand — 무시(Claude Code 업데이트로 새 이벤트가 추가될 수 있음).
       break;
   }
+
+  // A request whose dialog closed was answered in the terminal, or is past.
+  deps.asks?.retain(workspaceId, tabId, (asker, call) => dialogs.isOpenFor(key, asker, call));
+}
+
+/**
+ * The user answered a held permission request from the sessions tab: its
+ * dialog is closed, and the agent that asked goes on. Stopping the turn
+ * leaves the session waiting on the user, as an interrupt does.
+ */
+function afterAnswer(
+  ask: AnsweredAsk,
+  answer: PermissionAnswer,
+  deps: HookHandlerDeps,
+  dialogs: PermissionDialogs,
+): void {
+  const { workspaceId, tabId, agent, call } = ask;
+  const key = `${workspaceId}:${tabId}`;
+  const stops = answer === "denyStop";
+  deps.activity?.noteAnswered(
+    workspaceId,
+    tabId,
+    agent === MAIN_AGENT ? undefined : agent,
+    ask.tool,
+    ask.target,
+    answer === "deny" || stops,
+  );
+  const closed = stops ? dialogs.closeAgent(key, MAIN_AGENT) : dialogs.closeCall(key, agent, call);
+  if (stops) dialogs.setUnder(key, { status: "idle" });
+  if (!closed) return;
+  const under = dialogs.takeUnder(key);
+  if (under) deps.broker.set(workspaceId, tabId, under.status, under.message);
+}
+
+/**
+ * The user answered a held request's dialog in the terminal. No hook tells
+ * of it until the call allowed ends, which can be long: its dialog is closed
+ * now, and the agent that asked goes on. A "No" there interrupts the turn,
+ * which the terminal's interrupt watch tells.
+ */
+function afterTerminalAnswer(
+  ask: AnsweredAsk,
+  deps: HookHandlerDeps,
+  dialogs: PermissionDialogs,
+): void {
+  const { workspaceId, tabId, agent, call } = ask;
+  const key = `${workspaceId}:${tabId}`;
+  deps.activity?.noteAnswered(
+    workspaceId,
+    tabId,
+    agent === MAIN_AGENT ? undefined : agent,
+    ask.tool,
+    ask.target,
+    false,
+  );
+  if (!dialogs.closeCall(key, agent, call)) return;
+  const under = dialogs.takeUnder(key);
+  if (under) deps.broker.set(workspaceId, tabId, under.status, under.message);
 }
 
 /**
@@ -651,17 +720,32 @@ async function respondHook(
   channelProvider: HookChannelProvider,
   workspaceId: string,
   hookId: string,
-  response: { stdout?: string; exitCode?: number },
+  response: HookResponse,
 ): Promise<void> {
+  await answerHook(channelProvider, workspaceId, hookId, response);
+}
+
+/**
+ * Answers the waiting hook `hookId` through its workspace's agent: false when
+ * it could not, as when the hook no longer waits.
+ */
+export async function answerHook(
+  channelProvider: HookChannelProvider,
+  workspaceId: string,
+  hookId: string,
+  response: HookResponse,
+): Promise<boolean> {
   try {
     const channel = await channelProvider.tryGetAgentChannel(workspaceId);
     if (!channel) {
       log.warn(`respondHook: channel not found for workspace=${workspaceId}`);
-      return;
+      return false;
     }
     await channel.call("claude.respondHook", { hookId, response });
+    return true;
   } catch (err) {
     log.warn(`respondHook failed for hookId=${hookId}: ${(err as Error).message}`);
+    return false;
   }
 }
 
@@ -678,9 +762,27 @@ async function respondHook(
 export function registerHookHandler(deps: HookHandlerDeps): () => void {
   const turns = new TurnOrder();
   const dialogs = new PermissionDialogs();
-  return deps.agentHost.on("claude.hook", (payload) => {
+  const offHook = deps.agentHost.on("claude.hook", (payload) => {
     handleHookEvent(payload, deps, turns, dialogs).catch((err: unknown) => {
       log.warn(`handleHookEvent error: ${(err as Error).message}`);
     });
   });
+  // A held request's hook ended unanswered: Claude Code ends it as the user
+  // interrupts at the dialog, which the terminal's own watch tells.
+  const offGone = deps.agentHost.on("claude.hookGone", (payload) => {
+    const parsed = HookGoneSchema.safeParse(payload);
+    if (parsed.success) deps.asks?.gone(parsed.data.hookId);
+  });
+  const offAnswered = deps.asks?.onAnswered((ask, answer) => {
+    afterAnswer(ask, answer, deps, dialogs);
+  });
+  const offTerminal = deps.asks?.onAnsweredInTerminal((ask) => {
+    afterTerminalAnswer(ask, deps, dialogs);
+  });
+  return () => {
+    offHook();
+    offGone();
+    offAnswered?.();
+    offTerminal?.();
+  };
 }

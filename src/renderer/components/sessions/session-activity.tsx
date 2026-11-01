@@ -38,6 +38,8 @@ export function NowCard({
       : undefined;
   // What it asks for: the asking agent's tool, else the session's own.
   const asked = asking ? currentTool(asking.tools) : tool;
+  // A request held for an answer shows below, with its buttons.
+  const held = (activity.asks?.length ?? 0) > 0;
   // A turn that ended lasted until its state changed.
   const turnEnd = working ? now : session.since;
   const turn =
@@ -59,7 +61,7 @@ export function NowCard({
   ].filter((part): part is string => typeof part === "string");
   return (
     <div className="flex flex-col gap-2 rounded-(--radius-raised) border border-border bg-muted p-3">
-      {session.state === "permissionPending" ? (
+      {held ? null : session.state === "permissionPending" ? (
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="flex min-w-0 items-center gap-2 text-app-body-emphasis text-(--state-warning-fg)">
             <CircleAlert aria-hidden className="size-3 shrink-0" />

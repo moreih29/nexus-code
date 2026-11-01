@@ -328,6 +328,55 @@ describeOnPosix("claude-wrapper.sh — claude's arguments", () => {
   });
 });
 
+describeOnPosix("claude-wrapper.sh — a `claude -p` run", () => {
+  /** Runs the wrapper with `args`, and a claude that prints the mark of a print run its hooks read. */
+  function printMark(args: string[], env: Record<string, string> = {}): string {
+    const binDir = path.join(tmpDir, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const fake = path.join(binDir, "claude");
+    fs.writeFileSync(fake, '#!/usr/bin/env bash\nprintf "%s" "${NEXUS_CLAUDE_PRINT:-unset}"\n');
+    fs.chmodSync(fake, 0o755);
+    const hookBin = path.join(tmpDir, "agent");
+    fs.writeFileSync(hookBin, "#!/usr/bin/env bash\nexit 0\n");
+    fs.chmodSync(hookBin, 0o755);
+    const result = spawnSync("bash", [WRAPPER_PATH, ...args], {
+      env: {
+        NEXUS_IN_APP: "1",
+        NEXUS_AGENT_SOCKET: socketPath,
+        NEXUS_AGENT_BIN: hookBin,
+        HOME: path.join(tmpDir, "home"),
+        PATH: `${binDir}:/bin:/usr/bin`,
+        ...env,
+      },
+      timeout: 5000,
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(0);
+    return result.stdout;
+  }
+
+  // Claude Code waits on a print run's PermissionRequest hook, which no dialog answers.
+  test("marks a print run, so its permission requests are answered at once", () => {
+    expect(printMark(["-p", "hi"])).toBe("1");
+    expect(printMark(["--model", "opus", "--print", "hi"])).toBe("1");
+  });
+
+  test("leaves an interactive claude unmarked, whatever it inherits", () => {
+    expect(printMark([])).toBe("0");
+    expect(printMark(["--continue"], { NEXUS_CLAUDE_PRINT: "1" })).toBe("0");
+    // Past `--`, a "-p" is the prompt.
+    expect(printMark(["--", "-p"])).toBe("0");
+  });
+
+  test("waits on a permission request longer than the app holds it", () => {
+    const { settings } = runWrapper(path.join(tmpDir, "agent"));
+    const hooks = (
+      settings as { hooks: Record<string, Array<{ hooks: Array<{ timeout: number }> }>> }
+    ).hooks;
+    expect(hooks.PermissionRequest?.[0]?.hooks[0]?.timeout).toBeGreaterThan(3600);
+  });
+});
+
 describeOnPosix("claude-wrapper.sh — a claude inside the tab's Claude session", () => {
   /**
    * Runs the wrapper for tab t1 with `env`, and a claude that prints whether

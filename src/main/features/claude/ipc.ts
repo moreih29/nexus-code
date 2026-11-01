@@ -6,6 +6,7 @@ import { register, validateArgs } from "../../infra/ipc-router";
 import { ipcOk } from "../../../shared/ipc/result";
 import type { ClaudeStatusBroker } from "./status";
 import type { ActiveContextStore } from "./active-context";
+import type { PermissionAsks } from "./permission-asks";
 import type { SessionActivityLog } from "./session-activity";
 
 const c = ipcContract.claude.call;
@@ -19,13 +20,16 @@ const c = ipcContract.claude.call;
  *   idle로 전이한다. permissionPending/error는 사용자의 명시적 조치 전까지 보존한다.
  * - call.clearWorkspace: 워크스페이스의 모든 탭 상태를 초기화한다. hook이 stale 상태를
  *   남긴 경우 사용자가 컨텍스트 메뉴에서 수동으로 복구하는 경로.
- * - call.activity: what the sessions of the workspaces are doing, as their hooks tell it.
+ * - call.activity: what the sessions of the workspaces are doing, as their hooks tell it,
+ *   with the permission requests held for the user's answer.
+ * - call.answerPermission: answers a held permission request as the user chose.
  * - listen.status: 상태 변경 시 broker가 직접 broadcast하므로 여기서는 빈 객체로 선언.
  */
 export function registerClaudeChannel(
   broker: ClaudeStatusBroker,
   activeContext: ActiveContextStore,
   activity: SessionActivityLog,
+  asks: PermissionAsks,
 ): void {
   register("claude", {
     call: {
@@ -54,11 +58,24 @@ export function registerClaudeChannel(
         const { workspaceId } = validateArgs(c.clearWorkspace.args, args);
         broker.clearWorkspace(workspaceId);
         activity.clearWorkspace(workspaceId);
+        asks.clearWorkspace(workspaceId);
         return ipcOk(undefined);
       },
       activity: async (args: unknown) => {
         const { workspaceIds } = validateArgs(c.activity.args, args);
-        return ipcOk(activity.list(workspaceIds));
+        return ipcOk(
+          activity.list(workspaceIds).map((session) => {
+            const held = asks.list(session.workspaceId, session.tabId);
+            return held.length > 0 ? { ...session, asks: held } : session;
+          }),
+        );
+      },
+      answerPermission: async (args: unknown) => {
+        const { workspaceId, tabId, askId, answer, message } = validateArgs(
+          c.answerPermission.args,
+          args,
+        );
+        return ipcOk(await asks.answer(workspaceId, tabId, askId, answer, message));
       },
     },
     listen: {

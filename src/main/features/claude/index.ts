@@ -6,7 +6,8 @@ import { broadcast } from "../../infra/ipc-router";
 import { ClaudeStatusBroker } from "./status";
 import { ActiveContextStore } from "./active-context";
 import { registerClaudeChannel } from "./ipc";
-import { registerHookHandler } from "./hook-handler";
+import { answerHook, registerHookHandler } from "./hook-handler";
+import { answersDialog, PermissionAsks } from "./permission-asks";
 import { SessionActivityLog } from "./session-activity";
 import { ClaudeInterruptWatcher } from "./interrupt";
 import { ClaudeReconnectCheck } from "./reconnect";
@@ -48,7 +49,7 @@ export interface SetupClaudeFeatureOptions {
 export interface SetupClaudeFeatureResult {
   /** renderer가 마지막으로 알린 활성 탭인지 — 다른 프로그램의 알림도 같은 기준을 쓴다. */
   isActiveTab: (workspaceId: string, tabId: string) => boolean;
-  /** Input typed into a terminal, which can interrupt Claude's turn. */
+  /** Input typed into a terminal, which can interrupt Claude's turn or answer its dialog. */
   noteInput: (workspaceId: string, tabId: string, data: string) => void;
   /** 모든 구독을 해제하는 함수. */
   dispose: () => void;
@@ -81,9 +82,12 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
   const broker = new ClaudeStatusBroker(broadcastFn);
   const activeContext = new ActiveContextStore();
   const activity = new SessionActivityLog();
+  const asks = new PermissionAsks((workspaceId, hookId, response) =>
+    answerHook(workspaceManager, workspaceId, hookId, response),
+  );
 
   // 2. IPC 채널 등록 (setupRouter() 이후에 호출되어야 함).
-  registerClaudeChannel(broker, activeContext, activity);
+  registerClaudeChannel(broker, activeContext, activity, asks);
 
   // 3. hook-handler 등록.
   const getFocusedWindow = options.getFocusedWindow ?? getFocusedAppWindow;
@@ -92,6 +96,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     broker,
     activeContext,
     activity,
+    asks,
     agentHost,
     channelProvider: workspaceManager,
     workspaceManager,
@@ -112,7 +117,13 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
   // Claude gone without its SessionEnd hook (its exit seen, its state cleared
   // by hand) takes its record along: the agents it ran stopped with it.
   const offCleared = broker.onChange((workspaceId, tabId, entry) => {
-    if (entry === null) activity.clear(workspaceId, tabId);
+    if (entry === null) {
+      activity.clear(workspaceId, tabId);
+      asks.clear(workspaceId, tabId);
+    } else if (entry.status === "idle") {
+      // A turn interrupted ends with no hook: its tools stopped with it.
+      activity.noteTurnOver(workspaceId, tabId);
+    }
   });
 
   // An interrupted turn runs no hook; its "Interrupted" line ends it.
@@ -136,6 +147,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     if (workspaceId && tabId) {
       broker.clear(workspaceId, tabId);
       activity.clear(workspaceId, tabId);
+      asks.clear(workspaceId, tabId);
       interrupts.forget(workspaceId, tabId);
       reconnects.forget(workspaceId, tabId);
     }
@@ -168,7 +180,11 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
 
   return {
     isActiveTab: (workspaceId, tabId) => activeContext.isActive(workspaceId, tabId),
-    noteInput: (workspaceId, tabId, data) => interrupts.noteInput(workspaceId, tabId, data),
+    noteInput: (workspaceId, tabId, data) => {
+      interrupts.noteInput(workspaceId, tabId, data);
+      // The dialog answered in the terminal no longer waits on the app.
+      if (answersDialog(data)) asks.answeredInTerminal(workspaceId, tabId);
+    },
     dispose: () => {
       offHook();
       offCleared();

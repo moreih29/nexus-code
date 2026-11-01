@@ -33,6 +33,7 @@ import { getTerminalController } from "../../services/terminal/terminal-registry
 import { Button } from "../ui/button";
 import { showToast } from "../ui/toast";
 import { AgentDetail } from "./agent-detail";
+import { PermissionAsks } from "./permission-asks";
 import { AgentsSection, NowCard, ProgressSection, TodoSection } from "./session-activity";
 import type { SessionActivity } from "../../../shared/claude/activity";
 import type { SessionsSelection } from "./selection";
@@ -79,6 +80,7 @@ export function SessionDetail({
         worktree={worktree}
         session={session}
         agent={agent}
+        asks={(activity.get(session.key)?.asks ?? []).filter((ask) => ask.agentId === agent.id)}
         visible={visible}
         onSelect={onSelect}
       />
@@ -213,10 +215,14 @@ function SessionBody({
   const working = session.state === "running" || session.state === "permissionPending";
   // Running tools count their seconds.
   const now = useNow(visible && activity !== undefined && working);
+  const asks = activity?.asks ?? [];
   return (
     <>
       {activity && <NowCard session={session} activity={activity} now={now} />}
-      {session.state === "permissionPending" ? (
+      {asks.length > 0 ? (
+        // Answered here, or in the terminal's own prompt.
+        <PermissionAsks session={session} asks={asks} agents={activity?.agents ?? []} />
+      ) : session.state === "permissionPending" ? (
         <p className="text-app-ui-sm text-(--state-warning-fg)">
           {t("sessions.detail.permission_hint")}
         </p>

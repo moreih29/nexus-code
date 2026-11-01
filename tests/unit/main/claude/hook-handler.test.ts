@@ -44,6 +44,7 @@ const { PROMPT_MAX_CHARS } = await import("../../../../src/shared/claude/status"
 const { SessionActivityLog } = await import(
   "../../../../src/main/features/claude/session-activity"
 );
+const { PermissionAsks } = await import("../../../../src/main/features/claude/permission-asks");
 
 // ---------------------------------------------------------------------------
 // 헬퍼
@@ -135,6 +136,7 @@ interface Harness {
   broker: InstanceType<typeof ClaudeStatusBroker>;
   activeContext: InstanceType<typeof ActiveContextStore>;
   activity: InstanceType<typeof SessionActivityLog>;
+  asks: InstanceType<typeof PermissionAsks> | undefined;
   brokerCalls: Array<{ channel: string; event: string; args: unknown }>;
   agentHost: ReturnType<typeof makeHookAgentHost>;
   channel: MockAgentChannel;
@@ -153,7 +155,7 @@ class FakeNotification {
 
 function makeHarness(
   focused: boolean = false,
-  opts: { notificationsEnabled?: () => boolean } = {},
+  opts: { notificationsEnabled?: () => boolean; asks?: boolean } = {},
 ): Harness {
   const brokerCalls: Array<{ channel: string; event: string; args: unknown }> = [];
   const broadcastCalls: Array<{ channel: string; event: string; args: unknown }> = [];
@@ -169,6 +171,12 @@ function makeHarness(
   const agentHost = makeHookAgentHost();
   const channel = makeChannel();
   const { FakeNotification: FN, instances: notifInstances } = makeNotificationCtor();
+  const asks = opts.asks
+    ? new PermissionAsks(async (_workspaceId, hookId, response) => {
+        await channel.call("claude.respondHook", { hookId, response });
+        return true;
+      })
+    : undefined;
 
   const getFocusedWindow = focused
     ? () => ({ isMinimized: () => false } as unknown as import("electron").BrowserWindow)
@@ -178,6 +186,7 @@ function makeHarness(
     broker,
     activeContext,
     activity,
+    asks,
     agentHost,
     channelProvider: {
       tryGetAgentChannel: async () => channel as unknown as import("../../../../../src/main/infra/agent/channel").AgentChannel,
@@ -193,6 +202,7 @@ function makeHarness(
     broker,
     activeContext,
     activity,
+    asks,
     brokerCalls,
     agentHost,
     channel,
@@ -1122,5 +1132,153 @@ describe("hook-handler — session activity", () => {
     );
     await tick();
     expect(activity.get("ws-test", "tab-test")?.tools).toEqual([]);
+  });
+});
+
+describe("hook-handler — permission requests answered from the app", () => {
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  const bash = { tool_name: "Bash", tool_input: { command: "touch made.txt" } };
+  const status = (broker: Harness["broker"]) => broker.get("ws-test", "tab-test")?.status;
+  const answersTo = (channel: MockAgentChannel, hookId: string) =>
+    channel.callArgs
+      .filter(
+        ([method, args]) =>
+          method === "claude.respondHook" && (args as { hookId: string }).hookId === hookId,
+      )
+      .map(([, args]) => (args as { response: unknown }).response);
+
+  test("holds a request for the user's answer beside the dialog", async () => {
+    const { asks, channel, emit } = makeHarness(false, { asks: true });
+    const request = makeHookPayload("permission-request", bash);
+    emit(request);
+    await tick();
+    expect(answersTo(channel, request.hookId)).toEqual([]);
+    expect(asks?.list("ws-test", "tab-test")).toMatchObject([
+      { id: request.hookId, tool: "Bash", target: "touch made.txt", always: [] },
+    ]);
+  });
+
+  // A `claude -p` run shows no dialog and waits on the hook.
+  test("answers a print run's request at once", async () => {
+    const { asks, channel, emit } = makeHarness(false, { asks: true });
+    const request = { ...makeHookPayload("permission-request", bash), print: true };
+    emit(request);
+    await tick();
+    expect(answersTo(channel, request.hookId)).toEqual([{ exitCode: 0 }]);
+    expect(asks?.list("ws-test", "tab-test")).toEqual([]);
+  });
+
+  test("lets go of a request answered in the terminal", async () => {
+    const { asks, broker, channel, emit } = makeHarness(false, { asks: true });
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    const request = makeHookPayload("permission-request", bash);
+    emit(request);
+    emit(makeHookPayload("post-tool-use", bash));
+    await tick();
+    expect(answersTo(channel, request.hookId)).toEqual([{ exitCode: 0 }]);
+    expect(asks?.list("ws-test", "tab-test")).toEqual([]);
+    expect(status(broker)).toBe("running");
+  });
+
+  // Enter or a digit typed at the dialog: the call allowed may run long before its hook.
+  test("a key that answers the dialog in the terminal closes it at once", async () => {
+    const { activity, asks, broker, channel, emit } = makeHarness(false, { asks: true });
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    emit(makeHookPayload("subagent-start", { agent_id: "a1", agent_type: "Explore" }));
+    const request = makeHookPayload("permission-request", { ...bash, agent_id: "a1" });
+    emit(request);
+    await tick();
+    expect(status(broker)).toBe("permissionPending");
+    asks?.answeredInTerminal("ws-test", "tab-test");
+    expect(answersTo(channel, request.hookId)).toEqual([{ exitCode: 0 }]);
+    expect(asks?.list("ws-test", "tab-test")).toEqual([]);
+    expect(status(broker)).toBe("running");
+    expect(activity.get("ws-test", "tab-test")?.agents[0]?.state).toBe("running");
+  });
+
+  test("an answer from the app closes the dialog at once", async () => {
+    const { asks, broker, channel, emit } = makeHarness(false, { asks: true });
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    const request = makeHookPayload("permission-request", bash);
+    emit(request);
+    await tick();
+    expect(status(broker)).toBe("permissionPending");
+    expect(await asks?.answer("ws-test", "tab-test", request.hookId, "allow")).toBe(true);
+    expect(answersTo(channel, request.hookId)).toEqual([
+      {
+        stdout: JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: "PermissionRequest",
+            decision: { behavior: "allow" },
+          },
+        }),
+        exitCode: 0,
+      },
+    ]);
+    expect(status(broker)).toBe("running");
+    // The tool then runs; its end changes nothing more.
+    emit(makeHookPayload("post-tool-use", bash));
+    await tick();
+    expect(answersTo(channel, request.hookId)).toHaveLength(1);
+    expect(status(broker)).toBe("running");
+  });
+
+  test("stopping the turn from the app leaves the session waiting on the user", async () => {
+    const { asks, broker, emit } = makeHarness(false, { asks: true });
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    const request = makeHookPayload("permission-request", bash);
+    emit(request);
+    await tick();
+    expect(await asks?.answer("ws-test", "tab-test", request.hookId, "denyStop")).toBe(true);
+    expect(status(broker)).toBe("idle");
+  });
+
+  test("a subagent the user answered for goes on", async () => {
+    const { activity, asks, emit } = makeHarness(false, { asks: true });
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    emit(makeHookPayload("subagent-start", { agent_id: "a1", agent_type: "Explore" }));
+    const request = makeHookPayload("permission-request", { ...bash, agent_id: "a1" });
+    emit(request);
+    await tick();
+    expect(asks?.list("ws-test", "tab-test")[0]?.agentId).toBe("a1");
+    expect(activity.get("ws-test", "tab-test")?.agents[0]?.state).toBe("permissionPending");
+    expect(await asks?.answer("ws-test", "tab-test", request.hookId, "deny", "Use ls")).toBe(true);
+    expect(activity.get("ws-test", "tab-test")?.agents[0]?.state).toBe("running");
+  });
+
+  test("a call denied from the app reads as denied", async () => {
+    const { activity, asks, emit } = makeHarness(false, { asks: true });
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    emit(makeHookPayload("pre-tool-use", { ...bash, tool_use_id: "t1" }));
+    const request = makeHookPayload("permission-request", bash);
+    emit(request);
+    await tick();
+    expect(await asks?.answer("ws-test", "tab-test", request.hookId, "deny")).toBe(true);
+    expect(activity.get("ws-test", "tab-test")?.tools[0]?.denied).toBe(true);
+  });
+
+  // Claude Code ends the hook as the user interrupts at the dialog.
+  test("forgets a request whose hook went away", async () => {
+    const { agentHost, asks, channel, emit } = makeHarness(false, { asks: true });
+    const request = makeHookPayload("permission-request", bash);
+    emit(request);
+    await tick();
+    agentHost.emit("claude.hookGone", {
+      hookId: request.hookId,
+      workspaceId: "ws-test",
+      tabId: "tab-test",
+    });
+    expect(asks?.list("ws-test", "tab-test")).toEqual([]);
+    expect(answersTo(channel, request.hookId)).toEqual([]);
+  });
+
+  test("lets go of the requests of a session that ended", async () => {
+    const { asks, channel, emit } = makeHarness(false, { asks: true });
+    const request = makeHookPayload("permission-request", bash);
+    emit(request);
+    emit(makeHookPayload("session-end"));
+    await tick();
+    expect(asks?.list("ws-test", "tab-test")).toEqual([]);
+    expect(answersTo(channel, request.hookId)).toEqual([{ exitCode: 0 }]);
   });
 });

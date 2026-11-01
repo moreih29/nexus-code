@@ -332,6 +332,42 @@ describe("agents", () => {
   });
 });
 
+describe("answers from the app", () => {
+  const bash = { tool_name: "Bash", tool_input: { command: "rm -rf build" } };
+
+  test("a call denied from the app ends unrun, and its agent goes on", () => {
+    hook("user-prompt-submit", { prompt: "go" });
+    hook("subagent-start", { agent_id: "a1", agent_type: "Explore" });
+    hook("pre-tool-use", { ...bash, tool_use_id: "t1", agent_id: "a1" });
+    hook("permission-request", { ...bash, agent_id: "a1" });
+    expect(activity().agents[0]?.state).toBe("permissionPending");
+    clock = 2_000;
+    log.noteAnswered(WS, TAB, "a1", "Bash", "rm -rf build", true);
+    const agent = activity().agents[0];
+    expect(agent?.state).toBe("running");
+    expect(agent?.tools[0]).toMatchObject({ id: "t1", end: 2_000, denied: true });
+    expect(agent?.failedCount).toBe(0);
+  });
+
+  test("a call allowed from the app runs on", () => {
+    hook("pre-tool-use", { ...bash, tool_use_id: "t1" });
+    log.noteAnswered(WS, TAB, undefined, "Bash", "rm -rf build", false);
+    expect(activity().tools[0]?.end).toBeUndefined();
+  });
+
+  test("a turn over with no hook stops the tools it left running", () => {
+    hook("pre-tool-use", { ...bash, tool_use_id: "t1" });
+    hook("pre-tool-use", {
+      tool_name: "Bash",
+      tool_use_id: "t2",
+      tool_input: { command: "bun dev", run_in_background: true },
+    });
+    clock = 5_000;
+    log.noteTurnOver(WS, TAB);
+    expect(activity().tools.map((tool) => tool.end)).toEqual([5_000, undefined]);
+  });
+});
+
 describe("sessions", () => {
   test("a new session starts a new record; compaction does not", () => {
     hook("pre-tool-use", { tool_name: "Glob", tool_use_id: "t1", tool_input: { pattern: "*" } });

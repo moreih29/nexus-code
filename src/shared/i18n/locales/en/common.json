@@ -586,11 +586,30 @@
         "answer_none": "It finished without an answer.",
         "tools_none": "No tools used yet.",
         "tools_untold": "This run's tools are not recorded (only with stream-json output).",
+        "denied": "Denied",
         "more_tools": "Show {{count}} earlier",
         "fewer_tools": "Show recent only",
         "running_for": "{{duration}} so far",
         "permission_hint": "This agent is waiting on a permission request. Answer it in the terminal."
       }
+    },
+    "permission": {
+      "title": "Permission request",
+      "from_agent": "Permission request from agent “{{name}}”",
+      "allow": "Allow",
+      "allow_always": "Always allow",
+      "always_hint": "Always allows: {{what}}",
+      "always_session": "{{rule}} (this session)",
+      "mode_accept_edits": "Edits without asking for this session",
+      "mode": "{{mode}} mode",
+      "directory": "The {{path}} directory",
+      "deny": "Deny…",
+      "deny_send": "Deny",
+      "deny_stop": "Deny and stop",
+      "cancel": "Cancel",
+      "message_placeholder": "What Claude should do instead (optional)",
+      "terminal_too": "The terminal's permission prompt can answer it too.",
+      "failed": "Not answered: it was answered in the terminal, or is over."
     },
     "elapsed": {
       "seconds": "{{count}}s",

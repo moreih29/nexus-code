@@ -28,12 +28,15 @@ const (
 	envHookToken   = "NEXUS_HOOK_TOKEN"
 	envWorkspaceID = "NEXUS_WORKSPACE_ID"
 	envTabID       = "NEXUS_TAB_ID"
+	// envClaudePrint is "1" in a `claude -p` run (claude-wrapper.sh).
+	envClaudePrint = "NEXUS_CLAUDE_PRINT"
 
 	// permissionRequestSubcmd 는 긴 blocking timeout이 필요한 서브커맨드 이름.
 	permissionRequestSubcmd = "permission-request"
 
 	// permissionTimeout 은 permission-request 서브커맨드에 적용하는 최대 대기 시간.
-	permissionTimeout = 130 * time.Second
+	// The agent answers by its own deadline (an hour) first.
+	permissionTimeout = time.Hour + 10*time.Second
 
 	// defaultTimeout 은 그 외 모든 서브커맨드에 적용하는 기본 대기 시간.
 	defaultTimeout = 15 * time.Second
@@ -53,6 +56,9 @@ type hookRequest struct {
 	Subcommand    string          `json:"subcommand"`
 	Payload       json.RawMessage `json:"payload"`
 	AssistantText string          `json:"assistantText,omitempty"`
+	// Print marks a hook of a `claude -p` run, whose PermissionRequest no
+	// dialog answers: main answers it at once rather than wait on the user.
+	Print bool `json:"print,omitempty"`
 }
 
 // stopSubcmd 는 Claude 응답 종료 hook 이벤트의 subcommand 이름.
@@ -167,6 +173,7 @@ func runWithContext(
 		Subcommand:    subcommand,
 		Payload:       payload,
 		AssistantText: assistantText,
+		Print:         os.Getenv(envClaudePrint) == "1",
 	}
 	if err := writeNDJSON(conn, req); err != nil {
 		fmt.Fprintf(os.Stderr, "nexus hook: send failed: %v\n", err)

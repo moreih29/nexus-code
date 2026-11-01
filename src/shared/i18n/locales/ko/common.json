@@ -586,11 +586,30 @@
         "answer_none": "응답 없이 끝났습니다.",
         "tools_none": "아직 쓴 도구가 없습니다.",
         "tools_untold": "이 실행의 도구는 기록되지 않습니다 (stream-json 출력일 때만 기록).",
+        "denied": "거부됨",
         "more_tools": "이전 활동 {{count}}개 더 보기",
         "fewer_tools": "최근 활동만 보기",
         "running_for": "{{duration}}째",
         "permission_hint": "이 에이전트는 권한 요청에 응답을 기다리는 중입니다. 터미널에서 응답합니다."
       }
+    },
+    "permission": {
+      "title": "권한 요청",
+      "from_agent": "에이전트 “{{name}}”의 권한 요청",
+      "allow": "허용",
+      "allow_always": "항상 허용",
+      "always_hint": "항상 허용: {{what}}",
+      "always_session": "{{rule}} (이 세션 동안)",
+      "mode_accept_edits": "이 세션 동안 편집 자동 허용",
+      "mode": "{{mode}} 모드",
+      "directory": "{{path}} 디렉터리",
+      "deny": "거부…",
+      "deny_send": "거부",
+      "deny_stop": "거부하고 중단",
+      "cancel": "취소",
+      "message_placeholder": "Claude에게 전할 말 (선택)",
+      "terminal_too": "터미널의 권한 창에서도 응답할 수 있습니다.",
+      "failed": "응답하지 못했습니다. 이미 터미널에서 응답했거나 요청이 끝났습니다."
     },
     "elapsed": {
       "seconds": "{{count}}초",

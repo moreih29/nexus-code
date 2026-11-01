@@ -12,6 +12,10 @@
 //     해당 in-flight conn에 응답을 write하고 연결을 닫는다.
 //  4. 120초 deadline 내 응답이 없으면 exit 0 응답(응답 생략 동등)을 write하고
 //     연결을 닫는다. Claude Code는 응답이 없는 exit 0을 native fallback으로 처리한다.
+//     A PermissionRequest waits on the user, who can answer it from the app
+//     or in Claude Code's own dialog beside it, for up to permissionDeadline;
+//     when its client goes away unanswered (Claude Code ends the hook as the
+//     user interrupts at the dialog), main is told ("claude.hookGone").
 //
 // macOS socket path 104자 제한 대응:
 // socketPath = filepath.Join(agentpaths.SocketsDir(), "h-" + shortHash(agentKey) + ".sock")
@@ -44,6 +48,15 @@ import (
 // Claude Code PermissionRequest의 실제 timeout(600s)보다 짧아야 한다.
 const connDeadline = 120 * time.Second
 
+// permissionDeadline is how long a PermissionRequest waits on an answer from
+// the app. Claude Code shows its own dialog beside the hook, so a user who
+// answers in the terminal is not held up by it; the hook client and Claude
+// Code's timeout for the hook (claude-wrapper.sh) wait a little longer.
+const permissionDeadline = time.Hour
+
+// permissionRequestSubcmd is the hook that waits on the user's answer.
+const permissionRequestSubcmd = "permission-request"
+
 // maxSocketPathLen 은 macOS에서 허용하는 Unix 소켓 경로 최대 길이다.
 const maxSocketPathLen = 104
 
@@ -69,6 +82,17 @@ type HookEventPayload struct {
 	Subcommand    string          `json:"subcommand"`
 	Payload       json.RawMessage `json:"payload"`
 	AssistantText string          `json:"assistantText,omitempty"`
+	// Print tells a hook of a `claude -p` run, which shows no dialog: Claude
+	// Code waits on its PermissionRequest, so main answers it at once.
+	Print bool `json:"print,omitempty"`
+}
+
+// HookGonePayload is the "claude.hookGone" event's payload: a hook's client
+// went away before main answered it.
+type HookGonePayload struct {
+	HookID      string `json:"hookId"`
+	WorkspaceID string `json:"workspaceId"`
+	TabID       string `json:"tabId"`
 }
 
 // HookResponse 는 main이 Respond()를 통해 hook 클라이언트에게 전달하는 응답이다.
@@ -87,6 +111,7 @@ type hookWireRequest struct {
 	Subcommand    string          `json:"subcommand"`
 	Payload       json.RawMessage `json:"payload"`
 	AssistantText string          `json:"assistantText,omitempty"`
+	Print         bool            `json:"print,omitempty"`
 }
 
 // hookWireResponse 는 hook 클라이언트에게 돌려보내는 NDJSON 응답 프레임이다.
@@ -329,6 +354,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		Subcommand:    req.Subcommand,
 		Payload:       req.Payload,
 		AssistantText: req.AssistantText,
+		Print:         req.Print,
 	}
 	delivered := false
 	if sink != nil {
@@ -346,10 +372,14 @@ func (s *Server) handleConn(conn net.Conn) {
 		return
 	}
 
+	if req.Subcommand == permissionRequestSubcmd {
+		go s.watchGone(hookID, conn, req)
+	}
+
 	// deadline goroutine: connDeadline 이내에 Respond()가 없으면 default 응답을 보낸다.
 	// Respond()가 먼저 호출되면 inflight.LoadAndDelete가 entry를 제거하므로
 	// 이 goroutine은 아무것도 하지 않고 종료된다.
-	deadline := s.connDeadline()
+	deadline := s.deadlineFor(req.Subcommand)
 	go func() {
 		timer := time.NewTimer(deadline)
 		defer timer.Stop()
@@ -359,6 +389,34 @@ func (s *Server) handleConn(conn net.Conn) {
 		}
 		s.respondDefault(hookID)
 	}()
+}
+
+// watchGone tells main when the client of a waiting hook goes away before
+// it is answered: Claude Code ends a PermissionRequest hook as the user
+// interrupts at its dialog, and the app must stop offering an answer. The
+// client writes nothing after its request, so a read returns only once the
+// connection closes, from either side.
+func (s *Server) watchGone(hookID string, conn net.Conn, req hookWireRequest) {
+	var b [1]byte
+	for {
+		if _, err := conn.Read(b[:]); err != nil {
+			break
+		}
+	}
+	if _, waiting := s.inflight.LoadAndDelete(hookID); !waiting {
+		return
+	}
+	conn.Close()
+	s.sinkMu.Lock()
+	sink := s.sink
+	s.sinkMu.Unlock()
+	if sink == nil {
+		return
+	}
+	gone := HookGonePayload{HookID: hookID, WorkspaceID: req.WorkspaceID, TabID: req.TabID}
+	if err := sink("claude.hookGone", gone); err != nil {
+		fmt.Fprintf(os.Stderr, "hookserver: sink error for gone hookId %s: %v\n", hookID, err)
+	}
 }
 
 // ReleaseHooks answers every hook still waiting with the default response.
@@ -389,6 +447,17 @@ func (s *Server) respondDefault(hookID string) {
 func (s *Server) connDeadline() time.Duration {
 	if ns := s.testDeadlineNs.Load(); ns > 0 {
 		return time.Duration(ns)
+	}
+	return connDeadline
+}
+
+// deadlineFor is how long a hook of `subcommand` waits on main's answer.
+func (s *Server) deadlineFor(subcommand string) time.Duration {
+	if ns := s.testDeadlineNs.Load(); ns > 0 {
+		return time.Duration(ns)
+	}
+	if subcommand == permissionRequestSubcmd {
+		return permissionDeadline
 	}
 	return connDeadline
 }
