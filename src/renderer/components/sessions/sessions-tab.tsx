@@ -24,6 +24,7 @@ import { BoardView } from "./board-view";
 import { LineageView } from "./lineage-view";
 import { resolveSelection, type SessionsSelection } from "./selection";
 import { SessionDetail } from "./session-detail";
+import { TimelineView } from "./timeline-view";
 import { TreeView } from "./tree-view";
 
 interface SessionsTabViewProps {
@@ -84,7 +85,7 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
               onSelect={select}
               now={now}
             />
-          ) : (
+          ) : view === "lineage" ? (
             <LineageView
               family={family}
               changes={changes}
@@ -92,6 +93,14 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
               selection={detailOpen ? selection : null}
               onSelect={select}
               now={now}
+            />
+          ) : (
+            <TimelineView
+              family={family}
+              selection={detailOpen ? selection : null}
+              onSelect={select}
+              now={now}
+              visible={isVisible}
             />
           )}
         </div>

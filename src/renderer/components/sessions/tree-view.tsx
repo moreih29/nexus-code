@@ -48,7 +48,7 @@ export function TreeView({ family, changes, selection, onSelect, now }: TreeView
 
 // Selected rows look like the sidebar's and the file tree's: a tinted
 // background and a left accent, so state colors stay readable.
-const rowClass = (selected: boolean) =>
+export const rowClass = (selected: boolean) =>
   cn(
     "flex w-full min-w-0 rounded-(--radius-control) border-l-2 border-l-transparent px-2 text-left transition-colors",
     selected
