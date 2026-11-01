@@ -186,15 +186,19 @@ function SessionBody({ session, visible }: { session: AgentSession; visible: boo
             {t("sessions.detail.screen_not_started")}
           </p>
         ) : (
-          <ScreenText text={screen} />
+          // Keyed by the session, so each one opens scrolled to its latest lines.
+          <ScreenText key={session.key} text={screen} label={t("sessions.detail.screen")} />
         )}
       </DetailSection>
     </>
   );
 }
 
-/** The screen's lines, kept scrolled to the latest unless scrolled up. */
-function ScreenText({ text }: { text: string }) {
+/**
+ * The screen's lines, kept scrolled to the latest unless scrolled up. It
+ * takes focus, so the keyboard can scroll it too.
+ */
+function ScreenText({ text, label }: { text: string; label: string }) {
   const ref = useRef<HTMLPreElement>(null);
   const atBottom = useRef(true);
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll again whenever the text changes
@@ -205,11 +209,14 @@ function ScreenText({ text }: { text: string }) {
   return (
     <pre
       ref={ref}
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: a scroll region the keyboard must reach
+      tabIndex={0}
+      title={label}
       onScroll={(event) => {
         const el = event.currentTarget;
         atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
       }}
-      className="app-scrollbar max-h-80 overflow-y-auto whitespace-pre-wrap break-all rounded-(--radius-control) border border-border bg-background p-2 font-mono text-app-micro leading-relaxed text-foreground"
+      className="app-scrollbar max-h-80 overflow-y-auto whitespace-pre-wrap break-all rounded-(--radius-control) border border-border bg-background p-2 font-mono text-app-micro leading-relaxed text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
     >
       {text}
     </pre>
