@@ -106,13 +106,13 @@ export async function createTask(
 }
 
 /**
- * Removes a task: its terminals, its worktree and, when asked, its branch.
- * Without `force` it fails with "worktree-dirty" when the worktree has
- * changes, which `force` throws away.
+ * Removes a task: its terminals, its worktree and, when asked, its branch
+ * ("merged": only if git finds it merged). Without `force` it fails with
+ * "worktree-dirty" when the worktree has changes, which `force` throws away.
  */
 export async function removeTask(
   id: string,
-  options: { force: boolean; deleteBranch: boolean },
+  options: { force: boolean; deleteBranch: boolean | "merged" },
 ): Promise<TaskFailure | null> {
   const result = await ipcCallResult("task", "remove", { id, ...options });
   return result.ok ? null : { kind: result.kind, message: result.message };

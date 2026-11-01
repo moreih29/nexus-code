@@ -14,6 +14,7 @@ import {
   fakeApp,
   NEW_TAB,
   SHELL_TAB,
+  WORKSPACES,
 } from "./fake-services";
 
 /** A terminal of the "fix-login" worktree. */
@@ -157,6 +158,77 @@ describe("worktree claude-create", () => {
 
   test("is not in help", async () => {
     expect((await nexus(fakeApp(), ["help"])).stdout).not.toContain("claude-create");
+  });
+});
+
+describe("worktree claude-remove", () => {
+  const FIX_FOLDER = "/home/u/.nexus-code/worktrees/app/fix-login";
+
+  /**
+   * Runs the hidden command as Claude Code's WorktreeRemove hook does, with
+   * "fix-login" made by `madeBy` (by the user in the app when absent).
+   */
+  function hook(app: FakeApp, stdin: string, madeBy?: { workspaceId: string; tabId: string }) {
+    const ctx = contextFor(app, ["worktree", "claude-remove", "-"], undefined, { stdin });
+    const workspaces = WORKSPACES.map((w) =>
+      w.id === FIX && w.task && madeBy ? { ...w, task: { ...w.task, createdBy: madeBy } } : w,
+    );
+    return runCli(CLI_COMMANDS, {
+      ...ctx,
+      services: { ...ctx.services, listWorkspaces: () => workspaces },
+    });
+  }
+  const payload = (path: string) =>
+    JSON.stringify({ hook_event_name: "WorktreeRemove", worktree_path: path });
+
+  test("removes the worktree this terminal's Claude Code made without asking, its branch only if merged", async () => {
+    const app = fakeApp();
+    const result = await hook(app, payload(`${FIX_FOLDER}/`), {
+      workspaceId: APP,
+      tabId: SHELL_TAB,
+    });
+    expect(result).toEqual({
+      stdout: "Removed worktree fix-login (33333333).\n",
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(uiArgs(app, "task.remove")).toEqual({
+      taskId: FIX,
+      force: false,
+      deleteBranch: "merged",
+    });
+    expect(app.asked).toEqual([]);
+  });
+
+  test("asks first for a worktree another terminal or the user made", async () => {
+    for (const madeBy of [undefined, { workspaceId: APP, tabId: NEW_TAB }]) {
+      const app = fakeApp();
+      app.answers.push("once");
+      expect((await hook(app, payload(FIX_FOLDER), madeBy)).exitCode).toBe(0);
+      expect(app.asked[0]?.change).toEqual({ kind: "worktreeRemove" });
+      expect(uiArgs(app, "task.remove")).toMatchObject({ taskId: FIX });
+
+      const declined = fakeApp();
+      expect((await hook(declined, payload(FIX_FOLDER), madeBy)).exitCode).toBe(1);
+      expect(uiArgs(declined, "task.remove")).toBeUndefined();
+    }
+  });
+
+  test("fails, so Claude Code keeps it, on a folder no worktree has or JSON without one", async () => {
+    const app = fakeApp();
+    expect(await hook(app, payload("/w/app/.claude/worktrees/x"))).toEqual({
+      stdout: "",
+      stderr: "nexus: no worktree of this workspace is at /w/app/.claude/worktrees/x\n",
+      exitCode: 1,
+    });
+    // The workspace itself is not a worktree to remove.
+    expect((await hook(app, payload("/w/app"))).exitCode).toBe(1);
+    expect((await hook(app, "{}")).exitCode).not.toBe(0);
+    expect(uiArgs(app, "task.remove")).toBeUndefined();
+  });
+
+  test("is not in help", async () => {
+    expect((await nexus(fakeApp(), ["help"])).stdout).not.toContain("claude-remove");
   });
 });
 
