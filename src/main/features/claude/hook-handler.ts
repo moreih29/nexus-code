@@ -117,11 +117,21 @@ function isPermissionNotification(payload: unknown): boolean {
 }
 
 /**
- * The envelopes of turns Claude Code starts on its own, as when a background
- * task finishes or another session sends a message. UserPromptSubmit runs for
- * them too, with the envelope as the prompt.
+ * The envelopes of turns Claude Code starts on its own: a background task
+ * that finished, a message from another Claude session or a teammate, an
+ * event from a channel or a schedule, a prompt a plugin submits.
+ * UserPromptSubmit runs for them too, with the envelope as the prompt. The
+ * tags are the ones Claude Code 2.1 marks as not from the user; a message
+ * from another session can come framed by a line instead of a tag.
  */
-const SYSTEM_TURN = /^<(?:task-notification|cross-session-message|system-reminder)[\s>]/;
+const SYSTEM_TURN = new RegExp(
+  [
+    "^<(?:task-notification|cross-session-message|teammate-message|agent-message|channel|tick",
+    "|remote-review|slack-ping|slack-tag-message|coordinator-relay|system-reminder)[\\s>]",
+    "|^(?:Another Claude session|A peer session) sent a message(?: while you were working)?:",
+    "|^The [^\\n]+ plugin sent a message:\\n",
+  ].join(""),
+);
 
 /** Text the user pasted, as Claude Code marks it when it expands a collapsed paste. */
 const PASTED = /<pasted_content id="([^"]*)">\n?([\s\S]*?)\n?<\/pasted_content id="\1">/g;
