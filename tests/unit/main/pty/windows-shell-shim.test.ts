@@ -31,6 +31,8 @@ describe("wrapperHooksSettings", () => {
       "SessionStart",
       "UserPromptSubmit",
       "PreToolUse",
+      "PostToolUse",
+      "PostToolUseFailure",
       "Notification",
       "Stop",
       "SessionEnd",

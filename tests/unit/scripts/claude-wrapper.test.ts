@@ -30,6 +30,7 @@ const HOOK_EVENT_NAMES = [
   "session-start",
   "user-prompt-submit",
   "pre-tool-use",
+  "post-tool-use",
   "notification",
   "stop",
   "session-end",
@@ -153,6 +154,12 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
       // 리터럴 변수 참조가 command에 있어야 한다 (확장된 실제 경로가 아님).
       expect(cmd).toBe(`"\${NEXUS_AGENT_BIN}" hook ${event}`);
     }
+
+    // A tool that fails while running ends the same way as one that ran.
+    expect(
+      (hooks.PostToolUseFailure as Array<{ hooks: Array<{ command: string }> }>)[0].hooks[0]
+        .command,
+    ).toBe(`"\${NEXUS_AGENT_BIN}" hook post-tool-use`);
 
     // The note on nexus: a second SessionStart hook, run in step so its
     // output reaches the session as context.
@@ -318,6 +325,7 @@ function toHookKey(event: (typeof HOOK_EVENT_NAMES)[number]): string {
     "session-start": "SessionStart",
     "user-prompt-submit": "UserPromptSubmit",
     "pre-tool-use": "PreToolUse",
+    "post-tool-use": "PostToolUse",
     "notification": "Notification",
     "stop": "Stop",
     "session-end": "SessionEnd",

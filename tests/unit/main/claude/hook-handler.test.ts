@@ -374,11 +374,46 @@ describe("hook-handler — subcommand 상태 전이", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
   });
+
+  const allowedCall = { tool_name: "Bash", tool_input: { command: "bun test" } };
+
+  test("post-tool-use of the tool the dialog was for → running", async () => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("permission-request", allowedCall));
+    await new Promise((r) => setTimeout(r, 0));
+    emit(makeHookPayload("post-tool-use", { ...allowedCall, tool_use_id: "toolu_1" }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
+  });
+
+  test("post-tool-use of a tool run beside it keeps permissionPending", async () => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("permission-request", allowedCall));
+    await new Promise((r) => setTimeout(r, 0));
+    emit(makeHookPayload("post-tool-use", { tool_name: "Read", tool_input: { file_path: "/a" } }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("permissionPending");
+    emit(makeHookPayload("post-tool-use", allowedCall));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
+  });
+
+  test("a late post-tool-use leaves the turn's end as it is", async () => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("permission-request", allowedCall));
+    await new Promise((r) => setTimeout(r, 0));
+    emit(makeHookPayload("stop"));
+    await new Promise((r) => setTimeout(r, 0));
+    emit(makeHookPayload("post-tool-use", allowedCall));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("completed");
+  });
 });
 
 describe("hook-handler — respondHook 호출", () => {
   test.each([
     ["pre-tool-use", undefined],
+    ["post-tool-use", undefined],
     ["permission-request", { tool_name: "Bash" }],
     ["session-start", undefined],
     ["user-prompt-submit", undefined],
