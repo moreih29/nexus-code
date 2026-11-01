@@ -366,6 +366,31 @@ describe("tabs, browsers and workspaces", () => {
     expect(app.browser.calls.map((c) => c.op)).toEqual(["settle", "settle"]);
   });
 
+  test("browser open and goto say when the URL is a file the browser downloads, or nothing loaded", async () => {
+    const app = fakeApp();
+    app.browser.settled = {
+      url: "",
+      title: "",
+      download: {
+        url: "http://localhost:8123/README.md",
+        file: "README.md",
+        type: "application/octet-stream",
+      },
+    };
+    expect((await nexus(["browser", "open", "localhost:8123/README.md"], app)).stdout).toBe(
+      "Downloading http://localhost:8123/README.md (application/octet-stream) as README.md rather than showing it in a new tab, cccccccc.\n",
+    );
+    // A tab with a page keeps it.
+    app.browser.settled = { ...app.browser.settled, url: "http://localhost:5173/" };
+    expect((await nexus(["browser", "goto", "localhost:8123/README.md"], app)).stdout).toBe(
+      "Downloading http://localhost:8123/README.md (application/octet-stream) as README.md rather than showing it in aaaaaaaa.\n",
+    );
+    app.browser.settled = { url: "", title: "" };
+    expect((await nexus(["browser", "open", "localhost:8123/x"], app)).stdout).toBe(
+      "Nothing loaded from http://localhost:8123/x/ in a new tab, cccccccc.\n",
+    );
+  });
+
   test("workspace switch shows any workspace", async () => {
     const app = fakeApp();
     expect((await nexus(["workspace", "switch", "api"], app)).stdout).toBe(
