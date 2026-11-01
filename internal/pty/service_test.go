@@ -370,11 +370,11 @@ func (r *eventRecorder) requireExit(t *testing.T, tabID string, timeout time.Dur
 	return ExitPayload{}
 }
 
-// spawnTestScript writes body to an executable shell script and spawns it as the PTY child.
+// spawnTestScript writes body to a shell script and spawns /bin/sh running it as the PTY child.
 func spawnTestScript(t *testing.T, service *Service, tabID string, body string) SpawnResult {
 	t.Helper()
-	path := writeExecutableScript(t, body)
-	params := SpawnParams{WorkspaceID: testWorkspaceID, TabID: tabID, Cwd: t.TempDir(), Shell: path, Cols: 80, Rows: 24}
+	path := writeTestScript(t, body)
+	params := SpawnParams{WorkspaceID: testWorkspaceID, TabID: tabID, Cwd: t.TempDir(), Shell: "/bin/sh", Args: []string{path}, Cols: 80, Rows: 24}
 	result, err := service.Spawn(context.Background(), mustJSON(t, params))
 	if err != nil {
 		t.Fatalf("spawn %s: %v", tabID, err)
@@ -389,12 +389,15 @@ func spawnTestScript(t *testing.T, service *Service, tabID string, body string) 
 	return spawned
 }
 
-// writeExecutableScript creates a temporary executable /bin/sh script.
-func writeExecutableScript(t *testing.T, body string) string {
+// writeTestScript creates a temporary /bin/sh script for spawnTestScript.
+// The script is read by /bin/sh, never exec'd itself: a parallel test's fork
+// can inherit the still-open write descriptor, and exec'ing the fresh file
+// then fails with "text file busy" (golang/go#22315).
+func writeTestScript(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "child.sh")
-	content := "#!/bin/sh\n" + strings.TrimLeft(body, "\n")
-	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+	content := strings.TrimLeft(body, "\n")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write test script: %v", err)
 	}
 	return path

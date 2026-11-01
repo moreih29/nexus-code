@@ -452,22 +452,21 @@ func TestRingReleasedOnSessionExit(t *testing.T) {
 	// Hold a direct reference to the session so we can inspect ring after removal.
 	key := tabKey{workspaceID: testWorkspaceID, tabID: tabID}
 
-	spawnTestScript(t, svc, tabID, `exit 0`)
+	// The child waits for a line before it exits: one that exits at once can
+	// be gone from the map before the test looks.
+	spawnTestScript(t, svc, tabID, `
+read line
+exit 0
+`)
 
-	// Capture the session pointer right after spawn (before it exits).
-	var capturedSess *session
-	for i := 0; i < 50; i++ {
-		svc.mu.Lock()
-		capturedSess = svc.sessions[key]
-		svc.mu.Unlock()
-		if capturedSess != nil {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	// Capture the session pointer while the child still runs.
+	svc.mu.Lock()
+	capturedSess := svc.sessions[key]
+	svc.mu.Unlock()
 	if capturedSess == nil {
 		t.Fatal("could not capture session pointer before exit")
 	}
+	writeSession(t, svc, tabID, "go\n")
 
 	// Wait for exit event.
 	deadline := time.Now().Add(3 * time.Second)
