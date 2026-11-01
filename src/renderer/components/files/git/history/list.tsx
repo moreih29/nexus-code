@@ -23,10 +23,12 @@ const DEFAULT_GRAPH_WIDTH_PX = HISTORY_GRAPH_LANE_WIDTH_PX;
 const HISTORY_GRAPH_MAX_WIDTH_FRACTION = 0.4;
 const HISTORY_LIST_BREAKPOINT_DEBOUNCE_MS = 100;
 
+/** Widths of the room beside the graph; below each one the rows drop to that density. */
+export const HISTORY_LIST_BREAKPOINT_COMPACT = 220;
 export const HISTORY_LIST_BREAKPOINT_NARROW = 320;
 export const HISTORY_LIST_BREAKPOINT_MEDIUM = 480;
 
-export type HistoryListBreakpoint = "narrow" | "medium" | "wide";
+export type HistoryListBreakpoint = "compact" | "narrow" | "medium" | "wide";
 
 interface HistoryListProps {
   entries: readonly LogEntry[];
@@ -81,7 +83,6 @@ export function HistoryList({
   const pendingFocusIndexRef = useRef<number | null>(null);
   const syncedSelectedShaRef = useRef<string | null>(null);
   const [focusedIndex, setFocusedIndex] = useState(0);
-  const breakpoint = useHistoryListBreakpoint(scrollRef);
   const listWidthPx = useListWidth(scrollRef);
   const virtualizer = useVirtualizer({
     count: entries.length,
@@ -94,6 +95,7 @@ export function HistoryList({
     [graphWidthPx, laneState],
   );
   const resolvedGraphWidthPx = capGraphWidth(fullGraphWidthPx, listWidthPx);
+  const breakpoint = useHistoryListBreakpoint(scrollRef, resolvedGraphWidthPx);
   const graphStyle = useMemo<HistoryListCssVars>(
     () => ({ "--graph-w": `${Math.max(0, resolvedGraphWidthPx)}px` }),
     [resolvedGraphWidthPx],
@@ -293,11 +295,15 @@ export function HistoryList({
   );
 }
 
-/** Observes the scroll container and returns the density breakpoint for history rows. */
+/**
+ * Observes the scroll container and returns the density breakpoint for history
+ * rows, from the room they have beside a graph `graphWidthPx` wide.
+ */
 export function useHistoryListBreakpoint(
   scrollRef: React.RefObject<HTMLElement | null>,
+  graphWidthPx = 0,
 ): HistoryListBreakpoint {
-  const [breakpoint, setBreakpoint] = useState<HistoryListBreakpoint>("medium");
+  const [listWidthPx, setListWidthPx] = useState<number | null>(null);
   const observerStateRef = useRef<HistoryListBreakpointObserver | null>(null);
 
   useEffect(() => {
@@ -315,7 +321,7 @@ export function useHistoryListBreakpoint(
       if (pendingTimer !== null) clearTimeout(pendingTimer);
       pendingTimer = setTimeout(() => {
         pendingTimer = null;
-        setBreakpoint(widthToHistoryListBreakpoint(widthPx));
+        setListWidthPx(widthPx);
       }, HISTORY_LIST_BREAKPOINT_DEBOUNCE_MS);
     }
 
@@ -343,7 +349,7 @@ export function useHistoryListBreakpoint(
     };
   }, []);
 
-  return breakpoint;
+  return listWidthPx === null ? "medium" : widthToHistoryListBreakpoint(listWidthPx - graphWidthPx);
 }
 
 /** Tracks the list's width, keeping the last one while the panel is hidden. */
@@ -393,8 +399,9 @@ interface HistoryListBreakpointObserver {
   readonly cleanup: () => void;
 }
 
-/** Converts a measured container width into the row density bucket. */
+/** Converts the room beside the graph into the row density bucket. */
 function widthToHistoryListBreakpoint(widthPx: number): HistoryListBreakpoint {
+  if (widthPx < HISTORY_LIST_BREAKPOINT_COMPACT) return "compact";
   if (widthPx < HISTORY_LIST_BREAKPOINT_NARROW) return "narrow";
   if (widthPx < HISTORY_LIST_BREAKPOINT_MEDIUM) return "medium";
   return "wide";

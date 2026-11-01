@@ -45,6 +45,17 @@ class TestDomElement {
 }
 
 describe("HistoryRow breakpoint columns", () => {
+  it("compact rows keep only graph, subject, and actions", () => {
+    const row = renderHistoryRow("compact");
+
+    expect(row.children).toHaveLength(3);
+    expect(gridTrackCount(row)).toBe(3);
+    expect(row.textContent).toContain("Subject stays visible");
+    expect(row.textContent).not.toContain("refs");
+    expect(row.textContent).not.toContain("abc1234");
+    expect(String(row.props.title)).toContain("SHA: abc1234567890");
+  });
+
   it("narrow rows show graph, subject, time, and actions while title keeps hidden metadata", () => {
     const row = renderHistoryRow("narrow");
 
