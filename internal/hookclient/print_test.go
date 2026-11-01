@@ -35,6 +35,31 @@ func TestDescribePrintRun(t *testing.T) {
 			[]string{"-p", "--model", "opus", "--", "-review it"},
 			printRun{prompt: "-review it", model: "opus", format: "text"},
 		},
+		{
+			"the session id it was given",
+			[]string{"-p", "hi", "--session-id", "s1"},
+			printRun{prompt: "hi", format: "text", sessionID: "s1"},
+		},
+		{
+			"a session id with =",
+			[]string{"--session-id=s1", "-p", "hi"},
+			printRun{prompt: "hi", format: "text", sessionID: "s1"},
+		},
+		{
+			"a run that resumes a session",
+			[]string{"-p", "hi", "--resume=s1"},
+			printRun{prompt: "hi", format: "text", noTranscript: true},
+		},
+		{
+			"a run that continues one",
+			[]string{"-c", "-p", "hi"},
+			printRun{prompt: "hi", format: "text", noTranscript: true},
+		},
+		{
+			"a run that keeps no session",
+			[]string{"-p", "hi", "--no-session-persistence"},
+			printRun{prompt: "hi", format: "text", noTranscript: true},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -103,6 +128,57 @@ func TestPrintWatch_TellsTheRunsToolsAndAnswer(t *testing.T) {
 	}
 	if watch.answer != "Done." {
 		t.Fatalf("answer = %q", watch.answer)
+	}
+}
+
+// transcriptLines are a run's transcript as Claude Code 2.1.316 writes it,
+// cut to the fields read: a message a line, each with its directory.
+var transcriptLines = []string{
+	`{"type":"queue-operation","operation":"enqueue","content":"review it"}`,
+	`{"type":"user","message":{"role":"user","content":"review it"},"cwd":"/repo"}`,
+	`{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":"x"}]},"cwd":"/repo"}`,
+	`{"type":"assistant","message":{"model":"glm-4.6","content":[{"type":"text","text":"Looking."}]},"cwd":"/repo"}`,
+	`{"type":"assistant","message":{"model":"glm-4.6","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"/repo/a.ts"}}]},"cwd":"/repo"}`,
+	`{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"File does not exist.","is_error":true}]},"cwd":"/repo"}`,
+	`{"type":"assistant","message":{"model":"glm-4.6","content":[{"type":"text","text":"It is fine."}]},"cwd":"/repo"}`,
+	`{"type":"assistant","message":{"model":"glm-4.6","content":[{"type":"text","text":"Ship it."}]},"cwd":"/repo"}`,
+	`{"type":"last-prompt","lastPrompt":"review it"}`,
+}
+
+func TestPrintWatch_ReadsATranscript(t *testing.T) {
+	var told []toldFrame
+	watch := &printWatch{tell: func(subcommand string, payload map[string]any) {
+		told = append(told, toldFrame{subcommand, payload})
+	}}
+	for _, line := range transcriptLines {
+		watch.line([]byte(line))
+	}
+	want := []toldFrame{
+		{"print-init", map[string]any{"model": "glm-4.6", "cwd": "/repo"}},
+		{"print-tool-use", map[string]any{
+			"tool_use_id": "toolu_1",
+			"tool_name":   "Read",
+			"tool_input":  map[string]any{"file_path": "/repo/a.ts"},
+		}},
+		{"print-tool-result", map[string]any{
+			"tool_use_id": "toolu_1",
+			"is_error":    true,
+			"error":       "File does not exist.",
+		}},
+	}
+	if !reflect.DeepEqual(told, want) {
+		t.Fatalf("told:\n%#v\nwant:\n%#v", told, want)
+	}
+	// Its answer is what claude wrote after its last tool.
+	if watch.reply != "It is fine.\nShip it." || watch.answer != "" {
+		t.Fatalf("reply = %q, answer = %q", watch.reply, watch.answer)
+	}
+}
+
+func TestNewSessionID_IsAUUID(t *testing.T) {
+	id := newSessionID()
+	if len(id) != 36 || id[14] != '4' || !strings.Contains("89ab", string(id[19])) || id == newSessionID() {
+		t.Fatalf("id = %q", id)
 	}
 }
 

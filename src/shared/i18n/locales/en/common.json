@@ -585,7 +585,7 @@
         "answer_pending": "The agent's last answer shows here once it finishes.",
         "answer_none": "It finished without an answer.",
         "tools_none": "No tools used yet.",
-        "tools_untold": "This run's tools are not recorded (only with stream-json output).",
+        "tools_untold": "This run's tools are not recorded: it resumes a session, or keeps none.",
         "denied": "Denied",
         "more_tools": "Show {{count}} earlier",
         "fewer_tools": "Show recent only",

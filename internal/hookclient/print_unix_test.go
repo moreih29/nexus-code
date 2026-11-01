@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -93,9 +94,11 @@ func (fs *frameServer) told(t *testing.T) []toldFrame {
 	return told
 }
 
-// fakeClaude writes a script that stands for claude.
+// fakeClaude writes a script that stands for claude. Claude Code's
+// directory, where a run's transcript is looked for, is the test's own.
 func fakeClaude(t *testing.T, body string) string {
 	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	path := filepath.Join(t.TempDir(), "claude")
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -273,6 +276,120 @@ func waitFor(t *testing.T, ok func() bool) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("timed out")
+}
+
+// transcriptClaude is a claude that writes the transcript of the session
+// it is given, `first` and then, once the test made the file `go` in dir,
+// `rest`, then prints `out`, and its arguments to stderr.
+func transcriptClaude(t *testing.T, dir string, first, rest []string, out string) string {
+	t.Helper()
+	for name, lines := range map[string][]string{"first": first, "rest": rest} {
+		body := strings.Join(lines, "\n") + "\n"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claude := fakeClaude(t, `echo "args: $*" >&2
+id=""
+while [ $# -gt 0 ]; do [ "$1" = --session-id ] && id="$2"; shift; done
+d="$CLAUDE_CONFIG_DIR/projects/-repo"; mkdir -p "$d"
+cat "`+dir+`/first" >> "$d/$id.jsonl"
+while [ ! -e "`+dir+`/go" ]; do sleep 0.02; done
+cat "`+dir+`/rest" >> "$d/$id.jsonl"
+printf '%s' '`+out+`'`)
+	return claude
+}
+
+func TestRunPrint_FollowsATextRunsTranscript(t *testing.T) {
+	fs, socket := newFrameServer(t)
+	dir := t.TempDir()
+	claude := transcriptClaude(t, dir, transcriptLines[:5], transcriptLines[5:], "Printed answer.\n")
+	var stdout, stderr bytes.Buffer
+	ran := make(chan int, 1)
+	go func() {
+		code, _ := runPrint(claude, []string{"-p", "review it"}, strings.NewReader(""), &stdout,
+			&stderr, newPrintTeller(socket, "tok", "ws", "t1"))
+		ran <- code
+	}()
+	// Its tools are told as it runs them.
+	waitFor(t, func() bool { return strings.HasSuffix(fs.logged(), "print-tool-use") })
+	if err := os.WriteFile(filepath.Join(dir, "go"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := <-ran; code != 0 || stdout.String() != "Printed answer.\n" {
+		t.Fatalf("exit %d, stdout %q", code, stdout.String())
+	}
+	if args := stderr.String(); !regexp.MustCompile(`^args: --session-id [0-9a-f-]{36} -p review it\n$`).MatchString(args) {
+		t.Fatalf("claude ran with %q", args)
+	}
+	told := fs.told(t)
+	var got []string
+	for _, frame := range told {
+		got = append(got, frame.String())
+	}
+	if len(told) != 6 ||
+		told[0].Payload["tools_told"] != false ||
+		told[1].Subcommand != "print-init" || told[1].Payload["tools_told"] != true ||
+		told[2].Subcommand != "print-init" || told[2].Payload["model"] != "glm-4.6" ||
+		told[3].Subcommand != "print-tool-use" || told[4].Subcommand != "print-tool-result" ||
+		told[5].Subcommand != "print-end" || told[5].Payload["answer"] != "Printed answer." {
+		t.Fatalf("told %v", got)
+	}
+}
+
+func TestRunPrint_ATerminalRunsAnswerIsItsTranscripts(t *testing.T) {
+	tty, err := os.OpenFile("/dev/null", os.O_WRONLY, 0)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer tty.Close()
+	if !isTerminal(tty) {
+		t.Skip("/dev/null is no character device here")
+	}
+	fs, socket := newFrameServer(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	claude := transcriptClaude(t, dir, transcriptLines, nil, "Ship it.\n")
+	code, _ := runPrint(claude, []string{"-p", "review it"}, strings.NewReader(""), tty, &bytes.Buffer{},
+		newPrintTeller(socket, "tok", "ws", "t1"))
+	told := fs.told(t)
+	if end := told[len(told)-1].Payload; code != 0 || end["answer"] != "It is fine.\nShip it." {
+		t.Fatalf("exit %d, end %v", code, end)
+	}
+}
+
+func TestRunPrint_FollowsTheSessionTheRunWasGiven(t *testing.T) {
+	fs, socket := newFrameServer(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	claude := transcriptClaude(t, dir, transcriptLines, nil, "")
+	var stderr bytes.Buffer
+	runPrint(claude, []string{"-p", "hi", "--session-id", "s1"}, strings.NewReader(""), &bytes.Buffer{},
+		&stderr, newPrintTeller(socket, "tok", "ws", "t1"))
+	if stderr.String() != "args: -p hi --session-id s1\n" {
+		t.Fatalf("claude ran with %q", stderr.String())
+	}
+	if told := fs.told(t); len(told) != 6 || told[5].Payload["answer"] != "It is fine.\nShip it." {
+		t.Fatalf("told %v", told)
+	}
+}
+
+func TestRunPrint_AResumedRunIsGivenNoSession(t *testing.T) {
+	fs, socket := newFrameServer(t)
+	claude := fakeClaude(t, `echo "args: $*" >&2`)
+	var stderr bytes.Buffer
+	runPrint(claude, []string{"-p", "hi", "--resume", "s1"}, strings.NewReader(""), &bytes.Buffer{},
+		&stderr, newPrintTeller(socket, "tok", "ws", "t1"))
+	if stderr.String() != "args: -p hi --resume s1\n" {
+		t.Fatalf("claude ran with %q", stderr.String())
+	}
+	if told := fs.told(t); len(told) != 2 {
+		t.Fatalf("told %v", told)
+	}
 }
 
 func TestRunPrint_RunsWithNoAppToTell(t *testing.T) {

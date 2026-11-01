@@ -73,7 +73,8 @@ REAL_CLAUDE="$(find_real_claude)" || { echo "claude not found in PATH" >&2; exit
 
 # 3) A `claude -p` run inside the tab's Claude session runs under the agent,
 #    which tells the app of it as one of the session's agents: its start and
-#    end, and the tools it runs when its output is stream-json. Its output,
+#    end, and the tools it runs, from its stream-json output or else its
+#    transcript, named by the session id the agent gives it. Its output,
 #    input and exit stay claude's. The app marks a terminal whose agent runs
 #    it: this file's path is the same for every version, and an older agent
 #    would take `print-run` for the directory to serve.

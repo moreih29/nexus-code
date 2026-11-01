@@ -457,6 +457,13 @@ describe("`claude -p` runs", () => {
     expect(activity().agents[0]?.description).toBeUndefined();
   });
 
+  test("a run whose transcript is found tells its tools from then", () => {
+    print("print-start", { tools_told: false });
+    print("print-init", { tools_told: true });
+    print("print-init", { model: "glm-4.6" });
+    expect(activity().agents[0]).toMatchObject({ toolsTold: true, model: "glm-4.6" });
+  });
+
   test("a command left in the background tells the run it started", () => {
     hook("pre-tool-use", {
       tool_name: "Bash",
