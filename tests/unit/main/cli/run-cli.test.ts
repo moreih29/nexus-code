@@ -369,6 +369,21 @@ describe("tabs, browsers and workspaces", () => {
     });
   });
 
+  test("browser goto takes a bare path the same way, spaces around it or not", async () => {
+    const app = fakeApp();
+    app.ports[APP] = [listening(5173)];
+    await nexus(["browser", "goto", " /login "], app);
+    expect(lastCall(app, "browser.navigate")).toEqual({
+      workspaceId: APP,
+      tabId: BROWSER_TAB,
+      action: "goto",
+      url: "http://localhost:5173/login",
+    });
+    // A URL without its scheme is no path.
+    await nexus(["browser", "goto", "//example.com/a"], app);
+    expect(lastCall(app, "browser.navigate")).toMatchObject({ url: "//example.com/a" });
+  });
+
   test("browser open with a bare path says so when the workspace is not connected", async () => {
     const app = fakeApp();
     app.ports[APP] = new Error("app is not connected");

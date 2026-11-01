@@ -19,6 +19,10 @@ import { BACKGROUND_FLAG, WORKSPACE_FLAG } from "./flags";
 import { describePorts, workspacePorts } from "./port";
 import { workspaceTabs } from "./terminal";
 
+const BARE_PATH_DETAILS =
+  "A bare path such as /login is on the port the workspace's terminals listen on (nexus\n" +
+  "port list), when there is just one; a file is file:///path.";
+
 export const TAB_FLAG = {
   type: "string",
   value: "TAB",
@@ -74,14 +78,13 @@ const browserOpen: CliCommand = {
   summary: "Open a URL in a new browser tab",
   args: "<url>",
   details:
-    "Takes a URL or an address such as localhost:3000. A bare path such as /login is on the\n" +
-    "port the workspace's terminals listen on (nexus port list), when there is just one.\n" +
-    "The tab opens beside this terminal rather than over it.",
+    "Takes a URL or an address such as localhost:3000. The tab opens beside this terminal\n" +
+    `rather than over it. ${BARE_PATH_DETAILS}`,
   flags: { workspace: WORKSPACE_FLAG, background: BACKGROUND_FLAG },
   async run(ctx, { positionals, flags }) {
     const [given] = exactArgs(positionals, "url") as [string];
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const url = given.startsWith("/") ? await devServerUrl(ctx, workspace, given) : given;
+    const url = await urlFrom(ctx, workspace, given);
     await mayChange(ctx, workspace, { kind: "browserOpen", detail: url });
     const opened = await ctx.services.ui("browser.open", {
       workspaceId: workspace.id,
@@ -96,6 +99,16 @@ const browserOpen: CliCommand = {
     });
   },
 };
+
+/**
+ * The URL a command line gives: a bare path is on the workspace's dev
+ * server. "//host/path" is a URL without its scheme, not a path.
+ */
+async function urlFrom(ctx: CliContext, workspace: WorkspaceMeta, given: string): Promise<string> {
+  const url = given.trim();
+  if (!url.startsWith("/") || url.startsWith("//")) return url;
+  return devServerUrl(ctx, workspace, url);
+}
 
 /** A bare path's URL: on the one port the workspace's terminals listen on. */
 async function devServerUrl(
@@ -140,11 +153,13 @@ const browserGoto: CliCommand = {
   path: ["browser", "goto"],
   summary: "Load a URL in a browser tab",
   args: "<url>",
+  details: BARE_PATH_DETAILS,
   flags: { tab: TAB_FLAG, workspace: WORKSPACE_FLAG },
   async run(ctx, { positionals, flags }) {
-    const [url] = exactArgs(positionals, "url") as [string];
+    const [given] = exactArgs(positionals, "url") as [string];
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveBrowser(ctx, workspace, flags.tab as string | undefined);
+    const url = await urlFrom(ctx, workspace, given);
     await mayChange(ctx, workspace, { kind: "browserNavigate", detail: tab.title });
     const went = await ctx.services.ui("browser.navigate", {
       workspaceId: workspace.id,
