@@ -399,6 +399,55 @@ describe("hook-handler — subcommand 상태 전이", () => {
     expect(entry?.message).toBe("Waiting for input");
   });
 
+  test.each([
+    ["idle_prompt", "Claude is waiting for your input"],
+    ["elicitation_dialog", "MCP server needs your input"],
+    ["agent_needs_input", "worker needs your input"],
+  ])("notification of type %s waits on the user", async (notification_type, message) => {
+    const { broker, emit } = makeHarness();
+    broker.set("ws-test", "tab-test", "completed", "Done.");
+    emit(makeHookPayload("notification", { message, notification_type }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("needsInput");
+    expect(broker.get("ws-test", "tab-test")?.message).toBe(message);
+  });
+
+  test.each([
+    ["push_notification", "Build finished, 3 tests fail"],
+    ["agent_completed", "worker finished"],
+    ["auth_success", "Claude Code login successful"],
+    ["model_refusal_fallback", "Switched to another model"],
+    ["plugin_notification", "Deployed"],
+  ])("notification of type %s only tells, and the turn runs on", async (notification_type, message) => {
+    const { broker, activeContext, emit, notifInstances } = makeHarness(true /* focused */);
+    activeContext.set("ws-test", "other-tab");
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    await new Promise((r) => setTimeout(r, 0));
+    emit(makeHookPayload("notification", { message, notification_type }));
+    await new Promise((r) => setTimeout(r, 0));
+    const entry = broker.get("ws-test", "tab-test");
+    expect(entry?.status).toBe("running");
+    expect(entry?.message).toBeUndefined();
+    expect(notifInstances).toHaveLength(1);
+    expect(notifInstances[0].body).toBe(message);
+  });
+
+  test("a notification that only tells leaves a finished turn as it is, and is quiet on the tab the user looks at", async () => {
+    const { broker, activeContext, emit, notifInstances } = makeHarness(true /* focused */);
+    activeContext.set("ws-test", "tab-test");
+    broker.set("ws-test", "tab-test", "completed", "Done.");
+    emit(
+      makeHookPayload("notification", {
+        message: "Claude Code login successful",
+        notification_type: "auth_success",
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("completed");
+    expect(broker.get("ws-test", "tab-test")?.message).toBe("Done.");
+    expect(notifInstances).toHaveLength(0);
+  });
+
   test("permission notification after permission-request keeps permissionPending", async () => {
     const { broker, emit, notifInstances } = makeHarness(false /* unfocused */);
     emit(makeHookPayload("permission-request", { tool_name: "Write" }));
