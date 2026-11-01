@@ -168,16 +168,25 @@ describe("ClaudeStatusBroker — prompt", () => {
 });
 
 describe("ClaudeStatusBroker — answer", () => {
-  test("the answer stays through idle, interrupts and the next turn's running", () => {
+  test("the answer stays once seen, and through a turn Claude Code starts itself", () => {
     const { broker, calls } = makeBroker();
+    broker.set("ws-1", "tab-1", "running", undefined, "build it");
     broker.set("ws-1", "tab-1", "completed", "Built in 3s.");
     broker.set("ws-1", "tab-1", "idle"); // seen
     expect(broker.get("ws-1", "tab-1")?.message).toBe("Built in 3s.");
     expect((calls.at(-1)?.args as { message?: string }).message).toBe("Built in 3s.");
-    broker.set("ws-1", "tab-1", "running", undefined, "now test it");
+    broker.set("ws-1", "tab-1", "running"); // a background task's notification
     expect(broker.get("ws-1", "tab-1")?.message).toBe("Built in 3s.");
+    expect(broker.get("ws-1", "tab-1")?.prompt).toBe("build it");
+  });
+
+  test("the user's next prompt has no answer yet, even when the turn is interrupted", () => {
+    const { broker } = makeBroker();
+    broker.set("ws-1", "tab-1", "completed", "Built in 3s.");
+    broker.set("ws-1", "tab-1", "running", undefined, "now test it");
+    expect(broker.get("ws-1", "tab-1")?.message).toBeUndefined();
     broker.set("ws-1", "tab-1", "idle"); // interrupted
-    expect(broker.snapshot()[0].message).toBe("Built in 3s.");
+    expect(broker.snapshot()[0].message).toBeUndefined();
   });
 
   test("the next turn's answer replaces it, and a turn with none clears it", () => {

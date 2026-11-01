@@ -43,8 +43,8 @@ export const StatusEntrySchema = z.object({
   status: ClaudeStatusSchema,
   /**
    * While the session waits on the user, what it asks (a question, a
-   * permission); otherwise Claude's answer to its last finished turn, kept
-   * through idle and the next turn until that turn ends.
+   * permission); otherwise Claude's answer to the last prompt, kept once the
+   * turn is seen, until the user's next prompt.
    */
   message: z.string().optional(),
   since: z.number().int().positive(),

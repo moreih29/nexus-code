@@ -60,10 +60,11 @@ export class ClaudeStatusBroker {
    * message: for a state that waits on the user (needsInput,
    * permissionPending, error), what it says; it goes with that state. For any
    * other state, Claude's answer to the turn that ended ("" when it gave
-   * none), which stays until the next turn ends. Undefined keeps the answer.
+   * none), which stays once the turn is seen. Undefined keeps the answer.
    *
    * prompt: undefined면 이전 프롬프트를 유지하고, null이면 지운다(새 세션).
-   * A new session has no answer either.
+   * The answer goes with the prompt it answers: a new prompt or a new
+   * session has none yet. A turn Claude Code starts itself keeps both.
    */
   set(
     workspaceId: string,
@@ -76,7 +77,7 @@ export class ClaudeStatusBroker {
     const prev = this.map.get(key);
     const nextPrompt = prompt === null ? undefined : (prompt ?? prev?.prompt);
     const waiting = WAITING.has(status);
-    const kept = prompt === null ? undefined : prev?.answer;
+    const kept = prompt === undefined ? prev?.answer : undefined;
     const answer = waiting || message === undefined ? kept : message || undefined;
     const notice = waiting ? message : undefined;
     const shown = notice ?? answer;
