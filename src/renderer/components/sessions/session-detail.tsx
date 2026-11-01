@@ -252,7 +252,8 @@ function SendLine({ session }: { session: AgentSession }) {
     }
   };
   // Enter sends and Shift+Enter starts a new line, as in Claude Code; the
-  // lines go as one paste, so the session takes them as one input.
+  // lines are typed with Ctrl+J between them, so the session takes them as
+  // one input.
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== "Enter" || event.shiftKey || isImeComposing(event)) return;
     event.preventDefault();

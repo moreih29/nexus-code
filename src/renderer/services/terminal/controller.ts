@@ -370,6 +370,8 @@ class XtermTerminalController implements TerminalController {
    * must not reach the program as input.
    */
   private replayWritesPending = 0;
+  /** Who waits for the program's next output; see nextOutput. */
+  private readonly outputWaiters = new Set<(shown: boolean) => void>();
   /** Focus asked for before xterm existed; applied once it opens. */
   private focusOnOpen = false;
 
@@ -415,6 +417,24 @@ class XtermTerminalController implements TerminalController {
     return bufferText(buffer, lines);
   }
 
+  /**
+   * Resolves true when the program next writes output, other than replayed
+   * scrollback, or false after `timeoutMs` without any or once the terminal
+   * is gone.
+   */
+  nextOutput(timeoutMs: number): Promise<boolean> {
+    if (this.disposed) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      const done = (shown: boolean) => {
+        clearTimeout(timer);
+        this.outputWaiters.delete(done);
+        resolve(shown);
+      };
+      const timer = setTimeout(() => done(false), timeoutMs);
+      this.outputWaiters.add(done);
+    });
+  }
+
   input(text: string, mode: "paste" | "keys"): boolean {
     const term = this.term;
     const ptyClient = this.ptyClient;
@@ -427,6 +447,7 @@ class XtermTerminalController implements TerminalController {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    for (const waiter of [...this.outputWaiters]) waiter(false);
 
     if (this.pendingRaf != null) {
       this.deps.cancelAnimationFrame(this.pendingRaf);
@@ -598,6 +619,7 @@ class XtermTerminalController implements TerminalController {
       onData: (chunk, replay) => {
         if (!replay) {
           term.write(chunk);
+          for (const waiter of [...this.outputWaiters]) waiter(true);
           return;
         }
         this.replayWritesPending += 1;

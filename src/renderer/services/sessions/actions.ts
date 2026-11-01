@@ -8,9 +8,11 @@ import { useActiveStore } from "@/state/stores/active";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import { useTaskUIStore } from "@/state/stores/task-ui";
 import { useUIStore } from "@/state/stores/ui";
-import { actionHandlers } from "../cli/actions";
+import { actionHandlers, UiRequestError } from "../cli/actions";
 import { groupOf } from "../cli/placement";
+import { getTerminalController } from "../terminal/terminal-registry";
 import { activateWorkspace } from "../workspace/tasks";
+import { typeText } from "./typed-input";
 
 interface SessionRef {
   readonly workspaceId: string;
@@ -27,9 +29,33 @@ export function showTerminal({ workspaceId, tabId }: SessionRef): void {
   if (useActiveStore.getState().activeWorkspaceId !== workspaceId) activateWorkspace(workspaceId);
 }
 
-/** Types `text` into the session's terminal and presses Enter. */
+/**
+ * The wait before Enter. Codex takes an Enter within 120 ms of fast input as
+ * a new line, not a send (60 ms longer on Windows).
+ */
+const SUBMIT_DELAY_MS = 250;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Types `text` into the session's terminal as keys and presses Enter. */
 export async function sendLine(session: SessionRef, text: string): Promise<void> {
-  await actionHandlers["terminal.input"]({ ...session, text, mode: "paste", enter: true });
+  const terminal = getTerminalController(session.tabId);
+  if (!terminal) {
+    throw new UiRequestError(
+      "that terminal has not started: its workspace has not been opened since NexusCode started",
+    );
+  }
+  await typeText(
+    {
+      write: (chunk) => {
+        if (!terminal.input(chunk, "keys")) throw new UiRequestError("that terminal has closed");
+      },
+      nextOutput: (timeoutMs) => terminal.nextOutput(timeoutMs),
+    },
+    text,
+  );
+  await sleep(SUBMIT_DELAY_MS);
+  await actionHandlers["terminal.input"]({ ...session, text: "", mode: "keys", enter: true });
 }
 
 /** Presses Ctrl-C in the session's terminal. */
