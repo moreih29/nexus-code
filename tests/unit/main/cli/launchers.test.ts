@@ -1,6 +1,7 @@
 /**
  * The Windows nexus command: nexus.exe copied out beside Git Bash's script,
- * and that script, which keeps Git Bash's hands off the arguments.
+ * in the launchers' directory and Git Bash's, and that script, which keeps
+ * Git Bash's hands off the arguments.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
@@ -38,21 +39,27 @@ describe("writeWindowsCli", () => {
     const wrapper = path.join(tmp, "bin");
     writeWindowsCli(agentBuilt("1.0.0"), cli, wrapper);
 
-    expect(fs.readFileSync(path.join(cli, "nexus.exe"), "utf8")).toBe("nexus 1.0.0");
     const script = windowsGitBashLauncher(path.join(cli, "nexus.exe"));
-    expect(fs.readFileSync(path.join(cli, "nexus"), "utf8")).toBe(script);
-    expect(fs.readFileSync(path.join(wrapper, "nexus"), "utf8")).toBe(script);
+    for (const dir of [cli, wrapper]) {
+      expect(fs.readFileSync(path.join(dir, "nexus.exe"), "utf8")).toBe("nexus 1.0.0");
+      expect(fs.readFileSync(path.join(dir, "nexus"), "utf8")).toBe(script);
+    }
   });
 
   test("replaces an older nexus.exe and the .cmd launcher before it", () => {
     const cli = path.join(tmp, "cli");
+    const wrapper = path.join(tmp, "bin");
     write(path.join(cli, "nexus.exe"), "nexus 0.9.0");
     write(path.join(cli, "nexus.cmd"), "@echo off");
     write(path.join(cli, "nexus.exe.1-2.old"), "moved aside while it ran");
-    writeWindowsCli(agentBuilt("1.0.0"), cli, path.join(tmp, "bin"));
+    write(path.join(wrapper, "nexus.exe"), "nexus 0.9.0");
+    write(path.join(wrapper, "claude"), "#!/bin/bash");
+    writeWindowsCli(agentBuilt("1.0.0"), cli, wrapper);
 
     expect(fs.readFileSync(path.join(cli, "nexus.exe"), "utf8")).toBe("nexus 1.0.0");
     expect(fs.readdirSync(cli).sort()).toEqual(["nexus", "nexus.exe"]);
+    expect(fs.readFileSync(path.join(wrapper, "nexus.exe"), "utf8")).toBe("nexus 1.0.0");
+    expect(fs.readdirSync(wrapper).sort()).toEqual(["claude", "nexus", "nexus.exe"]);
   });
 
   test("fails when the build has no nexus.exe", () => {
