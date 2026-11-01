@@ -5,6 +5,7 @@
  */
 
 import { createLogger } from "../../../shared/log/renderer";
+import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { ipcCallResult } from "../../ipc/client";
 import { useActiveStore } from "../../state/stores/active";
 import { resolvedTaskAgentCommand } from "../../state/stores/terminal";
@@ -43,6 +44,46 @@ export function agentCommandLine(
   return text === "" ? `${command}\r` : `${command} ${quoteShellArgument(text, shellPath)}\r`;
 }
 
+/** A task just made: its terminal, and the agent command that terminal runs ("" for none). */
+export interface StartedTask {
+  readonly task: WorkspaceMeta;
+  readonly tabId: string;
+  readonly command: string;
+}
+
+/**
+ * Creates a task of `parentId` without switching to it. Its first terminal
+ * runs `agentCommand` (the task agent command unless given) with `prompt`
+ * once the terminal starts, which is when the task's panel is mounted.
+ */
+export async function startTask(
+  parentId: string,
+  name: string,
+  prompt: string,
+  agentCommand?: string,
+): Promise<StartedTask | TaskFailure> {
+  const result = await ipcCallResult("task", "create", { parentId, name });
+  if (!result.ok) return { kind: result.kind, message: result.message };
+
+  useWorkspacesStore.getState().upsert(result.value);
+  const task =
+    useWorkspacesStore.getState().workspaces.find((w) => w.id === result.value.id) ??
+    result.value;
+
+  // A workspace that has a tab gets no terminal from its panel, so this is
+  // the task's only one.
+  const { tabId } = openTerminal({ workspaceId: task.id, cwd: task.rootPath });
+  const command = agentCommand?.trim() ?? resolvedTaskAgentCommand();
+  if (command !== "") {
+    queueStartupInput(
+      task.id,
+      tabId,
+      (shellPath) => agentCommandLine(command, prompt, shellPath) ?? "",
+    );
+  }
+  return { task, tabId, command };
+}
+
 /**
  * Creates a task of `parentId` and switches to it. Its first terminal runs
  * the task agent command with `prompt`.
@@ -52,26 +93,9 @@ export async function createTask(
   name: string,
   prompt: string,
 ): Promise<TaskFailure | null> {
-  const result = await ipcCallResult("task", "create", { parentId, name });
-  if (!result.ok) return { kind: result.kind, message: result.message };
-
-  const store = useWorkspacesStore.getState();
-  store.upsert(result.value);
-  const task = useWorkspacesStore.getState().workspaces.find((w) => w.id === result.value.id);
-  if (!task) return null;
-
-  // A workspace that has a tab gets no terminal from its panel, so this is
-  // the task's only one.
-  const { tabId } = openTerminal({ workspaceId: task.id, cwd: task.rootPath });
-  const command = resolvedTaskAgentCommand();
-  if (command !== "") {
-    queueStartupInput(
-      task.id,
-      tabId,
-      (shellPath) => agentCommandLine(command, prompt, shellPath) ?? "",
-    );
-  }
-  activateWorkspace(task.id);
+  const started = await startTask(parentId, name, prompt);
+  if (!("task" in started)) return started;
+  activateWorkspace(started.task.id);
   return null;
 }
 

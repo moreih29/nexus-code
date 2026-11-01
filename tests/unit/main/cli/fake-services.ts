@@ -12,6 +12,7 @@ import {
 import type { ConsoleEntry } from "../../../../src/main/features/cli/browser/console-log";
 import type { BrowserDriver } from "../../../../src/main/features/cli/browser/driver";
 import type { CliContext, CliServices } from "../../../../src/main/features/cli/context";
+import { StartedAgents } from "../../../../src/main/features/cli/started-agents";
 import type { ClaudeStatus } from "../../../../src/shared/claude/status";
 import type {
   CliConsentAnswer,
@@ -262,6 +263,15 @@ export function fakeApp(now = Date.now()): FakeApp {
     if (op === "editor.open" || op === "diff.open" || op === "terminal.open") {
       return { tabId: NEW_TAB } as CliUiOps[K]["result"];
     }
+    // Any worktree made is "fix-login".
+    if (op === "task.create") {
+      const { command } = args as CliUiOps["task.create"]["args"];
+      return {
+        workspaceId: FIX,
+        tabId: NEW_TAB,
+        command: command ?? "claude",
+      } as CliUiOps[K]["result"];
+    }
     if (op === "browser.open") {
       const { url } = args as CliUiOps["browser.open"]["args"];
       return { tabId: NEW_TAB, url: `http://${url}/` } as CliUiOps[K]["result"];
@@ -310,6 +320,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     allowChange: (request) => consent.check(request),
     agentContextEnabled: () => settings.agentContext,
     foregroundProcess: async (_workspaceId, tabId) => foreground.get(tabId) ?? null,
+    startedAgents: new StartedAgents(),
     clock: {
       now: () => time.now,
       sleep: async (ms) => {

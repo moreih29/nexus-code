@@ -13,6 +13,7 @@ import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { terminalState } from "./agent-state";
 import type { CliContext } from "./context";
 import { oneLine } from "./format";
+import { FIRST_TURN_GRACE_MS } from "./started-agents";
 
 export const WAIT_POLL_MS = 500;
 export const DEFAULT_WAIT_MS = 10 * 60_000;
@@ -86,13 +87,32 @@ function claudeResult(status: string, message: string | undefined): WaitResult {
 
 class Waiter {
   private sawBusy = false;
+  /** Whether the agent worktree new started has begun its first turn. */
+  private sawTurn = false;
+  /** When worktree new started the terminal's agent with a prompt, if lately. */
+  private readonly agentStartedAt: number | undefined;
 
   constructor(
     private readonly ctx: CliContext,
     private readonly workspace: WorkspaceMeta,
     private readonly tab: CliTabInfo,
     private readonly options: WaitOptions,
-  ) {}
+  ) {
+    this.agentStartedAt = ctx.services.startedAgents.since(
+      { workspaceId: workspace.id, tabId: tab.id },
+      options.startedAt,
+    );
+  }
+
+  /**
+   * Whether the agent worktree new started is yet to begin its first turn:
+   * its command not typed or not running yet, or Claude Code idle at its
+   * start. Not past FIRST_TURN_GRACE_MS, for a command that started nothing.
+   */
+  private beforeFirstTurn(now: number): boolean {
+    const startedAt = this.agentStartedAt;
+    return startedAt !== undefined && !this.sawTurn && now - startedAt < FIRST_TURN_GRACE_MS;
+  }
 
   private get services() {
     return this.ctx.services;
@@ -130,8 +150,19 @@ class Waiter {
     if (claude) {
       if (claude.status === "running") {
         this.sawBusy = true;
+        this.sawTurn = true;
         return null;
       }
+      // A turn that ended between two looks.
+      const { agentStartedAt } = this;
+      if (
+        agentStartedAt !== undefined &&
+        claude.status !== "idle" &&
+        claude.since >= agentStartedAt
+      ) {
+        this.sawTurn = true;
+      }
+      if (this.beforeFirstTurn(now)) return null;
       const started =
         !afterInput ||
         this.sawBusy ||
@@ -151,6 +182,7 @@ class Waiter {
         this.sawBusy = true;
         return null;
       }
+      if (this.beforeFirstTurn(now)) return null;
       const started = !afterInput || this.sawBusy || this.elapsed(now) >= COMMAND_START_GRACE_MS;
       return started ? settled("idle", `${tab.title} is back at its prompt.`) : null;
     }
@@ -162,6 +194,14 @@ class Waiter {
       return settled("notified", `${tab.title} says: ${oneLine(message, 500)}`, message);
     }
     const lastOutput = activity?.lastOutputAt ?? 0;
+    // Output from a started agent is its turn; not Claude Code's, which
+    // prints as it starts and tells its turns through the hooks.
+    const claudeStarting = state.agent === "claude" || program === "claude";
+    const { agentStartedAt } = this;
+    if (agentStartedAt !== undefined && !claudeStarting && lastOutput >= agentStartedAt) {
+      this.sawTurn = true;
+    }
+    if (this.beforeFirstTurn(now)) return null;
     if (now - lastOutput < this.options.quietMs) return null;
     const started =
       !afterInput || lastOutput >= startedAt || this.elapsed(now) >= AGENT_START_GRACE_MS;

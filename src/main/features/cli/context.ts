@@ -16,6 +16,7 @@ import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { TabActivity } from "./activity";
 import type { BrowserDriver } from "./browser/driver";
 import type { ChangeRequest } from "./consent";
+import type { StartedAgents } from "./started-agents";
 
 /** A failure the command reports as is, with its exit code. */
 export class CliError extends Error {
@@ -38,8 +39,15 @@ export interface CliServices {
     tabId: string,
   ): { status: ClaudeStatus; message?: string; since: number } | null;
   activity(workspaceId: string, tabId: string): TabActivity | null;
-  /** Asks the renderer, which owns the tabs and the terminals' screens. */
-  ui<K extends CliUiOp>(op: K, args: CliUiOps[K]["args"]): Promise<CliUiOps[K]["result"]>;
+  /**
+   * Asks the renderer, which owns the tabs and the terminals' screens; a
+   * longer `timeoutMs` for an answer that waits on git.
+   */
+  ui<K extends CliUiOp>(
+    op: K,
+    args: CliUiOps[K]["args"],
+    timeoutMs?: number,
+  ): Promise<CliUiOps[K]["result"]>;
   /** Tells the user, as Claude's notifications do, unless they are looking at the tab. */
   notify(workspaceId: string, tabId: string, title: string, body: string): boolean;
   /** What is at `relPath` in a workspace; null when nothing is. */
@@ -53,6 +61,11 @@ export interface CliServices {
   agentContextEnabled(): boolean;
   /** The program holding a terminal's foreground; null when the agent cannot tell. */
   foregroundProcess(workspaceId: string, tabId: string): Promise<string | null>;
+  /**
+   * Terminals whose agent nexus worktree new just started with a prompt, so
+   * that a wait on one holds until the agent has begun its first turn.
+   */
+  readonly startedAgents: Pick<StartedAgents, "mark" | "since">;
   /** Time, for commands that wait. */
   readonly clock: { now(): number; sleep(ms: number): Promise<void> };
   /** Reads and drives the pages of browser tabs. */

@@ -23,6 +23,7 @@ import type { CliServices } from "./context";
 import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
 import { RendererBridge, type UiWindow } from "./renderer-bridge";
+import { StartedAgents } from "./started-agents";
 
 const log = createLogger("cli");
 
@@ -73,6 +74,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   const { agentHost, workspaceManager } = options;
   const bridge = new RendererBridge(options.getWindow);
   const activity = new ActivityTracker(agentHost);
+  const startedAgents = new StartedAgents(agentHost);
   const consent = new CrossWorkspaceConsent({
     policy: () => options.settings().crossWorkspace,
     // The renderer takes the prompt down at timeoutMs; the bridge waits a little longer.
@@ -111,7 +113,8 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     shownTab: () => options.activeContext.get(),
     claudeStatus: (workspaceId, tabId) => options.claudeBroker.get(workspaceId, tabId),
     activity: (workspaceId, tabId) => activity.get(workspaceId, tabId),
-    ui: <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"]) => bridge.ask(op, args),
+    ui: <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"], timeoutMs?: number) =>
+      bridge.ask(op, args, timeoutMs),
     notify: (workspaceId, tabId, title, body) =>
       notifyTab(
         {
@@ -144,6 +147,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       const name = result?.name?.trim() ?? "";
       return name === "" ? null : name;
     },
+    startedAgents,
     clock: {
       now: () => Date.now(),
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -188,6 +192,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       off();
       stopWatchingBrowsers();
       activity.dispose();
+      startedAgents.dispose();
       bridge.dispose();
     },
   };

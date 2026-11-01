@@ -37,6 +37,7 @@ import { useActiveStore } from "./state/stores/active";
 import { useAddWorkspaceUIStore } from "./state/stores/add-workspace-ui";
 import { useEditorFontStore } from "./state/stores/editor-font";
 import { useIconThemeStore } from "./state/stores/icon-theme";
+import { useMountedWorkspacesStore } from "./state/stores/mounted-workspaces";
 import { useSettingsUIStore } from "./state/stores/settings-ui";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
@@ -241,10 +242,11 @@ export function App() {
     terminalFontLigatures,
   ]);
 
-  // Workspaces that have been activated at least once in this session.
-  // Their <WorkspacePanel> stays mounted (CSS-hidden when inactive) so PTYs
-  // survive workspace switches. Pruned when the workspace itself disappears.
-  const [mountedIds, setMountedIds] = useState<Set<string>>(() => new Set());
+  // Workspaces that have been activated at least once in this session, and
+  // tasks nexus started behind the user's view. Their <WorkspacePanel> stays
+  // mounted (CSS-hidden when inactive) so PTYs survive workspace switches.
+  // Pruned when the workspace itself disappears.
+  const mountedIds = useMountedWorkspacesStore((s) => s.ids);
   // Add Workspace dialog state lives in a dedicated store so the
   // `workspace.add` keyboard command (⌘⇧N) can open it without prop drilling.
   const addWorkspaceOpen = useAddWorkspaceUIStore((s) => s.addWorkspaceOpen);
@@ -275,12 +277,7 @@ export function App() {
   // Mark the active workspace as mounted (one-way; lazy-mount + persist).
   useEffect(() => {
     if (!activeWorkspaceId) return;
-    setMountedIds((prev) => {
-      if (prev.has(activeWorkspaceId)) return prev;
-      const next = new Set(prev);
-      next.add(activeWorkspaceId);
-      return next;
-    });
+    useMountedWorkspacesStore.getState().mount(activeWorkspaceId);
   }, [activeWorkspaceId]);
 
   // Eager LSP rehydrate on workspace activation. The main-side host
@@ -301,19 +298,7 @@ export function App() {
   // (closeAllForWorkspace / close wrappers) kills PTYs; panel unmount only
   // disposes view/controller instances.
   useEffect(() => {
-    setMountedIds((prev) => {
-      const alive = new Set(workspaces.map((w) => w.id));
-      let changed = false;
-      const next = new Set<string>();
-      for (const id of prev) {
-        if (alive.has(id)) {
-          next.add(id);
-        } else {
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
+    useMountedWorkspacesStore.getState().keepOnly(new Set(workspaces.map((w) => w.id)));
   }, [workspaces]);
 
   // The parent of the active workspace while it is a task: where removing
