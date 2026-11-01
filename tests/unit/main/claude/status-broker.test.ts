@@ -167,6 +167,48 @@ describe("ClaudeStatusBroker — prompt", () => {
   });
 });
 
+describe("ClaudeStatusBroker — answer", () => {
+  test("the answer stays through idle, interrupts and the next turn's running", () => {
+    const { broker, calls } = makeBroker();
+    broker.set("ws-1", "tab-1", "completed", "Built in 3s.");
+    broker.set("ws-1", "tab-1", "idle"); // seen
+    expect(broker.get("ws-1", "tab-1")?.message).toBe("Built in 3s.");
+    expect((calls.at(-1)?.args as { message?: string }).message).toBe("Built in 3s.");
+    broker.set("ws-1", "tab-1", "running", undefined, "now test it");
+    expect(broker.get("ws-1", "tab-1")?.message).toBe("Built in 3s.");
+    broker.set("ws-1", "tab-1", "idle"); // interrupted
+    expect(broker.snapshot()[0].message).toBe("Built in 3s.");
+  });
+
+  test("the next turn's answer replaces it, and a turn with none clears it", () => {
+    const { broker } = makeBroker();
+    broker.set("ws-1", "tab-1", "completed", "first");
+    broker.set("ws-1", "tab-1", "idle", "second");
+    expect(broker.get("ws-1", "tab-1")?.message).toBe("second");
+    broker.set("ws-1", "tab-1", "completed", "");
+    expect(broker.get("ws-1", "tab-1")?.message).toBeUndefined();
+  });
+
+  test("a question or permission shows while it waits, then the answer comes back", () => {
+    const { broker } = makeBroker();
+    broker.set("ws-1", "tab-1", "completed", "Built.");
+    broker.set("ws-1", "tab-1", "permissionPending", "Claude needs permission: Bash");
+    expect(broker.get("ws-1", "tab-1")?.message).toBe("Claude needs permission: Bash");
+    broker.set("ws-1", "tab-1", "running");
+    expect(broker.get("ws-1", "tab-1")?.message).toBe("Built.");
+    broker.set("ws-1", "tab-1", "needsInput", "Claude is waiting for your input");
+    broker.set("ws-1", "tab-1", "idle"); // seen
+    expect(broker.get("ws-1", "tab-1")?.message).toBe("Built.");
+  });
+
+  test("a new session has no answer", () => {
+    const { broker } = makeBroker();
+    broker.set("ws-1", "tab-1", "completed", "old answer");
+    broker.set("ws-1", "tab-1", "idle", undefined, null);
+    expect(broker.get("ws-1", "tab-1")?.message).toBeUndefined();
+  });
+});
+
 describe("ClaudeStatusBroker — onChange", () => {
   test("set·clear·clearWorkspace 마다 listener를 부르고, 해제하면 멈춘다", () => {
     const { broker } = makeBroker();

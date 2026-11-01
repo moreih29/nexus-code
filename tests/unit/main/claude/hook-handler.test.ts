@@ -343,6 +343,27 @@ describe("hook-handler — subcommand 상태 전이", () => {
     expect(entry?.message).toBeUndefined();
   });
 
+  test("stop on the tab the user is looking at keeps the answer", async () => {
+    const { broker, activeContext, emit } = makeHarness(true /* focused */);
+    activeContext.set("ws-test", "tab-test");
+    broker.set("ws-test", "tab-test", "running");
+    emit({ ...makeHookPayload("stop"), assistantText: "Done: 2 files changed." });
+    await new Promise((r) => setTimeout(r, 0));
+    const entry = broker.get("ws-test", "tab-test");
+    expect(entry?.status).toBe("idle");
+    expect(entry?.message).toBe("Done: 2 files changed.");
+  });
+
+  test("stop without an answer drops the previous turn's", async () => {
+    const { broker, activeContext, emit } = makeHarness(true /* focused */);
+    activeContext.set("ws-test", "other-tab");
+    broker.set("ws-test", "tab-test", "completed", "the old answer");
+    broker.set("ws-test", "tab-test", "running");
+    emit(makeHookPayload("stop"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.message).toBeUndefined();
+  });
+
   test("session-end → broker.clear (항목 제거)", async () => {
     const { broker, emit } = makeHarness();
     broker.set("ws-test", "tab-test", "running");
