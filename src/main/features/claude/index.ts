@@ -7,6 +7,7 @@ import { ClaudeStatusBroker } from "./status";
 import { ActiveContextStore } from "./active-context";
 import { registerClaudeChannel } from "./ipc";
 import { registerHookHandler } from "./hook-handler";
+import { SessionActivityLog } from "./session-activity";
 import { ClaudeInterruptWatcher } from "./interrupt";
 import { ClaudeReconnectCheck } from "./reconnect";
 import type { PtyHostHandle } from "../pty/types";
@@ -55,6 +56,8 @@ export interface SetupClaudeFeatureResult {
   broker: ClaudeStatusBroker;
   /** The tab the user is looking at. */
   activeContext: ActiveContextStore;
+  /** What each session is doing: its tools, todos and agents. */
+  activity: SessionActivityLog;
 }
 
 /**
@@ -77,9 +80,10 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
   // 1. Status broker + active context store 생성.
   const broker = new ClaudeStatusBroker(broadcastFn);
   const activeContext = new ActiveContextStore();
+  const activity = new SessionActivityLog();
 
   // 2. IPC 채널 등록 (setupRouter() 이후에 호출되어야 함).
-  registerClaudeChannel(broker, activeContext);
+  registerClaudeChannel(broker, activeContext, activity);
 
   // 3. hook-handler 등록.
   const getFocusedWindow = options.getFocusedWindow ?? getFocusedAppWindow;
@@ -87,6 +91,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
   const offHook = registerHookHandler({
     broker,
     activeContext,
+    activity,
     agentHost,
     channelProvider: workspaceManager,
     workspaceManager,
@@ -124,6 +129,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     const tabId = typeof a?.tabId === "string" ? a.tabId : null;
     if (workspaceId && tabId) {
       broker.clear(workspaceId, tabId);
+      activity.clear(workspaceId, tabId);
       interrupts.forget(workspaceId, tabId);
       reconnects.forget(workspaceId, tabId);
     }
@@ -166,6 +172,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     },
     broker,
     activeContext,
+    activity,
   };
 }
 

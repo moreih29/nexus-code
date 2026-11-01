@@ -6,6 +6,7 @@ import { register, validateArgs } from "../../infra/ipc-router";
 import { ipcOk } from "../../../shared/ipc/result";
 import type { ClaudeStatusBroker } from "./status";
 import type { ActiveContextStore } from "./active-context";
+import type { SessionActivityLog } from "./session-activity";
 
 const c = ipcContract.claude.call;
 
@@ -18,11 +19,13 @@ const c = ipcContract.claude.call;
  *   idle로 전이한다. permissionPending/error는 사용자의 명시적 조치 전까지 보존한다.
  * - call.clearWorkspace: 워크스페이스의 모든 탭 상태를 초기화한다. hook이 stale 상태를
  *   남긴 경우 사용자가 컨텍스트 메뉴에서 수동으로 복구하는 경로.
+ * - call.activity: what the sessions of the workspaces are doing, as their hooks tell it.
  * - listen.status: 상태 변경 시 broker가 직접 broadcast하므로 여기서는 빈 객체로 선언.
  */
 export function registerClaudeChannel(
   broker: ClaudeStatusBroker,
   activeContext: ActiveContextStore,
+  activity: SessionActivityLog,
 ): void {
   register("claude", {
     call: {
@@ -50,7 +53,12 @@ export function registerClaudeChannel(
       clearWorkspace: async (args: unknown) => {
         const { workspaceId } = validateArgs(c.clearWorkspace.args, args);
         broker.clearWorkspace(workspaceId);
+        activity.clearWorkspace(workspaceId);
         return ipcOk(undefined);
+      },
+      activity: async (args: unknown) => {
+        const { workspaceIds } = validateArgs(c.activity.args, args);
+        return ipcOk(activity.list(workspaceIds));
       },
     },
     listen: {

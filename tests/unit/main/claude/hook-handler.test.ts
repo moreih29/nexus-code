@@ -41,6 +41,9 @@ const { ActiveContextStore } = await import(
   "../../../../src/main/features/claude/active-context"
 );
 const { PROMPT_MAX_CHARS } = await import("../../../../src/shared/claude/status");
+const { SessionActivityLog } = await import(
+  "../../../../src/main/features/claude/session-activity"
+);
 
 // ---------------------------------------------------------------------------
 // 헬퍼
@@ -131,6 +134,7 @@ function makeHookAgentHost() {
 interface Harness {
   broker: InstanceType<typeof ClaudeStatusBroker>;
   activeContext: InstanceType<typeof ActiveContextStore>;
+  activity: InstanceType<typeof SessionActivityLog>;
   brokerCalls: Array<{ channel: string; event: string; args: unknown }>;
   agentHost: ReturnType<typeof makeHookAgentHost>;
   channel: MockAgentChannel;
@@ -161,6 +165,7 @@ function makeHarness(
 
   const broker = new ClaudeStatusBroker(broadcastFn);
   const activeContext = new ActiveContextStore();
+  const activity = new SessionActivityLog();
   const agentHost = makeHookAgentHost();
   const channel = makeChannel();
   const { FakeNotification: FN, instances: notifInstances } = makeNotificationCtor();
@@ -172,6 +177,7 @@ function makeHarness(
   registerHookHandler({
     broker,
     activeContext,
+    activity,
     agentHost,
     channelProvider: {
       tryGetAgentChannel: async () => channel as unknown as import("../../../../../src/main/infra/agent/channel").AgentChannel,
@@ -186,6 +192,7 @@ function makeHarness(
   return {
     broker,
     activeContext,
+    activity,
     brokerCalls,
     agentHost,
     channel,
@@ -784,6 +791,7 @@ describe("hook-handler — respondHook 호출", () => {
     ["pre-tool-use", undefined],
     ["post-tool-use", undefined],
     ["post-tool-use-failure", undefined],
+    ["subagent-start", { agent_id: "a1" }],
     ["subagent-stop", { agent_id: "a1" }],
     ["permission-request", { tool_name: "Bash" }],
     ["session-start", undefined],
@@ -1076,5 +1084,43 @@ describe("hook-handler — frames of a finished turn", () => {
     await tick();
     expect(broker.get("ws-test", "tab-test")).toBeNull();
     expect(notifInstances).toHaveLength(0);
+  });
+});
+
+describe("hook-handler — session activity", () => {
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  test("records the tools and agents the hooks tell of", async () => {
+    const { activity, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "go", prompt_id: "p1" }));
+    emit(
+      makeHookPayload("pre-tool-use", {
+        prompt_id: "p1",
+        tool_name: "Bash",
+        tool_use_id: "t1",
+        tool_input: { command: "ls" },
+      }),
+    );
+    emit(makeHookPayload("subagent-start", { agent_id: "a1", agent_type: "Explore" }));
+    await tick();
+    const recorded = activity.get("ws-test", "tab-test");
+    expect(recorded?.tools.map((tool) => tool.target)).toEqual(["ls"]);
+    expect(recorded?.agents.map((agent) => agent.id)).toEqual(["a1"]);
+  });
+
+  test("a frame of a finished turn is not recorded", async () => {
+    const { activity, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt_id: "p1" }));
+    emit(makeHookPayload("user-prompt-submit", { prompt_id: "p2" }));
+    emit(
+      makeHookPayload("pre-tool-use", {
+        prompt_id: "p1",
+        tool_name: "Bash",
+        tool_use_id: "t1",
+        tool_input: { command: "ls" },
+      }),
+    );
+    await tick();
+    expect(activity.get("ws-test", "tab-test")?.tools).toEqual([]);
   });
 });
