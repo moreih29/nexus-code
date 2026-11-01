@@ -43,9 +43,14 @@ export const StatusEntrySchema = z.object({
   status: ClaudeStatusSchema,
   message: z.string().optional(),
   since: z.number().int().positive(),
+  /** The last prompt the user submitted in this session (cut to PROMPT_MAX_CHARS). */
+  prompt: z.string().optional(),
 });
 
 export type StatusEntry = z.infer<typeof StatusEntrySchema>;
+
+/** How much of a prompt a StatusEntry keeps; prompts can carry whole pasted files. */
+export const PROMPT_MAX_CHARS = 2_000;
 
 // ---------------------------------------------------------------------------
 // HookRequest — agent→main NDJSON hook 요청 (IPC contract에는 등록하지 않음)

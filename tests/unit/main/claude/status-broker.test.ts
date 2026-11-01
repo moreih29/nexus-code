@@ -140,3 +140,29 @@ describe("ClaudeStatusBroker — broadcast 동작", () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+describe("ClaudeStatusBroker — prompt", () => {
+  test("prompt는 다음 set까지 유지 — 상태가 바뀌어도 마지막 지시를 보여주도록", () => {
+    const { broker, calls } = makeBroker();
+    broker.set("ws-1", "tab-1", "running", undefined, "fix the build");
+    broker.set("ws-1", "tab-1", "completed", "done");
+    expect(broker.get("ws-1", "tab-1")?.prompt).toBe("fix the build");
+    expect((calls[1].args as { prompt?: string }).prompt).toBe("fix the build");
+    expect(broker.snapshot()[0].prompt).toBe("fix the build");
+  });
+
+  test("null이면 prompt를 비움 (새 세션)", () => {
+    const { broker } = makeBroker();
+    broker.set("ws-1", "tab-1", "running", undefined, "old");
+    broker.set("ws-1", "tab-1", "idle", undefined, null);
+    expect(broker.get("ws-1", "tab-1")?.prompt).toBeUndefined();
+  });
+
+  test("prompt만 바뀌어도 broadcast 재발사", () => {
+    const { broker, calls } = makeBroker();
+    broker.set("ws-1", "tab-1", "running", undefined, "first");
+    broker.set("ws-1", "tab-1", "running", undefined, "second");
+    expect(calls).toHaveLength(2);
+    expect((calls[1].args as { prompt?: string }).prompt).toBe("second");
+  });
+});

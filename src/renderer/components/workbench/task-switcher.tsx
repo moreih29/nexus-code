@@ -3,7 +3,8 @@
 //
 // The sidebar has one row per workspace; a workspace's tasks are switched
 // here. The menu lists the workspace itself and its tasks, each with its
-// branch and Claude glyph, then New Task and, on a task, Delete This Task.
+// branch and Claude glyph, then their sessions tab, New Task and, on a task,
+// Delete This Task.
 
 import { Check, ChevronDown, GitBranch } from "lucide-react";
 import { useMemo } from "react";
@@ -11,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { activateWorkspace } from "../../services/workspace/tasks";
+import { openSessionsTab } from "../../state/operations/tabs";
 import {
   selectWorkspaceAggregateStatus,
   useClaudeStatusStore,
@@ -74,6 +76,9 @@ export function TaskSwitcher({ active, label }: TaskSwitcherProps) {
           <TaskItem key={task.id} workspace={task} active={active.id === task.id} />
         ))}
         <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => openSessionsTab(active.id)}>
+          {t("task.show_sessions")}
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => useTaskUIStore.getState().openNewTask(root.id)}>
           {t("task.new")}
         </DropdownMenuItem>

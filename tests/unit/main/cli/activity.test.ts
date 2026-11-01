@@ -40,3 +40,15 @@ test("output, the last notification and the terminal's end", () => {
   source.emit("exit", { workspaceId: "w", tabId: "t", code: 0 });
   expect(tracker.get("w", "t")).toBeNull();
 });
+
+test("snapshot lists every terminal with its workspace and tab", () => {
+  const source = host();
+  const tracker = new ActivityTracker(source, () => 2_000);
+
+  source.emit("data", { workspaceId: "w", tabId: "t:1", chunk: "hi" });
+  source.emit("data", { workspaceId: "v", tabId: "u", chunk: "\x1b]9;Done\x07" });
+  expect(tracker.snapshot()).toEqual([
+    { workspaceId: "w", tabId: "t:1", lastOutputAt: 2_000 },
+    { workspaceId: "v", tabId: "u", lastOutputAt: 2_000, lastNotice: { body: "Done", at: 2_000 } },
+  ]);
+});

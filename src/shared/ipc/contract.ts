@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { StatusEntrySchema } from "../claude/status";
 import { CliUiRequestSchema, CliUiRespondArgsSchema } from "../cli/ui";
+import { TabActivityEntrySchema } from "../sessions/agent-state";
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
   DirEntrySchema,
@@ -1746,6 +1747,12 @@ export const ipcContract = {
   cli: {
     call: {
       uiRespond: call(CliUiRespondArgsSchema, z.void()),
+      /**
+       * What each live terminal has printed lately and the last notification
+       * it raised: the state of Codex and other agents without hooks, for
+       * the sessions view.
+       */
+      activity: call(z.object({}), z.array(TabActivityEntrySchema)),
     },
     listen: {
       uiRequest: listen(CliUiRequestSchema),

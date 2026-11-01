@@ -95,6 +95,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
         bridge.resolve(validateArgs(ipcContract.cli.call.uiRespond.args, args));
         return ipcOk(undefined);
       },
+      activity: async () => ipcOk(activity.snapshot()),
     },
     listen: { uiRequest: {} },
   });

@@ -33,6 +33,7 @@ export type EditorTabProps = EditorInput;
 export type DiffTabProps = DiffTabPayload;
 export type GitCommitTabProps = GitCommitTabPayload;
 export type BrowserTabProps = BrowserTabPayload;
+export type SessionsTabProps = Record<string, never>;
 
 interface TabBase {
   id: string;
@@ -108,7 +109,20 @@ export interface BrowserTab extends TabBase {
   props: BrowserTabProps;
 }
 
-export type Tab = EditorTab | DiffTab | TerminalTab | GitCommitTab | UntitledTab | BrowserTab;
+/** The workspace's agent sessions, its tasks' included. */
+export interface SessionsTab extends TabBase {
+  type: "sessions";
+  props: SessionsTabProps;
+}
+
+export type Tab =
+  | EditorTab
+  | DiffTab
+  | TerminalTab
+  | GitCommitTab
+  | UntitledTab
+  | BrowserTab
+  | SessionsTab;
 
 // ---------------------------------------------------------------------------
 // State shape — flat record registry; ordering and active state live in layout.ts
@@ -126,7 +140,8 @@ export type CreateTabArgs =
   | { type: "git.commit"; props: GitCommitTabProps }
   | { type: "terminal"; props: TerminalTabProps }
   | { type: "untitled"; props: UntitledTabProps }
-  | { type: "browser"; props: BrowserTabProps };
+  | { type: "browser"; props: BrowserTabProps }
+  | { type: "sessions"; props: SessionsTabProps };
 
 interface TabsState {
   byWorkspace: Record<string, Record<string, Tab>>;
@@ -230,6 +245,7 @@ export function defaultTitle(args: CreateTabArgs): string {
   }
   if (args.type === "git.commit") return `commit ${args.props.sha.slice(0, 7)}`;
   if (args.type === "untitled") return `Untitled-${args.props.untitledIndex}`;
+  if (args.type === "sessions") return i18next.t("common:sessions.tab_title");
   if (args.type === "browser") {
     if (!args.props.initialUrl) return "New Tab";
     try {
@@ -302,6 +318,8 @@ export const useTabsStore = create<TabsState>((set, get) => {
         tab = { ...base, type: "untitled", props: args.props };
       } else if (args.type === "browser") {
         tab = { ...base, type: "browser", props: args.props };
+      } else if (args.type === "sessions") {
+        tab = { ...base, type: "sessions", props: args.props };
       } else {
         tab = { ...base, type: "terminal", props: args.props };
       }

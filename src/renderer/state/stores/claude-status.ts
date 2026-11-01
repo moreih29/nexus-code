@@ -135,7 +135,8 @@ export const useClaudeStatusStore = create<ClaudeStatusStore>((set, get) => {
           existing !== undefined &&
           existing.status === entry.status &&
           existing.message === entry.message &&
-          existing.since === entry.since
+          existing.since === entry.since &&
+          existing.prompt === entry.prompt
         ) {
           return state;
         }

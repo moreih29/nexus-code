@@ -158,6 +158,7 @@
     "switcher_aria": "작업 전환",
     "new": "새 작업…",
     "remove_current": "이 작업 삭제…",
+    "show_sessions": "세션 보기",
     "new_title": "새 작업",
     "new_description": "{{name}}의 {{branch}}에서 브랜치와 워크트리를 만들고 그 안에서 작업을 엽니다.",
     "name_label": "이름",
@@ -346,6 +347,7 @@
     "new_terminal_with": "다른 셸로 새 터미널",
     "default_shell": "기본",
     "new_browser": "새 브라우저",
+    "sessions": "세션",
     "pin_tab": "탭 고정",
     "unpin_tab": "탭 고정 해제",
     "rename_tab_menu": "탭 이름 변경…",
@@ -430,6 +432,62 @@
     "preparing": "{{language}} 언어 서버를 준비하는 중입니다…",
     "notFound": "{{language}} 언어 서버({{binary}})를 찾지 못했습니다.",
     "installHint": "설치: {{command}}"
+  },
+  "sessions": {
+    "tab_title": "세션",
+    "none": "에이전트 세션 없음",
+    "count": "{{label}} {{count}}",
+    "view_label": "보기",
+    "view": {
+      "tree": "트리",
+      "board": "칸반"
+    },
+    "phase": {
+      "attention": "허용·입력 대기",
+      "running": "실행 중",
+      "done": "완료",
+      "idle": "유휴"
+    },
+    "state": {
+      "running": "실행 중",
+      "completed": "완료",
+      "needsInput": "입력 대기",
+      "permissionPending": "허용 대기",
+      "error": "오류",
+      "idle": "유휴",
+      "busy": "실행 중",
+      "quiet": "유휴",
+      "exited": "종료됨"
+    },
+    "estimated": "{{label}} (추정)",
+    "duration": {
+      "now": "방금",
+      "minutes": "{{count}}분",
+      "hours": "{{count}}시간",
+      "days": "{{count}}일"
+    },
+    "agent_unknown": "에이전트",
+    "no_sessions": "세션 없음",
+    "changed_files": "변경 {{count}}",
+    "column_empty": "없음",
+    "detail": {
+      "show_terminal": "터미널로 이동",
+      "show_changes": "변경 보기",
+      "interrupt": "중지 (Ctrl-C)",
+      "remove_task": "작업 삭제…",
+      "permission_hint": "권한 요청은 터미널에서 응답합니다.",
+      "send_placeholder": "이 세션에 보낼 입력 (Shift+Enter 줄바꿈)",
+      "send": "보내기",
+      "prompt": "마지막 프롬프트",
+      "message": "마지막 메시지",
+      "screen": "지금 화면",
+      "screen_not_started": "이 터미널은 아직 시작되지 않았습니다. 그 작업을 열면 시작됩니다.",
+      "changes": "커밋하지 않은 변경 ({{count}})",
+      "no_changes": "커밋하지 않은 변경이 없습니다.",
+      "more_changes": "외 {{count}}개",
+      "no_session": "이 워크트리에는 에이전트 세션이 없습니다.",
+      "close": "상세 닫기"
+    }
   },
   "claudeStatus": {
     "running": "Claude: 실행 중",

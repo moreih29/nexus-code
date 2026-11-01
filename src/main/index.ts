@@ -176,6 +176,12 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
       const { [removedWorkspaceId]: _removed, ...rest } = currentLspMap;
       stateService.setState({ lspDisabledLanguagesByWorkspace: rest });
     }
+    // Likewise the view its sessions tab was left in.
+    const currentViews = currentState.sessionsViewByWorkspace ?? {};
+    if (currentViews[removedWorkspaceId] !== undefined) {
+      const { [removedWorkspaceId]: _removedView, ...restViews } = currentViews;
+      stateService.setState({ sessionsViewByWorkspace: restViews });
+    }
   }
   forwardBroadcast(channelName, event, args);
 }

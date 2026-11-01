@@ -10,6 +10,7 @@ import {
   Lock,
   type LucideIcon,
   MessageCircleQuestion,
+  Radar,
   SquareTerminal,
   TriangleAlert,
   X,
@@ -89,6 +90,7 @@ function tabTypeIcon(tab: Tab): LucideIcon | null {
   if (tab.type === "editor.diff") return FileDiff;
   if (tab.type === "git.commit") return GitCommit;
   if (tab.type === "untitled") return File;
+  if (tab.type === "sessions") return Radar;
   return null; // editor (handled via FileIcon) and browser (handled via BrowserFaviconIcon)
 }
 
