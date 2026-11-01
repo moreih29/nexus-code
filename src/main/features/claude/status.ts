@@ -12,6 +12,13 @@ interface StateEntry {
   prompt?: string;
 }
 
+/** 상태 변경 listener — clear 시 entry는 null. */
+export type ClaudeStatusListener = (
+  workspaceId: string,
+  tabId: string,
+  entry: { status: ClaudeStatus; since: number } | null,
+) => void;
+
 /**
  * (workspaceId, tabId) 쌍별 Claude 세션 상태를 관리하는 broker.
  *
@@ -26,6 +33,8 @@ export class ClaudeStatusBroker {
 
   /** 테스트에서 broadcast 함수를 주입할 때 사용한다. */
   private readonly broadcastFn: (channel: string, event: string, args: unknown) => void;
+
+  private readonly listeners = new Set<ClaudeStatusListener>();
 
   constructor(
     broadcastFn: (channel: string, event: string, args: unknown) => void = broadcast,
@@ -62,6 +71,7 @@ export class ClaudeStatusBroker {
 
     const since = Date.now();
     this.map.set(key, { status, message, since, prompt: nextPrompt });
+    for (const listener of this.listeners) listener(workspaceId, tabId, { status, since });
 
     const entry: StatusEntry = {
       workspaceId,
@@ -96,6 +106,7 @@ export class ClaudeStatusBroker {
     const key = `${workspaceId}:${tabId}`;
     if (!this.map.has(key)) return;
     this.map.delete(key);
+    for (const listener of this.listeners) listener(workspaceId, tabId, null);
     this.broadcastFn("claude", "cleared", { workspaceId, tabId });
   }
 
@@ -116,8 +127,20 @@ export class ClaudeStatusBroker {
       if (!key.startsWith(prefix)) continue;
       this.map.delete(key);
       const tabId = key.slice(prefix.length);
+      for (const listener of this.listeners) listener(workspaceId, tabId, null);
       this.broadcastFn("claude", "cleared", { workspaceId, tabId });
     }
+  }
+
+  /**
+   * 상태가 바뀌거나 지워질 때마다 listener를 부른다(세션 이력 기록용).
+   * 반환 함수로 해제한다.
+   */
+  onChange(listener: ClaudeStatusListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   /**

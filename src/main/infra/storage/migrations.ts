@@ -263,6 +263,28 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  // The sessions tab's timeline: what each terminal's agent did over time.
+  // end_at is NULL while a span lasts; spans are kept for a day.
+  {
+    version: 8,
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS session_spans (
+          id                  INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          workspace_id        TEXT    NOT NULL,
+          tab_id              TEXT    NOT NULL,
+          state               TEXT    NOT NULL,
+          start_at            INTEGER NOT NULL,
+          end_at              INTEGER,
+          target_workspace_id TEXT,
+          target_tab_id       TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_session_spans_workspace
+          ON session_spans (workspace_id, start_at);
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: SqliteDb): void {

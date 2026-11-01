@@ -463,6 +463,7 @@ app.whenReady().then(async () => {
     workspaceManager,
     claudeBroker: claudeSetup.broker,
     activeContext: claudeSetup.activeContext,
+    sessionSpans: globalStorage,
     appVersion: app.getVersion(),
     notificationsEnabled: () => stateService.getState().osNotificationsEnabled ?? true,
     settings: () => {
