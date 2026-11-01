@@ -52,3 +52,41 @@ test("snapshot lists every terminal with its workspace and tab", () => {
     { workspaceId: "v", tabId: "u", lastOutputAt: 2_000, lastNotice: { body: "Done", at: 2_000 } },
   ]);
 });
+
+test("looks at the foreground program as output starts, and again once it has settled", async () => {
+  const source = host();
+  let now = 1_000;
+  const programs = ["bash", "codex", "bash"];
+  const looked: string[] = [];
+  const settled = () => new Promise((resolve) => setTimeout(resolve, 30));
+  const tracker = new ActivityTracker(
+    source,
+    () => now,
+    async (workspaceId, tabId) => {
+      looked.push(`${workspaceId}:${tabId}`);
+      return programs.shift() ?? null;
+    },
+    10,
+  );
+
+  // The task's shell starts, and Codex right after it.
+  source.emit("data", { workspaceId: "w", tabId: "t", chunk: "$ " });
+  await Promise.resolve();
+  expect(tracker.get("w", "t")?.program).toBe("bash");
+  now = 1_500;
+  source.emit("data", { workspaceId: "w", tabId: "t", chunk: "› 5+6" });
+  expect(looked).toHaveLength(1);
+  await settled();
+  expect(looked).toHaveLength(2);
+  expect(tracker.get("w", "t")?.program).toBe("codex");
+  expect(tracker.snapshot()[0]).toMatchObject({ tabId: "t", program: "codex" });
+
+  // Output after a quiet spell may be a program started or ended since.
+  now = 9_000;
+  source.emit("data", { workspaceId: "w", tabId: "t", chunk: "$ " });
+  expect(looked).toHaveLength(3);
+  source.emit("exit", { workspaceId: "w", tabId: "t", code: 0 });
+  await settled();
+  expect(looked).toHaveLength(3);
+  expect(tracker.get("w", "t")).toBeNull();
+});

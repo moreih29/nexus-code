@@ -168,6 +168,23 @@ describe("buildFamily", () => {
       since: 6,
     });
   });
+
+  it("knows Codex by its process, as its title names only its task and folder", () => {
+    const family = buildFamily(
+      input({
+        tabsByWorkspace: {
+          [ROOT]: { c: terminal("c", "README 요약 | app"), s: terminal("s", "bash") },
+        },
+        activity: new Map([
+          [`${ROOT}:c`, { lastOutputAt: NOW - 10_000, program: "codex" }],
+          [`${ROOT}:s`, { lastOutputAt: NOW - 10_000, program: "bash" }],
+        ]),
+      }),
+    );
+    expect(family?.worktrees[0].sessions.map((s) => [s.tabId, s.agent, s.state])).toEqual([
+      ["c", "codex", "quiet"],
+    ]);
+  });
 });
 
 describe("what to show first", () => {

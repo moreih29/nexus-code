@@ -77,7 +77,14 @@ export interface CliFeature {
 export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   const { agentHost, workspaceManager } = options;
   const bridge = new RendererBridge(options.getWindow);
-  const activity = new ActivityTracker(agentHost);
+  const foregroundProcess = async (workspaceId: string, tabId: string) => {
+    const result = (await agentHost.call("foregroundProcess", { workspaceId, tabId })) as
+      | { name?: string }
+      | undefined;
+    const name = result?.name?.trim() ?? "";
+    return name === "" ? null : name;
+  };
+  const activity = new ActivityTracker(agentHost, Date.now, foregroundProcess);
   const waits = new WaitRegistry(agentHost);
   const history = new SessionHistory(options.sessionSpans, agentHost, options.claudeBroker);
   const startedAgents = new StartedAgents(agentHost);
@@ -162,13 +169,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     },
     allowChange: (request) => consent.check(request),
     agentContextEnabled: () => options.settings().agentContext,
-    foregroundProcess: async (workspaceId, tabId) => {
-      const result = (await agentHost.call("foregroundProcess", { workspaceId, tabId })) as
-        | { name?: string }
-        | undefined;
-      const name = result?.name?.trim() ?? "";
-      return name === "" ? null : name;
-    },
+    foregroundProcess,
     startedAgents,
     clock: {
       now: () => Date.now(),
