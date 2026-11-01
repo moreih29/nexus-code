@@ -1,5 +1,6 @@
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
+import { goToNextWaiting } from "../../services/sessions/use-inbox";
 import { useActiveStore } from "../../state/stores/active";
 import { useAddWorkspaceUIStore } from "../../state/stores/add-workspace-ui";
 import { useTaskUIStore } from "../../state/stores/task-ui";
@@ -59,5 +60,6 @@ export function registerWorkspaceCommands(): Array<() => void> {
       const parentId = rootWorkspaceId(useWorkspacesStore.getState().workspaces, activeId);
       useTaskUIStore.getState().openNewTask(parentId);
     }),
+    registerCommand(COMMANDS.sessionNextWaiting, goToNextWaiting),
   ];
 }

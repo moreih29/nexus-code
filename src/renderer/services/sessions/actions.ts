@@ -21,8 +21,10 @@ interface SessionRef {
 export function showTerminal({ workspaceId, tabId }: SessionRef): void {
   const groupId = groupOf(workspaceId, tabId);
   if (!groupId) return;
-  if (useActiveStore.getState().activeWorkspaceId !== workspaceId) activateWorkspace(workspaceId);
+  // The tab first: switching to the workspace then lands on it, rather than
+  // on the tab it showed before, which would count as looked at.
   useLayoutStore.getState().setActiveTabInGroup({ workspaceId, groupId, tabId });
+  if (useActiveStore.getState().activeWorkspaceId !== workspaceId) activateWorkspace(workspaceId);
 }
 
 /** Types `text` into the session's terminal and presses Enter. */

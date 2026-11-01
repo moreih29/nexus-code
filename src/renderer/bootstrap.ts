@@ -27,6 +27,7 @@ import { normalizeWorkspaceTabOrder } from "./state/operations/tab-order";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
 import { useAgentCliStore } from "./state/stores/agent-cli";
+import { startAppFocusTracking } from "./state/stores/app-focus";
 import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
 import { useClaudeStatusStore } from "./state/stores/claude-status";
 import { useEditorFontStore } from "./state/stores/editor-font";
@@ -350,6 +351,10 @@ export async function bootstrapClaudeStatus(): Promise<void> {
   ipcListen("claude", "cleared", ({ workspaceId, tabId }) => {
     useClaudeStatusStore.getState().clearTab(workspaceId, tabId);
   });
+
+  // Whether the window is in front of the user; the sync below and the inbox
+  // count the active tab as looked at only while it is.
+  startAppFocusTracking();
 
   // active workspace/tab을 main에 push하는 구독 시작 + 사용자가 탭을 활성화하면
   // markSeen IPC로 completed→idle 자동 전이.

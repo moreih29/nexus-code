@@ -2,7 +2,12 @@
 //
 // main은 이 컨텍스트를 Stop hook 처리 시 참조해 알림 발사 여부를 결정한다
 // (사용자가 그 탭을 보고 있으면 알림 생략). 또한 사용자가 탭을 활성화하면
-// markSeen IPC를 통해 completed 상태를 idle로 자동 전이시킨다.
+// markSeen IPC를 통해 completed 상태를 idle로 자동 전이시킨다. 탭을 보고
+// 떠난 시각은 session-seen store에 남겨 inbox가 읽음 여부를 판단한다.
+//
+// 탭을 본다는 것은 앱 창에 포커스가 있다는 뜻이기도 하다 (main의 hook-handler도
+// 같은 기준). 다른 앱에 가 있는 동안은 아무 탭도 보고 있지 않고, 돌아오면 그때
+// 활성 탭을 다시 보기 시작한다.
 //
 // active context는 두 store의 조합으로 결정된다:
 //  - useActiveStore.activeWorkspaceId : 현재 보고 있는 워크스페이스
@@ -13,9 +18,11 @@
 import { createLogger } from "../../shared/log/renderer";
 import { ipcCallResult } from "../ipc/client";
 import { useActiveStore } from "./stores/active";
+import { useAppFocusStore } from "./stores/app-focus";
 import { allLeaves } from "./stores/layout/helpers";
 import { useLayoutStore } from "./stores/layout/store";
 import type { LayoutNode } from "./stores/layout/types";
+import { useSessionSeenStore } from "./stores/session-seen";
 
 const log = createLogger("claude-active-context");
 
@@ -43,7 +50,7 @@ function resolveActiveTabId(root: LayoutNode, activeGroupId: string | null): str
  * 현재 active (workspaceId, tabId) 쌍을 두 store에서 계산한다.
  * workspace 또는 tab이 없으면 둘 다 null로 보고한다.
  */
-function computeActiveContext(): { workspaceId: string | null; tabId: string | null } {
+export function computeActiveContext(): { workspaceId: string | null; tabId: string | null } {
   const workspaceId = useActiveStore.getState().activeWorkspaceId;
   if (!workspaceId) return { workspaceId: null, tabId: null };
 
@@ -75,6 +82,15 @@ export function startClaudeActiveContextSync(): () => void {
     if (initialPushed && workspaceId === lastWorkspaceId && tabId === lastTabId) {
       return;
     }
+    // 떠나는 탭은 지금까지, 새로 보는 탭은 지금부터 사용자 앞에 있었다.
+    // inbox는 그 전에 끝난 세션을 뺀다 (markSeen이 없는 Codex 등도 같은 기준).
+    // 창에 포커스가 없을 때 바뀐 탭(nexus CLI 등)은 아직 아무도 보지 않았다.
+    const viewing = useAppFocusStore.getState().focused;
+    if (viewing) {
+      const seen = useSessionSeenStore.getState();
+      if (lastWorkspaceId !== null && lastTabId !== null) seen.markSeen(lastWorkspaceId, lastTabId);
+      if (workspaceId !== null && tabId !== null) seen.markSeen(workspaceId, tabId);
+    }
     lastWorkspaceId = workspaceId;
     lastTabId = tabId;
     initialPushed = true;
@@ -85,11 +101,17 @@ export function startClaudeActiveContextSync(): () => void {
 
     // 실제 탭이 활성화된 경우, 그 탭의 completed 상태를 자동 해제하기 위해 markSeen.
     // main의 markSeen 핸들러는 completed 상태일 때만 idle로 전이한다 (idempotent).
-    if (workspaceId !== null && tabId !== null) {
-      ipcCallResult("claude", "markSeen", { workspaceId, tabId }).catch((err: unknown) => {
-        log.warn(`markSeen IPC failed: ${(err as Error).message}`);
-      });
-    }
+    if (viewing && workspaceId !== null && tabId !== null) markClaudeSeen(workspaceId, tabId);
+  };
+
+  // 창을 떠나고 돌아오는 것도 탭을 바꾸는 것과 같다: 떠날 때까지, 돌아온 뒤부터
+  // 활성 탭이 사용자 앞에 있었다. 그 사이에 그 탭에서 끝난 세션만 inbox에 남고,
+  // 돌아와 보면 읽은 것이 된다.
+  const onFocusChange = (focused: boolean): void => {
+    const { workspaceId, tabId } = computeActiveContext();
+    if (workspaceId === null || tabId === null) return;
+    useSessionSeenStore.getState().markSeen(workspaceId, tabId);
+    if (focused) markClaudeSeen(workspaceId, tabId);
   };
 
   // 초기 1회 push (현재 값 동기화).
@@ -98,9 +120,19 @@ export function startClaudeActiveContextSync(): () => void {
   // 두 store 변경을 모두 구독.
   const unsubActive = useActiveStore.subscribe(push);
   const unsubLayout = useLayoutStore.subscribe(push);
+  const unsubFocus = useAppFocusStore.subscribe((state, prev) => {
+    if (state.focused !== prev.focused) onFocusChange(state.focused);
+  });
 
   return () => {
     unsubActive();
     unsubLayout();
+    unsubFocus();
   };
+}
+
+function markClaudeSeen(workspaceId: string, tabId: string): void {
+  ipcCallResult("claude", "markSeen", { workspaceId, tabId }).catch((err: unknown) => {
+    log.warn(`markSeen IPC failed: ${(err as Error).message}`);
+  });
 }

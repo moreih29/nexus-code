@@ -405,6 +405,9 @@
       "task": {
         "new": "새 작업"
       },
+      "session": {
+        "nextWaiting": "다음 대기 세션으로 이동"
+      },
       "settings": {
         "open": "설정 열기"
       },

@@ -23,6 +23,7 @@
 
 import { COMMANDS, type CommandId } from "./commands";
 import { parseAccelerator } from "./keybinding-parse";
+import { evaluateWhen, isPlatformOnlyWhen, parseWhen } from "./keybinding-when";
 
 /** Same shape Electron's `MenuItemConstructorOptions.accelerator` accepts. */
 export type AcceleratorString = string;
@@ -184,6 +185,12 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
   // up for `file.new` (untitled buffer), matching VSCode's File ▸ New File
   // convention.
   { command: COMMANDS.workspaceAdd, primary: "CmdOrCtrl+Shift+N" },
+  // The next session waiting on the user, from anywhere, the terminal too:
+  // shells and agent TUIs don't bind Ctrl+Shift+letter. On Linux, IBus takes
+  // Ctrl+Shift+U for Unicode entry in any focused text field, the
+  // terminal's included, so the key never reaches the app there.
+  { command: COMMANDS.sessionNextWaiting, primary: "CmdOrCtrl+Shift+U", when: "!isLinux" },
+  { command: COMMANDS.sessionNextWaiting, primary: "Ctrl+Shift+J", when: "isLinux" },
 
   // Settings
   { command: COMMANDS.settingsOpen, primary: "CmdOrCtrl+," },
@@ -237,17 +244,28 @@ export function findChordBinding(command: CommandId): KeybindingDecl | undefined
  * first one; on Win/Linux a literal `Cmd+Ctrl` binding (Win/Super+Ctrl,
  * which the OS often takes) gives way to another primary of the command,
  * and so does one the terminal leaves to the shell, so the label names a
- * key that also works from the terminal (Ctrl+Shift+T, not Ctrl+T).
+ * key that also works from the terminal (Ctrl+Shift+T, not Ctrl+T). One
+ * declared for another platform only (`when: "isLinux"`) is never shown.
  */
 export function findDisplayPrimary(
   bindings: readonly KeybindingDecl[],
   command: string,
   isMac: boolean,
+  isLinux = false,
 ): KeybindingDecl | undefined {
-  const primaries = bindings.filter((b) => b.command === command && b.primary !== undefined);
+  const declared = bindings.filter((b) => b.command === command && b.primary !== undefined);
+  const here = declared.filter((b) => !forOtherPlatform(b, isMac, isLinux));
+  const primaries = here.length > 0 ? here : declared;
   if (isMac) return primaries[0];
   const usable = primaries.filter((b) => !needsSuperKey(b.primary as string));
   return usable.find((b) => !leavesTerminalToShell(b)) ?? usable[0] ?? primaries[0];
+}
+
+/** Whether a binding's `when` names only the platform, and another one. */
+function forOtherPlatform(binding: KeybindingDecl, isMac: boolean, isLinux: boolean): boolean {
+  if (binding.when === undefined || !isPlatformOnlyWhen(binding.when)) return false;
+  const platform: Record<string, boolean> = { isMac, isLinux, isWindows: !isMac && !isLinux };
+  return !evaluateWhen(parseWhen(binding.when), (key) => platform[key] === true);
 }
 
 function leavesTerminalToShell(binding: KeybindingDecl): boolean {
