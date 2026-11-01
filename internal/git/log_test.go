@@ -123,6 +123,7 @@ func TestBuildLogArgsCoversScopeSourceCursorAndPaths(t *testing.T) {
 		"log",
 		"--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b%x1f%D%x1e",
 		"--date=iso-strict",
+		"--date-order",
 		"--skip=3",
 		"--max-count=6",
 		"main",
@@ -143,6 +144,7 @@ func TestBuildLogArgsCoversScopeSourceCursorAndPaths(t *testing.T) {
 		"log",
 		"--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b%x1f%D%x1e",
 		"--date=iso-strict",
+		"--date-order",
 		"--grep=UI-42",
 		"--all",
 		"--",
@@ -159,6 +161,7 @@ func TestBuildLogArgsCoversScopeSourceCursorAndPaths(t *testing.T) {
 		"log",
 		"--pretty=format:%S%x1f%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b%x1f%D%x1e",
 		"--date=iso-strict",
+		"--date-order",
 		"--max-count=2",
 		"--source",
 		"--branches",
@@ -241,6 +244,64 @@ func TestLogLimitCursorKillsPromptly(t *testing.T) {
 	}
 	if elapsed > 2*time.Second {
 		t.Fatalf("limit log took %s, want prompt stop under 2s", elapsed)
+	}
+}
+
+func TestLogListsCommitsAfterTheirChildren(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runGit(t, root, "init", "-b", "main")
+	// Every commit at one time: base, then main 1 and side 1 → side 2 off it,
+	// then a merge. In git's default order base comes before side 1.
+	var stream strings.Builder
+	commit := func(mark int, message string, parents ...int) {
+		fmt.Fprintf(&stream, "commit refs/heads/main\nmark :%d\ncommitter Nexus Test <nexus@example.test> 1700000000 +0000\ndata %d\n%s\n", mark, len(message), message)
+		for i, parent := range parents {
+			if i == 0 {
+				fmt.Fprintf(&stream, "from :%d\n", parent)
+			} else {
+				fmt.Fprintf(&stream, "merge :%d\n", parent)
+			}
+		}
+		stream.WriteString("\n")
+	}
+	commit(1, "base")
+	commit(2, "main 1", 1)
+	commit(3, "side 1", 1)
+	commit(4, "side 2", 3)
+	commit(5, "merge", 2, 4)
+	importer := exec.Command("git", "fast-import", "--quiet")
+	importer.Dir = root
+	importer.Stdin = strings.NewReader(stream.String())
+	if out, err := importer.CombinedOutput(); err != nil {
+		t.Fatalf("git fast-import: %v\n%s", err, out)
+	}
+
+	service := New(root)
+	var entries []LogEntry
+	service.SetEventSink(func(event string, payload any) error {
+		if batch, ok := payload.(LogBatchPayload); ok {
+			entries = append(entries, batch.Entries...)
+		}
+		return nil
+	})
+	if _, err := service.Log(context.Background(), json.RawMessage(`{"scope":"ref","ref":"main","limit":50}`)); err != nil {
+		t.Fatalf("Log returned error: %v", err)
+	}
+
+	listed := map[string]bool{}
+	var subjects []string
+	for _, entry := range entries {
+		subjects = append(subjects, entry.Subject)
+		listed[entry.SHA] = true
+		for _, parent := range entry.Parents {
+			if listed[parent] {
+				t.Fatalf("%q listed after its parent: %v", entry.Subject, subjects)
+			}
+		}
+	}
+	if len(entries) != 5 {
+		t.Fatalf("listed %v, want all 5 commits", subjects)
 	}
 }
 

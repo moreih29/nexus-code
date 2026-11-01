@@ -209,7 +209,10 @@ func buildLogArgs(params LogParams) []string {
 	if hasSource {
 		formatFields = append([]string{"%S"}, logPrettyFields...)
 	}
-	args := []string{"log", "--pretty=format:" + strings.Join(formatFields, "%x1f") + "%x1e", "--date=iso-strict"}
+	// --date-order: git's default order can list a commit before one of its
+	// children when their times tie or clocks disagree, which the history
+	// graph cannot draw.
+	args := []string{"log", "--pretty=format:" + strings.Join(formatFields, "%x1f") + "%x1e", "--date=iso-strict", "--date-order"}
 	if params.Grep != "" {
 		args = append(args, "--grep="+params.Grep)
 	}
