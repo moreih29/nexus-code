@@ -173,3 +173,38 @@ func TestRunOutsideTheAppSaysSo(t *testing.T) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
+
+// A sandbox that denies the connection is named, with the way out of it. A
+// socket this user may not write is denied the same way.
+func TestRunSaysASandboxMayDenyTheApp(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a socket file's permissions to deny the connection")
+	}
+	socket, _ := fakeApp(t, `{"ok":true,"result":{"stdout":"","stderr":"","exitCode":0}}`)
+	if err := os.Chmod(socket, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	setTerminalEnv(t, socket)
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"status"}, strings.NewReader(""), &stdout, &stderr); code != 1 {
+		t.Fatalf("code = %d", code)
+	}
+	want := "nexus: not allowed to connect to NexusCode (connect: permission denied). If this runs in a sandbox, run nexus outside it: an agent asks the user for approval\n"
+	if stderr.String() != want {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+// Without the app's socket, the reason follows the usual message.
+func TestRunSaysWhyTheAppIsNotReachable(t *testing.T) {
+	setTerminalEnv(t, filepath.Join(t.TempDir(), "gone.sock"))
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"status"}, strings.NewReader(""), &stdout, &stderr); code != 1 {
+		t.Fatalf("code = %d", code)
+	}
+	if !strings.HasPrefix(stderr.String(), "nexus: NexusCode is not reachable from this terminal (") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
