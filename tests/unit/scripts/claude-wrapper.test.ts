@@ -155,12 +155,6 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
       expect(cmd).toBe(`"\${NEXUS_AGENT_BIN}" hook ${event}`);
     }
 
-    // A tool that fails while running ends the same way as one that ran.
-    expect(
-      (hooks.PostToolUseFailure as Array<{ hooks: Array<{ command: string }> }>)[0].hooks[0]
-        .command,
-    ).toBe(`"\${NEXUS_AGENT_BIN}" hook post-tool-use`);
-
     // The note on nexus: a second SessionStart hook, run in step so its
     // output reaches the session as context.
     const sessionStart = (hooks.SessionStart as Array<{ hooks: unknown[] }>)[0].hooks;

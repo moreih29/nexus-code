@@ -142,6 +142,9 @@ function toolCall(payload: unknown): string | undefined {
  */
 const toolCallsAwaitingPermission = new Map<string, string>();
 
+/** Hooks after which no permission dialog of the turn before is still open. */
+const TURN_BOUNDARIES = new Set(["session-start", "user-prompt-submit", "stop", "session-end"]);
+
 /**
  * Claude Code PermissionRequest hook payload에서 tool_name을 추출한다.
  */
@@ -249,6 +252,9 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
   const workspaceName =
     deps.workspaceManager.getName(workspaceId) ??
     (t ? t("common:claudeNotification.terminalFallback") : "Terminal");
+
+  // A turn's start or end, or the session's, leaves no permission dialog open.
+  if (TURN_BOUNDARIES.has(subcommand)) toolCallsAwaitingPermission.delete(`${workspaceId}:${tabId}`);
 
   switch (subcommand) {
     case "session-start": {
@@ -370,8 +376,7 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
     }
 
     case "post-tool-use": {
-      // A tool ran (PostToolUse) or failed while running (PostToolUseFailure).
-      // Once the user allows a tool, no other hook runs until it ends, so its
+      // A tool ran. Once the user allows a tool, no other hook runs until it ends, so its
       // end is what takes the dialog's state away. Only that state moves: a
       // late async hook must not undo the turn's Stop, and a tool that ran
       // beside the one waiting must not clear the wait.

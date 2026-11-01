@@ -408,6 +408,22 @@ describe("hook-handler — subcommand 상태 전이", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(broker.get("ws-test", "tab-test")?.status).toBe("completed");
   });
+
+  test("a dialog the user denied does not hold the next turn's", async () => {
+    const { broker, emit } = makeHarness();
+    // Denied: its tool never runs.
+    emit(makeHookPayload("permission-request", allowedCall));
+    await new Promise((r) => setTimeout(r, 0));
+    emit(makeHookPayload("user-prompt-submit", { prompt: "try another way" }));
+    await new Promise((r) => setTimeout(r, 0));
+    // A dialog told only by its notification, with no PermissionRequest.
+    emit(makeHookPayload("notification", { notification_type: "permission_prompt" }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("permissionPending");
+    emit(makeHookPayload("post-tool-use", { tool_name: "Read", tool_input: { file_path: "/a" } }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
+  });
 });
 
 describe("hook-handler — respondHook 호출", () => {
