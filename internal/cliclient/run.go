@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 	"time"
 )
 
@@ -38,6 +39,10 @@ const maxResponseBytes = 64 * 1024 * 1024
 
 // maxStdinBytes bounds the text read for a "-" argument.
 const maxStdinBytes = 1024 * 1024
+
+// wsaeacces is how Windows refuses a socket this process may not use, which
+// os.ErrPermission leaves out. No other system has the number.
+const wsaeacces = 10013
 
 // request is what the app is asked. Field names match CliInvocationSchema
 // in src/shared/cli/protocol.ts.
@@ -140,7 +145,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 func send(socketPath string, req wireRequest) (*result, error) {
 	conn, err := net.DialTimeout("unix", socketPath, 5*time.Second)
 	if err != nil {
-		return nil, errors.New("NexusCode is not reachable from this terminal")
+		return nil, dialError(err)
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(clientTimeout))
@@ -172,6 +177,22 @@ func send(socketPath string, req wireRequest) (*result, error) {
 		return nil, errors.New(resp.Error)
 	}
 	return resp.Result, nil
+}
+
+// dialError says why the app's socket could not be reached. A sandbox, such
+// as an agent's around the commands it runs, denies the connection: the
+// command has to run outside it, which the agent asks the user for.
+func dialError(err error) error {
+	reason := err.Error()
+	var syscallErr *os.SyscallError
+	if errors.As(err, &syscallErr) {
+		reason = syscallErr.Error()
+	}
+	var errno syscall.Errno
+	if errors.Is(err, os.ErrPermission) || (errors.As(err, &errno) && errno == wsaeacces) {
+		return fmt.Errorf("not allowed to connect to NexusCode (%s). If this runs in a sandbox, run nexus outside it: an agent asks the user for approval", reason)
+	}
+	return fmt.Errorf("NexusCode is not reachable from this terminal (%s)", reason)
 }
 
 // writeFile writes one file the app made, where the app said.
