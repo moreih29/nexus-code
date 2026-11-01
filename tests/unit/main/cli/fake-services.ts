@@ -12,6 +12,7 @@ import {
 import type { ConsoleEntry } from "../../../../src/main/features/cli/browser/console-log";
 import type { BrowserDriver } from "../../../../src/main/features/cli/browser/driver";
 import type { CliContext, CliServices } from "../../../../src/main/features/cli/context";
+import { WaitRegistry } from "../../../../src/main/features/cli/waits";
 import type { ClaudeStatus } from "../../../../src/shared/claude/status";
 import type {
   CliConsentAnswer,
@@ -130,6 +131,8 @@ export interface FakeApp {
   notified: Array<{ workspaceId: string; tabId: string; title: string; body: string }>;
   claude: Map<string, { status: ClaudeStatus; message?: string; since: number }>;
   activity: Map<string, TabActivity>;
+  /** The waits on terminals listed while they run. */
+  waits: WaitRegistry;
   screens: Map<string, string>;
   /** The foreground program of each terminal, by tab id; unknown when absent. */
   foreground: Map<string, string>;
@@ -304,12 +307,14 @@ export function fakeApp(now = Date.now()): FakeApp {
     }
     return {} as CliUiOps[K]["result"];
   };
+  const waits = new WaitRegistry();
   const services: CliServices = {
     appVersion: "1.2.3",
     listWorkspaces: () => WORKSPACES,
     shownTab: () => ({ workspaceId: APP, tabId: SHELL_TAB }),
     claudeStatus: (ws, t) => claude.get(`${ws}:${t}`) ?? null,
     activity: (ws, t) => activity.get(`${ws}:${t}`) ?? null,
+    waits,
     ui,
     notify: (workspaceId, tabId, title, body) => {
       notified.push({ workspaceId, tabId, title, body });
@@ -335,6 +340,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     notified,
     claude,
     activity,
+    waits,
     screens,
     foreground,
     settings,

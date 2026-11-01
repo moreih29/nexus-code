@@ -86,3 +86,18 @@ export function describeTerminal(
 export function isAgentSession(state: TerminalState): boolean {
   return state.agent !== undefined || state.message !== undefined;
 }
+
+/** A terminal, by its workspace and tab. */
+export const TerminalRefSchema = z.object({ workspaceId: z.string(), tabId: z.string() });
+export type TerminalRef = z.infer<typeof TerminalRefSchema>;
+
+/**
+ * A terminal blocked in nexus terminal wait (or terminal send --wait) on
+ * another, since `since`.
+ */
+export const TerminalWaitSchema = z.object({
+  waiter: TerminalRefSchema,
+  target: TerminalRefSchema,
+  since: z.number(),
+});
+export type TerminalWait = z.infer<typeof TerminalWaitSchema>;
