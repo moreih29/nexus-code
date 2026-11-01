@@ -1524,6 +1524,12 @@ export const ipcContract = {
        * directly; only URL focus needs a renderer round-trip.
        */
       focusUrl: listen(z.object({ tabId: z.string().uuid() })),
+      /**
+       * A download the user started in a browser tab is done, saved as
+       * `file` where downloads go. One a nexus command started is told in
+       * the command's output instead.
+       */
+      downloaded: listen(z.object({ file: z.string() })),
     },
   },
 

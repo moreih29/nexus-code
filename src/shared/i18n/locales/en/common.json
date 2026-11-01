@@ -356,7 +356,8 @@
     "pick_send_to": "Send the element to",
     "pick_no_agent": "No agent terminal in this workspace. The element was copied to the clipboard.",
     "pick_terminal_closed": "That terminal has not opened. The element was copied to the clipboard.",
-    "pick_failed": "Could not pick an element: {{message}}"
+    "pick_failed": "Could not pick an element: {{message}}",
+    "downloaded": "Downloaded {{file}}"
   },
   "tabBar": {
     "open_tabs": "Open tabs",
