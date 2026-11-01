@@ -109,6 +109,12 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     },
   });
 
+  // Claude gone without its SessionEnd hook (its exit seen, its state cleared
+  // by hand) takes its record along: the agents it ran stopped with it.
+  const offCleared = broker.onChange((workspaceId, tabId, entry) => {
+    if (entry === null) activity.clear(workspaceId, tabId);
+  });
+
   // An interrupted turn runs no hook; its "Interrupted" line ends it.
   const interrupts = new ClaudeInterruptWatcher(broker);
 
@@ -165,6 +171,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     noteInput: (workspaceId, tabId, data) => interrupts.noteInput(workspaceId, tabId, data),
     dispose: () => {
       offHook();
+      offCleared();
       offExit();
       offData();
       offRestored();

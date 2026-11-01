@@ -115,6 +115,22 @@ describe("buildTimeline", () => {
     ]);
   });
 
+  it("leaves the spans of a session's agents out of its bars", () => {
+    const timeline = buildTimeline(
+      family(worktree(ROOT, ["t"])),
+      [
+        span(ROOT, "t", "running", from, null),
+        {
+          ...span(ROOT, "t", "permissionPending", from + MINUTE, null),
+          agent: { id: "a1", kind: "subagent" },
+        },
+      ],
+      from,
+      now,
+    );
+    expect(timeline.lanes[0]?.bars.map((b) => b.state)).toEqual(["running"]);
+  });
+
   it("has a lane per session, and an empty one for a worktree with none", () => {
     const timeline = buildTimeline(
       family(worktree(ROOT, ["t", "s"]), worktree(TASK, [])),

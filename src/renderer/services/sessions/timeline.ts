@@ -95,7 +95,8 @@ export function buildTimeline(
   };
   const spansOf = new Map<string, SessionSpan[]>();
   for (const span of spans) {
-    if (!clip(span)) continue;
+    // The spans of a session's agents are not its own.
+    if (span.agent || !clip(span)) continue;
     const key = sessionKey(span.workspaceId, span.tabId);
     spansOf.set(key, [...(spansOf.get(key) ?? []), span]);
   }
