@@ -106,6 +106,13 @@ describe("ClaudeInterruptWatcher", () => {
     expect(status()).toBe("running");
   });
 
+  test("the line counts when the redraw skipped its blank cells", () => {
+    const { watcher, status } = harness();
+    watcher.noteInput("ws", "tab", "\x1b");
+    watcher.noteOutput("ws", "tab", "\x1b[2C⎿\x1b[2CInterrupted\x1b[1C· What should Claude do instead?");
+    expect(status()).toBe("idle");
+  });
+
   test("older Claude's \"Interrupted by user\" line counts", () => {
     const { watcher, status } = harness();
     watcher.noteInput("ws", "tab", "\x1b");
