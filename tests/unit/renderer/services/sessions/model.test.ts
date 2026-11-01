@@ -175,6 +175,41 @@ describe("buildFamily", () => {
     ]);
   });
 
+  it("shows an agent's done turn as idle once its terminal was looked at", () => {
+    const notice = { body: "5", at: NOW - 10_000 };
+    const done = { lastOutputAt: NOW - 9_500, lastNotice: notice };
+    const family = buildFamily(
+      input({
+        tabsByWorkspace: {
+          [ROOT]: {
+            seen: terminal("seen", "codex"),
+            before: terminal("before", "codex"),
+            never: terminal("never", "codex"),
+            claude: terminal("claude", "claude"),
+          },
+        },
+        claudeByWorkspace: { [ROOT]: { claude: claude("completed", { since: NOW - 10_000 }) } },
+        activity: new Map([
+          [`${ROOT}:seen`, done],
+          [`${ROOT}:before`, done],
+          [`${ROOT}:never`, done],
+        ]),
+        seenByWorkspace: {
+          // Looked at after the turn ended; before it ended; Claude's own state.
+          [ROOT]: { seen: NOW - 1_000, before: NOW - 20_000, claude: NOW - 1_000 },
+        },
+      }),
+    );
+    const states = family?.worktrees[0].sessions.map((s) => [s.tabId, s.state, s.phase]);
+    expect(states).toEqual([
+      ["seen", "quiet", "idle"],
+      ["before", "completed", "done"],
+      ["never", "completed", "done"],
+      // Claude's completed is cleared by markSeen in main, not here.
+      ["claude", "completed", "done"],
+    ]);
+  });
+
   it("counts an agent known only by its notifications", () => {
     const family = buildFamily(
       input({

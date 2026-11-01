@@ -12,6 +12,7 @@ import type { TabActivity, TerminalWait } from "../../../shared/sessions/agent-s
 import type { SessionSpan } from "../../../shared/sessions/history";
 import { ipcCallResult } from "../../ipc/client";
 import { useClaudeStatusStore } from "../../state/stores/claude-status";
+import { useSessionSeenStore } from "../../state/stores/session-seen";
 import { useTabsStore } from "../../state/stores/tabs";
 import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../state/stores/workspaces";
 import {
@@ -133,6 +134,7 @@ function familyNow(
     claudeByWorkspace: useClaudeStatusStore.getState().byWorkspace,
     activity,
     now: Date.now(),
+    seenByWorkspace: useSessionSeenStore.getState().byWorkspace,
   });
 }
 
@@ -156,6 +158,7 @@ export function useSessionFamily(workspaceId: string, visible: boolean): Session
       useWorkspacesStore.subscribe(update),
       useTabsStore.subscribe(update),
       useClaudeStatusStore.subscribe(update),
+      useSessionSeenStore.subscribe(update),
       startPolling(async (isLatest) => {
         const result = await ipcCallResult("cli", "activity", {});
         if (!isLatest()) return;

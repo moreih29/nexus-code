@@ -69,6 +69,12 @@ export interface SessionsInput {
   /** Keyed by `${workspaceId}:${tabId}`. */
   readonly activity: ReadonlyMap<string, TabActivity>;
   readonly now: number;
+  /**
+   * workspaceId → tabId → when the user last looked at the terminal. A turn
+   * Codex or another agent finished before then reads as looked at, as
+   * Claude's own completed state does once its tab is seen.
+   */
+  readonly seenByWorkspace?: Readonly<Record<string, Readonly<Record<string, number>>>>;
 }
 
 export interface FamilyInput extends SessionsInput {
@@ -124,10 +130,16 @@ export function sameActivity(
   return true;
 }
 
+/** Whether the user looked at the terminal after `terminal`'s state began. */
+function seenSince(seenAt: number | undefined, terminal: { readonly since?: number }): boolean {
+  return seenAt !== undefined && seenAt >= (terminal.since ?? 0);
+}
+
 /** The agent sessions in the terminals of `workspace`. */
 export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): AgentSession[] {
   const tabs = input.tabsByWorkspace[workspace.id] ?? {};
   const claude = input.claudeByWorkspace[workspace.id] ?? {};
+  const seen = input.seenByWorkspace?.[workspace.id] ?? {};
   const sessions: AgentSession[] = [];
   for (const tab of Object.values(tabs)) {
     if (tab.type !== "terminal") continue;
@@ -140,7 +152,11 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
       input.now,
     );
     if (!isAgentSession(terminal)) continue;
-    const state = tab.props.dead ? "exited" : terminal.state;
+    const state = tab.props.dead
+      ? "exited"
+      : status === undefined && terminal.state === "completed" && seenSince(seen[tab.id], terminal)
+        ? "quiet"
+        : terminal.state;
     sessions.push({
       key,
       workspaceId: workspace.id,
