@@ -10,7 +10,9 @@ import { useTranslation } from "react-i18next";
 import type { LogEntry } from "../../../../../shared/git/types";
 import { GraphCanvas } from "./graph/canvas";
 import type { LaneState } from "./graph/lane-assign";
-import { HistoryRow, type HistoryRowMenuRequest } from "./row";
+import { HISTORY_ROW_SELECTION_BAR_PX, HistoryRow, type HistoryRowMenuRequest } from "./row";
+
+const GRAPH_CANVAS_STYLE: React.CSSProperties = { left: HISTORY_ROW_SELECTION_BAR_PX };
 
 const HISTORY_ROW_HEIGHT_PX = 24;
 const HISTORY_LIST_OVERSCAN = 10;
@@ -230,6 +232,9 @@ export function HistoryList({
           width={resolvedGraphWidthPx}
           fadeRightEdge={resolvedGraphWidthPx < fullGraphWidthPx}
           className="z-0"
+          // Past the selected row's bar, which would cover the HEAD ring's edge;
+          // the row's padding leaves the room.
+          style={GRAPH_CANVAS_STYLE}
         />
       ) : null}
       <div
