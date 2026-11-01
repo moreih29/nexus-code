@@ -17,6 +17,7 @@ import type { ActiveContextStore } from "../claude/active-context";
 import type { ClaudeStatusBroker } from "../claude/status";
 import { type ActivitySource, ActivityTracker } from "./activity";
 import { CdpBrowserDriver } from "./browser/driver";
+import { ClaudeExitWatch } from "./claude-exit";
 import { CLI_COMMANDS } from "./commands";
 import { CrossWorkspaceConsent, type CrossWorkspacePolicy } from "./consent";
 import type { CliServices } from "./context";
@@ -85,6 +86,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     return name === "" ? null : name;
   };
   const activity = new ActivityTracker(agentHost, Date.now, foregroundProcess);
+  const claudeExit = new ClaudeExitWatch(agentHost, options.claudeBroker, foregroundProcess);
   const waits = new WaitRegistry(agentHost);
   const history = new SessionHistory(options.sessionSpans, agentHost, options.claudeBroker);
   const startedAgents = new StartedAgents(agentHost);
@@ -215,6 +217,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       off();
       stopWatchingBrowsers();
       activity.dispose();
+      claudeExit.dispose();
       waits.dispose();
       history.dispose();
       startedAgents.dispose();
