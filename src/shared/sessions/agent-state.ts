@@ -16,6 +16,8 @@ export interface TabActivity {
   readonly lastOutputAt: number;
   /** The last notification the terminal raised. */
   readonly lastNotice?: { readonly title?: string; readonly body: string; readonly at: number };
+  /** The program in the terminal's foreground when last looked, by its process name. */
+  readonly program?: string;
 }
 
 /** A terminal's activity, with the terminal it is of. */
@@ -26,6 +28,7 @@ export const TabActivityEntrySchema = z.object({
   lastNotice: z
     .object({ title: z.string().optional(), body: z.string(), at: z.number() })
     .optional(),
+  program: z.string().optional(),
 });
 export type TabActivityEntry = z.infer<typeof TabActivityEntrySchema>;
 
@@ -57,6 +60,17 @@ export function agentFromTitle(title: string): string | undefined {
   return undefined;
 }
 
+/**
+ * An agent a terminal's foreground program is. Codex's title names its task
+ * and folder, not Codex, so its process tells it where its title cannot.
+ */
+export function agentFromProgram(program: string | undefined): string | undefined {
+  if (program === undefined) return undefined;
+  if (/^codex$/i.test(program)) return "codex";
+  if (/^claude$/i.test(program)) return "claude";
+  return undefined;
+}
+
 export function describeTerminal(
   claude: ClaudeTerminalState | null,
   activity: TabActivity | null,
@@ -72,7 +86,7 @@ export function describeTerminal(
     };
   }
   const busy = activity !== null && now - activity.lastOutputAt < BUSY_WINDOW_MS;
-  const agent = agentFromTitle(title);
+  const agent = agentFromProgram(activity?.program) ?? agentFromTitle(title);
   const notice = activity?.lastNotice;
   return {
     ...(agent ? { agent } : {}),
