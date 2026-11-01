@@ -809,6 +809,9 @@ describe("hook-handler — respondHook 호출", () => {
     ["notification", { message: "ping" }],
     ["stop", undefined],
     ["session-end", undefined],
+    ["print-start", { run_id: "p1" }],
+    ["print-tool-use", { run_id: "p1", tool_name: "Read" }],
+    ["print-end", { run_id: "p1", exit_code: 0 }],
   ])("%s: 즉시 claude.respondHook { exitCode:0 } 호출", async (subcommand, extra) => {
     const { channel, emit } = makeHarness();
     emit(makeHookPayload(subcommand, extra));
@@ -1132,6 +1135,28 @@ describe("hook-handler — session activity", () => {
     );
     await tick();
     expect(activity.get("ws-test", "tab-test")?.tools).toEqual([]);
+  });
+});
+
+describe("hook-handler — `claude -p` runs inside a session", () => {
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  test("are recorded as the session's agents, and leave its state as it is", async () => {
+    const { activity, broker, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "go", prompt_id: "p1" }));
+    await tick();
+    emit(makeHookPayload("print-start", { run_id: "r1", prompt: "review", tools_told: true }));
+    emit(makeHookPayload("print-tool-use", { run_id: "r1", tool_use_id: "u1", tool_name: "Read" }));
+    emit(makeHookPayload("print-end", { run_id: "r1", exit_code: 0, answer: "ok" }));
+    await tick();
+    expect(activity.get("ws-test", "tab-test")?.agents[0]).toMatchObject({
+      id: "r1",
+      kind: "print",
+      state: "completed",
+      toolCount: 1,
+      answer: "ok",
+    });
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
   });
 });
 

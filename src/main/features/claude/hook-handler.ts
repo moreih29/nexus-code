@@ -265,6 +265,15 @@ function extractPromptId(payload: unknown): string | undefined {
   return typeof id === "string" && id !== "" ? id : undefined;
 }
 
+/** The frames a `claude -p` run inside a session sends of itself (hookclient's print-run). */
+const PRINT_FRAMES = new Set([
+  "print-start",
+  "print-init",
+  "print-tool-use",
+  "print-tool-result",
+  "print-end",
+]);
+
 /** Hooks that belong to a turn, and so can arrive after it is over. */
 const TURN_HOOKS = new Set([
   "user-prompt-submit",
@@ -367,6 +376,14 @@ async function handleHookEvent(
   const hookPayload = parsed.data.payload;
 
   const { broker } = deps;
+
+  // A `claude -p` run started inside the session tells of itself (hookclient's
+  // print-run), for the sessions tab only: the session's own state is its turn's.
+  if (PRINT_FRAMES.has(subcommand)) {
+    deps.activity?.notePrint(workspaceId, tabId, subcommand, hookPayload);
+    await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
+    return;
+  }
 
   // A frame of a turn the session has moved past — a Stop or an idle
   // Notification that lost the race to the next prompt — changes nothing and

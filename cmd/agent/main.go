@@ -36,6 +36,12 @@ func main() {
 		os.Exit(hookclient.Run(os.Args[2:]))
 	}
 
+	// A `claude -p` run inside a tab's Claude session runs under
+	// `agent print-run <claude> <args>` (claude-wrapper.sh).
+	if len(os.Args) >= 2 && os.Args[1] == "print-run" {
+		os.Exit(hookclient.RunPrint(os.Args[2:]))
+	}
+
 	// The nexus command in the app's terminals runs `agent cli <args>`.
 	if len(os.Args) >= 2 && os.Args[1] == "cli" {
 		os.Exit(cliclient.Run(os.Args[2:]))
