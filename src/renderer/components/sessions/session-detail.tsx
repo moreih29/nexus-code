@@ -189,7 +189,7 @@ function SessionBody({ session, visible }: { session: AgentSession; visible: boo
           </p>
         ) : (
           // Keyed by the session, so each one opens scrolled to its latest lines.
-          <ScreenText key={session.key} text={screen} label={t("sessions.detail.screen")} />
+          <ScreenText key={session.key} text={screen} />
         )}
       </DetailSection>
     </>
@@ -200,7 +200,7 @@ function SessionBody({ session, visible }: { session: AgentSession; visible: boo
  * The screen's lines, kept scrolled to the latest unless scrolled up. It
  * takes focus, so the keyboard can scroll it too.
  */
-function ScreenText({ text, label }: { text: string; label: string }) {
+function ScreenText({ text }: { text: string }) {
   const ref = useRef<HTMLPreElement>(null);
   const atBottom = useRef(true);
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll again whenever the text changes
@@ -213,7 +213,6 @@ function ScreenText({ text, label }: { text: string; label: string }) {
       ref={ref}
       // biome-ignore lint/a11y/noNoninteractiveTabindex: a scroll region the keyboard must reach
       tabIndex={0}
-      title={label}
       onScroll={(event) => {
         const el = event.currentTarget;
         atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
