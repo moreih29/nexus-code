@@ -135,6 +135,66 @@ function seenSince(seenAt: number | undefined, terminal: { readonly since?: numb
   return seenAt !== undefined && seenAt >= (terminal.since ?? 0);
 }
 
+/**
+ * What the tab bar and the sidebar show for a terminal whose agent's state
+ * is told from its output, beside Claude's own: running while it prints,
+ * completed for a turn the user has not looked at, else nothing. A turn that
+ * ends while the user has the terminal in front of them (`viewing`) counts
+ * as looked at, as main does for Claude.
+ */
+export type EstimatedGlyph = "running" | "completed";
+
+export function estimatedGlyph(
+  tab: Tab,
+  activity: TabActivity | undefined,
+  seenAt: number | undefined,
+  now: number,
+  viewing: boolean,
+): EstimatedGlyph | null {
+  if (tab.type !== "terminal" || tab.props.dead) return null;
+  const terminal = describeTerminal(null, activity ?? null, tab.title, now);
+  if (!isAgentSession(terminal)) return null;
+  if (terminal.state === "busy") return "running";
+  if (terminal.state === "completed" && !viewing && !seenSince(seenAt, terminal)) {
+    return "completed";
+  }
+  return null;
+}
+
+/** The stronger of two glyphs: a finished turn to look at over work going on. */
+export function strongerGlyph(
+  a: EstimatedGlyph | null,
+  b: EstimatedGlyph | null,
+): EstimatedGlyph | null {
+  return a === "completed" || b === "completed" ? "completed" : (a ?? b);
+}
+
+/**
+ * The estimated glyph of the terminals of `workspaceIds` that Claude has no
+ * state for, the strongest of them.
+ */
+export function workspaceEstimatedGlyph(
+  input: SessionsInput,
+  workspaceIds: readonly string[],
+  viewing: string | null,
+): EstimatedGlyph | null {
+  let glyph: EstimatedGlyph | null = null;
+  for (const workspaceId of workspaceIds) {
+    const claude = input.claudeByWorkspace[workspaceId] ?? {};
+    const seen = input.seenByWorkspace?.[workspaceId] ?? {};
+    for (const tab of Object.values(input.tabsByWorkspace[workspaceId] ?? {})) {
+      if (claude[tab.id] !== undefined) continue;
+      const key = sessionKey(workspaceId, tab.id);
+      glyph = strongerGlyph(
+        glyph,
+        estimatedGlyph(tab, input.activity.get(key), seen[tab.id], input.now, key === viewing),
+      );
+      if (glyph === "completed") return glyph;
+    }
+  }
+  return glyph;
+}
+
 /** The agent sessions in the terminals of `workspace`. */
 export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): AgentSession[] {
   const tabs = input.tabsByWorkspace[workspace.id] ?? {};

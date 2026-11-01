@@ -29,12 +29,14 @@ import { cn } from "@/utils/cn";
 import { isImeComposing } from "@/utils/ime";
 import { basename } from "@/utils/path";
 import type { ClaudeStatus } from "../../../../shared/claude/status";
+import { useEstimatedTabGlyph } from "../../../services/sessions/use-estimated";
 import { useBrowserRuntimeStore } from "../../../state/stores/browser-runtime";
 import { selectStatusForTab, useClaudeStatusStore } from "../../../state/stores/claude-status";
 import { useTabGitDecoration } from "../../../state/stores/git/use-tab-decoration";
 import { useTabEditingStore } from "../../../state/stores/tab-editing";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
 import { FileIcon } from "../../files/file-tree/file-icon";
+import { estimatedLabel } from "../../sessions/session-status";
 import { kindToColorVar } from "../../files/file-tree/git-decoration";
 import { MIME_TAB, type TabDragPayload } from "../dnd/types";
 
@@ -162,16 +164,18 @@ function claudeAriaLabel(status: ClaudeStatus): string {
  * 글리프 크기는 design.md §14 기준 12px(size-3). 색 토큰은 semantic CSS 변수 참조.
  * Redundant encoding을 위해 글리프 형태 + 색을 조합한다.
  */
-function ClaudeGlyph({ status }: { status: ClaudeStatus }) {
+function ClaudeGlyph({ status, estimated = false }: { status: ClaudeStatus; estimated?: boolean }) {
   if (status === "idle") return null;
 
   // aria-label은 부모가 tabindex가 없는 span에 붙으므로, role="img" + aria-label로
-  // 스크린리더가 내용을 읽을 수 있게 한다.
-  const label = claudeAriaLabel(status);
+  // 스크린리더가 내용을 읽을 수 있게 한다. Codex 등 출력으로 추정한 상태는
+  // 세션 탭처럼 "(추정)"이라고 밝히고, hover로도 보이게 한다.
+  const label = estimated ? estimatedLabel(status) : claudeAriaLabel(status);
+  const title = estimated ? label : undefined;
 
   if (status === "running") {
     return (
-      <span role="img" aria-label={label}>
+      <span role="img" aria-label={label} title={title}>
         <Loader
           width={12}
           height={12}
@@ -183,7 +187,7 @@ function ClaudeGlyph({ status }: { status: ClaudeStatus }) {
   }
   if (status === "completed") {
     return (
-      <span role="img" aria-label={label}>
+      <span role="img" aria-label={label} title={title}>
         <CircleCheck
           width={12}
           height={12}
@@ -271,6 +275,9 @@ export function TabItem({
   const claudeStatus: ClaudeStatus | undefined = useClaudeStatusStore(
     (state) => selectStatusForTab(state, workspaceId, tab.id)?.status,
   );
+
+  // Codex 등 Claude 상태가 없는 에이전트 터미널은 출력으로 추정한 상태를 보인다.
+  const estimatedStatus = useEstimatedTabGlyph(workspaceId, tab, claudeStatus === undefined);
 
   // permissionPending 배경 tint — 탭 배경에 6% warning 색 오버레이.
   const isPermissionPending = claudeStatus === "permissionPending";
@@ -471,6 +478,11 @@ export function TabItem({
         {claudeStatus && claudeStatus !== "idle" && (
           <span data-tab-icon className="inline-flex">
             <ClaudeGlyph status={claudeStatus} />
+          </span>
+        )}
+        {estimatedStatus && (
+          <span data-tab-icon className="inline-flex">
+            <ClaudeGlyph status={estimatedStatus} estimated />
           </span>
         )}
         {isEditing ? (

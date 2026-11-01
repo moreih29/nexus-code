@@ -9,6 +9,7 @@ import {
 import type React from "react";
 import { cn } from "@/utils/cn";
 import type { ClaudeStatus } from "../../../shared/claude/status";
+import { estimatedLabel } from "../sessions/session-status";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -17,6 +18,8 @@ import type { ClaudeStatus } from "../../../shared/claude/status";
 export interface WorkspaceStatusGlyphProps {
   /** 표시할 Claude 세션 집계 상태. */
   status: ClaudeStatus;
+  /** Codex 등 출력으로 추정한 상태 — 레이블에 "(추정)"을 붙이고 hover로도 보인다. */
+  estimated?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,14 +108,17 @@ function getGlyphConfig(status: Exclude<ClaudeStatus, "idle">): GlyphConfig {
  * 메시지 줄 인라인에 12px 글리프로 렌더한다. idle 상태는 글리프 자체를 그리지
  * 않는다(null 반환). 배경·패딩·레이블 없이 색과 형태로만 상태를 전달한다.
  */
-export function WorkspaceStatusGlyph({ status }: WorkspaceStatusGlyphProps) {
+export function WorkspaceStatusGlyph({ status, estimated = false }: WorkspaceStatusGlyphProps) {
   if (status === "idle") return null;
-  const { ariaLabel, colorClass, Icon, spin, pulse } = getGlyphConfig(status);
+  const config = getGlyphConfig(status);
+  const { colorClass, Icon, spin, pulse } = config;
+  const ariaLabel = estimated ? estimatedLabel(status) : config.ariaLabel;
 
   return (
     <span
       role="status"
       aria-label={ariaLabel}
+      title={estimated ? ariaLabel : undefined}
       className={cn(
         "inline-flex shrink-0",
         colorClass,

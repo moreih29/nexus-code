@@ -21,7 +21,7 @@ const { startClaudeActiveContextSync } = await import(
 );
 const { useActiveStore } = await import("../../../../src/renderer/state/stores/active");
 const { useAppFocusStore } = await import("../../../../src/renderer/state/stores/app-focus");
-const { viewingKey } = await import("../../../../src/renderer/services/sessions/use-inbox");
+const { viewingKey } = await import("../../../../src/renderer/services/sessions/viewing");
 const { useLayoutStore } = await import("../../../../src/renderer/state/stores/layout/store");
 const { useSessionSeenStore } = await import("../../../../src/renderer/state/stores/session-seen");
 

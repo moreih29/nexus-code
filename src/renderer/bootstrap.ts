@@ -10,6 +10,7 @@ import { createLogger } from "../shared/log/renderer";
 import { lspSettingsFromState } from "../shared/lsp/settings";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
+import { startTabActivityPolling } from "./services/sessions/activity-poll";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
 import { startNotificationClickListener } from "./state/notification-click";
 import { startTerminalExitListener } from "./state/terminal-exit";
@@ -359,4 +360,8 @@ export async function bootstrapClaudeStatus(): Promise<void> {
   // active workspace/tab을 main에 push하는 구독 시작 + 사용자가 탭을 활성화하면
   // markSeen IPC로 completed→idle 자동 전이.
   startClaudeActiveContextSync();
+
+  // Codex and other agents' output activity, for the tab bar, the sidebar
+  // and the inbox.
+  startTabActivityPolling();
 }

@@ -56,6 +56,14 @@ export function stateLabel(session: Pick<AgentSession, "state" | "estimated">): 
     : label;
 }
 
+/**
+ * The words for a tab or sidebar glyph told from output rather than reported
+ * by hooks, e.g. "Running (estimated)".
+ */
+export function estimatedLabel(status: string): string {
+  return stateLabel({ state: status === "running" ? "busy" : status, estimated: true });
+}
+
 /** How long ago `since` was: "just now", "12m", "3h", "2d". */
 export function durationLabel(since: number | undefined, now: number): string | null {
   if (since === undefined) return null;
