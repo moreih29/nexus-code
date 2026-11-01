@@ -22,7 +22,7 @@
 //   stop               → 그 탭 보면 idle 직행 / 아니면 completed + OS 알림 + respondHook
 //   session-end        → broker.clear + respondHook
 
-import { HookRequestSchema } from "../../../shared/claude/status";
+import { HookRequestSchema, PROMPT_MAX_CHARS } from "../../../shared/claude/status";
 import { createLogger } from "../../../shared/log/main";
 import { tryGetMainT } from "../../i18n";
 import { broadcast } from "../../infra/ipc-router";
@@ -97,6 +97,19 @@ function extractNotificationMessage(payload: unknown): string | undefined {
   if (typeof payload !== "object" || payload === null) return undefined;
   const p = payload as Record<string, unknown>;
   return typeof p.message === "string" ? p.message : undefined;
+}
+
+/**
+ * Claude Code UserPromptSubmit hook payload에서 prompt를 추출한다.
+ * 붙여넣은 파일 전체가 들어올 수 있어 PROMPT_MAX_CHARS로 자른다.
+ */
+function extractPrompt(payload: unknown): string | undefined {
+  if (typeof payload !== "object" || payload === null) return undefined;
+  const prompt = (payload as Record<string, unknown>).prompt;
+  if (typeof prompt !== "string") return undefined;
+  const trimmed = prompt.trim();
+  if (trimmed === "") return undefined;
+  return trimmed.length > PROMPT_MAX_CHARS ? `${trimmed.slice(0, PROMPT_MAX_CHARS)}…` : trimmed;
 }
 
 /**
@@ -213,7 +226,8 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
       // 시작되는 시점은 user-prompt-submit이므로 SessionStart는 running이
       // 아니다. broker에 entry는 만들어 두되 idle로 두면 글리프는 안 보이고
       // (idle 글리프는 null), 첫 프롬프트 제출 시 running으로 자연 전이된다.
-      broker.set(workspaceId, tabId, "idle");
+      // 새 세션이라 이전 세션의 프롬프트는 지운다.
+      broker.set(workspaceId, tabId, "idle", undefined, null);
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
       break;
     }
@@ -222,7 +236,8 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
       // 사용자 프롬프트 제출 — running 전환 후 즉시 응답(async hook).
       // (이전에 있던 notificationClick broadcast는 yank back 버그 원인이라 제거.
       // attention indicator 해제는 broker.set의 status 변경이 처리한다.)
-      broker.set(workspaceId, tabId, "running");
+      // 프롬프트는 세션 보기가 "무엇을 하고 있는지" 보여주도록 함께 둔다.
+      broker.set(workspaceId, tabId, "running", undefined, extractPrompt(hookPayload));
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
       break;
     }

@@ -40,6 +40,7 @@ const { ClaudeStatusBroker } = await import(
 const { ActiveContextStore } = await import(
   "../../../../src/main/features/claude/active-context"
 );
+const { PROMPT_MAX_CHARS } = await import("../../../../src/shared/claude/status");
 
 // ---------------------------------------------------------------------------
 // 헬퍼
@@ -214,6 +215,26 @@ describe("hook-handler — subcommand 상태 전이", () => {
     emit(makeHookPayload("user-prompt-submit"));
     await new Promise((r) => setTimeout(r, 0));
     expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
+  });
+
+  test("user-prompt-submit — prompt를 다듬어 기록, 길면 잘라냄", async () => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "  fix the build \n" }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.prompt).toBe("fix the build");
+
+    emit(makeHookPayload("user-prompt-submit", { prompt: "x".repeat(PROMPT_MAX_CHARS + 10) }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.prompt).toBe(`${"x".repeat(PROMPT_MAX_CHARS)}…`);
+  });
+
+  test("session-start — 이전 세션의 prompt를 비움", async () => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "old" }));
+    await new Promise((r) => setTimeout(r, 0));
+    emit(makeHookPayload("session-start"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.prompt).toBeUndefined();
   });
 
   test("stop — 사용자가 그 탭을 보고 있으면(앱 포커스+active 일치) idle로 직행", async () => {

@@ -9,6 +9,7 @@ interface StateEntry {
   status: ClaudeStatus;
   message?: string;
   since: number;
+  prompt?: string;
 }
 
 /**
@@ -35,18 +36,41 @@ export class ClaudeStatusBroker {
   /**
    * 특정 (workspaceId, tabId) 의 상태를 설정한다.
    * 이전 상태와 동일하면 broadcast를 발사하지 않는다.
+   *
+   * prompt: undefined면 이전 프롬프트를 유지하고, null이면 지운다(새 세션).
    */
-  set(workspaceId: string, tabId: string, status: ClaudeStatus, message?: string): void {
+  set(
+    workspaceId: string,
+    tabId: string,
+    status: ClaudeStatus,
+    message?: string,
+    prompt?: string | null,
+  ): void {
     const key = `${workspaceId}:${tabId}`;
     const prev = this.map.get(key);
+    const nextPrompt = prompt === null ? undefined : (prompt ?? prev?.prompt);
 
-    // 상태와 메시지가 모두 동일하면 broadcast 생략.
-    if (prev && prev.status === status && prev.message === message) return;
+    // 상태·메시지·프롬프트가 모두 동일하면 broadcast 생략.
+    if (
+      prev &&
+      prev.status === status &&
+      prev.message === message &&
+      prev.prompt === nextPrompt
+    ) {
+      return;
+    }
 
     const since = Date.now();
-    this.map.set(key, { status, message, since });
+    this.map.set(key, { status, message, since, prompt: nextPrompt });
 
-    const entry: StatusEntry = { workspaceId, tabId, status, since, ...(message !== undefined ? { message } : {}) };
+    const entry: StatusEntry = {
+      workspaceId,
+      tabId,
+      status,
+      since,
+      ...(message !== undefined ? { message } : {}),
+      ...(nextPrompt !== undefined ? { prompt: nextPrompt } : {}),
+    };
     this.broadcastFn("claude", "status", entry);
   }
 
@@ -112,6 +136,7 @@ export class ClaudeStatusBroker {
         status: entry.status,
         since: entry.since,
         ...(entry.message !== undefined ? { message: entry.message } : {}),
+        ...(entry.prompt !== undefined ? { prompt: entry.prompt } : {}),
       });
     }
     return result;

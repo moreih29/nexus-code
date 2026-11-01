@@ -4,14 +4,10 @@
  * output shows. A terminal's last output and the last notification it raised
  * (OSC 9/777/99, as Codex sends when a turn ends) stand in for that state.
  */
+import type { TabActivity, TabActivityEntry } from "../../../shared/sessions/agent-state";
 import { extractOscNotifications } from "../pty/osc-notification";
 
-export interface TabActivity {
-  /** When the terminal last printed anything. */
-  readonly lastOutputAt: number;
-  /** The last notification the terminal raised. */
-  readonly lastNotice?: { readonly title?: string; readonly body: string; readonly at: number };
-}
+export type { TabActivity } from "../../../shared/sessions/agent-state";
 
 export interface ActivitySource {
   on(event: string, cb: (args: unknown) => void): () => void;
@@ -47,6 +43,14 @@ export class ActivityTracker {
 
   get(workspaceId: string, tabId: string): TabActivity | null {
     return this.byTab.get(`${workspaceId}:${tabId}`) ?? null;
+  }
+
+  /** Every live terminal's activity, for the app's sessions view. */
+  snapshot(): TabActivityEntry[] {
+    return [...this.byTab].map(([key, activity]) => {
+      const colon = key.indexOf(":");
+      return { workspaceId: key.slice(0, colon), tabId: key.slice(colon + 1), ...activity };
+    });
   }
 
   dispose(): void {
