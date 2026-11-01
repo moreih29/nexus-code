@@ -198,6 +198,65 @@ func TestLogLimitLookaheadInvokesKillCallback(t *testing.T) {
 	}
 }
 
+func TestLogNextRefPageKeepsMergedBranchCommits(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runGit(t, root, "init", "-b", "main")
+	// base, a side commit off it, five main commits off it, then the side
+	// merged in: the side commit is older than every main commit.
+	var stream strings.Builder
+	commit := func(mark int, message string, parents ...int) {
+		fmt.Fprintf(&stream, "commit refs/heads/main\nmark :%d\ncommitter Nexus Test <nexus@example.test> %d +0000\ndata %d\n%s\n", mark, 1700000000+mark*60, len(message), message)
+		for i, parent := range parents {
+			if i == 0 {
+				fmt.Fprintf(&stream, "from :%d\n", parent)
+			} else {
+				fmt.Fprintf(&stream, "merge :%d\n", parent)
+			}
+		}
+		stream.WriteString("\n")
+	}
+	commit(1, "base")
+	commit(2, "side old", 1)
+	commit(3, "main 1", 1)
+	for mark := 4; mark <= 7; mark++ {
+		commit(mark, fmt.Sprintf("main %d", mark-2), mark-1)
+	}
+	commit(8, "merge side", 7, 2)
+	importer := exec.Command("git", "fast-import", "--quiet")
+	importer.Dir = root
+	importer.Stdin = strings.NewReader(stream.String())
+	if out, err := importer.CombinedOutput(); err != nil {
+		t.Fatalf("git fast-import: %v\n%s", err, out)
+	}
+
+	page := func(params string) []string {
+		service := New(root)
+		var subjects []string
+		service.SetEventSink(func(event string, payload any) error {
+			if batch, ok := payload.(LogBatchPayload); ok {
+				for _, entry := range batch.Entries {
+					subjects = append(subjects, entry.Subject)
+				}
+			}
+			return nil
+		})
+		if _, err := service.Log(context.Background(), json.RawMessage(params)); err != nil {
+			t.Fatalf("Log(%s) returned error: %v", params, err)
+		}
+		return subjects
+	}
+	first := page(`{"scope":"ref","ref":"main","limit":3}`)
+	cursor := strings.TrimSpace(runGit(t, root, "rev-parse", "main~2"))
+	if want := []string{"merge side", "main 5", "main 4"}; !reflect.DeepEqual(first, want) {
+		t.Fatalf("first page = %v, want %v", first, want)
+	}
+	next := page(`{"scope":"ref","ref":"main","afterSha":"` + cursor + `","limit":50}`)
+	if want := []string{"main 3", "main 2", "main 1", "side old", "base"}; !reflect.DeepEqual(next, want) {
+		t.Fatalf("next page = %v, want %v", next, want)
+	}
+}
+
 func TestLogLimitCursorKillsPromptly(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init", "-b", "main")
