@@ -35,10 +35,14 @@ export interface CliServices {
   listWorkspaces(): WorkspaceMeta[];
   /** The workspace and tab the user is looking at, if the app has focus or not. */
   shownTab(): { workspaceId: string; tabId: string } | null;
+  /**
+   * Claude Code's state from its hooks: `since` when the status last changed,
+   * `turnStartedAt` when it last started working.
+   */
   claudeStatus(
     workspaceId: string,
     tabId: string,
-  ): { status: ClaudeStatus; message?: string; since: number } | null;
+  ): { status: ClaudeStatus; message?: string; since: number; turnStartedAt?: number } | null;
   activity(workspaceId: string, tabId: string): TabActivity | null;
   /** Lists a wait on a terminal until the returned function is called. */
   readonly waits: Pick<WaitRegistry, "begin">;

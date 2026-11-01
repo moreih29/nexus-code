@@ -8,8 +8,11 @@ import type { ClaudeStatus, StatusEntry } from "../../../shared/claude/status";
 interface StateEntry {
   status: ClaudeStatus;
   message?: string;
+  /** When the status last changed; a new message or prompt alone keeps it. */
   since: number;
   prompt?: string;
+  /** When Claude last started working: a prompt came in, or it went to running. */
+  turnStartedAt?: number;
 }
 
 /** 상태 변경 listener — clear 시 entry는 null. */
@@ -69,8 +72,18 @@ export class ClaudeStatusBroker {
       return;
     }
 
-    const since = Date.now();
-    this.map.set(key, { status, message, since, prompt: nextPrompt });
+    const now = Date.now();
+    const since = prev && prev.status === status ? prev.since : now;
+    const startsTurn =
+      status === "running" && (prev?.status !== "running" || typeof prompt === "string");
+    const turnStartedAt = startsTurn ? now : prev?.turnStartedAt;
+    this.map.set(key, {
+      status,
+      message,
+      since,
+      prompt: nextPrompt,
+      ...(turnStartedAt !== undefined ? { turnStartedAt } : {}),
+    });
     for (const listener of this.listeners) listener(workspaceId, tabId, { status, since });
 
     const entry: StatusEntry = {

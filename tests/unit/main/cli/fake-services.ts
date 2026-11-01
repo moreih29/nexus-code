@@ -131,7 +131,10 @@ export interface FakeApp {
   tabs: Record<string, CliTabInfo[]>;
   uiCalls: Array<{ op: string; args: unknown }>;
   notified: Array<{ workspaceId: string; tabId: string; title: string; body: string }>;
-  claude: Map<string, { status: ClaudeStatus; message?: string; since: number }>;
+  claude: Map<
+    string,
+    { status: ClaudeStatus; message?: string; since: number; turnStartedAt?: number }
+  >;
   activity: Map<string, TabActivity>;
   /** The waits on terminals listed while they run. */
   waits: WaitRegistry;
