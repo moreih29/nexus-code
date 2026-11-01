@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { GitStatus } from "../../../shared/git/types";
-import type { TabActivity } from "../../../shared/sessions/agent-state";
+import type { TabActivity, TerminalWait } from "../../../shared/sessions/agent-state";
 import { ipcCallResult } from "../../ipc/client";
 import { useClaudeStatusStore } from "../../state/stores/claude-status";
 import { useTabsStore } from "../../state/stores/tabs";
@@ -14,6 +14,7 @@ import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../state/stores/
 import { buildFamily, type SessionFamily, sessionKey } from "./model";
 
 const ACTIVITY_POLL_MS = 1_000;
+const WAITS_POLL_MS = 1_000;
 const CHANGES_POLL_MS = 5_000;
 
 /** The current time, ticking every `everyMs` while `enabled`. */
@@ -49,6 +50,26 @@ function useTabActivity(enabled: boolean): ReadonlyMap<string, TabActivity> {
     };
   }, [enabled]);
   return activity;
+}
+
+/** Which terminals are waiting on which (nexus terminal wait), polled while `enabled`. */
+export function useTerminalWaits(enabled: boolean): readonly TerminalWait[] {
+  const [waits, setWaits] = useState<readonly TerminalWait[]>([]);
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    const poll = async () => {
+      const result = await ipcCallResult("cli", "waits", {});
+      if (!cancelled && result.ok) setWaits(result.value);
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), WAITS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [enabled]);
+  return waits;
 }
 
 /**

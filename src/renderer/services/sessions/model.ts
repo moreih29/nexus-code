@@ -154,14 +154,18 @@ export function phaseCounts(family: SessionFamily): Record<SessionPhase, number>
 }
 
 /**
- * The session to show first: one waiting on the user, else one done and not
- * looked at, else one working, else the first.
+ * The session of `sessions` to show first: one waiting on the user, else one
+ * done and not looked at, else one working, else the first.
  */
-export function firstSession(family: SessionFamily): AgentSession | undefined {
-  const sessions = allSessions(family);
+export function leadSession(sessions: readonly AgentSession[]): AgentSession | undefined {
   for (const phase of ["attention", "done", "running", "idle"] as const) {
     const found = sessions.find((s) => s.phase === phase);
     if (found) return found;
   }
   return undefined;
+}
+
+/** The session of the family to show first; see leadSession. */
+export function firstSession(family: SessionFamily): AgentSession | undefined {
+  return leadSession(allSessions(family));
 }

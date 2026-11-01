@@ -440,7 +440,8 @@
     "view_label": "보기",
     "view": {
       "tree": "트리",
-      "board": "칸반"
+      "board": "칸반",
+      "lineage": "계보"
     },
     "phase": {
       "attention": "허용·입력 대기",
@@ -470,6 +471,14 @@
     "no_sessions": "세션 없음",
     "changed_files": "변경 {{count}}",
     "column_empty": "없음",
+    "lineage": {
+      "legend_created": "만듦 — 세션이 nexus worktree new 로 만든 작업",
+      "legend_waits": "기다리는 중 — terminal wait · send --wait",
+      "separate": "따로 만든 작업",
+      "waiting": "기다리는 중 · {{duration}}",
+      "sessions_one": "세션 {{count}}개",
+      "sessions_other": "세션 {{count}}개"
+    },
     "detail": {
       "show_terminal": "터미널로 이동",
       "show_changes": "변경 보기",

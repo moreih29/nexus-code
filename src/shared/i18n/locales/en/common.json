@@ -440,7 +440,8 @@
     "view_label": "View",
     "view": {
       "tree": "Tree",
-      "board": "Board"
+      "board": "Board",
+      "lineage": "Lineage"
     },
     "phase": {
       "attention": "Awaiting input",
@@ -470,6 +471,14 @@
     "no_sessions": "No sessions",
     "changed_files": "{{count}} changed",
     "column_empty": "None",
+    "lineage": {
+      "legend_created": "Made — tasks a session made with nexus worktree new",
+      "legend_waits": "Waiting — terminal wait · send --wait",
+      "separate": "Made separately",
+      "waiting": "Waiting · {{duration}}",
+      "sessions_one": "{{count}} session",
+      "sessions_other": "{{count}} sessions"
+    },
     "detail": {
       "show_terminal": "Go to terminal",
       "show_changes": "Show changes",

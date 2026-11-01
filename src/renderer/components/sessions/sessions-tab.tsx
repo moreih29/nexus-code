@@ -12,11 +12,16 @@ import { useTranslation } from "react-i18next";
 import { SESSIONS_VIEWS, type SessionsView } from "../../../shared/sessions/view";
 import { newTask } from "../../services/sessions/actions";
 import { phaseCounts, SESSION_PHASES, type SessionFamily } from "../../services/sessions/model";
-import { useSessionFamily, useWorktreeChanges } from "../../services/sessions/use-family";
+import {
+  useSessionFamily,
+  useTerminalWaits,
+  useWorktreeChanges,
+} from "../../services/sessions/use-family";
 import { selectSessionsView, useSessionsViewStore } from "../../state/stores/sessions-view";
 import { SegmentedControl } from "../settings/segmented-control";
 import { Button } from "../ui/button";
 import { BoardView } from "./board-view";
+import { LineageView } from "./lineage-view";
 import { resolveSelection, type SessionsSelection } from "./selection";
 import { SessionDetail } from "./session-detail";
 import { TreeView } from "./tree-view";
@@ -32,9 +37,10 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
   const changes = useWorktreeChanges(ids, isVisible);
   const rootId = family?.root.id ?? workspaceId;
   const view = useSessionsViewStore((s) => selectSessionsView(s, rootId));
+  const waits = useTerminalWaits(isVisible && view === "lineage");
 
   const [picked, setPicked] = useState<SessionsSelection | null>(null);
-  const [boardDetailOpen, setBoardDetailOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
   const selection = family ? resolveSelection(family, picked) : null;
   // Keep what was shown first, so the panel doesn't jump as states change;
   // move on only when it is gone.
@@ -47,9 +53,9 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
 
   const select = (next: SessionsSelection) => {
     setPicked(next);
-    setBoardDetailOpen(true);
+    setDetailOpen(true);
   };
-  const showDetail = view === "tree" || boardDetailOpen;
+  const showDetail = view === "tree" || detailOpen;
 
   return (
     <div className="absolute inset-0 flex flex-col bg-background">
@@ -70,11 +76,20 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
               onSelect={select}
               now={now}
             />
-          ) : (
+          ) : view === "board" ? (
             <BoardView
               family={family}
               changes={changes}
-              selection={boardDetailOpen ? selection : null}
+              selection={detailOpen ? selection : null}
+              onSelect={select}
+              now={now}
+            />
+          ) : (
+            <LineageView
+              family={family}
+              changes={changes}
+              waits={waits}
+              selection={detailOpen ? selection : null}
               onSelect={select}
               now={now}
             />
@@ -88,7 +103,7 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
                 : "app-scrollbar relative w-[min(400px,45%)] shrink-0 overflow-auto border-l border-border"
             }
           >
-            {view !== "tree" && <CloseDetail onClose={() => setBoardDetailOpen(false)} />}
+            {view !== "tree" && <CloseDetail onClose={() => setDetailOpen(false)} />}
             <SessionDetail
               family={family}
               selection={selection}
