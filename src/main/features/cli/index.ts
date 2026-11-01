@@ -24,6 +24,7 @@ import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
 import { SessionHistory, type SessionSpanStore } from "./history";
 import { RendererBridge, type UiWindow } from "./renderer-bridge";
+import { StartedAgents } from "./started-agents";
 import { WaitRegistry } from "./waits";
 
 const log = createLogger("cli");
@@ -79,6 +80,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   const activity = new ActivityTracker(agentHost);
   const waits = new WaitRegistry(agentHost);
   const history = new SessionHistory(options.sessionSpans, agentHost, options.claudeBroker);
+  const startedAgents = new StartedAgents(agentHost);
   const consent = new CrossWorkspaceConsent({
     policy: () => options.settings().crossWorkspace,
     // The renderer takes the prompt down at timeoutMs; the bridge waits a little longer.
@@ -167,6 +169,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       const name = result?.name?.trim() ?? "";
       return name === "" ? null : name;
     },
+    startedAgents,
     clock: {
       now: () => Date.now(),
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -213,6 +216,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       activity.dispose();
       waits.dispose();
       history.dispose();
+      startedAgents.dispose();
       bridge.dispose();
     },
   };
