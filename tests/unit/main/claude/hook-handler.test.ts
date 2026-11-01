@@ -237,6 +237,29 @@ describe("hook-handler — subcommand 상태 전이", () => {
     expect(broker.get("ws-test", "tab-test")?.prompt).toBeUndefined();
   });
 
+  test("session-start after compaction keeps the running turn and its prompt", async () => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "refactor the parser" }));
+    await new Promise((r) => setTimeout(r, 0));
+    emit(makeHookPayload("session-start", { source: "compact" }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
+    expect(broker.get("ws-test", "tab-test")?.prompt).toBe("refactor the parser");
+  });
+
+  test.each(["startup", "resume", "clear"])(
+    "session-start from %s goes idle without the old prompt",
+    async (source) => {
+      const { broker, emit } = makeHarness();
+      emit(makeHookPayload("user-prompt-submit", { prompt: "old" }));
+      await new Promise((r) => setTimeout(r, 0));
+      emit(makeHookPayload("session-start", { source }));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(broker.get("ws-test", "tab-test")?.status).toBe("idle");
+      expect(broker.get("ws-test", "tab-test")?.prompt).toBeUndefined();
+    },
+  );
+
   test("stop — 사용자가 그 탭을 보고 있으면(앱 포커스+active 일치) idle로 직행", async () => {
     const { broker, activeContext, emit } = makeHarness(true /* focused */);
     activeContext.set("ws-test", "tab-test");
