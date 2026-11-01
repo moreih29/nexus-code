@@ -45,6 +45,7 @@ describe("worktree new", () => {
       name: "fix login",
       prompt: "fix it",
       show: false,
+      createdBy: { workspaceId: APP, tabId: SHELL_TAB },
     });
     expect(app.asked).toEqual([]);
   });

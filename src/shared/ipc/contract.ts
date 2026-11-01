@@ -116,6 +116,7 @@ import {
   WorkspaceConnectionProgressEventSchema,
   WorkspaceLocationSchema,
   WorkspaceMetaSchema,
+  WorkspaceTaskSchema,
 } from "../types/workspace";
 import { WorkspaceIdSchema as WorkspaceIdPrimitive, workspaceScoped } from "../types/workspace-id";
 import { UpdateProgressSchema, UpdateStatusSchema } from "../updates/status";
@@ -628,7 +629,11 @@ export const ipcContract = {
   task: {
     call: {
       create: call(
-        z.object({ parentId: WorkspaceIdPrimitive, name: z.string().trim().min(1).max(100) }),
+        z.object({
+          parentId: WorkspaceIdPrimitive,
+          name: z.string().trim().min(1).max(100),
+          createdBy: WorkspaceTaskSchema.shape.createdBy,
+        }),
         WorkspaceMetaSchema,
       ),
       remove: call(

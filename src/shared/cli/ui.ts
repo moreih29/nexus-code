@@ -269,7 +269,15 @@ export interface CliUiOps {
    * `prompt`. Shown if `show`, else started behind the user's view.
    */
   "task.create": {
-    args: { parentId: string; name: string; prompt: string; command?: string; show: boolean };
+    args: {
+      parentId: string;
+      name: string;
+      prompt: string;
+      command?: string;
+      show: boolean;
+      /** The terminal whose agent asks for the task. */
+      createdBy: { workspaceId: string; tabId: string };
+    };
     /** `command` is the agent command its terminal runs, "" for none. */
     result: { workspaceId: string; tabId: string; command: string };
   };

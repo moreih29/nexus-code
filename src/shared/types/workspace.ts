@@ -70,6 +70,11 @@ export const WorkspaceTaskSchema = z.object({
   branch: z.string().min(1),
   /** The worktree's top folder; the task opens the parent's subfolder of it. */
   worktreePath: z.string().min(1),
+  /**
+   * The terminal whose agent made the task with `nexus worktree new`;
+   * absent for a task the user made in the app.
+   */
+  createdBy: z.object({ workspaceId: z.string().uuid(), tabId: z.string().min(1) }).optional(),
 });
 
 export type WorkspaceTask = z.infer<typeof WorkspaceTaskSchema>;

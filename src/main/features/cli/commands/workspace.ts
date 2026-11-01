@@ -230,6 +230,7 @@ const worktreeNew: CliCommand = {
         prompt,
         ...(flags.command === undefined ? {} : { command: flags.command as string }),
         show: flags.show === true,
+        createdBy: ctx.caller,
       },
       TASK_TIMEOUT_MS,
     );
