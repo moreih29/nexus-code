@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { showToast } from "@/components/ui/toast";
 import { ipcCallResult } from "@/ipc/client";
-import { pasteForTerminal, pickTargets } from "@/services/browser/element-pick";
+import { pasteForTerminal, pickTargets, targetLabels } from "@/services/browser/element-pick";
 import { showTerminal } from "@/services/sessions/actions";
 import { type AgentSession, sessionKey } from "@/services/sessions/model";
 import { getTerminalController } from "@/services/terminal/terminal-registry";
@@ -168,14 +168,20 @@ export function PickButton({ tabId, workspaceId }: PickButtonProps) {
         <div className="px-2 py-1 text-app-ui-sm text-muted-foreground">
           {t("browser.pick_send_to")}
         </div>
-        {choice?.sessions.map((session) => (
-          <DropdownMenuItem key={session.key} onSelect={() => deliver(session, choice.text)}>
-            <span className="truncate">{session.title}</span>
-            {session.agent && !session.title.toLowerCase().includes(session.agent) && (
-              <span className="text-muted-foreground ml-4 text-app-ui-sm">{session.agent}</span>
-            )}
-          </DropdownMenuItem>
-        ))}
+        {choice &&
+          targetLabels(choice.sessions).map((label, i) => {
+            const session = choice.sessions[i] as AgentSession;
+            return (
+              <DropdownMenuItem key={label.key} onSelect={() => deliver(session, choice.text)}>
+                <span className="truncate">{label.title}</span>
+                {label.detail !== "" && (
+                  <span className="text-muted-foreground ml-4 truncate max-w-60 text-app-ui-sm">
+                    {label.detail}
+                  </span>
+                )}
+              </DropdownMenuItem>
+            );
+          })}
       </DropdownMenuContent>
     </DropdownMenuRoot>
   );

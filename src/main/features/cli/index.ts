@@ -3,9 +3,7 @@
  * agents relay from their terminals, runs the command, and answers through
  * the same agent.
  */
-import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   CliCancelSchema,
   type CliInvocation,
@@ -27,6 +25,7 @@ import type { ClaudeStatusBroker } from "../claude/status";
 import { type ActivitySource, ActivityTracker } from "./activity";
 import { CdpBrowserDriver } from "./browser/driver";
 import { formatPick, type PickedElement } from "./browser/pick";
+import { savePickPicture } from "./browser/pick-pictures";
 import { ClaudeExitWatch } from "./claude-exit";
 import { CLI_COMMANDS } from "./commands";
 import { CrossWorkspaceConsent, type CrossWorkspacePolicy } from "./consent";
@@ -143,7 +142,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
         if ("cancelled" in result) return ipcOk({ cancelled: result.cancelled });
         // The click left the keyboard in the page; the agent's terminal is next.
         options.getWindow()?.webContents.focus();
-        const screenshot = await savePickPicture(tabId, result.picked);
+        const screenshot = await pickPicture(tabId, result.picked);
         return ipcOk({ text: formatPick(result.picked, screenshot, shortId(tabId)) });
       },
       cancelPick: async (args: unknown) => {
@@ -159,17 +158,15 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
    * agent can read it: this machine's temp directory, so only for a local
    * workspace. An agent on an SSH host or in WSL gets none.
    */
-  const savePickPicture = async (
+  const pickPicture = async (
     tabId: string,
     picked: PickedElement,
   ): Promise<string | undefined> => {
     const workspaceId = getBrowserRegistry()?.get(tabId)?.workspaceId;
     const workspace = workspaceManager.list().find((w) => w.id === workspaceId);
     if (picked.png === undefined || workspace?.location.kind !== "local") return undefined;
-    const file = join(tmpdir(), `nexus-pick-${shortId(tabId)}-${Date.now()}.png`);
     try {
-      await writeFile(file, Buffer.from(picked.png, "base64"));
-      return file;
+      return await savePickPicture(tmpdir(), shortId(tabId), picked.png, Date.now());
     } catch (error) {
       log.warn(`saving a picked element's picture failed: ${(error as Error).message}`);
       return undefined;
