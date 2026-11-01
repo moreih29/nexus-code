@@ -24,12 +24,14 @@
 //   permission-request → broker.set(permissionPending) + (그 탭 안 보면) OS 알림 + respondHook (sync, native fallback)
 //   post-tool-use      → the tool waiting on the permission ran: permissionPending → running + respondHook
 //   post-tool-use-failure → as post-tool-use, for a tool that failed as it ran
+//   subagent-start     → respondHook (the sessions tab's record only)
 //   subagent-stop      → the subagent's permission dialogs are over + respondHook
 //   stop               → 그 탭 보면 idle 직행 / 아니면 completed + OS 알림 + respondHook
 //   stop-failure       → an API error ended the turn instead: error + (그 탭 안 보면) OS 알림 + respondHook
 //   session-end        → broker.clear + respondHook
 //
 // Turn hooks of a turn already over (by prompt_id, see turn-order.ts) are only answered.
+// Every other hook is told to deps.activity, the record the sessions tab shows.
 
 import {
   type ClaudeStatus,
@@ -42,6 +44,7 @@ import { broadcast } from "../../infra/ipc-router";
 import type { ActiveContextStore } from "./active-context";
 import { handlePermissionRequest } from "./permission";
 import { MAIN_AGENT, PermissionDialogs } from "./permission-dialogs";
+import type { SessionActivityLog } from "./session-activity";
 import type { ClaudeStatusBroker } from "./status";
 import { TurnOrder } from "./turn-order";
 
@@ -73,6 +76,8 @@ export interface HookChannelProvider {
 
 export interface HookHandlerDeps {
   broker: ClaudeStatusBroker;
+  /** Records the tools, todos and agents the hooks tell of. */
+  activity?: SessionActivityLog;
   /** 사용자가 현재 보고 있는 (workspaceId, tabId) 컨텍스트 — Stop 알림 발사 결정에 사용. */
   activeContext: ActiveContextStore;
   agentHost: HookAgentHost;
@@ -370,6 +375,8 @@ async function handleHookEvent(
     return;
   }
 
+  deps.activity?.noteHook(workspaceId, tabId, subcommand, hookPayload);
+
   // 공통 — 사용자가 현재 이 탭을 보고 있는지.
   // 알림 발사가 필요한 모든 훅(Notification/PermissionRequest/Stop)이 동일 기준을 쓴다.
   // 멀티 워크스페이스 + 멀티 탭 환경이므로 앱 포커스만으로는 부족하다.
@@ -604,6 +611,12 @@ async function handleHookEvent(
       // dialog. Only that dialog closes: a tool run beside it does not, and a
       // late hook leaves the turn's end as it is.
       if (dialogs.closeCall(key, agent, toolCall(hookPayload))) afterClose();
+      await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
+      break;
+    }
+
+    case "subagent-start": {
+      // Told for the sessions tab only (deps.activity, above).
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
       break;
     }

@@ -33,6 +33,7 @@ describe("wrapperHooksSettings", () => {
       "PreToolUse",
       "PostToolUse",
       "PostToolUseFailure",
+      "SubagentStart",
       "SubagentStop",
       "Notification",
       "Stop",

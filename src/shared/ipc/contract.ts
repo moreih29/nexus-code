@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SessionActivitySchema } from "../claude/activity";
 import { StatusEntrySchema } from "../claude/status";
 import { CliUiRequestSchema, CliUiRespondArgsSchema } from "../cli/ui";
 import { TabActivityEntrySchema, TerminalWaitSchema } from "../sessions/agent-state";
@@ -1591,6 +1592,14 @@ export const ipcContract = {
        * broker에서 항목을 제거하고 각 tab에 대해 cleared 이벤트를 broadcast한다.
        */
       clearWorkspace: call(z.object({ workspaceId: z.string() }), z.void()),
+      /**
+       * What the Claude sessions of the workspaces are doing, as their hooks
+       * tell it: their tools, todo lists and agents. The sessions tab polls it.
+       */
+      activity: call(
+        z.object({ workspaceIds: z.array(z.string()) }),
+        z.array(SessionActivitySchema),
+      ),
     },
     listen: {
       /**
