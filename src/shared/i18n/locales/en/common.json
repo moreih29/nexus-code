@@ -441,11 +441,11 @@
     "view": {
       "tree": "Tree",
       "board": "Board",
-      "lineage": "Lineage",
+      "lineage": "Graph",
       "timeline": "Timeline"
     },
     "phase": {
-      "attention": "Awaiting input",
+      "attention": "Needs attention",
       "running": "Running",
       "done": "Done",
       "idle": "Idle"
@@ -473,9 +473,11 @@
     "changed_files": "{{count}} changed",
     "column_empty": "None",
     "lineage": {
-      "legend_created": "Made — tasks a session made with nexus worktree new",
-      "legend_waits": "Waiting — terminal wait · send --wait",
-      "separate": "Made separately",
+      "legend_created": "Created",
+      "legend_created_hint": "Tasks a session made with nexus worktree new",
+      "legend_waits": "Waiting on",
+      "legend_waits_hint": "Waiting for another terminal to finish (nexus terminal wait · send --wait)",
+      "separate": "Created directly",
       "waiting": "Waiting · {{duration}}",
       "sessions_one": "{{count}} session",
       "sessions_other": "{{count}} sessions"
@@ -487,7 +489,7 @@
         "2h": "2 hours",
         "today": "Today"
       },
-      "legend_waiting": "Waiting on another terminal",
+      "legend_waiting": "Waiting on",
       "made_by": "Made in {{name}}",
       "waiting_on": "Waiting on {{name}}",
       "empty": "Nothing was recorded in this period. Activity is recorded while the app runs and kept for a day."
@@ -500,9 +502,9 @@
       "permission_hint": "Permission requests are answered in the terminal.",
       "send_placeholder": "Input to send to this session (Shift+Enter for a new line)",
       "send": "Send",
-      "prompt": "Last prompt",
-      "message": "Last message",
-      "screen": "Screen",
+      "prompt": "Request",
+      "message": "Response",
+      "screen": "Terminal preview",
       "screen_not_started": "This terminal has not started yet. It starts when its task is opened.",
       "changes": "Uncommitted changes ({{count}})",
       "no_changes": "No uncommitted changes.",
