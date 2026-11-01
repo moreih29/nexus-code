@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { GitError } from "../../../../src/main/features/git/domain/error";
 import {
   createTask,
   removeTask,
@@ -195,5 +196,37 @@ describe("removeTask", () => {
 
     await removeTask(deps, { id: task.id, force: false, deleteBranch: false });
     expect(git(repoDir, "worktree", "list")).not.toContain("gone");
+  });
+
+  it("finishes when a failed attempt dropped git's record and left the folder", async () => {
+    const { deps, parent } = setup();
+    const task = await createTask(deps, { parentId: parent.id, name: "held" });
+    const worktreePath = task.task?.worktreePath ?? "";
+    // As on Windows when a closing program still holds the folder: git
+    // deletes the files and its record, fails on the folder, and says so.
+    let failed = false;
+    const held: TaskServiceDeps = {
+      ...deps,
+      getRepository: async (workspaceId) => {
+        const repo = await deps.getRepository(workspaceId);
+        if (!repo) return null;
+        const removeWorktree = repo.removeWorktree.bind(repo);
+        repo.removeWorktree = async (target, force) => {
+          await removeWorktree(target, force);
+          if (failed) return;
+          failed = true;
+          fs.mkdirSync(target);
+          throw new GitError("unknown", "failed", {
+            stderr: `error: failed to delete '${target}'`,
+          });
+        };
+        return repo;
+      },
+    };
+
+    await removeTask(held, { id: task.id, force: true, deleteBranch: true });
+    expect(failed).toBe(true);
+    expect(fs.existsSync(worktreePath)).toBe(false);
+    expect(localBranches()).not.toContain("held");
   });
 });
