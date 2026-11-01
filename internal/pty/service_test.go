@@ -155,6 +155,56 @@ while :; do sleep 1; done
 	wg.Wait()
 }
 
+// TestForegroundToldAloneOnlyWhenTheShellRunsNothing: a script's shell
+// waiting for its program shares its process group with it, so the shell in
+// front is not alone; one in a builtin is.
+func TestForegroundToldAloneOnlyWhenTheShellRunsNothing(t *testing.T) {
+	t.Parallel()
+	service, recorder := newTestService(t)
+	spawnTestScript(t, service, "waiting", `
+echo WAITING
+sleep 30
+`)
+	spawnTestScript(t, service, "reading", `
+echo READING
+read line
+`)
+	recorder.requireTranscriptContains(t, "WAITING", 2*time.Second)
+	recorder.requireTranscriptContains(t, "READING", 2*time.Second)
+	foreground := func(tabID string, alone bool) ForegroundProcessResult {
+		raw := mustJSON(t, ForegroundProcessParams{WorkspaceID: testWorkspaceID, TabID: tabID, Alone: alone})
+		result, err := service.ForegroundProcess(context.Background(), raw)
+		if err != nil {
+			t.Fatalf("foregroundProcess %s: %v", tabID, err)
+		}
+		return result.(ForegroundProcessResult)
+	}
+	// sleep starts a moment after the marker is printed.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		got := foreground("waiting", true)
+		if got.Name == "sh" && got.Alone != nil && !*got.Alone {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("waiting script: name %q alone %v, want sh not alone", got.Name, got.Alone)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := foreground("reading", true); got.Name != "sh" || got.Alone == nil || !*got.Alone {
+		t.Fatalf("reading script: name %q alone %v, want sh alone", got.Name, got.Alone)
+	}
+	if got := foreground("reading", false); got.Alone != nil {
+		t.Fatalf("alone reported unasked: %v", *got.Alone)
+	}
+	for _, tabID := range []string{"waiting", "reading"} {
+		if _, err := service.Kill(context.Background(), mustJSON(t, KillParams{WorkspaceID: testWorkspaceID, TabID: tabID})); err != nil {
+			t.Fatalf("kill %s: %v", tabID, err)
+		}
+		recorder.requireExit(t, tabID, 3*time.Second)
+	}
+}
+
 // TestExitReportedWhileBackgroundJobHoldsTerminal covers a job-control
 // background job (its own process group) that keeps the PTY slave open after
 // the shell exits or is killed. On Linux the master read then never ended and

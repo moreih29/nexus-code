@@ -88,6 +88,9 @@ type KillParams struct {
 type ForegroundProcessParams struct {
 	WorkspaceID string `json:"workspaceId"`
 	TabID       string `json:"tabId"`
+	// Alone asks also whether the program is alone in its process group,
+	// which costs a look at every process.
+	Alone bool `json:"alone,omitempty"`
 }
 
 // ForegroundProcessResult returns the basename of the foreground process group
@@ -96,6 +99,10 @@ type ForegroundProcessParams struct {
 // never overwriting a previously-set title with empty.
 type ForegroundProcessResult struct {
 	Name string `json:"name"`
+	// Alone, when asked for and Name is known: whether no other process is in
+	// the program's group. A shell there that is not alone is a script
+	// waiting for the program it runs, not a shell at its prompt.
+	Alone *bool `json:"alone,omitempty"`
 }
 
 // ListeningPortsParams is the wire shape for pty.listeningPorts.
