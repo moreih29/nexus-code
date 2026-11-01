@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import {
+  agentRowsHeight,
   CARD_HEIGHT,
   CARD_WIDTH,
   COLUMN_GAP,
@@ -103,6 +104,26 @@ describe("layoutLineage", () => {
     expect(position(layout, C)).toEqual([COLUMN, ROW + SEPARATE_LABEL_HEIGHT]);
     expect(position(layout, B)).toEqual([0, 2 * ROW + SEPARATE_LABEL_HEIGHT]);
     expect(layout.edges).toEqual([{ kind: "created", from: UI, to: C }]);
+  });
+
+  it("makes room under a card for the agents its sessions run", () => {
+    const rows = new Map([
+      [A, 2],
+      [ROOT, 5],
+    ]);
+    const layout = layoutLineage(
+      family(worktree(ROOT), worktree(A, ROOT), worktree(B, ROOT), worktree(C)),
+      [],
+      (w) => rows.get(w.workspace.id) ?? 0,
+    );
+    const aHeight = CARD_HEIGHT + agentRowsHeight(2);
+    expect(position(layout, A)).toEqual([COLUMN, 0]);
+    expect(position(layout, B)).toEqual([COLUMN, aHeight + ROW_GAP]);
+    const rootY = (aHeight + ROW_GAP) / 2;
+    expect(position(layout, ROOT)).toEqual([0, rootY]);
+    expect(layout.cards.find((c) => c.worktree.workspace.id === ROOT)?.agentRows).toBe(5);
+    // The root's agent rows reach below its children: the cards apart start under them.
+    expect(layout.separateTop).toBe(rootY + CARD_HEIGHT + agentRowsHeight(5) + ROW_GAP);
   });
 
   it("shows the session most in need of the user on each card", () => {

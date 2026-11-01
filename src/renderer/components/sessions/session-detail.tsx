@@ -17,6 +17,7 @@ import {
   showChanges,
   showTerminal,
 } from "../../services/sessions/actions";
+import { type ActivityByKey, findAgent } from "../../services/sessions/agents";
 import {
   type AgentSession,
   allSessions,
@@ -27,6 +28,7 @@ import type { WorktreeChanges } from "../../services/sessions/use-family";
 import { getTerminalController } from "../../services/terminal/terminal-registry";
 import { Button } from "../ui/button";
 import { showToast } from "../ui/toast";
+import { AgentDetail } from "./agent-detail";
 import type { SessionsSelection } from "./selection";
 import { AgentBadge, SessionState } from "./session-status";
 
@@ -38,19 +40,44 @@ interface SessionDetailProps {
   family: SessionFamily;
   selection: SessionsSelection;
   changes: ReadonlyMap<string, WorktreeChanges>;
+  activity: ActivityByKey;
   visible: boolean;
+  onSelect: (selection: SessionsSelection) => void;
 }
 
-export function SessionDetail({ family, selection, changes, visible }: SessionDetailProps) {
+export function SessionDetail({
+  family,
+  selection,
+  changes,
+  activity,
+  visible,
+  onSelect,
+}: SessionDetailProps) {
   const { t } = useTranslation();
   const session =
-    selection.kind === "session"
-      ? allSessions(family).find((s) => s.key === selection.key)
-      : undefined;
+    selection.kind === "worktree"
+      ? undefined
+      : allSessions(family).find((s) => s.key === selection.key);
   const workspaceId =
     session?.workspaceId ?? (selection.kind === "worktree" ? selection.workspaceId : "");
   const worktree = family.worktrees.find((w) => w.workspace.id === workspaceId);
   if (!worktree) return null;
+  const agent =
+    session && selection.kind === "agent"
+      ? findAgent(activity, session.key, selection.agentId)
+      : undefined;
+  if (session && agent) {
+    return (
+      <AgentDetail
+        key={`${session.key}:${agent.id}`}
+        worktree={worktree}
+        session={session}
+        agent={agent}
+        visible={visible}
+        onSelect={onSelect}
+      />
+    );
+  }
   const worktreeChanges = changes.get(worktree.workspace.id);
   return (
     <div className="flex min-w-0 flex-col gap-4 p-4">
