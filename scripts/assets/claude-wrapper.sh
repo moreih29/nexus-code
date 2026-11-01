@@ -60,13 +60,10 @@ if [[ -z "${NEXUS_AGENT_BIN:-}" ]]; then
   exec "$REAL_CLAUDE" "$@"
 fi
 
-# 5) 임시 settings JSON 파일 생성.
+# 5) The hooks settings JSON.
 #    command 필드에 리터럴 ${NEXUS_AGENT_BIN}을 기록한다 — exec 시점(claude hook 실행)에 셸이 확장한다.
 #    wrapper 실행 시점에 경로를 확장하지 않으므로 JSON-escape 처리가 불필요하다.
-SETTINGS_FILE="$(mktemp -t nexus-claude-settings.XXXXXX.json)"
-trap 'rm -f "$SETTINGS_FILE"' EXIT
-
-cat > "$SETTINGS_FILE" <<'SETTINGS_EOF'
+SETTINGS_JSON="$(cat <<'SETTINGS_EOF'
 {
   "preferredNotifChannel": "notifications_disabled",
   "hooks": {
@@ -80,13 +77,39 @@ cat > "$SETTINGS_FILE" <<'SETTINGS_EOF'
   }
 }
 SETTINGS_EOF
+)"
 
-# 6) (테스트 전용) NEXUS_CAPTURE_SETTINGS_TO가 지정된 경우 settings 파일을 해당 경로로 복사.
+# 6) The settings file claude reads. exec leaves nothing behind to delete a
+#    file per launch, so every launch shares one, named after its content: a
+#    launch of another version of this wrapper gets its own. A launch writes
+#    it only when it is missing or differs, through a rename, so a concurrent
+#    launch reads either no file or the whole one; one that loses the rename
+#    to another still finds the file it needs.
+write_settings() {
+  [[ -n "${HOME:-}" ]] || return 1
+  local dir="$HOME/.nexus-code" sum file tmp
+  mkdir -p "$dir" 2>/dev/null || return 1
+  sum="$(printf '%s' "$SETTINGS_JSON" | cksum | cut -d ' ' -f 1)" || return 1
+  file="$dir/claude-settings-$sum.json"
+  if [[ "$(cat "$file" 2>/dev/null)" != "$SETTINGS_JSON" ]]; then
+    tmp="$(mktemp "$dir/claude-settings.XXXXXX")" || return 1
+    printf '%s\n' "$SETTINGS_JSON" > "$tmp" && mv -f "$tmp" "$file" 2>/dev/null
+    rm -f "$tmp"
+    [[ "$(cat "$file" 2>/dev/null)" == "$SETTINGS_JSON" ]] || return 1
+  fi
+  printf '%s' "$file"
+}
+if ! SETTINGS_FILE="$(write_settings)"; then
+  echo "nexus-code: cannot write claude's hooks settings; hook injection skipped" >&2
+  exec "$REAL_CLAUDE" "$@"
+fi
+
+# 7) (테스트 전용) NEXUS_CAPTURE_SETTINGS_TO가 지정된 경우 settings 파일을 해당 경로로 복사.
 if [[ -n "${NEXUS_CAPTURE_SETTINGS_TO:-}" ]]; then
   cp "$SETTINGS_FILE" "$NEXUS_CAPTURE_SETTINGS_TO"
 fi
 
-# 7) 새 세션 UUID 생성 후 실제 claude 실행.
+# 8) 새 세션 UUID 생성 후 실제 claude 실행.
 SESSION_ID="$(uuidgen 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "")"
 if [[ -n "$SESSION_ID" ]]; then
   exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$SETTINGS_FILE" "$@"
