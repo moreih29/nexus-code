@@ -8,6 +8,7 @@ import { ActiveContextStore } from "./active-context";
 import { registerClaudeChannel } from "./ipc";
 import { registerHookHandler } from "./hook-handler";
 import { ClaudeInterruptWatcher } from "./interrupt";
+import { ClaudeReconnectCheck } from "./reconnect";
 import type { PtyHostHandle } from "../pty/types";
 import type { WorkspaceNameLookup } from "./hook-handler";
 import { getActiveAppWindow, getFocusedAppWindow } from "../window/app-windows";
@@ -106,6 +107,16 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
   // An interrupted turn runs no hook; its "Interrupted" line ends it.
   const interrupts = new ClaudeInterruptWatcher(broker);
 
+  // Hooks run while a held terminal's link was down are lost; once it comes
+  // back, its replayed output tells its state again.
+  const reconnects = new ClaudeReconnectCheck(broker, async (workspaceId, tabId) => {
+    const result = (await agentHost.call("foregroundProcess", { workspaceId, tabId })) as
+      | { name?: string }
+      | undefined;
+    const name = result?.name?.trim() ?? "";
+    return name === "" ? null : name;
+  });
+
   // 4. PTY exit 시 broker.clear — 탭 종료 시 상태 항목 제거(메모리 누수 방지).
   const offExit = agentHost.on("exit", (args) => {
     const a = args as Record<string, unknown>;
@@ -114,6 +125,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     if (workspaceId && tabId) {
       broker.clear(workspaceId, tabId);
       interrupts.forget(workspaceId, tabId);
+      reconnects.forget(workspaceId, tabId);
     }
   });
 
@@ -124,7 +136,22 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
       chunk: string;
       replay?: boolean;
     };
-    if (!replay) interrupts.noteOutput(workspaceId, tabId, chunk);
+    if (replay) reconnects.noteReplay(workspaceId, tabId, chunk);
+    else interrupts.noteOutput(workspaceId, tabId, chunk);
+  });
+
+  const offRestored = agentHost.on("restored", (args) => {
+    const { workspaceId, tabId, withReplay } = args as {
+      workspaceId: string;
+      tabId: string;
+      withReplay: boolean;
+    };
+    reconnects.noteRestored(workspaceId, tabId, withReplay);
+  });
+
+  const offReplayed = agentHost.on("replayed", (args) => {
+    const { workspaceId, tabId } = args as { workspaceId: string; tabId: string };
+    void reconnects.noteReplayed(workspaceId, tabId);
   });
 
   return {
@@ -134,6 +161,8 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
       offHook();
       offExit();
       offData();
+      offRestored();
+      offReplayed();
     },
     broker,
     activeContext,

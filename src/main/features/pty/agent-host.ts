@@ -517,11 +517,14 @@ class AgentPtyHostHandle implements PtyHostHandle {
           session.decoder = new TextDecoder("utf-8");
         }
         // pty.replay resends the session's recent output as pty.data events.
-        channel.call("pty.replay", { workspaceId, tabId }).catch((err) => {
-          log.warn(
-            `pty.replay failed for ${workspaceId}:${tabId}: ${(err as Error).message}`,
-          );
-        });
+        // Its answer follows them on the same stream, so "replayed" comes
+        // after the last replayed chunk.
+        channel
+          .call("pty.replay", { workspaceId, tabId })
+          .then(() => this.emit("replayed", { workspaceId, tabId }))
+          .catch((err) => {
+            log.warn(`pty.replay failed for ${workspaceId}:${tabId}: ${(err as Error).message}`);
+          });
       } else {
         // Session no longer alive on the daemon — treat as a fresh shell.
         // Inject \x1bc into the data stream so any stale ANSI mid-sequence
