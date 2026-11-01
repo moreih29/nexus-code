@@ -5,7 +5,7 @@
  */
 
 import { createLogger } from "../../../shared/log/renderer";
-import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import type { WorkspaceMeta, WorkspaceTask } from "../../../shared/types/workspace";
 import { ipcCallResult } from "../../ipc/client";
 import { useActiveStore } from "../../state/stores/active";
 import { resolvedTaskAgentCommand } from "../../state/stores/terminal";
@@ -55,14 +55,20 @@ export interface StartedTask {
  * Creates a task of `parentId` without switching to it. Its first terminal
  * runs `agentCommand` (the task agent command unless given) with `prompt`
  * once the terminal starts, which is when the task's panel is mounted.
+ * `createdBy` is the terminal whose agent asked for it, if one did.
  */
 export async function startTask(
   parentId: string,
   name: string,
   prompt: string,
   agentCommand?: string,
+  createdBy?: WorkspaceTask["createdBy"],
 ): Promise<StartedTask | TaskFailure> {
-  const result = await ipcCallResult("task", "create", { parentId, name });
+  const result = await ipcCallResult("task", "create", {
+    parentId,
+    name,
+    ...(createdBy ? { createdBy } : {}),
+  });
   if (!result.ok) return { kind: result.kind, message: result.message };
 
   useWorkspacesStore.getState().upsert(result.value);

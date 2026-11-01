@@ -121,6 +121,14 @@ describe("createTask", () => {
     expect(task.name).toBe("Fix login");
     expect(fs.existsSync(path.join(task.rootPath, "packages", "app", "a.txt"))).toBe(true);
     expect(git(task.rootPath, "branch", "--show-current").trim()).toBe("fix-login");
+    expect(task.task?.createdBy).toBeUndefined();
+  });
+
+  it("records the terminal whose agent asked for it", async () => {
+    const { deps, parent } = setup();
+    const createdBy = { workspaceId: parent.id, tabId: "tab-1" };
+    const task = await createTask(deps, { parentId: parent.id, name: "by agent", createdBy });
+    expect(task.task?.createdBy).toEqual(createdBy);
   });
 
   it("picks the next free name when the branch exists", async () => {

@@ -17,6 +17,7 @@ import type { TabActivity } from "./activity";
 import type { BrowserDriver } from "./browser/driver";
 import type { ChangeRequest } from "./consent";
 import type { StartedAgents } from "./started-agents";
+import type { WaitRegistry } from "./waits";
 
 /** A failure the command reports as is, with its exit code. */
 export class CliError extends Error {
@@ -39,6 +40,8 @@ export interface CliServices {
     tabId: string,
   ): { status: ClaudeStatus; message?: string; since: number } | null;
   activity(workspaceId: string, tabId: string): TabActivity | null;
+  /** Lists a wait on a terminal until the returned function is called. */
+  readonly waits: Pick<WaitRegistry, "begin">;
   /**
    * Asks the renderer, which owns the tabs and the terminals' screens; a
    * longer `timeoutMs` for an answer that waits on git.

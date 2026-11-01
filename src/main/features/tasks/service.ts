@@ -10,7 +10,11 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
+import type {
+  WorkspaceLocation,
+  WorkspaceMeta,
+  WorkspaceTask,
+} from "../../../shared/types/workspace";
 import { GitError } from "../git/domain/error";
 import type { GitRepository } from "../git/domain/repository";
 import type { WorkspaceManager } from "../workspace/manager";
@@ -49,6 +53,8 @@ export interface TaskServiceDeps {
 export interface CreateTaskArgs {
   readonly parentId: string;
   readonly name: string;
+  /** The terminal whose agent asks for the task, when one does. */
+  readonly createdBy?: WorkspaceTask["createdBy"];
 }
 
 export interface RemoveTaskArgs {
@@ -62,7 +68,7 @@ export interface RemoveTaskArgs {
 /** Creates the worktree and branch for a new task, and its workspace. */
 export async function createTask(
   deps: TaskServiceDeps,
-  { parentId, name }: CreateTaskArgs,
+  { parentId, name, createdBy }: CreateTaskArgs,
 ): Promise<WorkspaceMeta> {
   const workspaces = deps.manager.list();
   const parent = workspaces.find((workspace) => workspace.id === parentId);
@@ -108,7 +114,7 @@ export async function createTask(
   return deps.manager.create({
     location,
     name: name.trim(),
-    task: { parentId, branch, worktreePath },
+    task: { parentId, branch, worktreePath, ...(createdBy ? { createdBy } : {}) },
   });
 }
 

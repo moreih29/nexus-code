@@ -112,6 +112,25 @@ describe("terminal wait", () => {
     expect(app.time.now - sentAt).toBe(4_000);
   });
 
+  test("lists the wait while it runs, for the sessions view", async () => {
+    const app = fakeApp();
+    const key = `${APP}:${CLAUDE_TAB}`;
+    const startedAt = app.time.now;
+    app.claude.set(key, { status: "running", since: startedAt });
+    const seen: unknown[] = [];
+    app.time.onTick = (now) => {
+      seen.push(...app.waits.snapshot());
+      if (now - startedAt === 1_000) app.claude.set(key, { status: "completed", since: now });
+    };
+    await nexus(app, ["terminal", "wait", "✳ claude code"]);
+    expect(seen[0]).toEqual({
+      waiter: { workspaceId: APP, tabId: SHELL_TAB },
+      target: { workspaceId: APP, tabId: CLAUDE_TAB },
+      since: startedAt,
+    });
+    expect(app.waits.snapshot()).toEqual([]);
+  });
+
   test("send --wait takes a Claude Code that never starts as idle after a grace", async () => {
     const app = fakeApp();
     const sentAt = app.time.now;

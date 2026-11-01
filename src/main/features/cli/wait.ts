@@ -219,17 +219,26 @@ export async function waitOnTerminal(
   const { clock } = ctx.services;
   const waiter = new Waiter(ctx, workspace, tab, options);
   const deadline = options.startedAt + options.timeoutMs;
-  for (;;) {
-    const now = clock.now();
-    const result = await waiter.check(now);
-    if (result) return result;
-    if (now >= deadline) {
-      return {
-        done: false,
-        state: "timeout",
-        text: `${tab.title} was still busy when the wait ran out; see it with "nexus terminal read".`,
-      };
+  const end = ctx.services.waits.begin(
+    ctx.caller,
+    { workspaceId: workspace.id, tabId: tab.id },
+    options.startedAt,
+  );
+  try {
+    for (;;) {
+      const now = clock.now();
+      const result = await waiter.check(now);
+      if (result) return result;
+      if (now >= deadline) {
+        return {
+          done: false,
+          state: "timeout",
+          text: `${tab.title} was still busy when the wait ran out; see it with "nexus terminal read".`,
+        };
+      }
+      await clock.sleep(WAIT_POLL_MS);
     }
-    await clock.sleep(WAIT_POLL_MS);
+  } finally {
+    end();
   }
 }

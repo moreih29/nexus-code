@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { StatusEntrySchema } from "../claude/status";
 import { CliUiRequestSchema, CliUiRespondArgsSchema } from "../cli/ui";
-import { TabActivityEntrySchema } from "../sessions/agent-state";
+import { TabActivityEntrySchema, TerminalWaitSchema } from "../sessions/agent-state";
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
   DirEntrySchema,
@@ -116,6 +116,7 @@ import {
   WorkspaceConnectionProgressEventSchema,
   WorkspaceLocationSchema,
   WorkspaceMetaSchema,
+  WorkspaceTaskSchema,
 } from "../types/workspace";
 import { WorkspaceIdSchema as WorkspaceIdPrimitive, workspaceScoped } from "../types/workspace-id";
 import { UpdateProgressSchema, UpdateStatusSchema } from "../updates/status";
@@ -628,7 +629,11 @@ export const ipcContract = {
   task: {
     call: {
       create: call(
-        z.object({ parentId: WorkspaceIdPrimitive, name: z.string().trim().min(1).max(100) }),
+        z.object({
+          parentId: WorkspaceIdPrimitive,
+          name: z.string().trim().min(1).max(100),
+          createdBy: WorkspaceTaskSchema.shape.createdBy,
+        }),
         WorkspaceMetaSchema,
       ),
       remove: call(
@@ -1753,6 +1758,8 @@ export const ipcContract = {
        * the sessions view.
        */
       activity: call(z.object({}), z.array(TabActivityEntrySchema)),
+      /** Which terminals are blocked in nexus terminal wait on which, for the sessions view. */
+      waits: call(z.object({}), z.array(TerminalWaitSchema)),
     },
     listen: {
       uiRequest: listen(CliUiRequestSchema),
