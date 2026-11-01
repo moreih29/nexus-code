@@ -382,6 +382,60 @@ describe("hook-handler — subcommand 상태 전이", () => {
     expect(broker.get("ws-test", "tab-test")?.message).toBeUndefined();
   });
 
+  // Claude Code fires StopFailure instead of Stop when the turn ends on an
+  // API error, such as a rate limit.
+  test("stop-failure ends the turn on the error and notifies with it", async () => {
+    const { broker, activeContext, emit, notifInstances } = makeHarness(true /* focused */);
+    activeContext.set("ws-test", "other-tab");
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    await new Promise((r) => setTimeout(r, 0));
+    emit(
+      makeHookPayload("stop-failure", {
+        error: "rate_limit",
+        last_assistant_message: "API Error: Request rejected (429) · Rate limited",
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    const entry = broker.get("ws-test", "tab-test");
+    expect(entry?.status).toBe("error");
+    expect(entry?.message).toBe("API Error: Request rejected (429) · Rate limited");
+    expect(entry?.prompt).toBe("build it");
+    expect(notifInstances).toHaveLength(1);
+    expect(notifInstances[0].body).toBe("API Error: Request rejected (429) · Rate limited");
+  });
+
+  test("stop-failure without a message tells the error type", async () => {
+    const { broker, emit } = makeHarness();
+    broker.set("ws-test", "tab-test", "running");
+    emit(makeHookPayload("stop-failure", { error: "rate_limit" }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.message).toBe("rate_limit");
+
+    emit(makeHookPayload("stop-failure", {}));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("error");
+    expect(broker.get("ws-test", "tab-test")?.message).toBe("Claude stopped on an error");
+  });
+
+  test("stop-failure on the tab the user is looking at keeps the error and notifies no one", async () => {
+    const { broker, activeContext, emit, notifInstances } = makeHarness(true /* focused */);
+    activeContext.set("ws-test", "tab-test");
+    broker.set("ws-test", "tab-test", "running");
+    emit(makeHookPayload("stop-failure", { error: "server_error" }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("error");
+    expect(notifInstances).toHaveLength(0);
+  });
+
+  test("the next prompt after stop-failure runs again", async () => {
+    const { broker, emit } = makeHarness();
+    broker.set("ws-test", "tab-test", "running");
+    emit(makeHookPayload("stop-failure", { error: "rate_limit" }));
+    emit(makeHookPayload("user-prompt-submit", { prompt: "try again" }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
+  });
+
   test("session-end → broker.clear (항목 제거)", async () => {
     const { broker, emit } = makeHarness();
     broker.set("ws-test", "tab-test", "running");
@@ -651,6 +705,19 @@ describe("hook-handler — subagents and permission dialogs", () => {
     await tick();
     expect(status(broker)).toBe("completed");
     expect(broker.get("ws-test", "tab-test")?.message).toBe("Done.");
+  });
+
+  test("a turn's StopFailure does not hide a subagent's dialog, and shows once it closes", async () => {
+    const { broker, emit } = makeHarness(false /* unfocused */);
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    emit(makeHookPayload("permission-request", { ...bash, agent_id: "a1" }));
+    emit(makeHookPayload("stop-failure", { error: "rate_limit" }));
+    await tick();
+    expect(status(broker)).toBe("permissionPending");
+    emit(makeHookPayload("subagent-stop", { agent_id: "a1" }));
+    await tick();
+    expect(status(broker)).toBe("error");
+    expect(broker.get("ws-test", "tab-test")?.message).toBe("rate_limit");
   });
 
   test("a subagent that goes on to another tool is past its dialog", async () => {
@@ -937,6 +1004,16 @@ describe("hook-handler — frames of a finished turn", () => {
     expect(notifInstances).toHaveLength(0);
     // Still answered, so the hook process exits.
     expect(channel.callArgs).toHaveLength(3);
+  });
+
+  test("StopFailure of the previous turn keeps the next one running", async () => {
+    const { broker, emit, notifInstances } = makeHarness(false /* unfocused */);
+    emit(makeHookPayload("user-prompt-submit", { prompt_id: "p1" }));
+    emit(makeHookPayload("user-prompt-submit", { prompt_id: "p2" }));
+    emit(makeHookPayload("stop-failure", { error: "rate_limit", prompt_id: "p1" }));
+    await tick();
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
+    expect(notifInstances).toHaveLength(0);
   });
 
   test("late idle notification of the previous turn keeps the next one running", async () => {

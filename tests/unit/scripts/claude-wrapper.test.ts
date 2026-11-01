@@ -35,6 +35,7 @@ const HOOK_EVENT_NAMES = [
   "subagent-stop",
   "notification",
   "stop",
+  "stop-failure",
   "session-end",
   "permission-request",
 ] as const;
@@ -502,6 +503,7 @@ function toHookKey(event: (typeof HOOK_EVENT_NAMES)[number]): string {
     "subagent-stop": "SubagentStop",
     "notification": "Notification",
     "stop": "Stop",
+    "stop-failure": "StopFailure",
     "session-end": "SessionEnd",
     "permission-request": "PermissionRequest",
   };

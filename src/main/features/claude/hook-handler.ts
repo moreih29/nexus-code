@@ -26,6 +26,7 @@
 //   post-tool-use-failure → as post-tool-use, for a tool that failed as it ran
 //   subagent-stop      → the subagent's permission dialogs are over + respondHook
 //   stop               → 그 탭 보면 idle 직행 / 아니면 completed + OS 알림 + respondHook
+//   stop-failure       → an API error ended the turn instead: error + (그 탭 안 보면) OS 알림 + respondHook
 //   session-end        → broker.clear + respondHook
 //
 // Turn hooks of a turn already over (by prompt_id, see turn-order.ts) are only answered.
@@ -195,6 +196,20 @@ function extractPrompt(payload: unknown): string | undefined {
 }
 
 /**
+ * What a StopFailure hook says ended the turn: the error Claude Code showed,
+ * as "API Error: Request rejected (429) · …", else the kind of error, as
+ * "rate_limit".
+ */
+function extractFailure(payload: unknown): string | undefined {
+  if (typeof payload !== "object" || payload === null) return undefined;
+  const p = payload as Record<string, unknown>;
+  for (const field of [p.last_assistant_message, p.error]) {
+    if (typeof field === "string" && field.trim() !== "") return field.trim();
+  }
+  return undefined;
+}
+
+/**
  * How a SessionStart hook's session began: "startup", "resume", "clear",
  * "compact" or "fork".
  */
@@ -244,6 +259,7 @@ const TURN_HOOKS = new Set([
   "notification",
   "permission-request",
   "stop",
+  "stop-failure",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -559,6 +575,23 @@ async function handleHookEvent(
               ? t("common:claudeNotification.responseComplete")
               : "Response complete";
         fireOsNotification(workspaceId, tabId, title, body, deps);
+      }
+      await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
+      break;
+    }
+
+    case "stop-failure": {
+      // An API error (a rate limit, an overloaded or failed request, …)
+      // ended the turn, and Claude Code ran this in place of Stop. The
+      // session waits on the user to try again, viewed or not.
+      const failure = extractFailure(hookPayload);
+      const message =
+        failure ?? (t ? t("common:claudeNotification.turnFailed") : "Claude stopped on an error");
+      // The turn's dialogs are over; a subagent's may still be open.
+      dialogs.closeAgent(key, MAIN_AGENT);
+      setState("error", message);
+      if (!isViewingThisTab) {
+        fireOsNotification(workspaceId, tabId, `[${workspaceName}] Claude`, message, deps);
       }
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
       break;

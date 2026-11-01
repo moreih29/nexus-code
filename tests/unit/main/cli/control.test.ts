@@ -112,6 +112,22 @@ describe("terminal wait", () => {
     expect(app.time.now - sentAt).toBe(4_000);
   });
 
+  test("send --wait ends on a turn that stopped on an error", async () => {
+    const app = fakeApp();
+    const key = `${APP}:${CLAUDE_TAB}`;
+    const sentAt = app.time.now;
+    app.time.onTick = (now) => {
+      if (now - sentAt === 1_000) app.claude.set(key, { status: "running", since: now });
+      if (now - sentAt === 2_000) {
+        app.claude.set(key, { status: "error", message: "API Error: 429", since: now });
+      }
+    };
+    const result = await nexus(app, ["terminal", "send", "✳ claude code", "add a test", "--wait"]);
+    expect(result.stdout).toBe(
+      "Sent to ✳ Claude Code (aaaaaaaa).\nClaude Code stopped on an error: API Error: 429\n",
+    );
+  });
+
   test("lists the wait while it runs, for the sessions view", async () => {
     const app = fakeApp();
     const key = `${APP}:${CLAUDE_TAB}`;
