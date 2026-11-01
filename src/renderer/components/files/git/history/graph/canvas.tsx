@@ -25,6 +25,8 @@ const LANE_COLOR_COUNT = 8;
  */
 const LANE_COLOR_ORDER = [5, 0, 3, 6, 1, 4, 7, 2] as const;
 const DEFAULT_BACKGROUND = "#0d1117";
+/** How wide the fade is where the graph is cut off. */
+const EDGE_FADE_WIDTH_PX = 12;
 const MIN_CANVAS_SIZE_PX = 1;
 const DEFAULT_LANE_COLORS = [
   "oklch(0.56 0.07 55)",
@@ -55,6 +57,8 @@ export interface GraphCanvasProps {
   height?: number;
   viewportOffset?: number;
   pinToScrollOffset?: boolean;
+  /** Fades the graph out at its right edge, where lanes past its width are cut off. */
+  fadeRightEdge?: boolean;
   redrawKey?: unknown;
   className?: string;
   style?: React.CSSProperties;
@@ -73,6 +77,7 @@ export interface GraphDrawInputs {
   height?: number;
   viewportOffset: number;
   pinToScrollOffset: boolean;
+  fadeRightEdge?: boolean;
 }
 
 interface CanvasMetrics {
@@ -112,6 +117,7 @@ export function GraphCanvas({
   height,
   viewportOffset = 0,
   pinToScrollOffset = true,
+  fadeRightEdge = false,
   className,
   style,
 }: GraphCanvasProps): React.JSX.Element {
@@ -131,6 +137,7 @@ export function GraphCanvas({
     height,
     viewportOffset,
     pinToScrollOffset,
+    fadeRightEdge,
   });
 
   drawInputsRef.current = {
@@ -146,6 +153,7 @@ export function GraphCanvas({
     height,
     viewportOffset,
     pinToScrollOffset,
+    fadeRightEdge,
   };
 
   /** Batches scroll and virtualizer churn into one Canvas redraw per animation frame. */
@@ -222,6 +230,20 @@ export function drawGraphCanvas(canvas: HTMLCanvasElement, inputs: GraphDrawInpu
 
   drawEdges(ctx, edges, laneColors, inputs.laneWidth, inputs.rowHeight);
   drawNodes(ctx, rows, laneColors, background, inputs.laneWidth);
+  if (inputs.fadeRightEdge) fadeOutRightEdge(ctx, metrics.cssWidth, metrics.cssHeight);
+}
+
+/** Erases the graph gradually toward its right edge, so cut-off lanes fade out. */
+function fadeOutRightEdge(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+  const fadeWidth = Math.min(EDGE_FADE_WIDTH_PX, width);
+  const gradient = ctx.createLinearGradient(width - fadeWidth, 0, width, 0);
+  gradient.addColorStop(0, "rgba(0, 0, 0, 0)");
+  gradient.addColorStop(1, "rgba(0, 0, 0, 1)");
+  ctx.save();
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.fillStyle = gradient;
+  ctx.fillRect(width - fadeWidth, 0, fadeWidth, height);
+  ctx.restore();
 }
 
 /** Builds a fast SHA-to-row lookup for edge endpoint resolution during redraws. */

@@ -31,6 +31,7 @@ class CanvasContextSpy {
   private _lineWidth = 1;
   private _strokeStyle: string | CanvasGradient | CanvasPattern = "#000";
   private _fillStyle: string | CanvasGradient | CanvasPattern = "#000";
+  private _globalCompositeOperation: GlobalCompositeOperation = "source-over";
 
   set lineCap(value: CanvasLineCap) {
     this._lineCap = value;
@@ -75,6 +76,27 @@ class CanvasContextSpy {
 
   get fillStyle(): string | CanvasGradient | CanvasPattern {
     return this._fillStyle;
+  }
+
+  set globalCompositeOperation(value: GlobalCompositeOperation) {
+    this._globalCompositeOperation = value;
+    this.record("setGlobalCompositeOperation", value);
+  }
+
+  get globalCompositeOperation(): GlobalCompositeOperation {
+    return this._globalCompositeOperation;
+  }
+
+  createLinearGradient(...args: Parameters<CanvasRenderingContext2D["createLinearGradient"]>) {
+    this.record("createLinearGradient", ...args);
+    return {
+      addColorStop: (offset: number, color: string) =>
+        this.record("addColorStop", offset, color),
+    } as unknown as CanvasGradient;
+  }
+
+  fillRect(...args: Parameters<CanvasRenderingContext2D["fillRect"]>): void {
+    this.record("fillRect", ...args);
   }
 
   clearRect(...args: Parameters<CanvasRenderingContext2D["clearRect"]>): void {
@@ -360,6 +382,27 @@ describe("drawGraphCanvas — visible graph scenarios", () => {
     expect(calls(canvas.context, "bezierCurveTo").map((call) => call.args)).toEqual([
       [9, 19.5, 27, 16.5, 27, 24],
     ]);
+  });
+
+  it("fades the graph out at its right edge when lanes past it are cut off", () => {
+    const canvas = createCanvasSpy();
+    const entries = [entry("M", ["A", "B"]), entry("A"), entry("B")];
+
+    drawGraphCanvas(canvas.element, drawInputs(entries, { width: 20, fadeRightEdge: true }));
+
+    expect(calls(canvas.context, "createLinearGradient")[0]?.args).toEqual([8, 0, 20, 0]);
+    expect(calls(canvas.context, "setGlobalCompositeOperation")[0]?.args).toEqual([
+      "destination-out",
+    ]);
+    expect(calls(canvas.context, "fillRect")[0]?.args).toEqual([8, 0, 12, 72]);
+  });
+
+  it("leaves the right edge alone when the whole graph fits", () => {
+    const canvas = createCanvasSpy();
+
+    drawGraphCanvas(canvas.element, drawInputs([entry("A")]));
+
+    expect(calls(canvas.context, "fillRect")).toHaveLength(0);
   });
 
   it("rings the commit HEAD points at", () => {

@@ -16,6 +16,11 @@ const HISTORY_ROW_HEIGHT_PX = 24;
 const HISTORY_LIST_OVERSCAN = 10;
 const HISTORY_GRAPH_LANE_WIDTH_PX = 16;
 const DEFAULT_GRAPH_WIDTH_PX = HISTORY_GRAPH_LANE_WIDTH_PX;
+/**
+ * The most of the list's width the graph takes, so a narrow panel keeps room
+ * for the other columns; lanes past it are cut off.
+ */
+const HISTORY_GRAPH_MAX_WIDTH_FRACTION = 0.4;
 const HISTORY_LIST_BREAKPOINT_DEBOUNCE_MS = 100;
 
 export const HISTORY_LIST_BREAKPOINT_NARROW = 320;
@@ -77,16 +82,18 @@ export function HistoryList({
   const syncedSelectedShaRef = useRef<string | null>(null);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const breakpoint = useHistoryListBreakpoint(scrollRef);
+  const listWidthPx = useListWidth(scrollRef);
   const virtualizer = useVirtualizer({
     count: entries.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => HISTORY_ROW_HEIGHT_PX,
     overscan: HISTORY_LIST_OVERSCAN,
   });
-  const resolvedGraphWidthPx = useMemo(
+  const fullGraphWidthPx = useMemo(
     () => (laneState ? graphWidthFromLaneState(laneState) : graphWidthPx),
     [graphWidthPx, laneState],
   );
+  const resolvedGraphWidthPx = capGraphWidth(fullGraphWidthPx, listWidthPx);
   const graphStyle = useMemo<HistoryListCssVars>(
     () => ({ "--graph-w": `${Math.max(0, resolvedGraphWidthPx)}px` }),
     [resolvedGraphWidthPx],
@@ -207,7 +214,7 @@ export function HistoryList({
   return (
     <div
       ref={scrollRef}
-      className="relative h-full min-h-0 overflow-auto app-scrollbar"
+      className="relative h-full min-h-0 overflow-y-auto overflow-x-hidden app-scrollbar"
       style={graphStyle}
     >
       {laneState ? (
@@ -219,6 +226,7 @@ export function HistoryList({
           rowHeight={HISTORY_ROW_HEIGHT_PX}
           laneWidth={HISTORY_GRAPH_LANE_WIDTH_PX}
           width={resolvedGraphWidthPx}
+          fadeRightEdge={resolvedGraphWidthPx < fullGraphWidthPx}
           className="z-0"
         />
       ) : null}
@@ -336,6 +344,48 @@ export function useHistoryListBreakpoint(
   }, []);
 
   return breakpoint;
+}
+
+/** Tracks the list's width, keeping the last one while the panel is hidden. */
+function useListWidth(scrollRef: React.RefObject<HTMLElement | null>): number {
+  const [widthPx, setWidthPx] = useState(0);
+  const observedRef = useRef<{ element: HTMLElement; observer: ResizeObserver } | null>(null);
+
+  // Runs after every render: the list mounts its scroll element only once it has rows.
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (observedRef.current?.element === element) return;
+    observedRef.current?.observer.disconnect();
+    observedRef.current = null;
+    if (!element || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      const nextWidthPx = entry ? Math.round(resizeEntryWidth(entry)) : 0;
+      if (nextWidthPx > 0) setWidthPx(nextWidthPx);
+    });
+    observer.observe(element);
+    observedRef.current = { element, observer };
+  });
+
+  useEffect(() => {
+    return () => {
+      observedRef.current?.observer.disconnect();
+      observedRef.current = null;
+    };
+  }, []);
+
+  return widthPx;
+}
+
+/** Limits the graph to its share of the list, never below one lane. */
+export function capGraphWidth(graphWidthPx: number, listWidthPx: number): number {
+  if (listWidthPx <= 0) return graphWidthPx;
+  const maxWidthPx = Math.max(
+    HISTORY_GRAPH_LANE_WIDTH_PX,
+    Math.floor(listWidthPx * HISTORY_GRAPH_MAX_WIDTH_FRACTION),
+  );
+  return Math.min(graphWidthPx, maxWidthPx);
 }
 
 interface HistoryListBreakpointObserver {
