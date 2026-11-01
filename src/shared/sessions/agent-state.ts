@@ -10,6 +10,12 @@ import type { ClaudeStatus } from "../claude/status";
 /** Output newer than this means the terminal is busy. */
 export const BUSY_WINDOW_MS = 2_000;
 
+/**
+ * Output this soon after a notification is the agent settling after its
+ * turn, as Codex redraws its prompt; later output is a new turn or the user.
+ */
+export const NOTICE_SETTLE_MS = 2_000;
+
 /** What a terminal has printed lately, for agents other than Claude Code. */
 export interface TabActivity {
   /** When the terminal last printed anything. */
@@ -44,7 +50,8 @@ export interface TerminalState {
   readonly agent?: string;
   /**
    * Claude: idle, running, completed, needsInput, permissionPending or error.
-   * Others: busy (printing) or quiet.
+   * Others: busy (printing), completed (quiet since it notified, as Codex
+   * does when a turn ends) or quiet.
    */
   readonly state: string;
   /** Claude's last answer or question, or the last notification. */
@@ -88,9 +95,13 @@ export function describeTerminal(
   const busy = activity !== null && now - activity.lastOutputAt < BUSY_WINDOW_MS;
   const agent = agentFromProgram(activity?.program) ?? agentFromTitle(title);
   const notice = activity?.lastNotice;
+  const notified =
+    activity !== null &&
+    notice !== undefined &&
+    activity.lastOutputAt - notice.at < NOTICE_SETTLE_MS;
   return {
     ...(agent ? { agent } : {}),
-    state: busy ? "busy" : "quiet",
+    state: busy ? "busy" : notified ? "completed" : "quiet",
     ...(notice ? { message: notice.title ? `${notice.title}: ${notice.body}` : notice.body } : {}),
     ...(notice ? { since: notice.at } : activity ? { since: activity.lastOutputAt } : {}),
   };

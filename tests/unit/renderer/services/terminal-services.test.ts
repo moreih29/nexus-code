@@ -47,6 +47,8 @@ const listeners: ListenerRecord[] = [];
     setAttribute: (_name: string, _value: string): void => {},
   },
   fonts: { load: () => Promise.resolve([]) },
+  hasFocus: (): boolean => false,
+  activeElement: null,
 };
 
 // foregroundProcess RPC가 반환할 mock 응답 — 테스트별로 setForegroundProcessName으로 변경.
@@ -190,8 +192,8 @@ function makeTerminalControllerDeps(
   const bufferState: { active: { type: "normal" | "alternate" } } = {
     active: { type: "alternate" },
   };
-  // DECSET 2004 state the app on the pty asked for; tests flip it.
-  const modes = { bracketedPasteMode: false };
+  // DECSET 2004 and 1004 state the app on the pty asked for; tests flip it.
+  const modes = { bracketedPasteMode: false, sendFocusMode: false };
   // The text selected in the terminal; tests set it.
   let selection = "";
   // controller.ts:317에서 attachCustomKeyEventHandler를 호출해 keydown 가로채기
@@ -225,7 +227,12 @@ function makeTerminalControllerDeps(
           if (id.prefix === "?" && id.final === "l") {
             capturedAltExitHandler = cb;
           } else if (id.prefix === "?" && id.final === "h") {
-            capturedAltEnterHandler = cb;
+            // xterm.js runs every handler for a sequence; so does this one.
+            const previous = capturedAltEnterHandler;
+            capturedAltEnterHandler = (params) => {
+              const handled = previous?.(params) ?? false;
+              return cb(params) || handled;
+            };
           }
           return { dispose: () => {} };
         },
@@ -307,6 +314,9 @@ function makeTerminalControllerDeps(
     },
     setBracketedPaste(on: boolean): void {
       modes.bracketedPasteMode = on;
+    },
+    setFocusReporting(on: boolean): void {
+      modes.sendFocusMode = on;
     },
     setSelection(text: string): void {
       selection = text;
@@ -834,6 +844,69 @@ describe("services/terminal controller focus", () => {
 
     controller.focus();
     expect(harness.getFocusCalls()).toBe(2);
+
+    controller.dispose();
+  });
+
+  /** Past the moment a program that asked for focus reports is told about focus. */
+  const afterFocusReportDelay = (): Promise<unknown> => new Promise((r) => setTimeout(r, 300));
+
+  it("tells a program turning on focus reporting that an unfocused terminal is not focused", async () => {
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-focus-report",
+        cwd: "/workspace",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const decset = harness.getAltEnterHandler();
+    if (!decset) throw new Error("no DECSET handler");
+
+    expect(decset([2004])).toBe(false);
+    await afterFocusReportDelay();
+    expect(harness.ptyWrites).toEqual([]);
+
+    expect(decset([1004])).toBe(false);
+    // xterm.js turns the mode on after the handler.
+    harness.setFocusReporting(true);
+    // Not at once: Codex drops what comes while it sets up.
+    expect(harness.ptyWrites).toEqual([]);
+    await afterFocusReportDelay();
+    expect(harness.ptyWrites).toEqual(["\x1b[O"]);
+
+    controller.dispose();
+  });
+
+  it("tells a program setting up for input while focus reporting is on, as under ConPTY", async () => {
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-focus-report-conpty",
+        cwd: "/workspace",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const decset = harness.getAltEnterHandler();
+    if (!decset) throw new Error("no DECSET handler");
+
+    // ConPTY turned focus reporting on when the shell started; the program's
+    // own request never reaches the terminal.
+    harness.setFocusReporting(true);
+    expect(decset([2026])).toBe(false);
+    await afterFocusReportDelay();
+    expect(harness.ptyWrites).toEqual([]);
+
+    expect(decset([2004])).toBe(false);
+    expect(decset([2004])).toBe(false);
+    await afterFocusReportDelay();
+    expect(harness.ptyWrites).toEqual(["\x1b[O"]);
 
     controller.dispose();
   });

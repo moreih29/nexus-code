@@ -81,6 +81,8 @@ interface BufferLike {
 
 interface TerminalLike {
   readonly element?: HTMLElement;
+  /** The input that takes the user's keys while the terminal has focus. */
+  readonly textarea?: HTMLTextAreaElement;
   readonly rows: number;
   readonly parser: ParserLike;
   /**
@@ -90,8 +92,11 @@ interface TerminalLike {
    * onTitleChange 콜백 시점에 이 값을 확인해 alternate 상태일 때만 title을 수용한다.
    */
   readonly buffer: { active: BufferLike };
-  /** Whether the app on the pty turned on bracketed paste (DECSET 2004). */
-  readonly modes: { readonly bracketedPasteMode: boolean };
+  /**
+   * Whether the app on the pty turned on bracketed paste (DECSET 2004) and
+   * focus reporting (DECSET 1004).
+   */
+  readonly modes: { readonly bracketedPasteMode: boolean; readonly sendFocusMode: boolean };
   options: {
     theme: ITheme | undefined;
     fontSize: number;
@@ -196,6 +201,24 @@ export function classifyOscTitle(
 export function foregroundConfirmsTitle(foregroundName: string): boolean {
   const name = foregroundName.trim();
   return name !== "" && !isLoginShell(name);
+}
+
+/** DECSET 1004: the program wants to hear when the terminal gains or loses focus. */
+const FOCUS_REPORTING_MODE = 1004;
+/** DECSET 2004, bracketed paste: a program setting up for input, as each does when it starts. */
+const BRACKETED_PASTE_MODE = 2004;
+/**
+ * How long after a program asks for focus reports it is told the terminal
+ * lacks focus: Codex drops the input that comes while it sets up.
+ */
+const FOCUS_REPORT_DELAY_MS = 250;
+const FOCUS_OUT_REPORT = "\x1b[O";
+
+/** Whether the user's keys reach the terminal: its window has focus and so does its input. */
+function hasKeyboardFocus(term: Pick<TerminalLike, "textarea">): boolean {
+  return (
+    document.hasFocus() && term.textarea !== undefined && document.activeElement === term.textarea
+  );
 }
 
 /**
@@ -329,6 +352,8 @@ class XtermTerminalController implements TerminalController {
   private titleDisposable: Disposable | null = null;
   private altEnterDisposable: Disposable | null = null;
   private altExitDisposable: Disposable | null = null;
+  private focusReportDisposable: Disposable | null = null;
+  private focusReportTimer: ReturnType<typeof setTimeout> | null = null;
   private selectionWriteTimer: ReturnType<typeof setTimeout> | null = null;
   private oscDisposables: Disposable[] = [];
   private resizeObserver: ResizeObserverLike | null = null;
@@ -431,6 +456,12 @@ class XtermTerminalController implements TerminalController {
     this.altEnterDisposable = null;
     this.altExitDisposable?.dispose();
     this.altExitDisposable = null;
+    this.focusReportDisposable?.dispose();
+    this.focusReportDisposable = null;
+    if (this.focusReportTimer !== null) {
+      clearTimeout(this.focusReportTimer);
+      this.focusReportTimer = null;
+    }
     if (this.selectionWriteTimer !== null) {
       clearTimeout(this.selectionWriteTimer);
       this.selectionWriteTimer = null;
@@ -700,6 +731,33 @@ class XtermTerminalController implements TerminalController {
           }
         }
         return false; // 기본 xterm.js 동작(buffer swap) 그대로 진행
+      },
+    );
+
+    // A program that turns on focus reporting, as Codex does to tell whether
+    // to notify, takes the terminal as focused until told otherwise, and
+    // xterm.js reports only changes. One started behind the user's view would
+    // never hear it is not looked at, so it is told, a moment after it asks.
+    // On Windows the program's request stays inside ConPTY, which turned focus
+    // reporting on for the whole session when the shell started, so there the
+    // program is told when it sets up for input instead, turning on bracketed
+    // paste.
+    this.focusReportDisposable = term.parser.registerCsiHandler(
+      { prefix: "?", final: "h" },
+      (params) => {
+        const listening =
+          params.includes(FOCUS_REPORTING_MODE) ||
+          (params.includes(BRACKETED_PASTE_MODE) && term.modes.sendFocusMode);
+        if (this.replayWritesPending === 0 && listening) {
+          if (this.focusReportTimer !== null) clearTimeout(this.focusReportTimer);
+          this.focusReportTimer = setTimeout(() => {
+            this.focusReportTimer = null;
+            if (!this.disposed && term.modes.sendFocusMode && !hasKeyboardFocus(term)) {
+              ptyClient.write(FOCUS_OUT_REPORT);
+            }
+          }, FOCUS_REPORT_DELAY_MS);
+        }
+        return false;
       },
     );
 
