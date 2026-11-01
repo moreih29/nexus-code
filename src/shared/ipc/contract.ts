@@ -1781,6 +1781,17 @@ export const ipcContract = {
         z.object({ workspaceIds: z.array(z.string()), since: z.number() }),
         z.array(SessionSpanSchema),
       ),
+      /**
+       * Lets the user pick an element in a shown browser tab, as nexus
+       * browser pick does, for the tab's pick button. Answers with the text
+       * that tells an agent about the element, or why none was picked.
+       */
+      pickElement: call(
+        z.object({ tabId: z.string().uuid() }),
+        z.union([z.object({ text: z.string() }), z.object({ cancelled: z.string() })]),
+      ),
+      /** Ends the pick going on in a browser tab, if there is one. */
+      cancelPick: call(z.object({ tabId: z.string().uuid() }), z.void()),
     },
     listen: {
       uiRequest: listen(CliUiRequestSchema),

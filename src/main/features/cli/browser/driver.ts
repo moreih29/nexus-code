@@ -865,6 +865,11 @@ export class CdpBrowserDriver implements BrowserDriver {
     }
   }
 
+  /** Ends the pick going on in a tab, if there is one. */
+  cancelPick(tabId: string): void {
+    this.picking.get(tabId)?.end("aborted");
+  }
+
   pick(tabId: string, options: { timeoutMs: number; signal?: AbortSignal }): Promise<PickResult> {
     // The tab is taken before anything is awaited, so another pick, the
     // signal or the timeout reach this one from its start, and an earlier

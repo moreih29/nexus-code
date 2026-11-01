@@ -350,7 +350,13 @@
     "toggle_devtools": "개발자 도구 토글",
     "resize_devtools": "개발자 도구 크기 조정",
     "enter_url": "URL을 입력하거나 검색하세요",
-    "url_blocked_default": "이 URL 체계는 허용되지 않습니다."
+    "url_blocked_default": "이 URL 체계는 허용되지 않습니다.",
+    "pick_element": "에이전트에게 보낼 요소 선택",
+    "cancel_pick": "요소 선택 중지 (Esc)",
+    "pick_send_to": "요소를 보낼 터미널",
+    "pick_no_agent": "이 워크스페이스에 에이전트 터미널이 없습니다. 요소를 클립보드에 복사했습니다.",
+    "pick_terminal_closed": "그 터미널이 아직 열리지 않았습니다. 요소를 클립보드에 복사했습니다.",
+    "pick_failed": "요소를 선택하지 못했습니다: {{message}}"
   },
   "tabBar": {
     "open_tabs": "열린 탭",

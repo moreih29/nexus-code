@@ -350,7 +350,13 @@
     "toggle_devtools": "Toggle DevTools",
     "resize_devtools": "Resize DevTools",
     "enter_url": "Enter a URL or search",
-    "url_blocked_default": "This URL scheme is not allowed."
+    "url_blocked_default": "This URL scheme is not allowed.",
+    "pick_element": "Pick an element for an agent",
+    "cancel_pick": "Stop picking (Esc)",
+    "pick_send_to": "Send the element to",
+    "pick_no_agent": "No agent terminal in this workspace. The element was copied to the clipboard.",
+    "pick_terminal_closed": "That terminal has not opened. The element was copied to the clipboard.",
+    "pick_failed": "Could not pick an element: {{message}}"
   },
   "tabBar": {
     "open_tabs": "Open tabs",

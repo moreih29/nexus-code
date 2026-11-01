@@ -444,6 +444,10 @@ class XtermTerminalController implements TerminalController {
     return true;
   }
 
+  bracketedPaste(): boolean {
+    return this.term?.modes.bracketedPasteMode ?? false;
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;

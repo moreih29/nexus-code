@@ -11,7 +11,7 @@ import { CliError } from "./context";
 const UI_TIMEOUT_MS = 15_000;
 
 export interface UiWindow {
-  readonly webContents: { send(channel: string, ...args: unknown[]): void };
+  readonly webContents: { send(channel: string, ...args: unknown[]): void; focus(): void };
 }
 
 export class RendererBridge {

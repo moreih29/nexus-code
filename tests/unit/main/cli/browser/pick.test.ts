@@ -311,4 +311,10 @@ describe("the printed block", () => {
     expect(JSON.stringify(clean)).not.toMatch(/[\u0080-\u009f]|\\u001b/);
     expect(withoutControls("a\n\tb\r\u0000")).toBe("a\n\tb");
   });
+
+  test("names the browser tab for a reader who did not pick it", () => {
+    expect(formatPick(PICKED, undefined, "7c8a").split("\n")[0]).toBe(
+      "[element in browser tab 7c8a] http://localhost:5173/",
+    );
+  });
 });

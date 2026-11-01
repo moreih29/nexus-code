@@ -89,6 +89,11 @@ export interface TerminalController {
    * is gone.
    */
   nextOutput: (timeoutMs: number) => Promise<boolean>;
+  /**
+   * Whether the app in the session turned on bracketed paste, so a pasted
+   * line break stays in the paste instead of acting as Enter.
+   */
+  bracketedPaste: () => boolean;
   reopen: () => Promise<void>;
   dispose: () => void;
 }
