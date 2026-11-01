@@ -14,11 +14,18 @@
  * selector that matches one element. Input is real input events, so pages
  * see clicks and typing as a person's.
  */
-import { BaseWindow, type View, type WebContents } from "electron";
+import { BaseWindow, type Input, screen, type View, type WebContents } from "electron";
 import { CliError } from "../context";
 import { type ConsoleEntry, type ConsoleLog, watchConsole } from "./console-log";
 import { type KeyPress, parseBrowserKey } from "./keys";
-import { type AxNode, buildSnapshot, type SnapshotRef } from "./snapshot";
+import {
+  DESCRIBE_PICKED,
+  type PickCancel,
+  type PickedDetails,
+  type PickedElement,
+  type PickResult,
+} from "./pick";
+import { type AxNode, buildSnapshot, roleAndName, type SnapshotRef } from "./snapshot";
 
 export interface PageInfo {
   readonly url: string;
@@ -72,6 +79,13 @@ export interface BrowserDriver {
    * was opened behind.
    */
   settle(tabId: string): Promise<PageInfo | null>;
+  /**
+   * Highlights what is under the mouse in a shown tab until the user clicks
+   * an element, which picks it instead of clicking it, or the pick ends
+   * without one: Esc, the timeout, `signal`, or the tab hidden, closed or
+   * gone to another page.
+   */
+  pick(tabId: string, options: { timeoutMs: number; signal?: AbortSignal }): Promise<PickResult>;
 }
 
 /** Objects a command takes from the page, released when it is done. */
@@ -92,6 +106,17 @@ const PAGE_START_MS = 3_000;
 const HIDDEN_SIZE = { width: 1280, height: 800 };
 /** The tallest a --full screenshot is taken, in CSS pixels. */
 const MAX_FULL_HEIGHT = 16_384;
+/** How long a pick waits for its tab, just asked to be shown, to show. */
+const SHOW_MS = 3_000;
+/** How a pick highlights the element under the mouse: as DevTools' element picker does. */
+const PICK_HIGHLIGHT = {
+  showInfo: true,
+  showAccessibilityInfo: true,
+  contentColor: { r: 111, g: 168, b: 220, a: 0.66 },
+  paddingColor: { r: 147, g: 196, b: 125, a: 0.55 },
+  borderColor: { r: 255, g: 229, b: 153, a: 0.66 },
+  marginColor: { r: 246, g: 178, b: 107, a: 0.66 },
+};
 
 interface TabState {
   refs: ReadonlyMap<string, SnapshotRef>;
@@ -215,6 +240,8 @@ function delay(ms: number): Promise<void> {
 export class CdpBrowserDriver implements BrowserDriver {
   private readonly states = new WeakMap<WebContents, TabState>();
   private readonly consoles = new Map<string, { contents: WebContents; log: ConsoleLog }>();
+  /** Ends the pick going on in a tab. */
+  private readonly picking = new Map<string, (reason: PickCancel) => void>();
 
   constructor(
     private readonly pageOf: (tabId: string) => BrowserPage | undefined,
@@ -775,4 +802,194 @@ export class CdpBrowserDriver implements BrowserDriver {
       }
     }
   }
+
+  pick(tabId: string, options: { timeoutMs: number; signal?: AbortSignal }): Promise<PickResult> {
+    this.picking.get(tabId)?.("replaced");
+    return this.with(tabId, async (contents, state) => {
+      const deadline = Date.now() + SHOW_MS;
+      while (!this.pageOf(tabId)?.active) {
+        if (Date.now() >= deadline) {
+          throw new CliError('the browser tab is not shown; show it with "nexus tab show"');
+        }
+        await delay(WAIT_POLL_MS);
+      }
+      if (contents.isLoading()) await once(contents, "did-stop-loading", LOAD_MS);
+      const outcome = await this.inspect(tabId, contents, options);
+      if ("cancelled" in outcome) return outcome;
+      return { picked: await this.describePicked(tabId, contents, state, outcome.backendNodeId) };
+    });
+  }
+
+  /**
+   * Puts the page in DevTools' inspect mode until the user clicks an element
+   * or the pick is called off, then takes the page out of it. Esc is caught
+   * before the page gets it, so the page has the keyboard meanwhile.
+   */
+  private async inspect(
+    tabId: string,
+    contents: WebContents,
+    options: { timeoutMs: number; signal?: AbortSignal },
+  ): Promise<{ backendNodeId: number } | { cancelled: PickCancel }> {
+    // The Overlay domain works only with the DOM domain on; both stay on.
+    await this.send(contents, "DOM.enable");
+    await this.send(contents, "Overlay.enable");
+    const debug = contents.debugger;
+    return new Promise((resolve, reject) => {
+      let done = false;
+      /** Undoes what the pick set up; false when that is done already. */
+      const stop = (): boolean => {
+        if (done) return false;
+        done = true;
+        clearTimeout(timer);
+        clearInterval(watch);
+        debug.removeListener("message", onMessage);
+        debug.removeListener("detach", onDetach);
+        contents.removeListener("before-input-event", onInput);
+        contents.removeListener("did-navigate", onNavigate);
+        contents.removeListener("destroyed", onDestroyed);
+        options.signal?.removeEventListener("abort", onAbort);
+        if (this.picking.get(tabId) === end) this.picking.delete(tabId);
+        // Sent before anything a later pick sends, so it cannot undo that one.
+        // Chromium refuses "none" without a highlight config, leaving the
+        // page in inspect mode, where this session's own clicks go nowhere.
+        if (!contents.isDestroyed() && debug.isAttached()) {
+          debug
+            .sendCommand("Overlay.setInspectMode", { mode: "none", highlightConfig: {} })
+            .catch(() => {});
+          debug.sendCommand("Overlay.hideHighlight").catch(() => {});
+        }
+        return true;
+      };
+      const finish = (outcome: { backendNodeId: number } | { cancelled: PickCancel }) => {
+        if (stop()) resolve(outcome);
+      };
+      const end = (reason: PickCancel) => finish({ cancelled: reason });
+      const onMessage = (_event: unknown, method: string, params: { backendNodeId?: number }) => {
+        if (method === "Overlay.inspectNodeRequested" && params.backendNodeId !== undefined) {
+          finish({ backendNodeId: params.backendNodeId });
+        } else if (method === "Overlay.inspectModeCanceled") {
+          end("escape");
+        }
+      };
+      const onDetach = () => end("closed");
+      const onInput = (event: { preventDefault(): void }, input: Input) => {
+        if (input.type === "keyDown" && input.key === "Escape") {
+          event.preventDefault();
+          end("escape");
+        }
+      };
+      const onNavigate = () => end("navigated");
+      const onDestroyed = () => end("closed");
+      const onAbort = () => end("aborted");
+      const timer = setTimeout(() => end("timeout"), options.timeoutMs);
+      const watch = setInterval(() => {
+        if (!this.pageOf(tabId)?.active) end("hidden");
+      }, WAIT_POLL_MS);
+      debug.on("message", onMessage);
+      debug.on("detach", onDetach);
+      contents.on("before-input-event", onInput);
+      contents.on("did-navigate", onNavigate);
+      contents.once("destroyed", onDestroyed);
+      options.signal?.addEventListener("abort", onAbort);
+      this.picking.set(tabId, end);
+      if (options.signal?.aborted) {
+        end("aborted");
+        return;
+      }
+      this.send(contents, "Overlay.setInspectMode", {
+        mode: "searchForNode",
+        highlightConfig: PICK_HIGHLIGHT,
+      }).then(
+        () => {
+          if (done) return;
+          contents.focus();
+          this.hoverAtCursor(tabId, contents);
+        },
+        (error: unknown) => {
+          if (stop()) reject(error);
+        },
+      );
+    });
+  }
+
+  /**
+   * Tells inspect mode where the mouse already is. It picks what the mouse
+   * last moved over, so a click before any move would reach the page.
+   */
+  private hoverAtCursor(tabId: string, contents: WebContents): void {
+    const page = this.pageOf(tabId);
+    if (!page) return;
+    const win = BaseWindow.getAllWindows().find((w) => w.contentView.children.includes(page.view));
+    if (!win) return;
+    const cursor = screen.getCursorScreenPoint();
+    const content = win.getContentBounds();
+    const bounds = page.view.getBounds();
+    const x = cursor.x - content.x - bounds.x;
+    const y = cursor.y - content.y - bounds.y;
+    if (x < 0 || y < 0 || x >= bounds.width || y >= bounds.height) return;
+    this.send(contents, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y }).catch(() => {});
+  }
+
+  /** What the picked element is, with a ref to it and a picture of it. */
+  private async describePicked(
+    tabId: string,
+    contents: WebContents,
+    state: TabState,
+    backendNodeId: number,
+  ): Promise<PickedElement> {
+    const { object } = await this.send<{ object: RemoteObject }>(contents, "DOM.resolveNode", {
+      backendNodeId,
+      objectGroup: OBJECT_GROUP,
+    });
+    if (!object.objectId) throw new CliError("the picked element is gone from the page");
+    const details = await this.call<PickedDetails>(contents, object.objectId, DESCRIBE_PICKED);
+    let role = "";
+    let name = "";
+    try {
+      const { nodes } = await this.send<{ nodes: AxNode[] }>(
+        contents,
+        "Accessibility.getPartialAXTree",
+        { backendNodeId, fetchRelatives: false },
+      );
+      const node = nodes.find((n) => n.backendDOMNodeId === backendNodeId) ?? nodes[0];
+      if (node) ({ role, name } = roleAndName(node));
+    } catch {
+      // No accessibility node; its tag names it.
+    }
+    const ref = remember(state, { backendNodeId, role, name });
+    const png =
+      details.clip === null
+        ? undefined
+        : await this.capture(tabId, contents, {
+            format: "png",
+            clip: { ...details.clip, scale: 1 },
+          }).catch(() => undefined);
+    return {
+      url: contents.getURL(),
+      title: contents.getTitle(),
+      role,
+      name,
+      ref,
+      ...details,
+      ...(png === undefined ? {} : { png }),
+    };
+  }
+}
+
+/**
+ * A ref for `element`, so browser click and the like take it: the one the
+ * last snapshot gave it, or the next number. A snapshot of an earlier page
+ * is dropped first, as its refs no longer work.
+ */
+function remember(state: TabState, element: SnapshotRef): string {
+  if (state.loads !== state.snapshotLoads) {
+    state.refs = new Map();
+    state.snapshotLoads = state.loads;
+  }
+  for (const [ref, known] of state.refs) {
+    if (known.backendNodeId === element.backendNodeId) return ref;
+  }
+  const ref = `e${state.refs.size + 1}`;
+  state.refs = new Map(state.refs).set(ref, element);
+  return ref;
 }

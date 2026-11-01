@@ -92,6 +92,7 @@ nexus browser wait --text "Welcome"
 nexus browser screenshot --out shot.png
 nexus browser console --errors
 nexus browser eval "document.title"
+nexus browser pick                # 사용자가 클릭한 요소의 ref · 선택자 · 스크린샷
 ```
 
 - 요소는 마지막 `snapshot` 의 ref(`e12`)나, 요소 하나만 맞는 CSS 선택자로 고릅니다. 페이지가 다시 로드되면 snapshot 을 새로 찍어야 합니다.
@@ -99,6 +100,9 @@ nexus browser eval "document.title"
 - `console` 은 탭이 열린 뒤 페이지가 남긴 메시지를 최근 500개까지 보여줍니다.
 - 브라우저 탭이 여러 개면 `--tab <id>` 로 고릅니다. 하나뿐이거나 보이는 탭이 하나면 생략할 수 있습니다.
 - 페이지 안의 iframe 내용은 snapshot 에 나오지 않습니다.
+- `pick` 은 그 탭을 보여주고 마우스 아래 요소를 강조합니다. 사용자가 클릭한 요소는 클릭되지 않고 골라집니다. 역할과 이름, `click` 등에 쓸 ref, CSS 선택자, 위치, 텍스트, HTML 을 출력하고 요소 스크린샷을 임시 폴더에 저장합니다.
+  - Esc 로 취소합니다. 탭을 숨기거나 다른 페이지로 가도 취소됩니다.
+  - 기본 2분 기다립니다(`--timeout`, 최대 10분). 시간이 다 되면 종료 코드 124 입니다. 명령을 Ctrl-C 로 멈추면 강조도 바로 꺼집니다.
 
 ## 화면 배치
 
