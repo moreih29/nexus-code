@@ -1335,8 +1335,9 @@ export class GitRepository {
   }
 
   /**
-   * Converts git log stdout into typed log-entry chunks. Non-ref cursor pages
-   * seek inside the streamed top-of-scope traversal because `git log --all
+   * Converts git log stdout into typed log-entry chunks. Cursor pages seek
+   * inside the streamed top-of-scope traversal: the cursor's parents alone
+   * would leave out a merged branch's older commits, and `git log --all
    * <sha>^@` can re-emit already-loaded branch tips.
    */
   private async *streamLog(

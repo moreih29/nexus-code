@@ -216,7 +216,7 @@ func buildLogArgs(params LogParams) []string {
 	if scope == "ref" && params.Skip != nil && *params.Skip > 0 {
 		args = append(args, "--skip="+itoa(*params.Skip))
 	}
-	usesStreamCursorSeek := scope != "ref" && params.AfterSHA != ""
+	usesStreamCursorSeek := params.AfterSHA != ""
 	if params.Limit > 0 && !usesStreamCursorSeek {
 		args = append(args, "--max-count="+itoa(params.Limit+1))
 	}
@@ -229,9 +229,7 @@ func buildLogArgs(params LogParams) []string {
 	if scope == "branches" {
 		args = append(args, "--branches")
 	}
-	if scope == "ref" && params.AfterSHA != "" {
-		args = append(args, params.AfterSHA+"^@")
-	} else if scope == "ref" && params.Ref != "" {
+	if scope == "ref" && params.Ref != "" {
 		args = append(args, params.Ref)
 	}
 	if len(params.Paths) > 0 {
@@ -264,10 +262,9 @@ func logHasSource(params LogParams) bool {
 
 func (s *Service) consumeLogOutput(ctx context.Context, reader io.Reader, params LogParams, killForLimit func() error) (LogResult, error) {
 	hasSource := logHasSource(params)
-	cursorSHA := ""
-	if params.Scope != "ref" {
-		cursorSHA = params.AfterSHA
-	}
+	// The next page continues the same walk past the cursor. The cursor's
+	// parents alone would leave out a merged branch's commits older than it.
+	cursorSHA := params.AfterSHA
 	cursorReached := cursorSHA == ""
 	count := 0
 	totalScanned := 0

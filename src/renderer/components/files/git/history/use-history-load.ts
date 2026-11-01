@@ -336,7 +336,7 @@ async function loadLogPage({
       "log",
       {
         workspaceId,
-        ref: scope === "ref" && !afterSha ? refName : undefined,
+        ref: scope === "ref" ? refName : undefined,
         scope,
         afterSha,
         grep: trimmedGrep && trimmedGrep.length > 0 ? trimmedGrep : undefined,
