@@ -2,6 +2,7 @@ import { z } from "zod";
 import { StatusEntrySchema } from "../claude/status";
 import { CliUiRequestSchema, CliUiRespondArgsSchema } from "../cli/ui";
 import { TabActivityEntrySchema, TerminalWaitSchema } from "../sessions/agent-state";
+import { SessionSpanSchema } from "../sessions/history";
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
   DirEntrySchema,
@@ -1760,6 +1761,14 @@ export const ipcContract = {
       activity: call(z.object({}), z.array(TabActivityEntrySchema)),
       /** Which terminals are blocked in nexus terminal wait on which, for the sessions view. */
       waits: call(z.object({}), z.array(TerminalWaitSchema)),
+      /**
+       * What the terminals of `workspaceIds` did from `since` on, for the
+       * sessions view's timeline.
+       */
+      history: call(
+        z.object({ workspaceIds: z.array(z.string()), since: z.number() }),
+        z.array(SessionSpanSchema),
+      ),
     },
     listen: {
       uiRequest: listen(CliUiRequestSchema),

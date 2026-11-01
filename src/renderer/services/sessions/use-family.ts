@@ -1,20 +1,24 @@
 /**
  * The live data of a sessions tab: its workspace's family of sessions, the
- * output activity that tells Codex and other agents' state, and each
- * worktree's uncommitted changes. Polls only while the tab is shown.
+ * output activity that tells Codex and other agents' state, each
+ * worktree's uncommitted changes, and what the sessions did over time.
+ * Polls only while the tab is shown.
  */
 
 import { useEffect, useMemo, useState } from "react";
 import type { GitStatus } from "../../../shared/git/types";
 import type { TabActivity, TerminalWait } from "../../../shared/sessions/agent-state";
+import type { SessionSpan } from "../../../shared/sessions/history";
 import { ipcCallResult } from "../../ipc/client";
 import { useClaudeStatusStore } from "../../state/stores/claude-status";
 import { useTabsStore } from "../../state/stores/tabs";
 import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../state/stores/workspaces";
 import { buildFamily, type SessionFamily, sessionKey } from "./model";
+import { rangeStart, type TimelineRange } from "./timeline";
 
 const ACTIVITY_POLL_MS = 1_000;
 const WAITS_POLL_MS = 1_000;
+const HISTORY_POLL_MS = 2_000;
 const CHANGES_POLL_MS = 5_000;
 
 /** The current time, ticking every `everyMs` while `enabled`. */
@@ -70,6 +74,37 @@ export function useTerminalWaits(enabled: boolean): readonly TerminalWait[] {
     };
   }, [enabled]);
   return waits;
+}
+
+/**
+ * What the terminals of `workspaceIds` did over `range`, polled while
+ * `enabled`.
+ */
+export function useSessionHistory(
+  workspaceIds: readonly string[],
+  range: TimelineRange,
+  enabled: boolean,
+): readonly SessionSpan[] {
+  const ids = workspaceIds.join(",");
+  const [spans, setSpans] = useState<readonly SessionSpan[]>([]);
+  useEffect(() => {
+    if (!enabled || ids === "") return;
+    let cancelled = false;
+    const poll = async () => {
+      const result = await ipcCallResult("cli", "history", {
+        workspaceIds: ids.split(","),
+        since: rangeStart(range, Date.now()),
+      });
+      if (!cancelled && result.ok) setSpans(result.value);
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), HISTORY_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [ids, range, enabled]);
+  return spans;
 }
 
 /**

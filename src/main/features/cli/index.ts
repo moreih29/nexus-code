@@ -22,6 +22,7 @@ import { CrossWorkspaceConsent, type CrossWorkspacePolicy } from "./consent";
 import type { CliServices } from "./context";
 import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
+import { SessionHistory, type SessionSpanStore } from "./history";
 import { RendererBridge, type UiWindow } from "./renderer-bridge";
 import { StartedAgents } from "./started-agents";
 import { WaitRegistry } from "./waits";
@@ -49,6 +50,8 @@ export interface SetupCliFeatureOptions {
   };
   claudeBroker: ClaudeStatusBroker;
   activeContext: ActiveContextStore;
+  /** Where the sessions timeline's spans are kept. */
+  sessionSpans: SessionSpanStore;
   appVersion: string;
   notificationsEnabled: () => boolean;
   /** The Agent CLI settings, read on every command. */
@@ -76,6 +79,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   const bridge = new RendererBridge(options.getWindow);
   const activity = new ActivityTracker(agentHost);
   const waits = new WaitRegistry(agentHost);
+  const history = new SessionHistory(options.sessionSpans, agentHost, options.claudeBroker);
   const startedAgents = new StartedAgents(agentHost);
   const consent = new CrossWorkspaceConsent({
     policy: () => options.settings().crossWorkspace,
@@ -99,6 +103,10 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       },
       activity: async () => ipcOk(activity.snapshot()),
       waits: async () => ipcOk(waits.snapshot()),
+      history: async (args: unknown) => {
+        const { workspaceIds, since } = validateArgs(ipcContract.cli.call.history.args, args);
+        return ipcOk(history.list(workspaceIds, since));
+      },
     },
     listen: { uiRequest: {} },
   });
@@ -117,7 +125,16 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     shownTab: () => options.activeContext.get(),
     claudeStatus: (workspaceId, tabId) => options.claudeBroker.get(workspaceId, tabId),
     activity: (workspaceId, tabId) => activity.get(workspaceId, tabId),
-    waits,
+    waits: {
+      begin: (waiter, target, since) => {
+        const unlist = waits.begin(waiter, target, since);
+        const endSpan = history.beginWait(waiter, target, since);
+        return () => {
+          unlist();
+          endSpan();
+        };
+      },
+    },
     ui: <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"], timeoutMs?: number) =>
       bridge.ask(op, args, timeoutMs),
     notify: (workspaceId, tabId, title, body) =>
@@ -198,6 +215,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       stopWatchingBrowsers();
       activity.dispose();
       waits.dispose();
+      history.dispose();
       startedAgents.dispose();
       bridge.dispose();
     },

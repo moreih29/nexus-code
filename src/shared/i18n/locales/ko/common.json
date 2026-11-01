@@ -441,7 +441,8 @@
     "view": {
       "tree": "트리",
       "board": "칸반",
-      "lineage": "계보"
+      "lineage": "계보",
+      "timeline": "타임라인"
     },
     "phase": {
       "attention": "허용·입력 대기",
@@ -478,6 +479,18 @@
       "waiting": "기다리는 중 · {{duration}}",
       "sessions_one": "세션 {{count}}개",
       "sessions_other": "세션 {{count}}개"
+    },
+    "timeline": {
+      "range_label": "기간",
+      "range": {
+        "30m": "30분",
+        "2h": "2시간",
+        "today": "오늘"
+      },
+      "legend_waiting": "다른 터미널 기다림",
+      "made_by": "{{name}}에서 만듦",
+      "waiting_on": "{{name}} 기다림",
+      "empty": "이 기간에 기록된 활동이 없습니다. 활동은 앱이 켜져 있는 동안 기록되고 하루 동안 보관됩니다."
     },
     "detail": {
       "show_terminal": "터미널로 이동",

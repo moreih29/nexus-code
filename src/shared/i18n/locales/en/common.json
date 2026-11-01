@@ -441,7 +441,8 @@
     "view": {
       "tree": "Tree",
       "board": "Board",
-      "lineage": "Lineage"
+      "lineage": "Lineage",
+      "timeline": "Timeline"
     },
     "phase": {
       "attention": "Awaiting input",
@@ -478,6 +479,18 @@
       "waiting": "Waiting · {{duration}}",
       "sessions_one": "{{count}} session",
       "sessions_other": "{{count}} sessions"
+    },
+    "timeline": {
+      "range_label": "Period",
+      "range": {
+        "30m": "30 min",
+        "2h": "2 hours",
+        "today": "Today"
+      },
+      "legend_waiting": "Waiting on another terminal",
+      "made_by": "Made in {{name}}",
+      "waiting_on": "Waiting on {{name}}",
+      "empty": "Nothing was recorded in this period. Activity is recorded while the app runs and kept for a day."
     },
     "detail": {
       "show_terminal": "Go to terminal",

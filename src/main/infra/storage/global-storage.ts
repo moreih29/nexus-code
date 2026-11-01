@@ -10,6 +10,7 @@ import {
   type WorkspaceTask,
   WorkspaceTaskSchema,
 } from "../../../shared/types/workspace";
+import type { SessionSpan } from "../../../shared/sessions/history";
 import { applyMigrations, type SqliteDb } from "./migrations";
 
 // ---------------------------------------------------------------------------
@@ -848,4 +849,77 @@ export class GlobalStorage {
   removeConnectionProfile(id: string): void {
     this.db.prepare(`DELETE FROM connection_profiles WHERE id = ?`).run(id);
   }
+
+  // -------------------------------------------------------------------------
+  // Session spans — the sessions tab's timeline
+  // -------------------------------------------------------------------------
+
+  /** Records a span as it starts; returns its id, for endSessionSpan. */
+  startSessionSpan(span: Omit<SessionSpan, "end">): number {
+    const result = this.db
+      .prepare(
+        `INSERT INTO session_spans
+           (workspace_id, tab_id, state, start_at, target_workspace_id, target_tab_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        span.workspaceId,
+        span.tabId,
+        span.state,
+        span.start,
+        span.target?.workspaceId ?? null,
+        span.target?.tabId ?? null,
+      ) as { lastInsertRowid: number | bigint };
+    return Number(result.lastInsertRowid);
+  }
+
+  endSessionSpan(id: number, end: number): void {
+    this.db.prepare(`UPDATE session_spans SET end_at = ? WHERE id = ?`).run(end, id);
+  }
+
+  /** The spans of `workspaceIds` lasting until `since` or later, oldest first. */
+  listSessionSpans(workspaceIds: readonly string[], since: number): SessionSpan[] {
+    if (workspaceIds.length === 0) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM session_spans
+         WHERE workspace_id IN (${workspaceIds.map(() => "?").join(", ")})
+           AND (end_at IS NULL OR end_at >= ?)
+         ORDER BY start_at, id`,
+      )
+      .all(...workspaceIds, since) as SessionSpanRow[];
+    return rows.map((row) => ({
+      workspaceId: row.workspace_id,
+      tabId: row.tab_id,
+      state: row.state,
+      start: row.start_at,
+      end: row.end_at,
+      ...(row.target_workspace_id && row.target_tab_id
+        ? { target: { workspaceId: row.target_workspace_id, tabId: row.target_tab_id } }
+        : {}),
+    }));
+  }
+
+  /**
+   * Ends the spans a previous run left open, at their start: when it quit
+   * or crashed is not known.
+   */
+  endOpenSessionSpans(): void {
+    this.db.exec(`UPDATE session_spans SET end_at = start_at WHERE end_at IS NULL`);
+  }
+
+  /** Drops the spans that ended before `before`. */
+  pruneSessionSpans(before: number): void {
+    this.db.prepare(`DELETE FROM session_spans WHERE end_at < ?`).run(before);
+  }
+}
+
+interface SessionSpanRow {
+  workspace_id: string;
+  tab_id: string;
+  state: string;
+  start_at: number;
+  end_at: number | null;
+  target_workspace_id: string | null;
+  target_tab_id: string | null;
 }
