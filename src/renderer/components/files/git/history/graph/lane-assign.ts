@@ -1,21 +1,37 @@
 /**
  * Pure git history lane assignment for the History graph canvas.
+ *
+ * The first commit's first-parent line keeps lane 0. Every other line keeps
+ * its own lane until it reaches the commit it leads to, and joins it there,
+ * so a branch reads as one rail from where it starts to where it merges.
  */
 import type { LogEntry } from "../../../../../../shared/git/types";
 
 export const MAX_LANES = 24;
 const SPILL_LANE = MAX_LANES - 1;
+/** The color of the first commit's first-parent line. */
+export const MAINLINE_COLOR = 0;
 
-export type LaneSlot = string | null;
 export type LaneEdgeKind = "parent" | "merge";
 export type LaneCommit = Pick<LogEntry, "sha" | "parents">;
+
+/** A lane waiting for a commit, with the color of the line it carries. */
+export interface OpenLane {
+  readonly sha: string;
+  readonly color: number;
+}
+
+export type LaneSlot = OpenLane | null;
 
 export interface LaneEdge {
   readonly from: string;
   readonly to: string;
+  /** The lane of `from`. */
   readonly fromLane: number;
+  /** The lane the line runs down in; it joins `to` in whatever lane that commit takes. */
   readonly toLane: number;
   readonly kind: LaneEdgeKind;
+  readonly color: number;
   readonly spilled?: true;
 }
 
@@ -29,26 +45,29 @@ export interface LaneSpill {
 export interface LaneState {
   readonly openLanes: readonly LaneSlot[];
   readonly laneByCommit: ReadonlyMap<string, number>;
+  readonly colorByCommit: ReadonlyMap<string, number>;
   readonly edges: readonly LaneEdge[];
   readonly spills: readonly LaneSpill[];
+  /** The next commit on the first commit's first-parent line; null once that line ends. */
+  readonly mainline: string | null;
+  /** The color the next new line takes. */
+  readonly nextColor: number;
 }
 
 interface LaneDraft {
   readonly openLanes: LaneSlot[];
   readonly laneByCommit: Map<string, number>;
+  readonly colorByCommit: Map<string, number>;
   readonly edges: LaneEdge[];
   readonly spills: LaneSpill[];
+  mainline: string | null;
+  nextColor: number;
 }
 
 interface ClaimedLane {
   readonly index: number;
+  readonly color: number;
   readonly tracked: boolean;
-}
-
-interface ParentLane {
-  readonly sha: string;
-  readonly lane: number;
-  readonly spilled: boolean;
 }
 
 /** Creates an empty reducer state for a new history query or scope. */
@@ -56,8 +75,11 @@ export function initialLaneState(): LaneState {
   return {
     openLanes: [],
     laneByCommit: new Map(),
+    colorByCommit: new Map(),
     edges: [],
     spills: [],
+    mainline: null,
+    nextColor: MAINLINE_COLOR + 1,
   };
 }
 
@@ -66,8 +88,11 @@ export function reduceLanes(prev: LaneState, page: readonly LaneCommit[]): LaneS
   const draft: LaneDraft = {
     openLanes: normalizeOpenLanes(prev.openLanes),
     laneByCommit: new Map(prev.laneByCommit),
+    colorByCommit: new Map(prev.colorByCommit),
     edges: [...prev.edges],
     spills: [...prev.spills],
+    mainline: prev.mainline,
+    nextColor: prev.nextColor,
   };
 
   for (const commit of page) {
@@ -77,136 +102,170 @@ export function reduceLanes(prev: LaneState, page: readonly LaneCommit[]): LaneS
   return {
     openLanes: normalizeOpenLanes(draft.openLanes),
     laneByCommit: draft.laneByCommit,
+    colorByCommit: draft.colorByCommit,
     edges: draft.edges,
     spills: draft.spills,
+    mainline: draft.mainline,
+    nextColor: draft.nextColor,
   };
 }
 
-/** Assigns one commit, then advances open lanes to its parent commits. */
+/** Assigns one commit, then leaves its lanes waiting for its parent commits. */
 function assignCommit(draft: LaneDraft, commit: LaneCommit): void {
   const parents = uniqueParents(commit.parents);
-  const claimedLane = claimCommitLane(draft, commit.sha);
-  const parentLanes = settleParentLanes(draft, commit.sha, claimedLane, parents);
+  const onMainline = draft.laneByCommit.size === 0 || commit.sha === draft.mainline;
+  const waiting = lanesWaitingFor(draft.openLanes, commit.sha);
+  const claimedLane = claimCommitLane(draft, commit.sha, onMainline, waiting);
 
+  // Every line that led here ends at this commit.
+  for (const lane of waiting) draft.openLanes[lane] = null;
   draft.laneByCommit.set(commit.sha, claimedLane.index);
-  appendParentEdges(draft, commit.sha, claimedLane.index, parentLanes);
-}
+  draft.colorByCommit.set(commit.sha, claimedLane.color);
+  if (onMainline) draft.mainline = parents[0] ?? null;
 
-/** Reserves the lane where the current commit node is rendered. */
-function claimCommitLane(draft: LaneDraft, sha: string): ClaimedLane {
-  const existingLane = findLane(draft.openLanes, sha);
-  if (existingLane >= 0) return { index: existingLane, tracked: true };
-
-  const freeLane = findEmptyLane(draft.openLanes);
-  if (freeLane >= 0) {
-    draft.openLanes[freeLane] = sha;
-    return { index: freeLane, tracked: true };
-  }
-
-  if (draft.openLanes.length < MAX_LANES) {
-    const nextLane = draft.openLanes.length;
-    draft.openLanes.push(sha);
-    return { index: nextLane, tracked: true };
-  }
-
-  draft.spills.push({ from: sha, lane: SPILL_LANE });
-  return { index: SPILL_LANE, tracked: false };
-}
-
-/** Replaces the current commit with parents while preserving existing deduped lanes. */
-function settleParentLanes(
-  draft: LaneDraft,
-  commitSha: string,
-  claimedLane: ClaimedLane,
-  parents: readonly string[],
-): ParentLane[] {
-  if (parents.length === 0) {
-    if (claimedLane.tracked) releaseLane(draft.openLanes, claimedLane.index);
-    return [];
-  }
-
-  const firstParent = parents[0];
-  if (claimedLane.tracked) settleFirstParent(draft.openLanes, claimedLane.index, firstParent);
-
-  const parentLanes: ParentLane[] = [resolveVisibleParentLane(draft, commitSha, firstParent, 0)];
-
+  if (parents.length > 0) continueFirstParent(draft, commit.sha, claimedLane, parents[0]);
   for (let index = 1; index < parents.length; index += 1) {
-    parentLanes.push(reserveMergeParentLane(draft, commitSha, parents[index], index));
+    openMergeParent(draft, commit.sha, claimedLane, parents[index], index);
   }
 
   trimTrailingEmptyLanes(draft.openLanes);
-  return parentLanes;
 }
 
-/** Keeps the first parent in the child lane unless that parent is already visible. */
-function settleFirstParent(openLanes: LaneSlot[], claimedLane: number, firstParent: string): void {
-  const existingParentLane = findLane(openLanes, firstParent);
-  if (existingParentLane >= 0 && existingParentLane !== claimedLane) {
-    releaseLane(openLanes, claimedLane);
+/** Picks the lane the commit's node is drawn in. */
+function claimCommitLane(
+  draft: LaneDraft,
+  sha: string,
+  onMainline: boolean,
+  waiting: readonly number[],
+): ClaimedLane {
+  if (onMainline) return { index: 0, color: MAINLINE_COLOR, tracked: true };
+
+  const waitingLane = waiting[0];
+  const waitingSlot = waitingLane === undefined ? null : draft.openLanes[waitingLane];
+  if (waitingLane !== undefined && waitingSlot) {
+    return { index: waitingLane, color: waitingSlot.color, tracked: true };
+  }
+
+  const color = takeColor(draft);
+  const freeLane = reserveLane(draft);
+  if (freeLane !== null) return { index: freeLane, color, tracked: true };
+
+  draft.spills.push({ from: sha, lane: SPILL_LANE });
+  return { index: SPILL_LANE, color, tracked: false };
+}
+
+/** Keeps the first parent in the commit's own lane, so the line runs on until it gets there. */
+function continueFirstParent(
+  draft: LaneDraft,
+  commitSha: string,
+  claimedLane: ClaimedLane,
+  parentSha: string,
+): void {
+  if (claimedLane.tracked) {
+    setLane(draft.openLanes, claimedLane.index, { sha: parentSha, color: claimedLane.color });
+    draft.edges.push({
+      from: commitSha,
+      to: parentSha,
+      fromLane: claimedLane.index,
+      toLane: claimedLane.index,
+      kind: "parent",
+      color: claimedLane.color,
+    });
     return;
   }
 
-  openLanes[claimedLane] = firstParent;
-}
-
-/** Resolves a parent lane or records that the edge must end at the spill indicator. */
-function resolveVisibleParentLane(
-  draft: LaneDraft,
-  commitSha: string,
-  parentSha: string,
-  parentIndex: number,
-): ParentLane {
-  const lane = findLane(draft.openLanes, parentSha);
-  if (lane >= 0) return { sha: parentSha, lane, spilled: false };
-
-  draft.spills.push({ from: commitSha, to: parentSha, lane: SPILL_LANE, parentIndex });
-  return { sha: parentSha, lane: SPILL_LANE, spilled: true };
-}
-
-/** Reuses an existing merge parent lane or opens a capped new lane for it. */
-function reserveMergeParentLane(
-  draft: LaneDraft,
-  commitSha: string,
-  parentSha: string,
-  parentIndex: number,
-): ParentLane {
-  const existingLane = findLane(draft.openLanes, parentSha);
-  if (existingLane >= 0) return { sha: parentSha, lane: existingLane, spilled: false };
-
-  const freeLane = findEmptyLane(draft.openLanes);
-  if (freeLane >= 0) {
-    draft.openLanes[freeLane] = parentSha;
-    return { sha: parentSha, lane: freeLane, spilled: false };
-  }
-
-  if (draft.openLanes.length < MAX_LANES) {
-    const lane = draft.openLanes.length;
-    draft.openLanes.push(parentSha);
-    return { sha: parentSha, lane, spilled: false };
-  }
-
-  draft.spills.push({ from: commitSha, to: parentSha, lane: SPILL_LANE, parentIndex });
-  return { sha: parentSha, lane: SPILL_LANE, spilled: true };
-}
-
-/** Appends graph edges after all destination lanes for the row are known. */
-function appendParentEdges(
-  draft: LaneDraft,
-  commitSha: string,
-  fromLane: number,
-  parentLanes: readonly ParentLane[],
-): void {
-  for (let index = 0; index < parentLanes.length; index += 1) {
-    const parentLane = parentLanes[index];
+  // A spilled commit has no lane to keep; it joins a line already waiting for the parent.
+  const lane = draft.openLanes.findIndex((slot) => slot?.sha === parentSha);
+  const slot = lane >= 0 ? draft.openLanes[lane] : null;
+  if (slot) {
     draft.edges.push({
       from: commitSha,
-      to: parentLane.sha,
-      fromLane,
-      toLane: parentLane.lane,
-      kind: index === 0 ? "parent" : "merge",
-      ...(parentLane.spilled ? { spilled: true } : {}),
+      to: parentSha,
+      fromLane: claimedLane.index,
+      toLane: lane,
+      kind: "parent",
+      color: slot.color,
     });
+    return;
   }
+  pushSpilledEdge(draft, commitSha, claimedLane, parentSha, 0);
+}
+
+/** Joins a line already waiting for the merge parent, or opens a new one for it. */
+function openMergeParent(
+  draft: LaneDraft,
+  commitSha: string,
+  claimedLane: ClaimedLane,
+  parentSha: string,
+  parentIndex: number,
+): void {
+  const existingLane = draft.openLanes.findIndex((slot) => slot?.sha === parentSha);
+  const existingSlot = existingLane >= 0 ? draft.openLanes[existingLane] : null;
+  if (existingSlot) {
+    draft.edges.push({
+      from: commitSha,
+      to: parentSha,
+      fromLane: claimedLane.index,
+      toLane: existingLane,
+      kind: "merge",
+      color: existingSlot.color,
+    });
+    return;
+  }
+
+  const freeLane = reserveLane(draft);
+  if (freeLane === null) {
+    pushSpilledEdge(draft, commitSha, claimedLane, parentSha, parentIndex);
+    return;
+  }
+
+  const color = takeColor(draft);
+  setLane(draft.openLanes, freeLane, { sha: parentSha, color });
+  draft.edges.push({
+    from: commitSha,
+    to: parentSha,
+    fromLane: claimedLane.index,
+    toLane: freeLane,
+    kind: "merge",
+    color,
+  });
+}
+
+/** Records a parent edge that ends at the spill indicator because every lane is taken. */
+function pushSpilledEdge(
+  draft: LaneDraft,
+  commitSha: string,
+  claimedLane: ClaimedLane,
+  parentSha: string,
+  parentIndex: number,
+): void {
+  draft.spills.push({ from: commitSha, to: parentSha, lane: SPILL_LANE, parentIndex });
+  draft.edges.push({
+    from: commitSha,
+    to: parentSha,
+    fromLane: claimedLane.index,
+    toLane: SPILL_LANE,
+    kind: parentIndex === 0 ? "parent" : "merge",
+    color: claimedLane.color,
+    spilled: true,
+  });
+}
+
+/** Finds a free lane for a new line, leaving lane 0 to the mainline while it lasts. */
+function reserveLane(draft: LaneDraft): number | null {
+  const firstLane = draft.mainline === null ? 0 : 1;
+  for (let lane = firstLane; lane < draft.openLanes.length; lane += 1) {
+    if (draft.openLanes[lane] === null) return lane;
+  }
+  const nextLane = Math.max(firstLane, draft.openLanes.length);
+  return nextLane < MAX_LANES ? nextLane : null;
+}
+
+/** Hands out the next line color. */
+function takeColor(draft: LaneDraft): number {
+  const color = draft.nextColor;
+  draft.nextColor += 1;
+  return color;
 }
 
 /** Returns parents in git's first-parent order with duplicate shas removed. */
@@ -223,39 +282,26 @@ function uniqueParents(parents: readonly string[]): string[] {
   return unique;
 }
 
-/** Copies caller-provided lanes into the reducer's compact capped shape. */
+/** Copies caller-provided lanes into the reducer's capped shape. */
 function normalizeOpenLanes(openLanes: readonly LaneSlot[]): LaneSlot[] {
-  const seen = new Set<string>();
-  const normalized: LaneSlot[] = [];
-
-  for (const lane of openLanes.slice(0, MAX_LANES)) {
-    if (!lane || seen.has(lane)) {
-      normalized.push(null);
-      continue;
-    }
-
-    seen.add(lane);
-    normalized.push(lane);
-  }
-
+  const normalized = openLanes.slice(0, MAX_LANES).map((slot) => slot ?? null);
   trimTrailingEmptyLanes(normalized);
   return normalized;
 }
 
-/** Finds the lane that is currently waiting for the requested commit. */
-function findLane(openLanes: readonly LaneSlot[], sha: string): number {
-  return openLanes.indexOf(sha);
+/** Lists every lane waiting for the commit; several lines may lead to one commit. */
+function lanesWaitingFor(openLanes: readonly LaneSlot[], sha: string): number[] {
+  const lanes: number[] = [];
+  openLanes.forEach((slot, lane) => {
+    if (slot?.sha === sha) lanes.push(lane);
+  });
+  return lanes;
 }
 
-/** Finds the first reusable lane gap left by a closed branch. */
-function findEmptyLane(openLanes: readonly LaneSlot[]): number {
-  return openLanes.indexOf(null);
-}
-
-/** Marks a lane as closed while keeping lower-index active lanes stable. */
-function releaseLane(openLanes: LaneSlot[], lane: number): void {
-  openLanes[lane] = null;
-  trimTrailingEmptyLanes(openLanes);
+/** Fills a lane, padding any lanes before it so the array has no holes. */
+function setLane(openLanes: LaneSlot[], lane: number, slot: OpenLane): void {
+  while (openLanes.length < lane) openLanes.push(null);
+  openLanes[lane] = slot;
 }
 
 /** Removes empty lanes from the right edge so graph width can shrink. */
