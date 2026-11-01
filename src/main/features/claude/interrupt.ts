@@ -31,8 +31,17 @@ function isInterruptKey(data: string): boolean {
   return data === "\x1b" || data.includes("\x03");
 }
 
+/**
+ * The line Claude prints under the turn it stopped: "⎿  Interrupted · What
+ * should Claude do instead?", or "⎿  Interrupted by user" in older versions.
+ * Only that line counts, since a tool's output can say "Interrupted" too. The
+ * spaces may be missing: a redraw can move the cursor over cells that are
+ * blank already rather than write them.
+ */
+const INTERRUPTED_LINE = /⎿\s*Interrupted(?:\s*·|\s*by\s*user)/;
+
 function showsTurnEnded(output: string): boolean {
-  return IDLE_TITLE.test(output) || output.replace(CSI, "").includes("Interrupted");
+  return IDLE_TITLE.test(output) || INTERRUPTED_LINE.test(output.replace(CSI, ""));
 }
 
 export class ClaudeInterruptWatcher {
