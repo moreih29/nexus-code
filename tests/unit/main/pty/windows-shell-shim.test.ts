@@ -35,6 +35,7 @@ describe("wrapperHooksSettings", () => {
       "Stop",
       "SessionEnd",
       "PermissionRequest",
+      "WorktreeCreate",
     ]);
     expect(settings.hooks.Stop[0].hooks[0].command).toMatch(/^"\$\{NEXUS_AGENT_BIN\}" hook stop$/);
   });

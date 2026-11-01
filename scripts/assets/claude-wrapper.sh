@@ -76,7 +76,8 @@ cat > "$SETTINGS_FILE" <<'SETTINGS_EOF'
     "Notification": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook notification","timeout":10,"async":true}]}],
     "Stop": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook stop","timeout":10,"async":true}]}],
     "SessionEnd": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook session-end","timeout":5,"async":true}]}],
-    "PermissionRequest": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook permission-request","timeout":120}]}]
+    "PermissionRequest": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook permission-request","timeout":120}]}],
+    "WorktreeCreate": [{"hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" cli worktree claude-create -","timeout":300}]}]
   }
 }
 SETTINGS_EOF

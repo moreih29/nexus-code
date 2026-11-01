@@ -1,6 +1,6 @@
 /** nexus status, nexus workspace ... and nexus worktree ... (the app's tasks). */
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
-import { exactArgs } from "../args";
+import { CliUsageError, exactArgs } from "../args";
 import {
   type CliContext,
   CliError,
@@ -257,6 +257,64 @@ const worktreeNew: CliCommand = {
   },
 };
 
+/**
+ * A task name for the worktree Claude Code names: a subagent's worktree is
+ * "agent-" and its long id, which keeps its first seven characters, as a short
+ * commit id does.
+ */
+export function claudeWorktreeName(name: string): string {
+  const agent = /^agent-([0-9a-f]{8,})$/i.exec(name);
+  return agent ? `agent-${agent[1].slice(0, 7)}` : name;
+}
+
+/** The folder Claude Code is to work in: the task's own, on its host. */
+function taskFolder(task: WorkspaceMeta): string {
+  return task.location.kind === "local" ? task.location.rootPath : task.location.remotePath;
+}
+
+const worktreeClaudeCreate: CliCommand = {
+  path: ["worktree", "claude-create"],
+  summary: "Make the worktree Claude Code asks for, as a task, and print its folder",
+  args: "-",
+  details:
+    "Claude Code's WorktreeCreate hook, which the claude wrapper adds: the hook's JSON comes on\n" +
+    "stdin. As worktree new with an empty --command, a task with a plain shell behind the\n" +
+    "user's view; Claude Code works in the folder printed, so a worktree it makes for itself or\n" +
+    "a subagent shows as a task.",
+  hidden: true,
+  async run(ctx, { positionals }) {
+    const [source] = exactArgs(positionals, "-") as [string];
+    if (source !== "-") throw new CliUsageError('give "-" to read the hook\'s JSON from stdin');
+    let name: unknown;
+    try {
+      name = (JSON.parse(ctx.invocation.stdin ?? "") as { name?: unknown }).name;
+    } catch {
+      throw new CliError("stdin is not the WorktreeCreate hook's JSON");
+    }
+    if (typeof name !== "string" || name.trim() === "") {
+      throw new CliError("the WorktreeCreate hook's JSON has no name");
+    }
+    const [parent] = worktreeFamily(ctx, resolveWorkspace(ctx, undefined)) as [WorkspaceMeta];
+    await mayChange(ctx, parent, { kind: "worktreeNew", detail: name });
+    const { workspaceId } = await ctx.services.ui(
+      "task.create",
+      {
+        parentId: parent.id,
+        name: claudeWorktreeName(name.trim()),
+        prompt: "",
+        command: "",
+        show: false,
+        createdBy: ctx.caller,
+      },
+      TASK_TIMEOUT_MS,
+    );
+    const made = ctx.services.listWorkspaces().find((w) => w.id === workspaceId);
+    if (!made) throw new CliError("the worktree's task is gone");
+    const folder = taskFolder(made);
+    return output(folder, { ...workspaceJson(ctx, made), folder });
+  },
+};
+
 const worktreeRemove: CliCommand = {
   path: ["worktree", "remove"],
   summary: "Delete a worktree with its terminals, and its branch if asked",
@@ -313,5 +371,6 @@ export const workspaceCommands: CliCommand[] = [
   worktreeList,
   worktreeSwitch,
   worktreeNew,
+  worktreeClaudeCreate,
   worktreeRemove,
 ];

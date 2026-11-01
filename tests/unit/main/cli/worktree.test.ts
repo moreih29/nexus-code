@@ -103,6 +103,63 @@ describe("worktree new", () => {
   });
 });
 
+describe("worktree claude-create", () => {
+  /** Runs the hidden command as Claude Code's WorktreeCreate hook does, with its JSON on stdin. */
+  function hook(app: FakeApp, stdin: string, caller = { workspaceId: APP, tabId: SHELL_TAB }) {
+    return runCli(
+      CLI_COMMANDS,
+      contextFor(app, ["worktree", "claude-create", "-"], caller, { stdin }),
+    );
+  }
+
+  test("makes a task with a plain shell behind the user's view and prints only its folder", async () => {
+    const app = fakeApp();
+    const result = await hook(
+      app,
+      JSON.stringify({ hook_event_name: "WorktreeCreate", name: "feature-auth" }),
+    );
+    expect(result).toEqual({
+      stdout: "/home/u/.nexus-code/worktrees/app/fix-login\n",
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(uiArgs(app, "task.create")).toEqual({
+      parentId: APP,
+      name: "feature-auth",
+      prompt: "",
+      command: "",
+      show: false,
+      createdBy: { workspaceId: APP, tabId: SHELL_TAB },
+    });
+    expect(app.asked).toEqual([]);
+  });
+
+  test("shortens a subagent's id in the task's name", async () => {
+    const app = fakeApp();
+    await hook(app, JSON.stringify({ name: "agent-a5331c8493a024505" }));
+    expect(uiArgs(app, "task.create")).toMatchObject({ name: "agent-a5331c8" });
+  });
+
+  test("from a Claude Code inside a task, makes the worktree beside it once the user allows", async () => {
+    const app = fakeApp();
+    app.answers.push("once");
+    expect((await hook(app, JSON.stringify({ name: "agent-b1" }), IN_FIX)).exitCode).toBe(0);
+    expect(app.asked[0]?.change).toEqual({ kind: "worktreeNew", detail: "agent-b1" });
+    expect(uiArgs(app, "task.create")).toMatchObject({ parentId: APP, name: "agent-b1" });
+  });
+
+  test("fails, so Claude Code makes no worktree, on JSON without a name", async () => {
+    const app = fakeApp();
+    expect((await hook(app, "{}")).exitCode).not.toBe(0);
+    expect((await hook(app, "not json")).exitCode).not.toBe(0);
+    expect(uiArgs(app, "task.create")).toBeUndefined();
+  });
+
+  test("is not in help", async () => {
+    expect((await nexus(fakeApp(), ["help"])).stdout).not.toContain("claude-create");
+  });
+});
+
 describe("worktree remove", () => {
   test("asks, then removes it and keeps its branch", async () => {
     const app = fakeApp();
