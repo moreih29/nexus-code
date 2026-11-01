@@ -16,6 +16,7 @@ import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { TabActivity } from "./activity";
 import type { BrowserDriver } from "./browser/driver";
 import type { ChangeRequest } from "./consent";
+import type { StartedAgents } from "./started-agents";
 import type { WaitRegistry } from "./waits";
 
 /** A failure the command reports as is, with its exit code. */
@@ -63,6 +64,11 @@ export interface CliServices {
   agentContextEnabled(): boolean;
   /** The program holding a terminal's foreground; null when the agent cannot tell. */
   foregroundProcess(workspaceId: string, tabId: string): Promise<string | null>;
+  /**
+   * Terminals whose agent nexus worktree new just started with a prompt, so
+   * that a wait on one holds until the agent has begun its first turn.
+   */
+  readonly startedAgents: Pick<StartedAgents, "mark" | "since">;
   /** Time, for commands that wait. */
   readonly clock: { now(): number; sleep(ms: number): Promise<void> };
   /** Reads and drives the pages of browser tabs. */
