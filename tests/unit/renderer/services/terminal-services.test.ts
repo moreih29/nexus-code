@@ -192,8 +192,8 @@ function makeTerminalControllerDeps(
   const bufferState: { active: { type: "normal" | "alternate" } } = {
     active: { type: "alternate" },
   };
-  // DECSET 2004 state the app on the pty asked for; tests flip it.
-  const modes = { bracketedPasteMode: false };
+  // DECSET 2004 and 1004 state the app on the pty asked for; tests flip it.
+  const modes = { bracketedPasteMode: false, sendFocusMode: false };
   // The text selected in the terminal; tests set it.
   let selection = "";
   // controller.ts:317에서 attachCustomKeyEventHandler를 호출해 keydown 가로채기
@@ -314,6 +314,9 @@ function makeTerminalControllerDeps(
     },
     setBracketedPaste(on: boolean): void {
       modes.bracketedPasteMode = on;
+    },
+    setFocusReporting(on: boolean): void {
+      modes.sendFocusMode = on;
     },
     setSelection(text: string): void {
       selection = text;
@@ -845,6 +848,9 @@ describe("services/terminal controller focus", () => {
     controller.dispose();
   });
 
+  /** Past the moment a program that asked for focus reports is told about focus. */
+  const afterFocusReportDelay = (): Promise<unknown> => new Promise((r) => setTimeout(r, 300));
+
   it("tells a program turning on focus reporting that an unfocused terminal is not focused", async () => {
     const harness = makeTerminalControllerDeps();
     const controller = createTerminalController(
@@ -861,8 +867,45 @@ describe("services/terminal controller focus", () => {
     if (!decset) throw new Error("no DECSET handler");
 
     expect(decset([2004])).toBe(false);
+    await afterFocusReportDelay();
     expect(harness.ptyWrites).toEqual([]);
+
     expect(decset([1004])).toBe(false);
+    // xterm.js turns the mode on after the handler.
+    harness.setFocusReporting(true);
+    // Not at once: Codex drops what comes while it sets up.
+    expect(harness.ptyWrites).toEqual([]);
+    await afterFocusReportDelay();
+    expect(harness.ptyWrites).toEqual(["\x1b[O"]);
+
+    controller.dispose();
+  });
+
+  it("tells a program setting up for input while focus reporting is on, as under ConPTY", async () => {
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-focus-report-conpty",
+        cwd: "/workspace",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const decset = harness.getAltEnterHandler();
+    if (!decset) throw new Error("no DECSET handler");
+
+    // ConPTY turned focus reporting on when the shell started; the program's
+    // own request never reaches the terminal.
+    harness.setFocusReporting(true);
+    expect(decset([2026])).toBe(false);
+    await afterFocusReportDelay();
+    expect(harness.ptyWrites).toEqual([]);
+
+    expect(decset([2004])).toBe(false);
+    expect(decset([2004])).toBe(false);
+    await afterFocusReportDelay();
     expect(harness.ptyWrites).toEqual(["\x1b[O"]);
 
     controller.dispose();
