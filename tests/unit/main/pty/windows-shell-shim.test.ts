@@ -1,7 +1,7 @@
 /**
  * windows-shell-shim.test.ts — how each Windows shell gets a `claude` that
- * runs with the app's hooks and the nexus launchers, and the hooks file
- * taken from the wrapper.
+ * runs with the app's hooks, a `codex` with --no-daemon, and the nexus
+ * launchers, and the hooks file taken from the wrapper.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -138,6 +138,52 @@ describe("applyWindowsShellShim", () => {
       wrapperDir: BIN,
     });
     expect(wsl.env.NEXUS_WRAPPER_SELF_DIR).toBeUndefined();
+  });
+
+  test("PowerShell defines codex next to claude, or alone without the hooks", () => {
+    const both = applyWindowsShellShim({
+      shell: "pwsh.exe",
+      env: ENV,
+      settingsPath: SETTINGS,
+      codex: { cmd: false },
+    });
+    expect(decode(both.args)).toMatch(/^function global:claude \{[\s\S]*\nfunction global:codex \{/);
+    const alone = applyWindowsShellShim({ shell: "pwsh.exe", env: ENV, codex: { cmd: false } });
+    expect(alone.args?.slice(0, 2)).toEqual(["-NoExit", "-EncodedCommand"]);
+    expect(decode(alone.args)).toStartWith("function global:codex {");
+    expect(decode(alone.args)).toContain(
+      "@('agents', 'queue', 'app-server', 'remote-control', '--remote', '--no-daemon')",
+    );
+    expect(alone.env).toEqual(ENV);
+  });
+
+  test("cmd's codex macro, when the codex on PATH takes --no-daemon", () => {
+    const both = applyWindowsShellShim({
+      shell: "cmd.exe",
+      env: ENV,
+      settingsPath: SETTINGS,
+      codex: { cmd: true },
+    });
+    expect(both.env.NEXUS_CMD_INIT).toBe(
+      `doskey claude=claude --settings "${SETTINGS}" $* & doskey codex=codex --no-daemon $*`,
+    );
+    const alone = applyWindowsShellShim({ shell: "cmd.exe", env: ENV, codex: { cmd: true } });
+    expect(alone.env.NEXUS_CMD_INIT).toBe("doskey codex=codex --no-daemon $*");
+    expect(alone.args).toEqual(["/k", "%NEXUS_CMD_INIT%"]);
+    expect(applyWindowsShellShim({ shell: "cmd.exe", env: ENV, codex: { cmd: false } })).toEqual({
+      env: ENV,
+      args: undefined,
+    });
+  });
+
+  test("Git Bash has the wrappers first on PATH without the hooks too", () => {
+    const gitBash = applyWindowsShellShim({
+      shell: "C:\\Program Files\\Git\\bin\\bash.exe",
+      env: ENV,
+      wrapperDir: BIN,
+      codex: { cmd: false },
+    });
+    expect(gitBash.env.NEXUS_WRAPPER_SELF_DIR).toBe(BIN);
   });
 
   test("without the hooks file, no shell gets the wrapper or hooks, only the launchers", () => {
