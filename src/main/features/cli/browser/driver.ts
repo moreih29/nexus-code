@@ -6,13 +6,15 @@
  * a hidden page. A tab never shown has no size, though, so it is given one
  * first (see HIDDEN_SIZE), and a hidden page draws nothing by itself, while
  * Chromium sends a click only to a page that has drawn, so one is drawn
- * before each click on it (see paint).
+ * before each click on it (see paint). Off macOS a page out of the window
+ * cannot draw at all, so it is put in a hidden window for a screenshot or a
+ * click (see parked).
  *
  * Elements are named by a ref from the last snapshot ("e12") or a CSS
  * selector that matches one element. Input is real input events, so pages
  * see clicks and typing as a person's.
  */
-import type { Rectangle, WebContents } from "electron";
+import { BaseWindow, type View, type WebContents } from "electron";
 import { CliError } from "../context";
 import { type ConsoleEntry, type ConsoleLog, watchConsole } from "./console-log";
 import { type KeyPress, parseBrowserKey } from "./keys";
@@ -43,7 +45,7 @@ export type BrowserWaitCondition =
 /** A browser tab's page and the view that holds it, as the browser registry has them. */
 export interface BrowserPage {
   readonly contents: WebContents;
-  readonly view: { getBounds(): Rectangle; setBounds(bounds: Rectangle): void };
+  readonly view: View;
   /** Whether the view is in the window; a tab not shown is not. */
   readonly active: boolean;
 }
@@ -78,6 +80,8 @@ const OBJECT_GROUP = "nexus-cli";
 const NAVIGATION_START_MS = 300;
 const LOAD_MS = 15_000;
 const EVALUATE_MS = 60_000;
+/** How long a screenshot, or a click on a page not shown, waits for the page to draw. */
+const DRAW_MS = 30_000;
 const WAIT_POLL_MS = 250;
 /** How long settle waits for a tab just opened to get its page. */
 const PAGE_START_MS = 3_000;
@@ -304,6 +308,83 @@ export class CdpBrowserDriver implements BrowserDriver {
     }
   }
 
+  /** `with` for a command that has the page draw: a screenshot or a click. */
+  private withDrawn<T>(
+    tabId: string,
+    body: (contents: WebContents, state: TabState) => Promise<T>,
+  ): Promise<T> {
+    return this.with(tabId, (contents, state) => this.parked(tabId, () => body(contents, state)));
+  }
+
+  /**
+   * Runs `body` with a page that is not shown in a hidden window of its own.
+   * On macOS such a page draws when it is captured. On Windows a page out of
+   * the window has nothing to draw with, so a screenshot of it never came and
+   * a click never landed; Linux shares Windows' window code, so it is done
+   * there too. Should the tab be shown meanwhile, the app's window takes the
+   * page back.
+   */
+  private async parked<T>(tabId: string, body: () => Promise<T>): Promise<T> {
+    const page = this.pageOf(tabId);
+    if (this.mac || !page || page.active) return body();
+    const { view } = page;
+    const bounds = view.getBounds();
+    const host = new BaseWindow({
+      show: false,
+      width: bounds.width,
+      height: bounds.height,
+      skipTaskbar: true,
+      focusable: false,
+    });
+    try {
+      host.contentView.addChildView(view);
+      view.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height });
+      return await body();
+    } finally {
+      if (host.contentView.children.includes(view)) {
+        host.contentView.removeChildView(view);
+        view.setBounds(bounds);
+      }
+      host.destroy();
+    }
+  }
+
+  /**
+   * Page.captureScreenshot, which waits for the page to draw. A hidden page
+   * draws only while it is captured, so off macOS one that is not shown is
+   * captured meanwhile as Electron has a hidden page draw. Gives up after
+   * DRAW_MS rather than wait on a page that never draws.
+   */
+  private async capture(tabId: string, contents: WebContents, params: object): Promise<string> {
+    let drawing = !this.mac && this.pageOf(tabId)?.active === false;
+    const keepDrawing = async () => {
+      while (drawing && !contents.isDestroyed()) {
+        const image = await contents.capturePage(undefined, { stayHidden: true });
+        if (image.isEmpty()) await delay(WAIT_POLL_MS);
+      }
+    };
+    keepDrawing().catch(() => {});
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new CliError(
+              `the page did not draw in ${DRAW_MS / 1000} s; show its tab with "nexus tab show" and try again`,
+            ),
+          ),
+        DRAW_MS,
+      );
+    });
+    try {
+      const shot = this.send<{ data: string }>(contents, "Page.captureScreenshot", params);
+      return (await Promise.race([shot, timeout])).data;
+    } finally {
+      drawing = false;
+      clearTimeout(timer);
+    }
+  }
+
   private async locate(contents: WebContents, state: TabState, target: string): Promise<Located> {
     if (/^e\d+$/.test(target)) {
       const ref = state.refs.get(target);
@@ -484,7 +565,7 @@ export class CdpBrowserDriver implements BrowserDriver {
    */
   private async paint(tabId: string, contents: WebContents): Promise<void> {
     if (this.pageOf(tabId)?.active) return;
-    await this.send(contents, "Page.captureScreenshot", {
+    await this.capture(tabId, contents, {
       format: "jpeg",
       quality: 1,
       clip: { x: 0, y: 0, width: 1, height: 1, scale: 1 },
@@ -496,7 +577,7 @@ export class CdpBrowserDriver implements BrowserDriver {
     target: string,
     options: { double: boolean; force: boolean },
   ): Promise<ActionResult> {
-    return this.with(tabId, async (contents, state) => {
+    return this.withDrawn(tabId, async (contents, state) => {
       const el = await this.locate(contents, state, target);
       const at = await this.point(contents, el);
       await this.paint(tabId, contents);
@@ -591,12 +672,8 @@ export class CdpBrowserDriver implements BrowserDriver {
   }
 
   screenshot(tabId: string, options: { full: boolean }): Promise<string> {
-    return this.with(tabId, async (contents) => {
-      if (!options.full) {
-        return (
-          await this.send<{ data: string }>(contents, "Page.captureScreenshot", { format: "png" })
-        ).data;
-      }
+    return this.withDrawn(tabId, async (contents) => {
+      if (!options.full) return this.capture(tabId, contents, { format: "png" });
       const metrics = await this.send<{
         cssContentSize?: { width: number; height: number };
         contentSize: { width: number; height: number };
@@ -609,13 +686,7 @@ export class CdpBrowserDriver implements BrowserDriver {
         height: Math.min(Math.ceil(size.height), MAX_FULL_HEIGHT),
         scale: 1,
       };
-      return (
-        await this.send<{ data: string }>(contents, "Page.captureScreenshot", {
-          format: "png",
-          captureBeyondViewport: true,
-          clip,
-        })
-      ).data;
+      return this.capture(tabId, contents, { format: "png", captureBeyondViewport: true, clip });
     });
   }
 
