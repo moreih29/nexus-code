@@ -9,6 +9,7 @@ import { GitBranch } from "lucide-react";
 import { type FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { isImeComposing } from "@/utils/ime";
 import {
   interrupt,
   removeTask,
@@ -249,17 +250,26 @@ function SendLine({ session }: { session: AgentSession }) {
       setSending(false);
     }
   };
+  // Enter sends and Shift+Enter starts a new line, as in Claude Code; the
+  // lines go as one paste, so the session takes them as one input.
+  const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== "Enter" || event.shiftKey || isImeComposing(event)) return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  };
   return (
     <form onSubmit={submit} className="flex flex-col gap-1">
-      <div className="flex gap-2">
-        <input
-          type="text"
+      <div className="flex items-end gap-2">
+        <textarea
+          rows={1}
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onKeyDown={onKeyDown}
           placeholder={t("sessions.detail.send_placeholder")}
           aria-label={t("sessions.detail.send_placeholder")}
           className={cn(
-            "min-w-0 flex-1 rounded-(--radius-control) border border-border bg-background px-2 py-1",
+            "app-scrollbar field-sizing-content max-h-40 min-w-0 flex-1 resize-none overflow-y-auto",
+            "rounded-(--radius-control) border border-border bg-background px-2 py-1.5",
             "text-app-body text-foreground outline-none placeholder:text-muted-foreground",
             "focus-visible:ring-1 focus-visible:ring-ring",
           )}
