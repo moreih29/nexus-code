@@ -11,7 +11,9 @@
  *   without their quotes. A PowerShell command such as `echo` shows the
  *   backslashes this adds.
  * - cmd.exe: double quotes, with any double quote doubled, which programs
- *   read back as one. cmd still expands `%NAME%` of a defined variable.
+ *   read back as one, and the backslashes before it and at the end doubled.
+ *   A `%` is left outside the quotes behind a `^`, so `%NAME%` reaches the
+ *   program as typed instead of as the variable's value.
  * - Any other shell: single quotes, with a single quote written as `'\''`.
  *
  * Line breaks become spaces: typed into a shell, they would run the line.
@@ -21,8 +23,20 @@ export function quoteShellArgument(text: string, shellPath?: string): string {
   const shell = shellPath?.split(/[\\/]/).pop()?.toLowerCase() ?? "";
   if (shell === "powershell.exe") return powerShellString(escapeForCommandLine(oneLine));
   if (shell === "pwsh.exe" || shell === "pwsh") return powerShellString(oneLine);
-  if (shell === "cmd.exe") return `"${oneLine.replaceAll('"', '""')}"`;
+  if (shell === "cmd.exe") return cmdString(oneLine);
   return `'${oneLine.replaceAll("'", "'\\''")}'`;
+}
+
+/**
+ * A double-quoted cmd argument. cmd replaces `%NAME%` before it reads the
+ * carets and quotes, so `"a"^%"b"^%"c"` asks for a variable named `"b"^`,
+ * which none is, and then the caret leaves the `%` as it is.
+ */
+function cmdString(text: string): string {
+  return text
+    .split("%")
+    .map((part) => `"${part.replace(/(\\*)"/g, '$1$1""').replace(/(\\+)$/, "$1$1")}"`)
+    .join("^%");
 }
 
 /** A single-quoted PowerShell string, which also takes the typographic single quotes as quotes. */
