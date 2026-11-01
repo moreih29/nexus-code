@@ -243,13 +243,7 @@ func (s *Server) Close() error {
 		closeErr = s.listener.Close()
 
 		// 아직 살아 있는 in-flight 연결에 응답 생략 동등(exit 0) 응답을 보내고 닫는다.
-		s.inflight.Range(func(key, val any) bool {
-			s.inflight.Delete(key)
-			conn := val.(net.Conn)
-			_ = writeNDJSON(conn, hookWireResponse{OK: true})
-			conn.Close()
-			return true
-		})
+		s.ReleaseHooks()
 		s.closeCLI()
 
 		_ = os.Remove(s.socketPath)
@@ -336,11 +330,20 @@ func (s *Server) handleConn(conn net.Conn) {
 		Payload:       req.Payload,
 		AssistantText: req.AssistantText,
 	}
+	delivered := false
 	if sink != nil {
 		if err := sink("claude.hook", payload); err != nil {
-			// sink 오류는 경고만 출력하고 deadline timer로 자연 처리되도록 한다.
 			fmt.Fprintf(os.Stderr, "hookserver: sink error for hookId %s: %v\n", hookID, err)
+		} else {
+			delivered = true
 		}
+	}
+	if !delivered {
+		// No app heard the hook (none is attached, or its link just broke), so
+		// none will answer: answer now as the deadline would, rather than hold
+		// a waiting PermissionRequest for connDeadline.
+		s.respondDefault(hookID)
+		return
 	}
 
 	// deadline goroutine: connDeadline 이내에 Respond()가 없으면 default 응답을 보낸다.
@@ -354,15 +357,31 @@ func (s *Server) handleConn(conn net.Conn) {
 		case <-timer.C:
 		case <-s.done:
 		}
-		// LoadAndDelete가 entry를 찾으면 Respond()가 아직 호출되지 않은 것이다.
-		val, deleted := s.inflight.LoadAndDelete(hookID)
-		if deleted {
-			c := val.(net.Conn)
-			// exit 0 응답 생략 동등 — Claude Code가 native fallback으로 처리한다.
-			_ = writeNDJSON(c, hookWireResponse{OK: true})
-			c.Close()
-		}
+		s.respondDefault(hookID)
 	}()
+}
+
+// ReleaseHooks answers every hook still waiting with the default response.
+// The daemon calls it when the app that heard them goes away: an app that
+// attaches next never heard them, so would never answer them.
+func (s *Server) ReleaseHooks() {
+	s.inflight.Range(func(key, _ any) bool {
+		s.respondDefault(key.(string))
+		return true
+	})
+}
+
+// respondDefault answers a hook no one else has answered with the default
+// response, as exit 0 with no output, which Claude Code takes as its native
+// fallback. A hook Respond() already answered is gone from inflight and left
+// alone.
+func (s *Server) respondDefault(hookID string) {
+	val, deleted := s.inflight.LoadAndDelete(hookID)
+	if deleted {
+		c := val.(net.Conn)
+		_ = writeNDJSON(c, hookWireResponse{OK: true})
+		c.Close()
+	}
 }
 
 // connDeadline 은 연결당 응답 대기 시간을 반환한다.

@@ -404,6 +404,72 @@ func TestDeadline_DefaultResponse(t *testing.T) {
 	}
 }
 
+// TestUndeliveredHook_DefaultResponseAtOnce checks that a hook no app heard
+// (the sink failed, as it does once the app's link is gone) is answered at
+// once, not after the deadline.
+func TestUndeliveredHook_DefaultResponseAtOnce(t *testing.T) {
+	srv := newTestServer(t, func(string, any) error {
+		return fmt.Errorf("write: broken pipe")
+	})
+	// A deadline the test would notice waiting for.
+	srv.testDeadlineNs.Store(int64(time.Minute))
+
+	conn := dialAndSendRequest(t, srv.SocketPath(), hookWireRequest{
+		Type:        "hook",
+		Token:       srv.Token(),
+		WorkspaceID: "ws-1",
+		TabID:       "tab-1",
+		Subcommand:  "permission-request",
+		Payload:     json.RawMessage(`{}`),
+	})
+	defer conn.Close()
+
+	resp := readResponse(t, conn, 2*time.Second)
+	if !resp.OK || resp.Stdout != "" {
+		t.Errorf("response: want ok with no stdout, got %+v", resp)
+	}
+	empty := true
+	srv.inflight.Range(func(any, any) bool {
+		empty = false
+		return false
+	})
+	if !empty {
+		t.Error("an undelivered hook is still in flight")
+	}
+}
+
+// TestReleaseHooks_AnswersWaitingHooks checks that the hooks an app heard but
+// never answered are answered once the daemon releases them, as it does when
+// that app goes away.
+func TestReleaseHooks_AnswersWaitingHooks(t *testing.T) {
+	heard := make(chan struct{}, 1)
+	srv := newTestServer(t, func(string, any) error {
+		heard <- struct{}{}
+		return nil
+	})
+	srv.testDeadlineNs.Store(int64(time.Minute))
+
+	conn := dialAndSendRequest(t, srv.SocketPath(), hookWireRequest{
+		Type:        "hook",
+		Token:       srv.Token(),
+		WorkspaceID: "ws-1",
+		TabID:       "tab-1",
+		Subcommand:  "permission-request",
+		Payload:     json.RawMessage(`{}`),
+	})
+	defer conn.Close()
+	select {
+	case <-heard:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the hook")
+	}
+
+	srv.ReleaseHooks()
+	if resp := readResponse(t, conn, 2*time.Second); !resp.OK || resp.Stdout != "" {
+		t.Errorf("response: want ok with no stdout, got %+v", resp)
+	}
+}
+
 // -----------------------------------------------------------------------
 // (f) Close가 listener + 모든 inflight conn 닫음 + 소켓 unlink
 // -----------------------------------------------------------------------
