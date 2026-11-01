@@ -9,6 +9,7 @@ import { relativeTime } from "../utils/relative-time";
 import type { HistoryListBreakpoint } from "./list";
 
 const HISTORY_ROW_GRID_CLASS_BY_BREAKPOINT: Record<HistoryListBreakpoint, string> = {
+  compact: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,1fr)_24px] items-center gap-2",
   narrow: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,1fr)_8ch_24px] items-center gap-2",
   medium:
     "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_8ch_7ch_24px] items-center gap-2",
@@ -56,9 +57,10 @@ export function HistoryRow({
 }: HistoryRowProps) {
   const shortSha = entry.shortSha ?? entry.sha.slice(0, 7);
   const subject = entry.subject || "(no subject)";
-  const showRefs = breakpoint !== "narrow";
+  const showRefs = breakpoint === "medium" || breakpoint === "wide";
   const showAuthor = breakpoint === "wide";
-  const showSha = breakpoint !== "narrow";
+  const showTime = breakpoint !== "compact";
+  const showSha = breakpoint === "medium" || breakpoint === "wide";
   const rowTitle = `${subject}\nAuthor: ${entry.authorName}\nSHA: ${entry.sha}`;
 
   /** Opens the commit action menu aligned to the row or action trigger. */
@@ -130,9 +132,11 @@ export function HistoryRow({
           {entry.authorName}
         </span>
       ) : null}
-      <span className="truncate text-right text-muted-foreground" title={entry.authoredAt}>
-        {relativeTime(entry.authoredAt)}
-      </span>
+      {showTime ? (
+        <span className="truncate text-right text-muted-foreground" title={entry.authoredAt}>
+          {relativeTime(entry.authoredAt)}
+        </span>
+      ) : null}
       {showSha ? (
         <span className="truncate font-mono text-muted-foreground" title={entry.sha}>
           {shortSha}

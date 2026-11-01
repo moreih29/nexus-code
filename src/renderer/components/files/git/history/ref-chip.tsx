@@ -17,7 +17,7 @@ const POPOVER_MAX_HEIGHT_PX = 240;
 
 export type RefChipDisplayKind = "head" | "current" | "branch" | "remote" | "tag";
 export type RefChipVisibleCount = 1 | 2;
-export type RefChipListBreakpoint = "narrow" | "medium" | "wide";
+export type RefChipListBreakpoint = "compact" | "narrow" | "medium" | "wide";
 export type RefChipContextMenuHandler = (
   event: React.MouseEvent<HTMLElement>,
   refInfo?: LogEntryRef,
@@ -125,7 +125,7 @@ export function RefChipList({
   }, [closePopover, popoverOpen]);
 
   if (orderedRefs.length === 0) return null;
-  if (breakpoint === "narrow") {
+  if (breakpoint === "compact" || breakpoint === "narrow") {
     if (!headRef) return null;
     return (
       <span ref={wrapperRef} className="inline-flex min-w-0 items-center">
