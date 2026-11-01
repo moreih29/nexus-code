@@ -6,10 +6,12 @@ import { describe, expect, it } from "bun:test";
 import { resolveSelection } from "../../../../../src/renderer/components/sessions/selection";
 import {
   buildFamily,
+  estimatedGlyph,
   type FamilyInput,
   firstSession,
   phaseCounts,
   phaseOf,
+  workspaceEstimatedGlyph,
 } from "../../../../../src/renderer/services/sessions/model";
 import type { Tab } from "../../../../../src/renderer/state/stores/tabs";
 import type { StatusEntry } from "../../../../../src/shared/claude/status";
@@ -261,6 +263,55 @@ describe("buildFamily", () => {
     expect(family?.worktrees[0].sessions.map((s) => [s.tabId, s.agent])).toEqual([
       ["up", "claude"],
     ]);
+  });
+});
+
+describe("the tab bar and sidebar glyphs of agents told by their output", () => {
+  const codex = terminal("c", "codex");
+  const busy = { lastOutputAt: NOW - 500 };
+  const done = { lastOutputAt: NOW - 9_500, lastNotice: { body: "5", at: NOW - 10_000 } };
+
+  it("shows running while the agent prints and a done turn until it is looked at", () => {
+    expect(estimatedGlyph(codex, busy, undefined, NOW, false)).toBe("running");
+    expect(estimatedGlyph(codex, done, undefined, NOW, false)).toBe("completed");
+    expect(estimatedGlyph(codex, done, NOW - 20_000, NOW, false)).toBe("completed");
+    expect(estimatedGlyph(codex, done, NOW - 1_000, NOW, false)).toBeNull();
+  });
+
+  it("counts a turn that ends in front of the user as looked at", () => {
+    expect(estimatedGlyph(codex, done, undefined, NOW, true)).toBeNull();
+    expect(estimatedGlyph(codex, busy, undefined, NOW, true)).toBe("running");
+  });
+
+  it("shows nothing for a quiet agent, a shell, or an ended terminal", () => {
+    expect(estimatedGlyph(codex, { lastOutputAt: NOW - 10_000 }, undefined, NOW, false)).toBeNull();
+    expect(estimatedGlyph(terminal("s", "zsh"), busy, undefined, NOW, false)).toBeNull();
+    expect(estimatedGlyph(terminal("x", "codex", true), busy, undefined, NOW, false)).toBeNull();
+    expect(estimatedGlyph(codex, undefined, undefined, NOW, false)).toBeNull();
+  });
+
+  it("gives a workspace the strongest glyph of its and its tasks' terminals Claude has no state for", () => {
+    const tabs = {
+      [ROOT]: { run: terminal("run", "codex"), claude: terminal("claude", "claude") },
+      [TASK]: { done: terminal("done", "codex") },
+    };
+    const sessions = {
+      tabsByWorkspace: tabs,
+      claudeByWorkspace: { [ROOT]: { claude: claude("idle") } },
+      activity: new Map([
+        [`${ROOT}:run`, busy],
+        // Claude's own terminal prints too; its hooks tell its state.
+        [`${ROOT}:claude`, busy],
+        [`${TASK}:done`, done],
+      ]),
+      now: NOW,
+      seenByWorkspace: {},
+    };
+    expect(workspaceEstimatedGlyph(sessions, [ROOT], null)).toBe("running");
+    expect(workspaceEstimatedGlyph(sessions, [ROOT, TASK], null)).toBe("completed");
+    expect(workspaceEstimatedGlyph(sessions, [ROOT, TASK], `${TASK}:done`)).toBe("running");
+    const claudeOnly = { ...sessions, activity: new Map([[`${ROOT}:claude`, busy]]) };
+    expect(workspaceEstimatedGlyph(claudeOnly, [ROOT, TASK], null)).toBeNull();
   });
 });
 

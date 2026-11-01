@@ -4,39 +4,23 @@
  */
 
 import { useEffect, useState } from "react";
-import { createLogger } from "../../../shared/log/renderer";
 import type { TabActivity } from "../../../shared/sessions/agent-state";
 import { ipcCallResult } from "../../ipc/client";
-import { computeActiveContext } from "../../state/claude-active-context-sync";
 import { useActiveStore } from "../../state/stores/active";
 import { useAppFocusStore } from "../../state/stores/app-focus";
 import { useClaudeStatusStore } from "../../state/stores/claude-status";
 import { useLayoutStore } from "../../state/stores/layout/store";
 import { useSessionSeenStore } from "../../state/stores/session-seen";
+import { useTabActivityStore } from "../../state/stores/tab-activity";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { requestTabFocus } from "../tab-focus";
 import { showTerminal } from "./actions";
+import { readTabActivity } from "./activity-poll";
 import { buildInbox, type Inbox, type InboxItem, nextInboxItem, sameInbox } from "./inbox";
-import { type AgentSession, activityByKey, sessionKey } from "./model";
+import type { AgentSession } from "./model";
+import { viewingKey } from "./viewing";
 
-const log = createLogger("inbox");
-
-/**
- * How often Codex and other agents' output activity is read. Claude's state
- * is pushed; theirs only tells a finished turn, which can wait a moment.
- */
-const INBOX_POLL_MS = 2_000;
-
-/**
- * The terminal in front of the user, by session key: the active one, while
- * the app window has focus.
- */
-export function viewingKey(): string | null {
-  if (!useAppFocusStore.getState().focused) return null;
-  const { workspaceId, tabId } = computeActiveContext();
-  return workspaceId !== null && tabId !== null ? sessionKey(workspaceId, tabId) : null;
-}
 
 /** The inbox of every workspace as the stores and `activity` tell it now. */
 function inboxNow(activity: ReadonlyMap<string, TabActivity>): Inbox {
@@ -53,24 +37,16 @@ function inboxNow(activity: ReadonlyMap<string, TabActivity>): Inbox {
 
 /**
  * The inbox of every workspace, kept current: rebuilt as the stores change
- * and as the clock and the activity poll move on. The button showing it is
+ * and as the clock and the activity reads move on. The button showing it is
  * always there, so a rebuild that lists the same keeps the inbox it had and
  * renders nothing.
  */
 export function useInbox(): Inbox {
-  const [inbox, setInbox] = useState(() => inboxNow(new Map()));
+  const [inbox, setInbox] = useState(() => inboxNow(useTabActivityStore.getState().activity));
   useEffect(() => {
-    let activity: ReadonlyMap<string, TabActivity> = new Map();
-    let cancelled = false;
     const update = (): void => {
-      const next = inboxNow(activity);
+      const next = inboxNow(useTabActivityStore.getState().activity);
       setInbox((prev) => (sameInbox(prev, next) ? prev : next));
-    };
-    const poll = async (): Promise<void> => {
-      const result = await ipcCallResult("cli", "activity", {});
-      if (cancelled) return;
-      if (result.ok) activity = activityByKey(result.value);
-      update();
     };
     const stops = [
       useWorkspacesStore.subscribe(update),
@@ -80,23 +56,20 @@ export function useInbox(): Inbox {
       useActiveStore.subscribe(update),
       useLayoutStore.subscribe(update),
       useAppFocusStore.subscribe(update),
+      useTabActivityStore.subscribe(update),
     ];
-    void poll();
-    const timer = setInterval(() => void poll(), INBOX_POLL_MS);
+    update();
     return () => {
-      cancelled = true;
-      clearInterval(timer);
       for (const stop of stops) stop();
     };
   }, []);
   return inbox;
 }
 
-/** The inbox as it is now, read once. */
+/** The inbox as it is now, its activity read afresh. */
 async function readInbox(): Promise<Inbox> {
-  const result = await ipcCallResult("cli", "activity", {});
-  if (!result.ok) log.warn(`activity read failed: ${result.message}`);
-  return inboxNow(activityByKey(result.ok ? result.value : []));
+  await readTabActivity();
+  return inboxNow(useTabActivityStore.getState().activity);
 }
 
 /** Shows the session's terminal with the keyboard in it, to answer it. */
