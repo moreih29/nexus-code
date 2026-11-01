@@ -480,6 +480,7 @@ app.whenReady().then(async () => {
     agentHost: agentPtyHost,
     workspaceManager,
     claudeBroker: claudeSetup.broker,
+    claudeActivity: claudeSetup.activity,
     activeContext: claudeSetup.activeContext,
     sessionSpans: globalStorage,
     appVersion: app.getVersion(),

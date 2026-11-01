@@ -285,6 +285,13 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  // The agent a span is of (JSON, SpanAgent), when not its terminal's session.
+  {
+    version: 9,
+    up: (db) => {
+      db.exec(`ALTER TABLE session_spans ADD COLUMN agent TEXT`);
+    },
+  },
 ];
 
 export function applyMigrations(db: SqliteDb): void {

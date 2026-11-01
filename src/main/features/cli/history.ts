@@ -1,12 +1,18 @@
 /**
  * What each terminal's agent did over time, for the sessions tab's timeline:
- * Claude Code's states as its hooks report them, spans of output from other
- * agents (busy as describeTerminal tells it), and waits on other terminals.
- * Spans are stored as they start and end, and kept for a day.
+ * Claude Code's states as its hooks report them, the agents a Claude session
+ * runs, spans of output from other agents (busy as describeTerminal tells
+ * it), and waits on other terminals. Spans are stored as they start and end,
+ * and kept for a day.
  */
+import type { AgentRun } from "../../../shared/claude/activity";
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import { BUSY_WINDOW_MS, type TerminalRef } from "../../../shared/sessions/agent-state";
-import { SESSION_HISTORY_RETENTION_MS, type SessionSpan } from "../../../shared/sessions/history";
+import {
+  SESSION_HISTORY_RETENTION_MS,
+  type SessionSpan,
+  type SpanAgent,
+} from "../../../shared/sessions/history";
 import type { ActivitySource } from "./activity";
 
 export interface SessionSpanStore {
@@ -27,6 +33,13 @@ export interface ClaudeStatusSource {
   ): () => void;
 }
 
+/** Tells as the agents of Claude sessions start, change state and end. */
+export interface AgentRunSource {
+  onAgentChange(
+    listener: (workspaceId: string, tabId: string, agent: AgentRun) => void,
+  ): () => void;
+}
+
 const PRUNE_EVERY_MS = 60 * 60_000;
 
 export class SessionHistory {
@@ -36,6 +49,8 @@ export class SessionHistory {
   private readonly busy = new Map<string, { id: number; lastOutputAt: number }>();
   /** Each waiting terminal's open wait spans. */
   private readonly waits = new Map<string, Set<number>>();
+  /** Each running agent's open span, by its terminal's key and its id. */
+  private readonly agents = new Map<string, { id: number; state: string }>();
   private readonly disposers: Array<() => void> = [];
 
   constructor(
@@ -67,6 +82,15 @@ export class SessionHistory {
     this.disposers.push(
       () => clearInterval(sweep),
       () => clearInterval(prune),
+    );
+  }
+
+  /** Records the agents `source` tells of. */
+  watchAgents(source: AgentRunSource): void {
+    this.disposers.push(
+      source.onAgentChange((workspaceId, tabId, agent) =>
+        this.agentChanged({ workspaceId, tabId }, agent),
+      ),
     );
   }
 
@@ -105,6 +129,8 @@ export class SessionHistory {
     const now = this.now();
     for (const { id } of this.claude.values()) this.store.endSessionSpan(id, now);
     this.claude.clear();
+    for (const { id } of this.agents.values()) this.store.endSessionSpan(id, now);
+    this.agents.clear();
     for (const key of [...this.busy.keys()]) this.endBusy(key, now);
     for (const key of [...this.waits.keys()]) this.exited(key);
   }
@@ -126,6 +152,25 @@ export class SessionHistory {
     this.endBusy(key, at);
     const id = this.store.startSessionSpan({ ...terminal, state: entry.status, start: at });
     this.claude.set(key, { id, status: entry.status });
+  }
+
+  /**
+   * An agent's spans: one for each state it runs in, then one with no length
+   * as it ends, telling how.
+   */
+  private agentChanged(terminal: TerminalRef, run: AgentRun): void {
+    const key = `${keyOf(terminal)}:${run.id}`;
+    const open = this.agents.get(key);
+    if (run.end === undefined && open?.state === run.state) return;
+    const at = run.end ?? (open ? this.now() : run.start);
+    if (open) {
+      this.store.endSessionSpan(open.id, at);
+      this.agents.delete(key);
+    }
+    const agent = spanAgentOf(run);
+    const id = this.store.startSessionSpan({ ...terminal, state: run.state, start: at, agent });
+    if (run.end === undefined) this.agents.set(key, { id, state: run.state });
+    else this.store.endSessionSpan(id, at);
   }
 
   private output(terminal: TerminalRef): void {
@@ -167,6 +212,16 @@ export class SessionHistory {
   private prune(): void {
     this.store.pruneSessionSpans(this.now() - SESSION_HISTORY_RETENTION_MS);
   }
+}
+
+function spanAgentOf(run: AgentRun): SpanAgent {
+  return {
+    id: run.id,
+    kind: run.kind,
+    ...(run.type !== undefined ? { type: run.type } : {}),
+    ...(run.model !== undefined ? { model: run.model } : {}),
+    ...(run.description !== undefined ? { description: run.description } : {}),
+  };
 }
 
 function keyOf(terminal: TerminalRef): string {

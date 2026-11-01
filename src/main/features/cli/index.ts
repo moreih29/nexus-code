@@ -32,7 +32,7 @@ import { CrossWorkspaceConsent, type CrossWorkspacePolicy } from "./consent";
 import { type CliServices, shortId } from "./context";
 import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
-import { SessionHistory, type SessionSpanStore } from "./history";
+import { type AgentRunSource, SessionHistory, type SessionSpanStore } from "./history";
 import { RendererBridge, type UiWindow } from "./renderer-bridge";
 import { StartedAgents } from "./started-agents";
 import { WaitRegistry } from "./waits";
@@ -62,6 +62,8 @@ export interface SetupCliFeatureOptions {
     activate(id: string): Promise<void>;
   };
   claudeBroker: ClaudeStatusBroker;
+  /** The agents of Claude sessions, for the timeline's spans of them. */
+  claudeActivity?: AgentRunSource;
   activeContext: ActiveContextStore;
   /** Where the sessions timeline's spans are kept. */
   sessionSpans: SessionSpanStore;
@@ -109,6 +111,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   );
   const waits = new WaitRegistry(agentHost);
   const history = new SessionHistory(options.sessionSpans, agentHost, options.claudeBroker);
+  if (options.claudeActivity) history.watchAgents(options.claudeActivity);
   const startedAgents = new StartedAgents(agentHost);
   const consent = new CrossWorkspaceConsent({
     policy: () => options.settings().crossWorkspace,
