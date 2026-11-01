@@ -48,7 +48,7 @@ export interface WaitResult {
   /** False when the wait timed out. */
   readonly done: boolean;
   /**
-   * What ended it: idle, completed, needsInput, permissionPending, notStarted,
+   * What ended it: idle, completed, needsInput, permissionPending, error, notStarted,
    * notified, exited, matched, timeout.
    */
   readonly state: string;
@@ -75,6 +75,12 @@ function claudeResult(status: string, message: string | undefined): WaitResult {
       return settled(
         status,
         `Claude Code is waiting for the user${message ? `: ${message}` : "."}`,
+        message,
+      );
+    case "error":
+      return settled(
+        status,
+        `Claude Code stopped on an error${message ? `: ${message}` : "."}`,
         message,
       );
     case "permissionPending":

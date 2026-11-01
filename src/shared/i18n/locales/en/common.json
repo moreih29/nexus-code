@@ -551,7 +551,8 @@
     "needsPermissionTool": "Claude needs permission: {{tool}}",
     "permissionRequired": "Permission Required",
     "responseComplete": "Response complete",
-    "terminalFallback": "Terminal"
+    "terminalFallback": "Terminal",
+    "turnFailed": "Claude stopped on an error"
   },
   "saveConfirm": {
     "title": "Do you want to save the changes you made to {{filename}}?",

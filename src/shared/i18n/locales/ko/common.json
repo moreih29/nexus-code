@@ -551,7 +551,8 @@
     "needsPermissionTool": "Claude가 권한을 요청합니다: {{tool}}",
     "permissionRequired": "권한 필요",
     "responseComplete": "응답 완료",
-    "terminalFallback": "터미널"
+    "terminalFallback": "터미널",
+    "turnFailed": "오류로 Claude가 멈췄습니다"
   },
   "saveConfirm": {
     "title": "{{filename}}의 변경사항을 저장하시겠습니까?",

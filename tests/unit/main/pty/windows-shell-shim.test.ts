@@ -36,6 +36,7 @@ describe("wrapperHooksSettings", () => {
       "SubagentStop",
       "Notification",
       "Stop",
+      "StopFailure",
       "SessionEnd",
       "PermissionRequest",
       "WorktreeCreate",
