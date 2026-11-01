@@ -6,6 +6,7 @@
  */
 import { z } from "zod";
 import type { ClaudeStatus } from "../claude/status";
+import { isLoginShell } from "../pty/login-shell";
 
 /** Output newer than this means the terminal is busy. */
 export const BUSY_WINDOW_MS = 2_000;
@@ -93,7 +94,10 @@ export function describeTerminal(
     };
   }
   const busy = activity !== null && now - activity.lastOutputAt < BUSY_WINDOW_MS;
-  const agent = agentFromProgram(activity?.program) ?? agentFromTitle(title);
+  // With the shell in front, a title an agent set and the shell kept names no agent.
+  const shellInFront = activity?.program !== undefined && isLoginShell(activity.program);
+  const agent =
+    agentFromProgram(activity?.program) ?? (shellInFront ? undefined : agentFromTitle(title));
   const notice = activity?.lastNotice;
   const notified =
     activity !== null &&

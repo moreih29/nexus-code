@@ -207,6 +207,26 @@ describe("buildFamily", () => {
       ["c", "codex", "quiet"],
     ]);
   });
+
+  it("counts no agent by a title the shell kept once it is back in front", () => {
+    const family = buildFamily(
+      input({
+        tabsByWorkspace: {
+          [ROOT]: {
+            gone: terminal("gone", "✳ Claude Code"),
+            up: terminal("up", "✳ Claude Code"),
+          },
+        },
+        activity: new Map([
+          [`${ROOT}:gone`, { lastOutputAt: NOW - 10_000, program: "-zsh" }],
+          [`${ROOT}:up`, { lastOutputAt: NOW - 10_000, program: "node" }],
+        ]),
+      }),
+    );
+    expect(family?.worktrees[0].sessions.map((s) => [s.tabId, s.agent])).toEqual([
+      ["up", "claude"],
+    ]);
+  });
 });
 
 describe("what to show first", () => {
