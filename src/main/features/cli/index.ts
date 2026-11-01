@@ -3,7 +3,12 @@
  * agents relay from their terminals, runs the command, and answers through
  * the same agent.
  */
-import { type CliInvocation, CliRequestSchema, type CliResult } from "../../../shared/cli/protocol";
+import {
+  CliCancelSchema,
+  type CliInvocation,
+  CliRequestSchema,
+  type CliResult,
+} from "../../../shared/cli/protocol";
 import type { CliUiOp, CliUiOps } from "../../../shared/cli/ui";
 import { FsStatSchema } from "../../../shared/fs/types";
 import { ipcContract } from "../../../shared/ipc/contract";
@@ -38,7 +43,7 @@ const DISABLED_QUIETLY: CliResult = { stdout: "", stderr: "", exitCode: 0 };
 
 export interface SetupCliFeatureOptions {
   /**
-   * Relays the agents' "cli.request" events and the terminals' output, and
+   * Relays the agents' "cli.request" and "cli.cancel" events and the terminals' output, and
    * asks a terminal's agent which program holds its foreground.
    */
   agentHost: ActivitySource & { call(method: string, args: unknown): Promise<unknown> };
@@ -178,14 +183,21 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     browser,
   };
 
-  const run = (caller: { workspaceId: string; tabId: string }, request: CliInvocation) => {
+  const run = (
+    caller: { workspaceId: string; tabId: string },
+    request: CliInvocation,
+    signal: AbortSignal,
+  ) => {
     if (!options.settings().enabled) {
       // The SessionStart hook asks for the agent note in every session; it gets none.
       if (request.argv[0] === "agent-context") return Promise.resolve(DISABLED_QUIETLY);
       return Promise.resolve(DISABLED);
     }
-    return runCli(CLI_COMMANDS, { caller, invocation: request, services });
+    return runCli(CLI_COMMANDS, { caller, invocation: request, services, signal });
   };
+
+  /** The requests still running, to abort when their client goes. */
+  const running = new Map<string, AbortController>();
 
   const respond = async (workspaceId: string, requestId: string, response: CliResult) => {
     const channel = await workspaceManager.tryGetAgentChannel(workspaceId);
@@ -203,16 +215,27 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       return;
     }
     const { requestId, workspaceId, tabId, request } = parsed.data;
-    run({ workspaceId, tabId }, request)
-      .then((result) => respond(workspaceId, requestId, result))
+    const controller = new AbortController();
+    running.set(requestId, controller);
+    run({ workspaceId, tabId }, request, controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted) return respond(workspaceId, requestId, result);
+      })
       .catch((error: unknown) => {
         log.warn(`cli request ${requestId} failed: ${(error as Error).message}`);
-      });
+      })
+      .finally(() => running.delete(requestId));
+  });
+  const offCancel = agentHost.on("cli.cancel", (payload) => {
+    const parsed = CliCancelSchema.safeParse(payload);
+    if (parsed.success) running.get(parsed.data.requestId)?.abort();
   });
 
   return {
     dispose: () => {
       off();
+      offCancel();
+      for (const controller of running.values()) controller.abort();
       stopWatchingBrowsers();
       activity.dispose();
       waits.dispose();

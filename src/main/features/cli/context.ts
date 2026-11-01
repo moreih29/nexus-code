@@ -80,6 +80,8 @@ export interface CliContext {
   readonly caller: { readonly workspaceId: string; readonly tabId: string };
   readonly invocation: CliInvocation;
   readonly services: CliServices;
+  /** Aborted when the command's client has gone, as one stopped with Ctrl-C. */
+  readonly signal?: AbortSignal;
 }
 
 /** Ids are shown this long; any unique prefix of at least MIN_PREFIX is taken. */

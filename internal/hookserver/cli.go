@@ -3,6 +3,7 @@ package hookserver
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"time"
 )
@@ -12,6 +13,8 @@ import (
 // main as a "cli.request" event, and main's answer comes back through the
 // "cli.respond" method. A command may wait on the app for a long time, as
 // `nexus terminal wait` does, so a CLI connection lives longer than a hook's.
+// A client that goes before the answer, as one stopped with Ctrl-C, is told
+// to main as a "cli.cancel" event, so the command can stop as well.
 
 // cliDeadline is the longest a CLI request waits for main's answer. It is
 // longer than the longest wait a command accepts, so the command's own
@@ -25,6 +28,14 @@ type CLIEventPayload struct {
 	WorkspaceID string          `json:"workspaceId"`
 	TabID       string          `json:"tabId"`
 	Request     json.RawMessage `json:"request"`
+}
+
+// CLICancelPayload is the "cli.cancel" event main receives when a request's
+// client has gone. Field names match CliCancelSchema in
+// src/shared/cli/protocol.ts.
+type CLICancelPayload struct {
+	RequestID   string `json:"requestId"`
+	WorkspaceID string `json:"workspaceId"`
 }
 
 // cliWireResponse is the frame the CLI client reads back. Result is main's
@@ -70,6 +81,16 @@ func (s *Server) handleCLI(conn net.Conn, req hookWireRequest) {
 		}
 		return
 	}
+
+	go func() {
+		// The client sends nothing after its frame, so the read ends only
+		// when it goes away or the answer closes the connection.
+		_, _ = io.Copy(io.Discard, conn)
+		if val, ok := s.cliInflight.LoadAndDelete(requestID); ok {
+			val.(net.Conn).Close()
+			_ = sink("cli.cancel", CLICancelPayload{RequestID: requestID, WorkspaceID: req.WorkspaceID})
+		}
+	}()
 
 	deadline := s.cliDeadline()
 	go func() {

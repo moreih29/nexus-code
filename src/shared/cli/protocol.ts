@@ -31,6 +31,15 @@ export const CliRequestSchema = z.object({
 });
 export type CliRequest = z.infer<typeof CliRequestSchema>;
 
+/**
+ * The "cli.cancel" event: the request's client went before the answer, as
+ * one stopped with Ctrl-C. Matches CLICancelPayload in internal/hookserver.
+ */
+export const CliCancelSchema = z.object({
+  requestId: z.string().min(1),
+  workspaceId: z.string().min(1),
+});
+
 /** A file the command writes on its own host, such as a screenshot. */
 export interface CliFile {
   readonly path: string;
