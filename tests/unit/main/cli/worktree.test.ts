@@ -63,6 +63,27 @@ describe("worktree new", () => {
     expect(uiArgs(app, "task.create")).toMatchObject({ prompt: "", show: true });
   });
 
+  test("--command runs another agent, and an empty one a plain shell", async () => {
+    const app = fakeApp();
+    const result = await nexus(app, [
+      "worktree",
+      "new",
+      "pay",
+      "--command",
+      "codex -m gpt-5.5",
+      "--prompt",
+      "add refunds",
+    ]);
+    expect(uiArgs(app, "task.create")).toMatchObject({ command: "codex -m gpt-5.5" });
+    expect(result.stdout).toContain("Its terminal cccccccc runs codex -m gpt-5.5 with the prompt.");
+
+    const shell = fakeApp();
+    expect((await nexus(shell, ["worktree", "new", "pay", "--command", ""])).stdout).toContain(
+      "Its terminal is cccccccc; terminal commands reach it with --workspace 33333333.\n",
+    );
+    expect(uiArgs(shell, "task.create")).toMatchObject({ command: "" });
+  });
+
   test("from a worktree, branches off the workspace it belongs to", async () => {
     const app = fakeApp();
     app.answers.push("once");

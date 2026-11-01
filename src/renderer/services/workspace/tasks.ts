@@ -53,13 +53,14 @@ export interface StartedTask {
 
 /**
  * Creates a task of `parentId` without switching to it. Its first terminal
- * runs the task agent command with `prompt` once the terminal starts, which
- * is when the task's panel is mounted.
+ * runs `agentCommand` (the task agent command unless given) with `prompt`
+ * once the terminal starts, which is when the task's panel is mounted.
  */
 export async function startTask(
   parentId: string,
   name: string,
   prompt: string,
+  agentCommand?: string,
 ): Promise<StartedTask | TaskFailure> {
   const result = await ipcCallResult("task", "create", { parentId, name });
   if (!result.ok) return { kind: result.kind, message: result.message };
@@ -72,7 +73,7 @@ export async function startTask(
   // A workspace that has a tab gets no terminal from its panel, so this is
   // the task's only one.
   const { tabId } = openTerminal({ workspaceId: task.id, cwd: task.rootPath });
-  const command = resolvedTaskAgentCommand();
+  const command = agentCommand?.trim() ?? resolvedTaskAgentCommand();
   if (command !== "") {
     queueStartupInput(
       task.id,

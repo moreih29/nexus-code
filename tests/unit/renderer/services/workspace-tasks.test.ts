@@ -123,6 +123,15 @@ describe("createTask", () => {
     expect(calls.some((c) => c.method === "activate")).toBe(false);
   });
 
+  it("startTask runs the command it is given over the setting", async () => {
+    createResult = { ok: true, value: task };
+
+    const started = await startTask(PARENT, "fix login", "fix it", " codex -m gpt-5.5 ");
+
+    expect(started).toMatchObject({ command: "codex -m gpt-5.5" });
+    expect(startup).toEqual([{ tabId: "tab-1", line: "codex -m gpt-5.5 'fix it'\r" }]);
+  });
+
   it("opens a plain terminal when the agent command is empty", async () => {
     createResult = { ok: true, value: task };
     useTerminalStore.setState({ taskAgentCommand: "" });

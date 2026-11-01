@@ -62,12 +62,15 @@ nexus terminal wait build --exit                   # 터미널이 끝날 때까�
 ```bash
 nexus worktree new "로그인 수정" --prompt "로그인 후 원래 보던 페이지로 돌아가게 고쳐줘"
 nexus terminal wait <터미널 id> --workspace <작업 id>  # 출력된 명령 그대로. 그 에이전트가 끝날 때까지
+nexus worktree new 환불 --command "codex -m gpt-5.5" --prompt "환불 API 추가해줘"   # 다른 에이전트 · 인자로
 nexus worktree remove "로그인 수정" --delete-branch
 ```
 
 - `worktree new` 는 앱의 **새 작업…** 과 같습니다.
   - 지금 HEAD 에서 이름을 딴 브랜치와 워크트리를 만듭니다. 작업 안에서 실행하면 그 작업이 속한 워크스페이스에서 만듭니다.
-  - 작업 터미널에서 작업 에이전트 명령(설정 › 터미널, 기본 `claude`)을 `--prompt` 와 함께 실행합니다. 그 터미널을 기다리는 명령을 출력합니다. 작업은 다른 워크스페이스라서 `terminal` 명령에 `--workspace` 가 필요합니다.
+  - 작업 터미널에서 작업 에이전트 명령(설정 › 터미널, 기본 `claude`)을 `--prompt` 와 함께 실행합니다. 프롬프트는 명령의 맨 뒤 인자로 붙습니다.
+  - `--command` 를 주면 그 작업에서만 설정 대신 그 명령을 씁니다. 에이전트를 고르고 인자도 붙일 수 있습니다(`--command "codex -m gpt-5.5"`, `--command "claude --model opus"`). `--command ""` 면 에이전트 없이 셸만 엽니다.
+  - 그 터미널을 기다리는 명령을 출력합니다. 작업은 다른 워크스페이스라서 `terminal` 명령에 `--workspace` 가 필요합니다.
   - 사용자 화면은 그대로 둡니다. `--show` 면 그 작업으로 전환합니다.
 - `worktree remove` 는 앱의 **이 작업 삭제…** 와 같습니다.
   - 작업의 터미널을 닫고(실행 중인 프로그램 포함) 워크트리 폴더를 지웁니다. 브랜치는 `--delete-branch` 일 때만 지웁니다.

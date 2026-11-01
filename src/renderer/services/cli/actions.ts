@@ -224,8 +224,8 @@ export const actionHandlers: {
     return {};
   },
 
-  "task.create": async ({ parentId, name, prompt, show }) => {
-    const started = await startTask(parentId, name, prompt);
+  "task.create": async ({ parentId, name, prompt, command, show }) => {
+    const started = await startTask(parentId, name, prompt, command);
     if (!("task" in started)) throw new UiRequestError(started.message);
     // Its terminal starts once its panel is mounted, shown or not.
     if (show) activateWorkspace(started.task.id);

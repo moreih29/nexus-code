@@ -200,10 +200,16 @@ const worktreeNew: CliCommand = {
   details:
     "As New Task in the app: a branch named after <name> from the workspace's HEAD, its worktree,\n" +
     "and a terminal there running the task agent command (Settings › Terminal; claude by\n" +
-    "default) with --prompt. It starts behind the user's view unless --show. Its terminal's id\n" +
-    "is printed for terminal wait/read/send, which reach it with --workspace <its id>.",
+    "default), or --command, with --prompt as its last argument; an empty --command opens a\n" +
+    "plain shell. It starts behind the user's view unless --show. Its terminal's id is printed\n" +
+    "for terminal wait/read/send, which reach it with --workspace <its id>.",
   flags: {
     prompt: { type: "string", value: "TEXT", description: "The agent's first prompt" },
+    command: {
+      type: "string",
+      value: "CMD",
+      description: 'Run CMD, as "codex -m MODEL", instead of the task agent command',
+    },
     show: { type: "boolean", description: "Switch the user to it" },
     workspace: WORKSPACE_FLAG,
   },
@@ -218,7 +224,13 @@ const worktreeNew: CliCommand = {
     await mayChange(ctx, parent, { kind: "worktreeNew", detail: name });
     const { workspaceId, tabId, command } = await ctx.services.ui(
       "task.create",
-      { parentId: parent.id, name, prompt, show: flags.show === true },
+      {
+        parentId: parent.id,
+        name,
+        prompt,
+        ...(flags.command === undefined ? {} : { command: flags.command as string }),
+        show: flags.show === true,
+      },
       TASK_TIMEOUT_MS,
     );
     const made = ctx.services.listWorkspaces().find((w) => w.id === workspaceId);

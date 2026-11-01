@@ -265,11 +265,11 @@ export interface CliUiOps {
   };
   /**
    * Makes a task of `parentId`, as New Task does: its worktree, branch and a
-   * terminal running the task agent command with `prompt`. Shown if `show`,
-   * else started behind the user's view.
+   * terminal running `command` (the task agent command when absent) with
+   * `prompt`. Shown if `show`, else started behind the user's view.
    */
   "task.create": {
-    args: { parentId: string; name: string; prompt: string; show: boolean };
+    args: { parentId: string; name: string; prompt: string; command?: string; show: boolean };
     /** `command` is the agent command its terminal runs, "" for none. */
     result: { workspaceId: string; tabId: string; command: string };
   };

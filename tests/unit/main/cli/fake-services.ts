@@ -264,7 +264,12 @@ export function fakeApp(now = Date.now()): FakeApp {
     }
     // Any worktree made is "fix-login".
     if (op === "task.create") {
-      return { workspaceId: FIX, tabId: NEW_TAB, command: "claude" } as CliUiOps[K]["result"];
+      const { command } = args as CliUiOps["task.create"]["args"];
+      return {
+        workspaceId: FIX,
+        tabId: NEW_TAB,
+        command: command ?? "claude",
+      } as CliUiOps[K]["result"];
     }
     if (op === "browser.open") {
       const { url } = args as CliUiOps["browser.open"]["args"];
