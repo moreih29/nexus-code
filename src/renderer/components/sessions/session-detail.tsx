@@ -155,7 +155,8 @@ function SessionBody({ session, visible }: { session: AgentSession; visible: boo
           {t("sessions.detail.permission_hint")}
         </p>
       ) : (
-        session.state !== "exited" && <SendLine session={session} />
+        // Keyed by the session, so a draft never carries over to another one.
+        session.state !== "exited" && <SendLine key={session.key} session={session} />
       )}
       {session.prompt && (
         <DetailSection title={t("sessions.detail.prompt")}>
