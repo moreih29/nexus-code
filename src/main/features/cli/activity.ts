@@ -5,7 +5,9 @@
  * (OSC 9/777/99, as Codex sends when a turn ends) stand in for that state,
  * and the program in its foreground tells which agent it is.
  */
+import { isLoginShell } from "../../../shared/pty/login-shell";
 import {
+  agentFromProgram,
   BUSY_WINDOW_MS,
   type TabActivity,
   type TabActivityEntry,
@@ -32,12 +34,17 @@ export class ActivityTracker {
   private readonly byTab = new Map<string, TabActivity>();
   private readonly disposers: Array<() => void> = [];
   private readonly settleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Each terminal's timer for its output going quiet. */
+  private readonly quietTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** When each terminal's foreground program was last asked for. */
+  private readonly lookedAt = new Map<string, number>();
 
   constructor(
     source: ActivitySource,
     private readonly now: () => number = Date.now,
     private readonly foreground?: ForegroundLookup,
     private readonly settleMs: number = PROGRAM_SETTLE_MS,
+    private readonly quietMs: number = BUSY_WINDOW_MS,
   ) {
     this.disposers.push(
       source.on("data", (args) => {
@@ -57,6 +64,9 @@ export class ActivityTracker {
         this.byTab.delete(key);
         clearTimeout(this.settleTimers.get(key));
         this.settleTimers.delete(key);
+        clearTimeout(this.quietTimers.get(key));
+        this.quietTimers.delete(key);
+        this.lookedAt.delete(key);
       }),
     );
   }
@@ -77,6 +87,9 @@ export class ActivityTracker {
     for (const dispose of this.disposers.splice(0)) dispose();
     for (const timer of this.settleTimers.values()) clearTimeout(timer);
     this.settleTimers.clear();
+    for (const timer of this.quietTimers.values()) clearTimeout(timer);
+    this.quietTimers.clear();
+    this.lookedAt.clear();
     this.byTab.clear();
   }
 
@@ -96,6 +109,34 @@ export class ActivityTracker {
     if (!previous || at - previous.lastOutputAt >= BUSY_WINDOW_MS) {
       this.watchProgram(workspaceId, tabId);
     }
+    if (this.foreground && !this.quietTimers.has(key)) this.watchQuiet(workspaceId, tabId);
+  }
+
+  /**
+   * Looks at the foreground program again once output goes quiet, when the
+   * last look was before output ended: an agent that printed until it exited,
+   * as Codex does, has left the shell in front, which no look has seen.
+   */
+  private watchQuiet(workspaceId: string, tabId: string, delay = this.quietMs): void {
+    const key = `${workspaceId}:${tabId}`;
+    this.quietTimers.set(
+      key,
+      setTimeout(() => {
+        this.quietTimers.delete(key);
+        const current = this.byTab.get(key);
+        if (!current) return;
+        const quietFor = this.now() - current.lastOutputAt;
+        if (quietFor < this.quietMs) {
+          this.watchQuiet(workspaceId, tabId, this.quietMs - quietFor);
+          return;
+        }
+        // The look once output settles comes after this, and sees it.
+        if (this.settleTimers.has(key)) return;
+        if ((this.lookedAt.get(key) ?? 0) < current.lastOutputAt) {
+          void this.lookProgram(workspaceId, tabId);
+        }
+      }, delay),
+    );
   }
 
   /**
@@ -106,22 +147,42 @@ export class ActivityTracker {
     const lookup = this.foreground;
     if (!lookup) return;
     const key = `${workspaceId}:${tabId}`;
-    const look = () =>
-      lookup(workspaceId, tabId).then(
-        (program) => {
-          const current = this.byTab.get(key);
-          if (current) this.byTab.set(key, { ...current, program: program ?? undefined });
-        },
-        () => {},
-      );
-    void look();
+    void this.lookProgram(workspaceId, tabId);
     clearTimeout(this.settleTimers.get(key));
     this.settleTimers.set(
       key,
       setTimeout(() => {
         this.settleTimers.delete(key);
-        void look();
+        void this.lookProgram(workspaceId, tabId);
       }, this.settleMs),
     );
+  }
+
+  /**
+   * Records the terminal's foreground program. An agent that has given the
+   * shell back is gone, and so is what it last notified: its session ended.
+   */
+  private async lookProgram(workspaceId: string, tabId: string): Promise<void> {
+    const lookup = this.foreground;
+    if (!lookup) return;
+    const key = `${workspaceId}:${tabId}`;
+    const askedAt = this.now();
+    this.lookedAt.set(key, askedAt);
+    let program: string | null;
+    try {
+      program = await lookup(workspaceId, tabId);
+    } catch {
+      return;
+    }
+    const current = this.byTab.get(key);
+    if (!current) return;
+    const { lastNotice, ...rest } = current;
+    const ended =
+      agentFromProgram(current.program) !== undefined && program !== null && isLoginShell(program);
+    this.byTab.set(key, {
+      ...rest,
+      ...(lastNotice && !(ended && lastNotice.at <= askedAt) ? { lastNotice } : {}),
+      program: program ?? undefined,
+    });
   }
 }

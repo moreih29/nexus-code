@@ -90,3 +90,70 @@ test("looks at the foreground program as output starts, and again once it has se
   expect(looked).toHaveLength(3);
   expect(tracker.get("w", "t")).toBeNull();
 });
+
+/** A tracker whose foreground lookup answers from `programs`, quiet after 20 ms of its clock. */
+function looking(programs: Array<string | null>) {
+  const source = host();
+  const clock = { now: 1_000 };
+  const looked: number[] = [];
+  const tracker = new ActivityTracker(
+    source,
+    () => clock.now,
+    async () => {
+      looked.push(clock.now);
+      return programs.shift() ?? null;
+    },
+    10,
+    20,
+  );
+  const print = (at: number, chunk: string) => {
+    clock.now = at;
+    source.emit("data", { workspaceId: "w", tabId: "t", chunk });
+  };
+  const close = () => source.emit("exit", { workspaceId: "w", tabId: "t", code: 0 });
+  return { tracker, clock, looked, print, close };
+}
+
+const elapse = () => new Promise((resolve) => setTimeout(resolve, 50));
+
+test("an agent that printed until it exited: once quiet, the shell is seen and its notice goes", async () => {
+  const { tracker, clock, looked, print, close } = looking(["bash", "codex", "bash"]);
+  print(1_000, "$ ");
+  print(1_500, "› 5+6");
+  await elapse();
+  expect(tracker.get("w", "t")?.program).toBe("codex");
+  // Its turn's notification, then it exits within the same run of output.
+  print(2_000, "\x1b]9;Agent turn complete\x07");
+  print(2_500, "$ ");
+  expect(looked).toHaveLength(2);
+  clock.now = 2_600;
+  await elapse();
+  expect(looked).toHaveLength(3);
+  expect(tracker.get("w", "t")).toEqual({ lastOutputAt: 2_500, program: "bash" });
+  close();
+});
+
+test("output that ended before the look once it settled is not looked at again", async () => {
+  const { looked, clock, print, close } = looking(["bash", "bash"]);
+  print(1_000, "ls\r\n");
+  await elapse();
+  expect(looked).toHaveLength(2);
+  clock.now = 5_000;
+  await elapse();
+  expect(looked).toHaveLength(2);
+  close();
+});
+
+test("a program that is no agent keeps its notification when the shell is back", async () => {
+  const { tracker, clock, print, close } = looking(["make", "make", "zsh"]);
+  print(1_000, "building");
+  await elapse();
+  print(1_500, "\x1b]9;Build done\x07$ ");
+  clock.now = 1_600;
+  await elapse();
+  expect(tracker.get("w", "t")).toMatchObject({
+    program: "zsh",
+    lastNotice: { body: "Build done", at: 1_500 },
+  });
+  close();
+});
