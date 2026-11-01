@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # nexus-code claude wrapper - injects hooks and session tracking inside the app PTY.
 #
-# 앱 내부 PTY에서 실행될 때만 --settings(hooks JSON) + --session-id 를 주입한다.
+# 앱 내부 PTY에서 실행될 때만 --settings(hooks JSON)를 주입한다.
 # 앱 외부에서는 실제 claude 바이너리로 그대로 passthrough한다.
 
 set -euo pipefail
@@ -112,10 +112,6 @@ if [[ -n "${NEXUS_CAPTURE_SETTINGS_TO:-}" ]]; then
   cp "$SETTINGS_FILE" "$NEXUS_CAPTURE_SETTINGS_TO"
 fi
 
-# 8) 새 세션 UUID 생성 후 실제 claude 실행.
-SESSION_ID="$(uuidgen 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "")"
-if [[ -n "$SESSION_ID" ]]; then
-  exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$SETTINGS_FILE" "$@"
-else
-  exec "$REAL_CLAUDE" --settings "$SETTINGS_FILE" "$@"
-fi
+# 8) Runs claude with the hooks. No --session-id: claude refuses one with
+#    --continue or --resume, and nothing reads it.
+exec "$REAL_CLAUDE" --settings "$SETTINGS_FILE" "$@"

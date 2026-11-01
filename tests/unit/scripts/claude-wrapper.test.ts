@@ -286,6 +286,44 @@ describeOnPosix("claude-wrapper.sh — the settings file", () => {
   });
 });
 
+describeOnPosix("claude-wrapper.sh — claude's arguments", () => {
+  /** Runs the wrapper with `args` and a claude that prints the arguments it got, one a line. */
+  function argsGiven(args: string[]): string[] {
+    const binDir = path.join(tmpDir, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const fake = path.join(binDir, "claude");
+    fs.writeFileSync(fake, '#!/usr/bin/env bash\nprintf "%s\\n" "$@"\n');
+    fs.chmodSync(fake, 0o755);
+    const hookBin = path.join(tmpDir, "agent");
+    fs.writeFileSync(hookBin, "#!/usr/bin/env bash\nexit 0\n");
+    fs.chmodSync(hookBin, 0o755);
+    const result = spawnSync("bash", [WRAPPER_PATH, ...args], {
+      env: {
+        NEXUS_IN_APP: "1",
+        NEXUS_AGENT_SOCKET: socketPath,
+        NEXUS_AGENT_BIN: hookBin,
+        HOME: path.join(tmpDir, "home"),
+        PATH: `${binDir}:/bin:/usr/bin`,
+      },
+      timeout: 5000,
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(0);
+    return result.stdout.split("\n").filter((line) => line !== "");
+  }
+
+  // Claude Code refuses --session-id with --continue or --resume ("--session-id
+  // can only be used with --continue or --resume if --fork-session is also
+  // specified"), so in the app's terminals neither could pick a session up.
+  test("gives claude the hooks and the user's arguments, and no session id", () => {
+    for (const args of [[], ["--continue"], ["-r", "abc"], ["--resume"], ["-p", "hi there"]]) {
+      const given = argsGiven(args);
+      expect(given[0]).toBe("--settings");
+      expect(given.slice(2)).toEqual(args);
+    }
+  });
+});
+
 describeOnPosix("claude-wrapper.sh — 다른 wrapper 회피 (무한 루프 방지)", () => {
   /**
    * 시나리오: PATH 에 cmux 와 우리 wrapper 가 함께 있을 때, find_real_claude 가
