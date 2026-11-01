@@ -18,6 +18,7 @@
 //   user-prompt-submit → broker.set(running) + respondHook
 //   pre-tool-use       → broker.set(running) + respondHook
 //   notification       → broker.set(needsInput) + (그 탭 안 보면) OS 알림 + respondHook
+//                        (a permission dialog's notification keeps or sets permissionPending)
 //   permission-request → broker.set(permissionPending) + (그 탭 안 보면) OS 알림 + respondHook (sync, native fallback)
 //   stop               → 그 탭 보면 idle 직행 / 아니면 completed + OS 알림 + respondHook
 //   session-end        → broker.clear + respondHook
@@ -97,6 +98,18 @@ function extractNotificationMessage(payload: unknown): string | undefined {
   if (typeof payload !== "object" || payload === null) return undefined;
   const p = payload as Record<string, unknown>;
   return typeof p.message === "string" ? p.message : undefined;
+}
+
+/**
+ * Notification types Claude Code sends while a permission dialog is open; the
+ * session is waiting on a permission, not on an answer.
+ */
+const PERMISSION_NOTIFICATION_TYPES = new Set(["permission_prompt", "worker_permission_prompt"]);
+
+function isPermissionNotification(payload: unknown): boolean {
+  if (typeof payload !== "object" || payload === null) return false;
+  const type = (payload as Record<string, unknown>).notification_type;
+  return typeof type === "string" && PERMISSION_NOTIFICATION_TYPES.has(type);
 }
 
 /**
@@ -253,6 +266,22 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
       // Claude Code 알림 — needsInput + message 전환.
       // 사용자가 그 탭을 보고 있지 않으면 OS 알림 발사.
       const message = extractNotificationMessage(hookPayload);
+      if (isPermissionNotification(hookPayload)) {
+        // The dialog's own notification: PermissionRequest usually came first
+        // and already set the state and notified, so it is kept as it is.
+        if (broker.get(workspaceId, tabId)?.status !== "permissionPending") {
+          broker.set(workspaceId, tabId, "permissionPending", message);
+          if (!isViewingThisTab) {
+            const title = `[${workspaceName}] ${t ? t("common:claudeNotification.permissionRequired") : "Permission Required"}`;
+            const body =
+              message ??
+              (t ? t("common:claudeNotification.needsPermission") : "Claude needs permission");
+            fireOsNotification(workspaceId, tabId, title, body, deps);
+          }
+        }
+        await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
+        break;
+      }
       broker.set(workspaceId, tabId, "needsInput", message);
 
       if (!isViewingThisTab) {
