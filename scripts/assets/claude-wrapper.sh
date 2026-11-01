@@ -46,9 +46,18 @@ if [[ "${NEXUS_IN_APP:-0}" == "1" && -n "${NEXUS_AGENT_SOCKET:-}" ]] && socket_e
   IN_APP=1
 fi
 
+# A claude started inside this tab's own Claude session, as `claude -p` from
+# its Bash tool or a script it runs, is not the tab's agent: its hooks would
+# report its session as the tab's, and its SessionEnd would clear the state
+# of the session still running. It runs without them. The mark is the tab's
+# id, so a terminal of an app started from inside one still gets them.
+if [[ "$IN_APP" == "1" && -n "${NEXUS_TAB_ID:-}" && "${NEXUS_CLAUDE_TAB_ID:-}" == "$NEXUS_TAB_ID" ]]; then
+  IN_APP=0
+fi
+
 REAL_CLAUDE="$(find_real_claude)" || { echo "claude not found in PATH" >&2; exit 127; }
 
-# 3) 앱 외부: 변경 없이 passthrough.
+# 3) 앱 외부, or inside the tab's Claude session: 변경 없이 passthrough.
 if [[ "$IN_APP" == "0" ]]; then
   exec "$REAL_CLAUDE" "$@"
 fi
@@ -113,5 +122,7 @@ if [[ -n "${NEXUS_CAPTURE_SETTINGS_TO:-}" ]]; then
 fi
 
 # 8) Runs claude with the hooks. No --session-id: claude refuses one with
-#    --continue or --resume, and nothing reads it.
+#    --continue or --resume, and nothing reads it. Its processes carry the
+#    mark above.
+export NEXUS_CLAUDE_TAB_ID="${NEXUS_TAB_ID:-}"
 exec "$REAL_CLAUDE" --settings "$SETTINGS_FILE" "$@"
