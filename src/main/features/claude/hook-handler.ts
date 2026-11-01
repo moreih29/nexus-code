@@ -18,7 +18,8 @@
 //   user-prompt-submit → broker.set(running) + respondHook
 //   pre-tool-use       → broker.set(running) + respondHook
 //   notification       → broker.set(needsInput) + (그 탭 안 보면) OS 알림 + respondHook
-//                        (a permission dialog's notification keeps or sets permissionPending)
+//                        (a permission dialog's notification keeps or sets permissionPending;
+//                        one that only tells something, as a login or a push, only notifies)
 //   permission-request → broker.set(permissionPending) + (그 탭 안 보면) OS 알림 + respondHook (sync, native fallback)
 //   post-tool-use      → the tool waiting on the permission ran: permissionPending → running + respondHook
 //   stop               → 그 탭 보면 idle 직행 / 아니면 completed + OS 알림 + respondHook
@@ -111,9 +112,40 @@ function extractNotificationMessage(payload: unknown): string | undefined {
 const PERMISSION_NOTIFICATION_TYPES = new Set(["permission_prompt", "worker_permission_prompt"]);
 
 function isPermissionNotification(payload: unknown): boolean {
-  if (typeof payload !== "object" || payload === null) return false;
+  return PERMISSION_NOTIFICATION_TYPES.has(notificationType(payload) ?? "");
+}
+
+/**
+ * Notification types that only tell the user something: a login, a message
+ * Claude pushed, an agent of the session done, a model or quota change. Claude
+ * Code sends them in the middle of a turn too, and the session is not waiting
+ * on the user for them. Every other type (idle_prompt, elicitation_dialog,
+ * agent_needs_input, …), and one Claude Code does not name, is.
+ */
+const INFORMATIONAL_NOTIFICATION_TYPES = new Set([
+  "auth_success",
+  "auth_storage_failure",
+  "agent_completed",
+  "push_notification",
+  "computer_use_enter",
+  "computer_use_exit",
+  "quota_auto_resume_fired",
+  "quota_auto_resume_stale",
+  "quota_auto_resume_disabled",
+  "model_refusal_fallback",
+  "plugin_notification",
+  "elicitation_complete",
+  "elicitation_response",
+]);
+
+function isInformationalNotification(payload: unknown): boolean {
+  return INFORMATIONAL_NOTIFICATION_TYPES.has(notificationType(payload) ?? "");
+}
+
+function notificationType(payload: unknown): string | undefined {
+  if (typeof payload !== "object" || payload === null) return undefined;
   const type = (payload as Record<string, unknown>).notification_type;
-  return typeof type === "string" && PERMISSION_NOTIFICATION_TYPES.has(type);
+  return typeof type === "string" ? type : undefined;
 }
 
 /**
@@ -368,6 +400,15 @@ async function handleHookEvent(
               (t ? t("common:claudeNotification.needsPermission") : "Claude needs permission");
             fireOsNotification(workspaceId, tabId, title, body, deps);
           }
+        }
+        await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
+        break;
+      }
+      if (isInformationalNotification(hookPayload)) {
+        // Told, not asked: the session's state stays as it is, so a turn under
+        // way still reads running and a wait on it goes on.
+        if (!isViewingThisTab && message) {
+          fireOsNotification(workspaceId, tabId, `[${workspaceName}] Claude`, message, deps);
         }
         await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
         break;
