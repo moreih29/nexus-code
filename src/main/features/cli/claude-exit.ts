@@ -3,12 +3,24 @@
  * OOM killer) leaves its state behind: the tab reads as running for good, its
  * timeline span stays open and nexus terminal wait on it never returns. When
  * a Claude tab's output goes quiet, as it does once the shell has printed its
- * prompt, the program in its foreground is looked at: the shell back there
- * means Claude is gone, and its state is cleared as SessionEnd clears it.
+ * prompt, the program in its foreground is looked at: the shell back there,
+ * running nothing, means Claude is gone, and its state is cleared as
+ * SessionEnd clears it.
  */
 import { isLoginShell } from "../../../shared/pty/login-shell";
 import { BUSY_WINDOW_MS } from "../../../shared/sessions/agent-state";
-import type { ActivitySource, ForegroundLookup } from "./activity";
+import type { ActivitySource } from "./activity";
+
+/**
+ * The program in a terminal's foreground, or null when it cannot be told,
+ * and whether it is alone in its process group: a shell that is not waits
+ * for a program it runs. `alone` is undefined from an agent that does not
+ * tell.
+ */
+export type ForegroundGroupLookup = (
+  workspaceId: string,
+  tabId: string,
+) => Promise<{ name: string; alone: boolean | undefined } | null>;
 
 /** Claude Code's state per terminal, as the hooks' broker keeps it. */
 export interface ClaudeEntries {
@@ -26,7 +38,7 @@ export class ClaudeExitWatch {
   constructor(
     source: ActivitySource,
     private readonly claude: ClaudeEntries,
-    private readonly foreground: ForegroundLookup,
+    private readonly foreground: ForegroundGroupLookup,
     private readonly now: () => number = Date.now,
     private readonly quietMs: number = BUSY_WINDOW_MS,
   ) {
@@ -78,14 +90,15 @@ export class ClaudeExitWatch {
 
   private async check(workspaceId: string, tabId: string): Promise<void> {
     const askedAt = this.now();
-    let program: string | null;
+    let front: Awaited<ReturnType<ForegroundGroupLookup>>;
     try {
-      program = await this.foreground(workspaceId, tabId);
+      front = await this.foreground(workspaceId, tabId);
     } catch {
       return;
     }
     // Claude, or a program it runs: Claude Code installed with npm is "node".
-    if (program === null || !isLoginShell(program)) return;
+    // A shell not alone is a script's, waiting for the Claude it started.
+    if (front === null || !isLoginShell(front.name) || front.alone === false) return;
     const entry = this.claude.get(workspaceId, tabId);
     // A state set while the program was looked up is a Claude started since.
     if (entry && entry.since <= askedAt) this.claude.clear(workspaceId, tabId);

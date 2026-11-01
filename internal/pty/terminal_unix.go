@@ -68,32 +68,63 @@ func (t *terminal) setSize(cols, rows int) error {
 }
 
 // foregroundProcess returns the basename of the program in the PTY's
-// foreground process group, or "" when it cannot be told.
+// foreground process group, or "" when it cannot be told; with alone, also
+// whether it is alone in that group (see groupAlone).
 //
 // TIOCGPGRP on the master gives the foreground process group id, then
 // `ps -o comm= -p PGID` resolves the program name. The leading path is
 // stripped so callers see "lazygit" rather than "/usr/local/bin/lazygit".
-func (t *terminal) foregroundProcess() string {
+func (t *terminal) foregroundProcess(alone bool) (string, *bool) {
 	var pgid int
 	ioErr := withFd(t.File, func(fd int) (err error) {
 		pgid, err = unix.IoctlGetInt(fd, unix.TIOCGPGRP)
 		return err
 	})
 	if ioErr != nil || pgid <= 0 {
-		return ""
+		return "", nil
 	}
 	// `ps -o comm= -p PGID`: -o comm= prints only the COMM column (no header),
 	// macOS와 Linux 모두 동일한 형태로 동작. 짧은 실행 시간(~30ms)이라 alt-enter
 	// 같은 sporadic 호출에는 충분.
 	out, err := exec.Command("ps", "-o", "comm=", "-p", strconv.Itoa(pgid)).Output()
 	if err != nil {
-		return ""
+		return "", nil
 	}
 	name := strings.TrimSpace(string(out))
 	if idx := strings.LastIndex(name, "/"); idx >= 0 {
 		name = name[idx+1:]
 	}
-	return name
+	if !alone || name == "" {
+		return name, nil
+	}
+	only := groupAlone(pgid)
+	return name, &only
+}
+
+// groupAlone reports whether no process but its leader is in process group
+// pgid, as `ps -A -o pid=,pgid=` lists them; false when it cannot be told.
+//
+// A shell started to run a script runs the script's programs in its own
+// group, while an interactive shell gives each its own and takes the
+// terminal back once they end. So a shell in front that is alone sits at its
+// prompt or in a builtin, and one that is not waits for a program.
+func groupAlone(pgid int) bool {
+	out, err := exec.Command("ps", "-A", "-o", "pid=,pgid=").Output()
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		pid, pidErr := strconv.Atoi(fields[0])
+		group, groupErr := strconv.Atoi(fields[1])
+		if pidErr == nil && groupErr == nil && group == pgid && pid != pgid {
+			return false
+		}
+	}
+	return true
 }
 
 // withFd runs fn with the master's descriptor held open: SyscallConn's

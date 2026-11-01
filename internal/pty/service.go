@@ -364,7 +364,8 @@ func (s *Service) ForegroundProcess(_ context.Context, raw json.RawMessage) (any
 	if session == nil {
 		return ForegroundProcessResult{Name: ""}, nil
 	}
-	return ForegroundProcessResult{Name: session.master.foregroundProcess()}, nil
+	name, alone := session.master.foregroundProcess(p.Alone)
+	return ForegroundProcessResult{Name: name, Alone: alone}, nil
 }
 
 // newSession links process state with its flow-control condition variable and

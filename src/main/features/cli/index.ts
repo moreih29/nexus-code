@@ -78,15 +78,21 @@ export interface CliFeature {
 export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   const { agentHost, workspaceManager } = options;
   const bridge = new RendererBridge(options.getWindow);
-  const foregroundProcess = async (workspaceId: string, tabId: string) => {
-    const result = (await agentHost.call("foregroundProcess", { workspaceId, tabId })) as
-      | { name?: string }
-      | undefined;
+  const foregroundGroup = async (workspaceId: string, tabId: string, alone = false) => {
+    const result = (await agentHost.call("foregroundProcess", {
+      workspaceId,
+      tabId,
+      ...(alone ? { alone } : {}),
+    })) as { name?: string; alone?: boolean } | undefined;
     const name = result?.name?.trim() ?? "";
-    return name === "" ? null : name;
+    return name === "" ? null : { name, alone: result?.alone };
   };
+  const foregroundProcess = async (workspaceId: string, tabId: string) =>
+    (await foregroundGroup(workspaceId, tabId))?.name ?? null;
   const activity = new ActivityTracker(agentHost, Date.now, foregroundProcess);
-  const claudeExit = new ClaudeExitWatch(agentHost, options.claudeBroker, foregroundProcess);
+  const claudeExit = new ClaudeExitWatch(agentHost, options.claudeBroker, (workspaceId, tabId) =>
+    foregroundGroup(workspaceId, tabId, true),
+  );
   const waits = new WaitRegistry(agentHost);
   const history = new SessionHistory(options.sessionSpans, agentHost, options.claudeBroker);
   const startedAgents = new StartedAgents(agentHost);

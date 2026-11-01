@@ -1,7 +1,7 @@
 /**
  * ClaudeExitWatch — Claude Code that died without its SessionEnd hook: once
- * its tab goes quiet with the shell back in the foreground, its state is
- * cleared, and with it the timeline's open span.
+ * its tab goes quiet with the shell back in the foreground, running nothing,
+ * its state is cleared, and with it the timeline's open span.
  */
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
@@ -20,7 +20,12 @@ afterEach(() => {
 
 const settle = (ms = QUIET_MS * 3) => new Promise((r) => setTimeout(r, ms));
 
-function setup(program: () => string | null | Promise<string | null>) {
+type Front = { name: string; alone: boolean | undefined } | null;
+
+/** `name` in the foreground, alone in its process group unless told. */
+const front = (name: string, alone: boolean | undefined = true): Front => ({ name, alone });
+
+function setup(program: () => Front | Promise<Front>) {
   const listeners = new Map<string, Array<(args: unknown) => void>>();
   const source = {
     on(event: string, cb: (args: unknown) => void) {
@@ -49,13 +54,12 @@ function setup(program: () => string | null | Promise<string | null>) {
     broker,
     looked,
     print: (chunk = "x", terminal = T) => emit("data", { ...terminal, chunk }),
-    spans: () =>
-      history.list([T.workspaceId], 0).map(({ state, end }) => [state, end !== null]),
+    spans: () => history.list([T.workspaceId], 0).map(({ state, end }) => [state, end !== null]),
   };
 }
 
 test("Claude killed mid-turn: the shell's prompt goes quiet, and its state and span end", async () => {
-  const { broker, print, spans } = setup(() => "zsh");
+  const { broker, print, spans } = setup(() => front("zsh"));
   broker.set(T.workspaceId, T.tabId, "running");
   print("zsh: killed     claude\r\n% ");
   expect(broker.get(T.workspaceId, T.tabId)?.status).toBe("running");
@@ -65,7 +69,7 @@ test("Claude killed mid-turn: the shell's prompt goes quiet, and its state and s
 });
 
 test("an idle Claude that died is cleared too, so nothing types a prompt into the shell", async () => {
-  const { broker, print } = setup(() => "-bash");
+  const { broker, print } = setup(() => front("-bash"));
   broker.set(T.workspaceId, T.tabId, "idle");
   print();
   await settle();
@@ -73,7 +77,7 @@ test("an idle Claude that died is cleared too, so nothing types a prompt into th
 });
 
 test("Claude, or a program it runs, still in the foreground keeps its state", async () => {
-  for (const program of ["claude", "node", "vim", null]) {
+  for (const program of [front("claude"), front("node"), front("vim"), null]) {
     const { broker, print } = setup(() => program);
     broker.set(T.workspaceId, T.tabId, "running");
     print();
@@ -83,7 +87,7 @@ test("Claude, or a program it runs, still in the foreground keeps its state", as
 });
 
 test("looks only once output is quiet, and only at tabs with Claude's state", async () => {
-  const { broker, looked, print } = setup(() => "claude");
+  const { broker, looked, print } = setup(() => front("claude"));
   broker.set(T.workspaceId, T.tabId, "running");
   for (let i = 0; i < 4; i++) {
     print();
@@ -96,7 +100,7 @@ test("looks only once output is quiet, and only at tabs with Claude's state", as
 });
 
 test("a Claude started while the program was looked up keeps its state", async () => {
-  let answer: (program: string) => void = () => {};
+  let answer: (program: Front) => void = () => {};
   const { broker, print } = setup(() => new Promise((r) => (answer = r)));
   broker.set(T.workspaceId, T.tabId, "running");
   print();
@@ -105,7 +109,25 @@ test("a Claude started while the program was looked up keeps its state", async (
   // whose SessionStart lands before the answer.
   await settle(5);
   broker.set(T.workspaceId, T.tabId, "idle", undefined, null);
-  answer("bash");
+  answer(front("bash"));
   await settle(5);
   expect(broker.get(T.workspaceId, T.tabId)?.status).toBe("idle");
+});
+
+test("Claude started by a script keeps its state: the script's shell waits for it", async () => {
+  // `bash run.sh` that runs claude: the script's bash leads the group in
+  // front, with Claude in it, so the shell there is not alone.
+  const { broker, print } = setup(() => front("bash", false));
+  broker.set(T.workspaceId, T.tabId, "running");
+  print();
+  await settle();
+  expect(broker.get(T.workspaceId, T.tabId)?.status).toBe("running");
+});
+
+test("from an agent that does not tell whether the shell is alone, its name is enough", async () => {
+  const { broker, print } = setup(() => front("zsh", undefined));
+  broker.set(T.workspaceId, T.tabId, "running");
+  print();
+  await settle();
+  expect(broker.get(T.workspaceId, T.tabId)).toBeNull();
 });
