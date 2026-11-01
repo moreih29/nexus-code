@@ -85,6 +85,7 @@ function runWrapper(hookBin: string): {
       NEXUS_HOOK_TOKEN: "test-token-abc",
       NEXUS_AGENT_BIN: hookBin,
       NEXUS_CAPTURE_SETTINGS_TO: capturePath,
+      HOME: path.join(tmpDir, "home"),
       PATH: `${fakeBinDir}:${process.env["PATH"] ?? ""}`,
     },
     timeout: 5000,
@@ -194,6 +195,68 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
     // stderr에 경고 문구가 있어야 한다
     expect(result.stderr).toContain("NEXUS_AGENT_BIN is not set");
     expect(result.stderr).toContain("hook injection skipped");
+  });
+});
+
+describeOnPosix("claude-wrapper.sh — the settings file", () => {
+  /** Runs the wrapper with a claude that prints the --settings path it got. */
+  function launch(home: string | undefined): {
+    status: number | null;
+    settingsPath: string;
+    stderr: string;
+  } {
+    const binDir = path.join(tmpDir, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const fake = path.join(binDir, "claude");
+    fs.writeFileSync(
+      fake,
+      '#!/usr/bin/env bash\nwhile [[ $# -gt 0 ]]; do [[ "$1" == --settings ]] && printf "%s" "$2"; shift; done\n',
+    );
+    fs.chmodSync(fake, 0o755);
+    const hookBin = path.join(tmpDir, "agent");
+    fs.writeFileSync(hookBin, "#!/usr/bin/env bash\nexit 0\n");
+    fs.chmodSync(hookBin, 0o755);
+    const result = spawnSync("bash", [WRAPPER_PATH], {
+      env: {
+        NEXUS_IN_APP: "1",
+        NEXUS_AGENT_SOCKET: socketPath,
+        NEXUS_AGENT_BIN: hookBin,
+        ...(home === undefined ? {} : { HOME: home }),
+        PATH: `${binDir}:/bin:/usr/bin`,
+      },
+      timeout: 5000,
+      encoding: "utf8",
+    });
+    return { status: result.status, settingsPath: result.stdout, stderr: result.stderr };
+  }
+
+  test("every launch shares one file under ~/.nexus-code and leaves nothing else behind", () => {
+    const home = path.join(tmpDir, "home");
+    const first = launch(home);
+    const second = launch(home);
+    expect(first.status).toBe(0);
+    expect(first.settingsPath).toMatch(/\/\.nexus-code\/claude-settings-\d+\.json$/);
+    expect(second.settingsPath).toBe(first.settingsPath);
+    expect(fs.readdirSync(path.join(home, ".nexus-code"))).toEqual([
+      path.basename(first.settingsPath),
+    ]);
+    expect(JSON.parse(fs.readFileSync(first.settingsPath, "utf8")).hooks.Stop).toBeDefined();
+  });
+
+  test("rewrites a file whose content is not the settings", () => {
+    const home = path.join(tmpDir, "home");
+    const { settingsPath } = launch(home);
+    fs.writeFileSync(settingsPath, "{");
+    expect(launch(home).settingsPath).toBe(settingsPath);
+    expect(() => JSON.parse(fs.readFileSync(settingsPath, "utf8"))).not.toThrow();
+    expect(fs.readdirSync(path.join(home, ".nexus-code"))).toHaveLength(1);
+  });
+
+  test("runs claude without hooks when there is no home to write the file in", () => {
+    const { status, settingsPath, stderr } = launch(undefined);
+    expect(status).toBe(0);
+    expect(settingsPath).toBe("");
+    expect(stderr).toContain("hook injection skipped");
   });
 });
 
