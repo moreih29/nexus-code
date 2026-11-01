@@ -5,8 +5,9 @@
  * Functions here are plain async — callers own the `useEffect` wrapper.
  */
 
+import { markCliUiReady, startCliUiListener } from "./services/cli/ui-requests";
 import { createLogger } from "../shared/log/renderer";
-import type { LspLanguageId } from "../shared/types/app-state";
+import { lspSettingsFromState } from "../shared/lsp/settings";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
@@ -20,9 +21,12 @@ import { initBrowserPermissionSubscriptions } from "./state/operations/browser-p
 import { initBrowserOverlayAutoSuspend } from "./state/operations/browser-suspend-auto";
 import { initFocusResync } from "./state/operations/focus-resync";
 import { initGitErrorToasts } from "./state/operations/git-error-toasts";
+import { initLspSettingsSync } from "./state/operations/lsp-settings";
+import { initLspStatusSync } from "./state/operations/lsp-status";
 import { normalizeWorkspaceTabOrder } from "./state/operations/tab-order";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
+import { useAgentCliStore } from "./state/stores/agent-cli";
 import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
 import { useClaudeStatusStore } from "./state/stores/claude-status";
 import { useEditorFontStore } from "./state/stores/editor-font";
@@ -30,8 +34,9 @@ import { useIconThemeStore } from "./state/stores/icon-theme";
 import { useKeybindingsStore } from "./state/stores/keybindings";
 import { useLanguageStore } from "./state/stores/language";
 import { useLayoutStore } from "./state/stores/layout";
-import { useLspEnabledStore } from "./state/stores/lsp-enabled";
+import { useLspSettingsStore } from "./state/stores/lsp-settings";
 import { useNotificationsStore } from "./state/stores/notifications";
+import { useSessionsViewStore } from "./state/stores/sessions-view";
 import { useTabsStore } from "./state/stores/tabs";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
@@ -39,6 +44,7 @@ import { useUIStore } from "./state/stores/ui";
 import { useUpdatesStore } from "./state/stores/updates";
 import { useInactivePanelDimStore } from "./state/stores/inactive-panel-dim";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
+import { visibleWorkspaces } from "./state/stores/workspaces";
 import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
 
 const log = createLogger("bootstrap");
@@ -93,6 +99,9 @@ export async function bootstrapAppState(): Promise<void> {
   // Wire the OS notification click → workspace activate + tab reveal listener.
   startNotificationClickListener();
 
+  // Answer the nexus CLI's requests; they wait until the tabs are restored.
+  startCliUiListener();
+
   // Mark terminal tabs dead on PTY exit even while their view is unmounted.
   startTerminalExitListener();
 
@@ -130,6 +139,11 @@ export async function bootstrapAppState(): Promise<void> {
 
   // Bootstrap is an initialization path — no recovery possible if appState is unavailable.
   const state = mustSucceed(await ipcCallResult("appState", "get", undefined));
+
+  // Before anything opens a document: which language servers run.
+  useLspSettingsStore.getState().hydrate(lspSettingsFromState(state));
+  initLspSettingsSync();
+  initLspStatusSync();
 
   useUIStore.getState().hydrate({
     sidebarWidth: state.sidebarWidth,
@@ -198,6 +212,7 @@ export async function bootstrapAppState(): Promise<void> {
     fontLigatures: state.terminalFontLigatures,
     shell: state.terminalShell,
     customShells: state.terminalShells,
+    taskAgentCommand: state.taskAgentCommand,
   });
 
   // Another window changed the shells: take the saved list, so an edit made
@@ -223,6 +238,8 @@ export async function bootstrapAppState(): Promise<void> {
   // Hydrate OS notification toggle so the Notifications panel reflects
   // persisted state on first render.
   useNotificationsStore.getState().hydrate(state.osNotificationsEnabled);
+  useAgentCliStore.getState().hydrate(state);
+  useSessionsViewStore.getState().hydrate(state);
 
   // Hydrate browser permission global toggles so the BrowserPermissionsPanel
   // reflects persisted state on first render.
@@ -267,6 +284,7 @@ export async function bootstrapAppState(): Promise<void> {
   }
 
   registerStatePersistence();
+  markCliUiReady();
 
   // Dev-only console helper for testing window transparency before a settings
   // UI exists. `__setWindowOpacity(0.5)` dual-writes localStorage + appState
@@ -300,10 +318,8 @@ export async function bootstrapWorkspaces(
   // Bootstrap is an initialization path — no recovery possible if workspace list is unavailable.
   const list = mustSucceed(await ipcCallResult("workspace", "list", undefined));
   setAll(list);
-  if (list.length > 0) {
-    const first = list[0];
-    setActiveWorkspaceId(first.id);
-  }
+  const first = visibleWorkspaces(list)[0];
+  if (first) setActiveWorkspaceId(first.id);
 }
 
 /**
@@ -338,32 +354,4 @@ export async function bootstrapClaudeStatus(): Promise<void> {
   // active workspace/tab을 main에 push하는 구독 시작 + 사용자가 탭을 활성화하면
   // markSeen IPC로 completed→idle 자동 전이.
   startClaudeActiveContextSync();
-}
-
-/**
- * Hydrate the per-workspace LSP enabled-languages store for all known
- * workspaces. Must be called after `bootstrapWorkspaces` so the workspace
- * list is available, and before any `attachLspBridge` call that gates on
- * `isLspEnabledForWorkspace`.
- *
- * Queries main for each workspace's enabled list in parallel then bulk-loads
- * into the store in one shot so the sync getter sees a fully populated state
- * before any editor model fires its first didOpen.
- */
-export async function bootstrapLspEnabled(workspaces: WorkspaceMeta[]): Promise<void> {
-  if (workspaces.length === 0) return;
-
-  const entries = await Promise.all(
-    workspaces.map(async (ws) => {
-      const result = await ipcCallResult("lsp", "getEnabledLanguages", { workspaceId: ws.id });
-      if (!result.ok) return [ws.id, []] as const;
-      return [ws.id, result.value.languages] as const;
-    }),
-  );
-
-  const initial: Record<string, LspLanguageId[]> = {};
-  for (const [wsId, langs] of entries) {
-    initial[wsId] = langs as LspLanguageId[];
-  }
-  useLspEnabledStore.getState().hydrateAll(initial);
 }

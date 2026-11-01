@@ -5,14 +5,28 @@ import type { VirtualItem } from "@tanstack/react-virtual";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { LogEntry } from "../../../../../../shared/git/types";
-import type { LaneState } from "./lane-assign";
+import { type LaneState, MAINLINE_COLOR } from "./lane-assign";
 
 const DEFAULT_ROW_HEIGHT_PX = 24;
-const DEFAULT_LANE_WIDTH_PX = 18;
-const NODE_RADIUS_PX = 4.5;
-const EDGE_WIDTH_PX = 1.6;
-const MERGE_NODE_STROKE_WIDTH_PX = 1.8;
+const DEFAULT_LANE_WIDTH_PX = 16;
+const NODE_RADIUS_PX = 4;
+const MERGE_NODE_RADIUS_PX = 3;
+/** The ring of background around a node that keeps lines off it. */
+const NODE_GAP_PX = 2;
+const HEAD_RING_RADIUS_PX = 7;
+const HEAD_RING_WIDTH_PX = 1.5;
+const EDGE_WIDTH_PX = 1.75;
+/** How far along a row an S-curve between lanes keeps its vertical tangent. */
+const CURVE_BEND = 0.625;
 const LANE_COLOR_COUNT = 8;
+/**
+ * Lane tokens step around the hue wheel; lines take them in this order so
+ * neighbouring lines get far-apart hues, and the mainline gets the blue.
+ */
+const LANE_COLOR_ORDER = [5, 0, 3, 6, 1, 4, 7, 2] as const;
+const DEFAULT_BACKGROUND = "#0d1117";
+/** How wide the fade is where the graph is cut off. */
+const EDGE_FADE_WIDTH_PX = 12;
 const MIN_CANVAS_SIZE_PX = 1;
 const DEFAULT_LANE_COLORS = [
   "oklch(0.56 0.07 55)",
@@ -43,6 +57,8 @@ export interface GraphCanvasProps {
   height?: number;
   viewportOffset?: number;
   pinToScrollOffset?: boolean;
+  /** Fades the graph out at its right edge, where lanes past its width are cut off. */
+  fadeRightEdge?: boolean;
   redrawKey?: unknown;
   className?: string;
   style?: React.CSSProperties;
@@ -61,6 +77,7 @@ export interface GraphDrawInputs {
   height?: number;
   viewportOffset: number;
   pinToScrollOffset: boolean;
+  fadeRightEdge?: boolean;
 }
 
 interface CanvasMetrics {
@@ -71,15 +88,19 @@ interface CanvasMetrics {
 
 interface EdgeLayout {
   fromLane: number;
+  /** The lane the line runs down in. */
   toLane: number;
+  /** The lane of the commit the line ends at, which it curves into one row above it. */
+  joinLane: number;
   fromY: number;
   toY: number;
-  kind: "parent" | "merge";
+  color: number;
 }
 
 interface PreparedRow {
   entry: LogEntry;
   lane: number;
+  color: number;
   y: number;
 }
 
@@ -96,6 +117,7 @@ export function GraphCanvas({
   height,
   viewportOffset = 0,
   pinToScrollOffset = true,
+  fadeRightEdge = false,
   className,
   style,
 }: GraphCanvasProps): React.JSX.Element {
@@ -115,6 +137,7 @@ export function GraphCanvas({
     height,
     viewportOffset,
     pinToScrollOffset,
+    fadeRightEdge,
   });
 
   drawInputsRef.current = {
@@ -130,6 +153,7 @@ export function GraphCanvas({
     height,
     viewportOffset,
     pinToScrollOffset,
+    fadeRightEdge,
   };
 
   /** Batches scroll and virtualizer churn into one Canvas redraw per animation frame. */
@@ -199,12 +223,27 @@ export function drawGraphCanvas(canvas: HTMLCanvasElement, inputs: GraphDrawInpu
   if (!visibleRange) return;
 
   const laneColors = readLaneColors(canvas);
+  const background = readBackground(canvas);
   const rowByIndex = mapVisibleRows(visibleRows);
   const edges = prepareVisibleEdges(inputs, rowByIndex, visibleRange, metrics);
   const rows = prepareVisibleRows(inputs, rowByIndex, metrics);
 
   drawEdges(ctx, edges, laneColors, inputs.laneWidth, inputs.rowHeight);
-  drawNodes(ctx, rows, laneColors, inputs.laneWidth);
+  drawNodes(ctx, rows, laneColors, background, inputs.laneWidth);
+  if (inputs.fadeRightEdge) fadeOutRightEdge(ctx, metrics.cssWidth, metrics.cssHeight);
+}
+
+/** Erases the graph gradually toward its right edge, so cut-off lanes fade out. */
+function fadeOutRightEdge(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+  const fadeWidth = Math.min(EDGE_FADE_WIDTH_PX, width);
+  const gradient = ctx.createLinearGradient(width - fadeWidth, 0, width, 0);
+  gradient.addColorStop(0, "rgba(0, 0, 0, 0)");
+  gradient.addColorStop(1, "rgba(0, 0, 0, 1)");
+  ctx.save();
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.fillStyle = gradient;
+  ctx.fillRect(width - fadeWidth, 0, fadeWidth, height);
+  ctx.restore();
 }
 
 /** Builds a fast SHA-to-row lookup for edge endpoint resolution during redraws. */
@@ -332,21 +371,27 @@ function prepareVisibleEdges(
   for (const edge of inputs.laneState.edges) {
     const fromIndex = commitIndex.get(edge.from);
     if (fromIndex === undefined) continue;
-    const resolvedToIndex = commitIndex.get(edge.to) ?? inputs.entries.length;
+    const toIndex = commitIndex.get(edge.to);
+    const resolvedToIndex = toIndex ?? inputs.entries.length;
     const startIndex = Math.min(fromIndex, resolvedToIndex);
     const endIndex = Math.max(fromIndex, resolvedToIndex);
     if (endIndex < minIndex || startIndex > maxIndex) continue;
 
     const fromY = getRowCenterY(fromIndex, rowByIndex, inputs.rowHeight, metrics.scrollTop);
-    const toY = getRowCenterY(resolvedToIndex, rowByIndex, inputs.rowHeight, metrics.scrollTop);
+    // A parent not loaded yet is past the last row; the line stops at that row's
+    // bottom rather than run on over what follows the list.
+    const toY =
+      getRowCenterY(resolvedToIndex, rowByIndex, inputs.rowHeight, metrics.scrollTop) -
+      (toIndex === undefined ? inputs.rowHeight / 2 : 0);
     if (!verticalSpanIntersectsViewport(fromY, toY, metrics.cssHeight, inputs.rowHeight)) continue;
 
     edges.push({
       fromLane: edge.fromLane,
       toLane: edge.toLane,
+      joinLane: inputs.laneState.laneByCommit.get(edge.to) ?? edge.toLane,
       fromY,
       toY,
-      kind: edge.kind,
+      color: edge.color,
     });
   }
 
@@ -380,6 +425,7 @@ function prepareVisibleRows(
     rows.push({
       entry,
       lane,
+      color: inputs.laneState.colorByCommit.get(entry.sha) ?? lane,
       y: virtualRow.start - metrics.scrollTop + virtualRow.size / 2,
     });
   }
@@ -393,6 +439,28 @@ function readLaneColors(canvas: HTMLCanvasElement): readonly string[] {
     const value = computedStyle?.getPropertyValue(`--color-git-lane-${index}`).trim();
     return value || fallback;
   });
+}
+
+/**
+ * Reads the color behind the graph on every redraw, for the gap around each
+ * node: the first opaque background up the tree, else the theme background.
+ */
+function readBackground(canvas: HTMLCanvasElement): string {
+  const view = canvas.ownerDocument.defaultView;
+  for (let element = canvas.parentElement; element && view; element = element.parentElement) {
+    const color = view.getComputedStyle(element).backgroundColor;
+    if (color && isOpaque(color)) return color;
+  }
+  const value = view?.getComputedStyle(canvas).getPropertyValue("--background").trim();
+  return value || DEFAULT_BACKGROUND;
+}
+
+/** Whether a computed rgb()/rgba() color hides what is behind it. */
+function isOpaque(color: string): boolean {
+  const match = /^rgba?\(([^)]*)\)$/.exec(color.trim());
+  if (!match) return false;
+  const alpha = match[1].split(/[\s,/]+/).filter(Boolean)[3];
+  return alpha === undefined || Number.parseFloat(alpha) >= 1;
 }
 
 /** Draws parent and merge connections before nodes so circles mask line joins. */
@@ -409,7 +477,7 @@ function drawEdges(
   ctx.lineWidth = EDGE_WIDTH_PX;
 
   for (const edge of edges) {
-    ctx.strokeStyle = getLaneColor(laneColors, edge.fromLane);
+    ctx.strokeStyle = getLaneColor(laneColors, edge.color);
     ctx.beginPath();
     drawEdgePath(ctx, edge, laneWidth, rowHeight);
     ctx.stroke();
@@ -418,7 +486,10 @@ function drawEdges(
   ctx.restore();
 }
 
-/** Draws one edge as a vertical line or a compact merge curve between lanes. */
+/**
+ * Draws one edge: out of its commit's lane into the lane it runs down in,
+ * then into the lane of the commit it ends at, one row above that commit.
+ */
 function drawEdgePath(
   ctx: CanvasRenderingContext2D,
   edge: EdgeLayout,
@@ -426,47 +497,86 @@ function drawEdgePath(
   rowHeight: number,
 ): void {
   const fromX = getLaneX(edge.fromLane, laneWidth);
-  const toX = getLaneX(edge.toLane, laneWidth);
+  const runX = getLaneX(edge.toLane, laneWidth);
+  const joinX = getLaneX(edge.joinLane, laneWidth);
   ctx.moveTo(fromX, edge.fromY);
 
-  if (fromX === toX) {
-    ctx.lineTo(toX, edge.toY);
+  if (edge.toY - edge.fromY <= rowHeight) {
+    if (fromX === joinX) ctx.lineTo(joinX, edge.toY);
+    else curveBetweenLanes(ctx, fromX, edge.fromY, joinX, edge.toY);
     return;
   }
 
-  const direction = edge.toY >= edge.fromY ? 1 : -1;
-  const curveY = edge.fromY + direction * Math.min(rowHeight, Math.abs(edge.toY - edge.fromY) / 2);
-  const leadY = edge.fromY + direction * Math.min(rowHeight / 2, Math.abs(curveY - edge.fromY));
-  ctx.lineTo(fromX, leadY);
-  ctx.quadraticCurveTo(fromX, curveY, toX, curveY);
-  ctx.lineTo(toX, edge.toY);
+  let y = edge.fromY;
+  if (runX !== fromX) {
+    curveBetweenLanes(ctx, fromX, y, runX, y + rowHeight);
+    y += rowHeight;
+  }
+  const joinY = joinX === runX ? edge.toY : edge.toY - rowHeight;
+  if (joinY > y) ctx.lineTo(runX, joinY);
+  if (joinX !== runX) curveBetweenLanes(ctx, runX, joinY, joinX, edge.toY);
 }
 
-/** Draws filled normal commits and same-radius hollow merge commits. */
+/** Draws an S-curve from one lane to another, leaving and arriving vertically. */
+function curveBetweenLanes(
+  ctx: CanvasRenderingContext2D,
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number,
+): void {
+  const bend = (toY - fromY) * CURVE_BEND;
+  ctx.bezierCurveTo(fromX, fromY + bend, toX, toY - bend, toX, toY);
+}
+
+/**
+ * Draws each commit as a dot in its line's color, with a ring of background
+ * around it; merge commits get a smaller dot, and HEAD a ring around its dot.
+ */
 function drawNodes(
   ctx: CanvasRenderingContext2D,
   rows: readonly PreparedRow[],
   laneColors: readonly string[],
+  background: string,
   laneWidth: number,
 ): void {
   ctx.save();
   for (const row of rows) {
-    const color = getLaneColor(laneColors, row.lane);
+    const color = getLaneColor(laneColors, row.color);
     const x = getLaneX(row.lane, laneWidth);
-    ctx.beginPath();
-    ctx.arc(x, row.y, NODE_RADIUS_PX, 0, Math.PI * 2);
+    const radius = row.entry.parents.length > 1 ? MERGE_NODE_RADIUS_PX : NODE_RADIUS_PX;
+    const head = isHeadCommit(row.entry);
 
-    if (row.entry.parents.length > 1) {
+    ctx.beginPath();
+    ctx.arc(
+      x,
+      row.y,
+      head ? HEAD_RING_RADIUS_PX + HEAD_RING_WIDTH_PX / 2 + NODE_GAP_PX : radius + NODE_GAP_PX,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fillStyle = background;
+    ctx.fill();
+
+    if (head) {
+      ctx.beginPath();
+      ctx.arc(x, row.y, HEAD_RING_RADIUS_PX, 0, Math.PI * 2);
       ctx.strokeStyle = color;
-      ctx.lineWidth = MERGE_NODE_STROKE_WIDTH_PX;
+      ctx.lineWidth = HEAD_RING_WIDTH_PX;
       ctx.stroke();
-      continue;
     }
 
+    ctx.beginPath();
+    ctx.arc(x, row.y, radius, 0, Math.PI * 2);
     ctx.fillStyle = color;
     ctx.fill();
   }
   ctx.restore();
+}
+
+/** Whether HEAD points at the commit. */
+function isHeadCommit(entry: LogEntry): boolean {
+  return entry.refs?.some((ref) => ref.kind === "head" || ref.isHead) ?? false;
 }
 
 /** Computes the horizontal Canvas coordinate for a lane center. */
@@ -474,7 +584,12 @@ function getLaneX(lane: number, laneWidth: number): number {
   return lane * laneWidth + laneWidth / 2;
 }
 
-/** Reuses the eight measured theme tokens cyclically when the graph exceeds eight lanes. */
-function getLaneColor(laneColors: readonly string[], lane: number): string {
-  return laneColors[Math.abs(lane) % LANE_COLOR_COUNT] ?? DEFAULT_LANE_COLORS[0];
+/**
+ * Picks a line's theme token. The mainline has the first to itself; the
+ * other lines reuse the remaining seven cyclically when there are more.
+ */
+function getLaneColor(laneColors: readonly string[], color: number): string {
+  const order = color === MAINLINE_COLOR ? 0 : 1 + ((Math.abs(color) - 1) % (LANE_COLOR_COUNT - 1));
+  const token = LANE_COLOR_ORDER[order] ?? LANE_COLOR_ORDER[0];
+  return laneColors[token] ?? DEFAULT_LANE_COLORS[0];
 }

@@ -14,6 +14,7 @@ import (
 // ---------------------------------------------------------------------------
 
 func TestServiceInfo_ReturnsResult(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	service := New(root)
 
@@ -83,10 +84,9 @@ func TestParseGitVersionOutput_Invalid(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestServiceDetect_Repo(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
+	runGit(t, root, "init", "-b", "main")
 
 	service := New(root)
 	params := `{"cwd":"` + jsonEscapePath(root) + `"}`
@@ -115,6 +115,7 @@ func TestServiceDetect_Repo(t *testing.T) {
 }
 
 func TestServiceDetect_NonRepo(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	// root is not a git repo.
 
@@ -136,8 +137,12 @@ func TestServiceDetect_NonRepo(t *testing.T) {
 
 func TestServiceDetect_GitMissing(t *testing.T) {
 	root := t.TempDir()
-	// A PATH with no git on it, as on a PC that never installed Git.
+	// A PATH with no git on it, as on a PC that never installed Git, nor
+	// in Git's Windows install locations.
 	t.Setenv("PATH", t.TempDir())
+	for _, key := range []string{"ProgramW6432", "ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"} {
+		t.Setenv(key, t.TempDir())
+	}
 
 	service := New(root)
 	params := `{"cwd":"` + jsonEscapePath(root) + `"}`
@@ -156,8 +161,9 @@ func TestServiceDetect_GitMissing(t *testing.T) {
 }
 
 func TestServiceDetect_Subdir(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
+	runGit(t, root, "init", "-b", "main")
 
 	// Create a subdirectory inside the repo.
 	subdir := filepath.Join(root, "src", "components")
@@ -194,7 +200,7 @@ func symlinkedRepo(t *testing.T) (real string, link string) {
 	real = filepath.Join(base, "real")
 	link = filepath.Join(base, "link")
 	writeDir(t, filepath.Join(real, "src", "components"))
-	runGitCommand(t, real, "init", "-b", "main")
+	runGit(t, real, "init", "-b", "main")
 	if err := os.Symlink(real, link); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
@@ -215,6 +221,7 @@ func detect(t *testing.T, service *Service, cwd string) DetectResult {
 }
 
 func TestServiceDetect_ReportsPathsAsReachedFromCwd(t *testing.T) {
+	t.Parallel()
 	_, link := symlinkedRepo(t)
 
 	for _, cwd := range []string{link, filepath.Join(link, "src", "components")} {
@@ -229,6 +236,7 @@ func TestServiceDetect_ReportsPathsAsReachedFromCwd(t *testing.T) {
 }
 
 func TestServiceDetect_KeepsGitRootForSymlinkIntoTree(t *testing.T) {
+	t.Parallel()
 	real, _ := symlinkedRepo(t)
 	intoTree := filepath.Join(filepath.Dir(real), "into-tree")
 	if err := os.Symlink(filepath.Join(real, "src"), intoTree); err != nil {
@@ -245,6 +253,7 @@ func TestServiceDetect_KeepsGitRootForSymlinkIntoTree(t *testing.T) {
 }
 
 func TestServiceDetect_PathsPassTheServiceChecks(t *testing.T) {
+	t.Parallel()
 	_, link := symlinkedRepo(t)
 	workspace := filepath.Join(link, "src")
 	service := New(workspace)
@@ -296,12 +305,4 @@ func TestParseRevParseLines(t *testing.T) {
 // jsonEscapePath escapes backslashes in Windows paths for JSON embedding.
 func jsonEscapePath(p string) string {
 	return strings.ReplaceAll(p, `\`, `\\`)
-}
-
-// writeDir creates a directory (and all parents) for use in tests.
-func writeDir(t *testing.T, dir string) {
-	t.Helper()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("writeDir(%q): %v", dir, err)
-	}
 }

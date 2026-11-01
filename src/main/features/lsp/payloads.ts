@@ -15,15 +15,55 @@ import { asRecord } from "./utils";
 interface AgentSpawnResultShape {
   serverId: string;
   capabilities?: unknown;
+  serverInfo?: { name: string; version?: string };
+}
+
+/**
+ * The version a server reports, as a person reads it. gopls reports its
+ * whole build info as JSON, with the version inside.
+ */
+function readableServerVersion(version: string | undefined): string | undefined {
+  if (!version?.startsWith("{")) return version;
+  try {
+    const info = JSON.parse(version) as { Version?: unknown; Main?: { Version?: unknown } };
+    const found = info.Version ?? info.Main?.Version;
+    return typeof found === "string" ? found : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 const SpawnResultSchema = z.object({
   serverId: z.string().min(1),
   capabilities: z.unknown().optional(),
+  // A server's own words: dropped rather than failing the spawn when odd.
+  serverInfo: z
+    .object({ name: z.string(), version: z.string().optional().transform(readableServerVersion) })
+    .optional()
+    .catch(undefined),
 });
 
 export function parseSpawnResult(result: unknown): AgentSpawnResultShape {
   return SpawnResultSchema.parse(result);
+}
+
+const FindBinaryResultSchema = z.object({
+  path: z.string(),
+  envPath: z.string().optional(),
+});
+
+/** lsp.findBinary: the server found on the agent's host, `path` empty when none was. */
+export function parseFindBinaryResult(result: unknown): { path: string; envPath?: string } {
+  return FindBinaryResultSchema.parse(result);
+}
+
+const StatsResultSchema = z.object({
+  servers: z.array(z.object({ serverId: z.string(), rssBytes: z.number() })),
+});
+
+/** lsp.stats: each server's memory, with the processes it started. */
+export function parseStatsResult(result: unknown): Array<{ serverId: string; rssBytes: number }> {
+  return StatsResultSchema.parse(result).servers;
 }
 
 export function parseServerCapabilities(capabilities: unknown): ServerCapabilities {
@@ -72,12 +112,14 @@ export function parseServerAssignedPayload(
 
 export function parseServerExitedPayload(
   payload: unknown,
-): { serverId: string; reason: string; stderrTail: string } | null {
+): { serverId: string; reason: string; stderrTail: string; shutdown: boolean } | null {
   const parsed = z
     .object({
       serverId: z.string().min(1),
       reason: z.string().optional(),
       stderrTail: z.string().optional(),
+      // The agent stopped the server: idle, or asked to.
+      shutdown: z.boolean().optional(),
     })
     .safeParse(payload);
   if (!parsed.success) return null;
@@ -85,6 +127,7 @@ export function parseServerExitedPayload(
     serverId: parsed.data.serverId,
     reason: parsed.data.reason ?? "",
     stderrTail: parsed.data.stderrTail ?? "",
+    shutdown: parsed.data.shutdown === true,
   };
 }
 

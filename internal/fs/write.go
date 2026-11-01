@@ -10,6 +10,7 @@ import (
 	iofs "io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
@@ -231,16 +232,19 @@ func (s *Service) Rename(ctx context.Context, raw json.RawMessage) (any, error) 
 	}
 	backup := ""
 	if toInfo, err := os.Lstat(toAbs); err == nil {
-		if !p.Overwrite {
-			return nil, FSError{Code: CodeAlreadyExists, Path: toAbs}
-		}
 		fromInfo, err := os.Lstat(fromAbs)
 		if err != nil {
 			return nil, mapWriteError(err, fromAbs)
 		}
 		// The same entry under another spelling (a case-only rename on a
-		// case-insensitive volume) is renamed in place, never moved aside.
-		if !os.SameFile(fromInfo, toInfo) {
+		// case-insensitive volume, as Windows and macOS have) is renamed in
+		// place, neither refused as taken nor moved aside. Another name of
+		// the same file, a hard link, is another entry.
+		sameEntry := os.SameFile(fromInfo, toInfo) && strings.EqualFold(fromAbs, toAbs)
+		if !sameEntry {
+			if !p.Overwrite {
+				return nil, FSError{Code: CodeAlreadyExists, Path: toAbs}
+			}
 			if backup, err = moveAside(toAbs); err != nil {
 				return nil, mapWriteError(err, toAbs)
 			}

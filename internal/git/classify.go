@@ -77,21 +77,6 @@ func Classify(stderr string) Kind {
 	if pathNotConflictedStderrPatterns.Matches(stderr) {
 		return KindPathNotConflicted
 	}
-	if cloneDestinationInvalidStderrPatterns.Matches(stderr) {
-		return KindCloneDestinationInvalid
-	}
-	if cloneDestinationNotWritableStderrPatterns.Matches(stderr) {
-		return KindCloneDestinationNotWritable
-	}
-	if cloneDestinationExistsStderrPatterns.Matches(stderr) {
-		return KindCloneDestinationExists
-	}
-	if cloneNameInvalidStderrPatterns.Matches(stderr) {
-		return KindCloneNameInvalid
-	}
-	if cloneURLInvalidStderrPatterns.Matches(stderr) {
-		return KindCloneUrlInvalid
-	}
 	if stashConflictStderrPatterns.Matches(stderr) {
 		return KindStashConflict
 	}
@@ -295,16 +280,6 @@ func MessageForKind(kind Kind, ctx MessageContext) string {
 		return "Operation produced an empty commit"
 	case KindPathNotConflicted:
 		return "Path is not conflicted"
-	case KindCloneDestinationInvalid:
-		return "Clone destination is invalid"
-	case KindCloneDestinationNotWritable:
-		return "Clone destination is not writable"
-	case KindCloneDestinationExists:
-		return "Clone destination already exists"
-	case KindCloneNameInvalid:
-		return "Clone folder name is invalid"
-	case KindCloneUrlInvalid:
-		return "Clone URL is invalid"
 	case KindNonFastForward:
 		return "Push rejected — pull first"
 	case KindProtectedBranch:

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -34,8 +35,9 @@ func (s *Service) Info(ctx context.Context, raw json.RawMessage) (any, error) {
 	return InfoResult{BinaryPath: path, BinaryVersion: version}, nil
 }
 
-// resolveSystemGit locates the git binary on PATH and returns its path and
-// version string. Returns ("", "", nil) when git cannot be found.
+// resolveSystemGit locates the git binary on PATH, or on Windows in its
+// install location, and returns its path and version string. Returns
+// ("", "", nil) when git cannot be found.
 func resolveSystemGit(ctx context.Context) (string, string, error) {
 	candidates := gitCandidates()
 	for _, candidate := range candidates {
@@ -66,6 +68,11 @@ func gitCandidates() []string {
 	// Prefer PATH-located git first.
 	if found, err := exec.LookPath("git"); err == nil {
 		add(found)
+	}
+
+	// Windows fallback: Git's own install locations.
+	for _, p := range gitInstallPaths(runtime.GOOS, os.Getenv) {
+		add(p)
 	}
 
 	// Unix fallback.
@@ -163,7 +170,7 @@ func (s *Service) Detect(ctx context.Context, raw json.RawMessage) (any, error) 
 // in cwd. Returns the absolute toplevel and gitdir paths on success, reached
 // from cwd by the path cwd was given in (see logicalTopLevel).
 func runRevParse(ctx context.Context, cwd string) (topLevel, gitDir string, err error) {
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel", "--git-dir", "--show-cdup")
+	cmd := exec.CommandContext(ctx, gitBinary(), "rev-parse", "--show-toplevel", "--git-dir", "--show-cdup")
 	cmd.Dir = cwd
 	cmd.Env = append(cmd.Environ(),
 		"GIT_TERMINAL_PROMPT=0",

@@ -108,6 +108,8 @@ type Server struct {
 
 	// inflight 는 hookId → net.Conn 맵이다. sync.Map으로 lock-free 동시 접근을 허용한다.
 	inflight sync.Map
+	// cliInflight holds the CLI requests waiting on main, by request id.
+	cliInflight sync.Map
 
 	closeOnce sync.Once
 	done      chan struct{} // Close() 호출 시 닫혀 accept loop를 깨운다
@@ -248,6 +250,7 @@ func (s *Server) Close() error {
 			conn.Close()
 			return true
 		})
+		s.closeCLI()
 
 		_ = os.Remove(s.socketPath)
 	})
@@ -300,6 +303,10 @@ func (s *Server) handleConn(conn net.Conn) {
 	// 토큰 불일치는 즉시 연결을 끊는다.
 	if req.Token != s.token {
 		conn.Close()
+		return
+	}
+	if req.Type == "cli" {
+		s.handleCLI(conn, req)
 		return
 	}
 

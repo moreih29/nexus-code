@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -35,7 +34,7 @@ type logExpectedEvent struct {
 // TestLogFixtures verifies every manually authored log fixture against the Go
 // record parser, cursor/limit logic, and git.log.batch payload shape.
 func TestLogFixtures(t *testing.T) {
-	fixtureRoot := logFixtureRoot(t)
+	fixtureRoot := fixtureDir("log")
 	entries, err := os.ReadDir(fixtureRoot)
 	if err != nil {
 		t.Fatalf("read log fixtures: %v", err)
@@ -124,6 +123,7 @@ func TestBuildLogArgsCoversScopeSourceCursorAndPaths(t *testing.T) {
 		"log",
 		"--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b%x1f%D%x1e",
 		"--date=iso-strict",
+		"--date-order",
 		"--skip=3",
 		"--max-count=6",
 		"main",
@@ -144,6 +144,7 @@ func TestBuildLogArgsCoversScopeSourceCursorAndPaths(t *testing.T) {
 		"log",
 		"--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b%x1f%D%x1e",
 		"--date=iso-strict",
+		"--date-order",
 		"--grep=UI-42",
 		"--all",
 		"--",
@@ -160,6 +161,7 @@ func TestBuildLogArgsCoversScopeSourceCursorAndPaths(t *testing.T) {
 		"log",
 		"--pretty=format:%S%x1f%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b%x1f%D%x1e",
 		"--date=iso-strict",
+		"--date-order",
 		"--max-count=2",
 		"--source",
 		"--branches",
@@ -196,9 +198,68 @@ func TestLogLimitLookaheadInvokesKillCallback(t *testing.T) {
 	}
 }
 
+func TestLogNextRefPageKeepsMergedBranchCommits(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runGit(t, root, "init", "-b", "main")
+	// base, a side commit off it, five main commits off it, then the side
+	// merged in: the side commit is older than every main commit.
+	var stream strings.Builder
+	commit := func(mark int, message string, parents ...int) {
+		fmt.Fprintf(&stream, "commit refs/heads/main\nmark :%d\ncommitter Nexus Test <nexus@example.test> %d +0000\ndata %d\n%s\n", mark, 1700000000+mark*60, len(message), message)
+		for i, parent := range parents {
+			if i == 0 {
+				fmt.Fprintf(&stream, "from :%d\n", parent)
+			} else {
+				fmt.Fprintf(&stream, "merge :%d\n", parent)
+			}
+		}
+		stream.WriteString("\n")
+	}
+	commit(1, "base")
+	commit(2, "side old", 1)
+	commit(3, "main 1", 1)
+	for mark := 4; mark <= 7; mark++ {
+		commit(mark, fmt.Sprintf("main %d", mark-2), mark-1)
+	}
+	commit(8, "merge side", 7, 2)
+	importer := exec.Command("git", "fast-import", "--quiet")
+	importer.Dir = root
+	importer.Stdin = strings.NewReader(stream.String())
+	if out, err := importer.CombinedOutput(); err != nil {
+		t.Fatalf("git fast-import: %v\n%s", err, out)
+	}
+
+	page := func(params string) []string {
+		service := New(root)
+		var subjects []string
+		service.SetEventSink(func(event string, payload any) error {
+			if batch, ok := payload.(LogBatchPayload); ok {
+				for _, entry := range batch.Entries {
+					subjects = append(subjects, entry.Subject)
+				}
+			}
+			return nil
+		})
+		if _, err := service.Log(context.Background(), json.RawMessage(params)); err != nil {
+			t.Fatalf("Log(%s) returned error: %v", params, err)
+		}
+		return subjects
+	}
+	first := page(`{"scope":"ref","ref":"main","limit":3}`)
+	cursor := strings.TrimSpace(runGit(t, root, "rev-parse", "main~2"))
+	if want := []string{"merge side", "main 5", "main 4"}; !reflect.DeepEqual(first, want) {
+		t.Fatalf("first page = %v, want %v", first, want)
+	}
+	next := page(`{"scope":"ref","ref":"main","afterSha":"` + cursor + `","limit":50}`)
+	if want := []string{"main 3", "main 2", "main 1", "side old", "base"}; !reflect.DeepEqual(next, want) {
+		t.Fatalf("next page = %v, want %v", next, want)
+	}
+}
+
 func TestLogLimitCursorKillsPromptly(t *testing.T) {
 	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
+	runGit(t, root, "init", "-b", "main")
 	// One fast-import writes the 1000 empty commits. A git process per commit
 	// made this the slowest test, on Windows above all.
 	var stream strings.Builder
@@ -212,7 +273,7 @@ func TestLogLimitCursorKillsPromptly(t *testing.T) {
 	if out, err := importer.CombinedOutput(); err != nil {
 		t.Fatalf("git fast-import: %v\n%s", err, out)
 	}
-	head := strings.TrimSpace(runGitOutput(t, root, "rev-parse", "HEAD"))
+	head := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
 
 	service := New(root)
 	batchCount := 0
@@ -245,9 +306,68 @@ func TestLogLimitCursorKillsPromptly(t *testing.T) {
 	}
 }
 
-func TestLogOnUnbornBranchIsNoHead(t *testing.T) {
+func TestLogListsCommitsAfterTheirChildren(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
+	runGit(t, root, "init", "-b", "main")
+	// Every commit at one time: base, then main 1 and side 1 → side 2 off it,
+	// then a merge. In git's default order base comes before side 1.
+	var stream strings.Builder
+	commit := func(mark int, message string, parents ...int) {
+		fmt.Fprintf(&stream, "commit refs/heads/main\nmark :%d\ncommitter Nexus Test <nexus@example.test> 1700000000 +0000\ndata %d\n%s\n", mark, len(message), message)
+		for i, parent := range parents {
+			if i == 0 {
+				fmt.Fprintf(&stream, "from :%d\n", parent)
+			} else {
+				fmt.Fprintf(&stream, "merge :%d\n", parent)
+			}
+		}
+		stream.WriteString("\n")
+	}
+	commit(1, "base")
+	commit(2, "main 1", 1)
+	commit(3, "side 1", 1)
+	commit(4, "side 2", 3)
+	commit(5, "merge", 2, 4)
+	importer := exec.Command("git", "fast-import", "--quiet")
+	importer.Dir = root
+	importer.Stdin = strings.NewReader(stream.String())
+	if out, err := importer.CombinedOutput(); err != nil {
+		t.Fatalf("git fast-import: %v\n%s", err, out)
+	}
+
+	service := New(root)
+	var entries []LogEntry
+	service.SetEventSink(func(event string, payload any) error {
+		if batch, ok := payload.(LogBatchPayload); ok {
+			entries = append(entries, batch.Entries...)
+		}
+		return nil
+	})
+	if _, err := service.Log(context.Background(), json.RawMessage(`{"scope":"ref","ref":"main","limit":50}`)); err != nil {
+		t.Fatalf("Log returned error: %v", err)
+	}
+
+	listed := map[string]bool{}
+	var subjects []string
+	for _, entry := range entries {
+		subjects = append(subjects, entry.Subject)
+		listed[entry.SHA] = true
+		for _, parent := range entry.Parents {
+			if listed[parent] {
+				t.Fatalf("%q listed after its parent: %v", entry.Subject, subjects)
+			}
+		}
+	}
+	if len(entries) != 5 {
+		t.Fatalf("listed %v, want all 5 commits", subjects)
+	}
+}
+
+func TestLogOnUnbornBranchIsNoHead(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runGit(t, root, "init", "-b", "main")
 
 	_, err := New(root).Log(context.Background(), json.RawMessage(`{"scope":"ref","ref":"HEAD","limit":1}`))
 	var failure Failure
@@ -257,13 +377,8 @@ func TestLogOnUnbornBranchIsNoHead(t *testing.T) {
 }
 
 func TestLogRegisteredWithDispatcher(t *testing.T) {
-	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(root, "README.md"), "hello\n")
-	runGitCommand(t, root, "add", "README.md")
-	runGitCommand(t, root, "commit", "-m", "initial")
+	t.Parallel()
+	root := newRepo(t)
 
 	d := dispatch.New()
 	service := New(root)
@@ -286,15 +401,6 @@ func TestLogRegisteredWithDispatcher(t *testing.T) {
 	if result.Count != 1 || result.HasMore || batchCount != 1 {
 		t.Fatalf("result=%#v batchCount=%d", result, batchCount)
 	}
-}
-
-func logFixtureRoot(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "tests", "fixtures", "git", "log"))
 }
 
 func assertLogResultEqual(t *testing.T, name string, got LogResult, expected LogResult) {

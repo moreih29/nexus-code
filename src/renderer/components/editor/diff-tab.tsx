@@ -14,6 +14,7 @@ import { acquireModel, releaseModel, useSharedModel } from "../../services/edito
 import { useDiffWorkingFile } from "../../services/editor/tabs";
 import type { EditorInput } from "../../services/editor/types";
 import { registerTabFocusTarget } from "../../services/tab-focus";
+import { formatBytes } from "../../utils/format-bytes";
 import {
   type DiffContentStatus,
   type DiffSideReadyState,
@@ -512,15 +513,4 @@ function blockingPlaceholder(
 function modelPathFor(content: DiffSideReadyState): string {
   const encodedPath = content.request.relPath.split("/").map(encodeURIComponent).join("/");
   return `/${encodeURIComponent(content.request.workspaceId)}/${content.request.side}/${encodeURIComponent(content.request.ref)}/${encodedPath}`;
-}
-
-/**
- * Formats byte counts for binary-side placeholders.
- */
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const kib = bytes / 1024;
-  if (kib < 1024) return `${kib.toFixed(kib >= 10 ? 0 : 1)} KB`;
-  const mib = kib / 1024;
-  return `${mib.toFixed(mib >= 10 ? 0 : 1)} MB`;
 }

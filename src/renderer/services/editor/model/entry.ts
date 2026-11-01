@@ -2,7 +2,7 @@
 // Owns: model creation, dirty-tracker attachment, LSP open/change/close, fs subscription.
 
 import { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
-import { isLspEnabledForWorkspace } from "../../../state/stores/lsp-enabled";
+import { isLspEnabledForWorkspace } from "../../../state/stores/lsp-settings";
 import { type FileErrorCode, parseFileErrorCode } from "../../../utils/file-error";
 import { registerKnownModelUri, unregisterKnownModelUri } from "../lsp/known-uris";
 import { isLspLanguage } from "../lsp/language";

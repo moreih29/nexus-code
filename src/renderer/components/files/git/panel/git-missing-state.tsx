@@ -9,6 +9,7 @@
  * up again on each run, so a refresh is enough there.
  */
 import { useTranslation } from "react-i18next";
+import { hostPlatform } from "../../../../utils/platform";
 import { EmptyState } from "../../../ui/empty-state";
 
 /** git-scm.com's download page for each OS the app runs on. */
@@ -21,7 +22,7 @@ const GIT_DOWNLOAD_PAGES = {
 type LocalOs = keyof typeof GIT_DOWNLOAD_PAGES;
 
 function localOs(): LocalOs {
-  const platform = window.host?.platform;
+  const platform = hostPlatform();
   return platform === "win32" || platform === "darwin" ? platform : "linux";
 }
 

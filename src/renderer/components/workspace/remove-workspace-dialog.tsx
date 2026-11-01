@@ -17,6 +17,7 @@ import { createListenerBus } from "../../../shared/util/listener-bus";
 interface PendingPrompt {
   name: string;
   unsavedCount: number;
+  taskCount: number;
   resolve: (confirmed: boolean) => void;
 }
 
@@ -27,9 +28,9 @@ function getActive(): PendingPrompt | null {
   return queue[0] ?? null;
 }
 
-function pushPrompt(name: string, unsavedCount: number): Promise<boolean> {
+function pushPrompt(name: string, unsavedCount: number, taskCount: number): Promise<boolean> {
   return new Promise((resolve) => {
-    queue.push({ name, unsavedCount, resolve });
+    queue.push({ name, unsavedCount, taskCount, resolve });
     bus.notify();
   });
 }
@@ -45,10 +46,15 @@ function resolveActive(confirmed: boolean): void {
 /**
  * Imperative entry point. Resolves to `true` (confirmed remove) or `false`
  * (cancelled). Esc / backdrop click resolves to `false`. `unsavedCount` is
- * the number of the workspace's buffers whose edits removal will discard.
+ * the number of the workspace's buffers whose edits removal will discard;
+ * `taskCount` the number of its tasks that close with it.
  */
-export function showRemoveWorkspaceConfirm(name: string, unsavedCount = 0): Promise<boolean> {
-  return pushPrompt(name, unsavedCount);
+export function showRemoveWorkspaceConfirm(
+  name: string,
+  unsavedCount = 0,
+  taskCount = 0,
+): Promise<boolean> {
+  return pushPrompt(name, unsavedCount, taskCount);
 }
 
 /**
@@ -97,6 +103,11 @@ export function RemoveWorkspaceDialogRoot(): React.JSX.Element {
       </RadixDialog.Title>
       <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
         {t("workspace.remove_description")}
+        {active !== null && active.taskCount > 0 && (
+          <span className="mt-2 block text-foreground">
+            {t("workspace.remove_tasks", { count: active.taskCount })}
+          </span>
+        )}
         {active !== null && active.unsavedCount > 0 && (
           <span className="mt-2 block text-foreground">
             {t("workspace.remove_unsaved", { count: active.unsavedCount })}

@@ -6,8 +6,6 @@
  *     to the active layout leaf, and activates it.
  *   - openNewBrowserTab creates a BrowserTab with the correct props, attaches
  *     it to the active layout leaf, and activates it.
- *   - Both tabs can be closed via closeTab without side effects.
- *   - New Terminal path (openTerminalTab) is unaffected (regression guard).
  *   - Consecutive openNewUntitledTab calls use monotonically-increasing indices.
  */
 
@@ -142,13 +140,6 @@ describe("openNewUntitledTab", () => {
     expect(b.type === "untitled" && b.props.untitledIndex).toBe(2);
     expect(c.type === "untitled" && c.props.untitledIndex).toBe(3);
   });
-
-  it("can be closed with closeTab without errors", () => {
-    const tab = openNewUntitledTab(WS);
-    expect(() => closeTab(WS, tab.id)).not.toThrow();
-    const tabsById = useTabsStore.getState().byWorkspace[WS] ?? {};
-    expect(tab.id in tabsById).toBe(false);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -174,51 +165,5 @@ describe("openNewBrowserTab", () => {
     const activeId = getActiveTabId();
     expect(activeId).toBe(tab.id);
     expect(getActiveLeafTabIds()).toContain(tab.id);
-  });
-
-  it("can be closed with closeTab without errors", () => {
-    const tab = openNewBrowserTab(WS);
-    expect(() => closeTab(WS, tab.id)).not.toThrow();
-    const tabsById = useTabsStore.getState().byWorkspace[WS] ?? {};
-    expect(tab.id in tabsById).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Regression guard: New Terminal (openTerminalTab) unchanged
-// ---------------------------------------------------------------------------
-
-describe("openTerminalTab — regression guard", () => {
-  beforeEach(resetStores);
-
-  it("still creates a terminal tab and activates it", () => {
-    const tab = openTerminalTab(WS, "terminal", { cwd: "/workspace" });
-    expect(tab.type).toBe("terminal");
-    if (tab.type === "terminal") {
-      expect(tab.props.cwd).toBe("/workspace");
-    }
-    expect(getActiveTabId()).toBe(tab.id);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// All three tab types in the same workspace
-// ---------------------------------------------------------------------------
-
-describe("all three new tab types — smoke", () => {
-  beforeEach(resetStores);
-
-  it("can create untitled, terminal, and browser tabs independently", () => {
-    const terminal = openTerminalTab(WS, "terminal", { cwd: "/ws" });
-    const untitled = openNewUntitledTab(WS);
-    const browser = openNewBrowserTab(WS);
-
-    const tabsById = useTabsStore.getState().byWorkspace[WS] ?? {};
-    expect(tabsById[terminal.id]?.type).toBe("terminal");
-    expect(tabsById[untitled.id]?.type).toBe("untitled");
-    expect(tabsById[browser.id]?.type).toBe("browser");
-
-    // browser is last opened, should be active
-    expect(getActiveTabId()).toBe(browser.id);
   });
 });

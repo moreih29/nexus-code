@@ -12,7 +12,7 @@
  *   ~/.nexus-code/sockets/               ← socketsDir()
  *   ~/.nexus-code/shim/<workspaceId>/    ← shimDir(workspaceId)
  *
- * Windows is not supported — the project only targets macOS and Linux.
+ * On Windows, ~ is the user profile folder (USERPROFILE), for both modules.
  */
 
 import fs from "node:fs/promises";
@@ -31,6 +31,14 @@ export function root(): string {
     throw new Error("agentpaths: cannot determine home directory (os.homedir() returned empty)");
   }
   return path.join(home, ROOT_DIR_NAME);
+}
+
+/**
+ * Returns the absolute path of ~/.nexus-code/worktrees, where tasks' git
+ * worktrees live.
+ */
+export function worktreesDir(): string {
+  return path.join(root(), "worktrees");
 }
 
 /**

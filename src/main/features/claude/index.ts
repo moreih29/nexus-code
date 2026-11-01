@@ -7,6 +7,7 @@ import { ClaudeStatusBroker } from "./status";
 import { ActiveContextStore } from "./active-context";
 import { registerClaudeChannel } from "./ipc";
 import { registerHookHandler } from "./hook-handler";
+import { ClaudeInterruptWatcher } from "./interrupt";
 import type { PtyHostHandle } from "../pty/types";
 import type { WorkspaceNameLookup } from "./hook-handler";
 import { getActiveAppWindow, getFocusedAppWindow } from "../window/app-windows";
@@ -43,8 +44,16 @@ export interface SetupClaudeFeatureOptions {
 // ---------------------------------------------------------------------------
 
 export interface SetupClaudeFeatureResult {
+  /** renderer가 마지막으로 알린 활성 탭인지 — 다른 프로그램의 알림도 같은 기준을 쓴다. */
+  isActiveTab: (workspaceId: string, tabId: string) => boolean;
+  /** Input typed into a terminal, which can interrupt Claude's turn. */
+  noteInput: (workspaceId: string, tabId: string, data: string) => void;
   /** 모든 구독을 해제하는 함수. */
   dispose: () => void;
+  /** Each tab's Claude state, which the nexus CLI reports too. */
+  broker: ClaudeStatusBroker;
+  /** The tab the user is looking at. */
+  activeContext: ActiveContextStore;
 }
 
 /**
@@ -94,6 +103,9 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     },
   });
 
+  // An interrupted turn runs no hook; its "Interrupted" line ends it.
+  const interrupts = new ClaudeInterruptWatcher(broker);
+
   // 4. PTY exit 시 broker.clear — 탭 종료 시 상태 항목 제거(메모리 누수 방지).
   const offExit = agentHost.on("exit", (args) => {
     const a = args as Record<string, unknown>;
@@ -101,14 +113,30 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     const tabId = typeof a?.tabId === "string" ? a.tabId : null;
     if (workspaceId && tabId) {
       broker.clear(workspaceId, tabId);
+      interrupts.forget(workspaceId, tabId);
     }
   });
 
+  const offData = agentHost.on("data", (args) => {
+    const { workspaceId, tabId, chunk, replay } = args as {
+      workspaceId: string;
+      tabId: string;
+      chunk: string;
+      replay?: boolean;
+    };
+    if (!replay) interrupts.noteOutput(workspaceId, tabId, chunk);
+  });
+
   return {
+    isActiveTab: (workspaceId, tabId) => activeContext.isActive(workspaceId, tabId),
+    noteInput: (workspaceId, tabId, data) => interrupts.noteInput(workspaceId, tabId, data),
     dispose: () => {
       offHook();
       offExit();
+      offData();
     },
+    broker,
+    activeContext,
   };
 }
 

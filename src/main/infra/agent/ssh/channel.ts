@@ -44,12 +44,12 @@ export interface SshChannelDependencies {
 
 /**
  * Renders the close context into a single-line cause string for the terminal
- * `ssh.unknown` error. `createSshError` logs this to the file transport, so an
+ * transport error (SSH or WSL). `createSshError` logs this to the file transport, so an
  * otherwise-opaque transport close ("disconnected by user", empty cause) now
  * records the exit code, signal, and the tail of the agent's stderr. Returns
  * undefined when nothing useful was captured, preserving the prior behavior.
  */
-function formatCloseDiagnostic(context?: ChannelCloseContext): string | undefined {
+export function formatCloseDiagnostic(context?: ChannelCloseContext): string | undefined {
   if (!context) return undefined;
   const parts: string[] = [];
   if (context.code !== undefined && context.code !== null) {

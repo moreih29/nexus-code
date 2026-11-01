@@ -37,3 +37,18 @@ describe("TitleBar window controls", () => {
     }
   });
 });
+
+describe("TitleBar menu button", () => {
+  test("opens the app menu where no menu bar shows", () => {
+    for (const platform of ["linux", "win32"] as const) {
+      expect(renderWithHost({ platform })).toContain('aria-label="Open menu"');
+    }
+    expect(renderWithHost({ platform: "linux", transparentWindow: true })).toContain(
+      'aria-label="Open menu"',
+    );
+  });
+
+  test("is left out on macOS, which has its menu bar", () => {
+    expect(renderWithHost({ platform: "darwin" })).not.toContain('aria-label="Open menu"');
+  });
+});

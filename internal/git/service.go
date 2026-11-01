@@ -102,7 +102,6 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("git.branch.rename", service.BranchRename)
 	d.Register("git.branch.setUpstream", service.BranchSetUpstream)
 	d.Register("git.branch.fastForward", service.BranchFastForward)
-	d.Register("git.clone", service.Clone)
 	d.Register("git.pull", service.Pull)
 	d.Register("git.push", service.Push)
 	d.Register("git.info", service.Info)
@@ -182,7 +181,7 @@ func (s *Service) GetFileContent(ctx context.Context, raw json.RawMessage) (any,
 func runGitShow(ctx context.Context, root string, objectSpec string, limit int) (stdout []byte, stderr string, tooLarge bool, err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "show", "--no-ext-diff", objectSpec)
+	cmd := exec.CommandContext(ctx, gitBinary(), "show", "--no-ext-diff", objectSpec)
 	cmd.Dir = root
 	cmd.Env = append(cmd.Environ(),
 		"GIT_TERMINAL_PROMPT=0",

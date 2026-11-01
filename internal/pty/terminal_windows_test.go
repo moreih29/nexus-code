@@ -133,6 +133,40 @@ func TestConsoleTakesInputAndResizes(t *testing.T) {
 	}
 }
 
+// Ctrl+C stops the program the shell runs, also when the test itself was
+// started ignoring it, as a process in a new process group is.
+func TestConsoleCtrlCStopsTheProgram(t *testing.T) {
+	svc, rec := newConsoleService(t)
+	spawnConsole(t, svc, "ctrl-c")
+	rec.waitFor(t, "the prompt", func(output string, _ *ExitPayload) bool { return strings.Contains(output, ">") })
+	write := func(data string) {
+		raw, _ := json.Marshal(WriteParams{WorkspaceID: "ws", TabID: "ctrl-c", Data: data})
+		if _, err := svc.Write(context.Background(), raw); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	write("ping -n 30 127.0.0.1 & echo ping-%COMSPEC:~0,1%-done\r")
+	time.Sleep(time.Second)
+	write("\x03")
+	drive := os.Getenv("COMSPEC")[:1]
+	// Well before ping's 30 seconds are up.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		rec.mu.Lock()
+		done := strings.Contains(rec.output.String(), "ping-"+drive+"-done")
+		rec.mu.Unlock()
+		if done {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("ping still runs after Ctrl+C")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	write("exit\r")
+	rec.waitFor(t, "exit", func(_ string, exit *ExitPayload) bool { return exit != nil })
+}
+
 func TestConsoleKillEndsShell(t *testing.T) {
 	svc, rec := newConsoleService(t)
 	spawnConsole(t, svc, "killed")

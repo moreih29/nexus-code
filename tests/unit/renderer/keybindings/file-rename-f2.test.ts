@@ -2,11 +2,11 @@
  * F2 / fileRename 키바인딩 통합 단위 테스트.
  *
  * 커버 범위:
- *   1. KEYBINDINGS 테이블에 F2 / "fileTreeFocus && !inputFocus" 가 정확히 등록됨.
- *   2. 글로벌 핸들러: activeWorkspaceId 없을 때 no-op.
- *   3. 글로벌 핸들러: 활성 경로가 rootAbsPath이면 no-op (루트 rename 금지).
- *   4. 글로벌 핸들러 정상 호출 → requestRename이 호출되고 requestId가 단조 증가.
- *   5. dispatcher: F2 키가 file tree 내부에서 발화하고 input 안에서는 발화 안 함.
+ *   1. 글로벌 핸들러: activeWorkspaceId 없을 때 no-op.
+ *   2. 글로벌 핸들러: 활성 경로가 rootAbsPath이면 no-op (루트 rename 금지).
+ *   3. 글로벌 핸들러 정상 호출 → requestRename이 호출되고 requestId가 단조 증가.
+ *   4. dispatcher: F2 키가 file tree 내부에서 발화하고 input 안에서는 발화 안 함.
+ *   5. dispatcher: Enter rename은 macOS에서만 발화.
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
@@ -44,8 +44,8 @@ import {
 } from "../../../../src/renderer/keybindings/dispatcher";
 import { useActiveStore } from "../../../../src/renderer/state/stores/active";
 import { useFilesStore } from "../../../../src/renderer/state/stores/files";
+import { setPlatformForTests } from "../../../../src/renderer/utils/platform";
 import { COMMANDS } from "../../../../src/shared/keybindings/commands";
-import { KEYBINDINGS } from "../../../../src/shared/keybindings/index";
 
 // ---------------------------------------------------------------------------
 // 헬퍼
@@ -146,20 +146,7 @@ afterEach(() => {
   resetStores();
 });
 
-// 1. KEYBINDINGS 테이블 검사
-describe("KEYBINDINGS 테이블 — fileRename", () => {
-  it("F2 primary 바인딩이 KEYBINDINGS에 등록돼 있다", () => {
-    const decl = KEYBINDINGS.find((k) => k.command === COMMANDS.fileRename && k.primary === "F2");
-    expect(decl).not.toBeUndefined();
-  });
-
-  it("when 조건이 정확히 'fileTreeFocus && !inputFocus' 이다", () => {
-    const decl = KEYBINDINGS.find((k) => k.command === COMMANDS.fileRename && k.primary === "F2");
-    expect(decl?.when).toBe("fileTreeFocus && !inputFocus");
-  });
-});
-
-// 2. 글로벌 핸들러: wsId 없을 때 no-op
+// 1. 글로벌 핸들러: wsId 없을 때 no-op
 describe("fileRename 핸들러 — wsId 없을 때 no-op", () => {
   it("activeWorkspaceId가 null이면 requestRename을 호출하지 않는다", () => {
     const unregisters = registerFileCommands();
@@ -181,7 +168,7 @@ describe("fileRename 핸들러 — wsId 없을 때 no-op", () => {
   });
 });
 
-// 3. 글로벌 핸들러: rootAbsPath이면 no-op
+// 2. 글로벌 핸들러: rootAbsPath이면 no-op
 describe("fileRename 핸들러 — root 경로이면 no-op", () => {
   it("activeAbsPath가 rootAbsPath와 같으면 requestRename을 호출하지 않는다", () => {
     const unregisters = registerFileCommands();
@@ -202,7 +189,7 @@ describe("fileRename 핸들러 — root 경로이면 no-op", () => {
   });
 });
 
-// 4. 글로벌 핸들러 정상 호출 → requestRename, requestId 단조 증가
+// 3. 글로벌 핸들러 정상 호출 → requestRename, requestId 단조 증가
 describe("fileRename 핸들러 — 정상 흐름", () => {
   it("F2 → requestRename이 호출되고 pendingRenameRequest.absPath가 설정된다", () => {
     const unregisters = registerFileCommands();
@@ -246,7 +233,7 @@ describe("fileRename 핸들러 — 정상 흐름", () => {
   });
 });
 
-// 5. dispatcher: when 조건에 의한 scoping
+// 4. dispatcher: when 조건에 의한 scoping
 describe("dispatcher — F2 when 조건 scoping", () => {
   it("tree 안에서 F2 → file.rename 커맨드가 발화한다", () => {
     const renameFn = mock(() => {});
@@ -278,4 +265,24 @@ describe("dispatcher — F2 when 조건 scoping", () => {
 
     expect(renameFn).not.toHaveBeenCalled();
   });
+});
+
+// 5. dispatcher: Enter rename은 macOS 전용 (F2는 모든 플랫폼)
+describe("dispatcher — Enter rename is macOS-only", () => {
+  afterEach(() => setPlatformForTests(null));
+
+  for (const [platform, calls] of [
+    ["darwin", 1],
+    ["win32", 0],
+  ] as const) {
+    it(`Enter in the tree fires file.renameByEnter ${calls} time(s) on ${platform}`, () => {
+      setPlatformForTests(platform);
+      const renameFn = mock(() => {});
+      registerCommand(COMMANDS.fileRenameByEnter, renameFn as () => void);
+
+      handleGlobalKeyDown(makeEvent("Enter", { code: "Enter", target: treeTarget() }));
+
+      expect(renameFn).toHaveBeenCalledTimes(calls);
+    });
+  }
 });

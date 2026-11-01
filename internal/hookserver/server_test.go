@@ -17,6 +17,27 @@ import (
 	"github.com/nexus-code/nexus-code/internal/agentpaths"
 )
 
+// TestMain points HOME at a scratch directory, so the servers the tests open
+// put their sockets there, and the stale-socket sweep in New runs there, not
+// in the developer's ~/.nexus-code/sockets.
+func TestMain(m *testing.M) {
+	// A short parent keeps socket paths under the 104-byte sun_path limit.
+	parent := "/tmp"
+	if runtime.GOOS == "windows" {
+		parent = ""
+	}
+	home, err := os.MkdirTemp(parent, "hs-home-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Setenv("HOME", home)
+	os.Setenv("USERPROFILE", home)
+	code := m.Run()
+	_ = os.RemoveAll(home)
+	os.Exit(code)
+}
+
 // -----------------------------------------------------------------------
 // 테스트용 헬퍼 — 짧은 소켓 경로를 만드는 mockServer
 // -----------------------------------------------------------------------
@@ -99,28 +120,24 @@ func TestNew_ListenAndPerm(t *testing.T) {
 	}
 }
 
-// TestNew_SocketPathTooLong 은 소켓 경로가 104자를 초과하면 에러를 반환하는지 검증한다.
+// TestNew_SocketPathTooLong checks that New refuses a home directory deep
+// enough to push the socket path past the sun_path limit, before it creates
+// anything under it.
 func TestNew_SocketPathTooLong(t *testing.T) {
-	// 긴 경로를 강제로 만들기 위해 TempDir을 긴 경로로 교체한다.
-	// 실제로는 os.TempDir()을 바꿀 수 없으므로 makeSocketPath 내부 경로가
-	// 104자를 넘는 경우를 시뮬레이션하기 위해 긴 소켓 경로를 직접 사용한다.
-	longPath := filepath.Join(os.TempDir(), fmt.Sprintf("nexus-h-very-long-path-%s.sock",
-		string(make([]byte, 100))))
+	home := filepath.Join(t.TempDir(), strings.Repeat("h", maxSocketPathLen))
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
-	// Server를 직접 구성하지 않고 경로 길이만 검사한다.
-	if len(longPath) <= maxSocketPathLen {
-		t.Skip("test environment TempDir is too short to exceed 104 chars")
+	srv, err := New("long", nil)
+	if err == nil {
+		_ = srv.Close()
+		t.Fatal("New succeeded with a socket path over the limit")
 	}
-
-	// New()는 내부에서 makeSocketPath를 사용하므로 agentKey로 긴 경로를 유도할 수 없다.
-	// 대신 maxSocketPathLen 상수 값(104)이 올바른지와 makeSocketPath 결과 길이를 검증한다.
-	key := "short"
-	path, _, err := makeSocketPath(key)
-	if err != nil {
-		t.Fatalf("makeSocketPath: %v", err)
+	if !strings.Contains(err.Error(), "too long") {
+		t.Errorf("New error = %q, want the path-too-long error", err)
 	}
-	if len(path) > maxSocketPathLen {
-		t.Errorf("makeSocketPath(%q) = %d chars, exceeds %d", key, len(path), maxSocketPathLen)
+	if _, statErr := os.Stat(home); !os.IsNotExist(statErr) {
+		t.Errorf("New created %s although it refused the path", home)
 	}
 }
 
@@ -491,35 +508,6 @@ func Test_makeSocketPath_NewLocation(t *testing.T) {
 		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
 			t.Errorf("hash part %q contains non-hex character %c", hashPart, c)
 		}
-	}
-}
-
-// Test_maxSocketPathLen_Guard_NewMessage 는 소켓 경로가 104자를 초과했을 때
-// 에러 메시지에 "under ~/.nexus-code/sockets/" 단서가 포함되는지 검증한다.
-func Test_maxSocketPathLen_Guard_NewMessage(t *testing.T) {
-	socketsDir, err := agentpaths.SocketsDir()
-	if err != nil {
-		t.Fatalf("agentpaths.SocketsDir: %v", err)
-	}
-
-	// 104자를 초과하는 가짜 소켓 경로를 직접 검사한다.
-	// (makeSocketPath 결과는 실제로는 제한 이내이므로 New()의 guard를 직접 시뮬레이션한다.)
-	longPath := filepath.Join(socketsDir, "h-"+string(make([]byte, 100))+".sock")
-	if len(longPath) <= maxSocketPathLen {
-		t.Skip("test environment SocketsDir is too short to exceed 104 chars — skipping")
-	}
-
-	errMsg := fmt.Sprintf("hookserver: socket path too long (%d > %d, under ~/.nexus-code/sockets/): %s",
-		len(longPath), maxSocketPathLen, longPath)
-
-	if !strings.Contains(errMsg, "under ~/.nexus-code/sockets/") {
-		t.Errorf("error message %q: missing 'under ~/.nexus-code/sockets/' hint", errMsg)
-	}
-
-	// New() 자체가 해당 에러를 반환하는지 확인하기 위해, 실제 guard를 검증한다.
-	// 상수 값이 104임을 확인한다.
-	if maxSocketPathLen != 104 {
-		t.Errorf("maxSocketPathLen: want 104, got %d", maxSocketPathLen)
 	}
 }
 

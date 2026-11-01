@@ -3,25 +3,9 @@ package git
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 )
-
-// ---------------------------------------------------------------------------
-// Fixture directory helper
-// ---------------------------------------------------------------------------
-
-// conflictFixtureRoot returns the path to tests/fixtures/git/conflict.
-func conflictFixtureRoot(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "tests", "fixtures", "git", "conflict"))
-}
 
 // ---------------------------------------------------------------------------
 // Unit tests for path normalization helpers
@@ -100,28 +84,30 @@ func TestConflictedPathSet(t *testing.T) {
 
 // TestConflictMarkResolvedEmptyParamsReturnsError verifies empty params are rejected.
 func TestConflictMarkResolvedEmptyParamsReturnsError(t *testing.T) {
-	root := makeWorkflowBaseRepo(t)
-	service := New(root)
+	t.Parallel()
+	service := New(t.TempDir())
 	_, err := service.ConflictMarkResolved(context.Background(), json.RawMessage(`{}`))
-	if err == nil {
-		t.Fatal("ConflictMarkResolved with empty params should return error")
+	if !isProtocolError(err) {
+		t.Fatalf("ConflictMarkResolved with empty params error = %v, want a protocol error", err)
 	}
 }
 
 // TestConflictMarkResolvedEmptyPathsReturnsError verifies empty relPaths is rejected.
 func TestConflictMarkResolvedEmptyPathsReturnsError(t *testing.T) {
-	root := makeWorkflowBaseRepo(t)
+	t.Parallel()
+	root := t.TempDir()
 	service := New(root)
 	raw, _ := json.Marshal(map[string]any{"cwd": root, "relPaths": []string{}})
 	_, err := service.ConflictMarkResolved(context.Background(), raw)
-	if err == nil {
-		t.Fatal("ConflictMarkResolved with empty relPaths should return error")
+	if !isProtocolError(err) {
+		t.Fatalf("ConflictMarkResolved with empty relPaths error = %v, want a protocol error", err)
 	}
 }
 
 // TestConflictMarkResolvedNotConflictedReturnsError verifies non-conflicted path is rejected.
 func TestConflictMarkResolvedNotConflictedReturnsError(t *testing.T) {
-	root := makeWorkflowBaseRepo(t)
+	t.Parallel()
+	root := newRepo(t)
 	service := New(root)
 	raw, _ := json.Marshal(map[string]any{"cwd": root, "relPaths": []string{"README.md"}})
 	_, err := service.ConflictMarkResolved(context.Background(), raw)
@@ -132,7 +118,8 @@ func TestConflictMarkResolvedNotConflictedReturnsError(t *testing.T) {
 
 // TestConflictMarkResolvedResolvesConflict verifies a conflicted path is staged and remaining count decreases.
 func TestConflictMarkResolvedResolvesConflict(t *testing.T) {
-	root := makeWorkflowConflictRepo(t)
+	t.Parallel()
+	root := newConflictRepo(t)
 	service := New(root)
 
 	// Start a conflicting merge.
@@ -153,13 +140,5 @@ func TestConflictMarkResolvedResolvesConflict(t *testing.T) {
 	}
 	if cr.RemainingConflicts != 0 {
 		t.Errorf("ConflictMarkResolved remainingConflicts = %d, want 0", cr.RemainingConflicts)
-	}
-}
-
-// TestConflictFixturesExist logs a warning if the fixture root is absent.
-func TestConflictFixturesExist(t *testing.T) {
-	root := conflictFixtureRoot(t)
-	if _, err := os.Stat(root); err != nil {
-		t.Logf("conflict fixture root %q not yet present (will be created): %v", root, err)
 	}
 }

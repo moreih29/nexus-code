@@ -14,7 +14,8 @@
 // backdrop (main/features/window/index.ts), so any change here takes effect
 // immediately — no restart required. A Linux window opens transparent only
 // while the saved opacity is under 100%: lowering it there shows through
-// after a restart.
+// after a restart. Windows before 11 22H2 has no backdrop: its window stays
+// opaque and does not apply the opacity (useWindowOpacityEffect).
 
 import { create } from "zustand";
 import { createLogger } from "../../../shared/log/renderer";

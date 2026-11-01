@@ -164,7 +164,6 @@ describe("workspace terminal aggregate banner", () => {
     );
     expect((bannerHtml.match(/role="status"/g) ?? []).length).toBe(1);
     expect(bannerHtml).toContain("3 terminals ended.");
-    expect(bannerHtml).toContain("shrink-0 h-6");
     expect(bannerHtml).not.toContain("absolute");
     expect(bannerHtml).not.toContain("fixed");
 
@@ -229,34 +228,15 @@ describe("workspace terminal aggregate banner", () => {
   });
 
   // H: offline state suppresses our banner for every dead-count value
-  test("workspace offline: banner hidden for 1 dead terminal", () => {
-    expect(
-      shouldShowWorkspaceTerminalStatusBanner({
-        aggregate: null,
-        deadTerminalCount: 1,
-        workspaceOnline: false,
-      }),
-    ).toBe(false);
-  });
-
-  test("workspace offline: banner hidden for 2 dead terminals", () => {
-    expect(
-      shouldShowWorkspaceTerminalStatusBanner({
-        aggregate: { tabIds: ["t1", "t2"] },
-        deadTerminalCount: 2,
-        workspaceOnline: false,
-      }),
-    ).toBe(false);
-  });
-
-  test("workspace offline: banner hidden for 3 dead terminals", () => {
-    expect(
-      shouldShowWorkspaceTerminalStatusBanner({
-        aggregate: { tabIds: ["t1", "t2", "t3"] },
-        deadTerminalCount: 3,
-        workspaceOnline: false,
-      }),
-    ).toBe(false);
+  test("workspace offline: banner hidden for 1, 2 and 3 dead terminals", () => {
+    const cases = [
+      { aggregate: null, deadTerminalCount: 1 },
+      { aggregate: { tabIds: ["t1", "t2"] }, deadTerminalCount: 2 },
+      { aggregate: { tabIds: ["t1", "t2", "t3"] }, deadTerminalCount: 3 },
+    ];
+    for (const c of cases) {
+      expect(shouldShowWorkspaceTerminalStatusBanner({ ...c, workspaceOnline: false })).toBe(false);
+    }
   });
 
   test("Reopen all requests every dead terminal without changing tab id or cwd", () => {

@@ -30,6 +30,10 @@ export type GitCommitTabProps = z.infer<typeof GitCommitTabPropsSchema>;
 export const BrowserTabPropsSchema = BrowserTabPayloadSchema;
 export type BrowserTabProps = z.infer<typeof BrowserTabPropsSchema>;
 
+/** The sessions tab shows the workspace it is in, with its tasks; it has no props. */
+export const SessionsTabPropsSchema = z.object({});
+export type SessionsTabProps = z.infer<typeof SessionsTabPropsSchema>;
+
 // ---------------------------------------------------------------------------
 // SerializedTab
 // ---------------------------------------------------------------------------
@@ -72,6 +76,14 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     type: z.literal("browser"),
     title: z.string(),
     props: BrowserTabPropsSchema,
+    isPreview: z.boolean().optional(),
+    isPinned: z.boolean().optional(),
+  }),
+  z.object({
+    id: z.string().uuid(),
+    type: z.literal("sessions"),
+    title: z.string(),
+    props: SessionsTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
   }),

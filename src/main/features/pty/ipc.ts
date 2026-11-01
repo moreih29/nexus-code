@@ -8,6 +8,7 @@ import { TerminalRecorderRegistry, type PtyRecorderSink } from "./recorder";
 import { ipcOk } from "../../../shared/ipc/result";
 import { injectHarnessTerminalEnv } from "./harness-env";
 import { applyShellPathShim } from "./shell-shim";
+import { applyWindowsShellShim, type WindowsAgentFiles } from "./windows-shell-shim";
 import {
   detectShells,
   findShellProgram,
@@ -67,6 +68,18 @@ export interface PtyChannelOptions {
   getCustomShells?: () => readonly CustomShell[] | undefined;
   /** Where shells are looked up; tests pass a fake machine. */
   shellHost?: ShellHost;
+  /**
+   * On Windows, the claude and codex wrappers and claude's hooks file for
+   * local terminals, whose shells take the Windows shim instead of the zsh
+   * or bash one.
+   */
+  windowsAgentFiles?: () => Promise<WindowsAgentFiles | null>;
+  /** Whether the tab is the one in front, for a program's OS notifications. */
+  isActiveTab?: (workspaceId: string, tabId: string) => boolean;
+  /** Settings' OS notifications toggle. */
+  notificationsEnabled?: () => boolean;
+  /** Input written to a terminal, before it reaches the program. */
+  onInput?: (workspaceId: string, tabId: string, data: string) => void;
 }
 
 /**
@@ -84,6 +97,8 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
   const dispatcher = new OscNotificationDispatcher({
     workspaceManager: wm ?? { getName: () => null },
     getFocusedWindow: getFocusedAppWindow,
+    isActiveTab: options.isActiveTab,
+    notificationsEnabled: options.notificationsEnabled,
     activateWorkspace: wm ? (id) => wm.activate(id) : undefined,
     focusMainWindow: () => {
       const win = getActiveAppWindow();
@@ -227,7 +242,24 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
         }
 
         let shimmedArgs: string[] | undefined = shell?.args ?? spawnArgs;
-        if (wrapperBinDir !== null) {
+        if (wrapperBinDir !== null && options.windowsAgentFiles && shellPath !== undefined) {
+          const files = await options.windowsAgentFiles();
+          const shimResult = applyWindowsShellShim({
+            shell: shellPath,
+            env: enrichedEnv,
+            args: shimmedArgs,
+            settingsPath: files?.settingsPath,
+            wrapperDir: files?.binDir,
+            ...(files ? { codex: { cmd: files.cmdCodexNoDaemon } } : {}),
+            // A local agent, and so the shell, inherits this process's environment.
+            originalPath: process.env.ORIGINAL_PATH,
+          });
+          enrichedEnv = shimResult.env;
+          shimmedArgs = shimResult.args;
+          // The arguments are for this shell: name it rather than leave the
+          // choice to the agent.
+          shell ??= { path: shellPath, args: [] };
+        } else if (wrapperBinDir !== null) {
           // The shim's activation (ZDOTDIR for zsh, --rcfile for bash) has
           // to match the shell that actually starts.
           const wrapperShell = shell?.path ?? wm?.getWrapperShell(workspaceId) ?? null;
@@ -280,6 +312,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
 
       write: async (args: unknown) => {
         const { workspaceId, tabId, data } = validateArgs(c.write.args, args);
+        options.onInput?.(workspaceId, tabId, data);
         // write/resize/ack/kill are fire-and-forget from the renderer and no-op
         // when the workspace is already gone — agentHost.call returns undefined
         // in that case. Return ipcOk so the router stays silent on either path.

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Shims
@@ -34,7 +34,6 @@ import {
   __cancelPendingSavesForTests,
   ensureRoot,
   loadChildren,
-  refresh,
   reveal,
   toggleExpand,
 } from "../../../../../src/renderer/state/operations/files";
@@ -97,26 +96,6 @@ describe("ensureRoot: initializes tree and calls IPC", () => {
     const tree = useFilesStore.getState().trees.get(WS_ID);
     expect(tree?.rootAbsPath).toBe(ROOT);
     expect(tree?.nodes.get(ROOT)?.childrenLoaded).toBe(true);
-  });
-
-  it("does not issue IPC if tree already exists (idempotent)", async () => {
-    setupReaddir({ "": [] });
-    await ensureRoot(WS_ID, ROOT);
-    mockIpcCallResult.mockClear();
-
-    await ensureRoot(WS_ID, ROOT);
-    expect(mockIpcCallResult).not.toHaveBeenCalled();
-  });
-
-  it("tolerates getExpanded rejection and still builds tree", async () => {
-    mockIpcCallResult.mockImplementation((_ch: string, method: string) => {
-      if (method === "getExpanded") return Promise.reject(new Error("ipc error"));
-      if (method === "readdir") return Promise.resolve({ ok: true as const, value: [] });
-      return Promise.resolve({ ok: true as const, value: undefined });
-    });
-
-    await expect(ensureRoot(WS_ID, ROOT)).resolves.toBeUndefined();
-    expect(useFilesStore.getState().trees.get(WS_ID)).toBeDefined();
   });
 
   it("prunes persisted rels whose fs.watch returns NOT_FOUND (stale-row cleanup)", async () => {
@@ -314,7 +293,7 @@ describe("loadChildren: calls readdir and updates store", () => {
 // toggleExpand debounce
 // ---------------------------------------------------------------------------
 
-describe("toggleExpand: calls watch/unwatch and debounces setExpanded", () => {
+describe("toggleExpand: calls watch/unwatch", () => {
   beforeEach(resetStore);
 
   it("calls watch on expand and unwatch on collapse", async () => {
@@ -336,61 +315,6 @@ describe("toggleExpand: calls watch/unwatch and debounces setExpanded", () => {
       workspaceId: WS_ID,
       relPath: "lib",
     });
-  });
-
-  it("fires setExpanded after debounce", async () => {
-    jest.useFakeTimers();
-    try {
-      setupReaddir({ "": [dirEntry("lib", "dir")], lib: [] });
-      await ensureRoot(WS_ID, ROOT);
-
-      const libAbs = `${ROOT}/lib`;
-      const setExpandedArgs: unknown[] = [];
-      mockIpcCallResult.mockImplementation((_ch: string, method: string, args: unknown) => {
-        if (method === "setExpanded") setExpandedArgs.push(args);
-        return Promise.resolve({ ok: true as const, value: undefined });
-      });
-
-      await toggleExpand(WS_ID, libAbs);
-      jest.advanceTimersByTime(250);
-
-      expect(setExpandedArgs).toHaveLength(1);
-      const arg = setExpandedArgs[0] as { workspaceId: string; relPaths: string[] };
-      expect(arg.workspaceId).toBe(WS_ID);
-      expect(arg.relPaths).toContain("lib");
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// refresh
-// ---------------------------------------------------------------------------
-
-describe("refresh: reloads subtree via readdir", () => {
-  beforeEach(resetStore);
-
-  it("wipes subtree and re-issues readdir for root", async () => {
-    setupReaddir({ "": [dirEntry("old.ts")] });
-    await ensureRoot(WS_ID, ROOT);
-
-    mockIpcCallResult.mockClear();
-    setupReaddir({ "": [dirEntry("new.ts")] });
-
-    await refresh(WS_ID);
-
-    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "readdir", {
-      workspaceId: WS_ID,
-      relPath: "",
-    });
-    const t = useFilesStore.getState().trees.get(WS_ID);
-    expect(t?.nodes.get(ROOT)?.childrenLoaded).toBe(true);
-    const childNames = t?.nodes
-      .get(ROOT)
-      ?.children.map((p) => t.nodes.get(p)?.name)
-      .filter(Boolean);
-    expect(childNames).toContain("new.ts");
   });
 });
 

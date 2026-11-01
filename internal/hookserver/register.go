@@ -20,6 +20,7 @@ type respondHookParams struct {
 // 완료했을 때 agent를 통해 대기 중인 hook 클라이언트에게 응답을 전달한다.
 func Register(d *dispatch.Dispatcher, srv *Server) {
 	d.Register("claude.respondHook", srv.respondHook)
+	d.Register("cli.respond", srv.respondCLI)
 }
 
 // respondHook 은 claude.respondHook dispatch 핸들러다.
@@ -33,6 +34,24 @@ func (s *Server) respondHook(_ context.Context, raw json.RawMessage) (any, error
 		return nil, proto.ProtocolError("claude.respondHook hookId is required")
 	}
 	if err := s.Respond(p.HookID, p.Response); err != nil {
+		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: err.Error()}
+	}
+	return struct{}{}, nil
+}
+
+// respondCLIParams are the params of the cli.respond method.
+type respondCLIParams struct {
+	RequestID string          `json:"requestId"`
+	Response  json.RawMessage `json:"response"`
+}
+
+// respondCLI hands main's answer to the waiting CLI client.
+func (s *Server) respondCLI(_ context.Context, raw json.RawMessage) (any, error) {
+	var p respondCLIParams
+	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil || p.RequestID == "" || len(p.Response) == 0 {
+		return nil, proto.ProtocolError("cli.respond params must include requestId and response")
+	}
+	if err := s.RespondCLI(p.RequestID, p.Response); err != nil {
 		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: err.Error()}
 	}
 	return struct{}{}, nil

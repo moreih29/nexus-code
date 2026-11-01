@@ -1,10 +1,17 @@
-import { LSP_FEATURE_ENABLED } from "./feature-flag";
+import { z } from "zod";
 
 export type LspServerSpec = {
   languageId: string;
   binary: string;
   args: readonly string[];
   initializationOptions?: unknown;
+  /**
+   * Not bundled: the server is the user's own, found on the workspace's
+   * host (the agent's lsp.findBinary). Off until the user turns it on.
+   */
+  system?: boolean;
+  /** A system server: the command that installs it, shown when it is missing. */
+  install?: string;
 };
 
 export const BUILTIN_LSP_PRESETS = [
@@ -35,9 +42,50 @@ export const BUILTIN_LSP_PRESETS = [
       "python.analysis.useLibraryCodeForTypes": true,
     },
   },
+  {
+    // Schemas come from the files' own `# yaml-language-server: $schema=`
+    // lines and from SchemaStore, which the server fetches by file name
+    // (GitHub workflows, docker-compose, …).
+    languageId: "yaml",
+    binary: "yaml-language-server",
+    args: ["--stdio"],
+  },
+  {
+    // Errors come from shellcheck and formatting from shfmt, when the
+    // workspace's host has them on its PATH.
+    languageId: "shell",
+    binary: "bash-language-server",
+    args: ["start"],
+  },
+  {
+    languageId: "dockerfile",
+    binary: "docker-langserver",
+    args: ["--stdio"],
+  },
+  {
+    languageId: "go",
+    binary: "gopls",
+    args: [],
+    system: true,
+    install: "go install golang.org/x/tools/gopls@latest",
+  },
+  {
+    languageId: "rust",
+    binary: "rust-analyzer",
+    args: [],
+    system: true,
+    install: "rustup component add rust-analyzer",
+  },
 ] as const satisfies readonly LspServerSpec[];
 
 export type BuiltinLspPresetLanguageId = (typeof BUILTIN_LSP_PRESETS)[number]["languageId"];
+
+export const LspPresetLanguageIdSchema = z.enum(
+  BUILTIN_LSP_PRESETS.map((preset) => preset.languageId) as [
+    BuiltinLspPresetLanguageId,
+    ...BuiltinLspPresetLanguageId[],
+  ],
+);
 
 // Monaco assigns distinct languageIds per file extension —
 //   .ts  → "typescript"
@@ -52,6 +100,8 @@ export const LSP_LANGUAGE_PRESET_ALIASES = {
   javascript: "typescript",
   typescriptreact: "typescript",
   javascriptreact: "typescript",
+  // What lspLanguageIdForUri sends for Monaco's "shell".
+  shellscript: "shell",
 } as const satisfies Record<string, BuiltinLspPresetLanguageId>;
 
 export type LspLanguagePresetAlias = keyof typeof LSP_LANGUAGE_PRESET_ALIASES;
@@ -81,8 +131,43 @@ export function resolveLspPreset(languageId: string): LspServerSpec | null {
 }
 
 export function isSupportedLspLanguage(languageId: string): languageId is SupportedLspLanguageId {
-  if (!LSP_FEATURE_ENABLED) return false;
   return resolveLspPresetLanguageId(languageId) !== null;
+}
+
+/** File extensions whose language a preset serves, as Monaco assigns them. */
+const LSP_PRESET_EXTENSIONS: Record<string, BuiltinLspPresetLanguageId> = {
+  ts: "typescript",
+  tsx: "typescript",
+  mts: "typescript",
+  cts: "typescript",
+  js: "typescript",
+  jsx: "typescript",
+  mjs: "typescript",
+  cjs: "typescript",
+  py: "python",
+  pyi: "python",
+  yaml: "yaml",
+  yml: "yaml",
+  sh: "shell",
+  bash: "shell",
+  dockerfile: "dockerfile",
+  go: "go",
+  rs: "rust",
+};
+
+/** Files a preset serves by their whole name, lowercased, as Monaco assigns them. */
+const LSP_PRESET_FILENAMES: Record<string, BuiltinLspPresetLanguageId> = {
+  dockerfile: "dockerfile",
+};
+
+/** The preset serving a file, by its extension; null when none does. */
+export function lspPresetLanguageIdForPath(filePath: string): BuiltinLspPresetLanguageId | null {
+  const name = filePath.slice(filePath.search(/[^/\\]*$/));
+  const byName = LSP_PRESET_FILENAMES[name.toLowerCase()];
+  if (byName) return byName;
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0) return null;
+  return LSP_PRESET_EXTENSIONS[name.slice(dot + 1).toLowerCase()] ?? null;
 }
 
 /**
@@ -119,5 +204,7 @@ export function lspLanguageIdForUri(monacoLanguageId: string, uri: string): stri
   ) {
     return "javascriptreact";
   }
+  // Monaco's "shell" is LSP's "shellscript".
+  if (monacoLanguageId === "shell") return "shellscript";
   return monacoLanguageId;
 }

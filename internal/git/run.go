@@ -190,7 +190,7 @@ func (s *Service) command(ctx context.Context, args []string, cwd string, env ma
 		}
 		askpass.runID = runIDFrom(ctx)
 	}
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, gitBinary(), args...)
 	cmd.Dir = resolvedCwd
 	cmd.Env = gitEnv(env, interactive, askpass)
 	return cmd, nil
@@ -225,7 +225,7 @@ func (s *Service) resolveCwd(ctx context.Context, cwd string) (string, error) {
 // reports it in (see logicalTopLevel), so a cwd or gitDir taken from it
 // passes the checks against it.
 func gitTopLevel(ctx context.Context, root string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel", "--show-cdup")
+	cmd := exec.CommandContext(ctx, gitBinary(), "rev-parse", "--show-toplevel", "--show-cdup")
 	cmd.Dir = root
 	cmd.Env = gitEnv(nil, false, commandAskpass{})
 	out, err := cmd.Output()

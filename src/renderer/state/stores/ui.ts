@@ -62,6 +62,8 @@ interface UIState {
   setFilesPanelMode(workspaceId: string, mode: FilesPanelMode): void;
   /** Toggle the Files Panel (tree/git/search column) visibility. Persists. */
   toggleFilesPanel(): void;
+  /** Shows or hides one of the two columns. Persists. */
+  setPanelHidden(panel: "sidebar" | "files", hidden: boolean): void;
   /**
    * "Sidebar" in the VSCode sense — toggle both columns together. If
    * either is currently hidden, show both; otherwise hide both. Persists
@@ -147,6 +149,14 @@ export const useUIStore = create<UIState>((set) => {
         return { filesPanelHidden: next };
       });
       void ipcCallResult("appState", "set", { filesPanelHidden: next }).then((result) => {
+        if (!result.ok) log.warn(`appState set failed: ${result.message}`);
+      });
+    },
+
+    setPanelHidden(panel, hidden) {
+      const patch = panel === "sidebar" ? { sidebarHidden: hidden } : { filesPanelHidden: hidden };
+      set(patch);
+      void ipcCallResult("appState", "set", patch).then((result) => {
         if (!result.ok) log.warn(`appState set failed: ${result.message}`);
       });
     },

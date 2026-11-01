@@ -2,7 +2,9 @@
  * Updates IPC subscriptions — main → renderer wiring.
  *
  * Subscribes to `updates.statusChanged` and fires the appropriate Toast
- * variant based on the discriminated-union payload and trigger type.
+ * variant based on the discriminated-union payload and trigger type. Every
+ * status, and each `updates.progress`, also goes to the updates store, which
+ * the About panel shows.
  *
  * TOAST RULES
  * -----------
@@ -14,7 +16,9 @@
  *   kind=current  + trigger=auto   → silent
  *   kind=error    + trigger=manual → error toast
  *   kind=error    + trigger=auto   → silent
- *   kind=downloading               → plain info toast
+ *   kind=downloading               → info toast + "Show Progress" (Settings › About),
+ *                                    dismissed once the download moves on
+ *   kind=verifying                 → silent (the About panel shows it)
  *   kind=ready                     → action toast: "Restart Now"
  *   kind=installFailed             → error toast with "Open Release Page"
  *
@@ -31,11 +35,14 @@
  *   Call `initUpdatesSubscriptions()` once during app bootstrap (after the
  *   IPC bridge is installed).  The function is idempotent — a second call
  *   unsubscribes the previous listener and installs a fresh one (safe for HMR).
+ *   It then reads the status the broadcasts so far left, for the store.
  */
 
 import i18next from "i18next";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
-import { showToast } from "../../components/ui/toast";
+import { dismissToast, showToast } from "../../components/ui/toast";
+import { useSettingsUIStore } from "../stores/settings-ui";
+import { useUpdatesStore } from "../stores/updates";
 import { updateCheckFailedMessage } from "./update-check-failure";
 
 // ---------------------------------------------------------------------------
@@ -49,6 +56,9 @@ let activeUnsub: Unsubscribe | null = null;
 /** Version string of the last "newer" toast shown. Used for renderer-side dedupe. */
 let lastShownNewerVersion: string | null = null;
 
+/** The download's toast, which never expires by itself (it has an action). */
+let downloadingToast: number | null = null;
+
 /**
  * Install (or reinstall) the `updates.statusChanged` → toast subscription.
  *
@@ -60,7 +70,14 @@ export function initUpdatesSubscriptions(): void {
     activeUnsub = null;
   }
 
-  activeUnsub = ipcListen("updates", "statusChanged", (status) => {
+  const unsubscribeStatus = ipcListen("updates", "statusChanged", (status) => {
+    useUpdatesStore.getState().applyStatus(status);
+    // The next step of the update replaces the download's toast; a check
+    // made meanwhile does not.
+    if (downloadingToast !== null && !("trigger" in status)) {
+      dismissToast(downloadingToast);
+      downloadingToast = null;
+    }
     switch (status.kind) {
       case "checking":
         // Only broadcast for manual trigger (main suppresses auto-trigger checking).
@@ -130,10 +147,19 @@ export function initUpdatesSubscriptions(): void {
         break;
 
       case "downloading":
-        showToast({
+        downloadingToast = showToast({
           kind: "info",
           message: i18next.t("common:updates.downloading", { version: status.version }),
+          actions: [
+            {
+              label: i18next.t("common:updates.showProgress"),
+              onAction: () => useSettingsUIStore.getState().openSettingsAt("about"),
+            },
+          ],
         });
+        break;
+
+      case "verifying":
         break;
 
       case "ready":
@@ -171,5 +197,22 @@ export function initUpdatesSubscriptions(): void {
         break;
       }
     }
+  });
+  const unsubscribeProgress = ipcListen("updates", "progress", (progress) => {
+    useUpdatesStore.getState().applyProgress(progress);
+  });
+  activeUnsub = () => {
+    unsubscribeStatus();
+    unsubscribeProgress();
+  };
+
+  void ipcCallResult("updates", "getStatus", undefined).then((result) => {
+    if (!result.ok) return;
+    const { status, progress } = result.value;
+    const store = useUpdatesStore.getState();
+    // A broadcast that arrived meanwhile is newer.
+    if (status === null || store.status !== null) return;
+    store.applyStatus(status);
+    if (progress !== null) store.applyProgress(progress);
   });
 }

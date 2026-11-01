@@ -50,7 +50,7 @@
  * No cross-thread access is expected; the Map is not guarded by locks.
  */
 
-import type { BrowserWindow } from "electron";
+import type { BrowserWindow, WebContents } from "electron";
 import { WebContentsView } from "electron";
 import { createLogger } from "../../../shared/log/main";
 import { excludeFromBroadcast } from "../../infra/ipc-router";
@@ -161,6 +161,8 @@ export class BrowserTabRegistry {
    * be visible.
    */
   private suspendGeneration = 0;
+  /** Told of each tab's WebContents as it is created, before its first page loads. */
+  private readonly createListeners = new Set<(tabId: string, contents: WebContents) => void>();
 
   constructor(win: BrowserWindow, permissionDeps?: PermissionHandlerDeps) {
     this.win = win;
@@ -225,6 +227,7 @@ export class BrowserTabRegistry {
       devtoolsOpen: false,
     };
     this.tabs.set(tabId, entry);
+    for (const listener of this.createListeners) listener(tabId, view.webContents);
 
     // Begin loading the initial URL.  Will-navigate guards are already wired.
     view.webContents.loadURL(url).catch((err: Error) => {
@@ -232,6 +235,16 @@ export class BrowserTabRegistry {
     });
 
     logger.debug(`[create] tab ${tabId} created (partition=${partition})`);
+  }
+
+  /**
+   * Calls `listener` with each tab's WebContents as it is created, before its
+   * first page loads, so it can watch the tab from the start. Returns the
+   * call that stops it.
+   */
+  onCreate(listener: (tabId: string, contents: WebContents) => void): () => void {
+    this.createListeners.add(listener);
+    return () => this.createListeners.delete(listener);
   }
 
   // -------------------------------------------------------------------------

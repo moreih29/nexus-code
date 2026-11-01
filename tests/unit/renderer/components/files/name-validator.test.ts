@@ -52,3 +52,39 @@ describe("validateNewEntryName", () => {
     expect(validateNewEntryName("a\0b")).not.toBeNull();
   });
 });
+
+describe("validateNewEntryName on a Windows file system", () => {
+  const windows = (name: string) => validateNewEntryName(name, undefined, { windows: true });
+
+  it("rejects the characters Windows refuses in a name", () => {
+    for (const name of ["a:b.txt", "a*", "what?", 'say"hi"', "<x>", "a|b", "tab\there"]) {
+      expect(windows(name)).toBe('Name cannot contain : * ? " < > |');
+    }
+    expect(windows("src/a:b.ts")).not.toBeNull();
+  });
+
+  it("rejects device names, with or without an extension", () => {
+    for (const name of ["CON", "nul", "Aux.txt", "com1", "LPT9.log", "dir/prn"]) {
+      expect(windows(name)).toBe("This name is reserved on Windows.");
+    }
+  });
+
+  it("rejects a segment that ends in a dot or a space", () => {
+    expect(windows("foo.")).toBe("Name cannot end with a dot or a space.");
+    expect(windows("foo ")).toBe("Name cannot end with a dot or a space.");
+    expect(windows("dir./a.ts")).toBe("Name cannot end with a dot or a space.");
+  });
+
+  it("accepts the names Windows takes", () => {
+    const names = ["readme.md", ".env", "console.log", "com10", "nul-check", "a b/c.d.ts", "foo/"];
+    for (const name of names) {
+      expect(windows(name)).toBeNull();
+    }
+  });
+
+  it("leaves these names to other file systems", () => {
+    for (const name of ["a:b.txt", "CON", "foo."]) {
+      expect(validateNewEntryName(name)).toBeNull();
+    }
+  });
+});

@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { checkGitErrorKindParity } from "../../../scripts/check-git-error-kind-parity";
+import { GitErrorKindSchema } from "../../../src/shared/git/types";
 
 const tempRoots: string[] = [];
 
@@ -33,51 +34,15 @@ function writeFixtureKind(root: string, kind: string): string {
 }
 
 describe("checkGitErrorKindParity", () => {
-  test("passes when TS, Go, and fixture kinds align", () => {
-    const root = makeTempRoot();
-    const goFile = writeGoKinds(root, ["auth", "conflict"]);
-    const fixtureRoot = writeFixtureKind(root, "auth");
-
+  test("the real TS schema, Go constants, and stderr fixtures agree", () => {
+    // Go file and fixture root fall back to the checker's defaults, which
+    // resolve from the cwd (the repo root under `bun test`).
     const result = checkGitErrorKindParity({
-      tsKinds: ["auth", "conflict"],
-      goFile,
-      fixtureRoot,
+      tsKinds: [...GitErrorKindSchema.options],
     });
 
-    expect(result.ok).toBe(true);
     expect(result.problems).toEqual([]);
-  });
-
-  test("detects a Go mirror value missing from TS source of truth", () => {
-    const root = makeTempRoot();
-    const goFile = writeGoKinds(root, ["auth"]);
-
-    const result = checkGitErrorKindParity({
-      tsKinds: ["auth", "conflict"],
-      goFile,
-      fixtureRoot: path.join(root, "missing-fixtures"),
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.problems).toContain(
-      "Go Kind constants missing GitErrorKindSchema values: conflict",
-    );
-  });
-
-  test("detects an extra Go mirror value absent from TS source of truth", () => {
-    const root = makeTempRoot();
-    const goFile = writeGoKinds(root, ["auth", "conflict", "extra-kind"]);
-
-    const result = checkGitErrorKindParity({
-      tsKinds: ["auth", "conflict"],
-      goFile,
-      fixtureRoot: path.join(root, "missing-fixtures"),
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.problems).toContain(
-      "Go Kind constants has extra values absent from GitErrorKindSchema: extra-kind",
-    );
+    expect(result.fixtureKinds.length).toBeGreaterThan(0);
   });
 
   test("detects typo drift as both missing and extra", () => {

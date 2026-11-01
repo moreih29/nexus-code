@@ -3,8 +3,6 @@
  *
  * Tests the exported pure helper that resolves the flat-list index to jump to
  * when ArrowLeft is pressed on a collapsed dir or a file row.
- *
- * Also verifies the FileTreeRow chevron className tokens for isLoading.
  */
 
 import { describe, expect, it } from "bun:test";

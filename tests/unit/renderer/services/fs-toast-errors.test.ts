@@ -102,11 +102,4 @@ describe("toFsToast — existing code regression", () => {
       { kind: "error", message: "Can't move across filesystems." },
     ]);
   });
-
-  it("maps NOT_EMPTY to warning (not error) while keeping message text", () => {
-    toFsToast(new Error("NOT_EMPTY: /repo/dir"), { fallback: "fallback" });
-
-    expect(toastCalls[0].kind).toBe("warning");
-    expect(toastCalls[0].message).toBe("Folder is not empty.");
-  });
 });

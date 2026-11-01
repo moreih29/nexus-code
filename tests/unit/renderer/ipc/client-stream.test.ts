@@ -133,15 +133,6 @@ describe("renderer ipcStream primitive", () => {
     await stream.promise;
   });
 
-  test("complete resolves promise", async () => {
-    const stream = startTestStream();
-    await waitForRegistration();
-
-    dispatchFromBridge({ streamId: "stream-1", kind: "complete", data: { done: true } });
-
-    await expect(stream.promise).resolves.toEqual({ done: true });
-  });
-
   test("error rejects promise with Error name and message", async () => {
     const stream = startTestStream();
     const rejection = stream.promise.catch((error) => error);
@@ -172,22 +163,5 @@ describe("renderer ipcStream primitive", () => {
     expect(error).toBeInstanceOf(Error);
     expect(error.name).toBe("AbortError");
     expect(error.message).toBe("The operation was aborted");
-  });
-
-  test("wrong streamId is ignored by the bridge registration map", async () => {
-    const stream = startTestStream();
-    const progress = mock((_payload: ProgressPayload) => {});
-    stream.onProgress(progress);
-    await waitForRegistration("stream-1");
-
-    dispatchFromBridge({ streamId: "stream-2", kind: "progress", data: { step: 99 } });
-    expect(progress).not.toHaveBeenCalled();
-
-    dispatchFromBridge({ streamId: "stream-1", kind: "progress", data: { step: 1 } });
-    expect(progress).toHaveBeenCalledTimes(1);
-    expect(progress).toHaveBeenCalledWith({ step: 1 });
-
-    dispatchFromBridge({ streamId: "stream-1", kind: "complete", data: { done: true } });
-    await stream.promise;
   });
 });

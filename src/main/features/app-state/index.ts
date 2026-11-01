@@ -46,6 +46,11 @@ export interface AppStateChannelOptions {
    * broadcasts `appState.terminalShellsChanged` to all renderer windows.
    */
   onTerminalShellsChanged?: () => void;
+  /**
+   * Invoked after a `set` call that includes `themePreference`, with the
+   * new theme. The main/index.ts wiring repaints the window controls.
+   */
+  onThemeChanged?: (theme: NonNullable<AppState["themePreference"]>) => void;
 }
 
 export function registerAppStateChannel(
@@ -86,6 +91,10 @@ export function registerAppStateChannel(
         // Shells: clearing one sends the key with no value, so test for the key.
         if ("terminalShell" in patch || "terminalShells" in patch) {
           opts.onTerminalShellsChanged?.();
+        }
+
+        if (patch.themePreference !== undefined) {
+          opts.onThemeChanged?.(patch.themePreference);
         }
       },
     },

@@ -93,6 +93,7 @@ import { useFilesStore } from "../../../../../src/renderer/state/stores/files";
 import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 import { useWorkspacesStore } from "../../../../../src/renderer/state/stores/workspaces";
+import { setPlatformForTests } from "../../../../../src/renderer/utils/platform";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -196,6 +197,19 @@ describe("confirmAndDeleteBatch — N=2 batch, local", () => {
     expect(lastConfirmArgs?.description).toContain("a.ts, b.ts");
     expect(lastConfirmArgs?.description).toContain("You can restore the items from the Trash.");
     expect(lastConfirmArgs?.confirmLabel).toBe("Move to Trash");
+  });
+
+  it("names the Recycle Bin on Windows", async () => {
+    setPlatformForTests("win32");
+    try {
+      await confirmAndDeleteBatch(WS, ROOT, [`${ROOT}/a.ts`, `${ROOT}/b.ts`]);
+    } finally {
+      setPlatformForTests(null);
+    }
+    expect(lastConfirmArgs?.description).toContain(
+      "You can restore the items from the Recycle Bin.",
+    );
+    expect(lastConfirmArgs?.confirmLabel).toBe("Move to Recycle Bin");
   });
 });
 

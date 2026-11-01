@@ -7,19 +7,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 )
-
-// TestMain lets the test binary double as the askpass helper: interactive
-// commands name os.Executable() as GIT_ASKPASS, as the agent does.
-func TestMain(m *testing.M) {
-	if socketPath, ok := AskpassSocketFromEnv(); ok {
-		os.Exit(RunAskpassHelper(socketPath, os.Args[1:], os.Stdout, os.Stderr))
-	}
-	os.Exit(m.Run())
-}
 
 // runAskpassPrompt runs the helper against the service's askpass socket and
 // answers its prompt with the git.askpass.respond fields in answer.
@@ -77,6 +67,7 @@ func promptingRemote(t *testing.T) string {
 // Cancelling a run that waits on a credential prompt must end the request:
 // the prompt fails, the orphaned helper exits, and git's pipes close.
 func TestCancelledRunFailsItsCredentialPrompt(t *testing.T) {
+	t.Parallel()
 	service := New(t.TempDir())
 	defer service.Close()
 	prompts := make(chan askpassRequestPayload, 4)

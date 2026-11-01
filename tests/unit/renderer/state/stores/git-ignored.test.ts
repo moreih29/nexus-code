@@ -3,9 +3,10 @@
  * cleared (a `.gitignore` edit) must not land in the fresh cache.
  */
 
-import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
 
 const WS = "00000000-0000-0000-0000-0000000000aa";
+/** Past the store's 250 ms flush debounce; the clock is fake. */
 const FLUSH_WAIT_MS = 300;
 
 interface PendingCall {
@@ -46,17 +47,20 @@ afterAll(() => {
 
 const { useIgnoredStore } = await import("../../../../../src/renderer/state/stores/git/ignored");
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/** Lets an answered check reach the cache. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 5; i += 1) await Promise.resolve();
 }
 
 beforeEach(() => {
+  jest.useFakeTimers();
   calls.length = 0;
   useIgnoredStore.setState({ byWorkspace: new Map() });
 });
 
 afterEach(() => {
   useIgnoredStore.getState().clearWorkspace(WS);
+  jest.useRealTimers();
 });
 
 describe("ignored cache", () => {
@@ -64,32 +68,32 @@ describe("ignored cache", () => {
     const store = useIgnoredStore.getState();
     store.enqueueCheck(WS, "/repo/dist/a.js", "dist/a.js");
     store.enqueueCheck(WS, "/repo/dist/b.js", "dist/b.js");
-    await sleep(FLUSH_WAIT_MS);
+    jest.advanceTimersByTime(FLUSH_WAIT_MS);
     expect(calls).toHaveLength(1);
 
     // `.gitignore` gains `dist/` while git is still answering the old batch.
     store.clearWorkspace(WS);
     store.enqueueCheck(WS, "/repo/dist/a.js", "dist/a.js");
     calls[0]?.answer([]);
-    await sleep(0);
+    await settle();
 
     // b.js was not re-queued yet; the stale "not ignored" must not stick.
     expect(store.isIgnored(WS, "/repo/dist/b.js")).toBeUndefined();
 
-    await sleep(FLUSH_WAIT_MS);
+    jest.advanceTimersByTime(FLUSH_WAIT_MS);
     expect(calls).toHaveLength(2);
     expect(calls[1]?.relPaths).toEqual(["dist/a.js"]);
     calls[1]?.answer(["dist/a.js"]);
-    await sleep(0);
+    await settle();
     expect(store.isIgnored(WS, "/repo/dist/a.js")).toBe(true);
   });
 
   it("keeps answers when the cache was not cleared", async () => {
     const store = useIgnoredStore.getState();
     store.enqueueCheck(WS, "/repo/dist/a.js", "dist/a.js");
-    await sleep(FLUSH_WAIT_MS);
+    jest.advanceTimersByTime(FLUSH_WAIT_MS);
     calls[0]?.answer(["dist/a.js"]);
-    await sleep(0);
+    await settle();
     expect(store.isIgnored(WS, "/repo/dist/a.js")).toBe(true);
   });
 });

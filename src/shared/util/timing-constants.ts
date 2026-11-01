@@ -47,15 +47,13 @@ export const FS_EXPANDED_SAVE_DEBOUNCE_MS = 200;
 export const LSP_DEFAULT_IDLE_MS = 30 * 60 * 1000;
 
 /**
- * Maximum number of workspaces whose LSP servers can be live
- * simultaneously. This is a **safety net**, not the primary resource
- * control — users govern per-workspace per-language LSP allocation
- * explicitly via the sidebar chips and the Workspaces settings panel
- * (new workspaces default to no LSP enabled). The cap only kicks in
- * if the user has opted four workspaces into LSP at once, which on
- * 16GB machines (4× tsserver ≈ 6–10GB) is the practical limit before
- * macOS begins page-compressing aggressively and inter-process
- * latency spikes into seconds.
+ * Default number of workspaces whose LSP servers can be live
+ * simultaneously; Settings › Editor › Language servers changes it.
+ * Servers start for every workspace that opens a file, so the cap is
+ * what bounds their memory: a TypeScript workspace takes 0.5–1GB, and
+ * on 16GB machines four of them are the practical limit before macOS
+ * begins page-compressing aggressively and inter-process latency
+ * spikes into seconds.
  *
  * The evicted workspace's renderer-side model entries are notified via
  * `lsp:workspaceReset` so the next interaction triggers a fresh
@@ -74,8 +72,8 @@ export const LSP_MAX_ACTIVE_WORKSPACES = 4;
 // tsserver doesn't keep working on a result nobody is waiting for.
 //
 // The values are tuned per-method:
-// - hover / documentHighlight: low (interactive feedback); a hover that
-//   takes 8s+ is effectively useless.
+// - hover / documentHighlight / signatureHelp: low (interactive feedback);
+//   a hover that takes 8s+ is effectively useless.
 // - completion / references / workspaceSymbol: medium (user explicitly
 //   waits, the result is worth more time).
 // - semanticTokens / documentSymbol: medium (whole-file work, runs once
@@ -102,9 +100,20 @@ export const LSP_CONSECUTIVE_TIMEOUT_LIMIT = 3;
  */
 export const LSP_SERVER_WEDGE_GRACE_MS = 60_000;
 
+/**
+ * A server that crashes (or wedges, or fails to start) is started again,
+ * unless it failed this many times within LSP_CRASH_WINDOW_MS: then it
+ * stays down until the user restarts it, so a server that dies on startup
+ * does not spin.
+ */
+export const LSP_CRASH_LIMIT = 3;
+export const LSP_CRASH_WINDOW_MS = 3 * 60 * 1000;
+
 export const LSP_HOVER_TIMEOUT_MS = 8_000;
 export const LSP_DEFINITION_TIMEOUT_MS = 10_000;
 export const LSP_COMPLETION_TIMEOUT_MS = 15_000;
+export const LSP_COMPLETION_RESOLVE_TIMEOUT_MS = 5_000;
+export const LSP_SIGNATURE_HELP_TIMEOUT_MS = 5_000;
 export const LSP_REFERENCES_TIMEOUT_MS = 15_000;
 export const LSP_DOCUMENT_HIGHLIGHT_TIMEOUT_MS = 5_000;
 export const LSP_DOCUMENT_SYMBOL_TIMEOUT_MS = 10_000;

@@ -138,17 +138,6 @@ describe("createStashPickerSource — drop mode", () => {
     expect(() => source.accept(item)).not.toThrow();
     expect(applyStash).not.toHaveBeenCalled();
   });
-
-  it("apply mode still routes Enter to applyStash", async () => {
-    const { source, applyStash } = buildSource([stash()]);
-    const [item] = await source.search("", new AbortController().signal);
-    if (!item) throw new Error("expected stash item");
-
-    source.accept(item, { mode: "default", modifiers: noModifiers() });
-
-    expect(applyStash).toHaveBeenCalledTimes(1);
-    expect(applyStash).toHaveBeenCalledWith(workspaceId, 0);
-  });
 });
 
 /** Returns the palette modifier object for a plain Enter accept. */

@@ -36,8 +36,13 @@ find_real_claude() {
 }
 
 # 2) 인앱 여부 감지: NEXUS_IN_APP=1 이고 NEXUS_AGENT_SOCKET 소켓이 존재할 때만 주입 모드.
+#    Git Bash on Windows sees the agent's AF_UNIX socket as a plain file.
+socket_exists() {
+  [[ -S "$1" ]] && return 0
+  [[ "${OSTYPE:-}" == msys* || "${OSTYPE:-}" == cygwin* ]] && [[ -e "$1" ]]
+}
 IN_APP=0
-if [[ "${NEXUS_IN_APP:-0}" == "1" && -n "${NEXUS_AGENT_SOCKET:-}" && -S "${NEXUS_AGENT_SOCKET}" ]]; then
+if [[ "${NEXUS_IN_APP:-0}" == "1" && -n "${NEXUS_AGENT_SOCKET:-}" ]] && socket_exists "${NEXUS_AGENT_SOCKET}"; then
   IN_APP=1
 fi
 
@@ -65,7 +70,7 @@ cat > "$SETTINGS_FILE" <<'SETTINGS_EOF'
 {
   "preferredNotifChannel": "notifications_disabled",
   "hooks": {
-    "SessionStart": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook session-start","timeout":10,"async":true}]}],
+    "SessionStart": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook session-start","timeout":10,"async":true},{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" cli agent-context","timeout":10}]}],
     "UserPromptSubmit": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook user-prompt-submit","timeout":10,"async":true}]}],
     "PreToolUse": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook pre-tool-use","timeout":5,"async":true}]}],
     "Notification": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook notification","timeout":10,"async":true}]}],

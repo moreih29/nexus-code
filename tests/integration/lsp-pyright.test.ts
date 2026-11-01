@@ -1,3 +1,13 @@
+/**
+ * Manual check: runs only with LSP_INTEGRATION=1, by hand. CI never sets it.
+ *
+ *   LSP_INTEGRATION=1 bun test tests/integration/lsp-pyright.test.ts
+ *
+ * It starts node_modules/.bin/pyright-langserver against
+ * tests/fixtures/lsp/pyright/sample and compares the live responses with the
+ * stored fixtures. LSP is an experimental setting in the app, off by
+ * default; run this when changing the Pyright integration.
+ */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";

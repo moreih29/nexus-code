@@ -16,9 +16,10 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { STORE_PRODUCT_ID } from "../src/main/features/updates/microsoft-store";
 
 /** NexusCode's Store product ID in Partner Center. */
-export const PRODUCT_ID = "9P04CSF0J5ZD";
+export const PRODUCT_ID = STORE_PRODUCT_ID;
 
 /** The Store caps each listing's release notes at this many characters. */
 export const RELEASE_NOTES_MAX_LENGTH = 1500;

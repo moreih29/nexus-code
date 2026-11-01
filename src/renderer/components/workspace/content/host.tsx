@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { CommitTab } from "@/components/editor/commit-tab";
 import { DiffTab } from "@/components/editor/diff-tab";
+import { SessionsTabView } from "@/components/sessions/sessions-tab";
 import { isImageFile } from "@/services/editor/preview/previewable";
 import type { Tab } from "@/state/stores/tabs";
 import { BrowserTabView } from "./browser-view";
@@ -205,6 +206,8 @@ export function ContentHost({
           isActive={isActiveTab && isWorkspaceActive}
           parentEl={currentParent}
         />
+      ) : tab.type === "sessions" ? (
+        <SessionsTabView workspaceId={workspaceId} isVisible={isVisible} />
       ) : null}
     </div>
   );

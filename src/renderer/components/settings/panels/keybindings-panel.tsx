@@ -54,8 +54,9 @@ import {
   isModifierCode,
 } from "../../../../shared/keybindings/keybinding-parse";
 import type { KeybindingOverride } from "../../../../shared/keybindings/overrides";
-import { isMac, labelOptions } from "../../../keybindings/shortcut-labels";
+import { labelOptions } from "../../../keybindings/shortcut-labels";
 import { useKeybindingsStore } from "../../../state/stores/keybindings";
+import { isMac } from "../../../utils/platform";
 
 // `updates.check` is dispatched inside the main process from the menu —
 // the renderer registry has no handler for it, so a keybinding would be
@@ -84,10 +85,10 @@ function defaultDeclFor(command: CommandId): KeybindingDecl | undefined {
 }
 
 function bindingLabelFor(bindings: readonly KeybindingDecl[], command: CommandId): string | null {
-  const primary = findDisplayPrimary(bindings, command, isMac);
-  if (primary?.primary !== undefined) return acceleratorToLabel(primary.primary, labelOptions);
+  const primary = findDisplayPrimary(bindings, command, isMac());
+  if (primary?.primary !== undefined) return acceleratorToLabel(primary.primary, labelOptions());
   const chord = bindings.find((b) => b.command === command && b.chord !== undefined);
-  if (chord?.chord !== undefined) return chordToLabel(chord.chord, labelOptions);
+  if (chord?.chord !== undefined) return chordToLabel(chord.chord, labelOptions());
   return null;
 }
 
@@ -148,7 +149,7 @@ export function KeybindingsPanel() {
   // whenever either effective table changes. App and editor namespaces are
   // graded independently.
   const appConflicts = useMemo(
-    () => detectTableConflicts(effectiveBindings, isMac),
+    () => detectTableConflicts(effectiveBindings, isMac()),
     [effectiveBindings],
   );
   const editorConflictBase = useMemo(
@@ -156,7 +157,7 @@ export function KeybindingsPanel() {
     [editorOverrides],
   );
   const editorConflicts = useMemo(
-    () => detectTableConflicts(editorConflictBase, isMac),
+    () => detectTableConflicts(editorConflictBase, isMac()),
     [editorConflictBase],
   );
 
@@ -203,7 +204,7 @@ export function KeybindingsPanel() {
       return {
         command: c.id,
         label: t(`keybindings.editorCommand.${c.slug}`),
-        bindingLabel: primary !== null ? acceleratorToLabel(primary, labelOptions) : null,
+        bindingLabel: primary !== null ? acceleratorToLabel(primary, labelOptions()) : null,
         kind: "primary",
         when: undefined,
         overridden: editorOverrides.some((o) => o.command === c.id),
@@ -552,7 +553,7 @@ function KeybindingRecorder({
         : { primary: captured[0] as string }),
       ...(when !== undefined ? { when } : {}),
       bindings,
-      isMac,
+      isMac: isMac(),
     });
   }, [complete, captured, command, kind, when, bindings]);
 
@@ -573,7 +574,7 @@ function KeybindingRecorder({
       return;
     }
 
-    const accel = eventToAccelerator(e.nativeEvent, isMac);
+    const accel = eventToAccelerator(e.nativeEvent, isMac());
     if (accel === null) {
       setUnsupported(true);
       return;
@@ -589,7 +590,7 @@ function KeybindingRecorder({
 
   const capturedLabel =
     captured.length > 0
-      ? captured.map((a) => acceleratorToLabel(a, labelOptions)).join(" ")
+      ? captured.map((a) => acceleratorToLabel(a, labelOptions())).join(" ")
       : t("keybindings.record.prompt");
   const promptSecond = kind === "chord" && captured.length === 1;
 

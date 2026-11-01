@@ -3,6 +3,7 @@ package fs
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -472,28 +473,49 @@ func TestRenameOverwriteKeepsDestinationOnFailure(t *testing.T) {
 	}
 }
 
-// TestRenameOverwriteCaseOnly — on a case-insensitive volume "Foo" and "foo"
-// are the same entry; overwriting must rename it, not delete it first.
-func TestRenameOverwriteCaseOnly(t *testing.T) {
+// TestRenameCaseOnly — on a case-insensitive volume "Foo" and "foo" are the
+// same entry: it is renamed, neither refused as taken nor, when overwriting,
+// deleted first.
+func TestRenameCaseOnly(t *testing.T) {
+	for _, overwrite := range []bool{false, true} {
+		t.Run(fmt.Sprintf("overwrite=%v", overwrite), func(t *testing.T) {
+			root := t.TempDir()
+			must(t, os.WriteFile(filepath.Join(root, "Foo.txt"), []byte("payload"), 0o644))
+			if _, err := os.Lstat(filepath.Join(root, "foo.txt")); err != nil {
+				t.Skip("case-sensitive filesystem")
+			}
+
+			dispatchOK(t, mustFS(t, root), "fs.rename", map[string]any{
+				"fromRelPath": "Foo.txt",
+				"toRelPath":   "foo.txt",
+				"overwrite":   overwrite,
+			})
+			entries, err := os.ReadDir(root)
+			must(t, err)
+			if len(entries) != 1 || entries[0].Name() != "foo.txt" {
+				t.Fatalf("entries after case-only rename = %v", entries)
+			}
+			if got, err := os.ReadFile(filepath.Join(root, "foo.txt")); err != nil || string(got) != "payload" {
+				t.Fatalf("renamed file mismatch: bytes=%q err=%v", got, err)
+			}
+		})
+	}
+}
+
+// TestRenameOntoHardLinkStillRefused — a second name of the same file is
+// another entry, taken like any other.
+func TestRenameOntoHardLinkStillRefused(t *testing.T) {
 	root := t.TempDir()
-	must(t, os.WriteFile(filepath.Join(root, "Foo.txt"), []byte("payload"), 0o644))
-	if _, err := os.Lstat(filepath.Join(root, "foo.txt")); err != nil {
-		t.Skip("case-sensitive filesystem")
+	must(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("payload"), 0o644))
+	if err := os.Link(filepath.Join(root, "a.txt"), filepath.Join(root, "b.txt")); err != nil {
+		t.Skipf("hard links unsupported: %v", err)
 	}
 
-	dispatchOK(t, mustFS(t, root), "fs.rename", map[string]any{
-		"fromRelPath": "Foo.txt",
-		"toRelPath":   "foo.txt",
-		"overwrite":   true,
-	})
-	entries, err := os.ReadDir(root)
-	must(t, err)
-	if len(entries) != 1 || entries[0].Name() != "foo.txt" {
-		t.Fatalf("entries after case-only rename = %v", entries)
-	}
-	if got, err := os.ReadFile(filepath.Join(root, "foo.txt")); err != nil || string(got) != "payload" {
-		t.Fatalf("renamed file mismatch: bytes=%q err=%v", got, err)
-	}
+	_, err := mustFS(t, root).Rename(context.Background(), mustJSON(t, map[string]any{
+		"fromRelPath": "a.txt",
+		"toRelPath":   "b.txt",
+	}))
+	assertFSError(t, err, CodeAlreadyExists)
 }
 
 func assertNoTmpResidue(t *testing.T, dir string) {
@@ -636,6 +658,27 @@ func TestCopyFileOverwriteKeepsDestinationOnFailure(t *testing.T) {
 		t.Fatalf("partial copy left in destination, err=%v", statErr)
 	}
 	assertNoTmpResidue(t, root)
+}
+
+// TestCopyFileLeavesNothingOnFailure — a copy that fails part way, to a
+// destination nothing was at, takes away the part it copied.
+func TestCopyFileLeavesNothingOnFailure(t *testing.T) {
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "src-dir")
+	must(t, os.Mkdir(srcDir, 0o755))
+	must(t, os.WriteFile(filepath.Join(srcDir, "a.txt"), []byte("a"), 0o644))
+	makeUnreadable(t, filepath.Join(srcDir, "unreadable.txt"))
+
+	_, err := mustFS(t, root).CopyFile(context.Background(), mustJSON(t, map[string]any{
+		"fromRelPath": "src-dir",
+		"toRelPath":   "dst-dir",
+	}))
+	if err == nil {
+		t.Fatal("copying an unreadable file succeeded")
+	}
+	if _, statErr := os.Lstat(filepath.Join(root, "dst-dir")); !os.IsNotExist(statErr) {
+		t.Fatalf("partial copy left behind, err=%v", statErr)
+	}
 }
 
 func TestCopyFileDirectory(t *testing.T) {

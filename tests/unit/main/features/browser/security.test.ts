@@ -165,11 +165,6 @@ describe("buildBrowserTabWebPreferences", () => {
     // No preload should be injected into browser tabs.
     expect(prefs.preload).toBeUndefined();
   });
-
-  test("accepts different partition strings", () => {
-    const prefs = buildBrowserTabWebPreferences("persist:browser-ws-abc");
-    expect(prefs.partition).toBe("persist:browser-ws-abc");
-  });
 });
 
 // ---------------------------------------------------------------------------

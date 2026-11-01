@@ -41,7 +41,10 @@ interface TestServer {
   readonly port: number;
   /** Connections that authenticated. */
   readonly sessions: () => number;
-  dropAll(): void;
+  /** Sessions that asked to forward the agent. */
+  readonly agentRequests: () => number;
+  /** Ends every connection; resolves once the client side has had time to see it. */
+  dropAll(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -49,6 +52,7 @@ interface TestServer {
 function startServer(auth: { password?: string; code?: string }): Promise<TestServer> {
   const clients = new Set<Connection>();
   let sessions = 0;
+  let agentRequests = 0;
   const server = new Server({ hostKeys: [HOST_KEY.private] }, (client) => {
     clients.add(client);
     client.on("close", () => clients.delete(client));
@@ -68,7 +72,12 @@ function startServer(auth: { password?: string; code?: string }): Promise<TestSe
     client.on("ready", () => {
       sessions += 1;
       client.on("session", (acceptSession) => {
-        acceptSession().on("exec", (accept, _reject, info) => {
+        const session = acceptSession();
+        session.on("auth-agent", (accept) => {
+          agentRequests += 1;
+          accept?.();
+        });
+        session.on("exec", (accept, _reject, info) => {
           const stream = accept();
           const [verb, arg = ""] = info.command.split(":");
           if (verb === "echo") {
@@ -100,8 +109,17 @@ function startServer(auth: { password?: string; code?: string }): Promise<TestSe
       resolve({
         port,
         sessions: () => sessions,
-        dropAll: () => {
+        agentRequests: () => agentRequests,
+        dropAll: async () => {
+          const closed = [...clients].map(
+            (client) => new Promise((resolve) => client.once("close", resolve)),
+          );
           for (const client of clients) client.end();
+          await Promise.all(closed);
+          // The server closes its side first; the master learns of the drop
+          // only after it reads the FIN. A zero or 1 ms wait still failed a few
+          // runs in a hundred under parallel load; 10 ms did not.
+          await new Promise((resolve) => setTimeout(resolve, 10));
         },
         close: async () => {
           for (const client of clients) client.end();
@@ -120,7 +138,10 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-async function setup(auth: { password?: string; code?: string }) {
+async function setup(
+  auth: { password?: string; code?: string },
+  settings: Partial<SshHostConfig> = {},
+) {
   const server = await startServer(auth);
   cleanups.push(() => server.close());
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-ssh2-"));
@@ -134,6 +155,7 @@ async function setup(auth: { password?: string; code?: string }) {
     identityFiles: [],
     identitiesOnly: false,
     identityAgent: null,
+    forwardAgent: null,
     proxyJump: [],
     proxyCommand: null,
     connectTimeoutMs: null,
@@ -143,6 +165,7 @@ async function setup(auth: { password?: string; code?: string }) {
     strictHostKeyChecking: "ask",
     hashKnownHosts: false,
     preferredAuthentications: ["publickey", "keyboard-interactive", "password"],
+    ...settings,
   };
   const prompts: SshAuthPrompt[] = [];
   const answers: string[] = [];
@@ -288,11 +311,30 @@ describe("ssh2 control master", () => {
     cleanups.push(() => master.dispose());
     expect((await run(master.controlPath, "echo:one")).stdout).toBe("one");
 
-    t.server.dropAll();
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await t.server.dropAll();
 
     expect((await run(master.controlPath, "echo:two")).stdout).toBe("two");
     expect(t.server.sessions()).toBe(2);
+  });
+
+  it("asks the host to forward the agent for ForwardAgent, and not otherwise", async () => {
+    // Never reached: the test host only records the request.
+    const agent =
+      process.platform === "win32"
+        ? "\\\\.\\pipe\\nexus-test-agent"
+        : path.join(os.tmpdir(), "nexus-test-agent.sock");
+    for (const [forwardAgent, requests] of [
+      [agent, 1],
+      [null, 0],
+    ] as const) {
+      const t = await setup({ password: "pw" }, { forwardAgent });
+      t.answers.push("pw");
+      const master = await authenticateSsh2Master(t.target, t.handler, t.dependencies);
+      cleanups.push(() => master.dispose());
+
+      expect((await run(master.controlPath, "echo:hi")).stdout).toBe("hi");
+      expect(t.server.agentRequests()).toBe(requests);
+    }
   });
 
   it("reports a failed connection as ssh does, exit 255 with the reason on stderr", async () => {
@@ -300,8 +342,7 @@ describe("ssh2 control master", () => {
     t.answers.push("pw", "wrong", "wrong", "wrong");
     const master = await authenticateSsh2Master(t.target, t.handler, t.dependencies);
     cleanups.push(() => master.dispose());
-    t.server.dropAll();
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await t.server.dropAll();
 
     const result = await run(master.controlPath, "echo:never");
     expect(result.code).toBe(255);

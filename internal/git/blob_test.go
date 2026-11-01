@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"testing"
 
 	"github.com/nexus-code/nexus-code/internal/dispatch"
@@ -34,7 +33,7 @@ type blobFixtureError struct {
 }
 
 func TestParseBlobCatFileOutputFixtures(t *testing.T) {
-	root := blobFixtureRoot(t)
+	root := fixtureDir("blob")
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		t.Fatalf("read blob fixtures: %v", err)
@@ -105,13 +104,8 @@ func TestParseBlobCatFileOutputFixtures(t *testing.T) {
 }
 
 func TestBlobRegisteredWithDispatcher(t *testing.T) {
-	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(root, "README.md"), "hello from HEAD\n")
-	runGitCommand(t, root, "add", "README.md")
-	runGitCommand(t, root, "commit", "-m", "initial")
+	t.Parallel()
+	root := newRepo(t)
 
 	d := dispatch.New()
 	service := New(root)
@@ -131,7 +125,7 @@ func TestBlobRegisteredWithDispatcher(t *testing.T) {
 	if !ok {
 		t.Fatalf("git.blob result type = %T", res.Result)
 	}
-	if result.Size != 16 || result.IsBinary || result.Encoding != "utf8" || result.Truncated {
+	if result.Size != int64(len("base\n")) || result.IsBinary || result.Encoding != "utf8" || result.Truncated {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 	if len(events) != 1 || events[0].HeaderProbe == nil {
@@ -144,13 +138,4 @@ func TestBlobRejectsWorkingRef(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected WORKING ref error")
 	}
-}
-
-func blobFixtureRoot(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "tests", "fixtures", "git", "blob"))
 }

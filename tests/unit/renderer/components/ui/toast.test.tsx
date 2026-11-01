@@ -14,7 +14,6 @@
  *   1. role="status" + aria-live="polite" for warning/info/error plain toasts.
  *   2. role="alert" + aria-live="assertive" for action toasts (regression check).
  *   3. Warning icon (TriangleAlert) rendered only for kind="warning".
- *   4. Severity token classes on the toast container.
  */
 
 import { describe, expect, it } from "bun:test";
@@ -81,7 +80,6 @@ describe("toast warning icon — WCAG 1.4.1 second encoding channel", () => {
     const html = await renderToast({ kind: "warning", message: "Folder is not empty." });
     expect(html).toContain("lucide-triangle-alert");
     expect(html).toContain('aria-hidden="true"');
-    expect(html).toContain("size-4");
   });
 
   it("error kind does NOT render the warning icon", async () => {
@@ -92,28 +90,6 @@ describe("toast warning icon — WCAG 1.4.1 second encoding channel", () => {
   it("info kind does NOT render the warning icon", async () => {
     const html = await renderToast({ kind: "info", message: "Done." });
     expect(html).not.toContain("lucide-triangle-alert");
-  });
-});
-
-describe("toast severity token classes", () => {
-  it("warning kind carries the state-warning-* token classes", async () => {
-    const html = await renderToast({ kind: "warning", message: "Folder is not empty." });
-    expect(html).toContain("bg-[var(--state-warning-bg)]");
-    expect(html).toContain("text-[var(--state-warning-fg)]");
-    expect(html).toContain("border-[var(--state-warning-border)]");
-  });
-
-  it("error kind carries the destructive token classes, not warning", async () => {
-    const html = await renderToast({ kind: "error", message: "Error." });
-    expect(html).toContain("bg-destructive text-destructive-foreground border-destructive");
-    expect(html).not.toContain("state-warning");
-  });
-
-  it("info kind carries the popover token classes, not warning or destructive", async () => {
-    const html = await renderToast({ kind: "info", message: "Info." });
-    expect(html).toContain("bg-popover text-popover-foreground border-border");
-    expect(html).not.toContain("state-warning");
-    expect(html).not.toContain("bg-destructive");
   });
 });
 

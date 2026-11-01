@@ -20,8 +20,10 @@ type serverProcess struct {
 	languageID    string
 	binaryPath    string
 	args          []string
+	env           map[string]string
 	workspaceRoot string
 	capabilities  json.RawMessage
+	initOptions   json.RawMessage
 	idleTimeout   time.Duration
 
 	cmd    *exec.Cmd
@@ -38,6 +40,8 @@ type serverProcess struct {
 	pendingWatchedFileRegistrations map[string][]watchedFileRegistration
 	watchedFileRegistrations        []watchedFileRegistration
 	idleTimer                       *time.Timer
+	pid                             int
+	shuttingDown                    bool
 	exited                          bool
 	exitErr                         error
 	stderrBuf                       []byte
@@ -63,8 +67,10 @@ func newServerProcess(service *Service, id string, p SpawnParams, idleTimeout ti
 		languageID:                      p.LanguageID,
 		binaryPath:                      p.BinaryPath,
 		args:                            p.Args,
+		env:                             p.Env,
 		workspaceRoot:                   p.WorkspaceRoot,
 		capabilities:                    p.Capabilities,
+		initOptions:                     p.InitializationOptions,
 		idleTimeout:                     idleTimeout,
 		pendingInternal:                 make(map[string]chan rpcResponse),
 		pendingServerRequests:           make(map[string]json.RawMessage),
@@ -80,6 +86,10 @@ func (p *serverProcess) start(ctx context.Context) error {
 	cmd := exec.Command(p.binaryPath, p.args...)
 	cmd.Dir = p.workspaceRoot
 	cmd.Env = os.Environ()
+	// exec takes the last of duplicate keys, so these win.
+	for key, value := range p.env {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -98,6 +108,9 @@ func (p *serverProcess) start(ctx context.Context) error {
 	}
 
 	p.cmd = cmd
+	p.mu.Lock()
+	p.pid = cmd.Process.Pid
+	p.mu.Unlock()
 	p.stdin = stdin
 	p.stdout = stdout
 	p.stderr = stderr
@@ -155,29 +168,41 @@ func (p *serverProcess) snapshotStderr() string {
 	return string(p.stderrBuf)
 }
 
-func (p *serverProcess) initialize(ctx context.Context) (json.RawMessage, error) {
+func (p *serverProcess) initialize(ctx context.Context) (json.RawMessage, *ServerInfo, error) {
 	result, err := p.request(ctx, "initialize", p.initializeParams())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	capabilities := json.RawMessage(`{}`)
+	var serverInfo *ServerInfo
 	if len(result) > 0 && string(result) != "null" {
 		var parsed struct {
 			Capabilities json.RawMessage `json:"capabilities"`
+			ServerInfo   *ServerInfo     `json:"serverInfo"`
 		}
 		if err := json.Unmarshal(result, &parsed); err != nil {
-			return nil, requestFailed("lsp initialize result was invalid: %s", err)
+			return nil, nil, requestFailed("lsp initialize result was invalid: %s", err)
 		}
 		if len(parsed.Capabilities) > 0 {
 			capabilities = append(json.RawMessage(nil), parsed.Capabilities...)
 		}
+		if parsed.ServerInfo != nil && parsed.ServerInfo.Name != "" {
+			serverInfo = parsed.ServerInfo
+		}
 	}
 
 	if err := p.notify("initialized", map[string]any{}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return capabilities, nil
+	return capabilities, serverInfo, nil
+}
+
+// processID is the server's pid, or 0 before it has started.
+func (p *serverProcess) processID() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.pid
 }
 
 func (p *serverProcess) initializeParams() map[string]any {
@@ -191,7 +216,7 @@ func (p *serverProcess) initializeParams() map[string]any {
 	if len(capabilities) == 0 {
 		capabilities = json.RawMessage(`{}`)
 	}
-	return map[string]any{
+	params := map[string]any{
 		"processId": os.Getpid(),
 		"rootPath":  p.workspaceRoot,
 		"rootUri":   rootURI,
@@ -206,6 +231,10 @@ func (p *serverProcess) initializeParams() map[string]any {
 			"name": "nexus-code-agent",
 		},
 	}
+	if len(p.initOptions) > 0 {
+		params["initializationOptions"] = p.initOptions
+	}
+	return params
 }
 
 func (p *serverProcess) request(ctx context.Context, method string, params any) (json.RawMessage, error) {

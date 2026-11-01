@@ -11,6 +11,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { StatusEntry } from "../../../../../src/shared/claude/status";
+import type { WorkspaceMeta } from "../../../../../src/shared/types/workspace";
 import {
   selectWorkspaceAggregateStatus,
 } from "../../../../../src/renderer/state/stores/claude-status";
@@ -35,6 +36,9 @@ const WS = "ws-sidebar-test";
 
 // 현재 테스트의 tab entries — beforeEach에서 교체한다.
 let mockWsTabs: Record<string, StatusEntry> = {};
+// Tab entries of the workspace's task, when a test gives it one.
+const TASK = "ws-sidebar-test-task";
+let mockTaskTabs: Record<string, StatusEntry> | undefined;
 
 // ---------------------------------------------------------------------------
 // useClaudeStatusStore mock — selectWorkspaceAggregateStatus는 실제 구현 사용
@@ -43,7 +47,9 @@ let mockWsTabs: Record<string, StatusEntry> = {};
 mock.module("../../../../../src/renderer/state/stores/claude-status", () => {
   return {
     useClaudeStatusStore: (selector: (s: { byWorkspace: Record<string, Record<string, StatusEntry>> }) => unknown) => {
-      const fakeState = { byWorkspace: { [WS]: mockWsTabs } };
+      const fakeState = {
+        byWorkspace: { [WS]: mockWsTabs, ...(mockTaskTabs ? { [TASK]: mockTaskTabs } : {}) },
+      };
       if (typeof selector === "function") return selector(fakeState);
       return fakeState;
     },
@@ -91,10 +97,11 @@ function resetAll() {
   useUIStore.setState({ sidebarWidth: 240 });
   useWorkspacesStore.setState({ workspaces: [], connectionStatusByWorkspaceId: {} });
   mockWsTabs = {};
+  mockTaskTabs = undefined;
 }
 
-/** Sidebar를 로컬 워크스페이스 1개로 렌더해 HTML을 반환한다. */
-function renderSidebarForWs(): string {
+/** Sidebar를 로컬 워크스페이스 1개(와 `tasks`)로 렌더해 HTML을 반환한다. */
+function renderSidebarForWs(tasks: WorkspaceMeta[] = []): string {
   return renderToStaticMarkup(
     <Sidebar
       workspaces={[
@@ -108,6 +115,7 @@ function renderSidebarForWs(): string {
           tabs: [],
           location: { kind: "local", rootPath: "/tmp/test" },
         },
+        ...tasks,
       ]}
       activeWorkspaceId={WS}
       onSelectWorkspace={() => {}}
@@ -207,14 +215,14 @@ describe("WorkspaceStatusGlyph — needsInput", () => {
 describe("WorkspaceStatusGlyph — permissionPending 우선순위", () => {
   beforeEach(resetAll);
 
-  test("permissionPending + needsInput 혼합 시 state-warning-fg(permissionPending 우선)가 사용된다", () => {
+  test("permissionPending + needsInput 혼합 시 permissionPending aria-label이 우선한다", () => {
     mockWsTabs = {
       t1: makeEntry("t1", "permissionPending"),
       t2: makeEntry("t2", "needsInput"),
     };
     const html = renderSidebarForWs();
-    expect(html).toContain("state-warning-fg");
     expect(html).toContain("Claude: waiting for permission");
+    expect(html).not.toContain("Claude: waiting for input");
   });
 });
 
@@ -225,19 +233,20 @@ describe("WorkspaceStatusGlyph — permissionPending 우선순위", () => {
 describe("WorkspaceStatusGlyph — error", () => {
   beforeEach(resetAll);
 
-  test("error 탭이 있으면 state-error-fg 토큰 클래스가 적용된다", () => {
+  test("error 탭이 있으면 'Claude: error' aria-label이 렌더된다", () => {
     mockWsTabs = { t1: makeEntry("t1", "error") };
     const html = renderSidebarForWs();
-    expect(html).toContain("state-error-fg");
+    expect(html).toContain("Claude: error");
   });
 
-  test("error > needsInput 우선순위: error 탭 있을 때 state-error-fg 사용", () => {
+  test("error > needsInput 우선순위: error 탭 있을 때 'Claude: error' aria-label이 렌더된다", () => {
     mockWsTabs = {
       t1: makeEntry("t1", "needsInput"),
       t2: makeEntry("t2", "error"),
     };
     const html = renderSidebarForWs();
-    expect(html).toContain("state-error-fg");
+    expect(html).toContain("Claude: error");
+    expect(html).not.toContain("Claude: waiting for input");
   });
 });
 
@@ -259,26 +268,43 @@ describe("WorkspaceStatusGlyph — StatusEntry 없음", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 형태 — 글리프만, 레이블·배경·카운트 없음
+// Tasks — the row stands for the workspace's tasks too
 // ---------------------------------------------------------------------------
 
-describe("WorkspaceStatusGlyph — 형태", () => {
+describe("WorkspaceStatusGlyph — tasks", () => {
   beforeEach(resetAll);
 
-  test("글리프는 레이블(Running/Input 등) 텍스트를 포함하지 않는다", () => {
+  const task: WorkspaceMeta = {
+    id: TASK,
+    name: "fix login",
+    rootPath: "/tmp/worktrees/fix-login",
+    colorTone: "default",
+    pinned: false,
+    tabs: [],
+    sortOrder: 0,
+    pinnedSortOrder: 0,
+    location: { kind: "local", rootPath: "/tmp/worktrees/fix-login" },
+    task: { parentId: WS, branch: "fix-login", worktreePath: "/tmp/worktrees/fix-login" },
+  };
+
+  test("a task's status shows on its workspace's row, by priority", () => {
     mockWsTabs = { t1: makeEntry("t1", "running") };
-    const html = renderSidebarForWs();
-    expect(html).not.toContain(">Running<");
-    expect(html).not.toContain(">Input<");
-    expect(html).not.toContain(">Done<");
+    mockTaskTabs = { t2: { ...makeEntry("t2", "permissionPending"), workspaceId: TASK } };
+
+    const html = renderSidebarForWs([task]);
+
+    expect(html).toContain("Claude: waiting for permission");
+    expect(html).toContain("1 task");
   });
 
-  test("글리프는 배경 칩 클래스(rounded-full / px-1.5 / bg-...)를 사용하지 않는다", () => {
-    mockWsTabs = { t1: makeEntry("t1", "needsInput") };
-    const html = renderSidebarForWs();
-    // 글리프 자체에 rounded-full / px-1.5 / 배경 색 클래스가 없어야 한다.
-    // (단, 다른 사이드바 요소가 rounded-full을 쓸 수 있으니 px-1.5 + h-5만 검증)
-    expect(html).not.toContain("px-1.5");
-    expect(html).not.toContain("h-5 rounded");
+  test("a task's status shows when the workspace itself has none", () => {
+    mockWsTabs = undefined as unknown as Record<string, StatusEntry>;
+    mockTaskTabs = { t2: { ...makeEntry("t2", "needsInput"), workspaceId: TASK } };
+
+    const html = renderSidebarForWs([task]);
+
+    expect(html).toContain("Claude: waiting for input");
+    // The task has no row of its own.
+    expect(html).not.toContain("fix login");
   });
 });

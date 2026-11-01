@@ -43,82 +43,23 @@ function renderRow(props: Partial<React.ComponentProps<typeof FileTreeRow>> = {}
 }
 
 // ---------------------------------------------------------------------------
-// Default state
+// Tests
 // ---------------------------------------------------------------------------
 
-describe("FileTreeRow 4-state — default", () => {
-  it("no selected-bg class in default state", () => {
-    const html = renderRow();
-    expect(html).not.toContain("sidebar-item-selected-bg");
-  });
-
-  it("no focus-border class in default state", () => {
-    const html = renderRow();
-    expect(html).not.toContain("sidebar-item-focus-border");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Selected only (paths set, not focused)
-// ---------------------------------------------------------------------------
-
-describe("FileTreeRow 4-state — isSelected=true, isFocused=false", () => {
-  it("selected-bg class present", () => {
-    const html = renderRow({ isSelected: true, isFocused: false });
-    expect(html).toContain("sidebar-item-selected-bg");
-  });
-
-  it("focus-border class absent", () => {
-    const html = renderRow({ isSelected: true, isFocused: false });
-    expect(html).not.toContain("sidebar-item-focus-border");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Focused only (cursor row, not in paths set)
-// ---------------------------------------------------------------------------
-
-describe("FileTreeRow 4-state — isSelected=false, isFocused=true", () => {
-  it("focus-border class present", () => {
-    const html = renderRow({ isSelected: false, isFocused: true });
-    expect(html).toContain("sidebar-item-focus-border");
-  });
-
-  it("selected-bg class absent", () => {
-    const html = renderRow({ isSelected: false, isFocused: true });
-    expect(html).not.toContain("sidebar-item-selected-bg");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Selected + Focused (in selection set AND is the focus cursor)
-// ---------------------------------------------------------------------------
-
-describe("FileTreeRow 4-state — isSelected=true, isFocused=true", () => {
-  it("both selected-bg and focus-border classes present", () => {
-    const html = renderRow({ isSelected: true, isFocused: true });
-    expect(html).toContain("sidebar-item-selected-bg");
-    expect(html).toContain("sidebar-item-focus-border");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Dragging: focus-border suppressed while drag is active
-// ---------------------------------------------------------------------------
-
-describe("FileTreeRow 4-state — isFocused while dragging", () => {
-  it("drag suppresses focus outline", () => {
-    // isDragging is internal state — simulate by checking the output of a
-    // focused non-dragging row has the outline class, then note that the
-    // component removes it during drag (className logic is `isFocused && !isDragging`).
-    // We can only test the static (not-dragging) case here.
-    const focused = renderRow({ isFocused: true });
-    expect(focused).toContain("sidebar-item-focus-border");
-    // The `!isDragging` guard means isDragging=false yields the class (tested above).
-    // isDragging=true is component-local state; we confirm the className string
-    // does not have the class when drag is simulated by checking row output
-    // with isFocused=false (covers the && path collapsing to false).
-    const notFocused = renderRow({ isFocused: false });
-    expect(notFocused).not.toContain("sidebar-item-focus-border");
+describe("FileTreeRow 4-state", () => {
+  it.each([
+    { isSelected: false, isFocused: false, selectedBg: false, focusBorder: false },
+    { isSelected: true, isFocused: false, selectedBg: true, focusBorder: false },
+    { isSelected: false, isFocused: true, selectedBg: false, focusBorder: true },
+    { isSelected: true, isFocused: true, selectedBg: true, focusBorder: true },
+  ])("isSelected=$isSelected isFocused=$isFocused", ({
+    isSelected,
+    isFocused,
+    selectedBg,
+    focusBorder,
+  }) => {
+    const html = renderRow({ isSelected, isFocused });
+    expect(html.includes("sidebar-item-selected-bg")).toBe(selectedBg);
+    expect(html.includes("sidebar-item-focus-border")).toBe(focusBorder);
   });
 });

@@ -47,6 +47,8 @@ const listeners: ListenerRecord[] = [];
     setAttribute: (_name: string, _value: string): void => {},
   },
   fonts: { load: () => Promise.resolve([]) },
+  hasFocus: (): boolean => false,
+  activeElement: null,
 };
 
 // foregroundProcess RPC가 반환할 mock 응답 — 테스트별로 setForegroundProcessName으로 변경.
@@ -131,6 +133,7 @@ const {
   classifyOscTitle,
   foregroundConfirmsTitle,
   oscCursorStyle,
+  escapeDroppedPath,
 } = await import("../../../../src/renderer/services/terminal/controller");
 const { createPtyClient } = await import("../../../../src/renderer/services/terminal/pty-client");
 const { closeGroup } = await import("../../../../src/renderer/state/operations");
@@ -189,8 +192,8 @@ function makeTerminalControllerDeps(
   const bufferState: { active: { type: "normal" | "alternate" } } = {
     active: { type: "alternate" },
   };
-  // DECSET 2004 state the app on the pty asked for; tests flip it.
-  const modes = { bracketedPasteMode: false };
+  // DECSET 2004 and 1004 state the app on the pty asked for; tests flip it.
+  const modes = { bracketedPasteMode: false, sendFocusMode: false };
   // The text selected in the terminal; tests set it.
   let selection = "";
   // controller.ts:317에서 attachCustomKeyEventHandler를 호출해 keydown 가로채기
@@ -224,7 +227,12 @@ function makeTerminalControllerDeps(
           if (id.prefix === "?" && id.final === "l") {
             capturedAltExitHandler = cb;
           } else if (id.prefix === "?" && id.final === "h") {
-            capturedAltEnterHandler = cb;
+            // xterm.js runs every handler for a sequence; so does this one.
+            const previous = capturedAltEnterHandler;
+            capturedAltEnterHandler = (params) => {
+              const handled = previous?.(params) ?? false;
+              return cb(params) || handled;
+            };
           }
           return { dispose: () => {} };
         },
@@ -306,6 +314,9 @@ function makeTerminalControllerDeps(
     },
     setBracketedPaste(on: boolean): void {
       modes.bracketedPasteMode = on;
+    },
+    setFocusReporting(on: boolean): void {
+      modes.sendFocusMode = on;
     },
     setSelection(text: string): void {
       selection = text;
@@ -836,6 +847,69 @@ describe("services/terminal controller focus", () => {
 
     controller.dispose();
   });
+
+  /** Past the moment a program that asked for focus reports is told about focus. */
+  const afterFocusReportDelay = (): Promise<unknown> => new Promise((r) => setTimeout(r, 300));
+
+  it("tells a program turning on focus reporting that an unfocused terminal is not focused", async () => {
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-focus-report",
+        cwd: "/workspace",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const decset = harness.getAltEnterHandler();
+    if (!decset) throw new Error("no DECSET handler");
+
+    expect(decset([2004])).toBe(false);
+    await afterFocusReportDelay();
+    expect(harness.ptyWrites).toEqual([]);
+
+    expect(decset([1004])).toBe(false);
+    // xterm.js turns the mode on after the handler.
+    harness.setFocusReporting(true);
+    // Not at once: Codex drops what comes while it sets up.
+    expect(harness.ptyWrites).toEqual([]);
+    await afterFocusReportDelay();
+    expect(harness.ptyWrites).toEqual(["\x1b[O"]);
+
+    controller.dispose();
+  });
+
+  it("tells a program setting up for input while focus reporting is on, as under ConPTY", async () => {
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-focus-report-conpty",
+        cwd: "/workspace",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const decset = harness.getAltEnterHandler();
+    if (!decset) throw new Error("no DECSET handler");
+
+    // ConPTY turned focus reporting on when the shell started; the program's
+    // own request never reaches the terminal.
+    harness.setFocusReporting(true);
+    expect(decset([2026])).toBe(false);
+    await afterFocusReportDelay();
+    expect(harness.ptyWrites).toEqual([]);
+
+    expect(decset([2004])).toBe(false);
+    expect(decset([2004])).toBe(false);
+    await afterFocusReportDelay();
+    expect(harness.ptyWrites).toEqual(["\x1b[O"]);
+
+    controller.dispose();
+  });
 });
 
 describe("services/terminal controller replay", () => {
@@ -1181,6 +1255,40 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     controller.dispose();
   });
 
+  // PowerShell selects the whole line on Ctrl+A, and cmd types ^A.
+  it("leaves Home and End to PowerShell and cmd", async () => {
+    for (const shellPath of [
+      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+      "C:\\Windows\\system32\\cmd.exe",
+    ]) {
+      const harness = makeTerminalControllerDeps(() => Promise.resolve({ pid: 1, shellPath }));
+      const controller = createTerminalController(
+        {
+          workspaceId: WS,
+          tabId: `tab-${shellPath.length}`,
+          cwd: "C:\\work",
+          container: {} as HTMLElement,
+        },
+        harness.deps,
+      );
+      await flushTerminalInit();
+      await new Promise((r) => setTimeout(r, 0));
+      const handler = harness.getKeyHandler();
+      if (!handler) throw new Error("customKey handler was not registered");
+
+      for (const key of ["Home", "End"]) {
+        const event = fakeKeyEvent({ key });
+        expect(handler(event as unknown as KeyboardEvent)).toBe(true);
+        expect(event.defaultPrevented).toBe(false);
+      }
+      await new Promise((r) => setTimeout(r, 0));
+      expect(harness.ptyWrites).toEqual([]);
+
+      controller.dispose();
+    }
+  });
+
   describe("copy with a selection", () => {
     const copied = () =>
       ipcCalls
@@ -1305,6 +1413,33 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
 });
 
 // ---------------------------------------------------------------------------
+// escapeDroppedPath — a dropped file's path, quoted for the terminal's shell
+describe("escapeDroppedPath", () => {
+  it("backslash-escapes for a POSIX or remote shell, leaving Unicode letters", () => {
+    expect(escapeDroppedPath("/Users/me/my file (1).png")).toBe("/Users/me/my\\ file\\ \\(1\\).png");
+    expect(escapeDroppedPath("/tmp/한글 파일.txt", "/bin/zsh")).toBe("/tmp/한글\\ 파일.txt");
+    expect(escapeDroppedPath("/tmp/plain.txt", "/bin/bash")).toBe("/tmp/plain.txt");
+  });
+
+  // Regression: on Windows the POSIX escapes broke the path in PowerShell
+  // and cmd, which do not take a backslash as an escape.
+  it("single-quotes for PowerShell, doubling quotes in the name", () => {
+    const pwsh = "C:\\Program Files\\PowerShell\\7\\pwsh.exe";
+    expect(escapeDroppedPath("C:\\Users\\me\\my file.png", pwsh)).toBe(
+      "'C:\\Users\\me\\my file.png'",
+    );
+    expect(escapeDroppedPath("C:\\x\\it's $5.txt", "powershell.exe")).toBe("'C:\\x\\it''s $5.txt'");
+    expect(escapeDroppedPath("C:\\x\\plain.txt", pwsh)).toBe("C:\\x\\plain.txt");
+  });
+
+  it("double-quotes for cmd.exe", () => {
+    const cmd = "C:\\Windows\\System32\\cmd.exe";
+    expect(escapeDroppedPath("C:\\Users\\me\\a & b.txt", cmd)).toBe('"C:\\Users\\me\\a & b.txt"');
+    expect(escapeDroppedPath("C:\\x\\plain.txt", cmd)).toBe("C:\\x\\plain.txt");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // oscCursorStyle — OSC 22 cursor shape from untrusted terminal output
 describe("oscCursorStyle", () => {
   it("passes CSS cursor keywords through", () => {
@@ -1340,6 +1475,16 @@ describe("isShellPromptLikeTitle", () => {
     expect(isShellPromptLikeTitle("vim README.md")).toBe(false);
   });
 
+  it("the titles cmd and PowerShell give the console: their own path", () => {
+    expect(isShellPromptLikeTitle("C:\\WINDOWS\\system32\\cmd.exe")).toBe(true);
+    expect(isShellPromptLikeTitle("C:\\WINDOWS\\system32\\cmd.exe - ping -n 100 127.0.0.1")).toBe(
+      true,
+    );
+    expect(
+      isShellPromptLikeTitle("C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"),
+    ).toBe(true);
+  });
+
   it("@만 있고 : 없음 → 통과 (이메일 등 비-prompt 가능)", () => {
     expect(isShellPromptLikeTitle("@anthropic")).toBe(false);
   });
@@ -1355,6 +1500,12 @@ describe("isShellPromptLikeTitle", () => {
 describe("isLoginShell", () => {
   it("알려진 셸 이름 → true", () => {
     for (const sh of ["sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh"]) {
+      expect(isLoginShell(sh)).toBe(true);
+    }
+  });
+
+  it("Windows shells, named as the agent names them there", () => {
+    for (const sh of ["powershell", "pwsh", "cmd", "CMD", "nu"]) {
       expect(isLoginShell(sh)).toBe(true);
     }
   });

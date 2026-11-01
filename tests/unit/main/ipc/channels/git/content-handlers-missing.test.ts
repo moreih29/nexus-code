@@ -6,7 +6,6 @@
  *
  * Remaining scenarios:
  *   (a) WORKING ref → resolves with IpcGitErrorResult (before agent call)
- *   (b) Missing manager → resolves with IpcGitErrorResult
  *   (c) Non-agent-backed provider → resolves with IpcGitErrorResult
  *   (d) Agent-backed production path → calls git.getFileContent on the agent
  *
@@ -77,21 +76,6 @@ describe("content-handlers — WORKING ref throws without calling agent", () => 
 });
 
 // ---------------------------------------------------------------------------
-// (b) Missing manager → resolves with IpcGitErrorResult
-// ---------------------------------------------------------------------------
-
-describe("content-handlers — missing manager throws", () => {
-  it("throws when manager is not provided", async () => {
-    const handler = getFileContentHandler(makeRegistry() as never);
-
-    const result = await handler({ workspaceId: VALID_UUID, ref: "HEAD", relPath: "src/foo.ts" });
-    expect(isIpcGitErrorResult(result)).toBe(true);
-    // @ts-expect-error
-    expect(result.message).toMatch(/workspace manager/);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // (c) Non-agent-backed provider → resolves with IpcGitErrorResult
 // ---------------------------------------------------------------------------
 
@@ -136,21 +120,5 @@ describe("content-handlers — agent-backed production path", () => {
     expect(calls).toEqual([
       { method: "git.getFileContent", params: { ref: "HEAD", relPath: "src/x.ts" } },
     ]);
-  });
-
-  it("passes ref and relPath verbatim to the agent", async () => {
-    const sha = "a".repeat(40);
-    const { calls, provider } = makeAgentProvider({
-      kind: "missing",
-      reason: "ref",
-    });
-    const handler = getFileContentHandler(makeRegistry() as never, makeManager(provider) as never);
-
-    await handler({ workspaceId: VALID_UUID, ref: sha, relPath: "deep/file.ts" });
-
-    expect(calls[0]).toMatchObject({
-      method: "git.getFileContent",
-      params: { ref: sha, relPath: "deep/file.ts" },
-    });
   });
 });

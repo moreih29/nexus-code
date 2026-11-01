@@ -353,6 +353,11 @@ mock.module("electron", () => ({
     getAllWindows: (): unknown[] => [],
   },
 
+  // Menu — used by features/window/ipc
+  Menu: {
+    getApplicationMenu: (): null => null,
+  },
+
   // Notification — used by claude/hook-handler
   Notification: class Notification {
     title = "";

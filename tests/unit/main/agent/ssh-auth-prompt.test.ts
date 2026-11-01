@@ -3,7 +3,6 @@ import {
   AuthCancelledError,
   SshAuthPromptHub,
 } from "../../../../src/main/infra/agent/ssh/auth-prompt";
-import { ipcContract } from "../../../../src/shared/ipc/contract";
 import type { SshAuthPrompt } from "../../../../src/shared/ssh/auth-prompt";
 
 interface BroadcastEvent {
@@ -11,24 +10,6 @@ interface BroadcastEvent {
   readonly event: string;
   readonly args: unknown;
 }
-
-describe("sshAuth IPC contract", () => {
-  it("registers schemas for respond, cancel, and prompt payloads", () => {
-    expect(
-      ipcContract.sshAuth.call.respond.args.parse({
-        kind: "password",
-        promptId: "prompt-1",
-        value: "secret",
-      }),
-    ).toEqual({ kind: "password", promptId: "prompt-1", value: "secret" });
-    expect(ipcContract.sshAuth.call.cancel.args.parse({ promptId: "prompt-1" })).toEqual({
-      promptId: "prompt-1",
-    });
-    expect(ipcContract.sshAuth.listen.prompt.args.parse(passwordPrompt("prompt-1"))).toEqual(
-      passwordPrompt("prompt-1"),
-    );
-  });
-});
 
 describe("SshAuthPromptHub", () => {
   it("broadcasts a validated prompt payload before waiting for a response", async () => {

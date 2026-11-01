@@ -2,14 +2,13 @@
  * Delete / Backspace fileDelete 키바인딩 단위 테스트.
  *
  * 커버 범위:
- *   1. KEYBINDINGS에 Delete/Backspace 가 정확히 등록됨 + when 표현 일치.
- *   2. 글로벌 핸들러: wsId 없으면 no-op.
- *   3. 글로벌 핸들러: activeAbsPath 없으면 no-op.
- *   4. 글로벌 핸들러: root absPath이면 no-op.
- *   5. helper: confirm cancel 시 unlink/rmdir 호출 안 함.
- *   6. helper: file vs dir에 따라 unlinkPath vs rmdirPath 분기.
- *   7. dispatcher: tree 안에서 Delete/Backspace 발화, input 안에서는 발화 안 함.
- *   8. 컨텍스트 메뉴 deleteTarget 회귀 없음 — isRoot 대상 삭제 시도 no-op.
+ *   1. 글로벌 핸들러: wsId 없으면 no-op.
+ *   2. 글로벌 핸들러: activeAbsPath 없으면 no-op.
+ *   3. 글로벌 핸들러: root absPath이면 no-op.
+ *   4. helper: confirm cancel 시 unlink/rmdir 호출 안 함.
+ *   5. helper: file vs dir에 따라 unlinkPath vs rmdirPath 분기.
+ *   6. dispatcher: tree 안에서 Delete/Backspace 발화, input 안에서는 발화 안 함.
+ *   7. 컨텍스트 메뉴 deleteTarget 회귀 없음 — isRoot 대상 삭제 시도 no-op.
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
@@ -25,12 +24,6 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
     off: () => {},
   },
 };
-
-mock.module("../../../../src/renderer/ipc/client", () => ({
-  ipcCallResult: () => Promise.resolve({ ok: true as const, value: [] }),
-  ipcListen: () => () => {},
-  canUseIpcBridge: () => false,
-}));
 
 // ---------------------------------------------------------------------------
 // IPC call spy — confirm-delete helper 내부의 unlinkPath / rmdirPath 추적용
@@ -79,7 +72,6 @@ import { useActiveStore } from "../../../../src/renderer/state/stores/active";
 import { useFilesStore } from "../../../../src/renderer/state/stores/files";
 import { useWorkspacesStore } from "../../../../src/renderer/state/stores/workspaces";
 import { COMMANDS } from "../../../../src/shared/keybindings/commands";
-import { KEYBINDINGS } from "../../../../src/shared/keybindings/index";
 
 // ---------------------------------------------------------------------------
 // 헬퍼
@@ -220,44 +212,7 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// 1. KEYBINDINGS 테이블 검사
-// ---------------------------------------------------------------------------
-
-describe("KEYBINDINGS 테이블 — fileDelete", () => {
-  // macOS Finder parity: Cmd+Backspace deletes (local = trash, SSH = permanent).
-  // Plain Backspace must NOT delete — it is the universal "edit text" key
-  // and a single-keystroke delete is too easy to trigger by accident.
-  it("Cmd+Backspace primary 바인딩이 fileDelete 에 등록됨", () => {
-    const decl = KEYBINDINGS.find(
-      (k) => k.command === COMMANDS.fileDelete && k.primary === "Cmd+Backspace",
-    );
-    expect(decl).not.toBeUndefined();
-  });
-
-  it("Cmd+Backspace when 조건이 정확히 'fileTreeFocus && !inputFocus' 이다", () => {
-    const decl = KEYBINDINGS.find(
-      (k) => k.command === COMMANDS.fileDelete && k.primary === "Cmd+Backspace",
-    );
-    expect(decl?.when).toBe("fileTreeFocus && !inputFocus");
-  });
-
-  it("plain Backspace 는 fileDelete 에 바인딩되지 않는다", () => {
-    const plainBackspace = KEYBINDINGS.find(
-      (k) => k.command === COMMANDS.fileDelete && k.primary === "Backspace",
-    );
-    expect(plainBackspace).toBeUndefined();
-  });
-
-  it("plain Delete 는 fileDelete 에 바인딩되지 않는다", () => {
-    const plainDelete = KEYBINDINGS.find(
-      (k) => k.command === COMMANDS.fileDelete && k.primary === "Delete",
-    );
-    expect(plainDelete).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 2. 글로벌 핸들러: wsId 없으면 no-op
+// 1. 글로벌 핸들러: wsId 없으면 no-op
 // ---------------------------------------------------------------------------
 
 describe("fileDelete 핸들러 — wsId 없으면 no-op", () => {
@@ -295,7 +250,7 @@ describe("fileDelete 핸들러 — wsId 없으면 no-op", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. 글로벌 핸들러: activeAbsPath 없으면 no-op
+// 2. 글로벌 핸들러: activeAbsPath 없으면 no-op
 // ---------------------------------------------------------------------------
 
 describe("fileDelete 핸들러 — activeAbsPath 없으면 no-op", () => {
@@ -332,7 +287,7 @@ describe("fileDelete 핸들러 — activeAbsPath 없으면 no-op", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. 글로벌 핸들러: root absPath이면 no-op
+// 3. 글로벌 핸들러: root absPath이면 no-op
 // ---------------------------------------------------------------------------
 
 describe("fileDelete 핸들러 — root 경로이면 no-op", () => {
@@ -367,7 +322,7 @@ describe("fileDelete 핸들러 — root 경로이면 no-op", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. helper: confirm cancel 시 unlink/rmdir 호출 안 함
+// 4. helper: confirm cancel 시 unlink/rmdir 호출 안 함
 // ---------------------------------------------------------------------------
 
 describe("confirmAndDeletePath helper — confirm cancel", () => {
@@ -391,7 +346,7 @@ describe("confirmAndDeletePath helper — confirm cancel", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 6. helper: file vs dir 분기
+// 5. helper: file vs dir 분기
 // ---------------------------------------------------------------------------
 
 describe("confirmAndDeletePath helper — workspace kind branching", () => {
@@ -454,10 +409,13 @@ describe("confirmAndDeletePath helper — workspace kind branching", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 7. dispatcher: when 조건에 의한 scoping
+// 6. dispatcher: when 조건에 의한 scoping
 // ---------------------------------------------------------------------------
 
 describe("dispatcher — Cmd+Backspace when 조건 scoping", () => {
+  // macOS Finder parity: Cmd+Backspace deletes (local = trash, SSH = permanent).
+  // Plain Backspace must NOT delete — it is the universal "edit text" key
+  // and a single-keystroke delete is too easy to trigger by accident.
   it("tree 안에서 Cmd+Backspace → file.delete 커맨드가 발화한다", () => {
     const deleteFn = mock(() => {});
     registerCommand(COMMANDS.fileDelete, deleteFn as () => void);
@@ -523,7 +481,7 @@ describe("dispatcher — Cmd+Backspace when 조건 scoping", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 8. 컨텍스트 메뉴 deleteTarget 회귀 검증 — isRoot이면 no-op
+// 7. 컨텍스트 메뉴 deleteTarget 회귀 검증 — isRoot이면 no-op
 // ---------------------------------------------------------------------------
 
 describe("use-file-tree-actions 회귀 — isRoot 대상 no-op", () => {

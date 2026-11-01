@@ -40,6 +40,7 @@ const { ClaudeStatusBroker } = await import(
 const { ActiveContextStore } = await import(
   "../../../../src/main/features/claude/active-context"
 );
+const { PROMPT_MAX_CHARS } = await import("../../../../src/shared/claude/status");
 
 // ---------------------------------------------------------------------------
 // 헬퍼
@@ -216,6 +217,26 @@ describe("hook-handler — subcommand 상태 전이", () => {
     expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
   });
 
+  test("user-prompt-submit — prompt를 다듬어 기록, 길면 잘라냄", async () => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "  fix the build \n" }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.prompt).toBe("fix the build");
+
+    emit(makeHookPayload("user-prompt-submit", { prompt: "x".repeat(PROMPT_MAX_CHARS + 10) }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.prompt).toBe(`${"x".repeat(PROMPT_MAX_CHARS)}…`);
+  });
+
+  test("session-start — 이전 세션의 prompt를 비움", async () => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "old" }));
+    await new Promise((r) => setTimeout(r, 0));
+    emit(makeHookPayload("session-start"));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.prompt).toBeUndefined();
+  });
+
   test("stop — 사용자가 그 탭을 보고 있으면(앱 포커스+active 일치) idle로 직행", async () => {
     const { broker, activeContext, emit } = makeHarness(true /* focused */);
     activeContext.set("ws-test", "tab-test");
@@ -288,6 +309,56 @@ describe("hook-handler — subcommand 상태 전이", () => {
     expect(entry?.message).toBe("Waiting for input");
   });
 
+  test("permission notification after permission-request keeps permissionPending", async () => {
+    const { broker, emit, notifInstances } = makeHarness(false /* unfocused */);
+    emit(makeHookPayload("permission-request", { tool_name: "Write" }));
+    await new Promise((r) => setTimeout(r, 0));
+    emit(
+      makeHookPayload("notification", {
+        message: "Claude needs your permission to use Write",
+        notification_type: "permission_prompt",
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    const entry = broker.get("ws-test", "tab-test");
+    expect(entry?.status).toBe("permissionPending");
+    expect(entry?.message).toContain("Write");
+    expect(notifInstances).toHaveLength(1);
+  });
+
+  test.each([
+    "permission_prompt",
+    "worker_permission_prompt",
+  ])("%s notification alone → permissionPending + OS notification", async (type) => {
+    const { broker, emit, notifInstances } = makeHarness(false /* unfocused */);
+    emit(
+      makeHookPayload("notification", {
+        message: "Claude needs your permission to use Bash",
+        notification_type: type,
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    const entry = broker.get("ws-test", "tab-test");
+    expect(entry?.status).toBe("permissionPending");
+    expect(entry?.message).toBe("Claude needs your permission to use Bash");
+    expect(notifInstances).toHaveLength(1);
+    expect(notifInstances[0].title).toContain("Permission");
+  });
+
+  test("idle_prompt notification → needsInput", async () => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("permission-request", { tool_name: "Bash" }));
+    await new Promise((r) => setTimeout(r, 0));
+    emit(
+      makeHookPayload("notification", {
+        message: "Claude is waiting for your input",
+        notification_type: "idle_prompt",
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("needsInput");
+  });
+
   test("permission-request → permissionPending + tool_name message", async () => {
     const { broker, emit } = makeHarness();
     emit(makeHookPayload("permission-request", { tool_name: "Bash" }));
@@ -306,70 +377,18 @@ describe("hook-handler — subcommand 상태 전이", () => {
 });
 
 describe("hook-handler — respondHook 호출", () => {
-  test("pre-tool-use: 즉시 claude.respondHook { exitCode:0 } 호출", async () => {
+  test.each([
+    ["pre-tool-use", undefined],
+    ["permission-request", { tool_name: "Bash" }],
+    ["session-start", undefined],
+    ["user-prompt-submit", undefined],
+    ["notification", { message: "ping" }],
+    ["stop", undefined],
+    ["session-end", undefined],
+  ])("%s: 즉시 claude.respondHook { exitCode:0 } 호출", async (subcommand, extra) => {
     const { channel, emit } = makeHarness();
-    emit(makeHookPayload("pre-tool-use"));
-    await new Promise((r) => setTimeout(r, 10));
-    expect(channel.callArgs.length).toBeGreaterThanOrEqual(1);
-    const [method, args] = channel.callArgs[0];
-    expect(method).toBe("claude.respondHook");
-    expect((args as { response: { exitCode: number } }).response.exitCode).toBe(0);
-  });
-
-  test("permission-request: 즉시 claude.respondHook { exitCode:0 } 호출", async () => {
-    const { channel, emit } = makeHarness();
-    emit(makeHookPayload("permission-request", { tool_name: "Bash" }));
-    await new Promise((r) => setTimeout(r, 10));
-    expect(channel.callArgs.length).toBeGreaterThanOrEqual(1);
-    const [method, args] = channel.callArgs[0];
-    expect(method).toBe("claude.respondHook");
-    expect((args as { response: { exitCode: number } }).response.exitCode).toBe(0);
-  });
-
-  test("session-start: 즉시 claude.respondHook { exitCode:0 } 호출", async () => {
-    const { channel, emit } = makeHarness();
-    emit(makeHookPayload("session-start"));
-    await new Promise((r) => setTimeout(r, 10));
-    expect(channel.callArgs.length).toBeGreaterThanOrEqual(1);
-    const [method, args] = channel.callArgs[0];
-    expect(method).toBe("claude.respondHook");
-    expect((args as { response: { exitCode: number } }).response.exitCode).toBe(0);
-  });
-
-  test("user-prompt-submit: 즉시 claude.respondHook { exitCode:0 } 호출", async () => {
-    const { channel, emit } = makeHarness();
-    emit(makeHookPayload("user-prompt-submit"));
-    await new Promise((r) => setTimeout(r, 10));
-    expect(channel.callArgs.length).toBeGreaterThanOrEqual(1);
-    const [method, args] = channel.callArgs[0];
-    expect(method).toBe("claude.respondHook");
-    expect((args as { response: { exitCode: number } }).response.exitCode).toBe(0);
-  });
-
-  test("notification: 즉시 claude.respondHook { exitCode:0 } 호출", async () => {
-    const { channel, emit } = makeHarness();
-    emit(makeHookPayload("notification", { message: "ping" }));
-    await new Promise((r) => setTimeout(r, 10));
-    expect(channel.callArgs.length).toBeGreaterThanOrEqual(1);
-    const [method, args] = channel.callArgs[0];
-    expect(method).toBe("claude.respondHook");
-    expect((args as { response: { exitCode: number } }).response.exitCode).toBe(0);
-  });
-
-  test("stop: 즉시 claude.respondHook { exitCode:0 } 호출", async () => {
-    const { channel, emit } = makeHarness();
-    emit(makeHookPayload("stop"));
-    await new Promise((r) => setTimeout(r, 10));
-    expect(channel.callArgs.length).toBeGreaterThanOrEqual(1);
-    const [method, args] = channel.callArgs[0];
-    expect(method).toBe("claude.respondHook");
-    expect((args as { response: { exitCode: number } }).response.exitCode).toBe(0);
-  });
-
-  test("session-end: 즉시 claude.respondHook { exitCode:0 } 호출", async () => {
-    const { channel, emit } = makeHarness();
-    emit(makeHookPayload("session-end"));
-    await new Promise((r) => setTimeout(r, 10));
+    emit(makeHookPayload(subcommand, extra));
+    await new Promise((r) => setTimeout(r, 0));
     expect(channel.callArgs.length).toBeGreaterThanOrEqual(1);
     const [method, args] = channel.callArgs[0];
     expect(method).toBe("claude.respondHook");

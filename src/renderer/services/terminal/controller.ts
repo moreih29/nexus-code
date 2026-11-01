@@ -7,6 +7,7 @@ import { DEFAULT_THEME, THEMES } from "../../../shared/design-tokens";
 import type { ThemeId } from "../../../shared/design-tokens/themes";
 import { TERMINAL_PALETTES } from "../../../shared/editor/terminal-palette";
 import { createLogger } from "../../../shared/log/renderer";
+import { isLoginShell } from "../../../shared/pty/login-shell";
 import { ipcCallResult } from "../../ipc/client";
 import { useTabsStore } from "../../state/stores/tabs";
 import {
@@ -16,6 +17,7 @@ import {
   resolvedTerminalFontSize,
 } from "../../state/stores/terminal";
 import { copyTextViaIpc } from "../../utils/clipboard";
+import { isWindows } from "../../utils/platform";
 import { createPtyClient } from "./pty-client";
 import type {
   PtyClient,
@@ -69,8 +71,18 @@ interface ParserLike {
   ) => Disposable;
 }
 
+/** The part of xterm's active buffer the controller reads. */
+interface BufferLike {
+  readonly type: "normal" | "alternate";
+  /** Lines in the buffer, scrollback included. */
+  readonly length?: number;
+  getLine?(y: number): { readonly isWrapped: boolean; translateToString(trimRight?: boolean): string } | undefined;
+}
+
 interface TerminalLike {
   readonly element?: HTMLElement;
+  /** The input that takes the user's keys while the terminal has focus. */
+  readonly textarea?: HTMLTextAreaElement;
   readonly rows: number;
   readonly parser: ParserLike;
   /**
@@ -79,9 +91,12 @@ interface TerminalLike {
    * 진입한다(\\x1b[?1049h). ls/grep/cat 같은 단발 명령은 normal screen에서 출력.
    * onTitleChange 콜백 시점에 이 값을 확인해 alternate 상태일 때만 title을 수용한다.
    */
-  readonly buffer: { active: { type: "normal" | "alternate" } };
-  /** Whether the app on the pty turned on bracketed paste (DECSET 2004). */
-  readonly modes: { readonly bracketedPasteMode: boolean };
+  readonly buffer: { active: BufferLike };
+  /**
+   * Whether the app on the pty turned on bracketed paste (DECSET 2004) and
+   * focus reporting (DECSET 1004).
+   */
+  readonly modes: { readonly bracketedPasteMode: boolean; readonly sendFocusMode: boolean };
   options: {
     theme: ITheme | undefined;
     fontSize: number;
@@ -130,6 +145,8 @@ export const TERMINAL_REOPENED_SEPARATOR = "────────────
  *  - 문자열에 `/`가 포함 → cwd 또는 path-like (lazygit/claude 같은 TUI는 슬래시 없음)
  *  - 문자열이 `~`로 시작 → 홈 경로 prompt
  *  - `@`와 `:`가 동시에 포함 → `user@host:` 패턴
+ *  - A backslash: a Windows path. cmd and PowerShell title the console with
+ *    their own path, cmd adding the command it runs.
  *
  * lazygit / lazydocker / claude / less 같은 TUI는 단일 단어이거나 `:` / `@`를 함께
  * 갖지 않으므로 통과한다. vim의 경우 일부 setting에서 "filename (path) - VIM" 같은
@@ -139,34 +156,16 @@ export const TERMINAL_REOPENED_SEPARATOR = "────────────
  * exported는 단위 테스트용. production 호출 경로는 controller 내부.
  */
 export function isShellPromptLikeTitle(title: string): boolean {
-  if (title.includes("/")) return true;
+  if (title.includes("/") || title.includes("\\")) return true;
   if (title.startsWith("~")) return true;
   if (title.includes("@") && title.includes(":")) return true;
   return false;
 }
 
-/**
- * Login-shell program names. When one of these is the PTY's foreground process,
- * an OSC title arriving in the normal screen buffer is shell-prompt or preexec
- * command-echo noise rather than a real inline TUI's title.
- *
- * `ps -o comm=` may prefix a login shell with "-" (e.g. "-zsh"); we strip it.
- */
-const LOGIN_SHELL_NAMES: ReadonlySet<string> = new Set([
-  "sh",
-  "bash",
-  "zsh",
-  "fish",
-  "dash",
-  "ksh",
-  "tcsh",
-  "csh",
-]);
-
-/** True when `comm` (a `ps -o comm=` basename) names a login shell. */
-export function isLoginShell(comm: string): boolean {
-  return LOGIN_SHELL_NAMES.has(comm.trim().replace(/^-/, ""));
-}
+// When a login shell is the PTY's foreground process, an OSC title arriving in
+// the normal screen buffer is shell-prompt or preexec command-echo noise rather
+// than a real inline TUI's title.
+export { isLoginShell };
 
 export type OscTitleAction = "ignore" | "apply" | "clear" | "confirm";
 
@@ -204,21 +203,50 @@ export function foregroundConfirmsTitle(foregroundName: string): boolean {
   return name !== "" && !isLoginShell(name);
 }
 
+/** DECSET 1004: the program wants to hear when the terminal gains or loses focus. */
+const FOCUS_REPORTING_MODE = 1004;
+/** DECSET 2004, bracketed paste: a program setting up for input, as each does when it starts. */
+const BRACKETED_PASTE_MODE = 2004;
 /**
- * Backslash-escape a filesystem path for injection into a shell / TUI prompt,
- * matching the drag-and-drop behavior of iTerm2 and Terminal.app.
- *
- * Only POSIX shell metacharacters and whitespace are escaped — Unicode letters
- * (e.g. Korean filenames) are deliberately left intact, so a denylist (escape
- * these specific bytes) is used rather than an allowlist. The result stays a
- * single argument while remaining recognizable as a literal path to TUIs such
- * as Claude Code that scan typed input for file paths.
- *
- * Exported for unit testing.
+ * How long after a program asks for focus reports it is told the terminal
+ * lacks focus: Codex drops the input that comes while it sets up.
  */
-export function escapeDroppedPath(path: string): string {
-  // Order matters only in that the backslash class member escapes itself; the
-  // regex matches one metacharacter at a time and prefixes it with a backslash.
+const FOCUS_REPORT_DELAY_MS = 250;
+const FOCUS_OUT_REPORT = "\x1b[O";
+
+/** Whether the user's keys reach the terminal: its window has focus and so does its input. */
+function hasKeyboardFocus(term: Pick<TerminalLike, "textarea">): boolean {
+  return (
+    document.hasFocus() && term.textarea !== undefined && document.activeElement === term.textarea
+  );
+}
+
+/**
+ * Quotes a dropped file's path for the terminal's shell, so a path with
+ * spaces or shell characters stays one literal argument. `shellPath` is the
+ * local shell main reported; a remote terminal has none.
+ *
+ * - PowerShell: single quotes, with any single quote doubled. Its escape
+ *   character is the backtick, so a backslash would not do.
+ * - cmd.exe: double quotes, which no Windows file name contains.
+ * - Any other shell: backslash escapes, as iTerm2 and Terminal.app drop
+ *   paths. Only shell metacharacters and whitespace are escaped, so Unicode
+ *   letters (Korean file names) stay as they are and TUIs such as Claude Code
+ *   that scan typed input for file paths still recognize the path.
+ *
+ * A path with nothing to protect is pasted as it is.
+ */
+export function escapeDroppedPath(path: string, shellPath?: string): string {
+  const shell = shellPath?.split(/[\\/]/).pop()?.toLowerCase() ?? "";
+  if (shell === "powershell.exe" || shell === "pwsh.exe" || shell === "pwsh") {
+    // PowerShell also takes the typographic single quotes as quotes.
+    return /[\s'"`$&(){}[\];,@#|<>‘’‚‛]/.test(path)
+      ? `'${path.replace(/['‘’‚‛]/g, "$&$&")}'`
+      : path;
+  }
+  if (shell === "cmd.exe") {
+    return /[\s&()[\]{}^=;!'+,`~]/.test(path) ? `"${path}"` : path;
+  }
   return path.replace(/[\s'"\\$`(){}[\]<>|&;*?!#~]/g, "\\$&");
 }
 
@@ -310,8 +338,12 @@ const defaultTerminalControllerDeps: TerminalControllerDeps = {
 
 class XtermTerminalController implements TerminalController {
   private disposed = false;
+  /** The local shell main started, if it said; a remote terminal has none. */
+  private shellPath: string | undefined;
   /** Whether the shell is cmd.exe, which pastes on Ctrl+V (see the key handler). */
   private shellIsCmd = false;
+  /** Whether the shell is PowerShell or cmd, which read Home and End as they are. */
+  private shellTakesHomeEnd = false;
   private term: TerminalLike | null = null;
   private fitAddon: FitAddonLike | null = null;
   private ligaturesAddon: LigaturesAddonLike | null = null;
@@ -320,6 +352,8 @@ class XtermTerminalController implements TerminalController {
   private titleDisposable: Disposable | null = null;
   private altEnterDisposable: Disposable | null = null;
   private altExitDisposable: Disposable | null = null;
+  private focusReportDisposable: Disposable | null = null;
+  private focusReportTimer: ReturnType<typeof setTimeout> | null = null;
   private selectionWriteTimer: ReturnType<typeof setTimeout> | null = null;
   private oscDisposables: Disposable[] = [];
   private resizeObserver: ResizeObserverLike | null = null;
@@ -375,6 +409,21 @@ class XtermTerminalController implements TerminalController {
     else this.focusOnOpen = true;
   }
 
+  readText(lines: number): string {
+    const buffer = this.term?.buffer.active;
+    if (!buffer?.getLine || buffer.length === undefined) return "";
+    return bufferText(buffer, lines);
+  }
+
+  input(text: string, mode: "paste" | "keys"): boolean {
+    const term = this.term;
+    const ptyClient = this.ptyClient;
+    if (this.disposed || !term || !ptyClient) return false;
+    if (mode === "paste") term.paste(text);
+    else ptyClient.write(text);
+    return true;
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -407,6 +456,12 @@ class XtermTerminalController implements TerminalController {
     this.altEnterDisposable = null;
     this.altExitDisposable?.dispose();
     this.altExitDisposable = null;
+    this.focusReportDisposable?.dispose();
+    this.focusReportDisposable = null;
+    if (this.focusReportTimer !== null) {
+      clearTimeout(this.focusReportTimer);
+      this.focusReportTimer = null;
+    }
     if (this.selectionWriteTimer !== null) {
       clearTimeout(this.selectionWriteTimer);
       this.selectionWriteTimer = null;
@@ -443,7 +498,9 @@ class XtermTerminalController implements TerminalController {
   private noteSpawned(result: SpawnedSession): void {
     if (result.missingShell !== undefined) reportMissingShell(result.missingShell);
     if (result.shellPath !== undefined) {
+      this.shellPath = result.shellPath;
       this.shellIsCmd = /(^|[\\/])cmd\.exe$/i.test(result.shellPath);
+      this.shellTakesHomeEnd = /(^|[\\/])(cmd|powershell|pwsh)\.exe$/i.test(result.shellPath);
     }
   }
 
@@ -677,6 +734,33 @@ class XtermTerminalController implements TerminalController {
       },
     );
 
+    // A program that turns on focus reporting, as Codex does to tell whether
+    // to notify, takes the terminal as focused until told otherwise, and
+    // xterm.js reports only changes. One started behind the user's view would
+    // never hear it is not looked at, so it is told, a moment after it asks.
+    // On Windows the program's request stays inside ConPTY, which turned focus
+    // reporting on for the whole session when the shell started, so there the
+    // program is told when it sets up for input instead, turning on bracketed
+    // paste.
+    this.focusReportDisposable = term.parser.registerCsiHandler(
+      { prefix: "?", final: "h" },
+      (params) => {
+        const listening =
+          params.includes(FOCUS_REPORTING_MODE) ||
+          (params.includes(BRACKETED_PASTE_MODE) && term.modes.sendFocusMode);
+        if (this.replayWritesPending === 0 && listening) {
+          if (this.focusReportTimer !== null) clearTimeout(this.focusReportTimer);
+          this.focusReportTimer = setTimeout(() => {
+            this.focusReportTimer = null;
+            if (!this.disposed && term.modes.sendFocusMode && !hasKeyboardFocus(term)) {
+              ptyClient.write(FOCUS_OUT_REPORT);
+            }
+          }, FOCUS_REPORT_DELAY_MS);
+        }
+        return false;
+      },
+    );
+
     this.registerOscHandlers(term);
 
     // 드래그/키보드 셀렉션 → 시스템 클립보드 (iTerm2 "Copy on selection" 기본 동작).
@@ -793,7 +877,7 @@ class XtermTerminalController implements TerminalController {
         !event.metaKey &&
         event.keyCode === 86 &&
         (term.modes.bracketedPasteMode || this.shellIsCmd) &&
-        window.host?.platform === "win32"
+        isWindows()
       ) {
         return false;
       }
@@ -832,6 +916,11 @@ class XtermTerminalController implements TerminalController {
       // Trade-off: vim normal mode에서 Ctrl+A는 increment number 의미라
       //   부작용 가능. vim 사용자는 0/$/g/G를 쓰는 것이 일반적이라 드문 케이스로
       //   간주한다. 향후 호환성 이슈 보고 시 setting 토글 도입.
+      //
+      // PowerShell and cmd keep the keys: PowerShell selects the whole line on
+      // Ctrl+A and cmd types ^A, while both, and Claude Code under them, move
+      // the cursor on Home and End, which ConPTY hands on as key presses.
+      if (this.shellTakesHomeEnd) return true;
       const isHome =
         (event.key === "Home" &&
           !event.shiftKey &&
@@ -951,7 +1040,7 @@ class XtermTerminalController implements TerminalController {
         // the supported way to recover an absolute path from a dropped File.
         .map((file) => window.files.getPathForFile(file))
         .filter((p) => p !== "")
-        .map((p) => escapeDroppedPath(p));
+        .map((p) => escapeDroppedPath(p, this.shellPath));
       if (paths.length === 0) return;
 
       // No trailing space — paste just the escaped path(s) so Claude Code's
@@ -1158,4 +1247,22 @@ const AGENT_SPAWN_FAILURE_LEAD = /^failed to spawn PTY: /;
 /** The message of a failure, without an Error's "Error: " name prefix. */
 function errorReason(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * The last `lines` lines of a buffer as plain text, a line the terminal
+ * wrapped joined back up, and the empty lines below the last output left out.
+ */
+export function bufferText(buffer: BufferLike, lines: number): string {
+  const out: string[] = [];
+  const length = buffer.length ?? 0;
+  for (let y = 0; y < length; y++) {
+    const line = buffer.getLine?.(y);
+    if (!line) continue;
+    const text = line.translateToString(true);
+    if (line.isWrapped && out.length > 0) out[out.length - 1] += text;
+    else out.push(text);
+  }
+  while (out.length > 0 && out[out.length - 1]?.trim() === "") out.pop();
+  return out.slice(-lines).join("\n");
 }

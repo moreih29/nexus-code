@@ -15,7 +15,7 @@ import type {
 } from "../../../../shared/git/types";
 import { normalizeGitAutofetchIntervalMin } from "../../../../shared/git/types";
 import type { WorkspaceStorage } from "../../../infra/storage/workspace-storage";
-import { isSshWorkspace } from "../../workspace/guards";
+import { isLocalWorkspace } from "../../workspace/guards";
 import type { BroadcastFn, WorkspaceManager } from "../../workspace/manager";
 import { GitError } from "./error";
 import type { GitRegistry } from "./registry";
@@ -164,7 +164,7 @@ export class GitAutofetchScheduler {
     const due: Promise<GitFetchAllResult>[] = [];
     const now = this.now();
     for (const workspace of this.workspaceManager.list()) {
-      if (isSshWorkspace(workspace)) continue;
+      if (!isLocalWorkspace(workspace)) continue;
       if (!this.storage.isOpen(workspace.id)) continue;
       const panelState = this.storage.getGitPanelState(workspace.id);
       if (panelState.autofetchIntervalMin === 0 || panelState.autofetchManualPaused) continue;

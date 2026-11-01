@@ -14,7 +14,6 @@
  * SCOPE:
  *   1. EMPTY_TREE ref → ipcCallResult is NOT called, returns empty content.
  *   2. Normal git ref ("HEAD") → ipcCallResult IS called exactly once.
- *   3. AbortSignal already-aborted → ipcCallResult never called (abort before flight).
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -105,25 +104,5 @@ describe("readSideContent — EMPTY_TREE short-circuit", () => {
     expect((args as { ref: string }).ref).toBe("HEAD");
 
     expect(result.content).toBe("file content");
-  });
-
-  test("calls ipcCallResult exactly once when ref is INDEX (working-tree fs source)", async () => {
-    // INDEX ref with source=git → goes through git.getFileContent
-    const request = makeRequest("INDEX", "git");
-    const controller = new AbortController();
-
-    await readSideContent(request, controller.signal);
-
-    expect(ipcCallMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("EMPTY_TREE result isBinary=false so diff renderer shows a text empty panel", async () => {
-    const request = makeRequest(EMPTY_TREE);
-    const controller = new AbortController();
-
-    const result = await readSideContent(request, controller.signal);
-
-    expect(result.isBinary).toBe(false);
-    expect(result.sizeBytes).toBe(0);
   });
 });

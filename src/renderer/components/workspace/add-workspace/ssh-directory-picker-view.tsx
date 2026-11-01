@@ -7,6 +7,7 @@ import {
   browseSshSession,
   closeSshBrowseSession,
   createSshWorkspace,
+  createWslWorkspace,
   prefetchSshDirectory,
   recordSshBookmark,
 } from "../../../services/workspace";
@@ -94,7 +95,8 @@ export function SshDirectoryPickerView({
   readonly ref?: React.Ref<SshDirectoryPickerHandle>;
 }): React.JSX.Element {
   const { t } = useTranslation();
-  const { sessionId, initialPath, host } = session;
+  // An SSH host's session, or a WSL distribution's (it has `distro`).
+  const { sessionId, initialPath } = session;
 
   // Path state
   const [currentPath, setCurrentPath] = useState(initialPath);
@@ -274,13 +276,17 @@ export function SshDirectoryPickerView({
     if (addPhase === "creating" || browseErrorHuman) return;
     setAddPhase("creating");
     setAddErrorHuman(null);
+    if ("distro" in session) {
+      await addWslWorkspace(session.distro);
+      return;
+    }
     try {
       // createAndConnect with sshBrowseSessionId: the directory-picker path
       // is already authenticated (the user browsed via the browse session).
       // The main handler detects the browseSessionId and adopts that
       // ControlMaster, skipping a second auth prompt.
       const result = await createSshWorkspace({
-        host,
+        host: session.host,
         user: session.user,
         port: session.port,
         identityFile: session.identityFile,
@@ -318,6 +324,24 @@ export function SshDirectoryPickerView({
     }
   }
 
+  // A WSL workspace needs no connection handoff: the distribution is reached
+  // through wsl.exe again. It records no bookmark (bookmarks are local or SSH).
+  async function addWslWorkspace(distro: string): Promise<void> {
+    try {
+      const result = await createWslWorkspace({ distro, remotePath: currentPath });
+      if (!result.ok) {
+        setAddPhase("idle");
+        setAddErrorHuman(result.message);
+        return;
+      }
+      await onWorkspaceCreated(result.value);
+      onClose();
+    } catch (error) {
+      setAddErrorHuman(error instanceof Error ? error.message : String(error));
+      setAddPhase("idle");
+    }
+  }
+
   // Session cleanup on Back / workspace add success / modal close — runs on unmount.
   // sessionId is stable for the lifetime of this view.
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional mount-only cleanup
@@ -349,9 +373,13 @@ export function SshDirectoryPickerView({
       {/* Path bar — pinned (shrink-0) so it stays visible while only the
           directory list below scrolls. */}
       <form onSubmit={handlePathSubmit} className="flex shrink-0 flex-col gap-1">
-        {/* Connection identity (user@host) heads the path field. */}
+        {/* Connection identity (user@host, or the WSL distribution) heads the path field. */}
         <div className="truncate text-app-body-emphasis text-foreground">
-          {session.user ? `${session.user}@${host}` : host}
+          {"distro" in session
+            ? t("wsl.identity", { distro: session.distro })
+            : session.user
+              ? `${session.user}@${session.host}`
+              : session.host}
         </div>
         <div className="relative flex items-center gap-2" ref={autocomplete.comboboxRef}>
           {!isAtRoot ? (

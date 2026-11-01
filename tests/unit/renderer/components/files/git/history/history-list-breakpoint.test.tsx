@@ -6,6 +6,7 @@ import type { ReactElement, ReactNode } from "react";
 import * as React from "react";
 import type { HistoryListBreakpoint } from "../../../../../../../src/renderer/components/files/git/history/list";
 import {
+  HISTORY_LIST_BREAKPOINT_COMPACT,
   HISTORY_LIST_BREAKPOINT_MEDIUM,
   HISTORY_LIST_BREAKPOINT_NARROW,
   useHistoryListBreakpoint,
@@ -174,14 +175,20 @@ class BreakpointProbeView {
   private readonly harness = new HookHarness();
   root: TestDomElement;
 
-  constructor(private readonly refObject: React.RefObject<HTMLElement | null>) {
+  constructor(
+    private readonly refObject: React.RefObject<HTMLElement | null>,
+    private readonly graphWidthPx = 0,
+  ) {
     this.root = this.render();
     activeHarnesses.push(this.harness);
   }
 
   render(): TestDomElement {
     this.root = this.harness.render(
-      React.createElement(BreakpointProbe, { scrollRef: this.refObject }),
+      React.createElement(BreakpointProbe, {
+        scrollRef: this.refObject,
+        graphWidthPx: this.graphWidthPx,
+      }),
     );
     return this.root;
   }
@@ -232,6 +239,29 @@ describe("useHistoryListBreakpoint", () => {
     expect(view.breakpoint()).toBe("wide");
   });
 
+  it("drops to compact below the compact boundary", () => {
+    const view = renderBreakpointProbe(400);
+
+    emitWidthAndRender(view, HISTORY_LIST_BREAKPOINT_COMPACT - 1);
+    expect(view.breakpoint()).toBe("compact");
+
+    emitWidthAndRender(view, HISTORY_LIST_BREAKPOINT_COMPACT);
+    expect(view.breakpoint()).toBe("narrow");
+  });
+
+  it("measures the room beside the graph, not the whole list", () => {
+    const view = renderBreakpointProbe(400, 128);
+
+    emitWidthAndRender(view, 600);
+    expect(view.breakpoint()).toBe("medium");
+
+    emitWidthAndRender(view, 320);
+    expect(view.breakpoint()).toBe("compact");
+
+    emitWidthAndRender(view, HISTORY_LIST_BREAKPOINT_MEDIUM + 128);
+    expect(view.breakpoint()).toBe("wide");
+  });
+
   it("keeps the previous breakpoint when hidden width is reported as zero", () => {
     const view = renderBreakpointProbe(500);
 
@@ -258,14 +288,20 @@ describe("useHistoryListBreakpoint", () => {
 });
 
 /** Component under test that exposes the hook result through test-friendly props. */
-function BreakpointProbe({ scrollRef }: { scrollRef: React.RefObject<HTMLElement | null> }) {
-  const breakpoint = useHistoryListBreakpoint(scrollRef);
+function BreakpointProbe({
+  scrollRef,
+  graphWidthPx,
+}: {
+  scrollRef: React.RefObject<HTMLElement | null>;
+  graphWidthPx: number;
+}) {
+  const breakpoint = useHistoryListBreakpoint(scrollRef, graphWidthPx);
   return <output data-breakpoint={breakpoint} />;
 }
 
 /** Creates a hook probe with a fixed observed container element. */
-function renderBreakpointProbe(width: number): BreakpointProbeView {
-  return new BreakpointProbeView({ current: observedElement(width) });
+function renderBreakpointProbe(width: number, graphWidthPx = 0): BreakpointProbeView {
+  return new BreakpointProbeView({ current: observedElement(width) }, graphWidthPx);
 }
 
 /** Creates an observed HTMLElement stand-in with the requested bounding width. */

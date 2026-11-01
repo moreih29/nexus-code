@@ -34,12 +34,50 @@ export const WorkspaceSshLocationSchema = z.preprocess(
   }),
 );
 
+/**
+ * A folder inside a WSL distribution on a Windows host. The Linux agent runs
+ * in the distribution, reached through `wsl.exe`, as it runs on an SSH host.
+ */
+export const WorkspaceWslLocationSchema = z.object({
+  kind: z.literal("wsl"),
+  /** The distribution's name, as `wsl.exe -l` lists it. */
+  distro: z.string().min(1),
+  /** Absolute path inside the distribution. */
+  remotePath: z.string(),
+  remoteArch: z
+    .object({
+      os: z.literal("linux"),
+      arch: z.enum(["amd64", "arm64"]),
+    })
+    .optional(),
+});
+
 export const WorkspaceLocationSchema = z.union([
   WorkspaceLocalLocationSchema,
   WorkspaceSshLocationSchema,
+  WorkspaceWslLocationSchema,
 ]);
 
 export type WorkspaceLocation = z.infer<typeof WorkspaceLocationSchema>;
+
+/**
+ * A task: a workspace on a git worktree of another workspace's repository,
+ * with its own branch. The sidebar shows only its parent; the task is
+ * switched to from inside the parent.
+ */
+export const WorkspaceTaskSchema = z.object({
+  parentId: z.string().uuid(),
+  branch: z.string().min(1),
+  /** The worktree's top folder; the task opens the parent's subfolder of it. */
+  worktreePath: z.string().min(1),
+  /**
+   * The terminal whose agent made the task with `nexus worktree new`;
+   * absent for a task the user made in the app.
+   */
+  createdBy: z.object({ workspaceId: z.string().uuid(), tabId: z.string().min(1) }).optional(),
+});
+
+export type WorkspaceTask = z.infer<typeof WorkspaceTaskSchema>;
 
 export const WorkspaceConnectionEventStatusSchema = z.enum([
   "connecting",
@@ -126,6 +164,9 @@ export function workspaceLocationKey(location: WorkspaceLocation): string {
   if (location.kind === "local") {
     return `local:${normalizeWorkspacePath(location.rootPath)}`;
   }
+  if (location.kind === "wsl") {
+    return `wsl:${location.distro}:${normalizeWorkspacePath(location.remotePath)}`;
+  }
   const user = location.user ?? "";
   const port = location.port ?? 22;
   return `ssh:${user}@${location.host}:${port}:${normalizeWorkspacePath(location.remotePath)}`;
@@ -148,7 +189,10 @@ function rootPathFromLocationInput(location: unknown): string | undefined {
   if (location.kind === "local" && typeof location.rootPath === "string") {
     return location.rootPath;
   }
-  if (location.kind === "ssh" && typeof location.remotePath === "string") {
+  if (
+    (location.kind === "ssh" || location.kind === "wsl") &&
+    typeof location.remotePath === "string"
+  ) {
     return location.remotePath;
   }
   return undefined;
@@ -182,7 +226,7 @@ export const WorkspaceMetaSchema = z.preprocess(
     name: z.string(),
     location: WorkspaceLocationSchema,
     /**
-     * Deprecated compatibility field. Prefer `location`; for SSH workspaces
+     * Deprecated compatibility field. Prefer `location`; for SSH and WSL workspaces
      * this mirrors `location.remotePath`.
      */
     rootPath: z.string(),
@@ -194,6 +238,8 @@ export const WorkspaceMetaSchema = z.preprocess(
     sortOrder: z.number().int(),
     /** Sort position within the pinned group. 0 means "not yet positioned". */
     pinnedSortOrder: z.number().int(),
+    /** Set when this workspace is a task of another workspace. */
+    task: WorkspaceTaskSchema.optional(),
   }),
 );
 

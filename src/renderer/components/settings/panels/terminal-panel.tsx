@@ -9,6 +9,8 @@
 //   - Font family: token-sealed Select + custom-name input branch
 //   - Font ligatures: Radix Checkbox
 //   - Cursor style: SegmentedControl with inline glyph previews
+//   - Task agent command: what a new task's terminal runs
+//   - Sessions view: the view a sessions tab opens in
 //
 // Terminal font settings are INDEPENDENT of the editor font — they live in
 // their own store (useTerminalStore) and persist to their own appState keys.
@@ -19,9 +21,14 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import {
+  DEFAULT_SESSIONS_VIEW,
+  SESSIONS_VIEWS,
+} from "../../../../shared/sessions/view";
 import { checkFontAvailable } from "../../../services/editor/runtime/font-availability";
+import { useSessionsViewStore } from "../../../state/stores/sessions-view";
 import type { TerminalCursorStyle, TerminalFontSize } from "../../../state/stores/terminal";
-import { useTerminalStore } from "../../../state/stores/terminal";
+import { DEFAULT_TASK_AGENT_COMMAND, useTerminalStore } from "../../../state/stores/terminal";
 import { Checkbox } from "../../ui/checkbox";
 import { NumberInput } from "../../ui/number-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
@@ -65,6 +72,10 @@ export function TerminalPanel() {
   const setCursorStyle = useTerminalStore((s) => s.setCursorStyle);
   const setFontFamily = useTerminalStore((s) => s.setFontFamily);
   const setFontLigatures = useTerminalStore((s) => s.setFontLigatures);
+  const taskAgentCommand = useTerminalStore((s) => s.taskAgentCommand);
+  const setTaskAgentCommand = useTerminalStore((s) => s.setTaskAgentCommand);
+  const sessionsView = useSessionsViewStore((s) => s.defaultView);
+  const setSessionsView = useSessionsViewStore((s) => s.setDefault);
 
   // Build translated font family options inside the component so i18n is active.
   const fontFamilyOptions = useMemo(
@@ -283,6 +294,45 @@ export function TerminalPanel() {
         <p className="text-app-ui-sm text-muted-foreground">
           {t("terminal.ligatures.description")}
         </p>
+      </SettingsSection>
+
+      {/* Task agent command — what a new task's terminal runs */}
+      <SettingsSection
+        label={t("terminal.taskAgent.label")}
+        dirty={taskAgentCommand !== undefined}
+        onReset={() => setTaskAgentCommand(undefined)}
+      >
+        <input
+          type="text"
+          value={taskAgentCommand ?? DEFAULT_TASK_AGENT_COMMAND}
+          onChange={(e) => setTaskAgentCommand(e.target.value)}
+          aria-label={t("terminal.taskAgent.aria")}
+          spellCheck={false}
+          className={cn(
+            "w-full rounded-(--radius-control) border border-border bg-background px-2 py-1",
+            "font-mono text-app-body text-foreground outline-none placeholder:text-muted-foreground",
+            "focus-visible:ring-1 focus-visible:ring-ring",
+          )}
+        />
+        <p className="text-app-ui-sm text-muted-foreground">{t("terminal.taskAgent.hint")}</p>
+      </SettingsSection>
+
+      {/* Sessions view — the view a sessions tab opens in until switched there */}
+      <SettingsSection
+        label={t("terminal.sessionsView.label")}
+        dirty={sessionsView !== undefined}
+        onReset={() => setSessionsView(undefined)}
+      >
+        <SegmentedControl
+          options={SESSIONS_VIEWS.map((value) => ({
+            value,
+            label: t(`common:sessions.view.${value}`),
+          }))}
+          value={sessionsView ?? DEFAULT_SESSIONS_VIEW}
+          onChange={setSessionsView}
+          label={t("terminal.sessionsView.label")}
+        />
+        <p className="text-app-ui-sm text-muted-foreground">{t("terminal.sessionsView.hint")}</p>
       </SettingsSection>
     </div>
   );

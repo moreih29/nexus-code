@@ -251,6 +251,8 @@ describe("WorkspaceManager.reorder — same group", () => {
 // reorder — cross group (unpinned → pinned)
 // ---------------------------------------------------------------------------
 
+// The single-move pin/unpin cases (meta + DB row) live in
+// tests/integration/workspace-reorder/workspace-reorder.test.ts Scenario 3.
 describe("WorkspaceManager.reorder — cross group", () => {
   let fixtures: ReturnType<typeof makeFixtures>;
   let id1: string;
@@ -265,24 +267,6 @@ describe("WorkspaceManager.reorder — cross group", () => {
 
   afterEach(() => {
     fixtures.globalDb.close();
-  });
-
-  it("moving from unpinned to pinned sets pinned=true and pinnedSortOrder, zeros sortOrder", () => {
-    const result = fixtures.manager.reorder(id1, { targetGroup: "pinned" });
-    expect(result.pinned).toBe(true);
-    expect(result.pinnedSortOrder).toBe(1024); // tail of empty pinned group
-    expect(result.sortOrder).toBe(0);
-  });
-
-  it("moving from pinned back to unpinned sets pinned=false and sortOrder, zeros pinnedSortOrder", () => {
-    // First pin id1
-    fixtures.manager.reorder(id1, { targetGroup: "pinned" });
-    fixtures.broadcast.mockClear();
-    // Then move it back
-    const result = fixtures.manager.reorder(id1, { targetGroup: "unpinned" });
-    expect(result.pinned).toBe(false);
-    expect(result.pinnedSortOrder).toBe(0);
-    expect(result.sortOrder).toBeGreaterThan(0);
   });
 
   it("second cross-group move appends at tail of pinned group", () => {

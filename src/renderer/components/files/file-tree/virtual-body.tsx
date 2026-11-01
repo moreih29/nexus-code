@@ -10,6 +10,7 @@
 
 import type { Virtualizer } from "@tanstack/react-virtual";
 import { useMemo } from "react";
+import { isDrivePath } from "../../../../shared/fs/drive-path";
 import type { FlatItem, WorkspaceTree } from "../../../state/stores/files";
 import type { DisplayItem } from "./display";
 import { FileTreeEditRow } from "./edit-row";
@@ -104,17 +105,21 @@ export function FileTreeVirtualBody({
           height: ROW_HEIGHT_PX,
           transform: `translateY(${vi.start}px)`,
         };
+        // An edit row's validation message hangs over the rows after it;
+        // without this they paint on top of it.
+        const editRowStyle: React.CSSProperties = { ...wrapperStyle, zIndex: 1 };
 
         if (item.kind === "pending") {
           return (
             <div
               key={`pending-${item.parentAbsPath}`}
-              style={wrapperStyle}
+              style={editRowStyle}
               data-file-tree-row-type="pending"
             >
               <FileTreeEditRow
                 kind={item.entryKind}
                 depth={item.depth}
+                windows={isDrivePath(item.parentAbsPath)}
                 onCommit={onPendingCommit}
                 onCancel={onPendingCancel}
               />
@@ -126,13 +131,14 @@ export function FileTreeVirtualBody({
           return (
             <div
               key={`rename-${item.absPath}`}
-              style={wrapperStyle}
+              style={editRowStyle}
               data-file-tree-row-type="rename"
             >
               <FileTreeEditRow
                 kind={item.entryKind}
                 depth={item.depth}
                 initialValue={item.initialName}
+                windows={isDrivePath(item.absPath)}
                 onCommit={onPendingRenameCommit}
                 onCancel={onPendingRenameCancel}
               />

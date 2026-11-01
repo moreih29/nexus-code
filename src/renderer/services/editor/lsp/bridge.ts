@@ -3,12 +3,11 @@
 
 import type * as Monaco from "monaco-editor";
 import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
-import { workspaceUriFor } from "../../../../shared/fs/workspace-uri";
+import { WORKSPACE_URI_SCHEME, workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import type { SymbolInformation } from "../../../../shared/lsp";
-import type { LspLanguageId } from "../../../../shared/types/app-state";
+import { resolveLspPresetLanguageId } from "../../../../shared/lsp/config";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../../ipc/client";
 import { useActiveStore } from "../../../state/stores/active";
-import { useLspEnabledStore } from "../../../state/stores/lsp-enabled";
 import {
   getEntryLspVersion,
   rehydrateLspForWorkspace,
@@ -52,9 +51,9 @@ export {
 const MARKER_OWNER = "lsp";
 
 let diagnosticsUnlisten: (() => void) | null = null;
+let modelDisposeListener: Monaco.IDisposable | null = null;
 let applyEditUnlisten: (() => void) | null = null;
 let workspaceResetUnlisten: (() => void) | null = null;
-let enabledLanguagesChangedUnlisten: (() => void) | null = null;
 
 function setMonaco(monaco: typeof Monaco): void {
   if (getMonacoRef() === monaco) return;
@@ -62,12 +61,12 @@ function setMonaco(monaco: typeof Monaco): void {
   initProviderRegistry(monaco);
   diagnosticsUnlisten?.();
   diagnosticsUnlisten = null;
+  modelDisposeListener?.dispose();
+  modelDisposeListener = null;
   applyEditUnlisten?.();
   applyEditUnlisten = null;
   workspaceResetUnlisten?.();
   workspaceResetUnlisten = null;
-  enabledLanguagesChangedUnlisten?.();
-  enabledLanguagesChangedUnlisten = null;
 }
 
 function registerDiagnosticsListener(monaco: typeof Monaco): void {
@@ -96,40 +95,48 @@ function registerDiagnosticsListener(monaco: typeof Monaco): void {
   });
 }
 
-function registerWorkspaceResetListener(): void {
-  if (workspaceResetUnlisten) return;
+/**
+ * Drops the diagnostics a workspace's `languageId` server published: once
+ * it is turned off or failed for good, no server will replace them.
+ */
+export function clearLspDiagnostics(workspaceId: string, languageId: string): void {
+  const monaco = getMonacoRef();
+  if (!monaco) return;
+  for (const model of monaco.editor.getModels()) {
+    if (model.uri.scheme !== WORKSPACE_URI_SCHEME || model.uri.authority !== workspaceId) continue;
+    if (resolveLspPresetLanguageId(model.getLanguageId()) !== languageId) continue;
+    monaco.editor.setModelMarkers(model, MARKER_OWNER, []);
+  }
+}
 
-  // The main-side LSP host emits `workspaceReset` when its LRU cap
-  // evicts a workspace's servers. We mirror that into the renderer's
-  // model cache so every entry's `lspOpened` is cleared; the user's
-  // next interaction (typing, or workspace activation) triggers a
-  // fresh didOpen and respawns the LSP. Without this, the entries
-  // would think the file is still open server-side and silently land
-  // didChange notifications in the void.
-  workspaceResetUnlisten = ipcListen("lsp", "workspaceReset", (args) => {
-    resetLspStateForWorkspace(args.workspaceId, args.languageId);
+/**
+ * Drops a closing file's diagnostics. Monaco keeps markers by URI past the
+ * model, and the file reopened would show them until its server published
+ * again, or for good when it does not (a file outside the project).
+ */
+function registerModelDisposeListener(monaco: typeof Monaco): void {
+  if (modelDisposeListener) return;
+
+  modelDisposeListener = monaco.editor.onWillDisposeModel((model) => {
+    monaco.editor.setModelMarkers(model, MARKER_OWNER, []);
   });
 }
 
-function registerEnabledLanguagesChangedListener(): void {
-  if (enabledLanguagesChangedUnlisten) return;
+function registerWorkspaceResetListener(): void {
+  if (workspaceResetUnlisten) return;
 
-  enabledLanguagesChangedUnlisten = ipcListen("lsp", "enabledLanguagesChanged", (args) => {
-    const { workspaceId, languages } = args as {
-      workspaceId: string;
-      languages: LspLanguageId[];
-    };
-
-    // Update the store — this also unblocks future isLspEnabledForWorkspace reads.
-    useLspEnabledStore.getState().setForWorkspace(workspaceId, languages);
-
-    // Open the active workspace's documents for every enabled language.
-    // The toggle chip updates the store before main broadcasts, so a diff
-    // against the store would find nothing new; rehydrate skips documents
-    // that are already open. Other workspaces catch up on activation, and
-    // the workspaceReset broadcast handles removed languages.
-    if (useActiveStore.getState().activeWorkspaceId === workspaceId) {
-      for (const lang of languages) rehydrateLspForWorkspace(workspaceId, lang);
+  // The main-side LSP host emits `workspaceReset` when it stops a
+  // workspace's servers (LRU cap, crash, a setting). We mirror that into
+  // the renderer's model cache so every entry's `lspOpened` is cleared;
+  // the user's next interaction (typing, or workspace activation)
+  // triggers a fresh didOpen and respawns the LSP. Without this, the
+  // entries would think the file is still open server-side and silently
+  // land didChange notifications in the void. A restart (`reopen`)
+  // reopens the active workspace's documents at once.
+  workspaceResetUnlisten = ipcListen("lsp", "workspaceReset", (args) => {
+    resetLspStateForWorkspace(args.workspaceId, args.languageId);
+    if (args.reopen && useActiveStore.getState().activeWorkspaceId === args.workspaceId) {
+      rehydrateLspForWorkspace(args.workspaceId, args.languageId);
     }
   });
 }
@@ -166,9 +173,9 @@ export function setPreAcquireFn(fn: Parameters<typeof setPreAcquireFnInRegistry>
 export function initializeLspBridge(monaco: typeof Monaco): void {
   setMonaco(monaco);
   registerDiagnosticsListener(monaco);
+  registerModelDisposeListener(monaco);
   registerApplyEditListener(monaco);
   registerWorkspaceResetListener();
-  registerEnabledLanguagesChangedListener();
 }
 
 // Re-exported from leaf modules so existing callers that import these from

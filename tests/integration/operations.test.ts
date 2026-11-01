@@ -347,6 +347,7 @@ describe("Scenario 10: openTabInNewSplit creates new leaf with fresh tab", () =>
     expect(useLayoutStore.getState().byWorkspace[WS]).toBeDefined();
     expect(result.newLeafId).toBeTruthy();
     expect(result.tabId).toBeTruthy();
+    expect(getLayout().root.kind).toBe("split");
   });
 });
 

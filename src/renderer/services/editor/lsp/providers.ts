@@ -1,22 +1,42 @@
 // Monaco language provider registrations for LSP features.
 // No module-level state — all state (registeredProviderLanguages) is managed by the caller.
 
+import i18next from "i18next";
 import type * as Monaco from "monaco-editor";
 import { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
 import { parseWorkspaceUri } from "../../../../shared/fs/workspace-uri";
+import type { CompletionItem } from "../../../../shared/lsp";
+import { resolveLspPresetLanguageId } from "../../../../shared/lsp/config";
 import { CANONICAL_TOKEN_TYPES } from "../../../../shared/lsp/semantic-tokens";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
+import {
+  isLspServerBusy,
+  lspStatusKey,
+  useLspStatusStore,
+} from "../../../state/stores/lsp-status";
 import { isLspLanguage } from "./language";
 import {
   hoverContentsToMarkdown,
+  lspCompletionItemDetails,
+  lspCompletionItemToMonaco,
   lspDocumentHighlightToMonacoHighlight,
   lspDocumentSymbolToMonacoSymbol,
   lspLocationToMonacoLocation,
   lspRangeToMonacoRange,
+  lspSignatureHelpToMonaco,
+  monacoSignatureHelpToLsp,
   tokenToAbortSignal,
 } from "./monaco-converters";
 
-const COMPLETION_TRIGGER_CHARACTERS = [".", '"', "'", "`", "/", "@", "<"];
+// Every character a preset's server completes on; main drops the ones the
+// file's own server does not list. rust-analyzer adds ":" (paths) and "(".
+const COMPLETION_TRIGGER_CHARACTERS = [".", '"', "'", "/", "@", "<", "[", ":", "("];
+
+// The same for signature help: "(" opens a call, "," moves to the next
+// argument, "<" opens type arguments (TypeScript, Rust). ")" asks again
+// once a signature is shown, closing it when the call ends.
+const SIGNATURE_HELP_TRIGGER_CHARACTERS = ["(", ",", "<"];
+const SIGNATURE_HELP_RETRIGGER_CHARACTERS = [")"];
 
 /**
  * Recover (workspaceId, lspUri) from a Monaco model whose URI is a
@@ -53,6 +73,36 @@ const SEMANTIC_TOKENS_LEGEND: Monaco.languages.SemanticTokensLegend = {
   tokenTypes: CANONICAL_TOKEN_TYPES as string[],
   tokenModifiers: [],
 };
+
+/**
+ * In place of no hover while the server starts or loads the project: says
+ * it is not ready, rather than leaving the user to think there is nothing
+ * to show. Only over a word, as a real hover would be.
+ */
+function preparingHover(
+  monaco: typeof Monaco,
+  model: Monaco.editor.ITextModel,
+  position: Monaco.Position,
+  workspaceId: string,
+): Monaco.languages.Hover | null {
+  const languageId = resolveLspPresetLanguageId(model.getLanguageId());
+  if (!languageId || !isLspServerBusy(workspaceId, languageId)) return null;
+  const word = model.getWordAtPosition(position);
+  if (!word) return null;
+  const language = i18next.t(`lsp.language.${languageId}`);
+  const progress = useLspStatusStore.getState().progress[lspStatusKey(workspaceId, languageId)];
+  const detail = [progress?.title, progress?.message].filter(Boolean).join(" — ");
+  const text = i18next.t("lsp.preparing", { language });
+  return {
+    contents: [{ value: detail ? `${text}\n\n${detail}` : text }],
+    range: new monaco.Range(
+      position.lineNumber,
+      word.startColumn,
+      position.lineNumber,
+      word.endColumn,
+    ),
+  };
+}
 
 /** Curried pre-acquire closure: takes locations + source URI, returns Promise. */
 export type PreAcquireFn = (
@@ -96,7 +146,8 @@ export function registerLanguageProviders(
             { signal },
           ),
         );
-        if (!result || !isLspLanguage(model.getLanguageId())) return null;
+        if (!isLspLanguage(model.getLanguageId())) return null;
+        if (!result) return preparingHover(monaco, model, position, ctx.workspaceId);
         return {
           contents: [hoverContentsToMarkdown(result.contents)],
           range: result.range ? lspRangeToMonacoRange(result.range) : undefined,
@@ -141,15 +192,21 @@ export function registerLanguageProviders(
     },
   });
 
+  // What an item came from, for resolving it once it is picked.
+  const completionOrigins = new WeakMap<
+    Monaco.languages.CompletionItem,
+    { workspaceId: string; lspUri: string; item: CompletionItem }
+  >();
+
   monaco.languages.registerCompletionItemProvider(languageId, {
     triggerCharacters: COMPLETION_TRIGGER_CHARACTERS,
-    async provideCompletionItems(model, position, _context, token) {
+    async provideCompletionItems(model, position, context, token) {
       if (!isLspLanguage(model.getLanguageId())) return { suggestions: [] };
       const ctx = modelLspContext(model);
       if (!ctx) return { suggestions: [] };
       try {
         const signal = tokenToAbortSignal(token);
-        const results = unwrapIpcResult(
+        const list = unwrapIpcResult(
           await ipcCallResult(
             "lsp",
             "completion",
@@ -158,6 +215,9 @@ export function registerLanguageProviders(
               uri: ctx.lspUri,
               line: position.lineNumber - 1,
               character: position.column - 1,
+              // Monaco numbers trigger kinds from 0, LSP from 1.
+              triggerKind: context.triggerKind + 1,
+              triggerCharacter: context.triggerCharacter,
             },
             { signal },
           ),
@@ -172,15 +232,80 @@ export function registerLanguageProviders(
 
         if (!isLspLanguage(model.getLanguageId())) return { suggestions: [] };
         return {
-          suggestions: results.map((item) => ({
-            label: item.label,
-            kind: item.kind ?? monaco.languages.CompletionItemKind.Text,
-            insertText: item.label,
-            range,
-          })),
+          incomplete: list.isIncomplete,
+          suggestions: list.items.map((item) => {
+            const suggestion = lspCompletionItemToMonaco(monaco, item, position, range);
+            completionOrigins.set(suggestion, { ...ctx, item });
+            return suggestion;
+          }),
         };
       } catch {
         return { suggestions: [] };
+      }
+    },
+    // Servers leave documentation, detail and the edits an auto-import
+    // makes until an item is picked; Monaco asks for them here.
+    async resolveCompletionItem(suggestion, token) {
+      const origin = completionOrigins.get(suggestion);
+      if (!origin) return suggestion;
+      try {
+        const signal = tokenToAbortSignal(token);
+        const item = unwrapIpcResult(
+          await ipcCallResult(
+            "lsp",
+            "completionResolve",
+            { workspaceId: origin.workspaceId, uri: origin.lspUri, item: origin.item },
+            { signal },
+          ),
+        );
+        // Only these may change on resolve; the range and text stay.
+        const resolved = lspCompletionItemDetails(item);
+        return {
+          ...suggestion,
+          detail: resolved.detail ?? suggestion.detail,
+          documentation: resolved.documentation ?? suggestion.documentation,
+          additionalTextEdits: resolved.additionalTextEdits ?? suggestion.additionalTextEdits,
+        };
+      } catch {
+        return suggestion;
+      }
+    },
+  });
+
+  monaco.languages.registerSignatureHelpProvider(languageId, {
+    signatureHelpTriggerCharacters: SIGNATURE_HELP_TRIGGER_CHARACTERS,
+    signatureHelpRetriggerCharacters: SIGNATURE_HELP_RETRIGGER_CHARACTERS,
+    async provideSignatureHelp(model, position, token, context) {
+      if (!isLspLanguage(model.getLanguageId())) return null;
+      const ctx = modelLspContext(model);
+      if (!ctx) return null;
+      try {
+        const signal = tokenToAbortSignal(token);
+        const active = context.activeSignatureHelp
+          ? monacoSignatureHelpToLsp(context.activeSignatureHelp)
+          : undefined;
+        const help = unwrapIpcResult(
+          await ipcCallResult(
+            "lsp",
+            "signatureHelp",
+            {
+              workspaceId: ctx.workspaceId,
+              uri: ctx.lspUri,
+              line: position.lineNumber - 1,
+              character: position.column - 1,
+              // Monaco and LSP number the trigger kinds alike.
+              triggerKind: context.triggerKind,
+              triggerCharacter: context.triggerCharacter,
+              isRetrigger: context.isRetrigger,
+              ...(active ? { activeSignatureHelp: active } : {}),
+            },
+            { signal },
+          ),
+        );
+        if (!help || !isLspLanguage(model.getLanguageId())) return null;
+        return { value: lspSignatureHelpToMonaco(help), dispose() {} };
+      } catch {
+        return null;
       }
     },
   });

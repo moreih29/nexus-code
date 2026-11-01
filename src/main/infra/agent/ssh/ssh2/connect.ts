@@ -12,6 +12,8 @@
  * user), then the password. A password the server rejects is asked again,
  * twice, as sshd allows.
  *
+ * With ForwardAgent each session asks the host to forward the agent.
+ *
  * Without a prompt handler nothing is asked: an unknown host key fails as
  * BatchMode does, and encrypted keys and passwords are skipped.
  *
@@ -287,6 +289,10 @@ function authenticate(
         );
       },
       authHandler: createAuthHandler(config, ask, promptHandler !== null),
+      // ForwardAgent: each session asks the host to forward the agent, so
+      // the workspace's terminals there sign with the user's keys, as for a
+      // git push over ssh.
+      ...(config.forwardAgent !== null ? { agent: config.forwardAgent, agentForward: true } : {}),
     };
     armTimer();
     client.connect(connectConfig);

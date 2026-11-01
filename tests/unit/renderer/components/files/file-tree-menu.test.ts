@@ -167,18 +167,6 @@ describe("buildFileTreeMenuItems — multi-select (N≥2)", () => {
     expect(labelsOf(items)).toEqual(["Cut", "Copy", "Paste", "Delete"]);
   });
 
-  it("N=3 also shows only Cut, Copy, Paste, Delete", () => {
-    const items = buildFileTreeMenuItems(
-      [
-        { absPath: "/repo/a.ts", type: "file" },
-        { absPath: "/repo/b.ts", type: "file" },
-        { absPath: "/repo/c.ts", type: "file" },
-      ],
-      noopActions,
-    );
-    expect(labelsOf(items)).toEqual(["Cut", "Copy", "Paste", "Delete"]);
-  });
-
   it("Paste is disabled when clipboard is empty in multi-select", () => {
     const items = buildFileTreeMenuItems(
       [

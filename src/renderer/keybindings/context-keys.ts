@@ -23,9 +23,10 @@
  *                        (`role="tree"`).
  *   - `terminalFocus`  — target is inside an xterm.js terminal.
  *   - `commandPaletteFocus` — target is inside the command palette modal.
- *   - `isMac`             — resolved via navigator.platform, not DOM target.
- *                           Always evaluates to the same value for a given
- *                           device; safe to use in `when` expressions.
+ *   - `isMac`             — the host platform (utils/platform.ts), not the
+ *                           DOM target. Always evaluates to the same value
+ *                           for a given device; safe to use in `when`
+ *                           expressions.
  *   - `browserTabActive`  — STATE probe (not DOM): the active group's
  *                           active tab is a browser tab. Registered via
  *                           {@link registerContextProbe} by the browser
@@ -38,6 +39,8 @@
  * as "not active" matches VSCode's behaviour and keeps a typo'd
  * binding fail-safe (it just won't match) rather than fail-loud.
  */
+
+import { isMac } from "../utils/platform";
 
 // ---------------------------------------------------------------------------
 // Dynamic (state-backed) context probes
@@ -93,7 +96,7 @@ export function evaluateContextKey(name: string, event: KeyboardEvent): boolean 
     case "keybindingRecorderFocus":
       return isInKeybindingRecorder(target);
     case "isMac":
-      return IS_MAC; // resolved at module load, stable per device
+      return isMac();
     default: {
       // State-backed keys (e.g. `browserTabActive`) registered by domains.
       const probe = dynamicProbes.get(name);
@@ -158,7 +161,3 @@ function closest(target: HTMLElement | null, selector: string): Element | null {
   if (!target || typeof target.closest !== "function") return null;
   return target.closest(selector);
 }
-
-// Stable per-device flag. Evaluated once at module load.
-const IS_MAC =
-  typeof navigator !== "undefined" && /Mac|iPhone|iPod|iPad/i.test(navigator.platform || "");

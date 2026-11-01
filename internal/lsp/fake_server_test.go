@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"strconv"
 	"testing"
 	"time"
 )
@@ -104,6 +103,7 @@ func runFakeLSPServer(mode string, in io.Reader, out io.Writer) error {
 				"id":      json.RawMessage(id),
 				"result": map[string]any{
 					"capabilities": map[string]any{"hoverProvider": true},
+					"serverInfo":   map[string]any{"name": "fake-lsp", "version": "1.2.3"},
 				},
 			}); err != nil {
 				return err
@@ -134,22 +134,16 @@ func runFakeLSPServer(mode string, in io.Reader, out io.Writer) error {
 			}
 			os.Exit(3)
 		case method == "initialized":
-			if !serverRequestsSent && (mode == "server-request" || mode == "server-request-many") {
-				count := 1
-				if mode == "server-request-many" {
-					count = 25
-				}
-				for i := 0; i < count; i++ {
-					if err := transport.write(map[string]any{
-						"jsonrpc": "2.0",
-						"id":      json.Number(strconv.Itoa(99 + i)),
-						"method":  "workspace/configuration",
-						"params": map[string]any{
-							"items": []map[string]string{{"section": "fake"}},
-						},
-					}); err != nil {
-						return err
-					}
+			if !serverRequestsSent && mode == "server-request" {
+				if err := transport.write(map[string]any{
+					"jsonrpc": "2.0",
+					"id":      json.Number("99"),
+					"method":  "workspace/configuration",
+					"params": map[string]any{
+						"items": []map[string]string{{"section": "fake"}},
+					},
+				}); err != nil {
+					return err
 				}
 				serverRequestsSent = true
 			}

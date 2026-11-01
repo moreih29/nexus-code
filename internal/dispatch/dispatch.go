@@ -21,15 +21,16 @@ import (
 type Handler func(ctx context.Context, params json.RawMessage) (any, error)
 
 // Dispatcher is a method-name → Handler registry. Lookups are
-// read-only after registration completes (during boot), so the map
-// does not need synchronization.
+// read-only after registration completes (during boot), so the maps
+// do not need synchronization.
 type Dispatcher struct {
 	handlers map[string]Handler
+	ordered  map[string]bool
 }
 
 // New constructs an empty Dispatcher ready for Register calls.
 func New() *Dispatcher {
-	return &Dispatcher{handlers: make(map[string]Handler)}
+	return &Dispatcher{handlers: make(map[string]Handler), ordered: make(map[string]bool)}
 }
 
 // Register binds `method` to `handler`. The last registration wins —
@@ -37,6 +38,20 @@ func New() *Dispatcher {
 // the cost of catching typo collisions only via tests.
 func (d *Dispatcher) Register(method string, handler Handler) {
 	d.handlers[method] = handler
+	delete(d.ordered, method)
+}
+
+// RegisterOrdered binds `method` like Register, and asks the host to run
+// its requests one at a time, in the order they arrived, instead of each
+// on its own goroutine. The order holds across every ordered method.
+func (d *Dispatcher) RegisterOrdered(method string, handler Handler) {
+	d.handlers[method] = handler
+	d.ordered[method] = true
+}
+
+// Ordered reports whether `method` was registered with RegisterOrdered.
+func (d *Dispatcher) Ordered(method string) bool {
+	return d.ordered[method]
 }
 
 // Methods returns a sorted slice of all registered method names.

@@ -232,7 +232,7 @@ function HostKeyPromptBody({
       <p className="text-app-ui-sm text-muted-foreground">
         {t("ssh.fingerprint_warning")}
       </p>
-      <p className="text-app-ui-sm text-muted-foreground">{t("ssh.trust_session_only")}</p>
+      <p className="text-app-ui-sm text-muted-foreground">{t("ssh.trust_saved")}</p>
       <div>
         <Button
           type="button"

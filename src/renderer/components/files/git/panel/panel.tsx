@@ -79,7 +79,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const session = useGitSession(workspaceId);
   const helperPromptOccupancyMessage = useGitHelperOccupancy(workspaceId);
   const remoteWorkspace = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.location.kind === "ssh",
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.location.kind !== "local",
   );
 
   // ---------------------------------------------------------------------------

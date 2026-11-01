@@ -15,6 +15,7 @@
 // §14 grid (size-3).
 
 import { RotateCcw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 
 // ---------------------------------------------------------------------------
@@ -35,11 +36,7 @@ export function SettingsSection({ label, dirty, onReset, children }: SettingsSec
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
         <span className="text-app-ui-sm text-muted-foreground">{label}</span>
-        <ResetButton
-          onClick={onReset ?? (() => {})}
-          label={`Reset ${label}`}
-          visible={!!(dirty && onReset)}
-        />
+        <ResetButton onClick={onReset ?? (() => {})} label={label} visible={!!(dirty && onReset)} />
       </div>
       {children}
     </div>
@@ -62,11 +59,7 @@ export function SettingsRow({ label, dirty, onReset, children }: SettingsRowProp
     <div className="flex items-center justify-between gap-4">
       <div className="flex items-center gap-1.5 min-w-0">
         <span className="text-app-body text-foreground truncate">{label}</span>
-        <ResetButton
-          onClick={onReset ?? (() => {})}
-          label={`Reset ${label}`}
-          visible={!!(dirty && onReset)}
-        />
+        <ResetButton onClick={onReset ?? (() => {})} label={label} visible={!!(dirty && onReset)} />
       </div>
       <div className="flex items-center">{children}</div>
     </div>
@@ -79,6 +72,7 @@ export function SettingsRow({ label, dirty, onReset, children }: SettingsRowProp
 
 interface ResetButtonProps {
   onClick: () => void;
+  /** The setting's label; the button reads "Reset <label>" in the UI language. */
   label: string;
   /**
    * When false the button keeps its layout slot (visibility:hidden) but
@@ -90,11 +84,13 @@ interface ResetButtonProps {
 }
 
 function ResetButton({ onClick, label, visible }: ResetButtonProps) {
+  const { t } = useTranslation("settings");
+  const resetLabel = t("dialog.resetSetting", { label });
   return (
     <button
       type="button"
-      aria-label={label}
-      title={label}
+      aria-label={resetLabel}
+      title={resetLabel}
       onClick={onClick}
       tabIndex={visible ? 0 : -1}
       aria-hidden={!visible || undefined}

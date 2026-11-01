@@ -23,7 +23,8 @@ import { join } from "node:path";
 import { autoUpdater as nativeUpdater } from "electron";
 import type { AppUpdater } from "electron-updater";
 import type { Logger } from "../../../shared/log/types";
-import type { UpdateBackend } from "./installer";
+import { isLinux, isMac } from "../../infra/platform";
+import type { DownloadProgress, UpdateBackend } from "./installer";
 
 const OWNER = "moreih29";
 const REPO = "nexus-code";
@@ -32,8 +33,8 @@ const PACKAGE_MANAGER_ENV = "ELECTRON_BUILDER_LINUX_PACKAGE_MANAGER";
 
 /** Whether this install can replace itself: a macOS app, a Linux AppImage or a deb. */
 export function canUpdateInPlace(): boolean {
-  if (process.platform === "darwin") return true;
-  return process.platform === "linux" && (process.env.APPIMAGE !== undefined || isDebInstall());
+  if (isMac()) return true;
+  return isLinux() && (process.env.APPIMAGE !== undefined || isDebInstall());
 }
 
 /**
@@ -42,7 +43,7 @@ export function canUpdateInPlace(): boolean {
  * updater.
  */
 function isDebInstall(): boolean {
-  if (process.platform !== "linux") return false;
+  if (!isLinux()) return false;
   try {
     return readFileSync(join(process.resourcesPath, "package-type"), "utf8").trim() === "deb";
   } catch {
@@ -54,6 +55,7 @@ export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
   const deb = isDebInstall();
   const stagedListeners: (() => void)[] = [];
   const errorListeners: ((error: Error) => void)[] = [];
+  const progressListeners: ((progress: DownloadProgress) => void)[] = [];
   let loaded: Promise<AppUpdater> | null = null;
 
   // Loaded on first use: most sessions never install an update. A plain
@@ -79,7 +81,7 @@ export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
           ? { provider: "generic", url: feed }
           : { provider: "github", owner: OWNER, repo: REPO },
       );
-      if (process.platform !== "darwin") {
+      if (!isMac()) {
         autoUpdater.on("update-downloaded", () => {
           for (const listener of stagedListeners) listener();
         });
@@ -87,12 +89,17 @@ export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
       autoUpdater.on("error", (error: Error) => {
         for (const listener of errorListeners) listener(error);
       });
+      // About once a second. A differential download counts only the blocks
+      // it fetches.
+      autoUpdater.on("download-progress", ({ transferred, total, bytesPerSecond }) => {
+        for (const listener of progressListeners) listener({ transferred, total, bytesPerSecond });
+      });
       return autoUpdater;
     });
     return loaded;
   }
 
-  if (process.platform === "darwin") {
+  if (isMac()) {
     nativeUpdater.on("update-downloaded", () => {
       for (const listener of stagedListeners) listener();
     });
@@ -111,6 +118,9 @@ export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
     },
     onStaged(listener) {
       stagedListeners.push(listener);
+    },
+    onProgress(listener) {
+      progressListeners.push(listener);
     },
     onError(listener) {
       errorListeners.push(listener);

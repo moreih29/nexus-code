@@ -63,10 +63,9 @@ function installWindow(): void {
   };
 }
 
-const { createNewFile, renamePath, rmdirPath, unlinkPath } = await import(
+const { createNewFile, renamePath, unlinkPath } = await import(
   "../../../../src/renderer/services/fs-mutations"
 );
-const { toFsToast } = await import("../../../../src/renderer/services/fs-mutations/errors");
 const { registerTabFocusTarget } = await import("../../../../src/renderer/services/tab-focus");
 const { useFilesStore } = await import("../../../../src/renderer/state/stores/files");
 const { useTabsStore } = await import("../../../../src/renderer/state/stores/tabs");
@@ -89,9 +88,8 @@ describe("fs-mutations services", () => {
     resetTree();
   });
 
-  it("exports unlink/rmdir/rename methods that call the fs IPC contract", async () => {
+  it("exports unlink/rename methods that call the fs IPC contract", async () => {
     await unlinkPath({ workspaceId: WS, workspaceRootPath: ROOT, absPath: `${ROOT}/a.ts` });
-    await rmdirPath({ workspaceId: WS, workspaceRootPath: ROOT, absPath: `${ROOT}/dir` });
     await renamePath({
       workspaceId: WS,
       workspaceRootPath: ROOT,
@@ -101,24 +99,11 @@ describe("fs-mutations services", () => {
 
     expect(ipcCalls.filter((call) => call.method !== "readdir")).toEqual([
       { channel: "fs", method: "unlink", args: { workspaceId: WS, relPath: "a.ts" } },
-      { channel: "fs", method: "rmdir", args: { workspaceId: WS, relPath: "dir" } },
       {
         channel: "fs",
         method: "rename",
         args: { workspaceId: WS, fromRelPath: "a.ts", toRelPath: "b.ts" },
       },
-    ]);
-  });
-
-  it("maps NOT_EMPTY, ALREADY_EXISTS, and CROSS_DEVICE to user-facing toasts", () => {
-    toFsToast(new Error("NOT_EMPTY: /repo/dir"), { fallback: "fallback" });
-    toFsToast(new Error("ALREADY_EXISTS: /repo/b.ts"), { fallback: "fallback" });
-    toFsToast(new Error("CROSS_DEVICE: /repo/a.ts"), { fallback: "fallback" });
-
-    expect(toastCalls.map((call) => call.message)).toEqual([
-      "Folder is not empty.",
-      "Already exists.",
-      "Can't move across filesystems.",
     ]);
   });
 

@@ -27,6 +27,8 @@ interface FileTreeEditRowProps {
   kind: EntryKind;
   depth: number;
   initialValue?: string;
+  /** Whether the entry is on a Windows file system, whose naming rules apply. */
+  windows?: boolean;
   onCommit: (name: string) => void | Promise<void>;
   onCancel: () => void;
 }
@@ -51,12 +53,13 @@ export function FileTreeEditRow({
   kind,
   depth,
   initialValue = "",
+  windows = false,
   onCommit,
   onCancel,
 }: FileTreeEditRowProps) {
   const { t } = useTranslation("files");
   const [value, setValue] = useState(initialValue);
-  const validationError = value.length > 0 ? validateNewEntryName(value, t) : null;
+  const validationError = value.length > 0 ? validateNewEntryName(value, t, { windows }) : null;
   const canCommit = value.trim().length > 0 && validationError === null;
   // The row stays mounted until the create/rename IPC resolves. A second
   // Enter, or the blur that follows the first one, must not submit again:
@@ -102,10 +105,13 @@ export function FileTreeEditRow({
   }
 
   return (
-    <div className="flex flex-col" style={{ paddingLeft: indentPaddingLeft(depth) }}>
-      <div className="flex items-center" style={{ height: ROW_HEIGHT_PX }}>
-        {/* Same 14px chevron slot reserved as a regular row, kept blank. */}
-        <span className="size-3.5 shrink-0" aria-hidden />
+    <div
+      className="flex items-center"
+      style={{ height: ROW_HEIGHT_PX, paddingLeft: indentPaddingLeft(depth) }}
+    >
+      {/* Same 14px chevron slot reserved as a regular row, kept blank. */}
+      <span className="size-3.5 shrink-0" aria-hidden />
+      <div className="relative ml-1 flex-1 min-w-0">
         <input
           // biome-ignore lint/a11y/noAutofocus: inline-create row should grab focus on mount; cancellable via Esc/blur
           autoFocus
@@ -125,15 +131,25 @@ export function FileTreeEditRow({
           onKeyDown={handleKeyDown}
           onBlur={handleBlur}
           className={cn(
-            "ml-1 flex-1 min-w-0 text-app-body bg-input/50 outline-none",
+            "w-full text-app-body bg-input/50 outline-none",
             "border border-border rounded-(--radius-control) px-1 h-5",
             validationError && "border-destructive",
           )}
         />
+        {/* The virtual list gives every row the same height, so the message
+            floats over the rows below instead of pushing them down. */}
+        {validationError ? (
+          <span
+            className={cn(
+              "absolute top-full left-0 right-0 mt-0.5 px-1 py-0.5",
+              "text-app-micro text-destructive bg-popover",
+              "border border-destructive rounded-(--radius-control)",
+            )}
+          >
+            {validationError}
+          </span>
+        ) : null}
       </div>
-      {validationError ? (
-        <span className="text-app-micro text-destructive ml-5 mt-0.5">{validationError}</span>
-      ) : null}
     </div>
   );
 }

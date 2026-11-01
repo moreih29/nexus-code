@@ -8,12 +8,19 @@ import type { LogEntry } from "../../../../../shared/git/types";
 import { relativeTime } from "../utils/relative-time";
 import type { HistoryListBreakpoint } from "./list";
 
+/**
+ * The SHA's track is a character wider than its seven: `ch` is the row's
+ * font, and a monospace character can be wider than that font's `0`.
+ */
 const HISTORY_ROW_GRID_CLASS_BY_BREAKPOINT: Record<HistoryListBreakpoint, string> = {
+  compact: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,1fr)_24px] items-center gap-2",
   narrow: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,1fr)_8ch_24px] items-center gap-2",
   medium:
-    "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_8ch_7ch_24px] items-center gap-2",
-  wide: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_12ch_8ch_7ch_24px] items-center gap-2",
+    "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_8ch_8ch_24px] items-center gap-2",
+  wide: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_12ch_8ch_8ch_24px] items-center gap-2",
 };
+/** The selected row's left bar: `border-l-2` below. */
+export const HISTORY_ROW_SELECTION_BAR_PX = 2;
 const HISTORY_ROW_INTERACTION_CLASS =
   "group border-l-2 pl-1 pr-1 text-app-ui-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60";
 
@@ -56,9 +63,10 @@ export function HistoryRow({
 }: HistoryRowProps) {
   const shortSha = entry.shortSha ?? entry.sha.slice(0, 7);
   const subject = entry.subject || "(no subject)";
-  const showRefs = breakpoint !== "narrow";
+  const showRefs = breakpoint === "medium" || breakpoint === "wide";
   const showAuthor = breakpoint === "wide";
-  const showSha = breakpoint !== "narrow";
+  const showTime = breakpoint !== "compact";
+  const showSha = breakpoint === "medium" || breakpoint === "wide";
   const rowTitle = `${subject}\nAuthor: ${entry.authorName}\nSHA: ${entry.sha}`;
 
   /** Opens the commit action menu aligned to the row or action trigger. */
@@ -130,9 +138,11 @@ export function HistoryRow({
           {entry.authorName}
         </span>
       ) : null}
-      <span className="truncate text-right text-muted-foreground" title={entry.authoredAt}>
-        {relativeTime(entry.authoredAt)}
-      </span>
+      {showTime ? (
+        <span className="truncate text-right text-muted-foreground" title={entry.authoredAt}>
+          {relativeTime(entry.authoredAt)}
+        </span>
+      ) : null}
       {showSha ? (
         <span className="truncate font-mono text-muted-foreground" title={entry.sha}>
           {shortSha}

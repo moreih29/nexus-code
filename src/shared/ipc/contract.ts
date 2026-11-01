@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { StatusEntrySchema } from "../claude/status";
+import { CliUiRequestSchema, CliUiRespondArgsSchema } from "../cli/ui";
+import { TabActivityEntrySchema, TerminalWaitSchema } from "../sessions/agent-state";
+import { SessionSpanSchema } from "../sessions/history";
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
   DirEntrySchema,
@@ -56,7 +59,10 @@ import { KeybindingOverridesSchema } from "../keybindings/overrides";
 import {
   ApplyWorkspaceEditParamsSchema,
   ApplyWorkspaceEditResultSchema,
+  CompletionArgsSchema,
   CompletionItemSchema,
+  CompletionListSchema,
+  CompletionResolveArgsSchema,
   DiagnosticSchema,
   DocumentHighlightSchema,
   DocumentSymbolSchema,
@@ -67,6 +73,8 @@ import {
   ReferencesArgsSchema,
   SemanticTokensArgsSchema,
   SemanticTokensResultSchema,
+  SignatureHelpArgsSchema,
+  SignatureHelpSchema,
   SymbolInformationSchema,
   TextDocumentContentChangeEventSchema,
   TextDocumentIdentifierSchema,
@@ -74,6 +82,9 @@ import {
   TextDocumentPositionArgsSchema,
   WorkspaceSymbolArgsSchema,
 } from "../lsp";
+import { LspPresetLanguageIdSchema } from "../lsp/config";
+import { LspLanguageSettingsSchema, LspSettingsSchema } from "../lsp/settings";
+import { LspLogEntrySchema, LspServerMemorySchema, LspServerStatusSchema } from "../lsp/status";
 import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "../search/types";
 import { BrowserPermissionKindSchema } from "../security/browser-permissions";
 import {
@@ -82,7 +93,7 @@ import {
   SshAuthRespondArgsSchema,
 } from "../ssh/auth-prompt";
 import { SshErrorCodeSchema } from "../ssh/errors";
-import { AppStateSchema, LspLanguageIdSchema } from "../types/app-state";
+import { AppStateSchema } from "../types/app-state";
 import { ColorToneSchema } from "../types/color-tone";
 import {
   ConnectionProfileFavoriteArgsSchema,
@@ -106,8 +117,10 @@ import {
   WorkspaceConnectionProgressEventSchema,
   WorkspaceLocationSchema,
   WorkspaceMetaSchema,
+  WorkspaceTaskSchema,
 } from "../types/workspace";
 import { WorkspaceIdSchema as WorkspaceIdPrimitive, workspaceScoped } from "../types/workspace-id";
+import { UpdateProgressSchema, UpdateStatusSchema } from "../updates/status";
 
 // ---------------------------------------------------------------------------
 // Primitive procedure descriptors
@@ -346,15 +359,18 @@ const LspDiagnosticsEventSchema = z.object({
   diagnostics: z.array(DiagnosticSchema),
 });
 
-// Main → renderer broadcast emitted when the host's LRU eviction
-// disposes a workspace's LSP server(s) (see LSP_MAX_ACTIVE_WORKSPACES).
-// The renderer's model cache uses it to reset `lspOpened` on affected
-// entries so the next interaction re-issues didOpen against a freshly
-// spawned server. languageId is optional — when present only entries
-// for that language are reset; when absent the entire workspace is reset.
+// Main → renderer broadcast emitted when the host disposes a workspace's
+// LSP server(s): LRU eviction (see LSP_MAX_ACTIVE_WORKSPACES), a crash, a
+// setting turning the language off. The renderer's model cache uses it to
+// reset `lspOpened` on affected entries so the next interaction re-issues
+// didOpen against a freshly spawned server. languageId is optional — when
+// present only entries for that language are reset; when absent the entire
+// workspace is reset. `reopen` asks for didOpen at once rather than on the
+// next interaction: the server is restarting, not going away.
 const LspWorkspaceResetEventSchema = z.object({
   workspaceId: z.string(),
   languageId: z.string().optional(),
+  reopen: z.boolean().optional(),
 });
 
 const LspApplyEditEventSchema = z.object({
@@ -575,6 +591,23 @@ export const ipcContract = {
     },
   },
 
+  /**
+   * WSL distributions on a Windows host, for adding a WSL workspace. A
+   * browse session opened here joins the SSH browse sessions, so
+   * `ssh.browseSession`, `ssh.closeBrowseSession` and `ssh.browseProgress`
+   * serve it.
+   */
+  wsl: {
+    call: {
+      listDistros: call(z.void(), z.array(z.string())),
+      openBrowseSession: call(
+        z.object({ distro: z.string().min(1), progressId: z.string().optional() }),
+        z.object({ sessionId: z.string().uuid(), initialPath: z.string() }),
+      ),
+    },
+    listen: {},
+  },
+
   sshAuth: {
     call: {
       respond: call(SshAuthRespondArgsSchema, z.void()),
@@ -584,6 +617,32 @@ export const ipcContract = {
     listen: {
       prompt: listen(SshAuthPromptSchema),
     },
+  },
+
+  /**
+   * Tasks: workspaces on git worktrees of another workspace (see
+   * WorkspaceTaskSchema). Their changes arrive as workspace events.
+   *
+   * Expected failures come back as IpcResult errors: a GitError as
+   * "git-error", or one of TaskErrorKind ("not-found", "not-a-repo",
+   * "not-connected", "invalid-name", "worktree-dirty").
+   */
+  task: {
+    call: {
+      create: call(
+        z.object({
+          parentId: WorkspaceIdPrimitive,
+          name: z.string().trim().min(1).max(100),
+          createdBy: WorkspaceTaskSchema.shape.createdBy,
+        }),
+        WorkspaceMetaSchema,
+      ),
+      remove: call(
+        z.object({ id: WorkspaceIdPrimitive, force: z.boolean(), deleteBranch: z.boolean() }),
+        z.void(),
+      ),
+    },
+    listen: {},
   },
 
   tab: {
@@ -705,26 +764,52 @@ export const ipcContract = {
       didClose: call(LspWorkspaceScopedUriSchema, z.void()),
       hover: call(TextDocumentPositionArgsSchema, HoverResultSchema.nullable()),
       definition: call(TextDocumentPositionArgsSchema, z.array(LocationSchema)),
-      completion: call(TextDocumentPositionArgsSchema, z.array(CompletionItemSchema)),
+      completion: call(CompletionArgsSchema, CompletionListSchema),
+      completionResolve: call(CompletionResolveArgsSchema, CompletionItemSchema),
+      signatureHelp: call(SignatureHelpArgsSchema, SignatureHelpSchema.nullable()),
       references: call(ReferencesArgsSchema, z.array(LocationSchema)),
       documentHighlight: call(TextDocumentPositionArgsSchema, z.array(DocumentHighlightSchema)),
       documentSymbol: call(LspWorkspaceScopedUriSchema, z.array(DocumentSymbolSchema)),
       workspaceSymbol: call(WorkspaceSymbolArgsSchema, z.array(SymbolInformationSchema)),
       semanticTokens: call(SemanticTokensArgsSchema, SemanticTokensResultSchema.nullable()),
       applyEditResult: call(LspApplyEditResultArgsSchema, z.void()),
-      // Per-workspace LSP language toggle (renderer → main).
-      // `languages` is the new complete set — main computes the diff and
-      // disposes servers for any removed languages synchronously.
-      setEnabledLanguages: call(
+      // Settings › Editor › Language servers and the status bar's language
+      // menu (renderer → main). Main saves the change, stops or restarts the
+      // servers it affects, and broadcasts settingsChanged.
+      setEnabled: call(z.object({ enabled: z.boolean() }), z.void()),
+      setLanguageSettings: call(
+        z.object({ languageId: LspPresetLanguageIdSchema, settings: LspLanguageSettingsSchema }),
+        z.void(),
+      ),
+      setMaxActiveWorkspaces: call(
+        z.object({ count: LspSettingsSchema.shape.maxActiveWorkspaces }),
+        z.void(),
+      ),
+      setWorkspaceLanguageEnabled: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
-          languages: z.array(LspLanguageIdSchema),
+          languageId: LspPresetLanguageIdSchema,
+          enabled: z.boolean(),
         }),
         z.void(),
       ),
-      getEnabledLanguages: call(
+      // The status bar's language menu and the log viewer.
+      restartServer: call(
+        z.object({ workspaceId: WorkspaceIdPrimitive, languageId: LspPresetLanguageIdSchema }),
+        z.void(),
+      ),
+      serverStatuses: call(z.void(), z.array(LspServerStatusSchema)),
+      serverLog: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          languageId: z.string(),
+          afterSeq: z.number().int().optional(),
+        }),
+        z.array(LspLogEntrySchema),
+      ),
+      serverMemory: call(
         z.object({ workspaceId: WorkspaceIdPrimitive }),
-        z.object({ languages: z.array(LspLanguageIdSchema) }),
+        z.array(LspServerMemorySchema),
       ),
     },
     listen: {
@@ -733,14 +818,9 @@ export const ipcContract = {
       serverEvent: listen(LspServerEventSchema),
       "bootstrap.progress": listen(LspBootstrapProgressEventSchema),
       workspaceReset: listen(LspWorkspaceResetEventSchema),
-      // Broadcast after setEnabledLanguages completes so every open renderer
-      // window can update its UI state. Payload mirrors setEnabledLanguages args.
-      enabledLanguagesChanged: listen(
-        z.object({
-          workspaceId: WorkspaceIdPrimitive,
-          languages: z.array(LspLanguageIdSchema),
-        }),
-      ),
+      settingsChanged: listen(LspSettingsSchema),
+      // Main → renderer on every change of a server's status.
+      serverStatus: listen(LspServerStatusSchema),
     },
   },
 
@@ -1156,9 +1236,9 @@ export const ipcContract = {
   // ---------------------------------------------------------------------------
   // window — controls for the window that calls.
   //
-  // Only a window whose frame draws no controls uses them: the Linux window
-  // created transparent (main/features/window), where the titlebar draws its
-  // own minimize, maximize and close buttons.
+  // Only a window whose frame draws no controls uses minimize, maximize and
+  // close: the Linux window created transparent (main/features/window), where
+  // the titlebar draws its own buttons.
   // ---------------------------------------------------------------------------
   window: {
     call: {
@@ -1166,6 +1246,12 @@ export const ipcContract = {
       toggleMaximize: call(z.void(), z.void()),
       close: call(z.void(), z.void()),
       isMaximized: call(z.void(), z.boolean()),
+      /**
+       * Opens the app menu at a point of the page, in its CSS pixels. Windows
+       * and Linux show no menu bar under the hidden title bar; the titlebar's
+       * menu button opens it instead.
+       */
+      showAppMenu: call(z.object({ x: z.number(), y: z.number() }), z.void()),
     },
     listen: {
       /** Sent to one window only, when it is maximized or restored. */
@@ -1513,21 +1599,8 @@ export const ipcContract = {
   // Polls the GitHub Releases API for a newer version and broadcasts the
   // result to all renderer windows.  The renderer can also trigger a manual
   // check via `updates.check` and suppress a specific release via
-  // `updates.setIgnoredVersion`.
-  //
-  // Discriminated-union status payloads:
-  //   { kind: "checking",  trigger: "auto" | "manual" }
-  //   { kind: "newer",     trigger, current, latest, releaseUrl, canInstall }
-  //   { kind: "current",   trigger, current, latest? }
-  //   { kind: "error",     trigger, reason, status? }
-  // and the steps of an in-place update (`install`):
-  //   { kind: "downloading", version } → { kind: "ready", version, asksForPassword? }
-  //   { kind: "installFailed", releaseUrl }
-  //
-  // "checking" is only broadcast for trigger="manual" (with a 3-second delay).
-  // "newer" / "current" / "error" are broadcast for both triggers, but "current"
-  // and "error" from an auto-poll are suppressed — the renderer only reacts to
-  // manual-triggered status changes in those two cases.
+  // `updates.setIgnoredVersion`. The statuses are UpdateStatusSchema
+  // (shared/updates/status.ts).
   // ---------------------------------------------------------------------------
   updates: {
     call: {
@@ -1540,8 +1613,8 @@ export const ipcContract = {
       setIgnoredVersion: call(z.object({ version: z.string().nullable() }), z.void()),
       /**
        * Download the newest release on the user's channel and stage it to
-       * install on restart. Progress arrives as statusChanged. Only offered
-       * when a "newer" status says `canInstall`.
+       * install on restart. The steps arrive as statusChanged and the bytes
+       * as progress. Only offered when a "newer" status says `canInstall`.
        */
       install: call(z.void(), z.void()),
       /** Quit and install the staged update; a no-op until one is ready. */
@@ -1552,48 +1625,26 @@ export const ipcContract = {
        * shell.openExternal, so the renderer never touches the OS handler directly.
        */
       openReleasePage: call(z.object({ url: z.string().url() }), z.void()),
+      /**
+       * The status to show now — the last check or the step of an update
+       * under way — and the download's progress, for a view opened after
+       * the broadcasts went out.
+       */
+      getStatus: call(
+        z.void(),
+        z.object({
+          status: UpdateStatusSchema.nullable(),
+          progress: UpdateProgressSchema.nullable(),
+        }),
+      ),
+      /** Open the app's Microsoft Store page, where the Store updates it. */
+      openStorePage: call(z.void(), z.void()),
     },
     listen: {
-      /**
-       * Broadcast by main whenever the update status changes.
-       * Uses a discriminated union on `kind`.
-       */
-      statusChanged: listen(
-        z.discriminatedUnion("kind", [
-          z.object({ kind: z.literal("checking"), trigger: z.enum(["auto", "manual"]) }),
-          z.object({
-            kind: z.literal("newer"),
-            trigger: z.enum(["auto", "manual"]),
-            current: z.string(),
-            latest: z.string(),
-            releaseUrl: z.string(),
-            /** Whether `install` can update this app in place. */
-            canInstall: z.boolean(),
-          }),
-          z.object({
-            kind: z.literal("current"),
-            trigger: z.enum(["auto", "manual"]),
-            current: z.string(),
-            latest: z.string().optional(),
-          }),
-          z.object({
-            kind: z.literal("error"),
-            trigger: z.enum(["auto", "manual"]),
-            // The renderer words the message from the reason; the detail
-            // stays in the main-process log.
-            reason: z.enum(["rate-limited", "http", "network", "unexpected"]),
-            status: z.number().int().optional(),
-          }),
-          z.object({ kind: z.literal("downloading"), version: z.string() }),
-          z.object({
-            kind: z.literal("ready"),
-            version: z.string(),
-            // Installing asks for the admin password (a deb).
-            asksForPassword: z.literal(true).optional(),
-          }),
-          z.object({ kind: z.literal("installFailed"), releaseUrl: z.string() }),
-        ]),
-      ),
+      /** Broadcast by main whenever the update status changes. */
+      statusChanged: listen(UpdateStatusSchema),
+      /** Broadcast about once a second while an update downloads. */
+      progress: listen(UpdateProgressSchema),
     },
   },
   // ---------------------------------------------------------------------------
@@ -1689,6 +1740,38 @@ export const ipcContract = {
        * the prompt from its queue; an answer to it would be ignored.
        */
       dismissed: listen(z.object({ promptId: z.string() })),
+    },
+  },
+
+  // ---------------------------------------------------------------------------
+  // nexus CLI channel.
+  //
+  // The CLI's commands run in main; those that touch tabs, the layout or a
+  // terminal's screen are asked of the renderer, which owns them, through
+  // uiRequest, and answered through uiRespond.
+  // ---------------------------------------------------------------------------
+  cli: {
+    call: {
+      uiRespond: call(CliUiRespondArgsSchema, z.void()),
+      /**
+       * What each live terminal has printed lately and the last notification
+       * it raised: the state of Codex and other agents without hooks, for
+       * the sessions view.
+       */
+      activity: call(z.object({}), z.array(TabActivityEntrySchema)),
+      /** Which terminals are blocked in nexus terminal wait on which, for the sessions view. */
+      waits: call(z.object({}), z.array(TerminalWaitSchema)),
+      /**
+       * What the terminals of `workspaceIds` did from `since` on, for the
+       * sessions view's timeline.
+       */
+      history: call(
+        z.object({ workspaceIds: z.array(z.string()), since: z.number() }),
+        z.array(SessionSpanSchema),
+      ),
+    },
+    listen: {
+      uiRequest: listen(CliUiRequestSchema),
     },
   },
 } as const satisfies Record<string, ChannelDefinition>;

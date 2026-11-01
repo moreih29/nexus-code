@@ -2,12 +2,13 @@
 
 # NexusCode
 
-**한 창에서 여러 워크스페이스를.** macOS · Linux 용 VSCode-style 에디터 — Monaco 에디터와 통합 터미널을 하나의 창에 담았습니다.
+**한 창에서 여러 워크스페이스를.** macOS · Windows · Linux 용 VSCode-style 에디터 — Monaco 에디터와 통합 터미널을 하나의 창에 담았습니다.
 
 [![Release](https://img.shields.io/github/v/release/moreih29/nexus-code?label=release)](https://github.com/moreih29/nexus-code/releases)
 [![Downloads](https://img.shields.io/github/downloads/moreih29/nexus-code/total?label=downloads)](https://github.com/moreih29/nexus-code/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/macOS-Apple%20Silicon-black?logo=apple)
+![Platform](https://img.shields.io/badge/Windows-11%20x64-black?logo=windows)
 ![Platform](https://img.shields.io/badge/Linux-x64%20%7C%20arm64-black?logo=linux)
 
 <img src="docs/images/hero.png" width="820" alt="NexusCode — 멀티 워크스페이스 에디터" />
@@ -29,12 +30,16 @@ VSCode 가 주는 IDE 경험은 그대로, 멀티 워크스페이스는 VSCode �
 - **멀티 워크스페이스** — 한 창에서 여러 워크스페이스를 두고 `⌘⌃↑` · `⌘⌃↓` 로 전환. 각자 독립된 파일 트리 · 탭 · 터미널.
 - **분할 그룹** — 에디터를 좌우(`⌘\`) · 상하(`⌘⇧\`)로 분할하고 그룹 간 포커스 이동.
 - **Monaco 에디터 + 통합 터미널** — VSCode 와 동일한 Monaco 에디터, xterm 기반 터미널을 한 화면에.
-- **SSH 원격 워크스페이스** — 원격 호스트의 폴더를 로컬처럼 편집. ([가이드](docs/ssh-remote-workspace.md))
+- **SSH 원격 워크스페이스** — 원격 호스트(Linux · macOS)의 폴더를 로컬처럼 편집. 워크스페이스 추가 화면의 **SSH로 연결…** 에서 `user@host` 나 `~/.ssh/config` 별칭으로 연결합니다.
+- **작업 (git 워크트리)** — 타이틀바의 워크스페이스 이름을 눌러 **새 작업…** 을 고르면, 저장소에 새 브랜치와 워크트리를 만들고 그 안에서 작업을 엽니다. 작업 터미널은 코딩 에이전트(기본 `claude`)를 첫 프롬프트와 함께 실행하므로, 에이전트 여러 개를 브랜치별로 나란히 돌릴 수 있습니다. 워크트리는 `~/.nexus-code/worktrees` 에 생기고(SSH 워크스페이스는 원격 홈의 같은 경로), 실행할 명령은 설정 › 터미널에서 바꿉니다.
+- **세션** — 새 탭 메뉴(`+`)나 타이틀바 작업 메뉴의 **세션 보기** 로 엽니다. 워크스페이스와 그 작업들에서 도는 Claude Code · Codex 세션을 한곳에 모아, 허용·입력 대기 / 실행 중 / 완료 / 유휴 상태와 마지막 프롬프트를 보여 줍니다. 세션을 고르면 지금 화면, 커밋하지 않은 변경을 보고 입력을 보내거나 중지(Ctrl-C)할 수 있습니다. 보기는 **트리**(워크트리별), **칸반**(상태별), **계보**(어느 세션이 `nexus worktree new` 로 어느 작업을 만들었고 지금 누가 누구를 기다리는지), **타임라인**(세션마다 최근 30분 · 2시간 · 오늘의 상태 변화와 다른 터미널을 기다린 구간. 앱이 켜져 있는 동안 기록하고 하루 동안 보관) 중에 고르고, 워크스페이스마다 기억합니다. 처음 여는 보기는 설정 › 터미널에서 정합니다. Codex 상태는 터미널 출력으로 짐작한 것이라 "(추정)" 으로 표시됩니다.
+- **언어 서버** — 설정 › 언어 서버에서 켭니다. TypeScript · Python · YAML · Bash · Dockerfile 서버는 앱에 들어 있어 Node 없이 동작하고, SSH 워크스페이스에서는 원격 호스트에서 돕니다. Go(gopls) · Rust(rust-analyzer) 는 직접 설치한 서버를 씁니다. 상태 표시줄의 언어 이름을 누르면 서버 상태와 메모리를 보고, 다시 시작하거나 로그를 볼 수 있습니다.
 - **VSCode 호환 단축키** — 익숙한 키 매핑 그대로.
 
 ## 요구사항
 
 - **macOS** — macOS 14 (Sonoma) 이상, Apple Silicon (M1 / M2 / M3 / M4)
+- **Windows** — Windows 11 이상, x64 (ARM PC 는 x64 에뮬레이션으로 실행). 소스 제어에는 [Git for Windows](https://git-scm.com/downloads/win) 가 필요합니다.
 - **Linux** — x64 또는 arm64. Ubuntu 24.04 에서 확인했습니다.
 
 > macOS 는 Apple Silicon (arm64) 빌드만 제공합니다. Intel (x64) Mac 은 소스 빌드로 사용 가능 — [docs/INSTALL.md#self-build](docs/INSTALL.md) 참고.
@@ -81,6 +86,10 @@ xattr -dr com.apple.quarantine "/Applications/NexusCode.app"
 
 </details>
 
+### Windows
+
+[Microsoft Store](https://apps.microsoft.com/detail/9P04CSF0J5ZD) 에서 설치합니다. 업데이트도 Store 가 합니다.
+
 ### Linux
 
 [Releases 페이지](https://github.com/moreih29/nexus-code/releases)에서 배포판에 맞는 파일을 내려받습니다.
@@ -120,26 +129,23 @@ VSCode 호환 매핑입니다. 자주 쓰는 것만 추렸고, 전체 목록은 
 | Files 패널 토글 | `⌘B` |
 | 설정 | `⌘,` |
 
-Linux 에서는 표의 `⌘` 를 `Ctrl` 로 읽으면 됩니다.
+Windows · Linux 에서는 표의 `⌘` 를 `Ctrl` 로 읽으면 됩니다. 다만 `⌘⌃` 는 `Win+Ctrl`(Linux 는 `Super+Ctrl`)이어서, 이전 / 다음 워크스페이스는 `Win+Ctrl+↑` · `Win+Ctrl+↓` 입니다.
 
-> macOS 에서는 `⌘` 단독 단축키만 앱이 가로채며, `⌃` 단독은 터미널로 그대로 전달됩니다 — `Ctrl+R`(reverse-i-search), `Ctrl+W`(delete-word) 같은 셸 단축키가 정상 동작합니다. Linux 에서는 터미널에 포커스가 있으면 셸과 겹치는 `Ctrl` 단축키를 앱이 받지 않고 터미널로 보냅니다. 새 터미널(`Ctrl+Shift+T`)과 탭 닫기(`Ctrl+F4`)는 터미널에서도 동작합니다.
+> macOS 에서는 `⌘` 단독 단축키만 앱이 가로채며, `⌃` 단독은 터미널로 그대로 전달됩니다 — `Ctrl+R`(reverse-i-search), `Ctrl+W`(delete-word) 같은 셸 단축키가 정상 동작합니다. Windows · Linux 에서는 터미널에 포커스가 있으면 셸과 겹치는 `Ctrl` 단축키를 앱이 받지 않고 터미널로 보냅니다. 새 터미널(`Ctrl+Shift+T`)과 탭 닫기(`Ctrl+F4`)는 터미널에서도 동작합니다.
+
+## 🤖 에이전트 CLI
+
+앱 안 터미널의 `nexus` 명령으로 Claude Code · Codex 같은 에이전트가 앱을 다룹니다. 다른 워크스페이스의 세션을 보고, 거기에 입력하고 끝나기를 기다리고, 파일 · diff · 브라우저를 사용자 앞에 열고, 브라우저를 클릭 · 입력 · 스크린샷으로 조작합니다. 다른 워크스페이스를 바꾸는 일은 **설정 → 에이전트 CLI** 에서 허용 여부를 정합니다. 자세한 내용은 **[docs/CLI.md](docs/CLI.md)** 에 있습니다.
 
 ## 🔄 업데이트
 
-새 버전이 나오면 알림이 뜹니다. **업데이트** 를 누르면 앱이 새 버전을 내려받고, 준비되면 **지금 다시 시작** 으로 설치합니다 (그냥 두면 다음 종료 때 설치). 앱이 직접 받은 업데이트에는 quarantine 속성이 붙지 않아 보안 해제가 다시 필요 없습니다.
+새 버전이 나오면 알림이 뜹니다. **업데이트** 를 누르면 앱이 새 버전을 내려받고, 준비되면 **지금 다시 시작** 으로 설치합니다 (그냥 두면 다음 종료 때 설치). 내려받는 진행률과 지금 상태는 **설정 → 정보** 에서 볼 수 있고, 업데이트 확인도 거기서 합니다. 앱이 직접 받은 업데이트에는 quarantine 속성이 붙지 않아 보안 해제가 다시 필요 없습니다.
 
 Linux 에서도 AppImage 와 deb 모두 같은 방식으로 앱 안에서 업데이트됩니다. deb 는 **지금 다시 시작** 을 누르면 관리자 암호를 물은 뒤 설치하며, 그냥 종료할 때는 설치하지 않습니다.
 
 > 0.10.0 이전 버전은 앱 안 업데이트를 지원하지 않습니다. 그 버전에서는 마지막으로 한 번 `.dmg` 로 설치하고 보안 해제를 거치면 됩니다.
 
-### 채널
-
-| 채널 | 설명 |
-|---|---|
-| **Stable** | 권장. 정식 릴리스만 수신. |
-| **Beta** | 옵트인. 프리릴리스 포함. 일부 거친 부분이 있을 수 있음. |
-
-**설정 → Updates → Update Channel** 에서 전환합니다.
+Windows 는 Microsoft Store 가 업데이트합니다. **설정 → 정보** 의 **Microsoft Store 열기** 로 Store 의 앱 페이지를 열 수 있습니다.
 
 ## 🛠️ 자체 빌드 / 개발
 

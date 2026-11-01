@@ -21,6 +21,7 @@ const testWorkspaceID = "00000000-0000-0000-0000-000000000001"
 
 // TestSpawnWriteEchoRoundTrip verifies a spawned PTY accepts input and returns child output.
 func TestSpawnWriteEchoRoundTrip(t *testing.T) {
+	t.Parallel()
 	service, recorder := newTestService(t)
 	tabID := "echo-round-trip"
 	spawnTestScript(t, service, tabID, `
@@ -36,6 +37,7 @@ cat
 
 // TestBurstWriteFrameOrderingPreserved verifies sequential write RPCs return in order.
 func TestBurstWriteFrameOrderingPreserved(t *testing.T) {
+	t.Parallel()
 	service, recorder := newTestService(t)
 	tabID := "burst-order"
 	spawnTestScript(t, service, tabID, `
@@ -65,6 +67,7 @@ cat
 
 // TestBackpressureBoundsDataBeforeAck verifies Go pauses before unbounded NDJSON emission.
 func TestBackpressureBoundsDataBeforeAck(t *testing.T) {
+	t.Parallel()
 	service, recorder := newTestService(t)
 	tabID := "backpressure"
 	spawnTestScript(t, service, tabID, `
@@ -94,12 +97,15 @@ sleep 5
 
 // TestResizeChangesChildReportedGeometry verifies pty.resize reaches child-visible rows and cols.
 func TestResizeChangesChildReportedGeometry(t *testing.T) {
+	t.Parallel()
 	service, recorder := newTestService(t)
 	tabID := "resize"
 	spawnTestScript(t, service, tabID, `
-echo READY
 trap 'printf "SIZE "; stty size; exit 0' WINCH
-while :; do sleep 1; done
+echo READY
+# The shell runs a trap only between commands, so it waits in the wait
+# builtin, which a trapped signal interrupts, rather than in sleep.
+while :; do sleep 1 & wait $!; done
 `)
 	recorder.requireTranscriptContains(t, "READY", 2*time.Second)
 
@@ -112,6 +118,7 @@ while :; do sleep 1; done
 // descriptor through os.File.Fd(), unsynchronized with the Close that kill
 // performs, which `go test -race` reports as a data race.
 func TestResizeAndForegroundRacingKill(t *testing.T) {
+	t.Parallel()
 	service, recorder := newTestService(t)
 	tabID := "resize-vs-kill"
 	spawnTestScript(t, service, tabID, `
@@ -154,6 +161,7 @@ while :; do sleep 1; done
 // closing the master did not interrupt it, so pty.exit was never sent and the
 // tab hung.
 func TestExitReportedWhileBackgroundJobHoldsTerminal(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		script string
@@ -186,6 +194,7 @@ func TestExitReportedWhileBackgroundJobHoldsTerminal(t *testing.T) {
 
 // TestControlCWriteDeliversSIGINT verifies raw 0x03 is handled by the PTY line discipline.
 func TestControlCWriteDeliversSIGINT(t *testing.T) {
+	t.Parallel()
 	service, recorder := newTestService(t)
 	tabID := "sigint"
 	spawnTestScript(t, service, tabID, `
@@ -206,6 +215,7 @@ exec cat
 
 // TestChildExitCodeEmitted verifies normal non-zero child exits preserve their code.
 func TestChildExitCodeEmitted(t *testing.T) {
+	t.Parallel()
 	service, recorder := newTestService(t)
 	tabID := "exit-42"
 	spawnTestScript(t, service, tabID, `

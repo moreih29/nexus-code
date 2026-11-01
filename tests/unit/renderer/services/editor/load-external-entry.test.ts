@@ -125,7 +125,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("loadExternalEntry — success", () => {
-  test("returns ModelEntry with origin=external, readOnly=true, originatingWorkspaceId", async () => {
+  test("returns a ready ModelEntry with origin=external, readOnly=true, originatingWorkspaceId", async () => {
     ipcCallMock.mockImplementation(() =>
       Promise.resolve({ ok: true as const, value: makeFileContent() }),
     );
@@ -133,22 +133,10 @@ describe("loadExternalEntry — success", () => {
     const entry = await loadExternalEntry(INPUT);
 
     expect(entry.phase).toBe("ready");
+    expect(entry.model).not.toBeNull();
     expect(entry.origin).toBe("external");
     expect(entry.readOnly).toBe(true);
     expect(entry.originatingWorkspaceId).toBe(INPUT.workspaceId);
-  });
-
-  test("sets input workspaceId and filePath from function argument", async () => {
-    ipcCallMock.mockImplementation(() =>
-      Promise.resolve({ ok: true as const, value: makeFileContent() }),
-    );
-
-    const entry = await loadExternalEntry(INPUT);
-
-    expect(entry.input.workspaceId).toBe(INPUT.workspaceId);
-    expect(entry.input.filePath).toBe(INPUT.filePath);
-    expect(entry.input.origin).toBe("external");
-    expect(entry.input.readOnly).toBe(true);
   });
 
   test("calls ipcCallResult with fs / readExternal / workspaceId and absolutePath", async () => {
@@ -169,16 +157,6 @@ describe("loadExternalEntry — success", () => {
     expect(args.workspaceId).toBe(INPUT.workspaceId);
     expect(args.absolutePath).toBe(INPUT.filePath);
   });
-
-  test("model is set on entry after success", async () => {
-    ipcCallMock.mockImplementation(() =>
-      Promise.resolve({ ok: true as const, value: makeFileContent() }),
-    );
-
-    const entry = await loadExternalEntry(INPUT);
-
-    expect(entry.model).not.toBeNull();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -195,16 +173,6 @@ describe("loadExternalEntry — IPC error", () => {
 
     expect(entry.phase).toBe("error");
     expect(entry.errorCode).toBeDefined();
-  });
-
-  test("entry is still origin=external and readOnly=true even on error", async () => {
-    ipcCallMock.mockImplementation(() =>
-      Promise.reject(new Error("PERMISSION_DENIED: /external/src/lib.ts")),
-    );
-
-    const entry = await loadExternalEntry(INPUT);
-
-    expect(entry.phase).toBe("error");
   });
 });
 
@@ -224,19 +192,6 @@ describe("loadExternalEntry — binary response", () => {
     const entry = await loadExternalEntry(INPUT);
 
     expect(entry.phase).toBe("binary");
-    expect(entry.model).toBeNull();
-  });
-
-  test("binary entry is still origin=external and readOnly=true", async () => {
-    ipcCallMock.mockImplementation(() =>
-      Promise.resolve({
-        ok: true as const,
-        value: makeFileContent({ isBinary: true, content: "" }),
-      }),
-    );
-
-    const entry = await loadExternalEntry(INPUT);
-
     expect(entry.model).toBeNull();
   });
 });

@@ -7,19 +7,9 @@
  * methods — not to git-stash.ts helpers.
  */
 import { describe, expect, mock, test } from "bun:test";
-import type {
-  DiffChunk,
-  DiffComplete,
-  StashEntry,
-} from "../../../../src/shared/git/types";
-import { GitError } from "../../../../src/main/features/git/domain/error";
+import type { DiffChunk, DiffComplete } from "../../../../src/shared/git/types";
 import type {
   GitExecutor,
-  GitStashApplyOptions,
-  GitStashDropOptions,
-  GitStashGroupOptions,
-  GitStashListOptions,
-  GitStashPopOptions,
   GitStashShowOptions,
   RunGitOptions,
   RunGitResult,
@@ -30,14 +20,6 @@ import { GitRepository } from "../../../../src/main/features/git/domain/reposito
 // ---------------------------------------------------------------------------
 // Minimal stubs
 // ---------------------------------------------------------------------------
-
-const fakeEntry: StashEntry = {
-  index: 0,
-  sha: "0123456789abcdef0123456789abcdef01234567",
-  message: "save work",
-  branch: "main",
-  createdAt: 1_700_000_000_000,
-};
 
 function makeExecutor(overrides: Partial<GitExecutor> = {}): GitExecutor {
   return {
@@ -72,106 +54,56 @@ function makeRepo(executor: GitExecutor): GitRepository {
 }
 
 // ---------------------------------------------------------------------------
-// stashList
+// Promise-returning stash methods
 // ---------------------------------------------------------------------------
 
-describe("GitRepository.listStashes", () => {
-  test("delegates to executor.stashList and returns entries", async () => {
-    const stashList = mock(
-      (_options: GitStashListOptions): Promise<StashEntry[]> =>
-        Promise.resolve([fakeEntry]),
-    );
-    const repo = makeRepo(makeExecutor({ stashList }));
-    const result = await repo.listStashes();
-    expect(result).toEqual([fakeEntry]);
-    expect(stashList).toHaveBeenCalledTimes(1);
-  });
+describe("GitRepository stash delegation", () => {
+  test.each([
+    {
+      name: "listStashes",
+      executorMethod: "stashList",
+      call: (repo: GitRepository) => repo.listStashes(),
+      options: {},
+      returnsResult: true,
+    },
+    {
+      name: "applyStash",
+      executorMethod: "stashApply",
+      call: (repo: GitRepository) => repo.applyStash(3),
+      options: { index: 3 },
+      returnsResult: false,
+    },
+    {
+      name: "dropStash",
+      executorMethod: "stashDrop",
+      call: (repo: GitRepository) => repo.dropStash(1),
+      options: { index: 1 },
+      returnsResult: false,
+    },
+    {
+      name: "stashPop",
+      executorMethod: "stashPop",
+      call: (repo: GitRepository) => repo.stashPop(),
+      options: {},
+      returnsResult: false,
+    },
+    {
+      name: "stashGroup",
+      executorMethod: "stashGroup",
+      call: (repo: GitRepository) => repo.stashGroup(["a.ts", "b.ts"], "my stash"),
+      options: { paths: ["a.ts", "b.ts"], message: "my stash" },
+      returnsResult: false,
+    },
+  ])("$name delegates to executor.$executorMethod", async (row) => {
+    const executorResult = [{ from: row.executorMethod }];
+    const method = mock((_options: unknown) => Promise.resolve(executorResult));
+    const repo = makeRepo(makeExecutor({ [row.executorMethod]: method }));
 
-  test("throws missingExecutorMethodError when stashList is absent", async () => {
-    const repo = makeRepo(makeExecutor());
-    await expect(repo.listStashes()).rejects.toThrow("stashList");
-  });
-});
+    const result = await row.call(repo);
 
-// ---------------------------------------------------------------------------
-// stashApply
-// ---------------------------------------------------------------------------
-
-describe("GitRepository.applyStash", () => {
-  test("delegates to executor.stashApply with correct index", async () => {
-    const stashApply = mock(
-      (_options: GitStashApplyOptions): Promise<void> => Promise.resolve(),
-    );
-    const repo = makeRepo(makeExecutor({ stashApply }));
-    await repo.applyStash(3);
-    expect(stashApply).toHaveBeenCalledTimes(1);
-    const call = stashApply.mock.calls[0]?.[0];
-    expect(call?.index).toBe(3);
-  });
-
-  test("propagates stash-conflict GitError from executor", async () => {
-    const stashApply = mock(
-      (_options: GitStashApplyOptions): Promise<void> =>
-        Promise.reject(new GitError("stash-conflict", "conflict", {})),
-    );
-    const repo = makeRepo(makeExecutor({ stashApply }));
-    await expect(repo.applyStash(0)).rejects.toMatchObject({ kind: "stash-conflict" });
-  });
-
-  test("throws missingExecutorMethodError when stashApply is absent", async () => {
-    const repo = makeRepo(makeExecutor());
-    await expect(repo.applyStash(0)).rejects.toThrow("stashApply");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// stashDrop
-// ---------------------------------------------------------------------------
-
-describe("GitRepository.dropStash", () => {
-  test("delegates to executor.stashDrop with correct index", async () => {
-    const stashDrop = mock(
-      (_options: GitStashDropOptions): Promise<void> => Promise.resolve(),
-    );
-    const repo = makeRepo(makeExecutor({ stashDrop }));
-    await repo.dropStash(1);
-    expect(stashDrop).toHaveBeenCalledTimes(1);
-    const call = stashDrop.mock.calls[0]?.[0];
-    expect(call?.index).toBe(1);
-  });
-
-  test("throws missingExecutorMethodError when stashDrop is absent", async () => {
-    const repo = makeRepo(makeExecutor());
-    await expect(repo.dropStash(0)).rejects.toThrow("stashDrop");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// stashPop
-// ---------------------------------------------------------------------------
-
-describe("GitRepository.stashPop", () => {
-  test("delegates to executor.stashPop", async () => {
-    const stashPop = mock(
-      (_options: GitStashPopOptions): Promise<void> => Promise.resolve(),
-    );
-    const repo = makeRepo(makeExecutor({ stashPop }));
-    await repo.stashPop();
-    expect(stashPop).toHaveBeenCalledTimes(1);
-  });
-
-  test("propagates stash-conflict GitError from executor", async () => {
-    const stashPop = mock(
-      (_options: GitStashPopOptions): Promise<void> =>
-        Promise.reject(new GitError("stash-conflict", "conflict", {})),
-    );
-    const repo = makeRepo(makeExecutor({ stashPop }));
-    await expect(repo.stashPop()).rejects.toMatchObject({ kind: "stash-conflict" });
-  });
-
-  test("throws missingExecutorMethodError when stashPop is absent", async () => {
-    const repo = makeRepo(makeExecutor());
-    await expect(repo.stashPop()).rejects.toThrow("stashPop");
+    if (row.returnsResult) expect(result).toBe(executorResult as never);
+    expect(method).toHaveBeenCalledTimes(1);
+    expect(method.mock.calls[0]?.[0]).toMatchObject({ cwd: "/repo", ...row.options });
   });
 });
 
@@ -207,34 +139,5 @@ describe("GitRepository.showStash", () => {
 
     expect(chunks).toEqual([chunk]);
     expect(returnValue).toEqual(complete);
-  });
-
-  test("throws missingExecutorMethodError when stashShow is absent", async () => {
-    const repo = makeRepo(makeExecutor());
-    const gen = repo.showStash(0);
-    await expect(gen.next()).rejects.toThrow("stashShow");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// stashGroup
-// ---------------------------------------------------------------------------
-
-describe("GitRepository.stashGroup", () => {
-  test("delegates to executor.stashGroup with paths and message", async () => {
-    const stashGroup = mock(
-      (_options: GitStashGroupOptions): Promise<void> => Promise.resolve(),
-    );
-    const repo = makeRepo(makeExecutor({ stashGroup }));
-    await repo.stashGroup(["a.ts", "b.ts"], "my stash");
-    expect(stashGroup).toHaveBeenCalledTimes(1);
-    const call = stashGroup.mock.calls[0]?.[0];
-    expect(call?.paths).toEqual(["a.ts", "b.ts"]);
-    expect(call?.message).toBe("my stash");
-  });
-
-  test("throws missingExecutorMethodError when stashGroup is absent", async () => {
-    const repo = makeRepo(makeExecutor());
-    await expect(repo.stashGroup(["a.ts"])).rejects.toThrow("stashGroup");
   });
 });

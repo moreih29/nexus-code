@@ -7,6 +7,7 @@
 // React tree. A root may own one process-wide listener when the underlying
 // feature must work independently of the active workspace panel.
 
+import { CliConsentDialogRoot } from "./cli/consent-dialog";
 import { ConflictResolutionDialogRoot } from "./editor/conflict-dialog";
 import { SaveConfirmDialogRoot } from "./editor/save-confirm-dialog";
 import { CommitMessageDialog } from "./files/git/commit/message-dialog";
@@ -19,7 +20,10 @@ import { WorkspaceSymbolPaletteRoot } from "./symbol-palette/workspace-symbol-pa
 import { ConfirmDialogRoot } from "./ui/confirm-dialog";
 import { PermissionPromptRoot } from "./ui/permission-prompt-dialog";
 import { ToastRoot } from "./ui/toast";
+import { LspLogDialogRoot } from "./workbench/lsp-log-dialog";
 import { ViewParkRoot } from "./workspace/content/view-park";
+import { NewTaskDialogRoot } from "./workspace/new-task-dialog";
+import { RemoveTaskDialogRoot } from "./workspace/remove-task-dialog";
 import { RemoveWorkspaceDialogRoot } from "./workspace/remove-workspace-dialog";
 import { SshAuthPromptDialog } from "./workspace/ssh-auth-prompt-dialog";
 import { useSshAuthPrompts } from "./workspace/use-ssh-auth-prompts";
@@ -30,12 +34,16 @@ export function GlobalRoots(): React.JSX.Element {
       <ViewParkRoot />
       <SaveConfirmDialogRoot />
       <ConfirmDialogRoot />
+      <CliConsentDialogRoot />
       <PermissionPromptRoot />
       <ConflictResolutionDialogRoot />
       <RemoveWorkspaceDialogRoot />
+      <NewTaskDialogRoot />
+      <RemoveTaskDialogRoot />
       <WorkspaceSymbolPaletteRoot />
       <GitHelperPromptsRoot />
       <SshAuthPromptsRoot />
+      <LspLogDialogRoot />
       <ToastRoot />
     </>
   );

@@ -98,6 +98,7 @@ function setup(opts: {
   customShells?: CustomShell[];
   host?: ShellHost;
   wrapper?: { binDir: string; shell: string; shimDir: string };
+  windowsAgentFiles?: PtyChannelOptions["windowsAgentFiles"];
 }): { call: (method: string, args: unknown) => Promise<unknown>; agent: FakeAgentChannel } {
   const agent = new FakeAgentChannel();
   const agentHost = startAgentPtyHost({
@@ -121,6 +122,7 @@ function setup(opts: {
     getDefaultShell: () => opts.defaultShell,
     getCustomShells: () => opts.customShells,
     shellHost: opts.host ?? windowsHost,
+    windowsAgentFiles: opts.windowsAgentFiles,
   });
   const calls = mockHandle.mock.calls as [string, IpcHandler][];
   const handler = calls.filter(([channel]) => channel === "ipc:call").at(-1)?.[1];
@@ -255,6 +257,84 @@ describe("pty.spawn — the shell of a local terminal", () => {
     // bash takes the shim through --rcfile; zsh's ZDOTDIR is not set.
     expect(sent?.args).toEqual(["--rcfile", "/w/shim/bashrc", "-i"]);
     expect(sent?.env?.ZDOTDIR).toBeUndefined();
+  });
+});
+
+describe("pty.spawn — claude's hooks and codex's --no-daemon in a local Windows terminal", () => {
+  const BIN = "C:\\Users\\me\\.nexus-code\\bin";
+  const LAUNCHERS = "C:\\Users\\me\\.nexus-code\\cli";
+  const SETTINGS = "C:\\Users\\me\\.nexus-code\\claude-settings.json";
+  const wrapper = { binDir: LAUNCHERS, shell: "", shimDir: "C:\\Users\\me\\.nexus-code\\shim\\ws" };
+  const files = async () => ({ binDir: BIN, settingsPath: SETTINGS, cmdCodexNoDaemon: true });
+
+  test("PowerShell, the system default, is named and defines claude and codex", async () => {
+    const { call, agent } = setup({ wrapper, windowsAgentFiles: files });
+    await call("spawn", spawnArgs());
+
+    const sent = agent.spawnCalls[0];
+    expect(sent?.shell).toBe(POWERSHELL);
+    expect(sent?.args?.slice(0, 2)).toEqual(["-NoExit", "-EncodedCommand"]);
+    const script = Buffer.from(sent?.args?.at(-1) ?? "", "base64").toString("utf16le");
+    expect(script).toContain("function global:claude {");
+    expect(script).toContain("function global:codex {");
+    expect(sent?.env?.NEXUS_CLAUDE_SETTINGS).toBe(SETTINGS);
+    expect(sent?.env?.NEXUS_IN_APP).toBe("1");
+    expect(sent?.env?.NEXUS_TAB_ID).toBe(TAB_ID);
+    expect(sent?.env?.NEXUS_WRAPPER_SELF_DIR).toBe(LAUNCHERS);
+    // No zsh or bash shim on Windows.
+    expect(sent?.env?.ZDOTDIR).toBeUndefined();
+  });
+
+  test("Git Bash keeps its arguments and gets the wrapper first on PATH", async () => {
+    const { call, agent } = setup({
+      wrapper,
+      windowsAgentFiles: files,
+      defaultShell: { kind: "detected", id: "git-bash" },
+    });
+    await call("spawn", spawnArgs());
+
+    const sent = agent.spawnCalls[0];
+    expect(sent?.shell).toBe(GIT_BASH);
+    expect(sent?.args).toEqual(["--login", "-i"]);
+    expect(sent?.env?.NEXUS_WRAPPER_SELF_DIR).toBe(BIN);
+  });
+
+  test("cmd gets doskey macros", async () => {
+    const { call, agent } = setup({
+      wrapper,
+      windowsAgentFiles: files,
+      defaultShell: { kind: "detected", id: "cmd" },
+    });
+    await call("spawn", spawnArgs());
+
+    const sent = agent.spawnCalls[0];
+    expect(sent?.args).toEqual(["/k", "%NEXUS_CMD_INIT%"]);
+    expect(sent?.env?.NEXUS_CMD_INIT).toBe(
+      `doskey claude=claude --settings "${SETTINGS}" $* & doskey codex=codex --no-daemon $*`,
+    );
+  });
+
+  test("cmd's codex is left as it is when the codex on PATH lacks --no-daemon", async () => {
+    const { call, agent } = setup({
+      wrapper,
+      windowsAgentFiles: async () => ({ binDir: BIN, settingsPath: SETTINGS, cmdCodexNoDaemon: false }),
+      defaultShell: { kind: "detected", id: "cmd" },
+    });
+    await call("spawn", spawnArgs());
+
+    expect(agent.spawnCalls[0]?.env?.NEXUS_CMD_INIT).toBe(
+      `doskey claude=claude --settings "${SETTINGS}" $*`,
+    );
+  });
+
+  test("without the wrappers, the shell starts as it is, with the nexus launchers", async () => {
+    const { call, agent } = setup({ wrapper, windowsAgentFiles: async () => null });
+    await call("spawn", spawnArgs());
+
+    const sent = agent.spawnCalls[0];
+    expect(sent?.args).toBeUndefined();
+    expect(sent?.env?.NEXUS_WRAPPER_SELF_DIR).toBe(LAUNCHERS);
+    expect(sent?.env?.NEXUS_CLAUDE_SETTINGS).toBeUndefined();
   });
 });
 

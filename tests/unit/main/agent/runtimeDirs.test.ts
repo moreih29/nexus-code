@@ -39,20 +39,12 @@ describe("binDir", () => {
     expect(binDir()).toBe(path.join(root(), "bin"));
     expect(path.isAbsolute(binDir())).toBe(true);
   });
-
-  test("is prefixed by root()", () => {
-    expect(binDir().startsWith(root())).toBe(true);
-  });
 });
 
 describe("socketsDir", () => {
   test("is root()/sockets", () => {
     expect(socketsDir()).toBe(path.join(root(), "sockets"));
     expect(path.isAbsolute(socketsDir())).toBe(true);
-  });
-
-  test("is prefixed by root()", () => {
-    expect(socketsDir().startsWith(root())).toBe(true);
   });
 });
 
@@ -106,11 +98,6 @@ describe("shimDir", () => {
     const result = shimDir(id);
     expect(result).toBe(path.join(root(), "shim", id));
     expect(path.isAbsolute(result)).toBe(true);
-  });
-
-  test("embeds the workspaceId segment verbatim", () => {
-    const id = "my-workspace";
-    expect(shimDir(id)).toContain(id);
   });
 });
 

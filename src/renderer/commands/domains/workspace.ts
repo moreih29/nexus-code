@@ -2,7 +2,12 @@ import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { useActiveStore } from "../../state/stores/active";
 import { useAddWorkspaceUIStore } from "../../state/stores/add-workspace-ui";
-import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { useTaskUIStore } from "../../state/stores/task-ui";
+import {
+  rootWorkspaceId,
+  useWorkspacesStore,
+  visibleWorkspaces,
+} from "../../state/stores/workspaces";
 
 /**
  * Cycle the active workspace by `delta` slots within the sidebar's
@@ -12,10 +17,12 @@ import { useWorkspacesStore } from "../../state/stores/workspaces";
  *
  * No-op when there is at most one workspace, or when the active id is
  * absent from the list (e.g. mid-removal); we fall back to the first
- * row in that case so the shortcut still feels responsive.
+ * row in that case so the shortcut still feels responsive. A task counts
+ * as its parent's row, so the step starts there.
  */
-function cycleActiveWorkspace(delta: 1 | -1): void {
-  const workspaces = useWorkspacesStore.getState().workspaces;
+export function cycleActiveWorkspace(delta: 1 | -1): void {
+  const all = useWorkspacesStore.getState().workspaces;
+  const workspaces = visibleWorkspaces(all);
   if (workspaces.length === 0) return;
   if (workspaces.length === 1) {
     // Still set it explicitly so a fresh boot with no active id picks
@@ -25,7 +32,8 @@ function cycleActiveWorkspace(delta: 1 | -1): void {
   }
 
   const activeId = useActiveStore.getState().activeWorkspaceId;
-  const currentIndex = activeId !== null ? workspaces.findIndex((w) => w.id === activeId) : -1;
+  const rowId = activeId !== null ? rootWorkspaceId(all, activeId) : null;
+  const currentIndex = rowId !== null ? workspaces.findIndex((w) => w.id === rowId) : -1;
 
   let nextIndex: number;
   if (currentIndex < 0) {
@@ -44,6 +52,12 @@ export function registerWorkspaceCommands(): Array<() => void> {
     registerCommand(COMMANDS.workspaceFocusNext, () => cycleActiveWorkspace(1)),
     registerCommand(COMMANDS.workspaceAdd, () => {
       useAddWorkspaceUIStore.getState().openAddWorkspace();
+    }),
+    registerCommand(COMMANDS.taskNew, () => {
+      const activeId = useActiveStore.getState().activeWorkspaceId;
+      if (activeId === null) return;
+      const parentId = rootWorkspaceId(useWorkspacesStore.getState().workspaces, activeId);
+      useTaskUIStore.getState().openNewTask(parentId);
     }),
   ];
 }

@@ -82,67 +82,26 @@ describe("evaluatePermission — blocked classified", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. prompt permissions with globalAllowed=true → always allow
+// 3. prompt permissions — defer to the user when nothing is granted or remembered
+//
+// How globalAllowed and remembered combine is resolvePermission's job, covered
+// cell by cell in permission-policy.test.ts. Here we check only that these
+// permissions are classified 'prompt' (neither auto-allowed nor blocked).
 // ---------------------------------------------------------------------------
 
-describe("evaluatePermission — prompt + globalAllowed=true", () => {
-  test("geolocation, remembered=null → allow", () => {
-    expect(evaluatePermission(WS, ORIGIN, "geolocation", makeDeps(true, null))).toBe("allow");
-  });
-
-  test("geolocation, remembered='block' → allow (global beats remembered)", () => {
-    expect(evaluatePermission(WS, ORIGIN, "geolocation", makeDeps(true, "block"))).toBe("allow");
-  });
-
-  test("notifications, remembered='allow' → allow", () => {
-    expect(evaluatePermission(WS, ORIGIN, "notifications", makeDeps(true, "allow"))).toBe("allow");
+describe("evaluatePermission — prompt classified", () => {
+  test.each([
+    "geolocation",
+    "media",
+    "notifications",
+    "fullscreen",
+  ])("%s: globalAllowed=false, remembered=null → ask", (permission) => {
+    expect(evaluatePermission(WS, ORIGIN, permission, makeDeps(false, null))).toBe("ask");
   });
 });
 
 // ---------------------------------------------------------------------------
-// 4. prompt permissions with globalAllowed=false, remembered='allow' → allow
-// ---------------------------------------------------------------------------
-
-describe("evaluatePermission — prompt + globalAllowed=false + remembered=allow", () => {
-  test("media → allow", () => {
-    expect(evaluatePermission(WS, ORIGIN, "media", makeDeps(false, "allow"))).toBe("allow");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 5. prompt permissions with globalAllowed=false, remembered='block' → block
-// ---------------------------------------------------------------------------
-
-describe("evaluatePermission — prompt + globalAllowed=false + remembered=block", () => {
-  test("media → block", () => {
-    expect(evaluatePermission(WS, ORIGIN, "media", makeDeps(false, "block"))).toBe("block");
-  });
-
-  test("geolocation → block", () => {
-    expect(evaluatePermission(WS, ORIGIN, "geolocation", makeDeps(false, "block"))).toBe("block");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 6. prompt permissions with globalAllowed=false, remembered=null → ask
-// ---------------------------------------------------------------------------
-
-describe("evaluatePermission — prompt + globalAllowed=false + remembered=null", () => {
-  test("media → ask", () => {
-    expect(evaluatePermission(WS, ORIGIN, "media", makeDeps(false, null))).toBe("ask");
-  });
-
-  test("notifications → ask", () => {
-    expect(evaluatePermission(WS, ORIGIN, "notifications", makeDeps(false, null))).toBe("ask");
-  });
-
-  test("fullscreen → ask", () => {
-    expect(evaluatePermission(WS, ORIGIN, "fullscreen", makeDeps(false, null))).toBe("ask");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 7. High-risk permissions are 'ask' by default (globalAllowed=false, remembered=null)
+// 4. High-risk permissions are 'ask' by default (globalAllowed=false, remembered=null)
 //
 // Security lock: openExternal, fileSystem, and display-capture must never
 // silently auto-allow or auto-block — they must surface a prompt.  If any of

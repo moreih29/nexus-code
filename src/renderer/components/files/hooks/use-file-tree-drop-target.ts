@@ -34,6 +34,7 @@ import { parentOf } from "@/state/stores/files/helpers";
 import { useFilesStore } from "@/state/stores/files/store";
 import { basename, relPath } from "@/utils/path";
 import { createLogger } from "../../../../shared/log/renderer";
+import { isMac } from "../../../utils/platform";
 import { parseFileDragPayload } from "../../workspace/dnd/payload";
 import { MIME_FILE } from "../../workspace/dnd/types";
 
@@ -70,8 +71,7 @@ interface DropTarget {
 // ---------------------------------------------------------------------------
 
 function isCopyModifier(e: DragEvent): boolean {
-  const isMac = typeof window !== "undefined" && window.host?.platform === "darwin";
-  return isMac ? e.altKey : e.ctrlKey;
+  return isMac() ? e.altKey : e.ctrlKey;
 }
 
 /** Parse a FileDragPayload from a DragEvent's dataTransfer. Delegates to the

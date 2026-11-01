@@ -50,16 +50,41 @@ export const LSP_CLIENT_CAPABILITIES = {
       contentFormat: ["markdown", "plaintext"],
     },
     completion: {
+      // The renderer passes what typed the request, so a server can tell a
+      // "<" that opens a JSX tag from one in a comparison.
+      contextSupport: true,
       completionItem: {
-        snippetSupport: false,
+        snippetSupport: true,
+        commitCharactersSupport: true,
         documentationFormat: ["markdown", "plaintext"],
         deprecatedSupport: true,
+        preselectSupport: true,
+        tagSupport: { valueSet: [1] },
+        insertReplaceSupport: true,
+        labelDetailsSupport: true,
+        // Servers leave these out of the list and fill them in when an item
+        // is picked (`completionItem/resolve`); for an auto-import the
+        // import itself comes as additionalTextEdits.
+        resolveSupport: {
+          properties: ["documentation", "detail", "additionalTextEdits"],
+        },
       },
     },
     definition: {
       // We normalize results as Location[], not LocationLink — opt out
       // of linkSupport so servers send the plain shape.
       linkSupport: false,
+    },
+    signatureHelp: {
+      // The renderer says what asked: a "(" or "," typed, or the user typing
+      // on while the signature is shown.
+      contextSupport: true,
+      signatureInformation: {
+        documentationFormat: ["markdown", "plaintext"],
+        // rust-analyzer and others mark a parameter by its offsets in the label.
+        parameterInformation: { labelOffsetSupport: true },
+        activeParameterSupport: true,
+      },
     },
     references: {},
     documentHighlight: {},

@@ -140,7 +140,7 @@ export function reclaimPreviewSlot(workspaceId: string, slot: PreviewSlotInfo): 
   return slot.index;
 }
 
-function holdsUnsavedChanges(tab: Tab): boolean {
+export function holdsUnsavedChanges(tab: Tab): boolean {
   if (tab.type === "editor") return isDirty(cacheUriFor(tab.props.workspaceId, tab.props.filePath));
   if (tab.type === "editor.diff") return isDiffWorkingFileDirty(tab.props);
   return false;
@@ -427,6 +427,26 @@ export function openNewBrowserTab(workspaceId: string): Tab {
       partition: `persist:browser-${workspaceId}`,
     },
   });
+}
+
+/**
+ * Show the workspace's sessions tab, opening one in the active group if it
+ * has none. A workspace keeps at most one.
+ */
+export function openSessionsTab(workspaceId: string): TabLocation {
+  useLayoutStore.getState().ensureLayout(workspaceId);
+  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
+  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+  for (const leaf of layout ? allLeaves(layout.root) : []) {
+    const tabId = leaf.tabIds.find((id) => tabsById[id]?.type === "sessions");
+    if (tabId) {
+      revealTab(workspaceId, leaf.id, tabId);
+      return { groupId: leaf.id, tabId };
+    }
+  }
+  const tab = openTabRecord(workspaceId, { type: "sessions", props: {} });
+  const groupId = useLayoutStore.getState().byWorkspace[workspaceId]?.activeGroupId ?? "";
+  return { groupId, tabId: tab.id };
 }
 
 /**

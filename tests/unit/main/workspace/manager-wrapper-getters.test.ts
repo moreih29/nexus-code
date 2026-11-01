@@ -29,16 +29,26 @@ import { Database } from "bun:sqlite";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
-import { LOCAL_AGENT_DIST_DIR } from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/types";
+import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 
 // ---------------------------------------------------------------------------
-// electron mock — isPackaged=false (dev 모드) 고정
+// electron mock — isPackaged=false (dev 모드). #5 switches it to packaged for
+// one test so the manifest is read from a temp process.resourcesPath.
 // ---------------------------------------------------------------------------
 
+const electronApp = { isPackaged: false };
 mock.module("electron", () => ({
-  app: {
-    isPackaged: false,
-  },
+  app: electronApp,
+}));
+
+// Where an agent is built, the real windowsCliLauncherDir writes the nexus
+// launchers to the real ~/.nexus-code/cli and returns it; on a runner without
+// one it returns null. The tests name a directory instead.
+const WINDOWS_LAUNCHER_DIR = path.join(os.tmpdir(), "nexus-cli-launchers");
+const realLaunchers = await import("../../../../src/main/features/cli/launchers");
+mock.module("../../../../src/main/features/cli/launchers", () => ({
+  ...realLaunchers,
+  windowsCliLauncherDir: () => WINDOWS_LAUNCHER_DIR,
 }));
 
 // dynamic import — mock.module 이후
@@ -53,6 +63,7 @@ const { WorkspaceManager } = await import(
 const { getAgentBinDir, getAgentBinaryPath } = await import(
   "../../../../src/main/infra/agent/getAgentBinDir"
 );
+const { loginShell } = await import("../../../../src/main/infra/platform");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -103,9 +114,40 @@ function makeManager() {
   return { manager, globalDb };
 }
 
+/** Writes the smallest manifest AgentManifestSchema accepts into `dir`. */
+function writeAgentManifest(dir: string, version: string): void {
+  // SHA-256 of "x"; nothing reads the files, only the manifest's version.
+  const sha256 = "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881";
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "manifest.json"),
+    JSON.stringify({
+      version,
+      protocolVersion: AGENT_PROTOCOL_VERSION,
+      binaries: [
+        { os: "linux", arch: "amd64", path: `agent-${version}-linux-amd64`, sha256, size: 1 },
+      ],
+      runtime: {
+        node: [
+          {
+            os: "linux",
+            arch: "amd64",
+            version: "v20.19.0",
+            path: "runtime/node.tar.gz",
+            sha256,
+            size: 1,
+            entry: "bin/node",
+          },
+        ],
+      },
+      lspBinaries: [],
+    }),
+  );
+}
+
 /**
  * WorkspaceManager의 private sshBootstraps 맵에 직접 접근하기 위한 타입 캐스트.
- * 테스트 전용 — 프로덕션 코드에서는 startSshProvider 내부에서만 설정된다.
+ * 테스트 전용 — 프로덕션 코드에서는 startRemoteProvider 내부에서만 설정된다.
  */
 function injectSshBootstrap(
   manager: InstanceType<typeof WorkspaceManager>,
@@ -122,7 +164,8 @@ function injectSshBootstrap(
 // Tests
 // ---------------------------------------------------------------------------
 
-// Windows 로컬 워크스페이스에는 셸 래퍼가 아직 없어 래퍼 getter가 null을 돌려준다.
+// Windows 로컬 워크스페이스에는 셸 래퍼가 없어 셸 getter는 null을, bin 디렉터리
+// getter는 nexus 런처만 든 디렉터리를 돌려준다.
 const isWindows = process.platform === "win32";
 const posixTest = test.skipIf(isWindows);
 const windowsTest = test.skipIf(!isWindows);
@@ -138,11 +181,11 @@ describe("WorkspaceManager.getWrapperBinDir — acceptance #1, #2, #3", () => {
     globalDb.close();
   });
 
-  windowsTest("#1w: Windows 로컬 워크스페이스 → null", () => {
+  windowsTest("#1w: Windows 로컬 워크스페이스 → nexus 런처 디렉터리", () => {
     const { manager, globalDb } = makeManager();
     const meta = manager.create({ rootPath: path.join(os.tmpdir(), "ws-local-bindir"), name: "local" });
 
-    expect(manager.getWrapperBinDir(meta.id)).toBeNull();
+    expect(manager.getWrapperBinDir(meta.id)).toBe(WINDOWS_LAUNCHER_DIR);
     globalDb.close();
   });
 
@@ -214,40 +257,46 @@ describe("WorkspaceManager.getWrapperAgentBin — acceptance #4, #5", () => {
   });
 
   test("#5: SSH 워크스페이스 → remoteBinDir/agent-<version>-<os>-<arch> 형식", () => {
-    // manifest.json이 없는 경우 null을 반환하므로, 먼저 manifest 유무를 확인한다.
-    const manifestExists = fs.existsSync(
-      path.join(LOCAL_AGENT_DIST_DIR, "manifest.json"),
-    );
+    // Packaged mode reads the manifest from process.resourcesPath/agent, which
+    // lets the test supply its own manifest instead of depending on dist/.
+    const resourcesPath = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-wrapper-manifest-"));
+    // Another test file may leave process.resourcesPath read-only, so it is
+    // redefined rather than assigned.
+    const setResourcesPath = (value: string | undefined) =>
+      Object.defineProperty(process, "resourcesPath", { value, configurable: true, writable: true });
+    const originalResourcesPath = process.resourcesPath;
+    electronApp.isPackaged = true;
+    setResourcesPath(resourcesPath);
 
     const { manager, globalDb } = makeManager();
-    const meta = manager.create({
-      location: {
-        kind: "ssh",
-        host: "test.example.com",
-        user: "testuser",
-        remotePath: "/home/testuser/projects/bar",
-        authMode: "key-only",
-      },
-      name: "ssh-ws-agent",
-    });
-    const bootstrap = makeSshBootstrap({
-      remoteBinDir: REMOTE_BIN_DIR,
-      platform: { os: "linux", arch: "amd64" },
-    });
-    injectSshBootstrap(manager, meta.id, bootstrap);
+    try {
+      const meta = manager.create({
+        location: {
+          kind: "ssh",
+          host: "test.example.com",
+          user: "testuser",
+          remotePath: "/home/testuser/projects/bar",
+          authMode: "key-only",
+        },
+        name: "ssh-ws-agent",
+      });
+      const bootstrap = makeSshBootstrap({
+        remoteBinDir: REMOTE_BIN_DIR,
+        platform: { os: "linux", arch: "amd64" },
+      });
+      injectSshBootstrap(manager, meta.id, bootstrap);
 
-    const result = manager.getWrapperAgentBin(meta.id);
+      // No manifest yet → the binary name is unknown.
+      expect(manager.getWrapperAgentBin(meta.id)).toBeNull();
 
-    if (manifestExists) {
-      // manifest가 있으면 agent-<version>-linux-amd64 형식이어야 한다.
-      expect(result).not.toBeNull();
-      expect(result).toMatch(/^\/home\/testuser\/\.nexus-code\/bin\/agent-\S+-linux-amd64$/);
-    } else {
-      // manifest가 없으면 null.
-      expect(result).toBeNull();
+      writeAgentManifest(path.join(resourcesPath, "agent"), "9.8.7");
+      expect(manager.getWrapperAgentBin(meta.id)).toBe(`${REMOTE_BIN_DIR}/agent-9.8.7-linux-amd64`);
+    } finally {
+      electronApp.isPackaged = false;
+      setResourcesPath(originalResourcesPath);
+      fs.rmSync(resourcesPath, { recursive: true, force: true });
+      globalDb.close();
     }
-
-    globalDb.close();
   });
 
   test("존재하지 않는 워크스페이스 → null", () => {
@@ -310,10 +359,9 @@ describe("WorkspaceManager.getWrapperShell — acceptance #6, #7, #8", () => {
     }
   });
 
-  posixTest("#6b: 로컬 워크스페이스 + process.env.SHELL 미설정 → /bin/zsh 폴백", () => {
-    // Finder/Spotlight로 띄운 macOS launchd 자식 프로세스에서는 $SHELL이
-    // 비어있을 수 있다. 이 경우 사용자 기본 셸이 zsh인 것으로 가정하고
-    // 폴백 — 실제 셸이 bash/fish여도 ZDOTDIR 주입은 무해하다.
+  // Launched from Finder or a desktop entry, the app can run without $SHELL;
+  // loginShell() then falls back to the account's shell (tested on its own).
+  posixTest("#6b: local workspace without $SHELL → the account's login shell", () => {
     delete process.env.SHELL;
     try {
       const { manager, globalDb } = makeManager();
@@ -324,16 +372,14 @@ describe("WorkspaceManager.getWrapperShell — acceptance #6, #7, #8", () => {
 
       const result = manager.getWrapperShell(meta.id);
 
-      expect(result).toBe("/bin/zsh");
+      expect(result).toBe(loginShell());
       globalDb.close();
     } finally {
       restoreShell();
     }
   });
 
-  posixTest("#6c: 로컬 워크스페이스 + process.env.SHELL=빈문자열 → /bin/zsh 폴백", () => {
-    // 빈문자열도 "값 없음"으로 취급해야 한다 — 일부 셸/launchd 조합에서는
-    // $SHELL이 unset이 아니라 빈문자열로 들어올 수 있다.
+  posixTest("#6c: local workspace with an empty $SHELL → the account's login shell", () => {
     process.env.SHELL = "";
     try {
       const { manager, globalDb } = makeManager();
@@ -344,7 +390,7 @@ describe("WorkspaceManager.getWrapperShell — acceptance #6, #7, #8", () => {
 
       const result = manager.getWrapperShell(meta.id);
 
-      expect(result).toBe("/bin/zsh");
+      expect(result).toBe(loginShell());
       globalDb.close();
     } finally {
       restoreShell();

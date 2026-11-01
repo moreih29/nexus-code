@@ -3,6 +3,8 @@ package lsp
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -22,23 +24,42 @@ type Service struct {
 	sink    EventSink
 	servers map[string]*serverProcess
 
-	nextServerSeq uint64
-	nextAgentSeq  uint64
+	// serverIDPrefix sets this agent's server ids apart from those of the
+	// agent it replaced: when a local agent restarts, calls queued for the
+	// old one's servers reach the new one and must not land on a new server
+	// that happens to take the same number.
+	serverIDPrefix string
+	nextServerSeq  uint64
+	nextAgentSeq   uint64
 }
 
 // New constructs an empty LSP service registry.
 func New() *Service {
-	return &Service{servers: make(map[string]*serverProcess)}
+	return &Service{servers: make(map[string]*serverProcess), serverIDPrefix: newServerIDPrefix()}
+}
+
+func newServerIDPrefix() string {
+	var b [4]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }
 
 // Register binds every lsp.* method onto the dispatcher.
+//
+// The methods that write to a server's stdin are ordered: a server must see
+// its messages in the order the client sent them. Run concurrently, a
+// completion request could overtake the didChange that typed the "." before
+// it, or two didChanges could swap and leave the server's copy of the
+// document wrong until it is reopened.
 func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("lsp.spawn", service.Spawn)
-	d.Register("lsp.send", service.Send)
-	d.Register("lsp.notify", service.Notify)
-	d.Register("lsp.cancel", service.Cancel)
+	d.RegisterOrdered("lsp.send", service.Send)
+	d.RegisterOrdered("lsp.notify", service.Notify)
+	d.RegisterOrdered("lsp.cancel", service.Cancel)
 	d.Register("lsp.shutdown", service.Shutdown)
-	d.Register("lsp.respondServerRequest", service.RespondServerRequest)
+	d.RegisterOrdered("lsp.respondServerRequest", service.RespondServerRequest)
+	d.Register("lsp.stats", service.Stats)
+	d.Register("lsp.findBinary", service.FindBinary)
 }
 
 // SetEventSink wires the service to the stdio host after both are constructed.
@@ -108,6 +129,9 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 		Args:          append([]string(nil), p.Args...),
 		WorkspaceRoot: workspaceRoot,
 		Capabilities:  p.Capabilities,
+		Env:           p.Env,
+
+		InitializationOptions: p.InitializationOptions,
 	}, idleTimeout)
 	s.storeServer(server)
 
@@ -126,7 +150,7 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 	})
 
 	initCtx, cancel := context.WithTimeout(ctx, initializeTimeout)
-	capabilities, err := server.initialize(initCtx)
+	capabilities, serverInfo, err := server.initialize(initCtx)
 	cancel()
 	if err != nil {
 		s.removeServer(serverID, server)
@@ -135,7 +159,37 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	server.resetIdleTimer()
-	return SpawnResult{ServerID: serverID, Capabilities: capabilities}, nil
+	return SpawnResult{ServerID: serverID, Capabilities: capabilities, ServerInfo: serverInfo}, nil
+}
+
+// Stats reports the memory each server takes, with the processes it
+// started.
+func (s *Service) Stats(_ context.Context, _ json.RawMessage) (any, error) {
+	s.mu.Lock()
+	servers := make([]*serverProcess, 0, len(s.servers))
+	for _, server := range s.servers {
+		servers = append(servers, server)
+	}
+	s.mu.Unlock()
+
+	table, err := processTable()
+	if err != nil {
+		return nil, requestFailed("lsp.stats failed: %s", err)
+	}
+	pids := make([]int, 0, len(servers))
+	for _, server := range servers {
+		pids = append(pids, server.processID())
+	}
+	totals := treeRSS(table, pids)
+	result := StatsResult{Servers: make([]ServerStats, 0, len(servers))}
+	for _, server := range servers {
+		pid := server.processID()
+		if pid == 0 {
+			continue
+		}
+		result.Servers = append(result.Servers, ServerStats{ServerID: server.id, RSSBytes: totals[pid]})
+	}
+	return result, nil
 }
 
 func (s *Service) Send(_ context.Context, raw json.RawMessage) (any, error) {
@@ -245,7 +299,7 @@ func (s *Service) nextServerID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.nextServerSeq++
-	return fmt.Sprintf("lsp-%d", s.nextServerSeq)
+	return fmt.Sprintf("lsp-%s-%d", s.serverIDPrefix, s.nextServerSeq)
 }
 
 func (s *Service) nextAgentRequestID(serverID string) string {

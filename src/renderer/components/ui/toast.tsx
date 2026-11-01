@@ -117,8 +117,11 @@ function defaultDuration(kind: ToastKind): number {
   return TOAST_INFO_MS;
 }
 
-/** Imperative entry point; safe to call from any module. */
-export function showToast(input: ToastInput): void {
+/**
+ * Imperative entry point; safe to call from any module. Returns the toast's
+ * id, for `dismissToast`.
+ */
+export function showToast(input: ToastInput): number {
   const id = nextId++;
   const actions = input.actions ?? [];
 
@@ -141,6 +144,12 @@ export function showToast(input: ToastInput): void {
     },
   ];
   bus.notify();
+  return id;
+}
+
+/** Removes a toast that no longer applies, e.g. an action toast. */
+export function dismissToast(id: number): void {
+  dismiss(id);
 }
 
 function dismiss(id: number): void {
@@ -185,7 +194,9 @@ export function ToastRoot(): React.JSX.Element | null {
       // Lets the browser-suspend observer lift the stack above a browser
       // tab's native view when the two overlap.
       data-toast-viewport=""
-      className="fixed bottom-4 right-4 z-[60] flex flex-col gap-2 w-[360px] max-w-[90vw]"
+      // Above the status bar, so its items stay clickable while a toast is
+      // up: the language server's warning sits at its right end.
+      className="fixed bottom-10 right-4 z-[60] flex flex-col gap-2 w-[360px] max-w-[90vw]"
     >
       {toasts.map((toast) => {
         // Action toasts use role="alert" (assertive) so assistive technology

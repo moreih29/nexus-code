@@ -82,6 +82,12 @@ export function SettingsDialog({
       keywords: ["font", "size", "family", "ligatures", "line height"],
     },
     {
+      id: "language-servers",
+      label: t("nav.languageServers"),
+      group: t("nav.group.settings"),
+      keywords: ["lsp", "language server", "completion", "diagnostics"],
+    },
+    {
       id: "terminal",
       label: t("nav.terminal"),
       group: t("nav.group.settings"),
@@ -92,6 +98,12 @@ export function SettingsDialog({
       label: t("nav.notifications"),
       group: t("nav.group.settings"),
       keywords: ["alert", "desktop", "os", "notification", "claude"],
+    },
+    {
+      id: "agent-cli",
+      label: t("nav.agentCli"),
+      group: t("nav.group.settings"),
+      keywords: ["nexus", "cli", "agent", "claude", "codex", "에이전트"],
     },
     {
       id: "browser-permissions",
@@ -116,6 +128,15 @@ export function SettingsDialog({
   const firstId = resolvedNav[0]?.id ?? "appearance";
   const [activeId, setActiveId] = useState<string>(defaultActiveId ?? firstId);
   const [query, setQuery] = useState("");
+
+  // The dialog stays mounted while closed, so opening it at a tab
+  // (openSettingsAt) has to move there itself; plain opening keeps the last.
+  const openedAt = open ? defaultActiveId : undefined;
+  const [shownAt, setShownAt] = useState(openedAt);
+  if (openedAt !== shownAt) {
+    setShownAt(openedAt);
+    if (openedAt) setActiveId(openedAt);
+  }
 
   const panelId = useId();
   const searchId = useId();

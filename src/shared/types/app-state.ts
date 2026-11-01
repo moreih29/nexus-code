@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { THEME_SOURCES } from "../design-tokens";
 import { KeybindingOverridesSchema } from "../keybindings/overrides";
+import { LSP_MAX_ACTIVE_WORKSPACES_LIMIT, LspLanguageSettingsSchema } from "../lsp/settings";
 import { CustomShellSchema, ShellChoiceSchema } from "../pty/shell";
 import { WorkspaceLayoutSnapshotSchema } from "./layout";
 
@@ -20,11 +21,6 @@ export const WindowBoundsSchema = z.object({
   height: z.number(),
 });
 
-// Closed set of language IDs that can be enabled per workspace for LSP.
-// Mirrors BUILTIN_LSP_PRESETS — update both when new language servers ship.
-export const LspLanguageIdSchema = z.enum(["typescript", "python"]);
-export type LspLanguageId = z.infer<typeof LspLanguageIdSchema>;
-
 export const AppStateSchema = z.object({
   windowBounds: WindowBoundsSchema.optional(),
   lastActiveWorkspaceId: z.string().optional(),
@@ -38,15 +34,17 @@ export const AppStateSchema = z.object({
   // ⌘⇧B command, never via storage coupling.
   filesPanelHidden: z.boolean().optional(),
   layoutByWorkspace: z.record(z.string().uuid(), WorkspaceLayoutSnapshotSchema).optional(),
-  // Per-workspace list of LSP languages the user has explicitly enabled.
-  // Key = workspaceId (UUID). Absent key (or absent field) means no
-  // languages enabled (default OFF). Optional rather than `.default({})`
-  // so the inferred output type matches the rest of the schema's
-  // optional-field convention — every consumer of `AppState` already
-  // narrows undefined → empty record at the call site.
-  lspEnabledLanguagesByWorkspace: z
-    .record(z.string().uuid(), z.array(LspLanguageIdSchema))
-    .optional(),
+  // Experimental: whether language servers run at all. Absent = off.
+  // Settings › Editor applies a change at once; see shared/lsp/settings.ts
+  // for how the lsp* fields combine.
+  lspEnabled: z.boolean().optional(),
+  // Each language's own settings, keyed by preset language id. A language
+  // left out runs while lspEnabled is on.
+  lspLanguages: z.record(z.string(), LspLanguageSettingsSchema).optional(),
+  // How many workspaces keep their servers running; absent = 4.
+  lspMaxActiveWorkspaces: z.number().int().min(1).max(LSP_MAX_ACTIVE_WORKSPACES_LIMIT).optional(),
+  // Per workspace, the languages turned off in it. Key = workspaceId (UUID).
+  lspDisabledLanguagesByWorkspace: z.record(z.string().uuid(), z.array(z.string())).optional(),
   // Theme preference persisted to appState (authoritative store).
   // localStorage is also written as a boot cache for FOUC prevention.
   themePreference: ThemePreferenceSchema.optional(),
@@ -111,6 +109,18 @@ export const AppStateSchema = z.object({
   // Shells the user added in Settings › Terminal, besides the detected ones.
   terminalShells: z.array(CustomShellSchema).max(64).optional(),
 
+  // The command a new task's terminal runs, with the task's first prompt as
+  // its argument; absent = "claude", empty = run nothing.
+  taskAgentCommand: z.string().max(1024).optional(),
+
+  // The view a sessions tab opens in (a SessionsView); absent = "tree". Kept
+  // as a plain string so a view this version lacks does not fail the state.
+  sessionsViewDefault: z.string().max(32).optional(),
+
+  // The view each workspace's sessions tab was last switched to, by the
+  // workspace its tasks belong to; it outlasts a change of the default.
+  sessionsViewByWorkspace: z.record(z.string().uuid(), z.string().max(32)).optional(),
+
   // Update channel — "stable" follows non-prerelease tags only; "beta" also
   // includes prerelease tags (e.g. v1.2.0-beta.1).  Defaults to "stable".
   updateChannel: z.enum(["stable", "beta"]).default("stable"),
@@ -134,6 +144,18 @@ export const AppStateSchema = z.object({
   // `fireOsNotification` gate. The in-app status broker (sidebar indicator
   // glyphs, attention badges) is unaffected — only OS-level notifications.
   osNotificationsEnabled: z.boolean().default(true),
+
+  // The nexus command in the app's terminals (main/features/cli). Off, every
+  // nexus command fails with a note saying so.
+  cliEnabled: z.boolean().default(true),
+
+  // What nexus may do to a workspace other than its terminal's own: ask the
+  // user each time, allow it, or refuse it. Reading is always allowed.
+  cliCrossWorkspace: z.enum(["ask", "allow", "deny"]).default("ask"),
+
+  // Whether Claude Code sessions started in the app are told about nexus at
+  // their start (a SessionStart hook prints a short note).
+  cliAgentContext: z.boolean().default(true),
 
   // Global browser permission toggles keyed by BrowserPermissionKind string.
   // Absent key (or absent field) means the permission is OFF (denied).

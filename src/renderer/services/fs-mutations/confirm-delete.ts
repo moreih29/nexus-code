@@ -30,6 +30,7 @@ import { closeEditorTabsOfDeletedPath } from "@/services/editor/tabs";
 import { useFilesStore } from "@/state/stores/files";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
 import { basename } from "@/utils/path";
+import { trashName } from "@/utils/trash-name";
 import {
   type BatchFailure,
   partialFailureMessage,
@@ -100,15 +101,15 @@ function composeDescription({ displayName, isDir, useTrash }: DescriptionInput):
     : i18next.t("files:fileTree.delete.askFile", { name: displayName });
   const consequence = useTrash
     ? isDir
-      ? i18next.t("files:fileTree.delete.restoreFolder")
-      : i18next.t("files:fileTree.delete.restoreFile")
+      ? i18next.t("files:fileTree.delete.restoreFolder", { bin: trashName() })
+      : i18next.t("files:fileTree.delete.restoreFile", { bin: trashName() })
     : i18next.t("files:fileTree.delete.permanent");
   return `${subject} ${consequence}`;
 }
 
 function deleteLabel(useTrash: boolean): string {
   return useTrash
-    ? i18next.t("files:fileTree.delete.moveToTrash")
+    ? i18next.t("files:fileTree.delete.moveToTrash", { bin: trashName() })
     : i18next.t("common:action.delete");
 }
 
@@ -164,7 +165,7 @@ export async function confirmAndDeleteBatch(
   const N = effective.length;
   const names = effective.map((p) => basename(p));
   const suffix = useTrash
-    ? i18next.t("files:fileTree.delete.restoreItems")
+    ? i18next.t("files:fileTree.delete.restoreItems", { bin: trashName() })
     : i18next.t("files:fileTree.delete.permanent");
 
   let description: string;

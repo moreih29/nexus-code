@@ -36,12 +36,6 @@ describe("parseWorkspaceDragPayload", () => {
     expect(parseWorkspaceDragPayload(dt)).toEqual(payload);
   });
 
-  test("returns typed payload when pinned=true", () => {
-    const payload = { workspaceId: "abc-123", pinned: true };
-    const dt = fakeDt({ [MIME_WORKSPACE_ROW]: JSON.stringify(payload) });
-    expect(parseWorkspaceDragPayload(dt)).toEqual(payload);
-  });
-
   test("returns null when MIME slot is absent", () => {
     const dt = fakeDt({});
     expect(parseWorkspaceDragPayload(dt)).toBeNull();

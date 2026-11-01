@@ -30,6 +30,8 @@ type terminal struct {
 	mu     sync.Mutex // keeps setSize off a closed console
 	closed bool
 	hpc    windows.Handle
+
+	shellPID uint32 // the shell's process id, once it has started
 }
 
 // defaultShell resolves the shell for a PTY when the client names none:
@@ -44,8 +46,20 @@ func defaultShell() string {
 	return "cmd.exe"
 }
 
+// allowCtrlC lets the shells take Ctrl+C. A process started in a new
+// process group ignores it and passes that on to the processes it starts,
+// so in an app started from one, no program a terminal ran stopped on
+// Ctrl+C.
+var allowCtrlC sync.Once
+
+var procSetConsoleCtrlHandler = windows.NewLazySystemDLL("kernel32.dll").NewProc("SetConsoleCtrlHandler")
+
 // startTerminal starts spec's shell in a new pseudoconsole.
 func startTerminal(spec spawnSpec) (*terminal, *child, error) {
+	allowCtrlC.Do(func() {
+		// SetConsoleCtrlHandler(NULL, FALSE): stop ignoring Ctrl+C.
+		_, _, _ = procSetConsoleCtrlHandler.Call(0, 0)
+	})
 	path, err := exec.LookPath(spec.shell)
 	if err != nil {
 		return nil, nil, err
@@ -81,6 +95,7 @@ func startTerminal(spec spawnSpec) (*terminal, *child, error) {
 		_ = t.Close()
 		return nil, nil, err
 	}
+	t.shellPID = uint32(process.Pid)
 	return t, &child{process}, nil
 }
 
@@ -175,10 +190,18 @@ func (t *terminal) setSize(cols, rows int) error {
 	return windows.ResizePseudoConsole(t.hpc, windows.Coord{X: int16(cols), Y: int16(rows)})
 }
 
-// foregroundProcess reports no name: a console has no foreground process
-// group to read it from.
+// foregroundProcess returns the name of the program the shell runs, or the
+// shell's own when it runs none (see foregroundOf), or "" when it cannot be
+// told.
 func (t *terminal) foregroundProcess() string {
-	return ""
+	if t.shellPID == 0 {
+		return ""
+	}
+	entries, err := listProcesses()
+	if err != nil {
+		return ""
+	}
+	return foregroundOf(entries, t.shellPID, readProcessDetail)
 }
 
 // Close closes the console and its pipes. The output pipe reads end once the

@@ -40,9 +40,7 @@ mock.module("../../../../../src/renderer/services/editor/lsp/bridge", () => ({
   notifyDidSave: () => Promise.resolve(),
 }));
 
-const { createEntry, snapshot } = await import(
-  "../../../../../src/renderer/services/editor/model/entry"
-);
+const { createEntry } = await import("../../../../../src/renderer/services/editor/model/entry");
 
 const WORKSPACE_INPUT = { workspaceId: "ws-1", filePath: "/workspace/src/a.ts" };
 const CACHE_URI = "file:///workspace/src/a.ts";
@@ -66,21 +64,5 @@ describe("ModelEntry construction — origin/readOnly fields", () => {
     expect(entry.origin).toBe("external");
     expect(entry.readOnly).toBe(true);
     expect(entry.originatingWorkspaceId).toBe("ws-1");
-  });
-
-  test("snapshot includes readOnly=true from external entry", () => {
-    const entry = createEntry(
-      { ...WORKSPACE_INPUT, origin: "external", readOnly: true },
-      CACHE_URI,
-    );
-    // Entry starts in loading phase (loadEntry is pending), so snapshot.model is null.
-    const snap = snapshot(entry);
-    expect(snap.readOnly).toBe(true);
-  });
-
-  test("snapshot includes readOnly=false from default workspace entry", () => {
-    const entry = createEntry(WORKSPACE_INPUT, CACHE_URI);
-    const snap = snapshot(entry);
-    expect(snap.readOnly).toBe(false);
   });
 });

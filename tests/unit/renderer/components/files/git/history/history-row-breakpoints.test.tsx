@@ -45,13 +45,22 @@ class TestDomElement {
 }
 
 describe("HistoryRow breakpoint columns", () => {
+  it("compact rows keep only graph, subject, and actions", () => {
+    const row = renderHistoryRow("compact");
+
+    expect(row.children).toHaveLength(3);
+    expect(gridTrackCount(row)).toBe(3);
+    expect(row.textContent).toContain("Subject stays visible");
+    expect(row.textContent).not.toContain("refs");
+    expect(row.textContent).not.toContain("abc1234");
+    expect(String(row.props.title)).toContain("SHA: abc1234567890");
+  });
+
   it("narrow rows show graph, subject, time, and actions while title keeps hidden metadata", () => {
     const row = renderHistoryRow("narrow");
 
-    expect(String(row.props.className)).toContain(
-      "grid-cols-[var(--graph-w)_minmax(0,1fr)_8ch_24px]",
-    );
     expect(row.children).toHaveLength(4);
+    expect(gridTrackCount(row)).toBe(4);
     expect(row.textContent).toContain("Subject stays visible");
     expect(row.textContent).not.toContain("refs");
     expect(row.textContent).not.toContain("Ada Lovelace");
@@ -63,10 +72,8 @@ describe("HistoryRow breakpoint columns", () => {
   it("medium rows add refs and short SHA but keep author hidden", () => {
     const row = renderHistoryRow("medium");
 
-    expect(String(row.props.className)).toContain(
-      "grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_8ch_7ch_24px]",
-    );
     expect(row.children).toHaveLength(6);
+    expect(gridTrackCount(row)).toBe(6);
     expect(row.textContent).toContain("refs");
     expect(row.textContent).toContain("abc1234");
     expect(row.textContent).not.toContain("Ada Lovelace");
@@ -75,10 +82,8 @@ describe("HistoryRow breakpoint columns", () => {
   it("wide rows match the full seven-column layout with author", () => {
     const row = renderHistoryRow("wide");
 
-    expect(String(row.props.className)).toContain(
-      "grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_12ch_8ch_7ch_24px]",
-    );
     expect(row.children).toHaveLength(7);
+    expect(gridTrackCount(row)).toBe(7);
     expect(row.textContent).toContain("refs");
     expect(row.textContent).toContain("Ada Lovelace");
     expect(row.textContent).toContain("abc1234");
@@ -106,6 +111,12 @@ function renderHistoryRow(breakpoint: HistoryListBreakpoint): TestDomElement {
   const row = roots.find((node): node is TestDomElement => node instanceof TestDomElement);
   if (!row) throw new Error("HistoryRow rendered no element");
   return row;
+}
+
+/** Counts the tracks in the row's `grid-cols-[…]` template, one per column. */
+function gridTrackCount(row: TestDomElement): number {
+  const template = /grid-cols-\[([^\]]+)\]/.exec(String(row.props.className))?.[1];
+  return template ? template.split("_").length : 0;
 }
 
 /** Builds a deterministic commit row fixture. */

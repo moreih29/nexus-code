@@ -140,3 +140,52 @@ describe("ClaudeStatusBroker — broadcast 동작", () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+describe("ClaudeStatusBroker — prompt", () => {
+  test("prompt는 다음 set까지 유지 — 상태가 바뀌어도 마지막 지시를 보여주도록", () => {
+    const { broker, calls } = makeBroker();
+    broker.set("ws-1", "tab-1", "running", undefined, "fix the build");
+    broker.set("ws-1", "tab-1", "completed", "done");
+    expect(broker.get("ws-1", "tab-1")?.prompt).toBe("fix the build");
+    expect((calls[1].args as { prompt?: string }).prompt).toBe("fix the build");
+    expect(broker.snapshot()[0].prompt).toBe("fix the build");
+  });
+
+  test("null이면 prompt를 비움 (새 세션)", () => {
+    const { broker } = makeBroker();
+    broker.set("ws-1", "tab-1", "running", undefined, "old");
+    broker.set("ws-1", "tab-1", "idle", undefined, null);
+    expect(broker.get("ws-1", "tab-1")?.prompt).toBeUndefined();
+  });
+
+  test("prompt만 바뀌어도 broadcast 재발사", () => {
+    const { broker, calls } = makeBroker();
+    broker.set("ws-1", "tab-1", "running", undefined, "first");
+    broker.set("ws-1", "tab-1", "running", undefined, "second");
+    expect(calls).toHaveLength(2);
+    expect((calls[1].args as { prompt?: string }).prompt).toBe("second");
+  });
+});
+
+describe("ClaudeStatusBroker — onChange", () => {
+  test("set·clear·clearWorkspace 마다 listener를 부르고, 해제하면 멈춘다", () => {
+    const { broker } = makeBroker();
+    const seen: unknown[] = [];
+    const off = broker.onChange((workspaceId, tabId, entry) =>
+      seen.push([workspaceId, tabId, entry?.status ?? null]),
+    );
+    broker.set("ws-1", "tab-1", "running");
+    broker.set("ws-1", "tab-1", "running"); // 동일 — 생략
+    broker.clear("ws-1", "tab-1");
+    broker.set("ws-1", "tab-2", "completed");
+    broker.clearWorkspace("ws-1");
+    off();
+    broker.set("ws-1", "tab-1", "idle");
+    expect(seen).toEqual([
+      ["ws-1", "tab-1", "running"],
+      ["ws-1", "tab-1", null],
+      ["ws-1", "tab-2", "completed"],
+      ["ws-1", "tab-2", null],
+    ]);
+  });
+});

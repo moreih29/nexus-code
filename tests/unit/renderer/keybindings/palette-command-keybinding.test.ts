@@ -15,7 +15,6 @@ import {
   handleGlobalKeyDown,
 } from "../../../../src/renderer/keybindings/dispatcher";
 import { COMMANDS } from "../../../../src/shared/keybindings/commands";
-import { findPrimaryBinding } from "../../../../src/shared/keybindings/index";
 
 interface MockEvent {
   metaKey: boolean;
@@ -76,10 +75,6 @@ afterEach(() => {
 });
 
 describe("workspace symbol palette command/keybinding", () => {
-  it("binds Cmd+T to the workspace symbol search command", () => {
-    expect(findPrimaryBinding(COMMANDS.workspaceSymbolSearch)?.primary).toBe("CmdOrCtrl+Shift+O");
-  });
-
   it("command registration opens the palette", () => {
     const unregister = registerPaletteCommands();
 
@@ -89,7 +84,7 @@ describe("workspace symbol palette command/keybinding", () => {
     for (const off of unregister) off();
   });
 
-  it("Cmd+T dispatch opens the palette", () => {
+  it("⌘⇧O dispatch opens the palette", () => {
     const unregister = registerPaletteCommands();
     let prevented = false;
     const e = {

@@ -16,6 +16,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/nexus-code/nexus-code/internal/cliclient"
 	"github.com/nexus-code/nexus-code/internal/dispatch"
 	agentfs "github.com/nexus-code/nexus-code/internal/fs"
 	agentgit "github.com/nexus-code/nexus-code/internal/git"
@@ -33,6 +34,11 @@ func main() {
 	// Claude Code는 hook 이벤트 발생 시 `agent hook <subcommand>` 형태로 호출한다.
 	if len(os.Args) >= 2 && os.Args[1] == "hook" {
 		os.Exit(hookclient.Run(os.Args[2:]))
+	}
+
+	// The nexus command in the app's terminals runs `agent cli <args>`.
+	if len(os.Args) >= 2 && os.Args[1] == "cli" {
+		os.Exit(cliclient.Run(os.Args[2:]))
 	}
 
 	// In the MSIX package, git starts the app as its commit message editor

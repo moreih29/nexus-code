@@ -7,7 +7,10 @@ import {
   type WorkspaceMeta,
   WorkspaceMetaSchema,
   WorkspaceSshLocationSchema,
+  type WorkspaceTask,
+  WorkspaceTaskSchema,
 } from "../../../shared/types/workspace";
+import type { SessionSpan } from "../../../shared/sessions/history";
 import { applyMigrations, type SqliteDb } from "./migrations";
 
 // ---------------------------------------------------------------------------
@@ -135,6 +138,7 @@ interface WorkspaceRow {
   last_opened_at: number;
   sort_order: number;
   pinned_sort_order: number;
+  task: string | null;
 }
 
 /**
@@ -203,6 +207,17 @@ function salvageSshLocation(value: unknown): WorkspaceLocation | null {
   return WorkspaceSshLocationSchema.parse(salvaged);
 }
 
+/** The stored task, or undefined for an ordinary workspace or an unreadable one. */
+function rowTask(row: WorkspaceRow): WorkspaceTask | undefined {
+  if (!row.task) return undefined;
+  try {
+    const parsed = WorkspaceTaskSchema.safeParse(JSON.parse(row.task));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function normalizeLocation(location: WorkspaceLocation): WorkspaceLocation {
   return WorkspaceLocationSchema.parse(location);
 }
@@ -223,6 +238,7 @@ function rowToMeta(row: WorkspaceRow): WorkspaceMeta {
     tabs: [],
     sortOrder: row.sort_order,
     pinnedSortOrder: row.pinned_sort_order,
+    task: rowTask(row),
   });
 }
 
@@ -279,8 +295,8 @@ export class GlobalStorage {
       .prepare(
         `INSERT INTO workspaces
            (id, name, root_path, location, color_tone, pinned, last_opened_at,
-            sort_order, pinned_sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            sort_order, pinned_sort_order, task)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         normalized.id,
@@ -292,6 +308,7 @@ export class GlobalStorage {
         normalized.lastOpenedAt ? new Date(normalized.lastOpenedAt).getTime() : Date.now(),
         normalized.sortOrder,
         normalized.pinnedSortOrder,
+        normalized.task ? JSON.stringify(normalized.task) : null,
       );
   }
 
@@ -443,6 +460,8 @@ export class GlobalStorage {
   // -------------------------------------------------------------------------
   // Workspace sort-order helpers
   // -------------------------------------------------------------------------
+  // Tasks (rows with a task) are not sidebar rows, so they take no part in
+  // a group's order: they keep position 0 and the queries skip them.
 
   /**
    * Returns the tail position for a new workspace appended to the given group.
@@ -456,7 +475,7 @@ export class GlobalStorage {
       .prepare(
         `SELECT MAX(${col}) AS max_val
          FROM workspaces
-         WHERE pinned = ?`,
+         WHERE pinned = ? AND task IS NULL`,
       )
       .get(pinnedFilter) as { max_val: number | null };
     const maxVal = row.max_val ?? 0;
@@ -523,7 +542,7 @@ export class GlobalStorage {
         .prepare(
           `SELECT ${col} AS pos
            FROM workspaces
-           WHERE pinned = ? AND ${col} < ?
+           WHERE pinned = ? AND task IS NULL AND ${col} < ?
            ORDER BY ${col} DESC
            LIMIT 1`,
         )
@@ -566,7 +585,7 @@ export class GlobalStorage {
       .prepare(
         `SELECT ${col} AS pos
          FROM workspaces
-         WHERE pinned = ? AND ${col} > ?
+         WHERE pinned = ? AND task IS NULL AND ${col} > ?
          ORDER BY ${col} ASC
          LIMIT 1`,
       )
@@ -603,7 +622,7 @@ export class GlobalStorage {
       .prepare(
         `SELECT id, sort_order, pinned_sort_order
          FROM workspaces
-         WHERE pinned = ?
+         WHERE pinned = ? AND task IS NULL
          ORDER BY ${col} ASC, id ASC`,
       )
       .all(pinnedFilter) as { id: string; sort_order: number; pinned_sort_order: number }[];
@@ -830,4 +849,77 @@ export class GlobalStorage {
   removeConnectionProfile(id: string): void {
     this.db.prepare(`DELETE FROM connection_profiles WHERE id = ?`).run(id);
   }
+
+  // -------------------------------------------------------------------------
+  // Session spans — the sessions tab's timeline
+  // -------------------------------------------------------------------------
+
+  /** Records a span as it starts; returns its id, for endSessionSpan. */
+  startSessionSpan(span: Omit<SessionSpan, "end">): number {
+    const result = this.db
+      .prepare(
+        `INSERT INTO session_spans
+           (workspace_id, tab_id, state, start_at, target_workspace_id, target_tab_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        span.workspaceId,
+        span.tabId,
+        span.state,
+        span.start,
+        span.target?.workspaceId ?? null,
+        span.target?.tabId ?? null,
+      ) as { lastInsertRowid: number | bigint };
+    return Number(result.lastInsertRowid);
+  }
+
+  endSessionSpan(id: number, end: number): void {
+    this.db.prepare(`UPDATE session_spans SET end_at = ? WHERE id = ?`).run(end, id);
+  }
+
+  /** The spans of `workspaceIds` lasting until `since` or later, oldest first. */
+  listSessionSpans(workspaceIds: readonly string[], since: number): SessionSpan[] {
+    if (workspaceIds.length === 0) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM session_spans
+         WHERE workspace_id IN (${workspaceIds.map(() => "?").join(", ")})
+           AND (end_at IS NULL OR end_at >= ?)
+         ORDER BY start_at, id`,
+      )
+      .all(...workspaceIds, since) as SessionSpanRow[];
+    return rows.map((row) => ({
+      workspaceId: row.workspace_id,
+      tabId: row.tab_id,
+      state: row.state,
+      start: row.start_at,
+      end: row.end_at,
+      ...(row.target_workspace_id && row.target_tab_id
+        ? { target: { workspaceId: row.target_workspace_id, tabId: row.target_tab_id } }
+        : {}),
+    }));
+  }
+
+  /**
+   * Ends the spans a previous run left open, at their start: when it quit
+   * or crashed is not known.
+   */
+  endOpenSessionSpans(): void {
+    this.db.exec(`UPDATE session_spans SET end_at = start_at WHERE end_at IS NULL`);
+  }
+
+  /** Drops the spans that ended before `before`. */
+  pruneSessionSpans(before: number): void {
+    this.db.prepare(`DELETE FROM session_spans WHERE end_at < ?`).run(before);
+  }
+}
+
+interface SessionSpanRow {
+  workspace_id: string;
+  tab_id: string;
+  state: string;
+  start_at: number;
+  end_at: number | null;
+  target_workspace_id: string | null;
+  target_tab_id: string | null;
 }

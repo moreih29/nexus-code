@@ -11,7 +11,8 @@ import { MainListView } from "./main-list-view";
 import { SshConnectionListView } from "./ssh-connection-list-view";
 import { type SshDirectoryPickerHandle, SshDirectoryPickerView } from "./ssh-directory-picker-view";
 import { SshNewConnectionView } from "./ssh-new-connection-view";
-import type { ModalView, SshBrowseSession, SshConfigHost } from "./types";
+import type { ModalView, SshBrowseSession, SshConfigHost, WslBrowseSession } from "./types";
+import { WslDistroListView } from "./wsl-distro-list-view";
 
 // ---------------------------------------------------------------------------
 // Dialog props
@@ -33,11 +34,13 @@ export function AddWorkspaceDialog({
   onWorkspaceCreated,
 }: AddWorkspaceDialogProps): React.JSX.Element {
   const { t } = useTranslation();
-  // 4-view state machine
+  // View state machine
   const [view, setView] = useState<ModalView>("main-list");
 
-  // SSH browse session — passed to directory picker
-  const [browseSession, setBrowseSession] = useState<SshBrowseSession | null>(null);
+  // SSH or WSL browse session — passed to directory picker
+  const [browseSession, setBrowseSession] = useState<SshBrowseSession | WslBrowseSession | null>(
+    null,
+  );
 
   // SSH config hosts — for new connection form combobox
   const [configHosts, setConfigHosts] = useState<SshConfigHost[]>([]);
@@ -104,6 +107,14 @@ export function AddWorkspaceDialog({
     setView("ssh-directory-picker");
   }
 
+  // A WSL distribution's agent is up — from WslDistroListView
+  function handleWslConnected(session: WslBrowseSession): void {
+    setBrowseSession(session);
+    setAddPhase("idle");
+    setAddDisabled(false);
+    setView("wsl-directory-picker");
+  }
+
   // Go from connection list to new connection form (no prefill)
   function handleNewConnection(): void {
     setPrefillProfile(null);
@@ -144,13 +155,16 @@ export function AddWorkspaceDialog({
       setView("ssh-server-list");
     } else if (view === "ssh-directory-picker") {
       setView("ssh-server-list");
+    } else if (view === "wsl-distro-list") {
+      setView("main-list");
+    } else if (view === "wsl-directory-picker") {
+      setView("wsl-distro-list");
     }
   }
 
-  // ← Back is visible on every SSH view; main-list is the root (no Back).
-  // From ssh-server-list it returns to the initial local/main view.
-  const showBack =
-    view === "ssh-server-list" || view === "ssh-new-connection" || view === "ssh-directory-picker";
+  // ← Back is visible on every SSH and WSL view; main-list is the root (no Back).
+  // From ssh-server-list or wsl-distro-list it returns to the initial local/main view.
+  const showBack = view !== "main-list";
 
   // Footer primary slot — only on form views
   let primarySlot: React.ReactNode = null;
@@ -173,7 +187,7 @@ export function AddWorkspaceDialog({
         {isConnecting ? t("ssh.connecting") : isError ? t("action.retry") : t("action.connect")}
       </Button>
     );
-  } else if (view === "ssh-directory-picker") {
+  } else if (view === "ssh-directory-picker" || view === "wsl-directory-picker") {
     primarySlot = (
       <Button
         type="button"
@@ -232,6 +246,8 @@ export function AddWorkspaceDialog({
             onNewConnection={handleNewConnection}
             onNewConnectionPrefill={handleNewConnectionPrefill}
             onSshServerList={() => setView("ssh-server-list")}
+            onWslDistroList={() => setView("wsl-distro-list")}
+            onWslConnected={handleWslConnected}
             configHosts={configHosts}
             configHostsLoading={configHostsLoading}
             onConnectPhaseChange={(phase, disabled) => {
@@ -300,7 +316,7 @@ function DialogHeader({ view, showBack, onBack }: DialogHeaderProps): React.JSX.
 interface ViewBodyProps {
   readonly view: ModalView;
   readonly pickerRef: React.RefObject<SshDirectoryPickerHandle | null>;
-  readonly browseSession: SshBrowseSession | null;
+  readonly browseSession: SshBrowseSession | WslBrowseSession | null;
   readonly prefillProfile: ConnectionProfile | null;
   readonly onViewChange: (view: ModalView) => void;
   readonly onWorkspaceCreated: (meta: WorkspaceMeta) => void | Promise<void>;
@@ -309,6 +325,8 @@ interface ViewBodyProps {
   readonly onNewConnection: () => void;
   readonly onNewConnectionPrefill: (profileId: string) => void;
   readonly onSshServerList: () => void;
+  readonly onWslDistroList: () => void;
+  readonly onWslConnected: (session: WslBrowseSession) => void;
   readonly configHosts: readonly SshConfigHost[];
   readonly configHostsLoading: boolean;
   readonly onConnectPhaseChange: (
@@ -331,6 +349,8 @@ function ViewBody(props: ViewBodyProps): React.JSX.Element {
     onNewConnection,
     onNewConnectionPrefill,
     onSshServerList,
+    onWslDistroList,
+    onWslConnected,
     configHosts,
     configHostsLoading,
     onConnectPhaseChange,
@@ -344,8 +364,21 @@ function ViewBody(props: ViewBodyProps): React.JSX.Element {
           onWorkspaceCreated={onWorkspaceCreated}
           onClose={onClose}
           onSshServerList={onSshServerList}
+          onWslDistroList={onWslDistroList}
           onNewConnectionPrefill={onNewConnectionPrefill}
         />
+      </FadeView>
+    );
+  }
+
+  // wsl-distro-list, and the WSL picker's fallback when its session is gone
+  if (
+    view === "wsl-distro-list" ||
+    (view === "wsl-directory-picker" && !(browseSession && "distro" in browseSession))
+  ) {
+    return (
+      <FadeView viewKey="wsl-distro-list">
+        <WslDistroListView onConnected={onWslConnected} />
       </FadeView>
     );
   }
@@ -393,14 +426,15 @@ function ViewBody(props: ViewBodyProps): React.JSX.Element {
     );
   }
 
+  const isWsl = "distro" in browseSession;
   return (
-    <FadeView viewKey="ssh-directory-picker" fill>
+    <FadeView viewKey={view} fill>
       <SshDirectoryPickerView
         ref={pickerRef}
         session={browseSession}
         onWorkspaceCreated={onWorkspaceCreated}
         onClose={onClose}
-        onBack={() => onViewChange("ssh-server-list")}
+        onBack={() => onViewChange(isWsl ? "wsl-distro-list" : "ssh-server-list")}
         onAddPhaseChange={onAddPhaseChange}
       />
     </FadeView>
@@ -484,5 +518,7 @@ function viewSubtitle(view: ModalView, t: (key: string) => string): string {
   if (view === "main-list") return t("workspace.add_subtitle_main");
   if (view === "ssh-server-list") return t("workspace.add_subtitle_ssh_list");
   if (view === "ssh-new-connection") return t("workspace.add_subtitle_ssh_new");
+  if (view === "wsl-distro-list") return t("workspace.add_subtitle_wsl_list");
+  if (view === "wsl-directory-picker") return t("workspace.add_subtitle_wsl_picker");
   return t("workspace.add_subtitle_ssh_picker");
 }

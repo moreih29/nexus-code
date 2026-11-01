@@ -23,6 +23,7 @@ import {
 } from "../../../../../src/shared/git/types";
 import type {
   GitBlobOptions,
+  GitBranchDeleteOptions,
   GitCommitDetailOptions,
   GitDiffOptions,
   GitExecutor,
@@ -204,6 +205,11 @@ export function localSemanticExecutor(bin: string, gitDirHint?: string): GitExec
           : ["push"];
       await runLocal({ cwd: options.cwd, args, signal: options.signal });
       return { pushed: true };
+    },
+
+    async branchDelete(options: GitBranchDeleteOptions): Promise<void> {
+      const args = ["branch", options.force ? "-D" : "-d", "--", options.name];
+      await runLocal({ cwd: options.cwd, args, signal: options.signal });
     },
   };
 }
@@ -552,7 +558,7 @@ async function* streamLocalLog(
   const args = buildLocalLogArgs(logArgs);
   const scope = logArgs.scope ?? "ref";
   const hasSource = scope !== "ref";
-  const cursorSha = hasSource ? logArgs.afterSha?.trim() : undefined;
+  const cursorSha = logArgs.afterSha?.trim() || undefined;
   const decoder = new StringDecoder("utf8");
   let pendingText = "";
   let count = 0;
@@ -623,9 +629,9 @@ function buildLocalLogArgs(args: GitLogOptions): string[] {
   }
 
   const afterSha = args.afterSha?.trim();
-  const usesStreamCursorSeek = scope !== "ref" && afterSha !== undefined && afterSha.length > 0;
+  const usesStreamCursorSeek = afterSha !== undefined && afterSha.length > 0;
   const format = scope === "ref" ? LOG_FORMAT : LOG_SOURCE_FORMAT;
-  const gitArgs = ["log", `--pretty=format:${format}`, "--date=iso-strict"];
+  const gitArgs = ["log", `--pretty=format:${format}`, "--date=iso-strict", "--date-order"];
 
   if (args.grep && args.grep.trim().length > 0) gitArgs.push(`--grep=${args.grep.trim()}`);
   if (scope === "ref" && args.skip && args.skip > 0) gitArgs.push(`--skip=${args.skip}`);
@@ -634,9 +640,7 @@ function buildLocalLogArgs(args: GitLogOptions): string[] {
   }
   if (scope === "all") gitArgs.push("--source", "--all");
   if (scope === "branches") gitArgs.push("--source", "--branches");
-  if (scope === "ref" && afterSha && afterSha.length > 0) {
-    gitArgs.push(`${afterSha}^@`);
-  } else if (scope === "ref" && args.ref && args.ref.trim().length > 0) {
+  if (scope === "ref" && args.ref && args.ref.trim().length > 0) {
     gitArgs.push(args.ref);
   }
 

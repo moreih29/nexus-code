@@ -146,10 +146,6 @@ describe("isPureCanceled — cancellation detection", () => {
     expect(isPureCanceled({ message: "Canceled" })).toBe(true);
   });
 
-  test("returns true when both name and message are 'Canceled'", () => {
-    expect(isPureCanceled({ name: "Canceled", message: "Canceled" })).toBe(true);
-  });
-
   test("returns false for a generic Error object", () => {
     expect(isPureCanceled(new Error("something went wrong"))).toBe(false);
   });
@@ -188,31 +184,12 @@ describe("installWindowErrorHandlers — listener registration and teardown", ()
     (globalThis as Record<string, unknown>).window = windowStub.stub;
   });
 
-  test("registers 'error' and 'unhandledrejection' listeners on install", () => {
-    installWindowErrorHandlers();
-
-    const types = windowStub.added.map((l) => l.type);
-    expect(types).toContain("error");
-    expect(types).toContain("unhandledrejection");
-  });
-
-  test("teardown removes both listeners", () => {
+  test("teardown removes exactly the listeners it added", () => {
     const teardown = installWindowErrorHandlers();
     teardown();
 
-    const removedTypes = windowStub.removed.map((l) => l.type);
-    expect(removedTypes).toContain("error");
-    expect(removedTypes).toContain("unhandledrejection");
-  });
-
-  test("teardown removes the exact same function references that were added", () => {
-    const teardown = installWindowErrorHandlers();
-    teardown();
-
-    for (const { type, fn } of windowStub.removed) {
-      const found = windowStub.added.find((a) => a.type === type && a.fn === fn);
-      expect(found).toBeDefined();
-    }
+    expect(windowStub.added.map((l) => l.type).sort()).toEqual(["error", "unhandledrejection"]);
+    expect(windowStub.removed).toEqual(windowStub.added);
   });
 });
 
@@ -236,24 +213,19 @@ describe("unhandledrejection handler — Canceled rejection is silent", () => {
     teardown = null;
   });
 
-  test("Canceled rejection: nothing is logged", () => {
+  test("Canceled rejection: suppressed, nothing is logged", () => {
     const event = makeRejectionEvent({ name: "Canceled" });
     windowStub.invoke("unhandledrejection", event);
 
+    expect(event.defaultPrevented).toBe(true);
     expect(logged.filter((l) => l.level === "error").length).toBe(0);
   });
 
-  test("Canceled rejection (by message): nothing is logged", () => {
-    const event = makeRejectionEvent({ message: "Canceled" });
-    windowStub.invoke("unhandledrejection", event);
-
-    expect(logged.filter((l) => l.level === "error").length).toBe(0);
-  });
-
-  test("real rejection: error is logged", () => {
+  test("real rejection: error is logged and left to the runtime", () => {
     const event = makeRejectionEvent(new Error("network timeout"));
     windowStub.invoke("unhandledrejection", event);
 
+    expect(event.defaultPrevented).toBe(false);
     expect(logged.filter((l) => l.level === "error").length).toBeGreaterThan(0);
   });
 });
@@ -278,17 +250,19 @@ describe("error handler — Canceled error is silent", () => {
     teardown = null;
   });
 
-  test("Canceled error: nothing is logged", () => {
+  test("Canceled error: suppressed, nothing is logged", () => {
     const event = makeErrorEvent({ name: "Canceled" });
     windowStub.invoke("error", event);
 
+    expect(event.defaultPrevented).toBe(true);
     expect(logged.filter((l) => l.level === "error").length).toBe(0);
   });
 
-  test("real synchronous error: error is logged", () => {
+  test("real synchronous error: error is logged and left to the runtime", () => {
     const event = makeErrorEvent(new Error("unexpected crash"));
     windowStub.invoke("error", event);
 
+    expect(event.defaultPrevented).toBe(false);
     expect(logged.filter((l) => l.level === "error").length).toBeGreaterThan(0);
   });
 });

@@ -1,6 +1,12 @@
 import path from "node:path";
 import { app, type BrowserWindow, session } from "electron";
 import { createLogger, initMainLogger } from "../shared/log/main";
+import {
+  isLspLanguageOnForWorkspace,
+  lspInitializationOptions,
+  lspServerPath,
+  lspSettingsFromState,
+} from "../shared/lsp/settings";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { installErrorSafetyNet } from "./error-safety-net";
 import { registerAppStateChannel } from "./features/app-state";
@@ -8,6 +14,7 @@ import { getBrowserRegistry, initBrowserFeature, registerBrowserCloser } from ".
 import { updateBrowserKeybindings } from "./features/browser/keyboard";
 import { BrowserPermissionPromptManager } from "./features/browser/permission-prompt-manager";
 import { setupClaudeFeature } from "./features/claude/index";
+import { setupCliFeature } from "./features/cli";
 import { registerClipboardChannel } from "./features/clipboard/ipc";
 import {
   installNexusWorkspaceProtocol,
@@ -36,21 +43,28 @@ import { installAppMenu } from "./features/menu";
 import { registerPanelChannel } from "./features/panel";
 import { startAgentPtyHost } from "./features/pty/agent-host";
 import { registerPtyChannel } from "./features/pty/ipc";
+import { installWindowsAgentFiles } from "./features/pty/windows-shell-shim";
 import type { PtyHostHandle } from "./features/pty/types";
 import { registerSystemChannel } from "./features/shell/ipc";
 import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
 import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ipc";
+import { registerTaskChannel } from "./features/tasks/ipc";
 import { installUpdatesDomain, type UpdatesDomainHandle } from "./features/updates";
 import {
   canUpdateInPlace,
   createElectronUpdateBackend,
 } from "./features/updates/electron-update-backend";
-import { createMainWindow } from "./features/window";
+import { createMainWindow, updateTitleBarOverlays } from "./features/window";
 import { installAppSessionPermissions } from "./features/window/app-session-permissions";
-import { hasAppWindow } from "./features/window/app-windows";
+import {
+  getActiveAppWindow,
+  getFocusedAppWindow,
+  hasAppWindow,
+} from "./features/window/app-windows";
 import { registerWindowChannel } from "./features/window/ipc";
 import { registerWorkspaceChannel } from "./features/workspace/ipc";
 import { WorkspaceManager } from "./features/workspace/manager";
+import { registerWslChannel } from "./features/wsl/ipc";
 import { getMainI18n, getMainT, initMainI18n } from "./i18n";
 import { NEXUS_AGENT_MODE_ENV } from "./infra/agent/local-agent-resolver";
 import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./infra/agent/ssh/auth-prompt";
@@ -59,7 +73,7 @@ import { createCachingAuthPromptHandler } from "./infra/agent/ssh/credential-cac
 import { sweepStaleControlDirs } from "./infra/agent/ssh/master";
 import { ensureRemoteAgent } from "./infra/agent/ssh/ssh-bootstrap/index";
 import { broadcast, setupRouter } from "./infra/ipc-router";
-import { isMac } from "./infra/platform";
+import { isMac, isWindows, loginShell } from "./infra/platform";
 import { syncUserShellPath } from "./infra/shell-path";
 import { GlobalStorage } from "./infra/storage/global-storage";
 import { StateService } from "./infra/storage/state-service";
@@ -92,6 +106,13 @@ if (!app.isPackaged) {
   process.env[NEXUS_AGENT_MODE_ENV] ??= "source";
 }
 
+// A launch from the Dock or a desktop entry can leave $SHELL unset. Name the
+// login shell for every child, so the agent's terminals, the shell shim and
+// the PATH sync below all pick the same one.
+if (!isWindows()) {
+  process.env.SHELL = loginShell();
+}
+
 // macOS / Linux GUI 앱은 launchd 기본 PATH(`/usr/bin:/bin:/usr/sbin:/sbin`)만
 // 받기 때문에 자식 프로세스(PTY shell, ssh, sftp)가 사용자 `~/.local/bin`,
 // `/opt/homebrew/bin`, `~/.cargo/bin` 등을 못 본다. packaged 모드에서만
@@ -114,6 +135,7 @@ const stateService = new StateService(path.join(userData, "state.json"));
 let lspHost: LspHostHandle | null = null;
 let agentPtyHost: PtyHostHandle | null = null;
 let disposeClaudeFeature: (() => void) | null = null;
+let disposeCliFeature: (() => void) | null = null;
 let gitRegistry: GitRegistry | null = null;
 let gitWatcher: AgentGitWatcher | null = null;
 let gitStatusCoalescer: StatusCoalescer | null = null;
@@ -145,13 +167,20 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
     gitStatusCoalescer?.cancel(removedWorkspaceId);
     gitAutofetch?.disposeWorkspace(removedWorkspaceId);
     gitRegistry?.dispose(removedWorkspaceId);
-    // Clean up per-workspace LSP enabled-languages key so deleted workspaces
-    // don't accumulate in appState indefinitely.
+    lspHost?.forgetWorkspace(removedWorkspaceId);
+    // Clean up the workspace's turned-off LSP languages so deleted
+    // workspaces don't accumulate in appState indefinitely.
     const currentState = stateService.getState();
-    const currentLspMap = currentState.lspEnabledLanguagesByWorkspace ?? {};
+    const currentLspMap = currentState.lspDisabledLanguagesByWorkspace ?? {};
     if (currentLspMap[removedWorkspaceId] !== undefined) {
       const { [removedWorkspaceId]: _removed, ...rest } = currentLspMap;
-      stateService.setState({ lspEnabledLanguagesByWorkspace: rest });
+      stateService.setState({ lspDisabledLanguagesByWorkspace: rest });
+    }
+    // Likewise the view its sessions tab was left in.
+    const currentViews = currentState.sessionsViewByWorkspace ?? {};
+    if (currentViews[removedWorkspaceId] !== undefined) {
+      const { [removedWorkspaceId]: _removedView, ...restViews } = currentViews;
+      stateService.setState({ sessionsViewByWorkspace: restViews });
     }
   }
   forwardBroadcast(channelName, event, args);
@@ -270,6 +299,11 @@ registerAppStateChannel(stateService, {
       customShells: terminalShells ?? [],
     });
   },
+
+  /** The theme changed: the window controls Electron draws follow it. */
+  onThemeChanged(theme) {
+    updateTitleBarOverlays(theme);
+  },
 });
 
 // Seed the browser-view key interceptor with persisted overrides so the
@@ -285,6 +319,7 @@ registerSshBrowseHandlers(
   forwardBroadcast,
 );
 registerSshAuthPromptIpcChannels(sshAuthPromptHub);
+registerWslChannel(sshBrowseRegistry, forwardBroadcast);
 registerSystemChannel({ openNewWindow: () => createMainWindow(stateService.getState()) });
 registerWindowChannel();
 registerClipboardChannel();
@@ -390,6 +425,11 @@ app.whenReady().then(async () => {
   gitAutofetch.start();
   registerAutofetchChannel(gitAutofetch);
   registerGitChannel(gitRegistry, workspaceStorage, gitAutofetch, workspaceManager);
+  const registry = gitRegistry;
+  registerTaskChannel({
+    manager: workspaceManager,
+    getRepository: (workspaceId) => registry.getOrDetect(workspaceId),
+  });
 
   agentPtyHost = startAgentPtyHost(workspaceManager);
   // Wire the PTY session closer into WorkspaceManager so remove() can
@@ -409,29 +449,71 @@ app.whenReady().then(async () => {
   // Claude feature 초기화 — broker / hook-handler wiring.
   // notificationsEnabled getter는 Settings의 OS 알림 토글을 실시간 반영한다.
   // 매 발사 직전 stateService를 조회하므로 토글 변경이 즉시 효력.
+  const notificationsEnabled = () => stateService.getState().osNotificationsEnabled ?? true;
   const claudeSetup = setupClaudeFeature({
     agentHost: agentPtyHost,
     workspaceManager,
-    notificationsEnabled: () => stateService.getState().osNotificationsEnabled ?? true,
+    notificationsEnabled,
   });
   disposeClaudeFeature = claudeSetup.dispose;
 
+  // The nexus command in the app's terminals.
+  disposeCliFeature = setupCliFeature({
+    agentHost: agentPtyHost,
+    workspaceManager,
+    claudeBroker: claudeSetup.broker,
+    activeContext: claudeSetup.activeContext,
+    sessionSpans: globalStorage,
+    appVersion: app.getVersion(),
+    notificationsEnabled: () => stateService.getState().osNotificationsEnabled ?? true,
+    settings: () => {
+      const state = stateService.getState();
+      return {
+        enabled: state.cliEnabled ?? true,
+        crossWorkspace: state.cliCrossWorkspace ?? "ask",
+        agentContext: state.cliAgentContext ?? true,
+      };
+    },
+    getWindow: getActiveAppWindow,
+    isAppFocused: () => {
+      const win = getFocusedAppWindow();
+      return win !== null && !win.isMinimized();
+    },
+    focusWindow: () => {
+      const win = getActiveAppWindow();
+      if (!win) return;
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    },
+    broadcast: forwardBroadcast,
+  }).dispose;
+
   // hookserver 접속 정보는 pull 기반으로 workspaceManager.getHookInfo()에서 조회한다.
+  // A program's own OS notifications (OSC 9/777/99) follow Claude's rules.
   registerPtyChannel({
     agentHost: agentPtyHost,
     workspaceManager,
+    isActiveTab: claudeSetup.isActiveTab,
+    notificationsEnabled,
+    onInput: claudeSetup.noteInput,
     getDefaultShell: () => stateService.getState().terminalShell,
     getCustomShells: () => stateService.getState().terminalShells,
+    ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),
   });
 
+  // The host reads the settings at each spawn; the lsp IPC handlers stop
+  // the servers a settings change turns off.
+  const lspSettings = () => lspSettingsFromState(stateService.getState());
   lspHost = startConfiguredLspHost({
     workspaceManager,
     agentHostOptions: {
-      isLanguageEnabled: (workspaceId, languageId) => {
-        const state = stateService.getState();
-        const enabled = state.lspEnabledLanguagesByWorkspace?.[workspaceId] ?? [];
-        return enabled.includes(languageId as "typescript" | "python");
-      },
+      isLanguageEnabled: (workspaceId, languageId) =>
+        isLspLanguageOnForWorkspace(lspSettings(), workspaceId, languageId),
+      maxActiveWorkspaces: () => lspSettings().maxActiveWorkspaces,
+      initializationOptions: (languageId, preset) =>
+        lspInitializationOptions(lspSettings(), languageId, preset.initializationOptions),
+      serverPath: (languageId) => lspServerPath(lspSettings(), languageId),
     },
   });
   registerLspChannel(lspHost, stateService);
@@ -523,6 +605,7 @@ app.on("window-all-closed", () => {
 // once every window has closed.
 app.on("will-quit", () => {
   sshBrowseRegistry.dispose();
+  disposeCliFeature?.();
   disposeClaudeFeature?.();
   agentPtyHost?.dispose();
   lspHost?.dispose();

@@ -11,9 +11,6 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
-
-	"github.com/nexus-code/nexus-code/internal/dispatch"
-	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 type diffFixture struct {
@@ -28,7 +25,7 @@ type diffFixtureEvent struct {
 }
 
 func TestDiffFixtureChunking(t *testing.T) {
-	fixtureRoot := filepath.Join("..", "..", "tests", "fixtures", "git", "diff")
+	fixtureRoot := fixtureDir("diff")
 	entries, err := os.ReadDir(fixtureRoot)
 	if err != nil {
 		t.Fatal(err)
@@ -176,15 +173,6 @@ func TestDiffArgsUseMinimalOptions(t *testing.T) {
 	want := []string{"diff", "--no-ext-diff", "--unified=2", "--cached", "main", "feature", "--", "a.txt"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("args mismatch\n got: %#v\nwant: %#v", got, want)
-	}
-}
-
-func TestDiffRegistered(t *testing.T) {
-	d := dispatch.New()
-	Register(d, New(t.TempDir()))
-	res := d.Dispatch(context.Background(), proto.Request{ID: "1", Method: "git.diff", Params: json.RawMessage(`{"maxChunkBytes":1}`)})
-	if res.Error != nil && res.Error.Code == proto.CodeUnsupported {
-		t.Fatalf("git.diff was not registered: %#v", res)
 	}
 }
 

@@ -1,16 +1,19 @@
-import { Folder, GitBranch, Server, X } from "lucide-react";
+import { Folder, GitBranch, Server, SquareTerminal, X } from "lucide-react";
 import React, { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { LSP_FEATURE_ENABLED } from "../../../shared/lsp/feature-flag";
+import { useShallow } from "zustand/shallow";
 import { Tooltip as RadixTooltip } from "radix-ui";
 import { cn } from "@/utils/cn";
-import type { LspLanguageId } from "../../../shared/types/app-state";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { UI_TOOLTIP_DELAY_MS } from "../../../shared/util/timing-constants";
-import { useLspEnabledStore } from "../../state/stores/lsp-enabled";
 import { useUIStore } from "../../state/stores/ui";
 import type { WorkspaceConnectionStatus } from "../../state/stores/workspaces";
-import { useWorkspacesStore } from "../../state/stores/workspaces";
+import {
+  rootWorkspaceId,
+  useWorkspacesStore,
+  visibleWorkspaces,
+} from "../../state/stores/workspaces";
+import type { StatusEntry } from "../../../shared/claude/status";
 import {
   ContextMenuContent,
   ContextMenuItems,
@@ -21,7 +24,6 @@ import {
   formatSshSecondaryLine,
   formatSshTooltip,
 } from "../workspace/add-workspace/ssh-helpers";
-import { LspLanguageChip } from "./lsp-language-chip";
 import { PinToggle } from "./pin-toggle";
 import { SidebarResizeHandle } from "./sidebar-resize-handle";
 import { RowDropSlot } from "./dnd/row-drop-slot";
@@ -46,14 +48,15 @@ import { WorkspaceStatusGlyph } from "../sidebar/workspace-status-glyph";
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Languages for which a chip is rendered in the workspace row. */
-const CHIP_LANGUAGES: LspLanguageId[] = ["typescript", "python"];
+/** Stable empty task list, so a row without tasks keeps its props. */
+const NO_TASKS: readonly string[] = [];
 
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 
 interface SidebarProps {
+  /** All workspaces; a task is listed as part of its parent's row. */
   workspaces: WorkspaceMeta[];
   activeWorkspaceId: string | null;
   onSelectWorkspace: (id: string) => void;
@@ -67,9 +70,10 @@ interface SidebarProps {
 
 interface WorkspaceRowProps {
   ws: WorkspaceMeta;
+  /** The workspace's tasks, which the row stands for too. */
+  taskIds: readonly string[];
   isActive: boolean;
   isDragSource: boolean;
-  enabledLanguages: LspLanguageId[];
   rowDragProps: React.HTMLAttributes<HTMLElement>;
   connectionStatus: WorkspaceConnectionStatus;
   onSelectWorkspace: (id: string) => void;
@@ -83,7 +87,7 @@ interface WorkspaceRowProps {
  * 4~5줄 그리드 카드 구조 (SSH는 사이에 user@host 한 줄이 추가됨):
  * 1줄: [Icon 16] ws.name
  * (SSH 전용) user@host
- * 2줄: path (+ LSP 칩) — 로컬: rootPath의 마지막 2 세그먼트, SSH: remotePath의 마지막 2 세그먼트
+ * 2줄: path — 로컬: rootPath의 마지막 2 세그먼트, SSH: remotePath의 마지막 2 세그먼트
  * 3줄: [GitBranch 아이콘] branch (있을 때만)
  * 4줄: [Glyph] message preview (둘 다 없으면 미렌더, 50자 컷)
  *
@@ -92,9 +96,9 @@ interface WorkspaceRowProps {
  */
 function WorkspaceRow({
   ws,
+  taskIds,
   isActive,
   isDragSource,
-  enabledLanguages,
   rowDragProps,
   connectionStatus,
   onSelectWorkspace,
@@ -103,12 +107,14 @@ function WorkspaceRow({
 }: WorkspaceRowProps) {
   const { t } = useTranslation();
   const isSsh = ws.location.kind === "ssh";
-  const Icon = isSsh ? Server : Folder;
+  const isWsl = ws.location.kind === "wsl";
+  const Icon = isSsh ? Server : isWsl ? SquareTerminal : Folder;
 
   // primary는 로컬/SSH 모두 ws.name으로 통일한다. SSH 카드는 별도의 user@host
   // 라인이 워크스페이스 이름 바로 아래에 추가된다. tooltip은 정보량이 많은
   // 쪽이 풀 컨텍스트(SSH 연결 정보 + 원격 경로, 로컬은 절대 경로).
   const sshLocation = ws.location.kind === "ssh" ? ws.location : null;
+  const wslDistro = ws.location.kind === "wsl" ? ws.location.distro : null;
   const primaryText = ws.name;
   const secondaryTitle = sshLocation
     ? formatSshTooltip({
@@ -117,17 +123,24 @@ function WorkspaceRow({
         port: sshLocation.port,
         remotePath: sshLocation.remotePath,
       })
-    : ws.rootPath;
-  // SSH 카드 이름 아래에 노출되는 한 줄(user@host). 로컬은 null.
-  const sshUserHostLine = sshLocation
+    : wslDistro
+      ? `${t("wsl.identity", { distro: wslDistro })}\n${ws.rootPath}`
+      : ws.rootPath;
+  // 카드 이름 아래에 노출되는 한 줄: SSH는 user@host, WSL은 배포판. 로컬은 null.
+  const hostLine = sshLocation
     ? formatSshSecondaryLine({
         user: sshLocation.user,
         host: sshLocation.host,
       })
-    : null;
+    : wslDistro
+      ? t("wsl.identity", { distro: wslDistro })
+      : null;
 
-  // Claude 세션 집계 상태 구독 — wsTabs slice만 구독해 thrashing 방지.
-  const wsTabs = useClaudeStatusStore((s) => s.byWorkspace[ws.id]);
+  // Claude 세션 집계 상태 구독 — 워크스페이스와 그 작업들의 slice만 구독해 thrashing 방지.
+  const statusSlices = useClaudeStatusStore(
+    useShallow((s) => [s.byWorkspace[ws.id], ...taskIds.map((id) => s.byWorkspace[id])]),
+  );
+  const wsTabs = useMemo(() => mergeStatusSlices(statusSlices), [statusSlices]);
   const aggregate = useMemo(() => {
     if (wsTabs === undefined) return null;
     return selectWorkspaceAggregateStatus(
@@ -189,17 +202,20 @@ function WorkspaceRow({
   // 로컬 store도 즉시 비워 IPC 왕복을 기다리지 않고 글리프가 곧바로 사라지게 한다.
   const { run: runResetStatus } = useIpcAction<void>({});
   function resetStatus() {
+    const workspaceIds = [ws.id, ...taskIds];
     // 즉시 로컬 인디케이터 제거 — main의 cleared broadcast와 멱등(idempotent).
-    useClaudeStatusStore.getState().clearWorkspace(ws.id);
+    for (const workspaceId of workspaceIds) {
+      useClaudeStatusStore.getState().clearWorkspace(workspaceId);
+    }
     runResetStatus(async (signal) => {
-      const result = await ipcCallResult(
-        "claude",
-        "clearWorkspace",
-        { workspaceId: ws.id },
-        { signal },
+      const results = await Promise.all(
+        workspaceIds.map((workspaceId) =>
+          ipcCallResult("claude", "clearWorkspace", { workspaceId }, { signal }),
+        ),
       );
-      if (!result.ok) {
-        const err = appErrorFailed(result.message);
+      const failed = results.find((result) => !result.ok);
+      if (failed && !failed.ok) {
+        const err = appErrorFailed(failed.message);
         surfaceError(err, { surface: "auto" });
         throw err;
       }
@@ -259,13 +275,13 @@ function WorkspaceRow({
               한 줄에 묶이므로 4번째 줄 인라인으로 옮긴다.
             */}
             <span className="grid grid-cols-[16px_minmax(0,1fr)] items-start gap-2">
-              {/* col 1: ssh/local 아이콘 + (SSH일 때) 연결 상태 인디케이터 */}
+              {/* col 1: ssh/wsl/local 아이콘 + (SSH·WSL일 때) 연결 상태 인디케이터 */}
               <span className="flex flex-col items-center gap-1 mt-0.5">
                 <Icon
                   className="size-4 shrink-0 text-muted-foreground"
                   aria-hidden="true"
                 />
-                {isSsh && <ConnectionStatusDot status={connectionStatus} />}
+                {(isSsh || isWsl) && <ConnectionStatusDot status={connectionStatus} />}
               </span>
 
               {/* 텍스트 영역 — 1~4줄 가변 높이 */}
@@ -281,19 +297,19 @@ function WorkspaceRow({
                   {primaryText}
                 </span>
 
-                {/* SSH 전용: user@host 한 줄(이름 바로 아래). 로컬에서는 미렌더. */}
-                {sshUserHostLine && (
+                {/* SSH·WSL 전용: user@host 또는 배포판 한 줄(이름 바로 아래). 로컬에서는 미렌더. */}
+                {hostLine && (
                   <span
                     className={cn(
                       "block text-app-micro mt-0.5 line-clamp-1 truncate",
                       isActive ? "text-foreground/70" : "text-muted-foreground/70",
                     )}
                   >
-                    {sshUserHostLine}
+                    {hostLine}
                   </span>
                 )}
 
-                {/* 2줄: path (+ LSP 언어 칩) */}
+                {/* 2줄: path */}
                 <span
                   className={cn(
                     "block text-app-micro mt-0.5 line-clamp-1 truncate",
@@ -302,34 +318,34 @@ function WorkspaceRow({
                   title={secondaryTitle}
                 >
                   {pathLine}
-                  {/* LSP 언어 칩 — path 줄 끝 우측 인라인, 상시 노출 */}
-                  {LSP_FEATURE_ENABLED &&
-                    CHIP_LANGUAGES.map((lang) => (
-                      <LspLanguageChip
-                        key={lang}
-                        workspaceId={ws.id}
-                        languageId={lang}
-                        enabled={enabledLanguages.includes(lang)}
-                      />
-                    ))}
                 </span>
 
-                {/* 3줄: branch — 있을 때만. GitBranch 아이콘으로 시각적 affordance. */}
-                {branchName && (
+                {/* 3줄: branch + 작업 수 — 있을 때만. GitBranch 아이콘으로 시각적 affordance. */}
+                {(branchName || taskIds.length > 0) && (
                   <span
                     className={cn(
                       "flex items-center gap-1 mt-0.5 text-app-micro min-w-0",
                       isActive ? "text-foreground/70" : "text-muted-foreground/70",
                     )}
                   >
-                    <GitBranch
-                      width={10}
-                      height={10}
-                      strokeWidth={1.5}
-                      aria-hidden="true"
-                      className="shrink-0"
-                    />
-                    <span className="truncate">{branchName}</span>
+                    {branchName && (
+                      <>
+                        <GitBranch
+                          width={10}
+                          height={10}
+                          strokeWidth={1.5}
+                          aria-hidden="true"
+                          className="shrink-0"
+                        />
+                        <span className="truncate">{branchName}</span>
+                      </>
+                    )}
+                    {taskIds.length > 0 && (
+                      <span className="shrink-0">
+                        {branchName && "· "}
+                        {t("sidebar.task_count", { count: taskIds.length })}
+                      </span>
+                    )}
                   </span>
                 )}
 
@@ -407,7 +423,7 @@ function WorkspaceRow({
 // ---------------------------------------------------------------------------
 
 export function Sidebar({
-  workspaces,
+  workspaces: allWorkspaces,
   activeWorkspaceId,
   onSelectWorkspace,
   onAddWorkspace,
@@ -416,8 +432,10 @@ export function Sidebar({
   const { t } = useTranslation();
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
   const connectionStatusByWorkspaceId = useWorkspacesStore((s) => s.connectionStatusByWorkspaceId);
-  // Subscribe to enabled languages — re-renders chips on toggle.
-  const lspByWorkspace = useLspEnabledStore((s) => s.byWorkspace);
+  const workspaces = useMemo(() => visibleWorkspaces(allWorkspaces), [allWorkspaces]);
+  const taskIdsByParent = useMemo(() => groupTaskIds(allWorkspaces), [allWorkspaces]);
+  // The row the active workspace belongs to.
+  const activeRowId = activeWorkspaceId && rootWorkspaceId(allWorkspaces, activeWorkspaceId);
 
   // Pin toggle action — shared hook instance; IPC call is fire-and-forget since
   // workspace.changed / workspace.reordered broadcasts update the store.
@@ -547,12 +565,12 @@ export function Sidebar({
               <React.Fragment key={ws.id}>
                 <WorkspaceRow
                   ws={ws}
-                  isActive={ws.id === activeWorkspaceId}
+                  taskIds={taskIdsByParent.get(ws.id) ?? NO_TASKS}
+                  isActive={ws.id === activeRowId}
                   isDragSource={dragSourceId === ws.id}
-                  enabledLanguages={lspByWorkspace[ws.id] ?? []}
                   rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
                   connectionStatus={
-                    ws.location.kind === "ssh"
+                    ws.location.kind !== "local"
                       ? (connectionStatusByWorkspaceId[ws.id] ?? "idle")
                       : "idle"
                   }
@@ -576,12 +594,12 @@ export function Sidebar({
               <React.Fragment key={ws.id}>
                 <WorkspaceRow
                   ws={ws}
-                  isActive={ws.id === activeWorkspaceId}
+                  taskIds={taskIdsByParent.get(ws.id) ?? NO_TASKS}
+                  isActive={ws.id === activeRowId}
                   isDragSource={dragSourceId === ws.id}
-                  enabledLanguages={lspByWorkspace[ws.id] ?? []}
                   rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
                   connectionStatus={
-                    ws.location.kind === "ssh"
+                    ws.location.kind !== "local"
                       ? (connectionStatusByWorkspaceId[ws.id] ?? "idle")
                       : "idle"
                   }
@@ -682,10 +700,37 @@ export function connectionStatusClassName(status: WorkspaceConnectionStatus): st
  */
 function secondaryWorkspaceText(workspace: WorkspaceMeta): string {
   const path =
-    workspace.location.kind === "ssh"
-      ? workspace.location.remotePath
-      : workspace.rootPath;
+    workspace.location.kind !== "local" ? workspace.location.remotePath : workspace.rootPath;
   return path.split("/").filter(Boolean).slice(-2).join("/");
+}
+
+// ---------------------------------------------------------------------------
+// Tasks
+// ---------------------------------------------------------------------------
+
+/** The task ids of each workspace that has tasks. */
+function groupTaskIds(workspaces: readonly WorkspaceMeta[]): Map<string, string[]> {
+  const byParent = new Map<string, string[]>();
+  for (const workspace of workspaces) {
+    const parentId = workspace.task?.parentId;
+    if (parentId === undefined) continue;
+    const ids = byParent.get(parentId);
+    if (ids) ids.push(workspace.id);
+    else byParent.set(parentId, [workspace.id]);
+  }
+  return byParent;
+}
+
+/**
+ * Merges the Claude status records of a workspace and its tasks into one,
+ * keyed by tab id. Undefined when none of them has a record.
+ */
+export function mergeStatusSlices(
+  slices: readonly (Record<string, StatusEntry> | undefined)[],
+): Record<string, StatusEntry> | undefined {
+  const present = slices.filter((slice) => slice !== undefined);
+  if (present.length <= 1) return present[0];
+  return Object.assign({}, ...present);
 }
 
 // ---------------------------------------------------------------------------

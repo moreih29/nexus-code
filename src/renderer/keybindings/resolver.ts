@@ -25,6 +25,7 @@ import {
   parseAccelerator,
 } from "../../shared/keybindings/keybinding-parse";
 import { evaluateWhen, parseWhen, type WhenExpr } from "../../shared/keybindings/keybinding-when";
+import { isMac } from "../utils/platform";
 import { evaluateContextKey } from "./context-keys";
 
 interface CompiledPrimary {
@@ -42,18 +43,6 @@ interface CompiledChord {
   leaderId: string;
   when: WhenExpr | null;
 }
-
-/**
- * Cached platform flag. Renderer module load happens after the DOM is
- * available, so `navigator` is safe to read here. We only need this
- * once per session — the user does not switch OS mid-run.
- *
- * Used by `matchesEvent` to disambiguate the `CmdOrCtrl` shorthand:
- * on Mac it means ⌘ exclusively (so xterm keeps its ⌃-letter shortcuts);
- * on Win/Linux it means Ctrl exclusively.
- */
-const IS_MAC =
-  typeof navigator !== "undefined" && /Mac|iPhone|iPod|iPad/i.test(navigator.platform || "");
 
 let PRIMARIES: CompiledPrimary[] = [];
 let CHORDS: CompiledChord[] = [];
@@ -145,6 +134,9 @@ export type Resolution =
  * the dispatcher handles those before consulting the resolver.
  */
 export function resolveEvent(e: KeyboardEvent, pendingLeader: string | null): Resolution {
+  // `CmdOrCtrl` means ⌘ alone on Mac (so xterm keeps its ⌃-letter
+  // shortcuts) and Ctrl alone on Win/Linux.
+  const mac = isMac();
   if (pendingLeader !== null) {
     for (const c of CHORDS) {
       if (c.leaderId !== pendingLeader) continue;
@@ -157,7 +149,7 @@ export function resolveEvent(e: KeyboardEvent, pendingLeader: string | null): Re
       // strict-superset relaxation that still lets every VSCode-style
       // press complete.
       const masked = maskLeaderModifiers(e, c.leader, c.secondary);
-      if (matchesEvent(c.secondary, masked, IS_MAC)) {
+      if (matchesEvent(c.secondary, masked, mac)) {
         return { kind: "chord-completed", command: c.decl.command };
       }
     }
@@ -165,13 +157,13 @@ export function resolveEvent(e: KeyboardEvent, pendingLeader: string | null): Re
   }
 
   for (const p of PRIMARIES) {
-    if (!matchesEvent(p.parsed, e, IS_MAC)) continue;
+    if (!matchesEvent(p.parsed, e, mac)) continue;
     if (!whenMatches(p.when, e)) continue;
     return { kind: "single", command: p.decl.command };
   }
 
   for (const c of CHORDS) {
-    if (!matchesEvent(c.leader, e, IS_MAC)) continue;
+    if (!matchesEvent(c.leader, e, mac)) continue;
     if (!whenMatches(c.when, e)) continue;
     return { kind: "chord-leader", leaderId: c.leaderId };
   }

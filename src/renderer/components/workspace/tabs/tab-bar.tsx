@@ -1,4 +1,4 @@
-import { FilePlus, Globe, Plus, SquareTerminal } from "lucide-react";
+import { FilePlus, Globe, Plus, Radar, SquareTerminal } from "lucide-react";
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
@@ -38,6 +38,8 @@ interface TabBarProps {
   onNewTerminalTab: (shell?: ShellChoice) => void;
   onNewUntitledTab: () => void;
   onNewBrowserTab: () => void;
+  /** Shows the workspace's sessions tab, opening it if there is none. */
+  onShowSessions: () => void;
   onTabContextMenu?: (tabId: string, event: React.MouseEvent) => void;
 }
 
@@ -51,6 +53,7 @@ export function TabBar({
   onNewTerminalTab,
   onNewUntitledTab,
   onNewBrowserTab,
+  onShowSessions,
   onTabContextMenu,
 }: TabBarProps) {
   const { t } = useTranslation();
@@ -230,6 +233,10 @@ export function TabBar({
               <DropdownMenuItem onSelect={() => onNewBrowserTab()}>
                 <Globe aria-hidden className="size-3.5 mr-1.5 shrink-0" />
                 <span className="flex-1">{t("tabBar.new_browser")}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onShowSessions()}>
+                <Radar aria-hidden className="size-3.5 mr-1.5 shrink-0" />
+                <span className="flex-1">{t("tabBar.sessions")}</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenuRoot>

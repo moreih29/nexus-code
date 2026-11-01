@@ -18,22 +18,13 @@ import { describe, expect, test } from "bun:test";
 import { shouldShowConflictResolvedBanner } from "../../../../../../src/renderer/components/workspace/content/conflict-resolved-banner";
 
 describe("shouldShowConflictResolvedBanner", () => {
-  test("returns true when git-conflicted and no markers remain", () => {
-    expect(shouldShowConflictResolvedBanner(true, false)).toBe(true);
-  });
-
-  test("returns false when git-conflicted but markers still present", () => {
-    // Partial resolution: the CodeLens handles this state, not the banner.
-    expect(shouldShowConflictResolvedBanner(true, true)).toBe(false);
-  });
-
-  test("returns false when not git-conflicted and no markers remain", () => {
-    // Normal file or already markResolved: banner must not appear.
-    expect(shouldShowConflictResolvedBanner(false, false)).toBe(false);
-  });
-
-  test("returns false when not git-conflicted and markers present", () => {
-    // Edge case: file has conflict-like text but is not in the merge group.
-    expect(shouldShowConflictResolvedBanner(false, true)).toBe(false);
+  test.each([
+    // isConflicted, hasMarkers, expected
+    [true, false, true], // last block resolved, markResolved not yet run
+    [true, true, false], // partial resolution: the CodeLens handles this state
+    [false, false, false], // normal file or already markResolved
+    [false, true, false], // conflict-like text in a file outside the merge group
+  ])("isConflicted=%p hasMarkers=%p → %p", (isConflicted, hasMarkers, expected) => {
+    expect(shouldShowConflictResolvedBanner(isConflicted, hasMarkers)).toBe(expected);
   });
 });

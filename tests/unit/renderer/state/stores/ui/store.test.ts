@@ -30,6 +30,7 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
 
 import {
   FILES_PANEL_WIDTH_DEFAULT,
+  FILES_PANEL_WIDTH_MAX,
   FILES_PANEL_WIDTH_MIN,
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
@@ -115,9 +116,18 @@ describe("useUIStore", () => {
     expect(mockIpcCallResult).toHaveBeenCalledWith("appState", "set", { filesPanelWidth: 300 });
   });
 
-  it("setFilesPanelWidth clamps below MIN to FILES_PANEL_WIDTH_MIN", () => {
+  it("setFilesPanelWidth clamps to FILES_PANEL_WIDTH_MIN..MAX", () => {
     useUIStore.getState().setFilesPanelWidth(10, false);
     expect(useUIStore.getState().filesPanelWidth).toBe(FILES_PANEL_WIDTH_MIN);
+    useUIStore.getState().setFilesPanelWidth(9999, false);
+    expect(useUIStore.getState().filesPanelWidth).toBe(FILES_PANEL_WIDTH_MAX);
+  });
+
+  it("hydrate clamps filesPanelWidth to FILES_PANEL_WIDTH_MIN..MAX", () => {
+    useUIStore.getState().hydrate({ filesPanelWidth: 50 });
+    expect(useUIStore.getState().filesPanelWidth).toBe(FILES_PANEL_WIDTH_MIN);
+    useUIStore.getState().hydrate({ filesPanelWidth: 9999 });
+    expect(useUIStore.getState().filesPanelWidth).toBe(FILES_PANEL_WIDTH_MAX);
   });
 
   it("reset (default, persist=true) writes one ipcCallResult with the default width", () => {

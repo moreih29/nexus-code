@@ -2,7 +2,7 @@
  * applyRepoInfoEvent — a detection broadcast handled after the call results
  * that followed it in main must not leave a repository without a status.
  */
-import { describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
 
 const STATUS = {
   merge: [],
@@ -49,8 +49,15 @@ function seed(overrides: Parameters<typeof createDefaultSession>[0]): void {
 }
 
 const session = () => useGitStore.getState().sessions.get(WS);
-const settle = () =>
-  new Promise((resolve) => setTimeout(resolve, GIT_STATUS_HINT_DEBOUNCE_MS + 50));
+
+/** Runs the status-hint debounce on the fake clock and lets its read land. */
+async function settle(): Promise<void> {
+  jest.advanceTimersByTime(GIT_STATUS_HINT_DEBOUNCE_MS + 50);
+  for (let i = 0; i < 5; i += 1) await Promise.resolve();
+}
+
+beforeEach(() => jest.useFakeTimers());
+afterEach(() => jest.useRealTimers());
 
 describe("applyRepoInfoEvent", () => {
   it("reads the status again when a late detecting → repo pair cleared it", async () => {

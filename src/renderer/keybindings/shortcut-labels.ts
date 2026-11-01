@@ -21,30 +21,13 @@
 import { COMMANDS, type CommandId } from "../../shared/keybindings/commands";
 import { findDisplayPrimary } from "../../shared/keybindings/index";
 import { acceleratorToLabel, chordToLabel } from "../../shared/keybindings/keybinding-parse";
+import { type HostPlatform, hostPlatform, isMac } from "../utils/platform";
 import { getActiveBindings } from "./resolver";
 
-// `window.host` is provided by the preload bridge in production; in unit
-// tests there is no window — fall back to a node-y `process.platform`
-// probe (the renderer doesn't ship node types, so we read it through
-// `globalThis` to avoid a TS error). Defaults to mac (the dev primary).
-function detectIsMac(): boolean {
-  if (typeof window !== "undefined" && window.host?.platform) {
-    return window.host.platform === "darwin";
-  }
-  const proc = (globalThis as { process?: { platform?: string } }).process;
-  if (proc && typeof proc.platform === "string") {
-    return proc.platform === "darwin";
-  }
-  return true;
-}
-
-export const isMac = detectIsMac();
-
 /** Label options for this platform (names the Windows/Super key too). */
-export const labelOptions = {
-  isMac,
-  platform: typeof window !== "undefined" ? window.host?.platform : undefined,
-};
+export function labelOptions(): { isMac: boolean; platform: HostPlatform } {
+  return { isMac: isMac(), platform: hostPlatform() };
+}
 
 /**
  * Render the shortcut label for a command from the ACTIVE binding
@@ -55,13 +38,13 @@ export const labelOptions = {
  */
 export function shortcutFor(command: CommandId): string | undefined {
   const bindings = getActiveBindings();
-  const primary = findDisplayPrimary(bindings, command, isMac);
+  const primary = findDisplayPrimary(bindings, command, isMac());
   if (primary?.primary !== undefined) {
-    return acceleratorToLabel(primary.primary, labelOptions);
+    return acceleratorToLabel(primary.primary, labelOptions());
   }
   const chord = bindings.find((b) => b.command === command && b.chord !== undefined);
   if (chord?.chord !== undefined) {
-    return chordToLabel(chord.chord, labelOptions);
+    return chordToLabel(chord.chord, labelOptions());
   }
   return undefined;
 }

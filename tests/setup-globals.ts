@@ -20,10 +20,11 @@ g.__NEXUS_REMOTE_AGENT_ROOT__ ??= "~/.nexus-code";
 g.__NEXUS_REMOTE_AGENT_MANIFEST__ ??= "~/.nexus-code/manifest.json";
 g.__NEXUS_CHANNEL__ ??= "stable";
 
-// Renderer tests assume macOS key handling (⌘ shortcuts, macOS labels). The
-// keybinding modules read navigator.platform once, when they load, and Bun
-// reports the host OS there, so on Linux or Windows they would resolve every
-// shortcut for Ctrl instead.
+// Renderer tests assume macOS key handling (⌘ shortcuts, macOS labels) unless
+// they pin a platform with setPlatformForTests (renderer/utils/platform.ts).
+// Without a preload the platform comes from navigator.platform, which Bun
+// reports as the host OS, so on Linux or Windows every shortcut would resolve
+// for Ctrl instead.
 Object.defineProperty(globalThis.navigator, "platform", {
   configurable: true,
   value: "MacIntel",

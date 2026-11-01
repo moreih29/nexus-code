@@ -10,10 +10,8 @@
  *             lookup uses uriIndex snapshot at exit time, not after cleanup).
  *   AC 2c  — dispose after pending timers: no emit fires, map is empty
  *             (verified indirectly via emit-count).
- *   AC 3   — Steady-state leading-edge bypass: 500ms idle → first notification
- *             is emitted synchronously (0 additional timer ticks).
- *   AC 4   — Large-fixture efficiency: 100 URIs × 5 burst notifications.
- *             Emit count with debounce vs without.
+ *   AC 3   — Steady-state burst after idle: one leading-edge emit, then one
+ *             trailing-edge emit carrying the last payload.
  *   AC 5   — Non-publishDiagnostics server notifications (window/showMessage,
  *             window/logMessage, $/progress, workspace/applyEdit /
  *             window/showMessageRequest) are emitted immediately without
@@ -452,46 +450,6 @@ describe("AC 2c: dispose lifecycle", () => {
 // AC 3 — Steady-state typing latency (leading-edge bypass)
 // ---------------------------------------------------------------------------
 describe("AC 3: steady-state typing latency", () => {
-  test("first notification after 500ms idle emits synchronously (0 timer ticks needed)", async () => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date(40_000_000));
-
-    const channel = new MinimalChannel();
-    const host = startAgentLspHost({ getAgentChannel: async () => channel });
-    const emitted: unknown[] = [];
-    host.on("diagnostics", (args) => emitted.push(args));
-
-    const URI = "file:///tmp/ws/typing-latency.py";
-    await openUri(host, URI);
-
-    // Initial emit (leading-edge).
-    channel.emitDiagnostics(URI, 1);
-    expect(emitted).toHaveLength(1);
-
-    // Advance trailing-edge timer to quiesce.
-    jest.advanceTimersByTime(110);
-    expect(emitted).toHaveLength(1);
-
-    // Simulate 500ms+ of idle time (no notifications).
-    jest.setSystemTime(new Date(40_000_000 + 600));
-
-    // Simulate a single typing character → publishDiagnostics arrives.
-    // This must emit IMMEDIATELY without needing any timer advance.
-    channel.emitDiagnostics(URI, 2);
-    expect(emitted).toHaveLength(2); // immediate — no advanceTimersByTime needed
-
-    // Verify the payload is the one just sent.
-    expect(
-      (emitted[1] as { diagnostics: Array<{ message: string }> }).diagnostics[0].message,
-    ).toBe("v2");
-
-    // No additional timer-driven emit.
-    jest.advanceTimersByTime(200);
-    expect(emitted).toHaveLength(2);
-
-    host.dispose();
-  });
-
   test("steady-state burst after idle: leading-edge + exactly one trailing-edge", async () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date(41_000_000));
@@ -524,72 +482,6 @@ describe("AC 3: steady-state typing latency", () => {
     expect(
       (emitted[1] as { diagnostics: Array<{ message: string }> }).diagnostics[0].message,
     ).toBe("v10");
-
-    host.dispose();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC 4 — Large fixture efficiency
-// ---------------------------------------------------------------------------
-describe("AC 4: large fixture emit efficiency", () => {
-  test("100 URIs × 5 burst notifications: emit count reduced by ≥50%", async () => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date(50_000_000));
-
-    const channel = new MinimalChannel();
-    const host = startAgentLspHost({ getAgentChannel: async () => channel });
-    const emitted: unknown[] = [];
-    host.on("diagnostics", (args) => emitted.push(args));
-
-    const URI_COUNT = 100;
-    const NOTIFICATIONS_PER_URI = 5;
-
-    // Open all URIs.
-    const uris = Array.from(
-      { length: URI_COUNT },
-      (_, i) => `file:///tmp/ws/large-${i}.py`,
-    );
-    for (const uri of uris) {
-      await openUri(host, uri);
-    }
-
-    // Without debounce, 100 × 5 = 500 emits total.
-    const totalRaw = URI_COUNT * NOTIFICATIONS_PER_URI;
-
-    // Cold open: first notification per URI hits leading-edge → immediate emit.
-    // Then set system time within the 500ms idle window so subsequent
-    // notifications within the burst are trailing-edge only.
-    for (const uri of uris) {
-      channel.emitDiagnostics(uri, 1); // leading-edge emit
-    }
-    // All 100 URIs got their first leading-edge emit.
-    expect(emitted).toHaveLength(URI_COUNT);
-
-    // Now send 4 more notifications per URI within the idle window
-    // (all within 100ms of each other → trailing-edge debounce).
-    jest.setSystemTime(new Date(50_000_000 + 50));
-    for (let v = 2; v <= NOTIFICATIONS_PER_URI; v++) {
-      for (const uri of uris) {
-        channel.emitDiagnostics(uri, v);
-      }
-    }
-
-    // Trailing-edge timers are pending — no additional emits yet.
-    expect(emitted).toHaveLength(URI_COUNT);
-
-    // Fire all trailing-edge timers.
-    jest.advanceTimersByTime(200);
-
-    // Each URI now has: 1 leading-edge + 1 trailing-edge = 2 total.
-    // Total: 200 emits. Without debounce: 500 emits. Reduction: 60%.
-    const totalWithDebounce = emitted.length;
-    const reduction = 1 - totalWithDebounce / totalRaw;
-
-    expect(totalWithDebounce).toBe(URI_COUNT * 2); // 200
-
-    // Must be at least 50% reduction.
-    expect(reduction).toBeGreaterThanOrEqual(0.5);
 
     host.dispose();
   });

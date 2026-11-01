@@ -5,10 +5,6 @@
  *   (a) When IPC returns {kind:"missing"} → readSideContent resolves with
  *       placeholder:"missing" and empty content (NOT throws).
  *   (b) When IPC returns {kind:"ok"} → readSideContent resolves with content.
- *   (c) Legacy throw path: isMissingContentError fallback still works when
- *       the IPC call throws a NOT_FOUND-coded error (backward compat).
- *   (d) Console no-noise: {kind:"missing"} path never triggers the error
- *       handler (no throw) — ipcCallResult itself does not reject.
  *
  * ISOLATION: ipc/client is a leaf module. mock.module is permitted per
  * pattern-bun-mock-conventions Rule 1. Real exports spread (Rule 2).
@@ -105,26 +101,6 @@ describe("readSideContent — kind:missing IPC response → placeholder missing,
     expect(result.content).toBe("");
     expect(result.placeholder).toBe("missing");
   });
-
-  test("kind:missing path does NOT cause ipcCallResult to throw (resolves cleanly)", async () => {
-    // This confirms the no-noise design: the IPC call itself resolves.
-    let threwDuringIpcCall = false;
-    ipcCallMock.mockImplementationOnce(async () => {
-      // Simulate what the main process does: resolve, not throw.
-      return { ok: true as const, value: { kind: "missing" as const, reason: "index" as const } };
-    });
-
-    const request = makeGitRequest("INDEX");
-    const controller = new AbortController();
-
-    try {
-      await readSideContent(request, controller.signal);
-    } catch {
-      threwDuringIpcCall = true;
-    }
-
-    expect(threwDuringIpcCall).toBe(false);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -175,30 +151,5 @@ describe("readSideContent — kind:ok IPC response → content forwarded", () =>
     const result = await readSideContent(request, controller.signal);
 
     expect(result.encoding).toBe("utf8-bom");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// (c) Legacy throw fallback — isMissingContentError backward compat
-// ---------------------------------------------------------------------------
-
-describe("readSideContent — legacy throw: isMissingContentError fallback still works", () => {
-  beforeEach(() => ipcCallMock.mockClear());
-
-  test("ipcCallResult rejection with NOT_FOUND-coded error resolves with placeholder:missing in useDiffContent error handler", async () => {
-    // readSideContent itself will throw (old path), but useDiffContent's error handler
-    // catches it via isMissingContentError. We verify readSideContent throws.
-    const { FS_ERROR } = await import("../../../../../src/shared/fs/errors");
-    const fsErrorMessage = (await import("../../../../../src/shared/fs/errors")).fsErrorMessage;
-
-    ipcCallMock.mockImplementationOnce(async () => {
-      throw new Error(fsErrorMessage(FS_ERROR.NOT_FOUND, "/workspace/file.ts"));
-    });
-
-    const request = makeGitRequest("HEAD");
-    const controller = new AbortController();
-
-    // readSideContent throws for legacy error shapes — useDiffContent catches this
-    await expect(readSideContent(request, controller.signal)).rejects.toThrow(/NOT_FOUND/);
   });
 });

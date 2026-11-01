@@ -27,7 +27,6 @@ import {
   applyKeybindingOverrides,
   type KeybindingOverride,
 } from "../../../shared/keybindings/overrides";
-import { isMac } from "../../infra/platform";
 import { getActiveAppWindow } from "../window/app-windows";
 import { buildMenuTemplate, type MenuItemSpec } from "./template";
 
@@ -54,7 +53,6 @@ export interface InstallAppMenuOptions {
 
 export function installAppMenu(options: InstallAppMenuOptions = {}): void {
   const template = buildMenuTemplate({
-    isMac: isMac(),
     platform: process.platform,
     appName: app.getName(),
     t: options.t,

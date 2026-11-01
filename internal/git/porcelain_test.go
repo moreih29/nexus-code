@@ -4,22 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"sort"
 	"testing"
-
-	"github.com/nexus-code/nexus-code/internal/dispatch"
-	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // TestParsePorcelainV2StatusFixtures verifies every manually authored status
 // fixture against the pure parser. Service-owned fields are normalized because
 // they come from separate host-local subcalls, not porcelain stdout.
 func TestParsePorcelainV2StatusFixtures(t *testing.T) {
-	fixtureRoot := statusFixtureRoot(t)
+	fixtureRoot := fixtureDir("status")
 	entries, err := os.ReadDir(fixtureRoot)
 	if err != nil {
 		t.Fatalf("read status fixtures: %v", err)
@@ -67,14 +62,9 @@ func TestParsePorcelainV2RejectsMissingNulRenameOldPath(t *testing.T) {
 }
 
 func TestStatusServiceTempRepoShape(t *testing.T) {
-	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "user.email", "nexus@example.test")
-	runGitCommand(t, root, "config", "user.name", "Nexus Test")
-	writeFile(t, filepath.Join(root, "tracked.txt"), "base\n")
-	runGitCommand(t, root, "add", "tracked.txt")
-	runGitCommand(t, root, "commit", "-m", "initial")
-	writeFile(t, filepath.Join(root, "tracked.txt"), "changed\n")
+	t.Parallel()
+	root := newRepo(t)
+	writeFile(t, filepath.Join(root, "README.md"), "changed\n")
 	writeFile(t, filepath.Join(root, "untracked.txt"), "new\n")
 
 	service := New(root)
@@ -92,7 +82,7 @@ func TestStatusServiceTempRepoShape(t *testing.T) {
 	if !status.Capabilities.HasHEAD {
 		t.Fatal("capabilities.hasHEAD = false, want true")
 	}
-	if len(status.Working) != 1 || status.Working[0].RelPath != "tracked.txt" || status.Working[0].XY != ".M" {
+	if len(status.Working) != 1 || status.Working[0].RelPath != "README.md" || status.Working[0].XY != ".M" {
 		t.Fatalf("working mismatch: %#v", status.Working)
 	}
 	if len(status.Untracked) != 1 || status.Untracked[0].RelPath != "untracked.txt" {
@@ -103,21 +93,6 @@ func TestStatusServiceTempRepoShape(t *testing.T) {
 	}
 	if status.LastFetchedAt != nil {
 		t.Fatalf("lastFetchedAt got %v want nil", *status.LastFetchedAt)
-	}
-}
-
-func TestStatusRegisteredWithDispatcher(t *testing.T) {
-	root := t.TempDir()
-	runGitCommand(t, root, "init", "-b", "main")
-
-	d := dispatch.New()
-	Register(d, New(root))
-	res := d.Dispatch(context.Background(), proto.Request{ID: "git.status", Method: "git.status", Params: json.RawMessage(`{}`)})
-	if res.Error != nil {
-		t.Fatalf("git.status dispatch returned error: %#v", res.Error)
-	}
-	if _, ok := res.Result.(GitStatus); !ok {
-		t.Fatalf("git.status result type = %T", res.Result)
 	}
 }
 
@@ -178,40 +153,15 @@ func normalizeJSON(value any) {
 	}
 }
 
-func statusFixtureRoot(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "tests", "fixtures", "git", "status"))
-}
-
-func runGitCommand(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-}
-
-func writeFile(t *testing.T, path string, content string) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write %s: %v", path, err)
-	}
-}
-
 // A repo-local core.fsmonitor is a command git runs on every status. The
 // agent runs status as soon as a folder opens, so a .git/config that came
 // with the folder must not be able to run code through it.
 func TestStatusIgnoresRepoConfiguredFsmonitorCommand(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	marker := filepath.Join(t.TempDir(), "fsmonitor-ran")
-	runGitCommand(t, root, "init", "-b", "main")
-	runGitCommand(t, root, "config", "core.fsmonitor", "touch "+marker+"; false")
+	runGit(t, root, "init", "-b", "main")
+	runGit(t, root, "config", "core.fsmonitor", "touch "+marker+"; false")
 	writeFile(t, filepath.Join(root, "a.txt"), "x\n")
 
 	if _, err := New(root).Status(context.Background(), json.RawMessage(`{}`)); err != nil {

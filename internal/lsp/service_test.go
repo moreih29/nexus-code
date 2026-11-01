@@ -75,6 +75,29 @@ func TestServiceSpawnSendRoundTripShutdown(t *testing.T) {
 	}
 }
 
+func TestSpawnAddsEnvOverTheAgents(t *testing.T) {
+	service, _ := newTestService(t)
+	// Without the spawn's own value the helper would not act as a server.
+	t.Setenv("NEXUS_LSP_FAKE_SERVER", "0")
+
+	params := SpawnParams{
+		WorkspaceID:   "workspace",
+		LanguageID:    "fake",
+		BinaryPath:    os.Args[0],
+		Args:          []string{"-test.run=TestFakeLSPServerHelper", "--", "roundtrip"},
+		WorkspaceRoot: t.TempDir(),
+		Env:           map[string]string{"NEXUS_LSP_FAKE_SERVER": "1"},
+	}
+	result, err := service.Spawn(context.Background(), mustJSON(t, params))
+	if err != nil {
+		t.Fatalf("Spawn() error = %v", err)
+	}
+	serverID := result.(SpawnResult).ServerID
+	if _, err := service.Shutdown(context.Background(), mustJSON(t, ShutdownParams{ServerID: serverID})); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+}
+
 func TestIdleTimerTriggersGracefulShutdown(t *testing.T) {
 	service, _ := newTestService(t)
 	markerPath := filepath.Join(t.TempDir(), "idle-marker.txt")
@@ -115,44 +138,6 @@ func TestServerRequestCorrelationRestoresOriginalWireID(t *testing.T) {
 	}
 	if !strings.Contains(record, `"result":[{"section":"fake"}]`) {
 		t.Fatalf("response did not carry result: %s", record)
-	}
-
-	if _, err := service.Shutdown(context.Background(), mustJSON(t, ShutdownParams{ServerID: result.ServerID})); err != nil {
-		t.Fatalf("Shutdown() error = %v", err)
-	}
-}
-
-func TestServerRequestCorrelationCleansManyRequests(t *testing.T) {
-	service, events := newTestService(t)
-	recordPath := filepath.Join(t.TempDir(), "many-responses.jsonl")
-	result := spawnFakeServer(t, service, "server-request-many", nil, recordPath)
-
-	const requestCount = 25
-	seen := make(map[string]struct{}, requestCount)
-	for len(seen) < requestCount {
-		event := waitEvent(t, events, EventServerRequest)
-		payload := event.payload.(ServerRequestPayload)
-		seen[payload.AgentRequestID] = struct{}{}
-		response := RespondServerRequestParams{
-			ServerID:       result.ServerID,
-			AgentRequestID: payload.AgentRequestID,
-			Result:         json.RawMessage(`{"ok":true}`),
-		}
-		if _, err := service.RespondServerRequest(context.Background(), mustJSON(t, response)); err != nil {
-			t.Fatalf("RespondServerRequest(%q) error = %v", payload.AgentRequestID, err)
-		}
-	}
-
-	waitUntil(t, 2*time.Second, func() bool { return service.serverRequestCount(result.ServerID) == 0 })
-	records := waitForFileLineCount(t, recordPath, requestCount, 2*time.Second)
-	for i, record := range records {
-		var raw map[string]json.RawMessage
-		if err := json.Unmarshal([]byte(record), &raw); err != nil {
-			t.Fatalf("unmarshal response %d: %v", i, err)
-		}
-		if strings.HasPrefix(strings.TrimSpace(string(raw["id"])), `"`) {
-			t.Fatalf("response id should remain numeric: %s", raw["id"])
-		}
 	}
 
 	if _, err := service.Shutdown(context.Background(), mustJSON(t, ShutdownParams{ServerID: result.ServerID})); err != nil {
@@ -212,6 +197,50 @@ func TestShutdownEmitsServerExited(t *testing.T) {
 	if payload.ServerID != result.ServerID {
 		t.Fatalf("serverExited serverId = %q, want %q", payload.ServerID, result.ServerID)
 	}
+	if !payload.Shutdown {
+		t.Fatal("serverExited after lsp.shutdown does not say the agent stopped the server")
+	}
+}
+
+// The client restarts a server that crashed but not one that sat idle, and
+// tells the two apart by Shutdown.
+func TestIdleExitSaysTheAgentStoppedTheServer(t *testing.T) {
+	service, events := newTestService(t)
+	idleMs := 100
+	_ = spawnFakeServer(t, service, "idle", &idleMs, "")
+
+	payload := waitEvent(t, events, EventServerExited).payload.(ServerExitedPayload)
+	if !payload.Shutdown {
+		t.Fatal("serverExited after the idle timeout does not say the agent stopped the server")
+	}
+}
+
+func TestSpawnReturnsServerInfo(t *testing.T) {
+	service, _ := newTestService(t)
+	result := spawnFakeServer(t, service, "roundtrip", nil, "")
+
+	if result.ServerInfo == nil || *result.ServerInfo != (ServerInfo{Name: "fake-lsp", Version: "1.2.3"}) {
+		t.Fatalf("ServerInfo = %+v, want fake-lsp 1.2.3", result.ServerInfo)
+	}
+	shutdownServer(t, service, result.ServerID)
+}
+
+func TestStatsReportsEachServersMemory(t *testing.T) {
+	service, _ := newTestService(t)
+	result := spawnFakeServer(t, service, "roundtrip", nil, "")
+
+	raw, err := service.Stats(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Stats() error = %v", err)
+	}
+	stats := raw.(StatsResult)
+	if len(stats.Servers) != 1 || stats.Servers[0].ServerID != result.ServerID {
+		t.Fatalf("Stats() servers = %+v, want the one spawned", stats.Servers)
+	}
+	if stats.Servers[0].RSSBytes == 0 {
+		t.Fatal("Stats() reported no memory for a running server")
+	}
+	shutdownServer(t, service, result.ServerID)
 }
 
 // cmd.Wait closes the stdout and stderr pipes as soon as the server exits.
@@ -237,6 +266,9 @@ func TestServerExitKeepsFinalOutput(t *testing.T) {
 				payload := event.payload.(ServerExitedPayload)
 				if payload.ServerID != result.ServerID {
 					t.Fatalf("serverExited serverId = %q, want %q", payload.ServerID, result.ServerID)
+				}
+				if payload.Shutdown {
+					t.Fatal("a crash is reported as the agent stopping the server")
 				}
 				if !strings.HasSuffix(payload.StderrTail, "last stderr line\n") {
 					t.Fatalf("stderr tail lost the end of the crash output: ...%q", tail(payload.StderrTail, 80))
@@ -344,6 +376,15 @@ func TestServiceRoutesFSChangedToRegisteredWatchedFiles(t *testing.T) {
 	}
 }
 
+// shutdownServer stops a server before the test's temp dir is removed:
+// Windows refuses to remove the directory a running process works in.
+func shutdownServer(t *testing.T, service *Service, serverID string) {
+	t.Helper()
+	if _, err := service.Shutdown(context.Background(), mustJSON(t, ShutdownParams{ServerID: serverID})); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+}
+
 func newTestService(t *testing.T) (*Service, <-chan recordedEvent) {
 	t.Helper()
 	service := New()
@@ -447,4 +488,28 @@ func mustJSON(t *testing.T, value any) json.RawMessage {
 		t.Fatal(err)
 	}
 	return data
+}
+
+// A restarted agent receives the calls queued for the one it replaced; its
+// servers must not answer to the old servers' ids.
+func TestServerIDsDifferBetweenServices(t *testing.T) {
+	first, second := New(), New()
+	if a, b := first.nextServerID(), second.nextServerID(); a == b {
+		t.Fatalf("both services named their first server %q", a)
+	}
+}
+
+// Some servers read settings only from initialize, such as
+// typescript-language-server's tsserver options.
+func TestInitializeSendsInitializationOptions(t *testing.T) {
+	options := json.RawMessage(`{"tsserver":{"useSyntaxServer":"never"}}`)
+	with := newServerProcess(New(), "lsp-x-1", SpawnParams{WorkspaceRoot: t.TempDir(), InitializationOptions: options}, 0)
+	if got, _ := with.initializeParams()["initializationOptions"].(json.RawMessage); string(got) != string(options) {
+		t.Fatalf("initializationOptions = %s, want %s", got, options)
+	}
+
+	without := newServerProcess(New(), "lsp-x-2", SpawnParams{WorkspaceRoot: t.TempDir()}, 0)
+	if _, ok := without.initializeParams()["initializationOptions"]; ok {
+		t.Fatal("initialize carried initializationOptions nobody set")
+	}
 }

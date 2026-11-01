@@ -38,6 +38,7 @@ interface GroupTabBarProps {
   onNewTerminalTab: (shell?: ShellChoice) => void;
   onNewUntitledTab: () => void;
   onNewBrowserTab: () => void;
+  onShowSessions: () => void;
   onActivateGroup: (groupId: string) => void;
 }
 
@@ -53,6 +54,7 @@ export function GroupTabBar({
   onNewTerminalTab,
   onNewUntitledTab,
   onNewBrowserTab,
+  onShowSessions,
   onActivateGroup,
 }: GroupTabBarProps) {
   const [contextTabId, setContextTabId] = useState<string | null>(null);
@@ -110,7 +112,7 @@ export function GroupTabBar({
   }
 
   const isRemote = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.location.kind === "ssh",
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.location.kind !== "local",
   );
 
   const menuItems = buildGroupTabBarMenuItems({
@@ -137,6 +139,7 @@ export function GroupTabBar({
             onNewTerminalTab={onNewTerminalTab}
             onNewUntitledTab={onNewUntitledTab}
             onNewBrowserTab={onNewBrowserTab}
+            onShowSessions={onShowSessions}
             onTabContextMenu={(tabId) => setContextTabId(tabId)}
           />
         </div>

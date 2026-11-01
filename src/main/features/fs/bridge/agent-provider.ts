@@ -54,14 +54,14 @@ export interface AgentFsProviderOptions {
 
 /**
  * Filesystem provider backed by an agent NDJSON channel. The same provider is
- * used for local and SSH workspaces; transport selection happens before this
+ * used for local, SSH and WSL workspaces; transport selection happens before this
  * layer.
  */
 export class AgentFsProvider implements AgentBackedProvider {
   private channel: AgentChannel | null = null;
 
   constructor(
-    readonly kind: "local" | "ssh",
+    readonly kind: "local" | "ssh" | "wsl",
     private readonly source?: ChannelSource,
     private readonly options: AgentFsProviderOptions = {},
   ) {}

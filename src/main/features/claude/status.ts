@@ -9,7 +9,15 @@ interface StateEntry {
   status: ClaudeStatus;
   message?: string;
   since: number;
+  prompt?: string;
 }
+
+/** 상태 변경 listener — clear 시 entry는 null. */
+export type ClaudeStatusListener = (
+  workspaceId: string,
+  tabId: string,
+  entry: { status: ClaudeStatus; since: number } | null,
+) => void;
 
 /**
  * (workspaceId, tabId) 쌍별 Claude 세션 상태를 관리하는 broker.
@@ -26,6 +34,8 @@ export class ClaudeStatusBroker {
   /** 테스트에서 broadcast 함수를 주입할 때 사용한다. */
   private readonly broadcastFn: (channel: string, event: string, args: unknown) => void;
 
+  private readonly listeners = new Set<ClaudeStatusListener>();
+
   constructor(
     broadcastFn: (channel: string, event: string, args: unknown) => void = broadcast,
   ) {
@@ -35,18 +45,42 @@ export class ClaudeStatusBroker {
   /**
    * 특정 (workspaceId, tabId) 의 상태를 설정한다.
    * 이전 상태와 동일하면 broadcast를 발사하지 않는다.
+   *
+   * prompt: undefined면 이전 프롬프트를 유지하고, null이면 지운다(새 세션).
    */
-  set(workspaceId: string, tabId: string, status: ClaudeStatus, message?: string): void {
+  set(
+    workspaceId: string,
+    tabId: string,
+    status: ClaudeStatus,
+    message?: string,
+    prompt?: string | null,
+  ): void {
     const key = `${workspaceId}:${tabId}`;
     const prev = this.map.get(key);
+    const nextPrompt = prompt === null ? undefined : (prompt ?? prev?.prompt);
 
-    // 상태와 메시지가 모두 동일하면 broadcast 생략.
-    if (prev && prev.status === status && prev.message === message) return;
+    // 상태·메시지·프롬프트가 모두 동일하면 broadcast 생략.
+    if (
+      prev &&
+      prev.status === status &&
+      prev.message === message &&
+      prev.prompt === nextPrompt
+    ) {
+      return;
+    }
 
     const since = Date.now();
-    this.map.set(key, { status, message, since });
+    this.map.set(key, { status, message, since, prompt: nextPrompt });
+    for (const listener of this.listeners) listener(workspaceId, tabId, { status, since });
 
-    const entry: StatusEntry = { workspaceId, tabId, status, since, ...(message !== undefined ? { message } : {}) };
+    const entry: StatusEntry = {
+      workspaceId,
+      tabId,
+      status,
+      since,
+      ...(message !== undefined ? { message } : {}),
+      ...(nextPrompt !== undefined ? { prompt: nextPrompt } : {}),
+    };
     this.broadcastFn("claude", "status", entry);
   }
 
@@ -72,6 +106,7 @@ export class ClaudeStatusBroker {
     const key = `${workspaceId}:${tabId}`;
     if (!this.map.has(key)) return;
     this.map.delete(key);
+    for (const listener of this.listeners) listener(workspaceId, tabId, null);
     this.broadcastFn("claude", "cleared", { workspaceId, tabId });
   }
 
@@ -92,8 +127,20 @@ export class ClaudeStatusBroker {
       if (!key.startsWith(prefix)) continue;
       this.map.delete(key);
       const tabId = key.slice(prefix.length);
+      for (const listener of this.listeners) listener(workspaceId, tabId, null);
       this.broadcastFn("claude", "cleared", { workspaceId, tabId });
     }
+  }
+
+  /**
+   * 상태가 바뀌거나 지워질 때마다 listener를 부른다(세션 이력 기록용).
+   * 반환 함수로 해제한다.
+   */
+  onChange(listener: ClaudeStatusListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   /**
@@ -112,6 +159,7 @@ export class ClaudeStatusBroker {
         status: entry.status,
         since: entry.since,
         ...(entry.message !== undefined ? { message: entry.message } : {}),
+        ...(entry.prompt !== undefined ? { prompt: entry.prompt } : {}),
       });
     }
     return result;

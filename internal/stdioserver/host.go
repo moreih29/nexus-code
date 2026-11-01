@@ -7,9 +7,11 @@
 //
 // The loop is deliberately concurrent: every request line spawns a
 // handler goroutine so a slow file read does not block subsequent
-// requests. Responses are serialized through a single stdout mutex,
-// and SIGTERM triggers a bounded drain — in-flight handlers get a
-// short window to write their final frames before the process exits.
+// requests. Methods the dispatcher marks ordered are the exception:
+// their requests run one after another, in arrival order. Responses
+// are serialized through a single stdout mutex, and SIGTERM triggers
+// a bounded drain — in-flight handlers get a short window to write
+// their final frames before the process exits.
 package stdioserver
 
 import (
@@ -70,6 +72,10 @@ type Host struct {
 
 	outMu sync.Mutex     // serializes response frames on `out`
 	wg    sync.WaitGroup // tracks in-flight handler goroutines
+
+	// orderedTail is closed when the last ordered request so far has been
+	// handled; the next one waits on it. Only Run's goroutine touches it.
+	orderedTail chan struct{}
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -169,7 +175,8 @@ func (h *Host) EmitEvent(event string, payload any) error {
 }
 
 // Run consumes NDJSON request lines from `in` until EOF or a fatal
-// read error, dispatching each on its own goroutine. Run does not
+// read error, dispatching each on its own goroutine (ordered methods
+// wait for the ordered request before them). Run does not
 // return — it terminates the process via drainAndExit. Install the
 // SIGTERM handler via InstallSigtermHandler before calling this so
 // the parent's shutdown signal is honored.
@@ -208,6 +215,20 @@ func (h *Host) Run() {
 			continue
 		}
 		h.wg.Add(1)
+		if h.dispatcher.Ordered(methodAtStart(line)) {
+			prev := h.orderedTail
+			done := make(chan struct{})
+			h.orderedTail = done
+			go func() {
+				defer h.wg.Done()
+				defer close(done)
+				if prev != nil {
+					<-prev
+				}
+				h.handleLine(line)
+			}()
+			continue
+		}
 		go func() {
 			defer h.wg.Done()
 			h.handleLine(line)
@@ -281,6 +302,21 @@ func dropCR(line []byte) []byte {
 // which is how the client serializes every request ({id, method, params}).
 // Anchoring keeps an "id" inside params from being mistaken for it.
 var requestIDAtStart = regexp.MustCompile(`^\s*\{\s*"id"\s*:\s*"((?:[^"\\]|\\.)*)"`)
+
+// requestMethodAtStart matches the method of a request line serialized as
+// {id, method, params}.
+var requestMethodAtStart = regexp.MustCompile(`^\s*\{\s*"id"\s*:\s*"(?:[^"\\]|\\.)*"\s*,\s*"method"\s*:\s*"([^"\\]*)"`)
+
+// methodAtStart returns the method of a request line without parsing the
+// rest of it, which can be megabytes of params, or "" when the line is not
+// laid out as the client writes requests. Such a line is not ordered.
+func methodAtStart(line []byte) string {
+	head := line[:min(len(line), lineHeadBytes)]
+	if match := requestMethodAtStart.FindSubmatch(head); match != nil {
+		return string(match[1])
+	}
+	return ""
+}
 
 // rejectOversizedLine answers a request line that exceeded maxLineBytes
 // with a protocol error when its id can be read from the line's head, so the

@@ -3,9 +3,11 @@
   "nav": {
     "appearance": "Appearance",
     "editor": "Editor",
+    "languageServers": "Language Servers",
     "terminal": "Terminal",
     "workspaces": "Workspaces",
     "notifications": "Notifications",
+    "agentCli": "Agent CLI",
     "browserPermissions": "Browser Permissions",
     "keybindings": "Keyboard Shortcuts",
     "about": "About",
@@ -22,7 +24,8 @@
     },
     "nav": "Settings navigation",
     "modifiedAria": "modified",
-    "modifiedTitle": "Modified in this session"
+    "modifiedTitle": "Modified in this session",
+    "resetSetting": "Reset {{label}}"
   },
   "browserPermissions": {
     "globalHeading": "Global permissions",
@@ -152,14 +155,8 @@
     },
     "windowOpacity": "Window opacity",
     "windowOpacityRestart": "On Linux, the window shows through after the app restarts.",
-    "inactivePanelDim": "Inactive panel dimming",
-    "reset": {
-      "language": "Reset Language",
-      "theme": "Reset Theme",
-      "iconTheme": "Reset Icon Theme",
-      "windowOpacity": "Reset Window opacity",
-      "inactivePanelDim": "Reset Inactive panel dimming"
-    }
+    "windowOpacityUnsupported": "Window opacity needs Windows 11 version 22H2 or later.",
+    "inactivePanelDim": "Inactive panel dimming"
   },
   "editor": {
     "fontSize": "Font size",
@@ -178,13 +175,7 @@
     "fontDetected": "Detected on this system.",
     "fontNotFound": "Not found on this system — the preview will use the fallback font.",
     "ariaFontSize": "Editor font size",
-    "ariaFontFamily": "Font family",
-    "reset": {
-      "fontSize": "Reset Font size",
-      "lineHeight": "Reset Line height",
-      "fontFamily": "Reset Font family",
-      "fontLigatures": "Reset Font ligatures"
-    }
+    "ariaFontFamily": "Font family"
   },
   "terminal": {
     "shell": {
@@ -217,6 +208,15 @@
       "argsPlaceholder": "e.g. -l",
       "hint": "Applies to terminals opened from now on. SSH workspaces use the remote server's login shell."
     },
+    "taskAgent": {
+      "label": "Task agent command",
+      "hint": "A new task's terminal runs this, with the task's first prompt as its argument. Leave it empty to run nothing.",
+      "aria": "Task agent command"
+    },
+    "sessionsView": {
+      "label": "Default sessions view",
+      "hint": "The view a sessions tab opens in. A workspace whose sessions tab was switched to another view keeps that one."
+    },
     "fontSize": "Font size",
     "cursorStyle": "Cursor style",
     "fontFamily": "Font family",
@@ -238,18 +238,54 @@
       "block": "Block",
       "underline": "Underline",
       "bar": "Bar"
-    },
-    "reset": {
-      "fontSize": "Reset Font size",
-      "cursorStyle": "Reset Cursor style",
-      "fontFamily": "Reset Font family",
-      "fontLigatures": "Reset Font ligatures"
     }
   },
   "notifications": {
     "osEnabled": {
       "label": "Show desktop notifications",
       "description": "When Claude needs your attention (response complete, permission request, or a notification hook), the app surfaces an OS-level desktop notification — but only while you are not viewing that tab. In-app indicators (sidebar attention dot, response preview) remain regardless."
+    }
+  },
+  "agentCli": {
+    "enabled": {
+      "label": "Let agents use the nexus command",
+      "description": "Agents in the app's terminals (Claude Code, Codex, ...) can run nexus to see other workspaces' terminals and sessions, open files, diffs, terminals and browser tabs, and type into other terminals. Off, every nexus command fails."
+    },
+    "crossWorkspace": {
+      "label": "Changes to other workspaces",
+      "ask": "Ask each time",
+      "allow": "Allow",
+      "deny": "Don't allow",
+      "description": "What nexus may change in a workspace other than its terminal's own: open tabs, type into terminals, close tabs. Reading other workspaces is always allowed."
+    },
+    "agentContext": {
+      "label": "Tell Claude Code about nexus",
+      "description": "Claude Code sessions started in the app get a short note on nexus when they start, so they know they can use it. Codex is not told; add a line to its AGENTS.md if you want it to."
+    },
+    "consent": {
+      "title": "Allow an agent to change another workspace?",
+      "description": "The terminal \"{{tab}}\" in {{from}} asks to {{action}} in {{to}}.",
+      "deny": "Don't allow",
+      "session": "Allow until restart",
+      "once": "Allow once",
+      "timeout": "It is turned down if not answered in {{seconds}} seconds.",
+      "action": {
+        "open": "open {{detail}}",
+        "diff": "open the changes of {{detail}}",
+        "terminalNew": "open a terminal",
+        "terminalInput": "type into the terminal \"{{detail}}\"",
+        "tabClose": "close the tab \"{{detail}}\"",
+        "browserOpen": "open {{detail}} in a browser tab",
+        "browserNavigate": "move the browser tab \"{{detail}}\"",
+        "browserControl": "click, type or run scripts in the browser tab \"{{detail}}\"",
+        "layout": "rearrange its groups ({{detail}})",
+        "groupClose": "close group {{detail}} and its tabs",
+        "tabRename": "rename the tab \"{{detail}}\"",
+        "tabPin": "pin or unpin the tab \"{{detail}}\"",
+        "worktreeNew": "create the task \"{{detail}}\"",
+        "worktreeRemove": "delete the task and its worktree folder",
+        "worktreeRemoveBranch": "delete the task, its worktree folder and its branch"
+      }
     }
   },
   "about": {
@@ -260,7 +296,11 @@
     },
     "checkNow": "Check for Updates",
     "checking": "Checking…",
-    "storeManaged": "Updates come from the Microsoft Store."
+    "storeManaged": "Updates come from the Microsoft Store.",
+    "openStore": "Open Microsoft Store",
+    "releaseNotes": "Release Notes",
+    "downloadProgress": "Update download progress",
+    "progress": "{{percent}}% · {{transferred}} / {{total}} · {{speed}}/s"
   },
   "keybindings": {
     "searchPlaceholder": "Search commands",
@@ -362,6 +402,9 @@
         "focusNext": "Next Workspace",
         "add": "Add Workspace"
       },
+      "task": {
+        "new": "New Task"
+      },
       "settings": {
         "open": "Open Settings"
       },
@@ -385,5 +428,33 @@
         "goForward": "Forward (Browser)"
       }
     }
+  },
+  "languageServers": {
+    "enable": "Use language servers",
+    "description": "Completion, go to definition and error checking. Click a language's name in the status bar to see its server.",
+    "bundled": "Built in",
+    "installed": "Installed by you",
+    "installedDescription": "Left empty, the server is looked for on the PATH and where its installer puts it. Remote workspaces look on their host.",
+    "language": {
+      "typescript": "TypeScript · JavaScript",
+      "python": "Python",
+      "yaml": "YAML",
+      "shell": "Bash",
+      "dockerfile": "Dockerfile",
+      "go": "Go (gopls)",
+      "rust": "Rust (rust-analyzer)"
+    },
+    "lowMemory": "Memory saver",
+    "lowMemoryDescription": "Uses about 40% less memory; the first answer comes a little later.",
+    "serverPath": "{{language}} server path",
+    "serverPathPlaceholder": {
+      "go": "~/go/bin/gopls",
+      "goWindows": "~\\go\\bin\\gopls.exe",
+      "rust": "~/.cargo/bin/rust-analyzer",
+      "rustWindows": "~\\.cargo\\bin\\rust-analyzer.exe"
+    },
+    "install": "Install:",
+    "maxWorkspaces": "Workspaces running at once",
+    "maxWorkspacesDescription": "Beyond this, the servers of the workspace used least recently stop first."
   }
 }

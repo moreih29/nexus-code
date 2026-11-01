@@ -25,6 +25,8 @@
 // Windows 11 one with a system backdrop, so no restart is needed there. A Linux
 // window opens transparent only while the saved opacity is under 100%, so
 // lowering it there shows through after a restart; the section says so.
+// Windows before 11 22H2 has no backdrop, so nothing shows through its
+// window: the slider is off there and the section says why.
 //
 // Design seal: semantic tokens only on the chrome surrounding the cards.
 // The card swatches intentionally use raw theme colors (the swatches ARE the
@@ -98,6 +100,14 @@ export function opacityAppliesAfterRestart(
   return host?.platform === "linux" && host.transparentWindow !== true && opacity < 1;
 }
 
+/**
+ * Whether the window opacity has no effect: in a Windows window without a
+ * system backdrop (main/features/window).
+ */
+export function opacityHasNoEffect(host: Window["host"] | undefined): boolean {
+  return host?.opaqueWindow === true;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -140,6 +150,7 @@ export function AppearancePanel() {
   const themeDirty = themePreference !== DEFAULT_THEME;
   const opacityDirty = opacity !== 1;
   const opacityNeedsRestart = opacityAppliesAfterRestart(window.host, localOpacity);
+  const opacityUnsupported = opacityHasNoEffect(window.host);
   const dimDirty = dim !== INACTIVE_PANEL_DIM_DEFAULT;
 
   const languageLabel = t("appearance.language");
@@ -234,8 +245,9 @@ export function AppearancePanel() {
             onValueCommit={(vals) => {
               if (vals[0] !== undefined) setOpacity(vals[0]);
             }}
+            disabled={opacityUnsupported}
             aria-label={t("appearance.windowOpacity")}
-            className="relative flex flex-1 touch-none select-none items-center"
+            className="relative flex flex-1 touch-none select-none items-center data-[disabled]:opacity-50"
           >
             <Slider.Track className="relative h-1 w-full grow rounded-(--radius-control) bg-muted border border-border">
               <Slider.Range className="absolute h-full rounded-(--radius-control) bg-[var(--state-selected-bg)]" />
@@ -255,6 +267,11 @@ export function AppearancePanel() {
         {opacityNeedsRestart && (
           <p className="text-app-ui-sm text-muted-foreground">
             {t("appearance.windowOpacityRestart")}
+          </p>
+        )}
+        {opacityUnsupported && (
+          <p className="text-app-ui-sm text-muted-foreground">
+            {t("appearance.windowOpacityUnsupported")}
           </p>
         )}
       </SettingsSection>

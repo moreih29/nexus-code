@@ -14,6 +14,8 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { POSIX_CLI_LAUNCHER } from "../../../../../shared/cli/launcher";
+import { CODEX_WRAPPER } from "../../../../../shared/codex/wrapper";
 import {
   AgentManifestSchema,
   findAgentBinary,
@@ -197,6 +199,7 @@ export async function ensureRemoteAgent(
     }
 
     const remoteBinDir = absoluteRemotePath(remoteHome, `${REMOTE_AGENT_ROOT}/bin`);
+    await writeRemoteCliLauncher(sshOptions, runner, remoteBinDir);
 
     // PTY shim files: only when the caller scoped the bootstrap to a
     // workspace (the PTY spawn path always does; the LSP path does not).
@@ -703,6 +706,32 @@ async function ensureRemoteShimFiles(
   }
 
   return remoteShimDir;
+}
+
+/**
+ * Writes the nexus command and the codex wrapper into the remote bin
+ * directory, the one the remote terminals have first on their PATH. They are
+ * a few lines that find their programs through the terminal's environment,
+ * so they are written as they are on every bootstrap rather than tracked
+ * like the uploaded artifacts.
+ */
+async function writeRemoteCliLauncher(
+  options: EnsureRemoteAgentOptions,
+  runner: SshBootstrapRunner,
+  remoteBinDir: string,
+): Promise<void> {
+  for (const [name, script] of [
+    ["nexus", POSIX_CLI_LAUNCHER],
+    ["codex", CODEX_WRAPPER],
+  ] as const) {
+    const scriptPath = quoteShellArg(`${remoteBinDir}/${name}`);
+    await runSsh(
+      options,
+      runner,
+      `mkdir -p ${quoteShellArg(remoteBinDir)} && cat > ${scriptPath} && chmod 755 ${scriptPath}`,
+      script,
+    );
+  }
 }
 
 /** Uploads the Claude wrapper binary to the fixed remote path `~/.nexus-code/bin/claude`. */

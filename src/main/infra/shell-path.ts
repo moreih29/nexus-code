@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { isLinux, isMac, loginShell } from "./platform";
 
 /**
  * macOS GUI 앱은 launchd가 시작하면서 PATH가 시스템 기본값
@@ -27,10 +28,9 @@ import { execFileSync } from "node:child_process";
  * 이미 부모 shell PATH가 살아 있어서 동기화 불필요(또한 부팅 지연 회피).
  */
 export function syncUserShellPath(): void {
-  if (process.platform !== "darwin" && process.platform !== "linux") return;
+  if (!isMac() && !isLinux()) return;
 
-  // The platform's default login shell when the launcher left $SHELL unset.
-  const shell = process.env.SHELL ?? (process.platform === "darwin" ? "/bin/zsh" : "/bin/bash");
+  const shell = loginShell();
   try {
     // `printf %s "$PATH"` 사용 — trailing newline 제거. echo는 zsh/bash에 따라
     // 다르게 동작할 수 있어서 회피.

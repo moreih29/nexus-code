@@ -55,6 +55,11 @@ interface HostBridge {
    * 100%). Its frame then draws no window controls; the titlebar draws them.
    */
   transparentWindow?: boolean;
+  /**
+   * Whether this window is opaque on Windows before 11 22H2, which has no
+   * system backdrop: the window opacity has no effect in it.
+   */
+  opaqueWindow?: boolean;
 }
 
 interface FilesBridge {

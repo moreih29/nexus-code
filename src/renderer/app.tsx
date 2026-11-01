@@ -1,22 +1,19 @@
 import { useMonaco } from "@monaco-editor/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createLogger } from "../shared/log/renderer";
 import type { WorkspaceMeta } from "../shared/types/workspace";
-import {
-  bootstrapAppState,
-  bootstrapClaudeStatus,
-  bootstrapLspEnabled,
-  bootstrapWorkspaces,
-} from "./bootstrap";
+import { bootstrapAppState, bootstrapClaudeStatus, bootstrapWorkspaces } from "./bootstrap";
 import { useCommandBridge } from "./commands/use-command-bridge";
 import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
 import { AboutPanel } from "./components/settings/panels/about-panel";
+import { AgentCliPanel } from "./components/settings/panels/agent-cli-panel";
 import { AppearancePanel } from "./components/settings/panels/appearance-panel";
 import { BrowserPermissionsPanel } from "./components/settings/panels/browser-permissions-panel";
 import { EditorPanel } from "./components/settings/panels/editor-panel";
 import { KeybindingsPanel } from "./components/settings/panels/keybindings-panel";
+import { LanguageServersPanel } from "./components/settings/panels/language-servers-panel";
 import { NotificationsPanel } from "./components/settings/panels/notifications-panel";
 import { TerminalPanel } from "./components/settings/panels/terminal-panel";
 import { SettingsDialog } from "./components/settings/settings-dialog";
@@ -40,13 +37,19 @@ import { useActiveStore } from "./state/stores/active";
 import { useAddWorkspaceUIStore } from "./state/stores/add-workspace-ui";
 import { useEditorFontStore } from "./state/stores/editor-font";
 import { useIconThemeStore } from "./state/stores/icon-theme";
+import { useMountedWorkspacesStore } from "./state/stores/mounted-workspaces";
 import { useSettingsUIStore } from "./state/stores/settings-ui";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
 import { useInactivePanelDimStore } from "./state/stores/inactive-panel-dim";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
-import { useWorkspacesStore } from "./state/stores/workspaces";
+import {
+  rootWorkspaceId,
+  tasksOf,
+  useWorkspacesStore,
+  visibleWorkspaces,
+} from "./state/stores/workspaces";
 
 const log = createLogger("app");
 
@@ -165,6 +168,26 @@ export function App() {
         dirty: editorDirty,
       },
       {
+        id: "language-servers",
+        label: t("nav.languageServers"),
+        group: t("nav.group.settings"),
+        keywords: [
+          "lsp",
+          "language server",
+          "completion",
+          "diagnostics",
+          "typescript",
+          "python",
+          "go",
+          "rust",
+          "yaml",
+          "bash",
+          "dockerfile",
+          "자동 완성",
+          "진단",
+        ],
+      },
+      {
         id: "terminal",
         label: t("nav.terminal"),
         group: t("nav.group.settings"),
@@ -176,6 +199,12 @@ export function App() {
         label: t("nav.notifications"),
         group: t("nav.group.settings"),
         keywords: ["alert", "desktop", "os", "notification", "claude"],
+      },
+      {
+        id: "agent-cli",
+        label: t("nav.agentCli"),
+        group: t("nav.group.settings"),
+        keywords: ["nexus", "cli", "agent", "claude", "codex", "에이전트"],
       },
       {
         id: "browser-permissions",
@@ -213,10 +242,11 @@ export function App() {
     terminalFontLigatures,
   ]);
 
-  // Workspaces that have been activated at least once in this session.
-  // Their <WorkspacePanel> stays mounted (CSS-hidden when inactive) so PTYs
-  // survive workspace switches. Pruned when the workspace itself disappears.
-  const [mountedIds, setMountedIds] = useState<Set<string>>(() => new Set());
+  // Workspaces that have been activated at least once in this session, and
+  // tasks nexus started behind the user's view. Their <WorkspacePanel> stays
+  // mounted (CSS-hidden when inactive) so PTYs survive workspace switches.
+  // Pruned when the workspace itself disappears.
+  const mountedIds = useMountedWorkspacesStore((s) => s.ids);
   // Add Workspace dialog state lives in a dedicated store so the
   // `workspace.add` keyboard command (⌘⇧N) can open it without prop drilling.
   const addWorkspaceOpen = useAddWorkspaceUIStore((s) => s.addWorkspaceOpen);
@@ -244,27 +274,10 @@ export function App() {
     bootstrapWorkspaces(setAll, setActiveWorkspaceId);
   }, []);
 
-  // Boot: hydrate per-workspace LSP enabled-languages state.
-  // Runs after workspaces are loaded so the list is non-empty and every
-  // workspace's enabled list is fetched in one parallel batch. The store is
-  // populated before any editor model fires its first didOpen (models are
-  // mounted lazily when their tab becomes visible, after the workspace panel
-  // renders, which is after this effect runs).
-  useEffect(() => {
-    if (workspaces.length > 0) {
-      void bootstrapLspEnabled(workspaces);
-    }
-  }, [workspaces]);
-
   // Mark the active workspace as mounted (one-way; lazy-mount + persist).
   useEffect(() => {
     if (!activeWorkspaceId) return;
-    setMountedIds((prev) => {
-      if (prev.has(activeWorkspaceId)) return prev;
-      const next = new Set(prev);
-      next.add(activeWorkspaceId);
-      return next;
-    });
+    useMountedWorkspacesStore.getState().mount(activeWorkspaceId);
   }, [activeWorkspaceId]);
 
   // Eager LSP rehydrate on workspace activation. The main-side host
@@ -285,25 +298,26 @@ export function App() {
   // (closeAllForWorkspace / close wrappers) kills PTYs; panel unmount only
   // disposes view/controller instances.
   useEffect(() => {
-    setMountedIds((prev) => {
-      const alive = new Set(workspaces.map((w) => w.id));
-      let changed = false;
-      const next = new Set<string>();
-      for (const id of prev) {
-        if (alive.has(id)) {
-          next.add(id);
-        } else {
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
+    useMountedWorkspacesStore.getState().keepOnly(new Set(workspaces.map((w) => w.id)));
   }, [workspaces]);
 
-  // When the active workspace disappears (deleted, etc.), fall back to the next one or null.
+  // The parent of the active workspace while it is a task: where removing
+  // the task leaves the user.
+  const activeParentIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const active = workspaces.find((w) => w.id === activeWorkspaceId);
+    if (active) activeParentIdRef.current = active.task?.parentId ?? null;
+  }, [workspaces, activeWorkspaceId]);
+
+  // When the active workspace disappears (deleted, etc.), fall back to its
+  // parent for a task, else to the first workspace, or null.
   useEffect(() => {
     if (activeWorkspaceId && !workspaces.some((w) => w.id === activeWorkspaceId)) {
-      const next = workspaces[0]?.id ?? null;
+      const parentId = activeParentIdRef.current;
+      const next =
+        (parentId !== null && workspaces.some((w) => w.id === parentId)
+          ? parentId
+          : visibleWorkspaces(workspaces)[0]?.id) ?? null;
       setActiveWorkspaceId(next);
       if (next) {
         // Fire-and-forget: UI is already updated; notify main of workspace switch.
@@ -316,13 +330,22 @@ export function App() {
 
   const handleSelectWorkspace = useCallback(
     (id: string) => {
+      // The sidebar row stands for the workspace and its tasks; clicking the
+      // row the active task belongs to keeps that task.
+      if (
+        activeWorkspaceId !== null &&
+        activeWorkspaceId !== id &&
+        rootWorkspaceId(workspaces, activeWorkspaceId) === id
+      ) {
+        return;
+      }
       setActiveWorkspaceId(id);
       // Fire-and-forget: UI is already updated; notify main of workspace switch.
       void ipcCallResult("workspace", "activate", { id }).then((result) => {
         if (!result.ok) log.warn(`workspace activate failed: ${result.message}`);
       });
     },
-    [setActiveWorkspaceId],
+    [workspaces, activeWorkspaceId, setActiveWorkspaceId],
   );
 
   const handleAddWorkspace = useCallback(() => {
@@ -349,7 +372,13 @@ export function App() {
     async (id: string) => {
       const target = workspaces.find((w) => w.id === id);
       const name = target?.name ?? "this workspace";
-      const confirmed = await showRemoveWorkspaceConfirm(name, countUnsavedBuffers(id));
+      // Its tasks go with it, unsaved edits included.
+      const tasks = tasksOf(workspaces, id);
+      const unsaved = [id, ...tasks.map((task) => task.id)].reduce(
+        (sum, workspaceId) => sum + countUnsavedBuffers(workspaceId),
+        0,
+      );
+      const confirmed = await showRemoveWorkspaceConfirm(name, unsaved, tasks.length);
       if (!confirmed) return;
       // tabs store subscribes to `workspace:removed` and clears its slice;
       // that tab-record cleanup kills PTYs before panel unmount disposes views.
@@ -405,8 +434,10 @@ export function App() {
           {(activeId) => {
             if (activeId === "appearance") return <AppearancePanel />;
             if (activeId === "editor") return <EditorPanel />;
+            if (activeId === "language-servers") return <LanguageServersPanel />;
             if (activeId === "terminal") return <TerminalPanel />;
             if (activeId === "notifications") return <NotificationsPanel />;
+            if (activeId === "agent-cli") return <AgentCliPanel />;
             if (activeId === "browser-permissions") return <BrowserPermissionsPanel />;
             if (activeId === "keybindings") return <KeybindingsPanel />;
             if (activeId === "about") return <AboutPanel />;

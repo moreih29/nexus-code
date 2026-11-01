@@ -32,6 +32,7 @@ func TestExtractLastAssistantText_NonexistentFile(t *testing.T) {
 }
 
 func TestExtractLastAssistantText_EmptyFile(t *testing.T) {
+	t.Parallel()
 	path := writeTempTranscript(t, "")
 	if got := extractLastAssistantText(path); got != "" {
 		t.Errorf("empty file: want empty string, got %q", got)
@@ -39,6 +40,7 @@ func TestExtractLastAssistantText_EmptyFile(t *testing.T) {
 }
 
 func TestExtractLastAssistantText_StringContent(t *testing.T) {
+	t.Parallel()
 	// content가 string 형태 — 가장 단순한 케이스
 	content := `{"message":{"role":"user","content":"Hello"}}
 {"message":{"role":"assistant","content":"Hi there!"}}
@@ -51,6 +53,7 @@ func TestExtractLastAssistantText_StringContent(t *testing.T) {
 }
 
 func TestExtractLastAssistantText_BlocksContent(t *testing.T) {
+	t.Parallel()
 	// content가 [{type, text}] blocks 형태
 	content := `{"message":{"role":"user","content":"Hello"}}
 {"message":{"role":"assistant","content":[{"type":"text","text":"Sure, here is the answer."}]}}
@@ -63,6 +66,7 @@ func TestExtractLastAssistantText_BlocksContent(t *testing.T) {
 }
 
 func TestExtractLastAssistantText_LastUserResetsAccumulation(t *testing.T) {
+	t.Parallel()
 	// 여러 user/assistant 라인이 있으면, 마지막 user 이후의 assistant만 누적된다.
 	content := `{"message":{"role":"assistant","content":"first answer"}}
 {"message":{"role":"user","content":"follow up"}}
@@ -76,6 +80,7 @@ func TestExtractLastAssistantText_LastUserResetsAccumulation(t *testing.T) {
 }
 
 func TestExtractLastAssistantText_NoAssistant(t *testing.T) {
+	t.Parallel()
 	// user 라인만 있으면 빈 문자열.
 	content := `{"message":{"role":"user","content":"only user"}}
 `
@@ -87,6 +92,7 @@ func TestExtractLastAssistantText_NoAssistant(t *testing.T) {
 }
 
 func TestExtractLastAssistantText_MultilineNormalized(t *testing.T) {
+	t.Parallel()
 	// 줄바꿈·연속 공백이 들어간 응답은 single-line으로 정규화된다.
 	content := "{\"message\":{\"role\":\"assistant\",\"content\":\"line one\\nline two\\n\\n   tabbed\\there\"}}\n"
 	path := writeTempTranscript(t, content)
@@ -98,6 +104,7 @@ func TestExtractLastAssistantText_MultilineNormalized(t *testing.T) {
 }
 
 func TestExtractLastAssistantText_LongTruncated(t *testing.T) {
+	t.Parallel()
 	// 500자를 초과하면 잘리고 끝에 ellipsis가 붙는다.
 	long := strings.Repeat("a", 600)
 	content := `{"message":{"role":"assistant","content":"` + long + `"}}` + "\n"
@@ -117,6 +124,7 @@ func TestExtractLastAssistantText_LongTruncated(t *testing.T) {
 }
 
 func TestExtractLastAssistantText_MalformedLineSkipped(t *testing.T) {
+	t.Parallel()
 	// 깨진 JSON 라인은 건너뛰고 다른 라인을 처리한다.
 	content := `this is not json
 {"message":{"role":"assistant","content":"recovered"}}
@@ -133,6 +141,7 @@ func TestExtractLastAssistantText_MalformedLineSkipped(t *testing.T) {
 // 누적되어야 한다. 실제로 본 "1 chars / 18 chars" 결과의 정체일 가능성이
 // 높은 케이스.
 func TestExtractLastAssistantText_AccumulatesMultipleAssistantTurns(t *testing.T) {
+	t.Parallel()
 	content := `{"message":{"role":"user","content":"Please analyze the codebase."}}
 {"message":{"role":"assistant","content":[{"type":"text","text":"I'll check the file."}]}}
 {"message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","input":{}}]}}
@@ -150,6 +159,7 @@ func TestExtractLastAssistantText_AccumulatesMultipleAssistantTurns(t *testing.T
 // 마지막 user 이후 첫 assistant가 짧은 멘트만 있고 그 뒤에 본문이 와도
 // 둘 다 누적된다. 위 케이스와 같은 의도지만 한 turn 안에서 응답이 split된 경우.
 func TestExtractLastAssistantText_TwoTextBlocksInSameTurn(t *testing.T) {
+	t.Parallel()
 	content := `{"message":{"role":"user","content":"hi"}}
 {"message":{"role":"assistant","content":[{"type":"text","text":"Sure."},{"type":"text","text":"Here's more detail."}]}}
 `
@@ -163,6 +173,7 @@ func TestExtractLastAssistantText_TwoTextBlocksInSameTurn(t *testing.T) {
 
 // blocks에 text와 tool_use가 섞여 있으면 text만 join — tool_use 등은 무시.
 func TestExtractLastAssistantText_BlocksWithToolUseSkipped(t *testing.T) {
+	t.Parallel()
 	content := `{"message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}},{"type":"text","text":"Running the command."}]}}
 `
 	path := writeTempTranscript(t, content)

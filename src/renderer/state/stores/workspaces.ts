@@ -193,6 +193,21 @@ export function selectIsWorkspaceOnline(state: WorkspacesState, workspaceId: str
   return workspaceIsOnline(workspace, selectWorkspaceConnectionStatus(state, workspaceId));
 }
 
+/** The workspaces the sidebar lists: all but tasks, which live inside their parent. */
+export function visibleWorkspaces(workspaces: readonly WorkspaceMeta[]): WorkspaceMeta[] {
+  return workspaces.filter((workspace) => !workspace.task);
+}
+
+/** The tasks of a workspace, in store order. */
+export function tasksOf(workspaces: readonly WorkspaceMeta[], parentId: string): WorkspaceMeta[] {
+  return workspaces.filter((workspace) => workspace.task?.parentId === parentId);
+}
+
+/** The sidebar workspace `id` belongs to: its parent for a task, else itself. */
+export function rootWorkspaceId(workspaces: readonly WorkspaceMeta[], id: string): string {
+  return workspaces.find((workspace) => workspace.id === id)?.task?.parentId ?? id;
+}
+
 /**
  * Removes connection state for workspaces that no longer exist in the list.
  */

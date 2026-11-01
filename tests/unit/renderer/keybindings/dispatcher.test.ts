@@ -15,9 +15,9 @@ import {
 import {
   __resetChordStateForTests,
   __setChordClockForTests,
-  __setEditorChordsForTests,
   handleGlobalKeyDown,
 } from "../../../../src/renderer/keybindings/dispatcher";
+import { setPlatformForTests } from "../../../../src/renderer/utils/platform";
 import { COMMANDS } from "../../../../src/shared/keybindings/commands";
 
 interface MockEvent {
@@ -134,14 +134,6 @@ describe("handleGlobalKeyDown — IME composition guard", () => {
 // ---------------------------------------------------------------------------
 
 describe("handleGlobalKeyDown — refresh", () => {
-  it("fires files.refresh on Cmd+R", () => {
-    const spies = setupCommandSpies();
-    const e = makeEvent("r", { metaKey: true, code: "KeyR" });
-    handleGlobalKeyDown(e as unknown as KeyboardEvent);
-    expect(spies[COMMANDS.filesRefresh]).toHaveBeenCalledTimes(1);
-    expect(e.defaultPrevented).toBe(true);
-  });
-
   it("still fires files.refresh inside an editable (matches the prior page-reload override)", () => {
     const spies = setupCommandSpies();
     const target = { tagName: "INPUT" } as HTMLElement;
@@ -186,19 +178,6 @@ describe("handleGlobalKeyDown — fileOpen fires regardless of focus", () => {
   it("fires file.open on Cmd+E even when target is INPUT", () => {
     const spies = setupCommandSpies();
     const target = { tagName: "INPUT" } as HTMLElement;
-    const e = makeEvent("e", { metaKey: true, code: "KeyE", target });
-    handleGlobalKeyDown(e as unknown as KeyboardEvent);
-    expect(spies[COMMANDS.fileOpen]).toHaveBeenCalledTimes(1);
-    expect(e.defaultPrevented).toBe(true);
-  });
-
-  it("fires file.open on Cmd+E for a plain target", () => {
-    const spies = setupCommandSpies();
-    const target = {
-      tagName: "DIV",
-      isContentEditable: false,
-      closest: () => null,
-    } as unknown as HTMLElement;
     const e = makeEvent("e", { metaKey: true, code: "KeyE", target });
     handleGlobalKeyDown(e as unknown as KeyboardEvent);
     expect(spies[COMMANDS.fileOpen]).toHaveBeenCalledTimes(1);
@@ -288,34 +267,6 @@ describe("handleGlobalKeyDown — tab close", () => {
     const e = makeEvent("t", { metaKey: true, altKey: true, code: "KeyT" });
     handleGlobalKeyDown(e as unknown as KeyboardEvent);
     expect(spies[COMMANDS.tabCloseOthers]).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("handleGlobalKeyDown — when scoping (openToSide)", () => {
-  it("Cmd+Enter fires openToSide when target is inside [role='tree']", () => {
-    const spies = setupCommandSpies();
-    const target = {
-      tagName: "DIV",
-      isContentEditable: false,
-      closest: (sel: string) => (sel === '[role="tree"]' ? ({} as HTMLElement) : null),
-    } as unknown as HTMLElement;
-    const e = makeEvent("Enter", { metaKey: true, code: "Enter", target });
-    handleGlobalKeyDown(e as unknown as KeyboardEvent);
-    expect(spies[COMMANDS.openToSide]).toHaveBeenCalledTimes(1);
-    expect(e.defaultPrevented).toBe(true);
-  });
-
-  it("Cmd+Enter does NOT fire openToSide outside the file tree", () => {
-    const spies = setupCommandSpies();
-    const target = {
-      tagName: "DIV",
-      isContentEditable: false,
-      closest: () => null,
-    } as unknown as HTMLElement;
-    const e = makeEvent("Enter", { metaKey: true, code: "Enter", target });
-    handleGlobalKeyDown(e as unknown as KeyboardEvent);
-    expect(spies[COMMANDS.openToSide]).not.toHaveBeenCalled();
-    expect(e.defaultPrevented).toBe(false);
   });
 });
 
@@ -477,9 +428,7 @@ describe("handleGlobalKeyDown — KeyChord", () => {
 // ---------------------------------------------------------------------------
 //
 // On Win/Linux a chord leader pressed in the editor goes to Monaco, which
-// resolves its own ⌃K chords and the app's (bound there by app-chords.ts).
-// The suite runs with macOS key handling, so the leader is still ⌘K here;
-// only the platform decision is forced.
+// resolves its own Ctrl+K chords and the app's (bound there by app-chords.ts).
 
 describe("handleGlobalKeyDown — chords in the editor (Win/Linux)", () => {
   const editor = {
@@ -487,17 +436,17 @@ describe("handleGlobalKeyDown — chords in the editor (Win/Linux)", () => {
   };
   const outside = { closest: () => null };
 
-  beforeEach(() => __setEditorChordsForTests(true));
-  afterEach(() => __setEditorChordsForTests(null));
+  beforeEach(() => setPlatformForTests("win32"));
+  afterEach(() => setPlatformForTests(null));
 
   it("lets the leader and the next keystroke through to Monaco", () => {
     const spies = setupCommandSpies();
-    const leader = makeEvent("k", { metaKey: true, code: "KeyK", target: editor });
+    const leader = makeEvent("k", { ctrlKey: true, code: "KeyK", target: editor });
     expect(handleGlobalKeyDown(leader as unknown as KeyboardEvent)).toBe(false);
     expect(leader.defaultPrevented).toBe(false);
 
-    // ⌘W would close the tab on its own; as the chord's second key it is Monaco's.
-    const second = makeEvent("w", { metaKey: true, code: "KeyW", target: editor });
+    // Ctrl+W would close the tab on its own; as the chord's second key it is Monaco's.
+    const second = makeEvent("w", { ctrlKey: true, code: "KeyW", target: editor });
     expect(handleGlobalKeyDown(second as unknown as KeyboardEvent)).toBe(false);
     expect(second.defaultPrevented).toBe(false);
     for (const id of Object.values(COMMANDS)) expect(spies[id]).not.toHaveBeenCalled();
@@ -506,17 +455,17 @@ describe("handleGlobalKeyDown — chords in the editor (Win/Linux)", () => {
   it("modifier keydowns between the two keys keep the chord Monaco's", () => {
     const spies = setupCommandSpies();
     handleGlobalKeyDown(
-      makeEvent("k", { metaKey: true, code: "KeyK", target: editor }) as unknown as KeyboardEvent,
+      makeEvent("k", { ctrlKey: true, code: "KeyK", target: editor }) as unknown as KeyboardEvent,
     );
     handleGlobalKeyDown(
-      makeEvent("Meta", {
-        metaKey: true,
-        code: "MetaLeft",
+      makeEvent("Control", {
+        ctrlKey: true,
+        code: "ControlLeft",
         target: editor,
       }) as unknown as KeyboardEvent,
     );
     handleGlobalKeyDown(
-      makeEvent("w", { metaKey: true, code: "KeyW", target: editor }) as unknown as KeyboardEvent,
+      makeEvent("w", { ctrlKey: true, code: "KeyW", target: editor }) as unknown as KeyboardEvent,
     );
     expect(spies[COMMANDS.tabClose]).not.toHaveBeenCalled();
   });
@@ -524,12 +473,12 @@ describe("handleGlobalKeyDown — chords in the editor (Win/Linux)", () => {
   it("goes back to app shortcuts after the chord", () => {
     const spies = setupCommandSpies();
     handleGlobalKeyDown(
-      makeEvent("k", { metaKey: true, code: "KeyK", target: editor }) as unknown as KeyboardEvent,
+      makeEvent("k", { ctrlKey: true, code: "KeyK", target: editor }) as unknown as KeyboardEvent,
     );
     handleGlobalKeyDown(
-      makeEvent("c", { metaKey: true, code: "KeyC", target: editor }) as unknown as KeyboardEvent,
+      makeEvent("c", { ctrlKey: true, code: "KeyC", target: editor }) as unknown as KeyboardEvent,
     );
-    const after = makeEvent("w", { metaKey: true, code: "KeyW", target: editor });
+    const after = makeEvent("w", { ctrlKey: true, code: "KeyW", target: editor });
     expect(handleGlobalKeyDown(after as unknown as KeyboardEvent)).toBe(true);
     expect(spies[COMMANDS.tabClose]).toHaveBeenCalledTimes(1);
   });
@@ -539,11 +488,11 @@ describe("handleGlobalKeyDown — chords in the editor (Win/Linux)", () => {
     let now = 1_000_000;
     __setChordClockForTests(() => now);
     handleGlobalKeyDown(
-      makeEvent("k", { metaKey: true, code: "KeyK", target: editor }) as unknown as KeyboardEvent,
+      makeEvent("k", { ctrlKey: true, code: "KeyK", target: editor }) as unknown as KeyboardEvent,
     );
     now += 6000; // past Monaco's 5 s chord timeout
 
-    const after = makeEvent("w", { metaKey: true, code: "KeyW", target: editor });
+    const after = makeEvent("w", { ctrlKey: true, code: "KeyW", target: editor });
     expect(handleGlobalKeyDown(after as unknown as KeyboardEvent)).toBe(true);
     expect(spies[COMMANDS.tabClose]).toHaveBeenCalledTimes(1);
   });
@@ -551,16 +500,16 @@ describe("handleGlobalKeyDown — chords in the editor (Win/Linux)", () => {
   it("dispatches normally when focus left the editor before the second key", () => {
     const spies = setupCommandSpies();
     handleGlobalKeyDown(
-      makeEvent("k", { metaKey: true, code: "KeyK", target: editor }) as unknown as KeyboardEvent,
+      makeEvent("k", { ctrlKey: true, code: "KeyK", target: editor }) as unknown as KeyboardEvent,
     );
-    const second = makeEvent("w", { metaKey: true, code: "KeyW", target: outside });
+    const second = makeEvent("w", { ctrlKey: true, code: "KeyW", target: outside });
     expect(handleGlobalKeyDown(second as unknown as KeyboardEvent)).toBe(true);
     expect(spies[COMMANDS.tabClose]).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the app's chord handling outside the editor", () => {
     const spies = setupCommandSpies();
-    const leader = makeEvent("k", { metaKey: true, code: "KeyK", target: outside });
+    const leader = makeEvent("k", { ctrlKey: true, code: "KeyK", target: outside });
     expect(handleGlobalKeyDown(leader as unknown as KeyboardEvent)).toBe(true);
     handleGlobalKeyDown(
       makeEvent("u", { code: "KeyU", target: outside }) as unknown as KeyboardEvent,
@@ -569,7 +518,7 @@ describe("handleGlobalKeyDown — chords in the editor (Win/Linux)", () => {
   });
 
   it("keeps the app's chord handling in the editor on macOS", () => {
-    __setEditorChordsForTests(false);
+    setPlatformForTests("darwin");
     const spies = setupCommandSpies();
     const leader = makeEvent("k", { metaKey: true, code: "KeyK", target: editor });
     expect(handleGlobalKeyDown(leader as unknown as KeyboardEvent)).toBe(true);

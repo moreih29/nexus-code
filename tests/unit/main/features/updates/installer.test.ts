@@ -5,13 +5,16 @@
 import { describe, expect, it } from "bun:test";
 import {
   createUpdateInstaller,
+  type DownloadProgress,
   type InstallStatus,
   type UpdateBackend,
 } from "../../../../../src/main/features/updates/installer";
 
 function setup(offered: string | null = "1.2.0", { installAsksForPassword = false } = {}) {
   const statuses: InstallStatus[] = [];
+  const progress: { version: string; progress: DownloadProgress }[] = [];
   let staged: () => void = () => {};
+  let advanced: (progress: DownloadProgress) => void = () => {};
   let failed: (error: Error) => void = () => {};
   let finishDownload: () => void = () => {};
   let rejectDownload: (error: Error) => void = () => {};
@@ -33,6 +36,9 @@ function setup(offered: string | null = "1.2.0", { installAsksForPassword = fals
     onStaged: (listener) => {
       staged = listener;
     },
+    onProgress: (listener) => {
+      advanced = listener;
+    },
     onError: (listener) => {
       failed = listener;
     },
@@ -43,6 +49,7 @@ function setup(offered: string | null = "1.2.0", { installAsksForPassword = fals
   const installer = createUpdateInstaller({
     backend,
     onStatus: (status) => statuses.push(status),
+    onProgress: (version, report) => progress.push({ version, progress: report }),
     releaseUrl: (version) => (version === null ? "releases" : `releases/v${version}`),
     logger: { info: () => {}, warn: () => {} },
   });
@@ -50,9 +57,11 @@ function setup(offered: string | null = "1.2.0", { installAsksForPassword = fals
   return {
     installer,
     statuses,
+    progress,
     calls,
     settle,
     stage: () => staged(),
+    advance: (report: DownloadProgress) => advanced(report),
     fail: (error: Error) => failed(error),
     finishDownload: () => finishDownload(),
     rejectDownload: (error: Error) => rejectDownload(error),
@@ -75,6 +84,42 @@ describe("createUpdateInstaller", () => {
 
     t.installer.restart();
     expect(t.calls.quitAndInstall).toBe(1);
+  });
+
+  it("reports the download's progress, then the check Squirrel.Mac runs on it", async () => {
+    const t = setup();
+    const install = t.installer.install("stable");
+    await t.settle();
+    const report = { transferred: 40, total: 100, bytesPerSecond: 20 };
+    t.advance(report);
+    t.finishDownload();
+    await install;
+    t.advance({ transferred: 100, total: 100, bytesPerSecond: 20 });
+
+    expect(t.progress).toEqual([{ version: "1.2.0", progress: report }]);
+    expect(t.statuses).toEqual([
+      { kind: "downloading", version: "1.2.0" },
+      { kind: "verifying", version: "1.2.0" },
+    ]);
+    void t.installer.install("stable");
+    expect(t.statuses.at(-1)).toEqual({ kind: "verifying", version: "1.2.0" });
+
+    t.stage();
+    expect(t.statuses.at(-1)).toEqual({ kind: "ready", version: "1.2.0" });
+  });
+
+  it("goes straight to ready when the update is staged before the download returns", async () => {
+    const t = setup();
+    const install = t.installer.install("stable");
+    await t.settle();
+    t.stage();
+    t.finishDownload();
+    await install;
+
+    expect(t.statuses).toEqual([
+      { kind: "downloading", version: "1.2.0" },
+      { kind: "ready", version: "1.2.0" },
+    ]);
   });
 
   it("reports a signature Squirrel.Mac rejects after the download and can start over", async () => {

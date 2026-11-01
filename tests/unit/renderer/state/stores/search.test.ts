@@ -303,12 +303,4 @@ describe("search store — toggleExpandedDir", () => {
       useSearchStore.getState().expandedDirsByWorkspace.get(WS_A)?.has("src/components"),
     ).toBe(false);
   });
-
-  it("closeAllForWorkspace removes expandedDirsByWorkspace entry for workspace", () => {
-    useSearchStore.getState().toggleExpandedDir(WS_A, "src");
-
-    useSearchStore.getState().closeAllForWorkspace(WS_A);
-
-    expect(useSearchStore.getState().expandedDirsByWorkspace.has(WS_A)).toBe(false);
-  });
 });

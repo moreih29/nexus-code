@@ -76,6 +76,8 @@ export const COMMANDS = {
   workspaceFocusNext: "workspace.focusNext",
   // Open the Add Workspace dialog.
   workspaceAdd: "workspace.add",
+  // Open the New Task dialog for the active workspace.
+  taskNew: "task.new",
 
   // Settings
   settingsOpen: "settings.open",

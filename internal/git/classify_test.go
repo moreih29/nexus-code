@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"sort"
 	"testing"
 )
@@ -19,7 +18,7 @@ type expectedClassifiedError struct {
 
 // TestClassifyStderrFixtures verifies every manually authored stderr fixture.
 func TestClassifyStderrFixtures(t *testing.T) {
-	fixtureRoot := stderrFixtureRoot(t)
+	fixtureRoot := fixtureDir("stderr")
 	cases, err := os.ReadDir(fixtureRoot)
 	if err != nil {
 		t.Fatalf("read stderr fixtures: %v", err)
@@ -65,6 +64,7 @@ func TestClassifyStderrFixtures(t *testing.T) {
 
 // TestRunStdoutOverflowIsClassifiedData guards the run.go transport envelope.
 func TestRunStdoutOverflowIsClassifiedData(t *testing.T) {
+	t.Parallel()
 	service := New(t.TempDir())
 	raw := json.RawMessage(`{"args":["--no-pager","help","-a"],"stdoutCapBytes":1024}`)
 	result, err := service.Run(context.Background(), raw)
@@ -84,16 +84,6 @@ func TestRunStdoutOverflowIsClassifiedData(t *testing.T) {
 	if runResult.ErrorMessage == "" {
 		t.Fatal("ErrorMessage is empty")
 	}
-}
-
-// stderrFixtureRoot returns the repo-relative stderr fixture directory.
-func stderrFixtureRoot(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "tests", "fixtures", "git", "stderr"))
 }
 
 // hintMap marshals a Go hint through JSON so its shape matches fixture JSON.

@@ -116,6 +116,7 @@ describe("propagateToAncestors", () => {
     expect(folders.get("/ws/src/a/b")).toBe("modified");
     // Root is excluded — decorating the workspace root is noise.
     expect(folders.has("/ws")).toBe(false);
+    expect(folders.size).toBe(3);
   });
 
   it("does not propagate deleted (file removal should not redden the folder)", () => {
@@ -141,13 +142,5 @@ describe("propagateToAncestors", () => {
     propagateToAncestors(folders2, "/ws/dir/a.ts", "modified", "/ws");
     propagateToAncestors(folders2, "/ws/dir/b.ts", "renamed", "/ws");
     expect(folders2.get("/ws/dir")).toBe("modified");
-  });
-
-  it("stops at the root even when the absPath sits deeper", () => {
-    const folders = new Map<string, GitDecorationKind>();
-    propagateToAncestors(folders, "/ws/x/y/z.ts", "modified", "/ws");
-    // Walks only x and x/y; never crosses out of /ws.
-    expect(folders.has("/")).toBe(false);
-    expect(folders.has("")).toBe(false);
   });
 });

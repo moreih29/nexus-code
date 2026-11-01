@@ -2,12 +2,22 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { AgentManifestSchema, findLspBinary } from "../../../shared/agent/manifest";
+import {
+  AgentManifestSchema,
+  findLspBinary,
+  type LspBinaryManifestEntry,
+} from "../../../shared/agent/manifest";
 import { createLogger } from "../../../shared/log/main";
 import {
   ApplyWorkspaceEditParamsSchema,
   CANONICAL_TOKEN_TYPES,
+  type CompletionArgs,
+  CompletionArgsSchema,
   CompletionItemSchema,
+  type CompletionList,
+  CompletionListSchema,
+  CompletionResolveArgsSchema,
+  CompletionTriggerKind,
   ConfigurationParamsSchema,
   DocumentHighlightSchema,
   DocumentSymbolSchema,
@@ -19,6 +29,10 @@ import {
   remapSemanticTokenData,
   SemanticTokensArgsSchema,
   SemanticTokensResultSchema,
+  type SignatureHelpArgs,
+  SignatureHelpArgsSchema,
+  SignatureHelpSchema,
+  SignatureHelpTriggerKind,
   SymbolInformationSchema,
   TextDocumentContentChangeEventSchema,
   TextDocumentIdentifierSchema,
@@ -30,7 +44,15 @@ import {
   resolveLspPreset,
   resolveLspPresetLanguageId,
 } from "../../../shared/lsp/config";
+import type {
+  LspLogEntry,
+  LspLogLevel,
+  LspServerMemory,
+  LspServerStatus,
+  LspStopReason,
+} from "../../../shared/lsp/status";
 import {
+  LSP_COMPLETION_RESOLVE_TIMEOUT_MS,
   LSP_COMPLETION_TIMEOUT_MS,
   LSP_CONSECUTIVE_TIMEOUT_LIMIT,
   LSP_DEFAULT_IDLE_MS,
@@ -42,6 +64,7 @@ import {
   LSP_REFERENCES_TIMEOUT_MS,
   LSP_SEMANTIC_TOKENS_TIMEOUT_MS,
   LSP_SERVER_WEDGE_GRACE_MS,
+  LSP_SIGNATURE_HELP_TIMEOUT_MS,
   LSP_WORKSPACE_SYMBOL_TIMEOUT_MS,
 } from "../../../shared/util/timing-constants";
 import type { AgentChannel } from "../../infra/agent/channel";
@@ -58,23 +81,28 @@ import {
   firstShowMessageAction,
   parseAgentMessagePayload,
   parseAgentServerRequestPayload,
+  parseFindBinaryResult,
   parseServerAssignedPayload,
   parseServerCapabilities,
   parseServerExitedPayload,
   parseSpawnResult,
+  parseStatsResult,
   parseWorkDoneProgressCreateParams,
   serverExitError,
 } from "./payloads";
 import {
+  normalizeCompletionItem,
   normalizeCompletionResult,
   normalizeDefinitionResult,
   normalizeDocumentHighlightResult,
   normalizeDocumentSymbolResult,
   normalizeHoverResult,
+  normalizeSignatureHelpResult,
   normalizeWorkspaceSymbolResult,
   parsePublishDiagnostics,
 } from "./result-normalizers";
-import { asRecord } from "./utils";
+import { LspServerStatusTracker } from "./server-status";
+import { asRecord, isObjectLike } from "./utils";
 
 const log = createLogger("lsp-agent");
 
@@ -160,6 +188,27 @@ const WorkspaceSymbolArgsSchema = z.object({
   query: z.string(),
 });
 
+/** How a stop reads in workspaceLspReset and in the server's log. */
+const STOP_REASON_TEXT: Record<LspStopReason, string> = {
+  idle: "idle timeout",
+  evicted: "evicted by LRU cap",
+  off: "turned off",
+  restart: "restarted",
+  agent: "agent exited",
+  crashed: "server exited",
+};
+
+/** window/logMessage and window/showMessage types, 5 being 3.18's Debug. */
+const MESSAGE_LOG_LEVELS: Record<number, LspLogLevel> = {
+  1: "error",
+  2: "warning",
+  3: "info",
+  4: "log",
+  5: "log",
+};
+
+const LogMessageParamsSchema = z.object({ type: z.number(), message: z.string() });
+
 const SERVER_EVENT_METHODS = new Set<string>([
   "window/logMessage",
   "window/showMessage",
@@ -180,6 +229,8 @@ const REQUEST_TIMEOUT_MS: Record<string, number> = {
   hover: LSP_HOVER_TIMEOUT_MS,
   definition: LSP_DEFINITION_TIMEOUT_MS,
   completion: LSP_COMPLETION_TIMEOUT_MS,
+  completionResolve: LSP_COMPLETION_RESOLVE_TIMEOUT_MS,
+  signatureHelp: LSP_SIGNATURE_HELP_TIMEOUT_MS,
   references: LSP_REFERENCES_TIMEOUT_MS,
   documentHighlight: LSP_DOCUMENT_HIGHLIGHT_TIMEOUT_MS,
   documentSymbol: LSP_DOCUMENT_SYMBOL_TIMEOUT_MS,
@@ -194,6 +245,21 @@ const REQUEST_TIMEOUT_MS: Record<string, number> = {
  * so the renderer's hover/completion widget closes cleanly rather than
  * staying in "Loading…" forever.
  */
+/** A server the app does not bundle is not on the workspace's host. */
+export class LspServerNotFoundError extends Error {
+  constructor(
+    readonly binary: string,
+    userPath: string | undefined,
+  ) {
+    super(
+      userPath
+        ? `${binary} was found neither at ${userPath} nor on the PATH`
+        : `${binary} was not found on the PATH or where its installer puts it`,
+    );
+    this.name = "LspServerNotFoundError";
+  }
+}
+
 export class LspRequestTimeoutError extends Error {
   readonly kind = "lsp-request-timeout";
   constructor(method: string, timeoutMs: number) {
@@ -207,8 +273,21 @@ export class LspRequestTimeoutError extends Error {
 // ---------------------------------------------------------------------------
 
 export interface AgentLspHostOptions {
-  /** Override the LRU cap. Tests bump this to disable eviction. */
-  maxActiveWorkspaces?: number;
+  /**
+   * The LRU cap, or a function main reads it from at each spawn so a
+   * settings change applies. Tests bump this to disable eviction.
+   */
+  maxActiveWorkspaces?: number | (() => number);
+  /**
+   * The initializationOptions to start a language's server with; defaults
+   * to the preset's. Read at each spawn, like the cap.
+   */
+  initializationOptions?: (languageId: string, preset: LspServerSpec) => unknown;
+  /**
+   * Where the user said a server the app does not bundle is; read at each
+   * spawn. Without it the agent searches its host.
+   */
+  serverPath?: (languageId: string) => string | undefined;
   /**
    * Gate called before spawning a new LSP server for (workspaceId, languageId).
    * Return false to suppress spawn (language not enabled for this workspace).
@@ -228,7 +307,12 @@ export function startAgentLspHost(
 class AgentLspHostHandleImpl implements LspHostHandle {
   private readonly listeners = new Map<string, Set<EventCallback>>();
   private readonly workspaceServers = new Map<string, Map<string, AgentLspServer>>();
+  // Keyed by serverIdKey: each agent numbers its servers on its own
+  // ("lsp-1", "lsp-2", …) and every local workspace runs its own agent, so
+  // a server id names a server only together with the channel it came on.
   private readonly serversById = new Map<string, AgentLspServer>();
+  private readonly channelKeys = new WeakMap<AgentChannel, number>();
+  private nextChannelKey = 0;
   private readonly serverPromises = new Map<string, Promise<AgentLspServer | null>>();
   // uriIndex: workspace → uri → presetLanguageId.
   //
@@ -249,7 +333,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   // Both maps are populated up front and dropped once the spawn round-trip
   // completes (or fails).
   private readonly pendingSpawnByCorrelation = new Map<string, PendingSpawn>();
-  private readonly pendingSpawnByServerId = new Map<string, PendingSpawn>();
+  private readonly pendingSpawnByServerId = new Map<string, PendingSpawn>(); // by serverIdKey
   // Per-(workspace, URI) state for textDocument/publishDiagnostics debouncing.
   private readonly diagnosticsDebouncer = new DiagnosticsDebouncer({
     debounceMs: DIAGNOSTICS_DEBOUNCE_MS,
@@ -288,7 +372,9 @@ class AgentLspHostHandleImpl implements LspHostHandle {
    * LRU workspace is disposed first. See LSP_MAX_ACTIVE_WORKSPACES for
    * the rationale and tuning.
    */
-  private readonly maxActiveWorkspaces: number;
+  private readonly maxActiveWorkspaces: () => number;
+  private readonly initializationOptionsFor: (languageId: string, preset: LspServerSpec) => unknown;
+  private readonly serverPathFor: (languageId: string) => string | undefined;
   /**
    * Optional predicate gate injected at construction time. Checked in
    * `getOrCreateServer` before any spawn is attempted. Returning false
@@ -297,6 +383,9 @@ class AgentLspHostHandleImpl implements LspHostHandle {
    * (tests, plain `startAgentLspHost()`) are unaffected.
    */
   private readonly isLanguageEnabled: (workspaceId: string, languageId: string) => boolean;
+  private readonly status = new LspServerStatusTracker((status) =>
+    this.emit("serverStatus", status),
+  );
   private nextServerRequestId = 1;
   private disposed = false;
 
@@ -315,7 +404,12 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     private readonly workspaceManager: AgentLspWorkspaceManager,
     options: AgentLspHostOptions = {},
   ) {
-    this.maxActiveWorkspaces = options.maxActiveWorkspaces ?? LSP_MAX_ACTIVE_WORKSPACES;
+    const maxActiveWorkspaces = options.maxActiveWorkspaces ?? LSP_MAX_ACTIVE_WORKSPACES;
+    this.maxActiveWorkspaces =
+      typeof maxActiveWorkspaces === "function" ? maxActiveWorkspaces : () => maxActiveWorkspaces;
+    this.initializationOptionsFor =
+      options.initializationOptions ?? ((_languageId, preset) => preset.initializationOptions);
+    this.serverPathFor = options.serverPath ?? (() => undefined);
     this.isLanguageEnabled = options.isLanguageEnabled ?? (() => true);
   }
 
@@ -373,20 +467,11 @@ class AgentLspHostHandleImpl implements LspHostHandle {
           "definition",
         );
       case "completion":
-        return this.requestByUri(
-          args,
-          opts,
-          {
-            argsSchema: TextDocumentPositionArgsSchema,
-            lspMethod: "textDocument/completion",
-            capabilityKey: "completionProvider",
-            emptyResponse: [],
-            outSchema: z.array(CompletionItemSchema),
-            params: textDocumentPositionParams,
-            transform: normalizeCompletionResult,
-          },
-          "completion",
-        );
+        return this.completion(args, opts);
+      case "completionResolve":
+        return this.completionResolve(args, opts);
+      case "signatureHelp":
+        return this.signatureHelp(args, opts);
       case "references":
         return this.requestByUri(
           args,
@@ -501,12 +586,115 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   /**
    * Dispose the LSP server for a single (workspaceId, languageId) pair,
    * then broadcast a workspaceLspReset event for that language. No-op when
-   * the server is not currently live. Called from the IPC layer when the user
-   * toggles a language off via `setEnabledLanguages`.
+   * the server is not currently live. With `reopen` the renderer opens its
+   * documents again at once, which starts a new server: a restart.
    */
-  disposeLanguage(workspaceId: string, languageId: string, reason: string): void {
+  disposeLanguage(
+    workspaceId: string,
+    languageId: string,
+    reason: LspStopReason,
+    options: { reopen?: boolean } = {},
+  ): void {
+    this.disposeServers((w, l) => w === workspaceId && l === languageId, reason, options);
+  }
+
+  /**
+   * disposeLanguage for every server `matches` picks. A server that gave
+   * up after crashing has none live, but a setting or a restart lets it
+   * start again.
+   */
+  disposeServers(
+    matches: (workspaceId: string, languageId: string) => boolean,
+    reason: LspStopReason,
+    options: { reopen?: boolean } = {},
+  ): void {
     if (this.disposed) return;
-    this.disposeWorkspaceServers(workspaceId, reason, { languageId });
+    for (const [workspaceId, servers] of Array.from(this.workspaceServers)) {
+      for (const languageId of Array.from(servers.keys())) {
+        if (matches(workspaceId, languageId)) {
+          this.disposeWorkspaceServers(workspaceId, reason, { languageId, reopen: options.reopen });
+        }
+      }
+    }
+    for (const { workspaceId, languageId } of this.status.givenUp()) {
+      if (!matches(workspaceId, languageId)) continue;
+      this.status.resetFailures(workspaceId, languageId, reason);
+      if (options.reopen) {
+        this.emit("workspaceLspReset", {
+          workspaceId,
+          languageId,
+          reason: STOP_REASON_TEXT[reason],
+          reopen: true,
+        });
+      }
+    }
+  }
+
+  /**
+   * Starts a language's server again: the live one is stopped and the
+   * renderer reopens the documents, which starts the next. A server that
+   * gave up after crashing starts again too.
+   */
+  restartLanguage(workspaceId: string, languageId: string): void {
+    if (this.disposed) return;
+    if (this.workspaceServers.get(workspaceId)?.has(languageId)) {
+      this.disposeLanguage(workspaceId, languageId, "restart", { reopen: true });
+      return;
+    }
+    this.status.resetFailures(workspaceId, languageId, "restart");
+    this.emit("workspaceLspReset", {
+      workspaceId,
+      languageId,
+      reason: STOP_REASON_TEXT.restart,
+      reopen: true,
+    });
+  }
+
+  /** Stops the least recently used workspaces until the cap holds again. */
+  enforceMaxActiveWorkspaces(): void {
+    if (this.disposed) return;
+    while (this.workspaceServers.size > this.maxActiveWorkspaces()) {
+      const lru = this.leastRecentlyUsedWorkspace(null);
+      if (!lru) return;
+      this.disposeWorkspaceServers(lru, "evicted");
+    }
+  }
+
+  serverStatuses(): LspServerStatus[] {
+    return this.status.list();
+  }
+
+  serverLog(workspaceId: string, languageId: string, afterSeq?: number): LspLogEntry[] {
+    return this.status.logEntries(workspaceId, languageId, afterSeq);
+  }
+
+  /** The memory each of the workspace's live servers takes. */
+  async serverMemory(workspaceId: string): Promise<LspServerMemory[]> {
+    const byChannel = new Map<AgentChannel, AgentLspServer[]>();
+    for (const server of this.workspaceServers.get(workspaceId)?.values() ?? []) {
+      byChannel.set(server.channel, [...(byChannel.get(server.channel) ?? []), server]);
+    }
+    const results = await Promise.all(
+      Array.from(byChannel, async ([channel, servers]) => {
+        try {
+          const stats = parseStatsResult(await channel.call("lsp.stats", {}));
+          return servers.flatMap((server) => {
+            const entry = stats.find((s) => s.serverId === server.serverId);
+            return entry ? [{ languageId: server.languageId, rssBytes: entry.rssBytes }] : [];
+          });
+        } catch (error) {
+          // An agent from before lsp.stats, or one that cannot read memory.
+          log.warn(`lsp.stats failed: ${(error as Error).message}`);
+          return [];
+        }
+      }),
+    );
+    return results.flat();
+  }
+
+  /** Drops what is kept on a removed workspace's servers. */
+  forgetWorkspace(workspaceId: string): void {
+    this.status.forgetWorkspace(workspaceId);
   }
 
   private async didOpen(args: unknown): Promise<null> {
@@ -608,6 +796,98 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     this.resetTimeoutCount(routed.context.workspaceId, routed.context.languageId);
     const normalized = spec.transform ? spec.transform(raw) : raw;
     return spec.outSchema.parse(normalized);
+  }
+
+  private async completion(args: unknown, opts: LspHostCallOptions): Promise<unknown> {
+    const parsed = CompletionArgsSchema.parse(args);
+    // Monaco asks on every trigger character any server of the language
+    // uses; one this server does not complete on (a "<" in a comparison,
+    // say) would get the whole scope back as if completion were invoked.
+    if (
+      parsed.triggerKind === CompletionTriggerKind.TriggerCharacter &&
+      parsed.triggerCharacter !== undefined
+    ) {
+      const routed = this.findServer(parsed.workspaceId, parsed.uri);
+      if (routed && !completionTriggerCharacters(routed.server).includes(parsed.triggerCharacter)) {
+        return EMPTY_COMPLETION_LIST;
+      }
+    }
+    return this.requestByUri(
+      parsed,
+      opts,
+      {
+        argsSchema: CompletionArgsSchema,
+        lspMethod: "textDocument/completion",
+        capabilityKey: "completionProvider",
+        emptyResponse: EMPTY_COMPLETION_LIST,
+        outSchema: CompletionListSchema,
+        params: completionParams,
+        transform: normalizeCompletionResult,
+      },
+      "completion",
+    );
+  }
+
+  /**
+   * Fills in what a server leaves out of its completion list until an item
+   * is picked: documentation, detail, the import an auto-import adds. The
+   * item comes back as it was when the server does not resolve.
+   */
+  private async completionResolve(args: unknown, opts: LspHostCallOptions): Promise<unknown> {
+    const parsed = CompletionResolveArgsSchema.parse(args);
+    const routed = this.findServer(parsed.workspaceId, parsed.uri);
+    if (!routed?.server.hasCapability("completionProvider", "resolveProvider")) return parsed.item;
+    this.touchWorkspace(parsed.workspaceId);
+
+    let raw: unknown;
+    try {
+      raw = await withRequestTimeout(
+        (signal) => routed.server.request("completionItem/resolve", parsed.item, { signal }),
+        opts.signal,
+        "completionResolve",
+      );
+    } catch (error) {
+      if (error instanceof LspRequestTimeoutError) {
+        this.trackTimeout(routed.context.workspaceId, routed.context.languageId);
+      }
+      throw error;
+    }
+    this.resetTimeoutCount(routed.context.workspaceId, routed.context.languageId);
+    return CompletionItemSchema.parse(normalizeCompletionItem(raw) ?? parsed.item);
+  }
+
+  private async signatureHelp(args: unknown, opts: LspHostCallOptions): Promise<unknown> {
+    const parsed = SignatureHelpArgsSchema.parse(args);
+    // As for completion: a "<" in a comparison should not open a signature
+    // for a server that shows one only on "(" and ",". Once one is shown,
+    // typing on asks again whatever the character.
+    if (
+      parsed.triggerKind === SignatureHelpTriggerKind.TriggerCharacter &&
+      parsed.triggerCharacter !== undefined &&
+      !parsed.isRetrigger
+    ) {
+      const routed = this.findServer(parsed.workspaceId, parsed.uri);
+      if (
+        routed &&
+        !signatureHelpTriggerCharacters(routed.server).includes(parsed.triggerCharacter)
+      ) {
+        return null;
+      }
+    }
+    return this.requestByUri(
+      parsed,
+      opts,
+      {
+        argsSchema: SignatureHelpArgsSchema,
+        lspMethod: "textDocument/signatureHelp",
+        capabilityKey: "signatureHelpProvider",
+        emptyResponse: null,
+        outSchema: SignatureHelpSchema.nullable(),
+        params: signatureHelpParams,
+        transform: normalizeSignatureHelpResult,
+      },
+      "signatureHelp",
+    );
   }
 
   private async semanticTokensByUri(args: unknown, opts: LspHostCallOptions): Promise<unknown> {
@@ -713,6 +993,8 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     // a toggle-off that already disposed the server doesn't accidentally
     // recreate it on the next didOpen from a still-open editor tab.
     if (!this.isLanguageEnabled(workspaceId, presetLanguageId)) return null;
+    // Failed too often: it starts again on a restart or a settings change.
+    if (this.status.hasGivenUp(workspaceId, presetLanguageId)) return null;
 
     const existing = this.workspaceServers.get(workspaceId)?.get(presetLanguageId);
     if (existing) return existing;
@@ -728,13 +1010,37 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     // interaction. See LSP_MAX_ACTIVE_WORKSPACES for the rationale.
     this.evictLruWorkspaceIfNeeded(workspaceId);
 
-    const promise = this.spawnServer(workspaceId, presetLanguageId, workspaceRoot, preset).finally(
-      () => {
+    const promise = this.spawnServer(workspaceId, presetLanguageId, workspaceRoot, preset)
+      .catch((error: unknown) => {
+        this.handleSpawnFailure(workspaceId, presetLanguageId, error);
+        throw error;
+      })
+      .finally(() => {
         this.serverPromises.delete(key);
-      },
-    );
+      });
     this.serverPromises.set(key, promise);
     return promise;
+  }
+
+  /**
+   * A server that failed to start is tried again at once, up to the crash
+   * limit: the reset has the renderer reopen its documents, which it would
+   * otherwise leave closed after the failed didOpen.
+   */
+  private handleSpawnFailure(workspaceId: string, languageId: string, error: unknown): void {
+    if (this.disposed) return;
+    const message = error instanceof Error ? error.message : String(error);
+    // Not installed: trying again finds nothing more.
+    const retry = this.status.failed(workspaceId, languageId, `Failed to start: ${message}`, {
+      didNotStart: true,
+      ...(error instanceof LspServerNotFoundError ? { missingBinary: error.binary } : {}),
+    });
+    this.emit("workspaceLspReset", {
+      workspaceId,
+      languageId,
+      reason: "failed to start",
+      ...(retry ? { reopen: true } : {}),
+    });
   }
 
   /**
@@ -763,21 +1069,26 @@ class AgentLspHostHandleImpl implements LspHostHandle {
    */
   private evictLruWorkspaceIfNeeded(activeWorkspaceId: string): void {
     if (this.workspaceServers.has(activeWorkspaceId)) return;
-    if (this.workspaceServers.size < this.maxActiveWorkspaces) return;
+    // A loop, not one eviction: the cap may have been lowered since.
+    while (this.workspaceServers.size >= this.maxActiveWorkspaces()) {
+      const lru = this.leastRecentlyUsedWorkspace(activeWorkspaceId);
+      if (!lru) return;
+      this.disposeWorkspaceServers(lru, "evicted");
+    }
+  }
 
+  private leastRecentlyUsedWorkspace(exceptWorkspaceId: string | null): string | null {
     let lruWorkspaceId: string | null = null;
     let lruTime = Number.POSITIVE_INFINITY;
     for (const wsId of this.workspaceServers.keys()) {
-      if (wsId === activeWorkspaceId) continue;
+      if (wsId === exceptWorkspaceId) continue;
       const t = this.workspaceLastActivity.get(wsId) ?? 0;
       if (t < lruTime) {
         lruTime = t;
         lruWorkspaceId = wsId;
       }
     }
-    if (lruWorkspaceId) {
-      this.disposeWorkspaceServers(lruWorkspaceId, "evicted by LRU cap");
-    }
+    return lruWorkspaceId;
   }
 
   /**
@@ -791,13 +1102,26 @@ class AgentLspHostHandleImpl implements LspHostHandle {
    */
   private disposeWorkspaceServers(
     workspaceId: string,
-    reason: string,
-    options?: { languageId?: string },
+    stop: LspStopReason,
+    options?: {
+      languageId?: string;
+      reopen?: boolean;
+      /** False when the caller has set the status already. */
+      updateStatus?: boolean;
+    },
   ): void {
     const servers = this.workspaceServers.get(workspaceId);
     if (!servers) return;
 
+    const reason = STOP_REASON_TEXT[stop];
     const targetLanguageId = options?.languageId;
+    if (options?.updateStatus !== false) {
+      for (const languageId of servers.keys()) {
+        if (!targetLanguageId || languageId === targetLanguageId) {
+          this.status.stopped(workspaceId, languageId, stop, reason);
+        }
+      }
+    }
 
     if (targetLanguageId) {
       // Single-language dispose: only remove the specified server.
@@ -805,7 +1129,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       if (!server) return;
       this.diagnosticsDebouncer.clearForServer(server.workspaceId, server.languageId);
       this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
-      this.serversById.delete(server.serverId);
+      this.serversById.delete(this.serverIdKey(server.channel, server.serverId));
       server.dispose();
       servers.delete(targetLanguageId);
       const serverKey = `${workspaceId}\0${targetLanguageId}`;
@@ -815,13 +1139,18 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         this.workspaceServers.delete(workspaceId);
         this.workspaceLastActivity.delete(workspaceId);
       }
-      this.emit("workspaceLspReset", { workspaceId, languageId: targetLanguageId, reason });
+      this.emit("workspaceLspReset", {
+        workspaceId,
+        languageId: targetLanguageId,
+        reason,
+        ...(options?.reopen ? { reopen: true } : {}),
+      });
     } else {
       // Full workspace dispose.
       for (const server of servers.values()) {
         this.diagnosticsDebouncer.clearForServer(server.workspaceId, server.languageId);
         this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
-        this.serversById.delete(server.serverId);
+        this.serversById.delete(this.serverIdKey(server.channel, server.serverId));
         server.dispose();
         const serverKey = `${workspaceId}\0${server.languageId}`;
         this.serverTimeoutCount.delete(serverKey);
@@ -839,10 +1168,12 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     workspaceRoot: string,
     preset: LspServerSpec,
   ): Promise<AgentLspServer> {
+    this.status.starting(workspaceId, presetLanguageId);
     const channel = await this.workspaceManager.getAgentChannel(workspaceId);
     await channel.ready;
     this.subscribeChannel(channel);
-    this.storeInitializationOptions(workspaceId, presetLanguageId, preset.initializationOptions);
+    const initializationOptions = this.initializationOptionsFor(presetLanguageId, preset);
+    this.storeInitializationOptions(workspaceId, presetLanguageId, initializationOptions);
 
     const correlationId = randomUUID();
     const pendingSpawn: PendingSpawn = {
@@ -855,18 +1186,23 @@ class AgentLspHostHandleImpl implements LspHostHandle {
 
     let serverId: string | null = null;
     try {
-      const command = await this.resolveServerCommand(workspaceId, presetLanguageId, preset);
+      const command = preset.system
+        ? await this.findSystemServer(channel, presetLanguageId, workspaceRoot, preset)
+        : await this.resolveServerCommand(workspaceId, presetLanguageId, preset);
       const result = await channel.call<AgentSpawnResult>("lsp.spawn", {
         workspaceId,
         languageId: presetLanguageId,
         binaryPath: command.binaryPath,
         args: [...command.args],
+        ...(command.env ? { env: command.env } : {}),
         workspaceRoot,
         idleTimeoutMs: LSP_DEFAULT_IDLE_MS,
         correlationId,
         capabilities: LSP_CLIENT_CAPABILITIES,
+        ...(initializationOptions !== undefined ? { initializationOptions } : {}),
       });
-      serverId = parseSpawnResult(result).serverId;
+      const spawned = parseSpawnResult(result);
+      serverId = spawned.serverId;
       const capabilities = parseServerCapabilities(result.capabilities);
       const server = new AgentLspServer({
         channel,
@@ -876,20 +1212,49 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         capabilities,
       });
       this.rememberServer(server);
+      this.status.running(
+        workspaceId,
+        presetLanguageId,
+        spawned.serverInfo ?? (preset.system ? undefined : bundledServerInfo(preset)),
+      );
       return server;
     } finally {
       this.pendingSpawnByCorrelation.delete(correlationId);
       if (serverId) {
-        this.pendingSpawnByServerId.delete(serverId);
+        this.pendingSpawnByServerId.delete(this.serverIdKey(channel, serverId));
       }
     }
+  }
+
+  /** A server the user installed, found on the host of the workspace's agent. */
+  private async findSystemServer(
+    channel: AgentChannel,
+    languageId: string,
+    workspaceRoot: string,
+    preset: LspServerSpec,
+  ): Promise<LspServerCommand> {
+    const userPath = this.serverPathFor(languageId);
+    const found = parseFindBinaryResult(
+      await channel.call("lsp.findBinary", {
+        name: preset.binary,
+        ...(userPath ? { path: userPath } : {}),
+        // Where the server will run: a rustup proxy picks its toolchain there.
+        dir: workspaceRoot,
+      }),
+    );
+    if (!found.path) throw new LspServerNotFoundError(preset.binary, userPath);
+    return {
+      binaryPath: found.path,
+      args: preset.args,
+      ...(found.envPath ? { env: { PATH: found.envPath } } : {}),
+    };
   }
 
   private async resolveServerCommand(
     workspaceId: string,
     languageId: string,
     preset: LspServerSpec,
-  ): Promise<{ readonly binaryPath: string; readonly args: readonly string[] }> {
+  ): Promise<LspServerCommand> {
     const remote = await this.workspaceManager.ensureRemoteLspServer?.(
       workspaceId,
       {
@@ -916,7 +1281,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       this.workspaceServers.set(server.workspaceId, workspaceServers);
     }
     workspaceServers.set(server.languageId, server);
-    this.serversById.set(server.serverId, server);
+    this.serversById.set(this.serverIdKey(server.channel, server.serverId), server);
     // Record spawn time so trackTimeout can enforce the grace window during
     // which slow-to-initialize servers are not wedge-restarted.
     const serverKey = `${server.workspaceId}\0${server.languageId}`;
@@ -974,33 +1339,38 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       this.handleAgentServerRequest(channel, payload);
     });
     const offServerAssigned = channel.on("lsp.serverAssigned", (payload) => {
-      this.handleServerAssigned(payload);
+      this.handleServerAssigned(channel, payload);
     });
     const offServerExited = channel.on("lsp.serverExited", (payload) => {
-      this.handleServerExited(payload);
+      this.handleServerExited(channel, payload);
     });
     const offLifecycle = channel.onLifecycle((event) => {
-      // Dispose server records only on genuine channel death:
+      // Dispose server records only when the servers are gone:
       //   - `exit` / `failure`: terminal transport loss.
       //   - `disposed`: intentional channel teardown.
       //   - `held-then-expired`: the SSH daemon was replaced during an
       //     outage — its LSP server processes died with the old daemon.
-      // Everything else keeps records intact: `reconnecting` is transient
-      // (queued LSP calls replay after the handshake), `degraded` /
-      // `degraded-recovered` are heartbeat-quality signals on a live
-      // channel, and `ready` is a successful epoch-match recovery. Before
-      // v0.6.1 those three fell through to disposeChannelServers, so one
+      //   - `reconnecting` without an epoch: a local (or legacy remote)
+      //     agent has no daemon to outlive its process, so its servers died
+      //     with it and the agent that replaces it knows none of them.
+      // Everything else keeps records intact: `reconnecting` with an epoch
+      // may find the daemon alive (queued LSP calls replay after the
+      // handshake), `degraded` / `degraded-recovered` are heartbeat-quality
+      // signals on a live channel, and `ready` is a successful recovery.
+      // Before v0.6.1 those fell through to disposeChannelServers, so one
       // late heartbeat silently killed every language server on the channel.
       //
       // After `exit` / `failure` / `disposed` the channel object is never used
       // again (a reconnect builds a new one), so its listeners are dropped
-      // too; `held-then-expired` keeps them because the same channel carries
-      // on against the new daemon.
+      // too; the other two keep them because the same channel carries on
+      // against the new agent.
       if (event.type === "exit" || event.type === "failure" || event.type === "disposed") {
-        this.disposeChannelServers(channel);
+        this.disposeChannelServers(channel, "agent exited");
         this.unsubscribeChannel(channel);
       } else if (event.type === "held-then-expired") {
-        this.disposeChannelServers(channel);
+        this.disposeChannelServers(channel, "agent replaced");
+      } else if (event.type === "reconnecting" && !event.hadEpoch) {
+        this.disposeChannelServers(channel, "agent restarted");
       }
     });
     this.channelDisposers.set(channel, [
@@ -1020,20 +1390,31 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     for (const dispose of disposers) dispose();
   }
 
-  private handleServerAssigned(payload: unknown): void {
+  /** The key serversById and pendingSpawnByServerId take for a server. */
+  private serverIdKey(channel: AgentChannel, serverId: string): string {
+    let channelKey = this.channelKeys.get(channel);
+    if (channelKey === undefined) {
+      channelKey = this.nextChannelKey++;
+      this.channelKeys.set(channel, channelKey);
+    }
+    return `${channelKey}\0${serverId}`;
+  }
+
+  private handleServerAssigned(channel: AgentChannel, payload: unknown): void {
     const parsed = parseServerAssignedPayload(payload);
     if (!parsed?.correlationId) return;
 
     const pending = this.pendingSpawnByCorrelation.get(parsed.correlationId);
     if (!pending) return;
-    this.pendingSpawnByServerId.set(parsed.serverId, pending);
+    this.pendingSpawnByServerId.set(this.serverIdKey(channel, parsed.serverId), pending);
   }
 
-  private handleServerExited(payload: unknown): void {
+  private handleServerExited(channel: AgentChannel, payload: unknown): void {
     const parsed = parseServerExitedPayload(payload);
     if (!parsed) return;
 
-    const server = this.serversById.get(parsed.serverId);
+    const key = this.serverIdKey(channel, parsed.serverId);
+    const server = this.serversById.get(key);
     if (server) {
       // Clear diagnostics timers for all URIs owned by the dead server before
       // any further cleanup. Firing stale trailing-edge timers after the server
@@ -1045,8 +1426,15 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       // process. Channel listeners are intentionally left in place — the
       // channel itself is still alive and may carry other servers.
       server.disposePending(serverExitError(parsed));
-      this.serversById.delete(parsed.serverId);
-      this.workspaceServers.get(server.workspaceId)?.delete(server.languageId);
+      this.serversById.delete(key);
+      // A workspace whose last server went, on idle above all, holds no
+      // place under the LRU cap.
+      const servers = this.workspaceServers.get(server.workspaceId);
+      if (servers?.get(server.languageId) === server) servers.delete(server.languageId);
+      if (servers?.size === 0) {
+        this.workspaceServers.delete(server.workspaceId);
+        this.workspaceLastActivity.delete(server.workspaceId);
+      }
       this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
 
       // Clean up wedge-detection state for the exited server so a respawn
@@ -1054,6 +1442,39 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       const serverKey = `${server.workspaceId}\0${server.languageId}`;
       this.serverTimeoutCount.delete(serverKey);
       this.serverSpawnedAt.delete(serverKey);
+
+      if (parsed.stderrTail.trim()) {
+        this.status.log(server.workspaceId, server.languageId, "stderr", parsed.stderrTail);
+      }
+      // An exit the agent did not ask for is a crash: the server starts
+      // again at once, up to the crash limit.
+      let reopen = false;
+      if (parsed.shutdown) {
+        this.status.stopped(server.workspaceId, server.languageId, "idle", STOP_REASON_TEXT.idle);
+      } else {
+        const how = parsed.reason ? `: ${parsed.reason}` : "";
+        reopen = this.status.failed(
+          server.workspaceId,
+          server.languageId,
+          `Exited unexpectedly${how}`,
+        );
+      }
+
+      // The renderer still takes its open documents as opened on this
+      // server; the reset has it send didOpen to the next one.
+      this.emit("workspaceLspReset", {
+        workspaceId: server.workspaceId,
+        languageId: server.languageId,
+        reason: parsed.reason || "server exited",
+        ...(reopen ? { reopen: true } : {}),
+      });
+    } else {
+      // A server that died starting: lsp.spawn failed with only its exit
+      // status, and what it printed says why.
+      const pending = this.pendingSpawnByServerId.get(key);
+      if (pending && parsed.stderrTail.trim()) {
+        this.status.log(pending.workspaceId, pending.languageId, "stderr", parsed.stderrTail);
+      }
     }
 
     // applyEdit-style server requests held in pendingServerRequests are
@@ -1061,24 +1482,41 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     // would otherwise sit until APPLY_EDIT_RESPONSE_TIMEOUT_MS. Drop them
     // explicitly here so the timeout path is reserved for actual hangs.
     for (const [id, pending] of this.pendingServerRequests) {
-      if (pending.serverId === parsed.serverId) {
+      if (pending.channel === channel && pending.serverId === parsed.serverId) {
         this.pendingServerRequests.delete(id);
       }
     }
-    this.pendingSpawnByServerId.delete(parsed.serverId);
+    this.pendingSpawnByServerId.delete(key);
   }
 
-  private disposeChannelServers(channel: AgentChannel): void {
+  private disposeChannelServers(channel: AgentChannel, reason: string): void {
     for (const server of Array.from(this.serversById.values())) {
       if (server.channel !== channel) continue;
       // Clear diagnostics timers before removing the URI index entries so the
       // predicate in clearDiagnosticsTimersForServer can still resolve the URI
       // → server mapping. Mirrors the ordering used in handleServerExited.
       this.diagnosticsDebouncer.clearForServer(server.workspaceId, server.languageId);
-      server.dispose();
-      this.serversById.delete(server.serverId);
-      this.workspaceServers.get(server.workspaceId)?.delete(server.languageId);
+      // The agent that ran the server is gone; an lsp.shutdown would only
+      // reach the agent that replaced it.
+      server.disposePending(new Error(`LSP server lost: ${reason}`));
+      this.serversById.delete(this.serverIdKey(server.channel, server.serverId));
+      const servers = this.workspaceServers.get(server.workspaceId);
+      if (servers?.get(server.languageId) === server) servers.delete(server.languageId);
+      if (servers?.size === 0) {
+        this.workspaceServers.delete(server.workspaceId);
+        this.workspaceLastActivity.delete(server.workspaceId);
+      }
       this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
+      const serverKey = `${server.workspaceId}\0${server.languageId}`;
+      this.serverTimeoutCount.delete(serverKey);
+      this.serverSpawnedAt.delete(serverKey);
+      this.status.stopped(server.workspaceId, server.languageId, "agent", reason);
+      // The renderer still takes its documents as open on this server.
+      this.emit("workspaceLspReset", {
+        workspaceId: server.workspaceId,
+        languageId: server.languageId,
+        reason,
+      });
     }
     // Server requests (applyEdit) waiting on the renderer can no longer be
     // answered on this channel.
@@ -1091,7 +1529,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     const parsed = parseAgentMessagePayload(payload);
     if (!parsed) return;
 
-    const server = this.serversById.get(parsed.serverId);
+    const server = this.serversById.get(this.serverIdKey(channel, parsed.serverId));
     if (server) {
       if (!server.handleMessage(parsed.message)) {
         this.handleServerNotification(
@@ -1239,6 +1677,14 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       return;
     }
 
+    if (msg.method === "window/logMessage" || msg.method === "window/showMessage") {
+      const parsed = LogMessageParamsSchema.safeParse(msg.params);
+      if (parsed.success) {
+        const level = MESSAGE_LOG_LEVELS[parsed.data.type] ?? "log";
+        this.status.log(context.workspaceId, context.languageId, level, parsed.data.message);
+      }
+    }
+
     if (SERVER_EVENT_METHODS.has(msg.method)) {
       this.emitServerEvent(context, msg.method as LspServerEventMethod, msg.params);
     }
@@ -1279,17 +1725,18 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     workspaceConfig.set(languageId, flattenInitializationOptions(initializationOptions));
   }
 
-  private serverContextFor(_channel: AgentChannel, serverId: string): ServerContext | null {
+  private serverContextFor(channel: AgentChannel, serverId: string): ServerContext | null {
     // Resolution path is now deterministic: serversById carries the server
     // once spawn returns, and pendingSpawnByServerId is populated by the
     // lsp.serverAssigned event before initialize finishes. No fallback to
     // "first pending spawn on channel" — that heuristic mis-attributed
     // pre-spawn-resolution events when two languages spawned concurrently.
-    const server = this.serversById.get(serverId);
+    const key = this.serverIdKey(channel, serverId);
+    const server = this.serversById.get(key);
     if (server) {
       return { workspaceId: server.workspaceId, languageId: server.languageId };
     }
-    const pending = this.pendingSpawnByServerId.get(serverId);
+    const pending = this.pendingSpawnByServerId.get(key);
     return pending ? { workspaceId: pending.workspaceId, languageId: pending.languageId } : null;
   }
 
@@ -1331,8 +1778,15 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       log.warn(
         `${workspaceId}/${languageId} wedged (${LSP_CONSECUTIVE_TIMEOUT_LIMIT} consecutive timeouts) — restarting`,
       );
-      this.disposeWorkspaceServers(workspaceId, "LSP server wedged (3 consecutive timeouts)", {
+      const retry = this.status.failed(
+        workspaceId,
         languageId,
+        `Stopped answering: ${LSP_CONSECUTIVE_TIMEOUT_LIMIT} requests in a row timed out`,
+      );
+      this.disposeWorkspaceServers(workspaceId, "crashed", {
+        languageId,
+        reopen: retry,
+        updateStatus: false,
       });
     } else {
       this.serverTimeoutCount.set(serverKey, count);
@@ -1427,30 +1881,58 @@ async function withRequestTimeout<T>(
 // entry directly via the user's `node` (matching the SSH launcher script
 // format, but without bundling Node for local). Dev runs without a built
 // dist fall back to node_modules/.bin so `bun run dev` keeps working.
-function resolveLocalLspCommand(preset: LspServerSpec): {
+interface LspServerCommand {
   readonly binaryPath: string;
   readonly args: readonly string[];
-} {
+  /** Added to the agent's environment for the server. */
+  readonly env?: Readonly<Record<string, string>>;
+}
+
+function resolveLocalLspCommand(preset: LspServerSpec): LspServerCommand {
   const fromManifest = resolveLspCommandFromManifest(preset);
   if (fromManifest) return fromManifest;
   return { binaryPath: resolveDevBundledBinary(preset.binary), args: preset.args };
 }
 
-function resolveLspCommandFromManifest(preset: LspServerSpec): {
-  readonly binaryPath: string;
-  readonly args: readonly string[];
-} | null {
-  const distDir = getAgentDistDir();
+/**
+ * The bundled server's script, run on the app's own runtime: whatever Node
+ * the user has, or lacks, plays no part.
+ */
+export function resolveLspCommandFromManifest(
+  preset: LspServerSpec,
+  distDir = getAgentDistDir(),
+): LspServerCommand | null {
+  const lsp = findBundledLsp(preset, distDir);
+  if (!lsp) return null;
+  const extractedDir = path.join(distDir, "lsp", `${lsp.name}-${lsp.version}`);
+  const entry = path.join(extractedDir, lsp.entry);
+  if (!fs.existsSync(entry)) return null;
+  return {
+    binaryPath: process.execPath,
+    args: [entry, ...preset.args],
+    env: { ELECTRON_RUN_AS_NODE: "1" },
+  };
+}
+
+/**
+ * The package and version the app bundles for a server, standing in for the
+ * serverInfo some servers (typescript-language-server, bash-language-server,
+ * docker-langserver) leave out of their initialize result.
+ */
+export function bundledServerInfo(
+  preset: LspServerSpec,
+  distDir = getAgentDistDir(),
+): { name: string; version: string } | undefined {
+  const lsp = findBundledLsp(preset, distDir);
+  return lsp ? { name: lsp.packageName, version: lsp.version } : undefined;
+}
+
+function findBundledLsp(preset: LspServerSpec, distDir: string): LspBinaryManifestEntry | null {
   const manifestPath = path.join(distDir, "manifest.json");
   if (!fs.existsSync(manifestPath)) return null;
   try {
     const manifest = AgentManifestSchema.parse(JSON.parse(fs.readFileSync(manifestPath, "utf8")));
-    const lsp = findLspBinary(manifest, { name: preset.binary });
-    if (!lsp) return null;
-    const extractedDir = path.join(distDir, "lsp", `${lsp.name}-${lsp.version}`);
-    const entry = path.join(extractedDir, lsp.entry);
-    if (!fs.existsSync(entry)) return null;
-    return { binaryPath: "node", args: [entry, ...preset.args] };
+    return findLspBinary(manifest, { name: preset.binary }) ?? null;
   } catch {
     return null;
   }
@@ -1472,6 +1954,45 @@ function textDocumentPositionParams(args: { uri: string; line: number; character
     textDocument: { uri: args.uri },
     position: { line: args.line, character: args.character },
   };
+}
+
+const EMPTY_COMPLETION_LIST: CompletionList = { isIncomplete: false, items: [] };
+
+function completionParams(args: CompletionArgs) {
+  if (args.triggerKind === undefined) return textDocumentPositionParams(args);
+  return {
+    ...textDocumentPositionParams(args),
+    context: {
+      triggerKind: args.triggerKind,
+      ...(args.triggerKind === CompletionTriggerKind.TriggerCharacter
+        ? { triggerCharacter: args.triggerCharacter }
+        : {}),
+    },
+  };
+}
+
+function completionTriggerCharacters(server: AgentLspServer): string[] {
+  const provider = server.getCapabilityValue("completionProvider");
+  if (!isObjectLike(provider) || !Array.isArray(provider.triggerCharacters)) return [];
+  return provider.triggerCharacters.filter((c): c is string => typeof c === "string");
+}
+
+function signatureHelpParams(args: SignatureHelpArgs) {
+  return {
+    ...textDocumentPositionParams(args),
+    context: {
+      triggerKind: args.triggerKind,
+      ...(args.triggerCharacter !== undefined ? { triggerCharacter: args.triggerCharacter } : {}),
+      isRetrigger: args.isRetrigger,
+      ...(args.activeSignatureHelp ? { activeSignatureHelp: args.activeSignatureHelp } : {}),
+    },
+  };
+}
+
+function signatureHelpTriggerCharacters(server: AgentLspServer): string[] {
+  const provider = server.getCapabilityValue("signatureHelpProvider");
+  if (!isObjectLike(provider) || !Array.isArray(provider.triggerCharacters)) return [];
+  return provider.triggerCharacters.filter((c): c is string => typeof c === "string");
 }
 
 function referencesParams(args: {

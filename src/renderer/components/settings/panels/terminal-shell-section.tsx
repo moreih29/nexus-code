@@ -35,6 +35,7 @@ import { Button } from "../../ui/button";
 import { Dialog } from "../../ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { SettingsSection } from "../section";
+import { isWindows } from "../../../utils/platform";
 
 const SYSTEM_VALUE = "__system__";
 const choiceValue = (choice: ShellChoice) => `${choice.kind}:${choice.id}`;
@@ -352,7 +353,6 @@ function CustomShellForm({
   const [argsText, setArgsText] = useState(initial ? joinShellArgs(initial.args) : "");
   const found = useFoundProgram(program);
 
-  const isWindows = window.host?.platform === "win32";
   const nameId = useId();
   const programId = useId();
   const argsId = useId();
@@ -374,7 +374,7 @@ function CustomShellForm({
     const result = unwrapIpcResult(
       await ipcCallResult("dialog", "showOpenFile", {
         title: t("terminal.shell.browseTitle"),
-        ...(isWindows
+        ...(isWindows()
           ? { filters: [{ name: t("terminal.shell.programs"), extensions: ["exe", "cmd", "bat"] }] }
           : {}),
       }),
@@ -423,7 +423,7 @@ function CustomShellForm({
             spellCheck={false}
             onChange={(e) => setProgram(e.target.value)}
             placeholder={
-              isWindows
+              isWindows()
                 ? t("terminal.shell.programPlaceholderWindows")
                 : t("terminal.shell.programPlaceholder")
             }

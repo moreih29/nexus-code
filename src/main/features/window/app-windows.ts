@@ -38,6 +38,11 @@ export function getActiveAppWindow(): BrowserWindow | null {
   return null;
 }
 
+/** The open app windows. */
+export function getAppWindows(): BrowserWindow[] {
+  return appWindows.filter((win) => !win.isDestroyed());
+}
+
 /** Whether any app window is open. */
 export function hasAppWindow(): boolean {
   return appWindows.some((win) => !win.isDestroyed());
