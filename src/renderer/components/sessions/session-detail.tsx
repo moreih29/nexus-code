@@ -26,6 +26,7 @@ import {
 import type { WorktreeChanges } from "../../services/sessions/use-family";
 import { getTerminalController } from "../../services/terminal/terminal-registry";
 import { Button } from "../ui/button";
+import { showToast } from "../ui/toast";
 import type { SessionsSelection } from "./selection";
 import { AgentBadge, SessionState } from "./session-status";
 
@@ -127,7 +128,15 @@ function DetailActions({
         {t("sessions.detail.show_changes")}
       </Button>
       {canInterrupt && (
-        <Button size="sm" variant="outline" onClick={() => void interrupt(session)}>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            interrupt(session).catch((failure: unknown) => {
+              showToast({ kind: "error", message: (failure as Error).message });
+            });
+          }}
+        >
           {t("sessions.detail.interrupt")}
         </Button>
       )}
