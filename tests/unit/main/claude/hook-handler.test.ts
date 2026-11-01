@@ -309,6 +309,56 @@ describe("hook-handler — subcommand 상태 전이", () => {
     expect(entry?.message).toBe("Waiting for input");
   });
 
+  test("permission notification after permission-request keeps permissionPending", async () => {
+    const { broker, emit, notifInstances } = makeHarness(false /* unfocused */);
+    emit(makeHookPayload("permission-request", { tool_name: "Write" }));
+    await new Promise((r) => setTimeout(r, 0));
+    emit(
+      makeHookPayload("notification", {
+        message: "Claude needs your permission to use Write",
+        notification_type: "permission_prompt",
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    const entry = broker.get("ws-test", "tab-test");
+    expect(entry?.status).toBe("permissionPending");
+    expect(entry?.message).toContain("Write");
+    expect(notifInstances).toHaveLength(1);
+  });
+
+  test.each([
+    "permission_prompt",
+    "worker_permission_prompt",
+  ])("%s notification alone → permissionPending + OS notification", async (type) => {
+    const { broker, emit, notifInstances } = makeHarness(false /* unfocused */);
+    emit(
+      makeHookPayload("notification", {
+        message: "Claude needs your permission to use Bash",
+        notification_type: type,
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    const entry = broker.get("ws-test", "tab-test");
+    expect(entry?.status).toBe("permissionPending");
+    expect(entry?.message).toBe("Claude needs your permission to use Bash");
+    expect(notifInstances).toHaveLength(1);
+    expect(notifInstances[0].title).toContain("Permission");
+  });
+
+  test("idle_prompt notification → needsInput", async () => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("permission-request", { tool_name: "Bash" }));
+    await new Promise((r) => setTimeout(r, 0));
+    emit(
+      makeHookPayload("notification", {
+        message: "Claude is waiting for your input",
+        notification_type: "idle_prompt",
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("needsInput");
+  });
+
   test("permission-request → permissionPending + tool_name message", async () => {
     const { broker, emit } = makeHarness();
     emit(makeHookPayload("permission-request", { tool_name: "Bash" }));
