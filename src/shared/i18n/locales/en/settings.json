@@ -281,7 +281,10 @@
         "layout": "rearrange its groups ({{detail}})",
         "groupClose": "close group {{detail}} and its tabs",
         "tabRename": "rename the tab \"{{detail}}\"",
-        "tabPin": "pin or unpin the tab \"{{detail}}\""
+        "tabPin": "pin or unpin the tab \"{{detail}}\"",
+        "worktreeNew": "create the task \"{{detail}}\"",
+        "worktreeRemove": "delete the task and its worktree folder",
+        "worktreeRemoveBranch": "delete the task, its worktree folder and its branch"
       }
     }
   },

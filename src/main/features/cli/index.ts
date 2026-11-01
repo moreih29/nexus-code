@@ -112,7 +112,8 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     shownTab: () => options.activeContext.get(),
     claudeStatus: (workspaceId, tabId) => options.claudeBroker.get(workspaceId, tabId),
     activity: (workspaceId, tabId) => activity.get(workspaceId, tabId),
-    ui: <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"]) => bridge.ask(op, args),
+    ui: <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"], timeoutMs?: number) =>
+      bridge.ask(op, args, timeoutMs),
     notify: (workspaceId, tabId, title, body) =>
       notifyTab(
         {

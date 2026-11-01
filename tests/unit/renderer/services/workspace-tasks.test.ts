@@ -56,7 +56,7 @@ mock.module(PTY_CLIENT, () => ({
   },
 }));
 
-const { agentCommandLine, createTask, removeTask } = await import(
+const { agentCommandLine, createTask, removeTask, startTask } = await import(
   "../../../../src/renderer/services/workspace/tasks"
 );
 const { useActiveStore } = await import("../../../../src/renderer/state/stores/active");
@@ -110,6 +110,26 @@ describe("createTask", () => {
     expect(startup).toEqual([{ tabId: "tab-1", line: "claude 'fix the redirect'\r" }]);
     expect(useActiveStore.getState().activeWorkspaceId).toBe(TASK);
     expect(calls.at(-1)).toEqual({ method: "activate", args: { id: TASK } });
+  });
+
+  it("startTask starts the agent without switching, and says in which terminal", async () => {
+    createResult = { ok: true, value: task };
+
+    const started = await startTask(PARENT, "fix login", "fix the redirect");
+
+    expect(started).toMatchObject({ task: { id: TASK }, tabId: "tab-1", command: "claude" });
+    expect(startup).toEqual([{ tabId: "tab-1", line: "claude 'fix the redirect'\r" }]);
+    expect(useActiveStore.getState().activeWorkspaceId).toBe(PARENT);
+    expect(calls.some((c) => c.method === "activate")).toBe(false);
+  });
+
+  it("startTask runs the command it is given over the setting", async () => {
+    createResult = { ok: true, value: task };
+
+    const started = await startTask(PARENT, "fix login", "fix it", " codex -m gpt-5.5 ");
+
+    expect(started).toMatchObject({ command: "codex -m gpt-5.5" });
+    expect(startup).toEqual([{ tabId: "tab-1", line: "codex -m gpt-5.5 'fix it'\r" }]);
   });
 
   it("opens a plain terminal when the agent command is empty", async () => {

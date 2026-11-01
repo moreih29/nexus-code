@@ -104,7 +104,10 @@ export type CliChangeKind =
   | "layout"
   | "groupClose"
   | "tabRename"
-  | "tabPin";
+  | "tabPin"
+  | "worktreeNew"
+  | "worktreeRemove"
+  | "worktreeRemoveBranch";
 
 export interface CliChange {
   readonly kind: CliChangeKind;
@@ -258,6 +261,24 @@ export interface CliUiOps {
   /** Shows a workspace, as clicking it in the sidebar does. */
   "workspace.show": {
     args: { workspaceId: string };
+    result: Record<string, never>;
+  };
+  /**
+   * Makes a task of `parentId`, as New Task does: its worktree, branch and a
+   * terminal running `command` (the task agent command when absent) with
+   * `prompt`. Shown if `show`, else started behind the user's view.
+   */
+  "task.create": {
+    args: { parentId: string; name: string; prompt: string; command?: string; show: boolean };
+    /** `command` is the agent command its terminal runs, "" for none. */
+    result: { workspaceId: string; tabId: string; command: string };
+  };
+  /**
+   * Removes a task, as Delete Task does. Refuses one with unsaved files, and
+   * a worktree with changes unless `force`.
+   */
+  "task.remove": {
+    args: { taskId: string; force: boolean; deleteBranch: boolean };
     result: Record<string, never>;
   };
   /**

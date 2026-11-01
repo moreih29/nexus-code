@@ -38,8 +38,15 @@ export interface CliServices {
     tabId: string,
   ): { status: ClaudeStatus; message?: string; since: number } | null;
   activity(workspaceId: string, tabId: string): TabActivity | null;
-  /** Asks the renderer, which owns the tabs and the terminals' screens. */
-  ui<K extends CliUiOp>(op: K, args: CliUiOps[K]["args"]): Promise<CliUiOps[K]["result"]>;
+  /**
+   * Asks the renderer, which owns the tabs and the terminals' screens; a
+   * longer `timeoutMs` for an answer that waits on git.
+   */
+  ui<K extends CliUiOp>(
+    op: K,
+    args: CliUiOps[K]["args"],
+    timeoutMs?: number,
+  ): Promise<CliUiOps[K]["result"]>;
   /** Tells the user, as Claude's notifications do, unless they are looking at the tab. */
   notify(workspaceId: string, tabId: string, title: string, body: string): boolean;
   /** What is at `relPath` in a workspace; null when nothing is. */
