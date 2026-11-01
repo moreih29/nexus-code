@@ -1,11 +1,14 @@
-// Sessions tab — detail panel: the chosen session's state, what it was asked
-// and last said, its terminal's screen, and its worktree's changes, with
-// the actions on it. A worktree with no session shows its changes alone.
+// Sessions tab — detail panel: the chosen session's state; for a Claude
+// session, what its turn does now, its todo list, the agents it runs and the
+// tools it ran; what it was asked and last said, its terminal's screen
+// (folded away when its hooks tell the rest), and its worktree's changes,
+// with the actions on it. A worktree with no session shows its changes
+// alone.
 //
 // A permission request is answered in the terminal, not here: the panel
 // does not press keys in a Claude Code dialog on the user's behalf.
 
-import { GitBranch } from "lucide-react";
+import { ChevronRight, GitBranch } from "lucide-react";
 import { type FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -18,17 +21,20 @@ import {
   showTerminal,
 } from "../../services/sessions/actions";
 import { type ActivityByKey, findAgent } from "../../services/sessions/agents";
+import { type ScreenLineKind, screenLines } from "../../services/sessions/screen-lines";
 import {
   type AgentSession,
   allSessions,
   type SessionFamily,
   type WorktreeEntry,
 } from "../../services/sessions/model";
-import type { WorktreeChanges } from "../../services/sessions/use-family";
+import { useNow, type WorktreeChanges } from "../../services/sessions/use-family";
 import { getTerminalController } from "../../services/terminal/terminal-registry";
 import { Button } from "../ui/button";
 import { showToast } from "../ui/toast";
 import { AgentDetail } from "./agent-detail";
+import { AgentsSection, NowCard, ProgressSection, TodoSection } from "./session-activity";
+import type { SessionActivity } from "../../../shared/claude/activity";
 import type { SessionsSelection } from "./selection";
 import { AgentBadge, SessionState } from "./session-status";
 
@@ -91,7 +97,14 @@ export function SessionDetail({
       </DetailHeader>
       <DetailActions worktree={worktree} session={session} />
       {session ? (
-        <SessionBody session={session} visible={visible} />
+        <SessionBody
+          // Keyed by the session, so each one opens with its screen folded or not by its own.
+          key={session.key}
+          session={session}
+          activity={activity.get(session.key)}
+          visible={visible}
+          onSelect={onSelect}
+        />
       ) : (
         <p className="text-app-ui-sm text-muted-foreground">{t("sessions.detail.no_session")}</p>
       )}
@@ -180,11 +193,29 @@ function DetailActions({
   );
 }
 
-function SessionBody({ session, visible }: { session: AgentSession; visible: boolean }) {
+function SessionBody({
+  session,
+  activity,
+  visible,
+  onSelect,
+}: {
+  session: AgentSession;
+  activity: SessionActivity | undefined;
+  visible: boolean;
+  onSelect: (selection: SessionsSelection) => void;
+}) {
   const { t } = useTranslation();
-  const screen = useTerminalScreen(session.tabId, visible);
+  // A Claude session's hooks tell what it does; its screen is folded away
+  // until asked for. Another agent's screen is all there is to tell.
+  const [screenToggled, setScreenToggled] = useState<boolean | undefined>(undefined);
+  const screenOpen = screenToggled ?? activity === undefined;
+  const screen = useTerminalScreen(session.tabId, visible && screenOpen);
+  const working = session.state === "running" || session.state === "permissionPending";
+  // Running tools count their seconds.
+  const now = useNow(visible && activity !== undefined && working);
   return (
     <>
+      {activity && <NowCard session={session} activity={activity} now={now} />}
       {session.state === "permissionPending" ? (
         <p className="text-app-ui-sm text-(--state-warning-fg)">
           {t("sessions.detail.permission_hint")}
@@ -193,6 +224,9 @@ function SessionBody({ session, visible }: { session: AgentSession; visible: boo
         // Keyed by the session, so a draft never carries over to another one.
         session.state !== "exited" && <SendLine key={session.key} session={session} />
       )}
+      {activity && <TodoSection todos={activity.todos} />}
+      {activity && <AgentsSection session={session} agents={activity.agents} onSelect={onSelect} />}
+      {activity && <ProgressSection activity={activity} now={now} />}
       {session.prompt && (
         <DetailSection title={t("sessions.detail.prompt")}>
           <p className="whitespace-pre-wrap break-words text-app-body text-foreground">
@@ -207,25 +241,54 @@ function SessionBody({ session, visible }: { session: AgentSession; visible: boo
           </p>
         </DetailSection>
       )}
-      <DetailSection title={t("sessions.detail.screen")}>
-        {screen === null ? (
-          <p className="text-app-ui-sm text-muted-foreground">
-            {session.state === "exited"
-              ? t("sessions.detail.screen_exited")
-              : t("sessions.detail.screen_not_started")}
-          </p>
-        ) : (
-          // Keyed by the session, so each one opens scrolled to its latest lines.
-          <ScreenText key={session.key} text={screen} />
-        )}
-      </DetailSection>
+      <section className="flex flex-col gap-1.5">
+        <button
+          type="button"
+          onClick={() => setScreenToggled(!screenOpen)}
+          aria-expanded={screenOpen}
+          className="flex items-center gap-1 self-start rounded-(--radius-control) text-app-label uppercase text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ChevronRight
+            aria-hidden
+            className={cn("size-3 shrink-0 transition-transform", screenOpen && "rotate-90")}
+          />
+          {screenOpen ? t("sessions.detail.screen_hide") : t("sessions.detail.screen_show")}
+        </button>
+        {screenOpen &&
+          (screen === null ? (
+            <p className="text-app-ui-sm text-muted-foreground">
+              {session.state === "exited"
+                ? t("sessions.detail.screen_exited")
+                : t("sessions.detail.screen_not_started")}
+            </p>
+          ) : (
+            // Keyed by the session, so each one opens scrolled to its latest lines.
+            <ScreenText key={session.key} text={screen} />
+          ))}
+      </section>
     </>
   );
 }
 
+// How each kind of screen line is drawn.
+const LINE_CLASS: Record<ScreenLineKind, string> = {
+  item: "text-foreground",
+  result: "text-muted-foreground",
+  added: "bg-emerald-500/10 text-emerald-500",
+  removed: "bg-(--state-error-fg)/10 text-(--state-error-fg)",
+  status: "text-(--tab-claude-attention-fg)",
+  prompt: "text-foreground",
+  rule: "",
+  hint: "text-muted-foreground/70",
+  blank: "",
+  text: "text-foreground/90",
+};
+
 /**
- * The screen's lines, kept scrolled to the latest unless scrolled up. It
- * takes focus, so the keyboard can scroll it too.
+ * The screen's lines, kept scrolled to the latest unless scrolled up, each
+ * drawn by what it is: a tool call's bullet stands out, its result is
+ * dimmed, a diff's lines are tinted, the agent's rules become thin lines.
+ * It takes focus, so the keyboard can scroll it too.
  */
 function ScreenText({ text }: { text: string }) {
   const ref = useRef<HTMLPreElement>(null);
@@ -244,10 +307,40 @@ function ScreenText({ text }: { text: string }) {
         const el = event.currentTarget;
         atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
       }}
-      className="app-scrollbar max-h-80 overflow-y-auto whitespace-pre-wrap break-all rounded-(--radius-control) border border-border bg-background p-2 font-mono text-app-micro leading-relaxed text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      className="app-scrollbar max-h-80 overflow-y-auto whitespace-pre-wrap break-all rounded-(--radius-control) border border-border bg-background px-2 py-1.5 font-mono text-app-micro leading-relaxed text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
     >
-      {text}
+      {screenLines(text).map((line, index) =>
+        line.kind === "rule" ? (
+          // biome-ignore lint/suspicious/noArrayIndexKey: a screen's lines have no identity but their place
+          <span key={index} aria-hidden className="my-1 block h-px bg-border" />
+        ) : (
+          <span
+            // biome-ignore lint/suspicious/noArrayIndexKey: a screen's lines have no identity but their place
+            key={index}
+            className={cn(
+              "block min-h-[1lh]",
+              LINE_CLASS[line.kind],
+              line.kind === "item" && "mt-1 first:mt-0",
+            )}
+          >
+            {line.kind === "item" ? <ItemLine text={line.text} /> : line.text}
+          </span>
+        ),
+      )}
     </pre>
+  );
+}
+
+/** A tool call or message line: its bullet in the agent's color, then its words. */
+function ItemLine({ text }: { text: string }) {
+  const match = /^(\s*)([⏺●◆])(\s.*)$/.exec(text);
+  if (!match) return <>{text}</>;
+  return (
+    <>
+      {match[1]}
+      <span className="text-emerald-500">{match[2]}</span>
+      {match[3]}
+    </>
   );
 }
 
