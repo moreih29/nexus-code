@@ -169,6 +169,8 @@ export class SessionActivityLog {
         const model = text(p.model);
         if (model !== undefined) run.model = model;
         run.cwd = text(p.cwd) ?? run.cwd;
+        // A run that tells its tools in its transcript tells it once it is found.
+        if (p.tools_told === true) run.toolsTold = true;
         break;
       }
       case "print-tool-use": {

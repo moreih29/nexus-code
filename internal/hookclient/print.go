@@ -3,8 +3,9 @@ package hookclient
 // `agent print-run <claude> [args...]` runs a `claude -p` that a tab's
 // Claude session starts, as from its Bash tool or a script it runs, and
 // tells the app of it: its start, its end, and between them the tools it
-// runs, as its stream-json output tells them. Such a run gets none of the
-// tab's hooks (claude-wrapper.sh), and a `--bare` one would run none.
+// runs, as its stream-json output or else its transcript tells them
+// (print_transcript.go). Such a run gets none of the tab's hooks
+// (claude-wrapper.sh), and a `--bare` one would run none.
 //
 // The run is claude's own: its stdin and stderr are claude's, its output
 // is passed on as it comes, and its exit is claude's. Telling the app never
@@ -75,6 +76,27 @@ type printRun struct {
 	model  string
 	// format is its --output-format: "text", "json" or "stream-json".
 	format string
+	// sessionID is the session id it was given, which names its transcript.
+	sessionID string
+	// noTranscript: its transcript is not a new one of its own.
+	noTranscript bool
+}
+
+// sessionFlags are claude's options after which a run's transcript is not
+// a new one of its own: it goes on a session of before, runs elsewhere, or
+// keeps none.
+var sessionFlags = map[string]bool{
+	"-c":                       true,
+	"--continue":               true,
+	"-r":                       true,
+	"--resume":                 true,
+	"--fork-session":           true,
+	"--from-pr":                true,
+	"--teleport":               true,
+	"--cloud":                  true,
+	"--bg":                     true,
+	"--background":             true,
+	"--no-session-persistence": true,
 }
 
 // describePrintRun reads a run's arguments. Its prompt is the argument after
@@ -110,6 +132,12 @@ func describePrintRun(args []string) printRun {
 			run.format = next
 		case strings.HasPrefix(arg, "--output-format="):
 			run.format = strings.TrimPrefix(arg, "--output-format=")
+		case arg == "--session-id" && next != "":
+			run.sessionID = next
+		case strings.HasPrefix(arg, "--session-id="):
+			run.sessionID = strings.TrimPrefix(arg, "--session-id=")
+		case sessionFlags[strings.SplitN(arg, "=", 2)[0]]:
+			run.noTranscript = true
 		}
 	}
 	run.prompt = cut(strings.TrimSpace(run.prompt), printTextMax)
@@ -126,12 +154,26 @@ func runPrint(
 	teller *printTeller,
 ) (code int, sig int) {
 	run := describePrintRun(args)
+	// A run whose output does not tell its tools tells them in its
+	// transcript, named by the session id it is given one unless it has one.
+	var transcript *printTranscript
+	if teller != nil && run.format != "stream-json" && !run.noTranscript {
+		id := run.sessionID
+		if id == "" {
+			if id = newSessionID(); id != "" {
+				args = append([]string{"--session-id", id}, args...)
+			}
+		}
+		if id != "" {
+			transcript = newPrintTranscript(id)
+		}
+	}
 	cmd := exec.Command(claude, args...)
 	cmd.Stdin = stdin
 	cmd.Stderr = stderr
 	// A json or stream-json run's output tells of the run, and a text run's
 	// is its answer. A terminal stays claude's own: claude prints to it as a
-	// terminal, and its answer is the user's to read there.
+	// terminal, and its answer is then its transcript's.
 	text := run.format != "stream-json" && run.format != "json"
 	var out io.ReadCloser
 	if teller != nil && (!text || !isTerminal(stdout)) {
@@ -181,6 +223,13 @@ func runPrint(
 		"tools_told": run.format == "stream-json",
 	})
 	watch := &printWatch{tell: teller.tell, text: text}
+	var told *printWatch
+	if transcript != nil {
+		told = &printWatch{tell: teller.tell}
+		go transcript.follow(told, func() {
+			teller.tell("print-init", map[string]any{"tools_told": true})
+		})
+	}
 	if out != nil {
 		passOutput(out, stdout, watch.line)
 		// Output no one reads any more: claude finds its pipe closed, as it
@@ -188,6 +237,10 @@ func runPrint(
 		_ = out.Close()
 	}
 	_ = cmd.Wait()
+	answer := watch.answer
+	if transcript != nil && transcript.end(printEndWait) && answer == "" {
+		answer = told.reply
+	}
 
 	code = cmd.ProcessState.ExitCode()
 	end := map[string]any{}
@@ -204,8 +257,8 @@ func runPrint(
 		default:
 		}
 	}
-	if watch.answer != "" {
-		end["answer"] = watch.answer
+	if answer != "" {
+		end["answer"] = answer
 	}
 	teller.finish("print-end", end, printEndWait)
 	return code, sig
@@ -216,50 +269,72 @@ func runPrint(
 // it.
 func passOutput(r io.Reader, w io.Writer, line func([]byte)) {
 	buf := make([]byte, 64<<10)
-	var pending []byte
-	skipping := false
+	lines := lineSplitter{line: line}
 	for {
 		n, err := r.Read(buf)
 		if n > 0 {
 			if _, werr := w.Write(buf[:n]); werr != nil {
 				return
 			}
-			chunk := buf[:n]
-			for len(chunk) > 0 {
-				i := bytes.IndexByte(chunk, '\n')
-				if i < 0 {
-					if !skipping {
-						pending = append(pending, chunk...)
-						if len(pending) > printLineMax {
-							pending, skipping = pending[:0], true
-						}
-					}
-					break
-				}
-				if !skipping {
-					pending = append(pending, chunk[:i]...)
-					line(pending)
-				}
-				pending, skipping = pending[:0], false
-				chunk = chunk[i+1:]
-			}
+			lines.feed(buf[:n])
 		}
 		if err != nil {
-			if len(pending) > 0 && !skipping {
-				line(pending)
-			}
+			lines.flush()
 			return
 		}
 	}
 }
 
-// printWatch reads a run's output for what it tells: claude's start (its
-// model), the tools it runs and how they end, and its answer.
+// lineSplitter hands each line of what it is fed to `line`, without its
+// newline, to be read before it returns; a line longer than printLineMax is
+// skipped.
+type lineSplitter struct {
+	line     func([]byte)
+	pending  []byte
+	skipping bool
+}
+
+func (s *lineSplitter) feed(chunk []byte) {
+	for len(chunk) > 0 {
+		i := bytes.IndexByte(chunk, '\n')
+		if i < 0 {
+			if !s.skipping {
+				s.pending = append(s.pending, chunk...)
+				if len(s.pending) > printLineMax {
+					s.pending, s.skipping = s.pending[:0], true
+				}
+			}
+			return
+		}
+		if !s.skipping {
+			s.pending = append(s.pending, chunk[:i]...)
+			s.line(s.pending)
+		}
+		s.pending, s.skipping = s.pending[:0], false
+		chunk = chunk[i+1:]
+	}
+}
+
+// flush hands on the last line, which no newline ended.
+func (s *lineSplitter) flush() {
+	if len(s.pending) > 0 && !s.skipping {
+		s.line(s.pending)
+	}
+	s.pending, s.skipping = s.pending[:0], false
+}
+
+// printWatch reads a run's output, or its transcript, for what it tells:
+// claude's start (its model), the tools it runs and how they end, and its
+// answer.
 type printWatch struct {
 	tell func(subcommand string, payload map[string]any)
 	// text: the output is the answer itself, as claude prints it in text.
 	text   bool
 	answer string
+	// reply is what claude wrote since its last tool's result: its answer,
+	// once the run is over, as a transcript tells it.
+	reply     string
+	modelTold bool
 }
 
 type printEvent struct {
@@ -269,12 +344,14 @@ type printEvent struct {
 	Cwd     string          `json:"cwd"`
 	Result  json.RawMessage `json:"result"`
 	Message struct {
+		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
 }
 
 type printBlock struct {
 	Type      string          `json:"type"`
+	Text      string          `json:"text"`
 	ID        string          `json:"id"`
 	Name      string          `json:"name"`
 	Input     json.RawMessage `json:"input"`
@@ -301,19 +378,34 @@ func (w *printWatch) line(b []byte) {
 	switch event.Type {
 	case "system":
 		if event.Subtype == "init" {
+			w.modelTold = true
 			w.tell("print-init", map[string]any{"model": event.Model, "cwd": event.Cwd})
 		}
 	case "assistant":
+		// A transcript tells no init: its model is its first message's
+		// (not one Claude Code makes up, as "<synthetic>").
+		if model := event.Message.Model; !w.modelTold && model != "" && !strings.HasPrefix(model, "<") {
+			w.modelTold = true
+			init := map[string]any{"model": model}
+			if event.Cwd != "" {
+				init["cwd"] = event.Cwd
+			}
+			w.tell("print-init", init)
+		}
 		for _, block := range blocksOf(event.Message.Content) {
-			if block.Type == "tool_use" && block.Name != "" {
+			switch {
+			case block.Type == "tool_use" && block.Name != "":
 				w.tell("print-tool-use", map[string]any{
 					"tool_use_id": block.ID,
 					"tool_name":   block.Name,
 					"tool_input":  trimInput(block.Input),
 				})
+			case block.Type == "text" && utf8.RuneCountInString(w.reply) <= printTextMax:
+				w.reply = cut(strings.TrimSpace(w.reply+"\n"+block.Text), printTextMax)
 			}
 		}
 	case "user":
+		w.reply = ""
 		for _, block := range blocksOf(event.Message.Content) {
 			if block.Type != "tool_result" || block.ToolUseID == "" {
 				continue
@@ -408,6 +500,11 @@ type printTeller struct {
 	// watch is the run's watch, open from its start until its end.
 	watch net.Conn
 	ended bool
+
+	// queue guards frames: a transcript followed beside the run may tell
+	// of it after its end.
+	queue  sync.Mutex
+	queued bool
 }
 
 type printFrame struct {
@@ -438,12 +535,18 @@ func newPrintTeller(socket, token, workspaceID, tabID string) *printTeller {
 	return t
 }
 
-// tell queues a frame, or drops it when too many wait.
+// tell queues a frame, or drops it when too many wait or the run's end is
+// told.
 func (t *printTeller) tell(subcommand string, payload map[string]any) {
 	if t == nil {
 		return
 	}
 	payload["run_id"] = t.runID
+	t.queue.Lock()
+	defer t.queue.Unlock()
+	if t.queued {
+		return
+	}
 	select {
 	case t.frames <- printFrame{subcommand, payload}:
 	default:
@@ -460,12 +563,16 @@ func (t *printTeller) finish(subcommand string, payload map[string]any, wait tim
 	payload["run_id"] = t.runID
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
+	t.queue.Lock()
+	t.queued = true
 	select {
 	case t.frames <- printFrame{subcommand, payload}:
+		close(t.frames)
+		t.queue.Unlock()
 	case <-timer.C:
+		t.queue.Unlock()
 		return
 	}
-	close(t.frames)
 	select {
 	case <-t.done:
 	case <-timer.C:

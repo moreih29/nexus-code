@@ -585,7 +585,7 @@
         "answer_pending": "에이전트가 끝나면 마지막 응답이 여기에 나옵니다.",
         "answer_none": "응답 없이 끝났습니다.",
         "tools_none": "아직 쓴 도구가 없습니다.",
-        "tools_untold": "이 실행의 도구는 기록되지 않습니다 (stream-json 출력일 때만 기록).",
+        "tools_untold": "이 실행의 도구는 기록되지 않습니다. 세션을 이어가거나 세션 기록을 남기지 않는 실행입니다.",
         "denied": "거부됨",
         "more_tools": "이전 활동 {{count}}개 더 보기",
         "fewer_tools": "최근 활동만 보기",
