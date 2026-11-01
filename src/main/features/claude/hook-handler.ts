@@ -113,16 +113,31 @@ function isPermissionNotification(payload: unknown): boolean {
 }
 
 /**
+ * The envelopes of turns Claude Code starts on its own, as when a background
+ * task finishes or another session sends a message. UserPromptSubmit runs for
+ * them too, with the envelope as the prompt.
+ */
+const SYSTEM_TURN = /^<(?:task-notification|cross-session-message|system-reminder)[\s>]/;
+
+/** Text the user pasted, as Claude Code marks it when it expands a collapsed paste. */
+const PASTED = /<pasted_content id="([^"]*)">\n?([\s\S]*?)\n?<\/pasted_content id="\1">/g;
+
+/**
  * Claude Code UserPromptSubmit hook payload에서 prompt를 추출한다.
  * 붙여넣은 파일 전체가 들어올 수 있어 PROMPT_MAX_CHARS로 자른다.
+ * What the user wrote only: pasted text without Claude Code's marks around
+ * it, and nothing for a turn Claude Code started itself, which keeps the
+ * user's last prompt.
  */
 function extractPrompt(payload: unknown): string | undefined {
   if (typeof payload !== "object" || payload === null) return undefined;
   const prompt = (payload as Record<string, unknown>).prompt;
   if (typeof prompt !== "string") return undefined;
   const trimmed = prompt.trim();
-  if (trimmed === "") return undefined;
-  return trimmed.length > PROMPT_MAX_CHARS ? `${trimmed.slice(0, PROMPT_MAX_CHARS)}…` : trimmed;
+  if (trimmed === "" || SYSTEM_TURN.test(trimmed)) return undefined;
+  const own = trimmed.replace(PASTED, "$2").trim();
+  if (own === "") return undefined;
+  return own.length > PROMPT_MAX_CHARS ? `${own.slice(0, PROMPT_MAX_CHARS)}…` : own;
 }
 
 /**
