@@ -58,15 +58,18 @@ function setup() {
 }
 
 describe("freePath", () => {
+  // In the platform's own separators, as the download folder's paths are.
+  const inD = (name: string) => path.join("/d", name);
+
   test("numbers the name before its extension until it is free", () => {
-    const taken = new Set(["/d/a.pdf", "/d/a (1).pdf"]);
-    expect(freePath("/d", "a.pdf", (p) => taken.has(p))).toBe("/d/a (2).pdf");
-    expect(freePath("/d", "b.pdf", (p) => taken.has(p))).toBe("/d/b.pdf");
+    const taken = new Set([inD("a.pdf"), inD("a (1).pdf")]);
+    expect(freePath("/d", "a.pdf", (p) => taken.has(p))).toBe(inD("a (2).pdf"));
+    expect(freePath("/d", "b.pdf", (p) => taken.has(p))).toBe(inD("b.pdf"));
   });
 
   test("keeps a download's name out of other folders", () => {
-    expect(freePath("/d", "../../etc/passwd", () => false)).toBe("/d/passwd");
-    expect(freePath("/d", "", () => false)).toBe("/d/download");
+    expect(freePath("/d", "../../etc/passwd", () => false)).toBe(inD("passwd"));
+    expect(freePath("/d", "", () => false)).toBe(inD("download"));
   });
 });
 
