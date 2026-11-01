@@ -684,3 +684,83 @@ describe("hook-handler — notificationsEnabled 마스터 토글", () => {
     expect(notifInstances.length).toBe(1);
   });
 });
+
+describe("hook-handler — frames of a finished turn", () => {
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  test("Stop that loses the race to the next prompt changes nothing and notifies no one", async () => {
+    const { broker, emit, notifInstances, channel } = makeHarness(false /* unfocused */);
+    emit(makeHookPayload("user-prompt-submit", { prompt: "first", prompt_id: "p1" }));
+    emit(makeHookPayload("user-prompt-submit", { prompt: "second", prompt_id: "p2" }));
+    emit(makeHookPayload("stop", { prompt_id: "p1" }));
+    await tick();
+    const entry = broker.get("ws-test", "tab-test");
+    expect(entry?.status).toBe("running");
+    expect(entry?.prompt).toBe("second");
+    expect(notifInstances).toHaveLength(0);
+    // Still answered, so the hook process exits.
+    expect(channel.callArgs).toHaveLength(3);
+  });
+
+  test("late idle notification of the previous turn keeps the next one running", async () => {
+    const { broker, emit, notifInstances } = makeHarness(false /* unfocused */);
+    emit(makeHookPayload("user-prompt-submit", { prompt_id: "p1" }));
+    emit(makeHookPayload("stop", { prompt_id: "p1" }));
+    emit(makeHookPayload("user-prompt-submit", { prompt_id: "p2" }));
+    await tick();
+    const notified = notifInstances.length;
+    emit(
+      makeHookPayload("notification", {
+        message: "Claude is waiting for your input",
+        notification_type: "idle_prompt",
+        prompt_id: "p1",
+      }),
+    );
+    await tick();
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
+    expect(notifInstances).toHaveLength(notified);
+  });
+
+  test("Stop of the turn under way still completes and notifies", async () => {
+    const { broker, emit, notifInstances } = makeHarness(false /* unfocused */);
+    emit(makeHookPayload("user-prompt-submit", { prompt_id: "p1" }));
+    emit(makeHookPayload("user-prompt-submit", { prompt_id: "p2" }));
+    // A tool frame with an id not seen yet does not end the turn under way.
+    emit(makeHookPayload("pre-tool-use", { prompt_id: "p0" }));
+    emit(makeHookPayload("stop", { prompt_id: "p2" }));
+    await tick();
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("completed");
+    expect(notifInstances).toHaveLength(1);
+  });
+
+  test("frames without prompt_id (older Claude Code) are never dropped", async () => {
+    const { broker, emit } = makeHarness(false /* unfocused */);
+    emit(makeHookPayload("user-prompt-submit", { prompt_id: "p1" }));
+    emit(makeHookPayload("user-prompt-submit", { prompt_id: "p2" }));
+    emit(makeHookPayload("stop", {}));
+    await tick();
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("completed");
+  });
+
+  test("PermissionRequest of a finished turn is still answered with exit 0", async () => {
+    const { broker, emit, channel } = makeHarness(false /* unfocused */);
+    emit(makeHookPayload("user-prompt-submit", { prompt_id: "p1" }));
+    emit(makeHookPayload("user-prompt-submit", { prompt_id: "p2" }));
+    emit(makeHookPayload("permission-request", { tool_name: "Bash", prompt_id: "p1" }));
+    await tick();
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
+    const [method, args] = channel.callArgs[2];
+    expect(method).toBe("claude.respondHook");
+    expect((args as { response: { exitCode: number } }).response.exitCode).toBe(0);
+  });
+
+  test("Stop that arrives after SessionEnd does not bring the tab back", async () => {
+    const { broker, emit, notifInstances } = makeHarness(false /* unfocused */);
+    emit(makeHookPayload("user-prompt-submit", { prompt_id: "p1" }));
+    emit(makeHookPayload("session-end", { prompt_id: "p1" }));
+    emit(makeHookPayload("stop", { prompt_id: "p1" }));
+    await tick();
+    expect(broker.get("ws-test", "tab-test")).toBeNull();
+    expect(notifInstances).toHaveLength(0);
+  });
+});

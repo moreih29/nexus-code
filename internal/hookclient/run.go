@@ -66,6 +66,9 @@ const stopSubcmd = "stop"
 type stopPayload struct {
 	TranscriptPath      string `json:"transcript_path"`
 	TranscriptPathCamel string `json:"transcriptPath"`
+	// LastAssistantMessage is Claude's final answer of the turn; nil when the
+	// payload has none, as from versions before it was added.
+	LastAssistantMessage *string `json:"last_assistant_message"`
 }
 
 // hookResponse 는 agent로부터 받는 NDJSON 응답 프레임이다.
@@ -152,9 +155,7 @@ func runWithContext(
 	// 그대로 진행한다(omitempty로 wire에서 생략됨).
 	assistantText := ""
 	if subcommand == stopSubcmd {
-		if path := transcriptPathFromPayload(payload); path != "" {
-			assistantText = extractLastAssistantText(path)
-		}
+		assistantText = stopAssistantText(payload)
 	}
 
 	// NDJSON 요청 한 줄을 송신한다.
@@ -259,6 +260,23 @@ func readStdinPayload() (json.RawMessage, error) {
 // Claude Code가 파이프 상대방이 읽지 않은 채 닫힐 때 SIGPIPE를 받지 않도록 한다.
 func drainStdin() {
 	_, _ = io.Copy(io.Discard, os.Stdin)
+}
+
+// stopAssistantText is the answer a Stop hook reports. Claude Code puts it in
+// the payload as last_assistant_message; older versions only give the
+// transcript, read once it settles. Reading the transcript holds the hook
+// back for up to transcriptStableMaxWait, long enough for the next turn's
+// hooks to reach the app first, so the payload's answer is taken when there
+// is one.
+func stopAssistantText(payload json.RawMessage) string {
+	var p stopPayload
+	if len(payload) > 0 && json.Unmarshal(payload, &p) == nil && p.LastAssistantMessage != nil {
+		return truncateChars(normalizeSingleLine(*p.LastAssistantMessage), transcriptPreviewMaxChars)
+	}
+	if path := transcriptPathFromPayload(payload); path != "" {
+		return extractLastAssistantText(path)
+	}
+	return ""
 }
 
 // transcriptPathFromPayload 는 payload에서 transcript 경로를 추출한다.
