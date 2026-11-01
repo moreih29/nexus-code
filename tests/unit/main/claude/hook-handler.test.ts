@@ -1158,6 +1158,29 @@ describe("hook-handler — `claude -p` runs inside a session", () => {
     });
     expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
   });
+
+  // A run killed before it tells its end, as by SIGKILL.
+  test("hold a run's watch unanswered, and stop a run whose watch went away", async () => {
+    const { activity, agentHost, channel, emit } = makeHarness();
+    emit(makeHookPayload("print-start", { run_id: "r1" }));
+    const watch = makeHookPayload("print-watch", { run_id: "r1" });
+    emit(watch);
+    await tick();
+    const answered = channel.callArgs.filter(
+      ([method, args]) =>
+        method === "claude.respondHook" && (args as { hookId: string }).hookId === watch.hookId,
+    );
+    expect(answered).toEqual([]);
+    expect(activity.get("ws-test", "tab-test")?.agents[0]?.state).toBe("running");
+    agentHost.emit("claude.hookGone", {
+      hookId: watch.hookId,
+      workspaceId: "ws-test",
+      tabId: "tab-test",
+      subcommand: "print-watch",
+      payload: { run_id: "r1" },
+    });
+    expect(activity.get("ws-test", "tab-test")?.agents[0]?.state).toBe("stopped");
+  });
 });
 
 describe("hook-handler — permission requests answered from the app", () => {

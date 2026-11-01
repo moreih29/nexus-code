@@ -3,6 +3,7 @@ package hookserver
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -535,6 +536,9 @@ func TestHookGone_ToldWhenClientLeaves(t *testing.T) {
 		if p.HookID != hook.HookID || p.WorkspaceID != "ws-1" || p.TabID != "tab-1" {
 			t.Errorf("gone: want %s ws-1 tab-1, got %+v", hook.HookID, p)
 		}
+		if p.Subcommand != "permission-request" || p.Payload != nil {
+			t.Errorf("gone: want the subcommand with no payload, got %+v", p)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for claude.hookGone")
 	}
@@ -543,6 +547,57 @@ func TestHookGone_ToldWhenClientLeaves(t *testing.T) {
 	}
 	if err := srv.Respond(hook.HookID, HookResponse{}); err == nil {
 		t.Error("Respond to a gone hook: want an error, got none")
+	}
+}
+
+// TestPrintWatch_HeldUntilItsClientGoes checks that a `claude -p` run's
+// watch waits on no deadline, and that main is told of its run when its
+// client goes away.
+func TestPrintWatch_HeldUntilItsClientGoes(t *testing.T) {
+	heard := make(chan HookEventPayload, 1)
+	gone := make(chan HookGonePayload, 1)
+	srv := newTestServer(t, func(_ string, payload any) error {
+		switch p := payload.(type) {
+		case HookEventPayload:
+			heard <- p
+		case HookGonePayload:
+			gone <- p
+		}
+		return nil
+	})
+	srv.testDeadlineNs.Store(int64(50 * time.Millisecond))
+
+	conn := dialAndSendRequest(t, srv.SocketPath(), hookWireRequest{
+		Type:        "hook",
+		Token:       srv.Token(),
+		WorkspaceID: "ws-1",
+		TabID:       "tab-1",
+		Subcommand:  "print-watch",
+		Payload:     json.RawMessage(`{"run_id":"print-1"}`),
+	})
+	var hook HookEventPayload
+	select {
+	case hook = <-heard:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the watch")
+	}
+	// Past the deadline a hook would be answered by, the watch still waits.
+	_ = conn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	if n, err := conn.Read(make([]byte, 1)); n > 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("read: want a timeout, got %d bytes, %v", n, err)
+	}
+	if _, waiting := srv.inflight.Load(hook.HookID); !waiting {
+		t.Fatal("the watch is no longer held")
+	}
+	conn.Close()
+
+	select {
+	case p := <-gone:
+		if p.HookID != hook.HookID || p.Subcommand != "print-watch" || string(p.Payload) != `{"run_id":"print-1"}` {
+			t.Errorf("gone: got %+v", p)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for claude.hookGone")
 	}
 }
 

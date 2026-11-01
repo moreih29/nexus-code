@@ -274,6 +274,13 @@ const PRINT_FRAMES = new Set([
   "print-end",
 ]);
 
+/**
+ * The hook a `claude -p` run holds open while it goes on: never answered, it
+ * is told gone once the run is over, as when it is killed before it tells
+ * its end.
+ */
+const PRINT_WATCH = "print-watch";
+
 /** Hooks that belong to a turn, and so can arrive after it is over. */
 const TURN_HOOKS = new Set([
   "user-prompt-submit",
@@ -379,6 +386,7 @@ async function handleHookEvent(
 
   // A `claude -p` run started inside the session tells of itself (hookclient's
   // print-run), for the sessions tab only: the session's own state is its turn's.
+  if (subcommand === PRINT_WATCH) return;
   if (PRINT_FRAMES.has(subcommand)) {
     deps.activity?.notePrint(workspaceId, tabId, subcommand, hookPayload);
     await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
@@ -785,10 +793,17 @@ export function registerHookHandler(deps: HookHandlerDeps): () => void {
     });
   });
   // A held request's hook ended unanswered: Claude Code ends it as the user
-  // interrupts at the dialog, which the terminal's own watch tells.
+  // interrupts at the dialog, which the terminal's own watch tells. A
+  // `claude -p` run's watch ends with the run, told of or not.
   const offGone = deps.agentHost.on("claude.hookGone", (payload) => {
     const parsed = HookGoneSchema.safeParse(payload);
-    if (parsed.success) deps.asks?.gone(parsed.data.hookId);
+    if (!parsed.success) return;
+    const { hookId, workspaceId, tabId, subcommand } = parsed.data;
+    if (subcommand === PRINT_WATCH) {
+      deps.activity?.notePrint(workspaceId, tabId, "print-gone", parsed.data.payload);
+      return;
+    }
+    deps.asks?.gone(hookId);
   });
   const offAnswered = deps.asks?.onAnswered((ask, answer) => {
     afterAnswer(ask, answer, deps, dialogs);

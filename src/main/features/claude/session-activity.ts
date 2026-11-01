@@ -10,7 +10,8 @@
 //
 // A `claude -p` run started inside the session, as by a script its Bash tool
 // runs, has no hooks: the agent runs it and tells of it (hookclient's
-// print-run), and it is one of the session's agents.
+// print-run), and it is one of the session's agents. One killed before it
+// tells its end is told gone by the agent, and reads stopped.
 
 import {
   ACTIVITY_TEXT_MAX_CHARS,
@@ -148,7 +149,9 @@ export class SessionActivityLog {
   /**
    * Records what a `claude -p` run started inside the session in `tabId`
    * tells of itself (hookclient's print-run): its start, claude's start, the
-   * tools it runs and how they end, and its own end.
+   * tools it runs and how they end, and its own end; or that it is gone,
+   * told by the agent once its watch closed, which ends one that told no
+   * end as stopped.
    */
   notePrint(workspaceId: string, tabId: string, frame: string, payload: unknown): void {
     const p = record(payload);
@@ -213,6 +216,10 @@ export class SessionActivityLog {
         this.pruneAgents(session);
         break;
       }
+      case "print-gone":
+        this.stopAgent(session, run);
+        this.pruneAgents(session);
+        break;
     }
   }
 

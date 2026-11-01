@@ -10,6 +10,10 @@ package hookclient
 // is passed on as it comes, and its exit is claude's. Telling the app never
 // holds the output back: the frames are queued and sent beside it, and
 // dropped when the app does not take them.
+//
+// Once the app knows of the run, the run holds a watch open on the agent's
+// socket until its end: a run killed before it can tell its end, as by
+// SIGKILL, ends with its process, and the agent tells the app of it then.
 
 import (
 	"bytes"
@@ -23,6 +27,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -398,6 +403,11 @@ type printTeller struct {
 	runID                             string
 	frames                            chan printFrame
 	done                              chan struct{}
+
+	mu sync.Mutex
+	// watch is the run's watch, open from its start until its end.
+	watch net.Conn
+	ended bool
 }
 
 type printFrame struct {
@@ -441,11 +451,12 @@ func (t *printTeller) tell(subcommand string, payload map[string]any) {
 }
 
 // finish queues the run's last frame and waits up to `wait` for the frames
-// to be sent.
+// to be sent, then closes the run's watch.
 func (t *printTeller) finish(subcommand string, payload map[string]any, wait time.Duration) {
 	if t == nil {
 		return
 	}
+	defer t.closeWatch()
 	payload["run_id"] = t.runID
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
@@ -470,6 +481,49 @@ func (t *printTeller) send() {
 			continue
 		}
 		broken = !t.deliver(frame)
+		if !broken && frame.subcommand == "print-start" {
+			t.openWatch()
+		}
+	}
+}
+
+// openWatch opens the run's watch, once the app knows of the run: a hook
+// the agent holds open with no answer until its connection closes, which it
+// then tells the app of. The run closes it at its end, after telling it;
+// a run killed first closes it as its process ends.
+func (t *printTeller) openWatch() {
+	conn, err := net.DialTimeout("unix", t.socket, printFrameTimeout)
+	if err != nil {
+		return
+	}
+	payload, _ := json.Marshal(map[string]string{"run_id": t.runID})
+	_ = conn.SetDeadline(time.Now().Add(printFrameTimeout))
+	err = writeNDJSON(conn, hookRequest{
+		Type:        "hook",
+		Token:       t.token,
+		WorkspaceID: t.workspaceID,
+		TabID:       t.tabID,
+		Subcommand:  "print-watch",
+		Payload:     payload,
+	})
+	_ = conn.SetDeadline(time.Time{})
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if err != nil || t.ended {
+		conn.Close()
+		return
+	}
+	t.watch = conn
+}
+
+// closeWatch closes the run's watch, and keeps one from opening after.
+func (t *printTeller) closeWatch() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.ended = true
+	if t.watch != nil {
+		t.watch.Close()
+		t.watch = nil
 	}
 }
 
