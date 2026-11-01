@@ -475,7 +475,7 @@
       "show_changes": "Show changes",
       "interrupt": "Interrupt (Ctrl-C)",
       "remove_task": "Delete task…",
-      "permission_hint": "Answer the permission request in the terminal.",
+      "permission_hint": "Permission requests are answered in the terminal.",
       "send_placeholder": "Input to send to this session",
       "send": "Send",
       "prompt": "Last prompt",
