@@ -13,7 +13,9 @@ import {
   CODEX_TAB,
   contextFor,
   type FakeApp,
+  FIX,
   fakeApp,
+  NEW_TAB,
   SHELL_TAB,
 } from "./fake-services";
 
@@ -225,6 +227,63 @@ describe("terminal wait", () => {
     const result = await nexus(fakeApp(), [...argv, "--workspace", "api"]);
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toStartWith(stderr);
+  });
+});
+
+describe("terminal wait after worktree new", () => {
+  const started = async (app: FakeApp, argv: string[] = ["--prompt", "add payments"]) => {
+    await nexus(app, ["worktree", "new", "pay", ...argv]);
+    app.tabs[FIX] = [{ id: NEW_TAB, type: "terminal", title: "zsh", groupId: "g1", shown: false }];
+    app.foreground.set(NEW_TAB, "-zsh");
+    return app.time.now;
+  };
+  const wait = ["terminal", "wait", "cccccccc", "--workspace", "fix-login"];
+
+  test("waits for the started agent's first turn, past its shell and Claude Code's idle start", async () => {
+    const app = fakeApp();
+    const start = await started(app);
+    const key = `${FIX}:${NEW_TAB}`;
+    app.time.onTick = (now) => {
+      if (now - start === 2_000) app.foreground.set(NEW_TAB, "claude");
+      if (now - start === 3_000) app.claude.set(key, { status: "idle", since: now });
+      if (now - start === 4_000) app.claude.set(key, { status: "running", since: now });
+      if (now - start === 9_000) {
+        app.claude.set(key, { status: "completed", message: "Added payments.", since: now });
+      }
+    };
+    const result = await nexus(app, wait);
+    expect(result.stdout).toBe("Claude Code finished:\nAdded payments.\n");
+    expect(app.time.now - start).toBe(9_000);
+  });
+
+  test("an agent told by its output is done once it goes quiet after printing", async () => {
+    const app = fakeApp();
+    const start = await started(app, ["--prompt", "add payments", "--command", "codex"]);
+    app.time.onTick = (now) => {
+      if (now - start === 1_000) app.foreground.set(NEW_TAB, "codex");
+      if (now - start >= 2_000 && now - start <= 4_000) {
+        app.activity.set(`${FIX}:${NEW_TAB}`, { lastOutputAt: now });
+      }
+    };
+    const result = await nexus(app, wait);
+    expect(result.stdout).toBe("zsh has been quiet for a while.\n");
+    expect(app.time.now - start).toBe(9_000);
+  });
+
+  test("gives up on a command that started nothing after a minute", async () => {
+    const app = fakeApp();
+    const start = await started(app);
+    const result = await nexus(app, wait);
+    expect(result.stdout).toBe("zsh is back at its prompt.\n");
+    expect(app.time.now - start).toBe(60_000);
+  });
+
+  test("returns at once without a prompt, which starts no turn", async () => {
+    const app = fakeApp();
+    const start = await started(app, []);
+    const result = await nexus(app, wait);
+    expect(result.stdout).toBe("zsh is back at its prompt.\n");
+    expect(app.time.now).toBe(start);
   });
 });
 

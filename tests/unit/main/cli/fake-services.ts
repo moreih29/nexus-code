@@ -12,6 +12,7 @@ import {
 import type { ConsoleEntry } from "../../../../src/main/features/cli/browser/console-log";
 import type { BrowserDriver } from "../../../../src/main/features/cli/browser/driver";
 import type { CliContext, CliServices } from "../../../../src/main/features/cli/context";
+import { StartedAgents } from "../../../../src/main/features/cli/started-agents";
 import type { ClaudeStatus } from "../../../../src/shared/claude/status";
 import type {
   CliConsentAnswer,
@@ -319,6 +320,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     allowChange: (request) => consent.check(request),
     agentContextEnabled: () => settings.agentContext,
     foregroundProcess: async (_workspaceId, tabId) => foreground.get(tabId) ?? null,
+    startedAgents: new StartedAgents(),
     clock: {
       now: () => time.now,
       sleep: async (ms) => {

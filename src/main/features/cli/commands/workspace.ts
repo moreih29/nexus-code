@@ -233,6 +233,9 @@ const worktreeNew: CliCommand = {
       },
       TASK_TIMEOUT_MS,
     );
+    if (command !== "" && prompt.trim() !== "") {
+      ctx.services.startedAgents.mark({ workspaceId, tabId }, ctx.services.clock.now());
+    }
     const made = ctx.services.listWorkspaces().find((w) => w.id === workspaceId);
     const where = made?.task ? ` on branch ${made.task.branch}, at ${made.task.worktreePath}` : "";
     // Its terminal is in another workspace, which terminal commands are told.
