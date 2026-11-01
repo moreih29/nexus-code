@@ -113,6 +113,50 @@ describe("ClaudeInterruptWatcher", () => {
     expect(status()).toBe("idle");
   });
 
+  // Claude Code 2.1.316 after "No" at a permission dialog: the cells that
+  // already showed "t" and "d" were moved over, not written.
+  const REDRAWN =
+    "\x1b[H\r\x1b[8B \x1b[3G\x1b[38;5;246mRan \x1b[1m1\x1b[22m shell command \r\x1b[4C\x1b[1B" +
+    " In\x1b[9Gerrupte\x1b[17G · What should Claude do instead?\r\x1b[2B✻\x1b[39m ";
+
+  test("the line counts when the redraw skipped letters already on the screen", () => {
+    const { watcher, status } = harness();
+    watcher.noteInput("ws", "tab", "\x1b");
+    watcher.noteOutput("ws", "tab", REDRAWN);
+    expect(status()).toBe("idle");
+  });
+
+  test("No picked at a permission dialog ends the turn on Claude's line", () => {
+    const { watcher, status } = harness("permissionPending");
+    watcher.noteInput("ws", "tab", "4");
+    watcher.noteOutput("ws", "tab", REDRAWN);
+    expect(status()).toBe("idle");
+  });
+
+  test("at a permission dialog a key other than Esc counts the line, not the title", () => {
+    const { watcher, status } = harness("permissionPending");
+    watcher.noteInput("ws", "tab", "\x1b[B");
+    // The dialog shows the idle mark already.
+    watcher.noteOutput("ws", "tab", "\x1b]0;✳ Claude Code\x07");
+    expect(status()).toBe("permissionPending");
+    watcher.noteOutput("ws", "tab", INTERRUPTED);
+    expect(status()).toBe("idle");
+  });
+
+  test("a key other than Esc in a running turn waits for nothing", () => {
+    const { watcher, status } = harness();
+    watcher.noteInput("ws", "tab", "4");
+    watcher.noteOutput("ws", "tab", INTERRUPTED);
+    expect(status()).toBe("running");
+  });
+
+  test("a line with too much of it not written does not count", () => {
+    const { watcher, status } = harness();
+    watcher.noteInput("ws", "tab", "\x1b");
+    watcher.noteOutput("ws", "tab", "Interrupted\x1b[30Gdo instead?");
+    expect(status()).toBe("running");
+  });
+
   test("older Claude's \"Interrupted by user\" line counts", () => {
     const { watcher, status } = harness();
     watcher.noteInput("ws", "tab", "\x1b");
