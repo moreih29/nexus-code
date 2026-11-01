@@ -1,8 +1,9 @@
 /**
  * PortWatcher — when a workspace's listening ports are looked at: as its
  * terminals start printing after a quiet spell, once more as that settles,
- * then while they keep printing or it has ports, and not at all when it is
- * quiet with none.
+ * then while they keep printing or it has ports, once when a terminal is
+ * attached again, and not at all when it is quiet with none; and which
+ * answers it shows.
  */
 import { expect, test } from "bun:test";
 import { PortWatcher } from "../../../../src/main/features/pty/ports";
@@ -29,7 +30,8 @@ function port(n: number, tabId = "t"): ListeningPort {
   return { port: n, pid: n * 10, process: "node", tabId };
 }
 
-function setup(answers: Array<ListeningPort[] | Error>) {
+/** A watcher whose looks answer `answers` in turn, the last one again and again, after `delayMs`. */
+function setup(answers: Array<ListeningPort[] | Error>, delayMs = 0) {
   const source = host();
   let now = 1_000;
   const looked: string[] = [];
@@ -39,6 +41,7 @@ function setup(answers: Array<ListeningPort[] | Error>) {
     async (workspaceId) => {
       looked.push(workspaceId);
       const answer = answers.length > 1 ? answers.shift() : answers[0];
+      if (delayMs > 0) await wait(delayMs);
       if (answer instanceof Error) throw answer;
       return answer ?? [];
     },
@@ -105,12 +108,17 @@ test("a quiet workspace with no ports is not looked at", async () => {
   watcher.dispose();
 });
 
-test("replayed output is not looked at", async () => {
-  const { source, watcher, looked } = setup([[]]);
+test("a terminal attached again is looked at once, for a server listening quietly", async () => {
+  const { source, watcher, looked, changes } = setup([[port(8000)]]);
 
+  // The replay comes in many chunks.
   source.emit("data", { workspaceId: "w", tabId: "t", chunk: "old", replay: true });
-  await wait(80);
-  expect(looked).toEqual([]);
+  source.emit("data", { workspaceId: "w", tabId: "t", chunk: "older", replay: true });
+  await wait(20);
+  source.emit("data", { workspaceId: "w", tabId: "t", chunk: "oldest", replay: true });
+  await wait(20);
+  expect(looked).toEqual(["w"]);
+  expect(changes).toEqual([{ workspaceId: "w", ports: [port(8000)] }]);
   watcher.dispose();
 });
 
@@ -144,23 +152,57 @@ test("a held connection clears the workspace's ports and stops looking", async (
   watcher.dispose();
 });
 
-test("a failed look waits for output after a quiet spell", async () => {
-  const { source, watcher, looked, advance } = setup([new Error("unsupported method")]);
+test("a failed look keeps the ports shown and looks again while output continues", async () => {
+  const { source, watcher, looked, changes } = setup([
+    [port(3000)],
+    new Error("connection lost"),
+    [port(3000), port(4000)],
+  ]);
 
   source.emit("data", { workspaceId: "w", tabId: "t", chunk: "a" });
-  await wait(100);
-  expect(looked).toHaveLength(2);
-
-  // Output that keeps coming does not ask again and again.
-  advance(500);
-  source.emit("data", { workspaceId: "w", tabId: "t", chunk: "b" });
-  await wait(200);
-  expect(looked).toHaveLength(2);
-
-  // Output after a quiet spell tries again.
-  advance(5_000);
-  source.emit("data", { workspaceId: "w", tabId: "t", chunk: "c" });
   await wait(20);
+  expect(watcher.get("w")).toEqual([port(3000)]);
+
+  // The settle look fails.
+  await wait(60);
+  expect(looked).toHaveLength(2);
+  expect(watcher.get("w")).toEqual([port(3000)]);
+
+  // The output is recent, so the busy poll comes anyway.
+  await wait(120);
   expect(looked).toHaveLength(3);
+  expect(watcher.get("w")).toEqual([port(3000), port(4000)]);
+  expect(changes.map((c) => c.ports.length)).toEqual([1, 2]);
+  watcher.dispose();
+});
+
+test("a look under way when a terminal ends does not bring its ports back", async () => {
+  const { source, watcher, changes } = setup([[port(3000, "a")]], 40);
+
+  source.emit("data", { workspaceId: "w", tabId: "a", chunk: "ready" });
+  await wait(10);
+  source.emit("exit", { workspaceId: "w", tabId: "a", code: 0 });
+  await wait(50);
+  expect(watcher.get("w")).toEqual([]);
+  expect(changes).toEqual([]);
+  watcher.dispose();
+});
+
+test("a look under way when the connection is held does not bring the ports back", async () => {
+  const { source, watcher, changes } = setup([[port(3000)], [port(3000)]], 40);
+
+  source.emit("data", { workspaceId: "w", tabId: "t", chunk: "ready" });
+  await wait(60);
+  expect(watcher.get("w")).toEqual([port(3000)]);
+
+  // The settle look starts at 90 ms; the connection drops while it runs.
+  await wait(50);
+  source.emit("held", { workspaceId: "w", tabId: "t" });
+  await wait(60);
+  expect(watcher.get("w")).toEqual([]);
+  expect(changes).toEqual([
+    { workspaceId: "w", ports: [port(3000)] },
+    { workspaceId: "w", ports: [] },
+  ]);
   watcher.dispose();
 });

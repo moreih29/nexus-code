@@ -3,12 +3,15 @@
  * workspace's agent finds them (pty.listeningPorts), for the status bar and
  * the task switcher.
  *
- * Looking costs a process listing, about 60 ms on macOS, so a workspace is
- * looked at only while there is something to see: when one of its terminals
- * starts printing after a quiet spell and once more as that settles, as the
- * ActivityTracker looks at a terminal's program, then every few seconds
- * while its terminals keep printing or it has ports, so a server that stops
- * drops out. A quiet workspace with none is not looked at.
+ * Looking costs a process listing, about 40 ms on macOS and twice that with
+ * a program running, so a workspace is looked at only while there is
+ * something to see: when one of its terminals starts printing after a
+ * quiet spell and once more as that settles, as the ActivityTracker looks
+ * at a terminal's program, then every few seconds while its terminals keep
+ * printing or it has ports, so a server that stops drops out. A terminal
+ * attached again, after the app restarted or its connection came back, is
+ * looked at once for the servers that kept running quietly. A quiet
+ * workspace with none is not looked at.
  */
 
 import { createLogger } from "../../../shared/log/main";
@@ -23,7 +26,10 @@ export const BUSY_POLL_MS = 5_000;
 /** How often a quiet workspace with ports is looked at, for a server that stops. */
 export const PORTS_POLL_MS = 10_000;
 
-/** Asks a workspace's agent for its ports. */
+/**
+ * Asks a workspace's agent for its ports. It throws when it cannot tell, as
+ * for a workspace that is not connected, which it must not connect.
+ */
 export type PortLookup = (workspaceId: string) => Promise<ListeningPort[]>;
 
 export interface PortTiming {
@@ -44,17 +50,27 @@ interface Watch {
   lastOutputAt: number;
   timer: ReturnType<typeof setTimeout> | undefined;
   dueAt: number;
+  /** A scheduled look is under way. */
   looking: boolean;
   /** Something asked for a look while one was under way. */
   again: boolean;
   /** Output started after a quiet spell: look once more as it settles. */
   settle: boolean;
-  /** The last look failed: wait for output after a quiet spell to try again. */
-  failed: boolean;
+  /** The looks started so far; each is numbered by it. */
+  started: number;
+  /**
+   * The number of the look whose answer is shown. An answer from a look
+   * started before it, or before a tab's ports were dropped, is stale.
+   */
+  shown: number;
+  /** Looks under way, scheduled or not. */
+  pending: number;
 }
 
 export class PortWatcher {
   private readonly lastOutput = new Map<string, number>();
+  /** When each workspace's terminals last replayed their output. */
+  private readonly lastReplay = new Map<string, number>();
   private readonly watches = new Map<string, Watch>();
   private readonly disposers: Array<() => void> = [];
   private disposed = false;
@@ -73,9 +89,9 @@ export class PortWatcher {
           tabId: string;
           replay?: boolean;
         };
-        // Replayed output is old output shown again.
-        if (replay) return;
-        this.noteOutput(workspaceId, tabId);
+        // Replayed output is old output shown again, by a terminal attached again.
+        if (replay) this.noteReplay(workspaceId);
+        else this.noteOutput(workspaceId, tabId);
       }),
       // A server dies with its terminal.
       source.on("exit", (args) => this.dropTab(args as { workspaceId: string; tabId: string })),
@@ -105,6 +121,7 @@ export class PortWatcher {
     for (const watch of this.watches.values()) clearTimeout(watch.timer);
     this.watches.clear();
     this.lastOutput.clear();
+    this.lastReplay.clear();
   }
 
   private noteOutput(workspaceId: string, tabId: string): void {
@@ -117,16 +134,28 @@ export class PortWatcher {
     if (previous === undefined || at - previous >= BUSY_WINDOW_MS) {
       watch.settle = true;
       this.schedule(workspaceId, watch, 0);
-    } else if (!watch.failed && watch.timer === undefined && !watch.looking) {
+    } else if (watch.timer === undefined && !watch.looking) {
       // Output that never paused, after the looks it started had stopped.
       this.schedule(workspaceId, watch, this.timing.busyPollMs);
     }
   }
 
+  /** Looks once when a workspace's terminals start replaying, for servers listening quietly. */
+  private noteReplay(workspaceId: string): void {
+    const at = this.now();
+    const previous = this.lastReplay.get(workspaceId);
+    this.lastReplay.set(workspaceId, at);
+    if (previous !== undefined && at - previous < BUSY_WINDOW_MS) return;
+    this.schedule(workspaceId, this.watch(workspaceId), 0);
+  }
+
   private dropTab({ workspaceId, tabId }: { workspaceId: string; tabId: string }): void {
     this.lastOutput.delete(`${workspaceId}:${tabId}`);
     const watch = this.watches.get(workspaceId);
-    if (!watch?.ports.some((port) => port.tabId === tabId)) return;
+    if (!watch) return;
+    // A look under way may still see the tab's servers.
+    watch.shown = watch.started;
+    if (!watch.ports.some((port) => port.tabId === tabId)) return;
     this.update(
       workspaceId,
       watch,
@@ -135,15 +164,13 @@ export class PortWatcher {
     this.retireIfDone(workspaceId, watch);
   }
 
+  /** Clears the workspace's ports and forgets it, a look under way included. */
   private stop(workspaceId: string): void {
     const watch = this.watches.get(workspaceId);
     if (!watch) return;
     clearTimeout(watch.timer);
-    watch.timer = undefined;
-    watch.settle = false;
-    watch.again = false;
-    this.update(workspaceId, watch, []);
-    this.retireIfDone(workspaceId, watch);
+    this.watches.delete(workspaceId);
+    if (watch.ports.length > 0) this.onChange({ workspaceId, ports: [] });
   }
 
   private watch(workspaceId: string): Watch {
@@ -157,7 +184,9 @@ export class PortWatcher {
         looking: false,
         again: false,
         settle: false,
-        failed: false,
+        started: 0,
+        shown: 0,
+        pending: 0,
       };
       this.watches.set(workspaceId, watch);
     }
@@ -180,22 +209,37 @@ export class PortWatcher {
     }, delayMs);
   }
 
+  /**
+   * Asks for the workspace's ports and shows the answer, unless the watch
+   * has ended or a newer answer is shown. Throws what the lookup throws.
+   */
+  private async ask(workspaceId: string, watch: Watch): Promise<ListeningPort[]> {
+    const number = ++watch.started;
+    watch.pending++;
+    try {
+      const ports = await this.lookup(workspaceId);
+      if (!this.disposed && this.watches.get(workspaceId) === watch && number > watch.shown) {
+        watch.shown = number;
+        this.update(workspaceId, watch, ports);
+      }
+      return ports;
+    } finally {
+      watch.pending--;
+    }
+  }
+
   private async look(workspaceId: string, watch: Watch): Promise<void> {
     watch.looking = true;
-    let ports: ListeningPort[];
     try {
-      ports = await this.lookup(workspaceId);
-      watch.failed = false;
+      await this.ask(workspaceId, watch);
     } catch (error) {
-      // An agent from before pty.listeningPorts, or one whose connection
-      // dropped: there is nothing to show until the next look.
+      // An agent from before pty.listeningPorts, a workspace not connected,
+      // or a dropped connection: what was seen last stays until a look
+      // says otherwise or the connection is held.
       log.debug(`looking at ${workspaceId}'s ports failed: ${(error as Error).message}`);
-      ports = [];
-      watch.failed = true;
     }
     watch.looking = false;
     if (this.disposed || this.watches.get(workspaceId) !== watch) return;
-    this.update(workspaceId, watch, ports);
 
     if (watch.again) {
       watch.again = false;
@@ -203,8 +247,6 @@ export class PortWatcher {
     } else if (watch.settle) {
       watch.settle = false;
       this.schedule(workspaceId, watch, this.timing.settleMs);
-    } else if (watch.failed) {
-      // Wait for output after a quiet spell.
     } else if (this.now() - watch.lastOutputAt < this.timing.busyPollMs) {
       this.schedule(workspaceId, watch, this.timing.busyPollMs);
     } else if (watch.ports.length > 0) {
@@ -215,7 +257,7 @@ export class PortWatcher {
 
   /** Forgets a workspace with nothing to show and nothing to look at. */
   private retireIfDone(workspaceId: string, watch: Watch): void {
-    if (watch.ports.length === 0 && watch.timer === undefined && !watch.looking && !watch.failed) {
+    if (watch.ports.length === 0 && watch.timer === undefined && watch.pending === 0) {
       this.watches.delete(workspaceId);
     }
   }
