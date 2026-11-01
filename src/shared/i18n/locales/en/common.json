@@ -520,6 +520,7 @@
       "message": "Last message",
       "screen": "Screen",
       "screen_not_started": "This terminal has not started yet. It starts when its task is opened.",
+      "screen_exited": "This terminal has exited.",
       "changes": "Uncommitted changes ({{count}})",
       "no_changes": "No uncommitted changes.",
       "more_changes": "{{count}} more",

@@ -26,6 +26,7 @@ import {
 import type { WorktreeChanges } from "../../services/sessions/use-family";
 import { getTerminalController } from "../../services/terminal/terminal-registry";
 import { Button } from "../ui/button";
+import { showToast } from "../ui/toast";
 import type { SessionsSelection } from "./selection";
 import { AgentBadge, SessionState } from "./session-status";
 
@@ -127,7 +128,15 @@ function DetailActions({
         {t("sessions.detail.show_changes")}
       </Button>
       {canInterrupt && (
-        <Button size="sm" variant="outline" onClick={() => void interrupt(session)}>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            interrupt(session).catch((failure: unknown) => {
+              showToast({ kind: "error", message: (failure as Error).message });
+            });
+          }}
+        >
           {t("sessions.detail.interrupt")}
         </Button>
       )}
@@ -175,17 +184,23 @@ function SessionBody({ session, visible }: { session: AgentSession; visible: boo
       <DetailSection title={t("sessions.detail.screen")}>
         {screen === null ? (
           <p className="text-app-ui-sm text-muted-foreground">
-            {t("sessions.detail.screen_not_started")}
+            {session.state === "exited"
+              ? t("sessions.detail.screen_exited")
+              : t("sessions.detail.screen_not_started")}
           </p>
         ) : (
-          <ScreenText text={screen} />
+          // Keyed by the session, so each one opens scrolled to its latest lines.
+          <ScreenText key={session.key} text={screen} />
         )}
       </DetailSection>
     </>
   );
 }
 
-/** The screen's lines, kept scrolled to the latest unless scrolled up. */
+/**
+ * The screen's lines, kept scrolled to the latest unless scrolled up. It
+ * takes focus, so the keyboard can scroll it too.
+ */
 function ScreenText({ text }: { text: string }) {
   const ref = useRef<HTMLPreElement>(null);
   const atBottom = useRef(true);
@@ -197,11 +212,13 @@ function ScreenText({ text }: { text: string }) {
   return (
     <pre
       ref={ref}
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: a scroll region the keyboard must reach
+      tabIndex={0}
       onScroll={(event) => {
         const el = event.currentTarget;
         atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
       }}
-      className="app-scrollbar max-h-80 overflow-y-auto whitespace-pre-wrap break-all rounded-(--radius-control) border border-border bg-background p-2 font-mono text-app-micro leading-relaxed text-foreground"
+      className="app-scrollbar max-h-80 overflow-y-auto whitespace-pre-wrap break-all rounded-(--radius-control) border border-border bg-background p-2 font-mono text-app-micro leading-relaxed text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
     >
       {text}
     </pre>

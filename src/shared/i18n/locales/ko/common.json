@@ -520,6 +520,7 @@
       "message": "마지막 메시지",
       "screen": "지금 화면",
       "screen_not_started": "이 터미널은 아직 시작되지 않았습니다. 그 작업을 열면 시작됩니다.",
+      "screen_exited": "이 터미널은 종료되었습니다.",
       "changes": "커밋하지 않은 변경 ({{count}})",
       "no_changes": "커밋하지 않은 변경이 없습니다.",
       "more_changes": "외 {{count}}개",
