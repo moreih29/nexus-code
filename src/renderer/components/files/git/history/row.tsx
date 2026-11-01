@@ -8,12 +8,16 @@ import type { LogEntry } from "../../../../../shared/git/types";
 import { relativeTime } from "../utils/relative-time";
 import type { HistoryListBreakpoint } from "./list";
 
+/**
+ * The SHA's track is a character wider than its seven: `ch` is the row's
+ * font, and a monospace character can be wider than that font's `0`.
+ */
 const HISTORY_ROW_GRID_CLASS_BY_BREAKPOINT: Record<HistoryListBreakpoint, string> = {
   compact: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,1fr)_24px] items-center gap-2",
   narrow: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,1fr)_8ch_24px] items-center gap-2",
   medium:
-    "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_8ch_7ch_24px] items-center gap-2",
-  wide: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_12ch_8ch_7ch_24px] items-center gap-2",
+    "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_8ch_8ch_24px] items-center gap-2",
+  wide: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_12ch_8ch_8ch_24px] items-center gap-2",
 };
 /** The selected row's left bar: `border-l-2` below. */
 export const HISTORY_ROW_SELECTION_BAR_PX = 2;
