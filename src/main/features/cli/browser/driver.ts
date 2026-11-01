@@ -31,6 +31,18 @@ import { type AxNode, buildSnapshot, roleAndName, type SnapshotRef } from "./sna
 export interface PageInfo {
   readonly url: string;
   readonly title: string;
+  /**
+   * The file the tab's last navigation downloads instead of showing, as one
+   * served as application/octet-stream. The tab keeps the page it had, or
+   * none.
+   */
+  readonly download?: PageDownload;
+}
+
+export interface PageDownload {
+  readonly url: string;
+  readonly file: string;
+  readonly type: string;
 }
 
 export interface PageSnapshot extends PageInfo {
@@ -100,6 +112,9 @@ const DRAW_MS = 30_000;
 const WAIT_POLL_MS = 250;
 /** How long settle waits for a tab just opened to get its page. */
 const PAGE_START_MS = 3_000;
+/** How long settle waits, after a load that showed no page, for its download. */
+const DOWNLOAD_START_MS = 1_000;
+const DOWNLOAD_POLL_MS = 50;
 /**
  * The size a tab never shown gets, so its page lays out and takes clicks.
  * The app gives it its real size once it is shown.
@@ -243,16 +258,41 @@ export class CdpBrowserDriver implements BrowserDriver {
   private readonly consoles = new Map<string, { contents: WebContents; log: ConsoleLog }>();
   /** The pick going on in a tab. */
   private readonly picking = new Map<string, PickControl>();
+  /** What each tab's last navigation downloaded instead of showing. */
+  private readonly downloads = new WeakMap<WebContents, PageDownload>();
+  /** Tabs whose last navigation has not shown a page, or did not. */
+  private readonly uncommitted = new WeakSet<WebContents>();
 
   constructor(
     private readonly pageOf: (tabId: string) => BrowserPage | undefined,
     private readonly mac = process.platform === "darwin",
   ) {}
 
-  /** Starts keeping `tabId`'s console; called as each browser tab is created. */
+  /**
+   * Starts keeping `tabId`'s console, and what its navigations download;
+   * called as each browser tab is created.
+   */
   watch(tabId: string, contents: WebContents): void {
     this.consoles.set(tabId, { contents, log: watchConsole(contents) });
+    contents.on("did-start-navigation", (details) => {
+      if (!details.isMainFrame || details.isSameDocument) return;
+      this.downloads.delete(contents);
+      this.uncommitted.add(contents);
+    });
+    contents.on("did-navigate", () => this.uncommitted.delete(contents));
+    // Tabs share a session, which tells every tab's downloads.
+    const session = contents.session;
+    const onDownload = (_event: Electron.Event, item: Electron.DownloadItem, from: WebContents) => {
+      if (from !== contents) return;
+      this.downloads.set(contents, {
+        url: item.getURL(),
+        file: item.getFilename(),
+        type: item.getMimeType(),
+      });
+    };
+    session.on("will-download", onDownload);
     contents.once("destroyed", () => {
+      session.removeListener("will-download", onDownload);
       if (this.consoles.get(tabId)?.contents === contents) this.consoles.delete(tabId);
     });
   }
@@ -557,7 +597,24 @@ export class CdpBrowserDriver implements BrowserDriver {
     if (!page || page.contents.isDestroyed()) return null;
     const contents = page.contents;
     await this.settleOn(contents);
-    return { url: contents.getURL(), title: contents.getTitle() };
+    // A navigation that ends without a page may be a download, which
+    // Chromium starts only after the load has stopped.
+    const until = Date.now() + DOWNLOAD_START_MS;
+    while (
+      this.uncommitted.has(contents) &&
+      !this.downloads.has(contents) &&
+      !contents.isDestroyed() &&
+      Date.now() < until
+    ) {
+      await delay(DOWNLOAD_POLL_MS);
+    }
+    if (contents.isDestroyed()) return null;
+    const download = this.downloads.get(contents);
+    return {
+      url: contents.getURL(),
+      title: contents.getTitle(),
+      ...(download ? { download } : {}),
+    };
   }
 
   snapshot(tabId: string, options: { maxLines: number; within?: string }): Promise<PageSnapshot> {

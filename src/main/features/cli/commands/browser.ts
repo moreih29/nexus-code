@@ -96,6 +96,13 @@ const browserOpen: CliCommand = {
 /** What a navigation came to: the page loaded, or still loading when the wait for it ended. */
 function loaded(page: PageInfo | null, asked: string): string {
   if (!page) return `Loading ${asked}`;
+  // Or a file downloaded instead of a page.
+  const download = page.download;
+  if (download) {
+    return `Downloading ${download.url} (${download.type}) as ${download.file} rather than showing it`;
+  }
+  // A tab whose first navigation did not commit has no URL.
+  if (!page.url) return `Nothing loaded from ${asked}`;
   return page.title ? `Loaded ${page.url} "${page.title}"` : `Loaded ${page.url}`;
 }
 

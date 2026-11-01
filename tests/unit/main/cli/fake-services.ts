@@ -10,7 +10,7 @@ import {
   type CrossWorkspacePolicy,
 } from "../../../../src/main/features/cli/consent";
 import type { ConsoleEntry } from "../../../../src/main/features/cli/browser/console-log";
-import type { BrowserDriver } from "../../../../src/main/features/cli/browser/driver";
+import type { BrowserDriver, PageInfo } from "../../../../src/main/features/cli/browser/driver";
 import type { PickedElement, PickResult } from "../../../../src/main/features/cli/browser/pick";
 import type { CliContext, CliServices } from "../../../../src/main/features/cli/context";
 import { StartedAgents } from "../../../../src/main/features/cli/started-agents";
@@ -167,6 +167,8 @@ export interface FakeBrowser {
   met: boolean;
   /** What pick gives. */
   pick: PickResult;
+  /** What settle finds in place of the Vite page, when set. */
+  settled?: PageInfo | null;
 }
 
 function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
@@ -214,7 +216,7 @@ function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
     },
     settle: async (tabId) => {
       record("settle", tabId);
-      return page;
+      return state.settled === undefined ? page : state.settled;
     },
     pick: async (tabId, options) => {
       record("pick", tabId, options);
