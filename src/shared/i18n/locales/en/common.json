@@ -485,7 +485,7 @@
       "interrupt": "Interrupt (Ctrl-C)",
       "remove_task": "Delete task…",
       "permission_hint": "Permission requests are answered in the terminal.",
-      "send_placeholder": "Input to send to this session",
+      "send_placeholder": "Input to send to this session (Shift+Enter for a new line)",
       "send": "Send",
       "prompt": "Last prompt",
       "message": "Last message",

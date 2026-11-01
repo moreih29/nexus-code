@@ -485,7 +485,7 @@
       "interrupt": "중지 (Ctrl-C)",
       "remove_task": "작업 삭제…",
       "permission_hint": "권한 요청은 터미널에서 응답합니다.",
-      "send_placeholder": "이 세션에 보낼 입력",
+      "send_placeholder": "이 세션에 보낼 입력 (Shift+Enter 줄바꿈)",
       "send": "보내기",
       "prompt": "마지막 프롬프트",
       "message": "마지막 메시지",
