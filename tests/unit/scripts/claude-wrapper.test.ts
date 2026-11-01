@@ -324,6 +324,56 @@ describeOnPosix("claude-wrapper.sh — claude's arguments", () => {
   });
 });
 
+describeOnPosix("claude-wrapper.sh — a claude inside the tab's Claude session", () => {
+  /**
+   * Runs the wrapper for tab t1 with `env`, and a claude that prints whether
+   * it got hooks and the mark its own processes carry.
+   */
+  function launch(env: Record<string, string>): { hooks: boolean; mark: string } {
+    const binDir = path.join(tmpDir, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const fake = path.join(binDir, "claude");
+    fs.writeFileSync(
+      fake,
+      '#!/usr/bin/env bash\nhooks=no\nfor a in "$@"; do [[ "$a" == --settings ]] && hooks=yes; done\nprintf "%s %s" "$hooks" "${NEXUS_CLAUDE_TAB_ID:-}"\n',
+    );
+    fs.chmodSync(fake, 0o755);
+    const hookBin = path.join(tmpDir, "agent");
+    fs.writeFileSync(hookBin, "#!/usr/bin/env bash\nexit 0\n");
+    fs.chmodSync(hookBin, 0o755);
+    const result = spawnSync("bash", [WRAPPER_PATH, "-p", "hi"], {
+      env: {
+        NEXUS_IN_APP: "1",
+        NEXUS_AGENT_SOCKET: socketPath,
+        NEXUS_AGENT_BIN: hookBin,
+        NEXUS_TAB_ID: "t1",
+        HOME: path.join(tmpDir, "home"),
+        PATH: `${binDir}:/bin:/usr/bin`,
+        ...env,
+      },
+      timeout: 5000,
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(0);
+    const [hooks, mark = ""] = result.stdout.split(" ");
+    return { hooks: hooks === "yes", mark };
+  }
+
+  test("the tab's claude gets the hooks, and its processes the tab's mark", () => {
+    expect(launch({})).toEqual({ hooks: true, mark: "t1" });
+  });
+
+  // As `claude -p` run by Claude's Bash tool: its hooks would report it as the tab's session.
+  test("a claude run by it gets none", () => {
+    expect(launch({ NEXUS_CLAUDE_TAB_ID: "t1" })).toEqual({ hooks: false, mark: "t1" });
+  });
+
+  // A terminal of an app started from inside a Claude session in another tab.
+  test("a mark of another tab is not the tab's session", () => {
+    expect(launch({ NEXUS_CLAUDE_TAB_ID: "t0" })).toEqual({ hooks: true, mark: "t1" });
+  });
+});
+
 describeOnPosix("claude-wrapper.sh — 다른 wrapper 회피 (무한 루프 방지)", () => {
   /**
    * 시나리오: PATH 에 cmux 와 우리 wrapper 가 함께 있을 때, find_real_claude 가
