@@ -98,4 +98,18 @@ describe("ClaudeInterruptWatcher", () => {
     watcher.noteOutput("ws", "other", INTERRUPTED);
     expect(status()).toBe("running");
   });
+
+  test("the word in a tool's output after the key changes nothing", () => {
+    const { watcher, status } = harness();
+    watcher.noteInput("ws", "tab", "\x03");
+    watcher.noteOutput("ws", "tab", "  ⎿  test run Interrupted\r\nInterrupted system call\r\n");
+    expect(status()).toBe("running");
+  });
+
+  test("older Claude's \"Interrupted by user\" line counts", () => {
+    const { watcher, status } = harness();
+    watcher.noteInput("ws", "tab", "\x1b");
+    watcher.noteOutput("ws", "tab", "  ⎿  \x1b[31mInterrupted by user\x1b[39m");
+    expect(status()).toBe("idle");
+  });
 });
