@@ -460,12 +460,15 @@ app.whenReady().then(async () => {
   });
   disposeClaudeFeature = claudeSetup.dispose;
 
-  // The ports the programs in each workspace's terminals listen on.
+  // The ports the programs in each workspace's terminals listen on. Looking
+  // never connects a workspace: one that is not connected fails the look.
   portWatcher = new PortWatcher(
     agentPtyHost,
     async (workspaceId) => {
-      const channel = await workspaceManager.tryGetAgentChannel(workspaceId);
-      if (!channel) return [];
+      const channel = await workspaceManager.peekAgentChannel(workspaceId);
+      if (!channel) {
+        throw new Error(`${workspaceManager.getName(workspaceId) ?? workspaceId} is not connected`);
+      }
       const result = await channel.call("pty.listeningPorts", { workspaceId });
       return ListeningPortsResultSchema.parse(result).ports;
     },

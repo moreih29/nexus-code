@@ -639,6 +639,21 @@ export class WorkspaceManager {
   }
 
   /**
+   * The workspace's agent channel only while it is up: null for an SSH or
+   * WSL workspace that is not connected, which this never connects, so a
+   * background poll cannot dial a host the user left disconnected. A local
+   * workspace's agent is started as getAgentChannel does.
+   */
+  async peekAgentChannel(id: string): Promise<AgentChannel | null> {
+    const ctx = this.contexts.get(id);
+    if (!ctx) return null;
+    if (ctx.getMeta().location.kind === "local") return this.getAgentChannel(id);
+    const status = this.connectionStatuses.get(id);
+    if (status !== "connected" && status !== "unstable") return null;
+    return this.sshChannels.get(id) ?? null;
+  }
+
+  /**
    * Registers the PTY session closer called by `remove()` before the
    * workspace context is deleted. Wired from `main/index.ts` after both the
    * WorkspaceManager and the PTY host have been constructed — breaks the

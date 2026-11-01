@@ -102,6 +102,20 @@ describe("WSL workspace", () => {
     globalDb.close();
   });
 
+  test("peekAgentChannel gives the channel only once connected, and never connects", async () => {
+    const { manager, wsl, channel, globalDb } = makeManager();
+    const meta = manager.create({ location });
+
+    expect(await manager.peekAgentChannel(meta.id)).toBeNull();
+    expect(wsl.bootstrap).not.toHaveBeenCalled();
+
+    await manager.getAgentChannel(meta.id);
+    expect(await manager.peekAgentChannel(meta.id)).toBe(channel as never);
+    expect(wsl.bootstrap).toHaveBeenCalledTimes(1);
+    expect(await manager.peekAgentChannel("missing")).toBeNull();
+    globalDb.close();
+  });
+
   test("remembers the distribution's architecture, and gives terminals its Claude wrapper", async () => {
     const { manager, globalDb } = makeManager();
     const meta = manager.create({ location });
