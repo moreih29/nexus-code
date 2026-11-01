@@ -34,9 +34,10 @@ function windowsApp(
 
 test("a Windows path is read from the caller's directory, case aside", () => {
   const { ctx, workspace } = windowsApp("c:\\W\\App\\src");
+  // The editor names the file as the renderer does, from a root spelled C:/w/app.
   expect(workspaceFile(ctx, workspace, "login.ts")).toEqual({
     relPath: "src/login.ts",
-    filePath: "C:\\w\\app/src/login.ts",
+    filePath: "C:/w/app/src/login.ts",
   });
   expect(workspaceFile(ctx, workspace, "C:\\w\\app\\README.md").relPath).toBe("README.md");
 });
@@ -69,7 +70,7 @@ describe("a path from Git Bash", () => {
     const { ctx, workspace } = windowsApp("C:\\w\\app", gitBash);
     expect(workspaceFile(ctx, workspace, "/c/w/app/src/a.ts")).toEqual({
       relPath: "src/a.ts",
-      filePath: "C:\\w\\app/src/a.ts",
+      filePath: "C:/w/app/src/a.ts",
     });
     expect(absolutePath(ctx, workspace, "/c/w/app/tools")).toBe("C:\\w\\app\\tools");
   });

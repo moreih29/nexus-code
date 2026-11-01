@@ -2,7 +2,7 @@
 import type { CliProblem } from "../../../../shared/cli/ui";
 import { exactArgs } from "../args";
 import { CliError, mayChange, placementFor, resolveWorkspace, shortId } from "../context";
-import { splitLocation, workspaceFile } from "../paths";
+import { rendererRoot, splitLocation, workspaceFile } from "../paths";
 import { type CliCommand, output } from "../registry";
 import { BACKGROUND_FLAG, WORKSPACE_FLAG } from "./flags";
 
@@ -132,11 +132,9 @@ const problems: CliCommand = {
     const found = (
       await ctx.services.ui("problems.list", { workspaceId: workspace.id })
     ).problems.filter((p) => RANK[p.severity] <= worst);
-    const root = workspace.rootPath.replace(/[\\/]+$/, "");
+    const root = rendererRoot(workspace);
     const rel = (file: string) =>
-      file.startsWith(`${root}/`) || file.startsWith(`${root}\\`)
-        ? file.slice(root.length + 1)
-        : file;
+      file.startsWith(`${root}/`) ? file.slice(root.length + 1) : file;
     const lines = found.map((p) => {
       const from = [p.source, p.code].filter(Boolean).join(" ");
       return `${rel(p.filePath)}:${p.line}:${p.column}  ${p.severity.padEnd(7)}  ${p.message.replace(/\s+/g, " ")}${from ? `  (${from})` : ""}`;
