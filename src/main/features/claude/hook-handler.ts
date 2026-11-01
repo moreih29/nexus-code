@@ -22,6 +22,8 @@
 //   permission-request → broker.set(permissionPending) + (그 탭 안 보면) OS 알림 + respondHook (sync, native fallback)
 //   stop               → 그 탭 보면 idle 직행 / 아니면 completed + OS 알림 + respondHook
 //   session-end        → broker.clear + respondHook
+//
+// Turn hooks of a turn already over (by prompt_id, see turn-order.ts) are only answered.
 
 import { HookRequestSchema, PROMPT_MAX_CHARS } from "../../../shared/claude/status";
 import { createLogger } from "../../../shared/log/main";
@@ -30,6 +32,7 @@ import { broadcast } from "../../infra/ipc-router";
 import type { ActiveContextStore } from "./active-context";
 import { handlePermissionRequest } from "./permission";
 import type { ClaudeStatusBroker } from "./status";
+import { TurnOrder } from "./turn-order";
 
 const log = createLogger("claude-hook");
 
@@ -134,6 +137,22 @@ function extractToolName(payload: unknown): string | undefined {
   return typeof p.tool_name === "string" ? p.tool_name : undefined;
 }
 
+/** The id of the user prompt a hook belongs to; absent before the first prompt. */
+function extractPromptId(payload: unknown): string | undefined {
+  if (typeof payload !== "object" || payload === null) return undefined;
+  const id = (payload as Record<string, unknown>).prompt_id;
+  return typeof id === "string" && id !== "" ? id : undefined;
+}
+
+/** Hooks that belong to a turn, and so can arrive after it is over. */
+const TURN_HOOKS = new Set([
+  "user-prompt-submit",
+  "pre-tool-use",
+  "notification",
+  "permission-request",
+  "stop",
+]);
+
 // ---------------------------------------------------------------------------
 // OS 알림 발사 헬퍼
 // ---------------------------------------------------------------------------
@@ -213,7 +232,11 @@ function fireOsNotification(
 /**
  * 단일 "claude.hook" 이벤트 페이로드를 처리한다.
  */
-async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise<void> {
+async function handleHookEvent(
+  payload: unknown,
+  deps: HookHandlerDeps,
+  turns: TurnOrder,
+): Promise<void> {
   const parsed = HookRequestSchema.safeParse(payload);
   if (!parsed.success) return;
 
@@ -221,6 +244,21 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
   const hookPayload = parsed.data.payload;
 
   const { broker } = deps;
+
+  // A frame of a turn the session has moved past — a Stop or an idle
+  // Notification that lost the race to the next prompt — changes nothing and
+  // notifies no one: the tab is busy with the next turn. The hook is still
+  // answered, PermissionRequest as usual since Claude Code waits on it.
+  if (
+    TURN_HOOKS.has(subcommand) &&
+    turns.isStale(workspaceId, tabId, subcommand, extractPromptId(hookPayload))
+  ) {
+    log.info(`dropped ${subcommand} of a finished turn: workspace=${workspaceId} tab=${tabId}`);
+    const response =
+      subcommand === "permission-request" ? handlePermissionRequest() : { exitCode: 0 };
+    await respondHook(deps.channelProvider, workspaceId, hookId, response);
+    return;
+  }
 
   // 공통 — 사용자가 현재 이 탭을 보고 있는지.
   // 알림 발사가 필요한 모든 훅(Notification/PermissionRequest/Stop)이 동일 기준을 쓴다.
@@ -352,6 +390,7 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
 
     case "session-end": {
       // 세션 종료 — 항목 제거 후 즉시 응답(async hook).
+      turns.end(workspaceId, tabId);
       broker.clear(workspaceId, tabId);
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
       break;
@@ -396,8 +435,9 @@ async function respondHook(
  * 반환값은 구독 해제 함수다.
  */
 export function registerHookHandler(deps: HookHandlerDeps): () => void {
+  const turns = new TurnOrder();
   return deps.agentHost.on("claude.hook", (payload) => {
-    handleHookEvent(payload, deps).catch((err: unknown) => {
+    handleHookEvent(payload, deps, turns).catch((err: unknown) => {
       log.warn(`handleHookEvent error: ${(err as Error).message}`);
     });
   });
