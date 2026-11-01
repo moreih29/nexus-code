@@ -6,7 +6,7 @@
  * - message 변경만 있어도 broadcast 발사 검증.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, setSystemTime, test } from "bun:test";
 import { ClaudeStatusBroker } from "../../../../src/main/features/claude/status";
 
 function makeBroker() {
@@ -187,5 +187,41 @@ describe("ClaudeStatusBroker — onChange", () => {
       ["ws-1", "tab-2", "completed"],
       ["ws-1", "tab-2", null],
     ]);
+  });
+});
+
+describe("ClaudeStatusBroker — since and turn start", () => {
+  afterEach(() => {
+    setSystemTime();
+  });
+
+  test("since is when the status changed, not the message", () => {
+    const { broker } = makeBroker();
+    setSystemTime(new Date(1_000_000));
+    broker.set("ws-1", "tab-1", "needsInput", "Which DB?");
+    setSystemTime(new Date(1_005_000));
+    broker.set("ws-1", "tab-1", "needsInput", "Which DB, Postgres or SQLite?");
+    expect(broker.get("ws-1", "tab-1")?.since).toBe(1_000_000);
+    broker.set("ws-1", "tab-1", "idle");
+    expect(broker.get("ws-1", "tab-1")?.since).toBe(1_005_000);
+  });
+
+  test("a turn starts on going to running or on a prompt, not on each tool", () => {
+    const { broker } = makeBroker();
+    setSystemTime(new Date(2_000_000));
+    broker.set("ws-1", "tab-1", "idle");
+    expect(broker.get("ws-1", "tab-1")?.turnStartedAt).toBeUndefined();
+    setSystemTime(new Date(2_001_000));
+    broker.set("ws-1", "tab-1", "running", undefined, "add a test");
+    setSystemTime(new Date(2_002_000));
+    broker.set("ws-1", "tab-1", "running");
+    expect(broker.get("ws-1", "tab-1")?.turnStartedAt).toBe(2_001_000);
+    setSystemTime(new Date(2_003_000));
+    broker.set("ws-1", "tab-1", "running", undefined, "and run it");
+    expect(broker.get("ws-1", "tab-1")?.turnStartedAt).toBe(2_003_000);
+    setSystemTime(new Date(2_004_000));
+    broker.set("ws-1", "tab-1", "completed", "Done.");
+    broker.set("ws-1", "tab-1", "idle");
+    expect(broker.get("ws-1", "tab-1")?.turnStartedAt).toBe(2_003_000);
   });
 });
