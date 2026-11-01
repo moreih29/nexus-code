@@ -17,22 +17,30 @@
 //   session-start      → broker.set(idle) + respondHook — 입력 대기, 글리프 없음 (not after compaction)
 //   user-prompt-submit → broker.set(running) + respondHook
 //   pre-tool-use       → broker.set(running) + respondHook
+//                        (a subagent's tool leaves the session's state; see permission-dialogs.ts)
 //   notification       → broker.set(needsInput) + (그 탭 안 보면) OS 알림 + respondHook
 //                        (a permission dialog's notification keeps or sets permissionPending;
 //                        one that only tells something, as a login or a push, only notifies)
 //   permission-request → broker.set(permissionPending) + (그 탭 안 보면) OS 알림 + respondHook (sync, native fallback)
 //   post-tool-use      → the tool waiting on the permission ran: permissionPending → running + respondHook
+//   post-tool-use-failure → as post-tool-use, for a tool that failed as it ran
+//   subagent-stop      → the subagent's permission dialogs are over + respondHook
 //   stop               → 그 탭 보면 idle 직행 / 아니면 completed + OS 알림 + respondHook
 //   session-end        → broker.clear + respondHook
 //
 // Turn hooks of a turn already over (by prompt_id, see turn-order.ts) are only answered.
 
-import { HookRequestSchema, PROMPT_MAX_CHARS } from "../../../shared/claude/status";
+import {
+  type ClaudeStatus,
+  HookRequestSchema,
+  PROMPT_MAX_CHARS,
+} from "../../../shared/claude/status";
 import { createLogger } from "../../../shared/log/main";
 import { tryGetMainT } from "../../i18n";
 import { broadcast } from "../../infra/ipc-router";
 import type { ActiveContextStore } from "./active-context";
 import { handlePermissionRequest } from "./permission";
+import { MAIN_AGENT, PermissionDialogs } from "./permission-dialogs";
 import type { ClaudeStatusBroker } from "./status";
 import { TurnOrder } from "./turn-order";
 
@@ -206,14 +214,12 @@ function toolCall(payload: unknown): string | undefined {
   return `${name}\0${JSON.stringify((payload as Record<string, unknown>).tool_input ?? null)}`;
 }
 
-/**
- * The tool call each terminal's permission dialog is for, keyed by workspace
- * and tab: when it has run, the user allowed it and the turn goes on.
- */
-const toolCallsAwaitingPermission = new Map<string, string>();
-
-/** Hooks after which no permission dialog of the turn before is still open. */
-const TURN_BOUNDARIES = new Set(["session-start", "user-prompt-submit", "stop", "session-end"]);
+/** The subagent a hook ran in, or MAIN_AGENT for the session's own turn. */
+function extractAgentId(payload: unknown): string {
+  if (typeof payload !== "object" || payload === null) return MAIN_AGENT;
+  const id = (payload as Record<string, unknown>).agent_id;
+  return typeof id === "string" ? id : MAIN_AGENT;
+}
 
 /**
  * Claude Code PermissionRequest hook payload에서 tool_name을 추출한다.
@@ -323,6 +329,7 @@ async function handleHookEvent(
   payload: unknown,
   deps: HookHandlerDeps,
   turns: TurnOrder,
+  dialogs: PermissionDialogs,
 ): Promise<void> {
   const parsed = HookRequestSchema.safeParse(payload);
   if (!parsed.success) return;
@@ -358,8 +365,44 @@ async function handleHookEvent(
     deps.workspaceManager.getName(workspaceId) ??
     (t ? t("common:claudeNotification.terminalFallback") : "Terminal");
 
-  // A turn's start or end, or the session's, leaves no permission dialog open.
-  if (TURN_BOUNDARIES.has(subcommand)) toolCallsAwaitingPermission.delete(`${workspaceId}:${tabId}`);
+  const key = `${workspaceId}:${tabId}`;
+  const agent = extractAgentId(hookPayload);
+  // The dialogs count while the session shows one: an interrupt may have
+  // ended the turn they were in.
+  if (broker.get(workspaceId, tabId)?.status !== "permissionPending") dialogs.clear(key);
+
+  /**
+   * Sets the session's own state. While a permission dialog is open, the
+   * session still waits on it: the state is kept to show once it closes, and
+   * only a new prompt is shown now.
+   */
+  const setState = (status: ClaudeStatus, message?: string, prompt?: string | null) => {
+    if (!dialogs.isOpen(key)) {
+      dialogs.clear(key);
+      broker.set(workspaceId, tabId, status, message, prompt);
+      return;
+    }
+    dialogs.setUnder(key, { status, message });
+    if (prompt !== undefined) {
+      const notice = broker.get(workspaceId, tabId)?.notice;
+      broker.set(workspaceId, tabId, "permissionPending", notice, prompt);
+    }
+  };
+
+  /** A dialog closed: once none is open, the session shows its state again. */
+  const afterClose = () => {
+    const under = dialogs.takeUnder(key);
+    if (!under) return;
+    // On the tab the user looks at, a turn that ended or a question asked
+    // while the dialog was up is seen, as when it comes.
+    if (isViewingThisTab && under.status === "completed") {
+      broker.set(workspaceId, tabId, "idle", under.message);
+    } else if (isViewingThisTab && under.status === "needsInput") {
+      broker.set(workspaceId, tabId, "idle");
+    } else {
+      broker.set(workspaceId, tabId, under.status, under.message);
+    }
+  };
 
   switch (subcommand) {
     case "session-start": {
@@ -371,6 +414,7 @@ async function handleHookEvent(
       // Compaction starts no session: it can run in the middle of a turn,
       // which goes on after it with the same prompt.
       if (sessionStartSource(hookPayload) !== "compact") {
+        dialogs.clear(key);
         broker.set(workspaceId, tabId, "idle", undefined, null);
       }
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
@@ -382,14 +426,24 @@ async function handleHookEvent(
       // (이전에 있던 notificationClick broadcast는 yank back 버그 원인이라 제거.
       // attention indicator 해제는 broker.set의 status 변경이 처리한다.)
       // 프롬프트는 세션 보기가 "무엇을 하고 있는지" 보여주도록 함께 둔다.
-      broker.set(workspaceId, tabId, "running", undefined, extractPrompt(hookPayload));
+      // A new turn: the session's own dialogs are over, a subagent's may not be.
+      dialogs.closeAgent(key, MAIN_AGENT);
+      setState("running", undefined, extractPrompt(hookPayload));
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
       break;
     }
 
     case "pre-tool-use": {
       // 도구 실행 직전 — running 전환 후 즉시 응답(async hook).
-      broker.set(workspaceId, tabId, "running");
+      // An agent that starts another tool is past its dialogs for other calls,
+      // answered or denied. Its dialog for this call may still be open: this
+      // hook runs async, and can come after the PermissionRequest it led to.
+      const closed = dialogs.closeOthers(key, agent, toolCall(hookPayload));
+      // A subagent works beside the session's turn, and on after it: the
+      // session's own state is told by its own hooks and the turn Claude Code
+      // starts once the subagent is done.
+      if (agent === MAIN_AGENT) setState("running");
+      else if (closed) afterClose();
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
       break;
     }
@@ -401,7 +455,11 @@ async function handleHookEvent(
       if (isPermissionNotification(hookPayload)) {
         // The dialog's own notification: PermissionRequest usually came first
         // and already set the state and notified, so it is kept as it is.
-        if (broker.get(workspaceId, tabId)?.status !== "permissionPending") {
+        const current = broker.get(workspaceId, tabId)?.status;
+        if (current !== "permissionPending") {
+          // Whose dialog it is is not told; the PermissionRequest that comes
+          // with it, if late, takes its place.
+          dialogs.open(key, MAIN_AGENT, undefined, { status: current ?? "running" });
           broker.set(workspaceId, tabId, "permissionPending", message);
           if (!isViewingThisTab) {
             const title = `[${workspaceName}] ${t ? t("common:claudeNotification.permissionRequired") : "Permission Required"}`;
@@ -426,6 +484,8 @@ async function handleHookEvent(
       // 사용자가 그 탭을 보고 있으면 Stop처럼 idle로 둔다 — 이미 보고 있으니
       // 글리프와 inbox 항목이 남을 이유가 없다 (보지 않을 때 생긴 needsInput은
       // 탭을 보면 markSeen이 idle로 돌린다).
+      // The dialog on the screen now, if any, is not a permission's.
+      dialogs.clear(key);
       if (isViewingThisTab) {
         broker.set(workspaceId, tabId, "idle");
       } else {
@@ -450,9 +510,11 @@ async function handleHookEvent(
         : t
           ? t("common:claudeNotification.needsPermission")
           : "Claude needs permission";
+      const current = broker.get(workspaceId, tabId)?.status;
+      dialogs.open(key, agent, toolCall(hookPayload), {
+        status: current === undefined || current === "permissionPending" ? "running" : current,
+      });
       broker.set(workspaceId, tabId, "permissionPending", message);
-      const call = toolCall(hookPayload);
-      if (call !== undefined) toolCallsAwaitingPermission.set(`${workspaceId}:${tabId}`, call);
 
       if (!isViewingThisTab) {
         const title = `[${workspaceName}] ${t ? t("common:claudeNotification.permissionRequired") : "Permission Required"}`;
@@ -481,10 +543,12 @@ async function handleHookEvent(
       // and stays once the user has seen it.
       const answer = assistantText ?? "";
 
+      // The turn's dialogs are over; a subagent's may still be open.
+      dialogs.closeAgent(key, MAIN_AGENT);
       if (isViewingThisTab) {
-        broker.set(workspaceId, tabId, "idle", answer);
+        setState("idle", answer);
       } else {
-        broker.set(workspaceId, tabId, "completed", answer);
+        setState("completed", answer);
         const title = `[${workspaceName}] Claude`;
         // OS 알림은 짧은 본문이 적합 — 응답 미리보기가 있으면 그것을, 없으면
         // 정적 텍스트를 보낸다. 사이드바 카드는 카드 자체 컷(50자)으로 다시 자른다.
@@ -500,20 +564,20 @@ async function handleHookEvent(
       break;
     }
 
-    case "post-tool-use": {
-      // A tool ran. Once the user allows a tool, no other hook runs until it ends, so its
-      // end is what takes the dialog's state away. Only that state moves: a
-      // late async hook must not undo the turn's Stop, and a tool that ran
-      // beside the one waiting must not clear the wait.
-      const key = `${workspaceId}:${tabId}`;
-      const awaited = toolCallsAwaitingPermission.get(key);
-      if (
-        broker.get(workspaceId, tabId)?.status === "permissionPending" &&
-        (awaited === undefined || awaited === toolCall(hookPayload))
-      ) {
-        toolCallsAwaitingPermission.delete(key);
-        broker.set(workspaceId, tabId, "running");
-      }
+    case "post-tool-use":
+    case "post-tool-use-failure": {
+      // A tool ran, or failed as it ran. Once the user allows a tool, no other
+      // hook of its agent runs until it ends, so its end is what closes the
+      // dialog. Only that dialog closes: a tool run beside it does not, and a
+      // late hook leaves the turn's end as it is.
+      if (dialogs.closeCall(key, agent, toolCall(hookPayload))) afterClose();
+      await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
+      break;
+    }
+
+    case "subagent-stop": {
+      // The subagent ended: no dialog of it is open, answered or not.
+      if (dialogs.closeAgent(key, agent)) afterClose();
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
       break;
     }
@@ -521,6 +585,7 @@ async function handleHookEvent(
     case "session-end": {
       // 세션 종료 — 항목 제거 후 즉시 응답(async hook).
       turns.end(workspaceId, tabId);
+      dialogs.clear(key);
       broker.clear(workspaceId, tabId);
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
       break;
@@ -566,8 +631,9 @@ async function respondHook(
  */
 export function registerHookHandler(deps: HookHandlerDeps): () => void {
   const turns = new TurnOrder();
+  const dialogs = new PermissionDialogs();
   return deps.agentHost.on("claude.hook", (payload) => {
-    handleHookEvent(payload, deps, turns).catch((err: unknown) => {
+    handleHookEvent(payload, deps, turns, dialogs).catch((err: unknown) => {
       log.warn(`handleHookEvent error: ${(err as Error).message}`);
     });
   });

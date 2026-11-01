@@ -565,10 +565,159 @@ describe("hook-handler — subcommand 상태 전이", () => {
   });
 });
 
+describe("hook-handler — subagents and permission dialogs", () => {
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  const bash = { tool_name: "Bash", tool_input: { command: "touch made.txt" } };
+  const read = { tool_name: "Read", tool_input: { file_path: "/a" } };
+  const status = (broker: Harness["broker"]) => broker.get("ws-test", "tab-test")?.status;
+
+  test("a subagent's tool after the turn ended leaves the turn's end", async () => {
+    const { broker, emit } = makeHarness(false /* unfocused */);
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    emit({ ...makeHookPayload("stop"), assistantText: "Started an agent." });
+    emit(makeHookPayload("pre-tool-use", { ...read, agent_id: "a1" }));
+    emit(makeHookPayload("post-tool-use", { ...read, agent_id: "a1" }));
+    await tick();
+    expect(status(broker)).toBe("completed");
+    expect(broker.get("ws-test", "tab-test")?.message).toBe("Started an agent.");
+  });
+
+  // Claude Code 2.1.316: a background agent's dialog opens after the turn's
+  // Stop, and its tool's PostToolUse comes once the user allows it.
+  test("a background agent's dialog after the turn ended waits on the user, then gives the end back", async () => {
+    const { broker, emit } = makeHarness(false /* unfocused */);
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    emit({ ...makeHookPayload("stop"), assistantText: "Started an agent." });
+    emit(makeHookPayload("permission-request", { ...bash, agent_id: "a1" }));
+    await tick();
+    expect(status(broker)).toBe("permissionPending");
+    emit(makeHookPayload("notification", { notification_type: "permission_prompt" }));
+    emit(makeHookPayload("post-tool-use", { ...bash, agent_id: "a1" }));
+    await tick();
+    expect(status(broker)).toBe("completed");
+    expect(broker.get("ws-test", "tab-test")?.message).toBe("Started an agent.");
+  });
+
+  test("on the tab the user looks at, the turn's end comes back as seen", async () => {
+    const { broker, activeContext, emit } = makeHarness(true /* focused */);
+    activeContext.set("ws-test", "tab-test");
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    activeContext.set("ws-test", "other-tab");
+    emit({ ...makeHookPayload("stop"), assistantText: "Started an agent." });
+    emit(makeHookPayload("permission-request", { ...bash, agent_id: "a1" }));
+    await tick();
+    activeContext.set("ws-test", "tab-test");
+    emit(makeHookPayload("post-tool-use", { ...bash, agent_id: "a1" }));
+    await tick();
+    expect(status(broker)).toBe("idle");
+    expect(broker.get("ws-test", "tab-test")?.message).toBe("Started an agent.");
+  });
+
+  test("a tool another agent runs does not hide the dialog", async () => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    emit(makeHookPayload("permission-request", bash));
+    emit(makeHookPayload("pre-tool-use", { ...read, agent_id: "a1" }));
+    emit(makeHookPayload("post-tool-use", { ...read, agent_id: "a1" }));
+    await tick();
+    expect(status(broker)).toBe("permissionPending");
+    emit(makeHookPayload("post-tool-use", bash));
+    await tick();
+    expect(status(broker)).toBe("running");
+  });
+
+  test("the session's tool does not hide a subagent's dialog", async () => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    emit(makeHookPayload("permission-request", { ...bash, agent_id: "a1" }));
+    emit(makeHookPayload("pre-tool-use", read));
+    emit(makeHookPayload("post-tool-use", read));
+    await tick();
+    expect(status(broker)).toBe("permissionPending");
+    emit(makeHookPayload("post-tool-use", { ...bash, agent_id: "a1" }));
+    await tick();
+    expect(status(broker)).toBe("running");
+  });
+
+  test("the turn's Stop does not hide a subagent's dialog, and shows once it closes", async () => {
+    const { broker, emit } = makeHarness(false /* unfocused */);
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    emit(makeHookPayload("permission-request", { ...bash, agent_id: "a1" }));
+    emit({ ...makeHookPayload("stop"), assistantText: "Done." });
+    await tick();
+    expect(status(broker)).toBe("permissionPending");
+    // Denied: the agent ends without running the tool.
+    emit(makeHookPayload("subagent-stop", { agent_id: "a1" }));
+    await tick();
+    expect(status(broker)).toBe("completed");
+    expect(broker.get("ws-test", "tab-test")?.message).toBe("Done.");
+  });
+
+  test("a subagent that goes on to another tool is past its dialog", async () => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    emit(makeHookPayload("permission-request", { ...bash, agent_id: "a1" }));
+    emit(makeHookPayload("pre-tool-use", { ...read, agent_id: "a1" }));
+    await tick();
+    expect(status(broker)).toBe("running");
+  });
+
+  test("a late PreToolUse of the call the dialog is for keeps it", async () => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    emit(makeHookPayload("permission-request", bash));
+    emit(makeHookPayload("pre-tool-use", bash));
+    await tick();
+    expect(status(broker)).toBe("permissionPending");
+    // Denied with what to do instead: the turn goes on to another tool.
+    emit(makeHookPayload("pre-tool-use", read));
+    await tick();
+    expect(status(broker)).toBe("running");
+  });
+
+  test("an allowed tool that fails ends the wait", async () => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    emit(makeHookPayload("permission-request", bash));
+    emit(makeHookPayload("post-tool-use-failure", { ...bash, error: "exit 1" }));
+    await tick();
+    expect(status(broker)).toBe("running");
+  });
+
+  test("a turn Claude Code starts while a subagent's dialog is open keeps the dialog", async () => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    emit(makeHookPayload("stop"));
+    emit(makeHookPayload("permission-request", { ...bash, agent_id: "a1" }));
+    emit(makeHookPayload("user-prompt-submit", { prompt: "and test it" }));
+    await tick();
+    expect(status(broker)).toBe("permissionPending");
+    expect(broker.get("ws-test", "tab-test")?.prompt).toBe("and test it");
+    emit(makeHookPayload("post-tool-use", { ...bash, agent_id: "a1" }));
+    await tick();
+    expect(status(broker)).toBe("running");
+  });
+
+  test("a dialog the turn's interrupt closed is not waited on", async () => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    emit(makeHookPayload("permission-request", bash));
+    await tick();
+    // The interrupt watcher saw the turn end.
+    broker.set("ws-test", "tab-test", "idle");
+    emit(makeHookPayload("user-prompt-submit", { prompt: "again" }));
+    emit(makeHookPayload("pre-tool-use", bash));
+    await tick();
+    expect(status(broker)).toBe("running");
+  });
+});
+
 describe("hook-handler — respondHook 호출", () => {
   test.each([
     ["pre-tool-use", undefined],
     ["post-tool-use", undefined],
+    ["post-tool-use-failure", undefined],
+    ["subagent-stop", { agent_id: "a1" }],
     ["permission-request", { tool_name: "Bash" }],
     ["session-start", undefined],
     ["user-prompt-submit", undefined],
