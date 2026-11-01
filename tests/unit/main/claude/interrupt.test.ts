@@ -31,6 +31,29 @@ describe("ClaudeInterruptWatcher", () => {
     expect(broker.get("ws", "tab")?.prompt).toBe("fix the build");
   });
 
+  test("Claude's idle title after the key → idle, as when it puts the prompt back", () => {
+    const { watcher, status } = harness();
+    watcher.noteInput("ws", "tab", "\x1b");
+    watcher.noteOutput("ws", "tab", "\x1b]0;✳ Fix the build\x07");
+    expect(status()).toBe("idle");
+  });
+
+  test("a running title after the key changes nothing", () => {
+    const { watcher, status } = harness();
+    watcher.noteInput("ws", "tab", "\x1b");
+    watcher.noteOutput("ws", "tab", "\x1b]0;◐ Fix the build\x07");
+    expect(status()).toBe("running");
+  });
+
+  test("finds the sign split between two chunks", () => {
+    const { watcher, status } = harness();
+    watcher.noteInput("ws", "tab", "\x03");
+    watcher.noteOutput("ws", "tab", "  ⎿  Interr");
+    expect(status()).toBe("running");
+    watcher.noteOutput("ws", "tab", "upted · What should Claude do instead?");
+    expect(status()).toBe("idle");
+  });
+
   test("ends a turn interrupted at a permission dialog", () => {
     const { watcher, status } = harness("permissionPending");
     watcher.noteInput("ws", "tab", "\x1b");
