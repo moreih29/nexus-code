@@ -1,13 +1,14 @@
 /**
- * nexus browser snapshot/click/fill/type/press/screenshot/eval/console/wait:
- * reading and driving the page in a browser tab.
+ * nexus browser snapshot/click/fill/type/press/screenshot/eval/console/wait/
+ * pick: reading and driving the page in a browser tab.
  */
 import type { CliTabInfo } from "../../../../shared/cli/ui";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
 import type { BrowserWaitCondition } from "../browser/driver";
 import { BROWSER_KEYS_HELP } from "../browser/keys";
-import { type CliContext, mayChange, resolveWorkspace, shortId } from "../context";
+import { cancelledText, cleanPicked, formatPick } from "../browser/pick";
+import { type CliContext, CliError, mayChange, resolveWorkspace, shortId } from "../context";
 import { callerPath } from "../paths";
 import { type CliCommand, output } from "../registry";
 import { resolveBrowser, TAB_FLAG } from "./browser";
@@ -18,6 +19,8 @@ const PAGE_FLAGS = { tab: TAB_FLAG, workspace: WORKSPACE_FLAG } as const;
 const DEFAULT_SNAPSHOT_LINES = 400;
 const DEFAULT_BROWSER_WAIT_MS = 30_000;
 const MAX_BROWSER_WAIT_MS = 10 * 60_000;
+/** A pick waits on a person, so longer than a wait on the page. */
+const DEFAULT_PICK_WAIT_MS = 2 * 60_000;
 
 interface Page {
   readonly workspace: WorkspaceMeta;
@@ -352,6 +355,58 @@ const browserWait: CliCommand = {
   },
 };
 
+const browserPick: CliCommand = {
+  path: ["browser", "pick"],
+  summary: "Wait for the user to click an element in a browser tab, and describe it",
+  details:
+    "Shows the tab and highlights what is under the mouse; the user's click picks that element\n" +
+    "instead of clicking it, and Esc cancels. Prints its role and name, a ref that browser click,\n" +
+    "fill and type take, a CSS selector (none inside a shadow root), where it is, its text and\n" +
+    "HTML, and saves a PNG of it in the temp directory. Exits 124 when no element is picked in\n" +
+    "time. While it waits, click, fill, type and press on that tab are refused.",
+  flags: {
+    timeout: {
+      type: "string",
+      value: "DURATION",
+      description: "Give up after DURATION (default 2m, at most 10m)",
+    },
+    ...PAGE_FLAGS,
+  },
+  async run(ctx, { positionals, flags }) {
+    exactArgs(positionals);
+    const timeoutMs =
+      flags.timeout === undefined
+        ? DEFAULT_PICK_WAIT_MS
+        : parseDuration(flags.timeout as string, "timeout");
+    if (timeoutMs > MAX_BROWSER_WAIT_MS) throw new CliUsageError("--timeout is at most 10m");
+    const { workspace, tab } = await pageOf(ctx, flags, false);
+    await ctx.services.ui("tab.show", { workspaceId: workspace.id, tabId: tab.id });
+    const result = await ctx.services.browser.pick(tab.id, {
+      timeoutMs,
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
+    });
+    const ids = { tabId: tab.id, workspaceId: workspace.id };
+    if ("cancelled" in result) {
+      if (result.cancelled !== "timeout") throw new CliError(cancelledText(result.cancelled));
+      return output("No element was picked in time.", { ...ids, picked: null }, { exitCode: 124 });
+    }
+    const { png, clip: _clip, ...el } = cleanPicked(result.picked);
+    const file =
+      png === undefined
+        ? undefined
+        : callerPath(
+            ctx,
+            `nexus-pick-${shortId(tab.id)}-${ctx.services.clock.now()}.png`,
+            ctx.invocation.tempDir,
+          );
+    return output(
+      formatPick(result.picked, file),
+      { ...ids, picked: { ...el, screenshot: file ?? null } },
+      png === undefined || file === undefined ? {} : { files: [{ path: file, base64: png }] },
+    );
+  },
+};
+
 export const browserControlCommands: CliCommand[] = [
   browserSnapshot,
   browserClick,
@@ -362,4 +417,5 @@ export const browserControlCommands: CliCommand[] = [
   browserEval,
   browserConsole,
   browserWait,
+  browserPick,
 ];

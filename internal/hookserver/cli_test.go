@@ -98,6 +98,44 @@ func TestCLIRequestWithoutAppFailsAtOnce(t *testing.T) {
 	}
 }
 
+// A client that goes before main answers, as one stopped with Ctrl-C, is
+// told to main as a cli.cancel event for its request; main's late answer
+// then has nowhere to go.
+func TestCLIClientGoneIsToldToMain(t *testing.T) {
+	events := make(chan struct {
+		name    string
+		payload any
+	}, 2)
+	srv := newTestServer(t, func(name string, payload any) error {
+		events <- struct {
+			name    string
+			payload any
+		}{name, payload}
+		return nil
+	})
+
+	conn := dialAndSendRequest(t, srv.SocketPath(), cliRequest(srv.Token()))
+	first := <-events
+	requestID := first.payload.(CLIEventPayload).RequestID
+	conn.Close()
+
+	select {
+	case got := <-events:
+		cancel, ok := got.payload.(CLICancelPayload)
+		if got.name != "cli.cancel" || !ok {
+			t.Fatalf("event %q %+v", got.name, got.payload)
+		}
+		if cancel.RequestID != requestID || cancel.WorkspaceID != "ws-1" {
+			t.Fatalf("cancel = %+v", cancel)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no cli.cancel after the client went")
+	}
+	if err := srv.RespondCLI(requestID, json.RawMessage(`{}`)); err == nil {
+		t.Fatal("an answer to a cancelled request was taken")
+	}
+}
+
 // A request main never answers is answered with an error at the deadline.
 func TestCLIRequestTimesOut(t *testing.T) {
 	srv := newTestServer(t, func(string, any) error { return nil })

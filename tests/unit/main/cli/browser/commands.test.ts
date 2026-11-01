@@ -1,8 +1,8 @@
 /**
  * nexus browser snapshot, click, fill, type, press, screenshot, eval,
- * console and wait, against a fake driver: which tab they act on, what they
- * print, where screenshots go, and that only the ones changing a page ask
- * leave for another workspace.
+ * console, wait and pick, against a fake driver: which tab they act on,
+ * what they print, where screenshots go, and that only the ones changing a
+ * page ask leave for another workspace.
  */
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../../src/main/features/cli/commands";
@@ -14,6 +14,7 @@ import {
   contextFor,
   type FakeApp,
   fakeApp,
+  PICKED,
   SHELL_TAB,
 } from "../fake-services";
 
@@ -157,5 +158,89 @@ describe("driving a page", () => {
     expect(app.asked.map((r) => r.change)).toEqual([
       { kind: "browserControl", detail: "API docs" },
     ]);
+  });
+});
+
+describe("picking an element", () => {
+  test("pick shows the tab, prints the element and saves its picture in the temp directory", async () => {
+    const app = fakeApp();
+    app.time.now = 1_000;
+    const result = await nexus(app, ["browser", "pick"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe(
+      "[element] http://localhost:5173/login\n" +
+        '  button "Sign in" (ref e7)\n' +
+        "  selector: #login > button.primary\n" +
+        "  box: 120x32 at (412, 388)\n" +
+        '  html: <button class="primary" type="submit">Sign in</button>\n' +
+        "  screenshot: /tmp/nexus-pick-aaaaaaaa-1000.png\n",
+    );
+    expect(result.files).toEqual([{ path: "/tmp/nexus-pick-aaaaaaaa-1000.png", base64: "cG5n" }]);
+    expect(app.uiCalls.filter((c) => c.op === "tab.show").map((c) => c.args)).toEqual([
+      { workspaceId: APP, tabId: BROWSER_TAB },
+    ]);
+    expect(app.browser.calls).toEqual([
+      { op: "pick", tabId: BROWSER_TAB, args: [{ timeoutMs: 120_000 }] },
+    ]);
+  });
+
+  test("--json gives the element without its picture's bytes", async () => {
+    const app = fakeApp();
+    app.time.now = 1_000;
+    const data = JSON.parse((await nexus(app, ["browser", "pick", "--json"])).stdout);
+    expect(data.picked).toMatchObject({
+      ref: "e7",
+      role: "button",
+      selector: "#login > button.primary",
+      box: { x: 412, y: 388, width: 120, height: 32 },
+      screenshot: "/tmp/nexus-pick-aaaaaaaa-1000.png",
+    });
+    expect(data.picked.png).toBeUndefined();
+    expect(data.picked.clip).toBeUndefined();
+  });
+
+  test("a pick without a picture prints no screenshot line", async () => {
+    const app = fakeApp();
+    const { png: _png, ...picked } = PICKED;
+    app.browser.pick = { picked };
+    const result = await nexus(app, ["browser", "pick"]);
+    expect(result.stdout).not.toContain("screenshot:");
+    expect(result.files).toBeUndefined();
+  });
+
+  test("a pick that runs out exits 124; one the user cancels fails and says why", async () => {
+    const app = fakeApp();
+    app.browser.pick = { cancelled: "timeout" };
+    const timedOut = await nexus(app, ["browser", "pick", "--timeout", "30s"]);
+    expect(timedOut.exitCode).toBe(124);
+    expect(timedOut.stdout).toBe("No element was picked in time.\n");
+    expect(app.browser.calls.at(-1)?.args).toEqual([{ timeoutMs: 30_000 }]);
+    app.browser.pick = { cancelled: "escape" };
+    const cancelled = await nexus(app, ["browser", "pick"]);
+    expect(cancelled.exitCode).toBe(1);
+    expect(cancelled.stderr).toContain("the user cancelled the pick with Esc");
+    expect((await nexus(app, ["browser", "pick", "--timeout", "11m"])).exitCode).toBe(2);
+  });
+
+  test("the pick stops with the command: it gets the command's signal", async () => {
+    const app = fakeApp();
+    const controller = new AbortController();
+    await runCli(CLI_COMMANDS, { ...contextFor(app, ["browser", "pick"]), signal: controller.signal });
+    expect(app.browser.calls.at(-1)?.args).toEqual([
+      { timeoutMs: 120_000, signal: controller.signal },
+    ]);
+  });
+
+  test("picking in another workspace's tab does not ask", async () => {
+    const app = fakeApp();
+    app.tabs[API]?.push({
+      id: "bbbbbbbb-0000-4000-8000-000000000001",
+      type: "browser",
+      title: "API docs",
+      shown: true,
+      url: "http://localhost:8080/docs",
+    } as never);
+    expect((await nexus(app, ["browser", "pick", "--workspace", "api"])).exitCode).toBe(0);
+    expect(app.asked).toEqual([]);
   });
 });

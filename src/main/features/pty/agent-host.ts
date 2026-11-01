@@ -306,12 +306,20 @@ class AgentPtyHostHandle implements PtyHostHandle {
       }
       this.emit("cli.request", payload);
     });
+    const offCliCancel = channel.on("cli.cancel", (payload) => {
+      const claimed = (payload as { workspaceId?: unknown } | null)?.workspaceId;
+      if (claimed !== workspaceId) {
+        log.warn(`Dropped cli.cancel for workspace ${String(claimed)} from ${workspaceId}'s agent`);
+        return;
+      }
+      this.emit("cli.cancel", payload);
+    });
     const offLifecycle = channel.onLifecycle((event) => {
       this.handleLifecycle(workspaceId, event);
     });
     this.subscriptions.set(workspaceId, {
       channel,
-      disposers: [offData, offExit, offClaudeHook, offCliRequest, offLifecycle],
+      disposers: [offData, offExit, offClaudeHook, offCliRequest, offCliCancel, offLifecycle],
     });
   }
 

@@ -26,6 +26,8 @@ const agentContext: CliCommand = {
       "fill e3 TEXT, press Enter, screenshot, console and eval. The workbench can be arranged",
       "too: nexus layout show/split/resize, tab move/rename/pin, panel show/hide, reveal,",
       "and nexus problems lists the language servers' errors in open files.",
+      "When the user means an element on a page, nexus browser pick has them click it and",
+      "prints its ref and selector.",
       "Run `nexus help` for every command.",
     ].join("\n");
     return output(note, { note });

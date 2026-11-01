@@ -11,6 +11,7 @@ import {
 } from "../../../../src/main/features/cli/consent";
 import type { ConsoleEntry } from "../../../../src/main/features/cli/browser/console-log";
 import type { BrowserDriver } from "../../../../src/main/features/cli/browser/driver";
+import type { PickedElement, PickResult } from "../../../../src/main/features/cli/browser/pick";
 import type { CliContext, CliServices } from "../../../../src/main/features/cli/context";
 import { StartedAgents } from "../../../../src/main/features/cli/started-agents";
 import { WaitRegistry } from "../../../../src/main/features/cli/waits";
@@ -161,6 +162,8 @@ export interface FakeBrowser {
   value: unknown;
   /** Whether waitFor finds its condition. */
   met: boolean;
+  /** What pick gives. */
+  pick: PickResult;
 }
 
 function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
@@ -210,8 +213,29 @@ function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
       record("settle", tabId);
       return page;
     },
+    pick: async (tabId, options) => {
+      record("pick", tabId, options);
+      return state.pick;
+    },
   };
 }
+
+/** The element a pick gives unless a test says otherwise. */
+export const PICKED: PickedElement = {
+  url: "http://localhost:5173/login",
+  title: "Vite App",
+  tag: "button",
+  role: "button",
+  name: "Sign in",
+  ref: "e7",
+  selector: "#login > button.primary",
+  inShadow: false,
+  text: "Sign in",
+  html: '<button class="primary" type="submit">Sign in</button>',
+  box: { x: 412, y: 388, width: 120, height: 32 },
+  clip: { x: 404, y: 380, width: 136, height: 48 },
+  png: "cG5n",
+};
 
 export function fakeApp(now = Date.now()): FakeApp {
   const uiCalls: FakeApp["uiCalls"] = [];
@@ -238,7 +262,13 @@ export function fakeApp(now = Date.now()): FakeApp {
   const answers: CliConsentAnswer[] = [];
   const asked: ChangeRequest[] = [];
   const time: FakeApp["time"] = { now };
-  const browser: FakeBrowser = { calls: [], console: [], value: undefined, met: true };
+  const browser: FakeBrowser = {
+    calls: [],
+    console: [],
+    value: undefined,
+    met: true,
+    pick: { picked: PICKED },
+  };
   const layouts: FakeApp["layouts"] = { ...LAYOUTS };
   const panels: CliPanels = {
     sidebar: { visible: true, width: 240 },
