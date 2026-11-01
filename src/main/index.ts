@@ -505,6 +505,7 @@ app.whenReady().then(async () => {
       win.focus();
     },
     broadcast: forwardBroadcast,
+    ports: portWatcher,
   }).dispose;
 
   // hookserver 접속 정보는 pull 기반으로 workspaceManager.getHookInfo()에서 조회한다.

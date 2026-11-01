@@ -115,6 +115,25 @@ export class PortWatcher {
     return entries;
   }
 
+  /**
+   * Looks at the workspace now, for a command that needs its ports as they
+   * are rather than as the last look saw them, and shows what it finds
+   * unless a newer look's answer is shown by then. A failed look throws,
+   * leaving the ports shown as they were.
+   */
+  async refresh(workspaceId: string): Promise<readonly ListeningPort[]> {
+    const watch = this.watch(workspaceId);
+    try {
+      return await this.ask(workspaceId, watch);
+    } finally {
+      if (!this.disposed && this.watches.get(workspaceId) === watch) {
+        // Keep looking, for a server that stops.
+        if (watch.ports.length > 0) this.schedule(workspaceId, watch, this.timing.portsPollMs);
+        this.retireIfDone(workspaceId, watch);
+      }
+    }
+  }
+
   dispose(): void {
     this.disposed = true;
     for (const dispose of this.disposers.splice(0)) dispose();

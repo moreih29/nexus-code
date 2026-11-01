@@ -1,5 +1,6 @@
 /** nexus browser list/open/goto/back/forward/reload. */
 import type { CliBrowserAction, CliTabInfo } from "../../../../shared/cli/ui";
+import { portUrl } from "../../../../shared/pty/ports";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { exactArgs } from "../args";
 import type { PageInfo } from "../browser/driver";
@@ -15,6 +16,7 @@ import {
 import { table } from "../format";
 import { type CliCommand, output } from "../registry";
 import { BACKGROUND_FLAG, WORKSPACE_FLAG } from "./flags";
+import { describePorts, workspacePorts } from "./port";
 import { workspaceTabs } from "./terminal";
 
 export const TAB_FLAG = {
@@ -72,12 +74,14 @@ const browserOpen: CliCommand = {
   summary: "Open a URL in a new browser tab",
   args: "<url>",
   details:
-    "Takes a URL or an address such as localhost:3000. The tab opens beside this terminal\n" +
-    "rather than over it.",
+    "Takes a URL or an address such as localhost:3000. A bare path such as /login is on the\n" +
+    "port the workspace's terminals listen on (nexus port list), when there is just one.\n" +
+    "The tab opens beside this terminal rather than over it.",
   flags: { workspace: WORKSPACE_FLAG, background: BACKGROUND_FLAG },
   async run(ctx, { positionals, flags }) {
-    const [url] = exactArgs(positionals, "url") as [string];
+    const [given] = exactArgs(positionals, "url") as [string];
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const url = given.startsWith("/") ? await devServerUrl(ctx, workspace, given) : given;
     await mayChange(ctx, workspace, { kind: "browserOpen", detail: url });
     const opened = await ctx.services.ui("browser.open", {
       workspaceId: workspace.id,
@@ -92,6 +96,32 @@ const browserOpen: CliCommand = {
     });
   },
 };
+
+/** A bare path's URL: on the one port the workspace's terminals listen on. */
+async function devServerUrl(
+  ctx: CliContext,
+  workspace: WorkspaceMeta,
+  path: string,
+): Promise<string> {
+  if (workspace.location.kind === "ssh") {
+    throw new CliError(
+      `${workspace.name}'s servers are on ${workspace.location.host}, which the app forwards nothing from; give a URL`,
+    );
+  }
+  const ports = await workspacePorts(ctx, workspace);
+  const [only] = ports;
+  if (!only) {
+    throw new CliError(
+      `no program in ${workspace.name}'s terminals listens on a port; start its dev server, or give a URL such as localhost:3000${path}`,
+    );
+  }
+  if (ports.length > 1) {
+    throw new CliError(
+      `${workspace.name}'s terminals listen on several ports, ${describePorts(ports)}; give one, as localhost:${only.port}${path}`,
+    );
+  }
+  return `${portUrl(only.port)}${path}`;
+}
 
 /** What a navigation came to: the page loaded, or still loading when the wait for it ended. */
 function loaded(page: PageInfo | null, asked: string): string {
