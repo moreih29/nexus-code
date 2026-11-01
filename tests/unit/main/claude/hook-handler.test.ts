@@ -228,6 +228,34 @@ describe("hook-handler — subcommand 상태 전이", () => {
     expect(broker.get("ws-test", "tab-test")?.prompt).toBe(`${"x".repeat(PROMPT_MAX_CHARS)}…`);
   });
 
+  test("user-prompt-submit keeps pasted text without Claude Code's marks", async () => {
+    const { broker, emit } = makeHarness();
+    const prompt =
+      'see this:\n<pasted_content id="edf0">\n1. first\n2. second\n</pasted_content id="edf0">\nthanks';
+    emit(makeHookPayload("user-prompt-submit", { prompt }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.prompt).toBe("see this:\n1. first\n2. second\nthanks");
+
+    // Only a pair with the same id is a paste; a lone mark is the user's text.
+    emit(makeHookPayload("user-prompt-submit", { prompt: 'why is <pasted_content id="a"> shown?' }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.prompt).toBe('why is <pasted_content id="a"> shown?');
+  });
+
+  test.each([
+    "<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n</task-notification>",
+    '<cross-session-message from="worker">done</cross-session-message>',
+  ])("a turn Claude Code starts itself runs but keeps the user's prompt: %j", async (prompt) => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    await new Promise((r) => setTimeout(r, 0));
+    broker.set("ws-test", "tab-test", "completed", "Built.");
+    emit(makeHookPayload("user-prompt-submit", { prompt }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
+    expect(broker.get("ws-test", "tab-test")?.prompt).toBe("build it");
+  });
+
   test("session-start — 이전 세션의 prompt를 비움", async () => {
     const { broker, emit } = makeHarness();
     emit(makeHookPayload("user-prompt-submit", { prompt: "old" }));
