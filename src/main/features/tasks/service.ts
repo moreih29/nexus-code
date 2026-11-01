@@ -139,6 +139,7 @@ export async function removeTask(
   if (!repo) return;
 
   await removeWorktree(repo, task.worktreePath);
+  if (workspace.location.kind === "local") await removeEmptyFolder(task.worktreePath);
   if (deleteBranch) await repo.deleteBranch(task.branch, true);
 }
 
@@ -156,18 +157,42 @@ async function worktreeHasChanges(repo: GitRepository, worktreePath: string): Pr
  * Removes the worktree, forced since its changes were checked already. A
  * folder deleted by hand leaves only git's record, which prune drops. On
  * Windows the closed terminals and agent can hold files for a moment, so a
- * failure is retried once.
+ * failure is retried once. A failed attempt can still drop git's record with
+ * the files, leaving the folder, so then the retry finds no working tree.
  */
 async function removeWorktree(repo: GitRepository, worktreePath: string): Promise<void> {
-  try {
-    await repo.removeWorktree(worktreePath, true);
-  } catch (error) {
-    if (!(error instanceof GitError)) throw error;
-    if (/is not a working tree/i.test(error.stderr)) {
-      await repo.pruneWorktrees();
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await repo.removeWorktree(worktreePath, true);
       return;
+    } catch (error) {
+      if (!(error instanceof GitError)) throw error;
+      if (/is not a working tree/i.test(error.stderr)) {
+        await repo.pruneWorktrees();
+        return;
+      }
+      if (attempt === 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    await repo.removeWorktree(worktreePath, true);
+  }
+}
+
+const EMPTY_FOLDER_ATTEMPTS = 5;
+
+/**
+ * Deletes the folder a failed removal left, if it is empty. The program
+ * holding it is closing, so it is tried for a second or so; a folder that
+ * stays, or has files in it, is left as it is.
+ */
+async function removeEmptyFolder(folder: string): Promise<void> {
+  for (let attempt = 1; attempt <= EMPTY_FOLDER_ATTEMPTS; attempt++) {
+    try {
+      await fs.promises.rmdir(folder);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ENOTEMPTY") return;
+      await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+    }
   }
 }
