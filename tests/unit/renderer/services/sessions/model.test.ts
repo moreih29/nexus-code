@@ -153,6 +153,28 @@ describe("buildFamily", () => {
     ]);
   });
 
+  it("shows an agent quiet since it notified as done, and as idle once it printed more", () => {
+    const notice = { body: "5", at: NOW - 10_000 };
+    const family = buildFamily(
+      input({
+        tabsByWorkspace: {
+          [ROOT]: { done: terminal("done", "codex"), later: terminal("later", "codex") },
+        },
+        activity: new Map([
+          // Its prompt redrawn just after the notification.
+          [`${ROOT}:done`, { lastOutputAt: NOW - 9_500, lastNotice: notice }],
+          // A turn since, which ended without one.
+          [`${ROOT}:later`, { lastOutputAt: NOW - 5_000, lastNotice: notice }],
+        ]),
+      }),
+    );
+    const states = family?.worktrees[0].sessions.map((s) => [s.tabId, s.state, s.phase]);
+    expect(states).toEqual([
+      ["done", "completed", "done"],
+      ["later", "quiet", "idle"],
+    ]);
+  });
+
   it("counts an agent known only by its notifications", () => {
     const family = buildFamily(
       input({

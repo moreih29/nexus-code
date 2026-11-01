@@ -81,6 +81,8 @@ interface BufferLike {
 
 interface TerminalLike {
   readonly element?: HTMLElement;
+  /** The input that takes the user's keys while the terminal has focus. */
+  readonly textarea?: HTMLTextAreaElement;
   readonly rows: number;
   readonly parser: ParserLike;
   /**
@@ -196,6 +198,17 @@ export function classifyOscTitle(
 export function foregroundConfirmsTitle(foregroundName: string): boolean {
   const name = foregroundName.trim();
   return name !== "" && !isLoginShell(name);
+}
+
+/** DECSET 1004: the program wants to hear when the terminal gains or loses focus. */
+const FOCUS_REPORTING_MODE = 1004;
+const FOCUS_OUT_REPORT = "\x1b[O";
+
+/** Whether the user's keys reach the terminal: its window has focus and so does its input. */
+function hasKeyboardFocus(term: Pick<TerminalLike, "textarea">): boolean {
+  return (
+    document.hasFocus() && term.textarea !== undefined && document.activeElement === term.textarea
+  );
 }
 
 /**
@@ -329,6 +342,7 @@ class XtermTerminalController implements TerminalController {
   private titleDisposable: Disposable | null = null;
   private altEnterDisposable: Disposable | null = null;
   private altExitDisposable: Disposable | null = null;
+  private focusReportDisposable: Disposable | null = null;
   private selectionWriteTimer: ReturnType<typeof setTimeout> | null = null;
   private oscDisposables: Disposable[] = [];
   private resizeObserver: ResizeObserverLike | null = null;
@@ -431,6 +445,8 @@ class XtermTerminalController implements TerminalController {
     this.altEnterDisposable = null;
     this.altExitDisposable?.dispose();
     this.altExitDisposable = null;
+    this.focusReportDisposable?.dispose();
+    this.focusReportDisposable = null;
     if (this.selectionWriteTimer !== null) {
       clearTimeout(this.selectionWriteTimer);
       this.selectionWriteTimer = null;
@@ -700,6 +716,24 @@ class XtermTerminalController implements TerminalController {
           }
         }
         return false; // 기본 xterm.js 동작(buffer swap) 그대로 진행
+      },
+    );
+
+    // A program that turns on focus reporting, as Codex does to tell whether
+    // to notify, takes the terminal as focused until told otherwise, and
+    // xterm.js reports only changes. One started behind the user's view would
+    // never hear it is not looked at, so it is told at once.
+    this.focusReportDisposable = term.parser.registerCsiHandler(
+      { prefix: "?", final: "h" },
+      (params) => {
+        if (
+          this.replayWritesPending === 0 &&
+          params.includes(FOCUS_REPORTING_MODE) &&
+          !hasKeyboardFocus(term)
+        ) {
+          ptyClient.write(FOCUS_OUT_REPORT);
+        }
+        return false;
       },
     );
 
