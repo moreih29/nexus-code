@@ -147,10 +147,23 @@ describe("quoteShellArgument", () => {
     });
   });
 
-  it("doubles double quotes for cmd", () => {
-    expect(quoteShellArgument(text, "C:\\Windows\\System32\\cmd.exe")).toBe(
-      `"it's ""done"" $HOME"`,
-    );
+  describe("cmd", () => {
+    const cmd = "C:\\Windows\\System32\\cmd.exe";
+
+    it("doubles double quotes", () => {
+      expect(quoteShellArgument(text, cmd)).toBe(`"it's ""done"" $HOME"`);
+    });
+
+    it("doubles the backslashes before a double quote and at the end", () => {
+      expect(quoteShellArgument('say \\"hi\\"', cmd)).toBe(`"say \\\\""hi\\\\"""`);
+      expect(quoteShellArgument("open C:\\dir\\", cmd)).toBe(`"open C:\\dir\\\\"`);
+    });
+
+    it("leaves each percent sign outside the quotes behind a caret", () => {
+      expect(quoteShellArgument("%USERNAME% is 100% here", cmd)).toBe(
+        `""^%"USERNAME"^%" is 100"^%" here"`,
+      );
+    });
   });
 
   it("keeps the argument on one line", () => {
