@@ -5,8 +5,9 @@
  * must not shadow the real claude, so Windows terminals get a directory of
  * their own, ~/.nexus-code/cli. Git Bash takes the wrapper's copy in
  * ~/.nexus-code/bin instead (pty/windows-shell-shim.ts), so its script is
- * written there too. nexus.exe is copied out of the app at runtime because a
- * shell may not run the files of an MSIX package.
+ * written there too, and nexus.exe for the Windows programs Git Bash starts.
+ * nexus.exe is copied out of the app at runtime because a shell may not run
+ * the files of an MSIX package.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -52,19 +53,26 @@ function install(dest: string, data: Buffer): void {
 
 /**
  * Puts the nexus command in `dir`, nexus.exe from beside `agent` and Git
- * Bash's script, and the script in `wrapperDir` too.
+ * Bash's script, and both in `wrapperDir` too.
  */
 export function writeWindowsCli(agent: string, dir: string, wrapperDir: string): void {
   const source = path.join(path.dirname(agent), cliExecutableName(path.basename(agent)));
+  const data = fs.readFileSync(source);
   fs.mkdirSync(dir, { recursive: true });
   const program = path.join(dir, "nexus.exe");
-  install(program, fs.readFileSync(source));
+  install(program, data);
   // The launcher before nexus.exe, which handed its arguments to cmd.
   fs.rmSync(path.join(dir, "nexus.cmd"), { force: true });
   const script = windowsGitBashLauncher(program);
   fs.writeFileSync(path.join(dir, "nexus"), script);
   fs.mkdirSync(wrapperDir, { recursive: true });
   fs.writeFileSync(path.join(wrapperDir, "nexus"), script);
+  // A Windows program started from Git Bash, such as Codex, which runs its
+  // commands in PowerShell, has the wrapper's directory first on PATH. Of
+  // the script alone there, PowerShell would open it as a document, asking
+  // which app to open it with, and cmd would find no nexus. Both take
+  // nexus.exe beside it; Git Bash still takes the script.
+  install(path.join(wrapperDir, "nexus.exe"), data);
 }
 
 /**
