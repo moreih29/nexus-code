@@ -351,6 +351,17 @@ describe("drawGraphCanvas — visible graph scenarios", () => {
     expect(calls(canvas.context, "lineTo").map((call) => call.args)).toContainEqual([9, 108]);
   });
 
+  it("stops lines to parents not loaded yet at the bottom of the last row", () => {
+    const canvas = createCanvasSpy();
+
+    drawGraphCanvas(canvas.element, drawInputs([entry("M", ["A", "B"])]));
+
+    expect(calls(canvas.context, "lineTo").map((call) => call.args)).toEqual([[9, 24]]);
+    expect(calls(canvas.context, "bezierCurveTo").map((call) => call.args)).toEqual([
+      [9, 19.5, 27, 16.5, 27, 24],
+    ]);
+  });
+
   it("rings the commit HEAD points at", () => {
     const canvas = createCanvasSpy();
     const entries = [
