@@ -1,12 +1,20 @@
 package hookclient
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+// jsonString quotes s as a JSON string, as a Windows path needs its
+// backslashes escaped.
+func jsonString(s string) string {
+	quoted, _ := json.Marshal(s)
+	return string(quoted)
+}
 
 // helper: tmp jsonl 파일을 만들어 path를 반환한다.
 func writeTempTranscript(t *testing.T, content string) string {
@@ -234,7 +242,7 @@ func TestTranscriptPathFromPayload_Malformed(t *testing.T) {
 // stability check alone sleeps transcriptStableInterval.
 func TestStopAssistantText_PayloadAnswerSkipsTranscript(t *testing.T) {
 	path := writeTempTranscript(t, `{"message":{"role":"assistant","content":"from transcript"}}`+"\n")
-	payload := []byte(`{"transcript_path":"` + path + `","last_assistant_message":"Done.\n\nAll  tests pass."}`)
+	payload := []byte(`{"transcript_path":` + jsonString(path) + `,"last_assistant_message":"Done.\n\nAll  tests pass."}`)
 	start := time.Now()
 	got := stopAssistantText(payload)
 	if got != "Done. All tests pass." {
@@ -249,7 +257,7 @@ func TestStopAssistantText_PayloadAnswerSkipsTranscript(t *testing.T) {
 // transcript's older text must not stand in for it.
 func TestStopAssistantText_EmptyPayloadAnswer(t *testing.T) {
 	path := writeTempTranscript(t, `{"message":{"role":"assistant","content":"from transcript"}}`+"\n")
-	payload := []byte(`{"transcript_path":"` + path + `","last_assistant_message":""}`)
+	payload := []byte(`{"transcript_path":` + jsonString(path) + `,"last_assistant_message":""}`)
 	if got := stopAssistantText(payload); got != "" {
 		t.Errorf("empty payload answer: want empty, got %q", got)
 	}
@@ -266,7 +274,7 @@ func TestStopAssistantText_PayloadAnswerTruncated(t *testing.T) {
 // Versions without last_assistant_message still get the transcript's answer.
 func TestStopAssistantText_FallsBackToTranscript(t *testing.T) {
 	path := writeTempTranscript(t, `{"message":{"role":"assistant","content":"from transcript"}}`+"\n")
-	got := stopAssistantText([]byte(`{"transcript_path":"` + path + `"}`))
+	got := stopAssistantText([]byte(`{"transcript_path":` + jsonString(path) + `}`))
 	if got != "from transcript" {
 		t.Errorf("fallback: want %q, got %q", "from transcript", got)
 	}
