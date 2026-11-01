@@ -544,6 +544,27 @@ describe("hook-handler — Notification OS 알림 발사(active context 분기)"
     expect(notifInstances).toHaveLength(0);
   });
 
+  test("needsInput while the user views the tab leaves no badge, as Stop does", async () => {
+    const { broker, activeContext, emit } = makeHarness(true /* focused */);
+    activeContext.set("ws-test", "tab-test");
+    emit(makeHookPayload("notification", { message: "Claude is waiting for your input" }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("idle");
+  });
+
+  test("needsInput stays while the user is in another app or tab", async () => {
+    for (const [focused, active] of [
+      [false, "tab-test"],
+      [true, "other-tab"],
+    ] as const) {
+      const { broker, activeContext, emit } = makeHarness(focused);
+      activeContext.set("ws-test", active);
+      emit(makeHookPayload("notification", { message: "Claude is waiting for your input" }));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(broker.get("ws-test", "tab-test")?.status).toBe("needsInput");
+    }
+  });
+
   test("앱 비포커스 시 permission-request hook OS 알림 발사", async () => {
     const { notifInstances, emit } = makeHarness(false);
     emit(makeHookPayload("permission-request", { tool_name: "Bash" }));

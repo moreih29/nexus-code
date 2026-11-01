@@ -372,9 +372,13 @@ async function handleHookEvent(
         await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
         break;
       }
-      broker.set(workspaceId, tabId, "needsInput", message);
-
-      if (!isViewingThisTab) {
+      // 사용자가 그 탭을 보고 있으면 Stop처럼 idle로 둔다 — 이미 보고 있으니
+      // 글리프와 inbox 항목이 남을 이유가 없다 (보지 않을 때 생긴 needsInput은
+      // 탭을 보면 markSeen이 idle로 돌린다).
+      if (isViewingThisTab) {
+        broker.set(workspaceId, tabId, "idle");
+      } else {
+        broker.set(workspaceId, tabId, "needsInput", message);
         const title = `[${workspaceName}] Claude`;
         const body =
           message ?? (t ? t("common:claudeNotification.needsAttention") : "Needs your attention");
