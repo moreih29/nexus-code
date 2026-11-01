@@ -20,6 +20,7 @@
 //   notification       → broker.set(needsInput) + (그 탭 안 보면) OS 알림 + respondHook
 //                        (a permission dialog's notification keeps or sets permissionPending)
 //   permission-request → broker.set(permissionPending) + (그 탭 안 보면) OS 알림 + respondHook (sync, native fallback)
+//   post-tool-use      → the tool waiting on the permission ran: permissionPending → running + respondHook
 //   stop               → 그 탭 보면 idle 직행 / 아니면 completed + OS 알림 + respondHook
 //   session-end        → broker.clear + respondHook
 
@@ -151,6 +152,25 @@ function sessionStartSource(payload: unknown): string | undefined {
 }
 
 /**
+ * A tool call as PermissionRequest and PostToolUse(Failure) both describe it:
+ * its name and input. PermissionRequest carries no tool_use_id to match on.
+ */
+function toolCall(payload: unknown): string | undefined {
+  const name = extractToolName(payload);
+  if (name === undefined) return undefined;
+  return `${name}\0${JSON.stringify((payload as Record<string, unknown>).tool_input ?? null)}`;
+}
+
+/**
+ * The tool call each terminal's permission dialog is for, keyed by workspace
+ * and tab: when it has run, the user allowed it and the turn goes on.
+ */
+const toolCallsAwaitingPermission = new Map<string, string>();
+
+/** Hooks after which no permission dialog of the turn before is still open. */
+const TURN_BOUNDARIES = new Set(["session-start", "user-prompt-submit", "stop", "session-end"]);
+
+/**
  * Claude Code PermissionRequest hook payload에서 tool_name을 추출한다.
  */
 function extractToolName(payload: unknown): string | undefined {
@@ -258,6 +278,9 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
     deps.workspaceManager.getName(workspaceId) ??
     (t ? t("common:claudeNotification.terminalFallback") : "Terminal");
 
+  // A turn's start or end, or the session's, leaves no permission dialog open.
+  if (TURN_BOUNDARIES.has(subcommand)) toolCallsAwaitingPermission.delete(`${workspaceId}:${tabId}`);
+
   switch (subcommand) {
     case "session-start": {
       // 세션 시작 — Claude가 사용자 입력 대기 상태로 들어간다. 실제 동작이
@@ -335,6 +358,8 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
           ? t("common:claudeNotification.needsPermission")
           : "Claude needs permission";
       broker.set(workspaceId, tabId, "permissionPending", message);
+      const call = toolCall(hookPayload);
+      if (call !== undefined) toolCallsAwaitingPermission.set(`${workspaceId}:${tabId}`, call);
 
       if (!isViewingThisTab) {
         const title = `[${workspaceName}] ${t ? t("common:claudeNotification.permissionRequired") : "Permission Required"}`;
@@ -377,6 +402,24 @@ async function handleHookEvent(payload: unknown, deps: HookHandlerDeps): Promise
               ? t("common:claudeNotification.responseComplete")
               : "Response complete";
         fireOsNotification(workspaceId, tabId, title, body, deps);
+      }
+      await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
+      break;
+    }
+
+    case "post-tool-use": {
+      // A tool ran. Once the user allows a tool, no other hook runs until it ends, so its
+      // end is what takes the dialog's state away. Only that state moves: a
+      // late async hook must not undo the turn's Stop, and a tool that ran
+      // beside the one waiting must not clear the wait.
+      const key = `${workspaceId}:${tabId}`;
+      const awaited = toolCallsAwaitingPermission.get(key);
+      if (
+        broker.get(workspaceId, tabId)?.status === "permissionPending" &&
+        (awaited === undefined || awaited === toolCall(hookPayload))
+      ) {
+        toolCallsAwaitingPermission.delete(key);
+        broker.set(workspaceId, tabId, "running");
       }
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
       break;
