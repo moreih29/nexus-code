@@ -61,6 +61,19 @@ func under(table map[int]Process, roots []int) map[int]int {
 	return owner
 }
 
+// onlyShells reports whether owner holds nothing but the roots: every
+// terminal at its prompt, which is most looks. The sockets are not read
+// then, the slower half of a look. The cost is a port a shell holds itself,
+// as after "exec server", which shows only once something runs under it.
+func onlyShells(owner map[int]int) bool {
+	for pid, root := range owner {
+		if pid != root {
+			return false
+		}
+	}
+	return true
+}
+
 // match keeps the listeners of the processes owner has, one per port and
 // below FirstDynamicPort, in port order. A port held twice, for IPv4 and
 // IPv6 or by a server's workers, goes to its lowest process id.

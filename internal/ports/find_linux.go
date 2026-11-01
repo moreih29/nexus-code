@@ -16,7 +16,8 @@ func Find(roots []int) ([]Port, error) {
 		return nil, err
 	}
 	owner := under(table, roots)
-	if len(owner) == 0 {
+	// Terminals at their prompt hold no ports: see onlyShells.
+	if onlyShells(owner) {
 		return nil, nil
 	}
 	byInode := map[uint64]int{}

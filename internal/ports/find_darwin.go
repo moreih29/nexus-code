@@ -20,7 +20,8 @@ func Find(roots []int) ([]Port, error) {
 	}
 	table := parsePS(out)
 	owner := under(table, roots)
-	if len(owner) == 0 {
+	// Terminals at their prompt hold no ports: see onlyShells.
+	if onlyShells(owner) {
 		return nil, nil
 	}
 	pids := make([]string, 0, len(owner))
