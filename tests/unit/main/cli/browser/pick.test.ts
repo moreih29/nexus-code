@@ -5,12 +5,21 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
+  cleanPicked,
   DESCRIBE_PICKED,
   formatPick,
   type PickedDetails,
   type PickedElement,
   pickedLabel,
+  withoutControls,
 } from "../../../../../src/main/features/cli/browser/pick";
+
+/** A CSS escape or string body read back: \\hex (and one space after it), or \\char. */
+function cssUnescape(s: string): string {
+  return s.replace(/\\([0-9a-fA-F]{1,6}) ?|\\(.)/g, (_, hex: string | undefined, ch: string) =>
+    hex ? String.fromCodePoint(Number.parseInt(hex, 16)) : ch,
+  );
+}
 
 /**
  * Just enough of an element for DESCRIBE_PICKED, with a matcher for the
@@ -23,6 +32,8 @@ class FakeElement {
   readonly children: FakeElement[] = [];
   outerHTML = "";
   innerText = "";
+  /** The shadow root it is in, when it is in one. */
+  shadowRoot: object | null = null;
 
   constructor(
     readonly localName: string,
@@ -42,8 +53,8 @@ class FakeElement {
     return this.attrs[name] ?? null;
   }
 
-  getRootNode(): FakeDocument {
-    return this.doc;
+  getRootNode(): object {
+    return this.shadowRoot ?? this.doc;
   }
 
   getBoundingClientRect() {
@@ -61,16 +72,18 @@ class FakeElement {
   }
 
   private matchesStep(step: string): boolean {
-    const unescaped = (s: string) => s.replace(/\\(.)/g, "$1");
     const tag = /^[a-z][\w-]*/.exec(step)?.[0];
     if (tag && tag !== this.localName) return false;
-    for (const [, kind, value] of step.matchAll(/([#.])((?:\\.|[\w-])+)/g)) {
-      const name = unescaped(value as string);
+    const outside = step.replace(/\[[^\]]*\]/g, "");
+    for (const [, kind, value] of outside.matchAll(
+      /([#.])((?:\\[0-9a-fA-F]{1,6} ?|\\.|[\w-])+)/g,
+    )) {
+      const name = cssUnescape(value as string);
       if (kind === "#" && this.id !== name) return false;
       if (kind === "." && !this.className.split(/\s+/).includes(name)) return false;
     }
-    for (const [, attr, value] of step.matchAll(/\[([\w-]+)=("(?:[^"\\]|\\.)*")\]/g)) {
-      if (this.getAttribute(attr as string) !== JSON.parse(value as string)) return false;
+    for (const [, attr, value] of step.matchAll(/\[([\w-]+)="((?:[^"\\]|\\.)*)"\]/g)) {
+      if (this.getAttribute(attr as string) !== cssUnescape(value as string)) return false;
     }
     const nth = /:nth-of-type\((\d+)\)/.exec(step)?.[1];
     if (nth) {
@@ -132,8 +145,9 @@ function describeIn(doc: FakeDocument, el: FakeElement): PickedDetails {
 function selectorOf(built: ReturnType<typeof page>, key: string): string {
   const el = built.at[key] as FakeElement;
   const { selector } = describeIn(built.doc, el);
-  expect(built.doc.querySelectorAll(selector)).toEqual([el]);
-  return selector;
+  expect(selector).not.toBeNull();
+  expect(built.doc.querySelectorAll(selector as string)).toEqual([el]);
+  return selector as string;
 }
 
 describe("the picked element's selector", () => {
@@ -188,6 +202,29 @@ describe("the picked element's selector", () => {
     expect(selector).not.toContain("#dup");
     expect(selector).not.toContain("hover");
     expect(selector).toBe("div:nth-of-type(1) > span.x");
+  });
+
+  test("escapes attribute values as CSS, so a control character cannot match another element", () => {
+    // JSON would write \u0001, which CSS reads as the letter u: "xu0001y".
+    const built = page(
+      ["button", { "data-testid": "xu0001y" }],
+      ["button", { key: "odd", "data-testid": "x\u0001y\"z" }],
+    );
+    expect(selectorOf(built, "odd")).toBe('[data-testid="x\\1 y\\"z"]');
+  });
+
+  test("escapes an id that starts with a digit or holds odd characters", () => {
+    const built = page(["div", { key: "a", id: "1a b" }], ["div", { id: "other" }]);
+    expect(selectorOf(built, "a")).toBe("#\\31 a\\20 b");
+  });
+
+  test("is none for an element in a shadow root, which a document selector cannot reach", () => {
+    const built = page(["div", {}, ["button", { key: "inner", id: "go" }]]);
+    const el = built.at.inner as FakeElement;
+    el.shadowRoot = {};
+    const details = describeIn(built.doc, el);
+    expect(details.selector).toBeNull();
+    expect(details.inShadow).toBe(true);
   });
 });
 
@@ -245,8 +282,33 @@ describe("the printed block", () => {
       "/tmp/a.png",
     );
     expect(inShadow).toContain("\n  button (ref e3)\n");
-    expect(inShadow).toContain("selector: #save (inside a shadow root)");
     expect(inShadow).toContain('  text: "Total: 3"');
     expect(inShadow.endsWith("  screenshot: /tmp/a.png")).toBe(true);
+    expect(formatPick({ ...PICKED, selector: null, inShadow: true })).toContain(
+      "  selector: none, as it is inside a shadow root; use the ref\n",
+    );
+    expect(formatPick({ ...PICKED, selector: null })).toContain(
+      "  selector: none found; use the ref\n",
+    );
+  });
+
+  test("carries no control characters from the page to the terminal", () => {
+    const hostile = {
+      ...PICKED,
+      title: "T\u009b2J",
+      name: "Save\u001b]0;pwned\u0007",
+      text: "a\u0003b",
+      html: '<button title="\u001b[201~">Save</button>',
+    };
+    const block = formatPick(hostile);
+    expect(block).toBe(withoutControls(block));
+    expect(block).not.toContain("\u001b");
+    expect(block).toContain('button "Save]0;pwned" (ref e3)');
+    expect(block).toContain('<button title="[201~">Save</button>');
+    const clean = cleanPicked(hostile);
+    expect(clean.title).toBe("T2J");
+    expect(clean.text).toBe("ab");
+    expect(JSON.stringify(clean)).not.toMatch(/[\u0080-\u009f]|\\u001b/);
+    expect(withoutControls("a\n\tb\r\u0000")).toBe("a\n\tb");
   });
 });

@@ -19,6 +19,7 @@ import { CliError } from "../context";
 import { type ConsoleEntry, type ConsoleLog, watchConsole } from "./console-log";
 import { type KeyPress, parseBrowserKey } from "./keys";
 import {
+  cleanPicked,
   DESCRIBE_PICKED,
   type PickCancel,
   type PickedDetails,
@@ -240,8 +241,8 @@ function delay(ms: number): Promise<void> {
 export class CdpBrowserDriver implements BrowserDriver {
   private readonly states = new WeakMap<WebContents, TabState>();
   private readonly consoles = new Map<string, { contents: WebContents; log: ConsoleLog }>();
-  /** Ends the pick going on in a tab. */
-  private readonly picking = new Map<string, (reason: PickCancel) => void>();
+  /** The pick going on in a tab. */
+  private readonly picking = new Map<string, PickControl>();
 
   constructor(
     private readonly pageOf: (tabId: string) => BrowserPage | undefined,
@@ -604,6 +605,7 @@ export class CdpBrowserDriver implements BrowserDriver {
     target: string,
     options: { double: boolean; force: boolean },
   ): Promise<ActionResult> {
+    this.notPicking(tabId);
     return this.withDrawn(tabId, async (contents, state) => {
       const el = await this.locate(contents, state, target);
       const at = await this.point(contents, el);
@@ -633,6 +635,7 @@ export class CdpBrowserDriver implements BrowserDriver {
   }
 
   fill(tabId: string, target: string, text: string): Promise<ActionResult> {
+    this.notPicking(tabId);
     return this.with(tabId, async (contents, state) => {
       const el = await this.locate(contents, state, target);
       await this.send(contents, "DOM.scrollIntoViewIfNeeded", {
@@ -656,6 +659,7 @@ export class CdpBrowserDriver implements BrowserDriver {
   }
 
   type(tabId: string, text: string, target?: string): Promise<ActionResult> {
+    this.notPicking(tabId);
     return this.with(tabId, async (contents, state) => {
       let into = "";
       if (target !== undefined) {
@@ -674,6 +678,7 @@ export class CdpBrowserDriver implements BrowserDriver {
   press(tabId: string, keys: readonly string[]): Promise<ActionResult> {
     // Read every key before pressing any, so a typo presses nothing.
     const presses = keys.map((k) => parseBrowserKey(k, this.mac));
+    this.notPicking(tabId);
     return this.with(tabId, async (contents) => {
       const before = contents.getURL();
       for (const press of presses) await this.pressKey(contents, press);
@@ -804,98 +809,132 @@ export class CdpBrowserDriver implements BrowserDriver {
   }
 
   pick(tabId: string, options: { timeoutMs: number; signal?: AbortSignal }): Promise<PickResult> {
-    this.picking.get(tabId)?.("replaced");
+    // The tab is taken before anything is awaited, so another pick, the
+    // signal or the timeout reach this one from its start, and an earlier
+    // pick, ended here, leaves the page's inspect mode to this one.
+    const control = new PickControl();
+    this.picking.get(tabId)?.end("replaced");
+    this.picking.set(tabId, control);
+    const timer = setTimeout(() => control.end("timeout"), options.timeoutMs);
+    const onAbort = () => control.end("aborted");
+    options.signal?.addEventListener("abort", onAbort);
+    if (options.signal?.aborted) control.end("aborted");
     return this.with(tabId, async (contents, state) => {
-      const deadline = Date.now() + SHOW_MS;
-      while (!this.pageOf(tabId)?.active) {
-        if (Date.now() >= deadline) {
-          throw new CliError('the browser tab is not shown; show it with "nexus tab show"');
-        }
-        await delay(WAIT_POLL_MS);
+      const unwatch = this.watchPick(contents, control);
+      try {
+        const ready = this.pickable(tabId, contents, control);
+        ready.catch(() => {});
+        await Promise.race([ready, control.ended]);
+        if (control.reason !== null) return { cancelled: control.reason };
+        const outcome = await this.inspect(tabId, contents, control);
+        if ("cancelled" in outcome) return outcome;
+        return { picked: await this.describePicked(tabId, contents, state, outcome.backendNodeId) };
+      } finally {
+        unwatch();
       }
-      if (contents.isLoading()) await once(contents, "did-stop-loading", LOAD_MS);
-      const outcome = await this.inspect(tabId, contents, options);
-      if ("cancelled" in outcome) return outcome;
-      return { picked: await this.describePicked(tabId, contents, state, outcome.backendNodeId) };
+    }).finally(() => {
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", onAbort);
+      if (this.picking.get(tabId) !== control) return;
+      this.picking.delete(tabId);
+      // In case the pick ended before inspect: an earlier pick it replaced
+      // left the page in inspect mode to it.
+      const page = this.pageOf(tabId);
+      if (page) endInspect(page.contents);
     });
+  }
+
+  /** Refuses page input to a tab whose page waits for the user's pick. */
+  private notPicking(tabId: string): void {
+    if (this.picking.has(tabId)) {
+      throw new CliError(
+        "the user is picking an element in this browser tab; try again once the pick ends",
+      );
+    }
+  }
+
+  /** Waits until the tab is shown and its page has loaded, as a pick needs. */
+  private async pickable(tabId: string, contents: WebContents, control: PickControl): Promise<void> {
+    const deadline = Date.now() + SHOW_MS;
+    while (!this.pageOf(tabId)?.active) {
+      if (control.reason !== null) return;
+      if (Date.now() >= deadline) {
+        throw new CliError('the browser tab is not shown; show it with "nexus tab show"');
+      }
+      await delay(WAIT_POLL_MS);
+    }
+    if (contents.isLoading()) await once(contents, "did-stop-loading", LOAD_MS);
+  }
+
+  /**
+   * Ends the pick on Esc, which is kept from the page, and when the page
+   * goes to another or the tab closes. Returns what stops watching.
+   */
+  private watchPick(contents: WebContents, control: PickControl): () => void {
+    const debug = contents.debugger;
+    const onInput = (event: { preventDefault(): void }, input: Input) => {
+      if (input.type === "keyDown" && input.key === "Escape") {
+        event.preventDefault();
+        control.end("escape");
+      }
+    };
+    const onMessage = (_event: unknown, method: string) => {
+      if (method === "Overlay.inspectModeCanceled") control.end("escape");
+    };
+    const onNavigate = () => control.end("navigated");
+    const onClosed = () => control.end("closed");
+    contents.on("before-input-event", onInput);
+    contents.on("did-navigate", onNavigate);
+    contents.once("destroyed", onClosed);
+    debug.on("message", onMessage);
+    debug.on("detach", onClosed);
+    return () => {
+      contents.removeListener("before-input-event", onInput);
+      contents.removeListener("did-navigate", onNavigate);
+      contents.removeListener("destroyed", onClosed);
+      debug.removeListener("message", onMessage);
+      debug.removeListener("detach", onClosed);
+    };
   }
 
   /**
    * Puts the page in DevTools' inspect mode until the user clicks an element
-   * or the pick is called off, then takes the page out of it. Esc is caught
-   * before the page gets it, so the page has the keyboard meanwhile.
+   * or the pick ends, then takes the page out of it, unless a later pick has
+   * the tab by then.
    */
   private async inspect(
     tabId: string,
     contents: WebContents,
-    options: { timeoutMs: number; signal?: AbortSignal },
+    control: PickControl,
   ): Promise<{ backendNodeId: number } | { cancelled: PickCancel }> {
     // The Overlay domain works only with the DOM domain on; both stay on.
     await this.send(contents, "DOM.enable");
     await this.send(contents, "Overlay.enable");
+    if (control.reason !== null) return { cancelled: control.reason };
     const debug = contents.debugger;
     return new Promise((resolve, reject) => {
       let done = false;
-      /** Undoes what the pick set up; false when that is done already. */
+      /** Undoes what inspect set up; false when that is done already. */
       const stop = (): boolean => {
         if (done) return false;
         done = true;
-        clearTimeout(timer);
         clearInterval(watch);
         debug.removeListener("message", onMessage);
-        debug.removeListener("detach", onDetach);
-        contents.removeListener("before-input-event", onInput);
-        contents.removeListener("did-navigate", onNavigate);
-        contents.removeListener("destroyed", onDestroyed);
-        options.signal?.removeEventListener("abort", onAbort);
-        if (this.picking.get(tabId) === end) this.picking.delete(tabId);
-        // Sent before anything a later pick sends, so it cannot undo that one.
-        // Chromium refuses "none" without a highlight config, leaving the
-        // page in inspect mode, where this session's own clicks go nowhere.
-        if (!contents.isDestroyed() && debug.isAttached()) {
-          debug
-            .sendCommand("Overlay.setInspectMode", { mode: "none", highlightConfig: {} })
-            .catch(() => {});
-          debug.sendCommand("Overlay.hideHighlight").catch(() => {});
-        }
+        if (this.picking.get(tabId) === control) endInspect(contents);
         return true;
       };
-      const finish = (outcome: { backendNodeId: number } | { cancelled: PickCancel }) => {
-        if (stop()) resolve(outcome);
-      };
-      const end = (reason: PickCancel) => finish({ cancelled: reason });
       const onMessage = (_event: unknown, method: string, params: { backendNodeId?: number }) => {
         if (method === "Overlay.inspectNodeRequested" && params.backendNodeId !== undefined) {
-          finish({ backendNodeId: params.backendNodeId });
-        } else if (method === "Overlay.inspectModeCanceled") {
-          end("escape");
+          if (stop()) resolve({ backendNodeId: params.backendNodeId });
         }
       };
-      const onDetach = () => end("closed");
-      const onInput = (event: { preventDefault(): void }, input: Input) => {
-        if (input.type === "keyDown" && input.key === "Escape") {
-          event.preventDefault();
-          end("escape");
-        }
-      };
-      const onNavigate = () => end("navigated");
-      const onDestroyed = () => end("closed");
-      const onAbort = () => end("aborted");
-      const timer = setTimeout(() => end("timeout"), options.timeoutMs);
       const watch = setInterval(() => {
-        if (!this.pageOf(tabId)?.active) end("hidden");
+        if (!this.pageOf(tabId)?.active) control.end("hidden");
       }, WAIT_POLL_MS);
       debug.on("message", onMessage);
-      debug.on("detach", onDetach);
-      contents.on("before-input-event", onInput);
-      contents.on("did-navigate", onNavigate);
-      contents.once("destroyed", onDestroyed);
-      options.signal?.addEventListener("abort", onAbort);
-      this.picking.set(tabId, end);
-      if (options.signal?.aborted) {
-        end("aborted");
-        return;
-      }
+      void control.ended.then((reason) => {
+        if (stop()) resolve({ cancelled: reason });
+      });
       this.send(contents, "Overlay.setInspectMode", {
         mode: "searchForNode",
         highlightConfig: PICK_HIGHLIGHT,
@@ -964,7 +1003,8 @@ export class CdpBrowserDriver implements BrowserDriver {
             format: "png",
             clip: { ...details.clip, scale: 1 },
           }).catch(() => undefined);
-    return {
+    // Whatever the page wrote may reach a terminal.
+    return cleanPicked({
       url: contents.getURL(),
       title: contents.getTitle(),
       role,
@@ -972,8 +1012,39 @@ export class CdpBrowserDriver implements BrowserDriver {
       ref,
       ...details,
       ...(png === undefined ? {} : { png }),
-    };
+    });
   }
+}
+
+/** One pick: what ended it, and a promise that settles when something does. */
+class PickControl {
+  reason: PickCancel | null = null;
+  readonly ended: Promise<PickCancel>;
+  private settle: (reason: PickCancel) => void = () => {};
+
+  constructor() {
+    this.ended = new Promise((resolve) => {
+      this.settle = resolve;
+    });
+  }
+
+  readonly end = (reason: PickCancel): void => {
+    if (this.reason !== null) return;
+    this.reason = reason;
+    this.settle(reason);
+  };
+}
+
+/**
+ * Takes the page out of inspect mode. Chromium refuses "none" without a
+ * highlight config, leaving the page in inspect mode, where this session's
+ * own clicks go nowhere.
+ */
+function endInspect(contents: WebContents): void {
+  const debug = contents.debugger;
+  if (contents.isDestroyed() || !debug.isAttached()) return;
+  debug.sendCommand("Overlay.setInspectMode", { mode: "none", highlightConfig: {} }).catch(() => {});
+  debug.sendCommand("Overlay.hideHighlight").catch(() => {});
 }
 
 /**

@@ -7,7 +7,7 @@ import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
 import type { BrowserWaitCondition } from "../browser/driver";
 import { BROWSER_KEYS_HELP } from "../browser/keys";
-import { cancelledText, formatPick } from "../browser/pick";
+import { cancelledText, cleanPicked, formatPick } from "../browser/pick";
 import { type CliContext, CliError, mayChange, resolveWorkspace, shortId } from "../context";
 import { callerPath } from "../paths";
 import { type CliCommand, output } from "../registry";
@@ -361,8 +361,9 @@ const browserPick: CliCommand = {
   details:
     "Shows the tab and highlights what is under the mouse; the user's click picks that element\n" +
     "instead of clicking it, and Esc cancels. Prints its role and name, a ref that browser click,\n" +
-    "fill and type take, a CSS selector, where it is, its text and HTML, and saves a PNG of it in\n" +
-    "the temp directory. Exits 124 when no element is picked in time.",
+    "fill and type take, a CSS selector (none inside a shadow root), where it is, its text and\n" +
+    "HTML, and saves a PNG of it in the temp directory. Exits 124 when no element is picked in\n" +
+    "time. While it waits, click, fill, type and press on that tab are refused.",
   flags: {
     timeout: {
       type: "string",
@@ -389,7 +390,7 @@ const browserPick: CliCommand = {
       if (result.cancelled !== "timeout") throw new CliError(cancelledText(result.cancelled));
       return output("No element was picked in time.", { ...ids, picked: null }, { exitCode: 124 });
     }
-    const { png, clip: _clip, ...el } = result.picked;
+    const { png, clip: _clip, ...el } = cleanPicked(result.picked);
     const file =
       png === undefined
         ? undefined
