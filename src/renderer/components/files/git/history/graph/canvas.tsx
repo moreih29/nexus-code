@@ -349,13 +349,18 @@ function prepareVisibleEdges(
   for (const edge of inputs.laneState.edges) {
     const fromIndex = commitIndex.get(edge.from);
     if (fromIndex === undefined) continue;
-    const resolvedToIndex = commitIndex.get(edge.to) ?? inputs.entries.length;
+    const toIndex = commitIndex.get(edge.to);
+    const resolvedToIndex = toIndex ?? inputs.entries.length;
     const startIndex = Math.min(fromIndex, resolvedToIndex);
     const endIndex = Math.max(fromIndex, resolvedToIndex);
     if (endIndex < minIndex || startIndex > maxIndex) continue;
 
     const fromY = getRowCenterY(fromIndex, rowByIndex, inputs.rowHeight, metrics.scrollTop);
-    const toY = getRowCenterY(resolvedToIndex, rowByIndex, inputs.rowHeight, metrics.scrollTop);
+    // A parent not loaded yet is past the last row; the line stops at that row's
+    // bottom rather than run on over what follows the list.
+    const toY =
+      getRowCenterY(resolvedToIndex, rowByIndex, inputs.rowHeight, metrics.scrollTop) -
+      (toIndex === undefined ? inputs.rowHeight / 2 : 0);
     if (!verticalSpanIntersectsViewport(fromY, toY, metrics.cssHeight, inputs.rowHeight)) continue;
 
     edges.push({
