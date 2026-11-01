@@ -132,6 +132,16 @@
     "restore": "Restore",
     "close": "Close"
   },
+  "inbox": {
+    "title": "Sessions waiting on you",
+    "aria_one": "Sessions waiting on you: {{count}} needs you",
+    "aria_other": "Sessions waiting on you: {{count}} need you",
+    "waiting": "Waiting on you",
+    "done": "Done",
+    "empty": "No session is waiting on you",
+    "next": "Go to next waiting session",
+    "mark_read": "Mark done as read"
+  },
   "diagnostics": {
     "errors_dialog": "Errors",
     "warnings_dialog": "Warnings",

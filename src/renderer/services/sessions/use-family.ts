@@ -33,8 +33,14 @@ export function useNow(enabled: boolean, everyMs = 1_000): number {
   return now;
 }
 
-/** Every live terminal's output activity, keyed by `${workspaceId}:${tabId}`. */
-function useTabActivity(enabled: boolean): ReadonlyMap<string, TabActivity> {
+/**
+ * Every live terminal's output activity, keyed by `${workspaceId}:${tabId}`,
+ * polled every `everyMs` while `enabled`.
+ */
+export function useTabActivity(
+  enabled: boolean,
+  everyMs = ACTIVITY_POLL_MS,
+): ReadonlyMap<string, TabActivity> {
   const [activity, setActivity] = useState<ReadonlyMap<string, TabActivity>>(() => new Map());
   useEffect(() => {
     if (!enabled) return;
@@ -47,12 +53,12 @@ function useTabActivity(enabled: boolean): ReadonlyMap<string, TabActivity> {
       );
     };
     void poll();
-    const timer = setInterval(() => void poll(), ACTIVITY_POLL_MS);
+    const timer = setInterval(() => void poll(), everyMs);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [enabled]);
+  }, [enabled, everyMs]);
   return activity;
 }
 

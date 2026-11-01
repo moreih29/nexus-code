@@ -10,7 +10,8 @@
  * are hidden under DOM menus without per-wrapper wiring.
  *
  * Public surface: DropdownMenuRoot · DropdownMenuTrigger · DropdownMenuContent
- *                 DropdownMenuItem · DropdownMenuShortcut · DropdownMenuSeparator
+ *                 DropdownMenuItem · DropdownMenuShortcut · DropdownMenuLabel
+ *                 DropdownMenuSeparator
  *                 DropdownMenuSub · DropdownMenuSubTrigger · DropdownMenuSubContent
  */
 import { ChevronRight } from "lucide-react";
@@ -127,6 +128,19 @@ export function DropdownMenuItem({ children, disabled, onSelect }: DropdownMenuI
     >
       {children}
     </RadixDropdownMenu.Item>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Label
+// ---------------------------------------------------------------------------
+
+/** A heading over the items after it; not an item, so arrow keys skip it. */
+export function DropdownMenuLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <RadixDropdownMenu.Label className="px-2 pt-1.5 pb-0.5 text-app-label text-muted-foreground uppercase">
+      {children}
+    </RadixDropdownMenu.Label>
   );
 }
 

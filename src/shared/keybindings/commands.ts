@@ -78,6 +78,9 @@ export const COMMANDS = {
   workspaceAdd: "workspace.add",
   // Open the New Task dialog for the active workspace.
   taskNew: "task.new",
+  // Show the terminal of the next agent session waiting on the user, in the
+  // title bar inbox's order, from any workspace.
+  sessionNextWaiting: "session.nextWaiting",
 
   // Settings
   settingsOpen: "settings.open",

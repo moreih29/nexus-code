@@ -2,7 +2,8 @@
 //
 // main은 이 컨텍스트를 Stop hook 처리 시 참조해 알림 발사 여부를 결정한다
 // (사용자가 그 탭을 보고 있으면 알림 생략). 또한 사용자가 탭을 활성화하면
-// markSeen IPC를 통해 completed 상태를 idle로 자동 전이시킨다.
+// markSeen IPC를 통해 completed 상태를 idle로 자동 전이시킨다. 탭을 보고
+// 떠난 시각은 session-seen store에 남겨 inbox가 읽음 여부를 판단한다.
 //
 // active context는 두 store의 조합으로 결정된다:
 //  - useActiveStore.activeWorkspaceId : 현재 보고 있는 워크스페이스
@@ -13,6 +14,7 @@
 import { createLogger } from "../../shared/log/renderer";
 import { ipcCallResult } from "../ipc/client";
 import { useActiveStore } from "./stores/active";
+import { useSessionSeenStore } from "./stores/session-seen";
 import { allLeaves } from "./stores/layout/helpers";
 import { useLayoutStore } from "./stores/layout/store";
 import type { LayoutNode } from "./stores/layout/types";
@@ -43,7 +45,7 @@ function resolveActiveTabId(root: LayoutNode, activeGroupId: string | null): str
  * 현재 active (workspaceId, tabId) 쌍을 두 store에서 계산한다.
  * workspace 또는 tab이 없으면 둘 다 null로 보고한다.
  */
-function computeActiveContext(): { workspaceId: string | null; tabId: string | null } {
+export function computeActiveContext(): { workspaceId: string | null; tabId: string | null } {
   const workspaceId = useActiveStore.getState().activeWorkspaceId;
   if (!workspaceId) return { workspaceId: null, tabId: null };
 
@@ -75,6 +77,11 @@ export function startClaudeActiveContextSync(): () => void {
     if (initialPushed && workspaceId === lastWorkspaceId && tabId === lastTabId) {
       return;
     }
+    // 떠나는 탭은 지금까지, 새로 보는 탭은 지금부터 사용자 앞에 있었다.
+    // inbox는 그 전에 끝난 세션을 뺀다 (markSeen이 없는 Codex 등도 같은 기준).
+    const seen = useSessionSeenStore.getState();
+    if (lastWorkspaceId !== null && lastTabId !== null) seen.markSeen(lastWorkspaceId, lastTabId);
+    if (workspaceId !== null && tabId !== null) seen.markSeen(workspaceId, tabId);
     lastWorkspaceId = workspaceId;
     lastTabId = tabId;
     initialPushed = true;

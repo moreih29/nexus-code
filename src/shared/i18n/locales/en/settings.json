@@ -405,6 +405,9 @@
       "task": {
         "new": "New Task"
       },
+      "session": {
+        "nextWaiting": "Go to Next Waiting Session"
+      },
       "settings": {
         "open": "Open Settings"
       },

@@ -56,7 +56,7 @@ import {
 import type { KeybindingOverride } from "../../../../shared/keybindings/overrides";
 import { labelOptions } from "../../../keybindings/shortcut-labels";
 import { useKeybindingsStore } from "../../../state/stores/keybindings";
-import { isMac } from "../../../utils/platform";
+import { isLinux, isMac } from "../../../utils/platform";
 
 // `updates.check` is dispatched inside the main process from the menu —
 // the renderer registry has no handler for it, so a keybinding would be
@@ -85,7 +85,7 @@ function defaultDeclFor(command: CommandId): KeybindingDecl | undefined {
 }
 
 function bindingLabelFor(bindings: readonly KeybindingDecl[], command: CommandId): string | null {
-  const primary = findDisplayPrimary(bindings, command, isMac());
+  const primary = findDisplayPrimary(bindings, command, isMac(), isLinux());
   if (primary?.primary !== undefined) return acceleratorToLabel(primary.primary, labelOptions());
   const chord = bindings.find((b) => b.command === command && b.chord !== undefined);
   if (chord?.chord !== undefined) return chordToLabel(chord.chord, labelOptions());

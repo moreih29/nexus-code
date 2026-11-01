@@ -61,15 +61,19 @@ export interface SessionFamily {
   readonly worktrees: readonly WorktreeEntry[];
 }
 
-export interface FamilyInput {
-  readonly workspaces: readonly WorkspaceMeta[];
-  /** The workspace the tab is in: the root, or one of its tasks. */
-  readonly workspaceId: string;
+/** The records the sessions of a workspace are read from. */
+export interface SessionsInput {
   readonly tabsByWorkspace: Readonly<Record<string, Readonly<Record<string, Tab>>>>;
   readonly claudeByWorkspace: Readonly<Record<string, Readonly<Record<string, StatusEntry>>>>;
   /** Keyed by `${workspaceId}:${tabId}`. */
   readonly activity: ReadonlyMap<string, TabActivity>;
   readonly now: number;
+}
+
+export interface FamilyInput extends SessionsInput {
+  readonly workspaces: readonly WorkspaceMeta[];
+  /** The workspace the tab is in: the root, or one of its tasks. */
+  readonly workspaceId: string;
 }
 
 export function phaseOf(state: string): SessionPhase {
@@ -92,7 +96,8 @@ export function sessionKey(workspaceId: string, tabId: string): string {
   return `${workspaceId}:${tabId}`;
 }
 
-function sessionsOf(input: FamilyInput, workspace: WorkspaceMeta): AgentSession[] {
+/** The agent sessions in the terminals of `workspace`. */
+export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): AgentSession[] {
   const tabs = input.tabsByWorkspace[workspace.id] ?? {};
   const claude = input.claudeByWorkspace[workspace.id] ?? {};
   const sessions: AgentSession[] = [];

@@ -27,6 +27,7 @@
  *                           DOM target. Always evaluates to the same value
  *                           for a given device; safe to use in `when`
  *                           expressions.
+ *   - `isLinux`           — likewise, for Linux.
  *   - `browserTabActive`  — STATE probe (not DOM): the active group's
  *                           active tab is a browser tab. Registered via
  *                           {@link registerContextProbe} by the browser
@@ -40,7 +41,7 @@
  * binding fail-safe (it just won't match) rather than fail-loud.
  */
 
-import { isMac } from "../utils/platform";
+import { isLinux, isMac } from "../utils/platform";
 
 // ---------------------------------------------------------------------------
 // Dynamic (state-backed) context probes
@@ -97,6 +98,8 @@ export function evaluateContextKey(name: string, event: KeyboardEvent): boolean 
       return isInKeybindingRecorder(target);
     case "isMac":
       return isMac();
+    case "isLinux":
+      return isLinux();
     default: {
       // State-backed keys (e.g. `browserTabActive`) registered by domains.
       const probe = dynamicProbes.get(name);
