@@ -232,6 +232,51 @@ func TestRunNDJSON_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestRunMarksPrintRuns checks that a hook tells a `claude -p` run by the
+// wrapper's mark or by Claude Code's own entrypoint, as cmd's macro leaves
+// no mark of its own.
+func TestRunMarksPrintRuns(t *testing.T) {
+	cases := []struct {
+		name, mark, entrypoint string
+		want                   bool
+	}{
+		{"wrapper's mark", "1", "", true},
+		{"Claude Code's entrypoint", "", "sdk-cli", true},
+		{"interactive", "0", "cli", false},
+		{"neither", "", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newMockServer(t)
+			received := make(chan hookRequest, 1)
+			go srv.serveOnce(func(conn net.Conn) {
+				var req hookRequest
+				if err := json.NewDecoder(conn).Decode(&req); err != nil {
+					return
+				}
+				received <- req
+				_ = writeNDJSON(conn, hookResponse{OK: true})
+			})
+			setHookEnv(t, srv.socketPath, "test-token", "ws-abc", "tab-123")
+			t.Setenv(envClaudePrint, tc.mark)
+			t.Setenv(envClaudeEntrypoint, tc.entrypoint)
+			withStdin(t, []byte(`{"tool_name":"Write"}`))
+
+			if code := Run([]string{"permission-request"}); code != 0 {
+				t.Fatalf("exit %d, want 0", code)
+			}
+			select {
+			case req := <-received:
+				if req.Print != tc.want {
+					t.Errorf("print = %v, want %v", req.Print, tc.want)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("timed out waiting for the request")
+			}
+		})
+	}
+}
+
 // TestRunNDJSON_OkFalse 는 agent가 ok=false를 반환할 때 exit 1을 반환하는지 검증한다.
 func TestRunNDJSON_OkFalse(t *testing.T) {
 	srv := newMockServer(t)
