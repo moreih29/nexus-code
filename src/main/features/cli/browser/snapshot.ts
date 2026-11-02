@@ -74,6 +74,14 @@ function clean(value: unknown): string {
   return text.length > MAX_NAME ? `${text.slice(0, MAX_NAME - 1)}…` : text;
 }
 
+/** An element's role and name, as its snapshot line gives them. */
+export function roleAndName(node: AxNode): { role: string; name: string } {
+  return {
+    role: typeof node.role?.value === "string" ? node.role.value : "",
+    name: clean(node.name?.value),
+  };
+}
+
 function property(node: AxNode, name: string): unknown {
   return node.properties?.find((p) => p.name === name)?.value.value;
 }
@@ -138,8 +146,7 @@ export function buildSnapshot(nodes: readonly AxNode[], options: SnapshotOptions
     const children = (node.childIds ?? [])
       .map((id) => byId.get(id))
       .filter((n): n is AxNode => n !== undefined);
-    const role = typeof node.role?.value === "string" ? node.role.value : "";
-    const name = clean(node.name?.value);
+    const { role, name } = roleAndName(node);
 
     if (node.ignored || PAGE_ROLES.has(role) || (GROUPING_ROLES.has(role) && name === "")) {
       for (const child of children) walk(child, depth, parentName);

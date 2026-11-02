@@ -22,6 +22,7 @@ nexus status --json     # 모든 명령은 --json 으로 JSON 출력
 | `nexus session list` | 모든 워크스페이스의 에이전트 세션(Claude Code, Codex, ...)과 상태 |
 | `nexus tab list` · `terminal list` | 탭, 터미널과 그 안에서 도는 프로그램 |
 | `nexus terminal read <탭>` | 터미널 화면(스크롤백 포함) 읽기 |
+| `nexus port list` | 이 워크스페이스 터미널에서 실행한 프로그램(개발 서버 등)이 연 포트 |
 
 읽기는 어느 워크스페이스든 허락 없이 됩니다.
 
@@ -32,7 +33,7 @@ nexus status --json     # 모든 명령은 --json 으로 JSON 출력
 | `nexus open src/app.ts:42` | 파일을 그 줄에서 열기 |
 | `nexus diff src/app.ts` | 변경 사항 diff 열기 (`--staged`, `--base REF`) |
 | `nexus terminal new --command "bun dev"` | 새 터미널에서 명령 실행 (기본은 뒤에 열기, `--show` 로 보이기) |
-| `nexus browser open localhost:3000` | 브라우저 탭 열기 |
+| `nexus browser open localhost:3000` | 브라우저 탭 열기 (`/login` 처럼 경로만 주면 이 워크스페이스의 개발 서버 포트로) |
 | `nexus tab show <탭>` · `workspace switch <이름>` | 그 탭 · 워크스페이스를 사용자에게 보여주기 |
 | `nexus notify "테스트 통과"` | 데스크톱 알림 |
 
@@ -48,7 +49,7 @@ nexus terminal wait build --exit                   # 터미널이 끝날 때까�
 ```
 
 - 끝났다고 보는 기준:
-  - **Claude Code**: 앱 훅으로 정확히 압니다. 마지막 답변까지 출력합니다.
+  - **Claude Code**: 앱 훅으로 정확히 압니다. 마지막 답변까지 출력합니다. `send --wait` 로 넣은 입력이 10초 안에 턴을 시작하지 않으면(일부 슬래시 명령 등) 이전 턴의 답변 대신 "started no turn" 으로 끝납니다(`--json` 의 `state` 는 `notStarted`).
   - **Codex 등 다른 에이전트**: 알림을 보내거나 출력이 `--quiet`(기본 5초) 동안 멈추면 끝난 것으로 봅니다.
   - **일반 셸**: 프롬프트로 돌아오면 끝난 것으로 봅니다.
 - 기본 대기 시간은 10분, 최대 30분입니다(`--timeout`). 시간이 다 되면 종료 코드 124 입니다.
@@ -92,13 +93,26 @@ nexus browser wait --text "Welcome"
 nexus browser screenshot --out shot.png
 nexus browser console --errors
 nexus browser eval "document.title"
+nexus browser pick                # 사용자가 클릭한 요소의 ref · 선택자 · 스크린샷
 ```
 
+- `browser open /login` · `browser goto /login` 처럼 경로만 주면, 이 워크스페이스(작업이면 그 워크트리) 터미널의 프로그램이 연 포트로 엽니다. 포트를 미리 정해 둘 필요 없이 작업마다 따로 띄운 개발 서버를 찾아갑니다.
+  - 열린 포트가 없거나 여러 개면 열지 않고 그 목록을 알려줍니다. 그때는 `localhost:5173/login` 처럼 포트를 적어 주세요.
+  - 포트는 `nexus port list` 로 봅니다. 상태 표시줄 오른쪽과 제목 표시줄의 작업 메뉴에도 나옵니다.
+  - 49152 이상의 포트, Docker 가 연 포트, 셸을 떠나 데몬으로 도는 서버는 찾지 못합니다.
+  - SSH 워크스페이스의 포트는 원격 호스트에 있고 앱이 포워딩하지 않아서, 경로만으로는 열 수 없습니다.
+  - 로컬 파일은 `file:///경로` 로 엽니다.
 - 요소는 마지막 `snapshot` 의 ref(`e12`)나, 요소 하나만 맞는 CSS 선택자로 고릅니다. 페이지가 다시 로드되면 snapshot 을 새로 찍어야 합니다.
 - 클릭은 실제 마우스 이벤트입니다. 다른 요소가 덮고 있으면 거절합니다(`--force` 로 그 자리를 그냥 클릭).
 - `console` 은 탭이 열린 뒤 페이지가 남긴 메시지를 최근 500개까지 보여줍니다.
 - 브라우저 탭이 여러 개면 `--tab <id>` 로 고릅니다. 하나뿐이거나 보이는 탭이 하나면 생략할 수 있습니다.
 - 페이지 안의 iframe 내용은 snapshot 에 나오지 않습니다.
+- `pick` 은 그 탭을 보여주고 마우스 아래 요소를 강조합니다. 사용자가 클릭한 요소는 클릭되지 않고 골라집니다. 역할과 이름, `click` 등에 쓸 ref, CSS 선택자, 위치, 텍스트, HTML 을 출력하고 요소 스크린샷을 임시 폴더에 저장합니다.
+  - Esc 로 취소합니다. 탭을 숨기거나 다른 페이지로 가도 취소됩니다.
+  - 기본 2분 기다립니다(`--timeout`, 최대 10분). 시간이 다 되면 종료 코드 124 입니다. 명령을 Ctrl-C 로 멈추면 강조도 바로 꺼집니다.
+  - shadow root 안의 요소에는 선택자를 주지 않습니다. ref 를 쓰세요.
+  - 고르는 동안 그 탭의 `click` · `fill` · `type` · `press` 는 거절됩니다.
+- 명령이 연 URL이나 누른 링크가 페이지가 아니라 파일이면 내려받습니다. 명령이 내려받은 파일은 사용자의 다운로드 폴더가 아니라 시스템 임시 폴더의 `nexus-downloads` 에 저장되고, 명령 출력에 그 경로가 나옵니다. 하루 지난 파일은 지웁니다. 사용자가 탭에서 직접 내려받은 파일은 다운로드 폴더에 저장되고 앱이 알림으로 알려줍니다.
 
 ## 화면 배치
 

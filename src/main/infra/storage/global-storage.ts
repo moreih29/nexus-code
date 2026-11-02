@@ -10,7 +10,11 @@ import {
   type WorkspaceTask,
   WorkspaceTaskSchema,
 } from "../../../shared/types/workspace";
-import type { SessionSpan } from "../../../shared/sessions/history";
+import {
+  type SessionSpan,
+  type SpanAgent,
+  SpanAgentSchema,
+} from "../../../shared/sessions/history";
 import { applyMigrations, type SqliteDb } from "./migrations";
 
 // ---------------------------------------------------------------------------
@@ -859,8 +863,8 @@ export class GlobalStorage {
     const result = this.db
       .prepare(
         `INSERT INTO session_spans
-           (workspace_id, tab_id, state, start_at, target_workspace_id, target_tab_id)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+           (workspace_id, tab_id, state, start_at, target_workspace_id, target_tab_id, agent)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         span.workspaceId,
@@ -869,6 +873,7 @@ export class GlobalStorage {
         span.start,
         span.target?.workspaceId ?? null,
         span.target?.tabId ?? null,
+        span.agent ? JSON.stringify(span.agent) : null,
       ) as { lastInsertRowid: number | bigint };
     return Number(result.lastInsertRowid);
   }
@@ -888,16 +893,20 @@ export class GlobalStorage {
          ORDER BY start_at, id`,
       )
       .all(...workspaceIds, since) as SessionSpanRow[];
-    return rows.map((row) => ({
-      workspaceId: row.workspace_id,
-      tabId: row.tab_id,
-      state: row.state,
-      start: row.start_at,
-      end: row.end_at,
-      ...(row.target_workspace_id && row.target_tab_id
-        ? { target: { workspaceId: row.target_workspace_id, tabId: row.target_tab_id } }
-        : {}),
-    }));
+    return rows.map((row) => {
+      const agent = row.agent ? parseSpanAgent(row.agent) : undefined;
+      return {
+        workspaceId: row.workspace_id,
+        tabId: row.tab_id,
+        state: row.state,
+        start: row.start_at,
+        end: row.end_at,
+        ...(row.target_workspace_id && row.target_tab_id
+          ? { target: { workspaceId: row.target_workspace_id, tabId: row.target_tab_id } }
+          : {}),
+        ...(agent ? { agent } : {}),
+      };
+    });
   }
 
   /**
@@ -922,4 +931,14 @@ interface SessionSpanRow {
   end_at: number | null;
   target_workspace_id: string | null;
   target_tab_id: string | null;
+  agent: string | null;
+}
+
+function parseSpanAgent(text: string): SpanAgent | undefined {
+  try {
+    const parsed = SpanAgentSchema.safeParse(JSON.parse(text));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
 }

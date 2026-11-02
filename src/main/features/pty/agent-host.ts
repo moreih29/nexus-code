@@ -297,6 +297,17 @@ class AgentPtyHostHandle implements PtyHostHandle {
       }
       this.emit("claude.hook", payload);
     });
+    // A held hook whose client went away, on the same terms.
+    const offClaudeHookGone = channel.on("claude.hookGone", (payload) => {
+      const claimed = (payload as { workspaceId?: unknown } | null)?.workspaceId;
+      if (claimed !== workspaceId) {
+        log.warn(
+          `Dropped claude.hookGone for workspace ${String(claimed)} from ${workspaceId}'s agent`,
+        );
+        return;
+      }
+      this.emit("claude.hookGone", payload);
+    });
     // The nexus CLI speaks for its terminal's workspace on the same terms.
     const offCliRequest = channel.on("cli.request", (payload) => {
       const claimed = (payload as { workspaceId?: unknown } | null)?.workspaceId;
@@ -306,12 +317,28 @@ class AgentPtyHostHandle implements PtyHostHandle {
       }
       this.emit("cli.request", payload);
     });
+    const offCliCancel = channel.on("cli.cancel", (payload) => {
+      const claimed = (payload as { workspaceId?: unknown } | null)?.workspaceId;
+      if (claimed !== workspaceId) {
+        log.warn(`Dropped cli.cancel for workspace ${String(claimed)} from ${workspaceId}'s agent`);
+        return;
+      }
+      this.emit("cli.cancel", payload);
+    });
     const offLifecycle = channel.onLifecycle((event) => {
       this.handleLifecycle(workspaceId, event);
     });
     this.subscriptions.set(workspaceId, {
       channel,
-      disposers: [offData, offExit, offClaudeHook, offCliRequest, offLifecycle],
+      disposers: [
+        offData,
+        offExit,
+        offClaudeHook,
+        offClaudeHookGone,
+        offCliRequest,
+        offCliCancel,
+        offLifecycle,
+      ],
     });
   }
 
@@ -517,11 +544,14 @@ class AgentPtyHostHandle implements PtyHostHandle {
           session.decoder = new TextDecoder("utf-8");
         }
         // pty.replay resends the session's recent output as pty.data events.
-        channel.call("pty.replay", { workspaceId, tabId }).catch((err) => {
-          log.warn(
-            `pty.replay failed for ${workspaceId}:${tabId}: ${(err as Error).message}`,
-          );
-        });
+        // Its answer follows them on the same stream, so "replayed" comes
+        // after the last replayed chunk.
+        channel
+          .call("pty.replay", { workspaceId, tabId })
+          .then(() => this.emit("replayed", { workspaceId, tabId }))
+          .catch((err) => {
+            log.warn(`pty.replay failed for ${workspaceId}:${tabId}: ${(err as Error).message}`);
+          });
       } else {
         // Session no longer alive on the daemon — treat as a fresh shell.
         // Inject \x1bc into the data stream so any stale ANSI mid-sequence

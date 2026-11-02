@@ -5,6 +5,7 @@
  */
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
+import { SessionActivityLog } from "../../../../src/main/features/claude/session-activity";
 import { SessionHistory } from "../../../../src/main/features/cli/history";
 import { GlobalStorage } from "../../../../src/main/infra/storage/global-storage";
 import type { ClaudeStatus } from "../../../../src/shared/claude/status";
@@ -149,5 +150,49 @@ describe("SessionHistory", () => {
     expect(storage.listSessionSpans([W], 3_000).map((s) => s.state)).toEqual(["running"]);
     expect(storage.listSessionSpans([W], 2_000).map((s) => s.state)).toEqual(["idle", "running"]);
     expect(storage.listSessionSpans([], 0)).toEqual([]);
+  });
+
+  test("records the agents of Claude sessions, and how each ended", () => {
+    const { clock, history } = setup();
+    const activity = new SessionActivityLog(() => clock.now);
+    history.watchAgents(activity);
+    const hook = (subcommand: string, payload: Record<string, unknown>) =>
+      activity.noteHook(W, "a", subcommand, payload);
+    hook("pre-tool-use", {
+      tool_name: "Agent",
+      tool_use_id: "t1",
+      tool_input: { subagent_type: "Explore", description: "Find it", model: "haiku" },
+    });
+    hook("subagent-start", { agent_id: "x", agent_type: "Explore" });
+    clock.now += 1_000;
+    const call = { agent_id: "x", tool_name: "Bash", tool_input: { command: "rm" } };
+    hook("permission-request", call);
+    clock.now += 2_000;
+    hook("pre-tool-use", { ...call, tool_use_id: "b1" });
+    hook("post-tool-use", { ...call, tool_use_id: "b1" });
+    clock.now += 3_000;
+    hook("subagent-stop", { agent_id: "x" });
+    hook("subagent-start", { agent_id: "y" });
+    clock.now += 1_000;
+    history.dispose();
+
+    const agentSpans = history
+      .list([W], 0)
+      .filter((span) => span.agent)
+      .map(({ state, start, end, agent }) => [agent?.id, state, start, end]);
+    expect(agentSpans).toEqual([
+      ["x", "running", 100_000, 101_000],
+      ["x", "permissionPending", 101_000, 103_000],
+      ["x", "running", 103_000, 106_000],
+      ["x", "completed", 106_000, 106_000],
+      ["y", "running", 106_000, 107_000],
+    ]);
+    expect(history.list([W], 0)[0]?.agent).toEqual({
+      id: "x",
+      kind: "subagent",
+      type: "Explore",
+      model: "haiku",
+      description: "Find it",
+    });
   });
 });

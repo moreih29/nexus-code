@@ -192,16 +192,22 @@ func (t *terminal) setSize(cols, rows int) error {
 
 // foregroundProcess returns the name of the program the shell runs, or the
 // shell's own when it runs none (see foregroundOf), or "" when it cannot be
-// told.
-func (t *terminal) foregroundProcess() string {
+// told. With alone it is reported alone: foregroundOf goes on past a shell,
+// a script's included, to the program it runs, so a shell it names runs none.
+func (t *terminal) foregroundProcess(alone bool) (string, *bool) {
 	if t.shellPID == 0 {
-		return ""
+		return "", nil
 	}
 	entries, err := listProcesses()
 	if err != nil {
-		return ""
+		return "", nil
 	}
-	return foregroundOf(entries, t.shellPID, readProcessDetail)
+	name := foregroundOf(entries, t.shellPID, readProcessDetail, msysChildren)
+	if !alone || name == "" {
+		return name, nil
+	}
+	only := true
+	return name, &only
 }
 
 // Close closes the console and its pipes. The output pipe reads end once the

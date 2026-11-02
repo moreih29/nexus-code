@@ -16,6 +16,7 @@ import {
   MessageCircleQuestion,
   TriangleAlert,
 } from "lucide-react";
+import { useSyncExternalStore } from "react";
 import { cn } from "@/utils/cn";
 import type { AgentSession } from "../../services/sessions/model";
 
@@ -55,6 +56,14 @@ export function stateLabel(session: Pick<AgentSession, "state" | "estimated">): 
     : label;
 }
 
+/**
+ * The words for a tab or sidebar glyph told from output rather than reported
+ * by hooks, e.g. "Running (estimated)".
+ */
+export function estimatedLabel(status: string): string {
+  return stateLabel({ state: status === "running" ? "busy" : status, estimated: true });
+}
+
 /** How long ago `since` was: "just now", "12m", "3h", "2d". */
 export function durationLabel(since: number | undefined, now: number): string | null {
   if (since === undefined) return null;
@@ -79,17 +88,48 @@ export function StateGlyph({ state, className }: { state: string; className?: st
   );
 }
 
+/**
+ * The clock the durations read, one for all of them: it ticks while any is
+ * shown, often enough for the minutes they count.
+ */
+const CLOCK_TICK_MS = 10_000;
+const clockListeners = new Set<() => void>();
+let clockNow = Date.now();
+let clockTimer: ReturnType<typeof setInterval> | undefined;
+
+function subscribeClock(onTick: () => void): () => void {
+  clockListeners.add(onTick);
+  if (clockTimer === undefined) {
+    clockNow = Date.now();
+    clockTimer = setInterval(() => {
+      clockNow = Date.now();
+      for (const listener of clockListeners) listener();
+    }, CLOCK_TICK_MS);
+  }
+  return () => {
+    clockListeners.delete(onTick);
+    if (clockListeners.size === 0 && clockTimer !== undefined) {
+      clearInterval(clockTimer);
+      clockTimer = undefined;
+    }
+  };
+}
+
+const readClock = (): number => clockNow;
+
+/**
+ * How long ago `since` was, kept current by the shared clock, so a duration
+ * re-renders itself rather than the view it is in.
+ */
+export function useDurationLabel(since: number | undefined): string | null {
+  const now = useSyncExternalStore(subscribeClock, readClock, readClock);
+  // A state that began after the last tick has lasted no time yet.
+  return durationLabel(since, Math.max(now, since ?? 0));
+}
+
 /** Glyph, state and how long it has lasted, e.g. "◌ Running · 12m". */
-export function SessionState({
-  session,
-  now,
-  className,
-}: {
-  session: AgentSession;
-  now: number;
-  className?: string;
-}) {
-  const duration = durationLabel(session.since, now);
+export function SessionState({ session, className }: { session: AgentSession; className?: string }) {
+  const duration = useDurationLabel(session.since);
   const { colorClass } = lookOf(session.state);
   return (
     <span className={cn("inline-flex items-center gap-1.5 min-w-0 text-app-ui-sm", className)}>

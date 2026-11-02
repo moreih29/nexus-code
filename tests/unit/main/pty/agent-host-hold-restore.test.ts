@@ -195,6 +195,45 @@ describe("PTY restore on ready (epoch-match)", () => {
     expect(order).toEqual([`reset:${TAB_A}`, `restored:${TAB_A}`, `replay:${TAB_A}`]);
   });
 
+  test("emits replayed once pty.replay answers, and not when it fails", async () => {
+    const channel = new FakeAgentChannel();
+    channel.sessionListResult = {
+      sessions: [
+        { workspaceId: WORKSPACE_ID, tabId: TAB_A },
+        { workspaceId: WORKSPACE_ID, tabId: TAB_B },
+      ],
+    };
+    const originalCall = channel.call.bind(channel);
+    let answerReplay: () => void = () => {};
+    channel.call = ((method: string, params?: unknown) => {
+      if (method !== "pty.replay") return originalCall(method, params);
+      channel.calls.push({ method, params });
+      if ((params as { tabId: string }).tabId === TAB_B) {
+        return Promise.reject(new Error("link lost"));
+      }
+      return new Promise((resolve) => {
+        answerReplay = () => resolve({});
+      });
+    }) as typeof channel.call;
+
+    const host = startAgentPtyHost(makeWorkspaceManager(channel));
+    const replayed: unknown[] = [];
+    host.on("replayed", (a) => replayed.push(a));
+
+    for (const tabId of [TAB_A, TAB_B]) {
+      await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId, cwd: "/", cols: 80, rows: 24 });
+    }
+
+    channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
+    channel.emitLifecycle({ type: "ready" });
+    await new Promise<void>((r) => setTimeout(r, 0));
+    expect(replayed).toEqual([]);
+
+    answerReplay();
+    await new Promise<void>((r) => setTimeout(r, 0));
+    expect(replayed).toEqual([{ workspaceId: WORKSPACE_ID, tabId: TAB_A }]);
+  });
+
   test("pty.replay is called for each alive tab after reattach", async () => {
     const channel = new FakeAgentChannel();
     channel.sessionListResult = {

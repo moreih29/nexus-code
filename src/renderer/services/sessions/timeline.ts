@@ -1,11 +1,12 @@
 /**
  * The sessions tab's timeline: for each agent session of a workspace and its
- * tasks, its states over a stretch of time and its waits on other
- * terminals. Pure: built from the family and the spans main recorded
- * (cli.history).
+ * tasks, its states over a stretch of time, its waits on other terminals,
+ * and the agents it ran. Pure: built from the family and the spans main
+ * recorded (cli.history).
  */
 
-import type { SessionSpan } from "../../../shared/sessions/history";
+import type { ToolRun } from "../../../shared/claude/activity";
+import type { SessionSpan, SpanAgent } from "../../../shared/sessions/history";
 import {
   type AgentSession,
   phaseOf,
@@ -54,6 +55,14 @@ export interface TimelineWait {
   readonly target: WorktreeEntry | undefined;
 }
 
+/** An agent a session ran, under the session's lane. */
+export interface TimelineAgentLane {
+  readonly agent: SpanAgent;
+  readonly bars: readonly TimelineBar[];
+  /** How it ended, "completed", "stopped" or "failed", and when; absent while it runs. */
+  readonly outcome: { readonly state: string; readonly at: number } | undefined;
+}
+
 export interface TimelineLane {
   readonly worktree: WorktreeEntry;
   /**
@@ -66,6 +75,8 @@ export interface TimelineLane {
   readonly agent: string | undefined;
   readonly bars: readonly TimelineBar[];
   readonly waits: readonly TimelineWait[];
+  /** The agents the session ran in the period, by when each began. */
+  readonly agents: readonly TimelineAgentLane[];
 }
 
 export interface Timeline {
@@ -94,11 +105,36 @@ export function buildTimeline(
     return end > start ? { start, end } : null;
   };
   const spansOf = new Map<string, SessionSpan[]>();
+  // The spans of a session's agents: by session, then by agent.
+  const agentSpansOf = new Map<string, Map<string, SessionSpan[]>>();
   for (const span of spans) {
-    if (!clip(span)) continue;
     const key = sessionKey(span.workspaceId, span.tabId);
+    if (span.agent) {
+      const agents = agentSpansOf.get(key) ?? new Map<string, SessionSpan[]>();
+      agents.set(span.agent.id, [...(agents.get(span.agent.id) ?? []), span]);
+      agentSpansOf.set(key, agents);
+      continue;
+    }
+    if (!clip(span)) continue;
     spansOf.set(key, [...(spansOf.get(key) ?? []), span]);
   }
+  const agentLanesOf = (key: string): TimelineAgentLane[] =>
+    [...(agentSpansOf.get(key)?.values() ?? [])].flatMap((own) => {
+      const agent = own[own.length - 1]?.agent;
+      if (!agent) return [];
+      const bars = own.flatMap((span) => {
+        const time = !ENDINGS.has(span.state) && clip(span);
+        return time
+          ? [{ state: span.state, phase: phaseOf(span.state), estimated: false, ...time }]
+          : [];
+      });
+      const ending = own.find((span) => ENDINGS.has(span.state));
+      const outcome =
+        ending && ending.start >= from && ending.start <= now
+          ? { state: ending.state, at: ending.start }
+          : undefined;
+      return bars.length > 0 || outcome ? [{ agent, bars, outcome }] : [];
+    });
   const worktreeOf = (workspaceId: string) =>
     family.worktrees.find((w) => w.workspace.id === workspaceId);
 
@@ -125,7 +161,15 @@ export function buildTimeline(
       const time = span.state === "waiting" && clip(span);
       return time ? [{ ...time, target: span.target && worktreeOf(span.target.workspaceId) }] : [];
     });
-    return { worktree, key, session, agent: session ? session.agent : "claude", bars, waits };
+    return {
+      worktree,
+      key,
+      session,
+      agent: session ? session.agent : "claude",
+      bars,
+      waits,
+      agents: agentLanesOf(key),
+    };
   };
 
   const lanes = family.worktrees.flatMap((worktree): TimelineLane[] => {
@@ -142,9 +186,34 @@ export function buildTimeline(
     ];
     return own.length > 0
       ? own
-      : [{ worktree, key: undefined, session: undefined, agent: undefined, bars: [], waits: [] }];
+      : [
+          {
+            worktree,
+            key: undefined,
+            session: undefined,
+            agent: undefined,
+            bars: [],
+            waits: [],
+            agents: [],
+          },
+        ];
   });
   return { from, to: now, lanes, ticks: ticksBetween(from, now) };
+}
+
+/** The states of an agent's span with no length that tells how it ended. */
+const ENDINGS = new Set(["completed", "stopped", "failed"]);
+
+/** When the tools of `tools` that failed in the period failed, with each tool. */
+export function failedTools(
+  tools: readonly ToolRun[],
+  from: number,
+  now: number,
+): { readonly at: number; readonly tool: ToolRun }[] {
+  return tools.flatMap((tool) => {
+    const at = tool.end ?? tool.start;
+    return tool.failed && at >= from && at <= now ? [{ at, tool }] : [];
+  });
 }
 
 const TICK_STEPS = [5, 10, 15, 30, 60, 120, 180, 240].map((minutes) => minutes * MINUTE);

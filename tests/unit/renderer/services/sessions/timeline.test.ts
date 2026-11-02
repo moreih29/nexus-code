@@ -11,6 +11,7 @@ import type {
 } from "../../../../../src/renderer/services/sessions/model";
 import {
   buildTimeline,
+  failedTools,
   rangeStart,
   ticksBetween,
 } from "../../../../../src/renderer/services/sessions/timeline";
@@ -113,6 +114,70 @@ describe("buildTimeline", () => {
       [`${ROOT}:t`, "t", undefined],
       [`${TASK}:gone`, undefined, "claude"],
     ]);
+  });
+
+  it("leaves the spans of a session's agents out of its bars", () => {
+    const timeline = buildTimeline(
+      family(worktree(ROOT, ["t"])),
+      [
+        span(ROOT, "t", "running", from, null),
+        {
+          ...span(ROOT, "t", "permissionPending", from + MINUTE, null),
+          agent: { id: "a1", kind: "subagent" },
+        },
+      ],
+      from,
+      now,
+    );
+    expect(timeline.lanes[0]?.bars.map((b) => b.state)).toEqual(["running"]);
+  });
+
+  it("puts a session's agents under its lane, each with how it ended", () => {
+    const agent = (id: string) => ({ id, kind: "subagent" as const, type: "Explore" });
+    const of = (s: SessionSpan, id: string): SessionSpan => ({ ...s, agent: agent(id) });
+    const timeline = buildTimeline(
+      family(worktree(ROOT, ["t"])),
+      [
+        span(ROOT, "t", "running", from, null),
+        of(span(ROOT, "t", "running", from + MINUTE, from + 2 * MINUTE), "a1"),
+        of(span(ROOT, "t", "permissionPending", from + 2 * MINUTE, from + 3 * MINUTE), "a1"),
+        of(span(ROOT, "t", "running", from + 3 * MINUTE, from + 4 * MINUTE), "a1"),
+        of(span(ROOT, "t", "completed", from + 4 * MINUTE, from + 4 * MINUTE), "a1"),
+        of(span(ROOT, "t", "running", from + 5 * MINUTE, null), "a2"),
+        // Ended before the period.
+        of(span(ROOT, "t", "running", from - 9 * MINUTE, from - 8 * MINUTE), "old"),
+        of(span(ROOT, "t", "stopped", from - 8 * MINUTE, from - 8 * MINUTE), "old"),
+      ],
+      from,
+      now,
+    );
+    const agents = timeline.lanes[0]?.agents ?? [];
+    expect(agents.map((a) => [a.agent.id, a.bars.map((b) => b.phase), a.outcome])).toEqual([
+      ["a1", ["running", "attention", "running"], { state: "completed", at: from + 4 * MINUTE }],
+      ["a2", ["running"], undefined],
+    ]);
+    expect(agents[1]?.bars[0]?.end).toBe(now);
+  });
+
+  it("finds the tools that failed in the period", () => {
+    const tool = (id: string, start: number, end: number | undefined, failed?: boolean) => ({
+      id,
+      name: "Bash",
+      start,
+      ...(end !== undefined ? { end } : {}),
+      ...(failed ? { failed } : {}),
+    });
+    expect(
+      failedTools(
+        [
+          tool("ok", from, from + 1),
+          tool("bad", from, from + 2, true),
+          tool("before", from - 9, from - 5, true),
+        ],
+        from,
+        now,
+      ).map(({ at, tool }) => [tool.id, at]),
+    ).toEqual([["bad", from + 2]]);
   });
 
   it("has a lane per session, and an empty one for a worktree with none", () => {

@@ -7,10 +7,21 @@ import type { ClaudeStatus, StatusEntry } from "../../../shared/claude/status";
 /** 내부 저장 단위 */
 interface StateEntry {
   status: ClaudeStatus;
+  /** What the session shows: the notice while it waits on the user, else the answer. */
   message?: string;
+  /** When the status last changed; a new message or prompt alone keeps it. */
   since: number;
   prompt?: string;
+  /** When Claude last started working: a prompt came in, or it went to running. */
+  turnStartedAt?: number;
+  /** Claude's answer at the end of its last turn, kept until the next turn ends. */
+  answer?: string;
+  /** What a state waiting on the user says, as a question or a permission; gone with that state. */
+  notice?: string;
 }
+
+/** States the session waits on the user in; their message is about that wait. */
+const WAITING: ReadonlySet<ClaudeStatus> = new Set(["needsInput", "permissionPending", "error"]);
 
 /** 상태 변경 listener — clear 시 entry는 null. */
 export type ClaudeStatusListener = (
@@ -46,7 +57,14 @@ export class ClaudeStatusBroker {
    * 특정 (workspaceId, tabId) 의 상태를 설정한다.
    * 이전 상태와 동일하면 broadcast를 발사하지 않는다.
    *
+   * message: for a state that waits on the user (needsInput,
+   * permissionPending, error), what it says; it goes with that state. For any
+   * other state, Claude's answer to the turn that ended ("" when it gave
+   * none), which stays once the turn is seen. Undefined keeps the answer.
+   *
    * prompt: undefined면 이전 프롬프트를 유지하고, null이면 지운다(새 세션).
+   * The answer goes with the prompt it answers: a new prompt or a new
+   * session has none yet. A turn Claude Code starts itself keeps both.
    */
   set(
     workspaceId: string,
@@ -58,19 +76,37 @@ export class ClaudeStatusBroker {
     const key = `${workspaceId}:${tabId}`;
     const prev = this.map.get(key);
     const nextPrompt = prompt === null ? undefined : (prompt ?? prev?.prompt);
+    const waiting = WAITING.has(status);
+    const kept = prompt === undefined ? prev?.answer : undefined;
+    const answer = waiting || message === undefined ? kept : message || undefined;
+    const notice = waiting ? message : undefined;
+    const shown = notice ?? answer;
 
     // 상태·메시지·프롬프트가 모두 동일하면 broadcast 생략.
     if (
       prev &&
       prev.status === status &&
-      prev.message === message &&
-      prev.prompt === nextPrompt
+      prev.message === shown &&
+      prev.prompt === nextPrompt &&
+      prev.answer === answer
     ) {
       return;
     }
 
-    const since = Date.now();
-    this.map.set(key, { status, message, since, prompt: nextPrompt });
+    const now = Date.now();
+    const since = prev && prev.status === status ? prev.since : now;
+    const startsTurn =
+      status === "running" && (prev?.status !== "running" || typeof prompt === "string");
+    const turnStartedAt = startsTurn ? now : prev?.turnStartedAt;
+    this.map.set(key, {
+      status,
+      message: shown,
+      since,
+      prompt: nextPrompt,
+      answer,
+      notice,
+      ...(turnStartedAt !== undefined ? { turnStartedAt } : {}),
+    });
     for (const listener of this.listeners) listener(workspaceId, tabId, { status, since });
 
     const entry: StatusEntry = {
@@ -78,7 +114,7 @@ export class ClaudeStatusBroker {
       tabId,
       status,
       since,
-      ...(message !== undefined ? { message } : {}),
+      ...(shown !== undefined ? { message: shown } : {}),
       ...(nextPrompt !== undefined ? { prompt: nextPrompt } : {}),
     };
     this.broadcastFn("claude", "status", entry);

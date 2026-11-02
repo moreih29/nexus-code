@@ -15,7 +15,7 @@
  *
  * The component subscribes to `useBrowserRuntimeStore` for the live URL,
  * back/forward availability, loading state, and DevTools docked state, then
- * renders a toolbar (NavControls + UrlBar + DevTools toggle) and the
+ * renders a toolbar (NavControls + UrlBar + PickButton + DevTools toggle) and the
  * placeholder with an optional empty state.
  *
  * INLINE DOCKED DEVTOOLS
@@ -54,6 +54,7 @@ import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BrowserEmptyState } from "@/components/editor/browser/empty-state";
 import { NavControls } from "@/components/editor/browser/nav-controls";
+import { PickButton } from "@/components/editor/browser/pick-button";
 import { UrlBar } from "@/components/editor/browser/url-bar";
 import { ipcCallResult } from "@/ipc/client";
 import { resolveInitialBrowserUrl } from "@/state/operations/browser";
@@ -368,6 +369,7 @@ export function BrowserTabView({
           focusToken={urlFocusToken}
           className="flex-1"
         />
+        <PickButton tabId={tabId} workspaceId={workspaceId} />
         {/* DevTools toggle — sends `browser.openDevTools`.  Main toggles the
             inline-docked DevTools sibling view and broadcasts
             `devtoolsToggled`; the new state lands in `runtime.devtoolsOpen`

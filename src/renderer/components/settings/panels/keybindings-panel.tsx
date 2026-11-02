@@ -53,10 +53,10 @@ import {
   eventToAccelerator,
   isModifierCode,
 } from "../../../../shared/keybindings/keybinding-parse";
-import type { KeybindingOverride } from "../../../../shared/keybindings/overrides";
+import { inheritedWhen, type KeybindingOverride } from "../../../../shared/keybindings/overrides";
 import { labelOptions } from "../../../keybindings/shortcut-labels";
 import { useKeybindingsStore } from "../../../state/stores/keybindings";
-import { isMac } from "../../../utils/platform";
+import { isLinux, isMac } from "../../../utils/platform";
 
 // `updates.check` is dispatched inside the main process from the menu —
 // the renderer registry has no handler for it, so a keybinding would be
@@ -85,7 +85,7 @@ function defaultDeclFor(command: CommandId): KeybindingDecl | undefined {
 }
 
 function bindingLabelFor(bindings: readonly KeybindingDecl[], command: CommandId): string | null {
-  const primary = findDisplayPrimary(bindings, command, isMac());
+  const primary = findDisplayPrimary(bindings, command, isMac(), isLinux());
   if (primary?.primary !== undefined) return acceleratorToLabel(primary.primary, labelOptions());
   const chord = bindings.find((b) => b.command === command && b.chord !== undefined);
   if (chord?.chord !== undefined) return chordToLabel(chord.chord, labelOptions());
@@ -191,7 +191,7 @@ export function KeybindingsPanel() {
         label: t(`keybindings.command.${command}`),
         bindingLabel: bindingLabelFor(effectiveBindings, command),
         kind: def?.chord !== undefined ? "chord" : "primary",
-        when: def?.when,
+        when: inheritedWhen(def?.when),
         overridden: overrides.some((o) => o.command === command),
         conflicts: appConflicts.get(command) ?? [],
       };

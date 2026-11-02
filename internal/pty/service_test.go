@@ -155,6 +155,56 @@ while :; do sleep 1; done
 	wg.Wait()
 }
 
+// TestForegroundToldAloneOnlyWhenTheShellRunsNothing: a script's shell
+// waiting for its program shares its process group with it, so the shell in
+// front is not alone; one in a builtin is.
+func TestForegroundToldAloneOnlyWhenTheShellRunsNothing(t *testing.T) {
+	t.Parallel()
+	service, recorder := newTestService(t)
+	spawnTestScript(t, service, "waiting", `
+echo WAITING
+sleep 30
+`)
+	spawnTestScript(t, service, "reading", `
+echo READING
+read line
+`)
+	recorder.requireTranscriptContains(t, "WAITING", 2*time.Second)
+	recorder.requireTranscriptContains(t, "READING", 2*time.Second)
+	foreground := func(tabID string, alone bool) ForegroundProcessResult {
+		raw := mustJSON(t, ForegroundProcessParams{WorkspaceID: testWorkspaceID, TabID: tabID, Alone: alone})
+		result, err := service.ForegroundProcess(context.Background(), raw)
+		if err != nil {
+			t.Fatalf("foregroundProcess %s: %v", tabID, err)
+		}
+		return result.(ForegroundProcessResult)
+	}
+	// sleep starts a moment after the marker is printed.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		got := foreground("waiting", true)
+		if got.Name == "sh" && got.Alone != nil && !*got.Alone {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("waiting script: name %q alone %v, want sh not alone", got.Name, got.Alone)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := foreground("reading", true); got.Name != "sh" || got.Alone == nil || !*got.Alone {
+		t.Fatalf("reading script: name %q alone %v, want sh alone", got.Name, got.Alone)
+	}
+	if got := foreground("reading", false); got.Alone != nil {
+		t.Fatalf("alone reported unasked: %v", *got.Alone)
+	}
+	for _, tabID := range []string{"waiting", "reading"} {
+		if _, err := service.Kill(context.Background(), mustJSON(t, KillParams{WorkspaceID: testWorkspaceID, TabID: tabID})); err != nil {
+			t.Fatalf("kill %s: %v", tabID, err)
+		}
+		recorder.requireExit(t, tabID, 3*time.Second)
+	}
+}
+
 // TestExitReportedWhileBackgroundJobHoldsTerminal covers a job-control
 // background job (its own process group) that keeps the PTY slave open after
 // the shell exits or is killed. On Linux the master read then never ended and
@@ -370,11 +420,11 @@ func (r *eventRecorder) requireExit(t *testing.T, tabID string, timeout time.Dur
 	return ExitPayload{}
 }
 
-// spawnTestScript writes body to an executable shell script and spawns it as the PTY child.
+// spawnTestScript writes body to a shell script and spawns /bin/sh running it as the PTY child.
 func spawnTestScript(t *testing.T, service *Service, tabID string, body string) SpawnResult {
 	t.Helper()
-	path := writeExecutableScript(t, body)
-	params := SpawnParams{WorkspaceID: testWorkspaceID, TabID: tabID, Cwd: t.TempDir(), Shell: path, Cols: 80, Rows: 24}
+	path := writeTestScript(t, body)
+	params := SpawnParams{WorkspaceID: testWorkspaceID, TabID: tabID, Cwd: t.TempDir(), Shell: "/bin/sh", Args: []string{path}, Cols: 80, Rows: 24}
 	result, err := service.Spawn(context.Background(), mustJSON(t, params))
 	if err != nil {
 		t.Fatalf("spawn %s: %v", tabID, err)
@@ -389,12 +439,15 @@ func spawnTestScript(t *testing.T, service *Service, tabID string, body string) 
 	return spawned
 }
 
-// writeExecutableScript creates a temporary executable /bin/sh script.
-func writeExecutableScript(t *testing.T, body string) string {
+// writeTestScript creates a temporary /bin/sh script for spawnTestScript.
+// The script is read by /bin/sh, never exec'd itself: a parallel test's fork
+// can inherit the still-open write descriptor, and exec'ing the fresh file
+// then fails with "text file busy" (golang/go#22315).
+func writeTestScript(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "child.sh")
-	content := "#!/bin/sh\n" + strings.TrimLeft(body, "\n")
-	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+	content := strings.TrimLeft(body, "\n")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write test script: %v", err)
 	}
 	return path

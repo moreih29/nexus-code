@@ -6,7 +6,7 @@
  * - message 변경만 있어도 broadcast 발사 검증.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, setSystemTime, test } from "bun:test";
 import { ClaudeStatusBroker } from "../../../../src/main/features/claude/status";
 
 function makeBroker() {
@@ -167,6 +167,57 @@ describe("ClaudeStatusBroker — prompt", () => {
   });
 });
 
+describe("ClaudeStatusBroker — answer", () => {
+  test("the answer stays once seen, and through a turn Claude Code starts itself", () => {
+    const { broker, calls } = makeBroker();
+    broker.set("ws-1", "tab-1", "running", undefined, "build it");
+    broker.set("ws-1", "tab-1", "completed", "Built in 3s.");
+    broker.set("ws-1", "tab-1", "idle"); // seen
+    expect(broker.get("ws-1", "tab-1")?.message).toBe("Built in 3s.");
+    expect((calls.at(-1)?.args as { message?: string }).message).toBe("Built in 3s.");
+    broker.set("ws-1", "tab-1", "running"); // a background task's notification
+    expect(broker.get("ws-1", "tab-1")?.message).toBe("Built in 3s.");
+    expect(broker.get("ws-1", "tab-1")?.prompt).toBe("build it");
+  });
+
+  test("the user's next prompt has no answer yet, even when the turn is interrupted", () => {
+    const { broker } = makeBroker();
+    broker.set("ws-1", "tab-1", "completed", "Built in 3s.");
+    broker.set("ws-1", "tab-1", "running", undefined, "now test it");
+    expect(broker.get("ws-1", "tab-1")?.message).toBeUndefined();
+    broker.set("ws-1", "tab-1", "idle"); // interrupted
+    expect(broker.snapshot()[0].message).toBeUndefined();
+  });
+
+  test("the next turn's answer replaces it, and a turn with none clears it", () => {
+    const { broker } = makeBroker();
+    broker.set("ws-1", "tab-1", "completed", "first");
+    broker.set("ws-1", "tab-1", "idle", "second");
+    expect(broker.get("ws-1", "tab-1")?.message).toBe("second");
+    broker.set("ws-1", "tab-1", "completed", "");
+    expect(broker.get("ws-1", "tab-1")?.message).toBeUndefined();
+  });
+
+  test("a question or permission shows while it waits, then the answer comes back", () => {
+    const { broker } = makeBroker();
+    broker.set("ws-1", "tab-1", "completed", "Built.");
+    broker.set("ws-1", "tab-1", "permissionPending", "Claude needs permission: Bash");
+    expect(broker.get("ws-1", "tab-1")?.message).toBe("Claude needs permission: Bash");
+    broker.set("ws-1", "tab-1", "running");
+    expect(broker.get("ws-1", "tab-1")?.message).toBe("Built.");
+    broker.set("ws-1", "tab-1", "needsInput", "Claude is waiting for your input");
+    broker.set("ws-1", "tab-1", "idle"); // seen
+    expect(broker.get("ws-1", "tab-1")?.message).toBe("Built.");
+  });
+
+  test("a new session has no answer", () => {
+    const { broker } = makeBroker();
+    broker.set("ws-1", "tab-1", "completed", "old answer");
+    broker.set("ws-1", "tab-1", "idle", undefined, null);
+    expect(broker.get("ws-1", "tab-1")?.message).toBeUndefined();
+  });
+});
+
 describe("ClaudeStatusBroker — onChange", () => {
   test("set·clear·clearWorkspace 마다 listener를 부르고, 해제하면 멈춘다", () => {
     const { broker } = makeBroker();
@@ -187,5 +238,41 @@ describe("ClaudeStatusBroker — onChange", () => {
       ["ws-1", "tab-2", "completed"],
       ["ws-1", "tab-2", null],
     ]);
+  });
+});
+
+describe("ClaudeStatusBroker — since and turn start", () => {
+  afterEach(() => {
+    setSystemTime();
+  });
+
+  test("since is when the status changed, not the message", () => {
+    const { broker } = makeBroker();
+    setSystemTime(new Date(1_000_000));
+    broker.set("ws-1", "tab-1", "needsInput", "Which DB?");
+    setSystemTime(new Date(1_005_000));
+    broker.set("ws-1", "tab-1", "needsInput", "Which DB, Postgres or SQLite?");
+    expect(broker.get("ws-1", "tab-1")?.since).toBe(1_000_000);
+    broker.set("ws-1", "tab-1", "idle");
+    expect(broker.get("ws-1", "tab-1")?.since).toBe(1_005_000);
+  });
+
+  test("a turn starts on going to running or on a prompt, not on each tool", () => {
+    const { broker } = makeBroker();
+    setSystemTime(new Date(2_000_000));
+    broker.set("ws-1", "tab-1", "idle");
+    expect(broker.get("ws-1", "tab-1")?.turnStartedAt).toBeUndefined();
+    setSystemTime(new Date(2_001_000));
+    broker.set("ws-1", "tab-1", "running", undefined, "add a test");
+    setSystemTime(new Date(2_002_000));
+    broker.set("ws-1", "tab-1", "running");
+    expect(broker.get("ws-1", "tab-1")?.turnStartedAt).toBe(2_001_000);
+    setSystemTime(new Date(2_003_000));
+    broker.set("ws-1", "tab-1", "running", undefined, "and run it");
+    expect(broker.get("ws-1", "tab-1")?.turnStartedAt).toBe(2_003_000);
+    setSystemTime(new Date(2_004_000));
+    broker.set("ws-1", "tab-1", "completed", "Done.");
+    broker.set("ws-1", "tab-1", "idle");
+    expect(broker.get("ws-1", "tab-1")?.turnStartedAt).toBe(2_003_000);
   });
 });

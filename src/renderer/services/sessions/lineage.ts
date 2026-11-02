@@ -22,6 +22,16 @@ export const COLUMN_GAP = 72;
 export const ROW_GAP = 16;
 /** The room above the tasks placed apart, for their heading. */
 export const SEPARATE_LABEL_HEIGHT = 32;
+/** The rows under a card for the agents its sessions run. */
+export const AGENT_ROW_HEIGHT = 24;
+export const AGENT_ROW_GAP = 4;
+/** The room between a card and its first agent row. */
+export const AGENT_ROWS_TOP = 8;
+
+/** How tall the agent rows under a card are. */
+export function agentRowsHeight(rows: number): number {
+  return rows === 0 ? 0 : AGENT_ROWS_TOP + rows * AGENT_ROW_HEIGHT + (rows - 1) * AGENT_ROW_GAP;
+}
 
 export interface LineageCard {
   readonly worktree: WorktreeEntry;
@@ -32,6 +42,8 @@ export interface LineageCard {
   readonly y: number;
   /** Since when one of its terminals has been waiting on a terminal, if one is. */
   readonly waitingSince: number | undefined;
+  /** How many agent rows are under it. */
+  readonly agentRows: number;
 }
 
 export interface LineageEdge {
@@ -68,9 +80,14 @@ function liveWaits(family: SessionFamily, waits: readonly TerminalWait[]): Termi
   });
 }
 
+/**
+ * `agentRows` tells how many rows of agents go under a worktree's card;
+ * the cards below make room for them.
+ */
 export function layoutLineage(
   family: SessionFamily,
   waits: readonly TerminalWait[],
+  agentRows: (worktree: WorktreeEntry) => number = () => 0,
 ): LineageLayout {
   const byId = new Map(family.worktrees.map((w) => [w.workspace.id, w]));
   const makerOf = (worktree: WorktreeEntry): string | undefined => {
@@ -104,20 +121,25 @@ export function layoutLineage(
     for (const kid of children.get(id) ?? []) {
       if (!placed.has(kid)) ys.push(place(kid, depth + 1));
     }
+    const worktree = byId.get(id) as WorktreeEntry;
+    const rows = agentRows(worktree);
+    const height = CARD_HEIGHT + agentRowsHeight(rows);
     let y: number;
     if (ys.length === 0) {
       y = top;
-      top += CARD_HEIGHT + ROW_GAP;
+      top += height + ROW_GAP;
     } else {
       y = ((ys[0] ?? 0) + (ys[ys.length - 1] ?? 0)) / 2;
+      // Its agent rows may reach below its children.
+      top = Math.max(top, y + height + ROW_GAP);
     }
-    const worktree = byId.get(id) as WorktreeEntry;
     cards.push({
       worktree,
       session: leadSession(worktree.sessions),
       x: depth * (CARD_WIDTH + COLUMN_GAP),
       y,
       waitingSince: waitingSince.get(id),
+      agentRows: rows,
     });
     return y;
   };

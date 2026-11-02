@@ -85,7 +85,7 @@ export const WORKSPACE_VISIBLE_STATUSES: readonly ClaudeStatus[] = [
  *
  * completed는 running 위 / needsInput 아래로 둔다. 응답이 끝났음을 알리는 약한 attention.
  */
-const STATUS_PRIORITY: Record<ClaudeStatus, number> = {
+export const STATUS_PRIORITY: Record<ClaudeStatus, number> = {
   idle: 0,
   running: 1,
   completed: 2,

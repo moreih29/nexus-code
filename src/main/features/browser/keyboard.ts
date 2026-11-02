@@ -49,7 +49,7 @@ import {
   type KeybindingOverride,
 } from "../../../shared/keybindings/overrides";
 import { createLogger } from "../../../shared/log/main";
-import { isMac } from "../../infra/platform";
+import { isLinux, isMac } from "../../infra/platform";
 
 const logger = createLogger("browser-keyboard");
 
@@ -90,6 +90,7 @@ const APP_COMMANDS: readonly CommandId[] = [
   COMMANDS.workspaceFocusPrev,
   COMMANDS.workspaceFocusNext,
   COMMANDS.workspaceAdd,
+  COMMANDS.sessionNextWaiting,
   COMMANDS.settingsOpen,
   COMMANDS.workbenchToggleSidebar,
 ];
@@ -99,6 +100,7 @@ const PAGE_COMMAND_SET: ReadonlySet<string> = new Set([...BROWSER_COMMANDS, ...A
 const PAGE_CONTEXT: Readonly<Record<string, boolean>> = {
   browserTabActive: true,
   isMac: isMac(),
+  isLinux: isLinux(),
 };
 
 interface CompiledBinding {

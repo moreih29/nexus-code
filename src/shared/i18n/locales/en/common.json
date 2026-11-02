@@ -122,7 +122,12 @@
     "op_continuing": "Continuing…",
     "op_refreshing": "Refreshing…",
     "op_initializing": "Initializing…",
-    "op_working": "Working…"
+    "op_working": "Working…",
+    "ports_title": "Listening ports {{ports}} — click to open",
+    "ports_menu_title": "Listening ports",
+    "ports_ssh_note": "These ports are on the SSH host, which the app does not forward ports from.",
+    "ports_open": "Open in browser tab",
+    "ports_copy": "Copy URL"
   },
   "titleBar": {
     "open_settings": "Open settings",
@@ -131,6 +136,16 @@
     "maximize": "Maximize",
     "restore": "Restore",
     "close": "Close"
+  },
+  "inbox": {
+    "title": "Sessions waiting on you",
+    "aria_one": "Sessions waiting on you: {{count}} needs you",
+    "aria_other": "Sessions waiting on you: {{count}} need you",
+    "waiting": "Waiting on you",
+    "done": "Done",
+    "empty": "No session is waiting on you",
+    "next": "Go to next waiting session",
+    "mark_read": "Mark done as read"
   },
   "diagnostics": {
     "errors_dialog": "Errors",
@@ -159,6 +174,7 @@
     "new": "New task…",
     "remove_current": "Delete this task…",
     "show_sessions": "Sessions",
+    "ports_title": "Listening ports {{ports}}",
     "new_title": "New task",
     "new_description": "Makes a branch and a worktree from {{branch}} of {{name}}, and opens the task in them.",
     "name_label": "Name",
@@ -334,7 +350,14 @@
     "toggle_devtools": "Toggle DevTools",
     "resize_devtools": "Resize DevTools",
     "enter_url": "Enter a URL or search",
-    "url_blocked_default": "This URL scheme is not allowed."
+    "url_blocked_default": "This URL scheme is not allowed.",
+    "pick_element": "Pick an element for an agent",
+    "cancel_pick": "Stop picking (Esc)",
+    "pick_send_to": "Send the element to",
+    "pick_no_agent": "No agent terminal in this workspace. The element was copied to the clipboard.",
+    "pick_terminal_closed": "That terminal has not opened. The element was copied to the clipboard.",
+    "pick_failed": "Could not pick an element: {{message}}",
+    "downloaded": "Downloaded {{file}}"
   },
   "tabBar": {
     "open_tabs": "Open tabs",
@@ -441,11 +464,11 @@
     "view": {
       "tree": "Tree",
       "board": "Board",
-      "lineage": "Lineage",
+      "lineage": "Graph",
       "timeline": "Timeline"
     },
     "phase": {
-      "attention": "Awaiting input",
+      "attention": "Needs attention",
       "running": "Running",
       "done": "Done",
       "idle": "Idle"
@@ -473,9 +496,11 @@
     "changed_files": "{{count}} changed",
     "column_empty": "None",
     "lineage": {
-      "legend_created": "Made — tasks a session made with nexus worktree new",
-      "legend_waits": "Waiting — terminal wait · send --wait",
-      "separate": "Made separately",
+      "legend_created": "Created",
+      "legend_created_hint": "Tasks a session made with nexus worktree new",
+      "legend_waits": "Waiting on",
+      "legend_waits_hint": "Waiting for another terminal to finish (nexus terminal wait · send --wait)",
+      "separate": "Created directly",
       "waiting": "Waiting · {{duration}}",
       "sessions_one": "{{count}} session",
       "sessions_other": "{{count}} sessions"
@@ -487,7 +512,7 @@
         "2h": "2 hours",
         "today": "Today"
       },
-      "legend_waiting": "Waiting on another terminal",
+      "legend_waiting": "Waiting on",
       "made_by": "Made in {{name}}",
       "waiting_on": "Waiting on {{name}}",
       "empty": "Nothing was recorded in this period. Activity is recorded while the app runs and kept for a day."
@@ -500,15 +525,97 @@
       "permission_hint": "Permission requests are answered in the terminal.",
       "send_placeholder": "Input to send to this session (Shift+Enter for a new line)",
       "send": "Send",
-      "prompt": "Last prompt",
-      "message": "Last message",
-      "screen": "Screen",
+      "prompt": "Request",
+      "message": "Response",
       "screen_not_started": "This terminal has not started yet. It starts when its task is opened.",
+      "screen_exited": "This terminal has exited.",
       "changes": "Uncommitted changes ({{count}})",
       "no_changes": "No uncommitted changes.",
       "more_changes": "{{count}} more",
       "no_session": "No agent session runs in this worktree.",
-      "close": "Close details"
+      "close": "Close details",
+      "now_thinking": "Thinking",
+      "turn": "Turn {{duration}}",
+      "files_written_one": "{{count}} file edited",
+      "files_written_other": "{{count}} files edited",
+      "agents_running_one": "{{count}} agent running",
+      "agents_running_other": "{{count}} agents running",
+      "todos": "To do",
+      "todos_progress": "{{done}} / {{total}}",
+      "agents": "Agents",
+      "progress": "Progress",
+      "screen_show": "Show terminal output",
+      "screen_hide": "Hide terminal output"
+    },
+    "agents": {
+      "running_count": "Agents running {{count}}",
+      "ended_toggle": "Finished agents {{count}}",
+      "label_fallback": "Agent",
+      "print": "claude -p",
+      "background": "background",
+      "state": {
+        "running": "Running",
+        "permissionPending": "Needs permission",
+        "completed": "Done",
+        "stopped": "Stopped",
+        "failed": "Failed"
+      },
+      "tools_one": "{{count}} tool",
+      "tools_other": "{{count}} tools",
+      "tools_failed_one": "{{count}} tool · {{failed}} failed",
+      "tools_failed_other": "{{count}} tools · {{failed}} failed",
+      "asking_tool": "Needs permission · {{tool}}",
+      "asking_agent": "Agent “{{name}}” is asking for permission",
+      "summary_one": "{{count}} agent",
+      "summary_other": "{{count}} agents",
+      "count_running": "{{count}} running",
+      "count_asking": "{{count}} asking",
+      "count_ended": "{{count}} finished",
+      "more": "{{count}} more",
+      "session_crumb": "{{agent}} session",
+      "agent_crumb": "Agent",
+      "exit_code": "Exit code {{code}}",
+      "toggle_expand": "Show agents",
+      "toggle_collapse": "Hide agents",
+      "failed_tool": "Failed: {{tool}}",
+      "detail": {
+        "prompt": "Request",
+        "activity": "Activity",
+        "answer": "Answer",
+        "answer_pending": "The agent's last answer shows here once it finishes.",
+        "answer_none": "It finished without an answer.",
+        "tools_none": "No tools used yet.",
+        "tools_untold": "This run's tools are not recorded: it resumes a session, or keeps none.",
+        "denied": "Denied",
+        "more_tools": "Show {{count}} earlier",
+        "fewer_tools": "Show recent only",
+        "running_for": "{{duration}} so far",
+        "permission_hint": "This agent is waiting on a permission request. Answer it in the terminal."
+      }
+    },
+    "permission": {
+      "title": "Permission request",
+      "from_agent": "Permission request from agent “{{name}}”",
+      "allow": "Allow",
+      "allow_always": "Always allow",
+      "always_hint": "Always allows: {{what}}",
+      "always_session": "{{rule}} (this session)",
+      "mode_accept_edits": "Edits without asking for this session",
+      "mode": "{{mode}} mode",
+      "directory": "The {{path}} directory",
+      "deny": "Deny…",
+      "deny_send": "Deny",
+      "deny_stop": "Deny and stop",
+      "cancel": "Cancel",
+      "message_placeholder": "What Claude should do instead (optional)",
+      "terminal_too": "The terminal's permission prompt can answer it too.",
+      "failed": "Not answered: it was answered in the terminal, or is over."
+    },
+    "elapsed": {
+      "seconds": "{{count}}s",
+      "minutes_seconds": "{{minutes}}m {{seconds}}s",
+      "minutes": "{{count}}m",
+      "hours_minutes": "{{hours}}h {{minutes}}m"
     }
   },
   "claudeStatus": {
@@ -525,7 +632,8 @@
     "needsPermissionTool": "Claude needs permission: {{tool}}",
     "permissionRequired": "Permission Required",
     "responseComplete": "Response complete",
-    "terminalFallback": "Terminal"
+    "terminalFallback": "Terminal",
+    "turnFailed": "Claude stopped on an error"
   },
   "saveConfirm": {
     "title": "Do you want to save the changes you made to {{filename}}?",

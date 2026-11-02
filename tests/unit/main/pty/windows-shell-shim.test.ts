@@ -13,6 +13,10 @@ import {
 } from "../../../../src/main/features/pty/windows-shell-shim";
 
 const SETTINGS = "C:\\Users\\me\\.nexus-code\\claude-settings.json";
+/** cmd's claude macro: the tab's mark set, claude with the hooks, the mark cleared. */
+const CMD_CLAUDE =
+  `doskey claude=set "NEXUS_CLAUDE_TAB_ID=%NEXUS_TAB_ID%" ^& ` +
+  `claude --settings "${SETTINGS}" $* ^& set "NEXUS_CLAUDE_TAB_ID="`;
 const BIN = "C:\\Users\\me\\.nexus-code\\bin";
 const LAUNCHERS = "C:\\Users\\me\\.nexus-code\\cli";
 const ENV = { NEXUS_IN_APP: "1", NEXUS_WRAPPER_SELF_DIR: LAUNCHERS, NEXUS_TAB_ID: "t" };
@@ -31,10 +35,17 @@ describe("wrapperHooksSettings", () => {
       "SessionStart",
       "UserPromptSubmit",
       "PreToolUse",
+      "PostToolUse",
+      "PostToolUseFailure",
+      "SubagentStart",
+      "SubagentStop",
       "Notification",
       "Stop",
+      "StopFailure",
       "SessionEnd",
       "PermissionRequest",
+      "WorktreeCreate",
+      "WorktreeRemove",
     ]);
     expect(settings.hooks.Stop[0].hooks[0].command).toMatch(/^"\$\{NEXUS_AGENT_BIN\}" hook stop$/);
   });
@@ -59,6 +70,10 @@ describe("applyWindowsShellShim", () => {
       });
       expect(args?.slice(0, 2)).toEqual(["-NoExit", "-EncodedCommand"]);
       expect(decode(args)).toStartWith("function global:claude {");
+      // The wrapper's marks while claude runs, put back after.
+      expect(decode(args)).toContain("$env:NEXUS_CLAUDE_TAB_ID = $env:NEXUS_TAB_ID");
+      expect(decode(args)).toContain("$env:NEXUS_CLAUDE_PRINT = if ($args | Where-Object");
+      expect(decode(args)).toContain("$env:NEXUS_CLAUDE_TAB_ID, $env:NEXUS_CLAUDE_PRINT = $marks");
       expect(env.NEXUS_CLAUDE_SETTINGS).toBe(SETTINGS);
       // The launchers, not the wrapper, which PowerShell would run as claude.
       expect(env.NEXUS_WRAPPER_SELF_DIR).toBe(LAUNCHERS);
@@ -97,7 +112,7 @@ describe("applyWindowsShellShim", () => {
       wrapperDir: BIN,
     });
     expect(args).toEqual(["/k", "%NEXUS_CMD_INIT%"]);
-    expect(env.NEXUS_CMD_INIT).toBe(`doskey claude=claude --settings "${SETTINGS}" $*`);
+    expect(env.NEXUS_CMD_INIT).toBe(CMD_CLAUDE);
     expect(env.NEXUS_WRAPPER_SELF_DIR).toBe(LAUNCHERS);
     const own = applyWindowsShellShim({
       shell: "cmd.exe",
@@ -191,9 +206,7 @@ describe("applyWindowsShellShim", () => {
       settingsPath: SETTINGS,
       codex: { cmd: true },
     });
-    expect(both.env.NEXUS_CMD_INIT).toBe(
-      `doskey claude=claude --settings "${SETTINGS}" $* & doskey codex=codex --no-daemon $*`,
-    );
+    expect(both.env.NEXUS_CMD_INIT).toBe(`${CMD_CLAUDE} & doskey codex=codex --no-daemon $*`);
     const alone = applyWindowsShellShim({ shell: "cmd.exe", env: ENV, codex: { cmd: true } });
     expect(alone.env.NEXUS_CMD_INIT).toBe("doskey codex=codex --no-daemon $*");
     expect(alone.args).toEqual(["/k", "%NEXUS_CMD_INIT%"]);

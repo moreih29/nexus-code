@@ -21,7 +21,7 @@
 import { COMMANDS, type CommandId } from "../../shared/keybindings/commands";
 import { findDisplayPrimary } from "../../shared/keybindings/index";
 import { acceleratorToLabel, chordToLabel } from "../../shared/keybindings/keybinding-parse";
-import { type HostPlatform, hostPlatform, isMac } from "../utils/platform";
+import { type HostPlatform, hostPlatform, isLinux, isMac } from "../utils/platform";
 import { getActiveBindings } from "./resolver";
 
 /** Label options for this platform (names the Windows/Super key too). */
@@ -38,7 +38,7 @@ export function labelOptions(): { isMac: boolean; platform: HostPlatform } {
  */
 export function shortcutFor(command: CommandId): string | undefined {
   const bindings = getActiveBindings();
-  const primary = findDisplayPrimary(bindings, command, isMac());
+  const primary = findDisplayPrimary(bindings, command, isMac(), isLinux());
   if (primary?.primary !== undefined) {
     return acceleratorToLabel(primary.primary, labelOptions());
   }

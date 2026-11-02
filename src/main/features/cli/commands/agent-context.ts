@@ -21,11 +21,16 @@ const agentContext: CliCommand = {
       "type into another agent's session and wait for it (nexus terminal send --wait), and notify",
       "the user (nexus notify). Work can be handed to another agent on its own branch and",
       "worktree: nexus worktree new NAME --prompt TEXT (--command picks the agent, as codex),",
-      "then the terminal wait it prints. The app's browser tabs can be opened and driven to check a web",
-      "app: nexus browser open URL, then snapshot (the page with element refs), click e12,",
+      "then the terminal wait it prints. Make worktrees with nexus worktree new, not git worktree add",
+      "or a worktree tool of your own, so the user sees them as tasks in the app.",
+      "The app's browser tabs can be opened and driven to check a web",
+      "app: nexus browser open URL (or a bare /path, on the port this workspace's dev server",
+      "listens on, as nexus port list shows), then snapshot (the page with element refs), click e12,",
       "fill e3 TEXT, press Enter, screenshot, console and eval. The workbench can be arranged",
       "too: nexus layout show/split/resize, tab move/rename/pin, panel show/hide, reveal,",
       "and nexus problems lists the language servers' errors in open files.",
+      "When the user means an element on a page, nexus browser pick has them click it and",
+      "prints its ref and selector.",
       "Run `nexus help` for every command.",
     ].join("\n");
     return output(note, { note });

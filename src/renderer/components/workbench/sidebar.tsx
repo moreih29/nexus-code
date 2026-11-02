@@ -13,7 +13,7 @@ import {
   useWorkspacesStore,
   visibleWorkspaces,
 } from "../../state/stores/workspaces";
-import type { StatusEntry } from "../../../shared/claude/status";
+import type { ClaudeStatus, StatusEntry } from "../../../shared/claude/status";
 import {
   ContextMenuContent,
   ContextMenuItems,
@@ -37,12 +37,15 @@ import { ipcCallResult } from "../../ipc/client";
 import { surfaceError } from "../../services/error-surface/surface-error";
 import { appErrorFailed } from "../../../shared/error/app-error";
 import {
+  STATUS_PRIORITY,
   selectWorkspaceAggregateStatus,
   useClaudeStatusStore,
   WORKSPACE_VISIBLE_STATUSES,
 } from "../../state/stores/claude-status";
 import { useGitStore } from "../../state/stores/git/index";
 import { WorkspaceStatusGlyph } from "../sidebar/workspace-status-glyph";
+import type { EstimatedGlyph } from "../../services/sessions/model";
+import { useEstimatedWorkspaceGlyph } from "../../services/sessions/use-estimated";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -156,6 +159,10 @@ function WorkspaceRow({
     aggregate && WORKSPACE_VISIBLE_STATUSES.includes(aggregate.status)
       ? aggregate.status
       : null;
+
+  // Codex 등 Claude 상태가 없는 에이전트 터미널의 추정 상태 — 더 강하면 글리프에 대신 보인다.
+  const estimatedStatus = useEstimatedWorkspaceGlyph([ws.id, ...taskIds]);
+  const shownGlyph = cardGlyph(glyphStatus, estimatedStatus);
 
   // 카드 4번째 줄에 표시할 메시지 — 가장 최신 StatusEntry의 message 첫 줄을
   // 50자로 컷한다. 멀티라인 마크다운/코드블록이 와도 첫 줄만, 50자 초과 시
@@ -350,14 +357,19 @@ function WorkspaceRow({
                 )}
 
                 {/* 4줄: glyph + message — 둘 중 하나라도 있을 때만 */}
-                {(glyphStatus || previewMessage) && (
+                {(shownGlyph || previewMessage) && (
                   <span
                     className={cn(
                       "flex items-center gap-1.5 mt-1 text-app-ui-sm min-w-0",
                       isActive ? "text-foreground/70" : "text-muted-foreground",
                     )}
                   >
-                    {glyphStatus && <WorkspaceStatusGlyph status={glyphStatus} />}
+                    {shownGlyph && (
+                      <WorkspaceStatusGlyph
+                        status={shownGlyph.status}
+                        estimated={shownGlyph.estimated}
+                      />
+                    )}
                     {previewMessage && (
                       <span className="truncate">{previewMessage}</span>
                     )}
@@ -719,6 +731,20 @@ function groupTaskIds(workspaces: readonly WorkspaceMeta[]): Map<string, string[
     else byParent.set(parentId, [workspace.id]);
   }
   return byParent;
+}
+
+/**
+ * The glyph a workspace card shows: Claude's state, or the state Codex and
+ * other agents' output tells when that is stronger, marked as estimated.
+ */
+export function cardGlyph(
+  claude: ClaudeStatus | null,
+  estimated: EstimatedGlyph | null,
+): { status: ClaudeStatus; estimated: boolean } | null {
+  if (estimated === null || (claude !== null && STATUS_PRIORITY[claude] >= STATUS_PRIORITY[estimated])) {
+    return claude === null ? null : { status: claude, estimated: false };
+  }
+  return { status: estimated, estimated: true };
 }
 
 /**

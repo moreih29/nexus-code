@@ -1,12 +1,20 @@
 package hookclient
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+// jsonString quotes s as a JSON string, as a Windows path needs its
+// backslashes escaped.
+func jsonString(s string) string {
+	quoted, _ := json.Marshal(s)
+	return string(quoted)
+}
 
 // helper: tmp jsonl 파일을 만들어 path를 반환한다.
 func writeTempTranscript(t *testing.T, content string) string {
@@ -223,6 +231,61 @@ func TestTranscriptPathFromPayload_Malformed(t *testing.T) {
 	got := transcriptPathFromPayload(payload)
 	if got != "" {
 		t.Errorf("malformed: want empty, got %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// stopAssistantText
+// ---------------------------------------------------------------------------
+
+// The payload's answer is taken as is, without the transcript read, whose
+// stability check alone sleeps transcriptStableInterval.
+func TestStopAssistantText_PayloadAnswerSkipsTranscript(t *testing.T) {
+	path := writeTempTranscript(t, `{"message":{"role":"assistant","content":"from transcript"}}`+"\n")
+	payload := []byte(`{"transcript_path":` + jsonString(path) + `,"last_assistant_message":"Done.\n\nAll  tests pass."}`)
+	start := time.Now()
+	got := stopAssistantText(payload)
+	if got != "Done. All tests pass." {
+		t.Errorf("payload answer: want %q, got %q", "Done. All tests pass.", got)
+	}
+	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
+		t.Errorf("payload answer: should not wait for the transcript, took %v", elapsed)
+	}
+}
+
+// An empty answer is the turn's answer too (it ended without text); the
+// transcript's older text must not stand in for it.
+func TestStopAssistantText_EmptyPayloadAnswer(t *testing.T) {
+	path := writeTempTranscript(t, `{"message":{"role":"assistant","content":"from transcript"}}`+"\n")
+	payload := []byte(`{"transcript_path":` + jsonString(path) + `,"last_assistant_message":""}`)
+	if got := stopAssistantText(payload); got != "" {
+		t.Errorf("empty payload answer: want empty, got %q", got)
+	}
+}
+
+func TestStopAssistantText_PayloadAnswerTruncated(t *testing.T) {
+	long := strings.Repeat("a", transcriptPreviewMaxChars+50)
+	got := stopAssistantText([]byte(`{"last_assistant_message":"` + long + `"}`))
+	if want := truncateChars(long, transcriptPreviewMaxChars); got != want {
+		t.Errorf("long payload answer: want %d chars, got %d", len(want), len(got))
+	}
+}
+
+// Versions without last_assistant_message still get the transcript's answer.
+func TestStopAssistantText_FallsBackToTranscript(t *testing.T) {
+	path := writeTempTranscript(t, `{"message":{"role":"assistant","content":"from transcript"}}`+"\n")
+	got := stopAssistantText([]byte(`{"transcript_path":` + jsonString(path) + `}`))
+	if got != "from transcript" {
+		t.Errorf("fallback: want %q, got %q", "from transcript", got)
+	}
+}
+
+func TestStopAssistantText_NothingToRead(t *testing.T) {
+	if got := stopAssistantText(nil); got != "" {
+		t.Errorf("nil payload: want empty, got %q", got)
+	}
+	if got := stopAssistantText([]byte(`not json`)); got != "" {
+		t.Errorf("malformed payload: want empty, got %q", got)
 	}
 }
 

@@ -28,12 +28,20 @@ const (
 	envHookToken   = "NEXUS_HOOK_TOKEN"
 	envWorkspaceID = "NEXUS_WORKSPACE_ID"
 	envTabID       = "NEXUS_TAB_ID"
+	// envClaudePrint is "1" in a `claude -p` run (claude-wrapper.sh).
+	envClaudePrint = "NEXUS_CLAUDE_PRINT"
+	// envClaudeEntrypoint is what Claude Code tells its child processes of
+	// how it runs: "sdk-cli" in a `claude -p` run, "cli" interactive. It
+	// marks the `-p` runs no wrapper marks, as cmd's claude macro starts
+	// them on Windows.
+	envClaudeEntrypoint = "CLAUDE_CODE_ENTRYPOINT"
 
 	// permissionRequestSubcmd 는 긴 blocking timeout이 필요한 서브커맨드 이름.
 	permissionRequestSubcmd = "permission-request"
 
 	// permissionTimeout 은 permission-request 서브커맨드에 적용하는 최대 대기 시간.
-	permissionTimeout = 130 * time.Second
+	// The agent answers by its own deadline (an hour) first.
+	permissionTimeout = time.Hour + 10*time.Second
 
 	// defaultTimeout 은 그 외 모든 서브커맨드에 적용하는 기본 대기 시간.
 	defaultTimeout = 15 * time.Second
@@ -53,6 +61,9 @@ type hookRequest struct {
 	Subcommand    string          `json:"subcommand"`
 	Payload       json.RawMessage `json:"payload"`
 	AssistantText string          `json:"assistantText,omitempty"`
+	// Print marks a hook of a `claude -p` run, whose PermissionRequest no
+	// dialog answers: main answers it at once rather than wait on the user.
+	Print bool `json:"print,omitempty"`
 }
 
 // stopSubcmd 는 Claude 응답 종료 hook 이벤트의 subcommand 이름.
@@ -66,6 +77,9 @@ const stopSubcmd = "stop"
 type stopPayload struct {
 	TranscriptPath      string `json:"transcript_path"`
 	TranscriptPathCamel string `json:"transcriptPath"`
+	// LastAssistantMessage is Claude's final answer of the turn; nil when the
+	// payload has none, as from versions before it was added.
+	LastAssistantMessage *string `json:"last_assistant_message"`
 }
 
 // hookResponse 는 agent로부터 받는 NDJSON 응답 프레임이다.
@@ -152,9 +166,7 @@ func runWithContext(
 	// 그대로 진행한다(omitempty로 wire에서 생략됨).
 	assistantText := ""
 	if subcommand == stopSubcmd {
-		if path := transcriptPathFromPayload(payload); path != "" {
-			assistantText = extractLastAssistantText(path)
-		}
+		assistantText = stopAssistantText(payload)
 	}
 
 	// NDJSON 요청 한 줄을 송신한다.
@@ -166,6 +178,7 @@ func runWithContext(
 		Subcommand:    subcommand,
 		Payload:       payload,
 		AssistantText: assistantText,
+		Print:         os.Getenv(envClaudePrint) == "1" || os.Getenv(envClaudeEntrypoint) == "sdk-cli",
 	}
 	if err := writeNDJSON(conn, req); err != nil {
 		fmt.Fprintf(os.Stderr, "nexus hook: send failed: %v\n", err)
@@ -259,6 +272,23 @@ func readStdinPayload() (json.RawMessage, error) {
 // Claude Code가 파이프 상대방이 읽지 않은 채 닫힐 때 SIGPIPE를 받지 않도록 한다.
 func drainStdin() {
 	_, _ = io.Copy(io.Discard, os.Stdin)
+}
+
+// stopAssistantText is the answer a Stop hook reports. Claude Code puts it in
+// the payload as last_assistant_message; older versions only give the
+// transcript, read once it settles. Reading the transcript holds the hook
+// back for up to transcriptStableMaxWait, long enough for the next turn's
+// hooks to reach the app first, so the payload's answer is taken when there
+// is one.
+func stopAssistantText(payload json.RawMessage) string {
+	var p stopPayload
+	if len(payload) > 0 && json.Unmarshal(payload, &p) == nil && p.LastAssistantMessage != nil {
+		return truncateChars(normalizeSingleLine(*p.LastAssistantMessage), transcriptPreviewMaxChars)
+	}
+	if path := transcriptPathFromPayload(payload); path != "" {
+		return extractLastAssistantText(path)
+	}
+	return ""
 }
 
 // transcriptPathFromPayload 는 payload에서 transcript 경로를 추출한다.

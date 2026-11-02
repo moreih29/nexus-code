@@ -1,24 +1,34 @@
 // Sessions tab — tree view: the workspace and each of its tasks, with the
-// agent sessions running in them, one compact row each. Choosing a row
-// shows it in the detail panel beside.
+// agent sessions running in them, one compact row each, and under a Claude
+// session the agents it runs. Ended agents fold into one row until opened.
+// Choosing a row shows it in the detail panel beside.
 
-import { GitBranch } from "lucide-react";
+import { ChevronRight, GitBranch } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import type { AgentRun } from "../../../shared/claude/activity";
+import {
+  type ActivityByKey,
+  agentsOf,
+  endedAgents,
+  liveAgents,
+} from "../../services/sessions/agents";
 import type { AgentSession, SessionFamily, WorktreeEntry } from "../../services/sessions/model";
 import type { WorktreeChanges } from "../../services/sessions/use-family";
-import type { SessionsSelection } from "./selection";
+import { AgentLines } from "./agent-status";
+import { isAgentSelected, isSessionSelected, type SessionsSelection } from "./selection";
 import { AgentBadge, SessionState } from "./session-status";
 
 interface TreeViewProps {
   family: SessionFamily;
   changes: ReadonlyMap<string, WorktreeChanges>;
+  activity: ActivityByKey;
   selection: SessionsSelection | null;
   onSelect: (selection: SessionsSelection) => void;
-  now: number;
 }
 
-export function TreeView({ family, changes, selection, onSelect, now }: TreeViewProps) {
+export function TreeView({ family, changes, activity, selection, onSelect }: TreeViewProps) {
   return (
     <ul className="flex flex-col gap-1 p-2" aria-label={family.root.name}>
       {family.worktrees.map((worktree) => (
@@ -32,13 +42,19 @@ export function TreeView({ family, changes, selection, onSelect, now }: TreeView
             onSelect={() => onSelect({ kind: "worktree", workspaceId: worktree.workspace.id })}
           />
           {worktree.sessions.map((session) => (
-            <SessionRow
-              key={session.key}
-              session={session}
-              selected={selection?.kind === "session" && selection.key === session.key}
-              onSelect={() => onSelect({ kind: "session", key: session.key })}
-              now={now}
-            />
+            <div key={session.key} className="flex flex-col gap-0.5">
+              <SessionRow
+                session={session}
+                selected={isSessionSelected(selection, session.key)}
+                onSelect={() => onSelect({ kind: "session", key: session.key })}
+              />
+              <AgentRows
+                session={session}
+                agents={agentsOf(activity, session.key)}
+                selection={selection}
+                onSelect={onSelect}
+              />
+            </div>
           ))}
         </li>
       ))}
@@ -100,12 +116,10 @@ function SessionRow({
   session,
   selected,
   onSelect,
-  now,
 }: {
   session: AgentSession;
   selected: boolean;
   onSelect: () => void;
-  now: number;
 }) {
   const line = session.prompt ?? session.message ?? session.title;
   return (
@@ -117,9 +131,69 @@ function SessionRow({
     >
       <span className="flex w-full min-w-0 items-center gap-2">
         <AgentBadge agent={session.agent} />
-        <SessionState session={session} now={now} />
+        <SessionState session={session} />
       </span>
       <span className="w-full truncate text-app-ui-sm text-muted-foreground">{line}</span>
     </button>
+  );
+}
+
+/**
+ * The agents a session runs, under it on a guide line: the live ones, then
+ * the ended ones folded into one row until opened. One that is chosen stays
+ * shown.
+ */
+function AgentRows({
+  session,
+  agents,
+  selection,
+  onSelect,
+}: {
+  session: AgentSession;
+  agents: readonly AgentRun[];
+  selection: SessionsSelection | null;
+  onSelect: (selection: SessionsSelection) => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  if (agents.length === 0) return null;
+  const live = liveAgents(agents);
+  const ended = endedAgents(agents);
+  const shownEnded = open
+    ? ended
+    : ended.filter((agent) => isAgentSelected(selection, session.key, agent.id));
+  const row = (agent: AgentRun) => {
+    const selected = isAgentSelected(selection, session.key, agent.id);
+    return (
+      <button
+        key={agent.id}
+        type="button"
+        onClick={() => onSelect({ kind: "agent", key: session.key, agentId: agent.id })}
+        aria-pressed={selected}
+        className={cn(rowClass(selected), "flex-col gap-0.5 py-1")}
+      >
+        <AgentLines agent={agent} dim={agent.end !== undefined} />
+      </button>
+    );
+  };
+  return (
+    <div className="ml-8 flex flex-col gap-0.5 border-l border-border pl-1.5">
+      {live.map(row)}
+      {ended.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          className="flex w-full min-w-0 items-center gap-1 rounded-(--radius-control) px-2 py-1 text-left text-app-micro text-muted-foreground transition-colors hover:bg-[var(--state-hover-bg)]"
+        >
+          <ChevronRight
+            aria-hidden
+            className={cn("size-3 shrink-0 transition-transform", open && "rotate-90")}
+          />
+          {t("sessions.agents.ended_toggle", { count: ended.length })}
+        </button>
+      )}
+      {shownEnded.map(row)}
+    </div>
   );
 }

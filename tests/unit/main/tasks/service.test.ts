@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -174,6 +174,22 @@ describe("removeTask", () => {
     expect(localBranches()).not.toContain("drop-branch");
   });
 
+  it('deletes a merged branch for "merged", and keeps one with commits of its own', async () => {
+    const { deps, parent } = setup();
+    const merged = await createTask(deps, { parentId: parent.id, name: "nothing new" });
+    const ahead = await createTask(deps, { parentId: parent.id, name: "one commit" });
+    fs.writeFileSync(path.join(ahead.rootPath, "b.txt"), "b\n");
+    git(ahead.rootPath, "add", ".");
+    git(ahead.rootPath, "commit", "-q", "-m", "b");
+
+    await removeTask(deps, { id: merged.id, force: false, deleteBranch: "merged" });
+    await removeTask(deps, { id: ahead.id, force: false, deleteBranch: "merged" });
+
+    expect(fs.existsSync(ahead.task?.worktreePath ?? "")).toBe(false);
+    expect(localBranches()).not.toContain("nothing-new");
+    expect(localBranches()).toContain("one-commit");
+  });
+
   it("refuses a worktree with changes unless forced, removing nothing", async () => {
     const { deps, parent, removed } = setup();
     const task = await createTask(deps, { parentId: parent.id, name: "dirty" });
@@ -229,4 +245,50 @@ describe("removeTask", () => {
     expect(fs.existsSync(worktreePath)).toBe(false);
     expect(localBranches()).not.toContain("held");
   });
+
+  it("deletes the folder after it returns when its holder waits on the removal", async () => {
+    const { deps, parent } = setup();
+    const task = await createTask(deps, { parentId: parent.id, name: "waiting" });
+    const worktreePath = task.task?.worktreePath ?? "";
+    // As on Windows when Claude Code's WorktreeRemove hook asks for the
+    // removal: the claude waiting on it has the folder for its cwd.
+    let holding = true;
+    const held: TaskServiceDeps = {
+      ...deps,
+      getRepository: async (workspaceId) => {
+        const repo = await deps.getRepository(workspaceId);
+        if (!repo) return null;
+        const removeWorktree = repo.removeWorktree.bind(repo);
+        repo.removeWorktree = async (target, force) => {
+          await removeWorktree(target, force);
+          fs.mkdirSync(target);
+          throw new GitError("unknown", "failed", {
+            stderr: `error: failed to delete '${target}'`,
+          });
+        };
+        return repo;
+      },
+    };
+    const rmdir = fs.promises.rmdir;
+    const spy = spyOn(fs.promises, "rmdir").mockImplementation(async (target, options) => {
+      if (holding && target === worktreePath) {
+        throw Object.assign(new Error("EBUSY: resource busy or locked"), { code: "EBUSY" });
+      }
+      return rmdir(target, options);
+    });
+    try {
+      await removeTask(held, { id: task.id, force: true, deleteBranch: true });
+      expect(fs.existsSync(worktreePath)).toBe(true);
+      expect(localBranches()).not.toContain("waiting");
+
+      holding = false;
+      const deadline = Date.now() + 3000;
+      while (fs.existsSync(worktreePath) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      expect(fs.existsSync(worktreePath)).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  }, 10_000);
 });

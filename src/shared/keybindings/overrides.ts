@@ -19,7 +19,9 @@
  *   - `chord` mirrors the same tri-state for chord bindings.
  *
  * The replaced binding INHERITS the `when` scope of the command's first
- * default declaration. `when` is intentionally not user-editable in v1:
+ * default declaration, unless that scope names only the platform
+ * (`when: "!isLinux"`): the user's key then applies on every platform.
+ * `when` is intentionally not user-editable in v1:
  * scopes like `fileTreeFocus && !inputFocus` are data-loss guards
  * (file.delete) and per-surface routers (browserTabActive) — letting a
  * recorder UI silently strip them would reintroduce the exact bug
@@ -30,6 +32,7 @@ import { z } from "zod";
 import type { CommandId } from "./commands";
 import type { KeybindingDecl } from "./index";
 import { parseAccelerator } from "./keybinding-parse";
+import { isPlatformOnlyWhen } from "./keybinding-when";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -113,14 +116,14 @@ export function applyKeybindingOverrides(
       continue;
     }
 
-    const next: KeybindingDecl = { command: decl.command };
-    if (decl.when !== undefined) next.when = decl.when;
+    const kept: KeybindingDecl = { command: decl.command };
+    const replaced: KeybindingDecl = { command: decl.command };
 
     if (decl.primary !== undefined) {
       if (ov.primary === undefined) {
-        next.primary = decl.primary; // untouched
+        kept.primary = decl.primary; // untouched
       } else if (ov.primary !== null && !primaryEmitted.has(decl.command)) {
-        next.primary = ov.primary; // replacement, once, at first slot
+        replaced.primary = ov.primary; // replacement, once, at first slot
         primaryEmitted.add(decl.command);
       }
       // ov.primary === null → unbound; subsequent duplicates also dropped.
@@ -128,15 +131,19 @@ export function applyKeybindingOverrides(
 
     if (decl.chord !== undefined) {
       if (ov.chord === undefined) {
-        next.chord = decl.chord;
+        kept.chord = decl.chord;
       } else if (ov.chord !== null && !chordEmitted.has(decl.command)) {
-        next.chord = ov.chord;
+        replaced.chord = ov.chord;
         chordEmitted.add(decl.command);
       }
     }
 
-    if (next.primary !== undefined || next.chord !== undefined) {
-      out.push(next);
+    const replacedWhen = inheritedWhen(decl.when);
+    if (replacedWhen === decl.when) {
+      pushBinding(out, { ...kept, ...replaced }, decl.when);
+    } else {
+      pushBinding(out, kept, decl.when);
+      pushBinding(out, replaced, replacedWhen);
     }
   }
 
@@ -144,9 +151,9 @@ export function applyKeybindingOverrides(
   // that kind (e.g. a chord-only command gaining a primary, or a
   // command that ships unbound).
   for (const [command, ov] of byCommand) {
-    const inheritedWhen = defaults.find((d) => d.command === command)?.when;
+    const inherited = inheritedWhen(defaults.find((d) => d.command === command)?.when);
     const extra: KeybindingDecl = { command: command as CommandId };
-    if (inheritedWhen !== undefined) extra.when = inheritedWhen;
+    if (inherited !== undefined) extra.when = inherited;
 
     let hasAny = false;
     if (ov.primary != null && !primaryEmitted.has(command)) {
@@ -169,6 +176,22 @@ export function applyKeybindingOverrides(
   }
 
   return out;
+}
+
+/**
+ * The `when` a user's binding takes from the default it replaces. A scope
+ * that names only the platform (`isLinux`, `!isLinux`) marks a default the
+ * command has for some platforms only, while the user's key is one for every
+ * platform: inheriting it would leave the key dead on the others, where the
+ * replacement dropped their own default too.
+ */
+export function inheritedWhen(when: string | undefined): string | undefined {
+  return when !== undefined && isPlatformOnlyWhen(when) ? undefined : when;
+}
+
+function pushBinding(out: KeybindingDecl[], decl: KeybindingDecl, when: string | undefined): void {
+  if (decl.primary === undefined && decl.chord === undefined) return;
+  out.push(when === undefined ? decl : { ...decl, when });
 }
 
 // ---------------------------------------------------------------------------

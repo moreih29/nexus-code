@@ -41,6 +41,11 @@ export const StatusEntrySchema = z.object({
   workspaceId: z.string().min(1),
   tabId: z.string().min(1),
   status: ClaudeStatusSchema,
+  /**
+   * While the session waits on the user, what it asks (a question, a
+   * permission); otherwise Claude's answer to the last prompt, kept once the
+   * turn is seen, until the user's next prompt.
+   */
   message: z.string().optional(),
   since: z.number().int().positive(),
   /** The last prompt the user submitted in this session (cut to PROMPT_MAX_CHARS). */
@@ -65,9 +70,10 @@ export const PROMPT_MAX_CHARS = 2_000;
  * payload는 Claude Code가 hook 프로세스 stdin에 쓴 원본 JSON을 그대로 담는다.
  * subcommand별 payload 구조가 다르므로 z.unknown()으로 받아 각 handler에서 구체화한다.
  *
- * assistantText는 Stop hook subcommand에서만 채워지는 옵션 필드다. hookclient가
- * payload의 transcript_path를 직접 읽어 마지막 assistant 메시지 텍스트를 단일
- * 줄로 정규화 + truncate한 값. transcript가 없거나 파싱 실패 시 undefined.
+ * assistantText는 Stop hook subcommand에서만 채워지는 옵션 필드다. payload의
+ * last_assistant_message를, 그것이 없는 Claude Code 버전에서는 hookclient가
+ * transcript_path를 직접 읽은 마지막 assistant 메시지 텍스트를 단일 줄로
+ * 정규화 + truncate한 값. transcript가 없거나 파싱 실패 시 undefined.
  * Hook 실행 호스트(로컬 또는 SSH 원격)와 transcript_path가 동일 fs이므로 main이
  * 호스트별 fs 라우팅을 알 필요 없다.
  */
@@ -78,9 +84,28 @@ export const HookRequestSchema = z.object({
   subcommand: z.string().min(1),
   payload: z.unknown(),
   assistantText: z.string().optional(),
+  /**
+   * A hook of a `claude -p` run, which shows no permission dialog: its
+   * PermissionRequest is answered at once rather than held for the user.
+   */
+  print: z.boolean().optional(),
 });
 
 export type HookRequest = z.infer<typeof HookRequestSchema>;
+
+/**
+ * A hook whose client went away before main answered it: Claude Code ends a
+ * PermissionRequest hook as the user interrupts at its dialog, and a
+ * `claude -p` run's watch ("print-watch") closes as the run ends.
+ */
+export const HookGoneSchema = z.object({
+  hookId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  tabId: z.string().min(1),
+  subcommand: z.string().optional(),
+  /** A print watch's payload, which names its run. */
+  payload: z.unknown().optional(),
+});
 
 // ---------------------------------------------------------------------------
 // HookResponse — main→agent 응답 (hook 프로세스 stdout 으로 write)

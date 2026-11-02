@@ -8,6 +8,7 @@ import { useActiveStore } from "../../state/stores/active";
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { isMac } from "../../utils/platform";
+import { InboxButton } from "./inbox-button";
 import { TaskSwitcher } from "./task-switcher";
 import { WindowControls } from "./window-controls";
 
@@ -89,7 +90,10 @@ export function TitleBar() {
           remote target is visible alongside the user-chosen workspace name. */}
       {activeWorkspace && <TaskSwitcher active={activeWorkspace} label={titleLabel} />}
 
-      {/* Settings button — right-aligned, app-no-drag so click lands */}
+      {/* Inbox — the sessions waiting on the user; right-aligned */}
+      <InboxButton />
+
+      {/* Settings button — app-no-drag so click lands */}
       <button
         type="button"
         onClick={toggleSettings}
@@ -97,7 +101,7 @@ export function TitleBar() {
         aria-haspopup="dialog"
         aria-expanded={settingsOpen}
         className={cn(
-          "app-no-drag ml-auto",
+          "app-no-drag ml-0.5",
           "flex items-center justify-center",
           "size-7 rounded-(--radius-control)",
           "text-muted-foreground",

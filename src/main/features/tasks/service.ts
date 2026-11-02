@@ -61,8 +61,11 @@ export interface RemoveTaskArgs {
   readonly id: string;
   /** Remove the worktree even when it has changes. */
   readonly force: boolean;
-  /** Delete the task's branch too. */
-  readonly deleteBranch: boolean;
+  /**
+   * Delete the task's branch too; "merged" only if git finds it merged, so
+   * a branch with commits of its own is kept.
+   */
+  readonly deleteBranch: boolean | "merged";
 }
 
 /** Creates the worktree and branch for a new task, and its workspace. */
@@ -140,7 +143,8 @@ export async function removeTask(
 
   await removeWorktree(repo, task.worktreePath);
   if (workspace.location.kind === "local") await removeEmptyFolder(task.worktreePath);
-  if (deleteBranch) await repo.deleteBranch(task.branch, true);
+  if (deleteBranch === true) await repo.deleteBranch(task.branch, true);
+  if (deleteBranch === "merged") await repo.deleteBranch(task.branch, false).catch(() => {});
 }
 
 /** False when the folder is already gone, since there is nothing to lose. */
@@ -178,21 +182,42 @@ async function removeWorktree(repo: GitRepository, worktreePath: string): Promis
 }
 
 const EMPTY_FOLDER_ATTEMPTS = 5;
+/** How long, and how often, a folder still held after them is tried. */
+const HELD_FOLDER_MS = 60_000;
+const HELD_FOLDER_INTERVAL_MS = 1000;
 
 /**
  * Deletes the folder a failed removal left, if it is empty. The program
- * holding it is closing, so it is tried for a second or so; a folder that
- * stays, or has files in it, is left as it is.
+ * holding it is closing, so it is tried for a second or so. One can be
+ * waiting on the removal before it closes: Claude Code asks for it from its
+ * WorktreeRemove hook, in the worktree, and holds the folder until the hook
+ * returns. So a folder still held is tried again after the removal returns,
+ * for a minute. One that stays, or has files in it, is left as it is.
  */
 async function removeEmptyFolder(folder: string): Promise<void> {
   for (let attempt = 1; attempt <= EMPTY_FOLDER_ATTEMPTS; attempt++) {
-    try {
-      await fs.promises.rmdir(folder);
-      return;
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ENOENT" || code === "ENOTEMPTY") return;
-      await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
-    }
+    if (await removedOrKept(folder)) return;
+    await sleep(100 * attempt);
   }
+  void (async () => {
+    for (let waited = 0; waited < HELD_FOLDER_MS; waited += HELD_FOLDER_INTERVAL_MS) {
+      await sleep(HELD_FOLDER_INTERVAL_MS);
+      if (await removedOrKept(folder)) return;
+    }
+  })();
+}
+
+/** Deletes the empty folder; false while something holds it. */
+async function removedOrKept(folder: string): Promise<boolean> {
+  try {
+    await fs.promises.rmdir(folder);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === "ENOENT" || code === "ENOTEMPTY";
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

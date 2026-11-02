@@ -5,8 +5,9 @@
 //
 // Segment layout — unified across local and SSH workspaces:
 //   LEFT:  git branch · changes (+~?!) · error count · warning count
-//   RIGHT: git in-flight operation indicator · the active editor's language
-//          server (lsp-status-segment.tsx)
+//   RIGHT: git in-flight operation indicator · the ports the terminals'
+//          programs listen on (ports-segment.tsx) · the active editor's
+//          language server (lsp-status-segment.tsx)
 //
 // The changes segment renders inline with the branch button (separate click
 // target) and shows only the non-zero tokens; the whole segment disappears in
@@ -49,6 +50,7 @@ import { useUIStore } from "../../state/stores/ui";
 import { BranchPicker } from "../files/git/branch/picker";
 import { type DiagnosticKind, DiagnosticPopover } from "./diagnostic-popover";
 import { LspStatusSegment } from "./lsp-status-segment";
+import { PortsSegment } from "./ports-segment";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -129,6 +131,7 @@ export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
       {/* RIGHT segments */}
       <div className="flex items-center shrink-0">
         {inFlightOp && <InFlightOpSegment op={inFlightOp} />}
+        <PortsSegment workspaceId={workspaceId} />
         <LspStatusSegment workspaceId={workspaceId} />
       </div>
     </div>

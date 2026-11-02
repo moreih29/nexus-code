@@ -10,6 +10,7 @@ import { createLogger } from "../shared/log/renderer";
 import { lspSettingsFromState } from "../shared/lsp/settings";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
+import { startTabActivityPolling } from "./services/sessions/activity-poll";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
 import { startNotificationClickListener } from "./state/notification-click";
 import { startTerminalExitListener } from "./state/terminal-exit";
@@ -23,10 +24,12 @@ import { initFocusResync } from "./state/operations/focus-resync";
 import { initGitErrorToasts } from "./state/operations/git-error-toasts";
 import { initLspSettingsSync } from "./state/operations/lsp-settings";
 import { initLspStatusSync } from "./state/operations/lsp-status";
+import { initPortsSync } from "./state/operations/ports";
 import { normalizeWorkspaceTabOrder } from "./state/operations/tab-order";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
 import { useAgentCliStore } from "./state/stores/agent-cli";
+import { startAppFocusTracking } from "./state/stores/app-focus";
 import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
 import { useClaudeStatusStore } from "./state/stores/claude-status";
 import { useEditorFontStore } from "./state/stores/editor-font";
@@ -144,6 +147,7 @@ export async function bootstrapAppState(): Promise<void> {
   useLspSettingsStore.getState().hydrate(lspSettingsFromState(state));
   initLspSettingsSync();
   initLspStatusSync();
+  initPortsSync();
 
   useUIStore.getState().hydrate({
     sidebarWidth: state.sidebarWidth,
@@ -351,7 +355,15 @@ export async function bootstrapClaudeStatus(): Promise<void> {
     useClaudeStatusStore.getState().clearTab(workspaceId, tabId);
   });
 
+  // Whether the window is in front of the user; the sync below and the inbox
+  // count the active tab as looked at only while it is.
+  startAppFocusTracking();
+
   // active workspace/tab을 main에 push하는 구독 시작 + 사용자가 탭을 활성화하면
   // markSeen IPC로 completed→idle 자동 전이.
   startClaudeActiveContextSync();
+
+  // Codex and other agents' output activity, for the tab bar, the sidebar
+  // and the inbox.
+  startTabActivityPolling();
 }

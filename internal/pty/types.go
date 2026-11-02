@@ -88,6 +88,9 @@ type KillParams struct {
 type ForegroundProcessParams struct {
 	WorkspaceID string `json:"workspaceId"`
 	TabID       string `json:"tabId"`
+	// Alone asks also whether the program is alone in its process group,
+	// which costs a look at every process.
+	Alone bool `json:"alone,omitempty"`
 }
 
 // ForegroundProcessResult returns the basename of the foreground process group
@@ -96,6 +99,32 @@ type ForegroundProcessParams struct {
 // never overwriting a previously-set title with empty.
 type ForegroundProcessResult struct {
 	Name string `json:"name"`
+	// Alone, when asked for and Name is known: whether no other process is in
+	// the program's group. A shell there that is not alone is a script
+	// waiting for the program it runs, not a shell at its prompt.
+	Alone *bool `json:"alone,omitempty"`
+}
+
+// ListeningPortsParams is the wire shape for pty.listeningPorts.
+type ListeningPortsParams struct {
+	WorkspaceID string `json:"workspaceId"`
+}
+
+// ListeningPort is a TCP port a program started in one of the workspace's
+// terminals listens on.
+type ListeningPort struct {
+	Port int `json:"port"`
+	PID  int `json:"pid"`
+	// Process is the program's file name.
+	Process string `json:"process"`
+	// TabID is the terminal the program was started in.
+	TabID string `json:"tabId"`
+}
+
+// ListeningPortsResult is the wire shape returned by pty.listeningPorts, in
+// port order.
+type ListeningPortsResult struct {
+	Ports []ListeningPort `json:"ports"`
 }
 
 // DataPayload is emitted on pty.data with Chunk carrying base64 raw PTY bytes.

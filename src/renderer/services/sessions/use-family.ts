@@ -1,22 +1,35 @@
 /**
  * The live data of a sessions tab: its workspace's family of sessions, the
- * output activity that tells Codex and other agents' state, each
- * worktree's uncommitted changes, and what the sessions did over time.
- * Polls only while the tab is shown.
+ * output activity that tells Codex and other agents' state, what Claude
+ * sessions are doing (their tools and agents), each worktree's uncommitted
+ * changes, and what the sessions did over time. Polls only while the tab
+ * is shown.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { GitStatus } from "../../../shared/git/types";
+import { createLogger } from "../../../shared/log/renderer";
 import type { TabActivity, TerminalWait } from "../../../shared/sessions/agent-state";
 import type { SessionSpan } from "../../../shared/sessions/history";
 import { ipcCallResult } from "../../ipc/client";
 import { useClaudeStatusStore } from "../../state/stores/claude-status";
+import { useSessionSeenStore } from "../../state/stores/session-seen";
 import { useTabsStore } from "../../state/stores/tabs";
 import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../state/stores/workspaces";
-import { buildFamily, type SessionFamily, sessionKey } from "./model";
+import {
+  activityByKey,
+  buildFamily,
+  type SessionFamily,
+  sameActivity,
+  sameFamily,
+} from "./model";
+import { type ActivityByKey, activityMap, sameActivityMap } from "./agents";
 import { rangeStart, type TimelineRange } from "./timeline";
 
+const log = createLogger("sessions");
+
 const ACTIVITY_POLL_MS = 1_000;
+const CLAUDE_ACTIVITY_POLL_MS = 1_000;
 const WAITS_POLL_MS = 1_000;
 const HISTORY_POLL_MS = 2_000;
 const CHANGES_POLL_MS = 5_000;
@@ -33,27 +46,42 @@ export function useNow(enabled: boolean, everyMs = 1_000): number {
   return now;
 }
 
-/** Every live terminal's output activity, keyed by `${workspaceId}:${tabId}`. */
-function useTabActivity(enabled: boolean): ReadonlyMap<string, TabActivity> {
-  const [activity, setActivity] = useState<ReadonlyMap<string, TabActivity>>(() => new Map());
-  useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-    const poll = async () => {
-      const result = await ipcCallResult("cli", "activity", {});
-      if (cancelled || !result.ok) return;
-      setActivity(
-        new Map(result.value.map((entry) => [sessionKey(entry.workspaceId, entry.tabId), entry])),
-      );
-    };
-    void poll();
-    const timer = setInterval(() => void poll(), ACTIVITY_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [enabled]);
-  return activity;
+/**
+ * Runs `read` now and every `everyMs` until stopped, one read at a time: a
+ * tick while a read is still out is skipped, so a slow answer never lands
+ * after a newer one. `read` is told whether its answer is still the latest
+ * wanted, which it is not once polling stops.
+ */
+export function startPolling(
+  read: (isLatest: () => boolean) => Promise<void>,
+  everyMs: number,
+): () => void {
+  let stopped = false;
+  let reading = false;
+  let sequence = 0;
+  const tick = async (): Promise<void> => {
+    if (stopped || reading) return;
+    reading = true;
+    const mine = ++sequence;
+    try {
+      await read(() => !stopped && mine === sequence);
+    } catch (failure) {
+      log.warn(`poll failed: ${(failure as Error).message}`);
+    } finally {
+      reading = false;
+    }
+  };
+  void tick();
+  const timer = setInterval(() => void tick(), everyMs);
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
+}
+
+/** Whether two reads list the same, to keep the one already shown. */
+function sameJson(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 /** Which terminals are waiting on which (nexus terminal wait), polled while `enabled`. */
@@ -61,19 +89,37 @@ export function useTerminalWaits(enabled: boolean): readonly TerminalWait[] {
   const [waits, setWaits] = useState<readonly TerminalWait[]>([]);
   useEffect(() => {
     if (!enabled) return;
-    let cancelled = false;
-    const poll = async () => {
+    return startPolling(async (isLatest) => {
       const result = await ipcCallResult("cli", "waits", {});
-      if (!cancelled && result.ok) setWaits(result.value);
-    };
-    void poll();
-    const timer = setInterval(() => void poll(), WAITS_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
+      if (isLatest() && result.ok) {
+        setWaits((prev) => (sameJson(prev, result.value) ? prev : result.value));
+      }
+    }, WAITS_POLL_MS);
   }, [enabled]);
   return waits;
+}
+
+/**
+ * What the Claude sessions of `workspaceIds` are doing — their tools, todos
+ * and agents — by session key, polled while `enabled`.
+ */
+export function useSessionActivity(
+  workspaceIds: readonly string[],
+  enabled: boolean,
+): ActivityByKey {
+  const ids = workspaceIds.join(",");
+  const [activity, setActivity] = useState<ActivityByKey>(() => new Map());
+  useEffect(() => {
+    if (!enabled || ids === "") return;
+    return startPolling(async (isLatest) => {
+      const result = await ipcCallResult("claude", "activity", { workspaceIds: ids.split(",") });
+      if (isLatest() && result.ok) {
+        const next = activityMap(result.value);
+        setActivity((prev) => (sameActivityMap(prev, next) ? prev : next));
+      }
+    }, CLAUDE_ACTIVITY_POLL_MS);
+  }, [ids, enabled]);
+  return activity;
 }
 
 /**
@@ -89,50 +135,72 @@ export function useSessionHistory(
   const [spans, setSpans] = useState<readonly SessionSpan[]>([]);
   useEffect(() => {
     if (!enabled || ids === "") return;
-    let cancelled = false;
-    const poll = async () => {
+    return startPolling(async (isLatest) => {
       const result = await ipcCallResult("cli", "history", {
         workspaceIds: ids.split(","),
         since: rangeStart(range, Date.now()),
       });
-      if (!cancelled && result.ok) setSpans(result.value);
-    };
-    void poll();
-    const timer = setInterval(() => void poll(), HISTORY_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
+      if (isLatest() && result.ok) {
+        setSpans((prev) => (sameJson(prev, result.value) ? prev : result.value));
+      }
+    }, HISTORY_POLL_MS);
   }, [ids, range, enabled]);
   return spans;
 }
 
+/** The family of `workspaceId` as the stores and `activity` tell it now. */
+function familyNow(
+  workspaceId: string,
+  activity: ReadonlyMap<string, TabActivity>,
+): SessionFamily | null {
+  return buildFamily({
+    workspaces: useWorkspacesStore.getState().workspaces,
+    workspaceId,
+    tabsByWorkspace: useTabsStore.getState().byWorkspace,
+    claudeByWorkspace: useClaudeStatusStore.getState().byWorkspace,
+    activity,
+    now: Date.now(),
+    seenByWorkspace: useSessionSeenStore.getState().byWorkspace,
+  });
+}
+
 /**
  * The family of the workspace a sessions tab is in, kept current while
- * `visible`, and the time it was read at.
+ * `visible`: rebuilt as the stores change and as the output activity is read,
+ * which is also when a busy agent can turn quiet. A rebuild that tells the
+ * same keeps the family already shown, so the views render only on a change.
  */
-export function useSessionFamily(
-  workspaceId: string,
-  visible: boolean,
-): { family: SessionFamily | null; now: number } {
-  const workspaces = useWorkspacesStore((s) => s.workspaces);
-  const tabsByWorkspace = useTabsStore((s) => s.byWorkspace);
-  const claudeByWorkspace = useClaudeStatusStore((s) => s.byWorkspace);
-  const activity = useTabActivity(visible);
-  const now = useNow(visible);
-  const family = useMemo(
-    () =>
-      buildFamily({
-        workspaces,
-        workspaceId,
-        tabsByWorkspace,
-        claudeByWorkspace,
-        activity,
-        now,
-      }),
-    [workspaces, workspaceId, tabsByWorkspace, claudeByWorkspace, activity, now],
-  );
-  return { family, now };
+export function useSessionFamily(workspaceId: string, visible: boolean): SessionFamily | null {
+  // Kept while the tab is hidden, so showing it again starts from the last read.
+  const activity = useRef<ReadonlyMap<string, TabActivity>>(new Map());
+  const [family, setFamily] = useState(() => familyNow(workspaceId, activity.current));
+  useEffect(() => {
+    if (!visible) return;
+    const update = (): void => {
+      const next = familyNow(workspaceId, activity.current);
+      setFamily((prev) => (sameFamily(prev, next) ? prev : next));
+    };
+    const stops = [
+      useWorkspacesStore.subscribe(update),
+      useTabsStore.subscribe(update),
+      useClaudeStatusStore.subscribe(update),
+      useSessionSeenStore.subscribe(update),
+      startPolling(async (isLatest) => {
+        const result = await ipcCallResult("cli", "activity", {});
+        if (!isLatest()) return;
+        if (result.ok) {
+          const next = activityByKey(result.value);
+          if (!sameActivity(activity.current, next)) activity.current = next;
+        }
+        update();
+      }, ACTIVITY_POLL_MS),
+    ];
+    update();
+    return () => {
+      for (const stop of stops) stop();
+    };
+  }, [workspaceId, visible]);
+  return family;
 }
 
 /** A file a worktree has changed and not committed. */
@@ -162,6 +230,22 @@ function changesOf(status: GitStatus): WorktreeChanges {
 }
 
 /**
+ * The changes of the worktrees just read; one whose read failed keeps what it
+ * last showed rather than dropping its count.
+ */
+export function mergeChanges(
+  prev: ReadonlyMap<string, WorktreeChanges>,
+  reads: readonly (readonly [string, WorktreeChanges | undefined])[],
+): ReadonlyMap<string, WorktreeChanges> {
+  const next = new Map<string, WorktreeChanges>();
+  for (const [id, read] of reads) {
+    const kept = read ?? prev.get(id);
+    if (kept) next.set(id, kept);
+  }
+  return next;
+}
+
+/**
  * Each connected worktree's uncommitted changes, polled while `visible`.
  * A worktree not connected yet has none listed rather than being connected
  * by the poll.
@@ -177,23 +261,17 @@ export function useWorktreeChanges(
   useEffect(() => {
     if (!visible || online === "") return;
     const ids = online.split(",");
-    let cancelled = false;
-    const poll = async () => {
+    return startPolling(async (isLatest) => {
       const results = await Promise.all(
         ids.map(async (id) => {
-          const result = await ipcCallResult("git", "getStatus", { workspaceId: id });
-          return result.ok ? ([id, changesOf(result.value)] as const) : null;
+          const result = await ipcCallResult("git", "getStatus", { workspaceId: id }).catch(
+            () => null,
+          );
+          return [id, result?.ok ? changesOf(result.value) : undefined] as const;
         }),
       );
-      if (cancelled) return;
-      setChanges(new Map(results.filter((r) => r !== null)));
-    };
-    void poll();
-    const timer = setInterval(() => void poll(), CHANGES_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
+      if (isLatest()) setChanges((prev) => mergeChanges(prev, results));
+    }, CHANGES_POLL_MS);
   }, [online, visible]);
   return changes;
 }

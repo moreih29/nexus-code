@@ -10,7 +10,8 @@
  * are hidden under DOM menus without per-wrapper wiring.
  *
  * Public surface: DropdownMenuRoot · DropdownMenuTrigger · DropdownMenuContent
- *                 DropdownMenuItem · DropdownMenuShortcut · DropdownMenuSeparator
+ *                 DropdownMenuItem · DropdownMenuShortcut · DropdownMenuLabel
+ *                 DropdownMenuSeparator
  *                 DropdownMenuSub · DropdownMenuSubTrigger · DropdownMenuSubContent
  */
 import { ChevronRight } from "lucide-react";
@@ -31,11 +32,15 @@ const SEPARATOR_CLASS = "h-px bg-border my-1";
 interface DropdownMenuRootProps {
   children: React.ReactNode;
   onOpenChange?: (open: boolean) => void;
+  /** Set to open and close the menu from code; left out, the trigger does. */
+  open?: boolean;
 }
 
-export function DropdownMenuRoot({ children, onOpenChange }: DropdownMenuRootProps) {
+export function DropdownMenuRoot({ children, onOpenChange, open }: DropdownMenuRootProps) {
   return (
-    <RadixDropdownMenu.Root onOpenChange={onOpenChange}>{children}</RadixDropdownMenu.Root>
+    <RadixDropdownMenu.Root open={open} onOpenChange={onOpenChange}>
+      {children}
+    </RadixDropdownMenu.Root>
   );
 }
 
@@ -127,6 +132,19 @@ export function DropdownMenuItem({ children, disabled, onSelect }: DropdownMenuI
     >
       {children}
     </RadixDropdownMenu.Item>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Label
+// ---------------------------------------------------------------------------
+
+/** A heading over the items after it; not an item, so arrow keys skip it. */
+export function DropdownMenuLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <RadixDropdownMenu.Label className="px-2 pt-1.5 pb-0.5 text-app-label text-muted-foreground uppercase">
+      {children}
+    </RadixDropdownMenu.Label>
   );
 }
 

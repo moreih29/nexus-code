@@ -6,8 +6,11 @@ import { broadcast } from "../../infra/ipc-router";
 import { ClaudeStatusBroker } from "./status";
 import { ActiveContextStore } from "./active-context";
 import { registerClaudeChannel } from "./ipc";
-import { registerHookHandler } from "./hook-handler";
+import { answerHook, registerHookHandler } from "./hook-handler";
+import { answersDialog, PermissionAsks } from "./permission-asks";
+import { SessionActivityLog } from "./session-activity";
 import { ClaudeInterruptWatcher } from "./interrupt";
+import { ClaudeReconnectCheck } from "./reconnect";
 import type { PtyHostHandle } from "../pty/types";
 import type { WorkspaceNameLookup } from "./hook-handler";
 import { getActiveAppWindow, getFocusedAppWindow } from "../window/app-windows";
@@ -46,7 +49,7 @@ export interface SetupClaudeFeatureOptions {
 export interface SetupClaudeFeatureResult {
   /** renderer가 마지막으로 알린 활성 탭인지 — 다른 프로그램의 알림도 같은 기준을 쓴다. */
   isActiveTab: (workspaceId: string, tabId: string) => boolean;
-  /** Input typed into a terminal, which can interrupt Claude's turn. */
+  /** Input typed into a terminal, which can interrupt Claude's turn or answer its dialog. */
   noteInput: (workspaceId: string, tabId: string, data: string) => void;
   /** 모든 구독을 해제하는 함수. */
   dispose: () => void;
@@ -54,6 +57,8 @@ export interface SetupClaudeFeatureResult {
   broker: ClaudeStatusBroker;
   /** The tab the user is looking at. */
   activeContext: ActiveContextStore;
+  /** What each session is doing: its tools, todos and agents. */
+  activity: SessionActivityLog;
 }
 
 /**
@@ -76,9 +81,13 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
   // 1. Status broker + active context store 생성.
   const broker = new ClaudeStatusBroker(broadcastFn);
   const activeContext = new ActiveContextStore();
+  const activity = new SessionActivityLog();
+  const asks = new PermissionAsks((workspaceId, hookId, response) =>
+    answerHook(workspaceManager, workspaceId, hookId, response),
+  );
 
   // 2. IPC 채널 등록 (setupRouter() 이후에 호출되어야 함).
-  registerClaudeChannel(broker, activeContext);
+  registerClaudeChannel(broker, activeContext, activity, asks);
 
   // 3. hook-handler 등록.
   const getFocusedWindow = options.getFocusedWindow ?? getFocusedAppWindow;
@@ -86,6 +95,8 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
   const offHook = registerHookHandler({
     broker,
     activeContext,
+    activity,
+    asks,
     agentHost,
     channelProvider: workspaceManager,
     workspaceManager,
@@ -103,8 +114,30 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     },
   });
 
+  // Claude gone without its SessionEnd hook (its exit seen, its state cleared
+  // by hand) takes its record along: the agents it ran stopped with it.
+  const offCleared = broker.onChange((workspaceId, tabId, entry) => {
+    if (entry === null) {
+      activity.clear(workspaceId, tabId);
+      asks.clear(workspaceId, tabId);
+    } else if (entry.status === "idle") {
+      // A turn interrupted ends with no hook: its tools stopped with it.
+      activity.noteTurnOver(workspaceId, tabId);
+    }
+  });
+
   // An interrupted turn runs no hook; its "Interrupted" line ends it.
   const interrupts = new ClaudeInterruptWatcher(broker);
+
+  // Hooks run while a held terminal's link was down are lost; once it comes
+  // back, its replayed output tells its state again.
+  const reconnects = new ClaudeReconnectCheck(broker, async (workspaceId, tabId) => {
+    const result = (await agentHost.call("foregroundProcess", { workspaceId, tabId })) as
+      | { name?: string }
+      | undefined;
+    const name = result?.name?.trim() ?? "";
+    return name === "" ? null : name;
+  });
 
   // 4. PTY exit 시 broker.clear — 탭 종료 시 상태 항목 제거(메모리 누수 방지).
   const offExit = agentHost.on("exit", (args) => {
@@ -113,7 +146,10 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     const tabId = typeof a?.tabId === "string" ? a.tabId : null;
     if (workspaceId && tabId) {
       broker.clear(workspaceId, tabId);
+      activity.clear(workspaceId, tabId);
+      asks.clear(workspaceId, tabId);
       interrupts.forget(workspaceId, tabId);
+      reconnects.forget(workspaceId, tabId);
     }
   });
 
@@ -124,19 +160,42 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
       chunk: string;
       replay?: boolean;
     };
-    if (!replay) interrupts.noteOutput(workspaceId, tabId, chunk);
+    if (replay) reconnects.noteReplay(workspaceId, tabId, chunk);
+    else interrupts.noteOutput(workspaceId, tabId, chunk);
+  });
+
+  const offRestored = agentHost.on("restored", (args) => {
+    const { workspaceId, tabId, withReplay } = args as {
+      workspaceId: string;
+      tabId: string;
+      withReplay: boolean;
+    };
+    reconnects.noteRestored(workspaceId, tabId, withReplay);
+  });
+
+  const offReplayed = agentHost.on("replayed", (args) => {
+    const { workspaceId, tabId } = args as { workspaceId: string; tabId: string };
+    void reconnects.noteReplayed(workspaceId, tabId);
   });
 
   return {
     isActiveTab: (workspaceId, tabId) => activeContext.isActive(workspaceId, tabId),
-    noteInput: (workspaceId, tabId, data) => interrupts.noteInput(workspaceId, tabId, data),
+    noteInput: (workspaceId, tabId, data) => {
+      interrupts.noteInput(workspaceId, tabId, data);
+      // The dialog answered in the terminal no longer waits on the app.
+      if (answersDialog(data)) asks.answeredInTerminal(workspaceId, tabId);
+    },
     dispose: () => {
       offHook();
+      offCleared();
       offExit();
       offData();
+      offRestored();
+      offReplayed();
     },
     broker,
     activeContext,
+    activity,
   };
 }
 

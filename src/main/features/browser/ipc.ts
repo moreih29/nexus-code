@@ -30,6 +30,7 @@ import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import type { GlobalStorage } from "../../infra/storage/global-storage";
 import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
 import { getActiveAppWindow } from "../window/app-windows";
+import { noticeDownloads } from "./downloads";
 import { installBrowserKeyInterceptor } from "./keyboard";
 import type { BrowserPermissionPromptManager } from "./permission-prompt-manager";
 import type { BrowserTabRegistry } from "./registry";
@@ -110,6 +111,7 @@ export function registerBrowserChannel(
         if (!entry) return ipcOk(undefined); // Should never happen; guard for safety.
 
         const wc = entry.view.webContents;
+        noticeDownloads(wc.session, (_from, file) => broadcast("browser", "downloaded", { file }));
 
         wc.on("did-navigate", (_event, navUrl, _httpResponseCode, _httpStatusText) => {
           broadcast("browser", "navigated", {
@@ -283,6 +285,7 @@ export function registerBrowserChannel(
       devtoolsToggled: {},
       faviconUpdated: {},
       focused: {},
+      downloaded: {},
     },
   });
 

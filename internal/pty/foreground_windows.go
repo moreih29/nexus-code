@@ -3,11 +3,16 @@
 package pty
 
 import (
+	"context"
 	"debug/pe"
 	"encoding/binary"
 	"errors"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -47,7 +52,17 @@ const maxForegroundDepth = 16
 // through the programs in passThrough to the one they run. A window program
 // the shell started runs apart from the console, and a child older than its
 // parent belongs to an earlier process that had the parent's id.
-func foregroundOf(entries []processEntry, shell uint32, detail func(pid uint32) (processDetail, bool)) string {
+//
+// An MSYS program, Git Bash's bash among them, starts another MSYS program,
+// such as a bash script, by a fork and an exec that leave the new process
+// with a Windows parent that is gone. So where a process has no child to be
+// seen, msys, if given, names the children the MSYS runtime knows it has.
+func foregroundOf(
+	entries []processEntry,
+	shell uint32,
+	detail func(pid uint32) (processDetail, bool),
+	msys func(pid uint32) []uint32,
+) string {
 	byPID := make(map[uint32]processEntry, len(entries))
 	for _, entry := range entries {
 		byPID[entry.pid] = entry
@@ -64,16 +79,25 @@ func foregroundOf(entries []processEntry, shell uint32, detail func(pid uint32) 
 		var next processEntry
 		var nextDetail processDetail
 		found := false
-		for _, entry := range entries {
-			if entry.parent != current.pid || entry.pid == current.pid {
-				continue
-			}
+		consider := func(entry processEntry) {
 			d, ok := detail(entry.pid)
 			if !ok || !d.console || d.created < currentDetail.created {
-				continue
+				return
 			}
 			if !found || d.created > nextDetail.created {
 				next, nextDetail, found = entry, d, true
+			}
+		}
+		for _, entry := range entries {
+			if entry.parent == current.pid && entry.pid != current.pid {
+				consider(entry)
+			}
+		}
+		if !found && msys != nil {
+			for _, pid := range msys(current.pid) {
+				if entry, ok := byPID[pid]; ok && pid != current.pid {
+					consider(entry)
+				}
 			}
 		}
 		if !found {
@@ -122,12 +146,93 @@ func readProcessDetail(pid uint32) (processDetail, bool) {
 		return processDetail{}, false
 	}
 	console := true
-	buf := make([]uint16, windows.MAX_LONG_PATH)
-	size := uint32(len(buf))
-	if err := windows.QueryFullProcessImageName(process, 0, &buf[0], &size); err == nil {
-		console = isConsoleProgram(windows.UTF16ToString(buf[:size]))
+	if path, ok := imagePath(process); ok {
+		console = isConsoleProgram(path)
 	}
 	return processDetail{created: int64(created.HighDateTime)<<32 | int64(created.LowDateTime), console: console}, true
+}
+
+// imagePath reads the path of an open process's program.
+func imagePath(process windows.Handle) (string, bool) {
+	buf := make([]uint16, windows.MAX_LONG_PATH)
+	size := uint32(len(buf))
+	if err := windows.QueryFullProcessImageName(process, 0, &buf[0], &size); err != nil {
+		return "", false
+	}
+	return windows.UTF16ToString(buf[:size]), true
+}
+
+// msysPsTimeout bounds the wait for an MSYS installation's ps.
+const msysPsTimeout = 2 * time.Second
+
+// msysChildren lists the Windows process ids of the processes the MSYS
+// program with process id pid started, as the ps of its MSYS installation
+// lists them, or nil when pid is no MSYS program. An installation's
+// programs sit beside its runtime, msys-2.0.dll, and its ps.
+func msysChildren(pid uint32) []uint32 {
+	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return nil
+	}
+	defer windows.CloseHandle(process)
+	path, ok := imagePath(process)
+	if !ok {
+		return nil
+	}
+	dir := filepath.Dir(path)
+	if _, err := os.Stat(filepath.Join(dir, "msys-2.0.dll")); err != nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), msysPsTimeout)
+	defer cancel()
+	listing, err := exec.CommandContext(ctx, filepath.Join(dir, "ps.exe")).Output()
+	if err != nil {
+		return nil
+	}
+	return msysChildrenIn(string(listing), pid)
+}
+
+// msysChildrenIn reads a listing of MSYS's ps, whose columns start with
+// PID, PPID, PGID and WINPID (after a status letter on some rows), for the
+// Windows ids of the children of the process whose Windows id is winpid. A
+// process that exec'd a Windows program is listed by that program's id.
+func msysChildrenIn(listing string, winpid uint32) []uint32 {
+	type row struct {
+		pid, ppid uint64
+		winpid    uint32
+	}
+	var rows []row
+	var parent uint64
+	known := false
+	for _, line := range strings.Split(listing, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && strings.Trim(fields[0], "0123456789") != "" {
+			fields = fields[1:]
+		}
+		if len(fields) < 4 {
+			continue
+		}
+		pid, errPID := strconv.ParseUint(fields[0], 10, 64)
+		ppid, errPPID := strconv.ParseUint(fields[1], 10, 64)
+		win, errWin := strconv.ParseUint(fields[3], 10, 32)
+		if errPID != nil || errPPID != nil || errWin != nil {
+			continue
+		}
+		rows = append(rows, row{pid: pid, ppid: ppid, winpid: uint32(win)})
+		if uint32(win) == winpid {
+			parent, known = pid, true
+		}
+	}
+	if !known {
+		return nil
+	}
+	var children []uint32
+	for _, r := range rows {
+		if r.ppid == parent && r.pid != parent {
+			children = append(children, r.winpid)
+		}
+	}
+	return children
 }
 
 // isConsoleProgram reads the subsystem in the PE header of the program at

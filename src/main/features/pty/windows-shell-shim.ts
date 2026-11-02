@@ -116,7 +116,12 @@ function cmdCodexTakesNoDaemon(): Promise<boolean> {
 
 /**
  * PowerShell's `claude`: the first claude program on PATH, with the hooks
- * when their file is there, and any pipeline input passed on.
+ * when their file is there, and any pipeline input passed on. It carries
+ * the wrapper's marks while it runs: the tab's id, so a claude started
+ * inside its session, by its Bash tool through the wrapper, goes without
+ * the tab's hooks, and whether it is a `claude -p` run, whose permission
+ * requests no dialog answers. (PowerShell keeps `--` from a function's
+ * arguments.)
  */
 const POWERSHELL_CLAUDE = `function global:claude {
   $real = Get-Command -Name claude -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -125,7 +130,14 @@ const POWERSHELL_CLAUDE = `function global:claude {
   if ($env:NEXUS_CLAUDE_SETTINGS -and (Test-Path -LiteralPath $env:NEXUS_CLAUDE_SETTINGS -ErrorAction SilentlyContinue)) {
     $hooks = '--settings', $env:NEXUS_CLAUDE_SETTINGS
   }
-  if ($MyInvocation.ExpectingInput) { $input | & $real.Source @hooks @args } else { & $real.Source @hooks @args }
+  $marks = $env:NEXUS_CLAUDE_TAB_ID, $env:NEXUS_CLAUDE_PRINT
+  $env:NEXUS_CLAUDE_TAB_ID = $env:NEXUS_TAB_ID
+  $env:NEXUS_CLAUDE_PRINT = if ($args | Where-Object { "$_" -in @('-p', '--print') }) { '1' } else { '0' }
+  try {
+    if ($MyInvocation.ExpectingInput) { $input | & $real.Source @hooks @args } else { & $real.Source @hooks @args }
+  } finally {
+    $env:NEXUS_CLAUDE_TAB_ID, $env:NEXUS_CLAUDE_PRINT = $marks
+  }
 }`;
 
 /**
@@ -222,9 +234,16 @@ function shimShell(input: WindowsShellShimInput): WindowsShellShimOutput {
     // cmd escaped for a program, which cmd doesn't read. Inside a macro,
     // `claude` and `codex` are the programs on PATH. A macro can't look at
     // its arguments, so codex in cmd takes --no-daemon for `agents` and
-    // `queue` too, which refuse it.
+    // `queue` too, which refuse it, and claude's `-p` mark is left to the
+    // hook client (internal/hookclient). claude carries the tab's mark
+    // while it runs, as PowerShell's does: the escaped `&` joins the
+    // commands of the macro, and its %NEXUS_TAB_ID% is expanded as it runs.
     const macros = [
-      ...(settingsPath !== undefined ? [`doskey claude=claude --settings "${settingsPath}" $*`] : []),
+      ...(settingsPath !== undefined
+        ? [
+            `doskey claude=set "NEXUS_CLAUDE_TAB_ID=%NEXUS_TAB_ID%" ^& claude --settings "${settingsPath}" $* ^& set "NEXUS_CLAUDE_TAB_ID="`,
+          ]
+        : []),
       ...(codex?.cmd ? ["doskey codex=codex --no-daemon $*"] : []),
     ];
     if (macros.length === 0) return { env, args };

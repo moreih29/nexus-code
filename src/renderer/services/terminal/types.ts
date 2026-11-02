@@ -83,6 +83,17 @@ export interface TerminalController {
    * terminal has opened.
    */
   input: (text: string, mode: "paste" | "keys") => boolean;
+  /**
+   * True once the program next writes output, other than replayed
+   * scrollback; false after `timeoutMs` without any, or once the terminal
+   * is gone.
+   */
+  nextOutput: (timeoutMs: number) => Promise<boolean>;
+  /**
+   * Whether the app in the session turned on bracketed paste, so a pasted
+   * line break stays in the paste instead of acting as Enter.
+   */
+  bracketedPaste: () => boolean;
   reopen: () => Promise<void>;
   dispose: () => void;
 }

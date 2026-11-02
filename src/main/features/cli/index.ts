@@ -3,12 +3,19 @@
  * agents relay from their terminals, runs the command, and answers through
  * the same agent.
  */
-import { type CliInvocation, CliRequestSchema, type CliResult } from "../../../shared/cli/protocol";
+import { tmpdir } from "node:os";
+import {
+  CliCancelSchema,
+  type CliInvocation,
+  CliRequestSchema,
+  type CliResult,
+} from "../../../shared/cli/protocol";
 import type { CliUiOp, CliUiOps } from "../../../shared/cli/ui";
 import { FsStatSchema } from "../../../shared/fs/types";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcOk } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
+import type { ListeningPort } from "../../../shared/pty/ports";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { AgentChannel } from "../../infra/agent/channel";
 import { register, validateArgs } from "../../infra/ipc-router";
@@ -17,17 +24,23 @@ import type { ActiveContextStore } from "../claude/active-context";
 import type { ClaudeStatusBroker } from "../claude/status";
 import { type ActivitySource, ActivityTracker } from "./activity";
 import { CdpBrowserDriver } from "./browser/driver";
+import { formatPick, type PickedElement } from "./browser/pick";
+import { savePickPicture } from "./browser/pick-pictures";
+import { ClaudeExitWatch } from "./claude-exit";
 import { CLI_COMMANDS } from "./commands";
 import { CrossWorkspaceConsent, type CrossWorkspacePolicy } from "./consent";
-import type { CliServices } from "./context";
+import { type CliServices, shortId } from "./context";
 import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
-import { SessionHistory, type SessionSpanStore } from "./history";
+import { type AgentRunSource, SessionHistory, type SessionSpanStore } from "./history";
 import { RendererBridge, type UiWindow } from "./renderer-bridge";
 import { StartedAgents } from "./started-agents";
 import { WaitRegistry } from "./waits";
 
 const log = createLogger("cli");
+
+/** How long a pick started from a browser tab's button waits for the click. */
+const BUTTON_PICK_MS = 10 * 60_000;
 
 const DISABLED: CliResult = {
   stdout: "",
@@ -38,7 +51,7 @@ const DISABLED_QUIETLY: CliResult = { stdout: "", stderr: "", exitCode: 0 };
 
 export interface SetupCliFeatureOptions {
   /**
-   * Relays the agents' "cli.request" events and the terminals' output, and
+   * Relays the agents' "cli.request" and "cli.cancel" events and the terminals' output, and
    * asks a terminal's agent which program holds its foreground.
    */
   agentHost: ActivitySource & { call(method: string, args: unknown): Promise<unknown> };
@@ -49,6 +62,8 @@ export interface SetupCliFeatureOptions {
     activate(id: string): Promise<void>;
   };
   claudeBroker: ClaudeStatusBroker;
+  /** The agents of Claude sessions, for the timeline's spans of them. */
+  claudeActivity?: AgentRunSource;
   activeContext: ActiveContextStore;
   /** Where the sessions timeline's spans are kept. */
   sessionSpans: SessionSpanStore;
@@ -68,6 +83,8 @@ export interface SetupCliFeatureOptions {
   focusWindow: () => void;
   /** Sends an event to the renderer. */
   broadcast: (channel: string, event: string, args: unknown) => void;
+  /** Looks at the ports the programs in a workspace's terminals listen on. */
+  ports: { refresh(workspaceId: string): Promise<readonly ListeningPort[]> };
 }
 
 export interface CliFeature {
@@ -77,16 +94,24 @@ export interface CliFeature {
 export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   const { agentHost, workspaceManager } = options;
   const bridge = new RendererBridge(options.getWindow);
-  const foregroundProcess = async (workspaceId: string, tabId: string) => {
-    const result = (await agentHost.call("foregroundProcess", { workspaceId, tabId })) as
-      | { name?: string }
-      | undefined;
+  const foregroundGroup = async (workspaceId: string, tabId: string, alone = false) => {
+    const result = (await agentHost.call("foregroundProcess", {
+      workspaceId,
+      tabId,
+      ...(alone ? { alone } : {}),
+    })) as { name?: string; alone?: boolean } | undefined;
     const name = result?.name?.trim() ?? "";
-    return name === "" ? null : name;
+    return name === "" ? null : { name, alone: result?.alone };
   };
+  const foregroundProcess = async (workspaceId: string, tabId: string) =>
+    (await foregroundGroup(workspaceId, tabId))?.name ?? null;
   const activity = new ActivityTracker(agentHost, Date.now, foregroundProcess);
+  const claudeExit = new ClaudeExitWatch(agentHost, options.claudeBroker, (workspaceId, tabId) =>
+    foregroundGroup(workspaceId, tabId, true),
+  );
   const waits = new WaitRegistry(agentHost);
   const history = new SessionHistory(options.sessionSpans, agentHost, options.claudeBroker);
+  if (options.claudeActivity) history.watchAgents(options.claudeActivity);
   const startedAgents = new StartedAgents(agentHost);
   const consent = new CrossWorkspaceConsent({
     policy: () => options.settings().crossWorkspace,
@@ -114,9 +139,42 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
         const { workspaceIds, since } = validateArgs(ipcContract.cli.call.history.args, args);
         return ipcOk(history.list(workspaceIds, since));
       },
+      pickElement: async (args: unknown) => {
+        const { tabId } = validateArgs(ipcContract.cli.call.pickElement.args, args);
+        const result = await browser.pick(tabId, { timeoutMs: BUTTON_PICK_MS });
+        if ("cancelled" in result) return ipcOk({ cancelled: result.cancelled });
+        // The click left the keyboard in the page; the agent's terminal is next.
+        options.getWindow()?.webContents.focus();
+        const screenshot = await pickPicture(tabId, result.picked);
+        return ipcOk({ text: formatPick(result.picked, screenshot, shortId(tabId)) });
+      },
+      cancelPick: async (args: unknown) => {
+        browser.cancelPick(validateArgs(ipcContract.cli.call.cancelPick.args, args).tabId);
+        return ipcOk(undefined);
+      },
     },
     listen: { uiRequest: {} },
   });
+
+  /**
+   * Saves the picture of an element picked with a tab's button where the
+   * agent can read it: this machine's temp directory, so only for a local
+   * workspace. An agent on an SSH host or in WSL gets none.
+   */
+  const pickPicture = async (
+    tabId: string,
+    picked: PickedElement,
+  ): Promise<string | undefined> => {
+    const workspaceId = getBrowserRegistry()?.get(tabId)?.workspaceId;
+    const workspace = workspaceManager.list().find((w) => w.id === workspaceId);
+    if (picked.png === undefined || workspace?.location.kind !== "local") return undefined;
+    try {
+      return await savePickPicture(tmpdir(), shortId(tabId), picked.png, Date.now());
+    } catch (error) {
+      log.warn(`saving a picked element's picture failed: ${(error as Error).message}`);
+      return undefined;
+    }
+  };
 
   const reveal = (workspaceId: string, tabId: string) => {
     options.focusWindow();
@@ -170,6 +228,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     allowChange: (request) => consent.check(request),
     agentContextEnabled: () => options.settings().agentContext,
     foregroundProcess,
+    listeningPorts: (workspaceId) => options.ports.refresh(workspaceId),
     startedAgents,
     clock: {
       now: () => Date.now(),
@@ -178,14 +237,21 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     browser,
   };
 
-  const run = (caller: { workspaceId: string; tabId: string }, request: CliInvocation) => {
+  const run = (
+    caller: { workspaceId: string; tabId: string },
+    request: CliInvocation,
+    signal: AbortSignal,
+  ) => {
     if (!options.settings().enabled) {
       // The SessionStart hook asks for the agent note in every session; it gets none.
       if (request.argv[0] === "agent-context") return Promise.resolve(DISABLED_QUIETLY);
       return Promise.resolve(DISABLED);
     }
-    return runCli(CLI_COMMANDS, { caller, invocation: request, services });
+    return runCli(CLI_COMMANDS, { caller, invocation: request, services, signal });
   };
+
+  /** The requests still running, to abort when their client goes. */
+  const running = new Map<string, AbortController>();
 
   const respond = async (workspaceId: string, requestId: string, response: CliResult) => {
     const channel = await workspaceManager.tryGetAgentChannel(workspaceId);
@@ -203,18 +269,30 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       return;
     }
     const { requestId, workspaceId, tabId, request } = parsed.data;
-    run({ workspaceId, tabId }, request)
-      .then((result) => respond(workspaceId, requestId, result))
+    const controller = new AbortController();
+    running.set(requestId, controller);
+    run({ workspaceId, tabId }, request, controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted) return respond(workspaceId, requestId, result);
+      })
       .catch((error: unknown) => {
         log.warn(`cli request ${requestId} failed: ${(error as Error).message}`);
-      });
+      })
+      .finally(() => running.delete(requestId));
+  });
+  const offCancel = agentHost.on("cli.cancel", (payload) => {
+    const parsed = CliCancelSchema.safeParse(payload);
+    if (parsed.success) running.get(parsed.data.requestId)?.abort();
   });
 
   return {
     dispose: () => {
       off();
+      offCancel();
+      for (const controller of running.values()) controller.abort();
       stopWatchingBrowsers();
       activity.dispose();
+      claudeExit.dispose();
       waits.dispose();
       history.dispose();
       startedAgents.dispose();

@@ -47,7 +47,10 @@ export interface WaitOptions {
 export interface WaitResult {
   /** False when the wait timed out. */
   readonly done: boolean;
-  /** What ended it: idle, completed, needsInput, permissionPending, notified, exited, matched, timeout. */
+  /**
+   * What ended it: idle, completed, needsInput, permissionPending, error, notStarted,
+   * notified, exited, matched, timeout.
+   */
   readonly state: string;
   readonly text: string;
   readonly message?: string;
@@ -72,6 +75,12 @@ function claudeResult(status: string, message: string | undefined): WaitResult {
       return settled(
         status,
         `Claude Code is waiting for the user${message ? `: ${message}` : "."}`,
+        message,
+      );
+    case "error":
+      return settled(
+        status,
+        `Claude Code stopped on an error${message ? `: ${message}` : "."}`,
         message,
       );
     case "permissionPending":
@@ -154,21 +163,24 @@ class Waiter {
         return null;
       }
       // A turn that ended between two looks.
+      const { turnStartedAt } = claude;
       const { agentStartedAt } = this;
       if (
         agentStartedAt !== undefined &&
-        claude.status !== "idle" &&
-        claude.since >= agentStartedAt
+        turnStartedAt !== undefined &&
+        turnStartedAt >= agentStartedAt
       ) {
         this.sawTurn = true;
       }
       if (this.beforeFirstTurn(now)) return null;
       const started =
-        !afterInput ||
-        this.sawBusy ||
-        claude.since >= startedAt ||
-        this.elapsed(now) >= AGENT_START_GRACE_MS;
-      return started ? claudeResult(claude.status, claude.message) : null;
+        !afterInput || this.sawBusy || (turnStartedAt !== undefined && turnStartedAt >= startedAt);
+      if (started) return claudeResult(claude.status, claude.message);
+      // The text started no turn, as a slash command may not: what Claude
+      // Code last said is from an earlier turn.
+      return this.elapsed(now) >= AGENT_START_GRACE_MS
+        ? settled("notStarted", "Claude Code started no turn from the input.")
+        : null;
     }
 
     const state = terminalState(this.services, this.workspace.id, tab.id, tab.title, now);

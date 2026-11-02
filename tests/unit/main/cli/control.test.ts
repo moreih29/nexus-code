@@ -112,6 +112,22 @@ describe("terminal wait", () => {
     expect(app.time.now - sentAt).toBe(4_000);
   });
 
+  test("send --wait ends on a turn that stopped on an error", async () => {
+    const app = fakeApp();
+    const key = `${APP}:${CLAUDE_TAB}`;
+    const sentAt = app.time.now;
+    app.time.onTick = (now) => {
+      if (now - sentAt === 1_000) app.claude.set(key, { status: "running", since: now });
+      if (now - sentAt === 2_000) {
+        app.claude.set(key, { status: "error", message: "API Error: 429", since: now });
+      }
+    };
+    const result = await nexus(app, ["terminal", "send", "✳ claude code", "add a test", "--wait"]);
+    expect(result.stdout).toBe(
+      "Sent to ✳ Claude Code (aaaaaaaa).\nClaude Code stopped on an error: API Error: 429\n",
+    );
+  });
+
   test("lists the wait while it runs, for the sessions view", async () => {
     const app = fakeApp();
     const key = `${APP}:${CLAUDE_TAB}`;
@@ -131,12 +147,48 @@ describe("terminal wait", () => {
     expect(app.waits.snapshot()).toEqual([]);
   });
 
-  test("send --wait takes a Claude Code that never starts as idle after a grace", async () => {
+  test("send --wait tells a Claude Code that never starts a turn apart after a grace", async () => {
     const app = fakeApp();
     const sentAt = app.time.now;
-    const result = await nexus(app, ["terminal", "send", "✳ claude code", "/help", "--wait"]);
+    const result = await runCli(
+      CLI_COMMANDS,
+      contextFor(app, ["terminal", "send", "✳ claude code", "/help", "--wait", "--json"]),
+    );
     expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ state: "notStarted" });
     expect(app.time.now - sentAt).toBe(10_000);
+  });
+
+  test("send --wait does not take the turn before it, seen by the user, as the answer", async () => {
+    const app = fakeApp();
+    const key = `${APP}:${CLAUDE_TAB}`;
+    const sentAt = app.time.now;
+    app.time.onTick = (now) => {
+      // The user looks at the tab: the earlier turn's completed goes idle.
+      if (now - sentAt === 500) app.claude.set(key, { status: "idle", since: now });
+    };
+    const result = await nexus(app, ["terminal", "send", "✳ claude code", "/help", "--wait"]);
+    expect(result.stdout).toBe(
+      "Sent to ✳ Claude Code (aaaaaaaa).\nClaude Code started no turn from the input.\n",
+    );
+    expect(app.time.now - sentAt).toBe(10_000);
+  });
+
+  test("send --wait takes a turn that ended between two looks", async () => {
+    const app = fakeApp();
+    const key = `${APP}:${CLAUDE_TAB}`;
+    const sentAt = app.time.now;
+    app.time.onTick = (now) => {
+      if (now - sentAt === 1_000) {
+        const entry = { message: "Fixed it.", since: now, turnStartedAt: now - 200 };
+        app.claude.set(key, { status: "completed", ...entry });
+      }
+    };
+    const result = await nexus(app, ["terminal", "send", "✳ claude code", "fix it", "--wait"]);
+    expect(result.stdout).toBe(
+      "Sent to ✳ Claude Code (aaaaaaaa).\nClaude Code finished:\nFixed it.\n",
+    );
+    expect(app.time.now - sentAt).toBe(1_000);
   });
 
   test("tells a waiting-for-permission Claude Code apart", async () => {

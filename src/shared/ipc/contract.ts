@@ -1,8 +1,14 @@
 import { z } from "zod";
+import {
+  ACTIVITY_TEXT_MAX_CHARS,
+  PermissionAnswerSchema,
+  SessionActivitySchema,
+} from "../claude/activity";
 import { StatusEntrySchema } from "../claude/status";
 import { CliUiRequestSchema, CliUiRespondArgsSchema } from "../cli/ui";
 import { TabActivityEntrySchema, TerminalWaitSchema } from "../sessions/agent-state";
 import { SessionSpanSchema } from "../sessions/history";
+import { WorkspacePortsSchema } from "../pty/ports";
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
   DirEntrySchema,
@@ -638,7 +644,11 @@ export const ipcContract = {
         WorkspaceMetaSchema,
       ),
       remove: call(
-        z.object({ id: WorkspaceIdPrimitive, force: z.boolean(), deleteBranch: z.boolean() }),
+        z.object({
+          id: WorkspaceIdPrimitive,
+          force: z.boolean(),
+          deleteBranch: z.union([z.boolean(), z.literal("merged")]),
+        }),
         z.void(),
       ),
     },
@@ -722,8 +732,15 @@ export const ipcContract = {
         z.object({ program: z.string().max(1024) }),
         z.object({ path: z.string().nullable() }),
       ),
+      /**
+       * The TCP ports the programs in each workspace's terminals listen on,
+       * for every workspace that has any; `ports` then tells of changes.
+       */
+      ports: call(z.object({}), z.array(WorkspacePortsSchema)),
     },
     listen: {
+      /** A workspace's ports changed; an empty list once its servers have stopped. */
+      ports: listen(WorkspacePortsSchema),
       // data: args is string chunk — validation skipped on hot path.
       // `replay` marks output pty.replay sends again to redraw the terminal.
       data: listen(
@@ -1512,6 +1529,12 @@ export const ipcContract = {
        * directly; only URL focus needs a renderer round-trip.
        */
       focusUrl: listen(z.object({ tabId: z.string().uuid() })),
+      /**
+       * A download the user started in a browser tab is done, saved as
+       * `file` where downloads go. One a nexus command started is told in
+       * the command's output instead.
+       */
+      downloaded: listen(z.object({ file: z.string() })),
     },
   },
 
@@ -1573,6 +1596,30 @@ export const ipcContract = {
        * broker에서 항목을 제거하고 각 tab에 대해 cleared 이벤트를 broadcast한다.
        */
       clearWorkspace: call(z.object({ workspaceId: z.string() }), z.void()),
+      /**
+       * What the Claude sessions of the workspaces are doing, as their hooks
+       * tell it: their tools, todo lists and agents. The sessions tab polls it.
+       */
+      activity: call(
+        z.object({ workspaceIds: z.array(z.string()) }),
+        z.array(SessionActivitySchema),
+      ),
+      /**
+       * Answers a permission request held for the user (an activity's
+       * `asks`): allow it, allow it always as Claude Code suggests, deny it
+       * with words for Claude, or deny it and stop the turn. False when it
+       * no longer waits, answered in the terminal or gone.
+       */
+      answerPermission: call(
+        z.object({
+          workspaceId: z.string(),
+          tabId: z.string(),
+          askId: z.string(),
+          answer: PermissionAnswerSchema,
+          message: z.string().max(ACTIVITY_TEXT_MAX_CHARS).optional(),
+        }),
+        z.boolean(),
+      ),
     },
     listen: {
       /**
@@ -1769,6 +1816,17 @@ export const ipcContract = {
         z.object({ workspaceIds: z.array(z.string()), since: z.number() }),
         z.array(SessionSpanSchema),
       ),
+      /**
+       * Lets the user pick an element in a shown browser tab, as nexus
+       * browser pick does, for the tab's pick button. Answers with the text
+       * that tells an agent about the element, or why none was picked.
+       */
+      pickElement: call(
+        z.object({ tabId: z.string().uuid() }),
+        z.union([z.object({ text: z.string() }), z.object({ cancelled: z.string() })]),
+      ),
+      /** Ends the pick going on in a browser tab, if there is one. */
+      cancelPick: call(z.object({ tabId: z.string().uuid() }), z.void()),
     },
     listen: {
       uiRequest: listen(CliUiRequestSchema),

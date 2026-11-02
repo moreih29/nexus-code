@@ -394,6 +394,10 @@ func runDaemon(root string) {
 				cleanupAndExit(code)
 			}
 			_ = conn.Close()
+			if keep && hooksrv != nil {
+				// A PermissionRequest waits on the app that just left.
+				hooksrv.ReleaseHooks()
+			}
 			select {
 			case outcome <- keep:
 			default:

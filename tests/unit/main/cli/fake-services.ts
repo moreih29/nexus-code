@@ -10,7 +10,8 @@ import {
   type CrossWorkspacePolicy,
 } from "../../../../src/main/features/cli/consent";
 import type { ConsoleEntry } from "../../../../src/main/features/cli/browser/console-log";
-import type { BrowserDriver } from "../../../../src/main/features/cli/browser/driver";
+import type { BrowserDriver, PageInfo } from "../../../../src/main/features/cli/browser/driver";
+import type { PickedElement, PickResult } from "../../../../src/main/features/cli/browser/pick";
 import type { CliContext, CliServices } from "../../../../src/main/features/cli/context";
 import { StartedAgents } from "../../../../src/main/features/cli/started-agents";
 import { WaitRegistry } from "../../../../src/main/features/cli/waits";
@@ -24,6 +25,7 @@ import type {
   CliUiOp,
   CliUiOps,
 } from "../../../../src/shared/cli/ui";
+import type { ListeningPort } from "../../../../src/shared/pty/ports";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 export const APP = "11111111-1111-4111-8111-111111111111";
@@ -130,7 +132,10 @@ export interface FakeApp {
   tabs: Record<string, CliTabInfo[]>;
   uiCalls: Array<{ op: string; args: unknown }>;
   notified: Array<{ workspaceId: string; tabId: string; title: string; body: string }>;
-  claude: Map<string, { status: ClaudeStatus; message?: string; since: number }>;
+  claude: Map<
+    string,
+    { status: ClaudeStatus; message?: string; since: number; turnStartedAt?: number }
+  >;
   activity: Map<string, TabActivity>;
   /** The waits on terminals listed while they run. */
   waits: WaitRegistry;
@@ -152,6 +157,8 @@ export interface FakeApp {
   panels: CliPanels;
   /** What problems.list gives. */
   problems: CliProblem[];
+  /** The ports each workspace's terminals listen on; an Error fails the look. */
+  ports: Record<string, ListeningPort[] | Error>;
 }
 
 export interface FakeBrowser {
@@ -161,6 +168,10 @@ export interface FakeBrowser {
   value: unknown;
   /** Whether waitFor finds its condition. */
   met: boolean;
+  /** What pick gives. */
+  pick: PickResult;
+  /** What settle finds in place of the Vite page, when set. */
+  settled?: PageInfo | null;
 }
 
 function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
@@ -208,10 +219,31 @@ function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
     },
     settle: async (tabId) => {
       record("settle", tabId);
-      return page;
+      return state.settled === undefined ? page : state.settled;
+    },
+    pick: async (tabId, options) => {
+      record("pick", tabId, options);
+      return state.pick;
     },
   };
 }
+
+/** The element a pick gives unless a test says otherwise. */
+export const PICKED: PickedElement = {
+  url: "http://localhost:5173/login",
+  title: "Vite App",
+  tag: "button",
+  role: "button",
+  name: "Sign in",
+  ref: "e7",
+  selector: "#login > button.primary",
+  inShadow: false,
+  text: "Sign in",
+  html: '<button class="primary" type="submit">Sign in</button>',
+  box: { x: 412, y: 388, width: 120, height: 32 },
+  clip: { x: 404, y: 380, width: 136, height: 48 },
+  png: "cG5n",
+};
 
 export function fakeApp(now = Date.now()): FakeApp {
   const uiCalls: FakeApp["uiCalls"] = [];
@@ -238,13 +270,20 @@ export function fakeApp(now = Date.now()): FakeApp {
   const answers: CliConsentAnswer[] = [];
   const asked: ChangeRequest[] = [];
   const time: FakeApp["time"] = { now };
-  const browser: FakeBrowser = { calls: [], console: [], value: undefined, met: true };
+  const browser: FakeBrowser = {
+    calls: [],
+    console: [],
+    value: undefined,
+    met: true,
+    pick: { picked: PICKED },
+  };
   const layouts: FakeApp["layouts"] = { ...LAYOUTS };
   const panels: CliPanels = {
     sidebar: { visible: true, width: 240 },
     files: { visible: true, width: 240, mode: "tree" },
   };
   const problems: CliProblem[] = [];
+  const ports: FakeApp["ports"] = {};
   const consent = new CrossWorkspaceConsent({
     policy: () => settings.crossWorkspace,
     ask: async (request) => {
@@ -325,6 +364,11 @@ export function fakeApp(now = Date.now()): FakeApp {
     allowChange: (request) => consent.check(request),
     agentContextEnabled: () => settings.agentContext,
     foregroundProcess: async (_workspaceId, tabId) => foreground.get(tabId) ?? null,
+    listeningPorts: async (workspaceId) => {
+      const found = ports[workspaceId] ?? [];
+      if (found instanceof Error) throw found;
+      return found;
+    },
     startedAgents: new StartedAgents(),
     clock: {
       now: () => time.now,
@@ -353,6 +397,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     layouts,
     panels,
     problems,
+    ports,
   };
 }
 

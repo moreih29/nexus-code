@@ -30,8 +30,13 @@ const HOOK_EVENT_NAMES = [
   "session-start",
   "user-prompt-submit",
   "pre-tool-use",
+  "post-tool-use",
+  "post-tool-use-failure",
+  "subagent-start",
+  "subagent-stop",
   "notification",
   "stop",
+  "stop-failure",
   "session-end",
   "permission-request",
 ] as const;
@@ -85,6 +90,7 @@ function runWrapper(hookBin: string): {
       NEXUS_HOOK_TOKEN: "test-token-abc",
       NEXUS_AGENT_BIN: hookBin,
       NEXUS_CAPTURE_SETTINGS_TO: capturePath,
+      HOME: path.join(tmpDir, "home"),
       PATH: `${fakeBinDir}:${process.env["PATH"] ?? ""}`,
     },
     timeout: 5000,
@@ -154,6 +160,31 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
       expect(cmd).toBe(`"\${NEXUS_AGENT_BIN}" hook ${event}`);
     }
 
+    // Claude Code's worktrees are made and removed as the app's tasks; each
+    // waits for the task, so the hooks get the task's time.
+    expect(hooks.WorktreeCreate).toEqual([
+      {
+        hooks: [
+          {
+            type: "command",
+            command: `"\${NEXUS_AGENT_BIN}" cli worktree claude-create -`,
+            timeout: 300,
+          },
+        ],
+      },
+    ]);
+    expect(hooks.WorktreeRemove).toEqual([
+      {
+        hooks: [
+          {
+            type: "command",
+            command: `"\${NEXUS_AGENT_BIN}" cli worktree claude-remove -`,
+            timeout: 300,
+          },
+        ],
+      },
+    ]);
+
     // The note on nexus: a second SessionStart hook, run in step so its
     // output reaches the session as context.
     const sessionStart = (hooks.SessionStart as Array<{ hooks: unknown[] }>)[0].hooks;
@@ -194,6 +225,238 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
     // stderr에 경고 문구가 있어야 한다
     expect(result.stderr).toContain("NEXUS_AGENT_BIN is not set");
     expect(result.stderr).toContain("hook injection skipped");
+  });
+});
+
+describeOnPosix("claude-wrapper.sh — the settings file", () => {
+  /** Runs the wrapper with a claude that prints the --settings path it got. */
+  function launch(home: string | undefined): {
+    status: number | null;
+    settingsPath: string;
+    stderr: string;
+  } {
+    const binDir = path.join(tmpDir, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const fake = path.join(binDir, "claude");
+    fs.writeFileSync(
+      fake,
+      '#!/usr/bin/env bash\nwhile [[ $# -gt 0 ]]; do [[ "$1" == --settings ]] && printf "%s" "$2"; shift; done\n',
+    );
+    fs.chmodSync(fake, 0o755);
+    const hookBin = path.join(tmpDir, "agent");
+    fs.writeFileSync(hookBin, "#!/usr/bin/env bash\nexit 0\n");
+    fs.chmodSync(hookBin, 0o755);
+    const result = spawnSync("bash", [WRAPPER_PATH], {
+      env: {
+        NEXUS_IN_APP: "1",
+        NEXUS_AGENT_SOCKET: socketPath,
+        NEXUS_AGENT_BIN: hookBin,
+        ...(home === undefined ? {} : { HOME: home }),
+        PATH: `${binDir}:/bin:/usr/bin`,
+      },
+      timeout: 5000,
+      encoding: "utf8",
+    });
+    return { status: result.status, settingsPath: result.stdout, stderr: result.stderr };
+  }
+
+  test("every launch shares one file under ~/.nexus-code and leaves nothing else behind", () => {
+    const home = path.join(tmpDir, "home");
+    const first = launch(home);
+    const second = launch(home);
+    expect(first.status).toBe(0);
+    expect(first.settingsPath).toMatch(/\/\.nexus-code\/claude-settings-\d+\.json$/);
+    expect(second.settingsPath).toBe(first.settingsPath);
+    expect(fs.readdirSync(path.join(home, ".nexus-code"))).toEqual([
+      path.basename(first.settingsPath),
+    ]);
+    expect(JSON.parse(fs.readFileSync(first.settingsPath, "utf8")).hooks.Stop).toBeDefined();
+  });
+
+  test("rewrites a file whose content is not the settings", () => {
+    const home = path.join(tmpDir, "home");
+    const { settingsPath } = launch(home);
+    fs.writeFileSync(settingsPath, "{");
+    expect(launch(home).settingsPath).toBe(settingsPath);
+    expect(() => JSON.parse(fs.readFileSync(settingsPath, "utf8"))).not.toThrow();
+    expect(fs.readdirSync(path.join(home, ".nexus-code"))).toHaveLength(1);
+  });
+
+  test("runs claude without hooks when there is no home to write the file in", () => {
+    const { status, settingsPath, stderr } = launch(undefined);
+    expect(status).toBe(0);
+    expect(settingsPath).toBe("");
+    expect(stderr).toContain("hook injection skipped");
+  });
+});
+
+describeOnPosix("claude-wrapper.sh — claude's arguments", () => {
+  /** Runs the wrapper with `args` and a claude that prints the arguments it got, one a line. */
+  function argsGiven(args: string[]): string[] {
+    const binDir = path.join(tmpDir, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const fake = path.join(binDir, "claude");
+    fs.writeFileSync(fake, '#!/usr/bin/env bash\nprintf "%s\\n" "$@"\n');
+    fs.chmodSync(fake, 0o755);
+    const hookBin = path.join(tmpDir, "agent");
+    fs.writeFileSync(hookBin, "#!/usr/bin/env bash\nexit 0\n");
+    fs.chmodSync(hookBin, 0o755);
+    const result = spawnSync("bash", [WRAPPER_PATH, ...args], {
+      env: {
+        NEXUS_IN_APP: "1",
+        NEXUS_AGENT_SOCKET: socketPath,
+        NEXUS_AGENT_BIN: hookBin,
+        HOME: path.join(tmpDir, "home"),
+        PATH: `${binDir}:/bin:/usr/bin`,
+      },
+      timeout: 5000,
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(0);
+    return result.stdout.split("\n").filter((line) => line !== "");
+  }
+
+  // Claude Code refuses --session-id with --continue or --resume ("--session-id
+  // can only be used with --continue or --resume if --fork-session is also
+  // specified"), so in the app's terminals neither could pick a session up.
+  test("gives claude the hooks and the user's arguments, and no session id", () => {
+    for (const args of [[], ["--continue"], ["-r", "abc"], ["--resume"], ["-p", "hi there"]]) {
+      const given = argsGiven(args);
+      expect(given[0]).toBe("--settings");
+      expect(given.slice(2)).toEqual(args);
+    }
+  });
+});
+
+describeOnPosix("claude-wrapper.sh — a `claude -p` run", () => {
+  /** Runs the wrapper with `args`, and a claude that prints the mark of a print run its hooks read. */
+  function printMark(args: string[], env: Record<string, string> = {}): string {
+    const binDir = path.join(tmpDir, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const fake = path.join(binDir, "claude");
+    fs.writeFileSync(fake, '#!/usr/bin/env bash\nprintf "%s" "${NEXUS_CLAUDE_PRINT:-unset}"\n');
+    fs.chmodSync(fake, 0o755);
+    const hookBin = path.join(tmpDir, "agent");
+    fs.writeFileSync(hookBin, "#!/usr/bin/env bash\nexit 0\n");
+    fs.chmodSync(hookBin, 0o755);
+    const result = spawnSync("bash", [WRAPPER_PATH, ...args], {
+      env: {
+        NEXUS_IN_APP: "1",
+        NEXUS_AGENT_SOCKET: socketPath,
+        NEXUS_AGENT_BIN: hookBin,
+        HOME: path.join(tmpDir, "home"),
+        PATH: `${binDir}:/bin:/usr/bin`,
+        ...env,
+      },
+      timeout: 5000,
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(0);
+    return result.stdout;
+  }
+
+  // Claude Code waits on a print run's PermissionRequest hook, which no dialog answers.
+  test("marks a print run, so its permission requests are answered at once", () => {
+    expect(printMark(["-p", "hi"])).toBe("1");
+    expect(printMark(["--model", "opus", "--print", "hi"])).toBe("1");
+  });
+
+  test("leaves an interactive claude unmarked, whatever it inherits", () => {
+    expect(printMark([])).toBe("0");
+    expect(printMark(["--continue"], { NEXUS_CLAUDE_PRINT: "1" })).toBe("0");
+    // Past `--`, a "-p" is the prompt.
+    expect(printMark(["--", "-p"])).toBe("0");
+  });
+
+  test("waits on a permission request longer than the app holds it", () => {
+    const { settings } = runWrapper(path.join(tmpDir, "agent"));
+    const hooks = (
+      settings as { hooks: Record<string, Array<{ hooks: Array<{ timeout: number }> }>> }
+    ).hooks;
+    expect(hooks.PermissionRequest?.[0]?.hooks[0]?.timeout).toBeGreaterThan(3600);
+  });
+});
+
+describeOnPosix("claude-wrapper.sh — a claude inside the tab's Claude session", () => {
+  /**
+   * Runs the wrapper for tab t1 with `env` and `args`, and a claude that
+   * prints whether it got hooks and the mark its own processes carry; an
+   * agent that prints how it was run.
+   */
+  function launch(
+    env: Record<string, string>,
+    args: string[] = ["-p", "hi"],
+  ): { hooks: boolean; mark: string; stdout: string; claude: string } {
+    const binDir = path.join(tmpDir, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const fake = path.join(binDir, "claude");
+    fs.writeFileSync(
+      fake,
+      '#!/usr/bin/env bash\nhooks=no\nfor a in "$@"; do [[ "$a" == --settings ]] && hooks=yes; done\nprintf "%s %s" "$hooks" "${NEXUS_CLAUDE_TAB_ID:-}"\n',
+    );
+    fs.chmodSync(fake, 0o755);
+    const hookBin = path.join(tmpDir, "agent");
+    fs.writeFileSync(hookBin, '#!/usr/bin/env bash\nprintf "agent %s" "$*"\n');
+    fs.chmodSync(hookBin, 0o755);
+    const result = spawnSync("bash", [WRAPPER_PATH, ...args], {
+      env: {
+        NEXUS_IN_APP: "1",
+        NEXUS_AGENT_SOCKET: socketPath,
+        NEXUS_AGENT_BIN: hookBin,
+        NEXUS_AGENT_PRINT_RUN: "1",
+        NEXUS_TAB_ID: "t1",
+        HOME: path.join(tmpDir, "home"),
+        PATH: `${binDir}:/bin:/usr/bin`,
+        ...env,
+      },
+      timeout: 5000,
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(0);
+    const [hooks, mark = ""] = result.stdout.split(" ");
+    return { hooks: hooks === "yes", mark, stdout: result.stdout, claude: fake };
+  }
+
+  test("the tab's claude gets the hooks, and its processes the tab's mark", () => {
+    expect(launch({})).toMatchObject({ hooks: true, mark: "t1" });
+  });
+
+  // As claude run by Claude's Bash tool: its hooks would report it as the tab's session.
+  test("a claude run by it gets none", () => {
+    expect(launch({ NEXUS_CLAUDE_TAB_ID: "t1" }, ["hi"])).toMatchObject({
+      hooks: false,
+      mark: "t1",
+    });
+  });
+
+  // As `claude -p` run by an offload script: the app tells it as one of the session's agents.
+  test("a `claude -p` run by it runs under the agent, which tells the app of it", () => {
+    const run = launch({ NEXUS_CLAUDE_TAB_ID: "t1" }, [
+      "-p",
+      "hi",
+      "--output-format",
+      "stream-json",
+    ]);
+    expect(run.stdout).toBe(`agent print-run ${run.claude} -p hi --output-format stream-json`);
+  });
+
+  test("a `claude -p` run by it runs alone when there is no agent to run it", () => {
+    expect(
+      launch({ NEXUS_CLAUDE_TAB_ID: "t1", NEXUS_AGENT_BIN: path.join(tmpDir, "none") }),
+    ).toMatchObject({ hooks: false, mark: "t1" });
+  });
+
+  // A terminal an older app started names its older agent, which has no print-run.
+  test("a `claude -p` run by it runs alone when its agent cannot run it", () => {
+    expect(launch({ NEXUS_CLAUDE_TAB_ID: "t1", NEXUS_AGENT_PRINT_RUN: "" })).toMatchObject({
+      hooks: false,
+      mark: "t1",
+    });
+  });
+
+  // A terminal of an app started from inside a Claude session in another tab.
+  test("a mark of another tab is not the tab's session", () => {
+    expect(launch({ NEXUS_CLAUDE_TAB_ID: "t0" })).toMatchObject({ hooks: true, mark: "t1" });
   });
 });
 
@@ -318,8 +581,13 @@ function toHookKey(event: (typeof HOOK_EVENT_NAMES)[number]): string {
     "session-start": "SessionStart",
     "user-prompt-submit": "UserPromptSubmit",
     "pre-tool-use": "PreToolUse",
+    "post-tool-use": "PostToolUse",
+    "post-tool-use-failure": "PostToolUseFailure",
+    "subagent-start": "SubagentStart",
+    "subagent-stop": "SubagentStop",
     "notification": "Notification",
     "stop": "Stop",
+    "stop-failure": "StopFailure",
     "session-end": "SessionEnd",
     "permission-request": "PermissionRequest",
   };
