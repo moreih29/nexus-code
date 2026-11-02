@@ -30,6 +30,11 @@ const (
 	envTabID       = "NEXUS_TAB_ID"
 	// envClaudePrint is "1" in a `claude -p` run (claude-wrapper.sh).
 	envClaudePrint = "NEXUS_CLAUDE_PRINT"
+	// envClaudeEntrypoint is what Claude Code tells its child processes of
+	// how it runs: "sdk-cli" in a `claude -p` run, "cli" interactive. It
+	// marks the `-p` runs no wrapper marks, as cmd's claude macro starts
+	// them on Windows.
+	envClaudeEntrypoint = "CLAUDE_CODE_ENTRYPOINT"
 
 	// permissionRequestSubcmd 는 긴 blocking timeout이 필요한 서브커맨드 이름.
 	permissionRequestSubcmd = "permission-request"
@@ -173,7 +178,7 @@ func runWithContext(
 		Subcommand:    subcommand,
 		Payload:       payload,
 		AssistantText: assistantText,
-		Print:         os.Getenv(envClaudePrint) == "1",
+		Print:         os.Getenv(envClaudePrint) == "1" || os.Getenv(envClaudeEntrypoint) == "sdk-cli",
 	}
 	if err := writeNDJSON(conn, req); err != nil {
 		fmt.Fprintf(os.Stderr, "nexus hook: send failed: %v\n", err)

@@ -264,6 +264,9 @@ describe("pty.spawn — claude's hooks and codex's --no-daemon in a local Window
   const BIN = "C:\\Users\\me\\.nexus-code\\bin";
   const LAUNCHERS = "C:\\Users\\me\\.nexus-code\\cli";
   const SETTINGS = "C:\\Users\\me\\.nexus-code\\claude-settings.json";
+  const CMD_CLAUDE =
+    `doskey claude=set "NEXUS_CLAUDE_TAB_ID=%NEXUS_TAB_ID%" ^& ` +
+    `claude --settings "${SETTINGS}" $* ^& set "NEXUS_CLAUDE_TAB_ID="`;
   const wrapper = { binDir: LAUNCHERS, shell: "", shimDir: "C:\\Users\\me\\.nexus-code\\shim\\ws" };
   const files = async () => ({ binDir: BIN, settingsPath: SETTINGS, cmdCodexNoDaemon: true });
 
@@ -309,9 +312,7 @@ describe("pty.spawn — claude's hooks and codex's --no-daemon in a local Window
 
     const sent = agent.spawnCalls[0];
     expect(sent?.args).toEqual(["/k", "%NEXUS_CMD_INIT%"]);
-    expect(sent?.env?.NEXUS_CMD_INIT).toBe(
-      `doskey claude=claude --settings "${SETTINGS}" $* & doskey codex=codex --no-daemon $*`,
-    );
+    expect(sent?.env?.NEXUS_CMD_INIT).toBe(`${CMD_CLAUDE} & doskey codex=codex --no-daemon $*`);
   });
 
   test("cmd's codex is left as it is when the codex on PATH lacks --no-daemon", async () => {
@@ -322,9 +323,7 @@ describe("pty.spawn — claude's hooks and codex's --no-daemon in a local Window
     });
     await call("spawn", spawnArgs());
 
-    expect(agent.spawnCalls[0]?.env?.NEXUS_CMD_INIT).toBe(
-      `doskey claude=claude --settings "${SETTINGS}" $*`,
-    );
+    expect(agent.spawnCalls[0]?.env?.NEXUS_CMD_INIT).toBe(CMD_CLAUDE);
   });
 
   test("without the wrappers, the shell starts as it is, with the nexus launchers", async () => {
