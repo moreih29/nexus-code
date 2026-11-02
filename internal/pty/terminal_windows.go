@@ -202,7 +202,7 @@ func (t *terminal) foregroundProcess(alone bool) (string, *bool) {
 	if err != nil {
 		return "", nil
 	}
-	name := foregroundOf(entries, t.shellPID, readProcessDetail)
+	name := foregroundOf(entries, t.shellPID, readProcessDetail, msysChildren)
 	if !alone || name == "" {
 		return name, nil
 	}
