@@ -91,6 +91,28 @@ export interface CliProblem {
   readonly code?: string;
 }
 
+/** An app setting as nexus settings shows it; see ./settings. */
+export interface CliSettingInfo {
+  /** Its name, as "editor.fontSize". */
+  readonly key: string;
+  readonly summary: string;
+  readonly type: CliSettingType;
+  /** What a "choice" takes. */
+  readonly choices?: readonly string[];
+  /** The range of an "integer" or a "number". */
+  readonly min?: number;
+  readonly max?: number;
+  /** What it is now: its default when it was never changed. */
+  readonly value: CliSettingValue;
+  /** Whether it was changed from its default. */
+  readonly changed: boolean;
+  /** One only the user changes, in Settings. */
+  readonly readOnly?: boolean;
+}
+
+export type CliSettingType = "boolean" | "integer" | "number" | "choice" | "text";
+export type CliSettingValue = string | number | boolean;
+
 /** What nexus asks the user's leave for, in a workspace other than its terminal's own. */
 export type CliChangeKind =
   | "open"
@@ -290,6 +312,19 @@ export interface CliUiOps {
   "task.remove": {
     args: { taskId: string; force: boolean; deleteBranch: boolean | "merged" };
     result: Record<string, never>;
+  };
+  /** The app's settings that nexus settings reads and changes. */
+  "settings.list": {
+    args: Record<string, never>;
+    result: { settings: CliSettingInfo[] };
+  };
+  /**
+   * Changes a setting, as Settings does, to `value` as typed (as "14" or
+   * "on"), or back to its default when null.
+   */
+  "settings.set": {
+    args: { key: string; value: string | null };
+    result: { setting: CliSettingInfo };
   };
   /**
    * Removes a workspace from the app with its tasks, as Remove Workspace

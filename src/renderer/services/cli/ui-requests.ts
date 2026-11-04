@@ -15,6 +15,7 @@ import type { CliTabInfo, CliUiOp } from "../../../shared/cli/ui";
 import { getTerminalController } from "../terminal/terminal-registry";
 import { actionHandlers, type CliUiHandler, UiRequestError } from "./actions";
 import { layoutHandlers } from "./layout-actions";
+import { settingsHandlers } from "./settings";
 
 function tabInfo(tab: Tab, groupId: string, shown: boolean): CliTabInfo {
   const base = { id: tab.id, type: tab.type, title: tab.title, groupId, shown };
@@ -60,6 +61,7 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   },
   ...actionHandlers,
   ...layoutHandlers,
+  ...settingsHandlers,
 };
 
 let markReady: () => void = () => {};

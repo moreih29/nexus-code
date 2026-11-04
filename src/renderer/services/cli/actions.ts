@@ -18,7 +18,7 @@ import { useLayoutStore } from "@/state/stores/layout/store";
 import { useMountedWorkspacesStore } from "@/state/stores/mounted-workspaces";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
 import { tasksOf, useWorkspacesStore } from "@/state/stores/workspaces";
-import type { CliUiOp, CliUiOps } from "../../../shared/cli/ui";
+import type { CliUiOp } from "../../../shared/cli/ui";
 import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
 import { classifyUrl } from "../browser/url-classifier";
 import { isDirty } from "../editor/model/dirty-tracker";
@@ -30,15 +30,11 @@ import { closeTerminal } from "../terminal/open-terminal";
 import { queueStartupInput } from "../terminal/pty-client";
 import { getTerminalController } from "../terminal/terminal-registry";
 import { activateWorkspace, removeTask, startTask } from "../workspace/tasks";
+import { type CliUiHandler, UiRequestError } from "./handler";
 import type { LayoutOp } from "./layout-actions";
 import { findTabs, groupOf, openTab, showOpenTab } from "./placement";
 
-export type CliUiHandler<K extends CliUiOp> = (
-  args: CliUiOps[K]["args"],
-) => Promise<CliUiOps[K]["result"]>;
-
-/** A failure the CLI shows the agent as is. */
-export class UiRequestError extends Error {}
+export { type CliUiHandler, UiRequestError } from "./handler";
 
 /**
  * How long Enter waits after pasted text. Sent with the paste, it can reach
@@ -85,7 +81,10 @@ async function callOrFail(result: Promise<{ ok: boolean; message?: string }>): P
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const actionHandlers: {
-  [K in Exclude<CliUiOp, "tabs.list" | "terminal.read" | LayoutOp>]: CliUiHandler<K>;
+  [K in Exclude<
+    CliUiOp,
+    "tabs.list" | "terminal.read" | "settings.list" | "settings.set" | LayoutOp
+  >]: CliUiHandler<K>;
 } = {
   "editor.open": async ({ workspaceId, filePath, line, column, placement }) => {
     const open = findTabs(
