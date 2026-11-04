@@ -284,7 +284,8 @@
         "tabPin": "pin or unpin the tab \"{{detail}}\"",
         "worktreeNew": "create the task \"{{detail}}\"",
         "worktreeRemove": "delete the task and its worktree folder",
-        "worktreeRemoveBranch": "delete the task, its worktree folder and its branch"
+        "worktreeRemoveBranch": "delete the task, its worktree folder and its branch",
+        "workspaceRemove": "remove the workspace and its tasks from the app, leaving their folders"
       }
     }
   },

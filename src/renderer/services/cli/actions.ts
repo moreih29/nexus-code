@@ -17,7 +17,7 @@ import { useGitStore } from "@/state/stores/git";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import { useMountedWorkspacesStore } from "@/state/stores/mounted-workspaces";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
-import { useWorkspacesStore } from "@/state/stores/workspaces";
+import { tasksOf, useWorkspacesStore } from "@/state/stores/workspaces";
 import type { CliUiOp, CliUiOps } from "../../../shared/cli/ui";
 import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
 import { classifyUrl } from "../browser/url-classifier";
@@ -247,6 +247,21 @@ export const actionHandlers: {
       );
     }
     if (failure) throw new UiRequestError(failure.message);
+    return {};
+  },
+
+  "workspace.remove": async ({ workspaceId }) => {
+    const tasks = tasksOf(useWorkspacesStore.getState().workspaces, workspaceId);
+    const unsaved = [workspaceId, ...tasks.map((task) => task.id)].reduce(
+      (sum, id) => sum + countUnsavedBuffers(id),
+      0,
+    );
+    if (unsaved > 0) {
+      throw new UiRequestError(
+        `it has ${unsaved} unsaved file${unsaved === 1 ? "" : "s"}; save or close them in the app`,
+      );
+    }
+    await callOrFail(ipcCallResult("workspace", "remove", { id: workspaceId }));
     return {};
   },
 
