@@ -193,14 +193,28 @@ export function classifyOscTitle(
 }
 
 /**
+ * Programs that log in to another machine: the titles that come through one
+ * are its remote shell's, as the command lines its preexec hook echoes.
+ */
+const REMOTE_LOGINS: ReadonlySet<string> = new Set([
+  "ssh",
+  "autossh",
+  "mosh",
+  "mosh-client",
+  "et",
+  "telnet",
+]);
+
+/**
  * Whether a deferred ("confirm") normal-screen title should apply, given the
  * PTY's current foreground process name. Applies only when a real, non-shell
  * program holds the foreground — so command-echo noise (fired while the shell
- * is still foreground) is rejected.
+ * is still foreground) is rejected. A remote login in front is no such
+ * program: what it shows is a remote shell's.
  */
 export function foregroundConfirmsTitle(foregroundName: string): boolean {
   const name = foregroundName.trim();
-  return name !== "" && !isLoginShell(name);
+  return name !== "" && !isLoginShell(name) && !REMOTE_LOGINS.has(name.toLowerCase());
 }
 
 /** DECSET 1004: the program wants to hear when the terminal gains or loses focus. */
@@ -350,6 +364,8 @@ class XtermTerminalController implements TerminalController {
   private dataDisposable: Disposable | null = null;
   private selectionDisposable: Disposable | null = null;
   private titleDisposable: Disposable | null = null;
+  /** Counts the titles the terminal was given, so a deferred one a later title overtook is dropped. */
+  private titleCount = 0;
   private altEnterDisposable: Disposable | null = null;
   private altExitDisposable: Disposable | null = null;
   private focusReportDisposable: Disposable | null = null;
@@ -665,6 +681,7 @@ class XtermTerminalController implements TerminalController {
     //                 가로채지 못한다.
     this.titleDisposable = term.onTitleChange((title) => {
       if (this.disposed) return;
+      const count = ++this.titleCount;
       const action = classifyOscTitle(title, term.buffer.active.type);
       if (action === "ignore") return;
       if (action === "clear") {
@@ -678,12 +695,15 @@ class XtermTerminalController implements TerminalController {
         return;
       }
       // action === "confirm": normal-screen 비셸틱 제목. foreground 확인 후 적용.
+      // A title that came after it while the check ran wins: a command that
+      // ends at once has its prompt's title clear the tab before the check
+      // returns, and its echo must not come back after that.
       void (async () => {
         const result = await ipcCallResult("pty", "foregroundProcess", {
           workspaceId: this.options.workspaceId,
           tabId: this.options.tabId,
         });
-        if (this.disposed || !result.ok) return;
+        if (this.disposed || !result.ok || count !== this.titleCount) return;
         if (!foregroundConfirmsTitle(result.value.name)) return;
         useTabsStore
           .getState()
