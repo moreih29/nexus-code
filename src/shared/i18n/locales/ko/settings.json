@@ -284,7 +284,8 @@
         "tabPin": "탭 \"{{detail}}\" 고정·해제를",
         "worktreeNew": "작업 \"{{detail}}\" 만들기를",
         "worktreeRemove": "작업과 그 워크트리 폴더 삭제를",
-        "worktreeRemoveBranch": "작업과 그 워크트리 폴더, 브랜치 삭제를"
+        "worktreeRemoveBranch": "작업과 그 워크트리 폴더, 브랜치 삭제를",
+        "workspaceRemove": "워크스페이스와 그 작업들의 앱 목록 제거(폴더는 남음)를"
       }
     }
   },

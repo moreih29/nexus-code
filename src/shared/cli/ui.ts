@@ -107,7 +107,8 @@ export type CliChangeKind =
   | "tabPin"
   | "worktreeNew"
   | "worktreeRemove"
-  | "worktreeRemoveBranch";
+  | "worktreeRemoveBranch"
+  | "workspaceRemove";
 
 export interface CliChange {
   readonly kind: CliChangeKind;
@@ -288,6 +289,14 @@ export interface CliUiOps {
    */
   "task.remove": {
     args: { taskId: string; force: boolean; deleteBranch: boolean | "merged" };
+    result: Record<string, never>;
+  };
+  /**
+   * Removes a workspace from the app with its tasks, as Remove Workspace
+   * does; their folders stay. Refuses one with unsaved files.
+   */
+  "workspace.remove": {
+    args: { workspaceId: string };
     result: Record<string, never>;
   };
   /**

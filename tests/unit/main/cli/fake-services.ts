@@ -26,7 +26,11 @@ import type {
   CliUiOps,
 } from "../../../../src/shared/cli/ui";
 import type { ListeningPort } from "../../../../src/shared/pty/ports";
-import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
+import {
+  type WorkspaceLocation,
+  type WorkspaceMeta,
+  workspaceLocationKey,
+} from "../../../../src/shared/types/workspace";
 
 export const APP = "11111111-1111-4111-8111-111111111111";
 export const API = "22222222-2222-4222-8222-222222222222";
@@ -39,6 +43,8 @@ export const EDITOR_TAB = "aaaaaaaa-0000-4000-8000-000000000004";
 export const BROWSER_TAB = "aaaaaaaa-0000-4000-8000-000000000005";
 /** The id of any tab a command opens. */
 export const NEW_TAB = "cccccccc-0000-4000-8000-000000000006";
+/** The id of a workspace nexus workspace add makes. */
+export const ADDED = "44444444-4444-4444-8444-444444444444";
 
 function workspace(
   id: string,
@@ -128,6 +134,10 @@ const FILES: Record<string, Record<string, "file" | "dir">> = {
 
 export interface FakeApp {
   services: CliServices;
+  /** The app's workspaces; a test may add or change them. */
+  workspaces: WorkspaceMeta[];
+  /** What addWorkspace was asked for. */
+  added: Array<{ location: WorkspaceLocation; name: string | undefined }>;
   /** This app's tabs, by workspace; a test may add or change them. */
   tabs: Record<string, CliTabInfo[]>;
   uiCalls: Array<{ op: string; args: unknown }>;
@@ -262,6 +272,8 @@ export function fakeApp(now = Date.now()): FakeApp {
     [`${APP}:${SHELL_TAB}`, { lastOutputAt: now - 60_000 }],
   ]);
   const screens = new Map([[CODEX_TAB, "› Summarize the API\n\n• Working (12s)"]]);
+  const workspaces = [...WORKSPACES];
+  const added: FakeApp["added"] = [];
   const tabs: FakeApp["tabs"] = Object.fromEntries(
     Object.entries(TABS).map(([id, list]) => [id, list.map((t) => ({ ...t }))]),
   );
@@ -350,7 +362,20 @@ export function fakeApp(now = Date.now()): FakeApp {
   const waits = new WaitRegistry();
   const services: CliServices = {
     appVersion: "1.2.3",
-    listWorkspaces: () => WORKSPACES,
+    listWorkspaces: () => workspaces,
+    addWorkspace: async (location, name) => {
+      added.push({ location, name });
+      const key = workspaceLocationKey(location);
+      const listed = workspaces.find((w) => workspaceLocationKey(w.location) === key);
+      if (listed) return listed;
+      const rootPath = location.kind === "local" ? location.rootPath : location.remotePath;
+      const made = {
+        ...workspace(ADDED, name ?? rootPath.split("/").pop() ?? rootPath, rootPath),
+        location,
+      };
+      workspaces.push(made);
+      return made;
+    },
     shownTab: () => ({ workspaceId: APP, tabId: SHELL_TAB }),
     claudeStatus: (ws, t) => claude.get(`${ws}:${t}`) ?? null,
     activity: (ws, t) => activity.get(`${ws}:${t}`) ?? null,
@@ -381,6 +406,8 @@ export function fakeApp(now = Date.now()): FakeApp {
   };
   return {
     services,
+    workspaces,
+    added,
     tabs,
     uiCalls,
     notified,

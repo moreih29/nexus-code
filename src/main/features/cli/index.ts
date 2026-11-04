@@ -3,6 +3,7 @@
  * agents relay from their terminals, runs the command, and answers through
  * the same agent.
  */
+import { stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import {
   CliCancelSchema,
@@ -16,7 +17,7 @@ import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcOk } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
 import type { ListeningPort } from "../../../shared/pty/ports";
-import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { AgentChannel } from "../../infra/agent/channel";
 import { register, validateArgs } from "../../infra/ipc-router";
 import { getBrowserRegistry, onBrowserTabCreated } from "../browser";
@@ -29,7 +30,7 @@ import { savePickPicture } from "./browser/pick-pictures";
 import { ClaudeExitWatch } from "./claude-exit";
 import { CLI_COMMANDS } from "./commands";
 import { CrossWorkspaceConsent, type CrossWorkspacePolicy } from "./consent";
-import { type CliServices, shortId } from "./context";
+import { CliError, type CliServices, shortId } from "./context";
 import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
 import { type AgentRunSource, SessionHistory, type SessionSpanStore } from "./history";
@@ -57,6 +58,7 @@ export interface SetupCliFeatureOptions {
   agentHost: ActivitySource & { call(method: string, args: unknown): Promise<unknown> };
   workspaceManager: {
     list(): WorkspaceMeta[];
+    create(opts: { location: WorkspaceLocation; name?: string }): WorkspaceMeta;
     getName(id: string): string | null;
     tryGetAgentChannel(id: string): Promise<AgentChannel | null>;
     activate(id: string): Promise<void>;
@@ -187,6 +189,13 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   const services: CliServices = {
     appVersion: options.appVersion,
     listWorkspaces: () => workspaceManager.list(),
+    addWorkspace: async (location, name) => {
+      if (location.kind === "local") {
+        const found = await stat(location.rootPath).catch(() => null);
+        if (!found?.isDirectory()) throw new CliError(`no folder at ${location.rootPath}`);
+      }
+      return workspaceManager.create({ location, ...(name ? { name } : {}) });
+    },
     shownTab: () => options.activeContext.get(),
     claudeStatus: (workspaceId, tabId) => options.claudeBroker.get(workspaceId, tabId),
     activity: (workspaceId, tabId) => activity.get(workspaceId, tabId),
