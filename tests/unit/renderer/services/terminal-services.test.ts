@@ -1563,6 +1563,11 @@ describe("foregroundConfirmsTitle", () => {
     expect(foregroundConfirmsTitle("")).toBe(false);
     expect(foregroundConfirmsTitle("   ")).toBe(false);
   });
+
+  it("rejects a remote login in front: its titles are a remote shell's echoes", () => {
+    expect(foregroundConfirmsTitle("ssh")).toBe(false);
+    expect(foregroundConfirmsTitle("mosh-client")).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1661,6 +1666,38 @@ describe("services/terminal controller — OSC title sync", () => {
     const updated = useTabsStore.getState().byWorkspace[WS][tab.id];
     expect(updated.processTitle).toBeUndefined();
     expect(updated.title).toBe("Terminal");
+
+    controller.dispose();
+    mockForegroundProcessName = "lazygit"; // restore default
+  });
+
+  // A command that ends at once: its prompt's title clears the tab while the
+  // check of its echo is still out.
+  it("drops a deferred title that a later title overtook", async () => {
+    mockForegroundProcessName = "ls";
+    const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
+    const harness = makeTerminalControllerDeps();
+    harness.setBufferType("normal");
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: tab.id,
+        cwd: "/workspace",
+        container: {} as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    const titleHandler = harness.getTitleHandler();
+    if (!titleHandler) throw new Error("title handler missing");
+
+    titleHandler("ls --color=auto");
+    titleHandler("user@host:~");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(useTabsStore.getState().byWorkspace[WS][tab.id].processTitle).toBeUndefined();
 
     controller.dispose();
     mockForegroundProcessName = "lazygit"; // restore default
