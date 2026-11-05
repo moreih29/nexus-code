@@ -52,6 +52,7 @@ interface FakeOriginPermRow {
 function makeFakeRegistry() {
   return {
     create: () => {},
+    onRefused: () => () => {},
     destroy: () => {},
     setBounds: () => {},
     setActive: () => {},

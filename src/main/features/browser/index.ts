@@ -22,12 +22,13 @@ import type { BrowserWindow, WebContents } from "electron";
 import type { GlobalStorage } from "../../infra/storage/global-storage";
 import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
 import type { BrowserPermissionPromptManager } from "./permission-prompt-manager";
-import { BrowserTabRegistry } from "./registry";
+import { type BrowserAddressResolver, BrowserTabRegistry } from "./registry";
 import type { PermissionHandlerDeps } from "./security";
 import { type BrowserChannelDeps, registerBrowserChannel } from "./ipc";
 
 let registry: BrowserTabRegistry | null = null;
 const createListeners = new Set<(tabId: string, contents: WebContents) => void>();
+let addressResolver: BrowserAddressResolver | null = null;
 
 export interface BrowserFeatureDeps {
   readonly permissionDeps?: PermissionHandlerDeps;
@@ -50,6 +51,7 @@ export interface BrowserFeatureDeps {
 export function initBrowserFeature(win: BrowserWindow, deps?: BrowserFeatureDeps): void {
   registry = new BrowserTabRegistry(win, deps?.permissionDeps);
   for (const listener of createListeners) registry.onCreate(listener);
+  registry.setAddressResolver(addressResolver);
 
   let channelDeps: BrowserChannelDeps | undefined;
   if (deps?.promptManager && deps.workspaceStorage && deps.globalStorage) {
@@ -61,6 +63,15 @@ export function initBrowserFeature(win: BrowserWindow, deps?: BrowserFeatureDeps
   }
 
   registerBrowserChannel(registry, channelDeps);
+}
+
+/**
+ * Sets what turns the URLs workspaces' tabs load into the ones they load
+ * (an SSH workspace's local addresses), in this window and any later one.
+ */
+export function setBrowserAddressResolver(resolver: BrowserAddressResolver | null): void {
+  addressResolver = resolver;
+  registry?.setAddressResolver(resolver);
 }
 
 /**

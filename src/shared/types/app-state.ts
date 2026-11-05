@@ -121,6 +121,23 @@ export const AppStateSchema = z.object({
   // workspace its tasks belong to; it outlasts a change of the default.
   sessionsViewByWorkspace: z.record(z.string().uuid(), z.string().max(32)).optional(),
 
+  // The ports each SSH workspace forwards to this machine, and where each
+  // listens here, so a browser tab left on a forward's local port finds it
+  // again after a restart.
+  portForwardsByWorkspace: z
+    .record(
+      z.string().uuid(),
+      z
+        .array(
+          z.object({
+            remotePort: z.number().int().positive(),
+            localPort: z.number().int().positive(),
+          }),
+        )
+        .max(256),
+    )
+    .optional(),
+
   // The view a file with a preview opens in, by its format ("markdown",
   // "json", …); a format left out opens as it does by default. Keyed by a
   // plain string so a format this version lacks does not fail the state.
