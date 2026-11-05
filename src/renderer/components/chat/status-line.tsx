@@ -24,11 +24,13 @@ export function StatusLine({ model }: { model: ChatModel }) {
       aria-live="polite"
       data-testid="chat-status"
     >
-      <LoaderCircle className="size-3.5 animate-spin" />
+      {/* Clipped, so the turning icon's corners never make the dock scroll. */}
+      <span className="inline-flex size-3.5 shrink-0 overflow-hidden">
+        <LoaderCircle className="size-3.5 animate-spin" />
+      </span>
       <span className="text-foreground">{activity}</span>
       {elapsed !== null && <span>{formatElapsed(elapsed)}</span>}
       {tokens > 0 && <span>{t("chat.status.tokens", { count: tokens })}</span>}
-      {!model.interrupting && <span>{t("chat.status.esc")}</span>}
     </div>
   );
 }

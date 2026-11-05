@@ -872,8 +872,7 @@
       "interrupting": "Stopping…",
       "retrying": "Retrying (attempt {{attempt}})",
       "retrying_of": "Retrying ({{attempt}}/{{max}})",
-      "tokens": "↓ {{count}} tokens",
-      "esc": "esc to stop"
+      "tokens": "↓ {{count}} tokens"
     },
     "rate_limit": {
       "warning": "Close to the usage limit",
@@ -903,7 +902,7 @@
     "composer": {
       "aria": "Message to Claude",
       "placeholder": "↩ send · ⇧↩ new line",
-      "placeholder_running": "↩ send now · ⌘↩ queue · esc stop",
+      "placeholder_running": "↩ send now · ⌘↩ queue",
       "send": "Send",
       "send_now": "Send now",
       "stop": "Stop",
@@ -915,13 +914,13 @@
       "aria": "Permission mode",
       "label": "Permission mode",
       "auto": "Auto",
-      "auto_hint": "Claude decides what needs asking",
+      "auto_hint": "Claude handles permission decisions",
       "default": "Manual",
-      "default_hint": "Ask before edits and commands",
+      "default_hint": "Always ask before changes",
       "acceptEdits": "Accept edits",
-      "acceptEdits_hint": "Edit files without asking",
+      "acceptEdits_hint": "Accept every file edit",
       "plan": "Plan",
-      "plan_hint": "Read and plan, change nothing",
+      "plan_hint": "Plan before changes",
       "bypassPermissions": "Bypass permissions",
       "bypassPermissions_hint": "Never ask",
       "bypass_confirm_title": "Bypass every permission?",
@@ -936,8 +935,7 @@
     "effort": {
       "aria": "Effort",
       "label": "Effort",
-      "chip": "Effort: {{level}}",
-      "default": "default"
+      "unset": "effort"
     }
   }
 }

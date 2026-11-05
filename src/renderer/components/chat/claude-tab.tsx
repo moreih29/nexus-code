@@ -92,8 +92,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
             </div>
           ) : null
         }
-        footer={
-          <>
+      />
+      {/* Docked over the composer, so a request is seen wherever the list is scrolled. */}
+      {(state.model.permissions.length > 0 || state.model.running) && (
+        <div className="max-h-[60%] shrink-0 overflow-y-auto px-4 pt-2">
+          <div className="mx-auto flex max-w-[860px] flex-col gap-2">
             {state.model.permissions.length > 0 && (
               <PermissionCard
                 requests={state.model.permissions}
@@ -104,9 +107,9 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               />
             )}
             <StatusLine model={state.model} />
-          </>
-        }
-      />
+          </div>
+        </div>
+      )}
       <RateLimitBanner state={state} />
       <Composer controller={controller} state={state} />
     </div>

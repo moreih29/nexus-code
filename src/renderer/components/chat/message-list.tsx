@@ -27,8 +27,6 @@ interface MessageListProps {
   model: ChatModel;
   /** Shown when there is no message yet. */
   empty?: React.ReactNode;
-  /** Shown after the messages: the permission prompts, the turn's status. */
-  footer?: React.ReactNode;
 }
 
 /** How near the bottom (px) still counts as being there. */
@@ -41,7 +39,6 @@ export function MessageList({
   history,
   model,
   empty,
-  footer,
 }: MessageListProps) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -104,7 +101,6 @@ export function MessageList({
             <Item key={item.key} item={item} ctx={ctx} />
           ))}
           {model.streaming && <Streaming streaming={model.streaming} ctx={ctx} />}
-          {footer}
         </div>
       </div>
       {showJump && (

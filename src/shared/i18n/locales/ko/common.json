@@ -872,8 +872,7 @@
       "interrupting": "중단하는 중…",
       "retrying": "재시도 중 ({{attempt}}번째)",
       "retrying_of": "재시도 중 ({{attempt}}/{{max}})",
-      "tokens": "↓ {{count}} 토큰",
-      "esc": "esc로 중단"
+      "tokens": "↓ {{count}} 토큰"
     },
     "rate_limit": {
       "warning": "사용량 한도에 가까워졌습니다",
@@ -903,7 +902,7 @@
     "composer": {
       "aria": "Claude에게 보낼 메시지",
       "placeholder": "↩ 보내기 · ⇧↩ 줄바꿈",
-      "placeholder_running": "↩ 지금 보내기 · ⌘↩ 대기열 · esc 중단",
+      "placeholder_running": "↩ 지금 보내기 · ⌘↩ 대기열",
       "send": "보내기",
       "send_now": "지금 보내기",
       "stop": "중단",
@@ -915,13 +914,13 @@
       "aria": "권한 모드",
       "label": "권한 모드",
       "auto": "자동",
-      "auto_hint": "물어볼 일을 Claude가 판단",
+      "auto_hint": "Claude가 권한 결정을 처리합니다",
       "default": "수동",
-      "default_hint": "편집과 명령 전에 확인",
+      "default_hint": "변경하기 전에 항상 확인",
       "acceptEdits": "편집 자동 수락",
-      "acceptEdits_hint": "파일 편집은 묻지 않음",
+      "acceptEdits_hint": "모든 파일 편집을 자동으로 수락",
       "plan": "계획",
-      "plan_hint": "읽고 계획만, 바꾸지 않음",
+      "plan_hint": "변경하기 전에 계획 세우기",
       "bypassPermissions": "권한 무시",
       "bypassPermissions_hint": "아무것도 묻지 않음",
       "bypass_confirm_title": "모든 권한 확인을 건너뛸까요?",
@@ -936,8 +935,7 @@
     "effort": {
       "aria": "추론 강도",
       "label": "추론 강도",
-      "chip": "강도: {{level}}",
-      "default": "기본"
+      "unset": "강도"
     }
   }
 }

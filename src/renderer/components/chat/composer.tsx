@@ -6,7 +6,7 @@
 // holds it until the turn ends; ⇧↩ breaks the line; esc stops the turn.
 
 import { ImagePlus, Pencil, Send, Square, X } from "lucide-react";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ChatController } from "../../services/chat/controller";
 import type { ImageBlock, ModelInfo } from "../../services/chat/model";
@@ -19,6 +19,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuRoot,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { showToast } from "../ui/toast";
@@ -42,7 +43,8 @@ export function Composer({ controller, state }: ComposerProps) {
   const { model, phase } = state;
   const running = model.running;
   const blocked = phase === "not-found" || phase === "held" || phase === "starting";
-  const canSend = !blocked && (text.trim() !== "" || images.length > 0);
+  const hasText = text.trim() !== "" || images.length > 0;
+  const canSend = !blocked && hasText;
 
   useLayoutEffect(() => {
     const area = areaRef.current;
@@ -208,14 +210,17 @@ export function Composer({ controller, state }: ComposerProps) {
                 <Square className="size-3.5 fill-current" />
               </IconButton>
             )}
-            <IconButton
-              label={running ? t("chat.composer.send_now") : t("chat.composer.send")}
-              onClick={() => submit(false)}
-              disabled={!canSend}
-              primary
-            >
-              <Send className="size-4" />
-            </IconButton>
+            {/* During a turn an empty box offers only stop; with text, both. */}
+            {(!running || hasText) && (
+              <IconButton
+                label={running ? t("chat.composer.send_now") : t("chat.composer.send")}
+                onClick={() => submit(false)}
+                disabled={!canSend}
+                primary
+              >
+                <Send className="size-4" />
+              </IconButton>
+            )}
           </div>
         </div>
       </div>
@@ -274,9 +279,10 @@ function IconButton({
 const CHIP_CLASS =
   "flex items-center gap-1 rounded-(--radius-control) px-1.5 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:pointer-events-none disabled:opacity-50";
 
-/** Permission modes in the order the chip lists them. */
+/** Permission modes in the order the chip lists them; keys 1 to 5 pick them. */
 const MODES = ["auto", "default", "acceptEdits", "plan"] as const;
 const BYPASS = "bypassPermissions";
+const ALL_MODES = [...MODES, BYPASS];
 
 /** Tabs whose user has seen bypass mode's warning in this window. */
 const bypassConfirmed = new Set<string>();
@@ -285,6 +291,7 @@ function ModeChip({ controller, state }: ComposerProps) {
   const { t } = useTranslation();
   const mode = state.model.permissionMode ?? "default";
   const ready = state.model.process === "running";
+  const [open, setOpen] = useState(false);
   const pick = async (next: string) => {
     if (next === mode) return;
     if (next === BYPASS && !bypassConfirmed.has(controller.key)) {
@@ -299,8 +306,23 @@ function ModeChip({ controller, state }: ComposerProps) {
     }
     controller.setPermissionMode(next).catch((err: Error) => showError(err));
   };
+  const pickRef = useRef(pick);
+  pickRef.current = pick;
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      const next = ALL_MODES[Number(e.key) - 1];
+      if (!next || e.metaKey || e.ctrlKey || e.altKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+      void pickRef.current(next);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open]);
   return (
-    <DropdownMenuRoot>
+    <DropdownMenuRoot open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger>
         <button
           type="button"
@@ -314,22 +336,28 @@ function ModeChip({ controller, state }: ComposerProps) {
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top">
         <DropdownMenuLabel>{t("chat.mode.label")}</DropdownMenuLabel>
-        {MODES.map((m) => (
+        {MODES.map((m, i) => (
           <DropdownMenuItem key={m} onSelect={() => void pick(m)}>
-            <span className={cn(m === mode && "font-medium")}>{t(`chat.mode.${m}`)}</span>
-            <span className="ml-4 text-app-micro text-muted-foreground">
-              {t(`chat.mode.${m}_hint`)}
+            <span className="flex flex-col">
+              <span className={cn(m === mode && "font-medium")}>{t(`chat.mode.${m}`)}</span>
+              <span className="text-app-micro text-muted-foreground">
+                {t(`chat.mode.${m}_hint`)}
+              </span>
             </span>
+            <DropdownMenuShortcut>{i + 1}</DropdownMenuShortcut>
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => void pick(BYPASS)}>
-          <span className={cn("text-destructive", mode === BYPASS && "font-medium")}>
-            {t(`chat.mode.${BYPASS}`)}
+          <span className="flex flex-col">
+            <span className={cn("text-destructive", mode === BYPASS && "font-medium")}>
+              {t(`chat.mode.${BYPASS}`)}
+            </span>
+            <span className="text-app-micro text-muted-foreground">
+              {t(`chat.mode.${BYPASS}_hint`)}
+            </span>
           </span>
-          <span className="ml-4 text-app-micro text-muted-foreground">
-            {t(`chat.mode.${BYPASS}_hint`)}
-          </span>
+          <DropdownMenuShortcut>{ALL_MODES.length}</DropdownMenuShortcut>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenuRoot>
@@ -405,7 +433,7 @@ function EffortChip({ controller, state }: ComposerProps) {
           title={t("chat.effort.aria")}
           aria-label={t("chat.effort.aria")}
         >
-          {t("chat.effort.chip", { level: effort ?? t("chat.effort.default") })}
+          {effort ?? t("chat.effort.unset")}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top">
