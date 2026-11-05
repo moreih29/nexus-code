@@ -71,6 +71,11 @@ export class DirtyDiffController {
     );
   }
 
+  /** Whether the buffer differs from the baseline, as the gutter last showed. */
+  get hasChanges(): boolean {
+    return this.changes.length > 0;
+  }
+
   /** Loads the baseline and wires listeners. Call once after construction. */
   start(): void {
     injectDirtyDiffStyles();

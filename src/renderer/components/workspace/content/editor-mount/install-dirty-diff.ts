@@ -33,6 +33,7 @@ import type { DirtyChange } from "../../../../services/editor/git/dirty-diff/typ
 import { lineChangeOfDirty } from "../../../../services/editor/git/staging/line-changes";
 import type { TextEncoding } from "../../../../services/editor/encoding/text-encoding";
 import { getResolvedModel } from "../../../../services/editor/model/cache";
+import { isDirty } from "../../../../services/editor/model/dirty-tracker";
 import { decodeFileContent } from "../../../../services/editor/model/file-loader";
 import { stageLines } from "../../../../services/editor/git/staging/stage-lines";
 import { useGitStore } from "../../../../state/stores/git";
@@ -128,6 +129,15 @@ export function baselineSignature(status: GitStatus, relPath: string | null): st
   return parts.join("|");
 }
 
+/** Whether git sees no change to `relPath`: its index and working tree are HEAD's. */
+export function isUnchangedInStatus(status: GitStatus, relPath: string | null): boolean {
+  if (relPath === null) return false;
+  return (["merge", "staged", "working", "untracked"] as const).every(
+    (key) =>
+      !status[key].some((entry) => entry.relPath === relPath || entry.oldRelPath === relPath),
+  );
+}
+
 /** Whether `relPath` has changes in the index. */
 export function hasStagedChanges(status: GitStatus, relPath: string | null): boolean {
   return relPath !== null && status.staged.some((entry) => entry.relPath === relPath);
@@ -164,10 +174,25 @@ export function installDirtyDiffForEditor({
   const signatureOf = (status: GitStatus | null | undefined): string | null =>
     status ? baselineSignature(status, relPathOf()) : null;
   let lastSignature = signatureOf(useGitStore.getState().sessions.get(getWorkspaceId())?.status);
+  // A saved buffer git sees no change in, whose gutter still shows some,
+  // missed the snapshot that had the file changed: it was written and
+  // committed between two snapshots, as an agent in a terminal does. Its
+  // baseline moved to the commit.
+  const missedCommit = (status: GitStatus): boolean => {
+    if (!controller.hasChanges || !isUnchangedInStatus(status, relPathOf())) return false;
+    const cacheUri = getResolvedModel(input)?.cacheUri;
+    return cacheUri !== undefined && !isDirty(cacheUri);
+  };
   const unsubscribeGit = ipcListen("git", "statusChanged", (event) => {
     if (event.workspaceId !== getWorkspaceId()) return;
     const signature = signatureOf(event.status);
-    if (signature === lastSignature && !hasStagedChanges(event.status, relPathOf())) return;
+    if (
+      signature === lastSignature &&
+      !hasStagedChanges(event.status, relPathOf()) &&
+      !missedCommit(event.status)
+    ) {
+      return;
+    }
     lastSignature = signature;
     void controller.refreshBaseline();
   });
