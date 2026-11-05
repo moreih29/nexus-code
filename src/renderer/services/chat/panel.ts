@@ -2,7 +2,7 @@
 // the agents and tasks the CLI reports, the to-do list Claude keeps, the
 // files it changed, and what its replies point at.
 
-import { isUnder, resolveFilePath } from "./links";
+import { isUnder, resolveFilePath, resultFiles } from "./links";
 import type {
   AssistantItem,
   ChatItem,
@@ -394,6 +394,49 @@ export function answerExtras(
   }
   if (lastDone) close();
   return out;
+}
+
+/** What a Claude tab lets the previews read outside the workspace. */
+export interface OutsideLinks {
+  files: string[];
+  /** The folders of its HTML files, whose pages load their siblings. */
+  dirs: string[];
+}
+
+/** Most files and folders one tab grants; the newest are kept. */
+export const MAX_OUTSIDE_FILES = 2000;
+export const MAX_OUTSIDE_DIRS = 200;
+
+/**
+ * The files outside the workspace (`root`) that a session names: the ones
+ * its tools took, its replies point at, and `looked` (opened from the tab
+ * otherwise). An HTML file's folder comes too, unless it holds the
+ * workspace, as the home folder does.
+ */
+export function outsideLinksOf(
+  items: ChatItem[],
+  tools: Record<string, ToolCall>,
+  cwd: string,
+  root: string,
+  looked: readonly string[] = [],
+): OutsideLinks {
+  if (!root) return { files: [], dirs: [] };
+  const named = new Set<string>(looked);
+  for (const tool of Object.values(tools)) {
+    const input = rec(tool.input);
+    const path = str(input?.file_path) ?? str(input?.notebook_path);
+    const abs = path ? resolveFilePath(path, cwd) : null;
+    if (abs) named.add(abs);
+  }
+  for (const file of resultFiles(resultsOf(items, {}), cwd)) named.add(file);
+  const files = [...named].filter((file) => !isUnder(file, root));
+  const dirs = new Set<string>();
+  for (const file of files) {
+    if (!/\.html?$/i.test(file)) continue;
+    const dir = file.slice(0, file.lastIndexOf("/"));
+    if (dir && !isUnder(root, dir)) dirs.add(dir);
+  }
+  return { files: files.slice(-MAX_OUTSIDE_FILES), dirs: [...dirs].slice(-MAX_OUTSIDE_DIRS) };
 }
 
 export interface ContextCategory {

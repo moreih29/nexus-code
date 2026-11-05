@@ -34,6 +34,14 @@ export const FsReadAbsoluteResultSchema = FileReadResultSchema;
 export type FsReadAbsoluteResult = z.infer<typeof FsReadAbsoluteResultSchema>;
 
 // ---------------------------------------------------------------------------
+// fs.readAbsoluteBinary — an absolute path's bytes on the agent host, as
+// base64. The app reads with it only files a Claude tab links outside the
+// workspace (see outside-grants), to preview them.
+// ---------------------------------------------------------------------------
+
+export const FS_READ_ABSOLUTE_BINARY_METHOD = "fs.readAbsoluteBinary" as const;
+
+// ---------------------------------------------------------------------------
 // fs.readBinary — read a workspace-relative file as base64-encoded bytes.
 // Companion to fs.readFile for binary content (images, archives, etc.) that
 // cannot be transported as a UTF-8 content string. Used by the

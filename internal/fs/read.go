@@ -88,6 +88,17 @@ func (s *Service) ReadAbsolute(ctx context.Context, raw json.RawMessage) (any, e
 	return readFileAt(ctx, abs)
 }
 
+// ReadAbsoluteBinary loads an absolute path's bytes on the agent host, as
+// ReadBinary does a workspace file's. The app asks for it only for files a
+// Claude tab links outside the workspace, to preview them.
+func (s *Service) ReadAbsoluteBinary(ctx context.Context, raw json.RawMessage) (any, error) {
+	abs, err := parseAbsolutePath(raw)
+	if err != nil {
+		return nil, err
+	}
+	return readBinaryAt(ctx, abs)
+}
+
 // ReadBinary loads relPath's bytes (up to MaxReadableFileSize) and returns
 // them base64-encoded. Used by the renderer's image preview pipeline for
 // SSH workspaces, where binary bytes cannot be transported as a UTF-8

@@ -1349,6 +1349,18 @@ export const ipcContract = {
       // ----------------------------------------------------------------
       trash: call(workspaceScoped({ relPath: FsMutationRelPathSchema }), z.void()),
       readExternal: call(workspaceScoped({ absolutePath: z.string() }), FileReadResultSchema),
+      // The files outside the workspace a Claude tab links (`owner`, its
+      // tab id), which the previews may then read; `dirs` are the folders
+      // of its HTML files, whose pages load what sits beside them. Each
+      // call replaces what that owner granted; empty lists revoke it.
+      grantOutside: call(
+        workspaceScoped({
+          owner: z.string().min(1).max(200),
+          files: z.array(z.string().min(1).max(4096)).max(2000),
+          dirs: z.array(z.string().min(1).max(4096)).max(200),
+        }),
+        z.void(),
+      ),
     },
     listen: {
       changed: listen(FsChangedEventSchema),

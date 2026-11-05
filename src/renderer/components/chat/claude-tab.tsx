@@ -20,6 +20,7 @@ import {
   agentTranscript,
   contextOf,
   jobsOf,
+  outsideLinksOf,
   resultsOf,
   todosOf,
 } from "../../services/chat/panel";
@@ -32,6 +33,7 @@ import {
 } from "../../services/chat/store";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
 import { openClaudeTab } from "../../state/operations/tabs";
+import { grantOutside } from "../../state/stores/outside-grants";
 import type { ClaudeTabProps } from "../../state/stores/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
@@ -197,6 +199,21 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
 
   // What the conversation links opens over the tab, or beside it.
   const [look, setLook] = useState<QuickLookList | null>(null);
+  // The previews may read what the tab links outside the workspace, while it is open.
+  const [looked, setLooked] = useState<readonly string[]>([]);
+  const outside = useMemo(() => {
+    const { history, model } = state;
+    const items = history ? [...history.items, ...model.items] : model.items;
+    const tools = history ? { ...history.tools, ...model.tools } : model.tools;
+    return outsideLinksOf(items, tools, props.cwd, rootPath, looked);
+  }, [state, props.cwd, rootPath, looked]);
+  useEffect(() => {
+    grantOutside(workspaceId, tabId, outside);
+  }, [workspaceId, tabId, outside]);
+  useEffect(
+    () => () => grantOutside(workspaceId, tabId, { files: [], dirs: [] }),
+    [workspaceId, tabId],
+  );
   const latest = useRef({ state, place, rootPath, isLocal });
   latest.current = { state, place, rootPath, isLocal };
   // biome-ignore lint/correctness/useExhaustiveDependencies: the tab's state is read from `latest` when a link is followed
@@ -213,6 +230,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         const tools = history ? { ...history.tools, ...model.tools } : model.tools;
         const files = resultFiles(resultsOf(items, tools), cwd);
         const at = files.indexOf(path);
+        if (at < 0) setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
         setLook(at >= 0 ? { files, index: at } : { files: [path, ...files], index: 0 });
       },
       openFileTab(target) {

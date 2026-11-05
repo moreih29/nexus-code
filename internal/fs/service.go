@@ -3,8 +3,9 @@
 //
 // Workspace paths are resolved through Service.Resolve, which is the single
 // trust boundary preventing escapes via `..` or absolute paths. The explicit
-// fs.readAbsolute method is the read-only exception used for LSP/external
-// references that are already absolute on the same machine as the agent.
+// fs.readAbsolute and fs.readAbsoluteBinary methods are the read-only
+// exceptions used for LSP/external references and for files a Claude tab
+// links, which are already absolute on the same machine as the agent.
 // Symlinks are inspected with Lstat so a symlink pointing outside the workspace
 // is reported as a symlink, not followed, matching the conservative semantics
 // of the legacy TS handlers.
@@ -96,6 +97,7 @@ func Register(d *dispatch.Dispatcher, fsys *Service) {
 	d.Register("fs.readFile", fsys.ReadFile)
 	d.Register("fs.readBinary", fsys.ReadBinary)
 	d.Register("fs.readAbsolute", fsys.ReadAbsolute)
+	d.Register("fs.readAbsoluteBinary", fsys.ReadAbsoluteBinary)
 	d.Register("fs.writeFile", fsys.WriteFile)
 	d.Register("fs.createFile", fsys.CreateFile)
 	d.Register("fs.mkdir", fsys.Mkdir)

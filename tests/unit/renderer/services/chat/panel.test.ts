@@ -12,6 +12,7 @@ import {
   changedFilesOf,
   contextOf,
   jobsOf,
+  outsideLinksOf,
   resultsOf,
   todosOf,
   usageLimitsOf,
@@ -341,6 +342,39 @@ describe("chat panel", () => {
     ]);
     // The running turn's answer is not the last yet.
     expect(answers(false)).toEqual([["m3", ["/p/out/chart.md", "/p/docs/a.pdf"], 1]]);
+  });
+
+  test("what a session links outside the workspace, with its HTML files' folders", () => {
+    const model = applyLines(emptyModel(), [
+      assistant("m1", [
+        { type: "tool_use", id: "r1", name: "Read", input: { file_path: "/tmp/shot.png" } },
+        { type: "tool_use", id: "r2", name: "Read", input: { file_path: "/p/src/a.ts" } },
+        { type: "tool_use", id: "w", name: "Write", input: { file_path: "/tmp/site/index.html" } },
+        { type: "tool_use", id: "n", name: "NotebookEdit", input: { notebook_path: "../n.ipynb" } },
+      ]),
+      assistant("m2", [
+        {
+          type: "text",
+          text: "See [report](/var/out/report.htm), `docs/b.md` and [home](/home/u/index.html).",
+        },
+      ]),
+    ]);
+    const links = outsideLinksOf(model.items, model.tools, "/home/u/p", "/home/u/p", ["/x/y.pdf"]);
+    expect(links.files).toEqual([
+      "/x/y.pdf",
+      "/tmp/shot.png",
+      "/p/src/a.ts",
+      "/tmp/site/index.html",
+      "/home/u/n.ipynb",
+      "/var/out/report.htm",
+      "/home/u/index.html",
+    ]);
+    // The home folder holds the workspace, so it is not granted whole.
+    expect(links.dirs).toEqual(["/tmp/site", "/var/out"]);
+    expect(outsideLinksOf(model.items, model.tools, "/home/u/p", "")).toEqual({
+      files: [],
+      dirs: [],
+    });
   });
 
   test("context and usage read their answers", () => {

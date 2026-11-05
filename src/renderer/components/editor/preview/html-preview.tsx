@@ -77,7 +77,11 @@ import {
   MAX_FIND_MATCHES,
 } from "../../../services/editor/preview/find/dom-finder";
 import { findMatches } from "../../../services/editor/preview/find/find-matches";
-import { buildWorkspaceDirUrl } from "../../../services/editor/preview/workspace-url";
+import {
+  buildOutsideDirUrl,
+  buildWorkspaceDirUrl,
+} from "../../../services/editor/preview/workspace-url";
+import { useOutsideDirGranted } from "../../../state/stores/outside-grants";
 import { useTranslation } from "react-i18next";
 import { type FindResult, usePreviewFinder, usePreviewFindBar } from "./preview-find";
 
@@ -287,7 +291,9 @@ function buildScrollMeta(scroll: ScrollPosition | undefined): string {
  *
  * Returns "" when the file is not inside the workspace root: we cannot mint a
  * workspace URL for it, so relative resources stay unresolved (same as before
- * this feature) rather than pointing somewhere wrong.
+ * this feature) rather than pointing somewhere wrong. The exception is a file
+ * whose folder a Claude tab granted (`outsideDirGranted`): its siblings are
+ * served from there.
  *
  * MUST be emitted before any resource reference in the document — see
  * injectPreamble, which places it at the very top of <head>.
@@ -296,10 +302,13 @@ function buildBaseTag(
   workspaceId: string,
   currentFileAbsPath: string,
   workspaceRootAbsPath: string,
+  outsideDirGranted = false,
 ): string {
-  if (!isWithinWorkspace(currentFileAbsPath, workspaceRootAbsPath)) return "";
   const slash = currentFileAbsPath.lastIndexOf("/");
   const dirAbs = slash === -1 ? currentFileAbsPath : currentFileAbsPath.slice(0, slash);
+  if (!isWithinWorkspace(currentFileAbsPath, workspaceRootAbsPath)) {
+    return outsideDirGranted ? `<base href="${buildOutsideDirUrl(workspaceId, dirAbs)}">` : "";
+  }
   const baseHref = buildWorkspaceDirUrl(workspaceId, relPath(dirAbs, workspaceRootAbsPath));
   return `<base href="${baseHref}">`;
 }
@@ -334,7 +343,17 @@ export function HtmlPreview({
   const { t } = useTranslation();
   // No size cap here: the iframe parses off the renderer's main thread, so
   // large HTML documents render without blocking the UI (unlike markdown/svg).
-  const baseTag = buildBaseTag(workspaceId, currentFileAbsPath, workspaceRootAbsPath);
+  // A sibling of an HTML file outside the workspace is granted with its folder.
+  const outsideDirGranted = useOutsideDirGranted(
+    workspaceId,
+    currentFileAbsPath.slice(0, currentFileAbsPath.lastIndexOf("/")),
+  );
+  const baseTag = buildBaseTag(
+    workspaceId,
+    currentFileAbsPath,
+    workspaceRootAbsPath,
+    outsideDirGranted,
+  );
   const scrollKey = `${workspaceId}\0${currentFileAbsPath}`;
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const findBar = usePreviewFindBar();

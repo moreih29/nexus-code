@@ -10,8 +10,10 @@ import { pathToFileURL } from "node:url";
 // inside the functions below (never at module load), so this is behavior-
 // equivalent in the real electron runtime.
 import * as electron from "electron";
+import { outsideWorkspaceOf } from "../../../shared/fs/outside-url";
 import { createLogger } from "../../../shared/log/main";
 import { isScriptReadableRequest } from "../../infra/security/script-readable-request";
+import { isOutsideGranted, resolveOutsideGrant } from "../fs/outside-grants";
 import type { WorkspaceManager } from "../workspace/manager";
 
 const logger = createLogger("nexus-workspace");
@@ -166,9 +168,18 @@ export function buildNexusWorkspaceHandler(
       return new Response(null, { status: 404 });
     }
 
-    const workspaceId = parsed.host;
+    // A file outside the workspace that a Claude tab linked has the
+    // workspace's host with a suffix, and its absolute path.
+    const outsideOf = outsideWorkspaceOf(parsed.host);
+    const workspaceId = outsideOf ?? parsed.host;
     // pathname always starts with "/" — strip it and decode each segment.
-    const relPath = parsed.pathname.slice(1).split("/").map(decodeURIComponent).join(path.sep);
+    let segments: string[];
+    try {
+      segments = parsed.pathname.slice(1).split("/").map(decodeURIComponent);
+    } catch {
+      return new Response(null, { status: 404 });
+    }
+    const relPath = segments.join(path.sep);
 
     // Step 2 — look up the workspace meta.
     const metas = workspaceManager.list();
@@ -176,6 +187,23 @@ export function buildNexusWorkspaceHandler(
     if (!meta) {
       logger.warn(`Workspace not found: ${workspaceId}`);
       return new Response(null, { status: 404 });
+    }
+
+    if (outsideOf !== null) {
+      const absPath = `/${segments.join("/")}`;
+      if (meta.location.kind !== "local") {
+        if (!isOutsideGranted(workspaceId, absPath)) {
+          logger.warn(`Outside path not granted: ${req.url}`);
+          return new Response(null, { status: 404 });
+        }
+        return serveViaAgent(workspaceManager, workspaceId, absPath, req.headers.get("range"));
+      }
+      const realPath = await resolveOutsideGrant(workspaceId, absPath);
+      if (!realPath) {
+        logger.warn(`Outside path not granted: ${req.url}`);
+        return new Response(null, { status: 404 });
+      }
+      return serveLocalFile(realPath, req.headers.get("range"));
     }
 
     // SSH workspaces are served through the agent's fs.readBinary method.
@@ -226,41 +254,45 @@ export function buildNexusWorkspaceHandler(
       return new Response(null, { status: 404 });
     }
 
-    // Step 6 — a range, as <audio> and <video> ask for, is read from the
-    // file at its place.
-    const rangeHeader = req.headers.get("range");
-    if (rangeHeader !== null) {
-      try {
-        const { size } = await fs.promises.stat(realPath);
-        const range = requestedRange(rangeHeader, size);
-        if (range === "unsatisfiable") return unsatisfiable(size);
-        if (range !== null) {
-          const stream = fs.createReadStream(realPath, { start: range.start, end: range.end });
-          const body = Readable.toWeb(stream) as ReadableStream<Uint8Array>;
-          return partialResponse(body, range, size, realPath);
-        }
-      } catch (err) {
-        logger.warn(`Failed to read file: ${realPath} — ${(err as Error).message}`);
-        return new Response(null, { status: 404 });
-      }
-    }
+    return serveLocalFile(realPath, req.headers.get("range"));
+  };
+}
 
-    // Step 7 — serve via net.fetch using a file:// URL.
-    // net.fetch handles streaming for us and avoids manually wrapping Node
-    // streams into a Web ReadableStream across Electron versions.
+/** A file on this machine, at a path already checked, whole or the range asked. */
+async function serveLocalFile(realPath: string, rangeHeader: string | null): Promise<Response> {
+  // Step 6 — a range, as <audio> and <video> ask for, is read from the
+  // file at its place.
+  if (rangeHeader !== null) {
     try {
-      const fileUrl = pathToFileURL(realPath).href;
-      const fileResp = await electron.net.fetch(fileUrl);
-      if (!fileResp.ok) {
-        logger.warn(`net.fetch failed (${fileResp.status}): ${realPath}`);
-        return new Response(null, { status: 404 });
+      const { size } = await fs.promises.stat(realPath);
+      const range = requestedRange(rangeHeader, size);
+      if (range === "unsatisfiable") return unsatisfiable(size);
+      if (range !== null) {
+        const stream = fs.createReadStream(realPath, { start: range.start, end: range.end });
+        const body = Readable.toWeb(stream) as ReadableStream<Uint8Array>;
+        return partialResponse(body, range, size, realPath);
       }
-      return new Response(fileResp.body, { status: 200, headers: responseHeaders(realPath) });
     } catch (err) {
       logger.warn(`Failed to read file: ${realPath} — ${(err as Error).message}`);
       return new Response(null, { status: 404 });
     }
-  };
+  }
+
+  // Step 7 — serve via net.fetch using a file:// URL.
+  // net.fetch handles streaming for us and avoids manually wrapping Node
+  // streams into a Web ReadableStream across Electron versions.
+  try {
+    const fileUrl = pathToFileURL(realPath).href;
+    const fileResp = await electron.net.fetch(fileUrl);
+    if (!fileResp.ok) {
+      logger.warn(`net.fetch failed (${fileResp.status}): ${realPath}`);
+      return new Response(null, { status: 404 });
+    }
+    return new Response(fileResp.body, { status: 200, headers: responseHeaders(realPath) });
+  } catch (err) {
+    logger.warn(`Failed to read file: ${realPath} — ${(err as Error).message}`);
+    return new Response(null, { status: 404 });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -283,8 +315,10 @@ async function serveViaAgent(
 ): Promise<Response> {
   // posix-style for the agent (it splits on "/" internally and runs on
   // unix hosts in SSH mode). path.sep was applied at parse time for the
-  // local branch — undo it here so the wire path stays portable.
+  // local branch — undo it here so the wire path stays portable. An
+  // absolute path is an outside file already checked against the grants.
   const posixRelPath = relPath.split(path.sep).join("/");
+  const outside = posixRelPath.startsWith("/");
   let fsProvider: Awaited<ReturnType<WorkspaceManager["getFs"]>>;
   try {
     fsProvider = await workspaceManager.getFs(workspaceId);
@@ -294,7 +328,9 @@ async function serveViaAgent(
   }
 
   try {
-    const result = await fsProvider.readBinary(posixRelPath);
+    const result = outside
+      ? await fsProvider.readAbsoluteBinary(posixRelPath)
+      : await fsProvider.readBinary(posixRelPath);
     if (result.kind === "missing") {
       return new Response(null, { status: 404 });
     }

@@ -27,6 +27,8 @@ export interface FsProvider {
    */
   readBinary(relPath: string): Promise<FileReadBinaryResult>;
   readAbsolute(absolutePath: string): Promise<FileReadResult>;
+  /** An absolute path's bytes on the agent host; for files a Claude tab granted. */
+  readAbsoluteBinary(absolutePath: string): Promise<FileReadBinaryResult>;
   /** Writes `content`, or `bytes` (base64) in its place: text in another encoding. */
   writeFile(
     relPath: string,

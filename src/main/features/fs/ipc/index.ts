@@ -11,6 +11,7 @@ import type { WorkspaceManager } from "../../workspace/manager";
 import type { AgentFsWatcher } from "../bridge/agent-watch";
 import { getExpandedHandler, setExpandedHandler } from "./expanded-handlers";
 import {
+  grantOutsideHandler,
   readBinaryHandler,
   readdirHandler,
   readExternalHandler,
@@ -48,6 +49,7 @@ export function registerFsChannel(
       readFile: readFileHandler(manager),
       readBinary: readBinaryHandler(manager),
       readExternal: readExternalHandler(manager),
+      grantOutside: grantOutsideHandler(),
       writeFile: writeFileHandler(manager),
       createFile: createFileHandler(manager),
       mkdir: mkdirHandler(manager),
