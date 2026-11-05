@@ -29,6 +29,7 @@ import { NotebookPreview } from "../../editor/preview/notebook-preview";
 import { SvgPreview } from "../../editor/preview/svg-preview";
 import { TablePreview } from "../../editor/preview/table-preview";
 import { ViewModeToggle } from "../../editor/preview/view-mode-toggle";
+import { YamlTreePreview } from "../../editor/preview/yaml-tree-preview";
 import { EmptyState } from "../../ui/empty-state";
 import { ConflictResolvedBanner } from "./conflict-resolved-banner";
 import { EditorBreadcrumbs } from "./editor-breadcrumbs";
@@ -476,6 +477,8 @@ function PreviewPane({
       return <TablePreview source={source} delimiter={delimiterFor(filePath)} />;
     case "json":
       return <JsonTreePreview source={source} />;
+    case "yaml":
+      return <YamlTreePreview source={source} />;
     case "notebook":
       return (
         <NotebookPreview

@@ -646,7 +646,7 @@
     "html_title": "HTML 미리보기"
   },
   "jsonPreview": {
-    "label": "JSON 트리",
+    "label": "{{format}} 트리",
     "expand_all": "모두 펼치기",
     "collapse_all": "모두 접기",
     "keys_one": "키 {{count}}개",
@@ -655,7 +655,8 @@
     "items_other": "항목 {{count}}개",
     "empty": "빈 파일입니다.",
     "too_large": "{{mb}} MB가 넘는 파일은 트리로 보여주지 않습니다. 원본으로 전환하세요.",
-    "syntax_error": "JSON으로 읽을 수 없습니다: {{line}}행 {{column}}열. 원본으로 전환해 확인하세요."
+    "syntax_error": "{{format}} 형식으로 읽을 수 없습니다: {{line}}행 {{column}}열. 원본으로 전환해 확인하세요.",
+    "load_failed": "YAML 읽기 모듈을 불러오지 못했습니다. 원본으로 전환해 확인하세요."
   },
   "notebookPreview": {
     "not_json": "이 노트북을 읽을 수 없습니다: JSON이 아닙니다. 원본으로 전환해 확인하세요.",
