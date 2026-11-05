@@ -18,6 +18,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -33,8 +34,10 @@ import type {
   ToolCall,
   UserItem,
 } from "../../services/chat/model";
+import { type AnswerExtras, answerExtras } from "../../services/chat/panel";
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
+import { AnswerExtrasView } from "./answer-extras";
 import { ChatMarkdown } from "./chat-markdown";
 import { ToolRow } from "./tool-row";
 
@@ -117,15 +120,27 @@ export function MessageList({
   const liveItems = items ?? model.items;
   const streaming = items ? null : model.streaming;
   const nothing = historyItems.length === 0 && liveItems.length === 0 && !streaming;
-  const tools = history ? { ...history.tools, ...model.tools } : model.tools;
-  const ctx: ItemContext = { workspaceId, cwd, rootPath, tools, actions };
+  const tools = useMemo(
+    () => (history ? { ...history.tools, ...model.tools } : model.tools),
+    [history, model.tools],
+  );
+  // What each finished turn's answer ends with; an agent's transcript has none.
+  const turnDone = !model.running && !streaming;
+  const extras = useMemo(
+    () =>
+      items
+        ? new Map<ChatItem, AnswerExtras>()
+        : answerExtras([...(history?.items ?? []), ...model.items], tools, cwd, rootPath, turnDone),
+    [items, history, model.items, tools, cwd, rootPath, turnDone],
+  );
+  const ctx: ItemContext = { workspaceId, cwd, rootPath, tools, actions, extras };
 
   return (
     <div className="relative min-h-0 flex-1">
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="absolute inset-0 overflow-y-auto"
+        className="app-scrollbar absolute inset-0 overflow-y-auto"
         data-testid="chat-messages"
       >
         <div ref={contentRef} className="mx-auto flex max-w-[860px] flex-col gap-3 px-4 py-4">
@@ -170,6 +185,7 @@ interface ItemContext {
   rootPath: string;
   tools: Record<string, ToolCall>;
   actions?: MessageActions;
+  extras: Map<ChatItem, AnswerExtras>;
 }
 
 const Item = memo(function Item({ item, ctx }: { item: ChatItem; ctx: ItemContext }) {
@@ -265,6 +281,7 @@ function AssistantMessage({ item, ctx }: { item: AssistantItem; ctx: ItemContext
   // A fork from here keeps the answer whole: only from one that ends in text.
   const forkable =
     ctx.actions?.canFork && item.uuid !== undefined && item.blocks.at(-1)?.type === "text";
+  const extras = ctx.extras.get(item);
   return (
     <div className="group/assistant flex flex-col">
       {item.blocks.map((block, i) =>
@@ -290,6 +307,7 @@ function AssistantMessage({ item, ctx }: { item: AssistantItem; ctx: ItemContext
           />
         ),
       )}
+      {extras && <AnswerExtrasView extras={extras} workspaceId={ctx.workspaceId} cwd={ctx.cwd} />}
       {text && (
         <div className="mt-1 flex items-center gap-1 text-app-micro text-muted-foreground opacity-0 group-focus-within/assistant:opacity-100 group-hover/assistant:opacity-100">
           <CopyButton text={text} />

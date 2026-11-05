@@ -1,7 +1,9 @@
 // Markdown of Claude's replies. Raw HTML is not parsed (react-markdown
 // escapes it), so no sanitizing pass is needed. Links go through the same
-// classifier as the Markdown preview: files under the workspace open in the
-// editor, allowed external schemes in the system browser.
+// classifier as the Markdown preview. In a Claude tab a file opens in quick
+// look and an address where the tab sends it; elsewhere files under the
+// workspace open in the editor, allowed external schemes in the system
+// browser.
 
 import { Check, Copy } from "lucide-react";
 import { memo, useCallback, useMemo, useState } from "react";
@@ -9,9 +11,12 @@ import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
+import { resolveFilePath } from "../../services/chat/links";
 import { openOrRevealEditor } from "../../services/editor";
 import { classifyLinkHref } from "../../services/editor/preview/link-router";
 import { copyText } from "../../utils/clipboard";
+import { LinkMenu, useChatLinks } from "./chat-links";
+import { FileKindIcon } from "./file-kind-icon";
 
 interface ChatMarkdownProps {
   text: string;
@@ -28,6 +33,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
   cwd,
   rootPath,
 }: ChatMarkdownProps) {
+  const links = useChatLinks();
   const onLink = useCallback(
     (href: string, event: React.MouseEvent<HTMLAnchorElement>) => {
       event.preventDefault();
@@ -36,23 +42,46 @@ export const ChatMarkdown = memo(function ChatMarkdown({
         workspaceRootAbsPath: rootPath,
         kind: "link",
       });
+      if (links) {
+        if (classified.kind === "external") links.openUrl(classified.href);
+        else if (classified.kind === "internal-file") links.openFile(classified.absPath);
+        else if (classified.kind === "blocked" && resolveFilePath(href, cwd)) links.openFile(href);
+        return;
+      }
       if (classified.kind === "external") {
         window.open(classified.href, "_blank", "noopener,noreferrer");
       } else if (classified.kind === "internal-file") {
         openOrRevealEditor({ workspaceId, filePath: classified.absPath }, { preview: true });
       }
     },
-    [cwd, rootPath, workspaceId],
+    [cwd, rootPath, workspaceId, links],
   );
 
   const components = useMemo<NonNullable<React.ComponentProps<typeof ReactMarkdown>["components"]>>(
     () => ({
       a({ href, children, ...rest }) {
         const safe = typeof href === "string" ? href : "";
-        return (
+        const kind = linkKind(safe, cwd);
+        const link = (
           <a {...rest} href={safe} title={safe} onClick={(e) => onLink(safe, e)}>
+            {kind === "file" && (
+              <FileKindIcon
+                path={resolveFilePath(safe, cwd) ?? safe}
+                className="mr-0.5 inline size-3.5 align-[-0.15em]"
+              />
+            )}
             {children}
           </a>
+        );
+        return kind ? (
+          <LinkMenu
+            target={kind === "file" ? (resolveFilePath(safe, cwd) ?? safe) : safe}
+            kind={kind}
+          >
+            {link}
+          </LinkMenu>
+        ) : (
+          link
         );
       },
       pre: CodeBlock,
@@ -61,7 +90,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
         return <span className="text-muted-foreground">[{alt || "image"}]</span>;
       },
     }),
-    [onLink],
+    [onLink, cwd],
   );
 
   return (
@@ -76,6 +105,13 @@ export const ChatMarkdown = memo(function ChatMarkdown({
     </div>
   );
 });
+
+/** Whether a link names a file or a web address; null for anything else. */
+function linkKind(href: string, cwd: string): "file" | "url" | null {
+  if (/^https?:\/\//i.test(href)) return "url";
+  if (href.startsWith("#")) return null;
+  return resolveFilePath(href, cwd) ? "file" : null;
+}
 
 function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>) {
   const { t } = useTranslation();

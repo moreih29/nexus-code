@@ -1,3 +1,5 @@
+import { OUTSIDE_HOST_SUFFIX } from "../../../../shared/fs/outside-url";
+
 /**
  * Builds a `nexus-workspace://` URL for a file inside a workspace.
  *
@@ -38,5 +40,21 @@ export function buildWorkspaceUrl(workspaceId: string, relPath: string): string 
 export function buildWorkspaceDirUrl(workspaceId: string, relDir: string): string {
   const trimmed = relDir.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
   const base = buildWorkspaceUrl(workspaceId, trimmed);
+  return base.endsWith("/") ? base : `${base}/`;
+}
+
+/**
+ * Returns the URL of a file outside the workspace that a Claude tab linked:
+ * `nexus-workspace://<workspaceId>.outside/<absPath>`. Main serves it only
+ * while a tab grants it.
+ */
+export function buildOutsideUrl(workspaceId: string, absPath: string): string {
+  const encodedSegments = absPath.replace(/^\/+/, "").split("/").map(encodeURIComponent).join("/");
+  return `nexus-workspace://${encodeURIComponent(workspaceId)}${OUTSIDE_HOST_SUFFIX}/${encodedSegments}`;
+}
+
+/** buildOutsideUrl for a folder, with the trailing slash a `<base href>` needs. */
+export function buildOutsideDirUrl(workspaceId: string, absDir: string): string {
+  const base = buildOutsideUrl(workspaceId, absDir.replace(/\/+$/, ""));
   return base.endsWith("/") ? base : `${base}/`;
 }

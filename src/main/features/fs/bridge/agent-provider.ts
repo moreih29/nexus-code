@@ -3,6 +3,7 @@ import {
   FS_COPY_FILE_METHOD,
   FS_CREATE_FILE_METHOD,
   FS_MKDIR_METHOD,
+  FS_READ_ABSOLUTE_BINARY_METHOD,
   FS_READ_ABSOLUTE_METHOD,
   FS_READ_BINARY_METHOD,
   FS_REMOVE_ALL_METHOD,
@@ -96,6 +97,13 @@ export class AgentFsProvider implements AgentBackedProvider {
       absolutePath,
     } satisfies FsReadAbsoluteParams);
     return parseAgentResult(FileReadResultSchema, result);
+  }
+
+  async readAbsoluteBinary(absolutePath: string): Promise<FileReadBinaryResult> {
+    const result = await this.callAgent(FS_READ_ABSOLUTE_BINARY_METHOD, {
+      absolutePath,
+    } satisfies FsReadAbsoluteParams);
+    return parseAgentResult(FileReadBinaryResultSchema, result);
   }
 
   async writeFile(

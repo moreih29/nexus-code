@@ -8,9 +8,11 @@ import {
 import {
   agentsOf,
   agentTranscript,
+  answerExtras,
   changedFilesOf,
   contextOf,
   jobsOf,
+  outsideLinksOf,
   resultsOf,
   todosOf,
   usageLimitsOf,
@@ -287,6 +289,92 @@ describe("chat panel", () => {
       { kind: "url", target: "https://example.com/docs", created: false },
       { kind: "file", target: "src/app.ts", created: false },
     ]);
+  });
+
+  test("a finished turn's answer ends with its files and its tools' images", () => {
+    seq = 0;
+    const ask = (text: string): ChatLine => ({
+      seq: ++seq,
+      dir: "in",
+      message: { type: "user", message: { role: "user", content: text } },
+    });
+    const model = applyLines(emptyModel(), [
+      ask("make a chart"),
+      assistant("m1", [
+        { type: "tool_use", id: "w", name: "Write", input: { file_path: "/p/out/chart.md" } },
+      ]),
+      result("w", "ok", { type: "create", filePath: "/p/out/chart.md" }),
+      assistant("m2", [
+        { type: "tool_use", id: "r", name: "Read", input: { file_path: "/p/shot.png" } },
+      ]),
+      out({
+        type: "user",
+        parent_tool_use_id: null,
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "r",
+              content: [
+                {
+                  type: "image",
+                  source: { type: "base64", media_type: "image/png", data: "AAAA" },
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      assistant("m3", [{ type: "text", text: "Done: [chart](out/chart.md) and `docs/a.pdf`." }]),
+      ask("again"),
+      assistant("m4", [{ type: "text", text: "See [b](b.md)." }]),
+    ]);
+    const answers = (done: boolean) =>
+      [...answerExtras(model.items, model.tools, "/p", "/p", done)].map(([item, extras]) => [
+        item.kind === "assistant" ? item.messageId : item.kind,
+        extras.files,
+        extras.images.length,
+      ]);
+    expect(answers(true)).toEqual([
+      ["m3", ["/p/out/chart.md", "/p/docs/a.pdf"], 1],
+      ["m4", ["/p/b.md"], 0],
+    ]);
+    // The running turn's answer is not the last yet.
+    expect(answers(false)).toEqual([["m3", ["/p/out/chart.md", "/p/docs/a.pdf"], 1]]);
+  });
+
+  test("what a session links outside the workspace, with its HTML files' folders", () => {
+    const model = applyLines(emptyModel(), [
+      assistant("m1", [
+        { type: "tool_use", id: "r1", name: "Read", input: { file_path: "/tmp/shot.png" } },
+        { type: "tool_use", id: "r2", name: "Read", input: { file_path: "/p/src/a.ts" } },
+        { type: "tool_use", id: "w", name: "Write", input: { file_path: "/tmp/site/index.html" } },
+        { type: "tool_use", id: "n", name: "NotebookEdit", input: { notebook_path: "../n.ipynb" } },
+      ]),
+      assistant("m2", [
+        {
+          type: "text",
+          text: "See [report](/var/out/report.htm), `docs/b.md` and [home](/home/u/index.html).",
+        },
+      ]),
+    ]);
+    const links = outsideLinksOf(model.items, model.tools, "/home/u/p", "/home/u/p", ["/x/y.pdf"]);
+    expect(links.files).toEqual([
+      "/x/y.pdf",
+      "/tmp/shot.png",
+      "/p/src/a.ts",
+      "/tmp/site/index.html",
+      "/home/u/n.ipynb",
+      "/var/out/report.htm",
+      "/home/u/index.html",
+    ]);
+    // The home folder holds the workspace, so it is not granted whole.
+    expect(links.dirs).toEqual(["/tmp/site", "/var/out"]);
+    expect(outsideLinksOf(model.items, model.tools, "/home/u/p", "")).toEqual({
+      files: [],
+      dirs: [],
+    });
   });
 
   test("context and usage read their answers", () => {

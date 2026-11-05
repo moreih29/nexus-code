@@ -196,6 +196,34 @@ func TestReadAbsoluteUsesAgentHostPath(t *testing.T) {
 	}
 }
 
+func TestReadAbsoluteBinaryReadsOutsideTheRoot(t *testing.T) {
+	root := t.TempDir()
+	outsidePath := filepath.Join(t.TempDir(), "shot.png")
+	must(t, os.WriteFile(outsidePath, []byte{0x89, 'P', 'N', 'G'}, 0o644))
+	fsys, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	readAny, err := fsys.ReadAbsoluteBinary(context.Background(), json.RawMessage(`{"absolutePath":`+strconvQuote(outsidePath)+`}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := readAny.(ReadBinaryResult)
+	if read.Kind != "ok" || read.Base64 != "iVBORw==" || read.Size != 4 {
+		t.Fatalf("absolute binary read mismatch: %#v", read)
+	}
+
+	missingAny, err := fsys.ReadAbsoluteBinary(context.Background(), json.RawMessage(`{"absolutePath":`+strconvQuote(outsidePath+".gone")+`}`))
+	if err != nil || missingAny.(ReadBinaryResult).Kind != "missing" {
+		t.Fatalf("missing absolute binary read mismatch: %#v (err=%v)", missingAny, err)
+	}
+
+	if _, err := fsys.ReadAbsoluteBinary(context.Background(), json.RawMessage(`{"absolutePath":"shot.png"}`)); err == nil {
+		t.Fatal("a relative path should be refused")
+	}
+}
+
 func TestPathTraversalReturnsErrorFrame(t *testing.T) {
 	fsys, err := New(t.TempDir())
 	if err != nil {

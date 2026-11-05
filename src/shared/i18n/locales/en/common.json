@@ -976,7 +976,6 @@
       "hide": "Hide side panel",
       "stop": "Stop",
       "stop_failed": "Could not stop it",
-      "outside": "Files outside the workspace cannot be opened yet",
       "needs_version": "Needs Claude Code {{version}} or later",
       "status": {
         "running": "Running",
@@ -1022,7 +1021,8 @@
         "title": "To-dos"
       },
       "results": {
-        "title": "Results"
+        "title": "Results",
+        "created": "new"
       },
       "changed": {
         "title": "Changed files"
@@ -1067,6 +1067,22 @@
         "todos": "To-dos {{done}}/{{total}}",
         "context": "Context {{percent}}%"
       }
+    },
+    "look": {
+      "aria": "Quick look: {{name}}",
+      "previous": "Previous result (←)",
+      "next": "Next result (→)",
+      "open_tab": "Open as a tab",
+      "close": "Close (esc)"
+    },
+    "links": {
+      "look": "Quick look",
+      "open_tab": "Open as a tab",
+      "copy_path": "Copy path",
+      "open_system": "Open in the system browser",
+      "open_app_browser": "Open in the app's browser",
+      "copy_link": "Copy link",
+      "remote_local": "This address is on the SSH host. Opening it needs port forwarding, which is not there yet."
     }
   }
 }

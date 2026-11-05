@@ -429,7 +429,7 @@ export function Composer({ controller, state, local, placeholder }: ComposerProp
               (running ? t("chat.composer.placeholder_running") : t("chat.composer.placeholder"))
             }
             aria-label={t("chat.composer.aria")}
-            className="block w-full resize-none bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground"
+            className="app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground"
           />
           <div className="flex items-center gap-1 px-1.5 pb-1.5">
             <ModeChip controller={controller} state={state} />

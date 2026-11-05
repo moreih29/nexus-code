@@ -149,7 +149,7 @@ function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
             onChange={(e) => setMessage(e.target.value)}
             placeholder={t("chat.permission.deny_placeholder")}
             rows={2}
-            className="w-full resize-none rounded-(--radius-control) border border-border bg-background px-2 py-1.5 text-app-ui-sm outline-none focus:border-ring"
+            className="app-scrollbar w-full resize-none rounded-(--radius-control) border border-border bg-background px-2 py-1.5 text-app-ui-sm outline-none focus:border-ring"
           />
           <div className="flex justify-end gap-2">
             <Button type="button" size="sm" variant="ghost" onClick={() => setDenying(false)}>
@@ -375,7 +375,7 @@ function PlanApproval({
     <div className="flex flex-col gap-2">
       <div className="font-medium text-foreground">{t("chat.plan.title")}</div>
       {plan && (
-        <div className="max-h-96 overflow-y-auto rounded-(--radius-control) border border-border px-3 py-2">
+        <div className="app-scrollbar max-h-96 overflow-y-auto rounded-(--radius-control) border border-border px-3 py-2">
           <ChatMarkdown text={plan} workspaceId={workspaceId} cwd={cwd} rootPath={rootPath} />
         </div>
       )}
@@ -395,7 +395,7 @@ function PlanApproval({
             onChange={(e) => setFeedback(e.target.value)}
             placeholder={t("chat.plan.feedback_placeholder")}
             rows={3}
-            className="w-full resize-none rounded-(--radius-control) border border-border bg-background px-2 py-1.5 text-app-ui-sm outline-none focus:border-ring"
+            className="app-scrollbar w-full resize-none rounded-(--radius-control) border border-border bg-background px-2 py-1.5 text-app-ui-sm outline-none focus:border-ring"
           />
           <div className="flex justify-end gap-2">
             <Button type="button" size="sm" variant="ghost" onClick={() => setChanging(false)}>

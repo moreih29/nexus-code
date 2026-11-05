@@ -4,7 +4,7 @@
 import { Ban, Check, ChevronDown, ChevronRight, CircleStop, LoaderCircle, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { ToolCall } from "../../services/chat/model";
+import type { ImageBlock, ToolCall } from "../../services/chat/model";
 import { cn } from "../../utils/cn";
 
 interface ToolRowProps {
@@ -27,6 +27,7 @@ export function ToolRow({ tool, toolUseId, tools, cwd }: ToolRowProps) {
   const name = tool?.name || "tool";
   const summary = tool ? toolSummary(tool, cwd) : "";
   const status = tool?.status ?? "running";
+  const images = tool?.result?.images ?? [];
   const children =
     tool && AGENT_TOOLS.has(tool.name)
       ? Object.values(tools).filter((t) => t.parentToolUseId === toolUseId)
@@ -53,6 +54,19 @@ export function ToolRow({ tool, toolUseId, tools, cwd }: ToolRowProps) {
         {children.length > 0 && (
           <span className="shrink-0 text-muted-foreground">
             {t("chat.tool.subagent_calls", { count: children.length })}
+          </span>
+        )}
+        {images.length > 0 && (
+          <span className="flex shrink-0 items-center gap-0.5">
+            {images.slice(0, 3).map((image, i) => (
+              <img
+                // biome-ignore lint/suspicious/noArrayIndexKey: a result's images keep their order
+                key={i}
+                src={imageSrc(image)}
+                alt=""
+                className="h-5 max-w-8 rounded-sm border border-border object-cover"
+              />
+            ))}
           </span>
         )}
         {open ? (
@@ -141,8 +155,25 @@ export function ToolDetail({ tool, className }: { tool: ToolCall; className?: st
         </div>
       )}
       {body}
+      {(tool.result?.images.length ?? 0) > 0 && (
+        <div className="flex flex-wrap gap-1.5 border-t border-border p-2">
+          {tool.result?.images.map((image, i) => (
+            <img
+              // biome-ignore lint/suspicious/noArrayIndexKey: a result's images keep their order
+              key={i}
+              src={imageSrc(image)}
+              alt=""
+              className="max-h-64 max-w-full rounded-sm object-contain"
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
+}
+
+function imageSrc(image: ImageBlock): string {
+  return `data:${image.mediaType};base64,${image.data}`;
 }
 
 interface Hunk {
@@ -157,7 +188,7 @@ function prefix(text: string, mark: string): string[] {
 
 function PatchView({ hunks }: { hunks: Hunk[] }) {
   return (
-    <div className="max-h-80 overflow-auto font-mono text-app-micro leading-5">
+    <div className="app-scrollbar max-h-80 overflow-auto font-mono text-app-micro leading-5">
       {hunks.map((hunk, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: hunks have no identity of their own
         <div key={i} className={i > 0 ? "border-t border-border" : ""}>
@@ -185,7 +216,7 @@ function Pre({ text, added = false }: { text: string; added?: boolean }) {
   return (
     <pre
       className={cn(
-        "m-0 max-h-80 overflow-auto px-2 py-1.5 font-mono text-app-micro leading-5 whitespace-pre-wrap break-all",
+        "app-scrollbar m-0 max-h-80 overflow-auto px-2 py-1.5 font-mono text-app-micro leading-5 whitespace-pre-wrap break-all",
         added && "bg-[var(--diff-added-bg,rgba(46,160,67,0.10))]",
       )}
     >

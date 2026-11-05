@@ -32,7 +32,7 @@ export function AgentStrip({ agents, shown, onShow, panel }: AgentStripProps) {
       aria-label={t("chat.strip.aria")}
       data-testid="chat-agent-strip"
     >
-      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+      <div className="app-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
         {agents.length > 0 && (
           <StripButton active={shown === null} onClick={() => onShow(null)}>
             {t("chat.strip.main")}
