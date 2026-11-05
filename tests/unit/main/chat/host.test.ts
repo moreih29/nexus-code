@@ -157,6 +157,25 @@ describe("ChatHost", () => {
     expect(start.args).toContain("--resume");
     expect(start.env.PATH).toBe("/home/u/.local/bin:/usr/bin");
     expect(start.env.NEXUS_HOOK_TOKEN).toBe("tok");
+    expect(start).toMatchObject({ resumed: true });
+    expect(start).not.toHaveProperty("resetLog");
+  });
+
+  test("a rewind's start drops the tab's log first", async () => {
+    const { channel, host } = setup();
+    await host.start(WS, TAB, "/repo", {
+      resume: "s1",
+      fork: true,
+      resumeAt: "u1",
+      resetLog: true,
+    });
+    const start = channel.calls.find((c) => c.method === "chat.start")?.params as {
+      args: string[];
+    };
+    expect(start).toMatchObject({ resetLog: true, resumed: true });
+    expect(start.args).toEqual(
+      expect.arrayContaining(["--fork-session", "--resume-session-at", "u1"]),
+    );
   });
 
   test("start without the wrapper runs claude itself", async () => {

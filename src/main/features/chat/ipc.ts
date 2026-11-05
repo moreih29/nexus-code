@@ -16,11 +16,13 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
   register("chat", {
     call: {
       start: async (args: unknown) => {
-        const { workspaceId, tabId, cwd, resume, fork, resumeAt } = validateArgs(
+        const { workspaceId, tabId, cwd, resume, fork, resumeAt, resetLog } = validateArgs(
           c.start.args,
           args,
         );
-        return ipcOk(await host.start(workspaceId, tabId, cwd, { resume, fork, resumeAt }));
+        return ipcOk(
+          await host.start(workspaceId, tabId, cwd, { resume, fork, resumeAt, resetLog }),
+        );
       },
       send: async (args: unknown) => {
         const parsed = validateArgs(c.send.args, args);

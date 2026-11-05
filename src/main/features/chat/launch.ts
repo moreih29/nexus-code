@@ -26,6 +26,8 @@ export interface ResumeOptions {
   readonly resume?: string;
   readonly fork?: boolean;
   readonly resumeAt?: string;
+  /** Drop the tab's log before starting (a rewind). */
+  readonly resetLog?: boolean;
 }
 
 /** The program's arguments for a tab, going on with a session when asked. */

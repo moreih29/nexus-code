@@ -58,6 +58,13 @@ type StartParams struct {
 	Program string            `json:"program"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+	// ResetLog drops the tab's log before the program starts: the
+	// conversation it showed is not the one the program goes on with, as
+	// after a rewind. Sequence numbers go on from the dropped lines.
+	ResetLog bool `json:"resetLog,omitempty"`
+	// Resumed marks a program that goes on with an earlier session, so a
+	// client replaying the log reads what came before from its transcript.
+	Resumed bool `json:"resumed,omitempty"`
 }
 
 // StartResult is returned by chat.start.
@@ -96,8 +103,11 @@ type ReplayResult struct {
 	Found   bool `json:"found"`
 	Running bool `json:"running"`
 	// Truncated reports that the log dropped its oldest lines.
-	Truncated bool  `json:"truncated,omitempty"`
-	LastSeq   int64 `json:"lastSeq"`
+	Truncated bool `json:"truncated,omitempty"`
+	// LastSeq is the seq of the last line the replay sent, or afterSeq when
+	// it sent none. The lines go out as events, which may reach the client
+	// after this answer: it has the log once it has this line.
+	LastSeq int64 `json:"lastSeq"`
 }
 
 // ListParams is the wire shape for chat.list.
@@ -129,6 +139,8 @@ type LinePayload struct {
 	Dir         string          `json:"dir"`
 	Message     json.RawMessage `json:"message,omitempty"`
 	Text        string          `json:"text,omitempty"`
+	// At is when the agent got the line, in Unix milliseconds.
+	At int64 `json:"at"`
 	// Replay marks a line sent again by chat.replay.
 	Replay bool `json:"replay,omitempty"`
 }
