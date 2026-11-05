@@ -68,6 +68,24 @@ describe("chat model from a recorded conversation", () => {
     expect(model.rateLimit?.status).toBe("allowed");
   });
 
+  test("the tab's cost adds up each process's running total", () => {
+    const result = (seq: number, cost: number): ChatLine => ({
+      seq,
+      dir: "out",
+      message: { type: "result", subtype: "success", total_cost_usd: cost },
+    });
+    const model = applyLines(emptyModel(), [
+      { seq: 1, dir: "sys", message: { event: "start", pid: 1 } },
+      result(2, 0.002),
+      result(3, 0.003),
+      { seq: 4, dir: "sys", message: { event: "exit", code: 0 } },
+      { seq: 5, dir: "sys", message: { event: "start", pid: 2 } },
+      result(6, 0.001),
+    ]);
+    expect(model.costUsd).toBeCloseTo(0.004, 10);
+    expect(model.processCostUsd).toBe(0.001);
+  });
+
   test("a permission request waits on the card until the app answers it", () => {
     const asked = run(upTo((l) => messageOf(l).type === "control_request" && l.dir === "out"));
     expect(asked.permissions).toHaveLength(1);

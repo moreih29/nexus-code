@@ -1029,6 +1029,8 @@
       },
       "usage": {
         "title": "Usage",
+        "cost": "This tab, at list price",
+        "cost_hint": "Claude Code's estimate at API list prices. A subscription plan isn't billed by it.",
         "none": "No limits reported",
         "resets": "Resets {{time}}",
         "kind": {

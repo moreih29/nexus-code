@@ -701,12 +701,21 @@ function UsageSection({ controller, state }: { controller: ChatController; state
   const { t, i18n } = useTranslation();
   const limits = usageLimitsOf(state.model.usage);
   const supported = controller.supports("get_usage");
+  const cost = state.model.costUsd;
   return (
     <Section
       title={t("chat.panel.usage.title")}
       folded
       onOpen={() => controller.refreshPanel(["usage"])}
     >
+      {cost !== undefined && cost > 0 && (
+        <Row className="text-app-micro" title={t("chat.panel.usage.cost_hint")}>
+          <span className="min-w-0 flex-1 truncate">{t("chat.panel.usage.cost")}</span>
+          <span className="tabular-nums" data-testid="chat-panel-cost">
+            {formatCost(cost, i18n.language)}
+          </span>
+        </Row>
+      )}
       {!supported ? (
         <div className="text-app-micro text-muted-foreground">
           {t("chat.panel.needs_version", { version: firstVersionOf("get_usage") })}
@@ -743,6 +752,16 @@ function UsageSection({ controller, state }: { controller: ChatController; state
       )}
     </Section>
   );
+}
+
+/** Dollars, with the cents' fractions a small session's cost is in. */
+function formatCost(usd: number, locale: string): string {
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: usd < 1 ? 4 : 2,
+  }).format(usd);
 }
 
 function McpSection({ controller, state }: { controller: ChatController; state: ChatTabState }) {
