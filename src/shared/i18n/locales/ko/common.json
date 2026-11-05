@@ -660,6 +660,15 @@
     "outside_workspace": "워크스페이스 밖의 파일이라 재생할 수 없습니다.",
     "load_failed": "이 파일을 재생할 수 없습니다. 지원하지 않는 형식일 수 있습니다."
   },
+  "pdfPreview": {
+    "outside_workspace": "워크스페이스 밖의 PDF라 미리 볼 수 없습니다.",
+    "load_failed": "이 PDF를 열 수 없습니다.",
+    "too_large": "PDF가 너무 커서 미리 볼 수 없습니다 (최대 {{maxMb}} MB).",
+    "password": "비밀번호로 보호된 PDF라 미리 볼 수 없습니다.",
+    "zoom_in": "확대",
+    "zoom_out": "축소",
+    "fit_width": "너비에 맞추기"
+  },
   "markdown": {
     "copy_code": "코드 복사",
     "copy": "복사",

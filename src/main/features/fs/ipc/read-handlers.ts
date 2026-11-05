@@ -1,5 +1,5 @@
 /**
- * Read-only fs handlers — readdir / stat / readFile / readExternal.
+ * Read-only fs handlers — readdir / stat / readFile / readBinary / readExternal.
  *
  * readdir/stat catch agent-thrown fs errors (NOT_FOUND, PERMISSION_DENIED, …)
  * and return them as a typed `ipcErr` envelope instead of letting them throw.
@@ -7,7 +7,12 @@
  * expected-failure paths — most notably restoring a persisted expanded-tree
  * after the user has deleted folders on disk between sessions.
  */
-import type { DirEntry, FileReadResult, FsStat } from "../../../../shared/fs/types";
+import type {
+  DirEntry,
+  FileReadBinaryResult,
+  FileReadResult,
+  FsStat,
+} from "../../../../shared/fs/types";
 import { ipcContract } from "../../../../shared/ipc/contract";
 import { validateArgs } from "../../../infra/ipc-router";
 import type { WorkspaceManager } from "../../workspace/manager";
@@ -52,6 +57,16 @@ export function readFileHandler(
     const { workspaceId, relPath } = validateArgs(c.readFile.args, args);
     const fs = await manager.getFs(workspaceId);
     return fs.readFile(relPath);
+  };
+}
+
+export function readBinaryHandler(
+  manager: WorkspaceManager,
+): (args: unknown) => Promise<FileReadBinaryResult> {
+  return async (args: unknown): Promise<FileReadBinaryResult> => {
+    const { workspaceId, relPath } = validateArgs(c.readBinary.args, args);
+    const fs = await manager.getFs(workspaceId);
+    return fs.readBinary(relPath);
   };
 }
 

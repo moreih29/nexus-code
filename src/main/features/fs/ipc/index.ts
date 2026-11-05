@@ -10,7 +10,13 @@ import { showItemInFolderHandler } from "../../shell/workspace-reveal";
 import type { WorkspaceManager } from "../../workspace/manager";
 import type { AgentFsWatcher } from "../bridge/agent-watch";
 import { getExpandedHandler, setExpandedHandler } from "./expanded-handlers";
-import { readdirHandler, readExternalHandler, readFileHandler, statHandler } from "./read-handlers";
+import {
+  readBinaryHandler,
+  readdirHandler,
+  readExternalHandler,
+  readFileHandler,
+  statHandler,
+} from "./read-handlers";
 import { trashHandler } from "./trash-handler";
 import { unwatchHandler, watchHandler } from "./watch-handlers";
 import {
@@ -40,6 +46,7 @@ export function registerFsChannel(
       getExpanded: getExpandedHandler(manager, storage),
       setExpanded: setExpandedHandler(manager, storage),
       readFile: readFileHandler(manager),
+      readBinary: readBinaryHandler(manager),
       readExternal: readExternalHandler(manager),
       writeFile: writeFileHandler(manager),
       createFile: createFileHandler(manager),

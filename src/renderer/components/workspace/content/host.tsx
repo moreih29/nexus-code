@@ -5,12 +5,14 @@ import { DiffTab } from "@/components/editor/diff-tab";
 import { SessionsTabView } from "@/components/sessions/sessions-tab";
 import { isFontFile } from "@/services/editor/preview/font";
 import { mediaKindFor } from "@/services/editor/preview/media";
+import { isPdfFile } from "@/services/editor/preview/pdf";
 import { isImageFile } from "@/services/editor/preview/previewable";
 import type { Tab } from "@/state/stores/tabs";
 import { BrowserTabView } from "./browser-view";
 import { EditorView, ImageEditorView } from "./editor-view";
 import { FontEditorView } from "./font-editor-view";
 import { MediaEditorView } from "./media-editor-view";
+import { PdfEditorView } from "./pdf-editor-view";
 import { useSlotElement } from "./slot-registry";
 import { TerminalView } from "./terminal-view";
 import { useViewPark } from "./view-park";
@@ -170,8 +172,8 @@ export function ContentHost({
         // acquisition. Sharing the same `key={filePath}` keeps split-tab
         // and preview-slot behaviour identical to the text path.
         //
-        // Audio and video route to MediaEditorView, and fonts to
-        // FontEditorView, the same way.
+        // Audio and video route to MediaEditorView, fonts to FontEditorView,
+        // and PDFs to PdfEditorView, the same way.
         //
         // tabId is forwarded so EditorView can read its own viewMode from the
         // tabs store (Raw/Preview toggle per-tab persistence — plan 60).
@@ -190,6 +192,12 @@ export function ContentHost({
           />
         ) : isFontFile(tab.props.filePath) ? (
           <FontEditorView
+            key={tab.props.filePath}
+            filePath={tab.props.filePath}
+            workspaceId={workspaceId}
+          />
+        ) : isPdfFile(tab.props.filePath) ? (
+          <PdfEditorView
             key={tab.props.filePath}
             filePath={tab.props.filePath}
             workspaceId={workspaceId}
