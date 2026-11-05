@@ -13,10 +13,10 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { displayWidth } from "../../../services/editor/preview/delimited";
-import { FIND_COLORS, MAX_FIND_MATCHES } from "../../../services/editor/preview/find/dom-finder";
+import { MAX_FIND_MATCHES } from "../../../services/editor/preview/find/dom-finder";
 import { findMatches } from "../../../services/editor/preview/find/find-matches";
 import { cn } from "../../../utils/cn";
-import { type FindResult, usePreviewFinder } from "./preview-find";
+import { type FindMark, type FindResult, MarkedLine, usePreviewFinder } from "./preview-find";
 
 /** A row's height, in px: one line of the UI's small text with its padding. */
 const ROW_PX = 24;
@@ -78,12 +78,6 @@ function gridMatches(
     }
   }
   return matches;
-}
-
-interface CellMark {
-  readonly start: number;
-  readonly end: number;
-  readonly current: boolean;
 }
 
 export function DataGrid({ header, rowCount, rowAt, widths, centerHeader }: DataGridProps) {
@@ -187,7 +181,7 @@ export function DataGrid({ header, rowCount, rowAt, widths, centerHeader }: Data
 
   /** Each field's marks, by "row:column". */
   const marks = useMemo(() => {
-    const byField = new Map<string, CellMark[]>();
+    const byField = new Map<string, FindMark[]>();
     matches.forEach((match, index) => {
       const key = `${match.row}:${match.column}`;
       const list = byField.get(key) ?? [];
@@ -274,7 +268,7 @@ function Field({
   width: number;
   center?: boolean;
   /** The find's matches in the field's line. */
-  marks?: readonly CellMark[];
+  marks?: readonly FindMark[];
 }) {
   const text = field?.text ?? "";
   const line = lineOf(text);
@@ -289,26 +283,4 @@ function Field({
       {marks ? <MarkedLine line={line} marks={marks} /> : line}
     </Cell>
   );
-}
-
-/** `line` with its matches painted, the current one apart. */
-function MarkedLine({ line, marks }: { line: string; marks: readonly CellMark[] }) {
-  const parts: React.ReactNode[] = [];
-  let at = 0;
-  for (const mark of marks) {
-    if (mark.start > at) parts.push(line.slice(at, mark.start));
-    parts.push(
-      <mark
-        key={mark.start}
-        data-find-current={mark.current ? "" : undefined}
-        className="text-inherit"
-        style={{ backgroundColor: mark.current ? FIND_COLORS.current : FIND_COLORS.match }}
-      >
-        {line.slice(mark.start, mark.end)}
-      </mark>,
-    );
-    at = mark.end;
-  }
-  if (at < line.length) parts.push(line.slice(at));
-  return <>{parts}</>;
 }

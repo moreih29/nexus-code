@@ -292,3 +292,102 @@ export function visibleRows(
   }
   return rows;
 }
+
+/** How much of a long string its row shows; the raw view has all of it. */
+export const ROW_STRING_CHARS = 1000;
+
+/** Whether `text` has a control character, which would break a row's line. */
+function hasControl(text: string): boolean {
+  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) < 0x20) return true;
+  return false;
+}
+
+/** A row's key or index as it shows: quoted when empty or holding a control character. */
+export function labelText(label: string | number): string {
+  if (typeof label === "number") return String(label);
+  return label === "" || hasControl(label) ? JSON.stringify(label) : label;
+}
+
+/** The text a value shows; none for an object or array, which show a count. */
+export function valueText(value: JsonValue): string | null {
+  switch (value.kind) {
+    case "object":
+    case "array":
+      return null;
+    case "string": {
+      const text = JSON.stringify(value.value);
+      return text.length > ROW_STRING_CHARS ? `${text.slice(0, ROW_STRING_CHARS)}…` : text;
+    }
+    case "number":
+      return value.text;
+    case "null":
+      return "null";
+    default:
+      return String(value.value);
+  }
+}
+
+/** A match of a find in a row: in its key or its value, and where in that text. */
+export interface TreeMatch {
+  /** The row's place in the rows found in, and its path. */
+  readonly row: number;
+  readonly path: string;
+  readonly part: "label" | "value";
+  readonly start: number;
+  readonly end: number;
+}
+
+/**
+ * The matches of a find in `rows`' keys and values, as they show, in
+ * order. `find` is given the text of them all, a NUL between each, and
+ * returns [start, end] offsets one after another.
+ */
+export function treeMatches(
+  rows: readonly JsonRow[],
+  find: (text: string) => number[],
+): TreeMatch[] {
+  const pieces: string[] = [];
+  const owners: { readonly row: number; readonly part: TreeMatch["part"] }[] = [];
+  const starts: number[] = [];
+  let length = 0;
+  const add = (text: string, row: number, part: TreeMatch["part"]) => {
+    pieces.push(text);
+    owners.push({ row, part });
+    starts.push(length);
+    length += text.length + 1;
+  };
+  rows.forEach((row, index) => {
+    if (row.label !== null) add(labelText(row.label), index, "label");
+    const value = valueText(row.value);
+    if (value !== null) add(value, index, "value");
+  });
+  const found = find(pieces.join("\u0000"));
+  const matches: TreeMatch[] = [];
+  let at = 0;
+  for (let i = 0; i < found.length; i += 2) {
+    const start = found[i] as number;
+    // The matches come in order, so the piece each is in only moves on.
+    while (at + 1 < starts.length && (starts[at + 1] as number) <= start) at++;
+    const owner = owners[at];
+    const offset = starts[at];
+    const row = owner ? rows[owner.row] : undefined;
+    if (!owner || !row || offset === undefined) break;
+    matches.push({
+      row: owner.row,
+      path: row.path,
+      part: owner.part,
+      start: start - offset,
+      end: (found[i + 1] as number) - offset,
+    });
+  }
+  return matches;
+}
+
+/** The paths of the objects and arrays `path` is in, outermost first. */
+export function ancestorPaths(path: string): string[] {
+  const paths: string[] = [];
+  for (let at = path.indexOf("\u0000", 1); at !== -1; at = path.indexOf("\u0000", at + 1)) {
+    paths.push(path.slice(0, at));
+  }
+  return paths;
+}
