@@ -1,4 +1,5 @@
 import type * as Monaco from "monaco-editor";
+import { usePreviewDefaultsStore } from "@/state/stores/preview-defaults";
 import { useTabsStore } from "@/state/stores/tabs";
 import { defaultViewMode } from "../preview/previewable";
 import type { MonacoRange } from "../../../../shared/editor/monaco-range";
@@ -123,7 +124,11 @@ function revealInSource(
 ): void {
   const tab =
     tabId === undefined ? undefined : useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
-  if (tab?.type !== "editor" || (tab.viewMode ?? defaultViewMode(tab.props.filePath)) === "raw") {
+  const defaults = usePreviewDefaultsStore.getState().byFormat;
+  if (
+    tab?.type !== "editor" ||
+    (tab.viewMode ?? defaultViewMode(tab.props.filePath, defaults)) === "raw"
+  ) {
     revealRange(editor, range);
     return;
   }
