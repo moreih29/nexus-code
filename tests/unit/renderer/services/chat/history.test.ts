@@ -78,6 +78,14 @@ describe("chat history cuts", () => {
     const model = historyModel([
       {
         type: "user",
+        uuid: "c0",
+        message: {
+          role: "user",
+          content: "<command-name>/clear</command-name>\n<command-args></command-args>",
+        },
+      },
+      {
+        type: "user",
         uuid: "c1",
         message: {
           role: "user",

@@ -33,6 +33,8 @@ export function transcriptLines(entries: readonly unknown[]): ChatLine[] {
       if (text.startsWith("<local-command-stdout>") || text.startsWith("<local-command-stderr>"))
         continue;
       const command = commandText(text);
+      // The /clear a session starts with: the tab shows that as it happens.
+      if (command === "/clear") continue;
       if (command !== null) message = { ...message, content: command };
     }
     if (entry.type === "assistant") {
