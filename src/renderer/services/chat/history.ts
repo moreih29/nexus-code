@@ -122,6 +122,17 @@ export function historyModel(entries: readonly unknown[], cut?: HistoryCut): Cha
   return { ...model, running: false, turn: null, streaming: null, permissions: [] };
 }
 
+/** The title a session was given (/rename), the last one standing. */
+export function sessionTitleOf(entries: readonly unknown[]): string | undefined {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i] as { type?: unknown; customTitle?: unknown } | null;
+    if (entry?.type !== "custom-title" || typeof entry.customTitle !== "string") continue;
+    const title = entry.customTitle.trim();
+    if (title) return title;
+  }
+  return undefined;
+}
+
 /** The uuids of the messages a model shows. */
 export function modelUuids(model: ChatModel): Set<string> {
   const uuids = new Set<string>();

@@ -14,6 +14,7 @@ import {
   joinHistory,
   modelBefore,
   modelUuids,
+  sessionTitleOf,
   uuidBefore,
 } from "./history";
 import {
@@ -232,9 +233,11 @@ export class ChatController {
       if (!result.found) return;
       const history = historyModel(result.lines, cut);
       const first = history.items.find((item) => item.kind === "user" && item.text.trim());
-      if (!this.titled && first?.kind === "user") {
+      // A session that was named is called by its name.
+      const title = cut ? undefined : sessionTitleOf(result.lines);
+      if (!this.titled && (title || first?.kind === "user")) {
         this.titled = true;
-        this.hooks.onFirstMessage?.(first.text.trim());
+        this.hooks.onFirstMessage?.(title ?? (first?.kind === "user" ? first.text.trim() : ""));
       }
       this.update((prev) => ({ ...prev, history: history.items.length > 0 ? history : null }));
     } catch (err) {
@@ -337,6 +340,48 @@ export class ChatController {
       draft: { text: item.text, images: item.images, nonce: Date.now() },
     }));
     if (await this.start({ ...this.startArgs(), resetLog: true })) await this.rebuild();
+  }
+
+  /**
+   * Goes on with another session of the folder in this tab, which has no
+   * conversation yet: its program starts over on that session.
+   */
+  async resumeSession(sessionId: string): Promise<void> {
+    if (this.state.model.running) throw new Error("a turn is running");
+    const { workspaceId, tabId } = this.target;
+    if (this.state.model.process === "running") {
+      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+    }
+    this.flushNow();
+    this.sessionId = sessionId;
+    this.target = { ...this.target, sessionId, fork: undefined };
+    this.hooks.onTarget?.({ sessionId });
+    this.titled = false;
+    this.update((prev) => ({
+      ...prev,
+      history: null,
+      model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
+    }));
+    await this.loadTranscript(sessionId);
+    if (await this.start({ resume: sessionId, resetLog: true })) await this.rebuild();
+  }
+
+  /**
+   * Names the tab's session, as /rename does: its program is started for it
+   * when it is not running. False when the session cannot be named: it has
+   * no conversation yet, or its version cannot.
+   */
+  async renameSession(title: string): Promise<boolean> {
+    const sessionId = this.state.model.sessionId ?? this.sessionId;
+    if (!sessionId || !title.trim()) return false;
+    if (!(await this.ensureRunning()) || !this.supports("rename_session")) return false;
+    await this.request("rename_session", {
+      title: title.trim(),
+      // The user's own rename, for the session it was made on.
+      source: "host",
+      session_id: sessionId,
+    });
+    return true;
   }
 
   /** Builds the model again from the agent's log, which a rewind started over. */

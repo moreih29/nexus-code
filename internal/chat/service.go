@@ -78,6 +78,7 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("chat.list", service.List)
 	d.Register("chat.exec", service.Exec)
 	d.Register("chat.transcript", service.Transcript)
+	d.Register("chat.sessions", service.Sessions)
 	d.Register("chat.attach", service.Attach)
 	d.Register("chat.pruneAttachments", service.PruneAttachments)
 }

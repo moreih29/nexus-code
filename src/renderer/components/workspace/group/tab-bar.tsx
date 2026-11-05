@@ -75,7 +75,7 @@ export function GroupTabBar({
     ? {
         isPinned: !!contextTab.isPinned,
         isEditor: contextTab.type === "editor",
-        isTerminal: contextTab.type === "terminal",
+        canRename: contextTab.type === "terminal" || contextTab.type === "claude",
       }
     : null;
 

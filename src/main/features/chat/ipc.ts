@@ -72,6 +72,11 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
           truncated: result.truncated === true,
         });
       },
+      sessions: async (args: unknown) => {
+        const { workspaceId, cwd } = validateArgs(c.sessions.args, args);
+        const result = (await host.sessions(workspaceId, cwd)) as { sessions?: unknown };
+        return ipcOk(validateArgs(c.sessions.result, result.sessions ?? []));
+      },
     },
     listen: {
       line: {},

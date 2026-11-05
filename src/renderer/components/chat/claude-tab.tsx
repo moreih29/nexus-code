@@ -53,6 +53,7 @@ import { PermissionCard } from "./permission-card";
 import { PrintRunPane } from "./print-run-pane";
 import { QuickLook, type QuickLookList } from "./quick-look";
 import { RewindDialog } from "./rewind-dialog";
+import { SessionList } from "./session-list";
 import { SidePanel } from "./side-panel";
 import { StatusLine } from "./status-line";
 
@@ -143,6 +144,21 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       open.map((tab) => tab.id),
     );
   }, [isVisible, controller, workspaceId]);
+
+  // A name the user gives the tab names its session too, as /rename does.
+  const customTitle = useTabsStore((s) => s.byWorkspace[workspaceId]?.[tabId]?.customTitle);
+  const named = useRef(customTitle);
+  useEffect(() => {
+    if (customTitle === named.current) return;
+    named.current = customTitle;
+    if (customTitle) void controller.renameSession(customTitle).catch(() => {});
+  }, [customTitle, controller]);
+
+  const [resumeError, setResumeError] = useState<string | null>(null);
+  const resumeSession = (sessionId: string) => {
+    setResumeError(null);
+    void controller.resumeSession(sessionId).catch((err: Error) => setResumeError(err.message));
+  };
 
   const onAnswer = (request: PermissionRequest, answer: PermissionAnswer) => {
     void controller.answerPermission(request, answer).catch(() => {});
@@ -342,6 +358,17 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
                     <div className="max-w-full truncate font-mono text-app-micro" title={props.cwd}>
                       {props.cwd}
                     </div>
+                    {resumeError && (
+                      <div className="text-app-ui-sm text-[var(--state-error-fg)]">
+                        {t("chat.sessions.resume_failed", { message: resumeError })}
+                      </div>
+                    )}
+                    <SessionList
+                      workspaceId={workspaceId}
+                      tabId={tabId}
+                      cwd={props.cwd}
+                      onResume={resumeSession}
+                    />
                   </div>
                 ) : null
               }

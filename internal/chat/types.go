@@ -189,3 +189,33 @@ type TranscriptResult struct {
 	Lines     []json.RawMessage `json:"lines"`
 	Truncated bool              `json:"truncated,omitempty"`
 }
+
+// SessionsParams is the wire shape for chat.sessions.
+type SessionsParams struct {
+	// Cwd is the folder whose sessions are listed.
+	Cwd string `json:"cwd"`
+	// ConfigDir is as TranscriptParams has it.
+	ConfigDir string `json:"configDir,omitempty"`
+	// Limit caps how many are listed, newest first.
+	Limit int `json:"limit,omitempty"`
+}
+
+// SessionsResult is returned by chat.sessions.
+type SessionsResult struct {
+	Sessions []ClaudeSession `json:"sessions"`
+}
+
+// ClaudeSession is a Claude Code session as a list shows it.
+type ClaudeSession struct {
+	SessionID string `json:"sessionId"`
+	// Title is its title: the one it was given, else its last prompt, else
+	// its first.
+	Title       string `json:"title"`
+	CustomTitle string `json:"customTitle,omitempty"`
+	FirstPrompt string `json:"firstPrompt,omitempty"`
+	GitBranch   string `json:"gitBranch,omitempty"`
+	// LastModified and CreatedAt are in milliseconds since the epoch.
+	LastModified int64 `json:"lastModified"`
+	CreatedAt    int64 `json:"createdAt,omitempty"`
+	Size         int64 `json:"size"`
+}

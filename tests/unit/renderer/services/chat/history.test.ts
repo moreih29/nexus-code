@@ -5,6 +5,7 @@ import {
   joinHistory,
   modelBefore,
   modelUuids,
+  sessionTitleOf,
   uuidBefore,
 } from "../../../../../src/renderer/services/chat/history";
 
@@ -134,5 +135,20 @@ describe("chat history cuts", () => {
     // The first message has nothing before it: a rewind there starts over.
     expect(uuidBefore(all, "u1")).toBeUndefined();
     expect(modelBefore(all, "u1").items).toEqual([]);
+  });
+});
+
+describe("sessionTitleOf", () => {
+  test("is the last name a session was given", () => {
+    expect(sessionTitleOf(ENTRIES)).toBeUndefined();
+    expect(
+      sessionTitleOf([
+        { type: "custom-title", customTitle: "First name" },
+        ...ENTRIES,
+        { type: "custom-title", customTitle: "  Test plan " },
+        { type: "custom-title", customTitle: "" },
+        null,
+      ]),
+    ).toBe("Test plan");
   });
 });
