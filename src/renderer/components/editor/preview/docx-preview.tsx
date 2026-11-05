@@ -103,13 +103,31 @@ function DocxDocument({ workspaceId, relPath, filePath }: DocxDocumentProps) {
     [filePath, workspaceRootAbsPath],
   );
 
-  /** Pages wider than the panel are shrunk to its width, as the PDF preview opens. */
+  /** The zoom the pages are drawn at; 0 before the first fit. */
+  const zoomRef = useRef(0);
+  /**
+   * Pages wider than the panel are shrunk to its width, as the PDF preview
+   * opens. A tab not shown sits in a box of no size, which is not fitted
+   * to: its pages keep their zoom, and so its place. A panel that changes
+   * width keeps the same place in the document.
+   */
   const fit = useCallback(() => {
     const wrapper = hostRef.current?.shadowRoot?.querySelector<HTMLElement>(".docx-wrapper");
     const container = scrollRef.current;
     if (!wrapper || !container || pageWidth.current === 0) return;
+    const before = zoomRef.current;
+    if (container.clientWidth === 0) {
+      if (before > 0) wrapper.style.zoom = String(before);
+      return;
+    }
     const room = container.clientWidth - 2 * PAGE_GUTTER_PX;
-    wrapper.style.zoom = String(Math.min(1, Math.max(MIN_ZOOM, room / pageWidth.current)));
+    const zoom = Math.min(1, Math.max(MIN_ZOOM, room / pageWidth.current));
+    // Read before the pages shrink, which would clamp it.
+    const top = container.scrollTop;
+    // A changed file is a new wrapper, which takes the zoom afresh.
+    wrapper.style.zoom = String(zoom);
+    zoomRef.current = zoom;
+    if (before > 0 && zoom !== before) container.scrollTop = top * (zoom / before);
   }, []);
 
   useEffect(() => {
