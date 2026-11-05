@@ -27,6 +27,8 @@ import { showToast } from "../ui/toast";
 interface ComposerProps {
   controller: ChatController;
   state: ChatTabState;
+  /** In place of the keys' hint: while an agent is shown, where input goes. */
+  placeholder?: string;
 }
 
 /** The API's limit on one image, before base64. */
@@ -34,7 +36,7 @@ const MAX_IMAGE_BYTES = 3_750_000;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 const MAX_ROWS_PX = 240;
 
-export function Composer({ controller, state }: ComposerProps) {
+export function Composer({ controller, state, placeholder }: ComposerProps) {
   const { t } = useTranslation();
   const [text, setText] = useState("");
   const [images, setImages] = useState<ImageBlock[]>([]);
@@ -186,7 +188,8 @@ export function Composer({ controller, state }: ComposerProps) {
             onPaste={onPaste}
             rows={1}
             placeholder={
-              running ? t("chat.composer.placeholder_running") : t("chat.composer.placeholder")
+              placeholder ??
+              (running ? t("chat.composer.placeholder_running") : t("chat.composer.placeholder"))
             }
             aria-label={t("chat.composer.aria")}
             className="block w-full resize-none bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground"

@@ -5,6 +5,7 @@ import { LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ChatModel } from "../../services/chat/model";
+import { agentsOf } from "../../services/chat/panel";
 
 export function StatusLine({ model }: { model: ChatModel }) {
   const { t } = useTranslation();
@@ -16,6 +17,7 @@ export function StatusLine({ model }: { model: ChatModel }) {
   const elapsed =
     turn.startedAt !== undefined ? Math.max(0, Math.floor((now - turn.startedAt) / 1000)) : null;
   const tokens = turn.outputTokens + turn.thinkingTokens;
+  const agents = agentsOf(model).filter((a) => a.status === "running").length;
 
   return (
     <div
@@ -31,6 +33,7 @@ export function StatusLine({ model }: { model: ChatModel }) {
       <span className="text-foreground">{activity}</span>
       {elapsed !== null && <span>{formatElapsed(elapsed)}</span>}
       {tokens > 0 && <span>{t("chat.status.tokens", { count: tokens })}</span>}
+      {agents > 0 && <span>{t("chat.status.agents", { count: agents })}</span>}
     </div>
   );
 }

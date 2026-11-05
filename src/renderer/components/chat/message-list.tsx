@@ -45,6 +45,8 @@ interface MessageListProps {
   /** Shown when there is no message yet. */
   empty?: React.ReactNode;
   actions?: MessageActions;
+  /** In place of the conversation: an agent's transcript. */
+  items?: ChatItem[];
 }
 
 /** What the user can do from a message. */
@@ -68,6 +70,7 @@ export function MessageList({
   model,
   empty,
   actions,
+  items,
 }: MessageListProps) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -108,8 +111,10 @@ export function MessageList({
     toBottom();
   }, [lastUser, toBottom]);
 
-  const historyItems = history?.items ?? [];
-  const nothing = historyItems.length === 0 && model.items.length === 0 && !model.streaming;
+  const historyItems = items ? [] : (history?.items ?? []);
+  const liveItems = items ?? model.items;
+  const streaming = items ? null : model.streaming;
+  const nothing = historyItems.length === 0 && liveItems.length === 0 && !streaming;
   const tools = history ? { ...history.tools, ...model.tools } : model.tools;
   const ctx: ItemContext = { workspaceId, cwd, rootPath, tools, actions };
 
@@ -126,10 +131,10 @@ export function MessageList({
           {historyItems.map((item) => (
             <Item key={`h-${item.key}`} item={item} ctx={ctx} />
           ))}
-          {model.items.map((item) => (
+          {liveItems.map((item) => (
             <Item key={item.key} item={item} ctx={ctx} />
           ))}
-          {model.streaming && <Streaming streaming={model.streaming} ctx={ctx} />}
+          {streaming && <Streaming streaming={streaming} ctx={ctx} />}
         </div>
       </div>
       {showJump && (

@@ -132,6 +132,8 @@ export interface CommandInfo {
 export interface InitializeInfo {
   commands: CommandInfo[];
   models: ModelInfo[];
+  /** The account may turn on Remote Control. */
+  remoteControl: boolean;
 }
 
 export interface ResultInfo {
@@ -141,6 +143,38 @@ export interface ResultInfo {
   numTurns?: number;
   costUsd?: number;
   terminalReason?: string;
+}
+
+/** A task the CLI runs beside the turn: a background Bash, a subagent, a teammate. */
+export interface TaskInfo {
+  taskId: string;
+  /** local_bash, local_agent, in_process_teammate, a workflow's, as the CLI names it. */
+  type: string;
+  description: string;
+  /** running, then completed, failed, killed or stopped. */
+  status: string;
+  /** The tool call that started it: an Agent call, a Bash run in the background. */
+  toolUseId?: string;
+  subagentType?: string;
+  prompt?: string;
+  backgrounded?: boolean;
+  startedAt?: number;
+  endedAt?: number;
+  summary?: string;
+  outputFile?: string;
+  totalTokens?: number;
+  toolUses?: number;
+  durationMs?: number;
+  lastToolName?: string;
+  /** What it does now, as its last progress said ("Running Sleep 8 seconds"). */
+  activity?: string;
+}
+
+export interface McpServerInfo {
+  name: string;
+  status: string;
+  scope?: string;
+  transport?: string;
 }
 
 export interface RateLimitInfo {
@@ -172,6 +206,14 @@ export interface ChatModel {
   costUsd?: number;
   rateLimit?: RateLimitInfo;
   contextUsage?: unknown;
+  /** get_usage's answer: the plan's limits, as the server sends them. */
+  usage?: unknown;
+  mcp?: McpServerInfo[];
+  remoteControl?: { enabled: boolean; sessionUrl?: string };
+  /** The CLI's tasks by id, in the order they started. */
+  tasks: Record<string, TaskInfo>;
+  /** Subagents' messages, by the Agent tool call they run under. */
+  agentItems: Record<string, AssistantItem[]>;
   /** The app asked the turn to stop: its tools' errors are the stop. */
   interrupting?: boolean;
   /** The app's control requests waiting for an answer: request id → subtype and request. */
@@ -194,6 +236,8 @@ export function emptyModel(): ChatModel {
     turn: null,
     process: "none",
     outgoing: {},
+    tasks: {},
+    agentItems: {},
   };
 }
 
@@ -303,6 +347,7 @@ function applySys(draft: Draft, message: Rec, seq: number, at: number | undefine
       m.permissions = [];
       m.outgoing = {};
       stopRunningTools(draft);
+      stopRunningTasks(draft, at);
       draft.push({ kind: "notice", key: `n${seq}`, code: "exited", detail: stderrTail, at });
       return;
     }
@@ -432,7 +477,86 @@ function applySystem(draft: Draft, message: Rec, seq: number, at: number | undef
     case "compact_boundary":
       draft.push({ kind: "notice", key: `n${seq}`, code: "compacted", at });
       return;
+    case "task_started":
+    case "task_progress":
+    case "task_updated":
+    case "task_notification":
+      applyTask(draft, message, at);
+      return;
+    case "background_tasks_changed": {
+      if (!Array.isArray(message.tasks)) return;
+      for (const raw of message.tasks) {
+        const task = rec(raw);
+        const id = str(task?.task_id);
+        if (!task || !id || m.tasks[id]) continue;
+        m.tasks = {
+          ...m.tasks,
+          [id]: {
+            taskId: id,
+            type: str(task.task_type) ?? "",
+            description: str(task.description) ?? "",
+            status: "running",
+            subagentType: str(task.subagent_type),
+            backgrounded: true,
+            startedAt: at,
+          },
+        };
+      }
+      return;
+    }
   }
+}
+
+function applyTask(draft: Draft, message: Rec, at: number | undefined): void {
+  const m = draft.next;
+  const id = str(message.task_id);
+  if (!id) return;
+  const prev: TaskInfo = m.tasks[id] ?? {
+    taskId: id,
+    type: str(message.task_type) ?? "",
+    description: "",
+    status: "running",
+    startedAt: at,
+  };
+  const next: TaskInfo = { ...prev };
+  const set = <K extends keyof TaskInfo>(key: K, value: TaskInfo[K] | undefined) => {
+    if (value !== undefined) next[key] = value;
+  };
+  set("type", str(message.task_type));
+  // A progress line's description is what the task does now, not what it is.
+  if (message.subtype === "task_progress") set("activity", str(message.description));
+  else set("description", str(message.description));
+  set("toolUseId", str(message.tool_use_id));
+  set("subagentType", str(message.subagent_type));
+  set("prompt", str(message.prompt));
+  if (typeof message.is_backgrounded === "boolean") next.backgrounded = message.is_backgrounded;
+  set("lastToolName", str(message.last_tool_name));
+  const usage = rec(message.usage);
+  set("totalTokens", num(usage?.total_tokens));
+  set("toolUses", num(usage?.tool_uses));
+  set("durationMs", num(usage?.duration_ms));
+  const patch = rec(message.patch);
+  const status = str(patch?.status) ?? str(message.status);
+  if (status) next.status = status;
+  set("endedAt", num(patch?.end_time));
+  if (message.subtype === "task_notification") {
+    set("summary", str(message.summary));
+    set("outputFile", str(message.output_file));
+    if (next.endedAt === undefined) next.endedAt = at;
+  }
+  m.tasks = { ...m.tasks, [id]: next };
+}
+
+/** The program ended: so did the tasks it ran. */
+function stopRunningTasks(draft: Draft, at: number | undefined): void {
+  const m = draft.next;
+  let tasks: Record<string, TaskInfo> | null = null;
+  for (const task of Object.values(m.tasks)) {
+    if (task.status !== "running") continue;
+    tasks ??= { ...m.tasks };
+    tasks[task.taskId] = { ...task, status: "stopped", endedAt: task.endedAt ?? at };
+  }
+  if (tasks) m.tasks = tasks;
 }
 
 function applyStreamEvent(draft: Draft, message: Rec): void {
@@ -553,7 +677,11 @@ function applyAssistant(draft: Draft, message: Rec, seq: number, at: number | un
     }
   }
   // A subagent's messages belong to its Agent tool call, not the main thread.
-  if (parent) return;
+  if (parent) {
+    if (blocks.length > 0)
+      pushAgentBlocks(draft, parent, messageId, str(message.uuid), blocks, when, seq);
+    return;
+  }
 
   // The block streamed so far has arrived whole.
   if (m.streaming && m.streaming.messageId === messageId)
@@ -582,6 +710,28 @@ function applyAssistant(draft: Draft, message: Rec, seq: number, at: number | un
     blocks,
     at: when,
   });
+}
+
+function pushAgentBlocks(
+  draft: Draft,
+  parent: string,
+  messageId: string,
+  uuid: string | undefined,
+  blocks: AssistantBlock[],
+  at: number | undefined,
+  seq: number,
+): void {
+  const m = draft.next;
+  const items = m.agentItems[parent] ?? [];
+  const last = items[items.length - 1];
+  const next =
+    last && last.messageId === messageId
+      ? [
+          ...items.slice(0, -1),
+          { ...last, blocks: [...last.blocks, ...blocks], uuid: uuid ?? last.uuid },
+        ]
+      : [...items, { kind: "assistant" as const, key: `a${seq}`, messageId, uuid, blocks, at }];
+  m.agentItems = { ...m.agentItems, [parent]: next };
 }
 
 function applyUserOut(draft: Draft, message: Rec, seq: number, at: number | undefined): void {
@@ -693,6 +843,9 @@ function applyControlRequest(draft: Draft, message: Rec): void {
   ];
 }
 
+/** Requests the side panel makes on its own, whose errors are not the conversation's. */
+const QUIET_REQUESTS = new Set(["get_context_usage", "get_usage", "mcp_status"]);
+
 function applyControlResponse(
   draft: Draft,
   message: Rec,
@@ -708,6 +861,8 @@ function applyControlResponse(
   const { [id]: _done, ...rest } = m.outgoing;
   m.outgoing = rest;
   if (response?.subtype === "error") {
+    // The side panel's reads fail quietly: it shows what it has.
+    if (QUIET_REQUESTS.has(subtype)) return;
     const error = str(response.error) ?? subtype;
     draft.push({ kind: "notice", key: `n${seq}`, code: "error", detail: error, at });
     return;
@@ -722,6 +877,7 @@ function applyControlResponse(
         models: Array.isArray(body.models)
           ? (body.models.filter((x) => rec(x) && str(rec(x)?.value)) as ModelInfo[])
           : [],
+        remoteControl: body.remote_control_available === true,
       };
       m.permissionMode = str(body.current_permission_mode) ?? m.permissionMode;
       m.version = str(body.claude_code_version) ?? m.version;
@@ -741,6 +897,32 @@ function applyControlResponse(
     }
     case "get_context_usage":
       m.contextUsage = body;
+      return;
+    case "get_usage":
+      m.usage = body;
+      return;
+    case "mcp_status":
+      m.mcp = Array.isArray(body.mcpServers)
+        ? body.mcpServers.flatMap((raw) => {
+            const server = rec(raw);
+            const name = str(server?.name);
+            if (!server || !name) return [];
+            return [
+              {
+                name,
+                status: str(server.status) ?? "",
+                scope: str(server.scope),
+                transport: str(server.transport),
+              },
+            ];
+          })
+        : [];
+      return;
+    case "remote_control":
+      m.remoteControl =
+        request.enabled === true
+          ? { enabled: true, sessionUrl: str(body.session_url) }
+          : { enabled: false };
       return;
   }
 }

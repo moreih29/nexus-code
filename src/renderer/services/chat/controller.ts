@@ -50,6 +50,15 @@ interface ReplayResult {
   lastSeq: number;
 }
 
+/** What the side panel asks the CLI for, by the request that tells it. */
+const PANEL_REQUESTS = {
+  context: "get_context_usage",
+  usage: "get_usage",
+  mcp: "mcp_status",
+} as const;
+
+export type PanelPart = keyof typeof PANEL_REQUESTS;
+
 /** A session to copy, up to and including a message (all of it without one). */
 export interface ForkPoint {
   sessionId: string;
@@ -262,7 +271,8 @@ export class ChatController {
     }
     this.update((prev) => ({ ...prev, phase: "ready", version: result.version }));
     if (!result.attached) {
-      this.request("initialize", { hooks: null }).catch((err: Error) => {
+      // Subagents' text comes as messages under their Agent call, for the agent strip.
+      this.request("initialize", { hooks: null, forwardSubagentText: true }).catch((err: Error) => {
         log.warn(`initialize failed: ${err.message}`);
       });
     }
@@ -454,6 +464,40 @@ export class ChatController {
 
   setEffort(level: string): Promise<unknown> {
     return this.request("apply_flag_settings", { settings: { effortLevel: level } });
+  }
+
+  /** Stops one of the CLI's tasks: a subagent, a command in the background. */
+  stopTask(taskId: string): Promise<unknown> {
+    return this.request("stop_task", { task_id: taskId });
+  }
+
+  /**
+   * Asks for what the side panel shows that only a request tells: the
+   * context, the plan's usage, the MCP servers. Only while the program
+   * runs; the answers land in the model.
+   */
+  refreshPanel(parts: readonly PanelPart[]): void {
+    const { phase, model } = this.state;
+    if (phase !== "ready" || model.process !== "running") return;
+    for (const part of parts) {
+      const subtype = PANEL_REQUESTS[part];
+      if (this.supports(subtype)) this.request(subtype, {}).catch(() => {});
+    }
+  }
+
+  async mcpReconnect(serverName: string): Promise<void> {
+    await this.request("mcp_reconnect", { serverName });
+    this.refreshPanel(["mcp"]);
+  }
+
+  async mcpToggle(serverName: string, enabled: boolean): Promise<void> {
+    await this.request("mcp_toggle", { serverName, enabled });
+    this.refreshPanel(["mcp"]);
+  }
+
+  /** Turns Remote Control on or off; on, its answer has the session's URL. */
+  setRemoteControl(enabled: boolean): Promise<unknown> {
+    return this.request("remote_control", { enabled });
   }
 
   supports(subtype: string): boolean {
