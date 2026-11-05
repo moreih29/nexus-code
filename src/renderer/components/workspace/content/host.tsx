@@ -122,6 +122,9 @@ export function ContentHost({
     const el = document.createElement("div");
     el.style.position = "absolute";
     el.style.inset = "0";
+    // Keeps the z-indexes inside a tab (a table's sticky header, Monaco's
+    // layers) among themselves, so an inactive group's veil covers them.
+    el.style.isolation = "isolate";
     portalTargetRef.current = el;
   }
   const portalTarget = portalTargetRef.current;
