@@ -48,6 +48,11 @@ export interface ModelEntry {
   phase: SharedModelPhase;
   model: Monaco.editor.ITextModel | null;
   errorCode?: FileErrorCode;
+  /**
+   * The model's text the last time it was in sync with disk, as the model
+   * reads it back: Monaco gives every line of a file with mixed line endings
+   * the same one, so this may differ from the bytes read.
+   */
   lastLoadedValue: string;
   /**
    * How the file was last read. The agent strips a UTF-8 BOM on read, so a

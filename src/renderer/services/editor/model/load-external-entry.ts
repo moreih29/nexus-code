@@ -75,7 +75,7 @@ export async function loadExternalEntry(input: {
     entry.model = model;
     entry.languageId = model.getLanguageId();
     entry.phase = "ready";
-    entry.lastLoadedValue = result.content;
+    entry.lastLoadedValue = model.getValue();
   } catch (error) {
     entry.phase = "error";
     entry.errorCode = errorCodeFromUnknown(error);

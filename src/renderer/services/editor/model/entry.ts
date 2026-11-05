@@ -273,7 +273,7 @@ async function loadEntry(entry: ModelEntry): Promise<void> {
     entry.languageId = placed.model.getLanguageId();
     entry.phase = "ready";
     entry.errorCode = undefined;
-    entry.lastLoadedValue = placed.content;
+    entry.lastLoadedValue = placed.model.getValue();
     entry.encoding = placed.encoding;
 
     attachDirtyAndUriTracking({
@@ -361,7 +361,6 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
     const model = entry.model;
     if (!model || model.isDisposed()) return;
 
-    entry.lastLoadedValue = result.content;
     entry.encoding = result.encoding;
     entry.phase = "ready";
     entry.errorCode = undefined;
@@ -369,6 +368,7 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
     if (model.getValue() !== result.content) {
       model.setValue(result.content);
     }
+    entry.lastLoadedValue = model.getValue();
 
     deps.markDirtyTrackerSaved({
       cacheUri: entry.cacheUri,
@@ -445,7 +445,6 @@ export async function reloadEntryFromDisk(entry: ModelEntry): Promise<void> {
     const model = entry.model;
     if (!model || model.isDisposed()) return;
 
-    entry.lastLoadedValue = result.content;
     entry.encoding = result.encoding;
     entry.phase = "ready";
     entry.errorCode = undefined;
@@ -453,6 +452,7 @@ export async function reloadEntryFromDisk(entry: ModelEntry): Promise<void> {
     if (model.getValue() !== result.content) {
       model.setValue(result.content);
     }
+    entry.lastLoadedValue = model.getValue();
 
     deps.markDirtyTrackerSaved({
       cacheUri: entry.cacheUri,
