@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  defaultViewMode,
   isImageFile,
   isPreviewable,
   previewEngineFor,
@@ -68,5 +69,15 @@ describe("isImageFile", () => {
     expect(isImageFile("/r/index.ts")).toBe(false);
     expect(isImageFile("/r/README.md")).toBe(false);
     expect(isImageFile("/r/no-extension")).toBe(false);
+  });
+});
+
+describe("defaultViewMode", () => {
+  it("opens a file with a preview in it, and anything else in its source", () => {
+    expect(defaultViewMode("/r/README.md")).toBe("preview");
+    expect(defaultViewMode("/r/index.html")).toBe("preview");
+    expect(defaultViewMode("/r/icon.svg")).toBe("preview");
+    expect(defaultViewMode("/r/page.mdx")).toBe("raw");
+    expect(defaultViewMode("/r/index.ts")).toBe("raw");
   });
 });

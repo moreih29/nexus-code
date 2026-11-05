@@ -8,7 +8,11 @@ import { useMonacoThemeName } from "../../../hooks/use-monaco-theme-name";
 import { ipcCallResult } from "../../../ipc/client";
 import { useSharedModel } from "../../../services/editor";
 import { hasConflictMarkers } from "../../../services/editor/conflict/conflict-parser";
-import { isPreviewable, previewEngineFor } from "../../../services/editor/preview/previewable";
+import {
+  defaultViewMode,
+  isPreviewable,
+  previewEngineFor,
+} from "../../../services/editor/preview/previewable";
 import { toggleTaskMarker } from "../../../services/editor/preview/task-toggle";
 import { useGitSession, useGitStore } from "../../../state/stores/git";
 import { useTabsStore } from "../../../state/stores/tabs";
@@ -207,7 +211,8 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
       : null,
   );
   const viewMode =
-    storedViewMode && storedViewMode.type === "editor" ? (storedViewMode.viewMode ?? "raw") : "raw";
+    (storedViewMode?.type === "editor" ? storedViewMode.viewMode : undefined) ??
+    defaultViewMode(filePath);
   const setViewMode = useTabsStore((s) => s.setViewMode);
 
   // Live markdown/html/svg source — subscribed only when actually previewing,
