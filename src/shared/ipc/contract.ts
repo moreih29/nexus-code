@@ -793,6 +793,8 @@ export const ipcContract = {
           fork: z.boolean().optional(),
           /** With fork: the message to copy the session up to (`--resume-session-at`). */
           resumeAt: z.string().max(128).optional(),
+          /** Drop the tab's log first: the program goes on with another conversation (a rewind). */
+          resetLog: z.boolean().optional(),
         }),
         z.discriminatedUnion("ok", [
           z.object({
@@ -843,6 +845,8 @@ export const ipcContract = {
           dir: z.enum(["out", "in", "sys"]),
           message: z.unknown().optional(),
           text: z.string().optional(),
+          /** When the agent got the line, in Unix milliseconds. */
+          at: z.number().optional(),
           replay: z.boolean().optional(),
         }),
       ),

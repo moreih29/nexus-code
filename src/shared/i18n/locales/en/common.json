@@ -872,7 +872,9 @@
       "interrupting": "Stopping…",
       "retrying": "Retrying (attempt {{attempt}})",
       "retrying_of": "Retrying ({{attempt}}/{{max}})",
-      "tokens": "↓ {{count}} tokens"
+      "tokens": "↓ {{count}} tokens",
+      "agents_one": "{{count}} agent running",
+      "agents_other": "{{count}} agents running"
     },
     "rate_limit": {
       "warning": "Close to the usage limit",
@@ -936,6 +938,128 @@
       "aria": "Effort",
       "label": "Effort",
       "unset": "effort"
+    },
+    "rewind": {
+      "action": "Rewind to before this message",
+      "busy": "Can't rewind while Claude is working",
+      "title": "Rewind to before this message",
+      "description": "The conversation goes back to before this message, and the message goes back in the composer.",
+      "checking": "Checking the changed files…",
+      "files_unknown": "Couldn't check the changed files: {{error}}",
+      "files_unavailable": "The files can't be rewound. {{error}}",
+      "files_changed_one": "{{count}} file goes back",
+      "files_changed_other": "{{count}} files go back",
+      "more_files_one": "and {{count}} more",
+      "more_files_other": "and {{count}} more",
+      "no_files": "No file changes to undo.",
+      "conversation": "Rewind the conversation",
+      "conversation_and_files": "Rewind the conversation and code",
+      "failed": "Couldn't rewind: {{error}}"
+    },
+    "fork": {
+      "from_assistant": "Fork from here",
+      "from_user": "Fork from before this message"
+    },
+    "time": {
+      "now": "just now"
+    },
+    "panel": {
+      "aria": "Session details",
+      "show": "Show side panel",
+      "hide": "Hide side panel",
+      "stop": "Stop",
+      "stop_failed": "Could not stop it",
+      "outside": "Files outside the workspace cannot be opened yet",
+      "needs_version": "Needs Claude Code {{version}} or later",
+      "status": {
+        "running": "Running",
+        "completed": "Done",
+        "failed": "Failed",
+        "stopped": "Stopped"
+      },
+      "env": {
+        "title": "Environment",
+        "remote_control": "Remote",
+        "remote_unavailable": "Remote Control is not available for this account",
+        "remote_failed": "Could not switch Remote Control: {{error}}",
+        "copy_url": "Copy the Remote Control link",
+        "open_url": "Open the Remote Control link",
+        "folder": "Folder",
+        "branch": "Branch",
+        "session": "Session",
+        "copy_session": "Copy the session ID",
+        "fork_session": "Fork the whole session",
+        "model": "Model",
+        "version": "Version"
+      },
+      "context": {
+        "title": "Context",
+        "unknown": "Not measured yet",
+        "tokens": "{{used}} of {{max}} tokens",
+        "free": "{{count}} tokens left before compacting",
+        "compact": "Compact",
+        "compact_busy": "Compact once Claude finishes"
+      },
+      "agents": {
+        "title": "Agents",
+        "open": "Show its transcript",
+        "teammate": "Teammate",
+        "tools_one": "{{count}} tool call",
+        "tools_other": "{{count}} tool calls",
+        "no_text": "Nothing written yet"
+      },
+      "jobs": {
+        "title": "Tasks"
+      },
+      "todos": {
+        "title": "To-dos"
+      },
+      "results": {
+        "title": "Results"
+      },
+      "changed": {
+        "title": "Changed files"
+      },
+      "usage": {
+        "title": "Usage",
+        "none": "No limits reported",
+        "resets": "Resets {{time}}",
+        "kind": {
+          "session": "Current session",
+          "weekly_all": "This week, all models",
+          "weekly_scoped": "This week, {{scope}}"
+        }
+      },
+      "mcp": {
+        "title": "MCP",
+        "none": "No MCP servers",
+        "reconnect": "Reconnect",
+        "enabled": "Use {{name}}",
+        "auth_hint": "Authenticate it with /mcp in a terminal",
+        "status": {
+          "connected": "Connected",
+          "needs-auth": "Needs auth",
+          "failed": "Failed",
+          "pending": "Connecting",
+          "disabled": "Off"
+        }
+      }
+    },
+    "strip": {
+      "aria": "Agents",
+      "main": "Main",
+      "finished": "Finished {{count}}",
+      "permission_waiting": "A permission request is waiting in the main conversation",
+      "to_main": "To main",
+      "input_to_main": "Messages go to the main conversation",
+      "summary": {
+        "agents_one": "{{count}} agent",
+        "agents_other": "{{count}} agents",
+        "jobs_one": "{{count}} task",
+        "jobs_other": "{{count}} tasks",
+        "todos": "To-dos {{done}}/{{total}}",
+        "context": "Context {{percent}}%"
+      }
     }
   }
 }

@@ -151,7 +151,14 @@ func (s *Service) Start(_ context.Context, raw json.RawMessage) (any, error) {
 		done:    make(chan struct{}),
 	}
 	sess.proc = proc
-	sess.addSysLocked(map[string]any{"event": "start", "pid": cmd.Process.Pid})
+	if p.ResetLog {
+		sess.log.reset()
+	}
+	start := map[string]any{"event": "start", "pid": cmd.Process.Pid}
+	if p.Resumed {
+		start["resumed"] = true
+	}
+	sess.addSysLocked(start)
 
 	stdoutDone := make(chan struct{})
 	stderrDone := make(chan struct{})
@@ -261,18 +268,20 @@ func (s *Service) Replay(_ context.Context, raw json.RawMessage) (any, error) {
 	}
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
+	last := p.AfterSeq
 	for _, e := range sess.log.since(p.AfterSeq) {
 		payload := sess.payload(e)
 		payload.Replay = true
 		if err := s.emit(EventLine, payload); err != nil {
 			return nil, requestFailed("chat.replay: %s", err)
 		}
+		last = e.seq
 	}
 	return ReplayResult{
 		Found:     true,
 		Running:   sess.proc != nil,
 		Truncated: sess.log.truncated,
-		LastSeq:   sess.log.lastSeq(),
+		LastSeq:   last,
 	}, nil
 }
 
@@ -382,6 +391,7 @@ func (sess *session) payload(e *entry) LinePayload {
 		Dir:         e.dir,
 		Message:     e.message,
 		Text:        e.text,
+		At:          e.at,
 	}
 }
 

@@ -3,23 +3,35 @@
 // connection, so the view only reads what its controller has.
 
 import { MessageSquareText } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   type ChatController,
   chatController,
   type PermissionAnswer,
 } from "../../services/chat/controller";
-import type { PermissionRequest } from "../../services/chat/model";
-import { type ChatTabState, useChatTab } from "../../services/chat/store";
+import type { AssistantItem, PermissionRequest, UserItem } from "../../services/chat/model";
+import { agentsOf, agentTranscript, contextOf, jobsOf, todosOf } from "../../services/chat/panel";
+import {
+  type ChatTabState,
+  type ComposerDraft,
+  chatKey,
+  useChatStore,
+  useChatTab,
+} from "../../services/chat/store";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
+import { openClaudeTab } from "../../state/operations/tabs";
 import type { ClaudeTabProps } from "../../state/stores/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { cn } from "../../utils/cn";
 import { Banner, type BannerAction } from "../ui/banner";
+import { AgentStrip } from "./agent-strip";
 import { Composer } from "./composer";
-import { MessageList } from "./message-list";
+import { type MessageActions, MessageList } from "./message-list";
 import { PermissionCard } from "./permission-card";
+import { RewindDialog } from "./rewind-dialog";
+import { SidePanel } from "./side-panel";
 import { StatusLine } from "./status-line";
 
 interface ClaudeTabViewProps {
@@ -31,6 +43,38 @@ interface ClaudeTabViewProps {
 
 /** Longest first message kept as the tab's title. */
 const TITLE_CHARS = 40;
+
+/** From this width the side panel sits beside the conversation. */
+const PANEL_BESIDE_PX = 900;
+/** Below this width the tab shows a one-line summary in place of the strip. */
+const SUMMARY_BELOW_PX = 520;
+
+/** Whether the side panel is open where it sits beside the conversation. */
+const PANEL_PREF_KEY = "nexus.claude-tab.panel";
+
+type PanelPlace = "beside" | "drawer" | "summary";
+
+function placeFor(width: number): PanelPlace {
+  if (width >= PANEL_BESIDE_PX) return "beside";
+  if (width >= SUMMARY_BELOW_PX) return "drawer";
+  return "summary";
+}
+
+function readPanelPref(): boolean {
+  try {
+    return localStorage.getItem(PANEL_PREF_KEY) !== "closed";
+  } catch {
+    return true;
+  }
+}
+
+function writePanelPref(open: boolean): void {
+  try {
+    localStorage.setItem(PANEL_PREF_KEY, open ? "open" : "closed");
+  } catch {
+    // Not kept: the panel opens by default next time.
+  }
+}
 
 export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTabViewProps) {
   const { t } = useTranslation();
@@ -51,6 +95,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         {
           onSession: (sessionId) =>
             useTabsStore.getState().setClaudeSession(workspaceId, tabId, sessionId),
+          onTarget: (target) => useTabsStore.getState().setClaudeTarget(workspaceId, tabId, target),
           onFirstMessage: (text) =>
             useTabsStore.getState().setProcessTitle(workspaceId, tabId, titleOf(text)),
         },
@@ -72,47 +117,261 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     void controller.answerPermission(request, answer).catch(() => {});
   };
 
+  const [rewinding, setRewinding] = useState<UserItem | null>(null);
+  const actions: MessageActions = {
+    running: state.model.running,
+    canFork: controller.forkPoint("", { before: false }) !== null,
+    onRewind: (item) => setRewinding(item),
+    onFork: (item) => forkFrom(controller, workspaceId, props.cwd, item),
+  };
+
+  // Where the side panel goes follows the tab's width.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [place, setPlace] = useState<PanelPlace>("beside");
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width > 0) setPlace(placeFor(entry.contentRect.width));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const [besideOpen, setBesideOpen] = useState(readPanelPref);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const panelOpen = place === "beside" ? besideOpen : drawerOpen;
+  const togglePanel = () => {
+    if (place === "beside") {
+      writePanelPref(!besideOpen);
+      setBesideOpen(!besideOpen);
+    } else setDrawerOpen((v) => !v);
+  };
+  useEffect(() => {
+    if (place === "beside") setDrawerOpen(false);
+  }, [place]);
+
+  // The pane shows main or one agent's transcript; input always goes to main.
+  const agents = useMemo(() => agentsOf(state.model), [state.model]);
+  const [shownId, setShownId] = useState<string | null>(null);
+  const shown = shownId ? agents.find((a) => a.toolUseId === shownId) : undefined;
+  useEffect(() => {
+    if (shownId && !shown) setShownId(null);
+  }, [shownId, shown]);
+  const showAgent = (toolUseId: string | null) => {
+    setShownId(toolUseId);
+    if (place !== "beside") setDrawerOpen(false);
+  };
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+    if (event.key !== "[" && event.key !== "]") return;
+    if (agents.length === 0) return;
+    event.preventDefault();
+    const order = [null, ...agents.map((a) => a.toolUseId)];
+    const at = Math.max(0, order.indexOf(shown ? shown.toolUseId : null));
+    const step = event.key === "]" ? 1 : -1;
+    setShownId(order[(at + step + order.length) % order.length]);
+  };
+
+  const forkSession = () => {
+    const point = controller.forkPoint("", { before: false });
+    if (point) openClaudeTab(workspaceId, { cwd: props.cwd, fork: { sessionId: point.sessionId } });
+  };
+  const panel = (
+    <SidePanel
+      controller={controller}
+      state={state}
+      workspaceId={workspaceId}
+      cwd={props.cwd}
+      rootPath={rootPath}
+      onShowAgent={showAgent}
+      onForkSession={forkSession}
+      className={place === "beside" ? "w-72 shrink-0 border-l border-border" : "h-full"}
+    />
+  );
+  const permissions = state.model.permissions;
+
   return (
-    <div className="flex h-full flex-col bg-background" data-testid="claude-tab">
+    // biome-ignore lint/a11y/noStaticElementInteractions: ⌘[ and ⌘] step through the agents from anywhere in the tab
+    <div
+      ref={rootRef}
+      className="flex h-full flex-col bg-background"
+      data-testid="claude-tab"
+      onKeyDown={onKeyDown}
+    >
       <PhaseBanner controller={controller} state={state} />
-      <MessageList
-        workspaceId={workspaceId}
-        cwd={props.cwd}
-        rootPath={rootPath}
-        history={state.history}
-        model={state.model}
-        empty={
-          state.phase === "ready" || state.phase === "ended" ? (
-            <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
-              <MessageSquareText className="size-8" />
-              <div className="text-app-body">{t("chat.empty.title")}</div>
-              <div className="max-w-full truncate font-mono text-app-micro" title={props.cwd}>
-                {props.cwd}
+      <div className="relative flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          {place === "summary" ? (
+            <SummaryLine state={state} open={drawerOpen} onToggle={togglePanel} />
+          ) : (
+            <AgentStrip
+              agents={agents}
+              shown={shown ? shown.toolUseId : null}
+              onShow={showAgent}
+              panel={{ open: panelOpen, onToggle: togglePanel }}
+            />
+          )}
+          <MessageList
+            workspaceId={workspaceId}
+            cwd={props.cwd}
+            rootPath={rootPath}
+            history={state.history}
+            model={state.model}
+            actions={shown ? undefined : actions}
+            items={shown ? agentTranscript(state.model, shown) : undefined}
+            empty={
+              state.phase === "ready" || state.phase === "ended" ? (
+                <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
+                  <MessageSquareText className="size-8" />
+                  <div className="text-app-body">{t("chat.empty.title")}</div>
+                  <div className="max-w-full truncate font-mono text-app-micro" title={props.cwd}>
+                    {props.cwd}
+                  </div>
+                </div>
+              ) : null
+            }
+          />
+          {/* Docked over the composer, so a request is seen wherever the list is scrolled. */}
+          {(permissions.length > 0 || state.model.running) && (
+            <div className="max-h-[60%] shrink-0 overflow-y-auto px-4 pt-2">
+              <div className="mx-auto flex max-w-[860px] flex-col gap-2">
+                {permissions.length > 0 && shown && (
+                  <div
+                    className="flex items-center gap-2 rounded-(--radius-control) border border-[var(--state-warning-border)] bg-[var(--state-warning-bg)] px-2 py-1 text-app-ui-sm text-[var(--state-warning-fg)]"
+                    role="status"
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {t("chat.strip.permission_waiting")}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => showAgent(null)}
+                      className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 font-medium hover:bg-[var(--state-hover-bg)]"
+                    >
+                      {t("chat.strip.to_main")}
+                    </button>
+                  </div>
+                )}
+                {permissions.length > 0 && !shown && (
+                  <PermissionCard
+                    requests={permissions}
+                    workspaceId={workspaceId}
+                    cwd={props.cwd}
+                    rootPath={rootPath}
+                    onAnswer={onAnswer}
+                  />
+                )}
+                <StatusLine model={state.model} />
               </div>
             </div>
-          ) : null
-        }
-      />
-      {/* Docked over the composer, so a request is seen wherever the list is scrolled. */}
-      {(state.model.permissions.length > 0 || state.model.running) && (
-        <div className="max-h-[60%] shrink-0 overflow-y-auto px-4 pt-2">
-          <div className="mx-auto flex max-w-[860px] flex-col gap-2">
-            {state.model.permissions.length > 0 && (
-              <PermissionCard
-                requests={state.model.permissions}
-                workspaceId={workspaceId}
-                cwd={props.cwd}
-                rootPath={rootPath}
-                onAnswer={onAnswer}
-              />
-            )}
-            <StatusLine model={state.model} />
-          </div>
+          )}
+          <RateLimitBanner state={state} />
+          <Composer
+            controller={controller}
+            state={state}
+            placeholder={shown ? t("chat.strip.input_to_main") : undefined}
+          />
         </div>
-      )}
-      <RateLimitBanner state={state} />
-      <Composer controller={controller} state={state} />
+        {place === "beside" && besideOpen && panel}
+        {place !== "beside" && drawerOpen && (
+          <>
+            <button
+              type="button"
+              aria-label={t("chat.panel.hide")}
+              tabIndex={-1}
+              className={cn(
+                "absolute inset-x-0 bottom-0 z-10 cursor-default",
+                place === "summary" ? "top-7" : "top-8",
+              )}
+              onClick={() => setDrawerOpen(false)}
+            />
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: Esc closes the drawer */}
+            <div
+              className={cn(
+                // Below the strip, whose toggle closes it again.
+                "absolute right-0 bottom-0 z-20 border-l border-border bg-background",
+                place === "summary" ? "top-7 w-full" : "top-8 w-80",
+              )}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setDrawerOpen(false);
+              }}
+            >
+              {panel}
+            </div>
+          </>
+        )}
+      </div>
+      <RewindDialog
+        controller={controller}
+        item={rewinding}
+        cwd={props.cwd}
+        onClose={() => setRewinding(null)}
+      />
     </div>
+  );
+}
+
+/**
+ * Opens a new Claude tab from a message: one of Claude's keeps the
+ * conversation up to it; one of the user's keeps what came before it and
+ * puts the message in the new tab's composer.
+ */
+function forkFrom(
+  controller: ChatController,
+  workspaceId: string,
+  cwd: string,
+  item: UserItem | AssistantItem,
+): void {
+  if (!item.uuid) return;
+  const user = item.kind === "user";
+  const fork = controller.forkPoint(item.uuid, { before: user });
+  if (!fork && !user) return;
+  const tab = openClaudeTab(workspaceId, { cwd, ...(fork ? { fork } : {}) });
+  if (user) {
+    const draft: ComposerDraft = { text: item.text, images: item.images, nonce: Date.now() };
+    useChatStore.getState().update(chatKey(workspaceId, tab.id), (prev) => ({ ...prev, draft }));
+  }
+}
+
+/** The tab's state in one line, where it is too narrow for the strip and the panel. */
+function SummaryLine({
+  state,
+  open,
+  onToggle,
+}: {
+  state: ChatTabState;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const { t } = useTranslation();
+  const { model } = state;
+  const parts: string[] = [];
+  const agents = agentsOf(model).filter((a) => a.status === "running").length;
+  if (agents > 0) parts.push(t("chat.strip.summary.agents", { count: agents }));
+  const jobs = jobsOf(model).filter((j) => j.status === "running").length;
+  if (jobs > 0) parts.push(t("chat.strip.summary.jobs", { count: jobs }));
+  const todos = todosOf(model.tools);
+  if (todos.length > 0) {
+    const done = todos.filter((todo) => todo.status === "completed").length;
+    parts.push(t("chat.strip.summary.todos", { done, total: todos.length }));
+  }
+  const context = contextOf(model.contextUsage);
+  if (context && context.maxTokens > 0) {
+    const percent = Math.round((context.totalTokens / context.maxTokens) * 100);
+    parts.push(t("chat.strip.summary.context", { percent }));
+  }
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      className="flex h-7 shrink-0 items-center gap-1 border-b border-border px-3 text-left text-app-micro text-muted-foreground hover:text-foreground"
+      data-testid="chat-summary-line"
+    >
+      <span className="min-w-0 flex-1 truncate">
+        {parts.length > 0 ? parts.join(" · ") : t("chat.panel.show")}
+      </span>
+    </button>
   );
 }
 

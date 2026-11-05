@@ -140,6 +140,34 @@ describe("chat model from a recorded conversation", () => {
     expect(applyLines(model, FIXTURE.slice(0, 10))).toBe(model);
   });
 
+  test("a line's time is the agent's, replayed or not", () => {
+    const model = applyLine(emptyModel(), {
+      seq: 1,
+      dir: "in",
+      replay: true,
+      at: 1234,
+      message: { type: "user", message: { role: "user", content: "hi" } },
+    });
+    expect((model.items[0] as { at?: number }).at).toBe(1234);
+  });
+
+  test("a message's uuid is its last part's", () => {
+    const model = run(FIXTURE);
+    const lastUuid = new Map<string, string>();
+    for (const line of FIXTURE) {
+      const message = messageOf(line);
+      const id = (message.message as { id?: string } | undefined)?.id;
+      if (message.type === "assistant" && id && typeof message.uuid === "string") {
+        lastUuid.set(id, message.uuid);
+      }
+    }
+    const assistants = model.items.filter((item) => item.kind === "assistant");
+    expect(assistants.length).toBeGreaterThan(0);
+    for (const item of assistants) {
+      if (item.kind === "assistant") expect(item.uuid).toBe(lastUuid.get(item.messageId));
+    }
+  });
+
   test("replayed lines carry no time of their own", () => {
     const model = applyLine(emptyModel(), {
       seq: 1,
@@ -170,6 +198,27 @@ describe("chat model process lines", () => {
     model = applyLine(model, { seq: 1001, dir: "sys", message: { event: "start", pid: 2 } });
     expect(model.process).toBe("running");
     expect(model.items[model.items.length - 1]).toMatchObject({ code: "restarted" });
+  });
+
+  test("a log that starts with a resumed program says so", () => {
+    const resumed = applyLine(emptyModel(), {
+      seq: 7,
+      dir: "sys",
+      message: { event: "start", pid: 1, resumed: true },
+    });
+    expect(resumed.resumed).toBe(true);
+    const fresh = applyLine(emptyModel(), {
+      seq: 1,
+      dir: "sys",
+      message: { event: "start", pid: 1 },
+    });
+    expect(fresh.resumed).toBe(false);
+    // A later restart of the program does not change how the log began.
+    const later = applyLine(
+      applyLine(fresh, { seq: 2, dir: "sys", message: { event: "exit", code: 0 } }),
+      { seq: 3, dir: "sys", message: { event: "start", pid: 2, resumed: true } },
+    );
+    expect(later.resumed).toBe(false);
   });
 
   test("an error answer to a control request is shown", () => {

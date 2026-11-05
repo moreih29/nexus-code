@@ -65,10 +65,61 @@ function isInterrupt(content: unknown): boolean {
   return text.startsWith("[Request interrupted");
 }
 
+export interface HistoryCut {
+  /** Keep the entries up to this uuid, it included: a fork's point. */
+  upTo?: string;
+  /** Keep the entries before the first of these uuids: the ones a log already shows. */
+  before?: ReadonlySet<string>;
+}
+
+/** The entries a cut keeps. */
+export function cutEntries(entries: readonly unknown[], cut: HistoryCut = {}): unknown[] {
+  const kept: unknown[] = [];
+  for (const raw of entries) {
+    const uuid = rec(raw)?.uuid;
+    if (cut.before && typeof uuid === "string" && cut.before.has(uuid)) break;
+    kept.push(raw);
+    if (cut.upTo !== undefined && uuid === cut.upTo) break;
+  }
+  return kept;
+}
+
 /** The model of a transcript: its items and tools, nothing running. */
-export function historyModel(entries: readonly unknown[]): ChatModel {
-  const model = applyLines(emptyModel(), transcriptLines(entries));
+export function historyModel(entries: readonly unknown[], cut?: HistoryCut): ChatModel {
+  const model = applyLines(emptyModel(), transcriptLines(cut ? cutEntries(entries, cut) : entries));
   return { ...model, running: false, turn: null, streaming: null, permissions: [] };
+}
+
+/** The uuids of the messages a model shows. */
+export function modelUuids(model: ChatModel): Set<string> {
+  const uuids = new Set<string>();
+  for (const item of model.items) {
+    if ((item.kind === "user" || item.kind === "assistant") && item.uuid) uuids.add(item.uuid);
+  }
+  return uuids;
+}
+
+/**
+ * A model's items before its first one with this uuid: what a rewind to that
+ * message keeps. Its tools stay whole; the items left only point at their own.
+ */
+export function modelBefore(model: ChatModel, uuid: string): ChatModel {
+  const index = model.items.findIndex(
+    (item) => (item.kind === "user" || item.kind === "assistant") && item.uuid === uuid,
+  );
+  const items = index < 0 ? model.items : model.items.slice(0, index);
+  return { ...emptyModel(), items, tools: model.tools };
+}
+
+/** The uuid of the last message before this one: where a fork that leaves it out stops. */
+export function uuidBefore(model: ChatModel, uuid: string): string | undefined {
+  let last: string | undefined;
+  for (const item of model.items) {
+    if (item.kind !== "user" && item.kind !== "assistant") continue;
+    if (item.uuid === uuid) return last;
+    if (item.uuid) last = item.uuid;
+  }
+  return undefined;
 }
 
 /** One history out of two: what was shown before, then what came after. */

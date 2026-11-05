@@ -872,7 +872,9 @@
       "interrupting": "중단하는 중…",
       "retrying": "재시도 중 ({{attempt}}번째)",
       "retrying_of": "재시도 중 ({{attempt}}/{{max}})",
-      "tokens": "↓ {{count}} 토큰"
+      "tokens": "↓ {{count}} 토큰",
+      "agents_one": "에이전트 {{count}}개 실행 중",
+      "agents_other": "에이전트 {{count}}개 실행 중"
     },
     "rate_limit": {
       "warning": "사용량 한도에 가까워졌습니다",
@@ -936,6 +938,128 @@
       "aria": "추론 강도",
       "label": "추론 강도",
       "unset": "강도"
+    },
+    "rewind": {
+      "action": "이 메시지 전으로 되감기",
+      "busy": "Claude가 작업하는 동안에는 되감을 수 없습니다",
+      "title": "이 메시지 전으로 되감기",
+      "description": "대화를 이 메시지 전으로 되돌리고, 메시지는 입력창에 다시 넣습니다.",
+      "checking": "바뀐 파일을 확인하는 중…",
+      "files_unknown": "바뀐 파일을 확인하지 못했습니다: {{error}}",
+      "files_unavailable": "파일은 되돌릴 수 없습니다. {{error}}",
+      "files_changed_one": "파일 {{count}}개가 되돌아갑니다",
+      "files_changed_other": "파일 {{count}}개가 되돌아갑니다",
+      "more_files_one": "외 {{count}}개",
+      "more_files_other": "외 {{count}}개",
+      "no_files": "되돌릴 파일 변경이 없습니다.",
+      "conversation": "대화만 되감기",
+      "conversation_and_files": "대화와 코드 되감기",
+      "failed": "되감지 못했습니다: {{error}}"
+    },
+    "fork": {
+      "from_assistant": "여기서 포크",
+      "from_user": "이 메시지 전에서 포크"
+    },
+    "time": {
+      "now": "방금"
+    },
+    "panel": {
+      "aria": "세션 정보",
+      "show": "사이드 패널 보기",
+      "hide": "사이드 패널 숨기기",
+      "stop": "중단",
+      "stop_failed": "중단하지 못했습니다",
+      "outside": "워크스페이스 밖의 파일은 아직 열 수 없습니다",
+      "needs_version": "Claude Code {{version}} 이상이 필요합니다",
+      "status": {
+        "running": "실행 중",
+        "completed": "끝남",
+        "failed": "실패",
+        "stopped": "중단됨"
+      },
+      "env": {
+        "title": "환경",
+        "remote_control": "원격",
+        "remote_unavailable": "이 계정에서는 Remote Control을 쓸 수 없습니다",
+        "remote_failed": "Remote Control을 바꾸지 못했습니다: {{error}}",
+        "copy_url": "Remote Control 링크 복사",
+        "open_url": "Remote Control 링크 열기",
+        "folder": "폴더",
+        "branch": "브랜치",
+        "session": "세션",
+        "copy_session": "세션 ID 복사",
+        "fork_session": "세션 전체를 포크",
+        "model": "모델",
+        "version": "버전"
+      },
+      "context": {
+        "title": "Context",
+        "unknown": "아직 재지 않았습니다",
+        "tokens": "{{max}} 중 {{used}} 토큰",
+        "free": "압축 전까지 {{count}} 토큰 남음",
+        "compact": "압축",
+        "compact_busy": "Claude 작업이 끝난 뒤 압축할 수 있습니다"
+      },
+      "agents": {
+        "title": "에이전트",
+        "open": "대화 보기",
+        "teammate": "팀원",
+        "tools_one": "도구 {{count}}회",
+        "tools_other": "도구 {{count}}회",
+        "no_text": "아직 쓴 내용이 없습니다"
+      },
+      "jobs": {
+        "title": "작업"
+      },
+      "todos": {
+        "title": "할 일"
+      },
+      "results": {
+        "title": "결과물"
+      },
+      "changed": {
+        "title": "바뀐 파일"
+      },
+      "usage": {
+        "title": "사용량",
+        "none": "알려진 한도가 없습니다",
+        "resets": "{{time}} 초기화",
+        "kind": {
+          "session": "현재 세션",
+          "weekly_all": "이번 주 전체 모델",
+          "weekly_scoped": "이번 주 {{scope}}"
+        }
+      },
+      "mcp": {
+        "title": "MCP",
+        "none": "MCP 서버가 없습니다",
+        "reconnect": "다시 연결",
+        "enabled": "{{name}} 사용",
+        "auth_hint": "터미널에서 /mcp로 인증하세요",
+        "status": {
+          "connected": "연결됨",
+          "needs-auth": "인증 필요",
+          "failed": "실패",
+          "pending": "연결 중",
+          "disabled": "꺼짐"
+        }
+      }
+    },
+    "strip": {
+      "aria": "에이전트",
+      "main": "메인",
+      "finished": "끝남 {{count}}",
+      "permission_waiting": "메인 대화에서 권한 요청이 기다립니다",
+      "to_main": "메인으로",
+      "input_to_main": "입력은 메인 대화로 갑니다",
+      "summary": {
+        "agents_one": "에이전트 {{count}}",
+        "agents_other": "에이전트 {{count}}",
+        "jobs_one": "작업 {{count}}",
+        "jobs_other": "작업 {{count}}",
+        "todos": "할 일 {{done}}/{{total}}",
+        "context": "Context {{percent}}%"
+      }
     }
   }
 }

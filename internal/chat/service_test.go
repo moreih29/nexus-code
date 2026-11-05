@@ -119,18 +119,27 @@ func hasOut(lines []LinePayload, text string) bool {
 
 func startFake(t *testing.T, service *Service, tabID string, env map[string]string) StartResult {
 	t.Helper()
+	return startFakeWith(t, service, tabID, env, nil)
+}
+
+func startFakeWith(t *testing.T, service *Service, tabID string, env map[string]string, adjust func(*StartParams)) StartResult {
+	t.Helper()
 	if env == nil {
 		env = map[string]string{}
 	}
 	env["NEXUS_CHAT_FAKE"] = "1"
-	params, _ := json.Marshal(StartParams{
+	start := StartParams{
 		WorkspaceID: "ws",
 		TabID:       tabID,
 		Cwd:         t.TempDir(),
 		Program:     os.Args[0],
 		Args:        []string{"-test.run=^TestFakeProgramHelper$"},
 		Env:         env,
-	})
+	}
+	if adjust != nil {
+		adjust(&start)
+	}
+	params, _ := json.Marshal(start)
 	result, err := service.Start(context.Background(), params)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -254,13 +263,29 @@ func TestReplayAfterSeqSendsOnlyNewerLines(t *testing.T) {
 	rec.reset()
 
 	params, _ := json.Marshal(ReplayParams{WorkspaceID: "ws", TabID: "tab", AfterSeq: mark})
-	if _, err := service.Replay(context.Background(), params); err != nil {
+	result, err := service.Replay(context.Background(), params)
+	if err != nil {
 		t.Fatalf("Replay: %v", err)
 	}
 	rec.mu.Lock()
-	defer rec.mu.Unlock()
 	if len(rec.lines) == 0 || hasOut(rec.lines, `"text":"one!"`) || !hasOut(rec.lines, `"text":"two!"`) {
+		rec.mu.Unlock()
 		t.Fatalf("replay after %d: %s", mark, describe(rec.lines))
+	}
+	last := rec.lines[len(rec.lines)-1].Seq
+	rec.mu.Unlock()
+	if got := result.(ReplayResult).LastSeq; got != last {
+		t.Fatalf("lastSeq %d, last replayed %d", got, last)
+	}
+
+	// Nothing newer: the answer names the seq the client already has.
+	params, _ = json.Marshal(ReplayParams{WorkspaceID: "ws", TabID: "tab", AfterSeq: last + 100})
+	result, err = service.Replay(context.Background(), params)
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	if got := result.(ReplayResult).LastSeq; got != last+100 {
+		t.Fatalf("lastSeq after the end = %d, want %d", got, last+100)
 	}
 }
 
@@ -324,6 +349,47 @@ func TestExitIsReportedAndLogKept(t *testing.T) {
 	})
 	if lines[0].Seq == 0 {
 		t.Fatal("seq 0")
+	}
+}
+
+func TestResetLogStartsTheReplayAtTheNewProgram(t *testing.T) {
+	service := New()
+	rec := newRecorder()
+	service.SetEventSink(rec.sink)
+	defer service.Close()
+
+	startFake(t, service, "tab", nil)
+	_ = send(t, service, "tab", "exit")
+	rec.waitFor(t, "the exit", func(_ []LinePayload, exits []ExitPayload) bool {
+		return len(exits) == 1
+	})
+	rec.mu.Lock()
+	before := rec.lines[len(rec.lines)-1].Seq
+	rec.mu.Unlock()
+
+	startFakeWith(t, service, "tab", nil, func(p *StartParams) {
+		p.ResetLog = true
+		p.Resumed = true
+	})
+	rec.reset()
+	if _, err := service.Replay(context.Background(), tabParams("tab")); err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	rec.mu.Lock()
+	lines := rec.lines
+	rec.mu.Unlock()
+	if len(lines) == 0 {
+		t.Fatal("nothing replayed")
+	}
+	first := lines[0]
+	if first.Dir != DirSys || !strings.Contains(string(first.Message), `"resumed":true`) {
+		t.Fatalf("first replayed line = %s", describe(lines[:1]))
+	}
+	if first.Seq <= before {
+		t.Fatalf("seq %d did not go on from %d", first.Seq, before)
+	}
+	if first.At == 0 {
+		t.Fatal("line has no time")
 	}
 }
 

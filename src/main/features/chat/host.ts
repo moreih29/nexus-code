@@ -139,6 +139,8 @@ export class ChatHost {
         program,
         args: claudeTabArgs(resume, hooksSettings),
         env,
+        ...(resume.resetLog ? { resetLog: true } : {}),
+        ...(resume.resume !== undefined ? { resumed: true } : {}),
       });
       return { ok: true, pid: result.pid, attached: result.attached === true, version };
     } catch (err) {

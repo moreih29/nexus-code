@@ -3,6 +3,7 @@ package chat
 import (
 	"bytes"
 	"encoding/json"
+	"time"
 )
 
 // entry is one line of a tab's log.
@@ -11,6 +12,8 @@ type entry struct {
 	dir     string
 	message json.RawMessage
 	text    string
+	// at is when the line came, in Unix milliseconds.
+	at int64
 	// transient marks a stream event: a token of a message still being
 	// written. The complete message follows it, and then it is dropped.
 	transient bool
@@ -40,7 +43,7 @@ func newLineLog() *lineLog {
 
 // add appends one line and returns it with its sequence number.
 func (l *lineLog) add(dir string, message json.RawMessage, text string) *entry {
-	e := &entry{seq: l.nextSeq, dir: dir, message: message, text: text}
+	e := &entry{seq: l.nextSeq, dir: dir, message: message, text: text, at: time.Now().UnixMilli()}
 	l.nextSeq++
 	if dir == DirOut && message != nil {
 		kind := messageType(message)
@@ -57,6 +60,15 @@ func (l *lineLog) add(dir string, message json.RawMessage, text string) *entry {
 	l.bytes += e.size()
 	l.trim()
 	return e
+}
+
+// reset drops every line. Sequence numbers go on, so a client that saw
+// the dropped lines does not take new ones for them.
+func (l *lineLog) reset() {
+	l.entries = nil
+	l.bytes = 0
+	l.truncated = false
+	l.transientFrom = -1
 }
 
 // lastSeq is the sequence number of the newest line, 0 when there is none.

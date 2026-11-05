@@ -8,7 +8,14 @@
 
 import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
-import { historyModel, joinHistory } from "./history";
+import {
+  type HistoryCut,
+  historyModel,
+  joinHistory,
+  modelBefore,
+  modelUuids,
+  uuidBefore,
+} from "./history";
 import {
   applyLines,
   type ChatLine,
@@ -16,6 +23,7 @@ import {
   emptyModel,
   type ImageBlock,
   type PermissionRequest,
+  type UserItem,
 } from "./model";
 import {
   type ChatTabState,
@@ -31,21 +39,66 @@ const log = createLogger("chat");
 /** How long a control request waits for its answer. */
 const CONTROL_TIMEOUT_MS = 15_000;
 
+/** Longest a replay's lines, sent as events, may trail its answer. */
+const REPLAY_CATCH_UP_MS = 3_000;
+
+interface ReplayResult {
+  found: boolean;
+  running: boolean;
+  truncated: boolean;
+  /** The last line the replay sent. */
+  lastSeq: number;
+}
+
+/** What the side panel asks the CLI for, by the request that tells it. */
+const PANEL_REQUESTS = {
+  context: "get_context_usage",
+  usage: "get_usage",
+  mcp: "mcp_status",
+} as const;
+
+export type PanelPart = keyof typeof PANEL_REQUESTS;
+
+/** A session to copy, up to and including a message (all of it without one). */
+export interface ForkPoint {
+  sessionId: string;
+  at?: string;
+}
+
 export interface ChatTabTarget {
   workspaceId: string;
   tabId: string;
   cwd: string;
   /** The session the tab had, to go on with when its program is gone. */
   sessionId?: string;
-  /** A tab opened as a fork of another session. */
-  fork?: { sessionId: string; at?: string };
+  /** The session the tab's program copies, until the copy has its own id. */
+  fork?: ForkPoint;
 }
 
 export interface ChatTabHooks {
   /** The session id the tab now has, to keep with the tab. */
   onSession?: (sessionId: string) => void;
+  /** A rewind moved the tab to a new start: a fork, or no session at all. */
+  onTarget?: (target: { sessionId?: string; fork?: ForkPoint }) => void;
   /** The first message of the conversation, for the tab's title. */
   onFirstMessage?: (text: string) => void;
+}
+
+/** What `rewind_files` would change, or why it cannot. */
+export interface RewindPreview {
+  canRewind: boolean;
+  error?: string;
+  filesChanged: string[];
+  insertions: number;
+  deletions: number;
+}
+
+interface StartArgs {
+  resume?: string;
+  fork?: boolean;
+  resumeAt?: string;
+  /** Drop the tab's log first: a rewind starts the conversation over. */
+  resetLog?: boolean;
 }
 
 export type PermissionAnswer =
@@ -119,14 +172,14 @@ export class ChatController {
     const { workspaceId, tabId } = this.target;
     this.flushNow();
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined, model: emptyModel() }));
-    let replay: { found: boolean; running: boolean; truncated: boolean };
+    let replay: ReplayResult;
     try {
       replay = unwrapIpcResult(await ipcCallResult("chat", "replay", { workspaceId, tabId }));
     } catch (err) {
       this.update((prev) => ({ ...prev, phase: "failed", error: (err as Error).message }));
       return;
     }
-    this.flushNow();
+    await this.catchUp(replay);
     if (replay.found) {
       this.titled = this.titled || this.state.model.items.some((item) => item.kind === "user");
       this.update((prev) => ({
@@ -134,27 +187,41 @@ export class ChatController {
         phase: replay.running ? "ready" : "ended",
         truncated: replay.truncated,
       }));
+      // A program started on a session logs only what came after; the rest
+      // is in the transcript.
+      if (this.state.model.resumed) await this.loadResumedHistory();
       return;
     }
     // The agent has no log: a new tab, or one whose agent restarted.
     if (this.target.fork) {
-      await this.start({
-        resume: this.target.fork.sessionId,
-        fork: true,
-        resumeAt: this.target.fork.at,
-      });
-      this.target = { ...this.target, fork: undefined };
-      return;
-    }
-    if (this.sessionId) {
+      await this.loadTranscript(this.target.fork.sessionId, forkCut(this.target.fork));
+    } else if (this.sessionId) {
       await this.loadTranscript(this.sessionId);
-      await this.start({ resume: this.sessionId });
-      return;
     }
-    await this.start({});
+    await this.start(this.startArgs());
   }
 
-  private async loadTranscript(sessionId: string): Promise<void> {
+  /** How the tab's program starts again: copying its fork, else going on with its session. */
+  private startArgs(): StartArgs {
+    const fork = this.target.fork;
+    if (fork) return { resume: fork.sessionId, fork: true, resumeAt: fork.at };
+    return this.sessionId ? { resume: this.sessionId } : {};
+  }
+
+  /** The history before a resumed program's log, from the transcript. */
+  private async loadResumedHistory(): Promise<void> {
+    const model = this.state.model;
+    if (model.sessionId) {
+      // A fork's transcript copies the messages it starts from, uuids and all.
+      await this.loadTranscript(model.sessionId, { before: modelUuids(model) });
+    } else if (this.target.fork) {
+      await this.loadTranscript(this.target.fork.sessionId, forkCut(this.target.fork));
+    } else if (this.sessionId) {
+      await this.loadTranscript(this.sessionId);
+    }
+  }
+
+  private async loadTranscript(sessionId: string, cut?: HistoryCut): Promise<void> {
     try {
       const result = unwrapIpcResult(
         await ipcCallResult("chat", "transcript", {
@@ -163,19 +230,19 @@ export class ChatController {
         }),
       );
       if (!result.found) return;
-      const history = historyModel(result.lines);
-      this.titled = this.titled || history.items.some((item) => item.kind === "user");
-      this.update((prev) => ({ ...prev, history: joinHistory(prev.history, history) }));
+      const history = historyModel(result.lines, cut);
+      const first = history.items.find((item) => item.kind === "user" && item.text.trim());
+      if (!this.titled && first?.kind === "user") {
+        this.titled = true;
+        this.hooks.onFirstMessage?.(first.text.trim());
+      }
+      this.update((prev) => ({ ...prev, history: history.items.length > 0 ? history : null }));
     } catch (err) {
       log.warn(`transcript of ${sessionId} not read: ${(err as Error).message}`);
     }
   }
 
-  private async start(resume: {
-    resume?: string;
-    fork?: boolean;
-    resumeAt?: string;
-  }): Promise<boolean> {
+  private async start(resume: StartArgs): Promise<boolean> {
     const { workspaceId, tabId, cwd } = this.target;
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined }));
     let result: Awaited<ReturnType<typeof startChat>>;
@@ -204,7 +271,8 @@ export class ChatController {
     }
     this.update((prev) => ({ ...prev, phase: "ready", version: result.version }));
     if (!result.attached) {
-      this.request("initialize", { hooks: null }).catch((err: Error) => {
+      // Subagents' text comes as messages under their Agent call, for the agent strip.
+      this.request("initialize", { hooks: null, forwardSubagentText: true }).catch((err: Error) => {
         log.warn(`initialize failed: ${err.message}`);
       });
     }
@@ -218,14 +286,90 @@ export class ChatController {
       await ipcCallResult("chat", "stop", { workspaceId, tabId });
     }
     this.flushNow();
-    await this.start(this.sessionId ? { resume: this.sessionId } : {});
+    await this.start(this.startArgs());
+  }
+
+  /** Where a fork from a message starts: after it (Claude's), or before it (the user's). */
+  forkPoint(uuid: string, { before }: { before: boolean }): ForkPoint | null {
+    const sessionId = this.sessionId ?? this.target.fork?.sessionId;
+    if (!sessionId) return null;
+    if (!before) return { sessionId, at: uuid };
+    const at = uuidBefore(joinHistory(this.state.history, this.state.model), uuid);
+    return at ? { sessionId, at } : null;
+  }
+
+  /** What rewinding the files to before a message would change. */
+  async previewRewind(uuid: string): Promise<RewindPreview> {
+    if (!(await this.ensureRunning())) throw new Error("the program is not running");
+    return rewindOf(await this.request("rewind_files", { user_message_id: uuid, dry_run: true }));
+  }
+
+  /**
+   * Goes back to before one of the user's messages, in this tab: the files
+   * first when asked, then the conversation, by a program that copies the
+   * session up to the message before it. The message goes back in the composer.
+   */
+  async rewind(item: UserItem, { files }: { files: boolean }): Promise<void> {
+    const uuid = item.uuid;
+    if (!uuid) throw new Error("the message has no uuid yet");
+    if (this.state.model.running) throw new Error("a turn is running");
+    if (files) {
+      if (!(await this.ensureRunning())) throw new Error("the program is not running");
+      const result = rewindOf(await this.request("rewind_files", { user_message_id: uuid }));
+      if (!result.canRewind) throw new Error(result.error ?? "the files were not rewound");
+    }
+    const all = joinHistory(this.state.history, this.state.model);
+    const fork = this.forkPoint(uuid, { before: true }) ?? undefined;
+    const { workspaceId, tabId } = this.target;
+    if (this.state.model.process === "running") {
+      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+    }
+    this.flushNow();
+    this.sessionId = undefined;
+    this.target = { ...this.target, sessionId: undefined, fork };
+    this.hooks.onTarget?.(fork ? { fork } : {});
+    const kept = modelBefore(all, uuid);
+    this.update((prev) => ({
+      ...prev,
+      history: kept.items.length > 0 ? kept : null,
+      // The old program's last lines stay out of sight until the log starts over.
+      model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
+      draft: { text: item.text, images: item.images, nonce: Date.now() },
+    }));
+    if (await this.start({ ...this.startArgs(), resetLog: true })) await this.rebuild();
+  }
+
+  /** Builds the model again from the agent's log, which a rewind started over. */
+  private async rebuild(): Promise<void> {
+    const { workspaceId, tabId } = this.target;
+    this.flushNow();
+    this.update((prev) => ({ ...prev, model: emptyModel() }));
+    try {
+      await this.catchUp(
+        unwrapIpcResult(await ipcCallResult("chat", "replay", { workspaceId, tabId })),
+      );
+    } catch (err) {
+      log.warn(`replay after a rewind failed: ${(err as Error).message}`);
+    }
+    this.flushNow();
+  }
+
+  /** Waits for a replay's lines, which come as events and may trail its answer. */
+  private async catchUp(replay: ReplayResult): Promise<void> {
+    this.flushNow();
+    if (!replay.found) return;
+    const deadline = Date.now() + REPLAY_CATCH_UP_MS;
+    while (this.state.model.lastSeq < replay.lastSeq && !this.disposed && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 16));
+      this.flushNow();
+    }
   }
 
   /** The agent is back: replay what the tab missed, or find its program gone. */
   async resync(): Promise<void> {
     const { workspaceId, tabId } = this.target;
     this.flushNow();
-    let replay: { found: boolean; running: boolean; truncated: boolean };
+    let replay: ReplayResult;
     try {
       replay = unwrapIpcResult(
         await ipcCallResult("chat", "replay", {
@@ -237,7 +381,7 @@ export class ChatController {
     } catch {
       return;
     }
-    this.flushNow();
+    await this.catchUp(replay);
     if (replay.found) {
       this.update((prev) => ({ ...prev, phase: replay.running ? "ready" : "ended" }));
       return;
@@ -281,6 +425,11 @@ export class ChatController {
     });
   }
 
+  /** The composer took the message a rewind or fork put back. */
+  clearDraft(): void {
+    this.update((prev) => (prev.draft ? { ...prev, draft: undefined } : prev));
+  }
+
   /** Holds a message until the turn ends (⌘↩). */
   enqueue(text: string, images: ImageBlock[] = []): void {
     const item: QueuedMessage = { id: nextRequestId(), text, images };
@@ -315,6 +464,40 @@ export class ChatController {
 
   setEffort(level: string): Promise<unknown> {
     return this.request("apply_flag_settings", { settings: { effortLevel: level } });
+  }
+
+  /** Stops one of the CLI's tasks: a subagent, a command in the background. */
+  stopTask(taskId: string): Promise<unknown> {
+    return this.request("stop_task", { task_id: taskId });
+  }
+
+  /**
+   * Asks for what the side panel shows that only a request tells: the
+   * context, the plan's usage, the MCP servers. Only while the program
+   * runs; the answers land in the model.
+   */
+  refreshPanel(parts: readonly PanelPart[]): void {
+    const { phase, model } = this.state;
+    if (phase !== "ready" || model.process !== "running") return;
+    for (const part of parts) {
+      const subtype = PANEL_REQUESTS[part];
+      if (this.supports(subtype)) this.request(subtype, {}).catch(() => {});
+    }
+  }
+
+  async mcpReconnect(serverName: string): Promise<void> {
+    await this.request("mcp_reconnect", { serverName });
+    this.refreshPanel(["mcp"]);
+  }
+
+  async mcpToggle(serverName: string, enabled: boolean): Promise<void> {
+    await this.request("mcp_toggle", { serverName, enabled });
+    this.refreshPanel(["mcp"]);
+  }
+
+  /** Turns Remote Control on or off; on, its answer has the session's URL. */
+  setRemoteControl(enabled: boolean): Promise<unknown> {
+    return this.request("remote_control", { enabled });
   }
 
   supports(subtype: string): boolean {
@@ -391,7 +574,7 @@ export class ChatController {
     const { phase, model } = this.state;
     if (phase === "ready" && model.process === "running") return true;
     if (phase === "held" || phase === "not-found") return false;
-    return this.start(this.sessionId ? { resume: this.sessionId } : {});
+    return this.start(this.startArgs());
   }
 
   /** A line from the agent, buffered for the next frame. */
@@ -452,7 +635,9 @@ export class ChatController {
 
   private afterModel(before: ChatModel, model: ChatModel): void {
     if (model.sessionId && model.sessionId !== this.sessionId) {
+      // The copy a fork made has its own id now: the tab goes on with it.
       this.sessionId = model.sessionId;
+      this.target = { ...this.target, fork: undefined };
       this.hooks.onSession?.(model.sessionId);
     }
     if (before.running && !model.running) this.sendNextQueued();
@@ -492,15 +677,23 @@ function phaseAfter(phase: ChatTabState["phase"], model: ChatModel): ChatTabStat
   return phase;
 }
 
-function startChat(args: {
-  workspaceId: string;
-  tabId: string;
-  cwd: string;
-  resume?: string;
-  fork?: boolean;
-  resumeAt?: string;
-}) {
+function startChat(args: StartArgs & { workspaceId: string; tabId: string; cwd: string }) {
   return ipcCallResult("chat", "start", args).then(unwrapIpcResult);
+}
+
+function forkCut(fork: ForkPoint): HistoryCut | undefined {
+  return fork.at !== undefined ? { upTo: fork.at } : undefined;
+}
+
+function rewindOf(response: Record<string, unknown>): RewindPreview {
+  const files = Array.isArray(response.filesChanged) ? response.filesChanged : [];
+  return {
+    canRewind: response.canRewind === true,
+    ...(typeof response.error === "string" ? { error: response.error } : {}),
+    filesChanged: files.filter((f): f is string => typeof f === "string"),
+    insertions: typeof response.insertions === "number" ? response.insertions : 0,
+    deletions: typeof response.deletions === "number" ? response.deletions : 0,
+  };
 }
 
 // ---------------------------------------------------------------------------

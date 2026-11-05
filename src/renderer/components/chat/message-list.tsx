@@ -2,8 +2,25 @@
 // the running program has said, and the reply streaming in. It stays at the
 // bottom while the user is there, and leaves them be once they scroll up.
 
-import { Brain, Check, CheckCheck, ChevronDown, ChevronRight, Copy } from "lucide-react";
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  Brain,
+  Check,
+  CheckCheck,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  GitFork,
+  RotateCcw,
+} from "lucide-react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useTranslation } from "react-i18next";
 import type {
   AssistantItem,
@@ -27,6 +44,19 @@ interface MessageListProps {
   model: ChatModel;
   /** Shown when there is no message yet. */
   empty?: React.ReactNode;
+  actions?: MessageActions;
+  /** In place of the conversation: an agent's transcript. */
+  items?: ChatItem[];
+}
+
+/** What the user can do from a message. */
+export interface MessageActions {
+  /** A turn runs: a rewind waits for it. */
+  running: boolean;
+  /** The tab has a session to fork from. */
+  canFork: boolean;
+  onFork: (item: UserItem | AssistantItem) => void;
+  onRewind: (item: UserItem) => void;
 }
 
 /** How near the bottom (px) still counts as being there. */
@@ -39,6 +69,8 @@ export function MessageList({
   history,
   model,
   empty,
+  actions,
+  items,
 }: MessageListProps) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -79,10 +111,12 @@ export function MessageList({
     toBottom();
   }, [lastUser, toBottom]);
 
-  const historyItems = history?.items ?? [];
-  const nothing = historyItems.length === 0 && model.items.length === 0 && !model.streaming;
+  const historyItems = items ? [] : (history?.items ?? []);
+  const liveItems = items ?? model.items;
+  const streaming = items ? null : model.streaming;
+  const nothing = historyItems.length === 0 && liveItems.length === 0 && !streaming;
   const tools = history ? { ...history.tools, ...model.tools } : model.tools;
-  const ctx: ItemContext = { workspaceId, cwd, rootPath, tools };
+  const ctx: ItemContext = { workspaceId, cwd, rootPath, tools, actions };
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -97,10 +131,10 @@ export function MessageList({
           {historyItems.map((item) => (
             <Item key={`h-${item.key}`} item={item} ctx={ctx} />
           ))}
-          {model.items.map((item) => (
+          {liveItems.map((item) => (
             <Item key={item.key} item={item} ctx={ctx} />
           ))}
-          {model.streaming && <Streaming streaming={model.streaming} ctx={ctx} />}
+          {streaming && <Streaming streaming={streaming} ctx={ctx} />}
         </div>
       </div>
       {showJump && (
@@ -133,12 +167,13 @@ interface ItemContext {
   cwd: string;
   rootPath: string;
   tools: Record<string, ToolCall>;
+  actions?: MessageActions;
 }
 
 const Item = memo(function Item({ item, ctx }: { item: ChatItem; ctx: ItemContext }) {
   switch (item.kind) {
     case "user":
-      return <UserBubble item={item} />;
+      return <UserBubble item={item} actions={ctx.actions} />;
     case "assistant":
       return <AssistantMessage item={item} ctx={ctx} />;
     case "notice":
@@ -146,8 +181,9 @@ const Item = memo(function Item({ item, ctx }: { item: ChatItem; ctx: ItemContex
   }
 });
 
-function UserBubble({ item }: { item: UserItem }) {
+function UserBubble({ item, actions }: { item: UserItem; actions?: MessageActions }) {
   const { t } = useTranslation();
+  const taken = item.uuid !== undefined;
   return (
     <div className="group/user flex flex-col items-end gap-1">
       {item.images.length > 0 && (
@@ -169,7 +205,24 @@ function UserBubble({ item }: { item: UserItem }) {
         </div>
       )}
       <div className="flex items-center gap-1 text-app-micro text-muted-foreground">
-        <CopyButton text={item.text} className="opacity-0 group-hover/user:opacity-100" />
+        <div className="flex items-center gap-1 opacity-0 group-focus-within/user:opacity-100 group-hover/user:opacity-100">
+          <MessageTime at={item.at} />
+          <CopyButton text={item.text} />
+          {actions && taken && (
+            <ActionButton
+              label={actions.running ? t("chat.rewind.busy") : t("chat.rewind.action")}
+              blocked={actions.running}
+              onClick={() => actions.onRewind(item)}
+            >
+              <RotateCcw className="size-3.5" />
+            </ActionButton>
+          )}
+          {actions && taken && (
+            <ActionButton label={t("chat.fork.from_user")} onClick={() => actions.onFork(item)}>
+              <GitFork className="size-3.5" />
+            </ActionButton>
+          )}
+        </div>
         <span
           title={item.state === "taken" ? t("chat.message.taken") : t("chat.message.sent")}
           role="img"
@@ -187,10 +240,14 @@ function UserBubble({ item }: { item: UserItem }) {
 }
 
 function AssistantMessage({ item, ctx }: { item: AssistantItem; ctx: ItemContext }) {
+  const { t } = useTranslation();
   const text = item.blocks
     .filter((b) => b.type === "text")
     .map((b) => (b as { text: string }).text)
     .join("\n\n");
+  // A fork from here keeps the answer whole: only from one that ends in text.
+  const forkable =
+    ctx.actions?.canFork && item.uuid !== undefined && item.blocks.at(-1)?.type === "text";
   return (
     <div className="group/assistant flex flex-col">
       {item.blocks.map((block, i) =>
@@ -217,8 +274,17 @@ function AssistantMessage({ item, ctx }: { item: AssistantItem; ctx: ItemContext
         ),
       )}
       {text && (
-        <div className="mt-1 flex opacity-0 group-hover/assistant:opacity-100">
+        <div className="mt-1 flex items-center gap-1 text-app-micro text-muted-foreground opacity-0 group-focus-within/assistant:opacity-100 group-hover/assistant:opacity-100">
           <CopyButton text={text} />
+          {forkable && ctx.actions && (
+            <ActionButton
+              label={t("chat.fork.from_assistant")}
+              onClick={() => ctx.actions?.onFork(item)}
+            >
+              <GitFork className="size-3.5" />
+            </ActionButton>
+          )}
+          <MessageTime at={item.at} />
         </div>
       )}
     </div>
@@ -296,26 +362,109 @@ function Notice({ item }: { item: NoticeItem }) {
   );
 }
 
-function CopyButton({ text, className }: { text: string; className?: string }) {
+function CopyButton({ text }: { text: string }) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   if (!text) return null;
   return (
-    <button
-      type="button"
+    <ActionButton
+      label={t("chat.copy")}
       onClick={() => {
         copyText(text);
         setCopied(true);
         setTimeout(() => setCopied(false), 1200);
       }}
-      title={t("chat.copy")}
-      aria-label={t("chat.copy")}
-      className={cn(
-        "rounded-(--radius-control) p-1 text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-        className,
-      )}
     >
       {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+    </ActionButton>
+  );
+}
+
+/**
+ * An icon button with its label as the tooltip. A blocked one keeps its
+ * tooltip, which says why, and does nothing.
+ */
+function ActionButton({
+  label,
+  onClick,
+  blocked = false,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  blocked?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={blocked ? undefined : onClick}
+      title={label}
+      aria-label={label}
+      aria-disabled={blocked || undefined}
+      className={cn(
+        "rounded-(--radius-control) p-1 text-muted-foreground",
+        blocked
+          ? "cursor-not-allowed opacity-40"
+          : "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
+      )}
+    >
+      {children}
     </button>
   );
+}
+
+/** When a message was sent: relative, exact on hover. */
+function MessageTime({ at }: { at?: number }) {
+  const { t, i18n } = useTranslation();
+  const now = useSyncExternalStore(subscribeClock, clockNow);
+  if (at === undefined) return null;
+  const exact = new Date(at).toLocaleString(i18n.language);
+  return (
+    <time dateTime={new Date(at).toISOString()} title={exact} className="px-1 tabular-nums">
+      {relativeTime(at, now, i18n.language, t("chat.time.now"))}
+    </time>
+  );
+}
+
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+/** A time as "3분 전", or its date once it is a week old. */
+export function relativeTime(at: number, now: number, locale: string, justNow: string): string {
+  const ago = now - at;
+  if (ago < MINUTE_MS) return justNow;
+  const format = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  if (ago < HOUR_MS) return format.format(-Math.floor(ago / MINUTE_MS), "minute");
+  if (ago < DAY_MS) return format.format(-Math.floor(ago / HOUR_MS), "hour");
+  if (ago < 7 * DAY_MS) return format.format(-Math.floor(ago / DAY_MS), "day");
+  return new Date(at).toLocaleDateString(locale);
+}
+
+// One clock for every message's time, ticking while any is shown.
+const clockListeners = new Set<() => void>();
+let clockTimer: ReturnType<typeof setInterval> | null = null;
+let clockValue = Date.now();
+
+function subscribeClock(listener: () => void): () => void {
+  clockListeners.add(listener);
+  if (clockTimer === null) {
+    clockValue = Date.now();
+    clockTimer = setInterval(() => {
+      clockValue = Date.now();
+      for (const l of clockListeners) l();
+    }, 30_000);
+  }
+  return () => {
+    clockListeners.delete(listener);
+    if (clockListeners.size === 0 && clockTimer !== null) {
+      clearInterval(clockTimer);
+      clockTimer = null;
+    }
+  };
+}
+
+function clockNow(): number {
+  return clockValue;
 }
