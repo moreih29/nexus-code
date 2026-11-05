@@ -13,12 +13,19 @@ import type { Tab } from "@/state/stores/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
 import type { CliTabInfo, CliUiOp } from "../../../shared/cli/ui";
 import { getTerminalController } from "../terminal/terminal-registry";
-import { actionHandlers, type CliUiHandler, UiRequestError } from "./actions";
+import { actionHandlers, type CliUiHandler, hasUnsavedChanges, UiRequestError } from "./actions";
 import { layoutHandlers } from "./layout-actions";
 import { settingsHandlers } from "./settings";
 
-function tabInfo(tab: Tab, groupId: string, shown: boolean): CliTabInfo {
-  const base = { id: tab.id, type: tab.type, title: tab.title, groupId, shown };
+function tabInfo(workspaceId: string, tab: Tab, groupId: string, shown: boolean): CliTabInfo {
+  const base = {
+    id: tab.id,
+    type: tab.type,
+    title: tab.title,
+    groupId,
+    shown,
+    ...(hasUnsavedChanges(workspaceId, tab) ? { unsaved: true } : {}),
+  };
   switch (tab.type) {
     case "terminal":
       return { ...base, cwd: tab.props.cwd, ...(tab.props.dead ? { dead: true } : {}) };
@@ -42,7 +49,7 @@ export function listTabs(workspaceId: string): CliTabInfo[] {
   for (const leaf of allLeaves(layout.root)) {
     for (const id of leaf.tabIds) {
       const tab = records[id];
-      if (tab) tabs.push(tabInfo(tab, leaf.id, leaf.activeTabId === id));
+      if (tab) tabs.push(tabInfo(workspaceId, tab, leaf.id, leaf.activeTabId === id));
     }
   }
   return tabs;

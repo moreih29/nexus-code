@@ -422,6 +422,18 @@ export function fakeApp(now = Date.now()): FakeApp {
         ],
       } as CliUiOps[K]["result"];
     }
+    // An editor saves or reverts what is unsaved in it; any other tab has no file.
+    if (op === "tab.save" || op === "tab.revert") {
+      const { workspaceId, tabId } = args as CliUiOps["tab.save"]["args"];
+      const found = (tabs[workspaceId] ?? []).find((t) => t.id === tabId);
+      if (!found?.filePath) throw new CliError("only an editor or a diff has a file to save");
+      const done = found.unsaved === true;
+      return (
+        op === "tab.save"
+          ? { filePath: found.filePath, saved: done }
+          : { filePath: found.filePath, reverted: done }
+      ) as CliUiOps[K]["result"];
+    }
     if (op === "editor.open" || op === "diff.open" || op === "terminal.open") {
       return { tabId: NEW_TAB } as CliUiOps[K]["result"];
     }

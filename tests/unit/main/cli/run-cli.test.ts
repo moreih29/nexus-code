@@ -372,6 +372,55 @@ describe("terminals", () => {
   });
 });
 
+describe("unsaved tabs", () => {
+  /** The app, with the editor's file and the Claude Code terminal marked unsaved. */
+  function withUnsaved() {
+    const app = fakeApp();
+    app.tabs[APP] = (app.tabs[APP] ?? []).map((t) =>
+      t.id === EDITOR_TAB || t.id === CLAUDE_TAB ? { ...t, unsaved: true } : t,
+    );
+    return app;
+  }
+
+  test("tab list marks unsaved tabs, and --unsaved lists only them", async () => {
+    const app = withUnsaved();
+    expect((await nexus(["tab", "list"], app)).stdout).toContain("index.ts (unsaved)");
+    const only = await nexus(["tab", "list", "--unsaved"], app);
+    expect(only.stdout.split("\n").filter(Boolean)).toHaveLength(3);
+    expect(only.stdout).not.toContain("Vite App");
+    expect((await nexus(["tab", "list", "--unsaved"])).stdout).toBe(
+      "No unsaved changes in app's tabs.\n",
+    );
+  });
+
+  test("tab save saves the tab named, and says when it had nothing to save", async () => {
+    const app = withUnsaved();
+    expect((await nexus(["tab", "save", "index.ts"], app)).stdout).toBe(
+      "Saved index.ts (tab aaaaaaaa).\n",
+    );
+    expect(lastCall(app, "tab.save")).toEqual({ workspaceId: APP, tabId: EDITOR_TAB });
+    expect((await nexus(["tab", "revert", "index.ts"])).stdout).toBe(
+      "index.ts had no unsaved changes (tab aaaaaaaa).\n",
+    );
+  });
+
+  test("tab save --all saves each unsaved tab, and tells which it left", async () => {
+    const result = await nexus(["tab", "save", "--all"], withUnsaved());
+    expect(result.stdout).toBe(
+      "Left ✳ Claude Code (tab aaaaaaaa): only an editor or a diff has a file to save.\n" +
+        "Saved index.ts (tab aaaaaaaa).\n",
+    );
+    expect(result.exitCode).toBe(1);
+  });
+
+  test("tab save names one tab, or --all and none", async () => {
+    expect((await nexus(["tab", "save"])).stderr).toContain("missing <tab>");
+    expect((await nexus(["tab", "save", "--all", "index.ts"])).stderr).toContain(
+      'unexpected argument "index.ts"',
+    );
+  });
+});
+
 describe("tabs, browsers and workspaces", () => {
   test("tab close closes another tab, never this terminal", async () => {
     const app = fakeApp();
