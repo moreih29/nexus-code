@@ -531,8 +531,12 @@ export class ChatController {
   }
 
   async mcpReconnect(serverName: string): Promise<void> {
-    await this.request("mcp_reconnect", { serverName });
-    this.refreshPanel(["mcp"]);
+    try {
+      await this.request("mcp_reconnect", { serverName });
+    } finally {
+      // A server that failed to connect again shows how it is now.
+      this.refreshPanel(["mcp"]);
+    }
   }
 
   /**
@@ -598,8 +602,11 @@ export class ChatController {
   }
 
   async mcpToggle(serverName: string, enabled: boolean): Promise<void> {
-    await this.request("mcp_toggle", { serverName, enabled });
-    this.refreshPanel(["mcp"]);
+    try {
+      await this.request("mcp_toggle", { serverName, enabled });
+    } finally {
+      this.refreshPanel(["mcp"]);
+    }
   }
 
   /**

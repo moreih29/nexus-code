@@ -242,6 +242,7 @@ function Section({
   count,
   folded = false,
   onOpen,
+  openAgain,
   children,
 }: {
   title: string;
@@ -250,13 +251,15 @@ function Section({
   folded?: boolean;
   /** Called each time the section opens. */
   onOpen?: () => void;
+  /** Called again, while open, when this changes: as the program comes up. */
+  openAgain?: unknown;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(!folded);
   // biome-ignore lint/correctness/useExhaustiveDependencies: asked for each time it opens, not when the callback changes
   useEffect(() => {
     if (open) onOpen?.();
-  }, [open]);
+  }, [open, openAgain]);
   return (
     <section className="border-b border-border px-3 py-2">
       <button
@@ -796,6 +799,7 @@ function McpSection({ controller, state }: { controller: ChatController; state: 
   const { t } = useTranslation();
   const servers = state.model.mcp;
   const signIn = state.mcpSignIn;
+  const ready = state.phase === "ready" && state.model.process === "running";
   const fail = (err: Error) => showToast({ kind: "error", message: err.message });
   return (
     <Section
@@ -803,6 +807,7 @@ function McpSection({ controller, state }: { controller: ChatController; state: 
       count={servers?.length}
       folded
       onOpen={() => controller.refreshPanel(["mcp"])}
+      openAgain={ready}
     >
       {!servers || servers.length === 0 ? (
         <div className="text-app-micro text-muted-foreground">{t("chat.panel.mcp.none")}</div>
