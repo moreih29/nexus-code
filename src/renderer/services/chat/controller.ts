@@ -531,13 +531,82 @@ export class ChatController {
   }
 
   async mcpReconnect(serverName: string): Promise<void> {
-    await this.request("mcp_reconnect", { serverName });
-    this.refreshPanel(["mcp"]);
+    try {
+      await this.request("mcp_reconnect", { serverName });
+    } finally {
+      // A server that failed to connect again shows how it is now.
+      this.refreshPanel(["mcp"]);
+    }
+  }
+
+  /**
+   * Signs in to an MCP server that needs it: Claude Code makes the sign-in
+   * page, the browser opens it, and comes back to a page on this machine
+   * (main's oauth callbacks) whose address goes back to Claude Code. The
+   * server then connects again. It works the same for a program on an SSH
+   * host, whose own callback the browser could not reach.
+   */
+  async mcpAuthenticate(serverName: string): Promise<void> {
+    if (this.state.mcpSignIn) this.cancelMcpSignIn();
+    const { id, redirectUri } = unwrapIpcResult(await ipcCallResult("chat", "oauthListen", {}));
+    try {
+      const body = (await this.request("mcp_authenticate", { serverName, redirectUri })) as
+        | { authUrl?: unknown; callbackExpected?: unknown; callbackPort?: unknown }
+        | undefined;
+      const authUrl = typeof body?.authUrl === "string" ? body.authUrl : undefined;
+      if (!authUrl) {
+        // Signed in already: nothing to open.
+        void ipcCallResult("chat", "oauthCancel", { id });
+        await this.request("mcp_reconnect", { serverName });
+        return;
+      }
+      if (body?.callbackExpected === false || typeof body?.callbackPort === "number") {
+        // Nothing comes back here: a claude.ai connector is connected on
+        // claude.ai, and a version that keeps its own callback takes it on
+        // the host it runs on.
+        void ipcCallResult("chat", "oauthCancel", { id });
+        openSignInPage(authUrl);
+        return;
+      }
+      // Waiting before the browser opens, so a sign-in that comes straight back is not missed.
+      const back = ipcCallResult("chat", "oauthWait", { id });
+      this.update((prev) => ({ ...prev, mcpSignIn: { serverName, authUrl, callbackId: id } }));
+      openSignInPage(authUrl);
+      const url = unwrapIpcResult(await back).url;
+      if (url === null) return;
+      await this.request("mcp_oauth_callback_url", { serverName, callbackUrl: url });
+      await this.request("mcp_reconnect", { serverName });
+    } catch (err) {
+      void ipcCallResult("chat", "oauthCancel", { id });
+      throw err;
+    } finally {
+      this.update((prev) =>
+        prev.mcpSignIn?.callbackId === id ? { ...prev, mcpSignIn: undefined } : prev,
+      );
+      this.refreshPanel(["mcp"]);
+    }
+  }
+
+  /** Opens the sign-in page under way again. */
+  reopenMcpSignIn(): void {
+    const signIn = this.state.mcpSignIn;
+    if (signIn) openSignInPage(signIn.authUrl);
+  }
+
+  /** Stops waiting for the sign-in under way. */
+  cancelMcpSignIn(): void {
+    const signIn = this.state.mcpSignIn;
+    if (!signIn) return;
+    void ipcCallResult("chat", "oauthCancel", { id: signIn.callbackId });
+    this.update((prev) => ({ ...prev, mcpSignIn: undefined }));
   }
 
   async mcpToggle(serverName: string, enabled: boolean): Promise<void> {
-    await this.request("mcp_toggle", { serverName, enabled });
-    this.refreshPanel(["mcp"]);
+    try {
+      await this.request("mcp_toggle", { serverName, enabled });
+    } finally {
+      this.refreshPanel(["mcp"]);
+    }
   }
 
   /**
@@ -816,6 +885,11 @@ export function pruneAttachmentsOnce(workspaceId: string, openTabIds: string[]):
       log.warn(`pruning attachments failed: ${err.message}`);
     },
   );
+}
+
+/** Opens an MCP server's sign-in page in the user's browser, as a link in the tab is. */
+function openSignInPage(url: string): void {
+  if (/^https?:\/\//i.test(url)) window.open(url, "_blank", "noopener,noreferrer");
 }
 
 /** The controller of a Claude tab that was shown, if any: its program and requests. */

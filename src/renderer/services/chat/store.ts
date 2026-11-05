@@ -39,6 +39,16 @@ export interface ChatTabState {
   /** The log dropped its oldest lines. */
   truncated: boolean;
   draft?: ComposerDraft;
+  /** An MCP server's sign-in under way in the browser. */
+  mcpSignIn?: McpSignIn;
+}
+
+export interface McpSignIn {
+  serverName: string;
+  /** The page the browser was sent to, to open again. */
+  authUrl: string;
+  /** The page on this machine the browser comes back to (main's oauth callbacks). */
+  callbackId: string;
 }
 
 export function emptyTabState(): ChatTabState {

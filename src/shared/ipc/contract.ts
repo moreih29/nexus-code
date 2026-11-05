@@ -899,6 +899,18 @@ export const ipcContract = {
           truncated: z.boolean(),
         }),
       ),
+      /**
+       * Serves a page on this machine for an MCP server's sign-in to send the
+       * browser back to; its address is the redirect Claude Code is given.
+       */
+      oauthListen: call(z.object({}), z.object({ id: z.string(), redirectUri: z.string() })),
+      /** The address the browser came back to; null once the sign-in timed out or was cancelled. */
+      oauthWait: call(
+        z.object({ id: z.string().max(64) }),
+        z.object({ url: z.string().nullable() }),
+      ),
+      /** Stops waiting for a sign-in. */
+      oauthCancel: call(z.object({ id: z.string().max(64) }), z.void()),
       /** The sessions Claude Code keeps of a folder, newest first, for a tab to go on with one. */
       sessions: call(
         z.object({ workspaceId: WorkspaceIdPrimitive, cwd: z.string().max(4096) }),
