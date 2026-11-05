@@ -286,6 +286,7 @@
         "browserOpen": "브라우저 탭에서 {{detail}} 열기를",
         "browserNavigate": "브라우저 탭 \"{{detail}}\" 이동을",
         "browserControl": "브라우저 탭 \"{{detail}}\"에서 클릭·입력·스크립트 실행을",
+        "portForward": "포트 {{detail}} 포워딩 시작·중지를",
         "layout": "그룹 배치 변경({{detail}})을",
         "groupClose": "그룹 {{detail}} 및 그 안의 탭 닫기를",
         "tabRename": "탭 \"{{detail}}\" 이름 변경을",
