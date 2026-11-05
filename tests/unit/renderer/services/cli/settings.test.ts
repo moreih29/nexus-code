@@ -33,14 +33,17 @@ const { useAgentCliStore } = await import("../../../../../src/renderer/state/sto
 const set = (key: string, value: string | null) => settingsHandlers["settings.set"]({ key, value });
 
 // The font stores tell the page of a change; a file before this one may
-// leave a window with a page that has nothing to tell.
+// leave a window with no page, or with a stub page that cannot be told.
 const previousDocument = globalThis.document;
 afterAll(() => {
   globalThis.document = previousDocument;
 });
 
 beforeEach(() => {
-  if (typeof window !== "undefined" && !globalThis.document?.documentElement) {
+  if (
+    typeof window !== "undefined" &&
+    typeof globalThis.document?.documentElement?.dispatchEvent !== "function"
+  ) {
     globalThis.document = { documentElement: new EventTarget() } as unknown as Document;
   }
   useEditorFontStore.getState().hydrate({});
