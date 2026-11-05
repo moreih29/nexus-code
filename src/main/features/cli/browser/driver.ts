@@ -946,25 +946,24 @@ export class CdpBrowserDriver implements BrowserDriver {
     this.notPicking(tabId);
     return this.withDrawn(tabId, async (contents, state) => {
       const el = await this.locate(contents, state, target);
-      const at = await this.point(contents, el);
       await this.paint(tabId, contents);
-      if (!options.force) await this.checkHit(contents, el, at);
       const before = this.mark(contents);
-      const mouse = (type: string, clickCount: number) =>
-        this.send(contents, "Input.dispatchMouseEvent", {
-          type,
-          x: at.x,
-          y: at.y,
-          button: type === "mouseMoved" ? "none" : "left",
-          buttons: type === "mousePressed" ? 1 : 0,
-          clickCount,
-        });
       const what = `${options.double ? "Double-clicked" : "Clicked"} ${el.label}.`;
       return this.act(contents, what, before, async () => {
-        await mouse("mouseMoved", 0);
+        // Where it is once the mouse is there: moving it off a menu that
+        // hovering opened can close the menu and move what was under it.
+        const at = await this.pointerOn(contents, el);
+        if (!options.force) await this.checkHit(contents, el, at);
         for (let count = 1; count <= (options.double ? 2 : 1); count++) {
-          await mouse("mousePressed", count);
-          await mouse("mouseReleased", count);
+          for (const type of ["mousePressed", "mouseReleased"]) {
+            await this.send(contents, "Input.dispatchMouseEvent", {
+              type,
+              ...at,
+              button: "left",
+              buttons: type === "mousePressed" ? 1 : 0,
+              clickCount: count,
+            });
+          }
         }
       });
     });
@@ -974,16 +973,10 @@ export class CdpBrowserDriver implements BrowserDriver {
     this.notPicking(tabId);
     return this.withDrawn(tabId, async (contents, state) => {
       const el = await this.locate(contents, state, target);
-      const at = await this.point(contents, el);
       await this.paint(tabId, contents);
-      if (!options.force) await this.checkHit(contents, el, at);
       const before = this.mark(contents);
-      await this.send(contents, "Input.dispatchMouseEvent", {
-        type: "mouseMoved",
-        x: at.x,
-        y: at.y,
-        button: "none",
-      });
+      const at = await this.pointerOn(contents, el);
+      if (!options.force) await this.checkHit(contents, el, at);
       return this.after(contents, `Hovered over ${el.label}.`, before);
     });
   }
