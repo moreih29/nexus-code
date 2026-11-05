@@ -669,6 +669,15 @@
     "zoom_out": "Zoom out",
     "fit_width": "Fit to width"
   },
+  "spreadsheetPreview": {
+    "outside_workspace": "This spreadsheet is outside the workspace and cannot be previewed.",
+    "load_failed": "Could not read this spreadsheet.",
+    "too_large": "This spreadsheet is too large to preview (max {{maxMb}} MB).",
+    "sheets": "Sheets",
+    "empty_sheet": "This sheet has no values.",
+    "chart_sheet": "This sheet is a chart, which the preview does not draw.",
+    "columns_clipped": "Showing the first {{count}} columns."
+  },
   "markdown": {
     "copy_code": "Copy code",
     "copy": "Copy",

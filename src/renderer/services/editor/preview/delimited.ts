@@ -87,7 +87,7 @@ export function columnWidths(
 }
 
 /** Columns a field takes in one line: wide (CJK, Hangul) characters take two. */
-function displayWidth(text: string): number {
+export function displayWidth(text: string): number {
   let width = 0;
   for (const char of text) {
     const code = char.codePointAt(0) ?? 0;
