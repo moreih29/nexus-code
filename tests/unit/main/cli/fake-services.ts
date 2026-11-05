@@ -282,6 +282,10 @@ function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
       record("pick", tabId, options);
       return state.pick;
     },
+    inspect: async (tabId, target) => {
+      record("inspect", tabId, target);
+      return { ...PICKED, ref: target.startsWith("e") ? target : PICKED.ref };
+    },
   };
 }
 

@@ -1,6 +1,6 @@
 /**
- * Drives the app's browser tabs for nexus browser snapshot, click, fill,
- * type, press, screenshot, eval, console and wait, through each tab's own
+ * Drives the app's browser tabs for nexus browser snapshot, inspect, click,
+ * fill, type, press, screenshot, eval, console and wait, through each tab's own
  * DevTools protocol connection (webContents.debugger). It works on tabs
  * that are not shown, too: Chromium takes input and paints screenshots for
  * a hidden page. A tab never shown has no size, though, so it is given one
@@ -20,6 +20,7 @@ import { type ConsoleEntry, type ConsoleLog, watchConsole } from "./console-log"
 import { DrivenTabs, saveCommandDownload } from "./downloads";
 import { type KeyPress, parseBrowserKey } from "./keys";
 import {
+  type Box,
   cleanPicked,
   DESCRIBE_PICKED,
   type PickCancel,
@@ -88,8 +89,10 @@ export interface BrowserDriver {
   fill(tabId: string, target: string, text: string): Promise<ActionResult>;
   type(tabId: string, text: string, target?: string): Promise<ActionResult>;
   press(tabId: string, keys: readonly string[]): Promise<ActionResult>;
-  /** A PNG, base64. */
-  screenshot(tabId: string, options: { full: boolean }): Promise<string>;
+  /** A PNG, base64: of what the tab shows, the whole page, or one element. */
+  screenshot(tabId: string, options: { full: boolean; element?: string }): Promise<string>;
+  /** What an element is, as pick tells it, with a picture of it, scrolled into view. */
+  inspect(tabId: string, target: string): Promise<PickedElement>;
   evaluate(tabId: string, expression: string): Promise<unknown>;
   console(tabId: string, clear: boolean): readonly ConsoleEntry[];
   /** Resolves true once `condition` holds, false if it did not in time. */
@@ -232,6 +235,13 @@ const DESCRIBE = `function () {
     ? "." + this.className.trim().split(/\\s+/).slice(0, 3).join(".")
     : "";
   return "<" + this.localName + id + cls + ">";
+}`;
+
+/** Where an element is on the page, for a picture of it alone; null when it has no size. */
+const ELEMENT_CLIP = `function () {
+  const r = this.getBoundingClientRect();
+  if (r.width < 1 || r.height < 1) return null;
+  return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height };
 }`;
 
 function label(ref: SnapshotRef, name: string): string {
@@ -804,8 +814,22 @@ export class CdpBrowserDriver implements BrowserDriver {
     await this.send(contents, "Input.dispatchKeyEvent", { ...common, type: "keyUp" });
   }
 
-  screenshot(tabId: string, options: { full: boolean }): Promise<string> {
-    return this.withDrawn(tabId, async (contents) => {
+  screenshot(tabId: string, options: { full: boolean; element?: string }): Promise<string> {
+    return this.withDrawn(tabId, async (contents, state) => {
+      if (options.element !== undefined) {
+        const el = await this.locate(contents, state, options.element);
+        await this.send(contents, "DOM.scrollIntoViewIfNeeded", {
+          backendNodeId: el.backendNodeId,
+        }).catch(() => {});
+        const box = await this.call<Box | null>(contents, el.objectId, ELEMENT_CLIP);
+        if (box === null) throw new CliError(`${el.label} is not visible on the page`);
+        const clip = {
+          ...box,
+          height: Math.min(box.height, MAX_FULL_HEIGHT),
+          scale: 1,
+        };
+        return this.capture(tabId, contents, { format: "png", captureBeyondViewport: true, clip });
+      }
       if (!options.full) return this.capture(tabId, contents, { format: "png" });
       const metrics = await this.send<{
         cssContentSize?: { width: number; height: number };
@@ -820,6 +844,16 @@ export class CdpBrowserDriver implements BrowserDriver {
         scale: 1,
       };
       return this.capture(tabId, contents, { format: "png", captureBeyondViewport: true, clip });
+    });
+  }
+
+  inspect(tabId: string, target: string): Promise<PickedElement> {
+    return this.withDrawn(tabId, async (contents, state) => {
+      const el = await this.locate(contents, state, target);
+      await this.send(contents, "DOM.scrollIntoViewIfNeeded", {
+        backendNodeId: el.backendNodeId,
+      }).catch(() => {});
+      return this.describePicked(tabId, contents, state, el.backendNodeId);
     });
   }
 
@@ -932,7 +966,7 @@ export class CdpBrowserDriver implements BrowserDriver {
         ready.catch(() => {});
         await Promise.race([ready, control.ended]);
         if (control.reason !== null) return { cancelled: control.reason };
-        const outcome = await this.inspect(tabId, contents, control);
+        const outcome = await this.inspectMode(tabId, contents, control);
         if ("cancelled" in outcome) return outcome;
         return { picked: await this.describePicked(tabId, contents, state, outcome.backendNodeId) };
       } finally {
@@ -1008,7 +1042,7 @@ export class CdpBrowserDriver implements BrowserDriver {
    * or the pick ends, then takes the page out of it, unless a later pick has
    * the tab by then.
    */
-  private async inspect(
+  private async inspectMode(
     tabId: string,
     contents: WebContents,
     control: PickControl,
