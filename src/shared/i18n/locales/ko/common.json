@@ -1062,7 +1062,11 @@
         "none": "MCP 서버가 없습니다",
         "reconnect": "다시 연결",
         "enabled": "{{name}} 사용",
-        "auth_hint": "터미널에서 /mcp로 인증하세요",
+        "sign_in": "로그인",
+        "signing_in": "로그인 중…",
+        "signing_in_hint": "브라우저에 열린 페이지에서 로그인하세요",
+        "reopen": "다시 열기",
+        "cancel": "취소",
         "status": {
           "connected": "연결됨",
           "needs-auth": "인증 필요",

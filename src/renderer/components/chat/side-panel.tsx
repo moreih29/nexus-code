@@ -795,6 +795,7 @@ function formatCost(usd: number, locale: string): string {
 function McpSection({ controller, state }: { controller: ChatController; state: ChatTabState }) {
   const { t } = useTranslation();
   const servers = state.model.mcp;
+  const signIn = state.mcpSignIn;
   const fail = (err: Error) => showToast({ kind: "error", message: err.message });
   return (
     <Section
@@ -806,32 +807,66 @@ function McpSection({ controller, state }: { controller: ChatController; state: 
       {!servers || servers.length === 0 ? (
         <div className="text-app-micro text-muted-foreground">{t("chat.panel.mcp.none")}</div>
       ) : (
-        servers.map((server) => (
-          <Row
-            key={server.name}
-            title={server.status === "needs-auth" ? t("chat.panel.mcp.auth_hint") : server.name}
-          >
-            <span className="min-w-0 flex-1 truncate">{server.name}</span>
-            <span className="shrink-0 text-app-micro text-muted-foreground">
-              {t(`chat.panel.mcp.status.${server.status}`, { defaultValue: server.status })}
-            </span>
-            {server.status !== "disabled" && (
-              <IconButton
-                label={t("chat.panel.mcp.reconnect")}
-                onClick={() => controller.mcpReconnect(server.name).catch(fail)}
-              >
-                <RefreshCw className="size-3" />
-              </IconButton>
-            )}
-            <Switch
-              checked={server.status !== "disabled"}
-              onCheckedChange={(enabled) => controller.mcpToggle(server.name, enabled).catch(fail)}
-              aria-label={t("chat.panel.mcp.enabled", { name: server.name })}
-            />
-          </Row>
-        ))
+        servers.map((server) => {
+          const signingIn = signIn?.serverName === server.name;
+          return (
+            <Row
+              key={server.name}
+              title={signingIn ? t("chat.panel.mcp.signing_in_hint") : server.name}
+            >
+              <span className="min-w-0 flex-1 truncate">{server.name}</span>
+              {signingIn ? (
+                <span className="flex shrink-0 items-center gap-1 text-app-micro text-muted-foreground">
+                  {t("chat.panel.mcp.signing_in")}
+                  <TextButton onClick={() => controller.reopenMcpSignIn()}>
+                    {t("chat.panel.mcp.reopen")}
+                  </TextButton>
+                  <TextButton onClick={() => controller.cancelMcpSignIn()}>
+                    {t("chat.panel.mcp.cancel")}
+                  </TextButton>
+                </span>
+              ) : server.status === "needs-auth" ? (
+                <TextButton onClick={() => controller.mcpAuthenticate(server.name).catch(fail)}>
+                  {t("chat.panel.mcp.sign_in")}
+                </TextButton>
+              ) : (
+                <span className="shrink-0 text-app-micro text-muted-foreground">
+                  {t(`chat.panel.mcp.status.${server.status}`, { defaultValue: server.status })}
+                </span>
+              )}
+              {server.status !== "disabled" && !signingIn && (
+                <IconButton
+                  label={t("chat.panel.mcp.reconnect")}
+                  onClick={() => controller.mcpReconnect(server.name).catch(fail)}
+                >
+                  <RefreshCw className="size-3" />
+                </IconButton>
+              )}
+              <Switch
+                checked={server.status !== "disabled"}
+                onCheckedChange={(enabled) =>
+                  controller.mcpToggle(server.name, enabled).catch(fail)
+                }
+                aria-label={t("chat.panel.mcp.enabled", { name: server.name })}
+              />
+            </Row>
+          );
+        })
       )}
     </Section>
+  );
+}
+
+/** A small button in a row's words: signing in to a server, opening its page again. */
+function TextButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="shrink-0 rounded-(--radius-control) px-1 text-app-micro text-primary hover:bg-[var(--state-hover-bg)]"
+    >
+      {children}
+    </button>
   );
 }
 

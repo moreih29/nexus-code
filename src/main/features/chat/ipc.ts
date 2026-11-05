@@ -4,6 +4,7 @@ import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcOk } from "../../../shared/ipc/result";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import { ChatHost, type ChatHostOptions } from "./host";
+import { OAuthCallbacks } from "./oauth-callback";
 
 const c = ipcContract.chat.call;
 
@@ -12,6 +13,7 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
     ...options,
     broadcast: (event, args) => broadcast("chat", event, args),
   });
+  const oauth = new OAuthCallbacks();
 
   register("chat", {
     call: {
@@ -71,6 +73,15 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
           lines: result.lines ?? [],
           truncated: result.truncated === true,
         });
+      },
+      oauthListen: async () => ipcOk(await oauth.listen()),
+      oauthWait: async (args: unknown) => {
+        const { id } = validateArgs(c.oauthWait.args, args);
+        return ipcOk({ url: await oauth.wait(id) });
+      },
+      oauthCancel: async (args: unknown) => {
+        oauth.cancel(validateArgs(c.oauthCancel.args, args).id);
+        return ipcOk(undefined);
       },
       sessions: async (args: unknown) => {
         const { workspaceId, cwd } = validateArgs(c.sessions.args, args);

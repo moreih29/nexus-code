@@ -1062,7 +1062,11 @@
         "none": "No MCP servers",
         "reconnect": "Reconnect",
         "enabled": "Use {{name}}",
-        "auth_hint": "Authenticate it with /mcp in a terminal",
+        "sign_in": "Sign in",
+        "signing_in": "Signing in…",
+        "signing_in_hint": "Sign in on the page that opened in the browser",
+        "reopen": "Open again",
+        "cancel": "Cancel",
         "status": {
           "connected": "Connected",
           "needs-auth": "Needs auth",
