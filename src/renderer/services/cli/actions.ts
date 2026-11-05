@@ -140,6 +140,29 @@ export const actionHandlers: {
     return { tabId };
   },
 
+  "commit.open": async ({ workspaceId, rev, placement }) => {
+    // `^{commit}` takes a tag to the commit it names, which is what the tab shows.
+    const found = await ipcCallResult("git", "commitDetail", {
+      workspaceId,
+      sha: `${rev}^{commit}`,
+    });
+    if (!found.ok) {
+      throw new UiRequestError(
+        /unknown revision|bad revision|ambiguous argument|not a valid|bad object/i.test(
+          found.message ?? "",
+        )
+          ? `no commit is named "${rev}"`
+          : (found.message ?? "the commit could not be read"),
+      );
+    }
+    const { sha, subject } = found.value;
+    const open = findTabs(workspaceId, (tab) => tab.type === "git.commit" && tab.props.sha === sha);
+    const tabId =
+      showOpenTab(workspaceId, open, placement) ??
+      openTab(workspaceId, { type: "git.commit", props: { workspaceId, sha } }, placement);
+    return { tabId, sha, subject };
+  },
+
   "terminal.open": async ({ workspaceId, cwd, title, command, shell, placement }) => {
     const choice = shell === undefined ? undefined : (await shellByName(shell)).choice;
     const props = { cwd, ...(choice ? { shell: choice } : {}) };

@@ -1,6 +1,6 @@
-/** nexus open, diff, reveal and problems. */
+/** nexus open, diff, show, reveal and problems. */
 import type { CliProblem } from "../../../../shared/cli/ui";
-import { exactArgs } from "../args";
+import { CliUsageError, exactArgs } from "../args";
 import { CliError, mayChange, placementFor, resolveWorkspace, shortId } from "../context";
 import { rendererRoot, splitLocation, workspaceFile } from "../paths";
 import { type CliCommand, output } from "../registry";
@@ -88,6 +88,37 @@ const diff: CliCommand = {
   },
 };
 
+const show: CliCommand = {
+  path: ["show"],
+  summary: "Open a commit in a tab: its message and the files it changed",
+  args: "[commit]",
+  details:
+    "COMMIT is a sha or the start of one, a branch, a tag or HEAD~2; HEAD by default. A\n" +
+    `file the tab lists opens its diff. ${PLACEMENT_DETAILS}`,
+  flags: { workspace: WORKSPACE_FLAG, background: BACKGROUND_FLAG },
+  async run(ctx, { positionals, flags }) {
+    if (positionals.length > 1) {
+      throw new CliUsageError(`unexpected argument "${positionals[1]}"`);
+    }
+    const rev = (positionals[0] ?? "HEAD").trim();
+    // git would read it as one of its options.
+    if (rev === "" || rev.startsWith("-")) throw new CliError(`no commit is named "${rev}"`, 2);
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    await mayChange(ctx, workspace, { kind: "commit", detail: rev });
+    const { tabId, sha, subject } = await ctx.services.ui("commit.open", {
+      workspaceId: workspace.id,
+      rev,
+      placement: placementFor(ctx, workspace, flags.background === true),
+    });
+    return output(`Opened commit ${sha.slice(0, 7)} "${subject}" (tab ${shortId(tabId)}).`, {
+      tabId,
+      workspaceId: workspace.id,
+      sha,
+      subject,
+    });
+  },
+};
+
 const reveal: CliCommand = {
   path: ["reveal"],
   summary: "Show a file or folder in the files panel's tree",
@@ -154,4 +185,4 @@ const problems: CliCommand = {
   },
 };
 
-export const editorCommands: CliCommand[] = [open, diff, reveal, problems];
+export const editorCommands: CliCommand[] = [open, diff, show, reveal, problems];

@@ -425,6 +425,13 @@ export function fakeApp(now = Date.now()): FakeApp {
     if (op === "editor.open" || op === "diff.open" || op === "terminal.open") {
       return { tabId: NEW_TAB } as CliUiOps[K]["result"];
     }
+    if (op === "commit.open") {
+      return {
+        tabId: NEW_TAB,
+        sha: "4f2a9c1e0b7d3a5f6e8c9b0a1d2e3f4a5b6c7d8e",
+        subject: "Fix the login redirect",
+      } as CliUiOps[K]["result"];
+    }
     // Any worktree made is "fix-login".
     if (op === "task.create") {
       const { command } = args as CliUiOps["task.create"]["args"];

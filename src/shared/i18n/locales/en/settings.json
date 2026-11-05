@@ -272,6 +272,7 @@
       "action": {
         "open": "open {{detail}}",
         "diff": "open the changes of {{detail}}",
+        "commit": "open the commit {{detail}}",
         "terminalNew": "open a terminal",
         "terminalInput": "type into the terminal \"{{detail}}\"",
         "tabClose": "close the tab \"{{detail}}\"",

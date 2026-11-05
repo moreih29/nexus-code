@@ -234,6 +234,29 @@ describe("opening files", () => {
   });
 });
 
+describe("show", () => {
+  test("show opens HEAD's commit beside this terminal, or the one named", async () => {
+    const app = fakeApp();
+    const result = await nexus(["show"], app);
+    expect(lastCall(app, "commit.open")).toEqual({
+      workspaceId: APP,
+      rev: "HEAD",
+      placement: BESIDE_ME,
+    });
+    expect(result.stdout).toBe('Opened commit 4f2a9c1 "Fix the login redirect" (tab cccccccc).\n');
+    await nexus(["show", "v1.2~1"], app);
+    expect(lastCall(app, "commit.open")).toMatchObject({ rev: "v1.2~1" });
+  });
+
+  test("show refuses a name git would read as an option", async () => {
+    const app = fakeApp();
+    const result = await nexus(["show", "--", "--output=/tmp/x"], app);
+    expect(result.stderr).toBe('nexus: no commit is named "--output=/tmp/x"\n');
+    expect(result.exitCode).toBe(2);
+    expect(lastCall(app, "commit.open")).toBeUndefined();
+  });
+});
+
 describe("terminals", () => {
   test("terminal new opens behind this terminal, in its directory, running a command", async () => {
     const app = fakeApp();

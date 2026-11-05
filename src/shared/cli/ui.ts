@@ -128,6 +128,7 @@ export type CliSettingValue = string | number | boolean;
 export type CliChangeKind =
   | "open"
   | "diff"
+  | "commit"
   | "terminalNew"
   | "terminalInput"
   | "tabClose"
@@ -174,6 +175,14 @@ export interface CliUiOps {
       placement: CliPlacement;
     };
     result: { tabId: string };
+  };
+  /**
+   * Opens the tab of the commit `rev` names (a sha or a prefix of one, a
+   * branch, a tag, HEAD~2), showing its message and the files it changed.
+   */
+  "commit.open": {
+    args: { workspaceId: string; rev: string; placement: CliPlacement };
+    result: { tabId: string; sha: string; subject: string };
   };
   /** Opens a file's changes between two refs (HEAD, INDEX, WORKING or a commit). */
   "diff.open": {
