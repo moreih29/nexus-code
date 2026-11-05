@@ -64,6 +64,15 @@ export function isPreviewable(filePath: string): PreviewSupport {
   return "none";
 }
 
+/**
+ * How a file opens: in its preview when it has one, in its source otherwise.
+ * A tab keeps the mode it was switched to; this is the mode of one never
+ * switched.
+ */
+export function defaultViewMode(filePath: string): "raw" | "preview" {
+  return isPreviewable(filePath) === "supported" ? "preview" : "raw";
+}
+
 export type PreviewEngine = "markdown" | "html" | "svg";
 
 /**

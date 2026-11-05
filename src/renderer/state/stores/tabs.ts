@@ -75,11 +75,11 @@ export interface EditorTab extends TabBase {
   type: "editor";
   props: EditorTabProps;
   /**
-   * Render-mode flag for previewable files (.md, .html, .svg). Default = "raw"
-   * (Monaco editor). When "preview", EditorView swaps Monaco for the rendered
-   * pane. Persisted per-tab so split panels can hold raw + preview of the
-   * same file independently. Undefined for non-previewable files; selectors
-   * treat it as "raw".
+   * Render-mode flag for previewable files (.md, .html, .svg). When
+   * "preview", EditorView swaps Monaco for the rendered pane. Persisted
+   * per-tab so split panels can hold raw + preview of the same file
+   * independently. Undefined until the tab is switched: a previewable file
+   * then shows its preview, anything else its source (`defaultViewMode`).
    */
   viewMode?: "raw" | "preview";
 }
@@ -592,7 +592,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
         if (!wsRecord || !(tabId in wsRecord)) return state;
         const tab = wsRecord[tabId];
         if (tab.type !== "editor") return state;
-        if ((tab.viewMode ?? "raw") === mode) return state;
+        if (tab.viewMode === mode) return state;
         const next: EditorTab = { ...tab, viewMode: mode };
         return {
           byWorkspace: {
