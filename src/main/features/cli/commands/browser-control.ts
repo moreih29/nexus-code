@@ -118,7 +118,9 @@ const browserInspect: CliCommand = {
     `${TARGET_DETAILS}\n` +
     "Prints its role and name, its ref, a CSS selector that finds it again (none inside a\n" +
     "shadow root), where it is, its text and HTML, and saves a PNG of it in the temp\n" +
-    "directory. It is scrolled into view first.",
+    "directory. It is scrolled into view first. In a development build of a React, Vue,\n" +
+    "Svelte or Angular app, it also names the component the element is in, the source file\n" +
+    "that writes it and the component's props.",
   flags: PAGE_FLAGS,
   async run(ctx, { positionals, flags }) {
     const [target] = exactArgs(positionals, "element") as [string];
@@ -547,8 +549,10 @@ const browserPick: CliCommand = {
     "Shows the tab and highlights what is under the mouse; the user's click picks that element\n" +
     "instead of clicking it, and Esc cancels. Prints its role and name, a ref that browser click,\n" +
     "fill and type take, a CSS selector (none inside a shadow root), where it is, its text and\n" +
-    "HTML, and saves a PNG of it in the temp directory. Exits 124 when no element is picked in\n" +
-    "time. While it waits, click, fill, type and press on that tab are refused.",
+    "HTML, and saves a PNG of it in the temp directory; in a development build of a React, Vue,\n" +
+    "Svelte or Angular app, also the component it is in, its source file and props. Exits 124\n" +
+    "when no element is picked in time. While it waits, click, fill, type and press on that tab\n" +
+    "are refused.",
   flags: {
     timeout: {
       type: "string",
