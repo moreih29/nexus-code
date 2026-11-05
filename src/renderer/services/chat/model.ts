@@ -14,6 +14,8 @@ export interface ChatLine {
   dir: LineDir;
   message?: unknown;
   text?: string;
+  /** When the agent got the line, in Unix milliseconds. */
+  at?: number;
   replay?: boolean;
 }
 
@@ -174,6 +176,11 @@ export interface ChatModel {
   interrupting?: boolean;
   /** The app's control requests waiting for an answer: request id → subtype and request. */
   outgoing: Record<string, { subtype: string; request: Record<string, unknown> }>;
+  /**
+   * The log began with a program going on with an earlier session: what
+   * came before is in the session's transcript, not here.
+   */
+  resumed?: boolean;
 }
 
 export function emptyModel(): ChatModel {
@@ -255,8 +262,8 @@ export function applyLine(prev: ChatModel, line: ChatLine, now: number = Date.no
   draft.next.lastSeq = line.seq;
   const message = rec(line.message);
   if (!message) return draft.next;
-  // A replayed line has no time of its own; live ones happen now.
-  const at = line.replay ? undefined : now;
+  // The agent stamps each line; without its stamp, a live line happens now.
+  const at = line.at ?? (line.replay ? undefined : now);
   if (line.dir === "sys") applySys(draft, message, line.seq, at);
   else if (line.dir === "in") applyIn(draft, message, line.seq, at);
   else applyOut(draft, message, line.seq, at);
@@ -273,6 +280,7 @@ function applySys(draft: Draft, message: Rec, seq: number, at: number | undefine
   const m = draft.next;
   switch (message.event) {
     case "start":
+      if (m.process === "none" && m.items.length === 0) m.resumed = message.resumed === true;
       if (m.process === "exited")
         draft.push({ kind: "notice", key: `n${seq}`, code: "restarted", at });
       m.process = "running";
@@ -556,7 +564,12 @@ function applyAssistant(draft: Draft, message: Rec, seq: number, at: number | un
   for (let i = items.length - 1; i >= 0 && i >= items.length - 8; i--) {
     const item = items[i];
     if (item.kind === "assistant" && item.messageId === messageId) {
-      draft.replaceItem(i, { ...item, blocks: [...item.blocks, ...blocks] });
+      // Each block comes as a line of its own; the last one's uuid holds them all.
+      draft.replaceItem(i, {
+        ...item,
+        blocks: [...item.blocks, ...blocks],
+        uuid: str(message.uuid) ?? item.uuid,
+      });
       return;
     }
     if (item.kind === "user") break;
@@ -783,11 +796,4 @@ function toolResult(block: Rec, structured: unknown): ToolResult {
     text = parts.join("\n");
   }
   return { text, isError, ...(structured !== undefined ? { structured } : {}), images };
-}
-
-/** The user message uuids the CLI took, for rewind and fork. */
-export function takenUserUuids(model: ChatModel): string[] {
-  const uuids: string[] = [];
-  for (const item of model.items) if (item.kind === "user" && item.uuid) uuids.push(item.uuid);
-  return uuids;
 }

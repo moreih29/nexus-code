@@ -936,6 +936,30 @@
       "aria": "추론 강도",
       "label": "추론 강도",
       "unset": "강도"
+    },
+    "rewind": {
+      "action": "이 메시지 전으로 되감기",
+      "busy": "Claude가 작업하는 동안에는 되감을 수 없습니다",
+      "title": "이 메시지 전으로 되감기",
+      "description": "대화를 이 메시지 전으로 되돌리고, 메시지는 입력창에 다시 넣습니다.",
+      "checking": "바뀐 파일을 확인하는 중…",
+      "files_unknown": "바뀐 파일을 확인하지 못했습니다: {{error}}",
+      "files_unavailable": "파일은 되돌릴 수 없습니다. {{error}}",
+      "files_changed_one": "파일 {{count}}개가 되돌아갑니다",
+      "files_changed_other": "파일 {{count}}개가 되돌아갑니다",
+      "more_files_one": "외 {{count}}개",
+      "more_files_other": "외 {{count}}개",
+      "no_files": "되돌릴 파일 변경이 없습니다.",
+      "conversation": "대화만 되감기",
+      "conversation_and_files": "대화와 코드 되감기",
+      "failed": "되감지 못했습니다: {{error}}"
+    },
+    "fork": {
+      "from_assistant": "여기서 포크",
+      "from_user": "이 메시지 전에서 포크"
+    },
+    "time": {
+      "now": "방금"
     }
   }
 }

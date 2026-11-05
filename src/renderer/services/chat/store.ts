@@ -18,6 +18,14 @@ export interface QueuedMessage {
   images: ImageBlock[];
 }
 
+/** Text the app puts in the composer: a rewound or forked message. */
+export interface ComposerDraft {
+  text: string;
+  images: ImageBlock[];
+  /** Changes with each draft, so the same text twice is still put in. */
+  nonce: number;
+}
+
 export interface ChatTabState {
   phase: ChatPhase;
   error?: string;
@@ -30,6 +38,7 @@ export interface ChatTabState {
   version: string | null;
   /** The log dropped its oldest lines. */
   truncated: boolean;
+  draft?: ComposerDraft;
 }
 
 export function emptyTabState(): ChatTabState {

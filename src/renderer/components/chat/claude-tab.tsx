@@ -3,23 +3,31 @@
 // connection, so the view only reads what its controller has.
 
 import { MessageSquareText } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   type ChatController,
   chatController,
   type PermissionAnswer,
 } from "../../services/chat/controller";
-import type { PermissionRequest } from "../../services/chat/model";
-import { type ChatTabState, useChatTab } from "../../services/chat/store";
+import type { AssistantItem, PermissionRequest, UserItem } from "../../services/chat/model";
+import {
+  type ChatTabState,
+  type ComposerDraft,
+  chatKey,
+  useChatStore,
+  useChatTab,
+} from "../../services/chat/store";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
+import { openClaudeTab } from "../../state/operations/tabs";
 import type { ClaudeTabProps } from "../../state/stores/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { Banner, type BannerAction } from "../ui/banner";
 import { Composer } from "./composer";
-import { MessageList } from "./message-list";
+import { type MessageActions, MessageList } from "./message-list";
 import { PermissionCard } from "./permission-card";
+import { RewindDialog } from "./rewind-dialog";
 import { StatusLine } from "./status-line";
 
 interface ClaudeTabViewProps {
@@ -51,6 +59,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         {
           onSession: (sessionId) =>
             useTabsStore.getState().setClaudeSession(workspaceId, tabId, sessionId),
+          onTarget: (target) => useTabsStore.getState().setClaudeTarget(workspaceId, tabId, target),
           onFirstMessage: (text) =>
             useTabsStore.getState().setProcessTitle(workspaceId, tabId, titleOf(text)),
         },
@@ -72,6 +81,14 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     void controller.answerPermission(request, answer).catch(() => {});
   };
 
+  const [rewinding, setRewinding] = useState<UserItem | null>(null);
+  const actions: MessageActions = {
+    running: state.model.running,
+    canFork: controller.forkPoint("", { before: false }) !== null,
+    onRewind: (item) => setRewinding(item),
+    onFork: (item) => forkFrom(controller, workspaceId, props.cwd, item),
+  };
+
   return (
     <div className="flex h-full flex-col bg-background" data-testid="claude-tab">
       <PhaseBanner controller={controller} state={state} />
@@ -81,6 +98,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         rootPath={rootPath}
         history={state.history}
         model={state.model}
+        actions={actions}
         empty={
           state.phase === "ready" || state.phase === "ended" ? (
             <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
@@ -112,8 +130,36 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       )}
       <RateLimitBanner state={state} />
       <Composer controller={controller} state={state} />
+      <RewindDialog
+        controller={controller}
+        item={rewinding}
+        cwd={props.cwd}
+        onClose={() => setRewinding(null)}
+      />
     </div>
   );
+}
+
+/**
+ * Opens a new Claude tab from a message: one of Claude's keeps the
+ * conversation up to it; one of the user's keeps what came before it and
+ * puts the message in the new tab's composer.
+ */
+function forkFrom(
+  controller: ChatController,
+  workspaceId: string,
+  cwd: string,
+  item: UserItem | AssistantItem,
+): void {
+  if (!item.uuid) return;
+  const user = item.kind === "user";
+  const fork = controller.forkPoint(item.uuid, { before: user });
+  if (!fork && !user) return;
+  const tab = openClaudeTab(workspaceId, { cwd, ...(fork ? { fork } : {}) });
+  if (user) {
+    const draft: ComposerDraft = { text: item.text, images: item.images, nonce: Date.now() };
+    useChatStore.getState().update(chatKey(workspaceId, tab.id), (prev) => ({ ...prev, draft }));
+  }
 }
 
 function titleOf(text: string): string {

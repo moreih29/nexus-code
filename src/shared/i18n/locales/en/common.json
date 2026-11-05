@@ -936,6 +936,30 @@
       "aria": "Effort",
       "label": "Effort",
       "unset": "effort"
+    },
+    "rewind": {
+      "action": "Rewind to before this message",
+      "busy": "Can't rewind while Claude is working",
+      "title": "Rewind to before this message",
+      "description": "The conversation goes back to before this message, and the message goes back in the composer.",
+      "checking": "Checking the changed files…",
+      "files_unknown": "Couldn't check the changed files: {{error}}",
+      "files_unavailable": "The files can't be rewound. {{error}}",
+      "files_changed_one": "{{count}} file goes back",
+      "files_changed_other": "{{count}} files go back",
+      "more_files_one": "and {{count}} more",
+      "more_files_other": "and {{count}} more",
+      "no_files": "No file changes to undo.",
+      "conversation": "Rewind the conversation",
+      "conversation_and_files": "Rewind the conversation and code",
+      "failed": "Couldn't rewind: {{error}}"
+    },
+    "fork": {
+      "from_assistant": "Fork from here",
+      "from_user": "Fork from before this message"
+    },
+    "time": {
+      "now": "just now"
     }
   }
 }

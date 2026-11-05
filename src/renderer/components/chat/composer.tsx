@@ -102,6 +102,18 @@ export function Composer({ controller, state }: ComposerProps) {
     void addFiles(files);
   };
 
+  // A rewound or forked message comes back here, after what is already typed.
+  const draft = state.draft;
+  const tookDraft = useRef(0);
+  useEffect(() => {
+    if (!draft || draft.nonce === tookDraft.current) return;
+    tookDraft.current = draft.nonce;
+    setText((prev) => (prev ? `${prev}\n${draft.text}` : draft.text));
+    setImages((prev) => [...prev, ...draft.images]);
+    areaRef.current?.focus();
+    controller.clearDraft();
+  }, [draft, controller]);
+
   const pullBack = (id: string) => {
     const item = controller.removeQueued(id);
     if (!item) return;

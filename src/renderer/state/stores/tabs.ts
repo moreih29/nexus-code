@@ -39,7 +39,10 @@ export interface ClaudeTabProps {
   cwd: string;
   /** The session the tab last had, to go on with once its program is gone. */
   sessionId?: string;
-  /** Set on a tab opened as a fork: the session to copy, up to a message. Not kept. */
+  /**
+   * The session the tab's program copies, up to a message, until the copy
+   * has its own id: set on a tab opened as a fork, or rewound.
+   */
   fork?: { sessionId: string; at?: string };
 }
 
@@ -234,6 +237,15 @@ interface TabsState {
    * with. No-op on other tab types.
    */
   setClaudeSession: (workspaceId: string, tabId: string, sessionId: string) => void;
+  /**
+   * Set what a Claude tab's program starts from: its session, and the one it
+   * copies until the copy has its own id (a rewind). No-op on other tab types.
+   */
+  setClaudeTarget: (
+    workspaceId: string,
+    tabId: string,
+    target: { sessionId?: string; fork?: { sessionId: string; at?: string } },
+  ) => void;
 }
 
 /**
@@ -663,6 +675,28 @@ export const useTabsStore = create<TabsState>((set, get) => {
         if (!wsRecord || tab?.type !== "claude") return state;
         if (tab.props.sessionId === sessionId && !tab.props.fork) return state;
         const next: ClaudeTab = { ...tab, props: { cwd: tab.props.cwd, sessionId } };
+        return {
+          byWorkspace: {
+            ...state.byWorkspace,
+            [workspaceId]: { ...wsRecord, [tabId]: next },
+          },
+        };
+      });
+    },
+
+    setClaudeTarget(workspaceId, tabId, { sessionId, fork }) {
+      set((state) => {
+        const wsRecord = state.byWorkspace[workspaceId];
+        const tab = wsRecord?.[tabId];
+        if (!wsRecord || tab?.type !== "claude") return state;
+        const next: ClaudeTab = {
+          ...tab,
+          props: {
+            cwd: tab.props.cwd,
+            ...(sessionId ? { sessionId } : {}),
+            ...(fork ? { fork } : {}),
+          },
+        };
         return {
           byWorkspace: {
             ...state.byWorkspace,
