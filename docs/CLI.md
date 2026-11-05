@@ -109,6 +109,8 @@ nexus browser click e6
 nexus browser press Enter
 nexus browser wait --text "Welcome"
 nexus browser screenshot --out shot.png
+nexus browser screenshot --element e6   # 요소 하나만
+nexus browser inspect e6          # 요소의 ref · 선택자 · 위치 · HTML · 스크린샷 (사용자 클릭 없이)
 nexus browser console --errors
 nexus browser eval "document.title"
 nexus browser pick                # 사용자가 클릭한 요소의 ref · 선택자 · 스크린샷
@@ -130,6 +132,8 @@ nexus browser pick                # 사용자가 클릭한 요소의 ref · 선�
   - 기본 2분 기다립니다(`--timeout`, 최대 10분). 시간이 다 되면 종료 코드 124 입니다. 명령을 Ctrl-C 로 멈추면 강조도 바로 꺼집니다.
   - shadow root 안의 요소에는 선택자를 주지 않습니다. ref 를 쓰세요.
   - 고르는 동안 그 탭의 `click` · `fill` · `type` · `press` 는 거절됩니다.
+- `inspect <요소>` 는 사용자 클릭 없이 `pick` 과 같은 내용을 출력하고 요소 스크린샷을 저장합니다. 요소가 보이도록 스크롤합니다.
+- `screenshot --element <요소>` 는 그 요소만 잘라 저장합니다. 화면보다 긴 요소도 통째로 찍습니다.
 - 명령이 연 URL이나 누른 링크가 페이지가 아니라 파일이면 내려받습니다. 명령이 내려받은 파일은 사용자의 다운로드 폴더가 아니라 시스템 임시 폴더의 `nexus-downloads` 에 저장되고, 명령 출력에 그 경로가 나옵니다. 하루 지난 파일은 지웁니다. 사용자가 탭에서 직접 내려받은 파일은 다운로드 폴더에 저장되고 앱이 알림으로 알려줍니다.
 
 ## 화면 배치

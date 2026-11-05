@@ -1,6 +1,6 @@
 /**
- * nexus browser snapshot/click/fill/type/press/screenshot/eval/console/wait/
- * pick: reading and driving the page in a browser tab.
+ * nexus browser snapshot/inspect/click/fill/type/press/screenshot/eval/
+ * console/wait/pick: reading and driving the page in a browser tab.
  */
 import type { CliTabInfo } from "../../../../shared/cli/ui";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
@@ -99,6 +99,39 @@ const browserSnapshot: CliCommand = {
   },
 };
 
+/** Where a picture of an element of `tab` goes, in the temp directory. */
+function picturePath(ctx: CliContext, tab: CliTabInfo, kind: string): string {
+  return callerPath(
+    ctx,
+    `nexus-${kind}-${shortId(tab.id)}-${ctx.services.clock.now()}.png`,
+    ctx.invocation.tempDir,
+  );
+}
+
+const browserInspect: CliCommand = {
+  path: ["browser", "inspect"],
+  summary: "Describe an element of a browser tab's page, as browser pick does",
+  args: "<element>",
+  details:
+    `${TARGET_DETAILS}\n` +
+    "Prints its role and name, its ref, a CSS selector that finds it again (none inside a\n" +
+    "shadow root), where it is, its text and HTML, and saves a PNG of it in the temp\n" +
+    "directory. It is scrolled into view first.",
+  flags: PAGE_FLAGS,
+  async run(ctx, { positionals, flags }) {
+    const [target] = exactArgs(positionals, "element") as [string];
+    const { workspace, tab } = await pageOf(ctx, flags, false);
+    const inspected = await ctx.services.browser.inspect(tab.id, target);
+    const { png, clip: _clip, ...el } = cleanPicked(inspected);
+    const file = png === undefined ? undefined : picturePath(ctx, tab, "inspect");
+    return output(
+      formatPick(inspected, file),
+      { tabId: tab.id, workspaceId: workspace.id, element: { ...el, screenshot: file ?? null } },
+      png === undefined || file === undefined ? {} : { files: [{ path: file, base64: png }] },
+    );
+  },
+};
+
 const browserClick: CliCommand = {
   path: ["browser", "click"],
   summary: "Click an element in a browser tab",
@@ -192,23 +225,28 @@ const browserScreenshot: CliCommand = {
   summary: "Save a PNG of a browser tab's page",
   details:
     "Saved where --out says, from this directory, or in the temp directory. Works for tabs\n" +
-    "that are not shown, too.",
+    "that are not shown, too. --element takes a ref from the last snapshot or a CSS selector\n" +
+    "that matches one element, and scrolls it into view.",
   flags: {
     out: { type: "string", value: "FILE", description: "Save it as FILE" },
     full: { type: "boolean", description: "The whole page, not only what fits the tab" },
+    element: { type: "string", value: "ELEMENT", description: "Only this element, cut to it" },
     ...PAGE_FLAGS,
   },
   async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
+    const element = flags.element as string | undefined;
+    if (element !== undefined && flags.full === true) {
+      throw new CliUsageError("give --full or --element, not both");
+    }
     const { workspace, tab } = await pageOf(ctx, flags, false);
-    const base64 = await ctx.services.browser.screenshot(tab.id, { full: flags.full === true });
+    const base64 = await ctx.services.browser.screenshot(tab.id, {
+      full: flags.full === true,
+      ...(element === undefined ? {} : { element }),
+    });
     const file =
       flags.out === undefined
-        ? callerPath(
-            ctx,
-            `nexus-browser-${shortId(tab.id)}-${ctx.services.clock.now()}.png`,
-            ctx.invocation.tempDir,
-          )
+        ? picturePath(ctx, tab, "browser")
         : callerPath(ctx, flags.out as string);
     return output(
       `Saved ${file}`,
@@ -391,14 +429,7 @@ const browserPick: CliCommand = {
       return output("No element was picked in time.", { ...ids, picked: null }, { exitCode: 124 });
     }
     const { png, clip: _clip, ...el } = cleanPicked(result.picked);
-    const file =
-      png === undefined
-        ? undefined
-        : callerPath(
-            ctx,
-            `nexus-pick-${shortId(tab.id)}-${ctx.services.clock.now()}.png`,
-            ctx.invocation.tempDir,
-          );
+    const file = png === undefined ? undefined : picturePath(ctx, tab, "pick");
     return output(
       formatPick(result.picked, file),
       { ...ids, picked: { ...el, screenshot: file ?? null } },
@@ -409,6 +440,7 @@ const browserPick: CliCommand = {
 
 export const browserControlCommands: CliCommand[] = [
   browserSnapshot,
+  browserInspect,
   browserClick,
   browserFill,
   browserType,

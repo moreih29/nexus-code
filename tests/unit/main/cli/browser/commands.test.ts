@@ -52,6 +52,42 @@ describe("reading a page", () => {
     expect(app.browser.calls.at(-1)?.args).toEqual([{ full: true }]);
   });
 
+  test("screenshot --element cuts the picture to one element, and is not --full", async () => {
+    const app = fakeApp();
+    const result = await nexus(app, ["browser", "screenshot", "--element", "e7"]);
+    expect(result.exitCode).toBe(0);
+    expect(app.browser.calls.at(-1)?.args).toEqual([{ full: false, element: "e7" }]);
+    const both = await nexus(app, ["browser", "screenshot", "--element", "e7", "--full"]);
+    expect(both.stderr).toContain("give --full or --element, not both");
+  });
+
+  test("inspect prints the element as pick does and saves its picture", async () => {
+    const app = fakeApp();
+    app.time.now = 1_000;
+    const result = await nexus(app, ["browser", "inspect", "e7"]);
+    expect(result.stdout).toBe(
+      "[element] http://localhost:5173/login\n" +
+        '  button "Sign in" (ref e7)\n' +
+        "  selector: #login > button.primary\n" +
+        "  box: 120x32 at (412, 388)\n" +
+        '  html: <button class="primary" type="submit">Sign in</button>\n' +
+        "  screenshot: /tmp/nexus-inspect-aaaaaaaa-1000.png\n",
+    );
+    expect(result.files).toEqual([
+      { path: "/tmp/nexus-inspect-aaaaaaaa-1000.png", base64: "cG5n" },
+    ]);
+    const data = JSON.parse(
+      (await nexus(app, ["browser", "inspect", "#login button", "--json"])).stdout,
+    );
+    expect(data.element).toMatchObject({ ref: "e7", selector: "#login > button.primary" });
+    expect(data.element.png).toBeUndefined();
+    expect(app.browser.calls.at(-1)).toEqual({
+      op: "inspect",
+      tabId: BROWSER_TAB,
+      args: ["#login button"],
+    });
+  });
+
   test("a Windows terminal's screenshot path follows Windows rules", async () => {
     const app = fakeApp();
     const result = await nexus(app, ["browser", "screenshot", "--out", "a.png"], {
