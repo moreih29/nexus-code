@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import i18next from "i18next";
 import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/errors";
-import type { FileContent } from "../../../shared/fs/types";
 import type { DiffTabPayload } from "../../../shared/types/tab";
 import { ipcCallResult, ipcListen, unwrapGitResult, unwrapIpcResult } from "../../ipc/client";
+import type { TextEncoding } from "../../services/editor/encoding/text-encoding";
+import { decodeFileContent } from "../../services/editor/model/file-loader";
 import { fsErrorReason } from "../../utils/file-error";
 import { isRecord } from "../../utils/is-record";
 import { EMPTY_TREE } from "./diff-refs";
@@ -33,7 +34,7 @@ export interface DiffSideReadyState {
   phase: "ready";
   request: DiffSideRequest;
   content: string;
-  encoding: FileContent["encoding"];
+  encoding: TextEncoding;
   sizeBytes: number;
   isBinary: boolean;
   mtime: string;
@@ -272,12 +273,14 @@ export async function readSideContent(
     };
   }
 
+  const { kind: _kind, ...read } = result;
+  const decoded = decodeFileContent(read);
   return {
-    content: result.content,
-    encoding: result.encoding,
-    sizeBytes: result.sizeBytes,
-    isBinary: result.isBinary,
-    mtime: result.mtime,
+    content: decoded.content,
+    encoding: decoded.encoding,
+    sizeBytes: decoded.sizeBytes,
+    isBinary: decoded.isBinary,
+    mtime: decoded.mtime,
   };
 }
 

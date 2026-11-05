@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import type { TextEncoding } from "../../../../../src/renderer/services/editor/encoding/text-encoding";
 
 (globalThis as Record<string, unknown>).window = {
   ipc: {
@@ -106,7 +107,7 @@ function makeResolvedModel(overrides: Partial<ReturnType<typeof makeResolvedMode
     filePath: "/workspace/src/a.ts",
     languageId: "typescript",
     readOnly: false,
-    encoding: "utf8" as "utf8" | "utf8-bom",
+    encoding: "utf8" as TextEncoding,
     ...overrides,
   };
 }
@@ -237,6 +238,51 @@ describe("saveModel baseline sync", () => {
 
     const write = ipcCallMock.mock.calls.find(([, method]) => method === "writeFile");
     expect((write?.[2] as { content: string }).content).toBe("content");
+  });
+
+  test("writes a file in another encoding as its bytes", async () => {
+    getResolvedModelMock.mockImplementation(() =>
+      makeResolvedModel({ model: makeModel("한글"), encoding: "euc-kr" }),
+    );
+
+    const result = await saveModel(INPUT);
+
+    expect(result.kind).toBe("saved");
+    const write = ipcCallMock.mock.calls.find(([, method]) => method === "writeFile");
+    // "한글" in EUC-KR: C7 D1 B1 DB.
+    expect(write?.[2]).toMatchObject({ content: "", bytes: "x9Gx2w==" });
+    expect(syncLoadedValueAfterSaveMock).toHaveBeenCalledWith(INPUT, "한글");
+  });
+
+  test("does not write a character the file's encoding has no bytes for", async () => {
+    getResolvedModelMock.mockImplementation(() =>
+      makeResolvedModel({ model: makeModel("ok\n😀"), encoding: "euc-kr" }),
+    );
+
+    const result = await saveModel(INPUT);
+
+    expect(result).toEqual({
+      kind: "error",
+      message: 'EUC-KR (CP949) has no character "😀" (line 2, column 1)',
+    });
+    expect(ipcCallMock.mock.calls.some(([, method]) => method === "writeFile")).toBe(false);
+  });
+
+  test("Save with Encoding writes the file in it even with no edits", async () => {
+    getResolvedModelMock.mockImplementation(() => makeResolvedModel({ model: makeModel("hi") }));
+    getDirtyEntryMock.mockImplementation(() => ({
+      isDirty: false,
+      loadedMtime: "T0",
+      loadedSize: 10,
+    }));
+
+    expect((await saveModel(INPUT)).kind).toBe("not-dirty");
+    const result = await saveModel(INPUT, { encoding: "utf-16le" });
+
+    expect(result.kind).toBe("saved");
+    const write = ipcCallMock.mock.calls.find(([, method]) => method === "writeFile");
+    // FF FE, then "hi" in UTF-16 LE.
+    expect(write?.[2]).toMatchObject({ content: "", bytes: "//5oAGkA" });
   });
 
   test("does not advance the baseline when the save conflicts", async () => {

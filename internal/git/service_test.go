@@ -244,3 +244,23 @@ func TestRegisterExposesMethods(t *testing.T) {
 		}
 	}
 }
+
+// A blob not in UTF-8 goes to the reader as its bytes, as fs.readFile's do.
+func TestGetFileContentTextNotInUTF8IsBytes(t *testing.T) {
+	t.Parallel()
+	for name, data := range map[string][]byte{
+		"latin1.txt":  []byte("caf\xe9\n"),
+		"utf16le.txt": {0xff, 0xfe, 'h', 0, 'i', 0},
+	} {
+		result := buildFileReadResult(data)
+		if result["encoding"] != "bytes" || result["content"] != "" || result["isBinary"] != false {
+			t.Fatalf("%s: %#v", name, result)
+		}
+		if got, _ := result["bytes"].([]byte); string(got) != string(data) {
+			t.Fatalf("%s: bytes = %q, want %q", name, got, data)
+		}
+	}
+	if result := buildFileReadResult([]byte("hello\n")); result["encoding"] != "utf8" || result["content"] != "hello\n" {
+		t.Fatalf("UTF-8: %#v", result)
+	}
+}

@@ -62,6 +62,8 @@ export const FS_WRITE_FILE_METHOD = "fs.writeFile" as const;
 export const FsWriteFileParamsSchema = z.object({
   relPath: RelPathSchema,
   content: z.string(),
+  // Base64 bytes written in place of `content`: text in another encoding.
+  bytes: z.string().optional(),
   expected: ExpectedFileStateSchema.optional(),
 });
 export type FsWriteFileParams = z.infer<typeof FsWriteFileParamsSchema>;

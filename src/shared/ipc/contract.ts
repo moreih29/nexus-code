@@ -1182,6 +1182,9 @@ export const ipcContract = {
         workspaceScoped({
           relPath: z.string(),
           content: z.string(),
+          // Base64 bytes written in place of `content`, for text in an
+          // encoding other than UTF-8.
+          bytes: z.string().optional(),
           expected: ExpectedFileStateSchema,
         }),
         WriteFileResultSchema,

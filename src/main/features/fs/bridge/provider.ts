@@ -27,10 +27,12 @@ export interface FsProvider {
    */
   readBinary(relPath: string): Promise<FileReadBinaryResult>;
   readAbsolute(absolutePath: string): Promise<FileReadResult>;
+  /** Writes `content`, or `bytes` (base64) in its place: text in another encoding. */
   writeFile(
     relPath: string,
     content: string,
     expected?: ExpectedFileStateContract,
+    bytes?: string,
   ): Promise<WriteFileResult>;
   createFile(relPath: string): Promise<void>;
   /**

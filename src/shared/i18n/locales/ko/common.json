@@ -411,6 +411,30 @@
     "close_running_description": "이 터미널에서 “{{name}}”이(가) 아직 실행 중입니다. 터미널을 닫으면 종료됩니다.",
     "close_running_confirm": "종료"
   },
+  "encoding": {
+    "segmentTitle": "인코딩: {{name}}",
+    "menuTitle": "인코딩",
+    "reopen": "다른 인코딩으로 다시 열기",
+    "saveWith": "다른 인코딩으로 저장",
+    "reopenDirty": "파일을 다시 열려면 수정 내용을 저장하거나 되돌리세요.",
+    "group": {
+      "unicode": "유니코드",
+      "korean": "한국어",
+      "japanese": "일본어",
+      "chineseSimplified": "중국어 간체",
+      "chineseTraditional": "중국어 번체",
+      "western": "서유럽어",
+      "centralEuropean": "중앙 유럽어",
+      "cyrillic": "키릴 문자",
+      "greek": "그리스어",
+      "turkish": "튀르키예어",
+      "hebrew": "히브리어",
+      "arabic": "아랍어",
+      "baltic": "발트어",
+      "vietnamese": "베트남어",
+      "thai": "태국어"
+    }
+  },
   "lsp": {
     "language": {
       "typescript": "TypeScript",

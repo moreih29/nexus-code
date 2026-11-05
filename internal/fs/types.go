@@ -46,6 +46,9 @@ type ReadFileResult struct {
 	Kind     string
 	Content  string
 	Encoding string
+	// Bytes is the file's text as it is on disk, for Encoding "bytes": text
+	// not in UTF-8, which the reader decodes. Content is empty then.
+	Bytes    []byte
 	Size     int64
 	IsBinary bool
 	MTime    string
@@ -98,10 +101,11 @@ func (r ReadFileResult) MarshalJSON() ([]byte, error) {
 		Kind     string `json:"kind"`
 		Content  string `json:"content"`
 		Encoding string `json:"encoding"`
+		Bytes    []byte `json:"bytes,omitempty"`
 		Size     int64  `json:"sizeBytes"`
 		IsBinary bool   `json:"isBinary"`
 		MTime    string `json:"mtime"`
-	}{Kind: r.Kind, Content: r.Content, Encoding: r.Encoding, Size: r.Size, IsBinary: r.IsBinary, MTime: r.MTime})
+	}{Kind: r.Kind, Content: r.Content, Encoding: r.Encoding, Bytes: r.Bytes, Size: r.Size, IsBinary: r.IsBinary, MTime: r.MTime})
 }
 
 // ExpectedFileState mirrors the TS ExpectedFileStateSchema discriminated
@@ -116,8 +120,11 @@ type ExpectedFileState struct {
 
 // WriteFileParams — fs.writeFile request shape.
 type WriteFileParams struct {
-	RelPath  string             `json:"relPath"`
-	Content  string             `json:"content"`
+	RelPath string `json:"relPath"`
+	Content string `json:"content"`
+	// Bytes, when given, are written in place of Content: text in an
+	// encoding other than UTF-8, which a JSON string cannot carry.
+	Bytes    []byte             `json:"bytes,omitempty"`
 	Expected *ExpectedFileState `json:"expected,omitempty"`
 }
 

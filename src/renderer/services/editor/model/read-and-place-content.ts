@@ -1,7 +1,7 @@
 /** Reads the file from disk, detects binary content, and creates or updates the Monaco text model. */
 
 import type * as Monaco from "monaco-editor";
-import type { FileContent } from "../../../../shared/fs/types";
+import type { TextEncoding } from "../encoding/text-encoding";
 import type { EditorInput } from "../types";
 import { ensureModelWithContent } from "./ensure-model";
 import type { ModelEntryDeps } from "./types";
@@ -9,7 +9,7 @@ import type { ModelEntryDeps } from "./types";
 export interface ReadAndPlaceContentResult {
   model: Monaco.editor.ITextModel;
   content: string;
-  encoding: FileContent["encoding"];
+  encoding: TextEncoding;
   isBinary: false;
   mtime: string;
   sizeBytes: number;

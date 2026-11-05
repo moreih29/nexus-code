@@ -102,11 +102,13 @@ export class AgentFsProvider implements AgentBackedProvider {
     relPath: string,
     content: string,
     expected?: ExpectedFileStateContract,
+    bytes?: string,
   ): Promise<WriteFileResult> {
     const result = await this.callAgent(FS_WRITE_FILE_METHOD, {
       relPath,
       content,
       expected,
+      ...(bytes === undefined ? {} : { bytes }),
     } satisfies FsWriteFileParams);
     return parseAgentResult(WriteFileResultSchema, result);
   }
