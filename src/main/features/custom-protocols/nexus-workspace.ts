@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 // Namespace import (not `import { net, protocol }`): under Bun's test runtime
 // the real electron entry is a CJS shim with no named exports, so a static
@@ -16,8 +17,8 @@ import type { WorkspaceManager } from "../workspace/manager";
 const logger = createLogger("nexus-workspace");
 
 // ---------------------------------------------------------------------------
-// MIME type mapping — v1 covers image formats only.
-// New entries should be added here when additional media types are needed.
+// MIME type mapping. New entries should be added here when additional media
+// types are needed.
 // ---------------------------------------------------------------------------
 
 const MIME_MAP: Record<string, string> = {
@@ -52,6 +53,20 @@ const MIME_MAP: Record<string, string> = {
   ".ttf": "font/ttf",
   ".otf": "font/otf",
   ".eot": "application/vnd.ms-fontobject",
+  // Audio and video, which the editor plays in <audio> and <video>
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".ogg": "audio/ogg",
+  ".oga": "audio/ogg",
+  ".opus": "audio/ogg",
+  ".m4a": "audio/mp4",
+  ".aac": "audio/aac",
+  ".flac": "audio/flac",
+  ".mp4": "video/mp4",
+  ".m4v": "video/mp4",
+  ".mov": "video/quicktime",
+  ".webm": "video/webm",
+  ".ogv": "video/ogg",
 };
 
 function mimeFromPath(filePath: string): string {
@@ -71,7 +86,63 @@ function responseHeaders(filePath: string): Record<string, string> {
     // Stops a page from loading a non-JS/non-CSS file as a classic script or
     // stylesheet to read it (an `.env` of `KEY="…"` lines is valid JS).
     "X-Content-Type-Options": "nosniff",
+    // <audio> and <video> seek by asking for the bytes at the new place.
+    "Accept-Ranges": "bytes",
   };
+}
+
+/** The bytes a request asks for, from `start` to `end` inclusive. */
+export interface ByteRange {
+  readonly start: number;
+  readonly end: number;
+}
+
+/**
+ * The range a `Range` header asks of a file of `size` bytes: null for the
+ * whole file (no header, or one this does not serve, as several ranges),
+ * "unsatisfiable" for one that starts past the end.
+ */
+export function requestedRange(
+  header: string | null,
+  size: number,
+): ByteRange | "unsatisfiable" | null {
+  const match = header?.trim().match(/^bytes=(\d*)-(\d*)$/);
+  if (!match) return null;
+  const [, from = "", to = ""] = match;
+  if (from === "" && to === "") return null;
+  if (size === 0) return "unsatisfiable";
+  if (from === "") {
+    // The last `to` bytes.
+    const length = Number(to);
+    if (length === 0) return "unsatisfiable";
+    return { start: Math.max(0, size - length), end: size - 1 };
+  }
+  const start = Number(from);
+  if (start >= size) return "unsatisfiable";
+  const end = to === "" ? size - 1 : Math.min(Number(to), size - 1);
+  if (end < start) return null;
+  return { start, end };
+}
+
+/** A 206 for `range` of a file of `size` bytes, or the 416 for none in it. */
+function partialResponse(
+  body: ConstructorParameters<typeof Response>[0],
+  range: ByteRange,
+  size: number,
+  filePath: string,
+): Response {
+  return new Response(body, {
+    status: 206,
+    headers: {
+      ...responseHeaders(filePath),
+      "Content-Range": `bytes ${range.start}-${range.end}/${size}`,
+      "Content-Length": String(range.end - range.start + 1),
+    },
+  });
+}
+
+function unsatisfiable(size: number): Response {
+  return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
 }
 
 // ---------------------------------------------------------------------------
@@ -111,7 +182,7 @@ export function buildNexusWorkspaceHandler(
     // Local workspaces stay on the file:// fetch path below because it
     // streams directly off disk without a base64 round-trip.
     if (meta.location.kind !== "local") {
-      return serveViaAgent(workspaceManager, workspaceId, relPath);
+      return serveViaAgent(workspaceManager, workspaceId, relPath, req.headers.get("range"));
     }
 
     const rootPath = meta.location.rootPath;
@@ -155,7 +226,26 @@ export function buildNexusWorkspaceHandler(
       return new Response(null, { status: 404 });
     }
 
-    // Step 6 — serve via net.fetch using a file:// URL.
+    // Step 6 — a range, as <audio> and <video> ask for, is read from the
+    // file at its place.
+    const rangeHeader = req.headers.get("range");
+    if (rangeHeader !== null) {
+      try {
+        const { size } = await fs.promises.stat(realPath);
+        const range = requestedRange(rangeHeader, size);
+        if (range === "unsatisfiable") return unsatisfiable(size);
+        if (range !== null) {
+          const stream = fs.createReadStream(realPath, { start: range.start, end: range.end });
+          const body = Readable.toWeb(stream) as ReadableStream<Uint8Array>;
+          return partialResponse(body, range, size, realPath);
+        }
+      } catch (err) {
+        logger.warn(`Failed to read file: ${realPath} — ${(err as Error).message}`);
+        return new Response(null, { status: 404 });
+      }
+    }
+
+    // Step 7 — serve via net.fetch using a file:// URL.
     // net.fetch handles streaming for us and avoids manually wrapping Node
     // streams into a Web ReadableStream across Electron versions.
     try {
@@ -189,6 +279,7 @@ async function serveViaAgent(
   workspaceManager: WorkspaceManager,
   workspaceId: string,
   relPath: string,
+  rangeHeader: string | null,
 ): Promise<Response> {
   // posix-style for the agent (it splits on "/" internally and runs on
   // unix hosts in SSH mode). path.sep was applied at parse time for the
@@ -208,6 +299,17 @@ async function serveViaAgent(
       return new Response(null, { status: 404 });
     }
     const buf = Buffer.from(result.base64, "base64");
+    // The agent reads whole files; a range is cut from the bytes.
+    const range = requestedRange(rangeHeader, buf.length);
+    if (range === "unsatisfiable") return unsatisfiable(buf.length);
+    if (range !== null) {
+      return partialResponse(
+        buf.subarray(range.start, range.end + 1),
+        range,
+        buf.length,
+        posixRelPath,
+      );
+    }
     return new Response(buf, { status: 200, headers: responseHeaders(posixRelPath) });
   } catch (err) {
     logger.warn(
@@ -242,6 +344,8 @@ export function registerNexusWorkspaceSchemes(): void {
         // cancels. supportFetchAPI stays false: no JS fetch() surface.
         corsEnabled: true,
         bypassCSP: false,
+        // Lets <audio> and <video> play files as they load, and seek them.
+        stream: true,
       },
     },
   ]);

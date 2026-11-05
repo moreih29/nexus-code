@@ -52,11 +52,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
-import { ipcCallResult, ipcListen } from "../../../ipc/client";
-import { buildWorkspaceUrl } from "../../../services/editor/preview/workspace-url";
-import { useWorkspacesStore } from "../../../state/stores/workspaces";
-import { relPath } from "../../../utils/path";
+import { ipcCallResult } from "../../../ipc/client";
 import { EmptyState } from "../../ui/empty-state";
+import { useFileVersion, versionedUrl } from "./use-file-version";
+import { useWorkspaceFile } from "./use-workspace-file";
 
 export interface ImagePreviewProps {
   /** Workspace owning the file — used to scope the custom-protocol URL. */
@@ -73,27 +72,18 @@ export interface ImagePreviewProps {
 
 export function ImagePreview({ workspaceId, filePath, onNaturalSize }: ImagePreviewProps) {
   const { t } = useTranslation();
-  const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
+  const file = useWorkspaceFile(workspaceId, filePath);
 
   // Defensive: workspace should always exist when an editor tab is open,
   // but guard against teardown races where the tab survives past the
   // workspace removal for one render.
-  if (!workspace) {
+  if (file.kind === "no-workspace") {
     return <EmptyState title={t("imagePreview.workspace_not_found")} tone="status" className="min-h-0" />;
   }
 
-  // rootPath is location-shaped: WorkspaceLocation discriminates on `kind`
-  // with rootPath (local) / remotePath (ssh). The flat helper field on
-  // meta keeps both shapes addressable from the same selector here.
-  const workspaceRoot =
-    workspace.location.kind === "local"
-      ? workspace.location.rootPath
-      : workspace.location.remotePath;
-  const rel = relPath(filePath, workspaceRoot);
-  // Files outside the workspace root resolve to the absolute path
-  // (relPath's documented fallback). The protocol won't serve those,
-  // so surface a status row rather than a broken image.
-  if (rel === filePath) {
+  // The protocol won't serve files outside the workspace root, so surface a
+  // status row rather than a broken image.
+  if (file.kind === "outside") {
     return (
       <EmptyState
         title={t("imagePreview.outside_workspace")}
@@ -103,13 +93,12 @@ export function ImagePreview({ workspaceId, filePath, onNaturalSize }: ImagePrev
     );
   }
 
-  const url = buildWorkspaceUrl(workspaceId, rel);
   return (
     <ImageCanvas
-      url={url}
-      alt={rel}
+      url={file.url}
+      alt={file.relPath}
       workspaceId={workspaceId}
-      relPath={rel}
+      relPath={file.relPath}
       onNaturalSize={onNaturalSize}
     />
   );
@@ -193,8 +182,8 @@ function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCan
 
   // Bumped whenever the file changes on disk; appended to the URL so the
   // <img> re-requests it (see LIVE RELOAD above).
-  const [version, setVersion] = useState(0);
-  const src = version === 0 ? url : `${url}?v=${version}`;
+  const version = useFileVersion(workspaceId, relPath);
+  const src = versionedUrl(url, version);
 
   // A previous load failure (file missing mid-write, deleted then recreated)
   // must not stick once a new version is requested — the error branch below
@@ -204,42 +193,6 @@ function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCan
     setTrackedSrc(src);
     setErrorKind(null);
   }
-
-  useEffect(() => {
-    let cancelled = false;
-    // `${mtime}|${size}` last observed; null = missing, undefined = no
-    // baseline yet (the first stat only records, never bumps).
-    let statKey: string | null | undefined;
-    // fs.changed already proves a write happened, so it forces a bump even
-    // when the stat compares equal (mtime is only ms-granular).
-    // git.statusChanged fires for any workspace change, so it bumps only
-    // when this file's stat actually moved.
-    const refresh = (force: boolean) => {
-      void ipcCallResult("fs", "stat", { workspaceId, relPath }).then((result) => {
-        if (cancelled) return;
-        const key = result.ok ? `${result.value.mtime}|${result.value.size}` : null;
-        const hadBaseline = statKey !== undefined;
-        const changed = key !== statKey;
-        statKey = key;
-        if (hadBaseline && (force || changed)) setVersion((v) => v + 1);
-      });
-    };
-    refresh(false);
-    const unsubscribeFs = ipcListen("fs", "changed", (event) => {
-      if (event.workspaceId !== workspaceId) return;
-      if (!event.changes.some((change) => change.relPath === relPath)) return;
-      refresh(true);
-    });
-    const unsubscribeGit = ipcListen("git", "statusChanged", (event) => {
-      if (event.workspaceId !== workspaceId) return;
-      refresh(false);
-    });
-    return () => {
-      cancelled = true;
-      unsubscribeFs();
-      unsubscribeGit();
-    };
-  }, [workspaceId, relPath]);
 
   // Recompute object-contain fit factor on container resize or natural-size
   // change. Independent of userScale so the user's zoom level persists

@@ -650,6 +650,10 @@
     "load_failed": "이미지를 불러올 수 없습니다.",
     "too_large": "이미지가 너무 커서 미리볼 수 없습니다 (최대 {{maxMb}}MB)."
   },
+  "mediaPreview": {
+    "outside_workspace": "워크스페이스 밖의 파일이라 재생할 수 없습니다.",
+    "load_failed": "이 파일을 재생할 수 없습니다. 지원하지 않는 형식일 수 있습니다."
+  },
   "markdown": {
     "copy_code": "코드 복사",
     "copy": "복사",
