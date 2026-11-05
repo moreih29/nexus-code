@@ -3,7 +3,7 @@
 // Claude tab's own group when it is narrow and has no neighbour.
 
 import { Grid } from "@/engine";
-import { openBrowserTabAt } from "../../state/operations/tabs";
+import { openBrowserTabAt, revealTab } from "../../state/operations/tabs";
 import { useLayoutStore } from "../../state/stores/layout/store";
 import { openOrRevealEditor } from "../editor";
 import { openExternalEditor } from "../editor/tabs/open-external-editor";
@@ -38,6 +38,14 @@ export function openFileBeside(
   activateTarget(workspaceId, claudeTabId, opts.split);
   if (opts.inside) openOrRevealEditor({ workspaceId, filePath: path }, { preview: true });
   else openExternalEditor({ workspaceId, filePath: path });
+}
+
+/** Shows a tab of the workspace, wherever it is in the layout. */
+export function revealTabById(workspaceId: string, tabId: string): void {
+  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
+  if (!layout) return;
+  const leaf = Grid.allLeaves(layout.root).find((l) => l.tabIds.includes(tabId));
+  if (leaf) revealTab(workspaceId, leaf.id, tabId);
 }
 
 /** Opens an address in the app's browser. */

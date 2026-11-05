@@ -31,6 +31,17 @@ function activity() {
   return found;
 }
 
+describe("session", () => {
+  test("the session id its hooks give, kept until the session ends", () => {
+    hook("session-start", { session_id: "s-1", source: "resume" });
+    expect(activity().sessionId).toBe("s-1");
+    hook("user-prompt-submit", { prompt: "go" });
+    expect(activity().sessionId).toBe("s-1");
+    hook("session-end", { session_id: "s-1" });
+    expect(log.get(WS, TAB)).toBeNull();
+  });
+});
+
 describe("tools", () => {
   test("a tool runs from its PreToolUse to its PostToolUse", () => {
     hook("user-prompt-submit", { prompt: "go" });

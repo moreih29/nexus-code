@@ -14,7 +14,7 @@ import {
 } from "../../services/chat/controller";
 import { isLocalAddress, isUnder, resolveFilePath, resultFiles } from "../../services/chat/links";
 import type { AssistantItem, PermissionRequest, UserItem } from "../../services/chat/model";
-import { openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
+import { openBrowserBeside, openFileBeside, revealTabById } from "../../services/chat/open-beside";
 import {
   agentsOf,
   agentTranscript,
@@ -33,6 +33,7 @@ import {
   useChatStore,
   useChatTab,
 } from "../../services/chat/store";
+import { useTerminalTwin } from "../../services/chat/terminal-twin";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
 import { openClaudeTab } from "../../state/operations/tabs";
 import { grantOutside } from "../../state/stores/outside-grants";
@@ -360,6 +361,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
             </div>
           )}
           <RateLimitBanner state={state} />
+          <TwinBanner workspaceId={workspaceId} tabId={tabId} sessionId={state.model.sessionId} />
           <Composer
             controller={controller}
             state={state}
@@ -559,6 +561,30 @@ function PhaseBanner({ controller, state }: { controller: ChatController; state:
   }
   if (banners.length === 0) return null;
   return <div className="shrink-0 pt-1">{banners}</div>;
+}
+
+/** Warns that the session is open in a terminal tab too, where going on forks it. */
+function TwinBanner({
+  workspaceId,
+  tabId,
+  sessionId,
+}: {
+  workspaceId: string;
+  tabId: string;
+  sessionId: string | undefined;
+}) {
+  const { t } = useTranslation();
+  const twin = useTerminalTwin(workspaceId, tabId, sessionId);
+  if (!twin) return null;
+  return (
+    <div className="shrink-0" data-testid="chat-terminal-twin">
+      <Banner
+        variant="warning"
+        message={t("chat.twin.message")}
+        actions={[{ label: t("chat.twin.show"), onAction: () => revealTabById(workspaceId, twin) }]}
+      />
+    </div>
+  );
 }
 
 function RateLimitBanner({ state }: { state: ChatTabState }) {

@@ -59,6 +59,7 @@ interface AgentEntry extends Omit<AgentRun, "tools"> {
 interface SessionEntry {
   readonly workspaceId: string;
   readonly tabId: string;
+  sessionId?: string;
   cwd?: string;
   turnStart?: number;
   tools: ToolRun[];
@@ -98,6 +99,7 @@ export class SessionActivityLog {
     }
     const session = this.sessionOf(workspaceId, tabId);
     if (typeof p.cwd === "string" && p.cwd !== "") session.cwd = p.cwd;
+    if (typeof p.session_id === "string" && p.session_id !== "") session.sessionId = p.session_id;
     const agentId = typeof p.agent_id === "string" && p.agent_id !== "" ? p.agent_id : undefined;
 
     switch (subcommand) {
@@ -574,6 +576,7 @@ function snapshotOf(session: SessionEntry): SessionActivity {
   return {
     workspaceId: session.workspaceId,
     tabId: session.tabId,
+    ...(session.sessionId !== undefined ? { sessionId: session.sessionId } : {}),
     ...(session.turnStart !== undefined ? { turnStart: session.turnStart } : {}),
     tools: session.tools.map((tool) => ({ ...tool })),
     toolCount: session.toolCount,

@@ -883,6 +883,10 @@
       "rejected": "Usage limit reached",
       "rejected_until": "Usage limit reached · resets at {{time}}"
     },
+    "twin": {
+      "message": "This session is open in a terminal tab too. Going on in both forks the conversation.",
+      "show": "Show the terminal"
+    },
     "phase": {
       "starting": "Starting Claude…",
       "held": "The connection dropped. Claude keeps running and the tab catches up when it is back.",
