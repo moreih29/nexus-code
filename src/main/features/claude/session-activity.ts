@@ -183,6 +183,8 @@ export class SessionActivityLog {
         if (model !== undefined) run.model = model;
         run.cwd = text(p.cwd) ?? run.cwd;
         run.sessionId ??= text(p.session_id);
+        // Told from the transcript when its arguments did not tell it.
+        run.prompt = text(p.prompt) ?? run.prompt;
         // A run that tells its tools in its transcript tells it once it is found.
         if (p.tools_told === true) run.toolsTold = true;
         break;

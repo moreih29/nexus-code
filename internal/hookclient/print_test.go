@@ -182,6 +182,8 @@ func TestPrintWatch_ReadsATranscript(t *testing.T) {
 		watch.line([]byte(line))
 	}
 	want := []toldFrame{
+		// Its prompt, which the run's arguments did not tell.
+		{"print-init", map[string]any{"prompt": "review it"}},
 		{"print-init", map[string]any{"model": "glm-4.6", "cwd": "/repo"}},
 		{"print-tool-use", map[string]any{
 			"tool_use_id": "toolu_1",
@@ -200,6 +202,33 @@ func TestPrintWatch_ReadsATranscript(t *testing.T) {
 	// Its answer is what claude wrote after its last tool.
 	if watch.reply != "It is fine.\nShip it." || watch.answer != "" {
 		t.Fatalf("reply = %q, answer = %q", watch.reply, watch.answer)
+	}
+}
+
+func TestPrintWatch_TellsThePromptOnceAndNotAMetaMessage(t *testing.T) {
+	var prompts []any
+	watch := &printWatch{tell: func(subcommand string, payload map[string]any) {
+		if p, ok := payload["prompt"]; ok {
+			prompts = append(prompts, p)
+		}
+	}}
+	for _, line := range []string{
+		`{"type":"user","isMeta":true,"message":{"role":"user","content":"<local-command-caveat>x</local-command-caveat>"}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"  fix the test  "}]}}`,
+		`{"type":"user","message":{"role":"user","content":"and then this"}}`,
+	} {
+		watch.line([]byte(line))
+	}
+	if !reflect.DeepEqual(prompts, []any{"fix the test"}) {
+		t.Fatalf("prompts = %#v", prompts)
+	}
+
+	// One its arguments told is not told again.
+	prompts = nil
+	known := &printWatch{tell: watch.tell, promptTold: true}
+	known.line([]byte(`{"type":"user","message":{"role":"user","content":"review it"}}`))
+	if len(prompts) != 0 {
+		t.Fatalf("prompts = %#v", prompts)
 	}
 }
 

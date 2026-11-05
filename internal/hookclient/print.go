@@ -291,10 +291,11 @@ func runPrint(
 		start["resumed"] = true
 	}
 	teller.tell("print-start", start)
-	watch := &printWatch{tell: teller.tell, text: text}
+	known := run.prompt != ""
+	watch := &printWatch{tell: teller.tell, text: text, promptTold: known}
 	var told *printWatch
 	if transcript != nil {
-		told = &printWatch{tell: teller.tell}
+		told = &printWatch{tell: teller.tell, promptTold: known}
 		go transcript.follow(told, func() {
 			teller.tell("print-init", map[string]any{"tools_told": true})
 		})
@@ -404,6 +405,13 @@ type printWatch struct {
 	// once the run is over, as a transcript tells it.
 	reply     string
 	modelTold bool
+	// promptTold: the run's prompt is known, from its arguments or the
+	// user's message claude first answers; one given on stdin, or after
+	// other options than -p, is told from there.
+	promptTold bool
+	// answering: claude has begun to answer, so a user's message is no
+	// longer the prompt.
+	answering bool
 }
 
 type printEvent struct {
@@ -412,6 +420,7 @@ type printEvent struct {
 	Model     string          `json:"model"`
 	Cwd       string          `json:"cwd"`
 	SessionID string          `json:"session_id"`
+	IsMeta    bool            `json:"isMeta"`
 	Result    json.RawMessage `json:"result"`
 	Message   struct {
 		Model   string          `json:"model"`
@@ -456,6 +465,7 @@ func (w *printWatch) line(b []byte) {
 			w.tell("print-init", init)
 		}
 	case "assistant":
+		w.answering = true
 		// A transcript tells no init: its model is its first message's
 		// (not one Claude Code makes up, as "<synthetic>").
 		if model := event.Message.Model; !w.modelTold && model != "" && !strings.HasPrefix(model, "<") {
@@ -480,6 +490,12 @@ func (w *printWatch) line(b []byte) {
 		}
 	case "user":
 		w.reply = ""
+		if !w.promptTold && !w.answering && !event.IsMeta {
+			if prompt := strings.TrimSpace(textOf(event.Message.Content)); prompt != "" {
+				w.promptTold = true
+				w.tell("print-init", map[string]any{"prompt": cut(prompt, printTextMax)})
+			}
+		}
 		for _, block := range blocksOf(event.Message.Content) {
 			if block.Type != "tool_result" || block.ToolUseID == "" {
 				continue
