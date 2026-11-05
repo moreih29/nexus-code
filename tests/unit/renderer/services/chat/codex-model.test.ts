@@ -5,6 +5,7 @@ import {
   emptyCodexModel,
   hunksOf,
   modeOf,
+  shownCommand,
 } from "../../../../../src/renderer/services/chat/codex-model";
 import type {
   AssistantItem,
@@ -583,10 +584,26 @@ describe("codex helpers", () => {
     expect(modeOf({ type: "externalSandbox" })).toBeUndefined();
   });
 
+  test("shownCommand drops the shell Codex runs a command in", () => {
+    expect(shownCommand("/bin/bash -lc 'printf hi > note.txt && cat note.txt'")).toBe(
+      "printf hi > note.txt && cat note.txt",
+    );
+    expect(shownCommand(`/bin/zsh -lc 'echo '"'"'quoted'"'"''`)).toBe("echo 'quoted'");
+    expect(shownCommand("bash -c ls")).toBe("ls");
+    expect(shownCommand('bash -lc "echo \\"a\\""')).toBe('echo "a"');
+    // Not one script: shown as it is.
+    expect(shownCommand("bash -lc 'a' 'b'")).toBe("bash -lc 'a' 'b'");
+    expect(shownCommand('bash -lc "echo $HOME"')).toBe('bash -lc "echo $HOME"');
+    expect(shownCommand("ls -la")).toBe("ls -la");
+  });
+
   test("hunksOf reads unified diffs and whole files", () => {
     expect(hunksOf("@@ -1,2 +1,2 @@\n a\n-b\n+c\n@@ -9 +9 @@\n-x\n", "update")).toEqual([
       { lines: [" a", "-b", "+c"] },
       { lines: ["-x"] },
+    ]);
+    expect(hunksOf("@@ -1 +1 @@\n-hi\n\\ No newline at end of file\n+hello\n", "update")).toEqual([
+      { lines: ["-hi", "+hello"] },
     ]);
     expect(hunksOf("gone\n", "delete")).toEqual([{ lines: ["-gone"] }]);
     expect(hunksOf("", "add")).toEqual([]);
