@@ -54,6 +54,8 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     props: EditorTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
+    // Source or preview, as last switched; absent, the file's default.
+    viewMode: z.enum(["raw", "preview"]).optional(),
   }),
   z.object({
     id: z.string().uuid(),
