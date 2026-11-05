@@ -39,6 +39,7 @@ import { useLanguageStore } from "./state/stores/language";
 import { useLayoutStore } from "./state/stores/layout";
 import { useLspSettingsStore } from "./state/stores/lsp-settings";
 import { useNotificationsStore } from "./state/stores/notifications";
+import { usePreviewDefaultsStore } from "./state/stores/preview-defaults";
 import { useSessionsViewStore } from "./state/stores/sessions-view";
 import { useTabsStore } from "./state/stores/tabs";
 import { useTerminalStore } from "./state/stores/terminal";
@@ -244,6 +245,7 @@ export async function bootstrapAppState(): Promise<void> {
   useNotificationsStore.getState().hydrate(state.osNotificationsEnabled);
   useAgentCliStore.getState().hydrate(state);
   useSessionsViewStore.getState().hydrate(state);
+  usePreviewDefaultsStore.getState().hydrate(state.previewViewDefaults);
 
   // Hydrate browser permission global toggles so the BrowserPermissionsPanel
   // reflects persisted state on first render.

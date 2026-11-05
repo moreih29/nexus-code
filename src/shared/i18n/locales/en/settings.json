@@ -175,7 +175,12 @@
     "fontDetected": "Detected on this system.",
     "fontNotFound": "Not found on this system — the preview will use the fallback font.",
     "ariaFontSize": "Editor font size",
-    "ariaFontFamily": "Font family"
+    "ariaFontFamily": "Font family",
+    "openIn": {
+      "label": "Open files in",
+      "aria": "View {{format}} files open in",
+      "hint": "The view a file with a preview opens in. A view switched to in a tab stays with that tab."
+    }
   },
   "terminal": {
     "shell": {

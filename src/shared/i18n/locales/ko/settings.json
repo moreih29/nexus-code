@@ -175,7 +175,12 @@
     "fontDetected": "이 시스템에서 감지되었습니다.",
     "fontNotFound": "이 시스템에서 찾을 수 없습니다 — 미리 보기는 대체 글꼴을 사용합니다.",
     "ariaFontSize": "편집기 글꼴 크기",
-    "ariaFontFamily": "글꼴 종류"
+    "ariaFontFamily": "글꼴 종류",
+    "openIn": {
+      "label": "파일을 여는 보기",
+      "aria": "{{format}} 파일을 여는 보기",
+      "hint": "미리보기가 있는 파일을 처음 열 때의 보기입니다. 탭에서 바꾼 보기는 그 탭에 남습니다."
+    }
   },
   "terminal": {
     "shell": {

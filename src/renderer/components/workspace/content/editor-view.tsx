@@ -16,6 +16,7 @@ import {
 } from "../../../services/editor/preview/previewable";
 import { toggleTaskMarker } from "../../../services/editor/preview/task-toggle";
 import { useGitSession, useGitStore } from "../../../state/stores/git";
+import { usePreviewDefaultsStore } from "../../../state/stores/preview-defaults";
 import { useTabsStore } from "../../../state/stores/tabs";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { cn } from "../../../utils/cn";
@@ -216,9 +217,10 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
       ? s.byWorkspace[workspaceId]?.[tabId]
       : null,
   );
+  const viewDefaults = usePreviewDefaultsStore((s) => s.byFormat);
   const viewMode =
     (storedViewMode?.type === "editor" ? storedViewMode.viewMode : undefined) ??
-    defaultViewMode(filePath);
+    defaultViewMode(filePath, viewDefaults);
   const setViewMode = useTabsStore((s) => s.setViewMode);
 
   // Live markdown/html/svg source — subscribed only when actually previewing,

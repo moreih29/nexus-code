@@ -76,19 +76,49 @@ export function isPreviewable(filePath: string): PreviewSupport {
   return "none";
 }
 
+export type ViewMode = "raw" | "preview";
+
+/** The view each format opens in, as Settings › Editor sets it; one left out opens as it does by default. */
+export type ViewModeDefaults = Readonly<Partial<Record<PreviewEngine, ViewMode>>>;
+
 /**
  * How a file opens: in its preview when it has one, in its source otherwise.
  * JSON and YAML open in their source, which is what they are mostly
- * opened to read and change; their tree is a switch away. A tab keeps the mode it was switched
- * to; this is the mode of one never switched.
+ * opened to read and change; their tree is a switch away. `chosen` puts
+ * the user's choice per format in place of these. A tab keeps the mode it
+ * was switched to; this is the mode of one never switched.
  */
-export function defaultViewMode(filePath: string): "raw" | "preview" {
+export function defaultViewMode(filePath: string, chosen: ViewModeDefaults = {}): ViewMode {
   if (isPreviewable(filePath) !== "supported") return "raw";
   const engine = previewEngineFor(filePath);
+  return chosen[engine] ?? builtInViewMode(engine);
+}
+
+/** The view a format opens in when the user has not chosen one. */
+export function builtInViewMode(engine: PreviewEngine): ViewMode {
   return engine === "json" || engine === "yaml" ? "raw" : "preview";
 }
 
 export type PreviewEngine = "markdown" | "html" | "svg" | "table" | "json" | "yaml" | "notebook";
+
+/** Each format with a preview, as Settings lists them: its name and its extensions. */
+export const PREVIEW_FORMATS: readonly {
+  readonly engine: PreviewEngine;
+  readonly name: string;
+  readonly extensions: readonly string[];
+}[] = [
+  { engine: "markdown", name: "Markdown", extensions: MARKDOWN_EXTENSIONS },
+  { engine: "html", name: "HTML", extensions: HTML_EXTENSIONS },
+  { engine: "svg", name: "SVG", extensions: SVG_EXTENSIONS },
+  { engine: "table", name: "CSV · TSV", extensions: TABLE_EXTENSIONS },
+  { engine: "json", name: "JSON", extensions: JSON_EXTENSIONS },
+  { engine: "yaml", name: "YAML", extensions: YAML_EXTENSIONS },
+  { engine: "notebook", name: "Jupyter Notebook", extensions: NOTEBOOK_EXTENSIONS },
+];
+
+export function isPreviewEngine(value: string): value is PreviewEngine {
+  return PREVIEW_FORMATS.some((format) => format.engine === value);
+}
 
 /**
  * Maps a supported file path to the concrete preview engine. Throws (never

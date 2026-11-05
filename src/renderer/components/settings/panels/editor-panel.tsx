@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "../../ui/select";
 import { SettingsRow, SettingsSection } from "../section";
+import { PreviewDefaultsSection } from "./preview-defaults-section";
 import type { SegmentedOption } from "../segmented-control";
 import { SegmentedControl } from "../segmented-control";
 
@@ -279,6 +280,9 @@ export function EditorPanel() {
           {t("editor.ligatures.description")}
         </p>
       </SettingsSection>
+
+      {/* The view each format with a preview opens in */}
+      <PreviewDefaultsSection />
     </div>
   );
 }
