@@ -7,21 +7,41 @@
 // open is kept by each value's place in the tree, so it holds as the
 // file changes. The keys work as in a tree: up and down move, right
 // opens, left closes or goes to the parent, Enter and Space toggle.
+//
+// Find (⌘F) goes through every key and value, those in closed objects
+// and arrays too; the current match's row is opened to and scrolled into
+// view.
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
-import { type KeyboardEvent, useCallback, useId, useMemo, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import {
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useTranslation } from "react-i18next";
+import { MAX_FIND_MATCHES } from "@/services/editor/preview/find/dom-finder";
+import { findMatches } from "@/services/editor/preview/find/find-matches";
+import {
+  ancestorPaths,
   countValues,
   hasChildren,
   type JsonRow,
   JsonSyntaxError,
   type JsonValue,
+  labelText,
   parseJson,
+  type TreeMatch,
+  treeMatches,
+  valueText,
   visibleRows,
 } from "@/services/editor/preview/json-tree";
 import { cn } from "../../../utils/cn";
+import { type FindMark, type FindResult, MarkedLine, usePreviewFinder } from "./preview-find";
 
 /** A row's height, in px. */
 const ROW_PX = 22;
@@ -31,10 +51,10 @@ const INDENT_PX = 16;
 const OPEN_ALL_LIMIT = 5000;
 /** Past this many characters a file is not drawn as a tree. */
 const MAX_TREE_CHARS = 16 * 1024 * 1024;
-/** How much of a long string its row shows; the raw view has all of it. */
-const MAX_STRING_CHARS = 1000;
 /** How much of a long string its tooltip shows. */
 const MAX_TITLE_CHARS = 2000;
+/** The toolbar's height, in px, which the find bar sits below. */
+const TOOLBAR_PX = 33;
 
 type Parsed =
   | { kind: "ok"; root: JsonValue; count: number }
@@ -49,6 +69,28 @@ interface OpenState {
 }
 
 const INITIAL_OPEN: OpenState = { base: "default", toggled: new Set() };
+
+/** Whether the row at `path` is open in `state`, for a file of `count` values. */
+function isOpenIn(state: OpenState, count: number, path: string): boolean {
+  const base =
+    state.base === "all" ? true : state.base === "none" ? false : count <= OPEN_ALL_LIMIT;
+  return base !== state.toggled.has(path);
+}
+
+/** `state` with every object and array `path` is in open. */
+function openTo(state: OpenState, count: number, path: string): OpenState {
+  const closed = ancestorPaths(path).filter((ancestor) => !isOpenIn(state, count, ancestor));
+  if (closed.length === 0) return state;
+  const toggled = new Set(state.toggled);
+  for (const ancestor of closed) if (!toggled.delete(ancestor)) toggled.add(ancestor);
+  return { base: state.base, toggled };
+}
+
+/** A row's marks: in its key, and in its value. */
+interface RowMarks {
+  readonly label: FindMark[];
+  readonly value: FindMark[];
+}
 
 /** A format the tree reads: its name, as messages say it, and its reader. */
 export interface TreeFormat {
@@ -108,14 +150,7 @@ function JsonTree({ root, count, format }: { root: JsonValue; count: number; for
   const [open, setOpen] = useState(INITIAL_OPEN);
   const [activePath, setActivePath] = useState<string | null>(null);
 
-  const isOpen = useCallback(
-    (path: string) => {
-      const base =
-        open.base === "all" ? true : open.base === "none" ? false : count <= OPEN_ALL_LIMIT;
-      return base !== open.toggled.has(path);
-    },
-    [open, count],
-  );
+  const isOpen = useCallback((path: string) => isOpenIn(open, count, path), [open, count]);
   const rows = useMemo(() => visibleRows(root, isOpen), [root, isOpen]);
   const activeIndex = activePath === null ? -1 : rows.findIndex((row) => row.path === activePath);
 
@@ -133,6 +168,114 @@ function JsonTree({ root, count, format }: { root: JsonValue; count: number; for
       return { base: state.base, toggled };
     });
   }, []);
+
+  const [find, setFind] = useState<{ query: string; caseSensitive: boolean } | null>(null);
+  const [current, setCurrent] = useState(-1);
+  const reportRef = useRef<(result: FindResult) => void>(() => {});
+  const finding = find !== null;
+  /** Every row, every object and array open: what a find goes through. */
+  const allRows = useMemo(() => (finding ? visibleRows(root, () => true) : []), [finding, root]);
+  const matches = useMemo(
+    () =>
+      find
+        ? treeMatches(allRows, (text) =>
+            findMatches(text, find.query, find.caseSensitive, MAX_FIND_MATCHES),
+          )
+        : [],
+    [find, allRows],
+  );
+  const matchesRef = useRef(matches);
+  matchesRef.current = matches;
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  /** Whether the next matches start at the view, as a new query does. */
+  const freshRef = useRef(false);
+  /** Whether the current match is to be opened to and scrolled to. */
+  const revealRef = useRef(false);
+
+  usePreviewFinder(
+    useCallback((report: (result: FindResult) => void) => {
+      reportRef.current = report;
+      return {
+        barTop: TOOLBAR_PX + 8,
+        search(query: string, caseSensitive: boolean) {
+          freshRef.current = true;
+          setFind(query.trim() ? { query, caseSensitive } : null);
+        },
+        move(direction: 1 | -1) {
+          const total = matchesRef.current.length;
+          if (total === 0) return;
+          revealRef.current = true;
+          setCurrent((at) => (at + direction + total) % total);
+        },
+        clear() {
+          setFind(null);
+        },
+      };
+    }, []),
+  );
+
+  // New matches: a new query's start at the first row in view; a file
+  // that changed keeps the current one as near as it can.
+  useEffect(() => {
+    if (matches.length === 0) {
+      setCurrent(-1);
+      return;
+    }
+    if (freshRef.current) {
+      freshRef.current = false;
+      revealRef.current = true;
+      const top = rowsRef.current[Math.floor((scrollRef.current?.scrollTop ?? 0) / ROW_PX)];
+      const order = top ? allRows.findIndex((row) => row.path === top.path) : 0;
+      const first = matches.findIndex((match) => match.row >= order);
+      setCurrent(first === -1 ? 0 : first);
+    } else {
+      setCurrent((at) => Math.min(Math.max(at, 0), matches.length - 1));
+    }
+  }, [matches, allRows]);
+
+  const currentMatch: TreeMatch | undefined = current >= 0 ? matches[current] : undefined;
+  useEffect(() => {
+    reportRef.current({ total: matches.length, current: currentMatch ? current + 1 : 0 });
+  }, [matches.length, current, currentMatch]);
+
+  // The current match's row: its objects and arrays opened, then, drawn
+  // with them open, scrolled to the middle and across to the match.
+  useEffect(() => {
+    if (!currentMatch || !revealRef.current) return;
+    const index = rows.findIndex((row) => row.path === currentMatch.path);
+    if (index === -1) {
+      setOpen((state) => openTo(state, count, currentMatch.path));
+      return;
+    }
+    revealRef.current = false;
+    virtualizer.scrollToIndex(index, { align: "center" });
+    const frame = requestAnimationFrame(() => {
+      const scroller = scrollRef.current;
+      const mark = scroller?.querySelector<HTMLElement>("[data-find-current]");
+      if (!scroller || !mark) return;
+      const box = scroller.getBoundingClientRect();
+      const at = mark.getBoundingClientRect();
+      if (at.left < box.left || at.right > box.right) {
+        scroller.scrollLeft += at.left - box.left - (box.width - at.width) / 2;
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [currentMatch, rows, count, virtualizer]);
+
+  /** Each row's marks, by its path. */
+  const marks = useMemo(() => {
+    const byRow = new Map<string, RowMarks>();
+    matches.forEach((match, index) => {
+      let row = byRow.get(match.path);
+      if (!row) {
+        row = { label: [], value: [] };
+        byRow.set(match.path, row);
+      }
+      row[match.part].push({ start: match.start, end: match.end, current: index === current });
+    });
+    return byRow;
+  }, [matches, current]);
 
   const moveTo = (index: number) => {
     const to = Math.max(0, Math.min(rows.length - 1, index));
@@ -263,7 +406,7 @@ function JsonTree({ root, count, format }: { root: JsonValue; count: number; for
                     />
                   )}
                 </span>
-                <RowText row={row} />
+                <RowText row={row} marks={marks.get(row.path)} />
               </div>
             );
           })}
@@ -273,26 +416,23 @@ function JsonTree({ root, count, format }: { root: JsonValue; count: number; for
   );
 }
 
-/** Whether `text` has a control character, which would break a row's line. */
-function hasControl(text: string): boolean {
-  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) < 0x20) return true;
-  return false;
-}
-
-function RowText({ row }: { row: JsonRow }) {
+function RowText({ row, marks }: { row: JsonRow; marks?: RowMarks }) {
   const { t } = useTranslation();
   const { label, value } = row;
+  const text = valueText(value);
+  const line = (part: string, at?: readonly FindMark[]) =>
+    at && at.length > 0 ? <MarkedLine line={part} marks={at} /> : part;
   return (
     <>
       {label !== null && (
         <span>
-          {typeof label === "number" ? (
-            <span className="text-muted-foreground">{label}</span>
-          ) : (
-            <span className="text-[var(--syntax-property)]">
-              {label === "" || hasControl(label) ? JSON.stringify(label) : label}
-            </span>
-          )}
+          <span
+            className={
+              typeof label === "number" ? "text-muted-foreground" : "text-[var(--syntax-property)]"
+            }
+          >
+            {line(labelText(label), marks?.label)}
+          </span>
           <span className="text-muted-foreground">:</span>
         </span>
       )}
@@ -306,27 +446,26 @@ function RowText({ row }: { row: JsonRow }) {
         <span className="text-muted-foreground">
           {value.items.length === 0 ? "[]" : t("jsonPreview.items", { count: value.items.length })}
         </span>
-      ) : value.kind === "string" ? (
-        <StringText value={value.value} />
-      ) : value.kind === "number" ? (
-        <span className="text-[var(--syntax-number)]">{value.text}</span>
       ) : (
-        <span className="text-[var(--syntax-constant)]">
-          {value.kind === "null" ? "null" : String(value.value)}
+        <span
+          className={
+            value.kind === "string"
+              ? "text-[var(--syntax-string)]"
+              : value.kind === "number"
+                ? "text-[var(--syntax-number)]"
+                : "text-[var(--syntax-constant)]"
+          }
+          title={value.kind === "string" ? stringTitle(value.value) : undefined}
+        >
+          {line(text ?? "", marks?.value)}
         </span>
       )}
     </>
   );
 }
 
-function StringText({ value }: { value: string }) {
+/** A long string's tooltip: more of it than its row shows. */
+function stringTitle(value: string): string | undefined {
   const text = JSON.stringify(value);
-  return (
-    <span
-      className="text-[var(--syntax-string)]"
-      title={text.length > 80 ? text.slice(0, MAX_TITLE_CHARS) : undefined}
-    >
-      {text.length > MAX_STRING_CHARS ? `${text.slice(0, MAX_STRING_CHARS)}…` : text}
-    </span>
-  );
+  return text.length > 80 ? text.slice(0, MAX_TITLE_CHARS) : undefined;
 }

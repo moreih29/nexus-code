@@ -41,6 +41,8 @@ export interface PreviewFinder {
   search(query: string, caseSensitive: boolean): void;
   move(direction: 1 | -1): void;
   clear(): void;
+  /** How far down the find bar sits, in px: below a toolbar the preview has at its top. */
+  readonly barTop?: number;
 }
 
 interface FindScopeValue {
@@ -204,12 +206,16 @@ export function PreviewFindScope({
             result={result}
             onMove={move}
             onClose={close}
+            top={custom?.barTop ?? BAR_TOP}
           />
         )}
       </div>
     </FindScopeContext.Provider>
   );
 }
+
+/** How far down the find bar sits, in px. */
+const BAR_TOP = 8;
 
 const BUTTON_CLASS =
   "inline-flex items-center justify-center size-6 rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:opacity-40 disabled:pointer-events-none focus-visible:outline-none focus-visible:bg-[var(--state-hover-bg)]";
@@ -223,6 +229,7 @@ function FindBar({
   result,
   onMove,
   onClose,
+  top,
 }: {
   inputRef: React.RefObject<HTMLInputElement | null>;
   query: string;
@@ -232,6 +239,7 @@ function FindBar({
   result: FindResult;
   onMove: (direction: 1 | -1) => void;
   onClose: () => void;
+  top: number;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const searched = query.trim() !== "";
@@ -241,7 +249,10 @@ function FindBar({
       ? t("previewFind.none")
       : t("previewFind.count", { current: result.current, total: result.total });
   return (
-    <search className="absolute top-2 right-4 z-30 flex items-center gap-0.5 floating-panel py-1 pl-2 pr-1">
+    <search
+      className="absolute right-4 z-30 flex items-center gap-0.5 floating-panel py-1 pl-2 pr-1"
+      style={{ top }}
+    >
       <input
         ref={inputRef}
         type="text"
@@ -311,4 +322,39 @@ function FindBar({
       </button>
     </search>
   );
+}
+
+/** A match a preview paints itself, in a line it draws. */
+export interface FindMark {
+  readonly start: number;
+  readonly end: number;
+  readonly current: boolean;
+}
+
+/** `line` with its matches painted, the current one apart and marked data-find-current. */
+export function MarkedLine({
+  line,
+  marks,
+}: {
+  line: string;
+  marks: readonly FindMark[];
+}): React.JSX.Element {
+  const parts: ReactNode[] = [];
+  let at = 0;
+  for (const mark of marks) {
+    if (mark.start > at) parts.push(line.slice(at, mark.start));
+    parts.push(
+      <mark
+        key={mark.start}
+        data-find-current={mark.current ? "" : undefined}
+        className="text-inherit"
+        style={{ backgroundColor: mark.current ? FIND_COLORS.current : FIND_COLORS.match }}
+      >
+        {line.slice(mark.start, mark.end)}
+      </mark>,
+    );
+    at = mark.end;
+  }
+  if (at < line.length) parts.push(line.slice(at));
+  return <>{parts}</>;
 }
