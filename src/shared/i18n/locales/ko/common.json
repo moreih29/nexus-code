@@ -683,6 +683,14 @@
     "load_failed": "이 문서를 읽을 수 없습니다.",
     "too_large": "문서가 너무 커서 미리 볼 수 없습니다 (최대 {{maxMb}} MB)."
   },
+  "pptxPreview": {
+    "outside_workspace": "워크스페이스 밖의 프레젠테이션이라 미리 볼 수 없습니다.",
+    "load_failed": "이 프레젠테이션을 읽을 수 없습니다.",
+    "too_large": "프레젠테이션이 너무 커서 미리 볼 수 없습니다 (최대 {{maxMb}} MB).",
+    "slide_number": "슬라이드 {{number}} / {{count}}",
+    "chart": "차트 (미리보기에서 그리지 않음)",
+    "media": "비디오 또는 오디오 (미리보기에서 재생하지 않음)"
+  },
   "markdown": {
     "copy_code": "코드 복사",
     "copy": "복사",
