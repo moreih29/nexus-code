@@ -298,7 +298,21 @@ describe("terminals", () => {
     app.services = { ...app.services, listWorkspaces: () => [WORKSPACES[0], ssh] };
     const result = await nexus(["terminal", "new", "--shell", "bash", "--workspace", "api"], app);
     expect(result.stderr).toBe(
-      "nexus: api's terminals run devbox's login shell; --shell picks one of this machine's\n",
+      "nexus: --shell is for local workspaces; api is an SSH workspace, whose terminals run devbox's login shell\n",
+    );
+    expect(lastCall(app, "terminal.open")).toBeUndefined();
+  });
+
+  test("terminal new --shell is refused in a WSL workspace", async () => {
+    const app = fakeApp();
+    const wsl = {
+      ...WORKSPACES[1],
+      location: { kind: "wsl", distro: "Ubuntu", remotePath: "/home/me/api" },
+    } as WorkspaceMeta;
+    app.services = { ...app.services, listWorkspaces: () => [WORKSPACES[0], wsl] };
+    const result = await nexus(["terminal", "new", "--shell", "bash", "--workspace", "api"], app);
+    expect(result.stderr).toBe(
+      "nexus: --shell is for local workspaces; api is a WSL workspace, whose terminals run Ubuntu's login shell\n",
     );
     expect(lastCall(app, "terminal.open")).toBeUndefined();
   });

@@ -391,7 +391,8 @@ const terminalNew: CliCommand = {
     shell: {
       type: "string",
       value: "SHELL",
-      description: 'Run SHELL, by a name "terminal shells" lists (default: the one set)',
+      description:
+        'Run SHELL, by a name "terminal shells" lists (default: the one set; local workspaces only)',
     },
     show: { type: "boolean", description: "Show it, beside this terminal" },
     workspace: WORKSPACE_FLAG,
@@ -402,9 +403,10 @@ const terminalNew: CliCommand = {
     const shell = flags.shell as string | undefined;
     const { location } = workspace;
     if (shell !== undefined && location.kind !== "local") {
-      const machine = location.kind === "ssh" ? location.host : location.distro;
+      const [kind, machine] =
+        location.kind === "ssh" ? ["an SSH", location.host] : ["a WSL", location.distro];
       throw new CliError(
-        `${workspace.name}'s terminals run ${machine}'s login shell; --shell picks one of this machine's`,
+        `--shell is for local workspaces; ${workspace.name} is ${kind} workspace, whose terminals run ${machine}'s login shell`,
       );
     }
     const dir = flags.cwd as string | undefined;
@@ -437,9 +439,9 @@ const terminalShells: CliCommand = {
   path: ["terminal", "shells"],
   summary: "List the shells a terminal can run, for terminal new --shell",
   details:
-    "The shells found on this machine and those added in Settings › Terminal, as the tab\n" +
-    'bar\'s "New terminal with" lists them. They are for local workspaces; an SSH or WSL\n' +
-    "workspace's terminals run the login shell there.",
+    "The shells found on the computer NexusCode runs on and those added in Settings ›\n" +
+    'Terminal, as the tab bar\'s "New terminal with" lists them. They are for local\n' +
+    "workspaces only: an SSH or WSL workspace's terminals run the login shell of its machine.",
   async run(ctx, { positionals }) {
     exactArgs(positionals);
     const { shells } = await ctx.services.ui("terminal.shells", {});
