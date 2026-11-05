@@ -8,10 +8,16 @@ import {
   lspSettingsFromState,
 } from "../shared/lsp/settings";
 import { ListeningPortsResultSchema } from "../shared/pty/ports";
+import type { WorkspaceConnectionEventStatus } from "../shared/types/workspace";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { installErrorSafetyNet } from "./error-safety-net";
 import { registerAppStateChannel } from "./features/app-state";
-import { getBrowserRegistry, initBrowserFeature, registerBrowserCloser } from "./features/browser";
+import {
+  getBrowserRegistry,
+  initBrowserFeature,
+  registerBrowserCloser,
+  setBrowserAddressResolver,
+} from "./features/browser";
 import { updateBrowserKeybindings } from "./features/browser/keyboard";
 import { BrowserPermissionPromptManager } from "./features/browser/permission-prompt-manager";
 import { setupClaudeFeature } from "./features/claude/index";
@@ -42,8 +48,11 @@ import { type LspHostHandle, startConfiguredLspHost } from "./features/lsp/host"
 import { registerLspChannel } from "./features/lsp/ipc";
 import { installAppMenu } from "./features/menu";
 import { registerPanelChannel } from "./features/panel";
+import { registerChatChannel } from "./features/chat/ipc";
+import type { ChatHost } from "./features/chat/host";
 import { startAgentPtyHost } from "./features/pty/agent-host";
 import { registerPtyChannel } from "./features/pty/ipc";
+import { PortForwards } from "./features/pty/forwards";
 import { PortWatcher } from "./features/pty/ports";
 import { installWindowsAgentFiles } from "./features/pty/windows-shell-shim";
 import type { PtyHostHandle } from "./features/pty/types";
@@ -136,9 +145,11 @@ const stateService = new StateService(path.join(userData, "state.json"));
 // the wiring that constructed each disposer.
 let lspHost: LspHostHandle | null = null;
 let agentPtyHost: PtyHostHandle | null = null;
+let chatHost: ChatHost | null = null;
 let disposeClaudeFeature: (() => void) | null = null;
 let disposeCliFeature: (() => void) | null = null;
 let portWatcher: PortWatcher | null = null;
+let portForwards: PortForwards | null = null;
 let gitRegistry: GitRegistry | null = null;
 let gitWatcher: AgentGitWatcher | null = null;
 let gitStatusCoalescer: StatusCoalescer | null = null;
@@ -160,11 +171,20 @@ const cachedSshAuthPromptHandler = createCachingAuthPromptHandler((prompt) =>
 );
 
 function wrappedBroadcast(channelName: string, event: string, args: unknown): void {
+  if (channelName === "workspace" && event === "connectionChanged") {
+    // Forwards close with the connection and come back with it.
+    const { workspaceId, status } = args as {
+      workspaceId: string;
+      status: WorkspaceConnectionEventStatus;
+    };
+    portForwards?.connectionChanged(workspaceId, status);
+  }
   if (channelName === "workspace" && event === "removed") {
     // Run every per-workspace disposer in one place. New subsystems with
     // workspace-scoped state should add their dispose call here rather
     // than registering a parallel listener.
     const removedWorkspaceId = (args as { id: string }).id;
+    portForwards?.removed(removedWorkspaceId);
     agentFsWatcher?.disposeWorkspace(removedWorkspaceId);
     gitWatcher?.disposeWorkspace(removedWorkspaceId);
     gitStatusCoalescer?.cancel(removedWorkspaceId);
@@ -441,6 +461,7 @@ app.whenReady().then(async () => {
   // is created first, PTY host second, then they are linked here.
   workspaceManager.setPtySessionCloser((workspaceId) => {
     agentPtyHost?.closeWorkspaceSessions(workspaceId);
+    chatHost?.closeWorkspace(workspaceId);
   });
   // Wire held-session restore / release callbacks so manager can drive PTY
   // session lifecycle across reauth boundaries (plan issue 4 + 6).
@@ -475,12 +496,33 @@ app.whenReady().then(async () => {
     (entry) => forwardBroadcast("pty", "ports", entry),
   );
 
+  // An SSH workspace's ports, forwarded here on demand; a local address its
+  // browser tabs open goes to its forward.
+  const forwards = new PortForwards({
+    ssh: (workspaceId) => workspaceManager.getSshForwarding(workspaceId),
+    broadcast: (entry) => forwardBroadcast("pty", "forwards", entry),
+    saved: stateService.getState().portForwardsByWorkspace,
+    save: (workspaceId, list) => {
+      const { [workspaceId]: _old, ...rest } =
+        stateService.getState().portForwardsByWorkspace ?? {};
+      stateService.setState({
+        portForwardsByWorkspace: list.length > 0 ? { ...rest, [workspaceId]: list } : rest,
+      });
+    },
+  });
+  portForwards = forwards;
+  setBrowserAddressResolver({
+    rewrites: (workspaceId, url) => forwards.rewrites(workspaceId, url),
+    resolve: (workspaceId, url) => forwards.localUrl(workspaceId, url),
+  });
+
   // The nexus command in the app's terminals.
   disposeCliFeature = setupCliFeature({
     agentHost: agentPtyHost,
     workspaceManager,
     claudeBroker: claudeSetup.broker,
     claudeActivity: claudeSetup.activity,
+    stopPrintRun: claudeSetup.stopPrintRun,
     activeContext: claudeSetup.activeContext,
     sessionSpans: globalStorage,
     appVersion: app.getVersion(),
@@ -507,6 +549,7 @@ app.whenReady().then(async () => {
     },
     broadcast: forwardBroadcast,
     ports: portWatcher,
+    forwards,
   }).dispose;
 
   // hookserver 접속 정보는 pull 기반으로 workspaceManager.getHookInfo()에서 조회한다.
@@ -518,9 +561,18 @@ app.whenReady().then(async () => {
     notificationsEnabled,
     onInput: claudeSetup.noteInput,
     ports: portWatcher,
+    forwards,
     getDefaultShell: () => stateService.getState().terminalShell,
     getCustomShells: () => stateService.getState().terminalShells,
     ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),
+  });
+
+  // Claude tabs: their programs run through the same agents as terminals.
+  chatHost = registerChatChannel({
+    workspaceManager,
+    ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),
+    onTurnStopped: (workspaceId, tabId) => claudeSetup.noteTurnStopped(workspaceId, tabId),
+    onProgramExit: (workspaceId, tabId) => claudeSetup.noteProgramExit(workspaceId, tabId),
   });
 
   // The host reads the settings at each spawn; the lsp IPC handlers stop
@@ -629,7 +681,9 @@ app.on("will-quit", () => {
   disposeCliFeature?.();
   disposeClaudeFeature?.();
   portWatcher?.dispose();
+  portForwards?.dispose();
   agentPtyHost?.dispose();
+  chatHost?.dispose();
   lspHost?.dispose();
   agentFsWatcher?.dispose();
   gitStatusCoalescer?.clearAll();

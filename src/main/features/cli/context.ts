@@ -2,6 +2,7 @@
  * What a nexus command runs with: who asked, what the app can tell it, and
  * how it names workspaces and tabs on the command line.
  */
+import type { AgentRun } from "../../../shared/claude/activity";
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import type { CliInvocation } from "../../../shared/cli/protocol";
 import type {
@@ -12,7 +13,7 @@ import type {
   CliUiOps,
 } from "../../../shared/cli/ui";
 import type { FsEntryType } from "../../../shared/fs/types";
-import type { ListeningPort } from "../../../shared/pty/ports";
+import type { ListeningPort, PortForward } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { TabActivity } from "./activity";
 import type { BrowserDriver } from "./browser/driver";
@@ -54,6 +55,8 @@ export interface CliServices {
     tabId: string,
   ): { status: ClaudeStatus; message?: string; since: number; turnStartedAt?: number } | null;
   activity(workspaceId: string, tabId: string): TabActivity | null;
+  /** The subagents and `claude -p` runs of the Claude sessions in the terminals. */
+  readonly claudeAgents: CliClaudeAgents;
   /** Lists a wait on a terminal until the returned function is called. */
   readonly waits: Pick<WaitRegistry, "begin">;
   /**
@@ -83,6 +86,8 @@ export interface CliServices {
    * at now, in port order.
    */
   listeningPorts(workspaceId: string): Promise<readonly ListeningPort[]>;
+  /** The SSH workspaces' ports forwarded to this machine. */
+  readonly forwards: CliForwards;
   /**
    * Terminals whose agent nexus worktree new just started with a prompt, so
    * that a wait on one holds until the agent has begun its first turn.
@@ -170,6 +175,27 @@ export async function mayChange(
     toWorkspaceId: workspace.id,
     change,
   });
+}
+
+/** The agents of a terminal's Claude session (claude/session-activity.ts). */
+export interface CliClaudeAgents {
+  /** Running ones, then ended ones, latest first; none when the terminal runs no session. */
+  list(workspaceId: string, tabId: string): readonly AgentRun[];
+  /**
+   * Stops a running `claude -p` run, as an interrupt would; false when the
+   * app holds no watch of it to tell.
+   */
+  stop(workspaceId: string, tabId: string, agentId: string): Promise<boolean>;
+}
+
+/** An SSH workspace's ports forwarded to this machine (pty/forwards.ts). */
+export interface CliForwards {
+  list(workspaceId: string): readonly PortForward[];
+  /** Fails with a ForwardError when the workspace is not connected or ssh fails. */
+  forward(workspaceId: string, port: number): Promise<PortForward>;
+  stop(workspaceId: string, port: number): Promise<void>;
+  /** The URL to open here for `url`: a local address goes to its forward. */
+  localUrl(workspaceId: string, url: string): Promise<string>;
 }
 
 /** Where a tab the command opens in `workspace` goes: beside the caller in its own. */

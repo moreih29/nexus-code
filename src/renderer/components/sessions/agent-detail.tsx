@@ -5,6 +5,7 @@
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AgentRun, PermissionAsk } from "../../../shared/claude/activity";
+import { stopPrintRun } from "../../services/chat/print-runs";
 import { showTerminal } from "../../services/sessions/actions";
 import type { AgentSession, WorktreeEntry } from "../../services/sessions/model";
 import { useNow } from "../../services/sessions/use-family";
@@ -87,6 +88,15 @@ export function AgentDetail({
         <Button size="sm" onClick={() => showTerminal(session)}>
           {t("sessions.detail.show_terminal")}
         </Button>
+        {agent.kind === "print" && agent.end === undefined && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void stopPrintRun(session.workspaceId, session.tabId, agent.id)}
+          >
+            {t("chat.run.stop")}
+          </Button>
+        )}
       </div>
       {asks.length > 0 ? (
         <PermissionAsks session={session} asks={asks} agents={[agent]} />

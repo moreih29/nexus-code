@@ -34,6 +34,14 @@ export const FsReadAbsoluteResultSchema = FileReadResultSchema;
 export type FsReadAbsoluteResult = z.infer<typeof FsReadAbsoluteResultSchema>;
 
 // ---------------------------------------------------------------------------
+// fs.readAbsoluteBinary — an absolute path's bytes on the agent host, as
+// base64. The app reads with it only files a Claude tab links outside the
+// workspace (see outside-grants), to preview them.
+// ---------------------------------------------------------------------------
+
+export const FS_READ_ABSOLUTE_BINARY_METHOD = "fs.readAbsoluteBinary" as const;
+
+// ---------------------------------------------------------------------------
 // fs.readBinary — read a workspace-relative file as base64-encoded bytes.
 // Companion to fs.readFile for binary content (images, archives, etc.) that
 // cannot be transported as a UTF-8 content string. Used by the
@@ -47,6 +55,32 @@ export type FsReadBinaryParams = z.infer<typeof FsReadBinaryParamsSchema>;
 
 export const FsReadBinaryResultSchema = FileReadBinaryResultSchema;
 export type FsReadBinaryResult = z.infer<typeof FsReadBinaryResultSchema>;
+
+// ---------------------------------------------------------------------------
+// fs.readRange — `length` bytes of a workspace-relative file from `offset`,
+// as base64, with the file's size in `sizeBytes`. One call returns at most
+// READ_RANGE_MAX_BYTES, fewer at the end of the file, so the previews read a
+// large file in pieces that leave room on the channel for other calls.
+// fs.readAbsoluteRange is the same for a file a Claude tab links outside the
+// workspace, as fs.readAbsoluteBinary is for fs.readBinary.
+// ---------------------------------------------------------------------------
+
+export const FS_READ_RANGE_METHOD = "fs.readRange" as const;
+export const FS_READ_ABSOLUTE_RANGE_METHOD = "fs.readAbsoluteRange" as const;
+
+const RangeSchema = {
+  offset: z.number().int().min(0),
+  length: z.number().int().min(0),
+};
+
+export const FsReadRangeParamsSchema = z.object({ relPath: RelPathSchema, ...RangeSchema });
+export type FsReadRangeParams = z.infer<typeof FsReadRangeParamsSchema>;
+
+export const FsReadAbsoluteRangeParamsSchema = z.object({
+  absolutePath: AbsolutePathSchema,
+  ...RangeSchema,
+});
+export type FsReadAbsoluteRangeParams = z.infer<typeof FsReadAbsoluteRangeParamsSchema>;
 
 // ---------------------------------------------------------------------------
 // fs.writeFile — atomic overwrite with optional optimistic-concurrency check.

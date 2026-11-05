@@ -5,6 +5,7 @@
  */
 import { stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import type { AgentRun } from "../../../shared/claude/activity";
 import {
   CliCancelSchema,
   type CliInvocation,
@@ -30,7 +31,7 @@ import { savePickPicture } from "./browser/pick-pictures";
 import { ClaudeExitWatch } from "./claude-exit";
 import { CLI_COMMANDS } from "./commands";
 import { CrossWorkspaceConsent, type CrossWorkspacePolicy } from "./consent";
-import { CliError, type CliServices, shortId } from "./context";
+import { CliError, type CliForwards, type CliServices, shortId } from "./context";
 import { listedAt } from "./listed";
 import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
@@ -65,8 +66,15 @@ export interface SetupCliFeatureOptions {
     activate(id: string): Promise<void>;
   };
   claudeBroker: ClaudeStatusBroker;
-  /** The agents of Claude sessions, for the timeline's spans of them. */
-  claudeActivity?: AgentRunSource;
+  /**
+   * The agents of Claude sessions, for the timeline's spans of them and for
+   * nexus agent.
+   */
+  claudeActivity?: AgentRunSource & {
+    get(workspaceId: string, tabId: string): { agents: readonly AgentRun[] } | null;
+  };
+  /** Stops a session's running `claude -p` run; false when the app cannot tell it to. */
+  stopPrintRun?: (workspaceId: string, tabId: string, agentId: string) => Promise<boolean>;
   activeContext: ActiveContextStore;
   /** Where the sessions timeline's spans are kept. */
   sessionSpans: SessionSpanStore;
@@ -88,6 +96,8 @@ export interface SetupCliFeatureOptions {
   broadcast: (channel: string, event: string, args: unknown) => void;
   /** Looks at the ports the programs in a workspace's terminals listen on. */
   ports: { refresh(workspaceId: string): Promise<readonly ListeningPort[]> };
+  /** The SSH workspaces' ports forwarded to this machine. */
+  forwards: CliForwards;
 }
 
 export interface CliFeature {
@@ -205,6 +215,11 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     shownTab: () => options.activeContext.get(),
     claudeStatus: (workspaceId, tabId) => options.claudeBroker.get(workspaceId, tabId),
     activity: (workspaceId, tabId) => activity.get(workspaceId, tabId),
+    claudeAgents: {
+      list: (workspaceId, tabId) => options.claudeActivity?.get(workspaceId, tabId)?.agents ?? [],
+      stop: async (workspaceId, tabId, agentId) =>
+        (await options.stopPrintRun?.(workspaceId, tabId, agentId)) ?? false,
+    },
     waits: {
       begin: (waiter, target, since) => {
         const unlist = waits.begin(waiter, target, since);
@@ -244,6 +259,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     agentContextEnabled: () => options.settings().agentContext,
     foregroundProcess,
     listeningPorts: (workspaceId) => options.ports.refresh(workspaceId),
+    forwards: options.forwards,
     startedAgents,
     clock: {
       now: () => Date.now(),

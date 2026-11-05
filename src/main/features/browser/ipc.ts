@@ -99,6 +99,15 @@ export function registerBrowserChannel(
   registry: BrowserTabRegistry,
   channelDeps?: BrowserChannelDeps,
 ): void {
+  registry.onRefused((tabId, url, error) => {
+    const { kind, reason } = error as { kind?: unknown; reason?: unknown };
+    broadcast("browser", "refused", {
+      tabId,
+      url,
+      kind: typeof kind === "string" ? kind : "failed",
+      message: typeof reason === "string" ? reason : error.message,
+    });
+  });
   register("browser", {
     call: {
       create: (args: unknown) => {
@@ -280,6 +289,7 @@ export function registerBrowserChannel(
       navigated: {},
       loadingChanged: {},
       error: {},
+      refused: {},
       titleUpdated: {},
       snapshot: {},
       devtoolsToggled: {},

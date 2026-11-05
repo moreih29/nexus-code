@@ -1,5 +1,6 @@
 import i18next from "i18next";
 import {
+  Bot,
   CircleAlert,
   CircleCheck,
   File,
@@ -10,6 +11,7 @@ import {
   Lock,
   type LucideIcon,
   MessageCircleQuestion,
+  MessageSquareText,
   Radar,
   SquareTerminal,
   TriangleAlert,
@@ -93,6 +95,8 @@ function tabTypeIcon(tab: Tab): LucideIcon | null {
   if (tab.type === "git.commit") return GitCommit;
   if (tab.type === "untitled") return File;
   if (tab.type === "sessions") return Radar;
+  if (tab.type === "claude") return MessageSquareText;
+  if (tab.type === "codex") return Bot;
   return null; // editor (handled via FileIcon) and browser (handled via BrowserFaviconIcon)
 }
 
@@ -300,7 +304,7 @@ export function TabItem({
         : undefined;
 
   // ---------------------------------------------------------------------
-  // Inline rename — 터미널 탭만. 더블클릭 또는 컨텍스트 메뉴 "Rename Tab" 진입.
+  // Inline rename — 터미널 · Claude 탭만. 더블클릭 또는 컨텍스트 메뉴 "Rename Tab" 진입.
   //
   // 진입 트리거 2개를 동일 store(useTabEditingStore.editingTabId)로 묶어 어느
   // 경로든 같은 모드로 들어간다. 한 번에 한 탭만 편집 가능(store 단일성 보장).
@@ -357,11 +361,11 @@ export function TabItem({
       onDragStart={onDragStart}
       onContextMenu={(e) => onTabContextMenu?.(tab.id, e)}
       // 더블클릭 동작은 탭 type별로 분기:
-      //  - terminal: inline rename 진입 (사용자 요구 — 컨텍스트 메뉴 Rename과 동일 경로)
+      //  - terminal, claude: inline rename 진입 (사용자 요구 — 컨텍스트 메뉴 Rename과 동일 경로)
       //  - 그 외 isPreview 탭: VSCode parity로 promote-from-preview
-      // terminal 탭은 isPreview일 일이 없으므로 두 분기가 mutually exclusive.
+      // terminal · claude 탭은 isPreview일 일이 없으므로 두 분기가 mutually exclusive.
       onDoubleClick={() => {
-        if (tab.type === "terminal") {
+        if (tab.type === "terminal" || tab.type === "claude" || tab.type === "codex") {
           useTabEditingStore.getState().startEditing(tab.id);
           return;
         }

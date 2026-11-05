@@ -3,8 +3,9 @@
 //
 // Workspace paths are resolved through Service.Resolve, which is the single
 // trust boundary preventing escapes via `..` or absolute paths. The explicit
-// fs.readAbsolute method is the read-only exception used for LSP/external
-// references that are already absolute on the same machine as the agent.
+// fs.readAbsolute, fs.readAbsoluteBinary and fs.readAbsoluteRange methods
+// are the read-only exceptions used for LSP/external references and for
+// files a Claude tab links, which are already absolute on the same machine as the agent.
 // Symlinks are inspected with Lstat so a symlink pointing outside the workspace
 // is reported as a symlink, not followed, matching the conservative semantics
 // of the legacy TS handlers.
@@ -24,6 +25,11 @@ import (
 // inbound scanner cap in stdioserver.Host.Run accordingly — writeFile content
 // travels inbound as one NDJSON line and is rejected by that cap first.
 const MaxReadableFileSize = 50 * 1024 * 1024
+
+// MaxReadRangeLength caps the bytes one fs.readRange call returns. A large
+// file is read in ranges of at most this much, so the channel's other calls
+// get in between them.
+const MaxReadRangeLength = 1024 * 1024
 
 // EventSink is the callback fs uses to push agent events back to Electron.
 type EventSink func(event string, payload any) error
@@ -96,6 +102,9 @@ func Register(d *dispatch.Dispatcher, fsys *Service) {
 	d.Register("fs.readFile", fsys.ReadFile)
 	d.Register("fs.readBinary", fsys.ReadBinary)
 	d.Register("fs.readAbsolute", fsys.ReadAbsolute)
+	d.Register("fs.readAbsoluteBinary", fsys.ReadAbsoluteBinary)
+	d.Register("fs.readRange", fsys.ReadRange)
+	d.Register("fs.readAbsoluteRange", fsys.ReadAbsoluteRange)
 	d.Register("fs.writeFile", fsys.WriteFile)
 	d.Register("fs.createFile", fsys.CreateFile)
 	d.Register("fs.mkdir", fsys.Mkdir)

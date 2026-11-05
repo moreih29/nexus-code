@@ -15,6 +15,14 @@ package hookclient
 // Once the app knows of the run, the run holds a watch open on the agent's
 // socket until its end: a run killed before it can tell its end, as by
 // SIGKILL, ends with its process, and the agent tells the app of it then.
+// The app answers the watch to stop the run (`nexus agent stop`): claude
+// gets the interrupt the session's own ^C would give it.
+//
+// A run is told with its Claude session id, given it up front when it
+// starts a session of its own, so the session that started it can go on
+// with it (`claude -p --resume <id>`). A run that goes on a session by its
+// id is told as that session's run going on, and its transcript is followed
+// from where it was.
 
 import (
 	"bytes"
@@ -76,21 +84,18 @@ type printRun struct {
 	model  string
 	// format is its --output-format: "text", "json" or "stream-json".
 	format string
-	// sessionID is the session id it was given, which names its transcript.
+	// sessionID is its session's id, which names its transcript: the one it
+	// was given, or the one it goes on.
 	sessionID string
-	// noTranscript: its transcript is not a new one of its own.
+	// resumed: it goes on the session sessionID, whose transcript it adds to.
+	resumed bool
+	// noTranscript: its session is not known, or keeps no transcript here.
 	noTranscript bool
 }
 
-// sessionFlags are claude's options after which a run's transcript is not
-// a new one of its own: it goes on a session of before, runs elsewhere, or
-// keeps none.
+// sessionFlags are claude's options after which a run keeps no transcript
+// of a session here: it runs elsewhere, or keeps none.
 var sessionFlags = map[string]bool{
-	"-c":                       true,
-	"--continue":               true,
-	"-r":                       true,
-	"--resume":                 true,
-	"--fork-session":           true,
 	"--from-pr":                true,
 	"--teleport":               true,
 	"--cloud":                  true,
@@ -102,8 +107,15 @@ var sessionFlags = map[string]bool{
 // describePrintRun reads a run's arguments. Its prompt is the argument after
 // -p, or the first one when it is not an option: claude takes options that
 // take more than one value, so a prompt elsewhere is not told apart.
+//
+// A run that goes on a session goes on its transcript, by `--resume <id>`;
+// with `--fork-session` it starts one of its own, as a new run does. One
+// that goes on the latest session (`-c`), or one found by a search term,
+// goes on a session not known up front.
 func describePrintRun(args []string) printRun {
 	run := printRun{format: "text", model: os.Getenv("ANTHROPIC_MODEL")}
+	var resume string
+	var resuming, fork bool
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		run.prompt = args[0]
 	}
@@ -136,12 +148,51 @@ func describePrintRun(args []string) printRun {
 			run.sessionID = next
 		case strings.HasPrefix(arg, "--session-id="):
 			run.sessionID = strings.TrimPrefix(arg, "--session-id=")
+		case arg == "-r" || arg == "--resume":
+			resuming = true
+			if next != "" && !strings.HasPrefix(next, "-") {
+				resume = next
+			}
+		case strings.HasPrefix(arg, "--resume="):
+			resuming, resume = true, strings.TrimPrefix(arg, "--resume=")
+		case arg == "-c" || arg == "--continue":
+			resuming = true
+		case arg == "--fork-session":
+			fork = true
 		case sessionFlags[strings.SplitN(arg, "=", 2)[0]]:
 			run.noTranscript = true
 		}
 	}
+	switch {
+	case !resuming || fork:
+	case isSessionID(resume):
+		run.sessionID, run.resumed = resume, true
+	default:
+		run.noTranscript = true
+	}
 	run.prompt = cut(strings.TrimSpace(run.prompt), printTextMax)
 	return run
+}
+
+// isSessionID is whether s is a session id, as a UUID: `--resume` takes a
+// search term as well.
+func isSessionID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, r := range s {
+		switch i {
+		case 8, 13, 18, 23:
+			if r != '-' {
+				return false
+			}
+		default:
+			if !strings.ContainsRune("0123456789abcdefABCDEF", r) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // runPrint runs claude and tells `teller` of the run. It returns claude's
@@ -154,18 +205,20 @@ func runPrint(
 	teller *printTeller,
 ) (code int, sig int) {
 	run := describePrintRun(args)
-	// A run whose output does not tell its tools tells them in its
-	// transcript, named by the session id it is given one unless it has one.
-	var transcript *printTranscript
-	if teller != nil && run.format != "stream-json" && !run.noTranscript {
-		id := run.sessionID
-		if id == "" {
-			if id = newSessionID(); id != "" {
-				args = append([]string{"--session-id", id}, args...)
-			}
+	// A run that starts a session of its own is given its id, unless it has
+	// one: the run is told by it, and its transcript named.
+	if teller != nil && !run.noTranscript && run.sessionID == "" {
+		if run.sessionID = newSessionID(); run.sessionID != "" {
+			args = append([]string{"--session-id", run.sessionID}, args...)
 		}
-		if id != "" {
-			transcript = newPrintTranscript(id)
+	}
+	// A run whose output does not tell its tools tells them in its
+	// transcript; one that goes on a session, from where the session was.
+	var transcript *printTranscript
+	if teller != nil && run.format != "stream-json" && !run.noTranscript && run.sessionID != "" {
+		transcript = newPrintTranscript(run.sessionID)
+		if transcript != nil && run.resumed {
+			transcript.startAtEnd()
 		}
 	}
 	cmd := exec.Command(claude, args...)
@@ -214,18 +267,35 @@ func runPrint(
 			_ = cmd.Process.Signal(s)
 		}
 	}()
+	// The app stops the run as the session's ^C would.
+	teller.onStop(func() {
+		if s := stopProcess(cmd.Process); s != nil {
+			select {
+			case stopped <- s:
+			default:
+			}
+		}
+	})
 
 	cwd, _ := os.Getwd()
-	teller.tell("print-start", map[string]any{
+	start := map[string]any{
 		"prompt":     run.prompt,
 		"model":      run.model,
 		"cwd":        cwd,
 		"tools_told": run.format == "stream-json",
-	})
-	watch := &printWatch{tell: teller.tell, text: text}
+	}
+	if run.sessionID != "" {
+		start["session_id"] = run.sessionID
+	}
+	if run.resumed {
+		start["resumed"] = true
+	}
+	teller.tell("print-start", start)
+	known := run.prompt != ""
+	watch := &printWatch{tell: teller.tell, text: text, promptTold: known}
 	var told *printWatch
 	if transcript != nil {
-		told = &printWatch{tell: teller.tell}
+		told = &printWatch{tell: teller.tell, promptTold: known}
 		go transcript.follow(told, func() {
 			teller.tell("print-init", map[string]any{"tools_told": true})
 		})
@@ -249,11 +319,11 @@ func runPrint(
 		end["signal"] = name
 	} else {
 		end["exit_code"] = code
+		// Stopped by the app: claude may exit 0 on an interrupt, printing
+		// "Execution error" as its answer.
 		select {
 		case s := <-stopped:
-			if code != 0 {
-				end["signal"] = s.String()
-			}
+			end["signal"] = s.String()
 		default:
 		}
 	}
@@ -335,15 +405,24 @@ type printWatch struct {
 	// once the run is over, as a transcript tells it.
 	reply     string
 	modelTold bool
+	// promptTold: the run's prompt is known, from its arguments or the
+	// user's message claude first answers; one given on stdin, or after
+	// other options than -p, is told from there.
+	promptTold bool
+	// answering: claude has begun to answer, so a user's message is no
+	// longer the prompt.
+	answering bool
 }
 
 type printEvent struct {
-	Type    string          `json:"type"`
-	Subtype string          `json:"subtype"`
-	Model   string          `json:"model"`
-	Cwd     string          `json:"cwd"`
-	Result  json.RawMessage `json:"result"`
-	Message struct {
+	Type      string          `json:"type"`
+	Subtype   string          `json:"subtype"`
+	Model     string          `json:"model"`
+	Cwd       string          `json:"cwd"`
+	SessionID string          `json:"session_id"`
+	IsMeta    bool            `json:"isMeta"`
+	Result    json.RawMessage `json:"result"`
+	Message   struct {
 		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
@@ -379,9 +458,14 @@ func (w *printWatch) line(b []byte) {
 	case "system":
 		if event.Subtype == "init" {
 			w.modelTold = true
-			w.tell("print-init", map[string]any{"model": event.Model, "cwd": event.Cwd})
+			init := map[string]any{"model": event.Model, "cwd": event.Cwd}
+			if event.SessionID != "" {
+				init["session_id"] = event.SessionID
+			}
+			w.tell("print-init", init)
 		}
 	case "assistant":
+		w.answering = true
 		// A transcript tells no init: its model is its first message's
 		// (not one Claude Code makes up, as "<synthetic>").
 		if model := event.Message.Model; !w.modelTold && model != "" && !strings.HasPrefix(model, "<") {
@@ -406,6 +490,12 @@ func (w *printWatch) line(b []byte) {
 		}
 	case "user":
 		w.reply = ""
+		if !w.promptTold && !w.answering && !event.IsMeta {
+			if prompt := strings.TrimSpace(textOf(event.Message.Content)); prompt != "" {
+				w.promptTold = true
+				w.tell("print-init", map[string]any{"prompt": cut(prompt, printTextMax)})
+			}
+		}
 		for _, block := range blocksOf(event.Message.Content) {
 			if block.Type != "tool_result" || block.ToolUseID == "" {
 				continue
@@ -500,6 +590,8 @@ type printTeller struct {
 	// watch is the run's watch, open from its start until its end.
 	watch net.Conn
 	ended bool
+	// stop stops the run, when the app answers its watch so.
+	stop func()
 
 	// queue guards frames: a transcript followed beside the run may tell
 	// of it after its end.
@@ -621,6 +713,37 @@ func (t *printTeller) openWatch() {
 		return
 	}
 	t.watch = conn
+	go t.awaitStop(conn)
+}
+
+// printStopAnswer is how the app answers a run's watch to stop the run; any
+// other answer, as the agent's when the app goes, leaves it be.
+const printStopAnswer = "stop"
+
+// onStop sets what stops the run when the app asks.
+func (t *printTeller) onStop(stop func()) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.stop = stop
+}
+
+// awaitStop reads the app's answer to the run's watch, which it gives only
+// to stop the run.
+func (t *printTeller) awaitStop(conn net.Conn) {
+	resp, err := readNDJSON(conn)
+	if err != nil || resp.Stdout != printStopAnswer {
+		return
+	}
+	t.mu.Lock()
+	stop := t.stop
+	ended := t.ended
+	t.mu.Unlock()
+	if stop != nil && !ended {
+		stop()
+	}
 }
 
 // closeWatch closes the run's watch, and keeps one from opening after.

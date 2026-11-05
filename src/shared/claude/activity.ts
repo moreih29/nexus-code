@@ -83,6 +83,11 @@ export const AgentRunSchema = z.object({
   toolsTold: z.boolean().optional(),
   /** For a `claude -p` run: how it exited. */
   exitCode: z.number().int().optional(),
+  /**
+   * For a `claude -p` run: its Claude session's id, which `claude -p
+   * --resume` goes on; a run that does is told as this one going on.
+   */
+  sessionId: z.string().optional(),
 });
 export type AgentRun = z.infer<typeof AgentRunSchema>;
 
@@ -131,6 +136,8 @@ export type PermissionAnswer = z.infer<typeof PermissionAnswerSchema>;
 export const SessionActivitySchema = z.object({
   workspaceId: z.string(),
   tabId: z.string(),
+  /** The Claude Code session the terminal runs, as its hooks tell. */
+  sessionId: z.string().optional(),
   /** When the user's last prompt came. */
   turnStart: z.number().optional(),
   /** The session's own latest tools, oldest first. */

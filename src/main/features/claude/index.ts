@@ -6,7 +6,7 @@ import { broadcast } from "../../infra/ipc-router";
 import { ClaudeStatusBroker } from "./status";
 import { ActiveContextStore } from "./active-context";
 import { registerClaudeChannel } from "./ipc";
-import { answerHook, registerHookHandler } from "./hook-handler";
+import { answerHook, PRINT_STOP_ANSWER, registerHookHandler } from "./hook-handler";
 import { answersDialog, PermissionAsks } from "./permission-asks";
 import { SessionActivityLog } from "./session-activity";
 import { ClaudeInterruptWatcher } from "./interrupt";
@@ -51,6 +51,13 @@ export interface SetupClaudeFeatureResult {
   isActiveTab: (workspaceId: string, tabId: string) => boolean;
   /** Input typed into a terminal, which can interrupt Claude's turn or answer its dialog. */
   noteInput: (workspaceId: string, tabId: string, data: string) => void;
+  /**
+   * A Claude tab's turn ended short: interrupted, or failed. No hook says so,
+   * and the tab's program tells it in a result line.
+   */
+  noteTurnStopped: (workspaceId: string, tabId: string) => void;
+  /** A Claude tab's program exited, maybe without its SessionEnd hook. */
+  noteProgramExit: (workspaceId: string, tabId: string) => void;
   /** 모든 구독을 해제하는 함수. */
   dispose: () => void;
   /** Each tab's Claude state, which the nexus CLI reports too. */
@@ -59,6 +66,11 @@ export interface SetupClaudeFeatureResult {
   activeContext: ActiveContextStore;
   /** What each session is doing: its tools, todos and agents. */
   activity: SessionActivityLog;
+  /**
+   * Stops the session's running `claude -p` run `agentId`, as the session's
+   * ^C would: false when it is no such run, or could not be told.
+   */
+  stopPrintRun: (workspaceId: string, tabId: string, agentId: string) => Promise<boolean>;
 }
 
 /**
@@ -86,8 +98,18 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     answerHook(workspaceManager, workspaceId, hookId, response),
   );
 
+  // A `claude -p` run stops when the app answers its watch.
+  const stopPrintRun = async (workspaceId: string, tabId: string, agentId: string) => {
+    const watch = activity.printWatch(workspaceId, tabId, agentId);
+    if (watch === undefined) return false;
+    return answerHook(workspaceManager, workspaceId, watch, {
+      stdout: PRINT_STOP_ANSWER,
+      exitCode: 0,
+    });
+  };
+
   // 2. IPC 채널 등록 (setupRouter() 이후에 호출되어야 함).
-  registerClaudeChannel(broker, activeContext, activity, asks);
+  registerClaudeChannel(broker, activeContext, activity, asks, stopPrintRun);
 
   // 3. hook-handler 등록.
   const getFocusedWindow = options.getFocusedWindow ?? getFocusedAppWindow;
@@ -185,6 +207,17 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
       // The dialog answered in the terminal no longer waits on the app.
       if (answersDialog(data)) asks.answeredInTerminal(workspaceId, tabId);
     },
+    noteTurnStopped: (workspaceId, tabId) => {
+      const status = broker.get(workspaceId, tabId)?.status;
+      if (status === "running" || status === "permissionPending") {
+        broker.set(workspaceId, tabId, "idle");
+      }
+    },
+    noteProgramExit: (workspaceId, tabId) => {
+      broker.clear(workspaceId, tabId);
+      activity.clear(workspaceId, tabId);
+      asks.clear(workspaceId, tabId);
+    },
     dispose: () => {
       offHook();
       offCleared();
@@ -196,6 +229,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     broker,
     activeContext,
     activity,
+    stopPrintRun,
   };
 }
 

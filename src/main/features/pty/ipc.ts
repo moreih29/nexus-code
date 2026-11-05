@@ -5,7 +5,7 @@ import { ipcContract } from "../../../shared/ipc/contract";
 import type { PtyHostHandle } from "./types";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import { TerminalRecorderRegistry, type PtyRecorderSink } from "./recorder";
-import { ipcOk } from "../../../shared/ipc/result";
+import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { injectHarnessTerminalEnv } from "./harness-env";
 import { applyShellPathShim } from "./shell-shim";
 import { applyWindowsShellShim, type WindowsAgentFiles } from "./windows-shell-shim";
@@ -19,6 +19,7 @@ import {
 } from "./shells";
 import type { WorkspacePorts } from "../../../shared/pty/ports";
 import type { CustomShell, ShellChoice } from "../../../shared/pty/shell";
+import { ForwardError, type PortForwards } from "./forwards";
 import { OscNotificationDispatcher } from "./osc-notification";
 import type { WorkspaceNameLookup } from "./osc-notification";
 import type { HookInfo } from "../workspace/manager";
@@ -83,6 +84,8 @@ export interface PtyChannelOptions {
   onInput?: (workspaceId: string, tabId: string, data: string) => void;
   /** The ports the programs in the workspaces' terminals listen on. */
   ports?: { snapshot(): WorkspacePorts[] };
+  /** The SSH workspaces' ports forwarded to this machine. */
+  forwards?: PortForwards;
 }
 
 /**
@@ -366,9 +369,40 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
       },
 
       ports: async () => ipcOk(options.ports?.snapshot() ?? []),
+
+      forwards: async () => ipcOk(options.forwards?.snapshot() ?? []),
+
+      forward: async (args: unknown) => {
+        const { workspaceId, port } = validateArgs(c.forward.args, args);
+        const forwards = options.forwards;
+        if (!forwards) return ipcErr("not-ssh", "ports are not forwarded here");
+        try {
+          return ipcOk(await forwards.forward(workspaceId, port));
+        } catch (error) {
+          return forwardFailure(error);
+        }
+      },
+
+      unforward: async (args: unknown) => {
+        const { workspaceId, port } = validateArgs(c.unforward.args, args);
+        await options.forwards?.stop(workspaceId, port);
+        return ipcOk(undefined);
+      },
+
+      localUrl: async (args: unknown) => {
+        const { workspaceId, url } = validateArgs(c.localUrl.args, args);
+        const forwards = options.forwards;
+        if (!forwards) return ipcOk({ url });
+        try {
+          return ipcOk({ url: await forwards.localUrl(workspaceId, url) });
+        } catch (error) {
+          return forwardFailure(error);
+        }
+      },
     },
     listen: {
       ports: {},
+      forwards: {},
       data: {},
       exit: {},
       notificationClick: {},
@@ -377,4 +411,10 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
       expired: {},
     },
   });
+}
+
+/** A forward that failed, as the renderer tells it. */
+function forwardFailure(error: unknown) {
+  if (error instanceof ForwardError) return ipcErr(error.kind, error.reason);
+  return ipcErr("failed", (error as Error).message);
 }

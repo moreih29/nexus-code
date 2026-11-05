@@ -39,6 +39,7 @@ import {
   type SshChannel,
   type SshChannelLifecycleEvent,
 } from "../../infra/agent/ssh/channel";
+import type { SshForwarding } from "../../infra/agent/ssh/forward";
 import type { SshControlMaster } from "../../infra/agent/ssh/master";
 import type { RemoteAgentPlatform } from "../../infra/agent/ssh/ssh-bootstrap/index";
 import {
@@ -651,6 +652,28 @@ export class WorkspaceManager {
     const status = this.connectionStatuses.get(id);
     if (status !== "connected" && status !== "unstable") return null;
     return this.sshChannels.get(id) ?? null;
+  }
+
+  /**
+   * An SSH workspace's host and, while it is connected, the connection its
+   * ports are forwarded over: its ControlMaster, or none for key-only auth.
+   * Null for a workspace that is not on an SSH host.
+   */
+  getSshForwarding(id: string): SshForwarding | null {
+    const location = this.contexts.get(id)?.getMeta().location;
+    if (location?.kind !== "ssh") return null;
+    const status = this.connectionStatuses.get(id);
+    const bootstrap = this.sshBootstraps.get(id);
+    const connected = status === "connected" || status === "unstable";
+    const { host, user, port, identityFile } = location;
+    return {
+      host,
+      connecting: status === "connecting" || status === "reconnecting",
+      target:
+        connected && bootstrap
+          ? { host, user, port, identityFile, controlPath: bootstrap.controlPath }
+          : null,
+    };
   }
 
   /**

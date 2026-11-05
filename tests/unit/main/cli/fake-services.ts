@@ -26,6 +26,7 @@ import {
 import { listedAt } from "../../../../src/main/features/cli/listed";
 import { StartedAgents } from "../../../../src/main/features/cli/started-agents";
 import { WaitRegistry } from "../../../../src/main/features/cli/waits";
+import type { AgentRun } from "../../../../src/shared/claude/activity";
 import type { ClaudeStatus } from "../../../../src/shared/claude/status";
 import { parseSettingValue } from "../../../../src/shared/cli/settings";
 import type {
@@ -38,7 +39,7 @@ import type {
   CliUiOp,
   CliUiOps,
 } from "../../../../src/shared/cli/ui";
-import type { ListeningPort } from "../../../../src/shared/pty/ports";
+import type { ListeningPort, PortForward } from "../../../../src/shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 export const APP = "11111111-1111-4111-8111-111111111111";
@@ -156,6 +157,11 @@ export interface FakeApp {
     { status: ClaudeStatus; message?: string; since: number; turnStartedAt?: number }
   >;
   activity: Map<string, TabActivity>;
+  /** The agents of each terminal's Claude session, by "workspace:tab". */
+  agents: Map<string, AgentRun[]>;
+  /** The agents stop was asked of, by id; a run in `stoppable` is stopped. */
+  stops: string[];
+  stoppable: Set<string>;
   /** The waits on terminals listed while they run. */
   waits: WaitRegistry;
   screens: Map<string, string>;
@@ -178,6 +184,15 @@ export interface FakeApp {
   problems: CliProblem[];
   /** The ports each workspace's terminals listen on; an Error fails the look. */
   ports: Record<string, ListeningPort[] | Error>;
+  /**
+   * Each workspace's forwards. A forward set up listens at `to[port]`, or at
+   * the port itself; `error` fails it instead.
+   */
+  forwarding: {
+    forwards: Record<string, PortForward[]>;
+    to: Record<number, number>;
+    error?: Error;
+  };
   /** The app's settings, as settings.list gives them. */
   appSettings: CliSettingInfo[];
 }
@@ -368,6 +383,9 @@ export function fakeApp(now = Date.now()): FakeApp {
     ],
     [`${APP}:${SHELL_TAB}`, { lastOutputAt: now - 60_000 }],
   ]);
+  const agents: FakeApp["agents"] = new Map();
+  const stops: string[] = [];
+  const stoppable = new Set<string>();
   const screens = new Map([[CODEX_TAB, "› Summarize the API\n\n• Working (12s)"]]);
   const workspaces = [...WORKSPACES];
   const added: FakeApp["added"] = [];
@@ -395,6 +413,17 @@ export function fakeApp(now = Date.now()): FakeApp {
   };
   const problems: CliProblem[] = [];
   const ports: FakeApp["ports"] = {};
+  const forwarding: FakeApp["forwarding"] = { forwards: {}, to: {} };
+  const forward = async (workspaceId: string, port: number): Promise<PortForward> => {
+    if (forwarding.error) throw forwarding.error;
+    forwarding.forwards[workspaceId] ??= [];
+    const list = forwarding.forwards[workspaceId];
+    const found = list.find((f) => f.remotePort === port);
+    if (found) return found;
+    const made = { remotePort: port, localPort: forwarding.to[port] ?? port, active: true };
+    list.push(made);
+    return made;
+  };
   const appSettings = APP_SETTINGS.map((setting) => ({ ...setting }));
   const consent = new CrossWorkspaceConsent({
     policy: () => settings.crossWorkspace,
@@ -523,6 +552,13 @@ export function fakeApp(now = Date.now()): FakeApp {
     shownTab: () => ({ workspaceId: APP, tabId: SHELL_TAB }),
     claudeStatus: (ws, t) => claude.get(`${ws}:${t}`) ?? null,
     activity: (ws, t) => activity.get(`${ws}:${t}`) ?? null,
+    claudeAgents: {
+      list: (ws, t) => agents.get(`${ws}:${t}`) ?? [],
+      stop: async (_ws, _t, agentId) => {
+        stops.push(agentId);
+        return stoppable.has(agentId);
+      },
+    },
     waits,
     ui,
     notify: (workspaceId, tabId, title, body) => {
@@ -547,6 +583,21 @@ export function fakeApp(now = Date.now()): FakeApp {
       },
     },
     browser: fakeBrowserDriver(browser),
+    forwards: {
+      list: (workspaceId) => forwarding.forwards[workspaceId] ?? [],
+      forward,
+      stop: async (workspaceId, port) => {
+        forwarding.forwards[workspaceId] = (forwarding.forwards[workspaceId] ?? []).filter(
+          (f) => f.remotePort !== port,
+        );
+      },
+      localUrl: async (workspaceId, url) => {
+        const parsed = new URL(url);
+        const made = await forward(workspaceId, Number(parsed.port || 80));
+        parsed.port = String(made.localPort);
+        return parsed.toString();
+      },
+    },
   };
   return {
     services,
@@ -557,6 +608,9 @@ export function fakeApp(now = Date.now()): FakeApp {
     notified,
     claude,
     activity,
+    agents,
+    stops,
+    stoppable,
     waits,
     screens,
     foreground,
@@ -569,6 +623,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     panels,
     problems,
     ports,
+    forwarding,
     appSettings,
   };
 }

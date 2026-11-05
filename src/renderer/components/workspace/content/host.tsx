@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { ClaudeTabView } from "@/components/chat/claude-tab";
+import { CodexTabView } from "@/components/chat/codex-tab";
 import { CommitTab } from "@/components/editor/commit-tab";
 import { DiffTab } from "@/components/editor/diff-tab";
 import { SessionsTabView } from "@/components/sessions/sessions-tab";
@@ -242,6 +244,20 @@ export function ContentHost({
         />
       ) : tab.type === "sessions" ? (
         <SessionsTabView workspaceId={workspaceId} isVisible={isVisible} />
+      ) : tab.type === "claude" ? (
+        <ClaudeTabView
+          workspaceId={workspaceId}
+          tabId={tab.id}
+          props={tab.props}
+          isVisible={isVisible}
+        />
+      ) : tab.type === "codex" ? (
+        <CodexTabView
+          workspaceId={workspaceId}
+          tabId={tab.id}
+          props={tab.props}
+          isVisible={isVisible}
+        />
       ) : null}
     </div>
   );

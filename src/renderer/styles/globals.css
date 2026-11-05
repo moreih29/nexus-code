@@ -740,6 +740,18 @@
   border-radius: var(--radius-control);
 }
 
+/* Claude tab replies take the preview's element rules at a chat's size. */
+.md-preview.chat-md {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.md-preview.chat-md > *:first-child {
+  margin-top: 0;
+}
+.md-preview.chat-md > *:last-child {
+  margin-bottom: 0;
+}
+
 /* ---------------------------------------------------------------------------
    File-tree drag & drop feedback
    ---------------------------------------------------------------------------

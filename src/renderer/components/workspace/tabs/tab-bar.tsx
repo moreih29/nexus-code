@@ -1,4 +1,4 @@
-import { FilePlus, Globe, Plus, Radar, SquareTerminal } from "lucide-react";
+import { Bot, FilePlus, Globe, MessageSquareText, Plus, Radar, SquareTerminal } from "lucide-react";
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
@@ -40,6 +40,10 @@ interface TabBarProps {
   onNewBrowserTab: () => void;
   /** Shows the workspace's sessions tab, opening it if there is none. */
   onShowSessions: () => void;
+  /** Opens a new Claude tab. */
+  onNewClaudeTab: () => void;
+  /** Opens a new Codex tab. */
+  onNewCodexTab: () => void;
   onTabContextMenu?: (tabId: string, event: React.MouseEvent) => void;
 }
 
@@ -54,6 +58,8 @@ export function TabBar({
   onNewUntitledTab,
   onNewBrowserTab,
   onShowSessions,
+  onNewClaudeTab,
+  onNewCodexTab,
   onTabContextMenu,
 }: TabBarProps) {
   const { t } = useTranslation();
@@ -233,6 +239,14 @@ export function TabBar({
               <DropdownMenuItem onSelect={() => onNewBrowserTab()}>
                 <Globe aria-hidden className="size-3.5 mr-1.5 shrink-0" />
                 <span className="flex-1">{t("tabBar.new_browser")}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onNewClaudeTab()}>
+                <MessageSquareText aria-hidden className="size-3.5 mr-1.5 shrink-0" />
+                <span className="flex-1">{t("tabBar.new_claude")}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onNewCodexTab()}>
+                <Bot aria-hidden className="size-3.5 mr-1.5 shrink-0" />
+                <span className="flex-1">{t("tabBar.new_codex")}</span>
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onShowSessions()}>
                 <Radar aria-hidden className="size-3.5 mr-1.5 shrink-0" />

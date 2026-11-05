@@ -125,9 +125,14 @@
     "op_working": "Working…",
     "ports_title": "Listening ports {{ports}} — click to open",
     "ports_menu_title": "Listening ports",
-    "ports_ssh_note": "These ports are on the SSH host, which the app does not forward ports from.",
+    "ports_ssh_note": "These ports are on {{host}}. Opening or copying one forwards it to this machine.",
+    "ports_not_listed": "Forwarded only",
+    "ports_forwarded": "Here at {{url}}",
+    "ports_forward_paused": "Here at {{url}} (back once reconnected)",
     "ports_open": "Open in browser tab",
-    "ports_copy": "Copy URL"
+    "ports_copy": "Copy URL",
+    "ports_forward": "Forward to this machine",
+    "ports_unforward": "Stop forwarding"
   },
   "titleBar": {
     "open_settings": "Open settings",
@@ -168,6 +173,10 @@
     "dismiss_notification": "Dismiss notification",
     "task_count_one": "{{count}} task",
     "task_count_other": "{{count}} tasks"
+  },
+  "forward": {
+    "not_connected": "Port {{port}} cannot be opened: {{host}} is not connected.",
+    "failed": "Could not forward port {{port}} to this machine: {{error}}"
   },
   "task": {
     "switcher_aria": "Switch task",
@@ -370,6 +379,7 @@
     "new_terminal_with": "New Terminal With",
     "default_shell": "Default",
     "new_browser": "New Browser",
+    "new_claude": "New Claude session",
     "sessions": "Sessions",
     "pin_tab": "Pin Tab",
     "unpin_tab": "Unpin Tab",
@@ -384,7 +394,8 @@
     "copy_path": "Copy Path",
     "copy_relative_path": "Copy Relative Path",
     "terminal_ended_suffix": "·",
-    "terminal_ended_aria": ", terminal ended"
+    "terminal_ended_aria": ", terminal ended",
+    "new_codex": "New Codex session"
   },
   "groupPlaceholder": {
     "no_tab": "No tab open",
@@ -578,7 +589,9 @@
       "agents": "Agents",
       "progress": "Progress",
       "screen_show": "Show terminal output",
-      "screen_hide": "Hide terminal output"
+      "screen_hide": "Hide terminal output",
+      "show_claude_tab": "Go to the Claude tab",
+      "permission_hint_claude": "Its permission requests are answered in the Claude tab."
     },
     "agents": {
       "running_count": "Agents running {{count}}",
@@ -618,7 +631,7 @@
         "answer_pending": "The agent's last answer shows here once it finishes.",
         "answer_none": "It finished without an answer.",
         "tools_none": "No tools used yet.",
-        "tools_untold": "This run's tools are not recorded: it resumes a session, or keeps none.",
+        "tools_untold": "This run's tools are not recorded: it goes on a session found by -c or a search term, or keeps none.",
         "denied": "Denied",
         "more_tools": "Show {{count}} earlier",
         "fewer_tools": "Show recent only",
@@ -698,8 +711,7 @@
   "imagePreview": {
     "workspace_not_found": "Workspace not found.",
     "outside_workspace": "Image is outside the workspace and cannot be previewed.",
-    "load_failed": "Could not load image.",
-    "too_large": "Image is too large to preview (max {{maxMb}} MB)."
+    "load_failed": "Could not load image."
   },
   "fontPreview": {
     "outside_workspace": "This font is outside the workspace and cannot be previewed.",
@@ -713,7 +725,6 @@
   "pdfPreview": {
     "outside_workspace": "This PDF is outside the workspace and cannot be previewed.",
     "load_failed": "Could not open this PDF.",
-    "too_large": "This PDF is too large to preview (max {{maxMb}} MB).",
     "password": "This PDF is protected by a password and cannot be previewed.",
     "zoom_in": "Zoom in",
     "zoom_out": "Zoom out",
@@ -801,5 +812,476 @@
     "failedHttp": "Couldn't check for updates (HTTP {{status}}).",
     "failedNetwork": "Couldn't check for updates. Check your network connection.",
     "failedRateLimited": "Couldn't check for updates. GitHub is limiting requests right now; try again in a moment."
+  },
+  "chat": {
+    "tab_title": "Claude",
+    "copy": "Copy",
+    "jump_to_bottom": "Scroll to the latest message",
+    "thinking": "Thinking",
+    "thinking_live": "Thinking…",
+    "message": {
+      "sent": "Sent",
+      "taken": "Read by Claude",
+      "taken_codex": "Read by Codex"
+    },
+    "empty": {
+      "title": "What should Claude work on?"
+    },
+    "notice": {
+      "interrupted": "Interrupted",
+      "exited": "Claude exited",
+      "restarted": "Claude started again",
+      "compacted": "Conversation compacted",
+      "cleared": "Started over (/clear)",
+      "error": "Error",
+      "dropped": "Some lines were lost",
+      "exited_codex": "Codex exited",
+      "restarted_codex": "Codex started again"
+    },
+    "tool": {
+      "denied": "Denied",
+      "stopped": "Stopped",
+      "unsandboxed": "outside the sandbox",
+      "unsandboxed_hint": "A retry outside the sandbox, which stopped this command",
+      "no_output": "(no output)",
+      "subagent_calls_one": "{{count}} call",
+      "subagent_calls_other": "{{count}} calls",
+      "background": "To background",
+      "background_hint": "Keep it running in the background, and go on with the turn"
+    },
+    "permission": {
+      "aria": "Permission request",
+      "title": "Claude wants to use {{tool}}",
+      "from_subagent": "Asked by a subagent",
+      "page": "{{current}} of {{total}}",
+      "previous": "Previous request",
+      "next": "Next request",
+      "allow": "Allow",
+      "allow_always": "Always allow",
+      "deny": "Deny…",
+      "deny_send": "Deny",
+      "deny_stop": "Deny and stop",
+      "deny_placeholder": "Tell Claude what to do instead (optional)",
+      "back": "Back",
+      "suggest_mode": "Switch to {{mode}}",
+      "suggest_dirs": "Allow {{dirs}}",
+      "suggest_session": "Allowed without asking again until Codex restarts",
+      "title_codex": "Codex wants to use {{tool}}",
+      "deny_placeholder_codex": "Tell Codex what to do instead (optional)"
+    },
+    "question": {
+      "other": "Other answer",
+      "skip": "Skip",
+      "submit": "Answer"
+    },
+    "plan": {
+      "title": "Claude's plan",
+      "request_changes": "Request changes",
+      "approve_manual": "Approve, ask before edits",
+      "approve_accept_edits": "Approve, accept edits",
+      "feedback_placeholder": "What should change in the plan?",
+      "send_feedback": "Send"
+    },
+    "status": {
+      "working": "Working",
+      "requesting": "Waiting for the model",
+      "thinking": "Thinking",
+      "writing": "Writing",
+      "running_tool": "Running {{tool}}",
+      "waiting_permission": "Waiting for your answer",
+      "compacting": "Compacting",
+      "interrupting": "Stopping…",
+      "retrying": "Retrying (attempt {{attempt}})",
+      "retrying_of": "Retrying ({{attempt}}/{{max}})",
+      "tokens": "↓ {{count}} tokens",
+      "agents_one": "{{count}} agent running",
+      "agents_other": "{{count}} agents running"
+    },
+    "rate_limit": {
+      "warning": "Close to the usage limit",
+      "warning_until": "Close to the usage limit · resets at {{time}}",
+      "rejected": "Usage limit reached",
+      "rejected_until": "Usage limit reached · resets at {{time}}"
+    },
+    "twin": {
+      "message": "This session is open in a terminal tab too. Going on in both forks the conversation.",
+      "show": "Show the terminal"
+    },
+    "phase": {
+      "starting": "Starting Claude…",
+      "held": "The connection dropped. Claude keeps running and the tab catches up when it is back.",
+      "ended": "Claude is not running. Sending a message starts it again.",
+      "restart": "Restart",
+      "not_found": "Claude Code was not found where this workspace runs. Install it and try again.",
+      "failed": "Claude could not be started.",
+      "old_version": "Claude Code {{version}} is too old for this tab. {{min}} or later is needed.",
+      "retry": "Try again",
+      "truncated": "The oldest part of this conversation is no longer kept."
+    },
+    "queue": {
+      "aria": "Messages waiting for the turn to end",
+      "label": "Queued",
+      "images_one": "{{count}} image",
+      "images_other": "{{count}} images",
+      "edit": "Edit",
+      "remove": "Remove"
+    },
+    "composer": {
+      "aria": "Message to Claude",
+      "placeholder": "↩ send · ⇧↩ new line · / commands · @ files",
+      "placeholder_running": "↩ send now · ⌘↩ queue",
+      "send": "Send",
+      "send_now": "Send now",
+      "stop": "Stop",
+      "remove_image": "Remove image",
+      "image_too_large": "{{name}} is larger than an image Claude can read.",
+      "add": "Add",
+      "attach_file": "Attach images or files",
+      "mention_file": "Mention a file",
+      "command": "Command",
+      "commands": "Commands",
+      "files": "Files",
+      "remove_file": "Remove file",
+      "file_too_large": "{{name}} is larger than 20 MB, the most a file can be sent.",
+      "aria_codex": "Message to Codex"
+    },
+    "mode": {
+      "aria": "Permission mode",
+      "label": "Permission mode",
+      "auto": "Auto",
+      "auto_hint": "Claude handles permission decisions",
+      "default": "Manual",
+      "default_hint": "Always ask before changes",
+      "acceptEdits": "Accept edits",
+      "acceptEdits_hint": "Accept every file edit",
+      "plan": "Plan",
+      "plan_hint": "Plan before changes",
+      "bypassPermissions": "Bypass permissions",
+      "bypassPermissions_hint": "Never ask",
+      "bypass_blocked": "Turned off by a setting or policy",
+      "bypass_confirm_title": "Bypass every permission?",
+      "bypass_confirm_body": "Claude will run commands and edit files without asking, including ones that delete data or reach the network. Use it only where nothing can be harmed.",
+      "bypass_confirm": "Bypass permissions"
+    },
+    "model": {
+      "aria": "Model",
+      "label": "Model",
+      "default": "Default model"
+    },
+    "effort": {
+      "aria": "Effort",
+      "label": "Effort",
+      "unset": "effort"
+    },
+    "rewind": {
+      "action": "Rewind to before this message",
+      "busy": "Can't rewind while Claude is working",
+      "title": "Rewind to before this message",
+      "description": "The conversation goes back to before this message, and the message goes back in the composer.",
+      "checking": "Checking the changed files…",
+      "files_unknown": "Couldn't check the changed files: {{error}}",
+      "files_unavailable": "The files can't be rewound. {{error}}",
+      "files_changed_one": "{{count}} file goes back",
+      "files_changed_other": "{{count}} files go back",
+      "more_files_one": "and {{count}} more",
+      "more_files_other": "and {{count}} more",
+      "no_files": "No file changes to undo.",
+      "conversation": "Rewind the conversation",
+      "conversation_and_files": "Rewind the conversation and code",
+      "failed": "Couldn't rewind: {{error}}"
+    },
+    "fork": {
+      "from_assistant": "Fork from here",
+      "from_user": "Fork from before this message"
+    },
+    "time": {
+      "now": "just now"
+    },
+    "panel": {
+      "aria": "Session details",
+      "show": "Show side panel",
+      "hide": "Hide side panel",
+      "stop": "Stop",
+      "stop_failed": "Could not stop it",
+      "needs_version": "Needs Claude Code {{version}} or later",
+      "status": {
+        "running": "Running",
+        "completed": "Done",
+        "failed": "Failed",
+        "stopped": "Stopped"
+      },
+      "env": {
+        "title": "Environment",
+        "remote_control": "Remote",
+        "remote_unavailable": "Remote Control is not available for this account",
+        "remote_failed": "Could not switch Remote Control: {{error}}",
+        "copy_url": "Copy the Remote Control link",
+        "open_url": "Open the Remote Control link",
+        "folder": "Folder",
+        "branch": "Branch",
+        "session": "Session",
+        "copy_session": "Copy the session ID",
+        "fork_session": "Fork the whole session",
+        "model": "Model",
+        "version": "Version"
+      },
+      "context": {
+        "title": "Context",
+        "unknown": "Not measured yet",
+        "tokens": "{{used}} of {{max}} tokens",
+        "free": "{{count}} tokens left before compacting",
+        "compact": "Compact",
+        "compact_busy": "Compact once Claude finishes"
+      },
+      "agents": {
+        "title": "Agents",
+        "open": "Show its transcript",
+        "teammate": "Teammate",
+        "tools_one": "{{count}} tool call",
+        "tools_other": "{{count}} tool calls",
+        "no_text": "Nothing written yet",
+        "open_run": "Show the run"
+      },
+      "jobs": {
+        "title": "Tasks"
+      },
+      "todos": {
+        "title": "To-dos"
+      },
+      "results": {
+        "title": "Results",
+        "created": "new"
+      },
+      "changed": {
+        "title": "Changed files"
+      },
+      "usage": {
+        "title": "Usage",
+        "cost": "This tab, at list price",
+        "cost_hint": "Claude Code's estimate at API list prices. A subscription plan isn't billed by it.",
+        "none": "No limits reported",
+        "resets": "Resets {{time}}",
+        "kind": {
+          "session": "Current session",
+          "weekly_all": "This week, all models",
+          "weekly_scoped": "This week, {{scope}}"
+        }
+      },
+      "mcp": {
+        "title": "MCP",
+        "none": "No MCP servers",
+        "reconnect": "Reconnect",
+        "enabled": "Use {{name}}",
+        "sign_in": "Sign in",
+        "signing_in": "Signing in…",
+        "signing_in_hint": "Sign in on the page that opened in the browser",
+        "reopen": "Open again",
+        "cancel": "Cancel",
+        "status": {
+          "connected": "Connected",
+          "needs-auth": "Needs auth",
+          "failed": "Failed",
+          "pending": "Connecting",
+          "disabled": "Off"
+        }
+      }
+    },
+    "strip": {
+      "aria": "Agents",
+      "main": "Main",
+      "finished": "Finished {{count}}",
+      "permission_waiting": "A permission request is waiting in the main conversation",
+      "to_main": "To main",
+      "input_to_main": "Messages go to the main conversation",
+      "summary": {
+        "agents_one": "{{count}} agent",
+        "agents_other": "{{count}} agents",
+        "jobs_one": "{{count}} task",
+        "jobs_other": "{{count}} tasks",
+        "todos": "To-dos {{done}}/{{total}}",
+        "context": "Context {{percent}}%"
+      }
+    },
+    "look": {
+      "aria": "Quick look: {{name}}",
+      "previous": "Previous result (←)",
+      "next": "Next result (→)",
+      "open_tab": "Open as a tab",
+      "close": "Close (esc)",
+      "changes": "Changes since before the session",
+      "revert": "Revert this file to before the session",
+      "revert_busy": "Can't revert while Claude is working",
+      "revert_title": "Revert {{name}}?",
+      "revert_description": "The file goes back to how it was before this session changed it. What changed in it since, by Claude or by you, is lost.",
+      "revert_confirm": "Revert",
+      "reverted": "Reverted {{name}}",
+      "revert_failed": "Couldn't revert {{name}}: {{error}}"
+    },
+    "links": {
+      "look": "Quick look",
+      "open_tab": "Open as a tab",
+      "copy_path": "Copy path",
+      "open_system": "Open in the system browser",
+      "open_app_browser": "Open in the app's browser",
+      "copy_link": "Copy link"
+    },
+    "run": {
+      "kind": "claude -p run",
+      "stop": "Stop",
+      "stop_failed": "Could not stop it; the run may have ended.",
+      "open_in_tab": "Go on in a tab"
+    },
+    "sessions": {
+      "title": "Earlier sessions",
+      "open": "Open in a tab",
+      "more": "Show {{count}} more",
+      "resume_failed": "Could not go on with the session: {{message}}"
+    },
+    "commands": {
+      "close": "Close",
+      "working": "Working…",
+      "btw_empty": "Write the question after /btw",
+      "btw_none": "No answer came. Try again, or ask in the conversation.",
+      "copy_none": "There is no such answer to copy",
+      "copied": "Copied the answer",
+      "export_bad_name": "Give a file name under the tab's folder",
+      "export_user": "You",
+      "export_exists": "{{name}} is already there",
+      "exported": "Wrote {{name}}",
+      "memory_none": "No memory files are loaded. A `CLAUDE.md` in the folder is read when the session starts.",
+      "help_intro": "The tab's own commands. Type `/` for Claude Code's.",
+      "add_dir_empty": "Write the folder after /add-dir",
+      "added_dir": "Claude may work in {{path}} too, for this tab",
+      "no_rules": "No permission rules.",
+      "not_in_effect": "not in effect",
+      "directories": "Folders",
+      "permissions_edit": "Rules come from the settings files; edit one and the session picks it up.",
+      "no_hooks": "No hooks are set.",
+      "sandbox_on": "The sandbox is on for this tab",
+      "sandbox_off": "The sandbox is off for this tab",
+      "sandbox_usage": "Write /sandbox on or /sandbox off",
+      "sandbox_is_on": "The sandbox is **on**: Bash commands run inside it. `/sandbox off` turns it off for this tab.",
+      "sandbox_is_off": "The sandbox is **off**. `/sandbox on` runs Bash commands inside it, for this tab; the host needs its tools (bubblewrap on Linux).",
+      "behavior": {
+        "allow": "Allowed",
+        "ask": "Asked",
+        "deny": "Denied"
+      },
+      "source": {
+        "userSettings": "user settings",
+        "projectSettings": "project settings",
+        "localSettings": "local settings",
+        "flagSettings": "flags",
+        "policySettings": "policy",
+        "cliArg": "command line",
+        "command": "command",
+        "session": "this session",
+        "added": "this tab (/add-dir)"
+      },
+      "describe": {
+        "btw": "Ask a quick question beside the conversation, without keeping it",
+        "copy": "Copy Claude's last answer, or the Nth from the end",
+        "export": "Write the conversation to a Markdown file in the folder",
+        "diff": "Show the uncommitted changes",
+        "memory": "Open the memory files (CLAUDE.md) the session reads",
+        "permissions": "List the permission rules and the folders Claude may work in",
+        "add-dir": "Let Claude work in another folder, for this tab",
+        "hooks": "List the hooks that run",
+        "sandbox": "Show or switch the Bash sandbox, for this tab",
+        "help": "List the tab's own commands",
+        "exit": "Close this tab",
+        "fork": "Copy this conversation into a new tab",
+        "subtask": "Send a fork of Claude, with the whole conversation, off on a task",
+        "tasks": "What runs now, and this folder's background sessions",
+        "workflows": "This session's workflows",
+        "background": "Send this session to Claude Code's background service and close the tab",
+        "skills": "The skills this session has",
+        "plugin": "The installed plugins: turn off or on, update, remove, install",
+        "upgrade": "Upgrade your plan (opens claude.ai)",
+        "update": "Update Claude Code, in a terminal",
+        "release-notes": "Claude Code's release notes",
+        "feedback": "Report a bug or send feedback (opens GitHub issues)",
+        "login": "Sign in or switch accounts, in a terminal",
+        "logout": "Sign out, in a terminal",
+        "teleport": "Resume a session from claude.ai, in a terminal",
+        "install-github-app": "Set up Claude GitHub Actions, in a terminal",
+        "install-slack-app": "Install the Claude Slack app, in a terminal",
+        "setup-bedrock": "Set up Amazon Bedrock, in a terminal",
+        "setup-vertex": "Set up Google Vertex AI, in a terminal",
+        "web-setup": "Set up cloud sessions with GitHub, in a terminal",
+        "remote-env": "Choose the cloud agents' default environment, in a terminal",
+        "ultrareview": "Review the branch in a cloud session, in a terminal",
+        "autofix-pr": "Watch the PR and fix what fails, in a terminal"
+      },
+      "fork_none": "Send a message first: there is no conversation to copy yet.",
+      "subtask_empty": "Say what the subtask should do: /subtask <task>",
+      "background_busy": "Wait for the turn to end, or stop it, before sending the session to the background.",
+      "background_empty": "Send a message first, or give the background session a prompt: /background <prompt>",
+      "background_sent": "Sent to the background as {{id}}. /tasks lists it.",
+      "tasks_title": "Running in this session",
+      "tasks_none": "Nothing is running.",
+      "workflows_title": "Workflows in this session",
+      "workflows_none": "No workflows have run.",
+      "background_title": "Background sessions of this folder",
+      "background_none": "None.",
+      "open": "Open",
+      "stop": "Stop",
+      "status": {
+        "running": "running",
+        "completed": "done",
+        "failed": "failed",
+        "killed": "stopped",
+        "stopped": "stopped",
+        "idle": "idle",
+        "blocked": "waiting",
+        "pending": "waiting"
+      },
+      "in_terminal": "Running `{{command}}` in a new terminal.",
+      "restart_after": "When it is done",
+      "restart_hint": "Start Claude again to use it here.",
+      "restart": "Restart",
+      "skills_title_one": "{{count}} skill",
+      "skills_title_other": "{{count}} skills",
+      "skills_none": "No skills are loaded.",
+      "plugin_usage": "/plugin lists the plugins; /plugin install <name>@<marketplace> installs one.",
+      "plugins_title": "Installed plugins",
+      "plugins_none": "No plugins are installed.",
+      "plugin_on": "on",
+      "plugin_off": "off",
+      "plugin_enable": "Turn on",
+      "plugin_disable": "Turn off",
+      "plugin_update": "Update",
+      "plugin_uninstall": "Remove",
+      "plugin_uninstall_title": "Remove {{name}}?",
+      "plugin_uninstall_body": "The plugin is uninstalled. Its saved data is kept, for if it is installed again.",
+      "marketplace_title": "Marketplaces",
+      "marketplace_hint": "Find and install plugins with Claude Code's /plugin.",
+      "marketplace_open": "Open in terminal"
+    },
+    "codex": {
+      "tab_title": "Codex",
+      "empty": "What should Codex work on?",
+      "placeholder": "↩ send · ⇧↩ new line · @ files",
+      "starting": "Starting Codex…",
+      "held": "The connection dropped. Codex keeps running and the tab catches up when it is back.",
+      "ended": "Codex is not running. Sending a message starts it again, on the same thread.",
+      "not_found": "Codex was not found where this workspace runs. Install it (npm install -g @openai/codex) and try again.",
+      "failed": "Codex could not be started.",
+      "old_version": "Codex {{version}} is too old for this tab. {{min}} or later is needed.",
+      "signed_out": "Codex is not signed in. Sign in in a terminal, then check again.",
+      "sign_in": "Sign in in a terminal",
+      "sign_in_check": "Check again",
+      "mode": {
+        "readOnly": "Read only",
+        "readOnly_hint": "Reads files; asks before it edits or runs a command",
+        "auto": "Auto",
+        "auto_hint": "Edits and runs commands in the folder; asks to go outside it or online",
+        "fullAccess": "Full access",
+        "fullAccess_hint": "No sandbox: runs anything without asking",
+        "bypass_confirm_title": "Give Codex full access?",
+        "bypass_confirm_body": "Codex will edit any file, run any command and reach the network without asking, outside the sandbox. Use it only where nothing can be harmed.",
+        "bypass_confirm": "Give full access"
+      }
+    }
   }
 }

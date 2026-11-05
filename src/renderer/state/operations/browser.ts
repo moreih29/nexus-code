@@ -39,6 +39,7 @@
 
 import i18next from "i18next";
 import { Grid } from "@/engine";
+import { loopbackPort } from "../../../shared/pty/ports";
 import { isNavigationSchemeAllowed } from "../../../shared/security/navigation-allowlist";
 import { createKeyedDebouncer } from "../../../shared/util/keyed-debouncer";
 import type { TimerScheduler } from "../../../shared/util/timer-scheduler";
@@ -49,6 +50,7 @@ import { useBrowserRuntimeStore } from "../stores/browser-runtime";
 import { useLayoutStore } from "../stores/layout/store";
 import type { BrowserTabProps } from "../stores/tabs";
 import { useTabsStore } from "../stores/tabs";
+import { showForwardFailure } from "./ports";
 
 // ---------------------------------------------------------------------------
 // IPC subscriptions
@@ -90,6 +92,15 @@ export function initBrowserRuntimeSubscriptions(): void {
     ipcListen("browser", "error", ({ tabId }) => {
       // did-fail-load implies loading has ended.
       useBrowserRuntimeStore.getState().setRuntime(tabId, { isLoading: false });
+    }),
+  );
+
+  // A local address of an SSH workspace whose port could not be forwarded.
+  activeUnsubs.push(
+    ipcListen("browser", "refused", ({ tabId, url, kind, message }) => {
+      const workspaceId = findWorkspaceForTab(tabId);
+      if (!workspaceId) return;
+      showForwardFailure(workspaceId, loopbackPort(url) ?? 0, kind, message);
     }),
   );
 

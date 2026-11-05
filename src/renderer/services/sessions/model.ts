@@ -28,8 +28,13 @@ export interface AgentSession {
   readonly key: string;
   readonly workspaceId: string;
   readonly tabId: string;
-  /** The terminal tab's title. */
+  /** The tab's title. */
   readonly title: string;
+  /**
+   * The kind of tab: a terminal, or a Claude tab, whose program takes
+   * messages rather than keys.
+   */
+  readonly kind: "terminal" | "claude";
   /** "claude", "codex", or undefined for an agent known only by its notifications. */
   readonly agent: string | undefined;
   /**
@@ -195,16 +200,35 @@ export function workspaceEstimatedGlyph(
   return glyph;
 }
 
-/** The agent sessions in the terminals of `workspace`. */
+/** The agent sessions in the terminals and Claude tabs of `workspace`. */
 export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): AgentSession[] {
   const tabs = input.tabsByWorkspace[workspace.id] ?? {};
   const claude = input.claudeByWorkspace[workspace.id] ?? {};
   const seen = input.seenByWorkspace?.[workspace.id] ?? {};
   const sessions: AgentSession[] = [];
   for (const tab of Object.values(tabs)) {
-    if (tab.type !== "terminal") continue;
     const key = sessionKey(workspace.id, tab.id);
     const status = claude[tab.id];
+    if (tab.type === "claude") {
+      // Its hooks tell its state once its program started; idle until then.
+      const state = status?.status ?? "idle";
+      sessions.push({
+        key,
+        workspaceId: workspace.id,
+        tabId: tab.id,
+        title: tab.title,
+        kind: "claude",
+        agent: "claude",
+        state,
+        phase: phaseOf(state),
+        estimated: false,
+        since: status?.since,
+        message: status?.message,
+        prompt: status?.prompt,
+      });
+      continue;
+    }
+    if (tab.type !== "terminal") continue;
     const terminal = describeTerminal(
       status ?? null,
       input.activity.get(key) ?? null,
@@ -222,6 +246,7 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
       workspaceId: workspace.id,
       tabId: tab.id,
       title: tab.title,
+      kind: "terminal",
       agent: terminal.agent,
       state,
       phase: phaseOf(state),
@@ -254,6 +279,7 @@ export function buildFamily(input: FamilyInput): SessionFamily | null {
 const SESSION_FIELDS = [
   "key",
   "title",
+  "kind",
   "agent",
   "state",
   "phase",
