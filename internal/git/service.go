@@ -260,7 +260,16 @@ func normalizeRef(ref string) (string, error) {
 	if trimmed == "" || strings.Contains(trimmed, "\x00") {
 		return "", proto.ProtocolError("git.getFileContent ref is required")
 	}
+	if optionLike(trimmed) {
+		return "", proto.ProtocolError("git ref must not start with -")
+	}
 	return trimmed, nil
+}
+
+// optionLike reports whether git, given value where it takes a revision,
+// would read it as one of its options instead: `--output=FILE` writes a file.
+func optionLike(value string) bool {
+	return strings.HasPrefix(value, "-")
 }
 
 func normalizeRelPath(relPath string) (string, error) {
