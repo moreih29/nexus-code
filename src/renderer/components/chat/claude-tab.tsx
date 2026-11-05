@@ -6,6 +6,7 @@ import { MessageSquareText } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
+import { parseAppCommand } from "../../services/chat/app-commands";
 import {
   type ChatController,
   chatController,
@@ -27,6 +28,7 @@ import {
   todosOf,
 } from "../../services/chat/panel";
 import { revertChangedFile } from "../../services/chat/revert-file";
+import { runAppCommand } from "../../services/chat/run-app-command";
 import {
   type ChatTabState,
   type ComposerDraft,
@@ -45,8 +47,10 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
 import { Banner, type BannerAction } from "../ui/banner";
+import { showToast } from "../ui/toast";
 import { AgentStrip } from "./agent-strip";
 import { type ChatLinks, ChatLinksContext } from "./chat-links";
+import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
 import { type MessageActions, MessageList } from "./message-list";
 import { PermissionCard } from "./permission-card";
@@ -56,6 +60,7 @@ import { RewindDialog } from "./rewind-dialog";
 import { SessionList } from "./session-list";
 import { SidePanel } from "./side-panel";
 import { StatusLine } from "./status-line";
+import { toolSummary } from "./tool-row";
 
 interface ClaudeTabViewProps {
   workspaceId: string;
@@ -291,6 +296,25 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     };
   }, [workspaceId, tabId]);
 
+  /** Runs a message that is one of the tab's own commands (/copy, /btw…); false for one to send. */
+  const runCommand = (text: string): boolean => {
+    const command = parseAppCommand(text, state.model.init?.commands ?? []);
+    if (!command) return false;
+    const { history, model } = state;
+    runAppCommand(command, {
+      controller,
+      workspaceId,
+      tabId,
+      cwd: props.cwd,
+      rootPath,
+      items: history ? [...history.items, ...model.items] : model.items,
+      tools: history ? { ...history.tools, ...model.tools } : model.tools,
+      summarize: (tool) => toolSummary(tool, props.cwd),
+      openFileTab: links.openFileTab,
+    }).catch((err: Error) => showToast({ kind: "error", message: err.message }));
+    return true;
+  };
+
   const forkSession = () => {
     const point = controller.forkPoint("", { before: false });
     if (point) openClaudeTab(workspaceId, { cwd: props.cwd, fork: { sessionId: point.sessionId } });
@@ -415,6 +439,18 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
             state={state}
             local={isLocal}
             placeholder={shown ? t("chat.strip.input_to_main") : undefined}
+            above={
+              state.card && (
+                <CommandCardView
+                  card={state.card}
+                  workspaceId={workspaceId}
+                  cwd={props.cwd}
+                  rootPath={rootPath}
+                  onClose={() => controller.closeCard()}
+                />
+              )
+            }
+            onCommand={runCommand}
           />
         </div>
         {place === "beside" && besideOpen && panel}

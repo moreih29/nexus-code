@@ -28,6 +28,7 @@ import {
 } from "./model";
 import {
   type ChatTabState,
+  type CommandCard,
   chatKey,
   emptyTabState,
   type QueuedMessage,
@@ -39,6 +40,8 @@ const log = createLogger("chat");
 
 /** How long a control request waits for its answer. */
 const CONTROL_TIMEOUT_MS = 15_000;
+/** How long a side question may take: one turn of the model, retries included. */
+const SIDE_QUESTION_TIMEOUT_MS = 180_000;
 
 /** Longest a replay's lines, sent as events, may trail its answer. */
 const REPLAY_CATCH_UP_MS = 3_000;
@@ -601,6 +604,41 @@ export class ChatController {
     this.update((prev) => ({ ...prev, mcpSignIn: undefined }));
   }
 
+  /**
+   * Asks Claude a question beside the conversation (/btw): it sees the
+   * conversation, uses no tools, and the question and its answer are not
+   * kept in it. Null when there is no answer.
+   */
+  async askAside(question: string): Promise<string | null> {
+    if (!(await this.ensureRunning())) throw new Error("Claude is not running");
+    const body = await this.request("side_question", { question }, SIDE_QUESTION_TIMEOUT_MS);
+    return typeof body.response === "string" ? body.response : null;
+  }
+
+  /** The context's breakdown now (get_context_usage), starting the program for it. */
+  async contextUsage(): Promise<Record<string, unknown>> {
+    if (!(await this.ensureRunning())) throw new Error("Claude is not running");
+    return this.request("get_context_usage", {});
+  }
+
+  /** Shows a card above the composer, in place of the one before; its id, to fill it in. */
+  showCard(card: Omit<CommandCard, "id">): string {
+    const id = nextRequestId();
+    this.update((prev) => ({ ...prev, card: { ...card, id } }));
+    return id;
+  }
+
+  /** Fills in a card that is still shown. */
+  updateCard(id: string, patch: Partial<Omit<CommandCard, "id">>): void {
+    this.update((prev) =>
+      prev.card?.id === id ? { ...prev, card: { ...prev.card, ...patch } } : prev,
+    );
+  }
+
+  closeCard(): void {
+    this.update((prev) => (prev.card ? { ...prev, card: undefined } : prev));
+  }
+
   async mcpToggle(serverName: string, enabled: boolean): Promise<void> {
     try {
       await this.request("mcp_toggle", { serverName, enabled });
@@ -682,7 +720,11 @@ export class ChatController {
   }
 
   /** Sends a control request and waits for its answer. */
-  request(subtype: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  request(
+    subtype: string,
+    params: Record<string, unknown>,
+    timeoutMs = CONTROL_TIMEOUT_MS,
+  ): Promise<Record<string, unknown>> {
     if (!this.supports(subtype)) {
       return Promise.reject(new Error(`${subtype} needs a newer Claude Code`));
     }
@@ -691,7 +733,7 @@ export class ChatController {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`${subtype} got no answer`));
-      }, CONTROL_TIMEOUT_MS);
+      }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
     });
     this.write({ type: "control_request", request_id: id, request: { subtype, ...params } }).catch(

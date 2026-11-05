@@ -1126,6 +1126,29 @@
       "open": "Open in a tab",
       "more": "Show {{count}} more",
       "resume_failed": "Could not go on with the session: {{message}}"
+    },
+    "commands": {
+      "close": "Close",
+      "working": "Working…",
+      "btw_empty": "Write the question after /btw",
+      "btw_none": "No answer came. Try again, or ask in the conversation.",
+      "copy_none": "There is no such answer to copy",
+      "copied": "Copied the answer",
+      "export_bad_name": "Give a file name under the tab's folder",
+      "export_user": "You",
+      "export_exists": "{{name}} is already there",
+      "exported": "Wrote {{name}}",
+      "memory_none": "No memory files are loaded. A `CLAUDE.md` in the folder is read when the session starts.",
+      "help_intro": "The tab's own commands. Type `/` for Claude Code's.",
+      "describe": {
+        "btw": "Ask a quick question beside the conversation, without keeping it",
+        "copy": "Copy Claude's last answer, or the Nth from the end",
+        "export": "Write the conversation to a Markdown file in the folder",
+        "diff": "Show the uncommitted changes",
+        "memory": "Open the memory files (CLAUDE.md) the session reads",
+        "help": "List the tab's own commands",
+        "exit": "Close this tab"
+      }
     }
   }
 }

@@ -1126,6 +1126,29 @@
       "open": "탭에 열려 있음",
       "more": "{{count}}개 더 보기",
       "resume_failed": "세션을 이어가지 못했습니다: {{message}}"
+    },
+    "commands": {
+      "close": "닫기",
+      "working": "처리 중…",
+      "btw_empty": "/btw 뒤에 질문을 쓰세요",
+      "btw_none": "답이 오지 않았습니다. 다시 시도하거나 대화에서 물어보세요.",
+      "copy_none": "복사할 답이 없습니다",
+      "copied": "답을 복사했습니다",
+      "export_bad_name": "탭 폴더 안의 파일 이름을 쓰세요",
+      "export_user": "사용자",
+      "export_exists": "{{name}} 파일이 이미 있습니다",
+      "exported": "{{name}}에 저장했습니다",
+      "memory_none": "불러온 메모리 파일이 없습니다. 폴더의 `CLAUDE.md`는 세션이 시작될 때 읽습니다.",
+      "help_intro": "탭이 직접 처리하는 명령입니다. Claude Code의 명령은 `/`를 입력하면 나옵니다.",
+      "describe": {
+        "btw": "대화에 남기지 않고 곁가지 질문하기",
+        "copy": "Claude의 마지막 답(또는 끝에서 N번째)을 복사",
+        "export": "대화를 폴더 안 Markdown 파일로 저장",
+        "diff": "커밋하지 않은 변경 보기",
+        "memory": "세션이 읽는 메모리 파일(CLAUDE.md) 열기",
+        "help": "탭이 직접 처리하는 명령 보기",
+        "exit": "이 탭 닫기"
+      }
     }
   }
 }
