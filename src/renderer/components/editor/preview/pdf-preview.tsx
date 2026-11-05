@@ -133,6 +133,8 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
   const [view, setView] = useState({ page: 1, pages: 0, scale: 1 });
   const findRef = useRef<PdfFind | null>(null);
   const reportRef = useRef<(result: FindResult) => void>(() => {});
+  /** Whether the pages wait for the container to have a width to fit to. */
+  const fitPendingRef = useRef(false);
 
   usePreviewFinder(
     useCallback((report: (result: FindResult) => void) => {
@@ -213,7 +215,7 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
         const previous = viewer.pdfDocument;
         const keep = previous
           ? {
-              scale: viewer.currentScaleValue,
+              scale: fitPendingRef.current ? "page-width" : viewer.currentScaleValue,
               top: container.scrollTop,
               left: container.scrollLeft,
             }
@@ -221,7 +223,13 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
         viewer.eventBus.on(
           "pagesinit",
           () => {
-            viewer.currentScaleValue = keep?.scale ?? "page-width";
+            const scale = keep?.scale ?? "page-width";
+            // A tab opened or restored behind another loads in the view
+            // park, which has no size: fitted to a width of 0, the pages
+            // were zoomed below zero and stayed blank once shown. They are
+            // fitted when the container has a width (the observer below).
+            fitPendingRef.current = scale === "page-width" && container.clientWidth === 0;
+            if (!fitPendingRef.current) viewer.currentScaleValue = scale;
             if (keep) {
               container.scrollTop = keep.top;
               container.scrollLeft = keep.left;
@@ -275,6 +283,20 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
     };
     container.addEventListener("wheel", onWheel, { passive: false });
     return () => container.removeEventListener("wheel", onWheel);
+  }, []);
+
+  // Fits the pages that waited for a width, when the tab is shown.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver(() => {
+      const viewer = viewerRef.current?.viewer;
+      if (!fitPendingRef.current || !viewer?.pdfDocument || container.clientWidth === 0) return;
+      fitPendingRef.current = false;
+      viewer.currentScaleValue = "page-width";
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
   }, []);
 
   return (
