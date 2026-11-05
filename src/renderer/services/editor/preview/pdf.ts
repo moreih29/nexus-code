@@ -4,14 +4,6 @@ export function isPdfFile(filePath: string): boolean {
   return filePath.toLowerCase().endsWith(".pdf");
 }
 
-/** Bytes from base64, as fs.readBinary gives a file. */
-export function bytesFromBase64(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
 /** The zoom steps the toolbar's buttons go through, as fractions of actual size. */
 export const PDF_ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 

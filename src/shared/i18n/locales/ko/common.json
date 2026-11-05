@@ -669,6 +669,15 @@
     "zoom_out": "축소",
     "fit_width": "너비에 맞추기"
   },
+  "spreadsheetPreview": {
+    "outside_workspace": "워크스페이스 밖의 스프레드시트라 미리 볼 수 없습니다.",
+    "load_failed": "이 스프레드시트를 읽을 수 없습니다.",
+    "too_large": "스프레드시트가 너무 커서 미리 볼 수 없습니다 (최대 {{maxMb}} MB).",
+    "sheets": "시트",
+    "empty_sheet": "이 시트에는 값이 없습니다.",
+    "chart_sheet": "차트 시트는 미리보기에서 그리지 않습니다.",
+    "columns_clipped": "처음 {{count}}개 열만 표시합니다."
+  },
   "markdown": {
     "copy_code": "코드 복사",
     "copy": "복사",

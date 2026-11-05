@@ -13,8 +13,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
-import { ipcCallResult } from "../../../ipc/client";
-import { bytesFromBase64, nextZoomStep } from "../../../services/editor/preview/pdf";
+import { nextZoomStep } from "../../../services/editor/preview/pdf";
+import { readWorkspaceBinary } from "../../../services/editor/preview/read-binary";
 import { cn } from "../../../utils/cn";
 import { EmptyState } from "../../ui/empty-state";
 import { useFileVersion } from "./use-file-version";
@@ -110,16 +110,10 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
     /** Whether the viewer took the document, which it then destroys when done. */
     let shown = false;
     void (async () => {
-      const stat = await ipcCallResult("fs", "stat", { workspaceId, relPath });
+      const read = await readWorkspaceBinary(workspaceId, relPath);
       if (cancelled) return;
-      if (stat.ok && stat.value.size > MAX_READABLE_FILE_SIZE) {
-        setStatus({ kind: "too_large" });
-        return;
-      }
-      const read = await ipcCallResult("fs", "readBinary", { workspaceId, relPath });
-      if (cancelled) return;
-      if (!read.ok || read.value.kind !== "ok") {
-        setStatus({ kind: "failed" });
+      if (read.kind !== "ok") {
+        setStatus({ kind: read.kind });
         return;
       }
       const { pdfjs, lib } = await loadPdfJs();
@@ -129,7 +123,7 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
       viewerRef.current ??= createViewer(lib, container, pages, setView);
       const { viewer, links } = viewerRef.current;
       task = pdfjs.getDocument({
-        data: bytesFromBase64(read.value.base64),
+        data: read.bytes,
         enableXfa: false,
       });
       try {

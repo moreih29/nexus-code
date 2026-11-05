@@ -7,6 +7,7 @@ import { isFontFile } from "@/services/editor/preview/font";
 import { mediaKindFor } from "@/services/editor/preview/media";
 import { isPdfFile } from "@/services/editor/preview/pdf";
 import { isImageFile } from "@/services/editor/preview/previewable";
+import { isSpreadsheetFile } from "@/services/editor/preview/spreadsheet";
 import type { Tab } from "@/state/stores/tabs";
 import { BrowserTabView } from "./browser-view";
 import { EditorView, ImageEditorView } from "./editor-view";
@@ -14,6 +15,7 @@ import { FontEditorView } from "./font-editor-view";
 import { MediaEditorView } from "./media-editor-view";
 import { PdfEditorView } from "./pdf-editor-view";
 import { useSlotElement } from "./slot-registry";
+import { SpreadsheetEditorView } from "./spreadsheet-editor-view";
 import { TerminalView } from "./terminal-view";
 import { useViewPark } from "./view-park";
 
@@ -173,7 +175,8 @@ export function ContentHost({
         // and preview-slot behaviour identical to the text path.
         //
         // Audio and video route to MediaEditorView, fonts to FontEditorView,
-        // and PDFs to PdfEditorView, the same way.
+        // PDFs to PdfEditorView, and spreadsheets to SpreadsheetEditorView,
+        // the same way.
         //
         // tabId is forwarded so EditorView can read its own viewMode from the
         // tabs store (Raw/Preview toggle per-tab persistence — plan 60).
@@ -198,6 +201,12 @@ export function ContentHost({
           />
         ) : isPdfFile(tab.props.filePath) ? (
           <PdfEditorView
+            key={tab.props.filePath}
+            filePath={tab.props.filePath}
+            workspaceId={workspaceId}
+          />
+        ) : isSpreadsheetFile(tab.props.filePath) ? (
+          <SpreadsheetEditorView
             key={tab.props.filePath}
             filePath={tab.props.filePath}
             workspaceId={workspaceId}
