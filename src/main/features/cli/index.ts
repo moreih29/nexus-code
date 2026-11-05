@@ -5,6 +5,7 @@
  */
 import { stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import type { AgentRun } from "../../../shared/claude/activity";
 import {
   CliCancelSchema,
   type CliInvocation,
@@ -65,8 +66,15 @@ export interface SetupCliFeatureOptions {
     activate(id: string): Promise<void>;
   };
   claudeBroker: ClaudeStatusBroker;
-  /** The agents of Claude sessions, for the timeline's spans of them. */
-  claudeActivity?: AgentRunSource;
+  /**
+   * The agents of Claude sessions, for the timeline's spans of them and for
+   * nexus agent.
+   */
+  claudeActivity?: AgentRunSource & {
+    get(workspaceId: string, tabId: string): { agents: readonly AgentRun[] } | null;
+  };
+  /** Stops a session's running `claude -p` run; false when the app cannot tell it to. */
+  stopPrintRun?: (workspaceId: string, tabId: string, agentId: string) => Promise<boolean>;
   activeContext: ActiveContextStore;
   /** Where the sessions timeline's spans are kept. */
   sessionSpans: SessionSpanStore;
@@ -207,6 +215,11 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     shownTab: () => options.activeContext.get(),
     claudeStatus: (workspaceId, tabId) => options.claudeBroker.get(workspaceId, tabId),
     activity: (workspaceId, tabId) => activity.get(workspaceId, tabId),
+    claudeAgents: {
+      list: (workspaceId, tabId) => options.claudeActivity?.get(workspaceId, tabId)?.agents ?? [],
+      stop: async (workspaceId, tabId, agentId) =>
+        (await options.stopPrintRun?.(workspaceId, tabId, agentId)) ?? false,
+    },
     waits: {
       begin: (waiter, target, since) => {
         const unlist = waits.begin(waiter, target, since);

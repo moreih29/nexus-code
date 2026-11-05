@@ -25,6 +25,8 @@ type frameServer struct {
 	mu     sync.Mutex
 	frames []hookRequest
 	log    []string
+	// watch is the latest run's watch.
+	watch net.Conn
 }
 
 func newFrameServer(t *testing.T) (*frameServer, string) {
@@ -45,6 +47,7 @@ func newFrameServer(t *testing.T) (*frameServer, string) {
 					fs.mu.Lock()
 					fs.log = append(fs.log, req.Subcommand)
 					if req.Subcommand == "print-watch" {
+						fs.watch = conn
 						fs.mu.Unlock()
 						go fs.hold(conn)
 						continue
@@ -58,6 +61,13 @@ func newFrameServer(t *testing.T) (*frameServer, string) {
 		}
 	}()
 	return fs, srv.socketPath
+}
+
+// answerWatch writes `answer` on the latest watch, as the agent answers one.
+func (fs *frameServer) answerWatch(answer string) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	_, _ = fs.watch.Write([]byte(answer + "\n"))
 }
 
 // hold keeps a watch open until its client closes it.
@@ -130,7 +140,10 @@ func TestRunPrint_PassesTheRunOnAndTellsIt(t *testing.T) {
 	if stdout.String() != stream {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
-	if want := "from stdin\nargs: -p review it --output-format stream-json --verbose\n"; stderr.String() != want {
+	// It starts a session of its own, given its id.
+	given := regexp.MustCompile(`^from stdin\nargs: --session-id ([0-9a-f-]{36}) -p review it --output-format stream-json --verbose\n$`).
+		FindStringSubmatch(stderr.String())
+	if given == nil {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 
@@ -152,7 +165,8 @@ func TestRunPrint_PassesTheRunOnAndTellsIt(t *testing.T) {
 		t.Fatalf("told %v", subcommands)
 	}
 	start := told[0].Payload
-	if start["prompt"] != "review it" || start["tools_told"] != true || start["cwd"] == "" {
+	if start["prompt"] != "review it" || start["tools_told"] != true || start["cwd"] == "" ||
+		start["session_id"] != given[1] || start["resumed"] != nil {
 		t.Fatalf("start = %v", start)
 	}
 	end := told[len(told)-1].Payload
@@ -291,7 +305,7 @@ func transcriptClaude(t *testing.T, dir string, first, rest []string, out string
 	}
 	claude := fakeClaude(t, `echo "args: $*" >&2
 id=""
-while [ $# -gt 0 ]; do [ "$1" = --session-id ] && id="$2"; shift; done
+while [ $# -gt 0 ]; do case "$1" in --session-id|--resume) id="$2";; esac; shift; done
 d="$CLAUDE_CONFIG_DIR/projects/-repo"; mkdir -p "$d"
 cat "`+dir+`/first" >> "$d/$id.jsonl"
 while [ ! -e "`+dir+`/go" ]; do sleep 0.02; done
@@ -376,6 +390,107 @@ func TestRunPrint_FollowsTheSessionTheRunWasGiven(t *testing.T) {
 	if told := fs.told(t); len(told) != 6 || told[5].Payload["answer"] != "It is fine.\nShip it." {
 		t.Fatalf("told %v", told)
 	}
+}
+
+func TestRunPrint_ARunThatGoesOnASessionIsFollowedFromWhereItWas(t *testing.T) {
+	fs, socket := newFrameServer(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	claude := transcriptClaude(t, dir, transcriptLines[5:], nil, "")
+	// The session's transcript as its first run left it.
+	project := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "-repo")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before := strings.Join(transcriptLines[:5], "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(project, sessionA+".jsonl"), []byte(before), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	runPrint(claude, []string{"-p", "more", "--resume", sessionA}, strings.NewReader(""), &bytes.Buffer{},
+		&stderr, newPrintTeller(socket, "tok", "ws", "t1"))
+	if stderr.String() != "args: -p more --resume "+sessionA+"\n" {
+		t.Fatalf("claude ran with %q", stderr.String())
+	}
+	told := fs.told(t)
+	var got []string
+	for _, frame := range told {
+		got = append(got, frame.String())
+	}
+	if len(told) < 2 || told[0].Payload["session_id"] != sessionA || told[0].Payload["resumed"] != true ||
+		told[len(told)-1].Payload["answer"] != "It is fine.\nShip it." {
+		t.Fatalf("told %v", got)
+	}
+	// Only what this run added is told: not the first run's tool call.
+	for _, frame := range told {
+		if frame.Subcommand == "print-tool-use" {
+			t.Fatalf("told %v", got)
+		}
+	}
+}
+
+func TestRunPrint_AppStopsTheRunByItsWatch(t *testing.T) {
+	// A claude that ends on the interrupt, or once the test made the file
+	// `go` in dir; `trap` is how it takes the interrupt.
+	run := func(t *testing.T, trap, answer string, then func(dir string)) map[string]any {
+		fs, socket := newFrameServer(t)
+		dir := t.TempDir()
+		claude := fakeClaude(t, trap+`touch "`+dir+`/ready"; while [ ! -e "`+dir+`/go" ]; do sleep 0.02; done`)
+		ran := make(chan map[string]any, 1)
+		go func() {
+			runPrint(claude, []string{"-p", "hi"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{},
+				newPrintTeller(socket, "tok", "ws", "t1"))
+			told := fs.told(t)
+			ran <- told[len(told)-1].Payload
+		}()
+		waitFor(t, func() bool { return fs.logged() == "print-start,print-watch" })
+		// Once claude has set its trap.
+		waitFor(t, func() bool {
+			_, err := os.Stat(filepath.Join(dir, "ready"))
+			return err == nil
+		})
+		fs.answerWatch(answer)
+		then(dir)
+		select {
+		case end := <-ran:
+			return end
+		case <-time.After(3 * time.Second):
+			t.Fatal("the run did not end")
+			return nil
+		}
+	}
+
+	t.Run("an answer to stop it interrupts claude", func(t *testing.T) {
+		// Whether claude dies of it or exits on it, the run reads interrupted.
+		// A shell waiting on its sleep holds the interrupt; this one dies of it, as claude.
+		end := run(t, `trap 'trap - INT; kill -INT $$' INT; `, `{"ok":true,"stdout":"stop"}`,
+			func(string) {})
+		if end["signal"] != "interrupt" {
+			t.Fatalf("end = %v", end)
+		}
+	})
+
+	t.Run("a claude that exits 0 on the interrupt reads stopped too", func(t *testing.T) {
+		end := run(t, `trap 'echo Execution error; exit 0' INT; `, `{"ok":true,"stdout":"stop"}`,
+			func(string) {})
+		if end["signal"] != "interrupt" || end["exit_code"] != float64(0) {
+			t.Fatalf("end = %v", end)
+		}
+	})
+
+	t.Run("another answer, as the agent's when the app goes, leaves it be", func(t *testing.T) {
+		end := run(t, "", `{"ok":true}`, func(dir string) {
+			time.Sleep(150 * time.Millisecond)
+			if err := os.WriteFile(filepath.Join(dir, "go"), nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		})
+		if end["signal"] != nil || end["exit_code"] != float64(0) {
+			t.Fatalf("end = %v", end)
+		}
+	})
 }
 
 func TestRunPrint_AResumedRunIsGivenNoSession(t *testing.T) {

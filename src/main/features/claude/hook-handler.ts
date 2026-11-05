@@ -275,11 +275,14 @@ const PRINT_FRAMES = new Set([
 ]);
 
 /**
- * The hook a `claude -p` run holds open while it goes on: never answered, it
- * is told gone once the run is over, as when it is killed before it tells
- * its end.
+ * The hook a `claude -p` run holds open while it goes on: answered only to
+ * stop the run, it is told gone once the run is over, as when it is killed
+ * before it tells its end.
  */
 const PRINT_WATCH = "print-watch";
+
+/** How a run's watch is answered to stop the run: hookclient's printStopAnswer. */
+export const PRINT_STOP_ANSWER = "stop";
 
 /** Hooks that belong to a turn, and so can arrive after it is over. */
 const TURN_HOOKS = new Set([
@@ -386,7 +389,11 @@ async function handleHookEvent(
 
   // A `claude -p` run started inside the session tells of itself (hookclient's
   // print-run), for the sessions tab only: the session's own state is its turn's.
-  if (subcommand === PRINT_WATCH) return;
+  if (subcommand === PRINT_WATCH) {
+    const runId = (hookPayload as { run_id?: unknown } | undefined)?.run_id;
+    if (typeof runId === "string") deps.activity?.notePrintWatch(workspaceId, tabId, runId, hookId);
+    return;
+  }
   if (PRINT_FRAMES.has(subcommand)) {
     deps.activity?.notePrint(workspaceId, tabId, subcommand, hookPayload);
     await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });

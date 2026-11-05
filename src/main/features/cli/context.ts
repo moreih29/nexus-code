@@ -2,6 +2,7 @@
  * What a nexus command runs with: who asked, what the app can tell it, and
  * how it names workspaces and tabs on the command line.
  */
+import type { AgentRun } from "../../../shared/claude/activity";
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import type { CliInvocation } from "../../../shared/cli/protocol";
 import type {
@@ -54,6 +55,8 @@ export interface CliServices {
     tabId: string,
   ): { status: ClaudeStatus; message?: string; since: number; turnStartedAt?: number } | null;
   activity(workspaceId: string, tabId: string): TabActivity | null;
+  /** The subagents and `claude -p` runs of the Claude sessions in the terminals. */
+  readonly claudeAgents: CliClaudeAgents;
   /** Lists a wait on a terminal until the returned function is called. */
   readonly waits: Pick<WaitRegistry, "begin">;
   /**
@@ -172,6 +175,17 @@ export async function mayChange(
     toWorkspaceId: workspace.id,
     change,
   });
+}
+
+/** The agents of a terminal's Claude session (claude/session-activity.ts). */
+export interface CliClaudeAgents {
+  /** Running ones, then ended ones, latest first; none when the terminal runs no session. */
+  list(workspaceId: string, tabId: string): readonly AgentRun[];
+  /**
+   * Stops a running `claude -p` run, as an interrupt would; false when the
+   * app holds no watch of it to tell.
+   */
+  stop(workspaceId: string, tabId: string, agentId: string): Promise<boolean>;
 }
 
 /** An SSH workspace's ports forwarded to this machine (pty/forwards.ts). */

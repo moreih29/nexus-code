@@ -18,6 +18,9 @@ export interface FilePart {
 /** How many fs.readRange calls of one part are on their way at once. */
 const PARALLEL_READS = 4;
 
+/** Reads one piece of at most READ_RANGE_MAX_BYTES; null when it cannot. */
+export type PieceReader = (offset: number, length: number) => Promise<FilePart | null>;
+
 /** One fs.readRange call's piece; null when the file is missing or the read failed. */
 async function readPiece(
   workspaceId: string,
@@ -39,9 +42,19 @@ async function readPiece(
  * Null when the file is missing, a read failed, or the file is no longer
  * as it was at `mtime` (or at the part's first piece).
  */
-export async function readWorkspaceRange(
+export function readWorkspaceRange(
   workspaceId: string,
   relPath: string,
+  offset: number,
+  length: number,
+  mtime?: string,
+): Promise<FilePart | null> {
+  return readRange((at, size) => readPiece(workspaceId, relPath, at, size), offset, length, mtime);
+}
+
+/** readWorkspaceRange over `read`, a piece at a time. */
+export async function readRange(
+  read: PieceReader,
   offset: number,
   length: number,
   mtime?: string,
@@ -56,7 +69,7 @@ export async function readWorkspaceRange(
     const batch = await Promise.all(
       offsets
         .slice(i, i + PARALLEL_READS)
-        .map((at) => readPiece(workspaceId, relPath, at, Math.min(READ_RANGE_MAX_BYTES, end - at))),
+        .map((at) => read(at, Math.min(READ_RANGE_MAX_BYTES, end - at))),
     );
     for (const piece of batch) {
       if (piece === null || piece.mtime !== (mtime ?? pieces[0]?.mtime ?? piece.mtime)) {

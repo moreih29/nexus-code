@@ -26,6 +26,7 @@ import {
 import { listedAt } from "../../../../src/main/features/cli/listed";
 import { StartedAgents } from "../../../../src/main/features/cli/started-agents";
 import { WaitRegistry } from "../../../../src/main/features/cli/waits";
+import type { AgentRun } from "../../../../src/shared/claude/activity";
 import type { ClaudeStatus } from "../../../../src/shared/claude/status";
 import { parseSettingValue } from "../../../../src/shared/cli/settings";
 import type {
@@ -156,6 +157,11 @@ export interface FakeApp {
     { status: ClaudeStatus; message?: string; since: number; turnStartedAt?: number }
   >;
   activity: Map<string, TabActivity>;
+  /** The agents of each terminal's Claude session, by "workspace:tab". */
+  agents: Map<string, AgentRun[]>;
+  /** The agents stop was asked of, by id; a run in `stoppable` is stopped. */
+  stops: string[];
+  stoppable: Set<string>;
   /** The waits on terminals listed while they run. */
   waits: WaitRegistry;
   screens: Map<string, string>;
@@ -377,6 +383,9 @@ export function fakeApp(now = Date.now()): FakeApp {
     ],
     [`${APP}:${SHELL_TAB}`, { lastOutputAt: now - 60_000 }],
   ]);
+  const agents: FakeApp["agents"] = new Map();
+  const stops: string[] = [];
+  const stoppable = new Set<string>();
   const screens = new Map([[CODEX_TAB, "› Summarize the API\n\n• Working (12s)"]]);
   const workspaces = [...WORKSPACES];
   const added: FakeApp["added"] = [];
@@ -543,6 +552,13 @@ export function fakeApp(now = Date.now()): FakeApp {
     shownTab: () => ({ workspaceId: APP, tabId: SHELL_TAB }),
     claudeStatus: (ws, t) => claude.get(`${ws}:${t}`) ?? null,
     activity: (ws, t) => activity.get(`${ws}:${t}`) ?? null,
+    claudeAgents: {
+      list: (ws, t) => agents.get(`${ws}:${t}`) ?? [],
+      stop: async (_ws, _t, agentId) => {
+        stops.push(agentId);
+        return stoppable.has(agentId);
+      },
+    },
     waits,
     ui,
     notify: (workspaceId, tabId, title, body) => {
@@ -592,6 +608,9 @@ export function fakeApp(now = Date.now()): FakeApp {
     notified,
     claude,
     activity,
+    agents,
+    stops,
+    stoppable,
     waits,
     screens,
     foreground,

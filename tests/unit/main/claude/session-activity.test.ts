@@ -475,6 +475,12 @@ describe("`claude -p` runs", () => {
     expect(activity().agents[0]).toMatchObject({ toolsTold: true, model: "glm-4.6" });
   });
 
+  test("a run's prompt its arguments did not tell is told from its transcript", () => {
+    print("print-start", { tools_told: false });
+    print("print-init", { prompt: "Summarize the README" });
+    expect(activity().agents[0]?.prompt).toBe("Summarize the README");
+  });
+
   test("a command left in the background tells the run it started", () => {
     hook("pre-tool-use", {
       tool_name: "Bash",
@@ -507,6 +513,81 @@ describe("`claude -p` runs", () => {
     log.notePrint(WS, TAB, "print-end", { run_id: "p2", exit_code: 0 });
     log.notePrint(WS, TAB, "print-gone", { run_id: "p2" });
     expect(activity().agents.find((agent) => agent.id === "p2")?.state).toBe("completed");
+  });
+
+  test("a run is told with its Claude session id, given up front or by claude's start", () => {
+    print("print-start", { session_id: "s-1" });
+    log.notePrint(WS, TAB, "print-start", { run_id: "p2", tools_told: true });
+    log.notePrint(WS, TAB, "print-init", { run_id: "p2", session_id: "s-2" });
+    expect(activity().agents.map((agent) => [agent.id, agent.sessionId])).toEqual([
+      ["p1", "s-1"],
+      ["p2", "s-2"],
+    ]);
+  });
+
+  test("a run that goes on an ended run's session is that run going on", () => {
+    print("print-start", { session_id: "s-1", prompt: "review it", tools_told: true });
+    print("print-tool-use", { tool_use_id: "u1", tool_name: "Read", tool_input: {} });
+    clock = 2_000;
+    print("print-end", { exit_code: 0, answer: "Looks fine." });
+    clock = 3_000;
+    const more = (frame: string, payload: Record<string, unknown> = {}) =>
+      log.notePrint(WS, TAB, frame, { run_id: "p2", ...payload });
+    more("print-start", { session_id: "s-1", resumed: true, prompt: "fix it", tools_told: false });
+    expect(activity().agents).toHaveLength(1);
+    expect(activity().agents[0]).toMatchObject({
+      id: "p1",
+      sessionId: "s-1",
+      prompt: "fix it",
+      state: "running",
+      start: 1_000,
+      toolsTold: false,
+    });
+    expect(activity().agents[0]?.end).toBeUndefined();
+    expect(activity().agents[0]?.answer).toBeUndefined();
+    more("print-tool-use", { tool_use_id: "u2", tool_name: "Edit", tool_input: {} });
+    clock = 4_000;
+    more("print-end", { exit_code: 0, answer: "Fixed." });
+    expect(activity().agents[0]).toMatchObject({
+      state: "completed",
+      end: 4_000,
+      answer: "Fixed.",
+      toolCount: 2,
+    });
+    expect(changes.map((change) => change.state)).toEqual([
+      "running",
+      "completed",
+      "running",
+      "completed",
+    ]);
+  });
+
+  test("a run that goes on a session no run here told, or one still running, is a new one", () => {
+    print("print-start", { session_id: "s-1" });
+    log.notePrint(WS, TAB, "print-start", { run_id: "p2", session_id: "s-1", resumed: true });
+    log.notePrint(WS, TAB, "print-start", { run_id: "p3", session_id: "s-9", resumed: true });
+    expect(activity().agents.map((agent) => agent.id)).toEqual(["p1", "p2", "p3"]);
+  });
+
+  test("a running run's watch is kept until it ends, for stopping it", () => {
+    print("print-start");
+    log.notePrintWatch(WS, TAB, "p1", "hook-7");
+    expect(log.printWatch(WS, TAB, "p1")).toBe("hook-7");
+    print("print-end", { exit_code: 0 });
+    expect(log.printWatch(WS, TAB, "p1")).toBeUndefined();
+    // A subagent has none.
+    hook("subagent-start", { agent_id: "a1", agent_type: "Explore" });
+    expect(log.printWatch(WS, TAB, "a1")).toBeUndefined();
+  });
+
+  test("a run going on is stopped by its own watch", () => {
+    print("print-start", { session_id: "s-1" });
+    log.notePrintWatch(WS, TAB, "p1", "hook-1");
+    print("print-end", { exit_code: 0 });
+    log.notePrint(WS, TAB, "print-start", { run_id: "p2", session_id: "s-1", resumed: true });
+    expect(log.printWatch(WS, TAB, "p1")).toBeUndefined();
+    log.notePrintWatch(WS, TAB, "p2", "hook-2");
+    expect(log.printWatch(WS, TAB, "p1")).toBe("hook-2");
   });
 
   test("frames of a run that never told its start change nothing", () => {

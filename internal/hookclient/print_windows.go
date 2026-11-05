@@ -13,3 +13,11 @@ var swallowedSignals = []os.Signal{}
 func signalOf(*os.ProcessState) (int, string, bool) { return 0, "", false }
 
 func reraise(int) {}
+
+// stopProcess ends a run: Windows has no interrupt to send one process.
+func stopProcess(p *os.Process) os.Signal {
+	if p.Kill() != nil {
+		return nil
+	}
+	return os.Kill
+}

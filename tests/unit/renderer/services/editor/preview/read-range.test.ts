@@ -1,9 +1,11 @@
 // Reading a workspace file a part at a time over fs.readRange.
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import {
+  type FilePart,
+  readRange,
+} from "../../../../../../src/renderer/services/editor/preview/read-range";
 import { READ_RANGE_MAX_BYTES } from "../../../../../../src/shared/fs/defaults";
-
-const realIpcClient = await import("../../../../../../src/renderer/ipc/client");
 
 const PIECE = READ_RANGE_MAX_BYTES;
 const SIZE = PIECE * 6 + 3;
@@ -14,36 +16,24 @@ let mtimeAt: (offset: number) => string = () => "t1";
 let missing = false;
 const reads: Array<{ offset: number; length: number }> = [];
 
-// The module mock holds for the whole run, so a call another file left
-// pending can reach it; only fs.readRange is this test's.
-const ipcCallResult = mock(
-  async (channel: string, method: string, args: { offset: number; length: number }) => {
-    if (channel !== "fs" || method !== "readRange") {
-      return realIpcClient.ipcCallResult(channel as never, method as never, args as never);
-    }
-    reads.push({ offset: args.offset, length: args.length });
-    if (missing) return { ok: true, value: { kind: "missing", reason: "not-found" } };
-    const bytes = file.subarray(args.offset, args.offset + Math.min(args.length, PIECE));
-    return {
-      ok: true,
-      value: {
-        kind: "ok",
-        base64: Buffer.from(bytes).toString("base64"),
-        sizeBytes: SIZE,
-        mtime: mtimeAt(args.offset),
-      },
-    };
-  },
-);
+/** fs.readRange over `file`: at most one piece, with the file's size. */
+async function read(offset: number, length: number): Promise<FilePart | null> {
+  reads.push({ offset, length });
+  if (missing) return null;
+  return {
+    bytes: file.subarray(offset, offset + Math.min(length, PIECE)),
+    size: SIZE,
+    mtime: mtimeAt(offset),
+  };
+}
 
-mock.module("../../../../../../src/renderer/ipc/client", () => ({
-  ...realIpcClient,
-  ipcCallResult,
-}));
-
-const { readWorkspaceRange } = await import(
-  "../../../../../../src/renderer/services/editor/preview/read-range"
-);
+const readWorkspaceRange = (
+  _ws: string,
+  _path: string,
+  offset: number,
+  length: number,
+  mtime?: string,
+) => readRange(read, offset, length, mtime);
 
 afterEach(() => {
   reads.length = 0;
@@ -51,7 +41,7 @@ afterEach(() => {
   missing = false;
 });
 
-describe("readWorkspaceRange", () => {
+describe("readRange", () => {
   test("reads a part within one read in one call, with the file's size", async () => {
     const part = await readWorkspaceRange("ws", "doc.pdf", 10, 20);
     expect(part).toEqual({ bytes: file.subarray(10, 30), size: SIZE, mtime: "t1" });
