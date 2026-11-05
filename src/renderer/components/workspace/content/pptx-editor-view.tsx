@@ -3,6 +3,7 @@
 
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { PptxPreview } from "../../editor/preview/pptx-preview";
+import { PreviewFindScope } from "../../editor/preview/preview-find";
 import { EditorBreadcrumbs } from "./editor-breadcrumbs";
 
 interface PptxEditorViewProps {
@@ -19,9 +20,9 @@ export function PptxEditorView({ filePath, workspaceId }: PptxEditorViewProps) {
       <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-[var(--surface-island-border)]">
         <EditorBreadcrumbs filePath={filePath} workspaceRootAbsPath={workspaceRootAbsPath} />
       </div>
-      <div className="relative flex-1 min-h-0 flex flex-col">
+      <PreviewFindScope className="flex-1 min-h-0">
         <PptxPreview workspaceId={workspaceId} filePath={filePath} />
-      </div>
+      </PreviewFindScope>
     </div>
   );
 }

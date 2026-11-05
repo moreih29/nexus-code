@@ -7,6 +7,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { type PdfControls, PdfPreview } from "../../editor/preview/pdf-preview";
+import { PreviewFindScope } from "../../editor/preview/preview-find";
 import { EditorBreadcrumbs } from "./editor-breadcrumbs";
 
 interface PdfEditorViewProps {
@@ -26,9 +27,9 @@ export function PdfEditorView({ filePath, workspaceId }: PdfEditorViewProps) {
         <EditorBreadcrumbs filePath={filePath} workspaceRootAbsPath={workspaceRootAbsPath} />
         {controls && <PdfToolbar controls={controls} />}
       </div>
-      <div className="flex-1 min-h-0 flex">
+      <PreviewFindScope className="flex-1 min-h-0">
         <PdfPreview workspaceId={workspaceId} filePath={filePath} onControls={setControls} />
-      </div>
+      </PreviewFindScope>
     </div>
   );
 }

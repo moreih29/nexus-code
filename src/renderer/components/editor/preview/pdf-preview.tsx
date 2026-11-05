@@ -9,14 +9,19 @@
 // the readable file size limit. Scripts in the file do not run: the viewer
 // is given no scripting. A file changed on disk loads again at the same zoom
 // and place.
+//
+// Find (⌘F) is pdf.js's own: it goes through the text of every page, drawn
+// or not, and paints the matches in the pages' text layers.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
+import { FIND_COLORS } from "../../../services/editor/preview/find/dom-finder";
 import { nextZoomStep } from "../../../services/editor/preview/pdf";
 import { readWorkspaceBinary } from "../../../services/editor/preview/read-binary";
 import { cn } from "../../../utils/cn";
 import { EmptyState } from "../../ui/empty-state";
+import { type FindResult, usePreviewFinder } from "./preview-find";
 import { useFileVersion } from "./use-file-version";
 import { useWorkspaceFile } from "./use-workspace-file";
 
@@ -24,6 +29,35 @@ type PdfJs = typeof import("pdfjs-dist");
 type PdfViewerLib = typeof import("pdfjs-dist/web/pdf_viewer.mjs");
 type PDFViewer = InstanceType<PdfViewerLib["PDFViewer"]>;
 type PDFLinkService = InstanceType<PdfViewerLib["PDFLinkService"]>;
+
+/** What is being found, as pdf.js's find takes it. */
+interface PdfFind {
+  readonly query: string;
+  readonly caseSensitive: boolean;
+}
+
+/** Finds `find` anew (""), or the next or previous match ("again"). */
+function dispatchFind(viewer: PDFViewer, find: PdfFind, type: "" | "again", findPrevious = false) {
+  viewer.eventBus.dispatch("find", {
+    source: null,
+    type,
+    query: find.query,
+    caseSensitive: find.caseSensitive,
+    entireWord: false,
+    highlightAll: true,
+    findPrevious,
+    matchDiacritics: false,
+  });
+}
+
+/**
+ * The find's colors in the pages' text layers, as the other previews paint
+ * them; pdf.js sets its own on each highlight.
+ */
+const FIND_STYLE = `.pdfViewer .textLayer .highlight {
+  --highlight-bg-color: ${FIND_COLORS.match};
+  --highlight-selected-bg-color: ${FIND_COLORS.current};
+}`;
 
 let loading: Promise<{ pdfjs: PdfJs; lib: PdfViewerLib }> | null = null;
 
@@ -38,6 +72,9 @@ function loadPdfJs(): Promise<{ pdfjs: PdfJs; lib: PdfViewerLib }> {
       import("pdfjs-dist/web/pdf_viewer.css"),
     ]);
     pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+    const style = document.createElement("style");
+    style.textContent = FIND_STYLE;
+    document.head.append(style);
     return { pdfjs, lib };
   })();
   return loading;
@@ -87,6 +124,37 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
   const viewerRef = useRef<{ viewer: PDFViewer; links: PDFLinkService } | null>(null);
   const [status, setStatus] = useState<Status>({ kind: "loading" });
   const [view, setView] = useState({ page: 1, pages: 0, scale: 1 });
+  const findRef = useRef<PdfFind | null>(null);
+  const reportRef = useRef<(result: FindResult) => void>(() => {});
+
+  usePreviewFinder(
+    useCallback((report: (result: FindResult) => void) => {
+      reportRef.current = report;
+      const close = () =>
+        viewerRef.current?.viewer.eventBus.dispatch("findbarclose", { source: null });
+      return {
+        search(query: string, caseSensitive: boolean) {
+          findRef.current = query.trim() ? { query, caseSensitive } : null;
+          const viewer = viewerRef.current?.viewer;
+          if (!findRef.current) {
+            close();
+            report({ total: 0, current: 0 });
+          } else if (viewer?.pdfDocument) {
+            dispatchFind(viewer, findRef.current, "");
+          }
+        },
+        move(direction: 1 | -1) {
+          const viewer = viewerRef.current?.viewer;
+          if (viewer && findRef.current)
+            dispatchFind(viewer, findRef.current, "again", direction === -1);
+        },
+        clear() {
+          findRef.current = null;
+          close();
+        },
+      };
+    }, []),
+  );
 
   const zoom = useCallback((direction: 1 | -1) => {
     const viewer = viewerRef.current?.viewer;
@@ -120,7 +188,9 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
       const container = containerRef.current;
       const pages = pagesRef.current;
       if (cancelled || !container || !pages) return;
-      viewerRef.current ??= createViewer(lib, container, pages, setView);
+      viewerRef.current ??= createViewer(lib, container, pages, setView, (result) =>
+        reportRef.current(result),
+      );
       const { viewer, links } = viewerRef.current;
       task = pdfjs.getDocument({
         data: read.bytes,
@@ -149,6 +219,8 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
               container.scrollTop = keep.top;
               container.scrollLeft = keep.left;
             }
+            // A changed file is found in again.
+            if (findRef.current) dispatchFind(viewer, findRef.current, "");
           },
           { once: true },
         );
@@ -221,10 +293,18 @@ function createViewer(
   container: HTMLDivElement,
   pages: HTMLDivElement,
   setView: (update: (v: { page: number; pages: number; scale: number }) => typeof v) => void,
+  onFound: (result: FindResult) => void,
 ): { viewer: PDFViewer; links: PDFLinkService } {
   const eventBus = new lib.EventBus();
   const links = new lib.PDFLinkService({ eventBus, externalLinkTarget: lib.LinkTarget.BLANK });
-  const viewer = new lib.PDFViewer({ container, viewer: pages, eventBus, linkService: links });
+  const findController = new lib.PDFFindController({ eventBus, linkService: links });
+  const viewer = new lib.PDFViewer({
+    container,
+    viewer: pages,
+    eventBus,
+    linkService: links,
+    findController,
+  });
   links.setViewer(viewer);
   eventBus.on("pagechanging", (e: { pageNumber: number }) => {
     setView((v) => ({ ...v, page: e.pageNumber }));
@@ -232,6 +312,12 @@ function createViewer(
   eventBus.on("scalechanging", (e: { scale: number }) => {
     setView((v) => ({ ...v, scale: e.scale }));
   });
+  // The count grows as pages are searched, and the current match moves.
+  const found = (e: { matchesCount?: { current: number; total: number } }) => {
+    if (e.matchesCount) onFound({ total: e.matchesCount.total, current: e.matchesCount.current });
+  };
+  eventBus.on("updatefindmatchescount", found);
+  eventBus.on("updatefindcontrolstate", found);
   return { viewer, links };
 }
 

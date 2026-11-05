@@ -6,11 +6,17 @@
 // than its column is cut, with its whole text in its tooltip. Only the rows in view are in
 // the DOM, so a large table scrolls smoothly. Fields are text: nothing in
 // them is interpreted.
+//
+// Find (⌘F) goes through the fields themselves, not the rows drawn, and
+// scrolls the current match's row and column into view.
 
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { displayWidth } from "../../../services/editor/preview/delimited";
+import { FIND_COLORS, MAX_FIND_MATCHES } from "../../../services/editor/preview/find/dom-finder";
+import { findMatches } from "../../../services/editor/preview/find/find-matches";
 import { cn } from "../../../utils/cn";
+import { type FindResult, usePreviewFinder } from "./preview-find";
 
 /** A row's height, in px: one line of the UI's small text with its padding. */
 const ROW_PX = 24;
@@ -35,6 +41,51 @@ interface DataGridProps {
   centerHeader?: boolean;
 }
 
+/** A match of the find in a field: its row, column, and place in the field's line. */
+interface GridMatch {
+  readonly row: number;
+  readonly column: number;
+  readonly start: number;
+  readonly end: number;
+}
+
+/** A field's text on its one line. */
+function lineOf(text: string): string {
+  return text.replace(/\r?\n/g, " ↵ ");
+}
+
+/** The matches of `query` in the fields, row by row. */
+function gridMatches(
+  rowCount: number,
+  rowAt: DataGridProps["rowAt"],
+  columns: number,
+  query: string,
+  caseSensitive: boolean,
+): GridMatch[] {
+  const matches: GridMatch[] = [];
+  for (let row = 0; row < rowCount; row++) {
+    const fields = rowAt(row);
+    if (!fields) continue;
+    for (let column = 0; column < columns; column++) {
+      const text = fields[column]?.text;
+      if (!text) continue;
+      const left = MAX_FIND_MATCHES - matches.length;
+      const found = findMatches(lineOf(text), query, caseSensitive, left);
+      for (let i = 0; i < found.length; i += 2) {
+        matches.push({ row, column, start: found[i] as number, end: found[i + 1] as number });
+      }
+      if (matches.length >= MAX_FIND_MATCHES) return matches;
+    }
+  }
+  return matches;
+}
+
+interface CellMark {
+  readonly start: number;
+  readonly end: number;
+  readonly current: boolean;
+}
+
 export function DataGrid({ header, rowCount, rowAt, widths, centerHeader }: DataGridProps) {
   /** Each column's number, which keys its fields in a row. */
   const columns = useMemo(
@@ -54,6 +105,97 @@ export function DataGrid({ header, rowCount, rowAt, widths, centerHeader }: Data
     estimateSize: () => ROW_PX,
     overscan: 20,
   });
+
+  const [find, setFind] = useState<{ query: string; caseSensitive: boolean } | null>(null);
+  const [current, setCurrent] = useState(-1);
+  const reportRef = useRef<(result: FindResult) => void>(() => {});
+  const matches = useMemo(
+    () => (find ? gridMatches(rowCount, rowAt, widths.length, find.query, find.caseSensitive) : []),
+    [find, rowCount, rowAt, widths.length],
+  );
+  const matchesRef = useRef(matches);
+  matchesRef.current = matches;
+  /** Whether the next matches start at the view, as a new query does. */
+  const freshRef = useRef(false);
+  /** Whether the current match is to be scrolled to. */
+  const revealRef = useRef(false);
+
+  usePreviewFinder(
+    useCallback((report: (result: FindResult) => void) => {
+      reportRef.current = report;
+      return {
+        search(query: string, caseSensitive: boolean) {
+          freshRef.current = true;
+          setFind(query.trim() ? { query, caseSensitive } : null);
+        },
+        move(direction: 1 | -1) {
+          const total = matchesRef.current.length;
+          if (total === 0) return;
+          revealRef.current = true;
+          setCurrent((at) => (at + direction + total) % total);
+        },
+        clear() {
+          setFind(null);
+        },
+      };
+    }, []),
+  );
+
+  // New matches: a new query's start at the first row in view; a table
+  // that changed keeps the current one as near as it can.
+  useEffect(() => {
+    if (matches.length === 0) {
+      setCurrent(-1);
+      return;
+    }
+    if (freshRef.current) {
+      freshRef.current = false;
+      revealRef.current = true;
+      const top = Math.floor((scrollRef.current?.scrollTop ?? 0) / ROW_PX);
+      const first = matches.findIndex((match) => match.row >= top);
+      setCurrent(first === -1 ? 0 : first);
+    } else {
+      setCurrent((at) => Math.min(Math.max(at, 0), matches.length - 1));
+    }
+  }, [matches]);
+
+  const currentMatch = current >= 0 ? matches[current] : undefined;
+  useEffect(() => {
+    reportRef.current({ total: matches.length, current: currentMatch ? current + 1 : 0 });
+  }, [matches.length, current, currentMatch]);
+
+  useEffect(() => {
+    if (!currentMatch || !revealRef.current) return;
+    revealRef.current = false;
+    virtualizer.scrollToIndex(currentMatch.row, { align: "center" });
+    // The row is drawn on the next frame; then its field comes into view.
+    const frame = requestAnimationFrame(() => {
+      const scroller = scrollRef.current;
+      const mark = scroller?.querySelector<HTMLElement>("[data-find-current]");
+      if (!scroller || !mark) return;
+      const box = scroller.getBoundingClientRect();
+      const at = mark.getBoundingClientRect();
+      const gutterPx =
+        (mark.closest("tr")?.firstElementChild as HTMLElement | null)?.offsetWidth ?? 0;
+      if (at.left < box.left + gutterPx || at.right > box.right) {
+        scroller.scrollLeft +=
+          at.left - box.left - gutterPx - (box.width - gutterPx - at.width) / 2;
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [currentMatch, virtualizer]);
+
+  /** Each field's marks, by "row:column". */
+  const marks = useMemo(() => {
+    const byField = new Map<string, CellMark[]>();
+    matches.forEach((match, index) => {
+      const key = `${match.row}:${match.column}`;
+      const list = byField.get(key) ?? [];
+      list.push({ start: match.start, end: match.end, current: index === current });
+      byField.set(key, list);
+    });
+    return byField;
+  }, [matches, current]);
 
   return (
     <div
@@ -101,7 +243,13 @@ export function DataGrid({ header, rowCount, rowAt, widths, centerHeader }: Data
                   {item.index + 1}
                 </td>
                 {columns.map((column) => (
-                  <Field key={column} field={row?.[column]} Cell="td" width={widths[column] ?? 0} />
+                  <Field
+                    key={column}
+                    field={row?.[column]}
+                    Cell="td"
+                    width={widths[column] ?? 0}
+                    marks={marks.get(`${item.index}:${column}`)}
+                  />
                 ))}
               </tr>
             );
@@ -118,15 +266,18 @@ function Field({
   Cell,
   width,
   center,
+  marks,
 }: {
   field: GridField | undefined;
   Cell: "th" | "td";
   /** The column's width, in characters, past which the text is cut. */
   width: number;
   center?: boolean;
+  /** The find's matches in the field's line. */
+  marks?: readonly CellMark[];
 }) {
   const text = field?.text ?? "";
-  const line = text.replace(/\r?\n/g, " ↵ ");
+  const line = lineOf(text);
   return (
     <Cell
       className={cn(
@@ -135,7 +286,29 @@ function Field({
       )}
       title={displayWidth(line) > width ? text : undefined}
     >
-      {line}
+      {marks ? <MarkedLine line={line} marks={marks} /> : line}
     </Cell>
   );
+}
+
+/** `line` with its matches painted, the current one apart. */
+function MarkedLine({ line, marks }: { line: string; marks: readonly CellMark[] }) {
+  const parts: React.ReactNode[] = [];
+  let at = 0;
+  for (const mark of marks) {
+    if (mark.start > at) parts.push(line.slice(at, mark.start));
+    parts.push(
+      <mark
+        key={mark.start}
+        data-find-current={mark.current ? "" : undefined}
+        className="text-inherit"
+        style={{ backgroundColor: mark.current ? FIND_COLORS.current : FIND_COLORS.match }}
+      >
+        {line.slice(mark.start, mark.end)}
+      </mark>,
+    );
+    at = mark.end;
+  }
+  if (at < line.length) parts.push(line.slice(at));
+  return <>{parts}</>;
 }
