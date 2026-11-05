@@ -5,14 +5,24 @@
 import { MessageSquareText } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import {
   type ChatController,
   chatController,
   type PermissionAnswer,
   pruneAttachmentsOnce,
 } from "../../services/chat/controller";
+import { isLocalAddress, isUnder, resolveFilePath, resultFiles } from "../../services/chat/links";
 import type { AssistantItem, PermissionRequest, UserItem } from "../../services/chat/model";
-import { agentsOf, agentTranscript, contextOf, jobsOf, todosOf } from "../../services/chat/panel";
+import { openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
+import {
+  agentsOf,
+  agentTranscript,
+  contextOf,
+  jobsOf,
+  resultsOf,
+  todosOf,
+} from "../../services/chat/panel";
 import {
   type ChatTabState,
   type ComposerDraft,
@@ -27,10 +37,13 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
 import { Banner, type BannerAction } from "../ui/banner";
+import { showToast } from "../ui/toast";
 import { AgentStrip } from "./agent-strip";
+import { type ChatLinks, ChatLinksContext } from "./chat-links";
 import { Composer } from "./composer";
 import { type MessageActions, MessageList } from "./message-list";
 import { PermissionCard } from "./permission-card";
+import { QuickLook, type QuickLookList } from "./quick-look";
 import { RewindDialog } from "./rewind-dialog";
 import { SidePanel } from "./side-panel";
 import { StatusLine } from "./status-line";
@@ -182,6 +195,48 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     setShownId(order[(at + step + order.length) % order.length]);
   };
 
+  // What the conversation links opens over the tab, or beside it.
+  const [look, setLook] = useState<QuickLookList | null>(null);
+  const latest = useRef({ state, place, rootPath, isLocal });
+  latest.current = { state, place, rootPath, isLocal };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the tab's state is read from `latest` when a link is followed
+  const links = useMemo<ChatLinks>(() => {
+    const cwd = props.cwd;
+    // Wide enough to share with a new group beside it.
+    const split = () => latest.current.place === "beside";
+    return {
+      openFile(target) {
+        const path = resolveFilePath(target, cwd);
+        if (!path) return;
+        const { history, model } = latest.current.state;
+        const items = history ? [...history.items, ...model.items] : model.items;
+        const tools = history ? { ...history.tools, ...model.tools } : model.tools;
+        const files = resultFiles(resultsOf(items, tools), cwd);
+        const at = files.indexOf(path);
+        setLook(at >= 0 ? { files, index: at } : { files: [path, ...files], index: 0 });
+      },
+      openFileTab(target) {
+        const path = resolveFilePath(target, cwd);
+        if (!path) return;
+        const inside = isUnder(path, latest.current.rootPath);
+        openFileBeside(workspaceId, tabId, path, { split: split(), inside });
+      },
+      openUrl(url, other = false) {
+        const local = isLocalAddress(url);
+        if (local !== other) {
+          // An SSH session's own address is the host's, not this machine's.
+          if (local && !latest.current.isLocal) {
+            showToast({ kind: "info", message: t("chat.links.remote_local") });
+            return;
+          }
+          openBrowserBeside(workspaceId, tabId, url, { split: split() });
+        } else if (isExternalSchemeAllowed(url)) {
+          window.open(url, "_blank", "noopener,noreferrer");
+        }
+      },
+    };
+  }, [workspaceId, tabId]);
+
   const forkSession = () => {
     const point = controller.forkPoint("", { before: false });
     if (point) openClaudeTab(workspaceId, { cwd: props.cwd, fork: { sessionId: point.sessionId } });
@@ -200,11 +255,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   );
   const permissions = state.model.permissions;
 
-  return (
+  const view = (
     // biome-ignore lint/a11y/noStaticElementInteractions: ⌘[ and ⌘] step through the agents from anywhere in the tab
     <div
       ref={rootRef}
-      className="flex h-full flex-col bg-background"
+      className="relative flex h-full flex-col bg-background"
       data-testid="claude-tab"
       onKeyDown={onKeyDown}
     >
@@ -318,8 +373,22 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         cwd={props.cwd}
         onClose={() => setRewinding(null)}
       />
+      {look && (
+        <QuickLook
+          workspaceId={workspaceId}
+          list={look}
+          local={isLocal}
+          onIndex={(index) => setLook({ ...look, index })}
+          onClose={() => setLook(null)}
+          onOpenTab={(path) => {
+            setLook(null);
+            links.openFileTab(path);
+          }}
+        />
+      )}
     </div>
   );
+  return <ChatLinksContext.Provider value={links}>{view}</ChatLinksContext.Provider>;
 }
 
 /**

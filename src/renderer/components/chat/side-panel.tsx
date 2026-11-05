@@ -12,7 +12,6 @@ import {
   CircleDot,
   Copy,
   ExternalLink,
-  FileImage,
   FilePlus,
   FileText,
   GitFork,
@@ -21,8 +20,10 @@ import {
   Square,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { ChatController } from "../../services/chat/controller";
+import { fileKind, resolveFilePath } from "../../services/chat/links";
 import {
   type AgentRow,
   agentsOf,
@@ -37,14 +38,15 @@ import {
 } from "../../services/chat/panel";
 import type { ChatTabState } from "../../services/chat/store";
 import { firstVersionOf } from "../../services/chat/versions";
-import { openOrRevealEditor } from "../../services/editor";
-import { classifyLinkHref } from "../../services/editor/preview/link-router";
 import { useGitStore } from "../../state/stores/git";
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
+import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
 import { Switch } from "../ui/switch";
 import { showToast } from "../ui/toast";
 import { StatusDot } from "./agent-strip";
+import { LinkMenu, useChatLinks } from "./chat-links";
+import { FileKindIcon } from "./file-kind-icon";
 
 interface SidePanelProps {
   controller: ChatController;
@@ -57,8 +59,6 @@ interface SidePanelProps {
   onForkSession: () => void;
   className?: string;
 }
-
-const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i;
 
 export function SidePanel({
   controller,
@@ -96,8 +96,9 @@ export function SidePanel({
     agents.some((a) => a.status === "running") || jobs.some((j) => j.status === "running");
   const now = useTicker(anyRunning);
 
+  const links = useChatLinks();
   const open = (target: string, kind: ResultEntry["kind"]) =>
-    openTarget(target, kind, { workspaceId, cwd, rootPath, outside: t("chat.panel.outside") });
+    kind === "file" ? links?.openFile(target) : links?.openUrl(target);
 
   return (
     <aside
@@ -183,6 +184,7 @@ export function SidePanel({
               key={result.target}
               result={result}
               cwd={cwd}
+              workspaceId={workspaceId}
               onOpen={() => open(result.target, result.kind)}
             />
           ))}
@@ -210,33 +212,6 @@ function stop(controller: ChatController, taskId: string, failed: string): void 
   controller.stopTask(taskId).catch((err: Error) => {
     showToast({ kind: "error", message: `${failed}: ${err.message}` });
   });
-}
-
-function openTarget(
-  target: string,
-  kind: ResultEntry["kind"],
-  ctx: { workspaceId: string; cwd: string; rootPath: string; outside: string },
-): void {
-  const classified = classifyLinkHref(kind === "file" ? encodePath(target) : target, {
-    currentFileAbsPath: `${ctx.cwd.replace(/\/$/, "")}/.chat`,
-    workspaceRootAbsPath: ctx.rootPath,
-    kind: "link",
-  });
-  if (classified.kind === "external") {
-    window.open(classified.href, "_blank", "noopener,noreferrer");
-  } else if (classified.kind === "internal-file") {
-    openOrRevealEditor(
-      { workspaceId: ctx.workspaceId, filePath: classified.absPath },
-      { preview: true },
-    );
-  } else {
-    showToast({ kind: "info", message: ctx.outside });
-  }
-}
-
-/** A path as a link's href, which the classifier decodes. */
-function encodePath(path: string): string {
-  return path.split("/").map(encodeURIComponent).join("/");
 }
 
 /** A path from the session's folder, when it is under it. */
@@ -612,31 +587,87 @@ function AgentEntry({
 function ResultRow({
   result,
   cwd,
+  workspaceId,
   onOpen,
 }: {
   result: ResultEntry;
   cwd: string;
+  workspaceId: string;
   onOpen: () => void;
 }) {
-  const Icon =
-    result.kind === "url"
-      ? Globe
-      : IMAGE_EXT.test(result.target)
-        ? FileImage
-        : result.created
-          ? FilePlus
-          : FileText;
+  const { t } = useTranslation();
+  const path = result.kind === "file" ? resolveFilePath(result.target, cwd) : null;
   const label = result.kind === "file" ? shortPath(result.target, cwd) : result.target;
+  // An image shows itself while the pointer is on its row.
+  const [hover, setHover] = useState<DOMRect | null>(null);
+  const image = path !== null && fileKind(path) === "image";
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      title={result.target}
-      className="flex min-h-6 min-w-0 items-center gap-2 rounded-(--radius-control) px-1 text-left text-app-ui-sm hover:bg-[var(--state-hover-bg)]"
+    <>
+      <LinkMenu target={path ?? result.target} kind={result.kind}>
+        <button
+          type="button"
+          onClick={onOpen}
+          onMouseEnter={
+            image ? (event) => setHover(event.currentTarget.getBoundingClientRect()) : undefined
+          }
+          onMouseLeave={image ? () => setHover(null) : undefined}
+          title={result.target}
+          className="flex min-h-6 min-w-0 items-center gap-2 rounded-(--radius-control) px-1 text-left text-app-ui-sm hover:bg-[var(--state-hover-bg)]"
+        >
+          {result.kind === "url" ? (
+            <Globe className="size-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <FileKindIcon
+              path={path ?? result.target}
+              className="size-3.5 shrink-0 text-muted-foreground"
+            />
+          )}
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+          {result.created && (
+            <span className="shrink-0 text-app-micro text-muted-foreground">
+              {t("chat.panel.results.created")}
+            </span>
+          )}
+        </button>
+      </LinkMenu>
+      {hover && path && <Thumbnail workspaceId={workspaceId} path={path} near={hover} />}
+    </>
+  );
+}
+
+/** Largest side of an image's hover thumbnail, in pixels. */
+const THUMB_PX = 192;
+
+/** An image beside the panel, by the row the pointer is on. */
+function Thumbnail({
+  workspaceId,
+  path,
+  near,
+}: {
+  workspaceId: string;
+  path: string;
+  near: DOMRect;
+}) {
+  const file = useWorkspaceFile(workspaceId, path);
+  // The viewers read only the workspace's files so far.
+  if (file.kind !== "inside") return null;
+  const top = Math.max(
+    8,
+    Math.min(near.top - THUMB_PX / 2 + near.height / 2, window.innerHeight - THUMB_PX - 8),
+  );
+  return createPortal(
+    <div
+      className="pointer-events-none fixed z-50 rounded-(--radius-raised) border border-border bg-popover p-1"
+      style={{ top, right: window.innerWidth - near.left + 8 }}
     >
-      <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-    </button>
+      <img
+        src={file.url}
+        alt=""
+        className="block object-contain"
+        style={{ maxWidth: THUMB_PX, maxHeight: THUMB_PX }}
+      />
+    </div>,
+    document.body,
   );
 }
 
