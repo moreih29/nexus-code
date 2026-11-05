@@ -1,11 +1,12 @@
 /**
  * nexus browser snapshot/inspect/click/hover/drag/scroll/fill/type/press/
- * screenshot/eval/console/wait/pick: reading and driving the page in a
- * browser tab.
+ * upload/dialog/screenshot/eval/console/wait/pick: reading and driving the
+ * page in a browser tab.
  */
 import type { CliTabInfo } from "../../../../shared/cli/ui";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
+import { dialogText } from "../browser/dialog";
 import type { BrowserScroll, BrowserWaitCondition } from "../browser/driver";
 import { BROWSER_KEYS_HELP } from "../browser/keys";
 import { cancelledText, cleanPicked, formatPick } from "../browser/pick";
@@ -310,6 +311,62 @@ const browserPress: CliCommand = {
   },
 };
 
+const browserUpload: CliCommand = {
+  path: ["browser", "upload"],
+  summary: "Give a file input of a browser tab files, as choosing them does",
+  args: "<element> <file...>",
+  details:
+    `${TARGET_DETAILS}\nFiles are from this directory, on this computer: the app's tabs read\n` +
+    "files where the app runs, so a terminal on an SSH host or in WSL cannot give its own.\n" +
+    'No file, as "", empties the input.',
+  flags: PAGE_FLAGS,
+  async run(ctx, { positionals, flags }) {
+    const [target, ...inputs] = positionals;
+    if (target === undefined) throw new CliUsageError("missing <element>");
+    if (inputs.length === 0) throw new CliUsageError("missing <file>");
+    const own = resolveWorkspace(ctx, undefined);
+    if (own.location.kind !== "local") {
+      throw new CliError(
+        "upload takes files of the computer the app runs on, and this terminal is on another",
+      );
+    }
+    const files = inputs.filter((f) => f !== "").map((f) => callerPath(ctx, f));
+    const page = await pageOf(ctx, flags, true);
+    const done = await ctx.services.browser.upload(page.tab.id, target, files);
+    return output(done.text, { ...acted(page, done), files });
+  },
+};
+
+const browserDialog: CliCommand = {
+  path: ["browser", "dialog"],
+  summary: "Show the dialog a browser tab's page opened, or answer it",
+  args: "[accept|dismiss]",
+  details:
+    "An alert, a confirm, or a page asking before it is left holds the page up, and every\n" +
+    "command on it, until it is answered: accept is OK, dismiss is Cancel. A click or a key\n" +
+    "that opens one says so. The user sees it too and may answer it first. Electron pages\n" +
+    "have no prompt().",
+  flags: PAGE_FLAGS,
+  async run(ctx, { positionals, flags }) {
+    if (positionals.length > 1) throw new CliUsageError(`unexpected argument "${positionals[1]}"`);
+    const [answer] = positionals;
+    if (answer !== undefined && answer !== "accept" && answer !== "dismiss") {
+      throw new CliUsageError(`answer accept or dismiss, not "${answer}"`);
+    }
+    const page = await pageOf(ctx, flags, answer !== undefined);
+    if (answer === undefined) {
+      const dialog = await ctx.services.browser.dialog(page.tab.id);
+      return output(dialog ? dialogText(dialog) : "The page shows no dialog.", {
+        tabId: page.tab.id,
+        workspaceId: page.workspace.id,
+        dialog,
+      });
+    }
+    const done = await ctx.services.browser.answerDialog(page.tab.id, answer === "accept");
+    return output(done.text, acted(page, done));
+  },
+};
+
 const browserScreenshot: CliCommand = {
   path: ["browser", "screenshot"],
   summary: "Save a PNG of a browser tab's page",
@@ -538,6 +595,8 @@ export const browserControlCommands: CliCommand[] = [
   browserFill,
   browserType,
   browserPress,
+  browserUpload,
+  browserDialog,
   browserScreenshot,
   browserEval,
   browserConsole,

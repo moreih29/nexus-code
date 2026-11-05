@@ -110,6 +110,8 @@ nexus browser press Enter
 nexus browser hover e4             # 마우스를 올려 둠 (메뉴 · 툴팁)
 nexus browser drag e7 e9           # e7 을 e9 위로 끌어다 놓기
 nexus browser scroll down          # up · down · left · right · top · bottom · 요소
+nexus browser upload e5 photo.png  # 파일 입력에 파일 넣기 ("" 면 비움)
+nexus browser dialog accept        # 페이지의 alert · confirm 에 답하기 (dismiss 는 취소)
 nexus browser wait --text "Welcome"
 nexus browser screenshot --out shot.png
 nexus browser screenshot --element e6   # 요소 하나만
@@ -130,6 +132,14 @@ nexus browser pick                # 사용자가 클릭한 요소의 ref · 선�
 - `hover` 는 마우스를 요소 위에 올려 두고, 다음 명령까지 그대로 둡니다. 열린 메뉴나 툴팁을 `snapshot` · `screenshot` 으로 볼 수 있습니다.
 - `drag <요소> <놓을 곳>` 은 실제 마우스로 누르고, 옮기고, 놓습니다. HTML 드래그 앤 드롭을 쓰는 페이지에는 그 이벤트(`dragstart` · `drop`)가, 마우스를 따라가는 페이지에는 마우스 이동이 갑니다.
 - `scroll` 은 `up` · `down` · `left` · `right` 로 화면의 80% 만큼(`--by` 로 픽셀 지정), `top` · `bottom` 으로 끝까지, 요소를 주면 그 요소가 보이게 스크롤합니다. 목록처럼 따로 스크롤되는 요소는 `--within <요소>` 로 고릅니다. 끝나면 현재 위치를 알려줍니다.
+- `upload <요소> <파일...>` 은 `<input type="file">` 에 파일을 넣습니다. 상대 경로는 명령을 실행한 폴더 기준입니다. 파일 선택 창은 뜨지 않습니다.
+  - 앱이 도는 컴퓨터의 파일만 넣을 수 있어서, SSH 워크스페이스의 터미널에서는 거절합니다.
+  - `click` 이 파일 선택 창을 여는 버튼을 누르면 창을 띄우지 않고, 그 입력에 `upload` 하라고 알려줍니다.
+- 페이지가 `alert` · `confirm` · 떠나기 전 확인 창을 띄우면, 그 명령은 창의 내용을 출력하고 끝납니다. 답하기 전에는 그 탭의 다른 명령이 거절됩니다.
+  - `dialog` 로 지금 떠 있는 창을 보고, `dialog accept` 로 확인, `dialog dismiss` 로 취소합니다.
+  - Electron 은 `prompt` 를 지원하지 않아서, 페이지의 `prompt()` 는 창 없이 오류를 냅니다.
+  - 명령으로 답하면 앱에 떠 있던 같은 확인 창도 닫힙니다. 사용자가 앱에서 먼저 답해도 됩니다.
+  - 명령이 그 탭을 다루기 전에 페이지가 띄운 창은 명령으로 답할 수 없습니다. 그때 명령은 페이지가 응답하지 않는다고 알려주니, 앱에서 답하세요.
 - `console` 은 탭이 열린 뒤 페이지가 남긴 메시지를 최근 500개까지 보여줍니다.
 - 브라우저 탭이 여러 개면 `--tab <id>` 로 고릅니다. 하나뿐이거나 보이는 탭이 하나면 생략할 수 있습니다.
 - 페이지 안의 iframe 내용은 snapshot 에 나오지 않습니다.

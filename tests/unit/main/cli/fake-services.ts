@@ -10,7 +10,11 @@ import {
   type CrossWorkspacePolicy,
 } from "../../../../src/main/features/cli/consent";
 import type { ConsoleEntry } from "../../../../src/main/features/cli/browser/console-log";
-import type { BrowserDriver, PageInfo } from "../../../../src/main/features/cli/browser/driver";
+import type {
+  BrowserDriver,
+  PageDialog,
+  PageInfo,
+} from "../../../../src/main/features/cli/browser/driver";
 import type { PickedElement, PickResult } from "../../../../src/main/features/cli/browser/pick";
 import {
   type CliContext,
@@ -229,6 +233,8 @@ export interface FakeBrowser {
   pick: PickResult;
   /** What settle finds in place of the Vite page, when set. */
   settled?: PageInfo | null;
+  /** The dialog the page shows, when set. */
+  dialog?: PageDialog;
 }
 
 function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
@@ -293,6 +299,18 @@ function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
     pick: async (tabId, options) => {
       record("pick", tabId, options);
       return state.pick;
+    },
+    upload: async (tabId, target, files) => {
+      record("upload", tabId, target, files);
+      return acted(`Gave ${target} ${files.length} files.`);
+    },
+    dialog: async (tabId) => {
+      record("dialog", tabId);
+      return state.dialog ?? null;
+    },
+    answerDialog: async (tabId, accept) => {
+      record("answerDialog", tabId, accept);
+      return acted(accept ? "Answered OK." : "Answered Cancel.");
     },
     inspect: async (tabId, target) => {
       record("inspect", tabId, target);

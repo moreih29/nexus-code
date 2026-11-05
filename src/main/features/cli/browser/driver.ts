@@ -14,9 +14,12 @@
  * selector that matches one element. Input is real input events, so pages
  * see clicks and typing as a person's.
  */
+import { stat } from "node:fs/promises";
+import path from "node:path";
 import { BaseWindow, type Input, screen, type View, type WebContents } from "electron";
 import { CliError } from "../context";
 import { type ConsoleEntry, type ConsoleLog, watchConsole } from "./console-log";
+import { dialogText, type PageDialog } from "./dialog";
 import { DrivenTabs, saveCommandDownload } from "./downloads";
 import { type KeyPress, parseBrowserKey } from "./keys";
 import {
@@ -54,6 +57,8 @@ export interface PageSnapshot extends PageInfo {
 }
 
 /** What an action did, said for people, and where the page is after it. */
+export type { PageDialog } from "./dialog";
+
 export interface ActionResult extends PageInfo {
   readonly text: string;
   readonly navigated: boolean;
@@ -106,6 +111,12 @@ export interface BrowserDriver {
   fill(tabId: string, target: string, text: string): Promise<ActionResult>;
   type(tabId: string, text: string, target?: string): Promise<ActionResult>;
   press(tabId: string, keys: readonly string[]): Promise<ActionResult>;
+  /** Gives a file input files of this computer, as choosing them does. */
+  upload(tabId: string, target: string, files: readonly string[]): Promise<ActionResult>;
+  /** The dialog the page shows, if any. */
+  dialog(tabId: string): Promise<PageDialog | null>;
+  /** Answers the dialog the page shows: OK, or Cancel. */
+  answerDialog(tabId: string, accept: boolean): Promise<ActionResult>;
   /** A PNG, base64: of what the tab shows, the whole page, or one element. */
   screenshot(tabId: string, options: { full: boolean; element?: string }): Promise<string>;
   /** What an element is, as pick tells it, with a picture of it, scrolled into view. */
@@ -254,6 +265,19 @@ const DESCRIBE = `function () {
   return "<" + this.localName + id + cls + ">";
 }`;
 
+/** Whether the element is a file input, and one that takes several files. */
+const FILE_INPUT = `function () {
+  return { file: this instanceof HTMLInputElement && this.type === "file", multiple: !!this.multiple };
+}`;
+
+/** Empties a file input, as a user's cancelled choice does; Chromium gives no files no other way. */
+const CLEAR_FILES = `function () {
+  if (this.files.length === 0) return;
+  this.value = "";
+  this.dispatchEvent(new Event("input", { bubbles: true }));
+  this.dispatchEvent(new Event("change", { bubbles: true }));
+}`;
+
 /** Where an element is on the page, for a picture of it alone; null when it has no size. */
 const ELEMENT_CLIP = `function () {
   const r = this.getBoundingClientRect();
@@ -293,6 +317,13 @@ interface Scrolled {
   readonly max: { readonly x: number; readonly y: number };
 }
 
+/**
+ * How long a page just attached to has to answer. One that does not is held
+ * up, as by a dialog it showed before it was driven: no command reaches it
+ * until the dialog is answered, which only the app's own dialog can do.
+ */
+const ATTACH_ANSWER_MS = 2_000;
+
 /** How far a drag goes before the page sees it as a drag, as a hand's would. */
 const DRAG_START_PX = 8;
 /** How long a page has to start an HTML drag once the mouse moves. */
@@ -327,6 +358,13 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** A command that a dialog of the page held up, or that came while it showed one. */
+class DialogShown extends CliError {
+  constructor(dialog: PageDialog) {
+    super(dialogText(dialog));
+  }
+}
+
 export class CdpBrowserDriver implements BrowserDriver {
   private readonly states = new WeakMap<WebContents, TabState>();
   private readonly consoles = new Map<string, { contents: WebContents; log: ConsoleLog }>();
@@ -340,6 +378,14 @@ export class CdpBrowserDriver implements BrowserDriver {
   private readonly driven = new DrivenTabs<WebContents>();
   /** How many navigations each tab has started, to tell an action's own. */
   private readonly navigations = new WeakMap<WebContents, number>();
+  /** The dialog each tab's page shows, which holds up the page until answered. */
+  private readonly dialogs = new WeakMap<WebContents, PageDialog>();
+  /** What to wake when a tab's page opens a dialog. */
+  private readonly opened = new WeakMap<WebContents, Set<() => void>>();
+  /** The pages attached to that have not answered yet. */
+  private readonly unanswered = new WeakSet<WebContents>();
+  /** The file inputs whose chooser a command's click opened, by tab. */
+  private readonly choosers = new WeakMap<WebContents, number>();
 
   constructor(
     private readonly pageOf: (tabId: string) => BrowserPage | undefined,
@@ -403,7 +449,25 @@ export class CdpBrowserDriver implements BrowserDriver {
     return state;
   }
 
+  /**
+   * Sends `method` to the page. While the page shows a dialog only the
+   * dialog's answer reaches it: a command sent then, or one the dialog
+   * holds up, fails with what the dialog says.
+   */
   private async send<T>(contents: WebContents, method: string, params: object = {}): Promise<T> {
+    await this.attach(contents);
+    if (method !== "Page.handleJavaScriptDialog") this.noDialog(contents);
+    const work = contents.debugger.sendCommand(method, params);
+    const settled = await this.unlessOpened(contents, work);
+    if ("done" in settled) return settled.done as T;
+    const dialog = this.dialogs.get(contents);
+    // Answered in the app before this was told of it.
+    if (!dialog) return (await work) as T;
+    throw new DialogShown(dialog);
+  }
+
+  /** Attaches to the page, if nothing has yet, to keep up with its dialogs. */
+  private async attach(contents: WebContents): Promise<void> {
     const debug = contents.debugger;
     if (!debug.isAttached()) {
       try {
@@ -411,8 +475,113 @@ export class CdpBrowserDriver implements BrowserDriver {
       } catch (error) {
         throw new CliError(`cannot drive this browser tab: ${(error as Error).message}`);
       }
+      this.listen(contents);
+      this.unanswered.add(contents);
+      const enabled = debug.sendCommand("Page.enable").then(
+        () => true,
+        () => true,
+      );
+      enabled.then(() => this.unanswered.delete(contents));
+      await Promise.race([enabled, delay(ATTACH_ANSWER_MS)]);
     }
-    return (await debug.sendCommand(method, params)) as T;
+    if (this.unanswered.has(contents)) {
+      throw new CliError(
+        "the page does not answer: it may show a dialog it opened before it was driven, which only the app can answer; answer it there and try again",
+      );
+    }
+  }
+
+  /** Keeps up with the dialogs and file choosers of a page just attached to. */
+  private listen(contents: WebContents): void {
+    const debug = contents.debugger;
+    const onMessage = (_event: unknown, method: string, params: Record<string, unknown>) => {
+      if (method === "Page.javascriptDialogOpening") {
+        this.dialogs.set(contents, {
+          type: String(params.type),
+          message: String(params.message ?? ""),
+          url: String(params.url ?? ""),
+        });
+        for (const waiter of this.opened.get(contents) ?? []) waiter();
+      } else if (method === "Page.javascriptDialogClosed") {
+        this.dialogs.delete(contents);
+      } else if (method === "Page.fileChooserOpened") {
+        this.choosers.set(contents, Number(params.backendNodeId));
+      }
+    };
+    debug.on("message", onMessage);
+    debug.once("detach", () => {
+      debug.removeListener("message", onMessage);
+      this.dialogs.delete(contents);
+      this.unanswered.delete(contents);
+    });
+  }
+
+  /** Waits for `work`, unless the page opens a dialog first, which holds it up. */
+  private async unlessOpened<T>(
+    contents: WebContents,
+    work: Promise<T>,
+  ): Promise<{ done: T } | { opened: true }> {
+    work.catch(() => {});
+    let waiters = this.opened.get(contents);
+    if (!waiters) {
+      waiters = new Set();
+      this.opened.set(contents, waiters);
+    }
+    const set = waiters;
+    let wake: () => void = () => {};
+    const opened = new Promise<{ opened: true }>((resolve) => {
+      wake = () => resolve({ opened: true });
+    });
+    set.add(wake);
+    try {
+      return await Promise.race([work.then((done) => ({ done })), opened]);
+    } finally {
+      set.delete(wake);
+    }
+  }
+
+  /**
+   * An action's input, sent while a file chooser it opens is held back from
+   * the user; then what it did, as `after` says, or the dialog it opened.
+   */
+  private async act(
+    contents: WebContents,
+    text: string,
+    before: PageMark,
+    input: () => Promise<void>,
+  ): Promise<ActionResult> {
+    this.choosers.delete(contents);
+    await this.send(contents, "Page.setInterceptFileChooserDialog", { enabled: true });
+    try {
+      await input();
+    } catch (error) {
+      if (!(error instanceof DialogShown)) throw error;
+      return {
+        text: `${text}\n${error.message}`,
+        url: contents.getURL(),
+        title: contents.getTitle(),
+        navigated: false,
+      };
+    } finally {
+      // Answering the dialog turns it off.
+      if (!this.dialogs.has(contents)) {
+        await this.send(contents, "Page.setInterceptFileChooserDialog", { enabled: false }).catch(
+          () => {},
+        );
+      }
+    }
+    const result = await this.after(contents, text, before);
+    if (!this.choosers.has(contents)) return result;
+    return {
+      ...result,
+      text: `${result.text}\nIt opened a file chooser, which was not shown; give the input files with nexus browser upload.`,
+    };
+  }
+
+  /** Refuses a command while the page shows a dialog, which would hold it up. */
+  private noDialog(contents: WebContents): void {
+    const dialog = this.dialogs.get(contents);
+    if (dialog) throw new DialogShown(dialog);
   }
 
   private async call<T>(
@@ -441,8 +610,10 @@ export class CdpBrowserDriver implements BrowserDriver {
   private async with<T>(
     tabId: string,
     body: (contents: WebContents, state: TabState) => Promise<T>,
+    options: { dialog?: boolean } = {},
   ): Promise<T> {
     const contents = this.contents(tabId);
+    if (!options.dialog) this.noDialog(contents);
     const done = this.driven.begin(contents);
     try {
       return await body(contents, this.state(contents));
@@ -788,16 +959,14 @@ export class CdpBrowserDriver implements BrowserDriver {
           buttons: type === "mousePressed" ? 1 : 0,
           clickCount,
         });
-      await mouse("mouseMoved", 0);
-      for (let count = 1; count <= (options.double ? 2 : 1); count++) {
-        await mouse("mousePressed", count);
-        await mouse("mouseReleased", count);
-      }
-      return this.after(
-        contents,
-        `${options.double ? "Double-clicked" : "Clicked"} ${el.label}.`,
-        before,
-      );
+      const what = `${options.double ? "Double-clicked" : "Clicked"} ${el.label}.`;
+      return this.act(contents, what, before, async () => {
+        await mouse("mouseMoved", 0);
+        for (let count = 1; count <= (options.double ? 2 : 1); count++) {
+          await mouse("mousePressed", count);
+          await mouse("mouseReleased", count);
+        }
+      });
     });
   }
 
@@ -991,8 +1160,9 @@ export class CdpBrowserDriver implements BrowserDriver {
     this.notPicking(tabId);
     return this.with(tabId, async (contents) => {
       const before = this.mark(contents);
-      for (const press of presses) await this.pressKey(contents, press);
-      return this.after(contents, `Pressed ${keys.join(" ")}.`, before);
+      return this.act(contents, `Pressed ${keys.join(" ")}.`, before, async () => {
+        for (const press of presses) await this.pressKey(contents, press);
+      });
     });
   }
 
@@ -1044,6 +1214,74 @@ export class CdpBrowserDriver implements BrowserDriver {
       };
       return this.capture(tabId, contents, { format: "png", captureBeyondViewport: true, clip });
     });
+  }
+
+  upload(tabId: string, target: string, files: readonly string[]): Promise<ActionResult> {
+    this.notPicking(tabId);
+    return this.with(tabId, async (contents, state) => {
+      for (const file of files) {
+        const found = await stat(file).catch(() => null);
+        if (!found?.isFile()) throw new CliError(`no file at ${file}`);
+      }
+      const el = await this.locate(contents, state, target);
+      const input = await this.call<{ file: boolean; multiple: boolean }>(
+        contents,
+        el.objectId,
+        FILE_INPUT,
+      );
+      if (!input.file) throw new CliError(`${el.label} is not a file input`);
+      if (files.length > 1 && !input.multiple) {
+        throw new CliError(`${el.label} takes one file, not ${files.length}`);
+      }
+      const before = this.mark(contents);
+      if (files.length === 0) await this.call(contents, el.objectId, CLEAR_FILES);
+      else {
+        await this.send(contents, "DOM.setFileInputFiles", {
+          files,
+          backendNodeId: el.backendNodeId,
+        });
+      }
+      const names = files.map((f) => path.basename(f)).join(", ");
+      return this.after(contents, `Gave ${el.label} ${names || "no file"}.`, before);
+    });
+  }
+
+  dialog(tabId: string): Promise<PageDialog | null> {
+    return this.with(
+      tabId,
+      async (contents) => {
+        await this.attach(contents);
+        return this.dialogs.get(contents) ?? null;
+      },
+      { dialog: true },
+    );
+  }
+
+  answerDialog(tabId: string, accept: boolean): Promise<ActionResult> {
+    return this.with(
+      tabId,
+      async (contents) => {
+        const dialog = this.dialogs.get(contents);
+        if (!dialog) throw new CliError("the page shows no dialog");
+        const before = this.mark(contents);
+        await this.send(contents, "Page.handleJavaScriptDialog", { accept });
+        this.dialogs.delete(contents);
+        // The app shows the dialog too, in a message box of its own that an
+        // answer here leaves open, and that would answer again when clicked.
+        // Electron closes its boxes on this event of its own (as of 45).
+        contents.emit("-cancel-dialogs");
+        await this.send(contents, "Page.setInterceptFileChooserDialog", { enabled: false }).catch(
+          () => {},
+        );
+        const answer = accept ? "OK" : "Cancel";
+        return this.after(
+          contents,
+          `Answered ${answer} to the ${dialog.type} ${JSON.stringify(dialog.message)}.`,
+          before,
+        );
+      },
+      { dialog: true },
+    );
   }
 
   inspect(tabId: string, target: string): Promise<PickedElement> {
