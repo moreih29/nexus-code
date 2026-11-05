@@ -69,8 +69,10 @@ function PptxDocument({ workspaceId, relPath }: { workspaceId: string; relPath: 
     const before = zoomRef.current;
     if (zoom === before) return;
     zoomRef.current = zoom;
+    // Read before the slides shrink, which would clamp it.
+    const top = container.scrollTop;
     host.style.setProperty("--slide-zoom", String(zoom));
-    if (before > 0) container.scrollTop *= zoom / before;
+    if (before > 0) container.scrollTop = top * (zoom / before);
   }, []);
 
   useEffect(() => {
