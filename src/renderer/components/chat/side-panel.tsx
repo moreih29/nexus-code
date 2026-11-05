@@ -197,7 +197,7 @@ export function SidePanel({
               key={file.path}
               file={file}
               cwd={cwd}
-              onOpen={() => open(file.path, "file")}
+              onOpen={() => links?.openChange(file.path)}
             />
           ))}
         </Section>

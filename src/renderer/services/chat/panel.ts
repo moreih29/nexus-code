@@ -213,6 +213,11 @@ export interface ChangedFile {
   removed: number;
   /** Written new by the session. */
   created: boolean;
+  /**
+   * The file before the session first changed it: null when the session
+   * wrote it new, absent when the change did not say (a notebook's).
+   */
+  before?: string | null;
   /** The calls that changed it, oldest first. */
   toolUseIds: string[];
 }
@@ -234,6 +239,11 @@ export function changedFilesOf(tools: Record<string, ToolCall>): ChangedFile[] {
       toolUseIds: [],
     };
     file.toolUseIds.push(tool.id);
+    if (file.toolUseIds.length === 1) {
+      const original = structured?.originalFile;
+      if (structured?.type === "create") file.before = null;
+      else if (typeof original === "string") file.before = original;
+    }
     if (structured?.type === "create") {
       file.created = file.toolUseIds.length === 1 || file.created;
       file.added += lineCount(str(input.content) ?? "");

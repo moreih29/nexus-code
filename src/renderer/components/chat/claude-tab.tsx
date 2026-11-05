@@ -18,12 +18,14 @@ import { openBrowserBeside, openFileBeside } from "../../services/chat/open-besi
 import {
   agentsOf,
   agentTranscript,
+  changedFilesOf,
   contextOf,
   jobsOf,
   outsideLinksOf,
   resultsOf,
   todosOf,
 } from "../../services/chat/panel";
+import { revertChangedFile } from "../../services/chat/revert-file";
 import {
   type ChatTabState,
   type ComposerDraft,
@@ -233,6 +235,15 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         if (at < 0) setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
         setLook(at >= 0 ? { files, index: at } : { files: [path, ...files], index: 0 });
       },
+      openChange(path) {
+        const { history, model } = latest.current.state;
+        const tools = history ? { ...history.tools, ...model.tools } : model.tools;
+        const changed = changedFilesOf(tools);
+        const changes: Record<string, string | null> = {};
+        for (const file of changed) if (file.before !== undefined) changes[file.path] = file.before;
+        const files = changed.map((file) => file.path);
+        setLook({ files, index: Math.max(0, files.indexOf(path)), changes });
+      },
       openFileTab(target) {
         const path = resolveFilePath(target, cwd);
         if (!path) return;
@@ -402,6 +413,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
             setLook(null);
             links.openFileTab(path);
           }}
+          onRevert={(path) => {
+            const before = look.changes?.[path];
+            if (before !== undefined) void revertChangedFile(workspaceId, rootPath, path, before);
+          }}
+          revertBlocked={state.model.running ? t("chat.look.revert_busy") : undefined}
         />
       )}
     </div>

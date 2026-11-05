@@ -1,9 +1,18 @@
 // Quick look: a file the conversation names, shown over the Claude tab in
 // the app's previews, with the session's other results a step away.
 // ‹ › and ← → step through them, ↗ opens the file as a tab, esc closes.
+// A file the session changed shows as a diff, and can be reverted.
 
 import Editor from "@monaco-editor/react";
-import { ChevronLeft, ChevronRight, FolderOpen, SquareArrowOutUpRight, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  FolderOpen,
+  GitCompareArrows,
+  SquareArrowOutUpRight,
+  Undo2,
+  X,
+} from "lucide-react";
 import type * as Monaco from "monaco-editor";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -27,6 +36,7 @@ import {
 import { isSpreadsheetFile } from "../../services/editor/preview/spreadsheet";
 import { usePreviewDefaultsStore } from "../../state/stores/preview-defaults";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { cn } from "../../utils/cn";
 import { fileErrorMessage } from "../../utils/file-error";
 import { revealInOSLabel } from "../../utils/reveal-label";
 import { ImagePreview } from "../editor/preview/image-preview";
@@ -42,11 +52,17 @@ import { PdfEditorView } from "../workspace/content/pdf-editor-view";
 import { PptxEditorView } from "../workspace/content/pptx-editor-view";
 import { SpreadsheetEditorView } from "../workspace/content/spreadsheet-editor-view";
 import { FileKindIcon } from "./file-kind-icon";
+import { LookDiff } from "./look-diff";
 
 export interface QuickLookList {
   /** Absolute paths: the session's results, or the one file opened. */
   files: string[];
   index: number;
+  /**
+   * The files the session changed, by what each was before it (null for
+   * one it wrote new); each opens as a diff.
+   */
+  changes?: Readonly<Record<string, string | null>>;
 }
 
 interface QuickLookProps {
@@ -58,6 +74,10 @@ interface QuickLookProps {
   onOpenTab: (path: string) => void;
   /** Whether the workspace is on this machine, where Finder can show a file. */
   local: boolean;
+  /** Puts a changed file in the workspace back as it was before the session. */
+  onRevert?: (path: string) => void;
+  /** Why reverting is not possible now, as while Claude works. */
+  revertBlocked?: string;
 }
 
 export function QuickLook({
@@ -67,22 +87,34 @@ export function QuickLook({
   onClose,
   onOpenTab,
   local,
+  onRevert,
+  revertBlocked,
 }: QuickLookProps) {
   const { t } = useTranslation();
   const { files, index } = list;
   const path = files[index] ?? "";
   const count = files.length;
   const step = (by: number) => count > 1 && onIndex((index + by + count) % count);
+  const before = list.changes?.[path];
+  const changed = before !== undefined;
+  const root = useWorkspacesStore((s) => {
+    const location = s.workspaces.find((w) => w.id === workspaceId)?.location;
+    if (!location) return "";
+    return location.kind === "local" ? location.rootPath : location.remotePath;
+  });
 
   const viewDefaults = usePreviewDefaultsStore((s) => s.byFormat);
   const support = isPreviewable(path);
   const textual = isText(path);
   const [mode, setMode] = useState<ViewMode>(() => defaultViewMode(path, viewDefaults));
+  const [diff, setDiff] = useState(changed);
   const [modeFor, setModeFor] = useState(path);
   if (modeFor !== path) {
     setModeFor(path);
     setMode(defaultViewMode(path, viewDefaults));
+    setDiff(changed);
   }
+  const showDiff = diff && changed;
 
   // The keys go to the overlay while it is open; the focus goes back after.
   const rootRef = useRef<HTMLDivElement>(null);
@@ -152,7 +184,33 @@ export function QuickLook({
         <span className="min-w-0 flex-1 truncate text-app-ui-sm" title={path}>
           {baseName(path)}
         </span>
-        {textual && support !== "none" && (
+        {changed && (
+          <button
+            type="button"
+            className={cn(icon, showDiff && "bg-[var(--state-active-bg)] text-foreground")}
+            onClick={() => setDiff(!showDiff)}
+            aria-pressed={showDiff}
+            aria-label={t("chat.look.changes")}
+            title={t("chat.look.changes")}
+            data-testid="chat-quick-look-diff"
+          >
+            <GitCompareArrows className="size-3.5" />
+          </button>
+        )}
+        {changed && onRevert && isUnder(path, root) && (
+          <button
+            type="button"
+            className={icon}
+            onClick={() => onRevert(path)}
+            disabled={revertBlocked !== undefined}
+            aria-label={t("chat.look.revert")}
+            title={revertBlocked ?? t("chat.look.revert")}
+            data-testid="chat-quick-look-revert"
+          >
+            <Undo2 className="size-3.5" />
+          </button>
+        )}
+        {!showDiff && textual && support !== "none" && (
           <ViewModeToggle
             mode={mode}
             onChange={setMode}
@@ -192,12 +250,16 @@ export function QuickLook({
         </button>
       </div>
       <div className="relative min-h-0 flex-1">
-        <LookBody
-          key={path}
-          workspaceId={workspaceId}
-          path={path}
-          preview={support === "supported" && mode === "preview"}
-        />
+        {showDiff ? (
+          <LookDiff key={path} workspaceId={workspaceId} path={path} before={before ?? null} />
+        ) : (
+          <LookBody
+            key={path}
+            workspaceId={workspaceId}
+            path={path}
+            preview={support === "supported" && mode === "preview"}
+          />
+        )}
       </div>
     </div>
   );

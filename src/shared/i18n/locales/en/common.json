@@ -1073,7 +1073,15 @@
       "previous": "Previous result (←)",
       "next": "Next result (→)",
       "open_tab": "Open as a tab",
-      "close": "Close (esc)"
+      "close": "Close (esc)",
+      "changes": "Changes since before the session",
+      "revert": "Revert this file to before the session",
+      "revert_busy": "Can't revert while Claude is working",
+      "revert_title": "Revert {{name}}?",
+      "revert_description": "The file goes back to how it was before this session changed it. What changed in it since, by Claude or by you, is lost.",
+      "revert_confirm": "Revert",
+      "reverted": "Reverted {{name}}",
+      "revert_failed": "Couldn't revert {{name}}: {{error}}"
     },
     "links": {
       "look": "Quick look",

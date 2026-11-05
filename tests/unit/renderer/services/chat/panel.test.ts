@@ -240,7 +240,7 @@ describe("chat panel", () => {
     ]);
   });
 
-  test("changed files add up their patches", () => {
+  test("changed files add up their patches, and keep what each was before", () => {
     seq = 0;
     const model = applyLines(emptyModel(), [
       assistant("m1", [
@@ -252,15 +252,31 @@ describe("chat panel", () => {
         },
         { type: "tool_use", id: "e", name: "Edit", input: { file_path: "/p/old.ts" } },
         { type: "tool_use", id: "x", name: "Edit", input: { file_path: "/p/denied.ts" } },
+        { type: "tool_use", id: "e2", name: "Edit", input: { file_path: "/p/old.ts" } },
+        { type: "tool_use", id: "n", name: "NotebookEdit", input: { notebook_path: "/p/n.ipynb" } },
       ]),
-      result("w", "ok", { type: "create", filePath: "/p/new.txt" }),
+      result("w", "ok", { type: "create", filePath: "/p/new.txt", originalFile: null }),
       result("e", "ok", {
+        originalFile: "keep\nold\n",
         structuredPatch: [{ oldStart: 1, lines: [" keep", "-old", "+new", "+more"] }],
       }),
+      result("e2", "ok", {
+        originalFile: "keep\nnew\nmore\n",
+        structuredPatch: [{ oldStart: 3, lines: ["-more"] }],
+      }),
+      result("n", "ok", { new_source: "x" }),
     ]);
     expect(changedFilesOf(model.tools)).toEqual([
-      { path: "/p/new.txt", added: 2, removed: 0, created: true, toolUseIds: ["w"] },
-      { path: "/p/old.ts", added: 2, removed: 1, created: false, toolUseIds: ["e"] },
+      { path: "/p/new.txt", added: 2, removed: 0, created: true, before: null, toolUseIds: ["w"] },
+      {
+        path: "/p/old.ts",
+        added: 2,
+        removed: 2,
+        created: false,
+        before: "keep\nold\n",
+        toolUseIds: ["e", "e2"],
+      },
+      { path: "/p/n.ipynb", added: 0, removed: 0, created: false, toolUseIds: ["n"] },
     ]);
   });
 
