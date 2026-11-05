@@ -3,6 +3,9 @@
  * inside the workspace, and spelled as the workspace's host spells them.
  */
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type { CliContext } from "../../../../src/main/features/cli/context";
 import {
   absolutePath,
@@ -102,6 +105,40 @@ test("a POSIX root's paths are POSIX paths on any platform", () => {
   } as WorkspaceMeta;
   expect(workspaceFile(ctx, workspace, "a.ts").relPath).toBe("src/a.ts");
 });
+
+test.skipIf(process.platform === "win32")(
+  "a local workspace reached through a link takes its files' real paths",
+  () => {
+    const temp = realpathSync(mkdtempSync(path.join(tmpdir(), "nexus-paths-")));
+    try {
+      const real = path.join(temp, "real");
+      mkdirSync(path.join(real, "src"), { recursive: true });
+      writeFileSync(path.join(real, "src", "a.ts"), "");
+      const linked = path.join(temp, "linked");
+      symlinkSync(real, linked);
+      const workspace = {
+        id: APP,
+        name: "app",
+        rootPath: linked,
+        location: { kind: "local", rootPath: linked },
+      } as WorkspaceMeta;
+      // The terminal is in the folder's real path, as macOS gives /tmp's.
+      const caller = { workspaceId: APP, tabId: SHELL_TAB };
+      const ctx = contextFor(fakeApp(), [], caller, { cwd: path.join(real, "src") });
+      expect(workspaceFile(ctx, workspace, "a.ts")).toEqual({
+        relPath: "src/a.ts",
+        filePath: `${linked}/src/a.ts`,
+      });
+      expect(workspaceFile(ctx, workspace, "new.ts").relPath).toBe("src/new.ts");
+      expect(workspaceFile(ctx, workspace, path.join(real, "README.md")).relPath).toBe("README.md");
+      expect(() => workspaceFile(ctx, workspace, path.join(temp, "other.ts"))).toThrow(
+        "is not a file inside app",
+      );
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  },
+);
 
 test.each([
   ["src/a.ts", { file: "src/a.ts" }],
