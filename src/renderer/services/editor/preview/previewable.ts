@@ -19,6 +19,8 @@ const HTML_EXTENSIONS = [".html", ".htm"] as const;
 const SVG_EXTENSIONS = [".svg"] as const;
 // Delimited values, shown as a table.
 const TABLE_EXTENSIONS = [".csv", ".tsv"] as const;
+// JSON, shown as a tree. Comments are taken, as configuration files have.
+const JSON_EXTENSIONS = [".json", ".jsonc"] as const;
 const MDX_EXTENSIONS = [".mdx"] as const;
 
 // Raster image formats the renderer can display via the `nexus-workspace://`
@@ -64,19 +66,22 @@ export function isPreviewable(filePath: string): PreviewSupport {
   if (HTML_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "supported";
   if (SVG_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "supported";
   if (TABLE_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "supported";
+  if (JSON_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "supported";
   return "none";
 }
 
 /**
  * How a file opens: in its preview when it has one, in its source otherwise.
- * A tab keeps the mode it was switched to; this is the mode of one never
- * switched.
+ * JSON opens in its source, which is what it is mostly opened to read and
+ * change; its tree is a switch away. A tab keeps the mode it was switched
+ * to; this is the mode of one never switched.
  */
 export function defaultViewMode(filePath: string): "raw" | "preview" {
-  return isPreviewable(filePath) === "supported" ? "preview" : "raw";
+  if (isPreviewable(filePath) !== "supported") return "raw";
+  return previewEngineFor(filePath) === "json" ? "raw" : "preview";
 }
 
-export type PreviewEngine = "markdown" | "html" | "svg" | "table";
+export type PreviewEngine = "markdown" | "html" | "svg" | "table" | "json";
 
 /**
  * Maps a supported file path to the concrete preview engine. Throws (never
@@ -89,5 +94,6 @@ export function previewEngineFor(filePath: string): PreviewEngine {
   if (HTML_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "html";
   if (SVG_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "svg";
   if (TABLE_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "table";
+  if (JSON_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "json";
   throw new Error(`previewEngineFor called on non-previewable path: ${filePath}`);
 }

@@ -645,6 +645,18 @@
     "table_empty": "행이 없습니다.",
     "html_title": "HTML 미리보기"
   },
+  "jsonPreview": {
+    "label": "JSON 트리",
+    "expand_all": "모두 펼치기",
+    "collapse_all": "모두 접기",
+    "keys_one": "키 {{count}}개",
+    "keys_other": "키 {{count}}개",
+    "items_one": "항목 {{count}}개",
+    "items_other": "항목 {{count}}개",
+    "empty": "빈 파일입니다.",
+    "too_large": "{{mb}} MB가 넘는 파일은 트리로 보여주지 않습니다. 원본으로 전환하세요.",
+    "syntax_error": "JSON으로 읽을 수 없습니다: {{line}}행 {{column}}열. 원본으로 전환해 확인하세요."
+  },
   "imagePreview": {
     "workspace_not_found": "워크스페이스를 찾을 수 없습니다.",
     "outside_workspace": "이미지가 워크스페이스 외부에 있어 미리볼 수 없습니다.",
