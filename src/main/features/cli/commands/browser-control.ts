@@ -16,7 +16,7 @@ import { type CliCommand, output } from "../registry";
 import { resolveBrowser, TAB_FLAG } from "./browser";
 import { WORKSPACE_FLAG } from "./flags";
 
-const PAGE_FLAGS = { tab: TAB_FLAG, workspace: WORKSPACE_FLAG } as const;
+export const PAGE_FLAGS = { tab: TAB_FLAG, workspace: WORKSPACE_FLAG } as const;
 
 const DEFAULT_SNAPSHOT_LINES = 400;
 const DEFAULT_BROWSER_WAIT_MS = 30_000;
@@ -30,7 +30,7 @@ interface Page {
 }
 
 /** The browser tab a command is about; `changes` asks consent for another workspace's. */
-async function pageOf(
+export async function pageOf(
   ctx: CliContext,
   flags: ParsedArgs["flags"],
   changes: boolean,
@@ -429,7 +429,7 @@ const browserEval: CliCommand = {
   },
 };
 
-function clockTime(at: number): string {
+export function clockTime(at: number): string {
   const d = new Date(at);
   return [d.getHours(), d.getMinutes(), d.getSeconds()]
     .map((n) => String(n).padStart(2, "0"))

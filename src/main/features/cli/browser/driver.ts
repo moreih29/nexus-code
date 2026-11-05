@@ -21,6 +21,7 @@ import { CliError } from "../context";
 import { type ConsoleEntry, type ConsoleLog, watchConsole } from "./console-log";
 import { dialogText, type PageDialog } from "./dialog";
 import { DrivenTabs, saveCommandDownload } from "./downloads";
+import { type NetworkEntry, NetworkLog } from "./network-log";
 import { type KeyPress, parseBrowserKey } from "./keys";
 import {
   type Box,
@@ -58,6 +59,19 @@ export interface PageSnapshot extends PageInfo {
 
 /** What an action did, said for people, and where the page is after it. */
 export type { PageDialog } from "./dialog";
+
+/** A request, with what was sent and what came back as far as the page still has them. */
+export interface RequestDetails {
+  readonly entry: NetworkEntry;
+  /** What was sent with it, when there was something; undefined when it is not known. */
+  readonly postData?: string;
+  readonly body: ResponseBody;
+}
+
+export type ResponseBody =
+  | { readonly kind: "text"; readonly text: string; readonly length: number }
+  | { readonly kind: "binary"; readonly bytes: number }
+  | { readonly kind: "none"; readonly why: string };
 
 export interface ActionResult extends PageInfo {
   readonly text: string;
@@ -123,6 +137,10 @@ export interface BrowserDriver {
   inspect(tabId: string, target: string): Promise<PickedElement>;
   evaluate(tabId: string, expression: string): Promise<unknown>;
   console(tabId: string, clear: boolean): readonly ConsoleEntry[];
+  /** The requests the tab's pages made since it opened; with `clear`, forgets them. */
+  network(tabId: string, clear: boolean): readonly NetworkEntry[];
+  /** The request numbered `id`, with up to `maxBody` characters of its response. */
+  request(tabId: string, id: number, maxBody: number): Promise<RequestDetails>;
   /** Resolves true once `condition` holds, false if it did not in time. */
   waitFor(tabId: string, condition: BrowserWaitCondition, timeoutMs: number): Promise<boolean>;
   /**
@@ -317,6 +335,17 @@ interface Scrolled {
   readonly max: { readonly x: number; readonly y: number };
 }
 
+/** How much of the responses the Network domain keeps, for nexus browser network's bodies. */
+const NETWORK_BUFFERS = { maxTotalBufferSize: 20_000_000, maxResourceBufferSize: 5_000_000 };
+
+/** Whether bytes read as UTF-8 text: no NUL, and no bad sequence, in the start. */
+function looksLikeText(bytes: Buffer): boolean {
+  // Cut short, the head may end inside a character.
+  const head = bytes.length > 4096 ? bytes.subarray(0, 4093) : bytes;
+  if (head.includes(0)) return false;
+  return !head.toString("utf8").includes("\uFFFD");
+}
+
 /**
  * How long a page just attached to has to answer. One that does not is held
  * up, as by a dialog it showed before it was driven: no command reaches it
@@ -384,6 +413,10 @@ export class CdpBrowserDriver implements BrowserDriver {
   private readonly opened = new WeakMap<WebContents, Set<() => void>>();
   /** The pages attached to that have not answered yet. */
   private readonly unanswered = new WeakSet<WebContents>();
+  /** The Page domain's enabling, which a page held up by a dialog does not answer. */
+  private readonly enabling = new WeakMap<WebContents, Promise<unknown>>();
+  /** The requests each tab's page made. */
+  private readonly networks = new WeakMap<WebContents, NetworkLog>();
   /** The file inputs whose chooser a command's click opened, by tab. */
   private readonly choosers = new WeakMap<WebContents, number>();
 
@@ -398,6 +431,12 @@ export class CdpBrowserDriver implements BrowserDriver {
    */
   watch(tabId: string, contents: WebContents): void {
     this.consoles.set(tabId, { contents, log: watchConsole(contents) });
+    this.networks.set(contents, new NetworkLog());
+    try {
+      this.attachNow(contents);
+    } catch {
+      // A command attaches when it can; requests are known from then.
+    }
     contents.on("did-start-navigation", (details) => {
       if (!details.isMainFrame || details.isSameDocument) return;
       this.downloads.delete(contents);
@@ -468,21 +507,10 @@ export class CdpBrowserDriver implements BrowserDriver {
 
   /** Attaches to the page, if nothing has yet, to keep up with its dialogs. */
   private async attach(contents: WebContents): Promise<void> {
-    const debug = contents.debugger;
-    if (!debug.isAttached()) {
-      try {
-        debug.attach("1.3");
-      } catch (error) {
-        throw new CliError(`cannot drive this browser tab: ${(error as Error).message}`);
-      }
-      this.listen(contents);
-      this.unanswered.add(contents);
-      const enabled = debug.sendCommand("Page.enable").then(
-        () => true,
-        () => true,
-      );
-      enabled.then(() => this.unanswered.delete(contents));
-      await Promise.race([enabled, delay(ATTACH_ANSWER_MS)]);
+    this.attachNow(contents);
+    const enabling = this.enabling.get(contents);
+    if (enabling && this.unanswered.has(contents)) {
+      await Promise.race([enabling, delay(ATTACH_ANSWER_MS)]);
     }
     if (this.unanswered.has(contents)) {
       throw new CliError(
@@ -491,7 +519,31 @@ export class CdpBrowserDriver implements BrowserDriver {
     }
   }
 
-  /** Keeps up with the dialogs and file choosers of a page just attached to. */
+  /**
+   * Attaches to the page, if nothing has yet, with the domains that tell of
+   * its dialogs and its requests on. A tab is attached to as it opens, so
+   * its requests are known from the first.
+   */
+  private attachNow(contents: WebContents): void {
+    const debug = contents.debugger;
+    if (debug.isAttached()) return;
+    try {
+      debug.attach("1.3");
+    } catch (error) {
+      throw new CliError(`cannot drive this browser tab: ${(error as Error).message}`);
+    }
+    if (!this.networks.has(contents)) this.networks.set(contents, new NetworkLog());
+    this.listen(contents);
+    this.unanswered.add(contents);
+    const enabling = debug.sendCommand("Page.enable").then(
+      () => this.unanswered.delete(contents),
+      () => this.unanswered.delete(contents),
+    );
+    this.enabling.set(contents, enabling);
+    debug.sendCommand("Network.enable", NETWORK_BUFFERS).catch(() => {});
+  }
+
+  /** Keeps up with the dialogs, file choosers and requests of a page just attached to. */
   private listen(contents: WebContents): void {
     const debug = contents.debugger;
     const onMessage = (_event: unknown, method: string, params: Record<string, unknown>) => {
@@ -506,6 +558,8 @@ export class CdpBrowserDriver implements BrowserDriver {
         this.dialogs.delete(contents);
       } else if (method === "Page.fileChooserOpened") {
         this.choosers.set(contents, Number(params.backendNodeId));
+      } else if (method.startsWith("Network.")) {
+        this.networks.get(contents)?.handle(method, params);
       }
     };
     debug.on("message", onMessage);
@@ -1330,6 +1384,67 @@ export class CdpBrowserDriver implements BrowserDriver {
   console(tabId: string, clear: boolean): readonly ConsoleEntry[] {
     this.contents(tabId);
     return this.consoles.get(tabId)?.log.read(clear) ?? [];
+  }
+
+  network(tabId: string, clear: boolean): readonly NetworkEntry[] {
+    const contents = this.contents(tabId);
+    try {
+      this.attachNow(contents);
+    } catch {
+      return [];
+    }
+    return this.networks.get(contents)?.read(clear) ?? [];
+  }
+
+  request(tabId: string, id: number, maxBody: number): Promise<RequestDetails> {
+    return this.with(tabId, async (contents) => {
+      await this.attach(contents);
+      const found = this.networks.get(contents)?.find(id);
+      if (!found) throw new CliError(`no request ${id}; nexus browser network lists them`);
+      const { entry, requestId } = found;
+      let postData = entry.postData;
+      if (postData === undefined && entry.hasPostData) {
+        postData = await this.send<{ postData: string }>(contents, "Network.getRequestPostData", {
+          requestId,
+        }).then(
+          (r) => r.postData,
+          () => undefined,
+        );
+      }
+      return {
+        entry,
+        ...(postData !== undefined ? { postData } : {}),
+        body: await this.body(contents, entry, requestId, maxBody),
+      };
+    });
+  }
+
+  private async body(
+    contents: WebContents,
+    entry: NetworkEntry,
+    requestId: string,
+    maxBody: number,
+  ): Promise<ResponseBody> {
+    if (entry.redirectedTo !== undefined) return { kind: "none", why: "it redirected" };
+    if (entry.failure !== undefined) return { kind: "none", why: "it failed" };
+    if (entry.size === undefined) return { kind: "none", why: "it has not finished" };
+    try {
+      const got = await this.send<{ body: string; base64Encoded: boolean }>(
+        contents,
+        "Network.getResponseBody",
+        { requestId },
+      );
+      if (got.base64Encoded) {
+        const bytes = Buffer.from(got.body, "base64");
+        if (!looksLikeText(bytes)) return { kind: "binary", bytes: bytes.length };
+        const text = bytes.toString("utf8");
+        return { kind: "text", text: text.slice(0, maxBody), length: text.length };
+      }
+      return { kind: "text", text: got.body.slice(0, maxBody), length: got.body.length };
+    } catch (error) {
+      if (error instanceof DialogShown) throw error;
+      return { kind: "none", why: "the page no longer keeps it" };
+    }
   }
 
   async waitFor(
