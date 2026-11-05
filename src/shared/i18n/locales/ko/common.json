@@ -903,14 +903,21 @@
     },
     "composer": {
       "aria": "Claude에게 보낼 메시지",
-      "placeholder": "↩ 보내기 · ⇧↩ 줄바꿈",
+      "placeholder": "↩ 보내기 · ⇧↩ 줄바꿈 · / 명령 · @ 파일",
       "placeholder_running": "↩ 지금 보내기 · ⌘↩ 대기열",
       "send": "보내기",
       "send_now": "지금 보내기",
       "stop": "중단",
-      "attach_image": "이미지 첨부",
       "remove_image": "이미지 빼기",
-      "image_too_large": "{{name}}은(는) Claude가 읽을 수 있는 이미지보다 큽니다."
+      "image_too_large": "{{name}}은(는) Claude가 읽을 수 있는 이미지보다 큽니다.",
+      "add": "추가",
+      "attach_file": "이미지나 파일 첨부",
+      "mention_file": "파일 참조",
+      "command": "명령",
+      "commands": "명령",
+      "files": "파일",
+      "remove_file": "파일 빼기",
+      "file_too_large": "{{name}}은(는) 보낼 수 있는 파일 크기(20MB)보다 큽니다."
     },
     "mode": {
       "aria": "권한 모드",

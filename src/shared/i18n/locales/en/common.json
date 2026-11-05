@@ -903,14 +903,21 @@
     },
     "composer": {
       "aria": "Message to Claude",
-      "placeholder": "↩ send · ⇧↩ new line",
+      "placeholder": "↩ send · ⇧↩ new line · / commands · @ files",
       "placeholder_running": "↩ send now · ⌘↩ queue",
       "send": "Send",
       "send_now": "Send now",
       "stop": "Stop",
-      "attach_image": "Attach image",
       "remove_image": "Remove image",
-      "image_too_large": "{{name}} is larger than an image Claude can read."
+      "image_too_large": "{{name}} is larger than an image Claude can read.",
+      "add": "Add",
+      "attach_file": "Attach images or files",
+      "mention_file": "Mention a file",
+      "command": "Command",
+      "commands": "Commands",
+      "files": "Files",
+      "remove_file": "Remove file",
+      "file_too_large": "{{name}} is larger than 20 MB, the most a file can be sent."
     },
     "mode": {
       "aria": "Permission mode",

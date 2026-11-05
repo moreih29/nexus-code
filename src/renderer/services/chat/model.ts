@@ -127,6 +127,7 @@ export interface CommandInfo {
   name: string;
   description?: string;
   argumentHint?: string;
+  aliases?: string[];
 }
 
 export interface InitializeInfo {
@@ -843,8 +844,13 @@ function applyControlRequest(draft: Draft, message: Rec): void {
   ];
 }
 
-/** Requests the side panel makes on its own, whose errors are not the conversation's. */
-const QUIET_REQUESTS = new Set(["get_context_usage", "get_usage", "mcp_status"]);
+/** Requests the app makes on its own, whose errors are not the conversation's. */
+const QUIET_REQUESTS = new Set([
+  "get_context_usage",
+  "get_usage",
+  "mcp_status",
+  "file_suggestions",
+]);
 
 function applyControlResponse(
   draft: Draft,

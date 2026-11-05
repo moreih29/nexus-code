@@ -9,6 +9,7 @@ import {
   type ChatController,
   chatController,
   type PermissionAnswer,
+  pruneAttachmentsOnce,
 } from "../../services/chat/controller";
 import type { AssistantItem, PermissionRequest, UserItem } from "../../services/chat/model";
 import { agentsOf, agentTranscript, contextOf, jobsOf, todosOf } from "../../services/chat/panel";
@@ -81,6 +82,9 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   const rootPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
   );
+  const isLocal = useWorkspacesStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.location.kind === "local",
+  );
   // biome-ignore lint/correctness/useExhaustiveDependencies: the target is read once; the controller keeps the session it moves on to
   const controller = useMemo(
     () =>
@@ -111,7 +115,13 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     if (!isVisible || opened.current) return;
     opened.current = true;
     void controller.open();
-  }, [isVisible, controller]);
+    const tabs = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+    const open = Object.values(tabs).filter((tab) => tab.type === "claude");
+    pruneAttachmentsOnce(
+      workspaceId,
+      open.map((tab) => tab.id),
+    );
+  }, [isVisible, controller, workspaceId]);
 
   const onAnswer = (request: PermissionRequest, answer: PermissionAnswer) => {
     void controller.answerPermission(request, answer).catch(() => {});
@@ -269,6 +279,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
           <Composer
             controller={controller}
             state={state}
+            local={isLocal}
             placeholder={shown ? t("chat.strip.input_to_main") : undefined}
           />
         </div>

@@ -4,10 +4,22 @@
 //
 // ↩ sends, and during a turn Claude reads it after the current tool; ⌘↩
 // holds it until the turn ends; ⇧↩ breaks the line; esc stops the turn.
+// A `/` at the start completes a command, an `@` a file.
+//
+// An attached file is sent as an @-mention of its path, which the CLI
+// reads without asking. Where the program cannot see the file (an SSH
+// host, a file with no path here) the agent writes it first.
 
-import { ImagePlus, Pencil, Send, Square, X } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { AtSign, FileText, Paperclip, Pencil, Plus, Send, Slash, Square, X } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import {
+  applyCompletion,
+  completionAt,
+  fileMention,
+  isFolder,
+  matchCommands,
+} from "../../services/chat/composer-input";
 import type { ChatController } from "../../services/chat/controller";
 import type { ImageBlock, ModelInfo } from "../../services/chat/model";
 import type { ChatTabState } from "../../services/chat/store";
@@ -23,30 +35,150 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { showToast } from "../ui/toast";
+import { type CompletionItem, CompletionMenu } from "./completion-menu";
 
 interface ComposerProps {
   controller: ChatController;
   state: ChatTabState;
+  /** The program runs on this machine, where an attached file's path can be read. */
+  local: boolean;
   /** In place of the keys' hint: while an agent is shown, where input goes. */
   placeholder?: string;
 }
 
+type ChipProps = Pick<ComposerProps, "controller" | "state">;
+
+/** A file attached to the message, sent as a mention of its path. */
+interface Attachment {
+  id: number;
+  file: File;
+  /** Its path on this machine, which a local program reads as it is. */
+  path?: string;
+}
+
 /** The API's limit on one image, before base64. */
 const MAX_IMAGE_BYTES = 3_750_000;
+/** The agent's limit on one attached file it writes. */
+const MAX_ATTACH_BYTES = 20 * 1024 * 1024;
+/** How long typing pauses before the CLI is asked for files. */
+const SUGGEST_DELAY_MS = 100;
+/** When to ask again after no files: the CLI's index may have been cold. */
+const SUGGEST_RETRY_MS = 500;
+
+let nextAttachmentId = 1;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 const MAX_ROWS_PX = 240;
 
-export function Composer({ controller, state, placeholder }: ComposerProps) {
+export function Composer({ controller, state, local, placeholder }: ComposerProps) {
   const { t } = useTranslation();
   const [text, setText] = useState("");
   const [images, setImages] = useState<ImageBlock[]>([]);
+  const [files, setFiles] = useState<Attachment[]>([]);
+  const [sending, setSending] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const { model, phase } = state;
   const running = model.running;
   const blocked = phase === "not-found" || phase === "held" || phase === "starting";
-  const hasText = text.trim() !== "" || images.length > 0;
-  const canSend = !blocked && hasText;
+  const hasText = text.trim() !== "" || images.length > 0 || files.length > 0;
+  const canSend = !blocked && hasText && !sending;
+
+  // The caret, for the token it completes; a pick moves it after the render.
+  const [caret, setCaret] = useState(0);
+  const [focused, setFocused] = useState(false);
+  const pendingCaret = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const at = pendingCaret.current;
+    const area = areaRef.current;
+    if (at === null || !area) return;
+    pendingCaret.current = null;
+    area.setSelectionRange(at, at);
+    setCaret(at);
+  });
+  const edit = (next: string, at: number) => {
+    setText(next);
+    pendingCaret.current = at;
+    areaRef.current?.focus();
+  };
+
+  const completion = completionAt(text, caret);
+  const completionKey = completion ? `${completion.kind}:${completion.start}` : null;
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const menuOpen = focused && completion !== null && completionKey !== dismissed;
+  const commands = useMemo(
+    () =>
+      menuOpen && completion?.kind === "command"
+        ? matchCommands(model.init?.commands ?? [], completion.query)
+        : [],
+    [menuOpen, completion?.kind, completion?.query, model.init],
+  );
+  const [suggested, setSuggested] = useState<string[]>([]);
+  const fileQuery = menuOpen && completion?.kind === "file" ? completion.query : null;
+  useEffect(() => {
+    if (fileQuery === null) return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const ask = (again: boolean) => {
+      controller
+        .fileSuggestions(fileQuery)
+        .then((paths) => {
+          if (!live) return;
+          setSuggested(paths);
+          // The CLI answers nothing while it first lists the folder's files.
+          if (paths.length === 0 && again) timer = setTimeout(() => ask(false), SUGGEST_RETRY_MS);
+        })
+        .catch(() => {});
+    };
+    timer = setTimeout(() => ask(true), SUGGEST_DELAY_MS);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [fileQuery, controller]);
+  const items: CompletionItem[] =
+    completion?.kind === "command"
+      ? commands.map((c) => ({
+          key: c.name,
+          label: `/${c.name}`,
+          hint: c.argumentHint || undefined,
+          detail: c.description,
+          icon: "command" as const,
+        }))
+      : fileQuery !== null
+        ? suggested.map((path) => ({
+            key: path,
+            label: path,
+            icon: isFolder(path) ? ("folder" as const) : ("file" as const),
+          }))
+        : [];
+  const [active, setActive] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new token or query starts at the top
+  useEffect(() => setActive(0), [completionKey, completion?.query]);
+
+  const pick = (index: number) => {
+    if (!completion) return;
+    const item = items[index];
+    if (!item) return;
+    const next = applyCompletion(
+      text,
+      completion,
+      completion.kind === "command"
+        ? { kind: "command", name: item.key }
+        : { kind: "file", path: item.key },
+    );
+    edit(next.text, next.caret);
+  };
+
+  /** Types a `/` or `@` at the caret, from the + menu. */
+  const insertTrigger = (trigger: "/" | "@") => {
+    if (trigger === "/") {
+      edit(text.startsWith("/") ? text : `/${text}`, 1);
+      return;
+    }
+    const at = Math.min(caret, text.length);
+    const space = at > 0 && !/\s/.test(text[at - 1]) ? " " : "";
+    edit(`${text.slice(0, at)}${space}@${text.slice(at)}`, at + space.length + 1);
+  };
 
   useLayoutEffect(() => {
     const area = areaRef.current;
@@ -58,39 +190,88 @@ export function Composer({ controller, state, placeholder }: ComposerProps) {
   const clear = () => {
     setText("");
     setImages([]);
+    setFiles([]);
   };
 
-  const submit = (queue: boolean) => {
+  /** The message with its attached files' mentions after the text. */
+  const withAttachments = async (): Promise<string> => {
+    if (files.length === 0) return text;
+    const paths = await Promise.all(
+      files.map(
+        async (attachment) =>
+          attachment.path ??
+          controller.attach(attachment.file.name, await base64Of(attachment.file)),
+      ),
+    );
+    const mentions = paths.map(fileMention).join(" ");
+    return text.trim() ? `${text}\n\n${mentions}` : mentions;
+  };
+
+  const submit = async (queue: boolean) => {
     if (!canSend) return;
-    if (queue && running) controller.enqueue(text, images);
-    else void controller.send(text, images).catch((err: Error) => showError(err));
+    let message: string;
+    setSending(true);
+    try {
+      message = await withAttachments();
+    } catch (err) {
+      showError(err as Error);
+      return;
+    } finally {
+      setSending(false);
+    }
+    if (queue && running) controller.enqueue(message, images);
+    else void controller.send(message, images).catch((err: Error) => showError(err));
     clear();
   };
 
   const addFiles = useCallback(
-    async (files: Iterable<File>) => {
+    async (picked: Iterable<File>) => {
       const added: ImageBlock[] = [];
-      for (const file of files) {
-        if (!IMAGE_TYPES.has(file.type)) continue;
-        if (file.size > MAX_IMAGE_BYTES) {
+      const attached: Attachment[] = [];
+      for (const file of picked) {
+        if (IMAGE_TYPES.has(file.type) && file.size <= MAX_IMAGE_BYTES) {
+          added.push({ mediaType: file.type, data: await base64Of(file) });
+          continue;
+        }
+        const path = local ? window.files.getPathForFile(file) || undefined : undefined;
+        if (!path && file.size > MAX_ATTACH_BYTES) {
           showToast({
             kind: "warning",
-            message: t("chat.composer.image_too_large", { name: file.name }),
+            message: t("chat.composer.file_too_large", { name: file.name }),
           });
           continue;
         }
-        added.push({ mediaType: file.type, data: await base64Of(file) });
+        attached.push({ id: nextAttachmentId++, file, path });
       }
       if (added.length > 0) setImages((prev) => [...prev, ...added]);
+      if (attached.length > 0) setFiles((prev) => [...prev, ...attached]);
     },
-    [t],
+    [t, local],
   );
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (menuOpen && items.length > 0) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        setActive((i) => (i + step + items.length) % items.length);
+        return;
+      }
+      if ((e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) || e.key === "Tab") {
+        e.preventDefault();
+        pick(active);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setDismissed(completionKey);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      submit(e.metaKey || e.ctrlKey);
+      void submit(e.metaKey || e.ctrlKey);
     } else if (e.key === "Escape" && running) {
       e.preventDefault();
       void controller.interrupt().catch((err: Error) => showError(err));
@@ -98,10 +279,18 @@ export function Composer({ controller, state, placeholder }: ComposerProps) {
   };
 
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = [...e.clipboardData.files].filter((f) => IMAGE_TYPES.has(f.type));
-    if (files.length === 0) return;
+    const pasted = [...e.clipboardData.files];
+    if (pasted.length === 0) return;
     e.preventDefault();
-    void addFiles(files);
+    void addFiles(pasted);
+  };
+
+  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    if (e.dataTransfer.files.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void addFiles([...e.dataTransfer.files]);
+    areaRef.current?.focus();
   };
 
   // A rewound or forked message comes back here, after what is already typed.
@@ -153,8 +342,24 @@ export function Composer({ controller, state, placeholder }: ComposerProps) {
             ))}
           </ul>
         )}
-        <div className="rounded-(--radius-raised) border border-border bg-background focus-within:border-ring">
-          {images.length > 0 && (
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: files dropped on the box are attached */}
+        <div
+          className="relative rounded-(--radius-raised) border border-border bg-background focus-within:border-ring"
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+          }}
+          onDrop={onDrop}
+        >
+          {menuOpen && completion && (
+            <CompletionMenu
+              kind={completion.kind}
+              items={items}
+              active={active}
+              onPick={pick}
+              onHover={setActive}
+            />
+          )}
+          {(images.length > 0 || files.length > 0) && (
             <div className="flex flex-wrap gap-1.5 px-2 pt-2">
               {images.map((image, i) => (
                 <div
@@ -178,14 +383,46 @@ export function Composer({ controller, state, placeholder }: ComposerProps) {
                   </button>
                 </div>
               ))}
+              {files.map((attachment) => (
+                <div
+                  key={attachment.id}
+                  className="flex h-14 max-w-56 items-center gap-1.5 rounded-(--radius-control) border border-border px-2 text-app-ui-sm"
+                  title={attachment.path ?? attachment.file.name}
+                  data-testid="chat-attachment"
+                >
+                  <FileText className="size-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate">{attachment.file.name}</div>
+                    <div className="text-app-micro text-muted-foreground">
+                      {formatSize(attachment.file.size)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFiles((prev) => prev.filter((f) => f.id !== attachment.id))}
+                    title={t("chat.composer.remove_file")}
+                    aria-label={t("chat.composer.remove_file")}
+                    className="shrink-0 rounded-full p-0.5 text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+              ))}
             </div>
           )}
           <textarea
             ref={areaRef}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value);
+              setCaret(e.target.selectionStart);
+            }}
+            onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
+            readOnly={sending}
             rows={1}
             placeholder={
               placeholder ??
@@ -199,16 +436,19 @@ export function Composer({ controller, state, placeholder }: ComposerProps) {
             <ModelChip controller={controller} state={state} />
             <EffortChip controller={controller} state={state} />
             <div className="flex-1" />
-            <IconButton
-              label={t("chat.composer.attach_image")}
-              onClick={() => fileRef.current?.click()}
-            >
-              <ImagePlus className="size-4" />
-            </IconButton>
+            <AddMenu
+              onAttach={() => fileRef.current?.click()}
+              onMention={
+                controller.supports("file_suggestions") ? () => insertTrigger("@") : undefined
+              }
+              onCommand={
+                (model.init?.commands.length ?? 0) > 0 ? () => insertTrigger("/") : undefined
+              }
+              returnFocus={() => areaRef.current?.focus()}
+            />
             <input
               ref={fileRef}
               type="file"
-              accept="image/png,image/jpeg,image/gif,image/webp"
               multiple
               hidden
               onChange={(e) => {
@@ -229,7 +469,7 @@ export function Composer({ controller, state, placeholder }: ComposerProps) {
             {(!running || hasText) && (
               <IconButton
                 label={running ? t("chat.composer.send_now") : t("chat.composer.send")}
-                onClick={() => submit(false)}
+                onClick={() => void submit(false)}
                 disabled={!canSend}
                 primary
               >
@@ -245,6 +485,84 @@ export function Composer({ controller, state, placeholder }: ComposerProps) {
 
 function showError(err: Error): void {
   showToast({ kind: "error", message: err.message });
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1).replace(/\.0$/, "")} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, "")} MB`;
+}
+
+/** The + menu: attach a file, mention one, or start a command. */
+function AddMenu({
+  onAttach,
+  onMention,
+  onCommand,
+  returnFocus,
+}: {
+  onAttach: () => void;
+  onMention?: () => void;
+  onCommand?: () => void;
+  returnFocus: () => void;
+}) {
+  const { t } = useTranslation();
+  const typed = useRef(false);
+  return (
+    <DropdownMenuRoot>
+      <DropdownMenuTrigger>
+        <button
+          type="button"
+          title={t("chat.composer.add")}
+          aria-label={t("chat.composer.add")}
+          className="rounded-(--radius-control) p-1.5 text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+          data-testid="chat-add-menu"
+        >
+          <Plus className="size-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        side="top"
+        align="end"
+        onCloseAutoFocus={(event) => {
+          // A typed trigger leaves the caret where it put it.
+          if (typed.current) {
+            event.preventDefault();
+            typed.current = false;
+            returnFocus();
+          }
+        }}
+      >
+        <DropdownMenuItem onSelect={onAttach}>
+          <Paperclip className="size-3.5" />
+          {t("chat.composer.attach_file")}
+        </DropdownMenuItem>
+        {onMention && (
+          <DropdownMenuItem
+            onSelect={() => {
+              typed.current = true;
+              onMention();
+            }}
+          >
+            <AtSign className="size-3.5" />
+            {t("chat.composer.mention_file")}
+            <DropdownMenuShortcut>@</DropdownMenuShortcut>
+          </DropdownMenuItem>
+        )}
+        {onCommand && (
+          <DropdownMenuItem
+            onSelect={() => {
+              typed.current = true;
+              onCommand();
+            }}
+          >
+            <Slash className="size-3.5" />
+            {t("chat.composer.command")}
+            <DropdownMenuShortcut>/</DropdownMenuShortcut>
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenuRoot>
+  );
 }
 
 function base64Of(file: File): Promise<string> {
@@ -302,7 +620,7 @@ const ALL_MODES = [...MODES, BYPASS];
 /** Tabs whose user has seen bypass mode's warning in this window. */
 const bypassConfirmed = new Set<string>();
 
-function ModeChip({ controller, state }: ComposerProps) {
+function ModeChip({ controller, state }: ChipProps) {
   const { t } = useTranslation();
   const mode = state.model.permissionMode ?? "default";
   const ready = state.model.process === "running";
@@ -393,7 +711,7 @@ export function currentModelInfo(
   );
 }
 
-function ModelChip({ controller, state }: ComposerProps) {
+function ModelChip({ controller, state }: ChipProps) {
   const { t } = useTranslation();
   const models = state.model.init?.models ?? [];
   const current = currentModelInfo(models, state.model.model);
@@ -432,7 +750,7 @@ function ModelChip({ controller, state }: ComposerProps) {
   );
 }
 
-function EffortChip({ controller, state }: ComposerProps) {
+function EffortChip({ controller, state }: ChipProps) {
   const { t } = useTranslation();
   const models = state.model.init?.models ?? [];
   const levels = currentModelInfo(models, state.model.model)?.supportedEffortLevels ?? [];
