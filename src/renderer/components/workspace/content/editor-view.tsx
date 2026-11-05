@@ -23,6 +23,7 @@ import { fileErrorMessage } from "../../../utils/file-error";
 import { relPath } from "../../../utils/path";
 import { HtmlPreview } from "../../editor/preview/html-preview";
 import { ImagePreview } from "../../editor/preview/image-preview";
+import { JsonTreePreview } from "../../editor/preview/json-tree-preview";
 import { MarkdownPreview } from "../../editor/preview/markdown-preview";
 import { SvgPreview } from "../../editor/preview/svg-preview";
 import { TablePreview } from "../../editor/preview/table-preview";
@@ -472,5 +473,7 @@ function PreviewPane({
       return <SvgPreview source={source} />;
     case "table":
       return <TablePreview source={source} delimiter={delimiterFor(filePath)} />;
+    case "json":
+      return <JsonTreePreview source={source} />;
   }
 }

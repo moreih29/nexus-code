@@ -22,6 +22,11 @@ describe("isPreviewable", () => {
     expect(isPreviewable("/r/logo.svg")).toBe("supported");
   });
 
+  it("classifies json files as supported", () => {
+    expect(isPreviewable("/r/package.json")).toBe("supported");
+    expect(isPreviewable("/r/settings.JSONC")).toBe("supported");
+  });
+
   it("singles out .mdx as mdx-disabled (preview refused for security)", () => {
     expect(isPreviewable("/r/doc.mdx")).toBe("mdx-disabled");
     expect(isPreviewable("/r/Doc.MDX")).toBe("mdx-disabled");
@@ -42,6 +47,8 @@ describe("previewEngineFor", () => {
     expect(previewEngineFor("/r/index.html")).toBe("html");
     expect(previewEngineFor("/r/page.htm")).toBe("html");
     expect(previewEngineFor("/r/logo.svg")).toBe("svg");
+    expect(previewEngineFor("/r/package.json")).toBe("json");
+    expect(previewEngineFor("/r/tsconfig.jsonc")).toBe("json");
   });
 
   it("throws on non-previewable paths (defensive — callers must filter)", () => {
@@ -79,5 +86,10 @@ describe("defaultViewMode", () => {
     expect(defaultViewMode("/r/icon.svg")).toBe("preview");
     expect(defaultViewMode("/r/page.mdx")).toBe("raw");
     expect(defaultViewMode("/r/index.ts")).toBe("raw");
+  });
+
+  it("opens JSON in its source, its tree a switch away", () => {
+    expect(defaultViewMode("/r/package.json")).toBe("raw");
+    expect(defaultViewMode("/r/tsconfig.jsonc")).toBe("raw");
   });
 });
