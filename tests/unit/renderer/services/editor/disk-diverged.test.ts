@@ -261,3 +261,41 @@ describe("reloadEntryFromDisk", () => {
     expect(entry.diskDiverged).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Mixed line endings — the model reads back other text than the disk's
+// ---------------------------------------------------------------------------
+
+describe("reconcileExternalChange — mixed line endings", () => {
+  test("takes a later change on disk once a file with mixed line endings is loaded", async () => {
+    const reads = ["a\r\nb\nc\r\n", "a\r\nb\nc\r\nd\n"];
+    const deps = makeDeps({
+      readFileForModel: () =>
+        Promise.resolve({
+          content: reads.shift() ?? "",
+          mtime: "T",
+          sizeBytes: 1,
+          isBinary: false,
+        }),
+    });
+    // Monaco gives every line of such a file one line ending.
+    let text = "";
+    const model = {
+      getValue: () => text,
+      setValue: (next: string) => {
+        text = next.replace(/\r\n|\r/g, "\n");
+      },
+      isDisposed: () => false,
+      getAlternativeVersionId: () => 1,
+    };
+    const entry = makeEntry("", "", deps);
+    entry.model = model as never;
+
+    await reconcileExternalChange(entry);
+    expect(entry.lastLoadedValue).toBe("a\nb\nc\n");
+
+    await reconcileExternalChange(entry);
+    expect(entry.diskDiverged).toBeUndefined();
+    expect(model.getValue()).toBe("a\nb\nc\nd\n");
+  });
+});
