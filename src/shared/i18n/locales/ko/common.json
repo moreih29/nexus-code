@@ -828,6 +828,8 @@
     "tool": {
       "denied": "거부됨",
       "stopped": "중단됨",
+      "unsandboxed": "샌드박스 밖",
+      "unsandboxed_hint": "샌드박스가 막은 명령을 샌드박스 밖에서 다시 실행합니다",
       "no_output": "(출력 없음)",
       "subagent_calls_one": "호출 {{count}}개",
       "subagent_calls_other": "호출 {{count}}개"

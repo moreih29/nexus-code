@@ -28,6 +28,7 @@ export function ToolRow({ tool, toolUseId, tools, cwd }: ToolRowProps) {
   const summary = tool ? toolSummary(tool, cwd) : "";
   const status = tool?.status ?? "running";
   const images = tool?.result?.images ?? [];
+  const unsandboxed = tool ? isUnsandboxed(tool.input) : false;
   const children =
     tool && AGENT_TOOLS.has(tool.name)
       ? Object.values(tools).filter((t) => t.parentToolUseId === toolUseId)
@@ -45,6 +46,14 @@ export function ToolRow({ tool, toolUseId, tools, cwd }: ToolRowProps) {
         <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground" title={summary}>
           {summary}
         </span>
+        {unsandboxed && (
+          <span
+            className="shrink-0 text-[var(--state-warning-fg)]"
+            title={t("chat.tool.unsandboxed_hint")}
+          >
+            {t("chat.tool.unsandboxed")}
+          </span>
+        )}
         {status === "denied" && (
           <span className="shrink-0 text-muted-foreground">{t("chat.tool.denied")}</span>
         )}
@@ -84,6 +93,18 @@ export function ToolRow({ tool, toolUseId, tools, cwd }: ToolRowProps) {
       )}
       {open && tool && <ToolDetail tool={tool} />}
     </div>
+  );
+}
+
+/**
+ * Whether a command runs outside the sandbox: Claude retries one the
+ * sandbox stopped with `dangerouslyDisableSandbox`, which asks again.
+ */
+export function isUnsandboxed(input: unknown): boolean {
+  return (
+    typeof input === "object" &&
+    input !== null &&
+    (input as Record<string, unknown>).dangerouslyDisableSandbox === true
   );
 }
 

@@ -828,6 +828,8 @@
     "tool": {
       "denied": "Denied",
       "stopped": "Stopped",
+      "unsandboxed": "outside the sandbox",
+      "unsandboxed_hint": "A retry outside the sandbox, which stopped this command",
       "no_output": "(no output)",
       "subagent_calls_one": "{{count}} call",
       "subagent_calls_other": "{{count}} calls"
