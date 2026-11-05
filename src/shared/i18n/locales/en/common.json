@@ -651,6 +651,11 @@
     "load_failed": "Could not load image.",
     "too_large": "Image is too large to preview (max {{maxMb}} MB)."
   },
+  "fontPreview": {
+    "outside_workspace": "This font is outside the workspace and cannot be previewed.",
+    "load_failed": "Could not load this font: its format may not be one the browser reads.",
+    "sample_label": "Sample text"
+  },
   "mediaPreview": {
     "outside_workspace": "This file is outside the workspace and cannot be played.",
     "load_failed": "Could not play this file: its format may not be supported."
