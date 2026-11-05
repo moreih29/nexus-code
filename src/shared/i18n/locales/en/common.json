@@ -678,6 +678,11 @@
     "chart_sheet": "This sheet is a chart, which the preview does not draw.",
     "columns_clipped": "Showing the first {{count}} columns."
   },
+  "docxPreview": {
+    "outside_workspace": "This document is outside the workspace and cannot be previewed.",
+    "load_failed": "Could not read this document.",
+    "too_large": "This document is too large to preview (max {{maxMb}} MB)."
+  },
   "markdown": {
     "copy_code": "Copy code",
     "copy": "Copy",
