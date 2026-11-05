@@ -14,8 +14,13 @@ let mtimeAt: (offset: number) => string = () => "t1";
 let missing = false;
 const reads: Array<{ offset: number; length: number }> = [];
 
+// The module mock holds for the whole run, so a call another file left
+// pending can reach it; only fs.readRange is this test's.
 const ipcCallResult = mock(
-  async (_channel: string, _method: string, args: { offset: number; length: number }) => {
+  async (channel: string, method: string, args: { offset: number; length: number }) => {
+    if (channel !== "fs" || method !== "readRange") {
+      return realIpcClient.ipcCallResult(channel as never, method as never, args as never);
+    }
     reads.push({ offset: args.offset, length: args.length });
     if (missing) return { ok: true, value: { kind: "missing", reason: "not-found" } };
     const bytes = file.subarray(args.offset, args.offset + Math.min(args.length, PIECE));
