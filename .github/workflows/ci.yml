@@ -10,7 +10,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, feat/claude-tab]
   push:
     branches: [main]
   workflow_dispatch:
