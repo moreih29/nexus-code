@@ -9,6 +9,7 @@ import type { PermissionAnswer } from "../../services/chat/controller";
 import type { PermissionRequest } from "../../services/chat/model";
 import { cn } from "../../utils/cn";
 import { Button } from "../ui/button";
+import { useAgentContext } from "./chat-agent";
 import { ChatMarkdown } from "./chat-markdown";
 import { isUnsandboxed, ToolDetail, toolSummary } from "./tool-row";
 
@@ -92,16 +93,18 @@ interface FormProps {
 
 function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
   const { t } = useTranslation();
+  const agent = useAgentContext();
   const [denying, setDenying] = useState(false);
   const [message, setMessage] = useState("");
   const name = request.displayName || request.toolName;
-  const tool = {
+  const tool = request.preview ?? {
     id: request.toolUseId ?? request.requestId,
     name: request.toolName,
     input: request.input,
     status: "running" as const,
     parentToolUseId: null,
   };
+  const preview = request.preview !== undefined || hasPreview(request.toolName);
   const summary = toolSummary(tool, cwd);
   const always = describeSuggestions(request.suggestions, t);
 
@@ -111,7 +114,7 @@ function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
         <ShieldQuestion className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <div className="font-medium text-foreground">
-            {t("chat.permission.title", { tool: name })}
+            {t("chat.permission.title", { tool: name, ...agent })}
           </div>
           {request.agentId && (
             <div className="text-app-micro text-muted-foreground">
@@ -126,7 +129,7 @@ function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
           {request.description && (
             <div className="text-muted-foreground">{request.description}</div>
           )}
-          {summary && !hasPreview(request.toolName) && (
+          {summary && !preview && (
             <div className="mt-1 truncate font-mono text-muted-foreground" title={summary}>
               {summary}
             </div>
@@ -138,7 +141,7 @@ function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
           )}
         </div>
       </div>
-      {hasPreview(request.toolName) && <ToolDetail tool={tool} className="mt-0 mb-0 ml-0" />}
+      {preview && <ToolDetail tool={tool} className="mt-0 mb-0 ml-0" />}
       {denying ? (
         <form
           className="flex flex-col gap-2"
@@ -152,7 +155,7 @@ function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
             autoFocus
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            placeholder={t("chat.permission.deny_placeholder")}
+            placeholder={t("chat.permission.deny_placeholder", agent)}
             rows={2}
             className="app-scrollbar w-full resize-none rounded-(--radius-control) border border-border bg-background px-2 py-1.5 text-app-ui-sm outline-none focus:border-ring"
           />
@@ -222,6 +225,9 @@ function describeSuggestions(suggestions: unknown[], t: Translate): string {
       }
     } else if (s.type === "setMode" && typeof s.mode === "string") {
       parts.push(t("chat.permission.suggest_mode", { mode: t(`chat.mode.${s.mode}`) }));
+    } else if (s.type === "session") {
+      // Codex: the same call, allowed again without asking until the program ends.
+      parts.push(t("chat.permission.suggest_session"));
     } else if (s.type === "addDirectories" && Array.isArray(s.directories)) {
       parts.push(
         t("chat.permission.suggest_dirs", { dirs: (s.directories as string[]).join(", ") }),

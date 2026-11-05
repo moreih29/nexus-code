@@ -46,6 +46,12 @@ export interface ClaudeTabProps {
   fork?: { sessionId: string; at?: string };
 }
 
+export interface CodexTabProps {
+  cwd: string;
+  /** The thread the tab last had, to go on with once its program is gone. */
+  threadId?: string;
+}
+
 interface TabBase {
   id: string;
   /**
@@ -126,6 +132,12 @@ export interface ClaudeTab extends TabBase {
   props: ClaudeTabProps;
 }
 
+/** A conversation with Codex, driven through `codex app-server`. */
+export interface CodexTab extends TabBase {
+  type: "codex";
+  props: CodexTabProps;
+}
+
 /** The workspace's agent sessions, its tasks' included. */
 export interface SessionsTab extends TabBase {
   type: "sessions";
@@ -140,6 +152,7 @@ export type Tab =
   | UntitledTab
   | BrowserTab
   | ClaudeTab
+  | CodexTab
   | SessionsTab;
 
 // ---------------------------------------------------------------------------
@@ -160,6 +173,7 @@ export type CreateTabArgs =
   | { type: "untitled"; props: UntitledTabProps }
   | { type: "browser"; props: BrowserTabProps }
   | { type: "claude"; props: ClaudeTabProps }
+  | { type: "codex"; props: CodexTabProps }
   | { type: "sessions"; props: SessionsTabProps };
 
 interface TabsState {
@@ -246,6 +260,8 @@ interface TabsState {
     tabId: string,
     target: { sessionId?: string; fork?: { sessionId: string; at?: string } },
   ) => void;
+  /** Keep the thread a Codex tab now has. No-op on other tab types. */
+  setCodexThread: (workspaceId: string, tabId: string, threadId: string) => void;
 }
 
 /**
@@ -280,6 +296,7 @@ export function defaultTitle(args: CreateTabArgs): string {
   if (args.type === "untitled") return `Untitled-${args.props.untitledIndex}`;
   if (args.type === "sessions") return i18next.t("common:sessions.tab_title");
   if (args.type === "claude") return i18next.t("common:chat.tab_title");
+  if (args.type === "codex") return i18next.t("common:chat.codex.tab_title");
   if (args.type === "browser") {
     if (!args.props.initialUrl) return "New Tab";
     try {
@@ -354,6 +371,8 @@ export const useTabsStore = create<TabsState>((set, get) => {
         tab = { ...base, type: "browser", props: args.props };
       } else if (args.type === "claude") {
         tab = { ...base, type: "claude", props: args.props };
+      } else if (args.type === "codex") {
+        tab = { ...base, type: "codex", props: args.props };
       } else if (args.type === "sessions") {
         tab = { ...base, type: "sessions", props: args.props };
       } else {
@@ -663,6 +682,21 @@ export const useTabsStore = create<TabsState>((set, get) => {
               ...wsRecord,
               [tabId]: next,
             },
+          },
+        };
+      });
+    },
+
+    setCodexThread(workspaceId, tabId, threadId) {
+      set((state) => {
+        const wsRecord = state.byWorkspace[workspaceId];
+        const tab = wsRecord?.[tabId];
+        if (!wsRecord || tab?.type !== "codex" || tab.props.threadId === threadId) return state;
+        const next: CodexTab = { ...tab, props: { ...tab.props, threadId } };
+        return {
+          byWorkspace: {
+            ...state.byWorkspace,
+            [workspaceId]: { ...wsRecord, [tabId]: next },
           },
         };
       });

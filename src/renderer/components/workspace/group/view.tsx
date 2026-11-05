@@ -3,6 +3,7 @@ import { closeTabWithConfirm } from "@/services/editor/save/close-tab";
 import { openTerminal } from "@/services/terminal";
 import {
   openClaudeTab,
+  openCodexTab,
   openNewBrowserTab,
   openNewUntitledTab,
   openSessionsTab,
@@ -100,6 +101,11 @@ export function GroupView({
 
   function handleNewClaudeTab() {
     openClaudeTab(workspaceId, { cwd: workspaceRootPath }, { groupId: leaf.id });
+    onActivateGroup(leaf.id);
+  }
+
+  function handleNewCodexTab() {
+    openCodexTab(workspaceId, { cwd: workspaceRootPath }, { groupId: leaf.id });
     onActivateGroup(leaf.id);
   }
 
@@ -223,6 +229,7 @@ export function GroupView({
         onNewBrowserTab={handleNewBrowserTab}
         onShowSessions={handleShowSessions}
         onNewClaudeTab={handleNewClaudeTab}
+        onNewCodexTab={handleNewCodexTab}
         onActivateGroup={onActivateGroup}
       />
 

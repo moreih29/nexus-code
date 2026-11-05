@@ -985,22 +985,43 @@ function rewindOf(response: Record<string, unknown>): RewindPreview {
 const controllers = new Map<string, ChatController>();
 let listening = false;
 
+/** What else the agent's chat lines go to: another program's tab (Codex). */
+export interface LineReceiver {
+  readonly key: string;
+  receive(line: ChatLine): void;
+  held(): void;
+  resync(): Promise<void>;
+}
+
+const receivers = new Map<string, LineReceiver>();
+
+/** Sends a tab's lines and its agent's comings and goings to a receiver; undone by the result. */
+export function addLineReceiver(key: string, receiver: LineReceiver): () => void {
+  ensureListeners();
+  receivers.set(key, receiver);
+  return () => {
+    if (receivers.get(key) === receiver) receivers.delete(key);
+  };
+}
+
+function receiversOf(workspaceId: string): LineReceiver[] {
+  return [...controllers.values(), ...receivers.values()].filter((r) =>
+    r.key.startsWith(`${workspaceId}:`),
+  );
+}
+
 function ensureListeners(): void {
   if (listening) return;
   listening = true;
   ipcListen("chat", "line", (line) => {
-    const controller = controllers.get(chatKey(line.workspaceId, line.tabId));
-    controller?.receive(line as ChatLine);
+    const key = chatKey(line.workspaceId, line.tabId);
+    (controllers.get(key) ?? receivers.get(key))?.receive(line as ChatLine);
   });
   ipcListen("chat", "held", ({ workspaceId }) => {
-    for (const controller of controllers.values()) {
-      if (controller.key.startsWith(`${workspaceId}:`)) controller.held();
-    }
+    for (const receiver of receiversOf(workspaceId)) receiver.held();
   });
   ipcListen("chat", "resync", ({ workspaceId }) => {
-    for (const controller of controllers.values()) {
-      if (controller.key.startsWith(`${workspaceId}:`)) void controller.resync();
-    }
+    for (const receiver of receiversOf(workspaceId)) void receiver.resync();
   });
 }
 

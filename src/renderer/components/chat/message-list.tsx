@@ -38,6 +38,7 @@ import { type AnswerExtras, answerExtras } from "../../services/chat/panel";
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
 import { AnswerExtrasView } from "./answer-extras";
+import { useAgentContext } from "./chat-agent";
 import { ChatMarkdown } from "./chat-markdown";
 import { ToolRow } from "./tool-row";
 
@@ -210,6 +211,7 @@ const Item = memo(function Item({ item, ctx }: { item: ChatItem; ctx: ItemContex
 
 function UserBubble({ item, actions }: { item: UserItem; actions?: MessageActions }) {
   const { t } = useTranslation();
+  const agent = useAgentContext();
   const taken = item.uuid !== undefined;
   const { text, files } = splitAttachments(item.text);
   return (
@@ -266,9 +268,11 @@ function UserBubble({ item, actions }: { item: UserItem; actions?: MessageAction
           )}
         </div>
         <span
-          title={item.state === "taken" ? t("chat.message.taken") : t("chat.message.sent")}
+          title={item.state === "taken" ? t("chat.message.taken", agent) : t("chat.message.sent")}
           role="img"
-          aria-label={item.state === "taken" ? t("chat.message.taken") : t("chat.message.sent")}
+          aria-label={
+            item.state === "taken" ? t("chat.message.taken", agent) : t("chat.message.sent")
+          }
         >
           {item.state === "taken" ? (
             <CheckCheck className="size-3.5" />
@@ -395,7 +399,7 @@ function Streaming({ streaming, ctx }: { streaming: StreamingMessage; ctx: ItemC
 
 function Notice({ item }: { item: NoticeItem }) {
   const { t } = useTranslation();
-  const label = t(`chat.notice.${item.code}`);
+  const label = t(`chat.notice.${item.code}`, useAgentContext());
   return (
     <div className="flex items-center gap-2 text-app-micro text-muted-foreground" role="note">
       <div className="h-px flex-1 bg-border" />

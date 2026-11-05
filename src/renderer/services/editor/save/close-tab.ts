@@ -12,7 +12,9 @@
 //   editor.diff → closeDiffWithConfirm (dirty-aware for the working-tree file it edits)
 //   git.commit / browser → closeTab (raw state op, no dirty)
 //   claude      → closeChatTab, then closeTab
+//   codex       → closeCodexTab, then closeTab
 
+import { closeCodexTab } from "@/services/chat/codex-controller";
 import { closeChatTab } from "@/services/chat/controller";
 import { closeTerminalWithConfirm } from "@/services/terminal";
 import { closeTab } from "@/state/operations/tabs";
@@ -61,6 +63,12 @@ export async function closeTabWithConfirm(
   // A Claude tab's program ends with it; its session stays resumable.
   if (tab.type === "claude") {
     closeChatTab(workspaceId, tabId);
+    closeTab(workspaceId, tabId);
+  }
+
+  // So does a Codex tab's; its thread stays in Codex's history.
+  if (tab.type === "codex") {
+    closeCodexTab(workspaceId, tabId);
     closeTab(workspaceId, tabId);
   }
 

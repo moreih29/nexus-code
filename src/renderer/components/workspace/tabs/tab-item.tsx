@@ -1,5 +1,6 @@
 import i18next from "i18next";
 import {
+  Bot,
   CircleAlert,
   CircleCheck,
   File,
@@ -95,6 +96,7 @@ function tabTypeIcon(tab: Tab): LucideIcon | null {
   if (tab.type === "untitled") return File;
   if (tab.type === "sessions") return Radar;
   if (tab.type === "claude") return MessageSquareText;
+  if (tab.type === "codex") return Bot;
   return null; // editor (handled via FileIcon) and browser (handled via BrowserFaviconIcon)
 }
 
@@ -363,7 +365,7 @@ export function TabItem({
       //  - 그 외 isPreview 탭: VSCode parity로 promote-from-preview
       // terminal · claude 탭은 isPreview일 일이 없으므로 두 분기가 mutually exclusive.
       onDoubleClick={() => {
-        if (tab.type === "terminal" || tab.type === "claude") {
+        if (tab.type === "terminal" || tab.type === "claude" || tab.type === "codex") {
           useTabEditingStore.getState().startEditing(tab.id);
           return;
         }
