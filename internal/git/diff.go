@@ -132,6 +132,9 @@ func validateDiffToken(name string, value string) error {
 	if strings.Contains(value, "\x00") {
 		return proto.ProtocolError("git.diff " + name + " must not contain NUL")
 	}
+	if optionLike(value) {
+		return proto.ProtocolError("git.diff " + name + " must not start with -")
+	}
 	return nil
 }
 

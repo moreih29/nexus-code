@@ -67,6 +67,9 @@ func parseCommitDetailParams(raw json.RawMessage) (CommitDetailParams, error) {
 	if strings.Contains(params.SHA, "\x00") {
 		return params, proto.ProtocolError("git.commitDetail sha must not contain NUL")
 	}
+	if optionLike(params.SHA) {
+		return params, proto.ProtocolError("git.commitDetail sha must not start with -")
+	}
 	if strings.Contains(params.Cwd, "\x00") {
 		return params, proto.ProtocolError("git.commitDetail cwd must not contain NUL")
 	}

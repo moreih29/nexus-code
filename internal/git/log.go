@@ -191,6 +191,9 @@ func parseLogParams(raw json.RawMessage) (LogParams, error) {
 	if containsNUL(params.Ref, params.Grep, params.AfterSHA, params.StreamID) {
 		return params, proto.ProtocolError("git.log params must not contain NUL")
 	}
+	if optionLike(params.Ref) || optionLike(params.AfterSHA) {
+		return params, proto.ProtocolError("git.log ref must not start with -")
+	}
 	for _, path := range params.Paths {
 		if !validLogPath(path) {
 			return params, proto.ProtocolError("git.log paths must stay inside the repository")
