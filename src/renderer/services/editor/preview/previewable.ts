@@ -21,6 +21,8 @@ const SVG_EXTENSIONS = [".svg"] as const;
 const TABLE_EXTENSIONS = [".csv", ".tsv"] as const;
 // JSON, shown as a tree. Comments are taken, as configuration files have.
 const JSON_EXTENSIONS = [".json", ".jsonc"] as const;
+// YAML, shown as the same tree.
+const YAML_EXTENSIONS = [".yaml", ".yml"] as const;
 // Jupyter notebooks, shown as their cells and outputs.
 const NOTEBOOK_EXTENSIONS = [".ipynb"] as const;
 const MDX_EXTENSIONS = [".mdx"] as const;
@@ -69,22 +71,24 @@ export function isPreviewable(filePath: string): PreviewSupport {
   if (SVG_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "supported";
   if (TABLE_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "supported";
   if (JSON_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "supported";
+  if (YAML_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "supported";
   if (NOTEBOOK_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "supported";
   return "none";
 }
 
 /**
  * How a file opens: in its preview when it has one, in its source otherwise.
- * JSON opens in its source, which is what it is mostly opened to read and
- * change; its tree is a switch away. A tab keeps the mode it was switched
+ * JSON and YAML open in their source, which is what they are mostly
+ * opened to read and change; their tree is a switch away. A tab keeps the mode it was switched
  * to; this is the mode of one never switched.
  */
 export function defaultViewMode(filePath: string): "raw" | "preview" {
   if (isPreviewable(filePath) !== "supported") return "raw";
-  return previewEngineFor(filePath) === "json" ? "raw" : "preview";
+  const engine = previewEngineFor(filePath);
+  return engine === "json" || engine === "yaml" ? "raw" : "preview";
 }
 
-export type PreviewEngine = "markdown" | "html" | "svg" | "table" | "json" | "notebook";
+export type PreviewEngine = "markdown" | "html" | "svg" | "table" | "json" | "yaml" | "notebook";
 
 /**
  * Maps a supported file path to the concrete preview engine. Throws (never
@@ -98,6 +102,7 @@ export function previewEngineFor(filePath: string): PreviewEngine {
   if (SVG_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "svg";
   if (TABLE_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "table";
   if (JSON_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "json";
+  if (YAML_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "yaml";
   if (NOTEBOOK_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "notebook";
   throw new Error(`previewEngineFor called on non-previewable path: ${filePath}`);
 }

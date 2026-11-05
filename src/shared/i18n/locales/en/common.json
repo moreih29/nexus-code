@@ -646,7 +646,7 @@
     "html_title": "HTML preview"
   },
   "jsonPreview": {
-    "label": "JSON tree",
+    "label": "{{format}} tree",
     "expand_all": "Expand all",
     "collapse_all": "Collapse all",
     "keys_one": "{{count}} key",
@@ -655,7 +655,8 @@
     "items_other": "{{count}} items",
     "empty": "This file is empty.",
     "too_large": "Files over {{mb}} MB are not shown as a tree. Switch to Raw.",
-    "syntax_error": "Could not read this as JSON: line {{line}}, column {{column}}. Switch to Raw to see it."
+    "syntax_error": "Could not read this as {{format}}: line {{line}}, column {{column}}. Switch to Raw to see it.",
+    "load_failed": "The YAML reader could not be loaded. Switch to Raw to see the file."
   },
   "notebookPreview": {
     "not_json": "Could not read this notebook: it is not JSON. Switch to Raw to see it.",

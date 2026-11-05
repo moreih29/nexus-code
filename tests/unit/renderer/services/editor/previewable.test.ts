@@ -24,6 +24,8 @@ describe("isPreviewable", () => {
 
   it("classifies json files as supported", () => {
     expect(isPreviewable("/r/package.json")).toBe("supported");
+    expect(isPreviewable("/r/.github/workflows/ci.yml")).toBe("supported");
+    expect(isPreviewable("/r/compose.YAML")).toBe("supported");
     expect(isPreviewable("/r/settings.JSONC")).toBe("supported");
   });
 
@@ -53,6 +55,8 @@ describe("previewEngineFor", () => {
     expect(previewEngineFor("/r/logo.svg")).toBe("svg");
     expect(previewEngineFor("/r/package.json")).toBe("json");
     expect(previewEngineFor("/r/tsconfig.jsonc")).toBe("json");
+    expect(previewEngineFor("/r/ci.yml")).toBe("yaml");
+    expect(previewEngineFor("/r/compose.yaml")).toBe("yaml");
     expect(previewEngineFor("/r/analysis.IPYNB")).toBe("notebook");
   });
 
@@ -97,5 +101,6 @@ describe("defaultViewMode", () => {
   it("opens JSON in its source, its tree a switch away", () => {
     expect(defaultViewMode("/r/package.json")).toBe("raw");
     expect(defaultViewMode("/r/tsconfig.jsonc")).toBe("raw");
+    expect(defaultViewMode("/r/ci.yml")).toBe("raw");
   });
 });

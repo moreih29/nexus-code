@@ -1,4 +1,5 @@
-// JsonTreePreview — a JSON file as a tree of its values.
+// JsonTreePreview — a JSON file, or one of another format read into the
+// same values (YAML), as a tree of its values.
 //
 // Objects and arrays open and close, one at a time or all at once; a
 // small file opens whole, a large one with only its top level. Only the
@@ -49,11 +50,19 @@ interface OpenState {
 
 const INITIAL_OPEN: OpenState = { base: "default", toggled: new Set() };
 
-function parse(source: string): Parsed {
+/** A format the tree reads: its name, as messages say it, and its reader. */
+export interface TreeFormat {
+  readonly name: string;
+  readonly parse: (source: string) => JsonValue;
+}
+
+const JSON_FORMAT: TreeFormat = { name: "JSON", parse: parseJson };
+
+function parse(source: string, format: TreeFormat): Parsed {
   if (source.length > MAX_TREE_CHARS) return { kind: "too_large" };
   if (source.trim() === "") return { kind: "empty" };
   try {
-    const root = parseJson(source);
+    const root = format.parse(source);
     return { kind: "ok", root, count: countValues(root) };
   } catch (error) {
     if (error instanceof JsonSyntaxError) return { kind: "error", error };
@@ -61,11 +70,19 @@ function parse(source: string): Parsed {
   }
 }
 
-export function JsonTreePreview({ source }: { source: string }) {
+export function JsonTreePreview({
+  source,
+  format = JSON_FORMAT,
+}: {
+  source: string;
+  format?: TreeFormat;
+}) {
   const { t } = useTranslation();
-  const parsed = useMemo(() => parse(source), [source]);
+  const parsed = useMemo(() => parse(source, format), [source, format]);
 
-  if (parsed.kind === "ok") return <JsonTree root={parsed.root} count={parsed.count} />;
+  if (parsed.kind === "ok") {
+    return <JsonTree root={parsed.root} count={parsed.count} format={format.name} />;
+  }
   return (
     <div
       role="status"
@@ -76,6 +93,7 @@ export function JsonTreePreview({ source }: { source: string }) {
         : parsed.kind === "too_large"
           ? t("jsonPreview.too_large", { mb: MAX_TREE_CHARS / 1024 / 1024 })
           : t("jsonPreview.syntax_error", {
+              format: format.name,
               line: parsed.error.line,
               column: parsed.error.column,
             })}
@@ -83,7 +101,7 @@ export function JsonTreePreview({ source }: { source: string }) {
   );
 }
 
-function JsonTree({ root, count }: { root: JsonValue; count: number }) {
+function JsonTree({ root, count, format }: { root: JsonValue; count: number; format: string }) {
   const { t } = useTranslation();
   const id = useId();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -195,7 +213,7 @@ function JsonTree({ root, count }: { root: JsonValue; count: number }) {
         ref={scrollRef}
         role="tree"
         tabIndex={0}
-        aria-label={t("jsonPreview.label")}
+        aria-label={t("jsonPreview.label", { format })}
         aria-activedescendant={activeIndex >= 0 ? `${id}-${activeIndex}` : undefined}
         onKeyDown={onKeyDown}
         className="app-scrollbar flex-1 min-h-0 overflow-auto font-mono text-app-ui-sm outline-none"
