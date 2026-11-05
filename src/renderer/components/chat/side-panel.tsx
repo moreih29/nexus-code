@@ -99,6 +99,10 @@ export function SidePanel({
   const links = useChatLinks();
   const open = (target: string, kind: ResultEntry["kind"]) =>
     kind === "file" ? links?.openFile(target) : links?.openUrl(target);
+  // A version without stop_task keeps the button, saying which version has it.
+  const stopNote = controller.supports("stop_task")
+    ? undefined
+    : t("chat.panel.needs_version", { version: firstVersionOf("stop_task") });
 
   return (
     <aside
@@ -128,6 +132,7 @@ export function SidePanel({
                   ? () => stop(controller, agent.taskId as string, t("chat.panel.stop_failed"))
                   : undefined
               }
+              stopNote={stopNote}
             />
           ))}
         </Section>
@@ -141,7 +146,8 @@ export function SidePanel({
               <Elapsed from={job.startedAt} to={job.endedAt} now={now} />
               {job.status === "running" && (
                 <IconButton
-                  label={t("chat.panel.stop")}
+                  label={stopNote ?? t("chat.panel.stop")}
+                  disabled={stopNote !== undefined}
                   onClick={() => stop(controller, job.taskId, t("chat.panel.stop_failed"))}
                 >
                   <Square className="size-3" />
@@ -529,11 +535,14 @@ function AgentEntry({
   now,
   onOpen,
   onStop,
+  stopNote,
 }: {
   agent: AgentRow;
   now: number;
   onOpen: () => void;
   onStop?: () => void;
+  /** Why stopping is not possible, as on a version without it. */
+  stopNote?: string;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -560,7 +569,11 @@ function AgentEntry({
           <ExternalLink className="size-3.5" />
         </IconButton>
         {onStop && (
-          <IconButton label={t("chat.panel.stop")} onClick={onStop}>
+          <IconButton
+            label={stopNote ?? t("chat.panel.stop")}
+            disabled={stopNote !== undefined}
+            onClick={onStop}
+          >
             <Square className="size-3" />
           </IconButton>
         )}
