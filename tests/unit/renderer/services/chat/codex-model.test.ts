@@ -602,6 +602,9 @@ describe("codex helpers", () => {
       { lines: [" a", "-b", "+c"] },
       { lines: ["-x"] },
     ]);
+    expect(hunksOf("@@ -1 +1 @@\n-hi\n\\ No newline at end of file\n+hello\n", "update")).toEqual([
+      { lines: ["-hi", "+hello"] },
+    ]);
     expect(hunksOf("gone\n", "delete")).toEqual([{ lines: ["-gone"] }]);
     expect(hunksOf("", "add")).toEqual([]);
   });

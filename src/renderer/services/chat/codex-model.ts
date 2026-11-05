@@ -869,8 +869,8 @@ export function hunksOf(diff: string, kind: string | undefined): { lines: string
       hunks.push({ lines: [] });
       continue;
     }
-    // The file headers before the first hunk.
-    hunks.at(-1)?.lines.push(line);
+    // The file headers before the first hunk, and "\ No newline at end of file".
+    if (!line.startsWith("\\")) hunks.at(-1)?.lines.push(line);
   }
   return hunks;
 }
