@@ -17,6 +17,8 @@ export type PreviewSupport = "supported" | "mdx-disabled" | "none";
 const MARKDOWN_EXTENSIONS = [".md", ".markdown"] as const;
 const HTML_EXTENSIONS = [".html", ".htm"] as const;
 const SVG_EXTENSIONS = [".svg"] as const;
+// Delimited values, shown as a table.
+const TABLE_EXTENSIONS = [".csv", ".tsv"] as const;
 const MDX_EXTENSIONS = [".mdx"] as const;
 
 // Raster image formats the renderer can display via the `nexus-workspace://`
@@ -61,6 +63,7 @@ export function isPreviewable(filePath: string): PreviewSupport {
   if (MARKDOWN_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "supported";
   if (HTML_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "supported";
   if (SVG_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "supported";
+  if (TABLE_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "supported";
   return "none";
 }
 
@@ -73,7 +76,7 @@ export function defaultViewMode(filePath: string): "raw" | "preview" {
   return isPreviewable(filePath) === "supported" ? "preview" : "raw";
 }
 
-export type PreviewEngine = "markdown" | "html" | "svg";
+export type PreviewEngine = "markdown" | "html" | "svg" | "table";
 
 /**
  * Maps a supported file path to the concrete preview engine. Throws (never
@@ -85,5 +88,6 @@ export function previewEngineFor(filePath: string): PreviewEngine {
   if (MARKDOWN_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "markdown";
   if (HTML_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "html";
   if (SVG_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "svg";
+  if (TABLE_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "table";
   throw new Error(`previewEngineFor called on non-previewable path: ${filePath}`);
 }

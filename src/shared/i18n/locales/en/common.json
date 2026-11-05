@@ -642,6 +642,7 @@
   },
   "preview": {
     "truncated": "Preview truncated at {{kb}} KB. Switch to Raw to see the full file.",
+    "table_empty": "No rows.",
     "html_title": "HTML preview"
   },
   "imagePreview": {

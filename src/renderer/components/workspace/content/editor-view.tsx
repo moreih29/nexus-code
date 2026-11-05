@@ -8,6 +8,7 @@ import { useMonacoThemeName } from "../../../hooks/use-monaco-theme-name";
 import { ipcCallResult } from "../../../ipc/client";
 import { useSharedModel } from "../../../services/editor";
 import { hasConflictMarkers } from "../../../services/editor/conflict/conflict-parser";
+import { delimiterFor } from "../../../services/editor/preview/delimited";
 import {
   defaultViewMode,
   isPreviewable,
@@ -24,6 +25,7 @@ import { HtmlPreview } from "../../editor/preview/html-preview";
 import { ImagePreview } from "../../editor/preview/image-preview";
 import { MarkdownPreview } from "../../editor/preview/markdown-preview";
 import { SvgPreview } from "../../editor/preview/svg-preview";
+import { TablePreview } from "../../editor/preview/table-preview";
 import { ViewModeToggle } from "../../editor/preview/view-mode-toggle";
 import { EmptyState } from "../../ui/empty-state";
 import { ConflictResolvedBanner } from "./conflict-resolved-banner";
@@ -468,5 +470,7 @@ function PreviewPane({
       );
     case "svg":
       return <SvgPreview source={source} />;
+    case "table":
+      return <TablePreview source={source} delimiter={delimiterFor(filePath)} />;
   }
 }
