@@ -13,6 +13,7 @@
 import { AtSign, FileText, Paperclip, Pencil, Plus, Send, Slash, Square, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { appCommandsBeside } from "../../services/chat/app-commands";
 import {
   applyCompletion,
   completionAt,
@@ -45,6 +46,10 @@ interface ComposerProps {
   local: boolean;
   /** In place of the keys' hint: while an agent is shown, where input goes. */
   placeholder?: string;
+  /** Above the queue: what an app command shows. */
+  above?: React.ReactNode;
+  /** Runs the message when it is one of the tab's own commands; false sends it. */
+  onCommand?: (text: string) => boolean;
 }
 
 type ChipProps = Pick<ComposerProps, "controller" | "state">;
@@ -70,7 +75,20 @@ let nextAttachmentId = 1;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 const MAX_ROWS_PX = 240;
 
-export function Composer({ controller, state, local, placeholder }: ComposerProps) {
+/** Grows the text box with its text, up to MAX_ROWS_PX. */
+function fitHeight(area: HTMLTextAreaElement): void {
+  area.style.height = "auto";
+  area.style.height = `${Math.min(area.scrollHeight, MAX_ROWS_PX)}px`;
+}
+
+export function Composer({
+  controller,
+  state,
+  local,
+  placeholder,
+  above,
+  onCommand,
+}: ComposerProps) {
   const { t } = useTranslation();
   const [text, setText] = useState("");
   const [images, setImages] = useState<ImageBlock[]>([]);
@@ -106,13 +124,12 @@ export function Composer({ controller, state, local, placeholder }: ComposerProp
   const completionKey = completion ? `${completion.kind}:${completion.start}` : null;
   const [dismissed, setDismissed] = useState<string | null>(null);
   const menuOpen = focused && completion !== null && completionKey !== dismissed;
-  const commands = useMemo(
-    () =>
-      menuOpen && completion?.kind === "command"
-        ? matchCommands(model.init?.commands ?? [], completion.query)
-        : [],
-    [menuOpen, completion?.kind, completion?.query, model.init],
-  );
+  const commands = useMemo(() => {
+    if (!menuOpen || completion?.kind !== "command") return [];
+    const cli = model.init?.commands ?? [];
+    const own = appCommandsBeside(cli, (name) => t(`chat.commands.describe.${name}`));
+    return matchCommands([...cli, ...own], completion.query);
+  }, [menuOpen, completion?.kind, completion?.query, model.init, t]);
   const [suggested, setSuggested] = useState<string[]>([]);
   const fileQuery = menuOpen && completion?.kind === "file" ? completion.query : null;
   useEffect(() => {
@@ -182,11 +199,23 @@ export function Composer({ controller, state, local, placeholder }: ComposerProp
   };
 
   useLayoutEffect(() => {
+    if (areaRef.current) fitHeight(areaRef.current);
+  });
+  // A tab in the background lays out at no width, where the placeholder
+  // wraps a word to a line: the height it got there is wrong once the tab
+  // shows, so a new width fits it again.
+  useEffect(() => {
     const area = areaRef.current;
     if (!area) return;
-    area.style.height = "auto";
-    area.style.height = `${Math.min(area.scrollHeight, MAX_ROWS_PX)}px`;
-  });
+    let width = area.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (area.clientWidth === width) return;
+      width = area.clientWidth;
+      fitHeight(area);
+    });
+    observer.observe(area);
+    return () => observer.disconnect();
+  }, []);
 
   const clear = () => {
     setText("");
@@ -210,6 +239,10 @@ export function Composer({ controller, state, local, placeholder }: ComposerProp
 
   const submit = async (queue: boolean) => {
     if (!canSend) return;
+    if (images.length === 0 && files.length === 0 && onCommand?.(text)) {
+      clear();
+      return;
+    }
     let message: string;
     setSending(true);
     try {
@@ -317,6 +350,7 @@ export function Composer({ controller, state, local, placeholder }: ComposerProp
   return (
     <div className="shrink-0 border-t border-border px-4 pt-2 pb-3" data-testid="chat-composer">
       <div className="mx-auto flex max-w-[860px] flex-col gap-2">
+        {above}
         {state.queue.length > 0 && (
           <ul className="flex flex-col gap-1" aria-label={t("chat.queue.aria")}>
             {state.queue.map((item) => (

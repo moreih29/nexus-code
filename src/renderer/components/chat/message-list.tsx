@@ -62,6 +62,15 @@ export interface MessageActions {
   canFork: boolean;
   onFork: (item: UserItem | AssistantItem) => void;
   onRewind: (item: UserItem) => void;
+  /** Sends a running command or subagent to the background. */
+  onBackground?: (toolUseId: string) => void;
+  /** Tool calls that wait for the user to allow them, which have not started. */
+  waiting?: ReadonlySet<string>;
+}
+
+/** What sends a call to the background, unless it waits to be allowed. */
+function backgroundOf(actions: MessageActions | undefined, toolUseId: string) {
+  return actions?.waiting?.has(toolUseId) ? undefined : actions?.onBackground;
 }
 
 /** How near the bottom (px) still counts as being there. */
@@ -304,6 +313,7 @@ function AssistantMessage({ item, ctx }: { item: AssistantItem; ctx: ItemContext
             tool={ctx.tools[block.toolUseId]}
             tools={ctx.tools}
             cwd={ctx.cwd}
+            onBackground={backgroundOf(ctx.actions, block.toolUseId)}
           />
         ),
       )}
@@ -375,6 +385,7 @@ function Streaming({ streaming, ctx }: { streaming: StreamingMessage; ctx: ItemC
             tool={ctx.tools[block.toolUseId]}
             tools={ctx.tools}
             cwd={ctx.cwd}
+            onBackground={backgroundOf(ctx.actions, block.toolUseId)}
           />
         ) : null,
       )}

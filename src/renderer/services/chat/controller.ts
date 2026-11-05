@@ -8,6 +8,7 @@
 
 import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
+import { backgroundIdOf } from "./app-commands";
 import {
   type HistoryCut,
   historyModel,
@@ -28,6 +29,7 @@ import {
 } from "./model";
 import {
   type ChatTabState,
+  type CommandCard,
   chatKey,
   emptyTabState,
   type QueuedMessage,
@@ -39,6 +41,8 @@ const log = createLogger("chat");
 
 /** How long a control request waits for its answer. */
 const CONTROL_TIMEOUT_MS = 15_000;
+/** How long a side question may take: one turn of the model, retries included. */
+const SIDE_QUESTION_TIMEOUT_MS = 180_000;
 
 /** Longest a replay's lines, sent as events, may trail its answer. */
 const REPLAY_CATCH_UP_MS = 3_000;
@@ -132,6 +136,10 @@ export class ChatController {
   readonly key: string;
   private target: ChatTabTarget;
   private hooks: ChatTabHooks;
+  /** The flag settings the tab's commands set (/add-dir, /sandbox). */
+  private flags: Record<string, unknown> = {};
+  /** A started program's initialize, and the flags given again after it. */
+  private initializing: Promise<void> = Promise.resolve();
   private buffered: ChatLine[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly pending = new Map<string, PendingControl>();
@@ -275,9 +283,19 @@ export class ChatController {
     this.update((prev) => ({ ...prev, phase: "ready", version: result.version }));
     if (!result.attached) {
       // Subagents' text comes as messages under their Agent call, for the agent strip.
-      this.request("initialize", { hooks: null, forwardSubagentText: true }).catch((err: Error) => {
-        log.warn(`initialize failed: ${err.message}`);
-      });
+      this.initializing = this.request("initialize", { hooks: null, forwardSubagentText: true })
+        .then(() => {
+          // What /add-dir and /sandbox set holds for the tab, not one program.
+          if (Object.keys(this.flags).length > 0) {
+            return this.request("apply_flag_settings", { settings: this.flags });
+          }
+        })
+        .then(
+          () => {},
+          (err: Error) => {
+            log.warn(`initialize failed: ${err.message}`);
+          },
+        );
     }
     return true;
   }
@@ -290,6 +308,11 @@ export class ChatController {
     }
     this.flushNow();
     await this.start(this.startArgs());
+  }
+
+  /** The session the tab goes on with, once it has its own. */
+  currentSession(): string | undefined {
+    return this.sessionId;
   }
 
   /** Where a fork from a message starts: after it (Claude's), or before it (the user's). */
@@ -601,6 +624,114 @@ export class ChatController {
     this.update((prev) => ({ ...prev, mcpSignIn: undefined }));
   }
 
+  /**
+   * Asks Claude a question beside the conversation (/btw): it sees the
+   * conversation, uses no tools, and the question and its answer are not
+   * kept in it. Null when there is no answer.
+   */
+  async askAside(question: string): Promise<string | null> {
+    await this.settled();
+    const body = await this.request("side_question", { question }, SIDE_QUESTION_TIMEOUT_MS);
+    return typeof body.response === "string" ? body.response : null;
+  }
+
+  /**
+   * Sets settings for the session's flag layer (apply_flag_settings), kept
+   * for the tab: a program started again gets them too. A key given
+   * replaces what it had (a list of folders is given whole).
+   */
+  async applyFlags(settings: Record<string, unknown>): Promise<void> {
+    await this.settled();
+    await this.request("apply_flag_settings", { settings });
+    this.flags = { ...this.flags, ...settings };
+  }
+
+  /** The folders /add-dir gave the session, beside its own. */
+  addedDirectories(): string[] {
+    const permissions = this.flags.permissions as { additionalDirectories?: string[] } | undefined;
+    return permissions?.additionalDirectories ?? [];
+  }
+
+  /**
+   * Sends a running command or subagent to the background (Ctrl+B in the
+   * terminal): its call returns at once and the turn goes on; it ends as a
+   * task of its own.
+   */
+  async backgroundTool(toolUseId: string): Promise<void> {
+    await this.request("background_tasks", { tool_use_id: toolUseId });
+  }
+
+  /**
+   * Hands the conversation to Claude Code's background service (`claude
+   * --bg --resume`), which goes on with it, and with the prompt when there
+   * is one; a tab without a session yet sends just the prompt. The tab's
+   * own program ends first, so that only one goes on with the session.
+   * The background session's id.
+   */
+  async sendToBackground(prompt: string): Promise<string> {
+    const { workspaceId, tabId, cwd } = this.target;
+    const { model } = this.state;
+    if (model.running) throw new Error("a turn is running");
+    const sessionId = this.sessionId;
+    if (!sessionId && !prompt) throw new Error("the tab has no conversation yet");
+    if (model.process === "running") {
+      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+    }
+    const run = unwrapIpcResult(
+      await ipcCallResult("chat", "cli", {
+        workspaceId,
+        cwd,
+        command: {
+          kind: "background",
+          ...(sessionId ? { sessionId } : {}),
+          ...(model.model ? { model: model.model } : {}),
+          ...(prompt ? { prompt } : {}),
+        },
+      }),
+    );
+    const id = backgroundIdOf(run.stdout);
+    if (!id) {
+      throw new Error(run.stderr.trim() || run.stdout.trim() || "claude --bg did not start");
+    }
+    return id;
+  }
+
+  /** Has a running program load the plugins again, after one was changed. */
+  async reloadPlugins(): Promise<void> {
+    if (this.state.model.process !== "running" || !this.supports("reload_plugins")) return;
+    await this.request("reload_plugins", {});
+  }
+
+  /** Starts the program when it is not running, and waits for its initialize. */
+  private async settled(): Promise<void> {
+    if (!(await this.ensureRunning())) throw new Error("Claude is not running");
+    await this.initializing;
+  }
+
+  /** Asks the program now, starting it for the question. */
+  async ask(subtype: string): Promise<Record<string, unknown>> {
+    await this.settled();
+    return this.request(subtype, {});
+  }
+
+  /** Shows a card above the composer, in place of the one before; its id, to fill it in. */
+  showCard(card: Omit<CommandCard, "id">): string {
+    const id = nextRequestId();
+    this.update((prev) => ({ ...prev, card: { ...card, id } }));
+    return id;
+  }
+
+  /** Fills in a card that is still shown. */
+  updateCard(id: string, patch: Partial<Omit<CommandCard, "id">>): void {
+    this.update((prev) =>
+      prev.card?.id === id ? { ...prev, card: { ...prev.card, ...patch } } : prev,
+    );
+  }
+
+  closeCard(): void {
+    this.update((prev) => (prev.card ? { ...prev, card: undefined } : prev));
+  }
+
   async mcpToggle(serverName: string, enabled: boolean): Promise<void> {
     try {
       await this.request("mcp_toggle", { serverName, enabled });
@@ -682,7 +813,11 @@ export class ChatController {
   }
 
   /** Sends a control request and waits for its answer. */
-  request(subtype: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  request(
+    subtype: string,
+    params: Record<string, unknown>,
+    timeoutMs = CONTROL_TIMEOUT_MS,
+  ): Promise<Record<string, unknown>> {
     if (!this.supports(subtype)) {
       return Promise.reject(new Error(`${subtype} needs a newer Claude Code`));
     }
@@ -691,7 +826,7 @@ export class ChatController {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`${subtype} got no answer`));
-      }, CONTROL_TIMEOUT_MS);
+      }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
     });
     this.write({ type: "control_request", request_id: id, request: { subtype, ...params } }).catch(

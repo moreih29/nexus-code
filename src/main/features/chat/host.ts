@@ -5,6 +5,8 @@ import { createLogger } from "../../../shared/log/main";
 import type { AgentChannel, ChannelLifecycleEvent } from "../../infra/agent/channel";
 import type { WindowsAgentFiles } from "../pty/windows-shell-shim";
 import {
+  type ClaudeCommand,
+  claudeCommandArgs,
   claudeTabArgs,
   claudeTabEnv,
   hostJoin,
@@ -16,6 +18,8 @@ const log = createLogger("chat-host");
 
 /** How long `claude --version` may take: a first run can unpack itself. */
 const VERSION_TIMEOUT_MS = 20_000;
+/** How long a `claude` command may take: an install fetches the plugin. */
+const COMMAND_TIMEOUT_MS = 30_000;
 
 export interface ChatWorkspaceManager {
   getAgentChannel(workspaceId: string): Promise<AgentChannel>;
@@ -165,6 +169,27 @@ export class ChatHost {
   async transcript(workspaceId: string, sessionId: string): Promise<unknown> {
     const channel = await this.channelFor(workspaceId);
     return channel.call("chat.transcript", { sessionId });
+  }
+
+  /** Runs one of the `claude` commands a tab may (`claude agents`, `claude plugin`…) in the folder. */
+  async cli(
+    workspaceId: string,
+    cwd: string,
+    command: ClaudeCommand,
+  ): Promise<{ code: number; stdout: string; stderr: string; timedOut?: boolean }> {
+    const channel = await this.channelFor(workspaceId);
+    const found = await channel.call<{ path: string; envPath?: string }>("lsp.findBinary", {
+      name: "claude",
+      dir: cwd,
+    });
+    if (!found.path) throw new Error("claude was not found on the PATH");
+    return channel.call("chat.exec", {
+      cwd,
+      program: found.path,
+      args: claudeCommandArgs(command, cwd),
+      env: found.envPath ? { PATH: found.envPath } : {},
+      timeoutMs: COMMAND_TIMEOUT_MS,
+    });
   }
 
   async sessions(workspaceId: string, cwd: string): Promise<unknown> {

@@ -91,6 +91,50 @@ export function claudeTabEnv(context: ClaudeTabEnvContext): Record<string, strin
   return env;
 }
 
+export type PluginAction = "install" | "enable" | "disable" | "update" | "uninstall";
+
+/**
+ * What a Claude tab may have `claude` do outside its session: the folder's
+ * background sessions, and the plugins.
+ */
+export type ClaudeCommand =
+  | { kind: "agents" }
+  /** Sends a session to the background (or a new one), with a prompt to go on with. */
+  | { kind: "background"; sessionId?: string; model?: string; prompt?: string }
+  | { kind: "stop"; id: string }
+  | { kind: "plugins" }
+  | { kind: "plugin"; action: PluginAction; plugin: string; scope?: "user" | "project" | "local" };
+
+/**
+ * `claude`'s arguments for one of those, and nothing else: the ids are
+ * checked before they get here, and the prompt comes after `--`, where it
+ * can't be taken for an option.
+ */
+export function claudeCommandArgs(command: ClaudeCommand, cwd: string): string[] {
+  switch (command.kind) {
+    case "agents":
+      return ["agents", "--json", "--all", "--cwd", cwd];
+    case "background": {
+      const args = ["--bg"];
+      if (command.sessionId !== undefined) args.push("--resume", command.sessionId);
+      if (command.model !== undefined) args.push("--model", command.model);
+      if (command.prompt) args.push("--", command.prompt);
+      return args;
+    }
+    case "stop":
+      return ["stop", command.id];
+    case "plugins":
+      return ["plugin", "list", "--json"];
+    case "plugin": {
+      const args = ["plugin", command.action, command.plugin, "--json"];
+      if (command.scope !== undefined) args.push("--scope", command.scope);
+      // A plugin's saved data stays for when it comes back.
+      if (command.action === "uninstall") args.push("--keep-data");
+      return args;
+    }
+  }
+}
+
 /** The x.y.z of `claude --version`'s output ("2.1.318 (Claude Code)"), or null. */
 export function parseClaudeVersion(output: string): string | null {
   const match = /(\d+)\.(\d+)\.(\d+)/.exec(output);

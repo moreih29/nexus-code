@@ -41,6 +41,38 @@ export interface ChatTabState {
   draft?: ComposerDraft;
   /** An MCP server's sign-in under way in the browser. */
   mcpSignIn?: McpSignIn;
+  /** What an app command shows above the composer (/btw's answer, /help). */
+  card?: CommandCard;
+}
+
+export interface CommandCard {
+  /** Tells one card from the next, for an answer that comes after another was asked. */
+  id: string;
+  /** The command as it was typed. */
+  title: string;
+  /** Markdown, once there is something to show. */
+  text?: string;
+  /** Files to open, each a button (/memory). */
+  files?: { path: string; label: string }[];
+  /** Lists of things with what can be done to each (/tasks). */
+  sections?: CardSection[];
+  loading?: boolean;
+  error?: string;
+}
+
+export interface CardSection {
+  title: string;
+  rows: CardRow[];
+  /** Said when there are no rows. */
+  empty: string;
+}
+
+export interface CardRow {
+  id: string;
+  label: string;
+  /** Its state, in a word or two. */
+  detail?: string;
+  actions: { label: string; run: () => void }[];
 }
 
 export interface McpSignIn {
