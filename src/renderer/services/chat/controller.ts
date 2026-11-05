@@ -678,11 +678,11 @@ export class ChatController {
       await ipcCallResult("chat", "stop", { workspaceId, tabId });
     }
     const run = unwrapIpcResult(
-      await ipcCallResult("chat", "background", {
+      await ipcCallResult("chat", "cli", {
         workspaceId,
         cwd,
         command: {
-          kind: "send",
+          kind: "background",
           ...(sessionId ? { sessionId } : {}),
           ...(model.model ? { model: model.model } : {}),
           ...(prompt ? { prompt } : {}),
@@ -694,6 +694,12 @@ export class ChatController {
       throw new Error(run.stderr.trim() || run.stdout.trim() || "claude --bg did not start");
     }
     return id;
+  }
+
+  /** Has a running program load the plugins again, after one was changed. */
+  async reloadPlugins(): Promise<void> {
+    if (this.state.model.process !== "running" || !this.supports("reload_plugins")) return;
+    await this.request("reload_plugins", {});
   }
 
   /** Starts the program when it is not running, and waits for its initialize. */

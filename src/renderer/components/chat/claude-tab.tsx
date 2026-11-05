@@ -316,6 +316,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       tools: history ? { ...history.tools, ...model.tools } : model.tools,
       summarize: (tool) => toolSummary(tool, props.cwd),
       openFileTab: links.openFileTab,
+      openUrl: (url) => links.openUrl(url),
     }).catch((err: Error) => showToast({ kind: "error", message: err.message }));
     return true;
   };

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { ChatHost, type ChatWorkspaceManager } from "../../../../src/main/features/chat/host";
 import {
-  backgroundArgs,
   CLAUDE_TAB_ARGS,
+  claudeCommandArgs,
   claudeTabArgs,
   claudeTabEnv,
   parseClaudeVersion,
@@ -142,7 +142,7 @@ describe("chat launch", () => {
   });
 
   test("background sessions: list, send with the prompt after --, stop", () => {
-    expect(backgroundArgs({ kind: "list" }, "/repo")).toEqual([
+    expect(claudeCommandArgs({ kind: "agents" }, "/repo")).toEqual([
       "agents",
       "--json",
       "--all",
@@ -150,10 +150,26 @@ describe("chat launch", () => {
       "/repo",
     ]);
     expect(
-      backgroundArgs({ kind: "send", sessionId: "s1", model: "haiku", prompt: "-v go on" }, "/r"),
+      claudeCommandArgs(
+        { kind: "background", sessionId: "s1", model: "haiku", prompt: "-v go on" },
+        "/r",
+      ),
     ).toEqual(["--bg", "--resume", "s1", "--model", "haiku", "--", "-v go on"]);
-    expect(backgroundArgs({ kind: "send", prompt: "" }, "/r")).toEqual(["--bg"]);
-    expect(backgroundArgs({ kind: "stop", id: "8c55b250" }, "/r")).toEqual(["stop", "8c55b250"]);
+    expect(claudeCommandArgs({ kind: "background", prompt: "" }, "/r")).toEqual(["--bg"]);
+    expect(claudeCommandArgs({ kind: "stop", id: "8c55b250" }, "/r")).toEqual(["stop", "8c55b250"]);
+  });
+
+  test("plugins: the list, and each change as JSON in its scope", () => {
+    expect(claudeCommandArgs({ kind: "plugins" }, "/r")).toEqual(["plugin", "list", "--json"]);
+    expect(
+      claudeCommandArgs(
+        { kind: "plugin", action: "disable", plugin: "a@m", scope: "project" },
+        "/r",
+      ),
+    ).toEqual(["plugin", "disable", "a@m", "--json", "--scope", "project"]);
+    expect(claudeCommandArgs({ kind: "plugin", action: "uninstall", plugin: "a@m" }, "/r")).toEqual(
+      ["plugin", "uninstall", "a@m", "--json", "--keep-data"],
+    );
   });
 });
 
@@ -203,9 +219,9 @@ describe("ChatHost", () => {
     expect(start.program).toBe("/home/u/.local/bin/claude");
   });
 
-  test("background runs the claude the PATH has, in the folder", async () => {
+  test("cli runs the claude the PATH has, in the folder", async () => {
     const { channel, host } = setup();
-    await host.background(WS, "/repo", { kind: "stop", id: "abc" });
+    await host.cli(WS, "/repo", { kind: "stop", id: "abc" });
     expect(channel.calls.find((c) => c.method === "chat.exec")?.params).toMatchObject({
       cwd: "/repo",
       program: "/home/u/.local/bin/claude",
@@ -213,7 +229,7 @@ describe("ChatHost", () => {
       env: { PATH: "/home/u/.local/bin:/usr/bin" },
     });
     channel.found = { path: "" };
-    await expect(host.background(WS, "/repo", { kind: "list" })).rejects.toThrow("not found");
+    await expect(host.cli(WS, "/repo", { kind: "agents" })).rejects.toThrow("not found");
   });
 
   test("start says when claude is not found", async () => {

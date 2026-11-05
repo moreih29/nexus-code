@@ -26,6 +26,23 @@ export const APP_COMMANDS: readonly AppCommand[] = [
   { name: "tasks", aliases: ["bashes"] },
   { name: "workflows" },
   { name: "background", aliases: ["bg"], argumentHint: "[prompt]" },
+  { name: "skills" },
+  { name: "plugin", aliases: ["plugins", "marketplace"], argumentHint: "[install <plugin>]" },
+  { name: "upgrade" },
+  { name: "update" },
+  { name: "release-notes" },
+  { name: "feedback" },
+  { name: "login" },
+  { name: "logout" },
+  { name: "teleport", aliases: ["tp"] },
+  { name: "install-github-app" },
+  { name: "install-slack-app" },
+  { name: "setup-bedrock" },
+  { name: "setup-vertex" },
+  { name: "web-setup" },
+  { name: "remote-env" },
+  { name: "ultrareview", argumentHint: "[PR]" },
+  { name: "autofix-pr" },
   { name: "help" },
   { name: "exit", aliases: ["quit"] },
 ];
@@ -389,4 +406,132 @@ export function backgroundSessionsOf(stdout: string): BackgroundSession[] {
 /** The id `claude --bg` printed ("backgrounded · 8c55b250 (idle…)"), or null. */
 export function backgroundIdOf(stdout: string): string | null {
   return /backgrounded\s*·\s*([0-9a-f]{8})\b/.exec(stdout)?.[1] ?? null;
+}
+
+/** Pages the CLI's own commands open. */
+export const COMMAND_LINKS: Readonly<Record<string, string>> = {
+  upgrade: "https://claude.ai/upgrade",
+  "release-notes": "https://code.claude.com/docs/en/changelog",
+  feedback: "https://github.com/anthropics/claude-code/issues",
+};
+
+/**
+ * Commands that need Claude Code's own screen, or sign it in or out: they
+ * run once in a terminal, outside the conversation. The command line, and
+ * the argument to quote for the terminal's shell ("" for none).
+ */
+export function terminalCommandOf(
+  name: string,
+  args: string,
+): { command: string; argument: string } | null {
+  switch (name) {
+    case "login":
+      return { command: "claude auth login", argument: "" };
+    case "logout":
+      return { command: "claude auth logout", argument: "" };
+    case "update":
+      return { command: "claude update", argument: "" };
+    case "teleport":
+      return { command: "claude --teleport", argument: "" };
+    case "install-github-app":
+    case "install-slack-app":
+    case "setup-bedrock":
+    case "setup-vertex":
+    case "web-setup":
+    case "remote-env":
+    case "ultrareview":
+    case "autofix-pr":
+      return { command: "claude", argument: `/${name}${args ? ` ${args}` : ""}` };
+    default:
+      return null;
+  }
+}
+
+/** The ones that change how Claude Code is signed in or what it runs: a restart picks them up. */
+export const RESTART_AFTER = new Set(["login", "logout", "update"]);
+
+export interface SkillInfo {
+  name: string;
+  /** Where it comes from: a plugin's name, or projectSettings, userSettings… */
+  source: string;
+  path?: string;
+  tokens?: number;
+}
+
+/** The skills in the context's breakdown (get_context_usage). */
+export function skillsOf(usage: unknown): SkillInfo[] {
+  const skills = (usage as { skills?: { skillFrontmatter?: unknown } } | null)?.skills;
+  const list = skills?.skillFrontmatter;
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((raw): SkillInfo[] => {
+    const skill = raw as Record<string, unknown> | null;
+    if (typeof skill?.name !== "string" || !skill.name) return [];
+    const text = (v: unknown) => (typeof v === "string" && v ? v : undefined);
+    return [
+      {
+        name: skill.name,
+        source: text(skill.pluginName) ?? text(skill.source) ?? "",
+        path: text(skill.path),
+        tokens: typeof skill.tokens === "number" ? skill.tokens : undefined,
+      },
+    ];
+  });
+}
+
+export type PluginAction = "install" | "enable" | "disable" | "update" | "uninstall";
+
+export interface PluginInfo {
+  /** name@marketplace. */
+  id: string;
+  version?: string;
+  /** user, project, local or managed. */
+  scope: string;
+  enabled: boolean;
+}
+
+/** The installed plugins in `claude plugin list --json`. */
+export function pluginsOf(stdout: string): PluginInfo[] {
+  let list: unknown;
+  try {
+    list = JSON.parse(stdout);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((raw): PluginInfo[] => {
+    const plugin = raw as Record<string, unknown> | null;
+    if (typeof plugin?.id !== "string" || !plugin.id) return [];
+    return [
+      {
+        id: plugin.id,
+        version: typeof plugin.version === "string" ? plugin.version : undefined,
+        scope: typeof plugin.scope === "string" ? plugin.scope : "",
+        enabled: plugin.enabled === true,
+      },
+    ];
+  });
+}
+
+/** What a `claude plugin <action> --json` run said: its result line, else what it printed. */
+export function pluginResultOf(run: { code: number; stdout: string; stderr: string }): {
+  ok: boolean;
+  message: string;
+} {
+  for (const line of run.stdout.split("\n")) {
+    try {
+      const result = JSON.parse(line) as { outcome?: unknown; message?: unknown };
+      if (typeof result?.outcome === "string") {
+        return {
+          ok: result.outcome === "ok",
+          message: typeof result.message === "string" ? result.message : result.outcome,
+        };
+      }
+    } catch {
+      // Not the result line.
+    }
+  }
+  return {
+    ok: run.code === 0,
+    message: (run.code === 0 ? run.stdout : run.stderr || run.stdout).trim(),
+  };
 }

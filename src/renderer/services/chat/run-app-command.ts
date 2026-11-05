@@ -2,6 +2,7 @@
 // a card above the composer, the clipboard, a file, the git view.
 
 import i18next from "i18next";
+import { showConfirmDialog } from "../../components/ui/confirm-dialog";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { openClaudeTab } from "../../state/operations/tabs";
@@ -10,9 +11,11 @@ import { closeTabWithConfirm } from "../editor/save/close-tab";
 import { showChanges } from "../sessions/actions";
 import { openTerminal } from "../terminal/open-terminal";
 import { queueStartupInput } from "../terminal/pty-client";
+import { agentCommandLine } from "../workspace/tasks";
 import {
   APP_COMMANDS,
   backgroundSessionsOf,
+  COMMAND_LINKS,
   conversationMarkdown,
   copyIndex,
   directoryArg,
@@ -21,11 +24,17 @@ import {
   hooksMarkdown,
   memoryFilesOf,
   nthAnswer,
+  type PluginAction,
   permissionFiles,
   permissionsMarkdown,
   permissionsOf,
+  pluginResultOf,
+  pluginsOf,
+  RESTART_AFTER,
   sandboxOn,
+  skillsOf,
   subtaskPrompt,
+  terminalCommandOf,
 } from "./app-commands";
 import type { ChatController } from "./controller";
 import type { ChatItem, ToolCall } from "./model";
@@ -43,6 +52,7 @@ export interface AppCommandContext {
   /** A tool call's one line, as the conversation shows it. */
   summarize: (tool: ToolCall) => string;
   openFileTab: (path: string) => void;
+  openUrl: (url: string) => void;
 }
 
 export async function runAppCommand(
@@ -52,6 +62,44 @@ export async function runAppCommand(
   const t = i18next.t.bind(i18next);
   const { controller } = ctx;
   const title = `/${command.name}${command.args ? ` ${command.args}` : ""}`;
+  const link = COMMAND_LINKS[command.name];
+  if (link) {
+    ctx.openUrl(link);
+    return;
+  }
+  const terminal = terminalCommandOf(command.name, command.args);
+  if (terminal) {
+    const line = `${terminal.command}${terminal.argument ? ` ${terminal.argument}` : ""}`;
+    runInTerminal(ctx, terminal.command, terminal.argument);
+    controller.showCard({
+      title,
+      text: t("chat.commands.in_terminal", { command: line }),
+      sections: RESTART_AFTER.has(command.name)
+        ? [
+            {
+              title: t("chat.commands.restart_after"),
+              empty: "",
+              rows: [
+                {
+                  id: "restart",
+                  label: t("chat.commands.restart_hint"),
+                  actions: [
+                    {
+                      label: t("chat.commands.restart"),
+                      run: () => {
+                        controller.closeCard();
+                        void controller.restart().catch(failed);
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          ]
+        : undefined,
+    });
+    return;
+  }
   switch (command.name) {
     case "btw": {
       if (!command.args) {
@@ -236,6 +284,51 @@ export async function runAppCommand(
       }
       return;
     }
+    case "skills": {
+      const id = controller.showCard({ title, loading: true });
+      try {
+        const skills = skillsOf(await controller.ask("get_context_usage"));
+        controller.updateCard(id, {
+          loading: false,
+          sections: [
+            {
+              title: t("chat.commands.skills_title", { count: skills.length }),
+              empty: t("chat.commands.skills_none"),
+              rows: skills.map((skill) => ({
+                id: `${skill.source}/${skill.name}`,
+                label: skill.name,
+                detail: skill.source,
+                actions: skill.path
+                  ? [
+                      {
+                        label: t("chat.commands.open"),
+                        run: () => ctx.openFileTab(skill.path ?? ""),
+                      },
+                    ]
+                  : [],
+              })),
+            },
+          ],
+        });
+      } catch (err) {
+        controller.updateCard(id, { loading: false, error: (err as Error).message });
+      }
+      return;
+    }
+    case "plugin": {
+      const [verb, ...rest] = command.args.split(/\s+/).filter(Boolean);
+      if (!verb) {
+        await showPlugins(ctx, title);
+        return;
+      }
+      if (verb.toLowerCase() !== "install" || rest.length !== 1) {
+        showToast({ kind: "warning", message: t("chat.commands.plugin_usage") });
+        return;
+      }
+      await changePlugin(ctx, "install", rest[0]);
+      await showPlugins(ctx, "/plugin");
+      return;
+    }
     case "help": {
       const lines = APP_COMMANDS.map(
         (c) =>
@@ -301,10 +394,10 @@ async function showTasks(
   let error: string | undefined;
   try {
     const run = unwrapIpcResult(
-      await ipcCallResult("chat", "background", {
+      await ipcCallResult("chat", "cli", {
         workspaceId: ctx.workspaceId,
         cwd: ctx.cwd,
-        command: { kind: "list" },
+        command: { kind: "agents" },
       }),
     );
     if (run.code !== 0) throw new Error(run.stderr.trim() || `claude agents: ${run.code}`);
@@ -329,7 +422,7 @@ async function showTasks(
                 {
                   label: t("chat.commands.stop"),
                   run: () =>
-                    void ipcCallResult("chat", "background", {
+                    void ipcCallResult("chat", "cli", {
                       workspaceId: ctx.workspaceId,
                       cwd: ctx.cwd,
                       command: { kind: "stop", id: session.id },
@@ -343,4 +436,141 @@ async function showTasks(
     error = (err as Error).message;
   }
   controller.updateCard(id, { loading: false, sections, error });
+}
+
+function failed(err: Error): void {
+  showToast({ kind: "error", message: err.message });
+}
+
+/** Opens a terminal in the tab's folder that runs `command`, with `argument` quoted for its shell. */
+function runInTerminal(ctx: AppCommandContext, command: string, argument: string): void {
+  const { tabId } = openTerminal({ workspaceId: ctx.workspaceId, cwd: ctx.cwd });
+  queueStartupInput(
+    ctx.workspaceId,
+    tabId,
+    (shellPath) => agentCommandLine(command, argument, shellPath) ?? "",
+  );
+}
+
+/**
+ * /plugin: the installed plugins, to turn off or on, update or remove,
+ * and Claude Code's own /plugin in a terminal for the marketplaces.
+ */
+async function showPlugins(ctx: AppCommandContext, title: string, cardId?: string): Promise<void> {
+  const t = i18next.t.bind(i18next);
+  const { controller } = ctx;
+  const id = cardId ?? controller.showCard({ title, loading: true });
+  const again = () => void showPlugins(ctx, title, id);
+  const browse: CardSection = {
+    title: t("chat.commands.marketplace_title"),
+    empty: "",
+    rows: [
+      {
+        id: "browse",
+        label: t("chat.commands.marketplace_hint"),
+        actions: [
+          {
+            label: t("chat.commands.marketplace_open"),
+            run: () => runInTerminal(ctx, "claude", "/plugin"),
+          },
+        ],
+      },
+    ],
+  };
+  try {
+    const run = unwrapIpcResult(
+      await ipcCallResult("chat", "cli", {
+        workspaceId: ctx.workspaceId,
+        cwd: ctx.cwd,
+        command: { kind: "plugins" },
+      }),
+    );
+    if (run.code !== 0) throw new Error(run.stderr.trim() || `claude plugin list: ${run.code}`);
+    const change = (action: PluginAction, plugin: string, scope: string) => () =>
+      void changePlugin(ctx, action, plugin, scope).then(again);
+    const installed: CardSection = {
+      title: t("chat.commands.plugins_title"),
+      empty: t("chat.commands.plugins_none"),
+      rows: pluginsOf(run.stdout).map((plugin) => {
+        const scoped =
+          plugin.scope === "user" || plugin.scope === "project" || plugin.scope === "local";
+        return {
+          id: `${plugin.scope}/${plugin.id}`,
+          label: plugin.id,
+          detail: [
+            plugin.version,
+            plugin.scope,
+            t(plugin.enabled ? "chat.commands.plugin_on" : "chat.commands.plugin_off"),
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          // A managed plugin is the organization's to change.
+          actions: scoped
+            ? [
+                plugin.enabled
+                  ? {
+                      label: t("chat.commands.plugin_disable"),
+                      run: change("disable", plugin.id, plugin.scope),
+                    }
+                  : {
+                      label: t("chat.commands.plugin_enable"),
+                      run: change("enable", plugin.id, plugin.scope),
+                    },
+                {
+                  label: t("chat.commands.plugin_update"),
+                  run: change("update", plugin.id, plugin.scope),
+                },
+                {
+                  label: t("chat.commands.plugin_uninstall"),
+                  run: () =>
+                    void showConfirmDialog({
+                      title: t("chat.commands.plugin_uninstall_title", { name: plugin.id }),
+                      description: t("chat.commands.plugin_uninstall_body"),
+                      confirmLabel: t("chat.commands.plugin_uninstall"),
+                      variant: "destructive",
+                    }).then((yes) =>
+                      yes ? change("uninstall", plugin.id, plugin.scope)() : undefined,
+                    ),
+                },
+              ]
+            : [],
+        };
+      }),
+    };
+    controller.updateCard(id, { loading: false, sections: [installed, browse] });
+  } catch (err) {
+    controller.updateCard(id, {
+      loading: false,
+      sections: [browse],
+      error: (err as Error).message,
+    });
+  }
+}
+
+/** Runs `claude plugin <action>`, says how it went, and has the session load the plugins again. */
+async function changePlugin(
+  ctx: AppCommandContext,
+  action: PluginAction,
+  plugin: string,
+  scope?: string,
+): Promise<void> {
+  try {
+    const run = unwrapIpcResult(
+      await ipcCallResult("chat", "cli", {
+        workspaceId: ctx.workspaceId,
+        cwd: ctx.cwd,
+        command: {
+          kind: "plugin",
+          action,
+          plugin,
+          ...(scope === "user" || scope === "project" || scope === "local" ? { scope } : {}),
+        },
+      }),
+    );
+    const result = pluginResultOf(run);
+    showToast({ kind: result.ok ? "info" : "error", message: result.message });
+    if (result.ok) await ctx.controller.reloadPlugins();
+  } catch (err) {
+    failed(err as Error);
+  }
 }

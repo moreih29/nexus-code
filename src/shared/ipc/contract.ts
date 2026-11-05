@@ -912,17 +912,18 @@ export const ipcContract = {
       /** Stops waiting for a sign-in. */
       oauthCancel: call(z.object({ id: z.string().max(64) }), z.void()),
       /**
-       * Claude Code's background sessions of a folder: lists them (`claude
-       * agents --json`), sends a session there (`claude --bg`), stops one.
+       * Runs `claude` in a folder for what a tab does outside its session:
+       * the background sessions (`claude agents --json`, `claude --bg`,
+       * `claude stop`) and the plugins (`claude plugin …`).
        */
-      background: call(
+      cli: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
           cwd: z.string().max(4096),
           command: z.discriminatedUnion("kind", [
-            z.object({ kind: z.literal("list") }),
+            z.object({ kind: z.literal("agents") }),
             z.object({
-              kind: z.literal("send"),
+              kind: z.literal("background"),
               sessionId: z
                 .string()
                 .regex(/^[0-9A-Za-z-]{1,128}$/)
@@ -934,6 +935,16 @@ export const ipcContract = {
               prompt: z.string().max(100_000).optional(),
             }),
             z.object({ kind: z.literal("stop"), id: z.string().regex(/^[0-9A-Za-z_-]{1,128}$/) }),
+            z.object({ kind: z.literal("plugins") }),
+            z.object({
+              kind: z.literal("plugin"),
+              action: z.enum(["install", "enable", "disable", "update", "uninstall"]),
+              /** name, or name@marketplace. */
+              plugin: z
+                .string()
+                .regex(/^[0-9A-Za-z][0-9A-Za-z._-]{0,127}(@[0-9A-Za-z][0-9A-Za-z._-]{0,127})?$/),
+              scope: z.enum(["user", "project", "local"]).optional(),
+            }),
           ]),
         }),
         z.object({

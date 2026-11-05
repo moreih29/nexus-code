@@ -4,6 +4,7 @@ import {
   appCommandsBeside,
   backgroundIdOf,
   backgroundSessionsOf,
+  COMMAND_LINKS,
   code,
   conversationMarkdown,
   copyIndex,
@@ -17,8 +18,12 @@ import {
   permissionFiles,
   permissionsMarkdown,
   permissionsOf,
+  pluginResultOf,
+  pluginsOf,
   sandboxOn,
+  skillsOf,
   subtaskPrompt,
+  terminalCommandOf,
 } from "../../../../../src/renderer/services/chat/app-commands";
 import type { ChatItem, ToolCall } from "../../../../../src/renderer/services/chat/model";
 
@@ -294,5 +299,76 @@ describe("app commands", () => {
       ),
     ).toBe("8c55b250");
     expect(backgroundIdOf("error: no such session")).toBeNull();
+  });
+
+  test("links, and the commands that run in a terminal", () => {
+    expect(parseAppCommand("/tp", [])).toEqual({ name: "teleport", args: "" });
+    expect(parseAppCommand("/marketplace", [])).toEqual({ name: "plugin", args: "" });
+    expect(COMMAND_LINKS.feedback).toStartWith("https://github.com/anthropics/claude-code");
+    expect(terminalCommandOf("login", "")).toEqual({ command: "claude auth login", argument: "" });
+    expect(terminalCommandOf("teleport", "x")).toEqual({
+      command: "claude --teleport",
+      argument: "",
+    });
+    expect(terminalCommandOf("ultrareview", "123")).toEqual({
+      command: "claude",
+      argument: "/ultrareview 123",
+    });
+    expect(terminalCommandOf("copy", "")).toBeNull();
+  });
+
+  test("/skills from the context's breakdown", () => {
+    expect(
+      skillsOf({
+        skills: {
+          skillFrontmatter: [
+            {
+              name: "pdf",
+              source: "plugin",
+              pluginName: "docs",
+              path: "/p/pdf/SKILL.md",
+              tokens: 40,
+            },
+            { name: "deploy", source: "projectSettings" },
+            { source: "userSettings" },
+          ],
+        },
+      }),
+    ).toEqual([
+      { name: "pdf", source: "docs", path: "/p/pdf/SKILL.md", tokens: 40 },
+      { name: "deploy", source: "projectSettings", path: undefined, tokens: undefined },
+    ]);
+    expect(skillsOf({})).toEqual([]);
+  });
+
+  test("/plugin: the installed ones, and what a change said", () => {
+    expect(
+      pluginsOf(
+        JSON.stringify([
+          { id: "a@m", version: "1.0.1", scope: "user", enabled: true },
+          { id: "b@m", scope: "managed", enabled: false },
+          { version: "2" },
+        ]),
+      ),
+    ).toEqual([
+      { id: "a@m", version: "1.0.1", scope: "user", enabled: true },
+      { id: "b@m", version: undefined, scope: "managed", enabled: false },
+    ]);
+    expect(pluginsOf("oops")).toEqual([]);
+    expect(
+      pluginResultOf({
+        code: 1,
+        stdout:
+          '{"command":"disable","outcome":"failed","message":"Plugin \\"x\\" is already disabled"}\n',
+        stderr: "✘ Failed",
+      }),
+    ).toEqual({ ok: false, message: 'Plugin "x" is already disabled' });
+    expect(
+      pluginResultOf({ code: 0, stdout: '{"outcome":"ok","message":"Done"}', stderr: "" }),
+    ).toEqual({ ok: true, message: "Done" });
+    expect(pluginResultOf({ code: 2, stdout: "", stderr: "boom\n" })).toEqual({
+      ok: false,
+      message: "boom",
+    });
   });
 });
