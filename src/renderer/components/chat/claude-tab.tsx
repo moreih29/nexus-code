@@ -37,6 +37,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   const rootPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
   );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the target is read once; the controller keeps the session it moves on to
   const controller = useMemo(
     () =>
       chatController(
@@ -54,8 +55,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
             useTabsStore.getState().setProcessTitle(workspaceId, tabId, titleOf(text)),
         },
       ),
-    // The target is read once: the controller keeps the session it moves on to.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: see above
     [workspaceId, tabId],
   );
   const state = useChatTab(workspaceId, tabId);

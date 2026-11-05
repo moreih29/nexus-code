@@ -336,12 +336,13 @@ function ModeChip({ controller, state }: ComposerProps) {
   );
 }
 
-/** The model info the session runs, as the CLI names it either way. */
+/** The model info the session runs, as the CLI names it either way (alias or id). */
 export function currentModelInfo(
   models: ModelInfo[],
   current: string | undefined,
 ): ModelInfo | undefined {
-  if (!current) return undefined;
+  // Before its first turn the session names no model: it runs the default.
+  if (!current) return models.find((m) => m.value === "default");
   return (
     models.find((m) => m.value === current) ??
     models.find((m) => m.resolvedModel === current) ??
