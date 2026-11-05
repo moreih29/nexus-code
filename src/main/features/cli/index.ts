@@ -31,6 +31,7 @@ import { ClaudeExitWatch } from "./claude-exit";
 import { CLI_COMMANDS } from "./commands";
 import { CrossWorkspaceConsent, type CrossWorkspacePolicy } from "./consent";
 import { CliError, type CliServices, shortId } from "./context";
+import { listedAt } from "./listed";
 import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
 import { type AgentRunSource, SessionHistory, type SessionSpanStore } from "./history";
@@ -190,11 +191,16 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     appVersion: options.appVersion,
     listWorkspaces: () => workspaceManager.list(),
     addWorkspace: async (location, name) => {
+      const listed = await listedAt(workspaceManager.list(), location);
+      if (listed) return { workspace: listed, added: false };
       if (location.kind === "local") {
         const found = await stat(location.rootPath).catch(() => null);
         if (!found?.isDirectory()) throw new CliError(`no folder at ${location.rootPath}`);
       }
-      return workspaceManager.create({ location, ...(name ? { name } : {}) });
+      return {
+        workspace: workspaceManager.create({ location, ...(name ? { name } : {}) }),
+        added: true,
+      };
     },
     shownTab: () => options.activeContext.get(),
     claudeStatus: (workspaceId, tabId) => options.claudeBroker.get(workspaceId, tabId),
