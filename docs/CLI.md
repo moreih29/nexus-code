@@ -167,6 +167,22 @@ nexus problems                       # 열린 파일의 언어 서버 오류 · 
 
 자기 워크스페이스는 묻지 않습니다. 읽기와 보여주기(`tab show`, `workspace switch`, `reveal`)도 묻지 않고, 앱 전체의 패널(`panel`)과 워크스페이스 추가(`workspace add`)도 묻지 않습니다.
 
+## 설정 바꾸기
+
+```bash
+nexus settings list                         # 설정 · 현재 값 · 받는 값 (바꾼 것은 *)
+nexus settings get editor.fontSize
+nexus settings set terminal.cursorStyle bar
+nexus settings set editor.fontFamily ""     # 빈 값이면 시스템 글꼴
+nexus settings reset editor.fontSize        # 기본값으로
+```
+
+- 설정 창에서 바꾸는 것과 같습니다. 바로 반영되고 저장됩니다.
+- 테마 · 언어 · 아이콘 · 창 투명도 · 비활성 패널 흐림, 에디터 · 터미널 글꼴, 커서 모양, 작업 에이전트 명령, 세션 탭 기본 보기, 데스크톱 알림, 업데이트 자동 확인, 에이전트 안내를 바꿀 수 있습니다.
+- 켜고 끄는 값은 `on` / `off`, 숫자는 범위 안, 고르는 값은 목록 중 하나입니다.
+- 앱 전체 설정이라 묻지 않습니다. 단, "다른 워크스페이스 변경" 과 에이전트 CLI 켜기 · 끄기는 사용자만 설정 창에서 바꿀 수 있습니다.
+- 창 투명도는 명령으로는 0.2 아래로 내릴 수 없습니다(창이 안 보이면 되돌릴 수 없어서).
+
 ## 에이전트에게 알려주기
 
 앱에서 시작한 Claude Code 세션은 시작할 때 `nexus` 사용법을 짧게 안내받습니다. **설정 → 에이전트 CLI** 에서 끌 수 있습니다.

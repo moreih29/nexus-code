@@ -12,15 +12,21 @@ import {
 import type { ConsoleEntry } from "../../../../src/main/features/cli/browser/console-log";
 import type { BrowserDriver, PageInfo } from "../../../../src/main/features/cli/browser/driver";
 import type { PickedElement, PickResult } from "../../../../src/main/features/cli/browser/pick";
-import type { CliContext, CliServices } from "../../../../src/main/features/cli/context";
+import {
+  type CliContext,
+  CliError,
+  type CliServices,
+} from "../../../../src/main/features/cli/context";
 import { StartedAgents } from "../../../../src/main/features/cli/started-agents";
 import { WaitRegistry } from "../../../../src/main/features/cli/waits";
 import type { ClaudeStatus } from "../../../../src/shared/claude/status";
+import { parseSettingValue } from "../../../../src/shared/cli/settings";
 import type {
   CliConsentAnswer,
   CliLayoutNode,
   CliPanels,
   CliProblem,
+  CliSettingInfo,
   CliTabInfo,
   CliUiOp,
   CliUiOps,
@@ -169,7 +175,51 @@ export interface FakeApp {
   problems: CliProblem[];
   /** The ports each workspace's terminals listen on; an Error fails the look. */
   ports: Record<string, ListeningPort[] | Error>;
+  /** The app's settings, as settings.list gives them. */
+  appSettings: CliSettingInfo[];
 }
+
+/** Some of the app's settings: one only the user changes, one with many choices. */
+const APP_SETTINGS: CliSettingInfo[] = [
+  {
+    key: "editor.fontSize",
+    summary: "The editor's font size, in pixels",
+    type: "integer",
+    min: 8,
+    max: 32,
+    value: 16,
+    changed: false,
+  },
+  {
+    key: "terminal.ligatures",
+    summary: "Whether the terminal joins characters into ligatures",
+    type: "boolean",
+    value: true,
+    changed: true,
+  },
+  {
+    key: "agentCli.crossWorkspace",
+    summary: "Whether nexus may change other workspaces",
+    type: "choice",
+    choices: ["ask", "allow", "deny"],
+    value: "ask",
+    changed: false,
+    readOnly: true,
+  },
+  {
+    key: "appearance.theme",
+    summary: "The color theme",
+    type: "choice",
+    choices: Array.from({ length: 12 }, (_, i) => (i === 0 ? "dark" : `a-long-theme-name-${i}`)),
+    value: "dark",
+    changed: false,
+  },
+];
+
+const SETTING_DEFAULTS: Record<string, CliSettingInfo["value"]> = {
+  "editor.fontSize": 16,
+  "terminal.ligatures": false,
+};
 
 export interface FakeBrowser {
   calls: Array<{ op: string; tabId: string; args: unknown[] }>;
@@ -296,6 +346,7 @@ export function fakeApp(now = Date.now()): FakeApp {
   };
   const problems: CliProblem[] = [];
   const ports: FakeApp["ports"] = {};
+  const appSettings = APP_SETTINGS.map((setting) => ({ ...setting }));
   const consent = new CrossWorkspaceConsent({
     policy: () => settings.crossWorkspace,
     ask: async (request) => {
@@ -353,6 +404,24 @@ export function fakeApp(now = Date.now()): FakeApp {
     }
     if (op === "panels.get") return panels as CliUiOps[K]["result"];
     if (op === "problems.list") return { problems } as CliUiOps[K]["result"];
+    if (op === "settings.list") return { settings: appSettings } as CliUiOps[K]["result"];
+    if (op === "settings.set") {
+      const { key, value } = args as CliUiOps["settings.set"]["args"];
+      const index = appSettings.findIndex((s) => s.key.toLowerCase() === key.toLowerCase());
+      const setting = appSettings[index];
+      if (!setting) throw new CliError(`no setting "${key}"; nexus settings list shows them`);
+      if (setting.readOnly) {
+        throw new CliError(`${setting.key} is the user's to change, in Settings`);
+      }
+      const parsed =
+        value === null
+          ? { value: SETTING_DEFAULTS[setting.key] as CliSettingInfo["value"] }
+          : parseSettingValue(setting, value);
+      if ("error" in parsed) throw new CliError(`${setting.key}: ${parsed.error}`);
+      const next = { ...setting, value: parsed.value, changed: value !== null };
+      appSettings[index] = next;
+      return { setting: next } as CliUiOps[K]["result"];
+    }
     if (op === "browser.navigate") {
       const { url } = args as CliUiOps["browser.navigate"]["args"];
       return (url === undefined ? {} : { url }) as CliUiOps[K]["result"];
@@ -425,6 +494,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     panels,
     problems,
     ports,
+    appSettings,
   };
 }
 
