@@ -157,7 +157,7 @@ function prefix(text: string, mark: string): string[] {
 
 function PatchView({ hunks }: { hunks: Hunk[] }) {
   return (
-    <div className="max-h-80 overflow-auto font-mono text-app-micro leading-5">
+    <div className="app-scrollbar max-h-80 overflow-auto font-mono text-app-micro leading-5">
       {hunks.map((hunk, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: hunks have no identity of their own
         <div key={i} className={i > 0 ? "border-t border-border" : ""}>
@@ -185,7 +185,7 @@ function Pre({ text, added = false }: { text: string; added?: boolean }) {
   return (
     <pre
       className={cn(
-        "m-0 max-h-80 overflow-auto px-2 py-1.5 font-mono text-app-micro leading-5 whitespace-pre-wrap break-all",
+        "app-scrollbar m-0 max-h-80 overflow-auto px-2 py-1.5 font-mono text-app-micro leading-5 whitespace-pre-wrap break-all",
         added && "bg-[var(--diff-added-bg,rgba(46,160,67,0.10))]",
       )}
     >

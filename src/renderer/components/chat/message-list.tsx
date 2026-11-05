@@ -125,7 +125,7 @@ export function MessageList({
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="absolute inset-0 overflow-y-auto"
+        className="app-scrollbar absolute inset-0 overflow-y-auto"
         data-testid="chat-messages"
       >
         <div ref={contentRef} className="mx-auto flex max-w-[860px] flex-col gap-3 px-4 py-4">

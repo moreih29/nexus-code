@@ -243,7 +243,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
           />
           {/* Docked over the composer, so a request is seen wherever the list is scrolled. */}
           {(permissions.length > 0 || state.model.running) && (
-            <div className="max-h-[60%] shrink-0 overflow-y-auto px-4 pt-2">
+            <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 pt-2">
               <div className="mx-auto flex max-w-[860px] flex-col gap-2">
                 {permissions.length > 0 && shown && (
                   <div
