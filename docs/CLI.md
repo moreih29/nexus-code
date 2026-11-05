@@ -70,6 +70,25 @@ nexus terminal wait build --exit                   # 터미널이 끝날 때까�
 - `--match` 는 지금 화면 전체를 봅니다. 입력한 명령 줄 자체가 걸릴 수 있으니 `'^ready'` 처럼 줄 시작에 고정하는 것이 좋습니다.
 - 자기 터미널에는 입력할 수 없습니다. 도구 허용을 기다리는 Claude Code 에도 입력하지 않습니다. 허용 여부는 사용자가 정합니다.
 
+## 세션의 에이전트 따라가기
+
+Claude Code 세션 안의 서브에이전트와, 그 세션이 Bash 로 실행한 `claude -p` 를 봅니다. 세션이 `claude -p` 를 서브에이전트처럼 쓸 때 씁니다.
+
+```bash
+claude -p "README 요약해줘" > /dev/null &   # Bash 도구에서 백그라운드로 실행
+nexus agent list                            # 이 터미널 세션의 서브에이전트 · claude -p 실행
+nexus agent show 8f7b                       # 상태, 모델, 도구와 결과, 답변
+nexus agent wait 8f7b --timeout 5m          # 끝날 때까지 기다린 뒤 show 처럼 출력
+nexus agent stop 8f7b                       # claude -p 실행 멈추기
+claude -p --resume <세션 id> "이어서 테스트도 추가해줘"   # 같은 실행으로 이어짐
+```
+
+- `claude -p` 실행의 id 는 그 Claude 세션 id 입니다. `--resume <id>` 로 이어 가면 새 실행이 아니라 같은 실행이 이어지는 것으로 보입니다. 미리 id 를 정하려면 `--session-id` 를 줍니다.
+- 도구 기록은 실행의 트랜스크립트(또는 `--output-format stream-json` 출력)에서 읽습니다. `-c` 처럼 어느 세션인지 미리 알 수 없는 실행은 도구가 `?` 로 나옵니다.
+- `agent wait` 의 기본 대기 시간은 10분, 최대 30분입니다(`--timeout`). 시간이 다 되면 종료 코드 124 입니다.
+- `agent stop` 은 그 `claude` 에 인터럽트를 보내고, 5초 안에 멈추지 않으면 종료합니다. 서브에이전트는 세션의 턴과 함께 멈추므로 멈출 수 없습니다.
+- 다른 터미널의 세션은 `--tab`(다른 워크스페이스면 `--workspace` 도)으로 고릅니다.
+
 ## 워크스페이스 추가 · 제거
 
 ```bash

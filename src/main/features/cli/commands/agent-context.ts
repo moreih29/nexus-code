@@ -31,6 +31,8 @@ const agentContext: CliCommand = {
       "and nexus problems lists the language servers' errors in open files.",
       "When the user means an element on a page, nexus browser pick has them click it and",
       "prints its ref and selector.",
+      "A claude -p run you start, best in the background, is followed as a subagent is:",
+      "nexus agent list, show, wait and stop; claude -p --resume ID goes on with it.",
       "Run `nexus help` for every command.",
     ].join("\n");
     return output(note, { note });

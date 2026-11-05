@@ -1,5 +1,6 @@
 /** Every nexus command, in the order help lists them. */
 import type { CliCommand } from "../registry";
+import { agentCommands } from "./agent";
 import { agentContextCommands } from "./agent-context";
 import { browserCommands } from "./browser";
 import { browserControlCommands } from "./browser-control";
@@ -26,5 +27,6 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
   ...browserNetworkCommands,
   ...portCommands,
   ...notifyCommands,
+  ...agentCommands,
   ...agentContextCommands,
 ];
