@@ -27,6 +27,10 @@ describe("isPreviewable", () => {
     expect(isPreviewable("/r/settings.JSONC")).toBe("supported");
   });
 
+  it("classifies notebooks as supported", () => {
+    expect(isPreviewable("/r/analysis.ipynb")).toBe("supported");
+  });
+
   it("singles out .mdx as mdx-disabled (preview refused for security)", () => {
     expect(isPreviewable("/r/doc.mdx")).toBe("mdx-disabled");
     expect(isPreviewable("/r/Doc.MDX")).toBe("mdx-disabled");
@@ -49,6 +53,7 @@ describe("previewEngineFor", () => {
     expect(previewEngineFor("/r/logo.svg")).toBe("svg");
     expect(previewEngineFor("/r/package.json")).toBe("json");
     expect(previewEngineFor("/r/tsconfig.jsonc")).toBe("json");
+    expect(previewEngineFor("/r/analysis.IPYNB")).toBe("notebook");
   });
 
   it("throws on non-previewable paths (defensive — callers must filter)", () => {
@@ -84,6 +89,7 @@ describe("defaultViewMode", () => {
     expect(defaultViewMode("/r/README.md")).toBe("preview");
     expect(defaultViewMode("/r/index.html")).toBe("preview");
     expect(defaultViewMode("/r/icon.svg")).toBe("preview");
+    expect(defaultViewMode("/r/analysis.ipynb")).toBe("preview");
     expect(defaultViewMode("/r/page.mdx")).toBe("raw");
     expect(defaultViewMode("/r/index.ts")).toBe("raw");
   });

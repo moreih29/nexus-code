@@ -657,6 +657,10 @@
     "too_large": "Files over {{mb}} MB are not shown as a tree. Switch to Raw.",
     "syntax_error": "Could not read this as JSON: line {{line}}, column {{column}}. Switch to Raw to see it."
   },
+  "notebookPreview": {
+    "not_json": "Could not read this notebook: it is not JSON. Switch to Raw to see it.",
+    "unsupported": "Only notebooks in nbformat 4 or later can be previewed."
+  },
   "imagePreview": {
     "workspace_not_found": "Workspace not found.",
     "outside_workspace": "Image is outside the workspace and cannot be previewed.",

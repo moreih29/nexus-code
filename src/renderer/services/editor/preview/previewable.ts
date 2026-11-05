@@ -21,6 +21,8 @@ const SVG_EXTENSIONS = [".svg"] as const;
 const TABLE_EXTENSIONS = [".csv", ".tsv"] as const;
 // JSON, shown as a tree. Comments are taken, as configuration files have.
 const JSON_EXTENSIONS = [".json", ".jsonc"] as const;
+// Jupyter notebooks, shown as their cells and outputs.
+const NOTEBOOK_EXTENSIONS = [".ipynb"] as const;
 const MDX_EXTENSIONS = [".mdx"] as const;
 
 // Raster image formats the renderer can display via the `nexus-workspace://`
@@ -67,6 +69,7 @@ export function isPreviewable(filePath: string): PreviewSupport {
   if (SVG_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "supported";
   if (TABLE_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "supported";
   if (JSON_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "supported";
+  if (NOTEBOOK_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "supported";
   return "none";
 }
 
@@ -81,7 +84,7 @@ export function defaultViewMode(filePath: string): "raw" | "preview" {
   return previewEngineFor(filePath) === "json" ? "raw" : "preview";
 }
 
-export type PreviewEngine = "markdown" | "html" | "svg" | "table" | "json";
+export type PreviewEngine = "markdown" | "html" | "svg" | "table" | "json" | "notebook";
 
 /**
  * Maps a supported file path to the concrete preview engine. Throws (never
@@ -95,5 +98,6 @@ export function previewEngineFor(filePath: string): PreviewEngine {
   if (SVG_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "svg";
   if (TABLE_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "table";
   if (JSON_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "json";
+  if (NOTEBOOK_EXTENSIONS.some((ext) => lower.endsWith(ext))) return "notebook";
   throw new Error(`previewEngineFor called on non-previewable path: ${filePath}`);
 }

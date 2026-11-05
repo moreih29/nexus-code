@@ -89,6 +89,11 @@ interface MarkdownPreviewProps {
    * (read-only file), checkboxes render disabled — same as plain react-markdown.
    */
   onToggleTask?: (modelLine: number) => void;
+  /**
+   * Images given with the source, by the source an image names them with:
+   * a notebook's outputs, which are no files to load.
+   */
+  images?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -115,6 +120,7 @@ export function MarkdownPreview({
   currentFileAbsPath,
   workspaceRootAbsPath,
   onToggleTask,
+  images,
 }: MarkdownPreviewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -148,9 +154,12 @@ export function MarkdownPreview({
     // clobber prefix while their links keep the original fragment, so fall
     // back to the prefixed id the way github.com does. Footnotes are
     // prefixed twice (remark-rehype, then sanitize) and resolve the same way.
+    // Jupyter links a heading by its text as written ("#Data-Cleaning"),
+    // which rehype-slug lowercases.
     const target =
       container.querySelector(`[id="${cssEscape(id)}"]`) ??
-      container.querySelector(`[id="${cssEscape(`user-content-${id}`)}"]`);
+      container.querySelector(`[id="${cssEscape(`user-content-${id}`)}"]`) ??
+      container.querySelector(`[id="${cssEscape(id.toLowerCase())}"]`);
     if (target && target instanceof HTMLElement) {
       target.scrollIntoView({ behavior: "auto", block: "start" });
     }
@@ -237,7 +246,7 @@ export function MarkdownPreview({
       },
       img({ src, alt, ...rest }) {
         const rawSrc = typeof src === "string" ? src : "";
-        const resolved = resolveImageSrc(rawSrc, workspaceId, imageCtx);
+        const resolved = images?.get(rawSrc) ?? resolveImageSrc(rawSrc, workspaceId, imageCtx);
         if (resolved === null) {
           // Blocked or empty — surface a tiny inline placeholder so the user
           // sees that an image was intended but not loaded.
@@ -262,7 +271,7 @@ export function MarkdownPreview({
       h5: MdHeading,
       h6: MdHeading,
     }),
-    [imageCtx, onLinkClick, workspaceId],
+    [imageCtx, images, onLinkClick, workspaceId],
   );
 
   // Parsing and highlighting happen while <ReactMarkdown> renders. Reusing the
