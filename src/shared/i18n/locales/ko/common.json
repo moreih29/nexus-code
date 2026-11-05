@@ -722,7 +722,6 @@
   "pdfPreview": {
     "outside_workspace": "워크스페이스 밖의 PDF라 미리 볼 수 없습니다.",
     "load_failed": "이 PDF를 열 수 없습니다.",
-    "too_large": "PDF가 너무 커서 미리 볼 수 없습니다 (최대 {{maxMb}} MB).",
     "password": "비밀번호로 보호된 PDF라 미리 볼 수 없습니다.",
     "zoom_in": "확대",
     "zoom_out": "축소",

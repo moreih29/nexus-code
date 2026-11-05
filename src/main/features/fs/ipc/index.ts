@@ -13,6 +13,7 @@ import { getExpandedHandler, setExpandedHandler } from "./expanded-handlers";
 import {
   grantOutsideHandler,
   readBinaryHandler,
+  readRangeHandler,
   readdirHandler,
   readExternalHandler,
   readFileHandler,
@@ -48,6 +49,7 @@ export function registerFsChannel(
       setExpanded: setExpandedHandler(manager, storage),
       readFile: readFileHandler(manager),
       readBinary: readBinaryHandler(manager),
+      readRange: readRangeHandler(manager),
       readExternal: readExternalHandler(manager),
       grantOutside: grantOutsideHandler(),
       writeFile: writeFileHandler(manager),

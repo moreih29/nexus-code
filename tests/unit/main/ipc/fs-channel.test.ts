@@ -1,10 +1,15 @@
 import { describe, expect, it, mock } from "bun:test";
+import {
+  clearOutsideGrants,
+  setOutsideGrant,
+} from "../../../../src/main/features/fs/outside-grants";
 import type { FsProvider } from "../../../../src/main/features/fs/bridge/provider";
 import {
   readBinaryHandler,
   readdirHandler,
   readExternalHandler,
   readFileHandler,
+  readRangeHandler,
   statHandler,
 } from "../../../../src/main/features/fs/ipc/read-handlers";
 import {
@@ -203,6 +208,43 @@ describe("fs read handlers — provider delegation", () => {
     expect(result).toBe(fileResult);
     expect(getFs.mock.calls).toEqual([[WORKSPACE_ID]]);
     expect(readBinary.mock.calls).toEqual([["docs/paper.pdf"]]);
+  });
+
+  it("readRangeHandler reads a workspace file's range, and a granted file outside by its path", async () => {
+    const fileResult: FileReadBinaryResult = {
+      kind: "ok",
+      base64: "JVBERi0=",
+      sizeBytes: 900,
+      mtime: "2026-11-05T00:00:00.000Z",
+    };
+    const readRange = mock(
+      async (_relPath: string, _offset: number, _length: number) => fileResult,
+    );
+    const readAbsoluteRange = mock(
+      async (_absolutePath: string, _offset: number, _length: number) => fileResult,
+    );
+    const { provider } = makeProvider({ kind: "ssh", readRange, readAbsoluteRange });
+    const { manager } = makeManager(provider);
+    const read = (relPath: string) =>
+      readRangeHandler(manager as never)({
+        workspaceId: WORKSPACE_ID,
+        relPath,
+        offset: 100,
+        length: 5,
+      });
+
+    try {
+      expect(await read("docs/paper.pdf")).toBe(fileResult);
+      expect(readRange.mock.calls).toEqual([["docs/paper.pdf", 100, 5]]);
+
+      expect(await read("/tmp/shot.pdf")).toEqual({ kind: "missing", reason: "not-found" });
+      expect(readAbsoluteRange.mock.calls).toEqual([]);
+      setOutsideGrant(WORKSPACE_ID, "tab", ["/tmp/shot.pdf"], []);
+      expect(await read("/tmp/shot.pdf")).toBe(fileResult);
+      expect(readAbsoluteRange.mock.calls).toEqual([["/tmp/shot.pdf", 100, 5]]);
+    } finally {
+      clearOutsideGrants();
+    }
   });
 
   it("readExternalHandler passes the workspace id and absolute path to the provider", async () => {
