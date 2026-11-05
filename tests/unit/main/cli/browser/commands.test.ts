@@ -192,6 +192,45 @@ describe("driving a page", () => {
     expect(app.browser.calls).toEqual([]);
   });
 
+  test("upload gives the input files from this directory, and only a local terminal's", async () => {
+    const app = fakeApp();
+    const result = await nexus(app, ["browser", "upload", "#avatar", "me.png", "/tmp/cv.pdf"], {
+      cwd: "/w/app/assets",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(app.browser.calls.at(-1)?.args).toEqual([
+      "#avatar",
+      ["/w/app/assets/me.png", "/tmp/cv.pdf"],
+    ]);
+    await nexus(app, ["browser", "upload", "#avatar", ""]);
+    expect(app.browser.calls.at(-1)?.args).toEqual(["#avatar", []]);
+    expect((await nexus(app, ["browser", "upload", "#avatar"])).exitCode).toBe(2);
+    app.workspaces[0] = {
+      ...(app.workspaces[0] as (typeof app.workspaces)[number]),
+      location: { kind: "ssh", host: "box", remotePath: "/srv/app" },
+    };
+    const remote = await nexus(app, ["browser", "upload", "#avatar", "me.png"]);
+    expect(remote.stderr).toContain("upload takes files of the computer the app runs on");
+  });
+
+  test("dialog shows the page's dialog, and accept or dismiss answers it", async () => {
+    const app = fakeApp();
+    expect((await nexus(app, ["browser", "dialog"])).stdout).toBe("The page shows no dialog.\n");
+    app.browser.dialog = { type: "confirm", message: "Delete it?", url: "http://localhost:5173/" };
+    expect((await nexus(app, ["browser", "dialog"])).stdout).toBe(
+      'The page shows a confirm dialog: "Delete it?". Answer it with nexus browser dialog accept, or dismiss.\n',
+    );
+    await nexus(app, ["browser", "dialog", "accept"]);
+    await nexus(app, ["browser", "dialog", "dismiss"]);
+    expect(app.browser.calls.slice(-2).map((c) => [c.op, ...c.args])).toEqual([
+      ["answerDialog", true],
+      ["answerDialog", false],
+    ]);
+    expect((await nexus(app, ["browser", "dialog", "ok"])).stderr).toContain(
+      'answer accept or dismiss, not "ok"',
+    );
+  });
+
   test("fill and eval read standard input for -", async () => {
     const app = fakeApp();
     await nexus(app, ["browser", "fill", "e1", "-"], { stdin: "two\nlines\n" });
