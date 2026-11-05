@@ -109,3 +109,22 @@ export function useFoundProgram(program: string): string | null | undefined {
   }, [program]);
   return found;
 }
+
+/** A program's name without its folder or `.exe`: `zsh` for `/bin/zsh`. */
+function programName(path: string): string {
+  return (path.split(/[\\/]/).pop() ?? path).replace(/\.exe$/i, "").toLowerCase();
+}
+
+/**
+ * The shell `name` picks among `entries`, as `nexus terminal new --shell`
+ * takes it: the name the menu shows, then the id, then the program's name,
+ * each ignoring case. Undefined if none does.
+ */
+export function shellNamed(entries: readonly ShellEntry[], name: string): ShellEntry | undefined {
+  const wanted = name.trim().toLowerCase();
+  return (
+    entries.find((entry) => entry.name.toLowerCase() === wanted) ??
+    entries.find((entry) => entry.choice.id.toLowerCase() === wanted) ??
+    entries.find((entry) => programName(entry.path) === wanted)
+  );
+}

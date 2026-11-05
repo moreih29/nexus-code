@@ -260,6 +260,35 @@ describe("terminals", () => {
     });
   });
 
+  test("terminal new --shell names the shell to run", async () => {
+    const app = fakeApp();
+    await nexus(["terminal", "new", "--shell", "fish"], app);
+    expect(lastCall(app, "terminal.open")).toMatchObject({ workspaceId: APP, shell: "fish" });
+  });
+
+  test("terminal new --shell is refused in an SSH workspace", async () => {
+    const app = fakeApp();
+    const ssh = {
+      ...WORKSPACES[1],
+      location: { kind: "ssh", host: "devbox", remotePath: "/srv/api" },
+    } as WorkspaceMeta;
+    app.services = { ...app.services, listWorkspaces: () => [WORKSPACES[0], ssh] };
+    const result = await nexus(["terminal", "new", "--shell", "bash", "--workspace", "api"], app);
+    expect(result.stderr).toBe(
+      "nexus: api's terminals run devbox's login shell; --shell picks one of this machine's\n",
+    );
+    expect(lastCall(app, "terminal.open")).toBeUndefined();
+  });
+
+  test("terminal shells lists the shells, the default marked", async () => {
+    const app = fakeApp();
+    expect((await nexus(["terminal", "shells"], app)).stdout).toBe(
+      "NAME           ID        PATH\n" +
+        "zsh (default)  /bin/zsh  /bin/zsh\n" +
+        "Fish           fish-1    fish\n",
+    );
+  });
+
   test("terminal send pastes the words and presses Enter", async () => {
     const app = fakeApp();
     const result = await nexus(

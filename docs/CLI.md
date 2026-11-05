@@ -33,6 +33,7 @@ nexus status --json     # 모든 명령은 --json 으로 JSON 출력
 | `nexus open src/app.ts:42` | 파일을 그 줄에서 열기 |
 | `nexus diff src/app.ts` | 변경 사항 diff 열기 (`--staged`, `--base REF`) |
 | `nexus terminal new --command "bun dev"` | 새 터미널에서 명령 실행 (기본은 뒤에 열기, `--show` 로 보이기) |
+| `nexus terminal new --shell "Git Bash"` | 고른 셸로 터미널 열기 (`nexus terminal shells` 가 이름 목록. 로컬 워크스페이스만) |
 | `nexus browser open localhost:3000` | 브라우저 탭 열기 (`/login` 처럼 경로만 주면 이 워크스페이스의 개발 서버 포트로) |
 | `nexus tab show <탭>` · `workspace switch <이름>` | 그 탭 · 워크스페이스를 사용자에게 보여주기 |
 | `nexus notify "테스트 통과"` | 데스크톱 알림 |

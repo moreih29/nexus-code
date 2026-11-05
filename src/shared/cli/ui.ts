@@ -6,6 +6,17 @@
 import { z } from "zod";
 
 /** One tab as the CLI lists it. */
+/** A shell a terminal can run. */
+export interface CliShellInfo {
+  name: string;
+  /** "detected" for one found on this machine, "custom" for one added in the settings. */
+  kind: "detected" | "custom";
+  id: string;
+  path: string;
+  /** What a new terminal runs when no shell is named. */
+  isDefault: boolean;
+}
+
 export interface CliTabInfo {
   readonly id: string;
   readonly type: string;
@@ -182,9 +193,16 @@ export interface CliUiOps {
       cwd: string;
       title?: string;
       command?: string;
+      /** A shell of this machine's, by its name, id or program (see "terminal.shells"). */
+      shell?: string;
       placement: CliPlacement;
     };
     result: { tabId: string };
+  };
+  /** The shells a terminal of a local workspace can run, as "New terminal with" lists them. */
+  "terminal.shells": {
+    args: Record<string, never>;
+    result: { shells: CliShellInfo[] };
   };
   /**
    * Types into a terminal: pasted, as the app's paste does, or as keys; then

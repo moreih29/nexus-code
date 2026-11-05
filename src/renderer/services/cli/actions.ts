@@ -7,6 +7,7 @@
  * terminal the command came from. Where it goes is ./placement's call.
  */
 
+import i18next from "i18next";
 import { askCliConsent } from "@/components/cli/consent-dialog";
 import { EMPTY_TREE } from "@/components/editor/diff-refs";
 import { ipcCallResult } from "@/ipc/client";
@@ -17,8 +18,10 @@ import { useGitStore } from "@/state/stores/git";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import { useMountedWorkspacesStore } from "@/state/stores/mounted-workspaces";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
+import { useTerminalStore } from "@/state/stores/terminal";
 import { tasksOf, useWorkspacesStore } from "@/state/stores/workspaces";
 import type { CliUiOp } from "../../../shared/cli/ui";
+import { type ShellChoice, sameShellChoice } from "../../../shared/pty/shell";
 import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
 import { classifyUrl } from "../browser/url-classifier";
 import { isDirty } from "../editor/model/dirty-tracker";
@@ -26,6 +29,12 @@ import { closeTabWithConfirm } from "../editor/save/close-tab";
 import { countUnsavedBuffers } from "../editor/save/unsaved-guard";
 import { requestEditorReveal } from "../editor/tabs/pending-reveal";
 import { runningProgram } from "../terminal/close-confirm";
+import {
+  loadInstalledShells,
+  type ShellEntry,
+  shellEntries,
+  shellNamed,
+} from "../terminal/installed-shells";
 import { closeTerminal } from "../terminal/open-terminal";
 import { queueStartupInput } from "../terminal/pty-client";
 import { getTerminalController } from "../terminal/terminal-registry";
@@ -131,11 +140,26 @@ export const actionHandlers: {
     return { tabId };
   },
 
-  "terminal.open": async ({ workspaceId, cwd, title, command, placement }) => {
-    const tabId = openTab(workspaceId, { type: "terminal", props: { cwd } }, placement);
+  "terminal.open": async ({ workspaceId, cwd, title, command, shell, placement }) => {
+    const choice = shell === undefined ? undefined : (await shellByName(shell)).choice;
+    const props = { cwd, ...(choice ? { shell: choice } : {}) };
+    const tabId = openTab(workspaceId, { type: "terminal", props }, placement);
     if (title) useTabsStore.getState().renameTab(workspaceId, tabId, title);
     if (command) queueStartupInput(workspaceId, tabId, () => `${command}\r`);
     return { tabId };
+  },
+
+  "terminal.shells": async () => {
+    const { entries, defaultShell } = await shellMenu();
+    return {
+      shells: entries.map((entry) => ({
+        name: entry.name,
+        kind: entry.choice.kind,
+        id: entry.choice.id,
+        path: entry.path,
+        isDefault: sameShellChoice(entry.choice, defaultShell),
+      })),
+    };
   },
 
   "terminal.input": async ({ tabId, text, mode, enter }) => {
@@ -278,3 +302,22 @@ export const actionHandlers: {
     return { answer };
   },
 };
+
+/** The shells "New terminal with" lists, and the one a new terminal runs. */
+async function shellMenu(): Promise<{ entries: ShellEntry[]; defaultShell: ShellChoice }> {
+  const installed = await loadInstalledShells();
+  const { customShells, shell } = useTerminalStore.getState();
+  return {
+    entries: shellEntries(i18next.t, installed, customShells),
+    defaultShell: shell ?? { kind: "detected", id: installed.systemDefault.id },
+  };
+}
+
+/** The shell `name` picks, or an error that lists the names to pick from. */
+async function shellByName(name: string): Promise<ShellEntry> {
+  const { entries } = await shellMenu();
+  const entry = shellNamed(entries, name);
+  if (entry) return entry;
+  const names = entries.map((e) => e.name).join(", ");
+  throw new UiRequestError(`no shell is named "${name}"; this machine has ${names}`);
+}
