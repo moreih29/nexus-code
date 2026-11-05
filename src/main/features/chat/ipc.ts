@@ -26,6 +26,10 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
           await host.start(workspaceId, tabId, cwd, { resume, fork, resumeAt, resetLog }),
         );
       },
+      codexStart: async (args: unknown) => {
+        const { workspaceId, tabId, cwd, resetLog } = validateArgs(c.codexStart.args, args);
+        return ipcOk(await host.startCodex(workspaceId, tabId, cwd, { resetLog }));
+      },
       send: async (args: unknown) => {
         const parsed = validateArgs(c.send.args, args);
         await host.call("send", parsed);

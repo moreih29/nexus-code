@@ -232,6 +232,29 @@ describe("ChatHost", () => {
     await expect(host.cli(WS, "/repo", { kind: "agents" })).rejects.toThrow("not found");
   });
 
+  test("a Codex tab runs the app server of the codex the PATH has", async () => {
+    const { channel, host } = setup();
+    channel.found = { path: "/home/u/.local/bin/codex", envPath: "/home/u/.local/bin:/usr/bin" };
+    channel.versionOutput = "codex-cli 0.166.0\n";
+    const result = await host.startCodex(WS, TAB, "/repo", { resetLog: true });
+    expect(result).toEqual({ ok: true, pid: 42, attached: false, version: "0.166.0" });
+    expect(channel.calls.find((c) => c.method === "lsp.findBinary")?.params).toMatchObject({
+      name: "codex",
+    });
+    expect(channel.calls.find((c) => c.method === "chat.start")?.params).toEqual({
+      workspaceId: WS,
+      tabId: TAB,
+      cwd: "/repo",
+      program: "/home/u/.local/bin/codex",
+      args: ["app-server"],
+      env: { PATH: "/home/u/.local/bin:/usr/bin" },
+      resetLog: true,
+    });
+    channel.found = { path: "" };
+    const missing = await host.startCodex(WS, TAB, "/repo", {});
+    expect(missing.ok === false && missing.reason).toBe("not-found");
+  });
+
   test("start says when claude is not found", async () => {
     const { channel, host } = setup();
     channel.found = { path: "" };

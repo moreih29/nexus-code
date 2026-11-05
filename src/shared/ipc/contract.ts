@@ -853,6 +853,28 @@ export const ipcContract = {
           }),
         ]),
       ),
+      /** Runs a Codex tab's `codex app-server`, or attaches to the one the agent still runs. */
+      codexStart: call(
+        PtyWorkspaceTabSchema.extend({
+          cwd: z.string(),
+          /** Drop the tab's log first: the tab starts over. */
+          resetLog: z.boolean().optional(),
+        }),
+        z.discriminatedUnion("ok", [
+          z.object({
+            ok: z.literal(true),
+            pid: z.number().int(),
+            attached: z.boolean(),
+            /** `codex --version`'s x.y.z; null when it could not be read. */
+            version: z.string().nullable(),
+          }),
+          z.object({
+            ok: z.literal(false),
+            reason: z.enum(["not-found", "failed"]),
+            message: z.string(),
+          }),
+        ]),
+      ),
       /** Writes one message to the program as a line. */
       send: call(PtyWorkspaceTabSchema.extend({ message: z.record(z.unknown()) }), z.void()),
       /** Ends the tab's program; its log stays, to show and to start again on. */

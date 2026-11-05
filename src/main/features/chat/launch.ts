@@ -135,7 +135,10 @@ export function claudeCommandArgs(command: ClaudeCommand, cwd: string): string[]
   }
 }
 
-/** The x.y.z of `claude --version`'s output ("2.1.318 (Claude Code)"), or null. */
+/**
+ * The x.y.z of `claude --version`'s output ("2.1.318 (Claude Code)"), or
+ * of `codex --version`'s ("codex-cli 0.166.0"); null without one.
+ */
 export function parseClaudeVersion(output: string): string | null {
   const match = /(\d+)\.(\d+)\.(\d+)/.exec(output);
   return match ? `${match[1]}.${match[2]}.${match[3]}` : null;
