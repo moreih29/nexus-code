@@ -1,11 +1,12 @@
 /**
- * nexus browser snapshot/inspect/click/fill/type/press/screenshot/eval/
- * console/wait/pick: reading and driving the page in a browser tab.
+ * nexus browser snapshot/inspect/click/hover/drag/scroll/fill/type/press/
+ * screenshot/eval/console/wait/pick: reading and driving the page in a
+ * browser tab.
  */
 import type { CliTabInfo } from "../../../../shared/cli/ui";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
-import type { BrowserWaitCondition } from "../browser/driver";
+import type { BrowserScroll, BrowserWaitCondition } from "../browser/driver";
 import { BROWSER_KEYS_HELP } from "../browser/keys";
 import { cancelledText, cleanPicked, formatPick } from "../browser/pick";
 import { type CliContext, CliError, mayChange, resolveWorkspace, shortId } from "../context";
@@ -155,6 +156,95 @@ const browserClick: CliCommand = {
       url: done.url,
       navigated: done.navigated,
     });
+  },
+};
+
+/** What a command that acted on a page gives with --json. */
+function acted(page: Page, done: { url: string; navigated: boolean }) {
+  return {
+    tabId: page.tab.id,
+    workspaceId: page.workspace.id,
+    url: done.url,
+    navigated: done.navigated,
+  };
+}
+
+const browserHover: CliCommand = {
+  path: ["browser", "hover"],
+  summary: "Move the mouse over an element in a browser tab",
+  args: "<element>",
+  details:
+    `${TARGET_DETAILS}\nThe mouse stays there, so menus and tooltips it opens stay open for a\n` +
+    "snapshot or a screenshot. Refused when something else covers it, unless --force.",
+  flags: {
+    force: { type: "boolean", description: "Hover its spot even when something covers it" },
+    ...PAGE_FLAGS,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [target] = exactArgs(positionals, "element") as [string];
+    const page = await pageOf(ctx, flags, true);
+    const done = await ctx.services.browser.hover(page.tab.id, target, {
+      force: flags.force === true,
+    });
+    return output(done.text, acted(page, done));
+  },
+};
+
+const browserDrag: CliCommand = {
+  path: ["browser", "drag"],
+  summary: "Drag an element onto another in a browser tab",
+  args: "<element> <onto>",
+  details:
+    `${TARGET_DETAILS}\nThe mouse presses on the first, moves to the middle of the second and lets\n` +
+    "go. Pages that use HTML drag and drop get its events; ones that follow the mouse get\n" +
+    "its moves.",
+  flags: PAGE_FLAGS,
+  async run(ctx, { positionals, flags }) {
+    const [from, to] = exactArgs(positionals, "element", "onto") as [string, string];
+    const page = await pageOf(ctx, flags, true);
+    const done = await ctx.services.browser.drag(page.tab.id, from, to);
+    return output(done.text, acted(page, done));
+  },
+};
+
+const SCROLL_WAYS = ["up", "down", "left", "right"] as const;
+const SCROLL_ENDS = ["top", "bottom"] as const;
+
+function scrollOf(where: string, by: number | undefined): BrowserScroll {
+  const word = where.toLowerCase();
+  const way = SCROLL_WAYS.find((w) => w === word);
+  if (way) {
+    if (by !== undefined && by <= 0) throw new CliUsageError("--by is a distance above 0");
+    return { kind: "by", way, ...(by === undefined ? {} : { amount: by }) };
+  }
+  if (by !== undefined) throw new CliUsageError("--by goes with up, down, left or right");
+  const end = SCROLL_ENDS.find((e) => e === word);
+  return end ? { kind: "end", end } : { kind: "to", target: where };
+}
+
+const browserScroll: CliCommand = {
+  path: ["browser", "scroll"],
+  summary: "Scroll a browser tab's page or an element, or scroll an element into view",
+  args: "<up|down|left|right|top|bottom|element>",
+  details:
+    "up, down, left and right go most of a view's worth, or --by pixels; top and bottom go\n" +
+    "to the end. An element instead is scrolled into view. --within scrolls an element that\n" +
+    `scrolls by itself, such as a list, instead of the page.\n${TARGET_DETAILS}`,
+  flags: {
+    by: { type: "number", value: "PX", description: "How far, in CSS pixels" },
+    within: { type: "string", value: "ELEMENT", description: "Scroll this element" },
+    ...PAGE_FLAGS,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [where] = exactArgs(positionals, "where") as [string];
+    const scroll = scrollOf(where, flags.by as number | undefined);
+    const within = flags.within as string | undefined;
+    if (scroll.kind === "to" && within !== undefined) {
+      throw new CliUsageError("--within goes with a way or an end, not an element");
+    }
+    const page = await pageOf(ctx, flags, true);
+    const done = await ctx.services.browser.scroll(page.tab.id, scroll, within);
+    return output(done.text, acted(page, done));
   },
 };
 
@@ -442,6 +532,9 @@ export const browserControlCommands: CliCommand[] = [
   browserSnapshot,
   browserInspect,
   browserClick,
+  browserHover,
+  browserDrag,
+  browserScroll,
   browserFill,
   browserType,
   browserPress,

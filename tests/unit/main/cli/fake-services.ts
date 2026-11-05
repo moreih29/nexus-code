@@ -246,6 +246,18 @@ function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
       record("click", tabId, target, options);
       return acted(`Clicked ${target}.`);
     },
+    hover: async (tabId, target, options) => {
+      record("hover", tabId, target, options);
+      return acted(`Hovered over ${target}.`);
+    },
+    drag: async (tabId, from, to) => {
+      record("drag", tabId, from, to);
+      return acted(`Dragged ${from} onto ${to}.`);
+    },
+    scroll: async (tabId, scroll, within) => {
+      record("scroll", tabId, scroll, within);
+      return acted("Scrolled.");
+    },
     fill: async (tabId, target, text) => {
       record("fill", tabId, target, text);
       return acted(`Filled ${target}.`);
