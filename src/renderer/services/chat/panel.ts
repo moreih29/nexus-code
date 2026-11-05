@@ -2,6 +2,7 @@
 // the agents and tasks the CLI reports, the to-do list Claude keeps, the
 // files it changed, and what its replies point at.
 
+import type { AgentRun } from "../../../shared/claude/activity";
 import { isUnder, resolveFilePath, resultFiles } from "./links";
 import type {
   AssistantItem,
@@ -50,6 +51,8 @@ export interface AgentRow {
   lastText?: string;
   prompt?: string;
   teammate: boolean;
+  /** A `claude -p` run the session started, which has no Agent call (chat/print-runs.ts). */
+  run?: AgentRun;
 }
 
 function agentStatus(task: TaskInfo | undefined, tool: ToolCall | undefined): AgentStatus {

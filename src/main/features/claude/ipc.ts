@@ -23,6 +23,7 @@ const c = ipcContract.claude.call;
  * - call.activity: what the sessions of the workspaces are doing, as their hooks tell it,
  *   with the permission requests held for the user's answer.
  * - call.answerPermission: answers a held permission request as the user chose.
+ * - call.stopPrintRun: stops a session's running `claude -p` run.
  * - listen.status: 상태 변경 시 broker가 직접 broadcast하므로 여기서는 빈 객체로 선언.
  */
 export function registerClaudeChannel(
@@ -30,6 +31,7 @@ export function registerClaudeChannel(
   activeContext: ActiveContextStore,
   activity: SessionActivityLog,
   asks: PermissionAsks,
+  stopPrintRun: (workspaceId: string, tabId: string, agentId: string) => Promise<boolean>,
 ): void {
   register("claude", {
     call: {
@@ -76,6 +78,10 @@ export function registerClaudeChannel(
           args,
         );
         return ipcOk(await asks.answer(workspaceId, tabId, askId, answer, message));
+      },
+      stopPrintRun: async (args: unknown) => {
+        const { workspaceId, tabId, agentId } = validateArgs(c.stopPrintRun.args, args);
+        return ipcOk(await stopPrintRun(workspaceId, tabId, agentId));
       },
     },
     listen: {

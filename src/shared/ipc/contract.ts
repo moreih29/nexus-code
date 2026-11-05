@@ -1805,6 +1805,15 @@ export const ipcContract = {
         }),
         z.boolean(),
       ),
+      /**
+       * Stops a session's running `claude -p` run (an activity agent of kind
+       * "print"), as an interrupt would. False when the app holds no watch
+       * of it, as for a run that ended.
+       */
+      stopPrintRun: call(
+        z.object({ workspaceId: z.string(), tabId: z.string(), agentId: z.string() }),
+        z.boolean(),
+      ),
     },
     listen: {
       /**
