@@ -6,7 +6,7 @@ import { broadcast } from "../../infra/ipc-router";
 import { ClaudeStatusBroker } from "./status";
 import { ActiveContextStore } from "./active-context";
 import { registerClaudeChannel } from "./ipc";
-import { answerHook, registerHookHandler } from "./hook-handler";
+import { answerHook, PRINT_STOP_ANSWER, registerHookHandler } from "./hook-handler";
 import { answersDialog, PermissionAsks } from "./permission-asks";
 import { SessionActivityLog } from "./session-activity";
 import { ClaudeInterruptWatcher } from "./interrupt";
@@ -66,6 +66,11 @@ export interface SetupClaudeFeatureResult {
   activeContext: ActiveContextStore;
   /** What each session is doing: its tools, todos and agents. */
   activity: SessionActivityLog;
+  /**
+   * Stops the session's running `claude -p` run `agentId`, as the session's
+   * ^C would: false when it is no such run, or could not be told.
+   */
+  stopPrintRun: (workspaceId: string, tabId: string, agentId: string) => Promise<boolean>;
 }
 
 /**
@@ -214,6 +219,14 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     broker,
     activeContext,
     activity,
+    stopPrintRun: async (workspaceId, tabId, agentId) => {
+      const watch = activity.printWatch(workspaceId, tabId, agentId);
+      if (watch === undefined) return false;
+      return answerHook(workspaceManager, workspaceId, watch, {
+        stdout: PRINT_STOP_ANSWER,
+        exitCode: 0,
+      });
+    },
   };
 }
 

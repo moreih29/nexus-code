@@ -11,7 +11,10 @@
 // A `claude -p` run started inside the session, as by a script its Bash tool
 // runs, has no hooks: the agent runs it and tells of it (hookclient's
 // print-run), and it is one of the session's agents. One killed before it
-// tells its end is told gone by the agent, and reads stopped.
+// tells its end is told gone by the agent, and reads stopped. A run that goes
+// on an ended run's Claude session (`claude -p --resume <id>`) is that run
+// going on. While a run goes on, the app holds its watch, whose answer stops
+// it.
 
 import {
   ACTIVITY_TEXT_MAX_CHARS,
@@ -54,6 +57,8 @@ interface AgentEntry extends Omit<AgentRun, "tools"> {
   asking?: string;
   /** A `claude -p` run's directory, which its tools' paths are told from. */
   cwd?: string;
+  /** The hook a running `claude -p` run holds open, whose answer stops it. */
+  watch?: string;
 }
 
 interface SessionEntry {
@@ -72,6 +77,8 @@ interface SessionEntry {
   calls: AgentCall[];
   /** Agent tool calls whose agent's id the tool's answer told. */
   callsByAgent: Map<string, AgentCall>;
+  /** The `claude -p` runs that went on an earlier run, by run id: that run's agent id. */
+  runs: Map<string, string>;
 }
 
 /** Called as an agent starts, changes state and ends. */
@@ -161,16 +168,21 @@ export class SessionActivityLog {
     if (id === undefined) return;
     const session = this.sessionOf(workspaceId, tabId);
     if (frame === "print-start") {
-      if (!session.agents.has(id)) this.printStarted(session, id, p);
+      if (session.agents.has(id) || session.runs.has(id)) return;
+      const earlier =
+        p.resumed === true ? this.endedPrintOf(session, text(p.session_id)) : undefined;
+      if (earlier) this.printResumed(session, earlier, id, p);
+      else this.printStarted(session, id, p);
       return;
     }
-    const run = session.agents.get(id);
-    if (run?.kind !== "print" || run.end !== undefined) return;
+    const run = this.printRunOf(session, id);
+    if (run === undefined || run.end !== undefined) return;
     switch (frame) {
       case "print-init": {
         const model = text(p.model);
         if (model !== undefined) run.model = model;
         run.cwd = text(p.cwd) ?? run.cwd;
+        run.sessionId ??= text(p.session_id);
         // A run that tells its tools in its transcript tells it once it is found.
         if (p.tools_told === true) run.toolsTold = true;
         break;
@@ -212,6 +224,7 @@ export class SessionActivityLog {
         const code = p.exit_code;
         if (typeof code === "number" && Number.isInteger(code)) run.exitCode = code;
         run.end = this.now();
+        run.watch = undefined;
         this.endOpenTools(run.tools);
         // Stopped by a signal, as with the turn that ran it.
         const state =
@@ -225,6 +238,25 @@ export class SessionActivityLog {
         this.pruneAgents(session);
         break;
     }
+  }
+
+  /**
+   * A `claude -p` run of the session in `tabId` holds its watch open
+   * (hookclient's print-run): the hook `hookId`, whose answer stops it.
+   */
+  notePrintWatch(workspaceId: string, tabId: string, runId: string, hookId: string): void {
+    const session = this.sessions.get(`${workspaceId}:${tabId}`);
+    const run = session && this.printRunOf(session, runId);
+    if (run !== undefined && run.end === undefined) run.watch = hookId;
+  }
+
+  /**
+   * The watch of the session's running `claude -p` run `agentId`, whose
+   * answer stops it; undefined for a subagent, or a run over or not watched.
+   */
+  printWatch(workspaceId: string, tabId: string, agentId: string): string | undefined {
+    const agent = this.sessions.get(`${workspaceId}:${tabId}`)?.agents.get(agentId);
+    return agent?.kind === "print" && agent.end === undefined ? agent.watch : undefined;
   }
 
   /**
@@ -317,6 +349,7 @@ export class SessionActivityLog {
         agents: new Map(),
         calls: [],
         callsByAgent: new Map(),
+        runs: new Map(),
       };
       this.sessions.set(key, session);
     }
@@ -377,10 +410,50 @@ export class SessionActivityLog {
       toolCount: 0,
       failedCount: 0,
       toolsTold: p.tools_told === true,
+      ...optional("sessionId", text(p.session_id)),
       ...optional("cwd", text(p.cwd)),
     };
     session.agents.set(id, run);
     this.emit(session, run);
+  }
+
+  /** The `claude -p` run `runId` is, as itself or as the earlier run it went on. */
+  private printRunOf(session: SessionEntry, runId: string): AgentEntry | undefined {
+    const run = session.agents.get(session.runs.get(runId) ?? runId);
+    return run?.kind === "print" ? run : undefined;
+  }
+
+  /** The latest ended `claude -p` run of the Claude session `sessionId`. */
+  private endedPrintOf(
+    session: SessionEntry,
+    sessionId: string | undefined,
+  ): AgentEntry | undefined {
+    if (sessionId === undefined) return undefined;
+    return latestBy(
+      [...session.agents.values()].filter(
+        (agent) =>
+          agent.kind === "print" && agent.sessionId === sessionId && agent.end !== undefined,
+      ),
+      (agent) => agent.end ?? 0,
+    );
+  }
+
+  /**
+   * A `claude -p` run `runId` went on the Claude session of the ended run
+   * `run`: that run goes on, asked anew, its tools kept.
+   */
+  private printResumed(session: SessionEntry, run: AgentEntry, runId: string, p: Payload): void {
+    session.runs.set(runId, run.id);
+    const prompt = text(p.prompt);
+    if (prompt !== undefined) run.prompt = prompt;
+    run.model = text(p.model) ?? run.model;
+    run.cwd = text(p.cwd) ?? run.cwd;
+    run.toolsTold = p.tools_told === true;
+    delete run.end;
+    delete run.answer;
+    delete run.exitCode;
+    run.watch = undefined;
+    this.setAgentState(session, run, "running", true);
   }
 
   private toolStarted(session: SessionEntry, agentId: string | undefined, p: Payload): void {
@@ -554,6 +627,7 @@ export class SessionActivityLog {
   private stopAgent(session: SessionEntry, agent: AgentEntry): void {
     agent.end = this.now();
     agent.asking = undefined;
+    agent.watch = undefined;
     this.endOpenTools(agent.tools);
     this.setAgentState(session, agent, "stopped", true);
   }
@@ -564,6 +638,9 @@ export class SessionActivityLog {
       .filter((agent) => agent.end !== undefined)
       .sort((a, b) => (b.end ?? 0) - (a.end ?? 0));
     for (const agent of ended.slice(ENDED_AGENTS_KEPT)) session.agents.delete(agent.id);
+    for (const [runId, agentId] of session.runs) {
+      if (!session.agents.has(agentId)) session.runs.delete(runId);
+    }
   }
 }
 
@@ -588,7 +665,7 @@ function snapshotOf(session: SessionEntry): SessionActivity {
 }
 
 function agentRunOf(agent: AgentEntry): AgentRun {
-  const { asking: _asking, cwd: _cwd, tools, ...run } = agent;
+  const { asking: _asking, cwd: _cwd, watch: _watch, tools, ...run } = agent;
   return { ...run, tools: tools.map((tool) => ({ ...tool })) };
 }
 
@@ -732,6 +809,14 @@ function relative(path: string, cwd: string | undefined): string {
 function latest(tools: readonly ToolRun[]): ToolRun | undefined {
   return tools.reduce<ToolRun | undefined>(
     (last, tool) => (last === undefined || tool.start >= last.start ? tool : last),
+    undefined,
+  );
+}
+
+/** The item of `items` latest by `when`. */
+function latestBy<T>(items: readonly T[], when: (item: T) => number): T | undefined {
+  return items.reduce<T | undefined>(
+    (last, item) => (last === undefined || when(item) >= when(last) ? item : last),
     undefined,
   );
 }
