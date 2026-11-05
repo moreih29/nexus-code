@@ -65,6 +65,17 @@ interface PageMark {
   readonly navigations: number;
 }
 
+/** Where browser scroll goes: a way and how far, an end, or to an element. */
+export type BrowserScroll =
+  | {
+      readonly kind: "by";
+      readonly way: "up" | "down" | "left" | "right";
+      /** In CSS pixels; most of a view's worth when absent. */
+      readonly amount?: number;
+    }
+  | { readonly kind: "end"; readonly end: "top" | "bottom" }
+  | { readonly kind: "to"; readonly target: string };
+
 export type BrowserWaitCondition =
   | { readonly kind: "load" }
   | { readonly kind: "text"; readonly text: string; readonly gone: boolean }
@@ -86,6 +97,12 @@ export interface BrowserDriver {
     target: string,
     options: { double: boolean; force: boolean },
   ): Promise<ActionResult>;
+  /** Moves the mouse over an element, as hovering it does. */
+  hover(tabId: string, target: string, options: { force: boolean }): Promise<ActionResult>;
+  /** Drags one element onto another with the mouse, HTML drag and drop included. */
+  drag(tabId: string, from: string, to: string): Promise<ActionResult>;
+  /** Scrolls the page, or the element `within` names. */
+  scroll(tabId: string, scroll: BrowserScroll, within?: string): Promise<ActionResult>;
   fill(tabId: string, target: string, text: string): Promise<ActionResult>;
   type(tabId: string, text: string, target?: string): Promise<ActionResult>;
   press(tabId: string, keys: readonly string[]): Promise<ActionResult>;
@@ -243,6 +260,45 @@ const ELEMENT_CLIP = `function () {
   if (r.width < 1 || r.height < 1) return null;
   return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height };
 }`;
+
+/**
+ * Scrolls the element, or the page when it is the document, and says where
+ * it is after; `how` is a way and how far, or an end. Instant, whatever the
+ * page's scroll-behavior.
+ */
+const SCROLL = `function (how) {
+  const page = this.nodeType === 9;
+  const box = page ? document.scrollingElement || document.documentElement : this;
+  const view = { w: page ? innerWidth : box.clientWidth, h: page ? innerHeight : box.clientHeight };
+  const before = { x: box.scrollLeft, y: box.scrollTop };
+  if (how.end === "top") box.scrollTo({ top: 0, behavior: "instant" });
+  else if (how.end === "bottom") box.scrollTo({ top: box.scrollHeight, behavior: "instant" });
+  else {
+    const across = how.way === "left" || how.way === "right";
+    const step = how.amount ?? Math.round((across ? view.w : view.h) * 0.8);
+    const sign = how.way === "up" || how.way === "left" ? -1 : 1;
+    box.scrollBy({ left: across ? sign * step : 0, top: across ? 0 : sign * step, behavior: "instant" });
+  }
+  return {
+    moved: { x: box.scrollLeft - before.x, y: box.scrollTop - before.y },
+    at: { x: box.scrollLeft, y: box.scrollTop },
+    max: { x: box.scrollWidth - box.clientWidth, y: box.scrollHeight - box.clientHeight },
+  };
+}`;
+
+/** Where a scroll left the page or the element. */
+interface Scrolled {
+  readonly moved: { readonly x: number; readonly y: number };
+  readonly at: { readonly x: number; readonly y: number };
+  readonly max: { readonly x: number; readonly y: number };
+}
+
+/** How far a drag goes before the page sees it as a drag, as a hand's would. */
+const DRAG_START_PX = 8;
+/** How long a page has to start an HTML drag once the mouse moves. */
+const DRAG_INTERCEPT_MS = 250;
+/** Moves between the two points of a drag, for pages that follow the mouse. */
+const DRAG_STEPS = 5;
 
 function label(ref: SnapshotRef, name: string): string {
   return `${ref.role}${ref.name === "" ? "" : ` ${JSON.stringify(ref.name)}`} (${name})`;
@@ -745,6 +801,149 @@ export class CdpBrowserDriver implements BrowserDriver {
     });
   }
 
+  hover(tabId: string, target: string, options: { force: boolean }): Promise<ActionResult> {
+    this.notPicking(tabId);
+    return this.withDrawn(tabId, async (contents, state) => {
+      const el = await this.locate(contents, state, target);
+      const at = await this.point(contents, el);
+      await this.paint(tabId, contents);
+      if (!options.force) await this.checkHit(contents, el, at);
+      const before = this.mark(contents);
+      await this.send(contents, "Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x: at.x,
+        y: at.y,
+        button: "none",
+      });
+      return this.after(contents, `Hovered over ${el.label}.`, before);
+    });
+  }
+
+  drag(tabId: string, from: string, to: string): Promise<ActionResult> {
+    this.notPicking(tabId);
+    return this.withDrawn(tabId, async (contents, state) => {
+      const source = await this.locate(contents, state, from);
+      await this.paint(tabId, contents);
+      const start = await this.pointerOn(contents, source);
+      await this.checkHit(contents, source, start);
+      const before = this.mark(contents);
+      const mouse = (type: string, at: { x: number; y: number }) =>
+        this.send(contents, "Input.dispatchMouseEvent", {
+          type,
+          x: at.x,
+          y: at.y,
+          button: "left",
+          buttons: type === "mouseReleased" ? 0 : 1,
+          clickCount: type === "mouseMoved" ? 0 : 1,
+        });
+      await mouse("mousePressed", start);
+      // An HTML drag would go to the system, which no input here reaches:
+      // Chromium hands it back instead, to be dropped with drag events.
+      await this.send(contents, "Input.setInterceptDrags", { enabled: true });
+      let data: unknown;
+      try {
+        const intercepted = this.next(contents, "Input.dragIntercepted", DRAG_INTERCEPT_MS);
+        await mouse("mouseMoved", { x: start.x + DRAG_START_PX, y: start.y + DRAG_START_PX });
+        data = ((await intercepted) as { data?: unknown } | null)?.data;
+      } finally {
+        await this.send(contents, "Input.setInterceptDrags", { enabled: false }).catch(() => {});
+      }
+      // The target is looked for once the drag has begun, as a page may move things then.
+      const target = await this.locate(contents, state, to);
+      const end = await this.point(contents, target);
+      if (data !== undefined) {
+        for (const type of ["dragEnter", "dragOver", "drop"]) {
+          await this.send(contents, "Input.dispatchDragEvent", {
+            type,
+            x: end.x,
+            y: end.y,
+            data,
+            modifiers: 0,
+          });
+        }
+      } else {
+        for (let step = 1; step <= DRAG_STEPS; step++) {
+          await mouse("mouseMoved", {
+            x: start.x + ((end.x - start.x) * step) / DRAG_STEPS,
+            y: start.y + ((end.y - start.y) * step) / DRAG_STEPS,
+          });
+        }
+        await mouse("mouseReleased", end);
+      }
+      return this.after(contents, `Dragged ${source.label} onto ${target.label}.`, before);
+    });
+  }
+
+  scroll(tabId: string, scroll: BrowserScroll, within?: string): Promise<ActionResult> {
+    this.notPicking(tabId);
+    return this.with(tabId, async (contents, state) => {
+      const before = this.mark(contents);
+      if (scroll.kind === "to") {
+        const el = await this.locate(contents, state, scroll.target);
+        await this.send(contents, "DOM.scrollIntoViewIfNeeded", {
+          backendNodeId: el.backendNodeId,
+        });
+        return this.after(contents, `Scrolled ${el.label} into view.`, before);
+      }
+      const box =
+        within === undefined
+          ? { objectId: await this.documentObject(contents), label: "the page" }
+          : await this.locate(contents, state, within);
+      const how = scroll.kind === "end" ? { end: scroll.end } : scroll;
+      const done = await this.call<Scrolled>(contents, box.objectId, SCROLL, [how]);
+      return this.after(contents, scrolledText(box.label, scroll, done), before);
+    });
+  }
+
+  /**
+   * Moves the mouse onto the element and says where it is then. Moving may
+   * change the page, as a menu the mouse leaves closes, so the element is
+   * looked for again once the mouse is there.
+   */
+  private async pointerOn(contents: WebContents, el: Located): Promise<{ x: number; y: number }> {
+    let at = await this.point(contents, el);
+    for (let tries = 0; tries < 3; tries++) {
+      await this.send(contents, "Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        ...at,
+        button: "none",
+      });
+      const now = await this.point(contents, el);
+      if (Math.abs(now.x - at.x) < 1 && Math.abs(now.y - at.y) < 1) return now;
+      at = now;
+    }
+    return at;
+  }
+
+  /** The page's document, as an object to call a function on. */
+  private async documentObject(contents: WebContents): Promise<string> {
+    const res = await this.send<EvaluateResult>(contents, "Runtime.evaluate", {
+      expression: "document",
+      objectGroup: OBJECT_GROUP,
+    });
+    const objectId = res.result.objectId;
+    if (!objectId) throw new CliError("the page has no document");
+    return objectId;
+  }
+
+  /** The next event `method` of the tab's protocol connection; null if none comes in `ms`. */
+  private next(contents: WebContents, method: string, ms: number): Promise<unknown> {
+    const debug = contents.debugger;
+    return new Promise((resolve) => {
+      const onMessage = (_event: unknown, name: string, params: unknown) => {
+        if (name !== method) return;
+        clearTimeout(timer);
+        debug.removeListener("message", onMessage);
+        resolve(params);
+      };
+      const timer = setTimeout(() => {
+        debug.removeListener("message", onMessage);
+        resolve(null);
+      }, ms);
+      debug.on("message", onMessage);
+    });
+  }
+
   fill(tabId: string, target: string, text: string): Promise<ActionResult> {
     this.notPicking(tabId);
     return this.with(tabId, async (contents, state) => {
@@ -1203,4 +1402,28 @@ function remember(state: TabState, element: SnapshotRef): string {
   const ref = `e${state.refs.size + 1}`;
   state.refs = new Map(state.refs).set(ref, element);
   return ref;
+}
+
+/** What a scroll did, said for people: how far it went and where it is now. */
+function scrolledText(
+  what: string,
+  scroll: Exclude<BrowserScroll, { kind: "to" }>,
+  done: Scrolled,
+): string {
+  const across = scroll.kind === "by" && (scroll.way === "left" || scroll.way === "right");
+  const max = Math.max(0, Math.round(across ? done.max.x : done.max.y));
+  // A page zoomed or scaled scrolls by fractions, which may round past the end.
+  const at = Math.min(max, Math.round(across ? done.at.x : done.at.y));
+  const moved = Math.abs(across ? done.moved.x : done.moved.y);
+  const where = `${what} is at ${at} of ${max}px`;
+  if (moved < 1) {
+    return max < 1 ? `${capital(what)} does not scroll that way.` : `Already there; ${where}.`;
+  }
+  const how =
+    scroll.kind === "by" ? `${scroll.way} ${Math.round(moved)}px` : `to the ${scroll.end}`;
+  return `Scrolled ${how}; ${where}.`;
+}
+
+function capital(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }

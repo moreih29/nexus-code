@@ -107,6 +107,9 @@ nexus browser snapshot            # 페이지 구조와 요소 ref (e1, e2, ...)
 nexus browser fill e3 me@example.com
 nexus browser click e6
 nexus browser press Enter
+nexus browser hover e4             # 마우스를 올려 둠 (메뉴 · 툴팁)
+nexus browser drag e7 e9           # e7 을 e9 위로 끌어다 놓기
+nexus browser scroll down          # up · down · left · right · top · bottom · 요소
 nexus browser wait --text "Welcome"
 nexus browser screenshot --out shot.png
 nexus browser screenshot --element e6   # 요소 하나만
@@ -124,6 +127,9 @@ nexus browser pick                # 사용자가 클릭한 요소의 ref · 선�
   - 로컬 파일은 `file:///경로` 로 엽니다.
 - 요소는 마지막 `snapshot` 의 ref(`e12`)나, 요소 하나만 맞는 CSS 선택자로 고릅니다. 페이지가 다시 로드되면 snapshot 을 새로 찍어야 합니다.
 - 클릭은 실제 마우스 이벤트입니다. 다른 요소가 덮고 있으면 거절합니다(`--force` 로 그 자리를 그냥 클릭).
+- `hover` 는 마우스를 요소 위에 올려 두고, 다음 명령까지 그대로 둡니다. 열린 메뉴나 툴팁을 `snapshot` · `screenshot` 으로 볼 수 있습니다.
+- `drag <요소> <놓을 곳>` 은 실제 마우스로 누르고, 옮기고, 놓습니다. HTML 드래그 앤 드롭을 쓰는 페이지에는 그 이벤트(`dragstart` · `drop`)가, 마우스를 따라가는 페이지에는 마우스 이동이 갑니다.
+- `scroll` 은 `up` · `down` · `left` · `right` 로 화면의 80% 만큼(`--by` 로 픽셀 지정), `top` · `bottom` 으로 끝까지, 요소를 주면 그 요소가 보이게 스크롤합니다. 목록처럼 따로 스크롤되는 요소는 `--within <요소>` 로 고릅니다. 끝나면 현재 위치를 알려줍니다.
 - `console` 은 탭이 열린 뒤 페이지가 남긴 메시지를 최근 500개까지 보여줍니다.
 - 브라우저 탭이 여러 개면 `--tab <id>` 로 고릅니다. 하나뿐이거나 보이는 탭이 하나면 생략할 수 있습니다.
 - 페이지 안의 iframe 내용은 snapshot 에 나오지 않습니다.

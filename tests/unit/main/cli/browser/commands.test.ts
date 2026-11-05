@@ -157,6 +157,41 @@ describe("driving a page", () => {
     ]);
   });
 
+  test("hover, drag and scroll pass the elements and the way to the driver", async () => {
+    const app = fakeApp();
+    expect((await nexus(app, ["browser", "hover", "e3"])).stdout).toBe("Hovered over e3.\n");
+    await nexus(app, ["browser", "hover", "e3", "--force"]);
+    await nexus(app, ["browser", "drag", "e1", "#trash"]);
+    await nexus(app, ["browser", "scroll", "down"]);
+    await nexus(app, ["browser", "scroll", "Left", "--by", "120", "--within", "e5"]);
+    await nexus(app, ["browser", "scroll", "bottom"]);
+    await nexus(app, ["browser", "scroll", "#footer"]);
+    expect(app.browser.calls.map((c) => [c.op, ...c.args])).toEqual([
+      ["hover", "e3", { force: false }],
+      ["hover", "e3", { force: true }],
+      ["drag", "e1", "#trash"],
+      ["scroll", { kind: "by", way: "down" }, undefined],
+      ["scroll", { kind: "by", way: "left", amount: 120 }, "e5"],
+      ["scroll", { kind: "end", end: "bottom" }, undefined],
+      ["scroll", { kind: "to", target: "#footer" }, undefined],
+    ]);
+  });
+
+  test("scroll takes --by only with a way, and --within not with an element", async () => {
+    const app = fakeApp();
+    expect((await nexus(app, ["browser", "scroll", "top", "--by", "10"])).stderr).toContain(
+      "--by goes with up, down, left or right",
+    );
+    expect((await nexus(app, ["browser", "scroll", "up", "--by", "0"])).stderr).toContain(
+      "--by is a distance above 0",
+    );
+    expect((await nexus(app, ["browser", "scroll", "e4", "--within", "e2"])).stderr).toContain(
+      "--within goes with a way or an end, not an element",
+    );
+    expect((await nexus(app, ["browser", "drag", "e1"])).exitCode).toBe(2);
+    expect(app.browser.calls).toEqual([]);
+  });
+
   test("fill and eval read standard input for -", async () => {
     const app = fakeApp();
     await nexus(app, ["browser", "fill", "e1", "-"], { stdin: "two\nlines\n" });
@@ -191,9 +226,16 @@ describe("driving a page", () => {
     expect(app.asked).toEqual([]);
     const refused = await nexus(app, ["browser", "click", "e1", "--workspace", "api"]);
     expect(refused.exitCode).toBe(1);
-    expect(app.asked.map((r) => r.change)).toEqual([
-      { kind: "browserControl", detail: "API docs" },
-    ]);
+    for (const argv of [
+      ["hover", "e1"],
+      ["drag", "e1", "e2"],
+      ["scroll", "down"],
+    ]) {
+      await nexus(app, ["browser", ...argv, "--workspace", "api"]);
+    }
+    expect(app.asked.map((r) => r.change)).toEqual(
+      Array(4).fill({ kind: "browserControl", detail: "API docs" }),
+    );
   });
 });
 
