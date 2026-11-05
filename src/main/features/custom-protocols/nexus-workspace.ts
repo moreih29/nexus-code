@@ -10,7 +10,9 @@ import { pathToFileURL } from "node:url";
 // inside the functions below (never at module load), so this is behavior-
 // equivalent in the real electron runtime.
 import * as electron from "electron";
+import { READ_RANGE_MAX_BYTES } from "../../../shared/fs/defaults";
 import { outsideWorkspaceOf } from "../../../shared/fs/outside-url";
+import type { FileReadBinaryResult } from "../../../shared/fs/types";
 import { createLogger } from "../../../shared/log/main";
 import { isScriptReadableRequest } from "../../infra/security/script-readable-request";
 import { isOutsideGranted, resolveOutsideGrant } from "../fs/outside-grants";
@@ -206,7 +208,7 @@ export function buildNexusWorkspaceHandler(
       return serveLocalFile(realPath, req.headers.get("range"));
     }
 
-    // SSH workspaces are served through the agent's fs.readBinary method.
+    // SSH workspaces are served through the agent's fs.readRange method.
     // Local workspaces stay on the file:// fetch path below because it
     // streams directly off disk without a base64 round-trip.
     if (meta.location.kind !== "local") {
@@ -296,16 +298,84 @@ async function serveLocalFile(realPath: string, rangeHeader: string | null): Pro
 }
 
 // ---------------------------------------------------------------------------
-// SSH path — relays the workspace-relative file through the agent's
-// fs.readBinary method. The agent already enforces workspace-bound path
-// resolution (rejecting `..` and absolute paths) so we don't repeat the
-// realpath/symlink dance here; the trust boundary lives on the remote end.
+// SSH path — relays the file through the agent's fs.readRange method. The
+// agent already enforces workspace-bound path resolution (rejecting `..` and
+// absolute paths) so we don't repeat the realpath/symlink dance here; the
+// trust boundary lives on the remote end.
 //
-// Bytes arrive base64-encoded over the NDJSON channel; we decode to a Node
-// Buffer and ship it as the Response body. `Cache-Control: no-store` keeps
-// the renderer from caching across SSH reconnects where the same path may
-// resolve to a different blob.
+// A file is read in pieces of READ_RANGE_MAX_BYTES, as the response is
+// taken, so no one read holds the agent's channel for long, a range (a
+// <video> seeking) reads only its bytes, and a file of any size can be
+// served. `Cache-Control: no-store` keeps the renderer from caching across
+// SSH reconnects where the same path may resolve to a different blob.
 // ---------------------------------------------------------------------------
+
+/** How many pieces a response reads ahead of the one being taken. */
+const READ_AHEAD = 2;
+
+type PieceReader = (offset: number, length: number) => Promise<FileReadBinaryResult>;
+
+/** Where a `Range` header's range starts, when it says; 0 otherwise. */
+function rangeStart(header: string | null): number {
+  const from = header?.trim().match(/^bytes=(\d+)-\d*$/)?.[1];
+  return from === undefined ? 0 : Number(from);
+}
+
+/** A piece's bytes, when it is all of them and the file has not changed since `mtime`. */
+function pieceBytes(
+  result: FileReadBinaryResult,
+  length: number,
+  mtime: string,
+  filePath: string,
+): Buffer {
+  if (result.kind !== "ok" || result.mtime !== mtime) {
+    throw new Error(`${filePath} changed while it was read`);
+  }
+  const bytes = Buffer.from(result.base64, "base64");
+  if (bytes.length !== length) throw new Error(`${filePath} changed while it was read`);
+  return bytes;
+}
+
+/**
+ * The bytes of `span` read in pieces as the stream is taken, a few ahead.
+ * `head` is the first piece, read already. The stream fails when the file
+ * changes under it.
+ */
+function piecesStream(
+  read: PieceReader,
+  span: ByteRange,
+  head: Buffer,
+  mtime: string,
+  filePath: string,
+): ReadableStream<Uint8Array> {
+  const end = span.end + 1;
+  const first = head.subarray(0, Math.min(head.length, end - span.start));
+  const pending: Promise<Buffer>[] = [Promise.resolve(first)];
+  let next = span.start + first.length;
+  const request = () => {
+    const offset = next;
+    const length = Math.min(READ_RANGE_MAX_BYTES, end - offset);
+    next += length;
+    const piece = read(offset, length).then((result) =>
+      pieceBytes(result, length, mtime, filePath),
+    );
+    // A piece still on its way when the stream is cancelled fails unseen.
+    piece.catch(() => {});
+    pending.push(piece);
+  };
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      while (pending.length <= READ_AHEAD && next < end) request();
+      const piece = pending.shift();
+      if (piece) controller.enqueue(new Uint8Array(await piece));
+      if (pending.length === 0 && next >= end) controller.close();
+    },
+    cancel() {
+      next = end;
+      pending.length = 0;
+    },
+  });
+}
 
 async function serveViaAgent(
   workspaceManager: WorkspaceManager,
@@ -326,31 +396,40 @@ async function serveViaAgent(
     logger.warn(`SSH workspace fs unavailable: ${workspaceId} — ${(err as Error).message}`);
     return new Response(null, { status: 503 });
   }
+  const read: PieceReader = (offset, length) =>
+    outside
+      ? fsProvider.readAbsoluteRange(posixRelPath, offset, length)
+      : fsProvider.readRange(posixRelPath, offset, length);
 
   try {
-    const result = outside
-      ? await fsProvider.readAbsoluteBinary(posixRelPath)
-      : await fsProvider.readBinary(posixRelPath);
-    if (result.kind === "missing") {
-      return new Response(null, { status: 404 });
+    // The first piece tells the file's size. It is read where the range
+    // asked starts, so that a seek takes one round trip before it plays.
+    const start = rangeStart(rangeHeader);
+    let first = await read(start, READ_RANGE_MAX_BYTES);
+    if (first.kind === "missing") return new Response(null, { status: 404 });
+    const size = first.sizeBytes;
+    const range = requestedRange(rangeHeader, size);
+    if (range === "unsatisfiable") return unsatisfiable(size);
+    const span = range ?? { start: 0, end: size - 1 };
+    // A range from the end starts where only the size tells.
+    if (span.start !== start) {
+      first = await read(span.start, READ_RANGE_MAX_BYTES);
+      if (first.kind === "missing") return new Response(null, { status: 404 });
     }
-    const buf = Buffer.from(result.base64, "base64");
-    // The agent reads whole files; a range is cut from the bytes.
-    const range = requestedRange(rangeHeader, buf.length);
-    if (range === "unsatisfiable") return unsatisfiable(buf.length);
-    if (range !== null) {
-      return partialResponse(
-        buf.subarray(range.start, range.end + 1),
-        range,
-        buf.length,
-        posixRelPath,
-      );
-    }
-    return new Response(buf, { status: 200, headers: responseHeaders(posixRelPath) });
-  } catch (err) {
-    logger.warn(
-      `SSH readBinary failed: ${workspaceId}:${posixRelPath} — ${(err as Error).message}`,
+    const body = piecesStream(
+      read,
+      span,
+      Buffer.from(first.base64, "base64"),
+      first.mtime,
+      posixRelPath,
     );
+    if (range !== null) return partialResponse(body, range, size, posixRelPath);
+    return new Response(body, {
+      status: 200,
+      headers: { ...responseHeaders(posixRelPath), "Content-Length": String(size) },
+    });
+  } catch (err) {
+    logger.warn(`SSH readRange failed: ${workspaceId}:${posixRelPath} — ${(err as Error).message}`);
     return new Response(null, { status: 404 });
   }
 }
