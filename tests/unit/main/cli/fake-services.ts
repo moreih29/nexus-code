@@ -414,6 +414,14 @@ export function fakeApp(now = Date.now()): FakeApp {
       const text = (screens.get(tabId) ?? "").split("\n").slice(-lines).join("\n");
       return { text } as CliUiOps[K]["result"];
     }
+    if (op === "terminal.shells") {
+      return {
+        shells: [
+          { name: "zsh", kind: "detected", id: "/bin/zsh", path: "/bin/zsh", isDefault: true },
+          { name: "Fish", kind: "custom", id: "fish-1", path: "fish", isDefault: false },
+        ],
+      } as CliUiOps[K]["result"];
+    }
     if (op === "editor.open" || op === "diff.open" || op === "terminal.open") {
       return { tabId: NEW_TAB } as CliUiOps[K]["result"];
     }

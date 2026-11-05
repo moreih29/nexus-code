@@ -291,12 +291,25 @@ const terminalNew: CliCommand = {
       description: "Type CMD and Enter once the shell has started",
     },
     title: { type: "string", value: "TITLE", description: "Name the tab TITLE" },
+    shell: {
+      type: "string",
+      value: "SHELL",
+      description: 'Run SHELL, by a name "terminal shells" lists (default: the one set)',
+    },
     show: { type: "boolean", description: "Show it, beside this terminal" },
     workspace: WORKSPACE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const shell = flags.shell as string | undefined;
+    const { location } = workspace;
+    if (shell !== undefined && location.kind !== "local") {
+      const machine = location.kind === "ssh" ? location.host : location.distro;
+      throw new CliError(
+        `${workspace.name}'s terminals run ${machine}'s login shell; --shell picks one of this machine's`,
+      );
+    }
     const dir = flags.cwd as string | undefined;
     const cwd =
       dir !== undefined
@@ -312,6 +325,7 @@ const terminalNew: CliCommand = {
       cwd,
       ...(title ? { title } : {}),
       ...(command ? { command } : {}),
+      ...(shell !== undefined ? { shell } : {}),
       placement: placementFor(ctx, workspace, flags.show !== true),
     });
     return output(`Opened terminal ${shortId(tabId)} in ${cwd}.`, {
@@ -319,6 +333,24 @@ const terminalNew: CliCommand = {
       workspaceId: workspace.id,
       cwd,
     });
+  },
+};
+
+const terminalShells: CliCommand = {
+  path: ["terminal", "shells"],
+  summary: "List the shells a terminal can run, for terminal new --shell",
+  details:
+    "The shells found on this machine and those added in Settings › Terminal, as the tab\n" +
+    'bar\'s "New terminal with" lists them. They are for local workspaces; an SSH or WSL\n' +
+    "workspace's terminals run the login shell there.",
+  async run(ctx, { positionals }) {
+    exactArgs(positionals);
+    const { shells } = await ctx.services.ui("terminal.shells", {});
+    const text = table(
+      ["NAME", "ID", "PATH"],
+      shells.map((s) => [s.isDefault ? `${s.name} (default)` : s.name, s.id, s.path]),
+    );
+    return output(text, { shells });
   },
 };
 
@@ -488,6 +520,7 @@ export const terminalCommands: CliCommand[] = [
   terminalList,
   terminalRead,
   terminalNew,
+  terminalShells,
   terminalSend,
   terminalKey,
   terminalWait,
