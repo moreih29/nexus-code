@@ -1,9 +1,5 @@
 /** nexus status, nexus workspace ... and nexus worktree ... (the app's tasks). */
-import {
-  type WorkspaceLocation,
-  type WorkspaceMeta,
-  workspaceLocationKey,
-} from "../../../../shared/types/workspace";
+import type { WorkspaceLocation, WorkspaceMeta } from "../../../../shared/types/workspace";
 import { CliUsageError, exactArgs } from "../args";
 import {
   type CliContext,
@@ -443,16 +439,12 @@ const workspaceAdd: CliCommand = {
     const caller = resolveWorkspace(ctx, undefined);
     const location = locationBeside(caller.location, absolutePath(ctx, caller, input));
     const name = (flags.name as string | undefined)?.trim() || undefined;
-    const key = workspaceLocationKey(location);
-    const listed = ctx.services
-      .listWorkspaces()
-      .some((w) => workspaceLocationKey(w.location) === key);
-    const workspace = await ctx.services.addWorkspace(location, name);
+    const { workspace, added } = await ctx.services.addWorkspace(location, name);
     if (flags.show === true) await ctx.services.ui("workspace.show", { workspaceId: workspace.id });
-    const what = listed ? "Already listed" : "Added";
+    const what = added ? "Added" : "Already listed";
     return output(
       `${what}: ${workspace.name} (${shortId(workspace.id)}) ${describeLocation(workspace)}`,
-      { ...workspaceJson(ctx, workspace), added: !listed },
+      { ...workspaceJson(ctx, workspace), added },
     );
   },
 };

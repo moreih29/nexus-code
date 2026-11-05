@@ -17,6 +17,7 @@ import {
   CliError,
   type CliServices,
 } from "../../../../src/main/features/cli/context";
+import { listedAt } from "../../../../src/main/features/cli/listed";
 import { StartedAgents } from "../../../../src/main/features/cli/started-agents";
 import { WaitRegistry } from "../../../../src/main/features/cli/waits";
 import type { ClaudeStatus } from "../../../../src/shared/claude/status";
@@ -32,11 +33,7 @@ import type {
   CliUiOps,
 } from "../../../../src/shared/cli/ui";
 import type { ListeningPort } from "../../../../src/shared/pty/ports";
-import {
-  type WorkspaceLocation,
-  type WorkspaceMeta,
-  workspaceLocationKey,
-} from "../../../../src/shared/types/workspace";
+import type { WorkspaceLocation, WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 export const APP = "11111111-1111-4111-8111-111111111111";
 export const API = "22222222-2222-4222-8222-222222222222";
@@ -434,16 +431,15 @@ export function fakeApp(now = Date.now()): FakeApp {
     listWorkspaces: () => workspaces,
     addWorkspace: async (location, name) => {
       added.push({ location, name });
-      const key = workspaceLocationKey(location);
-      const listed = workspaces.find((w) => workspaceLocationKey(w.location) === key);
-      if (listed) return listed;
+      const listed = await listedAt(workspaces, location, async (path) => path);
+      if (listed) return { workspace: listed, added: false };
       const rootPath = location.kind === "local" ? location.rootPath : location.remotePath;
       const made = {
         ...workspace(ADDED, name ?? rootPath.split("/").pop() ?? rootPath, rootPath),
         location,
       };
       workspaces.push(made);
-      return made;
+      return { workspace: made, added: true };
     },
     shownTab: () => ({ workspaceId: APP, tabId: SHELL_TAB }),
     claudeStatus: (ws, t) => claude.get(`${ws}:${t}`) ?? null,
