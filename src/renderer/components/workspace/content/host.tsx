@@ -3,10 +3,12 @@ import { createPortal } from "react-dom";
 import { CommitTab } from "@/components/editor/commit-tab";
 import { DiffTab } from "@/components/editor/diff-tab";
 import { SessionsTabView } from "@/components/sessions/sessions-tab";
+import { mediaKindFor } from "@/services/editor/preview/media";
 import { isImageFile } from "@/services/editor/preview/previewable";
 import type { Tab } from "@/state/stores/tabs";
 import { BrowserTabView } from "./browser-view";
 import { EditorView, ImageEditorView } from "./editor-view";
+import { MediaEditorView } from "./media-editor-view";
 import { useSlotElement } from "./slot-registry";
 import { TerminalView } from "./terminal-view";
 import { useViewPark } from "./view-park";
@@ -141,6 +143,7 @@ export function ContentHost({
   // visibility:hidden, contain:strict), so it is already neither painted nor
   // hit-tested. Adding `invisible pointer-events-none` here would be dead
   // weight and previously caused the stacking bug this rule fixes.
+  const mediaKind = tab.type === "editor" ? mediaKindFor(tab.props.filePath) : null;
   const inner = (
     <div className="absolute inset-0">
       {tab.type === "terminal" ? (
@@ -165,6 +168,8 @@ export function ContentHost({
         // acquisition. Sharing the same `key={filePath}` keeps split-tab
         // and preview-slot behaviour identical to the text path.
         //
+        // Audio and video route to MediaEditorView the same way.
+        //
         // tabId is forwarded so EditorView can read its own viewMode from the
         // tabs store (Raw/Preview toggle per-tab persistence — plan 60).
         isImageFile(tab.props.filePath) ? (
@@ -172,6 +177,13 @@ export function ContentHost({
             key={tab.props.filePath}
             filePath={tab.props.filePath}
             workspaceId={workspaceId}
+          />
+        ) : mediaKind ? (
+          <MediaEditorView
+            key={tab.props.filePath}
+            filePath={tab.props.filePath}
+            workspaceId={workspaceId}
+            kind={mediaKind}
           />
         ) : (
           <EditorView

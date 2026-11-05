@@ -651,6 +651,10 @@
     "load_failed": "Could not load image.",
     "too_large": "Image is too large to preview (max {{maxMb}} MB)."
   },
+  "mediaPreview": {
+    "outside_workspace": "This file is outside the workspace and cannot be played.",
+    "load_failed": "Could not play this file: its format may not be supported."
+  },
   "markdown": {
     "copy_code": "Copy code",
     "copy": "Copy",
