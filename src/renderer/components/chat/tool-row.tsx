@@ -13,6 +13,8 @@ interface ToolRowProps {
   /** Every tool call the tab knows, for an Agent call's own calls. */
   tools: Record<string, ToolCall>;
   cwd: string;
+  /** Sends a running command or subagent to the background, as Ctrl+B does in the terminal. */
+  onBackground?: (toolUseId: string) => void;
 }
 
 /** Tools that run a subagent, whose calls are listed under them. */
@@ -21,7 +23,7 @@ const AGENT_TOOLS = new Set(["Agent", "Task"]);
 /** Longest output an open row shows; the rest is cut. */
 const MAX_OUTPUT_CHARS = 20_000;
 
-export function ToolRow({ tool, toolUseId, tools, cwd }: ToolRowProps) {
+export function ToolRow({ tool, toolUseId, tools, cwd, onBackground }: ToolRowProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const name = tool?.name || "tool";
@@ -33,57 +35,70 @@ export function ToolRow({ tool, toolUseId, tools, cwd }: ToolRowProps) {
     tool && AGENT_TOOLS.has(tool.name)
       ? Object.values(tools).filter((t) => t.parentToolUseId === toolUseId)
       : [];
+  const backgroundable = onBackground && tool && canBackground(tool);
   return (
     <div className="my-1 text-app-ui-sm" data-tool-use-id={toolUseId}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full min-w-0 items-center gap-1.5 rounded-(--radius-control) px-1.5 py-1 text-left hover:bg-[var(--state-hover-bg)]"
-        aria-expanded={open}
-      >
-        <StatusIcon status={status} />
-        <span className="shrink-0 font-medium text-foreground">{name}</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground" title={summary}>
-          {summary}
-        </span>
-        {unsandboxed && (
-          <span
-            className="shrink-0 text-[var(--state-warning-fg)]"
-            title={t("chat.tool.unsandboxed_hint")}
+      <div className="flex min-w-0 items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-(--radius-control) px-1.5 py-1 text-left hover:bg-[var(--state-hover-bg)]"
+          aria-expanded={open}
+        >
+          <StatusIcon status={status} />
+          <span className="shrink-0 font-medium text-foreground">{name}</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground" title={summary}>
+            {summary}
+          </span>
+          {unsandboxed && (
+            <span
+              className="shrink-0 text-[var(--state-warning-fg)]"
+              title={t("chat.tool.unsandboxed_hint")}
+            >
+              {t("chat.tool.unsandboxed")}
+            </span>
+          )}
+          {status === "denied" && (
+            <span className="shrink-0 text-muted-foreground">{t("chat.tool.denied")}</span>
+          )}
+          {status === "stopped" && (
+            <span className="shrink-0 text-muted-foreground">{t("chat.tool.stopped")}</span>
+          )}
+          {children.length > 0 && (
+            <span className="shrink-0 text-muted-foreground">
+              {t("chat.tool.subagent_calls", { count: children.length })}
+            </span>
+          )}
+          {images.length > 0 && (
+            <span className="flex shrink-0 items-center gap-0.5">
+              {images.slice(0, 3).map((image, i) => (
+                <img
+                  // biome-ignore lint/suspicious/noArrayIndexKey: a result's images keep their order
+                  key={i}
+                  src={imageSrc(image)}
+                  alt=""
+                  className="h-5 max-w-8 rounded-sm border border-border object-cover"
+                />
+              ))}
+            </span>
+          )}
+          {open ? (
+            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+          )}
+        </button>
+        {backgroundable && (
+          <button
+            type="button"
+            onClick={() => onBackground(toolUseId)}
+            title={t("chat.tool.background_hint")}
+            className="shrink-0 rounded-(--radius-control) px-1.5 py-1 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
           >
-            {t("chat.tool.unsandboxed")}
-          </span>
+            {t("chat.tool.background")}
+          </button>
         )}
-        {status === "denied" && (
-          <span className="shrink-0 text-muted-foreground">{t("chat.tool.denied")}</span>
-        )}
-        {status === "stopped" && (
-          <span className="shrink-0 text-muted-foreground">{t("chat.tool.stopped")}</span>
-        )}
-        {children.length > 0 && (
-          <span className="shrink-0 text-muted-foreground">
-            {t("chat.tool.subagent_calls", { count: children.length })}
-          </span>
-        )}
-        {images.length > 0 && (
-          <span className="flex shrink-0 items-center gap-0.5">
-            {images.slice(0, 3).map((image, i) => (
-              <img
-                // biome-ignore lint/suspicious/noArrayIndexKey: a result's images keep their order
-                key={i}
-                src={imageSrc(image)}
-                alt=""
-                className="h-5 max-w-8 rounded-sm border border-border object-cover"
-              />
-            ))}
-          </span>
-        )}
-        {open ? (
-          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-        )}
-      </button>
+      </div>
       {open && children.length > 0 && (
         <div className="ml-4 border-l border-border pl-2">
           {children.map((child) => (
@@ -94,6 +109,16 @@ export function ToolRow({ tool, toolUseId, tools, cwd }: ToolRowProps) {
       {open && tool && <ToolDetail tool={tool} />}
     </div>
   );
+}
+
+/**
+ * Whether a running call can go to the background: a command or a
+ * subagent on the main thread that was not started there already.
+ */
+export function canBackground(tool: ToolCall): boolean {
+  if (tool.status !== "running" || tool.parentToolUseId) return false;
+  if (tool.name !== "Bash" && !AGENT_TOOLS.has(tool.name)) return false;
+  return (tool.input as { run_in_background?: unknown } | null)?.run_in_background !== true;
 }
 
 /**

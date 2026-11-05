@@ -646,6 +646,15 @@ export class ChatController {
     return permissions?.additionalDirectories ?? [];
   }
 
+  /**
+   * Sends a running command or subagent to the background (Ctrl+B in the
+   * terminal): its call returns at once and the turn goes on; it ends as a
+   * task of its own.
+   */
+  async backgroundTool(toolUseId: string): Promise<void> {
+    await this.request("background_tasks", { tool_use_id: toolUseId });
+  }
+
   /** Starts the program when it is not running, and waits for its initialize. */
   private async settled(): Promise<void> {
     if (!(await this.ensureRunning())) throw new Error("Claude is not running");

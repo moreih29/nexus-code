@@ -175,6 +175,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     canFork: controller.forkPoint("", { before: false }) !== null,
     onRewind: (item) => setRewinding(item),
     onFork: (item) => forkFrom(controller, workspaceId, props.cwd, item),
+    onBackground: (toolUseId) =>
+      controller
+        .backgroundTool(toolUseId)
+        .catch((err: Error) => showToast({ kind: "error", message: err.message })),
+    waiting: new Set(state.model.permissions.flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
   };
 
   // Where the side panel goes follows the tab's width.

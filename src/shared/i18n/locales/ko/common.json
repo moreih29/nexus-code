@@ -841,7 +841,9 @@
       "unsandboxed_hint": "샌드박스가 막은 명령을 샌드박스 밖에서 다시 실행합니다",
       "no_output": "(출력 없음)",
       "subagent_calls_one": "호출 {{count}}개",
-      "subagent_calls_other": "호출 {{count}}개"
+      "subagent_calls_other": "호출 {{count}}개",
+      "background": "백그라운드로",
+      "background_hint": "백그라운드에서 계속 실행하고 턴은 이어가기"
     },
     "permission": {
       "aria": "권한 요청",

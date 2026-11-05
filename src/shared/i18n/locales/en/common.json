@@ -841,7 +841,9 @@
       "unsandboxed_hint": "A retry outside the sandbox, which stopped this command",
       "no_output": "(no output)",
       "subagent_calls_one": "{{count}} call",
-      "subagent_calls_other": "{{count}} calls"
+      "subagent_calls_other": "{{count}} calls",
+      "background": "To background",
+      "background_hint": "Keep it running in the background, and go on with the turn"
     },
     "permission": {
       "aria": "Permission request",
