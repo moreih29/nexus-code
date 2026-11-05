@@ -9,6 +9,8 @@ import (
 	"io"
 	iofs "io/fs"
 	"os"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // hiddenNames are directory entries that fs.readdir omits by default and the
@@ -110,6 +112,91 @@ func (s *Service) ReadBinary(ctx context.Context, raw json.RawMessage) (any, err
 		return nil, err
 	}
 	return readBinaryAt(ctx, abs)
+}
+
+// ReadRange returns `length` bytes of relPath from `offset`, base64-encoded,
+// with the file's size: at most MaxReadRangeLength, and fewer at the end of
+// the file. The previews read large files with it in pieces, so they need
+// not be read whole, and no piece holds the channel for long. A symlink is
+// followed, as ReadBinary follows one.
+func (s *Service) ReadRange(ctx context.Context, raw json.RawMessage) (any, error) {
+	abs, err := s.resolve(raw)
+	if err != nil {
+		return nil, err
+	}
+	r, err := parseReadRange(raw)
+	if err != nil {
+		return nil, err
+	}
+	return readRangeAt(ctx, abs, r)
+}
+
+// ReadAbsoluteRange is ReadRange for an absolute path on the agent host, as
+// ReadAbsoluteBinary is ReadBinary's: for files a Claude tab links outside
+// the workspace.
+func (s *Service) ReadAbsoluteRange(ctx context.Context, raw json.RawMessage) (any, error) {
+	abs, err := parseAbsolutePath(raw)
+	if err != nil {
+		return nil, err
+	}
+	r, err := parseReadRange(raw)
+	if err != nil {
+		return nil, err
+	}
+	return readRangeAt(ctx, abs, r)
+}
+
+func parseReadRange(raw json.RawMessage) (ReadRangeParams, error) {
+	var r ReadRangeParams
+	if json.Unmarshal(raw, &r) != nil || r.Offset < 0 || r.Length < 0 {
+		return r, proto.ProtocolError("fs.readRange params must include a non-negative offset and length")
+	}
+	r.Length = min(r.Length, MaxReadRangeLength)
+	return r, nil
+}
+
+func readRangeAt(ctx context.Context, abs string, r ReadRangeParams) (any, error) {
+	// The size and time are the target's, not a link's, since the range is
+	// of the bytes read.
+	target, err := os.Stat(abs)
+	if err != nil {
+		if errors.Is(err, iofs.ErrNotExist) {
+			return ReadBinaryResult{Kind: "missing", Reason: "not-found"}, nil
+		}
+		return nil, mapPathError(err, abs)
+	}
+	if target.IsDir() {
+		return nil, FSError{Code: CodeIsDirectory, Path: abs}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	mtime := formatMTime(target.ModTime())
+	// A device, FIFO or socket is not opened (a FIFO blocks until a writer
+	// appears); it reads as empty.
+	if !target.Mode().IsRegular() {
+		return ReadBinaryResult{Kind: "ok", Base64: "", Size: 0, MTime: mtime}, nil
+	}
+	file, err := os.Open(abs)
+	if err != nil {
+		if errors.Is(err, iofs.ErrNotExist) {
+			return ReadBinaryResult{Kind: "missing", Reason: "not-found"}, nil
+		}
+		return nil, mapPathError(err, abs)
+	}
+	defer file.Close()
+	buf := make([]byte, max(0, min(r.Length, target.Size()-r.Offset)))
+	n, err := file.ReadAt(buf, r.Offset)
+	// A file cut short since the stat ends the range early.
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, mapPathError(err, abs)
+	}
+	return ReadBinaryResult{
+		Kind:   "ok",
+		Base64: base64.StdEncoding.EncodeToString(buf[:n]),
+		Size:   target.Size(),
+		MTime:  mtime,
+	}, nil
 }
 
 func readBinaryAt(ctx context.Context, abs string) (any, error) {
