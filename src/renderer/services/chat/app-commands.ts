@@ -17,6 +17,10 @@ export const APP_COMMANDS: readonly AppCommand[] = [
   { name: "export", argumentHint: "[filename]" },
   { name: "diff" },
   { name: "memory" },
+  { name: "permissions", aliases: ["allowed-tools"] },
+  { name: "add-dir", argumentHint: "<path>" },
+  { name: "hooks" },
+  { name: "sandbox", argumentHint: "[on|off]" },
   { name: "help" },
   { name: "exit", aliases: ["quit"] },
 ];
@@ -110,9 +114,7 @@ export function conversationMarkdown(
         const tool = tools[block.toolUseId];
         if (!tool || tool.parentToolUseId) continue;
         const summary = summarize(tool);
-        lines.push(
-          summary ? `- **${tool.name}** \`${summary.replace(/`/g, "'")}\`` : `- **${tool.name}**`,
-        );
+        lines.push(summary ? `- **${tool.name}** ${code(summary)}` : `- **${tool.name}**`);
       }
     }
     if (lines.length === 0) continue;
@@ -168,4 +170,162 @@ export function memoryFilesOf(usage: unknown): { path: string; type: string }[] 
       ? [{ path, type: typeof type === "string" ? type : "" }]
       : [];
   });
+}
+
+/** Words a formatter takes from the tab's language. */
+export type Words = (key: string, options?: Record<string, unknown>) => string;
+
+/** Inline code that holds any text: a fence longer than the backticks in it. */
+export function code(text: string): string {
+  const longest = Math.max(0, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
+  const fence = "`".repeat(longest + 1);
+  const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
+  return `${fence}${pad}${text}${pad}${fence}`;
+}
+
+interface PermissionRule {
+  behavior: string;
+  source: string;
+  rule: string;
+  notInEffect?: boolean;
+}
+
+/** list_permission_rules' state: its rules and folders, as /permissions shows them. */
+export function permissionsOf(body: unknown): {
+  rules: PermissionRule[];
+  directories: { path: string; source: string }[];
+  cwd: string;
+} {
+  const state = ((body as { state?: unknown } | null)?.state ?? {}) as Record<string, unknown>;
+  const rules = Array.isArray(state.rules)
+    ? state.rules.flatMap((raw) => {
+        const r = (raw ?? {}) as Record<string, unknown>;
+        return typeof r.rule === "string" && typeof r.behavior === "string"
+          ? [
+              {
+                behavior: r.behavior,
+                source: typeof r.source === "string" ? r.source : "",
+                rule: r.rule,
+                notInEffect: r.notInEffect === true,
+              },
+            ]
+          : [];
+      })
+    : [];
+  const directories = Array.isArray(state.workspaceDirectories)
+    ? state.workspaceDirectories.flatMap((raw) => {
+        const d = (raw ?? {}) as Record<string, unknown>;
+        return typeof d.path === "string"
+          ? [{ path: d.path, source: typeof d.source === "string" ? d.source : "" }]
+          : [];
+      })
+    : [];
+  return {
+    rules,
+    directories,
+    cwd: typeof state.originalCwd === "string" ? state.originalCwd : "",
+  };
+}
+
+const SOURCES = new Set([
+  "userSettings",
+  "projectSettings",
+  "localSettings",
+  "flagSettings",
+  "policySettings",
+  "cliArg",
+  "command",
+  "session",
+]);
+
+function sourceLabel(source: string, t: Words): string {
+  return SOURCES.has(source) ? t(`chat.commands.source.${source}`) : source;
+}
+
+/** /permissions' card: the rules by what they do, then the folders Claude may work in. */
+export function permissionsMarkdown(
+  state: ReturnType<typeof permissionsOf>,
+  t: Words,
+  /** The folders /add-dir gave, which the CLI names as another source. */
+  added: readonly string[] = [],
+): string {
+  const parts: string[] = [];
+  for (const behavior of ["allow", "ask", "deny"]) {
+    const rules = state.rules.filter((r) => r.behavior === behavior);
+    if (rules.length === 0) continue;
+    const lines = rules.map(
+      (r) =>
+        `- ${code(r.rule)} · ${sourceLabel(r.source, t)}${r.notInEffect ? ` · ${t("chat.commands.not_in_effect")}` : ""}`,
+    );
+    parts.push(`**${t(`chat.commands.behavior.${behavior}`)}**\n\n${lines.join("\n")}`);
+  }
+  if (parts.length === 0) parts.push(t("chat.commands.no_rules"));
+  if (state.directories.length > 0) {
+    const lines = state.directories.map(
+      (d) =>
+        `- ${code(d.path)} · ${added.includes(d.path) ? t("chat.commands.source.added") : sourceLabel(d.source, t)}`,
+    );
+    parts.push(`**${t("chat.commands.directories")}**\n\n${lines.join("\n")}`);
+  }
+  parts.push(t("chat.commands.permissions_edit"));
+  return parts.join("\n\n");
+}
+
+/** The settings files whose rules /permissions lists, to open and edit. */
+export function permissionFiles(state: ReturnType<typeof permissionsOf>): string[] {
+  if (!state.cwd) return [];
+  const root = state.cwd.replace(/\/+$/, "");
+  const files: string[] = [];
+  if (state.rules.some((r) => r.source === "projectSettings"))
+    files.push(`${root}/.claude/settings.json`);
+  if (state.rules.some((r) => r.source === "localSettings")) {
+    files.push(`${root}/.claude/settings.local.json`);
+  }
+  return files;
+}
+
+/** get_hooks_listing's hooks, by event, as /hooks shows them. */
+export function hooksMarkdown(body: unknown, t: Words): string {
+  const listing = (body ?? {}) as { events?: unknown; hooks?: unknown };
+  const hooks = Array.isArray(listing.hooks) ? (listing.hooks as Record<string, unknown>[]) : [];
+  if (hooks.length === 0) return t("chat.commands.no_hooks");
+  const summaries = new Map<string, string>();
+  if (Array.isArray(listing.events)) {
+    for (const raw of listing.events as Record<string, unknown>[]) {
+      if (typeof raw?.name === "string" && typeof raw.summary === "string") {
+        summaries.set(raw.name, raw.summary);
+      }
+    }
+  }
+  const byEvent = new Map<string, string[]>();
+  for (const hook of hooks) {
+    const event = typeof hook.event === "string" ? hook.event : "";
+    const text = typeof hook.displayText === "string" ? hook.displayText : "";
+    const matcher =
+      typeof hook.matcher === "string" && hook.matcher ? `${code(hook.matcher)} · ` : "";
+    const type = typeof hook.type === "string" ? hook.type : "";
+    const source = typeof hook.sourceLabel === "string" ? hook.sourceLabel : "";
+    const line = `- ${matcher}${type ? `${type} · ` : ""}${code(text)}${source ? ` · ${source}` : ""}`;
+    byEvent.set(event, [...(byEvent.get(event) ?? []), line]);
+  }
+  return [...byEvent]
+    .map(([event, lines]) => {
+      const summary = summaries.get(event);
+      return `**${event}**${summary ? ` — ${summary}` : ""}\n\n${lines.join("\n")}`;
+    })
+    .join("\n\n");
+}
+
+/** Whether get_settings says the sandbox is on. */
+export function sandboxOn(body: unknown): boolean {
+  const effective = (body as { effective?: { sandbox?: { enabled?: unknown } } } | null)?.effective;
+  return effective?.sandbox?.enabled === true;
+}
+
+/** /add-dir's folder as the program reads it: a relative one under the tab's folder. */
+export function directoryArg(arg: string, cwd: string): string | null {
+  const path = arg.trim().replace(/^(["'])(.*)\1$/, "$2");
+  if (!path) return null;
+  if (path.startsWith("/") || path.startsWith("~") || /^[A-Za-z]:[\\/]/.test(path)) return path;
+  return `${cwd.replace(/[\\/]+$/, "")}/${path.replace(/^\.\//, "")}`;
 }

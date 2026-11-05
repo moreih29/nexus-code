@@ -11,10 +11,16 @@ import {
   APP_COMMANDS,
   conversationMarkdown,
   copyIndex,
+  directoryArg,
   exportFileName,
   exportRelPath,
+  hooksMarkdown,
   memoryFilesOf,
   nthAnswer,
+  permissionFiles,
+  permissionsMarkdown,
+  permissionsOf,
+  sandboxOn,
 } from "./app-commands";
 import type { ChatController } from "./controller";
 import type { ChatItem, ToolCall } from "./model";
@@ -102,7 +108,7 @@ export async function runAppCommand(
     case "memory": {
       const id = controller.showCard({ title, loading: true });
       try {
-        const files = memoryFilesOf(await controller.contextUsage());
+        const files = memoryFilesOf(await controller.ask("get_context_usage"));
         controller.updateCard(id, {
           loading: false,
           files: files.map((file) => ({
@@ -110,6 +116,68 @@ export async function runAppCommand(
             label: file.type ? `${file.type} · ${file.path}` : file.path,
           })),
           text: files.length === 0 ? t("chat.commands.memory_none") : undefined,
+        });
+      } catch (err) {
+        controller.updateCard(id, { loading: false, error: (err as Error).message });
+      }
+      return;
+    }
+    case "permissions": {
+      const id = controller.showCard({ title, loading: true });
+      try {
+        const state = permissionsOf(await controller.ask("list_permission_rules"));
+        controller.updateCard(id, {
+          loading: false,
+          text: permissionsMarkdown(state, t, controller.addedDirectories()),
+          files: permissionFiles(state).map((path) => ({ path, label: path })),
+        });
+      } catch (err) {
+        controller.updateCard(id, { loading: false, error: (err as Error).message });
+      }
+      return;
+    }
+    case "add-dir": {
+      const path = directoryArg(command.args, ctx.cwd);
+      if (!path) {
+        showToast({ kind: "warning", message: t("chat.commands.add_dir_empty") });
+        return;
+      }
+      const dirs = controller.addedDirectories();
+      if (!dirs.includes(path)) {
+        await controller.applyFlags({ permissions: { additionalDirectories: [...dirs, path] } });
+      }
+      showToast({ kind: "info", message: t("chat.commands.added_dir", { path }) });
+      return;
+    }
+    case "hooks": {
+      const id = controller.showCard({ title, loading: true });
+      try {
+        controller.updateCard(id, {
+          loading: false,
+          text: hooksMarkdown(await controller.ask("get_hooks_listing"), t),
+        });
+      } catch (err) {
+        controller.updateCard(id, { loading: false, error: (err as Error).message });
+      }
+      return;
+    }
+    case "sandbox": {
+      const arg = command.args.toLowerCase();
+      if (arg === "on" || arg === "off") {
+        await controller.applyFlags({ sandbox: { enabled: arg === "on" } });
+        showToast({ kind: "info", message: t(`chat.commands.sandbox_${arg}`) });
+        return;
+      }
+      if (arg) {
+        showToast({ kind: "warning", message: t("chat.commands.sandbox_usage") });
+        return;
+      }
+      const id = controller.showCard({ title, loading: true });
+      try {
+        const on = sandboxOn(await controller.ask("get_settings"));
+        controller.updateCard(id, {
+          loading: false,
+          text: t(on ? "chat.commands.sandbox_is_on" : "chat.commands.sandbox_is_off"),
         });
       } catch (err) {
         controller.updateCard(id, { loading: false, error: (err as Error).message });

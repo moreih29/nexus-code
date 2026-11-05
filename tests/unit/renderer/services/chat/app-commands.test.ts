@@ -2,13 +2,20 @@ import { describe, expect, test } from "bun:test";
 import {
   answersOf,
   appCommandsBeside,
+  code,
   conversationMarkdown,
   copyIndex,
+  directoryArg,
   exportFileName,
   exportRelPath,
+  hooksMarkdown,
   memoryFilesOf,
   nthAnswer,
   parseAppCommand,
+  permissionFiles,
+  permissionsMarkdown,
+  permissionsOf,
+  sandboxOn,
 } from "../../../../../src/renderer/services/chat/app-commands";
 import type { ChatItem, ToolCall } from "../../../../../src/renderer/services/chat/model";
 
@@ -140,5 +147,105 @@ describe("app commands", () => {
     ]);
     expect(memoryFilesOf(null)).toEqual([]);
     expect(memoryFilesOf({ memoryFiles: "x" })).toEqual([]);
+  });
+
+  test("inline code holds backticks", () => {
+    expect(code("ls")).toBe("`ls`");
+    expect(code("a `b` c")).toBe("``a `b` c``");
+    expect(code("`x")).toBe("`` `x ``");
+  });
+
+  const words = (key: string) => key.replace("chat.commands.", "");
+
+  test("/permissions: rules by what they do, the folders, and the files to edit", () => {
+    const state = permissionsOf({
+      state: {
+        rules: [
+          { behavior: "allow", source: "cliArg", rule: "Bash(ls:*)", editability: "session" },
+          { behavior: "deny", source: "projectSettings", rule: "Read(.env)" },
+          { behavior: "allow", source: "localSettings", rule: "Edit", notInEffect: true },
+          { behavior: "ask", source: "mcpMount", rule: "mcp__x" },
+          { behavior: "allow" },
+        ],
+        workspaceDirectories: [
+          { path: "/tmp/extra", source: "localSettings" },
+          { path: "/tmp/added", source: "localSettings" },
+          {},
+        ],
+        originalCwd: "/w/app/",
+      },
+    });
+    expect(state.rules).toHaveLength(4);
+    expect(permissionsMarkdown(state, words, ["/tmp/added"])).toBe(
+      [
+        "**behavior.allow**\n\n- `Bash(ls:*)` · source.cliArg\n- `Edit` · source.localSettings · not_in_effect",
+        "**behavior.ask**\n\n- `mcp__x` · mcpMount",
+        "**behavior.deny**\n\n- `Read(.env)` · source.projectSettings",
+        "**directories**\n\n- `/tmp/extra` · source.localSettings\n- `/tmp/added` · source.added",
+        "permissions_edit",
+      ].join("\n\n"),
+    );
+    expect(permissionFiles(state)).toEqual([
+      "/w/app/.claude/settings.json",
+      "/w/app/.claude/settings.local.json",
+    ]);
+    const none = permissionsOf({
+      state: { rules: [], workspaceDirectories: [], originalCwd: "/w" },
+    });
+    expect(permissionsMarkdown(none, words)).toBe("no_rules\n\npermissions_edit");
+    expect(permissionFiles(none)).toEqual([]);
+    expect(permissionsOf(null).rules).toEqual([]);
+  });
+
+  test("/hooks: by event, with matcher, type and source", () => {
+    expect(
+      hooksMarkdown(
+        {
+          events: [{ name: "PreToolUse", summary: "Before tool execution" }],
+          hooks: [
+            {
+              event: "PreToolUse",
+              matcher: "Bash",
+              type: "command",
+              displayText: "check.sh",
+              sourceLabel: "User settings",
+            },
+            {
+              event: "PreToolUse",
+              matcher: "",
+              type: "command",
+              displayText: "log.sh",
+              sourceLabel: "",
+            },
+            {
+              event: "Stop",
+              matcher: "",
+              type: "prompt",
+              displayText: "Sum up",
+              sourceLabel: "Project",
+            },
+          ],
+        },
+        words,
+      ),
+    ).toBe(
+      [
+        "**PreToolUse** — Before tool execution\n\n- `Bash` · command · `check.sh` · User settings\n- command · `log.sh`",
+        "**Stop**\n\n- prompt · `Sum up` · Project",
+      ].join("\n\n"),
+    );
+    expect(hooksMarkdown({ events: [], hooks: [] }, words)).toBe("no_hooks");
+  });
+
+  test("/sandbox reads the effective settings; /add-dir takes a folder", () => {
+    expect(sandboxOn({ effective: { sandbox: { enabled: true } } })).toBe(true);
+    expect(sandboxOn({ effective: {} })).toBe(false);
+    expect(sandboxOn(null)).toBe(false);
+    expect(directoryArg("../lib", "/w/app")).toBe("/w/app/../lib");
+    expect(directoryArg("./docs", "/w/app/")).toBe("/w/app/docs");
+    expect(directoryArg('"/tmp/my dir"', "/w")).toBe("/tmp/my dir");
+    expect(directoryArg("~/notes", "/w")).toBe("~/notes");
+    expect(directoryArg("C:\\data", "C:\\w")).toBe("C:\\data");
+    expect(directoryArg("  ", "/w")).toBeNull();
   });
 });
