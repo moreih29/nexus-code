@@ -18,6 +18,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { BaseWindow, type Input, screen, type View, type WebContents } from "electron";
 import { CliError } from "../context";
+import { DESCRIBE_COMPONENT, type PickedComponent } from "./component";
 import { type ConsoleEntry, type ConsoleLog, watchConsole } from "./console-log";
 import { dialogText, type PageDialog } from "./dialog";
 import { DrivenTabs, saveCommandDownload } from "./downloads";
@@ -1677,6 +1678,11 @@ export class CdpBrowserDriver implements BrowserDriver {
     });
     if (!object.objectId) throw new CliError("the picked element is gone from the page");
     const details = await this.call<PickedDetails>(contents, object.objectId, DESCRIBE_PICKED);
+    const component = await this.call<PickedComponent | null>(
+      contents,
+      object.objectId,
+      DESCRIBE_COMPONENT,
+    ).catch(() => null);
     let role = "";
     let name = "";
     try {
@@ -1707,6 +1713,7 @@ export class CdpBrowserDriver implements BrowserDriver {
       ref,
       ...details,
       ...(png === undefined ? {} : { png }),
+      ...(component ? { component } : {}),
     });
   }
 }

@@ -3,6 +3,8 @@
  * it is, a CSS selector that finds it again, and the block an agent reads.
  */
 
+import type { PickedComponent } from "./component";
+
 /** A box in CSS pixels. */
 export interface Box {
   readonly x: number;
@@ -38,6 +40,8 @@ export interface PickedElement extends PickedDetails {
   readonly ref: string;
   /** A PNG of it, base64; absent when none could be taken. */
   readonly png?: string;
+  /** The UI component it is in, when a framework's build tells it. */
+  readonly component?: PickedComponent;
 }
 
 /** Why no element was picked. */
@@ -152,10 +156,25 @@ export function withoutControls(s: string): string {
   return s.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, "");
 }
 
+function cleanComponent(component: PickedComponent): PickedComponent {
+  const props = component.props
+    ? Object.fromEntries(
+        Object.entries(component.props).map(([k, v]) => [withoutControls(k), withoutControls(v)]),
+      )
+    : undefined;
+  return {
+    framework: component.framework,
+    names: component.names.map(withoutControls),
+    ...(component.source === undefined ? {} : { source: withoutControls(component.source) }),
+    ...(props === undefined ? {} : { props }),
+  };
+}
+
 /** `el` with every text the page gave it free of control characters. */
 export function cleanPicked(el: PickedElement): PickedElement {
   return {
     ...el,
+    ...(el.component === undefined ? {} : { component: cleanComponent(el.component) }),
     url: withoutControls(el.url),
     title: withoutControls(el.title),
     tag: withoutControls(el.tag),
@@ -190,8 +209,22 @@ export function formatPick(picked: PickedElement, screenshot?: string, tab?: str
   ];
   if (el.text !== "" && el.text !== el.name) lines.push(`  text: ${JSON.stringify(el.text)}`);
   lines.push(`  html: ${el.html}`);
+  if (el.component !== undefined) lines.push(...componentLines(el.component));
   if (screenshot !== undefined) lines.push(`  screenshot: ${screenshot}`);
   return withoutControls(lines.join("\n"));
+}
+
+function componentLines(component: PickedComponent): string[] {
+  const [inner, ...outer] = component.names;
+  const lines = [
+    `  component: ${inner} (${component.framework})${outer.length ? `, in ${outer.join(" < ")}` : ""}`,
+  ];
+  if (component.source !== undefined) lines.push(`  source: ${component.source}`);
+  if (component.props !== undefined) {
+    const props = Object.entries(component.props).map(([k, v]) => `${k}: ${v}`);
+    lines.push(`  props: {${props.join(", ")}}`);
+  }
+  return lines;
 }
 
 function selectorText(el: PickedElement): string {
