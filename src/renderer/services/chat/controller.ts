@@ -818,6 +818,14 @@ export function pruneAttachmentsOnce(workspaceId: string, openTabIds: string[]):
   );
 }
 
+/** The controller of a Claude tab that was shown, if any: its program and requests. */
+export function existingChatController(
+  workspaceId: string,
+  tabId: string,
+): ChatController | undefined {
+  return controllers.get(chatKey(workspaceId, tabId));
+}
+
 export function chatController(target: ChatTabTarget, hooks?: ChatTabHooks): ChatController {
   ensureListeners();
   const key = chatKey(target.workspaceId, target.tabId);

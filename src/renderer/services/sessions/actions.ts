@@ -8,6 +8,7 @@ import { useActiveStore } from "@/state/stores/active";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import { useTaskUIStore } from "@/state/stores/task-ui";
 import { useUIStore } from "@/state/stores/ui";
+import { type ChatController, existingChatController } from "../chat/controller";
 import { actionHandlers, UiRequestError } from "../cli/actions";
 import { groupOf } from "../cli/placement";
 import { getTerminalController } from "../terminal/terminal-registry";
@@ -17,6 +18,17 @@ import { typeText } from "./typed-input";
 interface SessionRef {
   readonly workspaceId: string;
   readonly tabId: string;
+  /** A Claude tab's program takes a message, and an interrupt, as requests. */
+  readonly kind?: "terminal" | "claude";
+}
+
+/** The controller of a Claude tab's session; an error when the tab was never shown. */
+function claudeTab({ workspaceId, tabId }: SessionRef): ChatController {
+  const chat = existingChatController(workspaceId, tabId);
+  if (!chat) {
+    throw new UiRequestError("that Claude tab has not started: it has not been shown yet");
+  }
+  return chat;
 }
 
 /** Switches to the session's workspace and shows its terminal. */
@@ -39,6 +51,10 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Types `text` into the session's terminal as keys and presses Enter. */
 export async function sendLine(session: SessionRef, text: string): Promise<void> {
+  if (session.kind === "claude") {
+    await claudeTab(session).send(text);
+    return;
+  }
   const terminal = getTerminalController(session.tabId);
   if (!terminal) {
     throw new UiRequestError(
@@ -60,6 +76,10 @@ export async function sendLine(session: SessionRef, text: string): Promise<void>
 
 /** Presses Ctrl-C in the session's terminal. */
 export async function interrupt(session: SessionRef): Promise<void> {
+  if (session.kind === "claude") {
+    await claudeTab(session).interrupt();
+    return;
+  }
   await actionHandlers["terminal.input"]({ ...session, text: "\x03", mode: "keys", enter: false });
 }
 

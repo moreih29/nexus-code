@@ -51,6 +51,18 @@ function terminal(id: string, title: string, dead = false): Tab {
   } as Tab;
 }
 
+function claudeTab(id: string, title: string): Tab {
+  return {
+    id,
+    type: "claude",
+    title,
+    defaultTitle: title,
+    isPreview: false,
+    isPinned: false,
+    props: { cwd: "/" },
+  } as Tab;
+}
+
 function claude(status: StatusEntry["status"], extra: Partial<StatusEntry> = {}): StatusEntry {
   return { workspaceId: "", tabId: "", status, since: 1_000, ...extra } as StatusEntry;
 }
@@ -100,6 +112,32 @@ describe("buildFamily", () => {
     }
   });
 
+  it("lists Claude tabs as Claude sessions, idle until their hooks tell", () => {
+    const family = buildFamily(
+      input({
+        tabsByWorkspace: {
+          [ROOT]: { k: claudeTab("k", "Fix login"), n: claudeTab("n", "Claude") },
+        },
+        claudeByWorkspace: {
+          [ROOT]: { k: claude("permissionPending", { message: "Bash", prompt: "fix it" }) },
+        },
+      }),
+    );
+    const [asking, fresh] = family?.worktrees[0].sessions ?? [];
+    expect(asking).toMatchObject({
+      key: `${ROOT}:k`,
+      kind: "claude",
+      title: "Fix login",
+      agent: "claude",
+      state: "permissionPending",
+      phase: "attention",
+      estimated: false,
+      message: "Bash",
+      prompt: "fix it",
+    });
+    expect(fresh).toMatchObject({ kind: "claude", state: "idle", phase: "idle" });
+  });
+
   it("is null for a workspace that is gone", () => {
     expect(buildFamily(input({ workspaceId: "gone" }))).toBeNull();
   });
@@ -121,6 +159,7 @@ describe("buildFamily", () => {
     expect(root.sessions).toHaveLength(1);
     expect(root.sessions[0]).toMatchObject({
       key: `${ROOT}:a`,
+      kind: "terminal",
       agent: "claude",
       state: "permissionPending",
       phase: "attention",
