@@ -588,7 +588,9 @@
       "agents": "에이전트",
       "progress": "진행",
       "screen_show": "터미널 원문 보기",
-      "screen_hide": "터미널 원문 접기"
+      "screen_hide": "터미널 원문 접기",
+      "show_claude_tab": "Claude 탭으로 이동",
+      "permission_hint_claude": "권한 요청은 Claude 탭에서 응답합니다."
     },
     "agents": {
       "running_count": "에이전트 실행 중 {{count}}",

@@ -30,6 +30,11 @@ import {
 } from "../../services/sessions/model";
 import { useNow, type WorktreeChanges } from "../../services/sessions/use-family";
 import { getTerminalController } from "../../services/terminal/terminal-registry";
+import { existingChatController } from "../../services/chat/controller";
+import { useChatTab } from "../../services/chat/store";
+import { useTabsStore } from "../../state/stores/tabs";
+import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { PermissionCard } from "../chat/permission-card";
 import { Button } from "../ui/button";
 import { showToast } from "../ui/toast";
 import { AgentDetail } from "./agent-detail";
@@ -162,7 +167,9 @@ function DetailActions({
     <div className="flex flex-wrap gap-2">
       {session && (
         <Button size="sm" onClick={() => showTerminal(session)}>
-          {t("sessions.detail.show_terminal")}
+          {session.kind === "claude"
+            ? t("sessions.detail.show_claude_tab")
+            : t("sessions.detail.show_terminal")}
         </Button>
       )}
       <Button size="sm" variant="outline" onClick={() => showChanges(worktree.workspace.id)}>
@@ -211,7 +218,10 @@ function SessionBody({
   // until asked for. Another agent's screen is all there is to tell.
   const [screenToggled, setScreenToggled] = useState<boolean | undefined>(undefined);
   const screenOpen = screenToggled ?? activity === undefined;
-  const screen = useTerminalScreen(session.tabId, visible && screenOpen);
+  const screen = useTerminalScreen(
+    session.tabId,
+    visible && screenOpen && session.kind === "terminal",
+  );
   const working = session.state === "running" || session.state === "permissionPending";
   // Running tools count their seconds.
   const now = useNow(visible && activity !== undefined && working);
@@ -219,13 +229,16 @@ function SessionBody({
   return (
     <>
       {activity && <NowCard session={session} activity={activity} now={now} />}
+      {session.kind === "claude" && <ClaudeTabRequests session={session} />}
       {asks.length > 0 ? (
         // Answered here, or in the terminal's own prompt.
         <PermissionAsks session={session} asks={asks} agents={activity?.agents ?? []} />
       ) : session.state === "permissionPending" ? (
-        <p className="text-app-ui-sm text-(--state-warning-fg)">
-          {t("sessions.detail.permission_hint")}
-        </p>
+        session.kind === "terminal" && (
+          <p className="text-app-ui-sm text-(--state-warning-fg)">
+            {t("sessions.detail.permission_hint")}
+          </p>
+        )
       ) : (
         // Keyed by the session, so a draft never carries over to another one.
         session.state !== "exited" && <SendLine key={session.key} session={session} />
@@ -247,32 +260,72 @@ function SessionBody({
           </p>
         </DetailSection>
       )}
-      <section className="flex flex-col gap-1.5">
-        <button
-          type="button"
-          onClick={() => setScreenToggled(!screenOpen)}
-          aria-expanded={screenOpen}
-          className="flex items-center gap-1 self-start rounded-(--radius-control) text-app-label uppercase text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ChevronRight
-            aria-hidden
-            className={cn("size-3 shrink-0 transition-transform", screenOpen && "rotate-90")}
-          />
-          {screenOpen ? t("sessions.detail.screen_hide") : t("sessions.detail.screen_show")}
-        </button>
-        {screenOpen &&
-          (screen === null ? (
-            <p className="text-app-ui-sm text-muted-foreground">
-              {session.state === "exited"
-                ? t("sessions.detail.screen_exited")
-                : t("sessions.detail.screen_not_started")}
-            </p>
-          ) : (
-            // Keyed by the session, so each one opens scrolled to its latest lines.
-            <ScreenText key={session.key} text={screen} />
-          ))}
-      </section>
+      {session.kind === "terminal" && (
+        <section className="flex flex-col gap-1.5">
+          <button
+            type="button"
+            onClick={() => setScreenToggled(!screenOpen)}
+            aria-expanded={screenOpen}
+            className="flex items-center gap-1 self-start rounded-(--radius-control) text-app-label uppercase text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ChevronRight
+              aria-hidden
+              className={cn("size-3 shrink-0 transition-transform", screenOpen && "rotate-90")}
+            />
+            {screenOpen ? t("sessions.detail.screen_hide") : t("sessions.detail.screen_show")}
+          </button>
+          {screenOpen &&
+            (screen === null ? (
+              <p className="text-app-ui-sm text-muted-foreground">
+                {session.state === "exited"
+                  ? t("sessions.detail.screen_exited")
+                  : t("sessions.detail.screen_not_started")}
+              </p>
+            ) : (
+              // Keyed by the session, so each one opens scrolled to its latest lines.
+              <ScreenText key={session.key} text={screen} />
+            ))}
+        </section>
+      )}
     </>
+  );
+}
+
+/**
+ * The permission requests a Claude tab's session waits on, as the tab shows
+ * them, answered for it: its program asks the tab, not a hook.
+ */
+function ClaudeTabRequests({ session }: { session: AgentSession }) {
+  const { t } = useTranslation();
+  const { workspaceId, tabId } = session;
+  const requests = useChatTab(workspaceId, tabId).model.permissions;
+  const cwd = useTabsStore((s) => {
+    const tab = s.byWorkspace[workspaceId]?.[tabId];
+    return tab?.type === "claude" ? tab.props.cwd : "";
+  });
+  const rootPath = useWorkspacesStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
+  );
+  const controller = existingChatController(workspaceId, tabId);
+  if (requests.length === 0) {
+    return session.state === "permissionPending" ? (
+      <p className="text-app-ui-sm text-(--state-warning-fg)">
+        {t("sessions.detail.permission_hint_claude")}
+      </p>
+    ) : null;
+  }
+  return (
+    <PermissionCard
+      requests={requests}
+      workspaceId={workspaceId}
+      cwd={cwd}
+      rootPath={rootPath}
+      onAnswer={(request, answer) => {
+        controller?.answerPermission(request, answer).catch((failure: unknown) => {
+          showToast({ kind: "error", message: (failure as Error).message });
+        });
+      }}
+    />
   );
 }
 

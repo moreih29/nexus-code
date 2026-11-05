@@ -19,6 +19,7 @@ export function pickTargets(input: FamilyInput): AgentSession[] {
   const claude = input.claudeByWorkspace[input.workspaceId] ?? {};
   return (own?.sessions ?? []).filter(
     (s) =>
+      s.kind === "terminal" &&
       s.state !== "exited" &&
       (claude[s.tabId] !== undefined ||
         agentFromProgram(input.activity.get(s.key)?.program) !== undefined),
