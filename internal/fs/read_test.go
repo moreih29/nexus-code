@@ -380,3 +380,116 @@ func TestReadFollowsSymlinkToDevice(t *testing.T) {
 		t.Fatalf("link to device: want empty binary result, got %#v", bin)
 	}
 }
+
+func TestReadRangeReadsAPieceWithTheFileSize(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(root, "clip.bin"), []byte("0123456789"), 0o644))
+	fsys, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func(params string) ReadBinaryResult {
+		t.Helper()
+		got, err := fsys.ReadRange(context.Background(), json.RawMessage(params))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.(ReadBinaryResult)
+	}
+	decoded := func(r ReadBinaryResult) string {
+		t.Helper()
+		b, err := base64.StdEncoding.DecodeString(r.Base64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+
+	mid := read(`{"relPath":"clip.bin","offset":2,"length":3}`)
+	if mid.Kind != "ok" || decoded(mid) != "234" || mid.Size != 10 || mid.MTime == "" {
+		t.Fatalf("range mismatch: %#v", mid)
+	}
+	if end := read(`{"relPath":"clip.bin","offset":8,"length":5}`); decoded(end) != "89" || end.Size != 10 {
+		t.Fatalf("range past the end mismatch: %#v", end)
+	}
+	if past := read(`{"relPath":"clip.bin","offset":12,"length":5}`); past.Kind != "ok" || past.Base64 != "" || past.Size != 10 {
+		t.Fatalf("range after the end mismatch: %#v", past)
+	}
+	if size := read(`{"relPath":"clip.bin","offset":0,"length":0}`); size.Base64 != "" || size.Size != 10 {
+		t.Fatalf("empty range mismatch: %#v", size)
+	}
+	if missing := read(`{"relPath":"gone.bin","offset":0,"length":1}`); missing.Kind != "missing" {
+		t.Fatalf("missing range mismatch: %#v", missing)
+	}
+
+	for _, params := range []string{
+		`{"relPath":"clip.bin","offset":-1,"length":1}`,
+		`{"relPath":"clip.bin","offset":0,"length":-1}`,
+		`{"relPath":"clip.bin","offset":"0","length":1}`,
+	} {
+		if _, err := fsys.ReadRange(context.Background(), json.RawMessage(params)); proto.ErrorCode(err) != proto.CodeProtocolError {
+			t.Fatalf("%s: expected protocol error, got %v", params, err)
+		}
+	}
+	if _, err := fsys.ReadRange(context.Background(), json.RawMessage(`{"relPath":"../clip.bin","offset":0,"length":1}`)); err == nil {
+		t.Fatal("a path out of the root should be refused")
+	}
+}
+
+func TestReadRangeCapsOneCallsLength(t *testing.T) {
+	root := t.TempDir()
+	big := make([]byte, MaxReadRangeLength+10)
+	for i := range big {
+		big[i] = byte(i)
+	}
+	must(t, os.WriteFile(filepath.Join(root, "big.bin"), big, 0o644))
+	fsys, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := fsys.ReadRange(context.Background(), json.RawMessage(`{"relPath":"big.bin","offset":5,"length":99999999}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := got.(ReadBinaryResult)
+	b, err := base64.StdEncoding.DecodeString(read.Base64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) != MaxReadRangeLength || b[0] != 5 || read.Size != int64(len(big)) {
+		t.Fatalf("capped range mismatch: len=%d first=%d size=%d", len(b), b[0], read.Size)
+	}
+}
+
+func TestReadRangeFollowsSymlinkAndReadsOutsideByAbsolutePath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	root := t.TempDir()
+	outsidePath := filepath.Join(t.TempDir(), "doc.pdf")
+	must(t, os.WriteFile(outsidePath, []byte("%PDF-1.7 body"), 0o644))
+	must(t, os.Symlink(outsidePath, filepath.Join(root, "link.pdf")))
+	fsys, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	viaLink, err := fsys.ReadRange(context.Background(), json.RawMessage(`{"relPath":"link.pdf","offset":0,"length":4}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := viaLink.(ReadBinaryResult); r.Base64 != base64.StdEncoding.EncodeToString([]byte("%PDF")) || r.Size != 13 {
+		t.Fatalf("range through a link mismatch: %#v", r)
+	}
+
+	outside, err := fsys.ReadAbsoluteRange(context.Background(), json.RawMessage(`{"absolutePath":`+strconvQuote(outsidePath)+`,"offset":9,"length":4}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := outside.(ReadBinaryResult); r.Base64 != base64.StdEncoding.EncodeToString([]byte("body")) || r.Size != 13 {
+		t.Fatalf("absolute range mismatch: %#v", r)
+	}
+	if _, err := fsys.ReadAbsoluteRange(context.Background(), json.RawMessage(`{"absolutePath":"doc.pdf","offset":0,"length":1}`)); err == nil {
+		t.Fatal("a relative path should be refused")
+	}
+}

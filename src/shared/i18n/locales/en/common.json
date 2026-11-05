@@ -708,8 +708,7 @@
   "imagePreview": {
     "workspace_not_found": "Workspace not found.",
     "outside_workspace": "Image is outside the workspace and cannot be previewed.",
-    "load_failed": "Could not load image.",
-    "too_large": "Image is too large to preview (max {{maxMb}} MB)."
+    "load_failed": "Could not load image."
   },
   "fontPreview": {
     "outside_workspace": "This font is outside the workspace and cannot be previewed.",
@@ -723,7 +722,6 @@
   "pdfPreview": {
     "outside_workspace": "This PDF is outside the workspace and cannot be previewed.",
     "load_failed": "Could not open this PDF.",
-    "too_large": "This PDF is too large to preview (max {{maxMb}} MB).",
     "password": "This PDF is protected by a password and cannot be previewed.",
     "zoom_in": "Zoom in",
     "zoom_out": "Zoom out",

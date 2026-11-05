@@ -1320,8 +1320,19 @@ export const ipcContract = {
       getExpanded: call(workspaceScoped({}), z.object({ relPaths: z.array(z.string()) })),
       setExpanded: call(workspaceScoped({ relPaths: z.array(z.string()) }), z.void()),
       readFile: call(workspaceScoped({ relPath: z.string() }), FileReadResultSchema),
-      // A file's bytes as base64, for previews that take them whole (PDF).
+      // A file's bytes as base64, for previews that take them whole (docx).
       readBinary: call(workspaceScoped({ relPath: z.string() }), FileReadBinaryResultSchema),
+      // Up to `length` bytes of a file from `offset`, as base64, with the
+      // file's size; at most READ_RANGE_MAX_BYTES a call. For previews that
+      // read a large file in pieces (PDF).
+      readRange: call(
+        workspaceScoped({
+          relPath: z.string(),
+          offset: z.number().int().min(0),
+          length: z.number().int().min(0),
+        }),
+        FileReadBinaryResultSchema,
+      ),
       writeFile: call(
         workspaceScoped({
           relPath: z.string(),

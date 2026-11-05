@@ -29,6 +29,18 @@ export interface FsProvider {
   readAbsolute(absolutePath: string): Promise<FileReadResult>;
   /** An absolute path's bytes on the agent host; for files a Claude tab granted. */
   readAbsoluteBinary(absolutePath: string): Promise<FileReadBinaryResult>;
+  /**
+   * Up to `length` bytes of a workspace-relative file from `offset`, as
+   * base64, with the file's size. One call returns at most
+   * READ_RANGE_MAX_BYTES.
+   */
+  readRange(relPath: string, offset: number, length: number): Promise<FileReadBinaryResult>;
+  /** readRange for an absolute path on the agent host; for files a Claude tab granted. */
+  readAbsoluteRange(
+    absolutePath: string,
+    offset: number,
+    length: number,
+  ): Promise<FileReadBinaryResult>;
   /** Writes `content`, or `bytes` (base64) in its place: text in another encoding. */
   writeFile(
     relPath: string,

@@ -11,10 +11,11 @@
 //   the same instance.
 //
 // REMOTE WORKSPACES
-//   The `nexus-workspace://` protocol now routes SSH workspaces through
-//   the agent's `fs.readBinary` method (base64-over-NDJSON), so the same
-//   URL transparently fetches local or remote bytes. The renderer no
-//   longer needs to branch on workspace.location.kind.
+//   The `nexus-workspace://` protocol routes SSH workspaces through the
+//   agent's `fs.readRange` method, a piece at a time, so the same URL
+//   transparently fetches local or remote bytes. The renderer no longer
+//   needs to branch on workspace.location.kind. An image has no size limit
+//   of its own: one the browser cannot decode shows as failed to load.
 //
 // ZOOM (cmd+wheel)
 //   The canvas tracks two independent factors:
@@ -51,8 +52,6 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
-import { ipcCallResult } from "../../../ipc/client";
 import { EmptyState } from "../../ui/empty-state";
 import { useFileVersion, versionedUrl } from "./use-file-version";
 import { useWorkspaceFile } from "./use-workspace-file";
@@ -164,9 +163,8 @@ function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCan
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const [fitScale, setFitScale] = useState(1);
   const [userScale, setUserScale] = useState(1);
-  // null = loaded OK. "generic" = decode/missing failure. "too_large" = the
-  // file exceeds the read cap (resolved via a stat round-trip in onError).
-  const [errorKind, setErrorKind] = useState<"generic" | "too_large" | null>(null);
+  // A decode or missing-file failure.
+  const [failed, setFailed] = useState(false);
 
   // Anchor for the in-flight zoom: applied in useLayoutEffect after the new
   // dimensions commit, then cleared. Held in a ref so the wheel callback
@@ -191,7 +189,7 @@ function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCan
   const [trackedSrc, setTrackedSrc] = useState(src);
   if (trackedSrc !== src) {
     setTrackedSrc(src);
-    setErrorKind(null);
+    setFailed(false);
   }
 
   // Recompute object-contain fit factor on container resize or natural-size
@@ -275,18 +273,8 @@ function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCan
     return () => el.removeEventListener("wheel", onWheel);
   }, [containerEl]);
 
-  if (errorKind) {
-    return (
-      <EmptyState
-        title={
-          errorKind === "too_large"
-            ? t("imagePreview.too_large", { maxMb: MAX_READABLE_FILE_SIZE / (1024 * 1024) })
-            : t("imagePreview.load_failed")
-        }
-        tone="status"
-        className="min-h-0"
-      />
-    );
+  if (failed) {
+    return <EmptyState title={t("imagePreview.load_failed")} tone="status" className="min-h-0" />;
   }
 
   // Until the image loads we don't know its natural size yet, so render
@@ -314,18 +302,7 @@ function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCan
             setNaturalSize(size);
             onNaturalSize?.(size);
           }}
-          onError={() => {
-            // A load failure on an over-cap file is a size rejection — the
-            // workspace protocol 404s reads above MAX_READABLE_FILE_SIZE — not
-            // a missing or undecodable image. stat to disambiguate so the user
-            // sees the real reason instead of a generic "could not load".
-            setErrorKind("generic");
-            void ipcCallResult("fs", "stat", { workspaceId, relPath }).then((result) => {
-              if (result.ok && result.value.size > MAX_READABLE_FILE_SIZE) {
-                setErrorKind("too_large");
-              }
-            });
-          }}
+          onError={() => setFailed(true)}
           // maxWidth/maxHeight: 'none' override Tailwind Preflight's global
           // `img { max-width: 100%; height: auto; }`. Without this, our
           // explicit width is silently capped at the inner wrapper's width

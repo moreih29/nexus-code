@@ -83,12 +83,12 @@ describe("nexus-workspace:// outside files", () => {
         } as Partial<WorkspaceMeta>,
         {
           kind: "ssh",
-          readBinary: async () => ({ kind: "missing", reason: "not-found" }),
-          readAbsoluteBinary: async (absPath: string) => {
+          readRange: async () => ({ kind: "missing", reason: "not-found" }),
+          readAbsoluteRange: async (absPath: string, offset: number, length: number) => {
             asked.push(absPath);
             return {
               kind: "ok",
-              base64: BYTES.toString("base64"),
+              base64: BYTES.subarray(offset, offset + length).toString("base64"),
               sizeBytes: BYTES.length,
               mtime: "2026-01-01T00:00:00.000Z",
             };

@@ -50,9 +50,9 @@ const ssh = buildNexusWorkspaceHandler(
     } as Partial<WorkspaceMeta>,
     {
       kind: "ssh",
-      readBinary: async () => ({
+      readRange: async (_relPath: string, offset: number, length: number) => ({
         kind: "ok",
-        base64: BYTES.toString("base64"),
+        base64: BYTES.subarray(offset, offset + length).toString("base64"),
         sizeBytes: BYTES.length,
         mtime: "2026-01-01T00:00:00.000Z",
       }),
@@ -106,6 +106,13 @@ for (const [name, handler] of [
     test("serves to the end for an open range", async () => {
       const resp = await handler(ask("bytes=7-"));
       expect(resp.status).toBe(206);
+      expect(await resp.text()).toBe("789");
+    });
+
+    test("serves the last bytes for a range from the end", async () => {
+      const resp = await handler(ask("bytes=-3"));
+      expect(resp.status).toBe(206);
+      expect(resp.headers.get("Content-Range")).toBe("bytes 7-9/10");
       expect(await resp.text()).toBe("789");
     });
 
