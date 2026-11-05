@@ -25,6 +25,7 @@ import { HtmlPreview } from "../../editor/preview/html-preview";
 import { ImagePreview } from "../../editor/preview/image-preview";
 import { JsonTreePreview } from "../../editor/preview/json-tree-preview";
 import { MarkdownPreview } from "../../editor/preview/markdown-preview";
+import { NotebookPreview } from "../../editor/preview/notebook-preview";
 import { SvgPreview } from "../../editor/preview/svg-preview";
 import { TablePreview } from "../../editor/preview/table-preview";
 import { ViewModeToggle } from "../../editor/preview/view-mode-toggle";
@@ -475,5 +476,14 @@ function PreviewPane({
       return <TablePreview source={source} delimiter={delimiterFor(filePath)} />;
     case "json":
       return <JsonTreePreview source={source} />;
+    case "notebook":
+      return (
+        <NotebookPreview
+          source={source}
+          workspaceId={workspaceId}
+          currentFileAbsPath={filePath}
+          workspaceRootAbsPath={workspaceRootAbsPath}
+        />
+      );
   }
 }
