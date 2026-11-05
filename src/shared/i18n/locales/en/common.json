@@ -683,6 +683,14 @@
     "load_failed": "Could not read this document.",
     "too_large": "This document is too large to preview (max {{maxMb}} MB)."
   },
+  "pptxPreview": {
+    "outside_workspace": "This presentation is outside the workspace and cannot be previewed.",
+    "load_failed": "Could not read this presentation.",
+    "too_large": "This presentation is too large to preview (max {{maxMb}} MB).",
+    "slide_number": "Slide {{number}} of {{count}}",
+    "chart": "Chart (not shown in the preview)",
+    "media": "Video or audio (not played in the preview)"
+  },
   "markdown": {
     "copy_code": "Copy code",
     "copy": "Copy",

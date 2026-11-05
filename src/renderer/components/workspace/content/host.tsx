@@ -7,6 +7,7 @@ import { isDocxFile } from "@/services/editor/preview/docx";
 import { isFontFile } from "@/services/editor/preview/font";
 import { mediaKindFor } from "@/services/editor/preview/media";
 import { isPdfFile } from "@/services/editor/preview/pdf";
+import { isPresentationFile } from "@/services/editor/preview/pptx";
 import { isImageFile } from "@/services/editor/preview/previewable";
 import { isSpreadsheetFile } from "@/services/editor/preview/spreadsheet";
 import type { Tab } from "@/state/stores/tabs";
@@ -16,6 +17,7 @@ import { EditorView, ImageEditorView } from "./editor-view";
 import { FontEditorView } from "./font-editor-view";
 import { MediaEditorView } from "./media-editor-view";
 import { PdfEditorView } from "./pdf-editor-view";
+import { PptxEditorView } from "./pptx-editor-view";
 import { useSlotElement } from "./slot-registry";
 import { SpreadsheetEditorView } from "./spreadsheet-editor-view";
 import { TerminalView } from "./terminal-view";
@@ -180,8 +182,9 @@ export function ContentHost({
         // and preview-slot behaviour identical to the text path.
         //
         // Audio and video route to MediaEditorView, fonts to FontEditorView,
-        // PDFs to PdfEditorView, spreadsheets to SpreadsheetEditorView, and
-        // Word documents to DocxEditorView, the same way.
+        // PDFs to PdfEditorView, spreadsheets to SpreadsheetEditorView, Word
+        // documents to DocxEditorView, and presentations to PptxEditorView,
+        // the same way.
         //
         // tabId is forwarded so EditorView can read its own viewMode from the
         // tabs store (Raw/Preview toggle per-tab persistence — plan 60).
@@ -218,6 +221,12 @@ export function ContentHost({
           />
         ) : isDocxFile(tab.props.filePath) ? (
           <DocxEditorView
+            key={tab.props.filePath}
+            filePath={tab.props.filePath}
+            workspaceId={workspaceId}
+          />
+        ) : isPresentationFile(tab.props.filePath) ? (
+          <PptxEditorView
             key={tab.props.filePath}
             filePath={tab.props.filePath}
             workspaceId={workspaceId}
