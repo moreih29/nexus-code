@@ -3,6 +3,7 @@ import type { CliCommand } from "../registry";
 import { agentContextCommands } from "./agent-context";
 import { browserCommands } from "./browser";
 import { browserControlCommands } from "./browser-control";
+import { browserNetworkCommands } from "./browser-network";
 import { editorCommands } from "./editor";
 import { layoutCommands, tabArrangeCommands } from "./layout";
 import { notifyCommands } from "./notify";
@@ -22,6 +23,7 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
   ...editorCommands,
   ...browserCommands,
   ...browserControlCommands,
+  ...browserNetworkCommands,
   ...portCommands,
   ...notifyCommands,
   ...agentContextCommands,

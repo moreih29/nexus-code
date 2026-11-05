@@ -117,6 +117,8 @@ nexus browser screenshot --out shot.png
 nexus browser screenshot --element e6   # 요소 하나만
 nexus browser inspect e6          # 요소의 ref · 선택자 · 위치 · HTML · 스크린샷 (사용자 클릭 없이)
 nexus browser console --errors
+nexus browser network --failed    # 페이지가 보낸 요청 (실패 · 4xx · 5xx 만)
+nexus browser network 12          # 요청 12 의 헤더 · 보낸 내용 · 응답
 nexus browser eval "document.title"
 nexus browser pick                # 사용자가 클릭한 요소의 ref · 선택자 · 스크린샷
 ```
@@ -141,6 +143,9 @@ nexus browser pick                # 사용자가 클릭한 요소의 ref · 선�
   - 명령으로 답하면 앱에 떠 있던 같은 확인 창도 닫힙니다. 사용자가 앱에서 먼저 답해도 됩니다.
   - 명령이 그 탭을 다루기 전에 페이지가 띄운 창은 명령으로 답할 수 없습니다. 그때 명령은 페이지가 응답하지 않는다고 알려주니, 앱에서 답하세요.
 - `console` 은 탭이 열린 뒤 페이지가 남긴 메시지를 최근 500개까지 보여줍니다.
+- `network` 는 탭이 열린 뒤 페이지가 보낸 요청을 최근 500개까지 기록해 둡니다. 목록은 마지막 50개(`--last`)이고, `--type fetch,xhr` · `--url <텍스트>` 로 거르고, `--clear` 로 비웁니다.
+  - 번호를 주면 그 요청의 헤더, 보낸 내용, 응답 본문(`--body` 로 글자 수, 기본 4000)을 보여줍니다. 본문은 페이지가 아직 갖고 있을 때만 나옵니다. 다른 페이지로 가면 이전 페이지의 본문은 사라집니다.
+  - 새로 연 탭의 첫 페이지에서는 바로 불러오는 css · js 같은 요청이 빠질 수 있습니다. `browser reload` 뒤에는 모두 나옵니다.
 - 브라우저 탭이 여러 개면 `--tab <id>` 로 고릅니다. 하나뿐이거나 보이는 탭이 하나면 생략할 수 있습니다.
 - 페이지 안의 iframe 내용은 snapshot 에 나오지 않습니다.
 - `pick` 은 그 탭을 보여주고 마우스 아래 요소를 강조합니다. 사용자가 클릭한 요소는 클릭되지 않고 골라집니다. 역할과 이름, `click` 등에 쓸 ref, CSS 선택자, 위치, 텍스트, HTML 을 출력하고 요소 스크린샷을 임시 폴더에 저장합니다.

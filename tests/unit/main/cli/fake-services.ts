@@ -14,7 +14,9 @@ import type {
   BrowserDriver,
   PageDialog,
   PageInfo,
+  RequestDetails,
 } from "../../../../src/main/features/cli/browser/driver";
+import type { NetworkEntry } from "../../../../src/main/features/cli/browser/network-log";
 import type { PickedElement, PickResult } from "../../../../src/main/features/cli/browser/pick";
 import {
   type CliContext,
@@ -235,6 +237,10 @@ export interface FakeBrowser {
   settled?: PageInfo | null;
   /** The dialog the page shows, when set. */
   dialog?: PageDialog;
+  /** The requests the page made. */
+  network: NetworkEntry[];
+  /** What request gives for each. */
+  requests: Record<number, RequestDetails>;
 }
 
 function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
@@ -287,6 +293,16 @@ function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
     console: (tabId, clear) => {
       record("console", tabId, clear);
       return state.console;
+    },
+    network: (tabId, clear) => {
+      record("network", tabId, clear);
+      return state.network;
+    },
+    request: async (tabId, id, maxBody) => {
+      record("request", tabId, id, maxBody);
+      const details = state.requests[id];
+      if (!details) throw new CliError(`no request ${id}; nexus browser network lists them`);
+      return details;
     },
     waitFor: async (tabId, condition, timeoutMs) => {
       record("waitFor", tabId, condition, timeoutMs);
@@ -369,6 +385,8 @@ export function fakeApp(now = Date.now()): FakeApp {
     value: undefined,
     met: true,
     pick: { picked: PICKED },
+    network: [],
+    requests: {},
   };
   const layouts: FakeApp["layouts"] = { ...LAYOUTS };
   const panels: CliPanels = {
