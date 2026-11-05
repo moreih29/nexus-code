@@ -465,10 +465,9 @@ function MissingContentNotice({
 }) {
   const { t } = useTranslation();
   if (content.placeholder !== "missing") return null;
-  const label = side === "left" ? t("editor.left_missing") : t("editor.right_missing");
   return (
     <div className="shrink-0 border-b border-border bg-muted px-3 py-1 text-app-ui-sm text-muted-foreground">
-      {label}; showing it as an empty file.
+      {side === "left" ? t("editor.left_missing") : t("editor.right_missing")}
     </div>
   );
 }
