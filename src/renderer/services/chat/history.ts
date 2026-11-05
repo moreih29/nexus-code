@@ -25,8 +25,16 @@ export function transcriptLines(entries: readonly unknown[]): ChatLine[] {
       (entry.promptSource === "system" || rec(entry.origin)?.kind === "task-notification")
     )
       continue;
-    const message = rec(entry.message);
+    let message = rec(entry.message);
     if (!message) continue;
+    if (entry.type === "user") {
+      const text = textOf(message.content);
+      // A command's output, which went to the user and not the model.
+      if (text.startsWith("<local-command-stdout>") || text.startsWith("<local-command-stderr>"))
+        continue;
+      const command = commandText(text);
+      if (command !== null) message = { ...message, content: command };
+    }
     if (entry.type === "assistant") {
       lines.push({
         seq: lines.length + 1,
@@ -64,11 +72,27 @@ export function transcriptLines(entries: readonly unknown[]): ChatLine[] {
   return lines;
 }
 
-function isInterrupt(content: unknown): boolean {
+/** A message's text: the string, or its first block's. */
+function textOf(content: unknown): string {
   const first = Array.isArray(content) ? rec(content[0]) : null;
-  const text =
-    typeof content === "string" ? content : typeof first?.text === "string" ? first.text : "";
-  return text.startsWith("[Request interrupted");
+  return typeof content === "string" ? content : typeof first?.text === "string" ? first.text : "";
+}
+
+function isInterrupt(content: unknown): boolean {
+  return textOf(content).startsWith("[Request interrupted");
+}
+
+/**
+ * A command the user ran, as the transcript records it
+ * (`<command-name>/clear</command-name>…<command-args>…`), written as typed;
+ * null for any other text.
+ */
+function commandText(text: string): string | null {
+  const name = /^\s*<command-name>([^<]*)<\/command-name>/.exec(text)?.[1]?.trim();
+  if (!name) return null;
+  const args = /<command-args>([^<]*)<\/command-args>/.exec(text)?.[1]?.trim();
+  const typed = name.startsWith("/") ? name : `/${name}`;
+  return args ? `${typed} ${args}` : typed;
 }
 
 export interface HistoryCut {
