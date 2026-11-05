@@ -74,6 +74,44 @@ describe("chat history cuts", () => {
     ]);
   });
 
+  test("a command the user ran reads as typed, and its output is left out", () => {
+    const model = historyModel([
+      {
+        type: "user",
+        uuid: "c0",
+        message: {
+          role: "user",
+          content: "<command-name>/clear</command-name>\n<command-args></command-args>",
+        },
+      },
+      {
+        type: "user",
+        uuid: "c1",
+        message: {
+          role: "user",
+          content:
+            "<command-name>/model</command-name>\n            <command-message>model</command-message>\n            <command-args>haiku</command-args>",
+        },
+      },
+      {
+        type: "user",
+        uuid: "c2",
+        message: {
+          role: "user",
+          content: "<local-command-stdout>Set model to haiku</local-command-stdout>",
+        },
+      },
+      ...ENTRIES.slice(1),
+    ]);
+    expect(texts(model)).toEqual([
+      "user:/model haiku",
+      "user:one",
+      "assistant:first",
+      "user:two",
+      "assistant:second",
+    ]);
+  });
+
   test("no cut keeps it all", () => {
     expect(texts(historyModel(ENTRIES))).toEqual([
       "user:one",

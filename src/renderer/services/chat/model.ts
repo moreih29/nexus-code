@@ -50,7 +50,14 @@ export interface AssistantItem {
   at?: number;
 }
 
-export type NoticeCode = "interrupted" | "exited" | "restarted" | "compacted" | "error" | "dropped";
+export type NoticeCode =
+  | "interrupted"
+  | "exited"
+  | "restarted"
+  | "compacted"
+  | "cleared"
+  | "error"
+  | "dropped";
 
 export interface NoticeItem {
   kind: "notice";
@@ -203,8 +210,20 @@ export interface ChatModel {
   process: "none" | "running" | "exited";
   exit?: { code: number | null; signal?: string; stderrTail?: string };
   lastResult?: ResultInfo;
-  /** What the session has cost, as its last result tells. */
+  /**
+   * What the tab's processes have cost, at list price: each result tells
+   * its process's total so far, which starts again with a new process.
+   */
   costUsd?: number;
+  /** The running process's part of costUsd. */
+  processCostUsd?: number;
+  /** How many times /clear started the conversation over, under a new session id. */
+  clears?: number;
+  /**
+   * Why bypassPermissions can't be switched to, as the CLI answered a try:
+   * a setting or policy disables it (Claude Code says so only then).
+   */
+  bypassBlocked?: string;
   rateLimit?: RateLimitInfo;
   contextUsage?: unknown;
   /** get_usage's answer: the plan's limits, as the server sends them. */
@@ -329,6 +348,7 @@ function applySys(draft: Draft, message: Rec, seq: number, at: number | undefine
       if (m.process === "exited")
         draft.push({ kind: "notice", key: `n${seq}`, code: "restarted", at });
       m.process = "running";
+      m.processCostUsd = 0;
       m.exit = undefined;
       m.outgoing = {};
       m.permissions = [];
@@ -425,6 +445,17 @@ function applyOut(draft: Draft, message: Rec, seq: number, at: number | undefine
     case "control_response":
       applyControlResponse(draft, message, seq, at);
       return;
+    case "conversation_reset": {
+      // /clear: the session goes on under a new id, which the next init
+      // tells, with nothing of what came before.
+      const m = draft.next;
+      m.items = [{ kind: "notice", key: `n${seq}`, code: "cleared", at }];
+      m.tools = {};
+      m.agentItems = {};
+      m.contextUsage = undefined;
+      m.clears = (m.clears ?? 0) + 1;
+      return;
+    }
     case "rate_limit_event": {
       const info = rec(message.rate_limit_info);
       const status = str(info?.status);
@@ -797,7 +828,11 @@ function applyResult(draft: Draft, message: Rec, seq: number, at: number | undef
   m.turn = null;
   m.streaming = null;
   m.interrupting = false;
-  m.costUsd = num(message.total_cost_usd) ?? m.costUsd;
+  const cost = num(message.total_cost_usd);
+  if (cost !== undefined) {
+    m.costUsd = (m.costUsd ?? 0) - (m.processCostUsd ?? 0) + cost;
+    m.processCostUsd = cost;
+  }
   m.lastResult = {
     subtype,
     isError,
@@ -870,6 +905,9 @@ function applyControlResponse(
     // The side panel's reads fail quietly: it shows what it has.
     if (QUIET_REQUESTS.has(subtype)) return;
     const error = str(response.error) ?? subtype;
+    if (subtype === "set_permission_mode" && request.mode === "bypassPermissions") {
+      m.bypassBlocked = error;
+    }
     draft.push({ kind: "notice", key: `n${seq}`, code: "error", detail: error, at });
     return;
   }

@@ -99,6 +99,10 @@ export function SidePanel({
   const links = useChatLinks();
   const open = (target: string, kind: ResultEntry["kind"]) =>
     kind === "file" ? links?.openFile(target) : links?.openUrl(target);
+  // A version without stop_task keeps the button, saying which version has it.
+  const stopNote = controller.supports("stop_task")
+    ? undefined
+    : t("chat.panel.needs_version", { version: firstVersionOf("stop_task") });
 
   return (
     <aside
@@ -128,6 +132,7 @@ export function SidePanel({
                   ? () => stop(controller, agent.taskId as string, t("chat.panel.stop_failed"))
                   : undefined
               }
+              stopNote={stopNote}
             />
           ))}
         </Section>
@@ -141,7 +146,8 @@ export function SidePanel({
               <Elapsed from={job.startedAt} to={job.endedAt} now={now} />
               {job.status === "running" && (
                 <IconButton
-                  label={t("chat.panel.stop")}
+                  label={stopNote ?? t("chat.panel.stop")}
+                  disabled={stopNote !== undefined}
                   onClick={() => stop(controller, job.taskId, t("chat.panel.stop_failed"))}
                 >
                   <Square className="size-3" />
@@ -197,7 +203,7 @@ export function SidePanel({
               key={file.path}
               file={file}
               cwd={cwd}
-              onOpen={() => open(file.path, "file")}
+              onOpen={() => links?.openChange(file.path)}
             />
           ))}
         </Section>
@@ -529,11 +535,14 @@ function AgentEntry({
   now,
   onOpen,
   onStop,
+  stopNote,
 }: {
   agent: AgentRow;
   now: number;
   onOpen: () => void;
   onStop?: () => void;
+  /** Why stopping is not possible, as on a version without it. */
+  stopNote?: string;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -560,7 +569,11 @@ function AgentEntry({
           <ExternalLink className="size-3.5" />
         </IconButton>
         {onStop && (
-          <IconButton label={t("chat.panel.stop")} onClick={onStop}>
+          <IconButton
+            label={stopNote ?? t("chat.panel.stop")}
+            disabled={stopNote !== undefined}
+            onClick={onStop}
+          >
             <Square className="size-3" />
           </IconButton>
         )}
@@ -701,12 +714,21 @@ function UsageSection({ controller, state }: { controller: ChatController; state
   const { t, i18n } = useTranslation();
   const limits = usageLimitsOf(state.model.usage);
   const supported = controller.supports("get_usage");
+  const cost = state.model.costUsd;
   return (
     <Section
       title={t("chat.panel.usage.title")}
       folded
       onOpen={() => controller.refreshPanel(["usage"])}
     >
+      {cost !== undefined && cost > 0 && (
+        <Row className="text-app-micro" title={t("chat.panel.usage.cost_hint")}>
+          <span className="min-w-0 flex-1 truncate">{t("chat.panel.usage.cost")}</span>
+          <span className="tabular-nums" data-testid="chat-panel-cost">
+            {formatCost(cost, i18n.language)}
+          </span>
+        </Row>
+      )}
       {!supported ? (
         <div className="text-app-micro text-muted-foreground">
           {t("chat.panel.needs_version", { version: firstVersionOf("get_usage") })}
@@ -743,6 +765,17 @@ function UsageSection({ controller, state }: { controller: ChatController; state
       )}
     </Section>
   );
+}
+
+/** Dollars, with the cents' fractions a small session's cost is in. */
+function formatCost(usd: number, locale: string): string {
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "USD",
+    currencyDisplay: "narrowSymbol",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: usd < 1 ? 4 : 2,
+  }).format(usd);
 }
 
 function McpSection({ controller, state }: { controller: ChatController; state: ChatTabState }) {

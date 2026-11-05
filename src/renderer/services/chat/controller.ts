@@ -669,6 +669,10 @@ export class ChatController {
       this.target = { ...this.target, fork: undefined };
       this.hooks.onSession?.(model.sessionId);
     }
+    // What the tab showed before a /clear is another session's.
+    if ((model.clears ?? 0) !== (before.clears ?? 0)) {
+      this.update((prev) => (prev.history ? { ...prev, history: null } : prev));
+    }
     if (before.running && !model.running) this.sendNextQueued();
     if (model.process === "exited" && before.process !== "exited") {
       this.rejectPending("the program exited");

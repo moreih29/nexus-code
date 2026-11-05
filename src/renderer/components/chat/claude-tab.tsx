@@ -14,16 +14,18 @@ import {
 } from "../../services/chat/controller";
 import { isLocalAddress, isUnder, resolveFilePath, resultFiles } from "../../services/chat/links";
 import type { AssistantItem, PermissionRequest, UserItem } from "../../services/chat/model";
-import { openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
+import { openBrowserBeside, openFileBeside, revealTabById } from "../../services/chat/open-beside";
 import {
   agentsOf,
   agentTranscript,
+  changedFilesOf,
   contextOf,
   jobsOf,
   outsideLinksOf,
   resultsOf,
   todosOf,
 } from "../../services/chat/panel";
+import { revertChangedFile } from "../../services/chat/revert-file";
 import {
   type ChatTabState,
   type ComposerDraft,
@@ -31,6 +33,7 @@ import {
   useChatStore,
   useChatTab,
 } from "../../services/chat/store";
+import { useTerminalTwin } from "../../services/chat/terminal-twin";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
 import { openClaudeTab } from "../../state/operations/tabs";
 import { grantOutside } from "../../state/stores/outside-grants";
@@ -233,6 +236,15 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         if (at < 0) setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
         setLook(at >= 0 ? { files, index: at } : { files: [path, ...files], index: 0 });
       },
+      openChange(path) {
+        const { history, model } = latest.current.state;
+        const tools = history ? { ...history.tools, ...model.tools } : model.tools;
+        const changed = changedFilesOf(tools);
+        const changes: Record<string, string | null> = {};
+        for (const file of changed) if (file.before !== undefined) changes[file.path] = file.before;
+        const files = changed.map((file) => file.path);
+        setLook({ files, index: Math.max(0, files.indexOf(path)), changes });
+      },
       openFileTab(target) {
         const path = resolveFilePath(target, cwd);
         if (!path) return;
@@ -349,6 +361,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
             </div>
           )}
           <RateLimitBanner state={state} />
+          <TwinBanner workspaceId={workspaceId} tabId={tabId} sessionId={state.model.sessionId} />
           <Composer
             controller={controller}
             state={state}
@@ -402,6 +415,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
             setLook(null);
             links.openFileTab(path);
           }}
+          onRevert={(path) => {
+            const before = look.changes?.[path];
+            if (before !== undefined) void revertChangedFile(workspaceId, rootPath, path, before);
+          }}
+          revertBlocked={state.model.running ? t("chat.look.revert_busy") : undefined}
         />
       )}
     </div>
@@ -543,6 +561,30 @@ function PhaseBanner({ controller, state }: { controller: ChatController; state:
   }
   if (banners.length === 0) return null;
   return <div className="shrink-0 pt-1">{banners}</div>;
+}
+
+/** Warns that the session is open in a terminal tab too, where going on forks it. */
+function TwinBanner({
+  workspaceId,
+  tabId,
+  sessionId,
+}: {
+  workspaceId: string;
+  tabId: string;
+  sessionId: string | undefined;
+}) {
+  const { t } = useTranslation();
+  const twin = useTerminalTwin(workspaceId, tabId, sessionId);
+  if (!twin) return null;
+  return (
+    <div className="shrink-0" data-testid="chat-terminal-twin">
+      <Banner
+        variant="warning"
+        message={t("chat.twin.message")}
+        actions={[{ label: t("chat.twin.show"), onAction: () => revealTabById(workspaceId, twin) }]}
+      />
+    </div>
+  );
 }
 
 function RateLimitBanner({ state }: { state: ChatTabState }) {

@@ -18,6 +18,8 @@ import {
 export interface ChatLinks {
   /** Shows a file the conversation names, as written, in quick look. */
   openFile: (target: string) => void;
+  /** Shows a file the session changed in quick look, as a diff. */
+  openChange: (path: string) => void;
   /** Opens the file as a tab, beside the Claude tab when there is room. */
   openFileTab: (target: string) => void;
   /**

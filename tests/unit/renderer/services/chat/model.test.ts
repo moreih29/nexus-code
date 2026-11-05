@@ -68,6 +68,75 @@ describe("chat model from a recorded conversation", () => {
     expect(model.rateLimit?.status).toBe("allowed");
   });
 
+  test("the tab's cost adds up each process's running total", () => {
+    const result = (seq: number, cost: number): ChatLine => ({
+      seq,
+      dir: "out",
+      message: { type: "result", subtype: "success", total_cost_usd: cost },
+    });
+    const model = applyLines(emptyModel(), [
+      { seq: 1, dir: "sys", message: { event: "start", pid: 1 } },
+      result(2, 0.002),
+      result(3, 0.003),
+      { seq: 4, dir: "sys", message: { event: "exit", code: 0 } },
+      { seq: 5, dir: "sys", message: { event: "start", pid: 2 } },
+      result(6, 0.001),
+    ]);
+    expect(model.costUsd).toBeCloseTo(0.004, 10);
+    expect(model.processCostUsd).toBe(0.001);
+  });
+
+  test("/clear starts the conversation over under the new session id", () => {
+    const sid = (seq: number, id: string): ChatLine => ({
+      seq,
+      dir: "out",
+      message: { type: "system", subtype: "init", session_id: id },
+    });
+    const before = run(FIXTURE);
+    const lastSeq = before.lastSeq;
+    // As 2.1.318 answers a /clear: the reset, then an init with the new id.
+    const model = applyLines(before, [
+      {
+        seq: lastSeq + 1,
+        dir: "out",
+        message: { type: "conversation_reset", session_id: before.sessionId },
+      },
+      sid(lastSeq + 2, "new-session"),
+      { seq: lastSeq + 3, dir: "out", message: { type: "result", subtype: "success" } },
+    ]);
+    expect(model.sessionId).toBe("new-session");
+    expect(model.items.map((i) => (i.kind === "notice" ? i.code : i.kind))).toEqual(["cleared"]);
+    expect(model.tools).toEqual({});
+    expect(model.clears).toBe(1);
+  });
+
+  test("a policy refusing bypass mode is remembered", () => {
+    const refusal =
+      "Cannot set permission mode to bypassPermissions because it is disabled by settings or configuration";
+    const model = applyLines(emptyModel(), [
+      { seq: 1, dir: "sys", message: { event: "start", pid: 1 } },
+      {
+        seq: 2,
+        dir: "in",
+        message: {
+          type: "control_request",
+          request_id: "a1",
+          request: { subtype: "set_permission_mode", mode: "bypassPermissions" },
+        },
+      },
+      {
+        seq: 3,
+        dir: "out",
+        message: {
+          type: "control_response",
+          response: { subtype: "error", request_id: "a1", error: refusal },
+        },
+      },
+    ]);
+    expect(model.bypassBlocked).toBe(refusal);
+    expect(model.permissionMode).toBeUndefined();
+  });
+
   test("a permission request waits on the card until the app answers it", () => {
     const asked = run(upTo((l) => messageOf(l).type === "control_request" && l.dir === "out"));
     expect(asked.permissions).toHaveLength(1);

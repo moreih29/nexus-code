@@ -10,7 +10,7 @@ import type { PermissionRequest } from "../../services/chat/model";
 import { cn } from "../../utils/cn";
 import { Button } from "../ui/button";
 import { ChatMarkdown } from "./chat-markdown";
-import { ToolDetail, toolSummary } from "./tool-row";
+import { isUnsandboxed, ToolDetail, toolSummary } from "./tool-row";
 
 interface PermissionCardProps {
   requests: PermissionRequest[];
@@ -116,6 +116,11 @@ function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
           {request.agentId && (
             <div className="text-app-micro text-muted-foreground">
               {t("chat.permission.from_subagent")}
+            </div>
+          )}
+          {isUnsandboxed(request.input) && (
+            <div className="text-app-micro text-[var(--state-warning-fg)]">
+              {t("chat.tool.unsandboxed_hint")}
             </div>
           )}
           {request.description && (

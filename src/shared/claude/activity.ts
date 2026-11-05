@@ -131,6 +131,8 @@ export type PermissionAnswer = z.infer<typeof PermissionAnswerSchema>;
 export const SessionActivitySchema = z.object({
   workspaceId: z.string(),
   tabId: z.string(),
+  /** The Claude Code session the terminal runs, as its hooks tell. */
+  sessionId: z.string().optional(),
   /** When the user's last prompt came. */
   turnStart: z.number().optional(),
   /** The session's own latest tools, oldest first. */
