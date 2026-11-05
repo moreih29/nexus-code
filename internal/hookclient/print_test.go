@@ -8,6 +8,9 @@ import (
 	"testing"
 )
 
+// sessionA is a session id, as claude makes them.
+const sessionA = "8f7b63e3-a0e6-4b44-af95-03c2697fe716"
+
 func TestDescribePrintRun(t *testing.T) {
 	t.Setenv("ANTHROPIC_MODEL", "")
 	cases := []struct {
@@ -46,14 +49,39 @@ func TestDescribePrintRun(t *testing.T) {
 			printRun{prompt: "hi", format: "text", sessionID: "s1"},
 		},
 		{
-			"a run that resumes a session",
+			"a run that goes on a session by its id",
+			[]string{"-p", "hi", "--resume", sessionA},
+			printRun{prompt: "hi", format: "text", sessionID: sessionA, resumed: true},
+		},
+		{
+			"-r and its id",
+			[]string{"-r", sessionA, "-p", "hi"},
+			printRun{prompt: "hi", format: "text", sessionID: sessionA, resumed: true},
+		},
+		{
+			"--resume= and its id",
+			[]string{"--resume=" + sessionA, "-p", "hi"},
+			printRun{prompt: "hi", format: "text", sessionID: sessionA, resumed: true},
+		},
+		{
+			"a run that goes on a session found by a search term",
 			[]string{"-p", "hi", "--resume=s1"},
 			printRun{prompt: "hi", format: "text", noTranscript: true},
 		},
 		{
-			"a run that continues one",
+			"a run that goes on the latest session",
 			[]string{"-c", "-p", "hi"},
 			printRun{prompt: "hi", format: "text", noTranscript: true},
+		},
+		{
+			"a fork of a session, which starts one of its own",
+			[]string{"-p", "hi", "--resume", sessionA, "--fork-session"},
+			printRun{prompt: "hi", format: "text"},
+		},
+		{
+			"a fork of the latest session, given its id",
+			[]string{"-c", "--fork-session", "--session-id", "s2", "-p", "hi"},
+			printRun{prompt: "hi", format: "text", sessionID: "s2"},
 		},
 		{
 			"a run that keeps no session",
@@ -105,7 +133,7 @@ func TestPrintWatch_TellsTheRunsToolsAndAnswer(t *testing.T) {
 	}
 	watch.line([]byte("not json"))
 	want := []toldFrame{
-		{"print-init", map[string]any{"model": "glm-4.6", "cwd": "/repo"}},
+		{"print-init", map[string]any{"model": "glm-4.6", "cwd": "/repo", "session_id": "s1"}},
 		{"print-tool-use", map[string]any{
 			"tool_use_id": "toolu_1",
 			"tool_name":   "Bash",

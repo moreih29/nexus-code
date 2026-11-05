@@ -10,6 +10,7 @@ package hookclient
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -24,7 +25,10 @@ type printTranscript struct {
 	// projects is Claude Code's directory of projects, one directory each.
 	projects string
 	// name is the transcript's name in its project's directory.
-	name       string
+	name string
+	// from is where in it the run's part starts: its end before the run,
+	// for a run that goes on a session.
+	from       int64
 	stop, done chan struct{}
 }
 
@@ -70,6 +74,9 @@ func (tr *printTranscript) follow(watch *printWatch, found func()) {
 		}
 		if file == nil {
 			if file = tr.open(); file != nil {
+				if tr.from > 0 {
+					_, _ = file.Seek(tr.from, io.SeekStart)
+				}
 				found()
 			}
 		}
@@ -103,6 +110,19 @@ func (tr *printTranscript) open() *os.File {
 		}
 	}
 	return nil
+}
+
+// startAtEnd has the transcript followed from where it is now: a run that
+// goes on a session adds to its transcript.
+func (tr *printTranscript) startAtEnd() {
+	file := tr.open()
+	if file == nil {
+		return
+	}
+	defer file.Close()
+	if info, err := file.Stat(); err == nil {
+		tr.from = info.Size()
+	}
 }
 
 // end reads the rest of the transcript once the run is over, and waits up
