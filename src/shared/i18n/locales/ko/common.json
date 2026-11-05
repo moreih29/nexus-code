@@ -661,7 +661,10 @@
     "copied": "복사됨",
     "expand_section": "섹션 펼치기",
     "collapse_section": "섹션 접기",
-    "copy_link": "이 섹션 링크 복사"
+    "copy_link": "이 섹션 링크 복사",
+    "mermaid_alt": "Mermaid 다이어그램",
+    "mermaid_error": "다이어그램을 그릴 수 없습니다: {{message}}",
+    "mermaid_unshown": "다이어그램을 그렸지만 표시할 수 없습니다."
   },
   "resize": {
     "sidebar": "사이드바 크기 조정",
